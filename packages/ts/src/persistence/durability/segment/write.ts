@@ -21,9 +21,10 @@ import {
   SEGMENT_MANIFEST_VERSION,
   type SegmentManifest,
   type SegmentRef,
+  type VectorSegmentRef,
 } from './manifest'
 import { persistSegmentFile } from './segment-file'
-import { type VectorCheckpointLayout, writePartitionVectors } from './vector'
+import { type VectorCheckpointLayout, type VectorWriteOutcome, writePartitionVectors } from './vector'
 
 export interface SegmentedCheckpointInput {
   directory: DurableDirectory
@@ -31,7 +32,10 @@ export interface SegmentedCheckpointInput {
   targets: PartitionCheckpoint[]
   compactionThreshold: number
   wholePartitionPayload?: (partitionId: number) => WholePartitionSegment
+  vectorsAlreadyWritten?: VectorsWrittenFromMemory
 }
+
+export type VectorsWrittenFromMemory = Record<number, VectorSegmentRef[]>
 
 export interface WholePartitionSegment {
   payload: Uint8Array
@@ -52,6 +56,7 @@ interface PartitionWriteContext {
   vectorFields: Map<string, number>
   vectorFieldPaths: Set<string>
   compactionThreshold: number
+  vectorsAlreadyWritten: VectorsWrittenFromMemory
 }
 
 interface PartitionWriteResult {
@@ -75,6 +80,7 @@ export async function writeSegmentedCheckpoint(input: SegmentedCheckpointInput):
     vectorFields,
     vectorFieldPaths: new Set(vectorFields.keys()),
     compactionThreshold,
+    vectorsAlreadyWritten: input.vectorsAlreadyWritten ?? {},
   }
 
   const priorManifest = await readSegmentManifest(directory, indexName)
@@ -174,7 +180,20 @@ async function writePartition(
   segments = compacted.segments
   nextSegmentId = compacted.nextSegmentId
 
-  const vectors = await writePartitionVectors({
+  const vectors = await partitionVectors(context, partitionId, priorPartition, entries)
+
+  return { entry: { partitionId, nextSegmentId, segments, vectors: vectors.refs }, vectorLayouts: vectors.layouts }
+}
+
+async function partitionVectors(
+  context: PartitionWriteContext,
+  partitionId: number,
+  priorPartition: PartitionManifestEntry | undefined,
+  entries: Awaited<ReturnType<typeof collectWalEntriesInRange>>,
+): Promise<VectorWriteOutcome> {
+  const alreadyWritten = context.vectorsAlreadyWritten[partitionId]
+  if (alreadyWritten !== undefined) return { refs: alreadyWritten, layouts: [] }
+  return writePartitionVectors({
     directory: context.directory,
     indexName: context.indexName,
     partitionId,
@@ -184,8 +203,6 @@ async function writePartition(
     entries,
     priorVectors: priorPartition?.vectors ?? [],
   })
-
-  return { entry: { partitionId, nextSegmentId, segments, vectors: vectors.refs }, vectorLayouts: vectors.layouts }
 }
 
 async function writeWholePartition(
@@ -199,16 +216,7 @@ async function writeWholePartition(
   const key = segmentKey(context.indexName, partitionId, id)
   await persistSegmentFile(context.directory, key, whole.payload, [])
 
-  const vectors = await writePartitionVectors({
-    directory: context.directory,
-    indexName: context.indexName,
-    partitionId,
-    config: context.config,
-    vectorFields: context.vectorFields,
-    vectorFieldPaths: context.vectorFieldPaths,
-    entries,
-    priorVectors: priorPartition?.vectors ?? [],
-  })
+  const vectors = await partitionVectors(context, partitionId, priorPartition, entries)
 
   return {
     entry: {

@@ -27,8 +27,11 @@ services:
       NARSIL_MAX_IMPORT_BYTES: "268435456"
       NARSIL_WORKERS: "${BENCH_NARSIL_WORKERS:-}"
       NARSIL_PROMOTION_THRESHOLD: "${BENCH_NARSIL_PROMOTION_THRESHOLD:-}"
+      NARSIL_DURABILITY_DIR: "/var/lib/narsil"
     expose:
       - "7700"
+    volumes:
+      - narsil_data:/var/lib/narsil
 
   elasticsearch:
     profiles: ["elasticsearch"]
@@ -153,6 +156,7 @@ services:
 volumes:
   ir_datasets_cache:
   embeddings_cache:
+  narsil_data:
   qdrant_data:
   weaviate_data:
   typesense_data:

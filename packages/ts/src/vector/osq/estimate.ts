@@ -39,25 +39,38 @@ export function osqNibbleProducts(
   return total
 }
 
-export function osqStagedPlaneProducts(
+function twoBitStagedProducts(
+  document: Uint8Array,
+  documentOffset: number,
+  streams: Uint8Array,
+  streamsOffset: number,
+  streamBytes: number,
+): number {
+  let total = 0
+  for (let n = 0; n < streamBytes; n++) {
+    const packed = document[documentOffset + n]
+    for (let k = 0; k < STAGED_QUERY_PLANES; k++) {
+      total += ((packed >> (2 * k)) & 3) * streams[streamsOffset + k * streamBytes + n]
+    }
+  }
+  return total
+}
+
+export function osqStagedQueryProducts(
   document: Uint8Array,
   documentOffset: number,
   documentBits: 1 | 2,
-  planes: Uint8Array,
-  planesOffset: number,
-  planeBytes: number,
+  staged: Uint8Array,
+  stagedOffset: number,
+  codeBytes: number,
 ): number {
-  const mask = LEVEL_BIT_MASK[documentBits]
+  if (documentBits === 2) return twoBitStagedProducts(document, documentOffset, staged, stagedOffset, codeBytes)
   let total = 0
-  for (let j = 0; j < documentBits; j++) {
-    for (let p = 0; p < STAGED_QUERY_PLANES; p++) {
-      const plane = planesOffset + p * planeBytes
-      let bitsSet = 0
-      for (let n = 0; n < planeBytes; n++) {
-        bitsSet += POPCOUNT[(document[documentOffset + n] >> j) & mask & planes[plane + n]]
-      }
-      total += 2 ** (j + p) * bitsSet
-    }
+  for (let p = 0; p < STAGED_QUERY_PLANES; p++) {
+    const plane = stagedOffset + p * codeBytes
+    let bitsSet = 0
+    for (let n = 0; n < codeBytes; n++) bitsSet += POPCOUNT[document[documentOffset + n] & staged[plane + n]]
+    total += 2 ** p * bitsSet
   }
   return total
 }

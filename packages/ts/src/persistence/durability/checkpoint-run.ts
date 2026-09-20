@@ -1,12 +1,11 @@
 import { writeMetadataEnvelope } from '../../serialization/envelope'
 import type { VectorIndex } from '../../vector/vector-index'
 import { reclaimWalBeyondCount, truncateCoveredSegments } from './checkpoint'
+import { captureCheckpoint, makeEveryAppliedMutationDurable, writeCapturedVectors } from './checkpoint-capture'
 import { writeIndexCheckpoint } from './checkpoint-write'
 import type { DurableDirectory } from './durable-filesystem'
 import type { IndexState } from './manager-state'
 import { removeCheckpointGarbage, type VectorCheckpointLayout } from './segment'
-import { SINGLE_NODE_PRIMARY_TERM } from './seq-owner'
-import type { PartitionCheckpoint } from './snapshot-bundle'
 import type { IndexDurabilityHooks } from './types'
 
 interface DurableCheckpointInput {
@@ -19,10 +18,6 @@ interface DurableCheckpointInput {
   fromMemory: boolean
   queueMetadataWrite(indexName: string, write: () => Promise<void>): Promise<void>
   markFatal(error: Error): void
-}
-
-function toError(error: unknown): Error {
-  return error instanceof Error ? error : new Error(String(error))
 }
 
 async function adoptVectorLayouts(
@@ -54,29 +49,11 @@ export async function runDurableCheckpoint(input: DurableCheckpointInput): Promi
     return
   }
 
-  const targets: PartitionCheckpoint[] = []
-  const documentCount = manager.countDocuments()
-  for (let i = 0; i < manager.partitionCount; i += 1) {
-    const partition = input.indexState.partitions.get(i)
-    targets.push({
-      partitionId: i,
-      lastSeqNo: partition?.appliedSeqNo ?? 0,
-      primaryTerm: partition?.seqOwner.primaryTerm ?? SINGLE_NODE_PRIMARY_TERM,
-    })
-  }
-  for (let i = 0; i < manager.partitionCount; i += 1) {
-    const partition = input.indexState.partitions.get(i)
-    if (partition === undefined) {
-      continue
-    }
-    try {
-      await partition.walWriter.commit()
-    } catch (error) {
-      partition.failed = toError(error)
-      input.markFatal(partition.failed)
-      throw partition.failed
-    }
-  }
+  const vectorIndexes = input.hooks.getVectorIndexes(input.indexName)
+  const capture = await captureCheckpoint(input.indexState, manager, vectorIndexes)
+  const { targets, documentCount } = capture
+  const liveVectors = await writeCapturedVectors(input.directory, input.indexName, capture, input.fromMemory)
+  await makeEveryAppliedMutationDurable(input.indexState, input.markFatal)
 
   const written = await writeIndexCheckpoint({
     directory: input.directory,
@@ -86,8 +63,9 @@ export async function runDurableCheckpoint(input: DurableCheckpointInput): Promi
     manager,
     canOffload: input.canOffload,
     fromMemory: input.fromMemory,
+    vectorsAlreadyWritten: liveVectors.vectorsAlreadyWritten,
   })
-  await adoptVectorLayouts(input.directory, input.hooks.getVectorIndexes(input.indexName), written.vectorLayouts)
+  await adoptVectorLayouts(input.directory, vectorIndexes, [...liveVectors.layouts, ...written.vectorLayouts])
   await removeCheckpointGarbage(input.directory, written.garbage)
   const checkpointDocumentCount = written.documentCount ?? documentCount
   await input.queueMetadataWrite(input.indexName, async () => {

@@ -35,6 +35,20 @@ const SHUTTING_DOWN_DENIAL: Authorization = {
   denial: { status: 503, code: ServerErrorCodes.INTERNAL_ERROR, message: 'The server is shutting down' },
 }
 
+interface RelayedBody {
+  bytes: Uint8Array | null
+  moved: ArrayBuffer[]
+}
+
+function relayedBody(rawBody: Buffer | null): RelayedBody {
+  if (rawBody === null) return { bytes: null, moved: [] }
+  const memory = rawBody.buffer
+  const ownsItsMemory =
+    memory instanceof ArrayBuffer && rawBody.byteOffset === 0 && rawBody.byteLength === memory.byteLength
+  if (!ownsItsMemory) return { bytes: new Uint8Array(rawBody), moved: [] }
+  return { bytes: new Uint8Array(memory), moved: [memory] }
+}
+
 function sendUnavailable(res: ResponseSink): void {
   sendError(res, 503, ServerErrorCodes.INTERNAL_ERROR, 'The server is shutting down')
 }
@@ -61,13 +75,18 @@ export function createRelayClient(port: MessagePort, touchIntervalMs: number): R
   })
   port.on('close', failAll)
 
-  function send(build: (requestId: number) => unknown): Promise<RelayReply> {
+  function send(build: (requestId: number) => unknown, moved: ArrayBuffer[] = []): Promise<RelayReply> {
     if (closed) return Promise.reject(portClosedError())
     nextRequestId += 1
     const requestId = nextRequestId
     return new Promise<RelayReply>((resolve, reject) => {
       pending.set(requestId, { resolve, reject })
-      port.postMessage(build(requestId))
+      try {
+        port.postMessage(build(requestId), moved)
+      } catch (err) {
+        pending.delete(requestId)
+        reject(err instanceof Error ? err : new Error(String(err)))
+      }
     })
   }
 
@@ -86,17 +105,21 @@ export function createRelayClient(port: MessagePort, touchIntervalMs: number): R
     },
     async request(route, ctx) {
       let reply: RelayReply
+      const body = relayedBody(ctx.rawBody)
       try {
-        reply = await send(requestId => ({
-          type: 'request',
-          requestId,
-          route,
-          params: ctx.params,
-          query: ctx.query.toString(),
-          contentType: ctx.contentType,
-          rawBody: ctx.rawBody === null ? null : new Uint8Array(ctx.rawBody),
-          hookContext: ctx.hookContext,
-        }))
+        reply = await send(
+          requestId => ({
+            type: 'request',
+            requestId,
+            route,
+            params: ctx.params,
+            query: ctx.query.toString(),
+            contentType: ctx.contentType,
+            rawBody: body.bytes,
+            hookContext: ctx.hookContext,
+          }),
+          body.moved,
+        )
       } catch {
         if (!ctx.abort.aborted) sendUnavailable(ctx.res)
         return

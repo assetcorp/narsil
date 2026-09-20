@@ -15,7 +15,12 @@ import {
   optimize as optimizeOp,
 } from './maintenance'
 import type { VectorIndexPayload } from './payload'
-import { deserialize as deserializeOp, serialize as serializeOp } from './persistence'
+import {
+  deserialize as deserializeOp,
+  planParts as planPartsOp,
+  serialize as serializeOp,
+  type VectorIndexPartsPlan,
+} from './persistence'
 import { search as searchOp, searchWithFilter } from './search'
 import {
   assignStorePartitions,
@@ -40,6 +45,7 @@ import {
 
 export type { VectorFileLayout, VectorPartFile } from './disk'
 export type { VectorIndexCodes, VectorIndexPayload } from './payload'
+export type { VectorIndexPartsPlan } from './persistence'
 export type {
   MaintenanceStatus,
   SharedCopyHost,
@@ -72,6 +78,8 @@ export interface VectorIndex {
   estimateMemoryBytes(): number
   /** Writes the field as the parts the envelope specification defines, in ordinal order. */
   serialize(): VectorIndexPayload[]
+  /** Fixes the documents, the part count, and the graph that the field holds now, and returns a plan that reads the vectors and the codes of one part at a time. A checkpoint uses it so that it holds one part in memory while it writes a field of any size. A part read after a recalibration throws, because its codes would disagree with the centroid that the earlier parts recorded. */
+  planParts(): VectorIndexPartsPlan
   /** Reads the field back from its parts, which may run several partitions' sequences end to end. A field kept on disk reads its vectors from the named files where the caller gives one per part and the parts hold a graph or enough vectors for one. A smaller field holds them in memory until it builds a graph. */
   deserialize(parts: VectorIndexPayload[], files?: VectorPartFile[]): void
   /** Points the vectors a checkpoint wrote at their places in its file and frees the blocks they emptied, or keeps those places while the field holds no graph. It resolves once every thread holding the field has taken the new layout. */
@@ -308,6 +316,7 @@ export function createVectorIndex(
     maintenanceStatus: () => maintenanceStatusOp(state),
     estimateMemoryBytes: () => estimateMemoryBytesOp(state),
     serialize: () => serializeOp(state),
+    planParts: () => planPartsOp(state),
     deserialize: (parts: VectorIndexPayload[], files?: VectorPartFile[]) => {
       invalidateWorkerCopies(state)
       deserializeOp(state, parts, files)

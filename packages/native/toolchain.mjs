@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, readdirSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { devNull } from 'node:os'
 import { basename, dirname, join } from 'node:path'
@@ -40,6 +40,7 @@ const GCC_ONLY_WARNING_FLAGS = ['-Wcast-align=strict', '-Wtrampolines', '-Wbidi-
 const FORMATTED_DIRECTORIES = ['include', 'src', 'node', 'test']
 
 function cFilesIn(directory, extensions) {
+  if (!existsSync(join(packageDirectory, directory))) return []
   return readdirSync(join(packageDirectory, directory))
     .filter(name => extensions.some(extension => name.endsWith(extension)))
     .sort()

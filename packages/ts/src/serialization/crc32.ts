@@ -1,4 +1,8 @@
+import { nativeCrc32 } from '#platform/native-crc32'
+import { NATIVE_CRC32_MIN_BYTES } from './constants'
+
 const IEEE_POLYNOMIAL = 0xedb88320
+const ALL_BITS = 0xffffffff
 
 let cachedTable: Uint32Array | null = null
 
@@ -22,19 +26,17 @@ function getTable(): Uint32Array {
 }
 
 export function crc32(data: Uint8Array): number {
-  const table = getTable()
-  let crc = 0xffffffff
-  for (let i = 0; i < data.length; i++) {
-    crc = (crc >>> 8) ^ table[(crc ^ data[i]) & 0xff]
-  }
-  return (crc ^ 0xffffffff) >>> 0
+  return crc32Final(crc32Update(crc32Init(), data))
 }
 
 export function crc32Init(): number {
-  return 0xffffffff
+  return ALL_BITS
 }
 
 export function crc32Update(state: number, data: Uint8Array): number {
+  if (nativeCrc32 !== null && data.length >= NATIVE_CRC32_MIN_BYTES) {
+    return nativeCrc32(data, (state ^ ALL_BITS) >>> 0) ^ ALL_BITS
+  }
   const table = getTable()
   let crc = state
   for (let i = 0; i < data.length; i++) {
@@ -44,5 +46,5 @@ export function crc32Update(state: number, data: Uint8Array): number {
 }
 
 export function crc32Final(state: number): number {
-  return (state ^ 0xffffffff) >>> 0
+  return (state ^ ALL_BITS) >>> 0
 }

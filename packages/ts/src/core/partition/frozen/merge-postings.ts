@@ -85,8 +85,19 @@ function uniqueSurvivors(range: TokenRange): number {
   return seen.size
 }
 
-function countRange(range: TokenRange, counts: { postings: number; positions: number }): void {
+function countRange(
+  range: TokenRange,
+  counts: { postings: number; positions: number },
+  keepsEveryDocument: boolean,
+): void {
   const { arrays } = range.input.segment
+  if (keepsEveryDocument) {
+    counts.postings += range.end - range.start
+    if (arrays.positionOffsets !== null) {
+      counts.positions += arrays.positionOffsets[range.end] - arrays.positionOffsets[range.start]
+    }
+    return
+  }
   const remap = range.input.remap
   for (let p = range.start; p < range.end; p++) {
     const internalId = arrays.postingDocIds[p]
@@ -106,9 +117,16 @@ export function mergePostings(inputs: readonly SegmentRemap[]): MergedPostings {
   for (const input of inputs) {
     if (input.segment.arrays.positionOffsets !== null) hasPositions = true
   }
+  const keepsEveryDocument = new Map<SegmentRemap, boolean>()
+  for (const input of inputs)
+    keepsEveryDocument.set(
+      input,
+      input.remap.every(target => target >= 0),
+    )
+
   walkTokens(inputs, (_token, ranges) => {
     const counts = { postings: 0, positions: 0 }
-    for (const range of ranges) countRange(range, counts)
+    for (const range of ranges) countRange(range, counts, keepsEveryDocument.get(range.input) === true)
     if (counts.postings === 0) return
     tokenCount += 1
     totalPostings += counts.postings
@@ -134,6 +152,29 @@ export function mergePostings(inputs: readonly SegmentRemap[]): MergedPostings {
       const remap = range.input.remap
       const fieldIndexRemap = range.input.fieldIndexRemap
       docs += uniqueSurvivors(range)
+      if (keepsEveryDocument.get(range.input) === true) {
+        const count = range.end - range.start
+        for (let k = 0; k < count; k++) {
+          postingDocIds[postingCursor + k] = remap[arrays.postingDocIds[range.start + k]]
+          postingFieldIndices[postingCursor + k] = fieldIndexRemap[arrays.postingFieldIndices[range.start + k]]
+        }
+        postingFrequencies.set(arrays.postingFrequencies.subarray(range.start, range.end), postingCursor)
+        if (positionOffsets !== null && positionValues !== null) {
+          if (arrays.positionOffsets !== null && arrays.positionValues !== null) {
+            const from = arrays.positionOffsets[range.start]
+            const to = arrays.positionOffsets[range.end]
+            positionValues.set(arrays.positionValues.subarray(from, to), positionCursor)
+            for (let k = 0; k < count; k++) {
+              positionOffsets[postingCursor + k] = positionCursor + arrays.positionOffsets[range.start + k] - from
+            }
+            positionCursor += to - from
+          } else {
+            positionOffsets.fill(positionCursor, postingCursor, postingCursor + count)
+          }
+        }
+        postingCursor += count
+        continue
+      }
       for (let p = range.start; p < range.end; p++) {
         const internalId = arrays.postingDocIds[p]
         const target = remap[internalId]

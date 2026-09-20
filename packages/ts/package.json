@@ -42,6 +42,10 @@
     "#platform/native-core": {
       "browser": "./src/vector/native/loader.browser.ts",
       "default": "./src/vector/native/loader.ts"
+    },
+    "#platform/native-crc32": {
+      "browser": "./src/serialization/native-crc32.browser.ts",
+      "default": "./src/serialization/native-crc32.ts"
     }
   },
   "sideEffects": false,
