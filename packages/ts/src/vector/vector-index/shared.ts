@@ -116,6 +116,7 @@ export interface VectorIndexState {
   sharedLayoutRevision: number
   /** This is the share in flight, which the index chains so that two shares stay apart. */
   sharing: Promise<void>
+  releaseToFilesInFlight: Promise<void>
 }
 
 export function liveSize(state: VectorIndexState): number {

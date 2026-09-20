@@ -4,8 +4,10 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createNarsil } from '../../../narsil'
 import {
+  __checkpointWorkerIsPooledForTests,
   __checkpointWorkerSpawnCountForTests,
   __failNextCheckpointWorkerForTests,
+  __setCheckpointWorkerIdleMsForTests,
   resetCheckpointWorkerLatch,
 } from '../../../persistence/durability/checkpoint-worker-dispatch'
 import type { IndexConfig } from '../../../types/schema'
@@ -54,6 +56,27 @@ describe('pooled checkpoint worker', () => {
 
     const reader = await createNarsil({ durability: { directory: root } })
     expect(await reader.countDocuments('docs')).toBe(40)
+    await reader.shutdown()
+  })
+
+  it('ends the worker thread once it sits idle, so that the memory of a finished checkpoint goes back', async () => {
+    __setCheckpointWorkerIdleMsForTests(400)
+    const writer = await createNarsil({ durability: { directory: root } })
+    await writer.createIndex('docs', SCHEMA)
+    for (let i = 0; i < 10; i += 1) await writer.insert('docs', doc(i), `d${i}`)
+    await writer.checkpoint('docs')
+    expect(__checkpointWorkerIsPooledForTests()).toBe(true)
+
+    await new Promise(resolve => setTimeout(resolve, 900))
+    expect(__checkpointWorkerIsPooledForTests()).toBe(false)
+
+    for (let i = 10; i < 20; i += 1) await writer.insert('docs', doc(i), `d${i}`)
+    await writer.checkpoint('docs')
+    expect(__checkpointWorkerSpawnCountForTests()).toBe(2)
+    await writer.shutdown()
+
+    const reader = await createNarsil({ durability: { directory: root } })
+    expect(await reader.countDocuments('docs')).toBe(20)
     await reader.shutdown()
   })
 

@@ -1,6 +1,7 @@
 import { mkdtemp, open, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { MessageChannel, receiveMessageOnPort } from 'node:worker_threads'
 import { decode, encode } from '@msgpack/msgpack'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createNarsil } from '../../../narsil'
@@ -8,10 +9,22 @@ import { createDurableDirectory } from '../../../persistence/durability/durable-
 import { concatEnvelopeParts, packSnapshotEnvelopeParts, unpackEnvelopeBytes } from '../../../serialization/envelope'
 import { HEADER_SIZE } from '../../../serialization/header'
 import type { IndexConfig } from '../../../types/schema'
+import type { SharedVectorFieldHandles } from '../../../vector/shared-field/types'
 import { createVectorIndex, type VectorIndexPayload } from '../../../vector/vector-index'
 import { decodeVectorIndexPart, vectorsToBytes } from '../../../vector/vector-index/payload'
+import type { SharedCopyHost } from '../../../vector/vector-index/shared'
 import { createVectorStore } from '../../../vector/vector-store'
-import { DIM, normalizedVector } from './fixtures'
+import { createFakeVectorThreads, DIM, normalizedVector } from './fixtures'
+
+function asAnotherThreadReceives(handles: SharedVectorFieldHandles): SharedVectorFieldHandles {
+  const { port1, port2 } = new MessageChannel()
+  port1.postMessage(handles)
+  const received = receiveMessageOnPort(port2)
+  port1.close()
+  port2.close()
+  if (received === undefined) throw new Error('the handles never crossed the channel')
+  return received.message
+}
 
 async function writePart(
   directory: string,
@@ -116,6 +129,56 @@ describe('a vector field kept on disk', () => {
     await overwriteVector(file, part, 'doc5', replaced)
     expect(Array.from(index.getVector('doc5') ?? [])).toEqual(Array.from(replaced))
     expect(Array.from(index.getVector('doc1') ?? [])).toEqual(Array.from(normalizedVector(DIM, 50)))
+    index.dispose()
+  })
+
+  it('lets a request thread read every vector while a checkpoint file takes the field over', async () => {
+    const threads = createFakeVectorThreads(1)
+    const docIds = Array.from({ length: 12 }, (_, i) => `doc${i}`)
+    const vectorsAThreadCouldNotRead: string[] = []
+    let heldHandle: string | undefined
+    const host: SharedCopyHost = {
+      workerCount: 1,
+      holdsIndex: () => true,
+      resolvePartition: () => 0,
+      async loadShared(_indexName, _fieldName, handle, handles) {
+        const held = threads.viewOf(handle)
+        for (const docId of held === undefined ? [] : docIds) {
+          try {
+            held?.vectorOf(docId)
+          } catch {
+            vectorsAThreadCouldNotRead.push(docId)
+          }
+        }
+        heldHandle = handle
+        return threads.open(handle, asAnotherThreadReceives(handles))
+      },
+      async drop(_indexName, _fieldName, handle) {
+        threads.drop(handle)
+      },
+      insertOrdinals: async (_indexName, _fieldName, handle, ordinals) => threads.insertOrdinals(handle, ordinals),
+    }
+    const index = createVectorIndex(
+      'embedding',
+      DIM,
+      { threshold: 4, quantization: 'none' },
+      { enabled: true, host },
+      'docs',
+      'disk',
+    )
+    docIds.forEach((docId, i) => {
+      index.insert(docId, normalizedVector(DIM, i + 1))
+    })
+    await buildGraph(index)
+    const [part] = index.serialize()
+    const file = await writePart(directory, part)
+
+    await index.adoptDiskLayout({ ...file, docIds: part.docIds })
+
+    const view = heldHandle === undefined ? undefined : threads.viewOf(heldHandle)
+    expect(view?.store.isCold(view.ordinalOf('doc5') ?? -1)).toBe(true)
+    expect(Array.from(view?.vectorOf('doc5') ?? [])).toEqual(Array.from(normalizedVector(DIM, 6)))
+    expect(vectorsAThreadCouldNotRead).toEqual([])
     index.dispose()
   })
 

@@ -1,3 +1,4 @@
+import type { ReplicationLogEntry } from '../../../distribution/replication/types'
 import { reconstructSchemaFromMetadata } from '../../../engine/recovery-schema'
 import { ErrorCodes, NarsilError } from '../../../errors'
 import { getLanguage } from '../../../languages/registry'
@@ -7,8 +8,9 @@ import type { LanguageModule } from '../../../types/language'
 import type { IndexConfig } from '../../../types/schema'
 import { DEFAULT_COMPACTION_THRESHOLD } from '../constants'
 import type { DurableDirectory } from '../durable-filesystem'
-import { collectWalEntriesInRange, snapshotCheckpointFor } from '../recovery'
+import { snapshotCheckpointFor } from '../recovery'
 import type { PartitionCheckpoint } from '../snapshot-bundle'
+import { walEntriesInRange } from '../wal-segments'
 import { buildSegmentFromEntries } from './build-segment'
 import { compactPartitionSegments } from './compaction'
 import { manifestKey, segmentKey, segmentsPrefix, snapshotBundleKey } from './layout'
@@ -85,14 +87,8 @@ export async function writeSegmentedCheckpoint(input: SegmentedCheckpointInput):
   for (const target of input.targets) {
     const priorPartition = priorManifest?.partitions.find(p => p.partitionId === target.partitionId)
     const priorSeqNo = snapshotCheckpointFor(priorManifest?.checkpoint ?? [], target.partitionId)
-    const entries = await collectWalEntriesInRange(
-      directory,
-      indexName,
-      target.partitionId,
-      priorSeqNo,
-      target.lastSeqNo,
-    )
     if (input.wholePartitionPayload === undefined) {
+      const entries = walEntriesInRange(directory, indexName, target.partitionId, priorSeqNo, target.lastSeqNo)
       partitions.push(await writePartition(context, target.partitionId, priorPartition, entries))
     } else {
       const whole = input.wholePartitionPayload(target.partitionId)
@@ -122,12 +118,12 @@ async function writePartition(
   context: PartitionWriteContext,
   partitionId: number,
   priorPartition: PartitionManifestEntry | undefined,
-  entries: Awaited<ReturnType<typeof collectWalEntriesInRange>>,
+  entries: AsyncIterable<ReplicationLogEntry>,
 ): Promise<PartitionManifestEntry> {
   let segments: SegmentRef[] = priorPartition ? [...priorPartition.segments] : []
   let nextSegmentId = priorPartition?.nextSegmentId ?? 0
 
-  const built = buildSegmentFromEntries({
+  const built = await buildSegmentFromEntries({
     indexName: context.indexName,
     config: context.config,
     language: context.language,

@@ -11,7 +11,7 @@ export interface BuildSegmentInput {
   config: IndexConfig
   language: LanguageModule
   vectorFieldPaths: Set<string>
-  entries: ReplicationLogEntry[]
+  entries: AsyncIterable<ReplicationLogEntry>
 }
 
 export interface BuiltSegment {
@@ -20,13 +20,13 @@ export interface BuiltSegment {
   docCount: number
 }
 
-export function buildSegmentFromEntries(input: BuildSegmentInput): BuiltSegment | null {
+export async function buildSegmentFromEntries(input: BuildSegmentInput): Promise<BuiltSegment | null> {
   const router = createPartitionRouter()
   const vectorSink = new Map<string, VectorIndex>()
   const manager = createPartitionManager(input.indexName, input.config, input.language, router, 1, vectorSink)
 
   const deleted = new Set<string>()
-  for (const entry of input.entries) {
+  for await (const entry of input.entries) {
     if (entry.operation === 'DELETE') {
       deleted.add(entry.documentId)
       applyDeleteEntry(entry, manager, vectorSink)
