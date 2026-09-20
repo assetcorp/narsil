@@ -67,6 +67,14 @@ export function dropHeldVectorCopy(held: HeldVectorCopies, fieldName: string, ha
   held.searchers.delete(fieldName)
 }
 
+export function closeHeldVectorCopies(held: HeldVectorCopies): void {
+  for (const build of held.builds.values()) build.view.close()
+  for (const field of held.fields.values()) field.view.close()
+  held.builds.clear()
+  held.fields.clear()
+  held.searchers.clear()
+}
+
 function yieldToEventLoop(): Promise<void> {
   return new Promise<void>(resolve => {
     if (typeof setImmediate === 'function') setImmediate(resolve)

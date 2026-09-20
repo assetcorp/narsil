@@ -16,6 +16,7 @@ export {
   deleteNode,
   ensureAdjacencyCapacity,
   ensureUpperCapacity,
+  ensureUpperRoom,
   graphBytes,
   hasNode,
   nodeLevel,

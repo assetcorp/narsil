@@ -20,6 +20,7 @@ import type { Executor } from './executor'
 import type { WorkerAction } from './protocol'
 import { growPartitionsTo, isSegmentAction, runSegmentAction } from './segment-actions'
 import {
+  closeHeldVectorCopies,
   createHeldVectorCopies,
   dropHeldVectorCopy,
   type HeldVectorCopies,
@@ -137,6 +138,7 @@ export function createDirectExecutor(options?: DirectExecutorOptions): Executor 
     for (const vectorIndex of entry.vectorIndexes.values()) {
       vectorIndex.dispose()
     }
+    closeHeldVectorCopies(entry.vectorCopies)
     for (const partition of entry.manager.getAllPartitions()) {
       partition.clear()
     }

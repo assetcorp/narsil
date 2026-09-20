@@ -80,7 +80,7 @@ if (refused.length > 0) {
     `npm publish failed for ${refused.length} of ${PACKAGES.length} platform packages at ${version}: ${refused.join(', ')}. ` +
       'This workflow can publish a package only where npm holds a trusted publisher for it. ' +
       'npm stores a trusted publisher only for a package that already exists, so publish each new package once by hand, ' +
-      'then configure its publisher with: npm trust github <package> --file publish.yml --repo assetcorp/narsil',
+      'then configure its publisher with: npm trust github <package> --file publish.yml --repo assetcorp/narsil --allow-publish',
   )
   process.exit(1)
 }

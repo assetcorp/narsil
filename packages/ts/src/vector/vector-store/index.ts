@@ -205,10 +205,7 @@ export function createVectorStore(options?: VectorStoreOptions): VectorStore {
         store.handles.blocks[index] = null
         released += 1
       }
-      if (released > 0) {
-        forgetUnreferencedFiles(store, ordToDoc)
-        relayout(store)
-      }
+      if (released + forgetUnreferencedFiles(store, ordToDoc) > 0) relayout(store)
       return released
     },
 
@@ -296,6 +293,8 @@ export function createVectorStore(options?: VectorStoreOptions): VectorStore {
       open?.view.close()
       open = null
     },
+
+    closeFiles: () => open?.view.close(),
 
     getOrdinal(docId: string): number | undefined {
       return docToOrd.get(docId)

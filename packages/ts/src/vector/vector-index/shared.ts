@@ -209,29 +209,23 @@ export function ordinalFilterForDocIds(state: VectorIndexState, docIds: Iterable
   return filter
 }
 
-function* liveVectors(state: VectorIndexState): Iterable<Float32Array> {
-  for (const [docId, entry] of state.store.entries()) {
-    if (state.tombstones.has(docId)) continue
-    yield entry.vector
+function liveOrdinals(state: VectorIndexState): Int32Array {
+  const ordinals: number[] = []
+  for (let ordinal = 0; ordinal < state.store.slots; ordinal++) {
+    const docId = state.store.docIdForOrdinal(ordinal)
+    if (docId !== undefined && !state.tombstones.has(docId)) ordinals.push(ordinal)
   }
+  return Int32Array.from(ordinals)
 }
 
 export function calibrateQuantizer(state: VectorIndexState): void {
   if (state.osq === null || state.store.size === 0) return
-  state.osq.calibrate(liveVectors(state))
+  state.osq.calibrate(liveOrdinals(state))
 }
 
 export function recalibrateFromStore(state: VectorIndexState): void {
   if (state.osq === null) return
-  const osq = state.osq
-
-  function* storeVectors(): Iterable<[string, Float32Array]> {
-    for (const [docId, entry] of state.store.entries()) {
-      if (state.tombstones.has(docId)) continue
-      yield [docId, entry.vector]
-    }
-  }
-  osq.recalibrateAll(storeVectors())
+  state.osq.recalibrate(liveOrdinals(state))
 }
 
 export function fieldHandlesOf(

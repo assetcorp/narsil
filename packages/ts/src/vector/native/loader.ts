@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path'
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { NativeCore } from './types'
 
-const NATIVE_CORE_ABI_VERSION = 1
+const NATIVE_CORE_ABI_VERSION = 2
 const BINARY_FILE_NAME = 'narsil-core.node'
 const MUSL_DIRECTORY = 'musl'
 const PLATFORMS_WITH_A_BINARY = new Set([

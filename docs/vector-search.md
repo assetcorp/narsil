@@ -47,11 +47,11 @@ Set `storage` to choose where the engine keeps the field's full-precision vector
 
 ## Native search core
 
-Outside a browser, Narsil searches the HNSW graph of a vector field through a native core written in C, which returns the same documents with the same scores as Narsil's WebAssembly search. npm installs the core with `@delali/narsil` for macOS, Linux, and Windows on arm64 and x64.
+Outside a browser, Narsil searches and maintains a vector field through a native core written in C, which returns the same documents with the same scores as Narsil's WebAssembly search. The core searches the field's HNSW graph, re-scores the candidates of that search, and scans the vectors of a field that holds no graph. It also places each new vector in the graph, takes removed vectors out of the graph, and writes the field's codes. npm installs the core with `@delali/narsil` for macOS, Linux, and Windows on arm64 and x64.
 
-Narsil searches through WebAssembly in a browser, on any other platform, and wherever the runtime cannot load the core. To hold a process to the WebAssembly search, set `NARSIL_SEARCH_BACKEND=wasm` before you start it. Set `NARSIL_REQUIRE_NATIVE_CORE=1` to hold a process to the core alone, and Narsil then raises a `NarsilError` with code `CONFIG_INVALID` at the first vector search where it has no core to load.
+Narsil does the same work through WebAssembly in a browser, on any other platform, and wherever the runtime cannot load the core. To hold a process to the WebAssembly search, set `NARSIL_SEARCH_BACKEND=wasm` before you start it. Set `NARSIL_REQUIRE_NATIVE_CORE=1` to hold a process to the core alone, and Narsil then raises a `NarsilError` with code `CONFIG_INVALID` the first time that it needs a core and has none to load.
 
-Once the vectors of a `disk` field are in its checkpoint file, Narsil re-scores that field's candidates in TypeScript, because the core compares only vectors that are in memory. A `disk` field whose `quantization` is `'none'` holds no codes, so Narsil then searches that field wholly through WebAssembly.
+For a `disk` field, the core maps each checkpoint file that holds the field's vectors into memory, and it compares a query with a vector inside that mapping. Leave those files unchanged while Narsil is up, because macOS and Linux end a process that touches a mapped page beyond the end of a file that another process truncated.
 
 ## Vector maintenance
 
@@ -66,4 +66,4 @@ await narsil.compactVectors('docs', 'embedding')
 await narsil.optimizeVectors('docs', 'embedding')
 ```
 
-`compactVectors` drops the tombstones synchronously, without rebuilding the graph. `optimizeVectors` adds the buffered vectors to the graph, so after a bulk import it inserts only the vectors that the graph lacks. It rebuilds the graph from every live vector only once you remove more than a fifth of the vectors that the graph holds, because the graph can lose its connectivity when it loses that many nodes. Omit the field name to maintain every vector field in the index.
+`compactVectors` drops the tombstones synchronously, without rebuilding the graph. `optimizeVectors` adds the buffered vectors to the graph, so after a bulk import it inserts only the vectors that the graph lacks. It rebuilds the graph from every live vector only once you remove more than a fifth of the vectors that the graph holds, because the graph can lose its connectivity when it loses that many nodes. Whenever `optimizeVectors` rebuilds the graph of a quantized field, the engine first takes the field's centroid again from the live vectors and writes every code again, while `compactVectors` leaves the centroid and the codes as they are. Omit the field name to maintain every vector field in the index.

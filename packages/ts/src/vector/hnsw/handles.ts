@@ -13,6 +13,8 @@ export const GRAPH_NODE_COUNT = 32
 export const GRAPH_TOMBSTONE_COUNT = 33
 export const GRAPH_UPPER_USED = 64
 export const GRAPH_SLOTS = 65
+export const GRAPH_UPPER_CAPACITY = 66
+export const GRAPH_SLOT_CAPACITY = 67
 export const GRAPH_LOCK = 96
 export const GRAPH_WRITERS_WAITING = 97
 export const GRAPH_ENTRY_LOCK = 128
@@ -82,7 +84,7 @@ export function createSharedGraphHandles(shape: SharedGraphShape): SharedGraphHa
   const upperStride = shape.m + 2
   const heldWords = VECTOR_SCRATCH_SLOTS * HELD_WORDS_PER_THREAD
 
-  return {
+  const handles: SharedGraphHandles = {
     header,
     nodeLevels: perOrdinal(1, VECTOR_STORE_INITIAL_CAPACITY),
     level0: perOrdinal(level0Stride * 4, VECTOR_STORE_INITIAL_CAPACITY),
@@ -92,6 +94,29 @@ export function createSharedGraphHandles(shape: SharedGraphShape): SharedGraphHa
     tombstones: perOrdinal(1, VECTOR_STORE_INITIAL_CAPACITY),
     heldLocks: new Int32Array(createFixedBuffer(heldWords * 4), 0, heldWords),
   }
+  publishGraphCapacity(handles)
+  return handles
+}
+
+function raiseHeaderWord(header: Int32Array, word: number, value: number): void {
+  for (;;) {
+    const seen = Atomics.load(header, word)
+    if (seen >= value) return
+    if (Atomics.compareExchange(header, word, seen, value) === seen) return
+  }
+}
+
+export function publishGraphCapacity(handles: SharedGraphHandles): void {
+  const level0Stride = handles.header[GRAPH_MMAX0] + 2
+  const slotCapacity = Math.min(
+    handles.nodeLevels.byteLength,
+    Math.floor(handles.level0.byteLength / (level0Stride * 4)),
+    Math.floor(handles.upperBase.byteLength / 4),
+    Math.floor(handles.locks.byteLength / 4),
+    handles.tombstones.byteLength,
+  )
+  raiseHeaderWord(handles.header, GRAPH_SLOT_CAPACITY, slotCapacity)
+  raiseHeaderWord(handles.header, GRAPH_UPPER_CAPACITY, Math.floor(handles.upper.byteLength / 4))
 }
 
 export function graphShapeOf(header: Int32Array): SharedGraphShape {

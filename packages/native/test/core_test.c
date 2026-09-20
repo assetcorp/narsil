@@ -10,8 +10,6 @@
 #define METRIC_COUNT 3
 #define UNKNOWN_METRIC 9
 #define SEARCH_THREAD_SLOT 1
-#define PLACE_THREAD_SLOT 2
-#define PLACED_ORDINAL 5
 
 #define CORRUPT_HUGE_COUNT (1 << 30)
 #define CORRUPT_NEGATIVE_COUNT (-5)
@@ -51,11 +49,11 @@ static void search_one_width(narsil_workspace *workspace, uint32_t bits, const f
     check(fixture->held_locks[(SEARCH_THREAD_SLOT * NARSIL_HELD_WORDS_PER_THREAD) + NARSIL_HELD_WORD_GRAPH] == 0,
           "the held-lock record is 0 after a search");
 
-    double rescored[CANDIDATES];
-    check(narsil_rescore(&fixture->store, query, metric, ordinals, found.count, rescored) == NARSIL_OK,
-          "rescore returns NARSIL_OK");
+    double scored[CANDIDATES];
+    narsil_score_request scoring = {query, metric, ordinals, found.count};
+    check(narsil_score(workspace, &fixture->store, &scoring, scored) == NARSIL_OK, "score returns NARSIL_OK");
     for (uint32_t i = 0; i < found.count; i++) {
-      check(isfinite(rescored[i]), "rescore gives a finite distance for a stored vector");
+      check(isfinite(scored[i]), "score gives a finite distance for a stored vector");
     }
   }
   release_fixture(fixture);
@@ -105,31 +103,12 @@ static void survive_corrupt_lists(narsil_workspace *workspace) {
   }
 
   int32_t unsorted[3] = {-1, RESCORED_ORDINAL_PAST_THE_STORE, RESCORED_ORDINAL};
-  double rescored[3];
-  check(narsil_rescore(&fixture->store, query, NARSIL_METRIC_EUCLIDEAN, unsorted, 3, rescored) == NARSIL_OK,
-        "rescore returns NARSIL_OK over ordinals outside the store");
-  check(isinf(rescored[0]) && isinf(rescored[1]) && isfinite(rescored[2]),
-        "rescore gives infinity for an ordinal outside the store");
-  release_fixture(fixture);
-}
-
-static void place_a_vector(narsil_workspace *workspace) {
-  test_fixture *fixture = build_fixture(0);
-  check(fixture != NULL, "the fixture has its memory");
-  if (fixture == NULL) { return; }
-  int32_t ordinals[2 * CANDIDATES];
-  double distances[2 * CANDIDATES];
-  narsil_candidates layers[2] = {{ordinals, distances, CANDIDATES, 0},
-                                 {ordinals + CANDIDATES, distances + CANDIDATES, CANDIDATES, 0}};
-  narsil_place_request request = {fixture->vector_blocks[0], NARSIL_METRIC_COSINE, PLACED_ORDINAL, 1,
-                                  PLACE_THREAD_SLOT};
-  narsil_placement placement = {layers, 2, -2};
-  check(narsil_place(workspace, &fixture->graph, &fixture->store, &request, &placement) == NARSIL_OK,
-        "place returns NARSIL_OK");
-  check(placement.linked_top_layer == 1, "place links up to the graph's top layer");
-  check(layers[0].count == CANDIDATES, "place fills the base layer's candidates");
-  check(layers[1].count > 0, "place fills the upper layer's candidates");
-  check_sorted(&layers[0], "place returns the nearest first");
+  double scored[3];
+  narsil_score_request scoring = {query, NARSIL_METRIC_EUCLIDEAN, unsorted, 3};
+  check(narsil_score(workspace, &fixture->store, &scoring, scored) == NARSIL_OK,
+        "score returns NARSIL_OK over ordinals outside the store");
+  check(isinf(scored[0]) && isinf(scored[1]) && isfinite(scored[2]),
+        "score gives infinity for an ordinal outside the store");
   release_fixture(fixture);
 }
 
@@ -153,9 +132,10 @@ static void refuse_bad_arguments(narsil_workspace *workspace) {
   request.metric = UNKNOWN_METRIC;
   check(narsil_search(workspace, &fixture->graph, &fixture->store, &request, &found) == NARSIL_INVALID_ARGUMENT,
         "search returns NARSIL_INVALID_ARGUMENT for an unknown metric");
-  double rescored[1];
-  check(narsil_rescore(&fixture->store, query, UNKNOWN_METRIC, ordinals, 1, rescored) == NARSIL_INVALID_ARGUMENT,
-        "rescore returns NARSIL_INVALID_ARGUMENT for an unknown metric");
+  double scored[1];
+  narsil_score_request scoring = {query, UNKNOWN_METRIC, ordinals, 1};
+  check(narsil_score(workspace, &fixture->store, &scoring, scored) == NARSIL_INVALID_ARGUMENT,
+        "score returns NARSIL_INVALID_ARGUMENT for an unknown metric");
   check(narsil_search(workspace, &fixture->graph, &fixture->store, NULL, &found) == NARSIL_INVALID_ARGUMENT,
         "search returns NARSIL_INVALID_ARGUMENT for a missing request");
   request.metric = NARSIL_METRIC_COSINE;
@@ -172,10 +152,13 @@ int main(void) {
   check(narsil_core_abi_version() == NARSIL_CORE_ABI_VERSION, "the binary carries the header's ABI version");
   search_every_width(workspace);
   survive_corrupt_lists(workspace);
-  place_a_vector(workspace);
   refuse_bad_arguments(workspace);
+  write_checks(workspace);
+  record_checks(workspace);
+  vector_file_checks(workspace);
   narsil_workspace_destroy(workspace);
   concurrent_checks();
+  concurrent_writer_checks();
   if (failed_checks() > 0) {
     report("some checks did not pass");
     return 1;

@@ -129,16 +129,20 @@ export function fileHoldsSameBytes(store: OpenStore, ordinal: number, location: 
   return true
 }
 
-export function forgetUnreferencedFiles(store: OpenStore, documents: OrdinalDocuments): void {
+export function forgetUnreferencedFiles(store: OpenStore, documents: OrdinalDocuments): number {
   const referenced = new Set<number>()
   for (let ordinal = 0; ordinal < documents.length; ordinal++) {
     if (documents[ordinal] !== undefined && store.diskFile[ordinal] !== IN_MEMORY) {
       referenced.add(store.diskFile[ordinal])
     }
   }
+  let forgotten = 0
   for (let file = 0; file < store.handles.vectorFiles.length; file++) {
-    if (!referenced.has(file)) store.handles.vectorFiles[file] = ''
+    if (referenced.has(file) || store.handles.vectorFiles[file] === '') continue
+    store.handles.vectorFiles[file] = ''
+    forgotten += 1
   }
+  return forgotten
 }
 
 export function partitionFilterOf(

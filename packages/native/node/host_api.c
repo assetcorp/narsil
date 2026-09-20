@@ -25,6 +25,7 @@ enum {
   HOST_GET_TYPEDARRAY_INFO,
   HOST_GET_VALUE_EXTERNAL,
   HOST_GET_VALUE_INT32,
+  HOST_GET_VALUE_STRING_UTF8,
   HOST_GET_VALUE_UINT32,
   HOST_IS_TYPEDARRAY,
   HOST_SET_INSTANCE_DATA,
@@ -49,6 +50,7 @@ static const char *const HOST_FUNCTION_NAMES[HOST_FUNCTION_COUNT] = {
     [HOST_GET_TYPEDARRAY_INFO] = "napi_get_typedarray_info",
     [HOST_GET_VALUE_EXTERNAL] = "napi_get_value_external",
     [HOST_GET_VALUE_INT32] = "napi_get_value_int32",
+    [HOST_GET_VALUE_STRING_UTF8] = "napi_get_value_string_utf8",
     [HOST_GET_VALUE_UINT32] = "napi_get_value_uint32",
     [HOST_IS_TYPEDARRAY] = "napi_is_typedarray",
     [HOST_SET_INSTANCE_DATA] = "napi_set_instance_data",
@@ -156,6 +158,11 @@ napi_status NAPI_CDECL napi_get_value_external(napi_env env, napi_value value, v
 
 napi_status NAPI_CDECL napi_get_value_int32(napi_env env, napi_value value, int32_t *result) {
   return HOST_FUNCTION(HOST_GET_VALUE_INT32, napi_get_value_int32)(env, value, result);
+}
+
+napi_status NAPI_CDECL napi_get_value_string_utf8(napi_env env, napi_value value, char *buf, size_t bufsize,
+                                                  size_t *result) {
+  return HOST_FUNCTION(HOST_GET_VALUE_STRING_UTF8, napi_get_value_string_utf8)(env, value, buf, bufsize, result);
 }
 
 napi_status NAPI_CDECL napi_get_value_uint32(napi_env env, napi_value value, uint32_t *result) {

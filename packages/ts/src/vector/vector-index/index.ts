@@ -35,6 +35,7 @@ import {
   refreshWorkerCopies,
   scheduleWorkerCopyLoad,
   searchViaWorkerCopies,
+  withdrawWorkerCopies,
 } from './worker-copies'
 
 export type { VectorFileLayout, VectorPartFile } from './disk'
@@ -75,6 +76,8 @@ export interface VectorIndex {
   deserialize(parts: VectorIndexPayload[], files?: VectorPartFile[]): void
   /** Points the vectors a checkpoint wrote at their places in its file and frees the blocks they emptied, or keeps those places while the field holds no graph. It resolves once every thread holding the field has taken the new layout. */
   adoptDiskLayout(layout: VectorFileLayout): Promise<void>
+  /** Withdraws the field from every thread that holds a copy of it and closes every vector file that this thread holds open or maps, so that the caller can delete those files on any platform. It resolves once every thread has closed its copy, and the field opens a file again when a search next reads a vector from it. */
+  releaseVectorFiles(): Promise<void>
 
   readonly size: number
   readonly dimension: number
@@ -310,5 +313,9 @@ export function createVectorIndex(
       deserializeOp(state, parts, files)
     },
     adoptDiskLayout: (layout: VectorFileLayout) => adoptDiskLayoutOp(state, layout),
+    releaseVectorFiles: async () => {
+      await withdrawWorkerCopies(state)
+      state.store.closeFiles()
+    },
   }
 }

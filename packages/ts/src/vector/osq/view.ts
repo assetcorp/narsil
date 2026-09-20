@@ -1,4 +1,6 @@
 import type { VectorMetric } from '../brute-force'
+import { noteFallback } from '../native/backend'
+import { nativeCalibrate, nativeQuantise } from '../native/store'
 import { fixedView } from '../shared-buffers/growable'
 import type { ArenaSimd } from '../simd'
 import { NOTHING_STAGED, type OpenVectorBlock, QUERY_STAGED, slotByteOffset } from '../vector-store/blocks'
@@ -13,7 +15,7 @@ import {
   osqNibbleProducts,
   osqStagedPlaneProducts,
 } from './estimate'
-import { createOsqScratch, type OsqBits, osqQuantize } from './quantize'
+import { createOsqScratch, type OsqBits, osqCentroid, osqQuantize } from './quantize'
 import { type OsqTrailer, readTrailer, stageQueryLevels, writeRecord } from './record'
 import type { OsqQuery, QuantizerSearchReader } from './types'
 
@@ -23,8 +25,12 @@ export interface SharedQuantizerView extends QuantizerSearchReader {
   /** The centroid the quantizer takes every record against, or null before calibration. */
   readonly centroid: Float32Array | null
   holdsOrdinal(ordinal: number): boolean
-  /** Quantizes a vector and writes its record at the ordinal. */
-  writeCodes(ordinal: number, vector: Float32Array): void
+  /** Quantizes the stored vector of an ordinal and writes its record. */
+  writeCodes(ordinal: number): void
+  /** Quantizes the stored vector of every given ordinal and writes its record. */
+  writeCodesOf(ordinals: Int32Array): void
+  /** Takes the centroid from the stored vectors of the given ordinals, and reports false where the store holds none of them. */
+  calibrateFrom(ordinals: Int32Array): boolean
   /** Copies a record written elsewhere into the ordinal's slot. */
   restoreRecord(ordinal: number, record: Uint8Array): void
   /** Reads the record at an ordinal in place, which the caller copies before the slot changes. */
@@ -50,6 +56,7 @@ export function openSharedQuantizer(
   let centroidDot = 0
   let centroidGeneration = -1
   let currentQuery: OsqQuery | null = null
+  const singleOrdinal = new Int32Array(1)
 
   function reach(ordinal: number): boolean {
     if (ordinal < codePresent.length) return true
@@ -85,7 +92,37 @@ export function openSharedQuantizer(
   }
 
   function markPresent(ordinal: number): void {
-    if (Atomics.exchange(codePresent, ordinal, 1) === 0) Atomics.add(store.handles.header, STORE_CODE_COUNT, 1)
+    if (Atomics.load(codePresent, ordinal) !== 0) return
+    Atomics.add(store.handles.header, STORE_CODE_COUNT, 1)
+    Atomics.store(codePresent, ordinal, 1)
+  }
+
+  function writeCentroid(centroid: Float32Array): void {
+    store.handles.centroid.set(centroid)
+    Atomics.add(store.handles.header, STORE_CALIBRATION_GENERATION, 1)
+    Atomics.store(store.handles.header, STORE_CALIBRATED, 1)
+  }
+
+  function* storedVectors(ordinals: Int32Array): Iterable<Float32Array> {
+    for (const ordinal of ordinals) {
+      if (store.holdsOrdinal(ordinal)) yield store.vectorAt(ordinal)
+    }
+  }
+
+  function writeRecordOf(ordinal: number): void {
+    if (!reach(ordinal) || !store.holdsOrdinal(ordinal)) return
+    const code = osqQuantize(store.vectorAt(ordinal), store.handles.centroid, bits, metric, scratch)
+    const block = store.codeBlockOf(ordinal)
+    const offset = recordOffset(ordinal)
+    writeRecord(block.bytes(offset + layout.slotStride), offset, code, bits, block.data(offset + layout.slotStride))
+    markPresent(ordinal)
+  }
+
+  function writeCodesOf(ordinals: Int32Array): void {
+    if (!isCalibrated() || ordinals.length === 0) return
+    if (nativeQuantise(store.handles, metric, ordinals)) return
+    noteFallback('quantise')
+    for (const ordinal of ordinals) writeRecordOf(ordinal)
   }
 
   function stageQuery(block: OpenVectorBlock, query: OsqQuery): boolean {
@@ -187,13 +224,20 @@ export function openSharedQuantizer(
     isCalibrated,
     holdsOrdinal: holds,
 
-    writeCodes(ordinal, vector) {
-      if (!reach(ordinal) || !isCalibrated()) return
-      const code = osqQuantize(vector, store.handles.centroid, bits, metric, scratch)
-      const block = store.codeBlockOf(ordinal)
-      const offset = recordOffset(ordinal)
-      writeRecord(block.bytes(offset + layout.slotStride), offset, code, bits, block.data(offset + layout.slotStride))
-      markPresent(ordinal)
+    writeCodes(ordinal) {
+      singleOrdinal[0] = ordinal
+      writeCodesOf(singleOrdinal)
+    },
+
+    writeCodesOf,
+
+    calibrateFrom(ordinals) {
+      if (nativeCalibrate(store.handles, metric, ordinals)) return isCalibrated()
+      noteFallback('calibrate')
+      const centroid = osqCentroid(storedVectors(ordinals), dimension, metric)
+      if (centroid === null) return false
+      writeCentroid(centroid)
+      return true
     },
 
     restoreRecord(ordinal, record) {
@@ -215,11 +259,7 @@ export function openSharedQuantizer(
       if (Atomics.exchange(codePresent, ordinal, 0) === 1) Atomics.sub(store.handles.header, STORE_CODE_COUNT, 1)
     },
 
-    writeCentroid(centroid) {
-      store.handles.centroid.set(centroid)
-      Atomics.add(store.handles.header, STORE_CALIBRATION_GENERATION, 1)
-      Atomics.store(store.handles.header, STORE_CALIBRATED, 1)
-    },
+    writeCentroid,
 
     resetCalibration() {
       Atomics.store(store.handles.header, STORE_CALIBRATED, 0)

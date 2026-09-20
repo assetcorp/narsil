@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { createBruteForceSearch } from '../../vector/brute-force'
 import { createHNSWIndex } from '../../vector/hnsw'
 import { createOsqQuantizer, type OsqBits } from '../../vector/osq'
 import { createVectorStore } from '../../vector/vector-store'
+import { createExactSearch } from './exact-search'
 
 const CLUSTER_CENTRES = 64
 const CLUSTER_SPREAD = 0.35
@@ -95,14 +95,14 @@ function runRecallBenchmark(
     store.insert(docId, corpus[i])
   }
 
-  quantizer.calibrate(corpus.slice(0, vectorCount))
+  quantizer.calibrate(Int32Array.from({ length: vectorCount }, (_, ordinal) => ordinal))
 
   const hnsw = createHNSWIndex(dim, store, { m: 16, efConstruction: 200, metric: 'cosine' }, quantizer)
   for (const docId of docIds) {
     hnsw.insertNode(docId)
   }
 
-  const bruteForce = createBruteForceSearch(dim, store)
+  const bruteForce = createExactSearch(dim, store)
 
   let totalRecall = 0
   for (let q = 0; q < queryCount; q++) {

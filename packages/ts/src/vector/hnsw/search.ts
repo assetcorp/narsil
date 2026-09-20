@@ -2,7 +2,8 @@ import { compareCodePoints } from '../../core/ordering'
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { ScoredDocument } from '../../types/internal'
 import type { VectorMetric } from '../brute-force'
-import { type NativeField, nativeFieldFor, nativeServesWalk } from '../native/field'
+import { noteFallback } from '../native/backend'
+import { type NativeField, nativeFieldFor } from '../native/field'
 import { nativeRescoredHits, nativeTraverse } from '../native/walk'
 import { type OrdinalFilter, ordinalFilterHas } from '../ordinal-filter'
 import {
@@ -81,12 +82,13 @@ function traverse(
   const workspace = state.workspace
   const candidates = workspace.traversal
   const native = nativeFieldFor(state)
-  if (native !== null && nativeServesWalk(native)) {
+  if (native !== null) {
     candidates.size = 0
     if (nativeTraverse(state, native, query, ef, searchMetric, candidates)) {
       return { candidates, depth: useQuantized ? depth : 0, arenaQuery: null, qMag: 0, native }
     }
   }
+  noteFallback('search')
 
   const store = state.store
   const arenaQuery = store.prepareQueryArena(query)
@@ -201,7 +203,15 @@ function collectHits(
         options.filter,
       )
     }
-    const rescored = nativeRescoredHits(native, candidates, query, depth, searchMetric, minSimilarity, options.filter)
+    const rescored = nativeRescoredHits(
+      native.store,
+      candidates,
+      query,
+      depth,
+      searchMetric,
+      minSimilarity,
+      options.filter,
+    )
     if (rescored !== null) return rescored
     const arena = state.store.prepareQueryArena(query)
     return rescoreWithFullPrecision(
@@ -240,6 +250,7 @@ function rescoreWithFullPrecision(
   minSimilarity: number,
   filter: OrdinalFilter | undefined,
 ): OrdinalHit[] {
+  noteFallback('score')
   const rescored: OrdinalHit[] = []
   const nearest = Math.min(candidates.size, depth)
 
