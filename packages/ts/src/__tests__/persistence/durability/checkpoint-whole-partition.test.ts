@@ -36,7 +36,7 @@ describe('a checkpoint after most of a partition changed', () => {
     await rm(root, { recursive: true, force: true })
   })
 
-  it('saves the partition that the engine already holds as one segment, and a small change as its own segment', async () => {
+  it('leaves a partition with no frozen segment to the worker that reads the log, one segment for each checkpoint', async () => {
     const writer = await createNarsil({ durability: { directory: root }, workers: { enabled: false } })
     await writer.createIndex('docs', SCHEMA)
     await insertRange(writer, 0, 10)
@@ -46,11 +46,11 @@ describe('a checkpoint after most of a partition changed', () => {
     await insertRange(writer, 10, 40)
     await writer.remove('docs', 'd3')
     await writer.checkpoint('docs')
-    expect(await segmentDocCounts(root)).toEqual([39])
+    expect(await segmentDocCounts(root)).toEqual([10, 30])
 
     await insertRange(writer, 40, 42)
     await writer.checkpoint('docs')
-    expect(await segmentDocCounts(root)).toEqual([39, 2])
+    expect(await segmentDocCounts(root)).toEqual([10, 30, 2])
     await writer.shutdown()
 
     const reader = await createNarsil({ durability: { directory: root }, workers: { enabled: false } })
