@@ -116,6 +116,11 @@ export interface OrchestratorState {
   /** This maps the handle each vector field went to the request threads under to the handles they opened. */
   readonly sharedVectorFields: Map<string, SharedVectorFieldHandles>
   workerPool: WorkerPool | null
+  /** This settles once every thread of every retired pool has exited, and a new pool starts only after it. */
+  retiredThreadsGone: Promise<void>
+  /** This settles once the engine starts shutting down, so that a pool start stops waiting for a thread to exit. */
+  readonly shutdownStarted: Promise<void>
+  readonly announceShutdown: () => void
   poolStart: Promise<WorkerPool> | null
   poolRetryAt: number
   poolRetryDelayMs: number

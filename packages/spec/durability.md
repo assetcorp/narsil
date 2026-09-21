@@ -199,11 +199,11 @@ A crash before step 4 leaves the previous snapshot intact and the temporary file
 
 ## Segmented Checkpoint
 
-The write-ahead log tier checkpoints its documents incrementally, so the cost of writing them grows with the changes since the last checkpoint, while a checkpoint writes a changed vector field whole.
+The write-ahead log tier checkpoints its documents and its vectors incrementally, so the cost of writing them grows with the changes since the last checkpoint, while a checkpoint writes the graph of a changed vector field whole.
 
 ### Layout
 
-A segmented checkpoint is a manifest, the segment files of each partition, and the vector segment files of each vector field, stored under the keys in [Storage Path Convention](envelope.md#storage-path-convention). A writer must number a partition's segments upwards from zero and zero-pad each id to 16 digits, so that segment keys sort in creation order. A partition must hold at most 65536 segments.
+A segmented checkpoint is a manifest, the segment files of each partition, and the vector files and the graph file of each vector field, stored under the keys in [Storage Path Convention](envelope.md#storage-path-convention). A writer must number a partition's segments upwards from zero and zero-pad each id to 16 digits, so that segment keys sort in creation order. A partition must hold at most 65,536 segments.
 
 A segment file is a `.nrsl` envelope with the checksum flag set and `envelope_format_version` 2, whose payload is a MessagePack map:
 
@@ -214,20 +214,22 @@ SegmentFile {
 }
 ```
 
-A vector segment file is the same envelope, with one part of a [vector index payload](envelope.md#vector-index-payload) as its payload. A vector field has one vector segment for the whole index, because a [vector index](vector-index.md) covers every partition.
+A vector file is the same envelope, with a [vector file payload](envelope.md#vector-file-payload) as its payload. A writer must number a field's vector files upwards from zero, must zero-pad each id to 16 digits, and must leave a vector file unchanged after it writes the file.
+
+A graph file is the same envelope, with a [vector graph payload](envelope.md#vector-graph-payload) as its payload. A vector field has one list of vector files and at most one graph file for the whole index, because a [vector index](vector-index.md) covers every partition.
 
 ### Manifest
 
-Writing the manifest commits a checkpoint. The manifest is a `.nrsl` envelope with the same flags, whose payload is a MessagePack map. A reader must reject a manifest whose `version` is anything other than 5.
+Writing the manifest commits a checkpoint. The manifest is a `.nrsl` envelope with the same flags, whose payload is a MessagePack map. A reader must reject a manifest whose `version` is anything other than 6.
 
 ```text
 SegmentManifest {
-  version:    uint8   (5)
+  version:    uint8   (6)
   schema:     Map<string, string>
   language:   string
   checkpoint: List<PartitionCheckpoint>
   partitions: List<PartitionManifestEntry>
-  vectors:    List<VectorSegmentRef>   (one entry per vector field)
+  vectors:    List<VectorFieldRef>   (one entry per vector field)
 }
 
 PartitionManifestEntry {
@@ -243,27 +245,43 @@ SegmentRef {
   tombstoneCount: uint32
 }
 
-VectorSegmentRef {
-  fieldPath:  string
-  generation: uint64
-  keys:       List<string>   (one key per part, in part order)
+VectorFieldRef {
+  fieldPath:       string
+  nextFileId:      uint64
+  files:           List<VectorFileRef>
+  graphGeneration: uint64          (the generation of the field's newest graph file, 0 before its first)
+  graphKey:        string or nil   (nil while the field holds no graph)
+}
+
+VectorFileRef {
+  id:    uint64
+  key:   string
+  count: uint32         (the vectors in the file, dead ones included)
+  dead:  bytes or nil   (one bit per vector, nil while every vector is live)
 }
 ```
 
 `checkpoint` holds the same list as the snapshot bundle holds, so recovery must replay each partition's log from its `lastSeqNo + 1`.
 
+The order of `files` numbers every vector of the field. The vectors of the first file take the numbers from 0 upwards in position order, and each later file continues from the number where the file before it ends. A dead vector keeps its number.
+
+Vector `i` of a file is dead when bit `i mod 8` of byte `floor(i / 8)` of `dead` is 1, where bit 0 is the least significant. A `dead` that is present must hold `ceiling(count / 8)` bytes. A reader must reject with `PERSISTENCE_LOAD_FAILED` a `dead` of any other length, a `count` above 65,536, and a `count` that differs from the length of the file's `docIds`.
+
 ### Writing a Checkpoint
 
 1. For each partition, read the log records between the previous checkpoint's `lastSeqNo` and the new one, and write one segment under the next segment id. That segment must hold the documents that those records inserted or updated, and a tombstone for each document that they removed. Write no segment for a partition with no changes. A writer may instead take a changed partition's whole content from the partition that it searches through, and write it as one segment under the next segment id. The manifest must then list that segment as the partition's only segment. The writer must take the content while it applies no mutation to the partition, so that the segment holds the effect of every record up to `lastSeqNo` and of no later record.
-2. When any partition changed, write each vector field once for the whole index, as the parts of a new vector segment at the field's next generation. A checkpoint with no changes must keep the previous vector segments. A vector segment is the only place where a checkpoint stores a vector value, so the document segment of step 1 must hold none. When a log record stores a document with no value for a vector field, the new vector segment must omit that document's vector, because the record replaces the document that the earlier vector came from.
-3. A writer may take a field's vectors, graph, and codes from the vector index that it searches through. The vector segment may then hold the effect of a log record above a partition's `lastSeqNo`, provided that the record is durable before step 5, because recovery replays that record over the segment.
-4. When a partition's segment count exceeds the compaction threshold, 12 by default, merge its oldest segments into one, so that the count returns to the threshold.
-5. Write the manifest atomically over `<indexName>/manifest` with the same atomic write as the snapshot bundle. The manifest write is the commit point, so a crash before it leaves the previous manifest in force and the new files unreferenced.
-6. Once the manifest is durable, delete every key that the previous manifest references and the new one does not, and delete any `<indexName>/snapshot` bundle.
+2. When any partition changed, write every vector of each field that no vector file of the previous manifest holds into new vector files of at most 65,536 vectors each, under the field's next file ids. A checkpoint with no changes must keep the previous vector files and graph file. A vector file is the only place where a checkpoint stores a vector value, so the document segment of step 1 must hold none.
+3. Mark as dead, in the new manifest, every listed vector whose document the field no longer holds with that value. That covers a removed document, a replaced vector, and a document that a log record stores with no value for the field, because the record replaces the document that the earlier vector came from.
+4. A writer may replace a listed vector file by writing its live vectors into new vector files, and the new manifest must then omit the replaced file. A writer should replace a file whose dead share exceeds 0.2. A writer that recalibrates a field must replace every vector file of the field, so that every listed file holds its codes under one centroid.
+5. When a field holds a graph, write the graph whole as a new graph file at the field's next graph generation. The graph file must number its vectors by the new manifest's `files`, and it must hold live vectors alone.
+6. A writer may take a field's vectors, graph, and codes from the vector index that it searches through. The vector files and the graph file may then hold the effect of a log record above a partition's `lastSeqNo`, provided that the record is durable before step 8, because recovery replays that record over them.
+7. When a partition's segment count exceeds the compaction threshold, 12 by default, merge its oldest segments into one, so that the count returns to the threshold. A writer may merge fewer segments, or none, where the merged segment would hold more than 200,000 documents, so that a reader holds a bounded segment in memory.
+8. Write the manifest atomically over `<indexName>/manifest` with the same atomic write as the snapshot bundle. The manifest write is the commit point, so a crash before it leaves the previous manifest in force and the new files unreferenced.
+9. Once the manifest is durable, delete every key that the previous manifest references and the new one does not, and delete any `<indexName>/snapshot` bundle.
 
 ### Structural-Merge Recovery
 
-Recovery must load a partition by reading the segments that the manifest lists for it, in id order, and merging them, so that the newest occurrence of a document wins and a tombstone removes the document from every older segment. Recovery must load each vector field once, from the parts of the vector segment that the manifest lists for it.
+Recovery must load a partition by reading the segments that the manifest lists for it, in id order, and merging them, so that the newest occurrence of a document wins and a tombstone removes the document from every older segment. Recovery must load each vector field once, from the live vectors of the vector files that the manifest lists for it and from the graph file that the manifest names. Recovery must treat a live vector that the graph file holds no node for as a vector inserted after promotion; see [Post-Promotion Insertion](vector-index.md#post-promotion-insertion).
 
 Recovery must delete every key under `<indexName>/segments/` that the manifest does not reference, because a checkpoint that crashes before its manifest write leaves such keys behind.
 

@@ -1,6 +1,6 @@
 import { encode } from '@msgpack/msgpack'
 import { describe, expect, it } from 'vitest'
-import { NarsilError } from '../../../errors'
+import { ErrorCodes, NarsilError } from '../../../errors'
 import { getLanguage } from '../../../languages/registry'
 import { createPartitionManager } from '../../../partitioning/manager'
 import { createPartitionRouter } from '../../../partitioning/router'
@@ -54,30 +54,65 @@ describe('segment manifest decode bounds', () => {
     expect(manifest.partitions[0].nextSegmentId).toBe(2)
   })
 
-  it('reads the vector segment of each field from the manifest itself', async () => {
-    const embedding = { fieldPath: 'embedding', generation: 3, keys: ['docs/segments/vec-embedding-1l4nfg2-g3-p0000'] }
-    const bytes = await encodeRawManifest({
+  const embedding = {
+    fieldPath: 'embedding',
+    nextFileId: 5,
+    files: [
+      { id: 2, key: 'docs/segments/vec-embedding-1l4nfg2-f0000000000000002', count: 9, dead: Uint8Array.of(4, 1) },
+      { id: 4, key: 'docs/segments/vec-embedding-1l4nfg2-f0000000000000004', count: 3, dead: null },
+    ],
+    graphGeneration: 3,
+    graphKey: 'docs/segments/vec-embedding-1l4nfg2-graph-g3',
+  }
+
+  function manifestWithVectors(vectors: unknown[]): Promise<Uint8Array> {
+    return encodeRawManifest({
       version: SEGMENT_MANIFEST_VERSION,
       schema: { title: 'string', embedding: 'vector[8]' },
       language: 'english',
       checkpoint: [],
       partitions: [],
-      vectors: [embedding],
+      vectors,
     })
+  }
+
+  it('reads the vector files and the graph file of each field from the manifest itself', async () => {
+    const bytes = await manifestWithVectors([embedding])
     expect((await decodeSegmentManifest(bytes)).vectors).toEqual([embedding])
   })
 
+  it('reads a field with no vector file and no graph', async () => {
+    const empty = { fieldPath: 'embedding', nextFileId: 0, files: [], graphGeneration: 0, graphKey: null }
+    expect((await decodeSegmentManifest(await manifestWithVectors([empty]))).vectors).toEqual([empty])
+  })
+
   it('rejects a manifest that lists one vector field twice', async () => {
-    const embedding = { fieldPath: 'embedding', generation: 3, keys: ['docs/segments/vec-embedding-1l4nfg2-g3-p0000'] }
-    const bytes = await encodeRawManifest({
-      version: SEGMENT_MANIFEST_VERSION,
-      schema: { title: 'string', embedding: 'vector[8]' },
-      language: 'english',
-      checkpoint: [],
-      partitions: [],
-      vectors: [embedding, { ...embedding, generation: 4 }],
-    })
+    const bytes = await manifestWithVectors([embedding, { ...embedding, graphGeneration: 4 }])
     await expect(decodeSegmentManifest(bytes)).rejects.toThrow(/lists the vector field "embedding" twice/)
+  })
+
+  it('rejects dead marks of any length but one bit per vector', async () => {
+    const files = [{ ...embedding.files[0], dead: Uint8Array.of(4) }]
+    const bytes = await manifestWithVectors([{ ...embedding, files }])
+    await expect(decodeSegmentManifest(bytes)).rejects.toThrow(/wrong number of bytes/)
+  })
+
+  it('rejects a graph file named at generation 0, which no writer reaches', async () => {
+    const bytes = await manifestWithVectors([{ ...embedding, graphGeneration: 0 }])
+    await expect(decodeSegmentManifest(bytes)).rejects.toMatchObject({ code: ErrorCodes.PERSISTENCE_LOAD_FAILED })
+  })
+
+  it('rejects a vector file that counts more than 65,536 vectors', async () => {
+    const files = [{ ...embedding.files[1], count: 65_537 }]
+    const bytes = await manifestWithVectors([{ ...embedding, files }])
+    await expect(decodeSegmentManifest(bytes)).rejects.toThrow(/invalid count/)
+  })
+
+  it('rejects a vector file listed twice and a file at the next file id', async () => {
+    const twice = await manifestWithVectors([{ ...embedding, files: [embedding.files[0], embedding.files[0]] }])
+    const atNext = await manifestWithVectors([{ ...embedding, nextFileId: 4 }])
+    await expect(decodeSegmentManifest(twice)).rejects.toThrow(/twice or at its next file id/)
+    await expect(decodeSegmentManifest(atNext)).rejects.toThrow(/twice or at its next file id/)
   })
 
   it('rejects a segment list above the maximum', async () => {

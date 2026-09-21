@@ -287,7 +287,7 @@ Every other field keeps its version 1 meaning. The four posting columns are alig
 
 ### Vector Index Payload
 
-A vector index payload holds one part of one vector field's state, and a field spans `parts` payloads of at most 65,536 vectors each, in ordinal order. It appears in two places: as an entry of the snapshot bundle's `vectorIndexes` lists, and as the payload of a vector segment file under the [checkpoint segment keys](durability.md#segmented-checkpoint). Unlike every other payload, its field names are camelCase, because it is the one payload written without a snake_case translation layer; see [Serialisation](vector-index.md#serialisation).
+A vector index payload holds one part of one vector field's state, and a field spans `parts` payloads of at most 65,536 vectors each, in ordinal order. It appears as an entry of the `vectorIndexes` lists of the [snapshot bundle](#snapshot-bundle-payload) and of the [index snapshot](#index-snapshot-payload). Its field names are camelCase, because an implementation writes it without a snake_case translation layer; see [Serialisation](vector-index.md#serialisation).
 
 A version 3 vector index payload is a MessagePack map:
 
@@ -342,6 +342,61 @@ Vector `i` of part `p` has ordinal `p * 65536 + i`, and a field with no vectors 
 `graphs` lists the field's graphs in the same order in every part, each repeating its header and holding in `nodes` the nodes of this part's vectors alone, so a reader assembles each graph from every part. An implementation holding one graph writes a list of length 1, and a segment-based implementation writes one graph per segment. An empty `graphs` list means the implementation searches by brute force, because the vector count stays below the promotion threshold.
 
 A writer must set `codes`, with `bits` matching the mode, for an index that holds a graph under an `osq` mode, and it must write nil for every other index. `records` holds one `OSQRecord` per vector, whose `code` is packed as [Optimised Scalar Quantisation (OSQ)](algorithms.md#optimised-scalar-quantisation-osq) defines and takes `ceiling(dimension * bits / 8)` bytes, followed by 16 bytes of `lower`, `upper`, `correction`, and `sum`.
+
+---
+
+### Vector File Payload
+
+A vector file payload holds at most 65,536 vectors of one vector field, and it is the payload of a vector file of the [segmented checkpoint](durability.md#segmented-checkpoint). Its field names are camelCase, as in the [vector index payload](#vector-index-payload).
+
+A version 1 vector file payload is a MessagePack map:
+
+```text
+{
+  v:         uint8            (1)
+  fieldName: string
+  dimension: uint16
+  docIds:    List<string>     (one per vector, in position order)
+  codes:     OSQCodes or nil
+  vectors:   bytes            (float32 components, dimension * 4 bytes per vector, in position order)
+}
+```
+
+`OSQCodes` keeps the layout that the vector index payload defines, with one record per vector of the file in position order. A writer must set `codes` by the rule that the vector index payload sets, and it must write `vectors` as the last entry of the map with the compression flag at 0 and every number little-endian. A reader therefore finds vector `i` at `payload_length - (count - i) * dimension * 4` bytes into the payload, where `count` is the length of `docIds`.
+
+A reader must recalibrate a field that holds a graph under an `osq` mode when any of its vector files has nil `codes`, or when two of them disagree on `bits` or on `centroid`.
+
+---
+
+### Vector Graph Payload
+
+A vector graph payload holds the graphs of one vector field, and it is the payload of a graph file of the [segmented checkpoint](durability.md#segmented-checkpoint). It names each vector by the number that the [manifest](durability.md#manifest) gives the vector. Its field names are camelCase, as in the [vector index payload](#vector-index-payload).
+
+A version 1 vector graph payload is a MessagePack map:
+
+```text
+{
+  v:         uint8                     (1)
+  fieldName: string
+  graphs:    List<NumberedHnswGraph>
+}
+
+NumberedHnswGraph {
+  entryPoint:     uint32 or nil   (the number of the vector where every search starts)
+  maxLayer:       uint8
+  m:              uint16
+  efConstruction: uint16
+  metric:         string
+  levels:         bytes           (one uint8 per vector number)
+  neighbours:     bytes           (uint32 values, little-endian)
+}
+```
+
+Byte `n` of `levels` must hold 0 where the graph has no node for vector `n`, and the node's top layer plus 1 otherwise. A vector whose number lies beyond the end of `levels` has no node.
+
+`neighbours` must hold the nodes in number order. For each node it must hold one list per layer, from layer 0 to the node's top layer, and each list is a count followed by that many vector numbers.
+
+A reader must skip a neighbour that is a dead vector, a vector with no node, or a node whose top layer lies below the layer of the list. A reader must reject a payload whose `neighbours` ends inside a list with `PERSISTENCE_LOAD_FAILED`. Where `entryPoint` is nil or is a vector with no node, a reader must start every search from a node on the graph's highest layer.
 
 ---
 
@@ -516,7 +571,8 @@ A persistence adapter addresses stored bytes by string key:
 | `<indexName>/meta` | Index metadata |
 | `<indexName>/manifest` | Checkpoint segment manifest |
 | `<indexName>/segments/<partitionId>/s<segmentId>` | One checkpoint segment, id zero-padded to 16 digits |
-| `<indexName>/segments/vec-<fieldPath>-g<generation>-p<part>` | One part of one vector field's index for the whole index at one generation, part zero-padded to 4 digits |
+| `<indexName>/segments/vec-<fieldPath>-f<fileId>` | One vector file of one vector field for the whole index, file id zero-padded to 16 digits |
+| `<indexName>/segments/vec-<fieldPath>-graph-g<generation>` | The graph file of one vector field for the whole index at one generation |
 | `<indexName>/snapshot` | Whole-index checkpoint bundle, written by the snapshot-only tier |
 | `<indexName>/wal/<partitionId>/<startSeqNo>` | Write-ahead log segment, start sequence number zero-padded to 16 digits |
 | `<indexName>/wal/<partitionId>/commit` | Write-ahead log commit marker |

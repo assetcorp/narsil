@@ -21,6 +21,8 @@ export interface ReplayDeps {
   manager: PartitionManager
   vectorFieldPaths: Set<string>
   vectorIndexes: Map<string, VectorIndex>
+  /** True where the analysis that wrote the checkpoint is the analysis the index resolves now, so recovery may take the terms from the documents again. */
+  storedTermsAreCurrent?: boolean
 }
 
 export async function listPersistedIndexes(directory: DurableDirectory): Promise<string[]> {

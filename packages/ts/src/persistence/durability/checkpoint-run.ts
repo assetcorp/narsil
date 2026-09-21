@@ -11,13 +11,16 @@ import { checkpointWorkerIsUsable } from './checkpoint-worker-dispatch'
 import { writeIndexCheckpointSegments } from './checkpoint-write'
 import type { DurableDirectory } from './durable-filesystem'
 import type { IndexState } from './manager-state'
+import { snapshotCheckpointFor } from './recovery'
 import {
   commitCheckpointManifest,
   readSegmentManifest,
   removeCheckpointGarbage,
   type VectorCheckpointLayout,
 } from './segment'
+import type { PartitionCheckpoint } from './snapshot-bundle'
 import type { IndexDurabilityHooks } from './types'
+import { noteCheckpointCommitted } from './write-stall'
 
 interface DurableCheckpointInput {
   directory: DurableDirectory
@@ -27,6 +30,7 @@ interface DurableCheckpointInput {
   compactionThreshold: number
   canOffload: boolean
   fromMemory: boolean
+  mutationThreshold: number
   mayContinue(): boolean
   queueMetadataWrite(indexName: string, write: () => Promise<void>): Promise<void>
   markFatal(error: Error): void
@@ -50,6 +54,23 @@ async function adoptVectorLayouts(
     const path = await directory.pathOf(layout.key)
     await vecIndex.adoptDiskLayout({ path, docIds: layout.docIds, vectorsOffset: layout.vectorsOffset })
   }
+}
+
+async function garbageThatNoFieldStillReads(
+  directory: DurableDirectory,
+  vectorIndexes: Map<string, VectorIndex>,
+  keys: readonly string[],
+): Promise<string[]> {
+  const read = new Set<string>()
+  for (const vectorIndex of vectorIndexes.values()) {
+    for (const path of vectorIndex.vectorFilesInUse()) read.add(path)
+  }
+  if (read.size === 0) return [...keys]
+  const unread: string[] = []
+  for (const key of keys) {
+    if (!read.has(await directory.pathOf(key))) unread.push(key)
+  }
+  return unread
 }
 
 /**
@@ -92,6 +113,7 @@ async function writeOneBoundedCheckpoint(input: DurableCheckpointInput): Promise
       aWorkerCanSerialise: input.canOffload && checkpointWorkerIsUsable(),
     }),
     input.fromMemory ? undefined : (priorManifest?.checkpoint ?? []),
+    priorManifest?.vectors ?? [],
   )
   const { targets, documentCount } = capture
   await makeEveryAppliedMutationDurable(input.indexState, input.markFatal)
@@ -110,8 +132,14 @@ async function writeOneBoundedCheckpoint(input: DurableCheckpointInput): Promise
   await makeEveryAppliedMutationDurable(input.indexState, input.markFatal)
 
   const written = await commitCheckpointManifest(input.directory, metadata, segments, liveVectors.vectors)
+  for (const field of liveVectors.written) {
+    vectorIndexes.get(field.fieldPath)?.recordCheckpoint(field.plan, field.files)
+  }
   await adoptVectorLayouts(input.directory, vectorIndexes, liveVectors.layouts)
-  await removeCheckpointGarbage(input.directory, written.garbage)
+  await removeCheckpointGarbage(
+    input.directory,
+    await garbageThatNoFieldStillReads(input.directory, vectorIndexes, written.garbage),
+  )
   const checkpointDocumentCount = written.documentCount ?? documentCount
   await input.queueMetadataWrite(input.indexName, async () => {
     const checkpointMetadata = input.hooks.buildMetadata(input.indexName, checkpointDocumentCount)
@@ -130,6 +158,16 @@ async function writeOneBoundedCheckpoint(input: DurableCheckpointInput): Promise
     input.indexState.partitions,
     input.markFatal,
   )
-  input.indexState.mutationsSinceCheckpoint = capture.recordsLeftInLog
-  return capture.recordsLeftInLog
+  const beyondTheCheckpoint = recordsBeyond(input.indexState, targets)
+  noteCheckpointCommitted(input.indexState, beyondTheCheckpoint)
+  const anotherIsDue = input.mutationThreshold > 0 && beyondTheCheckpoint >= input.mutationThreshold
+  return anotherIsDue ? beyondTheCheckpoint : capture.recordsLeftInLog
+}
+
+function recordsBeyond(indexState: IndexState, targets: PartitionCheckpoint[]): number {
+  let records = 0
+  for (const [partitionId, partition] of indexState.partitions) {
+    records += Math.max(0, partition.appliedSeqNo - snapshotCheckpointFor(targets, partitionId))
+  }
+  return records
 }

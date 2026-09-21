@@ -13,6 +13,7 @@ import {
   rebuild as rebuildOp,
   resetGraph,
 } from './mutation'
+import { deserializeNumberedGraph, type NumberedHnswGraph, serializeNumberedGraph } from './numbered-graph'
 import { deserializeGraph, serializeGraph } from './persistence'
 import { searchScratchBytes } from './scratch-bytes'
 import { type GraphSearchOptions, search as searchOp } from './search'
@@ -30,6 +31,7 @@ import { exportSnapshot, type HNSWSnapshot, restoreSnapshot } from './snapshot'
 import { openGraphState } from './state'
 
 export type { SharedGraphHandles } from './handles'
+export type { NumberedHnswGraph } from './numbered-graph'
 export type { GraphSearchOptions } from './search'
 export type { HNSWConfig, SerializedHNSWGraph } from './shared'
 export type { HNSWSnapshot } from './snapshot'
@@ -76,6 +78,10 @@ export interface HNSWIndex {
 
   serialize(): SerializedHNSWGraph
   deserialize(data: SerializedHNSWGraph): void
+  /** Writes the graph with each vector named by the number that `numberOfOrdinal` gives its ordinal, and it leaves out every node whose ordinal has no number. */
+  serializeNumbered(numberOfOrdinal: Int32Array, ordinalOfNumber: Int32Array): NumberedHnswGraph
+  /** Reads a numbered graph back, placing each node at the ordinal that `ordinalOfNumber` gives its number. */
+  deserializeNumbered(graph: NumberedHnswGraph, ordinalOfNumber: Int32Array): void
   exportSnapshot(): HNSWSnapshot
   restoreSnapshot(snapshot: HNSWSnapshot): void
 }
@@ -218,6 +224,10 @@ export function createHNSWIndex(
     exclusively,
     serialize: () => serializeGraph(state, store),
     deserialize: (data: SerializedHNSWGraph) => exclusively(() => deserializeGraph(state, store, data)),
+    serializeNumbered: (numberOfOrdinal: Int32Array, ordinalOfNumber: Int32Array) =>
+      serializeNumberedGraph(state, numberOfOrdinal, ordinalOfNumber),
+    deserializeNumbered: (graph: NumberedHnswGraph, ordinalOfNumber: Int32Array) =>
+      exclusively(() => deserializeNumberedGraph(state, graph, ordinalOfNumber)),
     exportSnapshot: () => exportSnapshot(state),
     restoreSnapshot: (snapshot: HNSWSnapshot) => exclusively(() => restoreSnapshot(state, snapshot)),
   }

@@ -2,7 +2,7 @@ import { encode } from '@msgpack/msgpack'
 import { type EnvelopeParts, packSnapshotEnvelopePartsRetrying } from '../../../serialization/envelope'
 import type { PartitionCheckpoint } from '../snapshot-bundle'
 
-export const SEGMENT_MANIFEST_VERSION = 5
+export const SEGMENT_MANIFEST_VERSION = 6
 
 export const MAX_SEGMENTS_PER_PARTITION = 65_536
 
@@ -15,11 +15,23 @@ export interface SegmentRef {
   tombstoneCount: number
 }
 
-export interface VectorSegmentRef {
+export interface VectorFileRef {
+  id: number
+  key: string
+  /** The file holds this many vectors, dead ones included. */
+  count: number
+  /** Bit `i` reads 1 where vector `i` of the file is dead, and null while every vector is live. */
+  dead: Uint8Array | null
+}
+
+export interface VectorFieldRef {
   fieldPath: string
-  generation: number
-  /** The field's parts at this generation lie under these keys, one per part in part order. */
-  keys: string[]
+  nextFileId: number
+  /** The field's vector files, whose order numbers every vector of the field. */
+  files: VectorFileRef[]
+  graphGeneration: number
+  /** The field's graph file lies under this key, and null while the field holds no graph. */
+  graphKey: string | null
 }
 
 export interface PartitionManifestEntry {
@@ -34,7 +46,7 @@ export interface SegmentManifest {
   language: string
   checkpoint: PartitionCheckpoint[]
   partitions: PartitionManifestEntry[]
-  vectors: VectorSegmentRef[]
+  vectors: VectorFieldRef[]
 }
 
 export function encodeSegmentManifest(manifest: SegmentManifest): Promise<EnvelopeParts> {
@@ -58,7 +70,13 @@ export function encodeSegmentManifest(manifest: SegmentManifest): Promise<Envelo
           tombstoneCount: s.tombstoneCount,
         })),
       })),
-      vectors: manifest.vectors.map(v => ({ fieldPath: v.fieldPath, generation: v.generation, keys: [...v.keys] })),
+      vectors: manifest.vectors.map(v => ({
+        fieldPath: v.fieldPath,
+        nextFileId: v.nextFileId,
+        files: v.files.map(f => ({ id: f.id, key: f.key, count: f.count, dead: f.dead })),
+        graphGeneration: v.graphGeneration,
+        graphKey: v.graphKey,
+      })),
     }),
   )
 }
@@ -71,7 +89,8 @@ export function manifestReferencedKeys(manifest: SegmentManifest): Set<string> {
     }
   }
   for (const vector of manifest.vectors) {
-    for (const key of vector.keys) keys.add(key)
+    for (const file of vector.files) keys.add(file.key)
+    if (vector.graphKey !== null) keys.add(vector.graphKey)
   }
   return keys
 }

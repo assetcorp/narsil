@@ -23,7 +23,7 @@ import {
   SEGMENT_MANIFEST_VERSION,
   type SegmentManifest,
   type SegmentRef,
-  type VectorSegmentRef,
+  type VectorFieldRef,
 } from './manifest'
 import { persistSegmentFile } from './segment-file'
 
@@ -34,7 +34,7 @@ export interface SegmentedCheckpointInput {
   compactionThreshold: number
   wholePartitions?: ReadonlyMap<number, WholePartitionSegment>
   capturedPartitions?: readonly CapturedWholePartition[]
-  vectors?: VectorSegmentRef[]
+  vectors?: VectorFieldRef[]
 }
 
 export interface WholePartitionSegment {
@@ -72,7 +72,7 @@ export async function commitCheckpointManifest(
   directory: DurableDirectory,
   metadata: IndexMetadata,
   written: CheckpointSegmentsWritten,
-  vectors?: VectorSegmentRef[],
+  vectors?: VectorFieldRef[],
 ): Promise<SegmentedCheckpointOutcome> {
   const indexName = metadata.indexName
   const manifest: SegmentManifest = {

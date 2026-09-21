@@ -5,8 +5,15 @@ import type { HNSWConfig } from '../hnsw'
 import { createOsqQuantizer, osqBitsOf } from '../osq'
 import { createVectorStore } from '../vector-store'
 import { scheduleBuild as scheduleBuildOp } from './build'
+import {
+  planCheckpoint as planCheckpointOp,
+  recordCheckpoint as recordCheckpointOp,
+  type VectorCheckpointPlan,
+  type WrittenVectorFile,
+} from './checkpoint-plan'
+import { beginCheckpointRestore, type CheckpointRestoreShape, type VectorCheckpointRestore } from './checkpoint-restore'
 import { DEFAULT_FILTER_THRESHOLD, DEFAULT_PROMOTION_THRESHOLD, OSQ4_MIN_DIMENSION } from './constants'
-import { adoptDiskLayout as adoptDiskLayoutOp, type VectorFileLayout, type VectorPartFile } from './disk'
+import { adoptDiskLayout as adoptDiskLayoutOp, type VectorFileLayout } from './disk'
 import {
   compact as compactOp,
   completeGraph as completeGraphOp,
@@ -15,12 +22,7 @@ import {
   optimize as optimizeOp,
 } from './maintenance'
 import type { VectorIndexPayload } from './payload'
-import {
-  deserialize as deserializeOp,
-  planParts as planPartsOp,
-  serialize as serializeOp,
-  type VectorIndexPartsPlan,
-} from './persistence'
+import { deserialize as deserializeOp, serialize as serializeOp } from './persistence'
 import { search as searchOp, searchWithFilter } from './search'
 import {
   assignStorePartitions,
@@ -43,9 +45,11 @@ import {
   withdrawWorkerCopies,
 } from './worker-copies'
 
+export type { VectorFilePayload, VectorGraphPayload } from './checkpoint-payload'
+export type { VectorCheckpointPlan, WrittenVectorFile } from './checkpoint-plan'
+export type { CheckpointRestoreShape, VectorCheckpointRestore } from './checkpoint-restore'
 export type { VectorFileLayout, VectorPartFile } from './disk'
 export type { VectorIndexCodes, VectorIndexPayload } from './payload'
-export type { VectorIndexPartsPlan } from './persistence'
 export type {
   MaintenanceStatus,
   SharedCopyHost,
@@ -78,10 +82,16 @@ export interface VectorIndex {
   estimateMemoryBytes(): number
   /** Writes the field as the parts the envelope specification defines, in ordinal order. */
   serialize(): VectorIndexPayload[]
-  /** Fixes the documents, the part count, and the graph that the field holds now, and returns a plan that reads the vectors and the codes of one part at a time. A checkpoint uses it so that it holds one part in memory while it writes a field of any size. A part read after a recalibration throws, because its codes would disagree with the centroid that the earlier parts recorded. */
-  planParts(): VectorIndexPartsPlan
-  /** Reads the field back from its parts, which may run several partitions' sequences end to end. A field kept on disk reads its vectors from the named files where the caller gives one per part and the parts hold a graph or enough vectors for one. A smaller field holds them in memory until it builds a graph. */
-  deserialize(parts: VectorIndexPayload[], files?: VectorPartFile[]): void
+  /** Reads the field back from its parts, which may run several partitions' sequences end to end, and holds every vector in memory. */
+  deserialize(parts: VectorIndexPayload[]): void
+  /** Fixes what a checkpoint writes for the field now: the vector files that it keeps with their dead vectors, the vectors that go into new files, and the graph with every vector numbered by that file list. The plan reads one new file at a time, so that a checkpoint holds one file in memory while it writes a field of any size. A file read after a recalibration throws, because its codes would disagree with the centroid of the files before it. */
+  planCheckpoint(listedKeys: readonly string[] | null): VectorCheckpointPlan
+  /** Records the files of a checkpoint whose manifest is durable, so that the next plan writes the vectors that arrive after it and no others. */
+  recordCheckpoint(plan: VectorCheckpointPlan, written: readonly WrittenVectorFile[]): void
+  /** Empties the field and returns a reader that takes a checkpoint's vector files one at a time, in manifest order, and its graph last. A field kept on disk reads its vectors from the files where the checkpoint holds a graph or enough vectors for one. */
+  restoreCheckpoint(shape: CheckpointRestoreShape): VectorCheckpointRestore
+  /** Lists the paths of the vector files that the field still reads vectors from. */
+  vectorFilesInUse(): string[]
   /** Points the vectors a checkpoint wrote at their places in its file and frees the blocks they emptied, or keeps those places while the field holds no graph. It resolves once every thread holding the field has taken the new layout. */
   adoptDiskLayout(layout: VectorFileLayout): Promise<void>
   /** Withdraws the field from every thread that holds a copy of it and closes every vector file that this thread holds open or maps, so that the caller can delete those files on any platform. It resolves once every thread has closed its copy, and the field opens a file again when a search next reads a vector from it. */
@@ -149,6 +159,8 @@ export function createVectorIndex(
     tombstones: new Set<string>(),
     buffer: new Set<string>(),
     pendingLocations: new Map(),
+    savedFiles: [],
+    savedSignature: null,
     osq: codeBits === null ? null : createOsqQuantizer(dimension, codeBits, metric, store),
     hnsw: null,
     freshGraph: null,
@@ -179,11 +191,34 @@ export function createVectorIndex(
     }
   }
 
+  function heldVectorOrUndefinedWhereItsFileFailsToRead(ordinal: number): Float32Array | undefined {
+    try {
+      return state.store.entryForOrdinal(ordinal)?.vector
+    } catch {
+      return undefined
+    }
+  }
+
+  function holdsThisVectorAlready(docId: string, ordinal: number, vector: Float32Array): boolean {
+    if (state.tombstones.has(docId)) return false
+    const held = heldVectorOrUndefinedWhereItsFileFailsToRead(ordinal)
+    if (held === undefined) return false
+    for (let i = 0; i < vector.length; i++) if (held[i] !== vector[i]) return false
+    return true
+  }
+
   function insert(docId: string, vector: Float32Array, partitionId?: number): void {
     validateDimension(vector)
+    const previous = state.store.getOrdinal(docId)
+    if (previous !== undefined && holdsThisVectorAlready(docId, previous, vector)) {
+      if (partitionId !== undefined && state.store.partitionOfOrdinal(previous) !== partitionId) {
+        noteWrite(state)
+        state.store.setPartition(docId, partitionId)
+      }
+      return
+    }
     noteWrite(state)
     state.tombstones.delete(docId)
-    const previous = state.store.getOrdinal(docId)
     state.store.insert(docId, vector, partitionId)
     if (previous !== undefined) {
       state.hnsw?.markTombstoneOrdinal(previous)
@@ -230,6 +265,8 @@ export function createVectorIndex(
     state.tombstones.clear()
     state.buffer.clear()
     state.pendingLocations.clear()
+    state.savedFiles = []
+    state.savedSignature = null
     state.store.release()
   }
 
@@ -317,11 +354,19 @@ export function createVectorIndex(
     maintenanceStatus: () => maintenanceStatusOp(state),
     estimateMemoryBytes: () => estimateMemoryBytesOp(state),
     serialize: () => serializeOp(state),
-    planParts: () => planPartsOp(state),
-    deserialize: (parts: VectorIndexPayload[], files?: VectorPartFile[]) => {
+    deserialize: (parts: VectorIndexPayload[]) => {
       invalidateWorkerCopies(state)
-      deserializeOp(state, parts, files)
+      deserializeOp(state, parts)
     },
+    planCheckpoint: (listedKeys: readonly string[] | null) => planCheckpointOp(state, listedKeys),
+    recordCheckpoint: (plan: VectorCheckpointPlan, written: readonly WrittenVectorFile[]) =>
+      recordCheckpointOp(state, plan, written),
+    restoreCheckpoint: (shape: CheckpointRestoreShape) => {
+      invalidateWorkerCopies(state)
+      return beginCheckpointRestore(state, shape)
+    },
+    vectorFilesInUse: () =>
+      state.store.dimension === 0 ? [] : state.store.handles.vectorFiles.filter(path => path !== ''),
     adoptDiskLayout: (layout: VectorFileLayout) => adoptDiskLayoutOp(state, layout),
     releaseVectorFiles: async () => {
       await withdrawWorkerCopies(state)

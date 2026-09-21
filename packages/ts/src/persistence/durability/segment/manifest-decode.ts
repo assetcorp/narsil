@@ -9,20 +9,14 @@ import {
   SEGMENT_MANIFEST_VERSION,
   type SegmentManifest,
   type SegmentRef,
-  type VectorSegmentRef,
 } from './manifest'
+import { normalizeVectorFields } from './manifest-vectors-decode'
 
 interface RawSegmentRef {
   id?: number
   key?: string
   docCount?: number
   tombstoneCount?: number
-}
-
-interface RawVectorRef {
-  fieldPath?: string
-  generation?: number
-  keys?: unknown
 }
 
 interface RawPartitionEntry {
@@ -37,7 +31,7 @@ interface RawManifest {
   language?: string
   checkpoint?: Array<{ partitionId?: number; lastSeqNo?: number; primaryTerm?: number }>
   partitions?: RawPartitionEntry[]
-  vectors?: RawVectorRef[]
+  vectors?: unknown
 }
 
 export async function decodeSegmentManifest(data: Uint8Array): Promise<SegmentManifest> {
@@ -60,7 +54,7 @@ export async function decodeSegmentManifest(data: Uint8Array): Promise<SegmentMa
     language: base.language,
     checkpoint: normalizeCheckpoint(raw.checkpoint),
     partitions: normalizePartitions(raw.partitions),
-    vectors: normalizeVectors(raw.vectors),
+    vectors: normalizeVectorFields(raw.vectors),
   }
 }
 
@@ -179,40 +173,6 @@ function readNextSegmentId(value: unknown, segments: SegmentRef[], partitionId: 
     }
   }
   return value
-}
-
-function normalizeVectors(raw: RawVectorRef[] | undefined): VectorSegmentRef[] {
-  if (raw === undefined) {
-    return []
-  }
-  if (!Array.isArray(raw)) {
-    throw new NarsilError(ErrorCodes.PERSISTENCE_LOAD_FAILED, 'Segment manifest has malformed vector references')
-  }
-  const result: VectorSegmentRef[] = []
-  const seenFields = new Set<string>()
-  for (const vector of raw) {
-    if (
-      typeof vector?.fieldPath !== 'string' ||
-      !isNonNegativeInteger(vector.generation) ||
-      !Array.isArray(vector.keys) ||
-      vector.keys.length === 0 ||
-      !vector.keys.every(isKey)
-    ) {
-      throw new NarsilError(ErrorCodes.PERSISTENCE_LOAD_FAILED, 'Segment manifest has an invalid vector reference', {
-        vector,
-      })
-    }
-    if (seenFields.has(vector.fieldPath)) {
-      throw new NarsilError(
-        ErrorCodes.PERSISTENCE_LOAD_FAILED,
-        `Segment manifest lists the vector field "${vector.fieldPath}" twice`,
-        { fieldPath: vector.fieldPath },
-      )
-    }
-    seenFields.add(vector.fieldPath)
-    result.push({ fieldPath: vector.fieldPath, generation: vector.generation, keys: [...vector.keys] })
-  }
-  return result
 }
 
 function isNonNegativeInteger(value: unknown): value is number {

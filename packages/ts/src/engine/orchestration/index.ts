@@ -62,6 +62,10 @@ export function createWorkerOrchestrator(
   callbacks?: WorkerOrchestratorCallbacks,
   vectorCopyPolicy?: VectorWorkerCopyPolicy,
 ): WorkerOrchestrator {
+  let announceShutdown: () => void = () => undefined
+  const shutdownStarted = new Promise<void>(resolve => {
+    announceShutdown = resolve
+  })
   const state: OrchestratorState = {
     config,
     executor,
@@ -89,6 +93,9 @@ export function createWorkerOrchestrator(
     idleMergeTimers: new Map(),
     sharedVectorFields: new Map(),
     workerPool: null,
+    retiredThreadsGone: Promise.resolve(),
+    shutdownStarted,
+    announceShutdown,
     poolStart: null,
     poolRetryAt: 0,
     poolRetryDelayMs: POOL_RESTART_DELAY_MS,
@@ -140,6 +147,7 @@ export function createWorkerOrchestrator(
 
   async function shutdown(): Promise<void> {
     state.shuttingDown = true
+    state.announceShutdown()
     stopIdleSweep(state)
     cancelRepair(state)
     stopRequestThreads(state)

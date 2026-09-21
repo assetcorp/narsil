@@ -1,8 +1,6 @@
 import { ErrorCodes, NarsilError } from '../../errors'
 import { createHNSWIndex, type SerializedHNSWGraph } from '../hnsw'
 import { type OsqQuantizer, osqBitsOf } from '../osq'
-import { magnitude } from '../similarity'
-import { readsFromDisk, type VectorPartFile } from './disk'
 import {
   bytesToVectors,
   VECTOR_INDEX_PART_VECTORS,
@@ -11,7 +9,7 @@ import {
   type VectorIndexPayload,
   vectorsToBytes,
 } from './payload'
-import { adoptGraph, recalibrateFromStore, type VectorIndexState } from './shared'
+import { adoptGraph, emptyFieldBeforeRestore, recalibrateFromStore, type VectorIndexState } from './shared'
 
 function liveDocIds(state: VectorIndexState): string[] {
   const docIds: string[] = []
@@ -54,7 +52,7 @@ function recordFor(state: VectorIndexState, quantizer: OsqQuantizer, docId: stri
   return quantizer.recordOf(docId)
 }
 
-function codedCentroid(state: VectorIndexState): number[] | null {
+export function codedCentroid(state: VectorIndexState): number[] | null {
   const centroid = state.osq?.centroid ?? null
   if (centroid === null || state.store.handles.codeLayout === null || state.hnsw === null) return null
   return Array.from(centroid)
@@ -69,7 +67,7 @@ function sameCentroid(state: VectorIndexState, planned: readonly number[]): bool
   return true
 }
 
-function partCodes(
+export function partCodes(
   state: VectorIndexState,
   docIds: readonly string[],
   centroid: number[] | null,
@@ -80,7 +78,7 @@ function partCodes(
   if (!sameCentroid(state, centroid)) {
     throw new NarsilError(
       ErrorCodes.PERSISTENCE_SAVE_FAILED,
-      `The vector field "${state.fieldName}" was recalibrated while its parts were being written`,
+      `The vector field "${state.fieldName}" was recalibrated while a save was writing its vectors`,
       { fieldName: state.fieldName },
     )
   }
@@ -92,12 +90,12 @@ function partCodes(
   return { bits: quantizer.bits, centroid, records }
 }
 
-export interface VectorIndexPartsPlan {
+interface VectorIndexPartsPlan {
   readonly parts: number
   readPart(part: number): VectorIndexPayload
 }
 
-export function planParts(state: VectorIndexState): VectorIndexPartsPlan {
+function planParts(state: VectorIndexState): VectorIndexPartsPlan {
   const docIds = liveDocIds(state)
   const parts = Math.max(1, Math.ceil(docIds.length / VECTOR_INDEX_PART_VECTORS))
   const partOf = new Map<string, number>()
@@ -230,39 +228,15 @@ function restoreGraphs(state: VectorIndexState, graphs: SerializedHNSWGraph[]): 
   }
 }
 
-function insertPart(
-  state: VectorIndexState,
-  part: VectorIndexPayload,
-  file: VectorPartFile | null,
-  cold: boolean,
-): void {
+function insertPart(state: VectorIndexState, part: VectorIndexPayload): void {
   const dimension = state.dimension
   const vectors = bytesToVectors(part.vectors)
-  const fileIndex = file !== null && cold ? state.store.addVectorFile(file.path) : null
   for (let i = 0; i < part.docIds.length; i++) {
-    const docId = part.docIds[i]
-    const vector = vectors.subarray(i * dimension, (i + 1) * dimension)
-    if (file === null) {
-      state.store.insert(docId, vector)
-      continue
-    }
-    const offset = file.vectorsOffset + i * dimension * 4
-    if (fileIndex !== null) {
-      state.store.insertCold(docId, magnitude(vector), { fileIndex, offset })
-      continue
-    }
-    state.store.insert(docId, vector)
-    state.pendingLocations.set(docId, { path: file.path, offset })
+    state.store.insert(part.docIds[i], vectors.subarray(i * dimension, (i + 1) * dimension))
   }
 }
 
-function vectorsIn(parts: VectorIndexPayload[]): number {
-  let count = 0
-  for (const part of parts) count += part.docIds.length
-  return count
-}
-
-export function deserialize(state: VectorIndexState, parts: VectorIndexPayload[], files?: VectorPartFile[]): void {
+export function deserialize(state: VectorIndexState, parts: VectorIndexPayload[]): void {
   for (const part of parts) {
     if (part.dimension !== state.dimension) {
       throw new NarsilError(
@@ -279,19 +253,10 @@ export function deserialize(state: VectorIndexState, parts: VectorIndexPayload[]
       if (graph.nodes.length > 0) graphs.push(graph)
     }
   }
-  const onDisk = readsFromDisk(state) && files !== undefined && files.length === parts.length
-  const cold = onDisk && (graphs.length > 0 || vectorsIn(parts) >= state.promotionThreshold)
 
-  state.store.clear()
-  state.tombstones.clear()
-  state.buffer.clear()
-  state.pendingLocations.clear()
-  adoptGraph(state, null)
-  state.osq?.clear()
+  emptyFieldBeforeRestore(state)
 
-  for (let index = 0; index < parts.length; index++) {
-    insertPart(state, parts[index], onDisk && files !== undefined ? files[index] : null, cold)
-  }
+  for (const part of parts) insertPart(state, part)
 
   if (state.osq !== null && osqBitsOf(state.quantizationMode) !== null && graphs.length > 0) {
     restoreCodes(state, sequences)

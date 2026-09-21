@@ -28,6 +28,8 @@ export function retirePool(state: OrchestratorState, pool: WorkerPool): void {
   state.scaledOutIndexes.clear()
   state.segmentLedger.clear()
   for (const { workerId } of pool.executorEntries()) state.requestThreads?.onWorkerGone(workerId)
+  const earlierThreadsGone = state.retiredThreadsGone
+  state.retiredThreadsGone = pool.whenEveryThreadIsGone().then(() => earlierThreadsGone)
   void pool.shutdown().catch(() => undefined)
   scheduleRequestThreadPoolRestart(state)
 }

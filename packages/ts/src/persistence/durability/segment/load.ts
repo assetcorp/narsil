@@ -3,6 +3,7 @@ import type { DurableDirectory } from '../durable-filesystem'
 import type { ReplayDeps } from '../recovery'
 import type { PartitionCheckpoint } from '../snapshot-bundle'
 import { manifestKey, segmentsPrefix, snapshotBundleKey } from './layout'
+import { loadPartitionSegmentBySegment } from './load-partition'
 import {
   decodeSegmentManifest,
   manifestReferencedKeys,
@@ -11,7 +12,7 @@ import {
 } from './manifest'
 import { mergeTimeOrderedSegments } from './merge'
 import { readSegmentContents, type SegmentContents } from './segment-file'
-import { readVectorParts } from './vector'
+import { loadVectorField } from './vector'
 
 export async function readSegmentManifest(
   directory: DurableDirectory,
@@ -56,20 +57,23 @@ export async function loadSegmentedSnapshot(
         { indexName, partitionId: partition.partitionId, partitionCount: deps.manager.partitionCount },
       )
     }
-    await loadPartition(directory, indexName, partition, deps)
+    if (deps.storedTermsAreCurrent === true) {
+      await loadPartitionSegmentBySegment(directory, partition, deps.manager)
+    } else {
+      await loadPartitionWithItsStoredTerms(directory, indexName, partition, deps)
+    }
   }
 
   for (const vector of manifest.vectors) {
     const vectorIndex = deps.vectorIndexes.get(vector.fieldPath)
     if (vectorIndex === undefined) continue
-    const read = await readVectorParts(directory, vector.keys)
-    vectorIndex.deserialize(read.parts, read.files)
+    await loadVectorField(directory, indexName, vector, vectorIndex)
   }
 
   return manifest.checkpoint
 }
 
-async function loadPartition(
+async function loadPartitionWithItsStoredTerms(
   directory: DurableDirectory,
   indexName: string,
   partition: PartitionManifestEntry,

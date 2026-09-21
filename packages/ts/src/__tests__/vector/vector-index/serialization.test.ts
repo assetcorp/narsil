@@ -38,44 +38,6 @@ describe('VectorIndex serialization', () => {
     vi.useRealTimers()
   })
 
-  it('plans the parts at one moment and reads each part later, with zeros for a vector removed in between', () => {
-    for (let i = 0; i < 3; i++) index.insert(`doc${i}`, normalizedVector(DIM, i + 1))
-    const written = index.serialize()
-    const plan = index.planParts()
-    index.remove('doc1')
-    index.compact()
-
-    const part = plan.readPart(0)
-
-    expect(plan.parts).toBe(1)
-    expect(part.docIds).toEqual(['doc0', 'doc1', 'doc2'])
-    const vectors = bytesToVectors(part.vectors)
-    const before = bytesToVectors(written[0].vectors)
-    expect([...vectors.subarray(0, DIM)]).toEqual([...before.subarray(0, DIM)])
-    expect([...vectors.subarray(DIM, 2 * DIM)]).toEqual(new Array(DIM).fill(0))
-    expect([...vectors.subarray(2 * DIM)]).toEqual([...before.subarray(2 * DIM)])
-  })
-
-  it('refuses to read a part once the field has been recalibrated since the plan', async () => {
-    const coded = createVectorIndex('embedding', DIM, { threshold: 5, quantization: 'osq8' })
-    try {
-      for (let i = 0; i < 12; i++) coded.insert(`doc${i}`, normalizedVector(DIM, i + 1))
-      coded.scheduleBuild()
-      await vi.advanceTimersByTimeAsync(1)
-      await coded.awaitPendingBuild()
-      const plan = coded.planParts()
-      expect(plan.readPart(0).codes).not.toBeNull()
-      for (let i = 0; i < 9; i++) coded.remove(`doc${i}`)
-      for (let i = 12; i < 40; i++) coded.insert(`doc${i}`, normalizedVector(DIM, 3 * i + 5))
-
-      await coded.optimize()
-
-      expect(() => plan.readPart(0)).toThrow(/recalibrated/)
-    } finally {
-      coded.dispose()
-    }
-  })
-
   it('writes no graph once every vector is removed and reads an empty graph as none', async () => {
     for (let i = 0; i < 6; i++) index.insert(`doc${i}`, normalizedVector(DIM, i + 1))
     index.scheduleBuild()

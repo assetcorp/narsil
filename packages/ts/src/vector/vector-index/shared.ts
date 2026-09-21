@@ -6,6 +6,7 @@ import type { OsqQuantizer } from '../osq'
 import type { VectorSearchPool } from '../search-pool'
 import type { GraphInsertOutcome, SharedVectorFieldHandles } from '../shared-field/types'
 import type { VectorStore } from '../vector-store'
+import type { FieldSignature, SavedVectorFile } from './checkpoint-plan'
 import { REBUILD_REMOVED_RATIO } from './constants'
 import type { PendingVectorLocation } from './disk'
 
@@ -95,6 +96,10 @@ export interface VectorIndexState {
   readonly buffer: Set<string>
   /** A checkpoint wrote these vectors to a file while the field held no graph, and the field points each at its place once it holds one. */
   readonly pendingLocations: Map<string, PendingVectorLocation>
+  /** The vector files that the last committed checkpoint lists for the field, in manifest order. */
+  savedFiles: readonly SavedVectorFile[]
+  /** What the field looked like when that checkpoint planned its files, and null before the first. */
+  savedSignature: FieldSignature | null
   osq: OsqQuantizer | null
   hnsw: HNSWIndex | null
   /** The graph a build is filling from the store, which a replacement retires its old ordinal in. */
@@ -139,6 +144,17 @@ export function assignStorePartitions(state: VectorIndexState, resolve: (docId: 
     }
     state.store.setPartition(docId, partitionId)
   }
+}
+
+export function emptyFieldBeforeRestore(state: VectorIndexState): void {
+  state.store.clear()
+  state.tombstones.clear()
+  state.buffer.clear()
+  state.pendingLocations.clear()
+  adoptGraph(state, null)
+  state.osq?.clear()
+  state.savedFiles = []
+  state.savedSignature = null
 }
 
 export function adoptGraph(state: VectorIndexState, graph: HNSWIndex | null): void {

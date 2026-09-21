@@ -68,6 +68,7 @@ async function mainAndCopy(): Promise<{
       removeIndex: () => undefined,
       getMemoryStats: async () => [],
       shutdown: async () => undefined,
+      whenEveryThreadIsGone: async () => undefined,
     },
   })
   return { state, main, copy, worker, received }

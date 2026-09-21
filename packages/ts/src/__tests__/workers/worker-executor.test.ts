@@ -290,17 +290,41 @@ describe('WorkerExecutor', () => {
       })
     })
 
-    it('treats an exit during shutdown as a shutdown, keeping onDeath silent', async () => {
+    it('treats an exit during shutdown as the shutdown it asked for, keeping onDeath silent', async () => {
       const worker = createMockWorker()
       const onDeath = vi.fn()
-      const executor = createWorkerExecutor(worker, { onDeath })
+      const onGone = vi.fn()
+      const executor = createWorkerExecutor(worker, { onDeath, onGone })
 
       const shutdownPromise = executor.shutdown()
-      swallow(shutdownPromise)
       worker.simulateExit(0)
 
-      await expect(shutdownPromise).rejects.toMatchObject({ code: ErrorCodes.WORKER_CRASHED })
+      await expect(shutdownPromise).resolves.toBeUndefined()
       expect(onDeath).not.toHaveBeenCalled()
+      expect(onGone).toHaveBeenCalledTimes(1)
+    })
+
+    it('counts an answer that waits in the queue when the timeout fires', async () => {
+      vi.useFakeTimers()
+      try {
+        const worker = createMockWorker()
+        const onDeath = vi.fn()
+        const executor = createWorkerExecutor(worker, { requestTimeout: 500, onDeath })
+
+        const answers: Array<Promise<number>> = []
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+          answers.push(executor.execute<number>({ type: 'count', indexName: 'a', requestId: 'p1' }))
+          const sent = worker.lastMessage as { requestId: string }
+          vi.advanceTimersToNextTimer()
+          worker.simulateResponse({ type: 'success', requestId: sent.requestId, data: attempt })
+          await vi.advanceTimersByTimeAsync(1)
+        }
+
+        expect(await Promise.all(answers)).toEqual([0, 1, 2])
+        expect(onDeath).not.toHaveBeenCalled()
+      } finally {
+        vi.useRealTimers()
+      }
     })
 
     it('retires a worker that leaves three consecutive requests unanswered', async () => {
@@ -462,11 +486,27 @@ describe('WorkerExecutor', () => {
       const executor = createWorkerExecutor(worker, { onDeath })
 
       const shutdownPromise = executor.shutdown()
-      swallow(shutdownPromise)
       worker.simulateErrorEvent({ message: 'The page terminated the worker' })
 
-      await expect(shutdownPromise).rejects.toMatchObject({ code: ErrorCodes.WORKER_CRASHED })
+      await expect(shutdownPromise).resolves.toBeUndefined()
       expect(onDeath).not.toHaveBeenCalled()
+    })
+
+    it('stops a browser worker once it acknowledges the shutdown', async () => {
+      const worker = createMockWebWorker()
+      const terminate = vi.fn()
+      worker.terminate = terminate
+      const onGone = vi.fn()
+      const executor = createWorkerExecutor(worker, { onGone })
+
+      const shutdownPromise = executor.shutdown()
+      const sent = worker.lastMessage as { requestId: string }
+      expect(terminate).not.toHaveBeenCalled()
+      worker.simulateResponse({ type: 'success', requestId: sent.requestId, data: undefined })
+
+      await expect(shutdownPromise).resolves.toBeUndefined()
+      expect(terminate).toHaveBeenCalledTimes(1)
+      expect(onGone).toHaveBeenCalledTimes(1)
     })
   })
 
@@ -493,6 +533,7 @@ describe('WorkerExecutor', () => {
         requestId: shutdownAction.requestId,
         data: undefined,
       })
+      worker.simulateExit(0)
 
       await shutdownPromise
 
@@ -501,6 +542,43 @@ describe('WorkerExecutor', () => {
         await pending
       } catch (e) {
         expect((e as NarsilError).code).toBe(ErrorCodes.WORKER_CRASHED)
+      }
+    })
+
+    it('keeps a thread that acknowledged a shutdown as running until it exits', async () => {
+      const worker = createMockWorker()
+      const executor = createWorkerExecutor(worker)
+      let settled = false
+
+      const shutdownPromise = executor.shutdown().then(() => {
+        settled = true
+      })
+      const sent = worker.lastMessage as { requestId: string }
+      worker.simulateResponse({ type: 'success', requestId: sent.requestId, data: undefined })
+      await Promise.resolve()
+      expect(settled).toBe(false)
+
+      worker.simulateExit(0)
+      await shutdownPromise
+      expect(settled).toBe(true)
+    })
+
+    it('rejects with WORKER_TIMEOUT when the thread never exits, and lets the process end without it', async () => {
+      vi.useFakeTimers()
+      try {
+        const worker = createMockWorker()
+        const unref = vi.fn()
+        worker.unref = unref
+        const executor = createWorkerExecutor(worker)
+
+        const shutdownPromise = executor.shutdown()
+        swallow(shutdownPromise)
+        await vi.advanceTimersByTimeAsync(5001)
+
+        await expect(shutdownPromise).rejects.toMatchObject({ code: ErrorCodes.WORKER_TIMEOUT })
+        expect(unref).toHaveBeenCalledTimes(1)
+      } finally {
+        vi.useRealTimers()
       }
     })
 

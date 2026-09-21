@@ -11,7 +11,8 @@ import { HEADER_SIZE } from '../../../serialization/header'
 import type { IndexConfig } from '../../../types/schema'
 import type { SharedVectorFieldHandles } from '../../../vector/shared-field/types'
 import { createVectorIndex, type VectorIndexPayload } from '../../../vector/vector-index'
-import { decodeVectorIndexPart, vectorsToBytes } from '../../../vector/vector-index/payload'
+import { decodeVectorFilePayload } from '../../../vector/vector-index/checkpoint-payload'
+import { vectorsToBytes } from '../../../vector/vector-index/payload'
 import type { SharedCopyHost } from '../../../vector/vector-index/shared'
 import { createVectorStore } from '../../../vector/vector-store'
 import { createFakeVectorThreads, DIM, normalizedVector } from './fixtures'
@@ -191,7 +192,22 @@ describe('a vector field kept on disk', () => {
     source.dispose()
 
     const index = createVectorIndex('embedding', DIM, config, { enabled: false }, 'docs', 'disk')
-    index.deserialize([part], [file])
+    const restore = index.restoreCheckpoint({ liveVectors: part.docIds.length, holdsGraph: false })
+    restore.addFile({
+      id: 0,
+      key: 'part-0',
+      payload: {
+        v: 1,
+        fieldName: part.fieldName,
+        dimension: part.dimension,
+        docIds: part.docIds,
+        codes: null,
+        vectors: part.vectors,
+      },
+      dead: null,
+      location: file,
+    })
+    restore.finish(null)
     await index.adoptDiskLayout({ ...file, docIds: part.docIds })
     const replaced = new Float32Array([0.5, 0.25, 0.125, 0.0625])
     await overwriteVector(file, part, 'doc1', replaced)
@@ -234,11 +250,11 @@ describe('a vector field kept on disk', () => {
     expect(recovered.hits.map(hit => hit.id)).toEqual(expected)
 
     const durable = createDurableDirectory(directory)
-    const [key] = (await durable.list('papers/segments/')).filter(name => name.includes('/vec-embedding-'))
+    const [key] = (await durable.list('papers/segments/')).filter(name => /\/vec-embedding-[a-z0-9]+-f\d+$/.test(name))
     const bytes = await durable.read(key)
-    if (bytes === null) throw new Error('vector part missing')
+    if (bytes === null) throw new Error('vector file missing')
     const { header, payloadBytes } = await unpackEnvelopeBytes(bytes)
-    const part = decodeVectorIndexPart(decode(payloadBytes))
+    const part = decodeVectorFilePayload(decode(payloadBytes))
     const position = part.docIds.indexOf('p9')
     const offset = HEADER_SIZE + header.payloadLength - (part.docIds.length - position) * DIM * 4
     const replaced = new Float32Array([0.5, 0.25, 0.125, 0.0625])

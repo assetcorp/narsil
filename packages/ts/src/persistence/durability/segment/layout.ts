@@ -2,7 +2,6 @@ import { fnv1a } from '../../../core/hash'
 import { ErrorCodes, NarsilError } from '../../../errors'
 
 export const SEGMENT_ID_WIDTH = 16
-export const VECTOR_PART_WIDTH = 4
 
 export function manifestKey(indexName: string): string {
   return `${indexName}/manifest`
@@ -24,8 +23,19 @@ export function segmentsPrefix(indexName: string): string {
   return `${indexName}/segments/`
 }
 
-export function vectorSegmentKey(indexName: string, fieldPath: string, generation: number, part: number): string {
-  return `${segmentsPrefix(indexName)}vec-${encodeFieldPath(fieldPath)}-g${generation}-p${formatPart(part)}`
+export function vectorFileKey(indexName: string, fieldPath: string, fileId: number): string {
+  return `${segmentsPrefix(indexName)}vec-${encodeFieldPath(fieldPath)}-f${formatSegmentId(fileId)}`
+}
+
+export function vectorGraphKey(indexName: string, fieldPath: string, generation: number): string {
+  if (!Number.isSafeInteger(generation) || generation <= 0) {
+    throw new NarsilError(
+      ErrorCodes.PERSISTENCE_SAVE_FAILED,
+      `Vector graph generation ${generation} must be a positive integer`,
+      { generation },
+    )
+  }
+  return `${segmentsPrefix(indexName)}vec-${encodeFieldPath(fieldPath)}-graph-g${generation}`
 }
 
 function formatSegmentId(segmentId: number): string {
@@ -37,15 +47,6 @@ function formatSegmentId(segmentId: number): string {
     )
   }
   return segmentId.toString().padStart(SEGMENT_ID_WIDTH, '0')
-}
-
-function formatPart(part: number): string {
-  if (!Number.isInteger(part) || part < 0) {
-    throw new NarsilError(ErrorCodes.PERSISTENCE_SAVE_FAILED, `Vector part ${part} must be a non-negative integer`, {
-      part,
-    })
-  }
-  return part.toString().padStart(VECTOR_PART_WIDTH, '0')
 }
 
 const FIELD_PATH_PATTERN = /^[A-Za-z0-9_.]+$/
