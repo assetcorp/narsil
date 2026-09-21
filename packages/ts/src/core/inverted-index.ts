@@ -18,6 +18,7 @@ export interface TermSuggestion {
 
 export interface InvertedIndexReader {
   lookup(token: string): PostingListView | undefined
+  lookupReadOnce?(token: string): PostingListView | undefined
   fuzzyLookup(
     token: string,
     tolerance: number,

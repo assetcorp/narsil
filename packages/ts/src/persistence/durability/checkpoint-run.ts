@@ -7,6 +7,7 @@ import {
   wholePartitionsWhereMostChanged,
   writeCapturedVectors,
 } from './checkpoint-capture'
+import { checkpointWorkerIsUsable } from './checkpoint-worker-dispatch'
 import { writeIndexCheckpointSegments } from './checkpoint-write'
 import type { DurableDirectory } from './durable-filesystem'
 import type { IndexState } from './manager-state'
@@ -72,12 +73,12 @@ export async function runDurableCheckpoint(input: DurableCheckpointInput): Promi
     input.indexState,
     manager,
     vectorIndexes,
-    wholePartitionsWhereMostChanged(
-      manager,
-      priorManifest?.checkpoint ?? [],
-      (priorManifest?.partitions ?? []).map(partition => partition.partitionId),
-      input.fromMemory,
-    ),
+    wholePartitionsWhereMostChanged(manager, {
+      priorCheckpoint: priorManifest?.checkpoint ?? [],
+      priorPartitionIds: (priorManifest?.partitions ?? []).map(partition => partition.partitionId),
+      everyPartition: input.fromMemory,
+      aWorkerCanSerialise: input.canOffload && checkpointWorkerIsUsable(),
+    }),
   )
   const { targets, documentCount } = capture
   await makeEveryAppliedMutationDurable(input.indexState, input.markFatal)
@@ -89,7 +90,8 @@ export async function runDurableCheckpoint(input: DurableCheckpointInput): Promi
       targets,
       compactionThreshold: input.compactionThreshold,
       canOffload: input.canOffload,
-      wholePartitions: capture.wholePartitions,
+      wholePartitions: capture.wholePartitions.serialized,
+      capturedPartitions: capture.wholePartitions.captured,
     }),
   )
   await makeEveryAppliedMutationDurable(input.indexState, input.markFatal)

@@ -15,7 +15,8 @@ import {
 } from '../field-index'
 import { visitTokens } from '../tokenizer/tokenize'
 import { GrowableUint32 } from './growable-uint32'
-import { encodeFieldIndexes, type SegmentPayload } from './segment-payload'
+import { encodeFieldIndexes } from './segment-field-indexes'
+import type { SegmentPayload } from './segment-payload'
 import { getNestedValue, type PartitionInsertOptions, tokenizeOptions } from './utils'
 
 export interface SegmentDocument {

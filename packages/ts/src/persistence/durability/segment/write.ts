@@ -4,7 +4,6 @@ import { ErrorCodes, NarsilError } from '../../../errors'
 import { getLanguage } from '../../../languages/registry'
 import { extractVectorFieldsFromSchema } from '../../../schema/validator/schema'
 import type { IndexMetadata } from '../../../types/internal'
-import type { LanguageModule } from '../../../types/language'
 import type { IndexConfig } from '../../../types/schema'
 import { DEFAULT_COMPACTION_THRESHOLD } from '../constants'
 import type { DurableDirectory } from '../durable-filesystem'
@@ -12,6 +11,7 @@ import { snapshotCheckpointFor } from '../recovery'
 import type { PartitionCheckpoint } from '../snapshot-bundle'
 import { walEntriesInRange } from '../wal-segments'
 import { buildSegmentFromEntries } from './build-segment'
+import { type CapturedWholePartition, serializeCapturedPartition } from './captured-partition'
 import { compactPartitionSegments } from './compaction'
 import { manifestKey, segmentKey, segmentsPrefix, snapshotBundleKey } from './layout'
 import { readSegmentManifest } from './load'
@@ -33,6 +33,7 @@ export interface SegmentedCheckpointInput {
   targets: PartitionCheckpoint[]
   compactionThreshold: number
   wholePartitions?: ReadonlyMap<number, WholePartitionSegment>
+  capturedPartitions?: readonly CapturedWholePartition[]
   vectors?: VectorSegmentRef[]
 }
 
@@ -57,7 +58,7 @@ interface PartitionWriteContext {
   directory: DurableDirectory
   indexName: string
   config: IndexConfig
-  language: LanguageModule
+  languageName: string
   vectorFieldPaths: Set<string>
   compactionThreshold: number
 }
@@ -93,7 +94,6 @@ export async function writeCheckpointSegments(input: CheckpointSegmentsInput): P
   const { directory, metadata } = input
   const indexName = metadata.indexName
   const config = reconstructSchemaFromMetadata(metadata)
-  const language = getLanguage(config.language ?? 'english')
   const vectorFields = extractVectorFieldsFromSchema(config.schema)
   const compactionThreshold = resolveCompactionThreshold(input.compactionThreshold)
 
@@ -101,7 +101,7 @@ export async function writeCheckpointSegments(input: CheckpointSegmentsInput): P
     directory,
     indexName,
     config,
-    language,
+    languageName: config.language ?? 'english',
     vectorFieldPaths: new Set(vectorFields.keys()),
     compactionThreshold,
   }
@@ -120,7 +120,9 @@ export async function writeCheckpointSegments(input: CheckpointSegmentsInput): P
   for (const target of input.targets) {
     const priorPartition = priorManifest?.partitions.find(p => p.partitionId === target.partitionId)
     const priorSeqNo = snapshotCheckpointFor(priorManifest?.checkpoint ?? [], target.partitionId)
-    const whole = input.wholePartitions?.get(target.partitionId)
+    const whole =
+      input.wholePartitions?.get(target.partitionId) ??
+      serializedFromCapture(context, input.capturedPartitions, target.partitionId)
     if (whole === undefined) {
       const entries = walEntriesInRange(directory, indexName, target.partitionId, priorSeqNo, target.lastSeqNo)
       partitions.push(await writePartition(context, target.partitionId, priorPartition, entries))
@@ -133,6 +135,19 @@ export async function writeCheckpointSegments(input: CheckpointSegmentsInput): P
   return { checkpoint: [...checkpointByPartition.values()], partitions }
 }
 
+function serializedFromCapture(
+  context: PartitionWriteContext,
+  capturedPartitions: readonly CapturedWholePartition[] | undefined,
+  partitionId: number,
+): WholePartitionSegment | undefined {
+  const captured = capturedPartitions?.find(candidate => candidate.partitionId === partitionId)
+  if (captured === undefined) return undefined
+  return {
+    payload: serializeCapturedPartition(context.indexName, context.config, context.languageName, captured),
+    docCount: captured.docCount,
+  }
+}
+
 async function writePartition(
   context: PartitionWriteContext,
   partitionId: number,
@@ -141,11 +156,12 @@ async function writePartition(
 ): Promise<PartitionManifestEntry> {
   let segments: SegmentRef[] = priorPartition ? [...priorPartition.segments] : []
   let nextSegmentId = priorPartition?.nextSegmentId ?? 0
+  const language = getLanguage(context.languageName)
 
   const built = await buildSegmentFromEntries({
     indexName: context.indexName,
     config: context.config,
-    language: context.language,
+    language,
     vectorFieldPaths: context.vectorFieldPaths,
     entries,
   })
@@ -171,7 +187,7 @@ async function writePartition(
     indexName: context.indexName,
     partitionId,
     config: context.config,
-    language: context.language,
+    language,
     segments,
     nextSegmentId,
     compactionThreshold: context.compactionThreshold,

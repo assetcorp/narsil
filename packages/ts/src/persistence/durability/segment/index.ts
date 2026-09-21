@@ -1,3 +1,4 @@
+export { type CapturablePartitions, type CapturedWholePartition, captureWholePartition } from './captured-partition'
 export { snapshotBundleKey } from './layout'
 export { loadSegmentedSnapshot, readSegmentManifest, reclaimOrphanedSegments } from './load'
 export type { SegmentManifest, VectorSegmentRef } from './manifest'

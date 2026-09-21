@@ -1,5 +1,6 @@
 declare const self: unknown
 
+import { startIdleHeapCleanup } from '#platform/idle-heap-cleanup'
 import { buildErrorResponse, createActionHandler } from './action-handler'
 import { isValidWorkerAction } from './protocol'
 import { threadSlotOfWorker } from './thread-slot'
@@ -40,6 +41,7 @@ async function setup(): Promise<void> {
 
   if (parentPort) {
     const port = parentPort
+    startIdleHeapCleanup()
     port.on('message', (raw: unknown) => {
       if (!isValidWorkerAction(raw)) {
         const requestId = (raw as { requestId?: string })?.requestId ?? 'unknown'

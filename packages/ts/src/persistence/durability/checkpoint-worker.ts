@@ -1,7 +1,7 @@
 import type { IndexMetadata } from '../../types/internal'
 import { CHECKPOINT_WORKER_HEARTBEAT_MS } from './constants'
 import { rebuildSegmentsFromDurable } from './rebuild'
-import type { CheckpointSegmentsWritten } from './segment'
+import type { CapturedWholePartition, CheckpointSegmentsWritten } from './segment'
 import type { PartitionCheckpoint } from './snapshot-bundle'
 
 export interface CheckpointWorkerRequest {
@@ -9,6 +9,7 @@ export interface CheckpointWorkerRequest {
   metadata: IndexMetadata
   targets: PartitionCheckpoint[]
   compactionThreshold: number
+  capturedPartitions?: CapturedWholePartition[]
 }
 
 export interface CheckpointWorkerSuccess {
@@ -41,11 +42,15 @@ async function handleRequest(raw: unknown): Promise<CheckpointWorkerSuccess> {
   if (!Number.isInteger(request.compactionThreshold) || request.compactionThreshold <= 0) {
     throw new Error('Checkpoint request has an invalid compaction threshold')
   }
+  if (request.capturedPartitions !== undefined && !Array.isArray(request.capturedPartitions)) {
+    throw new Error('Checkpoint request names captured partitions in a shape the worker cannot read')
+  }
   const segments = await rebuildSegmentsFromDurable(
     request.root,
     request.metadata,
     request.targets,
     request.compactionThreshold,
+    request.capturedPartitions,
   )
   return { type: 'success', segments }
 }

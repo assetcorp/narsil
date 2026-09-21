@@ -1,9 +1,13 @@
+import type { PartitionManager } from '../../partitioning/manager'
 import type { VectorIndex, VectorIndexPartsPlan } from '../../vector/vector-index'
 import { WHOLE_PARTITION_MIN_CHANGED_SHARE } from './constants'
 import type { DurableDirectory } from './durable-filesystem'
 import type { IndexState, PartitionState } from './manager-state'
 import { snapshotCheckpointFor } from './recovery'
 import {
+  type CapturablePartitions,
+  type CapturedWholePartition,
+  captureWholePartition,
   type SegmentManifest,
   type VectorCheckpointLayout,
   type VectorSegmentRef,
@@ -22,7 +26,7 @@ export interface CheckpointCapture {
   targets: PartitionCheckpoint[]
   documentCount: number
   vectorPlans: Map<string, VectorIndexPartsPlan>
-  wholePartitions: Map<number, WholePartitionSegment>
+  wholePartitions: WholePartitions
 }
 
 export interface LiveVectorsWritten {
@@ -77,21 +81,29 @@ export async function makeEveryAppliedMutationDurable(
   }
 }
 
-export interface SerialisablePartitions {
-  getPartition(partitionId: number): { count(): number }
-  serializePartitionToBytes(partitionId: number): Uint8Array
+export type SerialisablePartitions = CapturablePartitions & Pick<PartitionManager, 'serializePartitionToBytes'>
+
+export interface WholePartitions {
+  serialized: Map<number, WholePartitionSegment>
+  captured: CapturedWholePartition[]
 }
 
-export type WholePartitionsOf = (targets: readonly PartitionCheckpoint[]) => Map<number, WholePartitionSegment>
+export type WholePartitionsOf = (targets: readonly PartitionCheckpoint[]) => WholePartitions
+
+export interface WholePartitionRules {
+  priorCheckpoint: PartitionCheckpoint[]
+  priorPartitionIds: readonly number[]
+  everyPartition: boolean
+  aWorkerCanSerialise: boolean
+}
 
 export function wholePartitionsWhereMostChanged(
   manager: SerialisablePartitions,
-  priorCheckpoint: PartitionCheckpoint[],
-  priorPartitionIds: readonly number[],
-  everyPartition: boolean,
+  rules: WholePartitionRules,
 ): WholePartitionsOf {
+  const { priorCheckpoint, priorPartitionIds, everyPartition, aWorkerCanSerialise } = rules
   return targets => {
-    const whole = new Map<number, WholePartitionSegment>()
+    const whole: WholePartitions = { serialized: new Map(), captured: [] }
     const changed = targets.filter(
       target => everyPartition || target.lastSeqNo !== snapshotCheckpointFor(priorCheckpoint, target.partitionId),
     )
@@ -102,10 +114,15 @@ export function wholePartitionsWhereMostChanged(
     const logMatchesMemory = targets.length === 1 && priorPartitionIds.every(partitionId => partitionId === 0)
     if (!everyPartition && !(mostOfEachChanged && logMatchesMemory)) return whole
     for (const { partitionId } of changed) {
-      whole.set(partitionId, {
-        payload: manager.serializePartitionToBytes(partitionId),
-        docCount: manager.getPartition(partitionId).count(),
-      })
+      const captured = aWorkerCanSerialise ? captureWholePartition(manager, partitionId) : null
+      if (captured !== null) {
+        whole.captured.push(captured)
+      } else if (everyPartition || !aWorkerCanSerialise) {
+        whole.serialized.set(partitionId, {
+          payload: manager.serializePartitionToBytes(partitionId),
+          docCount: manager.getPartition(partitionId).count(),
+        })
+      }
     }
     return whole
   }
@@ -115,7 +132,7 @@ export async function captureCheckpoint(
   indexState: IndexState,
   manager: CheckpointedPartitions,
   vectorIndexes: Map<string, VectorIndex>,
-  wholePartitionsOf: WholePartitionsOf = () => new Map(),
+  wholePartitionsOf: WholePartitionsOf = () => ({ serialized: new Map(), captured: [] }),
 ): Promise<CheckpointCapture> {
   for (const vectorIndex of vectorIndexes.values()) await vectorIndex.completeGraph()
   return whileNoMutationApplies([...indexState.partitions.values()], () => {

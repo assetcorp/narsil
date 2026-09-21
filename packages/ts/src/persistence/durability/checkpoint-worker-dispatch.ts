@@ -134,6 +134,11 @@ function delay(ms: number): Promise<void> {
   })
 }
 
+export function checkpointWorkerIsUsable(): boolean {
+  const runtime = detectRuntime()
+  return runtime.supportsWorkerThreads && runtime.supportsFileSystem && workerUsable
+}
+
 export async function runCheckpointOnWorker(
   request: CheckpointWorkerRequest,
 ): Promise<CheckpointSegmentsWritten | null> {
