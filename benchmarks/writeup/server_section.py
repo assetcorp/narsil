@@ -259,6 +259,12 @@ def _threads_sentence(narsil: dict) -> str:
     )
 
 
+_SHARED_MACHINE_SENTENCE = (
+    "The load generator shares the machine with the engine under test, so its client processes take CPU time "
+    "that the engine could otherwise use, and the harness measures every engine under that same arrangement."
+)
+
+
 def _load_sentence(config: dict) -> str:
     throughput = config.get("throughput") or {}
     levels = throughput.get("concurrency") or []
@@ -270,9 +276,23 @@ def _load_sentence(config: dict) -> str:
         return (
             f"The harness measured throughput at {level_text} concurrent clients, one pass per level and "
             f"{integer(passes)} passes at each engine's peak level, and the tables report the median peak pass "
-            "with a 95% bootstrap interval."
+            f"with a 95% bootstrap interval. {_SHARED_MACHINE_SENTENCE}"
         )
-    return f"The harness measured throughput at {level_text} concurrent clients, one pass per level."
+    return (
+        f"The harness measured throughput at {level_text} concurrent clients, one pass per level. "
+        f"{_SHARED_MACHINE_SENTENCE}"
+    )
+
+
+def _java_heap_sentence(engines: list[dict]) -> str:
+    heaps = []
+    for engine in engines:
+        heap = (engine.get("build_identity") or {}).get("jvm_heap_max_bytes")
+        if isinstance(heap, (int, float)):
+            heaps.append(f"{engine_name(engine.get('name') or '')} reported a {decimal(heap / 1e9, 1)} GB heap")
+    if not heaps:
+        return ""
+    return f" Each Java engine divides that cap between its heap and the memory outside it, and {and_join(heaps)}."
 
 
 def _host(environment: dict) -> str:
@@ -334,8 +354,8 @@ def _setup_block(source: Source) -> str:
         f"- **Engines.** The comparison runs Narsil {narsil_version} against {and_join(others)}, "
         "and every engine runs from a pinned image.",
         f"- **Equal conditions.** Every engine receives the same {cap} GB memory cap, the same run depth of "
-        f"{integer(config.get('run_depth'))}, and the same run-file ordering, and the engines run one at a time so "
-        "latency never contends.",
+        f"{integer(config.get('run_depth'))}, and the same run-file ordering. The harness tests one engine at a "
+        f"time, so no engine competes with another for the machine.{_java_heap_sentence(engines)}",
         f"- **Load.** {_load_sentence(config)}",
         f"- **Narsil threads.** {_threads_sentence(narsil)}",
         f"- **Machine.** {machine}",
