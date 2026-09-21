@@ -28,11 +28,9 @@ export async function insertDocumentBatch(
 
   await ctx.orchestrator.scaleOutBeforeBatch(indexName, documents.length)
 
-  if (
-    documents.length >= MIN_DOCUMENTS_FOR_SEGMENTS &&
-    !ctx.isRebalancing(indexName) &&
-    ctx.orchestrator.segmentBuildConcurrency(indexName) > 0
-  ) {
+  const copiesBuildSegments = ctx.orchestrator.segmentBuildConcurrency(indexName) > 0
+
+  if (documents.length >= MIN_DOCUMENTS_FOR_SEGMENTS && !ctx.isRebalancing(indexName) && copiesBuildSegments) {
     return insertBatchViaSegments(ctx, indexName, documents, options)
   }
 
@@ -155,13 +153,9 @@ export async function insertDocumentBatch(
     replicableDocs.push(succeededDocs[i])
   }
 
-  const replicatedAsSegments = await replicateAsSegments(
-    ctx,
-    indexName,
-    replicableIds,
-    replicableDocs,
-    options?.skipClone,
-  )
+  const replicatedAsSegments =
+    copiesBuildSegments &&
+    (await replicateAsSegments(ctx, indexName, replicableIds, replicableDocs, options?.skipClone))
 
   if (!replicatedAsSegments) {
     for (let i = 0; i < replicableIds.length; i++) {
