@@ -403,8 +403,8 @@ importers:
         specifier: workspace:*
         version: link:../shared
       '@delali/sirannon-db':
-        specifier: 0.1.8
-        version: 0.1.8(@grpc/grpc-js@1.14.4)(better-sqlite3@12.11.1)(etcd3@1.1.2)
+        specifier: 0.3.3
+        version: 0.3.3(@grpc/grpc-js@1.14.4)(better-sqlite3@12.11.1)(etcd3@1.1.2)(react@19.2.4)
       '@radix-ui/react-use-controllable-state':
         specifier: 1.2.3
         version: 1.2.3(@types/react@19.2.14)(react@19.2.4)
@@ -1319,9 +1319,10 @@ packages:
     resolution: {integrity: sha512-QxULHAm7cNu72w97JUNCBFODFaXpbDg+dP8b/oWFAZ2MTRppA3U00Y2L1HqaS4J6yBqxwa/Y3nMBaxVKbB/NsA==}
     engines: {node: '>=20.19.0'}
 
-  '@delali/sirannon-db@0.1.8':
-    resolution: {integrity: sha512-fR8VzyiO/w79NyVKe6DHnTKhDN/ig7H0mxT0zMjPqTjM1jfx53tM0V6i2QAMOO9+m1GdiLXghSQ91GLioBti6g==}
+  '@delali/sirannon-db@0.3.3':
+    resolution: {integrity: sha512-DRhl3hVneVLcEe4D/Vk2IAaZsQCsRrg2ccBFiNfi5DK8CDl+0VByFuA5UabBcpMbYqp3lb0VdpNZKLTLWlDKQQ==}
     engines: {node: '>=22'}
+    hasBin: true
     peerDependencies:
       '@bufbuild/protobuf': '>=2.0.0'
       '@grpc/grpc-js': '>=1.10.0'
@@ -1329,6 +1330,7 @@ packages:
       etcd3: '>=1.1.2'
       expo-sqlite: '>=14.0.0'
       grpc-health-check: '>=2.0.0'
+      react: '>=19.0.0'
       uWebSockets.js: '>=20.0.0'
       wa-sqlite: '>=1.0.0'
     peerDependenciesMeta:
@@ -1344,10 +1346,48 @@ packages:
         optional: true
       grpc-health-check:
         optional: true
+      react:
+        optional: true
       uWebSockets.js:
         optional: true
       wa-sqlite:
         optional: true
+
+  '@delali/sirannon-vfs-darwin-arm64@0.3.3':
+    resolution: {integrity: sha512-JKi1saF+nsR2fA60vbiVenrw7Mi1oW9Uq65pVS4qm1ymGWt9401G9jr/UAbZrh2T69nRBtppnxRczo5IeCbrzQ==}
+    engines: {node: '>=22'}
+    cpu: [arm64]
+    os: [darwin]
+
+  '@delali/sirannon-vfs-darwin-x64@0.3.3':
+    resolution: {integrity: sha512-93q0uKoalKgylefqFK1jphmGAz0cQ7ULlFVZlpROIlQ/iZJ1nuaoPkoBf8n3vtjU7RbzMFZamXCThOoMpDKGkw==}
+    engines: {node: '>=22'}
+    cpu: [x64]
+    os: [darwin]
+
+  '@delali/sirannon-vfs-linux-arm64@0.3.3':
+    resolution: {integrity: sha512-3NSdfNvxvjRI2KtIvvzEzrrbgqHroJKzCBRdxs7r4FQUPbVSm3AdRCrhyVgatvaEciEkuYfavYtFJP7NLm08ug==}
+    engines: {node: '>=22'}
+    cpu: [arm64]
+    os: [linux]
+
+  '@delali/sirannon-vfs-linux-x64@0.3.3':
+    resolution: {integrity: sha512-+NXF37EB8hHLNtxemIDx/WmcMUpIEwK8qYVSRlfDQ6MNHoc0wqayNNPQD8vr6KW01P/Pwr22S5ddzlWdPy4R+A==}
+    engines: {node: '>=22'}
+    cpu: [x64]
+    os: [linux]
+
+  '@delali/sirannon-vfs-win32-arm64@0.3.3':
+    resolution: {integrity: sha512-74Yu33fvuXm3W1woXRQabHYiyq0mOSSwUvC0boyn4FxulykxBEq4ymfG0UGCpl3itjXaV19Ts3uTY2BLWf1w+Q==}
+    engines: {node: '>=22'}
+    cpu: [arm64]
+    os: [win32]
+
+  '@delali/sirannon-vfs-win32-x64@0.3.3':
+    resolution: {integrity: sha512-VNGQGC1frFEXEeQ+uOxeZBJap2bT48/0MtTu6Ou6eYX3vU4v/P6jSsvQJss9lib3wqUDhuxgckLd8mTmPIRegQ==}
+    engines: {node: '>=22'}
+    cpu: [x64]
+    os: [win32]
 
   '@dimforge/rapier3d-compat@0.12.0':
     resolution: {integrity: sha512-uekIGetywIgopfD97oDL5PfeezkFpNhwlzlaEYNOA0N6ghdsOvh/HYjSMek5Q2O1PYvRSDFcqFVJl4r4ZBwOow==}
@@ -8368,11 +8408,36 @@ snapshots:
 
   '@csstools/css-tokenizer@4.0.0': {}
 
-  '@delali/sirannon-db@0.1.8(@grpc/grpc-js@1.14.4)(better-sqlite3@12.11.1)(etcd3@1.1.2)':
+  '@delali/sirannon-db@0.3.3(@grpc/grpc-js@1.14.4)(better-sqlite3@12.11.1)(etcd3@1.1.2)(react@19.2.4)':
     optionalDependencies:
+      '@delali/sirannon-vfs-darwin-arm64': 0.3.3
+      '@delali/sirannon-vfs-darwin-x64': 0.3.3
+      '@delali/sirannon-vfs-linux-arm64': 0.3.3
+      '@delali/sirannon-vfs-linux-x64': 0.3.3
+      '@delali/sirannon-vfs-win32-arm64': 0.3.3
+      '@delali/sirannon-vfs-win32-x64': 0.3.3
       '@grpc/grpc-js': 1.14.4
       better-sqlite3: 12.11.1
       etcd3: 1.1.2
+      react: 19.2.4
+
+  '@delali/sirannon-vfs-darwin-arm64@0.3.3':
+    optional: true
+
+  '@delali/sirannon-vfs-darwin-x64@0.3.3':
+    optional: true
+
+  '@delali/sirannon-vfs-linux-arm64@0.3.3':
+    optional: true
+
+  '@delali/sirannon-vfs-linux-x64@0.3.3':
+    optional: true
+
+  '@delali/sirannon-vfs-win32-arm64@0.3.3':
+    optional: true
+
+  '@delali/sirannon-vfs-win32-x64@0.3.3':
+    optional: true
 
   '@dimforge/rapier3d-compat@0.12.0': {}
 
