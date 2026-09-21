@@ -1,4 +1,4 @@
-import { resolveWorkerCount } from '../../workers/pool'
+import { resolveWorkerCount } from '../../workers/worker-count'
 import type { VectorMetric } from '../brute-force'
 import {
   VECTOR_INSERT_TIMEOUT_MS,

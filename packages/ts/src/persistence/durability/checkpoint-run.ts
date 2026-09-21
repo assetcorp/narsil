@@ -27,6 +27,7 @@ interface DurableCheckpointInput {
   compactionThreshold: number
   canOffload: boolean
   fromMemory: boolean
+  mayContinue(): boolean
   queueMetadataWrite(indexName: string, write: () => Promise<void>): Promise<void>
   markFatal(error: Error): void
 }
@@ -54,17 +55,28 @@ async function adoptVectorLayouts(
 /**
  * Writes a durable checkpoint and reclaims the WAL data it covers.
  *
+ * One checkpoint covers a bounded number of log records, so that the memory it needs stays
+ * the same however far the log has run ahead. When records remain, the next checkpoint
+ * starts at once, until the log is covered or `mayContinue` answers false.
+ *
  * @param input - The index state, durability hooks, and storage settings for the checkpoint.
  * @returns A promise that settles after metadata and WAL cleanup finish.
  */
 export async function runDurableCheckpoint(input: DurableCheckpointInput): Promise<void> {
+  let recordsLeftInLog = await writeOneBoundedCheckpoint(input)
+  while (recordsLeftInLog > 0 && input.mayContinue()) {
+    recordsLeftInLog = await writeOneBoundedCheckpoint(input)
+  }
+}
+
+async function writeOneBoundedCheckpoint(input: DurableCheckpointInput): Promise<number> {
   const manager = input.hooks.getManager(input.indexName)
   if (manager === undefined) {
-    return
+    return 0
   }
   const metadata = input.hooks.buildMetadata(input.indexName)
   if (metadata === undefined) {
-    return
+    return 0
   }
 
   const vectorIndexes = input.hooks.getVectorIndexes(input.indexName)
@@ -79,6 +91,7 @@ export async function runDurableCheckpoint(input: DurableCheckpointInput): Promi
       everyPartition: input.fromMemory,
       aWorkerCanSerialise: input.canOffload && checkpointWorkerIsUsable(),
     }),
+    input.fromMemory ? undefined : (priorManifest?.checkpoint ?? []),
   )
   const { targets, documentCount } = capture
   await makeEveryAppliedMutationDurable(input.indexState, input.markFatal)
@@ -117,5 +130,6 @@ export async function runDurableCheckpoint(input: DurableCheckpointInput): Promi
     input.indexState.partitions,
     input.markFatal,
   )
-  input.indexState.mutationsSinceCheckpoint = 0
+  input.indexState.mutationsSinceCheckpoint = capture.recordsLeftInLog
+  return capture.recordsLeftInLog
 }

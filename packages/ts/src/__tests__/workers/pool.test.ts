@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { NarsilError } from '../../errors'
 import type { Executor } from '../../workers/executor'
-import { createWorkerPool, splitWorkerBudget, type WorkerPool } from '../../workers/pool'
+import { createWorkerPool, type WorkerPool } from '../../workers/pool'
 import type { WorkerAction } from '../../workers/protocol'
+import { splitWorkerBudget } from '../../workers/worker-count'
 
 function createMockExecutor(): Executor & { shutdownCalled: boolean } {
   return {

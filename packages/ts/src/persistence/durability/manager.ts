@@ -212,6 +212,7 @@ export function createDurabilityManager(
       compactionThreshold,
       canOffload: canOffloadCheckpoint,
       fromMemory,
+      mayContinue: () => !indexState.unloading && !shuttingDown && fatalError === null,
       queueMetadataWrite,
       markFatal,
     })

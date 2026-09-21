@@ -12,7 +12,7 @@ import {
   workerIneligibility,
 } from './eligibility'
 import { freezeLiveTailsBeforeCopiesLoad } from './live-tail'
-import { deferPoolRestart, handleWorkerCrash, retirePool } from './repair'
+import { deferPoolRestart, handleWorkerCrash, handleWorkerThreadGone, retirePool } from './repair'
 import { enqueueReplication } from './replication'
 import { announceRequestThreads } from './request-threads'
 import type { CopyTransition, OrchestratorState } from './types'
@@ -34,6 +34,9 @@ async function startPool(state: OrchestratorState): Promise<WorkerPool> {
     workerFactory: factory,
     onWorkerCrash(workerId, indexNames, error) {
       if (started !== null) handleWorkerCrash(state, started, workerId, indexNames, error)
+    },
+    onWorkerGone(workerId) {
+      if (started !== null) handleWorkerThreadGone(state, started, workerId)
     },
   })
   started = pool

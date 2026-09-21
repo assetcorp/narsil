@@ -1,6 +1,10 @@
 import type { PartitionManager } from '../../partitioning/manager'
 import type { VectorIndex, VectorIndexPartsPlan } from '../../vector/vector-index'
-import { WHOLE_PARTITION_MIN_CHANGED_SHARE } from './constants'
+import {
+  LOG_RECORDS_PER_CHECKPOINT,
+  WHOLE_PARTITION_LARGEST_DOCUMENT_COUNT,
+  WHOLE_PARTITION_MIN_CHANGED_SHARE,
+} from './constants'
 import type { DurableDirectory } from './durable-filesystem'
 import type { IndexState, PartitionState } from './manager-state'
 import { snapshotCheckpointFor } from './recovery'
@@ -27,6 +31,7 @@ export interface CheckpointCapture {
   documentCount: number
   vectorPlans: Map<string, VectorIndexPartsPlan>
   wholePartitions: WholePartitions
+  recordsLeftInLog: number
 }
 
 export interface LiveVectorsWritten {
@@ -90,6 +95,10 @@ export interface WholePartitions {
 
 export type WholePartitionsOf = (targets: readonly PartitionCheckpoint[]) => WholePartitions
 
+function noWholePartitions(): WholePartitions {
+  return { serialized: new Map(), captured: [] }
+}
+
 export interface WholePartitionRules {
   priorCheckpoint: PartitionCheckpoint[]
   priorPartitionIds: readonly number[]
@@ -109,7 +118,10 @@ export function wholePartitionsWhereMostChanged(
     )
     const mostOfEachChanged = changed.every(target => {
       const records = target.lastSeqNo - snapshotCheckpointFor(priorCheckpoint, target.partitionId)
-      return records >= manager.getPartition(target.partitionId).count() * WHOLE_PARTITION_MIN_CHANGED_SHARE
+      const documents = manager.getPartition(target.partitionId).count()
+      return (
+        documents <= WHOLE_PARTITION_LARGEST_DOCUMENT_COUNT && records >= documents * WHOLE_PARTITION_MIN_CHANGED_SHARE
+      )
     })
     const logMatchesMemory = targets.length === 1 && priorPartitionIds.every(partitionId => partitionId === 0)
     if (!everyPartition && !(mostOfEachChanged && logMatchesMemory)) return whole
@@ -132,23 +144,36 @@ export async function captureCheckpoint(
   indexState: IndexState,
   manager: CheckpointedPartitions,
   vectorIndexes: Map<string, VectorIndex>,
-  wholePartitionsOf: WholePartitionsOf = () => ({ serialized: new Map(), captured: [] }),
+  wholePartitionsOf: WholePartitionsOf = noWholePartitions,
+  priorCheckpointThatLimitsTheRecords?: PartitionCheckpoint[],
 ): Promise<CheckpointCapture> {
   for (const vectorIndex of vectorIndexes.values()) await vectorIndex.completeGraph()
   return whileNoMutationApplies([...indexState.partitions.values()], () => {
     const documentCount = manager.countDocuments()
     const targets: PartitionCheckpoint[] = []
+    let recordsLeftInLog = 0
     for (let partitionId = 0; partitionId < manager.partitionCount; partitionId += 1) {
       const partition = indexState.partitions.get(partitionId)
+      const appliedSeqNo = partition?.appliedSeqNo ?? 0
+      const lastSeqNo =
+        priorCheckpointThatLimitsTheRecords === undefined
+          ? appliedSeqNo
+          : Math.min(
+              appliedSeqNo,
+              snapshotCheckpointFor(priorCheckpointThatLimitsTheRecords, partitionId) + LOG_RECORDS_PER_CHECKPOINT,
+            )
+      recordsLeftInLog += appliedSeqNo - lastSeqNo
       targets.push({
         partitionId,
-        lastSeqNo: partition?.appliedSeqNo ?? 0,
+        lastSeqNo,
         primaryTerm: partition?.seqOwner.primaryTerm ?? SINGLE_NODE_PRIMARY_TERM,
       })
     }
     const vectorPlans = new Map<string, VectorIndexPartsPlan>()
     for (const [fieldPath, vectorIndex] of vectorIndexes) vectorPlans.set(fieldPath, vectorIndex.planParts())
-    return { targets, documentCount, vectorPlans, wholePartitions: wholePartitionsOf(targets) }
+    const memoryMatchesTheTargets = recordsLeftInLog === 0
+    const wholePartitions = memoryMatchesTheTargets ? wholePartitionsOf(targets) : noWholePartitions()
+    return { targets, documentCount, vectorPlans, wholePartitions, recordsLeftInLog }
   })
 }
 

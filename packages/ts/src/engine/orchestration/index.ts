@@ -8,8 +8,8 @@ import type { QueryParams } from '../../types/search'
 import type { VectorWorkerCopyPolicy } from '../../vector/vector-index/shared'
 import type { DirectExecutorExtensions } from '../../workers/direct-executor'
 import type { Executor } from '../../workers/executor'
-import { resolveWorkerCount, splitWorkerBudget } from '../../workers/pool'
 import type { WorkerAction } from '../../workers/protocol'
+import { resolveWorkerCount, splitWorkerBudget } from '../../workers/worker-count'
 import { transferIndexToPool } from '../worker-resync'
 import {
   awaitCompactions,

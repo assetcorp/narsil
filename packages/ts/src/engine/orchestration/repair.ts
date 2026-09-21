@@ -41,11 +41,11 @@ export function handleWorkerCrash(
 ): void {
   state.callbacks?.onWorkerCrash?.(workerId, indexNames, error)
   state.requestThreads?.onWorkerGone(workerId)
+  if (pool.getAllExecutors().length === 0) retirePool(state, pool)
+}
+
+export function handleWorkerThreadGone(state: OrchestratorState, pool: WorkerPool, workerId: number): void {
   releaseVectorLocksOf(state, workerId)
-  if (pool.getAllExecutors().length === 0) {
-    retirePool(state, pool)
-    return
-  }
   scheduleRepair(state, pool)
 }
 
