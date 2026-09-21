@@ -33,6 +33,12 @@ function ProgressBar({ progress }: { progress: DatasetLoadProgress }) {
       if (progress.totalDocs && progress.indexedDocs) {
         percent = Math.round((progress.indexedDocs / progress.totalDocs) * 100)
         label = `Indexing ${progress.indexedDocs.toLocaleString()} of ${progress.totalDocs.toLocaleString()}`
+      } else if (progress.totalBytes && progress.loadedBytes) {
+        percent = Math.round((progress.loadedBytes / progress.totalBytes) * 100)
+        label =
+          progress.indexedDocs === undefined
+            ? `Indexing ${formatBytes(progress.loadedBytes)} of ${formatBytes(progress.totalBytes)}`
+            : `Indexed ${progress.indexedDocs.toLocaleString()} of ${formatBytes(progress.totalBytes)}`
       } else {
         label = 'Indexing...'
       }

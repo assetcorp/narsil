@@ -75,6 +75,13 @@ export function createPartitionManager(
     }
   }
 
+  function registerSegmentDocuments(partitionId: number, segment: FrozenSegment): void {
+    for (const internalId of segment.docStore.allInternalIds()) {
+      const docId = segment.docStore.getExternalId(internalId)
+      if (docId !== undefined) docPartitionMap.set(docId, partitionId)
+    }
+  }
+
   function rebuildDocPartitionMapForPartition(partitionId: number): void {
     for (const [docId, pid] of docPartitionMap) {
       if (pid === partitionId) {
@@ -299,27 +306,20 @@ export function createPartitionManager(
       validatePartitionId(partitionId)
       for (const internalId of segment.docStore.allInternalIds()) {
         const docId = segment.docStore.getExternalId(internalId)
-        if (docId !== undefined && docPartitionMap.has(docId)) {
-          throw new NarsilError(ErrorCodes.DOC_ALREADY_EXISTS, `Document "${docId}" already exists`, {
-            docId,
-            partitionId: docPartitionMap.get(docId),
-          })
-        }
+        if (docId === undefined || !docPartitionMap.has(docId)) continue
+        throw new NarsilError(ErrorCodes.DOC_ALREADY_EXISTS, `Document "${docId}" already exists`, {
+          docId,
+          partitionId: docPartitionMap.get(docId),
+        })
       }
       asCompositePartition(partitionId).attachFrozenSegment(segment)
-      for (const internalId of segment.docStore.allInternalIds()) {
-        const docId = segment.docStore.getExternalId(internalId)
-        if (docId !== undefined) docPartitionMap.set(docId, partitionId)
-      }
+      registerSegmentDocuments(partitionId, segment)
     },
 
     swapFrozenSegments(partitionId: number, dropSegmentIds: readonly string[], replacement: FrozenSegment): void {
       validatePartitionId(partitionId)
       asCompositePartition(partitionId).swapFrozenSegments(dropSegmentIds, replacement)
-      for (const internalId of replacement.docStore.allInternalIds()) {
-        const docId = replacement.docStore.getExternalId(internalId)
-        if (docId !== undefined) docPartitionMap.set(docId, partitionId)
-      }
+      registerSegmentDocuments(partitionId, replacement)
     },
 
     freezeLiveTail(partitionId: number, freeze: LiveTailFreezer): FrozenSegment | null {
@@ -330,6 +330,7 @@ export function createPartitionManager(
     replaceLiveTail(partitionId: number, segment: FrozenSegment): void {
       validatePartitionId(partitionId)
       asCompositePartition(partitionId).replaceLiveTail(segment)
+      registerSegmentDocuments(partitionId, segment)
     },
 
     deserializePartition(partitionId: number, data: SerializablePartition): void {
