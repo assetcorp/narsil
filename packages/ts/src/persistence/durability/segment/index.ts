@@ -5,8 +5,11 @@ export { countLiveDocuments } from './merge'
 export { readSegmentContents } from './segment-file'
 export { type VectorCheckpointLayout, type VectorWriteOutcome, writeLiveVectors } from './vector'
 export {
+  type CheckpointSegmentsWritten,
+  commitCheckpointManifest,
   removeCheckpointGarbage,
   type SegmentedCheckpointOutcome,
   type WholePartitionSegment,
+  writeCheckpointSegments,
   writeSegmentedCheckpoint,
 } from './write'

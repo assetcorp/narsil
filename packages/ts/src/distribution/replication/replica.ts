@@ -34,16 +34,8 @@ export function applyIndexEntry(
 
   const document = decode(entry.document) as Record<string, unknown>
   restoreVectorFields(document, vectorFieldPaths)
-  applyIndexedDocument(entry.documentId, document, manager, vectorFieldPaths, vecIndexes)
-}
+  const documentId = entry.documentId
 
-export function applyIndexedDocument(
-  documentId: string,
-  document: Record<string, unknown>,
-  manager: PartitionManager,
-  vectorFieldPaths: Set<string>,
-  vecIndexes: Map<string, VectorIndex>,
-): void {
   if (manager.has(documentId)) {
     removeDocumentVectors(documentId, vecIndexes)
     manager.remove(documentId)

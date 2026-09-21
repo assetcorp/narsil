@@ -7,10 +7,15 @@ import {
   wholePartitionsWhereMostChanged,
   writeCapturedVectors,
 } from './checkpoint-capture'
-import { writeIndexCheckpoint } from './checkpoint-write'
+import { writeIndexCheckpointSegments } from './checkpoint-write'
 import type { DurableDirectory } from './durable-filesystem'
 import type { IndexState } from './manager-state'
-import { readSegmentManifest, removeCheckpointGarbage, type VectorCheckpointLayout } from './segment'
+import {
+  commitCheckpointManifest,
+  readSegmentManifest,
+  removeCheckpointGarbage,
+  type VectorCheckpointLayout,
+} from './segment'
 import type { IndexDurabilityHooks } from './types'
 
 interface DurableCheckpointInput {
@@ -23,6 +28,13 @@ interface DurableCheckpointInput {
   fromMemory: boolean
   queueMetadataWrite(indexName: string, write: () => Promise<void>): Promise<void>
   markFatal(error: Error): void
+}
+
+async function bothOrTheFirstFailure<A, B>(first: Promise<A>, second: Promise<B>): Promise<[A, B]> {
+  const [firstSettled, secondSettled] = await Promise.allSettled([first, second])
+  if (firstSettled.status === 'rejected') throw firstSettled.reason
+  if (secondSettled.status === 'rejected') throw secondSettled.reason
+  return [firstSettled.value, secondSettled.value]
 }
 
 async function adoptVectorLayouts(
@@ -68,24 +80,21 @@ export async function runDurableCheckpoint(input: DurableCheckpointInput): Promi
     ),
   )
   const { targets, documentCount } = capture
-  const liveVectors = await writeCapturedVectors(
-    input.directory,
-    input.indexName,
-    capture,
-    priorManifest,
-    input.fromMemory,
+  await makeEveryAppliedMutationDurable(input.indexState, input.markFatal)
+  const [liveVectors, segments] = await bothOrTheFirstFailure(
+    writeCapturedVectors(input.directory, input.indexName, capture, priorManifest, input.fromMemory),
+    writeIndexCheckpointSegments({
+      directory: input.directory,
+      metadata,
+      targets,
+      compactionThreshold: input.compactionThreshold,
+      canOffload: input.canOffload,
+      wholePartitions: capture.wholePartitions,
+    }),
   )
   await makeEveryAppliedMutationDurable(input.indexState, input.markFatal)
 
-  const written = await writeIndexCheckpoint({
-    directory: input.directory,
-    metadata,
-    targets,
-    compactionThreshold: input.compactionThreshold,
-    canOffload: input.canOffload,
-    wholePartitions: capture.wholePartitions,
-    vectors: liveVectors.vectors,
-  })
+  const written = await commitCheckpointManifest(input.directory, metadata, segments, liveVectors.vectors)
   await adoptVectorLayouts(input.directory, vectorIndexes, liveVectors.layouts)
   await removeCheckpointGarbage(input.directory, written.garbage)
   const checkpointDocumentCount = written.documentCount ?? documentCount

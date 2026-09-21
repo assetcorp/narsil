@@ -46,6 +46,13 @@ export interface SegmentedCheckpointOutcome {
   garbage: string[]
 }
 
+export type CheckpointSegmentsInput = Omit<SegmentedCheckpointInput, 'vectors'>
+
+export interface CheckpointSegmentsWritten {
+  checkpoint: PartitionCheckpoint[]
+  partitions: PartitionManifestEntry[]
+}
+
 interface PartitionWriteContext {
   directory: DurableDirectory
   indexName: string
@@ -56,6 +63,33 @@ interface PartitionWriteContext {
 }
 
 export async function writeSegmentedCheckpoint(input: SegmentedCheckpointInput): Promise<SegmentedCheckpointOutcome> {
+  const written = await writeCheckpointSegments(input)
+  return commitCheckpointManifest(input.directory, input.metadata, written, input.vectors)
+}
+
+export async function commitCheckpointManifest(
+  directory: DurableDirectory,
+  metadata: IndexMetadata,
+  written: CheckpointSegmentsWritten,
+  vectors?: VectorSegmentRef[],
+): Promise<SegmentedCheckpointOutcome> {
+  const indexName = metadata.indexName
+  const manifest: SegmentManifest = {
+    version: SEGMENT_MANIFEST_VERSION,
+    schema: metadata.schema,
+    language: metadata.language,
+    checkpoint: written.checkpoint,
+    partitions: written.partitions,
+    vectors: vectors ?? (await readSegmentManifest(directory, indexName))?.vectors ?? [],
+  }
+
+  const parts = await encodeSegmentManifest(manifest)
+  await directory.atomicWrite(manifestKey(indexName), [parts.header, parts.payload])
+  const garbage = await unreferencedKeys(directory, indexName, manifest)
+  return { documentCount: null, garbage }
+}
+
+export async function writeCheckpointSegments(input: CheckpointSegmentsInput): Promise<CheckpointSegmentsWritten> {
   const { directory, metadata } = input
   const indexName = metadata.indexName
   const config = reconstructSchemaFromMetadata(metadata)
@@ -96,20 +130,7 @@ export async function writeSegmentedCheckpoint(input: SegmentedCheckpointInput):
   }
 
   carryForwardUncheckpointedPartitions(priorManifest, input.targets, partitions, checkpointByPartition)
-
-  const manifest: SegmentManifest = {
-    version: SEGMENT_MANIFEST_VERSION,
-    schema: metadata.schema,
-    language: metadata.language,
-    checkpoint: [...checkpointByPartition.values()],
-    partitions,
-    vectors: input.vectors ?? priorManifest?.vectors ?? [],
-  }
-
-  const parts = await encodeSegmentManifest(manifest)
-  await directory.atomicWrite(manifestKey(indexName), [parts.header, parts.payload])
-  const garbage = await unreferencedKeys(directory, indexName, manifest)
-  return { documentCount: null, garbage }
+  return { checkpoint: [...checkpointByPartition.values()], partitions }
 }
 
 async function writePartition(
