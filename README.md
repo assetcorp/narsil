@@ -109,7 +109,7 @@ curl -X POST localhost:7700/indexes/products/search \
   -d '{"term":"keyboard"}'
 ```
 
-The [HTTP server guide](docs/http-server.md) covers the embedding API. For every endpoint with its request and response bodies, read the [example's README](packages/ts/examples/http-server/README.md).
+The [HTTP server guide](docs/http-server.md) covers every route and the embedding API, while the [example's README](packages/ts/examples/http-server/README.md) covers configuring the launcher, containerising it, and binding it safely.
 
 Each guide under [`docs/`](docs/) covers one area with working examples. In the list of features below, each feature links to the guide that covers it.
 
@@ -132,7 +132,7 @@ Each guide under [`docs/`](docs/) covers one area with working examples. In the 
 | Example | What it shows |
 | --- | --- |
 | [Live demo](https://narsil.sondelali.com/demo) | The hosted demo works entirely in the browser, so you can try search without installing anything. |
-| [HTTP server](packages/ts/examples/http-server) | The launcher serves the engine as a REST service with durability, API-key auth, and Docker packaging. Its README holds every endpoint of the API. |
+| [HTTP server](packages/ts/examples/http-server) | The launcher serves the engine as a REST service with durability, API-key auth, and Docker packaging, and every setting comes from the environment. |
 | [Browser](packages/ts/examples/browser) | The app embeds the engine in a browser with IndexedDB persistence and Web Worker search. |
 | [Server app](packages/ts/examples/server-app) | The app calls the HTTP server through the client SDK and the React hooks to load corpora as import tasks. In its Ask view, you can ask questions about those corpora. |
 
