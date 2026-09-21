@@ -1,7 +1,7 @@
 import type { IndexMetadata } from '../../types/internal'
 import { CHECKPOINT_WORKER_HEARTBEAT_MS } from './constants'
-import { rebuildSnapshotFromDurable } from './rebuild'
-import type { SegmentedCheckpointOutcome, VectorSegmentRef } from './segment'
+import { rebuildSegmentsFromDurable } from './rebuild'
+import type { CheckpointSegmentsWritten } from './segment'
 import type { PartitionCheckpoint } from './snapshot-bundle'
 
 export interface CheckpointWorkerRequest {
@@ -9,12 +9,11 @@ export interface CheckpointWorkerRequest {
   metadata: IndexMetadata
   targets: PartitionCheckpoint[]
   compactionThreshold: number
-  vectors?: VectorSegmentRef[]
 }
 
 export interface CheckpointWorkerSuccess {
   type: 'success'
-  outcome: SegmentedCheckpointOutcome
+  segments: CheckpointSegmentsWritten
 }
 
 export interface CheckpointWorkerError {
@@ -42,17 +41,13 @@ async function handleRequest(raw: unknown): Promise<CheckpointWorkerSuccess> {
   if (!Number.isInteger(request.compactionThreshold) || request.compactionThreshold <= 0) {
     throw new Error('Checkpoint request has an invalid compaction threshold')
   }
-  if (request.vectors !== undefined && !Array.isArray(request.vectors)) {
-    throw new Error('Checkpoint request names vector segments in a shape the worker cannot read')
-  }
-  const outcome = await rebuildSnapshotFromDurable(
+  const segments = await rebuildSegmentsFromDurable(
     request.root,
     request.metadata,
     request.targets,
     request.compactionThreshold,
-    request.vectors,
   )
-  return { type: 'success', outcome }
+  return { type: 'success', segments }
 }
 
 async function setupAsync(): Promise<void> {

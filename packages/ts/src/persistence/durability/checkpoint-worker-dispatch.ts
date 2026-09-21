@@ -6,7 +6,7 @@ import {
   CHECKPOINT_WORKER_IDLE_MS,
   CHECKPOINT_WORKER_TIMEOUT_MS,
 } from './constants'
-import type { SegmentedCheckpointOutcome } from './segment'
+import type { CheckpointSegmentsWritten } from './segment'
 
 export interface WorkerHandle {
   postMessage(msg: unknown, transfer?: ArrayBuffer[]): void
@@ -59,7 +59,7 @@ function discardWorker(worker: WorkerHandle): void {
 }
 
 export interface WorkerRunOutcome {
-  written: SegmentedCheckpointOutcome | null
+  written: CheckpointSegmentsWritten | null
   timedOut: boolean
 }
 
@@ -87,7 +87,7 @@ export function runWorker(worker: WorkerHandle, request: CheckpointWorkerRequest
         return
       }
       if (response.type === 'success') {
-        settle({ written: response.outcome, timedOut: false }, false)
+        settle({ written: response.segments, timedOut: false }, false)
       } else {
         settle({ written: null, timedOut: false }, true)
       }
@@ -136,7 +136,7 @@ function delay(ms: number): Promise<void> {
 
 export async function runCheckpointOnWorker(
   request: CheckpointWorkerRequest,
-): Promise<SegmentedCheckpointOutcome | null> {
+): Promise<CheckpointSegmentsWritten | null> {
   if (failNextWorkerForTests) {
     failNextWorkerForTests = false
     return null

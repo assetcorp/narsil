@@ -62,6 +62,34 @@ describe('a checkpoint after most of a partition changed', () => {
     await reader.shutdown()
   })
 
+  it('recovers the last state of each document that a small change updated, removed, or wrote again', async () => {
+    const writer = await createNarsil({ durability: { directory: root }, workers: { enabled: false } })
+    await writer.createIndex('docs', SCHEMA)
+    await insertRange(writer, 0, 40)
+    await writer.checkpoint('docs')
+
+    await writer.update('docs', 'd1', { title: 'lantern on the quay', year: 2001 })
+    await writer.remove('docs', 'd2')
+    await writer.remove('docs', 'd3')
+    await writer.insert('docs', { id: 'd3', title: 'lantern by the slipway', year: 2003 })
+    await writer.insert('docs', { id: 'd40', title: 'harbour light number 40', year: 1940 })
+    await writer.remove('docs', 'd40')
+    await writer.checkpoint('docs')
+    expect(await segmentDocCounts(root)).toEqual([40, 2])
+    await writer.shutdown()
+
+    const reader = await createNarsil({ durability: { directory: root }, workers: { enabled: false } })
+    expect(await reader.countDocuments('docs')).toBe(39)
+    expect(await reader.get('docs', 'd1')).toMatchObject({ title: 'lantern on the quay', year: 2001 })
+    expect(await reader.get('docs', 'd2')).toBeUndefined()
+    expect(await reader.get('docs', 'd40')).toBeUndefined()
+    const lanterns = await reader.query('docs', { term: 'lantern', limit: 50 })
+    expect(lanterns.hits.map(hit => hit.id).sort()).toEqual(['d1', 'd3'])
+    const harbours = await reader.query('docs', { term: 'harbour', limit: 50 })
+    expect(harbours.count).toBe(37)
+    await reader.shutdown()
+  })
+
   it('recovers an empty index after every document of a checkpointed partition was removed', async () => {
     const writer = await createNarsil({ durability: { directory: root }, workers: { enabled: false } })
     await writer.createIndex('docs', SCHEMA)

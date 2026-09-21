@@ -13,8 +13,9 @@ import {
 import { readCommitMarker } from '../../../persistence/durability/commit-marker'
 import { CHECKPOINT_WORKER_TIMEOUT_MS, DEFAULT_COMPACTION_THRESHOLD } from '../../../persistence/durability/constants'
 import { createDurableDirectory } from '../../../persistence/durability/durable-filesystem'
-import { rebuildSnapshotFromDurable } from '../../../persistence/durability/rebuild'
+import { rebuildSegmentsFromDurable } from '../../../persistence/durability/rebuild'
 import { loadMetadata } from '../../../persistence/durability/recovery'
+import { commitCheckpointManifest } from '../../../persistence/durability/segment'
 import { SINGLE_NODE_PRIMARY_TERM } from '../../../persistence/durability/seq-owner'
 import type { IndexMetadata } from '../../../types/internal'
 import type { IndexConfig } from '../../../types/schema'
@@ -22,6 +23,16 @@ import type { IndexConfig } from '../../../types/schema'
 const SCHEMA: IndexConfig = {
   schema: { title: 'string', body: 'string', year: 'number' },
   language: 'english',
+}
+
+async function rebuildSegmentsAndCommit(root: string, metadata: IndexMetadata, lastSeqNo: number): Promise<void> {
+  const segments = await rebuildSegmentsFromDurable(
+    root,
+    metadata,
+    [{ partitionId: 0, lastSeqNo, primaryTerm: SINGLE_NODE_PRIMARY_TERM }],
+    DEFAULT_COMPACTION_THRESHOLD,
+  )
+  await commitCheckpointManifest(createDurableDirectory(root), metadata, segments)
 }
 
 function doc(i: number): { title: string; body: string; year: number } {
@@ -118,12 +129,7 @@ describe('off-thread checkpoint worker', () => {
     }
     const lastSeqNo = await highestDurableSeqNo(root, 'docs')
 
-    await rebuildSnapshotFromDurable(
-      root,
-      metadata,
-      [{ partitionId: 0, lastSeqNo, primaryTerm: SINGLE_NODE_PRIMARY_TERM }],
-      DEFAULT_COMPACTION_THRESHOLD,
-    )
+    await rebuildSegmentsAndCommit(root, metadata, lastSeqNo)
 
     const reader = await createNarsil({ durability: { directory: root } })
     expect(await reader.countDocuments('docs')).toBe(20)
@@ -147,12 +153,7 @@ describe('off-thread checkpoint worker', () => {
     }
     const lastSeqNo = await highestDurableSeqNo(root, 'docs')
 
-    await rebuildSnapshotFromDurable(
-      root,
-      metadata,
-      [{ partitionId: 0, lastSeqNo, primaryTerm: SINGLE_NODE_PRIMARY_TERM }],
-      DEFAULT_COMPACTION_THRESHOLD,
-    )
+    await rebuildSegmentsAndCommit(root, metadata, lastSeqNo)
     expect(await directory.read('docs/manifest')).not.toBeNull()
 
     const reader = await createNarsil({ durability: { directory: root } })
@@ -166,11 +167,11 @@ describe('off-thread checkpoint worker', () => {
       const handlers = new Map<string, (...args: unknown[]) => void>()
       const emit = (message: CheckpointWorkerMessage): void => handlers.get('message')?.(message)
       const pause = Math.floor(CHECKPOINT_WORKER_TIMEOUT_MS * 0.9)
-      const outcome = { documentCount: 3, vectorLayouts: [], garbage: [] }
+      const segments = { checkpoint: [], partitions: [] }
       const worker: WorkerHandle = {
         postMessage: () => {
           for (let beat = 1; beat <= 3; beat += 1) setTimeout(() => emit({ type: 'heartbeat' }), beat * pause)
-          setTimeout(() => emit({ type: 'success', outcome }), 4 * pause)
+          setTimeout(() => emit({ type: 'success', segments }), 4 * pause)
         },
         on: (event, handler) => {
           handlers.set(event, handler)
@@ -193,7 +194,7 @@ describe('off-thread checkpoint worker', () => {
       const run = runWorker(worker, { root, metadata, targets: [], compactionThreshold: 1 })
       await vi.advanceTimersByTimeAsync(4 * pause + 1)
 
-      expect(await run).toEqual({ written: outcome, timedOut: false })
+      expect(await run).toEqual({ written: segments, timedOut: false })
     } finally {
       vi.useRealTimers()
     }
