@@ -149,9 +149,9 @@ describe('vector fields in a segmented checkpoint', () => {
     const config: IndexConfig = { ...CONFIG, vectorPromotion: { threshold: 8 } }
     const writer = await createNarsil({ durability: { directory: root }, workers: { enabled: false } })
     await writer.createIndex('papers', config)
-    for (let i = 0; i < 200; i += 1) {
-      await writer.insert('papers', { title: `Paper ${i}`, embedding: embeddingFor(i) }, `p${i}`)
-    }
+    const papers = []
+    for (let i = 0; i < 200; i += 1) papers.push({ id: `p${i}`, title: `Paper ${i}`, embedding: embeddingFor(i) })
+    expect((await writer.insertBatch('papers', papers)).failed).toEqual([])
     await writer.optimizeVectors('papers', 'embedding')
     await writer.checkpoint('papers')
     const snapshot = decode(await unpackIndexSnapshotEnvelope(await writer.snapshot('papers'))) as {
@@ -188,13 +188,11 @@ describe('vector fields in a segmented checkpoint', () => {
     const config: IndexConfig = { ...CONFIG, vectorPromotion: { threshold: 8 } }
     const writer = await createNarsil({ durability: { directory: root }, workers: { enabled: false } })
     await writer.createIndex('papers', config)
-    for (let i = 0; i < 60; i += 1) {
-      await writer.insert('papers', { title: `Paper ${i}`, embedding: embeddingFor(i) }, `p${i}`)
-    }
+    const papers = []
+    for (let i = 0; i < 90; i += 1) papers.push({ id: `p${i}`, title: `Paper ${i}`, embedding: embeddingFor(i) })
+    expect((await writer.insertBatch('papers', papers.slice(0, 60))).failed).toEqual([])
     await writer.rebalance('papers', 3)
-    for (let i = 60; i < 90; i += 1) {
-      await writer.insert('papers', { title: `Paper ${i}`, embedding: embeddingFor(i) }, `p${i}`)
-    }
+    expect((await writer.insertBatch('papers', papers.slice(60))).failed).toEqual([])
     await writer.optimizeVectors('papers', 'embedding')
     await writer.checkpoint('papers')
     const query = { vector: { field: 'embedding', value: embeddingFor(77) }, limit: 5 }
