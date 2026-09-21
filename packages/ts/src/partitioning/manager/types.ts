@@ -50,6 +50,7 @@ export interface PartitionManager {
   deserializePartition(partitionId: number, data: SerializablePartition): void
   mergeSegment(partitionId: number, payload: SegmentPayload, documents: ReadonlyArray<AnyDocument>): void
   attachFrozenSegment(partitionId: number, segment: FrozenSegment): void
+  swapFrozenSegments(partitionId: number, dropSegmentIds: readonly string[], replacement: FrozenSegment): void
   freezeLiveTail(partitionId: number, freeze: LiveTailFreezer): FrozenSegment | null
   replaceLiveTail(partitionId: number, segment: FrozenSegment): void
   getAggregateStats(): {

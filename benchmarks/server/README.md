@@ -27,17 +27,17 @@ reporting) lives in `src/ir_bench/core`, and each engine is a small driver in
 ## Engines and pinned versions
 
 Each engine runs from a pinned image. Every version was checked against the
-engine's release source on 2026-09-07.
+engine's release source on 2026-09-21.
 
 | Engine | Image (pinned) | Version | Source |
 | ------ | -------------- | ------- | ------ |
-| Narsil | built from this repo (`node:22-trixie-slim` base) | working tree | local source |
-| Elasticsearch | `docker.elastic.co/elasticsearch/elasticsearch:9.5.3` | 9.5.3 | [release notes](https://www.elastic.co/docs/release-notes/elasticsearch), [GitHub releases](https://github.com/elastic/elasticsearch/releases) |
+| Narsil | built from this repo (`node:24-trixie-slim` base) | working tree | local source |
+| Elasticsearch | `docker.elastic.co/elasticsearch/elasticsearch:9.5.4` | 9.5.4 | [release notes](https://www.elastic.co/docs/release-notes/elasticsearch), [GitHub releases](https://github.com/elastic/elasticsearch/releases) |
 | OpenSearch | `opensearchproject/opensearch:3.8.0` | 3.8.0 | [opensearch.org/releases](https://opensearch.org/releases/), [GitHub releases](https://github.com/opensearch-project/OpenSearch/releases) |
 | Qdrant | `qdrant/qdrant:v1.19.1` | 1.19.1 | [GitHub releases](https://github.com/qdrant/qdrant/releases), [Docker Hub](https://hub.docker.com/r/qdrant/qdrant/tags) |
-| Weaviate | `cr.weaviate.io/semitechnologies/weaviate:1.39.3` | 1.39.3 | [GitHub releases](https://github.com/weaviate/weaviate/releases) |
+| Weaviate | `cr.weaviate.io/semitechnologies/weaviate:1.39.5` | 1.39.5 | [GitHub releases](https://github.com/weaviate/weaviate/releases) |
 | Typesense | `typesense/typesense:30.2` | 30.2 | [GitHub releases](https://github.com/typesense/typesense/releases) |
-| Meilisearch | `getmeili/meilisearch:v1.53.2` | 1.53.2 | [GitHub releases](https://github.com/meilisearch/meilisearch/releases) |
+| Meilisearch | `getmeili/meilisearch:v1.54.0` | 1.54.0 | [GitHub releases](https://github.com/meilisearch/meilisearch/releases) |
 
 ## Tracks and which engines run them
 
@@ -56,7 +56,7 @@ track. The two dedicated vector databases run vector and hybrid.
 
 Every engine indexes the same dense vectors, but each engine runs its own keyword
 side for hybrid. Elasticsearch, OpenSearch, and Weaviate run BM25 over the text.
-Qdrant uses BM25 sparse vectors (fastembed `Qdrant/bm25`) with server-side IDF.
+Qdrant turns the raw text into BM25 sparse vectors on its own server (`qdrant/bm25`) with server-side IDF.
 Narsil runs its own BM25. Each engine implements its own fusion, so the table
 names the method per engine.
 
@@ -295,7 +295,7 @@ the engines you care about, set `BENCH_DATASETS`, or shorten the sweep with
   sets, records ingest, recall, latency, and throughput, and its quality fields
   stay empty.
 - The vector and hybrid tracks run twice for every engine that serves them: once at
-  full float, and once under the engine's own recommended production quantisation,
+  full float, and once under the engine's own recommended production quantization,
   which `run-all.sh` names best config and writes to `engine-<name>-bestconfig.json`.
   Set `BENCH_BEST_CONFIG=0` to run the equal-precision pass alone.
 - For Narsil the harness also records how the server held the index it measured, read from

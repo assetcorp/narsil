@@ -54,14 +54,37 @@ export type SchemaDefinition = {
 }
 
 /**
- * How the engine stores vectors once a field is promoted to an HNSW graph.
+ * How the engine codes vectors once a field is promoted to an HNSW graph.
  *
- * `sq8` quantises each component to a signed byte, which cuts memory to a
- * quarter and costs a small amount of recall. `none` keeps full precision.
+ * Every `osq` mode applies optimised scalar quantization, which centres each
+ * vector on the field's centroid and then fits an interval to that vector
+ * alone. The digit in the mode name gives the bits that each dimension's code
+ * holds, so `osq8` stores a byte per dimension, while `osq4`, `osq2`, and
+ * `osq1` store four, two, and one bit. A search ranks its candidates by their
+ * codes before it re-scores the nearest of them against the full-precision
+ * vectors. `none` stores no code, so the engine ranks by the vectors alone.
+ *
+ * When the configuration leaves this unset, the engine takes `osq4` at 384
+ * dimensions and above and `osq8` below 384.
  *
  * @public
  */
-export type VectorQuantizationMode = 'sq8' | 'none'
+export type VectorQuantizationMode = 'osq8' | 'osq4' | 'osq2' | 'osq1' | 'none'
+
+/**
+ * Where a vector field keeps its full-precision vectors.
+ *
+ * A `memory` field holds them in memory. A `disk` field keeps its codes and
+ * its graph in memory, while it reads a full-precision vector from the
+ * field's checkpoint file whenever a search re-scores that candidate or a
+ * document read returns it. A `disk` field therefore needs filesystem
+ * durability. Asking for one on an engine without it fails with
+ * `CONFIG_INVALID`. When the configuration leaves this unset, an engine with
+ * filesystem durability takes `disk` and every other engine takes `memory`.
+ *
+ * @public
+ */
+export type VectorStorageMode = 'memory' | 'disk'
 
 /**
  * Controls when a vector field moves from a brute-force scan to an HNSW graph,
@@ -85,8 +108,10 @@ export interface VectorIndexConfig {
   filterThreshold?: number
   /** These settings shape the graph: neighbours per node, build-time exploration, and the metric that ranks results. */
   hnswConfig?: { m?: number; efConstruction?: number; metric?: 'cosine' | 'dotProduct' | 'euclidean' }
-  /** The engine stores the promoted vectors at this precision, and it quantises to `sq8` by default. Set `none` to keep full precision. */
+  /** The engine codes the promoted vectors in this mode. When this is unset, it picks the mode by the field's dimension. Set `none` to rank by the vectors alone. */
   quantization?: VectorQuantizationMode
+  /** The engine keeps the field's full-precision vectors here. When this is unset, it picks `disk` under filesystem durability and `memory` on every other engine. */
+  storage?: VectorStorageMode
 }
 
 /**

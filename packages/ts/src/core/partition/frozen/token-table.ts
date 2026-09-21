@@ -1,7 +1,9 @@
-import { compareCodePoints } from '../../ordering'
+import { codePointOrder, encodeStringBlob } from './string-blob'
 
 export interface FrozenTokenTable {
   readonly size: number
+  /** The table's arrays hold this many bytes, read from each array as it stands. */
+  readonly bytes: number
   find(token: string): number
   tokenAt(sortedIndex: number): string
   payloadSlot(sortedIndex: number): number
@@ -49,31 +51,14 @@ export function encodeFrozenTokenTableData(
   docFrequencies: Record<string, number>,
 ): FrozenTokenTableData {
   const size = tokens.length
-  const slotArray: number[] = new Array(size)
-  for (let i = 0; i < size; i++) slotArray[i] = i
-  slotArray.sort((a, b) => compareCodePoints(tokens[a], tokens[b]))
-  const payloadSlots = Uint32Array.from(slotArray)
-
-  const encoded: Uint8Array[] = new Array(size)
-  let blobLength = 0
-  for (let i = 0; i < size; i++) {
-    const bytes = encoder.encode(tokens[payloadSlots[i]])
-    encoded[i] = bytes
-    blobLength += bytes.length
-  }
-  const blob = new Uint8Array(blobLength)
-  const offsets = new Uint32Array(size + 1)
-  let cursor = 0
-  for (let i = 0; i < size; i++) {
-    blob.set(encoded[i], cursor)
-    cursor += encoded[i].length
-    offsets[i + 1] = cursor
-  }
-
+  const payloadSlots = Uint32Array.from(codePointOrder(tokens))
+  const sortedTokens: string[] = new Array(size)
   const documentFrequencies = new Uint32Array(size)
   for (let i = 0; i < size; i++) {
-    documentFrequencies[i] = docFrequencies[tokens[payloadSlots[i]]] ?? 0
+    sortedTokens[i] = tokens[payloadSlots[i]]
+    documentFrequencies[i] = docFrequencies[sortedTokens[i]] ?? 0
   }
+  const { blob, offsets } = encodeStringBlob(sortedTokens)
 
   return { blob, offsets, payloadSlots, documentFrequencies }
 }
@@ -108,6 +93,7 @@ export function wrapFrozenTokenTable(data: FrozenTokenTableData): FrozenTokenTab
 
   return {
     size,
+    bytes: blob.byteLength + offsets.byteLength + payloadSlots.byteLength + documentFrequencies.byteLength,
 
     find(token: string): number {
       const query = encoder.encode(token)

@@ -1,17 +1,21 @@
-import { applyDeleteEntry, applyIndexEntry } from '../../../distribution/replication/replica'
+import { decode } from '@msgpack/msgpack'
+import { buildSegmentPayload, type SegmentDocument } from '../../../core/partition/segment-builder'
+import { restoreVectorFields } from '../../../distribution/replication/replica'
 import type { ReplicationLogEntry } from '../../../distribution/replication/types'
-import { createPartitionManager, type PartitionManager } from '../../../partitioning/manager'
+import { prepareDocumentVectors } from '../../../engine/vector-coordinator'
+import { resolvePartitionInsertOptions } from '../../../partitioning/insert-options'
+import { createPartitionManager } from '../../../partitioning/manager'
 import { createPartitionRouter } from '../../../partitioning/router'
+import { decodeMapWithoutFields } from '../../../serialization/msgpack-without-fields'
 import type { LanguageModule } from '../../../types/language'
 import type { IndexConfig } from '../../../types/schema'
-import type { VectorIndex } from '../../../vector/vector-index'
 
 export interface BuildSegmentInput {
   indexName: string
   config: IndexConfig
   language: LanguageModule
   vectorFieldPaths: Set<string>
-  entries: ReplicationLogEntry[]
+  entries: AsyncIterable<ReplicationLogEntry>
 }
 
 export interface BuiltSegment {
@@ -20,40 +24,69 @@ export interface BuiltSegment {
   docCount: number
 }
 
-export function buildSegmentFromEntries(input: BuildSegmentInput): BuiltSegment | null {
-  const router = createPartitionRouter()
-  const vectorSink = new Map<string, VectorIndex>()
-  const manager = createPartitionManager(input.indexName, input.config, input.language, router, 1, vectorSink)
+function everyVectorFieldIsTopLevel(vectorFieldPaths: ReadonlySet<string>): boolean {
+  for (const fieldPath of vectorFieldPaths) {
+    if (fieldPath.includes('.')) return false
+  }
+  return vectorFieldPaths.size > 0
+}
 
+function documentWithoutVectors(
+  encoded: Uint8Array,
+  vectorFieldPaths: Set<string>,
+  leavesVectorsUndecoded: boolean,
+): Record<string, unknown> {
+  const skipped = leavesVectorsUndecoded ? decodeMapWithoutFields(encoded, vectorFieldPaths) : null
+  if (skipped !== null) return skipped
+  const document = decode(encoded) as Record<string, unknown>
+  restoreVectorFields(document, vectorFieldPaths)
+  return prepareDocumentVectors(document, vectorFieldPaths).partitionDoc
+}
+
+export async function buildSegmentFromEntries(input: BuildSegmentInput): Promise<BuiltSegment | null> {
+  const leavesVectorsUndecoded = everyVectorFieldIsTopLevel(input.vectorFieldPaths)
+  const live = new Map<string, Record<string, unknown>>()
   const deleted = new Set<string>()
-  for (const entry of input.entries) {
+
+  for await (const entry of input.entries) {
     if (entry.operation === 'DELETE') {
       deleted.add(entry.documentId)
-      applyDeleteEntry(entry, manager, vectorSink)
-    } else {
-      applyIndexEntry(entry, manager, input.vectorFieldPaths, vectorSink)
+      live.delete(entry.documentId)
+      continue
     }
+    if (entry.document === null) continue
+    live.delete(entry.documentId)
+    live.set(entry.documentId, documentWithoutVectors(entry.document, input.vectorFieldPaths, leavesVectorsUndecoded))
   }
 
-  const liveDocIds = collectLiveDocIds(manager)
   const tombstones: string[] = []
   for (const docId of deleted) {
-    if (!liveDocIds.has(docId)) {
-      tombstones.push(docId)
-    }
+    if (!live.has(docId)) tombstones.push(docId)
   }
-
-  if (liveDocIds.size === 0 && tombstones.length === 0) {
+  if (live.size === 0 && tombstones.length === 0) {
     return null
   }
+
+  const documents: SegmentDocument[] = []
+  for (const [docId, document] of live) documents.push({ docId, document })
+
+  const manager = createPartitionManager(input.indexName, input.config, input.language, createPartitionRouter(), 1)
+  const payload = buildSegmentPayload(
+    documents,
+    input.config.schema,
+    input.language,
+    resolvePartitionInsertOptions(input.config, manager.analysis),
+    input.config.trackPositions ?? true,
+  )
+  manager.mergeSegment(
+    0,
+    payload,
+    documents.map(entry => entry.document),
+  )
 
   return {
     payload: manager.serializePartitionToBytes(0),
     tombstones,
-    docCount: liveDocIds.size,
+    docCount: live.size,
   }
-}
-
-function collectLiveDocIds(manager: PartitionManager): Set<string> {
-  return new Set<string>(manager.getPartition(0).docIds())
 }

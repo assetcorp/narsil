@@ -2,7 +2,7 @@ import { ErrorCodes, NarsilError } from '../errors'
 import { detectRuntime } from '../runtime/detect'
 import type { Executor } from './executor'
 import type { WorkerFactory } from './pool'
-import { WORKER_RESOURCE_LIMITS } from './resource-limits'
+import { workerResourceLimits } from './resource-limits'
 import { createWorkerExecutor, type WorkerLike } from './worker-executor'
 
 declare const Worker: {
@@ -25,19 +25,19 @@ export async function createWorkerFactory(entryPoint?: string): Promise<WorkerFa
   if (runtime.supportsWorkerThreads) {
     const workerThreadsModule = await import('node:worker_threads')
 
-    return function nodeFactory(workerId: number, onDeath?: (error: Error) => void): Executor {
+    return function nodeFactory(workerId: number, onDeath?: (error: Error) => void, onGone?: () => void): Executor {
       const instance = new workerThreadsModule.Worker(new URL(resolvedEntry), {
-        resourceLimits: WORKER_RESOURCE_LIMITS,
+        resourceLimits: workerResourceLimits(),
         workerData: { workerId },
       })
-      return createWorkerExecutor(instance as unknown as WorkerLike, { onDeath })
+      return createWorkerExecutor(instance as unknown as WorkerLike, { onDeath, onGone })
     }
   }
 
   if (runtime.supportsWebWorkers) {
-    return function webFactory(_workerId: number, onDeath?: (error: Error) => void): Executor {
+    return function webFactory(_workerId: number, onDeath?: (error: Error) => void, onGone?: () => void): Executor {
       const instance = new Worker(resolvedEntry, { type: 'module' })
-      return createWorkerExecutor(instance as unknown as WorkerLike, { onDeath })
+      return createWorkerExecutor(instance as unknown as WorkerLike, { onDeath, onGone })
     }
   }
 

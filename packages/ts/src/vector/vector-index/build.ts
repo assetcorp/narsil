@@ -1,89 +1,35 @@
-import { createHNSWIndex, type HNSWConfig, type HNSWIndex } from '../hnsw'
-import { dispatchWorkerBuild } from '../hnsw-worker-dispatch'
-import { WORKER_BUILD_SIZE_THRESHOLD } from './constants'
-import {
-  adoptGraph,
-  allLiveDocIds,
-  buildGraphFromStore,
-  calibrateAndQuantizeAll,
-  insertIntoGraph,
-  liveSize,
-  recalibrateFromStore,
-  type VectorIndexState,
-} from './shared'
-import { invalidateWorkerCopies, scheduleWorkerCopyLoad } from './worker-copies'
+import { createHNSWIndex, type HNSWIndex } from '../hnsw'
+import { insertIntoGraph } from './build-host'
+import { releasePendingLocations } from './disk'
+import { adoptGraph, allLiveDocIds, calibrateQuantizer, liveSize, type VectorIndexState } from './shared'
+import { dropSharedGraph, scheduleWorkerCopyLoad } from './worker-copies'
 
-async function tryWorkerBuild(state: VectorIndexState, liveDocIds: string[]): Promise<boolean> {
-  const vectorData = new Float32Array(liveDocIds.length * state.dimension)
-  const validDocIds: string[] = []
-  let offset = 0
-
-  for (const docId of liveDocIds) {
-    const entry = state.store.get(docId)
-    if (!entry || state.tombstones.has(docId)) continue
-    vectorData.set(entry.vector, offset)
-    validDocIds.push(docId)
-    state.buffer.delete(docId)
-    offset += state.dimension
+export async function buildGraphFromStore(state: VectorIndexState): Promise<void> {
+  const graph = createHNSWIndex(state.dimension, state.store, state.hnswConfig, state.osq ?? undefined)
+  state.freshGraph = graph
+  let completed = false
+  try {
+    completed = await insertIntoGraph(state, graph, [...allLiveDocIds(state)], () => true)
+  } finally {
+    state.freshGraph = null
   }
-
-  if (validDocIds.length === 0) return false
-
-  const packedData = offset < vectorData.length ? vectorData.subarray(0, offset) : vectorData
-
-  const resolvedConfig: HNSWConfig = {
-    m: state.hnswConfig?.m,
-    efConstruction: state.hnswConfig?.efConstruction,
-    metric: state.hnswConfig?.metric,
+  if (!completed) {
+    dropSharedGraph(state, graph)
+    return
   }
-
-  const timeoutMs = Math.max(10_000, liveDocIds.length * 2)
-  const outcome = await dispatchWorkerBuild(validDocIds, packedData, state.dimension, resolvedConfig, timeoutMs, true)
-
-  if (!outcome.ok || state.disposed) return false
-
-  const newHnsw = createHNSWIndex(state.dimension, state.store, state.hnswConfig, state.sq8 ?? undefined)
-  newHnsw.deserialize(outcome.graph)
-  adoptGraph(state, newHnsw)
-  return true
+  const previous = state.hnsw
+  adoptGraph(state, graph)
+  if (previous !== null && previous !== graph) dropSharedGraph(state, previous)
+  await releasePendingLocations(state)
 }
 
-async function promoteToGraph(state: VectorIndexState): Promise<void> {
-  const liveDocIds = Array.from(allLiveDocIds(state))
-  if (liveDocIds.length === 0) return
-
-  if (state.sq8) {
-    calibrateAndQuantizeAll(state)
-  }
-
-  if (liveDocIds.length > WORKER_BUILD_SIZE_THRESHOLD) {
-    const built = await tryWorkerBuild(state, liveDocIds)
-    if (built) return
-  }
-
+export async function promoteToGraph(state: VectorIndexState): Promise<void> {
+  if (liveSize(state) === 0) return
+  calibrateQuantizer(state)
   await buildGraphFromStore(state)
 }
 
-function quantizeIncoming(state: VectorIndexState, docId: string): boolean {
-  const sq8 = state.sq8
-  if (sq8 === null) return false
-
-  if (!sq8.isCalibrated()) {
-    calibrateAndQuantizeAll(state)
-    return false
-  }
-
-  const entry = state.store.get(docId)
-  if (entry === undefined) return false
-
-  const outsideBounds = sq8.needsRecalibration(entry.vector)
-  sq8.quantize(docId, entry.vector)
-  return outsideBounds
-}
-
 async function growGraph(state: VectorIndexState, graph: HNSWIndex, bufferSnapshot: Set<string>): Promise<void> {
-  let outsideCalibration = false
-
   const admit = (docId: string): boolean => {
     if (state.hnsw !== graph) return false
     if (state.tombstones.has(docId) || !state.store.has(docId)) {
@@ -93,22 +39,13 @@ async function growGraph(state: VectorIndexState, graph: HNSWIndex, bufferSnapsh
     return true
   }
 
-  const inserted = (docId: string): void => {
-    if (quantizeIncoming(state, docId)) {
-      outsideCalibration = true
-    }
-  }
+  if (state.osq && !state.osq.isCalibrated()) calibrateQuantizer(state)
 
-  await insertIntoGraph(state, graph, bufferSnapshot, admit, inserted)
-
-  if (outsideCalibration) {
-    recalibrateFromStore(state)
-  }
+  await insertIntoGraph(state, graph, bufferSnapshot, admit)
 }
 
 export function triggerBuild(state: VectorIndexState): void {
   if (state.building) return
-  invalidateWorkerCopies(state)
   state.building = true
 
   const bufferSnapshot = new Set(state.buffer)
@@ -127,7 +64,7 @@ export function triggerBuild(state: VectorIndexState): void {
       state.pendingBuild = null
       if (state.buffer.size > 0) {
         scheduleBuild(state)
-      } else if (state.workerCopies.host !== undefined) {
+      } else {
         scheduleWorkerCopyLoad(state)
       }
     }
@@ -136,14 +73,16 @@ export function triggerBuild(state: VectorIndexState): void {
   state.pendingBuild = buildPromise
 }
 
+function buildDue(state: VectorIndexState): boolean {
+  if (state.hnsw === null) return liveSize(state) >= state.promotionThreshold
+  if (state.buffer.size === 0) return false
+  if (state.workerCopies.enabled && state.workerCopies.host !== undefined) return true
+  return state.buffer.size >= state.promotionThreshold
+}
+
 export function scheduleBuild(state: VectorIndexState): void {
   if (state.building || state.buildScheduled || state.disposed) return
-
-  const thresholdMet =
-    (!state.hnsw && liveSize(state) >= state.promotionThreshold) ||
-    (state.hnsw !== null && state.buffer.size >= state.promotionThreshold)
-
-  if (!thresholdMet) return
+  if (!buildDue(state)) return
 
   state.buildScheduled = true
   setTimeout(() => {

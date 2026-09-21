@@ -1,8 +1,3 @@
-/**
- * The ceiling one wire batch fills before the next one starts.
- *
- * @internal
- */
 export interface ChunkBudget<T> {
   /** No chunk holds more than this many items. */
   maxCount: number
@@ -16,18 +11,6 @@ export interface ChunkBudget<T> {
   breaksRun?(item: T, previous: T): boolean
 }
 
-/**
- * Splits a list into the batches one transport carries, so a large write never
- * builds a message the peer refuses. A chunk closes on the item count, on the
- * estimated byte count, or where the budget says the run breaks, and an item
- * larger than the byte ceiling travels alone rather than being dropped.
- *
- * @param items - The list to split, in the order it must stay in.
- * @param budget - The ceilings and the item measurements.
- * @returns The chunks, each holding at least one item, covering every item once.
- *
- * @internal
- */
 export function chunkByBudget<T>(items: T[], budget: ChunkBudget<T>): T[][] {
   const chunks: T[][] = []
   let current: T[] = []

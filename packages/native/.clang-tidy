@@ -1,0 +1,17 @@
+Checks: >-
+  -*,
+  bugprone-*,
+  cert-*,
+  clang-analyzer-*,
+  -clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling,
+  clang-diagnostic-*,
+  concurrency-*,
+  misc-*,
+  performance-*,
+  portability-*,
+  readability-*
+WarningsAsErrors: '*'
+HeaderFilterRegex: 'packages/native/(include|src|node)/[^/]+\.h$'
+FormatStyle: file
+CheckOptions:
+  misc-include-cleaner.IgnoreHeaders: 'any-windows-any/.*;sys/_pthread/.*;sys/fcntl\.h;_stdlib\.h;_stdio\.h;bits/.*'

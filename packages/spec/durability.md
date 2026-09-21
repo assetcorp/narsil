@@ -134,33 +134,33 @@ In sync mode a node acknowledges a write only after the marker fsync returns. A 
 
 Creating a new segment file, or creating the marker file for the first time, requires an fsync of the partition directory so that the new directory entry survives a crash.
 
-The marker always names the current active segment. Rolling to a new segment advances the marker to it as part of the roll, so the marker never names a sealed segment and a checkpoint never deletes the segment the marker names active; see [Checkpoint and Truncation](#checkpoint-and-truncation). In sync mode this flush runs on every group commit. In async mode it runs only on the `flush_interval_ms` timer, so the marker lags the appended records by up to one interval and those records recover as described next.
+The marker always names the current active segment. Rolling to a new segment advances the marker to it as part of the roll, so the marker never names a sealed segment and a checkpoint never deletes the segment that the marker names active; see [Checkpoint and Truncation](#checkpoint-and-truncation). In sync mode a node flushes on every group commit. In async mode a node flushes on the `flush_interval_ms` timer alone, so the marker lags the appended records by up to one interval and those records recover as described next.
 
 ### Reading a Segment
 
 Recovery uses the commit marker to find each segment's durable region and then reads the records inside it.
 
 1. Read the partition's commit marker and take the slot with the highest `write_seq` whose `marker_crc32` is valid. When neither slot is valid, or the marker is absent, the partition has no acknowledged log records beyond the snapshot and recovery replays nothing from the log.
-2. Delete every segment whose `startSeqNo` is greater than `active_segment_seq_no`. Such a segment holds only unacknowledged records from a roll a crash interrupted.
+2. Delete every segment whose `startSeqNo` is greater than `active_segment_seq_no`. Such a segment holds only unacknowledged records from a roll that a crash interrupted.
 3. A segment whose `startSeqNo` is below `active_segment_seq_no` was sealed before the active segment opened, so it is durable in full. Read every record in it.
 4. In the active segment, the first `durable_byte_length` bytes are the fsynced frontier. Read the records inside the frontier by byte offset, never by trusting a record's own length to find where the frontier ends.
 5. Inside the frontier every record must be complete and valid. A `record_length` that overruns the frontier, a `frame_crc32` mismatch, a payload that fails to decode, a failed entry checksum, or a `seqNo` out of order is corruption of acknowledged, fsynced data. Recovery refuses to start and raises `PERSISTENCE_WAL_CORRUPT`.
 6. Once every segment has been read up to the frontier, the highest `seqNo` read must equal `highest_durable_seq_no`. A lower value means a durable record is missing, which is corruption; refuse and raise `PERSISTENCE_WAL_CORRUPT`.
-7. Past `durable_byte_length` in the active segment lie records appended but not yet fsynced, which exist only in async mode. Recovery parses them one at a time and replays each record that is complete, valid, and carries a `seqNo` above `highest_durable_seq_no`. It stops at the first record that is incomplete or fails its checksum, treats that as the torn tail, truncates the segment to the end of the last good record, and fsyncs it.
+7. Past `durable_byte_length` in the active segment lie records appended but not yet fsynced, which stay unacknowledged in both modes. In async mode these are the records since the last flush; in sync mode they are the records of a write that a crash caught between its append and its fsync. Recovery parses them one at a time and replays each record that is complete, valid, and carries a `seqNo` above `highest_durable_seq_no`. It stops at the first record that is incomplete or fails its checksum, treats that as the torn tail, truncates the segment to the end of the last good record, and fsyncs it.
 
-Recovery reads the fsynced frontier deterministically and treats any failure inside it as fatal, so acknowledged, fsynced data is never dropped without a word. Only the async tail beyond the frontier is parsed on a best-effort basis, and that is exactly the window the async guarantee already allows to be lost: a clean async crash keeps the tail the operating system flushed, and a power cut keeps the records up to the first torn frame.
+Recovery reads the fsynced frontier deterministically and treats any failure inside it as fatal, so a node reports every failure inside acknowledged, fsynced data. Recovery parses the tail beyond the frontier on a best-effort basis alone. In async mode that tail holds the window that the async guarantee already allows a node to lose, while in sync mode it holds writes that a node never acknowledges. A clean crash keeps the tail that the operating system flushed, while a power cut keeps the records up to the first torn frame.
 
 ---
 
 ## Snapshot Checkpoint Format
 
-A snapshot is a full-index checkpoint held in a single `.nrsl` envelope. The snapshot-only tier writes it on every persist. The write-ahead log tier writes the [segmented checkpoint](#segmented-checkpoint) instead, and reads this bundle only as a fallback for data written before segmented checkpoints existed.
+A snapshot is a full-index checkpoint held in a single `.nrsl` envelope. The snapshot-only tier writes it on every persist, and the write-ahead log tier writes the [segmented checkpoint](#segmented-checkpoint) instead.
 
-The container is the `.nrsl` envelope from [envelope.md](envelope.md) with the checksum flag set; the CRC32 payload checksum is mandatory for a snapshot. The payload is the snapshot bundle, a MessagePack map. The envelope's `envelope_format_version` is 2, and the bundle's own `version` field is 1. The two are separate numbers, and a reader rejects a bundle whose `version` is anything other than 1.
+The container is the `.nrsl` envelope from [envelope.md](envelope.md) with the checksum flag set; the CRC32 payload checksum is mandatory for a snapshot. The payload is the snapshot bundle, a MessagePack map. The envelope's `envelope_format_version` is 2, and the bundle's own `version` field is 2. The two are separate numbers, and a reader rejects a bundle whose `version` is anything other than 2.
 
 ```text
 SnapshotBundle {
-  version:           uint8         (1)
+  version:           uint8         (2)
   schema:            Map<string, string>
   language:          string
   analysis_revision: string        (optional; the language module revision)
@@ -168,7 +168,7 @@ SnapshotBundle {
   stop_words:        string        (optional; the registered stop word set name)
   stop_word_list:    List<string>  (optional; the words of a literal stop word set)
   partitions:     List<bytes>   (version 2 partition payloads)
-  vectorIndexes:  Map<string, VectorIndexPayload>
+  vectorIndexes:  Map<string, List<VectorIndexPayload>>   (the parts of each field, in part order)
   checkpoint:     List<PartitionCheckpoint>
 }
 
@@ -199,41 +199,43 @@ A crash before step 4 leaves the previous snapshot intact and the temporary file
 
 ## Segmented Checkpoint
 
-The write-ahead log tier checkpoints incrementally, so the cost of a checkpoint scales with what changed since the last one rather than with the size of the index.
+The write-ahead log tier checkpoints its documents and its vectors incrementally, so the cost of writing them grows with the changes since the last checkpoint, while a checkpoint writes the graph of a changed vector field whole.
 
 ### Layout
 
-A segmented checkpoint is a manifest plus per-partition segment files, stored under the keys in [Storage Path Convention](envelope.md#storage-path-convention). Segment ids count up from zero within a partition and are zero-padded to 16 digits, so segment keys sort in creation order, and a partition holds at most 65536 segments.
+A segmented checkpoint is a manifest, the segment files of each partition, and the vector files and the graph file of each vector field, stored under the keys in [Storage Path Convention](envelope.md#storage-path-convention). A writer must number a partition's segments upwards from zero and zero-pad each id to 16 digits, so that segment keys sort in creation order. A partition must hold at most 65,536 segments.
 
-A segment file is a `.nrsl` envelope with the checksum flag set and `envelope_format_version` 2, and its payload is a MessagePack map:
+A segment file is a `.nrsl` envelope with the checksum flag set and `envelope_format_version` 2, whose payload is a MessagePack map:
 
 ```text
 SegmentFile {
   payload:    bytes         (a version 2 partition payload holding the segment's documents)
-  tombstones: List<string>  (document IDs this segment removes from older segments)
+  tombstones: List<string>  (document IDs that this segment removes from older segments)
 }
 ```
 
-A vector segment file is the same envelope carrying a [vector index payload](envelope.md#vector-index-payload).
+A vector file is the same envelope, with a [vector file payload](envelope.md#vector-file-payload) as its payload. A writer must number a field's vector files upwards from zero, must zero-pad each id to 16 digits, and must leave a vector file unchanged after it writes the file.
+
+A graph file is the same envelope, with a [vector graph payload](envelope.md#vector-graph-payload) as its payload. A vector field has one list of vector files and at most one graph file for the whole index, because a [vector index](vector-index.md) covers every partition.
 
 ### Manifest
 
-The manifest commits a checkpoint. It is a `.nrsl` envelope with the same flags, and its payload is a MessagePack map. A reader rejects a manifest whose `version` is anything other than 3.
+Writing the manifest commits a checkpoint. The manifest is a `.nrsl` envelope with the same flags, whose payload is a MessagePack map. A reader must reject a manifest whose `version` is anything other than 6.
 
 ```text
 SegmentManifest {
-  version:    uint8   (3)
+  version:    uint8   (6)
   schema:     Map<string, string>
   language:   string
   checkpoint: List<PartitionCheckpoint>
   partitions: List<PartitionManifestEntry>
+  vectors:    List<VectorFieldRef>   (one entry per vector field)
 }
 
 PartitionManifestEntry {
   partitionId:   uint32
   nextSegmentId: uint64
   segments:      List<SegmentRef>
-  vectors:       List<VectorSegmentRef>
 }
 
 SegmentRef {
@@ -243,28 +245,45 @@ SegmentRef {
   tombstoneCount: uint32
 }
 
-VectorSegmentRef {
-  fieldPath:  string
-  generation: uint64
-  key:        string
+VectorFieldRef {
+  fieldPath:       string
+  nextFileId:      uint64
+  files:           List<VectorFileRef>
+  graphGeneration: uint64          (the generation of the field's newest graph file, 0 before its first)
+  graphKey:        string or nil   (nil while the field holds no graph)
+}
+
+VectorFileRef {
+  id:    uint64
+  key:   string
+  count: uint32         (the vectors in the file, dead ones included)
+  dead:  bytes or nil   (one bit per vector, nil while every vector is live)
 }
 ```
 
-`checkpoint` carries the same list as the snapshot bundle, and recovery replays each partition's log from its `lastSeqNo + 1`.
+`checkpoint` holds the same list as the snapshot bundle holds, so recovery must replay each partition's log from its `lastSeqNo + 1`.
+
+The order of `files` numbers every vector of the field. The vectors of the first file take the numbers from 0 upwards in position order, and each later file continues from the number where the file before it ends. A dead vector keeps its number.
+
+Vector `i` of a file is dead when bit `i mod 8` of byte `floor(i / 8)` of `dead` is 1, where bit 0 is the least significant. A `dead` that is present must hold `ceiling(count / 8)` bytes. A reader must reject with `PERSISTENCE_LOAD_FAILED` a `dead` of any other length, a `count` above 65,536, and a `count` that differs from the length of the file's `docIds`.
 
 ### Writing a Checkpoint
 
-1. For each partition, read the log records between the previous checkpoint's `lastSeqNo` and the new one, build one segment holding the documents those records inserted or updated and a tombstone for each document they removed, and write it under the next segment id. A partition with no changes writes no segment.
-2. When a partition changed, rewrite each of its vector fields as a new vector segment at the next generation. A partition with no changes keeps its previous vector segments. A vector segment is the only place a checkpoint stores a vector value, so the document segment written in step 1 holds none. When a log record stores a document carrying no value for a vector field, the new vector segment must omit that document's vector, because the record replaced the document the earlier vector came from.
-3. When a partition's segment count exceeds the compaction threshold, 12 by default, merge its oldest segments into one so the count returns to the threshold.
-4. Write the manifest atomically over `<indexName>/manifest` with the same atomic write as the snapshot bundle. The manifest write is the commit point: a crash before it leaves the previous manifest in force and the new files unreferenced.
-5. Once the manifest is durable, delete every key the previous manifest referenced that the new one does not, and delete the legacy `<indexName>/snapshot` bundle.
+1. For each partition, read the log records between the previous checkpoint's `lastSeqNo` and the new one, and write one segment under the next segment id. That segment must hold the documents that those records inserted or updated, and a tombstone for each document that they removed. Write no segment for a partition with no changes. A writer may instead take a changed partition's whole content from the partition that it searches through, and write it as one segment under the next segment id. The manifest must then list that segment as the partition's only segment. The writer must take the content while it applies no mutation to the partition, so that the segment holds the effect of every record up to `lastSeqNo` and of no later record.
+2. When any partition changed, write every vector of each field that no vector file of the previous manifest holds into new vector files of at most 65,536 vectors each, under the field's next file ids. A checkpoint with no changes must keep the previous vector files and graph file. A vector file is the only place where a checkpoint stores a vector value, so the document segment of step 1 must hold none.
+3. Mark as dead, in the new manifest, every listed vector whose document the field no longer holds with that value. That covers a removed document, a replaced vector, and a document that a log record stores with no value for the field, because the record replaces the document that the earlier vector came from.
+4. A writer may replace a listed vector file by writing its live vectors into new vector files, and the new manifest must then omit the replaced file. A writer should replace a file whose dead share exceeds 0.2. A writer that recalibrates a field must replace every vector file of the field, so that every listed file holds its codes under one centroid.
+5. When a field holds a graph, write the graph whole as a new graph file at the field's next graph generation. The graph file must number its vectors by the new manifest's `files`, and it must hold live vectors alone.
+6. A writer may take a field's vectors, graph, and codes from the vector index that it searches through. The vector files and the graph file may then hold the effect of a log record above a partition's `lastSeqNo`, provided that the record is durable before step 8, because recovery replays that record over them.
+7. When a partition's segment count exceeds the compaction threshold, 12 by default, merge its oldest segments into one, so that the count returns to the threshold. A writer may merge fewer segments, or none, where the merged segment would hold more than 200,000 documents, so that a reader holds a bounded segment in memory.
+8. Write the manifest atomically over `<indexName>/manifest` with the same atomic write as the snapshot bundle. The manifest write is the commit point, so a crash before it leaves the previous manifest in force and the new files unreferenced.
+9. Once the manifest is durable, delete every key that the previous manifest references and the new one does not, and delete any `<indexName>/snapshot` bundle.
 
 ### Structural-Merge Recovery
 
-Recovery loads a partition by reading its manifest-listed segments in id order and merging them: the newest occurrence of a document wins, and a tombstone removes the document from every older segment. Each vector field loads from its listed vector segment.
+Recovery must load a partition by reading the segments that the manifest lists for it, in id order, and merging them, so that the newest occurrence of a document wins and a tombstone removes the document from every older segment. Recovery must load each vector field once, from the live vectors of the vector files that the manifest lists for it and from the graph file that the manifest names. Recovery must treat a live vector that the graph file holds no node for as a vector inserted after promotion; see [Post-Promotion Insertion](vector-index.md#post-promotion-insertion).
 
-Keys under `<indexName>/segments/` that the manifest does not reference are deleted during recovery, because a checkpoint that crashed before its manifest write leaves them behind.
+Recovery must delete every key under `<indexName>/segments/` that the manifest does not reference, because a checkpoint that crashes before its manifest write leaves such keys behind.
 
 ---
 
@@ -304,8 +323,8 @@ With persistence configured and no lifecycle settings, a node must recover on st
 1. Enumerate the persisted indexes from their `<indexName>/meta` keys.
 2. For each index:
    1. Load `<indexName>/meta`, rebuild the schema, language, partition count, and vector fields, and create the index empty.
-   2. Load `<indexName>/manifest` and verify the envelope CRC. When no manifest exists, fall back to `<indexName>/snapshot`; with neither present, every partition starts empty with `lastSeqNo` at 0.
-   3. Load the partitions and vector indexes, by [structural merge](#structural-merge-recovery) from a manifest or by decoding the bundle from a legacy snapshot, and read each partition's `lastSeqNo`.
+   2. Load `<indexName>/manifest` and verify the envelope CRC. When no manifest exists, every partition starts empty with `lastSeqNo` at 0.
+   3. Load the partitions and vector indexes by [structural merge](#structural-merge-recovery) from the manifest, and read each partition's `lastSeqNo`.
    4. For each partition, read its log as described in [Reading a Segment](#reading-a-segment) and replay every record whose `seqNo` is above `lastSeqNo`.
 3. After replay the index serves reads and writes, and each partition continues from the highest replayed `seqNo` plus one.
 

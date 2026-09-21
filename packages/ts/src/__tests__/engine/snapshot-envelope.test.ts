@@ -39,13 +39,13 @@ describe('index snapshot envelope', () => {
     expect((await narsil.query('prose', { term: 'machine' })).hits).toHaveLength(1)
   })
 
-  it('restores a legacy snapshot that carries no header', async () => {
+  it('rejects a snapshot that carries no header', async () => {
     const data = await narsil.snapshot('prose')
-    const legacy = encode(decode(await unpackIndexSnapshotEnvelope(data)))
-    await narsil.dropIndex('prose')
+    const headerless = encode(decode(await unpackIndexSnapshotEnvelope(data)))
 
-    await narsil.restore('prose', legacy)
-
+    await expect(narsil.restore('prose', headerless)).rejects.toMatchObject({
+      code: ErrorCodes.ENVELOPE_INVALID_MAGIC,
+    })
     expect((await narsil.query('prose', { term: 'machine' })).hits).toHaveLength(1)
   })
 

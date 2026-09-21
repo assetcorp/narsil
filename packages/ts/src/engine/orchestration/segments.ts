@@ -1,6 +1,7 @@
+import type { SharedSegmentSnapshot } from '../../core/partition/frozen'
 import type { SegmentPayload } from '../../core/partition/segment-payload'
 import type { AnyDocument } from '../../types/schema'
-import type { WorkerAction } from '../../workers/protocol'
+import type { BuiltSegmentResult, WorkerAction } from '../../workers/protocol'
 import type { OrchestratorState } from './types'
 
 export interface SegmentBuildRequest {
@@ -11,13 +12,21 @@ export interface SegmentBuildRequest {
 
 export interface BuiltSegment {
   partitionId: number
-  payload: SegmentPayload
+  segmentId: string
+  snapshot: SharedSegmentSnapshot | null
+  payload: SegmentPayload | null
   documents: AnyDocument[]
 }
 
 export function segmentBuildConcurrency(state: OrchestratorState, indexName: string): number {
   if (!state.scaledOutIndexes.has(indexName)) return 0
   return state.workerPool?.workerCount ?? 0
+}
+
+function builtSegmentOf(request: SegmentBuildRequest, result: BuiltSegmentResult): BuiltSegment {
+  const base = { partitionId: request.partitionId, segmentId: request.action.segmentId, documents: request.documents }
+  if (result.kind === 'shared') return { ...base, snapshot: result.snapshot, payload: null }
+  return { ...base, snapshot: null, payload: result.payload }
 }
 
 export async function buildSegments(
@@ -27,16 +36,23 @@ export async function buildSegments(
   const pool = state.workerPool
   if (!pool || requests.length === 0) return null
 
-  const executors = pool.getAllExecutors()
-  if (executors.length === 0) return null
+  const leases = requests.map(() => pool.leaseLeastBusy())
+  if (leases.some(lease => lease === null)) {
+    for (const lease of leases) lease?.release()
+    return null
+  }
 
-  const results = await Promise.all(
-    requests.map((request, i) =>
-      executors[i % executors.length]
-        .execute<SegmentPayload>(request.action)
-        .then(payload => ({ partitionId: request.partitionId, payload, documents: request.documents })),
-    ),
-  )
-
-  return results
+  try {
+    return await Promise.all(
+      requests.map((request, i) => {
+        const lease = leases[i]
+        if (lease === null) throw new Error('Segment build lease missing')
+        return lease.executor
+          .execute<BuiltSegmentResult>(request.action)
+          .then(result => builtSegmentOf(request, result))
+      }),
+    )
+  } finally {
+    for (const lease of leases) lease?.release()
+  }
 }

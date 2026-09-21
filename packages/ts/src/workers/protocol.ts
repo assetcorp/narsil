@@ -5,7 +5,7 @@ import type { RequestThreadSettings } from '../server/request-threads/messages'
 import type { GlobalStatistics, SerializablePartition } from '../types/internal'
 import type { AnyDocument, IndexConfig } from '../types/schema'
 import type { QueryParams } from '../types/search'
-import type { HostedVectorCopy } from '../vector/vector-index/shared'
+import type { SharedVectorFieldHandles } from '../vector/shared-field/types'
 
 export type WorkerAction =
   | { type: 'insert'; indexName: string; docId: string; document: AnyDocument; requestId: string; skipClone?: boolean }
@@ -29,10 +29,18 @@ export type WorkerAction =
       indexName: string
       fieldName: string
       handle: string
-      copy: HostedVectorCopy
+      handles: SharedVectorFieldHandles
       requestId: string
     }
   | { type: 'dropVectorCopy'; indexName: string; fieldName: string; handle: string; requestId: string }
+  | {
+      type: 'insertVectorOrdinals'
+      indexName: string
+      fieldName: string
+      handle: string
+      ordinals: Int32Array
+      requestId: string
+    }
   | { type: 'serveRequests'; settings: RequestThreadSettings; requestId: string }
   | { type: 'stopServing'; requestId: string }
   | { type: 'dropIndex'; indexName: string; requestId: string }
@@ -49,6 +57,7 @@ export type WorkerAction =
   | {
       type: 'buildSegment'
       indexName: string
+      segmentId: string
       documents: Array<{ docId: string; document: AnyDocument }>
       options?: PartitionInsertOptions
       requestId: string
@@ -92,6 +101,10 @@ export type WorkerAction =
   | { type: 'bootstrap'; moduleUrl: string; requestId: string }
   | { type: 'shutdown'; requestId: string }
 
+export type BuiltSegmentResult =
+  | { kind: 'shared'; snapshot: SharedSegmentSnapshot }
+  | { kind: 'payload'; payload: SegmentPayload }
+
 export type WorkerResponse =
   | { type: 'success'; requestId: string; data: unknown }
   | { type: 'error'; requestId: string; code: string; message: string }
@@ -108,6 +121,7 @@ const KNOWN_ACTION_TYPES: ReadonlyArray<WorkerAction['type']> = [
   'createIndex',
   'loadVectorCopy',
   'dropVectorCopy',
+  'insertVectorOrdinals',
   'serveRequests',
   'stopServing',
   'dropIndex',

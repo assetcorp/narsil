@@ -215,7 +215,15 @@ describe('validateSearchPayload params.sort', () => {
         makeSearchPayload({
           sort: [{ field: 'title', direction: 'asc' }],
           term: 'wireless',
-          vector: { field: 'embedding', value: [0.1, 0.2], text: null, similarity: null, metric: null, efSearch: null },
+          vector: {
+            field: 'embedding',
+            value: [0.1, 0.2],
+            text: null,
+            similarity: null,
+            metric: null,
+            efSearch: null,
+            oversample: null,
+          },
         }),
       ),
     ).toThrow(/hybrid query cannot carry a sort/)

@@ -2,6 +2,8 @@ import { createBoundedMaxHeap } from '../../core/heap'
 import { compareCodePoints } from '../../core/ordering'
 import type { VectorMetric } from '../brute-force'
 import { toScore } from '../hnsw/shared'
+import { noteFallback } from '../native/backend'
+import { nativeScoresOf } from '../native/store'
 import { type OrdinalFilter, ordinalFilterHas, ordinalFilterValues } from '../ordinal-filter'
 import { cosineSimilarityWithMagnitudes, dotProduct, euclideanDistance, magnitude } from '../similarity'
 import { scheduleBuild } from './build'
@@ -32,6 +34,47 @@ function* filteredDocIds(state: VectorIndexState, filter: OrdinalFilter): Iterab
   }
 }
 
+interface ScanCandidates {
+  docIds: string[]
+  ordinals: number[]
+}
+
+function highScoreFirst(a: VectorScoredResult, b: VectorScoredResult): number {
+  return b.score - a.score || compareCodePoints(a.docId, b.docId)
+}
+
+function liveCandidates(state: VectorIndexState, candidates: Iterable<string>): ScanCandidates {
+  const docIds: string[] = []
+  const ordinals: number[] = []
+  for (const docId of candidates) {
+    if (state.tombstones.has(docId)) continue
+    const ordinal = state.store.getOrdinal(docId)
+    if (ordinal === undefined) continue
+    docIds.push(docId)
+    ordinals.push(ordinal)
+  }
+  return { docIds, ordinals }
+}
+
+function scanThroughTheCore(
+  state: VectorIndexState,
+  query: Float32Array,
+  k: number,
+  metric: VectorMetric,
+  minSimilarity: number,
+  scanned: ScanCandidates,
+): VectorScoredResult[] | null {
+  const distances = nativeScoresOf(state.store.handles, query, metric, scanned.ordinals)
+  if (distances === null) return null
+  const heap = createBoundedMaxHeap<VectorScoredResult>(highScoreFirst, k)
+  for (let i = 0; i < scanned.ordinals.length; i++) {
+    if (distances[i] === Number.POSITIVE_INFINITY) continue
+    const score = toScore(distances[i], metric)
+    if (score >= minSimilarity) heap.push({ docId: scanned.docIds[i], score })
+  }
+  return heap.toSortedArray().reverse()
+}
+
 function bruteForceSearch(
   state: VectorIndexState,
   query: Float32Array,
@@ -40,20 +83,20 @@ function bruteForceSearch(
   minSimilarity: number,
   candidates: Iterable<string>,
 ): VectorScoredResult[] {
+  const scanned = liveCandidates(state, candidates)
+  const fromTheCore = scanThroughTheCore(state, query, k, metric, minSimilarity, scanned)
+  if (fromTheCore !== null) return fromTheCore
+  noteFallback('score')
+
   const arenaQuery = state.store.prepareQueryArena(query)
   const queryMag = arenaQuery ? arenaQuery.magnitude : magnitude(query)
-  const highScoreFirst = (a: VectorScoredResult, b: VectorScoredResult) =>
-    b.score - a.score || compareCodePoints(a.docId, b.docId)
   const heap = createBoundedMaxHeap<VectorScoredResult>(highScoreFirst, k)
 
-  for (const docId of candidates) {
-    if (state.tombstones.has(docId)) continue
-
+  for (let i = 0; i < scanned.docIds.length; i++) {
+    const docId = scanned.docIds[i]
     let score: number
     if (arenaQuery) {
-      const ordinal = state.store.getOrdinal(docId)
-      if (ordinal === undefined) continue
-      const distance = state.store.distanceFromArena(arenaQuery, ordinal, metric)
+      const distance = state.store.distanceFromArena(arenaQuery, scanned.ordinals[i], metric)
       if (distance === Number.POSITIVE_INFINITY) continue
       score = toScore(distance, metric)
     } else {
@@ -152,7 +195,7 @@ export function searchWithFilter(
     scheduleBuild(state)
   }
 
-  const { metric, minSimilarity, efSearch } = options
+  const { metric, minSimilarity, efSearch, oversample } = options
 
   if (filter && filter.count === 0) return []
 
@@ -169,13 +212,14 @@ export function searchWithFilter(
     }
   }
 
+  const graphOptions = { filter, efSearch, oversample }
   if (state.buffer.size === 0) {
-    const hnswResults = state.hnsw.search(query, k, metric, minSimilarity, filter, efSearch)
+    const hnswResults = state.hnsw.search(query, k, metric, minSimilarity, graphOptions)
     return hnswResults.map(r => ({ docId: r.docId, score: r.score }))
   }
 
   const hnswResults = state.hnsw
-    .search(query, k, metric, minSimilarity, filter, efSearch)
+    .search(query, k, metric, minSimilarity, graphOptions)
     .map(r => ({ docId: r.docId, score: r.score }))
 
   const bufferResults = bruteForceSearch(state, query, k, metric, minSimilarity, bufferCandidates(state, filter))

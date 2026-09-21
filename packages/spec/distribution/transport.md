@@ -420,6 +420,7 @@ VectorQueryParams {
   similarity: float32 or absent   (score floor; absent keeps every scored hit)
   metric:     'cosine' or 'dotProduct' or 'euclidean' or absent   (default 'cosine')
   efSearch:   uint32 or absent    (HNSW exploration factor; absent uses the engine default)
+  oversample: float32 or absent   (re-score depth multiplier; absent uses the engine default)
 }
 
 HybridConfig {

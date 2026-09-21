@@ -1,13 +1,8 @@
 import { fnv1a } from '../core/hash'
 import { ErrorCodes, NarsilError } from '../errors'
-import {
-  FALLBACK_CPU_COUNT,
-  MAX_WORKER_COUNT,
-  MIN_CORES_FOR_SEVERAL_REQUEST_THREADS,
-  MIN_WORKER_COUNT,
-} from './constants'
 import type { Executor } from './executor'
 import { createRequestId } from './protocol'
+import { resolveWorkerCount } from './worker-count'
 
 export interface MemoryStats {
   workerId: number
@@ -36,7 +31,7 @@ export interface WorkerPool {
   getAllExecutors(): Executor[]
   executorEntries(): Array<{ workerId: number; executor: Executor }>
   executorsHolding(indexName: string): Executor[]
-  leaseLeastBusy(): WorkerLease | null
+  leaseLeastBusy(indexName?: string): WorkerLease | null
   leaseIdle(limit: number): WorkerLease[]
   queriesInFlight(): number
   spawnAll(): void
@@ -48,6 +43,8 @@ export interface WorkerPool {
   removeIndex(indexName: string): void
   getMemoryStats(): Promise<MemoryStats[]>
   shutdown(): Promise<void>
+  /** Resolves once every thread the pool started has exited or finished a shutdown. */
+  whenEveryThreadIsGone(): Promise<void>
 }
 
 interface WorkerSlot {
@@ -72,54 +69,22 @@ function toHeapLimit(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null
 }
 
-export type WorkerFactory = (workerId: number, onDeath?: (error: Error) => void) => Executor
+export type WorkerFactory = (workerId: number, onDeath?: (error: Error) => void, onGone?: () => void) => Executor
 
 export interface WorkerPoolConfig {
   count?: number
   workerFactory: WorkerFactory
   onWorkerCrash?: (workerId: number, indexNames: string[], error: Error) => void
-}
-
-declare const navigator: { hardwareConcurrency?: number } | undefined
-
-export function detectCpuCount(): number {
-  try {
-    if (navigator?.hardwareConcurrency) {
-      return navigator.hardwareConcurrency
-    }
-    if (typeof process !== 'undefined') {
-      const ap = (process as unknown as Record<string, unknown>).availableParallelism
-      if (typeof ap === 'function') {
-        return ap() as number
-      }
-    }
-  } catch {
-    return FALLBACK_CPU_COUNT
-  }
-  return FALLBACK_CPU_COUNT
-}
-
-export function resolveWorkerCount(requested?: number): number {
-  if (requested !== undefined && requested > 0) {
-    return requested
-  }
-  return Math.max(MIN_WORKER_COUNT, Math.min(MAX_WORKER_COUNT, detectCpuCount() - 1))
-}
-
-export function resolveRequestThreadCount(requested?: number): number {
-  if (detectCpuCount() < MIN_CORES_FOR_SEVERAL_REQUEST_THREADS) return 1
-  return resolveWorkerCount(requested)
-}
-
-export function splitWorkerBudget(total: number): { keyword: number; vector: number } {
-  const keyword = Math.ceil(total / 2)
-  return { keyword, vector: total - keyword }
+  onWorkerGone?: (workerId: number) => void
 }
 
 export function createWorkerPool(config: WorkerPoolConfig): WorkerPool {
   const workerCount = resolveWorkerCount(config.count)
   const workers = new Map<number, WorkerSlot>()
   const deadSlots = new Set<number>()
+  const goneSlots = new Set<number>()
+  const threadsStillRunning = new Set<Executor>()
+  const waitingForEveryThread: Array<() => void> = []
   const indexAssignment = new Map<string, number>()
   let isShutdown = false
 
@@ -130,6 +95,7 @@ export function createWorkerPool(config: WorkerPoolConfig): WorkerPool {
     const slot = workers.get(slotIndex)
     if (slot !== undefined && !slot.serving) {
       workers.delete(slotIndex)
+      goneSlots.delete(slotIndex)
       return
     }
     if (deadSlots.has(slotIndex)) {
@@ -141,15 +107,48 @@ export function createWorkerPool(config: WorkerPoolConfig): WorkerPool {
     config.onWorkerCrash?.(slotIndex, indexNames, error)
   }
 
+  function handleWorkerGone(slotIndex: number): void {
+    if (!deadSlots.has(slotIndex) || workers.has(slotIndex)) {
+      return
+    }
+    goneSlots.add(slotIndex)
+    config.onWorkerGone?.(slotIndex)
+  }
+
   function spawnSlot(slotIndex: number, serving: boolean): WorkerSlot {
     const slot: WorkerSlot = {
-      executor: config.workerFactory(slotIndex, error => handleWorkerDeath(slotIndex, error)),
+      executor: config.workerFactory(
+        slotIndex,
+        error => handleWorkerDeath(slotIndex, error),
+        () => {
+          noteThreadGone(slot.executor)
+          handleWorkerGone(slotIndex)
+        },
+      ),
       indexes: new Set(),
       inFlight: 0,
       serving,
     }
+    threadsStillRunning.add(slot.executor)
     workers.set(slotIndex, slot)
     return slot
+  }
+
+  function noteThreadGone(executor: Executor): void {
+    threadsStillRunning.delete(executor)
+    if (threadsStillRunning.size > 0) return
+    for (const resume of waitingForEveryThread.splice(0)) resume()
+  }
+
+  function whenEveryThreadIsGone(): Promise<void> {
+    if (threadsStillRunning.size === 0) return Promise.resolve()
+    return new Promise<void>(resolve => {
+      waitingForEveryThread.push(resolve)
+    })
+  }
+
+  function shutDownUntilTheThreadIsGone(executor: Executor): Promise<void> {
+    return executor.shutdown().then(() => noteThreadGone(executor))
   }
 
   function ensureWorker(slotIndex: number): WorkerSlot | undefined {
@@ -160,11 +159,11 @@ export function createWorkerPool(config: WorkerPoolConfig): WorkerPool {
   }
 
   function deadWorkerIds(): number[] {
-    return [...deadSlots].filter(slotIndex => !workers.has(slotIndex)).sort((a, b) => a - b)
+    return [...deadSlots].filter(slotIndex => goneSlots.has(slotIndex) && !workers.has(slotIndex)).sort((a, b) => a - b)
   }
 
   function spawnReplacement(slotIndex: number): WorkerReplacement | null {
-    if (isShutdown || !deadSlots.has(slotIndex) || workers.has(slotIndex)) return null
+    if (isShutdown || !deadSlots.has(slotIndex) || !goneSlots.has(slotIndex) || workers.has(slotIndex)) return null
     const slot = spawnSlot(slotIndex, false)
     return {
       workerId: slotIndex,
@@ -175,11 +174,12 @@ export function createWorkerPool(config: WorkerPoolConfig): WorkerPool {
       admit(): void {
         if (workers.get(slotIndex) !== slot) return
         deadSlots.delete(slotIndex)
+        goneSlots.delete(slotIndex)
         slot.serving = true
       },
       abandon(): void {
         if (workers.get(slotIndex) === slot) workers.delete(slotIndex)
-        void slot.executor.shutdown().catch(() => undefined)
+        void shutDownUntilTheThreadIsGone(slot.executor).catch(() => undefined)
       },
     }
   }
@@ -274,12 +274,12 @@ export function createWorkerPool(config: WorkerPoolConfig): WorkerPool {
 
     isShutdown = true
 
-    const shutdownPromises = [...workers.values()].map(slot => {
+    const shutdownPromises = [...threadsStillRunning].map(executor => {
       const timeoutPromise = new Promise<void>(resolve => {
         setTimeout(resolve, 5_000)
       })
 
-      return Promise.race([slot.executor.shutdown(), timeoutPromise])
+      return Promise.race([shutDownUntilTheThreadIsGone(executor), timeoutPromise])
     })
 
     await Promise.allSettled(shutdownPromises)
@@ -316,11 +316,12 @@ export function createWorkerPool(config: WorkerPoolConfig): WorkerPool {
     }
   }
 
-  function leaseLeastBusy(): WorkerLease | null {
+  function leaseLeastBusy(indexName?: string): WorkerLease | null {
     let chosenId = -1
     let chosen: WorkerSlot | null = null
     for (const [workerId, slot] of workers) {
       if (!slot.serving) continue
+      if (indexName !== undefined && !slot.indexes.has(indexName)) continue
       if (chosen === null || slot.inFlight < chosen.inFlight) {
         chosenId = workerId
         chosen = slot
@@ -383,5 +384,6 @@ export function createWorkerPool(config: WorkerPoolConfig): WorkerPool {
     removeIndex,
     getMemoryStats,
     shutdown,
+    whenEveryThreadIsGone,
   }
 }

@@ -8,10 +8,17 @@ import type { QueryParams } from '../../types/search'
 import type { VectorWorkerCopyPolicy } from '../../vector/vector-index/shared'
 import type { DirectExecutorExtensions } from '../../workers/direct-executor'
 import type { Executor } from '../../workers/executor'
-import { resolveWorkerCount, splitWorkerBudget } from '../../workers/pool'
 import type { WorkerAction } from '../../workers/protocol'
+import { resolveWorkerCount, splitWorkerBudget } from '../../workers/worker-count'
 import { transferIndexToPool } from '../worker-resync'
-import { awaitCompactions, cancelIdleMerge, maybeCompactSegments, scheduleIdleMerge } from './compaction'
+import {
+  awaitCompactions,
+  cancelIdleMerge,
+  holdUnbroadcastSegments,
+  maybeCompactSegments,
+  releaseUnbroadcastSegments,
+  scheduleIdleMerge,
+} from './compaction'
 import { DEFAULT_COPY_IDLE_TIMEOUT_MS, DEFAULT_COPY_THRESHOLD, POOL_RESTART_DELAY_MS } from './constants'
 import { isIndexBusy, noteAccess, startIdleSweep, stopIdleSweep } from './idle'
 import { flushGrownTails } from './live-tail'
@@ -55,6 +62,10 @@ export function createWorkerOrchestrator(
   callbacks?: WorkerOrchestratorCallbacks,
   vectorCopyPolicy?: VectorWorkerCopyPolicy,
 ): WorkerOrchestrator {
+  let announceShutdown: () => void = () => undefined
+  const shutdownStarted = new Promise<void>(resolve => {
+    announceShutdown = resolve
+  })
   const state: OrchestratorState = {
     config,
     executor,
@@ -77,9 +88,14 @@ export function createWorkerOrchestrator(
     copyReloadCounts: new Map(),
     replicationQueues: new Map(),
     segmentLedger: new Map(),
+    unbroadcastSegments: new Map(),
     compactionsInFlight: new Map(),
     idleMergeTimers: new Map(),
+    sharedVectorFields: new Map(),
     workerPool: null,
+    retiredThreadsGone: Promise.resolve(),
+    shutdownStarted,
+    announceShutdown,
     poolStart: null,
     poolRetryAt: 0,
     poolRetryDelayMs: POOL_RESTART_DELAY_MS,
@@ -131,6 +147,7 @@ export function createWorkerOrchestrator(
 
   async function shutdown(): Promise<void> {
     state.shuttingDown = true
+    state.announceShutdown()
     stopIdleSweep(state)
     cancelRepair(state)
     stopRequestThreads(state)
@@ -212,6 +229,7 @@ export function createWorkerOrchestrator(
     state.lastAccessAt.delete(indexName)
     state.replicationQueues.delete(indexName)
     state.segmentLedger.delete(indexName)
+    state.unbroadcastSegments.delete(indexName)
   }
 
   async function replicate(action: WorkerAction): Promise<void> {
@@ -237,6 +255,10 @@ export function createWorkerOrchestrator(
     isIndexBusy: (indexName: string): boolean => isIndexBusy(state, indexName),
     buildSegments: (requests: SegmentBuildRequest[]): Promise<BuiltSegment[] | null> => buildSegments(state, requests),
     segmentBuildConcurrency: (indexName: string): number => segmentBuildConcurrency(state, indexName),
+    holdUnbroadcastSegments: (indexName: string, segmentIds: readonly string[]): void =>
+      holdUnbroadcastSegments(state, indexName, segmentIds),
+    releaseUnbroadcastSegments: (indexName: string, segmentIds: readonly string[]): void =>
+      releaseUnbroadcastSegments(state, indexName, segmentIds),
     searchViaWorker: (
       indexName: string,
       params: QueryParams,

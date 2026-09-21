@@ -44,7 +44,7 @@ Three bytes recording the `major.minor.patch` version of the engine that wrote t
 
 ### Payload Length
 
-The byte count of the payload that follows the header. A reader must read exactly that many bytes starting at offset 32.
+The byte count of the payload that follows the header. A reader must read exactly that many bytes starting at offset 32. A writer must reject a payload longer than 4,294,967,295 bytes with `PERSISTENCE_SAVE_FAILED`.
 
 ### Checksum
 
@@ -223,7 +223,7 @@ VectorData {
   dimension:  uint16
   vectors:    List<EmbeddedVectorEntry>
   hnsw_graph: EmbeddedHnswGraph or nil
-  sq8:        EmbeddedSQ8Data or absent
+  codes:      OSQCodes or absent
 }
 
 EmbeddedVectorEntry {
@@ -239,17 +239,9 @@ EmbeddedHnswGraph {
   metric:          string or absent
   nodes:           List<HnswNode>
 }
-
-EmbeddedSQ8Data {
-  alpha:             float32
-  offset:            float32
-  quantized_vectors: Map<string, List<uint8>>
-  vector_sums:       Map<string, float32>
-  vector_sum_sqs:    Map<string, float32>
-}
 ```
 
-`HnswNode` is defined under [Vector Index Payload](#vector-index-payload). The embedded form carries at most one graph per field, and a reader treats an unrecognised `metric` value as absent.
+[Vector Index Payload](#vector-index-payload) defines `HnswNode` and `OSQCodes`, whose records follow the order of `vectors`. The embedded form carries at most one graph per field, and a reader treats an unrecognised `metric` value as absent.
 
 ---
 
@@ -295,22 +287,21 @@ Every other field keeps its version 1 meaning. The four posting columns are alig
 
 ### Vector Index Payload
 
-A vector index payload holds one vector field's full state. It appears in two places: as a value in the snapshot bundle's `vectorIndexes` map, and as the payload of a vector segment file under the [checkpoint segment keys](durability.md#segmented-checkpoint). Unlike every other payload, its field names are camelCase, because it is the one payload written without a snake_case translation layer; see [Serialisation](vector-index.md#serialisation).
+A vector index payload holds one part of one vector field's state, and a field spans `parts` payloads of at most 65,536 vectors each, in ordinal order. It appears as an entry of the `vectorIndexes` lists of the [snapshot bundle](#snapshot-bundle-payload) and of the [index snapshot](#index-snapshot-payload). Its field names are camelCase, because an implementation writes it without a snake_case translation layer; see [Serialisation](vector-index.md#serialisation).
 
-A version 1 vector index payload is a MessagePack map:
+A version 3 vector index payload is a MessagePack map:
 
 ```text
 {
+  v:         uint8            (3)
   fieldName: string
   dimension: uint16
-  vectors:   List<VectorEntry>
+  part:      uint32           (this payload's position in the field, from 0)
+  parts:     uint32           (payloads in the field)
+  docIds:    List<string>     (one per vector in this part, in ordinal order)
   graphs:    List<HnswGraph>
-  sq8:       SQ8Data or nil
-}
-
-VectorEntry {
-  docId:  string
-  vector: List<float32>
+  codes:     OSQCodes or nil
+  vectors:   bytes            (float32 components, dimension * 4 bytes per vector, in ordinal order)
 }
 
 HnswGraph {
@@ -331,18 +322,81 @@ HnswNode = [
   ]>
 ]
 
-SQ8Data {
-  alpha:            float32
-  offset:           float32
-  quantizedVectors: Map<string, List<uint8>>
-  vectorSums:       Map<string, float32>
-  vectorSumSqs:     Map<string, float32>
+OSQCodes {
+  bits:     uint8            (8, 4, 2, or 1)
+  centroid: List<float32>
+  records:  bytes            (one record per vector in this part, in ordinal order)
+}
+
+OSQRecord = [
+  code:       bytes,     (packed as Optimised Scalar Quantisation defines)
+  lower:      float32,
+  upper:      float32,
+  correction: float32,
+  sum:        uint32
+]
+```
+
+Vector `i` of part `p` has ordinal `p * 65536 + i`, and a field with no vectors has one part holding none. Every number inside `vectors` and inside an `OSQRecord` is little-endian. A writer must write `vectors` as the last entry of the map with the compression flag at 0, so that a reader finds vector `i` of a part at `payload_length - (count - i) * dimension * 4` bytes into the payload, where `count` is the length of `docIds`.
+
+`graphs` lists the field's graphs in the same order in every part, each repeating its header and holding in `nodes` the nodes of this part's vectors alone, so a reader assembles each graph from every part. An implementation holding one graph writes a list of length 1, and a segment-based implementation writes one graph per segment. An empty `graphs` list means the implementation searches by brute force, because the vector count stays below the promotion threshold.
+
+A writer must set `codes`, with `bits` matching the mode, for an index that holds a graph under an `osq` mode, and it must write nil for every other index. `records` holds one `OSQRecord` per vector, whose `code` is packed as [Optimised Scalar Quantisation (OSQ)](algorithms.md#optimised-scalar-quantisation-osq) defines and takes `ceiling(dimension * bits / 8)` bytes, followed by 16 bytes of `lower`, `upper`, `correction`, and `sum`.
+
+---
+
+### Vector File Payload
+
+A vector file payload holds at most 65,536 vectors of one vector field, and it is the payload of a vector file of the [segmented checkpoint](durability.md#segmented-checkpoint). Its field names are camelCase, as in the [vector index payload](#vector-index-payload).
+
+A version 1 vector file payload is a MessagePack map:
+
+```text
+{
+  v:         uint8            (1)
+  fieldName: string
+  dimension: uint16
+  docIds:    List<string>     (one per vector, in position order)
+  codes:     OSQCodes or nil
+  vectors:   bytes            (float32 components, dimension * 4 bytes per vector, in position order)
 }
 ```
 
-`graphs` is a list. An implementation holding one graph writes a list of length 1, and a segment-based implementation writes one graph per segment. The `vectors` list stays flat, with one entry per document whatever the graph count, and graphs reference vectors by `docId`.
+`OSQCodes` keeps the layout that the vector index payload defines, with one record per vector of the file in position order. A writer must set `codes` by the rule that the vector index payload sets, and it must write `vectors` as the last entry of the map with the compression flag at 0 and every number little-endian. A reader therefore finds vector `i` at `payload_length - (count - i) * dimension * 4` bytes into the payload, where `count` is the length of `docIds`.
 
-An empty `graphs` list means the implementation searches by brute force, because the vector count has not reached the promotion threshold.
+A reader must recalibrate a field that holds a graph under an `osq` mode when any of its vector files has nil `codes`, or when two of them disagree on `bits` or on `centroid`.
+
+---
+
+### Vector Graph Payload
+
+A vector graph payload holds the graphs of one vector field, and it is the payload of a graph file of the [segmented checkpoint](durability.md#segmented-checkpoint). It names each vector by the number that the [manifest](durability.md#manifest) gives the vector. Its field names are camelCase, as in the [vector index payload](#vector-index-payload).
+
+A version 1 vector graph payload is a MessagePack map:
+
+```text
+{
+  v:         uint8                     (1)
+  fieldName: string
+  graphs:    List<NumberedHnswGraph>
+}
+
+NumberedHnswGraph {
+  entryPoint:     uint32 or nil   (the number of the vector where every search starts)
+  maxLayer:       uint8
+  m:              uint16
+  efConstruction: uint16
+  metric:         string
+  levels:         bytes           (one uint8 per vector number)
+  neighbours:     bytes           (uint32 values, little-endian)
+}
+```
+
+Byte `n` of `levels` must hold 0 where the graph has no node for vector `n`, and the node's top layer plus 1 otherwise. A vector whose number lies beyond the end of `levels` has no node.
+
+`neighbours` must hold the nodes in number order. For each node it must hold one list per layer, from layer 0 to the node's top layer, and each list is a count followed by that many vector numbers.
+
+A reader must skip a neighbour that is a dead vector, a vector with no node, or a node whose top layer lies below the layer of the list. A reader must reject a payload whose `neighbours` ends inside a list with `PERSISTENCE_LOAD_FAILED`. Where `entryPoint` is nil or is a vector with no node, a reader must start every search from a node on the graph's highest layer.
 
 ---
 
@@ -398,13 +452,14 @@ VectorPromotionMeta {
   threshold:        uint32                                                  (optional)
   filter_threshold: float64                                                 (optional; a selectivity ratio between 0 and 1)
   hnsw_config:      { m: uint32, ef_construction: uint32, metric: string }  (optional; each key optional)
-  quantization:     string                                                  (optional; "sq8" or "none")
+  quantization:     string                                                  (optional; "osq8", "osq4", "osq2", "osq1", or "none")
+  storage:          string                                                  (optional; "memory" or "disk")
 }
 ```
 
 `document_count` must equal the total number of documents in the last completed checkpoint. A reader must treat an absent `document_count` as unknown.
 
-`vector_fields` lists every vector field with its configuration, so the engine knows which vector index files to load without scanning the storage keys.
+`vector_fields` lists every vector field with its configuration, so the engine knows which vector index files to load without scanning the storage keys. A reader must reject a `quantization` or `storage` value outside its set with `CONFIG_INVALID`, in this payload and in the [index snapshot payload](#index-snapshot-payload).
 
 The `embedding` block records the index's automatic embedding configuration: the field mappings defined in [Embedding Configuration](adapters.md#embedding-configuration), and the name the embedding adapter was registered under. The block is additive, so a reader that skips it treats the index as having no automatic embedding, which is exactly how every metadata payload written before the block existed behaves. The `adapter` name appears only when the index was created with a named adapter, because an adapter instance holds live resources and cannot be serialised. Recovery uses the name to rebind the adapter from the engine's registry; see [Index Metadata](durability.md#index-metadata).
 
@@ -424,11 +479,11 @@ The `held_partitions` field records the partitions of the index this copy holds,
 
 ### Snapshot Bundle Payload
 
-The snapshot-only persistence tier writes the whole index as one envelope under the key `<indexName>/snapshot`, and the write-ahead log tier reads that key as a legacy fallback. The envelope uses the same 32-byte header with the checksum flag set, and the payload is the snapshot bundle described in [Snapshot Checkpoint Format](durability.md#snapshot-checkpoint-format).
+The snapshot-only persistence tier writes the whole index as one envelope under the key `<indexName>/snapshot`. The envelope uses the same 32-byte header with the checksum flag set, and the payload is the snapshot bundle described in [Snapshot Checkpoint Format](durability.md#snapshot-checkpoint-format).
 
 ```text
 {
-  version:        uint8         (1)
+  version:        uint8         (2)
   schema:         Map<string, string>
   language:          string
   analysis_revision: string        (optional; the language module revision)
@@ -436,7 +491,7 @@ The snapshot-only persistence tier writes the whole index as one envelope under 
   stop_words:        string        (optional; the registered stop word set name)
   stop_word_list:    List<string>  (optional; the words of a literal stop word set)
   partitions:        List<bytes>   (one version 2 partition payload per entry)
-  vectorIndexes:  Map<string, VectorIndexPayload>
+  vectorIndexes:  Map<string, List<VectorIndexPayload>>   (the parts of each field, in part order)
   checkpoint:     List<PartitionCheckpoint>
 }
 
@@ -476,7 +531,7 @@ The payload is a MessagePack map:
   vectorPromotion:  VectorSnapshotPromotion      (optional)
   embedding:        EmbeddingSnapshotConfig      (optional)
   partitions:       List<bytes>                  (one partition payload per entry, at the named version)
-  vectorIndexes:    Map<string, VectorIndexPayload>
+  vectorIndexes:    Map<string, List<VectorIndexPayload>>   (the parts of each field, in part order)
 }
 
 PartitionSnapshotLimits {
@@ -489,7 +544,8 @@ VectorSnapshotPromotion {
   threshold:       uint32                                                 (optional)
   filterThreshold: float64                                                (optional; a selectivity ratio between 0 and 1)
   hnswConfig:      { m: uint32, efConstruction: uint32, metric: string }  (optional; each key optional)
-  quantization:    string                                                 (optional; "sq8" or "none")
+  quantization:    string                                                 (optional; "osq8", "osq4", "osq2", "osq1", or "none")
+  storage:         string                                                 (optional; "memory" or "disk")
 }
 
 EmbeddingSnapshotConfig {
@@ -502,7 +558,7 @@ EmbeddingSnapshotConfig {
 
 A writer must reject an index whose tokeniser or stop words are code rather than a registered name, because no payload carries code.
 
-A reader must reject an index snapshot envelope whose `envelope_format_version` is not 3 with `ENVELOPE_VERSION_MISMATCH`. A reader must accept restore bytes that carry no `NRSL` magic as a legacy index snapshot, decoding the whole input as the MessagePack map above, because the TypeScript engine wrote headerless snapshots before format 3 existed.
+A reader must reject an index snapshot envelope whose `envelope_format_version` is not 3 with `ENVELOPE_VERSION_MISMATCH`.
 
 ---
 
@@ -515,8 +571,9 @@ A persistence adapter addresses stored bytes by string key:
 | `<indexName>/meta` | Index metadata |
 | `<indexName>/manifest` | Checkpoint segment manifest |
 | `<indexName>/segments/<partitionId>/s<segmentId>` | One checkpoint segment, id zero-padded to 16 digits |
-| `<indexName>/segments/<partitionId>/vec-<fieldPath>-g<generation>` | One vector field's index at one generation |
-| `<indexName>/snapshot` | Whole-index checkpoint bundle, written by the snapshot-only tier and read as a legacy fallback |
+| `<indexName>/segments/vec-<fieldPath>-f<fileId>` | One vector file of one vector field for the whole index, file id zero-padded to 16 digits |
+| `<indexName>/segments/vec-<fieldPath>-graph-g<generation>` | The graph file of one vector field for the whole index at one generation |
+| `<indexName>/snapshot` | Whole-index checkpoint bundle, written by the snapshot-only tier |
 | `<indexName>/wal/<partitionId>/<startSeqNo>` | Write-ahead log segment, start sequence number zero-padded to 16 digits |
 | `<indexName>/wal/<partitionId>/commit` | Write-ahead log commit marker |
 
@@ -526,7 +583,7 @@ A filesystem adapter maps each key to a file path, so an index named `products` 
 
 ## Version Compatibility Rules
 
-These rules are permanent, and every implementation must follow them.
+These rules take effect at Narsil 1.0, and every implementation must follow them from then on. Before 1.0 a reader must reject a payload written in an earlier layout with `ENVELOPE_VERSION_MISMATCH`.
 
 1. **Keep a deserialiser for every envelope format version ever released.** A v3 deserialiser still handles v1 and v2 payloads by filling in defaults for the fields those versions lack. An old deserialiser is never removed.
 

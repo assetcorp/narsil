@@ -6,12 +6,6 @@ export interface SurfaceFormCandidate {
   occurrences: number
 }
 
-/**
- * The lookups suggestion and prefix reads perform against the surface form
- * registry.
- *
- * @internal
- */
 export interface SurfaceRegistryReader {
   candidatesForPrefix(prefix: string): SurfaceFormCandidate[]
   stemChangedTotalFor(token: string): number

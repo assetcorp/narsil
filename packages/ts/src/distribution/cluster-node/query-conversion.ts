@@ -60,6 +60,7 @@ function convertWireVectorToLocal(vector: WireVectorQueryParams | null): QueryPa
   if (vector.similarity !== null) local.similarity = vector.similarity
   if (vector.metric !== null) local.metric = vector.metric
   if (vector.efSearch !== null) local.efSearch = vector.efSearch
+  if (vector.oversample !== null) local.oversample = vector.oversample
   return local
 }
 
@@ -175,6 +176,7 @@ function convertLocalVectorToWire(vector: QueryParams['vector']): WireVectorQuer
     similarity: vector.similarity ?? null,
     metric: vector.metric ?? null,
     efSearch: vector.efSearch ?? null,
+    oversample: vector.oversample ?? null,
   }
 }
 

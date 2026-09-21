@@ -32,13 +32,23 @@ describe('validateVectorPromotion', () => {
   })
 
   describe('quantization', () => {
-    it("accepts 'sq8' and 'none'", () => {
-      expect(() => validateVectorPromotion({ quantization: 'sq8' })).not.toThrow()
-      expect(() => validateVectorPromotion({ quantization: 'none' })).not.toThrow()
+    it('accepts every optimised scalar quantization width and none', () => {
+      for (const quantization of ['osq8', 'osq4', 'osq2', 'osq1', 'none'] as const) {
+        expect(() => validateVectorPromotion({ quantization })).not.toThrow()
+      }
     })
 
-    it('rejects an unknown mode instead of silently disabling quantization', () => {
-      expect(() => validateVectorPromotion({ quantization: 'sq16' as unknown as 'sq8' })).toThrow(NarsilError)
+    it('rejects the retired sq8 name and any other unknown mode instead of silently disabling quantization', () => {
+      expect(() => validateVectorPromotion({ quantization: 'sq8' as unknown as 'osq8' })).toThrow(NarsilError)
+      expect(() => validateVectorPromotion({ quantization: 'sq16' as unknown as 'osq8' })).toThrow(NarsilError)
+    })
+  })
+
+  describe('storage', () => {
+    it('accepts memory and disk and rejects any other name', () => {
+      expect(() => validateVectorPromotion({ storage: 'memory' })).not.toThrow()
+      expect(() => validateVectorPromotion({ storage: 'disk' })).not.toThrow()
+      expect(() => validateVectorPromotion({ storage: 'tape' as unknown as 'disk' })).toThrow(NarsilError)
     })
   })
 

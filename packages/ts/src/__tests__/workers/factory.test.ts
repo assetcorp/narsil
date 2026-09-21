@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { RuntimeInfo } from '../../runtime/detect'
+import { type WorkerResourceLimits, workerResourceLimits } from '../../workers/resource-limits'
 
 vi.mock('../../runtime/detect', () => ({
   detectRuntime: vi.fn<() => RuntimeInfo>(() => ({
@@ -112,6 +113,19 @@ describe('createWorkerFactory', () => {
 
       expect(WorkerCtor).toHaveBeenCalledTimes(3)
       expect(mockedCreateWorkerExecutor).toHaveBeenCalledTimes(3)
+    })
+
+    it('starts every worker under the heap limits the engine divides between its threads', async () => {
+      mockedDetectRuntime.mockReturnValue(createNodeRuntime())
+
+      const workerThreads = await import('node:worker_threads')
+      const WorkerCtor = vi.mocked(workerThreads.Worker)
+
+      const factory = await createWorkerFactory()
+      factory(0)
+
+      const options = WorkerCtor.mock.calls[0][1] as { resourceLimits?: WorkerResourceLimits }
+      expect(options.resourceLimits).toEqual(workerResourceLimits())
     })
   })
 

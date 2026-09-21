@@ -11,10 +11,10 @@ import { compareCodePoints } from '../../ordering'
 import { cloneProjected, type ResolvedProjection } from '../../projection'
 import { computeFacets, type FacetMatchSet } from '../facets'
 import type { PartitionFilterMatches } from '../filters'
-import { createFrozenSegment, type FrozenSegment } from '../frozen'
+import type { FrozenSegment } from '../frozen'
+import { frozenSegmentBytes } from '../frozen/memory'
 import { createPartitionIndex, type PartitionIndex, partitionStateOf } from '../index'
 import type { PartitionSearchMatches } from '../matches'
-import { estimatePartitionBytes } from '../memory'
 import type { PartitionReadState } from '../read-state'
 import { encodeSegmentState, type SegmentPayload } from '../segment-payload'
 import type { SortedPageEntry, SortPageRequest } from '../sorting'
@@ -40,21 +40,12 @@ import { compositeSortedPage, compositeSortValues } from './sorting'
 import { buildAggregateStatsView, mergeDocFrequencies } from './stats'
 import { compositeExpandTermPrefix, compositeSuggestTerms } from './suggest'
 
-/**
- * One partition served from a mutable live tail plus a list of immutable
- * frozen segments. Reads fan over every part and merge, writes land on the
- * live tail, and a remove or update of a frozen document tombstones it in its
- * segment. Frozen segments come first in the ordinal layout so their bases
- * never move as the live tail grows.
- *
- * @internal
- */
 export interface CompositePartition extends PartitionIndex {
   readonly live: PartitionIndex
   frozenSegmentCount(): number
   frozenSegmentSizes(): Array<{ segmentId: string; liveDocumentCount: number }>
   frozenSegmentsById(segmentIds: readonly string[]): FrozenSegment[]
-  appendFrozenSegment(payload: SegmentPayload, documents: ReadonlyArray<AnyDocument>): void
+  /** Adds a frozen segment whose documents the partition manager has already checked against every partition. */
   attachFrozenSegment(segment: FrozenSegment): void
   swapFrozenSegments(dropSegmentIds: readonly string[], replacement: FrozenSegment): void
   freezeLiveTail(freeze: LiveTailFreezer): FrozenSegment | null
@@ -136,7 +127,7 @@ export function createCompositePartition(
     },
 
     swapFrozenSegments(dropSegmentIds: readonly string[], replacement: FrozenSegment): void {
-      swapFrozenSegmentList(frozen, dropSegmentIds, replacement, partitionId)
+      swapFrozenSegmentList(frozen, dropSegmentIds, replacement)
       invalidateDocFrequencies()
     },
 
@@ -152,30 +143,7 @@ export function createCompositePartition(
       invalidateDocFrequencies()
     },
 
-    appendFrozenSegment(payload: SegmentPayload, documents: ReadonlyArray<AnyDocument>): void {
-      for (const docId of payload.docIds) {
-        if (live.has(docId) || frozenOwner(docId) !== undefined) {
-          throw new NarsilError(ErrorCodes.DOC_ALREADY_EXISTS, `Document "${docId}" already exists in this partition`, {
-            docId,
-            partitionId,
-          })
-        }
-      }
-      frozen.push(createFrozenSegment(payload, documents))
-      invalidateDocFrequencies()
-    },
-
     attachFrozenSegment(segment: FrozenSegment): void {
-      for (const ordinal of segment.docStore.allInternalIds()) {
-        const docId = segment.docStore.getExternalId(ordinal)
-        if (docId === undefined) continue
-        if (live.has(docId) || frozenOwner(docId) !== undefined) {
-          throw new NarsilError(ErrorCodes.DOC_ALREADY_EXISTS, `Document "${docId}" already exists in this partition`, {
-            docId,
-            partitionId,
-          })
-        }
-      }
       frozen.push(segment)
       invalidateDocFrequencies()
     },
@@ -388,7 +356,7 @@ export function createCompositePartition(
     estimateMemoryBytes(): number {
       let total = live.estimateMemoryBytes()
       for (const segment of frozen) {
-        total += estimatePartitionBytes(segment)
+        total += frozenSegmentBytes(segment)
       }
       return total
     },

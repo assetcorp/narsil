@@ -10,6 +10,7 @@ import type {
   DurabilityConfig,
   DurabilityManager,
   IndexDurabilityHooks,
+  MutationOutcome,
   MutationRecord,
 } from './types'
 
@@ -214,6 +215,30 @@ export function createSnapshotOnlyManager(
     return countSnapshotBundleDocuments(snapshotBytes)
   }
 
+  async function recordMutation(record: MutationRecord): Promise<number> {
+    const indexState = getOrCreateIndexState(record.indexName)
+    const buffered = indexState.applyChain.then(async () => {
+      await record.apply()
+      const appliedSeqNo = (indexState.appliedSeqNoByPartition.get(record.partitionId) ?? 0) + 1
+      indexState.appliedSeqNoByPartition.set(record.partitionId, appliedSeqNo)
+      return appliedSeqNo
+    })
+    indexState.applyChain = buffered.then(
+      () => undefined,
+      () => undefined,
+    )
+    const appliedSeqNo = await buffered
+
+    indexState.mutationsSinceCheckpoint += 1
+    startCheckpointTimer()
+    if (indexState.mutationsSinceCheckpoint >= checkpointMutationThreshold) {
+      void checkpointIndex(record.indexName).catch(err => {
+        hooks.onFatalError(err instanceof Error ? err : new Error(String(err)))
+      })
+    }
+    return appliedSeqNo
+  }
+
   return {
     isActive(): boolean {
       return true
@@ -237,28 +262,18 @@ export function createSnapshotOnlyManager(
       return indexes.get(indexName)?.appliedSeqNoByPartition.get(partitionId) ?? 0
     },
 
-    async recordMutation(record: MutationRecord): Promise<number> {
-      const indexState = getOrCreateIndexState(record.indexName)
-      const buffered = indexState.applyChain.then(async () => {
-        await record.apply()
-        const appliedSeqNo = (indexState.appliedSeqNoByPartition.get(record.partitionId) ?? 0) + 1
-        indexState.appliedSeqNoByPartition.set(record.partitionId, appliedSeqNo)
-        return appliedSeqNo
-      })
-      indexState.applyChain = buffered.then(
-        () => undefined,
-        () => undefined,
-      )
-      const appliedSeqNo = await buffered
+    recordMutation,
 
-      indexState.mutationsSinceCheckpoint += 1
-      startCheckpointTimer()
-      if (indexState.mutationsSinceCheckpoint >= checkpointMutationThreshold) {
-        void checkpointIndex(record.indexName).catch(err => {
-          hooks.onFatalError(err instanceof Error ? err : new Error(String(err)))
-        })
+    async recordMutations(records: readonly MutationRecord[]): Promise<MutationOutcome[]> {
+      const outcomes: MutationOutcome[] = []
+      for (const record of records) {
+        try {
+          outcomes.push({ ok: true, seqNo: await recordMutation(record) })
+        } catch (error) {
+          outcomes.push({ ok: false, error })
+        }
       }
-      return appliedSeqNo
+      return outcomes
     },
 
     persistMetadata(indexName: string): Promise<void> {

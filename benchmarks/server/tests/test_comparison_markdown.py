@@ -91,3 +91,38 @@ def test_best_marker_is_escaped_and_suppressed_on_ties():
     markdown = _render()
     assert "0.6800\\*" in markdown
     assert "0.6200\\*" not in markdown
+
+
+def test_an_engine_that_missed_the_recall_target_wins_no_speed_marker():
+    fast = _report("elasticsearch", kw_ndcg=0.61, vec_ndcg=0.62)
+    slow = _report("narsil", kw_ndcg=0.68, vec_ndcg=0.62)
+    for report, qps, met in ((fast, 1792.0, False), (slow, 1404.0, True)):
+        vector = next(dataset for dataset in report["datasets"] if dataset["track"] == "vector")
+        vector["operating_point"] = {"knob": "ef", "chosen_value": 512, "achieved_recall": 0.9899 if not met else 0.993, "met_target": met}
+        vector["throughput"] = {"levels": [{"concurrency": 16, "qps": qps, "client_latency_ms": {}}]}
+    markdown = render_comparison_markdown(build_comparison([fast, slow], "equal-precision"))
+    vector_section = markdown.split("## Vector track", 1)[1]
+    assert "| elasticsearch | 1792† |" in vector_section
+    assert "| narsil | 1404 |" in vector_section
+    assert "1792\\*" not in vector_section
+    assert "missed the recall target" in vector_section
+
+
+def test_memory_cap_above_the_machine_names_the_machine_as_the_ceiling():
+    report = _report("narsil", kw_ndcg=0.68, vec_ndcg=0.62)
+    report["config"]["memory_cap_bytes"] = 8_589_934_592
+    report["environment"]["total_memory_bytes"] = 8_319_766_528
+    markdown = render_comparison_markdown(build_comparison([report], "equal-precision"))
+    assert "8.6 GB configured, above the 8.3 GB the machine held" in markdown
+
+
+def test_best_config_conditions_name_the_quantization_each_engine_ran():
+    reports = [_report("narsil", kw_ndcg=0.68, vec_ndcg=0.62), _report("qdrant", kw_ndcg=0.61, vec_ndcg=0.62)]
+    for report, label in zip(reports, ("SQ8", "TurboQuant 4-bit")):
+        report["engine"]["vector_profile"] = "best-config"
+        for dataset in report["datasets"]:
+            if dataset["track"] == "vector":
+                dataset["quantization"] = label
+    markdown = render_comparison_markdown(build_comparison(reports, "best-config"))
+    assert "production quantization (narsil SQ8, qdrant TurboQuant 4-bit)." in markdown
+    assert "int8 scalar" not in markdown

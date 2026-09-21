@@ -21,13 +21,6 @@ function bodyBytes(body: string | Uint8Array | undefined): Uint8Array {
   return body
 }
 
-/**
- * A response the main thread writes into on behalf of a request thread, which
- * collects the status, the headers, and the body a handler produces so that
- * the request thread can write them to the real connection.
- *
- * @internal
- */
 export interface CapturingResponse {
   sink: ResponseSink
   done: Promise<CapturedResponse>

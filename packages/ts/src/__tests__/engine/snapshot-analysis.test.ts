@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { registerStopWords, registerTokenizer } from '../../analysis/registry'
 import { ErrorCodes, NarsilError } from '../../errors'
 import { createNarsil, type Narsil } from '../../narsil'
-import { unpackIndexSnapshotEnvelope } from '../../serialization/envelope'
+import { packIndexSnapshotEnvelope, unpackIndexSnapshotEnvelope } from '../../serialization/envelope'
 import type { CustomTokenizer } from '../../types/schema'
 import { createMockAdapter } from '../embedding/fixtures'
 
@@ -81,7 +81,9 @@ describe('snapshot and restore of index analysis', () => {
     const data = await narsil.snapshot('prose')
 
     const envelope = await decodeSnapshot(data)
-    const renamed = encode({ ...envelope, tokenizer: 'nobody-registered-this-snapshot' })
+    const renamed = await packIndexSnapshotEnvelope(
+      encode({ ...envelope, tokenizer: 'nobody-registered-this-snapshot' }),
+    )
 
     await expect(narsil.restore('prose', renamed)).rejects.toMatchObject({
       code: ErrorCodes.CONFIG_INVALID,
@@ -95,8 +97,12 @@ describe('snapshot and restore of index analysis', () => {
     const data = await narsil.snapshot('prose')
     const envelope = await decodeSnapshot(data)
 
-    await expect(narsil.restore('prose', encode({ ...envelope, tokenizer: 42 }))).rejects.toBeInstanceOf(NarsilError)
-    await expect(narsil.restore('prose', encode({ ...envelope, stopWords: ['a'] }))).rejects.toBeInstanceOf(NarsilError)
+    await expect(
+      narsil.restore('prose', await packIndexSnapshotEnvelope(encode({ ...envelope, tokenizer: 42 }))),
+    ).rejects.toBeInstanceOf(NarsilError)
+    await expect(
+      narsil.restore('prose', await packIndexSnapshotEnvelope(encode({ ...envelope, stopWords: ['a'] }))),
+    ).rejects.toBeInstanceOf(NarsilError)
   })
 
   it('restores an index onto the literal stop word set its snapshot carries', async () => {

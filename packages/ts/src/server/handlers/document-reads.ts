@@ -8,12 +8,6 @@ import type { RouteContext } from '../request'
 import type { MultiGetBody } from '../types'
 import { validateList, validateMultiGet } from '../validation'
 
-/**
- * The engine methods the read routes call, which a request thread satisfies
- * from its own copy of an index.
- *
- * @internal
- */
 export type ReadEngine = Pick<
   Narsil,
   'query' | 'preflight' | 'suggest' | 'get' | 'getMultiple' | 'has' | 'countDocuments' | 'listDocuments'

@@ -90,6 +90,7 @@ export type {
   StopWordOverride,
   VectorIndexConfig,
   VectorQuantizationMode,
+  VectorStorageMode,
   WriteOptions,
 } from './types/schema'
 export type {

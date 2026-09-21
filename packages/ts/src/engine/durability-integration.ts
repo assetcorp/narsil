@@ -4,7 +4,7 @@ import type { ReplicationOperation } from '../distribution/replication/types'
 import { VERSION } from '../index'
 import { createDurabilityManager, type DurabilityManager } from '../persistence/durability'
 import { createSnapshotOnlyManager } from '../persistence/durability/snapshot-only'
-import type { CheckpointPublisher, IndexDurabilityHooks } from '../persistence/durability/types'
+import type { CheckpointPublisher, IndexDurabilityHooks, MutationRecord } from '../persistence/durability/types'
 import type { PersistenceAdapter } from '../types/adapters'
 import type { DurabilityConfig } from '../types/config'
 import type { IndexEmbeddingMetadata, IndexMetadata } from '../types/internal'
@@ -22,6 +22,14 @@ export interface DurableWrite {
 
 export type ApplyMutation = () => void | Promise<void>
 
+export interface DurableMutation {
+  docId: string
+  document: AnyDocument | null
+  apply: ApplyMutation
+}
+
+export type DurableWriteOutcome = { ok: true; write: DurableWrite } | { ok: false; error: unknown }
+
 export interface DurabilityIntegration {
   manager: DurabilityManager
   recordInsertOrUpdate(
@@ -30,6 +38,7 @@ export interface DurabilityIntegration {
     document: AnyDocument,
     apply: ApplyMutation,
   ): Promise<DurableWrite>
+  recordMutationBatch(indexName: string, mutations: readonly DurableMutation[]): Promise<DurableWriteOutcome[]>
   recordRemove(indexName: string, docId: string, apply: ApplyMutation): Promise<DurableWrite>
 }
 
@@ -185,6 +194,38 @@ export function createDurabilityIntegration(
       apply: ApplyMutation,
     ): Promise<DurableWrite> {
       return recordMutation(indexName, docId, 'INDEX', encode(document), apply)
+    },
+    async recordMutationBatch(
+      indexName: string,
+      mutations: readonly DurableMutation[],
+    ): Promise<DurableWriteOutcome[]> {
+      const records: MutationRecord[] = []
+      const outcomes: DurableWriteOutcome[] = new Array(mutations.length)
+      const recordPositions: number[] = []
+      for (let i = 0; i < mutations.length; i++) {
+        const mutation = mutations[i]
+        try {
+          records.push({
+            indexName,
+            partitionId: partitionFor(indexName, mutation.docId),
+            operation: mutation.document === null ? 'DELETE' : 'INDEX',
+            documentId: mutation.docId,
+            document: mutation.document === null ? null : encode(mutation.document),
+            apply: mutation.apply,
+          })
+          recordPositions.push(i)
+        } catch (error) {
+          outcomes[i] = { ok: false, error }
+        }
+      }
+      const recorded = await manager.recordMutations(records)
+      for (let i = 0; i < recorded.length; i++) {
+        const outcome = recorded[i]
+        outcomes[recordPositions[i]] = outcome.ok
+          ? { ok: true, write: { indexName, partitionId: records[i].partitionId, seqNo: outcome.seqNo } }
+          : outcome
+      }
+      return outcomes
     },
     recordRemove(indexName: string, docId: string, apply: ApplyMutation): Promise<DurableWrite> {
       return recordMutation(indexName, docId, 'DELETE', null, apply)

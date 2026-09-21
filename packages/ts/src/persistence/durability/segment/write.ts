@@ -1,35 +1,40 @@
+import type { ReplicationLogEntry } from '../../../distribution/replication/types'
 import { reconstructSchemaFromMetadata } from '../../../engine/recovery-schema'
 import { ErrorCodes, NarsilError } from '../../../errors'
 import { getLanguage } from '../../../languages/registry'
 import { extractVectorFieldsFromSchema } from '../../../schema/validator/schema'
 import type { IndexMetadata } from '../../../types/internal'
-import type { LanguageModule } from '../../../types/language'
 import type { IndexConfig } from '../../../types/schema'
 import { DEFAULT_COMPACTION_THRESHOLD } from '../constants'
 import type { DurableDirectory } from '../durable-filesystem'
-import { collectWalEntriesInRange, snapshotCheckpointFor } from '../recovery'
+import { snapshotCheckpointFor } from '../recovery'
 import type { PartitionCheckpoint } from '../snapshot-bundle'
+import { walEntriesInRange } from '../wal-segments'
 import { buildSegmentFromEntries } from './build-segment'
+import { type CapturedWholePartition, serializeCapturedPartition } from './captured-partition'
 import { compactPartitionSegments } from './compaction'
-import { legacySnapshotKey, manifestKey, segmentKey, segmentPrefix } from './layout'
+import { manifestKey, segmentKey, segmentsPrefix, snapshotBundleKey } from './layout'
 import { readSegmentManifest } from './load'
 import {
   encodeSegmentManifest,
   MAX_SEGMENTS_PER_PARTITION,
   manifestReferencedKeys,
   type PartitionManifestEntry,
+  SEGMENT_MANIFEST_VERSION,
   type SegmentManifest,
   type SegmentRef,
+  type VectorFieldRef,
 } from './manifest'
 import { persistSegmentFile } from './segment-file'
-import { writePartitionVectors } from './vector'
 
 export interface SegmentedCheckpointInput {
   directory: DurableDirectory
   metadata: IndexMetadata
   targets: PartitionCheckpoint[]
   compactionThreshold: number
-  wholePartitionPayload?: (partitionId: number) => WholePartitionSegment
+  wholePartitions?: ReadonlyMap<number, WholePartitionSegment>
+  capturedPartitions?: readonly CapturedWholePartition[]
+  vectors?: VectorFieldRef[]
 }
 
 export interface WholePartitionSegment {
@@ -37,21 +42,58 @@ export interface WholePartitionSegment {
   docCount: number
 }
 
+export interface SegmentedCheckpointOutcome {
+  documentCount: number | null
+  garbage: string[]
+}
+
+export type CheckpointSegmentsInput = Omit<SegmentedCheckpointInput, 'vectors'>
+
+export interface CheckpointSegmentsWritten {
+  checkpoint: PartitionCheckpoint[]
+  partitions: PartitionManifestEntry[]
+}
+
 interface PartitionWriteContext {
   directory: DurableDirectory
   indexName: string
   config: IndexConfig
-  language: LanguageModule
-  vectorFields: Map<string, number>
+  languageName: string
   vectorFieldPaths: Set<string>
   compactionThreshold: number
 }
 
-export async function writeSegmentedCheckpoint(input: SegmentedCheckpointInput): Promise<number | null> {
+export async function writeSegmentedCheckpoint(input: SegmentedCheckpointInput): Promise<SegmentedCheckpointOutcome> {
+  const written = await writeCheckpointSegments(input)
+  return commitCheckpointManifest(input.directory, input.metadata, written, input.vectors)
+}
+
+export async function commitCheckpointManifest(
+  directory: DurableDirectory,
+  metadata: IndexMetadata,
+  written: CheckpointSegmentsWritten,
+  vectors?: VectorFieldRef[],
+): Promise<SegmentedCheckpointOutcome> {
+  const indexName = metadata.indexName
+  const manifest: SegmentManifest = {
+    version: SEGMENT_MANIFEST_VERSION,
+    schema: metadata.schema,
+    language: metadata.language,
+    checkpoint: written.checkpoint,
+    partitions: written.partitions,
+    vectors: vectors ?? (await readSegmentManifest(directory, indexName))?.vectors ?? [],
+  }
+
+  const parts = await encodeSegmentManifest(manifest)
+  await directory.atomicWrite(manifestKey(indexName), [parts.header, parts.payload])
+  const garbage = await unreferencedKeys(directory, indexName, manifest)
+  return { documentCount: null, garbage }
+}
+
+export async function writeCheckpointSegments(input: CheckpointSegmentsInput): Promise<CheckpointSegmentsWritten> {
   const { directory, metadata } = input
   const indexName = metadata.indexName
   const config = reconstructSchemaFromMetadata(metadata)
-  const language = getLanguage(config.language ?? 'english')
   const vectorFields = extractVectorFieldsFromSchema(config.schema)
   const compactionThreshold = resolveCompactionThreshold(input.compactionThreshold)
 
@@ -59,8 +101,7 @@ export async function writeSegmentedCheckpoint(input: SegmentedCheckpointInput):
     directory,
     indexName,
     config,
-    language,
-    vectorFields,
+    languageName: config.language ?? 'english',
     vectorFieldPaths: new Set(vectorFields.keys()),
     compactionThreshold,
   }
@@ -76,55 +117,51 @@ export async function writeSegmentedCheckpoint(input: SegmentedCheckpointInput):
   }
 
   const partitions: PartitionManifestEntry[] = []
-  let wholeDocumentCount = input.wholePartitionPayload === undefined ? null : 0
   for (const target of input.targets) {
     const priorPartition = priorManifest?.partitions.find(p => p.partitionId === target.partitionId)
     const priorSeqNo = snapshotCheckpointFor(priorManifest?.checkpoint ?? [], target.partitionId)
-    const entries = await collectWalEntriesInRange(
-      directory,
-      indexName,
-      target.partitionId,
-      priorSeqNo,
-      target.lastSeqNo,
-    )
-    if (input.wholePartitionPayload === undefined) {
+    const whole =
+      input.wholePartitions?.get(target.partitionId) ??
+      serializedFromCapture(context, input.capturedPartitions, target.partitionId)
+    if (whole === undefined) {
+      const entries = walEntriesInRange(directory, indexName, target.partitionId, priorSeqNo, target.lastSeqNo)
       partitions.push(await writePartition(context, target.partitionId, priorPartition, entries))
     } else {
-      const whole = input.wholePartitionPayload(target.partitionId)
-      wholeDocumentCount = (wholeDocumentCount ?? 0) + whole.docCount
-      partitions.push(await writeWholePartition(context, target.partitionId, priorPartition, whole, entries))
+      partitions.push(await writeWholePartition(context, target.partitionId, priorPartition, whole))
     }
   }
 
   carryForwardUncheckpointedPartitions(priorManifest, input.targets, partitions, checkpointByPartition)
+  return { checkpoint: [...checkpointByPartition.values()], partitions }
+}
 
-  const manifest: SegmentManifest = {
-    version: 3,
-    schema: metadata.schema,
-    language: metadata.language,
-    checkpoint: [...checkpointByPartition.values()],
-    partitions,
+function serializedFromCapture(
+  context: PartitionWriteContext,
+  capturedPartitions: readonly CapturedWholePartition[] | undefined,
+  partitionId: number,
+): WholePartitionSegment | undefined {
+  const captured = capturedPartitions?.find(candidate => candidate.partitionId === partitionId)
+  if (captured === undefined) return undefined
+  return {
+    payload: serializeCapturedPartition(context.indexName, context.config, context.languageName, captured),
+    docCount: captured.docCount,
   }
-
-  const parts = await encodeSegmentManifest(manifest)
-  await directory.atomicWrite(manifestKey(indexName), [parts.header, parts.payload])
-  await collectGarbage(directory, indexName, priorManifest, manifest)
-  return wholeDocumentCount
 }
 
 async function writePartition(
   context: PartitionWriteContext,
   partitionId: number,
   priorPartition: PartitionManifestEntry | undefined,
-  entries: Awaited<ReturnType<typeof collectWalEntriesInRange>>,
+  entries: AsyncIterable<ReplicationLogEntry>,
 ): Promise<PartitionManifestEntry> {
   let segments: SegmentRef[] = priorPartition ? [...priorPartition.segments] : []
   let nextSegmentId = priorPartition?.nextSegmentId ?? 0
+  const language = getLanguage(context.languageName)
 
-  const built = buildSegmentFromEntries({
+  const built = await buildSegmentFromEntries({
     indexName: context.indexName,
     config: context.config,
-    language: context.language,
+    language,
     vectorFieldPaths: context.vectorFieldPaths,
     entries,
   })
@@ -150,7 +187,7 @@ async function writePartition(
     indexName: context.indexName,
     partitionId,
     config: context.config,
-    language: context.language,
+    language,
     segments,
     nextSegmentId,
     compactionThreshold: context.compactionThreshold,
@@ -158,18 +195,7 @@ async function writePartition(
   segments = compacted.segments
   nextSegmentId = compacted.nextSegmentId
 
-  const vectors = await writePartitionVectors({
-    directory: context.directory,
-    indexName: context.indexName,
-    partitionId,
-    config: context.config,
-    vectorFields: context.vectorFields,
-    vectorFieldPaths: context.vectorFieldPaths,
-    entries,
-    priorVectors: priorPartition?.vectors ?? [],
-  })
-
-  return { partitionId, nextSegmentId, segments, vectors }
+  return { partitionId, nextSegmentId, segments }
 }
 
 async function writeWholePartition(
@@ -177,28 +203,14 @@ async function writeWholePartition(
   partitionId: number,
   priorPartition: PartitionManifestEntry | undefined,
   whole: WholePartitionSegment,
-  entries: Awaited<ReturnType<typeof collectWalEntriesInRange>>,
 ): Promise<PartitionManifestEntry> {
   const id = priorPartition?.nextSegmentId ?? 0
   const key = segmentKey(context.indexName, partitionId, id)
   await persistSegmentFile(context.directory, key, whole.payload, [])
-
-  const vectors = await writePartitionVectors({
-    directory: context.directory,
-    indexName: context.indexName,
-    partitionId,
-    config: context.config,
-    vectorFields: context.vectorFields,
-    vectorFieldPaths: context.vectorFieldPaths,
-    entries,
-    priorVectors: priorPartition?.vectors ?? [],
-  })
-
   return {
     partitionId,
     nextSegmentId: id + 1,
     segments: [{ id, key, docCount: whole.docCount, tombstoneCount: 0 }],
-    vectors,
   }
 }
 
@@ -231,30 +243,18 @@ function resolveCompactionThreshold(configured: number): number {
   return configured
 }
 
-async function collectGarbage(
+async function unreferencedKeys(
   directory: DurableDirectory,
   indexName: string,
-  priorManifest: SegmentManifest | null,
   manifest: SegmentManifest,
-): Promise<void> {
+): Promise<string[]> {
   const referenced = manifestReferencedKeys(manifest)
-  const partitionIds = new Set<number>()
-  for (const partition of manifest.partitions) {
-    partitionIds.add(partition.partitionId)
-  }
-  if (priorManifest !== null) {
-    for (const partition of priorManifest.partitions) {
-      partitionIds.add(partition.partitionId)
-    }
-  }
+  const stored = await directory.list(segmentsPrefix(indexName))
+  return [...stored.filter(key => !referenced.has(key)), snapshotBundleKey(indexName)]
+}
 
-  for (const partitionId of partitionIds) {
-    const prefix = segmentPrefix(indexName, partitionId)
-    for (const key of await directory.list(prefix)) {
-      if (!referenced.has(key)) {
-        await directory.remove(key)
-      }
-    }
+export async function removeCheckpointGarbage(directory: DurableDirectory, garbage: readonly string[]): Promise<void> {
+  for (const key of garbage) {
+    await directory.remove(key)
   }
-  await directory.remove(legacySnapshotKey(indexName))
 }

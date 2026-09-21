@@ -6,12 +6,15 @@ import threading
 import time
 from pathlib import Path
 
+import httpx
 import numpy as np
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+from ir_bench.core import ingest
 from ir_bench.core.ingest import BatchOutcome, chunked, encode_json, encode_json_lines, import_batches
+from ir_bench.core.types import EngineError
 
 
 def _accept(batch: list[int]) -> BatchOutcome:
@@ -77,6 +80,58 @@ def test_a_rejected_batch_surfaces_to_the_caller() -> None:
 
     with pytest.raises(RuntimeError, match="engine rejected the batch"):
         import_batches(range(1000), 64, 4, send)
+
+
+def test_a_batch_dropped_in_transit_is_sent_again_and_counted_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(ingest.time, "sleep", lambda seconds: None)
+    attempts: dict[int, int] = {}
+    lock = threading.Lock()
+
+    def send(batch: list[int]) -> BatchOutcome:
+        with lock:
+            attempts[batch[0]] = attempts.get(batch[0], 0) + 1
+            first_try = attempts[batch[0]] == 1
+        if first_try and batch[0] % 200 == 0:
+            raise httpx.RemoteProtocolError("Server disconnected without sending a response.")
+        if first_try and batch[0] % 300 == 0:
+            raise EngineError("HTTP 429 from engine: too many requests", 429)
+        return _accept(batch)
+
+    total = import_batches(range(1000), 100, 4, send, resend=send)
+
+    assert total.indexed == 1000
+    assert attempts == {start: 2 if start in (0, 200, 300, 400, 600, 800, 900) else 1 for start in range(0, 1000, 100)}
+
+
+def test_a_batch_is_never_sent_again_when_the_engine_refuses_it_or_resending_is_unsafe(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(ingest.time, "sleep", lambda seconds: None)
+    calls = 0
+
+    def refuse(batch: list[int]) -> BatchOutcome:
+        nonlocal calls
+        calls += 1
+        raise EngineError("HTTP 400 from engine: mapping conflict", 400)
+
+    with pytest.raises(EngineError, match="mapping conflict"):
+        import_batches(range(10), 10, 1, refuse, resend=refuse)
+    assert calls == 1
+
+    def drop(batch: list[int]) -> BatchOutcome:
+        nonlocal calls
+        calls += 1
+        raise httpx.RemoteProtocolError("Server disconnected without sending a response.")
+
+    calls = 0
+    with pytest.raises(httpx.RemoteProtocolError):
+        import_batches(range(10), 10, 1, drop)
+    assert calls == 1
+
+    calls = 0
+    with pytest.raises(httpx.RemoteProtocolError):
+        import_batches(range(10), 10, 1, drop, resend=drop)
+    assert calls == ingest.IMPORT_BATCH_ATTEMPTS
 
 
 def test_failures_reported_in_a_response_are_totalled() -> None:

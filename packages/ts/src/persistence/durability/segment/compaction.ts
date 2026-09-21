@@ -4,6 +4,7 @@ import type { SerializablePartition } from '../../../types/internal'
 import type { LanguageModule } from '../../../types/language'
 import type { IndexConfig } from '../../../types/schema'
 import type { VectorIndex } from '../../../vector/vector-index'
+import { COMPACTION_LARGEST_MERGED_DOCUMENT_COUNT } from '../constants'
 import type { DurableDirectory } from '../durable-filesystem'
 import { segmentKey } from './layout'
 import type { SegmentRef } from './manifest'
@@ -32,8 +33,11 @@ export async function compactPartitionSegments(input: CompactionInput): Promise<
     return { segments, nextSegmentId: input.nextSegmentId }
   }
 
-  const windowLength = segments.length - compactionThreshold + 1
-  const start = chooseCheapestWindow(segments, windowLength)
+  const chosen = chooseWindowWithinTheMergeLimit(segments, segments.length - compactionThreshold + 1)
+  if (chosen === null) {
+    return { segments, nextSegmentId: input.nextSegmentId }
+  }
+  const { start, windowLength } = chosen
   const window = segments.slice(start, start + windowLength)
 
   const contents: SegmentContents[] = []
@@ -67,7 +71,13 @@ export async function compactPartitionSegments(input: CompactionInput): Promise<
   return { segments: nextSegments, nextSegmentId: id + 1 }
 }
 
-function chooseCheapestWindow(segments: SegmentRef[], windowLength: number): number {
+interface MergeWindow {
+  start: number
+  windowLength: number
+  documentCount: number
+}
+
+function cheapestWindow(segments: SegmentRef[], windowLength: number): MergeWindow {
   let prefix = 0
   for (let i = 0; i < windowLength; i += 1) {
     prefix += segments[i].docCount
@@ -81,7 +91,15 @@ function chooseCheapestWindow(segments: SegmentRef[], windowLength: number): num
       bestStart = start
     }
   }
-  return bestStart
+  return { start: bestStart, windowLength, documentCount: bestCost }
+}
+
+function chooseWindowWithinTheMergeLimit(segments: SegmentRef[], wantedLength: number): MergeWindow | null {
+  for (let windowLength = Math.min(wantedLength, segments.length); windowLength >= 2; windowLength -= 1) {
+    const window = cheapestWindow(segments, windowLength)
+    if (window.documentCount <= COMPACTION_LARGEST_MERGED_DOCUMENT_COUNT) return window
+  }
+  return null
 }
 
 function collectRetainedTombstones(contents: SegmentContents[], liveDocIds: Set<string>): string[] {

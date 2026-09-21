@@ -1,11 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { createPartitionIndex, type PartitionIndex } from '../../../../core/partition'
 import { type CompositePartition, createCompositePartition } from '../../../../core/partition/composite'
-import { buildCompactedSegmentPayload } from '../../../../core/partition/composite/compaction'
 import { createFrozenSegment } from '../../../../core/partition/frozen'
 import { ErrorCodes, NarsilError } from '../../../../errors'
 import type { InternalSearchParams } from '../../../../types/internal'
-import type { AnyDocument } from '../../../../types/schema'
+import type { AnyDocument, SchemaDefinition } from '../../../../types/schema'
 import { english, simpleSchema } from '../../partition-index/fixtures'
 
 const CATEGORIES = ['fruit', 'metal', 'stone'] as const
@@ -22,10 +21,13 @@ function buildCorpus(count: number): AnyDocument[] {
   }))
 }
 
-function frozenPayloadFor(documents: AnyDocument[]): ReturnType<PartitionIndex['encodeSegment']> {
+function frozenPayloadFor(
+  documents: AnyDocument[],
+  schema: SchemaDefinition = simpleSchema,
+): ReturnType<PartitionIndex['encodeSegment']> {
   const scratch = createPartitionIndex(0)
   for (const doc of documents) {
-    scratch.insert(String(doc.id), doc, simpleSchema, english, { collectSurfaces: true })
+    scratch.insert(String(doc.id), doc, schema, english, { collectSurfaces: true })
   }
   return scratch.encodeSegment()
 }
@@ -44,7 +46,7 @@ function buildPair(
   const perSegment = Math.floor(count / (frozenSegments + 1))
   for (let s = 0; s < frozenSegments; s++) {
     const chunk = documents.slice(s * perSegment, (s + 1) * perSegment)
-    composite.appendFrozenSegment(frozenPayloadFor(chunk), chunk)
+    composite.attachFrozenSegment(createFrozenSegment(frozenPayloadFor(chunk), chunk))
   }
   for (const doc of documents.slice(frozenSegments * perSegment)) {
     composite.insert(String(doc.id), doc, simpleSchema, english, { collectSurfaces: true })
@@ -189,7 +191,7 @@ describe('a composite of frozen segments plus a live tail matches one merged par
     const composite = createCompositePartition(0)
     for (let start = 0; start < documents.length; start += 32) {
       const chunk = documents.slice(start, start + 32)
-      composite.appendFrozenSegment(frozenPayloadFor(chunk), chunk)
+      composite.attachFrozenSegment(createFrozenSegment(frozenPayloadFor(chunk), chunk))
     }
     const filters = { fields: { price: { gte: 5 } } }
     const params = termParams({ tokens: ['apple'], exact: true, collectMatchedSet: 'ordinals', maxResults: 10 })
@@ -352,42 +354,6 @@ describe('composite writes route to the owning part', () => {
     const encoded = composite.encodeSegment()
     expect(encoded.documentCount).toBe(baseline.count())
     expect(encoded.docFrequencies).toEqual(baseline.stats.docFrequencies)
-  })
-
-  it('compacts frozen segments into one and carries later removes into the swap', () => {
-    const composite = createCompositePartition(0)
-    const allDocs: AnyDocument[] = []
-    for (let s = 0; s < 8; s++) {
-      const chunk = Array.from({ length: 6 }, (_, i) => ({
-        id: `seg${s}-doc${i}`,
-        title: `${WORDS[(s + i) % WORDS.length]} shared`,
-        price: s * 10 + i,
-        active: i % 2 === 0,
-        category: CATEGORIES[i % CATEGORIES.length],
-      }))
-      composite.appendFrozenSegment(frozenPayloadFor(chunk), chunk)
-      allDocs.push(...chunk)
-    }
-    expect(composite.frozenSegmentCount()).toBe(8)
-
-    const segmentIds = composite.frozenSegmentSizes().map(size => size.segmentId)
-    const segments = composite.frozenSegmentsById(segmentIds)
-    const { payload, documents } = buildCompactedSegmentPayload(segments)
-    expect(payload.documentCount).toBe(allDocs.length)
-
-    composite.remove('seg3-doc1', simpleSchema, english)
-    const replacement = createFrozenSegment(payload, documents)
-    composite.swapFrozenSegments(segmentIds, replacement)
-
-    expect(composite.frozenSegmentCount()).toBe(1)
-    expect(composite.count()).toBe(allDocs.length - 1)
-    expect(composite.has('seg3-doc1')).toBe(false)
-    expect(composite.get('seg0-doc0')).toMatchObject({ id: 'seg0-doc0' })
-    expect(composite.get('seg7-doc5')).toMatchObject({ id: 'seg7-doc5' })
-
-    const found = composite.searchFulltext(termParams({ tokens: ['shared'], exact: true }))
-    expect(found.totalMatched).toBe(allDocs.length - 1)
-    expect(found.scored.some(doc => doc.docId === 'seg3-doc1')).toBe(false)
   })
 
   it('rejects an insert whose id already lives in a frozen segment', () => {

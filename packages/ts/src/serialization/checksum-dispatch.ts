@@ -1,3 +1,4 @@
+import { nativeCrc32 } from '#platform/native-crc32'
 import { isNodeMainThread, spawnNodeWorker } from '#platform/node-worker'
 import { detectRuntime } from '../runtime/detect'
 import { CHECKSUM_TIMEOUT_MS, CHECKSUM_YIELD_CHUNK_BYTES } from './constants'
@@ -52,8 +53,8 @@ function yieldToEventLoop(): Promise<void> {
   return new Promise<void>(resolve => setTimeout(resolve, 0))
 }
 
-async function chunkedChecksum(payload: Uint8Array): Promise<number> {
-  let state = crc32Init()
+async function advanceChecksum(start: number, payload: Uint8Array): Promise<number> {
+  let state = start
   for (let offset = 0; offset < payload.length; offset += CHECKSUM_YIELD_CHUNK_BYTES) {
     const end = Math.min(offset + CHECKSUM_YIELD_CHUNK_BYTES, payload.length)
     state = crc32Update(state, payload.subarray(offset, end))
@@ -61,6 +62,16 @@ async function chunkedChecksum(payload: Uint8Array): Promise<number> {
       await yieldToEventLoop()
     }
   }
+  return state
+}
+
+async function chunkedChecksum(payload: Uint8Array): Promise<number> {
+  return crc32Final(await advanceChecksum(crc32Init(), payload))
+}
+
+export async function checksumOfChunks(chunks: readonly Uint8Array[]): Promise<number> {
+  let state = crc32Init()
+  for (const chunk of chunks) state = await advanceChecksum(state, chunk)
   return crc32Final(state)
 }
 
@@ -115,6 +126,7 @@ export async function computeOffThreadChecksum(payload: Uint8Array): Promise<Che
     workerUsable = false
     throw new Error('simulated checksum worker failure')
   }
+  if (nativeCrc32 !== null) return { checksum: await chunkedChecksum(payload), payload }
   if (detectRuntime().supportsWorkerThreads && workerUsable && (await isOnMainThread())) {
     const worker = await spawnWorker()
     if (worker !== null) {

@@ -9,8 +9,8 @@ import {
   SEGMENT_MANIFEST_VERSION,
   type SegmentManifest,
   type SegmentRef,
-  type VectorSegmentRef,
 } from './manifest'
+import { normalizeVectorFields } from './manifest-vectors-decode'
 
 interface RawSegmentRef {
   id?: number
@@ -19,17 +19,10 @@ interface RawSegmentRef {
   tombstoneCount?: number
 }
 
-interface RawVectorRef {
-  fieldPath?: string
-  generation?: number
-  key?: string
-}
-
 interface RawPartitionEntry {
   partitionId?: number
   nextSegmentId?: number
   segments?: RawSegmentRef[]
-  vectors?: RawVectorRef[]
 }
 
 interface RawManifest {
@@ -38,6 +31,7 @@ interface RawManifest {
   language?: string
   checkpoint?: Array<{ partitionId?: number; lastSeqNo?: number; primaryTerm?: number }>
   partitions?: RawPartitionEntry[]
+  vectors?: unknown
 }
 
 export async function decodeSegmentManifest(data: Uint8Array): Promise<SegmentManifest> {
@@ -60,6 +54,7 @@ export async function decodeSegmentManifest(data: Uint8Array): Promise<SegmentMa
     language: base.language,
     checkpoint: normalizeCheckpoint(raw.checkpoint),
     partitions: normalizePartitions(raw.partitions),
+    vectors: normalizeVectorFields(raw.vectors),
   }
 }
 
@@ -108,7 +103,6 @@ function normalizePartitions(raw: RawManifest['partitions']): PartitionManifestE
       partitionId: entry.partitionId,
       nextSegmentId,
       segments,
-      vectors: normalizeVectors(entry.vectors, entry.partitionId),
     })
   }
   return result
@@ -179,28 +173,6 @@ function readNextSegmentId(value: unknown, segments: SegmentRef[], partitionId: 
     }
   }
   return value
-}
-
-function normalizeVectors(raw: RawVectorRef[] | undefined, partitionId: number): VectorSegmentRef[] {
-  if (raw === undefined) {
-    return []
-  }
-  if (!Array.isArray(raw)) {
-    throw new NarsilError(ErrorCodes.PERSISTENCE_LOAD_FAILED, 'Segment manifest has malformed vector references', {
-      partitionId,
-    })
-  }
-  const result: VectorSegmentRef[] = []
-  for (const vector of raw) {
-    if (typeof vector?.fieldPath !== 'string' || !isNonNegativeInteger(vector.generation) || !isKey(vector.key)) {
-      throw new NarsilError(ErrorCodes.PERSISTENCE_LOAD_FAILED, 'Segment manifest has an invalid vector reference', {
-        partitionId,
-        vector,
-      })
-    }
-    result.push({ fieldPath: vector.fieldPath, generation: vector.generation, key: vector.key })
-  }
-  return result
 }
 
 function isNonNegativeInteger(value: unknown): value is number {

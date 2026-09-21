@@ -1,8 +1,9 @@
 import { ErrorCodes, NarsilError } from '../../errors'
 import { createGeoIndex } from '../../geo/geo-index'
-import type { SerializedSurfaceForms } from '../../types/internal'
+import type { PostingListView, SerializedSurfaceForms } from '../../types/internal'
 import type { AnyDocument } from '../../types/schema'
 import { createBooleanIndex, createEnumIndex, createNumericIndex } from '../field-index'
+import { encodeFieldIndexes } from './segment-field-indexes'
 import { getOrCreateFieldNameIndex, type PartitionReadState, type PartitionState } from './utils'
 
 export interface SegmentPayload {
@@ -79,19 +80,24 @@ function countPostings(
   let positions = 0
   let hasPositions = false
   for (const token of state.invertedIdx.tokens()) {
-    const list = state.invertedIdx.lookup(token)
+    const list = lookupReadOnce(state, token)
     if (list === undefined) continue
+    const listPositions = list.positionCountAt === undefined ? list.positions : null
+    const tracksPositions = list.positionCountAt === undefined ? listPositions !== null : state.trackPositions
     for (let i = 0; i < list.length; i++) {
       const internalId = list.docIds[i]
       if (list.deletedDocs.has(internalId) || remap[internalId] < 0) continue
       postings++
-      if (list.positions !== null) {
-        hasPositions = true
-        positions += list.positions[i]?.length ?? 0
-      }
+      if (!tracksPositions) continue
+      hasPositions = true
+      positions += list.positionCountAt?.(i) ?? listPositions?.[i]?.length ?? 0
     }
   }
   return { postings, positions, hasPositions }
+}
+
+function lookupReadOnce(state: PartitionReadState, token: string): PostingListView | undefined {
+  return state.invertedIdx.lookupReadOnce?.(token) ?? state.invertedIdx.lookup(token)
 }
 
 function encodeFieldLengths(
@@ -124,70 +130,6 @@ function encodeFieldLengths(
   return { names, columns, totals }
 }
 
-function encodeFieldIndexes(
-  state: PartitionReadState,
-  remap: Int32Array,
-): Pick<SegmentPayload, 'numeric' | 'boolean' | 'enums' | 'geo'> {
-  const survives = (internalId: number): boolean => remap[internalId] >= 0
-
-  const numeric: SegmentPayload['numeric'] = []
-  for (const [fieldPath, index] of state.numericIndexes) {
-    const entries = index.serialize().filter(entry => survives(entry.docId))
-    const docIds = new Uint32Array(entries.length)
-    const values = new Float64Array(entries.length)
-    for (let i = 0; i < entries.length; i++) {
-      docIds[i] = remap[entries[i].docId]
-      values[i] = entries[i].value
-    }
-    numeric.push({ fieldPath, docIds, values })
-  }
-
-  const booleans: SegmentPayload['boolean'] = []
-  for (const [fieldPath, index] of state.booleanIndexes) {
-    const { trueDocs, falseDocs } = index.serialize()
-    booleans.push({
-      fieldPath,
-      trueDocs: Uint32Array.from(trueDocs.filter(survives), internalId => remap[internalId]),
-      falseDocs: Uint32Array.from(falseDocs.filter(survives), internalId => remap[internalId]),
-    })
-  }
-
-  const enums: SegmentPayload['enums'] = []
-  for (const [fieldPath, index] of state.enumIndexes) {
-    const serialized = index.serialize()
-    const values = Object.keys(serialized)
-    const byValue = values.map(value => serialized[value].filter(survives))
-    const offsets = new Uint32Array(values.length + 1)
-    let total = 0
-    for (let i = 0; i < values.length; i++) {
-      total += byValue[i].length
-      offsets[i + 1] = total
-    }
-    const docIds = new Uint32Array(total)
-    let cursor = 0
-    for (const survivors of byValue) {
-      for (const internalId of survivors) docIds[cursor++] = remap[internalId]
-    }
-    enums.push({ fieldPath, values, offsets, docIds })
-  }
-
-  const geo: SegmentPayload['geo'] = []
-  for (const [fieldPath, index] of state.geoIndexes) {
-    const entries = index.serialize().filter(entry => survives(entry.docId))
-    const docIds = new Uint32Array(entries.length)
-    const latitudes = new Float64Array(entries.length)
-    const longitudes = new Float64Array(entries.length)
-    for (let i = 0; i < entries.length; i++) {
-      docIds[i] = remap[entries[i].docId]
-      latitudes[i] = entries[i].lat
-      longitudes[i] = entries[i].lon
-    }
-    geo.push({ fieldPath, docIds, latitudes, longitudes })
-  }
-
-  return { numeric, boolean: booleans, enums, geo }
-}
-
 export function encodeSegmentState(state: PartitionReadState): SegmentPayload {
   const { remap, docIds } = buildOrdinalRemap(state)
   const documentCount = docIds.length
@@ -206,8 +148,9 @@ export function encodeSegmentState(state: PartitionReadState): SegmentPayload {
   let positionCursor = 0
   const unorderedTokenDocs = new Set<number>()
   for (const token of state.invertedIdx.tokens()) {
-    const list = state.invertedIdx.lookup(token)
+    const list = lookupReadOnce(state, token)
     if (list === undefined) continue
+    const listPositions = positionOffsets === null ? null : list.positions
     const tokenStart = postingCursor
     const countViaSet = !list.ordered
     if (countViaSet) unorderedTokenDocs.clear()
@@ -227,7 +170,7 @@ export function encodeSegmentState(state: PartitionReadState): SegmentPayload {
       }
       if (positionOffsets !== null && positionValues !== null) {
         positionOffsets[postingCursor] = positionCursor
-        const entryPositions = list.positions === null ? null : list.positions[i]
+        const entryPositions = listPositions === null ? null : listPositions[i]
         if (entryPositions !== null && entryPositions !== undefined) {
           for (const position of entryPositions) positionValues[positionCursor++] = position
         }

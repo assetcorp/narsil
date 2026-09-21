@@ -2,4 +2,4 @@ export { validateDocument, validateDocumentStrict, validateRequiredFields } from
 export { extractVectorFieldsFromSchema, flattenSchema, validateSchema } from './schema'
 export { isTextFieldType, SORTABLE_TEXT_FIELD_TYPE } from './shared'
 export { assertStorableDocument } from './storable'
-export { validateVectorPromotion } from './vector-promotion'
+export { validateVectorPromotion, validateVectorStorage } from './vector-promotion'

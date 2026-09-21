@@ -3,7 +3,7 @@ import { deserializePayloadV2, encodeRawPayloadV2, type RawPartitionPayloadV2 } 
 import { makeMinimalPayload, roundtrip } from './fixtures'
 
 describe('encodeRawPayloadV2 / deserializePayloadV2 - vector data and full payloads', () => {
-  it('roundtrips a payload with vector data and HNSW graph (no SQ8)', () => {
+  it('roundtrips a payload with vector data and HNSW graph and no codes', () => {
     const wire = makeMinimalPayload({
       schema: { embedding: 'vector[3]' },
       doc_count: 1,
@@ -44,10 +44,10 @@ describe('encodeRawPayloadV2 / deserializePayloadV2 - vector data and full paylo
     expect(vec.hnswGraph.efConstruction).toBe(200)
     expect(vec.hnswGraph.metric).toBe('cosine')
     expect(vec.hnswGraph.nodes).toEqual([['doc-1', 1, [[0, []]]]])
-    expect(vec.sq8).toBeNull()
+    expect(vec.codes).toBeNull()
   })
 
-  it('roundtrips a payload with vector data, HNSW graph, and SQ8 quantization', () => {
+  it('roundtrips a payload with vector data, HNSW graph, and code records', () => {
     const wire = makeMinimalPayload({
       schema: { embedding: 'vector[3]' },
       doc_count: 2,
@@ -80,12 +80,10 @@ describe('encodeRawPayloadV2 / deserializePayloadV2 - vector data and full paylo
               ['doc-2', 1, [[0, ['doc-1']]]],
             ],
           },
-          sq8: {
-            alpha: 0.5,
-            offset: 0.1,
-            quantized_vectors: { 'doc-1': [10, 20, 30], 'doc-2': [40, 50, 60] },
-            vector_sums: { 'doc-1': 0.6, 'doc-2': 1.5 },
-            vector_sum_sqs: { 'doc-1': 0.14, 'doc-2': 0.77 },
+          codes: {
+            bits: 8,
+            centroid: [0.25, 0.35, 0.45],
+            records: new Uint8Array(38),
           },
         },
       },
@@ -96,15 +94,12 @@ describe('encodeRawPayloadV2 / deserializePayloadV2 - vector data and full paylo
     expect(vec).toBeDefined()
     if (!vec) return
 
-    expect(vec.sq8).toBeDefined()
-    if (!vec.sq8) return
+    expect(vec.codes).toBeDefined()
+    if (!vec.codes) return
 
-    expect(vec.sq8.alpha).toBeCloseTo(0.5)
-    expect(vec.sq8.offset).toBeCloseTo(0.1)
-    expect(vec.sq8.quantizedVectors['doc-1']).toEqual([10, 20, 30])
-    expect(vec.sq8.quantizedVectors['doc-2']).toEqual([40, 50, 60])
-    expect(vec.sq8.vectorSums['doc-1']).toBeCloseTo(0.6)
-    expect(vec.sq8.vectorSumSqs['doc-2']).toBeCloseTo(0.77)
+    expect(vec.codes.bits).toBe(8)
+    expect(vec.codes.centroid).toEqual([0.25, 0.35, 0.45])
+    expect(vec.codes.records.byteLength).toBe(38)
   })
 
   it('handles null and missing optional fields gracefully', () => {
@@ -114,7 +109,7 @@ describe('encodeRawPayloadV2 / deserializePayloadV2 - vector data and full paylo
           dimension: 3,
           vectors: [],
           hnsw_graph: null,
-          sq8: null,
+          codes: null,
         },
       },
     })
@@ -125,7 +120,7 @@ describe('encodeRawPayloadV2 / deserializePayloadV2 - vector data and full paylo
     if (!vec) return
 
     expect(vec.hnswGraph).toBeNull()
-    expect(vec.sq8).toBeNull()
+    expect(vec.codes).toBeNull()
   })
 
   it('roundtrips a full payload with all field types combined', () => {
@@ -210,12 +205,10 @@ describe('encodeRawPayloadV2 / deserializePayloadV2 - vector data and full paylo
               ['doc-2', 0, [[0, ['doc-1']]]],
             ],
           },
-          sq8: {
-            alpha: 0.3,
-            offset: 0.05,
-            quantized_vectors: { 'doc-1': [10, 20, 30], 'doc-2': [40, 50, 60] },
-            vector_sums: { 'doc-1': 0.6, 'doc-2': 1.5 },
-            vector_sum_sqs: { 'doc-1': 0.14, 'doc-2': 0.77 },
+          codes: {
+            bits: 4,
+            centroid: [0.3, 0.05, 0.1],
+            records: new Uint8Array(40),
           },
         },
       },
@@ -256,7 +249,7 @@ describe('encodeRawPayloadV2 / deserializePayloadV2 - vector data and full paylo
     expect(vec.dimension).toBe(3)
     expect(vec.vectors).toHaveLength(2)
     expect(vec.hnswGraph?.metric).toBe('dotProduct')
-    expect(vec.sq8?.alpha).toBeCloseTo(0.3)
+    expect(vec.codes?.bits).toBe(4)
 
     expect(restored.statistics.totalDocuments).toBe(2)
     expect(restored.statistics.totalFieldLengths.title).toBe(4)

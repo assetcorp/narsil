@@ -64,7 +64,14 @@ function stripPossessive(token: string): string {
   return token
 }
 
-export function tokenize(text: string, language: LanguageModule, options?: TokenizeOptions): TokenizerResult {
+export type TokenVisitor = (token: string, position: number, surface: string | undefined, original: string) => void
+
+export function visitTokens(
+  text: string,
+  language: LanguageModule,
+  options: TokenizeOptions | undefined,
+  visit: TokenVisitor,
+): void {
   const {
     stem = true,
     removeStopWords = true,
@@ -75,55 +82,46 @@ export function tokenize(text: string, language: LanguageModule, options?: Token
   } = options ?? {}
 
   if (customTokenizer) {
-    const customResult = customTokenizer.tokenize(text)
-    const originals = customResult.map(t => t.token)
-    return {
-      tokens: customResult,
-      originalTokens: originals,
-    }
+    for (const entry of customTokenizer.tokenize(text)) visit(entry.token, entry.position, undefined, entry.token)
+    return
   }
 
-  const normalized = normalizeForSplitting(text)
-  const rawParts = splitText(normalized, language)
+  const rawParts = splitText(normalizeForSplitting(text), language)
   const minLength = language.tokenizer?.minTokenLength ?? DEFAULT_MIN_TOKEN_LENGTH
-
   const effectiveDiacritics = removeDiacritics || (language.tokenizer?.normalizeDiacritics ?? false)
-  const stemsTokens = stem && language.stemmer !== null
-  const stopWords = removeStopWords ? resolveStopWords(language, stopWordOverride) : new Set<string>()
+  const wantSurfaces = collectSurfaces && stem && language.stemmer !== null
+  const stopWords = removeStopWords ? resolveStopWords(language, stopWordOverride) : null
   const stripPossessives = language.tokenizer?.stripPossessive ?? false
+
+  for (let position = 0; position < rawParts.length; position++) {
+    const part = rawParts[position]
+    const candidate = stripPossessives ? stripPossessive(part) : part
+    if (candidate.length < minLength || stopWords?.has(candidate)) continue
+    const processed = transformToken(candidate, language, stem, effectiveDiacritics)
+    if (processed.length === 0) continue
+    if (!wantSurfaces) {
+      visit(processed, position, undefined, part)
+      continue
+    }
+    const surface = effectiveDiacritics ? transformToken(candidate, language, false, true) : candidate
+    visit(processed, position, surface === processed ? undefined : surface, part)
+  }
+}
+
+export function tokenize(text: string, language: LanguageModule, options?: TokenizeOptions): TokenizerResult {
+  if (options?.customTokenizer) {
+    const customResult = options.customTokenizer.tokenize(text)
+    return { tokens: customResult, originalTokens: customResult.map(entry => entry.token) }
+  }
 
   const tokens: Array<{ token: string; position: number }> = []
   const originalTokens: string[] = []
-  const surfaces: Array<string | undefined> | undefined = collectSurfaces && stemsTokens ? [] : undefined
-  let position = 0
-
-  for (const part of rawParts) {
-    const candidate = stripPossessives ? stripPossessive(part) : part
-
-    if (candidate.length < minLength) {
-      position++
-      continue
-    }
-
-    if (stopWords.has(candidate)) {
-      position++
-      continue
-    }
-
-    const processed = transformToken(candidate, language, stem, effectiveDiacritics)
-
-    if (processed.length > 0) {
-      tokens.push({ token: processed, position })
-      originalTokens.push(part)
-      if (surfaces) {
-        const surface = effectiveDiacritics ? transformToken(candidate, language, false, true) : candidate
-        surfaces.push(surface === processed ? undefined : surface)
-      }
-    }
-
-    position++
-  }
-
+  const surfaces: Array<string | undefined> | undefined = producesSurfaceForms(language, options) ? [] : undefined
+  visitTokens(text, language, options, (token, position, surface, original) => {
+    tokens.push({ token, position })
+    originalTokens.push(original)
+    surfaces?.push(surface)
+  })
   return { tokens, originalTokens, surfaces }
 }
 

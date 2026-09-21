@@ -3,6 +3,7 @@ import { validateSearchPayload } from '../../../../../distribution/query/codec'
 import {
   MAX_EF_SEARCH,
   MAX_GROUP_FIELDS,
+  MAX_OVERSAMPLE,
   MAX_PINNED_ENTRIES,
   MAX_PINNED_POSITION,
   MAX_TERMS_COUNT,
@@ -109,7 +110,25 @@ describe('validateSearchPayload params.mode', () => {
 })
 
 describe('validateSearchPayload params.vector metric and efSearch', () => {
-  const vector = { field: 'embedding', value: [0.1], text: null, similarity: null }
+  const vector = { field: 'embedding', value: [0.1], text: null, similarity: null, oversample: null }
+
+  it('accepts an oversample of at least 1 and rejects one below it or beyond the ceiling', () => {
+    expect(() =>
+      validateSearchPayload(
+        makeSearchPayload({ vector: { ...vector, metric: null, efSearch: null, oversample: 2.5 } }),
+      ),
+    ).not.toThrow()
+    expect(() =>
+      validateSearchPayload(
+        makeSearchPayload({ vector: { ...vector, metric: null, efSearch: null, oversample: 0.5 } }),
+      ),
+    ).toThrow(/oversample/)
+    expect(() =>
+      validateSearchPayload(
+        makeSearchPayload({ vector: { ...vector, metric: null, efSearch: null, oversample: MAX_OVERSAMPLE + 1 } }),
+      ),
+    ).toThrow(/oversample/)
+  })
 
   it('accepts a known metric and a sane efSearch', () => {
     expect(() =>

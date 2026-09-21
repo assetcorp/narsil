@@ -4,36 +4,62 @@
 
 ```ts
 
-// Warning: (ae-internal-missing-underscore) The name "AdjacencySnapshot" should be prefixed with an underscore because the declaration is marked as @internal
+// Warning: (ae-internal-missing-underscore) The name "ArenaSimd" should be prefixed with an underscore because the declaration is marked as @internal
 //
 // @internal
-export interface AdjacencySnapshot {
-    capacity: number;
-    level0: Int32Array;
-    m: number;
-    mMax0: number;
-    nodeLevels: Int8Array;
-    slots: number;
-    upper: Int32Array;
-    upperBase: Int32Array;
-    upperUsed: number;
+export interface ArenaSimd {
+    dot_product: (ptrA: number, ptrB: number, len: number) => number;
+    dot_u8: (ptrA: number, ptrB: number, len: number) => number;
+    magnitude: (ptr: number, len: number) => number;
+    memory: WebAssembly.Memory;
+    osq_dot_bits: (ptrDoc: number, ptrPlanes: number, planeBytes: number, docBits: number) => number;
+    osq_dot_bits_pair: (ptrA: number, ptrB: number, bytes: number, bits: number) => number;
+    osq_dot_nibbles_4x4: (ptrA: number, ptrB: number, bytes: number) => number;
+    sqdist_u8: (ptrA: number, ptrB: number, len: number) => number;
+    squared_euclidean_distance: (ptrA: number, ptrB: number, len: number) => number;
 }
+
+// Warning: (ae-internal-missing-underscore) The name "BlockGeometry" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface BlockGeometry {
+    capacity: number;
+    scratchStride: number;
+    slotsOffset: number;
+    slotStride: number;
+}
+
+// Warning: (ae-internal-missing-underscore) The name "GraphInsertOutcome" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface GraphInsertOutcome {
+    placed: number;
+}
+
+// Warning: (ae-internal-missing-underscore) The name "GrowableBuffer" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export type GrowableBuffer = SharedArrayBuffer | ArrayBuffer;
 
 // Warning: (ae-internal-missing-underscore) The name "HNSWSnapshot" should be prefixed with an underscore because the declaration is marked as @internal
 //
 // @internal
 export interface HNSWSnapshot {
-    adjacency: AdjacencySnapshot;
-    capacity: number;
     dimension: number;
     efConstruction: number;
     entryPointOrd: number;
+    level0: Int32Array;
     m: number;
     metric: VectorMetric;
     nodeCount: number;
+    nodeLevels: Uint8Array;
+    slots: number;
     tombstoneCount: number;
     tombstones: Uint8Array;
     topLayer: number;
+    upper: Int32Array;
+    upperBase: Int32Array;
+    upperUsed: number;
 }
 
 // Warning: (ae-internal-missing-underscore) The name "OrdinalFilter" should be prefixed with an underscore because the declaration is marked as @internal
@@ -44,55 +70,71 @@ export interface OrdinalFilter {
     count: number;
 }
 
-// Warning: (ae-internal-missing-underscore) The name "ScalarQuantizerCalibration" should be prefixed with an underscore because the declaration is marked as @internal
+// Warning: (ae-internal-missing-underscore) The name "OsqBits" should be prefixed with an underscore because the declaration is marked as @internal
 //
 // @internal
-export interface ScalarQuantizerCalibration {
-    alpha: number;
-    offset: number;
-}
+export type OsqBits = 1 | 2 | 4 | 8;
 
-// Warning: (ae-internal-missing-underscore) The name "SharedCopyLoadRequest" should be prefixed with an underscore because the declaration is marked as @internal
+// Warning: (ae-internal-missing-underscore) The name "SharedFieldLoadRequest" should be prefixed with an underscore because the declaration is marked as @internal
 //
 // @internal
-export interface SharedCopyLoadRequest {
+export interface SharedFieldLoadRequest {
     handle: string;
+    handles: SharedVectorFieldHandles;
     requestId: string;
     scratchSlot: number;
-    snapshot: SharedGenerationSnapshot;
     type: 'loadShared';
 }
 
-// Warning: (ae-internal-missing-underscore) The name "SharedGenerationLayout" should be prefixed with an underscore because the declaration is marked as @internal
+// Warning: (ae-internal-missing-underscore) The name "SharedGraphHandles" should be prefixed with an underscore because the declaration is marked as @internal
 //
 // @internal
-export interface SharedGenerationLayout {
-    codeScratchOffset: number;
-    codeScratchStride: number;
-    codesOffset: number;
-    dimension: number;
-    float32ScratchStride: number;
-    slots: number;
-    totalBytes: number;
-    vectorsOffset: number;
-    workerSlots: number;
+export interface SharedGraphHandles {
+    header: Int32Array;
+    heldLocks: Int32Array;
+    level0: GrowableBuffer;
+    locks: GrowableBuffer;
+    nodeLevels: GrowableBuffer;
+    tombstones: GrowableBuffer;
+    upper: GrowableBuffer;
+    upperBase: GrowableBuffer;
 }
 
-// Warning: (ae-internal-missing-underscore) The name "SharedGenerationSnapshot" should be prefixed with an underscore because the declaration is marked as @internal
+// Warning: (ae-internal-missing-underscore) The name "SharedVectorFieldHandles" should be prefixed with an underscore because the declaration is marked as @internal
 //
 // @internal
-export interface SharedGenerationSnapshot {
-    calibration: ScalarQuantizerCalibration | null;
-    codeMagnitudes: Float64Array;
-    codePresent: Uint8Array;
-    codeSums: Float64Array;
+export interface SharedVectorFieldHandles {
     dimension: number;
-    graph: HNSWSnapshot;
-    layout: SharedGenerationLayout;
-    magnitudes: Float64Array;
-    memory: WebAssembly.Memory;
-    quantization: 'sq8' | 'none';
-    rankByOrdinal: Uint32Array;
+    filterThreshold: number;
+    graph: SharedGraphHandles | null;
+    metric: VectorMetric;
+    quantization: VectorQuantizationMode;
+    searchable: boolean;
+    store: SharedVectorStoreHandles;
+}
+
+// Warning: (ae-internal-missing-underscore) The name "SharedVectorStoreHandles" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface SharedVectorStoreHandles {
+    blocks: Array<VectorBlockHandle<VectorBlockLayout> | null>;
+    centroid: Float32Array;
+    codeBits: OsqBits | null;
+    codeBlocks: VectorBlockHandle<VectorCodeBlockLayout>[];
+    codeLayout: VectorCodeBlockLayout | null;
+    codePresent: GrowableBuffer;
+    dimension: number;
+    diskFile: GrowableBuffer;
+    diskOffset: GrowableBuffer;
+    docIdBytes: GrowableBuffer;
+    docIdOffsets: GrowableBuffer;
+    header: Int32Array;
+    layout: VectorBlockLayout;
+    layoutRevision: number;
+    magnitudes: GrowableBuffer;
+    partitions: GrowableBuffer;
+    present: GrowableBuffer;
+    vectorFiles: string[];
 }
 
 // Warning: (ae-internal-missing-underscore) The name "VectorAckResponse" should be prefixed with an underscore because the declaration is marked as @internal
@@ -104,6 +146,46 @@ export interface VectorAckResponse {
     type: 'ack';
 }
 
+// Warning: (ae-internal-missing-underscore) The name "VectorBlockHandle" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface VectorBlockHandle<Layout extends BlockGeometry = BlockGeometry> {
+    layout: Layout;
+    storage: VectorBlockStorage;
+}
+
+// Warning: (ae-internal-missing-underscore) The name "VectorBlockLayout" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface VectorBlockLayout extends BlockGeometry {
+    dimension: number;
+}
+
+// Warning: (ae-internal-missing-underscore) The name "VectorBlockStorage" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export type VectorBlockStorage = {
+    kind: 'shared-memory';
+    memory: WebAssembly.Memory;
+} | {
+    kind: 'private-memory';
+    simd: ArenaSimd;
+} | {
+    kind: 'bytes';
+    buffer: GrowableBuffer;
+};
+
+// Warning: (ae-internal-missing-underscore) The name "VectorCodeBlockLayout" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface VectorCodeBlockLayout extends BlockGeometry {
+    bits: OsqBits;
+    codeBytes: number;
+    dimension: number;
+    queryBits: OsqBits;
+    queryBytes: number;
+}
+
 // Warning: (ae-internal-missing-underscore) The name "VectorDropRequest" should be prefixed with an underscore because the declaration is marked as @internal
 //
 // @internal
@@ -111,6 +193,25 @@ export interface VectorDropRequest {
     handle: string;
     requestId: string;
     type: 'drop';
+}
+
+// Warning: (ae-internal-missing-underscore) The name "VectorInsertRequest" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface VectorInsertRequest {
+    handle: string;
+    ordinals: Int32Array;
+    requestId: string;
+    type: 'insertOrdinals';
+}
+
+// Warning: (ae-internal-missing-underscore) The name "VectorInsertResponse" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface VectorInsertResponse {
+    outcome: GraphInsertOutcome;
+    requestId: string;
+    type: 'inserted';
 }
 
 // Warning: (ae-internal-missing-underscore) The name "VectorLoadRequest" should be prefixed with an underscore because the declaration is marked as @internal
@@ -138,6 +239,7 @@ export interface VectorOrdinalSearchRequest {
     k: number;
     metric: VectorMetric;
     minSimilarity: number;
+    oversample?: number;
     query: Float32Array;
     requestId: string;
     type: 'searchOrdinals';
@@ -163,6 +265,7 @@ export interface VectorSearchRequest {
     k: number;
     metric: VectorMetric;
     minSimilarity: number;
+    oversample?: number;
     query: Float32Array;
     requestId: string;
     type: 'search';
@@ -201,21 +304,31 @@ export interface VectorWorkerError {
 // Warning: (ae-internal-missing-underscore) The name "VectorWorkerMessage" should be prefixed with an underscore because the declaration is marked as @internal
 //
 // @internal
-export type VectorWorkerMessage = VectorAckResponse | VectorSearchResponse | VectorOrdinalSearchResponse | VectorWorkerError;
+export type VectorWorkerMessage = VectorAckResponse | VectorInsertResponse | VectorSearchResponse | VectorOrdinalSearchResponse | VectorWorkerError;
 
 // Warning: (ae-internal-missing-underscore) The name "VectorWorkerRequest" should be prefixed with an underscore because the declaration is marked as @internal
 //
 // @internal
-export type VectorWorkerRequest = VectorLoadRequest | SharedCopyLoadRequest | VectorDropRequest | VectorSearchRequest | VectorOrdinalSearchRequest;
+export type VectorWorkerRequest = VectorLoadRequest | SharedFieldLoadRequest | VectorDropRequest | VectorInsertRequest | VectorSearchRequest | VectorOrdinalSearchRequest;
+
+// Warning: (ae-internal-missing-underscore) The name "WorkerCopyCodes" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface WorkerCopyCodes {
+    centroid: Float32Array;
+    present: Uint8Array;
+    records: Uint8Array;
+}
 
 // Warning: (ae-internal-missing-underscore) The name "WorkerCopySnapshot" should be prefixed with an underscore because the declaration is marked as @internal
 //
 // @internal
 export interface WorkerCopySnapshot {
-    calibration: ScalarQuantizerCalibration | null;
+    codes: WorkerCopyCodes | null;
     dimension: number;
     graph: HNSWSnapshot;
-    quantization: 'sq8' | 'none';
+    metric: VectorMetric;
+    quantization: VectorQuantizationMode;
     store: VectorStoreSnapshot;
     tombstones: string[];
 }

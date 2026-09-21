@@ -3,6 +3,7 @@ import { ErrorCodes, NarsilError } from '../errors'
 const MAGIC_BYTES = new Uint8Array([0x4e, 0x52, 0x53, 0x4c])
 const HEADER_SIZE = 32
 const RESERVED_SIZE = 14
+const MAX_PAYLOAD_LENGTH = 0xffff_ffff
 
 export interface NrslFlags {
   compressionEnabled: boolean
@@ -61,6 +62,13 @@ export function decodeFlags(value: number): NrslFlags {
 }
 
 export function writeHeader(header: NrslHeader): Uint8Array {
+  if (header.payloadLength > MAX_PAYLOAD_LENGTH) {
+    throw new NarsilError(
+      ErrorCodes.PERSISTENCE_SAVE_FAILED,
+      `A payload of ${header.payloadLength} bytes exceeds the ${MAX_PAYLOAD_LENGTH} bytes the envelope header can describe`,
+      { payloadLength: header.payloadLength, maxPayloadLength: MAX_PAYLOAD_LENGTH },
+    )
+  }
   const buffer = new Uint8Array(HEADER_SIZE)
   const view = new DataView(buffer.buffer)
 

@@ -1,7 +1,9 @@
 declare const self: unknown
 
+import { startIdleHeapCleanup } from '#platform/idle-heap-cleanup'
 import { buildErrorResponse, createActionHandler } from './action-handler'
 import { isValidWorkerAction } from './protocol'
+import { threadSlotOfWorker } from './thread-slot'
 
 export function startWorker(): void {
   setup().catch(err => {
@@ -23,21 +25,23 @@ async function setup(): Promise<void> {
     postMessage: (msg: unknown) => void
     close: () => void
   } | null = null
-  let scratchSlot: number | undefined
+  let threadSlot: number | undefined
 
   try {
     const workerThreads = await import('node:worker_threads')
     parentPort = workerThreads.parentPort ?? null
-    scratchSlot = workerIdOf(workerThreads.workerData)
+    const workerId = workerIdOf(workerThreads.workerData)
+    threadSlot = workerId === undefined ? undefined : threadSlotOfWorker(workerId)
   } catch {
     parentPort = null
   }
 
   const { createDirectExecutor } = await import('./direct-executor')
-  const handleAction = createActionHandler(createDirectExecutor({ scratchSlot }))
+  const handleAction = createActionHandler(createDirectExecutor({ threadSlot }))
 
   if (parentPort) {
     const port = parentPort
+    startIdleHeapCleanup()
     port.on('message', (raw: unknown) => {
       if (!isValidWorkerAction(raw)) {
         const requestId = (raw as { requestId?: string })?.requestId ?? 'unknown'

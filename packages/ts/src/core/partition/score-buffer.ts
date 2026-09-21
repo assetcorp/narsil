@@ -6,14 +6,6 @@ import { buildMinHeap, candidateWorse, siftDown, sortSelection, type TopKCandida
 
 const MAX_GENERATION = 0x7fffffff
 
-/**
- * The running scores of one scored query, held as a flat array indexed by
- * internal document id. A generation stamp marks the slots this query has
- * written, so a query never clears the array and never allocates a record per
- * matching document.
- *
- * @internal
- */
 export interface ScoreBuffer {
   scores: Float64Array
   stamps: Int32Array
@@ -86,6 +78,52 @@ export function addScore(buffer: ScoreBuffer, internalId: number, termScore: num
   buffer.stamps[internalId] = buffer.generation
   buffer.scores[internalId] = termScore
   appendTouched(buffer, internalId)
+}
+
+export function markCounted(buffer: ScoreBuffer, internalId: number): boolean {
+  const countedStamp = -buffer.generation
+  const stamp = buffer.stamps[internalId]
+  if (stamp === buffer.generation || stamp === countedStamp) return false
+  buffer.stamps[internalId] = countedStamp
+  return true
+}
+
+export function kthBestScore(
+  buffer: ScoreBuffer,
+  selection: Float64Array,
+  resolver: { toExternal(id: number): string | undefined },
+): number {
+  const wanted = selection.length
+  const { touched, touchedCount, scores } = buffer
+  let size = 0
+  for (let index = 0; index < touchedCount; index++) {
+    const internalId = touched[index]
+    const score = scores[internalId]
+    if (size === wanted && score <= selection[0]) continue
+    if (resolver.toExternal(internalId) === undefined) continue
+    let at = 0
+    if (size < wanted) {
+      at = size++
+      while (at > 0) {
+        const parent = (at - 1) >> 1
+        if (selection[parent] <= score) break
+        selection[at] = selection[parent]
+        at = parent
+      }
+    } else {
+      for (;;) {
+        const left = 2 * at + 1
+        if (left >= size) break
+        const right = left + 1
+        const child = right < size && selection[right] < selection[left] ? right : left
+        if (selection[child] >= score) break
+        selection[at] = selection[child]
+        at = child
+      }
+    }
+    selection[at] = score
+  }
+  return wanted > 0 && size === wanted ? selection[0] : Number.NEGATIVE_INFINITY
 }
 
 /**

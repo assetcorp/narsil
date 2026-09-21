@@ -6,6 +6,7 @@ import type { LanguageModule } from '../../types/language'
 import type { MemoryStats, WorkerCopyReport } from '../../types/memory'
 import type { IndexConfig } from '../../types/schema'
 import type { QueryParams } from '../../types/search'
+import type { SharedVectorFieldHandles } from '../../vector/shared-field/types'
 import type { VectorWorkerCopyPolicy } from '../../vector/vector-index/shared'
 import type { DirectExecutorExtensions } from '../../workers/direct-executor'
 import type { Executor } from '../../workers/executor'
@@ -13,13 +14,6 @@ import type { WorkerPool } from '../../workers/pool'
 import type { WorkerAction } from '../../workers/protocol'
 import type { BuiltSegment, SegmentBuildRequest } from './segments'
 
-/**
- * What a server registers to turn the workers holding copies into request
- * threads: it hears of every worker that can take requests, now and after each
- * replacement, and of every one that dies.
- *
- * @internal
- */
 export interface RequestThreadListener {
   onWorkerReady(workerId: number, executor: Executor): Promise<void>
   onWorkerGone(workerId: number): void
@@ -37,6 +31,8 @@ export interface WorkerOrchestrator {
   isIndexBusy(indexName: string): boolean
   buildSegments(requests: SegmentBuildRequest[]): Promise<BuiltSegment[] | null>
   segmentBuildConcurrency(indexName: string): number
+  holdUnbroadcastSegments(indexName: string, segmentIds: readonly string[]): void
+  releaseUnbroadcastSegments(indexName: string, segmentIds: readonly string[]): void
   searchViaWorker(
     indexName: string,
     params: QueryParams,
@@ -113,9 +109,18 @@ export interface OrchestratorState {
   readonly copyReloadCounts: Map<string, number>
   readonly replicationQueues: Map<string, ReplicationQueue>
   readonly segmentLedger: Map<string, Map<number, SegmentLedgerEntry[]>>
+  /** This holds the segments each index has attached to the main copy and has yet to send to the worker copies. */
+  readonly unbroadcastSegments: Map<string, Set<string>>
   readonly compactionsInFlight: Map<string, Promise<void>>
   readonly idleMergeTimers: Map<string, ReturnType<typeof setTimeout>>
+  /** This maps the handle each vector field went to the request threads under to the handles they opened. */
+  readonly sharedVectorFields: Map<string, SharedVectorFieldHandles>
   workerPool: WorkerPool | null
+  /** This settles once every thread of every retired pool has exited, and a new pool starts only after it. */
+  retiredThreadsGone: Promise<void>
+  /** This settles once the engine starts shutting down, so that a pool start stops waiting for a thread to exit. */
+  readonly shutdownStarted: Promise<void>
+  readonly announceShutdown: () => void
   poolStart: Promise<WorkerPool> | null
   poolRetryAt: number
   poolRetryDelayMs: number

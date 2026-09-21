@@ -27,12 +27,15 @@ services:
       NARSIL_MAX_IMPORT_BYTES: "268435456"
       NARSIL_WORKERS: "${BENCH_NARSIL_WORKERS:-}"
       NARSIL_PROMOTION_THRESHOLD: "${BENCH_NARSIL_PROMOTION_THRESHOLD:-}"
+      NARSIL_DURABILITY_DIR: "/var/lib/narsil"
     expose:
       - "7700"
+    volumes:
+      - narsil_data:/var/lib/narsil
 
   elasticsearch:
     profiles: ["elasticsearch"]
-    image: docker.elastic.co/elasticsearch/elasticsearch:9.5.3
+    image: docker.elastic.co/elasticsearch/elasticsearch:9.5.4
     mem_limit: "${BENCH_MEM_CAP:-8g}"
     environment:
       discovery.type: "single-node"
@@ -80,7 +83,7 @@ services:
 
   weaviate:
     profiles: ["weaviate"]
-    image: cr.weaviate.io/semitechnologies/weaviate:1.39.3
+    image: cr.weaviate.io/semitechnologies/weaviate:1.39.5
     mem_limit: "${BENCH_MEM_CAP:-8g}"
     environment:
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: "true"
@@ -105,7 +108,7 @@ services:
 
   meilisearch:
     profiles: ["meilisearch"]
-    image: getmeili/meilisearch:v1.53.2
+    image: getmeili/meilisearch:v1.54.0
     mem_limit: "${BENCH_MEM_CAP:-8g}"
     environment:
       MEILI_MASTER_KEY: "${BENCH_API_KEY:-localdev}"
@@ -153,6 +156,7 @@ services:
 volumes:
   ir_datasets_cache:
   embeddings_cache:
+  narsil_data:
   qdrant_data:
   weaviate_data:
   typesense_data:

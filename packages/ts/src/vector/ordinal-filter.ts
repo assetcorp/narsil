@@ -15,26 +15,10 @@ export interface OrdinalFilter {
   count: number
 }
 
-/**
- * Creates an empty ordinal filter spanning the given number of store slots.
- *
- * @param slots The number of ordinals the filter must cover.
- * @returns A filter with no ordinal set.
- *
- * @internal
- */
 export function createOrdinalFilter(slots: number): OrdinalFilter {
   return { bits: new Uint8Array((slots + 7) >>> 3), count: 0 }
 }
 
-/**
- * Sets one ordinal in the filter, counting it once however often it is added.
- *
- * @param filter The filter to add to.
- * @param ordinal The store ordinal to set.
- *
- * @internal
- */
 export function addToOrdinalFilter(filter: OrdinalFilter, ordinal: number): void {
   const index = ordinal >>> 3
   if (index >= filter.bits.length) return
@@ -44,31 +28,12 @@ export function addToOrdinalFilter(filter: OrdinalFilter, ordinal: number): void
   filter.count += 1
 }
 
-/**
- * Reports whether the filter holds the given ordinal, and answers false for
- * any ordinal beyond the slots the filter was created over.
- *
- * @param filter The filter to check.
- * @param ordinal The store ordinal to look up.
- * @returns True where the ordinal passes the filter.
- *
- * @internal
- */
 export function ordinalFilterHas(filter: OrdinalFilter, ordinal: number): boolean {
   const index = ordinal >>> 3
   if (index >= filter.bits.length) return false
   return (filter.bits[index] & (1 << (ordinal & 7))) !== 0
 }
 
-/**
- * Clears one ordinal from the filter, counting the removal once however often
- * it is repeated.
- *
- * @param filter The filter to clear from.
- * @param ordinal The store ordinal to clear.
- *
- * @internal
- */
 export function removeFromOrdinalFilter(filter: OrdinalFilter, ordinal: number): void {
   const index = ordinal >>> 3
   if (index >= filter.bits.length) return
@@ -78,14 +43,6 @@ export function removeFromOrdinalFilter(filter: OrdinalFilter, ordinal: number):
   filter.count -= 1
 }
 
-/**
- * Yields every ordinal the filter holds, in ascending order.
- *
- * @param filter The filter to walk.
- * @returns The set ordinals, lowest first.
- *
- * @internal
- */
 export function* ordinalFilterValues(filter: OrdinalFilter): IterableIterator<number> {
   const bits = filter.bits
   for (let index = 0; index < bits.length; index++) {

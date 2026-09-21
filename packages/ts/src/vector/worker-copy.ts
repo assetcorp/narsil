@@ -1,30 +1,45 @@
+import type { VectorQuantizationMode } from '../types/schema'
+import type { VectorMetric } from './brute-force'
 import { createHNSWIndex, type HNSWIndex, type HNSWSnapshot } from './hnsw'
-import { createScalarQuantizer } from './scalar-quantization'
-import type { ScalarQuantizerCalibration } from './scalar-quantization-types'
+import { createOsqQuantizer, type OsqQuantizer, osqBitsOf } from './osq'
+import { osqRecordBytes } from './osq/record'
 import { createVectorStore, type VectorStore, type VectorStoreSnapshot } from './vector-store'
 
 /**
- * One vector field's searchable state in the form the engine clones to a
- * worker, used where the runtime cannot share memory.
+ * The code records of one field copied out flat, which the engine sends to
+ * a worker that shares no memory with it.
+ *
+ * @internal
+ */
+export interface WorkerCopyCodes {
+  /** The centroid the quantizer takes every record against. */
+  centroid: Float32Array
+  /** This holds one record per ordinal, end to end. */
+  records: Uint8Array
+  /** This holds one byte per ordinal, which reads 1 where the ordinal holds a record. */
+  present: Uint8Array
+}
+
+/**
+ * The engine clones one vector field's searchable state to a worker in this
+ * form, which it uses where the runtime shares no memory.
  *
  * @internal
  */
 export interface WorkerCopySnapshot {
-  /** Each vector carries this many components. */
+  /** Every vector of the field has this many components. */
   dimension: number
-  /** The worker rebuilds a quantizer when this reads `sq8`. */
-  quantization: 'sq8' | 'none'
-  /**
-   * The constants the calling thread quantizes with, carried so that the worker
-   * derives the same codes rather than recalibrating over a set that a delete
-   * has already narrowed.
-   */
-  calibration: ScalarQuantizerCalibration | null
+  /** The worker estimates from code records under any mode but `none`. */
+  quantization: VectorQuantizationMode
+  /** The quantizer takes the codes under this metric. */
+  metric: VectorMetric
+  /** The records the calling thread wrote, so the worker rewrites none, or null where the field holds no codes. */
+  codes: WorkerCopyCodes | null
   /** This holds every vector and the document id at each ordinal. */
   store: VectorStoreSnapshot
   /** This holds the built graph. */
   graph: HNSWSnapshot
-  /** These documents have been deleted and must not be returned. */
+  /** The worker leaves these deleted documents out of every result. */
   tombstones: string[]
 }
 
@@ -34,31 +49,27 @@ export interface WorkerCopy {
   readonly tombstones: ReadonlySet<string>
 }
 
+function restoreQuantizer(snapshot: WorkerCopySnapshot, store: VectorStore): OsqQuantizer | null {
+  const bits = osqBitsOf(snapshot.quantization)
+  if (bits === null || snapshot.codes === null) return null
+  const quantizer = createOsqQuantizer(snapshot.dimension, bits, snapshot.metric, store)
+  quantizer.restoreCentroid(snapshot.codes.centroid)
+  const recordBytes = osqRecordBytes(snapshot.dimension, bits)
+  for (let ordinal = 0; ordinal < snapshot.codes.present.length; ordinal++) {
+    if (snapshot.codes.present[ordinal] !== 1) continue
+    const docId = store.docIdForOrdinal(ordinal)
+    if (docId === undefined) continue
+    quantizer.restoreRecord(docId, snapshot.codes.records.subarray(ordinal * recordBytes, (ordinal + 1) * recordBytes))
+  }
+  return quantizer
+}
+
 export function restoreWorkerCopy(snapshot: WorkerCopySnapshot): WorkerCopy {
-  const store = createVectorStore()
+  const store = createVectorStore({ dimension: snapshot.dimension, codeBits: osqBitsOf(snapshot.quantization) })
   store.restoreSnapshot(snapshot.store)
 
   const tombstones = new Set(snapshot.tombstones)
-
-  let quantizer = null
-  if (snapshot.quantization === 'sq8') {
-    const sq8 = createScalarQuantizer(snapshot.dimension, store)
-    if (snapshot.calibration !== null) {
-      sq8.restoreCalibration(snapshot.calibration.alpha, snapshot.calibration.offset)
-    } else {
-      const live: Float32Array[] = []
-      for (const [docId, entry] of store.entries()) {
-        if (tombstones.has(docId)) continue
-        live.push(entry.vector)
-      }
-      sq8.calibrate(live)
-    }
-    for (const [docId, entry] of store.entries()) {
-      if (tombstones.has(docId)) continue
-      sq8.quantize(docId, entry.vector)
-    }
-    quantizer = sq8
-  }
+  const quantizer = restoreQuantizer(snapshot, store)
 
   const graph = createHNSWIndex(
     snapshot.dimension,
@@ -67,6 +78,7 @@ export function restoreWorkerCopy(snapshot: WorkerCopySnapshot): WorkerCopy {
     quantizer ?? undefined,
   )
   graph.restoreSnapshot(snapshot.graph)
+  for (const docId of tombstones) graph.markTombstone(docId)
 
   return { store, graph, tombstones }
 }

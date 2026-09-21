@@ -2,17 +2,16 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createMinHeap } from '../../../core/heap'
 import type { VectorMetric } from '../../../vector/brute-force'
 import { createHNSWIndex, type HNSWSnapshot } from '../../../vector/hnsw'
+import { addNeighbor, createNode, layerArray, layerBase, replaceNeighbors } from '../../../vector/hnsw/adjacency'
 import {
-  addNeighbor,
-  createAdjacency,
-  createNode,
-  exportAdjacency,
-  layerArray,
-  layerBase,
-  replaceNeighbors,
-} from '../../../vector/hnsw/adjacency'
+  createSharedGraphHandles,
+  GRAPH_ENTRY_POINT,
+  GRAPH_NODE_COUNT,
+  GRAPH_TOP_LAYER,
+} from '../../../vector/hnsw/handles'
 import {
   ensureCapacity,
+  entryPointOf,
   type HNSWGraphState,
   maxConns,
   nextVisitStamp,
@@ -20,8 +19,10 @@ import {
   nodeExists,
   nodeMaxLayer,
   randomLevel,
+  topLayerOf,
 } from '../../../vector/hnsw/shared'
-import { createHNSWWorkspace } from '../../../vector/hnsw/workspace'
+import { exportSnapshot } from '../../../vector/hnsw/snapshot'
+import { openGraphState } from '../../../vector/hnsw/state'
 import { createVectorStore, type VectorStore } from '../../../vector/vector-store'
 import { seededVector } from './fixtures'
 
@@ -57,26 +58,8 @@ function fillStore(): VectorStore {
 }
 
 function referenceState(store: VectorStore): HNSWGraphState {
-  return {
-    dimension: DIMENSION,
-    store,
-    quantizer: undefined,
-    M,
-    Mmax0: M * 2,
-    efCons: EF_CONSTRUCTION,
-    buildMetric: METRIC,
-    mL: 1 / Math.log(M),
-    adjacency: createAdjacency(M, M * 2),
-    tombstones: new Uint8Array(0),
-    tombstoneCount: 0,
-    nodeCount: 0,
-    capacity: 0,
-    visited: new Uint32Array(0),
-    visitStamp: 0,
-    entryPointOrd: -1,
-    topLayer: -1,
-    workspace: createHNSWWorkspace(),
-  }
+  const handles = createSharedGraphHandles({ m: M, mMax0: M * 2, efConstruction: EF_CONSTRUCTION, metric: METRIC })
+  return openGraphState(handles, DIMENSION, store, undefined, 0)
 }
 
 function referenceSearchLayer(
@@ -166,28 +149,38 @@ function referencePrune(state: HNSWGraphState, ord: number, layer: number): void
   replaceNeighbors(state.adjacency, ord, layer, kept, kept.length)
 }
 
-function referenceInsert(state: HNSWGraphState, docId: string): void {
-  const ord = state.store.getOrdinal(docId)
-  if (ord === undefined) throw new Error(`no vector for ${docId}`)
+function setEntry(state: HNSWGraphState, ord: number, level: number): void {
+  Atomics.store(state.header, GRAPH_ENTRY_POINT, ord)
+  Atomics.store(state.header, GRAPH_TOP_LAYER, level)
+}
+
+function referenceInsert(state: HNSWGraphState, ord: number): void {
   ensureCapacity(state, ord + 1)
   const level = randomLevel(state.mL)
   createNode(state.adjacency, ord, level)
-  state.nodeCount++
-  if (state.entryPointOrd === -1) {
-    state.entryPointOrd = ord
-    state.topLayer = level
+  Atomics.add(state.header, GRAPH_NODE_COUNT, 1)
+  if (entryPointOf(state) === -1) {
+    setEntry(state, ord, level)
     return
   }
 
-  let eps = [state.entryPointOrd]
-  for (let layer = state.topLayer; layer > level; layer--) {
+  const topLayer = topLayerOf(state)
+  let eps = [entryPointOf(state)]
+  for (let layer = topLayer; layer > level; layer--) {
     const nearest = referenceSearchLayer(state, ord, eps, 1, layer)
     if (nearest.length > 0) eps = [nearest[0].ord]
   }
-  for (let layer = Math.min(level, state.topLayer); layer >= 0; layer--) {
+  for (let layer = Math.min(level, topLayer); layer >= 0; layer--) {
     const candidates = referenceSearchLayer(state, ord, eps, EF_CONSTRUCTION, layer)
-    for (const neighbor of referenceSelect(state, candidates, maxConns(state, layer))) {
-      addNeighbor(state.adjacency, ord, layer, neighbor.ord)
+    const selected = referenceSelect(state, candidates, maxConns(state, layer))
+    replaceNeighbors(
+      state.adjacency,
+      ord,
+      layer,
+      selected.map(c => c.ord),
+      selected.length,
+    )
+    for (const neighbor of selected) {
       if (layer <= nodeMaxLayer(state, neighbor.ord)) {
         addNeighbor(state.adjacency, neighbor.ord, layer, ord)
         referencePrune(state, neighbor.ord, layer)
@@ -195,33 +188,18 @@ function referenceInsert(state: HNSWGraphState, docId: string): void {
     }
     if (candidates.length > 0) eps = candidates.map(c => c.ord)
   }
-  if (level > state.topLayer) {
-    state.entryPointOrd = ord
-    state.topLayer = level
-  }
+  if (level > topLayer) setEntry(state, ord, level)
 }
 
 function buildWithReference(store: VectorStore): HNSWSnapshot {
   const state = referenceState(store)
-  for (let i = 0; i < VECTOR_COUNT; i++) referenceInsert(state, `doc${i}`)
-  return {
-    dimension: DIMENSION,
-    m: M,
-    efConstruction: EF_CONSTRUCTION,
-    metric: METRIC,
-    adjacency: exportAdjacency(state.adjacency),
-    tombstones: state.tombstones.slice(),
-    tombstoneCount: state.tombstoneCount,
-    nodeCount: state.nodeCount,
-    capacity: state.capacity,
-    entryPointOrd: state.entryPointOrd,
-    topLayer: state.topLayer,
-  }
+  for (let ord = 0; ord < VECTOR_COUNT; ord++) referenceInsert(state, ord)
+  return exportSnapshot(state)
 }
 
 function buildWithBuilder(store: VectorStore): HNSWSnapshot {
   const index = createHNSWIndex(DIMENSION, store, { m: M, efConstruction: EF_CONSTRUCTION, metric: METRIC })
-  for (let i = 0; i < VECTOR_COUNT; i++) index.insertNode(`doc${i}`)
+  for (let ord = 0; ord < VECTOR_COUNT; ord++) index.insertOrdinal(ord)
   return index.exportSnapshot()
 }
 
@@ -242,9 +220,9 @@ describe('the typed-array builder against a plain-object reference of the same r
     expect(built.nodeCount).toBe(VECTOR_COUNT)
     expect(built.entryPointOrd).toBe(reference.entryPointOrd)
     expect(built.topLayer).toBe(reference.topLayer)
-    expect(built.adjacency.nodeLevels).toEqual(reference.adjacency.nodeLevels)
-    expect(built.adjacency.level0).toEqual(reference.adjacency.level0)
-    expect(built.adjacency.upperBase).toEqual(reference.adjacency.upperBase)
-    expect(built.adjacency.upper).toEqual(reference.adjacency.upper)
+    expect(built.nodeLevels).toEqual(reference.nodeLevels)
+    expect(built.level0).toEqual(reference.level0)
+    expect(built.upperBase).toEqual(reference.upperBase)
+    expect(built.upper).toEqual(reference.upper)
   })
 })

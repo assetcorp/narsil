@@ -2,12 +2,31 @@ import { ErrorCodes, NarsilError } from '../../errors'
 import type { VectorIndexConfig } from '../../types/schema'
 import { MAX_M } from '../../vector/hnsw/constants'
 
+const QUANTIZATION_MODES: ReadonlySet<string> = new Set(['osq8', 'osq4', 'osq2', 'osq1', 'none'])
+const STORAGE_MODES: ReadonlySet<string> = new Set(['memory', 'disk'])
+
 function fail(message: string, details: Record<string, unknown>): never {
   throw new NarsilError(ErrorCodes.CONFIG_INVALID, message, details)
 }
 
 function isPositiveInteger(value: unknown): boolean {
   return Number.isInteger(value) && (value as number) >= 1
+}
+
+export function isQuantizationMode(value: unknown): value is NonNullable<VectorIndexConfig['quantization']> {
+  return typeof value === 'string' && QUANTIZATION_MODES.has(value)
+}
+
+export function isStorageMode(value: unknown): value is NonNullable<VectorIndexConfig['storage']> {
+  return typeof value === 'string' && STORAGE_MODES.has(value)
+}
+
+export function validateVectorStorage(config: VectorIndexConfig | undefined, filesystemDurability: boolean): void {
+  if (config?.storage === 'disk' && !filesystemDurability) {
+    fail("vectorPromotion.storage 'disk' needs filesystem durability, because a checkpoint file holds the vectors", {
+      storage: config.storage,
+    })
+  }
 }
 
 export function validateVectorPromotion(config: VectorIndexConfig | undefined): void {
@@ -18,8 +37,13 @@ export function validateVectorPromotion(config: VectorIndexConfig | undefined): 
   }
 
   const quantization: unknown = config.quantization
-  if (quantization !== undefined && quantization !== 'sq8' && quantization !== 'none') {
-    fail("vectorPromotion.quantization must be 'sq8' or 'none'", { quantization })
+  if (quantization !== undefined && !isQuantizationMode(quantization)) {
+    fail("vectorPromotion.quantization must be 'osq8', 'osq4', 'osq2', 'osq1', or 'none'", { quantization })
+  }
+
+  const storage: unknown = config.storage
+  if (storage !== undefined && !isStorageMode(storage)) {
+    fail("vectorPromotion.storage must be 'memory' or 'disk'", { storage })
   }
 
   const hnsw = config.hnswConfig

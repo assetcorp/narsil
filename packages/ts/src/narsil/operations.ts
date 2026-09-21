@@ -216,6 +216,7 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
         dropIndex: narsil.dropIndex.bind(narsil),
         requireManager,
         durability,
+        filesystemDurability: core.filesystemDurability,
         embeddingAdapters: core.embeddingAdapters,
         defaultEmbeddingAdapter: config?.embedding ?? null,
         markAnalysisStale: core.analysisRebuild.markStale,

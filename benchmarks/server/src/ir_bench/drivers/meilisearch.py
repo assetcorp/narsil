@@ -19,12 +19,15 @@ from ..core.types import (
     ServerTimeSource,
     coerce_server_ms,
 )
+from ._stop_words import LUCENE_ENGLISH_STOP_WORDS
 
 
 def _raise(response: httpx.Response) -> None:
     if response.is_success:
         return
-    raise EngineError(f"HTTP {response.status_code} from {response.request.url}: {response.text[:500]}")
+    raise EngineError(
+        f"HTTP {response.status_code} from {response.request.url}: {response.text[:500]}", response.status_code
+    )
 
 
 class MeilisearchDriver:
@@ -32,8 +35,10 @@ class MeilisearchDriver:
         self.name = engine.name
         self.run_tag = engine.run_tag
         self.keyword_setup = (
-            "Not BM25; the harness sets `searchableAttributes` to the text field, reads "
-            "`_rankingScore` as the score, and leaves every other setting at its default"
+            "Not BM25; the harness sets `searchableAttributes` to the text field, sets `stopWords` to "
+            "the Lucene English list the BM25 engines analyze with, searches with `matchingStrategy` "
+            "`frequency` so a long question drops its commonest words first, reads `_rankingScore` as "
+            "the score, and leaves every other setting at its default"
         )
         self.server_time = ServerTimeSource(source="response `processingTimeMs` field", resolution=INTEGER_MS)
         api_key = os.environ.get("BENCH_API_KEY", "localdev")
@@ -86,7 +91,7 @@ class MeilisearchDriver:
         self._wait_task(int(response.json()["taskUid"]))
         settings = self._client.patch(
             f"/indexes/{index}/settings",
-            json={"searchableAttributes": ["text"]},
+            json={"searchableAttributes": ["text"], "stopWords": list(LUCENE_ENGLISH_STOP_WORDS)},
         )
         _raise(settings)
         self._wait_task(int(settings.json()["taskUid"]))
@@ -106,7 +111,10 @@ class MeilisearchDriver:
     def import_documents(
         self, index: str, documents: Iterable[tuple[str, str]], batch_size: int, clients: int
     ) -> ImportResult:
-        total = import_batches(documents, batch_size, clients, lambda batch: self._send_import(index, batch))
+        def send(batch: list[tuple[str, str]]) -> BatchOutcome:
+            return self._send_import(index, batch)
+
+        total = import_batches(documents, batch_size, clients, send, resend=send)
         return ImportResult(submitted=total.submitted, indexed=total.indexed)
 
     def count(self, index: str) -> int:
@@ -120,6 +128,7 @@ class MeilisearchDriver:
             "limit": limit,
             "attributesToRetrieve": ["id"],
             "showRankingScore": True,
+            "matchingStrategy": "frequency",
         }
         response = self._client.post(f"/indexes/{index}/search", json=body)
         _raise(response)

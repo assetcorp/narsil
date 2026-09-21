@@ -1,11 +1,12 @@
 declare const self: unknown
 
 import { MAX_WORKER_COPIES } from './constants'
-import { searchOrdinals } from './hnsw/search'
 import type {
-  SharedCopyLoadRequest,
+  SharedFieldLoadRequest,
   VectorAckResponse,
   VectorDropRequest,
+  VectorInsertRequest,
+  VectorInsertResponse,
   VectorLoadRequest,
   VectorOrdinalSearchRequest,
   VectorOrdinalSearchResponse,
@@ -15,18 +16,20 @@ import type {
   VectorWorkerMessage,
   VectorWorkerRequest,
 } from './search-pool/messages'
-import { openSharedWorkerCopy, type SharedWorkerCopy } from './shared-generation/worker-view'
+import { openSharedVectorField, type SharedVectorFieldView } from './shared-field/view'
 import { restoreWorkerCopy, type WorkerCopy } from './worker-copy'
 
 export type { VectorMetric } from './brute-force'
 export type { HNSWSnapshot } from './hnsw'
-export type { AdjacencySnapshot } from './hnsw/adjacency'
+export type { SharedGraphHandles } from './hnsw/handles'
 export type { OrdinalFilter } from './ordinal-filter'
-export type { ScalarQuantizerCalibration } from './scalar-quantization-types'
+export type { OsqBits } from './osq'
 export type {
-  SharedCopyLoadRequest,
+  SharedFieldLoadRequest,
   VectorAckResponse,
   VectorDropRequest,
+  VectorInsertRequest,
+  VectorInsertResponse,
   VectorLoadRequest,
   VectorOrdinalSearchRequest,
   VectorOrdinalSearchResponse,
@@ -36,11 +39,16 @@ export type {
   VectorWorkerMessage,
   VectorWorkerRequest,
 } from './search-pool/messages'
-export type { SharedGenerationLayout, SharedGenerationSnapshot } from './shared-generation/types'
+export type { GrowableBuffer } from './shared-buffers/growable'
+export type { GraphInsertOutcome, SharedVectorFieldHandles } from './shared-field/types'
+export type { ArenaSimd } from './simd'
 export type { VectorStoreSnapshot } from './vector-store'
-export type { WorkerCopySnapshot } from './worker-copy'
+export type { BlockGeometry, VectorBlockHandle, VectorBlockLayout, VectorBlockStorage } from './vector-store/blocks'
+export type { VectorCodeBlockLayout } from './vector-store/code-blocks'
+export type { SharedVectorStoreHandles } from './vector-store/handles'
+export type { WorkerCopyCodes, WorkerCopySnapshot } from './worker-copy'
 
-type LoadedCopy = { kind: 'clone'; copy: WorkerCopy } | { kind: 'shared'; copy: SharedWorkerCopy }
+type LoadedCopy = { kind: 'clone'; copy: WorkerCopy } | { kind: 'shared'; view: SharedVectorFieldView }
 
 const copies = new Map<string, LoadedCopy>()
 
@@ -56,15 +64,44 @@ function handleLoad(request: VectorLoadRequest): VectorAckResponse {
   return { type: 'ack', requestId: request.requestId, handle: request.handle }
 }
 
-function handleLoadShared(request: SharedCopyLoadRequest): VectorAckResponse {
+function handleLoadShared(request: SharedFieldLoadRequest): VectorAckResponse {
   ensureRoom(request.handle)
-  copies.set(request.handle, { kind: 'shared', copy: openSharedWorkerCopy(request.snapshot, request.scratchSlot) })
+  const existing = copies.get(request.handle)
+  if (existing?.kind === 'shared') {
+    existing.view.adopt(request.handles)
+  } else {
+    copies.set(request.handle, { kind: 'shared', view: openSharedVectorField(request.handles, request.scratchSlot) })
+  }
   return { type: 'ack', requestId: request.requestId, handle: request.handle }
 }
 
 function handleDrop(request: VectorDropRequest): VectorAckResponse {
+  const held = copies.get(request.handle)
+  if (held?.kind === 'shared') held.view.close()
   copies.delete(request.handle)
   return { type: 'ack', requestId: request.requestId, handle: request.handle }
+}
+
+function yieldToEventLoop(): Promise<void> {
+  return new Promise<void>(resolve => {
+    if (typeof setImmediate === 'function') setImmediate(resolve)
+    else setTimeout(resolve, 0)
+  })
+}
+
+async function handleInsert(request: VectorInsertRequest): Promise<VectorInsertResponse> {
+  const entry = copies.get(request.handle)
+  if (!entry) {
+    throw new Error(`Search worker holds no copy for handle ${request.handle}`)
+  }
+  if (entry.kind !== 'shared') {
+    throw new Error(`Handle ${request.handle} holds a cloned copy, which takes no insertions`)
+  }
+  for (const ordinal of request.ordinals) {
+    entry.view.insertOrdinal(ordinal)
+    await yieldToEventLoop()
+  }
+  return { type: 'inserted', requestId: request.requestId, outcome: entry.view.takeOutcome() }
 }
 
 function handleSearch(request: VectorSearchRequest): VectorSearchResponse {
@@ -73,17 +110,14 @@ function handleSearch(request: VectorSearchRequest): VectorSearchResponse {
     throw new Error(`Search worker holds no copy for handle ${request.handle}`)
   }
   if (entry.kind !== 'clone') {
-    throw new Error(`Handle ${request.handle} holds a shared copy, which answers ordinal searches alone`)
+    throw new Error(`Handle ${request.handle} holds a shared field, which answers ordinal searches alone`)
   }
 
-  const hits = entry.copy.graph.search(
-    request.query,
-    request.k,
-    request.metric,
-    request.minSimilarity,
-    request.filter,
-    request.efSearch,
-  )
+  const hits = entry.copy.graph.search(request.query, request.k, request.metric, request.minSimilarity, {
+    filter: request.filter,
+    efSearch: request.efSearch,
+    oversample: request.oversample,
+  })
 
   const docIds: string[] = []
   const scores = new Float64Array(hits.length)
@@ -104,16 +138,11 @@ function handleSearchOrdinals(request: VectorOrdinalSearchRequest): VectorOrdina
     throw new Error(`Handle ${request.handle} holds a cloned copy, which answers document id searches alone`)
   }
 
-  const hits = searchOrdinals(
-    entry.copy.searchState,
-    request.query,
-    request.k,
-    request.metric,
-    request.minSimilarity,
-    entry.copy.rankByOrdinal,
-    request.filter,
-    request.efSearch,
-  )
+  const hits = entry.view.searchOrdinals(request.query, request.k, request.metric, request.minSimilarity, {
+    filter: request.filter,
+    efSearch: request.efSearch,
+    oversample: request.oversample,
+  })
 
   const ordinals = new Uint32Array(hits.length)
   const scores = new Float64Array(hits.length)
@@ -125,11 +154,12 @@ function handleSearchOrdinals(request: VectorOrdinalSearchRequest): VectorOrdina
   return { type: 'ordinalResult', requestId: request.requestId, ordinals, scores }
 }
 
-function handleAnyRequest(raw: unknown): VectorWorkerMessage {
+async function handleAnyRequest(raw: unknown): Promise<VectorWorkerMessage> {
   const request = raw as VectorWorkerRequest
   if (request.type === 'load') return handleLoad(request)
   if (request.type === 'loadShared') return handleLoadShared(request)
   if (request.type === 'drop') return handleDrop(request)
+  if (request.type === 'insertOrdinals') return handleInsert(request)
   if (request.type === 'search') return handleSearch(request)
   if (request.type === 'searchOrdinals') return handleSearchOrdinals(request)
   throw new Error(`Unknown request type: ${(request as { type: string }).type}`)
@@ -163,11 +193,10 @@ async function setupAsync(): Promise<void> {
   if (parentPort) {
     const port = parentPort
     port.on('message', (raw: unknown) => {
-      try {
-        port.postMessage(handleAnyRequest(raw))
-      } catch (err) {
-        port.postMessage(errorFor(raw, err))
-      }
+      handleAnyRequest(raw).then(
+        reply => port.postMessage(reply),
+        err => port.postMessage(errorFor(raw, err)),
+      )
     })
     return
   }
@@ -180,11 +209,10 @@ async function setupAsync(): Promise<void> {
     }
 
     webSelf.onmessage = (event: { data: unknown }) => {
-      try {
-        webSelf.postMessage(handleAnyRequest(event.data))
-      } catch (err) {
-        webSelf.postMessage(errorFor(event.data, err))
-      }
+      handleAnyRequest(event.data).then(
+        reply => webSelf.postMessage(reply),
+        err => webSelf.postMessage(errorFor(event.data, err)),
+      )
     }
   }
 }

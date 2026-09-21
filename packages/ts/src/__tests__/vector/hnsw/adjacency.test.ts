@@ -1,25 +1,32 @@
 import { describe, expect, it } from 'vitest'
 import {
   addNeighbor,
+  adjacencySlots,
   collectNeighbors,
-  createAdjacency,
   createNode,
   deleteNode,
   hasNode,
   layerBase,
   neighborCount,
   nodeLevel,
+  openAdjacency,
   removeNeighbor,
   replaceNeighbors,
   resetAdjacency,
+  upperUsed,
 } from '../../../vector/hnsw/adjacency'
 import { MAX_LAYER_CAP } from '../../../vector/hnsw/constants'
+import { createSharedGraphHandles } from '../../../vector/hnsw/handles'
 
 const M = 8
 const MMAX0 = 16
 
 function newAdjacency() {
-  return createAdjacency(M, MMAX0)
+  return openAdjacency(
+    createSharedGraphHandles({ m: M, mMax0: MMAX0, efConstruction: 100, metric: 'cosine' }),
+    M,
+    MMAX0,
+  )
 }
 
 describe('flat adjacency', () => {
@@ -111,39 +118,69 @@ describe('flat adjacency', () => {
     }
   })
 
-  it('reuses an upper block once its node is deleted', () => {
-    const adj = newAdjacency()
-    createNode(adj, 0, 4)
-    const usedAfterFirst = adj.upperUsed
-
-    for (let round = 0; round < 50; round++) {
-      deleteNode(adj, 0)
-      createNode(adj, 0, 4)
+  it('reads a node another view of the same buffers created after they grew', () => {
+    const handles = createSharedGraphHandles({ m: M, mMax0: MMAX0, efConstruction: 100, metric: 'cosine' })
+    const writer = openAdjacency(handles, M, MMAX0)
+    const reader = openAdjacency(handles, M, MMAX0)
+    for (let ord = 0; ord < 300; ord++) {
+      createNode(writer, ord, 1)
+      addNeighbor(writer, ord, 1, ord + 1)
     }
-
-    expect(adj.upperUsed).toBe(usedAfterFirst)
+    expect(nodeLevel(reader, 299)).toBe(1)
+    expect(collectNeighbors(reader, 299, 1)).toEqual([300])
+    expect(adjacencySlots(reader)).toBe(300)
   })
 
-  it('hands back a reused block with no neighbours left in it', () => {
-    const adj = newAdjacency()
-    createNode(adj, 0, 2)
-    addNeighbor(adj, 0, 1, 42)
-    addNeighbor(adj, 0, 2, 43)
-    deleteNode(adj, 0)
+  it('keeps the neighbour arrays covering every node level when another thread grows the graph in the middle of a growth', () => {
+    const handles = createSharedGraphHandles({ m: M, mMax0: MMAX0, efConstruction: 100, metric: 'cosine' })
+    const placer = openAdjacency(handles, M, MMAX0)
+    const other = openAdjacency(handles, M, MMAX0)
+    const byteLengthOf = Object.getOwnPropertyDescriptor(SharedArrayBuffer.prototype, 'byteLength')?.get
+    expect(byteLengthOf).toBeDefined()
+    if (byteLengthOf === undefined) return
+    const originalGrow = SharedArrayBuffer.prototype.grow
+    let level0Grown = false
+    let otherGrew = false
+    Object.defineProperty(handles.level0, 'grow', {
+      configurable: true,
+      value(this: SharedArrayBuffer, target: number) {
+        level0Grown = true
+        return originalGrow.call(this, target)
+      },
+    })
+    Object.defineProperty(handles.nodeLevels, 'byteLength', {
+      configurable: true,
+      get(this: SharedArrayBuffer) {
+        const held = byteLengthOf.call(this) as number
+        if (level0Grown && !otherGrew) {
+          otherGrew = true
+          createNode(other, held, 0)
+        }
+        return held
+      },
+    })
 
-    createNode(adj, 1, 2)
-    expect(collectNeighbors(adj, 1, 1)).toEqual([])
-    expect(collectNeighbors(adj, 1, 2)).toEqual([])
+    createNode(placer, 16, 0)
+
+    expect(otherGrew).toBe(true)
+    const levels = new Uint8Array(handles.nodeLevels)
+    const nodesInLevel0 = byteLengthOf.call(handles.level0) / (MMAX0 + 2) / 4
+    const nodesInUpperBase = byteLengthOf.call(handles.upperBase) / 4
+    expect(nodesInLevel0).toBeGreaterThanOrEqual(levels.length)
+    expect(nodesInUpperBase).toBeGreaterThanOrEqual(levels.length)
   })
 
-  it('frees the previous block when a node is created over a live one', () => {
-    const adj = newAdjacency()
-    createNode(adj, 0, 3)
-    const usedAfterFirst = adj.upperUsed
-    createNode(adj, 0, 3)
-    createNode(adj, 0, 3)
-    expect(adj.upperUsed).toBe(usedAfterFirst)
-    expect(collectNeighbors(adj, 0, 1)).toEqual([])
+  it('grows the graph no further when a view that fell behind needs a node the buffers already cover', () => {
+    const handles = createSharedGraphHandles({ m: M, mMax0: MMAX0, efConstruction: 100, metric: 'cosine' })
+    const behind = openAdjacency(handles, M, MMAX0)
+    const ahead = openAdjacency(handles, M, MMAX0)
+    createNode(ahead, 600, 0)
+    const grownTo = handles.nodeLevels.byteLength
+
+    createNode(behind, 20, 0)
+
+    expect(handles.nodeLevels.byteLength).toBe(grownTo)
+    expect(nodeLevel(behind, 600)).toBe(0)
   })
 
   it('separates the blocks of two nodes at the same level', () => {
@@ -170,8 +207,8 @@ describe('flat adjacency', () => {
     addNeighbor(adj, 0, 0, 1)
     resetAdjacency(adj)
 
-    expect(adj.slots).toBe(0)
-    expect(adj.upperUsed).toBe(0)
+    expect(adjacencySlots(adj)).toBe(0)
+    expect(upperUsed(adj)).toBe(0)
     expect(hasNode(adj, 0)).toBe(false)
   })
 

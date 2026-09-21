@@ -1,10 +1,21 @@
-import { resolveWorkerCount } from '../../workers/pool'
+import { resolveWorkerCount } from '../../workers/worker-count'
 import type { VectorMetric } from '../brute-force'
-import { VECTOR_SEARCH_LOAD_TIMEOUT_MS, VECTOR_SEARCH_TIMEOUT_MS } from '../constants'
-import type { OrdinalFilter } from '../ordinal-filter'
-import type { SharedGenerationSnapshot } from '../shared-generation/types'
+import {
+  VECTOR_INSERT_TIMEOUT_MS,
+  VECTOR_SCRATCH_SLOTS,
+  VECTOR_SEARCH_LOAD_TIMEOUT_MS,
+  VECTOR_SEARCH_TIMEOUT_MS,
+} from '../constants'
+import { releaseLocksHeldBy } from '../hnsw/locks'
+import type { GraphSearchOptions } from '../hnsw/search'
+import type { GraphInsertOutcome, SharedVectorFieldHandles } from '../shared-field/types'
 import type { WorkerCopySnapshot } from '../worker-copy'
-import type { VectorOrdinalSearchRequest, VectorSearchRequest, VectorWorkerMessage } from './messages'
+import type {
+  VectorInsertRequest,
+  VectorOrdinalSearchRequest,
+  VectorSearchRequest,
+  VectorWorkerMessage,
+} from './messages'
 import { listen, listenForFailure, resolveWorkerEntryPoint, spawnWorker, type WorkerHandle } from './spawn'
 
 export interface WorkerCopySearchResult {
@@ -19,18 +30,17 @@ export interface OrdinalSearchResult {
 
 export interface VectorSearchPool {
   readonly workerCount: number
-  readonly scratchSlotCount: number
   load(handle: string, snapshot: WorkerCopySnapshot): Promise<boolean>
-  loadShared(handle: string, snapshot: SharedGenerationSnapshot): Promise<boolean>
+  loadShared(handle: string, handles: SharedVectorFieldHandles): Promise<boolean>
   drop(handle: string): Promise<void>
+  insertOrdinals(handle: string, ordinals: Int32Array): Promise<GraphInsertOutcome | null>
   search(
     handle: string,
     query: Float32Array,
     k: number,
     metric: VectorMetric,
     minSimilarity: number,
-    efSearch?: number,
-    filter?: OrdinalFilter,
+    options?: GraphSearchOptions,
   ): Promise<WorkerCopySearchResult[]>
   searchOrdinals(
     handle: string,
@@ -38,8 +48,7 @@ export interface VectorSearchPool {
     k: number,
     metric: VectorMetric,
     minSimilarity: number,
-    efSearch?: number,
-    filter?: OrdinalFilter,
+    options?: GraphSearchOptions,
   ): Promise<OrdinalSearchResult>
   shutdown(): Promise<void>
 }
@@ -52,20 +61,42 @@ interface PendingRequest {
 
 interface WorkerSlot {
   worker: WorkerHandle
+  scratchSlot: number
   pending: Map<string, PendingRequest>
   alive: boolean
   outstanding: number
+}
+
+export function searchPoolScratchSlot(index: number): number {
+  return VECTOR_SCRATCH_SLOTS - 1 - index
+}
+
+function graphSearchOptionsOf(
+  options: GraphSearchOptions,
+): Pick<GraphSearchOptions, 'filter' | 'efSearch' | 'oversample'> {
+  return {
+    ...(options.filter !== undefined ? { filter: options.filter } : {}),
+    ...(options.efSearch !== undefined ? { efSearch: options.efSearch } : {}),
+    ...(options.oversample !== undefined ? { oversample: options.oversample } : {}),
+  }
 }
 
 export async function createVectorSearchPool(requestedCount?: number): Promise<VectorSearchPool | null> {
   const entryPoint = resolveWorkerEntryPoint()
   const count = resolveWorkerCount(requestedCount)
   const slots: WorkerSlot[] = []
+  const sharedFields = new Map<string, SharedVectorFieldHandles>()
 
   for (let i = 0; i < count; i++) {
     const worker = await spawnWorker(entryPoint)
     if (worker === null) break
-    const slot: WorkerSlot = { worker, pending: new Map(), alive: true, outstanding: 0 }
+    const slot: WorkerSlot = {
+      worker,
+      scratchSlot: searchPoolScratchSlot(i),
+      pending: new Map(),
+      alive: true,
+      outstanding: 0,
+    }
 
     listen(worker, raw => {
       const message = raw as VectorWorkerMessage
@@ -80,6 +111,9 @@ export async function createVectorSearchPool(requestedCount?: number): Promise<V
 
     listenForFailure(worker, err => {
       slot.alive = false
+      for (const handles of sharedFields.values()) {
+        if (handles.graph !== null) releaseLocksHeldBy(handles.graph, slot.scratchSlot)
+      }
       for (const [, waiting] of slot.pending) {
         clearTimeout(waiting.timer)
         waiting.reject(err)
@@ -115,6 +149,10 @@ export async function createVectorSearchPool(requestedCount?: number): Promise<V
     })
   }
 
+  function refusalOf(message: VectorWorkerMessage): string {
+    return message.type === 'error' ? message.message : `the worker answered "${message.type}"`
+  }
+
   function pickSlot(): WorkerSlot | null {
     let slot: WorkerSlot | null = null
     for (const candidate of slots) {
@@ -125,16 +163,26 @@ export async function createVectorSearchPool(requestedCount?: number): Promise<V
     return slot
   }
 
-  async function sendSearch(
-    slot: WorkerSlot,
-    request: VectorSearchRequest | VectorOrdinalSearchRequest,
-  ): Promise<VectorWorkerMessage> {
+  async function sendBusy(slot: WorkerSlot, request: { requestId: string }, timeoutMs: number) {
     slot.outstanding += 1
     try {
-      return await send(slot, request.requestId, request, VECTOR_SEARCH_TIMEOUT_MS)
+      return await send(slot, request.requestId, request, timeoutMs)
     } finally {
       slot.outstanding -= 1
     }
+  }
+
+  async function broadcast(build: (slot: WorkerSlot, requestId: string) => unknown, timeoutMs: number) {
+    const outcomes = await Promise.allSettled(
+      slots.map(slot => {
+        requestCounter += 1
+        const requestId = `${requestCounter}`
+        return send(slot, requestId, build(slot, requestId), timeoutMs)
+      }),
+    )
+    return outcomes.every(
+      outcome => outcome.status === 'fulfilled' && (outcome.value as VectorWorkerMessage).type === 'ack',
+    )
   }
 
   return {
@@ -142,49 +190,39 @@ export async function createVectorSearchPool(requestedCount?: number): Promise<V
       return slots.filter(slot => slot.alive).length
     },
 
-    get scratchSlotCount() {
-      return slots.length
-    },
-
-    async load(handle: string, snapshot: WorkerCopySnapshot): Promise<boolean> {
-      const outcomes = await Promise.allSettled(
-        slots.map(slot => {
-          requestCounter += 1
-          const requestId = `${requestCounter}`
-          return send(slot, requestId, { type: 'load', requestId, handle, snapshot }, VECTOR_SEARCH_LOAD_TIMEOUT_MS)
-        }),
-      )
-      return outcomes.every(
-        outcome => outcome.status === 'fulfilled' && (outcome.value as VectorWorkerMessage).type === 'ack',
+    load(handle: string, snapshot: WorkerCopySnapshot): Promise<boolean> {
+      return broadcast(
+        (_slot, requestId) => ({ type: 'load', requestId, handle, snapshot }),
+        VECTOR_SEARCH_LOAD_TIMEOUT_MS,
       )
     },
 
-    async loadShared(handle: string, snapshot: SharedGenerationSnapshot): Promise<boolean> {
-      const outcomes = await Promise.allSettled(
-        slots.map((slot, scratchSlot) => {
-          requestCounter += 1
-          const requestId = `${requestCounter}`
-          return send(
-            slot,
-            requestId,
-            { type: 'loadShared', requestId, handle, scratchSlot, snapshot },
-            VECTOR_SEARCH_LOAD_TIMEOUT_MS,
-          )
-        }),
+    async loadShared(handle: string, handles: SharedVectorFieldHandles): Promise<boolean> {
+      sharedFields.set(handle, handles)
+      const loaded = await broadcast(
+        (slot, requestId) => ({ type: 'loadShared', requestId, handle, scratchSlot: slot.scratchSlot, handles }),
+        VECTOR_SEARCH_LOAD_TIMEOUT_MS,
       )
-      return outcomes.every(
-        outcome => outcome.status === 'fulfilled' && (outcome.value as VectorWorkerMessage).type === 'ack',
-      )
+      if (!loaded) sharedFields.delete(handle)
+      return loaded
     },
 
     async drop(handle: string): Promise<void> {
-      await Promise.allSettled(
-        slots.map(slot => {
-          requestCounter += 1
-          const requestId = `${requestCounter}`
-          return send(slot, requestId, { type: 'drop', requestId, handle }, VECTOR_SEARCH_TIMEOUT_MS)
-        }),
-      )
+      sharedFields.delete(handle)
+      await broadcast((_slot, requestId) => ({ type: 'drop', requestId, handle }), VECTOR_SEARCH_TIMEOUT_MS)
+    },
+
+    async insertOrdinals(handle: string, ordinals: Int32Array): Promise<GraphInsertOutcome | null> {
+      const slot = pickSlot()
+      if (slot === null) return null
+      requestCounter += 1
+      const request: VectorInsertRequest = { type: 'insertOrdinals', requestId: `${requestCounter}`, handle, ordinals }
+      const message = await sendBusy(slot, request, VECTOR_INSERT_TIMEOUT_MS)
+      if (message.type !== 'inserted') {
+        console.warn('A vector worker placed no vectors in the shared graph:', refusalOf(message))
+        return null
+      }
+      return message.outcome
     },
 
     async search(
@@ -193,8 +231,7 @@ export async function createVectorSearchPool(requestedCount?: number): Promise<V
       k: number,
       metric: VectorMetric,
       minSimilarity: number,
-      efSearch?: number,
-      filter?: OrdinalFilter,
+      options: GraphSearchOptions = {},
     ): Promise<WorkerCopySearchResult[]> {
       const slot = pickSlot()
       if (slot === null) throw new Error('No vector search worker is running')
@@ -208,11 +245,10 @@ export async function createVectorSearchPool(requestedCount?: number): Promise<V
         k,
         metric,
         minSimilarity,
-        ...(filter !== undefined ? { filter } : {}),
-        ...(efSearch !== undefined ? { efSearch } : {}),
+        ...graphSearchOptionsOf(options),
       }
 
-      const message = await sendSearch(slot, request)
+      const message = await sendBusy(slot, request, VECTOR_SEARCH_TIMEOUT_MS)
       if (message.type === 'error') throw new Error(message.message)
       if (message.type !== 'result') throw new Error('Vector search worker returned an unexpected message')
 
@@ -229,8 +265,7 @@ export async function createVectorSearchPool(requestedCount?: number): Promise<V
       k: number,
       metric: VectorMetric,
       minSimilarity: number,
-      efSearch?: number,
-      filter?: OrdinalFilter,
+      options: GraphSearchOptions = {},
     ): Promise<OrdinalSearchResult> {
       const slot = pickSlot()
       if (slot === null) throw new Error('No vector search worker is running')
@@ -244,11 +279,10 @@ export async function createVectorSearchPool(requestedCount?: number): Promise<V
         k,
         metric,
         minSimilarity,
-        ...(filter !== undefined ? { filter } : {}),
-        ...(efSearch !== undefined ? { efSearch } : {}),
+        ...graphSearchOptionsOf(options),
       }
 
-      const message = await sendSearch(slot, request)
+      const message = await sendBusy(slot, request, VECTOR_SEARCH_TIMEOUT_MS)
       if (message.type === 'error') throw new Error(message.message)
       if (message.type !== 'ordinalResult') throw new Error('Vector search worker returned an unexpected message')
 

@@ -24,6 +24,12 @@ export function createFrozenInvertedReader(table: FrozenTokenTable, views: Froze
       return viewAtSorted(at)
     },
 
+    lookupReadOnce(token: string): PostingListView | undefined {
+      const at = table.find(token)
+      if (at < 0) return undefined
+      return views.viewReadOnce(table.payloadSlot(at), table.documentFrequencyAt(at))
+    },
+
     fuzzyLookup(
       token: string,
       tolerance: number,

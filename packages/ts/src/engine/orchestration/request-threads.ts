@@ -1,5 +1,5 @@
 import type { WorkerPool } from '../../workers/pool'
-import { resolveRequestThreadCount } from '../../workers/pool'
+import { resolveRequestThreadCount } from '../../workers/worker-count'
 import { retirePool } from './repair'
 import { copyThresholdReason, ensurePool, indexReadyForCopies, scaleOutIndex, scaleOutReadyIndexes } from './scale-out'
 import type { OrchestratorState, RequestThreadListener } from './types'

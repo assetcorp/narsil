@@ -1,17 +1,19 @@
 import type { HNSWIndex } from '../hnsw'
-import { scheduleBuild } from './build'
+import { nativeStoreScratchBytes } from '../native/store'
+import { buildGraphFromStore, promoteToGraph, scheduleBuild } from './build'
+import { insertIntoGraph } from './build-host'
 import { ESTIMATED_MS_PER_TOMBSTONE, ESTIMATED_MS_PER_VECTOR_REBUILD } from './constants'
 import {
   adoptGraph,
   allLiveDocIds,
-  buildGraphFromStore,
+  calibrateQuantizer,
   graphNeedsRebuild,
-  insertIntoGraph,
   liveSize,
   type MaintenanceStatus,
   recalibrateFromStore,
   type VectorIndexState,
 } from './shared'
+import { dropSharedGraph } from './worker-copies'
 
 export function compact(state: VectorIndexState): void {
   if (state.tombstones.size === 0) return
@@ -24,62 +26,66 @@ export function compact(state: VectorIndexState): void {
   for (const docId of state.tombstones) {
     state.store.remove(docId)
     state.buffer.delete(docId)
-    if (state.sq8) {
-      state.sq8.remove(docId)
+    if (state.osq) {
+      state.osq.remove(docId)
     }
   }
 
   state.tombstones.clear()
+}
 
-  if (state.sq8?.isCalibrated() && state.store.size > 0) {
+function recalibrateWhileNoThreadSearches(state: VectorIndexState, graph: HNSWIndex | null): void {
+  if (graph === null) {
     recalibrateFromStore(state)
+    return
   }
+  graph.exclusively(() => recalibrateFromStore(state))
 }
 
 async function insertMissing(state: VectorIndexState, graph: HNSWIndex): Promise<void> {
   const missingOrReplaced = (docId: string) => !graph.has(docId) || state.buffer.has(docId)
-  await insertIntoGraph(state, graph, allLiveDocIds(state), missingOrReplaced)
+  const heldWhenTheCallStarted = [...allLiveDocIds(state)]
+  const stillLiveAndUnplaced = (docId: string) => !state.tombstones.has(docId) && missingOrReplaced(docId)
+  await insertIntoGraph(state, graph, heldWhenTheCallStarted, stillLiveAndUnplaced)
 }
 
 async function foldIntoGraph(state: VectorIndexState): Promise<void> {
   const rebuildNeeded = graphNeedsRebuild(state)
-  const compactRecalibrates = state.tombstones.size > 0 && state.sq8?.isCalibrated() === true
 
   compact(state)
 
   if (liveSize(state) === 0) {
+    const previous = state.hnsw
     adoptGraph(state, null)
+    if (previous !== null) dropSharedGraph(state, previous)
     state.buffer.clear()
-    if (state.sq8) {
-      state.sq8.clear()
+    if (state.osq) {
+      state.osq.clear()
     }
     return
   }
 
   const graph = state.hnsw
   if (graph === null || rebuildNeeded) {
+    if (state.osq?.isCalibrated()) recalibrateWhileNoThreadSearches(state, graph)
     await buildGraphFromStore(state)
   } else {
     await insertMissing(state, graph)
   }
-
-  if (state.sq8 && state.store.size > 0 && !compactRecalibrates) {
-    recalibrateFromStore(state)
-  }
 }
 
-export async function optimize(state: VectorIndexState): Promise<void> {
+async function buildExclusively(state: VectorIndexState, work: () => Promise<void>): Promise<void> {
   while (state.pendingBuild) {
     await state.pendingBuild
   }
   if (state.disposed) return
 
   state.building = true
-  const work = foldIntoGraph(state)
-  state.pendingBuild = work
+  const run = work()
+  state.pendingBuild = run
 
   try {
-    await work
+    await run
   } finally {
     state.building = false
     state.pendingBuild = null
@@ -87,6 +93,28 @@ export async function optimize(state: VectorIndexState): Promise<void> {
       scheduleBuild(state)
     }
   }
+}
+
+export function optimize(state: VectorIndexState): Promise<void> {
+  return buildExclusively(state, () => foldIntoGraph(state))
+}
+
+async function fillGraph(state: VectorIndexState): Promise<void> {
+  const graph = state.hnsw
+  if (graph === null) {
+    if (liveSize(state) >= state.promotionThreshold) await promoteToGraph(state)
+    return
+  }
+  if (state.osq && !state.osq.isCalibrated()) calibrateQuantizer(state)
+  if (graphNeedsRebuild(state)) {
+    await buildGraphFromStore(state)
+    return
+  }
+  await insertMissing(state, graph)
+}
+
+export function completeGraph(state: VectorIndexState): Promise<void> {
+  return buildExclusively(state, () => fillGraph(state))
 }
 
 export function maintenanceStatus(state: VectorIndexState): MaintenanceStatus {
@@ -107,36 +135,11 @@ export function maintenanceStatus(state: VectorIndexState): MaintenanceStatus {
   }
 }
 
+function flatScanScratchBytes(state: VectorIndexState): number {
+  return state.store.dimension === 0 ? 0 : nativeStoreScratchBytes(state.store.handles)
+}
+
 export function estimateMemoryBytes(state: VectorIndexState): number {
-  const count = state.store.size
-  if (count === 0 && state.tombstones.size === 0 && state.buffer.size === 0) return 0
-
-  let bytes = state.store.estimateMemory(state.dimension)
-
-  const TOMBSTONE_SET_OVERHEAD = 64
-  const TOMBSTONE_ENTRY_COST = 72
-  bytes += TOMBSTONE_SET_OVERHEAD + state.tombstones.size * TOMBSTONE_ENTRY_COST
-
-  const BUFFER_SET_OVERHEAD = 64
-  const BUFFER_ENTRY_COST = 72
-  bytes += BUFFER_SET_OVERHEAD + state.buffer.size * BUFFER_ENTRY_COST
-
-  if (state.hnsw) {
-    bytes += state.hnsw.adjacencyBytes
-  }
-
-  if (state.sq8?.isCalibrated()) {
-    const sqCount = state.sq8.size
-    const MAP_OVERHEAD_SQ = 64
-    const MAP_ENTRY_SQ = 72
-    const UINT8_ARRAY_HEADER = 64
-    const PER_VECTOR_METADATA = 8 * 3
-    const GLOBAL_CALIBRATION = 8 * 5
-
-    bytes += 4 * (MAP_OVERHEAD_SQ + sqCount * MAP_ENTRY_SQ)
-    bytes += sqCount * (UINT8_ARRAY_HEADER + state.dimension + PER_VECTOR_METADATA)
-    bytes += GLOBAL_CALIBRATION
-  }
-
-  return Math.round(bytes)
+  if (state.hnsw === null) return state.store.memoryBytes() + flatScanScratchBytes(state)
+  return state.store.memoryBytes() + state.hnsw.graphBytes + state.hnsw.searchScratchBytes
 }

@@ -4,4 +4,6 @@ export interface WorkerResourceLimits {
   maxYoungGenerationSizeMb?: number
 }
 
-export const WORKER_RESOURCE_LIMITS: WorkerResourceLimits = { maxYoungGenerationSizeMb: WORKER_YOUNG_GENERATION_MB }
+export function workerResourceLimits(): WorkerResourceLimits {
+  return { maxYoungGenerationSizeMb: WORKER_YOUNG_GENERATION_MB }
+}
