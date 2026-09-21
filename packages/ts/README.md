@@ -125,7 +125,7 @@ The [specification](../spec/) defines the `.nrsl` format, the analysis pipeline,
 
 | Example | What it shows |
 | --- | --- |
-| [HTTP server](examples/http-server/README.md) | The launcher serves the engine as a REST service with durability, API-key auth, and Docker packaging. Its README holds every endpoint of the API. |
+| [HTTP server](examples/http-server/README.md) | The launcher serves the engine as a REST service with durability, API-key auth, and Docker packaging, and every setting comes from the environment. |
 | [Browser](examples/browser/README.md) | The app embeds the engine in a browser with IndexedDB persistence and Web Worker search. |
 | [Server app](examples/server-app/README.md) | The app calls the HTTP server through the client SDK and the React hooks to load corpora as import tasks. In its Ask view, you can ask questions about those corpora. |
 
