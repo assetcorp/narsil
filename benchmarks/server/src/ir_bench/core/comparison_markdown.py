@@ -277,6 +277,15 @@ def _memory_cap_text(cap: object, machine_bytes: object) -> str:
     return f"{cap / 1e9:.1f} GB"
 
 
+def _java_heap_text(engines: object) -> str:
+    heaps = []
+    for engine in engines if isinstance(engines, list) else []:
+        heap = (engine.get("build_identity") or {}).get("jvm_heap_max_bytes")
+        if isinstance(heap, (int, float)):
+            heaps.append(f"{engine.get('name')} {heap / 1e9:.1f} GB")
+    return ", ".join(heaps)
+
+
 def _run_conditions(comparison: dict) -> list[str]:
     profile = comparison.get("profile", EQUAL_PRECISION)
     env = comparison["environment"]
@@ -296,6 +305,9 @@ def _run_conditions(comparison: dict) -> list[str]:
         lines.append(f"- Machine: {env.get('machine_label')}")
     lines.append(f"- OS / arch: {env.get('os')} / {env.get('arch')}")
     lines.append(f"- Equal memory cap per engine: {_memory_cap_text(cap, env.get('total_memory_bytes'))}")
+    java_heaps = _java_heap_text(comparison.get("engines"))
+    if java_heaps:
+        lines.append(f"- Java heap inside that cap, as each node reports it: {java_heaps}")
     lines.append(f"- Run depth: {cfg.get('run_depth')}; BM25 reference k1={cfg.get('k1')}, b={cfg.get('b')}")
     if cfg.get("vector_model"):
         lines.append(

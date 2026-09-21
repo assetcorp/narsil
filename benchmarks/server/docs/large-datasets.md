@@ -28,7 +28,18 @@ leaves about 4.5 GB for the operating system and the load generator.
 
 | Dataset | Documents | Vectors (float32) | Box RAM | `BENCH_MEM_CAP` | `BENCH_JVM_HEAP` |
 | ------- | --------- | ----------------- | ------- | --------------- | ---------------- |
-| `dbpedia-entities-openai-1m` | 995,000 | ~6.1 GB | 32 GiB | `20g` | `10g` |
+| `dbpedia-entities-openai-1m` | 995,000 | ~6.1 GB | 32 GiB | `20g` | `10g`, and `6g` for OpenSearch |
+
+OpenSearch needs a smaller heap than Elasticsearch on this dataset, because it
+keeps its vector index in memory outside the Java heap. By default it allows that
+index half of the container's memory that the heap leaves free, which is the
+`knn.memory.circuit_breaker.limit` setting. Its documentation estimates an HNSW
+index at `1.1 * (4 * dimension + 8 * M)` bytes per vector, which comes to about
+6.9 GB for 995,000 vectors of 1,536 dimensions at `M` 16. A `10g` heap under the
+`20g` cap leaves that index 5.4 GB, where a `6g` heap leaves it 7.5 GB.
+Elasticsearch keeps its vectors in the file cache, where that limit does not
+apply, so it keeps `10g`. Every results file records the heap that each Java
+node reports, and the comparison prints it beside the memory cap.
 
 The VM fetches the artifact from the release named in `artifact_url` on its first
 run, about 6.3 GB, or reads a copy of the `artifacts/` directory placed beside
@@ -42,6 +53,20 @@ BENCH_MEM_CAP=20g \
 BENCH_JVM_HEAP=10g \
 BENCH_MACHINE_LABEL="GCP c3-standard-8, 8 vCPU / 32 GiB" \
 ./run-all.sh
+```
+
+One `BENCH_JVM_HEAP` applies to every Java engine that a command starts. Name the
+other engines after `./run-all.sh` in the command above, so that it leaves
+OpenSearch out, and then test OpenSearch with its own command under the same run
+id, or on its own VM as the cloud toolkit's README describes:
+
+```bash
+BENCH_RUN_ID=<the run id printed above> \
+BENCH_DATASETS=dbpedia-entities-openai-1m \
+BENCH_MEM_CAP=20g \
+BENCH_JVM_HEAP=6g \
+BENCH_MACHINE_LABEL="GCP c3-standard-8, 8 vCPU / 32 GiB" \
+./run-all.sh opensearch
 ```
 
 The set carries no relevance judgements, so the harness records ingest, recall,
