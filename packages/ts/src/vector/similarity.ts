@@ -1,4 +1,4 @@
-import { simdDotProduct, simdEuclideanDistance, simdMagnitude, simdSquaredEuclideanDistance } from './simd'
+import { simdDotProduct, simdMagnitude, simdSquaredEuclideanDistance } from './simd'
 
 export function magnitude(v: Float32Array): number {
   const result = simdMagnitude(v)
@@ -33,14 +33,7 @@ export function dotProduct(a: Float32Array, b: Float32Array): number {
 }
 
 export function euclideanDistance(a: Float32Array, b: Float32Array): number {
-  const result = simdEuclideanDistance(a, b)
-  if (result !== null) return result
-  let sum = 0
-  for (let i = 0; i < a.length; i++) {
-    const diff = a[i] - b[i]
-    sum += diff * diff
-  }
-  return Math.sqrt(sum)
+  return Math.sqrt(squaredEuclideanDistance(a, b))
 }
 
 export function squaredEuclideanDistance(a: Float32Array, b: Float32Array): number {

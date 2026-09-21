@@ -1,6 +1,6 @@
 import { spawnNodeWorker } from '#platform/node-worker'
 import { detectRuntime } from '../../runtime/detect'
-import { WORKER_RESOURCE_LIMITS } from '../../workers/resource-limits'
+import { workerResourceLimits } from '../../workers/resource-limits'
 
 export interface WorkerHandle {
   postMessage(msg: unknown, transfer?: ArrayBuffer[] | unknown[]): void
@@ -24,7 +24,7 @@ export async function spawnWorker(entryPoint: string): Promise<WorkerHandle | nu
 
   if (runtime.supportsWorkerThreads) {
     try {
-      return await spawnNodeWorker(new URL(entryPoint), WORKER_RESOURCE_LIMITS)
+      return await spawnNodeWorker(new URL(entryPoint), workerResourceLimits())
     } catch {
       return null
     }

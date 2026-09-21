@@ -1,97 +1,181 @@
-import { decode, encode } from '@msgpack/msgpack'
-import { restoreVectorFields } from '../../../distribution/replication/replica'
-import type { ReplicationLogEntry } from '../../../distribution/replication/types'
-import { extractVectorFromDoc, insertDocumentVectors, removeDocumentVectors } from '../../../engine/vector-coordinator'
-import { packSnapshotEnvelopePartsRetrying, unpackEnvelopeBytes } from '../../../serialization/envelope'
-import type { IndexConfig } from '../../../types/schema'
-import { createVectorIndex, type VectorIndex, type VectorIndexPayload } from '../../../vector/vector-index'
+import { decode } from '@msgpack/msgpack'
+import { ErrorCodes, NarsilError } from '../../../errors'
+import { packSnapshotEnvelopeChunks, unpackEnvelopeBytes } from '../../../serialization/envelope'
+import { HEADER_SIZE } from '../../../serialization/header'
+import type {
+  VectorCheckpointPlan,
+  VectorGraphPayload,
+  VectorIndex,
+  WrittenVectorFile,
+} from '../../../vector/vector-index'
+import { decodeVectorFilePayload, decodeVectorGraphPayload } from '../../../vector/vector-index/checkpoint-payload'
+import { countDead, deadBitsWhere, NO_LIVE_VECTOR_AT_POSITION } from '../../../vector/vector-index/dead-bits'
 import type { DurableDirectory } from '../durable-filesystem'
-import { vectorSegmentKey } from './layout'
-import type { VectorSegmentRef } from './manifest'
+import { vectorFileKey, vectorGraphKey } from './layout'
+import type { VectorFieldRef, VectorFileRef } from './manifest'
+import { chunksEndingInBytes, vectorPartChunks } from './vector-part-bytes'
 
-export interface VectorWriteInput {
+export interface VectorCheckpointLayout {
+  fieldPath: string
+  key: string
+  docIds: string[]
+  vectorsOffset: number
+}
+
+export interface VectorFieldWritten {
+  fieldPath: string
+  plan: VectorCheckpointPlan
+  files: WrittenVectorFile[]
+}
+
+export interface VectorWriteOutcome {
+  refs: VectorFieldRef[]
+  layouts: VectorCheckpointLayout[]
+  written: VectorFieldWritten[]
+}
+
+export interface LiveVectorWriteInput {
   directory: DurableDirectory
   indexName: string
-  partitionId: number
-  config: IndexConfig
-  vectorFields: Map<string, number>
-  vectorFieldPaths: Set<string>
-  entries: ReplicationLogEntry[]
-  priorVectors: VectorSegmentRef[]
+  plans: Map<string, VectorCheckpointPlan>
+  priorVectors: readonly VectorFieldRef[]
 }
 
-export async function writePartitionVectors(input: VectorWriteInput): Promise<VectorSegmentRef[]> {
-  if (input.vectorFields.size === 0) {
-    return []
-  }
-  if (input.entries.length === 0) {
-    return input.priorVectors
-  }
+function graphChunks(graph: VectorGraphPayload): Uint8Array[] {
+  const last = graph.graphs[graph.graphs.length - 1]
+  if (last === undefined) return chunksEndingInBytes(graph, graph, new Uint8Array(0))
+  const emptied = { ...graph, graphs: [...graph.graphs.slice(0, -1), { ...last, neighbours: new Uint8Array(0) }] }
+  return chunksEndingInBytes(graph, emptied, last.neighbours)
+}
 
-  const priorByField = new Map<string, VectorSegmentRef>()
-  for (const ref of input.priorVectors) {
-    priorByField.set(ref.fieldPath, ref)
-  }
+async function writeGraph(
+  input: LiveVectorWriteInput,
+  fieldPath: string,
+  graph: VectorGraphPayload,
+  generation: number,
+): Promise<string> {
+  const key = vectorGraphKey(input.indexName, fieldPath, generation)
+  await input.directory.atomicWrite(key, await packSnapshotEnvelopeChunks(graphChunks(graph)))
+  return key
+}
 
-  const vectorIndexes = new Map<string, VectorIndex>()
-  for (const [fieldPath, dimension] of input.vectorFields) {
-    vectorIndexes.set(
+async function writeField(
+  input: LiveVectorWriteInput,
+  fieldPath: string,
+  plan: VectorCheckpointPlan,
+  outcome: VectorWriteOutcome,
+): Promise<void> {
+  const prior = input.priorVectors.find(ref => ref.fieldPath === fieldPath)
+  if (plan.unchanged && prior !== undefined) {
+    outcome.refs.push(prior)
+    return
+  }
+  let nextFileId = prior?.nextFileId ?? 0
+  const files: VectorFileRef[] = plan.kept.map(file => ({ ...file }))
+  const written: WrittenVectorFile[] = []
+  for (let index = 0; index < plan.newFiles; index++) {
+    const { payload, ordinals } = plan.readNewFile(index)
+    const id = nextFileId
+    nextFileId += 1
+    const key = vectorFileKey(input.indexName, fieldPath, id)
+    const envelope = await packSnapshotEnvelopeChunks(vectorPartChunks(payload))
+    await input.directory.atomicWrite(key, envelope)
+    let fileBytes = 0
+    for (const chunk of envelope) fileBytes += chunk.length
+    const dead = deadBitsWhere(ordinals.length, position => ordinals[position] === NO_LIVE_VECTOR_AT_POSITION)
+    files.push({ id, key, count: payload.docIds.length, dead })
+    written.push({ id, key, ordinals })
+    outcome.layouts.push({
       fieldPath,
-      createVectorIndex(fieldPath, dimension, input.config.vectorPromotion, { enabled: false }),
-    )
+      key,
+      docIds: payload.docIds,
+      vectorsOffset: fileBytes - payload.vectors.byteLength,
+    })
   }
-
-  for (const ref of input.priorVectors) {
-    const vecIndex = vectorIndexes.get(ref.fieldPath)
-    if (vecIndex === undefined) {
-      continue
-    }
-    const bytes = await input.directory.read(ref.key)
-    if (bytes !== null) {
-      const { payloadBytes } = await unpackEnvelopeBytes(bytes)
-      vecIndex.deserialize(decode(payloadBytes) as VectorIndexPayload)
-    }
-  }
-
-  for (const entry of input.entries) {
-    applyEntryVectors(entry, input.vectorFieldPaths, vectorIndexes)
-  }
-
-  const result: VectorSegmentRef[] = []
-  for (const [fieldPath, vecIndex] of vectorIndexes) {
-    const generation = (priorByField.get(fieldPath)?.generation ?? 0) + 1
-    const key = vectorSegmentKey(input.indexName, input.partitionId, fieldPath, generation)
-    const parts = await packSnapshotEnvelopePartsRetrying(() => encode(vecIndex.serialize()))
-    await input.directory.atomicWrite(key, [parts.header, parts.payload])
-    result.push({ fieldPath, generation, key })
-  }
-  return result
+  const priorGeneration = prior?.graphGeneration ?? 0
+  const graphGeneration = plan.graph === null ? priorGeneration : priorGeneration + 1
+  const graphKey = plan.graph === null ? null : await writeGraph(input, fieldPath, plan.graph, graphGeneration)
+  outcome.refs.push({ fieldPath, nextFileId, files, graphGeneration, graphKey })
+  outcome.written.push({ fieldPath, plan, files: written })
 }
 
-function applyEntryVectors(
-  entry: ReplicationLogEntry,
-  vectorFieldPaths: Set<string>,
-  vectorIndexes: Map<string, VectorIndex>,
-): void {
-  if (entry.operation === 'DELETE') {
-    removeDocumentVectors(entry.documentId, vectorIndexes)
-    return
-  }
-  if (entry.document === null) {
-    return
-  }
+export async function writeLiveVectors(input: LiveVectorWriteInput): Promise<VectorWriteOutcome> {
+  const outcome: VectorWriteOutcome = { refs: [], layouts: [], written: [] }
+  for (const [fieldPath, plan] of input.plans) await writeField(input, fieldPath, plan, outcome)
+  return outcome
+}
 
-  const document = decode(entry.document) as Record<string, unknown>
-  restoreVectorFields(document, vectorFieldPaths)
+function missing(what: string, key: string): never {
+  throw new NarsilError(ErrorCodes.PERSISTENCE_LOAD_FAILED, `The ${what} "${key}" is missing`, { key })
+}
 
-  const vectors = new Map<string, Float32Array>()
-  for (const fieldPath of vectorFieldPaths) {
-    const vector = extractVectorFromDoc(document, fieldPath)
-    if (vector !== null) {
-      vectors.set(fieldPath, vector)
+function requireKey(what: string, found: string, expected: string): void {
+  if (found === expected) return
+  throw new NarsilError(ErrorCodes.PERSISTENCE_LOAD_FAILED, `The manifest lists the ${what} under the wrong key`, {
+    key: found,
+    expected,
+  })
+}
+
+function liveVectorsOf(ref: VectorFieldRef): number {
+  let live = 0
+  for (const file of ref.files) live += file.count - countDead(file.dead, file.count)
+  return live
+}
+
+async function readGraph(
+  directory: DurableDirectory,
+  indexName: string,
+  ref: VectorFieldRef,
+): Promise<VectorGraphPayload | null> {
+  if (ref.graphKey === null) return null
+  requireKey('graph file', ref.graphKey, vectorGraphKey(indexName, ref.fieldPath, ref.graphGeneration))
+  const bytes = await directory.read(ref.graphKey)
+  if (bytes === null) missing('graph file', ref.graphKey)
+  const { payloadBytes } = await unpackEnvelopeBytes(bytes)
+  return decodeVectorGraphPayload(decode(payloadBytes))
+}
+
+export async function loadVectorField(
+  directory: DurableDirectory,
+  indexName: string,
+  ref: VectorFieldRef,
+  vectorIndex: VectorIndex,
+): Promise<void> {
+  const restore = vectorIndex.restoreCheckpoint({
+    liveVectors: liveVectorsOf(ref),
+    holdsGraph: ref.graphKey !== null,
+  })
+  for (const file of ref.files) {
+    requireKey('vector file', file.key, vectorFileKey(indexName, ref.fieldPath, file.id))
+    const bytes = await directory.read(file.key)
+    if (bytes === null) missing('vector file', file.key)
+    const { header, payloadBytes } = await unpackEnvelopeBytes(bytes)
+    if (header.flags.compressionEnabled) {
+      throw new NarsilError(
+        ErrorCodes.PERSISTENCE_LOAD_FAILED,
+        `The vector file "${file.key}" is compressed, and a field reads its vectors from the file at fixed offsets`,
+        { key: file.key },
+      )
     }
+    const payload = decodeVectorFilePayload(decode(payloadBytes))
+    if (payload.docIds.length !== file.count) {
+      throw new NarsilError(
+        ErrorCodes.PERSISTENCE_LOAD_FAILED,
+        `The vector file "${file.key}" holds ${payload.docIds.length} vectors where the manifest counts ${file.count}`,
+        { key: file.key, held: payload.docIds.length, count: file.count },
+      )
+    }
+    restore.addFile({
+      id: file.id,
+      key: file.key,
+      payload,
+      dead: file.dead,
+      location: {
+        path: await directory.pathOf(file.key),
+        vectorsOffset: HEADER_SIZE + header.payloadLength - payload.vectors.byteLength,
+      },
+    })
   }
-
-  removeDocumentVectors(entry.documentId, vectorIndexes)
-  insertDocumentVectors(entry.documentId, vectors, vectorIndexes, entry.partitionId)
+  restore.finish(await readGraph(directory, indexName, ref))
 }

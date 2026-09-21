@@ -12,7 +12,10 @@ import {
 } from '../vector-coordinator'
 import type { MutationContext } from './context'
 import { rollbackUpdatedDocument } from './durable-rollback'
+import { recordChunk } from './record-batch'
 import { awaitWriteVisibility } from './write-visibility'
+
+type UpdatedIndexEntry = ReturnType<MutationContext['requireIndex']>
 
 function extractVectorFromDocForUpdate(document: Record<string, unknown>, fieldPath: string): Float32Array | null {
   return extractVectorFromDoc(document, fieldPath)
@@ -34,15 +37,55 @@ function prepareUpdatePartitionDoc(
   return { partitionDoc }
 }
 
-export async function updateDocument(
+interface PreparedUpdate {
+  docId: string
+  document: AnyDocument
+  partitionDoc: AnyDocument
+  oldDocument: AnyDocument | undefined
+  rollbackDoc: AnyDocument | undefined
+  extractedVectors: Map<string, Float32Array | null>
+  buffered: boolean
+}
+
+function asUpdateError(err: unknown): NarsilError {
+  return err instanceof NarsilError ? err : new NarsilError(ErrorCodes.DOC_NOT_FOUND, String(err))
+}
+
+async function settleUpdate(ctx: MutationContext, indexName: string, prepared: PreparedUpdate): Promise<void> {
+  try {
+    await ctx.pluginRegistry.runHook('afterUpdate', {
+      indexName,
+      docId: prepared.docId,
+      oldDocument: prepared.oldDocument ?? ({} as AnyDocument),
+      newDocument: prepared.document,
+    })
+  } catch (err) {
+    console.warn('afterUpdate plugin hook error:', err instanceof Error ? err.message : String(err))
+  }
+
+  await ctx.orchestrator.replicateToWorkers({
+    type: 'update',
+    indexName,
+    docId: prepared.docId,
+    document: prepared.partitionDoc,
+    requestId: `replicate-update-${prepared.docId}`,
+  })
+
+  const vecIndexes = ctx.requireManager(indexName).getVectorIndexes()
+  for (const [fieldPath, vec] of prepared.extractedVectors) {
+    if (vec === null) continue
+    vecIndexes.get(fieldPath)?.scheduleBuild()
+  }
+}
+
+async function prepareUpdate(
   ctx: MutationContext,
   indexName: string,
+  entry: UpdatedIndexEntry,
   docId: string,
   document: AnyDocument,
-  options?: WriteOptions,
-): Promise<void> {
+): Promise<PreparedUpdate> {
   ctx.guardShutdown()
-  const entry = ctx.requireIndex(indexName)
   validateDocId(docId)
 
   if (entry.config.embedding) {
@@ -62,10 +105,10 @@ export async function updateDocument(
     }
   }
 
-  const updateManager = ctx.requireManager(indexName)
-  const oldDocument = updateManager.get(docId)
-  const oldPartitionDoc = updateManager.getRef(docId)
-  const rollbackDoc = oldPartitionDoc ? structuredClone(oldPartitionDoc) : undefined
+  const manager = ctx.requireManager(indexName)
+  const oldDocument = manager.get(docId)
+  const oldPartitionDoc = manager.getRef(docId)
+  const rollbackDoc = oldPartitionDoc ? (structuredClone(oldPartitionDoc) as AnyDocument) : undefined
 
   await ctx.pluginRegistry.runHook('beforeUpdate', {
     indexName,
@@ -74,59 +117,56 @@ export async function updateDocument(
     newDocument: document,
   })
 
-  const updateVecIndexes = updateManager.getVectorIndexes()
-  const updateExtractedVectors = new Map<string, Float32Array | null>()
-  if (updateVecIndexes.size > 0) {
+  const vecIndexes = manager.getVectorIndexes()
+  const extractedVectors = new Map<string, Float32Array | null>()
+  if (vecIndexes.size > 0) {
     const dimensionCheckVectors = new Map<string, Float32Array>()
     for (const fieldPath of entry.vectorFieldPaths) {
       const newVec = extractVectorFromDocForUpdate(document as Record<string, unknown>, fieldPath)
-      updateExtractedVectors.set(fieldPath, newVec)
+      extractedVectors.set(fieldPath, newVec)
       if (newVec) {
         dimensionCheckVectors.set(fieldPath, newVec)
       }
     }
     if (dimensionCheckVectors.size > 0) {
-      validateVectorDimensions(dimensionCheckVectors, updateVecIndexes)
+      validateVectorDimensions(dimensionCheckVectors, vecIndexes)
     }
   }
 
-  const { partitionDoc } = prepareUpdatePartitionDoc(document as Record<string, unknown>, updateExtractedVectors)
+  const { partitionDoc } = prepareUpdatePartitionDoc(document as Record<string, unknown>, extractedVectors)
+  return {
+    docId,
+    document,
+    partitionDoc: partitionDoc as AnyDocument,
+    oldDocument,
+    rollbackDoc,
+    extractedVectors,
+    buffered: false,
+  }
+}
 
-  let buffered = false
-  const applyUpdate = async (): Promise<void> => {
+function applyOfUpdate(ctx: MutationContext, indexName: string, prepared: PreparedUpdate): () => Promise<void> {
+  const manager = ctx.requireManager(indexName)
+  const { docId, document, partitionDoc, rollbackDoc, extractedVectors } = prepared
+  return async (): Promise<void> => {
     if (ctx.isRebalancing(indexName)) {
       const bufferedState = ctx.bufferedDocState(indexName, docId)
-      const exists = bufferedState !== undefined ? bufferedState === 'present' : updateManager.has(docId)
+      const exists = bufferedState !== undefined ? bufferedState === 'present' : manager.has(docId)
       if (!exists) {
-        updateManager.assertCapacity(
-          ctx.pendingRebalanceWrites(indexName),
-          ctx.rebalanceTargetPartitionCount(indexName),
-        )
+        manager.assertCapacity(ctx.pendingRebalanceWrites(indexName), ctx.rebalanceTargetPartitionCount(indexName))
       }
     }
     if (ctx.bufferIfRebalancing(indexName, { action: 'update', docId, document, indexName })) {
-      buffered = true
+      prepared.buffered = true
       return
     }
-    await ctx.executor.execute({
-      type: 'update',
-      indexName,
-      docId,
-      document: partitionDoc as AnyDocument,
-      requestId: docId,
-    })
+    await ctx.executor.execute({ type: 'update', indexName, docId, document: partitionDoc, requestId: docId })
     try {
-      updateDocumentVectors(docId, updateExtractedVectors, updateVecIndexes, updateManager.partitionIdOf(docId))
+      updateDocumentVectors(docId, extractedVectors, manager.getVectorIndexes(), manager.partitionIdOf(docId))
     } catch (err) {
       if (rollbackDoc) {
         try {
-          await ctx.executor.execute({
-            type: 'update',
-            indexName,
-            docId,
-            document: rollbackDoc,
-            requestId: docId,
-          })
+          await ctx.executor.execute({ type: 'update', indexName, docId, document: rollbackDoc, requestId: docId })
         } catch (rollbackErr) {
           console.warn(
             `Rollback failed for doc "${docId}" during update atomicity:`,
@@ -137,51 +177,32 @@ export async function updateDocument(
       throw err
     }
   }
+}
+
+export async function updateDocument(
+  ctx: MutationContext,
+  indexName: string,
+  docId: string,
+  document: AnyDocument,
+  options?: WriteOptions,
+): Promise<void> {
+  ctx.guardShutdown()
+  const entry = ctx.requireIndex(indexName)
+  const prepared = await prepareUpdate(ctx, indexName, entry, docId, document)
+  const apply = applyOfUpdate(ctx, indexName, prepared)
 
   if (ctx.durability) {
     try {
-      await ctx.durability.recordInsertOrUpdate(indexName, docId, document, applyUpdate)
+      await ctx.durability.recordInsertOrUpdate(indexName, docId, document, apply)
     } catch (err) {
-      await rollbackUpdatedDocument(ctx, indexName, docId, rollbackDoc, err)
+      await rollbackUpdatedDocument(ctx, indexName, docId, prepared.rollbackDoc, err)
       throw err
     }
   } else {
-    await applyUpdate()
+    await apply()
   }
 
-  if (buffered) {
-    ctx.checkHeapPressure(indexName)
-    if (options?.wait === true) await awaitWriteVisibility(ctx, indexName)
-    return
-  }
-
-  try {
-    await ctx.pluginRegistry.runHook('afterUpdate', {
-      indexName,
-      docId,
-      oldDocument: oldDocument ?? ({} as AnyDocument),
-      newDocument: document,
-    })
-  } catch (err) {
-    console.warn('afterUpdate plugin hook error:', err instanceof Error ? err.message : String(err))
-  }
-
-  await ctx.orchestrator.replicateToWorkers({
-    type: 'update',
-    indexName,
-    docId,
-    document,
-    requestId: `replicate-update-${docId}`,
-  })
-
-  for (const [fieldPath, vec] of updateExtractedVectors) {
-    if (vec === null) continue
-    const vecIndex = updateVecIndexes.get(fieldPath)
-    if (vecIndex) {
-      vecIndex.scheduleBuild()
-    }
-  }
-
+  if (!prepared.buffered) await settleUpdate(ctx, indexName, prepared)
   ctx.checkHeapPressure(indexName)
   if (options?.wait === true) await awaitWriteVisibility(ctx, indexName)
 }
@@ -201,42 +222,52 @@ export async function updateDocumentBatch(
   const updateBatchManager = ctx.requireManager(indexName)
   const updateBatchVecIndexes = updateBatchManager.getVectorIndexes()
   const touchedVectorFields = new Set<string>()
+  const hooked = ctx.pluginRegistry.hasHooks('beforeUpdate') || ctx.pluginRegistry.hasHooks('afterUpdate')
+  const chunkSize = hooked ? 1 : BATCH_CHUNK_SIZE
 
-  for (let chunkStart = 0; chunkStart < updates.length; chunkStart += BATCH_CHUNK_SIZE) {
-    const chunkEnd = Math.min(chunkStart + BATCH_CHUNK_SIZE, updates.length)
-
+  for (let chunkStart = 0; chunkStart < updates.length; chunkStart += chunkSize) {
+    const chunkEnd = Math.min(chunkStart + chunkSize, updates.length)
+    const prepared: PreparedUpdate[] = []
     for (let i = chunkStart; i < chunkEnd; i++) {
       try {
-        await updateDocument(ctx, indexName, updates[i].docId, updates[i].document)
-        succeeded.push(updates[i].docId)
-
-        if (updateBatchVecIndexes.size > 0) {
-          for (const fieldPath of entry.vectorFieldPaths) {
-            const vec = extractVectorFromDocForUpdate(updates[i].document as Record<string, unknown>, fieldPath)
-            if (vec !== null) {
-              touchedVectorFields.add(fieldPath)
-            }
-          }
-        }
+        prepared.push(await prepareUpdate(ctx, indexName, entry, updates[i].docId, updates[i].document))
       } catch (err) {
-        failed.push({
-          docId: updates[i].docId,
-          error: err instanceof NarsilError ? err : new NarsilError(ErrorCodes.DOC_NOT_FOUND, String(err)),
-        })
+        failed.push({ docId: updates[i].docId, error: asUpdateError(err) })
       }
     }
 
-    if (chunkEnd < updates.length) {
+    const applies = prepared.map(update => applyOfUpdate(ctx, indexName, update))
+    const failures = await recordChunk(ctx, indexName, prepared, applies)
+
+    for (let i = 0; i < prepared.length; i++) {
+      const update = prepared[i]
+      const failure = failures[i]
+      if (failure !== null) {
+        let error = failure.error
+        try {
+          await rollbackUpdatedDocument(ctx, indexName, update.docId, update.rollbackDoc, error)
+        } catch (rollbackError) {
+          error = rollbackError
+        }
+        failed.push({ docId: update.docId, error: asUpdateError(error) })
+        continue
+      }
+      if (!update.buffered) await settleUpdate(ctx, indexName, update)
+      for (const [fieldPath, vec] of update.extractedVectors) {
+        if (vec !== null) touchedVectorFields.add(fieldPath)
+      }
+      succeeded.push(update.docId)
+    }
+
+    if (chunkEnd < updates.length && chunkEnd % BATCH_CHUNK_SIZE === 0) {
       await new Promise<void>(r => setTimeout(r, 0))
     }
   }
 
   for (const fieldPath of touchedVectorFields) {
-    const vecIndex = updateBatchVecIndexes.get(fieldPath)
-    if (vecIndex) {
-      vecIndex.scheduleBuild()
-    }
+    updateBatchVecIndexes.get(fieldPath)?.scheduleBuild()
   }
+  ctx.checkHeapPressure(indexName)
   if (options?.wait === true) await awaitWriteVisibility(ctx, indexName)
 
   return { succeeded, failed }

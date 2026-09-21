@@ -1,21 +1,28 @@
 import type { PartitionManager } from '../partitioning/manager'
-import { createSharedVectorSearcher } from '../vector/shared-generation/searcher'
-import type { HostedVectorCopy, VectorSearcher } from '../vector/vector-index/shared'
+import { createSharedVectorSearcher } from '../vector/shared-field/searcher'
+import type { GraphInsertOutcome, SharedVectorFieldHandles } from '../vector/shared-field/types'
+import { openSharedVectorField, type SharedVectorFieldView } from '../vector/shared-field/view'
+import type { VectorSearcher } from '../vector/vector-index/shared'
 
-/**
- * The frozen vector copies one worker holds for an index, keyed by field, with
- * the handle each arrived under so that a late withdrawal of an older copy
- * leaves a newer one in place.
- *
- * @internal
- */
+interface HeldField {
+  handle: string
+  view: SharedVectorFieldView
+}
+
 export interface HeldVectorCopies {
   searchers: Map<string, VectorSearcher>
-  handles: Map<string, string>
+  fields: Map<string, HeldField>
+  builds: Map<string, HeldField>
 }
 
 export function createHeldVectorCopies(): HeldVectorCopies {
-  return { searchers: new Map(), handles: new Map() }
+  return { searchers: new Map(), fields: new Map(), builds: new Map() }
+}
+
+function fieldUnderHandle(held: HeldVectorCopies, fieldName: string, handle: string): HeldField | undefined {
+  const searchable = held.fields.get(fieldName)
+  if (searchable?.handle === handle) return searchable
+  return held.builds.get(handle)
 }
 
 export function loadHeldVectorCopy(
@@ -23,25 +30,73 @@ export function loadHeldVectorCopy(
   manager: PartitionManager,
   fieldName: string,
   handle: string,
-  copy: HostedVectorCopy,
-  scratchSlot: number,
+  handles: SharedVectorFieldHandles,
+  threadSlot: number,
 ): void {
+  const existing = fieldUnderHandle(held, fieldName, handle)
+  const view = existing?.view ?? openSharedVectorField(handles, threadSlot)
+  if (existing !== undefined) view.adopt(handles)
+
+  if (!handles.searchable) {
+    held.builds.set(handle, { handle, view })
+    return
+  }
+  held.builds.delete(handle)
+  held.fields.set(fieldName, { handle, view })
+  if (handles.graph === null) {
+    held.searchers.delete(fieldName)
+    return
+  }
   held.searchers.set(
     fieldName,
-    createSharedVectorSearcher({
-      fieldName,
-      snapshot: copy.snapshot,
-      scratchSlot,
-      docIds: copy.docIds,
-      filterThreshold: copy.filterThreshold,
-      holdsDocument: docId => manager.has(docId),
-    }),
+    createSharedVectorSearcher({ fieldName, view, holdsDocument: docId => manager.has(docId) }),
   )
-  held.handles.set(fieldName, handle)
+}
+
+export function holdsVectorField(held: HeldVectorCopies, fieldName: string): boolean {
+  return held.fields.get(fieldName)?.view.readsEveryVector === true
 }
 
 export function dropHeldVectorCopy(held: HeldVectorCopies, fieldName: string, handle: string): void {
-  if (held.handles.get(fieldName) !== handle) return
+  held.builds.get(handle)?.view.close()
+  held.builds.delete(handle)
+  const field = held.fields.get(fieldName)
+  if (field?.handle !== handle) return
+  field.view.close()
+  held.fields.delete(fieldName)
   held.searchers.delete(fieldName)
-  held.handles.delete(fieldName)
+}
+
+export function closeHeldVectorCopies(held: HeldVectorCopies): void {
+  for (const build of held.builds.values()) build.view.close()
+  for (const field of held.fields.values()) field.view.close()
+  held.builds.clear()
+  held.fields.clear()
+  held.searchers.clear()
+}
+
+function yieldToEventLoop(): Promise<void> {
+  return new Promise<void>(resolve => {
+    if (typeof setImmediate === 'function') setImmediate(resolve)
+    else setTimeout(resolve, 0)
+  })
+}
+
+export async function insertIntoHeldGraph(
+  held: HeldVectorCopies,
+  fieldName: string,
+  handle: string,
+  ordinals: Int32Array,
+): Promise<GraphInsertOutcome | null> {
+  const field = fieldUnderHandle(held, fieldName, handle)
+  if (field === undefined) return null
+  for (const ordinal of ordinals) {
+    field.view.insertOrdinal(ordinal)
+    await yieldToEventLoop()
+  }
+  return field.view.takeOutcome()
+}
+
+export function heldVectorOf(held: HeldVectorCopies, fieldName: string, docId: string): Float32Array | undefined {
+  return held.fields.get(fieldName)?.view.vectorOf(docId)
 }

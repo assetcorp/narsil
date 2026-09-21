@@ -7,6 +7,7 @@ marked enforced on every push, so it catches a step you skip before a release do
 | --- | --- | --- | --- |
 | `pnpm nx run narsil-ts:revisions` | Compares each module's analysis against `packages/ts/languages.lock.json` | You change anything under `src/languages/` or `src/core/tokenizer/` | Yes |
 | `pnpm nx run narsil-ts:revisions:write` | Bumps each changed revision and rewrites the lock file | The check above failed | No |
+| `pnpm nx run narsil-ts:revisions:record` | Rewrites the lock file's fingerprints and changes no revision | You edit either runtime-only list | No |
 | `pnpm nx run narsil-ts:lookalikes` | Checks that the tokenizer maps every letter substituted past the bar onto the letter it stands in for | You change a module's tokenizer or normalizer | Yes |
 | `pnpm nx run narsil-ts:lookalikes:collect` | Measures substitutions against fresh Wikipedia articles and rewrites `packages/ts/languages.lookalikes.json` | You add a language whose alphabet has lookalike letters | No |
 | `pnpm nx run narsil-ts:stemmers` | Regenerates every Snowball stemmer and checks it against the published word pairs | You change `snowball/build.ts`, `snowball/base-stemmer.ts`, or a generated stemmer | Yes |
@@ -45,9 +46,14 @@ greek: analysis changed while revision stayed 4f02e255d00e5848
 
 `revisions:write` then bumps all 107 revisions in one go, which is the correct result when
 the analysis changed because every stored index holds terms the old code produced. The
-digest includes analysis constants such as `DEFAULT_MIN_TOKEN_LENGTH`, but excludes cache
-sizes and host-memory thresholds. Those values change resource use, not the terms an index
+script digests analysis constants such as `DEFAULT_MIN_TOKEN_LENGTH`, and skips cache sizes
+and host-memory thresholds. Those values change resource use, not the terms an index
 stores, so changing them must not rebuild every stored index.
+
+`scripts/analysis-revision-tokenizer.ts` holds those two lists, `RUNTIME_ONLY_CONSTANTS` and
+`RUNTIME_ONLY_FUNCTIONS`. When you edit either one, the digest changes while every language
+analyses text exactly as before, so run `narsil-ts:revisions:record` afterwards. It rewrites
+the fingerprints and changes no revision, so the engine rebuilds no stored index.
 
 ## Adding a language
 

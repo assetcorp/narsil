@@ -2,10 +2,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createVectorIndex, type VectorIndex } from '../../../vector/vector-index'
 import { DIM, normalizedVector, vectorFromValues } from './fixtures'
 
-vi.mock('../../../vector/hnsw-worker-dispatch', () => ({
-  dispatchWorkerBuild: vi.fn().mockResolvedValue({ ok: false, reason: 'no-workers', message: 'mocked' }),
-}))
-
 describe('VectorIndex compact', () => {
   let index: VectorIndex
 
@@ -34,8 +30,8 @@ describe('VectorIndex compact', () => {
     expect(index.size).toBe(1)
   })
 
-  it('compact recalibrates SQ8 when calibrated', async () => {
-    const sqIndex = createVectorIndex('vec', DIM, { threshold: 5, quantization: 'sq8' })
+  it('compact recalibrates the quantizer when calibrated', async () => {
+    const sqIndex = createVectorIndex('vec', DIM, { threshold: 5, quantization: 'osq8' })
     try {
       for (let i = 0; i < 6; i++) {
         sqIndex.insert(`doc${i}`, normalizedVector(DIM, i + 1))
@@ -108,8 +104,8 @@ describe('VectorIndex optimize', () => {
     expect(index.size).toBe(0)
   })
 
-  it('optimize recalibrates SQ8', async () => {
-    const sqIndex = createVectorIndex('vec', DIM, { threshold: 5, quantization: 'sq8' })
+  it('optimize recalibrates the quantizer', async () => {
+    const sqIndex = createVectorIndex('vec', DIM, { threshold: 5, quantization: 'osq8' })
     try {
       for (let i = 0; i < 6; i++) {
         sqIndex.insert(`doc${i}`, normalizedVector(DIM, i + 1))

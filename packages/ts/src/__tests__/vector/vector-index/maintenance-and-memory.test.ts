@@ -1,10 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { WASM_PAGE_BYTES } from '../../../vector/constants'
 import { createVectorIndex, type VectorIndex } from '../../../vector/vector-index'
 import { DIM, normalizedVector, vectorFromValues } from './fixtures'
 
-vi.mock('../../../vector/hnsw-worker-dispatch', () => ({
-  dispatchWorkerBuild: vi.fn().mockResolvedValue({ ok: false, reason: 'no-workers', message: 'mocked' }),
-}))
+const QUANTIZATION_VISIBLE_DIM = 1536
 
 describe('VectorIndex maintenance status', () => {
   let index: VectorIndex
@@ -84,13 +83,19 @@ describe('VectorIndex memory estimation', () => {
     vi.useRealTimers()
   })
 
-  it('returns 0 for empty index', () => {
-    expect(index.estimateMemoryBytes()).toBe(0)
+  it('charges an empty field no block, because a field allocates one on its first vector', () => {
+    const empty = index.estimateMemoryBytes()
+    index.insert('doc1', vectorFromValues(1, 0, 0, 0))
+
+    expect(empty).toBeGreaterThan(0)
+    expect(index.estimateMemoryBytes() - empty).toBeGreaterThanOrEqual(WASM_PAGE_BYTES)
   })
 
-  it('returns non-zero for populated index', () => {
+  it('charges a field nothing once it gives up its vectors', () => {
     index.insert('doc1', vectorFromValues(1, 0, 0, 0))
-    expect(index.estimateMemoryBytes()).toBeGreaterThan(0)
+    index.dispose()
+
+    expect(index.estimateMemoryBytes()).toBe(0)
   })
 
   it('increases with HNSW present', async () => {
@@ -108,14 +113,14 @@ describe('VectorIndex memory estimation', () => {
     expect(memAfter).toBeGreaterThan(memBefore)
   })
 
-  it('includes SQ8 overhead when calibrated', async () => {
-    const noSqIndex = createVectorIndex('vec', DIM, { threshold: 5, quantization: 'none' })
-    const sqIndex = createVectorIndex('vec', DIM, { threshold: 5, quantization: 'sq8' })
+  it('charges the code records a quantized field keeps for every vector', async () => {
+    const noSqIndex = createVectorIndex('vec', QUANTIZATION_VISIBLE_DIM, { threshold: 5, quantization: 'none' })
+    const sqIndex = createVectorIndex('vec', QUANTIZATION_VISIBLE_DIM, { threshold: 5, quantization: 'osq8' })
     const fixedNodeLevels = vi.spyOn(Math, 'random').mockReturnValue(0.5)
 
     try {
       for (let i = 0; i < 6; i++) {
-        const v = normalizedVector(DIM, i + 1)
+        const v = normalizedVector(QUANTIZATION_VISIBLE_DIM, i + 1)
         noSqIndex.insert(`doc${i}`, v)
         sqIndex.insert(`doc${i}`, new Float32Array(v))
       }
@@ -126,7 +131,10 @@ describe('VectorIndex memory estimation', () => {
       await noSqIndex.awaitPendingBuild()
       await sqIndex.awaitPendingBuild()
 
-      expect(sqIndex.estimateMemoryBytes()).toBeGreaterThan(noSqIndex.estimateMemoryBytes())
+      const codeBytesForStoredVectors = 6 * QUANTIZATION_VISIBLE_DIM
+      expect(sqIndex.estimateMemoryBytes() - noSqIndex.estimateMemoryBytes()).toBeGreaterThanOrEqual(
+        codeBytesForStoredVectors,
+      )
     } finally {
       fixedNodeLevels.mockRestore()
       noSqIndex.dispose()
@@ -135,7 +143,7 @@ describe('VectorIndex memory estimation', () => {
   })
 })
 
-describe('VectorIndex scalar quantization integration', () => {
+describe('VectorIndex quantization integration', () => {
   let index: VectorIndex
 
   beforeEach(() => {
@@ -148,8 +156,8 @@ describe('VectorIndex scalar quantization integration', () => {
     vi.useRealTimers()
   })
 
-  it('with quantization sq8, calibration happens during build', async () => {
-    const sqIndex = createVectorIndex('vec', DIM, { threshold: 5, quantization: 'sq8' })
+  it('calibrates and writes one record per vector during the build', async () => {
+    const sqIndex = createVectorIndex('vec', DIM, { threshold: 5, quantization: 'osq8' })
     try {
       for (let i = 0; i < 6; i++) {
         sqIndex.insert(`doc${i}`, normalizedVector(DIM, i + 1))
@@ -158,14 +166,17 @@ describe('VectorIndex scalar quantization integration', () => {
       await vi.advanceTimersToNextTimerAsync()
       await sqIndex.awaitPendingBuild()
 
-      const payload = sqIndex.serialize()
-      expect(payload.sq8).not.toBeNull()
+      const [part] = sqIndex.serialize()
+      expect(part.codes).not.toBeNull()
+      expect(part.codes?.bits).toBe(8)
+      expect(part.codes?.centroid).toHaveLength(DIM)
+      expect(part.codes?.records.byteLength).toBe(6 * (DIM + 16))
     } finally {
       sqIndex.dispose()
     }
   })
 
-  it('with quantization none, no SQ8 is created', async () => {
+  it('with quantization none, no codes are written', async () => {
     for (let i = 0; i < 6; i++) {
       index.insert(`doc${i}`, normalizedVector(DIM, i + 1))
     }
@@ -173,27 +184,22 @@ describe('VectorIndex scalar quantization integration', () => {
     await vi.advanceTimersToNextTimerAsync()
     await index.awaitPendingBuild()
 
-    const payload = index.serialize()
-    expect(payload.sq8).toBeNull()
+    const [part] = index.serialize()
+    expect(part.codes).toBeNull()
   })
 
-  it('SQ8 data included in serialization when calibrated', async () => {
-    const sqIndex = createVectorIndex('vec', DIM, { threshold: 5, quantization: 'sq8' })
+  it('takes the quantization the dimension calls for when the configuration names none', () => {
+    const wide = createVectorIndex('vec', 1536, { threshold: 5 })
+    const middle = createVectorIndex('vec', 768, { threshold: 5 })
+    const narrow = createVectorIndex('vec', 128, { threshold: 5 })
     try {
-      for (let i = 0; i < 6; i++) {
-        sqIndex.insert(`doc${i}`, normalizedVector(DIM, i + 1))
-      }
-      sqIndex.scheduleBuild()
-      await vi.advanceTimersToNextTimerAsync()
-      await sqIndex.awaitPendingBuild()
-
-      const payload = sqIndex.serialize()
-      expect(payload.sq8).not.toBeNull()
-      expect(typeof payload.sq8?.alpha).toBe('number')
-      expect(typeof payload.sq8?.offset).toBe('number')
-      expect(Object.keys(payload.sq8?.quantizedVectors ?? {}).length).toBe(6)
+      expect(wide.quantization).toBe('osq4')
+      expect(middle.quantization).toBe('osq4')
+      expect(narrow.quantization).toBe('osq8')
     } finally {
-      sqIndex.dispose()
+      wide.dispose()
+      middle.dispose()
+      narrow.dispose()
     }
   })
 })

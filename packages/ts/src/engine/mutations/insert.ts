@@ -123,7 +123,7 @@ export async function insertDocument(
     type: 'insert',
     indexName,
     docId: resolvedDocId,
-    document,
+    document: partitionDoc as AnyDocument,
     requestId: `replicate-insert-${resolvedDocId}`,
     skipClone: options?.skipClone,
   })

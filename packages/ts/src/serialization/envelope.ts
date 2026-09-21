@@ -1,7 +1,7 @@
 import { ErrorCodes, NarsilError } from '../errors'
 import { VERSION } from '../index'
 import type { IndexMetadata, SerializablePartition } from '../types/internal'
-import { computeOffThreadChecksum } from './checksum-dispatch'
+import { checksumOfChunks, computeOffThreadChecksum } from './checksum-dispatch'
 import { crc32 } from './crc32'
 import type { NrslFlags, NrslHeader } from './header'
 import { HEADER_SIZE, readHeader, writeHeader } from './header'
@@ -166,17 +166,15 @@ export async function packEnvelopeBytes(payloadBytes: Uint8Array, options: Envel
   return packEnvelope(payloadBytes, { ...options, envelopeFormatVersion: SNAPSHOT_ENVELOPE_VERSION })
 }
 
-export async function packSnapshotEnvelopeParts(payloadBytes: Uint8Array): Promise<EnvelopeParts> {
-  const { checksum, payload } = await computeOffThreadChecksum(payloadBytes)
+function snapshotEnvelopeHeader(payloadLength: number, checksum: number): Uint8Array {
   const [major, minor, patch] = parseEngineVersion(VERSION)
-
-  const header: NrslHeader = {
+  return writeHeader({
     magic: 'NRSL',
     envelopeFormatVersion: SNAPSHOT_ENVELOPE_VERSION,
     engineVersionMajor: major,
     engineVersionMinor: minor,
     engineVersionPatch: patch,
-    payloadLength: payload.length,
+    payloadLength,
     flags: {
       compressionEnabled: false,
       compressionAlgorithm: 'none',
@@ -185,9 +183,19 @@ export async function packSnapshotEnvelopeParts(payloadBytes: Uint8Array): Promi
     },
     checksum,
     reserved: new Uint8Array(14),
-  }
+  })
+}
 
-  return { header: writeHeader(header), payload }
+export async function packSnapshotEnvelopeParts(payloadBytes: Uint8Array): Promise<EnvelopeParts> {
+  const { checksum, payload } = await computeOffThreadChecksum(payloadBytes)
+  return { header: snapshotEnvelopeHeader(payload.length, checksum), payload }
+}
+
+export async function packSnapshotEnvelopeChunks(payloadChunks: readonly Uint8Array[]): Promise<Uint8Array[]> {
+  let payloadLength = 0
+  for (const chunk of payloadChunks) payloadLength += chunk.length
+  const checksum = await checksumOfChunks(payloadChunks)
+  return [snapshotEnvelopeHeader(payloadLength, checksum), ...payloadChunks]
 }
 
 export async function packSnapshotEnvelopePartsRetrying(buildPayload: () => Uint8Array): Promise<EnvelopeParts> {

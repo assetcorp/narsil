@@ -1,9 +1,14 @@
 import { spawnNodeWorker } from '#platform/node-worker'
 import { detectRuntime } from '../../runtime/detect'
 import type { CheckpointWorkerMessage, CheckpointWorkerRequest } from './checkpoint-worker'
-import { CHECKPOINT_TIMEOUT_RECOVERY_BACKOFF_MS, CHECKPOINT_WORKER_TIMEOUT_MS } from './constants'
+import {
+  CHECKPOINT_TIMEOUT_RECOVERY_BACKOFF_MS,
+  CHECKPOINT_WORKER_IDLE_MS,
+  CHECKPOINT_WORKER_TIMEOUT_MS,
+} from './constants'
+import type { CheckpointSegmentsWritten } from './segment'
 
-interface WorkerHandle {
+export interface WorkerHandle {
   postMessage(msg: unknown, transfer?: ArrayBuffer[]): void
   on(event: string, handler: (...args: unknown[]) => void): void
   off(event: string, handler: (...args: unknown[]) => void): void
@@ -16,6 +21,8 @@ let failNextWorkerForTests = false
 let pooledWorker: WorkerHandle | null = null
 let workerBusy = false
 let spawnedWorkerCount = 0
+let workerIdleMs = CHECKPOINT_WORKER_IDLE_MS
+let idleTimer: ReturnType<typeof setTimeout> | null = null
 
 function resolveWorkerEntryPoint(): string {
   const base = import.meta.url
@@ -51,35 +58,47 @@ function discardWorker(worker: WorkerHandle): void {
   } catch {}
 }
 
-interface WorkerRunOutcome {
-  ok: boolean
+export interface WorkerRunOutcome {
+  written: CheckpointSegmentsWritten | null
   timedOut: boolean
 }
 
-function runWorker(worker: WorkerHandle, request: CheckpointWorkerRequest): Promise<WorkerRunOutcome> {
+function unrefTimer(timer: ReturnType<typeof setTimeout>): ReturnType<typeof setTimeout> {
+  if (typeof (timer as { unref?: () => void }).unref === 'function') {
+    ;(timer as { unref: () => void }).unref()
+  }
+  return timer
+}
+
+export function runWorker(worker: WorkerHandle, request: CheckpointWorkerRequest): Promise<WorkerRunOutcome> {
   return new Promise<WorkerRunOutcome>(resolve => {
     let settled = false
+    let timeoutId = armSilenceTimeout()
+
+    function armSilenceTimeout(): ReturnType<typeof setTimeout> {
+      return unrefTimer(setTimeout(() => settle({ written: null, timedOut: true }, true), CHECKPOINT_WORKER_TIMEOUT_MS))
+    }
 
     const onMessage = (msg: unknown): void => {
       const response = msg as CheckpointWorkerMessage
+      if (response.type === 'heartbeat') {
+        clearTimeout(timeoutId)
+        timeoutId = armSilenceTimeout()
+        return
+      }
       if (response.type === 'success') {
-        settle({ ok: true, timedOut: false }, false)
+        settle({ written: response.segments, timedOut: false }, false)
       } else {
-        settle({ ok: false, timedOut: false }, true)
+        settle({ written: null, timedOut: false }, true)
       }
     }
 
     const onError = (): void => {
-      settle({ ok: false, timedOut: false }, true)
+      settle({ written: null, timedOut: false }, true)
     }
 
     const onExit = (): void => {
-      settle({ ok: false, timedOut: false }, true)
-    }
-
-    const timeoutId = setTimeout(() => settle({ ok: false, timedOut: true }, true), CHECKPOINT_WORKER_TIMEOUT_MS)
-    if (typeof (timeoutId as { unref?: () => void }).unref === 'function') {
-      ;(timeoutId as { unref: () => void }).unref()
+      settle({ written: null, timedOut: false }, true)
     }
 
     function settle(outcome: WorkerRunOutcome, discard: boolean): void {
@@ -104,34 +123,39 @@ function runWorker(worker: WorkerHandle, request: CheckpointWorkerRequest): Prom
     try {
       worker.postMessage(request)
     } catch {
-      settle({ ok: false, timedOut: false }, true)
+      settle({ written: null, timedOut: false }, true)
     }
   })
 }
 
 function delay(ms: number): Promise<void> {
   return new Promise<void>(resolve => {
-    const timer = setTimeout(resolve, ms)
-    if (typeof (timer as { unref?: () => void }).unref === 'function') {
-      ;(timer as { unref: () => void }).unref()
-    }
+    unrefTimer(setTimeout(resolve, ms))
   })
 }
 
-export async function runCheckpointOnWorker(request: CheckpointWorkerRequest): Promise<boolean> {
+export function checkpointWorkerIsUsable(): boolean {
+  const runtime = detectRuntime()
+  return runtime.supportsWorkerThreads && runtime.supportsFileSystem && workerUsable
+}
+
+export async function runCheckpointOnWorker(
+  request: CheckpointWorkerRequest,
+): Promise<CheckpointSegmentsWritten | null> {
   if (failNextWorkerForTests) {
     failNextWorkerForTests = false
-    return false
+    return null
   }
   const runtime = detectRuntime()
   if (!runtime.supportsWorkerThreads || !runtime.supportsFileSystem || !workerUsable) {
-    return false
+    return null
   }
   if (workerBusy) {
-    return false
+    return null
   }
 
   workerBusy = true
+  cancelIdleRetirement()
   try {
     if (pooledWorker === null) {
       pooledWorker = await spawnWorker()
@@ -139,30 +163,50 @@ export async function runCheckpointOnWorker(request: CheckpointWorkerRequest): P
     const worker = pooledWorker
     if (worker === null) {
       workerUsable = false
-      return false
+      return null
     }
 
     const outcome = await runWorker(worker, request)
-    if (outcome.ok) {
-      return true
+    if (outcome.written !== null) {
+      return outcome.written
     }
     if (outcome.timedOut) {
       await delay(CHECKPOINT_TIMEOUT_RECOVERY_BACKOFF_MS)
     }
-    return false
+    return null
   } finally {
     workerBusy = false
+    retireWorkerOnceIdle()
   }
+}
+
+function cancelIdleRetirement(): void {
+  if (idleTimer !== null) {
+    clearTimeout(idleTimer)
+    idleTimer = null
+  }
+}
+
+function retireWorkerOnceIdle(): void {
+  cancelIdleRetirement()
+  idleTimer = unrefTimer(
+    setTimeout(() => {
+      idleTimer = null
+      if (!workerBusy) terminateCheckpointWorker()
+    }, workerIdleMs),
+  )
 }
 
 export function resetCheckpointWorkerLatch(): void {
   workerUsable = true
   failNextWorkerForTests = false
   spawnedWorkerCount = 0
+  workerIdleMs = CHECKPOINT_WORKER_IDLE_MS
   terminateCheckpointWorker()
 }
 
 export function terminateCheckpointWorker(): void {
+  cancelIdleRetirement()
   const worker = pooledWorker
   if (worker === null) {
     return
@@ -175,6 +219,14 @@ export function terminateCheckpointWorker(): void {
 
 export function __checkpointWorkerSpawnCountForTests(): number {
   return spawnedWorkerCount
+}
+
+export function __checkpointWorkerIsPooledForTests(): boolean {
+  return pooledWorker !== null
+}
+
+export function __setCheckpointWorkerIdleMsForTests(idleMs: number): void {
+  workerIdleMs = idleMs
 }
 
 export function __failNextCheckpointWorkerForTests(): void {

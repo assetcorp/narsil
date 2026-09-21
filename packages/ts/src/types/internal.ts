@@ -17,19 +17,13 @@ export interface FieldNameTable {
   indexMap: Map<string, number>
 }
 
-/**
- * The read-only face of a posting list, holding exactly what the query path
- * touches. The live {@link CompactPostingList} satisfies it directly, and a
- * frozen segment serves it as views over flat typed arrays.
- *
- * @internal
- */
 export interface PostingListView {
   readonly length: number
   readonly docIds: ArrayLike<number>
   readonly termFrequencies: ArrayLike<number>
   readonly fieldNameIndices: ArrayLike<number>
   readonly positions: ReadonlyArray<readonly number[] | undefined> | null
+  positionCountAt?(row: number): number
   readonly docIdSet: { readonly size: number }
   readonly deletedDocs: { readonly size: number; has(internalId: number): boolean }
   readonly totalTermFrequency: number
@@ -128,12 +122,10 @@ export interface SerializablePartition {
         metric?: 'cosine' | 'dotProduct' | 'euclidean'
         nodes: Array<[string, number, Array<[number, string[]]>]>
       }
-      sq8?: {
-        alpha: number
-        offset: number
-        quantizedVectors: Record<string, number[]>
-        vectorSums: Record<string, number>
-        vectorSumSqs: Record<string, number>
+      codes?: {
+        bits: number
+        centroid: number[]
+        records: Uint8Array
       } | null
     }
   >

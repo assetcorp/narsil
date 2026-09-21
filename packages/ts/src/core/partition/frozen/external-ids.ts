@@ -1,7 +1,10 @@
 import { compareCodePoints } from '../../ordering'
+import { codePointOrder, encodeStringBlob } from './string-blob'
 
 export interface ExternalIdTable {
   readonly count: number
+  /** The table holds this many bytes, read from its arrays where it keeps the ids encoded. */
+  readonly bytes: number
   idAt(ordinal: number): string
   ordinalOf(docId: string): number
   collectSortedIds(excluded: (ordinal: number) => boolean): string[]
@@ -17,29 +20,8 @@ const encoder = new TextEncoder()
 const decoder = new TextDecoder()
 
 export function encodeExternalIdTableData(docIds: readonly string[]): ExternalIdTableData {
-  const count = docIds.length
-  const encoded: Uint8Array[] = new Array(count)
-  let blobLength = 0
-  for (let ordinal = 0; ordinal < count; ordinal++) {
-    const bytes = encoder.encode(docIds[ordinal])
-    encoded[ordinal] = bytes
-    blobLength += bytes.length
-  }
-
-  const blob = new Uint8Array(blobLength)
-  const offsets = new Uint32Array(count + 1)
-  let cursor = 0
-  for (let ordinal = 0; ordinal < count; ordinal++) {
-    blob.set(encoded[ordinal], cursor)
-    cursor += encoded[ordinal].length
-    offsets[ordinal + 1] = cursor
-  }
-
-  const order: number[] = new Array(count)
-  for (let ordinal = 0; ordinal < count; ordinal++) order[ordinal] = ordinal
-  order.sort((a, b) => compareCodePoints(docIds[a], docIds[b]))
-
-  return { blob, offsets, sortedOrdinals: Uint32Array.from(order) }
+  const { blob, offsets } = encodeStringBlob(docIds)
+  return { blob, offsets, sortedOrdinals: Uint32Array.from(codePointOrder(docIds)) }
 }
 
 function compareBytes(blob: Uint8Array, start: number, end: number, query: Uint8Array): number {
@@ -68,6 +50,7 @@ export function wrapExternalIdTable(data: ExternalIdTableData): ExternalIdTable 
 
   return {
     count,
+    bytes: blob.byteLength + offsets.byteLength + sortedOrdinals.byteLength,
 
     idAt,
 
@@ -100,13 +83,16 @@ export function wrapExternalIdTable(data: ExternalIdTableData): ExternalIdTable 
 
 export function buildExternalIdTable(docIds: readonly string[]): ExternalIdTable {
   const ordinals = new Map<string, number>()
+  let characters = 0
   for (let ordinal = 0; ordinal < docIds.length; ordinal++) {
     ordinals.set(docIds[ordinal], ordinal)
+    characters += docIds[ordinal].length
   }
   let sortedIds: readonly string[] | null = null
 
   return {
     count: docIds.length,
+    bytes: characters,
 
     idAt(ordinal: number): string {
       return docIds[ordinal]

@@ -61,6 +61,8 @@ await narsil.checkpoint('products')
 
 In `sync` mode the engine acknowledges a write only once the log holds it on disk, so a crash never loses a write your caller saw succeed. In `async` mode it acknowledges the write at once and flushes the log every `flushIntervalMs`, which is faster and may lose the final interval on a hard crash. The engine reports a durability failure through the `durabilityError` event; see [Events](observability.md#events).
 
+A checkpoint writes what changed since the checkpoint before it: the documents, and the vectors that arrived since, which go into new files of at most 65,536 vectors each. The engine leaves a written vector file unchanged, and it replaces a file once removals and updates leave more than a fifth of its vectors unused, or once a later checkpoint writes at least as many vectors as a partly filled file holds. It writes the graph of a changed vector field whole. While the documents that wait for a checkpoint hold 2 GiB or more, the engine holds each new write's acknowledgement until the checkpoint in progress covers some of them, because that bounds both the vectors that wait in memory for a file and the log that a recovery replays. A held write is already in the log, so it survives a crash like any acknowledged write.
+
 `createNarsil` validates every durability field and rejects an invalid value with `CONFIG_INVALID`: an unknown `tier` or `mode` string, a non-finite number, a negative interval, or a size or threshold below 1. An interval of `0` disables that timer.
 
 ## Index lifecycle

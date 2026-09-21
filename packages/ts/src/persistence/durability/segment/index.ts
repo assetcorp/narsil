@@ -1,6 +1,21 @@
-export { legacySnapshotKey } from './layout'
+export { type CapturablePartitions, type CapturedWholePartition, captureWholePartition } from './captured-partition'
+export { snapshotBundleKey } from './layout'
 export { loadSegmentedSnapshot, readSegmentManifest, reclaimOrphanedSegments } from './load'
-export type { SegmentManifest } from './manifest'
+export type { SegmentManifest, VectorFieldRef } from './manifest'
 export { countLiveDocuments } from './merge'
 export { readSegmentContents } from './segment-file'
-export { writeSegmentedCheckpoint } from './write'
+export {
+  type VectorCheckpointLayout,
+  type VectorFieldWritten,
+  type VectorWriteOutcome,
+  writeLiveVectors,
+} from './vector'
+export {
+  type CheckpointSegmentsWritten,
+  commitCheckpointManifest,
+  removeCheckpointGarbage,
+  type SegmentedCheckpointOutcome,
+  type WholePartitionSegment,
+  writeCheckpointSegments,
+  writeSegmentedCheckpoint,
+} from './write'

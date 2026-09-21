@@ -92,6 +92,18 @@ _Avoid_: chunk, shard, piece
 Promotion keeps the meaning the spec gives it: the moment a vector field passes its threshold and moves from exact comparison to the graph. This glossary reserves the word for that transition alone.
 _Avoid_: promoted, promotion, for anything to do with worker copies
 
+**Optimised scalar quantization (OSQ)**:
+OSQ is the quantization that Elastic named and that Lucene implements, and Narsil applies it at every code size. The index centres each vector on its centroid and quantizes it over an interval that it fits to that vector alone. A mode name carries the bits per dimension, so `osq8`, `osq4`, `osq2`, and `osq1` are one family, and Elastic's BBQ is the 1-bit case.
+_Avoid_: SQ8, scalar quantization, binary quantization, BBQ
+
+**Native search core**:
+The native search core is the vector search written in C that every language implementation of Narsil loads where the platform can load native code. It searches the graph for a query, it scores full-precision vectors, it places, removes, and compacts nodes, and it writes the centroid and the code records of a quantized field. It must return the same results and write the same graph as the WebAssembly search, bit for bit. Each language binds it through its own shim, which is a Node-API addon for TypeScript.
+_Avoid_: C engine, native engine, native module, and 'the addon' for the core itself
+
+**Search backend**:
+The search backend is the vector search that a thread uses, either the native search core or the WebAssembly search. A browser always uses the WebAssembly search, while any other runtime uses it only where that runtime cannot load the native search core.
+_Avoid_: engine, driver, kernel, for the choice between the two searches
+
 **Request thread**:
 A request thread is a worker that receives requests from clients and answers a query on an index whose copy it holds, while the main thread receives every write and every query on an index that holds no copies.
 _Avoid_: door, HTTP thread, front thread, server thread

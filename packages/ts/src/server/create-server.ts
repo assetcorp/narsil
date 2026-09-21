@@ -1,5 +1,6 @@
 import type { TemplatedApp, us_listen_socket, us_socket } from 'uWebSockets.js'
 import { randomUUID } from 'node:crypto'
+import { startIdleHeapCleanup } from '#platform/idle-heap-cleanup'
 import { ErrorCodes, NarsilError } from '../errors'
 import type { Narsil } from '../narsil'
 import { engineCoreOf } from '../narsil/internals'
@@ -143,6 +144,7 @@ class NarsilHttpServer implements NarsilServer {
   private listenSocket: us_listen_socket | null = null
   private ready = false
   private threads: RequestThreadHost | null = null
+  private stopIdleHeapCleanup: () => void = () => undefined
 
   constructor(engine: Narsil, options: ServerOptions = {}) {
     this.host = options.host ?? '127.0.0.1'
@@ -184,11 +186,14 @@ class NarsilHttpServer implements NarsilServer {
       })
     })
     await this.deps.tasks.reconcile()
+    this.stopIdleHeapCleanup = startIdleHeapCleanup()
     this.ready = true
   }
 
   async close(): Promise<void> {
     this.ready = false
+    this.stopIdleHeapCleanup()
+    this.stopIdleHeapCleanup = () => undefined
     if (this.listenSocket && this.uws) {
       this.uws.us_listen_socket_close(this.listenSocket)
       this.listenSocket = null

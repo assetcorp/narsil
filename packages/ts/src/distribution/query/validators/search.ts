@@ -35,6 +35,7 @@ import {
   validateGroupParams,
   validateHybridParams,
   validateModeParam,
+  validateOversampleParam,
   validatePinnedParam,
   validatePrefixLengthParam,
   validateTermMatchParam,
@@ -103,6 +104,9 @@ function validateVectorParams(value: unknown): void {
   }
   if (value.efSearch !== null) {
     validateEfSearchParam(value.efSearch)
+  }
+  if (value.oversample !== null) {
+    validateOversampleParam(value.oversample)
   }
 }
 

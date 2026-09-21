@@ -28,7 +28,6 @@ const nodeEntry: Record<string, string> = {
   'invalidation/filesystem': 'src/invalidation/filesystem.ts',
   'invalidation/broadcast-channel': 'src/invalidation/broadcast-channel.ts',
   'workers/entry': 'src/workers/worker-entry.ts',
-  'vector/hnsw-build-worker': 'src/vector/hnsw-build-worker.ts',
   'vector/search-worker': 'src/vector/search-worker.ts',
   'serialization/crc32-worker': 'src/serialization/crc32-worker.ts',
   'persistence/durability/checkpoint-worker': 'src/persistence/durability/checkpoint-worker.ts',

@@ -5,8 +5,13 @@ import { decode } from '@msgpack/msgpack'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createNarsil } from '../../../narsil'
 import { createDurableDirectory, type DurableDirectory } from '../../../persistence/durability/durable-filesystem'
-import { unpackEnvelopeBytes } from '../../../serialization/envelope'
+import { readSegmentManifest } from '../../../persistence/durability/segment'
+import { unpackEnvelopeBytes, unpackIndexSnapshotEnvelope } from '../../../serialization/envelope'
 import type { IndexConfig } from '../../../types/schema'
+import { osqRecordBytes } from '../../../vector/osq/record'
+import type { VectorFilePayload, VectorGraphPayload } from '../../../vector/vector-index'
+import { decodeVectorFilePayload, decodeVectorGraphPayload } from '../../../vector/vector-index/checkpoint-payload'
+import { decodeVectorIndexPart } from '../../../vector/vector-index/payload'
 
 const DIMENSION = 8
 
@@ -50,6 +55,23 @@ async function documentSegmentFields(
   throw new Error(`Document "${docId}" appears in no segment`)
 }
 
+async function savedVectorField(
+  directory: DurableDirectory,
+  indexName: string,
+): Promise<{ files: VectorFilePayload[]; graph: VectorGraphPayload }> {
+  const manifest = await readSegmentManifest(directory, indexName)
+  const field = manifest?.vectors[0]
+  if (field === undefined || field.graphKey === null) throw new Error('the manifest lists no vector field with a graph')
+  const payloadOf = async (key: string): Promise<unknown> => {
+    const bytes = await directory.read(key)
+    if (bytes === null) throw new Error(`"${key}" is missing`)
+    return decode((await unpackEnvelopeBytes(bytes)).payloadBytes)
+  }
+  const files: VectorFilePayload[] = []
+  for (const file of field.files) files.push(decodeVectorFilePayload(await payloadOf(file.key)))
+  return { files, graph: decodeVectorGraphPayload(await payloadOf(field.graphKey)) }
+}
+
 describe('vector fields in a segmented checkpoint', () => {
   let root: string
 
@@ -75,8 +97,8 @@ describe('vector fields in a segmented checkpoint', () => {
     expect(fields.embedding).toBeUndefined()
     expect(fields.title).toBe('Paper 3')
 
-    const vectorKeys = await directory.list('papers/segments/0/')
-    expect(vectorKeys.some(key => key.includes('/vec-embedding-'))).toBe(true)
+    const vectorKeys = await directory.list('papers/segments/')
+    expect(vectorKeys.some(key => key.startsWith('papers/segments/vec-embedding-'))).toBe(true)
 
     const reader = await createNarsil({ durability: { directory: root } })
     const recovered = await reader.get('papers', 'p3')
@@ -89,6 +111,107 @@ describe('vector fields in a segmented checkpoint', () => {
 
     const hits = await reader.query('papers', { vector: { field: 'embedding', value: embeddingFor(3) }, limit: 1 })
     expect(hits.hits[0]?.id).toBe('p3')
+    await reader.shutdown()
+  })
+
+  it('writes the graph and the codes with the vectors and grows them at the next checkpoint', async () => {
+    const config: IndexConfig = { ...CONFIG, vectorPromotion: { threshold: 8 } }
+    const writer = await createNarsil({ durability: { directory: root } })
+    await writer.createIndex('papers', config)
+    for (let i = 0; i < 12; i += 1) {
+      await writer.insert('papers', { title: `Paper ${i}`, embedding: embeddingFor(i) }, `p${i}`)
+    }
+    await writer.checkpoint('papers')
+    for (let i = 12; i < 16; i += 1) {
+      await writer.insert('papers', { title: `Paper ${i}`, embedding: embeddingFor(i) }, `p${i}`)
+    }
+    await writer.checkpoint('papers')
+    const query = { vector: { field: 'embedding', value: embeddingFor(14) }, limit: 3 }
+    const expected = (await writer.query('papers', query)).hits.map(hit => hit.id)
+    await writer.shutdown()
+
+    const directory = createDurableDirectory(root)
+    const saved = await savedVectorField(directory, 'papers')
+    expect(saved.files.map(file => file.docIds.length)).toEqual([12, 4])
+    expect(saved.files.map(file => file.codes?.records.byteLength)).toEqual([
+      12 * osqRecordBytes(DIMENSION, 8),
+      4 * osqRecordBytes(DIMENSION, 8),
+    ])
+    expect(saved.graph.graphs).toHaveLength(1)
+    expect([...saved.graph.graphs[0].levels].filter(level => level > 0)).toHaveLength(16)
+
+    const reader = await createNarsil({ durability: { directory: root } })
+    expect((await reader.query('papers', query)).hits.map(hit => hit.id)).toEqual(expected)
+    await reader.shutdown()
+  })
+
+  it('saves the graph that the index already searches through, and builds no second one', async () => {
+    const config: IndexConfig = { ...CONFIG, vectorPromotion: { threshold: 8 } }
+    const writer = await createNarsil({ durability: { directory: root }, workers: { enabled: false } })
+    await writer.createIndex('papers', config)
+    const papers = []
+    for (let i = 0; i < 200; i += 1) papers.push({ id: `p${i}`, title: `Paper ${i}`, embedding: embeddingFor(i) })
+    expect((await writer.insertBatch('papers', papers)).failed).toEqual([])
+    await writer.optimizeVectors('papers', 'embedding')
+    await writer.checkpoint('papers')
+    const snapshot = decode(await unpackIndexSnapshotEnvelope(await writer.snapshot('papers'))) as {
+      vectorIndexes: Record<string, unknown[]>
+    }
+    const searchedThrough = decodeVectorIndexPart(snapshot.vectorIndexes.embedding[0]).graphs[0]
+    await writer.shutdown()
+
+    const saved = await savedVectorField(createDurableDirectory(root), 'papers')
+    const docIds = saved.files.flatMap(file => file.docIds)
+    const graph = saved.graph.graphs[0]
+    const neighbours = new DataView(graph.neighbours.buffer, graph.neighbours.byteOffset, graph.neighbours.byteLength)
+    const nodes: Array<[string, number, Array<[number, string[]]>]> = []
+    let cursor = 0
+    for (let number = 0; number < graph.levels.length; number += 1) {
+      const layers: Array<[number, string[]]> = []
+      for (let layer = 0; layer < graph.levels[number]; layer += 1) {
+        const count = neighbours.getUint32(cursor * 4, true)
+        const names: string[] = []
+        for (let i = 1; i <= count; i += 1) names.push(docIds[neighbours.getUint32((cursor + i) * 4, true)])
+        cursor += count + 1
+        if (names.length > 0) layers.push([layer, names])
+      }
+      if (graph.levels[number] > 0) nodes.push([docIds[number], graph.levels[number] - 1, layers])
+    }
+
+    const byDocId = (a: [string, ...unknown[]], b: [string, ...unknown[]]) => a[0].localeCompare(b[0])
+    expect(nodes).toHaveLength(200)
+    expect(nodes.sort(byDocId)).toEqual([...searchedThrough.nodes].sort(byDocId))
+    expect(graph.entryPoint === null ? null : docIds[graph.entryPoint]).toEqual(searchedThrough.entryPoint)
+  })
+
+  it('writes each vector field once for an index of several partitions, and recovers its graph whole', async () => {
+    const config: IndexConfig = { ...CONFIG, vectorPromotion: { threshold: 8 } }
+    const writer = await createNarsil({ durability: { directory: root }, workers: { enabled: false } })
+    await writer.createIndex('papers', config)
+    const papers = []
+    for (let i = 0; i < 90; i += 1) papers.push({ id: `p${i}`, title: `Paper ${i}`, embedding: embeddingFor(i) })
+    expect((await writer.insertBatch('papers', papers.slice(0, 60))).failed).toEqual([])
+    await writer.rebalance('papers', 3)
+    expect((await writer.insertBatch('papers', papers.slice(60))).failed).toEqual([])
+    await writer.optimizeVectors('papers', 'embedding')
+    await writer.checkpoint('papers')
+    const query = { vector: { field: 'embedding', value: embeddingFor(77) }, limit: 5 }
+    const expected = (await writer.query('papers', query)).hits.map(hit => hit.id)
+    await writer.shutdown()
+
+    const directory = createDurableDirectory(root)
+    const vectorKeys = (await directory.list('papers/segments/')).filter(key => key.includes('/vec-')).sort()
+    expect(vectorKeys).toHaveLength(3)
+    expect(vectorKeys[0]).toMatch(/^papers\/segments\/vec-embedding-[a-z0-9]+-f0{16}$/)
+    expect(vectorKeys[1]).toMatch(/^papers\/segments\/vec-embedding-[a-z0-9]+-f0{15}1$/)
+    expect(vectorKeys[2]).toMatch(/^papers\/segments\/vec-embedding-[a-z0-9]+-graph-g\d+$/)
+    const saved = await savedVectorField(directory, 'papers')
+    expect(saved.files.map(file => file.docIds.length)).toEqual([60, 30])
+    expect([...saved.graph.graphs[0].levels].filter(level => level > 0)).toHaveLength(90)
+
+    const reader = await createNarsil({ durability: { directory: root }, workers: { enabled: false } })
+    expect((await reader.vectorMaintenanceStatus('papers'))[0]).toMatchObject({ graphCount: 1, bufferSize: 0 })
+    expect((await reader.query('papers', query)).hits.map(hit => hit.id)).toEqual(expected)
     await reader.shutdown()
   })
 

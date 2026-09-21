@@ -108,7 +108,6 @@ describe('segment durability hardening', () => {
           partitionId: 1,
           nextSegmentId: 1,
           segments: [{ id: 0, key: plantedKey, docCount: 1, tombstoneCount: 0 }],
-          vectors: [],
         },
       ],
     }

@@ -36,6 +36,8 @@ export interface DurableDirectory {
   read(key: string): Promise<Uint8Array | null>
   remove(key: string): Promise<void>
   list(prefix: string): Promise<string[]>
+  /** Reports the absolute path a key maps to, which a reader opening the file by position needs. */
+  pathOf(key: string): Promise<string>
 }
 
 function wrapFsyncError(err: unknown, key: string): never {
@@ -71,7 +73,7 @@ async function writeFully(handle: FileHandle, buffer: Uint8Array, key: string): 
     if (bytesWritten <= 0) {
       throw new NarsilError(
         ErrorCodes.PERSISTENCE_SAVE_FAILED,
-        `Write to "${key}" made no progress; the snapshot would be truncated and is not acknowledged`,
+        `Write to "${key}" made no progress; the file would be truncated and the write is not acknowledged`,
         { key, written: offset, total: buffer.length },
       )
     }
@@ -130,7 +132,7 @@ export function createDurableDirectory(root: string): DurableDirectory {
 
       return {
         async append(bytes: Uint8Array): Promise<void> {
-          await handle.write(bytes)
+          await writeFully(handle, bytes, key)
         },
         async sync(): Promise<void> {
           try {
@@ -267,6 +269,11 @@ export function createDurableDirectory(root: string): DurableDirectory {
       const resolvedBase = pathMod.resolve(root)
       const all = await listRecursive(resolvedBase, resolvedBase, pathMod, fs)
       return all.filter(entry => entry.startsWith(prefix)).sort(compareCodePoints)
+    },
+
+    async pathOf(key: string): Promise<string> {
+      const { path: filePath } = await resolve(key)
+      return filePath
     },
   }
 }

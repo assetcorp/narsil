@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 vi.mock('../../vector/simd', async importOriginal => {
   const original = await importOriginal<typeof import('../../vector/simd')>()
-  return { ...original, createArenaSimd: () => null }
+  return { ...original, createArenaSimd: () => null, createSharedArenaSimd: () => null }
 })
 
 import { createHNSWIndex } from '../../vector/hnsw'
@@ -56,7 +56,7 @@ describe('VectorStore without an arena instance', () => {
     }
 
     const query = seededVector(dim, 500)
-    const results = graph.search(query, 5, 'cosine', -1, undefined, 32)
+    const results = graph.search(query, 5, 'cosine', -1, { efSearch: 32 })
     expect(results.length).toBe(5)
 
     for (const hit of results) {

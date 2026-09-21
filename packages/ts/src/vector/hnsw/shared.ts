@@ -1,16 +1,14 @@
 import type { VectorMetric } from '../brute-force'
-import type { QuantizerSearchReader, ScalarQuantizer } from '../scalar-quantization-types'
+import type { QuantizerBuildReader, QuantizerSearchReader } from '../osq/types'
+import { fixedView } from '../shared-buffers/growable'
 import { cosineSimilarityWithMagnitudes, dotProduct, euclideanDistance } from '../similarity'
-import type { VectorSearchReader, VectorStore, VectorStoreEntry } from '../vector-store'
+import type { VectorBuildReader, VectorSearchReader, VectorStoreEntry } from '../vector-store'
 import { type Adjacency, ensureAdjacencyCapacity, hasNode, nodeLevel } from './adjacency'
 import { MAX_LAYER_CAP } from './constants'
+import { GRAPH_ENTRY_POINT, GRAPH_NODE_COUNT, GRAPH_TOMBSTONE_COUNT, GRAPH_TOP_LAYER } from './handles'
+import type { GraphLocks } from './locks'
 import type { HNSWWorkspace } from './workspace'
 
-/**
- * How an HNSW graph is built.
- *
- * @internal
- */
 export interface HNSWConfig {
   /** Each node keeps this many neighbours per layer. */
   m?: number
@@ -20,11 +18,6 @@ export interface HNSWConfig {
   metric?: VectorMetric
 }
 
-/**
- * An HNSW graph in the form the engine passes between threads.
- *
- * @internal
- */
 export interface SerializedHNSWGraph {
   /** Every search starts at this node, and it is `null` while the graph is empty. */
   entryPoint: string | null
@@ -40,34 +33,23 @@ export interface SerializedHNSWGraph {
   nodes: Array<[string, number, Array<[number, string[]]>]>
 }
 
-/**
- * The graph state a search reads, without the mutation-only members.
- *
- * A worker searching a shared copy builds this over read-only views, with its
- * own visited array, and the full {@link HNSWGraphState} satisfies it on the
- * main thread, so one search implementation serves both.
- *
- * @internal
- */
 export interface HNSWSearchState {
   readonly dimension: number
   readonly store: VectorSearchReader
   readonly quantizer: QuantizerSearchReader | undefined
-  adjacency: Adjacency
+  readonly adjacency: Adjacency
+  readonly locks: GraphLocks
+  readonly header: Int32Array
   tombstones: Uint8Array
-  tombstoneCount: number
-  nodeCount: number
-  capacity: number
   visited: Uint32Array
   visitStamp: number
-  entryPointOrd: number
-  topLayer: number
   readonly workspace: HNSWWorkspace
+  readonly neighborScratch: Int32Array
 }
 
 export interface HNSWGraphState extends HNSWSearchState {
-  readonly store: VectorStore
-  readonly quantizer: ScalarQuantizer | undefined
+  readonly store: VectorBuildReader
+  readonly quantizer: QuantizerBuildReader | undefined
   readonly M: number
   readonly Mmax0: number
   readonly efCons: number
@@ -75,17 +57,34 @@ export interface HNSWGraphState extends HNSWSearchState {
   readonly mL: number
 }
 
+export function entryPointOf(state: HNSWSearchState): number {
+  return Atomics.load(state.header, GRAPH_ENTRY_POINT)
+}
+
+export function topLayerOf(state: HNSWSearchState): number {
+  return Atomics.load(state.header, GRAPH_TOP_LAYER)
+}
+
+export function nodeCountOf(state: HNSWSearchState): number {
+  return Atomics.load(state.header, GRAPH_NODE_COUNT)
+}
+
+export function tombstoneCountOf(state: HNSWSearchState): number {
+  return Atomics.load(state.header, GRAPH_TOMBSTONE_COUNT)
+}
+
 export function ensureCapacity(state: HNSWGraphState, needed: number): void {
   ensureAdjacencyCapacity(state.adjacency, needed)
-  if (needed <= state.capacity) return
-  let newCap = state.capacity === 0 ? 16 : state.capacity
-  while (newCap < needed) newCap *= 2
-  const nextTombstones = new Uint8Array(newCap)
-  nextTombstones.set(state.tombstones)
-  state.tombstones = nextTombstones
-  state.visited = new Uint32Array(newCap)
-  state.visitStamp = 0
-  state.capacity = newCap
+  ensureVisited(state, needed)
+}
+
+export function ensureVisited(state: HNSWSearchState, needed: number): void {
+  if (needed <= state.visited.length) return
+  let capacity = state.visited.length === 0 ? 16 : state.visited.length
+  while (capacity < needed) capacity *= 2
+  const next = new Uint32Array(capacity)
+  next.set(state.visited)
+  state.visited = next
 }
 
 export function nextVisitStamp(state: HNSWSearchState): number {
@@ -97,15 +96,22 @@ export function nextVisitStamp(state: HNSWSearchState): number {
   return state.visitStamp
 }
 
+export function reachTombstone(state: HNSWSearchState, ord: number): boolean {
+  if (ord < state.tombstones.length) return true
+  if (ord >= state.adjacency.handles.tombstones.byteLength) return false
+  state.tombstones = fixedView(state.adjacency.handles.tombstones, Uint8Array)
+  return ord < state.tombstones.length
+}
+
 export function isTombstoned(state: HNSWSearchState, ord: number): boolean {
-  return state.tombstones[ord] === 1
+  return ord >= 0 && reachTombstone(state, ord) && state.tombstones[ord] === 1
 }
 
 export function nodeExists(state: HNSWSearchState, ord: number): boolean {
   return hasNode(state.adjacency, ord)
 }
 
-export function nodeMaxLayer(state: HNSWGraphState, ord: number): number {
+export function nodeMaxLayer(state: HNSWSearchState, ord: number): number {
   return nodeLevel(state.adjacency, ord)
 }
 
@@ -141,8 +147,39 @@ export function entryForOrd(state: HNSWSearchState, ord: number): VectorStoreEnt
   return state.store.entryForOrdinal(ord)
 }
 
+export function buildsFromCodes(state: HNSWSearchState): boolean {
+  return activeQuantizer(state) !== undefined
+}
+
+export function activeQuantizer(state: HNSWSearchState): QuantizerSearchReader | undefined {
+  const quantizer = state.quantizer
+  if (quantizer === undefined || !quantizer.isCalibrated()) return undefined
+  return quantizer
+}
+
 export function nodeDistanceByOrd(state: HNSWGraphState, aOrd: number, bOrd: number, metric: VectorMetric): number {
+  if (buildsFromCodes(state) && state.quantizer !== undefined) {
+    const estimated = state.quantizer.distanceBetweenOrdinals(aOrd, bOrd)
+    if (estimated !== Number.POSITIVE_INFINITY) return estimated
+  }
   return state.store.distanceByOrdinal(aOrd, bOrd, metric)
+}
+
+export function nodeDistanceFunction(
+  state: HNSWGraphState,
+  metric: VectorMetric,
+): (aOrd: number, bOrd: number) => number {
+  const storeDistance = state.store.pairDistance(metric)
+  const quantizer = state.quantizer
+  if (quantizer === undefined) return storeDistance
+  const codeDistance = quantizer.pairDistance()
+  return (aOrd, bOrd) => {
+    if (buildsFromCodes(state)) {
+      const estimated = codeDistance(aOrd, bOrd)
+      if (estimated !== Number.POSITIVE_INFINITY) return estimated
+    }
+    return storeDistance(aOrd, bOrd)
+  }
 }
 
 export function queryDistanceByOrd(

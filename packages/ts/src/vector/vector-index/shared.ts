@@ -1,12 +1,16 @@
+import type { VectorQuantizationMode, VectorStorageMode } from '../../types/schema'
 import type { VectorMetric } from '../brute-force'
-import { createHNSWIndex, type HNSWConfig, type HNSWIndex, type SerializedHNSWGraph } from '../hnsw'
+import type { HNSWConfig, HNSWIndex } from '../hnsw'
 import { addToOrdinalFilter, createOrdinalFilter, type OrdinalFilter, removeFromOrdinalFilter } from '../ordinal-filter'
-import type { ScalarQuantizer, SerializedSQ8 } from '../scalar-quantization-types'
+import type { OsqQuantizer } from '../osq'
 import type { VectorSearchPool } from '../search-pool'
-import type { SharedDocIdTable } from '../shared-generation/doc-ids'
-import type { SharedGenerationSnapshot } from '../shared-generation/types'
+import type { GraphInsertOutcome, SharedVectorFieldHandles } from '../shared-field/types'
 import type { VectorStore } from '../vector-store'
-import { BUILD_CHUNK_SIZE, REBUILD_REMOVED_RATIO } from './constants'
+import type { FieldSignature, SavedVectorFile } from './checkpoint-plan'
+import { REBUILD_REMOVED_RATIO } from './constants'
+import type { PendingVectorLocation } from './disk'
+
+export type { VectorIndexPayload } from './payload'
 
 export interface VectorScoredResult {
   docId: string
@@ -20,14 +24,10 @@ export interface VectorSearchOptions {
   /** The partitions the search may answer from, which the index resolves to ordinals itself. */
   filterPartitions?: ReadonlySet<number>
   efSearch?: number
+  /** A quantized index re-scores this many times the requested count against full precision. */
+  oversample?: number
 }
 
-/**
- * The part of a vector index a query runs against, which the index on the
- * main thread and a request thread's view over a shared copy both satisfy.
- *
- * @internal
- */
 export interface VectorSearcher {
   readonly fieldName: string
   readonly dimension: number
@@ -36,45 +36,32 @@ export interface VectorSearcher {
   assignPartitions(resolve: (docId: string) => number | undefined): void
 }
 
-/**
- * A frozen copy of one vector field in the form a request thread opens.
- *
- * @internal
- */
-export interface HostedVectorCopy {
-  /** The frozen vectors, codes, and graph. */
-  snapshot: SharedGenerationSnapshot
-  /** The document id and partition at each ordinal. */
-  docIds: SharedDocIdTable
-  /** A filter admitting a smaller share of the live vectors than this is answered by exact comparison. */
-  filterThreshold: number
-}
-
-/**
- * Where a frozen shared copy goes when request threads hold it in place of
- * the vector search pool.
- *
- * @internal
- */
 export interface SharedCopyHost {
-  /** The frozen copy reserves this many per-thread scratch slots. */
-  readonly scratchSlotCount: number
-  /** Whether the host currently holds the index the copy belongs to. */
+  /** This many threads place vectors, which bounds how many batches the index keeps in flight. */
+  readonly workerCount: number
+  /** Reports whether the host holds the index the field belongs to right now. */
   holdsIndex(indexName: string): boolean
-  /** Reports the partition a document of the index lives in, for a vector stored before partitions were tracked. */
+  /** Reports the partition a document belongs to, for a vector the store took before it recorded partitions. */
   resolvePartition(indexName: string, docId: string): number | undefined
-  /** Sends a frozen copy to every thread holding the index, resolving once each has applied it. */
-  loadShared(indexName: string, fieldName: string, handle: string, copy: HostedVectorCopy): Promise<boolean>
-  /** Withdraws a copy from every thread holding the index. */
+  /** Sends the field's handles to every thread holding the index, resolving once each has opened them. */
+  loadShared(indexName: string, fieldName: string, handle: string, handles: SharedVectorFieldHandles): Promise<boolean>
+  /** Withdraws the handles from every thread holding the index. */
   drop(indexName: string, fieldName: string, handle: string): Promise<void>
+  /** Asks one thread to place the ordinals in the graph under that handle, and resolves null where no thread could. */
+  insertOrdinals(
+    indexName: string,
+    fieldName: string,
+    handle: string,
+    ordinals: Int32Array,
+  ): Promise<GraphInsertOutcome | null>
 }
 
 export interface VectorWorkerCopyPolicy {
-  /** Whether the index may load copies of its graph onto the vector search pool. */
+  /** The index may share its field with worker threads when this reads true. */
   enabled: boolean
-  /** The pool runs this many workers, or the host's cores minus one where omitted. */
+  /** The pool holds this many workers, and it takes the machine's cores minus one where the caller omits this. */
   count?: number
-  /** Where set, the copies go to these request threads and no vector search pool starts. */
+  /** The field goes to these request threads where the caller names a host, and no vector search pool starts. */
   host?: SharedCopyHost
 }
 
@@ -89,13 +76,7 @@ export interface MaintenanceStatus {
   estimatedOptimizeMs: number
 }
 
-export interface VectorIndexPayload {
-  fieldName: string
-  dimension: number
-  vectors: Array<{ docId: string; vector: number[] }>
-  graphs: Array<SerializedHNSWGraph>
-  sq8: SerializedSQ8 | null
-}
+export type WorkerCopyMode = 'shared' | 'clone' | 'hosted'
 
 export interface VectorIndexState {
   readonly indexName: string
@@ -104,14 +85,25 @@ export interface VectorIndexState {
   readonly dimensionScale: number
   readonly promotionThreshold: number
   readonly filterThreshold: number
-  readonly quantizationMode: 'sq8' | 'none'
+  readonly quantizationMode: VectorQuantizationMode
+  readonly storage: VectorStorageMode
+  /** The graph ranks by this metric, and the quantizer takes the codes under it. */
+  readonly metric: VectorMetric
   readonly hnswConfig: HNSWConfig | undefined
   readonly workerCopies: VectorWorkerCopyPolicy
   readonly store: VectorStore
   readonly tombstones: Set<string>
   readonly buffer: Set<string>
-  sq8: ScalarQuantizer | null
+  /** A checkpoint wrote these vectors to a file while the field held no graph, and the field points each at its place once it holds one. */
+  readonly pendingLocations: Map<string, PendingVectorLocation>
+  /** The vector files that the last committed checkpoint lists for the field, in manifest order. */
+  savedFiles: readonly SavedVectorFile[]
+  /** What the field looked like when that checkpoint planned its files, and null before the first. */
+  savedSignature: FieldSignature | null
+  osq: OsqQuantizer | null
   hnsw: HNSWIndex | null
+  /** The graph a build is filling from the store, which a replacement retires its old ordinal in. */
+  freshGraph: HNSWIndex | null
   compactedNodeCount: number
   building: boolean
   buildScheduled: boolean
@@ -121,24 +113,25 @@ export interface VectorIndexState {
   workerCopyPool: VectorSearchPool | null
   workerCopyHandle: string | null
   workerCopyRevision: number
-  workerCopyMode: 'shared' | 'clone' | 'hosted' | null
+  workerCopyMode: WorkerCopyMode | null
   workerCopyLoading: boolean
+  /** This maps each graph the threads hold to its handle and the way they hold it, and the null key stands for the vectors alone. */
+  readonly sharedHandles: Map<HNSWIndex | null, { handle: string; searchable: boolean; mode: WorkerCopyMode }>
+  /** The threads opened the store at this layout revision, so the index sends the handles again once the store adds or releases a block or a file. */
+  sharedLayoutRevision: number
+  /** This is the share in flight, which the index chains so that two shares stay apart. */
+  sharing: Promise<void>
+  releaseToFilesInFlight: Promise<void>
 }
 
 export function liveSize(state: VectorIndexState): number {
   return state.store.size - state.tombstones.size
 }
 
-/**
- * Records the partition of every stored vector that has none, asking the
- * caller for each document's partition.
- *
- * @param state The index whose store to fill in.
- * @param resolve Reports a document's partition, or undefined where the
- * document is gone.
- *
- * @internal
- */
+export function threadsHoldCurrentLayout(state: VectorIndexState): boolean {
+  return state.sharedLayoutRevision === state.store.handles.layoutRevision
+}
+
 export function assignStorePartitions(state: VectorIndexState, resolve: (docId: string) => number | undefined): void {
   for (let ordinal = 0; ordinal < state.store.slots; ordinal += 1) {
     if (state.store.partitionOfOrdinal(ordinal) !== undefined) continue
@@ -153,19 +146,17 @@ export function assignStorePartitions(state: VectorIndexState, resolve: (docId: 
   }
 }
 
-/**
- * Makes a graph built from every live vector the one the index answers from,
- * or clears the graph away where none is given.
- *
- * The new graph takes a tombstone for every document a caller removed while
- * it was being built, and the count of nodes that compaction cut out of the
- * graph before it starts again from zero.
- *
- * @param state The index to update.
- * @param graph The graph to adopt, or null where the index keeps no graph.
- *
- * @internal
- */
+export function emptyFieldBeforeRestore(state: VectorIndexState): void {
+  state.store.clear()
+  state.tombstones.clear()
+  state.buffer.clear()
+  state.pendingLocations.clear()
+  adoptGraph(state, null)
+  state.osq?.clear()
+  state.savedFiles = []
+  state.savedSignature = null
+}
+
 export function adoptGraph(state: VectorIndexState, graph: HNSWIndex | null): void {
   if (graph === null && state.hnsw !== null) {
     state.hnsw.clear()
@@ -181,76 +172,6 @@ export function adoptGraph(state: VectorIndexState, graph: HNSWIndex | null): vo
   }
 }
 
-/**
- * Inserts the admitted documents into a graph, yielding to the event loop
- * after every chunk so that a query can answer between chunks.
- *
- * The insertion clears each document's buffer marker the moment the graph
- * links its stored vector, so a vector that a caller replaces during a later
- * chunk keeps its marker and the next build relinks it.
- *
- * @param state The index the graph belongs to, whose disposal stops the work.
- * @param graph The graph to insert into.
- * @param docIds The documents to offer.
- * @param admit Reports whether a document goes into the graph.
- * @param inserted Runs after each document goes in, where given.
- * @returns True where every document was offered, and false where disposal
- * stopped the work first.
- *
- * @internal
- */
-export async function insertIntoGraph(
-  state: VectorIndexState,
-  graph: HNSWIndex,
-  docIds: Iterable<string>,
-  admit: (docId: string) => boolean,
-  inserted?: (docId: string) => void,
-): Promise<boolean> {
-  let count = 0
-  for (const docId of docIds) {
-    if (state.disposed) return false
-    if (!admit(docId)) continue
-    graph.insertNode(docId)
-    state.buffer.delete(docId)
-    inserted?.(docId)
-    count += 1
-    if (count % BUILD_CHUNK_SIZE === 0) {
-      await yieldToEventLoop()
-    }
-  }
-  return !state.disposed
-}
-
-/**
- * Builds a graph from every live vector in the store and makes it the graph
- * the index answers from once every vector is in.
- *
- * @param state The index to build for, whose disposal drops the new graph.
- *
- * @internal
- */
-export async function buildGraphFromStore(state: VectorIndexState): Promise<void> {
-  const graph = createHNSWIndex(state.dimension, state.store, state.hnswConfig, state.sq8 ?? undefined)
-  const completed = await insertIntoGraph(state, graph, allLiveDocIds(state), () => true)
-  if (completed) {
-    adoptGraph(state, graph)
-  }
-}
-
-/**
- * Reports whether callers have removed more than a fifth of the vectors the
- * graph has held since it was last built, which is the point at which the
- * vector index specification requires a rebuild.
- *
- * The removed vectors are the nodes the graph still holds as tombstones plus
- * the nodes compaction has cut out since the last rebuild, and the vectors
- * held are those removed nodes plus the live ones.
- *
- * @param state The index to read.
- * @returns True once the removals pass that fraction.
- *
- * @internal
- */
 export function graphNeedsRebuild(state: VectorIndexState): boolean {
   const graph = state.hnsw
   if (graph === null) return false
@@ -271,19 +192,6 @@ export function* allLiveDocIds(state: VectorIndexState): Iterable<string> {
   }
 }
 
-/**
- * Builds the filter holding every live ordinal of the named partitions.
- *
- * The store keeps each vector's partition, so this walks ordinals rather than
- * document ids, and it clears the removed documents the index has yet to
- * compact away.
- *
- * @param state The index to read.
- * @param partitionIds The partitions the caller may see.
- * @returns The ordinals of those partitions.
- *
- * @internal
- */
 export function ordinalFilterForPartitions(state: VectorIndexState, partitionIds: ReadonlySet<number>): OrdinalFilter {
   const filter = state.store.partitionFilter(partitionIds)
   for (const docId of state.tombstones) {
@@ -294,17 +202,6 @@ export function ordinalFilterForPartitions(state: VectorIndexState, partitionIds
   return filter
 }
 
-/**
- * Builds the ordinal filter a search must respect, from whichever confinement
- * the caller gave.
- *
- * @param state The index to read.
- * @param options The search options carrying the confinement.
- * @returns The ordinals the search may return, or undefined where the caller
- * confined nothing.
- *
- * @internal
- */
 export function filterForOptions(
   state: VectorIndexState,
   options: { filterDocIds?: Set<string>; filterPartitions?: ReadonlySet<number> },
@@ -329,36 +226,37 @@ export function ordinalFilterForDocIds(state: VectorIndexState, docIds: Iterable
   return filter
 }
 
-export function calibrateAndQuantizeAll(state: VectorIndexState): void {
-  if (!state.sq8) return
-  if (state.store.size === 0) return
-
-  const sq8 = state.sq8
-
-  function* vectorIterator(): Iterable<Float32Array> {
-    for (const [docId, entry] of state.store.entries()) {
-      if (state.tombstones.has(docId)) continue
-      yield entry.vector
-    }
+function liveOrdinals(state: VectorIndexState): Int32Array {
+  const ordinals: number[] = []
+  for (let ordinal = 0; ordinal < state.store.slots; ordinal++) {
+    const docId = state.store.docIdForOrdinal(ordinal)
+    if (docId !== undefined && !state.tombstones.has(docId)) ordinals.push(ordinal)
   }
+  return Int32Array.from(ordinals)
+}
 
-  sq8.calibrate(vectorIterator())
-
-  for (const [docId, entry] of state.store.entries()) {
-    if (state.tombstones.has(docId)) continue
-    sq8.quantize(docId, entry.vector)
-  }
+export function calibrateQuantizer(state: VectorIndexState): void {
+  if (state.osq === null || state.store.size === 0) return
+  state.osq.calibrate(liveOrdinals(state))
 }
 
 export function recalibrateFromStore(state: VectorIndexState): void {
-  if (!state.sq8) return
-  const sq8 = state.sq8
+  if (state.osq === null) return
+  state.osq.recalibrate(liveOrdinals(state))
+}
 
-  function* storeVectors(): Iterable<[string, Float32Array]> {
-    for (const [docId, entry] of state.store.entries()) {
-      if (state.tombstones.has(docId)) continue
-      yield [docId, entry.vector]
-    }
+export function fieldHandlesOf(
+  state: VectorIndexState,
+  graph: HNSWIndex | null,
+  searchable: boolean,
+): SharedVectorFieldHandles {
+  return {
+    dimension: state.dimension,
+    quantization: state.osq === null ? 'none' : state.quantizationMode,
+    metric: state.metric,
+    store: state.store.handles,
+    graph: graph === null ? null : graph.handles,
+    filterThreshold: state.filterThreshold,
+    searchable,
   }
-  sq8.recalibrateAll(storeVectors())
 }

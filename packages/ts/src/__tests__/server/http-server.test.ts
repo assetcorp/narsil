@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { QueryCoverage } from '../../types/results'
-import { resolveRequestThreadCount } from '../../workers/pool'
+import { resolveRequestThreadCount } from '../../workers/worker-count'
 import {
   del,
   getJson,
@@ -323,6 +323,12 @@ describe.skipIf(!built)('request threads answer from the copies they hold', () =
     })
     await waitFor(() => scaledOut(srv.engine, 'catalogue'))
     await srv.engine.waitForWrites('catalogue')
+    await waitFor(async () => {
+      const before = mainQueries
+      await postJson(srv.base, '/indexes/catalogue/search', { term: 'beta', limit: 1 })
+      return mainQueries === before
+    })
+    mainQueries = 0
   })
 
   afterEach(async () => {
@@ -384,6 +390,19 @@ describe.skipIf(!built)('request threads answer from the copies they hold', () =
     )
     expect(hybrid.status).toBe(200)
     expect(hybrid.body.hits.map(hit => hit.id)).toEqual(expected.hits.map(hit => hit.id))
+    expect(mainQueries).toBe(before)
+  })
+
+  it('answers 400 VECTOR_DIMENSION_MISMATCH from a copy when the query vector has the wrong length', async () => {
+    const before = mainQueries
+    const response = await postJson<{ error: { code: string; details?: { expected: number; received: number } } }>(
+      srv.base,
+      '/indexes/catalogue/search',
+      { mode: 'vector', vector: { field: 'embedding', value: [0.1, 0.2, 0.3] }, limit: 5 },
+    )
+    expect(response.status).toBe(400)
+    expect(response.body.error.code).toBe('VECTOR_DIMENSION_MISMATCH')
+    expect(response.body.error.details).toEqual({ expected: VECTOR_DIMENSION, received: 3 })
     expect(mainQueries).toBe(before)
   })
 

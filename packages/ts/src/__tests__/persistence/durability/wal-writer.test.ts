@@ -1,12 +1,12 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { buildEntry } from '../../../distribution/replication/entry-checksum'
 import type { ReplicationLogEntry } from '../../../distribution/replication/types'
 import { readCommitMarker } from '../../../persistence/durability/commit-marker'
 import { createDurableDirectory, type DurableDirectory } from '../../../persistence/durability/durable-filesystem'
-import { readDurableRegion } from '../../../persistence/durability/wal-framing'
+import { readDurableRegion, SEGMENT_HEADER_SIZE } from '../../../persistence/durability/wal-framing'
 import { createWalWriter, parseSegmentStartSeqNo } from '../../../persistence/durability/wal-writer'
 
 function entry(seqNo: number): ReplicationLogEntry {
@@ -84,8 +84,8 @@ describe('WAL writer', () => {
 
   it('batches a fsync across an append followed by commit', async () => {
     const writer = createWalWriter(directory, { indexName: 'movies', partitionId: 0 })
-    await writer.append(entry(1))
-    await writer.append(entry(2))
+    await writer.appendAll([entry(1)])
+    await writer.appendAll([entry(2)])
     await writer.commit()
     await writer.close()
 
@@ -123,8 +123,8 @@ describe('WAL writer', () => {
 
   it('advances the commit marker to the new segment as part of a roll', async () => {
     const writer = createWalWriter(directory, { indexName: 'movies', partitionId: 0, segmentMaxBytes: 20 })
-    await writer.append(entry(1))
-    await writer.append(entry(2))
+    await writer.appendAll([entry(1)])
+    await writer.appendAll([entry(2)])
 
     const markerBytes = await directory.read('movies/wal/0/commit')
     expect(markerBytes).not.toBeNull()
@@ -136,6 +136,67 @@ describe('WAL writer', () => {
     expect(marker?.state.activeSegmentSeqNo).toBe(newestStart)
 
     await writer.close()
+  })
+
+  it('appends a batch with one write and makes it durable with one sync', async () => {
+    const realAppendHandle = directory.appendHandle.bind(directory)
+    let recordWrites = 0
+    let syncs = 0
+    vi.spyOn(directory, 'appendHandle').mockImplementation(async key => {
+      const handle = await realAppendHandle(key)
+      return {
+        ...handle,
+        append: async bytes => {
+          if (bytes.length > SEGMENT_HEADER_SIZE) recordWrites += 1
+          await handle.append(bytes)
+        },
+        sync: async () => {
+          syncs += 1
+          await handle.sync()
+        },
+      }
+    })
+
+    const writer = createWalWriter(directory, { indexName: 'movies', partitionId: 0 })
+    await writer.appendDurable(entry(1))
+    const writesBeforeBatch = recordWrites
+    const syncsBeforeBatch = syncs
+
+    await writer.appendAll([entry(2), entry(3), entry(4), entry(5)])
+    await writer.commit()
+    const syncsForBatch = syncs - syncsBeforeBatch
+    await writer.close()
+
+    expect(recordWrites - writesBeforeBatch).toBe(1)
+    expect(syncsForBatch).toBe(1)
+    const entries = await readAllEntries(directory)
+    expect(entries.map(e => e.seqNo)).toEqual([1, 2, 3, 4, 5])
+  })
+
+  it('holds one batch in one segment and rolls before the next batch', async () => {
+    const writer = createWalWriter(directory, { indexName: 'movies', partitionId: 0, segmentMaxBytes: 200 })
+    const first = Array.from({ length: 12 }, (_, i) => entry(i + 1))
+    await writer.appendAll(first)
+    await writer.commit()
+    expect(segmentKeys(await directory.list('movies/wal/0/')).length).toBe(1)
+
+    const second = Array.from({ length: 3 }, (_, i) => entry(i + 13))
+    await writer.appendAll(second)
+    await writer.commit()
+    await writer.close()
+
+    const keys = segmentKeys(await directory.list('movies/wal/0/'))
+    expect(keys.length).toBe(2)
+    const entries = await readAllEntries(directory)
+    expect(entries.map(e => e.seqNo)).toEqual([...first, ...second].map(e => e.seqNo))
+  })
+
+  it('writes nothing for an empty batch', async () => {
+    const writer = createWalWriter(directory, { indexName: 'movies', partitionId: 0 })
+    await writer.appendAll([])
+    await writer.close()
+
+    expect(segmentKeys(await directory.list('movies/wal/0/'))).toEqual([])
   })
 })
 

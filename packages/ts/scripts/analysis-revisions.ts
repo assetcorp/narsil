@@ -9,7 +9,6 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url))
 const PACKAGE_DIR = resolve(scriptDirectory, '..')
 const LANGUAGES_DIR = join(PACKAGE_DIR, 'src', 'languages')
 const TOKENIZER_DIR = join(PACKAGE_DIR, 'src', 'core', 'tokenizer')
-const TOKENIZER_CONSTANTS_PATH = join(TOKENIZER_DIR, 'constants.ts')
 const LOCK_PATH = join(PACKAGE_DIR, 'languages.lock.json')
 const REVISION_PLACEHOLDER = 'revision: "recorded in languages.lock.json"'
 const REVISION_PROPERTY = /revision:\s*(['"])[^'"]*\1/
@@ -95,7 +94,7 @@ function typeScriptFiles(directory: string): string[] {
 }
 
 function tokenizerCode(path: string): string {
-  return normaliseTokenizerSource(path, readFileSync(path, 'utf-8'), TOKENIZER_CONSTANTS_PATH)
+  return normaliseTokenizerSource(path, readFileSync(path, 'utf-8'))
 }
 
 function tokenizerFingerprint(): string {
@@ -268,4 +267,31 @@ function write(): number {
   return 0
 }
 
-process.exit(process.argv.includes('--write') ? write() : check())
+function record(): number {
+  const recorded = readLock()
+  if (recorded === null) {
+    console.error('languages.lock.json is missing. Run "pnpm nx run narsil-ts:revisions:write" to record one.')
+    return 1
+  }
+  const changed = moduleNames().filter(language => {
+    const previous = recorded.languages[language]
+    return previous !== undefined && previous.fingerprint !== combine(ownFingerprint(language), recorded.tokenizer)
+  })
+  if (changed.length > 0) {
+    for (const language of changed) console.error(`${language}: its own analysis changed, so its revision must bump`)
+    console.error('\nRun "pnpm nx run narsil-ts:revisions:write" instead, which bumps every changed revision.')
+    return 1
+  }
+  const lock = currentLock(tokenizerFingerprint())
+  writeLock(lock)
+  console.log(`re-recorded ${Object.keys(lock.languages).length} fingerprints, leaving every revision alone`)
+  return 0
+}
+
+function run(): number {
+  if (process.argv.includes('--write')) return write()
+  if (process.argv.includes('--record')) return record()
+  return check()
+}
+
+process.exit(run())

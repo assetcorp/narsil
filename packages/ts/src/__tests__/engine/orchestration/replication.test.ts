@@ -5,7 +5,7 @@ import { awaitReplicationIdle, awaitWritesApplied, replicateToWorkers } from '..
 import { searchViaWorker } from '../../../engine/orchestration/search'
 import type { AnyDocument } from '../../../types/schema'
 import type { WorkerAction } from '../../../workers/protocol'
-import { recordingHarness as makeHarness, settle } from './fixtures'
+import { recordingHarness as makeHarness, registryWith, settle } from './fixtures'
 
 function insertAction(indexName: string, docId: string, document: AnyDocument, skipClone?: boolean): WorkerAction {
   return { type: 'insert', indexName, docId, document, requestId: `replicate-insert-${docId}`, skipClone }
@@ -175,6 +175,24 @@ describe('replicateToWorkers', () => {
     expect(entry).toBeDefined()
     if (entry?.action.type === 'insert') {
       expect(entry.action.document).toBe(document)
+    }
+    entry?.resolve()
+    await awaitReplicationIdle(harness.state, 'prose')
+  })
+
+  it('sends the worker copies the document without its vector fields', async () => {
+    const harness = makeHarness(1, ['prose'], 1, {
+      indexRegistry: registryWith('prose', { title: 'string', embedding: 'vector[4]' }),
+    })
+    const document: AnyDocument = { id: 'a', title: 'original', embedding: new Float32Array([1, 0, 0, 0]) }
+
+    await replicateToWorkers(harness.state, insertAction('prose', 'a', document))
+
+    await settle()
+    const entry = harness.dispatched.shift()
+    expect(entry).toBeDefined()
+    if (entry?.action.type === 'insert') {
+      expect(entry.action.document).toEqual({ id: 'a', title: 'original' })
     }
     entry?.resolve()
     await awaitReplicationIdle(harness.state, 'prose')

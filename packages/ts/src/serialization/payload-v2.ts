@@ -46,12 +46,10 @@ export interface RawPartitionPayloadV2 {
         metric?: string
         nodes: Array<[string, number, Array<[number, string[]]>]>
       }
-      sq8?: {
-        alpha: number
-        offset: number
-        quantized_vectors: Record<string, number[]>
-        vector_sums: Record<string, number>
-        vector_sum_sqs: Record<string, number>
+      codes?: {
+        bits: number
+        centroid: number[]
+        records: Uint8Array
       } | null
     }
   >
@@ -75,9 +73,7 @@ function validateHnswMetric(value: unknown): 'cosine' | 'dotProduct' | 'euclidea
   return undefined
 }
 
-export function deserializePayloadV2(data: Uint8Array): SerializablePartition {
-  const raw = decode(data) as RawPartitionPayloadV2
-
+function storedDocumentsOf(raw: RawPartitionPayloadV2): SerializablePartition['documents'] {
   const documents: SerializablePartition['documents'] = {}
   for (const [docId, doc] of Object.entries(raw.documents ?? {})) {
     documents[docId] = {
@@ -86,6 +82,18 @@ export function deserializePayloadV2(data: Uint8Array): SerializablePartition {
     }
   }
   dropStoredVectorValues(documents, raw.schema ?? {})
+  return documents
+}
+
+export function documentsOfPayloadV2(data: Uint8Array): Pick<SerializablePartition, 'documents' | 'schema'> {
+  const raw = decode(data) as RawPartitionPayloadV2
+  return { documents: storedDocumentsOf(raw), schema: raw.schema ?? {} }
+}
+
+export function deserializePayloadV2(data: Uint8Array): SerializablePartition {
+  const raw = decode(data) as RawPartitionPayloadV2
+
+  const documents = storedDocumentsOf(raw)
 
   const fieldNames = raw.inverted_index?.field_names ?? []
   const invertedIndex: SerializablePartition['invertedIndex'] = {}
@@ -136,15 +144,7 @@ export function deserializePayloadV2(data: Uint8Array): SerializablePartition {
             nodes: data.hnsw_graph.nodes,
           }
         : null,
-      sq8: data.sq8
-        ? {
-            alpha: data.sq8.alpha,
-            offset: data.sq8.offset,
-            quantizedVectors: data.sq8.quantized_vectors,
-            vectorSums: data.sq8.vector_sums,
-            vectorSumSqs: data.sq8.vector_sum_sqs,
-          }
-        : null,
+      codes: data.codes ? { bits: data.codes.bits, centroid: data.codes.centroid, records: data.codes.records } : null,
     }
   }
 

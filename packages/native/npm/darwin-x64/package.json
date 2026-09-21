@@ -1,0 +1,25 @@
+{
+  "name": "@delali/narsil-native-darwin-x64",
+  "version": "0.0.0",
+  "description": "Narsil's native search core in C, with its Node-API binding, compiled for macOS on Intel processors.",
+  "license": "Apache-2.0",
+  "author": "Delali (https://sondelali.com)",
+  "homepage": "https://github.com/assetcorp/narsil",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/assetcorp/narsil.git",
+    "directory": "packages/native/npm/darwin-x64"
+  },
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "files": [
+    "narsil-core.node"
+  ],
+  "engines": {
+    "node": ">=22"
+  }
+}

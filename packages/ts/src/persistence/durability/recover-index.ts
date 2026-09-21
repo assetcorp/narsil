@@ -71,6 +71,7 @@ export async function recoverPersistedIndex(
     manager,
     vectorFieldPaths: hooks.getVectorFieldPaths(indexName),
     vectorIndexes: hooks.getVectorIndexes(indexName),
+    storedTermsAreCurrent: metadata.analysisRevision === manager.language.revision,
   }
 
   const checkpoint = await loadSnapshot(directory, indexName, replayDeps)

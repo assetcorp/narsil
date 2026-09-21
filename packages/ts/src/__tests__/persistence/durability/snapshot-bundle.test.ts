@@ -16,7 +16,7 @@ async function encodeBundleBytes(bundle: SnapshotBundle): Promise<Uint8Array> {
 
 function sampleBundle(): SnapshotBundle {
   return {
-    version: 1,
+    version: 2,
     schema: { title: 'string', year: 'number' },
     language: 'english',
     partitions: [new Uint8Array([1, 2, 3]), new Uint8Array([4, 5])],
@@ -33,7 +33,7 @@ describe('snapshot bundle', () => {
     const bytes = await encodeBundleBytes(sampleBundle())
     const decoded = await decodeSnapshotBundle(bytes)
 
-    expect(decoded.version).toBe(1)
+    expect(decoded.version).toBe(2)
     expect(decoded.schema).toEqual({ title: 'string', year: 'number' })
     expect(decoded.language).toBe('english')
     expect(decoded.partitions.map(p => [...p])).toEqual([
@@ -61,7 +61,7 @@ describe('snapshot bundle', () => {
     const bytes = await encodeBundleBytes(sampleBundle())
     expect(bytes[4]).toBe(2)
     const decoded = await decodeSnapshotBundle(bytes)
-    expect(decoded.version).toBe(1)
+    expect(decoded.version).toBe(2)
     expect(decoded.language).toBe('english')
   })
 
@@ -134,7 +134,7 @@ describe('snapshot bundle', () => {
 
   it('rejects a stop word list that is not a list of strings', async () => {
     const { packEnvelopeBytes } = await import('../../../serialization/envelope')
-    const base = { version: 1, schema: { title: 'string' }, language: 'english', partitions: [] }
+    const base = { version: 2, schema: { title: 'string' }, language: 'english', partitions: [] }
 
     const notAList = await packEnvelopeBytes(encode({ ...base, stop_word_list: 'the' }), { checksum: true })
     await expect(decodeSnapshotBundle(notAList)).rejects.toBeInstanceOf(NarsilError)
@@ -145,7 +145,7 @@ describe('snapshot bundle', () => {
 
   it('rejects a bundle whose analysis name is not a string', async () => {
     const { packEnvelopeBytes } = await import('../../../serialization/envelope')
-    const base = { version: 1, schema: { title: 'string' }, language: 'english', partitions: [] }
+    const base = { version: 2, schema: { title: 'string' }, language: 'english', partitions: [] }
 
     const badTokenizer = await packEnvelopeBytes(encode({ ...base, tokenizer: 42 }), { checksum: true })
     await expect(decodeSnapshotBundle(badTokenizer)).rejects.toBeInstanceOf(NarsilError)

@@ -3,16 +3,46 @@ import { createPartitionIndex } from '../../../core/partition'
 import { isCompositePartition } from '../../../core/partition/composite'
 import { createFrozenSegment } from '../../../core/partition/frozen'
 import type { SegmentPayload } from '../../../core/partition/segment-payload'
-import { awaitCompactions, maybeCompactSegments, scheduleIdleMerge } from '../../../engine/orchestration/compaction'
+import {
+  awaitCompactions,
+  holdUnbroadcastSegments,
+  maybeCompactSegments,
+  scheduleIdleMerge,
+} from '../../../engine/orchestration/compaction'
 import { IDLE_MERGE_DELAY_MS, LIVE_TAIL_FREEZE_FLOOR } from '../../../engine/orchestration/constants'
+import { awaitReplicationIdle } from '../../../engine/orchestration/replication'
 import type { OrchestratorState } from '../../../engine/orchestration/types'
 import type { PartitionManager } from '../../../partitioning/manager'
 import type { AnyDocument, SchemaDefinition } from '../../../types/schema'
 import { createDirectExecutor } from '../../../workers/direct-executor'
+import type { Executor } from '../../../workers/executor'
+import type { WorkerAction } from '../../../workers/protocol'
 import { english } from '../../core/partition-index/fixtures'
 import { emptyOrchestratorState } from './fixtures'
 
 const schema: SchemaDefinition = { title: 'string', score: 'number' }
+
+function poolOf(worker: Executor): OrchestratorState['workerPool'] {
+  return {
+    getExecutor: () => worker,
+    getAllExecutors: () => [worker],
+    executorEntries: () => [{ workerId: 0, executor: worker }],
+    executorsHolding: () => [worker],
+    deadWorkerIds: () => [],
+    spawnReplacement: () => null,
+    leaseLeastBusy: () => ({ workerId: 0, executor: worker, release: () => undefined }),
+    leaseIdle: () => [{ workerId: 0, executor: worker, release: () => undefined }],
+    queriesInFlight: () => 0,
+    spawnAll: () => undefined,
+    workerCount: 1,
+    addIndex: () => undefined,
+    addIndexToAll: () => undefined,
+    removeIndex: () => undefined,
+    getMemoryStats: async () => [],
+    shutdown: async () => undefined,
+    whenEveryThreadIsGone: async () => undefined,
+  }
+}
 
 function segmentFor(marker: string, count: number): { payload: SegmentPayload; documents: AnyDocument[] } {
   const documents = Array.from({ length: count }, (_, i) => ({
@@ -67,6 +97,71 @@ describe('segment compaction during loading', () => {
 
     expect(frozenCount(manager)).toBe(3)
   })
+
+  it('never asks a copy to compact a segment the copies have not been sent', async () => {
+    const { state, manager } = await mainThreadIndex(8)
+    const partition = manager.getPartition(0)
+    if (!isCompositePartition(partition)) throw new Error('main copy holds no segments')
+    const sizes = partition.frozenSegmentSizes()
+    const unsent = sizes[sizes.length - 1].segmentId
+    const sent = sizes.slice(0, -1)
+
+    const worker = createDirectExecutor()
+    await worker.execute({ type: 'createIndex', indexName: 'products', config: { schema }, requestId: 'create' })
+    const copy = worker.getManager('products')
+    if (!copy) throw new Error('copy missing')
+    for (const segment of partition.frozenSegmentsById(sent.map(size => size.segmentId))) {
+      copy.attachFrozenSegment(0, segment)
+    }
+
+    const asked: string[][] = []
+    const recording: Executor = {
+      execute<T>(action: WorkerAction): Promise<T> {
+        if (action.type === 'compactSegments') asked.push([...action.segmentIds])
+        return worker.execute<T>(action)
+      },
+      shutdown: () => worker.shutdown(),
+    }
+    state.workerPool = poolOf(recording)
+    state.scaledOutIndexes.add('products')
+    holdUnbroadcastSegments(state, 'products', [unsent])
+
+    maybeCompactSegments(state, 'products')
+    await awaitCompactions(state)
+
+    expect(asked.flat()).not.toContain(unsent)
+    expect(frozenCount(copy)).toBe(sent.length)
+    expect(copy.countDocuments()).toBe(manager.countDocuments() - sizes[sizes.length - 1].liveDocumentCount)
+  })
+
+  it('brings a copy that missed a segment back in line through the merge that follows', async () => {
+    const { state, manager } = await mainThreadIndex(8)
+    const partition = manager.getPartition(0)
+    if (!isCompositePartition(partition)) throw new Error('main copy holds no segments')
+    const sizes = partition.frozenSegmentSizes()
+    const missed = sizes[sizes.length - 1]
+
+    const worker = createDirectExecutor()
+    await worker.execute({ type: 'createIndex', indexName: 'products', config: { schema }, requestId: 'create' })
+    const copy = worker.getManager('products')
+    if (!copy) throw new Error('copy missing')
+    for (const segment of partition.frozenSegmentsById(sizes.slice(0, -1).map(size => size.segmentId))) {
+      copy.attachFrozenSegment(0, segment)
+    }
+    expect(copy.countDocuments()).toBe(manager.countDocuments() - missed.liveDocumentCount)
+
+    state.workerPool = poolOf(worker)
+    state.scaledOutIndexes.add('products')
+
+    maybeCompactSegments(state, 'products')
+    await awaitCompactions(state)
+    await awaitReplicationIdle(state, 'products')
+
+    expect(frozenCount(manager)).toBe(1)
+    expect(frozenCount(copy)).toBe(1)
+    expect(copy.countDocuments()).toBe(manager.countDocuments())
+    expect(copy.has('seg7-10')).toBe(true)
+  })
 })
 
 describe('segment merge once the index is idle', () => {
@@ -114,6 +209,7 @@ describe('segment merge once the index is idle', () => {
       removeIndex: () => undefined,
       getMemoryStats: async () => [],
       shutdown: async () => undefined,
+      whenEveryThreadIsGone: async () => undefined,
     }
     state.scaledOutIndexes.add('products')
 

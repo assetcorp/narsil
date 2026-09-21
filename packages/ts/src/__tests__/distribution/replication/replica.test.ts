@@ -79,11 +79,22 @@ function createMockVectorIndex(dimension: number): VectorIndex {
       estimatedOptimizeMs: 0,
     })),
     estimateMemoryBytes: vi.fn(() => 0),
-    serialize: vi.fn(() => ({ fieldName: 'embedding', dimension, vectors: [], graphs: [], sq8: null })),
+    serialize: vi.fn(() => []),
+    planCheckpoint: vi.fn(() => {
+      throw new Error('The fake vector index plans no checkpoint')
+    }),
+    recordCheckpoint: vi.fn(),
+    restoreCheckpoint: vi.fn(() => ({ addFile: vi.fn(), finish: vi.fn() })),
+    vectorFilesInUse: vi.fn(() => []),
     deserialize: vi.fn(),
+    adoptDiskLayout: vi.fn(async () => {}),
+    releaseVectorFiles: vi.fn(async () => {}),
+    completeGraph: vi.fn(async () => {}),
     size: 0,
     dimension,
     fieldName: 'embedding',
+    quantization: 'none',
+    storage: 'memory',
   }
 }
 

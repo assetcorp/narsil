@@ -116,13 +116,32 @@ export function isSimdAvailable(): boolean {
   return wasmExports !== null
 }
 
+/**
+ * The distance kernels bound to one memory, which read their operands at byte
+ * offsets inside that memory so that a caller measures against a vector where
+ * it already lies.
+ *
+ * @internal
+ */
 export interface ArenaSimd {
+  /** The kernels read every operand out of this memory. */
   memory: WebAssembly.Memory
+  /** Returns the dot product of two float32 vectors at the given byte offsets. */
   dot_product: (ptrA: number, ptrB: number, len: number) => number
+  /** Returns the length of the float32 vector at the given byte offset. */
   magnitude: (ptr: number, len: number) => number
+  /** Returns the squared euclidean distance between two float32 vectors at the given byte offsets. */
   squared_euclidean_distance: (ptrA: number, ptrB: number, len: number) => number
+  /** Returns the integer dot product of two byte code vectors at the given byte offsets. */
   dot_u8: (ptrA: number, ptrB: number, len: number) => number
+  /** Returns the integer squared distance between two byte code vectors at the given byte offsets. */
   sqdist_u8: (ptrA: number, ptrB: number, len: number) => number
+  /** Returns the sum of level products of two 4-bit codes at the given byte offsets, each holding two levels per byte. */
+  osq_dot_nibbles_4x4: (ptrA: number, ptrB: number, bytes: number) => number
+  /** Returns the sum of level products of a 1-bit or 2-bit code and a query staged as four bit planes. Each plane spans `planeBytes`, with one bit for each of the code's lowest level bits. */
+  osq_dot_bits: (ptrDoc: number, ptrPlanes: number, planeBytes: number, docBits: number) => number
+  /** Returns the sum of level products of two 1-bit codes or two 2-bit codes at the given byte offsets. */
+  osq_dot_bits_pair: (ptrA: number, ptrB: number, bytes: number, bits: number) => number
 }
 
 let arenaModule: WebAssembly.Module | null | undefined
@@ -156,6 +175,9 @@ export function createArenaSimd(): ArenaSimd | null {
     if (
       typeof exports.dot_u8 !== 'function' ||
       typeof exports.sqdist_u8 !== 'function' ||
+      typeof exports.osq_dot_nibbles_4x4 !== 'function' ||
+      typeof exports.osq_dot_bits !== 'function' ||
+      typeof exports.osq_dot_bits_pair !== 'function' ||
       typeof exports.dot_product !== 'function' ||
       typeof exports.magnitude !== 'function' ||
       typeof exports.squared_euclidean_distance !== 'function' ||
@@ -191,19 +213,6 @@ function getSharedMemoryModule(): WebAssembly.Module | null {
   return sharedMemoryModule
 }
 
-/**
- * Instantiates the distance kernels over a shared memory another thread also
- * reads, so every thread computes against one copy of the vector data.
- *
- * The kernels are compiled from the same source as {@link createArenaSimd}
- * uses, with the module's own memory swapped for the imported one.
- *
- * @param memory A shared WebAssembly memory holding the vector arenas.
- * @returns The kernel exports bound to that memory, or null when the runtime
- * cannot instantiate them.
- *
- * @internal
- */
 export function createSharedArenaSimd(memory: WebAssembly.Memory): ArenaSimd | null {
   try {
     const module = getSharedMemoryModule()
@@ -213,6 +222,9 @@ export function createSharedArenaSimd(memory: WebAssembly.Memory): ArenaSimd | n
     if (
       typeof exports.dot_u8 !== 'function' ||
       typeof exports.sqdist_u8 !== 'function' ||
+      typeof exports.osq_dot_nibbles_4x4 !== 'function' ||
+      typeof exports.osq_dot_bits !== 'function' ||
+      typeof exports.osq_dot_bits_pair !== 'function' ||
       typeof exports.dot_product !== 'function' ||
       typeof exports.magnitude !== 'function' ||
       typeof exports.squared_euclidean_distance !== 'function'
@@ -226,30 +238,15 @@ export function createSharedArenaSimd(memory: WebAssembly.Memory): ArenaSimd | n
       squared_euclidean_distance: exports.squared_euclidean_distance,
       dot_u8: exports.dot_u8,
       sqdist_u8: exports.sqdist_u8,
+      osq_dot_nibbles_4x4: exports.osq_dot_nibbles_4x4,
+      osq_dot_bits: exports.osq_dot_bits,
+      osq_dot_bits_pair: exports.osq_dot_bits_pair,
     }
   } catch {
     return null
   }
 }
 
-/**
- * Computes the distance between two float32 vectors already resident in a
- * kernel's memory, given their byte offsets and magnitudes.
- *
- * The main thread's private store and a worker's shared view both answer
- * arena distances through this one function, so the two paths cannot drift.
- *
- * @param simd The kernel instance whose memory holds both vectors.
- * @param byteA The first vector's byte offset.
- * @param byteB The second vector's byte offset.
- * @param dimension The number of components in each vector.
- * @param metric The distance metric to compute.
- * @param magnitudeA The first vector's magnitude, used by cosine alone.
- * @param magnitudeB The second vector's magnitude, used by cosine alone.
- * @returns The distance under the metric.
- *
- * @internal
- */
 export function arenaFloat32Distance(
   simd: ArenaSimd,
   byteA: number,

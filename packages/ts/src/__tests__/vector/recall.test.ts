@@ -1,21 +1,63 @@
 import { describe, expect, it } from 'vitest'
-import { createBruteForceSearch } from '../../vector/brute-force'
 import { createHNSWIndex } from '../../vector/hnsw'
-import { createScalarQuantizer } from '../../vector/scalar-quantization'
-import { magnitude } from '../../vector/similarity'
+import { createOsqQuantizer, type OsqBits } from '../../vector/osq'
 import { createVectorStore } from '../../vector/vector-store'
+import { createExactSearch } from './exact-search'
 
-function normalizedVector(dim: number, seed: number): Float32Array {
-  const v = new Float32Array(dim)
-  for (let i = 0; i < dim; i++) {
-    v[i] = Math.sin(seed * (i + 1) * 1.618) * Math.cos(seed * 0.7 + i)
+const CLUSTER_CENTRES = 64
+const CLUSTER_SPREAD = 0.35
+
+function pseudoRandom(seed: number): () => number {
+  let state = seed >>> 0
+  return () => {
+    state = (state * 1664525 + 1013904223) >>> 0
+    return state / 4294967296
   }
-  const mag = magnitude(v)
-  if (mag === 0) return v
-  for (let i = 0; i < dim; i++) {
-    v[i] /= mag
+}
+
+function gaussianPair(random: () => number): [number, number] {
+  let u = 0
+  let v = 0
+  let s = 0
+  do {
+    u = random() * 2 - 1
+    v = random() * 2 - 1
+    s = u * u + v * v
+  } while (s === 0 || s >= 1)
+  const factor = Math.sqrt((-2 * Math.log(s)) / s)
+  return [u * factor, v * factor]
+}
+
+function gaussianVector(dim: number, random: () => number): Float32Array {
+  const v = new Float32Array(dim)
+  for (let i = 0; i < dim; i += 2) {
+    const [a, b] = gaussianPair(random)
+    v[i] = a
+    if (i + 1 < dim) v[i + 1] = b
   }
   return v
+}
+
+function unitNormalise(v: Float32Array): Float32Array {
+  let sumSq = 0
+  for (let i = 0; i < v.length; i++) sumSq += v[i] * v[i]
+  const mag = Math.sqrt(sumSq)
+  if (mag === 0) return v
+  for (let i = 0; i < v.length; i++) v[i] /= mag
+  return v
+}
+
+function clusteredVectors(dim: number, count: number, random: () => number): Float32Array[] {
+  const centres = Array.from({ length: CLUSTER_CENTRES }, () => gaussianVector(dim, random))
+  const vectors: Float32Array[] = []
+  for (let n = 0; n < count; n++) {
+    const centre = centres[Math.floor(random() * CLUSTER_CENTRES)]
+    const noise = gaussianVector(dim, random)
+    const v = new Float32Array(dim)
+    for (let i = 0; i < dim; i++) v[i] = centre[i] + CLUSTER_SPREAD * noise[i]
+    vectors.push(unitNormalise(v))
+  }
+  return vectors
 }
 
 function computeRecallAtK(
@@ -32,37 +74,41 @@ function computeRecallAtK(
   return bfTopK.size > 0 ? matches / bfTopK.size : 1
 }
 
-function runRecallBenchmark(dim: number, vectorCount: number, queryCount: number, k: number, efSearch: number): number {
-  const store = createVectorStore()
-  const quantizer = createScalarQuantizer(dim)
-  const vectors = new Map<string, Float32Array>()
+function runRecallBenchmark(
+  dim: number,
+  bits: OsqBits,
+  vectorCount: number,
+  queryCount: number,
+  k: number,
+  efSearch: number,
+  oversample?: number,
+): number {
+  const random = pseudoRandom(20260913 + dim + bits)
+  const store = createVectorStore({ dimension: dim, codeBits: bits })
+  const quantizer = createOsqQuantizer(dim, bits, 'cosine', store)
+  const corpus = clusteredVectors(dim, vectorCount + queryCount, random)
+  const docIds: string[] = []
 
   for (let i = 0; i < vectorCount; i++) {
-    const v = normalizedVector(dim, i + 1)
     const docId = `doc${i}`
-    vectors.set(docId, v)
-    store.insert(docId, v)
+    docIds.push(docId)
+    store.insert(docId, corpus[i])
   }
 
-  const allVectors = Array.from(vectors.values())
-  quantizer.calibrate(allVectors)
-  for (const [docId, v] of vectors) {
-    quantizer.quantize(docId, v)
-  }
+  quantizer.calibrate(Int32Array.from({ length: vectorCount }, (_, ordinal) => ordinal))
 
-  const m = dim >= 256 ? 48 : 16
-  const hnsw = createHNSWIndex(dim, store, { m, efConstruction: 200, metric: 'cosine' }, quantizer)
-  for (const docId of vectors.keys()) {
+  const hnsw = createHNSWIndex(dim, store, { m: 16, efConstruction: 200, metric: 'cosine' }, quantizer)
+  for (const docId of docIds) {
     hnsw.insertNode(docId)
   }
 
-  const bruteForce = createBruteForceSearch(dim, store)
+  const bruteForce = createExactSearch(dim, store)
 
   let totalRecall = 0
   for (let q = 0; q < queryCount; q++) {
-    const query = normalizedVector(dim, q + 1)
+    const query = corpus[vectorCount + q]
     const bfResults = bruteForce.search(query, k, 'cosine', 0)
-    const hnswResults = hnsw.search(query, k, 'cosine', 0, undefined, efSearch)
+    const hnswResults = hnsw.search(query, k, 'cosine', 0, { efSearch, oversample })
 
     const recall = computeRecallAtK(hnswResults, bfResults, k)
     totalRecall += recall
@@ -71,14 +117,19 @@ function runRecallBenchmark(dim: number, vectorCount: number, queryCount: number
   return totalRecall / queryCount
 }
 
-describe('HNSW + SQ8 recall@10', () => {
-  it('achieves >= 95% recall@10 with 2K vectors at 1536 dims', () => {
-    const avgRecall = runRecallBenchmark(1536, 2000, 50, 10, 75)
+describe('HNSW built from OSQ codes, recall@10 on clustered vectors', () => {
+  it('achieves >= 95% recall@10 with 2K vectors at 1536 dims and 1-bit codes', () => {
+    const avgRecall = runRecallBenchmark(1536, 1, 2000, 100, 10, 128)
     expect(avgRecall).toBeGreaterThanOrEqual(0.95)
   }, 300_000)
 
-  it('achieves >= 95% recall@10 with 2K vectors at 384 dims', () => {
-    const avgRecall = runRecallBenchmark(384, 2000, 50, 10, 75)
+  it('achieves >= 95% recall@10 with 2K vectors at 384 dims and 4-bit codes re-scored three deep', () => {
+    const avgRecall = runRecallBenchmark(384, 4, 2000, 100, 10, 128, 3)
+    expect(avgRecall).toBeGreaterThanOrEqual(0.95)
+  }, 300_000)
+
+  it('achieves >= 95% recall@10 with 2K vectors at 128 dims and 8-bit codes', () => {
+    const avgRecall = runRecallBenchmark(128, 8, 2000, 100, 10, 128)
     expect(avgRecall).toBeGreaterThanOrEqual(0.95)
   }, 300_000)
 })

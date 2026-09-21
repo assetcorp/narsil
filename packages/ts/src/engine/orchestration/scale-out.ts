@@ -1,9 +1,10 @@
 import { createWorkerFactory } from '#platform/worker-factory'
+import { ErrorCodes, NarsilError } from '../../errors'
 import { createWorkerPool, type WorkerPool } from '../../workers/pool'
 import type { WorkerAction } from '../../workers/protocol'
 import { transferIndexToPool } from '../worker-resync'
 import { scheduleIdleMerge } from './compaction'
-import { POOL_RESTART_DELAY_MS } from './constants'
+import { POOL_RESTART_DELAY_MS, RETIRED_THREADS_EXIT_WAIT_MS } from './constants'
 import {
   eligibleIndexNames,
   isDeterministicFailure,
@@ -11,7 +12,8 @@ import {
   toError,
   workerIneligibility,
 } from './eligibility'
-import { deferPoolRestart, handleWorkerCrash, retirePool } from './repair'
+import { freezeLiveTailsBeforeCopiesLoad } from './live-tail'
+import { deferPoolRestart, handleWorkerCrash, handleWorkerThreadGone, retirePool } from './repair'
 import { enqueueReplication } from './replication'
 import { announceRequestThreads } from './request-threads'
 import type { CopyTransition, OrchestratorState } from './types'
@@ -24,7 +26,29 @@ export function copiesAllowed(state: OrchestratorState): boolean {
   return state.workerPool !== null || Date.now() >= state.poolRetryAt
 }
 
+function retiredThreadsGoneWithin(state: OrchestratorState, timeoutMs: number): Promise<boolean> {
+  return new Promise<boolean>(resolve => {
+    const timeoutId = setTimeout(() => resolve(false), timeoutMs)
+    const settle = () => {
+      clearTimeout(timeoutId)
+      resolve(true)
+    }
+    void state.retiredThreadsGone.then(settle)
+    void state.shutdownStarted.then(settle)
+  })
+}
+
 async function startPool(state: OrchestratorState): Promise<WorkerPool> {
+  const everyRetiredThreadIsGone = await retiredThreadsGoneWithin(state, RETIRED_THREADS_EXIT_WAIT_MS)
+  if (state.shuttingDown) {
+    throw new NarsilError(ErrorCodes.WORKER_CRASHED, 'The engine is shutting down, so no worker pool starts')
+  }
+  if (!everyRetiredThreadIsGone) {
+    throw new NarsilError(
+      ErrorCodes.WORKER_TIMEOUT,
+      `A thread of the retired worker pool still runs after ${RETIRED_THREADS_EXIT_WAIT_MS}ms, so no new pool starts yet`,
+    )
+  }
   eligibleIndexNames(state)
   const factory = await createWorkerFactory()
   let started: WorkerPool | null = null
@@ -33,6 +57,9 @@ async function startPool(state: OrchestratorState): Promise<WorkerPool> {
     workerFactory: factory,
     onWorkerCrash(workerId, indexNames, error) {
       if (started !== null) handleWorkerCrash(state, started, workerId, indexNames, error)
+    },
+    onWorkerGone(workerId) {
+      if (started !== null) handleWorkerThreadGone(state, started, workerId)
     },
   })
   started = pool
@@ -121,6 +148,7 @@ async function loadCopies(state: OrchestratorState, indexName: string, reason: s
   const buffered: WorkerAction[] = []
   state.copyLoadBuffers.set(indexName, buffered)
   try {
+    freezeLiveTailsBeforeCopiesLoad(manager)
     await transferIndexToPool(indexName, pool, entry.config, manager, state.callbacks?.isAnalysisStale?.(indexName))
     state.scaledOutIndexes.add(indexName)
     state.lastAccessAt.set(indexName, Date.now())

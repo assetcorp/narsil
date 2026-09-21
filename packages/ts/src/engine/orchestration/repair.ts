@@ -5,7 +5,7 @@ import { POOL_RESTART_DELAY_MAX_MS, POOL_RESTART_DELAY_MS } from './constants'
 import { enqueueReplication } from './replication'
 import { scheduleRequestThreadPoolRestart } from './request-threads'
 import type { OrchestratorState } from './types'
-import { refreshVectorCopies } from './vector-copies'
+import { refreshVectorCopies, releaseVectorLocksOf } from './vector-copies'
 
 export const COPY_RESTART_REASON = 'A request arrived after every worker crashed and the restart delay passed'
 
@@ -28,6 +28,8 @@ export function retirePool(state: OrchestratorState, pool: WorkerPool): void {
   state.scaledOutIndexes.clear()
   state.segmentLedger.clear()
   for (const { workerId } of pool.executorEntries()) state.requestThreads?.onWorkerGone(workerId)
+  const earlierThreadsGone = state.retiredThreadsGone
+  state.retiredThreadsGone = pool.whenEveryThreadIsGone().then(() => earlierThreadsGone)
   void pool.shutdown().catch(() => undefined)
   scheduleRequestThreadPoolRestart(state)
 }
@@ -41,10 +43,11 @@ export function handleWorkerCrash(
 ): void {
   state.callbacks?.onWorkerCrash?.(workerId, indexNames, error)
   state.requestThreads?.onWorkerGone(workerId)
-  if (pool.getAllExecutors().length === 0) {
-    retirePool(state, pool)
-    return
-  }
+  if (pool.getAllExecutors().length === 0) retirePool(state, pool)
+}
+
+export function handleWorkerThreadGone(state: OrchestratorState, pool: WorkerPool, workerId: number): void {
+  releaseVectorLocksOf(state, workerId)
   scheduleRepair(state, pool)
 }
 

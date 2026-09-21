@@ -12,11 +12,19 @@ import {
 } from './constants'
 import { createDurableDirectory, type DurableDirectory } from './durable-filesystem'
 import { drainIndexStateForUnload, type IndexState, type PartitionState } from './manager-state'
+import { type PartitionBatchDeps, recordBatchesByPartition } from './mutation-batch'
 import { recoverPersistedIndex } from './recover-index'
 import { listPersistedIndexes } from './recovery'
 import { createSeqOwner, SINGLE_NODE_PRIMARY_TERM } from './seq-owner'
-import type { DurabilityConfig, DurabilityManager, IndexDurabilityHooks, MutationRecord } from './types'
+import type {
+  DurabilityConfig,
+  DurabilityManager,
+  IndexDurabilityHooks,
+  MutationOutcome,
+  MutationRecord,
+} from './types'
 import { createWalWriter } from './wal-writer'
+import { checkpointIsDue, releaseStalledWrites, stallWhileCheckpointsFallBehind } from './write-stall'
 
 /**
  * Creates durable mutation logging, recovery, and checkpoint coordination.
@@ -78,7 +86,14 @@ export function createDurabilityManager(
   function getOrCreateIndexState(indexName: string): IndexState {
     let state = indexes.get(indexName)
     if (state === undefined) {
-      state = { partitions: new Map(), mutationsSinceCheckpoint: 0, checkpointInFlight: null, unloading: false }
+      state = {
+        partitions: new Map(),
+        mutationsSinceCheckpoint: 0,
+        documentBytesSinceCheckpoint: 0,
+        checkpointInFlight: null,
+        unloading: false,
+        stalledWrites: [],
+      }
       indexes.set(indexName, state)
     }
     return state
@@ -191,6 +206,7 @@ export function createDurabilityManager(
     }
     const run = performCheckpoint(indexName, indexState, fromMemory).finally(() => {
       indexState.checkpointInFlight = null
+      releaseStalledWrites(indexState)
     })
     indexState.checkpointInFlight = run
     return run
@@ -205,9 +221,55 @@ export function createDurabilityManager(
       compactionThreshold,
       canOffload: canOffloadCheckpoint,
       fromMemory,
+      mutationThreshold: checkpointMutationThreshold,
+      mayContinue: () => !indexState.unloading && !shuttingDown && fatalError === null,
       queueMetadataWrite,
       markFatal,
     })
+  }
+
+  const partitionBatchDeps: PartitionBatchDeps = {
+    syncEachBatch: mode === 'sync',
+    fatalError: () => fatalError,
+    markFatal,
+    buildEntry: buildMutationEntry,
+  }
+
+  async function recordMutations(records: readonly MutationRecord[]): Promise<MutationOutcome[]> {
+    if (fatalError !== null) {
+      const error = fatalError
+      return records.map(() => ({ ok: false, error }))
+    }
+    const outcomes = await recordBatchesByPartition(
+      records,
+      record => getOrCreatePartition(record.indexName, record.partitionId, 0),
+      partitionBatchDeps,
+    )
+
+    const recordedByIndex = new Map<string, { records: number; documentBytes: number }>()
+    for (let i = 0; i < records.length; i++) {
+      if (!outcomes[i].ok) continue
+      const recorded = recordedByIndex.get(records[i].indexName) ?? { records: 0, documentBytes: 0 }
+      recorded.records += 1
+      recorded.documentBytes += records[i].document?.byteLength ?? 0
+      recordedByIndex.set(records[i].indexName, recorded)
+    }
+    for (const [indexName, recorded] of recordedByIndex) {
+      const indexState = getOrCreateIndexState(indexName)
+      indexState.mutationsSinceCheckpoint += recorded.records
+      indexState.documentBytesSinceCheckpoint += recorded.documentBytes
+      if (checkpointIsDue(indexState, checkpointMutationThreshold)) {
+        void checkpointIndex(indexName).catch(err => {
+          markFatal(toError(err))
+        })
+      }
+      await stallWhileCheckpointsFallBehind(indexState)
+    }
+    if (recordedByIndex.size > 0) {
+      startCheckpointTimer()
+      startAsyncFlushTimer()
+    }
+    return outcomes
   }
 
   function recoverIndex(indexName: string, metadataOnly = false): Promise<void> {
@@ -247,55 +309,14 @@ export function createDurabilityManager(
     },
 
     async recordMutation(record: MutationRecord): Promise<number> {
-      if (fatalError !== null) {
-        throw fatalError
+      const [outcome] = await recordMutations([record])
+      if (!outcome.ok) {
+        throw outcome.error
       }
-      const indexState = getOrCreateIndexState(record.indexName)
-      const partition = getOrCreatePartition(record.indexName, record.partitionId, 0)
-
-      let allocatedSeqNo = 0
-      const appended = partition.appendChain.then(async () => {
-        if (fatalError !== null) {
-          throw fatalError
-        }
-        if (partition.failed !== null) {
-          throw partition.failed
-        }
-        await record.apply()
-        allocatedSeqNo = partition.seqOwner.next()
-        try {
-          const entry = buildMutationEntry(record, allocatedSeqNo)
-          await partition.walWriter.append(entry)
-        } catch (err) {
-          partition.failed = toError(err)
-          markFatal(partition.failed)
-          throw partition.failed
-        }
-        partition.appliedSeqNo = allocatedSeqNo
-      })
-      partition.appendChain = appended.catch(() => undefined)
-      await appended
-
-      if (mode === 'sync') {
-        try {
-          await partition.walWriter.commit()
-        } catch (err) {
-          partition.failed = toError(err)
-          markFatal(partition.failed)
-          throw partition.failed
-        }
-      }
-
-      indexState.mutationsSinceCheckpoint += 1
-      startCheckpointTimer()
-      startAsyncFlushTimer()
-      if (indexState.mutationsSinceCheckpoint >= checkpointMutationThreshold) {
-        void checkpointIndex(record.indexName).catch(err => {
-          markFatal(toError(err))
-        })
-      }
-      return allocatedSeqNo
+      return outcome.seqNo
     },
+
+    recordMutations,
 
     persistMetadata(indexName: string): Promise<void> {
       return queueMetadataWrite(indexName, async () => {
@@ -330,6 +351,7 @@ export function createDurabilityManager(
         indexes.delete(indexName)
         metadataWrites.delete(indexName)
       }
+      for (const vectorIndex of hooks.getVectorIndexes(indexName).values()) await vectorIndex.releaseVectorFiles()
       for (const key of await directory.list(`${indexName}/`)) {
         await directory.remove(key)
       }

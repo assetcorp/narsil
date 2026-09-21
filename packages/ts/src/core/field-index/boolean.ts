@@ -1,10 +1,5 @@
 import { bitsetHas, bitsetSet, createBitSet } from '../bitset'
 
-/**
- * The reads a filter performs against a boolean field index.
- *
- * @internal
- */
 export interface BooleanFieldIndexReader {
   queryEq(value: boolean): Set<number>
   queryNe(value: boolean): Set<number>

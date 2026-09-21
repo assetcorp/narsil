@@ -54,7 +54,7 @@ export async function applyLocalReplicationEntry(core: EngineCore, entry: Replic
 
     if (entry.operation === 'INDEX') {
       applyIndexEntry(entry, manager, indexEntry.vectorFieldPaths, vecIndexes)
-      const appliedDocument = manager.get(entry.documentId)
+      const appliedDocument = manager.getRef(entry.documentId)
       if (appliedDocument !== undefined) {
         await core.orchestrator.replicateToWorkers({
           type: 'insert',

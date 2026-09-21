@@ -72,6 +72,9 @@ function failingSyncDirectory(): { directory: DurableDirectory; appended: Uint8A
     async list(): Promise<string[]> {
       return []
     },
+    async pathOf(key: string): Promise<string> {
+      return `/fake/${key}`
+    },
   }
 
   return { directory, appended }

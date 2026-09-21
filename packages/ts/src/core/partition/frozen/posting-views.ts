@@ -27,12 +27,13 @@ function sumFrequencies(frequencies: Uint16Array): number {
 
 export interface FrozenPostingViews {
   viewAt(payloadSlot: number, documentFrequency: number): PostingListView
+  viewReadOnce(payloadSlot: number, documentFrequency: number): PostingListView
 }
 
 export function createFrozenPostingViews(payload: PostingArrays, tombstones: FrozenTombstones): FrozenPostingViews {
   const views = new Map<number, PostingListView>()
 
-  function buildView(payloadSlot: number, documentFrequency: number): PostingListView {
+  function buildView(payloadSlot: number, documentFrequency: number, keepsPositions: boolean): PostingListView {
     const start = payload.postingOffsets[payloadSlot]
     const end = payload.postingOffsets[payloadSlot + 1]
     const docIds = payload.postingDocIds.subarray(start, end)
@@ -50,15 +51,17 @@ export function createFrozenPostingViews(payload: PostingArrays, tombstones: Fro
       fieldNameIndices,
       get positions(): ReadonlyArray<readonly number[]> | null {
         if (positionOffsets === null || positionValues === null) return null
-        if (materializedPositions === null) {
-          materializedPositions = new Array(end - start)
-          for (let row = start; row < end; row++) {
-            materializedPositions[row - start] = [
-              ...positionValues.subarray(positionOffsets[row], positionOffsets[row + 1]),
-            ]
-          }
+        if (materializedPositions !== null) return materializedPositions
+        const positions: Array<readonly number[]> = new Array(end - start)
+        for (let row = start; row < end; row++) {
+          positions[row - start] = [...positionValues.subarray(positionOffsets[row], positionOffsets[row + 1])]
         }
-        return materializedPositions
+        if (keepsPositions) materializedPositions = positions
+        return positions
+      },
+      positionCountAt(row: number): number {
+        if (positionOffsets === null) return 0
+        return positionOffsets[start + row + 1] - positionOffsets[start + row]
       },
       docIdSet: { size: documentFrequency },
       deletedDocs: tombstones,
@@ -74,10 +77,14 @@ export function createFrozenPostingViews(payload: PostingArrays, tombstones: Fro
     viewAt(payloadSlot: number, documentFrequency: number): PostingListView {
       let view = views.get(payloadSlot)
       if (view === undefined) {
-        view = buildView(payloadSlot, documentFrequency)
+        view = buildView(payloadSlot, documentFrequency, true)
         views.set(payloadSlot, view)
       }
       return view
+    },
+
+    viewReadOnce(payloadSlot: number, documentFrequency: number): PostingListView {
+      return buildView(payloadSlot, documentFrequency, false)
     },
   }
 }

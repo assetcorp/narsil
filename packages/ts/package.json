@@ -34,6 +34,22 @@
     "#platform/heap-statistics": {
       "browser": "./src/runtime/heap-statistics.browser.ts",
       "default": "./src/runtime/heap-statistics.ts"
+    },
+    "#platform/idle-heap-cleanup": {
+      "browser": "./src/runtime/idle-heap-cleanup.browser.ts",
+      "default": "./src/runtime/idle-heap-cleanup.ts"
+    },
+    "#platform/vector-file": {
+      "browser": "./src/vector/vector-store/vector-file.browser.ts",
+      "default": "./src/vector/vector-store/vector-file.ts"
+    },
+    "#platform/native-core": {
+      "browser": "./src/vector/native/loader.browser.ts",
+      "default": "./src/vector/native/loader.ts"
+    },
+    "#platform/native-crc32": {
+      "browser": "./src/serialization/native-crc32.browser.ts",
+      "default": "./src/serialization/native-crc32.ts"
     }
   },
   "sideEffects": false,
@@ -61,6 +77,7 @@
     "stemmers": "tsx snowball/build.ts",
     "revisions": "tsx scripts/analysis-revisions.ts",
     "revisions:write": "tsx scripts/analysis-revisions.ts --write",
+    "revisions:record": "tsx scripts/analysis-revisions.ts --record",
     "api": "tsx scripts/api-surface.ts",
     "api:write": "tsx scripts/api-surface.ts --write",
     "lookalikes": "tsx scripts/lookalike-counts.ts",
@@ -105,10 +122,6 @@
     "./invalidation/broadcast-channel": {
       "import": "./dist/invalidation/broadcast-channel.mjs",
       "types": "./dist/invalidation/broadcast-channel.d.ts"
-    },
-    "./vector/hnsw-build-worker": {
-      "import": "./dist/vector/hnsw-build-worker.mjs",
-      "types": "./dist/vector/hnsw-build-worker.d.ts"
     },
     "./vector/search-worker": {
       "import": "./dist/vector/search-worker.mjs",

@@ -26,6 +26,7 @@ export interface WireVectorQueryParams {
   similarity: number | null
   metric: 'cosine' | 'dotProduct' | 'euclidean' | null
   efSearch: number | null
+  oversample: number | null
 }
 
 export interface WireHybridConfig {

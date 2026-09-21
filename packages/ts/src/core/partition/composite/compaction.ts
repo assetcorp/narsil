@@ -1,9 +1,9 @@
 import { ErrorCodes, NarsilError } from '../../../errors'
 import type { AnyDocument } from '../../../types/schema'
 import type { FrozenSegment } from '../frozen'
-import { createPartitionIndex, type PartitionIndex } from '../index'
+import type { PartitionIndex } from '../index'
 import type { PartitionReadState } from '../read-state'
-import { encodeSegmentState, type SegmentPayload } from '../segment-payload'
+import type { SegmentPayload } from '../segment-payload'
 
 export type LiveTailFreezer = (payload: SegmentPayload, documents: AnyDocument[]) => FrozenSegment | null
 
@@ -38,22 +38,6 @@ export function survivorDocumentsOf(sub: PartitionReadState, payload: SegmentPay
   })
 }
 
-export function buildCompactedSegmentPayload(segments: readonly FrozenSegment[]): {
-  payload: SegmentPayload
-  documents: AnyDocument[]
-} {
-  const scratch = createPartitionIndex(0)
-  const documents: AnyDocument[] = []
-  for (const segment of segments) {
-    const payload = encodeSegmentState(segment)
-    if (payload.documentCount === 0) continue
-    const segmentDocuments = survivorDocumentsOf(segment, payload)
-    scratch.mergeSegmentPayload(payload, segmentDocuments)
-    documents.push(...segmentDocuments)
-  }
-  return { payload: scratch.encodeSegment(), documents }
-}
-
 export function freezeLiveTailInto(
   live: PartitionIndex,
   liveState: PartitionReadState,
@@ -73,21 +57,15 @@ export function swapFrozenSegmentList(
   frozen: FrozenSegment[],
   dropSegmentIds: readonly string[],
   replacement: FrozenSegment,
-  partitionId: number,
 ): void {
-  const dropped = resolveFrozenSegments(frozen, dropSegmentIds, partitionId)
   const dropSet = new Set(dropSegmentIds)
-  for (const ordinal of replacement.docStore.allInternalIds()) {
-    const docId = replacement.docStore.getExternalId(ordinal)
-    if (docId === undefined) continue
-    let liveInDropped = false
-    for (const segment of dropped) {
-      if (segment.hasDocument(docId)) {
-        liveInDropped = true
-        break
-      }
+  const dropped = frozen.filter(segment => dropSet.has(segment.segmentId))
+  for (const segment of dropped) {
+    for (const docId of segment.tombstonedDocIds()) {
+      if (!replacement.hasDocument(docId)) continue
+      if (dropped.some(other => other.hasDocument(docId))) continue
+      replacement.tombstoneDocument(docId)
     }
-    if (!liveInDropped) replacement.tombstoneDocument(docId)
   }
   const kept = frozen.filter(segment => !dropSet.has(segment.segmentId))
   frozen.length = 0

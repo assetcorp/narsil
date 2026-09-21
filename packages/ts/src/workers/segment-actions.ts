@@ -1,13 +1,13 @@
-import { createPartitionIndex } from '../core/partition'
 import { isCompositePartition } from '../core/partition/composite'
-import { buildCompactedSegmentPayload } from '../core/partition/composite/compaction'
 import { createSharedFrozenSegment, freezeSegmentShared } from '../core/partition/frozen'
+import { mergeFrozenSegments } from '../core/partition/frozen/merge'
+import { buildSegmentPayload } from '../core/partition/segment-builder'
 import { ErrorCodes, NarsilError } from '../errors'
 import { resolvePartitionInsertOptions } from '../partitioning/insert-options'
 import type { PartitionManager } from '../partitioning/manager'
 import type { LanguageModule } from '../types/language'
 import type { IndexConfig } from '../types/schema'
-import type { WorkerAction } from './protocol'
+import type { BuiltSegmentResult, WorkerAction } from './protocol'
 
 export interface SegmentIndexEntry {
   manager: PartitionManager
@@ -52,14 +52,21 @@ function requireComposite(entry: SegmentIndexEntry, indexName: string, partition
 export function runSegmentAction(entry: SegmentIndexEntry, action: SegmentAction): unknown {
   switch (action.type) {
     case 'buildSegment': {
-      const segment = createPartitionIndex(0, entry.config.trackPositions ?? true)
       const options = resolvePartitionInsertOptions(entry.config, entry.manager.analysis, action.options)
-      segment.beginBatch()
-      for (const doc of action.documents) {
-        segment.insert(doc.docId, doc.document, entry.config.schema, entry.language, options)
-      }
-      segment.endBatch()
-      return segment.encodeSegment()
+      const payload = buildSegmentPayload(
+        action.documents,
+        entry.config.schema,
+        entry.language,
+        options,
+        entry.config.trackPositions ?? true,
+      )
+      const snapshot = freezeSegmentShared(
+        payload,
+        action.documents.map(doc => doc.document),
+        action.segmentId,
+      )
+      const built: BuiltSegmentResult = snapshot === null ? { kind: 'payload', payload } : { kind: 'shared', snapshot }
+      return built
     }
 
     case 'mergeSegments': {
@@ -87,14 +94,16 @@ export function runSegmentAction(entry: SegmentIndexEntry, action: SegmentAction
 
     case 'compactSegments': {
       const partition = requireComposite(entry, action.indexName, action.partitionId, 'compact')
-      const segments = partition.frozenSegmentsById(action.segmentIds)
-      const { payload, documents } = buildCompactedSegmentPayload(segments)
-      return freezeSegmentShared(payload, documents)
+      return mergeFrozenSegments(partition.frozenSegmentsById(action.segmentIds))
     }
 
     case 'swapSegments': {
-      const partition = requireComposite(entry, action.indexName, action.partitionId, 'swap')
-      partition.swapFrozenSegments(action.dropSegmentIds, createSharedFrozenSegment(action.snapshot))
+      requireComposite(entry, action.indexName, action.partitionId, 'swap')
+      entry.manager.swapFrozenSegments(
+        action.partitionId,
+        action.dropSegmentIds,
+        createSharedFrozenSegment(action.snapshot),
+      )
       return undefined
     }
 

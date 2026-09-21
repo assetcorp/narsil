@@ -1,11 +1,13 @@
 import type { VectorMetric } from '../brute-force'
-import { layerArray, layerBase, replaceNeighbors } from './adjacency'
+import { layerArray, layerBase, readNeighbors, replaceNeighbors } from './adjacency'
+import { beginNodeRead, nodeReadHeld } from './locks'
 import {
+  ensureVisited,
   type HNSWGraphState,
   type HNSWSearchState,
+  isTombstoned,
   maxConns,
   nextVisitStamp,
-  nodeDistanceByOrd,
   nodeExists,
   queryDistanceByOrd,
 } from './shared'
@@ -20,23 +22,14 @@ import {
   sortListByDistance,
 } from './workspace'
 
-/**
- * Walks one layer of the graph from the entry points the workspace holds and
- * writes the nearest candidates it finds into the given list, nearest first.
- *
- * @param state The graph to walk.
- * @param qVec The query vector.
- * @param qMag The query vector's magnitude.
- * @param ef How many candidates the walk keeps.
- * @param layer The layer to walk.
- * @param metric The distance metric to rank by.
- * @param skipTombstones True to leave removed documents out of the results.
- * @param distFn The distance function to measure with, or undefined to measure
- * against the query vector itself.
- * @param results The list the walk fills, nearest first.
- *
- * @internal
- */
+export function readNeighborsLocked(state: HNSWSearchState, ord: number, layer: number): number {
+  for (;;) {
+    const version = beginNodeRead(state.locks, ord)
+    const count = readNeighbors(state.adjacency, ord, layer, state.neighborScratch)
+    if (nodeReadHeld(state.locks, ord, version)) return count
+  }
+}
+
 export function searchLayer(
   state: HNSWSearchState,
   qVec: Float32Array,
@@ -52,9 +45,7 @@ export function searchLayer(
   const workspace = state.workspace
   const frontier = workspace.frontier
   const found = workspace.found
-  const adjacency = state.adjacency
-  const neighbors = layerArray(adjacency, layer)
-  const visited = state.visited
+  const scratch = state.neighborScratch
   const stamp = nextVisitStamp(state)
 
   resetHeap(frontier)
@@ -63,10 +54,11 @@ export function searchLayer(
 
   for (let i = 0; i < workspace.entryPointCount; i++) {
     const epOrd = workspace.entryPoints[i]
-    if (visited[epOrd] === stamp) continue
-    visited[epOrd] = stamp
+    ensureVisited(state, epOrd + 1)
+    if (state.visited[epOrd] === stamp) continue
+    state.visited[epOrd] = stamp
     if (!nodeExists(state, epOrd)) continue
-    if (skipTombstones && state.tombstones[epOrd] === 1) continue
+    if (skipTombstones && isTombstoned(state, epOrd)) continue
     const dist = getDistance(epOrd)
     if (dist === Number.POSITIVE_INFINITY) continue
     pushHeap(frontier, epOrd, dist)
@@ -81,16 +73,14 @@ export function searchLayer(
   while (popHeap(frontier)) {
     if (frontier.topDistance > furthestDist) break
 
-    const base = layerBase(adjacency, frontier.topOrd, layer)
-    if (base === -1) continue
+    const count = readNeighborsLocked(state, frontier.topOrd, layer)
+    for (let i = 0; i < count; i++) {
+      const neighborOrd = scratch[i]
+      ensureVisited(state, neighborOrd + 1)
+      if (state.visited[neighborOrd] === stamp) continue
+      state.visited[neighborOrd] = stamp
 
-    const count = neighbors[base]
-    for (let i = 1; i <= count; i++) {
-      const neighborOrd = neighbors[base + i]
-      if (visited[neighborOrd] === stamp) continue
-      visited[neighborOrd] = stamp
-
-      if (skipTombstones && state.tombstones[neighborOrd] === 1) continue
+      if (skipTombstones && isTombstoned(state, neighborOrd)) continue
 
       if (!nodeExists(state, neighborOrd)) continue
 
@@ -111,28 +101,11 @@ export function searchLayer(
   drainHeapNearestFirst(found, results)
 }
 
-/**
- * Chooses which candidates a node links to, keeping a candidate only where it
- * is nearer to that node than to every candidate already kept.
- *
- * The rule stops at that diverse set, as hnswlib, Lucene, and Qdrant do, so a
- * node's list holds fewer links than its cap wherever the candidates crowd
- * together.
- *
- * @param state The graph to measure in.
- * @param candidates The candidates to choose from, each with its distance to
- * the node taking the links, which the call leaves unchanged.
- * @param maxConnections The most links the node may take.
- * @param metric The distance metric to rank by.
- * @param selected The list the chosen candidates are written to.
- *
- * @internal
- */
 export function selectNeighborsHeuristic(
   state: HNSWGraphState,
   candidates: DistanceList,
   maxConnections: number,
-  metric: VectorMetric,
+  distance: (aOrd: number, bOrd: number) => number,
   selected: DistanceList,
 ): void {
   const working = state.workspace.working
@@ -150,7 +123,7 @@ export function selectNeighborsHeuristic(
 
     let accepted = true
     for (let s = 0; s < selected.size; s++) {
-      const distBetween = nodeDistanceByOrd(state, candidateOrd, selected.ords[s], metric)
+      const distBetween = distance(candidateOrd, selected.ords[s])
       if (candidateDistance >= distBetween) {
         accepted = false
         break
@@ -164,18 +137,12 @@ export function selectNeighborsHeuristic(
   }
 }
 
-/**
- * Cuts a node's neighbour list back to its cap by applying the selection rule
- * to the neighbours it holds.
- *
- * @param state The graph to change.
- * @param ord The node whose list is over its cap.
- * @param layer The layer the list belongs to.
- * @param metric The distance metric to rank by.
- *
- * @internal
- */
-export function pruneConnections(state: HNSWGraphState, ord: number, layer: number, metric: VectorMetric): void {
+export function pruneConnections(
+  state: HNSWGraphState,
+  ord: number,
+  layer: number,
+  distance: (aOrd: number, bOrd: number) => number,
+): void {
   const adjacency = state.adjacency
   const base = layerBase(adjacency, ord, layer)
   if (base === -1) return
@@ -189,7 +156,7 @@ export function pruneConnections(state: HNSWGraphState, ord: number, layer: numb
   ensureListCapacity(candidates, count)
   for (let i = 1; i <= count; i++) {
     const connOrd = neighbors[base + i]
-    const dist = nodeDistanceByOrd(state, ord, connOrd, metric)
+    const dist = distance(ord, connOrd)
     if (dist === Number.POSITIVE_INFINITY) continue
     candidates.ords[candidates.size] = connOrd
     candidates.distances[candidates.size] = dist
@@ -197,6 +164,6 @@ export function pruneConnections(state: HNSWGraphState, ord: number, layer: numb
   }
 
   const kept = state.workspace.pruneSelection
-  selectNeighborsHeuristic(state, candidates, mc, metric, kept)
+  selectNeighborsHeuristic(state, candidates, mc, distance, kept)
   replaceNeighbors(adjacency, ord, layer, kept.ords, kept.size)
 }
