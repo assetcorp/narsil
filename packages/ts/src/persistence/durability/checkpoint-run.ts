@@ -1,11 +1,16 @@
 import { writeMetadataEnvelope } from '../../serialization/envelope'
 import type { VectorIndex } from '../../vector/vector-index'
 import { reclaimWalBeyondCount, truncateCoveredSegments } from './checkpoint'
-import { captureCheckpoint, makeEveryAppliedMutationDurable, writeCapturedVectors } from './checkpoint-capture'
+import {
+  captureCheckpoint,
+  makeEveryAppliedMutationDurable,
+  wholePartitionsWhereMostChanged,
+  writeCapturedVectors,
+} from './checkpoint-capture'
 import { writeIndexCheckpoint } from './checkpoint-write'
 import type { DurableDirectory } from './durable-filesystem'
 import type { IndexState } from './manager-state'
-import { removeCheckpointGarbage, type VectorCheckpointLayout } from './segment'
+import { readSegmentManifest, removeCheckpointGarbage, type VectorCheckpointLayout } from './segment'
 import type { IndexDurabilityHooks } from './types'
 
 interface DurableCheckpointInput {
@@ -50,9 +55,26 @@ export async function runDurableCheckpoint(input: DurableCheckpointInput): Promi
   }
 
   const vectorIndexes = input.hooks.getVectorIndexes(input.indexName)
-  const capture = await captureCheckpoint(input.indexState, manager, vectorIndexes)
+  const priorManifest = await readSegmentManifest(input.directory, input.indexName)
+  const capture = await captureCheckpoint(
+    input.indexState,
+    manager,
+    vectorIndexes,
+    wholePartitionsWhereMostChanged(
+      manager,
+      priorManifest?.checkpoint ?? [],
+      (priorManifest?.partitions ?? []).map(partition => partition.partitionId),
+      input.fromMemory,
+    ),
+  )
   const { targets, documentCount } = capture
-  const liveVectors = await writeCapturedVectors(input.directory, input.indexName, capture, input.fromMemory)
+  const liveVectors = await writeCapturedVectors(
+    input.directory,
+    input.indexName,
+    capture,
+    priorManifest,
+    input.fromMemory,
+  )
   await makeEveryAppliedMutationDurable(input.indexState, input.markFatal)
 
   const written = await writeIndexCheckpoint({
@@ -60,9 +82,8 @@ export async function runDurableCheckpoint(input: DurableCheckpointInput): Promi
     metadata,
     targets,
     compactionThreshold: input.compactionThreshold,
-    manager,
     canOffload: input.canOffload,
-    fromMemory: input.fromMemory,
+    wholePartitions: capture.wholePartitions,
     vectors: liveVectors.vectors,
   })
   await adoptVectorLayouts(input.directory, vectorIndexes, liveVectors.layouts)

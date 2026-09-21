@@ -159,12 +159,6 @@ stemming, and stop-word choices move them more.
   confirmation trip is the first latency trip. Build-time HNSW parameters (M=16,
   efConstruction=200, cosine) are held the same, and every engine uses its HNSW
   index, with any brute-force fallback switched off.
-- **An engine finishes its background work before the vector and hybrid
-  measurements.** After the import, the harness waits for Elasticsearch and
-  OpenSearch to force-merge the index into one segment, for Qdrant to report a
-  green collection with every vector indexed, and for Narsil to build its graph
-  and to write its checkpoint. The harness waits for nothing on Weaviate. Every
-  wait counts towards that engine's import time.
 - **Hybrid is compared on quality and latency.** Hybrid fuses keyword and vector
   with a method that differs per engine, so there is no single exact ground truth
   to match recall against. The hybrid track reports retrieval quality against the
