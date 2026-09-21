@@ -57,10 +57,9 @@ export function swapFrozenSegmentList(
   frozen: FrozenSegment[],
   dropSegmentIds: readonly string[],
   replacement: FrozenSegment,
-  partitionId: number,
 ): void {
-  const dropped = resolveFrozenSegments(frozen, dropSegmentIds, partitionId)
   const dropSet = new Set(dropSegmentIds)
+  const dropped = frozen.filter(segment => dropSet.has(segment.segmentId))
   for (const segment of dropped) {
     for (const docId of segment.tombstonedDocIds()) {
       if (!replacement.hasDocument(docId)) continue

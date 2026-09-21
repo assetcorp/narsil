@@ -31,7 +31,7 @@ export interface WorkerPool {
   getAllExecutors(): Executor[]
   executorEntries(): Array<{ workerId: number; executor: Executor }>
   executorsHolding(indexName: string): Executor[]
-  leaseLeastBusy(): WorkerLease | null
+  leaseLeastBusy(indexName?: string): WorkerLease | null
   leaseIdle(limit: number): WorkerLease[]
   queriesInFlight(): number
   spawnAll(): void
@@ -316,11 +316,12 @@ export function createWorkerPool(config: WorkerPoolConfig): WorkerPool {
     }
   }
 
-  function leaseLeastBusy(): WorkerLease | null {
+  function leaseLeastBusy(indexName?: string): WorkerLease | null {
     let chosenId = -1
     let chosen: WorkerSlot | null = null
     for (const [workerId, slot] of workers) {
       if (!slot.serving) continue
+      if (indexName !== undefined && !slot.indexes.has(indexName)) continue
       if (chosen === null || slot.inFlight < chosen.inFlight) {
         chosenId = workerId
         chosen = slot

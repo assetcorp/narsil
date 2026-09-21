@@ -127,7 +127,7 @@ export function createCompositePartition(
     },
 
     swapFrozenSegments(dropSegmentIds: readonly string[], replacement: FrozenSegment): void {
-      swapFrozenSegmentList(frozen, dropSegmentIds, replacement, partitionId)
+      swapFrozenSegmentList(frozen, dropSegmentIds, replacement)
       invalidateDocFrequencies()
     },
 

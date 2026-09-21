@@ -313,6 +313,15 @@ export function createPartitionManager(
       }
     },
 
+    swapFrozenSegments(partitionId: number, dropSegmentIds: readonly string[], replacement: FrozenSegment): void {
+      validatePartitionId(partitionId)
+      asCompositePartition(partitionId).swapFrozenSegments(dropSegmentIds, replacement)
+      for (const internalId of replacement.docStore.allInternalIds()) {
+        const docId = replacement.docStore.getExternalId(internalId)
+        if (docId !== undefined) docPartitionMap.set(docId, partitionId)
+      }
+    },
+
     freezeLiveTail(partitionId: number, freeze: LiveTailFreezer): FrozenSegment | null {
       validatePartitionId(partitionId)
       return asCompositePartition(partitionId).freezeLiveTail(freeze)

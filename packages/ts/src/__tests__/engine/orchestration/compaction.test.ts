@@ -10,6 +10,7 @@ import {
   scheduleIdleMerge,
 } from '../../../engine/orchestration/compaction'
 import { IDLE_MERGE_DELAY_MS, LIVE_TAIL_FREEZE_FLOOR } from '../../../engine/orchestration/constants'
+import { awaitReplicationIdle } from '../../../engine/orchestration/replication'
 import type { OrchestratorState } from '../../../engine/orchestration/types'
 import type { PartitionManager } from '../../../partitioning/manager'
 import type { AnyDocument, SchemaDefinition } from '../../../types/schema'
@@ -131,6 +132,35 @@ describe('segment compaction during loading', () => {
     expect(asked.flat()).not.toContain(unsent)
     expect(frozenCount(copy)).toBe(sent.length)
     expect(copy.countDocuments()).toBe(manager.countDocuments() - sizes[sizes.length - 1].liveDocumentCount)
+  })
+
+  it('brings a copy that missed a segment back in line through the merge that follows', async () => {
+    const { state, manager } = await mainThreadIndex(8)
+    const partition = manager.getPartition(0)
+    if (!isCompositePartition(partition)) throw new Error('main copy holds no segments')
+    const sizes = partition.frozenSegmentSizes()
+    const missed = sizes[sizes.length - 1]
+
+    const worker = createDirectExecutor()
+    await worker.execute({ type: 'createIndex', indexName: 'products', config: { schema }, requestId: 'create' })
+    const copy = worker.getManager('products')
+    if (!copy) throw new Error('copy missing')
+    for (const segment of partition.frozenSegmentsById(sizes.slice(0, -1).map(size => size.segmentId))) {
+      copy.attachFrozenSegment(0, segment)
+    }
+    expect(copy.countDocuments()).toBe(manager.countDocuments() - missed.liveDocumentCount)
+
+    state.workerPool = poolOf(worker)
+    state.scaledOutIndexes.add('products')
+
+    maybeCompactSegments(state, 'products')
+    await awaitCompactions(state)
+    await awaitReplicationIdle(state, 'products')
+
+    expect(frozenCount(manager)).toBe(1)
+    expect(frozenCount(copy)).toBe(1)
+    expect(copy.countDocuments()).toBe(manager.countDocuments())
+    expect(copy.has('seg7-10')).toBe(true)
   })
 })
 
