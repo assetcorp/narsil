@@ -12,7 +12,6 @@ function holdsIndex(state: OrchestratorState, indexName: string): boolean {
 }
 
 async function insertOnLease(
-  state: OrchestratorState,
   lease: WorkerLease,
   indexName: string,
   fieldName: string,
@@ -30,8 +29,6 @@ async function insertOnLease(
     })
     return outcome ?? null
   } catch {
-    const graph = state.sharedVectorFields.get(handle)?.graph
-    if (graph !== undefined && graph !== null) releaseLocksHeldBy(graph, threadSlotOfWorker(lease.workerId))
     return null
   } finally {
     lease.release()
@@ -81,7 +78,7 @@ export function sharedCopyHostOf(state: OrchestratorState): SharedCopyHost {
       for (let attempt = 0; attempt < pool.workerCount; attempt++) {
         const lease = pool.leaseLeastBusy()
         if (lease === null) return null
-        const outcome = await insertOnLease(state, lease, indexName, fieldName, handle, ordinals)
+        const outcome = await insertOnLease(lease, indexName, fieldName, handle, ordinals)
         if (outcome !== null) return outcome
         if (!state.scaledOutIndexes.has(indexName)) return null
       }

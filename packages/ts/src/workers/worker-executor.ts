@@ -13,10 +13,12 @@ export interface WorkerExecutorConfig {
   backpressureLimit?: number
   requestTimeout?: number
   onDeath?: (error: Error) => void
+  onGone?: () => void
 }
 
 export interface WorkerLike {
   postMessage(msg: unknown, transfer?: object[]): void
+  terminate?(): unknown
   on?(event: string, handler: (...args: unknown[]) => void): void
   addEventListener?(event: string, handler: (...args: unknown[]) => void): void
 }
@@ -50,6 +52,8 @@ export function createWorkerExecutor(worker: WorkerLike, config?: WorkerExecutor
   let deathError: NarsilError | null = null
   let shutdownRequested = false
   let consecutiveTimeouts = 0
+  let gone = false
+  const reportsItsExit = typeof worker.on === 'function'
 
   function processResponse(msg: unknown) {
     if (!isValidWorkerResponse(msg)) {
@@ -89,16 +93,58 @@ export function createWorkerExecutor(worker: WorkerLike, config?: WorkerExecutor
     }
   }
 
+  function reportGone(): void {
+    if (gone) {
+      return
+    }
+    gone = true
+    if (!shutdownRequested) {
+      config?.onGone?.()
+    }
+  }
+
+  function stopTheThread(): void {
+    try {
+      const stopping = worker.terminate?.()
+      if (stopping instanceof Promise) stopping.catch(() => undefined)
+    } catch {}
+  }
+
+  function askTheThreadToLeave(): void {
+    try {
+      worker.postMessage({ type: 'shutdown', requestId: createRequestId() } satisfies WorkerAction)
+    } catch {}
+  }
+
+  function retireUnansweringWorker(cause: Error): void {
+    handleDeath(cause)
+    if (reportsItsExit) {
+      askTheThreadToLeave()
+      return
+    }
+    stopTheThread()
+    reportGone()
+  }
+
   if (typeof worker.on === 'function') {
     worker.on('message', (msg: unknown) => processResponse(msg))
-    worker.on('error', (cause: unknown) => handleDeath(cause))
-    worker.on('exit', (code: unknown) => handleDeath(new Error(`Worker exited with code ${String(code)}`)))
+    worker.on('error', (cause: unknown) => {
+      handleDeath(cause)
+      reportGone()
+    })
+    worker.on('exit', (code: unknown) => {
+      handleDeath(new Error(`Worker exited with code ${String(code)}`))
+      reportGone()
+    })
   } else if (typeof worker.addEventListener === 'function') {
     worker.addEventListener('message', (event: unknown) => {
       const msg = (event as { data: unknown }).data
       processResponse(msg)
     })
-    worker.addEventListener('error', (event: unknown) => handleDeath(errorFromEventLike(event)))
+    worker.addEventListener('error', (event: unknown) => {
+      handleDeath(errorFromEventLike(event))
+      reportGone()
+    })
   }
 
   function execute<T>(action: WorkerAction, transfer?: object[]): Promise<T> {
@@ -120,7 +166,7 @@ export function createWorkerExecutor(worker: WorkerLike, config?: WorkerExecutor
         reject(new NarsilError(ErrorCodes.WORKER_TIMEOUT, `Request ${requestId} timed out after ${requestTimeout}ms`))
         consecutiveTimeouts += 1
         if (consecutiveTimeouts >= CONSECUTIVE_TIMEOUTS_BEFORE_DEATH) {
-          handleDeath(new Error(`no answer to ${CONSECUTIVE_TIMEOUTS_BEFORE_DEATH} consecutive requests`))
+          retireUnansweringWorker(new Error(`no answer to ${CONSECUTIVE_TIMEOUTS_BEFORE_DEATH} consecutive requests`))
         }
       }, requestTimeout)
 

@@ -1,15 +1,25 @@
 import { describe, expect, it } from 'vitest'
 import { POOL_RESTART_DELAY_MS } from '../../../engine/orchestration/constants'
 import { noteAccess } from '../../../engine/orchestration/idle'
-import { COPY_RESTART_REASON, handleWorkerCrash } from '../../../engine/orchestration/repair'
+import {
+  COPY_RESTART_REASON,
+  cancelRepair,
+  handleWorkerCrash,
+  handleWorkerThreadGone,
+} from '../../../engine/orchestration/repair'
 import { replicateToWorkers } from '../../../engine/orchestration/replication'
 import { copiesAllowed, scaleOutIndex } from '../../../engine/orchestration/scale-out'
 import { searchViaWorker } from '../../../engine/orchestration/search'
 import type { OrchestratorState } from '../../../engine/orchestration/types'
+import { sharedCopyHostOf } from '../../../engine/orchestration/vector-copies'
 import type { PartitionManager } from '../../../partitioning/manager'
+import { createSharedGraphHandles, GRAPH_LOCK } from '../../../vector/hnsw/handles'
+import { lockGraphShared, openGraphLocks, unlockGraphShared } from '../../../vector/hnsw/locks'
+import type { SharedVectorFieldHandles } from '../../../vector/shared-field/types'
 import type { Executor } from '../../../workers/executor'
 import { createWorkerPool, type WorkerPool } from '../../../workers/pool'
 import type { WorkerAction } from '../../../workers/protocol'
+import { threadSlotOfWorker } from '../../../workers/thread-slot'
 import { emptyOrchestratorState, registryWith, settle } from './fixtures'
 
 describe('a pool whose every worker has crashed', () => {
@@ -101,16 +111,21 @@ describe('a crashed worker is replaced', () => {
 
   interface RepairablePool {
     sent: Sent[]
+    pool: WorkerPool
     kill: (workerId: number) => void
+    retireWithoutExit: (workerId: number) => void
+    exit: (workerId: number) => void
   }
 
   function poolUnderRepair(state: OrchestratorState): RepairablePool {
     const sent: Sent[] = []
     const deaths = new Map<number, (error: Error) => void>()
+    const exits = new Map<number, () => void>()
     const pool: WorkerPool = createWorkerPool({
       count: 2,
-      workerFactory: (workerId, onDeath) => {
+      workerFactory: (workerId, onDeath, onGone) => {
         if (onDeath) deaths.set(workerId, onDeath)
+        if (onGone) exits.set(workerId, onGone)
         return {
           execute<T>(action: WorkerAction): Promise<T> {
             return new Promise((resolve, reject) => {
@@ -121,19 +136,27 @@ describe('a crashed worker is replaced', () => {
         }
       },
       onWorkerCrash: (workerId, indexNames, error) => handleWorkerCrash(state, pool, workerId, indexNames, error),
+      onWorkerGone: workerId => handleWorkerThreadGone(state, pool, workerId),
     })
     pool.spawnAll()
     pool.addIndexToAll('prose')
     state.workerPool = pool
+    function retireWithoutExit(workerId: number): void {
+      const error = new Error(`worker ${workerId} died`)
+      for (const entry of sent.filter(candidate => candidate.workerId === workerId)) {
+        sent.splice(sent.indexOf(entry), 1)
+        entry.reject(error)
+      }
+      deaths.get(workerId)?.(error)
+    }
     return {
       sent,
+      pool,
+      retireWithoutExit,
+      exit: (workerId: number) => exits.get(workerId)?.(),
       kill(workerId: number): void {
-        const error = new Error(`worker ${workerId} died`)
-        for (const entry of sent.filter(candidate => candidate.workerId === workerId)) {
-          sent.splice(sent.indexOf(entry), 1)
-          entry.reject(error)
-        }
-        deaths.get(workerId)?.(error)
+        retireWithoutExit(workerId)
+        exits.get(workerId)?.()
       },
     }
   }
@@ -180,6 +203,65 @@ describe('a crashed worker is replaced', () => {
       entry.reject(error)
     }
   }
+
+  function graphLockedByWorker(state: OrchestratorState, workerId: number) {
+    const graph = createSharedGraphHandles({ m: 16, mMax0: 32, efConstruction: 200, metric: 'cosine' })
+    state.sharedVectorFields.set('prose/embedding#1', { graph } as SharedVectorFieldHandles)
+    const placing = openGraphLocks(graph, threadSlotOfWorker(workerId))
+    lockGraphShared(placing)
+    return { graph, placing }
+  }
+
+  it('leaves the graph lock of a retired thread alone and replaces the thread only once it has exited', async () => {
+    const state = repairableState()
+    const { graph, placing } = graphLockedByWorker(state, 0)
+    const { pool, retireWithoutExit, exit } = poolUnderRepair(state)
+
+    retireWithoutExit(0)
+    await settle()
+
+    expect(Atomics.load(graph.header, GRAPH_LOCK)).toBe(1)
+    expect(pool.deadWorkerIds()).toEqual([])
+    expect(pool.spawnReplacement(0)).toBeNull()
+    expect(state.repairTimer).toBeNull()
+
+    unlockGraphShared(placing)
+    exit(0)
+
+    expect(Atomics.load(graph.header, GRAPH_LOCK)).toBe(0)
+    expect(pool.deadWorkerIds()).toEqual([0])
+    expect(state.repairTimer).not.toBeNull()
+    cancelRepair(state)
+  })
+
+  it('releases the graph lock that a thread held when it exited', () => {
+    const state = repairableState()
+    const { graph } = graphLockedByWorker(state, 0)
+    const { kill } = poolUnderRepair(state)
+
+    kill(0)
+
+    expect(Atomics.load(graph.header, GRAPH_LOCK)).toBe(0)
+    cancelRepair(state)
+  })
+
+  it('leaves the graph lock alone when a placement request fails and the thread lives on', async () => {
+    const state = repairableState()
+    const { graph, placing } = graphLockedByWorker(state, 0)
+    const { sent } = poolUnderRepair(state)
+    const host = sharedCopyHostOf(state)
+
+    const placed = host.insertOrdinals('prose', 'embedding', 'prose/embedding#1', Int32Array.of(1, 2))
+    await untilSent(sent, 'insertVectorOrdinals')
+    rejectSent(sent, 'insertVectorOrdinals', new Error('the request timed out'))
+    await untilSent(sent, 'insertVectorOrdinals')
+    rejectSent(sent, 'insertVectorOrdinals', new Error('the request timed out'))
+
+    expect(await placed).toBeNull()
+    expect(Atomics.load(graph.header, GRAPH_LOCK)).toBe(1)
+    unlockGraphShared(placing)
+    expect(Atomics.load(graph.header, GRAPH_LOCK)).toBe(0)
+  })
 
   it('loads every copy onto the replacement, holds its writes until then, and serves from it afterwards', async () => {
     const state = repairableState()

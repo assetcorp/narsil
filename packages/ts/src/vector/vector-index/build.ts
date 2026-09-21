@@ -9,7 +9,7 @@ export async function buildGraphFromStore(state: VectorIndexState): Promise<void
   state.freshGraph = graph
   let completed = false
   try {
-    completed = await insertIntoGraph(state, graph, allLiveDocIds(state), () => true)
+    completed = await insertIntoGraph(state, graph, [...allLiveDocIds(state)], () => true)
   } finally {
     state.freshGraph = null
   }

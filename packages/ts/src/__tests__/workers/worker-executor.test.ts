@@ -347,6 +347,67 @@ describe('WorkerExecutor', () => {
       }
     })
 
+    it('asks a thread that left three requests unanswered to leave, never forces it, and reports it gone once it exits', async () => {
+      vi.useFakeTimers()
+      try {
+        const worker = createMockWorker()
+        const terminate = vi.fn()
+        worker.terminate = terminate
+        const onDeath = vi.fn()
+        const onGone = vi.fn()
+        const executor = createWorkerExecutor(worker, { requestTimeout: 500, onDeath, onGone })
+
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+          swallow(executor.execute({ type: 'count', indexName: 'a', requestId: 'p1' }))
+          await vi.advanceTimersByTimeAsync(501)
+        }
+
+        expect(onDeath).toHaveBeenCalledTimes(1)
+        expect(terminate).not.toHaveBeenCalled()
+        expect(worker.lastMessage).toMatchObject({ type: 'shutdown' })
+        expect(onGone).not.toHaveBeenCalled()
+
+        worker.simulateExit(1)
+
+        expect(onDeath).toHaveBeenCalledTimes(1)
+        expect(onGone).toHaveBeenCalledTimes(1)
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it('reports a thread gone as soon as it errors, and once when the exit follows', () => {
+      const worker = createMockWorker()
+      const onGone = vi.fn()
+      createWorkerExecutor(worker, { onGone })
+
+      worker.simulateError(new Error('uncaught'))
+      worker.simulateExit(1)
+
+      expect(onGone).toHaveBeenCalledTimes(1)
+    })
+
+    it('stops a browser worker that left three requests unanswered and reports it gone at once', async () => {
+      vi.useFakeTimers()
+      try {
+        const worker = createMockWebWorker()
+        const terminate = vi.fn()
+        worker.terminate = terminate
+        const onGone = vi.fn()
+        const executor = createWorkerExecutor(worker, { requestTimeout: 500, onGone })
+
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+          swallow(executor.execute({ type: 'count', indexName: 'a', requestId: 'p1' }))
+          await vi.advanceTimersByTimeAsync(501)
+        }
+
+        expect(terminate).toHaveBeenCalledTimes(1)
+        expect(onGone).toHaveBeenCalledTimes(1)
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
     it('rejects every pending request with WORKER_CRASHED when a browser worker reports an error', async () => {
       const worker = createMockWebWorker()
       const onDeath = vi.fn()

@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { QueryCoverage } from '../../types/results'
-import { resolveRequestThreadCount } from '../../workers/pool'
+import { resolveRequestThreadCount } from '../../workers/worker-count'
 import {
   del,
   getJson,

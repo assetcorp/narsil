@@ -44,7 +44,9 @@ function recalibrateWhileNoThreadSearches(state: VectorIndexState, graph: HNSWIn
 
 async function insertMissing(state: VectorIndexState, graph: HNSWIndex): Promise<void> {
   const missingOrReplaced = (docId: string) => !graph.has(docId) || state.buffer.has(docId)
-  await insertIntoGraph(state, graph, allLiveDocIds(state), missingOrReplaced)
+  const heldWhenTheCallStarted = [...allLiveDocIds(state)]
+  const stillLiveAndUnplaced = (docId: string) => !state.tombstones.has(docId) && missingOrReplaced(docId)
+  await insertIntoGraph(state, graph, heldWhenTheCallStarted, stillLiveAndUnplaced)
 }
 
 async function foldIntoGraph(state: VectorIndexState): Promise<void> {

@@ -1,14 +1,8 @@
 import { fnv1a } from '../core/hash'
 import { ErrorCodes, NarsilError } from '../errors'
-import { SCRATCH_SLOTS_PER_THREAD_POOL } from '../vector/constants'
-import {
-  FALLBACK_CPU_COUNT,
-  MAX_WORKER_COUNT,
-  MIN_CORES_FOR_SEVERAL_REQUEST_THREADS,
-  MIN_WORKER_COUNT,
-} from './constants'
 import type { Executor } from './executor'
 import { createRequestId } from './protocol'
+import { resolveWorkerCount } from './worker-count'
 
 export interface MemoryStats {
   workerId: number
@@ -73,54 +67,20 @@ function toHeapLimit(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null
 }
 
-export type WorkerFactory = (workerId: number, onDeath?: (error: Error) => void) => Executor
+export type WorkerFactory = (workerId: number, onDeath?: (error: Error) => void, onGone?: () => void) => Executor
 
 export interface WorkerPoolConfig {
   count?: number
   workerFactory: WorkerFactory
   onWorkerCrash?: (workerId: number, indexNames: string[], error: Error) => void
-}
-
-declare const navigator: { hardwareConcurrency?: number } | undefined
-
-export function detectCpuCount(): number {
-  try {
-    if (navigator?.hardwareConcurrency) {
-      return navigator.hardwareConcurrency
-    }
-    if (typeof process !== 'undefined') {
-      const ap = (process as unknown as Record<string, unknown>).availableParallelism
-      if (typeof ap === 'function') {
-        return ap() as number
-      }
-    }
-  } catch {
-    return FALLBACK_CPU_COUNT
-  }
-  return FALLBACK_CPU_COUNT
-}
-
-export function resolveWorkerCount(requested?: number): number {
-  if (requested !== undefined && requested > 0) {
-    return Math.min(requested, SCRATCH_SLOTS_PER_THREAD_POOL)
-  }
-  return Math.max(MIN_WORKER_COUNT, Math.min(MAX_WORKER_COUNT, detectCpuCount() - 1))
-}
-
-export function resolveRequestThreadCount(requested?: number): number {
-  if (detectCpuCount() < MIN_CORES_FOR_SEVERAL_REQUEST_THREADS) return 1
-  return resolveWorkerCount(requested)
-}
-
-export function splitWorkerBudget(total: number): { keyword: number; vector: number } {
-  const keyword = Math.ceil(total / 2)
-  return { keyword, vector: total - keyword }
+  onWorkerGone?: (workerId: number) => void
 }
 
 export function createWorkerPool(config: WorkerPoolConfig): WorkerPool {
   const workerCount = resolveWorkerCount(config.count)
   const workers = new Map<number, WorkerSlot>()
   const deadSlots = new Set<number>()
+  const goneSlots = new Set<number>()
   const indexAssignment = new Map<string, number>()
   let isShutdown = false
 
@@ -131,6 +91,7 @@ export function createWorkerPool(config: WorkerPoolConfig): WorkerPool {
     const slot = workers.get(slotIndex)
     if (slot !== undefined && !slot.serving) {
       workers.delete(slotIndex)
+      goneSlots.delete(slotIndex)
       return
     }
     if (deadSlots.has(slotIndex)) {
@@ -142,9 +103,21 @@ export function createWorkerPool(config: WorkerPoolConfig): WorkerPool {
     config.onWorkerCrash?.(slotIndex, indexNames, error)
   }
 
+  function handleWorkerGone(slotIndex: number): void {
+    if (!deadSlots.has(slotIndex) || workers.has(slotIndex)) {
+      return
+    }
+    goneSlots.add(slotIndex)
+    config.onWorkerGone?.(slotIndex)
+  }
+
   function spawnSlot(slotIndex: number, serving: boolean): WorkerSlot {
     const slot: WorkerSlot = {
-      executor: config.workerFactory(slotIndex, error => handleWorkerDeath(slotIndex, error)),
+      executor: config.workerFactory(
+        slotIndex,
+        error => handleWorkerDeath(slotIndex, error),
+        () => handleWorkerGone(slotIndex),
+      ),
       indexes: new Set(),
       inFlight: 0,
       serving,
@@ -161,11 +134,11 @@ export function createWorkerPool(config: WorkerPoolConfig): WorkerPool {
   }
 
   function deadWorkerIds(): number[] {
-    return [...deadSlots].filter(slotIndex => !workers.has(slotIndex)).sort((a, b) => a - b)
+    return [...deadSlots].filter(slotIndex => goneSlots.has(slotIndex) && !workers.has(slotIndex)).sort((a, b) => a - b)
   }
 
   function spawnReplacement(slotIndex: number): WorkerReplacement | null {
-    if (isShutdown || !deadSlots.has(slotIndex) || workers.has(slotIndex)) return null
+    if (isShutdown || !deadSlots.has(slotIndex) || !goneSlots.has(slotIndex) || workers.has(slotIndex)) return null
     const slot = spawnSlot(slotIndex, false)
     return {
       workerId: slotIndex,
@@ -176,6 +149,7 @@ export function createWorkerPool(config: WorkerPoolConfig): WorkerPool {
       admit(): void {
         if (workers.get(slotIndex) !== slot) return
         deadSlots.delete(slotIndex)
+        goneSlots.delete(slotIndex)
         slot.serving = true
       },
       abandon(): void {
