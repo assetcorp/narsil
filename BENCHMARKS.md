@@ -35,7 +35,7 @@ versions, and the datasets all come from the recorded run.
 - **Datasets.** The harness measured SciFact (5,183 documents) and NFCorpus (3,633 documents).
 - **Engines.** The comparison runs Narsil 0.2.2 against Elasticsearch 9.5.0, Meilisearch 1.52.0, OpenSearch 3.7.0, Qdrant 1.18.3, Typesense 30.2, and Weaviate 1.39.0, and every engine runs from a pinned image.
 - **Equal conditions.** Every engine receives the same 8.6 GB memory cap, the same run depth of 1,000, and the same run-file ordering. The harness tests one engine at a time, so no engine competes with another for the machine.
-- **Load.** The harness measured throughput at 16 concurrent clients, one pass per level. The load generator shares the machine with the engine under test, so its client processes take CPU time that the engine could otherwise use, and the harness measures every engine under that same arrangement.
+- **Load.** The harness measures throughput at 16 concurrent clients, with one pass per level. The load generator shares the machine with the engine under test, so its client processes take CPU time that the engine could otherwise use. The harness measures every engine under that same arrangement.
 - **Narsil threads.** The harness recorded no worker copy configuration for Narsil in this run.
 - **Machine.** GCP c3-standard-8, us-central1-a hosted this run, and it reports Intel(R) Xeon(R) Platinum 8481C CPU @ 2.70GHz and Linux 6.17.0-1021-gcp x86_64.
 - **BM25 calibration.** Narsil indexes each corpus with BM25 k1=0.9 and b=0.4, the Anserini reference configuration.

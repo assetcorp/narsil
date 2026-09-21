@@ -16,6 +16,13 @@ the server run directory holds a `comparison-best-config.json`, the generator al
 the two blocks that show each engine under its recommended production settings.
 Everything outside those markers stays exactly as written.
 
+The root `README.md` and `packages/ts/README.md` each hold one generated region,
+`BENCH:headline`, which quotes the ranking score and the peak throughput from the
+same server run. The generator fills both, so a figure in a README changes with the
+run that it came from. `headline_section.py` names the two files, and it gives the
+package README the benchmark page's address on GitHub, because npm publishes that
+file away from the repository.
+
 `charts.py` draws the figures the page embeds into a `charts/` directory inside
 each run's own directory, so the figures drawn from a run's numbers stay beside
 them, and each figure prints the run id it came from. It draws five kinds of chart:
@@ -42,8 +49,8 @@ Run these from the repository root after a benchmark run:
 ```bash
 python3 -m pip install -e 'benchmarks/server[charts]'   # once, for the chart renderer
 python3 benchmarks/writeup/charts.py             # draw every figure into the runs' charts/ directories
-python3 benchmarks/writeup/generate.py           # rewrite BENCHMARKS.md from the latest runs
-python3 benchmarks/writeup/generate.py --check   # exit non-zero if the page or a figure is out of date
+python3 benchmarks/writeup/generate.py           # rewrite BENCHMARKS.md and both READMEs from the latest runs
+python3 benchmarks/writeup/generate.py --check   # exit non-zero if a page or a figure is out of date
 ```
 
 Continuous integration runs the check on every push and pull request with
