@@ -240,6 +240,7 @@ describe('a crashed worker is replaced', () => {
     await settle()
     expect(sent.map(entry => entry.action.type)).toEqual(['createIndex'])
 
+    state.poolRetryDelayMs = 1_000
     kill(0)
     await state.poolRepair
     await settle()
@@ -250,7 +251,7 @@ describe('a crashed worker is replaced', () => {
     expect(survivors.map(lease => lease.workerId)).toEqual([1])
     for (const lease of survivors) lease.release()
     expect(state.repairTimer).not.toBeNull()
-    expect(state.poolRetryDelayMs).toBe(2)
+    expect(state.poolRetryDelayMs).toBe(2_000)
     if (state.repairTimer !== null) clearTimeout(state.repairTimer)
   })
 
