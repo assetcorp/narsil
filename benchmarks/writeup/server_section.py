@@ -259,9 +259,9 @@ def _threads_sentence(narsil: dict) -> str:
     )
 
 
-_SHARED_MACHINE_SENTENCE = (
+_SHARED_MACHINE_SENTENCES = (
     "The load generator shares the machine with the engine under test, so its client processes take CPU time "
-    "that the engine could otherwise use, and the harness measures every engine under that same arrangement."
+    "that the engine could otherwise use. The harness measures every engine under that same arrangement."
 )
 
 
@@ -274,13 +274,13 @@ def _load_sentence(config: dict) -> str:
     level_text = and_join([integer(level) for level in levels])
     if isinstance(passes, int) and passes > 1:
         return (
-            f"The harness measured throughput at {level_text} concurrent clients, one pass per level and "
-            f"{integer(passes)} passes at each engine's peak level, and the tables report the median peak pass "
-            f"with a 95% bootstrap interval. {_SHARED_MACHINE_SENTENCE}"
+            f"The harness measures throughput at {level_text} concurrent clients, with one pass per level and "
+            f"{integer(passes)} passes at each engine's peak level. The tables report the median peak pass "
+            f"with a 95% bootstrap interval. {_SHARED_MACHINE_SENTENCES}"
         )
     return (
-        f"The harness measured throughput at {level_text} concurrent clients, one pass per level. "
-        f"{_SHARED_MACHINE_SENTENCE}"
+        f"The harness measures throughput at {level_text} concurrent clients, with one pass per level. "
+        f"{_SHARED_MACHINE_SENTENCES}"
     )
 
 
@@ -289,10 +289,10 @@ def _java_heap_sentence(engines: list[dict]) -> str:
     for engine in engines:
         heap = (engine.get("build_identity") or {}).get("jvm_heap_max_bytes")
         if isinstance(heap, (int, float)):
-            heaps.append(f"{engine_name(engine.get('name') or '')} reported a {decimal(heap / 1e9, 1)} GB heap")
+            heaps.append(f"{engine_name(engine.get('name') or '')} reports a {decimal(heap / 1e9, 1)} GB heap")
     if not heaps:
         return ""
-    return f" Each Java engine divides that cap between its heap and the memory outside it, and {and_join(heaps)}."
+    return f" Each Java engine divides that cap between its heap and the memory outside it. {and_join(heaps)}."
 
 
 def _host(environment: dict) -> str:
