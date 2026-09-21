@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createPartitionIndex } from '../../core/partition'
+import { createFrozenSegment } from '../../core/partition/frozen'
 import { ErrorCodes, NarsilError } from '../../errors'
 import { createPartitionManager, type PartitionManager } from '../../partitioning/manager'
 import { createPartitionRouter } from '../../partitioning/router'
@@ -316,6 +317,28 @@ describe('PartitionManager', () => {
     it('defaults to 1 partition when initialPartitionCount is omitted', () => {
       const mgr = createPartitionManager('default-mgr', config, english, createPartitionRouter())
       expect(mgr.partitionCount).toBe(1)
+    })
+  })
+
+  describe('a frozen tail arriving on a copy', () => {
+    it('finds by id every document the frozen tail brings that the copy was missing', () => {
+      const copy = makeManager(1)
+      const documents = [
+        { id: 'tail-1', title: 'first tail entry', body: 'content', price: 1 },
+        { id: 'tail-2', title: 'second tail entry', body: 'content', price: 2 },
+      ]
+      const scratch = createPartitionIndex(0)
+      for (const document of documents) scratch.insert(String(document.id), document, schema, english)
+      const segment = createFrozenSegment(scratch.encodeSegment(), documents)
+
+      copy.replaceLiveTail(0, segment)
+
+      expect(copy.countDocuments()).toBe(documents.length)
+      for (const document of documents) {
+        expect(copy.has(String(document.id))).toBe(true)
+        expect(copy.partitionIdOf(String(document.id))).toBe(0)
+        expect(copy.get(String(document.id))).toMatchObject({ title: document.title })
+      }
     })
   })
 })

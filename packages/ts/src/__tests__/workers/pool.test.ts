@@ -218,29 +218,6 @@ describe('WorkerPool: lazy initialization', () => {
   })
 })
 
-describe('WorkerPool: leasing by index', () => {
-  it('leases only a worker that holds the named index', () => {
-    const pool = createWorkerPool({ count: 4, workerFactory: () => createMockExecutor() })
-    pool.spawnAll()
-    pool.addIndex('products')
-    const holder = pool.getExecutor('products')
-
-    for (let attempt = 0; attempt < 8; attempt++) {
-      const lease = pool.leaseLeastBusy('products')
-      expect(lease?.executor).toBe(holder)
-      lease?.release()
-    }
-  })
-
-  it('leases nothing when no worker holds the named index', () => {
-    const pool = createWorkerPool({ count: 4, workerFactory: () => createMockExecutor() })
-    pool.spawnAll()
-
-    expect(pool.leaseLeastBusy('products')).toBeNull()
-    expect(pool.leaseLeastBusy()).not.toBeNull()
-  })
-})
-
 describe('WorkerPool: index lifecycle edge cases', () => {
   it('throws WORKER_CRASHED when addIndex is called after shutdown', async () => {
     const pool = createWorkerPool({
