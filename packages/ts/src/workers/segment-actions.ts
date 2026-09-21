@@ -98,8 +98,12 @@ export function runSegmentAction(entry: SegmentIndexEntry, action: SegmentAction
     }
 
     case 'swapSegments': {
-      const partition = requireComposite(entry, action.indexName, action.partitionId, 'swap')
-      partition.swapFrozenSegments(action.dropSegmentIds, createSharedFrozenSegment(action.snapshot))
+      requireComposite(entry, action.indexName, action.partitionId, 'swap')
+      entry.manager.swapFrozenSegments(
+        action.partitionId,
+        action.dropSegmentIds,
+        createSharedFrozenSegment(action.snapshot),
+      )
       return undefined
     }
 

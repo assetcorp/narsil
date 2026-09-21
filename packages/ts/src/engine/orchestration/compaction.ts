@@ -1,6 +1,7 @@
 import { type CompositePartition, isCompositePartition } from '../../core/partition/composite'
 import { createSharedFrozenSegment, type SharedSegmentSnapshot } from '../../core/partition/frozen'
 import { mergeFrozenSegments } from '../../core/partition/frozen/merge'
+import { ErrorCodes, NarsilError } from '../../errors'
 import type { PartitionManager } from '../../partitioning/manager'
 import { createRequestId } from '../../workers/protocol'
 import {
@@ -94,7 +95,7 @@ async function compactOnWorker(
 ): Promise<SharedSegmentSnapshot | null> {
   const pool = state.workerPool
   if (pool === null || !state.scaledOutIndexes.has(indexName)) return null
-  const lease = pool.leaseLeastBusy()
+  const lease = pool.leaseLeastBusy(indexName)
   if (lease === null) return null
   try {
     return await lease.executor.execute<SharedSegmentSnapshot | null>({
@@ -105,11 +106,27 @@ async function compactOnWorker(
       requestId: createRequestId(),
     })
   } catch (err) {
-    console.warn('Worker segment compaction failed:', err)
+    if (!(err instanceof NarsilError) || err.code !== ErrorCodes.PARTITION_CORRUPTED) {
+      console.warn('Worker segment compaction failed:', err)
+    }
     return null
   } finally {
     lease.release()
   }
+}
+
+function forgetLedgerSegments(
+  state: OrchestratorState,
+  indexName: string,
+  partitionId: number,
+  segmentIds: readonly string[],
+): void {
+  const entries = state.segmentLedger.get(indexName)?.get(partitionId)
+  if (entries === undefined) return
+  const stale = new Set(segmentIds)
+  const kept = entries.filter(entry => !stale.has(entry.segmentId))
+  entries.length = 0
+  entries.push(...kept)
 }
 
 async function compactPartitionSegments(
@@ -129,7 +146,10 @@ async function compactPartitionSegments(
   if (snapshot === null && mainCanMerge && composite !== null) {
     snapshot = mergeFrozenSegments(composite.frozenSegmentsById(segmentIds))
   }
-  if (snapshot === null) return false
+  if (snapshot === null) {
+    if (!mainCanMerge) forgetLedgerSegments(state, indexName, partitionId, segmentIds)
+    return false
+  }
 
   if (mainCanMerge && composite !== null) {
     composite.swapFrozenSegments(segmentIds, createSharedFrozenSegment(snapshot))
