@@ -80,12 +80,12 @@ function createMockVectorIndex(dimension: number): VectorIndex {
     })),
     estimateMemoryBytes: vi.fn(() => 0),
     serialize: vi.fn(() => []),
-    planParts: vi.fn(() => ({
-      parts: 0,
-      readPart() {
-        throw new Error('The fake vector index holds no part')
-      },
-    })),
+    planCheckpoint: vi.fn(() => {
+      throw new Error('The fake vector index plans no checkpoint')
+    }),
+    recordCheckpoint: vi.fn(),
+    restoreCheckpoint: vi.fn(() => ({ addFile: vi.fn(), finish: vi.fn() })),
+    vectorFilesInUse: vi.fn(() => []),
     deserialize: vi.fn(),
     adoptDiskLayout: vi.fn(async () => {}),
     releaseVectorFiles: vi.fn(async () => {}),

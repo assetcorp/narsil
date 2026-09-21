@@ -73,9 +73,7 @@ function validateHnswMetric(value: unknown): 'cosine' | 'dotProduct' | 'euclidea
   return undefined
 }
 
-export function deserializePayloadV2(data: Uint8Array): SerializablePartition {
-  const raw = decode(data) as RawPartitionPayloadV2
-
+function storedDocumentsOf(raw: RawPartitionPayloadV2): SerializablePartition['documents'] {
   const documents: SerializablePartition['documents'] = {}
   for (const [docId, doc] of Object.entries(raw.documents ?? {})) {
     documents[docId] = {
@@ -84,6 +82,18 @@ export function deserializePayloadV2(data: Uint8Array): SerializablePartition {
     }
   }
   dropStoredVectorValues(documents, raw.schema ?? {})
+  return documents
+}
+
+export function documentsOfPayloadV2(data: Uint8Array): Pick<SerializablePartition, 'documents' | 'schema'> {
+  const raw = decode(data) as RawPartitionPayloadV2
+  return { documents: storedDocumentsOf(raw), schema: raw.schema ?? {} }
+}
+
+export function deserializePayloadV2(data: Uint8Array): SerializablePartition {
+  const raw = decode(data) as RawPartitionPayloadV2
+
+  const documents = storedDocumentsOf(raw)
 
   const fieldNames = raw.inverted_index?.field_names ?? []
   const invertedIndex: SerializablePartition['invertedIndex'] = {}

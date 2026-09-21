@@ -38,7 +38,7 @@ export function mergeTimeOrderedSegments(ordered: SegmentContents[], fallback: M
 
   for (let segIndex = 0; segIndex < ordered.length; segIndex += 1) {
     const part = ordered[segIndex].partition
-    assignSchema(merged, part)
+    addSegmentSchema(merged.schema, part.schema)
     collectDocuments(merged, part, winner, segIndex)
     collectInvertedIndex(merged, part, winner, segIndex)
     collectFieldIndexes(merged, part, winner, segIndex)
@@ -82,9 +82,9 @@ function owns(winner: Map<string, number>, docId: string, segIndex: number): boo
   return winner.get(docId) === segIndex
 }
 
-function assignSchema(merged: SerializablePartition, part: SerializablePartition): void {
-  for (const [field, type] of Object.entries(part.schema)) {
-    const existing = merged.schema[field]
+export function addSegmentSchema(agreed: Record<string, string>, schema: Record<string, string>): void {
+  for (const [field, type] of Object.entries(schema)) {
+    const existing = agreed[field]
     if (existing !== undefined && existing !== type) {
       throw new NarsilError(
         ErrorCodes.PERSISTENCE_LOAD_FAILED,
@@ -92,7 +92,7 @@ function assignSchema(merged: SerializablePartition, part: SerializablePartition
         { field, existing, found: type },
       )
     }
-    merged.schema[field] = type
+    agreed[field] = type
   }
 }
 

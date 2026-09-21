@@ -88,13 +88,15 @@ function createMockVectorIndex(
     serialize() {
       return []
     },
-    planParts() {
-      return {
-        parts: 0,
-        readPart() {
-          throw new Error('The fake vector index holds no part')
-        },
-      }
+    planCheckpoint() {
+      throw new Error('The fake vector index plans no checkpoint')
+    },
+    recordCheckpoint() {},
+    restoreCheckpoint() {
+      return { addFile() {}, finish() {} }
+    },
+    vectorFilesInUse() {
+      return []
     },
     deserialize() {},
     async adoptDiskLayout() {},

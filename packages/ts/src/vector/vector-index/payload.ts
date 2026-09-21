@@ -60,7 +60,7 @@ function isSerializedGraph(value: unknown): value is SerializedHNSWGraph {
   return isRecord(value) && Array.isArray(value.nodes)
 }
 
-function codesOf(raw: unknown, dimension: number, count: number): VectorIndexCodes | null {
+export function codesOf(raw: unknown, dimension: number, count: number): VectorIndexCodes | null {
   if (raw === null || raw === undefined) return null
   if (!isRecord(raw)) invalid('codes must be a map or nil')
   const bits = raw.bits

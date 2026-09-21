@@ -43,6 +43,8 @@ export interface WorkerPool {
   removeIndex(indexName: string): void
   getMemoryStats(): Promise<MemoryStats[]>
   shutdown(): Promise<void>
+  /** Resolves once every thread the pool started has exited or finished a shutdown. */
+  whenEveryThreadIsGone(): Promise<void>
 }
 
 interface WorkerSlot {
@@ -81,6 +83,8 @@ export function createWorkerPool(config: WorkerPoolConfig): WorkerPool {
   const workers = new Map<number, WorkerSlot>()
   const deadSlots = new Set<number>()
   const goneSlots = new Set<number>()
+  const threadsStillRunning = new Set<Executor>()
+  const waitingForEveryThread: Array<() => void> = []
   const indexAssignment = new Map<string, number>()
   let isShutdown = false
 
@@ -116,14 +120,35 @@ export function createWorkerPool(config: WorkerPoolConfig): WorkerPool {
       executor: config.workerFactory(
         slotIndex,
         error => handleWorkerDeath(slotIndex, error),
-        () => handleWorkerGone(slotIndex),
+        () => {
+          noteThreadGone(slot.executor)
+          handleWorkerGone(slotIndex)
+        },
       ),
       indexes: new Set(),
       inFlight: 0,
       serving,
     }
+    threadsStillRunning.add(slot.executor)
     workers.set(slotIndex, slot)
     return slot
+  }
+
+  function noteThreadGone(executor: Executor): void {
+    threadsStillRunning.delete(executor)
+    if (threadsStillRunning.size > 0) return
+    for (const resume of waitingForEveryThread.splice(0)) resume()
+  }
+
+  function whenEveryThreadIsGone(): Promise<void> {
+    if (threadsStillRunning.size === 0) return Promise.resolve()
+    return new Promise<void>(resolve => {
+      waitingForEveryThread.push(resolve)
+    })
+  }
+
+  function shutDownUntilTheThreadIsGone(executor: Executor): Promise<void> {
+    return executor.shutdown().then(() => noteThreadGone(executor))
   }
 
   function ensureWorker(slotIndex: number): WorkerSlot | undefined {
@@ -154,7 +179,7 @@ export function createWorkerPool(config: WorkerPoolConfig): WorkerPool {
       },
       abandon(): void {
         if (workers.get(slotIndex) === slot) workers.delete(slotIndex)
-        void slot.executor.shutdown().catch(() => undefined)
+        void shutDownUntilTheThreadIsGone(slot.executor).catch(() => undefined)
       },
     }
   }
@@ -249,12 +274,12 @@ export function createWorkerPool(config: WorkerPoolConfig): WorkerPool {
 
     isShutdown = true
 
-    const shutdownPromises = [...workers.values()].map(slot => {
+    const shutdownPromises = [...threadsStillRunning].map(executor => {
       const timeoutPromise = new Promise<void>(resolve => {
         setTimeout(resolve, 5_000)
       })
 
-      return Promise.race([slot.executor.shutdown(), timeoutPromise])
+      return Promise.race([shutDownUntilTheThreadIsGone(executor), timeoutPromise])
     })
 
     await Promise.allSettled(shutdownPromises)
@@ -358,5 +383,6 @@ export function createWorkerPool(config: WorkerPoolConfig): WorkerPool {
     removeIndex,
     getMemoryStats,
     shutdown,
+    whenEveryThreadIsGone,
   }
 }

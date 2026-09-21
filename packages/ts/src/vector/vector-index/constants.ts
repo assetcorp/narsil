@@ -8,6 +8,7 @@ export const WORKER_COPY_MIN_VECTORS = 1024
 
 export const BUILD_CHUNK_SIZE = 100
 export const REBUILD_REMOVED_RATIO = 0.2
+export const VECTOR_FILE_REPLACED_ABOVE_DEAD_SHARE = 0.2
 
 export const OSQ4_MIN_DIMENSION = 384
 

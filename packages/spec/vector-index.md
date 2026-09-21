@@ -289,7 +289,7 @@ VectorIndexConfig {
 }
 ```
 
-A `memory` index holds its full-precision vectors in memory. A `disk` index holds its codes and its graph in memory, while it reads a full-precision vector from its vector file by position, as [Vector Index Payload](envelope.md#vector-index-payload) defines, when a search scores that vector or a caller fetches a document. When `storage` is absent, an implementation must use `disk` for an index with filesystem durability and `memory` otherwise. An implementation must reject `disk` on an index without filesystem durability with `CONFIG_INVALID`, and it may hold the vectors of a `disk` index in memory until promotion.
+A `memory` index holds its full-precision vectors in memory. A `disk` index holds its codes and its graph in memory, while it reads a full-precision vector from its vector file by position, as [Vector File Payload](envelope.md#vector-file-payload) defines, when a search scores that vector or a caller fetches a document. When `storage` is absent, an implementation must use `disk` for an index with filesystem durability and `memory` otherwise. An implementation must reject `disk` on an index without filesystem durability with `CONFIG_INVALID`, and it may hold the vectors of a `disk` index in memory until promotion.
 
 ---
 
@@ -538,7 +538,7 @@ An implementation must serialise vector index data apart from partition data. [V
 
 ### Storage
 
-A vector index payload holds one part of a field. An implementation persists those parts in two places. The snapshot bundle holds them as the list under the field in its `vectorIndexes` map, and the [segmented checkpoint](durability.md#segmented-checkpoint) writes them as the payloads of the vector segment files at `<indexName>/segments/<partitionId>/vec-<fieldPath>-g<generation>-p<part>`. A partition payload that must hold its own vectors, such as one that a thread sends to another thread, embeds them as [Vector Data](envelope.md#vector-data).
+A vector index payload holds one part of a field, and the snapshot bundle and the index snapshot each hold those parts as the list under the field in their `vectorIndexes` map. The [segmented checkpoint](durability.md#segmented-checkpoint) writes a field as [vector files](envelope.md#vector-file-payload) and one [graph file](envelope.md#vector-graph-payload). A partition payload that must hold its own vectors, such as one that a thread sends to another thread, embeds them as [Vector Data](envelope.md#vector-data).
 
 ### Multi-Graph Format
 
@@ -546,9 +546,9 @@ A vector index payload holds one part of a field. An implementation persists tho
 
 - A single-graph implementation writes a list of length 1.
 - A segment-based implementation writes one graph per segment.
-- The vectors keep one ordinal order across the parts whatever the graph count, and graphs reference vectors by `docId`.
+- The vectors keep one ordinal order across the parts whatever the graph count. The graphs of a vector index payload name each vector by its `docId`, while the graphs of a vector graph payload name it by its number.
 
-Every implementation must read a vector index file that holds any number of graphs, zero included, where zero means that the file stores vectors for brute-force search alone.
+Every implementation must read a vector index payload and a vector graph payload that hold any number of graphs. A vector index payload with zero graphs stores vectors for brute-force search alone.
 
 ### Deserialisation Strategy
 

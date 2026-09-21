@@ -12,7 +12,7 @@ import {
 } from './constants'
 import { createDurableDirectory, type DurableDirectory } from './durable-filesystem'
 import { drainIndexStateForUnload, type IndexState, type PartitionState } from './manager-state'
-import { type PartitionBatchDeps, recordPartitionBatch } from './mutation-batch'
+import { type PartitionBatchDeps, recordBatchesByPartition } from './mutation-batch'
 import { recoverPersistedIndex } from './recover-index'
 import { listPersistedIndexes } from './recovery'
 import { createSeqOwner, SINGLE_NODE_PRIMARY_TERM } from './seq-owner'
@@ -24,6 +24,7 @@ import type {
   MutationRecord,
 } from './types'
 import { createWalWriter } from './wal-writer'
+import { checkpointIsDue, releaseStalledWrites, stallWhileCheckpointsFallBehind } from './write-stall'
 
 /**
  * Creates durable mutation logging, recovery, and checkpoint coordination.
@@ -85,7 +86,14 @@ export function createDurabilityManager(
   function getOrCreateIndexState(indexName: string): IndexState {
     let state = indexes.get(indexName)
     if (state === undefined) {
-      state = { partitions: new Map(), mutationsSinceCheckpoint: 0, checkpointInFlight: null, unloading: false }
+      state = {
+        partitions: new Map(),
+        mutationsSinceCheckpoint: 0,
+        documentBytesSinceCheckpoint: 0,
+        checkpointInFlight: null,
+        unloading: false,
+        stalledWrites: [],
+      }
       indexes.set(indexName, state)
     }
     return state
@@ -198,6 +206,7 @@ export function createDurabilityManager(
     }
     const run = performCheckpoint(indexName, indexState, fromMemory).finally(() => {
       indexState.checkpointInFlight = null
+      releaseStalledWrites(indexState)
     })
     indexState.checkpointInFlight = run
     return run
@@ -212,6 +221,7 @@ export function createDurabilityManager(
       compactionThreshold,
       canOffload: canOffloadCheckpoint,
       fromMemory,
+      mutationThreshold: checkpointMutationThreshold,
       mayContinue: () => !indexState.unloading && !shuttingDown && fatalError === null,
       queueMetadataWrite,
       markFatal,
@@ -230,45 +240,30 @@ export function createDurabilityManager(
       const error = fatalError
       return records.map(() => ({ ok: false, error }))
     }
-    const positionsByPartition = new Map<PartitionState, number[]>()
-    for (let i = 0; i < records.length; i++) {
-      const partition = getOrCreatePartition(records[i].indexName, records[i].partitionId, 0)
-      const positions = positionsByPartition.get(partition)
-      if (positions === undefined) {
-        positionsByPartition.set(partition, [i])
-      } else {
-        positions.push(i)
-      }
-    }
-
-    const outcomes: MutationOutcome[] = new Array(records.length)
-    await Promise.all(
-      [...positionsByPartition].map(async ([partition, positions]) => {
-        const partitionOutcomes = await recordPartitionBatch(
-          partition,
-          positions.map(position => records[position]),
-          partitionBatchDeps,
-        )
-        for (let i = 0; i < positions.length; i++) {
-          outcomes[positions[i]] = partitionOutcomes[i]
-        }
-      }),
+    const outcomes = await recordBatchesByPartition(
+      records,
+      record => getOrCreatePartition(record.indexName, record.partitionId, 0),
+      partitionBatchDeps,
     )
 
-    const recordedByIndex = new Map<string, number>()
+    const recordedByIndex = new Map<string, { records: number; documentBytes: number }>()
     for (let i = 0; i < records.length; i++) {
-      if (outcomes[i].ok) {
-        recordedByIndex.set(records[i].indexName, (recordedByIndex.get(records[i].indexName) ?? 0) + 1)
-      }
+      if (!outcomes[i].ok) continue
+      const recorded = recordedByIndex.get(records[i].indexName) ?? { records: 0, documentBytes: 0 }
+      recorded.records += 1
+      recorded.documentBytes += records[i].document?.byteLength ?? 0
+      recordedByIndex.set(records[i].indexName, recorded)
     }
     for (const [indexName, recorded] of recordedByIndex) {
       const indexState = getOrCreateIndexState(indexName)
-      indexState.mutationsSinceCheckpoint += recorded
-      if (indexState.mutationsSinceCheckpoint >= checkpointMutationThreshold) {
+      indexState.mutationsSinceCheckpoint += recorded.records
+      indexState.documentBytesSinceCheckpoint += recorded.documentBytes
+      if (checkpointIsDue(indexState, checkpointMutationThreshold)) {
         void checkpointIndex(indexName).catch(err => {
           markFatal(toError(err))
         })
       }
+      await stallWhileCheckpointsFallBehind(indexState)
     }
     if (recordedByIndex.size > 0) {
       startCheckpointTimer()

@@ -1,5 +1,5 @@
 import type { PartitionManager } from '../../partitioning/manager'
-import type { VectorIndex, VectorIndexPartsPlan } from '../../vector/vector-index'
+import type { VectorCheckpointPlan, VectorIndex } from '../../vector/vector-index'
 import {
   LOG_RECORDS_PER_CHECKPOINT,
   WHOLE_PARTITION_LARGEST_DOCUMENT_COUNT,
@@ -14,7 +14,8 @@ import {
   captureWholePartition,
   type SegmentManifest,
   type VectorCheckpointLayout,
-  type VectorSegmentRef,
+  type VectorFieldRef,
+  type VectorFieldWritten,
   type WholePartitionSegment,
   writeLiveVectors,
 } from './segment'
@@ -29,14 +30,15 @@ export interface CheckpointedPartitions {
 export interface CheckpointCapture {
   targets: PartitionCheckpoint[]
   documentCount: number
-  vectorPlans: Map<string, VectorIndexPartsPlan>
+  vectorPlans: Map<string, VectorCheckpointPlan>
   wholePartitions: WholePartitions
   recordsLeftInLog: number
 }
 
 export interface LiveVectorsWritten {
-  vectors: VectorSegmentRef[]
+  vectors: VectorFieldRef[]
   layouts: VectorCheckpointLayout[]
+  written: VectorFieldWritten[]
 }
 
 function whileNoMutationApplies<T>(partitions: readonly PartitionState[], capture: () => T): Promise<T> {
@@ -146,6 +148,7 @@ export async function captureCheckpoint(
   vectorIndexes: Map<string, VectorIndex>,
   wholePartitionsOf: WholePartitionsOf = noWholePartitions,
   priorCheckpointThatLimitsTheRecords?: PartitionCheckpoint[],
+  listedVectorFields: readonly VectorFieldRef[] = [],
 ): Promise<CheckpointCapture> {
   for (const vectorIndex of vectorIndexes.values()) await vectorIndex.completeGraph()
   return whileNoMutationApplies([...indexState.partitions.values()], () => {
@@ -169,8 +172,12 @@ export async function captureCheckpoint(
         primaryTerm: partition?.seqOwner.primaryTerm ?? SINGLE_NODE_PRIMARY_TERM,
       })
     }
-    const vectorPlans = new Map<string, VectorIndexPartsPlan>()
-    for (const [fieldPath, vectorIndex] of vectorIndexes) vectorPlans.set(fieldPath, vectorIndex.planParts())
+    const vectorPlans = new Map<string, VectorCheckpointPlan>()
+    for (const [fieldPath, vectorIndex] of vectorIndexes) {
+      const listed = listedVectorFields.find(ref => ref.fieldPath === fieldPath)
+      const listedKeys = listed === undefined ? null : listed.files.map(file => file.key)
+      vectorPlans.set(fieldPath, vectorIndex.planCheckpoint(listedKeys))
+    }
     const memoryMatchesTheTargets = recordsLeftInLog === 0
     const wholePartitions = memoryMatchesTheTargets ? wholePartitionsOf(targets) : noWholePartitions()
     return { targets, documentCount, vectorPlans, wholePartitions, recordsLeftInLog }
@@ -184,7 +191,7 @@ export async function writeCapturedVectors(
   priorManifest: SegmentManifest | null,
   rewriteUnchanged: boolean,
 ): Promise<LiveVectorsWritten> {
-  if (capture.vectorPlans.size === 0) return { vectors: [], layouts: [] }
+  if (capture.vectorPlans.size === 0) return { vectors: [], layouts: [], written: [] }
   const priorVectors = priorManifest?.vectors ?? []
   const priorCheckpoint = priorManifest?.checkpoint ?? []
   const noPartitionChanged = capture.targets.every(
@@ -193,7 +200,9 @@ export async function writeCapturedVectors(
   const everyFieldWritten = [...capture.vectorPlans.keys()].every(fieldPath =>
     priorVectors.some(ref => ref.fieldPath === fieldPath),
   )
-  if (!rewriteUnchanged && everyFieldWritten && noPartitionChanged) return { vectors: priorVectors, layouts: [] }
+  if (!rewriteUnchanged && everyFieldWritten && noPartitionChanged) {
+    return { vectors: priorVectors, layouts: [], written: [] }
+  }
   const written = await writeLiveVectors({ directory, indexName, plans: capture.vectorPlans, priorVectors })
-  return { vectors: written.refs, layouts: written.layouts }
+  return { vectors: written.refs, layouts: written.layouts, written: written.written }
 }

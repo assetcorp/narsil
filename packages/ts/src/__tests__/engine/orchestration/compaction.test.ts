@@ -39,6 +39,7 @@ function poolOf(worker: Executor): OrchestratorState['workerPool'] {
     removeIndex: () => undefined,
     getMemoryStats: async () => [],
     shutdown: async () => undefined,
+    whenEveryThreadIsGone: async () => undefined,
   }
 }
 
@@ -178,6 +179,7 @@ describe('segment merge once the index is idle', () => {
       removeIndex: () => undefined,
       getMemoryStats: async () => [],
       shutdown: async () => undefined,
+      whenEveryThreadIsGone: async () => undefined,
     }
     state.scaledOutIndexes.add('products')
 

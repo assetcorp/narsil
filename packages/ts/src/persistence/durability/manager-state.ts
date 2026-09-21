@@ -12,8 +12,11 @@ export interface PartitionState {
 export interface IndexState {
   partitions: Map<number, PartitionState>
   mutationsSinceCheckpoint: number
+  /** The documents of the records that `mutationsSinceCheckpoint` counts hold about this many bytes. */
+  documentBytesSinceCheckpoint: number
   checkpointInFlight: Promise<void> | null
   unloading: boolean
+  stalledWrites: Array<() => void>
 }
 
 /**

@@ -32,6 +32,8 @@ function indexStateOf(partition: PartitionState): IndexState {
     mutationsSinceCheckpoint: 0,
     checkpointInFlight: null,
     unloading: false,
+    documentBytesSinceCheckpoint: 0,
+    stalledWrites: [],
   }
 }
 

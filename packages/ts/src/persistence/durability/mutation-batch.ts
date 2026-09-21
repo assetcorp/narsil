@@ -29,6 +29,38 @@ function failPartition(partition: PartitionState, deps: PartitionBatchDeps, err:
   return error
 }
 
+export async function recordBatchesByPartition(
+  records: readonly MutationRecord[],
+  partitionOf: (record: MutationRecord) => PartitionState,
+  deps: PartitionBatchDeps,
+): Promise<MutationOutcome[]> {
+  const positionsByPartition = new Map<PartitionState, number[]>()
+  for (let i = 0; i < records.length; i++) {
+    const partition = partitionOf(records[i])
+    const positions = positionsByPartition.get(partition)
+    if (positions === undefined) {
+      positionsByPartition.set(partition, [i])
+    } else {
+      positions.push(i)
+    }
+  }
+
+  const outcomes: MutationOutcome[] = new Array(records.length)
+  await Promise.all(
+    [...positionsByPartition].map(async ([partition, positions]) => {
+      const partitionOutcomes = await recordPartitionBatch(
+        partition,
+        positions.map(position => records[position]),
+        deps,
+      )
+      for (let i = 0; i < positions.length; i++) {
+        outcomes[positions[i]] = partitionOutcomes[i]
+      }
+    }),
+  )
+  return outcomes
+}
+
 export async function recordPartitionBatch(
   partition: PartitionState,
   records: readonly MutationRecord[],

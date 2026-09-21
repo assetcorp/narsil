@@ -42,7 +42,7 @@ describe('segment on-disk layout contract', () => {
     expect(manifestBytes[4]).toBe(2)
 
     const manifest = await decodeSegmentManifest(manifestBytes)
-    expect(manifest.version).toBe(5)
+    expect(manifest.version).toBe(6)
     expect(manifest.schema).toEqual({ title: 'string', year: 'number' })
     expect(manifest.language).toBe('english')
     expect(manifest.checkpoint).toEqual([{ partitionId: 0, lastSeqNo: 12, primaryTerm: 1 }])
