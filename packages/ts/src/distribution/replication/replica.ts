@@ -34,18 +34,27 @@ export function applyIndexEntry(
 
   const document = decode(entry.document) as Record<string, unknown>
   restoreVectorFields(document, vectorFieldPaths)
+  applyIndexedDocument(entry.documentId, document, manager, vectorFieldPaths, vecIndexes)
+}
 
-  if (manager.has(entry.documentId)) {
-    removeDocumentVectors(entry.documentId, vecIndexes)
-    manager.remove(entry.documentId)
+export function applyIndexedDocument(
+  documentId: string,
+  document: Record<string, unknown>,
+  manager: PartitionManager,
+  vectorFieldPaths: Set<string>,
+  vecIndexes: Map<string, VectorIndex>,
+): void {
+  if (manager.has(documentId)) {
+    removeDocumentVectors(documentId, vecIndexes)
+    manager.remove(documentId)
   }
 
   const { partitionDoc, extractedVectors } = prepareDocumentVectors(document, vectorFieldPaths)
-  manager.insert(entry.documentId, partitionDoc)
+  manager.insert(documentId, partitionDoc)
   try {
-    insertDocumentVectors(entry.documentId, extractedVectors, vecIndexes, manager.partitionIdOf(entry.documentId))
+    insertDocumentVectors(documentId, extractedVectors, vecIndexes, manager.partitionIdOf(documentId))
   } catch (err) {
-    manager.remove(entry.documentId)
+    manager.remove(documentId)
     throw err
   }
 

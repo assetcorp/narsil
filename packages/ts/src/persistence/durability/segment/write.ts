@@ -32,7 +32,7 @@ export interface SegmentedCheckpointInput {
   metadata: IndexMetadata
   targets: PartitionCheckpoint[]
   compactionThreshold: number
-  wholePartitionPayload?: (partitionId: number) => WholePartitionSegment
+  wholePartitions?: ReadonlyMap<number, WholePartitionSegment>
   vectors?: VectorSegmentRef[]
 }
 
@@ -83,16 +83,14 @@ export async function writeSegmentedCheckpoint(input: SegmentedCheckpointInput):
   }
 
   const partitions: PartitionManifestEntry[] = []
-  let wholeDocumentCount = input.wholePartitionPayload === undefined ? null : 0
   for (const target of input.targets) {
     const priorPartition = priorManifest?.partitions.find(p => p.partitionId === target.partitionId)
     const priorSeqNo = snapshotCheckpointFor(priorManifest?.checkpoint ?? [], target.partitionId)
-    if (input.wholePartitionPayload === undefined) {
+    const whole = input.wholePartitions?.get(target.partitionId)
+    if (whole === undefined) {
       const entries = walEntriesInRange(directory, indexName, target.partitionId, priorSeqNo, target.lastSeqNo)
       partitions.push(await writePartition(context, target.partitionId, priorPartition, entries))
     } else {
-      const whole = input.wholePartitionPayload(target.partitionId)
-      wholeDocumentCount = (wholeDocumentCount ?? 0) + whole.docCount
       partitions.push(await writeWholePartition(context, target.partitionId, priorPartition, whole))
     }
   }
@@ -111,7 +109,7 @@ export async function writeSegmentedCheckpoint(input: SegmentedCheckpointInput):
   const parts = await encodeSegmentManifest(manifest)
   await directory.atomicWrite(manifestKey(indexName), [parts.header, parts.payload])
   const garbage = await unreferencedKeys(directory, indexName, manifest)
-  return { documentCount: wholeDocumentCount, garbage }
+  return { documentCount: null, garbage }
 }
 
 async function writePartition(

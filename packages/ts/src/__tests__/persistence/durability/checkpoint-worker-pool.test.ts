@@ -2,7 +2,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { createNarsil } from '../../../narsil'
+import { createNarsil, type Narsil } from '../../../narsil'
 import {
   __checkpointWorkerIsPooledForTests,
   __checkpointWorkerSpawnCountForTests,
@@ -25,6 +25,15 @@ function doc(i: number): { title: string; body: string; year: number } {
   }
 }
 
+const SEEDED_DOCUMENTS = 100
+
+async function createIndexWhoseLaterCheckpointsReadTheLog(engine: Narsil): Promise<void> {
+  await engine.createIndex('docs', SCHEMA)
+  const seeded = Array.from({ length: SEEDED_DOCUMENTS }, (_, i) => ({ id: `seed${i}`, ...doc(i) }))
+  expect((await engine.insertBatch('docs', seeded)).failed).toEqual([])
+  await engine.checkpoint('docs')
+}
+
 describe('pooled checkpoint worker', () => {
   let root: string
 
@@ -40,7 +49,7 @@ describe('pooled checkpoint worker', () => {
 
   it('reuses a single worker thread across many checkpoints', async () => {
     const writer = await createNarsil({ durability: { directory: root } })
-    await writer.createIndex('docs', SCHEMA)
+    await createIndexWhoseLaterCheckpointsReadTheLog(writer)
 
     for (let round = 0; round < 4; round += 1) {
       const base = round * 10
@@ -55,14 +64,14 @@ describe('pooled checkpoint worker', () => {
     await writer.shutdown()
 
     const reader = await createNarsil({ durability: { directory: root } })
-    expect(await reader.countDocuments('docs')).toBe(40)
+    expect(await reader.countDocuments('docs')).toBe(SEEDED_DOCUMENTS + 40)
     await reader.shutdown()
   })
 
   it('ends the worker thread once it sits idle, so that the memory of a finished checkpoint goes back', async () => {
     __setCheckpointWorkerIdleMsForTests(400)
     const writer = await createNarsil({ durability: { directory: root } })
-    await writer.createIndex('docs', SCHEMA)
+    await createIndexWhoseLaterCheckpointsReadTheLog(writer)
     for (let i = 0; i < 10; i += 1) await writer.insert('docs', doc(i), `d${i}`)
     await writer.checkpoint('docs')
     expect(__checkpointWorkerIsPooledForTests()).toBe(true)
@@ -76,13 +85,13 @@ describe('pooled checkpoint worker', () => {
     await writer.shutdown()
 
     const reader = await createNarsil({ durability: { directory: root } })
-    expect(await reader.countDocuments('docs')).toBe(20)
+    expect(await reader.countDocuments('docs')).toBe(SEEDED_DOCUMENTS + 20)
     await reader.shutdown()
   })
 
   it('falls back inline when the worker is forced to fail and recovers on the next checkpoint', async () => {
     const writer = await createNarsil({ durability: { directory: root } })
-    await writer.createIndex('docs', SCHEMA)
+    await createIndexWhoseLaterCheckpointsReadTheLog(writer)
     for (let i = 0; i < 10; i += 1) {
       await writer.insert('docs', doc(i), `d${i}`)
     }
@@ -100,14 +109,14 @@ describe('pooled checkpoint worker', () => {
     await writer.shutdown()
 
     const reader = await createNarsil({ durability: { directory: root } })
-    expect(await reader.countDocuments('docs')).toBe(20)
+    expect(await reader.countDocuments('docs')).toBe(SEEDED_DOCUMENTS + 20)
     expect(await reader.get('docs', 'd19')).toMatchObject({ title: 'Document 19' })
     await reader.shutdown()
   })
 
   it('terminates the pooled worker on shutdown so no thread persists', async () => {
     const writer = await createNarsil({ durability: { directory: root } })
-    await writer.createIndex('docs', SCHEMA)
+    await createIndexWhoseLaterCheckpointsReadTheLog(writer)
     for (let i = 0; i < 10; i += 1) {
       await writer.insert('docs', doc(i), `d${i}`)
     }

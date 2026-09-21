@@ -4,4 +4,9 @@ export type { SegmentManifest, VectorSegmentRef } from './manifest'
 export { countLiveDocuments } from './merge'
 export { readSegmentContents } from './segment-file'
 export { type VectorCheckpointLayout, type VectorWriteOutcome, writeLiveVectors } from './vector'
-export { removeCheckpointGarbage, type SegmentedCheckpointOutcome, writeSegmentedCheckpoint } from './write'
+export {
+  removeCheckpointGarbage,
+  type SegmentedCheckpointOutcome,
+  type WholePartitionSegment,
+  writeSegmentedCheckpoint,
+} from './write'

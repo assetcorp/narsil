@@ -247,11 +247,6 @@ class NarsilDriver:
         if task_id is not None:
             self._wait_task(str(task_id))
         self._wait_graph_ready(index)
-        self._finish_checkpoint(index)
-
-    def _finish_checkpoint(self, index: str, timeout_seconds: float = GRAPH_BUILD_TIMEOUT_SECONDS) -> None:
-        response = self._client.post(f"/indexes/{index}/_checkpoint", timeout=timeout_seconds)
-        _raise_for_envelope(response)
 
     def _wait_task(self, task_id: str, timeout_seconds: float = GRAPH_BUILD_TIMEOUT_SECONDS) -> None:
         deadline = time.perf_counter() + timeout_seconds
