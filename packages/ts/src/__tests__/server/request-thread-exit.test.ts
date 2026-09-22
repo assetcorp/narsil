@@ -20,4 +20,14 @@ describe.skipIf(!built)('a request thread that the engine asks to leave', () => 
     expect(stoppedAfterMs).toBeLessThan(SHUTDOWN_TIMEOUT_MS)
     await expect(fetch(`${srv.base}/livez`)).rejects.toThrow()
   })
+
+  it('stops the socket and the engine behind it from one call', async () => {
+    const srv = await startTestServer(undefined, { workers: { count: 2 } })
+    expect((await getJson(srv.base, '/livez')).status).toBe(200)
+
+    await srv.server.shutdown()
+
+    await expect(fetch(`${srv.base}/livez`)).rejects.toThrow()
+    await expect(srv.engine.countDocuments('movies')).rejects.toThrow('This Narsil instance has been shut down')
+  })
 })

@@ -58,6 +58,7 @@ describe('httpStatusForNarsilError', () => {
       ErrorCodes.TRANSPORT_DEPENDENCY_MISSING,
       ErrorCodes.COORDINATOR_DEPENDENCY_MISSING,
       ErrorCodes.CONTROLLER_METADATA_INVALID,
+      ErrorCodes.WORKER_ACTION_FAILED,
     ]
     const everyServerRaisedCode = [...Object.values(ErrorCodes), ...Object.values(ServerErrorCodes)]
     const answeringFiveHundred = everyServerRaisedCode.filter(code => httpStatusForNarsilError(code) === 500)

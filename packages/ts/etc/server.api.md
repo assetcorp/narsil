@@ -68,6 +68,7 @@ export const ErrorCodes: {
     readonly WORKER_CRASHED: "WORKER_CRASHED";
     readonly WORKER_BUSY: "WORKER_BUSY";
     readonly WORKER_TIMEOUT: "WORKER_TIMEOUT";
+    readonly WORKER_ACTION_FAILED: "WORKER_ACTION_FAILED";
     readonly PERSISTENCE_SAVE_FAILED: "PERSISTENCE_SAVE_FAILED";
     readonly PERSISTENCE_LOAD_FAILED: "PERSISTENCE_LOAD_FAILED";
     readonly PERSISTENCE_DELETE_FAILED: "PERSISTENCE_DELETE_FAILED";
@@ -232,6 +233,7 @@ export interface NarsilServer {
     listen(): Promise<void>;
     readonly listeningPort: number;
     readonly requestThreadCount: number;
+    shutdown(): Promise<void>;
 }
 
 // @public
