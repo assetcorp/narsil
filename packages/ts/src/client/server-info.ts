@@ -22,8 +22,8 @@ export interface ServerVersion {
   /** This is true when the working tree held uncommitted changes at build time. */
   dirty: boolean
   /**
-   * The server thread that answered searches vector graphs through this path,
-   * where `native` is the native search core in C and `wasm` is WebAssembly. Both
+   * The server thread that answered searches vector graphs through this path.
+   * `native` is the native search core in C, and `wasm` is WebAssembly. Both
    * paths return the same results. A server that predates this field leaves it
    * out.
    */

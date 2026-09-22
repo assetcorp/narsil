@@ -72,7 +72,7 @@ def _setup_block(source: Source) -> str:
         [
             "- **Vector search path.** Narsil searches vector graphs through WebAssembly in this suite, which is the "
             "path that it takes in a browser. The suite sets `NARSIL_SEARCH_BACKEND=wasm`, so these figures exclude "
-            "the native search core that an install on Node.js adds."
+            "the native search core that npm installs with the package on Node.js."
         ]
         if environment.get("narsilVectorSearch") == WASM_VECTOR_SEARCH
         else []

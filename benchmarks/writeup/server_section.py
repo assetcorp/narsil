@@ -320,7 +320,7 @@ def _setup_block(source: Source) -> str:
         "and every engine runs from a pinned image.",
         f"- **Equal conditions.** Every engine receives the same {cap} GB memory cap, the same run depth of "
         f"{integer(config.get('run_depth'))}, and the same run-file ordering. The harness tests one engine at a "
-        f"time, so no engine competes with another for the machine.{java_heap_sentence(engines)}",
+        f"time, so each engine has the machine to itself.{java_heap_sentence(engines)}",
         f"- **Load.** {load_sentence(config)}",
         f"- **Narsil threads.** {_threads_sentence(narsil)}",
         *narsil_vector_search_bullets(narsil),
