@@ -22,7 +22,7 @@ function memoryTheHostAllows(): number {
   return constrained > 0 ? constrained : totalmem()
 }
 
-function configuredLimitBytes(): number | null {
+function readConfiguredLimit(): number | null {
   let megabytes: number | null = null
   let percentage: number | null = null
   for (const entry of flagEntries()) {
@@ -37,11 +37,20 @@ function configuredLimitBytes(): number | null {
       megabytes = null
     }
   }
-  if (megabytes !== null && megabytes > 0) return megabytes * MEGABYTE_BYTES
-  if (percentage !== null && percentage > 0 && percentage <= 100) {
-    return Math.floor((memoryTheHostAllows() * percentage) / 100)
-  }
-  return null
+  const bytes =
+    megabytes !== null && megabytes > 0
+      ? megabytes * MEGABYTE_BYTES
+      : percentage !== null && percentage > 0 && percentage <= 100
+        ? Math.floor((memoryTheHostAllows() * percentage) / 100)
+        : null
+  return bytes !== null && Number.isFinite(bytes) && bytes > 0 ? bytes : null
+}
+
+let configuredLimit: number | null | undefined
+
+function configuredLimitBytes(): number | null {
+  if (configuredLimit === undefined) configuredLimit = readConfiguredLimit()
+  return configuredLimit
 }
 
 export function readHeapStatistics(): HeapStatistics | null {
@@ -52,13 +61,7 @@ export function readHeapStatistics(): HeapStatistics | null {
     if (!Number.isFinite(usedBytes) || !Number.isFinite(limitBytes) || limitBytes <= 0) return null
     const available = stats.total_available_size
     const availableBytes = Number.isFinite(available) && available >= 0 ? available : null
-    const configured = configuredLimitBytes()
-    return {
-      usedBytes,
-      limitBytes,
-      availableBytes,
-      configuredLimitBytes: configured !== null && Number.isFinite(configured) && configured > 0 ? configured : null,
-    }
+    return { usedBytes, limitBytes, availableBytes, configuredLimitBytes: configuredLimitBytes() }
   } catch {
     return null
   }

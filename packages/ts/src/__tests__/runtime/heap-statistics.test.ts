@@ -1,52 +1,57 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { readHeapStatistics } from '../../runtime/heap-statistics'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const MEGABYTE_BYTES = 1_048_576
 
-describe('the heap limit an operator sets', () => {
-  let nodeOptions: string | undefined
-  let execArgv: string[]
+async function configuredLimitUnder(flags: { execArgv?: string[]; nodeOptions?: string }): Promise<number | null> {
+  const realExecArgv = process.execArgv
+  const realNodeOptions = process.env.NODE_OPTIONS
+  process.execArgv = flags.execArgv ?? []
+  if (flags.nodeOptions === undefined) delete process.env.NODE_OPTIONS
+  else process.env.NODE_OPTIONS = flags.nodeOptions
+  try {
+    const { readHeapStatistics } = await import('../../runtime/heap-statistics')
+    return readHeapStatistics()?.configuredLimitBytes ?? null
+  } finally {
+    process.execArgv = realExecArgv
+    if (realNodeOptions === undefined) delete process.env.NODE_OPTIONS
+    else process.env.NODE_OPTIONS = realNodeOptions
+  }
+}
 
+describe('the heap limit an operator sets', () => {
   beforeEach(() => {
-    nodeOptions = process.env.NODE_OPTIONS
-    execArgv = process.execArgv
-    delete process.env.NODE_OPTIONS
-    process.execArgv = []
+    vi.resetModules()
   })
 
   afterEach(() => {
-    if (nodeOptions === undefined) delete process.env.NODE_OPTIONS
-    else process.env.NODE_OPTIONS = nodeOptions
-    process.execArgv = execArgv
+    vi.resetModules()
   })
 
-  it('reads the megabytes that the command line names', () => {
-    process.execArgv = ['--max-old-space-size=256']
-
-    expect(readHeapStatistics()?.configuredLimitBytes).toBe(256 * MEGABYTE_BYTES)
+  it('reads the megabytes that the command line names', async () => {
+    await expect(configuredLimitUnder({ execArgv: ['--max-old-space-size=256'] })).resolves.toBe(256 * MEGABYTE_BYTES)
   })
 
-  it('reads the megabytes that NODE_OPTIONS names, because the command line holds none', () => {
-    process.env.NODE_OPTIONS = '--max-old-space-size=512 --enable-source-maps'
+  it('reads the megabytes that NODE_OPTIONS names, because the command line holds none', async () => {
+    const configured = await configuredLimitUnder({ nodeOptions: '--max-old-space-size=512 --enable-source-maps' })
 
-    expect(readHeapStatistics()?.configuredLimitBytes).toBe(512 * MEGABYTE_BYTES)
+    expect(configured).toBe(512 * MEGABYTE_BYTES)
   })
 
-  it('takes a share of the host memory for the percentage flag', () => {
-    process.execArgv = ['--max-old-space-size-percentage=25']
-    const configured = readHeapStatistics()?.configuredLimitBytes
+  it('takes a share of the host memory for the percentage flag', async () => {
+    const configured = await configuredLimitUnder({ execArgv: ['--max-old-space-size-percentage=25'] })
 
-    expect(configured).not.toBeNull()
     expect(configured).toBeGreaterThan(0)
   })
 
-  it('takes the last flag where a process carries both forms', () => {
-    process.execArgv = ['--max-old-space-size-percentage=25', '--max-old-space-size=128']
+  it('takes the last flag where a process carries both forms', async () => {
+    const configured = await configuredLimitUnder({
+      execArgv: ['--max-old-space-size-percentage=25', '--max-old-space-size=128'],
+    })
 
-    expect(readHeapStatistics()?.configuredLimitBytes).toBe(128 * MEGABYTE_BYTES)
+    expect(configured).toBe(128 * MEGABYTE_BYTES)
   })
 
-  it('reports no configured limit where the process names none', () => {
-    expect(readHeapStatistics()?.configuredLimitBytes).toBeNull()
+  it('reports no configured limit where the process names none', async () => {
+    await expect(configuredLimitUnder({ execArgv: ['--experimental-strip-types'] })).resolves.toBeNull()
   })
 })
