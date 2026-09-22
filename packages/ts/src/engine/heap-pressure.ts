@@ -12,13 +12,18 @@ export interface HeapPressureDeps {
   emit(payload: NarsilEventMap['heapPressure']): void
 }
 
+function spentHeapFraction(heap: HeapStatistics): number {
+  if (heap.availableBytes === null) return heap.usedBytes / heap.limitBytes
+  return 1 - heap.availableBytes / heap.limitBytes
+}
+
 export function createHeapPressureNotifier(deps: HeapPressureDeps): HeapPressureNotifier {
   let warned = false
 
   function check(indexName: string): void {
     const heap = deps.readHeap()
     if (heap === null) return
-    const fraction = heap.usedBytes / heap.limitBytes
+    const fraction = spentHeapFraction(heap)
     if (warned) {
       if (fraction < HEAP_PRESSURE_REARM_FRACTION) warned = false
       return

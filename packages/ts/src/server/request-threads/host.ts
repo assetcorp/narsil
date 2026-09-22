@@ -3,13 +3,13 @@ import { MessageChannel, type MessagePort } from 'node:worker_threads'
 import type { EngineCore } from '../../engine/core'
 import type { RequestThreadListener } from '../../engine/orchestration'
 import { resolveVectorText } from '../../engine/resolve-vector-text'
-import { NarsilError } from '../../errors'
+import { isNarsilError } from '../../errors'
 import type { Executor } from '../../workers/executor'
 import { clearGateSlot, gateSlotOfWorker } from '../concurrency-gate'
 import { INDEX_TOUCH_INTERVALS_PER_IDLE_TIMEOUT, MAX_INDEX_TOUCH_INTERVAL_MS } from '../constants'
 import type { ResolvedCors } from '../cors'
 import type { ResolvedBuild, ResolvedLimits } from '../deps'
-import { ServerErrorCodes, serializeNarsilError } from '../errors'
+import { ServerErrorCodes, toHttpError } from '../errors'
 import type { Authorizer, RouteContext } from '../request'
 import { sendError } from '../response'
 import type { ServerHandlers } from '../routes'
@@ -112,11 +112,8 @@ async function answerEmbed(core: EngineCore, request: EmbedQueryRequest): Promis
       error: null,
     }
   } catch (err) {
-    const error =
-      err instanceof NarsilError
-        ? serializeNarsilError(err)
-        : { code: 'INTERNAL_ERROR', message: err instanceof Error ? err.message : String(err) }
-    return { type: 'embedded', requestId: request.requestId, value: null, error }
+    if (!isNarsilError(err)) console.warn('Embedding a query for a request thread failed:', err)
+    return { type: 'embedded', requestId: request.requestId, value: null, error: toHttpError(err).body }
   }
 }
 

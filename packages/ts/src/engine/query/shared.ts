@@ -1,4 +1,5 @@
 import type { PartitionIndex } from '../../core/partition'
+import { ErrorCodes, NarsilError } from '../../errors'
 import { pruneStatsToQueryTerms } from '../../partitioning/distributed-scoring'
 import type { FanOutConfig, FanOutResult } from '../../partitioning/fan-out'
 import type { PartitionManager } from '../../partitioning/manager'
@@ -8,7 +9,7 @@ import type { GlobalStatistics, ScoredDocument } from '../../types/internal'
 import type { LanguageModule } from '../../types/language'
 import type { QueryCoverage } from '../../types/results'
 import type { IndexConfig } from '../../types/schema'
-import type { QueryParams } from '../../types/search'
+import type { QueryParams, SearchMode } from '../../types/search'
 import type { VectorScoredResult, VectorSearcher } from '../../vector/vector-index'
 
 export interface QueryContext {
@@ -158,6 +159,35 @@ export function vectorSearchersOf(context: QueryContext): ReadonlyMap<string, Ve
 
 export function resolveVectorIndex(context: QueryContext, fieldName: string): VectorSearcher | undefined {
   return vectorSearchersOf(context).get(fieldName)
+}
+
+const SEARCH_MODES: ReadonlySet<string> = new Set<SearchMode>(['fulltext', 'vector', 'hybrid'])
+
+export function requireKnownMode(params: QueryParams): void {
+  if (params.mode === undefined || SEARCH_MODES.has(params.mode)) return
+  throw new NarsilError(
+    ErrorCodes.SEARCH_INVALID_MODE,
+    `A search takes the mode "fulltext", "vector", or "hybrid", while this query names "${String(params.mode)}"`,
+    { mode: String(params.mode), modes: [...SEARCH_MODES] },
+  )
+}
+
+export function requireVectorSearchable(params: QueryParams, context: QueryContext, needsVector: boolean): void {
+  if (!needsVector) return
+  const field = params.vector?.field
+  if (field === undefined) {
+    throw new NarsilError(
+      ErrorCodes.SEARCH_INVALID_MODE,
+      `A "${params.mode}" query needs a vector clause naming the field to search`,
+      { mode: params.mode },
+    )
+  }
+  if (vectorSearchersOf(context).has(field)) return
+  throw new NarsilError(
+    ErrorCodes.SEARCH_INVALID_FIELD,
+    `Field "${field}" has no vector index, so a vector search cannot use it`,
+    { field, vectorFields: [...vectorSearchersOf(context).keys()] },
+  )
 }
 
 export function clampAlpha(alpha: number | undefined): number {

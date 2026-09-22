@@ -1,5 +1,10 @@
 import type { EngineCore, EventHandler } from '../engine/core'
-import { createEngineIndex, dropEngineIndex, registerEngineEmbeddingAdapter } from '../engine/index-lifecycle'
+import {
+  announceIndexCreated,
+  createEngineIndex,
+  dropEngineIndex,
+  registerEngineEmbeddingAdapter,
+} from '../engine/index-lifecycle'
 import { shutdownEngine } from '../engine/lifecycle'
 import {
   insertDocument,
@@ -214,6 +219,7 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
         indexRegistry,
         getVectorFieldPaths,
         dropIndex: narsil.dropIndex.bind(narsil),
+        announceIndexCreated: (name, restoredConfig) => announceIndexCreated(core, name, restoredConfig),
         requireManager,
         durability,
         filesystemDurability: core.filesystemDurability,

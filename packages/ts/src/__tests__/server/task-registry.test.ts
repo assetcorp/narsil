@@ -25,7 +25,7 @@ function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void; reje
 async function settledRecord(registry: TaskRegistry, id: string): Promise<TaskRecord> {
   for (let attempt = 0; attempt < 200; attempt++) {
     const record = await registry.get(id)
-    if (record && record.status !== 'running' && record.status !== 'queued') return record
+    if (record && record.status !== 'running') return record
     await new Promise(resolve => setTimeout(resolve, 5))
   }
   throw new Error('The task never reached a terminal status')

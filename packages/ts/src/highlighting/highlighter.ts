@@ -88,26 +88,24 @@ function applySnippetTruncation(
   maxLen: number,
   preTag: string,
   postTag: string,
-): { snippet: string; adjustedPositions: CharRange[] } {
+): { snippet: string; visiblePositions: CharRange[] } {
   if (maxLen <= 0 || originalText.length <= maxLen) {
-    return { snippet: taggedText, adjustedPositions: positions }
+    return { snippet: taggedText, visiblePositions: positions }
   }
 
   const window = findDensestWindow(positions, originalText, maxLen)
   const snippetRaw = originalText.substring(window.start, window.end)
 
-  const adjustedPositions: CharRange[] = []
+  const visiblePositions: CharRange[] = []
+  const withinSnippet: CharRange[] = []
   for (const pos of positions) {
-    if (pos.start >= window.start && pos.end <= window.end) {
-      adjustedPositions.push({
-        start: pos.start - window.start,
-        end: pos.end - window.start,
-      })
-    }
+    if (pos.start < window.start || pos.end > window.end) continue
+    visiblePositions.push(pos)
+    withinSnippet.push({ start: pos.start - window.start, end: pos.end - window.start })
   }
 
   let snippet = snippetRaw
-  const sortedDesc = [...adjustedPositions].sort((a, b) => b.start - a.start)
+  const sortedDesc = [...withinSnippet].sort((a, b) => b.start - a.start)
   for (const pos of sortedDesc) {
     snippet =
       snippet.substring(0, pos.start) +
@@ -123,7 +121,7 @@ function applySnippetTruncation(
   if (needsLeadingEllipsis) snippet = `...${snippet}`
   if (needsTrailingEllipsis) snippet = `${snippet}...`
 
-  return { snippet, adjustedPositions }
+  return { snippet, visiblePositions }
 }
 
 export function highlightField(
@@ -187,7 +185,7 @@ export function highlightField(
   }
 
   if (maxSnippetLength > 0 && text.length > maxSnippetLength) {
-    const { snippet, adjustedPositions } = applySnippetTruncation(
+    const { snippet, visiblePositions } = applySnippetTruncation(
       text,
       text,
       mergedPositions,
@@ -195,7 +193,7 @@ export function highlightField(
       preTag,
       postTag,
     )
-    return { snippet, positions: adjustedPositions }
+    return { snippet, positions: visiblePositions }
   }
 
   let result = text

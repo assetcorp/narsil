@@ -1,4 +1,5 @@
 import { generateId } from '../../../core/id-generator'
+import { providedDocId } from '../../../engine/mutations/insert-admission'
 import { ErrorCodes, NarsilError } from '../../../errors'
 import type { Narsil } from '../../../narsil'
 import type { AnyDocument, IndexConfig, InsertOptions } from '../../../types/schema'
@@ -173,7 +174,7 @@ export async function routeInsert(
   deps: WriteRoutingDeps,
   options?: InsertOptions,
 ): Promise<string> {
-  const resolvedDocId = docId ?? generateId()
+  const resolvedDocId = docId ?? providedDocId(document) ?? generateId()
   const resolution = await resolvePrimaryAssignment(indexName, resolvedDocId, deps, false)
 
   if (resolution === null) {

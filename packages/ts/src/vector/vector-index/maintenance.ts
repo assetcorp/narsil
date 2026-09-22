@@ -119,8 +119,9 @@ export function completeGraph(state: VectorIndexState): Promise<void> {
 
 export function maintenanceStatus(state: VectorIndexState): MaintenanceStatus {
   const storeSize = state.store.size
-  const tombstoneRatio = storeSize > 0 ? state.tombstones.size / storeSize : 0
   const graphCount = state.hnsw ? 1 : 0
+  const graphNodes = state.hnsw === null ? storeSize : state.hnsw.size + state.hnsw.tombstoneCount
+  const tombstoneRatio = graphNodes > 0 ? state.tombstones.size / graphNodes : 0
   const estimatedCompactMs = Math.round(state.tombstones.size * ESTIMATED_MS_PER_TOMBSTONE * state.dimensionScale)
   const optimizeVectorCount = state.hnsw === null || graphNeedsRebuild(state) ? storeSize : state.buffer.size
   const estimatedOptimizeMs = Math.round(optimizeVectorCount * ESTIMATED_MS_PER_VECTOR_REBUILD * state.dimensionScale)

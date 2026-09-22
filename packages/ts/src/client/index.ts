@@ -1,5 +1,5 @@
 export type { ClientErrorCode, ErrorCode, NarsilErrorCode, ServerErrorCode } from '../errors'
-export { ClientErrorCodes, ErrorCodes, NarsilError, ServerErrorCodes } from '../errors'
+export { ClientErrorCodes, ErrorCodes, isNarsilError, NarsilError, ServerErrorCodes } from '../errors'
 export {
   ASYNC_IMPORT_CAPABILITY,
   INDEX_LIFECYCLE_CAPABILITY,

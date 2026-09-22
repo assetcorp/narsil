@@ -73,7 +73,7 @@ export function createWorkerExecutor(worker: WorkerLike, config?: WorkerExecutor
     pending.delete(response.requestId)
 
     if (response.type === 'error') {
-      entry.reject(new NarsilError(response.code as never, response.message))
+      entry.reject(new NarsilError(response.code as never, response.message, response.details))
     } else {
       entry.resolve(response.data)
     }

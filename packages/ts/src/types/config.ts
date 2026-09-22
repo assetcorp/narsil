@@ -124,7 +124,11 @@ export interface DurabilityConfig {
   checkpointIntervalMs?: number
   /** This many mutations trigger a checkpoint before the interval elapses. */
   checkpointMutationThreshold?: number
-  /** Compaction reclaims the log once this fraction of it is dead. */
+  /**
+   * The engine merges a partition's checkpoint segments once that partition
+   * holds more than this many of them, 12 by default. The value is a whole
+   * number of segments.
+   */
   compactionThreshold?: number
 }
 
@@ -161,9 +165,12 @@ export interface WorkerConfig {
   enabled?: boolean
   /**
    * The keyword copies and the vector search pool share this many threads
-   * between them, half each, in an embedded engine. The HTTP server holds a
-   * copy on every one of them and receives requests there. The engine takes
-   * the host's cores minus one by default, between 2 and 8.
+   * between them, half each, in an embedded engine, so a budget of 4 gives 2
+   * keyword copies and 2 vector search workers. The HTTP server holds a copy
+   * on every one of them and receives requests there. The engine takes the
+   * host's cores minus one by default, between 2 and 8. It caps a value that
+   * you set at 31, which is how many scratch slots the shared vector arena
+   * reserves.
    */
   count?: number
   /** An index gains worker copies once it holds this many documents, 1,000 by default. */
@@ -184,6 +191,12 @@ export interface WorkerConfig {
    * an engine that leaves this unset.
    */
   mainCopyQueries?: MainCopyQueries
-  /** Each worker imports this module on start-up, which is how a worker reaches a custom tokeniser or language. */
+  /**
+   * Each worker imports this module on start-up, which is how a worker reaches
+   * a custom tokeniser or language. Give an absolute path or a URL, such as
+   * `new URL('./bootstrap.js', import.meta.url).href`, because a worker
+   * resolves a relative specifier against Narsil's own directory. A relative
+   * value raises `CONFIG_INVALID`.
+   */
   bootstrapModule?: string
 }

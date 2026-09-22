@@ -10,7 +10,7 @@ import { isTerminalTask, pollInterval } from './task-state'
  *
  * @public
  */
-export interface NarsilTaskOptions extends NarsilReadOptions {
+export interface NarsilTaskOptions extends Omit<NarsilReadOptions, 'refreshIntervalMs'> {
   /** The hook asks again this often while the task runs, and every 250 ms
    * unless you say otherwise, which is how often a running import writes its
    * progress. It stops once the task reaches a final status. */
@@ -20,10 +20,10 @@ export interface NarsilTaskOptions extends NarsilReadOptions {
 /**
  * Follows one long-running operation, and stops asking once it finishes.
  *
- * The hook polls while the task is queued or running, pauses while the page is
- * hidden, and reads the figures once more as soon as the page comes back. A
- * failed task arrives as a record carrying its `error`, because a part-finished
- * import still reports what it indexed, so read the status you get.
+ * The hook polls while the task runs, pauses while the page is hidden, and
+ * reads the figures once more as soon as the page comes back. A failed task
+ * arrives as a record carrying its `error`, because a part-finished import
+ * still reports what it indexed, so read the status you get.
  *
  * @param taskId - This names the task to follow, and a nullish or empty id
  * switches the hook off.

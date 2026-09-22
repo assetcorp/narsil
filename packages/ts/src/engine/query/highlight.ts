@@ -10,6 +10,7 @@ export function applyHighlights<T>(
   params: QueryParams,
   language: LanguageModule,
   analysis: ResolvedAnalysis,
+  readStoredDocument?: (docId: string) => Record<string, unknown> | undefined,
 ): void {
   if (!params.highlight) return
 
@@ -39,9 +40,14 @@ export function applyHighlights<T>(
 
   for (const hit of hits) {
     const highlights: Record<string, HighlightMatch> = {}
+    const projected = hit.document as Record<string, unknown>
+    let stored: Record<string, unknown> | undefined
     for (const field of params.highlight.fields) {
-      const doc = hit.document as Record<string, unknown>
-      const fieldValue = doc[field]
+      let fieldValue = projected[field]
+      if (typeof fieldValue !== 'string' && readStoredDocument !== undefined) {
+        stored ??= readStoredDocument(hit.id)
+        fieldValue = stored?.[field]
+      }
       if (typeof fieldValue === 'string') {
         highlights[field] = highlightField(fieldValue, queryTokenResult.tokens, language, {
           preTag: params.highlight.preTag,

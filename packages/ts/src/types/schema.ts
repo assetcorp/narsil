@@ -229,19 +229,26 @@ export interface CustomTokenizer {
 }
 
 /**
- * How an index splits its documents across partitions as it grows.
+ * How many partitions an index opens with, and how many documents it accepts.
  *
- * The engine adds a partition once a partition passes its watermark, and it
- * refuses a write once every partition is full and the ceiling is reached.
+ * An index opens with `maxPartitions` partitions and keeps that count until
+ * {@link Narsil.rebalance} changes it, because the engine adds no partition on
+ * its own. Set `watermark` to learn through the `partitionWatermark` event
+ * when an index fills its capacity.
  *
  * @public
  */
 export interface PartitionConfig {
-  /** The engine refuses a write that would push one partition past this many documents. */
+  /**
+   * The index accepts this many documents for each of its partitions, so its
+   * capacity is this number multiplied by its partition count. A write beyond
+   * that capacity raises `PARTITION_CAPACITY_EXCEEDED`. Leave the field unset
+   * to accept any number.
+   */
   maxDocsPerPartition?: number
-  /** The index grows to this many partitions and no further. */
+  /** The index opens with this many partitions, 1 by default, and no rebalance may take it higher. */
   maxPartitions?: number
-  /** The engine adds a partition once one fills this fraction of `maxDocsPerPartition`, from 0 to 1. */
+  /** The engine emits `partitionWatermark` once the index fills this share of its capacity, above 0 and at most 1. */
   watermark?: number
 }
 

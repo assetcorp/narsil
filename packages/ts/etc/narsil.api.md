@@ -445,6 +445,9 @@ export type InvalidationEvent = {
 };
 
 // @public
+export function isNarsilError(value: unknown): value is NarsilError;
+
+// @public
 export function isSimdAvailable(): boolean;
 
 // @public

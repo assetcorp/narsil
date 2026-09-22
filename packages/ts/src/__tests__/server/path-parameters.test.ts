@@ -78,7 +78,7 @@ describe('percent-encoded path segments', () => {
 
   it('refuses an index name that would need encoding, which is why only ids need decoding', async () => {
     const created = await postJson<ErrorBody>(server.base, '/indexes', { name: 'sp ace', config: CONFIG })
-    expect(created.status).toBe(404)
-    expect(created.body.error.code).toBe('INDEX_NOT_FOUND')
+    expect(created.status).toBe(400)
+    expect(created.body.error.code).toBe('CONFIG_INVALID')
   })
 })

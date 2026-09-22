@@ -39,7 +39,6 @@ export async function insertDocumentBatch(
   const failed: BatchResult['failed'] = []
   const hasBeforeHook = ctx.pluginRegistry.hasHooks('beforeInsert')
   const hasAfterHook = ctx.pluginRegistry.hasHooks('afterInsert')
-  const documentByDocument = hasBeforeHook || hasAfterHook
   const required = entry.config.required
 
   const batchManager = ctx.requireManager(indexName)
@@ -132,9 +131,6 @@ export async function insertDocumentBatch(
         })
       } catch (err) {
         failed.push({ docId: batchDocId, error: asBatchInsertError(err) })
-      }
-      if (documentByDocument && prepared.length > 0) {
-        await applyPrepared(prepared.splice(0, prepared.length))
       }
     }
 

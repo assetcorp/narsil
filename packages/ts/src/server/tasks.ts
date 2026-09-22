@@ -7,6 +7,7 @@ import {
   TERMINAL_TASK_TTL_MS,
 } from './constants'
 import { serializeNarsilError } from './errors'
+import { isTerminalTaskStatus } from './task-status'
 import type { ImportResult, TaskListPage, TaskListQuery, TaskProgress, TaskRecord, TaskStore, TaskType } from './types'
 
 /**
@@ -143,7 +144,7 @@ export class TaskRegistry {
   async cancel(id: string): Promise<{ outcome: CancelOutcome; record: TaskRecord | null }> {
     const stored = await this.store.get(id)
     if (!stored) return { outcome: 'not-found', record: null }
-    if (stored.status !== 'running' && stored.status !== 'queued') {
+    if (isTerminalTaskStatus(stored.status)) {
       return { outcome: 'already-finished', record: stored }
     }
 
@@ -175,7 +176,7 @@ export class TaskRegistry {
     }
     for (const record of records) {
       if (record.owner !== this.instanceId) continue
-      if (record.status !== 'running' && record.status !== 'queued') continue
+      if (isTerminalTaskStatus(record.status)) continue
       const failed: TaskRecord = {
         ...record,
         status: 'failed',

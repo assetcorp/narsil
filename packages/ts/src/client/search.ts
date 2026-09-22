@@ -33,9 +33,11 @@ export interface SearchOperations {
    * this request.
    * @returns The result holds the hits, the total match count, and whatever
    * else the query asked for.
-   * @throws A `NarsilError` with `SEARCH_RESULT_WINDOW_EXCEEDED` when `offset`
+   * @throws A `NarsilError` with `SEARCH_RESULT_WINDOW_EXCEEDED` where `offset`
    * plus `limit` passes the server's result window, which the cursor pages
    * beyond.
+   * @throws A `NarsilError` with `INVALID_REQUEST` where `limit` alone passes
+   * `limits.maxFetchDocuments`, which the server checks before the window.
    */
   query<T = AnyDocument>(indexName: string, params: QueryParams, options?: RequestOptions): Promise<QueryResult<T>>
   /**

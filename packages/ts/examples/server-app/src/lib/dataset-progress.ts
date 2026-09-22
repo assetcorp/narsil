@@ -4,7 +4,7 @@ import type { DatasetLoadProgress } from '@delali/narsil-example-shared/types'
 import { inferDatasetId } from '@delali/narsil-example-shared/types'
 
 export function isRunningTask(task: TaskRecord): boolean {
-  return task.status === 'queued' || task.status === 'running'
+  return task.status === 'running'
 }
 
 /** Reads one import task as the progress a dataset card shows. */

@@ -82,7 +82,12 @@ export interface Hit<T = AnyDocument> {
  * @public
  */
 export interface ScoreComponents {
-  /** Each query term appears in this document this often, keyed by term. */
+  /**
+   * Each query term appears in one field of this document this many times,
+   * under a key of `field:term`. A term that appears in two fields therefore
+   * has two entries here, while the keys of {@link ScoreComponents.idf} hold
+   * the bare term.
+   */
   termFrequencies: Record<string, number>
   /** Each field the query searched holds this many tokens, keyed by field. */
   fieldLengths: Record<string, number>
@@ -98,7 +103,13 @@ export interface ScoreComponents {
 export interface HighlightMatch {
   /** This is the field's text around the match, wrapped in the query's tags. */
   snippet: string
-  /** The match covers these character ranges in the original field, for rendering the highlight yourself. */
+  /**
+   * Each range gives the start and the end of one match in the original field,
+   * so you can render the highlight yourself. Where the snippet covers part of
+   * the field alone, the engine lists only the matches that the snippet
+   * displays. Every offset is a character count from the start of the original
+   * field, whatever the snippet contains.
+   */
   positions: Array<{ start: number; end: number }>
 }
 
@@ -265,7 +276,12 @@ export interface SuggestResult {
 export interface VectorMaintenanceResult {
   /** This describes the named vector field. */
   fieldName: string
-  /** Tombstones make up this share of the graph's nodes, from 0 to 1. */
+  /**
+   * Tombstones make up this share of the graph's nodes, from 0 to 1. Before
+   * the first build, where {@link VectorMaintenanceResult.graphCount} reads 0,
+   * the engine divides by the number of stored vectors, because no graph
+   * exists yet.
+   */
   tombstoneRatio: number
   /** The field holds this many HNSW graphs: 0 before the first build and 1 once a graph exists. */
   graphCount: number

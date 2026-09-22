@@ -107,7 +107,7 @@ export type BuiltSegmentResult =
 
 export type WorkerResponse =
   | { type: 'success'; requestId: string; data: unknown }
-  | { type: 'error'; requestId: string; code: string; message: string }
+  | { type: 'error'; requestId: string; code: string; message: string; details?: Record<string, unknown> }
 
 const KNOWN_ACTION_TYPES: ReadonlyArray<WorkerAction['type']> = [
   'insert',

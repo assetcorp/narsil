@@ -46,14 +46,27 @@ function namedBinaryPath(): string | null {
 }
 
 function refuseToSearchWithoutTheCore(reason: string): never {
-  throw new NarsilError(ErrorCodes.CONFIG_INVALID, `NARSIL_REQUIRE_NATIVE_CORE is 1, and ${reason}`, {
+  throw new NarsilError(ErrorCodes.CONFIG_INVALID, `NARSIL_REQUIRE_NATIVE_CORE is 1, yet ${reason}`, {
     platform: `${process.platform}-${process.arch}`,
   })
 }
 
-function reportMissingCore(reason: string, named: boolean): null {
+function requestedBackend(): 'native' | 'wasm' | null {
+  const raw = process.env.NARSIL_SEARCH_BACKEND
+  if (raw === undefined || raw.trim().length === 0) return null
+  const named = raw.trim().toLowerCase()
+  if (named === 'native' || named === 'wasm') return named
+  throw new NarsilError(
+    ErrorCodes.CONFIG_INVALID,
+    `NARSIL_SEARCH_BACKEND takes either "native" or "wasm", while this environment sets it to "${raw}"`,
+    { value: raw, backends: ['native', 'wasm'] },
+  )
+}
+
+function reportMissingCore(reason: string, announce: boolean): null {
   if (process.env.NARSIL_REQUIRE_NATIVE_CORE === '1') refuseToSearchWithoutTheCore(reason)
-  if (named) console.warn(`Narsil searches through WebAssembly in this process, because ${reason}.`)
+  loaded = null
+  if (announce) console.warn(`Narsil searches through WebAssembly on this thread, because ${reason}.`)
   return null
 }
 
@@ -66,25 +79,26 @@ function loadedCore(path: string): NativeCore | null {
 
 export function loadNativeCore(): NativeCore | null {
   if (loaded !== undefined) return loaded
-  loaded = null
-  const named = namedBinaryPath()
-  if (process.env.NARSIL_SEARCH_BACKEND === 'wasm') {
+  if (requestedBackend() === 'wasm') {
     return reportMissingCore('NARSIL_SEARCH_BACKEND asks for the WebAssembly search', false)
   }
+  const named = namedBinaryPath()
   const path = named ?? publishedBinaryPath(createRequire(import.meta.url))
   if (path === null || !existsSync(path)) {
-    return reportMissingCore(`this platform has no native search core at ${path ?? 'any known path'}`, named !== null)
+    return reportMissingCore(`this platform has no native search core at ${path ?? 'any known path'}`, true)
   }
+  let core: NativeCore | null
   try {
-    loaded = loadedCore(path)
+    core = loadedCore(path)
   } catch (error) {
     return reportMissingCore(
       `loading the native search core at ${path} failed with "${error instanceof Error ? error.message : String(error)}"`,
-      named !== null,
+      true,
     )
   }
-  if (loaded === null) {
-    return reportMissingCore(`the native search core at ${path} reports another ABI version`, named !== null)
+  if (core === null) {
+    return reportMissingCore(`the native search core at ${path} reports another ABI version`, true)
   }
+  loaded = core
   return loaded
 }
