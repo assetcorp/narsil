@@ -64,15 +64,16 @@ export type NarsilEventMap = {
     partitionCount: number
   }
   /**
-   * The process uses nine tenths of the heap that V8 can still allocate,
-   * measured during a write or a load, so the next large index may end the
-   * process with an out-of-memory error. The engine compares the used bytes
-   * with the headroom that V8 reports, because V8 reserves part of the raw
-   * limit, so an allocation fails before the used bytes ever reach that limit.
-   * V8 reports a limit about 192 MB above the figure that you set. Node
-   * therefore ends a process whose limit is below 2 GB before it spends nine
-   * tenths, and the event never fires there. The engine emits the event once
-   * per crossing and arms it again once the headroom recovers to two tenths. Raise the limit with
+   * The process uses nine tenths of its heap, measured during a write or a
+   * load, so the next large index may end the process with an out-of-memory
+   * error. Where `--max-old-space-size` or `--max-old-space-size-percentage`
+   * sets a limit, on the command line or in `NODE_OPTIONS`, the engine measures
+   * the used bytes against that figure and `heapLimit` reports it. Where
+   * neither flag sets one, the engine compares the used bytes with the headroom
+   * that V8 reports, which runs about 192 MB above the true ceiling, so a
+   * default heap below about 2 GB may end before this event fires. The engine
+   * emits the event once per crossing and arms it again once the headroom
+   * recovers to two tenths. Raise the limit with
    * `--max-old-space-size-percentage` or `--max-old-space-size`, or close an
    * idle index; see {@link ProcessMemoryReport.heapLimit}.
    */

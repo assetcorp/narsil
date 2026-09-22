@@ -13,8 +13,13 @@ export interface HeapPressureDeps {
 }
 
 function spentHeapFraction(heap: HeapStatistics): number {
+  if (heap.configuredLimitBytes !== null) return heap.usedBytes / heap.configuredLimitBytes
   if (heap.availableBytes === null) return heap.usedBytes / heap.limitBytes
   return 1 - heap.availableBytes / heap.limitBytes
+}
+
+function ceilingBytes(heap: HeapStatistics): number {
+  return heap.configuredLimitBytes ?? heap.limitBytes
 }
 
 export function createHeapPressureNotifier(deps: HeapPressureDeps): HeapPressureNotifier {
@@ -33,7 +38,7 @@ export function createHeapPressureNotifier(deps: HeapPressureDeps): HeapPressure
     deps.emit({
       indexName,
       heapUsed: heap.usedBytes,
-      heapLimit: heap.limitBytes,
+      heapLimit: ceilingBytes(heap),
       estimatedMemoryBytes: deps.estimateIndexBytes(indexName),
     })
   }
