@@ -99,10 +99,11 @@ def bars_figure(repo_root: Path, run_id: str, profile: str, track: str, dataset_
             "Peak queries per second, with 95% interval",
             rate_label,
         )
+    measured = "ranking quality and peak throughput" if quality else "peak throughput"
     caption(
         figure,
         f"{track_title(track)} track on {dataset_name(dataset_id)}",
-        f"{profile_title(profile)} · ranking quality and peak throughput · run {run_id}",
+        f"{profile_title(profile)} · {measured} · run {run_id}",
     )
     figure.subplots_adjust(wspace=0.55)
     return save(figure, repo_root / bars_chart(server_chart_dir(run_id), profile, track, dataset_id))
