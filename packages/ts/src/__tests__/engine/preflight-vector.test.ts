@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { ErrorCodes } from '../../errors'
 import { createNarsil, type Narsil } from '../../narsil'
 import type { SchemaDefinition } from '../../types/schema'
 
@@ -73,17 +74,16 @@ describe('executePreflight with vector and hybrid queries', () => {
     expect(result.elapsed).toBeGreaterThanOrEqual(0)
   })
 
-  it('falls through to text search when the vector field has no global index', async () => {
+  it('refuses a vector field the index holds no vector index for', async () => {
     await narsil.createIndex('text-only', { schema: textOnlySchema, language: 'english' })
     await narsil.insert('text-only', { title: 'wireless headphones', body: 'great sound quality' })
 
-    const result = await narsil.preflight('text-only', {
-      term: 'wireless',
-      vector: { field: 'nonexistent_field', value: [1, 2, 3], metric: 'cosine' },
-      limit: 10,
-    })
-
-    expect(result.count).toBe(1)
-    expect(result.elapsed).toBeGreaterThanOrEqual(0)
+    await expect(
+      narsil.preflight('text-only', {
+        term: 'wireless',
+        vector: { field: 'nonexistent_field', value: [1, 2, 3], metric: 'cosine' },
+        limit: 10,
+      }),
+    ).rejects.toMatchObject({ code: ErrorCodes.SEARCH_INVALID_FIELD })
   })
 })

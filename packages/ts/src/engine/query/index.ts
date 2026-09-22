@@ -1,5 +1,5 @@
 import type { ComparableSortValue } from '../../core/ordering'
-import { resolveProjection } from '../../core/projection'
+import { projectionKeepsField, resolveProjection } from '../../core/projection'
 import { ErrorCodes, NarsilError } from '../../errors'
 import { type FanOutResult, fanOutQuery } from '../../partitioning/fan-out'
 import { countsWithoutScores, fanOutMatchCount } from '../../partitioning/match-count'
@@ -18,6 +18,8 @@ import {
   broadcastStatsForWorker,
   coverageFor,
   type QueryContext,
+  requireKnownMode,
+  requireVectorSearchable,
   scoringConfigFor,
   searchOptionsFor,
   vectorSearchersOf,
@@ -37,6 +39,7 @@ export async function executeQuery<T = AnyDocument>(
   const offset = clampOffset(params.offset)
   requireWithinResultWindow(limit, offset)
   const sortFields = normalizeSort(params.sort)
+  requireKnownMode(params)
   const sortSignature = sortSignatureOf(params.sort)
 
   const hasTerm = params.term !== undefined && params.term.trim().length > 0
@@ -53,6 +56,7 @@ export async function executeQuery<T = AnyDocument>(
   }
 
   requireSortableFields(params.sort, config.schema)
+  requireVectorSearchable(params, context, isVectorOnly || isHybridMode)
 
   let paginated: Array<Hit<T>>
   let nextCursor: string | undefined
@@ -207,7 +211,11 @@ export async function executeQuery<T = AnyDocument>(
   }
 
   if (params.highlight) {
-    applyHighlights(paginated, params, language, manager.analysis)
+    const dropped = params.highlight.fields.some(field => !projectionKeepsField(projection, field))
+    const readStoredDocument = dropped
+      ? (docId: string): Record<string, unknown> | undefined => manager.get(docId, { kind: 'full' })
+      : undefined
+    applyHighlights(paginated, params, language, manager.analysis, readStoredDocument)
   }
 
   const elapsed = now() - startTime
@@ -227,10 +235,13 @@ export async function executePreflight(params: QueryParams, context: QueryContex
   const { manager, language, config, workerSearch, indexName } = context
   const startTime = now()
 
+  requireKnownMode(params)
   const hasTerm = params.term !== undefined && params.term.trim().length > 0
   const hasVector = params.vector !== undefined && params.vector.value !== undefined
   const isHybridMode = params.mode === 'hybrid' || (hasTerm && hasVector)
   const isVectorOnly = (params.mode === 'vector' || (hasVector && !hasTerm)) && !isHybridMode
+
+  requireVectorSearchable(params, context, isVectorOnly || isHybridMode)
 
   const requestedVectorField = params.vector?.field
   const hasGlobalVectorIndex =

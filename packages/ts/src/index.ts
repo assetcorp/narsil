@@ -13,7 +13,7 @@ export {
   resetNormalizationCache,
 } from './core/tokenizer'
 export type { ClientErrorCode, ErrorCode, NarsilErrorCode, ServerErrorCode } from './errors'
-export { ClientErrorCodes, ErrorCodes, NarsilError, ServerErrorCodes } from './errors'
+export { ClientErrorCodes, ErrorCodes, isNarsilError, NarsilError, ServerErrorCodes } from './errors'
 export { getLanguage, registerLanguage } from './languages/registry'
 export type { Narsil } from './narsil'
 export { createNarsil } from './narsil'

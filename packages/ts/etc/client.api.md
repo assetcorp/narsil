@@ -242,6 +242,9 @@ export interface IndexOperations {
 }
 
 // @public
+export function isNarsilError(value: unknown): value is NarsilError;
+
+// @public
 export interface MemoryStatsResponse extends MemoryStats {
     requestThreads: number;
 }
@@ -395,7 +398,7 @@ export interface TaskRecord {
 }
 
 // @public
-export type TaskStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
+export type TaskStatus = 'running' | 'succeeded' | 'failed' | 'cancelled';
 
 // @public
 export type TaskType = 'optimizeVectors' | 'rebalance' | 'restore' | 'import' | 'rebuildAnalysis';

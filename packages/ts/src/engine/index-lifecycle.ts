@@ -13,6 +13,22 @@ import type { EngineCore, IndexRegistryEntry } from './core'
 import { validateBM25Params, validateIndexName, validatePartitionConfig } from './validation'
 import { getVectorFieldPaths } from './vector-fields'
 
+async function runLifecycleHook(
+  core: EngineCore,
+  hookName: 'onIndexCreate' | 'onIndexDrop',
+  context: { indexName: string; config: IndexConfig },
+): Promise<void> {
+  try {
+    await core.pluginRegistry.runHook(hookName, context)
+  } catch (err) {
+    console.warn(`${hookName} plugin hook error:`, err instanceof Error ? err.message : String(err))
+  }
+}
+
+export async function announceIndexCreated(core: EngineCore, name: string, config: IndexConfig): Promise<void> {
+  await runLifecycleHook(core, 'onIndexCreate', { indexName: name, config })
+}
+
 export async function createEngineIndex(
   core: EngineCore,
   config: NarsilConfig | undefined,
@@ -90,7 +106,7 @@ export async function createEngineIndex(
   if (core.durability) {
     await core.durability.manager.persistMetadata(name)
   }
-  await core.pluginRegistry.runHook('onIndexCreate', { indexName: name, config: indexConfig })
+  await runLifecycleHook(core, 'onIndexCreate', { indexName: name, config: indexConfig })
 }
 
 export async function dropEngineIndex(core: EngineCore, name: string): Promise<void> {
@@ -111,7 +127,7 @@ export async function dropEngineIndex(core: EngineCore, name: string): Promise<v
     core.watermarkNotifier.forget(name)
     core.analysisRebuild.clearStale(name)
   })
-  await core.pluginRegistry.runHook('onIndexDrop', { indexName: name, config: entry.config })
+  await runLifecycleHook(core, 'onIndexDrop', { indexName: name, config: entry.config })
 }
 
 export function registerEngineEmbeddingAdapter(core: EngineCore, name: string, adapter: EmbeddingAdapter): void {

@@ -88,6 +88,7 @@ describe('the worker action handler', () => {
         requestId: 'bootstrap-3',
         code: ErrorCodes.CONFIG_INVALID,
         message: 'A bootstrap module needs a non-empty module URL',
+        details: { moduleUrl: '   ' },
       },
     ])
   })

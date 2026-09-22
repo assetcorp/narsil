@@ -28,7 +28,7 @@ The full surface:
 
 | Method and path | Purpose |
 | --- | --- |
-| `GET /livez`, `GET /readyz`, `GET /health` | The probes report liveness and readiness without authentication. On a cluster node, `/readyz` answers 503 until the node reports `SERVING`. See [Cluster routes](#cluster-routes). |
+| `GET /livez`, `GET /readyz`, `GET /health` | The probes answer without authentication. `/livez` answers 200 whenever the process can serve HTTP. `/readyz` and `/health` answer 503 until the engine is ready, and again once shutdown begins, so a load balancer that reads either one stops sending traffic through a shutdown. On a cluster node, both of them answer 503 until the node reports `SERVING`. See [Cluster routes](#cluster-routes). |
 | `GET /cluster`, `GET /indexes/{name}/cluster` | The endpoints report the cluster topology and one index's allocation, and a server fronting a single engine answers both with 501. See [Cluster routes](#cluster-routes). |
 | `GET /version` | The endpoint reports the build identity stamped at startup. Its `vectorSearch` field names the path through which the answering thread searches vector graphs, `native` or `wasm`. See [Native search core](vector-search.md#native-search-core). |
 | `GET /capabilities` | The endpoint lists the optional routes this server serves, and it needs no key either. See [Tasks](#tasks). |
@@ -84,7 +84,15 @@ Each running task holds its own working set, and an async import holds the whole
 `GET /capabilities` lists the optional routes this server answers, so a client can check before it sends a request that an older server would refuse with 404.
 
 ```json
-{ "capabilities": ["documents.import.async", "tasks.cancel", "tasks.filter", "indexes.rebuildAnalysis"] }
+{
+  "capabilities": [
+    "documents.import.async",
+    "tasks.cancel",
+    "tasks.filter",
+    "indexes.rebuildAnalysis",
+    "indexes.lifecycle"
+  ]
+}
 ```
 
 ## Cluster routes

@@ -5,7 +5,7 @@ import { getJson, postJson, postRaw, startTestServer, type TestServer } from './
 async function waitForTerminalStatus(base: string, taskId: string): Promise<TaskRecord> {
   for (let attempt = 0; attempt < 200; attempt++) {
     const polled = await getJson<TaskRecord>(base, `/tasks/${taskId}`)
-    if (polled.body.status !== 'running' && polled.body.status !== 'queued') return polled.body
+    if (polled.body.status !== 'running') return polled.body
     await new Promise(resolve => setTimeout(resolve, 10))
   }
   throw new Error('The task never reached a terminal status')

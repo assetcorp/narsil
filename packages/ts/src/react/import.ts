@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react'
 import type { ImportSource, RequestOptions } from '../client'
-import { NarsilError, ServerErrorCodes } from '../errors'
+import { isNarsilError, NarsilError, ServerErrorCodes } from '../errors'
 import type { ImportResult, TaskProgress, TaskRecord } from '../server/types'
 import { DEFAULT_TASK_POLL_INTERVAL_MS } from './constants'
 import { useNarsilClient } from './context'
@@ -189,7 +189,7 @@ export function useImport(indexName: string, options?: NarsilImportOptions): Nar
         setProgress(prev => (prev.task?.id === taskId ? { task: next, error: undefined, starting: false } : prev))
       })
       .catch((err: unknown) => {
-        if (err instanceof NarsilError && err.code === ServerErrorCodes.TASK_NOT_CANCELLABLE) return
+        if (isNarsilError(err) && err.code === ServerErrorCodes.TASK_NOT_CANCELLABLE) return
         setProgress(prev => (prev.task?.id === taskId ? { ...prev, error: asNarsilError(err, 'The import') } : prev))
       })
   }, [client, taskId, running, progress.starting])

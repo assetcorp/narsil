@@ -135,6 +135,9 @@ export interface ImportResult {
 }
 
 // @public
+export function isNarsilError(value: unknown): value is NarsilError;
+
+// @public
 export class NarsilError extends Error {
     constructor(code: NarsilErrorCode, message: string, details?: Record<string, unknown>);
     readonly code: NarsilErrorCode;
@@ -195,7 +198,7 @@ export interface NarsilRequestSettings {
 }
 
 // @public
-export interface NarsilTaskOptions extends NarsilReadOptions {
+export interface NarsilTaskOptions extends Omit<NarsilReadOptions, 'refreshIntervalMs'> {
     pollIntervalMs?: number;
 }
 
@@ -265,7 +268,7 @@ export interface TaskRecord {
 }
 
 // @public
-export type TaskStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
+export type TaskStatus = 'running' | 'succeeded' | 'failed' | 'cancelled';
 
 // @public
 export type TaskType = 'optimizeVectors' | 'rebalance' | 'restore' | 'import' | 'rebuildAnalysis';

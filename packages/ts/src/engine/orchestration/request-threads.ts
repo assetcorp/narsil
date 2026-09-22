@@ -34,6 +34,7 @@ export async function serveRequestsOnWorkers(
   state: OrchestratorState,
   listener: RequestThreadListener,
 ): Promise<number> {
+  if (!state.workersEnabled) return 0
   state.requestThreads = listener
   state.keywordWorkerCount = resolveRequestThreadCount(state.config?.workers?.count)
   if (state.vectorCopyPolicy !== undefined) {
@@ -58,6 +59,7 @@ export async function serveRequestsOnWorkers(
 }
 
 export function requestThreadCountOf(state: OrchestratorState): number {
+  if (!state.workersEnabled) return 0
   return resolveRequestThreadCount(state.config?.workers?.count)
 }
 

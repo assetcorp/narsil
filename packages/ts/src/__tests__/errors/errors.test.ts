@@ -2,132 +2,22 @@ import { describe, expect, it } from 'vitest'
 import { createNarsilError, ErrorCodes, NarsilError } from '../../errors'
 
 describe('ErrorCodes', () => {
-  it('has all expected schema error codes', () => {
-    expect(ErrorCodes.SCHEMA_INVALID_TYPE).toBe('SCHEMA_INVALID_TYPE')
-    expect(ErrorCodes.SCHEMA_DEPTH_EXCEEDED).toBe('SCHEMA_DEPTH_EXCEEDED')
-    expect(ErrorCodes.SCHEMA_INVALID_VECTOR_DIMENSION).toBe('SCHEMA_INVALID_VECTOR_DIMENSION')
-    expect(ErrorCodes.SCHEMA_INVALID_GEOPOINT).toBe('SCHEMA_INVALID_GEOPOINT')
+  it('names every code after itself, so a caught code reads as the constant', () => {
+    for (const [name, value] of Object.entries(ErrorCodes)) {
+      expect(value).toBe(name)
+    }
   })
 
-  it('has all expected document error codes', () => {
-    expect(ErrorCodes.DOC_NOT_FOUND).toBe('DOC_NOT_FOUND')
-    expect(ErrorCodes.DOC_ALREADY_EXISTS).toBe('DOC_ALREADY_EXISTS')
-    expect(ErrorCodes.DOC_VALIDATION_FAILED).toBe('DOC_VALIDATION_FAILED')
-  })
+  it('carries the code and the details through to what a caller catches', () => {
+    const thrown = new NarsilError(ErrorCodes.DOC_VALIDATION_FAILED, 'bad field', { field: 'price' })
 
-  it('has all expected index error codes', () => {
-    expect(ErrorCodes.INDEX_NOT_FOUND).toBe('INDEX_NOT_FOUND')
-    expect(ErrorCodes.INDEX_ALREADY_EXISTS).toBe('INDEX_ALREADY_EXISTS')
-  })
-
-  it('has all expected partition error codes', () => {
-    expect(ErrorCodes.PARTITION_CORRUPTED).toBe('PARTITION_CORRUPTED')
-    expect(ErrorCodes.PARTITION_REBALANCING_BACKPRESSURE).toBe('PARTITION_REBALANCING_BACKPRESSURE')
-  })
-
-  it('has all expected worker error codes', () => {
-    expect(ErrorCodes.WORKER_CRASHED).toBe('WORKER_CRASHED')
-    expect(ErrorCodes.WORKER_BUSY).toBe('WORKER_BUSY')
-    expect(ErrorCodes.WORKER_TIMEOUT).toBe('WORKER_TIMEOUT')
-  })
-
-  it('has all expected persistence error codes', () => {
-    expect(ErrorCodes.PERSISTENCE_SAVE_FAILED).toBe('PERSISTENCE_SAVE_FAILED')
-    expect(ErrorCodes.PERSISTENCE_LOAD_FAILED).toBe('PERSISTENCE_LOAD_FAILED')
-    expect(ErrorCodes.PERSISTENCE_DELETE_FAILED).toBe('PERSISTENCE_DELETE_FAILED')
-    expect(ErrorCodes.PERSISTENCE_CRC_MISMATCH).toBe('PERSISTENCE_CRC_MISMATCH')
-    expect(ErrorCodes.PERSISTENCE_WAL_CORRUPT).toBe('PERSISTENCE_WAL_CORRUPT')
-    expect(ErrorCodes.PERSISTENCE_FSYNC_FAILED).toBe('PERSISTENCE_FSYNC_FAILED')
-  })
-
-  it('has all expected search error codes', () => {
-    expect(ErrorCodes.SEARCH_INVALID_FIELD).toBe('SEARCH_INVALID_FIELD')
-    expect(ErrorCodes.VECTOR_DIMENSION_MISMATCH).toBe('VECTOR_DIMENSION_MISMATCH')
-    expect(ErrorCodes.SEARCH_INVALID_FILTER).toBe('SEARCH_INVALID_FILTER')
-    expect(ErrorCodes.SEARCH_INVALID_MODE).toBe('SEARCH_INVALID_MODE')
-    expect(ErrorCodes.SEARCH_INVALID_CURSOR).toBe('SEARCH_INVALID_CURSOR')
-    expect(ErrorCodes.SEARCH_RESULT_WINDOW_EXCEEDED).toBe('SEARCH_RESULT_WINDOW_EXCEEDED')
-  })
-
-  it('has language and envelope error codes', () => {
-    expect(ErrorCodes.LANGUAGE_NOT_SUPPORTED).toBe('LANGUAGE_NOT_SUPPORTED')
-    expect(ErrorCodes.ENVELOPE_VERSION_MISMATCH).toBe('ENVELOPE_VERSION_MISMATCH')
-    expect(ErrorCodes.ENVELOPE_INVALID_MAGIC).toBe('ENVELOPE_INVALID_MAGIC')
-  })
-
-  it('has all expected embedding error codes', () => {
-    expect(ErrorCodes.EMBEDDING_FAILED).toBe('EMBEDDING_FAILED')
-    expect(ErrorCodes.EMBEDDING_DIMENSION_MISMATCH).toBe('EMBEDDING_DIMENSION_MISMATCH')
-    expect(ErrorCodes.EMBEDDING_NO_SOURCE).toBe('EMBEDDING_NO_SOURCE')
-    expect(ErrorCodes.EMBEDDING_CONFIG_INVALID).toBe('EMBEDDING_CONFIG_INVALID')
-    expect(ErrorCodes.DOC_MISSING_REQUIRED_FIELD).toBe('DOC_MISSING_REQUIRED_FIELD')
-  })
-
-  it('has config error codes', () => {
-    expect(ErrorCodes.CONFIG_INVALID).toBe('CONFIG_INVALID')
-  })
-
-  it('has query routing error codes', () => {
-    expect(ErrorCodes.QUERY_ROUTING_FAILED).toBe('QUERY_ROUTING_FAILED')
-    expect(ErrorCodes.QUERY_PARTIAL_FAILURE).toBe('QUERY_PARTIAL_FAILURE')
-    expect(ErrorCodes.QUERY_NODE_TIMEOUT).toBe('QUERY_NODE_TIMEOUT')
-    expect(ErrorCodes.QUERY_NO_ACTIVE_REPLICA).toBe('QUERY_NO_ACTIVE_REPLICA')
-    expect(ErrorCodes.CLUSTER_OPERATION_UNSUPPORTED).toBe('CLUSTER_OPERATION_UNSUPPORTED')
-  })
-
-  it('has allocation error codes', () => {
-    expect(ErrorCodes.ALLOCATION_NO_DATA_NODES).toBe('ALLOCATION_NO_DATA_NODES')
-    expect(ErrorCodes.ALLOCATION_INVALID_CONFIG).toBe('ALLOCATION_INVALID_CONFIG')
-    expect(ErrorCodes.ALLOCATION_FAILED).toBe('ALLOCATION_FAILED')
-    expect(ErrorCodes.NODE_BOOTSTRAP_FAILED).toBe('NODE_BOOTSTRAP_FAILED')
-    expect(ErrorCodes.NODE_ALREADY_JOINED).toBe('NODE_ALREADY_JOINED')
-    expect(ErrorCodes.NODE_NOT_JOINED).toBe('NODE_NOT_JOINED')
-    expect(ErrorCodes.COORDINATOR_DEPENDENCY_MISSING).toBe('COORDINATOR_DEPENDENCY_MISSING')
-    expect(ErrorCodes.TRANSPORT_DEPENDENCY_MISSING).toBe('TRANSPORT_DEPENDENCY_MISSING')
-  })
-
-  it('has replication error codes', () => {
-    expect(ErrorCodes.REPLICATION_ENTRY_INVALID).toBe('REPLICATION_ENTRY_INVALID')
-    expect(ErrorCodes.REPLICATION_INSYNC_REMOVAL_FAILED).toBe('REPLICATION_INSYNC_REMOVAL_FAILED')
-    expect(ErrorCodes.REPLICATION_ROLLBACK_FAILED).toBe('REPLICATION_ROLLBACK_FAILED')
-    expect(ErrorCodes.REPLICATION_LOG_FULL).toBe('REPLICATION_LOG_FULL')
-    expect(ErrorCodes.REPLICATION_ENTRY_CORRUPT).toBe('REPLICATION_ENTRY_CORRUPT')
-    expect(ErrorCodes.REPLICATION_SNAPSHOT_CORRUPT).toBe('REPLICATION_SNAPSHOT_CORRUPT')
-    expect(ErrorCodes.REPLICATION_TERM_MISMATCH).toBe('REPLICATION_TERM_MISMATCH')
-    expect(ErrorCodes.REPLICATION_SYNC_FAILED).toBe('REPLICATION_SYNC_FAILED')
-    expect(ErrorCodes.PARTITION_NOT_PRIMARY).toBe('PARTITION_NOT_PRIMARY')
-    expect(ErrorCodes.PARTITION_UNASSIGNED).toBe('PARTITION_UNASSIGNED')
-    expect(ErrorCodes.INSUFFICIENT_REPLICAS).toBe('INSUFFICIENT_REPLICAS')
-  })
-
-  it('has all expected snapshot sync error codes', () => {
-    expect(ErrorCodes.SNAPSHOT_SYNC_UNAUTHORIZED).toBe('SNAPSHOT_SYNC_UNAUTHORIZED')
-    expect(ErrorCodes.SNAPSHOT_SYNC_REQUEST_INVALID).toBe('SNAPSHOT_SYNC_REQUEST_INVALID')
-    expect(ErrorCodes.SNAPSHOT_SYNC_INDEX_NOT_FOUND).toBe('SNAPSHOT_SYNC_INDEX_NOT_FOUND')
-    expect(ErrorCodes.SNAPSHOT_SYNC_TOO_LARGE).toBe('SNAPSHOT_SYNC_TOO_LARGE')
-    expect(ErrorCodes.SNAPSHOT_SYNC_CAPACITY_EXHAUSTED).toBe('SNAPSHOT_SYNC_CAPACITY_EXHAUSTED')
-    expect(ErrorCodes.SNAPSHOT_SYNC_SNAPSHOT_FAILED).toBe('SNAPSHOT_SYNC_SNAPSHOT_FAILED')
-    expect(ErrorCodes.SNAPSHOT_SYNC_DECODE_FAILED).toBe('SNAPSHOT_SYNC_DECODE_FAILED')
-    expect(ErrorCodes.SNAPSHOT_SYNC_FRAME_INVALID).toBe('SNAPSHOT_SYNC_FRAME_INVALID')
-    expect(ErrorCodes.SNAPSHOT_SYNC_HEADER_INVALID).toBe('SNAPSHOT_SYNC_HEADER_INVALID')
-    expect(ErrorCodes.SNAPSHOT_SYNC_HEADER_MISMATCH).toBe('SNAPSHOT_SYNC_HEADER_MISMATCH')
-    expect(ErrorCodes.SNAPSHOT_SYNC_CHUNK_OUT_OF_ORDER).toBe('SNAPSHOT_SYNC_CHUNK_OUT_OF_ORDER')
-    expect(ErrorCodes.SNAPSHOT_SYNC_CHUNK_OVERFLOW).toBe('SNAPSHOT_SYNC_CHUNK_OVERFLOW')
-    expect(ErrorCodes.SNAPSHOT_SYNC_CHUNK_SIZE_EXCEEDED).toBe('SNAPSHOT_SYNC_CHUNK_SIZE_EXCEEDED')
-    expect(ErrorCodes.SNAPSHOT_SYNC_CHUNK_MISSING).toBe('SNAPSHOT_SYNC_CHUNK_MISSING')
-    expect(ErrorCodes.SNAPSHOT_SYNC_END_MISSING).toBe('SNAPSHOT_SYNC_END_MISSING')
-    expect(ErrorCodes.SNAPSHOT_SYNC_CHECKSUM_MISMATCH).toBe('SNAPSHOT_SYNC_CHECKSUM_MISMATCH')
-    expect(ErrorCodes.SNAPSHOT_SYNC_PRIMARY_ERROR).toBe('SNAPSHOT_SYNC_PRIMARY_ERROR')
-    expect(ErrorCodes.SNAPSHOT_SYNC_NO_TARGETS).toBe('SNAPSHOT_SYNC_NO_TARGETS')
-    expect(ErrorCodes.SNAPSHOT_SYNC_TRANSPORT_FAILED).toBe('SNAPSHOT_SYNC_TRANSPORT_FAILED')
-    expect(ErrorCodes.SNAPSHOT_SYNC_SCHEMA_UNAVAILABLE).toBe('SNAPSHOT_SYNC_SCHEMA_UNAVAILABLE')
-    expect(ErrorCodes.SNAPSHOT_SYNC_RESTORE_FAILED).toBe('SNAPSHOT_SYNC_RESTORE_FAILED')
-    expect(ErrorCodes.SNAPSHOT_SYNC_RESTORE_CLEANUP_FAILED).toBe('SNAPSHOT_SYNC_RESTORE_CLEANUP_FAILED')
-    expect(ErrorCodes.SNAPSHOT_SYNC_TIMEOUT).toBe('SNAPSHOT_SYNC_TIMEOUT')
-    expect(ErrorCodes.SNAPSHOT_SYNC_ALLOCATION_UNAVAILABLE).toBe('SNAPSHOT_SYNC_ALLOCATION_UNAVAILABLE')
-    expect(ErrorCodes.SNAPSHOT_SYNC_NOT_ASSIGNED).toBe('SNAPSHOT_SYNC_NOT_ASSIGNED')
-    expect(ErrorCodes.SNAPSHOT_SYNC_ABORTED).toBe('SNAPSHOT_SYNC_ABORTED')
-    expect(ErrorCodes.INDEX_ORPHANED).toBe('INDEX_ORPHANED')
+    try {
+      throw thrown
+    } catch (err) {
+      expect(err).toBeInstanceOf(NarsilError)
+      expect((err as NarsilError).code).toBe(ErrorCodes.DOC_VALIDATION_FAILED)
+      expect((err as NarsilError).details).toEqual({ field: 'price' })
+    }
   })
 
   it('has exactly 91 error codes', () => {

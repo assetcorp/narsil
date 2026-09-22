@@ -10,12 +10,16 @@ export type TaskType = 'optimizeVectors' | 'rebalance' | 'restore' | 'import' | 
 /**
  * Where a long-running operation stands.
  *
- * A task reaches `cancelled` only when the work itself stopped early, so a
- * cancel that arrives too late leaves the task `succeeded`.
+ * A task starts `running`, because the server begins the work as it accepts
+ * the request. Where the server already drives
+ * {@link ServerLimits.maxConcurrentTasks} tasks, it answers 429
+ * `TOO_MANY_REQUESTS` and starts none. A task reaches `cancelled` only where
+ * the work itself stops early, so a cancel that arrives too late leaves the
+ * task `succeeded`.
  *
  * @public
  */
-export type TaskStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled'
+export type TaskStatus = 'running' | 'succeeded' | 'failed' | 'cancelled'
 
 /**
  * How far a running import has gone, which is what a progress bar reads.
@@ -60,7 +64,7 @@ export interface TaskRecord {
   owner: string
   /** The server accepted the task at this many milliseconds since the epoch. */
   createdAt: number
-  /** Work started at this many milliseconds since the epoch, and a queued task omits it. */
+  /** Work started at this many milliseconds since the epoch. */
   startedAt?: number
   /** Work ended at this many milliseconds since the epoch, and a task omits it until it reaches a final status. */
   completedAt?: number
