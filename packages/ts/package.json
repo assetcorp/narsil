@@ -2,7 +2,7 @@
   "name": "@delali/narsil",
   "version": "0.2.3",
   "type": "module",
-  "description": "A distributed full-text search engine with cross-language portable binary format.",
+  "description": "Distributed search engine with full-text, vector, hybrid, and geosearch. One engine, embedded or on a server, with a cross-language .nrsl format.",
   "author": "Delali (https://sondelali.com)",
   "license": "Apache-2.0",
   "homepage": "https://narsil.sondelali.com",
