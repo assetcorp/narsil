@@ -47,11 +47,11 @@ Set `storage` to choose where the engine keeps the field's full-precision vector
 
 ## Result totals and paging
 
-The engine ranks every vector in a field and excludes none of them on similarity alone, so `count` reports every vector that the query's filter and its `similarity` floor admit. Where a query sets neither of those, that total is the whole field, and where it sets a filter, the total is the number of filtered documents that hold a vector.
+The engine ranks every vector in a field, whatever its similarity score, so `count` reports every vector that the query's filter and its `similarity` floor admit. Where a query sets neither of those, that total is the whole field. Where it sets a filter, the total is the number of filtered documents that hold a vector.
 
-Read `countExact` to learn how far to trust that number. It reads true wherever the engine compared the query with every vector it admits, which covers a field below the promotion threshold, a filter selective enough for the engine to skip the graph, and any query that sets no `similarity` floor. It reads false where a query sets a floor against a field that has grown a graph, because the engine then reads a fraction of the field, and `count` holds the number of vectors the search fetched, which stays at or below the true total.
+Read `countExact` to know how far to trust that number. It is true wherever the engine compares the query with every vector that it admits, which covers a field below the promotion threshold, a filter narrow enough for the engine to skip the graph, and any query without a `similarity` floor. It is false where a query sets a floor against a field that has grown a graph, because the engine then reads a fraction of the field. `count` holds the number of vectors that the engine fetches there, which stays at or below the true total.
 
-Each page of a vector search fetches as deep as its cursor carries plus one more page, so a deeper page costs more than the one before it, and a page reaching past the 10,000-result window raises `SEARCH_RESULT_WINDOW_EXCEEDED`. Set a filter or a `similarity` floor to keep a long run of pages inside that window.
+For each page of a vector search the engine fetches to the depth in the cursor plus one more page, so a deeper page costs more than the page before it. Where that reach passes the 10,000-result window, the engine raises `SEARCH_RESULT_WINDOW_EXCEEDED`. Set a filter or a `similarity` floor to keep a long run of pages inside that window.
 
 ## Native search core
 

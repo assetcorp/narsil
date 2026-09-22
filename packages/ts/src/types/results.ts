@@ -14,20 +14,20 @@ export interface QueryResult<T = AnyDocument> {
   /** These documents matched, cut to the query's `limit`, best score first or in the query's sort order. */
   hits: Array<Hit<T>>
   /**
-   * This many documents matched in total, before `limit` and `offset`
-   * applied. A keyword search counts every match. A vector search counts
-   * every vector that the query's filter and its `similarity` floor admit,
-   * which is the whole field where the query sets neither.
+   * This many documents match in total, before `limit` and `offset` apply.
+   * For a keyword search the engine counts every match. For a vector search
+   * it counts every vector that the query's filter and its `similarity` floor
+   * admit, which is the whole field where the query sets neither of them.
    */
   count: number
   /**
-   * `count` holds the exact number of matches while this reads true, and a
-   * number at or below the true total while it reads false. A query that sets
-   * a `similarity` floor against a vector field that has grown a graph counts
-   * only the vectors that the search fetched, because the engine reads a
-   * fraction of such a field. A hybrid query fuses two rankings, so its count
-   * is exact only where both of them returned every document that they
-   * matched.
+   * `count` holds the exact number of matches where this is true, and a
+   * number at or below the true total where it is false. Where a query sets a
+   * `similarity` floor against a vector field that has grown a graph, the
+   * engine counts only the vectors that it fetches, because it reads a
+   * fraction of such a field. For a hybrid query the engine fuses two
+   * rankings, so the count is exact only where both of those rankings return
+   * every document that they match.
    */
   countExact: boolean
   /** The engine spent this many milliseconds on the search. */
@@ -172,7 +172,7 @@ export interface GroupResult {
 export interface PreflightResult {
   /** The query matches this many documents. */
   count: number
-  /** `count` holds the exact number of matches while this reads true, and it holds a lower bound while it reads false, under the rule {@link QueryResult.countExact} describes. */
+  /** `count` holds the exact number of matches where this is true, and a number at or below the true total where it is false, under the rule that {@link QueryResult.countExact} describes. */
   countExact: boolean
   /** The count took this many milliseconds. */
   elapsed: number

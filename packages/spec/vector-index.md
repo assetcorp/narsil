@@ -70,6 +70,8 @@ MaintenanceStatus {
 
 `search` returns up to `k` of the vectors closest to `query`. It orders them by the highest score first for cosine and dot product, and by the smallest distance first for Euclidean. It orders the vectors that tie on score by document ID, ascending in [code point order](algorithms.md#code-point-order).
 
+`search` also reports how many vectors `filterDocIds` and `minSimilarity` admit, and whether that figure is exact. The coordinator returns those two as `count` and `countExact`. An implementation must report the figure exactly where it scores every admitted vector, which covers an index that holds no graph, a filter narrow enough that the implementation scans the store, and any search whose `minSimilarity` admits every vector. Where it traverses a graph under a `minSimilarity` that admits fewer, it must report how many vectors it returns and must mark that figure inexact, because it visits a fraction of the index during a traversal.
+
 See [Filtered Search](#filtered-search) for what `filterDocIds` does, and [algorithms.md](algorithms.md) for the metric definitions.
 
 `efSearch` sets the HNSW exploration factor. When `efSearch` is absent, an implementation must use its own default, and the recommended default is 50. A higher value raises recall and lengthens the search.
@@ -171,6 +173,8 @@ Fusion defines the order of hybrid results, which a sort would replace, so a hyb
    vector index.
 ```
 
+An implementation passes `d + offset + limit + 1` as the `k` of step 2, capped at the [result window](partitioning.md#deep-pagination), where `d` is the depth field of the [searchAfter cursor](partitioning.md#searchafter-cursor), and 0 where the request omits that cursor. At that depth an implementation fills the page and leaves one result over wherever another page follows. It fetches more vectors at a greater depth, so the fused order shifts from one page to the next. A caller who needs a stable ranking at depth should page a text search or a vector search.
+
 ### Fusion Strategies
 
 A query selects one of two strategies:
@@ -184,6 +188,8 @@ hybrid {
 ```
 
 The default strategy is `rrf`.
+
+An implementation must reject with `CONFIG_INVALID` a `strategy` other than those two, a `k` that is not a whole number of at least 1, and an `alpha` outside 0 to 1.
 
 #### Reciprocal Rank Fusion
 
