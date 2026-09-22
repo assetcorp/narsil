@@ -58,6 +58,8 @@ A distributed query runs in two phases so that the cluster moves as few bytes as
 5. The coordinator returns the response to the client.
 ```
 
+A data node reports the hit count of its own partitions alone, so the coordinator derives `countExact` from the request and the coverage. It must set `countExact` false where any partition timed out or returned an error, or where it queried fewer partitions than the index holds, because a count missing a partition is a floor under the total. It must otherwise apply the rule in [Deep Pagination](../partitioning.md#deep-pagination) to the request. Every node applies that rule to the same request, so the sum of their counts is exact wherever the rule holds.
+
 ### Single-Partition Queries
 
 A query that targets one partition, such as fetching a document by ID, goes out as one combined query-and-fetch request to the node holding that partition. The two phases collapse into a single round trip.
@@ -208,9 +210,10 @@ The cursor format defined in [searchAfter Cursor](../partitioning.md#searchafter
 
 ```json
 {
-  "v": 3,
+  "v": 4,
   "a": "doc-id-123",
   "s": 4.523,
+  "d": 40,
   "q": "1b83aa27"
 }
 ```
@@ -222,7 +225,8 @@ First query:
   the coordinator fans out to every data node
   each data node returns scored results for its partitions
   the coordinator merges them and takes the top `limit`
-  the cursor encodes the last result
+  the cursor encodes the last result, carrying as `d` the
+    number of results up to and including this page
 
 Next query, carrying the cursor:
   the coordinator decodes the cursor
@@ -231,7 +235,8 @@ Next query, carrying the cursor:
   each data node passes the cursor down to its partitions, and
     each partition seeks past the cursor point on its own
   the coordinator merges the results and takes the top `limit`
-  it encodes a new cursor from the last result
+  it encodes a new cursor from the last result, carrying as `d`
+    the cursor's own `d` plus the number of results this page holds
 ```
 
 ### Tiebreaker

@@ -232,11 +232,11 @@ export interface VectorQueryConfig {
  * @public
  */
 export interface HybridConfig {
-  /** The rankings merge this way, and by rank fusion by default. Any other value raises `CONFIG_INVALID`. */
+  /** The engine merges the rankings this way, and by rank fusion by default. Any other value raises `CONFIG_INVALID`. */
   strategy?: 'rrf' | 'linear'
-  /** This rank-fusion constant softens the advantage of the top ranks, and `rrf` alone reads it. It takes a whole number of at least 1, and 60 by default, while any other value raises `CONFIG_INVALID`. */
+  /** This rank-fusion constant softens the advantage of the top ranks, and the `rrf` strategy alone uses it. It takes a whole number of at least 1, and 60 by default. Any other value raises `CONFIG_INVALID`. */
   k?: number
-  /** This weights the vector score, from 0 to 1, and `linear` alone reads it. It takes 0.5 by default, while a value outside that range raises `CONFIG_INVALID`. */
+  /** This weights the vector score, from 0 to 1, and the `linear` strategy alone uses it. It takes 0.5 by default. A value outside that range raises `CONFIG_INVALID`. */
   alpha?: number
 }
 

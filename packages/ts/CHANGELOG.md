@@ -1,9 +1,12 @@
 ## 0.2.3 (2026-08-30)
 
+### ⚠️ Breaking changes
+
+- **ts:** remove leaseTtlSeconds from EtcdCoordinatorConfig and add ClusterControllerConfig interface with optional properties ([3eabe7c](https://github.com/assetcorp/narsil/commit/3eabe7c))
+
 ### 🚀 Features
 
 - **ts:** add new error codes and readiness states to cluster node API ([de7fe75](https://github.com/assetcorp/narsil/commit/de7fe75))
-- **ts:** remove leaseTtlSeconds from EtcdCoordinatorConfig and add ClusterControllerConfig interface with optional properties ([3eabe7c](https://github.com/assetcorp/narsil/commit/3eabe7c))
 - **ts:** enhance controller election logic with error handling and configuration validation ([2fd004a](https://github.com/assetcorp/narsil/commit/2fd004a))
 - **ts:** introduce lastHolders field in partition assignment ([19ba28a](https://github.com/assetcorp/narsil/commit/19ba28a))
 - **ts:** implement enhanced handling for unassigned partitions and improve retention logic in cluster node lifecycle ([1f54812](https://github.com/assetcorp/narsil/commit/1f54812))

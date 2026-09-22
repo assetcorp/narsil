@@ -5,10 +5,10 @@ A [Transformers.js](https://huggingface.co/docs/transformers.js) embedding adapt
 ## Installation
 
 ```bash
-pnpm add @delali/narsil-embeddings-transformers @huggingface/transformers
+pnpm add @delali/narsil-embeddings-transformers '@huggingface/transformers@^3'
 ```
 
-`@huggingface/transformers` is a peer dependency. You must install it alongside this package. Any 3.x version is supported (`>=3.0.0` and `<4.0.0`).
+`@huggingface/transformers` is a peer dependency, so install it alongside this package. The adapter accepts any 3.x version (`>=3.0.0` and `<4.0.0`). Name that range on the command line, because the newest release on npm is 4.x, which falls outside what the adapter accepts.
 
 ## Quick start
 
