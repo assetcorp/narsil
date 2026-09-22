@@ -19,6 +19,7 @@ export function readProcessMemory(): ProcessMemoryReport | null {
   }
   try {
     const usage = proc.memoryUsage()
+    const heap = readHeapStatistics()
     if (
       !Number.isFinite(usage.heapUsed) ||
       !Number.isFinite(usage.heapTotal) ||
@@ -30,7 +31,7 @@ export function readProcessMemory(): ProcessMemoryReport | null {
     return {
       heapUsed: usage.heapUsed,
       heapTotal: usage.heapTotal,
-      heapLimit: readHeapStatistics()?.limitBytes ?? null,
+      heapLimit: heap === null ? null : (heap.configuredLimitBytes ?? heap.limitBytes),
       external: usage.external,
       rss: usage.rss,
     }

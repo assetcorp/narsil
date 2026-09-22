@@ -12,7 +12,7 @@ function notifierReadingHeadroom(readings: Array<number | null>) {
     readHeap: () => {
       const availableBytes = readings.shift()
       if (availableBytes === null || availableBytes === undefined) return null
-      return { usedBytes: USED_BYTES, limitBytes: HEAP_LIMIT_BYTES, availableBytes }
+      return { usedBytes: USED_BYTES, limitBytes: HEAP_LIMIT_BYTES, availableBytes, configuredLimitBytes: null }
     },
     estimateIndexBytes: () => INDEX_BYTES,
     emit: payload => events.push(payload),
@@ -26,7 +26,29 @@ function notifierReadingUsedAlone(readings: number[]) {
     readHeap: () => {
       const usedBytes = readings.shift()
       if (usedBytes === undefined) return null
-      return { usedBytes, limitBytes: HEAP_LIMIT_BYTES, availableBytes: null }
+      return { usedBytes, limitBytes: HEAP_LIMIT_BYTES, availableBytes: null, configuredLimitBytes: null }
+    },
+    estimateIndexBytes: () => INDEX_BYTES,
+    emit: payload => events.push(payload),
+  })
+  return { notifier, events }
+}
+
+const REPORTED_LIMIT_BYTES = 1_750
+const CONFIGURED_LIMIT_BYTES = 1_000
+
+function notifierReadingAConfiguredLimit(readings: number[]) {
+  const events: Array<NarsilEventMap['heapPressure']> = []
+  const notifier = createHeapPressureNotifier({
+    readHeap: () => {
+      const usedBytes = readings.shift()
+      if (usedBytes === undefined) return null
+      return {
+        usedBytes,
+        limitBytes: REPORTED_LIMIT_BYTES,
+        availableBytes: REPORTED_LIMIT_BYTES - usedBytes,
+        configuredLimitBytes: CONFIGURED_LIMIT_BYTES,
+      }
     },
     estimateIndexBytes: () => INDEX_BYTES,
     emit: payload => events.push(payload),
@@ -35,6 +57,17 @@ function notifierReadingUsedAlone(readings: number[]) {
 }
 
 describe('heap pressure warning', () => {
+  it('measures against the limit an operator sets, which V8 reports larger than it is', () => {
+    const { notifier, events } = notifierReadingAConfiguredLimit([500, 940])
+
+    notifier.check('docs')
+    notifier.check('docs')
+
+    expect(events).toEqual([
+      { indexName: 'docs', heapUsed: 940, heapLimit: CONFIGURED_LIMIT_BYTES, estimatedMemoryBytes: INDEX_BYTES },
+    ])
+  })
+
   it('warns once when the headroom falls to a tenth of the limit, and again after it recovers', () => {
     const { notifier, events } = notifierReadingHeadroom([500, 50, 40, 150, 300, 50])
 
