@@ -15,6 +15,7 @@ import {
   type VectorIndexState,
   type VectorScoredResult,
   type VectorSearchOptions,
+  type VectorSearchOutcome,
 } from './shared'
 
 function* bufferCandidates(state: VectorIndexState, filter?: OrdinalFilter): Iterable<string> {
@@ -38,6 +39,31 @@ function* filteredDocIds(state: VectorIndexState, filter: OrdinalFilter): Iterab
 interface ScanCandidates {
   docIds: string[]
   ordinals: number[]
+}
+
+interface ScanOutcome {
+  results: VectorScoredResult[]
+  matched: number
+}
+
+function admittedTotal(state: VectorIndexState, filter: OrdinalFilter | undefined): number {
+  return filter === undefined ? liveSize(state) : filter.count
+}
+
+export function fetchedOutcome(
+  state: VectorIndexState,
+  results: VectorScoredResult[],
+  minSimilarity: number,
+  filter: OrdinalFilter | undefined,
+): VectorSearchOutcome {
+  if (minSimilarity === Number.NEGATIVE_INFINITY) {
+    return { results, matched: admittedTotal(state, filter), matchedExact: true }
+  }
+  return { results, matched: results.length, matchedExact: false }
+}
+
+function scannedOutcome(scan: ScanOutcome): VectorSearchOutcome {
+  return { results: scan.results, matched: scan.matched, matchedExact: true }
 }
 
 function highScoreFirst(a: VectorScoredResult, b: VectorScoredResult): number {
@@ -64,16 +90,19 @@ function scanThroughTheCore(
   metric: VectorMetric,
   minSimilarity: number,
   scanned: ScanCandidates,
-): VectorScoredResult[] | null {
+): ScanOutcome | null {
   const distances = nativeScoresOf(state.store.handles, query, metric, scanned.ordinals)
   if (distances === null) return null
   const heap = createBoundedMaxHeap<VectorScoredResult>(highScoreFirst, k)
+  let matched = 0
   for (let i = 0; i < scanned.ordinals.length; i++) {
     if (distances[i] === Number.POSITIVE_INFINITY) continue
     const score = toScore(distances[i], metric)
-    if (score >= minSimilarity) heap.push({ docId: scanned.docIds[i], score })
+    if (score < minSimilarity) continue
+    matched++
+    heap.push({ docId: scanned.docIds[i], score })
   }
-  return heap.toSortedArray().reverse()
+  return { results: heap.toSortedArray().reverse(), matched }
 }
 
 function bruteForceSearch(
@@ -83,7 +112,7 @@ function bruteForceSearch(
   metric: VectorMetric,
   minSimilarity: number,
   candidates: Iterable<string>,
-): VectorScoredResult[] {
+): ScanOutcome {
   const scanned = liveCandidates(state, candidates)
   const fromTheCore = scanThroughTheCore(state, query, k, metric, minSimilarity, scanned)
   if (fromTheCore !== null) return fromTheCore
@@ -92,6 +121,7 @@ function bruteForceSearch(
   const arenaQuery = state.store.prepareQueryArena(query)
   const queryMag = arenaQuery ? arenaQuery.magnitude : magnitude(query)
   const heap = createBoundedMaxHeap<VectorScoredResult>(highScoreFirst, k)
+  let matched = 0
 
   for (let i = 0; i < scanned.docIds.length; i++) {
     const docId = scanned.docIds[i]
@@ -119,12 +149,12 @@ function bruteForceSearch(
       }
     }
 
-    if (score >= minSimilarity) {
-      heap.push({ docId, score })
-    }
+    if (score < minSimilarity) continue
+    matched++
+    heap.push({ docId, score })
   }
 
-  return heap.toSortedArray().reverse()
+  return { results: heap.toSortedArray().reverse(), matched }
 }
 
 function mergeResults(
@@ -173,7 +203,7 @@ export function search(
   query: Float32Array,
   k: number,
   options: VectorSearchOptions,
-): VectorScoredResult[] {
+): VectorSearchOutcome {
   return searchWithFilter(state, query, k, options, filterForOptions(state, options))
 }
 
@@ -183,7 +213,7 @@ export function searchWithFilter(
   k: number,
   options: VectorSearchOptions,
   filter: OrdinalFilter | undefined,
-): VectorScoredResult[] {
+): VectorSearchOutcome {
   if (query.length !== state.dimension) {
     throw new NarsilError(
       ErrorCodes.VECTOR_DIMENSION_MISMATCH,
@@ -193,41 +223,46 @@ export function searchWithFilter(
   }
 
   const currentLiveSize = liveSize(state)
-  if (currentLiveSize === 0) return []
-  if (k <= 0) return []
+  const { metric, minSimilarity, efSearch, oversample } = options
+
+  if (currentLiveSize === 0) return { results: [], matched: 0, matchedExact: true }
+  if (filter && filter.count === 0) return { results: [], matched: 0, matchedExact: true }
+  if (k <= 0) return fetchedOutcome(state, [], minSimilarity, filter)
 
   if (state.buffer.size > 0 && !state.building && !state.buildScheduled) {
     scheduleBuild(state)
   }
 
-  const { metric, minSimilarity, efSearch, oversample } = options
-
-  if (filter && filter.count === 0) return []
-
   if (!state.hnsw) {
     const candidates = filter ? filteredDocIds(state, filter) : allLiveDocIds(state)
-    return bruteForceSearch(state, query, k, metric, minSimilarity, candidates)
+    return scannedOutcome(bruteForceSearch(state, query, k, metric, minSimilarity, candidates))
   }
 
   if (filter) {
     const hnswLiveSize = state.hnsw.size
     const selectivity = hnswLiveSize > 0 ? filter.count / hnswLiveSize : 1
     if (selectivity < state.filterThreshold) {
-      return bruteForceSearch(state, query, k, metric, minSimilarity, filteredDocIds(state, filter))
+      const scan = bruteForceSearch(state, query, k, metric, minSimilarity, filteredDocIds(state, filter))
+      return scannedOutcome(scan)
     }
   }
 
   const graphOptions = { filter, efSearch, oversample }
   if (state.buffer.size === 0) {
     const hnswResults = state.hnsw.search(query, k, metric, minSimilarity, graphOptions)
-    return hnswResults.map(r => ({ docId: r.docId, score: r.score }))
+    return fetchedOutcome(
+      state,
+      hnswResults.map(r => ({ docId: r.docId, score: r.score })),
+      minSimilarity,
+      filter,
+    )
   }
 
   const hnswResults = state.hnsw
     .search(query, k, metric, minSimilarity, graphOptions)
     .map(r => ({ docId: r.docId, score: r.score }))
 
-  const bufferResults = bruteForceSearch(state, query, k, metric, minSimilarity, bufferCandidates(state, filter))
+  const buffered = bruteForceSearch(state, query, k, metric, minSimilarity, bufferCandidates(state, filter))
 
-  return mergeResults(hnswResults, bufferResults, k)
+  return fetchedOutcome(state, mergeResults(hnswResults, buffered.results, k), minSimilarity, filter)
 }

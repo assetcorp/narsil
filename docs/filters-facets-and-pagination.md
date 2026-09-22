@@ -118,7 +118,24 @@ if (firstPage.cursor) {
 
 A cursor is valid only for the same query that produced it. The engine binds each cursor to the query's term, fields, filters, match options, and scoring mode, so a cursor sent back under a changed query fails with `SEARCH_INVALID_CURSOR`, as a malformed cursor does.
 
-`offset` and `limit` together reach the first 10,000 results, which is the result window. A request past it throws `SEARCH_RESULT_WINDOW_EXCEEDED`, and a cursor pages beyond it because each page returns the `limit` results that follow its anchor. The window bounds paging depth rather than what the engine considers: a sort, a group, a `minScore`, and a `termMatch` other than `any` each read every matching document, and `count` reports the number of matches exactly.
+`offset` and `limit` together reach the first 10,000 results, which is the result window. A request past it throws `SEARCH_RESULT_WINDOW_EXCEEDED`, and a cursor on a keyword search pages beyond it because each page returns the `limit` results that follow its anchor. The window bounds paging depth, and it leaves untouched what the engine considers, since a sort, a group, a `minScore`, and a `termMatch` other than `any` each read every matching document.
+
+A vector search pages differently, because the engine reads a fraction of a field that has grown a graph, so each page has to reach the rank that its cursor carries. Every page of a vector search therefore fetches as deep as that cursor carries plus one more page, and a page that would reach past the result window raises `SEARCH_RESULT_WINDOW_EXCEEDED`. Set a filter or a `similarity` floor on such a search so that fewer vectors qualify. [Vector search](vector-search.md#result-totals-and-paging) covers this in full.
+
+## What `count` reports
+
+`count` holds the number of documents that the query matched, before `limit` and `offset` applied, and `countExact` says whether to read that number as the total or as a floor under it.
+
+A keyword search counts every match, so `countExact` reads true. A vector search counts every vector that the query's filter and its `similarity` floor admit, which is the whole field where the query sets neither, and that count stays exact while the engine compares the query with every vector it admits. Where the field has grown a graph and the query sets a `similarity` floor, the engine reads a fraction of the field, so `count` holds the number of vectors the search fetched and `countExact` reads false. A hybrid search fuses two rankings, so its `countExact` reads true only where both of them returned every document that they matched.
+
+```ts
+const result = await narsil.query('products', {
+  vector: { field: 'embedding', value: myQueryVector, similarity: 0.8 },
+  limit: 20,
+})
+
+const total = result.countExact ? `${result.count}` : `${result.count} or more`
+```
 
 ## Pinning
 

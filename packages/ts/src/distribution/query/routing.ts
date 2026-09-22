@@ -235,6 +235,8 @@ async function executeSingleFanOut(
 
   let cursor: string | null = null
   const lastEntry = lastOrganicEntry(mergedScored, params.searchAfter === null ? params.pinned : null)
+  const reachedDepth = params.searchAfter === null ? 0 : (decodePageCursor(params.searchAfter).depth ?? 0)
+  const nextDepth = reachedDepth + offset + mergedScored.length
   if (lastEntry !== undefined) {
     cursor =
       sortFields !== null
@@ -243,6 +245,7 @@ async function executeSingleFanOut(
             score: null,
             sortKey: (lastEntry.sortValues ?? []).map(toComparableSortValue),
             sortSignature: wireSortSignature(sortFields),
+            depth: nextDepth,
             binding,
           })
         : encodePageCursor({
@@ -250,6 +253,7 @@ async function executeSingleFanOut(
             score: lastEntry.score,
             sortKey: null,
             sortSignature: null,
+            depth: nextDepth,
             binding,
           })
   }

@@ -76,7 +76,7 @@ describe('a vector field the request threads hold', () => {
 
     expect(placed).toHaveLength(DOC_COUNT)
     expect(drops).toEqual([])
-    expect(index.search(normalizedVector(DIM, 4), 5, { metric: 'cosine', minSimilarity: 0 })).toHaveLength(5)
+    expect(index.search(normalizedVector(DIM, 4), 5, { metric: 'cosine', minSimilarity: 0 }).results).toHaveLength(5)
   })
 
   it('places every vector a thread answered for without placing', async () => {
@@ -89,7 +89,7 @@ describe('a vector field the request threads hold', () => {
       expect(placed).toHaveLength(DOC_COUNT)
       expect(index.maintenanceStatus().bufferSize).toBe(0)
       for (let i = 0; i < DOC_COUNT; i++) {
-        const hits = index.search(normalizedVector(DIM, i + 1), 1, { metric: 'cosine', minSimilarity: 0 })
+        const { results: hits } = index.search(normalizedVector(DIM, i + 1), 1, { metric: 'cosine', minSimilarity: 0 })
         expect(hits[0]?.docId).toBe(`doc${i}`)
       }
       expect(warn).toHaveBeenCalledTimes(1)

@@ -21,6 +21,7 @@ export interface FanOutConfig {
 export interface FanOutResult {
   scored: ScoredDocument[]
   totalMatched: number
+  matchedExact?: boolean
   facets?: Record<string, FacetResult>
 }
 

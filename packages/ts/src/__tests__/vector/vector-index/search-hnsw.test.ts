@@ -37,7 +37,7 @@ describe('VectorIndex search with HNSW (after build)', () => {
   it('after build completes, search uses HNSW and returns results', async () => {
     await insertAndBuild(index, 10)
 
-    const results = index.search(normalizedVector(DIM, 17), 5, {
+    const { results } = index.search(normalizedVector(DIM, 17), 5, {
       metric: 'cosine',
       minSimilarity: 0,
     })
@@ -52,7 +52,7 @@ describe('VectorIndex search with HNSW (after build)', () => {
     const target = vectorFromValues(1, 0, 0, 0)
     index.insert('buffer-doc', vectorFromValues(0.99, 0.01, 0, 0))
 
-    const results = index.search(target, 10, {
+    const { results } = index.search(target, 10, {
       metric: 'cosine',
       minSimilarity: 0,
     })
@@ -70,7 +70,7 @@ describe('VectorIndex search with HNSW (after build)', () => {
 
     index.insert('doc0', normalizedVector(DIM, 106))
 
-    const results = index.search(normalizedVector(DIM, 38), 10, {
+    const { results } = index.search(normalizedVector(DIM, 38), 10, {
       metric: 'cosine',
       minSimilarity: 0,
     })
@@ -90,7 +90,7 @@ describe('VectorIndex search with HNSW (after build)', () => {
       await insertAndBuild(filteredIndex, 10)
 
       const filterIds = new Set(['doc0'])
-      const results = filteredIndex.search(normalizedVector(DIM, 45), 5, {
+      const { results } = filteredIndex.search(normalizedVector(DIM, 45), 5, {
         metric: 'cosine',
         minSimilarity: 0,
         filterDocIds: filterIds,
@@ -108,7 +108,7 @@ describe('VectorIndex search with HNSW (after build)', () => {
   it('efSearch parameter is forwarded to HNSW', async () => {
     await insertAndBuild(index, 10)
 
-    const results = index.search(normalizedVector(DIM, 52), 3, {
+    const { results } = index.search(normalizedVector(DIM, 52), 3, {
       metric: 'cosine',
       minSimilarity: 0,
       efSearch: 50,

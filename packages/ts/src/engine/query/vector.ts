@@ -1,5 +1,6 @@
 import { ErrorCodes, NarsilError } from '../../errors'
 import { type FanOutResult, fanOutQuery } from '../../partitioning/fan-out'
+import { RESULT_WINDOW } from '../../search/constants'
 import { linearCombination, reciprocalRankFusion } from '../../search/fusion'
 import type { ScoredDocument } from '../../types/internal'
 import type { QueryParams, VectorQueryConfig } from '../../types/search'
@@ -29,11 +30,24 @@ export function oversampleOf(vectorConfig: VectorQueryConfig): number | undefine
   return oversample
 }
 
+export function vectorFetchDepth(limit: number, offset: number, cursorDepth: number): number {
+  const reach = cursorDepth + offset + limit
+  if (reach > RESULT_WINDOW) {
+    throw new NarsilError(
+      ErrorCodes.SEARCH_RESULT_WINDOW_EXCEEDED,
+      `A vector search reaches the first ${RESULT_WINDOW} results, and this page ends at ${reach}. Narrow the search with a filter or a similarity floor`,
+      { limit, offset, cursorDepth, window: RESULT_WINDOW },
+    )
+  }
+  return Math.min(reach + 1, RESULT_WINDOW)
+}
+
 export async function executeVectorSearch(
   params: QueryParams,
   context: QueryContext,
   limit: number,
   offset: number,
+  cursorDepth = 0,
 ): Promise<FanOutResult> {
   const { manager, config, partitionIds } = context
   const vectorConfig = params.vector
@@ -58,8 +72,8 @@ export async function executeVectorSearch(
   }
 
   const queryVec = new Float32Array(vectorConfig.value)
-  const k = limit + offset + 1
-  const results = await vecIndex.searchParallel(queryVec, k, {
+  const k = vectorFetchDepth(limit, offset, cursorDepth)
+  const outcome = await vecIndex.searchParallel(queryVec, k, {
     metric: vectorConfig.metric ?? 'cosine',
     minSimilarity: vectorConfig.similarity ?? -Infinity,
     ...(filterDocIds !== undefined ? { filterDocIds } : {}),
@@ -68,8 +82,8 @@ export async function executeVectorSearch(
     oversample: oversampleOf(vectorConfig),
   })
 
-  const scored = vectorResultsToScored(results)
-  return { scored, totalMatched: scored.length }
+  const scored = vectorResultsToScored(outcome.results)
+  return { scored, totalMatched: outcome.matched, matchedExact: outcome.matchedExact }
 }
 
 async function textLeg(textOnlyParams: QueryParams, context: QueryContext): Promise<FanOutResult> {
@@ -93,13 +107,13 @@ async function vectorLeg(
   context: QueryContext,
   filterDocIds: Set<string> | undefined,
   k: number,
-): Promise<ScoredDocument[]> {
+): Promise<{ scored: ScoredDocument[]; holdsEveryMatch: boolean }> {
   const { manager } = context
   const vecIndex = resolveVectorIndex(context, vectorConfig.field)
-  if (!vecIndex) return []
+  if (!vecIndex) return { scored: [], holdsEveryMatch: true }
   const filterPartitions =
     filterDocIds === undefined ? partitionsForVectorSearch(manager, vecIndex, context.partitionIds) : undefined
-  const results = await vecIndex.searchParallel(queryVector, k, {
+  const outcome = await vecIndex.searchParallel(queryVector, k, {
     metric: vectorConfig.metric ?? 'cosine',
     minSimilarity: vectorConfig.similarity ?? -Infinity,
     ...(filterDocIds !== undefined ? { filterDocIds } : {}),
@@ -107,7 +121,10 @@ async function vectorLeg(
     efSearch: vectorConfig.efSearch,
     oversample: oversampleOf(vectorConfig),
   })
-  return vectorResultsToScored(results)
+  return {
+    scored: vectorResultsToScored(outcome.results),
+    holdsEveryMatch: outcome.matchedExact && outcome.results.length === outcome.matched,
+  }
 }
 
 export async function executeHybridSearch(
@@ -115,6 +132,7 @@ export async function executeHybridSearch(
   context: QueryContext,
   limit: number,
   offset: number,
+  cursorDepth = 0,
 ): Promise<FanOutResult> {
   const { manager, config } = context
   const { vector: vectorConfig, mode: _mode, hybrid: _hybrid, ...textOnlyParams } = params
@@ -137,9 +155,10 @@ export async function executeHybridSearch(
     new Float32Array(vectorConfig.value),
     context,
     filterDocIds,
-    limit + offset + 1,
+    vectorFetchDepth(limit, offset, cursorDepth),
   )
-  const [textFanOutResult, vectorScored] = await Promise.all([textLeg(textOnlyParams, context), vectorPending])
+  const [textFanOutResult, vectorOutcome] = await Promise.all([textLeg(textOnlyParams, context), vectorPending])
+  const vectorScored = vectorOutcome.scored
 
   const hybridConfig = params.hybrid ?? {}
   const strategy = hybridConfig.strategy ?? 'rrf'
@@ -158,9 +177,12 @@ export async function executeHybridSearch(
     fusedScored = fusedScored.filter(doc => doc.score >= threshold)
   }
 
+  const textHoldsEveryMatch = textFanOutResult.scored.length === textFanOutResult.totalMatched
+
   return {
     scored: fusedScored,
     totalMatched: fusedScored.length,
+    matchedExact: vectorOutcome.holdsEveryMatch && textHoldsEveryMatch,
     facets: textFanOutResult.facets,
   }
 }

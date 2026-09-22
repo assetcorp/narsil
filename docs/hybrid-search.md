@@ -18,6 +18,8 @@ The engine starts the vector ranking first and runs the BM25 ranking while the v
 
 Fusion defines the order of hybrid results, so a hybrid query takes no `sort`. A hybrid query that also names a `sort` fails with `SEARCH_INVALID_MODE`.
 
+`count` reports the size of the fused list, and `countExact` reads true only where both rankings returned every document that they matched. The BM25 ranking returns every match, while the vector ranking returns the candidates that it fetched, so a hybrid query over a field that has grown a graph reports a number at or below the true total. Fusion places each document by its position in the two rankings, and the vector ranking fetches deeper for each page, so the fused order shifts from one page to the next. A hybrid query therefore serves a first page of results well, and a vector query or a keyword query serves a long run of pages better.
+
 The `strategy` field takes one of two values:
 
 - `'rrf'` (the default) applies reciprocal rank fusion, which combines the two rankings by position instead of by score. `k` dampens the contribution of lower ranks and defaults to 60.

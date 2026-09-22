@@ -5,7 +5,7 @@ import type { QueryParams } from '../../../types/search'
 import { distributedQuery } from '../../query/routing'
 import type { DistributedQueryConfig } from '../../query/types'
 import { fetchDistributedDocuments, readDistributedDocuments } from '../node-messaging'
-import { distributedResultToLocal, localParamsToWire } from '../query-conversion'
+import { distributedCountIsExact, distributedResultToLocal, localParamsToWire } from '../query-conversion'
 import { routableAllocation } from '../routable-allocation'
 import type { ClusterQueryConfig } from '../types'
 import { assembleDistributedGroups } from './groups'
@@ -104,7 +104,8 @@ export async function queryCluster<T = AnyDocument>(
     projection,
     documents,
   )
-  const result = distributedResultToLocal<T>({ ...distributed, scored }, documents)
+  const countExact = distributedCountIsExact(params, distributed.coverage)
+  const result = distributedResultToLocal<T>({ ...distributed, scored }, countExact, documents)
   const groups = await assembleDistributedGroups(deps, indexName, params, distributed, allocation, projection)
   if (groups !== undefined) {
     result.groups = groups

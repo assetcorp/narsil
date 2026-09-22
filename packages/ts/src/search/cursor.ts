@@ -11,20 +11,22 @@ import {
 import { decodeCursorText, encodeCursorText } from './cursor-codec'
 import { normalizeSort } from './sorting'
 
-export const CURSOR_VERSION = 3
+export const CURSOR_VERSION = 4
 
 /**
  * The decoded form of the paging cursor that search and listing share. The
  * anchor names the last document returned. One anchor mode applies: a score
  * for an unsorted search, a sort key with its sort order for a sorted page,
- * or neither for a listing in document ID order. The binding ties the cursor
- * to the request that produced it.
+ * or neither for a listing in document ID order. The depth records how many
+ * results precede the next page, which a vector search reads to fetch that
+ * far. The binding ties the cursor to the request that produced it.
  */
 export interface PageCursor {
   anchor: string
   score: number | null
   sortKey: ComparableSortValue[] | null
   sortSignature: string | null
+  depth?: number
   binding: string
 }
 
@@ -98,6 +100,7 @@ export function encodePageCursor(cursor: PageCursor): string {
   } else if (cursor.score !== null) {
     payload.s = cursor.score
   }
+  if (cursor.depth !== undefined && cursor.depth > 0) payload.d = cursor.depth
   payload.q = cursor.binding
   return encodeCursorText(JSON.stringify(payload))
 }
@@ -157,7 +160,7 @@ export function decodePageCursor(cursor: string): PageCursor {
     throw invalidCursor(cursor, 'expected an object')
   }
 
-  const { v, a, s, k, o, q } = parsed as Record<string, unknown>
+  const { v, a, s, k, o, d, q } = parsed as Record<string, unknown>
   if (v !== CURSOR_VERSION) throw invalidCursor(cursor, `unsupported cursor version ${String(v)}`)
   if (typeof q !== 'string' || !/^[0-9a-f]{8}$/.test(q)) {
     throw invalidCursor(cursor, '"q" must be 8 lowercase hex digits')
@@ -172,6 +175,10 @@ export function decodePageCursor(cursor: string): PageCursor {
   }
   if (s !== undefined && k !== undefined) throw invalidCursor(cursor, 'a cursor carries "s" or "k", never both')
 
+  if (d !== undefined && (typeof d !== 'number' || !Number.isSafeInteger(d) || d < 1)) {
+    throw invalidCursor(cursor, '"d" must be a positive integer')
+  }
+
   const sortKey = k === undefined ? null : decodeSortKey(k, cursor)
   if (o !== undefined && typeof o !== 'string') throw invalidCursor(cursor, '"o" must be a string')
   if ((sortKey === null) !== (o === undefined)) {
@@ -183,6 +190,7 @@ export function decodePageCursor(cursor: string): PageCursor {
     score: typeof s === 'number' ? s : null,
     sortKey,
     sortSignature: typeof o === 'string' ? o : null,
+    depth: typeof d === 'number' ? d : 0,
     binding: q,
   }
 }

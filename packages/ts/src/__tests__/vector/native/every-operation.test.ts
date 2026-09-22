@@ -28,7 +28,7 @@ async function performEveryOperation(index: VectorIndex, storage: VectorStorageM
 
   const allowed = new Set([docIdOf(1), docIdOf(2), docIdOf(3)])
   const [query] = clusteredVectors(1, 11)
-  expect(index.search(query, 3, { metric: 'cosine', minSimilarity: -1, filterDocIds: allowed })).toHaveLength(3)
+  expect(index.search(query, 3, { metric: 'cosine', minSimilarity: -1, filterDocIds: allowed }).results).toHaveLength(3)
 
   for (let position = 0; position < DOCUMENTS; position += 3) index.remove(docIdOf(position))
   index.compact()
