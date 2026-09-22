@@ -13,8 +13,23 @@ import type { AnyDocument, SchemaDefinition } from './schema'
 export interface QueryResult<T = AnyDocument> {
   /** These documents matched, cut to the query's `limit`, best score first or in the query's sort order. */
   hits: Array<Hit<T>>
-  /** This many documents matched in total, before `limit` and `offset` applied. */
+  /**
+   * This many documents matched in total, before `limit` and `offset`
+   * applied. A keyword search counts every match. A vector search counts
+   * every vector that the query's filter and its `similarity` floor admit,
+   * which is the whole field where the query sets neither.
+   */
   count: number
+  /**
+   * `count` holds the exact number of matches while this reads true, and a
+   * number at or below the true total while it reads false. A query that sets
+   * a `similarity` floor against a vector field that has grown a graph counts
+   * only the vectors that the search fetched, because the engine reads a
+   * fraction of such a field. A hybrid query fuses two rankings, so its count
+   * is exact only where both of them returned every document that they
+   * matched.
+   */
+  countExact: boolean
   /** The engine spent this many milliseconds on the search. */
   elapsed: number
   /** This opaque cursor reaches the next page. Pass it back as `searchAfter`. */
@@ -157,6 +172,8 @@ export interface GroupResult {
 export interface PreflightResult {
   /** The query matches this many documents. */
   count: number
+  /** `count` holds the exact number of matches while this reads true, and it holds a lower bound while it reads false, under the rule {@link QueryResult.countExact} describes. */
+  countExact: boolean
   /** The count took this many milliseconds. */
   elapsed: number
   /** This turns true when the index's terms came from an older analysis than its language module produces now. */

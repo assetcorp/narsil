@@ -11,6 +11,7 @@ function hits(...titles: string[]): QueryResult {
   return {
     hits: titles.map((title, at) => ({ id: `m${at}`, score: 1, document: { title } })),
     count: titles.length,
+    countExact: true,
     elapsed: 1,
     coverage: { totalPartitions: 1, queriedPartitions: 1, timedOutPartitions: 0, failedPartitions: 0 },
   }

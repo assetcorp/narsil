@@ -1,7 +1,7 @@
 import { DEFAULT_PAGE_SIZE } from '../../search/constants'
 import { clampRowCount } from '../../search/pagination'
 import { normalizeSort } from '../../search/sorting'
-import type { FacetResult, QueryResult } from '../../types/results'
+import type { FacetResult, QueryCoverage, QueryResult } from '../../types/results'
 import type { AnyDocument } from '../../types/schema'
 import type { FacetConfig, QueryParams } from '../../types/search'
 import type { DistributedQueryResult } from '../query/types'
@@ -124,8 +124,23 @@ export function localParamsToWire(params: QueryParams): WireQueryParams {
   }
 }
 
+export function countIsExactFor(params: QueryParams): boolean {
+  const vector = params.vector
+  if (vector === undefined || vector.value === undefined) return true
+  const hasTerm = params.term !== undefined && params.term.trim().length > 0
+  if (params.mode === 'hybrid' || hasTerm) return false
+  return vector.similarity === undefined
+}
+
+export function distributedCountIsExact(params: QueryParams, coverage: QueryCoverage): boolean {
+  if (coverage.queriedPartitions < coverage.totalPartitions) return false
+  if (coverage.timedOutPartitions > 0 || coverage.failedPartitions > 0) return false
+  return countIsExactFor(params)
+}
+
 export function distributedResultToLocal<T = AnyDocument>(
   result: DistributedQueryResult,
+  countExact: boolean,
   documents: Map<string, T> = new Map(),
 ): QueryResult<T> {
   return {
@@ -135,6 +150,7 @@ export function distributedResultToLocal<T = AnyDocument>(
       document: documents.get(entry.docId) ?? ({} as T),
     })),
     count: result.totalHits,
+    countExact,
     elapsed: 0,
     cursor: result.cursor ?? undefined,
     facets: result.facets !== null ? convertWireFacetsToLocal(result.facets, result.facetErrorBounds) : undefined,

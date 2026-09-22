@@ -666,6 +666,7 @@ export interface PersistenceAdapter {
 export interface PreflightResult {
     analysisStale?: boolean;
     count: number;
+    countExact: boolean;
     elapsed: number;
 }
 
@@ -730,6 +731,7 @@ export interface QueryParams {
 export interface QueryResult<T = AnyDocument> {
     analysisStale?: boolean;
     count: number;
+    countExact: boolean;
     coverage: QueryCoverage;
     cursor?: string;
     elapsed: number;

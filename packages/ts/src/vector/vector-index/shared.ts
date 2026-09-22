@@ -17,6 +17,12 @@ export interface VectorScoredResult {
   score: number
 }
 
+export interface VectorSearchOutcome {
+  results: VectorScoredResult[]
+  matched: number
+  matchedExact: boolean
+}
+
 export interface VectorSearchOptions {
   metric: VectorMetric
   minSimilarity: number
@@ -31,7 +37,7 @@ export interface VectorSearchOptions {
 export interface VectorSearcher {
   readonly fieldName: string
   readonly dimension: number
-  searchParallel(query: Float32Array, k: number, options: VectorSearchOptions): Promise<VectorScoredResult[]>
+  searchParallel(query: Float32Array, k: number, options: VectorSearchOptions): Promise<VectorSearchOutcome>
   partitionsKnown(): boolean
   assignPartitions(resolve: (docId: string) => number | undefined): void
 }

@@ -4,7 +4,7 @@ import { ErrorCodes, NarsilError } from '../../errors'
 import { type FanOutResult, fanOutQuery } from '../../partitioning/fan-out'
 import { countsWithoutScores, fanOutMatchCount } from '../../partitioning/match-count'
 import { flattenSchema } from '../../schema/validator'
-import { sortSignatureOf } from '../../search/cursor'
+import { decodePageCursor, requireMatchingCursor, sortSignatureOf } from '../../search/cursor'
 import { applyGrouping } from '../../search/grouping'
 import { applyPagination, type PaginationSortContext, requireWithinResultWindow } from '../../search/pagination'
 import { applyPinning } from '../../search/pinning'
@@ -28,6 +28,13 @@ import { executeSortedQueryPage, sortsWithoutScores } from './sorted'
 import { executeHybridSearch, executeVectorSearch } from './vector'
 
 export type { QueryContext } from './shared'
+
+function requireCursorDepth(cursor: string | undefined, signature: string | null, binding: string): number {
+  if (cursor === undefined) return 0
+  const decoded = decodePageCursor(cursor)
+  requireMatchingCursor(decoded, cursor, signature, true, binding)
+  return decoded.depth ?? 0
+}
 
 export async function executeQuery<T = AnyDocument>(
   params: QueryParams,
@@ -61,6 +68,7 @@ export async function executeQuery<T = AnyDocument>(
   let paginated: Array<Hit<T>>
   let nextCursor: string | undefined
   let count: number
+  let countExact = true
   let facets: Record<string, FacetResult> | undefined
   let groups: GroupResult[] | undefined
 
@@ -78,9 +86,11 @@ export async function executeQuery<T = AnyDocument>(
     let fanOutResult: FanOutResult
 
     if (isVectorOnly && hasGlobalVectorIndex) {
-      fanOutResult = await executeVectorSearch(params, context, limit, offset)
+      const depth = requireCursorDepth(params.searchAfter, sortSignature, context.cursorBinding)
+      fanOutResult = await executeVectorSearch(params, context, limit, offset, depth)
     } else if (isHybridMode && hasGlobalVectorIndex) {
-      fanOutResult = await executeHybridSearch(params, context, limit, offset)
+      const depth = requireCursorDepth(params.searchAfter, sortSignature, context.cursorBinding)
+      fanOutResult = await executeHybridSearch(params, context, limit, offset, depth)
     } else {
       const scoring = scoringConfigFor(params, context)
       const workerResult = workerSearch
@@ -179,6 +189,7 @@ export async function executeQuery<T = AnyDocument>(
     paginated = paged.paginated
     nextCursor = paged.nextCursor
     count = fanOutResult.totalMatched
+    countExact = fanOutResult.matchedExact !== false
     facets = fanOutResult.facets
 
     if (sortSignature !== null && params.includeScores !== true) {
@@ -223,6 +234,7 @@ export async function executeQuery<T = AnyDocument>(
   return {
     hits: paginated,
     count,
+    countExact,
     elapsed,
     cursor: nextCursor,
     facets,
@@ -248,6 +260,7 @@ export async function executePreflight(params: QueryParams, context: QueryContex
     requestedVectorField !== undefined && vectorSearchersOf(context).has(requestedVectorField)
 
   let totalMatched: number
+  let countExact = true
 
   const preflightLimit = 1000
   const preflightOffset = 0
@@ -255,9 +268,11 @@ export async function executePreflight(params: QueryParams, context: QueryContex
   if (isVectorOnly && hasGlobalVectorIndex) {
     const result = await executeVectorSearch(params, context, preflightLimit, preflightOffset)
     totalMatched = result.totalMatched
+    countExact = result.matchedExact !== false
   } else if (isHybridMode && hasGlobalVectorIndex) {
     const result = await executeHybridSearch(params, context, preflightLimit, preflightOffset)
     totalMatched = result.totalMatched
+    countExact = result.matchedExact !== false
   } else if (countsWithoutScores(params)) {
     totalMatched = fanOutMatchCount(manager, params, language, config.schema, {
       searchOptions: searchOptionsFor(manager),
@@ -284,5 +299,5 @@ export async function executePreflight(params: QueryParams, context: QueryContex
   }
 
   const elapsed = now() - startTime
-  return { count: totalMatched, elapsed }
+  return { count: totalMatched, countExact, elapsed }
 }
