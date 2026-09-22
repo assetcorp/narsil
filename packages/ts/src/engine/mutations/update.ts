@@ -222,11 +222,8 @@ export async function updateDocumentBatch(
   const updateBatchManager = ctx.requireManager(indexName)
   const updateBatchVecIndexes = updateBatchManager.getVectorIndexes()
   const touchedVectorFields = new Set<string>()
-  const hooked = ctx.pluginRegistry.hasHooks('beforeUpdate') || ctx.pluginRegistry.hasHooks('afterUpdate')
-  const chunkSize = hooked ? 1 : BATCH_CHUNK_SIZE
-
-  for (let chunkStart = 0; chunkStart < updates.length; chunkStart += chunkSize) {
-    const chunkEnd = Math.min(chunkStart + chunkSize, updates.length)
+  for (let chunkStart = 0; chunkStart < updates.length; chunkStart += BATCH_CHUNK_SIZE) {
+    const chunkEnd = Math.min(chunkStart + BATCH_CHUNK_SIZE, updates.length)
     const prepared: PreparedUpdate[] = []
     for (let i = chunkStart; i < chunkEnd; i++) {
       try {
@@ -259,7 +256,7 @@ export async function updateDocumentBatch(
       succeeded.push(update.docId)
     }
 
-    if (chunkEnd < updates.length && chunkEnd % BATCH_CHUNK_SIZE === 0) {
+    if (chunkEnd < updates.length) {
       await new Promise<void>(r => setTimeout(r, 0))
     }
   }

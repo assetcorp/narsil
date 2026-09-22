@@ -1,3 +1,4 @@
+import { ErrorCodes, NarsilError } from '../../errors'
 import type { ScoredDocument, VectorEntry } from '../../types/internal'
 import type { VectorMetric } from '../brute-force'
 import type { OsqQuantizer } from '../osq/types'
@@ -134,7 +135,11 @@ export function createHNSWIndex(
       throw new Error(`Cannot insert HNSW node: vector for "${docId}" not found in VectorStore`)
     }
     if (entry.vector.length !== dimension) {
-      throw new Error(`Vector dimension mismatch: expected ${dimension}, got ${entry.vector.length}`)
+      throw new NarsilError(
+        ErrorCodes.VECTOR_DIMENSION_MISMATCH,
+        `Vector dimension mismatch: expected ${dimension}, got ${entry.vector.length}`,
+        { docId, expected: dimension, received: entry.vector.length },
+      )
     }
     insertNodeOp(state, ord)
   }

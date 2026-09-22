@@ -112,13 +112,11 @@ export async function removeDocumentBatch(
   const succeeded: string[] = []
   const failed: BatchResult['failed'] = []
   const manager = ctx.requireManager(indexName)
-  const hooked = ctx.pluginRegistry.hasHooks('beforeRemove') || ctx.pluginRegistry.hasHooks('afterRemove')
-  const chunkSize = hooked ? 1 : BATCH_CHUNK_SIZE
   manager.beginBatchRemove()
 
   try {
-    for (let chunkStart = 0; chunkStart < docIds.length; chunkStart += chunkSize) {
-      const chunkEnd = Math.min(chunkStart + chunkSize, docIds.length)
+    for (let chunkStart = 0; chunkStart < docIds.length; chunkStart += BATCH_CHUNK_SIZE) {
+      const chunkEnd = Math.min(chunkStart + BATCH_CHUNK_SIZE, docIds.length)
       const prepared: PreparedRemoval[] = []
       for (let i = chunkStart; i < chunkEnd; i++) {
         try {
@@ -148,13 +146,14 @@ export async function removeDocumentBatch(
         succeeded.push(removal.docId)
       }
 
-      if (chunkEnd < docIds.length && chunkEnd % BATCH_CHUNK_SIZE === 0) {
+      if (chunkEnd < docIds.length) {
         await new Promise<void>(r => setTimeout(r, 0))
       }
     }
   } finally {
     manager.endBatchRemove()
   }
+  ctx.checkHeapPressure(indexName)
   if (options?.wait === true) await awaitWriteVisibility(ctx, indexName)
 
   return { succeeded, failed }

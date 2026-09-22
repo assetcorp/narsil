@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { ClientErrorCodes, ErrorCodes } from '../../errors'
-import { httpStatusForNarsilError, ServerErrorCodes } from '../../server/errors'
+import { ClientErrorCodes, ErrorCodes, NarsilError } from '../../errors'
+import { httpStatusForNarsilError, ServerErrorCodes, toHttpError } from '../../server/errors'
 
 describe('httpStatusForNarsilError', () => {
   it('maps every replication and partition-routing code to 503', () => {
@@ -58,6 +58,7 @@ describe('httpStatusForNarsilError', () => {
       ErrorCodes.TRANSPORT_DEPENDENCY_MISSING,
       ErrorCodes.COORDINATOR_DEPENDENCY_MISSING,
       ErrorCodes.CONTROLLER_METADATA_INVALID,
+      ErrorCodes.WORKER_ACTION_FAILED,
     ]
     const everyServerRaisedCode = [...Object.values(ErrorCodes), ...Object.values(ServerErrorCodes)]
     const answeringFiveHundred = everyServerRaisedCode.filter(code => httpStatusForNarsilError(code) === 500)
@@ -69,6 +70,20 @@ describe('httpStatusForNarsilError', () => {
     for (const code of Object.values(ClientErrorCodes)) {
       expect(httpStatusForNarsilError(code)).toBe(500)
     }
+  })
+
+  it('answers a value that is no NarsilError with a body holding nothing internal', () => {
+    const answer = toHttpError(new Error('connect ECONNREFUSED 10.0.0.7:5432'))
+
+    expect(answer.status).toBe(500)
+    expect(answer.body).toEqual({ code: ServerErrorCodes.INTERNAL_ERROR, message: 'An unexpected error occurred' })
+  })
+
+  it('keeps the code, the message, and the details of a NarsilError in the body', () => {
+    const answer = toHttpError(new NarsilError(ErrorCodes.DOC_NOT_FOUND, 'gone', { docId: 'm1' }))
+
+    expect(answer.status).toBe(404)
+    expect(answer.body).toEqual({ code: ErrorCodes.DOC_NOT_FOUND, message: 'gone', details: { docId: 'm1' } })
   })
 
   it('separates a cluster that cannot place a shard from one that refuses the request', () => {

@@ -7,6 +7,9 @@ export const DEFAULT_LIMIT = DEFAULT_PAGE_SIZE
 export const DEFAULT_OFFSET = 0
 
 export const INDEX_NAME_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/
+
+export const ABSOLUTE_WINDOWS_PATH_PATTERN = /^[a-zA-Z]:[\\/]/
+export const MODULE_URL_SCHEME_PATTERN = /^(file|https?|data|node):/
 export const MAX_INDEX_NAME_LENGTH = 255
 export const MAX_DOC_ID_LENGTH = 512
 

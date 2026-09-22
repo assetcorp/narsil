@@ -28,9 +28,9 @@ The full surface:
 
 | Method and path | Purpose |
 | --- | --- |
-| `GET /livez`, `GET /readyz`, `GET /health` | The probes report liveness and readiness without authentication. On a cluster node, `/readyz` answers 503 until the node reports `SERVING`. See [Cluster routes](#cluster-routes). |
+| `GET /livez`, `GET /readyz`, `GET /health` | The probes answer without authentication. `/livez` answers 200 whenever the process can serve HTTP. `/readyz` and `/health` answer 503 until the engine is ready, and again once shutdown begins, so a load balancer that reads either one stops sending traffic through a shutdown. On a cluster node, both of them answer 503 until the node reports `SERVING`. See [Cluster routes](#cluster-routes). |
 | `GET /cluster`, `GET /indexes/{name}/cluster` | The endpoints report the cluster topology and one index's allocation, and a server fronting a single engine answers both with 501. See [Cluster routes](#cluster-routes). |
-| `GET /version` | The endpoint reports the build identity stamped at startup. |
+| `GET /version` | The endpoint reports the build identity stamped at startup. Its `vectorSearch` field names the path through which the answering thread searches vector graphs, `native` or `wasm`. See [Native search core](vector-search.md#native-search-core). |
 | `GET /capabilities` | The endpoint lists the optional routes this server serves, and it needs no key either. See [Tasks](#tasks). |
 | `GET /stats/memory` | The endpoint returns `getMemoryStats()` plus `requestThreads`, the number of worker threads that receive requests. See [Request threads](partitions-and-workers.md#request-threads). |
 | `POST /indexes`, `GET /indexes`, `DELETE /indexes/{name}` | The endpoints create, list, and drop indexes. |
@@ -51,6 +51,34 @@ The full surface:
 | `POST /indexes/{name}/_rebalance`, `POST /indexes/{name}/partition-config` | The endpoints reshape partitions and adjust partition caps. |
 | `POST /indexes/{name}/_rebuild-analysis` | The endpoint reanalyses every document, which an index needs after its language module changes revision. |
 | `GET /tasks`, `GET /tasks/{id}`, `POST /tasks/{id}/_cancel` | The endpoints list, report, and stop long-running tasks. See [Tasks](#tasks). |
+
+## Shutting down
+
+`server.shutdown()` closes the server and then shuts the engine down, which is the one call that a process whose work is this server makes on its way out:
+
+```ts
+const stop = async (): Promise<void> => {
+  await server.shutdown()
+  process.exit(0)
+}
+
+process.once('SIGTERM', () => void stop())
+process.once('SIGINT', () => void stop())
+```
+
+`server.close()` stops the server taking requests and leaves the engine running, which is what a process that fronts one engine with two servers calls. That process shuts the engine down itself once its last server closes.
+
+Shutting the engine down is what ends the request threads, which is why a process that closes the server alone still holds them. Where such a process exits while a request thread holds a client connection, Node terminates that thread and then fails to close its event loop. Node prints an assertion of its own and ends the process with code 134 in place of the code that you passed, so a supervisor reading the exit code records a crash. A process that installs no signal handler takes Node's default, under which `SIGTERM` ends it with code 143 and no assertion.
+
+An uncaught error on the main thread ends the process the same way, because nothing shuts the engine down on that path. Node prints your own error and its stack first, so you still see what failed. Handle the error yourself where you want a clean exit code:
+
+```ts
+process.on('uncaughtException', async error => {
+  console.error(error)
+  await server.shutdown()
+  process.exit(1)
+})
+```
 
 ## Tasks
 
@@ -84,7 +112,15 @@ Each running task holds its own working set, and an async import holds the whole
 `GET /capabilities` lists the optional routes this server answers, so a client can check before it sends a request that an older server would refuse with 404.
 
 ```json
-{ "capabilities": ["documents.import.async", "tasks.cancel", "tasks.filter", "indexes.rebuildAnalysis"] }
+{
+  "capabilities": [
+    "documents.import.async",
+    "tasks.cancel",
+    "tasks.filter",
+    "indexes.rebuildAnalysis",
+    "indexes.lifecycle"
+  ]
+}
 ```
 
 ## Cluster routes

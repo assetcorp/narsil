@@ -103,9 +103,8 @@ describe.skipIf(!binaryBuilt)('the native search core over a field kept on disk'
       vectorPromotion: { threshold: 8, quantization: 'osq8' },
     })
     const vectors = clusteredVectors(40, 3)
-    for (let position = 0; position < vectors.length; position++) {
-      await engine.insert('papers', { title: `Paper ${position}`, embedding: Array.from(vectors[position]) })
-    }
+    const papers = vectors.map((vector, position) => ({ title: `Paper ${position}`, embedding: Array.from(vector) }))
+    expect((await engine.insertBatch('papers', papers)).failed).toEqual([])
     await engine.checkpoint('papers')
     const searches = vi.spyOn(core, 'search')
     const found = await engine.query('papers', { vector: { field: 'embedding', value: Array.from(vectors[4]) } })

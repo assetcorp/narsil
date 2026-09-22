@@ -103,6 +103,7 @@ export interface RestoreDeps {
   indexRegistry: Map<string, IndexRegistryEntry>
   getVectorFieldPaths: (schema: SchemaDefinition) => Set<string>
   dropIndex: (name: string) => Promise<void>
+  announceIndexCreated: (name: string, config: IndexConfig) => Promise<void>
   requireManager: (name: string) => PartitionManager
   durability: DurabilityIntegration | null
   filesystemDurability: boolean
@@ -275,6 +276,8 @@ export async function restoreFromSnapshot(indexName: string, data: Uint8Array, d
       await deps.durability.manager.persistMetadata(indexName)
       await deps.durability.manager.checkpoint(indexName)
     }
+
+    await deps.announceIndexCreated(indexName, indexConfig)
   } catch (err) {
     try {
       deps.executor.dropIndex(indexName)

@@ -112,7 +112,7 @@ class ElasticsearchDriver(LuceneRestDriver):
                         {"knn": self._knn(vector, limit, ef)},
                     ],
                     "rank_constant": _RANK_CONSTANT,
-                    "rank_window_size": max(limit, _RANK_CONSTANT),
+                    "rank_window_size": limit,
                 }
             },
             "size": limit,

@@ -24,7 +24,9 @@ export interface DocumentWriteOperations {
    * @param indexName - The index that receives the document.
    * @param document - Its fields must match the types the schema declares.
    * @param docId - Pass an id to control it yourself, or omit it and read the
-   * returned value.
+   * returned value. An id that differs from the document's own `id` field
+   * raises `DOC_VALIDATION_FAILED`, because the stored document would
+   * otherwise contradict the key that it is stored under.
    * @param options - Per-write settings, such as skipping the defensive copy
    * or waiting for every worker copy to apply the write.
    * @returns The id the document is stored under.

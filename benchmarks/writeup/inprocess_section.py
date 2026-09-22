@@ -15,6 +15,7 @@ from sources import Source
 _ENGINE_ORDER = ["narsil", "orama", "minisearch"]
 _VECTOR_ENGINE_ORDER = ["narsil", "orama"]
 _MEMORY_KEY = "heapAndExternalMb"
+WASM_VECTOR_SEARCH = "wasm"
 
 
 def _date(source: Source) -> str:
@@ -67,6 +68,15 @@ def _setup_block(source: Source) -> str:
         f"{label} hosted this run, and it reports {host}." if label else f"The host reports {host}."
     )
     scales = and_join([integer(scale) for scale in (config.get("scales") or [])])
+    vector_search_path = (
+        [
+            "- **Vector search path.** Narsil searches vector graphs through WebAssembly in this suite, which is the "
+            "path that it takes in a browser. The suite sets `NARSIL_SEARCH_BACKEND=wasm`, so these figures exclude "
+            "the native search core that npm installs with the package on Node.js."
+        ]
+        if environment.get("narsilVectorSearch") == WASM_VECTOR_SEARCH
+        else []
+    )
 
     return "\n".join([
         f"- **Run.** These figures come from run `{source.run_id}`, recorded on {_date(source)} from commit "
@@ -76,6 +86,7 @@ def _setup_block(source: Source) -> str:
         "Node.js process.",
         "- **Threads.** Every engine answers on one thread. Narsil runs with `workers.enabled` off, so it holds "
         "no worker copies here, and the server comparison above is where its worker threads take part.",
+        *vector_search_path,
         f"- **Machine.** {machine}",
         f"- **Speed corpus.** The indexing and query tiers run on BEIR {dataset_name(config.get('dataSource') or '')}, "
         f"{integer(config.get('perfCorpusDocCount'))} documents, measured at {scales} documents.",

@@ -25,8 +25,7 @@ export async function startTestServer(
     server,
     base,
     async stop() {
-      await server.close()
-      await engine.shutdown()
+      await server.shutdown()
     },
   }
 }

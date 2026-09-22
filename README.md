@@ -1,4 +1,4 @@
-![Narsil, a distributed search engine](https://raw.githubusercontent.com/assetcorp/narsil/main/assets/banner.png)
+![Narsil, an open source search engine](https://raw.githubusercontent.com/assetcorp/narsil/main/assets/banner.png)
 
 # Narsil
 
@@ -8,11 +8,15 @@
 [![types](https://img.shields.io/badge/types-TypeScript-blue)](https://www.npmjs.com/package/@delali/narsil)
 [![license](https://img.shields.io/npm/l/@delali/narsil)](https://github.com/assetcorp/narsil/blob/main/LICENSE)
 
-Distributed search, reforged.
+The search engine that scales with your data.
 
-Narsil is a distributed search engine with full-text, vector, hybrid, and geosearch. You can embed Narsil in your application process, where the engine searches without a network hop, or deploy it as a standalone search server with a REST API, a write-ahead log, and bulk NDJSON ingest. Both forms contain the same engine, which stores indexes in one cross-language binary format (`.nrsl`), so you can load an index from one form into the other.
+Narsil is an open source search engine with full-text, vector, hybrid, and geosearch on one typed index. You can embed Narsil in your application process, where the engine searches without a network hop, or deploy it as a standalone search server with a REST API, a write-ahead log, and bulk NDJSON ingest. Both forms contain the same engine, which stores indexes in one cross-language binary format (`.nrsl`), so you can load an index from one form into the other.
 
-The engine partitions large indexes across workers and merges the results of the partitions into a single ranked list. Its BM25 nDCG@10 is within 0.006 of the Anserini reference on BEIR SciFact and NFCorpus. On SciFact, Narsil scores 0.681 nDCG@10, ahead of Elasticsearch and OpenSearch at 0.679. At its peak, it also serves 958 keyword queries per second on SciFact, while Elasticsearch serves 841 and OpenSearch serves 878 ([benchmarks](BENCHMARKS.md)).
+The engine partitions large indexes across workers and merges the results of the partitions into a single ranked list.
+
+<!-- BENCH:headline START -->
+On BEIR SciFact, Narsil's BM25 ranking scores 0.681 nDCG@10, which is within 0.002 of the Anserini reference of 0.679. Elasticsearch scores 0.679 and OpenSearch scores 0.679 on the same queries. On SciFact, Narsil answers 958 keyword queries a second at its peak, and OpenSearch follows with 878. On SciFact with every engine held at 0.99 recall, Narsil answers 259 vector queries a second at its peak, while OpenSearch leads with 730. Narsil has the highest peak throughput in 2 of the 6 keyword, vector, and hybrid comparisons in the newest recorded run, so read each figure beside its table. The harness recorded these figures in run `20260804T184221Z` on 2026-08-04, on GCP c3-standard-8, us-central1-a. You'll find every dataset, every engine's settings, and the full method in [`BENCHMARKS.md`](BENCHMARKS.md).
+<!-- BENCH:headline END -->
 
 Try it in your browser at [narsil.sondelali.com/demo](https://narsil.sondelali.com/demo). Read the full documentation at [narsil.sondelali.com/docs](https://narsil.sondelali.com/docs).
 

@@ -43,7 +43,7 @@ Every hook takes the same settings as its last argument.
 
 | Setting | What it does |
 | --- | --- |
-| `enabled` | The hook sends nothing while this is false, which is how a search waits for a term. A request already in flight stops as soon as the key it belongs to goes away. |
+| `enabled` | The hook sends nothing while this is false, which is how a search waits for a term. A request already in flight keeps going until the store drops its key. The store drops a key `keepAliveMs` after the last component that reads it unmounts, and that interval is 2,000 ms unless you set another value on the provider. |
 | `keepPreviousData` | The hits already on screen stay there while the next answer loads. |
 | `refreshIntervalMs` | The hook asks again this often, and it pauses while the page is hidden. |
 | `headers` | The hook sends these with its request. |
@@ -140,7 +140,7 @@ The server refuses a body over its `maxImportBytes` limit, 100 MB by default, wi
 
 ## Following any task
 
-`useTask` asks about a task while it is queued or running, and it stops once the task reaches a final status.
+`useTask` asks about a task until that task reaches a final status, after which it sends nothing more.
 
 ```tsx
 const { data: task } = useTask(taskId)
@@ -152,9 +152,9 @@ Polling pauses while the page is hidden, and it reads the figures once as soon a
 
 ## Keys and arguments
 
-A hook identifies its request by the method name and the arguments, read the way the client sends them: the order the object keys were written in makes no difference, a field set to `undefined` reads the same as an absent one, and a query vector reads the same as a number array or a `Float32Array`.
+A hook identifies its request by the method name and the arguments, read the way the client sends them. The order that you write the object keys in makes no difference, while a field set to `undefined` reads the same as an absent one. A `Float32Array` reads as the numbers that it holds, and float32 rounding changes some of those numbers, so the same vector as a plain number array gives a different key. Pass a query vector in one form alone where two components should share a request.
 
-The hook refuses an argument an HTTP request cannot express, and it throws `CONFIG_INVALID` as it renders. It refuses a function, a symbol, an object that holds a reference back to itself, and more than 32 levels of nesting.
+The hook refuses an argument that an HTTP request cannot express, and it throws `CONFIG_INVALID` as it renders. It refuses a function, a symbol, an object that holds a reference back to itself, and more than 32 levels of nesting.
 
 A hook that receives the same object between renders, through `useMemo` or a constant, reuses the key instead of building it again. The parameters a search sends are small, so the saving matters only with a raw query vector of a thousand dimensions or more.
 

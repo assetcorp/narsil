@@ -3,7 +3,7 @@ import { NarsilError, ServerErrorCodes } from '../errors'
 export type { ServerErrorCode } from '../errors'
 export { ServerErrorCodes } from '../errors'
 
-const STATUS_BY_CODE: Record<string, number> = {
+const STATUS_BY_CODE: Readonly<Record<string, number>> = {
   INVALID_REQUEST: 400,
   INVALID_JSON: 400,
   EMPTY_BODY: 400,
@@ -47,6 +47,7 @@ const STATUS_BY_CODE: Record<string, number> = {
   PARTITION_CORRUPTED: 503,
   WORKER_CRASHED: 503,
   WORKER_TIMEOUT: 503,
+  WORKER_ACTION_FAILED: 500,
   PERSISTENCE_SAVE_FAILED: 503,
   PERSISTENCE_LOAD_FAILED: 503,
   PERSISTENCE_DELETE_FAILED: 503,

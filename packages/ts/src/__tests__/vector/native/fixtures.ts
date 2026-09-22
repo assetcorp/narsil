@@ -21,6 +21,12 @@ export const hostBinary =
   )
 export const binaryBuilt = existsSync(hostBinary)
 
+if (!binaryBuilt) {
+  console.warn(
+    `The native search core tests skip, because no binary exists at ${hostBinary}. Run "pnpm --filter @delali/narsil-native-build build" to build one, or set NARSIL_NATIVE_CORE_PATH to one.`,
+  )
+}
+
 export function pointAtTheHostBinary(): () => void {
   const previousPath = process.env.NARSIL_NATIVE_CORE_PATH
   process.env.NARSIL_NATIVE_CORE_PATH = hostBinary

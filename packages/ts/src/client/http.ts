@@ -128,10 +128,10 @@ function errorFromBody(status: number, payload: unknown, url: string): NarsilErr
   return new NarsilError(envelope.code, envelope.message, { ...details, status })
 }
 
-function isAbsoluteUrl(value: string): boolean {
+function isHttpUrl(value: string): boolean {
   try {
-    new URL(value)
-    return true
+    const parsed = new URL(value)
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:'
   } catch {
     return false
   }
@@ -142,14 +142,14 @@ function normaliseBase(url: string): string {
   if (trimmed.length === 0) {
     throw new NarsilError(ErrorCodes.CONFIG_INVALID, 'The client needs a server address, and "url" is empty')
   }
-  if (!trimmed.startsWith('/') && !isAbsoluteUrl(trimmed)) {
+  if (!trimmed.startsWith('/') && !isHttpUrl(trimmed)) {
     throw new NarsilError(
       ErrorCodes.CONFIG_INVALID,
-      `The client cannot read "${trimmed}" as a server address; pass an absolute URL or a path starting with "/"`,
+      `The client cannot read "${trimmed}" as a server address; pass an http or https URL, or a path starting with "/" that a browser resolves against the page`,
       { url: trimmed },
     )
   }
-  return trimmed.endsWith('/') ? trimmed.slice(0, -1) : trimmed
+  return trimmed.replace(/\/+$/, '')
 }
 
 function withQuery(path: string, query: RequestSpec['query']): string {
@@ -192,7 +192,9 @@ export function createTransport(options: NarsilClientOptions): Transport {
     return options.maxResponseBytes ?? 0
   }
 
-  async function exchange(spec: RequestSpec): Promise<{ status: number; text: string; bytes: Uint8Array | null }> {
+  async function exchange(
+    spec: RequestSpec,
+  ): Promise<{ status: number; text: string; bytes: Uint8Array | null; url: string }> {
     const url = `${base}${withQuery(spec.path, spec.query)}`
     const headers: Record<string, string> = { ...baseHeaders, ...spec.options?.headers }
     if (spec.contentType !== undefined) headers['content-type'] = spec.contentType
@@ -205,7 +207,7 @@ export function createTransport(options: NarsilClientOptions): Transport {
       const response = await send(url, init)
       const wantsBytes = spec.binaryAnswer === true && response.ok
       const answer = await readAnswer(response, resolveResponseCeiling(spec), wantsBytes)
-      return { status: response.status, ...answer }
+      return { status: response.status, url, ...answer }
     } catch (err) {
       if (err instanceof ResponseTooLargeError) {
         throw invalidResponse(`The server at ${url} answered more than this client reads: ${err.message}`, {
@@ -245,10 +247,10 @@ export function createTransport(options: NarsilClientOptions): Transport {
   }
 
   async function json<T>(spec: RequestSpec): Promise<T> {
-    const { status, text } = await exchange(spec)
-    const payload = parse(status, text, spec.path)
+    const { status, text, url } = await exchange(spec)
+    const payload = parse(status, text, url)
     if (status >= 200 && status < 300) return payload as T
-    throw errorFromBody(status, payload, spec.path)
+    throw errorFromBody(status, payload, url)
   }
 
   return {
@@ -262,9 +264,9 @@ export function createTransport(options: NarsilClientOptions): Transport {
       }
     },
     async binary(spec: RequestSpec): Promise<Uint8Array> {
-      const { status, text, bytes } = await exchange(spec)
+      const { status, text, bytes, url } = await exchange(spec)
       if (bytes !== null) return bytes
-      throw errorFromBody(status, parse(status, text, spec.path), spec.path)
+      throw errorFromBody(status, parse(status, text, url), url)
     },
     async probe(spec: RequestSpec): Promise<number> {
       const { status } = await exchange(spec)
