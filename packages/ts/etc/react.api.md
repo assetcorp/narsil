@@ -41,6 +41,7 @@ export const ErrorCodes: {
     readonly WORKER_CRASHED: "WORKER_CRASHED";
     readonly WORKER_BUSY: "WORKER_BUSY";
     readonly WORKER_TIMEOUT: "WORKER_TIMEOUT";
+    readonly WORKER_ACTION_FAILED: "WORKER_ACTION_FAILED";
     readonly PERSISTENCE_SAVE_FAILED: "PERSISTENCE_SAVE_FAILED";
     readonly PERSISTENCE_LOAD_FAILED: "PERSISTENCE_LOAD_FAILED";
     readonly PERSISTENCE_DELETE_FAILED: "PERSISTENCE_DELETE_FAILED";
@@ -135,6 +136,9 @@ export interface ImportResult {
 }
 
 // @public
+export function isNarsilError(value: unknown): value is NarsilError;
+
+// @public
 export class NarsilError extends Error {
     constructor(code: NarsilErrorCode, message: string, details?: Record<string, unknown>);
     readonly code: NarsilErrorCode;
@@ -195,7 +199,7 @@ export interface NarsilRequestSettings {
 }
 
 // @public
-export interface NarsilTaskOptions extends NarsilReadOptions {
+export interface NarsilTaskOptions extends Omit<NarsilReadOptions, 'refreshIntervalMs'> {
     pollIntervalMs?: number;
 }
 
@@ -265,7 +269,7 @@ export interface TaskRecord {
 }
 
 // @public
-export type TaskStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
+export type TaskStatus = 'running' | 'succeeded' | 'failed' | 'cancelled';
 
 // @public
 export type TaskType = 'optimizeVectors' | 'rebalance' | 'restore' | 'import' | 'rebuildAnalysis';

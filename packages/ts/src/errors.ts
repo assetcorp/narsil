@@ -1,3 +1,5 @@
+const NARSIL_ERROR_MARKER = Symbol.for('@delali/narsil.NarsilError')
+
 /**
  * Every code a {@link NarsilError} carries, grouped by the part of the engine
  * that raises it.
@@ -25,6 +27,7 @@ export const ErrorCodes = {
   WORKER_CRASHED: 'WORKER_CRASHED',
   WORKER_BUSY: 'WORKER_BUSY',
   WORKER_TIMEOUT: 'WORKER_TIMEOUT',
+  WORKER_ACTION_FAILED: 'WORKER_ACTION_FAILED',
   PERSISTENCE_SAVE_FAILED: 'PERSISTENCE_SAVE_FAILED',
   PERSISTENCE_LOAD_FAILED: 'PERSISTENCE_LOAD_FAILED',
   PERSISTENCE_DELETE_FAILED: 'PERSISTENCE_DELETE_FAILED',
@@ -142,13 +145,15 @@ export const ServerErrorCodes = {
 export type ServerErrorCode = (typeof ServerErrorCodes)[keyof typeof ServerErrorCodes]
 
 /**
- * Every code the HTTP client raises when a request never reaches a server, or
- * when the client cannot read the answer.
+ * Every code that the caller's own side raises, where a request never reaches
+ * a server, or where the caller cannot read the answer.
  *
- * No server sends one of these, so a failure under one of them means the
- * exchange broke before the operation ran. `STATUS_BY_CODE` in
- * `src/server/errors.ts` therefore maps none of them, because no request can
- * arrive under one and no HTTP status belongs to one.
+ * The HTTP client raises the first five. The React bindings raise
+ * `CLIENT_UNEXPECTED_ERROR` alone, which reports a fault inside a hook. No
+ * server sends any of them, so a failure under one means the exchange broke
+ * before the operation ran. `STATUS_BY_CODE` in `src/server/errors.ts`
+ * therefore maps none of them, because no request can arrive under one and no
+ * HTTP status belongs to one.
  *
  * @public
  */
@@ -213,7 +218,27 @@ export class NarsilError extends Error {
     this.name = 'NarsilError'
     this.code = code
     this.details = details ?? {}
+    Object.defineProperty(this, NARSIL_ERROR_MARKER, { value: true })
   }
+}
+
+/**
+ * Reports whether a caught value is a {@link NarsilError}, including one that
+ * another entry point of this package raises.
+ *
+ * Each browser bundle holds its own copy of the class, so an `instanceof` test
+ * inside the React bindings returns false for an error that the client raises,
+ * although that error still holds its code. This function tests for the marker
+ * that the constructor writes, so it returns true for an error from any entry
+ * point.
+ *
+ * @param value - The value that a `catch` block receives.
+ * @returns True where the value holds a code in {@link NarsilError.code}.
+ *
+ * @public
+ */
+export function isNarsilError(value: unknown): value is NarsilError {
+  return typeof value === 'object' && value !== null && NARSIL_ERROR_MARKER in value
 }
 
 export function createNarsilError(

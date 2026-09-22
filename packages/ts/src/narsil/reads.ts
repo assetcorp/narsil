@@ -46,14 +46,15 @@ export async function runEngineQuery<T = AnyDocument>(
     const entry = core.requireIndex(indexName)
     const manager = core.requireManager(indexName)
 
+    const scoped = scopedParams(params, options)
+    await core.pluginRegistry.runHook('beforeSearch', { indexName, params: scoped })
+
     const resolvedParams = await resolveVectorText(
-      scopedParams(params, options),
+      scoped,
       entry.embeddingAdapter,
       core.abortController.signal,
       entry.embeddingAdapterName,
     )
-
-    await core.pluginRegistry.runHook('beforeSearch', { indexName, params: resolvedParams })
 
     const workerSearch = core.orchestrator.hasWorkerPool()
       ? core.orchestrator.searchViaWorker.bind(core.orchestrator)
@@ -70,14 +71,13 @@ export async function runEngineQuery<T = AnyDocument>(
       cursorBinding: queryBindingOf(params),
     })
 
-    try {
-      await core.pluginRegistry.runHook('afterSearch', {
-        indexName,
-        params: resolvedParams,
-        results: result as unknown as QueryResult,
-      })
-    } catch (err) {
-      console.warn('afterSearch plugin hook error:', err)
+    if (core.pluginRegistry.hasHooks('afterSearch')) {
+      const observed = { ...result, hits: [...result.hits] } as unknown as QueryResult
+      try {
+        await core.pluginRegistry.runHook('afterSearch', { indexName, params: resolvedParams, results: observed })
+      } catch (err) {
+        console.warn('afterSearch plugin hook error:', err)
+      }
     }
 
     if (core.analysisRebuild.isStale(indexName)) {
@@ -101,12 +101,16 @@ export async function runEnginePreflight(
   try {
     const entry = core.requireIndex(indexName)
     const manager = core.requireManager(indexName)
+    const scoped = scopedParams(params, options)
+    await core.pluginRegistry.runHook('beforeSearch', { indexName, params: scoped })
+
     const resolvedParams = await resolveVectorText(
-      scopedParams(params, options),
+      scoped,
       entry.embeddingAdapter,
       core.abortController.signal,
       entry.embeddingAdapterName,
     )
+
     const workerSearch = core.orchestrator.hasWorkerPool()
       ? core.orchestrator.searchViaWorker.bind(core.orchestrator)
       : undefined

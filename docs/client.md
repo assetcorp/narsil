@@ -30,7 +30,7 @@ Only `url` is required.
 
 | Option | What it does |
 | --- | --- |
-| `url` | The server answers at this address. Pass an absolute URL, or a path such as `/search-api` when a browser reaches the server through its own origin. |
+| `url` | The server answers at this address. Pass an `http` or `https` URL, or a path such as `/search-api` that a browser resolves against the page that it loaded from. A path works in a browser alone, because Node has no page to resolve it against. Any other value raises `CONFIG_INVALID`. |
 | `apiKey` | The client sends this as `authorization: Bearer <key>`, which a server reads in its `onRequest` hook. For any other scheme, set the header yourself through `headers`. |
 | `headers` | The client sends these with every request, and a per-call header of the same name replaces one. |
 | `timeoutMs` | The client waits this many milliseconds for an answer, and 30,000 unless you say otherwise. Pass 0 so that it waits for as long as the server takes. |
@@ -50,7 +50,7 @@ const results = await client.query('movies', { term: 'matrix' }, { signal: contr
 
 A `snapshot` reads the whole index, so give that call its own `maxResponseBytes` or none at all where the client sets one.
 
-Three routes move a corpus or a whole index, so `importDocuments`, `snapshot`, and `restore` set no deadline of their own. Each of them waits for as long as the server takes, until you set `timeoutMs` on the client or on the call.
+Four calls move a corpus or a whole index, so `importDocuments`, `startImport`, `snapshot`, and `restore` set no deadline of their own. Each of them waits for as long as the server takes, until you set `timeoutMs` on the client or on the call.
 
 ## Errors
 
@@ -79,9 +79,11 @@ Six codes come from the client itself, and no server sends one. They are exporte
 | `CLIENT_REQUEST_ABORTED` | The caller aborted the signal. |
 | `CLIENT_INVALID_RESPONSE` | The answer holds no JSON, or not the shape the route documents, which is what a proxy's error page produces. |
 | `CLIENT_TASK_TIMEOUT` | The wait passed `waitTimeoutMs` while the task kept running. |
-| `CLIENT_UNEXPECTED_ERROR` | Something on this side threw a failure the client cannot place, which is a fault in the library rather than an answer from a server. |
+| `CLIENT_UNEXPECTED_ERROR` | Something on this side threw a failure the client cannot place, which is a fault in the library rather than an answer from a server. The React bindings raise this one; the client itself never does. |
 
 A lookup by id answers with nothing instead of failing, so `get` returns `undefined` for an unknown document and `getTask` returns `null` for an unknown task. Every other failure throws.
+
+The client writes `details.url`, the full address that it sent to, where a request never completes. It writes `details.route`, the path alone, where it rejects a well-formed answer, because that check runs once the request is over.
 
 ## Loading a corpus
 
@@ -123,7 +125,7 @@ Five operations run as tasks: an import started through `startImport`, `restore`
 const page = await client.listTasks({ indexName: 'movies', status: ['running'], limit: 50 })
 ```
 
-A page holds 20 records unless `limit` sets another size. `next` holds the offset the following page starts at, and it comes back null on the last page. The server's default store keeps 1,000 records and drops the oldest finished ones first, so `getTask` answers `null` once a record has gone. A [`taskStore`](http-server.md#tasks) of your own receives a time to live with every write: 24 hours for a running record, and an hour for a finished one.
+A page holds 20 records unless `limit` sets another size. `next` holds the offset the following page starts at, and it comes back null on the last page. The server's default store keeps 1,000 records and drops the oldest finished ones first, counting a cancelled task as finished, so `getTask` answers `null` once a record has gone. A [`taskStore`](http-server.md#tasks) of your own receives a time to live with every write: 24 hours for a running record, and an hour for a finished one.
 
 ## Asking what a server serves
 

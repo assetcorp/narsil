@@ -1,6 +1,7 @@
 declare const self: unknown
 
 import { startIdleHeapCleanup } from '#platform/idle-heap-cleanup'
+import { ErrorCodes } from '../errors'
 import { buildErrorResponse, createActionHandler } from './action-handler'
 import { isValidWorkerAction } from './protocol'
 import { threadSlotOfWorker } from './thread-slot'
@@ -45,7 +46,13 @@ async function setup(): Promise<void> {
     port.on('message', (raw: unknown) => {
       if (!isValidWorkerAction(raw)) {
         const requestId = (raw as { requestId?: string })?.requestId ?? 'unknown'
-        port.postMessage(buildErrorResponse(requestId, 'INVALID_ACTION', 'Received an invalid worker action'))
+        port.postMessage(
+          buildErrorResponse(
+            requestId,
+            ErrorCodes.WORKER_ACTION_FAILED,
+            'This worker received a message that is no valid action',
+          ),
+        )
         return
       }
 
@@ -70,7 +77,13 @@ async function setup(): Promise<void> {
       const raw = event.data
       if (!isValidWorkerAction(raw)) {
         const requestId = (raw as { requestId?: string })?.requestId ?? 'unknown'
-        webSelf.postMessage(buildErrorResponse(requestId, 'INVALID_ACTION', 'Received an invalid worker action'))
+        webSelf.postMessage(
+          buildErrorResponse(
+            requestId,
+            ErrorCodes.WORKER_ACTION_FAILED,
+            'This worker received a message that is no valid action',
+          ),
+        )
         return
       }
 

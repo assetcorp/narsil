@@ -70,7 +70,7 @@ export function serverRoutes(limits: ResolvedLimits): RouteSpec[] {
   return [
     { method: 'get', path: '/livez', handler: 'livez', options: probe },
     { method: 'get', path: '/readyz', handler: 'readyz', options: probe },
-    { method: 'get', path: '/health', handler: 'livez', options: probe },
+    { method: 'get', path: '/health', handler: 'readyz', options: probe },
     { method: 'get', path: '/version', handler: 'version', options: probe },
     { method: 'get', path: '/capabilities', handler: 'capabilities', options: probe },
     { method: 'get', path: '/cluster', handler: 'clusterTopology', options: bare },

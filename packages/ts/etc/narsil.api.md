@@ -145,6 +145,7 @@ export const ErrorCodes: {
     readonly WORKER_CRASHED: "WORKER_CRASHED";
     readonly WORKER_BUSY: "WORKER_BUSY";
     readonly WORKER_TIMEOUT: "WORKER_TIMEOUT";
+    readonly WORKER_ACTION_FAILED: "WORKER_ACTION_FAILED";
     readonly PERSISTENCE_SAVE_FAILED: "PERSISTENCE_SAVE_FAILED";
     readonly PERSISTENCE_LOAD_FAILED: "PERSISTENCE_LOAD_FAILED";
     readonly PERSISTENCE_DELETE_FAILED: "PERSISTENCE_DELETE_FAILED";
@@ -443,6 +444,9 @@ export type InvalidationEvent = {
     instanceId: string;
     stats: PartitionStatistics;
 };
+
+// @public
+export function isNarsilError(value: unknown): value is NarsilError;
 
 // @public
 export function isSimdAvailable(): boolean;

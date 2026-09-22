@@ -76,6 +76,11 @@ export interface Narsil extends IndexLifecycleOperations, DocumentWriteOperation
   /**
    * Fetches one stored document by id, without searching.
    *
+   * A vector field comes back as a `Float32Array`, whatever form you give it.
+   * `JSON.stringify` writes one as an object keyed by index, so convert it
+   * with `Array.from`, or project the field away, before you serialise the
+   * document yourself. The HTTP routes convert it for you.
+   *
    * @param indexName - The index holding the document.
    * @param docId - The document to fetch.
    * @returns The document, or `undefined` when the index holds no such id.

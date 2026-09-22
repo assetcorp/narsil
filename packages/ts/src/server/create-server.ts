@@ -34,6 +34,7 @@ import { createImportHandler } from './handlers/import'
 import { createIndexHandlers } from './handlers/indexes'
 import { createSearchHandlers } from './handlers/search'
 import { createVersionHandler } from './handlers/version'
+import { assertServerEngine, assertServerLimits } from './options-validation'
 import { authorizerFor, createRouteRunner } from './request'
 import { type RequestThreadHost, startRequestThreads } from './request-threads/host'
 import { registerServerRoutes, type ServerHandlers } from './routes'
@@ -147,6 +148,8 @@ class NarsilHttpServer implements NarsilServer {
   private stopIdleHeapCleanup: () => void = () => undefined
 
   constructor(engine: Narsil, options: ServerOptions = {}) {
+    assertServerEngine(engine)
+    assertServerLimits(options.limits)
     this.host = options.host ?? '127.0.0.1'
     this.port = options.port ?? 9876
     this.options = options
@@ -205,6 +208,11 @@ class NarsilHttpServer implements NarsilServer {
     }
   }
 
+  async shutdown(): Promise<void> {
+    await this.close()
+    await this.engine.shutdown()
+  }
+
   get listeningPort(): number {
     if (!this.listenSocket || !this.uws) return -1
     return this.uws.us_socket_local_port(this.listenSocket as unknown as us_socket)
@@ -230,7 +238,7 @@ class NarsilHttpServer implements NarsilServer {
 
     registerServerRoutes(app, run, handlers, limits, cors)
 
-    if (core === undefined || !detectRuntime().supportsWorkerThreads) return
+    if (core === undefined || threadCount === 0 || !detectRuntime().supportsWorkerThreads) return
     try {
       this.threads = await startRequestThreads({ core, app, handlers, authorize, gate, limits, build, cors })
     } catch (err) {
@@ -254,6 +262,9 @@ class NarsilHttpServer implements NarsilServer {
  * @param options - Address, CORS, request limits, the authentication hook, and
  * the task store. Omit it to bind to loopback with the default limits.
  * @returns The server, ready for {@link NarsilServer.listen}.
+ * @throws A `NarsilError` with `CONFIG_INVALID` where the first argument is
+ * some value other than an engine, and where a field of `options.limits` holds
+ * a value outside its range.
  *
  * @public
  */

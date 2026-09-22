@@ -25,6 +25,7 @@ from chart_data import (
 )
 from chart_paths import bars_chart, figure, recall_chart, server_chart_dir, sweep_chart, tail_chart
 from render import and_join, dataset_name, decimal, engine_name, integer, table
+from run_conditions import java_heap_sentence, load_sentence, narsil_vector_search_bullets
 from sources import Source
 
 
@@ -259,22 +260,6 @@ def _threads_sentence(narsil: dict) -> str:
     )
 
 
-def _load_sentence(config: dict) -> str:
-    throughput = config.get("throughput") or {}
-    levels = throughput.get("concurrency") or []
-    passes = throughput.get("passes")
-    if not levels:
-        return "The harness recorded no concurrency sweep."
-    level_text = and_join([integer(level) for level in levels])
-    if isinstance(passes, int) and passes > 1:
-        return (
-            f"The harness measured throughput at {level_text} concurrent clients, one pass per level and "
-            f"{integer(passes)} passes at each engine's peak level, and the tables report the median peak pass "
-            "with a 95% bootstrap interval."
-        )
-    return f"The harness measured throughput at {level_text} concurrent clients, one pass per level."
-
-
 def _host(environment: dict) -> str:
     return (
         f"{environment.get('cpu_model') or 'an unspecified CPU'} and "
@@ -334,10 +319,11 @@ def _setup_block(source: Source) -> str:
         f"- **Engines.** The comparison runs Narsil {narsil_version} against {and_join(others)}, "
         "and every engine runs from a pinned image.",
         f"- **Equal conditions.** Every engine receives the same {cap} GB memory cap, the same run depth of "
-        f"{integer(config.get('run_depth'))}, and the same run-file ordering, and the engines run one at a time so "
-        "latency never contends.",
-        f"- **Load.** {_load_sentence(config)}",
+        f"{integer(config.get('run_depth'))}, and the same run-file ordering. The harness tests one engine at a "
+        f"time, so each engine has the machine to itself.{java_heap_sentence(engines)}",
+        f"- **Load.** {load_sentence(config)}",
         f"- **Narsil threads.** {_threads_sentence(narsil)}",
+        *narsil_vector_search_bullets(narsil),
         f"- **Machine.** {machine}",
         f"- **BM25 calibration.** Narsil indexes each corpus with BM25 k1={config.get('k1')} and b={config.get('b')}, "
         "the Anserini reference configuration.",

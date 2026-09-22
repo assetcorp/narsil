@@ -1,4 +1,5 @@
 import { DEFAULT_MAX_RETAINED_TASKS } from './constants'
+import { isTerminalTaskStatus } from './task-status'
 import type { TaskRecord, TaskStore } from './types'
 
 /**
@@ -65,7 +66,7 @@ export class InMemoryTaskStore implements TaskStore {
     if (this.records.size <= this.maxRetained) return
     for (const [id, record] of this.records) {
       if (this.records.size <= this.maxRetained) break
-      if (record.status === 'succeeded' || record.status === 'failed') this.records.delete(id)
+      if (isTerminalTaskStatus(record.status)) this.records.delete(id)
     }
   }
 }

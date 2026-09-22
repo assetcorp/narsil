@@ -6,7 +6,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function malformed(path: string, expected: string): NarsilError {
   return new NarsilError(ClientErrorCodes.CLIENT_INVALID_RESPONSE, `The answer from ${path} holds no ${expected}`, {
-    url: path,
+    route: path,
   })
 }
 

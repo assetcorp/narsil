@@ -350,6 +350,7 @@ class NarsilDriver:
             "build_hash": payload.get("gitSha"),
             "build_date": payload.get("buildTime"),
             "dirty": payload.get("dirty"),
+            "vector_search": payload.get("vectorSearch"),
             "source_endpoint": "/version",
             "raw": payload,
         }

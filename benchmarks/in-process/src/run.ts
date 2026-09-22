@@ -7,7 +7,7 @@ import { runConsistencyCheck } from './runner/consistency'
 import type { EngineId } from './runner/jobs'
 import { ProgressStore } from './runner/progress'
 import { writeReport } from './runner/report'
-import { prepareRunArtifact } from './runner/run-paths'
+import { holdNarsilToWasmVectorSearch, prepareRunArtifact } from './runner/run-paths'
 import { runMutationTier, runRelevanceTier, runSerializationTier } from './runner/tiers-extra'
 import { runTextTier } from './runner/tiers-text'
 import { runVectorTier } from './runner/tiers-vector'
@@ -70,6 +70,7 @@ function buildEngineMetas(versions: Record<string, string>, names: EngineId[]) {
 }
 
 async function main() {
+  holdNarsilToWasmVectorSearch()
   const args = process.argv.slice(2)
   const tiers = parseTiers(args)
   const relevanceDataset = parseRelevanceDataset(args)

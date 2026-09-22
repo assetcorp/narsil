@@ -1,3 +1,4 @@
+import { isTerminalTaskStatus } from '../server/task-status'
 import type { TaskRecord } from '../server/types'
 import { ERROR_RETRY_INTERVAL_MS } from './constants'
 
@@ -22,5 +23,5 @@ export function pollInterval(interval: number, failed: boolean): number {
  */
 export function isTerminalTask(record: TaskRecord | null | undefined): boolean {
   if (record === null || record === undefined) return false
-  return record.status === 'succeeded' || record.status === 'failed' || record.status === 'cancelled'
+  return isTerminalTaskStatus(record.status)
 }

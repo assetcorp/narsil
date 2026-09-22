@@ -1,12 +1,19 @@
-import { ErrorCodes, NarsilError } from '../errors'
+import { ErrorCodes, isNarsilError, NarsilError } from '../errors'
 import type { DirectExecutorExtensions } from './direct-executor'
 import type { Executor } from './executor'
 import type { WorkerAction, WorkerResponse } from './protocol'
 
 export type ActionHandler = (action: WorkerAction, post: (msg: WorkerResponse) => void) => Promise<boolean>
 
-export function buildErrorResponse(requestId: string, code: string, message: string): WorkerResponse {
-  return { type: 'error', requestId, code, message }
+export function buildErrorResponse(
+  requestId: string,
+  code: string,
+  message: string,
+  details?: Record<string, unknown>,
+): WorkerResponse {
+  return details === undefined || Object.keys(details).length === 0
+    ? { type: 'error', requestId, code, message }
+    : { type: 'error', requestId, code, message, details }
 }
 
 function buildSuccessResponse(requestId: string, data: unknown): WorkerResponse {
@@ -86,9 +93,10 @@ export function createActionHandler(executor: Executor & Partial<DirectExecutorE
       const result = await executor.execute(action)
       post(buildSuccessResponse(action.requestId, result))
     } catch (err: unknown) {
-      const code = (err as { code?: string })?.code ?? 'UNKNOWN_ERROR'
+      const failure = isNarsilError(err) ? err : null
+      const code = failure?.code ?? ErrorCodes.WORKER_ACTION_FAILED
       const message = err instanceof Error ? err.message : String(err)
-      post(buildErrorResponse(action.requestId, code, message))
+      post(buildErrorResponse(action.requestId, code, message, failure?.details))
     }
 
     return false

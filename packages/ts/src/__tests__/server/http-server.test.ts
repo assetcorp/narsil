@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { QueryCoverage } from '../../types/results'
+import { vectorSearchPath } from '../../vector/native/search-path'
 import { resolveRequestThreadCount } from '../../workers/worker-count'
 import {
   del,
@@ -60,6 +61,13 @@ describe('Narsil HTTP server', () => {
     expect(res.body.version).toBeNull()
     expect(res.body.gitSha).toBeNull()
     expect(res.body.dirty).toBe(false)
+  })
+
+  it('reports at /version the path through which this process searches vector graphs', async () => {
+    const res = await getJson<{ vectorSearch: string }>(srv.base, '/version')
+    expect(res.status).toBe(200)
+    expect(['native', 'wasm']).toContain(res.body.vectorSearch)
+    expect(res.body.vectorSearch).toBe(vectorSearchPath())
   })
 
   it('reports the stamped build identity at /version', async () => {

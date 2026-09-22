@@ -20,15 +20,14 @@ export async function applyAdmittedDocuments(
   failed: BatchResult['failed'],
 ): Promise<AppliedAdmission> {
   const hasAfterHook = ctx.pluginRegistry.hasHooks('afterInsert')
-  const chunkSize = hasAfterHook ? 1 : BATCH_CHUNK_SIZE
   const succeeded: string[] = []
   const buffered = new Set<string>()
   const touchedVectorFields = new Set<string>()
 
-  for (let chunkStart = 0; chunkStart < admitted.length; chunkStart += chunkSize) {
+  for (let chunkStart = 0; chunkStart < admitted.length; chunkStart += BATCH_CHUNK_SIZE) {
     if (ctx.abortController.signal.aborted) break
 
-    const chunk = admitted.slice(chunkStart, chunkStart + chunkSize)
+    const chunk = admitted.slice(chunkStart, chunkStart + BATCH_CHUNK_SIZE)
     const applications = await applyInsertChunk(ctx, indexName, chunk, options)
 
     for (let i = 0; i < chunk.length; i++) {
@@ -60,8 +59,8 @@ export async function applyAdmittedDocuments(
       succeeded.push(doc.docId)
     }
 
-    const applied = chunkStart + chunkSize
-    if (applied < admitted.length && applied % BATCH_CHUNK_SIZE === 0) {
+    const applied = chunkStart + BATCH_CHUNK_SIZE
+    if (applied < admitted.length) {
       await new Promise<void>(r => setTimeout(r, 0))
     }
   }

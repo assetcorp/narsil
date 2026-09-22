@@ -328,7 +328,9 @@ export function createDirectExecutor(options?: DirectExecutorOptions): Executor 
 
       case 'memoryReport': {
         const usage = typeof process !== 'undefined' && process.memoryUsage ? process.memoryUsage() : {}
-        return { ...usage, heapLimit: readHeapStatistics()?.limitBytes ?? null } as T
+        const heap = readHeapStatistics()
+        const heapLimit = heap === null ? null : (heap.configuredLimitBytes ?? heap.limitBytes)
+        return { ...usage, heapLimit } as T
       }
 
       case 'shutdown': {

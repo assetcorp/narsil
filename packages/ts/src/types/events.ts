@@ -64,17 +64,23 @@ export type NarsilEventMap = {
     partitionCount: number
   }
   /**
-   * The process heap crossed nine tenths of its limit during a write or a
+   * The process uses nine tenths of its heap, measured during a write or a
    * load, so the next large index may end the process with an out-of-memory
-   * error. The engine emits the event once per crossing and arms it again
-   * once the heap falls below eight tenths of the limit. Raise the limit with
+   * error. Where `--max-old-space-size` or `--max-old-space-size-percentage`
+   * sets a limit, on the command line or in `NODE_OPTIONS`, the engine measures
+   * the used bytes against that figure and `heapLimit` reports it. Where
+   * neither flag sets one, the engine compares the used bytes with the headroom
+   * that V8 reports, which runs about 192 MB above the true ceiling, so a
+   * default heap below about 2 GB may end before this event fires. The engine
+   * emits the event once per crossing and arms it again once the headroom
+   * recovers to two tenths. Raise the limit with
    * `--max-old-space-size-percentage` or `--max-old-space-size`, or close an
    * idle index; see {@link ProcessMemoryReport.heapLimit}.
    */
   heapPressure: {
-    /** The heap crossed nine tenths of its limit during a write to this index or a load of it. */
+    /** The heap reaches that point during a write to this index or a load of it. */
     indexName: string
-    /** The process is using this much heap, in bytes. */
+    /** The process uses this much heap, in bytes. */
     heapUsed: number
     /** The heap may grow to this many bytes. */
     heapLimit: number

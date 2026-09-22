@@ -6,6 +6,7 @@ import { corsWriter } from '../cors'
 import type { ResolvedLimits } from '../deps'
 import { parseJson, rejectInvalid, respondError, respondJson } from '../handler-utils'
 import { createDocumentReadHandlers } from '../handlers/document-reads'
+import { versionReport } from '../handlers/version'
 import { createRouteRunner, type RouteContext, type RouteHandler } from '../request'
 import { registerServerRoutes, type ServerHandlers, serverRoutes } from '../routes'
 import { loadUWebSockets } from '../runtime'
@@ -100,7 +101,7 @@ function threadHandlers(local: ThreadReadEngine, relay: RelayClient, settings: R
   return {
     ...forwarded,
     livez: (ctx: RouteContext) => respondJson(ctx, { status: 'ok' }),
-    version: (ctx: RouteContext) => respondJson(ctx, { name: 'narsil', ...settings.build }),
+    version: (ctx: RouteContext) => respondJson(ctx, versionReport(settings.build)),
     capabilities: (ctx: RouteContext) => respondJson(ctx, { capabilities: [...SERVER_CAPABILITIES] }),
     search: searchHandler({
       fallback: forwarded.search,

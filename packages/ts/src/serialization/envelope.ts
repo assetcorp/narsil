@@ -115,8 +115,8 @@ async function unpackEnvelope(
   if (header.envelopeFormatVersion > maxAcceptedVersion) {
     throw new NarsilError(
       ErrorCodes.ENVELOPE_VERSION_MISMATCH,
-      `This data was written by Narsil envelope format v${header.envelopeFormatVersion}` +
-        ` and requires a newer version of Narsil. You are running ${VERSION}.`,
+      `This data holds Narsil envelope format v${header.envelopeFormatVersion},` +
+        ` while this build of @delali/narsil reads up to v${maxAcceptedVersion}, so upgrade the package to read it.`,
     )
   }
 

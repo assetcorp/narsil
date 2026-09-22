@@ -31,7 +31,7 @@ async function pollTask(base: string, id: string, timeoutMs = 4000): Promise<{ s
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
     const res = await getJson<{ status: string }>(base, `/tasks/${id}`)
-    if (res.body.status !== 'running' && res.body.status !== 'queued') return res.body
+    if (res.body.status !== 'running') return res.body
     await new Promise(resolve => setTimeout(resolve, 25))
   }
   throw new Error('task did not reach a terminal state in time')

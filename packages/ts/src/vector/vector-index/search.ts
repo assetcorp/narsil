@@ -1,5 +1,6 @@
 import { createBoundedMaxHeap } from '../../core/heap'
 import { compareCodePoints } from '../../core/ordering'
+import { ErrorCodes, NarsilError } from '../../errors'
 import type { VectorMetric } from '../brute-force'
 import { toScore } from '../hnsw/shared'
 import { noteFallback } from '../native/backend'
@@ -184,7 +185,11 @@ export function searchWithFilter(
   filter: OrdinalFilter | undefined,
 ): VectorScoredResult[] {
   if (query.length !== state.dimension) {
-    throw new Error(`Vector dimension mismatch: expected ${state.dimension}, got ${query.length}`)
+    throw new NarsilError(
+      ErrorCodes.VECTOR_DIMENSION_MISMATCH,
+      `Vector dimension mismatch: expected ${state.dimension}, got ${query.length}`,
+      { expected: state.dimension, received: query.length },
+    )
   }
 
   const currentLiveSize = liveSize(state)

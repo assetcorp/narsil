@@ -178,7 +178,7 @@ export function validateRebalance(body: RebalanceBody): ValidationFailure | null
 }
 
 const TASK_TYPES: readonly TaskType[] = ['optimizeVectors', 'rebalance', 'restore', 'import', 'rebuildAnalysis']
-const TASK_STATUSES: readonly TaskStatus[] = ['queued', 'running', 'succeeded', 'failed', 'cancelled']
+const TASK_STATUSES: readonly TaskStatus[] = ['running', 'succeeded', 'failed', 'cancelled']
 
 function parseCountParam(raw: string | null, field: string, minimum: number): number | ValidationFailure {
   if (raw === null) return minimum

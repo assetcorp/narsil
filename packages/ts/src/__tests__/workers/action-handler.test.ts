@@ -88,6 +88,7 @@ describe('the worker action handler', () => {
         requestId: 'bootstrap-3',
         code: ErrorCodes.CONFIG_INVALID,
         message: 'A bootstrap module needs a non-empty module URL',
+        details: { moduleUrl: '   ' },
       },
     ])
   })
@@ -122,6 +123,28 @@ describe('the worker action handler', () => {
         requestId: 'count-2',
         code: ErrorCodes.INDEX_NOT_FOUND,
         message: 'Index "missing" does not exist',
+      },
+    ])
+  })
+
+  it('reports a failure that carries no code as a failed action', async () => {
+    const failing: Executor = {
+      async execute<T>(): Promise<T> {
+        throw new TypeError('reading a field of undefined')
+      },
+      async shutdown(): Promise<void> {},
+    }
+    const handler = createActionHandler(failing)
+    const { posts, post } = collectResponses()
+
+    await handler({ type: 'count', indexName: 'prose', requestId: 'count-3' }, post)
+
+    expect(posts).toEqual([
+      {
+        type: 'error',
+        requestId: 'count-3',
+        code: ErrorCodes.WORKER_ACTION_FAILED,
+        message: 'reading a field of undefined',
       },
     ])
   })

@@ -103,7 +103,12 @@ export interface QueryParams {
   sort?: SortSpec
   /** These settings collapse the hits into groups by field value. */
   group?: GroupConfig
-  /** The query returns this many hits, and 10 by default. */
+  /**
+   * The query returns this many hits, and 10 by default. Pass 0 to read the
+   * match count with no hits. The engine reads a value below 0 as 0. It falls
+   * back to the default for `NaN` and for an infinite value, so a page size
+   * that you compute from user input never fails the query.
+   */
   limit?: number
   /** The query skips this many hits before returning. A deep offset costs more than a cursor. */
   offset?: number
@@ -305,7 +310,12 @@ export interface HighlightConfig {
   preTag?: string
   /** This closes each match, and is `</mark>` by default. */
   postTag?: string
-  /** A snippet runs to this many characters before the engine trims it. */
+  /**
+   * The engine takes this many characters of the field around the densest run
+   * of matches, 200 by default. The snippet that comes back is longer than
+   * that number, because the engine then adds the opening and closing tags,
+   * and an ellipsis at each end where it cut the field.
+   */
   maxSnippetLength?: number
 }
 

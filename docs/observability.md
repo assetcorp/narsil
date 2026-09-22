@@ -11,10 +11,10 @@ Plugins hook into the document and search lifecycle. A plugin is an object with 
 | `beforeInsert` / `afterInsert` | The hooks fire around every document insert, including each document of a batch. |
 | `beforeUpdate` / `afterUpdate` | The hooks fire around every document update. |
 | `beforeRemove` / `afterRemove` | The hooks fire around every document removal. |
-| `beforeSearch` / `afterSearch` | The hooks fire around every query; `afterSearch` receives the results. |
-| `onIndexCreate` / `onIndexDrop` | The hooks fire when an index is created or dropped. |
-
-The interface also declares `onPartitionSplit` and `onWorkerPromote`, which are reserved for partition and worker lifecycle notifications; the engine does not fire them yet. Subscribe to the `partitionRebalance` and `workerPromote` [events](#events) for those signals today.
+| `beforeSearch` / `afterSearch` | `beforeSearch` fires before every query and before every preflight, while `afterSearch` fires once a query returns and receives a copy of the results. `suggest` scans the term dictionary and searches no document, so it fires no hook. |
+| `onIndexCreate` / `onIndexDrop` | The hooks fire once the engine creates or drops an index, and a `restore` fires both, because it recreates the index that it replaces. |
+| `onPartitionSplit` | The hook fires once `rebalance` moves an index onto a new partition count, which is the only way that the count changes. |
+| `onWorkerPromote` | The hook fires once the engine loads worker copies of its indexes. |
 
 ```ts
 import { createNarsil, type NarsilPlugin } from '@delali/narsil'
@@ -32,7 +32,7 @@ const auditLog: NarsilPlugin = {
 const narsil = await createNarsil({ plugins: [auditLog] })
 ```
 
-A hook may be async, and every `before*` hook runs to completion before the operation applies, so an error thrown in `beforeInsert` rejects the insert. Where an `after*` hook throws, the engine logs a warning and leaves the operation that already succeeded alone.
+A hook may be async, and every `before*` hook runs to completion before the operation applies, so an error thrown in `beforeInsert` rejects the insert. Where an `after*` or `on*` hook throws, the engine logs a warning and leaves the operation alone, because that operation has already succeeded. An `afterSearch` hook receives a copy of the results as well, so a change that it makes there never reaches the caller.
 
 ## Events
 
@@ -98,10 +98,32 @@ console.log(memory.workers)
 
 The [server image](../packages/ts/examples/http-server/Dockerfile) and the [cluster example image](../packages/ts/examples/cluster-dashboard/Dockerfile.node) set `NODE_OPTIONS=--max-old-space-size-percentage=75`, so an 8 GB container gives the engine a heap of about 6 GB. Pass your own `NODE_OPTIONS` to the container to change the share.
 
-The engine emits `heapPressure` when the heap crosses nine tenths of the limit during a write to an index, a restore, a reopen, or the recovery of persisted indexes at start-up, where the event names the largest index. The event names the index, the heap in use, the limit, and the index's `estimatedMemoryBytes`. It fires once per crossing and arms again once the heap falls below eight tenths of the limit, so a listener can raise an alert per crossing without debouncing. Where no listener is subscribed, as at start-up, the engine writes the same warning to the console.
+The engine emits `heapPressure` once the process spends nine tenths of its heap, measured during a write to an index, a restore, a reopen, or the recovery of persisted indexes at start-up, where the event names the largest index.
+
+Which limit it measures against follows your own configuration. Where you set `--max-old-space-size` or `--max-old-space-size-percentage`, on the `node` command line or in `NODE_OPTIONS`, the engine reads that figure and measures the used bytes against it, and the payload reports the same figure in `heapLimit`. Measured on Node 24.16 on Apple silicon under `--max-old-space-size=256`, the event arrived at 232 MB of 256 MB, and Node ends such a process at about 253 MB. Where you set neither flag, the engine compares the used bytes with the headroom that V8 reports, because V8 keeps part of the raw limit back and an allocation fails before the used bytes reach that limit. V8 reports a limit about 192 MB above the true ceiling, so Node can end a process on a default heap below about 2 GB before the fraction reaches nine tenths; set one of the two flags to get the warning on a small heap.
+
+The event names the index, the heap in use, the limit, and the index's `estimatedMemoryBytes`. It fires once per crossing and arms again once the headroom recovers to two tenths, so a listener can raise an alert per crossing without debouncing. Where no listener is subscribed, as at start-up, the engine writes the same warning to the console.
 
 ```ts
 narsil.on('heapPressure', payload => {
   console.warn(`heap at ${payload.heapUsed} of ${payload.heapLimit} bytes after writing ${payload.indexName}`)
 })
 ```
+
+## Reading the same figures over HTTP
+
+A server built with `createServer` answers the routes below without a body, so a monitor reads them with a plain `GET`. See [HTTP server](http-server.md) for the shape of each answer.
+
+| Route | What it reports |
+| --- | --- |
+| `GET /livez` | The route answers 200 whenever the process can serve HTTP. |
+| `GET /readyz`, `GET /health` | The routes answer 200 once the engine is ready, and only while the node reports `SERVING` where the server fronts a cluster node. |
+| `GET /version` | The answer gives the package version, the build commit, and the vector search path that this process takes. |
+| `GET /capabilities` | The answer lists the optional routes that this server answers. |
+| `GET /stats/memory` | The answer repeats the figures that `getMemoryStats()` returns, with the request thread count added. |
+| `GET /cluster` | The answer gives the cluster topology that the node behind this server has recorded. |
+| `GET /indexes/{name}/stats` | The answer gives the document count, the partition count, and the estimated bytes for one index. |
+| `GET /indexes/{name}/cluster` | The answer gives the allocation table for one index. |
+| `GET /indexes/{name}/vector-maintenance` | The answer gives the tombstone share, the graph count, and the compaction estimates for each vector field. |
+
+Export these figures to a collector of your own, because the server answers no `/metrics` route.
