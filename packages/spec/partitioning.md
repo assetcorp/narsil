@@ -407,6 +407,10 @@ A request thread holds a vector field's vectors once the main thread has sent it
 
 A server must hold a worker copy of every scaled-out index on every worker, so that it can start as many request threads as the worker count, except that a machine with fewer than three cores gets one. The requests in flight on every request thread must count against one `maxConcurrentRequests` limit.
 
+A server must keep listening when a request thread fails. It must route the requests that thread would have taken to the threads that remain, or to the main thread where none remains.
+
+A server that stops serving must keep the workers that hold its copies running. Those workers are the engine's own, so the engine ends them when it shuts down.
+
 ### What Crosses into a Worker
 
 A worker runs in its own memory with its own registries, and the engine reaches it by passing messages, so data crosses and code does not. A schema, a stop word set given as a set, and a pair of BM25 parameters all cross. A tokeniser instance, a stop word function, a stemmer, and a language module are code, and none of them crosses.
@@ -439,6 +443,14 @@ The engine reads every index configuration before it starts a worker, and it ref
 | An index names a language other than `english` while no bootstrap module is configured. | The engine names the index and the language, and asks the caller to configure a bootstrap module that registers it. |
 
 A refusal raises `CONFIG_INVALID`, and the engine emits a `workerPromoteFailure` event carrying the reason, the error, and whether the engine will check again. A configuration failure fails the same way each time, so the engine reports it once and checks no further. A transient failure, such as a worker that fails to start, leaves the check in place. Under both failures the index answers every query in the calling thread, so a failed promotion costs throughput and leaves results correct.
+
+### Worker Failure
+
+A worker may fail at any time, so the implementation must survive the failure of every worker that it starts. It must never end the process because a worker fails.
+
+The implementation must stop sending work to a failed worker. It must answer the requests in flight on that worker, and every later request naming an index that the worker held, from another copy of that index or from the calling thread. It must emit a `workerCrash` event carrying the worker, the indexes that the worker held, and the error. A worker failure therefore costs throughput and leaves results correct.
+
+The implementation should start a replacement worker and load onto it the copies that the failed worker held. It should delay each attempt that follows a failed start. Until those copies load again, each index that the worker held answers every request in the calling thread.
 
 ---
 
