@@ -7,8 +7,10 @@ import {
   __checkpointWorkerIsPooledForTests,
   __checkpointWorkerSpawnCountForTests,
   __failNextCheckpointWorkerForTests,
+  __pooledCheckpointWorkerForTests,
   __setCheckpointWorkerIdleMsForTests,
   resetCheckpointWorkerLatch,
+  type WorkerHandle,
 } from '../../../persistence/durability/checkpoint-worker-dispatch'
 import type { IndexConfig } from '../../../types/schema'
 
@@ -82,6 +84,28 @@ describe('pooled checkpoint worker', () => {
     for (let i = 10; i < 20; i += 1) await writer.insert('docs', doc(i), `d${i}`)
     await writer.checkpoint('docs')
     expect(__checkpointWorkerSpawnCountForTests()).toBe(2)
+    await writer.shutdown()
+
+    const reader = await createNarsil({ durability: { directory: root } })
+    expect(await reader.countDocuments('docs')).toBe(SEEDED_DOCUMENTS + 20)
+    await reader.shutdown()
+  })
+
+  it('keeps the process alive when the pooled worker fails between checkpoints', async () => {
+    const writer = await createNarsil({ durability: { directory: root } })
+    await createIndexWhoseLaterCheckpointsReadTheLog(writer)
+    for (let i = 0; i < 10; i += 1) await writer.insert('docs', doc(i), `d${i}`)
+    await writer.checkpoint('docs')
+
+    const pooled = __pooledCheckpointWorkerForTests()
+    if (pooled === null) throw new Error('the checkpoint left no pooled worker to fail')
+    const thread = pooled as WorkerHandle & { emit(event: string, payload: unknown): boolean }
+    thread.emit('error', new Error('the idle thread failed'))
+
+    expect(__checkpointWorkerIsPooledForTests()).toBe(false)
+
+    for (let i = 10; i < 20; i += 1) await writer.insert('docs', doc(i), `d${i}`)
+    await writer.checkpoint('docs')
     await writer.shutdown()
 
     const reader = await createNarsil({ durability: { directory: root } })

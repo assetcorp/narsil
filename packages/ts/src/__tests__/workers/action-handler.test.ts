@@ -127,6 +127,28 @@ describe('the worker action handler', () => {
     ])
   })
 
+  it('reports a failure that carries no code as a failed action', async () => {
+    const failing: Executor = {
+      async execute<T>(): Promise<T> {
+        throw new TypeError('reading a field of undefined')
+      },
+      async shutdown(): Promise<void> {},
+    }
+    const handler = createActionHandler(failing)
+    const { posts, post } = collectResponses()
+
+    await handler({ type: 'count', indexName: 'prose', requestId: 'count-3' }, post)
+
+    expect(posts).toEqual([
+      {
+        type: 'error',
+        requestId: 'count-3',
+        code: ErrorCodes.WORKER_ACTION_FAILED,
+        message: 'reading a field of undefined',
+      },
+    ])
+  })
+
   it('asks the caller to close the worker after a shutdown', async () => {
     const executor = createStubExecutor()
     const handler = createActionHandler(executor)

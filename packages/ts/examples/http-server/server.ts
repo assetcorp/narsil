@@ -114,16 +114,10 @@ async function main(): Promise<void> {
     console.log(`Received ${signal}, shutting down`)
     let exitCode = 0
     try {
-      await server.close()
+      await server.shutdown()
     } catch (err) {
       exitCode = 1
-      console.error('Failed to close the HTTP server cleanly:', err)
-    }
-    try {
-      await engine.shutdown()
-    } catch (err) {
-      exitCode = 1
-      console.error('Failed to shut down the engine cleanly:', err)
+      console.error('Failed to shut the server and the engine down cleanly:', err)
     }
     process.exit(exitCode)
   }

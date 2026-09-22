@@ -94,7 +94,7 @@ export function createActionHandler(executor: Executor & Partial<DirectExecutorE
       post(buildSuccessResponse(action.requestId, result))
     } catch (err: unknown) {
       const failure = isNarsilError(err) ? err : null
-      const code = failure?.code ?? ErrorCodes.WORKER_CRASHED
+      const code = failure?.code ?? ErrorCodes.WORKER_ACTION_FAILED
       const message = err instanceof Error ? err.message : String(err)
       post(buildErrorResponse(action.requestId, code, message, failure?.details))
     }

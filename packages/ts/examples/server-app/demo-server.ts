@@ -97,8 +97,7 @@ export async function startDemoNarsilServer(): Promise<DemoNarsilServer> {
   return {
     url: `http://127.0.0.1:${server.listeningPort}`,
     async close() {
-      await server.close()
-      await engine.shutdown()
+      await server.shutdown()
     },
   }
 }

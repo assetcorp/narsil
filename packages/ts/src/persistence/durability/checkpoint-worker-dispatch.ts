@@ -42,6 +42,8 @@ async function spawnWorker(): Promise<WorkerHandle | null> {
     if (typeof worker.unref === 'function') {
       worker.unref()
     }
+    worker.on('error', () => discardWorker(worker))
+    worker.on('exit', () => discardWorker(worker))
     spawnedWorkerCount += 1
     return worker
   } catch {
@@ -223,6 +225,10 @@ export function __checkpointWorkerSpawnCountForTests(): number {
 
 export function __checkpointWorkerIsPooledForTests(): boolean {
   return pooledWorker !== null
+}
+
+export function __pooledCheckpointWorkerForTests(): WorkerHandle | null {
+  return pooledWorker
 }
 
 export function __setCheckpointWorkerIdleMsForTests(idleMs: number): void {

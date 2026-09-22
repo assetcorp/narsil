@@ -208,6 +208,11 @@ class NarsilHttpServer implements NarsilServer {
     }
   }
 
+  async shutdown(): Promise<void> {
+    await this.close()
+    await this.engine.shutdown()
+  }
+
   get listeningPort(): number {
     if (!this.listenSocket || !this.uws) return -1
     return this.uws.us_socket_local_port(this.listenSocket as unknown as us_socket)
