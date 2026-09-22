@@ -46,7 +46,7 @@ def test_the_page_names_the_vector_search_path_that_narsils_server_reports():
 
     assert native == [
         "- **Narsil vector search.** Narsil's server reports that it searches vector graphs through its native "
-        "search core in C, which an install on Node.js brings for macOS, Linux, and Windows."
+        "search core in C, which npm installs with the package on Node.js for macOS, Linux, and Windows."
     ]
     assert wasm == [
         "- **Narsil vector search.** Narsil's server reports that it searches vector graphs through WebAssembly, "

@@ -1,7 +1,7 @@
-"""Sentences about the conditions that every engine meets in a server run: the load,
-the Java heaps inside the memory cap, and the path through which Narsil searches
-vector graphs. Each sentence comes from a value that the results record, and a value
-that an older run lacks leaves its sentence out."""
+"""These functions write the sentences about the conditions that every engine meets
+in a server run, which are the load, the Java heaps inside the memory cap, and the
+path through which Narsil searches vector graphs. Each sentence comes from a value
+that the results record. Where an older run lacks a value, its sentence stays out."""
 
 from __future__ import annotations
 
@@ -51,7 +51,7 @@ def narsil_vector_search_bullets(narsil: dict) -> list[str]:
     if path == NATIVE_VECTOR_SEARCH:
         return [
             "- **Narsil vector search.** Narsil's server reports that it searches vector graphs through its native "
-            "search core in C, which an install on Node.js brings for macOS, Linux, and Windows."
+            "search core in C, which npm installs with the package on Node.js for macOS, Linux, and Windows."
         ]
     if path == WASM_VECTOR_SEARCH:
         return [

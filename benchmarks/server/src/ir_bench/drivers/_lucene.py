@@ -245,9 +245,10 @@ class LuceneRestDriver:
         }
 
     def _jvm_heap_max_bytes(self) -> int | None:
-        """The Java heap the running node reports for itself. The heap is a slice of
-        the container's memory cap that the operator sets, and the two Lucene engines
-        need different slices, so the results carry the value each node ran with."""
+        """Reads the Java heap that the running node reports for itself. The operator
+        sets the heap as a slice of the container's memory cap, and the two Lucene
+        engines need different slices. The results therefore carry the heap that each
+        node ran with."""
 
         try:
             response = self._client.get("/_nodes/jvm")

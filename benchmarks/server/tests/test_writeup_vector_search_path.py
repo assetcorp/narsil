@@ -25,7 +25,7 @@ def test_the_embedded_setup_names_the_webassembly_search_where_the_results_recor
     assert (
         "- **Vector search path.** Narsil searches vector graphs through WebAssembly in this suite, which is the "
         "path that it takes in a browser. The suite sets `NARSIL_SEARCH_BACKEND=wasm`, so these figures exclude "
-        "the native search core that an install on Node.js adds."
+        "the native search core that npm installs with the package on Node.js."
     ) in block.split("\n")
 
 
