@@ -1,7 +1,8 @@
 import { ErrorCodes, NarsilError } from '../../errors'
+import { resolveHybridFusion } from '../../search/fusion'
 import type { FacetBucket, GlobalStatistics, ScoredEntry, WireGroupEntry, WireQueryParams } from '../transport/types'
 import { buildCoverage, collectDistributedStats, fanOutSearch } from './fan-out'
-import { clampAlpha, distributedLinearCombination, distributedRRF } from './fusion'
+import { distributedLinearCombination, distributedRRF } from './fusion'
 import { mergeGroupsFor } from './group-merge'
 import { mergeAndTruncateScoredEntries, mergeDistributedFacets } from './merge'
 import { placePinnedEntries } from './pinning'
@@ -109,12 +110,12 @@ export async function executeHybridQuery(
   const mergedText = mergeAndTruncateScoredEntries(textScored, depth)
   const mergedVector = mergeAndTruncateScoredEntries(vectorScored, depth)
 
-  const hybrid = params.hybrid
+  const fusion = resolveHybridFusion(params.hybrid)
   let fused: ScoredEntry[]
-  if ((hybrid?.strategy ?? 'rrf') === 'rrf') {
-    fused = distributedRRF([mergedText, mergedVector], { k: hybrid?.k ?? 60 })
+  if (fusion.strategy === 'rrf') {
+    fused = distributedRRF([mergedText, mergedVector], { k: fusion.k })
   } else {
-    fused = distributedLinearCombination(mergedText, mergedVector, { alpha: clampAlpha(hybrid?.alpha ?? 0.5) })
+    fused = distributedLinearCombination(mergedText, mergedVector, { alpha: fusion.alpha })
   }
 
   const allMatchesPresent =

@@ -189,11 +189,3 @@ export function requireVectorSearchable(params: QueryParams, context: QueryConte
     { field, vectorFields: [...vectorSearchersOf(context).keys()] },
   )
 }
-
-export function clampAlpha(alpha: number | undefined): number {
-  if (alpha === undefined) return 0.5
-  if (!Number.isFinite(alpha)) return 0.5
-  if (alpha < 0) return 0
-  if (alpha > 1) return 1
-  return alpha
-}

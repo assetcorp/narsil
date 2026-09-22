@@ -9,13 +9,6 @@ export interface DistributedLinearOptions {
   alpha: number
 }
 
-export function clampAlpha(alpha: number): number {
-  if (!Number.isFinite(alpha)) return 0.5
-  if (alpha < 0) return 0
-  if (alpha > 1) return 1
-  return alpha
-}
-
 function compareFusedEntries(a: ScoredEntry, b: ScoredEntry): number {
   const aScore = a.score ?? 0
   const bScore = b.score ?? 0
@@ -26,7 +19,7 @@ function compareFusedEntries(a: ScoredEntry, b: ScoredEntry): number {
 }
 
 export function distributedRRF(lists: ScoredEntry[][], options: DistributedRRFOptions): ScoredEntry[] {
-  const k = options.k > 0 ? options.k : 60
+  const k = options.k
   const scores = new Map<string, number>()
 
   for (const list of lists) {

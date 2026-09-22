@@ -1,13 +1,12 @@
 import { ErrorCodes, NarsilError } from '../../errors'
 import { type FanOutResult, fanOutQuery } from '../../partitioning/fan-out'
 import { RESULT_WINDOW } from '../../search/constants'
-import { linearCombination, reciprocalRankFusion } from '../../search/fusion'
+import { linearCombination, reciprocalRankFusion, resolveHybridFusion } from '../../search/fusion'
 import type { ScoredDocument } from '../../types/internal'
 import type { QueryParams, VectorQueryConfig } from '../../types/search'
 import { MIN_OVERSAMPLE } from '../../vector/osq/constants'
 import {
   broadcastStatsForWorker,
-  clampAlpha,
   collectFilterDocIds,
   partitionsForVectorSearch,
   type QueryContext,
@@ -136,6 +135,7 @@ export async function executeHybridSearch(
 ): Promise<FanOutResult> {
   const { manager, config } = context
   const { vector: vectorConfig, mode: _mode, hybrid: _hybrid, ...textOnlyParams } = params
+  const fusion = resolveHybridFusion(params.hybrid)
 
   let filterDocIds: Set<string> | undefined
   if (params.filters) {
@@ -160,16 +160,11 @@ export async function executeHybridSearch(
   const [textFanOutResult, vectorOutcome] = await Promise.all([textLeg(textOnlyParams, context), vectorPending])
   const vectorScored = vectorOutcome.scored
 
-  const hybridConfig = params.hybrid ?? {}
-  const strategy = hybridConfig.strategy ?? 'rrf'
-
   let fusedScored: ScoredDocument[]
-  if (strategy === 'rrf') {
-    const rrfK = hybridConfig.k !== undefined && hybridConfig.k > 0 ? hybridConfig.k : 60
-    fusedScored = reciprocalRankFusion([textFanOutResult.scored, vectorScored], { k: rrfK })
+  if (fusion.strategy === 'rrf') {
+    fusedScored = reciprocalRankFusion([textFanOutResult.scored, vectorScored], { k: fusion.k })
   } else {
-    const alpha = clampAlpha(hybridConfig.alpha)
-    fusedScored = linearCombination(textFanOutResult.scored, vectorScored, { alpha })
+    fusedScored = linearCombination(textFanOutResult.scored, vectorScored, { alpha: fusion.alpha })
   }
 
   if (params.minScore !== undefined && params.minScore > 0) {

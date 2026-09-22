@@ -22,8 +22,10 @@ Fusion defines the order of hybrid results, so a hybrid query takes no `sort`. A
 
 The `strategy` field takes one of two values:
 
-- `'rrf'` (the default) applies reciprocal rank fusion, which combines the two rankings by position instead of by score. `k` dampens the contribution of lower ranks and defaults to 60.
-- `'linear'` normalizes both score sets to [0, 1] and blends them as `alpha * vector + (1 - alpha) * text`. `alpha` defaults to 0.5 and clamps to [0, 1].
+- `'rrf'` (the default) applies reciprocal rank fusion, which combines the two rankings by position and reads no score. `k` dampens the contribution of lower ranks and defaults to 60.
+- `'linear'` normalizes both score sets to [0, 1] and blends them as `alpha * vector + (1 - alpha) * text`. `alpha` weights the vector side and defaults to 0.5.
+
+The engine checks all three values before it searches. Any `strategy` other than those two, a `k` that is not a whole number of at least 1, and an `alpha` outside 0 to 1 each raise a `NarsilError` with code `CONFIG_INVALID`, so a typo changes no ranking silently.
 
 ```ts
 const weighted = await narsil.query('docs', {
