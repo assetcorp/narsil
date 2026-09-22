@@ -5,7 +5,7 @@
   "description": "A distributed full-text search engine with cross-language portable binary format.",
   "author": "Delali (https://sondelali.com)",
   "license": "Apache-2.0",
-  "homepage": "https://github.com/assetcorp/narsil",
+  "homepage": "https://narsil.sondelali.com",
   "repository": {
     "type": "git",
     "url": "https://github.com/assetcorp/narsil.git",

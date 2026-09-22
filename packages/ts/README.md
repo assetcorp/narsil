@@ -42,7 +42,7 @@ pnpm add @delali/narsil
 
 Narsil works in Node.js 22 or newer, and in Bun, Deno, and browsers. The [Runtime support](#runtime-support) table covers each runtime.
 
-On an arm64 or x64 machine under macOS, Linux, or Windows, the package manager also installs Narsil's native search core as an optional dependency, and the engine searches vector graphs through it. If you omit optional dependencies, Narsil searches those graphs through WebAssembly, with the same results, as it always does in a browser.
+On an arm64 or x64 machine under macOS, Linux, or Windows, the package manager also installs Narsil's native search core as an optional dependency, so the engine searches vector graphs through it. If you omit optional dependencies, Narsil searches those graphs through WebAssembly, with the same results, as it always does in a browser.
 
 ## Quick start
 
@@ -85,7 +85,7 @@ const results = await narsil.query('products', {
 })
 ```
 
-Every hit holds the document, its id, and its BM25 score. Beside the hits, `results.count` holds the total number of matching documents, `results.elapsed` holds the query time in milliseconds, and `results.coverage` counts the partitions that the search covered, so you can tell when a cluster returns results from part of its data.
+Every hit holds the document, its id, and its BM25 score. Beside the hits, `results.count` holds the total number of matching documents, `results.elapsed` holds the query time in milliseconds, and `results.coverage` counts the partitions behind the answer, so you can tell when a cluster answers from part of its data.
 
 ## Features
 
@@ -99,43 +99,43 @@ Every hit holds the document, its id, and its BM25 score. Beside the hits, `resu
 
 **Scale.** The engine routes each document to a [partition](https://github.com/assetcorp/narsil/blob/main/docs/partitions-and-workers.md) by a deterministic hash. When you call `rebalance()`, the engine reshapes the partitions online and buffers incoming writes in a write-ahead queue. Once an index holds 1,000 documents, the engine serves keyword queries from worker copies on half its worker threads, while the HTTP server receives requests on the threads that hold those copies.
 
-**Operations.** The [HTTP server](https://github.com/assetcorp/narsil/blob/main/docs/http-server.md) subpath wraps an engine in a REST API with health probes, bulk NDJSON import, snapshot and restore endpoints, and task-based long operations. The [client](https://github.com/assetcorp/narsil/blob/main/docs/client.md) subpath calls every one of those routes from a browser or from Node under the engine's own method names. The [React](https://github.com/assetcorp/narsil/blob/main/docs/react.md) subpath exposes those methods to components as hooks. For observability, you get [events, plugins, and memory reporting](https://github.com/assetcorp/narsil/blob/main/docs/observability.md). [Language modules](https://github.com/assetcorp/narsil/blob/main/docs/language-support.md) cover 107 languages as separate entry points, including 20 African languages.
+**Operations.** The [HTTP server](https://github.com/assetcorp/narsil/blob/main/docs/http-server.md) subpath wraps an engine in a REST API with health probes, bulk NDJSON import, snapshot and restore endpoints, and task-based long operations. The [client](https://github.com/assetcorp/narsil/blob/main/docs/client.md) subpath calls every one of those routes from a browser or from Node under the engine's own method names. The [React](https://github.com/assetcorp/narsil/blob/main/docs/react.md) subpath exposes those methods to components as hooks. For observability, you have [events, plugins, and memory reporting](https://github.com/assetcorp/narsil/blob/main/docs/observability.md). [Language modules](https://github.com/assetcorp/narsil/blob/main/docs/language-support.md) cover 107 languages as separate entry points, including 20 African languages.
 
 ## Documentation
 
 | Guide | What it covers |
 | --- | --- |
-| [Configuration](../../docs/configuration.md) | Every `createNarsil` option, worker tuning, analysis rebuilds, and the tokenizer cache |
-| [Indexes and documents](../../docs/indexes-and-documents.md) | Schemas, index management, inserts, reads, updates, removals, and batch operations |
-| [Full-text search](../../docs/full-text-search.md) | Term queries, fuzzy matching, prefix completion, thresholds, highlighting, scoring modes, and suggestions |
-| [Filters, facets, and pagination](../../docs/filters-facets-and-pagination.md) | Field, array, presence, and geo filters, facet counts, sorting, grouping, cursors, and pinning |
-| [Vector search](../../docs/vector-search.md) | Vector fields, distance metrics, HNSW promotion, quantization, the native search core, and graph maintenance |
-| [Hybrid search](../../docs/hybrid-search.md) | Reciprocal rank fusion and linear blending of text and vector rankings |
-| [Geosearch](../../docs/geosearch.md) | Radius and polygon filters, and the two distance formulas |
-| [Embedding adapters](../../docs/embedding-adapters.md) | Automatic embedding on insert and query, named adapters, the bundled ones, and custom ones |
-| [Persistence and durability](../../docs/persistence-and-durability.md) | Storage backends, the write-ahead log, checkpoints, recovery, and snapshots |
-| [Partitions and workers](../../docs/partitions-and-workers.md) | Partition routing, online rebalancing, worker copies, and multi-instance invalidation |
-| [Language support](../../docs/language-support.md) | The 107 language modules, analysis revisions and rebuilds, and named tokenizers and stop words |
-| [HTTP server](../../docs/http-server.md) | Wrapping an engine in a REST API, every route it serves, and long-running tasks |
-| [Cluster mode](../../docs/cluster.md) | Multi-node indexes: nodes and roles, replication, routed writes, distributed searches and reads, and the calls that fail in a cluster |
-| [Client](../../docs/client.md) | Reaching a server from a browser or Node, following a task, and the codes it raises |
-| [React](../../docs/react.md) | The hooks over the client, one shared request per key, and loading a corpus from a component |
-| [Observability](../../docs/observability.md) | Plugin hooks, engine events, and memory reporting |
-| [Errors](../../docs/errors.md) | Every error code and what throws it |
+| [Configuration](https://github.com/assetcorp/narsil/blob/main/docs/configuration.md) | Every `createNarsil` option, worker tuning, analysis rebuilds, and the tokenizer cache |
+| [Indexes and documents](https://github.com/assetcorp/narsil/blob/main/docs/indexes-and-documents.md) | Schemas, index management, inserts, reads, updates, removals, and batch operations |
+| [Full-text search](https://github.com/assetcorp/narsil/blob/main/docs/full-text-search.md) | Term queries, fuzzy matching, prefix completion, thresholds, highlighting, scoring modes, and suggestions |
+| [Filters, facets, and pagination](https://github.com/assetcorp/narsil/blob/main/docs/filters-facets-and-pagination.md) | Field, array, presence, and geo filters, facet counts, sorting, grouping, cursors, and pinning |
+| [Vector search](https://github.com/assetcorp/narsil/blob/main/docs/vector-search.md) | Vector fields, distance metrics, HNSW promotion, quantization, the native search core, and graph maintenance |
+| [Hybrid search](https://github.com/assetcorp/narsil/blob/main/docs/hybrid-search.md) | Reciprocal rank fusion and linear blending of text and vector rankings |
+| [Geosearch](https://github.com/assetcorp/narsil/blob/main/docs/geosearch.md) | Radius and polygon filters, and the two distance formulas |
+| [Embedding adapters](https://github.com/assetcorp/narsil/blob/main/docs/embedding-adapters.md) | Automatic embedding on insert and query, named adapters, the bundled ones, and custom ones |
+| [Persistence and durability](https://github.com/assetcorp/narsil/blob/main/docs/persistence-and-durability.md) | Storage backends, the write-ahead log, checkpoints, recovery, and snapshots |
+| [Partitions and workers](https://github.com/assetcorp/narsil/blob/main/docs/partitions-and-workers.md) | Partition routing, online rebalancing, worker copies, and multi-instance invalidation |
+| [Language support](https://github.com/assetcorp/narsil/blob/main/docs/language-support.md) | The 107 language modules, analysis revisions and rebuilds, and named tokenizers and stop words |
+| [HTTP server](https://github.com/assetcorp/narsil/blob/main/docs/http-server.md) | Wrapping an engine in a REST API, every route it serves, and long-running tasks |
+| [Cluster mode](https://github.com/assetcorp/narsil/blob/main/docs/cluster.md) | Multi-node indexes: nodes and roles, replication, routed writes, distributed searches and reads, and the calls that fail in a cluster |
+| [Client](https://github.com/assetcorp/narsil/blob/main/docs/client.md) | Reaching a server from a browser or Node, following a task, and the codes it raises |
+| [React](https://github.com/assetcorp/narsil/blob/main/docs/react.md) | The hooks over the client, one shared request per key, and loading a corpus from a component |
+| [Observability](https://github.com/assetcorp/narsil/blob/main/docs/observability.md) | Plugin hooks, engine events, and memory reporting |
+| [Errors](https://github.com/assetcorp/narsil/blob/main/docs/errors.md) | The codes you handle most often, and the three sets that `NarsilError.code` covers |
 
-The [specification](../spec/) defines the `.nrsl` format, the analysis pipeline, and the replication invariants that every implementation must uphold.
+The [specification](https://github.com/assetcorp/narsil/tree/main/packages/spec) defines the `.nrsl` format, the analysis pipeline, and the replication invariants that every implementation must uphold.
 
 ## Examples
 
 | Example | What it shows |
 | --- | --- |
-| [HTTP server](examples/http-server/README.md) | The launcher serves the engine as a REST service with durability, API-key auth, and Docker packaging, and every setting comes from the environment. |
-| [Browser](examples/browser/README.md) | The app embeds the engine in a browser with IndexedDB persistence and Web Worker search. |
-| [Server app](examples/server-app/README.md) | The app calls the HTTP server through the client SDK and the React hooks to load corpora as import tasks. In its Ask view, you can ask questions about those corpora. |
+| [HTTP server](https://github.com/assetcorp/narsil/blob/main/packages/ts/examples/http-server/README.md) | The launcher serves the engine as a REST service with durability, API-key auth, and Docker packaging, while every setting comes from the environment. |
+| [Browser](https://github.com/assetcorp/narsil/blob/main/packages/ts/examples/browser/README.md) | The app embeds the engine in a browser with IndexedDB persistence and Web Worker search. |
+| [Server app](https://github.com/assetcorp/narsil/blob/main/packages/ts/examples/server-app/README.md) | The app calls the HTTP server through the client SDK and the React hooks to load corpora as import tasks. In its Ask view, you can ask questions about those corpora. |
 
 ## Distribution
 
-`@delali/narsil/distribution` holds Narsil's multi-node cluster mode: nodes and roles, replication, coordinator adapters for etcd and in-process testing, TCP and gRPC transports with mutual TLS, and distributed query routing. A cluster node can create, drop, clear, write, update, search, list, count, and suggest across every partition. The [cluster dashboard example](examples/cluster-dashboard) starts three nodes against etcd and shows the state of each partition while you cut the network links. Because the layer is experimental and we may change its APIs without notice, pin an exact version before you depend on it. The [cluster guide](../../docs/cluster.md) covers the API. For the contract that every implementation must uphold, read [`packages/spec/distribution`](../spec/distribution).
+`@delali/narsil/distribution` holds Narsil's multi-node cluster mode: nodes and roles, replication, coordinator adapters for etcd and in-process testing, TCP and gRPC transports with mutual TLS, and distributed query routing. A cluster node can create, drop, clear, write, update, search, list, count, and suggest across every partition. The [cluster dashboard example](https://github.com/assetcorp/narsil/tree/main/packages/ts/examples/cluster-dashboard) starts three nodes against etcd and shows the state of each partition while you cut the network links. Because the layer is experimental and we may change its APIs without notice, pin an exact version before you depend on it. The [cluster guide](https://github.com/assetcorp/narsil/blob/main/docs/cluster.md) covers the API, including the packages that the etcd coordinator and the gRPC transport each need. For the contract that every implementation must uphold, read [`packages/spec/distribution`](https://github.com/assetcorp/narsil/tree/main/packages/spec/distribution).
 
 ## Search quality
 
@@ -148,7 +148,7 @@ We measure ranking quality on the [BEIR](https://github.com/beir-cellar/beir) Sc
 - **MAP** tracks precision at every rank where a relevant document appears. A higher MAP means that relevant documents cluster near the top of the ranking.
 - **MRR** measures how soon the first relevant result appears. A higher MRR means that the first relevant document appears nearer the top.
 
-Continuous integration executes a separate [SciFact regression test](src/__tests__/relevance/scifact.test.ts) on the same corpus. That test fails the build when ranking quality drops below calibrated thresholds.
+Continuous integration executes a separate [SciFact regression test](https://github.com/assetcorp/narsil/blob/main/packages/ts/src/__tests__/relevance/scifact.test.ts) on the same corpus. That test fails the build when ranking quality drops below calibrated thresholds.
 
 Reproduce these scores with `pnpm --filter benchmarks bench -- --tiers relevance`. [BENCHMARKS.md](https://github.com/assetcorp/narsil/blob/main/BENCHMARKS.md) holds the full quality, throughput, and latency tables for all three engines.
 
@@ -163,7 +163,7 @@ Narsil also works as a search server. On the BEIR datasets, we compare the serve
 | Deno | Web Workers | Filesystem | BroadcastChannel |
 | Browser | Web Workers | IndexedDB | BroadcastChannel |
 
-The [browser example](examples/browser/README.md) shows an embedded engine with IndexedDB persistence, while the [server app example](examples/server-app/README.md) shows the same interface over the client SDK and the React hooks.
+The [browser example](https://github.com/assetcorp/narsil/blob/main/packages/ts/examples/browser/README.md) shows an embedded engine with IndexedDB persistence, while the [server app example](https://github.com/assetcorp/narsil/blob/main/packages/ts/examples/server-app/README.md) shows the same interface over the client SDK and the React hooks.
 
 ## License
 
