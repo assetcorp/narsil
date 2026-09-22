@@ -69,8 +69,10 @@ export type NarsilEventMap = {
    * process with an out-of-memory error. The engine compares the used bytes
    * with the headroom that V8 reports, because V8 reserves part of the raw
    * limit, so an allocation fails before the used bytes ever reach that limit.
-   * The engine emits the event once per crossing and arms it again once the
-   * headroom recovers to two tenths. Raise the limit with
+   * V8 reports a limit about 192 MB above the figure that you set. Node
+   * therefore ends a process whose limit is below 2 GB before it spends nine
+   * tenths, and the event never fires there. The engine emits the event once
+   * per crossing and arms it again once the headroom recovers to two tenths. Raise the limit with
    * `--max-old-space-size-percentage` or `--max-old-space-size`, or close an
    * idle index; see {@link ProcessMemoryReport.heapLimit}.
    */

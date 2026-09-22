@@ -47,7 +47,11 @@ async function setup(): Promise<void> {
       if (!isValidWorkerAction(raw)) {
         const requestId = (raw as { requestId?: string })?.requestId ?? 'unknown'
         port.postMessage(
-          buildErrorResponse(requestId, ErrorCodes.WORKER_ACTION_FAILED, 'Received an invalid worker action'),
+          buildErrorResponse(
+            requestId,
+            ErrorCodes.WORKER_ACTION_FAILED,
+            'This worker received a message that is no valid action',
+          ),
         )
         return
       }
@@ -74,7 +78,11 @@ async function setup(): Promise<void> {
       if (!isValidWorkerAction(raw)) {
         const requestId = (raw as { requestId?: string })?.requestId ?? 'unknown'
         webSelf.postMessage(
-          buildErrorResponse(requestId, ErrorCodes.WORKER_ACTION_FAILED, 'Received an invalid worker action'),
+          buildErrorResponse(
+            requestId,
+            ErrorCodes.WORKER_ACTION_FAILED,
+            'This worker received a message that is no valid action',
+          ),
         )
         return
       }

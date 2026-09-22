@@ -16,6 +16,10 @@ const PLATFORMS_WITH_A_BINARY = new Set([
   'win32-x64',
 ])
 
+interface CoreUnavailable {
+  missing: string
+}
+
 let loaded: NativeCore | null | undefined
 
 function usesMuslLibc(): boolean {
@@ -27,22 +31,40 @@ function usesMuslLibc(): boolean {
   }
 }
 
-function publishedBinaryPath(require: NodeJS.Require): string | null {
-  const target = `${process.platform}-${process.arch}`
-  if (!PLATFORMS_WITH_A_BINARY.has(target)) return null
-  try {
-    const manifest = require.resolve(`@delali/narsil-native-${target}/package.json`)
-    const segments =
-      process.platform === 'linux' && usesMuslLibc() ? [MUSL_DIRECTORY, BINARY_FILE_NAME] : [BINARY_FILE_NAME]
-    return join(dirname(manifest), ...segments)
-  } catch {
-    return null
-  }
+function isUnavailable(value: object): value is CoreUnavailable {
+  return 'missing' in value
 }
 
-function namedBinaryPath(): string | null {
+function binaryFileSegments(): string[] {
+  return process.platform === 'linux' && usesMuslLibc() ? [MUSL_DIRECTORY, BINARY_FILE_NAME] : [BINARY_FILE_NAME]
+}
+
+function publishedCoreLocation(target: string): { path: string } | CoreUnavailable {
+  const packageName = `@delali/narsil-native-${target}`
+  let manifest: string
+  try {
+    manifest = createRequire(import.meta.url).resolve(`${packageName}/package.json`)
+  } catch {
+    return { missing: `this installation has no "${packageName}" package` }
+  }
+  const path = join(dirname(manifest), ...binaryFileSegments())
+  if (!existsSync(path)) return { missing: `the "${packageName}" package has no search core at ${path}` }
+  return { path }
+}
+
+function coreLocation(): { path: string } | CoreUnavailable {
   const named = process.env.NARSIL_NATIVE_CORE_PATH
-  return named !== undefined && named.length > 0 ? named : null
+  if (named !== undefined && named.length > 0) {
+    if (!existsSync(named)) {
+      return { missing: `this process sets NARSIL_NATIVE_CORE_PATH to ${named}, where no file exists` }
+    }
+    return { path: named }
+  }
+  const target = `${process.platform}-${process.arch}`
+  if (!PLATFORMS_WITH_A_BINARY.has(target)) {
+    return { missing: `the Narsil release includes no search core for ${target}` }
+  }
+  return publishedCoreLocation(target)
 }
 
 function refuseToSearchWithoutTheCore(reason: string): never {
@@ -70,35 +92,33 @@ function reportMissingCore(reason: string, announce: boolean): null {
   return null
 }
 
-function loadedCore(path: string): NativeCore | null {
-  const require = createRequire(import.meta.url)
-  const core = require(path) as NativeCore
-  if (typeof core.abiVersion !== 'function' || core.abiVersion() !== NATIVE_CORE_ABI_VERSION) return null
+function coreAt(path: string): NativeCore | CoreUnavailable {
+  let core: NativeCore
+  try {
+    core = createRequire(import.meta.url)(path) as NativeCore
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    return { missing: `node raised "${message}" while loading the search core at ${path}` }
+  }
+  if (typeof core.abiVersion !== 'function') return { missing: `the file at ${path} is no Narsil search core` }
+  const reported = core.abiVersion()
+  if (reported !== NATIVE_CORE_ABI_VERSION) {
+    return {
+      missing: `the search core at ${path} reports ABI version ${reported}, while this build of Narsil needs ${NATIVE_CORE_ABI_VERSION}`,
+    }
+  }
   return core
 }
 
 export function loadNativeCore(): NativeCore | null {
   if (loaded !== undefined) return loaded
   if (requestedBackend() === 'wasm') {
-    return reportMissingCore('NARSIL_SEARCH_BACKEND asks for the WebAssembly search', false)
+    return reportMissingCore('this process sets NARSIL_SEARCH_BACKEND to the WebAssembly search', false)
   }
-  const named = namedBinaryPath()
-  const path = named ?? publishedBinaryPath(createRequire(import.meta.url))
-  if (path === null || !existsSync(path)) {
-    return reportMissingCore(`this platform has no native search core at ${path ?? 'any known path'}`, true)
-  }
-  let core: NativeCore | null
-  try {
-    core = loadedCore(path)
-  } catch (error) {
-    return reportMissingCore(
-      `loading the native search core at ${path} failed with "${error instanceof Error ? error.message : String(error)}"`,
-      true,
-    )
-  }
-  if (core === null) {
-    return reportMissingCore(`the native search core at ${path} reports another ABI version`, true)
-  }
+  const location = coreLocation()
+  if (isUnavailable(location)) return reportMissingCore(location.missing, true)
+  const core = coreAt(location.path)
+  if (isUnavailable(core)) return reportMissingCore(core.missing, true)
   loaded = core
   return loaded
 }
