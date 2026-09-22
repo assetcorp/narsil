@@ -129,14 +129,14 @@ Each guide under [`docs/`](docs/) covers one area with working examples. In the 
 
 **Scale.** The engine routes each document to a [partition](docs/partitions-and-workers.md#partitions-and-rebalancing) by a deterministic hash. When you call `rebalance()`, the engine reshapes the partitions online and buffers incoming writes in a write-ahead queue. Once an index holds 1,000 documents, the engine serves keyword queries from [worker copies](docs/partitions-and-workers.md#worker-copies) on half its worker threads, while the [HTTP server receives requests on the threads that hold those copies](docs/partitions-and-workers.md#request-threads). The engine [analyses each batch once](docs/partitions-and-workers.md#how-a-batch-reaches-the-worker-copies) and passes the result to every copy. You can choose among [three scoring modes](docs/full-text-search.md#scoring-modes) for BM25 statistics that differ across partitions and instances.
 
-**Operations.** The [HTTP server](docs/http-server.md#http-server) subpath wraps an engine in a REST API with health probes, bulk NDJSON import, snapshot and restore endpoints, and task-based long operations. The [client](docs/client.md#client) subpath calls every one of those routes from a browser or from Node under the engine's own method names. Its `waitForTask` returns once a long load finishes. The [React](docs/react.md#react) subpath exposes those methods to components as hooks, which send one request for each distinct set of arguments. For observability, you get [events](docs/observability.md#events), [typed errors](docs/errors.md#errors), [plugins](docs/observability.md#plugins), and [memory reporting](docs/observability.md#memory-reporting). [Language modules](docs/language-support.md#language-support) cover 107 languages as separate entry points, including 20 African languages.
+**Operations.** The [HTTP server](docs/http-server.md#http-server) subpath wraps an engine in a REST API with health probes, bulk NDJSON import, snapshot and restore endpoints, and task-based long operations. The [client](docs/client.md#client) subpath calls every one of those routes from a browser or from Node under the engine's own method names. Its `waitForTask` returns once a long load finishes. The [React](docs/react.md#react) subpath exposes those methods to components as hooks, which send one request for each distinct set of arguments. For observability, you have [events](docs/observability.md#events), [typed errors](docs/errors.md#errors), [plugins](docs/observability.md#plugins), and [memory reporting](docs/observability.md#memory-reporting). [Language modules](docs/language-support.md#language-support) cover 107 languages as separate entry points, including 20 African languages.
 
 ## Examples
 
 | Example | What it shows |
 | --- | --- |
 | [Live demo](https://narsil.sondelali.com/demo) | The hosted demo works entirely in the browser, so you can try search without installing anything. |
-| [HTTP server](packages/ts/examples/http-server) | The launcher serves the engine as a REST service with durability, API-key auth, and Docker packaging, and every setting comes from the environment. |
+| [HTTP server](packages/ts/examples/http-server) | The launcher serves the engine as a REST service with durability, API-key auth, and Docker packaging, while every setting comes from the environment. |
 | [Browser](packages/ts/examples/browser) | The app embeds the engine in a browser with IndexedDB persistence and Web Worker search. |
 | [Server app](packages/ts/examples/server-app) | The app calls the HTTP server through the client SDK and the React hooks to load corpora as import tasks. In its Ask view, you can ask questions about those corpora. |
 
@@ -172,7 +172,7 @@ When we measure Narsil in one process against Orama and MiniSearch, with the sam
 | [Client](docs/client.md) | Reaching a server from a browser or Node, following a task, and the codes it raises |
 | [React](docs/react.md) | The hooks over the client, one shared request per key, and loading a corpus from a component |
 | [Observability](docs/observability.md) | Plugin hooks, engine events, and memory reporting |
-| [Errors](docs/errors.md) | Every error code and what throws it |
+| [Errors](docs/errors.md) | The codes you handle most often, and the three sets that `NarsilError.code` covers |
 
 The [specification](packages/spec/) defines the `.nrsl` format, the analysis pipeline, and the replication invariants that every implementation must uphold.
 
