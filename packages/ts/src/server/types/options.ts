@@ -187,11 +187,11 @@ export interface NarsilServer {
    * Closes the server and then shuts the engine down, which is what a process
    * whose work is this server calls on its way out.
    *
-   * Shutting the engine down is what ends the request threads, and Node aborts
+   * Shutting the engine down is what ends the request threads, so Node aborts
    * a process that exits while one of those threads still holds a client
    * connection. Call {@link NarsilServer.close} on its own where the engine
-   * outlives the server, as in a process that fronts one engine with two
-   * servers.
+   * keeps running after the server closes, as in a process that fronts one
+   * engine with two servers.
    */
   shutdown(): Promise<void>
   /** The server bound to this port, which is what you read after binding to port 0. */

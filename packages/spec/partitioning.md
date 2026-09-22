@@ -446,9 +446,9 @@ A refusal raises `CONFIG_INVALID`, and the engine emits a `workerPromoteFailure`
 
 ### Worker Failure
 
-A worker may fail at any time, so the implementation must survive the failure of every worker that it starts. It must never end the process because a worker fails.
+A worker may fail at any time, so the implementation must keep answering after every worker failure. It must never end the process because a worker fails.
 
-The implementation must stop sending work to a failed worker. It must answer the requests in flight on that worker, and every later request naming an index that the worker held, from another copy of that index or from the calling thread. It must emit a `workerCrash` event carrying the worker, the indexes that the worker held, and the error. A worker failure therefore costs throughput and leaves results correct.
+The implementation must stop sending work to a failed worker. It must answer the requests in flight on that worker, and every later request for an index that the worker held, from another copy of that index or from the calling thread. It must emit a `workerCrash` event carrying the worker, the indexes that the worker held, and the error. A worker failure therefore costs throughput and leaves results correct.
 
 The implementation should start a replacement worker and load onto it the copies that the failed worker held. It should delay each attempt that follows a failed start. Until those copies load again, each index that the worker held answers every request in the calling thread.
 
