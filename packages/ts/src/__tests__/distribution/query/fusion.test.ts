@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import {
-  clampAlpha,
   distributedLinearCombination,
   distributedRRF,
   minMaxNormalizeScoredEntries,
 } from '../../../distribution/query/fusion'
 import type { ScoredEntry } from '../../../distribution/transport/types'
+import { ErrorCodes, NarsilError } from '../../../errors'
+import { resolveHybridFusion } from '../../../search/fusion'
 
 function entry(docId: string, score: number): ScoredEntry {
   return { docId, score, sortValues: null }
@@ -79,16 +80,10 @@ describe('distributedRRF', () => {
     }
   })
 
-  it('defaults k to 60 when k is zero', () => {
+  it('takes the rank constant the coordinator resolved, which it validated first', () => {
     const list: ScoredEntry[] = [entry('doc-1', 10)]
-    const result = distributedRRF([list], { k: 0 })
-    expect(result[0].score).toBeCloseTo(1 / (60 + 0 + 1), 10)
-  })
-
-  it('defaults k to 60 when k is negative', () => {
-    const list: ScoredEntry[] = [entry('doc-1', 10)]
-    const result = distributedRRF([list], { k: -5 })
-    expect(result[0].score).toBeCloseTo(1 / (60 + 0 + 1), 10)
+    const result = distributedRRF([list], { k: resolveHybridFusion({ k: 12 }).k })
+    expect(result[0].score).toBeCloseTo(1 / (12 + 0 + 1), 10)
   })
 })
 
@@ -240,33 +235,43 @@ describe('minMaxNormalizeScoredEntries', () => {
   })
 })
 
-describe('clampAlpha', () => {
-  it('returns 0.5 for NaN', () => {
-    expect(clampAlpha(NaN)).toBe(0.5)
+describe('resolveHybridFusion', () => {
+  it('defaults to rank fusion with a constant of 60 and a weight of 0.5', () => {
+    expect(resolveHybridFusion(undefined)).toEqual({ strategy: 'rrf', k: 60, alpha: 0.5 })
+    expect(resolveHybridFusion(null)).toEqual({ strategy: 'rrf', k: 60, alpha: 0.5 })
+    expect(resolveHybridFusion({})).toEqual({ strategy: 'rrf', k: 60, alpha: 0.5 })
   })
 
-  it('returns 0.5 for Infinity', () => {
-    expect(clampAlpha(Infinity)).toBe(0.5)
+  it('passes through the two strategies the specification names', () => {
+    expect(resolveHybridFusion({ strategy: 'rrf' }).strategy).toBe('rrf')
+    expect(resolveHybridFusion({ strategy: 'linear' }).strategy).toBe('linear')
   })
 
-  it('returns 0.5 for negative Infinity', () => {
-    expect(clampAlpha(-Infinity)).toBe(0.5)
+  it('refuses any other strategy', () => {
+    for (const strategy of ['weighted', 'RRF', 'rff', '']) {
+      expect(() => resolveHybridFusion({ strategy })).toThrow(NarsilError)
+    }
+    try {
+      resolveHybridFusion({ strategy: 'weighted' })
+    } catch (thrown) {
+      expect((thrown as NarsilError).code).toBe(ErrorCodes.CONFIG_INVALID)
+    }
   })
 
-  it('clamps negative values to 0', () => {
-    expect(clampAlpha(-1)).toBe(0)
-    expect(clampAlpha(-0.5)).toBe(0)
+  it('refuses a rank constant that is not a whole number of at least 1', () => {
+    for (const k of [0, -5, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(() => resolveHybridFusion({ k })).toThrow(NarsilError)
+    }
+    expect(resolveHybridFusion({ k: 1 }).k).toBe(1)
+    expect(resolveHybridFusion({ k: 600 }).k).toBe(600)
   })
 
-  it('clamps values above 1 to 1', () => {
-    expect(clampAlpha(2)).toBe(1)
-    expect(clampAlpha(1.5)).toBe(1)
-  })
-
-  it('passes through valid values in [0, 1]', () => {
-    expect(clampAlpha(0)).toBe(0)
-    expect(clampAlpha(0.5)).toBe(0.5)
-    expect(clampAlpha(1)).toBe(1)
-    expect(clampAlpha(0.3)).toBe(0.3)
+  it('refuses a weight outside 0 to 1', () => {
+    for (const alpha of [-0.5, 1.5, Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+      expect(() => resolveHybridFusion({ alpha })).toThrow(NarsilError)
+    }
+    expect(resolveHybridFusion({ alpha: 0 }).alpha).toBe(0)
+    expect(resolveHybridFusion({ alpha: 1 }).alpha).toBe(1)
+    expect(resolveHybridFusion({ alpha: 0.3 }).alpha).toBe(0.3)
   })
 })

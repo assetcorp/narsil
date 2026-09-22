@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { linearCombination, minMaxNormalize, reciprocalRankFusion } from '../../search/fusion'
+import { NarsilError } from '../../errors'
+import { linearCombination, minMaxNormalize, reciprocalRankFusion, resolveHybridFusion } from '../../search/fusion'
 import type { ScoredDocument } from '../../types/internal'
 
 function makeScoredDoc(
@@ -98,15 +99,15 @@ describe('reciprocalRankFusion', () => {
     expect(resultK1[0].score).toBeGreaterThan(resultK60[0].score)
   })
 
-  it('defaults k to 60 when k is zero or negative', () => {
+  it('takes the rank constant the query resolved, which the query validated first', () => {
     const list = [makeScoredDoc('doc-1', 10)]
 
-    const resultZero = reciprocalRankFusion([list], { k: 0 })
-    const resultNeg = reciprocalRankFusion([list], { k: -5 })
-    const resultDefault = reciprocalRankFusion([list], { k: 60 })
+    const resolved = resolveHybridFusion({ strategy: 'rrf', k: 12 })
+    const result = reciprocalRankFusion([list], { k: resolved.k })
 
-    expect(resultZero[0].score).toBeCloseTo(resultDefault[0].score, 10)
-    expect(resultNeg[0].score).toBeCloseTo(resultDefault[0].score, 10)
+    expect(result[0].score).toBeCloseTo(1 / (12 + 0 + 1), 10)
+    expect(() => resolveHybridFusion({ k: 0 })).toThrow(NarsilError)
+    expect(() => resolveHybridFusion({ k: -5 })).toThrow(NarsilError)
   })
 
   it('preserves metadata from the first occurrence of a duplicate document', () => {
