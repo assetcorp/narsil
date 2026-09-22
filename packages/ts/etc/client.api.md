@@ -330,6 +330,7 @@ export interface ServerVersion {
     dirty: boolean;
     gitSha: string | null;
     name: string;
+    vectorSearch?: 'native' | 'wasm';
     version: string | null;
 }
 

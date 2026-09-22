@@ -82,6 +82,20 @@ export interface RunEnvironment {
   totalMemory: string
   /** Operator-supplied hardware label from BENCH_MACHINE_LABEL, absent when unset. */
   machineLabel?: string
+  /** Present when NARSIL_SEARCH_BACKEND holds Narsil to its WebAssembly vector search, which the suite sets before any engine loads. */
+  narsilVectorSearch?: typeof WASM_VECTOR_SEARCH
+}
+
+export const NARSIL_SEARCH_BACKEND_VARIABLE = 'NARSIL_SEARCH_BACKEND'
+export const WASM_VECTOR_SEARCH = 'wasm'
+
+/**
+ * Holds Narsil to its WebAssembly vector search for this process and every
+ * process it forks, so the suite measures the path that a browser takes whether
+ * or not the machine holds the native search core.
+ */
+export function holdNarsilToWasmVectorSearch(): void {
+  process.env[NARSIL_SEARCH_BACKEND_VARIABLE] = WASM_VECTOR_SEARCH
 }
 
 export interface RunGitIdentity {
@@ -214,6 +228,9 @@ function collectEnvironment(): RunEnvironment {
     cpu: os.cpus()[0]?.model?.trim() ?? 'unknown',
     totalMemory: `${Math.round(os.totalmem() / 1024 ** 3)}GB`,
     ...(machineLabel ? { machineLabel } : {}),
+    ...(process.env[NARSIL_SEARCH_BACKEND_VARIABLE] === WASM_VECTOR_SEARCH
+      ? { narsilVectorSearch: WASM_VECTOR_SEARCH }
+      : {}),
   }
 }
 
