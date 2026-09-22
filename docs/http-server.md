@@ -30,7 +30,7 @@ The full surface:
 | --- | --- |
 | `GET /livez`, `GET /readyz`, `GET /health` | The probes report liveness and readiness without authentication. On a cluster node, `/readyz` answers 503 until the node reports `SERVING`. See [Cluster routes](#cluster-routes). |
 | `GET /cluster`, `GET /indexes/{name}/cluster` | The endpoints report the cluster topology and one index's allocation, and a server fronting a single engine answers both with 501. See [Cluster routes](#cluster-routes). |
-| `GET /version` | The endpoint reports the build identity stamped at startup. |
+| `GET /version` | The endpoint reports the build identity stamped at startup. Its `vectorSearch` field names the path through which the answering thread searches vector graphs, which is `native` or `wasm`. See [Native search core](vector-search.md#native-search-core). |
 | `GET /capabilities` | The endpoint lists the optional routes this server serves, and it needs no key either. See [Tasks](#tasks). |
 | `GET /stats/memory` | The endpoint returns `getMemoryStats()` plus `requestThreads`, the number of worker threads that receive requests. See [Request threads](partitions-and-workers.md#request-threads). |
 | `POST /indexes`, `GET /indexes`, `DELETE /indexes/{name}` | The endpoints create, list, and drop indexes. |
