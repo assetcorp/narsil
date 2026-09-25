@@ -295,6 +295,8 @@ distance = R * c
 | `mi` | distance / 1609.344 |
 | `m` | distance unchanged |
 
+An implementation must accept only these three units in a geo radius filter, and it must reject any other with `SEARCH_INVALID_FILTER`.
+
 Two identical points give 0, and two antipodal points give `PI * R`, which is half the circumference. Latitude must be from -90 to 90 and longitude from -180 to 180, and an implementation must reject any other value as a schema validation error at insertion.
 
 ---
@@ -388,6 +390,27 @@ isPointInPolygon(lat: float64, lon: float64, polygon: List<GeoPoint>) -> boolean
   return inside
 ```
 
+An implementation must treat a polygon as crossing the antimeridian where `crossesAntimeridian` returns true, and it must then apply `eastward` to every longitude of the polygon and to the tested longitude before it casts the ray. RFC 7946 orders the points of an exterior ring counter-clockwise around its area, so a ring in that order encloses its intended area under this rule wherever it lies.
+
+```text
+crossesAntimeridian(polygon: List<GeoPoint>) -> boolean
+  west = minimum over i of polygon[i].lon
+  east = maximum over i of polygon[i].lon
+  A = 0   (twice the signed area)
+  j = length(polygon) - 1
+
+  for i from 0 to length(polygon) - 1:
+    A = A + polygon[j].lon * polygon[i].lat
+          - polygon[i].lon * polygon[j].lat
+    j = i
+
+  return east - west >= 180 and A < 0
+
+eastward(lon: float64) -> float64
+  when lon < 0: return lon + 360
+  return lon
+```
+
 ### Polygon Centroid
 
 An implementation may compute the centroid with the shoelace formula, so that it can filter by distance to the centroid before it applies the full polygon test.
@@ -414,7 +437,7 @@ centroid(polygon: List<GeoPoint>) -> GeoPoint
   return { lat: cx, lon: cy }
 ```
 
-A point exactly on an edge counts as outside, which is the answer that ray casting gives at a boundary. `isPointInPolygon` must return false for a polygon of fewer than three points. This specification leaves a self-intersecting polygon undefined, and an implementation may support one under the even-odd rule that ray casting already applies.
+A point exactly on an edge counts as outside, which is the answer that ray casting gives at a boundary. `isPointInPolygon` must return false for a polygon of fewer than three points, and an implementation must reject a geo polygon filter of fewer than three points with `SEARCH_INVALID_FILTER`. This specification leaves a self-intersecting polygon undefined, and an implementation may support one under the even-odd rule that ray casting already applies.
 
 ---
 
@@ -518,7 +541,7 @@ Every tie on a rank key breaks the same way. Results that share a score order by
 
 The sort value order below applies to the fields that a query or a listing names in its `sort`.
 
-A sort may name a `number`, a `boolean`, or an `enum` field with no preparation. A sort may name a `string` field only where the schema marks that field sortable, and an implementation must raise `SEARCH_INVALID_FIELD` for a sort that names an unmarked `string` field, because ordering free text takes more memory per document than ordering a scalar. Every other field type counts as missing under the rules below, so a sort that names one leaves every document equal.
+A sort may name a `number`, a `boolean`, or an `enum` field with no preparation. A sort may name a `string` field only where the schema marks that field sortable, and an implementation must raise `SEARCH_INVALID_FIELD` for a sort that names an unmarked `string` field, because ordering free text takes more memory per document than ordering a scalar. An implementation must raise `SEARCH_INVALID_FIELD` for a sort that names a `geopoint` or a vector field, because neither type has an order. An array field counts as missing under the rules below, so a sort that names one leaves every document equal.
 
 An implementation must rank a query that names a sort by sort values alone, and it must skip relevance scoring. Where `includeScores` is true, it must score each hit as it would without the sort. A sorted query that holds a score threshold must compute scores to apply that floor, and it must report them only where `includeScores` is true. A hit that the implementation returns without scoring holds no score.
 

@@ -1,4 +1,8 @@
 export const DEG_TO_RAD = Math.PI / 180
 
+export const MIN_POLYGON_POINTS = 3
+export const ANTIMERIDIAN_SPAN_DEGREES = 180
+export const FULL_TURN_DEGREES = 360
+
 export const VINCENTY_MAX_ITERATIONS = 200
 export const VINCENTY_CONVERGENCE_THRESHOLD = 1e-12

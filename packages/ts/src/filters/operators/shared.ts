@@ -1,3 +1,4 @@
+import { ErrorCodes, NarsilError } from '../../errors'
 import type { ComparisonFilter } from '../../types/filters'
 
 export type GetFieldValue = (internalId: number) => unknown
@@ -53,7 +54,12 @@ const METERS_PER_MI = 1609.344
 export function convertToMeters(distance: number, unit: 'km' | 'mi' | 'm'): number {
   if (unit === 'km') return distance * METERS_PER_KM
   if (unit === 'mi') return distance * METERS_PER_MI
-  return distance
+  if (unit === 'm') return distance
+  throw new NarsilError(
+    ErrorCodes.SEARCH_INVALID_FILTER,
+    `A radius takes "km", "mi", or "m" as its unit, and "${String(unit)}" is none of them`,
+    { unit: String(unit) },
+  )
 }
 
 export function matchesNumericComparison(value: number, filter: ComparisonFilter): boolean {

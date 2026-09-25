@@ -18,6 +18,16 @@ describe('pinned documents under cursor pagination', () => {
     await narsil.shutdown()
   })
 
+  it('counts a pinned document that the query never matched, and counts a matching one once', async () => {
+    const outside = await narsil.query('products', { term: 'headphones', pinned: [{ docId: 'promo', position: 0 }] })
+    expect(outside.hits.map(hit => hit.id)).toContain('promo')
+    expect(outside.count).toBe(4)
+    expect(outside.countExact).toBe(true)
+
+    const inside = await narsil.query('products', { term: 'headphones', pinned: [{ docId: 'beta', position: 0 }] })
+    expect(inside.count).toBe(3)
+  })
+
   it('anchors on a pinned-listed document that a cursor page returns organically', async () => {
     await narsil.insert('products', { title: 'Headphones Delta', category: 'e', price: 5 }, 'delta')
     const request = {

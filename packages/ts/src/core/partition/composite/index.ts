@@ -1,5 +1,5 @@
 import { ErrorCodes, NarsilError } from '../../../errors'
-import { mergeFacets } from '../../../search/facets'
+import { everyValueFacetConfig, mergeFacets } from '../../../search/facets'
 import type { FilterExpression } from '../../../types/filters'
 import type { InternalSearchParams, InternalSearchResult } from '../../../types/internal'
 import type { LanguageModule } from '../../../types/language'
@@ -266,6 +266,7 @@ export function createCompositePartition(
     },
 
     computeFacets(matched: FacetMatchSet, config: FacetConfig, schema: SchemaDefinition): Record<string, FacetResult> {
+      const everyValue = everyValueFacetConfig(config)
       if ('ordinalBitset' in matched) {
         const ordinalLayout = layout()
         return mergeFacets(
@@ -273,13 +274,17 @@ export function createCompositePartition(
             computeFacets(
               sub,
               { ordinalBitset: subBitsetView(matched.ordinalBitset, ordinalLayout, index) },
-              config,
+              everyValue,
               schema,
             ),
           ),
+          config,
         )
       }
-      return mergeFacets(subs().map(sub => computeFacets(sub, matched, config, schema)))
+      return mergeFacets(
+        subs().map(sub => computeFacets(sub, matched, everyValue, schema)),
+        config,
+      )
     },
 
     sortedPage(request: SortPageRequest): SortedPageEntry[] {

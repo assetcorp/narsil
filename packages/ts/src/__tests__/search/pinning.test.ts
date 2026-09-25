@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { applyPinning } from '../../search/pinning'
+import { applyPinning, placePinned } from '../../search/pinning'
 import type { Hit } from '../../types/results'
 
 function makeHit(id: string, score: number): Hit<Record<string, unknown>> {
@@ -140,5 +140,22 @@ describe('pinning with a repeated docId', () => {
       resolver,
     )
     expect(result.map(hit => hit.id)).toEqual(['x', 'a', 'b'])
+  })
+
+  it('counts each placed document that the hit list lacked, and skips one that the store lacks', () => {
+    const hits = [makeHit('a', 10), makeHit('b', 8)]
+    const resolver = makeResolver([makeHit('b', 0), makeHit('x', 0)])
+
+    const placement = placePinned(
+      hits,
+      [
+        { docId: 'b', position: 0 },
+        { docId: 'x', position: 1 },
+        { docId: 'gone', position: 2 },
+      ],
+      resolver,
+    )
+    expect(placement.hits.map(hit => hit.id)).toEqual(['b', 'x', 'a'])
+    expect(placement.placedFromOutside).toBe(1)
   })
 })

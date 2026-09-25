@@ -122,9 +122,11 @@ export async function executeHybridQuery(
     coverage.queriedPartitions === coverage.totalPartitions &&
     totalHits <= mergedText.length &&
     mergedVector.length < depth
-  const fusedWithPinned =
-    params.pinned !== null ? placePinnedEntries(fused, params.pinned, depth, allMatchesPresent) : fused
-  const truncated = fusedWithPinned.slice(offset, depth)
+  const placement =
+    params.pinned !== null
+      ? placePinnedEntries(fused, params.pinned, depth, allMatchesPresent)
+      : { entries: fused, placedFromOutside: [] }
+  const truncated = placement.entries.slice(offset, depth)
   const mergedFacets = allFacets.length > 0 ? mergeDistributedFacets(allFacets, allFacetBounds, facetSize) : null
 
   return {
@@ -135,5 +137,7 @@ export async function executeHybridQuery(
     groups: mergeGroupsFor(params, allGroups, null),
     cursor: null,
     coverage,
+    pinnedFromOutside: placement.placedFromOutside,
+    mergeHeldEveryMatch: allMatchesPresent,
   }
 }

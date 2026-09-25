@@ -9,7 +9,7 @@ import { distributedCountIsExact, distributedResultToLocal, localParamsToWire } 
 import { routableAllocation } from '../routable-allocation'
 import type { ClusterQueryConfig } from '../types'
 import { assembleDistributedGroups } from './groups'
-import { dropUnstoredPinnedEntries } from './pinned'
+import { countStoredPinsFromOutside, dropUnstoredPinnedEntries } from './pinned'
 import type { ClusterReadDeps } from './scatter'
 
 export { countCluster, partitionStatsCluster, statsCluster } from './counts'
@@ -104,8 +104,15 @@ export async function queryCluster<T = AnyDocument>(
     projection,
     documents,
   )
-  const countExact = distributedCountIsExact(params, distributed.coverage)
-  const result = distributedResultToLocal<T>({ ...distributed, scored }, countExact, documents)
+  const pins = await countStoredPinsFromOutside(deps, indexName, distributed, allocation)
+  let countExact = distributedCountIsExact(params, distributed.coverage)
+  let totalHits = distributed.totalHits
+  if (distributed.mergeHeldEveryMatch === true && pins.everyPinVerified) {
+    totalHits += pins.stored
+  } else if (pins.stored > 0 || !pins.everyPinVerified) {
+    countExact = false
+  }
+  const result = distributedResultToLocal<T>({ ...distributed, scored, totalHits }, countExact, documents)
   const groups = await assembleDistributedGroups(deps, indexName, params, distributed, allocation, projection)
   if (groups !== undefined) {
     result.groups = groups

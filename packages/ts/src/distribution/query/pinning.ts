@@ -43,7 +43,7 @@ export function placePinnedEntries(
   pinned: WirePinnedEntry[],
   depth: number,
   allMatchesPresent: boolean,
-): ScoredEntry[] {
+): { entries: ScoredEntry[]; placedFromOutside: string[] } {
   const deduped = dedupePinnedEntries(pinned)
   const pinnedIds = new Set(deduped.map(entry => entry.docId))
   const removed = new Map<string, ScoredEntry>()
@@ -57,11 +57,13 @@ export function placePinnedEntries(
   }
 
   const ordered = deduped.sort((a, b) => a.position - b.position)
+  const placedFromOutside: string[] = []
   for (const entry of ordered) {
     if (!allMatchesPresent && entry.position >= depth) continue
     const organic = removed.get(entry.docId)
+    if (organic === undefined) placedFromOutside.push(entry.docId)
     const placed: ScoredEntry = { docId: entry.docId, score: 0, sortValues: organic?.sortValues ?? null }
     result.splice(Math.max(0, Math.min(entry.position, result.length)), 0, placed)
   }
-  return result
+  return { entries: result, placedFromOutside }
 }

@@ -1,5 +1,5 @@
 import { applyProjection, type ResolvedProjection } from '../../../core/projection'
-import { foldGroupReducer } from '../../../search/grouping'
+import { foldGroupReducer, hitsKeptPerGroup } from '../../../search/grouping'
 import type { GroupResult, Hit } from '../../../types/results'
 import type { AnyDocument } from '../../../types/schema'
 import type { QueryParams } from '../../../types/search'
@@ -44,8 +44,9 @@ export async function assembleDistributedGroups(
       ? await readDistributedDocuments(deps.config, deps.nodeId, deps.engine, indexName, groupDocIds, allocation)
       : new Map<string, AnyDocument>()
 
+  const keptPerGroup = hitsKeptPerGroup(group.maxPerGroup)
   return wireGroups.map(entry => {
-    const hits: Hit[] = entry.scored.map(scored => ({
+    const hits: Hit[] = entry.scored.slice(0, keptPerGroup).map(scored => ({
       id: scored.docId,
       score: scored.score ?? undefined,
       document: projectedGroupDocument(documents.get(scored.docId), projection),

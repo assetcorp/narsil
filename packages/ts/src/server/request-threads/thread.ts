@@ -2,7 +2,7 @@ import type { QueryParams, SuggestParams } from '../../types/search'
 import type { DirectExecutorExtensions } from '../../workers/direct-executor'
 import { SERVER_CAPABILITIES } from '../capabilities'
 import { createSharedRequestGate } from '../concurrency-gate'
-import { corsWriter } from '../cors'
+import { corsHeaderReader } from '../cors'
 import type { ResolvedLimits } from '../deps'
 import { parseJson, rejectInvalid, respondError, respondJson } from '../handler-utils'
 import { createDocumentReadHandlers } from '../handlers/document-reads'
@@ -139,7 +139,7 @@ export async function serveRequests(
   const run = createRouteRunner({
     authorize: settings.authorizes ? context => relay.authorize(context) : undefined,
     gate: createSharedRequestGate(settings.gate, settings.maxConcurrentRequests, settings.gateSlot),
-    writeCors: settings.cors ? corsWriter(settings.cors) : undefined,
+    corsHeaders: settings.cors ? corsHeaderReader(settings.cors) : undefined,
   })
   registerServerRoutes(app, run, threadHandlers(local, relay, settings), settings.limits, settings.cors)
 

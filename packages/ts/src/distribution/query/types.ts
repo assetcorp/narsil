@@ -27,6 +27,8 @@ export interface DistributedQueryResult {
   groups: WireGroupEntry[] | null
   cursor: string | null
   coverage: QueryCoverage
+  pinnedFromOutside?: string[]
+  mergeHeldEveryMatch?: boolean
 }
 
 export interface QueryRoutingDeps {

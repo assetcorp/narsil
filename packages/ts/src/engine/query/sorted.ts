@@ -2,7 +2,7 @@ import { type ComparableSortValue, compareCodePoints, compareComparableKeys } fr
 import type { SortedPageEntry } from '../../core/partition'
 import { flattenSchema } from '../../schema/validator'
 import { decodePageCursor, encodePageCursor, requireMatchingCursor } from '../../search/cursor'
-import { mergeFacets } from '../../search/facets'
+import { everyValueFacetConfig, mergeFacets } from '../../search/facets'
 import { fulltextMatches } from '../../search/fulltext'
 import { normalizeSort } from '../../search/sorting'
 import type { FacetResult, Hit } from '../../types/results'
@@ -72,15 +72,17 @@ export function executeSortedQueryPage<T = AnyDocument>(
 
   const merged: SortedPageEntry[] = []
   const partitionFacets: Array<Record<string, FacetResult>> = []
+  const partitionFacetConfig =
+    params.facets !== undefined && partitions.length > 1 ? everyValueFacetConfig(params.facets) : params.facets
   let count = 0
 
   for (const partition of partitions) {
     const matches = fulltextMatches(partition, params, language, schema, options)
-    if (params.facets !== undefined) {
+    if (partitionFacetConfig !== undefined) {
       partitionFacets.push(
         partition.computeFacets(
           matches === null ? new Set<string>() : { ordinalBitset: matches.ordinalBitset() },
-          params.facets,
+          partitionFacetConfig,
           schema,
         ),
       )
@@ -121,6 +123,9 @@ export function executeSortedQueryPage<T = AnyDocument>(
     hits: page.map(entry => ({ id: entry.id, document: undefined as unknown as T })),
     count,
     cursor,
-    facets: partitionFacets.length > 0 ? mergeFacets(partitionFacets) : undefined,
+    facets:
+      params.facets !== undefined && partitionFacets.length > 0
+        ? mergeFacets(partitionFacets, params.facets)
+        : undefined,
   }
 }
