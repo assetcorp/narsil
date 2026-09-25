@@ -1,4 +1,5 @@
 import { bitsetAnd, bitsetFromSet, bitsetNot, bitsetSet, createBitSet } from '../../core/bitset'
+import { requirePolygonRing } from '../../geo/polygon'
 import type { ComparisonFilter } from '../../types/filters'
 import {
   convertToMeters,
@@ -312,6 +313,7 @@ export function applyGeoPolygonBitset(
   geoIndex: GeoFieldIndex,
   capacity: number,
 ): Uint32Array {
+  requirePolygonRing(filter.points)
   const setResult = geoIndex.polygonQuery(filter.points, filter.inside ?? true)
   return bitsetFromSet(setResult, capacity)
 }

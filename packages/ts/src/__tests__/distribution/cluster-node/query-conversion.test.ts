@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { localParamsToWire, wireParamsToLocal } from '../../../distribution/cluster-node/query-conversion'
+import {
+  distributedResultToLocal,
+  localParamsToWire,
+  wireParamsToLocal,
+} from '../../../distribution/cluster-node/query-conversion'
 import { queryBindingOf } from '../../../search/cursor-binding'
 import type { QueryParams } from '../../../types/search'
 
@@ -92,5 +96,44 @@ describe('query param wire round trip', () => {
       group: { fields: ['category', 'brand'], maxPerGroup: 2 },
     })
     expect(restored.group).toEqual({ fields: ['category', 'brand'], maxPerGroup: 2 })
+  })
+
+  it('asks each node for one hit per group where the query leaves maxPerGroup out', () => {
+    expect(localParamsToWire({ term: 'keyboard', group: { fields: ['brand'] } }).group?.maxPerGroup).toBe(1)
+  })
+
+  it('asks each node for up to 10,000 hits per group where the query folds a reducer', () => {
+    const wire = localParamsToWire({
+      term: 'keyboard',
+      group: {
+        fields: ['brand'],
+        maxPerGroup: 2,
+        reduce: { reducer: (total, doc) => (total as number) + (doc.price as number), initialValue: () => 0 },
+      },
+    })
+    expect(wire.group?.maxPerGroup).toBe(10_000)
+  })
+})
+
+describe('distributed result conversion', () => {
+  it('sets a facet count to the number of values returned, as the local engine does', () => {
+    const local = distributedResultToLocal(
+      {
+        scored: [],
+        totalHits: 30,
+        facets: {
+          brand: [
+            { value: 'acme', count: 12 },
+            { value: 'globex', count: 10 },
+          ],
+        },
+        facetErrorBounds: { brand: 3 },
+        groups: null,
+        cursor: null,
+        coverage: { totalPartitions: 2, queriedPartitions: 2, timedOutPartitions: 0, failedPartitions: 0 },
+      },
+      true,
+    )
+    expect(local.facets?.brand).toEqual({ values: { acme: 12, globex: 10 }, count: 2, errorBound: 3 })
   })
 })

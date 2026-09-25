@@ -74,3 +74,23 @@ export async function dropUnstoredPinnedEntries<T>(
     entry => !pinnedIds.has(entry.docId) || unverifiable.has(entry.docId) || stored.has(entry.docId),
   )
 }
+
+export async function countStoredPinsFromOutside(
+  deps: ClusterReadDeps,
+  indexName: string,
+  distributed: DistributedQueryResult,
+  allocation: AllocationTable,
+): Promise<{ stored: number; everyPinVerified: boolean }> {
+  const outside = distributed.pinnedFromOutside ?? []
+  if (outside.length === 0) return { stored: 0, everyPinVerified: true }
+  const { verifiable, unverifiable } = splitPinnedByReachability(outside, allocation)
+  const stored: { has(docId: string): boolean } =
+    verifiable.length === 0
+      ? new Set<string>()
+      : await readDistributedDocuments(deps.config, deps.nodeId, deps.engine, indexName, verifiable, allocation)
+  let count = 0
+  for (const docId of verifiable) {
+    if (stored.has(docId)) count++
+  }
+  return { stored: count, everyPinVerified: unverifiable.size === 0 }
+}

@@ -35,7 +35,14 @@ export async function resolveVectorText(
   if (params.vector.text.length === 0) {
     throw new NarsilError(ErrorCodes.DOC_VALIDATION_FAILED, "Vector query 'text' must not be empty")
   }
-  const raw = await embeddingAdapter.embed(params.vector.text, 'query', signal)
+  let raw: unknown
+  try {
+    raw = await embeddingAdapter.embed(params.vector.text, 'query', signal)
+  } catch (err) {
+    if (err instanceof NarsilError) throw err
+    const message = err instanceof Error ? err.message : String(err)
+    throw new NarsilError(ErrorCodes.EMBEDDING_FAILED, `Query embedding failed: ${message}`, { cause: message })
+  }
   if (!(raw instanceof Float32Array)) {
     throw new NarsilError(
       ErrorCodes.EMBEDDING_FAILED,

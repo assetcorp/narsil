@@ -7,7 +7,7 @@ import { flattenSchema } from '../../schema/validator'
 import { decodePageCursor, requireMatchingCursor, sortSignatureOf } from '../../search/cursor'
 import { applyGrouping } from '../../search/grouping'
 import { applyPagination, type PaginationSortContext, requireWithinResultWindow } from '../../search/pagination'
-import { applyPinning } from '../../search/pinning'
+import { placePinned } from '../../search/pinning'
 import { applySorting, normalizeSort, requireSortableFields } from '../../search/sorting'
 import type { FacetResult, GroupResult, Hit, PreflightResult, QueryResult } from '../../types/results'
 import type { AnyDocument } from '../../types/schema'
@@ -156,12 +156,15 @@ export async function executeQuery<T = AnyDocument>(
       groups = applyGrouping(hits, params.group, (docId: string) => manager.getRef(docId) as AnyDocument | undefined)
     }
 
+    let pinsFromOutside = 0
     if (params.pinned && params.searchAfter === undefined && context.partitionIds === undefined) {
-      hits = applyPinning(hits, params.pinned, (docId: string) => {
+      const placement = placePinned(hits, params.pinned, (docId: string) => {
         const doc = manager.getRef(docId)
         if (!doc) return undefined
         return { id: docId, score: 0, document: doc as T }
       })
+      hits = placement.hits
+      pinsFromOutside = placement.placedFromOutside
     }
 
     let sortContext: PaginationSortContext | undefined
@@ -188,8 +191,10 @@ export async function executeQuery<T = AnyDocument>(
     )
     paginated = paged.paginated
     nextCursor = paged.nextCursor
-    count = fanOutResult.totalMatched
-    countExact = fanOutResult.matchedExact !== false
+    const holdsEveryMatch =
+      fanOutResult.matchedExact !== false && fanOutResult.scored.length === fanOutResult.totalMatched
+    count = fanOutResult.totalMatched + (holdsEveryMatch ? pinsFromOutside : 0)
+    countExact = fanOutResult.matchedExact !== false && (holdsEveryMatch || pinsFromOutside === 0)
     facets = fanOutResult.facets
 
     if (sortSignature !== null && params.includeScores !== true) {

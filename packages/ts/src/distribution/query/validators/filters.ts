@@ -1,5 +1,6 @@
 import type { ErrorCode } from '../../../errors'
 import { FIELD_FILTER_OPERATORS, FILTER_EXPRESSION_KEYS } from '../../../filters/keys'
+import { MIN_POLYGON_POINTS } from '../../../geo/constants'
 import { MAX_FILTER_ARRAY_SIZE, MAX_FILTER_DEPTH, MAX_FILTER_FIELDS, MAX_FILTER_STRING_LENGTH } from '../constants'
 import { isFiniteNumber, isRecord, SEARCH_INVALID_FILTER, throwInvalid, validateFieldName } from './common'
 
@@ -129,6 +130,13 @@ function validateGeoPolygon(value: unknown, fieldLabel: string, errorCode: Error
     throwInvalid(errorCode, `Invalid payload: "${fieldLabel}.points" must be an array`)
   }
   const points = value.points
+  if (points.length < MIN_POLYGON_POINTS) {
+    throwInvalid(
+      errorCode,
+      `Invalid payload: "${fieldLabel}.points" needs at least ${MIN_POLYGON_POINTS} points to enclose an area`,
+      { length: points.length, minimum: MIN_POLYGON_POINTS },
+    )
+  }
   if (points.length > MAX_FILTER_ARRAY_SIZE) {
     throwInvalid(
       errorCode,

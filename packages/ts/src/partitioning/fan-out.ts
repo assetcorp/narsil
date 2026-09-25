@@ -1,12 +1,12 @@
 import type { FacetMatchSet, PartitionIndex } from '../core/partition'
 import { kWayMerge } from '../core/partition/scored-merge'
-import { mergeFacets } from '../search/facets'
+import { everyValueFacetConfig, mergeFacets } from '../search/facets'
 import { type FulltextSearchOptions, fulltextSearch } from '../search/fulltext'
 import type { GlobalStatistics, InternalSearchResult, ScoredDocument } from '../types/internal'
 import type { LanguageModule } from '../types/language'
 import type { FacetResult } from '../types/results'
 import type { SchemaDefinition, ScoringMode } from '../types/schema'
-import type { QueryParams } from '../types/search'
+import type { FacetConfig, QueryParams } from '../types/search'
 import { collectQueryTermStats } from './distributed-scoring'
 import type { PartitionManager } from './manager'
 import { partitionsIn } from './partition-selection'
@@ -91,20 +91,21 @@ export async function fanOutQuery(
   if (config.dispatcher) {
     outcomes = await dispatchWithDispatcher(partitions, params, language, schema, options, config.dispatcher)
     if (params.facets) {
-      facets = collectAndMergeFacets(outcomes, params, schema)
+      facets = collectAndMergeFacets(outcomes, params.facets, schema)
     }
   } else {
     outcomes = []
     const partitionFacets: Array<Record<string, FacetResult>> = []
+    const everyValue = params.facets ? everyValueFacetConfig(params.facets) : undefined
     for (const partition of partitions) {
       const result = dispatchSinglePartition(partition, params, language, schema, options)
-      if (params.facets) {
-        partitionFacets.push(partition.computeFacets(facetMatchSetOf(result), params.facets, schema))
+      if (everyValue) {
+        partitionFacets.push(partition.computeFacets(facetMatchSetOf(result), everyValue, schema))
       }
       outcomes.push({ result, partition })
     }
     if (params.facets) {
-      facets = mergeFacets(partitionFacets)
+      facets = mergeFacets(partitionFacets, params.facets)
     }
   }
 
@@ -169,18 +170,17 @@ function dispatchSinglePartition(
 
 function collectAndMergeFacets(
   outcomes: PartitionSearchOutcome[],
-  params: QueryParams,
+  facetConfig: FacetConfig,
   schema: SchemaDefinition,
 ): Record<string, FacetResult> {
+  const everyValue = everyValueFacetConfig(facetConfig)
   const partitionFacets: Array<Record<string, FacetResult>> = []
 
   for (const outcome of outcomes) {
-    if (!params.facets) continue
-    const facetResult = outcome.partition.computeFacets(facetMatchSetOf(outcome.result), params.facets, schema)
-    partitionFacets.push(facetResult)
+    partitionFacets.push(outcome.partition.computeFacets(facetMatchSetOf(outcome.result), everyValue, schema))
   }
 
-  return mergeFacets(partitionFacets)
+  return mergeFacets(partitionFacets, facetConfig)
 }
 
 export { kWayMerge } from '../core/partition/scored-merge'

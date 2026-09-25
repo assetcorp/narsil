@@ -26,7 +26,7 @@ Field conditions belong under `fields`, and the `and`, `or`, and `not` combinato
 
 ## Facets
 
-Facets return value counts alongside the hits for building filter UIs. Each count covers every document the query matches rather than the documents the page returns, so the counts stay the same whatever `limit` you ask for. String and enum facets take a `limit` and a `sort` direction, and numeric facets take explicit `ranges`.
+The engine returns value counts alongside the hits when you ask for facets, which is what a filter panel needs. It counts every document that the query matches, so the counts stay the same whatever page `limit` you ask for. A string or enum facet accepts a `limit` and a `sort` direction, while a numeric facet accepts explicit `ranges`.
 
 ```ts
 const results = await narsil.query('products', {
@@ -37,16 +37,18 @@ const results = await narsil.query('products', {
   },
 })
 
-// results.facets => { category: { values: { electronics: 42, computers: 28 }, count: 70 }, ... }
+// results.facets => { category: { values: { electronics: 42, computers: 28 }, count: 2, errorBound: 0 }, ... }
 ```
+
+Each field's `count` is the number of values that the engine returns for it, which the facet's `limit` caps. Its `errorBound` is the most that any of those counts can fall short of its true count. A value that the engine drops to stay within `limit` matches at most that many documents as well. Where the engine counts a field on one thread, it counts every value exactly, including across the partitions of a large index, so the bound there is the largest count that it drops. Where it splits the count across worker copies or cluster nodes, each of them returns only its own top values. A value that is common overall but rare on one of them can then lose that one's share, which the bound grows to cover.
 
 ## Sort
 
-`sort` orders hits by field values instead of score. Multiple entries apply in order, so the second field breaks ties in the first. When every sort field ties, the engine orders the tied hits by document id.
+`sort` orders hits by field values in place of their scores. The engine compares the entries in order, so the second field breaks ties in the first. When every sort field ties, the engine orders the tied hits by document id.
 
 A sorted query computes no relevance scores, so each hit arrives without a `score`. Pass `includeScores: true` to restore them, and each hit then carries the score it would carry without the sort. A sorted query carrying `minScore` still applies the floor, and it reports the scores only where `includeScores` is true.
 
-A sort names a `number`, a `boolean`, or an `enum` field with no preparation. A sort names a text field only where the schema declares it `string:sortable`, and a sort naming a plain `string` field raises `SEARCH_INVALID_FIELD`. Every other field type, including every array field, counts as missing, so a sort naming one leaves every document equal.
+A sort names a `number`, a `boolean`, or an `enum` field with no preparation. A sort names a text field only where the schema declares it `string:sortable`, and a sort naming a plain `string` field raises `SEARCH_INVALID_FIELD`. A sort naming a `geopoint` or a vector field raises `SEARCH_INVALID_FIELD` as well, because neither type has an order. An array field counts as missing, so a sort naming one leaves every document equal.
 
 The engine compares string values by their Unicode case fold, so `apple` orders between `Apple` and `Banana`. Two values with an equal fold compare by their raw code points. The engine compares only the first 512 code points of a value. The engine reads no locale, so a sorted page is the same on every machine. A sort names at most eight fields, because the paging cursor carries one value for each of them, and each field name holds at most 255 characters.
 
@@ -75,7 +77,7 @@ const results = await narsil.query('sales', {
 
 ## Grouping
 
-`group` collapses hits that share field values. `maxPerGroup` caps how many hits each group keeps, `limit` caps how many groups come back, best first, and an optional reducer folds each group's kept hits into an accumulated value.
+The engine collapses the hits that share field values into one group for each set of values when you set `group`. It returns up to `maxPerGroup` hits from each group, and one hit where you leave that out, while it returns up to `limit` groups, best first. An optional reducer folds every hit of each group into one value, including the hits beyond `maxPerGroup`, so a reducer that sums a field adds up the whole group. In cluster mode the coordinator fetches up to 10,000 hits of each group to fold.
 
 ```ts
 const results = await narsil.query('products', {
@@ -141,7 +143,9 @@ const total = result.countExact ? `${result.count}` : `${result.count} or more`
 
 ## Pinning
 
-`pinned` places specific documents at fixed positions in the ranked results, which serves sponsored or editorial placements. Positions are zero-based, and they count from the top of the whole result set, so a page reached with `searchAfter` carries no pinned placements. A cursor anchors on the last result that is not a placement, and a page holding only placements returns no cursor.
+The engine places each `pinned` document at a fixed position in the ranked results, which is how you show a sponsored or editorial placement. The engine counts positions from zero at the top of the whole result set, so a page reached with `searchAfter` holds no pinned placements. It anchors a cursor on the last result that is not a placement, so a page that holds only placements comes back with no cursor.
+
+The engine also counts each pinned document that the query never matched in `count`, since that document appears among the hits. Where the engine fetches only a fraction of the matches, as it does for a vector search over a field that has grown a graph, a pinned document from outside those hits may or may not be a match. The engine then leaves that document out of `count` and reports `countExact` as false.
 
 ```ts
 const results = await narsil.query('products', {

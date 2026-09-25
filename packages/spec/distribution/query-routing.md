@@ -196,7 +196,7 @@ Each data node groups its own matches and returns, per group, the group's field 
 
 With no `group.limit`, every node returns every group and the merged groups are exact. With one, each node returns its top `ceiling(limit * 1.5) + 10` groups, oversampling the way [Distributed Facets](#distributed-facets) do, so a merged group's entries can miss members held by a node where the group fell below that bound.
 
-A group reducer is a function, so it never crosses the wire. The coordinator holds the caller's reducer in-process and folds it over each merged group's fetched documents, and the HTTP server continues to refuse `group.reduce`. A hybrid query groups its text fan-out alone, as it counts facets.
+A group reducer is a function, so it never crosses the wire, and the coordinator holds the caller's reducer in-process. Where a query carries a reducer, the coordinator must request up to 10,000 entries of each group from every data node, and it must fold the reducer over every entry of each merged group before it truncates the entries to the caller's `maxPerGroup`. The HTTP server refuses `group.reduce`. A hybrid query groups its text fan-out alone, as it counts facets.
 
 ---
 

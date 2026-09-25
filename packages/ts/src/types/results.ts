@@ -17,7 +17,9 @@ export interface QueryResult<T = AnyDocument> {
    * This many documents match in total, before `limit` and `offset` apply.
    * For a keyword search the engine counts every match. For a vector search
    * it counts every vector that the query's filter and its `similarity` floor
-   * admit, which is the whole field where the query sets neither of them.
+   * admit, which is the whole field where the query sets neither of them. The
+   * engine also counts each pinned document that the query never matched,
+   * since it places that document among the hits.
    */
   count: number
   /**
@@ -27,7 +29,10 @@ export interface QueryResult<T = AnyDocument> {
    * engine counts only the vectors that it fetches, because it reads a
    * fraction of such a field. For a hybrid query the engine fuses two
    * rankings, so the count is exact only where both of those rankings return
-   * every document that they match.
+   * every document that they match. Where you pin a document from outside the
+   * hits that the engine fetches, the engine reports true only where it holds
+   * every match of the query, because only then can it tell whether the query
+   * matched that document.
    */
   countExact: boolean
   /** The engine spent this many milliseconds on the search. */
@@ -136,13 +141,18 @@ export interface HighlightMatch {
 export interface FacetResult {
   /** This many documents matched per value, keyed by value. */
   values: Record<string, number>
-  /** The field held this many distinct values across the matching documents. */
+  /** This is the number of entries in `values`, which the engine caps at the facet's `limit`. */
   count: number
   /**
-   * No value's count is short by more than this. Counting runs per partition
-   * and each one reports only its own top values, so a value that is common
-   * overall but ranks low on a partition loses that partition's share. A bound
-   * of 0 means every count here is exact.
+   * Every count in `values` is at most this far below its true count. A value
+   * that the engine drops to stay within `limit` has a true count of at most
+   * this figure as well. Where the engine counts a field on one thread, it
+   * counts every value exactly, so this figure is the largest count that it
+   * drops. Where it splits the count across worker copies or cluster nodes,
+   * each of them returns only its own top values, so a value that is common
+   * overall but rare on one of them can lose that one's share. A bound of 0
+   * means that `values` holds every value that matched, each with its exact
+   * count.
    */
   errorBound: number
 }

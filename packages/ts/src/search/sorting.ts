@@ -7,6 +7,7 @@ import {
 } from '../core/ordering'
 import { ErrorCodes, NarsilError } from '../errors'
 import { flattenSchema, SORTABLE_TEXT_FIELD_TYPE } from '../schema/validator'
+import { VECTOR_PATTERN } from '../schema/validator/shared'
 import type { Hit } from '../types/results'
 import type { AnyDocument, SchemaDefinition } from '../types/schema'
 import type { SortField, SortSpec } from '../types/search'
@@ -32,12 +33,21 @@ export function requireSortableFields(sort: SortSpec | undefined, schema: Schema
 
   const flatSchema = flattenSchema(schema)
   for (const entry of fields) {
-    if (flatSchema[entry.field] !== 'string') continue
-    throw new NarsilError(
-      ErrorCodes.SEARCH_INVALID_FIELD,
-      `A sort names text field "${entry.field}" only where the schema declares it "${SORTABLE_TEXT_FIELD_TYPE}", because ordering text costs far more memory per document than ordering a number`,
-      { field: entry.field, fieldType: 'string' },
-    )
+    const fieldType = flatSchema[entry.field]
+    if (fieldType === 'string') {
+      throw new NarsilError(
+        ErrorCodes.SEARCH_INVALID_FIELD,
+        `A sort names text field "${entry.field}" only where the schema declares it "${SORTABLE_TEXT_FIELD_TYPE}", because ordering text costs far more memory per document than ordering a number`,
+        { field: entry.field, fieldType },
+      )
+    }
+    if (fieldType === 'geopoint' || (fieldType !== undefined && VECTOR_PATTERN.test(fieldType))) {
+      throw new NarsilError(
+        ErrorCodes.SEARCH_INVALID_FIELD,
+        `A sort orders by a number, boolean, enum, or sortable text field, and "${entry.field}" is a ${fieldType} field`,
+        { field: entry.field, fieldType },
+      )
+    }
   }
 }
 

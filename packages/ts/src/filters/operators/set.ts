@@ -1,3 +1,4 @@
+import { requirePolygonRing } from '../../geo/polygon'
 import type { ComparisonFilter } from '../../types/filters'
 import {
   convertToMeters,
@@ -330,5 +331,6 @@ export function applyGeoPolygon(
   filter: { points: Array<{ lat: number; lon: number }>; inside?: boolean },
   geoIndex: GeoFieldIndex,
 ): Set<number> {
+  requirePolygonRing(filter.points)
   return geoIndex.polygonQuery(filter.points, filter.inside ?? true)
 }

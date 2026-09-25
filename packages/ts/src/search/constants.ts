@@ -8,6 +8,8 @@ export const MAX_CURSOR_ANCHOR_CODE_POINTS = 512
 
 export const PREFIX_MAX_EXPANSIONS = 50
 
+export const DEFAULT_MAX_PER_GROUP = 1
+
 export const DEFAULT_RANK_CONSTANT = 60
 export const MIN_RANK_CONSTANT = 1
 export const DEFAULT_LINEAR_ALPHA = 0.5

@@ -1,9 +1,11 @@
 import { DEFAULT_PAGE_SIZE } from '../../search/constants'
+import { hitsKeptPerGroup } from '../../search/grouping'
 import { clampRowCount } from '../../search/pagination'
 import { normalizeSort } from '../../search/sorting'
 import type { FacetResult, QueryCoverage, QueryResult } from '../../types/results'
 import type { AnyDocument } from '../../types/schema'
 import type { FacetConfig, QueryParams } from '../../types/search'
+import { MAX_LIMIT } from '../query/constants'
 import type { DistributedQueryResult } from '../query/types'
 import type {
   SortField,
@@ -169,7 +171,7 @@ function convertLocalGroupToWire(group: QueryParams['group']): WireGroupConfig |
   }
   return {
     fields: [...group.fields],
-    maxPerGroup: group.maxPerGroup ?? 1,
+    maxPerGroup: group.reduce !== undefined ? MAX_LIMIT : hitsKeptPerGroup(group.maxPerGroup),
     limit: group.limit ?? null,
   }
 }
@@ -214,12 +216,10 @@ function convertWireFacetsToLocal(
   const result: Record<string, FacetResult> = {}
   for (const [field, buckets] of Object.entries(wireFacets)) {
     const values: Record<string, number> = {}
-    let totalCount = 0
     for (const bucket of buckets) {
       values[bucket.value] = bucket.count
-      totalCount += bucket.count
     }
-    result[field] = { values, count: totalCount, errorBound: errorBounds?.[field] ?? 0 }
+    result[field] = { values, count: buckets.length, errorBound: errorBounds?.[field] ?? 0 }
   }
   return result
 }

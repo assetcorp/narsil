@@ -225,11 +225,11 @@ async function executeSingleFanOut(
         )
       : mergeAndTruncateScoredEntries(allScored, depth)
   const allMatchesPresent = coverage.queriedPartitions === coverage.totalPartitions && totalHits <= merged.length
-  const placed =
+  const placement =
     params.pinned !== null && params.searchAfter === null
       ? placePinnedEntries(merged, params.pinned, depth, allMatchesPresent)
-      : merged
-  const mergedScored = placed.slice(offset, depth)
+      : { entries: merged, placedFromOutside: [] }
+  const mergedScored = placement.entries.slice(offset, depth)
   const mergedFacets = allFacets.length > 0 ? mergeDistributedFacets(allFacets, allFacetBounds, facetSize) : null
   const mergedGroups = mergeGroupsFor(params, allGroups, sortFields)
 
@@ -266,6 +266,8 @@ async function executeSingleFanOut(
     groups: mergedGroups,
     cursor,
     coverage,
+    pinnedFromOutside: placement.placedFromOutside,
+    mergeHeldEveryMatch: allMatchesPresent,
   }
 }
 

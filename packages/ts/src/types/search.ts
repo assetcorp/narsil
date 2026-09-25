@@ -94,11 +94,16 @@ export interface QueryParams {
   /** These settings name the fields the query counts values for, and control how each count is cut and sorted. */
   facets?: FacetConfig
   /**
-   * This sorts the hits by field value, which replaces the relevance ranking.
-   * Pass an object keyed by field, or a list of fields in the order they
-   * apply. Fusion defines the order of hybrid results, so a hybrid query takes
-   * no sort. The engine throws `SEARCH_INVALID_MODE` for a query that sets
-   * both.
+   * The engine sorts the hits by the values of these fields, in place of the
+   * relevance ranking. Pass an object keyed by field, or a list of fields in
+   * the order that the engine compares them. A sort can name a `number`,
+   * `boolean`, `enum`, or `string:sortable` field. The engine throws
+   * `SEARCH_INVALID_FIELD` for a sort on a plain `string`, a `geopoint`, or a
+   * vector field, because ordering a plain string takes far more memory per
+   * document than ordering a number, while the other two types have no order.
+   * The engine
+   * orders hybrid results by fusion, so it throws `SEARCH_INVALID_MODE` for a
+   * hybrid query that sets a sort.
    */
   sort?: SortSpec
   /** These settings collapse the hits into groups by field value. */
@@ -248,11 +253,11 @@ export interface HybridConfig {
 export interface FacetConfig {
   /** Each key names a field the query counts values for. */
   [field: string]: {
-    /** The facet returns this many values for the field, most frequent first. */
+    /** The engine returns this many values for the field, in the order that `sort` sets. */
     limit?: number
-    /** This orders the returned values by their count. */
+    /** The engine orders the returned values by their count, putting the highest first under `'desc'`, which is the default, and the lowest first under `'asc'`. */
     sort?: 'asc' | 'desc'
-    /** These ranges bucket a numeric field, instead of counting each value. */
+    /** The engine counts a numeric field's matches into these ranges, with one count for each range. */
     ranges?: Array<{ from: number; to: number }>
   }
 }
@@ -265,11 +270,15 @@ export interface FacetConfig {
 export interface GroupConfig {
   /** The values of these fields define a group, and several fields group by their combination. */
   fields: string[]
-  /** Each group keeps this many hits, and one by default, which is the collapse behaviour. */
+  /** The engine returns this many hits from each group, best first, and one hit where you leave this out. */
   maxPerGroup?: number
-  /** The result keeps this many groups, best first, and every group without it. */
+  /** The engine returns this many groups, best first, and every group where you leave this out. */
   limit?: number
-  /** This folds each group's hits into one value, such as a sum or an average. */
+  /**
+   * The engine folds every hit of each group into one value, such as a sum or
+   * an average, including the hits beyond `maxPerGroup`. In cluster mode the
+   * coordinator fetches up to 10,000 hits of each group to fold.
+   */
   reduce?: GroupReducer
 }
 

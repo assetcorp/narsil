@@ -184,13 +184,17 @@ A search against a multi-partition index runs on a coordinator that queries ever
 3. Collect the results from every partition.
 4. Merge them into one sorted list.
 5. Apply limit and offset, or the searchAfter cursor.
-6. Count facets over every matching document and sum the counts,
-   when facets are requested.
-7. Merge groups by group key, keeping maxPerGroup, when groups
-   are requested.
+6. Count facets over every matching document, sum the counts
+   across the partitions, and cut each field to its limit, when
+   facets are requested.
+7. Merge groups by group key, keeping maxPerGroup hits in each,
+   1 where the query omits it, and fold the group reducer over
+   every hit of each group, when groups are requested.
 8. Encode the cursor for the next page, when there is one.
 9. Return the merged result.
 ```
+
+Each partition must count every value of a faceted field, so that the summed counts are exact. An implementation that splits the partitions across threads may instead oversample each thread's values the way [Distributed Facets](distribution/query-routing.md#distributed-facets) oversamples each node's.
 
 ### Hybrid Search
 
@@ -231,7 +235,7 @@ A query pages no further than the first 10,000 results, which is the result wind
 
 An implementation pages a vector search no further than the window, because it reaches a rank in an approximate index only by fetching every result above that rank. It must therefore fetch `d + offset + limit + 1` results for each such page, capped at the window, where `d` is the cursor's depth field. It must raise `SEARCH_RESULT_WINDOW_EXCEEDED` where `d + offset + limit` exceeds the window.
 
-An implementation reports in `count` how many documents the query matches, and in `countExact` whether that figure is the total or a floor under it. It must count every match for a keyword search and must set `countExact` true. For a vector search, it must count every vector that the query's filters and its `similarity` floor admit, and it must set `countExact` true only where it scores every one of those vectors. For a hybrid search, it must set `countExact` true only where both the text ranking and the vector ranking return every document that they match.
+An implementation reports in `count` how many documents the query matches, and in `countExact` whether that figure is the total or a floor under it. It must count every match for a keyword search and must set `countExact` true. For a vector search, it must count every vector that the query's filters and its `similarity` floor admit, and it must set `countExact` true only where it scores every one of those vectors. For a hybrid search, it must set `countExact` true only where both the text ranking and the vector ranking return every document that they match. Where it holds every match, it must add to `count` each pinned document that it places and that the query does not match. Where it holds a fraction of the matches and places a pinned document from outside them, it must leave that document out of `count` and set `countExact` false.
 
 ### Offset and Limit
 
