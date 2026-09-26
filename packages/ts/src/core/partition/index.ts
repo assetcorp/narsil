@@ -15,7 +15,7 @@ import type { AnyDocument, SchemaDefinition } from '../../types/schema'
 import type { FacetConfig } from '../../types/search'
 import { createDocumentStore } from '../document-store'
 import { createInvertedIndex } from '../inverted-index'
-import type { ComparableSortValue } from '../ordering'
+import type { ComparableSortValue, SortMode } from '../ordering'
 import { cloneProjected, type ResolvedProjection } from '../projection'
 import { createPartitionStats } from '../statistics'
 import { createSurfaceRegistry } from '../surface-registry'
@@ -317,8 +317,9 @@ export function createPartitionIndex(partitionId: number, trackPositions = true)
       docId: string,
       fields: readonly string[],
       fieldTypes: readonly (string | undefined)[],
+      modes: readonly SortMode[],
     ): ComparableSortValue[] {
-      return sortValuesOf(state, docId, fields, fieldTypes)
+      return sortValuesOf(state, docId, fields, fieldTypes, modes)
     },
 
     applyFilters(filters: FilterExpression, schema: SchemaDefinition): Set<string> {

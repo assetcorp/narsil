@@ -1,6 +1,7 @@
 import { compareCodePoints, compareComparableKeys } from '../../core/ordering'
 import type { PartitionFilterMatches, PartitionIndex, SortedPageEntry } from '../../core/partition'
 import { resolveProjection } from '../../core/projection'
+import { requireValidFilter } from '../../filters/operands'
 import type { PartitionManager } from '../../partitioning/manager'
 import { flattenSchema } from '../../schema/validator'
 import {
@@ -12,7 +13,7 @@ import {
 } from '../../search/cursor'
 import { listBindingOf } from '../../search/cursor-binding'
 import { requireWithinResultWindow } from '../../search/pagination'
-import { normalizeSort, requireSortableFields } from '../../search/sorting'
+import { normalizeSort, requireSortableFields, sortModesOf } from '../../search/sorting'
 import type { FilterExpression } from '../../types/filters'
 import type { ListedDocument, ListResult } from '../../types/results'
 import type { AnyDocument, SchemaDefinition } from '../../types/schema'
@@ -132,6 +133,7 @@ function pageInSortOrder(
     fields,
     directions,
     fieldTypes,
+    modes: sortModesOf(normalized),
     limit: limit + 1,
     anchorKey: cursor === null ? null : cursor.sortKey,
     anchorId: cursor === null ? null : cursor.anchor,
@@ -184,6 +186,7 @@ export function executeListDocuments<T = AnyDocument>(params: ListParams, contex
   const limit = clampListLimit(params.limit)
   const signature = sortSignatureOf(params.sort)
   requireSortableFields(params.sort, schema)
+  if (params.filters !== undefined) requireValidFilter(params.filters, flattenSchema(schema))
 
   const binding = listBindingOf(params.filters)
   let cursor: PageCursor | null = null

@@ -1,5 +1,5 @@
 import type { ResolvedAnalysis } from '../../analysis/registry'
-import type { ComparableSortValue } from '../../core/ordering'
+import type { ComparableSortValue, SortMode } from '../../core/ordering'
 import type { PartitionIndex, PartitionInsertOptions } from '../../core/partition'
 import type { LiveTailFreezer } from '../../core/partition/composite/compaction'
 import type { FrozenSegment } from '../../core/partition/frozen'
@@ -40,6 +40,7 @@ export interface PartitionManager {
     docId: string,
     fields: readonly string[],
     fieldTypes: readonly (string | undefined)[],
+    modes: readonly SortMode[],
   ): ComparableSortValue[]
   has(docId: string): boolean
   partitionIdOf(docId: string): number | undefined

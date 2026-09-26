@@ -133,7 +133,7 @@ function validateGeoPolygon(value: unknown, fieldLabel: string, errorCode: Error
   if (points.length < MIN_POLYGON_POINTS) {
     throwInvalid(
       errorCode,
-      `Invalid payload: "${fieldLabel}.points" needs at least ${MIN_POLYGON_POINTS} points to enclose an area`,
+      `Invalid payload: "${fieldLabel}.points" must hold at least ${MIN_POLYGON_POINTS} points to enclose an area`,
       { length: points.length, minimum: MIN_POLYGON_POINTS },
     )
   }

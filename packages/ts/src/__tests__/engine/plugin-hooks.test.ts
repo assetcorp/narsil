@@ -103,4 +103,32 @@ describe('plugin hooks around reads and index lifecycle', () => {
     expect(written.succeeded).toEqual(['one', 'two', 'three'])
     expect(seen).toEqual(['one', 'two', 'three'])
   })
+
+  it.each([
+    [
+      'a synchronous',
+      (): void => {
+        throw new Error('A ticket needs a subject')
+      },
+    ],
+    [
+      'an asynchronous',
+      async (): Promise<void> => {
+        throw new Error('A ticket needs a subject')
+      },
+    ],
+  ])('rejects a write from %s before hook in one shape, alone and in a batch', async (_, reject) => {
+    const plugin: NarsilPlugin = { name: 'triage', beforeInsert: reject, beforeUpdate: reject, beforeRemove: reject }
+    narsil = await createNarsil({ ...WORKERS_OFF, plugins: [plugin] })
+    await narsil.createIndex('docs', { schema, language: 'english' })
+    const rejection = {
+      code: 'DOC_VALIDATION_FAILED',
+      message: 'A ticket needs a subject',
+      details: { plugin: 'triage', hook: 'beforeInsert' },
+    }
+
+    await expect(narsil.insert('docs', { title: 'no subject' }, 't1')).rejects.toMatchObject(rejection)
+    const batch = await narsil.insertBatch('docs', [{ id: 't2', title: 'no subject' }])
+    expect(batch.failed[0].error).toMatchObject(rejection)
+  })
 })

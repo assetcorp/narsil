@@ -1,10 +1,13 @@
 import type { PartitionIndex } from '../../core/partition'
 import { ErrorCodes, NarsilError } from '../../errors'
+import { requireValidFilter } from '../../filters/operands'
 import { pruneStatsToQueryTerms } from '../../partitioning/distributed-scoring'
 import type { FanOutConfig, FanOutResult } from '../../partitioning/fan-out'
 import type { PartitionManager } from '../../partitioning/manager'
 import { partitionsIn } from '../../partitioning/partition-selection'
+import { flattenSchema } from '../../schema/validator'
 import type { FulltextSearchOptions } from '../../search/fulltext'
+import type { FilterExpression } from '../../types/filters'
 import type { GlobalStatistics, ScoredDocument } from '../../types/internal'
 import type { LanguageModule } from '../../types/language'
 import type { QueryCoverage } from '../../types/results'
@@ -170,6 +173,10 @@ export function requireKnownMode(params: QueryParams): void {
     `A search takes the mode "fulltext", "vector", or "hybrid", while this query names "${String(params.mode)}"`,
     { mode: String(params.mode), modes: [...SEARCH_MODES] },
   )
+}
+
+export function requireValidQueryFilter(filters: FilterExpression | undefined, schema: IndexConfig['schema']): void {
+  if (filters !== undefined) requireValidFilter(filters, flattenSchema(schema))
 }
 
 export function requireVectorSearchable(params: QueryParams, context: QueryContext, needsVector: boolean): void {

@@ -3,6 +3,7 @@ import { ErrorCodes, NarsilError } from '../../errors'
 import { decodePageCursor, encodePageCursor, requireMatchingCursor } from '../../search/cursor'
 import { queryBindingOf } from '../../search/cursor-binding'
 import { requireWithinResultWindow } from '../../search/pagination'
+import { sortSignatureEntry } from '../../search/sorting'
 import { wireParamsToLocal } from '../cluster-node/query-conversion'
 import type {
   FacetBucket,
@@ -28,7 +29,7 @@ export type { QueryRoutingDeps }
 
 function wireSortSignature(sort: SortField[] | null): string | null {
   if (sort === null || sort.length === 0) return null
-  return JSON.stringify(sort.map(field => [field.field, field.direction]))
+  return JSON.stringify(sort.map(sortSignatureEntry))
 }
 
 function resolveAndClampFacetSize(paramsFacetSize: number | null, configDefault: number): number {

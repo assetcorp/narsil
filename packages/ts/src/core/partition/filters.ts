@@ -81,6 +81,7 @@ export function buildFilterContext(state: PartitionReadState, schema: SchemaDefi
   let cachedAllDocIdsBitset: Uint32Array | null = null
 
   return {
+    fieldTypes: flat,
     fieldIndexes,
     getFieldValue: (internalId: number, fieldPath: string) =>
       getFieldValueByInternalId(state.docStore, internalId, fieldPath),

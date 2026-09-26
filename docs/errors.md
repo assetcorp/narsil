@@ -14,7 +14,7 @@ try {
 }
 ```
 
-You handle these codes most often:
+The codes in this table are the ones that callers handle most often:
 
 | Code | Thrown when |
 | --- | --- |
@@ -26,7 +26,7 @@ You handle these codes most often:
 | `EMBEDDING_FAILED` / `EMBEDDING_CONFIG_INVALID` | An adapter call fails, or the embedding configuration is contradictory. |
 | `PARTITION_CAPACITY_EXCEEDED` / `PARTITION_REBALANCING_BACKPRESSURE` | An insert passes the capacity cap, or a config change collides with a running reshape. |
 | `INDEX_REOPEN_CAPACITY_EXHAUSTED` | The number of callers waiting for one index to reopen goes over `lifecycle.maxReopenWaiters`. See [Index lifecycle](persistence-and-durability.md#index-lifecycle). |
-| `INSTANCE_SHUT_DOWN` | A call reaches an instance after `shutdown()`, and the HTTP server answers it with 503. |
+| `INSTANCE_SHUT_DOWN` | A caller uses an instance after its `shutdown()`, and the HTTP server returns status 503 for that call. |
 | `LANGUAGE_NOT_SUPPORTED` | An index config names a language module that the caller never imports. |
 | `COORDINATOR_DEPENDENCY_MISSING` / `TRANSPORT_DEPENDENCY_MISSING` | The etcd coordinator or the gRPC transport cannot load its optional peer package. See [Build a node](cluster.md#build-a-node). |
 | `CONFIG_INVALID` | A configuration value is out of range or contradictory, or the HTTP server cannot load `uWebSockets.js`. |

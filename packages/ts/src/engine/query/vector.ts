@@ -34,7 +34,7 @@ export function vectorFetchDepth(limit: number, offset: number, cursorDepth: num
   if (reach > RESULT_WINDOW) {
     throw new NarsilError(
       ErrorCodes.SEARCH_RESULT_WINDOW_EXCEEDED,
-      `A vector search reaches the first ${RESULT_WINDOW} results, and this page ends at ${reach}. Narrow the search with a filter or a similarity floor`,
+      `The engine pages a vector search through the first ${RESULT_WINDOW} results, and this page ends at ${reach}. Narrow the search with a filter or a similarity floor`,
       { limit, offset, cursorDepth, window: RESULT_WINDOW },
     )
   }

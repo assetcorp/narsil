@@ -81,7 +81,7 @@ export function convertWireSortToLocal(wireSort: SortField[] | null): SortField[
   if (wireSort === null || wireSort.length === 0) {
     return undefined
   }
-  return wireSort.map(entry => ({ field: entry.field, direction: entry.direction }))
+  return normalizeSort(wireSort)
 }
 
 export function convertWireFacetConfigToLocal(facets: string[] | null, limit: number | null): FacetConfig | undefined {

@@ -1,5 +1,6 @@
 import type { EngineCore } from '../engine/core'
 import { executeListDocuments } from '../engine/list-documents'
+import { yieldToEventLoop } from '../engine/orchestration/turn'
 import { executePreflight, executeQuery } from '../engine/query'
 import { resolveVectorText } from '../engine/resolve-vector-text'
 import { executeSuggest } from '../engine/suggest'
@@ -41,6 +42,7 @@ export async function runEngineQuery<T = AnyDocument>(
   options?: ScopedReadOptions,
 ): Promise<QueryResult<T>> {
   core.guardShutdown()
+  if (core.rebalancingIndexes.has(indexName)) await yieldToEventLoop()
   const release = await core.indexState.acquire(indexName)
   try {
     const entry = core.requireIndex(indexName)
@@ -97,6 +99,7 @@ export async function runEnginePreflight(
   options?: ScopedReadOptions,
 ): Promise<PreflightResult> {
   core.guardShutdown()
+  if (core.rebalancingIndexes.has(indexName)) await yieldToEventLoop()
   const release = await core.indexState.acquire(indexName)
   try {
     const entry = core.requireIndex(indexName)
@@ -140,6 +143,7 @@ export async function runEngineSuggest(
   partitionIds?: number[],
 ): Promise<SuggestResult> {
   core.guardShutdown()
+  if (core.rebalancingIndexes.has(indexName)) await yieldToEventLoop()
   const release = await core.indexState.acquire(indexName)
   try {
     const result = executeSuggest(
@@ -182,6 +186,7 @@ export async function runEngineQueryStats(
   partitionIds?: number[],
 ): Promise<PartitionQueryStats> {
   core.guardShutdown()
+  if (core.rebalancingIndexes.has(indexName)) await yieldToEventLoop()
   const release = await core.indexState.acquire(indexName)
   try {
     const entry = core.requireIndex(indexName)
@@ -213,6 +218,7 @@ export async function runEngineListDocuments<T = AnyDocument>(
   partitionIds?: number[],
 ): Promise<ListResult<T>> {
   core.guardShutdown()
+  if (core.rebalancingIndexes.has(indexName)) await yieldToEventLoop()
   const release = await core.indexState.acquire(indexName)
   try {
     const entry = core.requireIndex(indexName)

@@ -17,7 +17,7 @@ await narsil.rebalance('logs', 8)
 await narsil.updatePartitionConfig('logs', { maxDocsPerPartition: 500_000 })
 ```
 
-`rebalance(indexName, targetPartitionCount)` reshapes the index to a new partition count while it stays online. Writes arriving during the reshape buffer in a write-ahead queue and replay in order when the reshape completes, and queries keep answering throughout.
+`rebalance(indexName, targetPartitionCount)` reshapes the index to a new partition count while it stays online. Writes arriving during the reshape buffer in a write-ahead queue and replay in order when the reshape completes, and queries keep answering throughout. While a reshape runs, the engine starts each read on the index one turn of the event loop late, so the reshape keeps moving even while a caller sends one query straight after another.
 
 `updatePartitionConfig` adjusts `maxDocsPerPartition`, `maxPartitions`, and `watermark` at runtime, and it writes the new limits into durability metadata, so they survive recovery. Three checks reject a change: a `maxPartitions` below the current partition count and a new capacity (`maxDocsPerPartition` times the current partition count) below the current document count both fail with `PARTITION_CAPACITY_EXCEEDED`, and any change while a rebalance runs fails with `PARTITION_REBALANCING_BACKPRESSURE`.
 
@@ -42,6 +42,8 @@ const narsil = await createNarsil({
   },
 })
 ```
+
+Each worker thread loads its entry from a file beside the package's own module, so keep `@delali/narsil` outside an application bundle, as `serverExternalPackages` does for Next.js and `--external` does for esbuild. Where a bundler folds the package into a bundle, `createNarsil` fails with `CONFIG_INVALID` unless `workers.enabled` is `false`, because a worker loaded from the bundle would start the application again.
 
 `workers.count` is the thread budget the keyword copies and the vector search pool share between them, half each in an embedded engine. It defaults to the host's cores minus one, between 2 and 8, so a budget of 4 runs two keyword copies and two vector search workers, while the HTTP server holds a copy on all four and receives requests on them.
 

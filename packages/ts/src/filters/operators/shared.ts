@@ -57,7 +57,7 @@ export function convertToMeters(distance: number, unit: 'km' | 'mi' | 'm'): numb
   if (unit === 'm') return distance
   throw new NarsilError(
     ErrorCodes.SEARCH_INVALID_FILTER,
-    `A radius takes "km", "mi", or "m" as its unit, and "${String(unit)}" is none of them`,
+    `The engine measures a radius in "km", "mi", or "m", and "${String(unit)}" is none of them`,
     { unit: String(unit) },
   )
 }

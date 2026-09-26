@@ -1,7 +1,9 @@
 import { createPartitionIndex } from '../../core/partition'
+import { requireKnownConfig } from '../../engine/config-keys'
 import { createEngineCore, type EngineCore } from '../../engine/core'
 import { createEngineIndex } from '../../engine/index-lifecycle'
 import { checkHeapAfterRecovery } from '../../engine/notifiers'
+import { requireRunnableEnvironment } from '../../engine/startup-checks'
 import { ErrorCodes, NarsilError } from '../../errors'
 import { getLanguage } from '../../languages/registry'
 import type { Narsil } from '../../narsil'
@@ -70,6 +72,8 @@ export async function createClusterLocalEngine(
     onIndexClose?(indexName: string): void | Promise<void>
   },
 ): Promise<ClusterLocalEngine> {
+  requireKnownConfig(config)
+  await requireRunnableEnvironment(config)
   const core = createEngineCore(config, hooks)
   if (core.durability !== null) {
     await core.durability.manager.recover(config?.lifecycle !== undefined)

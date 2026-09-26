@@ -1,4 +1,4 @@
-import { type ComparableSortValue, toComparableSortValue } from '../../ordering'
+import type { ComparableSortValue } from '../../ordering'
 import { SORT_VALUE_MAX_CODE_POINTS } from '../../ordering/constants'
 
 export type ValueStoreKind = 'number' | 'boolean' | 'mixed'
@@ -15,7 +15,7 @@ const STRING_HEADER_BYTES = 24
 
 export interface ValueStore {
   readonly kind: ValueStoreKind
-  set(internalId: number, value: unknown): void
+  set(internalId: number, comparable: ComparableSortValue): void
   clear(internalId: number): void
   get(internalId: number): ComparableSortValue
   estimateBytes(): number
@@ -88,8 +88,7 @@ export function createValueStore(initialKind: ValueStoreKind): ValueStore {
       return kind
     },
 
-    set(internalId: number, value: unknown): void {
-      const comparable = toComparableSortValue(value)
+    set(internalId: number, comparable: ComparableSortValue): void {
       if (kind === 'number') {
         if (comparable === null) {
           setNumber(internalId, Number.NaN)

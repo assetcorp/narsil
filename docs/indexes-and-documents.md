@@ -40,7 +40,7 @@ await narsil.createIndex('articles', {
 | `vectorPromotion` | `VectorIndexConfig` | Tunes the HNSW promotion threshold, graph parameters, and quantization. See [Vector search](vector-search.md#vector-search). |
 | `strict` | `boolean` | Rejects documents that carry fields missing from the schema. |
 | `embedding` | `EmbeddingFieldConfig` | Maps text fields to vector fields for auto-embedding. See [Embedding adapters](embedding-adapters.md#embedding-adapters). |
-| `required` | `string[]` | Lists fields a document must carry; inserts without them fail with `DOC_MISSING_REQUIRED_FIELD`. |
+| `required` | `string[]` | Lists the fields that every document must hold. An insert or an update of a document that lacks one fails with `DOC_MISSING_REQUIRED_FIELD`, alone and in a batch. |
 
 ### Index management
 
@@ -56,7 +56,7 @@ await narsil.clear('articles')
 await narsil.dropIndex('articles')
 ```
 
-`clear` removes every document but keeps the index and its schema. `dropIndex` removes the index entirely, including its persisted data. Call `shutdown()` when the process is done with the engine; it stops workers, flushes durability state, and rejects every later call with `INSTANCE_SHUT_DOWN`.
+`clear` removes every document but keeps the index and its schema. `dropIndex` removes the index entirely, including its persisted data. Call `shutdown()` once you have finished with the engine. The call stops the workers and flushes the durability state, after which the engine throws `INSTANCE_SHUT_DOWN` for every later call.
 
 With durability configured, `close(indexName)` releases an index's memory and keeps its files on disk, and `open(indexName)` reopens the index. This is how one engine can hold more indexes than fit in memory. Read each entry's `state` and `reopenCount` to see whether the engine has the index in memory and how many times it has reopened it. For a closed index, the engine reports the `documentCount` from its last checkpoint. See [Index lifecycle](persistence-and-durability.md#index-lifecycle).
 

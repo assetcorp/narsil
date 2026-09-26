@@ -4,7 +4,7 @@ import { flattenSchema } from '../../schema/validator'
 import { decodePageCursor, encodePageCursor, requireMatchingCursor } from '../../search/cursor'
 import { everyValueFacetConfig, mergeFacets } from '../../search/facets'
 import { fulltextMatches } from '../../search/fulltext'
-import { normalizeSort } from '../../search/sorting'
+import { normalizeSort, sortModesOf } from '../../search/sorting'
 import type { FacetResult, Hit } from '../../types/results'
 import type { AnyDocument } from '../../types/schema'
 import type { QueryParams } from '../../types/search'
@@ -65,6 +65,7 @@ export function executeSortedQueryPage<T = AnyDocument>(
   const directions = normalized.map(entry => entry.direction)
   const flatSchema = flattenSchema(schema)
   const fieldTypes = fields.map(field => flatSchema[field])
+  const modes = sortModesOf(normalized)
 
   const options = searchOptionsFor(manager)
   const partitions = partitionsFor(manager, context.partitionIds)
@@ -94,6 +95,7 @@ export function executeSortedQueryPage<T = AnyDocument>(
       fields,
       directions,
       fieldTypes,
+      modes,
       limit: partitionLimit,
       anchorKey,
       anchorId,

@@ -174,7 +174,7 @@ export interface IndexConfig {
   strict?: boolean
   /** These settings embed text fields into vector fields on every write. */
   embedding?: EmbeddingFieldConfig
-  /** The engine rejects a document that omits any of these fields. */
+  /** The engine rejects an insert or an update of a document that lacks any of these fields, with `DOC_MISSING_REQUIRED_FIELD`. */
   required?: string[]
   /**
    * Setting this to false stops the index recording the spellings a stemmer

@@ -220,6 +220,7 @@ describe('a composite of frozen segments plus a live tail matches one merged par
       fields: ['price', 'id'],
       directions: ['asc', 'asc'] as const,
       fieldTypes: ['number', 'string'] as const,
+      modes: ['min', 'min'] as const,
       limit: 20,
       anchorKey: null,
       anchorId: null,
@@ -245,8 +246,8 @@ describe('a composite of frozen segments plus a live tail matches one merged par
     expect(composite.get(probe)).toEqual(baseline.get(probe))
     expect(composite.has(probe)).toBe(true)
     expect([...composite.sortedDocIds()]).toEqual([...baseline.sortedDocIds()])
-    expect(composite.sortValues(probe, ['price'], ['number'])).toEqual(
-      baseline.sortValues(probe, ['price'], ['number']),
+    expect(composite.sortValues(probe, ['price'], ['number'], ['min'])).toEqual(
+      baseline.sortValues(probe, ['price'], ['number'], ['min']),
     )
   })
 })

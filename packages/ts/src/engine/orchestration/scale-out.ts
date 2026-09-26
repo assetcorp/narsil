@@ -111,8 +111,12 @@ function documentCountOf(state: OrchestratorState, indexName: string): number {
   return state.executor.getManager(indexName)?.countDocuments() ?? 0
 }
 
-export function copyThresholdReason(state: OrchestratorState, indexName: string): string {
-  return `Index "${indexName}" holds ${documentCountOf(state, indexName)} documents, reaching the copy threshold of ${state.copyThreshold}`
+export function copyThresholdReason(state: OrchestratorState, indexName: string, incomingCount = 0): string {
+  const held = documentCountOf(state, indexName)
+  if (incomingCount <= 0) {
+    return `Index "${indexName}" holds ${held} documents, reaching the copy threshold of ${state.copyThreshold}`
+  }
+  return `Index "${indexName}" holds ${held} documents, and the batch that the engine is writing adds ${incomingCount}, for ${held + incomingCount} against the copy threshold of ${state.copyThreshold}`
 }
 
 export function indexReadyForCopies(state: OrchestratorState, indexName: string, incomingCount = 0): boolean {
@@ -219,5 +223,5 @@ export async function scaleOutBeforeBatch(
     return
   }
   if (!indexReadyForCopies(state, indexName, incomingCount)) return
-  await scaleOutIndex(state, indexName, copyThresholdReason(state, indexName))
+  await scaleOutIndex(state, indexName, copyThresholdReason(state, indexName, incomingCount))
 }

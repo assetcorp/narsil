@@ -807,6 +807,7 @@ export const ServerErrorCodes: {
 export interface SortField {
     direction: 'asc' | 'desc';
     field: string;
+    mode?: 'min' | 'max' | 'avg' | 'median';
 }
 
 // @public

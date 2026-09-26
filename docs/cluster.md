@@ -73,9 +73,9 @@ A node that stores its indexes on disk still holds them when it starts again, al
 
 An `update` replaces the stored document whole. Because the primary replicates the complete replacement, every replica applies a self-contained document.
 
-The batch calls group their work before sending it. `insertBatch`, `updateBatch`, and `removeBatch` split the documents by partition, apply each local group through one replication batch per partition, and send each remote primary one `replication.forward_batch` message carrying every document bound for it. You receive one outcome for each document. A batch of one falls back to the plain single-document message, while the engine splits a larger batch at 1,000 operations or 8 MB of document bytes per message.
+The node groups the work of a batch call before it sends anything. For `insertBatch`, `updateBatch`, and `removeBatch`, it splits the documents by partition and applies each local group through one replication batch per partition. It then sends each remote primary one `replication.forward_batch` message that holds every document for that primary, and it returns one outcome for each document. A batch of one falls back to the plain single-document message, while the engine splits a larger batch at 1,000 operations or 8 MB of document bytes per message.
 
-When a write fails after the node applies it locally, the node rolls it back before the error reaches you: a failed insert removes the document, and a failed update or remove restores the document that was there.
+When a write fails after the node applies it locally, the node rolls it back before it returns the error, so a failed insert removes the document, and a failed update or remove restores the document that the partition held before.
 
 ## Searches
 

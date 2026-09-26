@@ -2,7 +2,9 @@ import {
   type ComparableSortValue,
   compareCodePoints,
   compareComparableValues,
+  defaultSortMode,
   type SortDirection,
+  type SortMode,
 } from '../../ordering'
 import type { PartitionFilterMatches } from '../filters'
 import type { PartitionReadState } from '../utils'
@@ -13,6 +15,7 @@ export interface SortPageRequest {
   fields: readonly string[]
   directions: readonly SortDirection[]
   fieldTypes: readonly (string | undefined)[]
+  modes: readonly SortMode[]
   limit: number
   anchorKey: readonly ComparableSortValue[] | null
   anchorId: string | null
@@ -183,13 +186,15 @@ function createStream(column: SortColumn, direction: SortDirection, anchorRank: 
 }
 
 export function selectSortedPage(state: PartitionReadState, request: SortPageRequest): SortedPageEntry[] {
-  const { fields, directions, fieldTypes, limit, anchorKey, anchorId, matches } = request
+  const { fields, directions, fieldTypes, modes, limit, anchorKey, anchorId, matches } = request
   if (limit <= 0 || fields.length === 0) return []
 
   const set = state.sortColumns
   if (set === null) return []
 
-  const columns = fields.map((field, index) => set.column(field, fieldTypes[index]))
+  const columns = fields.map((field, index) =>
+    set.column(field, fieldTypes[index], modes[index] ?? defaultSortMode(directions[index] ?? 'asc')),
+  )
   const resolver = state.docStore.resolver()
   const leading = columns[0]
   const leadingDirection = directions[0]

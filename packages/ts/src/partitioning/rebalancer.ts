@@ -1,4 +1,5 @@
 import { createPartitionIndex, type PartitionIndex, type PartitionInsertOptions } from '../core/partition'
+import { yieldToEventLoop } from '../engine/orchestration/turn'
 import { ErrorCodes, NarsilError } from '../errors'
 import { REBALANCE_CHUNK_SIZE } from './constants'
 import type { PartitionManager } from './manager'
@@ -107,7 +108,7 @@ export function createRebalancer(): Rebalancer {
               documentsProcessed,
               documentsTotal,
             })
-            await new Promise(resolve => setTimeout(resolve, 0))
+            await yieldToEventLoop()
           }
         }
       }
@@ -118,7 +119,7 @@ export function createRebalancer(): Rebalancer {
           documentsProcessed,
           documentsTotal,
         })
-        await new Promise(resolve => setTimeout(resolve, 0))
+        await yieldToEventLoop()
       }
 
       onProgress?.({

@@ -19,6 +19,7 @@ describe('evaluateFilters operators, presence, and geo', () => {
     }
     const sparseAllDocIds = new Set([0, 1, 2, 3])
     const sparseCtx: FilterContext = {
+      fieldTypes: {},
       fieldIndexes: {},
       getFieldValue: (id, field) => sparseProducts[id]?.[field],
       allDocIds: sparseAllDocIds,
@@ -50,6 +51,7 @@ describe('evaluateFilters operators, presence, and geo', () => {
     }
     const emptyAllDocIds = new Set([0, 1, 2])
     const emptyCtx: FilterContext = {
+      fieldTypes: {},
       fieldIndexes: {},
       getFieldValue: (id, field) => dataProducts[id]?.[field],
       allDocIds: emptyAllDocIds,
@@ -124,6 +126,7 @@ describe('evaluateFilters operators, presence, and geo', () => {
         } as GeoFieldIndex,
       }
       const geoCtx: FilterContext = {
+        fieldTypes: { location: 'geopoint' },
         fieldIndexes: { location: geoIdx },
         getFieldValue: () => undefined,
         allDocIds: geoAllDocIds,
@@ -146,6 +149,7 @@ describe('evaluateFilters operators, presence, and geo', () => {
         } as GeoFieldIndex,
       }
       const geoCtx: FilterContext = {
+        fieldTypes: { location: 'geopoint' },
         fieldIndexes: { location: geoIdx },
         getFieldValue: () => undefined,
         allDocIds: geoAllDocIds,

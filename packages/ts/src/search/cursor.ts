@@ -9,7 +9,7 @@ import {
   MAX_SORT_FIELDS,
 } from './constants'
 import { decodeCursorText, encodeCursorText } from './cursor-codec'
-import { normalizeSort } from './sorting'
+import { normalizeSort, sortSignatureEntry } from './sorting'
 
 export const CURSOR_VERSION = 4
 
@@ -82,7 +82,7 @@ export function sortSignatureOf(sort: SortSpec | undefined): string | null {
     }
   }
 
-  return JSON.stringify(fields.map(entry => [entry.field, entry.direction]))
+  return JSON.stringify(fields.map(sortSignatureEntry))
 }
 
 /**

@@ -4,7 +4,23 @@ import { compareSortStrings } from './fold-compare'
 
 export type SortDirection = 'asc' | 'desc'
 
+export type SortMode = 'min' | 'max' | 'avg' | 'median'
+
 export type ComparableSortValue = string | number | boolean | null
+
+export const SORT_MODES: readonly SortMode[] = ['min', 'max', 'avg', 'median']
+
+export function isSortMode(value: unknown): value is SortMode {
+  return value === 'min' || value === 'max' || value === 'avg' || value === 'median'
+}
+
+export function defaultSortMode(direction: SortDirection): SortMode {
+  return direction === 'desc' ? 'max' : 'min'
+}
+
+export function sortModeOf(entry: { direction: SortDirection; mode?: SortMode }): SortMode {
+  return entry.mode ?? defaultSortMode(entry.direction)
+}
 
 /**
  * Cuts a string sort value to the specification's comparison window of 512
@@ -43,6 +59,42 @@ export function toComparableSortValue(value: unknown): ComparableSortValue {
   if (typeof value === 'number') return Number.isFinite(value) ? value : null
   if (typeof value === 'boolean') return value
   return null
+}
+
+function numericReduction(values: readonly unknown[], mode: 'avg' | 'median'): number | null {
+  const numbers: number[] = []
+  for (const element of values) {
+    if (typeof element === 'number' && Number.isFinite(element)) numbers.push(element)
+  }
+  if (numbers.length === 0) return null
+  if (mode === 'avg') {
+    let mean = 0
+    for (let index = 0; index < numbers.length; index++) {
+      mean += (numbers[index] - mean) / (index + 1)
+    }
+    return mean
+  }
+  numbers.sort((a, b) => a - b)
+  const middle = numbers.length >> 1
+  if (numbers.length % 2 === 1) return numbers[middle]
+  return numbers[middle - 1] / 2 + numbers[middle] / 2
+}
+
+export function toReducedSortValue(value: unknown, mode: SortMode): ComparableSortValue {
+  if (!Array.isArray(value)) return toComparableSortValue(value)
+  if (mode === 'avg' || mode === 'median') return numericReduction(value, mode)
+  let chosen: string | number | boolean | null = null
+  for (const element of value) {
+    const comparable = toComparableSortValue(element)
+    if (comparable === null) continue
+    if (chosen === null) {
+      chosen = comparable
+      continue
+    }
+    const comparison = comparePresentValues(comparable, chosen)
+    if (mode === 'min' ? comparison < 0 : comparison > 0) chosen = comparable
+  }
+  return chosen
 }
 
 /**

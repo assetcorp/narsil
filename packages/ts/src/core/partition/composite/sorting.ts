@@ -3,6 +3,7 @@ import {
   compareCodePoints,
   compareComparableValues,
   type SortDirection,
+  type SortMode,
 } from '../../ordering'
 import type { PartitionReadState } from '../read-state'
 import { type SortedPageEntry, type SortPageRequest, sortedPageOf, sortValuesOf } from '../sorting'
@@ -39,10 +40,11 @@ export function compositeSortValues(
   docId: string,
   fields: readonly string[],
   fieldTypes: readonly (string | undefined)[],
+  modes: readonly SortMode[],
 ): ComparableSortValue[] {
   for (const sub of subs) {
     if (sub.docStore.has(docId)) {
-      return sortValuesOf(sub, docId, fields, fieldTypes)
+      return sortValuesOf(sub, docId, fields, fieldTypes, modes)
     }
   }
   return fields.map(() => null)
