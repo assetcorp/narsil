@@ -1,3 +1,4 @@
+import { ErrorCodes, NarsilError } from '../../errors'
 import { writeMetadataEnvelope } from '../../serialization/envelope'
 import type { VectorIndex } from '../../vector/vector-index'
 import { reclaimWalBeyondCount, truncateCoveredSegments } from './checkpoint'
@@ -84,9 +85,24 @@ async function garbageThatNoFieldStillReads(
  * @returns A promise that settles after metadata and WAL cleanup finish.
  */
 export async function runDurableCheckpoint(input: DurableCheckpointInput): Promise<void> {
-  let recordsLeftInLog = await writeOneBoundedCheckpoint(input)
-  while (recordsLeftInLog > 0 && input.mayContinue()) {
-    recordsLeftInLog = await writeOneBoundedCheckpoint(input)
+  try {
+    let recordsLeftInLog = await writeOneBoundedCheckpoint(input)
+    while (recordsLeftInLog > 0 && input.mayContinue()) {
+      recordsLeftInLog = await writeOneBoundedCheckpoint(input)
+    }
+  } catch (err) {
+    if (err instanceof NarsilError) throw err
+    const error = new NarsilError(
+      ErrorCodes.PERSISTENCE_SAVE_FAILED,
+      `The engine cannot write the checkpoint of index "${input.indexName}" to the durability directory "${input.directory.root}"`,
+      {
+        indexName: input.indexName,
+        directory: input.directory.root,
+        cause: err instanceof Error ? err.message : String(err),
+      },
+    )
+    input.markFatal(error)
+    throw error
   }
 }
 

@@ -7,6 +7,7 @@ export const MAX_SORT_FIELD_NAME_LENGTH = 255
 export const MAX_CURSOR_ANCHOR_CODE_POINTS = 512
 
 export const PREFIX_MAX_EXPANSIONS = 50
+export const DEFAULT_FUZZY_PREFIX_LENGTH = 2
 
 export const DEFAULT_MAX_PER_GROUP = 1
 

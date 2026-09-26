@@ -11,28 +11,28 @@ import type { AnyDocument, SchemaDefinition } from './schema'
  * @public
  */
 export interface QueryResult<T = AnyDocument> {
-  /** These documents matched, cut to the query's `limit`, best score first or in the query's sort order. */
+  /** These documents match, cut to the query's `limit`, best score first or in the query's sort order. */
   hits: Array<Hit<T>>
   /**
-   * This many documents match in total, before `limit` and `offset` apply.
-   * For a keyword search the engine counts every match. For a vector search
-   * it counts every vector that the query's filter and its `similarity` floor
-   * admit, which is the whole field where the query sets neither of them. The
-   * engine also counts each pinned document that the query never matched,
-   * since it places that document among the hits.
+   * This many documents match in total, before the engine applies `limit`
+   * and `offset`. For a keyword search the engine counts every match. For a
+   * vector search it counts every vector that passes the query's filter and
+   * its `similarity` floor, which is every vector in the field where the query
+   * sets neither of them. The engine also counts each pinned document that
+   * the query does not match, since it places that document among the hits.
    */
   count: number
   /**
    * `count` holds the exact number of matches where this is true, and a
    * number at or below the true total where it is false. Where a query sets a
-   * `similarity` floor against a vector field that has grown a graph, the
-   * engine counts only the vectors that it fetches, because it reads a
-   * fraction of such a field. For a hybrid query the engine fuses two
-   * rankings, so the count is exact only where both of those rankings return
-   * every document that they match. Where you pin a document from outside the
-   * hits that the engine fetches, the engine reports true only where it holds
-   * every match of the query, because only then can it tell whether the query
-   * matched that document.
+   * `similarity` floor on a vector field that holds a graph, the engine
+   * counts only the vectors that it fetches, because it compares the query
+   * with only a fraction of that field's vectors. For a hybrid query the
+   * engine fuses two rankings, so the count is exact only where each of those
+   * rankings contains every matching document. Where you pin a document from
+   * outside the hits that the engine fetches, the engine reports true only
+   * where it holds every match of the query, because only then can it test
+   * whether the query matches that document.
    */
   countExact: boolean
   /** The engine spent this many milliseconds on the search. */
@@ -139,20 +139,20 @@ export interface HighlightMatch {
  * @public
  */
 export interface FacetResult {
-  /** This many documents matched per value, keyed by value. */
+  /** This many documents match per value, keyed by value. */
   values: Record<string, number>
-  /** This is the number of entries in `values`, which the engine caps at the facet's `limit`. */
+  /** This is the number of entries in `values`, which is at most the facet's `limit`. */
   count: number
   /**
    * Every count in `values` is at most this far below its true count. A value
-   * that the engine drops to stay within `limit` has a true count of at most
-   * this figure as well. Where the engine counts a field on one thread, it
-   * counts every value exactly, so this figure is the largest count that it
-   * drops. Where it splits the count across worker copies or cluster nodes,
-   * each of them returns only its own top values, so a value that is common
-   * overall but rare on one of them can lose that one's share. A bound of 0
-   * means that `values` holds every value that matched, each with its exact
-   * count.
+   * that the engine leaves out of `values` because of `limit` has a true
+   * count of at most this figure too. Where the engine counts a field on one
+   * thread, it counts every value exactly, so this figure is the largest
+   * count that it leaves out. Where it splits the count across worker copies
+   * or cluster nodes, each of them returns only its own top values, so the
+   * merged count of a value that is common overall but rare on one of them
+   * can lack the matches on that one. A bound of 0 means that `values` holds
+   * every matching value, each with its exact count.
    */
   errorBound: number
 }
@@ -182,7 +182,7 @@ export interface GroupResult {
 export interface PreflightResult {
   /** The query matches this many documents. */
   count: number
-  /** `count` holds the exact number of matches where this is true, and a number at or below the true total where it is false, under the rule that {@link QueryResult.countExact} describes. */
+  /** `count` holds the exact number of matches where this is true, and a number at or below the true total where it is false, under the rule in {@link QueryResult.countExact}. */
   countExact: boolean
   /** The count took this many milliseconds. */
   elapsed: number

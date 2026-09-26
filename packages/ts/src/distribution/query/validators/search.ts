@@ -1,3 +1,4 @@
+import { isSortMode, SORT_MODES } from '../../../core/ordering'
 import { MAX_CURSOR_LENGTH, MAX_SORT_FIELDS } from '../../../search/constants'
 import { validateIndexName } from '../../cluster/index-metadata'
 import type { SearchPayload } from '../../transport/types'
@@ -134,6 +135,12 @@ function validateSortParams(value: unknown): void {
       throwInvalid(
         SEARCH_INVALID_MODE,
         `Invalid SearchPayload: "params.sort[${i}].direction" must be one of: ${ALLOWED_SORT_DIRECTIONS.join(', ')}`,
+      )
+    }
+    if (entry.mode !== undefined && !isSortMode(entry.mode)) {
+      throwInvalid(
+        SEARCH_INVALID_MODE,
+        `Invalid SearchPayload: "params.sort[${i}].mode" must be one of: ${SORT_MODES.join(', ')}`,
       )
     }
   }

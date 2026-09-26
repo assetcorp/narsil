@@ -1,6 +1,7 @@
 export interface SortField {
   field: string
   direction: 'asc' | 'desc'
+  mode?: 'min' | 'max' | 'avg' | 'median'
 }
 
 export interface WireGroupConfig {

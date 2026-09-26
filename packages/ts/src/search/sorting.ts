@@ -2,8 +2,14 @@ import {
   type ComparableSortValue,
   compareCodePoints,
   compareComparableKeys,
+  defaultSortMode,
+  isSortMode,
   readSortField,
+  SORT_MODES,
   type SortDirection,
+  type SortMode,
+  sortModeOf,
+  toReducedSortValue,
 } from '../core/ordering'
 import { ErrorCodes, NarsilError } from '../errors'
 import { flattenSchema, SORTABLE_TEXT_FIELD_TYPE } from '../schema/validator'
@@ -22,9 +28,43 @@ function isFieldList(sort: SortSpec): sort is readonly SortField[] {
 export function normalizeSort(sort: SortSpec | undefined): SortField[] {
   if (sort === undefined) return []
   if (isFieldList(sort)) {
-    return sort.map(entry => ({ field: entry.field, direction: entry.direction }))
+    return sort.map(entry =>
+      entry.mode === undefined
+        ? { field: entry.field, direction: entry.direction }
+        : { field: entry.field, direction: entry.direction, mode: entry.mode },
+    )
   }
   return Object.entries(sort).map(([field, direction]) => ({ field, direction }))
+}
+
+export function sortModesOf(fields: readonly SortField[]): SortMode[] {
+  return fields.map(sortModeOf)
+}
+
+export function sortSignatureEntry(entry: SortField): string[] {
+  const mode = sortModeOf(entry)
+  return mode === defaultSortMode(entry.direction)
+    ? [entry.field, entry.direction]
+    : [entry.field, entry.direction, mode]
+}
+
+function requireSortMode(entry: SortField, fieldType: string | undefined): void {
+  if (entry.mode === undefined) return
+  if (!isSortMode(entry.mode)) {
+    throw new NarsilError(
+      ErrorCodes.SEARCH_INVALID_MODE,
+      `A sort mode is one of ${SORT_MODES.map(mode => `"${mode}"`).join(', ')}, and the mode on "${entry.field}" is "${String(entry.mode)}"`,
+      { field: entry.field, mode: String(entry.mode) },
+    )
+  }
+  const averages = entry.mode === 'avg' || entry.mode === 'median'
+  if (averages && fieldType !== undefined && fieldType !== 'number' && fieldType !== 'number[]') {
+    throw new NarsilError(
+      ErrorCodes.SEARCH_INVALID_FIELD,
+      `The engine applies the "${entry.mode}" mode to a number field alone, and "${entry.field}" is a ${fieldType} field`,
+      { field: entry.field, fieldType, mode: entry.mode },
+    )
+  }
 }
 
 export function requireSortableFields(sort: SortSpec | undefined, schema: SchemaDefinition): void {
@@ -34,17 +74,25 @@ export function requireSortableFields(sort: SortSpec | undefined, schema: Schema
   const flatSchema = flattenSchema(schema)
   for (const entry of fields) {
     const fieldType = flatSchema[entry.field]
+    if (entry.direction !== 'asc' && entry.direction !== 'desc') {
+      throw new NarsilError(
+        ErrorCodes.SEARCH_INVALID_MODE,
+        `A sort direction is "asc" or "desc", and the direction on "${entry.field}" is "${String(entry.direction)}"`,
+        { field: entry.field, direction: String(entry.direction) },
+      )
+    }
+    requireSortMode(entry, fieldType)
     if (fieldType === 'string') {
       throw new NarsilError(
         ErrorCodes.SEARCH_INVALID_FIELD,
-        `A sort names text field "${entry.field}" only where the schema declares it "${SORTABLE_TEXT_FIELD_TYPE}", because ordering text costs far more memory per document than ordering a number`,
+        `The engine sorts by text field "${entry.field}" only where the schema declares it "${SORTABLE_TEXT_FIELD_TYPE}", because ordering text takes far more memory per document than ordering a number`,
         { field: entry.field, fieldType },
       )
     }
     if (fieldType === 'geopoint' || (fieldType !== undefined && VECTOR_PATTERN.test(fieldType))) {
       throw new NarsilError(
         ErrorCodes.SEARCH_INVALID_FIELD,
-        `A sort orders by a number, boolean, enum, or sortable text field, and "${entry.field}" is a ${fieldType} field`,
+        `The engine sorts by a number, boolean, enum, or sortable text field, and "${entry.field}" is a ${fieldType} field`,
         { field: entry.field, fieldType },
       )
     }
@@ -55,9 +103,13 @@ export function readFieldValue(obj: AnyDocument, path: string): unknown {
   return readSortField(obj, path)
 }
 
-export function readSortValues(document: AnyDocument | undefined, fields: readonly string[]): unknown[] {
-  if (!document) return fields.map(() => undefined)
-  return fields.map(field => readFieldValue(document, field))
+export function readSortValues(
+  document: AnyDocument | undefined,
+  fields: readonly string[],
+  modes: readonly SortMode[],
+): ComparableSortValue[] {
+  if (!document) return fields.map(() => null)
+  return fields.map((field, index) => toReducedSortValue(readSortField(document, field), modes[index] ?? 'min'))
 }
 
 export function applySorting<T = AnyDocument>(

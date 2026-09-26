@@ -1,6 +1,7 @@
 import { type FsModule, getFs, getPath, type PathModule } from '#platform/durable-fs'
 import { compareCodePoints } from '../../core/ordering'
 import { ErrorCodes, NarsilError } from '../../errors'
+import { lockDirectory } from './directory-lock'
 
 type FileHandle = import('node:fs/promises').FileHandle
 
@@ -38,6 +39,8 @@ export interface DurableDirectory {
   list(prefix: string): Promise<string[]>
   /** Reports the absolute path a key maps to, which a reader opening the file by position needs. */
   pathOf(key: string): Promise<string>
+  identity?(): Promise<string | null>
+  lock?(): Promise<() => Promise<void>>
 }
 
 function wrapFsyncError(err: unknown, key: string): never {
@@ -122,6 +125,22 @@ export function createDurableDirectory(root: string): DurableDirectory {
   return {
     get root() {
       return root
+    },
+
+    lock(): Promise<() => Promise<void>> {
+      return lockDirectory(root)
+    },
+
+    async identity(): Promise<string | null> {
+      const fs = await getFs()
+      const pathMod = await getPath()
+      try {
+        const stat = await fs.stat(pathMod.resolve(root), { bigint: true })
+        return `${stat.dev}:${stat.ino}`
+      } catch (err: unknown) {
+        if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null
+        throw err
+      }
     },
 
     async appendHandle(key: string): Promise<AppendHandle> {

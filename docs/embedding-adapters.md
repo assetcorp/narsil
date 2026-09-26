@@ -79,7 +79,7 @@ engine.registerEmbeddingAdapter('openai-small', myReplacementAdapter)
 | Adapter | Package | Dependencies |
 | --- | --- | --- |
 | OpenAI | `@delali/narsil/embeddings/openai` | The adapter has no dependencies and uses `fetch`. |
-| Transformers.js | `@delali/narsil-embeddings-transformers` | The adapter needs `@huggingface/transformers` at 3.x as a peer dependency, so install it as `'@huggingface/transformers@^3'`. |
+| Transformers.js | `@delali/narsil-embeddings-transformers` | Install `@huggingface/transformers` 3.x beside the adapter as its peer dependency, with `'@huggingface/transformers@^3'`. |
 
 The OpenAI adapter retries retryable failures with exponential backoff and jitter, chunks batches at 2,048 inputs per request, and accepts a timeout and a retry cap. `baseUrl` points at any OpenAI-compatible endpoint, and `apiKey` accepts a string or a function returning one, so short-lived credentials work. The Transformers.js adapter runs models locally with lazy pipeline initialization, supports WebGPU, WASM, and CPU backends, and handles asymmetric models such as E5 and BGE through `documentPrefix` and `queryPrefix`. Its own [README](../packages/embeddings-transformers/README.md) documents every option.
 

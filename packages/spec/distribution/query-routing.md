@@ -58,7 +58,7 @@ A distributed query runs in two phases so that the cluster moves as few bytes as
 5. The coordinator returns the response to the client.
 ```
 
-A data node reports the hit count of its own partitions alone, so the coordinator derives `countExact` from the request and the coverage. It must set `countExact` false where any partition timed out or returned an error, or where it queried fewer partitions than the index holds, because a count missing a partition is a floor under the total. It must otherwise apply the rule in [Deep Pagination](../partitioning.md#deep-pagination) to the request. Every node applies that rule to the same request, so the sum of their counts is exact wherever the rule holds.
+A data node returns the hit count of its own partitions alone, so the coordinator derives `countExact` from the request and the coverage. It must set `countExact` false where any partition times out or returns an error, or where it queries fewer partitions than the index holds, because a count without the matches of some partition is a floor under the total. It must otherwise apply the rule in [Deep Pagination](../partitioning.md#deep-pagination) to the request. Every node applies that rule to the same request, so the sum of the nodes' counts is exact wherever that rule sets `countExact` true.
 
 ### Single-Partition Queries
 
@@ -196,7 +196,7 @@ Each data node groups its own matches and returns, per group, the group's field 
 
 With no `group.limit`, every node returns every group and the merged groups are exact. With one, each node returns its top `ceiling(limit * 1.5) + 10` groups, oversampling the way [Distributed Facets](#distributed-facets) do, so a merged group's entries can miss members held by a node where the group fell below that bound.
 
-A group reducer is a function, so it never crosses the wire, and the coordinator holds the caller's reducer in-process. Where a query carries a reducer, the coordinator must request up to 10,000 entries of each group from every data node, and it must fold the reducer over every entry of each merged group before it truncates the entries to the caller's `maxPerGroup`. The HTTP server refuses `group.reduce`. A hybrid query groups its text fan-out alone, as it counts facets.
+A group reducer is a function, so only the coordinator's own process calls it. Where a query sets a reducer, the coordinator must request up to 10,000 entries of each group from every data node, and it must fold the reducer over every entry of each merged group before it truncates the entries to the caller's `maxPerGroup`. The HTTP server must reject `group.reduce`. For a hybrid query, the coordinator groups the results of the text fan-out alone, as it does when it counts facets.
 
 ---
 
@@ -225,18 +225,18 @@ First query:
   the coordinator fans out to every data node
   each data node returns scored results for its partitions
   the coordinator merges them and takes the top `limit`
-  the cursor encodes the last result, carrying as `d` the
-    number of results up to and including this page
+  the coordinator encodes a cursor from the last result, storing
+    as `d` the number of results up to and including this page
 
-Next query, carrying the cursor:
+Next query, with the cursor:
   the coordinator decodes the cursor
   it fans out to every data node with the same cursor in the
     searchAfter parameter
   each data node passes the cursor down to its partitions, and
     each partition seeks past the cursor point on its own
   the coordinator merges the results and takes the top `limit`
-  it encodes a new cursor from the last result, carrying as `d`
-    the cursor's own `d` plus the number of results this page holds
+  it encodes a new cursor from the last result, storing as `d`
+    the cursor's own `d` plus the number of results on this page
 ```
 
 ### Tiebreaker

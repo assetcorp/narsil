@@ -94,8 +94,8 @@ export type GeoRadiusFilter = {
     /**
      * The engine measures each distance with the Haversine formula on a sphere
      * by default, and with Vincenty's formula on the WGS-84 ellipsoid while
-     * this is true. Vincenty's formula iterates, so each distance takes longer
-     * to compute. The two formulas differ by less than 0.3% under about
+     * this is true. Vincenty's formula iterates, so the engine takes longer
+     * to compute each distance. The two formulas differ by less than 0.3% under about
      * 100 km, while across a continent they can differ by up to 0.5%.
      */
     highPrecision?: boolean
@@ -115,7 +115,7 @@ export type GeoPolygonFilter = {
      * list them, so you can leave the first point off the end. It throws
      * `SEARCH_INVALID_FILTER` for a ring of fewer than three corners, since
      * such a ring encloses no area. List the corners counter-clockwise around
-     * the area, which is the order that GeoJSON specifies. Where the corners
+     * the area, as in an exterior ring of GeoJSON. Where the corners
      * span 180 degrees of longitude or more, the engine matches the area on
      * the left of that path, so a ring listed that way can cross the
      * antimeridian or span more than half the globe.

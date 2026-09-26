@@ -1,3 +1,4 @@
+import { fuzzyTermMatches } from '../core/fuzzy'
 import { tokenize } from '../core/tokenizer'
 import type { LanguageModule } from '../types/language'
 import type { HighlightMatch } from '../types/results'
@@ -12,6 +13,8 @@ export interface HighlightOptions {
    * like 'security' are marked when the user has typed 'secur'.
    */
   prefixToken?: string
+  tolerance?: number
+  prefixLength?: number
 }
 
 interface CharRange {
@@ -155,6 +158,8 @@ export function highlightField(
 
   const matchedRanges: CharRange[] = []
   const prefixToken = options?.prefixToken
+  const tolerance = options?.tolerance ?? 0
+  const prefixLength = options?.prefixLength ?? 0
 
   for (let i = 0; i < fieldResult.tokens.length; i++) {
     if (i >= charOffsets.length) break
@@ -167,7 +172,7 @@ export function highlightField(
     }
 
     for (const stemmedQuery of stemmedQueryTokens) {
-      if (stemmedField === stemmedQuery) {
+      if (fuzzyTermMatches(stemmedQuery, stemmedField, tolerance, prefixLength)) {
         matchedRanges.push({ start: charOffsets[i].start, end: charOffsets[i].end })
         break
       }

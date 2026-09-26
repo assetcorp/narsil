@@ -400,6 +400,7 @@ QueryParams {
 SortField {
   field:     string
   direction: 'asc' or 'desc'
+  mode:      'min' or 'max' or 'avg' or 'median' or absent
 }
 
 GroupConfig {

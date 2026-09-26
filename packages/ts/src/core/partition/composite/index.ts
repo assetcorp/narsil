@@ -291,8 +291,8 @@ export function createCompositePartition(
       return compositeSortedPage(subs(), layout(), request)
     },
 
-    sortValues(docId, fields, fieldTypes): ComparableSortValue[] {
-      return compositeSortValues(subs(), docId, fields, fieldTypes)
+    sortValues(docId, fields, fieldTypes, modes): ComparableSortValue[] {
+      return compositeSortValues(subs(), docId, fields, fieldTypes, modes)
     },
 
     suggestTerms(surfacePrefix: string, stemmedPrefix: string, limit: number): PartitionSuggestion[] {

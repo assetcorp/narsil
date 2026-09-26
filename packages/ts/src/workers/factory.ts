@@ -1,5 +1,6 @@
 import { ErrorCodes, NarsilError } from '../errors'
 import { detectRuntime } from '../runtime/detect'
+import { resolveWorkerEntry } from './entry-point'
 import type { Executor } from './executor'
 import type { WorkerFactory } from './pool'
 import { workerResourceLimits } from './resource-limits'
@@ -9,18 +10,35 @@ declare const Worker: {
   new (url: string | URL, options?: { type?: string }): WorkerLike
 }
 
-function resolveEntryPoint(): string {
-  const base = import.meta.url
-  const distIndex = base.lastIndexOf('/dist/')
-  if (distIndex !== -1) {
-    return new URL('workers/entry.mjs', base.slice(0, distIndex + 6)).href
+function missingWorkerEntry(): NarsilError {
+  return new NarsilError(
+    ErrorCodes.CONFIG_INVALID,
+    `The engine finds no worker entry beside its own module at "${import.meta.url}", which is what happens where a bundler folds @delali/narsil into an application bundle. Keep @delali/narsil outside the bundle, or set workers.enabled to false`,
+    { moduleUrl: import.meta.url },
+  )
+}
+
+async function entryFileExists(entry: string): Promise<boolean> {
+  if (!entry.startsWith('file:')) return true
+  const [{ access }, { fileURLToPath }] = await Promise.all([import('node:fs/promises'), import('node:url')])
+  try {
+    await access(fileURLToPath(entry))
+    return true
+  } catch {
+    return false
   }
-  return base.replace(/\/src\/workers\/[^/]+$/, '/dist/workers/entry.mjs')
+}
+
+export async function requireWorkerEntry(): Promise<string> {
+  const entry = resolveWorkerEntry(import.meta.url, /\/src\/workers\/[^/]+$/, 'workers/entry.mjs')
+  if (entry === null) throw missingWorkerEntry()
+  if (import.meta.url.includes('/dist/') && !(await entryFileExists(entry))) throw missingWorkerEntry()
+  return entry
 }
 
 export async function createWorkerFactory(entryPoint?: string): Promise<WorkerFactory> {
   const runtime = detectRuntime()
-  const resolvedEntry = entryPoint ?? resolveEntryPoint()
+  const resolvedEntry = entryPoint ?? (await requireWorkerEntry())
 
   if (runtime.supportsWorkerThreads) {
     const workerThreadsModule = await import('node:worker_threads')

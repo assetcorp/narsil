@@ -1,5 +1,7 @@
+import { requireKnownConfig } from '../engine/config-keys'
 import { createEngineCore } from '../engine/core'
 import { checkHeapAfterRecovery } from '../engine/notifiers'
+import { requireRunnableEnvironment } from '../engine/startup-checks'
 import type { NarsilConfig } from '../types/config'
 import type { Narsil } from '../types/engine'
 import { createNarsilFromCore } from './operations'
@@ -23,6 +25,8 @@ export { createNarsilFromCore } from './operations'
  * @public
  */
 export async function createNarsil(config?: NarsilConfig): Promise<Narsil> {
+  requireKnownConfig(config)
+  await requireRunnableEnvironment(config)
   const core = createEngineCore(config)
   if (core.durability) {
     await core.durability.manager.recover(config?.lifecycle !== undefined)

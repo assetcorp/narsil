@@ -8,7 +8,8 @@ import { decodePageCursor, requireMatchingCursor, sortSignatureOf } from '../../
 import { applyGrouping } from '../../search/grouping'
 import { applyPagination, type PaginationSortContext, requireWithinResultWindow } from '../../search/pagination'
 import { placePinned } from '../../search/pinning'
-import { applySorting, normalizeSort, requireSortableFields } from '../../search/sorting'
+import { requireUsableQueryFields } from '../../search/query-fields'
+import { applySorting, normalizeSort, requireSortableFields, sortModesOf } from '../../search/sorting'
 import type { FacetResult, GroupResult, Hit, PreflightResult, QueryResult } from '../../types/results'
 import type { AnyDocument } from '../../types/schema'
 import type { QueryParams } from '../../types/search'
@@ -19,6 +20,7 @@ import {
   coverageFor,
   type QueryContext,
   requireKnownMode,
+  requireValidQueryFilter,
   requireVectorSearchable,
   scoringConfigFor,
   searchOptionsFor,
@@ -63,6 +65,8 @@ export async function executeQuery<T = AnyDocument>(
   }
 
   requireSortableFields(params.sort, config.schema)
+  requireValidQueryFilter(params.filters, config.schema)
+  requireUsableQueryFields(params, config.schema)
   requireVectorSearchable(params, context, isVectorOnly || isHybridMode)
 
   let paginated: Array<Hit<T>>
@@ -138,11 +142,12 @@ export async function executeQuery<T = AnyDocument>(
     const sortFieldNames = sortFields.map(entry => entry.field)
     const sortFlatSchema = sortFieldNames.length === 0 ? {} : flattenSchema(config.schema)
     const sortFieldTypes = sortFieldNames.map(field => sortFlatSchema[field])
+    const sortModes = sortModesOf(sortFields)
     const sortKeyCache = new Map<string, readonly ComparableSortValue[]>()
     const sortKeyOf = (docId: string): readonly ComparableSortValue[] => {
       let key = sortKeyCache.get(docId)
       if (key === undefined) {
-        key = manager.sortValues(docId, sortFieldNames, sortFieldTypes)
+        key = manager.sortValues(docId, sortFieldNames, sortFieldTypes, sortModes)
         sortKeyCache.set(docId, key)
       }
       return key
@@ -253,6 +258,8 @@ export async function executePreflight(params: QueryParams, context: QueryContex
   const startTime = now()
 
   requireKnownMode(params)
+  requireValidQueryFilter(params.filters, config.schema)
+  requireUsableQueryFields(params, config.schema)
   const hasTerm = params.term !== undefined && params.term.trim().length > 0
   const hasVector = params.vector !== undefined && params.vector.value !== undefined
   const isHybridMode = params.mode === 'hybrid' || (hasTerm && hasVector)

@@ -50,7 +50,7 @@ await narsil.checkpoint('products')
 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `tier` | `'wal' \| 'snapshot'` | resolved from the adapter | Overrides tier selection. `'snapshot'` forces snapshot-only persistence onto any adapter, a filesystem-backed one included, which is the tier to pick where several processes share one directory, because the write-ahead log requires exclusive use of its own. `'snapshot'` without a persistence adapter and `'wal'` without a resolvable directory both fail with `CONFIG_INVALID`, and `'snapshot'` also rejects the write-ahead log fields `directory`, `mode`, `flushIntervalMs`, `segmentMaxBytes`, and `compactionThreshold`. |
+| `tier` | `'wal' \| 'snapshot'` | resolved from the adapter | Overrides tier selection. `'snapshot'` forces snapshot-only persistence onto any adapter, a filesystem-backed one included, which is the tier to pick where several processes share one directory, because the engine holds a write-ahead log directory alone. `'snapshot'` without a persistence adapter and `'wal'` without a resolvable directory both fail with `CONFIG_INVALID`, and `'snapshot'` also rejects the write-ahead log fields `directory`, `mode`, `flushIntervalMs`, `segmentMaxBytes`, and `compactionThreshold`. |
 | `directory` | `string` | none | Sets the root directory for the log and checkpoints. |
 | `mode` | `'sync' \| 'async'` | `'sync'` | Selects the acknowledgement contract described below. |
 | `flushIntervalMs` | `number` | `1000` | Sets how often the async mode flushes the log to disk. |
@@ -60,6 +60,10 @@ await narsil.checkpoint('products')
 | `compactionThreshold` | `number` | `12` | Sets the checkpoint segment count that triggers compaction. |
 
 In `sync` mode the engine acknowledges a write only once the log holds it on disk, so a crash never loses a write your caller saw succeed. In `async` mode it acknowledges the write at once and flushes the log every `flushIntervalMs`, which is faster and may lose the final interval on a hard crash. The engine reports a durability failure through the `durabilityError` event; see [Events](observability.md#events).
+
+The engine holds its durability directory alone. Before recovery, it writes a `.narsil.lock` file that holds its process id into the directory, and `createNarsil` fails with `CONFIG_INVALID` while another running process, or another engine in the same process, holds that directory. The engine deletes the file on `shutdown()`. A process that crashes leaves the file behind, and since the file then names a process that no longer runs, the next engine replaces it.
+
+Where the directory goes missing, or its path leads to a different directory, the engine emits `durabilityError` with `PERSISTENCE_SAVE_FAILED` and fails every later write with the same code. In `sync` mode it checks the directory before it acknowledges each write, so the first write after the loss fails, and in `async` mode it checks once a second. A checkpoint that the filesystem refuses, such as one into a read-only folder, fails with `PERSISTENCE_SAVE_FAILED` and stops later writes in the same way.
 
 A checkpoint writes what changed since the checkpoint before it: the documents, and the vectors that arrived since, which go into new files of at most 65,536 vectors each. The engine leaves a written vector file unchanged, and it replaces a file once removals and updates leave more than a fifth of its vectors unused, or once a later checkpoint writes at least as many vectors as a partly filled file holds. It writes the graph of a changed vector field whole. While the documents that wait for a checkpoint hold 2 GiB or more, the engine holds each new write's acknowledgement until the checkpoint in progress covers some of them, because that bounds both the vectors that wait in memory for a file and the log that a recovery replays. A held write is already in the log, so it survives a crash like any acknowledged write.
 

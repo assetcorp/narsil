@@ -41,7 +41,9 @@ export async function resolveVectorText(
   } catch (err) {
     if (err instanceof NarsilError) throw err
     const message = err instanceof Error ? err.message : String(err)
-    throw new NarsilError(ErrorCodes.EMBEDDING_FAILED, `Query embedding failed: ${message}`, { cause: message })
+    throw new NarsilError(ErrorCodes.EMBEDDING_FAILED, `The embedding adapter cannot embed the query: ${message}`, {
+      cause: message,
+    })
   }
   if (!(raw instanceof Float32Array)) {
     throw new NarsilError(

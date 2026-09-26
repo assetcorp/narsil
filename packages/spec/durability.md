@@ -29,7 +29,7 @@ A persistence adapter that is not filesystem-backed cannot run a write-ahead log
 
 ### Tier Selection
 
-An implementation selects the tier from the backend: a filesystem-backed adapter runs Tier 1, and any other adapter runs Tier 2. The optional `durability.tier` field, `wal` or `snapshot`, overrides that selection. `tier: "snapshot"` forces snapshot-only persistence onto any adapter, a filesystem-backed one included; a deployment chooses this when several processes share one directory, because the write-ahead log requires exclusive ownership of its directory. `tier: "snapshot"` without a persistence adapter raises `CONFIG_INVALID`, and `tier: "wal"` where no directory can be resolved raises `CONFIG_INVALID`. The write-ahead log fields `durability.directory`, `durability.mode`, `durability.flushIntervalMs`, `durability.segmentMaxBytes`, and `durability.compactionThreshold` cannot combine with `tier: "snapshot"`; the combination raises `CONFIG_INVALID`.
+An implementation selects the tier from the backend: a filesystem-backed adapter runs Tier 1, and any other adapter runs Tier 2. The optional `durability.tier` field, `wal` or `snapshot`, overrides that selection. `tier: "snapshot"` forces snapshot-only persistence onto any adapter, a filesystem-backed one included; a deployment chooses this when several processes share one directory, because a node holds its write-ahead log directory alone; see [Directory Ownership](#directory-ownership). `tier: "snapshot"` without a persistence adapter raises `CONFIG_INVALID`, and `tier: "wal"` where no directory can be resolved raises `CONFIG_INVALID`. The write-ahead log fields `durability.directory`, `durability.mode`, `durability.flushIntervalMs`, `durability.segmentMaxBytes`, and `durability.compactionThreshold` cannot combine with `tier: "snapshot"`; the combination raises `CONFIG_INVALID`.
 
 ---
 
@@ -60,6 +60,21 @@ The guarantee is weaker: a power cut can lose the acknowledged writes of the las
 ### An fsync Error Is Fatal
 
 An implementation must never retry a failed fsync and treat the retry as success. On some operating systems a failed fsync drops the dirty page, and the next fsync then reports success although the data never reached the disk. The write must not be acknowledged. Raise `PERSISTENCE_FSYNC_FAILED` as a fatal error and recover from the durable log.
+
+---
+
+## Directory Ownership
+
+A node must hold its write-ahead log directory alone, so that no two processes append to one log.
+
+- Before recovery lists the directory, the node must create the file `.narsil.lock` in the directory root without replacing an existing file, holding the node's process id as decimal digits and a newline. The node should write the file under a temporary name and link it into place, so that a reader never finds it empty.
+- Where `.narsil.lock` names a running process other than the node's own, the node must refuse to start with `CONFIG_INVALID`. Where it names a process that no longer runs, or the node's own process id, the node may delete the file and create it again.
+- A second open of a directory from inside the process that holds it must fail with `CONFIG_INVALID`.
+- The node must delete `.narsil.lock` on a clean shutdown.
+
+The node must record the directory's device and inode numbers once the directory exists. It must compare them with the directory on disk before it acknowledges a `sync` write, before each checkpoint, and at an interval that should be no longer than one second. A missing directory, or one with other numbers, is fatal: the node raises `PERSISTENCE_SAVE_FAILED`, acknowledges no later write, and reports the failure on its durability error channel.
+
+A checkpoint that fails with an error of the host filesystem is fatal in the same way, and the node must report it as `PERSISTENCE_SAVE_FAILED` carrying the host error as its cause.
 
 ---
 
@@ -385,7 +400,7 @@ A node must reject an operation with `INDEX_REOPEN_CAPACITY_EXHAUSTED` when it n
 | `INDEX_REOPEN_CAPACITY_EXHAUSTED` | An operation names a closed index that already has the configured number of operations waiting for it to reopen. |
 | `PERSISTENCE_CRC_MISMATCH` | A snapshot envelope checksum does not match its payload. |
 | `PERSISTENCE_WAL_CORRUPT` | A record inside a segment's durable region overruns the region, fails its checksum, fails to decode, breaks sequence-number order, or leaves the highest seqNo read short of the commit marker. |
-| `PERSISTENCE_FSYNC_FAILED` | An fsync returned an error. The write is not acknowledged, and the error is fatal. |
-| `PERSISTENCE_LOAD_FAILED` | A snapshot or log file could not be read or decoded. |
-| `PERSISTENCE_SAVE_FAILED` | A snapshot or log file could not be written. |
-| `CONFIG_INVALID` | Write-ahead log durability was requested for a non-filesystem backend, durability was configured without a directory, or the snapshot tier was requested without a persistence adapter. |
+| `PERSISTENCE_FSYNC_FAILED` | An fsync returns an error. The node acknowledges no write that the fsync covers, and the error is fatal. |
+| `PERSISTENCE_LOAD_FAILED` | The node cannot read or decode a snapshot or log file. |
+| `PERSISTENCE_SAVE_FAILED` | The node cannot write a snapshot or log file, or the durability directory is missing or replaced; see [Directory Ownership](#directory-ownership). |
+| `CONFIG_INVALID` | A configuration asks for write-ahead log durability on a non-filesystem backend, for durability without a directory, or for the snapshot tier without a persistence adapter, or another running process holds the write-ahead log directory. |

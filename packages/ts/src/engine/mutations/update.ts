@@ -1,4 +1,5 @@
 import { ErrorCodes, NarsilError } from '../../errors'
+import { validateRequiredFields } from '../../schema/validator'
 import type { BatchResult } from '../../types/results'
 import type { AnyDocument, WriteOptions } from '../../types/schema'
 import { BATCH_CHUNK_SIZE } from '../constants'
@@ -116,6 +117,10 @@ async function prepareUpdate(
     oldDocument: oldDocument ?? ({} as AnyDocument),
     newDocument: document,
   })
+
+  if (entry.config.required && entry.config.required.length > 0) {
+    validateRequiredFields(document as Record<string, unknown>, entry.config.required)
+  }
 
   const vecIndexes = manager.getVectorIndexes()
   const extractedVectors = new Map<string, Float32Array | null>()
@@ -257,6 +262,7 @@ export async function updateDocumentBatch(
     }
 
     if (chunkEnd < updates.length) {
+      ctx.checkHeapPressure(indexName)
       await new Promise<void>(r => setTimeout(r, 0))
     }
   }

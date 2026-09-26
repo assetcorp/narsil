@@ -7,7 +7,7 @@ export function requirePolygonRing(points: unknown): void {
   if (!Array.isArray(points) || points.length < MIN_POLYGON_POINTS) {
     throw new NarsilError(
       ErrorCodes.SEARCH_INVALID_FILTER,
-      `A polygon needs at least ${MIN_POLYGON_POINTS} points to enclose an area`,
+      `A polygon encloses an area only with at least ${MIN_POLYGON_POINTS} points`,
       { points: Array.isArray(points) ? points.length : typeof points, minimum: MIN_POLYGON_POINTS },
     )
   }

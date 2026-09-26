@@ -246,6 +246,21 @@ describe('createTransformersEmbedding', () => {
 
       await expect(result.embedBatch(['test'], 'document', controller.signal)).rejects.toThrow()
     })
+
+    it('embeds each text on its own under a quantised dtype, so a batch gives the vectors that single calls give', async () => {
+      mockPipeline.mockResolvedValue(createMockTensor([1, 64]))
+      const result = createTransformersEmbedding({ dimensions: 64, dtype: 'q8', documentPrefix: 'passage: ' })
+
+      const vectors = await result.embedBatch(['alpha', 'beta', 'gamma'], 'document')
+
+      expect(vectors).toHaveLength(3)
+      expect(mockPipeline.mock.calls.map(call => call[0])).toEqual([
+        'passage: alpha',
+        'passage: beta',
+        'passage: gamma',
+      ])
+      mockPipeline.mockReset()
+    })
   })
 
   describe('pipeline initialization', () => {
@@ -285,7 +300,7 @@ describe('createTransformersEmbedding', () => {
       expect(pipelineFn).toHaveBeenCalledWith(
         'feature-extraction',
         'custom/model-v2',
-        expect.objectContaining({ dtype: 'q8' }),
+        expect.objectContaining({ dtype: 'fp32' }),
       )
     })
 
@@ -299,7 +314,7 @@ describe('createTransformersEmbedding', () => {
       expect(pipelineFn).toHaveBeenCalledWith(
         'feature-extraction',
         'Xenova/all-MiniLM-L6-v2',
-        expect.objectContaining({ dtype: 'q8' }),
+        expect.objectContaining({ dtype: 'fp32' }),
       )
     })
 
@@ -368,7 +383,7 @@ describe('createTransformersEmbedding', () => {
       expect(pipelineFn).toHaveBeenCalledWith(
         'feature-extraction',
         expect.any(String),
-        expect.objectContaining({ dtype: 'q8', customFlag: true }),
+        expect.objectContaining({ dtype: 'fp32', customFlag: true }),
       )
     })
 
