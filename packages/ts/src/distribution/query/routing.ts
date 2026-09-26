@@ -5,7 +5,7 @@ import { queryBindingOf } from '../../search/cursor-binding'
 import { oversampledShardSize } from '../../search/oversample'
 import { requireWithinResultWindow } from '../../search/pagination'
 import { sortSignatureEntry } from '../../search/sorting'
-import { wireParamsToLocal } from '../cluster-node/query-conversion'
+import { ascendingFacetFields, wireParamsToLocal } from '../cluster-node/query-conversion'
 import type {
   FacetBucket,
   GlobalStatistics,
@@ -21,7 +21,7 @@ import { executeHybridQuery } from './hybrid'
 import { mergeAndTruncateScoredEntries, mergeAndTruncateSortedEntries, mergeDistributedFacets } from './merge'
 import { lastOrganicEntry, placePinnedEntries } from './pinning'
 import type { ReplicaSelector } from './selection'
-import { randomSelector, selectReplicasForQuery } from './selection'
+import { queryKeyedSelector, selectReplicasForQuery } from './selection'
 import type { DistributedQueryConfig, DistributedQueryResult, QueryRoutingDeps, RoutingResult } from './types'
 import { DEFAULT_QUERY_CONFIG } from './types'
 
@@ -85,7 +85,7 @@ export async function distributedQuery(
     }
   }
 
-  const routing = selectReplicasForQuery(allocationTable, selector ?? randomSelector)
+  const routing = selectReplicasForQuery(allocationTable, selector ?? queryKeyedSelector(binding))
   const totalPartitions = allocationTable.assignments.size
 
   if (routing.unavailablePartitions.length > 0 && !resolvedConfig.allowPartialResults) {
@@ -231,7 +231,10 @@ async function executeSingleFanOut(
       ? placePinnedEntries(merged, params.pinned, depth, allMatchesPresent)
       : { entries: merged, placedFromOutside: [] }
   const mergedScored = placement.entries.slice(offset, depth)
-  const mergedFacets = allFacets.length > 0 ? mergeDistributedFacets(allFacets, allFacetBounds, facetSize) : null
+  const mergedFacets =
+    allFacets.length > 0
+      ? mergeDistributedFacets(allFacets, allFacetBounds, facetSize, ascendingFacetFields(params.facets))
+      : null
   const mergedGroups = mergeGroupsFor(params, allGroups, sortFields)
 
   let cursor: string | null = null

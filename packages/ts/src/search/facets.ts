@@ -21,6 +21,10 @@ export function everyValueFacetConfig(config: FacetConfig): FacetConfig {
 export function oversampledFacetConfig(config: FacetConfig): FacetConfig {
   const widened: FacetConfig = {}
   for (const [field, fieldConfig] of Object.entries(config)) {
+    if (fieldConfig?.ranges !== undefined || fieldConfig?.sort === 'asc') {
+      widened[field] = { ...fieldConfig, limit: undefined }
+      continue
+    }
     const kept = keptValueCount(fieldConfig)
     widened[field] = kept === undefined ? fieldConfig : { ...fieldConfig, limit: oversampledShardSize(kept) }
   }

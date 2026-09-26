@@ -38,12 +38,23 @@ export interface WireHybridConfig {
   alpha: number | null
 }
 
+export interface WireFacetRange {
+  from: number
+  to: number
+}
+
+export interface WireFacetField {
+  field: string
+  sort: 'asc' | 'desc' | null
+  ranges: WireFacetRange[] | null
+}
+
 export interface WireQueryParams {
   term: string | null
   filters: Record<string, unknown> | null
   sort: SortField[] | null
   group: WireGroupConfig | null
-  facets: string[] | null
+  facets: WireFacetField[] | null
   facetSize: number | null
   limit: number
   offset: number

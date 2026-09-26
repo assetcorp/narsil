@@ -194,7 +194,7 @@ A search against a multi-partition index runs on a coordinator that queries ever
 9. Return the merged result.
 ```
 
-Each partition must count every value of a faceted field, so that the summed counts are exact. An implementation that splits the partitions across threads may instead oversample the values from each thread by the rule in [Distributed Facets](distribution/query-routing.md#distributed-facets) for each node.
+Each partition must count every value of a faceted field, so that the summed counts are exact. An implementation that splits the partitions across threads may instead oversample the values from each thread by the rule in [Distributed Facets](distribution/query-routing.md#distributed-facets) for each node, except for a field with ranges or the sort `'asc'`, where each thread must return every count.
 
 ### Hybrid Search
 

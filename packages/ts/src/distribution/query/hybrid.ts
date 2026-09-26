@@ -1,5 +1,6 @@
 import { ErrorCodes, NarsilError } from '../../errors'
 import { resolveHybridFusion } from '../../search/fusion'
+import { ascendingFacetFields } from '../cluster-node/query-conversion'
 import type { FacetBucket, GlobalStatistics, ScoredEntry, WireGroupEntry, WireQueryParams } from '../transport/types'
 import { buildCoverage, collectDistributedStats, fanOutSearch } from './fan-out'
 import { distributedLinearCombination, distributedRRF } from './fusion'
@@ -50,6 +51,8 @@ export async function executeHybridQuery(
     hybrid: null,
     mode: null,
     group: null,
+    facets: null,
+    facetSize: null,
     limit: depth,
     offset: 0,
   }
@@ -127,7 +130,10 @@ export async function executeHybridQuery(
       ? placePinnedEntries(fused, params.pinned, depth, allMatchesPresent)
       : { entries: fused, placedFromOutside: [] }
   const truncated = placement.entries.slice(offset, depth)
-  const mergedFacets = allFacets.length > 0 ? mergeDistributedFacets(allFacets, allFacetBounds, facetSize) : null
+  const mergedFacets =
+    allFacets.length > 0
+      ? mergeDistributedFacets(allFacets, allFacetBounds, facetSize, ascendingFacetFields(params.facets))
+      : null
 
   return {
     scored: truncated,

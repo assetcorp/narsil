@@ -5,12 +5,7 @@ import type { QueryParams } from '../../../types/search'
 import { distributedQuery } from '../../query/routing'
 import type { DistributedQueryConfig } from '../../query/types'
 import { fetchDistributedDocuments, readDistributedDocuments } from '../node-messaging'
-import {
-  distributedCountIsExact,
-  distributedResultToLocal,
-  localParamsToWire,
-  requireClusterFacetOptions,
-} from '../query-conversion'
+import { distributedCountIsExact, distributedResultToLocal, localParamsToWire } from '../query-conversion'
 import { routableAllocation } from '../routable-allocation'
 import type { ClusterQueryConfig } from '../types'
 import { assembleDistributedGroups } from './groups'
@@ -82,7 +77,6 @@ export async function queryCluster<T = AnyDocument>(
   if (allocation === null) {
     return deps.engine.query<T>(indexName, params)
   }
-  requireClusterFacetOptions(params.facets)
   const wireParams = localParamsToWire(params)
   const queryDeps = {
     transport: deps.config.transport,

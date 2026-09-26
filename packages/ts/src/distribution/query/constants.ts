@@ -11,6 +11,7 @@ export const MAX_FIELD_NAME_LENGTH = 255
 export const MAX_FIELDS_LIST = 256
 export const MAX_BOOST_FIELDS = 256
 export const MAX_FACETS = 64
+export const MAX_FACET_RANGES = 1_000
 export const MAX_FETCH_DOCUMENT_IDS = 10_000
 export const MAX_FILTER_FIELDS = 256
 export const MAX_FILTER_ARRAY_SIZE = 65_536

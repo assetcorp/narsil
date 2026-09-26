@@ -1,4 +1,3 @@
-import { ErrorCodes, NarsilError } from '../../errors'
 import { DEFAULT_PAGE_SIZE } from '../../search/constants'
 import { hitsKeptPerGroup } from '../../search/grouping'
 import { clampRowCount } from '../../search/pagination'
@@ -6,10 +5,11 @@ import { normalizeSort } from '../../search/sorting'
 import type { FacetResult, QueryCoverage, QueryResult } from '../../types/results'
 import type { AnyDocument } from '../../types/schema'
 import type { FacetConfig, QueryParams } from '../../types/search'
-import { MAX_FACET_SIZE, MAX_LIMIT } from '../query/constants'
+import { MAX_FACET_BUCKETS, MAX_FACET_SIZE, MAX_LIMIT } from '../query/constants'
 import { DEFAULT_QUERY_CONFIG, type DistributedQueryResult } from '../query/types'
 import type {
   SortField,
+  WireFacetField,
   WireGroupConfig,
   WireHybridConfig,
   WireQueryParams,
@@ -85,15 +85,35 @@ export function convertWireSortToLocal(wireSort: SortField[] | null): SortField[
   return normalizeSort(wireSort)
 }
 
-export function convertWireFacetConfigToLocal(facets: string[] | null, limit: number | null): FacetConfig | undefined {
+function countsEveryValue(facet: WireFacetField): boolean {
+  return facet.ranges !== null || facet.sort === 'asc'
+}
+
+export function convertWireFacetConfigToLocal(
+  facets: WireFacetField[] | null,
+  limit: number | null,
+): FacetConfig | undefined {
   if (facets === null || facets.length === 0) {
     return undefined
   }
   const result: FacetConfig = {}
-  for (const field of facets) {
-    result[field] = limit !== null ? { limit } : {}
+  for (const facet of facets) {
+    const options: FacetConfig[string] = {}
+    if (countsEveryValue(facet)) options.limit = MAX_FACET_BUCKETS
+    else if (limit !== null) options.limit = limit
+    if (facet.sort !== null) options.sort = facet.sort
+    if (facet.ranges !== null) options.ranges = facet.ranges.map(range => ({ from: range.from, to: range.to }))
+    result[facet.field] = options
   }
   return result
+}
+
+export function ascendingFacetFields(facets: WireFacetField[] | null): ReadonlySet<string> {
+  const ascending = new Set<string>()
+  for (const facet of facets ?? []) {
+    if (facet.sort === 'asc') ascending.add(facet.field)
+  }
+  return ascending
 }
 
 export function localParamsToWire(params: QueryParams): WireQueryParams {
@@ -178,11 +198,19 @@ function convertLocalGroupToWire(group: QueryParams['group']): WireGroupConfig |
   }
 }
 
-function convertLocalFacetsToWire(facets: QueryParams['facets']): string[] | null {
+function wireFacetOrder(sort: unknown): WireFacetField['sort'] {
+  return sort === 'asc' || sort === 'desc' ? sort : null
+}
+
+function convertLocalFacetsToWire(facets: QueryParams['facets']): WireFacetField[] | null {
   if (facets === undefined) {
     return null
   }
-  return Object.keys(facets)
+  return Object.entries(facets).map(([field, options]) => ({
+    field,
+    sort: wireFacetOrder(options?.sort),
+    ranges: options?.ranges?.map(range => ({ from: range.from, to: range.to })) ?? null,
+  }))
 }
 
 function convertLocalVectorToWire(vector: QueryParams['vector']): WireVectorQueryParams | null {
@@ -213,20 +241,12 @@ function convertLocalHybridToWire(hybrid: QueryParams['hybrid']): WireHybridConf
 
 function facetLimitOf(options: FacetConfig[string] | undefined): number {
   const limit = options?.limit
+  const ranges = options?.ranges
+  if ((limit === undefined || !Number.isFinite(limit)) && Array.isArray(ranges)) {
+    return Math.min(Math.max(ranges.length, 1), MAX_FACET_SIZE)
+  }
   if (limit === undefined || !Number.isFinite(limit)) return DEFAULT_QUERY_CONFIG.defaultFacetSize
   return Math.min(Math.max(Math.floor(limit), 1), MAX_FACET_SIZE)
-}
-
-export function requireClusterFacetOptions(facets: QueryParams['facets']): void {
-  if (facets === undefined) return
-  for (const [field, options] of Object.entries(facets)) {
-    if (options.sort !== 'asc' && options.ranges === undefined) continue
-    throw new NarsilError(
-      ErrorCodes.CLUSTER_OPERATION_UNSUPPORTED,
-      `A cluster search counts only the most frequent values of each facet field, highest first, so it cannot ${options.ranges !== undefined ? 'count ranges on' : 'order by the lowest counts first on'} facet "${field}"`,
-      { field },
-    )
-  }
 }
 
 function wireFacetSize(facets: QueryParams['facets']): number | null {
@@ -247,8 +267,10 @@ function convertWireFacetsToLocal(
     const kept = requested === undefined ? buckets.length : Math.min(buckets.length, facetLimitOf(requested[field]))
     const values: Record<string, number> = {}
     for (let index = 0; index < kept; index++) values[buckets[index].value] = buckets[index].count
+    let largestCut = 0
+    for (let index = kept; index < buckets.length; index++) largestCut = Math.max(largestCut, buckets[index].count)
     const errorBound =
-      kept < buckets.length ? (result.facetUndercounts?.[field] ?? mergedBound) + buckets[kept].count : mergedBound
+      kept < buckets.length ? (result.facetUndercounts?.[field] ?? mergedBound) + largestCut : mergedBound
     converted[field] = { values, count: kept, errorBound: Math.max(errorBound, mergedBound) }
   }
   return converted

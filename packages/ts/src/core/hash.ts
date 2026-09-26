@@ -19,6 +19,17 @@ export function fnv1aBytes(bytes: Uint8Array): number {
   return hash >>> 0
 }
 
+export function fnv1aUint32s(values: readonly number[]): number {
+  let hash = FNV_OFFSET_BASIS
+  for (const value of values) {
+    for (let shift = 24; shift >= 0; shift -= 8) {
+      hash ^= (value >>> shift) & 0xff
+      hash = Math.imul(hash, FNV_PRIME)
+    }
+  }
+  return hash >>> 0
+}
+
 /**
  * Hashes a string with FNV-1a over its UTF-8 bytes, which is how a document ID
  * routes to its partition.

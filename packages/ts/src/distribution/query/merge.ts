@@ -181,12 +181,14 @@ function popScoredHeap(
  * @param allFacets - The buckets each node returned, keyed by field.
  * @param allBounds - The largest count each node left out, keyed by field.
  * @param maxBuckets - The buckets one field keeps.
+ * @param ascending - The fields whose buckets order lowest count first.
  * @returns The merged buckets, one bound per field, and the summed node bounds that each field's bound starts from.
  */
 export function mergeDistributedFacets(
   allFacets: Array<Record<string, FacetBucket[]>>,
   allBounds: Array<Record<string, number> | null | undefined>,
   maxBuckets: number = DEFAULT_MAX_FACET_BUCKETS,
+  ascending: ReadonlySet<string> = new Set(),
 ): {
   facets: Record<string, FacetBucket[]>
   errorBounds: Record<string, number>
@@ -226,14 +228,18 @@ export function mergeDistributedFacets(
       buckets.push({ value, count })
     }
 
+    const lowestFirst = ascending.has(field)
     buckets.sort((a, b) => {
-      if (a.count !== b.count) return b.count - a.count
+      if (a.count !== b.count) return lowestFirst ? a.count - b.count : b.count - a.count
       return compareCodePoints(a.value, b.value)
     })
 
     facets[field] = buckets.slice(0, maxBuckets)
     const undercount = bounds.get(field) ?? 0
-    const largestLeftOut = buckets.length > maxBuckets ? buckets[maxBuckets].count : 0
+    let largestLeftOut = 0
+    for (let index = maxBuckets; index < buckets.length; index++) {
+      largestLeftOut = Math.max(largestLeftOut, buckets[index].count)
+    }
     undercounts[field] = undercount
     errorBounds[field] = undercount + largestLeftOut
   }
