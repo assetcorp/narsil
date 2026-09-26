@@ -1,6 +1,8 @@
 import { MAX_DOC_ID_LENGTH } from '../../../engine/constants'
 import {
   MAX_EF_SEARCH,
+  MAX_FACET_RANGES,
+  MAX_FACETS,
   MAX_FIELD_NAME_LENGTH,
   MAX_GROUP_FIELDS,
   MAX_HYBRID_K,
@@ -21,10 +23,12 @@ import {
   SEARCH_INVALID_FIELD,
   SEARCH_INVALID_MODE,
   throwInvalid,
+  validateFieldName,
   validateStringArray,
 } from './common'
 
 const ALLOWED_MODES = ['fulltext', 'vector', 'hybrid'] as const
+const ALLOWED_FACET_ORDERS = ['asc', 'desc'] as const
 const ALLOWED_METRICS = ['cosine', 'dotProduct', 'euclidean'] as const
 const ALLOWED_HYBRID_STRATEGIES = ['rrf', 'linear'] as const
 
@@ -80,6 +84,57 @@ export function validateGroupParams(value: unknown): void {
       CONFIG_INVALID,
       `Invalid SearchPayload: "params.group.limit" must be a non-negative integer at most ${MAX_LIMIT}, or null`,
     )
+  }
+}
+
+function validateFacetRanges(value: unknown, fieldLabel: string): void {
+  if (!Array.isArray(value)) {
+    throwInvalid(CONFIG_INVALID, `Invalid SearchPayload: "${fieldLabel}" must be an array or null`)
+  }
+  if (value.length > MAX_FACET_RANGES) {
+    throwInvalid(
+      CONFIG_INVALID,
+      `Invalid SearchPayload: "${fieldLabel}" exceeds maximum length of ${MAX_FACET_RANGES}`,
+      { length: value.length, limit: MAX_FACET_RANGES },
+    )
+  }
+  for (let i = 0; i < value.length; i++) {
+    const range = value[i]
+    if (!isRecord(range) || typeof range.from !== 'number' || typeof range.to !== 'number') {
+      throwInvalid(CONFIG_INVALID, `Invalid SearchPayload: "${fieldLabel}[${i}]" must hold a numeric from and to`)
+    }
+  }
+}
+
+export function validateFacetParams(value: unknown): void {
+  if (!Array.isArray(value)) {
+    throwInvalid(SEARCH_INVALID_FIELD, 'Invalid SearchPayload: "params.facets" must be an array or null')
+  }
+  if (value.length > MAX_FACETS) {
+    throwInvalid(
+      SEARCH_INVALID_FIELD,
+      `Invalid SearchPayload: "params.facets" exceeds maximum length of ${MAX_FACETS}`,
+      {
+        length: value.length,
+        limit: MAX_FACETS,
+      },
+    )
+  }
+  for (let i = 0; i < value.length; i++) {
+    const entry = value[i]
+    if (!isRecord(entry)) {
+      throwInvalid(CONFIG_INVALID, `Invalid SearchPayload: "params.facets[${i}]" must be an object`)
+    }
+    validateFieldName(entry.field, `params.facets[${i}].field`, SEARCH_INVALID_FIELD)
+    if (entry.sort !== null && !ALLOWED_FACET_ORDERS.includes(entry.sort as (typeof ALLOWED_FACET_ORDERS)[number])) {
+      throwInvalid(
+        SEARCH_INVALID_MODE,
+        `Invalid SearchPayload: "params.facets[${i}].sort" must be one of: ${ALLOWED_FACET_ORDERS.join(', ')}, or null`,
+      )
+    }
+    if (entry.ranges !== null) {
+      validateFacetRanges(entry.ranges, `params.facets[${i}].ranges`)
+    }
   }
 }
 

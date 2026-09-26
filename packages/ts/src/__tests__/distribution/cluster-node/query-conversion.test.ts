@@ -3,7 +3,6 @@ import {
   countIsExactFor,
   distributedResultToLocal,
   localParamsToWire,
-  requireClusterFacetOptions,
   wireParamsToLocal,
 } from '../../../distribution/cluster-node/query-conversion'
 import { queryBindingOf } from '../../../search/cursor-binding'
@@ -174,16 +173,6 @@ describe('facet options on the cluster wire', () => {
 
   it('keeps the default of ten values for a facet that sets no limit', () => {
     expect(localParamsToWire({ term: 'keyboard', facets: { brand: { limit: 3 }, colour: {} } }).facetSize).toBe(10)
-  })
-
-  it('refuses facet ranges and ascending facet order, which the wire cannot carry', () => {
-    expect(() => requireClusterFacetOptions({ price: { ranges: [{ from: 0, to: 50 }] } })).toThrow(
-      expect.objectContaining({ code: 'CLUSTER_OPERATION_UNSUPPORTED' }),
-    )
-    expect(() => requireClusterFacetOptions({ brand: { sort: 'asc' } })).toThrow(
-      expect.objectContaining({ code: 'CLUSTER_OPERATION_UNSUPPORTED' }),
-    )
-    expect(() => requireClusterFacetOptions({ brand: { sort: 'desc', limit: 5 } })).not.toThrow()
   })
 })
 

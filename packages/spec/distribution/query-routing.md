@@ -112,9 +112,22 @@ DFS costs one extra round trip. Use it when partition sizes or term distribution
 
 ## Replica Selection
 
-The coordinator picks one replica per partition. The strategy is pluggable, and the default is random.
+The coordinator picks one replica per partition. The strategy is pluggable, and the default is query-keyed.
 
-**Random selection**, the default, picks a replica at random from the eligible copies of the partition, the primary included. Load spreads evenly when the replicas are alike.
+**Query-keyed selection**, the default, picks the eligible copy with the highest weight, the primary included:
+
+```text
+weight(query, partitionId, nodeId) -> uint32
+  return fnv1a(bytes of three big-endian uint32 values:
+    the query's cursor binding, read as a hex number
+    partitionId
+    fnv1a(UTF-8 bytes of nodeId)
+  )
+```
+
+A tie goes to the node ID that orders first in [code point order](../algorithms.md#code-point-order). Because the [cursor binding](../partitioning.md#cursor-binding) leaves out the page, every coordinator sends a repeated query, and each of its pages, to the same copies while the eligible copies stay the same. That matters because each node builds its own HNSW graph for its copy, and two such graphs can return different approximate neighbours for one query vector. When a copy joins or leaves, the coordinator changes its choice only for the queries whose highest weight falls on that copy.
+
+**Random selection** picks a replica at random from the eligible copies of the partition, the primary included. Load spreads evenly when the replicas are alike, although a repeated vector query can then return different hits.
 
 **Adaptive selection** is optional. It tracks per-replica response time and queue depth and routes to the replica with the lowest estimated latency. The algorithm is implementation-defined; an implementation that offers one must document how it behaves.
 
@@ -176,8 +189,9 @@ Each data node counts facets over its own partitions, and the coordinator merges
 4. The coordinator merges the buckets:
      group the buckets of each field by value
      sum the counts of identical values
-     order by merged count, highest first, ties by value in
-       code point order
+     order by merged count, highest first, or lowest first for
+       a field whose sort is 'asc', ties by value in code point
+       order
      truncate to facetSize
      sum the error bounds of each field across the nodes
      add to that sum the largest merged count that the
@@ -187,6 +201,8 @@ Each data node counts facets over its own partitions, and the coordinator merges
 ```
 
 Distributed facet counts are approximate. A value that is frequent across the whole index but falls below `shardSize` on the individual partitions can be undercounted or missed altogether. A larger `shardSize` buys accuracy with transfer.
+
+The coordinator cannot find the lowest counts, or every range, among each node's top values, so step 3 changes for a field whose [`FacetField`](transport.md#queryparams) carries `ranges` or the sort `'asc'`: a data node must return up to 10,000 buckets of that field in place of `shardSize`, ordered by the field's sort. The merged counts of such a field are then exact wherever no node leaves a bucket out. A data node counts a range from `from`, inclusive, to `to`, exclusive, and names its bucket by `from`, a hyphen, and `to`, each written the way ECMAScript converts a number to a string. Where a query sets `ranges` on a field and no limit, the coordinator must return every range of that field, and a query may carry at most 1,000 ranges on one field.
 
 A response must carry one error bound per field it counts, and that figure is the largest undercount any value of the field can have, where a value that the response leaves out counts as 0. A node sets its own bound to the largest count it excludes from the field, and to 0 where it excludes nothing, so a bound of 0 on every node proves the field's counts exact. The coordinator sums the nodes' bounds, because each node undercounts a value independently of the rest. It then adds the largest merged count that its own truncation drops, because the true count of a dropped value can exceed its merged count by the whole sum.
 

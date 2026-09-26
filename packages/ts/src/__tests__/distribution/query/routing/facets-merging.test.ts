@@ -15,6 +15,7 @@ import {
   makeQueryParams,
   makeSearchResultResponse,
   setupDataNode,
+  wireFacets,
 } from './fixtures'
 
 describe('distributedQuery facets merging', () => {
@@ -75,7 +76,7 @@ describe('distributedQuery facets merging', () => {
       [1, makeAssignment({ primary: 'node-b' })],
     ])
 
-    const result = await distributedQuery('products', makeQueryParams({ facets: ['color'] }), makeDeps(table))
+    const result = await distributedQuery('products', makeQueryParams({ facets: wireFacets('color') }), makeDeps(table))
 
     expect(result.facets).not.toBeNull()
     const colorBuckets = result.facets?.color
@@ -114,7 +115,7 @@ describe('distributedQuery facets merging', () => {
 
     const result = await distributedQuery(
       'products',
-      makeQueryParams({ facets: ['color'], facetSize: 5 }),
+      makeQueryParams({ facets: wireFacets('color'), facetSize: 5 }),
       makeDeps(table),
     )
 
@@ -140,7 +141,7 @@ describe('distributedQuery facets merging', () => {
     })
 
     const table = makeAllocationTable([[0, makeAssignment({ primary: 'node-a' })]])
-    const result = await distributedQuery('products', makeQueryParams({ facets: ['tag'] }), makeDeps(table))
+    const result = await distributedQuery('products', makeQueryParams({ facets: wireFacets('tag') }), makeDeps(table))
 
     expect(result.facets).not.toBeNull()
     expect(result.facets?.tag).toHaveLength(10)

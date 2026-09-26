@@ -283,11 +283,11 @@ export interface HybridConfig {
 export interface FacetConfig {
   /** Each key names a field the query counts values for. */
   [field: string]: {
-    /** The engine returns this many values for the field, in the order of `sort`. An engine returns every value where you leave this out, and a cluster returns 10. */
+    /** The engine returns this many values for the field, in the order of `sort`. An engine returns every value where you leave this out, while a cluster returns 10, or every range of a field that sets `ranges`. */
     limit?: number
-    /** The engine orders the returned values by their count, putting the highest first under `'desc'`, which is the default, and the lowest first under `'asc'`. A cluster search throws `CLUSTER_OPERATION_UNSUPPORTED` for `'asc'`. */
+    /** The engine orders the returned values by their count, putting the highest first under `'desc'`, which is the default, and the lowest first under `'asc'`. Under `'asc'`, each cluster node sends the count of up to 10,000 values of the field, so the lowest counts are exact wherever no node holds more values than that. */
     sort?: 'asc' | 'desc'
-    /** The engine counts a numeric field's matches into these ranges, with one count for each range. A cluster search throws `CLUSTER_OPERATION_UNSUPPORTED` for ranges. */
+    /** The engine counts a numeric field's matches into these ranges, with one count for each range. A cluster search counts up to 1,000 ranges on a field and throws `CONFIG_INVALID` for more. */
     ranges?: Array<{ from: number; to: number }>
   }
 }

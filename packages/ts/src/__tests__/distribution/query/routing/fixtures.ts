@@ -10,6 +10,7 @@ import type {
   SearchResultPayload,
   StatsResultPayload,
   TransportMessage,
+  WireFacetField,
   WireQueryParams,
 } from '../../../../distribution/transport/types'
 
@@ -35,6 +36,10 @@ export function makeAllocationTable(
     replicationFactor: 1,
     assignments: new Map(assignments),
   }
+}
+
+export function wireFacets(...fields: string[]): WireFacetField[] {
+  return fields.map(field => ({ field, sort: null, ranges: null }))
 }
 
 export function makeQueryParams(overrides: Partial<WireQueryParams> = {}): WireQueryParams {

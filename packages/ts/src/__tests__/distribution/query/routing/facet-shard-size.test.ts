@@ -17,6 +17,7 @@ import {
   makeQueryParams,
   makeSearchResultResponse,
   setupDataNode,
+  wireFacets,
 } from './fixtures'
 
 describe('distributedQuery facet shard size computation', () => {
@@ -57,7 +58,7 @@ describe('distributedQuery facet shard size computation', () => {
     })
 
     const table = makeAllocationTable([[0, makeAssignment({ primary: 'node-a' })]])
-    await distributedQuery('products', makeQueryParams({ facets: ['color'] }), makeDeps(table))
+    await distributedQuery('products', makeQueryParams({ facets: wireFacets('color') }), makeDeps(table))
 
     expect(capturedPayloads).toHaveLength(1)
     expect(capturedPayloads[0].facetShardSize).toBe(Math.ceil(10 * 1.5) + 10)
@@ -75,7 +76,11 @@ describe('distributedQuery facet shard size computation', () => {
     })
 
     const table = makeAllocationTable([[0, makeAssignment({ primary: 'node-a' })]])
-    await distributedQuery('products', makeQueryParams({ facets: ['category'], facetSize: 20 }), makeDeps(table))
+    await distributedQuery(
+      'products',
+      makeQueryParams({ facets: wireFacets('category'), facetSize: 20 }),
+      makeDeps(table),
+    )
 
     expect(capturedPayloads).toHaveLength(1)
     expect(capturedPayloads[0].facetShardSize).toBe(Math.ceil(20 * 1.5) + 10)
@@ -93,9 +98,14 @@ describe('distributedQuery facet shard size computation', () => {
     })
 
     const table = makeAllocationTable([[0, makeAssignment({ primary: 'node-a' })]])
-    await distributedQuery('products', makeQueryParams({ facets: ['brand'], facetSize: null }), makeDeps(table), {
-      defaultFacetSize: 50,
-    })
+    await distributedQuery(
+      'products',
+      makeQueryParams({ facets: wireFacets('brand'), facetSize: null }),
+      makeDeps(table),
+      {
+        defaultFacetSize: 50,
+      },
+    )
 
     expect(capturedPayloads).toHaveLength(1)
     expect(capturedPayloads[0].facetShardSize).toBe(Math.ceil(50 * 1.5) + 10)
@@ -113,7 +123,7 @@ describe('distributedQuery facet shard size computation', () => {
     })
 
     const table = makeAllocationTable([[0, makeAssignment({ primary: 'node-a' })]])
-    await distributedQuery('products', makeQueryParams({ facets: ['color'], facetSize: 0 }), makeDeps(table))
+    await distributedQuery('products', makeQueryParams({ facets: wireFacets('color'), facetSize: 0 }), makeDeps(table))
 
     expect(capturedPayloads).toHaveLength(1)
     expect(capturedPayloads[0].facetShardSize).toBe(Math.ceil(1 * 1.5) + 10)
@@ -131,7 +141,7 @@ describe('distributedQuery facet shard size computation', () => {
     })
 
     const table = makeAllocationTable([[0, makeAssignment({ primary: 'node-a' })]])
-    await distributedQuery('products', makeQueryParams({ facets: ['color'], facetSize: -1 }), makeDeps(table))
+    await distributedQuery('products', makeQueryParams({ facets: wireFacets('color'), facetSize: -1 }), makeDeps(table))
 
     expect(capturedPayloads).toHaveLength(1)
     expect(capturedPayloads[0].facetShardSize).toBe(Math.ceil(1 * 1.5) + 10)
@@ -149,7 +159,11 @@ describe('distributedQuery facet shard size computation', () => {
     })
 
     const table = makeAllocationTable([[0, makeAssignment({ primary: 'node-a' })]])
-    await distributedQuery('products', makeQueryParams({ facets: ['color'], facetSize: NaN }), makeDeps(table))
+    await distributedQuery(
+      'products',
+      makeQueryParams({ facets: wireFacets('color'), facetSize: NaN }),
+      makeDeps(table),
+    )
 
     expect(capturedPayloads).toHaveLength(1)
     expect(capturedPayloads[0].facetShardSize).toBe(Math.ceil(10 * 1.5) + 10)
@@ -167,7 +181,11 @@ describe('distributedQuery facet shard size computation', () => {
     })
 
     const table = makeAllocationTable([[0, makeAssignment({ primary: 'node-a' })]])
-    await distributedQuery('products', makeQueryParams({ facets: ['color'], facetSize: 999_999 }), makeDeps(table))
+    await distributedQuery(
+      'products',
+      makeQueryParams({ facets: wireFacets('color'), facetSize: 999_999 }),
+      makeDeps(table),
+    )
 
     expect(capturedPayloads).toHaveLength(1)
     expect(capturedPayloads[0].facetShardSize).toBe(Math.ceil(1_000 * 1.5) + 10)

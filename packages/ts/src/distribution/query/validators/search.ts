@@ -6,7 +6,6 @@ import type { SearchPayload } from '../../transport/types'
 import {
   MAX_BOOST_FIELDS,
   MAX_FACET_SIZE,
-  MAX_FACETS,
   MAX_FIELDS_LIST,
   MAX_LIMIT,
   MAX_OFFSET,
@@ -33,6 +32,7 @@ import { validateFilterExpression } from './filters'
 import {
   validateBooleanParam,
   validateEfSearchParam,
+  validateFacetParams,
   validateGroupParams,
   validateHybridParams,
   validateModeParam,
@@ -206,7 +206,7 @@ function validateParams(params: Record<string, unknown>): void {
   }
 
   if (params.facets !== null) {
-    validateStringArray(params.facets, 'params.facets', MAX_FACETS, 255, SEARCH_INVALID_FIELD)
+    validateFacetParams(params.facets)
   }
 
   if (params.facetSize !== null) {

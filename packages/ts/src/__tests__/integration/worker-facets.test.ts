@@ -52,4 +52,55 @@ describe.skipIf(!built)('a query spread across several workers', () => {
       await narsil.shutdown()
     }
   })
+
+  it('finds the rarest values and counts every price range as one thread does', async () => {
+    const stockists = Array.from({ length: 240 }, (_, serial) => ({
+      id: `stock-${String(serial).padStart(3, '0')}`,
+      title: `alpha stockist ${serial}`,
+      maker: `maker-${String((serial * serial) % 53).padStart(2, '0')}`,
+      price: (serial * 37) % 400,
+    }))
+    const schema = { title: 'string', maker: 'string', price: 'number' } as const
+    const facets = {
+      maker: { sort: 'asc' as const, limit: 3 },
+      price: {
+        ranges: [
+          { from: 0, to: 100 },
+          { from: 100, to: 250 },
+          { from: 250, to: 400 },
+        ],
+      },
+    }
+
+    const single = await createNarsil({ persistence: createMemoryPersistence(), workers: { enabled: false } })
+    const split = await createNarsil({
+      persistence: createMemoryPersistence(),
+      workers: { enabled: true, count: 4, promotionThreshold: 10 },
+    })
+
+    try {
+      await single.createIndex('stockists', { schema, language: 'english' })
+      await single.insertBatch('stockists', stockists)
+      const truth = await single.query('stockists', { term: 'alpha', limit: 5, facets })
+
+      await split.createIndex('stockists', {
+        schema,
+        language: 'english',
+        partitions: { maxDocsPerPartition: 40, maxPartitions: 8, watermark: 0.9 },
+      })
+      const promoted = new Promise<number>(resolve => {
+        split.on('workerPromote', payload => resolve(payload.workerCount))
+      })
+      await split.insertBatch('stockists', stockists)
+      expect(await promoted).toBeGreaterThanOrEqual(2)
+
+      const answers = await Promise.all(
+        Array.from({ length: 3 }, () => split.query('stockists', { term: 'alpha', limit: 5, facets })),
+      )
+      for (const answer of answers) expect(answer.facets).toEqual(truth.facets)
+    } finally {
+      await split.shutdown()
+      await single.shutdown()
+    }
+  })
 })
