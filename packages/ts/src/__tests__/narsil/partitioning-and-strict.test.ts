@@ -170,6 +170,21 @@ describe('Narsil rebalance, partitioning, and strict mode', () => {
     })
   })
 
+  describe('facets across partitions', () => {
+    it('sums every value exactly and cuts the field to its limit once', async () => {
+      await narsil.createIndex('products', { schema, language: 'english', partitions: { maxPartitions: 3 } })
+      const categories = [...Array(10).fill('audio'), ...Array(12).fill('camera'), ...Array(8).fill('drone')]
+      for (let i = 0; i < categories.length; i++) {
+        await narsil.insert('products', { title: `Gadget ${i}`, category: categories[i], price: i }, `gadget-${i}`)
+      }
+      expect(narsil.getPartitionStats('products').length).toBe(3)
+
+      const result = await narsil.query('products', { term: 'gadget', facets: { category: { limit: 1 } } })
+
+      expect(result.facets?.category).toEqual({ values: { camera: 12 }, count: 1, errorBound: 10 })
+    })
+  })
+
   describe('getPartitionStats', () => {
     it('returns per-partition breakdown', async () => {
       const config: IndexConfig = { schema, language: 'english', partitions: { maxPartitions: 3 } }

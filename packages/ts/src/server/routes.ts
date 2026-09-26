@@ -1,8 +1,8 @@
 import type { HttpRequest, HttpResponse, TemplatedApp } from 'uWebSockets.js'
-import { type ResolvedCors, writeCorsOrigin } from './cors'
+import { corsHeaderReader, type ResolvedCors, writeCorsOrigin } from './cors'
 import type { ResolvedLimits } from './deps'
 import { ServerErrorCodes } from './errors'
-import type { RouteHandler, RouteOptions } from './request'
+import { type RouteHandler, type RouteOptions, sinkWritingAfterStatus } from './request'
 import { sendError } from './response'
 
 export interface ServerHandlers {
@@ -155,7 +155,9 @@ export function registerServerRoutes(
     app[route.method](route.path, run(handlers[route.handler], route.options))
   }
 
-  app.any('/*', res => {
-    sendError(res, 404, ServerErrorCodes.NOT_FOUND, 'Route not found')
+  const corsHeaders = cors ? corsHeaderReader(cors) : null
+  app.any('/*', (res, req) => {
+    const sink = corsHeaders === null ? res : sinkWritingAfterStatus(res, corsHeaders(req))
+    sendError(sink, 404, ServerErrorCodes.NOT_FOUND, 'Route not found')
   })
 }

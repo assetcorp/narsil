@@ -10,6 +10,7 @@ import {
   DEFAULT_COMPACTION_THRESHOLD,
   DEFAULT_SEGMENT_MAX_BYTES,
 } from './constants'
+import { createDirectoryWatch, unrefInterval } from './directory-watch'
 import { createDurableDirectory, type DurableDirectory } from './durable-filesystem'
 import { drainIndexStateForUnload, type IndexState, type PartitionState } from './manager-state'
 import { type PartitionBatchDeps, recordBatchesByPartition } from './mutation-batch'
@@ -54,12 +55,14 @@ export function createDurabilityManager(
   let asyncFlushTimer: ReturnType<typeof setInterval> | null = null
   let shuttingDown = false
   let fatalError: Error | null = null
+  const directoryWatch = createDirectoryWatch(directory, () => shuttingDown || fatalError !== null, markFatal)
 
   function markFatal(error: Error): void {
     if (fatalError !== null) {
       return
     }
     fatalError = error
+    directoryWatch.stop()
     if (checkpointTimer !== null) {
       clearInterval(checkpointTimer)
       checkpointTimer = null
@@ -129,24 +132,14 @@ export function createDurabilityManager(
     if (checkpointTimer !== null || shuttingDown || fatalError !== null || checkpointIntervalMs <= 0) {
       return
     }
-    checkpointTimer = setInterval(() => {
-      void runScheduledCheckpoints()
-    }, checkpointIntervalMs)
-    if (typeof checkpointTimer.unref === 'function') {
-      checkpointTimer.unref()
-    }
+    checkpointTimer = unrefInterval(() => void runScheduledCheckpoints(), checkpointIntervalMs)
   }
 
   function startAsyncFlushTimer(): void {
     if (mode !== 'async' || asyncFlushTimer !== null || shuttingDown || fatalError !== null || flushIntervalMs <= 0) {
       return
     }
-    asyncFlushTimer = setInterval(() => {
-      void flushAllPartitions()
-    }, flushIntervalMs)
-    if (typeof asyncFlushTimer.unref === 'function') {
-      asyncFlushTimer.unref()
-    }
+    asyncFlushTimer = unrefInterval(() => void flushAllPartitions(), flushIntervalMs)
   }
 
   async function flushAllPartitions(): Promise<void> {
@@ -213,6 +206,8 @@ export function createDurabilityManager(
   }
 
   async function performCheckpoint(indexName: string, indexState: IndexState, fromMemory = false): Promise<void> {
+    await directoryWatch.verify()
+    if (fatalError !== null) throw fatalError
     await runDurableCheckpoint({
       directory,
       hooks,
@@ -265,10 +260,14 @@ export function createDurabilityManager(
       }
       await stallWhileCheckpointsFallBehind(indexState)
     }
-    if (recordedByIndex.size > 0) {
-      startCheckpointTimer()
-      startAsyncFlushTimer()
-    }
+    if (recordedByIndex.size === 0) return outcomes
+    if (mode === 'sync') await directoryWatch.verify()
+    const lost = mode === 'sync' ? fatalError : null
+    if (lost !== null) return outcomes.map(outcome => (outcome.ok ? { ok: false, error: lost } : outcome))
+    await directoryWatch.verifyOnce()
+    directoryWatch.start()
+    startCheckpointTimer()
+    startAsyncFlushTimer()
     return outcomes
   }
 
@@ -293,10 +292,13 @@ export function createDurabilityManager(
     },
 
     async recover(metadataOnly = false): Promise<void> {
+      await directoryWatch.claim()
       const names = await listPersistedIndexes(directory)
       for (const indexName of names) {
         await recoverIndex(indexName, metadataOnly)
       }
+      await directoryWatch.verify()
+      directoryWatch.start()
       startCheckpointTimer()
     },
 
@@ -369,6 +371,7 @@ export function createDurabilityManager(
 
     async shutdown(): Promise<void> {
       shuttingDown = true
+      directoryWatch.stop()
       if (checkpointTimer !== null) {
         clearInterval(checkpointTimer)
         checkpointTimer = null
@@ -387,6 +390,7 @@ export function createDurabilityManager(
       }
       indexes.clear()
       terminateCheckpointWorker()
+      await directoryWatch.release()
     },
   }
 }

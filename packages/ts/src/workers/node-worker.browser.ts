@@ -10,6 +10,10 @@ export async function spawnNodeWorker(
   return null
 }
 
+export async function nodeThreadId(): Promise<number> {
+  return 0
+}
+
 export async function isNodeMainThread(): Promise<boolean> {
   return true
 }

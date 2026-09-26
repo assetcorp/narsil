@@ -305,6 +305,8 @@ export type {
   StatsResultPayload,
   SuggestPayload,
   SuggestResultPayload,
+  WireFacetField,
+  WireFacetRange,
   WireGroupConfig,
   WireGroupEntry,
   WireHighlightConfig,

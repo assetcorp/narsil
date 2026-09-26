@@ -1,4 +1,4 @@
-import type { HttpRequest, HttpResponse } from 'uWebSockets.js'
+import type { HttpRequest } from 'uWebSockets.js'
 import type { ResponseSink } from './response'
 import type { CorsOptions } from './types'
 
@@ -26,13 +26,21 @@ function matchOrigin(cors: ResolvedCors, requestOrigin: string): string | null {
   return cors.origin.includes(requestOrigin) ? requestOrigin : null
 }
 
-export function writeCorsOrigin(res: ResponseSink, cors: ResolvedCors, requestOrigin: string): void {
+function corsOriginHeaders(cors: ResolvedCors, requestOrigin: string): Array<[string, string]> {
   const allowed = matchOrigin(cors, requestOrigin)
-  if (!allowed) return
-  res.writeHeader('Access-Control-Allow-Origin', allowed)
-  if (allowed !== '*') res.writeHeader('Vary', 'Origin')
+  const variesByOrigin = Array.isArray(cors.origin)
+  if (!allowed) return variesByOrigin ? [['Vary', 'Origin']] : []
+  if (!variesByOrigin) return [['Access-Control-Allow-Origin', allowed]]
+  return [
+    ['Access-Control-Allow-Origin', allowed],
+    ['Vary', 'Origin'],
+  ]
 }
 
-export function corsWriter(cors: ResolvedCors): (res: HttpResponse, req: HttpRequest) => void {
-  return (res, req) => writeCorsOrigin(res, cors, req.getHeader('origin'))
+export function writeCorsOrigin(res: ResponseSink, cors: ResolvedCors, requestOrigin: string): void {
+  for (const [key, value] of corsOriginHeaders(cors, requestOrigin)) res.writeHeader(key, value)
+}
+
+export function corsHeaderReader(cors: ResolvedCors): (req: HttpRequest) => Array<[string, string]> {
+  return req => corsOriginHeaders(cors, req.getHeader('origin'))
 }

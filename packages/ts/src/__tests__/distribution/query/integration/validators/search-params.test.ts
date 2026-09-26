@@ -3,7 +3,6 @@ import { MAX_PARTITION_COUNT } from '../../../../../distribution/constants'
 import { validateSearchPayload } from '../../../../../distribution/query/codec'
 import {
   MAX_BOOST_FIELDS,
-  MAX_FACETS,
   MAX_FIELDS_LIST,
   MAX_HYBRID_K,
   MAX_LIMIT,
@@ -304,7 +303,7 @@ describe('validateSearchPayload params.boost', () => {
   })
 })
 
-describe('validateSearchPayload params.fields and params.facets', () => {
+describe('validateSearchPayload params.fields', () => {
   it('rejects fields exceeding MAX_FIELDS_LIST', () => {
     const oversized = Array.from({ length: MAX_FIELDS_LIST + 1 }, (_, i) => `f${i}`)
     expect(() => validateSearchPayload(makeSearchPayload({ fields: oversized }))).toThrow(/fields/)
@@ -318,15 +317,6 @@ describe('validateSearchPayload params.fields and params.facets', () => {
 
   it('accepts a well-formed fields array', () => {
     expect(() => validateSearchPayload(makeSearchPayload({ fields: ['title', 'description'] }))).not.toThrow()
-  })
-
-  it('rejects facets exceeding MAX_FACETS', () => {
-    const oversized = Array.from({ length: MAX_FACETS + 1 }, (_, i) => `f${i}`)
-    expect(() => validateSearchPayload(makeSearchPayload({ facets: oversized }))).toThrow(/facets/)
-  })
-
-  it('accepts a well-formed facets array', () => {
-    expect(() => validateSearchPayload(makeSearchPayload({ facets: ['color', 'size'] }))).not.toThrow()
   })
 })
 

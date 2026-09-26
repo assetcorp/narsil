@@ -163,7 +163,7 @@ export function createEngineCore(config?: NarsilConfig, hooks?: EngineCoreHooks)
 
   function guardShutdown(): void {
     if (shutdownState.isShutdown) {
-      throw new NarsilError(ErrorCodes.INDEX_NOT_FOUND, 'This Narsil instance has been shut down')
+      throw new NarsilError(ErrorCodes.INSTANCE_SHUT_DOWN, 'This Narsil instance has been shut down')
     }
   }
 

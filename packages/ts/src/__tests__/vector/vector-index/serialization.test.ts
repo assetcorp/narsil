@@ -228,14 +228,14 @@ describe('VectorIndex serialization', () => {
     await index.awaitPendingBuild()
 
     const query = normalizedVector(DIM, 45)
-    const originalResults = index.search(query, 5, { metric: 'cosine', minSimilarity: 0 })
+    const originalResults = index.search(query, 5, { metric: 'cosine', minSimilarity: 0 }).results
 
     const parts = index.serialize()
 
     const restored = createVectorIndex('embedding', DIM, { threshold: 5, quantization: 'none' })
     restored.deserialize(parts)
 
-    const restoredResults = restored.search(query, 5, { metric: 'cosine', minSimilarity: 0 })
+    const restoredResults = restored.search(query, 5, { metric: 'cosine', minSimilarity: 0 }).results
 
     expect(restoredResults.length).toBe(originalResults.length)
     for (let i = 0; i < originalResults.length; i++) {

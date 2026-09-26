@@ -137,4 +137,24 @@ describe('highlightField', () => {
 
     expect(result.snippet).toBe('The <mark>Quick</mark> Brown Fox')
   })
+
+  it('compares each distinct word of a long field with the query once', () => {
+    const stemmedWords: string[] = []
+    const countingLanguage = {
+      ...english,
+      stemmer: (word: string) => {
+        stemmedWords.push(word)
+        return english.stemmer ? english.stemmer(word) : word
+      },
+    }
+    const text = 'harbour tide harbor '.repeat(500)
+
+    const result = highlightField(text, [{ token: 'harbour', position: 0 }], countingLanguage, {
+      tolerance: 1,
+      maxSnippetLength: 0,
+    })
+
+    expect(result.positions).toHaveLength(1000)
+    expect(stemmedWords.length).toBeLessThanOrEqual(4)
+  })
 })

@@ -376,7 +376,7 @@ QueryParams {
   filters:       FilterExpression or absent
   sort:          List<SortField> or absent
   group:         GroupConfig or absent
-  facets:        List<string> or absent
+  facets:        List<FacetField> or absent       (at most 64)
   facetSize:     uint32 or absent                 (default 10, the bucket cap per facet field)
   limit:         uint32                           (default 10)
   offset:        uint32                           (default 0)
@@ -400,6 +400,18 @@ QueryParams {
 SortField {
   field:     string
   direction: 'asc' or 'desc'
+  mode:      'min' or 'max' or 'avg' or 'median' or absent
+}
+
+FacetField {
+  field:  string
+  sort:   'asc' or 'desc' or absent   (absent means 'desc')
+  ranges: List<FacetRange> or absent  (at most 1,000)
+}
+
+FacetRange {
+  from: float64   (inclusive)
+  to:   float64   (exclusive)
 }
 
 GroupConfig {

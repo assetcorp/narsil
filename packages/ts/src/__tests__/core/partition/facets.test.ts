@@ -204,13 +204,13 @@ describe('facet counting reads the field indexes', () => {
     expect(Object.keys(ascending.tags.values)).toEqual(['green', 'blue', 'red'])
   })
 
-  it('ignores a facet field the schema does not declare', () => {
+  it('returns an empty facet for a field outside the schema that no document stores', () => {
     const live = buildLive()
     const allIds = getAllDocIds(partitionStateOf(live).docStore)
 
     const facets = live.computeFacets(allIds, { missing: {} }, facetSchema)
 
-    expect(facets.missing).toBeUndefined()
+    expect(facets.missing).toEqual({ values: {}, count: 0, errorBound: 0 })
   })
 })
 

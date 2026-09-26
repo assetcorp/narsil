@@ -7,6 +7,12 @@ import { getFieldValueByInternalId, getFieldValueForDoc, getFlatSchema, type Par
 
 type FacetRange = { from: number; to: number }
 
+const UNDECLARED_FIELD_TYPE = ''
+
+export function keptFacetValues(limit: number | undefined): number | undefined {
+  return limit !== undefined && limit > 0 ? Math.floor(limit) : undefined
+}
+
 export interface FacetOrdinalSet {
   readonly ordinalBitset: Uint32Array
 }
@@ -73,7 +79,7 @@ function countRangeFromDocuments(
 ): number {
   let count = 0
   for (const value of matchedFieldValues(state, fieldPath, matched)) {
-    if (fieldType === 'number[]' && Array.isArray(value)) {
+    if ((fieldType === 'number[]' || fieldType === UNDECLARED_FIELD_TYPE) && Array.isArray(value)) {
       for (const v of value as number[]) {
         if (v >= range.from && v < range.to) {
           count++
@@ -158,11 +164,10 @@ export function computeFacets(
   }
 
   for (const [fieldPath, facetOpts] of Object.entries(config)) {
-    const fieldType = flatSchema[fieldPath]
-    if (!fieldType) continue
+    const fieldType: string = flatSchema[fieldPath] ?? UNDECLARED_FIELD_TYPE
 
     const valueCounts =
-      facetOpts.ranges && (fieldType === 'number' || fieldType === 'number[]')
+      facetOpts.ranges && (fieldType === 'number' || fieldType === 'number[]' || fieldType === UNDECLARED_FIELD_TYPE)
         ? countNumericRanges(state, fieldPath, fieldType, facetOpts.ranges, bitset, matched)
         : countFieldValues(state, fieldPath, fieldType, bitset, matched)
 
@@ -170,7 +175,7 @@ export function computeFacets(
     const sortDir = facetOpts.sort ?? 'desc'
     ordered.sort((a, b) => (sortDir === 'asc' ? a[1] - b[1] : b[1] - a[1]) || compareCodePoints(a[0], b[0]))
 
-    const keep = facetOpts.limit && facetOpts.limit > 0 ? facetOpts.limit : ordered.length
+    const keep = Math.min(keptFacetValues(facetOpts.limit) ?? ordered.length, ordered.length)
     const entries = ordered.slice(0, keep)
 
     let errorBound = 0

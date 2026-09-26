@@ -172,22 +172,31 @@ function popScoredHeap(
  * Merges the facet counts every node returned and adds up what each of them
  * left out.
  *
- * A truncation here drops buckets the caller never sees, so it raises the
- * field's bound to the largest count it dropped where that is higher than what
- * the nodes reported.
+ * The summed node bounds limit how far any merged count falls below its true
+ * count. A bucket that the truncation here drops can hold a merged count that
+ * is itself short by that sum, so the field's bound adds the largest dropped
+ * count to the sum, which keeps the true count of every dropped value within
+ * the bound.
  *
  * @param allFacets - The buckets each node returned, keyed by field.
  * @param allBounds - The largest count each node left out, keyed by field.
  * @param maxBuckets - The buckets one field keeps.
- * @returns The merged buckets and one bound per field.
+ * @param ascending - The fields whose buckets order lowest count first.
+ * @returns The merged buckets, one bound per field, and the summed node bounds that each field's bound starts from.
  */
 export function mergeDistributedFacets(
   allFacets: Array<Record<string, FacetBucket[]>>,
   allBounds: Array<Record<string, number> | null | undefined>,
   maxBuckets: number = DEFAULT_MAX_FACET_BUCKETS,
-): { facets: Record<string, FacetBucket[]>; errorBounds: Record<string, number> } {
+  ascending: ReadonlySet<string> = new Set(),
+): {
+  facets: Record<string, FacetBucket[]>
+  errorBounds: Record<string, number>
+  undercounts: Record<string, number>
+} {
   const merged = new Map<string, Map<string, number>>()
   const bounds = new Map<string, number>()
+  const undercounts: Record<string, number> = {}
 
   for (const facetMap of allFacets) {
     for (const [field, buckets] of Object.entries(facetMap)) {
@@ -219,18 +228,21 @@ export function mergeDistributedFacets(
       buckets.push({ value, count })
     }
 
+    const lowestFirst = ascending.has(field)
     buckets.sort((a, b) => {
-      if (a.count !== b.count) return b.count - a.count
+      if (a.count !== b.count) return lowestFirst ? a.count - b.count : b.count - a.count
       return compareCodePoints(a.value, b.value)
     })
 
     facets[field] = buckets.slice(0, maxBuckets)
-    let bound = bounds.get(field) ?? 0
+    const undercount = bounds.get(field) ?? 0
+    let largestLeftOut = 0
     for (let index = maxBuckets; index < buckets.length; index++) {
-      if (buckets[index].count > bound) bound = buckets[index].count
+      largestLeftOut = Math.max(largestLeftOut, buckets[index].count)
     }
-    errorBounds[field] = bound
+    undercounts[field] = undercount
+    errorBounds[field] = undercount + largestLeftOut
   }
 
-  return { facets, errorBounds }
+  return { facets, errorBounds, undercounts }
 }

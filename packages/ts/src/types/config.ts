@@ -160,7 +160,10 @@ export interface WorkerConfig {
   /**
    * Whether the engine may hold worker copies and a vector search pool. It is
    * on everywhere but a browser page. Set it to false to hold the process to
-   * one thread, which leaves both pools absent.
+   * one thread, which leaves both pools absent. Where a bundler folds
+   * `@delali/narsil` into an application bundle, the engine finds no worker
+   * entry: left unset, it answers on one thread and prints one warning, and
+   * set to true, `createNarsil` throws `CONFIG_INVALID`.
    */
   enabled?: boolean
   /**

@@ -1,6 +1,6 @@
 # @delali/narsil-embeddings-transformers
 
-A [Transformers.js](https://huggingface.co/docs/transformers.js) embedding adapter for the [Narsil](https://github.com/assetcorp/narsil) search engine. This adapter runs embedding models directly in Node.js or the browser using ONNX Runtime, so there are no external API calls and no data leaves your environment. It conforms to Narsil's `EmbeddingAdapter` interface and supports any Hugging Face model that works with the `feature-extraction` pipeline.
+A [Transformers.js](https://huggingface.co/docs/transformers.js) embedding adapter for the [Narsil](https://github.com/assetcorp/narsil) search engine. The adapter computes embeddings in Node.js or in the browser through ONNX Runtime, so every text stays on the machine that embeds it. It implements Narsil's `EmbeddingAdapter` interface and accepts any Hugging Face model that the `feature-extraction` pipeline loads.
 
 ## Installation
 
@@ -8,7 +8,7 @@ A [Transformers.js](https://huggingface.co/docs/transformers.js) embedding adapt
 pnpm add @delali/narsil-embeddings-transformers @huggingface/transformers
 ```
 
-`@huggingface/transformers` is a peer dependency. You must install it alongside this package. Any 3.x version is supported (`>=3.0.0` and `<4.0.0`).
+`@huggingface/transformers` is a peer dependency, so install it alongside this package. The adapter accepts any 3.x or 4.x release, which is the range `>=3.0.0 <5.0.0`.
 
 ## Quick start
 
@@ -84,12 +84,12 @@ Control where inference runs and at what precision:
 const embedding = createTransformersEmbedding({
   dimensions: 384,
   device: 'webgpu',  // 'wasm' | 'webgpu' | 'cpu'
-  dtype: 'q8',       // 'q8' | 'q4' | 'fp32' | 'fp16'
+  dtype: 'fp32',     // 'fp32' | 'fp16' | 'q8' | 'q4'
 })
 ```
 
 - **`device`**: Defaults to auto-detection by Transformers.js. Use `'webgpu'` for GPU acceleration in supported browsers. Use `'cpu'` for Node.js environments.
-- **`dtype`**: Defaults to `'q8'` (8-bit quantization). Lower precision like `'q4'` reduces model size and speeds up inference at a small quality cost. Use `'fp32'` for full-precision inference when accuracy matters more than speed.
+- **`dtype`**: The adapter uses `'fp32'` by default, so a text gets the same vector from `embed` and from `embedBatch`. Under a quantised setting such as `'q8'` or `'q4'`, you download the smaller models in the table above and inference is faster, at a small cost in quality. Under a quantised setting the model computes one scale for the numbers of a whole padded batch, so `embedBatch` embeds each text on its own to return the vector that `embed` returns for it. A batch then takes as long as embedding the same texts one at a time.
 
 ## Download progress
 
@@ -174,7 +174,7 @@ Returns an object conforming to Narsil's `EmbeddingAdapter` interface.
 | ------ | ---- | ------- | ----------- |
 | `dimensions` | `number` | **(required)** | Output dimensionality of the model. Must match the model's actual output size. |
 | `model` | `string` | `'Xenova/all-MiniLM-L6-v2'` | Hugging Face model identifier for the `feature-extraction` pipeline. |
-| `dtype` | `string` | `'q8'` | Model quantization level: `'q8'`, `'q4'`, `'fp32'`, `'fp16'`. |
+| `dtype` | `string` | `'fp32'` | Model precision: `'fp32'`, `'fp16'`, `'q8'`, or `'q4'`. Under a quantised setting, `embedBatch` embeds each text on its own. |
 | `device` | `'wasm' \| 'webgpu' \| 'cpu'` | auto-detect | Inference backend. Omit to let Transformers.js pick the best available. |
 | `pooling` | `'mean' \| 'cls'` | `'mean'` | Token pooling strategy for generating a single vector from token-level outputs. |
 | `normalize` | `boolean` | `true` | Whether to L2-normalize output vectors. |

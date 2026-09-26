@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { localParamsToWire, wireParamsToLocal } from '../../../distribution/cluster-node/query-conversion'
+import {
+  countIsExactFor,
+  distributedResultToLocal,
+  localParamsToWire,
+  wireParamsToLocal,
+} from '../../../distribution/cluster-node/query-conversion'
 import { queryBindingOf } from '../../../search/cursor-binding'
 import type { QueryParams } from '../../../types/search'
 
@@ -92,5 +97,88 @@ describe('query param wire round trip', () => {
       group: { fields: ['category', 'brand'], maxPerGroup: 2 },
     })
     expect(restored.group).toEqual({ fields: ['category', 'brand'], maxPerGroup: 2 })
+  })
+
+  it('asks each node for one hit per group where the query leaves maxPerGroup out', () => {
+    expect(localParamsToWire({ term: 'keyboard', group: { fields: ['brand'] } }).group?.maxPerGroup).toBe(1)
+  })
+
+  it('asks each node for up to 10,000 hits per group where the query folds a reducer', () => {
+    const wire = localParamsToWire({
+      term: 'keyboard',
+      group: {
+        fields: ['brand'],
+        maxPerGroup: 2,
+        reduce: { reducer: (total, doc) => (total as number) + (doc.price as number), initialValue: () => 0 },
+      },
+    })
+    expect(wire.group?.maxPerGroup).toBe(10_000)
+  })
+})
+
+describe('distributed result conversion', () => {
+  it('sets a facet count to the number of values returned, as the local engine does', () => {
+    const local = distributedResultToLocal(
+      {
+        scored: [],
+        totalHits: 30,
+        facets: {
+          brand: [
+            { value: 'acme', count: 12 },
+            { value: 'globex', count: 10 },
+          ],
+        },
+        facetErrorBounds: { brand: 3 },
+        groups: null,
+        cursor: null,
+        coverage: { totalPartitions: 2, queriedPartitions: 2, timedOutPartitions: 0, failedPartitions: 0 },
+      },
+      true,
+    )
+    expect(local.facets?.brand).toEqual({ values: { acme: 12, globex: 10 }, count: 2, errorBound: 3 })
+  })
+
+  it('cuts each facet to its own limit and adds the largest count it leaves out to the summed node bounds', () => {
+    const local = distributedResultToLocal(
+      {
+        scored: [],
+        totalHits: 30,
+        facets: {
+          brand: [
+            { value: 'acme', count: 12 },
+            { value: 'globex', count: 10 },
+            { value: 'initech', count: 4 },
+          ],
+        },
+        facetErrorBounds: { brand: 3 },
+        facetUndercounts: { brand: 3 },
+        groups: null,
+        cursor: null,
+        coverage: { totalPartitions: 2, queriedPartitions: 2, timedOutPartitions: 0, failedPartitions: 0 },
+      },
+      true,
+      new Map(),
+      { brand: { limit: 1 } },
+    )
+    expect(local.facets?.brand).toEqual({ values: { acme: 12 }, count: 1, errorBound: 13 })
+  })
+})
+
+describe('facet options on the cluster wire', () => {
+  it('asks the nodes for as many values as the largest facet limit', () => {
+    expect(
+      localParamsToWire({ term: 'keyboard', facets: { brand: { limit: 3 }, colour: { limit: 25 } } }).facetSize,
+    ).toBe(25)
+  })
+
+  it('keeps the default of ten values for a facet that sets no limit', () => {
+    expect(localParamsToWire({ term: 'keyboard', facets: { brand: { limit: 3 }, colour: {} } }).facetSize).toBe(10)
+  })
+})
+
+describe('the exact count of a cluster vector query', () => {
+  it('reports a floor for a vector query that carries text for the engine to embed', () => {
+    expect(countIsExactFor({ term: 'harbour', vector: { field: 'embedding', text: 'harbour tides' } })).toBe(false)
+    expect(countIsExactFor({ vector: { field: 'embedding', text: 'harbour tides', similarity: 0.8 } })).toBe(false)
   })
 })

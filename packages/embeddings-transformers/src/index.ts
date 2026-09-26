@@ -1,4 +1,4 @@
-import { DEFAULT_DTYPE, DEFAULT_MODEL, DEFAULT_POOLING } from './constants'
+import { BATCH_SAFE_DTYPES, DEFAULT_DTYPE, DEFAULT_MODEL, DEFAULT_POOLING } from './constants'
 
 export interface TransformersEmbeddingConfig {
   model?: string
@@ -26,9 +26,18 @@ interface TransformersTensor {
   tolist(): number[][]
 }
 
+function isBatchSafeDtype(dtype: unknown): boolean {
+  if (typeof dtype === 'string') return BATCH_SAFE_DTYPES.includes(dtype)
+  if (dtype === null || typeof dtype !== 'object') return false
+  return Object.values(dtype).every(
+    moduleDtype => typeof moduleDtype === 'string' && BATCH_SAFE_DTYPES.includes(moduleDtype),
+  )
+}
+
 export function createTransformersEmbedding(config: TransformersEmbeddingConfig): EmbeddingResult {
   const model = config.model ?? DEFAULT_MODEL
   const dtype = config.dtype ?? DEFAULT_DTYPE
+  const embedsBatchesWhole = isBatchSafeDtype(config.pipelineOptions?.dtype ?? dtype)
   const pooling = config.pooling ?? DEFAULT_POOLING
   const normalize = config.normalize ?? true
   const documentPrefix = config.documentPrefix ?? ''
@@ -160,6 +169,15 @@ export function createTransformersEmbedding(config: TransformersEmbeddingConfig)
       const prefixed = inputs.map(input => applyPrefix(input, purpose))
 
       signal?.throwIfAborted()
+
+      if (!embedsBatchesWhole) {
+        const vectors: Float32Array[] = []
+        for (const text of prefixed) {
+          signal?.throwIfAborted()
+          vectors.push(extractSingleVector(await pipe(text, { pooling, normalize }), config.dimensions))
+        }
+        return vectors
+      }
 
       const output = await pipe(prefixed, { pooling, normalize })
       return extractBatchVectors(output, inputs.length, config.dimensions)

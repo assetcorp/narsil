@@ -140,6 +140,7 @@ export const ErrorCodes: {
     readonly INDEX_ALREADY_EXISTS: "INDEX_ALREADY_EXISTS";
     readonly INDEX_ORPHANED: "INDEX_ORPHANED";
     readonly INDEX_REOPEN_CAPACITY_EXHAUSTED: "INDEX_REOPEN_CAPACITY_EXHAUSTED";
+    readonly INSTANCE_SHUT_DOWN: "INSTANCE_SHUT_DOWN";
     readonly PARTITION_CORRUPTED: "PARTITION_CORRUPTED";
     readonly PARTITION_REBALANCING_BACKPRESSURE: "PARTITION_REBALANCING_BACKPRESSURE";
     readonly WORKER_CRASHED: "WORKER_CRASHED";
@@ -666,6 +667,7 @@ export interface PersistenceAdapter {
 export interface PreflightResult {
     analysisStale?: boolean;
     count: number;
+    countExact: boolean;
     elapsed: number;
 }
 
@@ -730,6 +732,7 @@ export interface QueryParams {
 export interface QueryResult<T = AnyDocument> {
     analysisStale?: boolean;
     count: number;
+    countExact: boolean;
     coverage: QueryCoverage;
     cursor?: string;
     elapsed: number;
@@ -804,6 +807,7 @@ export const ServerErrorCodes: {
 export interface SortField {
     direction: 'asc' | 'desc';
     field: string;
+    mode?: 'min' | 'max' | 'avg' | 'median';
 }
 
 // @public

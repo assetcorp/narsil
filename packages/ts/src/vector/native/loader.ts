@@ -110,6 +110,11 @@ function coreAt(path: string): NativeCore | CoreUnavailable {
   return core
 }
 
+export function requireSearchBackendSettings(): void {
+  requestedBackend()
+  if (process.env.NARSIL_REQUIRE_NATIVE_CORE === '1') loadNativeCore()
+}
+
 export function loadNativeCore(): NativeCore | null {
   if (loaded !== undefined) return loaded
   if (requestedBackend() === 'wasm') {

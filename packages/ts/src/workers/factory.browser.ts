@@ -1,5 +1,6 @@
 import { ErrorCodes, NarsilError } from '../errors'
 import { detectRuntime } from '../runtime/detect'
+import { missingWorkerEntry, resolveWorkerEntry } from './entry-point'
 import type { Executor } from './executor'
 import type { WorkerFactory } from './pool'
 import { createWorkerExecutor, type WorkerLike } from './worker-executor'
@@ -8,18 +9,15 @@ declare const Worker: {
   new (url: string | URL, options?: { type?: string }): WorkerLike
 }
 
-function resolveEntryPoint(): string {
-  const base = import.meta.url
-  const distIndex = base.lastIndexOf('/dist/')
-  if (distIndex !== -1) {
-    return new URL('workers/entry.mjs', base.slice(0, distIndex + 6)).href
-  }
-  return base.replace(/\/src\/workers\/[^/]+$/, '/dist/workers/entry.mjs')
+export async function requireWorkerEntry(): Promise<string> {
+  const entry = resolveWorkerEntry(import.meta.url, /\/src\/workers\/[^/]+$/, 'workers/entry.mjs')
+  if (entry !== null) return entry
+  throw missingWorkerEntry(import.meta.url)
 }
 
 export async function createWorkerFactory(entryPoint?: string): Promise<WorkerFactory> {
   const runtime = detectRuntime()
-  const resolvedEntry = entryPoint ?? resolveEntryPoint()
+  const resolvedEntry = entryPoint ?? (await requireWorkerEntry())
 
   if (runtime.supportsWebWorkers) {
     return function webFactory(_workerId: number, onDeath?: (error: Error) => void, onGone?: () => void): Executor {

@@ -1,4 +1,3 @@
-import type { ResolvedProjection } from '../../../core/projection'
 import type { QueryParams } from '../../../types/search'
 import type { AllocationTable } from '../../coordinator/types'
 import { selectReplica } from '../../query/selection'
@@ -37,40 +36,73 @@ export function splitPinnedByReachability(
   return { verifiable, unverifiable }
 }
 
+export interface PinPresence {
+  pinnedIds: ReadonlySet<string>
+  stored: ReadonlySet<string>
+  unverifiable: ReadonlySet<string>
+}
+
 /**
- * Drops each pinned placement whose document no reachable node stores, as the
- * local engine drops an unresolvable pin, and keeps a placement it cannot
- * verify because its partition has no active replica. Cursor pages carry no
- * placements, so they pass through untouched.
+ * Reads, once for the whole query, which pinned documents a reachable node
+ * stores, so that dropping unstored placements and counting outside pins
+ * share one read. Cursor pages carry no placements, so they need none.
  *
  * @param deps - The cluster configuration, this node's id, the local engine, and the node target resolver.
  * @param indexName - The index the query ran against.
  * @param params - The caller's query.
- * @param distributed - The merged distributed result.
  * @param allocation - The allocation table that routes each document id to its holder.
- * @param projection - The resolved document projection of the query.
- * @param documents - The documents the fetch phase found, keyed by id.
- * @returns The scored entries with every known-unstored placement removed.
+ * @returns The stored and unverifiable pinned ids, or null where the query places no pins.
  */
-export async function dropUnstoredPinnedEntries<T>(
+export async function readPinPresence(
   deps: ClusterReadDeps,
   indexName: string,
   params: QueryParams,
-  distributed: DistributedQueryResult,
   allocation: AllocationTable,
-  projection: ResolvedProjection,
-  documents: Map<string, T>,
-): Promise<DistributedQueryResult['scored']> {
-  if (params.pinned === undefined || params.searchAfter !== undefined) {
-    return distributed.scored
-  }
+): Promise<PinPresence | null> {
+  if (params.pinned === undefined || params.searchAfter !== undefined) return null
   const pinnedIds = new Set(params.pinned.map(entry => entry.docId))
   const { verifiable, unverifiable } = splitPinnedByReachability(pinnedIds, allocation)
-  const stored: { has(docId: string): boolean } =
-    projection.kind === 'none'
-      ? await readDistributedDocuments(deps.config, deps.nodeId, deps.engine, indexName, verifiable, allocation)
-      : documents
+  const documents =
+    verifiable.length === 0
+      ? new Map()
+      : await readDistributedDocuments(deps.config, deps.nodeId, deps.engine, indexName, verifiable, allocation)
+  return { pinnedIds, stored: new Set(documents.keys()), unverifiable }
+}
+
+/**
+ * Drops each pinned placement whose document no reachable node stores, as the
+ * local engine drops an unresolvable pin, and keeps a placement it cannot
+ * verify because its partition has no active replica.
+ *
+ * @param distributed - The merged distributed result.
+ * @param presence - Which pinned documents a node stores, or null where the query places no pins.
+ * @returns The scored entries with every known-unstored placement removed.
+ */
+export function dropUnstoredPinnedEntries(
+  distributed: DistributedQueryResult,
+  presence: PinPresence | null,
+): DistributedQueryResult['scored'] {
+  if (presence === null) return distributed.scored
   return distributed.scored.filter(
-    entry => !pinnedIds.has(entry.docId) || unverifiable.has(entry.docId) || stored.has(entry.docId),
+    entry =>
+      !presence.pinnedIds.has(entry.docId) ||
+      presence.unverifiable.has(entry.docId) ||
+      presence.stored.has(entry.docId),
   )
+}
+
+export function countStoredPinsFromOutside(
+  distributed: DistributedQueryResult,
+  presence: PinPresence | null,
+): { stored: number; everyPinVerified: boolean } {
+  const outside = distributed.pinnedFromOutside ?? []
+  if (outside.length === 0) return { stored: 0, everyPinVerified: true }
+  if (presence === null) return { stored: 0, everyPinVerified: false }
+  let count = 0
+  let everyPinVerified = true
+  for (const docId of outside) {
+    if (presence.unverifiable.has(docId)) everyPinVerified = false
+    else if (presence.stored.has(docId)) count++
+  }
+  return { stored: count, everyPinVerified }
 }

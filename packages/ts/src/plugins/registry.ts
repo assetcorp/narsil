@@ -1,3 +1,4 @@
+import { ErrorCodes, NarsilError } from '../errors'
 import type { NarsilPlugin } from '../types/plugins'
 
 export type PluginHookName = Exclude<keyof NarsilPlugin, 'name'>
@@ -14,19 +15,59 @@ export interface PluginRegistry {
   hasHooks(hookName: PluginHookName): boolean
 }
 
+interface BoundHook {
+  plugin: string
+  run: (ctx: never) => void | Promise<void>
+}
+
+const WRITE_REJECTING_HOOKS: ReadonlySet<PluginHookName> = new Set(['beforeInsert', 'beforeUpdate', 'beforeRemove'])
+
 function isThenable(value: unknown): value is PromiseLike<unknown> {
   return value !== null && typeof value === 'object' && typeof (value as Record<string, unknown>).then === 'function'
 }
 
+function thrownText(err: unknown, plugin: string, hookName: PluginHookName): string {
+  if (err instanceof Error) return err.message
+  try {
+    return String(err)
+  } catch {
+    return `The ${hookName} hook of plugin "${plugin}" rejects the write`
+  }
+}
+
+function asWriteRejection(err: unknown, plugin: string, hookName: PluginHookName): unknown {
+  if (err instanceof NarsilError) return err
+  return new NarsilError(ErrorCodes.DOC_VALIDATION_FAILED, thrownText(err, plugin, hookName), {
+    plugin,
+    hook: hookName,
+  })
+}
+
+function invoke(hook: BoundHook, hookName: PluginHookName, context: never): PromiseLike<unknown> | null {
+  const rejectsWrites = WRITE_REJECTING_HOOKS.has(hookName)
+  let result: unknown
+  try {
+    result = hook.run(context)
+  } catch (err) {
+    throw rejectsWrites ? asWriteRejection(err, hook.plugin, hookName) : err
+  }
+  if (!isThenable(result)) return null
+  if (!rejectsWrites) return result
+  return Promise.resolve(result).catch(err => {
+    throw asWriteRejection(err, hook.plugin, hookName)
+  })
+}
+
 async function continueAsync(
   pending: PromiseLike<unknown>,
-  hooks: Array<(ctx: never) => void | Promise<void>>,
+  hooks: readonly BoundHook[],
   startIndex: number,
+  hookName: PluginHookName,
   context: never,
 ): Promise<void> {
   await pending
   for (let i = startIndex; i < hooks.length; i++) {
-    await hooks[i](context)
+    await invoke(hooks[i], hookName, context)
   }
 }
 
@@ -43,21 +84,21 @@ export function createPluginRegistry(): PluginRegistry {
     },
 
     runHook<T extends PluginHookName>(hookName: T, context: HookContext<T>): void | Promise<void> {
-      const hooks: Array<(ctx: never) => void | Promise<void>> = []
+      const hooks: BoundHook[] = []
 
       for (const plugin of plugins) {
         const hook = plugin[hookName]
         if (typeof hook === 'function') {
-          hooks.push((hook as (ctx: never) => void | Promise<void>).bind(plugin))
+          hooks.push({ plugin: plugin.name, run: (hook as (ctx: never) => void | Promise<void>).bind(plugin) })
         }
       }
 
       if (hooks.length === 0) return
 
       for (let i = 0; i < hooks.length; i++) {
-        const result = hooks[i](context as never)
-        if (isThenable(result)) {
-          return continueAsync(result, hooks, i + 1, context as never)
+        const pending = invoke(hooks[i], hookName, context as never)
+        if (pending !== null) {
+          return continueAsync(pending, hooks, i + 1, hookName, context as never)
         }
       }
     },

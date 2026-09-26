@@ -168,7 +168,11 @@ export function createThreadReadEngine(options: ThreadReadEngineOptions): Thread
     },
     async listDocuments<T = AnyDocument>(indexName: string, params?: ListParams): Promise<ListResult<T>> {
       const { context, manager } = requireWholeDocuments(indexName)
-      return executeListDocuments<T>(params ?? {}, { manager, schema: context.config.schema })
+      return executeListDocuments<T>(params ?? {}, {
+        manager,
+        schema: context.config.schema,
+        strict: context.config.strict,
+      })
     },
   }
 }

@@ -1,5 +1,6 @@
+import { spawnSync } from 'node:child_process'
 import type { Dirent } from 'node:fs'
-import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises'
+import { cp, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -266,13 +267,20 @@ describe('rebalance durability', () => {
     await rebalancePromise
 
     const abandoned = engine
-    engine = await createNarsil({ durability: { directory: dir, mode: 'sync' } })
+    const diskAtCrash = `${dir}-at-crash`
+    await cp(dir, diskAtCrash, { recursive: true })
+    const crashedProcess = spawnSync(process.execPath, ['-e', ''])
+    await writeFile(join(diskAtCrash, '.narsil.lock'), `${crashedProcess.pid}\n`)
+    engine = await createNarsil({ durability: { directory: diskAtCrash, mode: 'sync' } })
 
     expect(await engine.countDocuments('products')).toBe(301)
     expect(narsilStatsPartitionCount(engine)).toBe(2)
     expect(await engine.get('products', 'crash-survivor')).toBeDefined()
 
     await abandoned.shutdown()
+    await engine.shutdown()
+    engine = null
+    await rm(diskAtCrash, { recursive: true, force: true })
   })
 
   it('persists an updated partition configuration across recovery', async () => {

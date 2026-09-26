@@ -73,7 +73,7 @@ describe('VectorIndex build scheduling', () => {
 
     expect(index.maintenanceStatus().graphCount).toBe(1)
 
-    const results = index.search(normalizedVector(DIM, 31), 10, {
+    const { results } = index.search(normalizedVector(DIM, 31), 10, {
       metric: 'cosine',
       minSimilarity: 0,
     })

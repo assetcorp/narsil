@@ -1,6 +1,7 @@
 import { nativeCrc32 } from '#platform/native-crc32'
 import { isNodeMainThread, spawnNodeWorker } from '#platform/node-worker'
 import { detectRuntime } from '../runtime/detect'
+import { resolveWorkerEntry } from '../workers/entry-point'
 import { CHECKSUM_TIMEOUT_MS, CHECKSUM_YIELD_CHUNK_BYTES } from './constants'
 import { crc32Final, crc32Init, crc32Update } from './crc32'
 import type { ChecksumWorkerMessage } from './crc32-worker'
@@ -29,18 +30,15 @@ async function isOnMainThread(): Promise<boolean> {
   return onMainThread
 }
 
-function resolveWorkerEntryPoint(): string {
-  const base = import.meta.url
-  const distIndex = base.lastIndexOf('/dist/')
-  if (distIndex !== -1) {
-    return new URL('serialization/crc32-worker.mjs', base.slice(0, distIndex + 6)).href
-  }
-  return base.replace(/\/src\/serialization\/[^/]+$/, '/dist/serialization/crc32-worker.mjs')
-}
-
 async function spawnWorker(): Promise<WorkerHandle | null> {
+  const entryPoint = resolveWorkerEntry(
+    import.meta.url,
+    /\/src\/serialization\/[^/]+$/,
+    'serialization/crc32-worker.mjs',
+  )
+  if (entryPoint === null) return null
   try {
-    return await spawnNodeWorker(new URL(resolveWorkerEntryPoint()))
+    return await spawnNodeWorker(new URL(entryPoint))
   } catch {
     return null
   }

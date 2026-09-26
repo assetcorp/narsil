@@ -1,5 +1,11 @@
 import type { DocumentStoreReader } from '../../document-store'
-import { type ComparableSortValue, compareComparableValues, readSortField } from '../../ordering'
+import {
+  type ComparableSortValue,
+  compareComparableValues,
+  readSortField,
+  type SortMode,
+  toReducedSortValue,
+} from '../../ordering'
 import { SORT_COLUMN_MINIMUM_REBUILD_THRESHOLD, SORT_COLUMN_REBUILD_FRACTION_SHIFT } from '../constants'
 import { buildOrder, estimateOrderBytes, MISSING_RANK, rankOfValue, type SortColumnOrder, seekPosition } from './order'
 import { createValueStore, kindForFieldType, type ValueStore } from './values'
@@ -23,8 +29,8 @@ export interface SortColumn {
 }
 
 export interface SortColumnSet {
-  holds(field: string): boolean
-  column(field: string, fieldType: string | undefined): SortColumn
+  holds(field: string, fieldType: string | undefined, mode: SortMode): boolean
+  column(field: string, fieldType: string | undefined, mode: SortMode): SortColumn
   record(internalId: number, document: Record<string, unknown>): void
   forget(internalId: number): void
   refresh(): void
@@ -34,10 +40,19 @@ export interface SortColumnSet {
 
 interface ColumnEntry {
   field: string
+  mode: SortMode
   store: ValueStore
   order: SortColumnOrder
   dirty: Set<number>
   dirtyStream: DirtyStream | null
+}
+
+function mayHoldList(fieldType: string | undefined): boolean {
+  return fieldType === undefined || fieldType.endsWith('[]')
+}
+
+function columnKeyOf(field: string, fieldType: string | undefined, mode: SortMode): string {
+  return mayHoldList(fieldType) ? `${mode}:${field}` : `value:${field}`
 }
 
 function liveInternalIds(docStore: DocumentStoreReader): number[] {
@@ -61,21 +76,22 @@ export function createSortColumnSet(docStore: DocumentStoreReader): SortColumnSe
     entry.dirtyStream = null
   }
 
-  function backfill(field: string, fieldType: string | undefined): ColumnEntry {
+  function backfill(key: string, field: string, fieldType: string | undefined, mode: SortMode): ColumnEntry {
     const store = createValueStore(kindForFieldType(fieldType))
     for (const [docId, stored] of docStore.all()) {
       const internalId = docStore.getInternalId(docId)
       if (internalId === undefined) continue
-      store.set(internalId, readSortField(stored.fields, field))
+      store.set(internalId, toReducedSortValue(readSortField(stored.fields, field), mode))
     }
     const entry: ColumnEntry = {
       field,
+      mode,
       store,
       order: buildOrder(store, liveInternalIds(docStore), docStore.internalIdCapacity()),
       dirty: new Set(),
       dirtyStream: null,
     }
-    columns.set(field, entry)
+    columns.set(key, entry)
     return entry
   }
 
@@ -134,14 +150,15 @@ export function createSortColumnSet(docStore: DocumentStoreReader): SortColumnSe
   }
 
   return {
-    holds(field: string): boolean {
-      return columns.has(field)
+    holds(field: string, fieldType: string | undefined, mode: SortMode): boolean {
+      return columns.has(columnKeyOf(field, fieldType, mode))
     },
 
-    column(field: string, fieldType: string | undefined): SortColumn {
-      let entry = columns.get(field)
+    column(field: string, fieldType: string | undefined, mode: SortMode): SortColumn {
+      const key = columnKeyOf(field, fieldType, mode)
+      let entry = columns.get(key)
       if (entry === undefined) {
-        entry = backfill(field, fieldType)
+        entry = backfill(key, field, fieldType, mode)
       } else if (entry.dirty.size > rebuildThreshold()) {
         rebuild(entry)
       }
@@ -150,7 +167,7 @@ export function createSortColumnSet(docStore: DocumentStoreReader): SortColumnSe
 
     record(internalId: number, document: Record<string, unknown>): void {
       for (const entry of columns.values()) {
-        entry.store.set(internalId, readSortField(document, entry.field))
+        entry.store.set(internalId, toReducedSortValue(readSortField(document, entry.field), entry.mode))
         entry.dirty.add(internalId)
         entry.dirtyStream = null
       }

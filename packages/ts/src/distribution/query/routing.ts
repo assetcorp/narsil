@@ -2,8 +2,10 @@ import { toComparableSortValue } from '../../core/ordering'
 import { ErrorCodes, NarsilError } from '../../errors'
 import { decodePageCursor, encodePageCursor, requireMatchingCursor } from '../../search/cursor'
 import { queryBindingOf } from '../../search/cursor-binding'
+import { oversampledShardSize } from '../../search/oversample'
 import { requireWithinResultWindow } from '../../search/pagination'
-import { wireParamsToLocal } from '../cluster-node/query-conversion'
+import { sortSignatureEntry } from '../../search/sorting'
+import { ascendingFacetFields, wireParamsToLocal } from '../cluster-node/query-conversion'
 import type {
   FacetBucket,
   GlobalStatistics,
@@ -17,10 +19,9 @@ import { buildCoverage, collectDistributedStats, fanOutSearch, type NodeQueryOut
 import { mergeGroupsFor } from './group-merge'
 import { executeHybridQuery } from './hybrid'
 import { mergeAndTruncateScoredEntries, mergeAndTruncateSortedEntries, mergeDistributedFacets } from './merge'
-import { oversampledShardSize } from './oversample'
 import { lastOrganicEntry, placePinnedEntries } from './pinning'
 import type { ReplicaSelector } from './selection'
-import { randomSelector, selectReplicasForQuery } from './selection'
+import { queryKeyedSelector, selectReplicasForQuery } from './selection'
 import type { DistributedQueryConfig, DistributedQueryResult, QueryRoutingDeps, RoutingResult } from './types'
 import { DEFAULT_QUERY_CONFIG } from './types'
 
@@ -28,7 +29,7 @@ export type { QueryRoutingDeps }
 
 function wireSortSignature(sort: SortField[] | null): string | null {
   if (sort === null || sort.length === 0) return null
-  return JSON.stringify(sort.map(field => [field.field, field.direction]))
+  return JSON.stringify(sort.map(sortSignatureEntry))
 }
 
 function resolveAndClampFacetSize(paramsFacetSize: number | null, configDefault: number): number {
@@ -84,7 +85,7 @@ export async function distributedQuery(
     }
   }
 
-  const routing = selectReplicasForQuery(allocationTable, selector ?? randomSelector)
+  const routing = selectReplicasForQuery(allocationTable, selector ?? queryKeyedSelector(binding))
   const totalPartitions = allocationTable.assignments.size
 
   if (routing.unavailablePartitions.length > 0 && !resolvedConfig.allowPartialResults) {
@@ -225,16 +226,21 @@ async function executeSingleFanOut(
         )
       : mergeAndTruncateScoredEntries(allScored, depth)
   const allMatchesPresent = coverage.queriedPartitions === coverage.totalPartitions && totalHits <= merged.length
-  const placed =
+  const placement =
     params.pinned !== null && params.searchAfter === null
       ? placePinnedEntries(merged, params.pinned, depth, allMatchesPresent)
-      : merged
-  const mergedScored = placed.slice(offset, depth)
-  const mergedFacets = allFacets.length > 0 ? mergeDistributedFacets(allFacets, allFacetBounds, facetSize) : null
+      : { entries: merged, placedFromOutside: [] }
+  const mergedScored = placement.entries.slice(offset, depth)
+  const mergedFacets =
+    allFacets.length > 0
+      ? mergeDistributedFacets(allFacets, allFacetBounds, facetSize, ascendingFacetFields(params.facets))
+      : null
   const mergedGroups = mergeGroupsFor(params, allGroups, sortFields)
 
   let cursor: string | null = null
   const lastEntry = lastOrganicEntry(mergedScored, params.searchAfter === null ? params.pinned : null)
+  const reachedDepth = params.searchAfter === null ? 0 : (decodePageCursor(params.searchAfter).depth ?? 0)
+  const nextDepth = reachedDepth + offset + mergedScored.length
   if (lastEntry !== undefined) {
     cursor =
       sortFields !== null
@@ -243,6 +249,7 @@ async function executeSingleFanOut(
             score: null,
             sortKey: (lastEntry.sortValues ?? []).map(toComparableSortValue),
             sortSignature: wireSortSignature(sortFields),
+            depth: nextDepth,
             binding,
           })
         : encodePageCursor({
@@ -250,6 +257,7 @@ async function executeSingleFanOut(
             score: lastEntry.score,
             sortKey: null,
             sortSignature: null,
+            depth: nextDepth,
             binding,
           })
   }
@@ -259,9 +267,12 @@ async function executeSingleFanOut(
     totalHits,
     facets: mergedFacets?.facets ?? null,
     facetErrorBounds: mergedFacets?.errorBounds ?? null,
+    facetUndercounts: mergedFacets?.undercounts ?? null,
     groups: mergedGroups,
     cursor,
     coverage,
+    pinnedFromOutside: placement.placedFromOutside,
+    mergeHeldEveryMatch: allMatchesPresent,
   }
 }
 

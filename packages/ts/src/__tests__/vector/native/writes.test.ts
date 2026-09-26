@@ -136,7 +136,7 @@ describe.skipIf(!binaryBuilt)('graph writes through the native search core', () 
       expect(searches).toHaveBeenCalledTimes(0)
       setNativeSearchCoreEnabled(false)
       expect(fromNativeCore).toEqual(index.search(query, 3, options))
-      expect(fromNativeCore.map(hit => hit.docId).sort()).toEqual([...allowed].sort())
+      expect(fromNativeCore.results.map(hit => hit.docId).sort()).toEqual([...allowed].sort())
     } finally {
       scores.mockRestore()
       searches.mockRestore()

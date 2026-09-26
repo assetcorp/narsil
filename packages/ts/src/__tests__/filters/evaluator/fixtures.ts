@@ -108,6 +108,7 @@ export function makeEnumFieldIndex(field: string): FieldIndex {
 export function buildContext(): FilterContext {
   const allDocIds = new Set([0, 1, 2, 3, 4])
   return {
+    fieldTypes: { price: 'number', inStock: 'boolean', category: 'enum' },
     fieldIndexes: {
       price: makeNumericFieldIndex('price'),
       inStock: makeBooleanFieldIndex('inStock'),

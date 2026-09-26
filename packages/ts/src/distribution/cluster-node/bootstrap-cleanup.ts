@@ -2,6 +2,7 @@ import { ErrorCodes, NarsilError } from '../../errors'
 import type { Narsil } from '../../narsil'
 import { holdsLastCopy } from '../cluster/last-holders'
 import type { ClusterCoordinator } from '../coordinator/types'
+import { localIndexIsGone } from './local-index-gone'
 
 export interface BootstrapCleanupDeps {
   engine: Narsil
@@ -43,7 +44,7 @@ export async function cleanupRemovedPartition(
     if (deps.onError === undefined) {
       return
     }
-    if (err instanceof NarsilError && err.code === ErrorCodes.INDEX_NOT_FOUND) {
+    if (localIndexIsGone(err)) {
       return
     }
     const cause = err instanceof Error ? err.message : String(err)

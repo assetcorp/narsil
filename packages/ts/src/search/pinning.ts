@@ -30,32 +30,36 @@ export function dedupePinnedEntries<T extends { docId: string }>(pinned: T[]): T
  * @param hits - The ranked hits to place into.
  * @param pinned - The documents to place, each with its zero-based position.
  * @param resolveDoc - Produces the hit for a pinned document, or undefined for one the store lacks.
- * @returns The hits with every resolvable pinned document placed.
+ * @returns The hits with every resolvable pinned document placed, and how many of those the ranked list did not hold.
  */
-export function applyPinning<T>(
+export function placePinned<T>(
   hits: Array<Hit<T>>,
   pinned: Array<{ docId: string; position: number }>,
   resolveDoc: (docId: string) => Hit<T> | undefined,
-): Array<Hit<T>> {
+): { hits: Array<Hit<T>>; placedFromOutside: number } {
   const result = hits.slice()
 
   const deduped = dedupePinnedEntries(pinned)
   const pinnedDocIds = new Set(deduped.map(entry => entry.docId))
+  const listedPins = new Set<string>()
   for (let i = result.length - 1; i >= 0; i--) {
     if (pinnedDocIds.has(result[i].id)) {
+      listedPins.add(result[i].id)
       result.splice(i, 1)
     }
   }
 
   const sorted = deduped.sort((a, b) => a.position - b.position)
+  let placedFromOutside = 0
 
   for (const entry of sorted) {
     const doc = resolveDoc(entry.docId)
     if (!doc) continue
+    if (!listedPins.has(entry.docId)) placedFromOutside++
 
     const pos = Math.max(0, Math.min(entry.position, result.length))
     result.splice(pos, 0, doc)
   }
 
-  return result
+  return { hits: result, placedFromOutside }
 }
