@@ -73,6 +73,33 @@ export function matchesNumericComparison(value: number, filter: ComparisonFilter
   return true
 }
 
+export function holdsValue(stored: unknown, value: unknown): boolean {
+  return Array.isArray(stored) ? stored.includes(value) : stored === value
+}
+
+export function lacksValue(stored: unknown, value: unknown): boolean {
+  if (stored === undefined || stored === null) return false
+  return Array.isArray(stored) ? !stored.includes(value) : stored !== value
+}
+
+function isStringIn(values: ReadonlySet<string>): (element: unknown) => boolean {
+  return element => typeof element === 'string' && values.has(element)
+}
+
+export function holdsStringIn(stored: unknown, values: ReadonlySet<string>): boolean {
+  return Array.isArray(stored) ? stored.some(isStringIn(values)) : isStringIn(values)(stored)
+}
+
+export function holdsNoStringIn(stored: unknown, values: ReadonlySet<string>): boolean {
+  if (Array.isArray(stored)) return !stored.some(isStringIn(values))
+  return typeof stored === 'string' && !values.has(stored)
+}
+
+export function holdsStringWhere(stored: unknown, test: (text: string) => boolean): boolean {
+  const matches = (element: unknown): boolean => typeof element === 'string' && test(element)
+  return Array.isArray(stored) ? stored.some(matches) : matches(stored)
+}
+
 export function setDifference(a: Set<number>, b: Set<number>): Set<number> {
   const result = new Set<number>()
   for (const item of a) {

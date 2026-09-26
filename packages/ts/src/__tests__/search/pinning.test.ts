@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest'
-import { applyPinning, placePinned } from '../../search/pinning'
+import { placePinned } from '../../search/pinning'
 import type { Hit } from '../../types/results'
+
+function pinnedHits<T>(
+  hits: Array<Hit<T>>,
+  pinned: Array<{ docId: string; position: number }>,
+  resolveDoc: (docId: string) => Hit<T> | undefined,
+): Array<Hit<T>> {
+  return placePinned(hits, pinned, resolveDoc).hits
+}
 
 function makeHit(id: string, score: number): Hit<Record<string, unknown>> {
   return { id, score, document: { title: `Doc ${id}` } }
@@ -17,7 +25,7 @@ describe('pinning', () => {
     const pinnedDoc = makeHit('x', 0)
     const resolver = makeResolver([...hits, pinnedDoc])
 
-    const result = applyPinning(hits, [{ docId: 'x', position: 0 }], resolver)
+    const result = pinnedHits(hits, [{ docId: 'x', position: 0 }], resolver)
     expect(result[0].id).toBe('x')
     expect(result).toHaveLength(4)
   })
@@ -27,7 +35,7 @@ describe('pinning', () => {
     const pinnedDoc = makeHit('x', 0)
     const resolver = makeResolver([...hits, pinnedDoc])
 
-    const result = applyPinning(hits, [{ docId: 'x', position: 1 }], resolver)
+    const result = pinnedHits(hits, [{ docId: 'x', position: 1 }], resolver)
     expect(result[1].id).toBe('x')
     expect(result).toHaveLength(4)
   })
@@ -37,7 +45,7 @@ describe('pinning', () => {
     const pinnedDoc = makeHit('x', 0)
     const resolver = makeResolver([...hits, pinnedDoc])
 
-    const result = applyPinning(hits, [{ docId: 'x', position: 2 }], resolver)
+    const result = pinnedHits(hits, [{ docId: 'x', position: 2 }], resolver)
     expect(result[2].id).toBe('x')
     expect(result).toHaveLength(3)
   })
@@ -47,7 +55,7 @@ describe('pinning', () => {
     const pinnedDoc = makeHit('x', 0)
     const resolver = makeResolver([...hits, pinnedDoc])
 
-    const result = applyPinning(hits, [{ docId: 'x', position: 100 }], resolver)
+    const result = pinnedHits(hits, [{ docId: 'x', position: 100 }], resolver)
     expect(result[result.length - 1].id).toBe('x')
     expect(result).toHaveLength(3)
   })
@@ -57,7 +65,7 @@ describe('pinning', () => {
     const pinnedDoc = makeHit('x', 0)
     const resolver = makeResolver([...hits, pinnedDoc])
 
-    const result = applyPinning(hits, [{ docId: 'x', position: -5 }], resolver)
+    const result = pinnedHits(hits, [{ docId: 'x', position: -5 }], resolver)
     expect(result[0].id).toBe('x')
   })
 
@@ -65,7 +73,7 @@ describe('pinning', () => {
     const hits = [makeHit('a', 10), makeHit('b', 8), makeHit('c', 5)]
     const resolver = makeResolver(hits)
 
-    const result = applyPinning(hits, [{ docId: 'c', position: 0 }], resolver)
+    const result = pinnedHits(hits, [{ docId: 'c', position: 0 }], resolver)
     expect(result[0].id).toBe('c')
     expect(result).toHaveLength(3)
     expect(result.filter(h => h.id === 'c')).toHaveLength(1)
@@ -75,7 +83,7 @@ describe('pinning', () => {
     const hits = [makeHit('a', 10), makeHit('b', 8)]
     const resolver = makeResolver(hits)
 
-    const result = applyPinning(hits, [{ docId: 'missing', position: 0 }], resolver)
+    const result = pinnedHits(hits, [{ docId: 'missing', position: 0 }], resolver)
     expect(result).toHaveLength(2)
     expect(result[0].id).toBe('a')
   })
@@ -86,7 +94,7 @@ describe('pinning', () => {
     const pin2 = makeHit('y', 0)
     const resolver = makeResolver([...hits, pin1, pin2])
 
-    const result = applyPinning(
+    const result = pinnedHits(
       hits,
       [
         { docId: 'y', position: 2 },
@@ -104,13 +112,13 @@ describe('pinning', () => {
     const pinnedDoc = makeHit('x', 0)
     const resolver = makeResolver([pinnedDoc])
 
-    const result = applyPinning([], [{ docId: 'x', position: 0 }], resolver)
+    const result = pinnedHits([], [{ docId: 'x', position: 0 }], resolver)
     expect(result).toHaveLength(1)
     expect(result[0].id).toBe('x')
   })
 
   it('handles empty hits with no pins', () => {
-    const result = applyPinning([], [], () => undefined)
+    const result = pinnedHits([], [], () => undefined)
     expect(result).toHaveLength(0)
   })
 
@@ -119,7 +127,7 @@ describe('pinning', () => {
     const pinnedDoc = makeHit('x', 0)
     const resolver = makeResolver([...hits, pinnedDoc])
 
-    applyPinning(hits, [{ docId: 'x', position: 0 }], resolver)
+    pinnedHits(hits, [{ docId: 'x', position: 0 }], resolver)
     expect(hits).toHaveLength(2)
     expect(hits[0].id).toBe('a')
   })
@@ -131,7 +139,7 @@ describe('pinning with a repeated docId', () => {
     const pinnedDoc = makeHit('x', 0)
     const resolver = makeResolver([...hits, pinnedDoc])
 
-    const result = applyPinning(
+    const result = pinnedHits(
       hits,
       [
         { docId: 'x', position: 0 },

@@ -28,8 +28,9 @@ function matchOrigin(cors: ResolvedCors, requestOrigin: string): string | null {
 
 function corsOriginHeaders(cors: ResolvedCors, requestOrigin: string): Array<[string, string]> {
   const allowed = matchOrigin(cors, requestOrigin)
-  if (!allowed) return []
-  if (allowed === '*') return [['Access-Control-Allow-Origin', allowed]]
+  const variesByOrigin = Array.isArray(cors.origin)
+  if (!allowed) return variesByOrigin ? [['Vary', 'Origin']] : []
+  if (!variesByOrigin) return [['Access-Control-Allow-Origin', allowed]]
   return [
     ['Access-Control-Allow-Origin', allowed],
     ['Vary', 'Origin'],

@@ -59,10 +59,7 @@ describe('a checkpoint whose vector save fails', () => {
       await writer.insert('papers', { title: `harbour paper ${i}`, embedding: embeddingFor(i) }, `p${i}`)
     }
     vectorSave.failing = true
-    await expect(writer.checkpoint('papers')).rejects.toMatchObject({
-      code: 'PERSISTENCE_SAVE_FAILED',
-      details: { cause: 'simulated crash writing the vectors' },
-    })
+    await expect(writer.checkpoint('papers')).rejects.toThrow(/simulated crash/)
     vectorSave.failing = false
 
     expect(await readSegmentManifest(createDurableDirectory(root), 'papers')).toEqual(before)

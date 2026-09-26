@@ -1,13 +1,13 @@
 import { compareCodePoints } from '../core/ordering'
-import { oversampledShardSize } from '../distribution/query/oversample'
+import { keptFacetValues } from '../core/partition/facets'
 import type { FacetResult } from '../types/results'
 import type { FacetConfig } from '../types/search'
+import { oversampledShardSize } from './oversample'
 
 type FacetFieldConfig = FacetConfig[string]
 
 function keptValueCount(fieldConfig: FacetFieldConfig | undefined): number | undefined {
-  const limit = fieldConfig?.limit
-  return limit !== undefined && limit > 0 ? Math.floor(limit) : undefined
+  return keptFacetValues(fieldConfig?.limit)
 }
 
 export function everyValueFacetConfig(config: FacetConfig): FacetConfig {
@@ -58,10 +58,11 @@ export function mergeFacets(
     ordered.sort((a, b) => (ascending ? a[1] - b[1] : b[1] - a[1]) || compareCodePoints(a[0], b[0]))
 
     const kept = Math.min(keptValueCount(fieldConfig) ?? ordered.length, ordered.length)
-    let errorBound = bounds.get(field) ?? 0
+    let largestLeftOut = 0
     for (let index = kept; index < ordered.length; index++) {
-      if (ordered[index][1] > errorBound) errorBound = ordered[index][1]
+      if (ordered[index][1] > largestLeftOut) largestLeftOut = ordered[index][1]
     }
+    const errorBound = (bounds.get(field) ?? 0) + largestLeftOut
 
     const values: Record<string, number> = {}
     for (let index = 0; index < kept; index++) {

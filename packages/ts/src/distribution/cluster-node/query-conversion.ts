@@ -1,3 +1,4 @@
+import { ErrorCodes, NarsilError } from '../../errors'
 import { DEFAULT_PAGE_SIZE } from '../../search/constants'
 import { hitsKeptPerGroup } from '../../search/grouping'
 import { clampRowCount } from '../../search/pagination'
@@ -5,8 +6,8 @@ import { normalizeSort } from '../../search/sorting'
 import type { FacetResult, QueryCoverage, QueryResult } from '../../types/results'
 import type { AnyDocument } from '../../types/schema'
 import type { FacetConfig, QueryParams } from '../../types/search'
-import { MAX_LIMIT } from '../query/constants'
-import type { DistributedQueryResult } from '../query/types'
+import { MAX_FACET_SIZE, MAX_LIMIT } from '../query/constants'
+import { DEFAULT_QUERY_CONFIG, type DistributedQueryResult } from '../query/types'
 import type {
   SortField,
   WireGroupConfig,
@@ -102,7 +103,7 @@ export function localParamsToWire(params: QueryParams): WireQueryParams {
     sort: convertLocalSortToWire(params.sort),
     group: convertLocalGroupToWire(params.group),
     facets: convertLocalFacetsToWire(params.facets),
-    facetSize: null,
+    facetSize: wireFacetSize(params.facets),
     limit: clampRowCount(params.limit, DEFAULT_PAGE_SIZE),
     offset: clampRowCount(params.offset, 0),
     searchAfter: params.searchAfter ?? null,
@@ -128,7 +129,7 @@ export function localParamsToWire(params: QueryParams): WireQueryParams {
 
 export function countIsExactFor(params: QueryParams): boolean {
   const vector = params.vector
-  if (vector === undefined || vector.value === undefined) return true
+  if (vector === undefined || (vector.value === undefined && vector.text === undefined)) return true
   const hasTerm = params.term !== undefined && params.term.trim().length > 0
   if (params.mode === 'hybrid' || hasTerm) return false
   return vector.similarity === undefined
@@ -144,6 +145,7 @@ export function distributedResultToLocal<T = AnyDocument>(
   result: DistributedQueryResult,
   countExact: boolean,
   documents: Map<string, T> = new Map(),
+  requestedFacets?: FacetConfig,
 ): QueryResult<T> {
   return {
     hits: result.scored.map(entry => ({
@@ -155,7 +157,7 @@ export function distributedResultToLocal<T = AnyDocument>(
     countExact,
     elapsed: 0,
     cursor: result.cursor ?? undefined,
-    facets: result.facets !== null ? convertWireFacetsToLocal(result.facets, result.facetErrorBounds) : undefined,
+    facets: result.facets !== null ? convertWireFacetsToLocal(result, result.facets, requestedFacets) : undefined,
     coverage: result.coverage,
   }
 }
@@ -209,17 +211,45 @@ function convertLocalHybridToWire(hybrid: QueryParams['hybrid']): WireHybridConf
   }
 }
 
-function convertWireFacetsToLocal(
-  wireFacets: Record<string, Array<{ value: string; count: number }>>,
-  errorBounds: Record<string, number> | null,
-): Record<string, FacetResult> {
-  const result: Record<string, FacetResult> = {}
-  for (const [field, buckets] of Object.entries(wireFacets)) {
-    const values: Record<string, number> = {}
-    for (const bucket of buckets) {
-      values[bucket.value] = bucket.count
-    }
-    result[field] = { values, count: buckets.length, errorBound: errorBounds?.[field] ?? 0 }
+function facetLimitOf(options: FacetConfig[string] | undefined): number {
+  const limit = options?.limit
+  if (limit === undefined || !Number.isFinite(limit)) return DEFAULT_QUERY_CONFIG.defaultFacetSize
+  return Math.min(Math.max(Math.floor(limit), 1), MAX_FACET_SIZE)
+}
+
+export function requireClusterFacetOptions(facets: QueryParams['facets']): void {
+  if (facets === undefined) return
+  for (const [field, options] of Object.entries(facets)) {
+    if (options.sort !== 'asc' && options.ranges === undefined) continue
+    throw new NarsilError(
+      ErrorCodes.CLUSTER_OPERATION_UNSUPPORTED,
+      `A cluster search counts only the most frequent values of each facet field, highest first, so it cannot ${options.ranges !== undefined ? 'count ranges on' : 'order by the lowest counts first on'} facet "${field}"`,
+      { field },
+    )
   }
-  return result
+}
+
+function wireFacetSize(facets: QueryParams['facets']): number | null {
+  if (facets === undefined) return null
+  let size = 0
+  for (const options of Object.values(facets)) size = Math.max(size, facetLimitOf(options))
+  return size === 0 ? null : size
+}
+
+function convertWireFacetsToLocal(
+  result: DistributedQueryResult,
+  wireFacets: Record<string, Array<{ value: string; count: number }>>,
+  requested: FacetConfig | undefined,
+): Record<string, FacetResult> {
+  const converted: Record<string, FacetResult> = {}
+  for (const [field, buckets] of Object.entries(wireFacets)) {
+    const mergedBound = result.facetErrorBounds?.[field] ?? 0
+    const kept = requested === undefined ? buckets.length : Math.min(buckets.length, facetLimitOf(requested[field]))
+    const values: Record<string, number> = {}
+    for (let index = 0; index < kept; index++) values[buckets[index].value] = buckets[index].count
+    const errorBound =
+      kept < buckets.length ? (result.facetUndercounts?.[field] ?? mergedBound) + buckets[kept].count : mergedBound
+    converted[field] = { values, count: kept, errorBound: Math.max(errorBound, mergedBound) }
+  }
+  return converted
 }

@@ -8,8 +8,7 @@ import { decodePageCursor, requireMatchingCursor, sortSignatureOf } from '../../
 import { applyGrouping } from '../../search/grouping'
 import { applyPagination, type PaginationSortContext, requireWithinResultWindow } from '../../search/pagination'
 import { placePinned } from '../../search/pinning'
-import { requireUsableQueryFields } from '../../search/query-fields'
-import { applySorting, normalizeSort, requireSortableFields, sortModesOf } from '../../search/sorting'
+import { applySorting, normalizeSort, sortModesOf } from '../../search/sorting'
 import type { FacetResult, GroupResult, Hit, PreflightResult, QueryResult } from '../../types/results'
 import type { AnyDocument } from '../../types/schema'
 import type { QueryParams } from '../../types/search'
@@ -20,7 +19,7 @@ import {
   coverageFor,
   type QueryContext,
   requireKnownMode,
-  requireValidQueryFilter,
+  requireValidQueryOptions,
   requireVectorSearchable,
   scoringConfigFor,
   searchOptionsFor,
@@ -64,9 +63,7 @@ export async function executeQuery<T = AnyDocument>(
     )
   }
 
-  requireSortableFields(params.sort, config.schema)
-  requireValidQueryFilter(params.filters, config.schema)
-  requireUsableQueryFields(params, config.schema)
+  requireValidQueryOptions(params, config)
   requireVectorSearchable(params, context, isVectorOnly || isHybridMode)
 
   let paginated: Array<Hit<T>>
@@ -258,8 +255,7 @@ export async function executePreflight(params: QueryParams, context: QueryContex
   const startTime = now()
 
   requireKnownMode(params)
-  requireValidQueryFilter(params.filters, config.schema)
-  requireUsableQueryFields(params, config.schema)
+  requireValidQueryOptions(params, config)
   const hasTerm = params.term !== undefined && params.term.trim().length > 0
   const hasVector = params.vector !== undefined && params.vector.value !== undefined
   const isHybridMode = params.mode === 'hybrid' || (hasTerm && hasVector)

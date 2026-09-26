@@ -4,7 +4,7 @@ The engine narrows and orders the results of a query by its filters, facet count
 
 ## Filters
 
-Filter on any indexed field with comparison operators (`eq`, `ne`, `gt`, `lt`, `gte`, `lte`, `between`), string operators (`in`, `nin`, `startsWith`, `endsWith`), array operators (`containsAll`, `matchesAny`, `size`), and presence checks (`exists`, `notExists`, `isEmpty`, `isNotEmpty`). Combine filter expressions with `and`, `or`, and `not`.
+Filter on any indexed field with comparison operators (`eq`, `ne`, `gt`, `lt`, `gte`, `lte`, `between`), string operators (`in`, `nin`, `startsWith`, `endsWith`), array operators (`containsAll`, `matchesAny`, `size`), and presence checks (`exists`, `notExists`, `isEmpty`, `isNotEmpty`). Combine filter expressions with `and`, `or`, and `not`. On a `string[]` field, the engine compares each element of the list with `eq`, `ne`, `in`, `nin`, `startsWith`, and `endsWith`, so `eq: 'vegan'` matches a document whose list includes `'vegan'`, while `ne` and `nin` match a document whose list includes none of the values.
 
 ```ts
 const results = await narsil.query('products', {
@@ -22,7 +22,7 @@ const results = await narsil.query('products', {
 })
 ```
 
-Put each field condition under `fields`, and nest whole filter expressions inside `and`, `or`, and `not`, so that you can write any boolean shape. The engine throws `SEARCH_INVALID_FILTER` for any other key, so it raises that error for a field name written at the top level, such as `{ category: { eq: 'books' } }`, and for a misspelled operator. It raises the same error for an operand of the wrong shape, such as a `between` with one bound or a `radius` with a negative `distance`, and for an operator on a field of another type, such as `startsWith` on a `number` field or `eq: '700'` on one. A filter on a field outside the schema tests the value that each document stores under that name. The engine scores only the documents that pass the filters. It returns hits for a full-text query only when you set a `term`, while in vector and hybrid modes it compares the query vector with only the documents that pass the filters.
+Put each field condition under `fields`, and nest whole filter expressions inside `and`, `or`, and `not`, so that you can write any boolean shape. The engine throws `SEARCH_INVALID_FILTER` for any other key, so it raises that error for a field name written at the top level, such as `{ category: { eq: 'books' } }`, and for a misspelled operator. It raises the same error for an operand of the wrong shape, such as a `between` with one bound or a `radius` with a negative `distance`, for an `and` or `or` clause that is not a list, for an expression nested more than 30 levels deep, and for an operator on a field of another type, such as `startsWith` on a `number` field or `eq: '700'` on one. The engine compares a filter on a field outside the schema with the value that each document stores under that name, except on a strict index, where it throws `SEARCH_INVALID_FIELD` for a filter, sort, facet, or group on such a field, because the engine rejects every document with that field. The engine scores only the documents that pass the filters. It returns hits for a full-text query only when you set a `term`, while in vector and hybrid modes it compares the query vector with only the documents that pass the filters.
 
 ## Facets
 

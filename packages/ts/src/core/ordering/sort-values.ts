@@ -1,10 +1,11 @@
 import type { AnyDocument } from '../../types/schema'
+import type { SortField } from '../../types/search'
 import { SORT_VALUE_MAX_CODE_POINTS } from './constants'
 import { compareSortStrings } from './fold-compare'
 
 export type SortDirection = 'asc' | 'desc'
 
-export type SortMode = 'min' | 'max' | 'avg' | 'median'
+export type SortMode = NonNullable<SortField['mode']>
 
 export type ComparableSortValue = string | number | boolean | null
 

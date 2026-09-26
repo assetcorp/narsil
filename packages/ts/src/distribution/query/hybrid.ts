@@ -41,6 +41,7 @@ export async function executeHybridQuery(
   deps: QueryRoutingDeps,
   config: DistributedQueryConfig,
 ): Promise<DistributedQueryResult> {
+  const fusion = resolveHybridFusion(params.hybrid)
   const depth = limit + offset
   const textParams: WireQueryParams = { ...params, vector: null, hybrid: null, mode: null, limit: depth, offset: 0 }
   const vectorParams: WireQueryParams = {
@@ -110,7 +111,6 @@ export async function executeHybridQuery(
   const mergedText = mergeAndTruncateScoredEntries(textScored, depth)
   const mergedVector = mergeAndTruncateScoredEntries(vectorScored, depth)
 
-  const fusion = resolveHybridFusion(params.hybrid)
   let fused: ScoredEntry[]
   if (fusion.strategy === 'rrf') {
     fused = distributedRRF([mergedText, mergedVector], { k: fusion.k })
@@ -134,6 +134,7 @@ export async function executeHybridQuery(
     totalHits,
     facets: mergedFacets?.facets ?? null,
     facetErrorBounds: mergedFacets?.errorBounds ?? null,
+    facetUndercounts: mergedFacets?.undercounts ?? null,
     groups: mergeGroupsFor(params, allGroups, null),
     cursor: null,
     coverage,

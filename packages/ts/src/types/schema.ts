@@ -170,7 +170,12 @@ export interface IndexConfig {
   trackPositions?: boolean
   /** These settings control when vector fields move to an HNSW graph, and how that graph is built. */
   vectorPromotion?: VectorIndexConfig
-  /** Setting this rejects a document carrying a field the schema does not declare. The engine accepts extra fields by default. */
+  /**
+   * Setting this makes the engine reject a document with a field that the
+   * schema does not declare, and throw `SEARCH_INVALID_FIELD` for a filter,
+   * sort, facet, or group on such a field. The engine accepts extra fields by
+   * default.
+   */
   strict?: boolean
   /** These settings embed text fields into vector fields on every write. */
   embedding?: EmbeddingFieldConfig

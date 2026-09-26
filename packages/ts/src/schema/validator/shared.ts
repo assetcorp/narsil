@@ -19,6 +19,10 @@ export function isTextFieldType(fieldType: string): boolean {
 
 export const VECTOR_PATTERN = /^vector\[(\d+)]$/
 
+export function isGeopointOrVectorType(fieldType: string | undefined): boolean {
+  return fieldType === 'geopoint' || (fieldType !== undefined && VECTOR_PATTERN.test(fieldType))
+}
+
 export const FIELD_NAME_PATTERN = /^[A-Za-z0-9_]+$/
 
 export const RESERVED_ROOT_FIELDS = new Set(['id'])

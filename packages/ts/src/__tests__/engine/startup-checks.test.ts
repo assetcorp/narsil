@@ -1,28 +1,51 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { resolveRunnableConfig } from '../../engine/startup-checks'
 import { createNarsil } from '../../narsil'
-import { resolveWorkerEntry } from '../../workers/entry-point'
+import { missingWorkerEntry } from '../../workers/entry-point'
 
-const SOURCE_DIRECTORY = /\/src\/workers\/[^/]+$/
+const workerEntry = vi.hoisted(() => ({ missing: false }))
 
-describe('the worker entry that an engine spawns', () => {
-  it('points a published build at the entry beside it', () => {
-    expect(
-      resolveWorkerEntry(
-        'file:///app/node_modules/@delali/narsil/dist/chunk-a1.mjs',
-        SOURCE_DIRECTORY,
-        'workers/entry.mjs',
-      ),
-    ).toBe('file:///app/node_modules/@delali/narsil/dist/workers/entry.mjs')
+vi.mock('#platform/worker-factory', async importOriginal => {
+  const actual = await importOriginal<typeof import('../../workers/factory')>()
+  return {
+    ...actual,
+    requireWorkerEntry: async () => {
+      if (workerEntry.missing) throw missingWorkerEntry('file:///app/server.mjs')
+      return actual.requireWorkerEntry()
+    },
+  }
+})
+
+describe('the worker entry an engine checks as it starts', () => {
+  afterEach(() => {
+    workerEntry.missing = false
+    vi.restoreAllMocks()
   })
 
-  it('points a source checkout at the built entry', () => {
-    expect(resolveWorkerEntry('file:///repo/src/workers/factory.ts', SOURCE_DIRECTORY, 'workers/entry.mjs')).toBe(
-      'file:///repo/dist/workers/entry.mjs',
-    )
+  it('answers on one thread and says why once where default settings find no worker entry', async () => {
+    workerEntry.missing = true
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+
+    const first = await resolveRunnableConfig({ workers: { count: 4 } })
+    const second = await resolveRunnableConfig(undefined)
+
+    expect(first?.workers).toEqual({ count: 4, enabled: false })
+    expect(second?.workers?.enabled).toBe(false)
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(String(warn.mock.calls[0]?.[0])).toContain('file:///app/server.mjs')
   })
 
-  it('finds no entry for an application bundle, so no worker loads the application itself', () => {
-    expect(resolveWorkerEntry('file:///app/server.mjs', SOURCE_DIRECTORY, 'workers/entry.mjs')).toBeNull()
+  it('refuses to start where the configuration asks for workers and no worker entry exists', async () => {
+    workerEntry.missing = true
+
+    await expect(createNarsil({ workers: { enabled: true } })).rejects.toMatchObject({ code: 'CONFIG_INVALID' })
+  })
+
+  it('leaves the configuration alone where workers are off', async () => {
+    workerEntry.missing = true
+    const config = { workers: { enabled: false } }
+
+    expect(await resolveRunnableConfig(config)).toBe(config)
   })
 })
 

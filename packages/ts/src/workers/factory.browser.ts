@@ -1,6 +1,6 @@
 import { ErrorCodes, NarsilError } from '../errors'
 import { detectRuntime } from '../runtime/detect'
-import { resolveWorkerEntry } from './entry-point'
+import { missingWorkerEntry, resolveWorkerEntry } from './entry-point'
 import type { Executor } from './executor'
 import type { WorkerFactory } from './pool'
 import { createWorkerExecutor, type WorkerLike } from './worker-executor'
@@ -12,11 +12,7 @@ declare const Worker: {
 export async function requireWorkerEntry(): Promise<string> {
   const entry = resolveWorkerEntry(import.meta.url, /\/src\/workers\/[^/]+$/, 'workers/entry.mjs')
   if (entry !== null) return entry
-  throw new NarsilError(
-    ErrorCodes.CONFIG_INVALID,
-    `The engine finds no worker entry beside its own module at "${import.meta.url}", which is what happens where a bundler folds @delali/narsil into an application bundle. Keep @delali/narsil outside the bundle, or set workers.enabled to false`,
-    { moduleUrl: import.meta.url },
-  )
+  throw missingWorkerEntry(import.meta.url)
 }
 
 export async function createWorkerFactory(entryPoint?: string): Promise<WorkerFactory> {

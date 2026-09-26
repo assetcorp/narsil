@@ -2,6 +2,7 @@ import { toComparableSortValue } from '../../core/ordering'
 import { ErrorCodes, NarsilError } from '../../errors'
 import { decodePageCursor, encodePageCursor, requireMatchingCursor } from '../../search/cursor'
 import { queryBindingOf } from '../../search/cursor-binding'
+import { oversampledShardSize } from '../../search/oversample'
 import { requireWithinResultWindow } from '../../search/pagination'
 import { sortSignatureEntry } from '../../search/sorting'
 import { wireParamsToLocal } from '../cluster-node/query-conversion'
@@ -18,7 +19,6 @@ import { buildCoverage, collectDistributedStats, fanOutSearch, type NodeQueryOut
 import { mergeGroupsFor } from './group-merge'
 import { executeHybridQuery } from './hybrid'
 import { mergeAndTruncateScoredEntries, mergeAndTruncateSortedEntries, mergeDistributedFacets } from './merge'
-import { oversampledShardSize } from './oversample'
 import { lastOrganicEntry, placePinnedEntries } from './pinning'
 import type { ReplicaSelector } from './selection'
 import { randomSelector, selectReplicasForQuery } from './selection'
@@ -264,6 +264,7 @@ async function executeSingleFanOut(
     totalHits,
     facets: mergedFacets?.facets ?? null,
     facetErrorBounds: mergedFacets?.errorBounds ?? null,
+    facetUndercounts: mergedFacets?.undercounts ?? null,
     groups: mergedGroups,
     cursor,
     coverage,

@@ -55,7 +55,6 @@ export function createDurabilityManager(
   let asyncFlushTimer: ReturnType<typeof setInterval> | null = null
   let shuttingDown = false
   let fatalError: Error | null = null
-  let releaseDirectory: (() => Promise<void>) | null = null
   const directoryWatch = createDirectoryWatch(directory, () => shuttingDown || fatalError !== null, markFatal)
 
   function markFatal(error: Error): void {
@@ -262,7 +261,8 @@ export function createDurabilityManager(
       await stallWhileCheckpointsFallBehind(indexState)
     }
     if (recordedByIndex.size === 0) return outcomes
-    const lost = mode === 'sync' && !(await directoryWatch.verify()) ? partitionBatchDeps.fatalError() : null
+    if (mode === 'sync') await directoryWatch.verify()
+    const lost = mode === 'sync' ? fatalError : null
     if (lost !== null) return outcomes.map(outcome => (outcome.ok ? { ok: false, error: lost } : outcome))
     await directoryWatch.verifyOnce()
     directoryWatch.start()
@@ -292,7 +292,7 @@ export function createDurabilityManager(
     },
 
     async recover(metadataOnly = false): Promise<void> {
-      releaseDirectory ??= (await directory.lock?.()) ?? null
+      await directoryWatch.claim()
       const names = await listPersistedIndexes(directory)
       for (const indexName of names) {
         await recoverIndex(indexName, metadataOnly)
@@ -390,7 +390,7 @@ export function createDurabilityManager(
       }
       indexes.clear()
       terminateCheckpointWorker()
-      await releaseDirectory?.()
+      await directoryWatch.release()
     },
   }
 }

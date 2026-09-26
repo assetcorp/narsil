@@ -25,6 +25,10 @@ export type ComparisonFilter = {
  * Everything {@link ComparisonFilter} offers, with the set and prefix tests a
  * string field also supports.
  *
+ * On a `string[]` field, the engine compares each element of the list, so
+ * `eq`, `in`, `startsWith`, and `endsWith` match a document where one element
+ * matches, and `ne` and `nin` match a document where no element matches.
+ *
  * @public
  */
 export type StringFilter = ComparisonFilter & {

@@ -12,8 +12,9 @@ import {
   toReducedSortValue,
 } from '../core/ordering'
 import { ErrorCodes, NarsilError } from '../errors'
+import { undeclaredFieldOnStrictIndex } from '../filters/operands'
 import { flattenSchema, SORTABLE_TEXT_FIELD_TYPE } from '../schema/validator'
-import { VECTOR_PATTERN } from '../schema/validator/shared'
+import { isGeopointOrVectorType } from '../schema/validator/shared'
 import type { Hit } from '../types/results'
 import type { AnyDocument, SchemaDefinition } from '../types/schema'
 import type { SortField, SortSpec } from '../types/search'
@@ -67,13 +68,14 @@ function requireSortMode(entry: SortField, fieldType: string | undefined): void 
   }
 }
 
-export function requireSortableFields(sort: SortSpec | undefined, schema: SchemaDefinition): void {
+export function requireSortableFields(sort: SortSpec | undefined, schema: SchemaDefinition, strict = false): void {
   const fields = normalizeSort(sort)
   if (fields.length === 0) return
 
   const flatSchema = flattenSchema(schema)
   for (const entry of fields) {
     const fieldType = flatSchema[entry.field]
+    if (strict && fieldType === undefined) throw undeclaredFieldOnStrictIndex(entry.field, 'sort')
     if (entry.direction !== 'asc' && entry.direction !== 'desc') {
       throw new NarsilError(
         ErrorCodes.SEARCH_INVALID_MODE,
@@ -89,7 +91,7 @@ export function requireSortableFields(sort: SortSpec | undefined, schema: Schema
         { field: entry.field, fieldType },
       )
     }
-    if (fieldType === 'geopoint' || (fieldType !== undefined && VECTOR_PATTERN.test(fieldType))) {
+    if (isGeopointOrVectorType(fieldType)) {
       throw new NarsilError(
         ErrorCodes.SEARCH_INVALID_FIELD,
         `The engine sorts by a number, boolean, enum, or sortable text field, and "${entry.field}" is a ${fieldType} field`,

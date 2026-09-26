@@ -7,6 +7,8 @@ import type { PartitionManager } from '../../partitioning/manager'
 import { partitionsIn } from '../../partitioning/partition-selection'
 import { flattenSchema } from '../../schema/validator'
 import type { FulltextSearchOptions } from '../../search/fulltext'
+import { requireUsableQueryFields } from '../../search/query-fields'
+import { requireSortableFields } from '../../search/sorting'
 import type { FilterExpression } from '../../types/filters'
 import type { GlobalStatistics, ScoredDocument } from '../../types/internal'
 import type { LanguageModule } from '../../types/language'
@@ -175,8 +177,19 @@ export function requireKnownMode(params: QueryParams): void {
   )
 }
 
-export function requireValidQueryFilter(filters: FilterExpression | undefined, schema: IndexConfig['schema']): void {
-  if (filters !== undefined) requireValidFilter(filters, flattenSchema(schema))
+export function requireValidQueryOptions(params: QueryParams, config: IndexConfig): void {
+  const strict = config.strict === true
+  requireSortableFields(params.sort, config.schema, strict)
+  requireValidQueryFilter(params.filters, config.schema, strict)
+  requireUsableQueryFields(params, config.schema, strict)
+}
+
+export function requireValidQueryFilter(
+  filters: FilterExpression | undefined,
+  schema: IndexConfig['schema'],
+  strict = false,
+): void {
+  if (filters !== undefined) requireValidFilter(filters, flattenSchema(schema), strict)
 }
 
 export function requireVectorSearchable(params: QueryParams, context: QueryContext, needsVector: boolean): void {

@@ -45,6 +45,13 @@ describe('Narsil HTTP server with CORS', () => {
     expect(unrouted.headers.get('access-control-allow-origin')).toBe(ORIGIN)
   })
 
+  it('marks an answer to an origin outside the list as varying by origin, so no cache serves it to an allowed one', async () => {
+    const res = await fetch(`${srv.base}/indexes/nowhere/stats`, { headers: { Origin: 'https://elsewhere.example' } })
+
+    expect(res.headers.get('access-control-allow-origin')).toBeNull()
+    expect(res.headers.get('vary')).toBe('Origin')
+  })
+
   it('hands the hook the method in upper case', async () => {
     await fetch(`${srv.base}/indexes/locked`, { method: 'DELETE', headers: { Origin: ORIGIN } })
 

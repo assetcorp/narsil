@@ -156,13 +156,24 @@ describe('mergeFacets', () => {
       expect(result.brand.count).toBe(2)
     })
 
-    it('keeps the summed partition bounds where they exceed the largest count it drops', () => {
+    it('adds the largest count it drops to the summed partition bounds', () => {
       const bounded: Array<Record<string, FacetResult>> = [
         { tag: { values: { a: 9, b: 1 }, count: 2, errorBound: 6 } },
         { tag: { values: { a: 2, c: 1 }, count: 2, errorBound: 5 } },
       ]
 
-      expect(mergeFacets(bounded, { tag: { limit: 1 } }).tag.errorBound).toBe(11)
+      expect(mergeFacets(bounded, { tag: { limit: 1 } }).tag.errorBound).toBe(12)
+    })
+
+    it('bounds the true count of a value that one partition left out and the merge dropped', () => {
+      const split: Array<Record<string, FacetResult>> = [
+        { tag: { values: { a: 10 }, count: 1, errorBound: 5 } },
+        { tag: { values: { a: 3, x: 4 }, count: 2, errorBound: 0 } },
+      ]
+
+      const merged = mergeFacets(split, { tag: { limit: 1 } }).tag
+      expect(merged.values).toEqual({ a: 13 })
+      expect(merged.errorBound).toBeGreaterThanOrEqual(4 + 5)
     })
   })
 })

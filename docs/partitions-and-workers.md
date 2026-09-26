@@ -43,7 +43,7 @@ const narsil = await createNarsil({
 })
 ```
 
-Each worker thread loads its entry from a file beside the package's own module, so keep `@delali/narsil` outside an application bundle, as `serverExternalPackages` does for Next.js and `--external` does for esbuild. Where a bundler folds the package into a bundle, `createNarsil` fails with `CONFIG_INVALID` unless `workers.enabled` is `false`, because a worker loaded from the bundle would start the application again.
+Each worker thread loads its entry from a file beside the package's own module, so keep `@delali/narsil` outside an application bundle, as `serverExternalPackages` does for Next.js and `--external` does for esbuild. Where a bundler folds the package into a bundle, the engine finds no worker entry, so it answers every query on the calling thread and prints one warning, because a worker loaded from the bundle would start the application again. With `workers.enabled` set to `true`, `createNarsil` fails with `CONFIG_INVALID` in that case, so an operator whose deployment depends on worker threads finds out at start-up that it has none.
 
 `workers.count` is the thread budget the keyword copies and the vector search pool share between them, half each in an embedded engine. It defaults to the host's cores minus one, between 2 and 8, so a budget of 4 runs two keyword copies and two vector search workers, while the HTTP server holds a copy on all four and receives requests on them.
 

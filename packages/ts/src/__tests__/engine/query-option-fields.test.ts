@@ -56,6 +56,22 @@ describe('query options that name a field', () => {
     expect(result.facets?.colour).toEqual({ values: {}, count: 0, errorBound: 0 })
   })
 
+  it('treats a field named after an object built-in as a field that no document stores', async () => {
+    const filtered = await narsil.query('bikes', { term: 'bike', filters: { fields: { constructor: { eq: 'x' } } } })
+    expect(filtered.count).toBe(0)
+
+    const sorted = await narsil.query('bikes', { term: 'bike', sort: [{ field: 'toString', direction: 'asc' }] })
+    expect(sorted.count).toBe(3)
+
+    const faceted = await narsil.query('bikes', { term: 'bike', facets: { constructor: {} } })
+    expect(faceted.facets?.constructor).toEqual({ values: {}, count: 0, errorBound: 0 })
+  })
+
+  it('rounds a fractional facet limit down', async () => {
+    const result = await narsil.query('bikes', { term: 'bike', facets: { category: { limit: 1.5 } } })
+    expect(result.facets?.category).toEqual({ values: { city: 2 }, count: 1, errorBound: 1 })
+  })
+
   it('counts stored values of a field outside the schema into ranges', async () => {
     const result = await narsil.query('bikes', {
       term: 'bike',

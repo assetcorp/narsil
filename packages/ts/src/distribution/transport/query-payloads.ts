@@ -1,7 +1,9 @@
+import type { SortField as QuerySortField } from '../../types/search'
+
 export interface SortField {
   field: string
   direction: 'asc' | 'desc'
-  mode?: 'min' | 'max' | 'avg' | 'median'
+  mode?: QuerySortField['mode']
 }
 
 export interface WireGroupConfig {

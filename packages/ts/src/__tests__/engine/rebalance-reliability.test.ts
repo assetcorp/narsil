@@ -1,5 +1,6 @@
+import { spawnSync } from 'node:child_process'
 import type { Dirent } from 'node:fs'
-import { cp, mkdtemp, readdir, readFile, rm } from 'node:fs/promises'
+import { cp, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -268,6 +269,8 @@ describe('rebalance durability', () => {
     const abandoned = engine
     const diskAtCrash = `${dir}-at-crash`
     await cp(dir, diskAtCrash, { recursive: true })
+    const crashedProcess = spawnSync(process.execPath, ['-e', ''])
+    await writeFile(join(diskAtCrash, '.narsil.lock'), `${crashedProcess.pid}\n`)
     engine = await createNarsil({ durability: { directory: diskAtCrash, mode: 'sync' } })
 
     expect(await engine.countDocuments('products')).toBe(301)
