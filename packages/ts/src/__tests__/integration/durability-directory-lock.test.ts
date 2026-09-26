@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { access, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -49,6 +49,34 @@ describe('a write-ahead log directory held by one engine', () => {
     await writeFile(join(root, LOCK_FILE), `${process.ppid}\n`)
 
     await expect(open()).rejects.toMatchObject({ code: 'CONFIG_INVALID' })
+  })
+
+  it('releases the directory when recovery fails, so a repaired directory opens in the same process', async () => {
+    const first = await open()
+    await first.createIndex('orders', { schema: { item: 'string' } })
+    await first.insert('orders', { item: 'kettle' }, 'o1')
+    await first.shutdown()
+    const metaPath = join(root, 'orders', 'meta')
+    const intactMeta = await readFile(metaPath)
+    await writeFile(metaPath, 'bytes that hold no metadata envelope')
+
+    await expect(open()).rejects.toMatchObject({ code: 'ENVELOPE_INVALID_MAGIC' })
+    await expect(access(join(root, LOCK_FILE))).rejects.toMatchObject({ code: 'ENOENT' })
+
+    await writeFile(metaPath, intactMeta)
+    const repaired = await open()
+    expect(await repaired.countDocuments('orders')).toBe(1)
+  })
+
+  it('fails the next write once another engine replaces the lock file', async () => {
+    const engine = await open()
+    await engine.createIndex('orders', { schema: { item: 'string' } })
+    await engine.insert('orders', { item: 'kettle' }, 'o1')
+    await writeFile(join(root, LOCK_FILE), `${process.ppid}\n0\n0\nanother-engine\n`)
+
+    await expect(engine.insert('orders', { item: 'toaster' }, 'o2')).rejects.toMatchObject({
+      code: 'PERSISTENCE_SAVE_FAILED',
+    })
   })
 
   it('takes over a lock left behind by a process that no longer runs', async () => {

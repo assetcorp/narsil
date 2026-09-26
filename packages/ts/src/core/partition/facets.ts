@@ -9,6 +9,10 @@ type FacetRange = { from: number; to: number }
 
 const UNDECLARED_FIELD_TYPE = ''
 
+export function keptFacetValues(limit: number | undefined): number | undefined {
+  return limit !== undefined && limit > 0 ? Math.floor(limit) : undefined
+}
+
 export interface FacetOrdinalSet {
   readonly ordinalBitset: Uint32Array
 }
@@ -171,7 +175,7 @@ export function computeFacets(
     const sortDir = facetOpts.sort ?? 'desc'
     ordered.sort((a, b) => (sortDir === 'asc' ? a[1] - b[1] : b[1] - a[1]) || compareCodePoints(a[0], b[0]))
 
-    const keep = facetOpts.limit && facetOpts.limit > 0 ? facetOpts.limit : ordered.length
+    const keep = Math.min(keptFacetValues(facetOpts.limit) ?? ordered.length, ordered.length)
     const entries = ordered.slice(0, keep)
 
     let errorBound = 0

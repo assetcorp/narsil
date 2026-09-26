@@ -120,6 +120,17 @@ describe('bootstrap sync eviction and cleanup', () => {
     expect(result).toBeNull()
   })
 
+  it('treats a drop that races the engine shutting down as success', async () => {
+    const closingEngine = {
+      listIndexes: () => [{ name: 'products' }],
+      dropIndex: async (_name: string) => {
+        throw new NarsilError(ErrorCodes.INSTANCE_SHUT_DOWN, 'This Narsil instance has been shut down')
+      },
+    } as unknown as Narsil
+
+    expect(await dropExistingIndex(closingEngine, 'products', 'primary-node')).toBeNull()
+  })
+
   it('M-new-1: dropExistingIndex still wraps non-INDEX_NOT_FOUND errors as RESTORE_FAILED', async () => {
     const brokenEngine = {
       listIndexes: () => [{ name: 'products' }],

@@ -1,7 +1,6 @@
 import { compareCodePoints, compareComparableKeys } from '../../core/ordering'
 import type { PartitionFilterMatches, PartitionIndex, SortedPageEntry } from '../../core/partition'
 import { resolveProjection } from '../../core/projection'
-import { requireValidFilter } from '../../filters/operands'
 import type { PartitionManager } from '../../partitioning/manager'
 import { flattenSchema } from '../../schema/validator'
 import {
@@ -18,11 +17,13 @@ import type { FilterExpression } from '../../types/filters'
 import type { ListedDocument, ListResult } from '../../types/results'
 import type { AnyDocument, SchemaDefinition } from '../../types/schema'
 import type { ListParams, SortSpec } from '../../types/search'
+import { requireValidQueryFilter } from '../query/shared'
 import { clampLimit, now } from '../validation'
 
 export interface ListContext {
   manager: PartitionManager
   schema: SchemaDefinition
+  strict?: boolean
   partitionIds?: number[]
 }
 
@@ -185,8 +186,8 @@ export function executeListDocuments<T = AnyDocument>(params: ListParams, contex
   const startTime = now()
   const limit = clampListLimit(params.limit)
   const signature = sortSignatureOf(params.sort)
-  requireSortableFields(params.sort, schema)
-  if (params.filters !== undefined) requireValidFilter(params.filters, flattenSchema(schema))
+  requireSortableFields(params.sort, schema, context.strict === true)
+  requireValidQueryFilter(params.filters, schema, context.strict === true)
 
   const binding = listBindingOf(params.filters)
   let cursor: PageCursor | null = null

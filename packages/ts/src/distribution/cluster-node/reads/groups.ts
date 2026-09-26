@@ -2,9 +2,11 @@ import { applyProjection, type ResolvedProjection } from '../../../core/projecti
 import { foldGroupReducer, hitsKeptPerGroup } from '../../../search/grouping'
 import type { GroupResult, Hit } from '../../../types/results'
 import type { AnyDocument } from '../../../types/schema'
-import type { QueryParams } from '../../../types/search'
+import type { GroupReducer, QueryParams } from '../../../types/search'
 import type { AllocationTable } from '../../coordinator/types'
+import { MAX_FETCH_DOCUMENT_IDS } from '../../query/constants'
 import type { DistributedQueryResult } from '../../query/types'
+import type { WireGroupEntry } from '../../transport/types'
 import { readDistributedDocuments } from '../node-messaging'
 import type { ClusterReadDeps } from './scatter'
 
@@ -38,33 +40,58 @@ export async function assembleDistributedGroups(
 
   const reduce = group.reduce
   const needsDocuments = reduce !== undefined || projection.kind !== 'none'
-  const groupDocIds = [...new Set(wireGroups.flatMap(entry => entry.scored.map(scored => scored.docId)))]
-  const documents =
-    needsDocuments && groupDocIds.length > 0
-      ? await readDistributedDocuments(deps.config, deps.nodeId, deps.engine, indexName, groupDocIds, allocation)
-      : new Map<string, AnyDocument>()
-
   const keptPerGroup = hitsKeptPerGroup(group.maxPerGroup)
-  return wireGroups.map(entry => {
-    const hits: Hit[] = entry.scored.slice(0, keptPerGroup).map(scored => ({
-      id: scored.docId,
-      score: scored.score ?? undefined,
-      document: projectedGroupDocument(documents.get(scored.docId), projection),
-    }))
-    const result: GroupResult = { values: entry.values, hits }
-    if (reduce !== undefined) {
-      const folded = foldGroupReducer(
-        reduce,
-        entry.scored.map(scored => ({ document: documents.get(scored.docId), score: scored.score ?? 0 })),
-      )
-      if (folded.reducerError !== undefined) {
-        result.reducerError = folded.reducerError
-      } else {
-        result.reduced = folded.reduced
-      }
-    }
-    return result
-  })
+  const docIdsRead = (entry: WireGroupEntry): string[] =>
+    (reduce === undefined ? entry.scored.slice(0, keptPerGroup) : entry.scored).map(scored => scored.docId)
+
+  const results: GroupResult[] = []
+  let batch: WireGroupEntry[] = []
+  let batchDocIds = new Set<string>()
+
+  async function assembleBatch(): Promise<void> {
+    const documents =
+      needsDocuments && batchDocIds.size > 0
+        ? await readDistributedDocuments(deps.config, deps.nodeId, deps.engine, indexName, [...batchDocIds], allocation)
+        : new Map<string, AnyDocument>()
+    for (const entry of batch) results.push(assembleGroup(entry, documents, keptPerGroup, projection, reduce))
+    batch = []
+    batchDocIds = new Set()
+  }
+
+  for (const entry of wireGroups) {
+    const docIds = docIdsRead(entry)
+    if (batch.length > 0 && batchDocIds.size + docIds.length > MAX_FETCH_DOCUMENT_IDS) await assembleBatch()
+    batch.push(entry)
+    for (const docId of docIds) batchDocIds.add(docId)
+  }
+  if (batch.length > 0) await assembleBatch()
+  return results
+}
+
+function assembleGroup(
+  entry: WireGroupEntry,
+  documents: Map<string, AnyDocument>,
+  keptPerGroup: number,
+  projection: ResolvedProjection,
+  reduce: GroupReducer | undefined,
+): GroupResult {
+  const hits: Hit[] = entry.scored.slice(0, keptPerGroup).map(scored => ({
+    id: scored.docId,
+    score: scored.score ?? undefined,
+    document: projectedGroupDocument(documents.get(scored.docId), projection),
+  }))
+  const result: GroupResult = { values: entry.values, hits }
+  if (reduce === undefined) return result
+  const folded = foldGroupReducer(
+    reduce,
+    entry.scored.map(scored => ({ document: documents.get(scored.docId), score: scored.score ?? 0 })),
+  )
+  if (folded.reducerError !== undefined) {
+    result.reducerError = folded.reducerError
+  } else {
+    result.reduced = folded.reduced
+  }
+  return result
 }
 
 function projectedGroupDocument(document: AnyDocument | undefined, projection: ResolvedProjection): AnyDocument {

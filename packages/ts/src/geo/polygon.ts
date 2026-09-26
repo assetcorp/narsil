@@ -11,6 +11,15 @@ export function requirePolygonRing(points: unknown): void {
       { points: Array.isArray(points) ? points.length : typeof points, minimum: MIN_POLYGON_POINTS },
     )
   }
+  points.forEach((point: unknown, position: number) => {
+    const { lat, lon } = (point ?? {}) as { lat?: unknown; lon?: unknown }
+    if (typeof lat === 'number' && Number.isFinite(lat) && typeof lon === 'number' && Number.isFinite(lon)) return
+    throw new NarsilError(
+      ErrorCodes.SEARCH_INVALID_FILTER,
+      `A polygon point carries a finite "lat" and "lon", and the point at position ${position} does not`,
+      { position },
+    )
+  })
 }
 
 function signedArea(polygon: readonly GeoPoint[]): number {

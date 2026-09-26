@@ -26,10 +26,18 @@ interface TransformersTensor {
   tolist(): number[][]
 }
 
+function isBatchSafeDtype(dtype: unknown): boolean {
+  if (typeof dtype === 'string') return BATCH_SAFE_DTYPES.includes(dtype)
+  if (dtype === null || typeof dtype !== 'object') return false
+  return Object.values(dtype).every(
+    moduleDtype => typeof moduleDtype === 'string' && BATCH_SAFE_DTYPES.includes(moduleDtype),
+  )
+}
+
 export function createTransformersEmbedding(config: TransformersEmbeddingConfig): EmbeddingResult {
   const model = config.model ?? DEFAULT_MODEL
   const dtype = config.dtype ?? DEFAULT_DTYPE
-  const embedsBatchesWhole = BATCH_SAFE_DTYPES.includes(dtype)
+  const embedsBatchesWhole = isBatchSafeDtype(config.pipelineOptions?.dtype ?? dtype)
   const pooling = config.pooling ?? DEFAULT_POOLING
   const normalize = config.normalize ?? true
   const documentPrefix = config.documentPrefix ?? ''

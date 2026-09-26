@@ -1,8 +1,11 @@
 import { ErrorCodes, NarsilError } from '../../errors'
 import { DIRECTORY_IDENTITY_CHECK_INTERVAL_MS } from './constants'
+import type { DirectoryLock } from './directory-lock'
 import type { DurableDirectory } from './durable-filesystem'
 
 export interface DirectoryWatch {
+  claim(): Promise<void>
+  release(): Promise<void>
   verify(): Promise<boolean>
   verifyOnce(): Promise<void>
   start(): void
@@ -22,17 +25,36 @@ export function createDirectoryWatch(
 ): DirectoryWatch {
   let expected: string | null = null
   let timer: ReturnType<typeof setInterval> | null = null
+  let lock: DirectoryLock | null = null
+
+  function cannotCheck(err: unknown): NarsilError {
+    return new NarsilError(
+      ErrorCodes.PERSISTENCE_SAVE_FAILED,
+      `The engine cannot check the durability directory "${directory.root}", so it cannot confirm that a write is durable`,
+      { directory: directory.root, cause: err instanceof Error ? err.message : String(err) },
+    )
+  }
 
   async function currentIdentity(): Promise<string | null | Error> {
     try {
       return (await directory.identity?.()) ?? null
     } catch (err) {
-      return new NarsilError(
-        ErrorCodes.PERSISTENCE_SAVE_FAILED,
-        `The engine cannot check the durability directory "${directory.root}", so it cannot confirm that a write reaches a durable file`,
-        { directory: directory.root, cause: err instanceof Error ? err.message : String(err) },
-      )
+      return cannotCheck(err)
     }
+  }
+
+  async function lockTakenOver(): Promise<Error | null> {
+    if (lock === null) return null
+    try {
+      if (await lock.holds()) return null
+    } catch (err) {
+      return cannotCheck(err)
+    }
+    return new NarsilError(
+      ErrorCodes.PERSISTENCE_SAVE_FAILED,
+      `The lock file of the durability directory "${directory.root}" records another engine, which may be writing the same log`,
+      { directory: directory.root },
+    )
   }
 
   async function verify(): Promise<boolean> {
@@ -44,16 +66,19 @@ export function createDirectoryWatch(
     }
     if (expected === null) {
       expected = current
-      return true
+    } else if (current !== expected) {
+      onLost(
+        new NarsilError(
+          ErrorCodes.PERSISTENCE_SAVE_FAILED,
+          `The durability directory "${directory.root}" is missing or is a different directory from the one that this instance opens at start-up, so a write to it is not durable`,
+          { directory: directory.root },
+        ),
+      )
+      return false
     }
-    if (current === expected) return true
-    onLost(
-      new NarsilError(
-        ErrorCodes.PERSISTENCE_SAVE_FAILED,
-        `The durability directory "${directory.root}" is missing or is a different directory from the one that this instance opened, so a write to it reaches no durable file`,
-        { directory: directory.root },
-      ),
-    )
+    const takenOver = await lockTakenOver()
+    if (takenOver === null) return true
+    onLost(takenOver)
     return false
   }
 
@@ -65,6 +90,16 @@ export function createDirectoryWatch(
   }
 
   return {
+    async claim(): Promise<void> {
+      if (lock === null && directory.lock !== undefined) lock = await directory.lock()
+    },
+
+    async release(): Promise<void> {
+      const held = lock
+      lock = null
+      await held?.release()
+    },
+
     verify,
 
     async verifyOnce(): Promise<void> {

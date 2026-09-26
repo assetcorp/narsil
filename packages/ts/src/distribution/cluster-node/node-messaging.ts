@@ -4,6 +4,7 @@ import { ErrorCodes, NarsilError } from '../../errors'
 import type { AnyDocument } from '../../types/schema'
 import type { AllocationTable } from '../coordinator/types'
 import { createFetchMessage, validateFetchResultPayload } from '../query/codec'
+import { MAX_FETCH_DOCUMENT_IDS } from '../query/constants'
 import { selectReplica } from '../query/selection'
 import type { DistributedQueryResult } from '../query/types'
 import type { FetchDocumentId, TransportMessage } from '../transport/types'
@@ -76,11 +77,12 @@ export async function fetchDistributedDocuments<T>(
   const fields = fetchFieldsFor(projection)
   for (const [targetNodeId, documentIds] of nodeToDocumentIds) {
     if (targetNodeId === nodeId) {
-      for (const { docId } of documentIds) {
-        const document = await engine.get(indexName, docId)
-        if (document !== undefined) {
-          documents.set(docId, applyProjection(document as AnyDocument, projection) as T)
-        }
+      const local = await engine.getMultiple(
+        indexName,
+        documentIds.map(ref => ref.docId),
+      )
+      for (const [docId, document] of local) {
+        documents.set(docId, applyProjection(document, projection) as T)
       }
       continue
     }
@@ -157,14 +159,17 @@ export async function readDistributedDocuments(
       continue
     }
 
-    const fetchMessage = createFetchMessage({ indexName, documentIds, fields: null, highlight: null }, nodeId)
-    const response = await sendToNode(config, targetNodeId, fetchMessage, {
-      message: `Node '${targetNodeId}' did not answer a document fetch for index '${indexName}'`,
-      details: { indexName },
-    })
-    const payload = validateFetchResultPayload(decode(response.payload))
-    for (const fetched of payload.documents) {
-      documents.set(fetched.docId, fetched.document as AnyDocument)
+    for (let start = 0; start < documentIds.length; start += MAX_FETCH_DOCUMENT_IDS) {
+      const chunk = documentIds.slice(start, start + MAX_FETCH_DOCUMENT_IDS)
+      const fetchMessage = createFetchMessage({ indexName, documentIds: chunk, fields: null, highlight: null }, nodeId)
+      const response = await sendToNode(config, targetNodeId, fetchMessage, {
+        message: `Node '${targetNodeId}' did not answer a document fetch for index '${indexName}'`,
+        details: { indexName },
+      })
+      const payload = validateFetchResultPayload(decode(response.payload))
+      for (const fetched of payload.documents) {
+        documents.set(fetched.docId, fetched.document as AnyDocument)
+      }
     }
   }
 

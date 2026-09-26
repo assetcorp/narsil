@@ -108,9 +108,14 @@ function flattenRecursive(schema: SchemaDefinition, prefix: string, result: Reco
   }
 }
 
+const flattenedSchemas = new WeakMap<SchemaDefinition, Readonly<Record<string, FieldType>>>()
+
 export function flattenSchema(schema: SchemaDefinition): Record<string, FieldType> {
-  const result: Record<string, FieldType> = {}
+  const cached = flattenedSchemas.get(schema)
+  if (cached !== undefined) return cached
+  const result: Record<string, FieldType> = Object.create(null)
   flattenRecursive(schema, '', result)
+  flattenedSchemas.set(schema, Object.freeze(result))
   return result
 }
 

@@ -300,4 +300,21 @@ describe('PluginRegistry.runHook', () => {
       'async plugin failed',
     )
   })
+
+  it('rejects the write when a hook throws a value that has no text form', () => {
+    const registry = createPluginRegistry()
+    registry.register({
+      name: 'bare-object',
+      beforeInsert: () => {
+        throw Object.create(null)
+      },
+    })
+
+    expect(() => registry.runHook('beforeInsert', { indexName: 'idx', docId: '1', document: {} })).toThrow(
+      expect.objectContaining({
+        code: 'DOC_VALIDATION_FAILED',
+        details: { plugin: 'bare-object', hook: 'beforeInsert' },
+      }),
+    )
+  })
 })

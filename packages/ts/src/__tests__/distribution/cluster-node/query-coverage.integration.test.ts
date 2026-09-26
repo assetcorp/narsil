@@ -195,6 +195,17 @@ describe('a cluster search reporting the partitions it lost', () => {
     expect(elapsed).toBeLessThan(TIMEOUT_ALLOWANCE_MS)
   }, 30_000)
 
+  it('passes a malformed filter back as the filter error that each data node raises', async () => {
+    const query = { term: 'portable', filters: { fields: { price: { between: [1] } } } }
+
+    await expect(router.query('shop', query as never)).rejects.toMatchObject({
+      code: ErrorCodes.SEARCH_INVALID_FILTER,
+    })
+    await expect(
+      router.query('shop', { term: 'portable', filters: { fields: { price: { startsWith: '7' } } } }),
+    ).rejects.toMatchObject({ code: ErrorCodes.SEARCH_INVALID_FILTER })
+  }, 30_000)
+
   it('fails the whole search on a node that refuses partial results', async () => {
     network.unregister(LOST_NODE)
 

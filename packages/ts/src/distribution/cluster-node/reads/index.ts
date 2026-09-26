@@ -5,11 +5,16 @@ import type { QueryParams } from '../../../types/search'
 import { distributedQuery } from '../../query/routing'
 import type { DistributedQueryConfig } from '../../query/types'
 import { fetchDistributedDocuments, readDistributedDocuments } from '../node-messaging'
-import { distributedCountIsExact, distributedResultToLocal, localParamsToWire } from '../query-conversion'
+import {
+  distributedCountIsExact,
+  distributedResultToLocal,
+  localParamsToWire,
+  requireClusterFacetOptions,
+} from '../query-conversion'
 import { routableAllocation } from '../routable-allocation'
 import type { ClusterQueryConfig } from '../types'
 import { assembleDistributedGroups } from './groups'
-import { countStoredPinsFromOutside, dropUnstoredPinnedEntries } from './pinned'
+import { countStoredPinsFromOutside, dropUnstoredPinnedEntries, readPinPresence } from './pinned'
 import type { ClusterReadDeps } from './scatter'
 
 export { countCluster, partitionStatsCluster, statsCluster } from './counts'
@@ -77,6 +82,7 @@ export async function queryCluster<T = AnyDocument>(
   if (allocation === null) {
     return deps.engine.query<T>(indexName, params)
   }
+  requireClusterFacetOptions(params.facets)
   const wireParams = localParamsToWire(params)
   const queryDeps = {
     transport: deps.config.transport,
@@ -95,16 +101,9 @@ export async function queryCluster<T = AnyDocument>(
     allocation,
     projection,
   )
-  const scored = await dropUnstoredPinnedEntries(
-    deps,
-    indexName,
-    params,
-    distributed,
-    allocation,
-    projection,
-    documents,
-  )
-  const pins = await countStoredPinsFromOutside(deps, indexName, distributed, allocation)
+  const pinPresence = await readPinPresence(deps, indexName, params, allocation)
+  const scored = dropUnstoredPinnedEntries(distributed, pinPresence)
+  const pins = countStoredPinsFromOutside(distributed, pinPresence)
   let countExact = distributedCountIsExact(params, distributed.coverage)
   let totalHits = distributed.totalHits
   if (distributed.mergeHeldEveryMatch === true && pins.everyPinVerified) {
@@ -112,7 +111,12 @@ export async function queryCluster<T = AnyDocument>(
   } else if (pins.stored > 0 || !pins.everyPinVerified) {
     countExact = false
   }
-  const result = distributedResultToLocal<T>({ ...distributed, scored, totalHits }, countExact, documents)
+  const result = distributedResultToLocal<T>(
+    { ...distributed, scored, totalHits },
+    countExact,
+    documents,
+    params.facets,
+  )
   const groups = await assembleDistributedGroups(deps, indexName, params, distributed, allocation, projection)
   if (groups !== undefined) {
     result.groups = groups

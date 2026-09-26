@@ -1,6 +1,7 @@
 import { ErrorCodes, NarsilError } from '../errors'
+import { undeclaredFieldOnStrictIndex } from '../filters/operands'
 import { flattenSchema } from '../schema/validator'
-import { isTextFieldType, VECTOR_PATTERN } from '../schema/validator/shared'
+import { isGeopointOrVectorType, isTextFieldType } from '../schema/validator/shared'
 import type { SchemaDefinition } from '../types/schema'
 import type { QueryParams } from '../types/search'
 
@@ -19,17 +20,22 @@ function requireBoostableFields(boost: Record<string, number>, flatSchema: Recor
     if (typeof weight !== 'number' || !Number.isFinite(weight)) {
       throw new NarsilError(
         ErrorCodes.CONFIG_INVALID,
-        `The engine takes the boost on field "${field}" as a finite number, and this query sets ${String(weight)}`,
+        `The boost on field "${field}" must be a finite number, and this query sets ${String(weight)}`,
         { field, boost: String(weight) },
       )
     }
   }
 }
 
-function requireFacetableFields(facets: Record<string, unknown>, flatSchema: Record<string, string>): void {
+function requireFacetableFields(
+  facets: Record<string, unknown>,
+  flatSchema: Record<string, string>,
+  strict: boolean,
+): void {
   for (const field of Object.keys(facets)) {
     const fieldType = flatSchema[field]
-    if (fieldType === 'geopoint' || (fieldType !== undefined && VECTOR_PATTERN.test(fieldType))) {
+    if (strict && fieldType === undefined) throw undeclaredFieldOnStrictIndex(field, 'facet')
+    if (isGeopointOrVectorType(fieldType)) {
       throw new NarsilError(
         ErrorCodes.SEARCH_INVALID_FIELD,
         `The engine counts the values of a text, number, boolean, or enum field, and the schema declares field "${field}" as "${fieldType}"`,
@@ -39,9 +45,17 @@ function requireFacetableFields(facets: Record<string, unknown>, flatSchema: Rec
   }
 }
 
-export function requireUsableQueryFields(params: QueryParams, schema: SchemaDefinition): void {
-  if (params.boost === undefined && params.facets === undefined) return
+function requireDeclaredGroupFields(fields: readonly string[], flatSchema: Record<string, string>): void {
+  for (const field of fields) {
+    if (flatSchema[field] === undefined) throw undeclaredFieldOnStrictIndex(field, 'group')
+  }
+}
+
+export function requireUsableQueryFields(params: QueryParams, schema: SchemaDefinition, strict = false): void {
+  const checksGroup = strict && Array.isArray(params.group?.fields)
+  if (params.boost === undefined && params.facets === undefined && !checksGroup) return
   const flatSchema = flattenSchema(schema)
   if (params.boost !== undefined) requireBoostableFields(params.boost, flatSchema)
-  if (params.facets !== undefined) requireFacetableFields(params.facets, flatSchema)
+  if (params.facets !== undefined) requireFacetableFields(params.facets, flatSchema, strict)
+  if (checksGroup && params.group !== undefined) requireDeclaredGroupFields(params.group.fields, flatSchema)
 }

@@ -294,6 +294,41 @@ describe('handleSearch on a data node', () => {
     }
   })
 
+  it('carries each group entry sort value on a sorted grouped search', async () => {
+    const engine = await createClusterLocalEngine()
+    try {
+      await engine.createIndex('products', { schema: { title: 'string', category: 'string', price: 'number' } })
+      await engine.insert('products', { title: 'widget spanner', category: 'tools', price: 12 }, 'doc-1')
+      await engine.insert('products', { title: 'widget wrench', category: 'tools', price: 30 }, 'doc-2')
+      await engine.insert('products', { title: 'widget mug', category: 'kitchen', price: 5 }, 'doc-3')
+
+      const deps = { nodeId: 'node-a', engine } as DataNodeHandlerDeps
+      const responses: TransportMessage[] = []
+      await handleSearch(
+        makeSearchMessage(
+          makeWireParams({
+            term: 'widget',
+            sort: [{ field: 'price', direction: 'desc' }],
+            group: { fields: ['category'], maxPerGroup: 2, limit: null },
+          }),
+        ),
+        async response => {
+          responses.push(response)
+        },
+        deps,
+      )
+
+      const groups = (decode(responses[0].payload) as SearchResultPayload).groups ?? []
+      const tools = groups.find(group => group.values.category === 'tools')
+      expect(tools?.scored.map(entry => [entry.docId, entry.sortValues])).toEqual([
+        ['doc-2', [30]],
+        ['doc-1', [12]],
+      ])
+    } finally {
+      await engine.shutdown()
+    }
+  })
+
   it('returns null sort values when the query has no sort', async () => {
     const engine = await createClusterLocalEngine()
     try {

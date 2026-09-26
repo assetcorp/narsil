@@ -6,6 +6,11 @@ import {
   type FieldIndex,
   type GeoFieldIndex,
   type GetFieldValue,
+  holdsNoStringIn,
+  holdsStringIn,
+  holdsStringWhere,
+  holdsValue,
+  lacksValue,
   matchesNumericComparison,
 } from './shared'
 
@@ -53,7 +58,7 @@ export function applyEqBitset(
   if (fieldIndex?.type === 'enum' && typeof value === 'string') {
     return fieldIndex.index.getDocIdsBitset(value, capacity)
   }
-  return scanToBitset(allDocsBitset, capacity, getValue, v => v === value)
+  return scanToBitset(allDocsBitset, capacity, getValue, v => holdsValue(v, value))
 }
 
 export function applyNeBitset(
@@ -76,7 +81,7 @@ export function applyNeBitset(
     const eq = fieldIndex.index.getDocIdsBitset(value, capacity)
     return bitsetAnd(all, bitsetNot(eq, capacity))
   }
-  return scanToBitset(allDocsBitset, capacity, getValue, v => v !== undefined && v !== null && v !== value)
+  return scanToBitset(allDocsBitset, capacity, getValue, v => lacksValue(v, value))
 }
 
 export function applyGtBitset(
@@ -155,7 +160,7 @@ export function applyInBitset(
     return fieldIndex.index.getDocIdsInBitset(values, capacity)
   }
   const valSet = new Set<string>(values)
-  return scanToBitset(allDocsBitset, capacity, getValue, v => typeof v === 'string' && valSet.has(v))
+  return scanToBitset(allDocsBitset, capacity, getValue, v => holdsStringIn(v, valSet))
 }
 
 export function applyNinBitset(
@@ -171,12 +176,7 @@ export function applyNinBitset(
     return bitsetAnd(all, bitsetNot(matched, capacity))
   }
   const valSet = new Set<string>(values)
-  return scanToBitset(
-    allDocsBitset,
-    capacity,
-    getValue,
-    v => v !== undefined && v !== null && typeof v === 'string' && !valSet.has(v),
-  )
+  return scanToBitset(allDocsBitset, capacity, getValue, v => holdsNoStringIn(v, valSet))
 }
 
 export function applyStartsWithBitset(
@@ -185,7 +185,7 @@ export function applyStartsWithBitset(
   capacity: number,
   getValue: GetFieldValue,
 ): Uint32Array {
-  return scanToBitset(allDocsBitset, capacity, getValue, v => typeof v === 'string' && v.startsWith(prefix))
+  return scanToBitset(allDocsBitset, capacity, getValue, v => holdsStringWhere(v, text => text.startsWith(prefix)))
 }
 
 export function applyEndsWithBitset(
@@ -194,7 +194,7 @@ export function applyEndsWithBitset(
   capacity: number,
   getValue: GetFieldValue,
 ): Uint32Array {
-  return scanToBitset(allDocsBitset, capacity, getValue, v => typeof v === 'string' && v.endsWith(suffix))
+  return scanToBitset(allDocsBitset, capacity, getValue, v => holdsStringWhere(v, text => text.endsWith(suffix)))
 }
 
 export function applyContainsAllBitset(

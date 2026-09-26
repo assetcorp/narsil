@@ -67,12 +67,16 @@ An implementation must never retry a failed fsync and treat the retry as success
 
 A node must hold its write-ahead log directory alone, so that no two processes append to one log.
 
-- Before recovery lists the directory, the node must create the file `.narsil.lock` in the directory root without replacing an existing file, holding the node's process id as decimal digits and a newline. The node should write the file under a temporary name and link it into place, so that a reader never finds it empty.
-- Where `.narsil.lock` names a running process other than the node's own, the node must refuse to start with `CONFIG_INVALID`. Where it names a process that no longer runs, or the node's own process id, the node may delete the file and create it again.
-- A second open of a directory from inside the process that holds it must fail with `CONFIG_INVALID`.
-- The node must delete `.narsil.lock` on a clean shutdown.
+- Before recovery lists the directory, the node must create the file `.narsil.lock` in the directory root without replacing an existing file. The file must contain four lines: the process id, the thread id, the process start time in milliseconds since the Unix epoch, and a random token that is unique to this open.
+- The node should write the file under a temporary name and link it into place, so that a reader never finds it empty. On a filesystem without hard links, the node may create the file in place with exclusive creation.
+- Where the file records a running process other than the node's own, the node must refuse to start with `CONFIG_INVALID`.
+- Where the file records the node's own process id and a process start time within one second of the node's own, another open in the same process holds the directory, and the node must refuse to start with `CONFIG_INVALID`.
+- Where the file records a process that no longer runs, the node's own process id with a start time more than one second away, or no process id, the node may delete the file and create it again.
+- A second open of a directory from inside the process that holds it must fail with `CONFIG_INVALID`, and the node must identify the directory by its device and inode numbers, so that a symbolic link or another spelling of the path counts as the same directory.
+- A node that fails after it creates the file and before it finishes starting must delete the file.
+- The node must delete `.narsil.lock` on a clean shutdown, and only while the file still contains its own token.
 
-The node must record the directory's device and inode numbers once the directory exists. It must compare them with the directory on disk before it acknowledges a `sync` write, before each checkpoint, and at an interval that should be no longer than one second. A missing directory, or one with other numbers, is fatal: the node raises `PERSISTENCE_SAVE_FAILED`, acknowledges no later write, and reports the failure on its durability error channel.
+The node must record the directory's device and inode numbers once the directory exists. It must compare them with the directory on disk, and read the token in `.narsil.lock`, before it acknowledges a `sync` write, before each checkpoint, and at an interval that should be no longer than one second. A missing directory, a directory with other numbers, and a lock file with another token are fatal: the node raises `PERSISTENCE_SAVE_FAILED`, acknowledges no later write, and reports the failure on its durability error channel.
 
 A checkpoint that fails with an error of the host filesystem is fatal in the same way, and the node must report it as `PERSISTENCE_SAVE_FAILED` carrying the host error as its cause.
 

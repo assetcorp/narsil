@@ -180,13 +180,15 @@ Each data node counts facets over its own partitions, and the coordinator merges
        code point order
      truncate to facetSize
      sum the error bounds of each field across the nodes
+     add to that sum the largest merged count that the
+       truncation drops, or 0 where it drops nothing
 5. The merged facets and their error bounds travel in the
    query response.
 ```
 
 Distributed facet counts are approximate. A value that is frequent across the whole index but falls below `shardSize` on the individual partitions can be undercounted or missed altogether. A larger `shardSize` buys accuracy with transfer.
 
-A response must carry one error bound per field it counts, and that figure is the largest undercount any value of the field can have. A node sets its own bound to the largest count it excluded from the field, and to 0 where it excluded nothing, so a bound of 0 on every node proves the field's counts exact. The coordinator sums the nodes' bounds rather than taking the largest, because each node undercounts a value independently of the rest.
+A response must carry one error bound per field it counts, and that figure is the largest undercount any value of the field can have, where a value that the response leaves out counts as 0. A node sets its own bound to the largest count it excludes from the field, and to 0 where it excludes nothing, so a bound of 0 on every node proves the field's counts exact. The coordinator sums the nodes' bounds, because each node undercounts a value independently of the rest. It then adds the largest merged count that its own truncation drops, because the true count of a dropped value can exceed its merged count by the whole sum.
 
 ---
 

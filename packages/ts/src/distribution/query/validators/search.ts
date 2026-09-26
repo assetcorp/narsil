@@ -1,5 +1,6 @@
 import { isSortMode, SORT_MODES } from '../../../core/ordering'
 import { MAX_CURSOR_LENGTH, MAX_SORT_FIELDS } from '../../../search/constants'
+import { oversampledShardSize } from '../../../search/oversample'
 import { validateIndexName } from '../../cluster/index-metadata'
 import type { SearchPayload } from '../../transport/types'
 import {
@@ -14,7 +15,6 @@ import {
   MAX_VECTOR_DIMENSION,
   MAX_VECTOR_TEXT_LENGTH,
 } from '../constants'
-import { oversampledShardSize } from '../oversample'
 import {
   CONFIG_INVALID,
   isFiniteNumber,

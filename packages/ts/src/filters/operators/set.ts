@@ -5,6 +5,11 @@ import {
   type FieldIndex,
   type GeoFieldIndex,
   type GetFieldValue,
+  holdsNoStringIn,
+  holdsStringIn,
+  holdsStringWhere,
+  holdsValue,
+  lacksValue,
   matchesNumericComparison,
   setDifference,
 } from './shared'
@@ -26,7 +31,7 @@ export function applyEq(
   }
   const result = new Set<number>()
   for (const id of docIds) {
-    if (getValue(id) === value) result.add(id)
+    if (holdsValue(getValue(id), value)) result.add(id)
   }
   return result
 }
@@ -48,8 +53,7 @@ export function applyNe(
   }
   const result = new Set<number>()
   for (const id of docIds) {
-    const v = getValue(id)
-    if (v !== undefined && v !== null && v !== value) result.add(id)
+    if (lacksValue(getValue(id), value)) result.add(id)
   }
   return result
 }
@@ -158,7 +162,7 @@ export function applyIn(
   const result = new Set<number>()
   for (const id of docIds) {
     const v = getValue(id)
-    if (typeof v === 'string' && valSet.has(v)) result.add(id)
+    if (holdsStringIn(v, valSet)) result.add(id)
   }
   return result
 }
@@ -182,7 +186,7 @@ export function applyNin(
   const result = new Set<number>()
   for (const id of docIds) {
     const v = getValue(id)
-    if (v !== undefined && v !== null && typeof v === 'string' && !valSet.has(v)) result.add(id)
+    if (holdsNoStringIn(v, valSet)) result.add(id)
   }
   return result
 }
@@ -191,7 +195,7 @@ export function applyStartsWith(prefix: string, docIds: Set<number>, getValue: G
   const result = new Set<number>()
   for (const id of docIds) {
     const v = getValue(id)
-    if (typeof v === 'string' && v.startsWith(prefix)) result.add(id)
+    if (holdsStringWhere(v, text => text.startsWith(prefix))) result.add(id)
   }
   return result
 }
@@ -200,7 +204,7 @@ export function applyEndsWith(suffix: string, docIds: Set<number>, getValue: Get
   const result = new Set<number>()
   for (const id of docIds) {
     const v = getValue(id)
-    if (typeof v === 'string' && v.endsWith(suffix)) result.add(id)
+    if (holdsStringWhere(v, text => text.endsWith(suffix))) result.add(id)
   }
   return result
 }

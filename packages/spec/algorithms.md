@@ -437,7 +437,7 @@ centroid(polygon: List<GeoPoint>) -> GeoPoint
   return { lat: cx, lon: cy }
 ```
 
-An implementation must place a point exactly on an edge outside the polygon, which is the result of ray casting at a boundary. `isPointInPolygon` must return false for a polygon of fewer than three points, and an implementation must reject a geo polygon filter of fewer than three points with `SEARCH_INVALID_FILTER`. The result for a self-intersecting polygon is undefined. An implementation may support such a polygon under the even-odd rule of ray casting.
+An implementation must place a point exactly on an edge outside the polygon, which is the result of ray casting at a boundary. `isPointInPolygon` must return false for a polygon of fewer than three points, and an implementation must reject with `SEARCH_INVALID_FILTER` a geo polygon filter of fewer than three points, or one with a point whose latitude or longitude is not a finite number. The result for a self-intersecting polygon is undefined. An implementation may support such a polygon under the even-odd rule of ray casting.
 
 ---
 

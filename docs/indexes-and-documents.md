@@ -38,7 +38,7 @@ await narsil.createIndex('articles', {
 | `trackPositions` | `boolean` | Stores token positions in each posting, which the `.nrsl` format carries for readers that match phrases. The default is `true`, and highlighting works either way. |
 | `surfaceForms` | `boolean` | Records the original spellings of stemmed words for suggestions and prefix completions. The default is `true`. See [Suggestions](full-text-search.md#suggestions). |
 | `vectorPromotion` | `VectorIndexConfig` | Tunes the HNSW promotion threshold, graph parameters, and quantization. See [Vector search](vector-search.md#vector-search). |
-| `strict` | `boolean` | Rejects documents that carry fields missing from the schema. |
+| `strict` | `boolean` | The engine rejects a document with a field that the schema does not declare, and throws `SEARCH_INVALID_FIELD` for a filter, sort, facet, or group on such a field. |
 | `embedding` | `EmbeddingFieldConfig` | Maps text fields to vector fields for auto-embedding. See [Embedding adapters](embedding-adapters.md#embedding-adapters). |
 | `required` | `string[]` | Lists the fields that every document must hold. An insert or an update of a document that lacks one fails with `DOC_MISSING_REQUIRED_FIELD`, alone and in a batch. |
 

@@ -161,21 +161,24 @@ export function highlightField(
   const tolerance = options?.tolerance ?? 0
   const prefixLength = options?.prefixLength ?? 0
 
+  const matchByFieldToken = new Map<string, boolean>()
+  const matchesQuery = (fieldToken: string): boolean => {
+    const known = matchByFieldToken.get(fieldToken)
+    if (known !== undefined) return known
+    const stemmedField = language.stemmer ? language.stemmer(fieldToken) : fieldToken
+    const matches = stemmedQueryTokens.some(stemmedQuery =>
+      fuzzyTermMatches(stemmedQuery, stemmedField, tolerance, prefixLength),
+    )
+    matchByFieldToken.set(fieldToken, matches)
+    return matches
+  }
+
   for (let i = 0; i < fieldResult.tokens.length; i++) {
     if (i >= charOffsets.length) break
     const fieldToken = fieldResult.tokens[i].token
-    const stemmedField = language.stemmer ? language.stemmer(fieldToken) : fieldToken
-
-    if (prefixToken !== undefined && fieldToken.startsWith(prefixToken)) {
+    const prefixMatch = prefixToken !== undefined && fieldToken.startsWith(prefixToken)
+    if (prefixMatch || matchesQuery(fieldToken)) {
       matchedRanges.push({ start: charOffsets[i].start, end: charOffsets[i].end })
-      continue
-    }
-
-    for (const stemmedQuery of stemmedQueryTokens) {
-      if (fuzzyTermMatches(stemmedQuery, stemmedField, tolerance, prefixLength)) {
-        matchedRanges.push({ start: charOffsets[i].start, end: charOffsets[i].end })
-        break
-      }
     }
   }
 

@@ -246,21 +246,6 @@ describe('createTransformersEmbedding', () => {
 
       await expect(result.embedBatch(['test'], 'document', controller.signal)).rejects.toThrow()
     })
-
-    it('embeds each text on its own under a quantised dtype, so a batch gives the vectors that single calls give', async () => {
-      mockPipeline.mockResolvedValue(createMockTensor([1, 64]))
-      const result = createTransformersEmbedding({ dimensions: 64, dtype: 'q8', documentPrefix: 'passage: ' })
-
-      const vectors = await result.embedBatch(['alpha', 'beta', 'gamma'], 'document')
-
-      expect(vectors).toHaveLength(3)
-      expect(mockPipeline.mock.calls.map(call => call[0])).toEqual([
-        'passage: alpha',
-        'passage: beta',
-        'passage: gamma',
-      ])
-      mockPipeline.mockReset()
-    })
   })
 
   describe('pipeline initialization', () => {

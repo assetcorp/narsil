@@ -91,19 +91,25 @@ export async function runDurableCheckpoint(input: DurableCheckpointInput): Promi
       recordsLeftInLog = await writeOneBoundedCheckpoint(input)
     }
   } catch (err) {
-    if (err instanceof NarsilError) throw err
+    if (!isSystemError(err)) throw err
     const error = new NarsilError(
       ErrorCodes.PERSISTENCE_SAVE_FAILED,
       `The engine cannot write the checkpoint of index "${input.indexName}" to the durability directory "${input.directory.root}"`,
       {
         indexName: input.indexName,
         directory: input.directory.root,
-        cause: err instanceof Error ? err.message : String(err),
+        cause: err.message,
       },
     )
     input.markFatal(error)
     throw error
   }
+}
+
+function isSystemError(err: unknown): err is NodeJS.ErrnoException {
+  return (
+    err instanceof Error && !(err instanceof NarsilError) && typeof (err as NodeJS.ErrnoException).code === 'string'
+  )
 }
 
 async function writeOneBoundedCheckpoint(input: DurableCheckpointInput): Promise<number> {

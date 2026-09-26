@@ -26,9 +26,18 @@ function isThenable(value: unknown): value is PromiseLike<unknown> {
   return value !== null && typeof value === 'object' && typeof (value as Record<string, unknown>).then === 'function'
 }
 
+function thrownText(err: unknown, plugin: string, hookName: PluginHookName): string {
+  if (err instanceof Error) return err.message
+  try {
+    return String(err)
+  } catch {
+    return `The ${hookName} hook of plugin "${plugin}" rejects the write`
+  }
+}
+
 function asWriteRejection(err: unknown, plugin: string, hookName: PluginHookName): unknown {
   if (err instanceof NarsilError) return err
-  return new NarsilError(ErrorCodes.DOC_VALIDATION_FAILED, err instanceof Error ? err.message : String(err), {
+  return new NarsilError(ErrorCodes.DOC_VALIDATION_FAILED, thrownText(err, plugin, hookName), {
     plugin,
     hook: hookName,
   })

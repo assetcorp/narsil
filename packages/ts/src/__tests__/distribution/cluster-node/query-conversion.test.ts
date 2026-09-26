@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
+  countIsExactFor,
   distributedResultToLocal,
   localParamsToWire,
+  requireClusterFacetOptions,
   wireParamsToLocal,
 } from '../../../distribution/cluster-node/query-conversion'
 import { queryBindingOf } from '../../../search/cursor-binding'
@@ -135,5 +137,59 @@ describe('distributed result conversion', () => {
       true,
     )
     expect(local.facets?.brand).toEqual({ values: { acme: 12, globex: 10 }, count: 2, errorBound: 3 })
+  })
+
+  it('cuts each facet to its own limit and adds the largest count it leaves out to the summed node bounds', () => {
+    const local = distributedResultToLocal(
+      {
+        scored: [],
+        totalHits: 30,
+        facets: {
+          brand: [
+            { value: 'acme', count: 12 },
+            { value: 'globex', count: 10 },
+            { value: 'initech', count: 4 },
+          ],
+        },
+        facetErrorBounds: { brand: 3 },
+        facetUndercounts: { brand: 3 },
+        groups: null,
+        cursor: null,
+        coverage: { totalPartitions: 2, queriedPartitions: 2, timedOutPartitions: 0, failedPartitions: 0 },
+      },
+      true,
+      new Map(),
+      { brand: { limit: 1 } },
+    )
+    expect(local.facets?.brand).toEqual({ values: { acme: 12 }, count: 1, errorBound: 13 })
+  })
+})
+
+describe('facet options on the cluster wire', () => {
+  it('asks the nodes for as many values as the largest facet limit', () => {
+    expect(
+      localParamsToWire({ term: 'keyboard', facets: { brand: { limit: 3 }, colour: { limit: 25 } } }).facetSize,
+    ).toBe(25)
+  })
+
+  it('keeps the default of ten values for a facet that sets no limit', () => {
+    expect(localParamsToWire({ term: 'keyboard', facets: { brand: { limit: 3 }, colour: {} } }).facetSize).toBe(10)
+  })
+
+  it('refuses facet ranges and ascending facet order, which the wire cannot carry', () => {
+    expect(() => requireClusterFacetOptions({ price: { ranges: [{ from: 0, to: 50 }] } })).toThrow(
+      expect.objectContaining({ code: 'CLUSTER_OPERATION_UNSUPPORTED' }),
+    )
+    expect(() => requireClusterFacetOptions({ brand: { sort: 'asc' } })).toThrow(
+      expect.objectContaining({ code: 'CLUSTER_OPERATION_UNSUPPORTED' }),
+    )
+    expect(() => requireClusterFacetOptions({ brand: { sort: 'desc', limit: 5 } })).not.toThrow()
+  })
+})
+
+describe('the exact count of a cluster vector query', () => {
+  it('reports a floor for a vector query that carries text for the engine to embed', () => {
+    expect(countIsExactFor({ term: 'harbour', vector: { field: 'embedding', text: 'harbour tides' } })).toBe(false)
+    expect(countIsExactFor({ vector: { field: 'embedding', text: 'harbour tides', similarity: 0.8 } })).toBe(false)
   })
 })

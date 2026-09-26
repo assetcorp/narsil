@@ -16,6 +16,11 @@ export interface ScopedReadOptions {
   globalStats?: GlobalStatistics
 }
 
+async function enterRead(core: EngineCore, indexName: string): Promise<void> {
+  core.guardShutdown()
+  if (core.rebalancingIndexes.has(indexName)) await yieldToEventLoop()
+}
+
 function scopedParams(params: QueryParams, options: ScopedReadOptions | undefined): QueryParams {
   if (options?.globalStats === undefined) {
     return params
@@ -41,8 +46,7 @@ export async function runEngineQuery<T = AnyDocument>(
   params: QueryParams,
   options?: ScopedReadOptions,
 ): Promise<QueryResult<T>> {
-  core.guardShutdown()
-  if (core.rebalancingIndexes.has(indexName)) await yieldToEventLoop()
+  await enterRead(core, indexName)
   const release = await core.indexState.acquire(indexName)
   try {
     const entry = core.requireIndex(indexName)
@@ -98,8 +102,7 @@ export async function runEnginePreflight(
   params: QueryParams,
   options?: ScopedReadOptions,
 ): Promise<PreflightResult> {
-  core.guardShutdown()
-  if (core.rebalancingIndexes.has(indexName)) await yieldToEventLoop()
+  await enterRead(core, indexName)
   const release = await core.indexState.acquire(indexName)
   try {
     const entry = core.requireIndex(indexName)
@@ -142,8 +145,7 @@ export async function runEngineSuggest(
   params: SuggestParams,
   partitionIds?: number[],
 ): Promise<SuggestResult> {
-  core.guardShutdown()
-  if (core.rebalancingIndexes.has(indexName)) await yieldToEventLoop()
+  await enterRead(core, indexName)
   const release = await core.indexState.acquire(indexName)
   try {
     const result = executeSuggest(
@@ -185,8 +187,7 @@ export async function runEngineQueryStats(
   terms: string[],
   partitionIds?: number[],
 ): Promise<PartitionQueryStats> {
-  core.guardShutdown()
-  if (core.rebalancingIndexes.has(indexName)) await yieldToEventLoop()
+  await enterRead(core, indexName)
   const release = await core.indexState.acquire(indexName)
   try {
     const entry = core.requireIndex(indexName)
@@ -217,14 +218,14 @@ export async function runEngineListDocuments<T = AnyDocument>(
   params: ListParams,
   partitionIds?: number[],
 ): Promise<ListResult<T>> {
-  core.guardShutdown()
-  if (core.rebalancingIndexes.has(indexName)) await yieldToEventLoop()
+  await enterRead(core, indexName)
   const release = await core.indexState.acquire(indexName)
   try {
     const entry = core.requireIndex(indexName)
     return executeListDocuments<T>(params, {
       manager: core.requireManager(indexName),
       schema: entry.config.schema,
+      strict: entry.config.strict,
       partitionIds,
     })
   } finally {

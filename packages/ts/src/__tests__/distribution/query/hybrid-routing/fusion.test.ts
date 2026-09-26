@@ -251,4 +251,21 @@ describe('distributed hybrid query - fusion and merging', () => {
 
     expect(result.totalHits).toBe(100)
   })
+
+  it('refuses a malformed fusion setting before it sends any search to a node', async () => {
+    let searchesSent = 0
+    setupDataNode(network, transports, 'node-a', msg => {
+      if (msg.type === QueryMessageTypes.SEARCH) searchesSent += 1
+    })
+
+    const table = makeAllocationTable([[0, makeAssignment({ primary: 'node-a' })]])
+    await expect(
+      distributedQuery(
+        'products',
+        makeQueryParams({ term: 'laptop', vector: makeVectorParams(), hybrid: makeHybridConfig({ k: 0 }) }),
+        makeDeps(table),
+      ),
+    ).rejects.toMatchObject({ code: 'CONFIG_INVALID' })
+    expect(searchesSent).toBe(0)
+  })
 })
