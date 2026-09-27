@@ -19,6 +19,7 @@ import { createServer, type RequestContext, type RequestDenial } from '@delali/n
 const adminKey = process.env.NARSIL_ADMIN_KEY
 const searchKey = process.env.NARSIL_SEARCH_KEY
 if (!adminKey || !searchKey) throw new Error('Set NARSIL_ADMIN_KEY and NARSIL_SEARCH_KEY')
+if (adminKey === searchKey) throw new Error('Give NARSIL_ADMIN_KEY and NARSIL_SEARCH_KEY different values')
 
 const SEARCH_ROUTE = /^\/indexes\/[^/]+\/(search|search\/preflight|suggest)$/
 
@@ -73,6 +74,7 @@ const search = createNarsilClient({ url: 'https://search.example.com', apiKey: p
 const results = await search.query('products', { term: 'folding bicycle', limit: 10 })
 ```
 
+- `process.env` exists only on a server. In a browser bundle, read the search-only key from the app's public build settings, such as `import.meta.env.VITE_NARSIL_SEARCH_KEY` under Vite, and keep the admin key out of every bundle.
 - The admin methods that take a while, which are `restore`, `rebalance`, `optimizeVectors`, and `rebuildAnalysis`, return a task record. `await client.waitForTask(record.id)` returns the record once the task ends, and it throws nothing for a failed task, so check `status` and `error`.
 - For a React app, install `react`, wrap the tree in `<NarsilProvider client={client}>`, and call `useQuery(indexName, params, { keepPreviousData: true })` from `@delali/narsil/react`. Build the client outside every component.
 
