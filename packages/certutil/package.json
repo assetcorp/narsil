@@ -1,6 +1,6 @@
 {
   "name": "@delali/narsil-certutil",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "description": "CLI tool for generating and managing TLS certificates for Narsil clusters.",
   "author": "Delali (https://sondelali.com)",
