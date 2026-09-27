@@ -37,7 +37,7 @@ Serve it in every other case: an app in another language, several services that 
 | Browser | `adapters/indexeddb`, `createIndexedDBPersistence()` | Nothing |
 | Tests and one-off scripts | None, or `adapters/memory`, `createMemoryPersistence()` | Nothing |
 
-Every import path starts with `@delali/narsil/`. When the installed `package.json` lists `@delali/narsil-native-*` packages under `optionalDependencies`, keep optional installs on, because the engine searches vector graphs through that native core and falls back to WebAssembly without it.
+Each import path in the table follows `@delali/narsil/`, as in `@delali/narsil/adapters/filesystem`, while `createNarsil` and the rest of the core API come from `@delali/narsil` itself. When the installed `package.json` lists `@delali/narsil-native-*` packages under `optionalDependencies`, keep optional installs on, because the engine searches vector graphs through that native core and falls back to WebAssembly without it.
 
 Each of these capabilities needs one more install, with `pnpm add -E` or the project's equivalent:
 
