@@ -61,6 +61,7 @@ export async function applyAdmittedDocuments(
 
     const applied = chunkStart + BATCH_CHUNK_SIZE
     if (applied < admitted.length) {
+      ctx.checkHeapPressure(indexName)
       await new Promise<void>(r => setTimeout(r, 0))
     }
   }

@@ -1,3 +1,4 @@
+import { fnv1a, fnv1aUint32s } from '../../core/hash'
 import { compareCodePoints } from '../../core/ordering'
 import type { AllocationTable, PartitionAssignment } from '../coordinator/types'
 
@@ -9,6 +10,33 @@ export function randomSelector(candidates: string[], _partitionId: number): stri
 
 export function hashBasedSelector(candidates: string[], partitionId: number): string {
   return candidates[partitionId % candidates.length]
+}
+
+export function queryKeyedSelector(binding: string): ReplicaSelector {
+  const queryHash = Number.parseInt(binding, 16) >>> 0
+  const nodeHashes = new Map<string, number>()
+
+  function nodeHashOf(nodeId: string): number {
+    let hash = nodeHashes.get(nodeId)
+    if (hash === undefined) {
+      hash = fnv1a(nodeId)
+      nodeHashes.set(nodeId, hash)
+    }
+    return hash
+  }
+
+  return (candidates: string[], partitionId: number): string => {
+    let chosen = candidates[0]
+    let highestWeight = -1
+    for (const candidate of candidates) {
+      const weight = fnv1aUint32s([queryHash, partitionId, nodeHashOf(candidate)])
+      if (weight > highestWeight) {
+        highestWeight = weight
+        chosen = candidate
+      }
+    }
+    return chosen
+  }
 }
 
 export function collectActiveCandidates(assignment: PartitionAssignment): string[] {
@@ -40,8 +68,9 @@ export function collectActiveCandidates(assignment: PartitionAssignment): string
  * holds an eligible copy, and defers to `fallback` otherwise.
  *
  * A local read saves a network hop, and it also sends every partition this
- * node holds to this node whatever its load, so the default stays
- * {@link randomSelector} and a caller asks for locality by name.
+ * node holds to this node whatever its load, so a search picks its copies
+ * through {@link queryKeyedSelector} by default and a caller asks for
+ * locality by name.
  *
  * @param localNodeId - The node doing the reading.
  * @param fallback - Picks the copy where this node holds none.

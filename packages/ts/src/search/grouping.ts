@@ -2,6 +2,7 @@ import { compareCodePoints } from '../core/ordering'
 import type { GroupResult, Hit } from '../types/results'
 import type { AnyDocument } from '../types/schema'
 import type { GroupConfig } from '../types/search'
+import { DEFAULT_MAX_PER_GROUP } from './constants'
 
 function getNestedValue(obj: AnyDocument, path: string): unknown {
   const segments = path.split('.')
@@ -16,6 +17,11 @@ function getNestedValue(obj: AnyDocument, path: string): unknown {
     current = (current as Record<string, unknown>)[segment]
   }
   return current
+}
+
+export function hitsKeptPerGroup(maxPerGroup: number | undefined): number {
+  if (maxPerGroup === undefined || !Number.isFinite(maxPerGroup) || maxPerGroup < 1) return DEFAULT_MAX_PER_GROUP
+  return Math.floor(maxPerGroup)
 }
 
 export function applyGrouping<T = AnyDocument>(
@@ -52,19 +58,16 @@ export function applyGrouping<T = AnyDocument>(
 
   const groups: GroupResult[] = []
 
+  const keptPerGroup = hitsKeptPerGroup(group.maxPerGroup)
+
   for (const entry of groupMap.values()) {
-    let groupHits = entry.hits as Array<Hit>
-
-    if (group.maxPerGroup !== undefined && group.maxPerGroup > 0) {
-      groupHits = groupHits.slice(0, group.maxPerGroup)
-    }
-
-    const result: GroupResult = { values: entry.values, hits: groupHits }
+    const everyHit = entry.hits as Array<Hit>
+    const result: GroupResult = { values: entry.values, hits: everyHit.slice(0, keptPerGroup) }
 
     if (group.reduce) {
       const folded = foldGroupReducer(
         group.reduce,
-        groupHits.map(hit => ({ document: getDocument(hit.id), score: hit.score ?? 0 })),
+        everyHit.map(hit => ({ document: getDocument(hit.id), score: hit.score ?? 0 })),
       )
       if (folded.reducerError !== undefined) {
         result.reducerError = folded.reducerError

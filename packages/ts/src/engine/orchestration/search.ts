@@ -1,9 +1,9 @@
 import { type FanOutResult, kWayMerge } from '../../partitioning/fan-out'
 import type { PartitionManager } from '../../partitioning/manager'
-import { mergeFacets } from '../../search/facets'
+import { mergeFacets, oversampledFacetConfig } from '../../search/facets'
 import type { GlobalStatistics } from '../../types/internal'
 import type { FacetResult } from '../../types/results'
-import type { QueryParams } from '../../types/search'
+import type { FacetConfig, QueryParams } from '../../types/search'
 import type { WorkerLease, WorkerPool } from '../../workers/pool'
 import { createRequestId } from '../../workers/protocol'
 import { MAIN_COPY_LONE_QUERY_DOCUMENTS } from './constants'
@@ -18,7 +18,7 @@ function partitionsPerLease(scope: number[], leaseCount: number): number[][] {
   return assignments
 }
 
-function mergeWorkerResults(results: FanOutResult[]): FanOutResult {
+function mergeWorkerResults(results: FanOutResult[], facetConfig: FacetConfig | undefined): FanOutResult {
   const merged = kWayMerge(results.map(result => result.scored))
   let totalMatched = 0
   const workerFacets: Array<Record<string, FacetResult>> = []
@@ -29,7 +29,7 @@ function mergeWorkerResults(results: FanOutResult[]): FanOutResult {
   return {
     scored: merged,
     totalMatched,
-    facets: workerFacets.length > 0 ? mergeFacets(workerFacets) : undefined,
+    facets: facetConfig !== undefined && workerFacets.length > 0 ? mergeFacets(workerFacets, facetConfig) : undefined,
   }
 }
 
@@ -68,14 +68,16 @@ async function runSplit(
   globalStats: GlobalStatistics | undefined,
 ): Promise<FanOutResult> {
   const assignments = partitionsPerLease(scope, leases.length)
+  const workerParams =
+    params.facets !== undefined ? { ...params, facets: oversampledFacetConfig(params.facets) } : params
   const results = await Promise.all(
     assignments.map((partitionIds, at) =>
       leases[at].executor
-        .execute<FanOutResult>(queryAction(indexName, params, globalStats, partitionIds))
+        .execute<FanOutResult>(queryAction(indexName, workerParams, globalStats, partitionIds))
         .finally(() => leases[at].release()),
     ),
   )
-  return mergeWorkerResults(results)
+  return mergeWorkerResults(results, params.facets)
 }
 
 function takeMainCopyTurn(state: OrchestratorState): boolean {

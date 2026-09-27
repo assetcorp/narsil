@@ -19,7 +19,7 @@ describe('VectorIndex search (brute-force only, no HNSW)', () => {
     index.insert('near', vectorFromValues(0.9, 0.1, 0, 0))
     index.insert('far', vectorFromValues(0, 0, 0, 1))
 
-    const results = index.search(vectorFromValues(1, 0, 0, 0), 2, {
+    const { results } = index.search(vectorFromValues(1, 0, 0, 0), 2, {
       metric: 'cosine',
       minSimilarity: 0,
     })
@@ -33,7 +33,7 @@ describe('VectorIndex search (brute-force only, no HNSW)', () => {
     index.insert('high', vectorFromValues(10, 0, 0, 0))
     index.insert('low', vectorFromValues(0, 10, 0, 0))
 
-    const results = index.search(vectorFromValues(1, 0, 0, 0), 2, {
+    const { results } = index.search(vectorFromValues(1, 0, 0, 0), 2, {
       metric: 'dotProduct',
       minSimilarity: -Infinity,
     })
@@ -46,7 +46,7 @@ describe('VectorIndex search (brute-force only, no HNSW)', () => {
     index.insert('close', vectorFromValues(1.1, 0.1, 0, 0))
     index.insert('distant', vectorFromValues(5, 5, 5, 5))
 
-    const results = index.search(vectorFromValues(1, 0, 0, 0), 2, {
+    const { results } = index.search(vectorFromValues(1, 0, 0, 0), 2, {
       metric: 'euclidean',
       minSimilarity: 0,
     })
@@ -59,7 +59,7 @@ describe('VectorIndex search (brute-force only, no HNSW)', () => {
   it('search with k=0 returns empty', () => {
     index.insert('doc1', vectorFromValues(1, 0, 0, 0))
 
-    const results = index.search(vectorFromValues(1, 0, 0, 0), 0, {
+    const { results } = index.search(vectorFromValues(1, 0, 0, 0), 0, {
       metric: 'cosine',
       minSimilarity: 0,
     })
@@ -68,7 +68,7 @@ describe('VectorIndex search (brute-force only, no HNSW)', () => {
   })
 
   it('search with empty index returns empty', () => {
-    const results = index.search(vectorFromValues(1, 0, 0, 0), 5, {
+    const { results } = index.search(vectorFromValues(1, 0, 0, 0), 5, {
       metric: 'cosine',
       minSimilarity: 0,
     })
@@ -80,7 +80,7 @@ describe('VectorIndex search (brute-force only, no HNSW)', () => {
     index.insert('aligned', vectorFromValues(0.95, 0.05, 0, 0))
     index.insert('orthogonal', vectorFromValues(0, 1, 0, 0))
 
-    const results = index.search(vectorFromValues(1, 0, 0, 0), 10, {
+    const { results } = index.search(vectorFromValues(1, 0, 0, 0), 10, {
       metric: 'cosine',
       minSimilarity: 0.9,
     })
@@ -96,7 +96,7 @@ describe('VectorIndex search (brute-force only, no HNSW)', () => {
     index.insert('doc2', vectorFromValues(0, 1, 0, 0))
     index.insert('doc3', vectorFromValues(0, 0, 1, 0))
 
-    const results = index.search(vectorFromValues(1, 0, 0, 0), 10, {
+    const { results } = index.search(vectorFromValues(1, 0, 0, 0), 10, {
       metric: 'cosine',
       minSimilarity: 0,
       filterDocIds: new Set(['doc1', 'doc3']),
@@ -110,7 +110,7 @@ describe('VectorIndex search (brute-force only, no HNSW)', () => {
   it('search with empty filterDocIds returns empty', () => {
     index.insert('doc1', vectorFromValues(1, 0, 0, 0))
 
-    const results = index.search(vectorFromValues(1, 0, 0, 0), 10, {
+    const { results } = index.search(vectorFromValues(1, 0, 0, 0), 10, {
       metric: 'cosine',
       minSimilarity: 0,
       filterDocIds: new Set<string>(),
@@ -124,7 +124,7 @@ describe('VectorIndex search (brute-force only, no HNSW)', () => {
     index.insert('removed', vectorFromValues(0.95, 0.05, 0, 0))
     index.remove('removed')
 
-    const results = index.search(vectorFromValues(1, 0, 0, 0), 10, {
+    const { results } = index.search(vectorFromValues(1, 0, 0, 0), 10, {
       metric: 'cosine',
       minSimilarity: 0,
     })

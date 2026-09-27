@@ -119,7 +119,7 @@ describe('distributed hybrid query - coverage and facets', () => {
         term: 'laptop',
         vector: makeVectorParams(),
         hybrid: makeHybridConfig(),
-        facets: ['color'],
+        facets: [{ field: 'color', sort: null, ranges: null }],
       }),
       makeDeps(table),
     )
@@ -129,6 +129,7 @@ describe('distributed hybrid query - coverage and facets', () => {
 
     expect(textPayload?.facetShardSize).not.toBeNull()
     expect(vectorPayload?.facetShardSize).toBeNull()
+    expect(vectorPayload?.params.facets).toBeNull()
 
     expect(result.facets).not.toBeNull()
     expect(result.facets?.color).toBeDefined()

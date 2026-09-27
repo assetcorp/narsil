@@ -16,9 +16,7 @@ If either of these doesn't exist, **proceed silently**. Don't flag its absence, 
 ```
 /
 ├── CONTEXT.md
-├── docs/adr/
-│   ├── 0001-primary-admits-replicas-to-the-in-sync-set.md
-│   └── 0002-a-node-closes-idle-indexes-locally.md
+├── docs/adr/                          ← numbered decision records, one per file
 ├── docs/                              ← user-facing guides, not domain docs
 └── packages/
     ├── spec/                          ← the cross-language contract

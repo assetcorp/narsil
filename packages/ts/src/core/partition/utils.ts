@@ -47,6 +47,7 @@ export function getNestedValue(obj: Record<string, unknown>, path: string): unkn
   let current: unknown = obj
   for (let i = 0; i < parts.length; i++) {
     if (current === null || current === undefined || typeof current !== 'object') return undefined
+    if (!Object.hasOwn(current, parts[i])) return undefined
     current = (current as Record<string, unknown>)[parts[i]]
   }
   return current

@@ -32,7 +32,7 @@ const auditLog: NarsilPlugin = {
 const narsil = await createNarsil({ plugins: [auditLog] })
 ```
 
-A hook may be async, and every `before*` hook runs to completion before the operation applies, so an error thrown in `beforeInsert` rejects the insert. Where an `after*` or `on*` hook throws, the engine logs a warning and leaves the operation alone, because that operation has already succeeded. An `afterSearch` hook receives a copy of the results as well, so a change that it makes there never reaches the caller.
+A hook may be async, and the engine waits for every `before*` hook to finish before it applies the operation, so an error thrown in `beforeInsert` rejects the insert. Where a `before*` hook on a write throws a `NarsilError`, the caller receives that error unchanged, while any other error reaches the caller as `DOC_VALIDATION_FAILED` with the same message, from a single write and from each entry of a batch alike. Where an `after*` or `on*` hook throws, the engine logs a warning and leaves the operation alone, because that operation has already succeeded. An `afterSearch` hook receives a copy of the results as well, so a change that it makes there never reaches the caller.
 
 ## Events
 
@@ -42,7 +42,7 @@ A hook may be async, and every `before*` hook runs to completion before the oper
 | --- | --- | --- |
 | `durabilityError` | `{ error }` | A write-ahead log append or a checkpoint write failed, on either tier. |
 | `invalidationError` | `{ error }` | An invalidation adapter publish, subscribe, or reload failed. |
-| `workerCrash` | `{ workerId, indexNames, error }` | A worker died. The pool drops it, its pending requests fail with `WORKER_CRASHED`, and the remaining workers keep answering; with none left, queries fall back to the main thread. |
+| `workerCrash` | `{ workerId, indexNames, error }` | A worker died. The pool drops it and fails the requests that it was serving with `WORKER_CRASHED`, while the engine answers each of those queries again on the main thread, so the caller receives a result. The remaining workers keep answering, and once none is left, the main thread answers every query. |
 | `workerPromote` | `{ workerCount, reason }` | An index gained worker copies, whether it reached the copy threshold or loaded its copies again after an idle spell. |
 | `workerPromoteFailure` | `{ reason, error, retryable }` | An index could not gain worker copies; `retryable` reports whether the engine tries again. See [Worker copies](partitions-and-workers.md#worker-copies). |
 | `partitionRebalance` | `{ indexName, oldCount, newCount }` | A partition reshape completed. |
@@ -98,7 +98,7 @@ console.log(memory.workers)
 
 The [server image](../packages/ts/examples/http-server/Dockerfile) and the [cluster example image](../packages/ts/examples/cluster-dashboard/Dockerfile.node) set `NODE_OPTIONS=--max-old-space-size-percentage=75`, so an 8 GB container gives the engine a heap of about 6 GB. Pass your own `NODE_OPTIONS` to the container to change the share.
 
-The engine emits `heapPressure` once the process spends nine tenths of its heap, measured during a write to an index, a restore, a reopen, or the recovery of persisted indexes at start-up, where the event names the largest index.
+The engine emits `heapPressure` once the process spends nine tenths of its heap. It measures the heap after each write to an index and after each chunk that it writes inside a batch, so a large batch that crosses the line partway through still raises the event. It also measures after a restore, a reopen, and the recovery of persisted indexes at start-up, where the event names the largest index.
 
 Which limit it measures against follows your own configuration. Where you set `--max-old-space-size` or `--max-old-space-size-percentage`, on the `node` command line or in `NODE_OPTIONS`, the engine reads that figure and measures the used bytes against it, and the payload reports the same figure in `heapLimit`. Measured on Node 24.16 on Apple silicon under `--max-old-space-size=256`, the event arrived at 232 MB of 256 MB, and Node ends such a process at about 253 MB. Where you set neither flag, the engine compares the used bytes with the headroom that V8 reports, because V8 keeps part of the raw limit back and an allocation fails before the used bytes reach that limit. V8 reports a limit about 192 MB above the true ceiling, so Node can end a process on a default heap below about 2 GB before the fraction reaches nine tenths; set one of the two flags to get the warning on a small heap.
 

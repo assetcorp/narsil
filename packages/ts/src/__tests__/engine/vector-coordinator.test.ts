@@ -64,10 +64,10 @@ function createMockVectorIndex(
       return vectors.has(docId)
     },
     async searchParallel() {
-      return []
+      return { results: [], matched: 0, matchedExact: true }
     },
     search() {
-      return []
+      return { results: [], matched: 0, matchedExact: true }
     },
     refreshWorkerCopies() {},
     compact() {},

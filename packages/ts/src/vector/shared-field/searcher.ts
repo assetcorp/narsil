@@ -21,6 +21,12 @@ export interface SharedVectorSearcherOptions {
 
 type ResolvedHit = OrdinalHit & { docId: string }
 
+interface ScannedHits {
+  hits: OrdinalHit[]
+  matched: number
+  matchedExact: boolean
+}
+
 function bestFirst(a: ResolvedHit, b: ResolvedHit): number {
   return b.score - a.score || (a.docId < b.docId ? -1 : a.docId > b.docId ? 1 : 0)
 }
@@ -54,7 +60,7 @@ function bruteForceOrdinals(
   metric: VectorMetric,
   minSimilarity: number,
   filter: OrdinalFilter,
-): ResolvedHit[] {
+): ScannedHits {
   const ordinals: number[] = []
   const docIds: string[] = []
   for (const ord of ordinalFilterValues(filter)) {
@@ -68,12 +74,15 @@ function bruteForceOrdinals(
     nativeScoresOf(state.store.handles, query, metric, ordinals) ??
     distancesInTypeScript(state, query, metric, ordinals)
   const heap = createBoundedMaxHeap<ResolvedHit>(bestFirst, k)
+  let matched = 0
   for (let i = 0; i < ordinals.length; i++) {
     if (distances[i] === Number.POSITIVE_INFINITY) continue
     const score = toScore(distances[i], metric)
-    if (score >= minSimilarity) heap.push({ ord: ordinals[i], score, docId: docIds[i] })
+    if (score < minSimilarity) continue
+    matched++
+    heap.push({ ord: ordinals[i], score, docId: docIds[i] })
   }
-  return heap.toSortedArray().reverse()
+  return { hits: heap.toSortedArray().reverse(), matched, matchedExact: true }
 }
 
 export function createSharedVectorSearcher(options: SharedVectorSearcherOptions): VectorSearcher {
@@ -81,9 +90,12 @@ export function createSharedVectorSearcher(options: SharedVectorSearcherOptions)
 
   function filterForDocIds(allowed: Set<string>): OrdinalFilter {
     const filter = createOrdinalFilter(view.store.slots)
+    const graph = view.graph
     for (const docId of allowed) {
       const ordinal = view.ordinalOf(docId)
-      if (ordinal !== undefined) addToOrdinalFilter(filter, ordinal)
+      if (ordinal === undefined) continue
+      if (graph !== null && isTombstoned(graph, ordinal)) continue
+      addToOrdinalFilter(filter, ordinal)
     }
     return filter
   }
@@ -106,7 +118,12 @@ export function createSharedVectorSearcher(options: SharedVectorSearcherOptions)
     return undefined
   }
 
-  function hitsFor(query: Float32Array, k: number, searchOptions: VectorSearchOptions, filter?: OrdinalFilter) {
+  function hitsFor(
+    query: Float32Array,
+    k: number,
+    searchOptions: VectorSearchOptions,
+    filter?: OrdinalFilter,
+  ): ScannedHits {
     const { metric, minSimilarity, efSearch, oversample } = searchOptions
     const liveSize = view.liveSize
     const graph = view.graph
@@ -118,7 +135,11 @@ export function createSharedVectorSearcher(options: SharedVectorSearcherOptions)
     ) {
       return bruteForceOrdinals(graph, view.docIdOf, query, k, metric, minSimilarity, filter)
     }
-    return view.searchOrdinals(query, k, metric, minSimilarity, { filter, efSearch, oversample })
+    const hits = view.searchOrdinals(query, k, metric, minSimilarity, { filter, efSearch, oversample })
+    if (minSimilarity === Number.NEGATIVE_INFINITY) {
+      return { hits, matched: filter === undefined ? liveSize : filter.count, matchedExact: true }
+    }
+    return { hits, matched: hits.length, matchedExact: false }
   }
 
   return {
@@ -135,15 +156,22 @@ export function createSharedVectorSearcher(options: SharedVectorSearcherOptions)
         )
       }
       const filter = filterFor(searchOptions)
-      if (filter !== undefined && filter.count === 0) return Promise.resolve([])
-      const hits = hitsFor(query, k, searchOptions, filter)
+      if (filter !== undefined && filter.count === 0) {
+        return Promise.resolve({ results: [], matched: 0, matchedExact: true })
+      }
+      const scanned = hitsFor(query, k, searchOptions, filter)
       const results: VectorScoredResult[] = []
-      for (const hit of hits) {
+      for (const hit of scanned.hits) {
         const docId = view.docIdOf(hit.ord)
         if (docId === undefined || !holdsDocument(docId)) continue
         results.push({ docId, score: hit.score })
       }
-      return Promise.resolve(results)
+      const holdsEveryHit = results.length === scanned.hits.length
+      return Promise.resolve({
+        results,
+        matched: scanned.matched,
+        matchedExact: scanned.matchedExact && holdsEveryHit,
+      })
     },
   }
 }

@@ -43,6 +43,16 @@ Every Narsil implementation must load and save the `.nrsl` binary format, which 
 | [`@delali/narsil-embeddings-transformers`](packages/embeddings-transformers) | The adapter computes embeddings from local models through Hugging Face Transformers.js. |
 | [`@delali/narsil-certutil`](packages/certutil) | The CLI creates certificate authorities, signs node certificates, and inspects and converts the TLS certificates that Narsil clusters use. |
 
+## Add Narsil with a coding agent
+
+The [Narsil skill](skills/narsil/) tells a coding agent whether to embed Narsil or serve it, which packages to install alongside it, and which server settings keep a public address safe. Install the skill into the coding agents on your machine with the skills CLI:
+
+```bash
+npx skills add assetcorp/narsil
+```
+
+The skill has the agent read the Narsil version that your project installs, and it sends the agent to that version's types and documentation. On the [agents page](https://narsil.sondelali.com/agents), you can copy a prompt that sets a coding agent to work on one of six search tasks.
+
 ## Getting started
 
 ### Embedded

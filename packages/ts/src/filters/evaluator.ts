@@ -6,8 +6,10 @@ import type {
   GeoPolygonFilter,
   GeoRadiusFilter,
 } from '../types/filters'
+import type { FieldType } from '../types/schema'
 import { applyAndBitset, applyNotBitset, applyOrBitset } from './combinators'
 import { FIELD_FILTER_OPERATORS, FILTER_EXPRESSION_KEYS } from './keys'
+import { requireValidOperands } from './operands'
 import type { FieldIndex, GeoFieldIndex, GetFieldValue } from './operators'
 import {
   applyBetweenBitset,
@@ -33,6 +35,7 @@ import {
 } from './operators'
 
 export interface FilterContext {
+  fieldTypes: Readonly<Record<string, FieldType>>
   fieldIndexes: Record<string, FieldIndex>
   getFieldValue: (internalId: number, fieldPath: string) => unknown
   allDocIds: Set<number>
@@ -96,9 +99,10 @@ function evaluateFieldFilter(fieldPath: string, filter: FieldFilter, context: Fi
     key => `Field "${fieldPath}" is tested with "${key}", which is no filter operator`,
   )
 
+  const f = filter as Record<string, unknown>
+  requireValidOperands(fieldPath, f, context.fieldTypes[fieldPath])
   const fieldIndex = context.fieldIndexes[fieldPath]
   const getValue: GetFieldValue = internalId => context.getFieldValue(internalId, fieldPath)
-  const f = filter as Record<string, unknown>
   const bitsets: Uint32Array[] = []
   const { capacity } = context
   let allDocsBitset: Uint32Array | null = null

@@ -1,5 +1,6 @@
 import { spawnNodeWorker } from '#platform/node-worker'
 import { detectRuntime } from '../../runtime/detect'
+import { resolveWorkerEntry } from '../../workers/entry-point'
 import { workerResourceLimits } from '../../workers/resource-limits'
 
 export interface WorkerHandle {
@@ -10,16 +11,12 @@ export interface WorkerHandle {
   terminate(): void | Promise<void>
 }
 
-export function resolveWorkerEntryPoint(): string {
-  const base = import.meta.url
-  const distIndex = base.lastIndexOf('/dist/')
-  if (distIndex !== -1) {
-    return new URL('vector/search-worker.mjs', base.slice(0, distIndex + 6)).href
-  }
-  return base.replace(/\/src\/vector\/search-pool\/[^/]+$/, '/dist/vector/search-worker.mjs')
+export function resolveWorkerEntryPoint(): string | null {
+  return resolveWorkerEntry(import.meta.url, /\/src\/vector\/search-pool\/[^/]+$/, 'vector/search-worker.mjs')
 }
 
-export async function spawnWorker(entryPoint: string): Promise<WorkerHandle | null> {
+export async function spawnWorker(entryPoint: string | null): Promise<WorkerHandle | null> {
+  if (entryPoint === null) return null
   const runtime = detectRuntime()
 
   if (runtime.supportsWorkerThreads) {

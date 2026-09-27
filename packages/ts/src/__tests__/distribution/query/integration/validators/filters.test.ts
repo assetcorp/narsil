@@ -209,6 +209,7 @@ describe('validateFilterExpression geo operators', () => {
               polygon: {
                 points: [
                   { lat: 0, lon: 0 },
+                  { lat: 1, lon: 1 },
                   { lat: 'oops' as unknown as number, lon: 0 },
                 ],
               },
@@ -218,6 +219,26 @@ describe('validateFilterExpression geo operators', () => {
         'filters',
       ),
     ).toThrow(/lat/)
+  })
+
+  it('rejects a polygon of fewer than three points, which encloses no area', () => {
+    expect(() =>
+      validateFilterExpression(
+        {
+          fields: {
+            location: {
+              polygon: {
+                points: [
+                  { lat: 0, lon: 0 },
+                  { lat: 1, lon: 1 },
+                ],
+              },
+            },
+          },
+        },
+        'filters',
+      ),
+    ).toThrow(/at least 3 points/)
   })
 
   it('accepts a well-formed polygon', () => {

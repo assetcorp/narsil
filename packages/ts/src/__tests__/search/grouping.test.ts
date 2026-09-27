@@ -22,7 +22,7 @@ describe('applyGrouping', () => {
         d: { category: 'vegetable' },
       }
       const hits = [makeHit('a', 4), makeHit('b', 3), makeHit('c', 2), makeHit('d', 1)]
-      const config: GroupConfig = { fields: ['category'] }
+      const config: GroupConfig = { fields: ['category'], maxPerGroup: 10 }
       const groups = applyGrouping(hits, config, makeDocStore(docs))
 
       expect(groups.length).toBe(2)
@@ -46,7 +46,7 @@ describe('applyGrouping', () => {
         c: { category: 'fruit', color: 'red' },
       }
       const hits = [makeHit('a', 3), makeHit('b', 2), makeHit('c', 1)]
-      const config: GroupConfig = { fields: ['category', 'color'] }
+      const config: GroupConfig = { fields: ['category', 'color'], maxPerGroup: 10 }
       const groups = applyGrouping(hits, config, makeDocStore(docs))
 
       expect(groups.length).toBe(2)
@@ -71,9 +71,42 @@ describe('applyGrouping', () => {
       expect(groups.length).toBe(1)
       expect(groups[0].hits.length).toBe(2)
     })
+
+    it('keeps the best hit of each group where the query leaves maxPerGroup out', () => {
+      const docs: Record<string, AnyDocument> = {
+        a: { category: 'fruit' },
+        b: { category: 'fruit' },
+        c: { category: 'vegetable' },
+      }
+      const hits = [makeHit('a', 3), makeHit('b', 2), makeHit('c', 1)]
+      const groups = applyGrouping(hits, { fields: ['category'] }, makeDocStore(docs))
+
+      expect(groups.map(group => group.hits.map(hit => hit.id))).toEqual([['a'], ['c']])
+    })
   })
 
   describe('custom reducer', () => {
+    it('folds every hit of the group, including the hits beyond maxPerGroup', () => {
+      const docs: Record<string, AnyDocument> = {
+        a: { category: 'fruit', price: 10 },
+        b: { category: 'fruit', price: 20 },
+        c: { category: 'fruit', price: 40 },
+      }
+      const hits = [makeHit('a', 3), makeHit('b', 2), makeHit('c', 1)]
+      const config: GroupConfig = {
+        fields: ['category'],
+        maxPerGroup: 1,
+        reduce: {
+          reducer: (acc, doc) => (acc as number) + (doc.price as number),
+          initialValue: () => 0,
+        },
+      }
+      const groups = applyGrouping(hits, config, makeDocStore(docs))
+
+      expect(groups[0].hits.map(hit => hit.id)).toEqual(['a'])
+      expect(groups[0].reduced).toBe(70)
+    })
+
     it('applies the reducer to accumulate a value across group hits', () => {
       const docs: Record<string, AnyDocument> = {
         a: { category: 'fruit', price: 10 },
@@ -124,7 +157,7 @@ describe('applyGrouping', () => {
         c: {},
       }
       const hits = [makeHit('a', 3), makeHit('b', 2), makeHit('c', 1)]
-      const config: GroupConfig = { fields: ['category'] }
+      const config: GroupConfig = { fields: ['category'], maxPerGroup: 10 }
       const groups = applyGrouping(hits, config, makeDocStore(docs))
 
       expect(groups.length).toBe(2)

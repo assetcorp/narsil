@@ -1,6 +1,7 @@
 import type { ResolvedAnalysis } from '../../analysis/registry'
 import { tokenize } from '../../core/tokenizer'
 import { highlightField } from '../../highlighting/highlighter'
+import { DEFAULT_FUZZY_PREFIX_LENGTH } from '../../search/constants'
 import type { LanguageModule } from '../../types/language'
 import type { HighlightMatch, Hit } from '../../types/results'
 import type { QueryParams } from '../../types/search'
@@ -54,6 +55,8 @@ export function applyHighlights<T>(
           postTag: params.highlight.postTag,
           maxSnippetLength: params.highlight.maxSnippetLength,
           prefixToken,
+          tolerance: params.exact === true ? 0 : (params.tolerance ?? 0),
+          prefixLength: params.prefixLength ?? DEFAULT_FUZZY_PREFIX_LENGTH,
         })
       }
     }

@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { validateSearchPayload } from '../../../../../distribution/query/codec'
 import {
   MAX_EF_SEARCH,
+  MAX_FACET_RANGES,
+  MAX_FACETS,
   MAX_GROUP_FIELDS,
   MAX_OVERSAMPLE,
   MAX_PINNED_ENTRIES,
@@ -9,6 +11,28 @@ import {
   MAX_TERMS_COUNT,
 } from '../../../../../distribution/query/constants'
 import { makeSearchPayload } from './fixtures'
+
+describe('validateSearchPayload params.facets', () => {
+  it('rejects facets exceeding MAX_FACETS', () => {
+    const oversized = Array.from({ length: MAX_FACETS + 1 }, (_, i) => ({ field: `f${i}`, sort: null, ranges: null }))
+    expect(() => validateSearchPayload(makeSearchPayload({ facets: oversized }))).toThrow(/facets/)
+  })
+
+  it('rejects a facet order other than asc and desc, a range without numeric bounds, and too many ranges', () => {
+    const badOrder = [{ field: 'brand', sort: 'up', ranges: null }]
+    expect(() => validateSearchPayload(makeSearchPayload({ facets: badOrder as never }))).toThrow(
+      expect.objectContaining({ code: 'SEARCH_INVALID_MODE' }),
+    )
+    const badRange = [{ field: 'price', sort: null, ranges: [{ from: '0', to: 500 }] }]
+    expect(() => validateSearchPayload(makeSearchPayload({ facets: badRange as never }))).toThrow(
+      expect.objectContaining({ code: 'CONFIG_INVALID' }),
+    )
+    const ranges = Array.from({ length: MAX_FACET_RANGES + 1 }, (_, i) => ({ from: i, to: i + 1 }))
+    expect(() =>
+      validateSearchPayload(makeSearchPayload({ facets: [{ field: 'price', sort: null, ranges }] })),
+    ).toThrow(expect.objectContaining({ code: 'CONFIG_INVALID' }))
+  })
+})
 
 describe('validateSearchPayload params.termMatch', () => {
   it('accepts all, any, and a count', () => {

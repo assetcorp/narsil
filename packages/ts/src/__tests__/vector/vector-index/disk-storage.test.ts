@@ -118,10 +118,10 @@ describe('a vector field kept on disk', () => {
     const [part] = index.serialize()
     const file = await writePart(directory, part)
     index.insert('doc1', normalizedVector(DIM, 50))
-    const before = index.search(query, 3, { metric: 'cosine', minSimilarity: 0 })
+    const before = index.search(query, 3, { metric: 'cosine', minSimilarity: 0 }).results
     await index.adoptDiskLayout({ ...file, docIds: part.docIds })
 
-    expect(index.search(query, 3, { metric: 'cosine', minSimilarity: 0 }).map(hit => hit.docId)).toEqual(
+    expect(index.search(query, 3, { metric: 'cosine', minSimilarity: 0 }).results.map(hit => hit.docId)).toEqual(
       before.map(hit => hit.docId),
     )
     expect(Array.from(index.getVector('doc5') ?? [])).toEqual(Array.from(normalizedVector(DIM, 6)))

@@ -255,14 +255,10 @@ export function createPartitionManager(
       return partitions[pid].getRef(docId)
     },
 
-    sortValues(
-      docId: string,
-      fields: readonly string[],
-      fieldTypes: readonly (string | undefined)[],
-    ): ComparableSortValue[] {
+    sortValues(docId, fields, fieldTypes, modes): ComparableSortValue[] {
       const pid = locateDocument(docId)
       if (pid === undefined) return fields.map(() => null)
-      return partitions[pid].sortValues(docId, fields, fieldTypes)
+      return partitions[pid].sortValues(docId, fields, fieldTypes, modes)
     },
 
     has(docId: string): boolean {

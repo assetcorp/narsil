@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { toComparableSortValue } from '../../../core/ordering'
 import {
   buildOrder,
   MISSING_RANK,
@@ -11,7 +12,7 @@ import { createValueStore, kindForFieldType } from '../../../core/partition/sort
 function storeOf(fieldType: string | undefined, values: unknown[]) {
   const store = createValueStore(kindForFieldType(fieldType))
   for (let internalId = 0; internalId < values.length; internalId++) {
-    store.set(internalId, values[internalId])
+    store.set(internalId, toComparableSortValue(values[internalId]))
   }
   return store
 }

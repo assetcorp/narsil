@@ -195,7 +195,7 @@ describe('VectorIndex graph growth across batches', () => {
     await index.optimize()
     expect(index.maintenanceStatus().bufferSize).toBe(0)
 
-    const hits = index.search(replacement, 1, { metric: 'cosine', minSimilarity: 0 })
+    const { results: hits } = index.search(replacement, 1, { metric: 'cosine', minSimilarity: 0 })
     expect(hits[0]?.docId).toBe('doc0')
   })
 
@@ -211,7 +211,7 @@ describe('VectorIndex graph growth across batches', () => {
     await optimizing
 
     expect(index.has('late')).toBe(true)
-    const hits = index.search(lateVector, 1, { metric: 'cosine', minSimilarity: 0 })
+    const { results: hits } = index.search(lateVector, 1, { metric: 'cosine', minSimilarity: 0 })
     expect(hits[0]?.docId).toBe('late')
   })
 
@@ -228,7 +228,7 @@ describe('VectorIndex graph growth across batches', () => {
 
     expect(levelsByDocId(index).size).toBe(FIRST_BATCH)
     expect(index.maintenanceStatus().bufferSize).toBe(0)
-    const hits = index.search(replacement, 1, { metric: 'cosine', minSimilarity: 0 })
+    const { results: hits } = index.search(replacement, 1, { metric: 'cosine', minSimilarity: 0 })
     expect(hits[0]?.docId).toBe('doc0')
   })
 

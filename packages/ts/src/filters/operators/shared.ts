@@ -1,3 +1,4 @@
+import { ErrorCodes, NarsilError } from '../../errors'
 import type { ComparisonFilter } from '../../types/filters'
 
 export type GetFieldValue = (internalId: number) => unknown
@@ -53,7 +54,12 @@ const METERS_PER_MI = 1609.344
 export function convertToMeters(distance: number, unit: 'km' | 'mi' | 'm'): number {
   if (unit === 'km') return distance * METERS_PER_KM
   if (unit === 'mi') return distance * METERS_PER_MI
-  return distance
+  if (unit === 'm') return distance
+  throw new NarsilError(
+    ErrorCodes.SEARCH_INVALID_FILTER,
+    `The engine measures a radius in "km", "mi", or "m", and "${String(unit)}" is none of them`,
+    { unit: String(unit) },
+  )
 }
 
 export function matchesNumericComparison(value: number, filter: ComparisonFilter): boolean {
@@ -65,6 +71,33 @@ export function matchesNumericComparison(value: number, filter: ComparisonFilter
   if (filter.lte !== undefined && !(value <= filter.lte)) return false
   if (filter.between !== undefined && !(value >= filter.between[0] && value <= filter.between[1])) return false
   return true
+}
+
+export function holdsValue(stored: unknown, value: unknown): boolean {
+  return Array.isArray(stored) ? stored.includes(value) : stored === value
+}
+
+export function lacksValue(stored: unknown, value: unknown): boolean {
+  if (stored === undefined || stored === null) return false
+  return Array.isArray(stored) ? !stored.includes(value) : stored !== value
+}
+
+function isStringIn(values: ReadonlySet<string>): (element: unknown) => boolean {
+  return element => typeof element === 'string' && values.has(element)
+}
+
+export function holdsStringIn(stored: unknown, values: ReadonlySet<string>): boolean {
+  return Array.isArray(stored) ? stored.some(isStringIn(values)) : isStringIn(values)(stored)
+}
+
+export function holdsNoStringIn(stored: unknown, values: ReadonlySet<string>): boolean {
+  if (Array.isArray(stored)) return !stored.some(isStringIn(values))
+  return typeof stored === 'string' && !values.has(stored)
+}
+
+export function holdsStringWhere(stored: unknown, test: (text: string) => boolean): boolean {
+  const matches = (element: unknown): boolean => typeof element === 'string' && test(element)
+  return Array.isArray(stored) ? stored.some(matches) : matches(stored)
 }
 
 export function setDifference(a: Set<number>, b: Set<number>): Set<number> {

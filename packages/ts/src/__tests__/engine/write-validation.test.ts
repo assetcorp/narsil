@@ -44,6 +44,19 @@ describe('validating what a write names', () => {
     })
   })
 
+  it('refuses an update that omits a required field, alone and in a batch', async () => {
+    await narsil.createIndex('priced', { schema: { name: 'string', price: 'number' }, required: ['price'] })
+    await narsil.insert('priced', { name: 'Urban commuter', price: 700 }, 'urban')
+
+    await expect(narsil.update('priced', 'urban', { name: 'No price' })).rejects.toMatchObject({
+      code: ErrorCodes.DOC_MISSING_REQUIRED_FIELD,
+    })
+    const batch = await narsil.updateBatch('priced', [{ docId: 'urban', document: { name: 'No price' } }])
+    expect(batch.succeeded).toEqual([])
+    expect(batch.failed[0].error.code).toBe(ErrorCodes.DOC_MISSING_REQUIRED_FIELD)
+    expect(await narsil.get('priced', 'urban')).toMatchObject({ price: 700 })
+  })
+
   it('refuses a relative bootstrap module', async () => {
     await expect(createNarsil({ workers: { bootstrapModule: './register.mjs' } })).rejects.toMatchObject({
       code: ErrorCodes.CONFIG_INVALID,

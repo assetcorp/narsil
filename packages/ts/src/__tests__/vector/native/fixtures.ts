@@ -112,6 +112,6 @@ export function searchAll(index: VectorIndex, metric: VectorMetric, native: bool
   return clusteredVectors(QUERIES, 99).map(query =>
     index
       .search(query, 10, { metric, minSimilarity: Number.NEGATIVE_INFINITY, oversample })
-      .map(hit => [hit.docId, hit.score]),
+      .results.map(hit => [hit.docId, hit.score]),
   )
 }

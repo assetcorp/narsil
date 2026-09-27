@@ -144,5 +144,14 @@ describe('Narsil index validation, shutdown, and batch operations', () => {
       await narsil.shutdown()
       await expect(narsil.createIndex('new-index', indexConfig)).rejects.toThrow(NarsilError)
     })
+
+    it('names the closed instance in the code, apart from a missing index', async () => {
+      await narsil.createIndex('products', indexConfig)
+      await narsil.shutdown()
+
+      await expect(narsil.query('products', { term: 'anything' })).rejects.toMatchObject({
+        code: 'INSTANCE_SHUT_DOWN',
+      })
+    })
   })
 })

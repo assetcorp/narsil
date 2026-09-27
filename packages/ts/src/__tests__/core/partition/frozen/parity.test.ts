@@ -193,6 +193,7 @@ describe('a frozen segment answers every read like the live partition it froze',
       fields: ['price', 'id'],
       directions: ['asc', 'asc'] as const,
       fieldTypes: ['number', 'string'] as const,
+      modes: ['min', 'min'] as const,
       limit: 25,
       anchorKey: null,
       anchorId: null,
@@ -204,7 +205,9 @@ describe('a frozen segment answers every read like the live partition it froze',
     expect(frozenPage).toEqual(livePage)
 
     const probe = String(documents[7].id)
-    expect(sortValuesOf(frozen, probe, ['price'], ['number'])).toEqual(live.sortValues(probe, ['price'], ['number']))
+    expect(sortValuesOf(frozen, probe, ['price'], ['number'], ['min'])).toEqual(
+      live.sortValues(probe, ['price'], ['number'], ['min']),
+    )
   })
 
   it('reads documents and counts identically', () => {
@@ -250,6 +253,7 @@ describe('a tombstone removes a document from every frozen read', () => {
       fields: ['price'],
       directions: ['asc'] as const,
       fieldTypes: ['number'] as const,
+      modes: ['min'] as const,
       limit: documents.length,
       anchorKey: null,
       anchorId: null,

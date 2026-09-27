@@ -23,7 +23,7 @@ import {
 } from './maintenance'
 import type { VectorIndexPayload } from './payload'
 import { deserialize as deserializeOp, serialize as serializeOp } from './persistence'
-import { search as searchOp, searchWithFilter } from './search'
+import { fetchedOutcome, search as searchOp, searchWithFilter } from './search'
 import {
   assignStorePartitions,
   filterForOptions,
@@ -32,8 +32,8 @@ import {
   threadsHoldCurrentLayout,
   VECTOR_WORKER_COPIES_ALLOWED,
   type VectorIndexState,
-  type VectorScoredResult,
   type VectorSearchOptions,
+  type VectorSearchOutcome,
   type VectorWorkerCopyPolicy,
 } from './shared'
 import {
@@ -56,6 +56,7 @@ export type {
   VectorScoredResult,
   VectorSearcher,
   VectorSearchOptions,
+  VectorSearchOutcome,
   VectorWorkerCopyPolicy,
 } from './shared'
 
@@ -70,8 +71,8 @@ export interface VectorIndex {
   /** Places every live vector in the graph, building one where the field holds none and enough vectors for one, and resolves once every vector is in. A checkpoint calls this so that the parts it writes carry the graph. */
   completeGraph(): Promise<void>
   dispose(): void
-  search(query: Float32Array, k: number, options: VectorSearchOptions): VectorScoredResult[]
-  searchParallel(query: Float32Array, k: number, options: VectorSearchOptions): Promise<VectorScoredResult[]>
+  search(query: Float32Array, k: number, options: VectorSearchOptions): VectorSearchOutcome
+  searchParallel(query: Float32Array, k: number, options: VectorSearchOptions): Promise<VectorSearchOutcome>
   /** Withdraws the field from the worker threads and sends it again where the policy names a host. */
   refreshWorkerCopies(): void
   getVector(docId: string): Float32Array | null
@@ -285,7 +286,7 @@ export function createVectorIndex(
     query: Float32Array,
     k: number,
     options: VectorSearchOptions,
-  ): Promise<VectorScoredResult[]> {
+  ): Promise<VectorSearchOutcome> {
     const confined = options.filterDocIds !== undefined || options.filterPartitions !== undefined
     let filter = filterForOptions(state, options)
     if (filter !== undefined) {
@@ -306,7 +307,7 @@ export function createVectorIndex(
       efSearch: options.efSearch,
       oversample: options.oversample,
     })
-    if (viaWorkerCopy !== null) return viaWorkerCopy
+    if (viaWorkerCopy !== null) return fetchedOutcome(state, viaWorkerCopy, options.minSimilarity, filter)
 
     if (confined && state.revision !== filterRevision) {
       filter = filterForOptions(state, options)

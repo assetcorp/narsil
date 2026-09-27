@@ -208,7 +208,7 @@ describe('the vector files a checkpoint plans for a field', () => {
     await index.completeGraph()
     const checkpoint = writer.checkpoint()
     const query = normalizedVector(DIM, 21)
-    const expected = index.search(query, 5, { metric: 'cosine', minSimilarity: 0 }).map(hit => hit.docId)
+    const expected = index.search(query, 5, { metric: 'cosine', minSimilarity: 0 }).results.map(hit => hit.docId)
 
     const restored = createVectorIndex('embedding', DIM, { threshold: 5, quantization: 'none' }, { enabled: false })
     restoreInto(restored, checkpoint)
@@ -217,7 +217,9 @@ describe('the vector files a checkpoint plans for a field', () => {
     expect(restored.size).toBe(59)
     expect(restored.has('doc2')).toBe(false)
     expect(restored.maintenanceStatus()).toMatchObject({ graphCount: 1, bufferSize: 0 })
-    expect(restored.search(query, 5, { metric: 'cosine', minSimilarity: 0 }).map(hit => hit.docId)).toEqual(expected)
+    expect(restored.search(query, 5, { metric: 'cosine', minSimilarity: 0 }).results.map(hit => hit.docId)).toEqual(
+      expected,
+    )
     restored.dispose()
   })
 

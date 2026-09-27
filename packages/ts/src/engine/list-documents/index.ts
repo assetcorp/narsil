@@ -12,16 +12,18 @@ import {
 } from '../../search/cursor'
 import { listBindingOf } from '../../search/cursor-binding'
 import { requireWithinResultWindow } from '../../search/pagination'
-import { normalizeSort, requireSortableFields } from '../../search/sorting'
+import { normalizeSort, requireSortableFields, sortModesOf } from '../../search/sorting'
 import type { FilterExpression } from '../../types/filters'
 import type { ListedDocument, ListResult } from '../../types/results'
 import type { AnyDocument, SchemaDefinition } from '../../types/schema'
 import type { ListParams, SortSpec } from '../../types/search'
+import { requireValidQueryFilter } from '../query/shared'
 import { clampLimit, now } from '../validation'
 
 export interface ListContext {
   manager: PartitionManager
   schema: SchemaDefinition
+  strict?: boolean
   partitionIds?: number[]
 }
 
@@ -132,6 +134,7 @@ function pageInSortOrder(
     fields,
     directions,
     fieldTypes,
+    modes: sortModesOf(normalized),
     limit: limit + 1,
     anchorKey: cursor === null ? null : cursor.sortKey,
     anchorId: cursor === null ? null : cursor.anchor,
@@ -183,7 +186,8 @@ export function executeListDocuments<T = AnyDocument>(params: ListParams, contex
   const startTime = now()
   const limit = clampListLimit(params.limit)
   const signature = sortSignatureOf(params.sort)
-  requireSortableFields(params.sort, schema)
+  requireSortableFields(params.sort, schema, context.strict === true)
+  requireValidQueryFilter(params.filters, schema, context.strict === true)
 
   const binding = listBindingOf(params.filters)
   let cursor: PageCursor | null = null

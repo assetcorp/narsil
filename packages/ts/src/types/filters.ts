@@ -25,6 +25,10 @@ export type ComparisonFilter = {
  * Everything {@link ComparisonFilter} offers, with the set and prefix tests a
  * string field also supports.
  *
+ * On a `string[]` field, the engine compares each element of the list, so
+ * `eq`, `in`, `startsWith`, and `endsWith` match a document where one element
+ * matches, and `ne` and `nin` match a document where no element matches.
+ *
  * @public
  */
 export type StringFilter = ComparisonFilter & {
@@ -75,19 +79,29 @@ export type PresenceFilter = {
  * @public
  */
 export type GeoRadiusFilter = {
-  /** The filter tests the field against this circle. */
+  /** The engine tests the field against this circle. */
   radius: {
     /** The centre has this latitude, in degrees. */
     lat: number
     /** The centre has this longitude, in degrees. */
     lon: number
-    /** The circle reaches this far, measured in `unit`. */
+    /** The circle has this radius, measured in `unit`. */
     distance: number
-    /** `distance` is given in kilometres, miles, or metres. */
+    /**
+     * The engine measures `distance` in kilometres under `'km'`, in miles
+     * under `'mi'`, and in metres under `'m'`. For any other unit, it throws
+     * `SEARCH_INVALID_FILTER`.
+     */
     unit: 'km' | 'mi' | 'm'
-    /** This keeps the points inside the circle. Set it to false to keep the points outside. It is true by default. */
+    /** The engine matches the points inside the circle while this is true, which is the default, and the points outside it while this is false. */
     inside?: boolean
-    /** Setting this measures along the earth's curve instead of a flat approximation, which costs time and gains accuracy over long distances. */
+    /**
+     * The engine measures each distance with the Haversine formula on a sphere
+     * by default, and with Vincenty's formula on the WGS-84 ellipsoid while
+     * this is true. Vincenty's formula iterates, so the engine takes longer
+     * to compute each distance. The two formulas differ by less than 0.3% under about
+     * 100 km, while across a continent they can differ by up to 0.5%.
+     */
     highPrecision?: boolean
   }
 }
@@ -98,11 +112,20 @@ export type GeoRadiusFilter = {
  * @public
  */
 export type GeoPolygonFilter = {
-  /** The filter tests the field against this polygon. */
+  /** The engine tests the field against this polygon. */
   polygon: {
-    /** These corners run in order. The engine closes the ring, so repeating the first point is unnecessary. */
+    /**
+     * The engine closes the ring through these corners in the order that you
+     * list them, so you can leave the first point off the end. It throws
+     * `SEARCH_INVALID_FILTER` for a ring of fewer than three corners, since
+     * such a ring encloses no area. List the corners counter-clockwise around
+     * the area, as in an exterior ring of GeoJSON. Where the corners
+     * span 180 degrees of longitude or more, the engine matches the area on
+     * the left of that path, so a ring listed that way can cross the
+     * antimeridian or span more than half the globe.
+     */
     points: Array<{ lat: number; lon: number }>
-    /** This keeps the points inside the polygon. Set it to false to keep the points outside. It is true by default. */
+    /** The engine matches the points inside the polygon while this is true, which is the default, and the points outside it while this is false. */
     inside?: boolean
   }
 }

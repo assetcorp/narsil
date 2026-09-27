@@ -51,11 +51,11 @@
     "LICENSE"
   ],
   "peerDependencies": {
-    "@huggingface/transformers": ">=3.0.0 <4.0.0"
+    "@huggingface/transformers": ">=3.0.0 <5.0.0"
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.4",
-    "@huggingface/transformers": "3.8.1",
+    "@huggingface/transformers": "4.3.0",
     "@types/node": "22.15.18",
     "tsup": "8.5.1",
     "typescript": "5.9.3",

@@ -1,3 +1,4 @@
+import { isSortMode, SORT_MODES } from '../../../core/ordering'
 import { MAX_DOC_ID_LENGTH } from '../../../engine/constants'
 import { MAX_SORT_FIELDS } from '../../../search/constants'
 import type {
@@ -93,6 +94,12 @@ function validateListSort(value: unknown): void {
     validateFieldName(entry.field, `sort[${i}].field`, SEARCH_INVALID_FIELD)
     if (entry.direction !== 'asc' && entry.direction !== 'desc') {
       throwInvalid(SEARCH_INVALID_MODE, `Invalid ListPayload: "sort[${i}].direction" must be "asc" or "desc"`)
+    }
+    if (entry.mode !== undefined && !isSortMode(entry.mode)) {
+      throwInvalid(
+        SEARCH_INVALID_MODE,
+        `Invalid ListPayload: "sort[${i}].mode" must be one of: ${SORT_MODES.join(', ')}`,
+      )
     }
   }
 }

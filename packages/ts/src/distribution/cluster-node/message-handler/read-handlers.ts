@@ -1,5 +1,5 @@
 import { decode } from '@msgpack/msgpack'
-import { normalizeSort, readSortValues } from '../../../search/sorting'
+import { normalizeSort, readSortValues, sortModesOf } from '../../../search/sorting'
 import type { AnyDocument } from '../../../types/schema'
 import type { ListParams } from '../../../types/search'
 import {
@@ -51,7 +51,9 @@ export async function handleList(
   }
 
   const result = await deps.engine.listPartitions(payload.indexName, listParams, payload.partitionIds)
-  const sortFields = payload.sort === null ? null : normalizeSort(payload.sort).map(entry => entry.field)
+  const normalizedSort = payload.sort === null ? null : normalizeSort(payload.sort)
+  const sortFields = normalizedSort === null ? null : normalizedSort.map(entry => entry.field)
+  const sortModes = normalizedSort === null ? [] : sortModesOf(normalizedSort)
 
   const entries: ListEntryWire[] = result.documents.map(listed => ({
     docId: listed.id,
@@ -59,7 +61,7 @@ export async function handleList(
     sortValues:
       sortFields === null
         ? null
-        : readSortValues(listed.document as AnyDocument | undefined, sortFields).map(toWireSortValue),
+        : readSortValues(listed.document as AnyDocument | undefined, sortFields, sortModes).map(toWireSortValue),
   }))
 
   await respond(

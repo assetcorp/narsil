@@ -1,10 +1,11 @@
+import { isSortMode, SORT_MODES } from '../../../core/ordering'
 import { MAX_CURSOR_LENGTH, MAX_SORT_FIELDS } from '../../../search/constants'
+import { oversampledShardSize } from '../../../search/oversample'
 import { validateIndexName } from '../../cluster/index-metadata'
 import type { SearchPayload } from '../../transport/types'
 import {
   MAX_BOOST_FIELDS,
   MAX_FACET_SIZE,
-  MAX_FACETS,
   MAX_FIELDS_LIST,
   MAX_LIMIT,
   MAX_OFFSET,
@@ -13,7 +14,6 @@ import {
   MAX_VECTOR_DIMENSION,
   MAX_VECTOR_TEXT_LENGTH,
 } from '../constants'
-import { oversampledShardSize } from '../oversample'
 import {
   CONFIG_INVALID,
   isFiniteNumber,
@@ -32,6 +32,7 @@ import { validateFilterExpression } from './filters'
 import {
   validateBooleanParam,
   validateEfSearchParam,
+  validateFacetParams,
   validateGroupParams,
   validateHybridParams,
   validateModeParam,
@@ -136,6 +137,12 @@ function validateSortParams(value: unknown): void {
         `Invalid SearchPayload: "params.sort[${i}].direction" must be one of: ${ALLOWED_SORT_DIRECTIONS.join(', ')}`,
       )
     }
+    if (entry.mode !== undefined && !isSortMode(entry.mode)) {
+      throwInvalid(
+        SEARCH_INVALID_MODE,
+        `Invalid SearchPayload: "params.sort[${i}].mode" must be one of: ${SORT_MODES.join(', ')}`,
+      )
+    }
   }
 }
 
@@ -199,7 +206,7 @@ function validateParams(params: Record<string, unknown>): void {
   }
 
   if (params.facets !== null) {
-    validateStringArray(params.facets, 'params.facets', MAX_FACETS, 255, SEARCH_INVALID_FIELD)
+    validateFacetParams(params.facets)
   }
 
   if (params.facetSize !== null) {

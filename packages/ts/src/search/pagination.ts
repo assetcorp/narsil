@@ -101,6 +101,7 @@ export function applyPagination<T extends { id: string; score?: number }>(
 
   const hasMore = afterOffset + limit < results.length
   const lastResult = lastOrganicResult(sliced, pinnedIds)
+  const depth = afterOffset + sliced.length
   if (hasMore && lastResult !== undefined) {
     nextCursor =
       sort !== undefined
@@ -109,6 +110,7 @@ export function applyPagination<T extends { id: string; score?: number }>(
             score: null,
             sortKey: sort.sortKeyOf(lastResult.id).map(toComparableSortValue),
             sortSignature: sort.signature,
+            depth,
             binding,
           })
         : encodePageCursor({
@@ -116,6 +118,7 @@ export function applyPagination<T extends { id: string; score?: number }>(
             score: lastResult.score ?? null,
             sortKey: null,
             sortSignature: null,
+            depth,
             binding,
           })
   }

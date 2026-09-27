@@ -137,6 +137,7 @@ describe('a shared frozen segment answers every read like its plain twin', () =>
       fields: ['price', 'id'],
       directions: ['asc', 'asc'] as const,
       fieldTypes: ['number', 'string'] as const,
+      modes: ['min', 'min'] as const,
       limit: 25,
       anchorKey: null,
       anchorId: null,

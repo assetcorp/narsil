@@ -2,7 +2,7 @@
 
 The [package README](../packages/ts/README.md) covers installation and the first query. This guide covers every option `createNarsil` takes, and the tokenizer cache that all its instances share.
 
-`createNarsil` accepts an optional `NarsilConfig` object. All fields are optional.
+`createNarsil` accepts an optional `NarsilConfig` object. All fields are optional. It fails with `CONFIG_INVALID` for a key that `NarsilConfig` does not declare, at the top level and inside `durability`, `workers`, `lifecycle`, and `analysis`, so a misspelt setting such as `durabilty` stops the engine from starting. It fails the same way for a plugin without a `name`.
 
 ```ts
 import { createNarsil } from '@delali/narsil'

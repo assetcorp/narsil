@@ -93,6 +93,12 @@ describe('validateDocumentStrict', () => {
     }
   })
 
+  it('rejects a field named after an object built-in that the schema never declares', () => {
+    expect(() => validateDocumentStrict({ title: 'Laptop', price: 999, constructor: 'Acme' }, schema)).toThrow(
+      expect.objectContaining({ code: ErrorCodes.DOC_VALIDATION_FAILED }),
+    )
+  })
+
   it('allows document matching schema exactly', () => {
     const doc = { title: 'Laptop', price: 999, address: { street: '123 Main St', city: 'Accra' } }
     expect(() => validateDocumentStrict(doc, schema)).not.toThrow()

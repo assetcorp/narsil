@@ -1,4 +1,4 @@
-import { type ComparableSortValue, readSortField, toComparableSortValue } from '../ordering'
+import { type ComparableSortValue, readSortField, type SortMode, toReducedSortValue } from '../ordering'
 import { createSortColumnSet } from './sort-columns'
 import { type SortedPageEntry, type SortPageRequest, selectSortedPage } from './sort-columns/select'
 import type { PartitionReadState } from './utils'
@@ -21,6 +21,7 @@ export function sortValuesOf(
   docId: string,
   fields: readonly string[],
   fieldTypes: readonly (string | undefined)[],
+  modes: readonly SortMode[],
 ): ComparableSortValue[] {
   const set = state.sortColumns
   const internalId = state.docStore.getInternalId(docId)
@@ -28,11 +29,12 @@ export function sortValuesOf(
   const key: ComparableSortValue[] = new Array(fields.length)
 
   for (let i = 0; i < fields.length; i++) {
-    if (set !== null && internalId !== undefined && set.holds(fields[i])) {
-      key[i] = set.column(fields[i], fieldTypes[i]).valueOf(internalId)
+    const mode = modes[i] ?? 'min'
+    if (set !== null && internalId !== undefined && set.holds(fields[i], fieldTypes[i], mode)) {
+      key[i] = set.column(fields[i], fieldTypes[i], mode).valueOf(internalId)
       continue
     }
-    key[i] = stored === undefined ? null : toComparableSortValue(readSortField(stored.fields, fields[i]))
+    key[i] = stored === undefined ? null : toReducedSortValue(readSortField(stored.fields, fields[i]), mode)
   }
 
   return key

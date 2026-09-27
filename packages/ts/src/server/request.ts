@@ -135,7 +135,56 @@ export type Authorization = { allowed: true } | { allowed: false; denial: Reques
 export interface RunnerDeps {
   authorize?: Authorizer
   gate: RequestGate
-  writeCors?: (res: HttpResponse, req: HttpRequest) => void
+  corsHeaders?: (req: HttpRequest) => Array<[string, string]>
+}
+
+export function sinkWritingAfterStatus(res: ResponseSink, headers: Array<[string, string]>): ResponseSink {
+  if (headers.length === 0) return res
+  const sink: ResponseSink = {
+    cork(callback) {
+      res.cork(callback)
+      return sink
+    },
+    writeStatus(status) {
+      res.writeStatus(status)
+      for (const [key, value] of headers) res.writeHeader(key, value)
+      return sink
+    },
+    writeHeader(key, value) {
+      res.writeHeader(key, value)
+      return sink
+    },
+    end(body) {
+      res.end(body)
+      return sink
+    },
+    endWithoutBody() {
+      res.endWithoutBody()
+      return sink
+    },
+    tryEnd(body, totalSize) {
+      return res.tryEnd(body, totalSize)
+    },
+    getWriteOffset() {
+      return res.getWriteOffset()
+    },
+    onWritable(handler) {
+      res.onWritable(handler)
+      return sink
+    },
+    onAborted(handler) {
+      res.onAborted(handler)
+      return sink
+    },
+    onData(handler) {
+      res.onData(handler)
+      return sink
+    },
+    getRemoteAddressAsText() {
+      return res.getRemoteAddressAsText()
+    },
+  }
+  return sink
 }
 
 function isDenial(value: unknown): value is RequestDenial {
@@ -170,7 +219,7 @@ function sendDenial(res: ResponseSink, authorization: Authorization): void {
  * sheds load past the concurrency cap, and turns any thrown value into a 500.
  */
 export function createRouteRunner(deps: RunnerDeps) {
-  const { authorize, gate, writeCors } = deps
+  const { authorize, gate, corsHeaders } = deps
 
   return (handler: RouteHandler, opts: RouteOptions) => {
     const paramCount = opts.paramCount ?? 0
@@ -178,7 +227,8 @@ export function createRouteRunner(deps: RunnerDeps) {
     const useHook = authorize !== undefined && !opts.skipHooks
     const gated = !opts.skipHooks
 
-    return (res: HttpResponse, req: HttpRequest): void => {
+    return (response: HttpResponse, req: HttpRequest): void => {
+      const res = corsHeaders ? sinkWritingAfterStatus(response, corsHeaders(req)) : response
       const params: string[] = []
       let malformed: string | null = null
       for (let i = 0; i < paramCount; i++) {
@@ -200,14 +250,12 @@ export function createRouteRunner(deps: RunnerDeps) {
           headers[key] = value
         })
         hookContext = {
-          method: req.getMethod(),
+          method: req.getMethod().toUpperCase(),
           path: req.getUrl(),
           headers,
           remoteAddress: Buffer.from(res.getRemoteAddressAsText()).toString(),
         }
       }
-
-      if (writeCors) writeCors(res, req)
 
       const abort = initAbortHandler(res)
       if (malformed !== null) {

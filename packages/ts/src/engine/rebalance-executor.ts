@@ -251,7 +251,7 @@ export async function executeRebalance(
 
     if (ctx.durabilityManager) {
       await ctx.durabilityManager.persistMetadata(indexName)
-      await ctx.durabilityManager.checkpoint(indexName)
+      await (ctx.durabilityManager.checkpointFromMemory?.(indexName) ?? ctx.durabilityManager.checkpoint(indexName))
       await replayQueued(manager, indexName, waq, ctx)
     }
 

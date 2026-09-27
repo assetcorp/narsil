@@ -1,5 +1,6 @@
 import { ErrorCodes, NarsilError } from '../errors'
 import { detectRuntime } from '../runtime/detect'
+import { missingWorkerEntry, resolveWorkerEntry } from './entry-point'
 import type { Executor } from './executor'
 import type { WorkerFactory } from './pool'
 import { workerResourceLimits } from './resource-limits'
@@ -9,18 +10,27 @@ declare const Worker: {
   new (url: string | URL, options?: { type?: string }): WorkerLike
 }
 
-function resolveEntryPoint(): string {
-  const base = import.meta.url
-  const distIndex = base.lastIndexOf('/dist/')
-  if (distIndex !== -1) {
-    return new URL('workers/entry.mjs', base.slice(0, distIndex + 6)).href
+async function entryFileExists(entry: string): Promise<boolean> {
+  if (!entry.startsWith('file:')) return true
+  const [{ access }, { fileURLToPath }] = await Promise.all([import('node:fs/promises'), import('node:url')])
+  try {
+    await access(fileURLToPath(entry))
+    return true
+  } catch {
+    return false
   }
-  return base.replace(/\/src\/workers\/[^/]+$/, '/dist/workers/entry.mjs')
+}
+
+export async function requireWorkerEntry(): Promise<string> {
+  const entry = resolveWorkerEntry(import.meta.url, /\/src\/workers\/[^/]+$/, 'workers/entry.mjs')
+  if (entry === null) throw missingWorkerEntry(import.meta.url)
+  if (import.meta.url.includes('/dist/') && !(await entryFileExists(entry))) throw missingWorkerEntry(import.meta.url)
+  return entry
 }
 
 export async function createWorkerFactory(entryPoint?: string): Promise<WorkerFactory> {
   const runtime = detectRuntime()
-  const resolvedEntry = entryPoint ?? resolveEntryPoint()
+  const resolvedEntry = entryPoint ?? (await requireWorkerEntry())
 
   if (runtime.supportsWorkerThreads) {
     const workerThreadsModule = await import('node:worker_threads')

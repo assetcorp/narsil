@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { toComparableSortValue } from '../../core/ordering'
-import { applySorting, readFieldValue } from '../../search/sorting'
+import { applySorting, readFieldValue, requireSortableFields } from '../../search/sorting'
 import type { Hit } from '../../types/results'
 import type { AnyDocument } from '../../types/schema'
 import type { SortSpec } from '../../types/search'
@@ -195,5 +195,37 @@ describe('applySorting', () => {
       sortWith(hits, { price: 'asc' }, docs)
       expect(hits.map(h => h.id)).toEqual(originalOrder)
     })
+  })
+})
+
+describe('requireSortableFields', () => {
+  const schema = {
+    price: 'number',
+    location: 'geopoint',
+    embedding: 'vector[3]',
+    tags: 'string[]',
+    venue: { spot: 'geopoint' },
+  } as const
+
+  it('rejects a sort on a geopoint field, which has no order', () => {
+    expect(() => requireSortableFields({ location: 'asc' }, schema)).toThrow(
+      expect.objectContaining({ code: 'SEARCH_INVALID_FIELD', details: { field: 'location', fieldType: 'geopoint' } }),
+    )
+    expect(() => requireSortableFields([{ field: 'venue.spot', direction: 'desc' }], schema)).toThrow(
+      expect.objectContaining({ code: 'SEARCH_INVALID_FIELD' }),
+    )
+  })
+
+  it('rejects a sort on a vector field, which has no order', () => {
+    expect(() => requireSortableFields({ embedding: 'asc' }, schema)).toThrow(
+      expect.objectContaining({
+        code: 'SEARCH_INVALID_FIELD',
+        details: { field: 'embedding', fieldType: 'vector[3]' },
+      }),
+    )
+  })
+
+  it('accepts a number field, an array field, and a field outside the schema', () => {
+    expect(() => requireSortableFields({ price: 'asc', tags: 'asc', stock: 'desc' }, schema)).not.toThrow()
   })
 })

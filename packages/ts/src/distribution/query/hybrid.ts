@@ -1,7 +1,9 @@
 import { ErrorCodes, NarsilError } from '../../errors'
+import { resolveHybridFusion } from '../../search/fusion'
+import { ascendingFacetFields } from '../cluster-node/query-conversion'
 import type { FacetBucket, GlobalStatistics, ScoredEntry, WireGroupEntry, WireQueryParams } from '../transport/types'
 import { buildCoverage, collectDistributedStats, fanOutSearch } from './fan-out'
-import { clampAlpha, distributedLinearCombination, distributedRRF } from './fusion'
+import { distributedLinearCombination, distributedRRF } from './fusion'
 import { mergeGroupsFor } from './group-merge'
 import { mergeAndTruncateScoredEntries, mergeDistributedFacets } from './merge'
 import { placePinnedEntries } from './pinning'
@@ -40,6 +42,7 @@ export async function executeHybridQuery(
   deps: QueryRoutingDeps,
   config: DistributedQueryConfig,
 ): Promise<DistributedQueryResult> {
+  const fusion = resolveHybridFusion(params.hybrid)
   const depth = limit + offset
   const textParams: WireQueryParams = { ...params, vector: null, hybrid: null, mode: null, limit: depth, offset: 0 }
   const vectorParams: WireQueryParams = {
@@ -48,6 +51,8 @@ export async function executeHybridQuery(
     hybrid: null,
     mode: null,
     group: null,
+    facets: null,
+    facetSize: null,
     limit: depth,
     offset: 0,
   }
@@ -109,30 +114,37 @@ export async function executeHybridQuery(
   const mergedText = mergeAndTruncateScoredEntries(textScored, depth)
   const mergedVector = mergeAndTruncateScoredEntries(vectorScored, depth)
 
-  const hybrid = params.hybrid
   let fused: ScoredEntry[]
-  if ((hybrid?.strategy ?? 'rrf') === 'rrf') {
-    fused = distributedRRF([mergedText, mergedVector], { k: hybrid?.k ?? 60 })
+  if (fusion.strategy === 'rrf') {
+    fused = distributedRRF([mergedText, mergedVector], { k: fusion.k })
   } else {
-    fused = distributedLinearCombination(mergedText, mergedVector, { alpha: clampAlpha(hybrid?.alpha ?? 0.5) })
+    fused = distributedLinearCombination(mergedText, mergedVector, { alpha: fusion.alpha })
   }
 
   const allMatchesPresent =
     coverage.queriedPartitions === coverage.totalPartitions &&
     totalHits <= mergedText.length &&
     mergedVector.length < depth
-  const fusedWithPinned =
-    params.pinned !== null ? placePinnedEntries(fused, params.pinned, depth, allMatchesPresent) : fused
-  const truncated = fusedWithPinned.slice(offset, depth)
-  const mergedFacets = allFacets.length > 0 ? mergeDistributedFacets(allFacets, allFacetBounds, facetSize) : null
+  const placement =
+    params.pinned !== null
+      ? placePinnedEntries(fused, params.pinned, depth, allMatchesPresent)
+      : { entries: fused, placedFromOutside: [] }
+  const truncated = placement.entries.slice(offset, depth)
+  const mergedFacets =
+    allFacets.length > 0
+      ? mergeDistributedFacets(allFacets, allFacetBounds, facetSize, ascendingFacetFields(params.facets))
+      : null
 
   return {
     scored: truncated,
     totalHits,
     facets: mergedFacets?.facets ?? null,
     facetErrorBounds: mergedFacets?.errorBounds ?? null,
+    facetUndercounts: mergedFacets?.undercounts ?? null,
     groups: mergeGroupsFor(params, allGroups, null),
     cursor: null,
     coverage,
+    pinnedFromOutside: placement.placedFromOutside,
+    mergeHeldEveryMatch: allMatchesPresent,
   }
 }

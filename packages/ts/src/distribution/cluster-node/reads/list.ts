@@ -2,6 +2,7 @@ import {
   type ComparableSortValue,
   compareCodePoints,
   compareComparableKeys,
+  type SortMode,
   toComparableSortValue,
 } from '../../../core/ordering'
 import { applyProjection, type ResolvedProjection, resolveProjection } from '../../../core/projection'
@@ -9,7 +10,7 @@ import { clampLimit, now } from '../../../engine/validation'
 import { decodePageCursor, encodePageCursor, requireMatchingCursor, sortSignatureOf } from '../../../search/cursor'
 import { listBindingOf } from '../../../search/cursor-binding'
 import { requireWithinResultWindow } from '../../../search/pagination'
-import { normalizeSort, readSortValues } from '../../../search/sorting'
+import { normalizeSort, readSortValues, sortModesOf } from '../../../search/sorting'
 import type { ListedDocument, ListResult } from '../../../types/results'
 import type { AnyDocument } from '../../../types/schema'
 import type { ListParams } from '../../../types/search'
@@ -51,6 +52,7 @@ async function gatherLocalPage(
   payload: ListPayload,
   partitionIds: number[],
   sortFieldNames: string[] | null,
+  sortModes: readonly SortMode[],
 ): Promise<{ entries: ListEntryWire[]; total: number; hasMore: boolean }> {
   const listParams: ListParams = {
     cursor: payload.cursor ?? undefined,
@@ -66,7 +68,7 @@ async function gatherLocalPage(
     sortValues:
       sortFieldNames === null
         ? null
-        : readSortValues(listed.document as AnyDocument | undefined, sortFieldNames).map(toWireSortValue),
+        : readSortValues(listed.document as AnyDocument | undefined, sortFieldNames, sortModes).map(toWireSortValue),
   }))
   return { entries, total: result.total, hasMore: result.cursor !== null }
 }
@@ -115,6 +117,7 @@ export async function listCluster<T = AnyDocument>(
           { ...payload, partitionIds: group.partitionIds },
           group.partitionIds,
           sortFieldNames,
+          sortModesOf(normalizedSort),
         )
       }
       const message = createListMessage({ ...payload, partitionIds: group.partitionIds }, deps.nodeId)
