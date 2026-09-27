@@ -25,8 +25,8 @@
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.4",
-    "@nx/js": "22.5.4",
-    "nx": "22.5.4"
+    "@nx/js": "22.7.12",
+    "nx": "22.7.12"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

@@ -1,6 +1,6 @@
 {
   "name": "@delali/narsil-native-linux-x64",
-  "version": "0.0.0",
+  "version": "0.3.0",
   "description": "Narsil's native search core in C, with its Node-API binding, compiled for Linux on x86-64 with glibc and with musl.",
   "license": "Apache-2.0",
   "author": "Delali (https://sondelali.com)",

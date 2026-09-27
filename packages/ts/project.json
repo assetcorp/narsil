@@ -1,5 +1,10 @@
 {
   "name": "narsil-ts",
+  "release": {
+    "version": {
+      "versionActions": ".github/scripts/native-platform-version-actions.js"
+    }
+  },
   "targets": {
     "build": {
       "executor": "nx:run-commands",
