@@ -3,6 +3,20 @@ export interface FuzzyMatch {
   withinTolerance: boolean
 }
 
+export function fuzzyTermMatches(
+  queryTerm: string,
+  indexTerm: string,
+  tolerance: number,
+  prefixLength: number,
+): boolean {
+  if (queryTerm === indexTerm) return true
+  if (tolerance <= 0) return false
+  if (prefixLength > 0 && queryTerm.length >= prefixLength && !indexTerm.startsWith(queryTerm.slice(0, prefixLength))) {
+    return false
+  }
+  return boundedLevenshtein(queryTerm, indexTerm, tolerance).withinTolerance
+}
+
 export function boundedLevenshtein(a: string, b: string, tolerance: number): FuzzyMatch {
   if (tolerance < 0) return { distance: -1, withinTolerance: false }
   if (a === b) return { distance: 0, withinTolerance: true }

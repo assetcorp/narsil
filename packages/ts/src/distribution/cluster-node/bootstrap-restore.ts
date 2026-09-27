@@ -3,6 +3,7 @@ import type { Narsil } from '../../narsil'
 import type { SchemaDefinition } from '../../types/schema'
 import type { ClusterCoordinator } from '../coordinator/types'
 import { withDeadline } from './bootstrap-fetch'
+import { localIndexIsGone } from './local-index-gone'
 import { diffSchemas, type SchemaDiffEntry } from './schema-diff'
 
 export const ABORT_SENTINEL = Symbol('bootstrap-sync-aborted')
@@ -169,7 +170,7 @@ export async function dropRestoredIndexQuietly(
     }
     await engine.dropIndex(indexName)
   } catch (err) {
-    if (err instanceof NarsilError && err.code === ErrorCodes.INDEX_NOT_FOUND) {
+    if (localIndexIsGone(err)) {
       return
     }
     if (deps.onError === undefined) {
@@ -236,7 +237,7 @@ export async function dropExistingIndex(
     await engine.dropIndex(indexName)
     return null
   } catch (err) {
-    if (err instanceof NarsilError && err.code === ErrorCodes.INDEX_NOT_FOUND) {
+    if (localIndexIsGone(err)) {
       return null
     }
     const cause = err instanceof Error ? err.message : String(err)

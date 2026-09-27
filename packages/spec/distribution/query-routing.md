@@ -58,6 +58,8 @@ A distributed query runs in two phases so that the cluster moves as few bytes as
 5. The coordinator returns the response to the client.
 ```
 
+A data node returns the hit count of its own partitions alone, so the coordinator derives `countExact` from the request and the coverage. It must set `countExact` false where any partition times out or returns an error, or where it queries fewer partitions than the index holds, because a count without the matches of some partition is a floor under the total. It must otherwise apply the rule in [Deep Pagination](../partitioning.md#deep-pagination) to the request. Every node applies that rule to the same request, so the sum of the nodes' counts is exact wherever that rule sets `countExact` true.
+
 ### Single-Partition Queries
 
 A query that targets one partition, such as fetching a document by ID, goes out as one combined query-and-fetch request to the node holding that partition. The two phases collapse into a single round trip.
@@ -110,9 +112,22 @@ DFS costs one extra round trip. Use it when partition sizes or term distribution
 
 ## Replica Selection
 
-The coordinator picks one replica per partition. The strategy is pluggable, and the default is random.
+The coordinator picks one replica per partition. The strategy is pluggable, and the default is query-keyed.
 
-**Random selection**, the default, picks a replica at random from the eligible copies of the partition, the primary included. Load spreads evenly when the replicas are alike.
+**Query-keyed selection**, the default, picks the eligible copy with the highest weight, the primary included:
+
+```text
+weight(query, partitionId, nodeId) -> uint32
+  return fnv1a(bytes of three big-endian uint32 values:
+    the query's cursor binding, read as a hex number
+    partitionId
+    fnv1a(UTF-8 bytes of nodeId)
+  )
+```
+
+A tie goes to the node ID that orders first in [code point order](../algorithms.md#code-point-order). Because the [cursor binding](../partitioning.md#cursor-binding) leaves out the page, every coordinator sends a repeated query, and each of its pages, to the same copies while the eligible copies stay the same. That matters because each node builds its own HNSW graph for its copy, and two such graphs can return different approximate neighbours for one query vector. When a copy joins or leaves, the coordinator changes its choice only for the queries whose highest weight falls on that copy.
+
+**Random selection** picks a replica at random from the eligible copies of the partition, the primary included. Load spreads evenly when the replicas are alike, although a repeated vector query can then return different hits.
 
 **Adaptive selection** is optional. It tracks per-replica response time and queue depth and routes to the replica with the lowest estimated latency. The algorithm is implementation-defined; an implementation that offers one must document how it behaves.
 
@@ -174,17 +189,22 @@ Each data node counts facets over its own partitions, and the coordinator merges
 4. The coordinator merges the buckets:
      group the buckets of each field by value
      sum the counts of identical values
-     order by merged count, highest first, ties by value in
-       code point order
+     order by merged count, highest first, or lowest first for
+       a field whose sort is 'asc', ties by value in code point
+       order
      truncate to facetSize
      sum the error bounds of each field across the nodes
+     add to that sum the largest merged count that the
+       truncation drops, or 0 where it drops nothing
 5. The merged facets and their error bounds travel in the
    query response.
 ```
 
 Distributed facet counts are approximate. A value that is frequent across the whole index but falls below `shardSize` on the individual partitions can be undercounted or missed altogether. A larger `shardSize` buys accuracy with transfer.
 
-A response must carry one error bound per field it counts, and that figure is the largest undercount any value of the field can have. A node sets its own bound to the largest count it excluded from the field, and to 0 where it excluded nothing, so a bound of 0 on every node proves the field's counts exact. The coordinator sums the nodes' bounds rather than taking the largest, because each node undercounts a value independently of the rest.
+The coordinator cannot find the lowest counts, or every range, among each node's top values, so step 3 changes for a field whose [`FacetField`](transport.md#queryparams) carries `ranges` or the sort `'asc'`: a data node must return up to 10,000 buckets of that field in place of `shardSize`, ordered by the field's sort. The merged counts of such a field are then exact wherever no node leaves a bucket out. A data node counts a range from `from`, inclusive, to `to`, exclusive, and names its bucket by `from`, a hyphen, and `to`, each written the way ECMAScript converts a number to a string. Where a query sets `ranges` on a field and no limit, the coordinator must return every range of that field, and a query may carry at most 1,000 ranges on one field.
+
+A response must carry one error bound per field it counts, and that figure is the largest undercount any value of the field can have, where a value that the response leaves out counts as 0. A node sets its own bound to the largest count it excludes from the field, and to 0 where it excludes nothing, so a bound of 0 on every node proves the field's counts exact. The coordinator sums the nodes' bounds, because each node undercounts a value independently of the rest. It then adds the largest merged count that its own truncation drops, because the true count of a dropped value can exceed its merged count by the whole sum.
 
 ---
 
@@ -194,7 +214,7 @@ Each data node groups its own matches and returns, per group, the group's field 
 
 With no `group.limit`, every node returns every group and the merged groups are exact. With one, each node returns its top `ceiling(limit * 1.5) + 10` groups, oversampling the way [Distributed Facets](#distributed-facets) do, so a merged group's entries can miss members held by a node where the group fell below that bound.
 
-A group reducer is a function, so it never crosses the wire. The coordinator holds the caller's reducer in-process and folds it over each merged group's fetched documents, and the HTTP server continues to refuse `group.reduce`. A hybrid query groups its text fan-out alone, as it counts facets.
+A group reducer is a function, so only the coordinator's own process calls it. Where a query sets a reducer, the coordinator must request up to 10,000 entries of each group from every data node, and it must fold the reducer over every entry of each merged group before it truncates the entries to the caller's `maxPerGroup`. The HTTP server must reject `group.reduce`. For a hybrid query, the coordinator groups the results of the text fan-out alone, as it does when it counts facets.
 
 ---
 
@@ -208,9 +228,10 @@ The cursor format defined in [searchAfter Cursor](../partitioning.md#searchafter
 
 ```json
 {
-  "v": 3,
+  "v": 4,
   "a": "doc-id-123",
   "s": 4.523,
+  "d": 40,
   "q": "1b83aa27"
 }
 ```
@@ -222,16 +243,18 @@ First query:
   the coordinator fans out to every data node
   each data node returns scored results for its partitions
   the coordinator merges them and takes the top `limit`
-  the cursor encodes the last result
+  the coordinator encodes a cursor from the last result, storing
+    as `d` the number of results up to and including this page
 
-Next query, carrying the cursor:
+Next query, with the cursor:
   the coordinator decodes the cursor
   it fans out to every data node with the same cursor in the
     searchAfter parameter
   each data node passes the cursor down to its partitions, and
     each partition seeks past the cursor point on its own
   the coordinator merges the results and takes the top `limit`
-  it encodes a new cursor from the last result
+  it encodes a new cursor from the last result, storing as `d`
+    the cursor's own `d` plus the number of results on this page
 ```
 
 ### Tiebreaker

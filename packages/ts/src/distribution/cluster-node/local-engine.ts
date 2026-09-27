@@ -1,7 +1,9 @@
 import { createPartitionIndex } from '../../core/partition'
+import { requireKnownConfig } from '../../engine/config-keys'
 import { createEngineCore, type EngineCore } from '../../engine/core'
 import { createEngineIndex } from '../../engine/index-lifecycle'
-import { checkHeapAfterRecovery } from '../../engine/notifiers'
+import { startEngineCore } from '../../engine/lifecycle'
+import { resolveRunnableConfig } from '../../engine/startup-checks'
 import { ErrorCodes, NarsilError } from '../../errors'
 import { getLanguage } from '../../languages/registry'
 import type { Narsil } from '../../narsil'
@@ -70,22 +72,17 @@ export async function createClusterLocalEngine(
     onIndexClose?(indexName: string): void | Promise<void>
   },
 ): Promise<ClusterLocalEngine> {
-  const core = createEngineCore(config, hooks)
-  if (core.durability !== null) {
-    await core.durability.manager.recover(config?.lifecycle !== undefined)
-    checkHeapAfterRecovery(core)
-  }
-  if (core.invalidation !== null) {
-    await core.invalidation.start()
-  }
-  if (config?.lifecycle === undefined) await core.analysisRebuild.reviewStaleIndexes()
+  requireKnownConfig(config)
+  const runnableConfig = await resolveRunnableConfig(config)
+  const core = createEngineCore(runnableConfig, hooks)
+  await startEngineCore(core, runnableConfig)
   core.orchestrator.shareMainThread()
-  const engine = createNarsilFromCore(core, config)
+  const engine = createNarsilFromCore(core, runnableConfig)
   const heldPartitions = createHeldPartitionRecord(core)
 
   return Object.assign(engine, {
     createIndexWithUuid: (name: string, indexConfig: IndexConfig, indexUuid?: string) =>
-      createEngineIndex(core, config, name, indexConfig, indexUuid),
+      createEngineIndex(core, runnableConfig, name, indexConfig, indexUuid),
     acquireIndexForReplication: (indexName: string) => core.indexState.acquire(indexName, false),
     indexUuidOf: (indexName: string) => core.indexRegistry.get(indexName)?.indexUuid,
     stampIndexUuid: (indexName: string, indexUuid: string) => stampIndexUuid(core, indexName, indexUuid),

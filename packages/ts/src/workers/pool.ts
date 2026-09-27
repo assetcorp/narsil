@@ -1,5 +1,6 @@
 import { fnv1a } from '../core/hash'
 import { ErrorCodes, NarsilError } from '../errors'
+import { SHUTDOWN_TIMEOUT_MS } from './constants'
 import type { Executor } from './executor'
 import { createRequestId } from './protocol'
 import { resolveWorkerCount } from './worker-count'
@@ -275,11 +276,14 @@ export function createWorkerPool(config: WorkerPoolConfig): WorkerPool {
     isShutdown = true
 
     const shutdownPromises = [...threadsStillRunning].map(executor => {
+      let timeoutId: ReturnType<typeof setTimeout> | undefined
       const timeoutPromise = new Promise<void>(resolve => {
-        setTimeout(resolve, 5_000)
+        timeoutId = setTimeout(resolve, SHUTDOWN_TIMEOUT_MS)
       })
 
-      return Promise.race([shutDownUntilTheThreadIsGone(executor), timeoutPromise])
+      return Promise.race([shutDownUntilTheThreadIsGone(executor), timeoutPromise]).finally(() =>
+        clearTimeout(timeoutId),
+      )
     })
 
     await Promise.allSettled(shutdownPromises)

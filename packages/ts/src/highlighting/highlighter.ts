@@ -1,3 +1,4 @@
+import { fuzzyTermMatches } from '../core/fuzzy'
 import { tokenize } from '../core/tokenizer'
 import type { LanguageModule } from '../types/language'
 import type { HighlightMatch } from '../types/results'
@@ -12,6 +13,8 @@ export interface HighlightOptions {
    * like 'security' are marked when the user has typed 'secur'.
    */
   prefixToken?: string
+  tolerance?: number
+  prefixLength?: number
 }
 
 interface CharRange {
@@ -155,22 +158,27 @@ export function highlightField(
 
   const matchedRanges: CharRange[] = []
   const prefixToken = options?.prefixToken
+  const tolerance = options?.tolerance ?? 0
+  const prefixLength = options?.prefixLength ?? 0
+
+  const matchByFieldToken = new Map<string, boolean>()
+  const matchesQuery = (fieldToken: string): boolean => {
+    const known = matchByFieldToken.get(fieldToken)
+    if (known !== undefined) return known
+    const stemmedField = language.stemmer ? language.stemmer(fieldToken) : fieldToken
+    const matches = stemmedQueryTokens.some(stemmedQuery =>
+      fuzzyTermMatches(stemmedQuery, stemmedField, tolerance, prefixLength),
+    )
+    matchByFieldToken.set(fieldToken, matches)
+    return matches
+  }
 
   for (let i = 0; i < fieldResult.tokens.length; i++) {
     if (i >= charOffsets.length) break
     const fieldToken = fieldResult.tokens[i].token
-    const stemmedField = language.stemmer ? language.stemmer(fieldToken) : fieldToken
-
-    if (prefixToken !== undefined && fieldToken.startsWith(prefixToken)) {
+    const prefixMatch = prefixToken !== undefined && fieldToken.startsWith(prefixToken)
+    if (prefixMatch || matchesQuery(fieldToken)) {
       matchedRanges.push({ start: charOffsets[i].start, end: charOffsets[i].end })
-      continue
-    }
-
-    for (const stemmedQuery of stemmedQueryTokens) {
-      if (stemmedField === stemmedQuery) {
-        matchedRanges.push({ start: charOffsets[i].start, end: charOffsets[i].end })
-        break
-      }
     }
   }
 

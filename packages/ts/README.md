@@ -25,6 +25,7 @@ Try it in your browser at [narsil.sondelali.com/demo](https://narsil.sondelali.c
 ## Contents
 
 - [Install](#install)
+- [Add Narsil with a coding agent](#add-narsil-with-a-coding-agent)
 - [Quick start](#quick-start)
 - [Features](#features)
 - [Documentation](#documentation)
@@ -43,6 +44,16 @@ pnpm add @delali/narsil
 Narsil works in Node.js 22 or newer, and in Bun, Deno, and browsers. The [Runtime support](#runtime-support) table covers each runtime.
 
 On an arm64 or x64 machine under macOS, Linux, or Windows, the package manager also installs Narsil's native search core as an optional dependency, so the engine searches vector graphs through it. If you omit optional dependencies, Narsil searches those graphs through WebAssembly, with the same results, as it always does in a browser.
+
+## Add Narsil with a coding agent
+
+The [Narsil skill](https://github.com/assetcorp/narsil/tree/main/skills/narsil) tells a coding agent whether to embed Narsil or serve it, which packages to install alongside it, and which server settings keep a public address safe. Install the skill into the coding agents on your machine with the skills CLI:
+
+```bash
+npx skills add assetcorp/narsil
+```
+
+The skill has the agent read the Narsil version that your project installs, and it sends the agent to that version's types and documentation. On the [agents page](https://narsil.sondelali.com/agents), you can copy a prompt that sets a coding agent to work on one of six search tasks.
 
 ## Quick start
 

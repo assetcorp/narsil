@@ -1,4 +1,5 @@
 import { ErrorCodes, NarsilError } from '../../errors'
+import { validateRequiredFields } from '../../schema/validator'
 import type { BatchResult } from '../../types/results'
 import type { AnyDocument, WriteOptions } from '../../types/schema'
 import { BATCH_CHUNK_SIZE } from '../constants'
@@ -88,6 +89,20 @@ async function prepareUpdate(
   ctx.guardShutdown()
   validateDocId(docId)
 
+  const manager = ctx.requireManager(indexName)
+  if (ctx.pluginRegistry.hasHooks('beforeUpdate')) {
+    await ctx.pluginRegistry.runHook('beforeUpdate', {
+      indexName,
+      docId,
+      oldDocument: manager.get(docId) ?? ({} as AnyDocument),
+      newDocument: document,
+    })
+  }
+
+  if (entry.config.required && entry.config.required.length > 0) {
+    validateRequiredFields(document as Record<string, unknown>, entry.config.required)
+  }
+
   if (entry.config.embedding) {
     if (entry.embeddingAdapter) {
       await embedDocumentFields(
@@ -105,17 +120,9 @@ async function prepareUpdate(
     }
   }
 
-  const manager = ctx.requireManager(indexName)
   const oldDocument = manager.get(docId)
   const oldPartitionDoc = manager.getRef(docId)
   const rollbackDoc = oldPartitionDoc ? (structuredClone(oldPartitionDoc) as AnyDocument) : undefined
-
-  await ctx.pluginRegistry.runHook('beforeUpdate', {
-    indexName,
-    docId,
-    oldDocument: oldDocument ?? ({} as AnyDocument),
-    newDocument: document,
-  })
 
   const vecIndexes = manager.getVectorIndexes()
   const extractedVectors = new Map<string, Float32Array | null>()
@@ -257,6 +264,7 @@ export async function updateDocumentBatch(
     }
 
     if (chunkEnd < updates.length) {
+      ctx.checkHeapPressure(indexName)
       await new Promise<void>(r => setTimeout(r, 0))
     }
   }

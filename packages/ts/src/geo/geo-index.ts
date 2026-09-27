@@ -1,6 +1,6 @@
 import type { GeopointEntry } from '../types/internal'
 import { haversineDistance } from './haversine'
-import { isPointInPolygon } from './polygon'
+import { polygonContainment } from './polygon'
 import { vincentyDistance } from './vincenty'
 
 export interface GeoIndexReader {
@@ -60,9 +60,10 @@ export function createGeoIndex(): GeoIndex {
 
     polygonQuery(points: Array<{ lat: number; lon: number }>, inside: boolean): Set<number> {
       const result = new Set<number>()
+      const contains = polygonContainment(points)
       for (let i = 0; i < entries.length; i++) {
         const entry = entries[i]
-        const withinPolygon = isPointInPolygon(entry.lat, entry.lon, points)
+        const withinPolygon = contains(entry.lat, entry.lon)
         if (inside ? withinPolygon : !withinPolygon) {
           result.add(entry.docId)
         }

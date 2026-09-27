@@ -1,5 +1,57 @@
 import { describe, expect, it } from 'vitest'
-import { isPointInPolygon, polygonCentroid } from '../../geo/polygon'
+import { isPointInPolygon, polygonCentroid, requirePolygonRing } from '../../geo/polygon'
+
+describe('a polygon across the antimeridian', () => {
+  const aroundFiji = [
+    { lat: -10, lon: 170 },
+    { lat: -10, lon: -170 },
+    { lat: 10, lon: -170 },
+    { lat: 10, lon: 170 },
+  ]
+
+  it('matches the points on both sides of the antimeridian inside a ring listed counter-clockwise', () => {
+    expect(isPointInPolygon(0, 175, aroundFiji)).toBe(true)
+    expect(isPointInPolygon(0, -175, aroundFiji)).toBe(true)
+    expect(isPointInPolygon(0, 180, aroundFiji)).toBe(true)
+  })
+
+  it('leaves out the points that lie the long way round', () => {
+    expect(isPointInPolygon(0, 0, aroundFiji)).toBe(false)
+    expect(isPointInPolygon(0, 160, aroundFiji)).toBe(false)
+    expect(isPointInPolygon(0, -160, aroundFiji)).toBe(false)
+  })
+
+  it('keeps a counter-clockwise ring wider than half the globe on its own side of the antimeridian', () => {
+    const wide = [
+      { lat: -10, lon: -100 },
+      { lat: -10, lon: 100 },
+      { lat: 10, lon: 100 },
+      { lat: 10, lon: -100 },
+    ]
+    expect(isPointInPolygon(0, 0, wide)).toBe(true)
+    expect(isPointInPolygon(0, 150, wide)).toBe(false)
+  })
+})
+
+describe('requirePolygonRing', () => {
+  it('rejects a ring of fewer than three points, which encloses no area', () => {
+    const twoPoints = [
+      { lat: 0, lon: 0 },
+      { lat: 1, lon: 1 },
+    ]
+    expect(() => requirePolygonRing(twoPoints)).toThrow(expect.objectContaining({ code: 'SEARCH_INVALID_FILTER' }))
+    expect(() => requirePolygonRing(undefined)).toThrow(expect.objectContaining({ code: 'SEARCH_INVALID_FILTER' }))
+  })
+
+  it('accepts a triangle', () => {
+    const triangle = [
+      { lat: 0, lon: 0 },
+      { lat: 1, lon: 1 },
+      { lat: 0, lon: 1 },
+    ]
+    expect(() => requirePolygonRing(triangle)).not.toThrow()
+  })
+})
 
 describe('isPointInPolygon', () => {
   const square = [

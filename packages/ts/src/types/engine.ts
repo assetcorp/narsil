@@ -205,15 +205,16 @@ export interface Narsil extends IndexLifecycleOperations, DocumentWriteOperation
   /**
    * Loads an index from snapshot bytes, replacing whatever the name held.
    *
-   * The engine reads the `.nrsl` envelope {@link Narsil.snapshot} writes, and
-   * it also reads the headerless MessagePack form earlier releases wrote.
+   * The engine reads the `.nrsl` envelope that {@link Narsil.snapshot} writes.
    *
    * @param indexName - The name the restored index takes.
-   * @param data - Bytes a {@link Narsil.snapshot} produced.
-   * @throws A `NarsilError` with `ENVELOPE_VERSION_MISMATCH` when the envelope
-   * carries a different format version, `PERSISTENCE_CRC_MISMATCH` when the
-   * payload fails its checksum, or `DOC_VALIDATION_FAILED` when the bytes hold
-   * no snapshot.
+   * @param data - Bytes that {@link Narsil.snapshot} produced.
+   * @throws A `NarsilError` with `ENVELOPE_INVALID_MAGIC` when the bytes are
+   * shorter than an envelope header or open with anything other than the
+   * `NRSL` magic bytes, `ENVELOPE_VERSION_MISMATCH` when the envelope carries a
+   * format version other than the index snapshot format,
+   * `PERSISTENCE_CRC_MISMATCH` when the payload fails its checksum, and
+   * `DOC_VALIDATION_FAILED` when the envelope holds no valid index snapshot.
    */
   restore(indexName: string, data: Uint8Array): Promise<void>
   /**

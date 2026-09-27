@@ -23,7 +23,7 @@ import {
   DEFAULT_MAX_RESULT_WINDOW,
   DEFAULT_MAX_TASK_PAGE_SIZE,
 } from './constants'
-import { corsWriter, resolveCors } from './cors'
+import { corsHeaderReader, resolveCors } from './cors'
 import type { HandlerDeps, ResolvedBuild, ResolvedLimits } from './deps'
 import { createAdminHandlers } from './handlers/admin'
 import { createCapabilitiesHandler } from './handlers/capabilities'
@@ -233,7 +233,7 @@ class NarsilHttpServer implements NarsilServer {
     const run = createRouteRunner({
       authorize,
       gate: createSharedRequestGate(gate, limits.maxConcurrentRequests, MAIN_THREAD_GATE_SLOT),
-      writeCors: cors ? corsWriter(cors) : undefined,
+      corsHeaders: cors ? corsHeaderReader(cors) : undefined,
     })
 
     registerServerRoutes(app, run, handlers, limits, cors)

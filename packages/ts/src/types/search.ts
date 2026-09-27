@@ -1,6 +1,8 @@
 import type { FilterExpression } from './filters'
 import type { AnyDocument, ScoringMode } from './schema'
 
+export type { ListParams, SuggestParams } from './reads'
+
 /**
  * Which engine answers a query: keyword matching, vector similarity, or both
  * merged into one ranking.
@@ -27,6 +29,17 @@ export interface SortField {
   field: string
   /** Ascending or descending order for this field. */
   direction: 'asc' | 'desc'
+  /**
+   * Where a document's field holds a list, the engine sorts that document by
+   * one value from the list: the smallest under `'min'`, the largest under
+   * `'max'`, and the mean or the median of the list's numbers under `'avg'`
+   * or `'median'`. Where you leave this out, the engine uses `'min'` for an
+   * ascending sort and `'max'` for a descending one. It sorts by a field that
+   * holds a single value as that value stands, under every mode. It throws
+   * `SEARCH_INVALID_FIELD` for `'avg'` or `'median'` on a field that the
+   * schema declares as anything other than `number` or `number[]`.
+   */
+  mode?: 'min' | 'max' | 'avg' | 'median'
 }
 
 /**
@@ -53,15 +66,25 @@ export type SortSpec = Record<string, 'asc' | 'desc'> | readonly SortField[]
  * @public
  */
 export interface QueryParams {
-  /** The engine searches for this text, analysed with the index's own language module. */
+  /** The engine analyses this text with the index's language module and searches for the terms that result. */
   term?: string
   /** The engine searches the term in these fields, and in every text field in the schema by default. */
   fields?: string[]
-  /** This narrows the candidates before scoring. */
+  /**
+   * The engine scores only the documents that pass this filter. It throws
+   * `SEARCH_INVALID_FILTER` for an operand of the wrong shape, and for an
+   * operator on a field of another type, such as `startsWith` on a number
+   * field.
+   */
   filters?: FilterExpression
-  /** These multipliers raise or lower each field's contribution to the score, keyed by field. */
+  /**
+   * The engine multiplies the score from each named field by its weight. It
+   * throws `SEARCH_INVALID_FIELD` for any field other than a text field that
+   * the schema declares, and `CONFIG_INVALID` for a weight that is not a
+   * finite number.
+   */
   boost?: Record<string, number>
-  /** The query gathers term statistics this way, and follows the index's `defaultScoring` otherwise. */
+  /** The engine gathers term statistics this way, and follows the index's `defaultScoring` where the query sets none. */
   scoring?: ScoringMode
   /**
    * The engine drops any hit scoring below this value. It ranks with BM25,
@@ -69,36 +92,48 @@ export interface QueryParams {
    * query can reject every hit in another.
    */
   minScore?: number
-  /** A document has to carry this many query terms. The engine accepts one by default. */
+  /** The engine keeps a document only where it matches this many query terms, and one term is enough by default. */
   termMatch?: TermMatchPolicy
-  /** A term may differ by this edit distance and still match, which is how a typo still finds its document. */
+  /** The engine matches an indexed term within this edit distance of a query term, so a query with a typo still finds its document. */
   tolerance?: number
-  /** This many leading characters have to match exactly before `tolerance` applies, which keeps fuzzy matching honest. */
+  /** The engine applies `tolerance` only to indexed terms that share this many leading characters with the query term, 2 by default. */
   prefixLength?: number
   /**
-   * Treat the last query token as an unfinished word so it also matches
-   * indexed terms that complete it ('secur' matches 'security'). Earlier
-   * tokens must match fully; `tolerance` keeps applying to them but not to
-   * the prefix token. Completions score against a shared document frequency
-   * and are demoted below full-word matches. Ignored when `exact` is true.
-   * Off by default.
+   * Setting this makes the engine treat the last query term as an unfinished
+   * word, so `secur` matches `security`. The earlier terms must match whole,
+   * and `tolerance` applies to them alone. The engine scores completions
+   * against a shared document frequency and ranks them below whole-word
+   * matches. It ignores this setting where `exact` is true, and the setting
+   * defaults to false.
    */
   prefix?: boolean
   /**
-   * Setting this requires every query term to equal an indexed term outright,
-   * which turns off fuzzy matching and prefix completion. The engine still
-   * stems the query, because the index stores stemmed terms, so `running`
-   * matches a document that said `running` through their shared stem.
+   * Setting this makes the engine match each query term only against an equal
+   * indexed term, which turns off fuzzy matching and prefix completion. The
+   * engine still stems the query, because the index stores stemmed terms, so
+   * `running` matches a document that holds `runs` through their shared stem.
    */
   exact?: boolean
-  /** These settings name the fields the query counts values for, and control how each count is cut and sorted. */
+  /**
+   * The engine counts the values of these fields across the matching
+   * documents, and each entry sets how it cuts and sorts that field's counts.
+   * For a field outside the schema, it counts the values that the documents
+   * store. It throws `SEARCH_INVALID_FIELD` for a `geopoint` or a vector
+   * field.
+   */
   facets?: FacetConfig
   /**
-   * This sorts the hits by field value, which replaces the relevance ranking.
-   * Pass an object keyed by field, or a list of fields in the order they
-   * apply. Fusion defines the order of hybrid results, so a hybrid query takes
-   * no sort. The engine throws `SEARCH_INVALID_MODE` for a query that sets
-   * both.
+   * The engine sorts the hits by the values of these fields, in place of the
+   * relevance ranking. Pass an object keyed by field, or a list of fields in
+   * the order that the engine compares them. A sort can name a `number`,
+   * `boolean`, `enum`, or `string:sortable` field, or a list field, which the
+   * engine reduces to one value by the entry's `mode`. The engine throws
+   * `SEARCH_INVALID_FIELD` for a sort on a plain `string`, a `geopoint`, or a
+   * vector field, because ordering a plain string takes far more memory per
+   * document than ordering a number, while the other two types have no order.
+   * The engine orders hybrid results by fusion, so it throws
+   * `SEARCH_INVALID_MODE` for a hybrid query that sets a sort, and it throws
+   * the same code for a direction other than `asc` and `desc`.
    */
   sort?: SortSpec
   /** These settings collapse the hits into groups by field value. */
@@ -232,11 +267,11 @@ export interface VectorQueryConfig {
  * @public
  */
 export interface HybridConfig {
-  /** The rankings merge this way, and by rank fusion by default. */
+  /** The engine merges the rankings this way, and by rank fusion by default. It throws `CONFIG_INVALID` for any other value. */
   strategy?: 'rrf' | 'linear'
-  /** This rank-fusion constant softens the advantage of the top ranks, and `rrf` alone reads it. */
+  /** The engine uses this rank-fusion constant under `rrf` alone, where a larger value reduces the lead of the top ranks. Set a whole number of at least 1, or leave it out for 60. The engine throws `CONFIG_INVALID` for any other value. */
   k?: number
-  /** This weights the vector score, from 0 to 1, and `linear` alone reads it. */
+  /** The engine uses this weight of the vector score, from 0 to 1, under `linear` alone, and 0.5 where you leave it out. It throws `CONFIG_INVALID` for a value outside that range. */
   alpha?: number
 }
 
@@ -248,11 +283,11 @@ export interface HybridConfig {
 export interface FacetConfig {
   /** Each key names a field the query counts values for. */
   [field: string]: {
-    /** The facet returns this many values for the field, most frequent first. */
+    /** The engine returns this many values for the field, in the order of `sort`. An engine returns every value where you leave this out, while a cluster returns 10, or every range of a field that sets `ranges`. */
     limit?: number
-    /** This orders the returned values by their count. */
+    /** The engine orders the returned values by their count, putting the highest first under `'desc'`, which is the default, and the lowest first under `'asc'`. Under `'asc'`, each cluster node sends the count of up to 10,000 values of the field, so the lowest counts are exact wherever no node holds more values than that. */
     sort?: 'asc' | 'desc'
-    /** These ranges bucket a numeric field, instead of counting each value. */
+    /** The engine counts a numeric field's matches into these ranges, with one count for each range. A cluster search counts up to 1,000 ranges on a field and throws `CONFIG_INVALID` for more. */
     ranges?: Array<{ from: number; to: number }>
   }
 }
@@ -265,11 +300,15 @@ export interface FacetConfig {
 export interface GroupConfig {
   /** The values of these fields define a group, and several fields group by their combination. */
   fields: string[]
-  /** Each group keeps this many hits, and one by default, which is the collapse behaviour. */
+  /** The engine returns this many hits from each group, best first, and one hit where you leave this out. */
   maxPerGroup?: number
-  /** The result keeps this many groups, best first, and every group without it. */
+  /** The engine returns this many groups, best first, and every group where you leave this out. */
   limit?: number
-  /** This folds each group's hits into one value, such as a sum or an average. */
+  /**
+   * The engine folds every hit of each group into one value, such as a sum or
+   * an average, including the hits beyond `maxPerGroup`. In cluster mode the
+   * coordinator fetches up to 10,000 hits of each group to fold.
+   */
   reduce?: GroupReducer
 }
 
@@ -297,76 +336,27 @@ export type GroupReducer = {
  * Which fields a query returns highlighted snippets for, and how those
  * snippets are marked up.
  *
- * The highlighter re-analyses each returned field's text and marks the spans
- * whose stems match the query, so it works whatever the index's
- * `trackPositions` setting says.
+ * The engine analyses the text of each returned field again and marks every
+ * word that the query matches. That covers a word whose stem equals a query
+ * stem, a word within the query's `tolerance` of a query stem, and, for a
+ * `prefix` query, a word that completes the last query term. The engine
+ * therefore marks the same words whatever the index's `trackPositions`
+ * setting is.
  *
  * @public
  */
 export interface HighlightConfig {
   /** The engine highlights these fields. */
   fields: string[]
-  /** This opens each match, and is `<mark>` by default. */
+  /** The engine writes this before each match, and writes `<mark>` by default. */
   preTag?: string
-  /** This closes each match, and is `</mark>` by default. */
+  /** The engine writes this after each match, and writes `</mark>` by default. */
   postTag?: string
   /**
    * The engine takes this many characters of the field around the densest run
-   * of matches, 200 by default. The snippet that comes back is longer than
-   * that number, because the engine then adds the opening and closing tags,
-   * and an ellipsis at each end where it cut the field.
+   * of matches, 200 by default. It returns a snippet longer than that number,
+   * because it then adds the opening and closing tags, and an ellipsis at each
+   * end where it cuts the field.
    */
   maxSnippetLength?: number
-}
-
-/**
- * Everything {@link Narsil.suggest} accepts.
- *
- * @public
- */
-export interface SuggestParams {
-  /** The returned terms complete this text. */
-  prefix: string
-  /** The lookup returns this many completions, most widely used first, and 10 by default. */
-  limit?: number
-}
-
-/**
- * Everything {@link Narsil.listDocuments} accepts.
- *
- * {@link Narsil.listDocuments} reads the stored documents without ranking them,
- * which is how you page through a whole index. Leave `cursor` out to start at
- * the first document, then pass back the cursor each result carries until it
- * comes back null.
- *
- * A cursor belongs to the sort it was made under, so pass the same `sort` back
- * with it. Changing `sort` invalidates the cursor, and the engine then throws
- * `SEARCH_INVALID_CURSOR` rather than returning a page from the wrong order.
- *
- * @public
- */
-export interface ListParams {
-  /**
-   * This cursor comes from a previous result, and continues where it stopped.
-   * The engine ties a cursor to the sort that produced it, and it throws
-   * `SEARCH_INVALID_CURSOR` for a cursor sent back under a different sort.
-   */
-  cursor?: string
-  /** The page carries this many documents, and 10 by default. The engine raises a value below one to one. */
-  limit?: number
-  /** This narrows the listing to the documents the filter accepts. */
-  filters?: FilterExpression
-  /**
-   * This orders the listing by field value rather than by document id, and the
-   * engine applies the fields in the order they are listed. Pass an object
-   * keyed by field, or a list of fields in the order they apply. It breaks a
-   * tie on document id, and it sorts by at most eight fields. The engine uses
-   * document-id order when you leave this out.
-   *
-   * The engine reads every document the listing covers to build a sorted page,
-   * so a sorted listing costs more than the default order on a large index.
-   */
-  sort?: SortSpec
-  /** This chooses how much of each stored document comes back, and the whole document by default. */
-  document?: DocumentProjection
 }

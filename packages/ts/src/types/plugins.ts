@@ -3,13 +3,18 @@ import type { AnyDocument, IndexConfig } from './schema'
 import type { QueryParams } from './search'
 
 /**
- * Hooks that run alongside the engine's own work, which is how you add
- * validation, auditing, enrichment, or metrics without forking the engine.
+ * Hooks that the engine calls alongside its own work, so that an application
+ * can add validation, auditing, enrichment, or metrics without forking the
+ * engine.
  *
  * Every hook is optional. A `before` hook fires first and rejects the
  * operation by throwing, while an `after` hook fires once the operation
- * succeeds. The engine awaits a hook that returns a promise, so slow work in
- * one hook slows every write or search that it covers.
+ * succeeds. Where a `before` hook on a write throws a {@link NarsilError}, the
+ * engine passes that error to the caller unchanged. It turns any other error
+ * into `DOC_VALIDATION_FAILED` with the same message, for a single write and
+ * for each entry of a batch alike. The engine awaits a hook that returns a
+ * promise, so slow work in one hook slows every write or search that it
+ * covers.
  *
  * @public
  */

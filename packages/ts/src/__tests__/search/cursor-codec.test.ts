@@ -25,6 +25,7 @@ describe('cursor codec', () => {
       score: 1.5,
       sortKey: null,
       sortSignature: null,
+      depth: 0,
       binding: 'ab12cd34',
     }
     expect(decodePageCursor(encodePageCursor(cursor))).toEqual(cursor)

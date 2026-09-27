@@ -24,6 +24,11 @@ describe('convertToMeters', () => {
   it('passes meters through', () => {
     expect(convertToMeters(500, 'm')).toBe(500)
   })
+  it('rejects any other unit, so an upper-case KM never shrinks the circle to metres', () => {
+    expect(() => convertToMeters(800, 'KM' as 'km')).toThrow(
+      expect.objectContaining({ code: 'SEARCH_INVALID_FILTER', details: { unit: 'KM' } }),
+    )
+  })
 })
 
 describe('applyEq', () => {

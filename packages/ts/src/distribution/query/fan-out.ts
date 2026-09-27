@@ -1,5 +1,5 @@
 import { decode } from '@msgpack/msgpack'
-import { ErrorCodes, NarsilError } from '../../errors'
+import { type ErrorCode, ErrorCodes, NarsilError } from '../../errors'
 import { mergePartitionStats } from '../../partitioning/distributed-scoring'
 import type { QueryCoverage } from '../../types/results'
 import type {
@@ -24,6 +24,27 @@ export interface NodeQueryOutcome {
   partitionIds: number[]
   status: 'success' | 'timeout' | 'failed'
   results: SearchResultPayload | null
+}
+
+const QUERY_REJECTION_CODES: ReadonlySet<string> = new Set([
+  ErrorCodes.SEARCH_INVALID_FIELD,
+  ErrorCodes.SEARCH_INVALID_FILTER,
+  ErrorCodes.SEARCH_INVALID_MODE,
+  ErrorCodes.SEARCH_INVALID_CURSOR,
+  ErrorCodes.SEARCH_RESULT_WINDOW_EXCEEDED,
+  ErrorCodes.VECTOR_DIMENSION_MISMATCH,
+  ErrorCodes.CONFIG_INVALID,
+])
+
+const nodeRejections = new WeakSet<NarsilError>()
+
+function queryRejectionOf(response: TransportMessage, decoded: unknown): NarsilError | null {
+  const body = decoded as { error?: unknown; code?: unknown; message?: unknown } | null
+  if (!response.type.endsWith('.error') && body?.error !== true) return null
+  if (typeof body?.code !== 'string' || !QUERY_REJECTION_CODES.has(body.code)) return null
+  const rejection = new NarsilError(body.code as ErrorCode, typeof body.message === 'string' ? body.message : body.code)
+  nodeRejections.add(rejection)
+  return rejection
 }
 
 export async function collectDistributedStats(
@@ -83,6 +104,7 @@ export async function fanOutSearch(
 ): Promise<NodeQueryOutcome[]> {
   const nodeEntries = Array.from(nodeToPartitions.entries())
   const promises: Array<Promise<NodeQueryOutcome>> = []
+  let rejection: NarsilError | null = null
 
   for (const [nodeId, partitionIds] of nodeEntries) {
     const message = createSearchMessage(
@@ -104,18 +126,18 @@ export async function fanOutSearch(
         status: result !== null ? 'success' : 'timeout',
         results: result,
       }),
-      (error): NodeQueryOutcome => ({
-        nodeId,
-        partitionIds,
-        status: isTimeoutError(error) ? 'timeout' : 'failed',
-        results: null,
-      }),
+      (error): NodeQueryOutcome => {
+        if (error instanceof NarsilError && nodeRejections.has(error)) rejection ??= error
+        return { nodeId, partitionIds, status: isTimeoutError(error) ? 'timeout' : 'failed', results: null }
+      },
     )
 
     promises.push(promise)
   }
 
-  return Promise.all(promises)
+  const outcomes = await Promise.all(promises)
+  if (rejection !== null) throw rejection
+  return outcomes
 }
 
 const OUTCOME_SEVERITY: Record<NodeQueryOutcome['status'], number> = { success: 0, timeout: 1, failed: 2 }
@@ -193,6 +215,8 @@ async function sendWithTimeout<T>(
 
   const sendPromise = sendToFirstReachableTarget(transport, targets, message).then(response => {
     const decoded = decode(response.payload)
+    const rejection = queryRejectionOf(response, decoded)
+    if (rejection !== null) throw rejection
     return validate(decoded)
   })
 

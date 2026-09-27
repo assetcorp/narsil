@@ -137,6 +137,7 @@ export async function insertDocumentBatch(
     if (prepared.length > 0) await applyPrepared(prepared)
 
     if (chunkEnd < documents.length) {
+      ctx.checkHeapPressure(indexName)
       await new Promise<void>(r => setTimeout(r, 0))
     }
   }

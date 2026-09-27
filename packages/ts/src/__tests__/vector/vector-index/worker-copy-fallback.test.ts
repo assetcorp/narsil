@@ -43,7 +43,7 @@ describe('searchParallel without a worker pool', () => {
     const parallel = await index.searchParallel(query, 10, options)
 
     expect(parallel).toEqual(index.search(query, 10, options))
-    expect(parallel).toHaveLength(10)
+    expect(parallel.results).toHaveLength(10)
   })
 
   it('asks for a pool once and stops asking while the attempt is in flight', async () => {
@@ -80,7 +80,7 @@ describe('searchParallel without a worker pool', () => {
     const parallel = await index.searchParallel(query, 3, options)
 
     expect(parallel).toEqual(index.search(query, 3, options))
-    expect(parallel.every(result => filterDocIds.has(result.docId))).toBe(true)
+    expect(parallel.results.every(result => filterDocIds.has(result.docId))).toBe(true)
     expect(vi.mocked(acquireVectorSearchPool)).not.toHaveBeenCalled()
   })
 
@@ -90,6 +90,10 @@ describe('searchParallel without a worker pool', () => {
     const query = normalizedVector(DIM, 105)
     const options = { metric: 'cosine', minSimilarity: 0 } as const
 
-    await expect(index.searchParallel(query, 5, options)).resolves.toEqual([])
+    await expect(index.searchParallel(query, 5, options)).resolves.toEqual({
+      results: [],
+      matched: 0,
+      matchedExact: true,
+    })
   })
 })

@@ -4,7 +4,7 @@ import type { LanguageModule } from '../../types/language'
 import type { FacetResult } from '../../types/results'
 import type { AnyDocument, SchemaDefinition } from '../../types/schema'
 import type { FacetConfig } from '../../types/search'
-import type { ComparableSortValue } from '../ordering'
+import type { ComparableSortValue, SortMode } from '../ordering'
 import type { ResolvedProjection } from '../projection'
 import type { PartitionStatsView } from '../statistics'
 import type { FacetMatchSet } from './facets'
@@ -56,6 +56,7 @@ export interface PartitionIndex {
     docId: string,
     fields: readonly string[],
     fieldTypes: readonly (string | undefined)[],
+    modes: readonly SortMode[],
   ): ComparableSortValue[]
   applyFilters(filters: FilterExpression, schema: SchemaDefinition): Set<string>
   applyFiltersBitset(filters: FilterExpression, schema: SchemaDefinition): Uint32Array

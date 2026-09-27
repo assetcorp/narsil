@@ -14,14 +14,20 @@ const results = await narsil.query('docs', {
 })
 ```
 
-The engine starts the vector ranking first and runs the BM25 ranking while the vector ranking is still in flight, so a hybrid query takes about as long as the slower of the two. The BM25 ranking follows the dispatch rule for [worker copies](partitions-and-workers.md#worker-copies), and the vector ranking goes to the vector search pool once the field holds a graph.
+The engine starts the vector ranking first and computes the BM25 ranking while the vector ranking is still in progress, so a hybrid query takes about as long as the slower of the two. The engine dispatches the BM25 ranking by the rule for [worker copies](partitions-and-workers.md#worker-copies), and it sends the vector ranking to the vector search pool once the field holds a graph.
 
-Fusion defines the order of hybrid results, so a hybrid query takes no `sort`. A hybrid query that also names a `sort` fails with `SEARCH_INVALID_MODE`.
+The engine orders hybrid results by fusion, so it throws `SEARCH_INVALID_MODE` for a hybrid query that also sets a `sort`.
 
-The `strategy` field takes one of two values:
+For a hybrid query, `count` holds the length of the fused list. `countExact` is true only where each of the two rankings contains every matching document. The BM25 ranking contains every match, while the vector ranking contains only the candidates that the engine fetches for it, so for a field that holds a graph the engine reports a number at or below the true total.
 
-- `'rrf'` (the default) applies reciprocal rank fusion, which combines the two rankings by position instead of by score. `k` dampens the contribution of lower ranks and defaults to 60.
-- `'linear'` normalizes both score sets to [0, 1] and blends them as `alpha * vector + (1 - alpha) * text`. `alpha` defaults to 0.5 and clamps to [0, 1].
+Because the engine fuses the two rankings by position and fetches a deeper vector ranking for each page, the fused order can change from one page to the next. Where you need the same order across a long run of pages, page a keyword search or a vector search.
+
+Set `strategy` to one of two values:
+
+- Under `'rrf'`, the default, the engine applies reciprocal rank fusion, which combines the two rankings by position alone. `k` reduces the weight of the lower ranks, and it is 60 by default.
+- Under `'linear'`, the engine normalises both sets of scores to [0, 1] and blends them as `alpha * vector + (1 - alpha) * text`. `alpha` sets the weight of the vector side, and it is 0.5 by default.
+
+The engine validates all three values before it searches. It throws a `NarsilError` with code `CONFIG_INVALID` for any `strategy` other than those two, for a `k` that is not a whole number of at least 1, and for an `alpha` outside 0 to 1.
 
 ```ts
 const weighted = await narsil.query('docs', {

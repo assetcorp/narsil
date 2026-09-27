@@ -8,6 +8,7 @@ import { MAX_PARTITION_COUNT, MAX_REPLICATION_FACTOR } from '../../constants'
 import type { AllocationConstraints, ClusterCoordinator } from '../../coordinator/types'
 import { waitForServingAllocation } from '../allocation-wait'
 import { DEFAULT_CREATE_INDEX_WAIT_MS } from '../constants'
+import { localIndexIsGone } from '../local-index-gone'
 import type { CreateIndexOptions } from '../types'
 import { DEFAULT_PARTITION_COUNT, DEFAULT_REPLICATION_FACTOR } from '../types'
 import { resolvePrimaryAssignment } from './assignment'
@@ -134,7 +135,7 @@ async function dropLocalCopy(name: string, engine: IndexCreatingEngine): Promise
   try {
     await engine.dropIndex(name)
   } catch (dropError) {
-    if (dropError instanceof NarsilError && dropError.code === ErrorCodes.INDEX_NOT_FOUND) {
+    if (localIndexIsGone(dropError)) {
       return
     }
     throw dropError

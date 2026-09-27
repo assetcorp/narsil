@@ -1,10 +1,15 @@
 import type { PartitionIndex } from '../../core/partition'
 import { ErrorCodes, NarsilError } from '../../errors'
+import { requireValidFilter } from '../../filters/operands'
 import { pruneStatsToQueryTerms } from '../../partitioning/distributed-scoring'
 import type { FanOutConfig, FanOutResult } from '../../partitioning/fan-out'
 import type { PartitionManager } from '../../partitioning/manager'
 import { partitionsIn } from '../../partitioning/partition-selection'
+import { flattenSchema } from '../../schema/validator'
 import type { FulltextSearchOptions } from '../../search/fulltext'
+import { requireUsableQueryFields } from '../../search/query-fields'
+import { requireSortableFields } from '../../search/sorting'
+import type { FilterExpression } from '../../types/filters'
 import type { GlobalStatistics, ScoredDocument } from '../../types/internal'
 import type { LanguageModule } from '../../types/language'
 import type { QueryCoverage } from '../../types/results'
@@ -172,6 +177,21 @@ export function requireKnownMode(params: QueryParams): void {
   )
 }
 
+export function requireValidQueryOptions(params: QueryParams, config: IndexConfig): void {
+  const strict = config.strict === true
+  requireSortableFields(params.sort, config.schema, strict)
+  requireValidQueryFilter(params.filters, config.schema, strict)
+  requireUsableQueryFields(params, config.schema, strict)
+}
+
+export function requireValidQueryFilter(
+  filters: FilterExpression | undefined,
+  schema: IndexConfig['schema'],
+  strict = false,
+): void {
+  if (filters !== undefined) requireValidFilter(filters, flattenSchema(schema), strict)
+}
+
 export function requireVectorSearchable(params: QueryParams, context: QueryContext, needsVector: boolean): void {
   if (!needsVector) return
   const field = params.vector?.field
@@ -188,12 +208,4 @@ export function requireVectorSearchable(params: QueryParams, context: QueryConte
     `Field "${field}" has no vector index, so a vector search cannot use it`,
     { field, vectorFields: [...vectorSearchersOf(context).keys()] },
   )
-}
-
-export function clampAlpha(alpha: number | undefined): number {
-  if (alpha === undefined) return 0.5
-  if (!Number.isFinite(alpha)) return 0.5
-  if (alpha < 0) return 0
-  if (alpha > 1) return 1
-  return alpha
 }

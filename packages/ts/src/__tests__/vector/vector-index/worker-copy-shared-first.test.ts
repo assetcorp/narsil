@@ -122,8 +122,8 @@ describe('worker copy loading picks the shared path first', () => {
 
     const query = normalizedVector(DIM, 17)
     const options = { metric: 'cosine', minSimilarity: 0 } as const
-    const viaWorker = await index.searchParallel(query, 10, options)
-    const local = index.search(query, 10, options)
+    const { results: viaWorker } = await index.searchParallel(query, 10, options)
+    const { results: local } = index.search(query, 10, options)
 
     expect(fake.load).not.toHaveBeenCalled()
     expect(fake.searchOrdinals).toHaveBeenCalledTimes(1)
@@ -145,8 +145,8 @@ describe('worker copy loading picks the shared path first', () => {
     for (let i = 0; i < 100; i++) filterDocIds.add(`doc${i}`)
     const options = { metric: 'cosine', minSimilarity: 0, filterDocIds } as const
 
-    const viaWorker = await index.searchParallel(query, 10, options)
-    const local = index.search(query, 10, options)
+    const { results: viaWorker } = await index.searchParallel(query, 10, options)
+    const { results: local } = index.search(query, 10, options)
 
     expect(fake.searchOrdinals).toHaveBeenCalledTimes(1)
     expect(viaWorker.length).toBeGreaterThan(0)
@@ -171,8 +171,8 @@ describe('worker copy loading picks the shared path first', () => {
     for (let i = 0; i < 10; i++) filterDocIds.add(`doc${i}`)
     const options = { metric: 'cosine', minSimilarity: 0, filterDocIds } as const
 
-    const filtered = await index.searchParallel(query, 10, options)
-    const local = index.search(query, 10, options)
+    const { results: filtered } = await index.searchParallel(query, 10, options)
+    const { results: local } = index.search(query, 10, options)
 
     expect(fake.searchOrdinals).not.toHaveBeenCalled()
     expect(filtered.length).toBeGreaterThan(0)
@@ -191,8 +191,8 @@ describe('worker copy loading picks the shared path first', () => {
     await index.searchParallel(query, 10, options)
     await vi.waitFor(() => expect(fake.load).toHaveBeenCalledTimes(1))
 
-    const viaWorker = await index.searchParallel(query, 10, options)
-    const local = index.search(query, 10, options)
+    const { results: viaWorker } = await index.searchParallel(query, 10, options)
+    const { results: local } = index.search(query, 10, options)
 
     expect(fake.loadShared).not.toHaveBeenCalled()
     expect(viaWorker.map(result => result.docId)).toEqual(local.map(result => result.docId))

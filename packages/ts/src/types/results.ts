@@ -11,10 +11,30 @@ import type { AnyDocument, SchemaDefinition } from './schema'
  * @public
  */
 export interface QueryResult<T = AnyDocument> {
-  /** These documents matched, cut to the query's `limit`, best score first or in the query's sort order. */
+  /** These documents match, cut to the query's `limit`, best score first or in the query's sort order. */
   hits: Array<Hit<T>>
-  /** This many documents matched in total, before `limit` and `offset` applied. */
+  /**
+   * This many documents match in total, before the engine applies `limit`
+   * and `offset`. For a keyword search the engine counts every match. For a
+   * vector search it counts every vector that passes the query's filter and
+   * its `similarity` floor, which is every vector in the field where the query
+   * sets neither of them. The engine also counts each pinned document that
+   * the query does not match, since it places that document among the hits.
+   */
   count: number
+  /**
+   * `count` holds the exact number of matches where this is true, and a
+   * number at or below the true total where it is false. Where a query sets a
+   * `similarity` floor on a vector field that holds a graph, the engine
+   * counts only the vectors that it fetches, because it compares the query
+   * with only a fraction of that field's vectors. For a hybrid query the
+   * engine fuses two rankings, so the count is exact only where each of those
+   * rankings contains every matching document. Where you pin a document from
+   * outside the hits that the engine fetches, the engine reports true only
+   * where it holds every match of the query, because only then can it test
+   * whether the query matches that document.
+   */
+  countExact: boolean
   /** The engine spent this many milliseconds on the search. */
   elapsed: number
   /** This opaque cursor reaches the next page. Pass it back as `searchAfter`. */
@@ -119,15 +139,20 @@ export interface HighlightMatch {
  * @public
  */
 export interface FacetResult {
-  /** This many documents matched per value, keyed by value. */
+  /** This many documents match per value, keyed by value. */
   values: Record<string, number>
-  /** The field held this many distinct values across the matching documents. */
+  /** This is the number of entries in `values`, which is at most the facet's `limit`. */
   count: number
   /**
-   * No value's count is short by more than this. Counting runs per partition
-   * and each one reports only its own top values, so a value that is common
-   * overall but ranks low on a partition loses that partition's share. A bound
-   * of 0 means every count here is exact.
+   * Every count in `values` is at most this far below its true count. A value
+   * that the engine leaves out of `values` because of `limit` has a true
+   * count of at most this figure too. Where the engine counts a field on one
+   * thread, it counts every value exactly, so this figure is the largest
+   * count that it leaves out. Where it splits the count across worker copies
+   * or cluster nodes, each of them returns only its own top values, so the
+   * merged count of a value that is common overall but rare on one of them
+   * can lack the matches on that one. A bound of 0 means that `values` holds
+   * every matching value, each with its exact count.
    */
   errorBound: number
 }
@@ -157,6 +182,8 @@ export interface GroupResult {
 export interface PreflightResult {
   /** The query matches this many documents. */
   count: number
+  /** `count` holds the exact number of matches where this is true, and a number at or below the true total where it is false, under the rule in {@link QueryResult.countExact}. */
+  countExact: boolean
   /** The count took this many milliseconds. */
   elapsed: number
   /** This turns true when the index's terms came from an older analysis than its language module produces now. */

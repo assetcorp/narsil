@@ -8,7 +8,7 @@ import type { GlobalStatistics, InternalSearchResult, ScoredDocument } from '../
 import type { LanguageModule } from '../types/language'
 import type { BM25Params, CustomTokenizer, FieldType, SchemaDefinition } from '../types/schema'
 import type { QueryParams, TermMatchPolicy } from '../types/search'
-import { DEFAULT_PAGE_SIZE, PREFIX_MAX_EXPANSIONS } from './constants'
+import { DEFAULT_FUZZY_PREFIX_LENGTH, DEFAULT_PAGE_SIZE, PREFIX_MAX_EXPANSIONS } from './constants'
 import { clampRowCount } from './pagination'
 
 export interface FulltextSearchOptions {
@@ -134,7 +134,7 @@ export function fulltextMatches(
     prefixExpansion: prepared.prefixExpansion,
     fields: params.fields,
     tolerance: params.tolerance ?? 0,
-    prefixLength: params.prefixLength ?? 2,
+    prefixLength: params.prefixLength ?? DEFAULT_FUZZY_PREFIX_LENGTH,
     exact: params.exact ?? false,
     filterBitset: prepared.filterBitset,
   })
@@ -174,7 +174,7 @@ export function fulltextSearch(
     fields: params.fields,
     boost: params.boost,
     tolerance: params.tolerance ?? 0,
-    prefixLength: params.prefixLength ?? 2,
+    prefixLength: params.prefixLength ?? DEFAULT_FUZZY_PREFIX_LENGTH,
     exact: params.exact ?? false,
     bm25Params: options?.bm25Params,
     globalStats: options?.globalStats,

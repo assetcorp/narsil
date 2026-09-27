@@ -184,13 +184,17 @@ A search against a multi-partition index runs on a coordinator that queries ever
 3. Collect the results from every partition.
 4. Merge them into one sorted list.
 5. Apply limit and offset, or the searchAfter cursor.
-6. Count facets over every matching document and sum the counts,
-   when facets are requested.
-7. Merge groups by group key, keeping maxPerGroup, when groups
-   are requested.
+6. Count facets over every matching document, sum the counts
+   across the partitions, and cut each field to its limit, when
+   facets are requested.
+7. Merge groups by group key, keeping maxPerGroup hits in each,
+   1 where the caller sets none, and fold the group reducer over
+   every hit of each group, when groups are requested.
 8. Encode the cursor for the next page, when there is one.
 9. Return the merged result.
 ```
+
+Each partition must count every value of a faceted field, so that the summed counts are exact. An implementation that splits the partitions across threads may instead oversample the values from each thread by the rule in [Distributed Facets](distribution/query-routing.md#distributed-facets) for each node, except for a field with ranges or the sort `'asc'`, where each thread must return every count.
 
 ### Hybrid Search
 
@@ -227,7 +231,11 @@ The distributed scoring formulas are in [Distributed BM25](algorithms.md#distrib
 
 Narsil supports two ways to page through results, and one window bounds how deep either reaches.
 
-A query pages no further than the first 10,000 results, which is the result window. `offset + limit` must not exceed the window, and a request beyond it raises `SEARCH_RESULT_WINDOW_EXCEEDED`, which names the cursor as the way to reach the rest. A cursor pages past the window, because each page returns the `limit` results that follow its anchor. The engine considers every matching document when a query carries a sort, a group, a `threshold`, or a `termMatch` other than `any`, whatever the window. `count` reports the number of matching documents exactly.
+The first 10,000 results form the result window. `offset + limit` must not exceed the window, and an implementation must raise `SEARCH_RESULT_WINDOW_EXCEEDED` for a request beyond it and state in the error message that the caller can reach the rest with a cursor. An implementation may page a keyword search past the window with a cursor, because it returns for each page the `limit` results that follow the cursor's anchor. Whatever the window, an implementation must process every matching document for a query that sets a sort, a group, a `threshold`, or a `termMatch` other than `any`.
+
+An implementation must page a vector search no further than the window, because it can reach a rank in an approximate index only by fetching every result above that rank. It must therefore fetch `d + offset + limit + 1` results for each such page, capped at the window, where `d` is the cursor's depth field. It must raise `SEARCH_RESULT_WINDOW_EXCEEDED` where `d + offset + limit` exceeds the window.
+
+An implementation must report in `count` how many documents the query matches, and in `countExact` whether that figure is the total or a floor under it. It must count every match for a keyword search and must set `countExact` true. For a vector search, it must count every vector that passes the query's filters and its `similarity` floor, and it must set `countExact` true only where it scores every one of those vectors. For a hybrid search, it must set `countExact` true only where the text ranking and the vector ranking each contain every matching document. Where it holds every match, it must add to `count` each pinned document that it places and that the query does not match. Where it holds a fraction of the matches and places a pinned document from outside them, it must exclude that document from `count` and set `countExact` false.
 
 ### Offset and Limit
 
@@ -251,9 +259,10 @@ The cursor is base64-encoded JSON. One format serves search pagination and [Docu
 
 ```json
 {
-  "v": 3,
+  "v": 4,
   "a": "doc-id-123",
   "s": 4.523,
+  "d": 40,
   "q": "1b83aa27"
 }
 ```
@@ -262,7 +271,7 @@ A sorted search or a sorted listing encodes:
 
 ```json
 {
-  "v": 3,
+  "v": 4,
   "a": "doc-id-123",
   "k": ["Widget", 42],
   "o": "[[\"title\",\"asc\"],[\"price\",\"desc\"]]",
@@ -272,11 +281,12 @@ A sorted search or a sorted listing encodes:
 
 | Field | Description |
 |-------|-------------|
-| `v` | The cursor format version, 3. A reader rejects any other value. |
+| `v` | The cursor format version, 4. A reader must reject any other value. |
 | `a` | The document ID of the last document returned, the anchor. Always present. |
 | `s` | The score of that document. Present when the query carries no sort. |
-| `k` | The raw sort values of that document, one per sort field in sort order. Present when a sort is set. |
-| `o` | The sort's fields and directions, serialised as the JSON text `[["field","asc"],...]`. Present exactly when `k` is. |
+| `k` | The sort values of that document, one per sort field in sort order, each array reduced by its field's mode. Present when the caller sets a sort. |
+| `o` | The sort's fields and directions, serialised as the JSON text `[["field","asc"],...]`. Where a field's mode differs from the default for its direction, the field's entry holds the mode as a third element, as in `["prices","asc","avg"]`. Present exactly when `k` is. |
+| `d` | The count of results that precede the next page, which is the depth to which an implementation fetches a vector search. Present when that count is above 0. |
 | `q` | The binding of the request that produced the cursor, per [Cursor Binding](#cursor-binding). Always present. |
 
 A cursor carries `s` or `k`, never both. A search without a sort anchors on `s` and `a`, a sorted search or listing anchors on `k` and `a`, and an unsorted listing anchors on `a` alone.
@@ -284,7 +294,8 @@ A cursor carries `s` or `k`, never both. A search without a sort anchors on `s` 
 A reader must reject a cursor, raising `SEARCH_INVALID_CURSOR`, when any rule below fails:
 
 - The encoded cursor is longer than 40,960 characters, which covers the largest payload the rules below allow.
-- `v` is not 3, or `a` is empty, missing, or longer than 512 code points.
+- `v` is not 4, or `a` is empty, missing, or longer than 512 code points.
+- `d` is present and is not a whole number of at least 1.
 - `k` holds more than 8 values, or a value that is not a string of at most 512 code points, a finite number, a boolean, or null.
 - `o` and `k` do not arrive together, or `o` differs from the request's own sort.
 - `q` is missing, is not 8 lowercase hex digits, or differs from the binding of the request that carried the cursor.
@@ -326,11 +337,12 @@ First query:
   fan out to every partition with the limit
   merge the results and take the top `limit`
   encode a cursor from the last result that is not a pinned
-    placement; a page holding only placements returns no
-    cursor
+    placement, storing as `d` the number of results up to and
+    including this page, and return no cursor for a page of
+    placements alone
   return the results and the cursor
 
-Next query, carrying the cursor:
+Next query, with the cursor:
   decode the cursor, rejecting it when `o` differs from
     the request's sort or `q` differs from the request's
     binding
@@ -341,7 +353,8 @@ Next query, carrying the cursor:
     then document ID for a sorted one
   each partition returns up to `limit` results
   merge the results and take the top `limit`
-  encode a new cursor
+  encode a new cursor, storing as `d` the cursor's own `d`
+    plus the number of results on this page
   return the results and the cursor
 ```
 

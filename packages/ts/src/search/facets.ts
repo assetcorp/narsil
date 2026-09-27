@@ -1,16 +1,40 @@
+import { compareCodePoints } from '../core/ordering'
+import { keptFacetValues } from '../core/partition/facets'
 import type { FacetResult } from '../types/results'
+import type { FacetConfig } from '../types/search'
+import { oversampledShardSize } from './oversample'
 
-/**
- * Merges the facet counts of several partitions into one set, summing each
- * value's counts and each field's error bound.
- *
- * The bounds add rather than take the largest, because every partition
- * undercounts a value independently of the rest.
- *
- * @param partitionFacets - What each partition counted, keyed by field.
- * @returns The merged counts, keyed by field.
- */
-export function mergeFacets(partitionFacets: Array<Record<string, FacetResult>>): Record<string, FacetResult> {
+type FacetFieldConfig = FacetConfig[string]
+
+function keptValueCount(fieldConfig: FacetFieldConfig | undefined): number | undefined {
+  return keptFacetValues(fieldConfig?.limit)
+}
+
+export function everyValueFacetConfig(config: FacetConfig): FacetConfig {
+  const widened: FacetConfig = {}
+  for (const [field, fieldConfig] of Object.entries(config)) {
+    widened[field] = { ...fieldConfig, limit: undefined }
+  }
+  return widened
+}
+
+export function oversampledFacetConfig(config: FacetConfig): FacetConfig {
+  const widened: FacetConfig = {}
+  for (const [field, fieldConfig] of Object.entries(config)) {
+    if (fieldConfig?.ranges !== undefined || fieldConfig?.sort === 'asc') {
+      widened[field] = { ...fieldConfig, limit: undefined }
+      continue
+    }
+    const kept = keptValueCount(fieldConfig)
+    widened[field] = kept === undefined ? fieldConfig : { ...fieldConfig, limit: oversampledShardSize(kept) }
+  }
+  return widened
+}
+
+export function mergeFacets(
+  partitionFacets: Array<Record<string, FacetResult>>,
+  config: FacetConfig,
+): Record<string, FacetResult> {
   const merged = new Map<string, Map<string, number>>()
   const bounds = new Map<string, number>()
 
@@ -32,11 +56,23 @@ export function mergeFacets(partitionFacets: Array<Record<string, FacetResult>>)
   const result: Record<string, FacetResult> = {}
 
   for (const [field, valueMap] of merged) {
-    const values: Record<string, number> = {}
-    for (const [value, count] of valueMap) {
-      values[value] = count
+    const fieldConfig = config[field]
+    const ascending = fieldConfig?.sort === 'asc'
+    const ordered = Array.from(valueMap.entries())
+    ordered.sort((a, b) => (ascending ? a[1] - b[1] : b[1] - a[1]) || compareCodePoints(a[0], b[0]))
+
+    const kept = Math.min(keptValueCount(fieldConfig) ?? ordered.length, ordered.length)
+    let largestLeftOut = 0
+    for (let index = kept; index < ordered.length; index++) {
+      if (ordered[index][1] > largestLeftOut) largestLeftOut = ordered[index][1]
     }
-    result[field] = { values, count: valueMap.size, errorBound: bounds.get(field) ?? 0 }
+    const errorBound = (bounds.get(field) ?? 0) + largestLeftOut
+
+    const values: Record<string, number> = {}
+    for (let index = 0; index < kept; index++) {
+      values[ordered[index][0]] = ordered[index][1]
+    }
+    result[field] = { values, count: kept, errorBound }
   }
 
   return result

@@ -15,7 +15,7 @@ import {
   validatePreflightResultPayload,
   validateSuggestResultPayload,
 } from '../../query/codec'
-import { localParamsToWire } from '../query-conversion'
+import { countIsExactFor, localParamsToWire } from '../query-conversion'
 import { routableAllocation } from '../routable-allocation'
 import { type ClusterReadDeps, sendReadRequest, strictScatterGroups } from './scatter'
 
@@ -128,7 +128,11 @@ export async function preflightCluster(
     analysisStale = analysisStale || result.analysisStale
   }
 
-  const result: PreflightResult = { count, elapsed: performance.now() - startTime }
+  const result: PreflightResult = {
+    count,
+    countExact: countIsExactFor(params),
+    elapsed: performance.now() - startTime,
+  }
   if (analysisStale) {
     result.analysisStale = true
   }

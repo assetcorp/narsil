@@ -285,7 +285,7 @@ describe('createTransformersEmbedding', () => {
       expect(pipelineFn).toHaveBeenCalledWith(
         'feature-extraction',
         'custom/model-v2',
-        expect.objectContaining({ dtype: 'q8' }),
+        expect.objectContaining({ dtype: 'fp32' }),
       )
     })
 
@@ -299,7 +299,7 @@ describe('createTransformersEmbedding', () => {
       expect(pipelineFn).toHaveBeenCalledWith(
         'feature-extraction',
         'Xenova/all-MiniLM-L6-v2',
-        expect.objectContaining({ dtype: 'q8' }),
+        expect.objectContaining({ dtype: 'fp32' }),
       )
     })
 
@@ -368,7 +368,7 @@ describe('createTransformersEmbedding', () => {
       expect(pipelineFn).toHaveBeenCalledWith(
         'feature-extraction',
         expect.any(String),
-        expect.objectContaining({ dtype: 'q8', customFlag: true }),
+        expect.objectContaining({ dtype: 'fp32', customFlag: true }),
       )
     })
 

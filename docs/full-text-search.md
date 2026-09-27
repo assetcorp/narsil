@@ -6,7 +6,7 @@ This guide covers term matching, typo tolerance, prefix completion, match thresh
 
 ## Basic queries
 
-Full-text search scores with BM25. `fields` restricts the search to specific fields, and `boost` multiplies per-field scores.
+Full-text search scores with BM25. `fields` restricts the search to specific fields, and `boost` multiplies the score from each named field by its weight. The engine throws `SEARCH_INVALID_FIELD` for a boost on any field other than a text field that the schema declares, and `CONFIG_INVALID` for a weight that is not a finite number.
 
 ```ts
 const results = await narsil.query('products', {
@@ -72,7 +72,7 @@ const results = await narsil.query('products', {
 
 ## Highlighting
 
-`highlight` returns snippets with tags marking where query terms appear. The highlighter re-analyses each returned field's text, so it works whatever the index's `trackPositions` setting says.
+`highlight` returns snippets with tags around each word that the query matches. That covers a word whose stem equals a query stem, a word within the query's `tolerance` of a query stem, and, under `prefix: true`, a word that completes the last query term. The engine analyses each returned field's text again, so it marks the same words whatever the index's `trackPositions` setting is.
 
 ```ts
 const results = await narsil.query('products', {

@@ -1,10 +1,11 @@
 import { decode, encode } from '@msgpack/msgpack'
+import type { SortMode } from '../../../core/ordering'
 import { applyProjection, resolveProjection } from '../../../core/projection'
-import { normalizeSort, readSortValues } from '../../../search/sorting'
+import { oversampledShardSize } from '../../../search/oversample'
+import { normalizeSort, readSortValues, sortModesOf } from '../../../search/sorting'
 import type { QueryResult } from '../../../types/results'
 import type { AnyDocument } from '../../../types/schema'
 import { validateFetchPayload, validateSearchPayload, validateStatsPayload } from '../../query/codec'
-import { oversampledShardSize } from '../../query/oversample'
 import type {
   FetchResultPayload,
   RespondFn,
@@ -36,13 +37,15 @@ export async function handleSearch(
     payload.globalStats ?? undefined,
   )
 
-  const sortFields = queryParams.sort !== undefined ? normalizeSort(queryParams.sort).map(entry => entry.field) : null
+  const normalizedSort = queryParams.sort !== undefined ? normalizeSort(queryParams.sort) : null
+  const sortFields = normalizedSort === null ? null : normalizedSort.map(entry => entry.field)
+  const sortModes = normalizedSort === null ? [] : sortModesOf(normalizedSort)
   const scored = queryResult.hits.map(hit => ({
     docId: hit.id,
     score: hit.score ?? null,
     sortValues:
       sortFields !== null
-        ? readSortValues(hit.document as AnyDocument | undefined, sortFields).map(toWireSortValue)
+        ? readSortValues(hit.document as AnyDocument | undefined, sortFields, sortModes).map(toWireSortValue)
         : null,
   }))
 
@@ -56,7 +59,7 @@ export async function handleSearch(
     results,
     facets: convertLocalFacetsToWire(queryResult.facets),
     facetErrorBounds: convertLocalFacetBoundsToWire(queryResult.facets),
-    groups: await convertLocalGroupsToWire(queryResult.groups, sortFields, deps, payload.indexName),
+    groups: await convertLocalGroupsToWire(queryResult.groups, sortFields, sortModes, deps, payload.indexName),
   }
 
   await respond({
@@ -70,23 +73,27 @@ export async function handleSearch(
 async function convertLocalGroupsToWire(
   groups: QueryResult['groups'],
   sortFields: string[] | null,
+  sortModes: readonly SortMode[],
   deps: DataNodeHandlerDeps,
   indexName: string,
 ): Promise<WireGroupEntry[] | null> {
   if (groups === undefined) {
     return null
   }
+  const unreadIds =
+    sortFields === null
+      ? []
+      : groups.flatMap(group => group.hits.filter(hit => hit.document === undefined).map(hit => hit.id))
+  const readDocuments =
+    unreadIds.length > 0 ? await deps.engine.getMultiple(indexName, unreadIds) : new Map<string, AnyDocument>()
   const wireGroups: WireGroupEntry[] = []
   for (const group of groups) {
-    const scored = []
-    for (const hit of group.hits) {
-      let sortValues: Array<string | number | boolean | null> | null = null
-      if (sortFields !== null) {
-        const document = (hit.document as AnyDocument | undefined) ?? (await deps.engine.get(indexName, hit.id))
-        sortValues = readSortValues(document, sortFields).map(toWireSortValue)
-      }
-      scored.push({ docId: hit.id, score: hit.score ?? null, sortValues })
-    }
+    const scored = group.hits.map(hit => {
+      if (sortFields === null) return { docId: hit.id, score: hit.score ?? null, sortValues: null }
+      const document = (hit.document as AnyDocument | undefined) ?? readDocuments.get(hit.id)
+      const sortValues = readSortValues(document, sortFields, sortModes).map(toWireSortValue)
+      return { docId: hit.id, score: hit.score ?? null, sortValues }
+    })
     wireGroups.push({ values: group.values, scored })
   }
   return wireGroups

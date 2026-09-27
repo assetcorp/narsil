@@ -4,11 +4,11 @@ import { ErrorCodes, NarsilError } from '../../errors'
 import { type FanOutResult, fanOutQuery } from '../../partitioning/fan-out'
 import { countsWithoutScores, fanOutMatchCount } from '../../partitioning/match-count'
 import { flattenSchema } from '../../schema/validator'
-import { sortSignatureOf } from '../../search/cursor'
+import { decodePageCursor, requireMatchingCursor, sortSignatureOf } from '../../search/cursor'
 import { applyGrouping } from '../../search/grouping'
 import { applyPagination, type PaginationSortContext, requireWithinResultWindow } from '../../search/pagination'
-import { applyPinning } from '../../search/pinning'
-import { applySorting, normalizeSort, requireSortableFields } from '../../search/sorting'
+import { placePinned } from '../../search/pinning'
+import { applySorting, normalizeSort, sortModesOf } from '../../search/sorting'
 import type { FacetResult, GroupResult, Hit, PreflightResult, QueryResult } from '../../types/results'
 import type { AnyDocument } from '../../types/schema'
 import type { QueryParams } from '../../types/search'
@@ -19,6 +19,7 @@ import {
   coverageFor,
   type QueryContext,
   requireKnownMode,
+  requireValidQueryOptions,
   requireVectorSearchable,
   scoringConfigFor,
   searchOptionsFor,
@@ -28,6 +29,13 @@ import { executeSortedQueryPage, sortsWithoutScores } from './sorted'
 import { executeHybridSearch, executeVectorSearch } from './vector'
 
 export type { QueryContext } from './shared'
+
+function requireCursorDepth(cursor: string | undefined, signature: string | null, binding: string): number {
+  if (cursor === undefined) return 0
+  const decoded = decodePageCursor(cursor)
+  requireMatchingCursor(decoded, cursor, signature, true, binding)
+  return decoded.depth ?? 0
+}
 
 export async function executeQuery<T = AnyDocument>(
   params: QueryParams,
@@ -55,12 +63,13 @@ export async function executeQuery<T = AnyDocument>(
     )
   }
 
-  requireSortableFields(params.sort, config.schema)
+  requireValidQueryOptions(params, config)
   requireVectorSearchable(params, context, isVectorOnly || isHybridMode)
 
   let paginated: Array<Hit<T>>
   let nextCursor: string | undefined
   let count: number
+  let countExact = true
   let facets: Record<string, FacetResult> | undefined
   let groups: GroupResult[] | undefined
 
@@ -78,9 +87,11 @@ export async function executeQuery<T = AnyDocument>(
     let fanOutResult: FanOutResult
 
     if (isVectorOnly && hasGlobalVectorIndex) {
-      fanOutResult = await executeVectorSearch(params, context, limit, offset)
+      const depth = requireCursorDepth(params.searchAfter, sortSignature, context.cursorBinding)
+      fanOutResult = await executeVectorSearch(params, context, limit, offset, depth)
     } else if (isHybridMode && hasGlobalVectorIndex) {
-      fanOutResult = await executeHybridSearch(params, context, limit, offset)
+      const depth = requireCursorDepth(params.searchAfter, sortSignature, context.cursorBinding)
+      fanOutResult = await executeHybridSearch(params, context, limit, offset, depth)
     } else {
       const scoring = scoringConfigFor(params, context)
       const workerResult = workerSearch
@@ -128,11 +139,12 @@ export async function executeQuery<T = AnyDocument>(
     const sortFieldNames = sortFields.map(entry => entry.field)
     const sortFlatSchema = sortFieldNames.length === 0 ? {} : flattenSchema(config.schema)
     const sortFieldTypes = sortFieldNames.map(field => sortFlatSchema[field])
+    const sortModes = sortModesOf(sortFields)
     const sortKeyCache = new Map<string, readonly ComparableSortValue[]>()
     const sortKeyOf = (docId: string): readonly ComparableSortValue[] => {
       let key = sortKeyCache.get(docId)
       if (key === undefined) {
-        key = manager.sortValues(docId, sortFieldNames, sortFieldTypes)
+        key = manager.sortValues(docId, sortFieldNames, sortFieldTypes, sortModes)
         sortKeyCache.set(docId, key)
       }
       return key
@@ -146,12 +158,15 @@ export async function executeQuery<T = AnyDocument>(
       groups = applyGrouping(hits, params.group, (docId: string) => manager.getRef(docId) as AnyDocument | undefined)
     }
 
+    let pinsFromOutside = 0
     if (params.pinned && params.searchAfter === undefined && context.partitionIds === undefined) {
-      hits = applyPinning(hits, params.pinned, (docId: string) => {
+      const placement = placePinned(hits, params.pinned, (docId: string) => {
         const doc = manager.getRef(docId)
         if (!doc) return undefined
         return { id: docId, score: 0, document: doc as T }
       })
+      hits = placement.hits
+      pinsFromOutside = placement.placedFromOutside
     }
 
     let sortContext: PaginationSortContext | undefined
@@ -178,7 +193,10 @@ export async function executeQuery<T = AnyDocument>(
     )
     paginated = paged.paginated
     nextCursor = paged.nextCursor
-    count = fanOutResult.totalMatched
+    const holdsEveryMatch =
+      fanOutResult.matchedExact !== false && fanOutResult.scored.length === fanOutResult.totalMatched
+    count = fanOutResult.totalMatched + (holdsEveryMatch ? pinsFromOutside : 0)
+    countExact = fanOutResult.matchedExact !== false && (holdsEveryMatch || pinsFromOutside === 0)
     facets = fanOutResult.facets
 
     if (sortSignature !== null && params.includeScores !== true) {
@@ -223,6 +241,7 @@ export async function executeQuery<T = AnyDocument>(
   return {
     hits: paginated,
     count,
+    countExact,
     elapsed,
     cursor: nextCursor,
     facets,
@@ -236,6 +255,7 @@ export async function executePreflight(params: QueryParams, context: QueryContex
   const startTime = now()
 
   requireKnownMode(params)
+  requireValidQueryOptions(params, config)
   const hasTerm = params.term !== undefined && params.term.trim().length > 0
   const hasVector = params.vector !== undefined && params.vector.value !== undefined
   const isHybridMode = params.mode === 'hybrid' || (hasTerm && hasVector)
@@ -248,6 +268,7 @@ export async function executePreflight(params: QueryParams, context: QueryContex
     requestedVectorField !== undefined && vectorSearchersOf(context).has(requestedVectorField)
 
   let totalMatched: number
+  let countExact = true
 
   const preflightLimit = 1000
   const preflightOffset = 0
@@ -255,9 +276,11 @@ export async function executePreflight(params: QueryParams, context: QueryContex
   if (isVectorOnly && hasGlobalVectorIndex) {
     const result = await executeVectorSearch(params, context, preflightLimit, preflightOffset)
     totalMatched = result.totalMatched
+    countExact = result.matchedExact !== false
   } else if (isHybridMode && hasGlobalVectorIndex) {
     const result = await executeHybridSearch(params, context, preflightLimit, preflightOffset)
     totalMatched = result.totalMatched
+    countExact = result.matchedExact !== false
   } else if (countsWithoutScores(params)) {
     totalMatched = fanOutMatchCount(manager, params, language, config.schema, {
       searchOptions: searchOptionsFor(manager),
@@ -284,5 +307,5 @@ export async function executePreflight(params: QueryParams, context: QueryContex
   }
 
   const elapsed = now() - startTime
-  return { count: totalMatched, elapsed }
+  return { count: totalMatched, countExact, elapsed }
 }

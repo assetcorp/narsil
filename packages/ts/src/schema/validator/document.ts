@@ -68,7 +68,7 @@ function collectExtraFields(
     if (key === 'id') continue
     const path = prefix ? `${prefix}.${key}` : key
 
-    if (!(key in schema)) {
+    if (!Object.hasOwn(schema, key)) {
       extras.push(path)
       continue
     }

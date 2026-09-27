@@ -295,6 +295,8 @@ distance = R * c
 | `mi` | distance / 1609.344 |
 | `m` | distance unchanged |
 
+An implementation must accept only these three units in a geo radius filter, and it must reject any other with `SEARCH_INVALID_FILTER`. It must reject a radius whose `distance` is negative or not a finite number with `SEARCH_INVALID_FILTER` as well.
+
 Two identical points give 0, and two antipodal points give `PI * R`, which is half the circumference. Latitude must be from -90 to 90 and longitude from -180 to 180, and an implementation must reject any other value as a schema validation error at insertion.
 
 ---
@@ -388,6 +390,27 @@ isPointInPolygon(lat: float64, lon: float64, polygon: List<GeoPoint>) -> boolean
   return inside
 ```
 
+Where `crossesAntimeridian` returns true for a polygon, an implementation must apply `eastward` to every longitude of the polygon and to the tested longitude before it casts the ray. An implementation that applies this rule matches the area inside a ring whose points are in the counter-clockwise order of an exterior ring under RFC 7946, whether or not that ring crosses the antimeridian.
+
+```text
+crossesAntimeridian(polygon: List<GeoPoint>) -> boolean
+  west = minimum over i of polygon[i].lon
+  east = maximum over i of polygon[i].lon
+  A = 0   (twice the signed area)
+  j = length(polygon) - 1
+
+  for i from 0 to length(polygon) - 1:
+    A = A + polygon[j].lon * polygon[i].lat
+          - polygon[i].lon * polygon[j].lat
+    j = i
+
+  return east - west >= 180 and A < 0
+
+eastward(lon: float64) -> float64
+  when lon < 0: return lon + 360
+  return lon
+```
+
 ### Polygon Centroid
 
 An implementation may compute the centroid with the shoelace formula, so that it can filter by distance to the centroid before it applies the full polygon test.
@@ -414,7 +437,7 @@ centroid(polygon: List<GeoPoint>) -> GeoPoint
   return { lat: cx, lon: cy }
 ```
 
-A point exactly on an edge counts as outside, which is the answer that ray casting gives at a boundary. `isPointInPolygon` must return false for a polygon of fewer than three points. This specification leaves a self-intersecting polygon undefined, and an implementation may support one under the even-odd rule that ray casting already applies.
+An implementation must place a point exactly on an edge outside the polygon, which is the result of ray casting at a boundary. `isPointInPolygon` must return false for a polygon of fewer than three points, and an implementation must reject with `SEARCH_INVALID_FILTER` a geo polygon filter of fewer than three points, or one with a point whose latitude or longitude is not a finite number. The result for a self-intersecting polygon is undefined. An implementation may support such a polygon under the even-odd rule of ray casting.
 
 ---
 
@@ -464,7 +487,7 @@ A writer must compute CRC32 over the raw payload bytes, after compression when c
 
 ## FNV-1a Hash
 
-FNV-1a is the non-cryptographic hash that partition routing uses, where the partition is `hash(docId) modulo partitionCount`, and that [cursor binding](partitioning.md#cursor-binding) uses.
+FNV-1a is the non-cryptographic hash that partition routing uses, where the partition is `hash(docId) modulo partitionCount`, and that [cursor binding](partitioning.md#cursor-binding) and [replica selection](distribution/query-routing.md#replica-selection) use.
 
 ```text
 fnv1a(input: bytes) -> uint32
@@ -485,7 +508,7 @@ fnv1a(input: bytes) -> uint32
 
 The empty string returns the offset basis unchanged, because the loop has no byte to process.
 
-FNV-1a is deterministic, so the same input always gives the same output, and it spreads values evenly enough for routing. An implementation must use FNV-1a for hash-based routing and cursor binding alone, because it offers no cryptographic security.
+FNV-1a is deterministic, so the same input always gives the same output, and it spreads values evenly enough for routing. An implementation must use FNV-1a for hash-based routing, cursor binding, and replica selection alone, because it offers no cryptographic security.
 
 An implementation must hash a string as its UTF-8 bytes, because any other encoding would route one document ID to different partitions in different languages.
 
@@ -518,7 +541,7 @@ Every tie on a rank key breaks the same way. Results that share a score order by
 
 The sort value order below applies to the fields that a query or a listing names in its `sort`.
 
-A sort may name a `number`, a `boolean`, or an `enum` field with no preparation. A sort may name a `string` field only where the schema marks that field sortable, and an implementation must raise `SEARCH_INVALID_FIELD` for a sort that names an unmarked `string` field, because ordering free text takes more memory per document than ordering a scalar. Every other field type counts as missing under the rules below, so a sort that names one leaves every document equal.
+A caller may sort by a `number`, a `boolean`, or an `enum` field with no preparation. A caller may sort by a `string` field only where the schema marks that field sortable, and an implementation must raise `SEARCH_INVALID_FIELD` for a sort on an unmarked `string` field, because ordering free text takes more memory per document than ordering a scalar. An implementation must raise `SEARCH_INVALID_FIELD` for a sort on a `geopoint` or a vector field, because neither type has an order. A caller may set a mode of `min`, `max`, `avg`, or `median` on a sort field. Where a caller sets no mode, an implementation must use `min` for direction `asc` and `max` for direction `desc`. Where a document's value for a sort field is an array, an implementation must compare one value from that array. Under `min` that value is the present element that orders first in direction `asc` under the rules below, and under `max` it is the element that orders last. Under `avg` it is the mean of the array's finite numbers, and under `median` it is their median, where the median of an even count is the mean of the two middle numbers. An array that holds no such value counts as missing. An implementation must compare a value that is not an array as it is, under every mode. An implementation must raise `SEARCH_INVALID_MODE` for a direction other than `asc` and `desc`, and for any other mode, and `SEARCH_INVALID_FIELD` for `avg` or `median` on a field that the schema declares as a type other than `number` or `number[]`.
 
 An implementation must rank a query that names a sort by sort values alone, and it must skip relevance scoring. Where `includeScores` is true, it must score each hit as it would without the sort. A sorted query that holds a score threshold must compute scores to apply that floor, and it must report them only where `includeScores` is true. A hit that the implementation returns without scoring holds no score.
 
@@ -526,7 +549,7 @@ An implementation must rank a query that names a sort by sort values alone, and 
 
 A sort compares two documents field by field, in the order in which the sort names its fields, and the first field that separates them decides the order. Within one field:
 
-1. A missing value orders after every present value, in ascending and in descending direction alike. An absent field, a null, an array, an object, and a number that is not finite each count as missing. Two missing values are equal.
+1. A missing value orders after every present value, in ascending and in descending direction alike. An absent field, a null, an array with no value under the field's mode, an object, and a number that is not finite each count as missing. Two missing values are equal.
 2. Present values of different types order by type: numbers, then strings, then booleans.
 3. Numbers compare numerically. Booleans compare with false first. Strings compare as defined below.
 4. A field with direction `desc` reverses the outcome of steps 2 and 3. Step 1 is exempt, so a missing value stays last under either direction.

@@ -20,6 +20,15 @@ export async function spawnNodeWorker(
   }
 }
 
+export async function nodeThreadId(): Promise<number> {
+  try {
+    const workerThreads = await import('node:worker_threads')
+    return workerThreads.threadId
+  } catch {
+    return 0
+  }
+}
+
 export async function isNodeMainThread(): Promise<boolean> {
   try {
     const workerThreads = await import('node:worker_threads')
