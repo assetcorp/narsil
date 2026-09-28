@@ -35,7 +35,7 @@ def test_the_page_names_the_heap_each_java_engine_reports():
 
     assert java_heap_sentence(engines) == (
         " Each Java engine divides that cap between its heap and the memory outside it. "
-        "Elasticsearch reports a 10.7 GB heap and OpenSearch reports a 6.4 GB heap."
+        "Elasticsearch reports a 10 GiB heap and OpenSearch reports a 6 GiB heap."
     )
     assert java_heap_sentence([{"name": "narsil", "build_identity": None}]) == ""
 

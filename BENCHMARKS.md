@@ -31,13 +31,14 @@ rest of the comparison stands on a trusted baseline. The setup, the pinned engin
 versions, and the datasets all come from the recorded run.
 
 <!-- BENCH:server-setup START -->
-- **Run.** These figures come from run `20260804T184221Z`, recorded on 2026-08-04 from commit `ad93b7f4fe58`. The raw per-engine results and the full comparison are in [the run report](benchmarks/server/results/runs/20260804T184221Z/comparison.md).
-- **Datasets.** The harness measured SciFact (5,183 documents) and NFCorpus (3,633 documents).
-- **Engines.** The comparison runs Narsil 0.2.2 against Elasticsearch 9.5.0, Meilisearch 1.52.0, OpenSearch 3.7.0, Qdrant 1.18.3, Typesense 30.2, and Weaviate 1.39.0, and every engine runs from a pinned image.
-- **Equal conditions.** Every engine receives the same 8.6 GB memory cap, the same run depth of 1,000, and the same run-file ordering. The harness tests one engine at a time, so each engine has the machine to itself.
-- **Load.** The harness measures throughput at 16 concurrent clients, with one pass per level. The load generator shares the machine with the engine under test, so its client processes take CPU time that the engine could otherwise use. The harness measures every engine under that same arrangement.
-- **Narsil threads.** The harness recorded no worker copy configuration for Narsil in this run.
-- **Machine.** GCP c3-standard-8, us-central1-a hosted this run, and it reports Intel(R) Xeon(R) Platinum 8481C CPU @ 2.70GHz and Linux 6.17.0-1021-gcp x86_64.
+- **Run.** These figures come from run `20260928T002255Z`, recorded on 2026-09-28 from commit `5dc940c70724`. The raw per-engine results and the full comparison are in [the run report](benchmarks/server/results/runs/20260928T002255Z/comparison.md).
+- **Datasets.** The harness measured SciFact (5,183 documents), NFCorpus (3,633 documents), DBpedia entities 100K (100,000 documents), and DBpedia entities 1M (995,000 documents). SciFact is loaded and hash-verified through `ir_datasets`, with sentence-transformers/all-MiniLM-L6-v2 vectors at 384 dimensions; NFCorpus is loaded and hash-verified through `ir_datasets`, with sentence-transformers/all-MiniLM-L6-v2 vectors at 384 dimensions; DBpedia entities 100K is read from a published dataset artifact pinned by its SHA-256, with text-embedding-ada-002 vectors at 1,536 dimensions; DBpedia entities 1M is read from a published dataset artifact pinned by its SHA-256, with text-embedding-ada-002 vectors at 1,536 dimensions.
+- **Engines.** The comparison runs Narsil 0.3.0 against Elasticsearch 9.5.4, Meilisearch 1.54.0, OpenSearch 3.8.0, Qdrant 1.19.1, Typesense 30.2, and Weaviate 1.39.5, and every engine runs from a pinned image.
+- **Equal conditions.** Every engine receives the same 20 GiB memory cap, the same run depth of 1,000, and the same run-file ordering. The harness tests one engine at a time, so each engine has the machine to itself. Each Java engine divides that cap between its heap and the memory outside it. Elasticsearch reports a 10 GiB heap and OpenSearch reports a 6 GiB heap.
+- **Load.** The harness measures throughput at 1, 2, 4, 8, 16, 32, and 64 concurrent clients, with one pass per level and 3 passes at each engine's peak level. The tables report the median peak pass with a 95% bootstrap interval. The load generator shares the machine with the engine under test, so its client processes take CPU time that the engine could otherwise use. The harness measures every engine under that same arrangement.
+- **Narsil threads.** Narsil started at the engine defaults, and the harness read 7 worker threads, 7 request threads receiving requests, and the benchmark index scaled out across them.
+- **Narsil vector search.** Narsil's server reports that it searches vector graphs through its native search core in C, which npm installs with the package on Node.js for macOS, Linux, and Windows.
+- **Machine.** The engines ran on 3 machines: Narsil, Elasticsearch, and OpenSearch on GCP c3-standard-8, us-central1-a, which reports Intel(R) Xeon(R) Platinum 8481C CPU @ 2.70GHz and Linux 7.0.0-1011-gcp x86_64, Meilisearch on GCP c3-standard-8, us-west1-a, which reports Intel(R) Xeon(R) Platinum 8481C CPU @ 2.70GHz and Linux 7.0.0-1011-gcp x86_64, and Qdrant, Typesense, and Weaviate on GCP c3-standard-8, us-east1-b, which reports Intel(R) Xeon(R) Platinum 8481C CPU @ 2.70GHz and Linux 7.0.0-1011-gcp x86_64.
 - **BM25 calibration.** Narsil indexes each corpus with BM25 k1=0.9 and b=0.4, the Anserini reference configuration.
 <!-- BENCH:server-setup END -->
 
@@ -60,29 +61,61 @@ models in place of BM25, which places them lower here.
 <!-- BENCH:server-keyword START -->
 **SciFact.**
 
-<img src="benchmarks/server/results/runs/20260804T184221Z/charts/equal-precision-keyword-scifact-bars.svg" alt="Two bar panels for the keyword track on SciFact: nDCG@10 per engine, and peak queries per second per engine with a 95% confidence interval across passes." width="820">
+<img src="benchmarks/server/results/runs/20260928T002255Z/charts/equal-precision-keyword-scifact-bars.svg" alt="Two bar panels for the keyword track on SciFact: nDCG@10 per engine, and peak queries per second per engine with a 95% confidence interval across passes." width="820">
 
 | Engine | nDCG@10 | Recall@100 | MAP | MRR | Peak QPS |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Narsil | 0.6814 | 0.9253 | 0.6417 | 0.6494 | 958 |
-| Elasticsearch | 0.6789 | 0.9253 | 0.6401 | 0.6506 | 841 |
-| OpenSearch | 0.6789 | 0.9253 | 0.6401 | 0.6506 | 878 |
-| Meilisearch | 0.3748 | 0.5302 | 0.3467 | 0.3534 | 818 |
-| Typesense | 0.3728 | 0.3923 | 0.3659 | 0.3784 | 189 |
+| Narsil | 0.6814 | 0.9253 | 0.6417 | 0.6494 | 4,200 (4,169 to 4,212) (client-limited) |
+| Elasticsearch | 0.6789 | 0.9253 | 0.6401 | 0.6506 | 2,796 (2,750 to 2,798) |
+| OpenSearch | 0.6789 | 0.9253 | 0.6401 | 0.6506 | 3,027 (2,989 to 3,031) |
+| Typesense | 0.5407 | 0.7501 | 0.5081 | 0.5191 | 331 (331 to 333) |
+| Meilisearch | 0.5018 | 0.5982 | 0.4809 | 0.4889 | 1,559 (1,551 to 1,565) |
+
+<img src="benchmarks/server/results/runs/20260928T002255Z/charts/equal-precision-keyword-scifact-sweep.svg" alt="Line panels for the keyword track on SciFact against concurrent clients: queries per second with a confidence band, server-side p99 latency under load on a logarithmic scale for the engines that report their own query time, and the engine container's busy cores where the harness recorded them." width="820">
 
 **NFCorpus.**
 
-<img src="benchmarks/server/results/runs/20260804T184221Z/charts/equal-precision-keyword-nfcorpus-bars.svg" alt="Two bar panels for the keyword track on NFCorpus: nDCG@10 per engine, and peak queries per second per engine with a 95% confidence interval across passes." width="820">
+<img src="benchmarks/server/results/runs/20260928T002255Z/charts/equal-precision-keyword-nfcorpus-bars.svg" alt="Two bar panels for the keyword track on NFCorpus: nDCG@10 per engine, and peak queries per second per engine with a 95% confidence interval across passes." width="820">
 
 | Engine | nDCG@10 | Recall@100 | MAP | MRR | Peak QPS |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Narsil | 0.3278 | 0.2489 | 0.1532 | 0.5305 | 1,089 |
-| Elasticsearch | 0.3206 | 0.2457 | 0.1503 | 0.5255 | 975 |
-| OpenSearch | 0.3206 | 0.2457 | 0.1503 | 0.5255 | 969 |
-| Meilisearch | 0.2550 | 0.1701 | 0.1167 | 0.4338 | 893 |
-| Typesense | 0.1817 | 0.1123 | 0.0839 | 0.3372 | 852 |
+| Narsil | 0.3278 | 0.2489 | 0.1532 | 0.5305 | 4,940 (4,719 to 4,950) |
+| Elasticsearch | 0.3206 | 0.2457 | 0.1503 | 0.5255 | 3,128 (3,128 to 3,137) |
+| OpenSearch | 0.3206 | 0.2457 | 0.1503 | 0.5255 | 3,252 (3,250 to 3,261) |
+| Meilisearch | 0.2671 | 0.1553 | 0.1221 | 0.4443 | 2,428 (2,419 to 2,463) |
+| Typesense | 0.2237 | 0.2075 | 0.1101 | 0.3868 | 2,376 (2,365 to 2,379) |
 
-<img src="benchmarks/server/results/runs/20260804T184221Z/charts/equal-precision-keyword-latency-profile.svg" alt="Server-side latency at p50, p95, p99, p99.9, and the maximum for each engine on the keyword track at its peak concurrency level, one panel per dataset, on a logarithmic scale. An engine that reports no server-side time is absent, and a whole-millisecond timer leaves out the points it floors to zero." width="820">
+<img src="benchmarks/server/results/runs/20260928T002255Z/charts/equal-precision-keyword-nfcorpus-sweep.svg" alt="Line panels for the keyword track on NFCorpus against concurrent clients: queries per second with a confidence band, server-side p99 latency under load on a logarithmic scale for the engines that report their own query time, and the engine container's busy cores where the harness recorded them." width="820">
+
+**DBpedia entities 100K.**
+
+<img src="benchmarks/server/results/runs/20260928T002255Z/charts/equal-precision-keyword-dbpedia-entities-openai-100k-bars.svg" alt="One bar panel for the keyword track on DBpedia entities 100K: peak queries per second per engine with a 95% confidence interval across passes." width="820">
+
+| Engine | Peak QPS |
+| --- | ---: |
+| Narsil | 4,397 (4,327 to 4,401) (client-limited) |
+| OpenSearch | 3,242 (3,232 to 3,245) |
+| Elasticsearch | 3,100 (3,075 to 3,118) |
+| Meilisearch | 2,039 (2,037 to 2,044) |
+| Typesense | 1,908 (1,906 to 1,913) |
+
+<img src="benchmarks/server/results/runs/20260928T002255Z/charts/equal-precision-keyword-dbpedia-entities-openai-100k-sweep.svg" alt="Line panels for the keyword track on DBpedia entities 100K against concurrent clients: queries per second with a confidence band, server-side p99 latency under load on a logarithmic scale for the engines that report their own query time, and the engine container's busy cores where the harness recorded them." width="820">
+
+**DBpedia entities 1M.**
+
+<img src="benchmarks/server/results/runs/20260928T002255Z/charts/equal-precision-keyword-dbpedia-entities-openai-1m-bars.svg" alt="One bar panel for the keyword track on DBpedia entities 1M: peak queries per second per engine with a 95% confidence interval across passes." width="820">
+
+| Engine | Peak QPS |
+| --- | ---: |
+| OpenSearch | 2,994 (2,956 to 2,999) |
+| Narsil | 2,842 (2,758 to 2,888) |
+| Elasticsearch | 2,782 (2,773 to 2,785) |
+| Typesense | 1,782 (1,782 to 1,798) |
+| Meilisearch | 1,144 (1,134 to 1,149) |
+
+<img src="benchmarks/server/results/runs/20260928T002255Z/charts/equal-precision-keyword-dbpedia-entities-openai-1m-sweep.svg" alt="Line panels for the keyword track on DBpedia entities 1M against concurrent clients: queries per second with a confidence band, server-side p99 latency under load on a logarithmic scale for the engines that report their own query time, and the engine container's busy cores where the harness recorded them." width="820">
+
+<img src="benchmarks/server/results/runs/20260928T002255Z/charts/equal-precision-keyword-latency-profile.svg" alt="Server-side latency at p50, p95, p99, p99.9, and the maximum for each engine on the keyword track at its peak concurrency level, one panel per dataset, on a logarithmic scale. An engine that reports no server-side time is absent, and a whole-millisecond timer leaves out the points it floors to zero." width="820">
 <!-- BENCH:server-keyword END -->
 
 ### Vector track
@@ -97,33 +130,73 @@ recall sweep, a further chart draws queries per second against recall, so you ca
 see how much throughput each engine gives up for the last point of recall.
 
 <!-- BENCH:server-vector START -->
-On SciFact, every engine tunes its search effort to reach ann_recall@10 of at least 0.99 against the exact neighbours, and each returns the same ranking, so nDCG@10 is 0.6239 and Recall@100 is 0.9227 across the field. On NFCorpus, every engine tunes its search effort to reach ann_recall@10 of at least 0.99 against the exact neighbours, and each returns the same ranking, so nDCG@10 is 0.3145 and Recall@100 is 0.3094 across the field.
+On SciFact, every engine tunes its search effort to reach ann_recall@10 of at least 0.99 against the exact neighbours, and each returns the same ranking, so nDCG@10 is 0.6239 and Recall@100 is 0.9227 across the field. On NFCorpus, every engine tunes its search effort to reach ann_recall@10 of at least 0.99 against the exact neighbours, and each returns the same ranking, so nDCG@10 is 0.3145 and Recall@100 is 0.3094 across the field. On DBpedia entities 100K, every engine tunes its search effort to reach ann_recall@10 of at least 0.99 against the exact neighbours. The set carries no relevance judgements, so it reports recall, latency, and throughput and no ranking quality. On DBpedia entities 1M, every engine tunes its search effort to reach ann_recall@10 of at least 0.99 against the exact neighbours. The set carries no relevance judgements, so it reports recall, latency, and throughput and no ranking quality.
 
 **SciFact.**
 
-<img src="benchmarks/server/results/runs/20260804T184221Z/charts/equal-precision-vector-scifact-bars.svg" alt="Two bar panels for the vector track on SciFact: nDCG@10 per engine, and peak queries per second per engine with a 95% confidence interval across passes." width="820">
+<img src="benchmarks/server/results/runs/20260928T002255Z/charts/equal-precision-vector-scifact-bars.svg" alt="Two bar panels for the vector track on SciFact: nDCG@10 per engine, and peak queries per second per engine with a 95% confidence interval across passes." width="820">
 
 | Engine | Search effort | ANN recall@10 | Peak QPS |
 | --- | --- | ---: | ---: |
-| OpenSearch | ef_search 64 | 0.9957 | 730 |
-| Qdrant | hnsw_ef 32 | 0.9937 | 698 |
-| Elasticsearch | num_candidates 64 | 0.9937 | 690 |
-| Weaviate | ef 64 | 0.9950 | 637 |
-| Narsil | efSearch 64 | 0.9967 | 259 |
+| Narsil | efSearch 64 | 0.9943 | 2,824 (2,820 to 2,837) (client-limited) |
+| Qdrant | hnsw_ef 32 | 0.9937 | 2,413 (2,411 to 2,417) (client-limited) |
+| OpenSearch | ef_search 64 | 0.9957 | 2,300 (2,297 to 2,304) |
+| Elasticsearch | num_candidates 64 | 0.9940 | 2,235 (2,208 to 2,236) |
+| Weaviate | ef 64 | 0.9967 | 1,233 (1,222 to 1,234) |
+
+<img src="benchmarks/server/results/runs/20260928T002255Z/charts/equal-precision-vector-scifact-sweep.svg" alt="Line panels for the vector track on SciFact against concurrent clients: queries per second with a confidence band, server-side p99 latency under load on a logarithmic scale for the engines that report their own query time, and the engine container's busy cores where the harness recorded them." width="820">
+
+<img src="benchmarks/server/results/runs/20260928T002255Z/charts/vector-scifact-throughput-against-recall.svg" alt="Queries per second against ANN recall@10 on SciFact, one point per search-effort level per engine, with equal precision drawn solid and recommended production settings dashed." width="820">
 
 **NFCorpus.**
 
-<img src="benchmarks/server/results/runs/20260804T184221Z/charts/equal-precision-vector-nfcorpus-bars.svg" alt="Two bar panels for the vector track on NFCorpus: nDCG@10 per engine, and peak queries per second per engine with a 95% confidence interval across passes." width="820">
+<img src="benchmarks/server/results/runs/20260928T002255Z/charts/equal-precision-vector-nfcorpus-bars.svg" alt="Two bar panels for the vector track on NFCorpus: nDCG@10 per engine, and peak queries per second per engine with a 95% confidence interval across passes." width="820">
 
 | Engine | Search effort | ANN recall@10 | Peak QPS |
 | --- | --- | ---: | ---: |
-| Elasticsearch | num_candidates 128 | 0.9938 | 715 |
-| OpenSearch | ef_search 128 | 0.9944 | 710 |
-| Qdrant | hnsw_ef 128 | 0.9969 | 703 |
-| Weaviate | ef 128 | 0.9929 | 632 |
-| Narsil | efSearch 128 | 0.9950 | 267 |
+| Narsil | efSearch 128 | 0.9941 | 2,744 (2,744 to 2,752) |
+| Qdrant | hnsw_ef 64 | 0.9960 | 2,359 (2,354 to 2,364) |
+| OpenSearch | ef_search 128 | 0.9947 | 2,253 (2,244 to 2,253) |
+| Elasticsearch | num_candidates 192 | 0.9904 | 2,168 (2,152 to 2,176) |
+| Weaviate | ef 192 | 0.9957 | 1,172 (1,169 to 1,172) |
 
-<img src="benchmarks/server/results/runs/20260804T184221Z/charts/equal-precision-vector-latency-profile.svg" alt="Server-side latency at p50, p95, p99, p99.9, and the maximum for each engine on the vector track at its peak concurrency level, one panel per dataset, on a logarithmic scale. An engine that reports no server-side time is absent, and a whole-millisecond timer leaves out the points it floors to zero." width="820">
+<img src="benchmarks/server/results/runs/20260928T002255Z/charts/equal-precision-vector-nfcorpus-sweep.svg" alt="Line panels for the vector track on NFCorpus against concurrent clients: queries per second with a confidence band, server-side p99 latency under load on a logarithmic scale for the engines that report their own query time, and the engine container's busy cores where the harness recorded them." width="820">
+
+<img src="benchmarks/server/results/runs/20260928T002255Z/charts/vector-nfcorpus-throughput-against-recall.svg" alt="Queries per second against ANN recall@10 on NFCorpus, one point per search-effort level per engine, with equal precision drawn solid and recommended production settings dashed." width="820">
+
+**DBpedia entities 100K.**
+
+<img src="benchmarks/server/results/runs/20260928T002255Z/charts/equal-precision-vector-dbpedia-entities-openai-100k-bars.svg" alt="One bar panel for the vector track on DBpedia entities 100K: peak queries per second per engine with a 95% confidence interval across passes." width="820">
+
+| Engine | Search effort | ANN recall@10 | Peak QPS |
+| --- | --- | ---: | ---: |
+| OpenSearch | ef_search 128 | 0.9918 | 1,211 (1,209 to 1,216) |
+| Narsil | efSearch 128 | 0.9907 | 1,197 (1,194 to 1,203) |
+| Elasticsearch | num_candidates 768 | 0.9922 | 986 (980 to 996) |
+| Qdrant | hnsw_ef 128 | 0.9942 | 841 (833 to 841) |
+| Weaviate | ef 192 | 0.9931 | 467 (467 to 469) |
+
+<img src="benchmarks/server/results/runs/20260928T002255Z/charts/equal-precision-vector-dbpedia-entities-openai-100k-sweep.svg" alt="Line panels for the vector track on DBpedia entities 100K against concurrent clients: queries per second with a confidence band, server-side p99 latency under load on a logarithmic scale for the engines that report their own query time, and the engine container's busy cores where the harness recorded them." width="820">
+
+<img src="benchmarks/server/results/runs/20260928T002255Z/charts/vector-dbpedia-entities-openai-100k-throughput-against-recall.svg" alt="Queries per second against ANN recall@10 on DBpedia entities 100K, one point per search-effort level per engine, with equal precision drawn solid and recommended production settings dashed." width="820">
+
+**DBpedia entities 1M.**
+
+<img src="benchmarks/server/results/runs/20260928T002255Z/charts/equal-precision-vector-dbpedia-entities-openai-1m-bars.svg" alt="One bar panel for the vector track on DBpedia entities 1M: peak queries per second per engine with a 95% confidence interval across passes." width="820">
+
+| Engine | Search effort | ANN recall@10 | Peak QPS |
+| --- | --- | ---: | ---: |
+| OpenSearch | ef_search 384 | 0.9940 | 869 (869 to 872) |
+| Narsil | efSearch 384 | 0.9936 | 670 (663 to 675) |
+| Elasticsearch | num_candidates 2048 | 0.9921 | 609 (609 to 614) |
+| Qdrant | hnsw_ef 192 | 0.9931 | 525 (522 to 529) |
+| Weaviate | ef 512 | 0.9942 | 362 (359 to 371) |
+
+<img src="benchmarks/server/results/runs/20260928T002255Z/charts/equal-precision-vector-dbpedia-entities-openai-1m-sweep.svg" alt="Line panels for the vector track on DBpedia entities 1M against concurrent clients: queries per second with a confidence band, server-side p99 latency under load on a logarithmic scale for the engines that report their own query time, and the engine container's busy cores where the harness recorded them." width="820">
+
+<img src="benchmarks/server/results/runs/20260928T002255Z/charts/vector-dbpedia-entities-openai-1m-throughput-against-recall.svg" alt="Queries per second against ANN recall@10 on DBpedia entities 1M, one point per search-effort level per engine, with equal precision drawn solid and recommended production settings dashed." width="820">
+
+<img src="benchmarks/server/results/runs/20260928T002255Z/charts/equal-precision-vector-latency-profile.svg" alt="Server-side latency at p50, p95, p99, p99.9, and the maximum for each engine on the vector track at its peak concurrency level, one panel per dataset, on a logarithmic scale. An engine that reports no server-side time is absent, and a whole-millisecond timer leaves out the points it floors to zero." width="820">
 <!-- BENCH:server-vector END -->
 
 ### Hybrid track
@@ -134,29 +207,61 @@ differs per engine, so ranking quality varies again.
 <!-- BENCH:server-hybrid START -->
 **SciFact.**
 
-<img src="benchmarks/server/results/runs/20260804T184221Z/charts/equal-precision-hybrid-scifact-bars.svg" alt="Two bar panels for the hybrid track on SciFact: nDCG@10 per engine, and peak queries per second per engine with a 95% confidence interval across passes." width="820">
+<img src="benchmarks/server/results/runs/20260928T002255Z/charts/equal-precision-hybrid-scifact-bars.svg" alt="Two bar panels for the hybrid track on SciFact: nDCG@10 per engine, and peak queries per second per engine with a 95% confidence interval across passes." width="820">
 
 | Engine | nDCG@10 | Recall@100 | MAP | MRR | Peak QPS |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Qdrant | 0.7155 | 0.9577 | 0.6730 | 0.6762 | 668 |
-| Elasticsearch | 0.7053 | 0.9610 | 0.6587 | 0.6643 | 642 |
-| OpenSearch | 0.7053 | 0.9610 | 0.6587 | 0.6643 | 656 |
-| Narsil | 0.7026 | 0.9643 | 0.6543 | 0.6615 | 269 |
-| Weaviate | 0.6885 | 0.9577 | 0.6405 | 0.6513 | 516 |
+| Qdrant | 0.7141 | 0.9577 | 0.6722 | 0.6762 | 2,238 (2,237 to 2,248) |
+| Elasticsearch | 0.7053 | 0.9610 | 0.6587 | 0.6643 | 1,753 (1,749 to 1,754) |
+| OpenSearch | 0.7053 | 0.9610 | 0.6587 | 0.6643 | 1,775 (1,771 to 1,781) |
+| Narsil | 0.7026 | 0.9643 | 0.6543 | 0.6615 | 2,602 (2,588 to 2,604) (client-limited) |
+| Weaviate | 0.6803 | 0.9577 | 0.6316 | 0.6410 | 679 (670 to 680) |
+
+<img src="benchmarks/server/results/runs/20260928T002255Z/charts/equal-precision-hybrid-scifact-sweep.svg" alt="Line panels for the hybrid track on SciFact against concurrent clients: queries per second with a confidence band, server-side p99 latency under load on a logarithmic scale for the engines that report their own query time, and the engine container's busy cores where the harness recorded them." width="820">
 
 **NFCorpus.**
 
-<img src="benchmarks/server/results/runs/20260804T184221Z/charts/equal-precision-hybrid-nfcorpus-bars.svg" alt="Two bar panels for the hybrid track on NFCorpus: nDCG@10 per engine, and peak queries per second per engine with a 95% confidence interval across passes." width="820">
+<img src="benchmarks/server/results/runs/20260928T002255Z/charts/equal-precision-hybrid-nfcorpus-bars.svg" alt="Two bar panels for the hybrid track on NFCorpus: nDCG@10 per engine, and peak queries per second per engine with a 95% confidence interval across passes." width="820">
 
 | Engine | nDCG@10 | Recall@100 | MAP | MRR | Peak QPS |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Narsil | 0.3560 | 0.3239 | 0.1878 | 0.5745 | 263 |
-| OpenSearch | 0.3521 | 0.3216 | 0.1867 | 0.5653 | 681 |
-| Elasticsearch | 0.3516 | 0.3216 | 0.1866 | 0.5633 | 672 |
-| Qdrant | 0.3515 | 0.3239 | 0.1826 | 0.5686 | 683 |
-| Weaviate | 0.3427 | 0.3180 | 0.1811 | 0.5584 | 547 |
+| Narsil | 0.3560 | 0.3239 | 0.1878 | 0.5745 | 2,633 (2,619 to 2,639) (client-limited) |
+| OpenSearch | 0.3522 | 0.3215 | 0.1867 | 0.5649 | 1,934 (1,931 to 1,937) |
+| Elasticsearch | 0.3521 | 0.3215 | 0.1867 | 0.5649 | 1,859 (1,858 to 1,873) |
+| Qdrant | 0.3499 | 0.3235 | 0.1826 | 0.5640 | 2,234 (2,230 to 2,234) |
+| Weaviate | 0.3425 | 0.3195 | 0.1808 | 0.5548 | 766 (765 to 767) |
 
-<img src="benchmarks/server/results/runs/20260804T184221Z/charts/equal-precision-hybrid-latency-profile.svg" alt="Server-side latency at p50, p95, p99, p99.9, and the maximum for each engine on the hybrid track at its peak concurrency level, one panel per dataset, on a logarithmic scale. An engine that reports no server-side time is absent, and a whole-millisecond timer leaves out the points it floors to zero." width="820">
+<img src="benchmarks/server/results/runs/20260928T002255Z/charts/equal-precision-hybrid-nfcorpus-sweep.svg" alt="Line panels for the hybrid track on NFCorpus against concurrent clients: queries per second with a confidence band, server-side p99 latency under load on a logarithmic scale for the engines that report their own query time, and the engine container's busy cores where the harness recorded them." width="820">
+
+**DBpedia entities 100K.**
+
+<img src="benchmarks/server/results/runs/20260928T002255Z/charts/equal-precision-hybrid-dbpedia-entities-openai-100k-bars.svg" alt="One bar panel for the hybrid track on DBpedia entities 100K: peak queries per second per engine with a 95% confidence interval across passes." width="820">
+
+| Engine | Peak QPS |
+| --- | ---: |
+| Narsil | 1,187 (1,185 to 1,190) |
+| OpenSearch | 1,110 (1,109 to 1,114) |
+| Elasticsearch | 907 (901 to 912) |
+| Qdrant | 777 (776 to 781) |
+| Weaviate | 396 (395 to 402) |
+
+<img src="benchmarks/server/results/runs/20260928T002255Z/charts/equal-precision-hybrid-dbpedia-entities-openai-100k-sweep.svg" alt="Line panels for the hybrid track on DBpedia entities 100K against concurrent clients: queries per second with a confidence band, server-side p99 latency under load on a logarithmic scale for the engines that report their own query time, and the engine container's busy cores where the harness recorded them." width="820">
+
+**DBpedia entities 1M.**
+
+<img src="benchmarks/server/results/runs/20260928T002255Z/charts/equal-precision-hybrid-dbpedia-entities-openai-1m-bars.svg" alt="One bar panel for the hybrid track on DBpedia entities 1M: peak queries per second per engine with a 95% confidence interval across passes." width="820">
+
+| Engine | Peak QPS |
+| --- | ---: |
+| OpenSearch | 792 (791 to 795) |
+| Narsil | 617 (616 to 621) |
+| Elasticsearch | 570 (566 to 572) |
+| Qdrant | 489 (488 to 495) |
+| Weaviate | 307 (301 to 307) |
+
+<img src="benchmarks/server/results/runs/20260928T002255Z/charts/equal-precision-hybrid-dbpedia-entities-openai-1m-sweep.svg" alt="Line panels for the hybrid track on DBpedia entities 1M against concurrent clients: queries per second with a confidence band, server-side p99 latency under load on a logarithmic scale for the engines that report their own query time, and the engine container's busy cores where the harness recorded them." width="820">
+
+<img src="benchmarks/server/results/runs/20260928T002255Z/charts/equal-precision-hybrid-latency-profile.svg" alt="Server-side latency at p50, p95, p99, p99.9, and the maximum for each engine on the hybrid track at its peak concurrency level, one panel per dataset, on a logarithmic scale. An engine that reports no server-side time is absent, and a whole-millisecond timer leaves out the points it floors to zero." width="820">
 <!-- BENCH:server-hybrid END -->
 
 ### Recommended production settings
@@ -172,57 +277,121 @@ remain the headline.
 <!-- BENCH:server-vector-best-config START -->
 **SciFact.**
 
-<img src="benchmarks/server/results/runs/20260804T184221Z/charts/best-config-vector-scifact-bars.svg" alt="Two bar panels for the vector track on SciFact: nDCG@10 per engine, and peak queries per second per engine with a 95% confidence interval across passes." width="820">
+<img src="benchmarks/server/results/runs/20260928T002255Z/charts/best-config-vector-scifact-bars.svg" alt="Two bar panels for the vector track on SciFact: nDCG@10 per engine, and peak queries per second per engine with a 95% confidence interval across passes." width="820">
 
 | Engine | Search effort | ANN recall@10 | Peak QPS |
 | --- | --- | ---: | ---: |
-| Qdrant | hnsw_ef 32 | 0.9930 | 740 |
-| OpenSearch | ef_search 64 | 0.9940 | 727 |
-| Elasticsearch | num_candidates 256 | 0.9957 | 705 |
-| Weaviate | ef 64 | 0.9953 | 625 |
-| Narsil | efSearch 64 | 0.9967 | 269 |
+| Narsil (OSQ 4-bit) | efSearch 16 | 0.9927 | 2,782 (2,780 to 2,798) (client-limited) |
+| Qdrant (TurboQuant 4-bit) | hnsw_ef 32 | 0.9937 | 2,464 (2,463 to 2,477) (client-limited) |
+| OpenSearch (SQfp16) | ef_search 64 | 0.9967 | 2,331 (2,330 to 2,332) |
+| Elasticsearch (BBQ) | num_candidates 16 | 0.9913 | 2,177 (2,171 to 2,210) |
+| Weaviate (8-bit RQ) | ef 64 | 0.9957 | 1,139 (1,135 to 1,141) |
+
+<img src="benchmarks/server/results/runs/20260928T002255Z/charts/best-config-vector-scifact-sweep.svg" alt="Line panels for the vector track on SciFact against concurrent clients: queries per second with a confidence band, server-side p99 latency under load on a logarithmic scale for the engines that report their own query time, and the engine container's busy cores where the harness recorded them." width="820">
 
 **NFCorpus.**
 
-<img src="benchmarks/server/results/runs/20260804T184221Z/charts/best-config-vector-nfcorpus-bars.svg" alt="Two bar panels for the vector track on NFCorpus: nDCG@10 per engine, and peak queries per second per engine with a 95% confidence interval across passes." width="820">
+<img src="benchmarks/server/results/runs/20260928T002255Z/charts/best-config-vector-nfcorpus-bars.svg" alt="Two bar panels for the vector track on NFCorpus: nDCG@10 per engine, and peak queries per second per engine with a 95% confidence interval across passes." width="820">
 
 | Engine | Search effort | ANN recall@10 | Peak QPS |
 | --- | --- | ---: | ---: |
-| Qdrant | hnsw_ef 64 | 0.9916 | 770 |
-| OpenSearch | ef_search 128 | 0.9938 | 726 |
-| Elasticsearch | num_candidates 512 | 0.9848 | 704 |
-| Weaviate | ef 128 | 0.9938 | 630 |
-| Narsil | efSearch 128 | 0.9947 | 270 |
+| Narsil (OSQ 4-bit) | efSearch 128 | 0.9926 | 2,729 (2,699 to 2,733) |
+| Qdrant (TurboQuant 4-bit) | hnsw_ef 64 | 0.9941 | 2,424 (2,421 to 2,425) (client-limited) |
+| OpenSearch (SQfp16) | ef_search 128 | 0.9935 | 2,299 (2,295 to 2,301) |
+| Elasticsearch (BBQ) | num_candidates 8192 | 0.9848 | 2,090 (2,083 to 2,094) |
+| Weaviate (8-bit RQ) | ef 128 | 0.9920 | 1,119 (1,117 to 1,124) |
 
-<img src="benchmarks/server/results/runs/20260804T184221Z/charts/best-config-vector-latency-profile.svg" alt="Server-side latency at p50, p95, p99, p99.9, and the maximum for each engine on the vector track at its peak concurrency level, one panel per dataset, on a logarithmic scale. An engine that reports no server-side time is absent, and a whole-millisecond timer leaves out the points it floors to zero." width="820">
+<img src="benchmarks/server/results/runs/20260928T002255Z/charts/best-config-vector-nfcorpus-sweep.svg" alt="Line panels for the vector track on NFCorpus against concurrent clients: queries per second with a confidence band, server-side p99 latency under load on a logarithmic scale for the engines that report their own query time, and the engine container's busy cores where the harness recorded them." width="820">
+
+**DBpedia entities 100K.**
+
+<img src="benchmarks/server/results/runs/20260928T002255Z/charts/best-config-vector-dbpedia-entities-openai-100k-bars.svg" alt="One bar panel for the vector track on DBpedia entities 100K: peak queries per second per engine with a 95% confidence interval across passes." width="820">
+
+| Engine | Search effort | ANN recall@10 | Peak QPS |
+| --- | --- | ---: | ---: |
+| Narsil (OSQ 4-bit) | efSearch 128 | 0.9919 | 1,366 (1,347 to 1,374) |
+| OpenSearch (1-bit binary) | ef_search 192 | 0.9928 | 1,339 (1,337 to 1,344) (client-limited) |
+| Qdrant (TurboQuant 4-bit) | hnsw_ef 128 | 0.9940 | 1,278 (1,272 to 1,283) |
+| Elasticsearch (BBQ) | num_candidates 2048 | 0.9925 | 1,139 (1,137 to 1,141) |
+| Weaviate (8-bit RQ) | ef 192 | 0.9927 | 451 (450 to 454) |
+
+<img src="benchmarks/server/results/runs/20260928T002255Z/charts/best-config-vector-dbpedia-entities-openai-100k-sweep.svg" alt="Line panels for the vector track on DBpedia entities 100K against concurrent clients: queries per second with a confidence band, server-side p99 latency under load on a logarithmic scale for the engines that report their own query time, and the engine container's busy cores where the harness recorded them." width="820">
+
+**DBpedia entities 1M.**
+
+<img src="benchmarks/server/results/runs/20260928T002255Z/charts/best-config-vector-dbpedia-entities-openai-1m-bars.svg" alt="One bar panel for the vector track on DBpedia entities 1M: peak queries per second per engine with a 95% confidence interval across passes." width="820">
+
+| Engine | Search effort | ANN recall@10 | Peak QPS |
+| --- | --- | ---: | ---: |
+| Narsil (OSQ 4-bit) | efSearch 384 | 0.9942 | 1,154 (1,154 to 1,177) |
+| OpenSearch (1-bit binary) | ef_search 1024 | 0.9916 | 1,111 (1,109 to 1,117) |
+| Elasticsearch (BBQ) | num_candidates 2048 | 0.9917 | 1,075 (1,073 to 1,079) |
+| Qdrant (TurboQuant 4-bit) | hnsw_ef 192 | 0.9929 | 1,073 (1,070 to 1,077) |
+| Weaviate (8-bit RQ) | ef 384 | 0.9922 | 406 (404 to 412) |
+
+<img src="benchmarks/server/results/runs/20260928T002255Z/charts/best-config-vector-dbpedia-entities-openai-1m-sweep.svg" alt="Line panels for the vector track on DBpedia entities 1M against concurrent clients: queries per second with a confidence band, server-side p99 latency under load on a logarithmic scale for the engines that report their own query time, and the engine container's busy cores where the harness recorded them." width="820">
+
+<img src="benchmarks/server/results/runs/20260928T002255Z/charts/best-config-vector-latency-profile.svg" alt="Server-side latency at p50, p95, p99, p99.9, and the maximum for each engine on the vector track at its peak concurrency level, one panel per dataset, on a logarithmic scale. An engine that reports no server-side time is absent, and a whole-millisecond timer leaves out the points it floors to zero." width="820">
 <!-- BENCH:server-vector-best-config END -->
 
 <!-- BENCH:server-hybrid-best-config START -->
 **SciFact.**
 
-<img src="benchmarks/server/results/runs/20260804T184221Z/charts/best-config-hybrid-scifact-bars.svg" alt="Two bar panels for the hybrid track on SciFact: nDCG@10 per engine, and peak queries per second per engine with a 95% confidence interval across passes." width="820">
+<img src="benchmarks/server/results/runs/20260928T002255Z/charts/best-config-hybrid-scifact-bars.svg" alt="Two bar panels for the hybrid track on SciFact: nDCG@10 per engine, and peak queries per second per engine with a 95% confidence interval across passes." width="820">
 
 | Engine | nDCG@10 | Recall@100 | MAP | MRR | Peak QPS |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Qdrant | 0.7155 | 0.9577 | 0.6730 | 0.6762 | 685 |
-| Elasticsearch | 0.7053 | 0.9610 | 0.6587 | 0.6643 | 652 |
-| OpenSearch | 0.7053 | 0.9610 | 0.6587 | 0.6643 | 670 |
-| Narsil | 0.7026 | 0.9643 | 0.6543 | 0.6615 | 267 |
-| Weaviate | 0.6886 | 0.9577 | 0.6407 | 0.6513 | 505 |
+| Qdrant (TurboQuant 4-bit) | 0.7141 | 0.9577 | 0.6722 | 0.6762 | 2,280 (2,265 to 2,289) |
+| Elasticsearch (BBQ) | 0.7053 | 0.9610 | 0.6587 | 0.6643 | 1,734 (1,729 to 1,740) |
+| OpenSearch (SQfp16) | 0.7053 | 0.9610 | 0.6587 | 0.6643 | 1,818 (1,797 to 1,822) |
+| Narsil (OSQ 4-bit) | 0.7026 | 0.9643 | 0.6543 | 0.6615 | 2,565 (2,546 to 2,581) (client-limited) |
+| Weaviate (8-bit RQ) | 0.6803 | 0.9577 | 0.6316 | 0.6410 | 625 (624 to 627) |
+
+<img src="benchmarks/server/results/runs/20260928T002255Z/charts/best-config-hybrid-scifact-sweep.svg" alt="Line panels for the hybrid track on SciFact against concurrent clients: queries per second with a confidence band, server-side p99 latency under load on a logarithmic scale for the engines that report their own query time, and the engine container's busy cores where the harness recorded them." width="820">
 
 **NFCorpus.**
 
-<img src="benchmarks/server/results/runs/20260804T184221Z/charts/best-config-hybrid-nfcorpus-bars.svg" alt="Two bar panels for the hybrid track on NFCorpus: nDCG@10 per engine, and peak queries per second per engine with a 95% confidence interval across passes." width="820">
+<img src="benchmarks/server/results/runs/20260928T002255Z/charts/best-config-hybrid-nfcorpus-bars.svg" alt="Two bar panels for the hybrid track on NFCorpus: nDCG@10 per engine, and peak queries per second per engine with a 95% confidence interval across passes." width="820">
 
 | Engine | nDCG@10 | Recall@100 | MAP | MRR | Peak QPS |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Narsil | 0.3560 | 0.3239 | 0.1878 | 0.5745 | 263 |
-| OpenSearch | 0.3521 | 0.3216 | 0.1867 | 0.5653 | 689 |
-| Elasticsearch | 0.3517 | 0.3214 | 0.1867 | 0.5633 | 666 |
-| Qdrant | 0.3507 | 0.3241 | 0.1823 | 0.5650 | 698 |
-| Weaviate | 0.3425 | 0.3180 | 0.1804 | 0.5584 | 538 |
+| Narsil (OSQ 4-bit) | 0.3560 | 0.3239 | 0.1878 | 0.5745 | 2,628 (2,628 to 2,645) (client-limited) |
+| Elasticsearch (BBQ) | 0.3519 | 0.3215 | 0.1867 | 0.5634 | 1,818 (1,817 to 1,825) |
+| OpenSearch (SQfp16) | 0.3514 | 0.3216 | 0.1864 | 0.5618 | 1,999 (1,982 to 2,000) |
+| Qdrant (TurboQuant 4-bit) | 0.3502 | 0.3236 | 0.1826 | 0.5662 | 2,290 (2,286 to 2,294) |
+| Weaviate (8-bit RQ) | 0.3425 | 0.3193 | 0.1808 | 0.5534 | 709 (708 to 713) |
 
-<img src="benchmarks/server/results/runs/20260804T184221Z/charts/best-config-hybrid-latency-profile.svg" alt="Server-side latency at p50, p95, p99, p99.9, and the maximum for each engine on the hybrid track at its peak concurrency level, one panel per dataset, on a logarithmic scale. An engine that reports no server-side time is absent, and a whole-millisecond timer leaves out the points it floors to zero." width="820">
+<img src="benchmarks/server/results/runs/20260928T002255Z/charts/best-config-hybrid-nfcorpus-sweep.svg" alt="Line panels for the hybrid track on NFCorpus against concurrent clients: queries per second with a confidence band, server-side p99 latency under load on a logarithmic scale for the engines that report their own query time, and the engine container's busy cores where the harness recorded them." width="820">
+
+**DBpedia entities 100K.**
+
+<img src="benchmarks/server/results/runs/20260928T002255Z/charts/best-config-hybrid-dbpedia-entities-openai-100k-bars.svg" alt="One bar panel for the hybrid track on DBpedia entities 100K: peak queries per second per engine with a 95% confidence interval across passes." width="820">
+
+| Engine | Peak QPS |
+| --- | ---: |
+| Narsil (OSQ 4-bit) | 1,335 (1,329 to 1,336) |
+| OpenSearch (1-bit binary) | 1,239 (1,232 to 1,246) |
+| Qdrant (TurboQuant 4-bit) | 1,194 (1,194 to 1,200) |
+| Elasticsearch (BBQ) | 1,024 (1,023 to 1,027) |
+| Weaviate (8-bit RQ) | 358 (357 to 361) |
+
+<img src="benchmarks/server/results/runs/20260928T002255Z/charts/best-config-hybrid-dbpedia-entities-openai-100k-sweep.svg" alt="Line panels for the hybrid track on DBpedia entities 100K against concurrent clients: queries per second with a confidence band, server-side p99 latency under load on a logarithmic scale for the engines that report their own query time, and the engine container's busy cores where the harness recorded them." width="820">
+
+**DBpedia entities 1M.**
+
+<img src="benchmarks/server/results/runs/20260928T002255Z/charts/best-config-hybrid-dbpedia-entities-openai-1m-bars.svg" alt="One bar panel for the hybrid track on DBpedia entities 1M: peak queries per second per engine with a 95% confidence interval across passes." width="820">
+
+| Engine | Peak QPS |
+| --- | ---: |
+| Narsil (OSQ 4-bit) | 1,017 (1,014 to 1,018) |
+| OpenSearch (1-bit binary) | 963 (963 to 967) |
+| Qdrant (TurboQuant 4-bit) | 912 (909 to 915) |
+| Elasticsearch (BBQ) | 873 (872 to 884) |
+| Weaviate (8-bit RQ) | 291 (290 to 294) |
+
+<img src="benchmarks/server/results/runs/20260928T002255Z/charts/best-config-hybrid-dbpedia-entities-openai-1m-sweep.svg" alt="Line panels for the hybrid track on DBpedia entities 1M against concurrent clients: queries per second with a confidence band, server-side p99 latency under load on a logarithmic scale for the engines that report their own query time, and the engine container's busy cores where the harness recorded them." width="820">
+
+<img src="benchmarks/server/results/runs/20260928T002255Z/charts/best-config-hybrid-latency-profile.svg" alt="Server-side latency at p50, p95, p99, p99.9, and the maximum for each engine on the hybrid track at its peak concurrency level, one panel per dataset, on a logarithmic scale. An engine that reports no server-side time is absent, and a whole-millisecond timer leaves out the points it floors to zero." width="820">
 <!-- BENCH:server-hybrid-best-config END -->
 
 ### A note on latency
@@ -250,10 +419,11 @@ implementation, which no shared setting overrides, so a ranking gap between them
 carries both the ranking and the stemmer.
 
 <!-- BENCH:inprocess-setup START -->
-- **Run.** These figures come from run `20260804T180208Z`, recorded on 2026-08-04 from commit `ad93b7f4fe58`. The full per-scale tables are in [the run report](benchmarks/in-process/results/runs/20260804T180208Z/comparison.md).
-- **Engines.** The comparison runs Narsil 0.2.2 against Orama 3.1.18 and MiniSearch 7.2.0, all inside one Node.js process.
+- **Run.** These figures come from run `20260928T003010Z`, recorded on 2026-09-28 from commit `5dc940c70724`. The full per-scale tables are in [the run report](benchmarks/in-process/results/runs/20260928T003010Z/comparison.md).
+- **Engines.** The comparison runs Narsil 0.3.0 against Orama 3.1.18 and MiniSearch 7.2.0, all inside one Node.js process.
 - **Threads.** Every engine answers on one thread. Narsil runs with `workers.enabled` off, so it holds no worker copies here, and the server comparison above is where its worker threads take part.
-- **Machine.** GCP c3-standard-8, us-central1-a hosted this run, and it reports Intel(R) Xeon(R) Platinum 8481C CPU @ 2.70GHz, 31GB of memory, Node.js v24.19.0, and Linux x64.
+- **Vector search path.** Narsil searches vector graphs through WebAssembly in this suite, which is the path that it takes in a browser. The suite sets `NARSIL_SEARCH_BACKEND=wasm`, so these figures exclude the native search core that npm installs with the package on Node.js.
+- **Machine.** GCP c3-standard-8, us-west1-a hosted this run, and it reports Intel(R) Xeon(R) Platinum 8481C CPU @ 2.70GHz, 31GB of memory, Node.js v24.21.0, and Linux x64.
 - **Speed corpus.** The indexing and query tiers run on BEIR FiQA, 50,000 documents, measured at 1,000, 10,000, and 50,000 documents.
 - **Relevance dataset.** Ranking quality is scored on BEIR SciFact, 5,183 documents and 300 judged queries, verified by archive checksum `536e14446a0b`.
 <!-- BENCH:inprocess-setup END -->
@@ -283,32 +453,38 @@ table compares one thread. The server comparison above runs Narsil with its
 defaults, which keep positions on and hold a worker copy on every thread.
 
 <!-- BENCH:inprocess-speed START -->
-<img src="benchmarks/in-process/results/runs/20260804T180208Z/charts/embedded-scale.svg" alt="Line panels for the embedded engines across corpus size: insert documents per second, search p50 latency on a logarithmic scale, and, where the suite recorded it, heap plus external memory." width="820">
+<img src="benchmarks/in-process/results/runs/20260928T003010Z/charts/embedded-scale.svg" alt="Line panels for the embedded engines across corpus size: insert documents per second, search p50 latency on a logarithmic scale, and, where the suite recorded it, heap plus external memory." width="820">
 
 Insert throughput at each scale, documents per second:
 
 | Engine | 1,000 | 10,000 | 50,000 |
 | --- | ---: | ---: | ---: |
-| Narsil | 10,271 | 9,899 | 8,903 |
-| Orama | 4,273 | 3,969 | 3,611 |
-| MiniSearch | 7,886 | 6,729 | 6,063 |
+| Narsil | 9,220 | 8,819 | 7,944 |
+| Orama | 4,322 | 4,092 | 3,659 |
+| MiniSearch | 7,962 | 6,950 | 6,221 |
 
 Search latency at each scale, p50 milliseconds:
 
 | Engine | 1,000 | 10,000 | 50,000 |
 | --- | ---: | ---: | ---: |
-| Narsil | 0.067 | 0.497 | 2.522 |
-| Orama | 0.066 | 1.391 | 16.622 |
-| MiniSearch | 0.070 | 0.603 | 5.486 |
+| Narsil | 0.048 | 0.075 | 0.125 |
+| Orama | 0.067 | 1.360 | 16.376 |
+| MiniSearch | 0.071 | 0.595 | 4.334 |
 
-The suite recorded no memory figure under the heap plus external definition in this run.
+Heap plus external memory at each scale, megabytes:
+
+| Engine | 1,000 | 10,000 | 50,000 |
+| --- | ---: | ---: | ---: |
+| Narsil | 11.3 | 57.5 | 214.7 |
+| Orama | 11.5 | 87.3 | 398.2 |
+| MiniSearch | 6.7 | 41.6 | 175.1 |
 
 Filtered search latency at 50,000 documents, p50 milliseconds:
 
 | Engine | Filtered search p50 ms |
 | --- | ---: |
-| Narsil | 0.556 |
-| Orama | 8.010 |
+| Narsil | 0.447 |
+| Orama | 7.913 |
 | MiniSearch | not supported |
 <!-- BENCH:inprocess-speed END -->
 
@@ -320,17 +496,17 @@ support, so this tier compares Narsil against Orama.
 <!-- BENCH:inprocess-vector START -->
 Embedded vector search on BEIR SciFact:
 
-| Engine | Recall@10 | Insert docs/s | Search p50 ms |
-| --- | ---: | ---: | ---: |
-| Narsil | 100.0% | 113,843 | 2.074 |
-| Orama | 100.0% | 165,533 | 3.728 |
+| Engine | Recall@10 | Insert docs/s | Search p50 ms | Heap plus external MB |
+| --- | ---: | ---: | ---: | ---: |
+| Narsil | 100.0% | 83,523 | 1.567 | 37.9 |
+| Orama | 100.0% | 164,002 | 3.727 | 10.5 |
 
 Embedded vector search on BEIR NFCorpus:
 
-| Engine | Recall@10 | Insert docs/s | Search p50 ms |
-| --- | ---: | ---: | ---: |
-| Narsil | 100.0% | 128,931 | 1.471 |
-| Orama | 100.0% | 200,559 | 2.581 |
+| Engine | Recall@10 | Insert docs/s | Search p50 ms | Heap plus external MB |
+| --- | ---: | ---: | ---: | ---: |
+| Narsil | 100.0% | 69,790 | 1.099 | 38.5 |
+| Orama | 100.0% | 164,601 | 2.586 | 7.2 |
 <!-- BENCH:inprocess-vector END -->
 
 ## Reproduce these numbers
