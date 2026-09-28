@@ -151,7 +151,7 @@ def _tally_sentence(comparison: dict) -> str | None:
     )
 
 
-def _machines(comparison: dict) -> str:
+def _machine_labels(comparison: dict) -> list[str]:
     labels: list[str] = []
     shared = (comparison.get("environment") or {}).get("machine_label")
     for engine in comparison.get("engines") or []:
@@ -160,7 +160,21 @@ def _machines(comparison: dict) -> str:
             labels.append(label)
     if not labels and shared:
         labels.append(shared)
-    return and_join(labels) if labels else "an unrecorded machine"
+    return labels
+
+
+def _machine_sentence(comparison: dict) -> str:
+    labels = _machine_labels(comparison)
+    if not labels:
+        return "The harness recorded no machine label."
+    machine_types = {label.rpartition(", ")[0] or label for label in labels}
+    if len(machine_types) > 1:
+        return f"Machines of {integer(len(machine_types))} different types hosted the engines."
+    machine_type = machine_types.pop()
+    places = sorted({label.rpartition(", ")[2] for label in labels if ", " in label})
+    if not places:
+        return f"{machine_type} hosted the engines."
+    return f"{machine_type} hardware in {and_join(places)} hosted the engines."
 
 
 def headline_block(source: Source, benchmarks_link: str, reference: float | None) -> str:
@@ -173,7 +187,8 @@ def headline_block(source: Source, benchmarks_link: str, reference: float | None
         _speed_sentence(keyword_rows, f"On {dataset_name(KEYWORD_DATASET)}", "keyword queries"),
         _vector_sentence(comparison),
         _tally_sentence(comparison),
-        f"The harness recorded these figures in run `{source.run_id}` on {date}, on {_machines(comparison)}.",
+        f"The harness recorded these figures on {date} in run `{source.run_id}`.",
+        _machine_sentence(comparison),
         f"You'll find every dataset, every engine's settings, and the full method in "
         f"[`BENCHMARKS.md`]({benchmarks_link}).",
     ]

@@ -16,6 +16,7 @@ from chart_data import (
 )
 from chart_paths import server_chart_dir, sweep_chart
 from chart_style import (
+    BASE_FONT_POINTS,
     FIGURE_WIDTH_INCHES,
     LINE_WIDTH,
     MARKER_SIZE,
@@ -33,6 +34,8 @@ from matplotlib.ticker import FuncFormatter
 from render import dataset_name
 
 BAND_ALPHA = 0.18
+LEGEND_COLUMNS = 3
+LEGEND_ANCHOR_BELOW_AXES = (0.5, -0.36)
 
 
 def _series(row: dict, pick) -> tuple[list[float], list[float]]:
@@ -118,7 +121,12 @@ def sweep_figure(repo_root: Path, run_id: str, profile: str, track: str, dataset
             reference_note(panels[2], allowed, f"{allowed:g} cores on the machine")
     log2_axis(panels[-1], ticks)
     panels[-1].set_xlabel("Concurrent clients")
-    throughput_axes.legend(loc="upper left", ncols=4, fontsize=8)
+    panels[-1].legend(
+        loc="upper center",
+        bbox_to_anchor=LEGEND_ANCHOR_BELOW_AXES,
+        ncols=LEGEND_COLUMNS,
+        fontsize=BASE_FONT_POINTS - 1,
+    )
 
     caption(
         figure,

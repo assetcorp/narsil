@@ -72,8 +72,8 @@ def test_the_headline_quotes_the_score_the_peaks_and_the_run_they_came_from():
         "at its peak, and Elasticsearch follows with 1,568. "
         "Narsil has the highest peak throughput in 3 of the 3 keyword and vector comparisons in the newest "
         "recorded run, so read each figure beside its table. "
-        "The harness recorded these figures in run `20260901T000000Z` on 2026-09-01, on "
-        "GCP c3-standard-8, us-central1-a. "
+        "The harness recorded these figures on 2026-09-01 in run `20260901T000000Z`. "
+        "GCP c3-standard-8 hardware in us-central1-a hosted the engines. "
         "You'll find every dataset, every engine's settings, and the full method in [`BENCHMARKS.md`](BENCHMARKS.md)."
     )
 
@@ -122,6 +122,20 @@ def test_narsil_missing_its_recall_target_is_said_plainly():
 
     assert "Narsil misses the recall target, so the comparison leaves its speed unranked." in block
     assert "Narsil has the highest peak throughput in 0 of the 1 vector comparisons" in block
+
+
+def test_engines_hosted_in_several_zones_name_the_machine_type_once():
+    source = _source([_KEYWORD])
+    source.data["engines"] = [
+        {"name": "narsil", "environment": {"machine_label": "GCP c3-standard-8, us-central1-a"}},
+        {"name": "meilisearch", "environment": {"machine_label": "GCP c3-standard-8, us-west1-a"}},
+        {"name": "qdrant", "environment": {"machine_label": "GCP c3-standard-8, us-east1-b"}},
+        {"name": "elasticsearch", "environment": {"machine_label": "GCP c3-standard-8, us-central1-a"}},
+    ]
+
+    block = headline_block(source, "BENCHMARKS.md", None)
+
+    assert "GCP c3-standard-8 hardware in us-central1-a, us-east1-b, and us-west1-a hosted the engines." in block
 
 
 def test_each_readme_links_the_benchmark_page_in_the_form_its_reader_can_follow():
