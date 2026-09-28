@@ -138,16 +138,23 @@ cmd_logs() {
   esac
 }
 
+runs_created_on_vm() {
+  local remote="$1"
+  prov_ssh "git -C narsil ls-files --others --directory --exclude-standard -- $remote 2>/dev/null || true" \
+    | tr -d '\r' \
+    | sed -n "s|^$remote/\([^/][^/]*\)/\$|\1|p"
+}
+
 fetch_suite() {
   local remote="$1" dest="$REPO_ROOT/$1"
   FETCHED_IDS=""
   if [ "$DRY_RUN" = "1" ]; then
-    log "(dry-run) would fetch every run directory from $remote and merge it into $dest"
+    log "(dry-run) would fetch every run directory that the VM created under $remote and merge it into $dest"
     return 0
   fi
   local ids
-  ids="$(prov_ssh "ls narsil/$remote 2>/dev/null || true" | tr -d '\r')"
-  [ -n "$ids" ] || { log "no runs under $remote yet"; return 0; }
+  ids="$(runs_created_on_vm "$remote")"
+  [ -n "$ids" ] || { log "no runs created under $remote on the VM yet"; return 0; }
   mkdir -p "$dest"
   local id
   for id in $ids; do
