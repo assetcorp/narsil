@@ -145,6 +145,10 @@ the page names each engine's machine. Each engine writes every finished track un
 `tracks/` inside the run directory as it goes, so a VM that dies keeps what it
 measured, and `run` again with the same id finishes the rest.
 
+`fetch` copies back only the run directories that the VM created. The VM also
+holds every run that the repository already publishes, which the script leaves
+alone so that their reports stay as they were published.
+
 ## What each provider sets up
 
 - **GCP** uses `gcloud` for the connection, so it manages keys and needs no open
