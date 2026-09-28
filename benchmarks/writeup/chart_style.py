@@ -13,11 +13,11 @@ from matplotlib.ticker import FuncFormatter, LogLocator
 
 NARSIL_RED = "#e7000b"
 CHART_BLUE = "#1e9df1"
-CHART_GREEN = "#00b87a"
-CHART_AMBER = "#f7b928"
-CHART_PINK = "#e0245e"
-CHART_PURPLE = "#9260da"
-CHART_TEAL = "#00adbb"
+CHART_GREEN = "#15803d"
+CHART_AMBER = "#eda100"
+CHART_VIOLET = "#4a3aa7"
+CHART_NAVY = "#1d4ed8"
+CHART_CYAN = "#17becf"
 REFERENCE_COLOUR = "#64748b"
 IDEAL_COLOUR = "#94a3b8"
 BACKGROUND_COLOUR = "#ffffff"
@@ -27,12 +27,12 @@ ERROR_BAR_COLOUR = "#334155"
 
 ENGINE_COLOURS = {
     "narsil": NARSIL_RED,
-    "elasticsearch": CHART_BLUE,
+    "elasticsearch": CHART_AMBER,
     "opensearch": CHART_GREEN,
-    "qdrant": CHART_AMBER,
-    "weaviate": CHART_PINK,
-    "typesense": CHART_PURPLE,
-    "meilisearch": CHART_TEAL,
+    "qdrant": CHART_BLUE,
+    "weaviate": CHART_VIOLET,
+    "typesense": CHART_NAVY,
+    "meilisearch": CHART_CYAN,
     "orama": CHART_BLUE,
     "minisearch": CHART_GREEN,
 }
