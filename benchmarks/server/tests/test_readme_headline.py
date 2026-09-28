@@ -71,7 +71,7 @@ def test_the_headline_quotes_the_score_the_peaks_and_the_run_they_came_from():
         "On DBpedia entities 1M with every engine held at 0.99 recall, Narsil answers 2,116 vector queries a second "
         "at its peak, and Elasticsearch follows with 1,568. "
         "Narsil has the highest peak throughput in 3 of the 3 keyword and vector comparisons in the newest "
-        "recorded run, so read each figure beside its table. "
+        "recorded run. "
         "The harness recorded these figures on 2026-09-01 in run `20260901T000000Z`. "
         "GCP c3-standard-8 hardware in us-central1-a hosted the engines. "
         "You'll find every dataset, every engine's settings, and the full method in [`BENCHMARKS.md`](BENCHMARKS.md)."
@@ -122,6 +122,34 @@ def test_narsil_missing_its_recall_target_is_said_plainly():
 
     assert "Narsil misses the recall target, so the comparison leaves its speed unranked." in block
     assert "Narsil has the highest peak throughput in 0 of the 1 vector comparisons" in block
+
+
+def test_the_tally_counts_equal_and_production_settings_and_quotes_the_production_vector_peak():
+    equal_vector = {
+        "track": "vector",
+        "datasets": [
+            {"dataset_id": "dbpedia-entities-openai-1m", "rows": [_row("narsil", None, 670, True), _row("opensearch", None, 869, True)]}
+        ],
+    }
+    production_vector = {
+        "track": "vector",
+        "datasets": [
+            {"dataset_id": "dbpedia-entities-openai-1m", "rows": [_row("narsil", None, 1154, True), _row("opensearch", None, 1111, True)]}
+        ],
+    }
+
+    block = headline_block(
+        _source([_KEYWORD, equal_vector]), "BENCHMARKS.md", None, _source([production_vector])
+    )
+
+    assert (
+        "With each engine's recommended production settings on the same set, Narsil answers 1,154 vector queries a "
+        "second at its peak, and OpenSearch follows with 1,111."
+    ) in block
+    assert (
+        "Narsil has the highest peak throughput in 2 of the 3 keyword and vector comparisons in the newest recorded "
+        "run: 1 of 2 with every engine on equal settings, and 1 of 1 with each engine's recommended production settings."
+    ) in block
 
 
 def test_engines_hosted_in_several_zones_name_the_machine_type_once():

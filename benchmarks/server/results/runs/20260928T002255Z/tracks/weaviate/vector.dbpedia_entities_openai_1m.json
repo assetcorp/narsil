@@ -1,0 +1,791 @@
+{
+  "dataset_id": "dbpedia-entities-openai-1m",
+  "dataset_identity": {
+    "source": "artifact",
+    "artifact_sha256": "a1668e4b4a82046987c07d0282eb100cae943dd40b67e76a98fa8afb2deefe37",
+    "origin": {
+      "dataset": "KShivendu/dbpedia-entities-openai-1M",
+      "rows": "first 1000000 rows in parquet order",
+      "hold_out": "5000 rows chosen with seed 42",
+      "query_text": "entity title"
+    },
+    "vector_model": "text-embedding-ada-002",
+    "vector_dims": 1536,
+    "corpus_fingerprint": "86c2eb0aa2f0de4038e63e89c6eb1d7650caef602b9b3e015f9767e0a9d84829",
+    "fingerprint_algorithm": "sha256/len-framed/id-byte-sorted/v1"
+  },
+  "track": "vector",
+  "run_tag": "weaviate_vector",
+  "vector_profile": "equal-precision",
+  "setup": "HNSW dense vectors, distance cosine, over the shared precomputed vectors",
+  "server_setup": null,
+  "quantization": "full float",
+  "vector_model": "text-embedding-ada-002",
+  "vector_dims": 1536,
+  "queries": 5000,
+  "judged_queries": 0,
+  "metrics": null,
+  "calibration": null,
+  "operating_point": {
+    "knob": "ef",
+    "recall_metric": "ann_recall@10",
+    "recall_k": 10,
+    "target": 0.99,
+    "chosen_value": 512,
+    "rescore_oversample": null,
+    "achieved_recall": 0.99424,
+    "met_target": true,
+    "secondary_target": 0.95,
+    "secondary_value": 64,
+    "secondary_recall": 0.9542,
+    "tuning_sample_queries": 1000,
+    "sample_recall": 0.992,
+    "confirmation_steps": 0,
+    "sweep": [
+      {
+        "value": 16,
+        "recall": 0.8401,
+        "qps": 538.5497932840141,
+        "qps_ci_low": 538.5497932840141,
+        "qps_ci_high": 538.5497932840141,
+        "concurrency": 16
+      },
+      {
+        "value": 32,
+        "recall": 0.9131,
+        "qps": 531.5466644820616,
+        "qps_ci_low": 531.5466644820616,
+        "qps_ci_high": 531.5466644820616,
+        "concurrency": 16
+      },
+      {
+        "value": 64,
+        "recall": 0.9542,
+        "qps": 509.99071370035705,
+        "qps_ci_low": 509.99071370035705,
+        "qps_ci_high": 509.99071370035705,
+        "concurrency": 16
+      },
+      {
+        "value": 128,
+        "recall": 0.975,
+        "qps": 478.2788862285743,
+        "qps_ci_low": 478.2788862285743,
+        "qps_ci_high": 478.2788862285743,
+        "concurrency": 16
+      },
+      {
+        "value": 192,
+        "recall": 0.9818,
+        "qps": 450.91628971451837,
+        "qps_ci_low": 450.91628971451837,
+        "qps_ci_high": 450.91628971451837,
+        "concurrency": 16
+      },
+      {
+        "value": 256,
+        "recall": 0.9852,
+        "qps": 427.0745113699535,
+        "qps_ci_low": 427.0745113699535,
+        "qps_ci_high": 427.0745113699535,
+        "concurrency": 16
+      },
+      {
+        "value": 384,
+        "recall": 0.9887,
+        "qps": 389.13843620232416,
+        "qps_ci_low": 389.13843620232416,
+        "qps_ci_high": 389.13843620232416,
+        "concurrency": 16
+      },
+      {
+        "value": 512,
+        "recall": 0.99424,
+        "qps": 364.2168757154283,
+        "qps_ci_low": 364.2168757154283,
+        "qps_ci_high": 364.2168757154283,
+        "concurrency": 16
+      }
+    ]
+  },
+  "vector_oversample": null,
+  "operational": {
+    "documents_indexed": 995000,
+    "build_seconds": 1810.05430414,
+    "ingest_docs_per_sec": 549.7072644308029,
+    "ingest_clients": 16,
+    "ingest_batch_size": 2000,
+    "index_size_bytes": null,
+    "raw_stats": {
+      "index_size_bytes": null,
+      "raw": {
+        "class": "BenchDbpediaEntitiesOpenai1m",
+        "invertedIndexConfig": {
+          "bm25": {
+            "b": 0.4,
+            "k1": 0.9
+          },
+          "cleanupIntervalSeconds": 60,
+          "stopwords": {
+            "additions": null,
+            "preset": "en",
+            "removals": null
+          },
+          "usingBlockMaxWAND": true
+        },
+        "multiTenancyConfig": {
+          "autoTenantActivation": false,
+          "autoTenantCreation": false,
+          "enabled": false
+        },
+        "properties": [
+          {
+            "dataType": [
+              "text"
+            ],
+            "indexFilterable": true,
+            "indexRangeFilters": false,
+            "indexSearchable": false,
+            "name": "docId",
+            "tokenization": "word"
+          },
+          {
+            "dataType": [
+              "text"
+            ],
+            "indexFilterable": true,
+            "indexRangeFilters": false,
+            "indexSearchable": true,
+            "name": "text",
+            "tokenization": "word"
+          }
+        ],
+        "shardingConfig": {
+          "actualCount": 1,
+          "actualVirtualCount": 128,
+          "desiredCount": 1,
+          "desiredVirtualCount": 128,
+          "function": "murmur3",
+          "key": "_id",
+          "strategy": "hash",
+          "virtualPerPhysical": 128
+        },
+        "vectorIndexConfig": {
+          "bq": {
+            "enabled": false
+          },
+          "cleanupIntervalSeconds": 300,
+          "distance": "cosine",
+          "dynamicEfFactor": 8,
+          "dynamicEfMax": 500,
+          "dynamicEfMin": 100,
+          "ef": 512,
+          "efConstruction": 200,
+          "filterStrategy": "acorn",
+          "flatSearchCutoff": 40000,
+          "maxConnections": 16,
+          "multivector": {
+            "aggregation": "maxSim",
+            "enabled": false,
+            "muvera": {
+              "dprojections": 16,
+              "enabled": false,
+              "ksim": 4,
+              "repetitions": 10
+            }
+          },
+          "pq": {
+            "bitCompression": false,
+            "centroids": 256,
+            "enabled": false,
+            "encoder": {
+              "distribution": "log-normal",
+              "type": "kmeans"
+            },
+            "segments": 0,
+            "trainingLimit": 100000
+          },
+          "rq": {
+            "bits": 8,
+            "centering": false,
+            "enabled": false,
+            "rescoreLimit": 20,
+            "trainingLimit": 10000
+          },
+          "skip": false,
+          "skipDefaultQuantization": false,
+          "sq": {
+            "enabled": false,
+            "rescoreLimit": 20,
+            "trainingLimit": 100000
+          },
+          "trackDefaultQuantization": false,
+          "vectorCacheMaxObjects": 1000000000000
+        },
+        "vectorIndexType": "hnsw",
+        "vectorizer": "none",
+        "replicationConfig": {
+          "deletionStrategy": "TimeBasedResolution",
+          "factor": 1,
+          "asyncEnabled": false
+        }
+      }
+    }
+  },
+  "latency": {
+    "samples": 5000,
+    "mean_ms": 13.6850070584,
+    "p50_ms": 13.697557,
+    "p90_ms": 15.233449,
+    "p95_ms": 15.667861,
+    "p99_ms": 16.954586,
+    "max_ms": 29.280343,
+    "top_k": 10,
+    "client": {
+      "samples": 5000,
+      "mean_ms": 13.6850070584,
+      "p50_ms": 13.697557,
+      "p90_ms": 15.233449,
+      "p95_ms": 15.667861,
+      "p99_ms": 16.954586,
+      "max_ms": 29.280343,
+      "top_k": 10
+    },
+    "server": null,
+    "server_time_source": "client round-trip only",
+    "server_time_resolution": "not-available",
+    "repeats": 1,
+    "prior_trips": 1,
+    "warmup_queries": 0
+  },
+  "throughput": {
+    "warmup_seconds": 1.0,
+    "duration_seconds": 5.0,
+    "passes": 3,
+    "peak_concurrency": 16,
+    "client_processes": 4,
+    "server_time_source": "client round-trip only",
+    "server_time_resolution": "not-available",
+    "engine_cpu": {
+      "source": "engine container cgroup cpu.stat usage_usec",
+      "cgroup_dir": "/host/cgroup/system.slice/docker-5df7d5794512018b2413c5071fa381df97bee8917e3ffe820db8bf3fe3263d93.scope"
+    },
+    "engine_cores_allowed": 8,
+    "levels": [
+      {
+        "concurrency": 1,
+        "qps": 78.55760318429165,
+        "qps_ci_low": 78.55760318429165,
+        "qps_ci_high": 78.55760318429165,
+        "qps_samples": [
+          78.55760318429165
+        ],
+        "pass_count": 1,
+        "completed": 393,
+        "errors": 0,
+        "error_rate": 0.0,
+        "elapsed_seconds": 5.002698453999983,
+        "client_latency_ms": {
+          "samples": 393,
+          "mean_ms": 12.694505997453707,
+          "p50_ms": 12.643281000237039,
+          "p90_ms": 14.238917000056972,
+          "p95_ms": 14.543935999881796,
+          "p99_ms": 15.449620999788749,
+          "p999_ms": 21.38893300025302,
+          "max_ms": 21.38893300025302
+        },
+        "server_latency_ms": null,
+        "achieved_concurrency": 0.9972499647685787,
+        "client_processes": 1,
+        "client_cpu_seconds": 0.740593772,
+        "client_cores_busy": 0.14803885918965334,
+        "client_cpu_ceiling_cores": 1.0,
+        "client_busy_fraction": 0.14803885918965334,
+        "logical_cpus": 8,
+        "client_bound": false,
+        "engine_cores_busy": 0.8844293369856454,
+        "engine_cores_allowed": 8,
+        "passes": [
+          {
+            "concurrency": 1,
+            "qps": 78.55760318429165,
+            "completed": 393,
+            "errors": 0,
+            "error_rate": 0.0,
+            "elapsed_seconds": 5.002698453999983,
+            "client_latency_ms": {
+              "samples": 393,
+              "mean_ms": 12.694505997453707,
+              "p50_ms": 12.643281000237039,
+              "p90_ms": 14.238917000056972,
+              "p95_ms": 14.543935999881796,
+              "p99_ms": 15.449620999788749,
+              "p999_ms": 21.38893300025302,
+              "max_ms": 21.38893300025302
+            },
+            "server_latency_ms": null,
+            "achieved_concurrency": 0.9972499647685787,
+            "client_processes": 1,
+            "client_cpu_seconds": 0.740593772,
+            "client_cores_busy": 0.14803885918965334,
+            "client_cpu_ceiling_cores": 1.0,
+            "client_busy_fraction": 0.14803885918965334,
+            "logical_cpus": 8,
+            "client_bound": false,
+            "engine_cores_busy": 0.8844293369856454
+          }
+        ]
+      },
+      {
+        "concurrency": 2,
+        "qps": 148.4423086667147,
+        "qps_ci_low": 148.4423086667147,
+        "qps_ci_high": 148.4423086667147,
+        "qps_samples": [
+          148.4423086667147
+        ],
+        "pass_count": 1,
+        "completed": 743,
+        "errors": 0,
+        "error_rate": 0.0,
+        "elapsed_seconds": 5.005311536000136,
+        "client_latency_ms": {
+          "samples": 743,
+          "mean_ms": 13.43046813325163,
+          "p50_ms": 12.991619999866089,
+          "p90_ms": 16.874309000286303,
+          "p95_ms": 18.160761000217462,
+          "p99_ms": 20.451794000109658,
+          "p999_ms": 20.813736000036442,
+          "max_ms": 21.04517499992653
+        },
+        "server_latency_ms": null,
+        "achieved_concurrency": 1.993649696174614,
+        "client_processes": 2,
+        "client_cpu_seconds": 1.5813670829999995,
+        "client_cores_busy": 0.3159377936070904,
+        "client_cpu_ceiling_cores": 2.0,
+        "client_busy_fraction": 0.1579688968035452,
+        "logical_cpus": 8,
+        "client_bound": false,
+        "engine_cores_busy": 1.6987796538848905,
+        "engine_cores_allowed": 8,
+        "passes": [
+          {
+            "concurrency": 2,
+            "qps": 148.4423086667147,
+            "completed": 743,
+            "errors": 0,
+            "error_rate": 0.0,
+            "elapsed_seconds": 5.005311536000136,
+            "client_latency_ms": {
+              "samples": 743,
+              "mean_ms": 13.43046813325163,
+              "p50_ms": 12.991619999866089,
+              "p90_ms": 16.874309000286303,
+              "p95_ms": 18.160761000217462,
+              "p99_ms": 20.451794000109658,
+              "p999_ms": 20.813736000036442,
+              "max_ms": 21.04517499992653
+            },
+            "server_latency_ms": null,
+            "achieved_concurrency": 1.993649696174614,
+            "client_processes": 2,
+            "client_cpu_seconds": 1.5813670829999995,
+            "client_cores_busy": 0.3159377936070904,
+            "client_cpu_ceiling_cores": 2.0,
+            "client_busy_fraction": 0.1579688968035452,
+            "logical_cpus": 8,
+            "client_bound": false,
+            "engine_cores_busy": 1.6987796538848905
+          }
+        ]
+      },
+      {
+        "concurrency": 4,
+        "qps": 266.21421627528974,
+        "qps_ci_low": 266.21421627528974,
+        "qps_ci_high": 266.21421627528974,
+        "qps_samples": [
+          266.21421627528974
+        ],
+        "pass_count": 1,
+        "completed": 1334,
+        "errors": 0,
+        "error_rate": 0.0,
+        "elapsed_seconds": 5.011002112000369,
+        "client_latency_ms": {
+          "samples": 1334,
+          "mean_ms": 14.96931703148676,
+          "p50_ms": 14.624156000081712,
+          "p90_ms": 18.123688999821752,
+          "p95_ms": 19.200538999939454,
+          "p99_ms": 22.594884000227466,
+          "p999_ms": 29.094423000060488,
+          "max_ms": 33.619981999891024
+        },
+        "server_latency_ms": null,
+        "achieved_concurrency": 3.9850450017135945,
+        "client_processes": 4,
+        "client_cpu_seconds": 3.3331044050000003,
+        "client_cores_busy": 0.665157254078554,
+        "client_cpu_ceiling_cores": 4.0,
+        "client_busy_fraction": 0.1662893135196385,
+        "logical_cpus": 8,
+        "client_bound": false,
+        "engine_cores_busy": 3.466106653531447,
+        "engine_cores_allowed": 8,
+        "passes": [
+          {
+            "concurrency": 4,
+            "qps": 266.21421627528974,
+            "completed": 1334,
+            "errors": 0,
+            "error_rate": 0.0,
+            "elapsed_seconds": 5.011002112000369,
+            "client_latency_ms": {
+              "samples": 1334,
+              "mean_ms": 14.96931703148676,
+              "p50_ms": 14.624156000081712,
+              "p90_ms": 18.123688999821752,
+              "p95_ms": 19.200538999939454,
+              "p99_ms": 22.594884000227466,
+              "p999_ms": 29.094423000060488,
+              "max_ms": 33.619981999891024
+            },
+            "server_latency_ms": null,
+            "achieved_concurrency": 3.9850450017135945,
+            "client_processes": 4,
+            "client_cpu_seconds": 3.3331044050000003,
+            "client_cores_busy": 0.665157254078554,
+            "client_cpu_ceiling_cores": 4.0,
+            "client_busy_fraction": 0.1662893135196385,
+            "logical_cpus": 8,
+            "client_bound": false,
+            "engine_cores_busy": 3.466106653531447
+          }
+        ]
+      },
+      {
+        "concurrency": 8,
+        "qps": 369.669700921349,
+        "qps_ci_low": 369.669700921349,
+        "qps_ci_high": 369.669700921349,
+        "qps_samples": [
+          369.669700921349
+        ],
+        "pass_count": 1,
+        "completed": 1855,
+        "errors": 0,
+        "error_rate": 0.0,
+        "elapsed_seconds": 5.017993077000028,
+        "client_latency_ms": {
+          "samples": 1855,
+          "mean_ms": 21.514906111047758,
+          "p50_ms": 20.821853000143165,
+          "p90_ms": 26.44208499987144,
+          "p95_ms": 28.962441999738076,
+          "p99_ms": 38.22163799986811,
+          "p999_ms": 46.17247200030761,
+          "max_ms": 57.95546800027296
+        },
+        "server_latency_ms": null,
+        "achieved_concurrency": 7.953408907421928,
+        "client_processes": 4,
+        "client_cpu_seconds": 5.700086982,
+        "client_cores_busy": 1.1359296225669082,
+        "client_cpu_ceiling_cores": 4.0,
+        "client_busy_fraction": 0.28398240564172705,
+        "logical_cpus": 8,
+        "client_bound": false,
+        "engine_cores_busy": 6.176649410067792,
+        "engine_cores_allowed": 8,
+        "passes": [
+          {
+            "concurrency": 8,
+            "qps": 369.669700921349,
+            "completed": 1855,
+            "errors": 0,
+            "error_rate": 0.0,
+            "elapsed_seconds": 5.017993077000028,
+            "client_latency_ms": {
+              "samples": 1855,
+              "mean_ms": 21.514906111047758,
+              "p50_ms": 20.821853000143165,
+              "p90_ms": 26.44208499987144,
+              "p95_ms": 28.962441999738076,
+              "p99_ms": 38.22163799986811,
+              "p999_ms": 46.17247200030761,
+              "max_ms": 57.95546800027296
+            },
+            "server_latency_ms": null,
+            "achieved_concurrency": 7.953408907421928,
+            "client_processes": 4,
+            "client_cpu_seconds": 5.700086982,
+            "client_cores_busy": 1.1359296225669082,
+            "client_cpu_ceiling_cores": 4.0,
+            "client_busy_fraction": 0.28398240564172705,
+            "logical_cpus": 8,
+            "client_bound": false,
+            "engine_cores_busy": 6.176649410067792
+          }
+        ]
+      },
+      {
+        "concurrency": 16,
+        "qps": 362.2998579142299,
+        "qps_ci_low": 358.546445024194,
+        "qps_ci_high": 370.64877621883414,
+        "qps_samples": [
+          370.64877621883414,
+          358.546445024194,
+          362.2998579142299
+        ],
+        "pass_count": 3,
+        "completed": 5502,
+        "errors": 0,
+        "error_rate": 0.0,
+        "elapsed_seconds": 15.122489011999733,
+        "client_latency_ms": {
+          "samples": 5502,
+          "mean_ms": 43.31732048509177,
+          "p50_ms": 40.42567299984512,
+          "p90_ms": 64.59604200017566,
+          "p95_ms": 72.89171899992652,
+          "p99_ms": 98.64296099976855,
+          "p999_ms": 138.52620599982401,
+          "max_ms": 162.92704499983302
+        },
+        "server_latency_ms": null,
+        "achieved_concurrency": 15.803092903040646,
+        "client_processes": 4,
+        "client_cpu_seconds": 17.157103626,
+        "client_cores_busy": 1.1278848797716392,
+        "client_cpu_ceiling_cores": 4.0,
+        "client_busy_fraction": 0.2819712199429098,
+        "logical_cpus": 8,
+        "client_bound": false,
+        "engine_cores_busy": 6.370483288632648,
+        "engine_cores_allowed": 8,
+        "passes": [
+          {
+            "concurrency": 16,
+            "qps": 370.64877621883414,
+            "completed": 1865,
+            "errors": 0,
+            "error_rate": 0.0,
+            "elapsed_seconds": 5.031717678999939,
+            "client_latency_ms": {
+              "samples": 1865,
+              "mean_ms": 42.65908885951292,
+              "p50_ms": 39.4475460002468,
+              "p90_ms": 64.15478500002791,
+              "p95_ms": 72.74923500017394,
+              "p99_ms": 94.17448399972272,
+              "p999_ms": 150.2954210000098,
+              "max_ms": 162.92704499983302
+            },
+            "server_latency_ms": null,
+            "achieved_concurrency": 15.811539080388965,
+            "client_processes": 4,
+            "client_cpu_seconds": 5.8318342560000005,
+            "client_cores_busy": 1.1590146005884585,
+            "client_cpu_ceiling_cores": 4.0,
+            "client_busy_fraction": 0.2897536501471146,
+            "logical_cpus": 8,
+            "client_bound": false,
+            "engine_cores_busy": 6.3726178698662155
+          },
+          {
+            "concurrency": 16,
+            "qps": 358.546445024194,
+            "completed": 1804,
+            "errors": 0,
+            "error_rate": 0.0,
+            "elapsed_seconds": 5.0314262629999575,
+            "client_latency_ms": {
+              "samples": 1804,
+              "mean_ms": 44.07544161252048,
+              "p50_ms": 41.14759999993112,
+              "p90_ms": 65.02239600013127,
+              "p95_ms": 74.02036099983889,
+              "p99_ms": 103.01311599960172,
+              "p999_ms": 129.18611400027658,
+              "max_ms": 140.9423559998686
+            },
+            "server_latency_ms": null,
+            "achieved_concurrency": 15.803092903040646,
+            "client_processes": 4,
+            "client_cpu_seconds": 5.618910564,
+            "client_cores_busy": 1.11676297540526,
+            "client_cpu_ceiling_cores": 4.0,
+            "client_busy_fraction": 0.279190743851315,
+            "logical_cpus": 8,
+            "client_bound": false,
+            "engine_cores_busy": 6.363542863978987
+          },
+          {
+            "concurrency": 16,
+            "qps": 362.2998579142299,
+            "completed": 1833,
+            "errors": 0,
+            "error_rate": 0.0,
+            "elapsed_seconds": 5.059345069999836,
+            "client_latency_ms": {
+              "samples": 1833,
+              "mean_ms": 43.24091648499531,
+              "p50_ms": 40.62702500004889,
+              "p90_ms": 64.08561600028406,
+              "p95_ms": 72.17248200004178,
+              "p99_ms": 94.46774399975766,
+              "p999_ms": 127.32319499991718,
+              "max_ms": 147.98441399989315
+            },
+            "server_latency_ms": null,
+            "achieved_concurrency": 15.666177898594883,
+            "client_processes": 4,
+            "client_cpu_seconds": 5.706358806,
+            "client_cores_busy": 1.1278848797716392,
+            "client_cpu_ceiling_cores": 4.0,
+            "client_busy_fraction": 0.2819712199429098,
+            "logical_cpus": 8,
+            "client_bound": false,
+            "engine_cores_busy": 6.370483288632648
+          }
+        ]
+      },
+      {
+        "concurrency": 32,
+        "qps": 368.1297416174926,
+        "qps_ci_low": 368.1297416174926,
+        "qps_ci_high": 368.1297416174926,
+        "qps_samples": [
+          368.1297416174926
+        ],
+        "pass_count": 1,
+        "completed": 1864,
+        "errors": 0,
+        "error_rate": 0.0,
+        "elapsed_seconds": 5.06343223399972,
+        "client_latency_ms": {
+          "samples": 1864,
+          "mean_ms": 85.05746568938558,
+          "p50_ms": 80.68769299961787,
+          "p90_ms": 122.82335500003683,
+          "p95_ms": 140.5805520003014,
+          "p99_ms": 193.7948699996923,
+          "p999_ms": 287.1950419998939,
+          "max_ms": 295.9994530001495
+        },
+        "server_latency_ms": null,
+        "achieved_concurrency": 31.312182866872252,
+        "client_processes": 4,
+        "client_cpu_seconds": 5.928463002000001,
+        "client_cores_busy": 1.1708388160488865,
+        "client_cpu_ceiling_cores": 4.0,
+        "client_busy_fraction": 0.2927097040122216,
+        "logical_cpus": 8,
+        "client_bound": false,
+        "engine_cores_busy": 6.4807786080947825,
+        "engine_cores_allowed": 8,
+        "passes": [
+          {
+            "concurrency": 32,
+            "qps": 368.1297416174926,
+            "completed": 1864,
+            "errors": 0,
+            "error_rate": 0.0,
+            "elapsed_seconds": 5.06343223399972,
+            "client_latency_ms": {
+              "samples": 1864,
+              "mean_ms": 85.05746568938558,
+              "p50_ms": 80.68769299961787,
+              "p90_ms": 122.82335500003683,
+              "p95_ms": 140.5805520003014,
+              "p99_ms": 193.7948699996923,
+              "p999_ms": 287.1950419998939,
+              "max_ms": 295.9994530001495
+            },
+            "server_latency_ms": null,
+            "achieved_concurrency": 31.312182866872252,
+            "client_processes": 4,
+            "client_cpu_seconds": 5.928463002000001,
+            "client_cores_busy": 1.1708388160488865,
+            "client_cpu_ceiling_cores": 4.0,
+            "client_busy_fraction": 0.2927097040122216,
+            "logical_cpus": 8,
+            "client_bound": false,
+            "engine_cores_busy": 6.4807786080947825
+          }
+        ]
+      },
+      {
+        "concurrency": 64,
+        "qps": 357.8072337545099,
+        "qps_ci_low": 357.8072337545099,
+        "qps_ci_high": 357.8072337545099,
+        "qps_samples": [
+          357.8072337545099
+        ],
+        "pass_count": 1,
+        "completed": 1825,
+        "errors": 0,
+        "error_rate": 0.0,
+        "elapsed_seconds": 5.100511750000351,
+        "client_latency_ms": {
+          "samples": 1825,
+          "mean_ms": 169.90299585862138,
+          "p50_ms": 167.94746499999746,
+          "p90_ms": 244.04712799969275,
+          "p95_ms": 270.9470049999254,
+          "p99_ms": 319.0296910001962,
+          "p999_ms": 404.8232579998512,
+          "max_ms": 453.39538500002163
+        },
+        "server_latency_ms": null,
+        "achieved_concurrency": 60.79252095477727,
+        "client_processes": 4,
+        "client_cpu_seconds": 5.983205451999999,
+        "client_cores_busy": 1.1730598311041216,
+        "client_cpu_ceiling_cores": 4.0,
+        "client_busy_fraction": 0.2932649577760304,
+        "logical_cpus": 8,
+        "client_bound": false,
+        "engine_cores_busy": 6.454950938684577,
+        "engine_cores_allowed": 8,
+        "passes": [
+          {
+            "concurrency": 64,
+            "qps": 357.8072337545099,
+            "completed": 1825,
+            "errors": 0,
+            "error_rate": 0.0,
+            "elapsed_seconds": 5.100511750000351,
+            "client_latency_ms": {
+              "samples": 1825,
+              "mean_ms": 169.90299585862138,
+              "p50_ms": 167.94746499999746,
+              "p90_ms": 244.04712799969275,
+              "p95_ms": 270.9470049999254,
+              "p99_ms": 319.0296910001962,
+              "p999_ms": 404.8232579998512,
+              "max_ms": 453.39538500002163
+            },
+            "server_latency_ms": null,
+            "achieved_concurrency": 60.79252095477727,
+            "client_processes": 4,
+            "client_cpu_seconds": 5.983205451999999,
+            "client_cores_busy": 1.1730598311041216,
+            "client_cpu_ceiling_cores": 4.0,
+            "client_busy_fraction": 0.2932649577760304,
+            "logical_cpus": 8,
+            "client_bound": false,
+            "engine_cores_busy": 6.454950938684577
+          }
+        ]
+      }
+    ]
+  },
+  "run_file": null
+}
