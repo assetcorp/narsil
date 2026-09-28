@@ -24,7 +24,7 @@ from chart_data import (
     track,
 )
 from chart_paths import bars_chart, figure, recall_chart, server_chart_dir, sweep_chart, tail_chart
-from render import and_join, dataset_name, decimal, engine_name, integer, table
+from render import and_join, dataset_name, decimal, engine_name, gibibytes, integer, table
 from run_conditions import java_heap_sentence, load_sentence, narsil_vector_search_bullets
 from sources import Source
 
@@ -306,7 +306,7 @@ def _setup_block(source: Source) -> str:
         if engine.get("name") != "narsil"
     ]
 
-    cap = decimal((config.get("memory_cap_bytes") or 0) / 1e9, 1)
+    cap = gibibytes(config.get("memory_cap_bytes"))
     narsil_version = build.get("version") or narsil.get("version") or "n/a"
     machine = _machine_sentence(environment, engines)
 
@@ -318,7 +318,7 @@ def _setup_block(source: Source) -> str:
         f"{_dataset_engines_sentence(config)}",
         f"- **Engines.** The comparison runs Narsil {narsil_version} against {and_join(others)}, "
         "and every engine runs from a pinned image.",
-        f"- **Equal conditions.** Every engine receives the same {cap} GB memory cap, the same run depth of "
+        f"- **Equal conditions.** Every engine receives the same {cap} memory cap, the same run depth of "
         f"{integer(config.get('run_depth'))}, and the same run-file ordering. The harness tests one engine at a "
         f"time, so each engine has the machine to itself.{java_heap_sentence(engines)}",
         f"- **Load.** {load_sentence(config)}",

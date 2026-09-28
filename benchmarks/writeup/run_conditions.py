@@ -5,7 +5,7 @@ that the results record. Where an older run lacks a value, its sentence stays ou
 
 from __future__ import annotations
 
-from render import and_join, decimal, engine_name, integer
+from render import and_join, engine_name, gibibytes, integer
 
 NATIVE_VECTOR_SEARCH = "native"
 WASM_VECTOR_SEARCH = "wasm"
@@ -40,7 +40,7 @@ def java_heap_sentence(engines: list[dict]) -> str:
     for engine in engines:
         heap = (engine.get("build_identity") or {}).get("jvm_heap_max_bytes")
         if isinstance(heap, (int, float)):
-            heaps.append(f"{engine_name(engine.get('name') or '')} reports a {decimal(heap / 1e9, 1)} GB heap")
+            heaps.append(f"{engine_name(engine.get('name') or '')} reports a {gibibytes(heap)} heap")
     if not heaps:
         return ""
     return f" Each Java engine divides that cap between its heap and the memory outside it. {and_join(heaps)}."

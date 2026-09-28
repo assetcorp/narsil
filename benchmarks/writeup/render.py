@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
+GIBIBYTE_BYTES = 1024**3
+
 _ENGINE_NAMES = {
     "narsil": "Narsil",
     "elasticsearch": "Elasticsearch",
@@ -40,6 +42,13 @@ def integer(value: object) -> str:
 
 def decimal(value: object, places: int) -> str:
     return f"{value:.{places}f}" if is_number(value) else "n/a"
+
+
+def gibibytes(value: object) -> str:
+    if not is_number(value):
+        return "n/a"
+    amount = f"{value / GIBIBYTE_BYTES:.1f}".removesuffix(".0")
+    return f"{amount} GiB"
 
 
 def percent(value: object, places: int = 1) -> str:
