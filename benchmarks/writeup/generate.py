@@ -72,7 +72,7 @@ def _generated_pages(root: Path, server: Source, best: Source | None, inprocess:
     pages[BENCHMARKS_PAGE] = (current, _inject(current, blocks, BENCHMARKS_PAGE))
     for target in README_TARGETS:
         current = (root / target.path).read_text(encoding="utf-8")
-        pages[target.path] = (current, _inject(current, readme_blocks(server, target), target.path))
+        pages[target.path] = (current, _inject(current, readme_blocks(server, target, best), target.path))
     return pages
 
 
