@@ -169,6 +169,8 @@ With `allowPartialResults` set to true, the coordinator waits up to `partitionTi
 
 With `allowPartialResults` set to false, any partition failure or timeout fails the whole query with `QUERY_PARTIAL_FAILURE`.
 
+Whatever `allowPartialResults` holds, a coordinator must fail the whole query with `SEARCH_WORK_CAP_EXCEEDED` when a data node raises that code, because a partial answer can leave out documents that the node never checked, as [Limits and Matching](../algorithms.md#limits-and-matching) describes.
+
 ---
 
 ## Distributed Facets
