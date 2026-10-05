@@ -1,5 +1,5 @@
 import { bitsetIsEmpty } from '../core/bitset'
-import { boundedLevenshtein } from '../core/fuzzy'
+import { fuzzyTermMatches } from '../core/fuzzy'
 import type { PartitionIndex, PartitionSearchMatches } from '../core/partition'
 import { tokenize } from '../core/tokenizer'
 import { ErrorCodes, NarsilError } from '../errors'
@@ -194,6 +194,7 @@ export function fulltextSearch(
       queryTokens,
       termMatch,
       params.tolerance ?? 0,
+      params.prefixLength ?? DEFAULT_FUZZY_PREFIX_LENGTH,
       params.exact ?? false,
       prefixExpansion,
     )
@@ -249,6 +250,7 @@ function filterByTermCoverage(
   queryTokens: Array<{ token: string; position: number }>,
   policy: TermMatchPolicy,
   tolerance: number,
+  prefixLength: number,
   exact: boolean,
   prefixExpansion?: { token: string; terms: string[] },
 ): ScoredDocument[] {
@@ -260,7 +262,15 @@ function filterByTermCoverage(
   const expansionTerms = prefixExpansion ? new Set(prefixExpansion.terms) : undefined
 
   return scored.filter(doc => {
-    const matched = countDocTermMatches(doc, queryTokens, tolerance, exact, prefixExpansion?.token, expansionTerms)
+    const matched = countDocTermMatches(
+      doc,
+      queryTokens,
+      tolerance,
+      prefixLength,
+      exact,
+      prefixExpansion?.token,
+      expansionTerms,
+    )
     return matched >= requiredCount
   })
 }
@@ -269,6 +279,7 @@ function countDocTermMatches(
   doc: ScoredDocument,
   queryTokens: Array<{ token: string; position: number }>,
   tolerance: number,
+  prefixLength: number,
   exact: boolean,
   prefixToken?: string,
   expansionTerms?: Set<string>,
@@ -284,7 +295,7 @@ function countDocTermMatches(
       }
       continue
     }
-    if (queryTermSatisfied(qt.token, indexTokens, tolerance, exact)) {
+    if (queryTermSatisfied(qt.token, indexTokens, tolerance, prefixLength, exact)) {
       count++
     }
   }
@@ -299,13 +310,19 @@ function prefixTokenSatisfied(prefixToken: string, indexTokens: string[], expans
   return false
 }
 
-function queryTermSatisfied(queryToken: string, indexTokens: string[], tolerance: number, exact: boolean): boolean {
+function queryTermSatisfied(
+  queryToken: string,
+  indexTokens: string[],
+  tolerance: number,
+  prefixLength: number,
+  exact: boolean,
+): boolean {
   if (exact || tolerance === 0) {
     return indexTokens.includes(queryToken)
   }
 
   for (const indexToken of indexTokens) {
-    if (boundedLevenshtein(queryToken, indexToken, tolerance).withinTolerance) {
+    if (fuzzyTermMatches(queryToken, indexToken, tolerance, prefixLength)) {
       return true
     }
   }

@@ -7,7 +7,7 @@ import type {
   PostingListView,
 } from '../types/internal'
 import { MAX_TERM_FREQUENCY, POSTING_LIST_COMPACTION_THRESHOLD } from './constants'
-import { boundedLevenshtein } from './fuzzy'
+import { boundedLevenshtein, fuzzyPrefixOf } from './fuzzy'
 import { compareCodePoints } from './ordering'
 import { compactDocEntries, compactList, createPostingList, growTypedArrays } from './posting-list'
 
@@ -79,18 +79,14 @@ export function createInvertedIndex(fieldNameTable: FieldNameTable): InvertedInd
     }
   }
 
-  function candidatesForPrefix(queryToken: string, prefixLength: number): Iterable<string> {
-    if (prefixLength <= 0 || queryToken.length < prefixLength) {
-      return index.keys()
-    }
-    const firstChar = queryToken[0]
-    const bucket = charBuckets.get(firstChar)
+  function tokensStartingWith(prefix: string): Iterable<string> {
+    if (prefix.length === 0) return index.keys()
+    const bucket = charBuckets.get(prefix[0])
     if (!bucket) return []
-    if (prefixLength === 1) return bucket
-    const prefix = queryToken.slice(0, prefixLength)
+    if (prefix.length === 1) return bucket
     const filtered: string[] = []
     for (const t of bucket) {
-      if (t.length >= prefixLength && t.startsWith(prefix)) {
+      if (t.startsWith(prefix)) {
         filtered.push(t)
       }
     }
@@ -207,7 +203,7 @@ export function createInvertedIndex(fieldNameTable: FieldNameTable): InvertedInd
       }
 
       const results: Array<{ token: string; postingList: CompactPostingList }> = []
-      const candidates = candidatesForPrefix(token, prefixLength)
+      const candidates = tokensStartingWith(fuzzyPrefixOf(token, prefixLength))
 
       for (const candidate of candidates) {
         const { withinTolerance } = boundedLevenshtein(token, candidate, tolerance)
@@ -223,7 +219,7 @@ export function createInvertedIndex(fieldNameTable: FieldNameTable): InvertedInd
     prefixSearch(prefix: string, limit: number): TermSuggestion[] {
       if (prefix.length === 0 || limit <= 0) return []
 
-      const candidates = candidatesForPrefix(prefix, prefix.length)
+      const candidates = tokensStartingWith(prefix)
       const results: TermSuggestion[] = []
 
       for (const term of candidates) {

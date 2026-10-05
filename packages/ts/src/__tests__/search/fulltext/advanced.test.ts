@@ -46,6 +46,11 @@ describe('fulltextSearch advanced features and edge cases', () => {
       expect(docIds).toContain('doc3')
     })
 
+    it('counts toward termMatch only the query terms that the search matched', () => {
+      const result = fulltextSearch(partition, { term: 'brown xrown zzz', tolerance: 1, termMatch: 2 }, english, schema)
+      expect(result.scored).toHaveLength(0)
+    })
+
     it('respects prefixLength for fuzzy matching', () => {
       const result = fulltextSearch(partition, { term: 'xox', tolerance: 1, prefixLength: 1 }, english, schema)
       expect(result.totalMatched).toBe(0)

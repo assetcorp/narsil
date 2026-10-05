@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { boundedLevenshtein } from '../../core/fuzzy'
+import { boundedLevenshtein, fuzzyTermMatches } from '../../core/fuzzy'
 
 describe('boundedLevenshtein', () => {
   it('returns distance 0 for identical strings', () => {
@@ -87,5 +87,22 @@ describe('boundedLevenshtein', () => {
     const result = boundedLevenshtein('kitten', 'sitting', 3)
     expect(result.distance).toBe(3)
     expect(result.withinTolerance).toBe(true)
+  })
+
+  it('counts a supplementary character as one edit', () => {
+    expect(boundedLevenshtein('a', '\u{1F600}', 1)).toEqual({ distance: 1, withinTolerance: true })
+  })
+
+  it('checks two long words in time that grows with their length', () => {
+    const shared = 'a'.repeat(100_000)
+    expect(boundedLevenshtein(`${shared}b`, `${shared}c`, 1)).toEqual({ distance: 1, withinTolerance: true })
+  })
+})
+
+describe('fuzzyTermMatches', () => {
+  it('applies prefixLength in code points and to the whole of a shorter query term', () => {
+    expect(fuzzyTermMatches('\u{1F600}a', '\u{1F603}a', 1, 1)).toBe(false)
+    expect(fuzzyTermMatches('rum', 'run', 1, 4)).toBe(false)
+    expect(fuzzyTermMatches('rum', 'run', 1, 2)).toBe(true)
   })
 })
