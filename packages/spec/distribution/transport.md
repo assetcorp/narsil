@@ -390,7 +390,8 @@ QueryParams {
   termMatch:     'all' or 'any' or uint32 or absent   (absent means 'any'; a count names the minimum matching terms)
   prefixLength:  uint32 or absent                 (leading characters exempt from tolerance, at most 1,024; default 2)
   prefix:        boolean or absent                (default false; completes the final token)
-  exact:         boolean or absent                (default false; turns off tolerance and prefix completion)
+  partialWords:  boolean or absent                (default false; matches query words inside longer indexed words)
+  exact:         boolean or absent                (default false; turns off tolerance, prefix completion, and partial-word matching)
   pinned:        List<PinnedEntry> or absent
   mode:          'fulltext' or 'vector' or 'hybrid' or absent
   vector:        VectorQueryParams or absent
