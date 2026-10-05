@@ -14,13 +14,12 @@ describe('boundedLevenshtein', () => {
     expect(result.withinTolerance).toBe(true)
   })
 
-  it('returns distance 0 when indexed word is a prefix of query', () => {
-    const result = boundedLevenshtein('cat', 'cats', 1)
-    expect(result.distance).toBe(0)
-    expect(result.withinTolerance).toBe(true)
+  it('counts each added character when the indexed word starts with the query', () => {
+    expect(boundedLevenshtein('cat', 'cats', 1)).toEqual({ distance: 1, withinTolerance: true })
+    expect(boundedLevenshtein('sec', 'secur', 1)).toEqual({ distance: 2, withinTolerance: false })
   })
 
-  it('returns correct distance for single insertion (non-prefix)', () => {
+  it('returns correct distance for single insertion inside the word', () => {
     const result = boundedLevenshtein('cat', 'cart', 1)
     expect(result.distance).toBe(1)
     expect(result.withinTolerance).toBe(true)
@@ -57,19 +56,8 @@ describe('boundedLevenshtein', () => {
 
   it('returns early when length difference exceeds tolerance', () => {
     const result = boundedLevenshtein('hi', 'hello', 1)
+    expect(result.distance).toBe(2)
     expect(result.withinTolerance).toBe(false)
-  })
-
-  it('handles prefix matching: query starts with indexed word', () => {
-    const result = boundedLevenshtein('testing', 'test', 5)
-    expect(result.distance).toBe(3)
-    expect(result.withinTolerance).toBe(true)
-  })
-
-  it('handles prefix matching: indexed word starts with query', () => {
-    const result = boundedLevenshtein('test', 'testing', 5)
-    expect(result.distance).toBe(0)
-    expect(result.withinTolerance).toBe(true)
   })
 
   it('rejects negative tolerance', () => {
@@ -91,6 +79,7 @@ describe('boundedLevenshtein', () => {
 
   it('terminates early when all row values exceed tolerance', () => {
     const result = boundedLevenshtein('abcdef', 'zyxwvu', 1)
+    expect(result.distance).toBe(2)
     expect(result.withinTolerance).toBe(false)
   })
 
@@ -98,11 +87,5 @@ describe('boundedLevenshtein', () => {
     const result = boundedLevenshtein('kitten', 'sitting', 3)
     expect(result.distance).toBe(3)
     expect(result.withinTolerance).toBe(true)
-  })
-
-  it('returns empty string distance for non-empty comparison beyond tolerance', () => {
-    const result = boundedLevenshtein('', 'abcde', 3)
-    expect(result.distance).toBe(5)
-    expect(result.withinTolerance).toBe(false)
   })
 })

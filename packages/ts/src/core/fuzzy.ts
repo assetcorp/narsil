@@ -24,23 +24,10 @@ export function boundedLevenshtein(a: string, b: string, tolerance: number): Fuz
   const m = a.length
   const n = b.length
 
-  if (m === 0) {
-    return n <= tolerance ? { distance: n, withinTolerance: true } : { distance: n, withinTolerance: false }
-  }
-  if (n === 0) {
-    return m <= tolerance ? { distance: m, withinTolerance: true } : { distance: m, withinTolerance: false }
-  }
+  const lengthDifference = Math.abs(m - n)
 
-  if (a.startsWith(b)) {
-    const diff = m - n
-    return diff <= tolerance ? { distance: diff, withinTolerance: true } : { distance: diff, withinTolerance: false }
-  }
-  if (b.startsWith(a)) {
-    return { distance: 0, withinTolerance: true }
-  }
-
-  const diff = Math.abs(m - n)
-  if (diff > tolerance) return { distance: -1, withinTolerance: false }
+  if (lengthDifference > tolerance) return { distance: tolerance + 1, withinTolerance: false }
+  if (a.startsWith(b) || b.startsWith(a)) return { distance: lengthDifference, withinTolerance: true }
 
   const matrix: number[][] = []
   for (let i = 0; i <= m; i++) {
@@ -62,7 +49,7 @@ export function boundedLevenshtein(a: string, b: string, tolerance: number): Fuz
     }
 
     if (rowMin > tolerance) {
-      return { distance: -1, withinTolerance: false }
+      return { distance: tolerance + 1, withinTolerance: false }
     }
   }
 
