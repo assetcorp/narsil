@@ -79,44 +79,54 @@ Across partitions, an implementation scores BM25 in one of three modes.
 
 ## Bounded Levenshtein Distance
 
-Fuzzy matching, which tolerates typos, uses the edit distance between two strings. That distance is the fewest single-character insertions, deletions, and substitutions that turn `a` into `b`. The computation stops early once the distance passes the tolerance.
+For fuzzy matching, an implementation compares a query term with each candidate term through their edit distance. The edit distance is the fewest single-character insertions, deletions, and substitutions that turn `a` into `b`. An implementation must count each Unicode code point as one character, so the distance between `x` and the single character U+1F600 is 1.
+
+An implementation must compute the distance as below, where `distance` holds the edit distance when it is at most `tolerance` and `tolerance + 1` when it is larger:
 
 ```text
 boundedLevenshtein(a: string, b: string, tolerance: uint32)
     -> { distance: uint32, withinTolerance: boolean }
 
+  a = the code points of a, in order
+  b = the code points of b, in order
   if absolute(length(a) - length(b)) > tolerance:
     return { distance: tolerance + 1, withinTolerance: false }
 
-  matrix = a uint32 grid of size [length(a) + 1][length(b) + 1]
-  set matrix[i][0] = i for i from 0 to length(a)
-  set matrix[0][j] = j for j from 0 to length(b)
+  beyond = tolerance + 1
+  previous = a uint32 array of size length(b) + 1, every entry beyond
+  current = a uint32 array of size length(b) + 1, every entry beyond
+  set previous[j] = j for j from 0 to minimum(length(b), tolerance)
 
   for i from 1 to length(a):
-    rowMin = infinity
-    for j from 1 to length(b):
+    low = maximum(1, i - tolerance)
+    high = minimum(length(b), i + tolerance)
+    current[low - 1] = i when low equals 1, otherwise beyond
+    rowMin = current[low - 1]
+    for j from low to high:
       cost = 0 when a[i-1] equals b[j-1], otherwise 1
-      matrix[i][j] = minimum of
-        matrix[i-1][j] + 1        (deletion)
-        matrix[i][j-1] + 1        (insertion)
-        matrix[i-1][j-1] + cost   (substitution)
-      rowMin = minimum(rowMin, matrix[i][j])
+      current[j] = minimum of
+        previous[j] + 1           (deletion)
+        current[j-1] + 1          (insertion)
+        previous[j-1] + cost      (substitution)
+        beyond
+      rowMin = minimum(rowMin, current[j])
 
     if rowMin > tolerance:
       return { distance: tolerance + 1, withinTolerance: false }
+    swap previous and current
 
-  distance = matrix[length(a)][length(b)]
+  distance = previous[length(b)]
   return { distance, withinTolerance: distance <= tolerance }
 ```
 
-Once the smallest value in a row passes the tolerance, the final distance must pass it too, so the computation returns before it fills the remaining rows.
+The pseudocode computes only the cells within `tolerance` of the diagonal, because any cell further from the diagonal holds more than `tolerance`. One comparison therefore takes at most `length(a)` multiplied by `2 * tolerance + 1` cell updates. Once the smallest value in a row exceeds `tolerance`, the smallest value in every later row exceeds it as well, so the pseudocode returns at that row.
 
 | Parameter | Default | Meaning |
 |-----------|---------|---------|
-| `tolerance` | 0 | The largest edit distance accepted. Zero means exact matches only, so typo tolerance is opt-in per query. |
-| `prefixLength` | 2 | The number of leading characters that must match exactly. |
+| `tolerance` | 0 | It sets the largest edit distance that a match may have, as an integer from 0 to 10. With 0, an implementation accepts exact matches alone, so typo tolerance is opt-in per query. |
+| `prefixLength` | 2 | It sets how many leading characters a candidate must share exactly with the query term, as an integer from 0 to 1,024. |
 
-`prefixLength` narrows the search, because only the tokens that share those first characters are candidates, so an implementation scans one prefix bucket in place of every token.
+An implementation must raise `CONFIG_INVALID` for a query whose `tolerance` or `prefixLength` is outside its range. Where the query term has fewer than `prefixLength` characters, a candidate must start with the whole query term. Only the tokens that share those leading characters are candidates, so an implementation scans one prefix bucket in place of every token.
 
 ---
 
