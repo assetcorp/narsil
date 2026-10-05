@@ -44,6 +44,26 @@ _Avoid_: sync, recovery, initialisation
 The primary term is a number that rises with each new tenure as primary of a partition. The controller rejects a request carrying a term below the current one, which fences a primary that another node has since replaced.
 _Avoid_: epoch, generation, leader term
 
+## Pattern search
+
+Use these terms when you write about finding text inside field values.
+
+**Pattern search**:
+A pattern search is a test of a field's whole stored value against literal text, a wildcard pattern, or a regular expression in Narsil's own syntax. The engine includes a document only where its value matches, so it ranks the results the same way with or without a pattern search.
+_Avoid_: wildcard search, grep search, substring search
+
+**Pattern field**:
+A pattern field is a verbatim field, or a text field whose type includes the `pattern` option. The engine applies pattern search to pattern fields alone, so it raises an error for a pattern search on any other field.
+_Avoid_: marked field, pattern-enabled field
+
+**Verbatim field**:
+A verbatim field is a field whose value the engine stores and compares exactly as written, as one piece of text. The engine can test a verbatim field with a pattern search or an exact comparison, but it searches only text fields for keywords.
+_Avoid_: wildcard field, keyword field, raw field
+
+**Partial-word search**:
+A partial-word search is a keyword search in which the engine matches a query word against the inside of longer indexed words, so it returns documents that contain `waterproof` for the query `proof`. The engine ranks a partial-word match below a match on the whole word.
+_Avoid_: infix search, substring search
+
 ## Index lifecycle
 
 Use these terms when you write about opening and closing indexes.
