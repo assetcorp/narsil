@@ -49,6 +49,22 @@ total_score = SUM over each field f of
 
 Each field uses its own `|D|`, the token count in that field, and its own `avgdl`, the average token count for that field across every document.
 
+### Expanded Terms
+
+With typo tolerance, prefix completion, or partial-word search, one query term can match several tokens. An implementation must score those tokens as below, where `score(t, D, idf)` is the multi-field score of token `t` in document `D`, computed with that IDF:
+
+```text
+typoScore(D) = SUM over each typo match t of score(t, D, IDF(t))
+
+groupScore(D) =
+  idf = IDF(the largest n(t) over every token t in the group)
+  return the largest factor(t) * score(t, D, idf) over every token t in the group
+```
+
+The typo matches of a term are its own token and every token that [Bounded Levenshtein Distance](#bounded-levenshtein-distance) accepts for it, and an exact query keeps the own token alone. The last term of a prefix query, and each term that partial-word search applies to, has a group that holds the term's own token, its [completions](#prefix-completion), and its [added words](#partial-word-search). Such a term scores its own token through the group alone. The last term of a prefix query takes no typo matches, while any other term with a group adds its other typo matches through `typoScore`.
+
+In a group, `factor(t)` is 1 for the own token. For a completion, it is `minimum(1, length(own token) / length(t))`. For an added word, it is the length of the term as written divided by the length of `t` as written. Every length counts code points, while a token that is both a completion and an added word takes the larger factor. An added word scores only in the fields whose type includes `partial`.
+
 ### Parameters
 
 | Parameter | Default | Range | Effect |
@@ -130,11 +146,19 @@ An implementation must raise `CONFIG_INVALID` for a query whose `tolerance` or `
 
 ---
 
+## Prefix Completion
+
+With `prefix` set and `exact` unset, an implementation must treat the last query term as unfinished, taking that term, analysed without stemming, as the typed prefix. It must collect as completions the token of every surface form that starts with the typed prefix, together with every token that starts with the typed prefix and occurs at least once as written. A token occurs as written where its total term frequency exceeds the occurrences that its surface forms record. Where the partition records no surface forms, it must also collect every such token that starts with the last term's stemmed token.
+
+An implementation must keep only the tokens that a document of the partition holds, and it must take the 50 of them that the most documents of the partition contain, breaking ties in code point order. Where the last term's own token is among those 50, it counts as one of them.
+
+---
+
 ## Partial-Word Search
 
-With `partialWords` set on a query, an implementation must also match each query word of at least three code points against the inside of longer indexed words, in the fields whose [type](envelope.md#field-types) includes the `partial` option. It must compare the query word, analysed without stemming, with the written spelling of each indexed word, which is the word's [surface form](envelope.md#surface-forms) where stemming changed it and its token otherwise. It must therefore raise `CONFIG_INVALID` for a `partial` field in an index that collects no surface forms.
+With `partialWords` set on a query, an implementation must also match each query word of at least three code points against the inside of longer indexed words, in the fields whose [type](envelope.md#field-types) includes the `partial` option. It must compare the query word, analysed without stemming, with the written spelling of each indexed word, which is the word's [surface form](envelope.md#surface-forms) where stemming changed it and its token otherwise. It must therefore raise `CONFIG_INVALID` for a `partial` field in an index that collects no surface forms. A writer stores no index of written words in any payload, so an implementation must derive any such index from the tokens and the surface forms that it holds.
 
-An implementation must add at most 50 indexed words to the whole query, taking first the words that the most documents contain and breaking ties in code point order. It must apply no typo tolerance to a partial match. It must skip partial matching where `exact` is set, as it skips typo matching and prefix completion there. It must score a partial match lower than a whole-word match of the same query word.
+An implementation must add at most 50 indexed words to the whole query, and it must divide them equally among the query words of at least three code points, in query order. Where `n` is the number of such words, capped at 50, each of the first `n` words takes up to `floor(50 / n)` added words, and the first `50 mod n` of them take up to one more. An implementation must skip partial matching for every such word after the 50th. For each query word, it must add only words that a `partial` field of the partition holds, leaving out the word's own token and its typo matches. It must take first the words that the most documents of the partition contain, breaking ties in code point order. It must apply no typo tolerance to a partial match. It must skip partial matching where `exact` is set, as it skips typo matching and prefix completion there. It must score each query word's added words as [Expanded Terms](#expanded-terms) defines, so an added word scores below the word's own token wherever both appear with the same term frequency and field length in the same field.
 
 ---
 
@@ -639,7 +663,7 @@ An implementation must raise `DOC_VALIDATION_FAILED` for a document whose value 
 
 With `caseFold` set on a test of a pattern field, an implementation must compare the [case fold](#case-folding) of the value with the fold of the test, and without it the implementation must compare them exactly. `caseFold` applies to `eq`, `ne`, `in`, `nin`, `startsWith`, and `endsWith` as well as to the three tests above. An implementation must raise `SEARCH_INVALID_FILTER` for `caseFold` on any field other than a pattern field, because it keeps folded values only in a pattern index.
 
-Under `caseFold`, a literal code point in a pattern matches its fold, while `.` and `?` match one code point of the folded value. A set matches one code point of the folded value that equals the fold of one of its members, while a negated set matches one code point that equals the fold of none of them. A member whose fold holds several code points takes no part in either kind of set.
+Under `caseFold`, a literal code point in a pattern matches its fold, while `.` and `?` match one code point of the folded value. A set matches one code point of the folded value that equals the fold of one of its members, while a negated set matches one code point that equals the fold of none of them. A set that is not negated also matches the fold of a member written alone in it where that fold holds several code points, so `[ß]` matches `ss`, while a range matches one code point alone.
 
 ### Wildcard Syntax
 
@@ -724,7 +748,8 @@ Before it builds a matcher, an implementation must raise `SEARCH_INVALID_FILTER`
 ```text
 positions(x) -> uint32
   when x is a literal, return 1, or under caseFold the number of code points in its fold
-  when x is ".", a class, or a set, return 1
+  when x is "." or a class, return 1
+  when x is a set, return 1, plus under caseFold the code points of every fold that it matches as a sequence
   when x is "*" or "?" in a wildcard pattern, return 1
   when x is "^", "$", or "\b", return 0
   when x is a group or a whole pattern, return the sum of positions over every piece of every branch
