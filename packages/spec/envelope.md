@@ -135,7 +135,7 @@ A version 1 partition payload is a MessagePack map:
 | `verbatim`, `verbatim[]` | `sortable` |
 | `number`, `number[]`, `boolean`, `boolean[]`, `enum`, `enum[]`, `geopoint`, `vector[n]` | none |
 
-An implementation must store and compare a `verbatim` value exactly as written, as one piece of text, which it never splits into words and always indexes for [pattern search](algorithms.md#pattern-search). A writer must store a field's options in the order of the table, whatever order the caller gives them in. An implementation must raise `SCHEMA_INVALID_TYPE` for an unknown base type, for an option outside its base type's row, and for an option written twice. It must raise that error both when a caller creates an index and wherever it reads a schema, because a reader that skips a field of an unknown type can save the index again without that field's data.
+An implementation must store and compare a `verbatim` value exactly as written, as one piece of text that it indexes for [pattern search](algorithms.md#pattern-search). A writer must store a field's options in the order of the table, whatever order the caller gives them in. An implementation must raise `SCHEMA_INVALID_TYPE` for an unknown base type, for an option outside its base type's row, and for an option written twice. It must raise that error both when a caller creates an index and wherever it reads a schema, because a reader that skips a field of an unknown type can save the index again without that field's data.
 
 ### Documents
 
@@ -205,7 +205,7 @@ GeopointEntry {
 
 Numeric entries are stored in ascending order of `value`, so a reader can binary-search them straight after decoding.
 
-`pattern` maps each pattern field to the pattern index that [Pattern Index](algorithms.md#pattern-index) defines. `doc_ids` lists the documents that hold a value in the field. Each key of `runs` is a run of three code points, and its list holds, in ascending order, the positions in `doc_ids` of the documents whose folded value contains that run. A writer must leave `pattern` out of a partition that has no pattern field, so that it writes the same bytes for such a partition as before. A reader must raise `PERSISTENCE_LOAD_FAILED` for a list that holds a position outside `doc_ids` or out of ascending order. A reader that finds no entry for a pattern field must rebuild that field's index from `documents`, because an older writer may have saved the partition without it.
+`pattern` maps each pattern field to the pattern index that [Pattern Index](algorithms.md#pattern-index) defines. `doc_ids` lists the documents that hold a value in the field. Each key of `runs` is a run of three code points, whose list holds, in ascending order, the positions in `doc_ids` of the documents whose folded value contains that run. A writer must leave `pattern` out of a partition that has no pattern field, so that it writes the same bytes for such a partition as before. A reader must raise `PERSISTENCE_LOAD_FAILED` for a list that holds a position outside `doc_ids` or out of ascending order. A reader that finds no entry for a pattern field must rebuild that field's index from `documents`, because an older writer may have saved the partition without it.
 
 ### Surface Forms
 
