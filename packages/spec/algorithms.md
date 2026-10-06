@@ -61,9 +61,9 @@ groupScore(D) =
   return the largest factor(t) * score(t, D, idf) over every token t in the group
 ```
 
-The typo matches of a term are its own token and every token that [Bounded Levenshtein Distance](#bounded-levenshtein-distance) accepts for it, and an exact query keeps the own token alone. The last term of a prefix query, and each term that partial-word search applies to, has a group that holds the term's own token, its [completions](#prefix-completion), and its [added words](#partial-word-search). Such a term scores its own token through the group alone. The last term of a prefix query takes no typo matches, while any other term with a group adds its other typo matches through `typoScore`.
+The typo matches of a term are its own token and every token that [Bounded Levenshtein Distance](#bounded-levenshtein-distance) accepts for it, except under `exact`, where they are the own token alone. The last term of a prefix query, and each term that partial-word search applies to, has a group that holds the term's own token, its [completions](#prefix-completion), and its [added words](#partial-word-search). An implementation scores the own token of such a term through the group alone. It gives the last term of a prefix query no typo matches, while it adds the other typo matches of any other term with a group through `typoScore`.
 
-In a group, `factor(t)` is 1 for the own token. For a completion, it is `minimum(1, length(own token) / length(t))`. For an added word, it is the length of the term as written divided by the length of `t` as written. Every length counts code points, while a token that is both a completion and an added word takes the larger factor. An added word scores only in the fields whose type includes `partial`.
+In a group, `factor(t)` is 1 for the own token. For a completion, it is `minimum(1, length(own token) / length(t))`. For an added word, it is the length of the term as written divided by the length of `t` as written. Every length is a count of code points. For a token that is both a completion and an added word, `factor(t)` is the larger of the two. An implementation scores an added word only in the fields whose type includes `partial`.
 
 ### Parameters
 
@@ -148,17 +148,17 @@ An implementation must raise `CONFIG_INVALID` for a query whose `tolerance` or `
 
 ## Prefix Completion
 
-With `prefix` set and `exact` unset, an implementation must treat the last query term as unfinished, taking that term, analysed without stemming, as the typed prefix. It must collect as completions the token of every surface form that starts with the typed prefix, together with every token that starts with the typed prefix and occurs at least once as written. A token occurs as written where its total term frequency exceeds the occurrences that its surface forms record. Where the partition records no surface forms, it must also collect every such token that starts with the last term's stemmed token.
+With `prefix` set and `exact` unset, an implementation must treat the last query term as unfinished, taking that term, analysed without stemming, as the typed prefix. It must collect as completions the token of every surface form that starts with the typed prefix, together with every token that starts with the typed prefix and occurs at least once as written. A token occurs as written where its total term frequency exceeds the occurrence counts of its surface forms. Where the partition holds no surface forms, an implementation must also collect every such token that starts with the last term's stemmed token.
 
-An implementation must keep only the tokens that a document of the partition holds, and it must take the 50 of them that the most documents of the partition contain, breaking ties in code point order. Where the last term's own token is among those 50, it counts as one of them.
+An implementation must keep only the tokens that a document of the partition holds. From those, it must take the 50 that the most documents of the partition contain, breaking ties in code point order. Where the last term's own token is among those 50, it counts as one of them.
 
 ---
 
 ## Partial-Word Search
 
-With `partialWords` set on a query, an implementation must also match each query word of at least three code points against the inside of longer indexed words, in the fields whose [type](envelope.md#field-types) includes the `partial` option. It must compare the query word, analysed without stemming, with the written spelling of each indexed word, which is the word's [surface form](envelope.md#surface-forms) where stemming changed it and its token otherwise. It must therefore raise `CONFIG_INVALID` for a `partial` field in an index that collects no surface forms. A writer stores no index of written words in any payload, so an implementation must derive any such index from the tokens and the surface forms that it holds.
+With `partialWords` set on a query, an implementation must also match each query word of at least three code points against the inside of longer indexed words, in the fields whose [type](envelope.md#field-types) includes the `partial` option. It must compare the query word, analysed without stemming, with the written spelling of each indexed word, which is the word's [surface form](envelope.md#surface-forms) where stemming changes it and its token otherwise. It must therefore raise `CONFIG_INVALID` for a `partial` field in an index whose `surfaceForms` setting is off. A writer stores no index of written words in any payload, so an implementation must derive any such index from the tokens and the surface forms that it holds.
 
-An implementation must add at most 50 indexed words to the whole query, and it must divide them equally among the query words of at least three code points, in query order. Where `n` is the number of such words, capped at 50, each of the first `n` words takes up to `floor(50 / n)` added words, and the first `50 mod n` of them take up to one more. An implementation must skip partial matching for every such word after the 50th. For each query word, it must add only words that a `partial` field of the partition holds, leaving out the word's own token and its typo matches. It must take first the words that the most documents of the partition contain, breaking ties in code point order. It must apply no typo tolerance to a partial match. It must skip partial matching where `exact` is set, as it skips typo matching and prefix completion there. It must score each query word's added words as [Expanded Terms](#expanded-terms) defines, so an added word scores below the word's own token wherever both appear with the same term frequency and field length in the same field.
+An implementation must add at most 50 indexed words to the whole query, which it must divide equally among the query words of at least three code points, in query order. Where `n` is the number of such words, capped at 50, an implementation must give each of the first `n` words up to `floor(50 / n)` added words, plus one more for each of the first `50 mod n` words. An implementation must skip partial matching for every such word after the 50th. For each query word, it must add only words that a `partial` field of the partition holds, leaving out the word's own token and its typo matches. It must take first the words that the most documents of the partition contain, breaking ties in code point order. It must apply no typo tolerance to a partial match. It must skip partial matching where `exact` is set, as it skips typo matching and prefix completion there. It must score each query word's added words as [Expanded Terms](#expanded-terms) defines, so it scores an added word below the word's own token wherever both appear with the same term frequency and field length in the same field.
 
 ---
 
@@ -587,7 +587,7 @@ A caller may sort by a `number`, a `boolean`, or an `enum` field with no prepara
 
 An implementation must rank a query that names a sort by sort values alone, and it must skip relevance scoring. Where `includeScores` is true, it must score each hit as it would without the sort. A sorted query that holds a score threshold must compute scores to apply that floor, and it must report them only where `includeScores` is true. A hit that the implementation returns without scoring holds no score.
 
-For a range test on text, meaning `gt`, `gte`, `lt`, `lte`, or `between` with both bounds included, an implementation must compare string sort values in the order below, so that the test matches the documents whose sort values order between its bounds. An implementation must accept a range test on text only for a `string` or `verbatim` field whose type includes `sortable`, and it must raise `SEARCH_INVALID_FILTER` for a range test on any other text field, since it orders a list field by one element of each document.
+A range test on text is a `gt`, `gte`, `lt`, `lte`, or `between` test on a text field, where `between` includes both bounds. For such a test, an implementation must compare string sort values in the order below, so that the test matches the documents whose sort values lie between its bounds in that order. An implementation must accept a range test on text only for a `string` or `verbatim` field whose type includes `sortable`, so it must raise `SEARCH_INVALID_FILTER` for a range test on any other text field. An implementation orders a list field by one element of each document, so the sorted values of a list field can't show whether another element lies within a range.
 
 ### Sort Value Order
 
@@ -647,7 +647,7 @@ An implementation must reproduce both lists exactly.
 
 ## Pattern Search
 
-In a pattern search, an implementation tests the whole stored value of a pattern field against literal text, a wildcard pattern, or a regular expression, and it includes or excludes each document without scoring it. A pattern field is a `verbatim` or `verbatim[]` field, or a `string` or `string[]` field whose [type](envelope.md#field-types) includes the `pattern` option.
+In a pattern search, an implementation tests the whole stored value of a pattern field against literal text, a wildcard pattern, or a regular expression. It then includes or excludes each document by that test alone, without scoring it. A pattern field is a `verbatim` or `verbatim[]` field, or a `string` or `string[]` field whose [type](envelope.md#field-types) includes the `pattern` option.
 
 | Test | A value matches when |
 |------|----------------------|
@@ -657,17 +657,17 @@ In a pattern search, an implementation tests the whole stored value of a pattern
 
 An implementation must raise `SEARCH_INVALID_FILTER` for these three tests on any field other than a pattern field, because without a pattern index it has to check every value of that field. It must test each element of a list as a value of its own, so a document matches where one element matches. It must compare the code points of a value as stored, with no Unicode normalisation. It must raise `SEARCH_INVALID_FILTER` for a test whose text or pattern holds more than 1,024 code points.
 
-An implementation must raise `DOC_VALIDATION_FAILED` for a document whose value in a pattern field holds more code points than the index's pattern value limit. The limit defaults to 8,192, and a caller may set it from 1 to 65,536 when it creates the index, so an implementation must raise `CONFIG_INVALID` for any other limit.
+An implementation must raise `DOC_VALIDATION_FAILED` for a document whose value in a pattern field holds more code points than the index's pattern value limit. The limit defaults to 8,192 code points, while a caller may set it from 1 to 65,536 when it creates the index. An implementation must raise `CONFIG_INVALID` for any other limit.
 
 ### Folded Tests
 
-With `caseFold` set on a test of a pattern field, an implementation must compare the [case fold](#case-folding) of the value with the fold of the test, and without it the implementation must compare them exactly. `caseFold` applies to `eq`, `ne`, `in`, `nin`, `startsWith`, and `endsWith` as well as to the three tests above. An implementation must raise `SEARCH_INVALID_FILTER` for `caseFold` on any field other than a pattern field, because it keeps folded values only in a pattern index.
+With `caseFold` set on a test of a pattern field, an implementation must compare the [case fold](#case-folding) of the value with the fold of the test, while without it the implementation must compare them exactly. `caseFold` applies to `eq`, `ne`, `in`, `nin`, `startsWith`, and `endsWith` as well as to the three tests above. An implementation must raise `SEARCH_INVALID_FILTER` for `caseFold` on any field other than a pattern field, because it keeps folded values only in a pattern index.
 
-Under `caseFold`, a literal code point in a pattern matches its fold, while `.` and `?` match one code point of the folded value. A set matches one code point of the folded value that equals the fold of one of its members, while a negated set matches one code point that equals the fold of none of them. A set that is not negated also matches the fold of a member written alone in it where that fold holds several code points, so `[ß]` matches `ss`, while a range matches one code point alone.
+Under `caseFold`, a literal code point in a pattern matches its fold, while `.` and `?` match one code point of the folded value. A set matches one code point of the folded value that equals the fold of one of its members, while a negated set matches one code point that equals the fold of none of them. A set that is not negated also matches the fold of a member written alone in it where that fold holds several code points, so `[ß]` matches `ss`. A range in a set matches one code point alone.
 
 ### Wildcard Syntax
 
-In a wildcard pattern, `*` matches any sequence of code points, the empty sequence included, and `?` matches exactly one code point. A `\` makes the code point after it literal, while every other code point matches itself. An implementation must raise `SEARCH_INVALID_FILTER` for a pattern that ends in a `\` with no code point after it.
+In a wildcard pattern, `*` matches any sequence of code points, the empty sequence included, while `?` matches exactly one code point. A `\` makes the code point after it literal, while every other code point matches itself. An implementation must raise `SEARCH_INVALID_FILTER` for a pattern that ends in a `\` with no code point after it.
 
 ### Regular Expression Syntax
 
@@ -694,7 +694,7 @@ range   = "<" low "-" high ">"
 |-----------|---------|
 | `.` | It matches any one code point, line breaks included. |
 | `\d` | It matches one code point from `0` to `9`. |
-| `\w` | It matches one code point from `0` to `9`, `A` to `Z`, or `a` to `z`, or the code point `_`. |
+| `\w` | It matches one ASCII digit, one ASCII letter of either case, or `_`. |
 | `\s` | It matches one of U+0009, U+000A, U+000C, U+000D, or U+0020. |
 | `[...]` | It matches one code point in the set, where `a-z` covers every code point from `a` to `z`. |
 | `[^...]` | It matches one code point outside the set. |
@@ -768,7 +768,7 @@ An implementation must count the work of every test on a pattern field across ev
 
 ### Pattern Index
 
-An implementation must keep a pattern index for each pattern field, mapping every run of three consecutive code points in the field's folded values to the documents whose value holds that run. [Field Indexes](envelope.md#field-indexes) defines how a partition stores it. An implementation may build the shortlist for a test from any runs that every matching value must hold, but it must check each shortlisted document against the whole test, so the shortlist affects how long a search takes and never which documents the search matches. It must check every value of the field for a test from which it can take no run, such as `\d{4}`.
+An implementation must keep a pattern index for each pattern field, mapping every run of three consecutive code points in the field's folded values to the documents whose value holds that run. [Field Indexes](envelope.md#field-indexes) defines how a partition stores it. An implementation may build the shortlist for a test from any runs that every matching value must hold, but it must check each shortlisted document against the whole test, so the shortlist changes only how long a search takes. It must check every value of the field for a test from which it can take no run, such as `\d{4}`.
 
 ### Typo Test
 
