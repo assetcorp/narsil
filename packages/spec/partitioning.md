@@ -66,10 +66,19 @@ partitionWatermark {
   documentCount:  integer
   capacity:       integer
   partitionCount: integer
+  partitionId:    integer   (present in a cluster)
 }
 ```
 
 The engine emits the event once per crossing. The event arms again when the document count falls below the threshold or the capacity grows.
+
+### Capacity in a Cluster
+
+In a cluster, a node can hold only some of an index's partitions, so the capacity applies to each partition on its own:
+
+- The primary of a partition must fail an insert with `PARTITION_CAPACITY_EXCEEDED` once that partition holds `maxDocsPerPartition` documents, counting the documents that it admits earlier in the same batch.
+- A replica must apply every replicated write without a capacity check, so that it never refuses a write that its primary acknowledged.
+- With `watermark` set, the primary must emit `partitionWatermark` when a partition that it leads reaches `watermark × maxDocsPerPartition` documents, with `documentCount` and `capacity` covering that partition and `partitionId` naming it.
 
 ### Choosing a Partition Count
 

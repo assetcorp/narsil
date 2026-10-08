@@ -116,7 +116,7 @@ export async function insertDocument(
   }
 
   if (buffered) {
-    ctx.checkWatermark(indexName)
+    ctx.checkWatermark(indexName, resolvedDocId)
     ctx.checkHeapPressure(indexName)
     if (options?.wait === true) await awaitWriteVisibility(ctx, indexName)
     return resolvedDocId
@@ -144,7 +144,7 @@ export async function insertDocument(
     }
   }
 
-  ctx.checkWatermark(indexName)
+  ctx.checkWatermark(indexName, resolvedDocId)
   ctx.checkHeapPressure(indexName)
   await ctx.orchestrator.scaleOutReadyIndexes()
   if (options?.wait === true) await awaitWriteVisibility(ctx, indexName)

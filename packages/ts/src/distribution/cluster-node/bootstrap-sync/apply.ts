@@ -215,7 +215,7 @@ export async function ensureLocalIndexForIncremental(
   try {
     await deps.engine.createIndex(indexName, {
       ...coordinatorConfig,
-      partitions: { maxPartitions: partitionCount },
+      partitions: { ...coordinatorConfig.partitions, maxPartitions: partitionCount },
     })
   } catch (err) {
     if (err instanceof NarsilError && err.code === ErrorCodes.INDEX_ALREADY_EXISTS) {

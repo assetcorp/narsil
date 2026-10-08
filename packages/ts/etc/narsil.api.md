@@ -593,6 +593,7 @@ export type NarsilEventMap = {
         documentCount: number;
         capacity: number;
         partitionCount: number;
+        partitionId?: number;
     };
     heapPressure: {
         indexName: string;

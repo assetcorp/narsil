@@ -43,6 +43,7 @@ describe('the settings in cluster index metadata', () => {
       required: ['sku'],
       vectorPromotion: { threshold: 500, quantization: 'none' },
       patternValueLimit: 64,
+      partitions: { maxDocsPerPartition: 500, watermark: 0.8 },
       embedding: { adapter: 'catalogue-embedder', fields: { embedding: 'title' } },
     }
 
@@ -53,6 +54,16 @@ describe('the settings in cluster index metadata', () => {
     expect(stored?.settings?.stopWordList).toEqual(['a', 'and', 'the'])
     expect(config).toEqual({ ...requested, language: 'english' })
     await coordinator.shutdown()
+  })
+
+  it('leave the partition count out of the partition limits, because the create options set it', () => {
+    const settings = indexSettingsOf({
+      schema: SCHEMA,
+      partitions: { maxPartitions: 6, maxDocsPerPartition: 500 },
+    })
+
+    expect(settings.partitionConfig).toEqual({ maxDocsPerPartition: 500 })
+    expect(indexSettingsOf({ schema: SCHEMA, partitions: { maxPartitions: 6 } }).partitionConfig).toBeUndefined()
   })
 
   it('record the language module that the index resolves to when the request names none', () => {

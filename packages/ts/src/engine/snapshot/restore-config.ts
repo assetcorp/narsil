@@ -96,12 +96,15 @@ function restoredStopWords(name: unknown, list: unknown, reject: ConfigFieldReje
   return undefined
 }
 
-function restoredPartitionConfig(raw: unknown): PartitionConfig | undefined {
+export function restoredPartitionConfig(
+  raw: unknown,
+  reject: ConfigFieldRejection = rejectSnapshot,
+): PartitionConfig | undefined {
   if (raw === undefined) {
     return undefined
   }
   if (!isPlainObject(raw)) {
-    rejectSnapshot('partitionConfig must be an object')
+    reject('partitionConfig must be an object')
   }
   const { maxDocsPerPartition, maxPartitions, watermark } = raw as {
     maxDocsPerPartition?: unknown
@@ -112,16 +115,16 @@ function restoredPartitionConfig(raw: unknown): PartitionConfig | undefined {
     maxDocsPerPartition !== undefined &&
     (typeof maxDocsPerPartition !== 'number' || !Number.isInteger(maxDocsPerPartition) || maxDocsPerPartition < 1)
   ) {
-    rejectSnapshot('partitionConfig maxDocsPerPartition must be a positive integer')
+    reject('partitionConfig maxDocsPerPartition must be a positive integer')
   }
   if (
     maxPartitions !== undefined &&
     (typeof maxPartitions !== 'number' || !Number.isInteger(maxPartitions) || maxPartitions < 1)
   ) {
-    rejectSnapshot('partitionConfig maxPartitions must be a positive integer')
+    reject('partitionConfig maxPartitions must be a positive integer')
   }
   if (watermark !== undefined && (typeof watermark !== 'number' || !(watermark > 0) || watermark > 1)) {
-    rejectSnapshot('partitionConfig watermark must be above 0 and at most 1')
+    reject('partitionConfig watermark must be above 0 and at most 1')
   }
   return {
     ...(typeof maxDocsPerPartition === 'number' ? { maxDocsPerPartition } : {}),

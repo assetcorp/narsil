@@ -74,7 +74,7 @@ export async function createClusterLocalEngine(
 ): Promise<ClusterLocalEngine> {
   requireKnownConfig(config)
   const runnableConfig = await resolveRunnableConfig(config)
-  const core = createEngineCore(runnableConfig, hooks)
+  const core = createEngineCore(runnableConfig, hooks, 'partition')
   await startEngineCore(core, runnableConfig)
   core.orchestrator.shareMainThread()
   const engine = createNarsilFromCore(core, runnableConfig)
@@ -305,7 +305,7 @@ async function ensureReplicationIndex(
     const indexConfig: IndexConfig = {
       ...coordinatorConfig,
       language: coordinatorConfig.language ?? language.name,
-      partitions: { maxPartitions: partitionCount },
+      partitions: { ...coordinatorConfig.partitions, maxPartitions: partitionCount },
     }
     try {
       await engine.createIndex(indexName, indexConfig)

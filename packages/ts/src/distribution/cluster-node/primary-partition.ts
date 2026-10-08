@@ -57,7 +57,7 @@ export async function preparePrimaryPartition(
     try {
       await deps.engine.createIndex(indexName, {
         ...config,
-        partitions: { maxPartitions: allocation.assignments.size },
+        partitions: { ...config.partitions, maxPartitions: allocation.assignments.size },
       })
     } catch (error) {
       if (!(error instanceof NarsilError) || error.code !== ErrorCodes.INDEX_ALREADY_EXISTS) {
