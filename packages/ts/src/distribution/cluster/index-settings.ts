@@ -4,10 +4,18 @@ import {
   type RestoredEmbedding,
   readSharedConfigFields,
   restoredEmbedding,
+  restoredPartitionConfig,
 } from '../../engine/snapshot/restore-config'
 import { ErrorCodes, NarsilError } from '../../errors'
 import { getLanguage } from '../../languages/registry'
-import type { BM25Params, IndexConfig, SchemaDefinition, ScoringMode, VectorIndexConfig } from '../../types/schema'
+import type {
+  BM25Params,
+  IndexConfig,
+  PartitionConfig,
+  SchemaDefinition,
+  ScoringMode,
+  VectorIndexConfig,
+} from '../../types/schema'
 
 export interface IndexSettings {
   language: string
@@ -22,10 +30,30 @@ export interface IndexSettings {
   required?: string[]
   vectorPromotion?: VectorIndexConfig
   patternValueLimit?: number
+  partitionConfig?: ClusterPartitionLimits
   embedding?: RestoredEmbedding
 }
 
-type SettingsSource = Omit<IndexConfig, 'schema' | 'partitions' | 'language'>
+export interface ClusterPartitionLimits {
+  maxDocsPerPartition?: number
+  watermark?: number
+}
+
+type SettingsSource = Omit<IndexConfig, 'schema' | 'language'>
+
+function partitionLimitsOf(partitions: PartitionConfig | undefined): ClusterPartitionLimits | undefined {
+  if (partitions === undefined) {
+    return undefined
+  }
+  const { maxDocsPerPartition, watermark } = partitions
+  if (maxDocsPerPartition === undefined && watermark === undefined) {
+    return undefined
+  }
+  return {
+    ...(maxDocsPerPartition !== undefined ? { maxDocsPerPartition } : {}),
+    ...(watermark !== undefined ? { watermark } : {}),
+  }
+}
 
 function codeInSettings(option: string, registration: string): NarsilError {
   return new NarsilError(
@@ -37,6 +65,7 @@ function codeInSettings(option: string, registration: string): NarsilError {
 
 function settingsFieldsOf(source: SettingsSource): Omit<IndexSettings, 'language'> {
   const { tokenizer, stopWords, bm25, embedding } = source
+  const partitionConfig = partitionLimitsOf(source.partitions)
   if (tokenizer !== undefined && typeof tokenizer !== 'string') {
     throw codeInSettings('tokenizer', 'registerTokenizer')
   }
@@ -65,6 +94,7 @@ function settingsFieldsOf(source: SettingsSource): Omit<IndexSettings, 'language
     ...(source.required !== undefined ? { required: source.required } : {}),
     ...(source.vectorPromotion !== undefined ? { vectorPromotion: source.vectorPromotion } : {}),
     ...(source.patternValueLimit !== undefined ? { patternValueLimit: source.patternValueLimit } : {}),
+    ...(partitionConfig !== undefined ? { partitionConfig } : {}),
     ...(embedding !== undefined
       ? {
           embedding: {
@@ -109,10 +139,12 @@ export function decodeIndexSettings(raw: unknown, indexName: string): IndexSetti
     return reject('language must be a name')
   }
   const embedding = restoredEmbedding(raw.embedding, reject)
+  const partitions = restoredPartitionConfig(raw.partitionConfig, reject)
   return {
     language: raw.language,
     ...settingsFieldsOf({
       ...readSharedConfigFields(raw, reject),
+      ...(partitions !== undefined ? { partitions } : {}),
       ...(embedding !== undefined ? { embedding } : {}),
     }),
   }
@@ -126,11 +158,12 @@ export function indexConfigFromSettings(
   if (settings === undefined) {
     return { schema }
   }
-  const { language, embedding, ...fields } = settings
+  const { language, embedding, partitionConfig, ...fields } = settings
   return {
     schema,
     language,
     ...readSharedConfigFields(fields, settingsRejection(indexName)),
+    ...(partitionConfig !== undefined ? { partitions: { ...partitionConfig } } : {}),
     ...(embedding !== undefined ? { embedding } : {}),
   }
 }

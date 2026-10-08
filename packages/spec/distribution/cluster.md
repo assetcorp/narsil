@@ -474,15 +474,17 @@ IndexSettings {
   required:          List<string>                 (optional; field paths every document must supply)
   vectorPromotion:   VectorSnapshotPromotion      (optional)
   patternValueLimit: uint32                       (optional; the most code points a pattern field value may hold)
+  partitionConfig:   PartitionSnapshotLimits      (optional; maxDocsPerPartition and watermark alone)
   embedding:         EmbeddingSnapshotConfig      (optional)
 }
 ```
 
 The creating node generates the `indexUuid`, which identifies the index for as long as the index exists. When a node creates an index under the name of a dropped one, it generates a new `indexUuid`, so the two indexes stay distinct although they share a name. A node must compare the value with the one that it persisted before it adopts a local copy; see [Joining the Cluster](#joining-the-cluster).
 
-The creating node writes its index configuration into `settings`, so that every node builds its copy of the index with the same configuration. Each key of `IndexSettings` has the type, the meaning, and the default of the key of the same name in the [index snapshot payload](../envelope.md#index-snapshot-payload). Five rules govern the settings:
+The creating node writes its index configuration into `settings`, so that every node builds its copy of the index with the same configuration. Each key of `IndexSettings` has the type, the meaning, and the default of the key of the same name in the [index snapshot payload](../envelope.md#index-snapshot-payload). Six rules govern the settings:
 
 - The creating node must write `language` in every case, while it must write each other key only when the index configuration sets that option.
+- The creating node must leave `maxPartitions` out of `partitionConfig`, because `partitionCount` sets the number of partitions. [Capacity in a Cluster](../partitioning.md#capacity-in-a-cluster) defines how each node enforces the other two limits.
 - The creating node must fail the create request with `CONFIG_INVALID` when the index configuration gives the tokeniser or the embedding adapter as an instance, or the stop words as a function, because a node cannot serialise code into the metadata.
 - Every node that creates a copy of the index, the creating node included, must create it with the stored schema and every key of `settings`, so that a replica applies each write exactly as its primary does.
 - A node other than the creating node must still create its copy when it has no embedding adapter for the index, treating the missing adapter as recovery does in [Index Metadata](../durability.md#index-metadata).

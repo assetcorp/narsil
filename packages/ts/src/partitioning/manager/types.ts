@@ -28,6 +28,8 @@ export interface PartitionManager {
   trimPartitions(count: number): void
 
   assertCapacity(pendingWrites?: number, partitionCountCap?: number): void
+  assertPartitionCapacity(partitionId: number, pendingWrites?: number): void
+  routePartition(docId: string): number
   insert(docId: string, document: AnyDocument, options?: PartitionInsertOptions): void
   remove(docId: string): void
   beginBatchRemove(): void

@@ -20,21 +20,57 @@ export function asBatchInsertError(err: unknown): NarsilError {
   return err instanceof NarsilError ? err : new NarsilError(ErrorCodes.DOC_VALIDATION_FAILED, String(err))
 }
 
+export interface PendingAdmissions {
+  total: number
+  byPartition: Map<number, number>
+}
+
+export function createPendingAdmissions(): PendingAdmissions {
+  return { total: 0, byPartition: new Map() }
+}
+
+function capsEachPartition(ctx: MutationContext, manager: PartitionManager): boolean {
+  return ctx.capacityScope === 'partition' && manager.config.partitions?.maxDocsPerPartition !== undefined
+}
+
+export function recordPendingAdmission(
+  ctx: MutationContext,
+  pending: PendingAdmissions,
+  manager: PartitionManager,
+  docId: string,
+): void {
+  pending.total += 1
+  if (!capsEachPartition(ctx, manager)) return
+  const partitionId = manager.routePartition(docId)
+  pending.byPartition.set(partitionId, (pending.byPartition.get(partitionId) ?? 0) + 1)
+}
+
 export function admitInsert(
   ctx: MutationContext,
   indexName: string,
   manager: PartitionManager,
   docId: string,
-  pendingAdmitted = 0,
+  pending?: PendingAdmissions,
 ): void {
-  if (!ctx.isRebalancing(indexName)) {
-    manager.assertCapacity(pendingAdmitted)
+  const rebalancing = ctx.isRebalancing(indexName)
+  if (rebalancing) {
+    const bufferedState = ctx.bufferedDocState(indexName, docId)
+    const exists = bufferedState !== undefined ? bufferedState === 'present' : manager.has(docId)
+    if (exists) {
+      throw new NarsilError(ErrorCodes.DOC_ALREADY_EXISTS, `Document "${docId}" already exists`, { docId })
+    }
+  }
+  if (ctx.capacityScope === 'partition') {
+    if (capsEachPartition(ctx, manager)) {
+      const partitionId = manager.routePartition(docId)
+      manager.assertPartitionCapacity(partitionId, pending?.byPartition.get(partitionId) ?? 0)
+    }
     return
   }
-  const bufferedState = ctx.bufferedDocState(indexName, docId)
-  const exists = bufferedState !== undefined ? bufferedState === 'present' : manager.has(docId)
-  if (exists) {
-    throw new NarsilError(ErrorCodes.DOC_ALREADY_EXISTS, `Document "${docId}" already exists`, { docId })
+  const pendingAdmitted = pending?.total ?? 0
+  if (!rebalancing) {
+    manager.assertCapacity(pendingAdmitted)
+    return
   }
   manager.assertCapacity(
     ctx.pendingRebalanceWrites(indexName) + pendingAdmitted,

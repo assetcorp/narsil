@@ -14,6 +14,7 @@ import type { AnyDocument, IndexConfig } from '../../types/schema'
 import type { VectorIndex } from '../../vector/vector-index'
 import { resolvePartitionInsertOptions } from '../insert-options'
 import type { PartitionRouter } from '../router'
+import { assertIndexCapacity, assertPartitionCapacity } from './capacity'
 import { setNestedValue } from './nested-values'
 import type { PartitionManager } from './types'
 
@@ -170,28 +171,36 @@ export function createPartitionManager(
     },
 
     assertCapacity(pendingWrites = 0, partitionCountCap?: number): void {
-      const currentMaxDocs = config.partitions?.maxDocsPerPartition
-      if (currentMaxDocs === undefined) return
-      const effectivePartitionCount =
-        partitionCountCap === undefined ? partitions.length : Math.min(partitions.length, partitionCountCap)
-      const totalCapacity = currentMaxDocs * effectivePartitionCount
-      if (manager.countDocuments() + pendingWrites >= totalCapacity) {
-        throw new NarsilError(
-          ErrorCodes.PARTITION_CAPACITY_EXCEEDED,
-          `Index "${indexName}" has reached its capacity of ${totalCapacity} documents (${currentMaxDocs} per partition × ${effectivePartitionCount} partitions)`,
-          {
-            indexName,
-            currentCount: docPartitionMap.size + pendingWrites,
-            totalCapacity,
-            maxDocsPerPartition: currentMaxDocs,
-            partitionCount: effectivePartitionCount,
-          },
-        )
-      }
+      const maxDocsPerPartition = config.partitions?.maxDocsPerPartition
+      if (maxDocsPerPartition === undefined) return
+      assertIndexCapacity({
+        indexName,
+        maxDocsPerPartition,
+        documentCount: manager.countDocuments(),
+        partitionCount: partitions.length,
+        pendingWrites,
+        partitionCountCap,
+      })
+    },
+
+    assertPartitionCapacity(partitionId: number, pendingWrites = 0): void {
+      const maxDocsPerPartition = config.partitions?.maxDocsPerPartition
+      if (maxDocsPerPartition === undefined) return
+      validatePartitionId(partitionId)
+      assertPartitionCapacity({
+        indexName,
+        maxDocsPerPartition,
+        partitionId,
+        partitionDocumentCount: partitions[partitionId].count(),
+        pendingWrites,
+      })
+    },
+
+    routePartition(docId: string): number {
+      return router.route(docId, partitions.length)
     },
 
     insert(docId: string, document: AnyDocument, options?: PartitionInsertOptions): void {
-      manager.assertCapacity()
       const pid = router.route(docId, partitions.length)
       const insertOpts = resolveInsertOptions(options)
       partitions[pid].insert(docId, document, config.schema, language, insertOpts)

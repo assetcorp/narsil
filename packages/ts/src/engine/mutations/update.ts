@@ -159,7 +159,9 @@ function applyOfUpdate(ctx: MutationContext, indexName: string, prepared: Prepar
     if (ctx.isRebalancing(indexName)) {
       const bufferedState = ctx.bufferedDocState(indexName, docId)
       const exists = bufferedState !== undefined ? bufferedState === 'present' : manager.has(docId)
-      if (!exists) {
+      if (!exists && ctx.capacityScope === 'partition') {
+        manager.assertPartitionCapacity(manager.routePartition(docId))
+      } else if (!exists) {
         manager.assertCapacity(ctx.pendingRebalanceWrites(indexName), ctx.rebalanceTargetPartitionCount(indexName))
       }
     }

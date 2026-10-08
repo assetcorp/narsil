@@ -174,7 +174,7 @@ export async function insertDocumentBatch(
     }
   }
 
-  ctx.checkWatermark(indexName)
+  ctx.checkWatermark(indexName, succeeded)
   ctx.checkHeapPressure(indexName)
   await ctx.orchestrator.scaleOutReadyIndexes()
   if (options?.wait === true) await awaitWriteVisibility(ctx, indexName)
