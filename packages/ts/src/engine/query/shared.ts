@@ -9,6 +9,7 @@ import { flattenSchema } from '../../schema/validator'
 import type { FulltextSearchOptions } from '../../search/fulltext'
 import { requireUsableQueryFields } from '../../search/query-fields'
 import { requireSortableFields } from '../../search/sorting'
+import { requireValidTypoTolerance } from '../../search/typo-tolerance'
 import type { FilterExpression } from '../../types/filters'
 import type { GlobalStatistics, ScoredDocument } from '../../types/internal'
 import type { LanguageModule } from '../../types/language'
@@ -179,6 +180,7 @@ export function requireKnownMode(params: QueryParams): void {
 
 export function requireValidQueryOptions(params: QueryParams, config: IndexConfig): void {
   const strict = config.strict === true
+  requireValidTypoTolerance(params)
   requireSortableFields(params.sort, config.schema, strict)
   requireValidQueryFilter(params.filters, config.schema, strict)
   requireUsableQueryFields(params, config.schema, strict)

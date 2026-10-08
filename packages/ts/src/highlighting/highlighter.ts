@@ -13,6 +13,7 @@ export interface HighlightOptions {
    * like 'security' are marked when the user has typed 'secur'.
    */
   prefixToken?: string
+  completedToken?: string
   tolerance?: number
   prefixLength?: number
 }
@@ -160,14 +161,16 @@ export function highlightField(
   const prefixToken = options?.prefixToken
   const tolerance = options?.tolerance ?? 0
   const prefixLength = options?.prefixLength ?? 0
+  const completedToken = options?.completedToken
+  const queryTolerances = queryTokens.map(qt => (qt.token === completedToken ? 0 : tolerance))
 
   const matchByFieldToken = new Map<string, boolean>()
   const matchesQuery = (fieldToken: string): boolean => {
     const known = matchByFieldToken.get(fieldToken)
     if (known !== undefined) return known
     const stemmedField = language.stemmer ? language.stemmer(fieldToken) : fieldToken
-    const matches = stemmedQueryTokens.some(stemmedQuery =>
-      fuzzyTermMatches(stemmedQuery, stemmedField, tolerance, prefixLength),
+    const matches = stemmedQueryTokens.some((stemmedQuery, index) =>
+      fuzzyTermMatches(stemmedQuery, stemmedField, queryTolerances[index], prefixLength),
     )
     matchByFieldToken.set(fieldToken, matches)
     return matches

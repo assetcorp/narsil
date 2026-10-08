@@ -49,6 +49,22 @@ total_score = SUM over each field f of
 
 Each field uses its own `|D|`, the token count in that field, and its own `avgdl`, the average token count for that field across every document.
 
+### Expanded Terms
+
+With typo tolerance, prefix completion, or partial-word search, one query term can match several tokens. An implementation must score those tokens as below, where `score(t, D, idf)` is the multi-field score of token `t` in document `D`, computed with that IDF:
+
+```text
+typoScore(D) = SUM over each typo match t of score(t, D, IDF(t))
+
+groupScore(D) =
+  idf = IDF(the largest n(t) over every token t in the group)
+  return the largest factor(t) * score(t, D, idf) over every token t in the group
+```
+
+The typo matches of a term are its own token and every token that [Bounded Levenshtein Distance](#bounded-levenshtein-distance) accepts for it, except under `exact`, where they are the own token alone. The last term of a prefix query, and each term that partial-word search applies to, has a group that holds the term's own token, its [completions](#prefix-completion), and its [added words](#partial-word-search). An implementation scores the own token of such a term through the group alone. It gives the last term of a prefix query no typo matches, while it adds the other typo matches of any other term with a group through `typoScore`.
+
+In a group, `factor(t)` is 1 for the own token. For a completion, it is `minimum(1, length(own token) / length(t))`. For an added word, it is the length of the term as written divided by the length of `t` as written. Every length is a count of code points. For a token that is both a completion and an added word, `factor(t)` is the larger of the two. An implementation scores an added word only in the fields whose type includes `partial`.
+
 ### Parameters
 
 | Parameter | Default | Range | Effect |
@@ -79,44 +95,70 @@ Across partitions, an implementation scores BM25 in one of three modes.
 
 ## Bounded Levenshtein Distance
 
-Fuzzy matching, which tolerates typos, uses the edit distance between two strings. That distance is the fewest single-character insertions, deletions, and substitutions that turn `a` into `b`. The computation stops early once the distance passes the tolerance.
+For fuzzy matching, an implementation compares a query term with each candidate term through their edit distance. The edit distance is the fewest single-character insertions, deletions, and substitutions that turn `a` into `b`. An implementation must count each Unicode code point as one character, so the distance between `x` and the single character U+1F600 is 1.
+
+An implementation must compute the distance as below, where `distance` holds the edit distance when it is at most `tolerance` and `tolerance + 1` when it is larger:
 
 ```text
 boundedLevenshtein(a: string, b: string, tolerance: uint32)
     -> { distance: uint32, withinTolerance: boolean }
 
+  a = the code points of a, in order
+  b = the code points of b, in order
   if absolute(length(a) - length(b)) > tolerance:
     return { distance: tolerance + 1, withinTolerance: false }
 
-  matrix = a uint32 grid of size [length(a) + 1][length(b) + 1]
-  set matrix[i][0] = i for i from 0 to length(a)
-  set matrix[0][j] = j for j from 0 to length(b)
+  beyond = tolerance + 1
+  previous = a uint32 array of size length(b) + 1, every entry beyond
+  current = a uint32 array of size length(b) + 1, every entry beyond
+  set previous[j] = j for j from 0 to minimum(length(b), tolerance)
 
   for i from 1 to length(a):
-    rowMin = infinity
-    for j from 1 to length(b):
+    low = maximum(1, i - tolerance)
+    high = minimum(length(b), i + tolerance)
+    current[low - 1] = i when low equals 1, otherwise beyond
+    rowMin = current[low - 1]
+    for j from low to high:
       cost = 0 when a[i-1] equals b[j-1], otherwise 1
-      matrix[i][j] = minimum of
-        matrix[i-1][j] + 1        (deletion)
-        matrix[i][j-1] + 1        (insertion)
-        matrix[i-1][j-1] + cost   (substitution)
-      rowMin = minimum(rowMin, matrix[i][j])
+      current[j] = minimum of
+        previous[j] + 1           (deletion)
+        current[j-1] + 1          (insertion)
+        previous[j-1] + cost      (substitution)
+        beyond
+      rowMin = minimum(rowMin, current[j])
 
     if rowMin > tolerance:
       return { distance: tolerance + 1, withinTolerance: false }
+    swap previous and current
 
-  distance = matrix[length(a)][length(b)]
+  distance = previous[length(b)]
   return { distance, withinTolerance: distance <= tolerance }
 ```
 
-Once the smallest value in a row passes the tolerance, the final distance must pass it too, so the computation returns before it fills the remaining rows.
+The pseudocode computes only the cells within `tolerance` of the diagonal, because any cell further from the diagonal holds more than `tolerance`. One comparison therefore takes at most `length(a)` multiplied by `2 * tolerance + 1` cell updates. Once the smallest value in a row exceeds `tolerance`, the smallest value in every later row exceeds it as well, so the pseudocode returns at that row.
 
 | Parameter | Default | Meaning |
 |-----------|---------|---------|
-| `tolerance` | 0 | The largest edit distance accepted. Zero means exact matches only, so typo tolerance is opt-in per query. |
-| `prefixLength` | 2 | The number of leading characters that must match exactly. |
+| `tolerance` | 0 | It sets the largest edit distance that a match may have, as an integer from 0 to 10. With 0, an implementation accepts exact matches alone, so typo tolerance is opt-in per query. |
+| `prefixLength` | 2 | It sets how many leading characters a candidate must share exactly with the query term, as an integer from 0 to 1,024. |
 
-`prefixLength` narrows the search, because only the tokens that share those first characters are candidates, so an implementation scans one prefix bucket in place of every token.
+An implementation must raise `CONFIG_INVALID` for a query whose `tolerance` or `prefixLength` is outside its range. Where the query term has fewer than `prefixLength` characters, a candidate must start with the whole query term. Only the tokens that share those leading characters are candidates, so an implementation scans one prefix bucket in place of every token.
+
+---
+
+## Prefix Completion
+
+With `prefix` set and `exact` unset, an implementation must treat the last query term as unfinished, taking that term, analysed without stemming, as the typed prefix. It must collect as completions the token of every surface form that starts with the typed prefix, together with every token that starts with the typed prefix and occurs at least once as written. A token occurs as written where its total term frequency exceeds the occurrence counts of its surface forms. Where the partition holds no surface forms, an implementation must also collect every such token that starts with the last term's stemmed token.
+
+An implementation must keep only the tokens that a document of the partition holds. From those, it must take the 50 that the most documents of the partition contain, breaking ties in code point order. Where the last term's own token is among those 50, it counts as one of them.
+
+---
+
+## Partial-Word Search
+
+With `partialWords` set on a query, an implementation must also match each query word of at least three code points against the inside of longer indexed words, in the fields whose [type](envelope.md#field-types) includes the `partial` option. It must compare the query word, analysed without stemming, with the written spelling of each indexed word, which is the word's [surface form](envelope.md#surface-forms) where stemming changes it and its token otherwise. It must therefore raise `CONFIG_INVALID` for a `partial` field in an index whose `surfaceForms` setting is off. A writer stores no index of written words in any payload, so an implementation must derive any such index from the tokens and the surface forms that it holds.
+
+An implementation must add at most 50 indexed words to the whole query, which it must divide equally among the query words of at least three code points, in query order. Where `n` is the number of such words, capped at 50, an implementation must give each of the first `n` words up to `floor(50 / n)` added words, plus one more for each of the first `50 mod n` words. An implementation must skip partial matching for every such word after the 50th. For each query word, it must add only words that a `partial` field of the partition holds, leaving out the word's own token and its typo matches. It must take first the words that the most documents of the partition contain, breaking ties in code point order. It must apply no typo tolerance to a partial match. It must skip partial matching where `exact` is set, as it skips typo matching and prefix completion there. It must score each query word's added words as [Expanded Terms](#expanded-terms) defines, so it scores an added word below the word's own token wherever both appear with the same term frequency and field length in the same field.
 
 ---
 
@@ -539,11 +581,13 @@ An implementation must compare document IDs in code point order everywhere, whic
 
 Every tie on a rank key breaks the same way. Results that share a score order by document ID, facet buckets that share a count order by bucket value, and suggestions that share a document frequency order by term, each ascending in code point order. A truncation to a limit must keep the entries that order first under this rule, so that the kept entries are independent of insertion order.
 
-The sort value order below applies to the fields that a query or a listing names in its `sort`.
+The sort value order below applies to the fields that a query or a listing names in its `sort`, and to a range test on text.
 
-A caller may sort by a `number`, a `boolean`, or an `enum` field with no preparation. A caller may sort by a `string` field only where the schema marks that field sortable, and an implementation must raise `SEARCH_INVALID_FIELD` for a sort on an unmarked `string` field, because ordering free text takes more memory per document than ordering a scalar. An implementation must raise `SEARCH_INVALID_FIELD` for a sort on a `geopoint` or a vector field, because neither type has an order. A caller may set a mode of `min`, `max`, `avg`, or `median` on a sort field. Where a caller sets no mode, an implementation must use `min` for direction `asc` and `max` for direction `desc`. Where a document's value for a sort field is an array, an implementation must compare one value from that array. Under `min` that value is the present element that orders first in direction `asc` under the rules below, and under `max` it is the element that orders last. Under `avg` it is the mean of the array's finite numbers, and under `median` it is their median, where the median of an even count is the mean of the two middle numbers. An array that holds no such value counts as missing. An implementation must compare a value that is not an array as it is, under every mode. An implementation must raise `SEARCH_INVALID_MODE` for a direction other than `asc` and `desc`, and for any other mode, and `SEARCH_INVALID_FIELD` for `avg` or `median` on a field that the schema declares as a type other than `number` or `number[]`.
+A caller may sort by a `number`, a `boolean`, or an `enum` field with no preparation. A caller may sort by a `string`, `string[]`, `verbatim`, or `verbatim[]` field only where its [type](envelope.md#field-types) includes the `sortable` option, and an implementation must raise `SEARCH_INVALID_FIELD` for a sort on any other such field, because ordering text takes more memory per document than ordering a scalar. An implementation must raise `SEARCH_INVALID_FIELD` for a sort on a `geopoint` or a vector field, because neither type has an order. A caller may set a mode of `min`, `max`, `avg`, or `median` on a sort field. Where a caller sets no mode, an implementation must use `min` for direction `asc` and `max` for direction `desc`. Where a document's value for a sort field is an array, an implementation must compare one value from that array. Under `min` that value is the present element that orders first in direction `asc` under the rules below, and under `max` it is the element that orders last. Under `avg` it is the mean of the array's finite numbers, and under `median` it is their median, where the median of an even count is the mean of the two middle numbers. An array that holds no such value counts as missing. An implementation must compare a value that is not an array as it is, under every mode. An implementation must raise `SEARCH_INVALID_MODE` for a direction other than `asc` and `desc`, and for any other mode, and `SEARCH_INVALID_FIELD` for `avg` or `median` on a field that the schema declares as a type other than `number` or `number[]`.
 
 An implementation must rank a query that names a sort by sort values alone, and it must skip relevance scoring. Where `includeScores` is true, it must score each hit as it would without the sort. A sorted query that holds a score threshold must compute scores to apply that floor, and it must report them only where `includeScores` is true. A hit that the implementation returns without scoring holds no score.
+
+A range test on text is a `gt`, `gte`, `lt`, `lte`, or `between` test on a text field, where `between` includes both bounds. For such a test, an implementation must compare string sort values in the order below, so that the test matches the documents whose sort values lie between its bounds in that order. An implementation must accept a range test on text only for a `string` or `verbatim` field whose type includes `sortable`, so it must raise `SEARCH_INVALID_FILTER` for a range test on any other text field. An implementation orders a list field by one element of each document, so the sorted values of a list field can't show whether another element lies within a range.
 
 ### Sort Value Order
 
@@ -564,7 +608,7 @@ The fold is Unicode full case folding, which is the set of mappings in `CaseFold
 
 Folding differs from lowercasing, because lowercasing `ΣΊΣΥΦΟΣ` ends in the final sigma `ς`, while folding maps every sigma to `σ`. An implementation must therefore fold from the table alone.
 
-Folding serves ordering alone, so a stored value, an analysed token, and every byte on disk or on the wire stay as they are.
+An implementation folds text only to order strings and to match [pattern searches](#pattern-search). It therefore leaves every stored value, analysed token, and byte on disk or on the wire unfolded, except the runs of a pattern index, which it takes from folded values.
 
 The fold table is part of this specification, and every implementation must include it. Changing the table is a breaking change to the specification's major version, so the registration check in [Node Registration](distribution/cluster.md#version) keeps engines with different tables out of one cluster. Unicode guarantees that a folding stays fixed once its character is assigned, so a table that an implementer regenerates from a later Unicode version differs only for characters that the earlier version leaves unassigned.
 
@@ -598,6 +642,139 @@ Sort value order for strings, listed ascending:
 `Apple` precedes `apple` because their folds are equal and the raw comparison decides. `FUSS`, `Fuß`, and `fuss` are adjacent because all three fold to `fuss`. `école` orders last because `é` folds to itself and U+00E9 is above `z`.
 
 An implementation must reproduce both lists exactly.
+
+---
+
+## Pattern Search
+
+In a pattern search, an implementation tests the whole stored value of a pattern field against literal text, a wildcard pattern, or a regular expression. It then includes or excludes each document by that test alone, without scoring it. A pattern field is a `verbatim` or `verbatim[]` field, or a `string` or `string[]` field whose [type](envelope.md#field-types) includes the `pattern` option.
+
+| Test | A value matches when |
+|------|----------------------|
+| `contains` | the text appears anywhere in the value |
+| `wildcard` | the whole value matches the [wildcard pattern](#wildcard-syntax) |
+| `regex` | the [regular expression](#regular-expression-syntax) matches anywhere in the value |
+
+An implementation must raise `SEARCH_INVALID_FILTER` for these three tests on any field other than a pattern field, because without a pattern index it has to check every value of that field. It must test each element of a list as a value of its own, so a document matches where one element matches. It must compare the code points of a value as stored, with no Unicode normalisation. It must raise `SEARCH_INVALID_FILTER` for a test whose text or pattern holds more than 1,024 code points.
+
+An implementation must raise `DOC_VALIDATION_FAILED` for a document whose value in a pattern field holds more code points than the index's pattern value limit. The limit defaults to 8,192 code points, while a caller may set it from 1 to 65,536 when it creates the index. An implementation must raise `CONFIG_INVALID` for any other limit.
+
+### Folded Tests
+
+With `caseFold` set on a test of a pattern field, an implementation must compare the [case fold](#case-folding) of the value with the fold of the test, while without it the implementation must compare them exactly. `caseFold` applies to `eq`, `ne`, `in`, `nin`, `startsWith`, and `endsWith` as well as to the three tests above. An implementation must raise `SEARCH_INVALID_FILTER` for `caseFold` on any field other than a pattern field, because it keeps folded values only in a pattern index.
+
+Under `caseFold`, a literal code point in a pattern matches its fold, while `.` and `?` match one code point of the folded value. A set matches one code point of the folded value that equals the fold of one of its members, while a negated set matches one code point that equals the fold of none of them. A set that is not negated also matches the fold of a member written alone in it where that fold holds several code points, so `[ß]` matches `ss`. A range in a set matches one code point alone.
+
+### Wildcard Syntax
+
+In a wildcard pattern, `*` matches any sequence of code points, the empty sequence included, while `?` matches exactly one code point. A `\` makes the code point after it literal, while every other code point matches itself. An implementation must raise `SEARCH_INVALID_FILTER` for a pattern that ends in a `\` with no code point after it.
+
+### Regular Expression Syntax
+
+A regular expression matches a value where some part of the value matches it, while `^` and `$` match only at the start and the end of the whole value. An implementation must accept exactly this grammar and raise `SEARCH_INVALID_FILTER` for any other pattern:
+
+```text
+pattern = branch, then zero or more of ("|" branch)
+branch  = zero or more pieces
+piece   = atom, then at most one repeat
+repeat  = "*" | "+" | "?" | "{" n "}" | "{" n ",}" | "{" n "," m "}"
+atom    = literal | "." | class | set | "(" pattern ")" | "^" | "$" | "\b" | range
+literal = any code point except \ . | * + ? { } ( ) [ ] ^ $ < >
+        | "\" followed by an ASCII punctuation code point
+class   = "\d" | "\w" | "\s"
+set     = "[", then an optional "^", then one or more of (member | member "-" member | class), then "]"
+member  = any code point except \ [ ] -
+        | "\" followed by an ASCII punctuation code point
+range   = "<" low "-" high ">"
+```
+
+`n` and `m` are decimal numbers, while `low` and `high` each hold from 1 to 15 decimal digits. The ASCII punctuation code points are U+0021 to U+002F, U+003A to U+0040, U+005B to U+0060, and U+007B to U+007E. The grammar has no back-references, lookaround, lazy or possessive repeats, inline flags, or Unicode property classes, so an implementation must reject each of them with `SEARCH_INVALID_FILTER`.
+
+| Construct | Meaning |
+|-----------|---------|
+| `.` | It matches any one code point, line breaks included. |
+| `\d` | It matches one code point from `0` to `9`. |
+| `\w` | It matches one ASCII digit, one ASCII letter of either case, or `_`. |
+| `\s` | It matches one of U+0009, U+000A, U+000C, U+000D, or U+0020. |
+| `[...]` | It matches one code point in the set, where `a-z` covers every code point from `a` to `z`. |
+| `[^...]` | It matches one code point outside the set. |
+| `x\|y` | It matches `x` or `y`. |
+| `x*`, `x+`, `x?` | They match `x` zero or more times, one or more times, or at most once. |
+| `x{n}`, `x{n,}`, `x{n,m}` | They match `x` exactly `n` times, at least `n` times, or from `n` to `m` times. |
+| `^`, `$` | They match at the start or at the end of the value. |
+| `\b` | It matches at an edge between a `\w` code point and either a code point outside `\w` or an end of the value. |
+| `<low-high>` | It matches the digits of a whole number from `low` to `high`. |
+
+An implementation must raise `SEARCH_INVALID_FILTER` for a set range or a number range whose low end is above its high end, and for `{n,m}` where `n` is above `m`.
+
+A number range matches a number written with no leading zero, unless `low` and `high` hold the same number of digits, in which case it matches a number zero-padded to that many digits. An implementation must match a number range as the pattern that `numberRange` returns:
+
+```text
+numberRange(low: string, high: string) -> string
+  if length(low) equals length(high):
+    return sameWidth(low, high)
+  parts = an empty list
+  start = the number that low holds
+  for width from the digit count of start to length(high):
+    last = minimum(the number that high holds, 10^width - 1)
+    append sameWidth(decimal(start), decimal(last)) to parts
+    start = 10^width
+  return "(" + parts joined by "|" + ")"
+
+sameWidth(low: string, high: string) -> string
+  n = length(low)
+  if low equals high:
+    return low
+  if every digit of low is 0 and every digit of high is 9:
+    return "[0-9]" when n is 1, otherwise "[0-9]{" + decimal(n) + "}"
+  if n is 1:
+    return "[" + low + "-" + high + "]"
+  if low[0] equals high[0]:
+    return low[0] + sameWidth(rest(low), rest(high))
+  parts = [low[0] + sameWidth(rest(low), n - 1 nines)]
+  if digit(low[0]) + 1 <= digit(high[0]) - 1:
+    append "[" + (digit(low[0]) + 1) + "-" + (digit(high[0]) - 1) + "]"
+      + n - 1 copies of "[0-9]" to parts
+  append high[0] + sameWidth(n - 1 zeros, rest(high)) to parts
+  return "(" + parts joined by "|" + ")"
+```
+
+`rest(s)` is `s` without its first digit. `decimal(x)` is `x` written in decimal digits with no leading zero.
+
+### Limits and Matching
+
+Before it builds a matcher, an implementation must raise `SEARCH_INVALID_FILTER` for a pattern whose groups nest more than 32 deep, for a count above 2,048, and for a pattern with more than 2,048 positions:
+
+```text
+positions(x) -> uint32
+  when x is a literal, return 1, or under caseFold the number of code points in its fold
+  when x is "." or a class, return 1
+  when x is a set, return 1, plus under caseFold the code points of every fold that it matches as a sequence
+  when x is "*" or "?" in a wildcard pattern, return 1
+  when x is "^", "$", or "\b", return 0
+  when x is a group or a whole pattern, return the sum of positions over every piece of every branch
+  when x is y*, y+, or y?, return positions(y)
+  when x is y{n}, return n * positions(y)
+  when x is y{n,}, return maximum(n, 1) * positions(y)
+  when x is y{n,m}, return m * positions(y)
+  when x is a number range, return positions(numberRange(low, high))
+```
+
+An implementation must stop adding positions once the total passes 2,048, so that the total cannot overflow.
+
+An implementation must match without backtracking, so that it checks one value in at most as many steps as the value's code points multiplied by the pattern's positions, where one step tests one pattern position against one code point. It must hold at most 1 MB of matcher state for one search, so when a cache of matcher states fills, it may empty the cache and continue.
+
+An implementation must count the work of every test on a pattern field across every partition that it answers the search for, adding one unit for each step and one unit for each shortlist entry that it reads. It must count one step for each pattern position that a match can reach at each code point that it checks. It must count each literal test as the regular expression that it equals, such as `^text$` for `eq` and `text` for `contains`, with every metacharacter in the text escaped. It must stop the search and raise `SEARCH_WORK_CAP_EXCEEDED` once the count exceeds the work cap, which defaults to 25,000,000 units and which a caller may change through an engine setting.
+
+### Pattern Index
+
+An implementation must keep a pattern index for each pattern field, mapping every run of three consecutive code points in the field's folded values to the documents whose value holds that run. [Field Indexes](envelope.md#field-indexes) defines how a partition stores it. An implementation may build the shortlist for a test from any runs that every matching value must hold, but it must check each shortlisted document against the whole test, so the shortlist changes only how long a search takes. It must check every value of the field for a test from which it can take no run, such as `\d{4}`.
+
+### Typo Test
+
+A caller may set a `tolerance` of 0, 1, 2, or `auto` on an `eq` test of a pattern field, and the test then matches a value whose [bounded Levenshtein distance](#bounded-levenshtein-distance) from the text is within the tolerance, measured between their folds under `caseFold`. The folded value of a value within `k` edits of the text holds at least one of any `k * (2 + f) + 1` distinct runs of the folded text, where `f` is the number of code points in the longest fold among the text's code points, so an implementation must build its shortlist from that many distinct runs. It should take the runs whose lists are shortest.
+
+An implementation must raise `SEARCH_INVALID_FILTER` for a tolerance of 1 or 2 that needs more distinct runs than the folded text holds, and it must state in the error how many distinct runs that tolerance needs. Under `auto`, it must use 2 where the folded text holds enough distinct runs for 2, otherwise 1 where it holds enough for 1, and otherwise 0. It must raise `SEARCH_INVALID_FILTER` for any other tolerance and for a tolerance on any other test. It must count one step for each cell that the distance computation fills.
 
 ---
 

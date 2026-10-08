@@ -77,7 +77,7 @@ describe('a frozen segment answers every read like the live partition it froze',
   it('scores a fuzzy query identically at tolerance one and two', () => {
     const { live, frozen } = buildPair()
     for (const tolerance of [1, 2]) {
-      for (const prefixLength of [0, 1, 2]) {
+      for (const prefixLength of [0, 1, 2, 6]) {
         const params = termParams({ tokens: ['appla'], tolerance, prefixLength })
         const liveResult = live.searchFulltext(params)
         const frozenResult = searchFulltext(frozen, params)

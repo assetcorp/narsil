@@ -44,6 +44,19 @@ describe('query options that name a field', () => {
     })
   })
 
+  it('raises CONFIG_INVALID for a tolerance or prefixLength outside its range', async () => {
+    for (const tolerance of [-1, 1.5, 11]) {
+      await expect(narsil.query('bikes', { term: 'bike', tolerance })).rejects.toMatchObject({
+        code: 'CONFIG_INVALID',
+      })
+    }
+    for (const prefixLength of [-1, 1025]) {
+      await expect(narsil.query('bikes', { term: 'bike', prefixLength })).rejects.toMatchObject({
+        code: 'CONFIG_INVALID',
+      })
+    }
+  })
+
   it('raises SEARCH_INVALID_FIELD for a facet on a geopoint field', async () => {
     await expect(narsil.query('bikes', { term: 'bike', facets: { depot: {} } })).rejects.toMatchObject({
       code: 'SEARCH_INVALID_FIELD',

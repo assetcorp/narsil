@@ -125,6 +125,18 @@ A version 1 partition payload is a MessagePack map:
 }
 ```
 
+### Field Types
+
+`schema` maps each field path to its type name. A type name is a base type followed by its options, each after a colon, as in `string:sortable:pattern`:
+
+| Base type | Options |
+|-----------|---------|
+| `string`, `string[]` | `sortable`, `pattern`, `partial` |
+| `verbatim`, `verbatim[]` | `sortable` |
+| `number`, `number[]`, `boolean`, `boolean[]`, `enum`, `enum[]`, `geopoint`, `vector[n]` | none |
+
+An implementation must store and compare a `verbatim` value exactly as written, as one piece of text that it indexes for [pattern search](algorithms.md#pattern-search). A writer must store a field's options in the order of the table, whatever order the caller gives them in. An implementation must raise `SCHEMA_INVALID_TYPE` for an unknown base type, for an option outside its base type's row, and for an option written twice. It must raise that error both when a caller creates an index and wherever it reads a schema, because a reader that skips a field of an unknown type can save the index again without that field's data.
+
 ### Documents
 
 `documents` maps a document ID to a `Document`:
@@ -166,6 +178,12 @@ FieldIndexes {
   boolean:  Map<string, BooleanIndex>
   enum:     Map<string, Map<string, List<string>>>
   geopoint: Map<string, List<GeopointEntry>>
+  pattern:  Map<string, PatternIndex>   (optional)
+}
+
+PatternIndex {
+  doc_ids: List<string>
+  runs:    Map<string, List<uint32>>
 }
 
 NumericEntry {
@@ -186,6 +204,8 @@ GeopointEntry {
 ```
 
 Numeric entries are stored in ascending order of `value`, so a reader can binary-search them straight after decoding.
+
+`pattern` maps each pattern field to the pattern index that [Pattern Index](algorithms.md#pattern-index) defines. `doc_ids` lists the documents that hold a value in the field. Each key of `runs` is a run of three code points, whose list holds, in ascending order, the positions in `doc_ids` of the documents whose folded value contains that run. A writer must leave `pattern` out of a partition that has no pattern field, so that it writes the same bytes for such a partition as before. A reader must raise `PERSISTENCE_LOAD_FAILED` for a list that holds a position outside `doc_ids` or out of ascending order. A reader that finds no entry for a pattern field must rebuild that field's index from `documents`, because an older writer may have saved the partition without it.
 
 ### Surface Forms
 
@@ -427,6 +447,7 @@ Each index writes a metadata envelope under the key `<indexName>/meta`. It uses 
   strict:                boolean              (optional)
   required:              List<string>         (optional; field paths every document must supply)
   vector_promotion:      VectorPromotionMeta  (optional)
+  pattern_value_limit:   uint32               (optional; the most code points a pattern field value may hold)
   index_uuid:            string               (optional; the cluster identity of the index)
   held_partitions:       List<uint32>         (optional; the partitions of the index this copy holds)
 }
@@ -469,7 +490,7 @@ The `analysis_revision` field records the [revision](adapters.md#revision) of th
 
 The `tokenizer` and `stop_words` fields record the names the index resolved its analysis from, as described in [Analysis Registry](adapters.md#analysis-registry). A writer includes each field only when the index configuration gave a name, because a tokeniser instance and a stop word function are code and no payload carries code. An engine with durability configured refuses an index whose analysis is given as code, as [Analysis Registry](adapters.md#analysis-registry) requires, so an absent field means the index analyses with the language default. An index configured with a literal stop word set persists the words themselves in `stop_word_list`, and a payload carries at most one of `stop_words` and `stop_word_list`. Recovery resolves each name against the engine's analysis registry so that a recovered index analyses text the way the original did; see [Index Metadata](durability.md#index-metadata).
 
-The `partition_limits`, `default_scoring`, `track_positions`, `strict`, `required`, and `vector_promotion` fields record the rest of the index configuration: the partition limits, the scoring mode, position tracking, strict document validation, the required field paths, and the vector promotion settings. All six are additive. A writer includes each field only when the index configuration set it, and a reader treats an absent field as that option's default, so a recovered index behaves exactly as the original did.
+The `partition_limits`, `default_scoring`, `track_positions`, `strict`, `required`, `vector_promotion`, and `pattern_value_limit` fields record the rest of the index configuration: the partition limits, the scoring mode, position tracking, strict document validation, the required field paths, the vector promotion settings, and the [pattern value limit](algorithms.md#pattern-search). All seven are additive. A writer includes each field only when the index configuration sets it, and a reader treats an absent field as that option's default, so a recovered index behaves exactly as the original did.
 
 The `index_uuid` field records the identity a cluster assigned the index when it was created, as [Index Metadata](distribution/cluster.md#index-metadata) defines it. A node running in cluster mode writes the value, and a single engine leaves it absent. A rejoining node compares the recovered value with the one the coordinator holds before it adopts the index, so the node never serves a predecessor's documents from an index created again under the same name; see [Joining the Cluster](distribution/cluster.md#joining-the-cluster). The field is additive, and a reader that finds it absent treats the index as belonging to no cluster.
 
@@ -514,24 +535,25 @@ The payload is a MessagePack map:
 
 ```text
 {
-  version:          uint8                        (the partition payload version: 1 or 2)
-  schema:           Map<string, string>
-  language:         string
-  analysisRevision: string                       (optional; the language module revision)
-  tokenizer:        string                       (optional; the registered tokeniser name)
-  stopWords:        string                       (optional; the registered stop word set name)
-  stopWordList:     List<string>                 (optional; the words of a literal stop word set)
-  bm25:             { k1: float32, b: float32 }  (optional; each key optional)
-  surfaceForms:     boolean                      (a reader treats an absent value as true)
-  partitionConfig:  PartitionSnapshotLimits      (optional)
-  defaultScoring:   string                       (optional; "local", "dfs", or "broadcast")
-  trackPositions:   boolean                      (optional)
-  strict:           boolean                      (optional)
-  required:         List<string>                 (optional; field paths every document must supply)
-  vectorPromotion:  VectorSnapshotPromotion      (optional)
-  embedding:        EmbeddingSnapshotConfig      (optional)
-  partitions:       List<bytes>                  (one partition payload per entry, at the named version)
-  vectorIndexes:    Map<string, List<VectorIndexPayload>>   (the parts of each field, in part order)
+  version:           uint8                        (the partition payload version: 1 or 2)
+  schema:            Map<string, string>
+  language:          string
+  analysisRevision:  string                       (optional; the language module revision)
+  tokenizer:         string                       (optional; the registered tokeniser name)
+  stopWords:         string                       (optional; the registered stop word set name)
+  stopWordList:      List<string>                 (optional; the words of a literal stop word set)
+  bm25:              { k1: float32, b: float32 }  (optional; each key optional)
+  surfaceForms:      boolean                      (a reader treats an absent value as true)
+  partitionConfig:   PartitionSnapshotLimits      (optional)
+  defaultScoring:    string                       (optional; "local", "dfs", or "broadcast")
+  trackPositions:    boolean                      (optional)
+  strict:            boolean                      (optional)
+  required:          List<string>                 (optional; field paths every document must supply)
+  vectorPromotion:   VectorSnapshotPromotion      (optional)
+  patternValueLimit: uint32                       (optional; the most code points a pattern field value may hold)
+  embedding:         EmbeddingSnapshotConfig      (optional)
+  partitions:        List<bytes>                  (one partition payload per entry, at the named version)
+  vectorIndexes:     Map<string, List<VectorIndexPayload>>   (the parts of each field, in part order)
 }
 
 PartitionSnapshotLimits {

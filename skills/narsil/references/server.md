@@ -3,10 +3,10 @@
 ## 1. Install the server's peer package
 
 ```bash
-pnpm add -E "uWebSockets.js@github:uNetworking/uWebSockets.js#v20.58.0"
+pnpm add -E "uWebSockets.js@$(node -p "require('./node_modules/@delali/narsil/package.json').devDependencies['uWebSockets.js']")"
 ```
 
-npm has no package by that name, so install it from GitHub exactly as written. A missing package makes `server.listen()` throw `CONFIG_INVALID`, and the error's message names the package to install.
+The command installs uWebSockets.js from the GitHub source in the `devDependencies` of the installed `@delali/narsil`, since its author publishes it only on GitHub. Ignore the packages with similar names on npm. When the package is missing, `server.listen()` throws `CONFIG_INVALID` with a message that contains the name of the package to install.
 
 ## 2. Write the server
 

@@ -63,6 +63,41 @@ describe('query with last-token prefix matching', () => {
     expect(result.hits.map(h => h.id)).toEqual(['sec-1'])
   })
 
+  it('matches a longer word through tolerance only when its edit distance fits', async () => {
+    const oneEdit = await narsil.query('docs', { term: 'sec', tolerance: 1 })
+    expect(oneEdit.hits).toHaveLength(0)
+
+    const twoEdits = await narsil.query('docs', { term: 'sec', tolerance: 2 })
+    expect(twoEdits.hits.map(h => h.id).sort()).toEqual(['sec-1', 'sec-2'])
+
+    const highlighted = await narsil.query('docs', {
+      term: 'platform sec',
+      tolerance: 1,
+      highlight: { fields: ['body'] },
+    })
+    expect(highlighted.hits.map(h => h.id)).toEqual(['sec-1'])
+    expect(highlighted.hits[0]?.highlights?.body?.snippet).toBe('How we handle <mark>platform</mark> security reviews')
+  })
+
+  it('requires every candidate to start with a query word shorter than prefixLength', async () => {
+    const shortWord = await narsil.query('docs', { term: 'rum', tolerance: 1, prefixLength: 4 })
+    expect(shortWord.hits).toHaveLength(0)
+
+    const sharedPrefix = await narsil.query('docs', { term: 'rum', tolerance: 1 })
+    expect(sharedPrefix.hits.map(h => h.id)).toEqual(['db-1'])
+  })
+
+  it('highlights no typo of the unfinished word', async () => {
+    const result = await narsil.query('docs', {
+      term: 'platform secura',
+      prefix: true,
+      tolerance: 1,
+      highlight: { fields: ['body'] },
+    })
+    expect(result.hits.map(h => h.id)).toEqual(['sec-1'])
+    expect(result.hits[0]?.highlights?.body?.snippet).toBe('How we handle <mark>platform</mark> security reviews')
+  })
+
   it('highlights the completed word of the prefix token', async () => {
     const result = await narsil.query('docs', {
       term: 'secur',
