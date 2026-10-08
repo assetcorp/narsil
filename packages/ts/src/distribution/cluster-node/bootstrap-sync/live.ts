@@ -2,7 +2,7 @@ import { ErrorCodes, NarsilError } from '../../../errors'
 import type { ClusterCoordinator } from '../../coordinator/types'
 import {
   ABORT_SENTINEL,
-  loadCoordinatorSchema,
+  loadCoordinatorIndexConfig,
   resolveTransportTargets,
   surfaceAborted,
   surfaceError,
@@ -85,13 +85,13 @@ export async function executeLiveBootstrapSync(
   deadline: number,
   abortCheck: AbortCheck,
 ): Promise<boolean> {
-  const schemaResult = await loadCoordinatorSchema(deps.coordinator, indexName, primaryNodeId, entry.abortPromise)
-  if (schemaResult === 'aborted') {
+  const configResult = await loadCoordinatorIndexConfig(deps.coordinator, indexName, primaryNodeId, entry.abortPromise)
+  if (configResult === 'aborted') {
     surfaceAborted(deps, indexName, primaryNodeId)
     return false
   }
-  if ('error' in schemaResult) {
-    surfaceError(deps, indexName, primaryNodeId, schemaResult.error)
+  if ('error' in configResult) {
+    surfaceError(deps, indexName, primaryNodeId, configResult.error)
     return false
   }
   if (abortCheck()) {
@@ -141,7 +141,7 @@ export async function executeLiveBootstrapSync(
     partitionId,
     primaryNodeId,
     targetsResult,
-    schemaResult.schema,
+    configResult.config,
     allocationResult.partitionCount,
     deadline,
     deps,

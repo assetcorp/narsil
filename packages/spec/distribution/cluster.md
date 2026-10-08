@@ -450,20 +450,44 @@ The heuristic itself is implementation-defined. This specification fixes the inp
 
 ## Index Metadata
 
-Creating an index in cluster mode stores index-level configuration in the coordinator, so that the controller can read it when it computes the first allocation.
+The node that creates an index in cluster mode stores the index metadata in the coordinator, so that the controller can compute the first allocation from it and every node can build its copy of the index from it.
 
 ```text
 IndexMetadata {
-  indexUuid:         string   (unique identifier, such as a UUID v7)
+  indexUuid:         string          (unique identifier, such as a UUID v7)
   partitionCount:    uint32
   replicationFactor: uint8
   constraints:       AllocationConstraints
+  settings:          IndexSettings   (optional)
+}
+
+IndexSettings {
+  language:          string
+  tokenizer:         string                       (optional; the registered tokeniser name)
+  stopWords:         string                       (optional; the registered stop word set name)
+  stopWordList:      List<string>                 (optional; the words of a literal stop word set)
+  bm25:              { k1: float32, b: float32 }  (optional; each key optional)
+  surfaceForms:      boolean                      (a reader treats an absent value as true)
+  defaultScoring:    string                       (optional; "local", "dfs", or "broadcast")
+  trackPositions:    boolean                      (optional)
+  strict:            boolean                      (optional)
+  required:          List<string>                 (optional; field paths every document must supply)
+  vectorPromotion:   VectorSnapshotPromotion      (optional)
+  patternValueLimit: uint32                       (optional; the most code points a pattern field value may hold)
+  embedding:         EmbeddingSnapshotConfig      (optional)
 }
 ```
 
-The `indexUuid` identifies the index for as long as it exists, and the creating node generates it. An index created again under a dropped name carries a new `indexUuid`, so the two indexes stay distinct where their names do not. A node must compare the value with the one it persisted before it adopts a local copy; see [Joining the Cluster](#joining-the-cluster).
+The creating node generates the `indexUuid`, which identifies the index for as long as the index exists. When a node creates an index under the name of a dropped one, it generates a new `indexUuid`, so the two indexes stay distinct although they share a name. A node must compare the value with the one that it persisted before it adopts a local copy; see [Joining the Cluster](#joining-the-cluster).
 
-The record is serialised as MessagePack and stored in the coordinator's general key-value store under a well-known key:
+The creating node writes its index configuration into `settings`, so that every node builds its copy of the index with the same configuration. Each key of `IndexSettings` has the type, the meaning, and the default of the key of the same name in the [index snapshot payload](../envelope.md#index-snapshot-payload). Four rules govern the settings:
+
+- The creating node must write `language` in every case, while it must write each other key only when the index configuration sets that option.
+- The creating node must fail the create request with `CONFIG_INVALID` when the index configuration gives the tokeniser or the embedding adapter as an instance, or the stop words as a function, because a node cannot serialise code into the metadata.
+- Every node that creates a copy of the index, the creating node included, must create it with the stored schema and every key of `settings`, so that a replica applies each write exactly as its primary does.
+- When `settings` is absent, a node must create its copy from the stored schema, with every option at its default except the language, which the node may take from a partition payload that it restores.
+
+The creating node serialises the record as MessagePack and stores it in the coordinator's general key-value store under a well-known key:
 
 ```text
 _narsil/index/{indexName}/config
@@ -472,37 +496,39 @@ _narsil/index/{indexName}/config
 ### Index Creation Flow
 
 ```text
-1. The node receiving the create request:
+1. The node that receives the create request:
    a. generates a fresh indexUuid
-   b. writes the index metadata with
+   b. builds the settings from the index configuration
+   c. writes the index metadata with
       compareAndSet('_narsil/index/{indexName}/config', absent, bytes),
-      where the absent check blocks a duplicate creation
-   c. writes the schema with putSchema(indexName, schema), which
+      so that a second creation under the same name fails
+   d. writes the schema with putSchema(indexName, schema), which
       fires a schema_created event
 
-2. The controller observes that event:
+2. The controller receives that event through watchSchemas:
    a. it reads the metadata with
       get('_narsil/index/{indexName}/config')
-   b. it runs the allocator with the partitionCount,
-      replicationFactor, and constraints it found
+   b. it calls allocate with the partitionCount, the
+      replicationFactor, and the constraints from the metadata
    c. it writes the first allocation table with putAllocation
 
-3. A creating node that crashes between steps 1b and 1c leaves
-   metadata behind with no schema event, so the controller does
-   nothing and the metadata is orphaned. The next create call for
-   the same name fails its compareAndSet, because the key already
-   exists, which tells the caller a partial creation happened so
-   that it can retry or clean up.
+3. When a creating node crashes between steps 1c and 1d, its
+   metadata stays orphaned, because the controller allocates an
+   index only after its schema_created event. The next create call
+   for the same name fails its compareAndSet on the existing key,
+   so the caller can retry the creation or clean up the partial
+   one.
 
 4. A controller that crashes between steps 2a and 2c leaves a
-   schema with no allocation. The next controller finds the schema
-   through listSchemas and no table through getAllocation, and runs
-   the allocator to finish the job.
+   schema with no allocation. When listSchemas returns that schema
+   and getAllocation returns no table for it, the next controller
+   calls allocate and writes the first allocation table with
+   putAllocation.
 ```
 
-The `partitionCount` is fixed once the index exists. Changing it means creating a new index and reindexing into it. Every node must create its local index with exactly `partitionCount` partitions, so that a serialised partition loads unchanged on any holder.
+The `partitionCount` stays fixed for the life of the index, so a caller that needs another count must create a new index and reindex into it. Every node must create its local index with exactly `partitionCount` partitions, so that any holder can load a serialised partition unchanged.
 
-The `replicationFactor` can change after creation by updating the allocation table, and the controller applies the new factor on the next rebalance.
+After creation, a caller can change the `replicationFactor` in the allocation table, so the controller applies the new factor at its next rebalance.
 
 ### Index Deletion Flow
 
