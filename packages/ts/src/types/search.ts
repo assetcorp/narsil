@@ -92,19 +92,33 @@ export interface QueryParams {
    * query can reject every hit in another.
    */
   minScore?: number
-  /** The engine keeps a document only where it matches this many query terms, and one term is enough by default. */
+  /**
+   * The engine keeps a document only where the document matches this many
+   * query terms, under the same `tolerance` and `prefixLength` that the search
+   * uses. One term is enough by default.
+   */
   termMatch?: TermMatchPolicy
-  /** The engine matches an indexed term within this edit distance of a query term, so a query with a typo still finds its document. */
+  /**
+   * The engine matches an indexed term within this edit distance of a query
+   * term, so it finds a document for a query with a typo. It counts each
+   * Unicode code point as one character. Set an integer from 0 to 10.
+   */
   tolerance?: number
-  /** The engine applies `tolerance` only to indexed terms that share this many leading characters with the query term, 2 by default. */
+  /**
+   * The engine applies `tolerance` only to the indexed terms that share this
+   * many leading characters with the query term, or to the terms that start
+   * with the whole query term when the query term is shorter. Set an integer
+   * from 0 to 1,024; the default is 2.
+   */
   prefixLength?: number
   /**
-   * Setting this makes the engine treat the last query term as an unfinished
-   * word, so `secur` matches `security`. The earlier terms must match whole,
-   * and `tolerance` applies to them alone. The engine scores completions
-   * against a shared document frequency and ranks them below whole-word
-   * matches. It ignores this setting where `exact` is true, and the setting
-   * defaults to false.
+   * With this set, the engine treats the last query term as an unfinished
+   * word, so `secur` matches `security`. The engine matches that last term by
+   * its stem or by completing it, while `tolerance` applies only to the earlier
+   * terms, which have to match whole. The engine scores completions against a
+   * shared document frequency. It also ranks them below whole-word matches.
+   * The engine ignores this setting where `exact` is true, and the setting is
+   * false by default.
    */
   prefix?: boolean
   /**
@@ -333,15 +347,15 @@ export type GroupReducer = {
 }
 
 /**
- * Which fields a query returns highlighted snippets for, and how those
- * snippets are marked up.
+ * This configuration names the fields that receive highlighted snippets. It
+ * also sets how the engine marks those snippets up.
  *
- * The engine analyses the text of each returned field again and marks every
- * word that the query matches. That covers a word whose stem equals a query
- * stem, a word within the query's `tolerance` of a query stem, and, for a
- * `prefix` query, a word that completes the last query term. The engine
- * therefore marks the same words whatever the index's `trackPositions`
- * setting is.
+ * The engine analyses the text of each returned field again to tag every word
+ * that it matched, so it tags the same words whatever the index's
+ * `trackPositions` setting is. It tags a word whose stem equals a query stem,
+ * and a word within the query's `tolerance` of a query stem. For a `prefix`
+ * query, it tags a word for the last query term only when that word completes
+ * the term or shares its stem.
  *
  * @public
  */

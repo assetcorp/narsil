@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { boundedLevenshtein } from '../../core/fuzzy'
+import { boundedLevenshtein, fuzzyTermMatches } from '../../core/fuzzy'
 
 describe('boundedLevenshtein', () => {
   it('returns distance 0 for identical strings', () => {
@@ -14,13 +14,12 @@ describe('boundedLevenshtein', () => {
     expect(result.withinTolerance).toBe(true)
   })
 
-  it('returns distance 0 when indexed word is a prefix of query', () => {
-    const result = boundedLevenshtein('cat', 'cats', 1)
-    expect(result.distance).toBe(0)
-    expect(result.withinTolerance).toBe(true)
+  it('counts each added character when the indexed word starts with the query', () => {
+    expect(boundedLevenshtein('cat', 'cats', 1)).toEqual({ distance: 1, withinTolerance: true })
+    expect(boundedLevenshtein('sec', 'secur', 1)).toEqual({ distance: 2, withinTolerance: false })
   })
 
-  it('returns correct distance for single insertion (non-prefix)', () => {
+  it('returns correct distance for single insertion inside the word', () => {
     const result = boundedLevenshtein('cat', 'cart', 1)
     expect(result.distance).toBe(1)
     expect(result.withinTolerance).toBe(true)
@@ -57,19 +56,8 @@ describe('boundedLevenshtein', () => {
 
   it('returns early when length difference exceeds tolerance', () => {
     const result = boundedLevenshtein('hi', 'hello', 1)
+    expect(result.distance).toBe(2)
     expect(result.withinTolerance).toBe(false)
-  })
-
-  it('handles prefix matching: query starts with indexed word', () => {
-    const result = boundedLevenshtein('testing', 'test', 5)
-    expect(result.distance).toBe(3)
-    expect(result.withinTolerance).toBe(true)
-  })
-
-  it('handles prefix matching: indexed word starts with query', () => {
-    const result = boundedLevenshtein('test', 'testing', 5)
-    expect(result.distance).toBe(0)
-    expect(result.withinTolerance).toBe(true)
   })
 
   it('rejects negative tolerance', () => {
@@ -91,6 +79,7 @@ describe('boundedLevenshtein', () => {
 
   it('terminates early when all row values exceed tolerance', () => {
     const result = boundedLevenshtein('abcdef', 'zyxwvu', 1)
+    expect(result.distance).toBe(2)
     expect(result.withinTolerance).toBe(false)
   })
 
@@ -100,9 +89,20 @@ describe('boundedLevenshtein', () => {
     expect(result.withinTolerance).toBe(true)
   })
 
-  it('returns empty string distance for non-empty comparison beyond tolerance', () => {
-    const result = boundedLevenshtein('', 'abcde', 3)
-    expect(result.distance).toBe(5)
-    expect(result.withinTolerance).toBe(false)
+  it('counts a supplementary character as one edit', () => {
+    expect(boundedLevenshtein('a', '\u{1F600}', 1)).toEqual({ distance: 1, withinTolerance: true })
+  })
+
+  it('checks two long words in time that grows with their length', () => {
+    const shared = 'a'.repeat(100_000)
+    expect(boundedLevenshtein(`${shared}b`, `${shared}c`, 1)).toEqual({ distance: 1, withinTolerance: true })
+  })
+})
+
+describe('fuzzyTermMatches', () => {
+  it('applies prefixLength in code points and to the whole of a shorter query term', () => {
+    expect(fuzzyTermMatches('\u{1F600}a', '\u{1F603}a', 1, 1)).toBe(false)
+    expect(fuzzyTermMatches('rum', 'run', 1, 4)).toBe(false)
+    expect(fuzzyTermMatches('rum', 'run', 1, 2)).toBe(true)
   })
 })

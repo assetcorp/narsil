@@ -303,7 +303,7 @@ A `memory` index holds its full-precision vectors in memory. A `disk` index hold
 
 ### Text Search Is Exactly Equivalent
 
-Given the same index contents, the same query, and the same parameters, every implementation must return identical text results in identical order. BM25 is deterministic, because [BM25](algorithms.md#bm25-best-matching-25) fixes the tokeniser, the stemmer, and the scoring formula. Any divergence between implementations is a defect.
+Given the same index contents, the same query, and the same parameters, every implementation must return identical text results in identical order. BM25 is deterministic, because [BM25](algorithms.md#bm25-best-matching-25) fixes the tokeniser, the stemmer, and the scoring formula. Any divergence between implementations is a defect, except that a [pattern search](algorithms.md#pattern-search) may pass the work cap in one implementation alone, because each implementation builds its own shortlist and counts the entries that it reads.
 
 ### Vector Search Is Equivalent by Recall
 

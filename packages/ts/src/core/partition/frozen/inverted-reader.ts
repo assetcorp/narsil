@@ -1,5 +1,5 @@
 import type { PostingListView } from '../../../types/internal'
-import { boundedLevenshtein } from '../../fuzzy'
+import { boundedLevenshtein, fuzzyPrefixOf } from '../../fuzzy'
 import type { InvertedIndexReader, TermSuggestion } from '../../inverted-index'
 import { compareCodePoints } from '../../ordering'
 import type { FrozenPostingViews } from './posting-views'
@@ -10,11 +10,9 @@ export function createFrozenInvertedReader(table: FrozenTokenTable, views: Froze
     return views.viewAt(table.payloadSlot(sortedIndex), table.documentFrequencyAt(sortedIndex))
   }
 
-  function candidateRange(queryToken: string, prefixLength: number): { start: number; end: number } {
-    if (prefixLength <= 0 || queryToken.length < prefixLength) {
-      return { start: 0, end: table.size }
-    }
-    return table.firstCharRange(queryToken)
+  function candidateRange(prefix: string): { start: number; end: number } {
+    if (prefix.length === 0) return { start: 0, end: table.size }
+    return table.firstCharRange(prefix)
   }
 
   return {
@@ -40,14 +38,14 @@ export function createFrozenInvertedReader(table: FrozenTokenTable, views: Froze
         return at < 0 ? [] : [{ token, postingList: viewAtSorted(at) }]
       }
 
-      const range = candidateRange(token, prefixLength)
-      const needsPrefixFilter = prefixLength > 1 && token.length >= prefixLength
-      const prefix = needsPrefixFilter ? token.slice(0, prefixLength) : ''
+      const prefix = fuzzyPrefixOf(token, prefixLength)
+      const range = candidateRange(prefix)
+      const requiredPrefix = prefix.length > 1 ? prefix : ''
       const results: Array<{ token: string; postingList: PostingListView }> = []
 
       for (let at = range.start; at < range.end; at++) {
         const candidate = table.tokenAt(at)
-        if (needsPrefixFilter && !(candidate.length >= prefixLength && candidate.startsWith(prefix))) continue
+        if (!candidate.startsWith(requiredPrefix)) continue
         const { withinTolerance } = boundedLevenshtein(token, candidate, tolerance)
         if (withinTolerance) {
           results.push({ token: candidate, postingList: viewAtSorted(at) })

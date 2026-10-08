@@ -23,8 +23,9 @@ export function applyHighlights<T>(
   })
 
   let prefixToken: string | undefined
+  let completedToken: string | undefined
   if (params.prefix === true && params.exact !== true && queryTokenResult.tokens.length > 0) {
-    const lastPosition = queryTokenResult.tokens[queryTokenResult.tokens.length - 1].position
+    const lastToken = queryTokenResult.tokens[queryTokenResult.tokens.length - 1]
     const unstemmed = tokenize(params.term ?? '', language, {
       stem: false,
       removeStopWords: true,
@@ -32,8 +33,9 @@ export function applyHighlights<T>(
       stopWordOverride: analysis.stopWords,
     })
     for (const t of unstemmed.tokens) {
-      if (t.position === lastPosition) {
+      if (t.position === lastToken.position) {
         prefixToken = t.token
+        completedToken = lastToken.token
         break
       }
     }
@@ -55,6 +57,7 @@ export function applyHighlights<T>(
           postTag: params.highlight.postTag,
           maxSnippetLength: params.highlight.maxSnippetLength,
           prefixToken,
+          completedToken,
           tolerance: params.exact === true ? 0 : (params.tolerance ?? 0),
           prefixLength: params.prefixLength ?? DEFAULT_FUZZY_PREFIX_LENGTH,
         })
