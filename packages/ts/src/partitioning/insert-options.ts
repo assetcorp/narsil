@@ -10,10 +10,12 @@ export function resolvePartitionInsertOptions(
   const applyStrict = config.strict === true
   const applyAnalyzer = analysis.stopWords !== undefined || analysis.customTokenizer !== undefined
   const applySurfaces = config.surfaceForms !== false
-  if (!applyStrict && !applyAnalyzer && !applySurfaces) return options
+  const applyPatternLimit = config.patternValueLimit !== undefined
+  if (!applyStrict && !applyAnalyzer && !applySurfaces && !applyPatternLimit) return options
 
   const resolved: PartitionInsertOptions = { ...options }
   if (applyStrict) resolved.strict = true
+  if (applyPatternLimit) resolved.patternValueLimit = config.patternValueLimit
   if (applyAnalyzer) {
     resolved.stopWordOverride = options?.stopWordOverride ?? analysis.stopWords
     resolved.customTokenizer = options?.customTokenizer ?? analysis.customTokenizer

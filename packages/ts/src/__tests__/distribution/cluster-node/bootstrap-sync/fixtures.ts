@@ -48,7 +48,7 @@ export function makeMockEngine(options: MockEngineOptions = {}): MockEngineHandl
   })
   let restoreHold: Promise<void> | null = null
 
-  const statsSchema = options.statsSchema ?? { title: 'text' }
+  const statsSchema = options.statsSchema ?? { title: 'string' }
   const engine = {
     listIndexes: () => (hasIndex ? [{ name: 'products' }] : []),
     createIndex: async (name: string) => {

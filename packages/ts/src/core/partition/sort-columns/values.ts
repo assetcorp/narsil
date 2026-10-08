@@ -1,3 +1,4 @@
+import { parsedTypeOf } from '../../../schema/validator/field-type'
 import type { ComparableSortValue } from '../../ordering'
 import { SORT_VALUE_MAX_CODE_POINTS } from '../../ordering/constants'
 
@@ -28,8 +29,9 @@ function grow(length: number, wanted: number): number {
 }
 
 export function kindForFieldType(fieldType: string | undefined): ValueStoreKind {
-  if (fieldType === 'number') return 'number'
-  if (fieldType === 'boolean') return 'boolean'
+  const base = parsedTypeOf(fieldType)?.base
+  if (base === 'number') return 'number'
+  if (base === 'boolean') return 'boolean'
   return 'mixed'
 }
 

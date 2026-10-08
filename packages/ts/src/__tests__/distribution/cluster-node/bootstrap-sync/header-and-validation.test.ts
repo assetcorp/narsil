@@ -25,7 +25,7 @@ describe('runBootstrapSync - header validation and request errors', () => {
 
   beforeEach(() => {
     mockEngine = makeMockEngine()
-    coordinator = makeMockCoordinator({ title: 'text' })
+    coordinator = makeMockCoordinator({ title: 'string' })
     scripted = makeScriptedTransport()
   })
 
@@ -191,6 +191,24 @@ describe('runBootstrapSync - header validation and request errors', () => {
     expect(onError).toHaveBeenCalledTimes(1)
     const err = onError.mock.calls[0][0] as NarsilError
     expect(err.details.innerCode).toBe(ErrorCodes.SNAPSHOT_SYNC_SCHEMA_UNAVAILABLE)
+  })
+
+  it('surfaces SCHEMA_INVALID_TYPE when the coordinator schema holds a type this node does not know', async () => {
+    const onError = vi.fn()
+
+    const result = await runBootstrapSync(
+      createBootstrapSyncState(),
+      'products',
+      0,
+      'primary-node',
+      makeDeps(mockEngine.engine, makeMockCoordinator({ title: 'string:fuzzy' }), scripted.transport, { onError }),
+    )
+
+    expect(result).toBe(false)
+    expect(scripted.streamCalls.length).toBe(0)
+    expect(mockEngine.restoreCalls.length).toBe(0)
+    const err = onError.mock.calls[0][0] as NarsilError
+    expect(err.details.innerCode).toBe(ErrorCodes.SCHEMA_INVALID_TYPE)
   })
 
   it('surfaces SNAPSHOT_SYNC_RESTORE_FAILED when engine.restore throws', async () => {

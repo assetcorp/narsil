@@ -1,5 +1,5 @@
 import { ErrorCodes, NarsilError } from '../../errors'
-import { validateDocument, validateDocumentStrict } from '../../schema/validator'
+import { schemaFieldsOf, validateDocument, validateDocumentStrict } from '../../schema/validator'
 import { encodeRawPayloadV2 } from '../../serialization/payload-v2'
 import type { FilterExpression } from '../../types/filters'
 import type {
@@ -46,7 +46,7 @@ import {
   sortValuesOf,
 } from './sorting'
 import { expandTermPrefix, type PartitionSuggestion, suggestDisplayTerms } from './suggestions'
-import { getFlatSchema, type PartitionInsertOptions, type PartitionState, textFieldsChanged } from './utils'
+import { type PartitionInsertOptions, type PartitionState, textFieldsChanged } from './utils'
 import { serializePartitionToWirePayloadV2 } from './wire-payload'
 
 export type { GlobalStatistics, InternalSearchParams, InternalSearchResult, ScoredDocument }
@@ -135,19 +135,18 @@ export function createPartitionIndex(partitionId: number, trackPositions = true)
       }
 
       if (options?.validate !== false) {
-        validateDocument(document, schema)
+        validateDocument(document, schema, options?.patternValueLimit)
         if (options?.strict) {
           validateDocumentStrict(document as Record<string, unknown>, schema)
         }
       }
 
       const internalId = state.docStore.ensureInternalId(docId)
-      const flatSchema = getFlatSchema(state, schema)
       const { fieldLengths, tokensByField } = indexDocument(
         state,
         docId,
         document as Record<string, unknown>,
-        flatSchema,
+        schemaFieldsOf(schema),
         language,
         options,
       )
@@ -169,8 +168,14 @@ export function createPartitionIndex(partitionId: number, trackPositions = true)
         })
       }
 
-      const flatSchema = getFlatSchema(state, schema)
-      const { fieldLengths, tokensByField } = removeFromIndexes(state, docId, stored, flatSchema, language, options)
+      const { fieldLengths, tokensByField } = removeFromIndexes(
+        state,
+        docId,
+        stored,
+        schemaFieldsOf(schema),
+        language,
+        options,
+      )
       const internalId = state.docStore.getInternalId(docId)
       state.docStore.remove(docId)
       state.stats.removeDocument(fieldLengths, tokensByField)
@@ -214,21 +219,21 @@ export function createPartitionIndex(partitionId: number, trackPositions = true)
       }
 
       if (options?.validate !== false) {
-        validateDocument(document, schema)
+        validateDocument(document, schema, options?.patternValueLimit)
         if (options?.strict) {
           validateDocumentStrict(document as Record<string, unknown>, schema)
         }
       }
 
-      const flatSchema = getFlatSchema(state, schema)
-      const needsTextReindex = textFieldsChanged(stored.fields, document as Record<string, unknown>, flatSchema)
+      const fields = schemaFieldsOf(schema)
+      const needsTextReindex = textFieldsChanged(stored.fields, document as Record<string, unknown>, fields)
 
       if (needsTextReindex) {
         const { fieldLengths: oldFieldLengths, tokensByField: oldTokens } = removeFromIndexes(
           state,
           docId,
           stored,
-          flatSchema,
+          fields,
           language,
           options,
         )
@@ -242,7 +247,7 @@ export function createPartitionIndex(partitionId: number, trackPositions = true)
           state,
           docId,
           document as Record<string, unknown>,
-          flatSchema,
+          fields,
           language,
           options,
         )
@@ -250,7 +255,7 @@ export function createPartitionIndex(partitionId: number, trackPositions = true)
         state.stats.addDocument(newFieldLengths, newTokens)
         recordSortValues(state, internalId, document as Record<string, unknown>)
       } else {
-        updateFieldIndexOnly(state, docId, stored.fields, document as Record<string, unknown>, flatSchema)
+        updateFieldIndexOnly(state, docId, stored.fields, document as Record<string, unknown>, fields)
         state.docStore.store(docId, document, stored.fieldLengths)
         const internalId = state.docStore.getInternalId(docId)
         if (internalId !== undefined) recordSortValues(state, internalId, document as Record<string, unknown>)

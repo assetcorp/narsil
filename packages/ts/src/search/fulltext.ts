@@ -3,7 +3,7 @@ import { fuzzyTermMatches } from '../core/fuzzy'
 import type { PartitionIndex, PartitionSearchMatches } from '../core/partition'
 import { tokenize } from '../core/tokenizer'
 import { ErrorCodes, NarsilError } from '../errors'
-import { flattenSchema, isTextFieldType } from '../schema/validator'
+import { flattenSchema, isWordIndexedFieldType } from '../schema/validator'
 import type { GlobalStatistics, InternalSearchResult, ScoredDocument } from '../types/internal'
 import type { LanguageModule } from '../types/language'
 import type { BM25Params, CustomTokenizer, FieldType, SchemaDefinition } from '../types/schema'
@@ -221,7 +221,7 @@ function validateSearchFields(fields: string[], flatSchema: Record<string, Field
     if (!fieldType) {
       throw new NarsilError(ErrorCodes.SEARCH_INVALID_FIELD, `Field "${field}" does not exist in the schema`, { field })
     }
-    if (!isTextFieldType(fieldType) && fieldType !== 'string[]') {
+    if (!isWordIndexedFieldType(fieldType)) {
       throw new NarsilError(
         ErrorCodes.SEARCH_INVALID_FIELD,
         `Field "${field}" has type "${fieldType}" which cannot be used for full-text search`,

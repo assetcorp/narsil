@@ -22,19 +22,36 @@ export type ComparisonFilter = {
 }
 
 /**
- * Everything {@link ComparisonFilter} offers, with the set and prefix tests a
- * string field also supports.
+ * The engine tests a text field against this filter for equality, for a text
+ * range, or with the set and prefix tests.
  *
- * On a `string[]` field, the engine compares each element of the list, so
- * `eq`, `in`, `startsWith`, and `endsWith` match a document where one element
- * matches, and `ne` and `nin` match a document where no element matches.
+ * The engine compares each element of a `string[]` or `verbatim[]` field, so
+ * it matches a document with `eq`, `in`, `startsWith`, or `endsWith` where
+ * one element passes the test, while it matches a document with `ne` or `nin`
+ * where every element differs from the values.
+ *
+ * The engine applies the range tests `gt`, `gte`, `lt`, `lte`, and `between`
+ * to a single `string` or `verbatim` field whose type includes `sortable`,
+ * while it throws `SEARCH_INVALID_FILTER` for a text range on any other field.
+ * It compares the values as it does for a sort on the field, with case folds
+ * first.
  *
  * @public
  */
-export type StringFilter = ComparisonFilter & {
+export type StringFilter = Pick<ComparisonFilter, 'eq' | 'ne'> & {
+  /** This matches a value that comes after the text in sort order. */
+  gt?: string
+  /** This matches a value that comes before the text in sort order. */
+  lt?: string
+  /** This matches a value equal to the text or after it in sort order. */
+  gte?: string
+  /** This matches a value equal to the text or before it in sort order. */
+  lte?: string
+  /** This matches a value inside the inclusive range in sort order, given as `[low, high]`. */
+  between?: [string, string]
   /** This matches a field equal to any value in the list. */
   in?: string[]
-  /** This matches a field equal to none of the values in the list. */
+  /** This matches a field that differs from every value in the list. */
   nin?: string[]
   /** This matches a field starting with the text. */
   startsWith?: string

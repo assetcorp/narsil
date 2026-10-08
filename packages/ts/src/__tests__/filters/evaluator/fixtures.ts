@@ -115,6 +115,7 @@ export function buildContext(): FilterContext {
       category: makeEnumFieldIndex('category'),
     },
     getFieldValue: (id, fieldPath) => products[id]?.[fieldPath],
+    textRangeBitset: () => new Uint32Array(1),
     allDocIds,
     capacity: CAPACITY,
     allDocIdsBitset: bitsetFromSet(allDocIds, CAPACITY),

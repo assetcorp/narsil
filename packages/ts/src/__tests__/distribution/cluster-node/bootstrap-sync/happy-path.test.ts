@@ -23,7 +23,7 @@ describe('runBootstrapSync - happy path and state', () => {
 
   beforeEach(() => {
     mockEngine = makeMockEngine()
-    coordinator = makeMockCoordinator({ title: 'text' })
+    coordinator = makeMockCoordinator({ title: 'string' })
     scripted = makeScriptedTransport()
   })
 
@@ -215,7 +215,7 @@ describe('runBootstrapSync - happy path and state', () => {
   })
 
   it('fetches the schema when the local index is missing and does not pre-create the empty shell', async () => {
-    const getSchemaSpy = vi.fn().mockResolvedValue({ title: 'text' })
+    const getSchemaSpy = vi.fn().mockResolvedValue({ title: 'string' })
     const coord: ClusterCoordinator = { getSchema: getSchemaSpy } as unknown as ClusterCoordinator
 
     const { chunks } = makeScriptedSnapshot('products', 1024)

@@ -1,4 +1,6 @@
 import { ErrorCodes, NarsilError } from '../../errors'
+import { validateSchema } from '../../schema/validator'
+import type { SchemaDefinition } from '../../types/schema'
 import type { ClusterCoordinator, PartitionAssignment } from '../coordinator/types'
 import { validateRestoredSchema } from './bootstrap-restore'
 import type { ClusterLocalEngine } from './local-engine'
@@ -33,8 +35,15 @@ export async function preparePrimaryPartition(
   partitionId: number,
   deps: PrimaryPartitionDeps,
 ): Promise<boolean> {
-  const schema = await deps.coordinator.getSchema(indexName)
-  if (schema === null) {
+  const storedSchema = await deps.coordinator.getSchema(indexName)
+  if (storedSchema === null) {
+    return false
+  }
+  let schema: SchemaDefinition
+  try {
+    schema = validateSchema(storedSchema)
+  } catch (error) {
+    deps.onError(error)
     return false
   }
   const allocation = await deps.coordinator.getAllocation(indexName)

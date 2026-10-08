@@ -49,7 +49,7 @@ describe('runBootstrapSync - live sync protocol alignment', () => {
 
   beforeEach(() => {
     mockEngine = makeMockEngine()
-    coordinator = makeMockCoordinator({ title: 'text' })
+    coordinator = makeMockCoordinator({ title: 'string' })
     scripted = makeScriptedTransport()
     replicaLog = createReplicationLog(0)
     resetCalls = []

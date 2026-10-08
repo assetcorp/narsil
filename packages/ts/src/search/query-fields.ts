@@ -1,14 +1,15 @@
 import { ErrorCodes, NarsilError } from '../errors'
 import { undeclaredFieldOnStrictIndex } from '../filters/operands'
 import { flattenSchema } from '../schema/validator'
-import { isGeopointOrVectorType, isTextFieldType } from '../schema/validator/shared'
+import { isWordIndexedFieldType } from '../schema/validator/field-type'
+import { isGeopointOrVectorType } from '../schema/validator/shared'
 import type { SchemaDefinition } from '../types/schema'
 import type { QueryParams } from '../types/search'
 
 function requireBoostableFields(boost: Record<string, number>, flatSchema: Record<string, string>): void {
   for (const [field, weight] of Object.entries(boost)) {
     const fieldType = flatSchema[field]
-    if (fieldType === undefined || (!isTextFieldType(fieldType) && fieldType !== 'string[]')) {
+    if (fieldType === undefined || !isWordIndexedFieldType(fieldType)) {
       throw new NarsilError(
         ErrorCodes.SEARCH_INVALID_FIELD,
         fieldType === undefined

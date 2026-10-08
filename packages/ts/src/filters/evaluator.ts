@@ -1,3 +1,4 @@
+import type { TextRangeBounds } from '../core/partition/sort-columns/range'
 import { ErrorCodes, NarsilError } from '../errors'
 import type {
   ComparisonFilter,
@@ -38,10 +39,22 @@ export interface FilterContext {
   fieldTypes: Readonly<Record<string, FieldType>>
   fieldIndexes: Record<string, FieldIndex>
   getFieldValue: (internalId: number, fieldPath: string) => unknown
+  textRangeBitset: (fieldPath: string, bounds: TextRangeBounds) => Uint32Array
   allDocIds: Set<number>
   capacity: number
   allDocIdsBitset: Uint32Array
 }
+
+const UNBOUNDED: Pick<TextRangeBounds, 'lower' | 'upper'> = { lower: null, upper: null }
+
+function textBoundsOf(operator: 'gt' | 'gte' | 'lt' | 'lte', bound: string): TextRangeBounds {
+  if (operator === 'gt' || operator === 'gte') {
+    return { ...UNBOUNDED, lower: bound, lowerInclusive: operator === 'gte', upperInclusive: false }
+  }
+  return { ...UNBOUNDED, upper: bound, upperInclusive: operator === 'lte', lowerInclusive: false }
+}
+
+const TEXT_RANGE_OPERATORS = ['gt', 'gte', 'lt', 'lte'] as const
 
 const EXPRESSION_KEYS: ReadonlySet<string> = new Set(FILTER_EXPRESSION_KEYS)
 
@@ -129,20 +142,33 @@ function evaluateFieldFilter(fieldPath: string, filter: FieldFilter, context: Fi
   if ('ne' in f && f.ne !== undefined) {
     bitsets.push(applyNeBitset(f.ne as number | string | boolean, getAllDocsBitset, capacity, getValue, fieldIndex))
   }
-  if ('gt' in f && f.gt !== undefined) {
-    bitsets.push(applyGtBitset(f.gt as number, getAllDocsBitset, capacity, getValue, fieldIndex))
+  for (const operator of TEXT_RANGE_OPERATORS) {
+    const bound = f[operator]
+    if (typeof bound === 'string') bitsets.push(context.textRangeBitset(fieldPath, textBoundsOf(operator, bound)))
   }
-  if ('lt' in f && f.lt !== undefined) {
-    bitsets.push(applyLtBitset(f.lt as number, getAllDocsBitset, capacity, getValue, fieldIndex))
+  if (typeof f.gt === 'number') {
+    bitsets.push(applyGtBitset(f.gt, getAllDocsBitset, capacity, getValue, fieldIndex))
   }
-  if ('gte' in f && f.gte !== undefined) {
-    bitsets.push(applyGteBitset(f.gte as number, getAllDocsBitset, capacity, getValue, fieldIndex))
+  if (typeof f.lt === 'number') {
+    bitsets.push(applyLtBitset(f.lt, getAllDocsBitset, capacity, getValue, fieldIndex))
   }
-  if ('lte' in f && f.lte !== undefined) {
-    bitsets.push(applyLteBitset(f.lte as number, getAllDocsBitset, capacity, getValue, fieldIndex))
+  if (typeof f.gte === 'number') {
+    bitsets.push(applyGteBitset(f.gte, getAllDocsBitset, capacity, getValue, fieldIndex))
   }
-  if ('between' in f && f.between !== undefined) {
-    bitsets.push(applyBetweenBitset(f.between as [number, number], getAllDocsBitset, capacity, getValue, fieldIndex))
+  if (typeof f.lte === 'number') {
+    bitsets.push(applyLteBitset(f.lte, getAllDocsBitset, capacity, getValue, fieldIndex))
+  }
+  if (Array.isArray(f.between)) {
+    const [low, high] = f.between as [unknown, unknown]
+    if (typeof low === 'string' && typeof high === 'string') {
+      bitsets.push(
+        context.textRangeBitset(fieldPath, { lower: low, lowerInclusive: true, upper: high, upperInclusive: true }),
+      )
+    } else {
+      bitsets.push(
+        applyBetweenBitset([low as number, high as number], getAllDocsBitset, capacity, getValue, fieldIndex),
+      )
+    }
   }
 
   if ('in' in f && f.in !== undefined) {

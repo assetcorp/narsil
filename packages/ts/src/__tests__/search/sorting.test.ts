@@ -203,7 +203,10 @@ describe('requireSortableFields', () => {
     price: 'number',
     location: 'geopoint',
     embedding: 'vector[3]',
-    tags: 'string[]',
+    tags: 'string[]:sortable',
+    labels: 'string[]:pattern',
+    code: 'verbatim',
+    paths: 'verbatim[]:sortable',
     venue: { spot: 'geopoint' },
   } as const
 
@@ -225,7 +228,21 @@ describe('requireSortableFields', () => {
     )
   })
 
-  it('accepts a number field, an array field, and a field outside the schema', () => {
-    expect(() => requireSortableFields({ price: 'asc', tags: 'asc', stock: 'desc' }, schema)).not.toThrow()
+  it('accepts a number field, a sortable list, and a field outside the schema', () => {
+    expect(() =>
+      requireSortableFields({ price: 'asc', tags: 'asc', paths: 'desc', stock: 'desc' }, schema),
+    ).not.toThrow()
+  })
+
+  it('rejects a sort on a text list or a verbatim field whose type leaves out sortable', () => {
+    expect(() => requireSortableFields({ labels: 'asc' }, schema)).toThrow(
+      expect.objectContaining({
+        code: 'SEARCH_INVALID_FIELD',
+        message: expect.stringContaining('"string[]:sortable:pattern"'),
+      }),
+    )
+    expect(() => requireSortableFields({ code: 'desc' }, schema)).toThrow(
+      expect.objectContaining({ code: 'SEARCH_INVALID_FIELD', details: { field: 'code', fieldType: 'verbatim' } }),
+    )
   })
 })

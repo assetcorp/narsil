@@ -1,5 +1,6 @@
 import { decode, encode } from '@msgpack/msgpack'
 import { ErrorCodes, NarsilError } from '../../errors'
+import { requireValidFieldTypes } from '../../schema/validator/schema'
 import { type EnvelopeParts, packSnapshotEnvelopeParts, unpackEnvelopeBytes } from '../../serialization/envelope'
 import type { VectorIndexPayload } from '../../vector/vector-index'
 import { decodeVectorIndexParts } from '../../vector/vector-index/payload'
@@ -72,6 +73,7 @@ export async function decodeSnapshotBundle(data: Uint8Array): Promise<SnapshotBu
   if (!raw.schema || typeof raw.schema !== 'object') {
     throw new NarsilError(ErrorCodes.PERSISTENCE_LOAD_FAILED, 'Snapshot bundle missing schema')
   }
+  requireValidFieldTypes(raw.schema)
   if (typeof raw.language !== 'string') {
     throw new NarsilError(ErrorCodes.PERSISTENCE_LOAD_FAILED, 'Snapshot bundle missing language')
   }

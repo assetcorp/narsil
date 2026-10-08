@@ -17,6 +17,7 @@ export interface SnapshotEnvelope {
   strict?: unknown
   required?: unknown
   vectorPromotion?: unknown
+  patternValueLimit?: unknown
   embedding?: unknown
   partitions?: Uint8Array[]
   vectorIndexes?: Record<string, unknown>
@@ -190,6 +191,9 @@ export function restoredConfigFields(envelope: SnapshotEnvelope): RestoredConfig
   const strict = restoredBoolean(envelope.strict, 'strict')
   const required = restoredRequired(envelope.required)
   const vectorPromotion = restoredVectorPromotion(envelope.vectorPromotion)
+  if (envelope.patternValueLimit !== undefined && typeof envelope.patternValueLimit !== 'number') {
+    invalid('patternValueLimit must be a number')
+  }
 
   return {
     ...(typeof envelope.tokenizer === 'string' ? { tokenizer: envelope.tokenizer } : {}),
@@ -202,5 +206,6 @@ export function restoredConfigFields(envelope: SnapshotEnvelope): RestoredConfig
     ...(strict !== undefined ? { strict } : {}),
     ...(required !== undefined ? { required } : {}),
     ...(vectorPromotion !== undefined ? { vectorPromotion } : {}),
+    ...(typeof envelope.patternValueLimit === 'number' ? { patternValueLimit: envelope.patternValueLimit } : {}),
   }
 }

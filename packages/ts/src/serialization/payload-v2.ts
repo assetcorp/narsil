@@ -1,4 +1,5 @@
 import { decode, encode } from '@msgpack/msgpack'
+import { requireValidFieldTypes } from '../schema/validator/schema'
 import type { SerializablePartition, SerializedSurfaceForms } from '../types/internal'
 import { VALID_HNSW_METRICS } from './constants'
 import { sanitizeSurfaceForms } from './payload-v1'
@@ -74,6 +75,7 @@ function validateHnswMetric(value: unknown): 'cosine' | 'dotProduct' | 'euclidea
 }
 
 function storedDocumentsOf(raw: RawPartitionPayloadV2): SerializablePartition['documents'] {
+  requireValidFieldTypes(raw.schema ?? {})
   const documents: SerializablePartition['documents'] = {}
   for (const [docId, doc] of Object.entries(raw.documents ?? {})) {
     documents[docId] = {

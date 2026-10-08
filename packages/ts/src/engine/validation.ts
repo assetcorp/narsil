@@ -1,4 +1,5 @@
 import { ErrorCodes, NarsilError } from '../errors'
+import { MAX_PATTERN_VALUE_LIMIT, MIN_PATTERN_VALUE_LIMIT } from '../schema/constants'
 import { clampRowCount } from '../search/pagination'
 import type { IndexLifecycleConfig, WorkerConfig } from '../types/config'
 import type { BM25Params } from '../types/schema'
@@ -95,6 +96,22 @@ export function validatePartitionConfig(partitions: {
     throw new NarsilError(ErrorCodes.CONFIG_INVALID, 'partitions.watermark must be above 0 and at most 1', {
       watermark,
     })
+  }
+}
+
+export function validatePatternValueLimit(limit: unknown): void {
+  if (limit === undefined) return
+  if (
+    typeof limit !== 'number' ||
+    !Number.isInteger(limit) ||
+    limit < MIN_PATTERN_VALUE_LIMIT ||
+    limit > MAX_PATTERN_VALUE_LIMIT
+  ) {
+    throw new NarsilError(
+      ErrorCodes.CONFIG_INVALID,
+      `patternValueLimit must be a whole number of code points from ${MIN_PATTERN_VALUE_LIMIT} to ${MAX_PATTERN_VALUE_LIMIT}`,
+      { patternValueLimit: typeof limit === 'number' ? limit : String(limit) },
+    )
   }
 }
 

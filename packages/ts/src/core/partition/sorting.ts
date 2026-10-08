@@ -1,14 +1,28 @@
 import { type ComparableSortValue, readSortField, type SortMode, toReducedSortValue } from '../ordering'
-import { createSortColumnSet } from './sort-columns'
+import { createSortColumnSet, type SortColumnSet } from './sort-columns'
+import { selectTextRange, type TextRangeBounds } from './sort-columns/range'
 import { type SortedPageEntry, type SortPageRequest, selectSortedPage } from './sort-columns/select'
 import type { PartitionReadState } from './utils'
 
 export type { SortedPageEntry, SortPageRequest } from './sort-columns/select'
 
-function ensureColumns(state: PartitionReadState): void {
+function ensureColumns(state: PartitionReadState): SortColumnSet {
   if (state.sortColumns === null) {
     state.sortColumns = createSortColumnSet(state.docStore)
   }
+  return state.sortColumns
+}
+
+export function textRangeBitsetOf(
+  state: PartitionReadState,
+  fieldPath: string,
+  fieldType: string | undefined,
+  bounds: TextRangeBounds,
+  capacity: number,
+): Uint32Array {
+  const column = ensureColumns(state).column(fieldPath, fieldType, 'min')
+  const resolver = state.docStore.resolver()
+  return selectTextRange(column, bounds, capacity, internalId => resolver.toExternal(internalId) !== undefined)
 }
 
 export function sortedPageOf(state: PartitionReadState, request: SortPageRequest): SortedPageEntry[] {

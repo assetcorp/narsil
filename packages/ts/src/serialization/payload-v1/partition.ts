@@ -1,4 +1,5 @@
 import { decode, encode } from '@msgpack/msgpack'
+import { requireValidFieldTypes } from '../../schema/validator/schema'
 import type { SerializablePartition, SerializedSurfaceForms } from '../../types/internal'
 import { VALID_HNSW_METRICS } from '../constants'
 import { dropStoredVectorValues } from '../stored-vector-values'
@@ -154,6 +155,7 @@ function wireToPartition(raw: RawPartitionPayload): SerializablePartition {
       fieldLengths: doc.field_lengths ?? {},
     }
   }
+  requireValidFieldTypes(raw.schema ?? {})
   dropStoredVectorValues(documents, raw.schema ?? {})
 
   const invertedIndex: SerializablePartition['invertedIndex'] = {}

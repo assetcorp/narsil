@@ -1,6 +1,7 @@
+import { exceedsCodePoints } from '../../core/ordering/code-points'
 import { ErrorCodes, NarsilError } from '../../errors'
-import type { FieldType } from '../../types/schema'
-import { isPlainObject, SORTABLE_TEXT_FIELD_TYPE, VECTOR_PATTERN } from './shared'
+import type { ParsedFieldType } from './field-type'
+import { isPlainObject } from './shared'
 
 export function validateGeopoint(path: string, value: unknown): void {
   if (!isPlainObject(value)) {
@@ -108,10 +109,25 @@ export function validateTypedArray(path: string, value: unknown, elementType: 's
   }
 }
 
-export function validateFieldValue(path: string, value: unknown, type: FieldType): void {
-  switch (type) {
+function validatePatternValue(path: string, value: string, patternValueLimit: number, index?: number): void {
+  if (!exceedsCodePoints(value, patternValueLimit)) return
+  const where = index === undefined ? '' : ` array element at index ${index}`
+  throw new NarsilError(
+    ErrorCodes.DOC_VALIDATION_FAILED,
+    `Field "${path}"${where} is longer than ${patternValueLimit} code points, the pattern value limit of this index`,
+    { field: path, limit: patternValueLimit, ...(index === undefined ? {} : { index }) },
+  )
+}
+
+export function validateFieldValue(
+  path: string,
+  value: unknown,
+  type: ParsedFieldType,
+  patternValueLimit: number,
+): void {
+  switch (type.base) {
     case 'string':
-    case SORTABLE_TEXT_FIELD_TYPE:
+    case 'verbatim':
       if (typeof value !== 'string') {
         throw new NarsilError(
           ErrorCodes.DOC_VALIDATION_FAILED,
@@ -123,6 +139,7 @@ export function validateFieldValue(path: string, value: unknown, type: FieldType
           },
         )
       }
+      if (type.pattern) validatePatternValue(path, value, patternValueLimit)
       return
     case 'number':
       if (typeof value !== 'number' || Number.isNaN(value)) {
@@ -163,7 +180,12 @@ export function validateFieldValue(path: string, value: unknown, type: FieldType
       validateGeopoint(path, value)
       return
     case 'string[]':
+    case 'verbatim[]':
       validateTypedArray(path, value, 'string')
+      if (type.pattern) {
+        const elements = value as string[]
+        for (let i = 0; i < elements.length; i++) validatePatternValue(path, elements[i], patternValueLimit, i)
+      }
       return
     case 'number[]':
       validateTypedArray(path, value, 'number')
@@ -174,11 +196,8 @@ export function validateFieldValue(path: string, value: unknown, type: FieldType
     case 'enum[]':
       validateTypedArray(path, value, 'string')
       return
-    default: {
-      const vectorMatch = VECTOR_PATTERN.exec(type)
-      if (vectorMatch) {
-        validateVector(path, value, Number.parseInt(vectorMatch[1], 10))
-      }
-    }
+    case 'vector':
+      validateVector(path, value, type.dimension)
+      return
   }
 }
