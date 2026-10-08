@@ -1,6 +1,7 @@
 import { ErrorCodes, NarsilError } from '../../errors'
 import { validateSchema } from '../../schema/validator'
-import type { SchemaDefinition } from '../../types/schema'
+import type { IndexConfig } from '../../types/schema'
+import { getClusterIndexConfig } from '../cluster/index-metadata'
 import type { ClusterCoordinator, PartitionAssignment } from '../coordinator/types'
 import { validateRestoredSchema } from './bootstrap-restore'
 import type { ClusterLocalEngine } from './local-engine'
@@ -39,9 +40,9 @@ export async function preparePrimaryPartition(
   if (storedSchema === null) {
     return false
   }
-  let schema: SchemaDefinition
+  let config: IndexConfig
   try {
-    schema = validateSchema(storedSchema)
+    config = await getClusterIndexConfig(deps.coordinator, indexName, validateSchema(storedSchema))
   } catch (error) {
     deps.onError(error)
     return false
@@ -55,7 +56,7 @@ export async function preparePrimaryPartition(
   if (existing === undefined) {
     try {
       await deps.engine.createIndex(indexName, {
-        schema,
+        ...config,
         partitions: { maxPartitions: allocation.assignments.size },
       })
     } catch (error) {
@@ -65,7 +66,7 @@ export async function preparePrimaryPartition(
       }
     }
   } else {
-    const schemaError = validateRestoredSchema(deps.engine, indexName, deps.nodeId, schema)
+    const schemaError = validateRestoredSchema(deps.engine, indexName, deps.nodeId, config.schema)
     if (schemaError !== null) {
       deps.onError(schemaError)
       return false

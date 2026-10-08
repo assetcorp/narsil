@@ -1,6 +1,6 @@
 import type { NarsilError } from '../../../errors'
 import type { Narsil } from '../../../narsil'
-import type { SchemaDefinition } from '../../../types/schema'
+import type { IndexConfig } from '../../../types/schema'
 import type { ClusterCoordinator } from '../../coordinator/types'
 import type { createSnapshotStreamState } from '../../replication/snapshot-stream-assembler'
 import type { ReplicationLog, ReplicationLogEntry } from '../../replication/types'
@@ -38,7 +38,7 @@ export interface BootstrapSyncDeps {
     indexName: string,
     partitionId: number,
     bytes: Uint8Array,
-    schema: SchemaDefinition,
+    config: IndexConfig,
     partitionCount: number,
   ) => Promise<void>
   deadlineMs?: number
@@ -52,7 +52,7 @@ export interface LiveBootstrapSyncDeps extends BootstrapSyncDeps {
     indexName: string,
     partitionId: number,
     bytes: Uint8Array,
-    schema: SchemaDefinition,
+    config: IndexConfig,
     partitionCount: number,
   ) => Promise<void>
 }

@@ -1,8 +1,10 @@
 import { decode, encode } from '@msgpack/msgpack'
 import { INDEX_NAME_PATTERN, MAX_INDEX_NAME_LENGTH } from '../../engine/constants'
 import { ErrorCodes, NarsilError } from '../../errors'
+import type { IndexConfig, SchemaDefinition } from '../../types/schema'
 import { MAX_PARTITION_COUNT, MAX_REPLICATION_FACTOR } from '../constants'
 import type { AllocationConstraints, ClusterCoordinator } from '../coordinator/types'
+import { decodeIndexSettings, type IndexSettings, indexConfigFromSettings } from './index-settings'
 
 export interface IndexMetadata {
   indexUuid: string
@@ -10,6 +12,7 @@ export interface IndexMetadata {
   partitionCount: number
   replicationFactor: number
   constraints: AllocationConstraints
+  settings?: IndexSettings
 }
 
 const INDEX_CONFIG_PREFIX = '_narsil/index/'
@@ -125,6 +128,7 @@ function validateDecodedMetadata(decoded: unknown, indexName: string): IndexMeta
   }
 
   const constraints = decoded.constraints
+  const settings = decodeIndexSettings(decoded.settings, indexName)
 
   if (
     constraints.maxShardsPerNode !== undefined &&
@@ -148,13 +152,14 @@ function validateDecodedMetadata(decoded: unknown, indexName: string): IndexMeta
       zoneAttribute: typeof constraints.zoneAttribute === 'string' ? constraints.zoneAttribute : 'zone',
       maxShardsPerNode: typeof constraints.maxShardsPerNode === 'number' ? constraints.maxShardsPerNode : null,
     },
+    ...(settings !== undefined ? { settings } : {}),
   }
 }
 
 export async function putIndexMetadata(coordinator: ClusterCoordinator, metadata: IndexMetadata): Promise<boolean> {
   validateIndexName(metadata.indexName)
   const key = indexConfigKey(metadata.indexName)
-  const encoded = encode(metadata)
+  const encoded = encode(metadata, { ignoreUndefined: true })
   const bytes = new Uint8Array(encoded)
   if (await coordinator.compareAndSet(key, null, bytes)) {
     return true
@@ -178,4 +183,13 @@ export async function getIndexMetadata(
   }
   const decoded = decode(raw)
   return validateDecodedMetadata(decoded, indexName)
+}
+
+export async function getClusterIndexConfig(
+  coordinator: ClusterCoordinator,
+  indexName: string,
+  schema: SchemaDefinition,
+): Promise<IndexConfig> {
+  const metadata = await getIndexMetadata(coordinator, indexName)
+  return indexConfigFromSettings(schema, metadata?.settings, indexName)
 }

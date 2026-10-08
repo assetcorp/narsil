@@ -1,7 +1,7 @@
 import { encode } from '@msgpack/msgpack'
 import { generateId } from '../../../core/id-generator'
 import { ErrorCodes, NarsilError } from '../../../errors'
-import type { SchemaDefinition } from '../../../types/schema'
+import type { IndexConfig } from '../../../types/schema'
 import type { SyncRequestPayload, TransportMessage } from '../../transport/types'
 import { ReplicationMessageTypes } from '../../transport/types'
 import { isTransientFailure, withDeadline } from '../bootstrap-fetch'
@@ -77,7 +77,7 @@ export async function syncFromAnyTarget(
   partitionId: number,
   primaryNodeId: string,
   targets: string[],
-  coordinatorSchema: SchemaDefinition,
+  coordinatorConfig: IndexConfig,
   partitionCount: number,
   deadline: number,
   deps: LiveBootstrapSyncDeps,
@@ -124,7 +124,7 @@ export async function syncFromAnyTarget(
       indexName,
       partitionId,
       target,
-      coordinatorSchema,
+      coordinatorConfig,
       partitionCount,
       deadline,
       deps,
@@ -153,7 +153,7 @@ export async function syncFromTarget(
   indexName: string,
   partitionId: number,
   target: string,
-  coordinatorSchema: SchemaDefinition,
+  coordinatorConfig: IndexConfig,
   partitionCount: number,
   deadline: number,
   deps: LiveBootstrapSyncDeps,
@@ -226,7 +226,7 @@ export async function syncFromTarget(
       partitionId,
       target,
       frameState,
-      coordinatorSchema,
+      coordinatorConfig,
       partitionCount,
       deadline,
       deps,
@@ -241,7 +241,7 @@ export async function syncFromTarget(
       frameState.syncEntries,
       logState.lastSeqNo + 1,
       logState.lastPrimaryTerm,
-      coordinatorSchema,
+      coordinatorConfig,
       partitionCount,
       deps,
     )

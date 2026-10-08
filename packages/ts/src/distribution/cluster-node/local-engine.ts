@@ -42,7 +42,7 @@ export interface ClusterLocalEngine extends Narsil {
     indexName: string,
     partitionId: number,
     bytes: Uint8Array,
-    schema: SchemaDefinition,
+    config: IndexConfig,
     partitionCount: number,
   ): Promise<void>
   queryPartitions<T = AnyDocument>(
@@ -98,9 +98,9 @@ export async function createClusterLocalEngine(
       indexName: string,
       partitionId: number,
       bytes: Uint8Array,
-      schema: SchemaDefinition,
+      indexConfig: IndexConfig,
       partitionCount: number,
-    ) => restoreReplicationPartition(core, engine, indexName, partitionId, bytes, schema, partitionCount),
+    ) => restoreReplicationPartition(core, engine, indexName, partitionId, bytes, indexConfig, partitionCount),
     queryPartitions: <T = AnyDocument>(
       indexName: string,
       params: QueryParams,
@@ -157,11 +157,12 @@ async function restoreReplicationPartition(
   indexName: string,
   partitionId: number,
   bytes: Uint8Array,
-  schema: SchemaDefinition,
+  indexConfig: IndexConfig,
   partitionCount: number,
 ): Promise<void> {
   core.guardShutdown()
   validatePartitionRestoreTarget(indexName, partitionId, partitionCount)
+  const schema = indexConfig.schema
 
   let partition: ReturnType<typeof deserializePayloadV2>
   try {
@@ -185,7 +186,7 @@ async function restoreReplicationPartition(
       core,
       engine,
       indexName,
-      schema,
+      indexConfig,
       partition.language,
       partitionCount,
     )
@@ -291,7 +292,7 @@ async function ensureReplicationIndex(
   core: EngineCore,
   engine: Narsil,
   indexName: string,
-  schema: SchemaDefinition,
+  coordinatorConfig: IndexConfig,
   languageName: string,
   partitionCount: number,
 ): Promise<{ config: IndexConfig; created: boolean }> {
@@ -300,8 +301,8 @@ async function ensureReplicationIndex(
   let created = false
   if (existing === undefined) {
     const indexConfig: IndexConfig = {
-      schema,
-      language: language.name,
+      ...coordinatorConfig,
+      language: coordinatorConfig.language ?? language.name,
       partitions: { maxPartitions: partitionCount },
     }
     try {
@@ -322,7 +323,7 @@ async function ensureReplicationIndex(
       receivedLanguage: language.name,
     })
   }
-  validateExistingSchema(indexName, schema, entry.config.schema)
+  validateExistingSchema(indexName, coordinatorConfig.schema, entry.config.schema)
 
   const manager = core.requireManager(indexName)
   if (manager.partitionCount > partitionCount) {

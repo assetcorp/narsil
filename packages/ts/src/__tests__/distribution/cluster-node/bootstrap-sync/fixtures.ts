@@ -115,6 +115,7 @@ export function makeMockCoordinator(schema: Record<string, string> | null, parti
   }
   return {
     getSchema: vi.fn().mockResolvedValue(schema),
+    get: vi.fn().mockResolvedValue(null),
     getAllocation: vi.fn().mockResolvedValue({
       indexName: 'products',
       version: 1,

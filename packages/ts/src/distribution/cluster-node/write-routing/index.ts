@@ -5,6 +5,7 @@ import type { Narsil } from '../../../narsil'
 import { validateSchema } from '../../../schema/validator'
 import type { AnyDocument, IndexConfig, InsertOptions } from '../../../types/schema'
 import { type IndexMetadata, indexConfigKey, putIndexMetadata, validateIndexName } from '../../cluster/index-metadata'
+import { indexSettingsOf } from '../../cluster/index-settings'
 import { MAX_PARTITION_COUNT, MAX_REPLICATION_FACTOR } from '../../constants'
 import type { AllocationConstraints, ClusterCoordinator } from '../../coordinator/types'
 import { waitForServingAllocation } from '../allocation-wait'
@@ -72,6 +73,7 @@ export async function routeCreateIndex(
     partitionCount,
     replicationFactor,
     constraints,
+    settings: indexSettingsOf(config),
   }
 
   const stored = await putIndexMetadata(coordinator, metadata)
