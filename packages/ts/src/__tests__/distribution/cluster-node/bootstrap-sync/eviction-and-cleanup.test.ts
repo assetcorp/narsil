@@ -25,7 +25,7 @@ describe('bootstrap sync eviction and cleanup', () => {
 
   beforeEach(() => {
     mockEngine = makeMockEngine()
-    coordinator = makeMockCoordinator({ title: 'text' })
+    coordinator = makeMockCoordinator({ title: 'string' })
     scripted = makeScriptedTransport()
   })
 
@@ -85,7 +85,7 @@ describe('bootstrap sync eviction and cleanup', () => {
   })
 
   it('L-C: a restored schema that disagrees with the coordinator schema is dropped and reported', async () => {
-    mockEngine = makeMockEngine({ statsSchema: { title: 'text', extra: 'number' } })
+    mockEngine = makeMockEngine({ statsSchema: { title: 'string', extra: 'number' } })
     scripted.setScript(makeScriptedSnapshot('products', 256).chunks)
 
     const state = createBootstrapSyncState()
@@ -183,7 +183,7 @@ describe('bootstrap sync eviction and cleanup', () => {
       restore: async (_indexName: string, _data: Uint8Array) => {
         hasIndex = true
       },
-      getStats: (_indexName: string) => ({ schema: { title: 'text', extra: 'number' } }),
+      getStats: (_indexName: string) => ({ schema: { title: 'string', extra: 'number' } }),
     } as unknown as Narsil
 
     scripted.setScript(makeScriptedSnapshot('products', 256).chunks)

@@ -4,15 +4,14 @@ An index holds documents under a schema that fixes the type of every field. This
 
 ## Indexes
 
-`createIndex(name, config)` creates an index from a schema. The schema supports `string`, `string:sortable`, `number`, `boolean`, `enum`, `geopoint`, `vector[N]`, and the array variants `string[]`, `number[]`, `boolean[]`, and `enum[]`. Objects nest up to 4 levels deep. Narsil validates every document against the schema at insertion time.
-
-`string:sortable` is a `string` in every respect, and a sort may name it. Ordering text costs far more memory per document than ordering a number, so a sort naming a plain `string` field raises `SEARCH_INVALID_FIELD`. A schema is fixed once the index exists, so decide which text fields a caller sorts on before you create it.
+`createIndex(name, config)` creates an index from a schema. Each field of the schema has one of the types `string`, `verbatim`, `number`, `boolean`, `enum`, `geopoint`, or `vector[N]`, or one of the list types `string[]`, `verbatim[]`, `number[]`, `boolean[]`, or `enum[]`. A developer can nest objects up to 4 levels deep in a schema. Narsil validates every document against the schema as it inserts the document.
 
 ```ts
 await narsil.createIndex('articles', {
   schema: {
-    title: 'string',
+    title: 'string:sortable',
     body: 'string',
+    slug: 'verbatim',
     author: {
       name: 'string',
       verified: 'boolean',
@@ -23,6 +22,26 @@ await narsil.createIndex('articles', {
   required: ['title'],
 })
 ```
+
+### Text fields
+
+The engine splits a `string` value into words, so it can find the document by any word in the value. It stores a `verbatim` value exactly as written, as one piece of text. Because the engine keeps that value whole, it leaves a `verbatim` field out of keyword search, although it can test the whole value in a filter. Declare a file path, a URL, an order code, or a log line as `verbatim`.
+
+Add any of three options to a `string` or `string[]` type, each after a colon and in any order:
+
+| Option | Effect |
+| --- | --- |
+| `sortable` | The engine can sort by the field. On a single `string` field, it can also [test a text range](filters-facets-and-pagination.md#text-ranges). |
+| `pattern` | The engine raises `DOC_VALIDATION_FAILED` for a value in the field that is longer than the [pattern value limit](#pattern-value-limit). Pattern search, which a later release adds, will test the field. |
+| `partial` | Partial-word search, which a later release adds, will match parts of the words in the field. |
+
+Add `sortable` alone to a `verbatim` or `verbatim[]` type. The engine stores the options in the order `sortable`, `pattern`, `partial`, whatever their order in the type name, so `getStats` returns `string:sortable:partial` for a field declared as `string:partial:sortable`. It raises `SCHEMA_INVALID_TYPE` for an unknown type, for an option outside the list for its type, such as `number:sortable` or `verbatim:pattern`, and for an option written twice. It applies the same check whenever it loads a schema, as it reopens an index from disk, restores a snapshot, or receives a schema from the cluster. For that reason, an engine raises the same error for an index with a type from a newer version, so that it serves an index only with all of its fields.
+
+To sort by a text field, the engine keeps up to the first 512 code points of every document's value in memory, against 8 bytes per document for a number field. It therefore sorts by a `string`, `verbatim`, `string[]`, or `verbatim[]` field only where the field's type includes `sortable`, while it raises `SEARCH_INVALID_FIELD` for a sort on any other field of those types. Declare a sorted `string[]` field as `string[]:sortable` for that reason. The engine fixes the schema once the index exists, so decide which text fields a caller sorts on before creating the index.
+
+### Pattern value limit
+
+The engine raises `DOC_VALIDATION_FAILED` for a document whose value in a `verbatim` field, or in a field whose type includes `pattern`, is longer than the index's `patternValueLimit` in code points. It tests each element of a list on its own. Set `patternValueLimit` to a whole number from 1 to 65,536, or leave it unset for a limit of 8,192 code points. For any other value, `createIndex` throws `CONFIG_INVALID`. Where a developer sets a limit, the engine writes it into the index metadata and into each snapshot, so that it can apply the same limit after it reopens or restores the index.
 
 ### IndexConfig
 
@@ -41,6 +60,7 @@ await narsil.createIndex('articles', {
 | `strict` | `boolean` | The engine rejects a document with a field that the schema does not declare, and throws `SEARCH_INVALID_FIELD` for a filter, sort, facet, or group on such a field. |
 | `embedding` | `EmbeddingFieldConfig` | Maps text fields to vector fields for auto-embedding. See [Embedding adapters](embedding-adapters.md#embedding-adapters). |
 | `required` | `string[]` | Lists the fields that every document must hold. An insert or an update of a document that lacks one fails with `DOC_MISSING_REQUIRED_FIELD`, alone and in a batch. |
+| `patternValueLimit` | `number` | The engine raises `DOC_VALIDATION_FAILED` for a value longer than this many code points in a `verbatim` field or in a field whose type includes `pattern`. Set a whole number from 1 to 65,536, or leave it unset for 8,192. See [Pattern value limit](#pattern-value-limit). |
 
 ### Index management
 

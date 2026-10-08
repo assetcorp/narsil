@@ -10,7 +10,7 @@ import type { EmbeddingAdapter } from '../types/adapters'
 import type { NarsilConfig } from '../types/config'
 import type { IndexConfig } from '../types/schema'
 import type { EngineCore, IndexRegistryEntry } from './core'
-import { validateBM25Params, validateIndexName, validatePartitionConfig } from './validation'
+import { validateBM25Params, validateIndexName, validatePartitionConfig, validatePatternValueLimit } from './validation'
 import { getVectorFieldPaths } from './vector-fields'
 
 async function runLifecycleHook(
@@ -33,7 +33,7 @@ export async function createEngineIndex(
   core: EngineCore,
   config: NarsilConfig | undefined,
   name: string,
-  indexConfig: IndexConfig,
+  requestedConfig: IndexConfig,
   indexUuid?: string,
 ): Promise<void> {
   core.guardShutdown()
@@ -41,7 +41,9 @@ export async function createEngineIndex(
   if (core.indexRegistry.has(name)) {
     throw new NarsilError(ErrorCodes.INDEX_ALREADY_EXISTS, `Index "${name}" already exists`, { indexName: name })
   }
-  validateSchema(indexConfig.schema)
+  const schema = validateSchema(requestedConfig.schema)
+  const indexConfig = schema === requestedConfig.schema ? requestedConfig : { ...requestedConfig, schema }
+  validatePatternValueLimit(indexConfig.patternValueLimit)
   validateVectorPromotion(indexConfig.vectorPromotion)
   validateVectorStorage(indexConfig.vectorPromotion, core.filesystemDurability)
   validateBM25Params(indexConfig.bm25)

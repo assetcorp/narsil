@@ -200,6 +200,7 @@ export interface HttpIndexConfig {
         maxPartitions?: number;
         watermark?: number;
     };
+    patternValueLimit?: number;
     required?: string[];
     schema: Record<string, unknown>;
     stopWords?: string[];

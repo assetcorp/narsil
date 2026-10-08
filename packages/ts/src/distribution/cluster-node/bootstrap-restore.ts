@@ -1,5 +1,6 @@
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { Narsil } from '../../narsil'
+import { validateSchema } from '../../schema/validator'
 import type { SchemaDefinition } from '../../types/schema'
 import type { ClusterCoordinator } from '../coordinator/types'
 import { withDeadline } from './bootstrap-fetch'
@@ -221,7 +222,18 @@ export async function loadCoordinatorSchema(
     }
   }
 
-  return { schema }
+  try {
+    return { schema: validateSchema(schema) }
+  } catch (err) {
+    if (!(err instanceof NarsilError)) throw err
+    return {
+      error: new NarsilError(err.code, `coordinator schema for index '${indexName}' is invalid: ${err.message}`, {
+        ...err.details,
+        indexName,
+        primaryNodeId,
+      }),
+    }
+  }
 }
 
 export async function dropExistingIndex(

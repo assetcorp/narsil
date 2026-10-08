@@ -1,8 +1,8 @@
-import { isTextFieldType } from '../../schema/validator'
+import { isWordIndexedBase, type SchemaField, schemaFieldsOf } from '../../schema/validator'
 import type { LanguageModule } from '../../types/language'
-import type { AnyDocument, FieldType, SchemaDefinition } from '../../types/schema'
+import type { AnyDocument, SchemaDefinition } from '../../types/schema'
 import { indexStringArrayField, indexStringField } from './indexing'
-import { getFlatSchema, getNestedValue, type PartitionInsertOptions, type PartitionState } from './utils'
+import { getNestedValue, type PartitionInsertOptions, type PartitionState } from './utils'
 
 const EMPTY_STATS = {
   totalDocuments: 0,
@@ -11,8 +11,8 @@ const EMPTY_STATS = {
   docFrequencies: {},
 }
 
-function textFieldsOf(flatSchema: Record<string, FieldType>): Array<[string, FieldType]> {
-  return Object.entries(flatSchema).filter(([, fieldType]) => isTextFieldType(fieldType) || fieldType === 'string[]')
+function textFieldsOf(fields: readonly SchemaField[]): SchemaField[] {
+  return fields.filter(field => isWordIndexedBase(field.base))
 }
 
 export function rebuildTextIndex(
@@ -21,7 +21,7 @@ export function rebuildTextIndex(
   language: LanguageModule,
   options?: PartitionInsertOptions,
 ): void {
-  const textFields = textFieldsOf(getFlatSchema(state, schema))
+  const textFields = textFieldsOf(schemaFieldsOf(schema))
 
   state.invertedIdx.clear()
   state.surfaceRegistry.clear()
@@ -37,10 +37,10 @@ export function rebuildTextIndex(
       const fieldLengths: Record<string, number> = {}
       const tokensByField: Record<string, string[]> = {}
 
-      for (const [fieldPath, fieldType] of textFields) {
+      for (const { path: fieldPath, base } of textFields) {
         const value = getNestedValue(fields, fieldPath)
         if (value === undefined || value === null) continue
-        if (isTextFieldType(fieldType)) {
+        if (base === 'string') {
           indexStringField(
             state,
             internalId,

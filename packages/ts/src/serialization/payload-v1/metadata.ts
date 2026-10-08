@@ -32,6 +32,7 @@ interface RawMetadataPayload {
     quantization?: unknown
     storage?: unknown
   }
+  pattern_value_limit?: unknown
   index_uuid?: unknown
   held_partitions?: unknown
 }
@@ -115,6 +116,9 @@ function metadataToWire(meta: IndexMetadata): RawMetadataPayload {
       ...(promotion.quantization !== undefined ? { quantization: promotion.quantization } : {}),
       ...(promotion.storage !== undefined ? { storage: promotion.storage } : {}),
     }
+  }
+  if (meta.patternValueLimit !== undefined) {
+    wire.pattern_value_limit = meta.patternValueLimit
   }
   if (meta.indexUuid !== undefined) {
     wire.index_uuid = meta.indexUuid
@@ -244,6 +248,16 @@ function wireToMetadata(raw: RawMetadataPayload): IndexMetadata {
     if (Object.keys(restored).length > 0) {
       meta.vectorPromotion = restored
     }
+  }
+  if (raw.pattern_value_limit !== undefined) {
+    if (!isPositiveInteger(raw.pattern_value_limit)) {
+      throw new NarsilError(
+        ErrorCodes.CONFIG_INVALID,
+        `The pattern value limit in the index metadata is ${String(raw.pattern_value_limit)}, but the limit must be a whole number of code points`,
+        { patternValueLimit: String(raw.pattern_value_limit) },
+      )
+    }
+    meta.patternValueLimit = raw.pattern_value_limit
   }
   if (typeof raw.index_uuid === 'string' && raw.index_uuid.length > 0) {
     meta.indexUuid = raw.index_uuid

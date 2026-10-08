@@ -14,28 +14,78 @@ export type AnyDocument = Record<string, unknown> & {
 }
 
 /**
- * The type a schema field declares, which sets how the engine indexes it.
+ * Each of these options can follow the base type of a `string` or `string[]`
+ * field after a colon, as in `string:sortable:pattern`.
  *
- * `string` is analysed and searchable, `number`, `boolean`, and `enum` are
- * filterable and sortable, `geopoint` accepts a latitude and longitude pair,
- * and `vector[N]` holds an N-dimensional embedding. Each array form indexes
- * every element of the field.
+ * The engine can sort by a field whose type includes `sortable`. On a single
+ * `string` field with that option, the engine can also test a text range with
+ * `gt`, `gte`, `lt`, `lte`, or `between`. The engine raises
+ * `DOC_VALIDATION_FAILED` for a value longer than
+ * {@link IndexConfig.patternValueLimit} in a field whose type includes
+ * `pattern`. Pattern search and partial-word search, which a later release
+ * adds, will test the fields whose types include `pattern` and `partial`
+ * respectively.
  *
- * `string:sortable` is a `string` in every respect, and a sort may name it.
- * Ordering text costs far more memory per document than ordering a number, so
- * a sort naming a plain `string` field raises `SEARCH_INVALID_FIELD`.
+ * @public
+ */
+export type TextFieldOption = 'sortable' | 'pattern' | 'partial'
+
+/**
+ * This union contains every string of options that can follow a base type,
+ * with each option after a colon. The options can come in any order, although
+ * each one can appear only once.
+ *
+ * @public
+ */
+export type FieldOptionChain<Remaining extends string> = {
+  [Option in Remaining]: `:${Option}` | `:${Option}${FieldOptionChain<Exclude<Remaining, Option>>}`
+}[Remaining]
+
+/**
+ * The engine indexes each field of a schema according to the field's type,
+ * which is one of these.
+ *
+ * The engine splits a `string` value into words, so it can find the document
+ * by any word in the value. It can filter and sort by a `number`, `boolean`,
+ * or `enum` field. A `geopoint` value is a latitude and longitude pair. A
+ * `vector[N]` value is an embedding with N dimensions. For each list form, the
+ * engine indexes every element of the list.
+ *
+ * The engine stores and compares a `verbatim` value exactly as written, as one
+ * piece of text. Because the engine keeps that value whole, it leaves the
+ * field out of keyword search, although it can test the whole value in a
+ * filter.
+ *
+ * Add the {@link TextFieldOption} options to a `string` or `string[]` type, or
+ * `sortable` alone to a `verbatim` or `verbatim[]` type, as in
+ * `string:sortable:pattern` or `verbatim[]:sortable`. The engine stores the
+ * options in the order `sortable`, `pattern`, `partial`, whatever their order
+ * in the type name. It raises `SCHEMA_INVALID_TYPE` for any other
+ * option, such as `number:sortable` or `verbatim:pattern`, and for an option
+ * written twice.
+ *
+ * To sort by a text field, the engine keeps up to the first 512 code points of
+ * every document's value in memory, against 8 bytes per document for a number
+ * field. For that reason, the engine sorts by a text field only where the
+ * field's type includes `sortable`, while it raises `SEARCH_INVALID_FIELD`
+ * for a sort on any other text field.
  *
  * @public
  */
 export type FieldType =
   | 'string'
-  | 'string:sortable'
+  | `string${FieldOptionChain<TextFieldOption>}`
+  | 'string[]'
+  | `string[]${FieldOptionChain<TextFieldOption>}`
+  | 'verbatim'
+  | 'verbatim:sortable'
+  | 'verbatim[]'
+  | 'verbatim[]:sortable'
   | 'number'
   | 'boolean'
   | 'enum'
   | 'geopoint'
   | `vector[${number}]`
-  | 'string[]'
   | 'number[]'
   | 'boolean[]'
   | 'enum[]'
@@ -188,6 +238,15 @@ export interface IndexConfig {
    * insert throughput and one entry per changed spelling.
    */
   surfaceForms?: boolean
+  /**
+   * The engine raises `DOC_VALIDATION_FAILED` for a document whose value in a
+   * `verbatim` field, or in a field whose type includes `pattern`, is longer
+   * than this many code points. It tests each element of a list on its own.
+   * Set a whole number from 1 to 65,536, or leave this unset for a limit of
+   * 8,192. For any other value, {@link Narsil.createIndex} throws
+   * `CONFIG_INVALID`.
+   */
+  patternValueLimit?: number
 }
 
 /**

@@ -1,5 +1,6 @@
 import { decode } from '@msgpack/msgpack'
 import { ErrorCodes, NarsilError } from '../../../errors'
+import { requireValidFieldTypes } from '../../../schema/validator/schema'
 import { unpackEnvelopeBytes } from '../../../serialization/envelope'
 import type { PartitionCheckpoint } from '../snapshot-bundle'
 import {
@@ -65,6 +66,7 @@ function validateManifestCommon(raw: RawManifest): { schema: Record<string, stri
   if (typeof raw.language !== 'string') {
     throw new NarsilError(ErrorCodes.PERSISTENCE_LOAD_FAILED, 'Segment manifest is missing language')
   }
+  requireValidFieldTypes(raw.schema)
   return { schema: raw.schema, language: raw.language }
 }
 

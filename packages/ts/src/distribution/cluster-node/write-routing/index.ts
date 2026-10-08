@@ -2,6 +2,7 @@ import { generateId } from '../../../core/id-generator'
 import { providedDocId } from '../../../engine/mutations/insert-admission'
 import { ErrorCodes, NarsilError } from '../../../errors'
 import type { Narsil } from '../../../narsil'
+import { validateSchema } from '../../../schema/validator'
 import type { AnyDocument, IndexConfig, InsertOptions } from '../../../types/schema'
 import { type IndexMetadata, indexConfigKey, putIndexMetadata, validateIndexName } from '../../cluster/index-metadata'
 import { MAX_PARTITION_COUNT, MAX_REPLICATION_FACTOR } from '../../constants'
@@ -47,12 +48,13 @@ interface IndexCreatingEngine {
 
 export async function routeCreateIndex(
   name: string,
-  config: IndexConfig,
+  requestedConfig: IndexConfig,
   options: CreateIndexOptions | undefined,
   coordinator: ClusterCoordinator,
   engine: IndexCreatingEngine,
 ): Promise<void> {
   validateIndexName(name)
+  const config: IndexConfig = { ...requestedConfig, schema: validateSchema(requestedConfig.schema) }
 
   const partitionCount = options?.partitionCount ?? DEFAULT_PARTITION_COUNT
   const replicationFactor = options?.replicationFactor ?? DEFAULT_REPLICATION_FACTOR

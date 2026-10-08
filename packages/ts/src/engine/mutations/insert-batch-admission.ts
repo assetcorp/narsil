@@ -81,7 +81,7 @@ export async function admitBatchDocuments(
           throw new NarsilError(ErrorCodes.DOC_ALREADY_EXISTS, `Document "${docId}" already exists`, { docId })
         }
 
-        validateDocument(partitionDoc as AnyDocument, entry.config.schema)
+        validateDocument(partitionDoc as AnyDocument, entry.config.schema, entry.config.patternValueLimit)
         if (strict) {
           validateDocumentStrict(partitionDoc, entry.config.schema)
         }

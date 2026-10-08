@@ -1,5 +1,6 @@
 import { ErrorCodes, NarsilError } from '../errors'
 import { requirePolygonRing } from '../geo/polygon'
+import { parsedTypeOf } from '../schema/validator/field-type'
 import type { FilterExpression } from '../types/filters'
 import type { FieldType } from '../types/schema'
 import { MAX_FILTER_DEPTH } from './constants'
@@ -45,6 +46,18 @@ function requireFieldKind(
   if (kind === undefined || accepted.includes(kind)) return
   invalid(
     `The engine applies "${operator}" to ${accepted.join(' or ')} fields alone, and the schema declares field "${fieldPath}" as "${type}"`,
+    fieldPath,
+    operator,
+  )
+}
+
+function requireTextRangeField(fieldPath: string, operator: string, type: FieldType | undefined): void {
+  const parsed = parsedTypeOf(type)
+  if (parsed?.sortable && (parsed.base === 'string' || parsed.base === 'verbatim')) return
+  const declared =
+    type === undefined ? `the schema has no field "${fieldPath}"` : `field "${fieldPath}" has type "${type}"`
+  invalid(
+    `The engine applies "${operator}" with a text bound to a "string" or "verbatim" field whose type includes "sortable", but ${declared}`,
     fieldPath,
     operator,
   )
@@ -129,22 +142,32 @@ export function requireValidOperands(
   type: FieldType | undefined,
 ): void {
   for (const operator of RANGE_OPERATORS) {
-    if (filter[operator] === undefined) continue
-    if (!isFiniteNumber(filter[operator])) {
-      invalid(`"${operator}" on field "${fieldPath}" must be a finite number`, fieldPath, operator)
+    const bound = filter[operator]
+    if (bound === undefined) continue
+    if (typeof bound === 'string') {
+      requireTextRangeField(fieldPath, operator, type)
+      continue
+    }
+    if (!isFiniteNumber(bound)) {
+      invalid(`"${operator}" on field "${fieldPath}" must be a finite number or a string`, fieldPath, operator)
     }
     requireFieldKind(fieldPath, operator, type, ['number'])
   }
   if (filter.between !== undefined) {
     const bounds = filter.between
-    if (!Array.isArray(bounds) || bounds.length !== 2 || !isFiniteNumber(bounds[0]) || !isFiniteNumber(bounds[1])) {
-      invalid(
-        `"between" on field "${fieldPath}" must be two finite numbers, the lower bound first`,
-        fieldPath,
-        'between',
-      )
+    const isPair = Array.isArray(bounds) && bounds.length === 2
+    if (isPair && typeof bounds[0] === 'string' && typeof bounds[1] === 'string') {
+      requireTextRangeField(fieldPath, 'between', type)
+    } else {
+      if (!isPair || !isFiniteNumber(bounds[0]) || !isFiniteNumber(bounds[1])) {
+        invalid(
+          `"between" on field "${fieldPath}" must be two finite numbers or two strings, the lower bound first`,
+          fieldPath,
+          'between',
+        )
+      }
+      requireFieldKind(fieldPath, 'between', type, ['number'])
     }
-    requireFieldKind(fieldPath, 'between', type, ['number'])
   }
   for (const operator of TEXT_OPERATORS) {
     if (filter[operator] === undefined) continue

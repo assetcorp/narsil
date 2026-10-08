@@ -31,6 +31,7 @@ export function mapHttpIndexConfig(http: HttpIndexConfig): IndexConfig {
   if (http.vectorPromotion !== undefined) config.vectorPromotion = http.vectorPromotion
   if (http.strict !== undefined) config.strict = http.strict
   if (http.required !== undefined) config.required = http.required
+  if (http.patternValueLimit !== undefined) config.patternValueLimit = http.patternValueLimit
 
   if (http.stopWords !== undefined) {
     if (!Array.isArray(http.stopWords) || http.stopWords.some(w => typeof w !== 'string')) {

@@ -6,7 +6,7 @@ import type { SortField } from '../../types/search'
 const schema: SchemaDefinition = {
   title: 'string',
   prices: 'number[]',
-  tags: 'string[]',
+  tags: 'string[]:sortable',
 }
 
 const products = [

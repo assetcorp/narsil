@@ -64,5 +64,8 @@ export function reconstructSchemaFromMetadata(metadata: IndexMetadata): IndexCon
   if (metadata.vectorPromotion !== undefined) {
     config.vectorPromotion = metadata.vectorPromotion
   }
+  if (metadata.patternValueLimit !== undefined) {
+    config.patternValueLimit = metadata.patternValueLimit
+  }
   return config
 }
