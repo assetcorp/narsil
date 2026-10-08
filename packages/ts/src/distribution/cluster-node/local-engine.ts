@@ -81,6 +81,8 @@ export async function createClusterLocalEngine(
   const heldPartitions = createHeldPartitionRecord(core)
 
   return Object.assign(engine, {
+    createIndex: (name: string, indexConfig: IndexConfig) =>
+      createEngineIndex(core, runnableConfig, name, indexConfig, undefined, 'deferred'),
     createIndexWithUuid: (name: string, indexConfig: IndexConfig, indexUuid?: string) =>
       createEngineIndex(core, runnableConfig, name, indexConfig, indexUuid),
     acquireIndexForReplication: (indexName: string) => core.indexState.acquire(indexName, false),

@@ -25,6 +25,8 @@ async function runLifecycleHook(
   }
 }
 
+export type EmbeddingAdapterBinding = 'required' | 'deferred'
+
 export async function announceIndexCreated(core: EngineCore, name: string, config: IndexConfig): Promise<void> {
   await runLifecycleHook(core, 'onIndexCreate', { indexName: name, config })
 }
@@ -35,6 +37,7 @@ export async function createEngineIndex(
   name: string,
   requestedConfig: IndexConfig,
   indexUuid?: string,
+  adapterBinding: EmbeddingAdapterBinding = 'required',
 ): Promise<void> {
   core.guardShutdown()
   validateIndexName(name)
@@ -69,24 +72,31 @@ export async function createEngineIndex(
   let resolvedEmbeddingAdapter: EmbeddingAdapter | null = null
   let embeddingAdapterName: string | null = null
   if (indexConfig.embedding) {
-    let configuredAdapter = indexConfig.embedding.adapter
+    const configuredAdapter = indexConfig.embedding.adapter
+    const fields = indexConfig.embedding.fields
     if (typeof configuredAdapter === 'string') {
       embeddingAdapterName = configuredAdapter
       const registered = core.embeddingAdapters.get(configuredAdapter)
-      if (!registered) {
+      if (registered !== undefined) {
+        resolvedEmbeddingAdapter = validateEmbeddingConfig(
+          { fields, adapter: registered },
+          indexConfig.schema,
+          config?.embedding,
+        )
+      } else if (adapterBinding === 'required') {
         throw new NarsilError(
           ErrorCodes.EMBEDDING_CONFIG_INVALID,
           `Embedding adapter "${configuredAdapter}" is not registered on this engine`,
           { adapter: configuredAdapter, available: [...core.embeddingAdapters.keys()] },
         )
       }
-      configuredAdapter = registered
+    } else if (adapterBinding === 'required' || configuredAdapter !== undefined || config?.embedding !== undefined) {
+      resolvedEmbeddingAdapter = validateEmbeddingConfig(
+        { fields, adapter: configuredAdapter },
+        indexConfig.schema,
+        config?.embedding,
+      )
     }
-    resolvedEmbeddingAdapter = validateEmbeddingConfig(
-      { fields: indexConfig.embedding.fields, adapter: configuredAdapter },
-      indexConfig.schema,
-      config?.embedding,
-    )
   }
   if (indexConfig.required && indexConfig.required.length > 0) {
     validateRequiredFieldsInSchema(indexConfig.required, indexConfig.schema)
