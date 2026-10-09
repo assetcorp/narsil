@@ -12,7 +12,7 @@ import {
   measureVectorRecall,
   measureVectorSearch,
 } from '../measure'
-import { evaluateRelevance } from '../quality'
+import { scoreRelevance } from '../quality'
 import { coefficientOfVariation, median, stddev, summarizeLatency } from '../stats'
 import type { ScaleResult, SerializationResult, VectorBenchDocument, VectorRelevanceResult } from '../types'
 import type {
@@ -146,14 +146,7 @@ async function runRelevanceJob(spec: RelevanceJobSpec): Promise<JobOutcome> {
       },
     }
   }
-  await engine.create()
-  await engine.insertWithIds(data.documents)
-  const rankings = new Map<string, string[]>()
-  for (const query of data.queries) {
-    rankings.set(query.id, await engine.searchWithIds(query.text))
-  }
-  await engine.teardown()
-  const result = evaluateRelevance(rankings, data.qrels, spec.dataset, data.counts.documents)
+  const result = await scoreRelevance(engine, data)
   return { kind: 'relevance', result }
 }
 

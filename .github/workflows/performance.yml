@@ -1,0 +1,130 @@
+name: Performance
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: performance-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  performance:
+    name: Performance checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      NARSIL_NATIVE_CORE_PATH: ${{ github.workspace }}/packages/native/npm/linux-x64/narsil-core.node
+      NARSIL_REQUIRE_NATIVE_CORE: '1'
+      BENCH_DBPEDIA_INDEX_DIR: ${{ github.workspace }}/.performance/dbpedia-indexes
+      QUALITY_CHECK_DIR: ${{ github.workspace }}/.performance/quality-checks
+      DATASET_CACHE_DIR: ${{ github.workspace }}/.performance/datasets
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build Narsil
+        run: pnpm nx run narsil-ts:build
+
+      - name: Set up Zig
+        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
+        with:
+          version: 0.16.0
+
+      - name: Build the C search core
+        working-directory: packages/native
+        run: node build.mjs linux-x64
+
+      - name: Install the benchmark harness
+        working-directory: benchmarks/server
+        run: python3 -m pip install -e .
+
+      - name: Restore the DBpedia 100K dataset
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.DATASET_CACHE_DIR }}
+          key: dbpedia-100k-${{ hashFiles('benchmarks/server/config/benchmark.toml') }}
+
+      - name: Download and verify the DBpedia 100K dataset
+        working-directory: benchmarks/server
+        run: |
+          directory="$(python3 -m ir_bench.fetch_dataset dbpedia-entities-openai-100k --cache-dir "$DATASET_CACHE_DIR" | tail -n 1)"
+          echo "BENCH_DBPEDIA_100K_DIR=$directory" >> "$GITHUB_ENV"
+
+      - name: Restore the BEIR archives
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: benchmarks/datasets/*.zip
+          key: beir-archives-${{ hashFiles('benchmarks/in-process/src/data/beir/manifests/*.json') }}
+
+      - name: Download any BEIR archive the cache lacks
+        run: pnpm --filter benchmarks datasets:fetch
+
+      - name: Build the DBpedia 100K indexes at full precision and with 4-bit quantisation
+        run: pnpm --filter benchmarks dbpedia:build
+
+      - name: Compare ranking quality with its recorded baseline
+        working-directory: benchmarks/in-process
+        run: pnpm quality:check ranking-quality --report "$QUALITY_CHECK_DIR/ranking-quality/report.json"
+
+      - name: Compare vector recall with its recorded baseline
+        if: ${{ !cancelled() }}
+        working-directory: benchmarks/in-process
+        run: pnpm quality:check vector-recall --report "$QUALITY_CHECK_DIR/vector-recall/report.json"
+
+      - name: Record the pull request number beside each report
+        if: ${{ !cancelled() && github.event_name == 'pull_request' }}
+        env:
+          PULL_REQUEST_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          for check in ranking-quality vector-recall; do
+            mkdir -p "$QUALITY_CHECK_DIR/$check"
+            printf '%s\n' "$PULL_REQUEST_NUMBER" > "$QUALITY_CHECK_DIR/$check/pull-request"
+          done
+
+      - name: Upload the ranking quality report
+        if: ${{ !cancelled() && github.event_name == 'pull_request' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: quality-check-ranking-quality
+          path: ${{ env.QUALITY_CHECK_DIR }}/ranking-quality/
+          retention-days: 7
+
+      - name: Upload the vector recall report
+        if: ${{ !cancelled() && github.event_name == 'pull_request' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: quality-check-vector-recall
+          path: ${{ env.QUALITY_CHECK_DIR }}/vector-recall/
+          retention-days: 7
+
+      - name: Run the benchmarks under CodSpeed's CPU simulation
+        if: ${{ !cancelled() }}
+        uses: CodSpeedHQ/action@c4fd08a3a159bd0cc208da1e0edf32b8c47d75e5 # v5.4.0
+        with:
+          mode: simulation
+          working-directory: benchmarks/in-process
+          run: pnpm bench:regression
