@@ -5,6 +5,10 @@
   "scripts": {
     "bench": "node --expose-gc --import tsx src/run.ts",
     "beir:update-pins": "node --import tsx src/data/beir/update-pins.ts",
+    "bench:regression": "vitest bench --run --config vitest.regression.config.ts",
+    "datasets:fetch": "node --import tsx src/regression/fetch-datasets.ts",
+    "dbpedia:build": "node --import tsx src/regression/dbpedia/build-indexes.ts",
+    "quality:check": "node --import tsx src/regression/check-quality.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "biome check src/",
@@ -23,6 +27,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.4",
+    "@codspeed/vitest-plugin": "5.7.1",
     "@types/node": "22.15.18",
     "typescript": "6.0.3",
     "vitest": "4.1.6"
