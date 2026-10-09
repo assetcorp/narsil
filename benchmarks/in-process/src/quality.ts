@@ -1,5 +1,5 @@
-import type { Qrels } from './data/beir'
-import type { RelevanceQualityResult } from './types'
+import type { BeirDataset, Qrels } from './data/beir'
+import type { RelevanceQualityResult, SearchEngine } from './types'
 
 type RelevanceMap = Map<string, number>
 
@@ -94,4 +94,17 @@ export function evaluateRelevance(
     queryCount: evaluated,
     docCount,
   }
+}
+
+export async function scoreRelevance(engine: SearchEngine, data: BeirDataset): Promise<RelevanceQualityResult> {
+  const { insertWithIds, searchWithIds } = engine
+  if (!insertWithIds || !searchWithIds) throw new Error(`the ${engine.name} adapter cannot rank documents by id`)
+  await engine.create()
+  await insertWithIds.call(engine, data.documents)
+  const rankings = new Map<string, string[]>()
+  for (const query of data.queries) {
+    rankings.set(query.id, await searchWithIds.call(engine, query.text))
+  }
+  await engine.teardown()
+  return evaluateRelevance(rankings, data.qrels, data.name, data.counts.documents)
 }

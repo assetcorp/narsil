@@ -1,0 +1,8 @@
+{
+  "full-precision": {
+    "recall10": 0.99098
+  },
+  "osq4": {
+    "recall10": 0.99092
+  }
+}
