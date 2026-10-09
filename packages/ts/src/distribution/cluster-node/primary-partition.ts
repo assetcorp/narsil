@@ -2,6 +2,7 @@ import { ErrorCodes, NarsilError } from '../../errors'
 import { validateSchema } from '../../schema/validator'
 import type { IndexConfig } from '../../types/schema'
 import { getClusterIndexConfig } from '../cluster/index-metadata'
+import { withPartitionCount } from '../cluster/index-settings'
 import type { ClusterCoordinator, PartitionAssignment } from '../coordinator/types'
 import { validateRestoredSchema } from './bootstrap-restore'
 import type { ClusterLocalEngine } from './local-engine'
@@ -55,10 +56,7 @@ export async function preparePrimaryPartition(
   const existing = deps.engine.listIndexes().find(index => index.name === indexName)
   if (existing === undefined) {
     try {
-      await deps.engine.createIndex(indexName, {
-        ...config,
-        partitions: { ...config.partitions, maxPartitions: allocation.assignments.size },
-      })
+      await deps.engine.createIndex(indexName, withPartitionCount(config, allocation.assignments.size))
     } catch (error) {
       if (!(error instanceof NarsilError) || error.code !== ErrorCodes.INDEX_ALREADY_EXISTS) {
         deps.onError(error)

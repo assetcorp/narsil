@@ -35,7 +35,7 @@ const invoices = await narsil.query('invoices', {
 })
 ```
 
-The engine compares the values as it does for a [sort](#sort) on the field, with case folds first, so `gte: 'apple'` matches `apple` and `Banana`, while `Apple` falls outside the range. It finds the matching documents with a binary search over the column of sorted values that it keeps for sorting the field. The engine therefore builds that column for the first range test on a field, as it does for the first sort. It throws `SEARCH_INVALID_FILTER` for a text bound on any other field, including a `string[]:sortable` field. It throws that error for a list because it sorts each document's list by one element, so it keeps only that element's position in the sorted column.
+The engine orders the values as a [sort](#sort) on the field does, comparing their case folds in code point order and comparing their raw code points only where the folds are equal. Under that order, `gte: 'apple'` matches `apple` and `Banana` but not `Apple`, which orders before `apple`. It finds the matching documents with a binary search over the column of sorted values that it keeps for sorting the field. The engine therefore builds that column for the first range test on a field, as it does for the first sort. It throws `SEARCH_INVALID_FILTER` for a text bound on any other field, including a `string[]:sortable` field. It throws that error for a list because it sorts each document's list by one element, so it keeps only that element's position in the sorted column.
 
 ## Facets
 

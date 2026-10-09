@@ -14,7 +14,7 @@ import type { AnyDocument, IndexConfig } from '../../types/schema'
 import type { VectorIndex } from '../../vector/vector-index'
 import { resolvePartitionInsertOptions } from '../insert-options'
 import type { PartitionRouter } from '../router'
-import { assertIndexCapacity, assertPartitionCapacity } from './capacity'
+import { createCapacityChecks } from './capacity'
 import { setNestedValue } from './nested-values'
 import type { PartitionManager } from './types'
 
@@ -170,31 +170,13 @@ export function createPartitionManager(
       partitions.length = newCount
     },
 
-    assertCapacity(pendingWrites = 0, partitionCountCap?: number): void {
-      const maxDocsPerPartition = config.partitions?.maxDocsPerPartition
-      if (maxDocsPerPartition === undefined) return
-      assertIndexCapacity({
-        indexName,
-        maxDocsPerPartition,
-        documentCount: manager.countDocuments(),
-        partitionCount: partitions.length,
-        pendingWrites,
-        partitionCountCap,
-      })
-    },
-
-    assertPartitionCapacity(partitionId: number, pendingWrites = 0): void {
-      const maxDocsPerPartition = config.partitions?.maxDocsPerPartition
-      if (maxDocsPerPartition === undefined) return
-      validatePartitionId(partitionId)
-      assertPartitionCapacity({
-        indexName,
-        maxDocsPerPartition,
-        partitionId,
-        partitionDocumentCount: partitions[partitionId].count(),
-        pendingWrites,
-      })
-    },
+    ...createCapacityChecks({
+      indexName,
+      config,
+      partitionCount: () => partitions.length,
+      documentCount: () => manager.countDocuments(),
+      getPartition: partitionId => manager.getPartition(partitionId),
+    }),
 
     routePartition(docId: string): number {
       return router.route(docId, partitions.length)

@@ -27,6 +27,11 @@ async function runLifecycleHook(
 
 export type EmbeddingAdapterBinding = 'required' | 'deferred'
 
+export interface IndexCreationOptions {
+  indexUuid?: string
+  adapterBinding?: EmbeddingAdapterBinding
+}
+
 export async function announceIndexCreated(core: EngineCore, name: string, config: IndexConfig): Promise<void> {
   await runLifecycleHook(core, 'onIndexCreate', { indexName: name, config })
 }
@@ -36,9 +41,9 @@ export async function createEngineIndex(
   config: NarsilConfig | undefined,
   name: string,
   requestedConfig: IndexConfig,
-  indexUuid?: string,
-  adapterBinding: EmbeddingAdapterBinding = 'required',
+  creation: IndexCreationOptions = {},
 ): Promise<void> {
+  const { indexUuid, adapterBinding = 'required' } = creation
   core.guardShutdown()
   validateIndexName(name)
   if (core.indexRegistry.has(name)) {

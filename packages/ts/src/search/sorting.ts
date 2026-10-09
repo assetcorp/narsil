@@ -11,6 +11,7 @@ import {
   sortModeOf,
   toReducedSortValue,
 } from '../core/ordering'
+import { SORT_VALUE_MAX_CODE_POINTS } from '../core/ordering/constants'
 import { ErrorCodes, NarsilError } from '../errors'
 import { undeclaredFieldOnStrictIndex } from '../filters/operands'
 import { flattenSchema } from '../schema/validator'
@@ -89,7 +90,7 @@ export function requireSortableFields(sort: SortSpec | undefined, schema: Schema
     if (parsed !== undefined && isStringValuedBase(parsed.base) && !parsed.sortable) {
       throw new NarsilError(
         ErrorCodes.SEARCH_INVALID_FIELD,
-        `The engine sorts by text field "${entry.field}" only where its type includes "sortable", as in "${withSortableOption(parsed)}", because it keeps up to the first 512 code points of every document's value in memory to sort by a text field`,
+        `The engine sorts by text field "${entry.field}" only where its type includes "sortable", as in "${withSortableOption(parsed)}", because it keeps up to the first ${SORT_VALUE_MAX_CODE_POINTS} code points of every document's value in memory to sort by a text field`,
         { field: entry.field, fieldType },
       )
     }

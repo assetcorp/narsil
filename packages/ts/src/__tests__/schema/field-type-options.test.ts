@@ -54,7 +54,7 @@ describe('field types with options', () => {
     })
   })
 
-  it('raises SCHEMA_INVALID_TYPE for an unknown base type, an option outside its row, and a repeated option', async () => {
+  it('raises SCHEMA_INVALID_TYPE for an unknown base type, an option that the base type does not take, and a repeated option', async () => {
     const invalidTypes = [
       'text',
       'string:fuzzy',
