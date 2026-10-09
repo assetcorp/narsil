@@ -17,6 +17,8 @@ SUITES="${SUITES:-both}"
 DRY_RUN="${DRY_RUN:-0}"
 MACHINE_LABEL="${BENCH_MACHINE_LABEL:-}"
 MACHINE_TYPE="${MACHINE_TYPE:-}"
+PROFILE="${BENCH_PROFILE:-cloud}"
+RUN_ID_PATTERN='^[0-9A-Za-z][0-9A-Za-z._-]{0,63}$'
 
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
 log() { printf '\n\033[1m== %s\033[0m\n' "$*"; }
@@ -108,9 +110,10 @@ cmd_setup() {
 }
 
 cmd_run() {
+  require_known_profile
   log "launch the benchmark run (detached; survives an SSH drop)"
   local forward
-  forward="$(printf '%q ' "SUITES=$SUITES" "BENCH_MACHINE_LABEL=${MACHINE_LABEL}")"
+  forward="$(printf '%q ' "SUITES=$SUITES" "BENCH_MACHINE_LABEL=${MACHINE_LABEL}" "BENCH_PROFILE=$PROFILE")"
   local v
   for v in BENCH_INPROCESS_TIERS BENCH_SERVER_ENGINES BENCH_RUN_ID \
     BENCH_BEST_CONFIG BENCH_THROUGHPUT_PASSES BENCH_DATASETS BENCH_DATASET_ENGINES BENCH_MEM_CAP BENCH_JVM_HEAP; do
@@ -138,11 +141,32 @@ cmd_logs() {
   esac
 }
 
+require_known_profile() {
+  case "$PROFILE" in
+    cloud | smoke) ;;
+    *) die "unknown BENCH_PROFILE '$PROFILE' (expected cloud or smoke)" ;;
+  esac
+}
+
+results_dir() {
+  if [ "$PROFILE" = "smoke" ]; then
+    printf 'results/.smoke'
+  else
+    printf 'results'
+  fi
+}
+
 runs_created_on_vm() {
-  local remote="$1"
-  prov_ssh "git -C narsil ls-files --others --directory --exclude-standard -- $remote 2>/dev/null || true" \
-    | tr -d '\r' \
-    | sed -n "s|^$remote/\([^/][^/]*\)/\$|\1|p"
+  local remote="$1" listing
+  if [ "$PROFILE" = "smoke" ]; then
+    listing="$(prov_ssh "find narsil/$remote -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null || true" \
+      | tr -d '\r')" || return
+  else
+    listing="$(prov_ssh "git -C narsil ls-files --others --directory --exclude-standard -- $remote 2>/dev/null || true" \
+      | tr -d '\r' \
+      | sed -n "s|^$remote/\([^/][^/]*\)/\$|\1|p")" || return
+  fi
+  printf '%s\n' "$listing" | grep -E "$RUN_ID_PATTERN" || true
 }
 
 fetch_suite() {
@@ -171,17 +195,20 @@ fetch_suite() {
 aggregate_server_runs() {
   local id
   for id in $FETCHED_IDS; do
-    log "aggregate benchmarks/server/results/runs/$id from every engine file it holds"
-    ( cd "$REPO_ROOT/benchmarks/server" && BENCH_RUN_ID="$id" docker compose run --rm --entrypoint python harness -m ir_bench.aggregate ) \
-      || log "aggregate for $id failed; rerun it with: cd benchmarks/server && BENCH_RUN_ID=$id docker compose run --rm --entrypoint python harness -m ir_bench.aggregate"
+    log "aggregate benchmarks/server/$(results_dir)/runs/$id from every engine file it holds"
+    ( cd "$REPO_ROOT/benchmarks/server" && BENCH_HOST_RESULTS_DIR="$(results_dir)" BENCH_RUN_ID="$id" docker compose run --rm --entrypoint python harness -m ir_bench.aggregate ) \
+      || log "aggregate for $id failed; rerun it with: cd benchmarks/server && BENCH_HOST_RESULTS_DIR=$(results_dir) BENCH_RUN_ID=$id docker compose run --rm --entrypoint python harness -m ir_bench.aggregate"
   done
 }
 
 cmd_fetch() {
-  fetch_suite "benchmarks/in-process/results/runs"
-  fetch_suite "benchmarks/server/results/runs"
+  require_known_profile
+  local runs
+  runs="$(results_dir)/runs"
+  fetch_suite "benchmarks/in-process/$runs"
+  fetch_suite "benchmarks/server/$runs"
   [ "$DRY_RUN" = "1" ] || aggregate_server_runs
-  [ "$DRY_RUN" = "1" ] || log "results merged under benchmarks/*/results/runs/ in this repo"
+  [ "$DRY_RUN" = "1" ] || log "results merged under benchmarks/*/$runs/ in this repo"
 }
 
 cmd_down() {
@@ -202,6 +229,7 @@ cmd_status() {
 }
 
 cmd_all() {
+  require_known_profile
   cmd_up
   cmd_sync
   cmd_setup
@@ -238,13 +266,17 @@ Flags: --yes (skip billing prompt), --teardown (delete on success),
 Common env:
   VM_NAME, MACHINE_TYPE, DISK_SIZE (GB), SUITES (both|inprocess|server),
   SSH_KEY (private key for hetzner/digitalocean/aws; the public key is <key>.pub),
-  BENCH_INPROCESS_TIERS, BENCH_SERVER_ENGINES, BENCH_MACHINE_LABEL, BENCH_RUN_ID,
-  BENCH_BEST_CONFIG, BENCH_THROUGHPUT_PASSES, BENCH_DATASETS, BENCH_DATASET_ENGINES,
-  BENCH_MEM_CAP, BENCH_JVM_HEAP.
+  BENCH_PROFILE (cloud|smoke), BENCH_INPROCESS_TIERS, BENCH_SERVER_ENGINES,
+  BENCH_MACHINE_LABEL, BENCH_RUN_ID, BENCH_BEST_CONFIG, BENCH_THROUGHPUT_PASSES,
+  BENCH_DATASETS, BENCH_DATASET_ENGINES, BENCH_MEM_CAP, BENCH_JVM_HEAP.
 
 A cheap end-to-end smoke on any provider, then clean up:
   PROVIDER=hetzner SUITES=inprocess BENCH_INPROCESS_TIERS=text \
     ./run-cloud.sh all --yes --teardown
+
+A scratch run whose results stay out of the published folders:
+  BENCH_PROFILE=smoke SUITES=inprocess BENCH_INPROCESS_TIERS=text,full \
+    ./run-cloud.sh all --yes
 
 One engine per VM under one run id, merged on fetch:
   export BENCH_RUN_ID=$(date -u +%Y%m%dT%H%M%SZ)
