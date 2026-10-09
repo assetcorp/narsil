@@ -64,6 +64,20 @@ alone, so a smoke run leaves both untouched. Delete the tree with
 smoke profile changes where results go and nothing about the measurement, so
 narrow the work with `--tiers` when you want a faster check.
 
+## Checks on every pull request
+
+The "Performance checks" job in `.github/workflows/performance.yml` starts on every pull request and on every push to `main`.
+
+The job first builds two indexes from the published DBpedia 100K dataset, which holds the 100,000 documents and 1,536-dimension vectors of the server comparison. One index keeps full precision and the other uses 4-bit quantisation, and both take the published graph settings and build through the C search core. Narsil draws each vector's graph layer from `Math.random`, so the build swaps in a generator with a fixed seed while it builds, and every run then produces the same graph. The benchmarks and the recall check load both indexes from disk.
+
+**CodSpeed benchmarks.** CodSpeed measures the Vitest benchmarks in `src/regression/` under its CPU simulation, which counts the processor instructions behind each benchmark, so its figures vary by under 1% between runs on a shared CI machine, according to CodSpeed. The benchmarks search the DBpedia indexes with 100 of the published queries, by vector and by hybrid ranking at efSearch 128 at both precisions, and by keyword. They also build the vector graph for the first 1,000 DBpedia documents at both precisions, insert 1,000 FiQA documents as the published embedded table does, and search 10,000 FiQA documents with the filtered queries of the published run. CodSpeed compares each pull request with the latest run on `main` and reports the change on the pull request.
+
+**Quality checks.** A quality check scores Narsil on fixed data and fails when any score falls below its value in `src/regression/baselines/<check>.json`. Every score lies between 0 and 1, a higher score is better, and the comparison is exact, because a check belongs here only when Narsil produces identical scores on every run. `pnpm quality:check ranking-quality` scores SciFact and NFCorpus the way the relevance tier does, on nDCG@10, P@10, MAP, and MRR. `pnpm quality:check vector-recall` searches both DBpedia indexes with all 5,000 published queries at efSearch 128, and it compares the ten hits of each query with the true nearest neighbours that the dataset records. When a change raises a score, run the check again with `--update-baseline` and commit the new baseline with the change.
+
+To add a check, define its subjects and metrics, register it in `src/regression/check-quality.ts`, record its baseline with `--update-baseline`, and add steps to the workflow that write its report and upload it as a `quality-check-<check>` artifact, so that the comment on the pull request includes it.
+
+Use `pnpm bench:regression` to time the same benchmarks on your machine with the Vitest timer, because CodSpeed simulates the processor only in CI. Two environment variables name the directories that the DBpedia benchmarks load: `BENCH_DBPEDIA_100K_DIR`, which `python3 -m ir_bench.fetch_dataset dbpedia-entities-openai-100k --cache-dir <dir>` prints from `benchmarks/server/`, and `BENCH_DBPEDIA_INDEX_DIR`, where `pnpm dbpedia:build` writes the indexes. Use `pnpm datasets:fetch` to download FiQA, SciFact, and NFCorpus.
+
 ## Datasets
 
 The suite runs entirely on [BEIR](https://github.com/beir-cellar/beir) corpora, downloaded on first run and cached under `benchmarks/datasets/`. Two groups of tiers use two groups of data.

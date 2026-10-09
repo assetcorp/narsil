@@ -2,6 +2,7 @@ const { existsSync, lstatSync, readFileSync, readdirSync } = require('node:fs')
 const { join } = require('node:path')
 
 const WORKFLOW_DIR = '.github/workflows'
+const ID_TOKEN_WORKFLOWS = new Set(['.github/workflows/publish.yml', '.github/workflows/performance.yml'])
 const MINIMUM_RELEASE_AGE_DAYS = 4
 const MINIMUM_RELEASE_AGE_MINUTES = MINIMUM_RELEASE_AGE_DAYS * 24 * 60
 const PACKAGE_SECTIONS = ['dependencies', 'devDependencies', 'optionalDependencies']
@@ -58,8 +59,8 @@ const checkWorkflows = () => {
       }
     }
 
-    if (file !== '.github/workflows/publish.yml' && /^\s*id-token:\s*write\s*$/m.test(content)) {
-      failures.push(`${file}: id-token: write is only allowed in publish.yml`)
+    if (!ID_TOKEN_WORKFLOWS.has(file) && /^\s*id-token:\s*write\s*$/m.test(content)) {
+      failures.push(`${file}: id-token: write is only allowed in ${[...ID_TOKEN_WORKFLOWS].join(' and ')}`)
     }
   }
 
