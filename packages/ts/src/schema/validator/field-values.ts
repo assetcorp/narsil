@@ -111,10 +111,10 @@ export function validateTypedArray(path: string, value: unknown, elementType: 's
 
 function validatePatternValue(path: string, value: string, patternValueLimit: number, index?: number): void {
   if (!exceedsCodePoints(value, patternValueLimit)) return
-  const where = index === undefined ? '' : ` array element at index ${index}`
+  const subject = index === undefined ? `The value of field "${path}"` : `Element ${index} of field "${path}"`
   throw new NarsilError(
     ErrorCodes.DOC_VALIDATION_FAILED,
-    `Field "${path}"${where} is longer than ${patternValueLimit} code points, the pattern value limit of this index`,
+    `${subject} is longer than ${patternValueLimit} code points, which is the pattern value limit of this index`,
     { field: path, limit: patternValueLimit, ...(index === undefined ? {} : { index }) },
   )
 }

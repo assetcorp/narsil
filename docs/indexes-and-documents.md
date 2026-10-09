@@ -32,8 +32,8 @@ Add any of three options to a `string` or `string[]` type, each after a colon an
 | Option | Effect |
 | --- | --- |
 | `sortable` | The engine can sort by the field. On a single `string` field, it can also [test a text range](filters-facets-and-pagination.md#text-ranges). |
-| `pattern` | The engine raises `DOC_VALIDATION_FAILED` for a value in the field that is longer than the [pattern value limit](#pattern-value-limit). Pattern search, which a later release adds, will test the field. |
-| `partial` | Partial-word search, which a later release adds, will match parts of the words in the field. |
+| `pattern` | The engine raises `DOC_VALIDATION_FAILED` for a value in the field that is longer than the [pattern value limit](#pattern-value-limit). A later release will add pattern search, which will test the field. |
+| `partial` | A later release will add partial-word search, which will match parts of the words in the field. |
 
 Add `sortable` alone to a `verbatim` or `verbatim[]` type. The engine stores the options in the order `sortable`, `pattern`, `partial`, whatever their order in the type name, so `getStats` returns `string:sortable:partial` for a field declared as `string:partial:sortable`. It raises `SCHEMA_INVALID_TYPE` for an unknown type, for an option outside the list for its type, such as `number:sortable` or `verbatim:pattern`, and for an option written twice. It applies the same check whenever it loads a schema, as it reopens an index from disk, restores a snapshot, or receives a schema from the cluster. For that reason, an engine raises the same error for an index with a type from a newer version, so that it serves an index only with all of its fields.
 

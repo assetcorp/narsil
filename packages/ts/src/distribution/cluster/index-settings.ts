@@ -113,7 +113,7 @@ export function indexSettingsOf(config: IndexConfig): IndexSettings {
   }
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+export function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
 }
 
@@ -148,6 +148,10 @@ export function decodeIndexSettings(raw: unknown, indexName: string): IndexSetti
       ...(embedding !== undefined ? { embedding } : {}),
     }),
   }
+}
+
+export function withPartitionCount(config: IndexConfig, partitionCount: number): IndexConfig {
+  return { ...config, partitions: { ...config.partitions, maxPartitions: partitionCount } }
 }
 
 export function indexConfigFromSettings(

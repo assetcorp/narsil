@@ -33,8 +33,8 @@ export type ComparisonFilter = {
  * The engine applies the range tests `gt`, `gte`, `lt`, `lte`, and `between`
  * to a single `string` or `verbatim` field whose type includes `sortable`,
  * while it throws `SEARCH_INVALID_FILTER` for a text range on any other field.
- * It compares the values as it does for a sort on the field, with case folds
- * first.
+ * It orders the values as a sort on the field does, comparing their case folds
+ * first and their raw code points only where the folds are equal.
  *
  * @public
  */

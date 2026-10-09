@@ -22,6 +22,7 @@ import type { GlobalStatistics } from '../../types/internal'
 import type { ListResult, PartitionStatsResult, PreflightResult, QueryResult, SuggestResult } from '../../types/results'
 import type { AnyDocument, FieldType, IndexConfig, SchemaDefinition } from '../../types/schema'
 import type { ListParams, QueryParams, SuggestParams } from '../../types/search'
+import { withPartitionCount } from '../cluster/index-settings'
 import { MAX_PARTITION_COUNT } from '../constants'
 import type { ReplicationLogEntry } from '../replication/types'
 import { createHeldPartitionRecord } from './held-partitions'
@@ -82,9 +83,9 @@ export async function createClusterLocalEngine(
 
   return Object.assign(engine, {
     createIndex: (name: string, indexConfig: IndexConfig) =>
-      createEngineIndex(core, runnableConfig, name, indexConfig, undefined, 'deferred'),
+      createEngineIndex(core, runnableConfig, name, indexConfig, { adapterBinding: 'deferred' }),
     createIndexWithUuid: (name: string, indexConfig: IndexConfig, indexUuid?: string) =>
-      createEngineIndex(core, runnableConfig, name, indexConfig, indexUuid),
+      createEngineIndex(core, runnableConfig, name, indexConfig, { indexUuid }),
     acquireIndexForReplication: (indexName: string) => core.indexState.acquire(indexName, false),
     indexUuidOf: (indexName: string) => core.indexRegistry.get(indexName)?.indexUuid,
     stampIndexUuid: (indexName: string, indexUuid: string) => stampIndexUuid(core, indexName, indexUuid),
@@ -302,11 +303,10 @@ async function ensureReplicationIndex(
   const existing = core.indexRegistry.get(indexName)
   let created = false
   if (existing === undefined) {
-    const indexConfig: IndexConfig = {
-      ...coordinatorConfig,
-      language: coordinatorConfig.language ?? language.name,
-      partitions: { ...coordinatorConfig.partitions, maxPartitions: partitionCount },
-    }
+    const indexConfig = withPartitionCount(
+      { ...coordinatorConfig, language: coordinatorConfig.language ?? language.name },
+      partitionCount,
+    )
     try {
       await engine.createIndex(indexName, indexConfig)
       created = true

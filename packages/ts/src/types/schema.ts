@@ -22,8 +22,8 @@ export type AnyDocument = Record<string, unknown> & {
  * `gt`, `gte`, `lt`, `lte`, or `between`. The engine raises
  * `DOC_VALIDATION_FAILED` for a value longer than
  * {@link IndexConfig.patternValueLimit} in a field whose type includes
- * `pattern`. Pattern search and partial-word search, which a later release
- * adds, will test the fields whose types include `pattern` and `partial`
+ * `pattern`. A later release will add pattern search and partial-word search,
+ * which will test the fields whose types include `pattern` and `partial`
  * respectively.
  *
  * @public

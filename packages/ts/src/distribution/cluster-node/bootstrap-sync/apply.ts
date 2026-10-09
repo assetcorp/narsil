@@ -2,6 +2,7 @@ import { ErrorCodes, NarsilError } from '../../../errors'
 import type { Narsil } from '../../../narsil'
 import { crc32 } from '../../../serialization/crc32'
 import type { IndexConfig, SchemaDefinition } from '../../../types/schema'
+import { withPartitionCount } from '../../cluster/index-settings'
 import { finalizeSnapshotStream } from '../../replication/snapshot-stream-assembler'
 import type { SyncEntriesPayload } from '../../transport/types'
 import { withDeadline } from '../bootstrap-fetch'
@@ -213,10 +214,7 @@ export async function ensureLocalIndexForIncremental(
   }
 
   try {
-    await deps.engine.createIndex(indexName, {
-      ...coordinatorConfig,
-      partitions: { ...coordinatorConfig.partitions, maxPartitions: partitionCount },
-    })
+    await deps.engine.createIndex(indexName, withPartitionCount(coordinatorConfig, partitionCount))
   } catch (err) {
     if (err instanceof NarsilError && err.code === ErrorCodes.INDEX_ALREADY_EXISTS) {
       const validation = validateLocalSchema(deps.engine, indexName, primaryNodeId, coordinatorConfig.schema)

@@ -1,4 +1,4 @@
-import { encode } from '@msgpack/msgpack'
+import { decode, encode } from '@msgpack/msgpack'
 import { describe, expect, it } from 'vitest'
 import {
   getClusterIndexConfig,
@@ -48,7 +48,8 @@ describe('the settings in cluster index metadata', () => {
     }
 
     await putIndexMetadata(coordinator, metadataWith(indexSettingsOf(requested)))
-    const stored = await getIndexMetadata(coordinator, INDEX_NAME)
+    const storedBytes = await coordinator.get(indexConfigKey(INDEX_NAME))
+    const stored = storedBytes === null ? null : (decode(storedBytes) as { settings?: { stopWordList?: string[] } })
     const config = await getClusterIndexConfig(coordinator, INDEX_NAME, SCHEMA)
 
     expect(stored?.settings?.stopWordList).toEqual(['a', 'and', 'the'])
@@ -79,25 +80,27 @@ describe('the settings in cluster index metadata', () => {
     await coordinator.shutdown()
   })
 
-  it('fail the read of metadata whose settings hold a value of the wrong type', async () => {
+  it('fail only the creation of a copy where a setting holds a value of the wrong type', async () => {
     const coordinator = createInMemoryCoordinator()
     const bytes = encode({ ...metadataWith(undefined), settings: { language: 'english', strict: 'yes' } })
 
     await coordinator.compareAndSet(indexConfigKey(INDEX_NAME), null, new Uint8Array(bytes))
 
-    await expect(getIndexMetadata(coordinator, INDEX_NAME)).rejects.toMatchObject({
+    await expect(getIndexMetadata(coordinator, INDEX_NAME)).resolves.toMatchObject({ partitionCount: 2 })
+    await expect(getClusterIndexConfig(coordinator, INDEX_NAME, SCHEMA)).rejects.toMatchObject({
       code: ErrorCodes.CONTROLLER_METADATA_INVALID,
     })
     await coordinator.shutdown()
   })
 
-  it('fail the read of metadata whose settings name no language', async () => {
+  it('fail only the creation of a copy where the settings name no language', async () => {
     const coordinator = createInMemoryCoordinator()
     const bytes = encode({ ...metadataWith(undefined), settings: { strict: true } })
 
     await coordinator.compareAndSet(indexConfigKey(INDEX_NAME), null, new Uint8Array(bytes))
 
-    await expect(getIndexMetadata(coordinator, INDEX_NAME)).rejects.toMatchObject({
+    await expect(getIndexMetadata(coordinator, INDEX_NAME)).resolves.toMatchObject({ partitionCount: 2 })
+    await expect(getClusterIndexConfig(coordinator, INDEX_NAME, SCHEMA)).rejects.toMatchObject({
       code: ErrorCodes.CONTROLLER_METADATA_INVALID,
     })
     await coordinator.shutdown()

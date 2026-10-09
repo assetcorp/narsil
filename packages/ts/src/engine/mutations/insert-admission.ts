@@ -60,11 +60,30 @@ export function admitInsert(
       throw new NarsilError(ErrorCodes.DOC_ALREADY_EXISTS, `Document "${docId}" already exists`, { docId })
     }
   }
+  assertRoomFor(ctx, indexName, manager, docId, pending, rebalancing)
+}
+
+export function admitBufferedUpsert(
+  ctx: MutationContext,
+  indexName: string,
+  manager: PartitionManager,
+  docId: string,
+): void {
+  assertRoomFor(ctx, indexName, manager, docId, undefined, true)
+}
+
+function assertRoomFor(
+  ctx: MutationContext,
+  indexName: string,
+  manager: PartitionManager,
+  docId: string,
+  pending: PendingAdmissions | undefined,
+  rebalancing: boolean,
+): void {
   if (ctx.capacityScope === 'partition') {
-    if (capsEachPartition(ctx, manager)) {
-      const partitionId = manager.routePartition(docId)
-      manager.assertPartitionCapacity(partitionId, pending?.byPartition.get(partitionId) ?? 0)
-    }
+    if (!capsEachPartition(ctx, manager)) return
+    const partitionId = manager.routePartition(docId)
+    manager.assertPartitionCapacity(partitionId, pending?.byPartition.get(partitionId) ?? 0)
     return
   }
   const pendingAdmitted = pending?.total ?? 0

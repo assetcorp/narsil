@@ -5,7 +5,7 @@ import type { Narsil } from '../../../narsil'
 import { validateSchema } from '../../../schema/validator'
 import type { AnyDocument, IndexConfig, InsertOptions } from '../../../types/schema'
 import { type IndexMetadata, indexConfigKey, putIndexMetadata, validateIndexName } from '../../cluster/index-metadata'
-import { indexSettingsOf } from '../../cluster/index-settings'
+import { indexSettingsOf, withPartitionCount } from '../../cluster/index-settings'
 import { MAX_PARTITION_COUNT, MAX_REPLICATION_FACTOR } from '../../constants'
 import type { AllocationConstraints, ClusterCoordinator } from '../../coordinator/types'
 import { waitForServingAllocation } from '../allocation-wait'
@@ -86,11 +86,7 @@ export async function routeCreateIndex(
   }
 
   try {
-    await engine.createIndexWithUuid(
-      name,
-      { ...config, partitions: { ...config.partitions, maxPartitions: partitionCount } },
-      metadata.indexUuid,
-    )
+    await engine.createIndexWithUuid(name, withPartitionCount(config, partitionCount), metadata.indexUuid)
     await coordinator.putSchema(name, config.schema)
   } catch (createErr) {
     const cleanupError = await withdrawPartialIndex(name, coordinator, engine)
