@@ -140,6 +140,18 @@ export interface ImportResult {
 export function isNarsilError(value: unknown): value is NarsilError;
 
 // @public
+export interface NarsilClientProviderProps extends NarsilProviderSettings {
+    client: NarsilClient;
+    engine?: undefined;
+}
+
+// @public
+export interface NarsilEngineProviderProps extends NarsilProviderSettings {
+    client?: undefined;
+    engine: Narsil;
+}
+
+// @public
 export class NarsilError extends Error {
     constructor(code: NarsilErrorCode, message: string, details?: Record<string, unknown>);
     readonly code: NarsilErrorCode;
@@ -171,10 +183,13 @@ export interface NarsilImportState {
 export function NarsilProvider(props: NarsilProviderProps): ReactElement;
 
 // @public
-export interface NarsilProviderProps {
+export type NarsilProviderProps = NarsilClientProviderProps | NarsilEngineProviderProps;
+
+// @public
+export interface NarsilProviderSettings {
     children?: ReactNode;
-    client: NarsilClient;
     keepAliveMs?: number;
+    refreshAfterWriteMs?: number;
 }
 
 // @public
