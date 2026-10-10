@@ -32,6 +32,7 @@ import { createWorkerOrchestrator, type WorkerOrchestrator, workersEnabledByDefa
 import type { RebalanceContext } from './rebalance-executor'
 import { validateWorkerConfig } from './validation'
 import type { WatermarkNotifier } from './watermark'
+import { emitWriteEventAfter } from './write-events'
 
 export type IndexRegistryEntry = {
   config: IndexConfig
@@ -236,7 +237,12 @@ export function createEngineCore(
       }
       return names
     },
-    reloadIndex: indexName => durability?.manager.reloadIndex?.(indexName) ?? Promise.resolve(),
+    reloadIndex: indexName =>
+      emitWriteEventAfter(
+        { eventHandlers, mutationCtx },
+        indexName,
+        durability?.manager.reloadIndex?.(indexName) ?? Promise.resolve(),
+      ),
     onError(error: Error) {
       if (emitEngineEvent(eventHandlers, 'invalidationError', { error }) === 0) {
         console.warn('Invalidation error:', error)

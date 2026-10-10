@@ -569,6 +569,9 @@ export type NarsilErrorCode = ErrorCode | ServerErrorCode | ClientErrorCode | (s
 
 // @public
 export type NarsilEventMap = {
+    write: {
+        indexName: string;
+    };
     workerCrash: {
         workerId: number;
         indexNames: string[];

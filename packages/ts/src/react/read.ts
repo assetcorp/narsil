@@ -1,18 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from 'react'
-import type { NarsilClient, RequestOptions } from '../client'
+import type { RequestOptions } from '../client'
 import { useNarsilContext } from './context'
 import { hashKey } from './key'
 import { type NarsilReadOptions, type NarsilReadState, requestOf } from './options'
 import { usePolling } from './poll'
-import { IDLE_SNAPSHOT, LOADING_SNAPSHOT, type ResourceSnapshot } from './store'
+import type { NarsilReader } from './reader'
+import { IDLE_SNAPSHOT, LOADING_SNAPSHOT, type ResourceSnapshot, type WriteScope } from './store'
 
 const NO_SUBSCRIPTION = (): void => {}
 
-/** Sends one client method's request, which is the part a read hook fills in. */
-export type ReadRunner<T> = (client: NarsilClient, request: RequestOptions) => Promise<T>
+export type ReadRunner<S, T> = (source: S, request: RequestOptions) => Promise<T>
 
-interface LatestCall<T> {
-  run: ReadRunner<T>
+interface LatestCall<S, T> {
+  run: ReadRunner<S, T>
   request: RequestOptions
 }
 
@@ -31,32 +31,20 @@ function useKey(parts: readonly unknown[]): string {
   return key
 }
 
-/**
- * Runs one client method under the shared state, which is what every read hook
- * is built on.
- *
- * @typeParam T - This is what the client method answers with.
- * @param parts - These identify the request: the method name and its arguments.
- * @param run - This sends the request. The hook holds the one it was given for
- * as long as the key stands, which is safe because the key carries every
- * argument the request reads.
- * @param options - These switch the hook off, keep the last answer, set a
- * refresh interval, and carry the headers and the deadline.
- * @returns The state holds the answer, the failure, the two loading flags, and
- * the way to ask again.
- */
-export function useRead<T>(
+export function useRead<S, T>(
+  source: S,
   parts: readonly unknown[],
-  run: ReadRunner<T>,
+  run: ReadRunner<S, T>,
   options: NarsilReadOptions | undefined,
+  writeScope: WriteScope,
 ): NarsilReadState<T> {
-  const { client, store } = useNarsilContext()
+  const { store } = useNarsilContext()
   const enabled = options?.enabled ?? true
   const headers = options?.headers
   const timeoutMs = options?.timeoutMs
   const key = useKey([...parts, headers, timeoutMs])
 
-  const call = useRef<LatestCall<T>>({ run, request: requestOf(options) })
+  const call = useRef<LatestCall<S, T>>({ run, request: requestOf(options) })
   useEffect(() => {
     call.current = { run, request: requestOf(options) }
   })
@@ -66,11 +54,11 @@ export function useRead<T>(
       if (!enabled) return NO_SUBSCRIPTION
       const loader = (signal: AbortSignal): Promise<T> => {
         const held = call.current
-        return held.run(client, { ...held.request, signal })
+        return held.run(source, { ...held.request, signal })
       }
-      return store.subscribe(key, loader, onChange)
+      return store.subscribe(key, loader, onChange, writeScope)
     },
-    [enabled, store, client, key],
+    [enabled, store, source, key, writeScope],
   )
   const readSnapshot = useCallback(
     () => (enabled ? store.snapshot(key) : IDLE_SNAPSHOT) as ResourceSnapshot<T>,
@@ -107,4 +95,14 @@ export function useRead<T>(
     }),
     [data, snapshot, refresh],
   )
+}
+
+export function useProviderRead<T>(
+  parts: readonly unknown[],
+  run: ReadRunner<NarsilReader, T>,
+  options: NarsilReadOptions | undefined,
+  writeScope: WriteScope,
+): NarsilReadState<T> {
+  const { reader } = useNarsilContext()
+  return useRead(reader, parts, run, options, writeScope)
 }
