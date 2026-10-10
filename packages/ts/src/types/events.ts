@@ -54,16 +54,23 @@ export type NarsilEventMap = {
     /** The index holds this many partitions now. */
     newCount: number
   }
-  /** A partition passed its watermark, so the index is close to needing another one. */
+  /**
+   * An index passed its watermark, so its partitions are close to their
+   * capacity. On a cluster node, the engine reports the document count and the
+   * capacity of the one partition that `partitionId` names, which is a
+   * partition that this node leads.
+   */
   partitionWatermark: {
     /** This index crossed the mark. */
     indexName: string
-    /** The index holds this many documents. */
+    /** The index holds this many documents, or the partition does on a cluster node. */
     documentCount: number
-    /** The index can hold this many across its current partitions. */
+    /** The index can hold this many across its current partitions, or the partition can on a cluster node. */
     capacity: number
     /** The index holds this many partitions. */
     partitionCount: number
+    /** On a cluster node, this partition crossed the mark. The field is absent outside a cluster. */
+    partitionId?: number
   }
   /**
    * The process uses nine tenths of its heap, measured during a write or a

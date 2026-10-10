@@ -4,7 +4,7 @@ The engine narrows and orders the results of a query by its filters, facet count
 
 ## Filters
 
-Filter on any indexed field with comparison operators (`eq`, `ne`, `gt`, `lt`, `gte`, `lte`, `between`), string operators (`in`, `nin`, `startsWith`, `endsWith`), array operators (`containsAll`, `matchesAny`, `size`), and presence checks (`exists`, `notExists`, `isEmpty`, `isNotEmpty`). Combine filter expressions with `and`, `or`, and `not`. On a `string[]` field, the engine compares each element of the list with `eq`, `ne`, `in`, `nin`, `startsWith`, and `endsWith`, so `eq: 'vegan'` matches a document whose list includes `'vegan'`, while `ne` and `nin` match a document whose list includes none of the values.
+Filter on any indexed field with comparison operators (`eq`, `ne`, `gt`, `lt`, `gte`, `lte`, `between`), string operators (`in`, `nin`, `startsWith`, `endsWith`), array operators (`containsAll`, `matchesAny`, `size`), and presence checks (`exists`, `notExists`, `isEmpty`, `isNotEmpty`). Combine filter expressions with `and`, `or`, and `not`. The engine compares each element of a `string[]` or `verbatim[]` field with `eq`, `ne`, `in`, `nin`, `startsWith`, and `endsWith`, so `eq: 'vegan'` matches a document whose list includes `'vegan'`, while `ne` and `nin` match a document where every element of the list differs from the values.
 
 ```ts
 const results = await narsil.query('products', {
@@ -23,6 +23,19 @@ const results = await narsil.query('products', {
 ```
 
 Put each field condition under `fields`, and nest whole filter expressions inside `and`, `or`, and `not`, so that you can write any boolean shape. The engine throws `SEARCH_INVALID_FILTER` for any other key, so it raises that error for a field name written at the top level, such as `{ category: { eq: 'books' } }`, and for a misspelled operator. It raises the same error for an operand of the wrong shape, such as a `between` with one bound or a `radius` with a negative `distance`, for an `and` or `or` clause that is not a list, for an expression nested more than 30 levels deep, and for an operator on a field of another type, such as `startsWith` on a `number` field or `eq: '700'` on one. The engine compares a filter on a field outside the schema with the value that each document stores under that name, except on a strict index, where it throws `SEARCH_INVALID_FIELD` for a filter, sort, facet, or group on such a field, because the engine rejects every document with that field. The engine scores only the documents that pass the filters. It returns hits for a full-text query only when you set a `term`, while in vector and hybrid modes it compares the query vector with only the documents that pass the filters.
+
+### Text ranges
+
+On a single `string` or `verbatim` field whose type includes `sortable`, the engine can also test `gt`, `gte`, `lt`, `lte`, and `between` against text bounds. In the query below, `between: ['INV-2024', 'INV-2025']` matches every code from `INV-2024` to `INV-2025`, with both bounds included.
+
+```ts
+const invoices = await narsil.query('invoices', {
+  term: 'invoice',
+  filters: { fields: { code: { between: ['INV-2024', 'INV-2025'] } } },
+})
+```
+
+The engine orders the values as a [sort](#sort) on the field does, comparing their case folds in code point order and comparing their raw code points only where the folds are equal. Under that order, `gte: 'apple'` matches `apple` and `Banana` but not `Apple`, which orders before `apple`. It finds the matching documents with a binary search over the column of sorted values that it keeps for sorting the field. The engine therefore builds that column for the first range test on a field, as it does for the first sort. It throws `SEARCH_INVALID_FILTER` for a text bound on any other field, including a `string[]:sortable` field. It throws that error for a list because it sorts each document's list by one element, so it keeps only that element's position in the sorted column.
 
 ## Facets
 
@@ -48,7 +61,7 @@ The engine orders the hits by the values of the fields in `sort`, in place of th
 
 The engine computes no relevance scores for a sorted query, so it returns each hit without a `score`. Pass `includeScores: true` so that the engine computes the scores and returns each hit with the score that it would have without the sort. For a sorted query that sets `minScore`, the engine still applies that floor, although it returns the scores only where `includeScores` is true.
 
-The engine sorts by a `number`, `boolean`, or `enum` field with no preparation. It sorts by a text field only where the schema declares it `string:sortable`, and it throws `SEARCH_INVALID_FIELD` for a sort on a plain `string` field. It throws the same error for a sort on a `geopoint` or a vector field, because neither type has an order. Where a field holds a list, the engine sorts each document by one value from that list, which is the smallest for an ascending sort and the largest for a descending one, as Elasticsearch does. Set `mode` on a sort entry to choose `'min'`, `'max'`, `'avg'`, or `'median'` yourself. Under the last two, the engine sorts by the mean or the median of a list of numbers, so it throws `SEARCH_INVALID_FIELD` for either of them on a field other than `number` or `number[]`. The engine orders a document whose list is empty after every document that has a value.
+The engine sorts by a `number`, `boolean`, or `enum` field with no preparation. It sorts by a `string`, `verbatim`, `string[]`, or `verbatim[]` field only where the field's type includes `sortable`, as in `string:sortable` or `string[]:sortable`, while it throws `SEARCH_INVALID_FIELD` for a sort on any other field of those types. It throws the same error for a sort on a `geopoint` or a vector field, because neither type has an order. For a list field, the engine sorts each document by one value from its list, which is the smallest for an ascending sort and the largest for a descending one, as Elasticsearch does. Set `mode` on a sort entry to choose `'min'`, `'max'`, `'avg'`, or `'median'` yourself. Under the last two, the engine sorts by the mean or the median of a list of numbers, so it throws `SEARCH_INVALID_FIELD` for either of them on a field other than `number` or `number[]`. The engine orders a document whose list is empty after every document that has a value.
 
 ```ts
 const cheapestFirst = await narsil.query('products', {

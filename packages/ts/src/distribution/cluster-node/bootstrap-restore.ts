@@ -1,6 +1,8 @@
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { Narsil } from '../../narsil'
-import type { SchemaDefinition } from '../../types/schema'
+import { validateSchema } from '../../schema/validator'
+import type { IndexConfig, SchemaDefinition } from '../../types/schema'
+import { getClusterIndexConfig } from '../cluster/index-metadata'
 import type { ClusterCoordinator } from '../coordinator/types'
 import { withDeadline } from './bootstrap-fetch'
 import { localIndexIsGone } from './local-index-gone'
@@ -187,12 +189,12 @@ export async function dropRestoredIndexQuietly(
   }
 }
 
-export async function loadCoordinatorSchema(
+export async function loadCoordinatorIndexConfig(
   coordinator: ClusterCoordinator,
   indexName: string,
   primaryNodeId: string,
   abortPromise: Promise<typeof ABORT_SENTINEL>,
-): Promise<{ schema: SchemaDefinition } | { error: NarsilError } | 'aborted'> {
+): Promise<{ config: IndexConfig } | { error: NarsilError } | 'aborted'> {
   let schema: SchemaDefinition | null
   try {
     const winner = await Promise.race([coordinator.getSchema(indexName), abortPromise])
@@ -221,7 +223,36 @@ export async function loadCoordinatorSchema(
     }
   }
 
-  return { schema }
+  let validSchema: SchemaDefinition
+  try {
+    validSchema = validateSchema(schema)
+  } catch (err) {
+    if (!(err instanceof NarsilError)) throw err
+    return {
+      error: new NarsilError(err.code, `coordinator schema for index '${indexName}' is invalid: ${err.message}`, {
+        ...err.details,
+        indexName,
+        primaryNodeId,
+      }),
+    }
+  }
+
+  try {
+    const winner = await Promise.race([getClusterIndexConfig(coordinator, indexName, validSchema), abortPromise])
+    if (winner === ABORT_SENTINEL) {
+      return 'aborted'
+    }
+    return { config: winner }
+  } catch (err) {
+    const cause = err instanceof Error ? err.message : String(err)
+    return {
+      error: new NarsilError(
+        err instanceof NarsilError ? err.code : ErrorCodes.SNAPSHOT_SYNC_SCHEMA_UNAVAILABLE,
+        `failed to read the coordinator index metadata for '${indexName}': ${cause}`,
+        { indexName, primaryNodeId, cause },
+      ),
+    }
+  }
 }
 
 export async function dropExistingIndex(

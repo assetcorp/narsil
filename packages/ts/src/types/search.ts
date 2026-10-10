@@ -139,15 +139,16 @@ export interface QueryParams {
   /**
    * The engine sorts the hits by the values of these fields, in place of the
    * relevance ranking. Pass an object keyed by field, or a list of fields in
-   * the order that the engine compares them. A sort can name a `number`,
-   * `boolean`, `enum`, or `string:sortable` field, or a list field, which the
-   * engine reduces to one value by the entry's `mode`. The engine throws
-   * `SEARCH_INVALID_FIELD` for a sort on a plain `string`, a `geopoint`, or a
-   * vector field, because ordering a plain string takes far more memory per
-   * document than ordering a number, while the other two types have no order.
-   * The engine orders hybrid results by fusion, so it throws
-   * `SEARCH_INVALID_MODE` for a hybrid query that sets a sort, and it throws
-   * the same code for a direction other than `asc` and `desc`.
+   * the order that the engine compares them. The engine sorts by a `number`,
+   * `boolean`, or `enum` field, by a text field whose type includes
+   * `sortable`, or by a list of any of these, which it reduces to one value by
+   * the entry's `mode`. It throws `SEARCH_INVALID_FIELD` for a sort on a
+   * `geopoint` or a vector field, because neither type has an order. It throws
+   * the same code for a sort on any other text field, since the engine keeps
+   * up to the first 512 code points of every document's value in memory to
+   * sort by a text field. The engine orders hybrid results by fusion, so it
+   * throws `SEARCH_INVALID_MODE` for a sort on a hybrid query. It also throws
+   * that code for a direction other than `asc` and `desc`.
    */
   sort?: SortSpec
   /** These settings collapse the hits into groups by field value. */

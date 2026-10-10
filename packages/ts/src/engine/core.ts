@@ -1,6 +1,7 @@
 import { generateId } from '../core/id-generator'
 import { ErrorCodes, NarsilError } from '../errors'
 import type { PartitionManager } from '../partitioning/manager'
+import type { CapacityScope } from '../partitioning/manager/capacity'
 import { createRebalancer, type Rebalancer } from '../partitioning/rebalancer'
 import { createPartitionRouter, type PartitionRouter } from '../partitioning/router'
 import type { createWriteAheadQueue, WAQEntry } from '../partitioning/write-ahead-queue'
@@ -80,14 +81,11 @@ export interface EngineCore {
   readonly rebalanceCtx: RebalanceContext
 }
 
-/**
- * Builds the internal engine services shared by standalone and cluster engines.
- *
- * @param config - Public engine settings.
- * @param hooks - Node-local callbacks the engine runs after an index reopens and after it closes.
- * @returns The connected engine core.
- */
-export function createEngineCore(config?: NarsilConfig, hooks?: EngineCoreHooks): EngineCore {
+export function createEngineCore(
+  config?: NarsilConfig,
+  hooks?: EngineCoreHooks,
+  capacityScope: CapacityScope = 'index',
+): EngineCore {
   validateWorkerConfig(config?.workers, config?.lifecycle)
   const vectorWorkerCount = splitWorkerBudget(resolveWorkerCount(config?.workers?.count)).vector
   const vectorCopyPolicy: VectorWorkerCopyPolicy = {
@@ -250,6 +248,7 @@ export function createEngineCore(config?: NarsilConfig, hooks?: EngineCoreHooks)
     eventHandlers,
     indexRegistry,
     getManager: indexName => executor.getManager(indexName),
+    capacityScope,
   }
   const watermarkNotifier = wireWatermarkNotifier(notifierWiring)
   const heapPressureNotifier = wireHeapPressureNotifier(notifierWiring)
@@ -296,6 +295,7 @@ export function createEngineCore(config?: NarsilConfig, hooks?: EngineCoreHooks)
     pendingRebalanceWrites: indexName => waqMap.get(indexName)?.size ?? 0,
     rebalanceTargetPartitionCount: indexName => rebalanceTargets.get(indexName),
     bufferedDocState: (indexName, docId) => waqMap.get(indexName)?.bufferedDocState(docId),
+    capacityScope,
     checkWatermark: watermarkNotifier.check,
     checkHeapPressure: heapPressureNotifier.check,
   }

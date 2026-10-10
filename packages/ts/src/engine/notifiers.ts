@@ -1,5 +1,6 @@
 import { readHeapStatistics } from '#platform/heap-statistics'
 import type { PartitionManager } from '../partitioning/manager'
+import type { CapacityScope } from '../partitioning/manager/capacity'
 import type { NarsilEventMap } from '../types/events'
 import type { EngineCore, IndexRegistryEntry } from './core'
 import { type EngineEventHandlers, emitEngineEvent } from './events'
@@ -10,14 +11,18 @@ export interface NotifierWiring {
   eventHandlers: EngineEventHandlers
   indexRegistry: Map<string, IndexRegistryEntry>
   getManager(indexName: string): PartitionManager | undefined
+  capacityScope: CapacityScope
 }
 
 export function wireWatermarkNotifier(wiring: NotifierWiring): WatermarkNotifier {
-  return createWatermarkNotifier({
-    getManager: wiring.getManager,
-    getPartitionConfig: indexName => wiring.indexRegistry.get(indexName)?.config.partitions,
-    emit: payload => emitEngineEvent(wiring.eventHandlers, 'partitionWatermark', payload),
-  })
+  return createWatermarkNotifier(
+    {
+      getManager: wiring.getManager,
+      getPartitionConfig: indexName => wiring.indexRegistry.get(indexName)?.config.partitions,
+      emit: payload => emitEngineEvent(wiring.eventHandlers, 'partitionWatermark', payload),
+    },
+    wiring.capacityScope,
+  )
 }
 
 function warnUnheardHeapPressure(payload: NarsilEventMap['heapPressure']): void {

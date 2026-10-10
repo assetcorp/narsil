@@ -265,7 +265,7 @@ describe('validateFilterExpression geo operators', () => {
 
 describe('validateSearchPayload params.filters integration', () => {
   it('rejects malformed filters via the top-level validator', () => {
-    expect(() => validateSearchPayload(makeSearchPayload({ filters: { fields: { price: { gt: 'oops' } } } }))).toThrow(
+    expect(() => validateSearchPayload(makeSearchPayload({ filters: { fields: { price: { gt: true } } } }))).toThrow(
       /gt/,
     )
   })

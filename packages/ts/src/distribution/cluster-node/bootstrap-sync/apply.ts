@@ -1,7 +1,8 @@
 import { ErrorCodes, NarsilError } from '../../../errors'
 import type { Narsil } from '../../../narsil'
 import { crc32 } from '../../../serialization/crc32'
-import type { SchemaDefinition } from '../../../types/schema'
+import type { IndexConfig, SchemaDefinition } from '../../../types/schema'
+import { withPartitionCount } from '../../cluster/index-settings'
 import { finalizeSnapshotStream } from '../../replication/snapshot-stream-assembler'
 import type { SyncEntriesPayload } from '../../transport/types'
 import { withDeadline } from '../bootstrap-fetch'
@@ -24,11 +25,11 @@ export async function applyLiveIncrementalSync(
   entriesPayloads: SyncEntriesPayload[],
   expectedFirstSeqNo: number,
   localPrimaryTerm: number,
-  coordinatorSchema: SchemaDefinition,
+  coordinatorConfig: IndexConfig,
   partitionCount: number,
   deps: LiveBootstrapSyncDeps,
 ): Promise<LiveSyncResult> {
-  const ensureResult = await ensureLocalIndexForIncremental(indexName, target, coordinatorSchema, partitionCount, deps)
+  const ensureResult = await ensureLocalIndexForIncremental(indexName, target, coordinatorConfig, partitionCount, deps)
   if (ensureResult instanceof NarsilError) {
     return { ok: false, error: ensureResult }
   }
@@ -61,7 +62,7 @@ export async function applyLiveSnapshotSync(
   partitionId: number,
   target: string,
   frameState: LiveSyncFrameState,
-  coordinatorSchema: SchemaDefinition,
+  coordinatorConfig: IndexConfig,
   partitionCount: number,
   deadline: number,
   deps: LiveBootstrapSyncDeps,
@@ -94,7 +95,7 @@ export async function applyLiveSnapshotSync(
     partitionId,
     target,
     finalized.bytes,
-    coordinatorSchema,
+    coordinatorConfig,
     partitionCount,
     deadline,
     deps,
@@ -132,7 +133,7 @@ export async function restoreLiveSnapshotPartition(
   partitionId: number,
   primaryNodeId: string,
   bytes: Uint8Array,
-  coordinatorSchema: SchemaDefinition,
+  coordinatorConfig: IndexConfig,
   partitionCount: number,
   deadline: number,
   deps: LiveBootstrapSyncDeps,
@@ -162,7 +163,7 @@ export async function restoreLiveSnapshotPartition(
 
   try {
     await withDeadline(
-      deps.restoreReplicationPartition(indexName, partitionId, bytes, coordinatorSchema, partitionCount),
+      deps.restoreReplicationPartition(indexName, partitionId, bytes, coordinatorConfig, partitionCount),
       remainingMs,
       indexName,
       'partition-restore',
@@ -189,7 +190,7 @@ export async function restoreLiveSnapshotPartition(
     })
   }
 
-  const schemaError = validateRestoredSchema(deps.engine, indexName, primaryNodeId, coordinatorSchema)
+  const schemaError = validateRestoredSchema(deps.engine, indexName, primaryNodeId, coordinatorConfig.schema)
   if (schemaError !== null) {
     return schemaError
   }
@@ -199,13 +200,13 @@ export async function restoreLiveSnapshotPartition(
 export async function ensureLocalIndexForIncremental(
   indexName: string,
   primaryNodeId: string,
-  coordinatorSchema: SchemaDefinition,
+  coordinatorConfig: IndexConfig,
   partitionCount: number,
   deps: LiveBootstrapSyncDeps,
 ): Promise<{ created: boolean } | NarsilError> {
   const existing = deps.engine.listIndexes().find(idx => idx.name === indexName)
   if (existing !== undefined) {
-    const validation = validateLocalSchema(deps.engine, indexName, primaryNodeId, coordinatorSchema)
+    const validation = validateLocalSchema(deps.engine, indexName, primaryNodeId, coordinatorConfig.schema)
     if (validation instanceof NarsilError) {
       return validation
     }
@@ -213,13 +214,10 @@ export async function ensureLocalIndexForIncremental(
   }
 
   try {
-    await deps.engine.createIndex(indexName, {
-      schema: coordinatorSchema,
-      partitions: { maxPartitions: partitionCount },
-    })
+    await deps.engine.createIndex(indexName, withPartitionCount(coordinatorConfig, partitionCount))
   } catch (err) {
     if (err instanceof NarsilError && err.code === ErrorCodes.INDEX_ALREADY_EXISTS) {
-      const validation = validateLocalSchema(deps.engine, indexName, primaryNodeId, coordinatorSchema)
+      const validation = validateLocalSchema(deps.engine, indexName, primaryNodeId, coordinatorConfig.schema)
       if (validation instanceof NarsilError) {
         return validation
       }

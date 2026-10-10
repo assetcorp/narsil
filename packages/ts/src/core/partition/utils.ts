@@ -1,5 +1,5 @@
 import type { GeoIndex } from '../../geo/geo-index'
-import { flattenSchema, isTextFieldType } from '../../schema/validator'
+import { flattenSchema, isWordIndexedBase, type SchemaField } from '../../schema/validator'
 import type { FieldNameTable } from '../../types/internal'
 import type { CustomTokenizer, FieldType, SchemaDefinition } from '../../types/schema'
 import type { DocumentStore, DocumentStoreReader } from '../document-store'
@@ -34,6 +34,7 @@ export function getOrCreateFieldNameIndex(table: FieldNameTable, fieldName: stri
 export interface PartitionInsertOptions {
   validate?: boolean
   strict?: boolean
+  patternValueLimit?: number
   skipClone?: boolean
   stopWordOverride?: Set<string> | ((defaults: Set<string>) => Set<string>)
   customTokenizer?: CustomTokenizer
@@ -66,13 +67,13 @@ function stringArraysEqual(a: unknown[] | undefined | null, b: unknown[] | undef
 export function textFieldsChanged(
   oldDoc: Readonly<Record<string, unknown>>,
   newDoc: Record<string, unknown>,
-  flatSchema: Record<string, FieldType>,
+  fields: readonly SchemaField[],
 ): boolean {
-  for (const [path, fieldType] of Object.entries(flatSchema)) {
-    if (!isTextFieldType(fieldType) && fieldType !== 'string[]') continue
+  for (const { path, base } of fields) {
+    if (!isWordIndexedBase(base)) continue
     const oldVal = getNestedValue(oldDoc as Record<string, unknown>, path)
     const newVal = getNestedValue(newDoc, path)
-    if (fieldType !== 'string[]') {
+    if (base === 'string') {
       if (oldVal !== newVal) return true
     } else {
       if (!stringArraysEqual(oldVal as unknown[] | undefined, newVal as unknown[] | undefined)) return true

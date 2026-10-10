@@ -71,6 +71,7 @@ export function createDurabilityFromTier(
         ...(entry.config.strict !== undefined ? { strict: entry.config.strict } : {}),
         ...(entry.config.required !== undefined ? { required: entry.config.required } : {}),
         ...(entry.config.vectorPromotion !== undefined ? { vectorPromotion: entry.config.vectorPromotion } : {}),
+        ...(entry.config.patternValueLimit !== undefined ? { patternValueLimit: entry.config.patternValueLimit } : {}),
       }
     },
     createIndexFromMetadata: wiring.createIndexFromMetadata,

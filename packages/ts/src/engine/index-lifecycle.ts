@@ -10,7 +10,7 @@ import type { EmbeddingAdapter } from '../types/adapters'
 import type { NarsilConfig } from '../types/config'
 import type { IndexConfig } from '../types/schema'
 import type { EngineCore, IndexRegistryEntry } from './core'
-import { validateBM25Params, validateIndexName, validatePartitionConfig } from './validation'
+import { validateBM25Params, validateIndexName, validatePartitionConfig, validatePatternValueLimit } from './validation'
 import { getVectorFieldPaths } from './vector-fields'
 
 async function runLifecycleHook(
@@ -25,6 +25,13 @@ async function runLifecycleHook(
   }
 }
 
+export type EmbeddingAdapterBinding = 'required' | 'deferred'
+
+export interface IndexCreationOptions {
+  indexUuid?: string
+  adapterBinding?: EmbeddingAdapterBinding
+}
+
 export async function announceIndexCreated(core: EngineCore, name: string, config: IndexConfig): Promise<void> {
   await runLifecycleHook(core, 'onIndexCreate', { indexName: name, config })
 }
@@ -33,15 +40,18 @@ export async function createEngineIndex(
   core: EngineCore,
   config: NarsilConfig | undefined,
   name: string,
-  indexConfig: IndexConfig,
-  indexUuid?: string,
+  requestedConfig: IndexConfig,
+  creation: IndexCreationOptions = {},
 ): Promise<void> {
+  const { indexUuid, adapterBinding = 'required' } = creation
   core.guardShutdown()
   validateIndexName(name)
   if (core.indexRegistry.has(name)) {
     throw new NarsilError(ErrorCodes.INDEX_ALREADY_EXISTS, `Index "${name}" already exists`, { indexName: name })
   }
-  validateSchema(indexConfig.schema)
+  const schema = validateSchema(requestedConfig.schema)
+  const indexConfig = schema === requestedConfig.schema ? requestedConfig : { ...requestedConfig, schema }
+  validatePatternValueLimit(indexConfig.patternValueLimit)
   validateVectorPromotion(indexConfig.vectorPromotion)
   validateVectorStorage(indexConfig.vectorPromotion, core.filesystemDurability)
   validateBM25Params(indexConfig.bm25)
@@ -67,24 +77,31 @@ export async function createEngineIndex(
   let resolvedEmbeddingAdapter: EmbeddingAdapter | null = null
   let embeddingAdapterName: string | null = null
   if (indexConfig.embedding) {
-    let configuredAdapter = indexConfig.embedding.adapter
+    const configuredAdapter = indexConfig.embedding.adapter
+    const fields = indexConfig.embedding.fields
     if (typeof configuredAdapter === 'string') {
       embeddingAdapterName = configuredAdapter
       const registered = core.embeddingAdapters.get(configuredAdapter)
-      if (!registered) {
+      if (registered !== undefined) {
+        resolvedEmbeddingAdapter = validateEmbeddingConfig(
+          { fields, adapter: registered },
+          indexConfig.schema,
+          config?.embedding,
+        )
+      } else if (adapterBinding === 'required') {
         throw new NarsilError(
           ErrorCodes.EMBEDDING_CONFIG_INVALID,
           `Embedding adapter "${configuredAdapter}" is not registered on this engine`,
           { adapter: configuredAdapter, available: [...core.embeddingAdapters.keys()] },
         )
       }
-      configuredAdapter = registered
+    } else if (adapterBinding === 'required' || configuredAdapter !== undefined || config?.embedding !== undefined) {
+      resolvedEmbeddingAdapter = validateEmbeddingConfig(
+        { fields, adapter: configuredAdapter },
+        indexConfig.schema,
+        config?.embedding,
+      )
     }
-    resolvedEmbeddingAdapter = validateEmbeddingConfig(
-      { fields: indexConfig.embedding.fields, adapter: configuredAdapter },
-      indexConfig.schema,
-      config?.embedding,
-    )
   }
   if (indexConfig.required && indexConfig.required.length > 0) {
     validateRequiredFieldsInSchema(indexConfig.required, indexConfig.schema)

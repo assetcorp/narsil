@@ -89,9 +89,22 @@ function validateStringList(value: unknown, fieldLabel: string, errorCode: Error
   }
 }
 
+function validateRangeOperand(value: unknown, fieldLabel: string, errorCode: ErrorCode): void {
+  if (typeof value === 'string') {
+    validateBoundedString(value, fieldLabel, errorCode)
+    return
+  }
+  validateNumericOperand(value, fieldLabel, errorCode)
+}
+
 function validateBetween(value: unknown, fieldLabel: string, errorCode: ErrorCode): void {
   if (!Array.isArray(value) || value.length !== 2) {
     throwInvalid(errorCode, `Invalid payload: "${fieldLabel}" must be a two-element array`)
+  }
+  if (typeof value[0] === 'string' && typeof value[1] === 'string') {
+    validateBoundedString(value[0], `${fieldLabel}[0]`, errorCode)
+    validateBoundedString(value[1], `${fieldLabel}[1]`, errorCode)
+    return
   }
   validateNumericOperand(value[0], `${fieldLabel}[0]`, errorCode)
   validateNumericOperand(value[1], `${fieldLabel}[1]`, errorCode)
@@ -160,7 +173,7 @@ function validateGeoPolygon(value: unknown, fieldLabel: string, errorCode: Error
 function validateLeafOperator(opKey: string, opValue: unknown, leafLabel: string, errorCode: ErrorCode): void {
   const opLabel = `${leafLabel}.${opKey}`
   if (opKey === 'gt' || opKey === 'lt' || opKey === 'gte' || opKey === 'lte') {
-    validateNumericOperand(opValue, opLabel, errorCode)
+    validateRangeOperand(opValue, opLabel, errorCode)
     return
   }
   if (opKey === 'eq' || opKey === 'ne') {

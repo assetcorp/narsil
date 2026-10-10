@@ -1,5 +1,7 @@
 import { ErrorCodes, NarsilError } from '../../errors'
-import type { FieldType, SchemaDefinition } from '../../types/schema'
+import type { SchemaDefinition } from '../../types/schema'
+import { DEFAULT_PATTERN_VALUE_LIMIT } from '../constants'
+import { type ParsedFieldType, parseFieldType } from './field-type'
 import { validateFieldValue } from './field-values'
 import { isPlainObject, VECTOR_PATTERN } from './shared'
 import { assertStorableDocument } from './storable'
@@ -25,29 +27,58 @@ function vectorFieldPaths(schema: SchemaDefinition): Set<string> {
   return paths
 }
 
-function validateDocumentFields(doc: Record<string, unknown>, schema: SchemaDefinition, prefix: string): void {
-  for (const [field, type] of Object.entries(schema)) {
+interface SchemaLevelEntry {
+  field: string
+  nested: SchemaDefinition | null
+  type: ParsedFieldType | null
+}
+
+const parsedLevelCache = new WeakMap<SchemaDefinition, SchemaLevelEntry[]>()
+
+function parsedLevel(schema: SchemaDefinition, prefix: string): SchemaLevelEntry[] {
+  let entries = parsedLevelCache.get(schema)
+  if (entries !== undefined) return entries
+  entries = Object.entries(schema).map(([field, type]) => {
+    if (isPlainObject(type)) return { field, nested: type as SchemaDefinition, type: null }
     const path = prefix ? `${prefix}.${field}` : field
+    return { field, nested: null, type: parseFieldType(type as string, path) }
+  })
+  parsedLevelCache.set(schema, entries)
+  return entries
+}
+
+function validateDocumentFields(
+  doc: Record<string, unknown>,
+  schema: SchemaDefinition,
+  prefix: string,
+  patternValueLimit: number,
+): void {
+  for (const { field, nested, type } of parsedLevel(schema, prefix)) {
     const value = doc[field]
 
     if (value === undefined || value === null) continue
 
-    if (isPlainObject(type)) {
+    const path = prefix ? `${prefix}.${field}` : field
+    if (nested !== null) {
       if (!isPlainObject(value)) {
         throw new NarsilError(ErrorCodes.DOC_VALIDATION_FAILED, `Field "${path}" expected an object`, {
           field: path,
           received: Array.isArray(value) ? 'array' : typeof value,
         })
       }
-      validateDocumentFields(value, type as SchemaDefinition, path)
+      validateDocumentFields(value, nested, path, patternValueLimit)
       continue
     }
 
-    validateFieldValue(path, value, type as FieldType)
+    if (type !== null) validateFieldValue(path, value, type, patternValueLimit)
   }
 }
 
-export function validateDocument(document: Record<string, unknown>, schema: SchemaDefinition): void {
+export function validateDocument(
+  document: Record<string, unknown>,
+  schema: SchemaDefinition,
+  patternValueLimit: number = DEFAULT_PATTERN_VALUE_LIMIT,
+): void {
   if (!isPlainObject(document)) {
     throw new NarsilError(ErrorCodes.DOC_VALIDATION_FAILED, 'Document must be a plain object', {
       received: typeof document,
@@ -55,7 +86,7 @@ export function validateDocument(document: Record<string, unknown>, schema: Sche
   }
 
   assertStorableDocument(document, vectorFieldPaths(schema))
-  validateDocumentFields(document, schema, '')
+  validateDocumentFields(document, schema, '', patternValueLimit)
 }
 
 function collectExtraFields(

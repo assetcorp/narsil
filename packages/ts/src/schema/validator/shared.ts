@@ -1,22 +1,3 @@
-export const SORTABLE_TEXT_FIELD_TYPE = 'string:sortable'
-
-export const SCALAR_FIELD_TYPES = new Set<string>([
-  'string',
-  SORTABLE_TEXT_FIELD_TYPE,
-  'number',
-  'boolean',
-  'enum',
-  'geopoint',
-  'string[]',
-  'number[]',
-  'boolean[]',
-  'enum[]',
-])
-
-export function isTextFieldType(fieldType: string): boolean {
-  return fieldType === 'string' || fieldType === SORTABLE_TEXT_FIELD_TYPE
-}
-
 export const VECTOR_PATTERN = /^vector\[(\d+)]$/
 
 export function isGeopointOrVectorType(fieldType: string | undefined): boolean {

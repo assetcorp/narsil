@@ -1,9 +1,11 @@
 export type SchemaFieldType =
   | 'string'
+  | 'verbatim'
   | 'number'
   | 'boolean'
   | 'enum'
   | 'string[]'
+  | 'verbatim[]'
   | 'number[]'
   | 'boolean[]'
   | 'enum[]'
@@ -11,6 +13,7 @@ export type SchemaFieldType =
 export interface SchemaField {
   path: string
   type: SchemaFieldType
+  sortable: boolean
 }
 
 export interface SchemaLeaf {
@@ -49,16 +52,31 @@ export type OperatorArity = 'none' | 'one' | 'two' | 'list'
 
 const FIELD_TYPES = new Set<string>([
   'string',
+  'verbatim',
   'number',
   'boolean',
   'enum',
   'string[]',
+  'verbatim[]',
   'number[]',
   'boolean[]',
   'enum[]',
 ])
 
-const SEARCHABLE_FIELD_TYPES = new Set<string>(['string', 'string:sortable', 'string[]'])
+const SEARCHABLE_FIELD_TYPES = new Set<string>(['string', 'string[]'])
+
+const TEXT_FIELD_TYPES = new Set<string>(['string', 'verbatim'])
+
+const TYPE_OPTION_SEPARATOR = ':'
+
+function baseTypeOf(type: string): string {
+  const separator = type.indexOf(TYPE_OPTION_SEPARATOR)
+  return separator === -1 ? type : type.slice(0, separator)
+}
+
+function hasSortableOption(type: string): boolean {
+  return type.split(TYPE_OPTION_SEPARATOR).slice(1).includes('sortable')
+}
 
 const TEXT_OPERATORS: FilterOperatorId[] = ['eq', 'ne', 'startsWith', 'endsWith', 'in', 'nin']
 const NUMBER_OPERATORS: FilterOperatorId[] = ['eq', 'ne', 'gt', 'gte', 'lt', 'lte', 'between']
@@ -119,7 +137,7 @@ export function operatorsFor(type: SchemaFieldType): FilterOperatorId[] {
   if (isArrayField(type)) return [...ARRAY_OPERATORS, ...PRESENCE_OPERATORS, ...EMPTINESS_OPERATORS]
   if (type === 'number') return [...NUMBER_OPERATORS, ...PRESENCE_OPERATORS]
   if (type === 'boolean') return [...BOOLEAN_OPERATORS, ...PRESENCE_OPERATORS]
-  if (type === 'string') return [...TEXT_OPERATORS, ...PRESENCE_OPERATORS, ...EMPTINESS_OPERATORS]
+  if (TEXT_FIELD_TYPES.has(type)) return [...TEXT_OPERATORS, ...PRESENCE_OPERATORS, ...EMPTINESS_OPERATORS]
   return [...TEXT_OPERATORS, ...PRESENCE_OPERATORS]
 }
 
@@ -145,7 +163,10 @@ export function isVectorType(type: string): boolean {
 export function filterableFields(leaves: readonly SchemaLeaf[]): SchemaField[] {
   const fields: SchemaField[] = []
   for (const leaf of leaves) {
-    if (FIELD_TYPES.has(leaf.type)) fields.push({ path: leaf.path, type: leaf.type as SchemaFieldType })
+    const base = baseTypeOf(leaf.type)
+    if (!FIELD_TYPES.has(base)) continue
+    const sortable = TEXT_FIELD_TYPES.has(base) ? hasSortableOption(leaf.type) : true
+    fields.push({ path: leaf.path, type: base as SchemaFieldType, sortable })
   }
   return fields
 }
@@ -153,7 +174,7 @@ export function filterableFields(leaves: readonly SchemaLeaf[]): SchemaField[] {
 export function searchableFieldPaths(leaves: readonly SchemaLeaf[]): string[] {
   const paths: string[] = []
   for (const leaf of leaves) {
-    if (SEARCHABLE_FIELD_TYPES.has(leaf.type)) paths.push(leaf.path)
+    if (SEARCHABLE_FIELD_TYPES.has(baseTypeOf(leaf.type))) paths.push(leaf.path)
   }
   return paths
 }
@@ -165,7 +186,7 @@ export function flattenSchemaFields(schema: Record<string, unknown>, prefix = ''
 export function sortableFieldPaths(fields: SchemaField[]): Set<string> {
   const paths = new Set<string>()
   for (const field of fields) {
-    if (!isArrayField(field.type)) paths.add(field.path)
+    if (!isArrayField(field.type) && field.sortable) paths.add(field.path)
   }
   return paths
 }

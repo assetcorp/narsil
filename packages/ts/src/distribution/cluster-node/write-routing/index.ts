@@ -2,8 +2,10 @@ import { generateId } from '../../../core/id-generator'
 import { providedDocId } from '../../../engine/mutations/insert-admission'
 import { ErrorCodes, NarsilError } from '../../../errors'
 import type { Narsil } from '../../../narsil'
+import { validateSchema } from '../../../schema/validator'
 import type { AnyDocument, IndexConfig, InsertOptions } from '../../../types/schema'
 import { type IndexMetadata, indexConfigKey, putIndexMetadata, validateIndexName } from '../../cluster/index-metadata'
+import { indexSettingsOf, withPartitionCount } from '../../cluster/index-settings'
 import { MAX_PARTITION_COUNT, MAX_REPLICATION_FACTOR } from '../../constants'
 import type { AllocationConstraints, ClusterCoordinator } from '../../coordinator/types'
 import { waitForServingAllocation } from '../allocation-wait'
@@ -47,12 +49,13 @@ interface IndexCreatingEngine {
 
 export async function routeCreateIndex(
   name: string,
-  config: IndexConfig,
+  requestedConfig: IndexConfig,
   options: CreateIndexOptions | undefined,
   coordinator: ClusterCoordinator,
   engine: IndexCreatingEngine,
 ): Promise<void> {
   validateIndexName(name)
+  const config: IndexConfig = { ...requestedConfig, schema: validateSchema(requestedConfig.schema) }
 
   const partitionCount = options?.partitionCount ?? DEFAULT_PARTITION_COUNT
   const replicationFactor = options?.replicationFactor ?? DEFAULT_REPLICATION_FACTOR
@@ -70,6 +73,7 @@ export async function routeCreateIndex(
     partitionCount,
     replicationFactor,
     constraints,
+    settings: indexSettingsOf(config),
   }
 
   const stored = await putIndexMetadata(coordinator, metadata)
@@ -82,11 +86,7 @@ export async function routeCreateIndex(
   }
 
   try {
-    await engine.createIndexWithUuid(
-      name,
-      { ...config, partitions: { ...config.partitions, maxPartitions: partitionCount } },
-      metadata.indexUuid,
-    )
+    await engine.createIndexWithUuid(name, withPartitionCount(config, partitionCount), metadata.indexUuid)
     await coordinator.putSchema(name, config.schema)
   } catch (createErr) {
     const cleanupError = await withdrawPartialIndex(name, coordinator, engine)

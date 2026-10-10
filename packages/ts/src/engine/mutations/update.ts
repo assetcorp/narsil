@@ -13,6 +13,7 @@ import {
 } from '../vector-coordinator'
 import type { MutationContext } from './context'
 import { rollbackUpdatedDocument } from './durable-rollback'
+import { admitBufferedUpsert } from './insert-admission'
 import { recordChunk } from './record-batch'
 import { awaitWriteVisibility } from './write-visibility'
 
@@ -160,7 +161,7 @@ function applyOfUpdate(ctx: MutationContext, indexName: string, prepared: Prepar
       const bufferedState = ctx.bufferedDocState(indexName, docId)
       const exists = bufferedState !== undefined ? bufferedState === 'present' : manager.has(docId)
       if (!exists) {
-        manager.assertCapacity(ctx.pendingRebalanceWrites(indexName), ctx.rebalanceTargetPartitionCount(indexName))
+        admitBufferedUpsert(ctx, indexName, manager, docId)
       }
     }
     if (ctx.bufferIfRebalancing(indexName, { action: 'update', docId, document, indexName })) {

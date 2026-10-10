@@ -91,6 +91,8 @@ export interface HttpIndexConfig {
   embedding?: CreateIndexEmbedding
   /** The server rejects a document that omits any of these fields. */
   required?: string[]
+  /** The server returns a `DOC_VALIDATION_FAILED` error for a document whose value in a `verbatim` field, or in a field whose type includes `pattern`, is longer than this many code points. Set a whole number from 1 to 65,536, or leave this unset for a limit of 8,192. */
+  patternValueLimit?: number
 }
 
 /**

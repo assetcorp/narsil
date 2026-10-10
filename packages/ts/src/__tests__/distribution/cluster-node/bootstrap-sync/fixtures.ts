@@ -48,7 +48,7 @@ export function makeMockEngine(options: MockEngineOptions = {}): MockEngineHandl
   })
   let restoreHold: Promise<void> | null = null
 
-  const statsSchema = options.statsSchema ?? { title: 'text' }
+  const statsSchema = options.statsSchema ?? { title: 'string' }
   const engine = {
     listIndexes: () => (hasIndex ? [{ name: 'products' }] : []),
     createIndex: async (name: string) => {
@@ -115,6 +115,7 @@ export function makeMockCoordinator(schema: Record<string, string> | null, parti
   }
   return {
     getSchema: vi.fn().mockResolvedValue(schema),
+    get: vi.fn().mockResolvedValue(null),
     getAllocation: vi.fn().mockResolvedValue({
       indexName: 'products',
       version: 1,

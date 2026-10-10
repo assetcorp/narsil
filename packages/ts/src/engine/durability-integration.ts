@@ -68,6 +68,7 @@ export interface DurabilityIntegrationHooks {
         strict?: boolean
         required?: string[]
         vectorPromotion?: VectorIndexConfig
+        patternValueLimit?: number
       }
     | undefined
   createIndexFromMetadata: IndexDurabilityHooks['createIndexFromMetadata']
@@ -131,6 +132,9 @@ function buildMetadata(
   }
   if (config.vectorPromotion !== undefined) {
     metadata.vectorPromotion = config.vectorPromotion
+  }
+  if (config.patternValueLimit !== undefined) {
+    metadata.patternValueLimit = config.patternValueLimit
   }
   if (config.indexUuid !== undefined) {
     metadata.indexUuid = config.indexUuid

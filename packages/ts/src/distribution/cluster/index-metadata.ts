@@ -1,8 +1,10 @@
 import { decode, encode } from '@msgpack/msgpack'
 import { INDEX_NAME_PATTERN, MAX_INDEX_NAME_LENGTH } from '../../engine/constants'
 import { ErrorCodes, NarsilError } from '../../errors'
+import type { IndexConfig, SchemaDefinition } from '../../types/schema'
 import { MAX_PARTITION_COUNT, MAX_REPLICATION_FACTOR } from '../constants'
 import type { AllocationConstraints, ClusterCoordinator } from '../coordinator/types'
+import { decodeIndexSettings, type IndexSettings, indexConfigFromSettings, isRecord } from './index-settings'
 
 export interface IndexMetadata {
   indexUuid: string
@@ -10,6 +12,7 @@ export interface IndexMetadata {
   partitionCount: number
   replicationFactor: number
   constraints: AllocationConstraints
+  settings?: IndexSettings
 }
 
 const INDEX_CONFIG_PREFIX = '_narsil/index/'
@@ -63,11 +66,14 @@ export function indexConfigKey(indexName: string): string {
   return `${INDEX_CONFIG_PREFIX}${indexName}${INDEX_CONFIG_SUFFIX}`
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value)
+export type IndexMetadataRecord = Omit<IndexMetadata, 'settings'>
+
+interface StoredIndexMetadata {
+  record: IndexMetadataRecord
+  rawSettings: unknown
 }
 
-function validateDecodedMetadata(decoded: unknown, indexName: string): IndexMetadata {
+function validateDecodedMetadata(decoded: unknown, indexName: string): IndexMetadataRecord {
   if (!isRecord(decoded)) {
     throw new NarsilError(
       ErrorCodes.CONTROLLER_METADATA_INVALID,
@@ -154,7 +160,7 @@ function validateDecodedMetadata(decoded: unknown, indexName: string): IndexMeta
 export async function putIndexMetadata(coordinator: ClusterCoordinator, metadata: IndexMetadata): Promise<boolean> {
   validateIndexName(metadata.indexName)
   const key = indexConfigKey(metadata.indexName)
-  const encoded = encode(metadata)
+  const encoded = encode(metadata, { ignoreUndefined: true })
   const bytes = new Uint8Array(encoded)
   if (await coordinator.compareAndSet(key, null, bytes)) {
     return true
@@ -166,16 +172,32 @@ export async function putIndexMetadata(coordinator: ClusterCoordinator, metadata
   return coordinator.compareAndSet(key, current, bytes)
 }
 
-export async function getIndexMetadata(
+async function readStoredMetadata(
   coordinator: ClusterCoordinator,
   indexName: string,
-): Promise<IndexMetadata | null> {
+): Promise<StoredIndexMetadata | null> {
   validateIndexName(indexName)
-  const key = indexConfigKey(indexName)
-  const raw = await coordinator.get(key)
+  const raw = await coordinator.get(indexConfigKey(indexName))
   if (raw === null || raw.byteLength === 0) {
     return null
   }
   const decoded = decode(raw)
-  return validateDecodedMetadata(decoded, indexName)
+  const record = validateDecodedMetadata(decoded, indexName)
+  return { record, rawSettings: isRecord(decoded) ? decoded.settings : undefined }
+}
+
+export async function getIndexMetadata(
+  coordinator: ClusterCoordinator,
+  indexName: string,
+): Promise<IndexMetadataRecord | null> {
+  return (await readStoredMetadata(coordinator, indexName))?.record ?? null
+}
+
+export async function getClusterIndexConfig(
+  coordinator: ClusterCoordinator,
+  indexName: string,
+  schema: SchemaDefinition,
+): Promise<IndexConfig> {
+  const stored = await readStoredMetadata(coordinator, indexName)
+  return indexConfigFromSettings(schema, decodeIndexSettings(stored?.rawSettings, indexName), indexName)
 }

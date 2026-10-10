@@ -112,6 +112,7 @@ Every default is an environment variable:
 | `DISK_SIZE` | `60` | Boot disk size in GB (ignored by Hetzner, which bundles storage) |
 | `SUITES` | `both` | `both`, `inprocess`, or `server` |
 | `SSH_KEY` | `~/.ssh/id_ed25519` | Private key for the raw-SSH providers |
+| `BENCH_PROFILE` | `cloud` | `cloud` for the published results folders, `smoke` for git-ignored scratch folders |
 | `BENCH_INPROCESS_TIERS` | unset | Restrict the in-process suite to named tiers |
 | `BENCH_SERVER_ENGINES` | unset | Restrict the server suite to named engines |
 | `BENCH_MACHINE_LABEL` | derived | Host label recorded in server results |
@@ -148,6 +149,27 @@ measured, and `run` again with the same id finishes the rest.
 `fetch` copies back only the run directories that the VM created. The VM also
 holds every run that the repository already publishes, which the script leaves
 alone so that their reports stay as they were published.
+
+## Scratch runs
+
+Use a scratch run when you want to find out whether a change makes Narsil faster
+or slower while the published results stay as they are. With
+`BENCH_PROFILE=smoke`, both suites write their results under
+`benchmarks/*/results/.smoke/runs/`. Git ignores that folder, so the scratch
+results stay out of the repository. The published page stays the same as well,
+because `benchmarks/writeup/generate.py` builds it from `results/runs/` alone.
+
+```bash
+BENCH_PROFILE=smoke SUITES=inprocess BENCH_INPROCESS_TIERS=text,full \
+  ./run-cloud.sh all --yes
+```
+
+Set the same `BENCH_PROFILE` when you call `fetch` on its own, because `fetch`
+copies the scratch folders back only when `BENCH_PROFILE` is `smoke`. The server
+suite measures the peak concurrency level once on the smoke profile and three times
+on the cloud profile. Set `BENCH_THROUGHPUT_PASSES=3` on a scratch run whenever you
+compare its throughput with a published run, so that the harness measures the peak
+level the same number of times on both sides.
 
 ## What each provider sets up
 

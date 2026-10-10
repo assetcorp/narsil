@@ -4,7 +4,7 @@ import {
   dropExistingIndex,
   dropRestoredIndexQuietly,
   executeEngineRestore,
-  loadCoordinatorSchema,
+  loadCoordinatorIndexConfig,
   surfaceAborted,
   surfaceError,
   validateRestoredSchema,
@@ -28,15 +28,15 @@ export async function fetchSchemaAndPrepare(
     return 'aborted'
   }
 
-  const schemaResult = await loadCoordinatorSchema(deps.coordinator, indexName, primaryNodeId, entry.abortPromise)
-  if (schemaResult === 'aborted') {
+  const configResult = await loadCoordinatorIndexConfig(deps.coordinator, indexName, primaryNodeId, entry.abortPromise)
+  if (configResult === 'aborted') {
     return 'aborted'
   }
-  if ('error' in schemaResult) {
-    surfaceError(deps, indexName, primaryNodeId, schemaResult.error)
+  if ('error' in configResult) {
+    surfaceError(deps, indexName, primaryNodeId, configResult.error)
     return null
   }
-  return schemaResult.schema
+  return configResult.config.schema
 }
 
 export async function applyRestore(
