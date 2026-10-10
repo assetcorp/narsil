@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { NarsilError } from '../../errors'
-import { createResourceStore, NO_INDEX, type ResourceLoader } from '../../react/store'
+import { ANY_INDEX, createResourceStore, NO_INDEX, type ResourceLoader } from '../../react/store'
 
 const KEEP_ALIVE_MS = 10
 
@@ -178,6 +178,40 @@ describe('the react resource store', () => {
     calls[0].resolve('answer')
     await drain()
     expect(told).toBe(settled)
+  })
+
+  it('refreshes each index once its own writes pause, however often another index takes writes', async () => {
+    vi.useFakeTimers()
+    try {
+      const store = createResourceStore(KEEP_ALIVE_MS, 400)
+      const books = heldLoader()
+      const films = heldLoader()
+      const indexes = heldLoader()
+      store.subscribe('books', books.loader, () => undefined, 'books')
+      store.subscribe('films', films.loader, () => undefined, 'films')
+      store.subscribe('indexes', indexes.loader, () => undefined, ANY_INDEX)
+      books.calls[0].resolve('books')
+      films.calls[0].resolve('films')
+      indexes.calls[0].resolve(['books', 'films'])
+      await drain()
+
+      store.invalidate('books')
+      for (let write = 0; write < 5; write++) {
+        store.invalidate('films')
+        await vi.advanceTimersByTimeAsync(150)
+      }
+      const loads = (): Record<string, number> => ({
+        books: books.calls.length,
+        films: films.calls.length,
+        indexes: indexes.calls.length,
+      })
+      expect(loads()).toEqual({ books: 2, films: 1, indexes: 1 })
+
+      await vi.advanceTimersByTimeAsync(400)
+      expect(loads()).toEqual({ books: 2, films: 2, indexes: 2 })
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('stops everything in flight when the provider unmounts', async () => {
