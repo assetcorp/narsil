@@ -159,6 +159,7 @@ export const ErrorCodes: {
     readonly SEARCH_INVALID_MODE: "SEARCH_INVALID_MODE";
     readonly SEARCH_INVALID_CURSOR: "SEARCH_INVALID_CURSOR";
     readonly SEARCH_RESULT_WINDOW_EXCEEDED: "SEARCH_RESULT_WINDOW_EXCEEDED";
+    readonly SEARCH_WORK_CAP_EXCEEDED: "SEARCH_WORK_CAP_EXCEEDED";
     readonly LANGUAGE_NOT_SUPPORTED: "LANGUAGE_NOT_SUPPORTED";
     readonly ENVELOPE_VERSION_MISMATCH: "ENVELOPE_VERSION_MISMATCH";
     readonly ENVELOPE_INVALID_MAGIC: "ENVELOPE_INVALID_MAGIC";
@@ -552,6 +553,7 @@ export interface NarsilConfig {
     idGenerator?: () => string;
     invalidation?: InvalidationAdapter;
     lifecycle?: IndexLifecycleConfig;
+    patternWorkCap?: number;
     persistence?: PersistenceAdapter;
     plugins?: NarsilPlugin[];
     workers?: WorkerConfig;
@@ -665,6 +667,11 @@ export interface PartitionStatsResult {
 }
 
 // @public
+export interface PatternSearch {
+    readonly name: 'pattern';
+}
+
+// @public
 export interface PersistenceAdapter {
     delete(key: string): Promise<void>;
     readonly directory?: string;
@@ -753,6 +760,9 @@ export interface QueryResult<T = AnyDocument> {
 
 // @public
 export function registerLanguage(module: LanguageModule): void;
+
+// @public
+export function registerPatternSearch(module: PatternSearch): void;
 
 // @public
 export function registerStopWords(name: string, stopWords: StopWordOverride): void;
@@ -846,6 +856,8 @@ export type StringFilter = Pick<ComparisonFilter, 'eq' | 'ne'> & {
     nin?: string[];
     startsWith?: string;
     endsWith?: string;
+    contains?: string;
+    caseFold?: boolean;
 };
 
 // @public

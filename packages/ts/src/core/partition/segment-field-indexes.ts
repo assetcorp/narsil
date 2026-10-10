@@ -3,13 +3,13 @@ import type { PartitionReadState } from './utils'
 
 export type SegmentFieldIndexes = Pick<
   PartitionReadState,
-  'numericIndexes' | 'booleanIndexes' | 'enumIndexes' | 'geoIndexes'
+  'numericIndexes' | 'booleanIndexes' | 'enumIndexes' | 'geoIndexes' | 'patternIndexes'
 >
 
 export function encodeFieldIndexes(
   state: SegmentFieldIndexes,
   remap: Int32Array,
-): Pick<SegmentPayload, 'numeric' | 'boolean' | 'enums' | 'geo'> {
+): Pick<SegmentPayload, 'numeric' | 'boolean' | 'enums' | 'geo' | 'pattern'> {
   const survives = (internalId: number): boolean => remap[internalId] >= 0
 
   const numeric: SegmentPayload['numeric'] = []
@@ -67,5 +67,8 @@ export function encodeFieldIndexes(
     geo.push({ fieldPath, docIds, latitudes, longitudes })
   }
 
-  return { numeric, boolean: booleans, enums, geo }
+  const pattern: SegmentPayload['pattern'] = []
+  for (const [fieldPath, index] of state.patternIndexes) pattern.push(index.toArrays(fieldPath, remap))
+
+  return { numeric, boolean: booleans, enums, geo, pattern }
 }

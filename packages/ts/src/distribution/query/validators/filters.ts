@@ -1,3 +1,4 @@
+import { exceedsCodePoints } from '../../../core/ordering'
 import type { ErrorCode } from '../../../errors'
 import { FIELD_FILTER_OPERATORS, FILTER_EXPRESSION_KEYS } from '../../../filters/keys'
 import { MIN_POLYGON_POINTS } from '../../../geo/constants'
@@ -6,18 +7,17 @@ import { isFiniteNumber, isRecord, SEARCH_INVALID_FILTER, throwInvalid, validate
 
 const GEO_UNITS = ['km', 'mi', 'm'] as const
 
+function throwTooLong(value: string, fieldLabel: string, errorCode: ErrorCode): never {
+  throwInvalid(
+    errorCode,
+    `Invalid payload: "${fieldLabel}" exceeds the maximum length of ${MAX_FILTER_STRING_LENGTH} code points`,
+    { length: [...value].length, limit: MAX_FILTER_STRING_LENGTH },
+  )
+}
+
 function validateScalarPrimitive(value: unknown, fieldLabel: string, errorCode: ErrorCode): number | string | boolean {
   if (typeof value === 'string') {
-    if (value.length > MAX_FILTER_STRING_LENGTH) {
-      throwInvalid(
-        errorCode,
-        `Invalid payload: "${fieldLabel}" exceeds maximum length of ${MAX_FILTER_STRING_LENGTH}`,
-        {
-          length: value.length,
-          limit: MAX_FILTER_STRING_LENGTH,
-        },
-      )
-    }
+    if (exceedsCodePoints(value, MAX_FILTER_STRING_LENGTH)) throwTooLong(value, fieldLabel, errorCode)
     return value
   }
   if (typeof value === 'number') {
@@ -36,12 +36,7 @@ function validateBoundedString(value: unknown, fieldLabel: string, errorCode: Er
   if (typeof value !== 'string') {
     throwInvalid(errorCode, `Invalid payload: "${fieldLabel}" must be a string`)
   }
-  if (value.length > MAX_FILTER_STRING_LENGTH) {
-    throwInvalid(errorCode, `Invalid payload: "${fieldLabel}" exceeds maximum length of ${MAX_FILTER_STRING_LENGTH}`, {
-      length: value.length,
-      limit: MAX_FILTER_STRING_LENGTH,
-    })
-  }
+  if (exceedsCodePoints(value, MAX_FILTER_STRING_LENGTH)) throwTooLong(value, fieldLabel, errorCode)
   return value
 }
 
@@ -184,8 +179,12 @@ function validateLeafOperator(opKey: string, opValue: unknown, leafLabel: string
     validateBetween(opValue, opLabel, errorCode)
     return
   }
-  if (opKey === 'startsWith' || opKey === 'endsWith') {
+  if (opKey === 'startsWith' || opKey === 'endsWith' || opKey === 'contains') {
     validateBoundedString(opValue, opLabel, errorCode)
+    return
+  }
+  if (opKey === 'caseFold') {
+    validateBooleanOperand(opValue, opLabel, errorCode)
     return
   }
   if (opKey === 'in' || opKey === 'nin') {

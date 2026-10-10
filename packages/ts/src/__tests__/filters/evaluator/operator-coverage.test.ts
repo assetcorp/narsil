@@ -19,6 +19,8 @@ const probes: Record<(typeof FIELD_FILTER_OPERATORS)[number], OperatorProbe> = {
   nin: { field: 'category', filter: { nin: ['books'] } },
   startsWith: { field: 'name', filter: { startsWith: 'Head' } },
   endsWith: { field: 'name', filter: { endsWith: 'book' } },
+  contains: { field: 'sku', filter: { contains: 'A-0' } },
+  caseFold: { field: 'sku', filter: { caseFold: true, eq: 'lap-001' } },
   containsAll: { field: 'tags', filter: { containsAll: ['tech'] } },
   matchesAny: { field: 'tags', filter: { matchesAny: ['fiction'] } },
   size: { field: 'tags', filter: { size: { eq: 0 } } },

@@ -22,6 +22,8 @@ export const FIELD_FILTER_OPERATORS = [
   'nin',
   'startsWith',
   'endsWith',
+  'contains',
+  'caseFold',
   'containsAll',
   'matchesAny',
   'size',

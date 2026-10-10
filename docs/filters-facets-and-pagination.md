@@ -4,7 +4,7 @@ The engine narrows and orders the results of a query by its filters, facet count
 
 ## Filters
 
-Filter on any indexed field with comparison operators (`eq`, `ne`, `gt`, `lt`, `gte`, `lte`, `between`), string operators (`in`, `nin`, `startsWith`, `endsWith`), array operators (`containsAll`, `matchesAny`, `size`), and presence checks (`exists`, `notExists`, `isEmpty`, `isNotEmpty`). Combine filter expressions with `and`, `or`, and `not`. The engine compares each element of a `string[]` or `verbatim[]` field with `eq`, `ne`, `in`, `nin`, `startsWith`, and `endsWith`, so `eq: 'vegan'` matches a document whose list includes `'vegan'`, while `ne` and `nin` match a document where every element of the list differs from the values.
+Filter on any indexed field with comparison operators (`eq`, `ne`, `gt`, `lt`, `gte`, `lte`, `between`), string operators (`in`, `nin`, `startsWith`, `endsWith`, and `contains` on a [pattern field](#pattern-tests)), array operators (`containsAll`, `matchesAny`, `size`), and presence checks (`exists`, `notExists`, `isEmpty`, `isNotEmpty`). Combine filter expressions with `and`, `or`, and `not`. The engine compares each element of a `string[]` or `verbatim[]` field with `eq`, `ne`, `in`, `nin`, `startsWith`, `endsWith`, and `contains`, so `eq: 'vegan'` matches a document whose list includes `'vegan'`, while `ne` and `nin` match a document where every element of the list differs from the values.
 
 ```ts
 const results = await narsil.query('products', {
@@ -36,6 +36,34 @@ const invoices = await narsil.query('invoices', {
 ```
 
 The engine orders the values as a [sort](#sort) on the field does, comparing their case folds in code point order and comparing their raw code points only where the folds are equal. Under that order, `gte: 'apple'` matches `apple` and `Banana` but not `Apple`, which orders before `apple`. It finds the matching documents with a binary search over the column of sorted values that it keeps for sorting the field. The engine therefore builds that column for the first range test on a field, as it does for the first sort. It throws `SEARCH_INVALID_FILTER` for a text bound on any other field, including a `string[]:sortable` field. It throws that error for a list because it sorts each document's list by one element, so it keeps only that element's position in the sorted column.
+
+### Pattern tests
+
+A pattern field is a `verbatim` or `verbatim[]` field, or a `string` or `string[]` field whose type includes `pattern`. The engine keeps a pattern index for each such field, so that a filter can match the documents whose value holds some text anywhere in it with `contains`. In the query below, the filter matches every log line that holds `connection refused` in any mix of upper and lower case.
+
+```ts
+const failures = await narsil.query('logs', {
+  term: 'checkout',
+  filters: { fields: { message: { contains: 'connection refused', caseFold: true } } },
+})
+```
+
+With `caseFold: true`, the engine compares the Unicode case fold of each value with the fold of the text, so a test for `error` matches `ERROR`, and a test for `strasse` matches `Straße`. `caseFold` applies to `eq`, `ne`, `in`, `nin`, `startsWith`, `endsWith`, and `contains` on a pattern field, and without it the engine compares the code points exactly. The engine compares each value as stored, with no Unicode normalisation, so `café` with a precomposed `é` and `café` with a combining accent are different values. Normalise the text before you insert it where your app holds both forms.
+
+The pattern index maps each run of three code points in a field's folded values to the documents that hold that run. For a test on a pattern field, the engine takes its candidates from the index entries of the rarest runs in the text, and then it checks each candidate against the whole test. The engine treats `eq`, `ne`, `in`, `nin`, `startsWith`, and `endsWith` on a pattern field the same way, while on any other text field it checks the value of every document for those tests. A text shorter than three code points holds no run, so for such a text the engine checks every document that holds a value in the field.
+
+The engine throws `SEARCH_INVALID_FILTER` for `contains` or `caseFold` on any other field, for a text longer than 1,024 code points in a test on a pattern field, and for a `caseFold` test whose text folds to more than 2,048 code points. It also limits how much work the pattern tests of one search may take. It counts one unit for each entry that it reads from a pattern index and one for each step of its matcher, across every partition that the search reads, and it throws `SEARCH_WORK_CAP_EXCEEDED` once the count passes the `patternWorkCap` engine setting, which defaults to 25,000,000 units. See [Configuration](configuration.md#narsilconfig) for the setting.
+
+A Node process loads the pattern search code by itself. A browser bundle includes that code only where the app imports `patternSearch` and registers it, which the app has to do before it creates or loads an index with a pattern field:
+
+```ts
+import { registerPatternSearch } from '@delali/narsil'
+import { patternSearch } from '@delali/narsil/pattern'
+
+registerPatternSearch(patternSearch)
+```
+
+Without that registration, the engine throws `CONFIG_INVALID` for an index with a pattern field, and the error message names the import.
 
 ## Facets
 

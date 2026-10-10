@@ -5,6 +5,7 @@ import type { CustomTokenizer, FieldType, SchemaDefinition } from '../../types/s
 import type { DocumentStore, DocumentStoreReader } from '../document-store'
 import type { BooleanFieldIndex, EnumFieldIndex, NumericFieldIndex } from '../field-index'
 import type { InvertedIndex } from '../inverted-index'
+import type { PatternIndexWriter } from '../pattern-index/types'
 import type { PartitionStats } from '../statistics'
 import type { SurfaceRegistry } from '../surface-registry'
 import type { PartitionReadState } from './read-state'
@@ -20,6 +21,7 @@ export interface PartitionState extends PartitionReadState {
   readonly booleanIndexes: Map<string, BooleanFieldIndex>
   readonly enumIndexes: Map<string, EnumFieldIndex>
   readonly geoIndexes: Map<string, GeoIndex>
+  readonly patternIndexes: Map<string, PatternIndexWriter>
 }
 
 export function getOrCreateFieldNameIndex(table: FieldNameTable, fieldName: string): number {

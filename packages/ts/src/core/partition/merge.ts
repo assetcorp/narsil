@@ -1,6 +1,7 @@
 import { ErrorCodes, NarsilError } from '../../errors'
 import { createGeoIndex } from '../../geo/geo-index'
 import { createBooleanIndex, createEnumIndex, createNumericIndex } from '../field-index'
+import { patternIndexOf } from '../pattern-index/host'
 import { getOrCreateFieldNameIndex, type PartitionState } from './utils'
 
 function mergeDocuments(target: PartitionState, source: PartitionState): Map<number, number> {
@@ -118,6 +119,13 @@ function mergeFieldIndexes(target: PartitionState, source: PartitionState, idMap
       if (targetInternalId === undefined) continue
       targetIndex.insert(targetInternalId, entry.lat, entry.lon)
     }
+  }
+
+  for (const [fieldPath, index] of source.patternIndexes) {
+    patternIndexOf(target.patternIndexes, fieldPath).addArrays(
+      index.toArrays(fieldPath, null),
+      sourceInternalId => idMapping.get(sourceInternalId) ?? -1,
+    )
   }
 }
 

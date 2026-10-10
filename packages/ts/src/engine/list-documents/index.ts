@@ -1,5 +1,6 @@
 import { compareCodePoints, compareComparableKeys } from '../../core/ordering'
 import type { PartitionFilterMatches, PartitionIndex, SortedPageEntry } from '../../core/partition'
+import { createPatternWorkMeter } from '../../core/pattern-index/work-meter'
 import { resolveProjection } from '../../core/projection'
 import type { PartitionManager } from '../../partitioning/manager'
 import { flattenSchema } from '../../schema/validator'
@@ -25,6 +26,7 @@ export interface ListContext {
   schema: SchemaDefinition
   strict?: boolean
   partitionIds?: number[]
+  patternWorkCap?: number
 }
 
 interface DocumentPage {
@@ -58,8 +60,10 @@ function collectFilterMatches(
   partitions: PartitionIndex[],
   filters: FilterExpression,
   schema: SchemaDefinition,
+  patternWorkCap: number | undefined,
 ): FilteredPartitions {
-  const perPartition = partitions.map(partition => partition.filterMatches(filters, schema))
+  const meter = createPatternWorkMeter(patternWorkCap)
+  const perPartition = partitions.map(partition => partition.filterMatches(filters, schema, meter))
   let total = 0
   for (const matches of perPartition) total += matches.count
   return { matchesFor: (partitionIndex: number) => perPartition[partitionIndex] ?? null, total }
@@ -202,7 +206,10 @@ export function executeListDocuments<T = AnyDocument>(params: ListParams, contex
       : context.partitionIds
           .map(partitionId => manager.partitionAt(partitionId))
           .filter((partition): partition is NonNullable<typeof partition> => partition !== undefined)
-  const filtered = params.filters === undefined ? null : collectFilterMatches(partitions, params.filters, schema)
+  const filtered =
+    params.filters === undefined
+      ? null
+      : collectFilterMatches(partitions, params.filters, schema, context.patternWorkCap)
   const total = filtered === null ? countAcrossPartitions(manager, context.partitionIds, partitions) : filtered.total
 
   const page =

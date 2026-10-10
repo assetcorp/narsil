@@ -1,5 +1,6 @@
 import type { FacetMatchSet, PartitionIndex } from '../core/partition'
 import { kWayMerge } from '../core/partition/scored-merge'
+import { createPatternWorkMeter } from '../core/pattern-index/work-meter'
 import { everyValueFacetConfig, mergeFacets } from '../search/facets'
 import { type FulltextSearchOptions, fulltextSearch } from '../search/fulltext'
 import type { GlobalStatistics, InternalSearchResult, ScoredDocument } from '../types/internal'
@@ -141,6 +142,7 @@ function buildSearchOptions(
   return {
     ...base,
     globalStats: globalStats ?? base?.globalStats,
+    patternWork: base?.patternWork ?? createPatternWorkMeter(),
   }
 }
 

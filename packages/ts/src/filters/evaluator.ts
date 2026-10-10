@@ -34,8 +34,9 @@ import {
   applySizeBitset,
   applyStartsWithBitset,
 } from './operators'
+import { evaluatePatternTests, type PatternFilterContext } from './pattern-tests'
 
-export interface FilterContext {
+export interface FilterContext extends PatternFilterContext {
   fieldTypes: Readonly<Record<string, FieldType>>
   fieldIndexes: Record<string, FieldIndex>
   getFieldValue: (internalId: number, fieldPath: string) => unknown
@@ -105,6 +106,34 @@ export function evaluateFilters(expression: FilterExpression, context: FilterCon
   return applyAndBitset(bitsets)
 }
 
+function pushValueTests(
+  f: Record<string, unknown>,
+  getAllDocsBitset: () => Uint32Array,
+  capacity: number,
+  getValue: GetFieldValue,
+  fieldIndex: FieldIndex | undefined,
+  bitsets: Uint32Array[],
+): void {
+  if (f.eq !== undefined) {
+    bitsets.push(applyEqBitset(f.eq as number | string | boolean, getAllDocsBitset, capacity, getValue, fieldIndex))
+  }
+  if (f.ne !== undefined) {
+    bitsets.push(applyNeBitset(f.ne as number | string | boolean, getAllDocsBitset, capacity, getValue, fieldIndex))
+  }
+  if (f.in !== undefined) {
+    bitsets.push(applyInBitset(f.in as string[], getAllDocsBitset, capacity, getValue, fieldIndex))
+  }
+  if (f.nin !== undefined) {
+    bitsets.push(applyNinBitset(f.nin as string[], getAllDocsBitset, capacity, getValue, fieldIndex))
+  }
+  if (f.startsWith !== undefined) {
+    bitsets.push(applyStartsWithBitset(f.startsWith as string, getAllDocsBitset, capacity, getValue))
+  }
+  if (f.endsWith !== undefined) {
+    bitsets.push(applyEndsWithBitset(f.endsWith as string, getAllDocsBitset, capacity, getValue))
+  }
+}
+
 function evaluateFieldFilter(fieldPath: string, filter: FieldFilter, context: FilterContext): Uint32Array {
   requireKnownKeys(
     filter,
@@ -136,11 +165,10 @@ function evaluateFieldFilter(fieldPath: string, filter: FieldFilter, context: Fi
     bitsets.push(applyGeoPolygonBitset((filter as GeoPolygonFilter).polygon, geoIndex, capacity))
   }
 
-  if ('eq' in f && f.eq !== undefined) {
-    bitsets.push(applyEqBitset(f.eq as number | string | boolean, getAllDocsBitset, capacity, getValue, fieldIndex))
-  }
-  if ('ne' in f && f.ne !== undefined) {
-    bitsets.push(applyNeBitset(f.ne as number | string | boolean, getAllDocsBitset, capacity, getValue, fieldIndex))
+  if (context.isPatternField(fieldPath)) {
+    evaluatePatternTests(fieldPath, f, context, bitsets)
+  } else {
+    pushValueTests(f, getAllDocsBitset, capacity, getValue, fieldIndex, bitsets)
   }
   for (const operator of TEXT_RANGE_OPERATORS) {
     const bound = f[operator]
@@ -169,19 +197,6 @@ function evaluateFieldFilter(fieldPath: string, filter: FieldFilter, context: Fi
         applyBetweenBitset([low as number, high as number], getAllDocsBitset, capacity, getValue, fieldIndex),
       )
     }
-  }
-
-  if ('in' in f && f.in !== undefined) {
-    bitsets.push(applyInBitset(f.in as string[], getAllDocsBitset, capacity, getValue, fieldIndex))
-  }
-  if ('nin' in f && f.nin !== undefined) {
-    bitsets.push(applyNinBitset(f.nin as string[], getAllDocsBitset, capacity, getValue, fieldIndex))
-  }
-  if ('startsWith' in f && f.startsWith !== undefined) {
-    bitsets.push(applyStartsWithBitset(f.startsWith as string, getAllDocsBitset, capacity, getValue))
-  }
-  if ('endsWith' in f && f.endsWith !== undefined) {
-    bitsets.push(applyEndsWithBitset(f.endsWith as string, getAllDocsBitset, capacity, getValue))
   }
 
   if ('containsAll' in f && f.containsAll !== undefined) {

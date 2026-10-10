@@ -12,6 +12,7 @@ import { searchFulltextMatches } from '../../../../core/partition/matches'
 import { searchFulltext } from '../../../../core/partition/search'
 import { sortedPageOf } from '../../../../core/partition/sorting'
 import { expandTermPrefix, suggestDisplayTerms } from '../../../../core/partition/suggestions'
+import { createPatternWorkMeter } from '../../../../core/pattern-index/work-meter'
 import type { InternalSearchParams } from '../../../../types/internal'
 import type { AnyDocument } from '../../../../types/schema'
 import { english, simpleSchema } from '../../partition-index/fixtures'
@@ -129,8 +130,8 @@ describe('a shared frozen segment answers every read like its plain twin', () =>
         category: { in: ['fruit', 'stone'] },
       },
     }
-    expect(applyPartitionFilters(shared, filters, simpleSchema)).toEqual(
-      applyPartitionFilters(plain, filters, simpleSchema),
+    expect(applyPartitionFilters(shared, filters, simpleSchema, createPatternWorkMeter())).toEqual(
+      applyPartitionFilters(plain, filters, simpleSchema, createPatternWorkMeter()),
     )
 
     const request = {

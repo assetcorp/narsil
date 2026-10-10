@@ -28,6 +28,7 @@ const narsil = await createNarsil({
 | `durability` | `DurabilityConfig` | Enables write-ahead logging and snapshots. See [Durability](persistence-and-durability.md#durability). |
 | `analysis` | `AnalysisConfig` | Controls what the engine does with a recovered index whose stored terms no longer match its language module. See [Analysis revisions](language-support.md#analysis-revisions). |
 | `lifecycle` | `IndexLifecycleConfig` | Sets the limits under which the engine closes idle indexes and keeps their files on disk. See [Index lifecycle](persistence-and-durability.md#index-lifecycle). |
+| `patternWorkCap` | `number` | Caps the work that the pattern tests of one search may take, across every partition that the search reads. The engine counts one unit for each entry that it reads from a pattern index and one for each step of its matcher, and it throws `SEARCH_WORK_CAP_EXCEEDED` once the count passes the cap. The cap defaults to 25,000,000 units. Set a whole number from 1 to `Number.MAX_SAFE_INTEGER`, because any other value fails with `CONFIG_INVALID`. See [Pattern tests](filters-facets-and-pagination.md#pattern-tests). |
 
 ## WorkerConfig
 

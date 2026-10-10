@@ -3,7 +3,10 @@ import type { FieldIndex, GeoFieldIndex } from '../../filters/operators'
 import { schemaFieldsOf } from '../../schema/validator'
 import type { FilterExpression } from '../../types/filters'
 import type { SchemaDefinition } from '../../types/schema'
-import { bitsetFromSet, bitsetHas } from '../bitset'
+import { bitsetFromSet, bitsetHas, bitsetSet, createBitSet } from '../bitset'
+import { PATTERN_HOST } from '../pattern-index/host'
+import { requirePatternSearch } from '../pattern-index/registry'
+import type { PatternOperator, PatternWorkMeter } from '../pattern-index/types'
 import type { TextRangeBounds } from './sort-columns/range'
 import { textRangeBitsetOf } from './sorting'
 import { getAllInternalDocIds, getFieldValueByInternalId, getFlatSchema, type PartitionReadState } from './utils'
@@ -13,12 +16,20 @@ const EMPTY_GEO_INDEX: GeoFieldIndex = {
   polygonQuery: () => new Set<number>(),
 }
 
-export function buildFilterContext(state: PartitionReadState, schema: SchemaDefinition): FilterContext {
+export function buildFilterContext(
+  state: PartitionReadState,
+  schema: SchemaDefinition,
+  meter: PatternWorkMeter,
+): FilterContext {
   const flat = getFlatSchema(state, schema)
   const fieldIndexes: Record<string, FieldIndex> = {}
   const capacity = state.docStore.internalIdCapacity()
+  const patternFields = new Set<string>()
+  const getFieldValue = (internalId: number, fieldPath: string): unknown =>
+    getFieldValueByInternalId(state.docStore, internalId, fieldPath)
 
-  for (const { path: fieldPath, base: fieldType } of schemaFieldsOf(schema)) {
+  for (const { path: fieldPath, base: fieldType, pattern } of schemaFieldsOf(schema)) {
+    if (pattern) patternFields.add(fieldPath)
     if (fieldType === 'number' || fieldType === 'number[]') {
       const numIdx = state.numericIndexes.get(fieldPath)
       if (numIdx) {
@@ -86,10 +97,30 @@ export function buildFilterContext(state: PartitionReadState, schema: SchemaDefi
   return {
     fieldTypes: flat,
     fieldIndexes,
-    getFieldValue: (internalId: number, fieldPath: string) =>
-      getFieldValueByInternalId(state.docStore, internalId, fieldPath),
+    getFieldValue,
     textRangeBitset: (fieldPath: string, bounds: TextRangeBounds) =>
       textRangeBitsetOf(state, fieldPath, flat[fieldPath], bounds, capacity),
+    isPatternField: (fieldPath: string) => patternFields.has(fieldPath),
+    patternBitset: (fieldPath: string, operator: PatternOperator, text: string, caseFold: boolean) => {
+      const index = state.patternIndexes.get(fieldPath)
+      if (index === undefined) return createBitSet(capacity)
+      return requirePatternSearch(fieldPath).matchBitset({
+        operator,
+        text,
+        caseFold,
+        index,
+        capacity,
+        meter,
+        host: PATTERN_HOST,
+        valueOf: internalId => getFieldValue(internalId, fieldPath),
+      })
+    },
+    patternValuesBitset: (fieldPath: string) => {
+      const bits = createBitSet(capacity)
+      const documents = state.patternIndexes.get(fieldPath)?.documents()
+      if (documents !== undefined) for (const internalId of documents) bitsetSet(bits, internalId)
+      return bits
+    },
     get allDocIds() {
       if (!cachedAllDocIds) {
         cachedAllDocIds = getAllInternalDocIds(state.docStore)
@@ -110,8 +141,9 @@ export function applyPartitionFilters(
   state: PartitionReadState,
   filters: FilterExpression,
   schema: SchemaDefinition,
+  meter: PatternWorkMeter,
 ): Set<string> {
-  const context = buildFilterContext(state, schema)
+  const context = buildFilterContext(state, schema, meter)
   const resultBitset = evaluateFilters(filters, context)
   const resolver = state.docStore.resolver()
   const externalResult = new Set<string>()
@@ -136,8 +168,9 @@ export function applyPartitionFiltersBitset(
   state: PartitionReadState,
   filters: FilterExpression,
   schema: SchemaDefinition,
+  meter: PatternWorkMeter,
 ): Uint32Array {
-  const context = buildFilterContext(state, schema)
+  const context = buildFilterContext(state, schema, meter)
   return evaluateFilters(filters, context)
 }
 
@@ -154,8 +187,9 @@ export function partitionFilterMatches(
   state: PartitionReadState,
   filters: FilterExpression,
   schema: SchemaDefinition,
+  meter: PatternWorkMeter,
 ): PartitionFilterMatches {
-  const accepted = applyPartitionFiltersBitset(state, filters, schema)
+  const accepted = applyPartitionFiltersBitset(state, filters, schema, meter)
   const docStore = state.docStore
   const resolver = docStore.resolver()
 

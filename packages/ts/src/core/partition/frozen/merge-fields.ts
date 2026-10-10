@@ -1,8 +1,10 @@
 import { compareCodePoints } from '../../ordering'
+import { requirePatternSearch } from '../../pattern-index/registry'
+import type { PatternMergeInput } from '../../pattern-index/types'
 import type { SegmentPayload } from '../segment-payload'
 import type { SegmentRemap } from './merge-postings'
 
-type FieldIndexes = Pick<SegmentPayload, 'numeric' | 'boolean' | 'enums' | 'geo'>
+type FieldIndexes = Pick<SegmentPayload, 'numeric' | 'boolean' | 'enums' | 'geo' | 'pattern'>
 
 interface RemappedRow {
   docId: number
@@ -155,11 +157,31 @@ function mergeEnums(inputs: readonly SegmentRemap[]): SegmentPayload['enums'] {
   return merged
 }
 
+function mergePattern(inputs: readonly SegmentRemap[]): SegmentPayload['pattern'] {
+  const byFieldPath = new Map<string, PatternMergeInput[]>()
+  for (const input of inputs) {
+    for (const arrays of input.segment.arrays.pattern) {
+      let entries = byFieldPath.get(arrays.fieldPath)
+      if (entries === undefined) {
+        entries = []
+        byFieldPath.set(arrays.fieldPath, entries)
+      }
+      entries.push({ arrays, remap: input.remap })
+    }
+  }
+  const merged: SegmentPayload['pattern'] = []
+  for (const [fieldPath, entries] of byFieldPath) {
+    merged.push(requirePatternSearch(fieldPath).mergeArrays(fieldPath, entries))
+  }
+  return merged
+}
+
 export function mergeFieldIndexes(inputs: readonly SegmentRemap[]): FieldIndexes {
   return {
     numeric: mergeNumeric(inputs),
     boolean: mergeBoolean(inputs),
     enums: mergeEnums(inputs),
     geo: mergeGeo(inputs),
+    pattern: mergePattern(inputs),
   }
 }

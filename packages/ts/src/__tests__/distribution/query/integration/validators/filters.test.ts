@@ -117,6 +117,18 @@ describe('validateFilterExpression operands', () => {
     ).toThrow(/startsWith/)
   })
 
+  it('accepts contains and caseFold, and counts a string in code points', () => {
+    const astral = '😀'.repeat(MAX_FILTER_STRING_LENGTH)
+    expect(() =>
+      validateFilterExpression({ fields: { code: { contains: astral, caseFold: true } } }, 'filters'),
+    ).not.toThrow()
+    expect(() => validateFilterExpression({ fields: { code: { contains: `${astral}x` } } }, 'filters')).toThrow(
+      /code points/,
+    )
+    expect(() => validateFilterExpression({ fields: { code: { caseFold: 'yes' } } }, 'filters')).toThrow(/caseFold/)
+    expect(() => validateFilterExpression({ fields: { code: { contains: 3 } } }, 'filters')).toThrow(/contains/)
+  })
+
   it('rejects exists with a non-boolean', () => {
     expect(() =>
       validateFilterExpression({ fields: { name: { exists: 'yes' as unknown as boolean } } }, 'filters'),

@@ -116,6 +116,13 @@ export function freezeEncodedSegmentShared(
       latitudes: sharedFloat64(entry.latitudes),
       longitudes: sharedFloat64(entry.longitudes),
     })),
+    pattern: payload.pattern.map(entry => ({
+      fieldPath: entry.fieldPath,
+      docIds: sharedUint32(entry.docIds),
+      runs: sharedUint32(entry.runs),
+      offsets: sharedUint32(entry.offsets),
+      postings: sharedUint32(entry.postings),
+    })),
     surfaceTable: sharedSurfaceTable(payload),
   }
 }

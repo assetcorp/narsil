@@ -19,5 +19,6 @@ export function frozenSegmentBytes(segment: FrozenSegment): number {
   for (const entry of arrays.geo) {
     bytes += entry.docIds.byteLength + entry.latitudes.byteLength + entry.longitudes.byteLength
   }
+  for (const reader of segment.patternIndexes.values()) bytes += reader.bytes()
   return bytes
 }
