@@ -31,9 +31,11 @@ export interface NarsilProviderSettings {
    * answer without sending a second request. */
   keepAliveMs?: number
   /** Under an engine, the hooks that read a written index search again once
-   * this many milliseconds pass without another write, so each mounted hook
-   * searches once for a whole burst of writes. The wait lasts 200 milliseconds
-   * unless you set another value. Under a client, the setting has no effect,
+   * this many milliseconds pass without another write to that index, so each
+   * mounted hook searches once for a whole burst of writes. `useIndexes`
+   * searches again once that many milliseconds pass without a write to any
+   * index. The wait lasts 200 milliseconds unless you set another value. Under
+   * a client, the setting has no effect,
    * because a server sends the client no write events. */
   refreshAfterWriteMs?: number
   /** React renders these components under the provider. */

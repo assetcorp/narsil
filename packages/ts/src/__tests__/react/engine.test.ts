@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
-import { createElement, type ReactNode } from 'react'
-import { afterEach, describe, expect, it } from 'vitest'
+import { act, createElement, type ReactNode } from 'react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createNarsilClient } from '../../client'
 import { ErrorCodes } from '../../errors'
 import { createNarsil, type Narsil } from '../../narsil'
@@ -72,6 +72,12 @@ async function lampEngine(): Promise<Narsil> {
   await engine.createIndex('products', PRODUCTS)
   await engine.insertBatch('products', CATALOGUE)
   return engine
+}
+
+async function advanceClock(milliseconds: number): Promise<void> {
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(milliseconds)
+  })
 }
 
 function counting<K extends 'query' | 'getStats'>(engine: Narsil, method: K): () => number {
@@ -164,16 +170,22 @@ describe('react hooks over an in-browser engine', () => {
       () => held.remove('products', 'p1'),
       () => held.update('products', 'p2', { title: 'Tall Floor Lamp', category: 'home', price: 80 }),
     ]
-    const burstStartedAt = Date.now()
-    for (const write of writes) {
-      await write()
-      await settle(150)
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      for (const write of writes) {
+        await write()
+        await advanceClock(150)
+      }
+      expect({ queries: queries(), statsReads: statsReads() }).toEqual({ queries: 1, statsReads: 1 })
+
+      await advanceClock(400)
+      expect({ queries: queries(), statsReads: statsReads() }).toEqual({ queries: 2, statsReads: 2 })
+      await advanceClock(1000)
+    } finally {
+      vi.useRealTimers()
     }
-    expect(Date.now() - burstStartedAt).toBeGreaterThan(400)
-    expect({ queries: queries(), statsReads: statsReads() }).toEqual({ queries: 1, statsReads: 1 })
 
     await waitFor(() => view.current().lamps.data?.count === 5 && view.current().stats.data?.documentCount === 6)
-    await settle(500)
     expect({ queries: queries(), statsReads: statsReads() }).toEqual({ queries: 2, statsReads: 2 })
     expect(view.current().lamps.data?.hits.map(hit => hit.id)).toEqual(['p6', 'p3', 'p5', 'p7', 'p2'])
     await view.unmount()

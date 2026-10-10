@@ -119,7 +119,7 @@ export function createResourceStore(
   const entries = new Map<string, Entry>()
   let holders = 0
   let closing: ReturnType<typeof setTimeout> | null = null
-  let staleRefresh: ReturnType<typeof setTimeout> | null = null
+  const staleRefreshes = new Map<WriteScope, ReturnType<typeof setTimeout>>()
 
   function publish(entry: Entry, next: ResourceSnapshot<unknown>): void {
     entry.snapshot = next
@@ -157,17 +157,26 @@ export function createResourceStore(
   }
 
   function disposeAll(): void {
-    if (staleRefresh !== null) clearTimeout(staleRefresh)
-    staleRefresh = null
+    for (const timer of staleRefreshes.values()) clearTimeout(timer)
+    staleRefreshes.clear()
     for (const [key, entry] of [...entries]) drop(key, entry)
     entries.clear()
   }
 
-  function refreshStale(): void {
-    staleRefresh = null
+  function refreshStale(scope: WriteScope): void {
+    staleRefreshes.delete(scope)
     for (const [key, entry] of entries) {
-      if (entry.stale && entry.listeners.size > 0) load(key, entry)
+      if (entry.writeScope === scope && entry.stale && entry.listeners.size > 0) load(key, entry)
     }
+  }
+
+  function scheduleRefresh(scope: WriteScope): void {
+    const pending = staleRefreshes.get(scope)
+    if (pending !== undefined) clearTimeout(pending)
+    staleRefreshes.set(
+      scope,
+      setTimeout(() => refreshStale(scope), refreshAfterWriteMs),
+    )
   }
 
   function markStale(entry: Entry): void {
@@ -231,11 +240,13 @@ export function createResourceStore(
       if (entry !== undefined) load(key, entry)
     },
     invalidate(indexName) {
+      const marked = new Set<WriteScope>()
       for (const entry of entries.values()) {
-        if (entry.writeScope === ANY_INDEX || entry.writeScope === indexName) markStale(entry)
+        if (entry.writeScope !== ANY_INDEX && entry.writeScope !== indexName) continue
+        markStale(entry)
+        marked.add(entry.writeScope)
       }
-      if (staleRefresh !== null) clearTimeout(staleRefresh)
-      staleRefresh = setTimeout(refreshStale, refreshAfterWriteMs)
+      for (const scope of marked) scheduleRefresh(scope)
     },
     retain() {
       holders++
