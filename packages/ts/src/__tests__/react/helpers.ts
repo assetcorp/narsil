@@ -1,7 +1,7 @@
 import { act, createElement, type ReactNode, StrictMode, useEffect, useState } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { createNarsilClient, type FetchFunction, type NarsilClient } from '../../client'
-import { NarsilProvider } from '../../react'
+import { NarsilProvider, type NarsilProviderProps } from '../../react'
 
 export interface Exchange {
   url: string
@@ -79,9 +79,17 @@ function actEnvironment(): void {
   scope.IS_REACT_ACT_ENVIRONMENT = true
 }
 
-export async function renderHook<T>(
+export function renderHook<T>(
   useHook: () => T,
   client: NarsilClient,
+  options?: { strict?: boolean },
+): Promise<Rendered<T>> {
+  return renderHookUnder(useHook, { client }, options)
+}
+
+export async function renderHookUnder<T>(
+  useHook: () => T,
+  providerProps: NarsilProviderProps,
   options?: { strict?: boolean },
 ): Promise<Rendered<T>> {
   actEnvironment()
@@ -106,7 +114,7 @@ export async function renderHook<T>(
   let root: Root | null = null
   await act(async () => {
     root = createRoot(container)
-    const tree = createElement(NarsilProvider, { client }, createElement(Harness))
+    const tree = createElement(NarsilProvider, providerProps, createElement(Harness))
     root.render(options?.strict === true ? createElement(StrictMode, null, tree) : tree)
   })
 

@@ -1,15 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from 'react'
-import type { NarsilClient, RequestOptions } from '../client'
+import type { RequestOptions } from '../client'
 import { useNarsilContext } from './context'
 import { hashKey } from './key'
 import { type NarsilReadOptions, type NarsilReadState, requestOf } from './options'
 import { usePolling } from './poll'
-import { IDLE_SNAPSHOT, LOADING_SNAPSHOT, type ResourceSnapshot } from './store'
+import type { NarsilReader } from './reader'
+import { IDLE_SNAPSHOT, LOADING_SNAPSHOT, type ResourceSnapshot, type WriteScope } from './store'
 
 const NO_SUBSCRIPTION = (): void => {}
 
-/** Sends one client method's request, which is the part a read hook fills in. */
-export type ReadRunner<T> = (client: NarsilClient, request: RequestOptions) => Promise<T>
+export type ReadRunner<T> = (reader: NarsilReader, request: RequestOptions) => Promise<T>
 
 interface LatestCall<T> {
   run: ReadRunner<T>
@@ -49,8 +49,9 @@ export function useRead<T>(
   parts: readonly unknown[],
   run: ReadRunner<T>,
   options: NarsilReadOptions | undefined,
+  writeScope: WriteScope,
 ): NarsilReadState<T> {
-  const { client, store } = useNarsilContext()
+  const { reader, store } = useNarsilContext()
   const enabled = options?.enabled ?? true
   const headers = options?.headers
   const timeoutMs = options?.timeoutMs
@@ -66,11 +67,11 @@ export function useRead<T>(
       if (!enabled) return NO_SUBSCRIPTION
       const loader = (signal: AbortSignal): Promise<T> => {
         const held = call.current
-        return held.run(client, { ...held.request, signal })
+        return held.run(reader, { ...held.request, signal })
       }
-      return store.subscribe(key, loader, onChange)
+      return store.subscribe(key, loader, onChange, writeScope)
     },
-    [enabled, store, client, key],
+    [enabled, store, reader, key, writeScope],
   )
   const readSnapshot = useCallback(
     () => (enabled ? store.snapshot(key) : IDLE_SNAPSHOT) as ResourceSnapshot<T>,
