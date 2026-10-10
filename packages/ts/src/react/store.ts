@@ -1,5 +1,5 @@
 import type { NarsilError } from '../errors'
-import { DEFAULT_KEEP_ALIVE_MS } from './constants'
+import { DEFAULT_KEEP_ALIVE_MS, DEFAULT_REFRESH_AFTER_WRITE_MS } from './constants'
 import { asNarsilError } from './failure'
 
 /**
@@ -40,6 +40,11 @@ export const IDLE_SNAPSHOT: ResourceSnapshot<never> = Object.freeze({
   isFetching: false,
 })
 
+export const ANY_INDEX: unique symbol = Symbol('any index')
+export const NO_INDEX: unique symbol = Symbol('no index')
+
+export type WriteScope = string | typeof ANY_INDEX | typeof NO_INDEX
+
 interface Entry {
   snapshot: ResourceSnapshot<unknown>
   listeners: Set<() => void>
@@ -47,6 +52,8 @@ interface Entry {
   controller: AbortController | null
   version: number
   disposal: ReturnType<typeof setTimeout> | null
+  writeScope: WriteScope
+  stale: boolean
 }
 
 /**
@@ -67,7 +74,7 @@ export interface ResourceStore {
    * @param onChange - The store calls this whenever the answer moves.
    * @returns Calling this drops the subscription.
    */
-  subscribe(key: string, loader: ResourceLoader, onChange: () => void): () => void
+  subscribe(key: string, loader: ResourceLoader, onChange: () => void, writeScope: WriteScope): () => void
   /**
    * Reads where a key stands right now.
    *
@@ -83,6 +90,7 @@ export interface ResourceStore {
    * @param key - This identifies the request.
    */
   refresh(key: string): void
+  invalidate(indexName: string): void
   /**
    * Marks the store as in use by one provider.
    *
@@ -104,10 +112,14 @@ export interface ResourceStore {
  * otherwise.
  * @returns The store is empty, and it fills as components subscribe.
  */
-export function createResourceStore(keepAliveMs = DEFAULT_KEEP_ALIVE_MS): ResourceStore {
+export function createResourceStore(
+  keepAliveMs = DEFAULT_KEEP_ALIVE_MS,
+  refreshAfterWriteMs = DEFAULT_REFRESH_AFTER_WRITE_MS,
+): ResourceStore {
   const entries = new Map<string, Entry>()
   let holders = 0
   let closing: ReturnType<typeof setTimeout> | null = null
+  let staleRefresh: ReturnType<typeof setTimeout> | null = null
 
   function publish(entry: Entry, next: ResourceSnapshot<unknown>): void {
     entry.snapshot = next
@@ -118,6 +130,7 @@ export function createResourceStore(keepAliveMs = DEFAULT_KEEP_ALIVE_MS): Resour
     if (entry.controller !== null) return
     const controller = new AbortController()
     entry.controller = controller
+    entry.stale = false
     entry.version++
     const version = entry.version
     if (!entry.snapshot.isFetching) publish(entry, { ...entry.snapshot, isFetching: true })
@@ -144,8 +157,25 @@ export function createResourceStore(keepAliveMs = DEFAULT_KEEP_ALIVE_MS): Resour
   }
 
   function disposeAll(): void {
+    if (staleRefresh !== null) clearTimeout(staleRefresh)
+    staleRefresh = null
     for (const [key, entry] of [...entries]) drop(key, entry)
     entries.clear()
+  }
+
+  function refreshStale(): void {
+    staleRefresh = null
+    for (const [key, entry] of entries) {
+      if (entry.stale && entry.listeners.size > 0) load(key, entry)
+    }
+  }
+
+  function markStale(entry: Entry): void {
+    entry.stale = true
+    if (entry.controller === null) return
+    entry.controller.abort()
+    entry.controller = null
+    entry.version++
   }
 
   function drop(key: string, entry: Entry): void {
@@ -157,7 +187,7 @@ export function createResourceStore(keepAliveMs = DEFAULT_KEEP_ALIVE_MS): Resour
   }
 
   return {
-    subscribe(key, loader, onChange) {
+    subscribe(key, loader, onChange, writeScope) {
       let entry = entries.get(key)
       if (entry === undefined) {
         entry = {
@@ -167,6 +197,8 @@ export function createResourceStore(keepAliveMs = DEFAULT_KEEP_ALIVE_MS): Resour
           controller: null,
           version: 0,
           disposal: null,
+          writeScope,
+          stale: false,
         }
         entries.set(key, entry)
       } else {
@@ -179,7 +211,7 @@ export function createResourceStore(keepAliveMs = DEFAULT_KEEP_ALIVE_MS): Resour
 
       const held = entry
       held.listeners.add(onChange)
-      const retryable = held.snapshot.isLoading || held.snapshot.error !== undefined
+      const retryable = held.stale || held.snapshot.isLoading || held.snapshot.error !== undefined
       if (retryable && held.controller === null) load(key, held)
 
       return () => {
@@ -197,6 +229,13 @@ export function createResourceStore(keepAliveMs = DEFAULT_KEEP_ALIVE_MS): Resour
     refresh(key) {
       const entry = entries.get(key)
       if (entry !== undefined) load(key, entry)
+    },
+    invalidate(indexName) {
+      for (const entry of entries.values()) {
+        if (entry.writeScope === ANY_INDEX || entry.writeScope === indexName) markStale(entry)
+      }
+      if (staleRefresh !== null) clearTimeout(staleRefresh)
+      staleRefresh = setTimeout(refreshStale, refreshAfterWriteMs)
     },
     retain() {
       holders++

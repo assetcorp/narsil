@@ -10,7 +10,12 @@ export type {
   TaskStatus,
   TaskType,
 } from '../server/types'
-export type { NarsilProviderProps } from './context'
+export type {
+  NarsilClientProviderProps,
+  NarsilEngineProviderProps,
+  NarsilProviderProps,
+  NarsilProviderSettings,
+} from './context'
 export { NarsilProvider, useNarsilClient } from './context'
 export { useDocument, useDocuments } from './documents'
 export type { NarsilImportOptions, NarsilImportState } from './import'

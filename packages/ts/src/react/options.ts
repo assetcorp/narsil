@@ -2,71 +2,69 @@ import type { RequestOptions } from '../client'
 import type { NarsilError } from '../errors'
 
 /**
- * What every hook sends with each request it makes.
+ * A hook sends these settings with each request that it makes through a
+ * client.
  *
- * A hook owns the lifetime of its own request, so it takes no signal. The store
- * behind it stops a request the moment nothing reads the answer.
+ * A hook owns the lifetime of its own request, so these settings include no
+ * signal. The provider stops waiting for a request once `keepAliveMs` passes
+ * with no component reading its answer. Under an engine, the hooks leave both
+ * settings out, because the engine answers in the same page.
  *
  * @public
  */
 export interface NarsilRequestSettings {
-  /** The hook sends these headers with its request. */
+  /** Under a client, the hook sends these headers with its request. */
   headers?: Record<string, string>
-  /** The hook gives the server this many milliseconds to answer, and 0 waits
-   * for as long as the server takes. */
+  /** Under a client, the hook gives the server this many milliseconds to
+   * answer, and 0 sets no deadline. */
   timeoutMs?: number
 }
 
 /**
- * These settings change what a read hook does, and every read hook takes them
- * as its last argument.
+ * These settings change what a read hook does, and they form the last argument
+ * of every read hook.
  *
  * @public
  */
 export interface NarsilReadOptions extends NarsilRequestSettings {
   /** The hook sends nothing while this is false, and it reports no data and no
-   * failure, which is how a search waits for a term. */
+   * failure, so keep it false until a search has a term. */
   enabled?: boolean
   /** The hook keeps showing the last answer while the next one loads, which
-   * holds a result list steady as somebody types. */
+   * keeps a result list in place as somebody types. */
   keepPreviousData?: boolean
-  /** The hook asks again this often, in milliseconds, and it pauses while the
-   * page is hidden. It asks once and stops unless you set this. */
+  /** The hook sends the request again at this interval, in milliseconds,
+   * pausing while the page is hidden. Without this setting, the hook sends
+   * the request once, and again under an engine after a write. */
   refreshIntervalMs?: number
 }
 
 /**
  * What a read hook reports.
  *
- * `isLoading` covers the wait for the first answer, so a spinner branches on
- * it, while `isFetching` covers every request including a refresh, so a quieter
- * indicator branches on that one.
+ * `isLoading` covers the wait for the first answer, so show a spinner while it
+ * is true. `isFetching` covers every request including a refresh, so show a
+ * quieter indicator while that one is true.
  *
- * @typeParam T - This is what the underlying client method answers with.
+ * @typeParam T - This is what the method behind the hook returns.
  *
  * @public
  */
 export interface NarsilReadState<T> {
   /** This is the answer, and it stays undefined until the first one arrives. */
   data: T | undefined
-  /** This is the failure the last request ended on, and the next success clears it. */
+  /** This is the failure that the last request ended on, and the next success
+   * clears it. */
   error: NarsilError | undefined
   /** This is true while the hook waits for an answer and has none to show. */
   isLoading: boolean
   /** This is true while a request is in flight, including a refresh. */
   isFetching: boolean
-  /** Calling this asks the server again, keeping the answer already on screen
-   * until the new one arrives. */
+  /** Calling this sends the request again, and the answer already on screen
+   * stays there until the new one arrives. */
   refresh: () => void
 }
 
-/**
- * Reads the per-request settings out of a hook's options, in the shape the
- * client takes them.
- *
- * @param settings - These are the options a hook was called with.
- * @returns The headers and the deadline go straight into a client call.
- */
 export function requestOf(settings: NarsilRequestSettings | undefined): RequestOptions {
   return { headers: settings?.headers, timeoutMs: settings?.timeoutMs }
 }

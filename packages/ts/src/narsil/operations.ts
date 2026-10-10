@@ -23,6 +23,7 @@ import {
   optimizeVectors as executeOptimizeVectors,
   getVectorMaintenanceStatus,
 } from '../engine/vector-maintenance'
+import { emitWriteEventAfter } from '../engine/write-events'
 import { ErrorCodes, NarsilError } from '../errors'
 import { readProcessMemory } from '../runtime/process-memory'
 import type { EmbeddingAdapter } from '../types/adapters'
@@ -74,9 +75,13 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
     }
   }
 
+  function withOpenIndexWrite<T>(indexName: string, action: () => Promise<T>): Promise<T> {
+    return emitWriteEventAfter(core, indexName, withOpenIndex(indexName, action))
+  }
+
   const narsil: Narsil = {
     createIndex(name: string, indexConfig: IndexConfig): Promise<void> {
-      return createEngineIndex(core, config, name, indexConfig)
+      return emitWriteEventAfter(core, name, createEngineIndex(core, config, name, indexConfig))
     },
 
     registerEmbeddingAdapter(name: string, adapter: EmbeddingAdapter): void {
@@ -84,7 +89,7 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
     },
 
     dropIndex(name: string): Promise<void> {
-      return dropEngineIndex(core, name)
+      return emitWriteEventAfter(core, name, dropEngineIndex(core, name))
     },
 
     open(indexName: string): Promise<void> {
@@ -135,26 +140,26 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
       return executor.getManager(indexName)?.getPartitionStats() ?? []
     },
     insert(indexName: string, document: AnyDocument, docId?: string, options?: InsertOptions): Promise<string> {
-      return withOpenIndex(indexName, () => insertDocument(mutationCtx, indexName, document, docId, options))
+      return withOpenIndexWrite(indexName, () => insertDocument(mutationCtx, indexName, document, docId, options))
     },
     insertBatch(indexName: string, documents: AnyDocument[], options?: InsertOptions): Promise<BatchResult> {
-      return withOpenIndex(indexName, () => insertDocumentBatch(mutationCtx, indexName, documents, options))
+      return withOpenIndexWrite(indexName, () => insertDocumentBatch(mutationCtx, indexName, documents, options))
     },
     remove(indexName: string, docId: string, options?: WriteOptions): Promise<void> {
-      return withOpenIndex(indexName, () => removeDocument(mutationCtx, indexName, docId, options))
+      return withOpenIndexWrite(indexName, () => removeDocument(mutationCtx, indexName, docId, options))
     },
     removeBatch(indexName: string, docIds: string[], options?: WriteOptions): Promise<BatchResult> {
-      return withOpenIndex(indexName, () => removeDocumentBatch(mutationCtx, indexName, docIds, options))
+      return withOpenIndexWrite(indexName, () => removeDocumentBatch(mutationCtx, indexName, docIds, options))
     },
     update(indexName: string, docId: string, document: AnyDocument, options?: WriteOptions): Promise<void> {
-      return withOpenIndex(indexName, () => updateDocument(mutationCtx, indexName, docId, document, options))
+      return withOpenIndexWrite(indexName, () => updateDocument(mutationCtx, indexName, docId, document, options))
     },
     updateBatch(
       indexName: string,
       updates: Array<{ docId: string; document: AnyDocument }>,
       options?: WriteOptions,
     ): Promise<BatchResult> {
-      return withOpenIndex(indexName, () => updateDocumentBatch(mutationCtx, indexName, updates, options))
+      return withOpenIndexWrite(indexName, () => updateDocumentBatch(mutationCtx, indexName, updates, options))
     },
     waitForWrites(indexName: string): Promise<void> {
       guardShutdown()
@@ -204,7 +209,7 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
     async rebuildAnalysis(indexName: string): Promise<void> {
       guardShutdown()
       requireIndex(indexName)
-      await withOpenIndex(indexName, () => core.analysisRebuild.rebuild(indexName))
+      await withOpenIndexWrite(indexName, () => core.analysisRebuild.rebuild(indexName))
     },
 
     async snapshot(indexName: string): Promise<Uint8Array> {
@@ -214,11 +219,11 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
 
     async restore(indexName: string, data: Uint8Array): Promise<void> {
       guardShutdown()
-      await restoreFromSnapshot(indexName, data, {
+      const restored = restoreFromSnapshot(indexName, data, {
         executor,
         indexRegistry,
         getVectorFieldPaths,
-        dropIndex: narsil.dropIndex.bind(narsil),
+        dropIndex: name => dropEngineIndex(core, name),
         announceIndexCreated: (name, restoredConfig) => announceIndexCreated(core, name, restoredConfig),
         requireManager,
         durability,
@@ -229,6 +234,7 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
         clearAnalysisStale: core.analysisRebuild.clearStale,
         indexState: core.indexState,
       })
+      await emitWriteEventAfter(core, indexName, restored)
       core.heapPressureNotifier.check(indexName)
     },
 
@@ -243,7 +249,7 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
     async clear(indexName: string): Promise<void> {
       guardShutdown()
       requireIndex(indexName)
-      await withOpenIndex(indexName, async () => {
+      await withOpenIndexWrite(indexName, async () => {
         await executor.execute({ type: 'clear', indexName, requestId: indexName })
         await orchestrator.replicateToWorkers({ type: 'clear', indexName, requestId: `replicate-clear-${indexName}` })
         core.watermarkNotifier.forget(indexName)
@@ -253,7 +259,7 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
     async rebalance(indexName: string, targetPartitionCount: number): Promise<void> {
       guardShutdown()
       requireIndex(indexName)
-      return withOpenIndex(indexName, () =>
+      return withOpenIndexWrite(indexName, () =>
         executeRebalance(requireManager(indexName), indexName, targetPartitionCount, rebalanceCtx),
       )
     },
@@ -321,7 +327,7 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
     async compactVectors(indexName: string, fieldName?: string): Promise<void> {
       guardShutdown()
       requireIndex(indexName)
-      await withOpenIndex(indexName, async () => {
+      await withOpenIndexWrite(indexName, async () => {
         executeCompactVectors(requireManager(indexName), indexName, fieldName)
       })
     },
@@ -329,7 +335,7 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
     async optimizeVectors(indexName: string, fieldName?: string): Promise<void> {
       guardShutdown()
       requireIndex(indexName)
-      await withOpenIndex(indexName, () => executeOptimizeVectors(requireManager(indexName), indexName, fieldName))
+      await withOpenIndexWrite(indexName, () => executeOptimizeVectors(requireManager(indexName), indexName, fieldName))
     },
 
     vectorMaintenanceStatus(indexName: string): VectorMaintenanceResult[] {

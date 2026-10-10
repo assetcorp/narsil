@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { NarsilError } from '../../errors'
-import { createResourceStore, type ResourceLoader } from '../../react/store'
+import { createResourceStore, NO_INDEX, type ResourceLoader } from '../../react/store'
 
 const KEEP_ALIVE_MS = 10
 
@@ -35,8 +35,8 @@ describe('the react resource store', () => {
     let first = 0
     let second = 0
 
-    store.subscribe('k', loader, () => first++)
-    store.subscribe('k', loader, () => second++)
+    store.subscribe('k', loader, () => first++, NO_INDEX)
+    store.subscribe('k', loader, () => second++, NO_INDEX)
     expect(calls).toHaveLength(1)
 
     calls[0].resolve(['movies'])
@@ -50,7 +50,7 @@ describe('the react resource store', () => {
   it('hands back the same snapshot until the answer moves', async () => {
     const store = createResourceStore(KEEP_ALIVE_MS)
     const { loader, calls } = heldLoader()
-    store.subscribe('k', loader, () => undefined)
+    store.subscribe('k', loader, () => undefined, NO_INDEX)
 
     expect(store.snapshot('k')).toBe(store.snapshot('k'))
     calls[0].resolve(1)
@@ -61,7 +61,7 @@ describe('the react resource store', () => {
   it('keeps the newest answer when an older request answers late', async () => {
     const store = createResourceStore(KEEP_ALIVE_MS)
     const { loader, calls } = heldLoader()
-    store.subscribe('k', loader, () => undefined)
+    store.subscribe('k', loader, () => undefined, NO_INDEX)
 
     calls[0].resolve('first')
     await drain()
@@ -78,7 +78,7 @@ describe('the react resource store', () => {
   it('ignores a refresh while a request is already in flight', () => {
     const store = createResourceStore(KEEP_ALIVE_MS)
     const { loader, calls } = heldLoader()
-    store.subscribe('k', loader, () => undefined)
+    store.subscribe('k', loader, () => undefined, NO_INDEX)
 
     store.refresh('k')
     store.refresh('k')
@@ -88,8 +88,8 @@ describe('the react resource store', () => {
   it('keeps the answer while one of two readers leaves', async () => {
     const store = createResourceStore(KEEP_ALIVE_MS)
     const { loader, calls } = heldLoader()
-    const leave = store.subscribe('k', loader, () => undefined)
-    store.subscribe('k', loader, () => undefined)
+    const leave = store.subscribe('k', loader, () => undefined, NO_INDEX)
+    store.subscribe('k', loader, () => undefined, NO_INDEX)
 
     calls[0].resolve('answer')
     await drain()
@@ -102,12 +102,12 @@ describe('the react resource store', () => {
   it('gives the answer back to a reader that returns within the keep-alive, and asks for nothing', async () => {
     const store = createResourceStore(KEEP_ALIVE_MS)
     const { loader, calls } = heldLoader()
-    const leave = store.subscribe('k', loader, () => undefined)
+    const leave = store.subscribe('k', loader, () => undefined, NO_INDEX)
     calls[0].resolve('answer')
     await drain()
 
     leave()
-    store.subscribe('k', loader, () => undefined)
+    store.subscribe('k', loader, () => undefined, NO_INDEX)
     await sleep(KEEP_ALIVE_MS * 3)
     expect(store.snapshot('k').data).toBe('answer')
     expect(calls).toHaveLength(1)
@@ -116,7 +116,7 @@ describe('the react resource store', () => {
   it('stops the request and forgets the answer once the keep-alive passes', async () => {
     const store = createResourceStore(KEEP_ALIVE_MS)
     const { loader, calls } = heldLoader()
-    const leave = store.subscribe('k', loader, () => undefined)
+    const leave = store.subscribe('k', loader, () => undefined, NO_INDEX)
 
     leave()
     expect(calls[0].signal.aborted).toBe(false)
@@ -129,7 +129,7 @@ describe('the react resource store', () => {
   it('reports a failure and keeps whatever it already showed', async () => {
     const store = createResourceStore(KEEP_ALIVE_MS)
     const { loader, calls } = heldLoader()
-    store.subscribe('k', loader, () => undefined)
+    store.subscribe('k', loader, () => undefined, NO_INDEX)
 
     calls[0].resolve('answer')
     await drain()
@@ -145,7 +145,7 @@ describe('the react resource store', () => {
   it('wraps a failure that is not a NarsilError, so a hook always reads one', async () => {
     const store = createResourceStore(KEEP_ALIVE_MS)
     const { loader, calls } = heldLoader()
-    store.subscribe('k', loader, () => undefined)
+    store.subscribe('k', loader, () => undefined, NO_INDEX)
 
     calls[0].reject(new TypeError('fetch is not a function'))
     await drain()
@@ -157,13 +157,13 @@ describe('the react resource store', () => {
   it('tries again for a reader that arrives after a failure', async () => {
     const store = createResourceStore(KEEP_ALIVE_MS)
     const { loader, calls } = heldLoader()
-    store.subscribe('k', loader, () => undefined)
+    store.subscribe('k', loader, () => undefined, NO_INDEX)
 
     calls[0].reject(new NarsilError('INDEX_NOT_FOUND', 'gone'))
     await drain()
     expect(calls).toHaveLength(1)
 
-    store.subscribe('k', loader, () => undefined)
+    store.subscribe('k', loader, () => undefined, NO_INDEX)
     expect(calls).toHaveLength(2)
   })
 
@@ -171,7 +171,7 @@ describe('the react resource store', () => {
     const store = createResourceStore(KEEP_ALIVE_MS)
     const { loader, calls } = heldLoader()
     let told = 0
-    const leave = store.subscribe('k', loader, () => told++)
+    const leave = store.subscribe('k', loader, () => told++, NO_INDEX)
     const settled = told
 
     leave()
@@ -183,8 +183,8 @@ describe('the react resource store', () => {
   it('stops everything in flight when the provider unmounts', async () => {
     const store = createResourceStore(KEEP_ALIVE_MS)
     const { loader, calls } = heldLoader()
-    store.subscribe('one', loader, () => undefined)
-    store.subscribe('two', loader, () => undefined)
+    store.subscribe('one', loader, () => undefined, NO_INDEX)
+    store.subscribe('two', loader, () => undefined, NO_INDEX)
 
     store.dispose()
     expect(calls.map(call => call.signal.aborted)).toEqual([true, true])

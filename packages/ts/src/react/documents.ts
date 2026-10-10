@@ -5,14 +5,15 @@ import type { NarsilReadOptions, NarsilReadState } from './options'
 import { useRead } from './read'
 
 /**
- * Reads one stored document, and reads it again whenever the id changes.
+ * Reads one stored document, and reads it again whenever the id changes or,
+ * under an engine, after a write to the index.
  *
- * A document the index does not hold comes back as `data: undefined` with no
- * failure, so read `isLoading` to tell an empty answer from one still on its
- * way. Passing no id switches the hook off, which is what a detail panel does
- * until somebody picks a row.
+ * A document that the index does not hold comes back as `data: undefined` with
+ * no failure, so check `isLoading` to tell an empty answer from one that is
+ * still on its way. Passing no id switches the hook off, which suits a detail
+ * panel until somebody picks a row.
  *
- * @param indexName - This names the index holding the document.
+ * @param indexName - This names the index that holds the document.
  * @param docId - This names the document to read, and a nullish or empty id
  * switches the hook off.
  * @param options - These switch the hook off, keep the last document on screen,
@@ -29,15 +30,18 @@ export function useDocument(
 ): NarsilReadState<AnyDocument | undefined> {
   const id = docId ?? ''
   const enabled = (options?.enabled ?? true) && id.length > 0
-  return useRead(['get', indexName, id], (client, request) => client.get(indexName, id, request), {
-    ...options,
-    enabled,
-  })
+  return useRead(
+    ['get', indexName, id],
+    (reader, request) => reader.get(indexName, id, request),
+    { ...options, enabled },
+    indexName,
+  )
 }
 
 /**
- * Pages through the stored documents without searching, which is what a table
- * of everything an index holds reads.
+ * Pages through the stored documents without searching, which suits a table of
+ * everything that an index holds. Under an engine, the hook reads the page
+ * again after a write to the index.
  *
  * @typeParam T - This is the shape of the stored documents.
  * @param indexName - This names the index to page through.
@@ -56,7 +60,8 @@ export function useDocuments<T = AnyDocument>(
 ): NarsilReadState<ListResult<T>> {
   return useRead(
     ['listDocuments', indexName, params],
-    (client, request) => client.listDocuments<T>(indexName, params, request),
+    (reader, request) => reader.listDocuments<T>(indexName, params, request),
     options,
+    indexName,
   )
 }

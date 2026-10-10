@@ -1,14 +1,34 @@
 /**
  * Every event the engine emits, with the payload each one carries.
  *
- * {@link Narsil.on} takes a key from this map and hands your listener the
- * matching payload. These events report work the engine does on its own, away
- * from the call that triggered it, so a failure here never rejects a promise
- * you are holding.
+ * {@link Narsil.on} registers a listener under a key from this map, and the
+ * engine passes that listener the matching payload. Most of these events report
+ * work that the engine does on its own, away from the call that triggered it,
+ * so a failure here never rejects a promise that you are holding.
  *
  * @public
  */
 export type NarsilEventMap = {
+  /**
+   * A call changed what a read returns from an index. The engine emits this
+   * after a call that inserts, updates, or removes documents, singly or in a
+   * batch, and after `clear`, `restore`, `rebalance`, `rebuildAnalysis`,
+   * `compactVectors`, `optimizeVectors`, `createIndex`, and `dropIndex`,
+   * including a call that throws, because a call can change the index before
+   * it throws. It also emits the event after it reloads an index because a shared
+   * invalidation adapter reported that another instance saved that index. The
+   * engine emits one event per batch, however many documents the batch holds.
+   *
+   * The engine emits the event once a query can see the change, which means
+   * after every worker copy applies it and after any rebalance in progress
+   * replays it, so the results of a query that a listener sends from its
+   * handler include the change. The engine waits for that only while a
+   * listener is registered for the event.
+   */
+  write: {
+    /** This index changed. */
+    indexName: string
+  }
   /**
    * A worker thread died. The pool drops it and fails the requests that it was
    * serving with `WORKER_CRASHED`, and the engine answers each of those queries
@@ -79,7 +99,7 @@ export type NarsilEventMap = {
    * sets a limit, on the command line or in `NODE_OPTIONS`, the engine measures
    * the used bytes against that figure and `heapLimit` reports it. Where
    * neither flag sets one, the engine compares the used bytes with the headroom
-   * that V8 reports, which runs about 192 MB above the true ceiling, so a
+   * that V8 reports, which is about 192 MB above the true ceiling, so a
    * default heap below about 2 GB may end before this event fires. The engine
    * emits the event once per crossing and arms it again once the headroom
    * recovers to two tenths. Raise the limit with
@@ -106,7 +126,7 @@ export type NarsilEventMap = {
     partitionsRebuilt: number
     /** The rebuild covers this many partitions in total. */
     partitionCount: number
-    /** This stopped the rebuild, and only a `failed` status carries it. */
+    /** This stopped the rebuild, and only a `failed` status includes it. */
     error?: Error
   }
   /** The write-ahead log or a checkpoint failed, so writes since the last checkpoint are at risk. */
@@ -114,7 +134,7 @@ export type NarsilEventMap = {
     /** The durability layer threw this. */
     error: Error
   }
-  /** The invalidation channel failed, so this instance may be reading partitions another instance has changed. */
+  /** The invalidation channel failed, so this instance may be reading partitions that another instance has changed. */
   invalidationError: {
     /** The adapter threw this. */
     error: Error
