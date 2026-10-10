@@ -1,142 +1,164 @@
 /**
- * Every event the engine emits, with the payload each one carries.
+ * This map lists every event that the engine emits, with the payload of each
+ * one.
  *
- * {@link Narsil.on} registers a listener under a key from this map, and the
- * engine passes that listener the matching payload. Most of these events report
- * work that the engine does on its own, away from the call that triggered it,
- * so a failure here never rejects a promise that you are holding.
+ * {@link Narsil.on} registers a listener under a key from this map, so that the
+ * engine can pass the matching payload to that listener. Most of these events
+ * report work that the engine does in the background, away from the call that
+ * started it, so a failure that such an event reports never rejects a promise
+ * that you are holding.
  *
  * @public
  */
 export type NarsilEventMap = {
   /**
-   * A call changed what a read returns from an index. The engine emits this
-   * after a call that inserts, updates, or removes documents, singly or in a
-   * batch, and after `clear`, `restore`, `rebalance`, `rebuildAnalysis`,
-   * `compactVectors`, `optimizeVectors`, `createIndex`, and `dropIndex`,
-   * including a call that throws, because a call can change the index before
-   * it throws. It also emits the event after it reloads an index because a shared
-   * invalidation adapter reported that another instance saved that index. The
-   * engine emits one event per batch, however many documents the batch holds.
+   * The engine emits this event after a call changes what a read returns from
+   * an index. The calls are the inserts, updates, and removals, singly or in a
+   * batch, together with `clear`, `restore`, `rebalance`, `rebuildAnalysis`,
+   * `compactVectors`, `optimizeVectors`, `createIndex`, and `dropIndex`. The
+   * engine emits the event after a call that throws as well, because a call can
+   * change the index before it throws. It also emits the event after it reloads
+   * an index, once a shared invalidation adapter reports that another instance
+   * saved that index. The engine emits one event per batch, however many
+   * documents the batch holds.
    *
    * The engine emits the event once a query can see the change, which means
-   * after every worker copy applies it and after any rebalance in progress
-   * replays it, so the results of a query that a listener sends from its
-   * handler include the change. The engine waits for that only while a
-   * listener is registered for the event.
+   * after every worker copy applies the change and after any rebalance in
+   * progress replays it. A query that a listener sends from its handler
+   * therefore returns results that include the change. The engine waits for the
+   * change to become visible only while a listener is registered for the event.
    */
   write: {
-    /** This index changed. */
+    /** This is the name of the index that changed. */
     indexName: string
   }
   /**
-   * A worker thread died. The pool drops it and fails the requests that it was
-   * serving with `WORKER_CRASHED`, and the engine answers each of those queries
-   * again on the main thread, so the caller receives a result and no error.
-   * The remaining workers keep answering, because each holds a full worker
-   * copy of every promoted index. After a delay the
-   * engine spawns a replacement, loads every copy onto it, and puts it back
-   * into rotation. Once no worker is left, queries fall back to the main
-   * thread, which holds every document, and the next request after the delay
-   * starts a new pool. The delay starts at one second and doubles up to a
-   * minute while replacements keep failing.
+   * A worker thread exited unexpectedly. The pool removes the thread and fails
+   * the requests that the thread was serving with `WORKER_CRASHED`. The engine
+   * then sends each of those queries again on the main thread, so the caller
+   * receives a result with no error. The remaining workers keep serving
+   * queries, because each of them holds a full worker copy of every promoted
+   * index.
+   *
+   * After a delay, the engine spawns a replacement and loads every copy onto
+   * it before it sends queries to the replacement. Once no worker is left, the
+   * main thread serves every query, because it holds every document. The first
+   * request after the delay then starts a new pool. The delay starts at one
+   * second and doubles up to a minute while replacements keep failing.
    */
   workerCrash: {
-    /** This worker died. */
+    /** This is the id of the worker that exited. */
     workerId: number
-    /** That worker was holding these indexes. */
+    /** These are the indexes that the worker held. */
     indexNames: string[]
-    /** This ended the worker. */
+    /** This is the error that ended the worker. */
     error: Error
   }
-  /** An index gained worker copies, whether it reached the copy threshold or loaded its copies again after an idle spell. */
+  /** An index gained worker copies, either because it reached the copy
+   * threshold or because a request loaded its copies again after an idle
+   * spell. */
   workerPromote: {
-    /** The pool holds this many workers. */
+    /** This is the number of workers in the pool. */
     workerCount: number
-    /** The index gained its copies for this reason, such as the copy threshold it reached. */
+    /** This is the reason that the index gained its copies, such as the copy
+     * threshold that it reached. */
     reason: string
   }
-  /** An index could not gain worker copies. It keeps answering on the main thread. */
+  /** An index could not gain worker copies, so the main thread keeps serving
+   * its queries. */
   workerPromoteFailure: {
-    /** The engine tried to load the copies for this reason. */
+    /** This is the reason that the engine tried to load the copies. */
     reason: string
-    /** This stopped it. */
+    /** This is the error that stopped the load. */
     error: Error
-    /** This turns true when the engine will try again on a later threshold. */
+    /** This is true when the engine will try again at a later threshold. */
     retryable: boolean
   }
-  /** An index finished spreading its documents across a new partition count. */
+  /** An index finished spreading its documents across a new number of
+   * partitions. */
   partitionRebalance: {
-    /** This index was rebalanced. */
+    /** This is the name of the index that the engine rebalanced. */
     indexName: string
-    /** The index held this many partitions before. */
+    /** This is the number of partitions before the rebalance. */
     oldCount: number
-    /** The index holds this many partitions now. */
+    /** This is the number of partitions after the rebalance. */
     newCount: number
   }
   /**
    * An index passed its watermark, so its partitions are close to their
    * capacity. On a cluster node, the engine reports the document count and the
-   * capacity of the one partition that `partitionId` names, which is a
-   * partition that this node leads.
+   * capacity of the one partition that `partitionId` identifies, which this
+   * node leads.
    */
   partitionWatermark: {
-    /** This index crossed the mark. */
+    /** This is the name of the index that crossed the mark. */
     indexName: string
-    /** The index holds this many documents, or the partition does on a cluster node. */
+    /** This is the number of documents in the index, or in the partition on a
+     * cluster node. */
     documentCount: number
-    /** The index can hold this many across its current partitions, or the partition can on a cluster node. */
+    /** This is the number of documents that the current partitions of the
+     * index can hold, or that the partition can hold on a cluster node. */
     capacity: number
-    /** The index holds this many partitions. */
+    /** This is the number of partitions in the index. */
     partitionCount: number
-    /** On a cluster node, this partition crossed the mark. The field is absent outside a cluster. */
+    /** On a cluster node, this is the partition that crossed the mark, while
+     * outside a cluster the field is absent. */
     partitionId?: number
   }
   /**
-   * The process uses nine tenths of its heap, measured during a write or a
-   * load, so the next large index may end the process with an out-of-memory
-   * error. Where `--max-old-space-size` or `--max-old-space-size-percentage`
-   * sets a limit, on the command line or in `NODE_OPTIONS`, the engine measures
-   * the used bytes against that figure and `heapLimit` reports it. Where
-   * neither flag sets one, the engine compares the used bytes with the headroom
-   * that V8 reports, which is about 192 MB above the true ceiling, so a
-   * default heap below about 2 GB may end before this event fires. The engine
-   * emits the event once per crossing and arms it again once the headroom
-   * recovers to two tenths. Raise the limit with
+   * The process uses nine tenths of its heap, as measured during a write or a
+   * load, so the next large index can end the process with an out-of-memory
+   * error.
+   *
+   * Where `--max-old-space-size` or `--max-old-space-size-percentage` sets a
+   * limit, on the command line or in `NODE_OPTIONS`, the engine measures the
+   * used bytes against that limit, which `heapLimit` then reports. Where
+   * neither flag sets a limit, the engine measures the share of the heap that
+   * V8 reports as no longer available. V8 reports a limit about 192 MB above
+   * the true ceiling, so a process on a default heap below about 2 GB can end before
+   * this event fires.
+   *
+   * The engine emits the event once per crossing, then arms it again once the
+   * free share of the heap recovers to two tenths. Raise the limit with
    * `--max-old-space-size-percentage` or `--max-old-space-size`, or close an
    * idle index; see {@link ProcessMemoryReport.heapLimit}.
    */
   heapPressure: {
-    /** The heap reaches that point during a write to this index or a load of it. */
+    /** This is the index that a write or a load was touching when the heap
+     * reached that point. */
     indexName: string
-    /** The process uses this much heap, in bytes. */
+    /** This is the heap that the process uses, in bytes. */
     heapUsed: number
-    /** The heap may grow to this many bytes. */
+    /** This is the size in bytes that the heap can grow to. */
     heapLimit: number
-    /** The engine estimates that the index holds this many bytes. */
+    /** This is the estimate of the bytes that the index holds. */
     estimatedMemoryBytes: number
   }
-  /** A rebuild is bringing an index's terms up to its language module's current analysis. */
+  /** The engine started, completed, or failed a rebuild that brings the terms
+   * of an index up to the current analysis of its language module. */
   analysisRebuild: {
-    /** This index is being rebuilt. */
+    /** This is the name of the index under rebuild. */
     indexName: string
-    /** The rebuild stands here. */
+    /** This is the stage that the rebuild has reached. */
     status: 'started' | 'completed' | 'failed'
-    /** The rebuild has covered this many partitions so far. */
+    /** This is the number of partitions that the rebuild has covered so far. */
     partitionsRebuilt: number
-    /** The rebuild covers this many partitions in total. */
+    /** This is the number of partitions that the rebuild covers in total. */
     partitionCount: number
-    /** This stopped the rebuild, and only a `failed` status includes it. */
+    /** This is the error that stopped the rebuild, which only a `failed`
+     * status includes. */
     error?: Error
   }
-  /** The write-ahead log or a checkpoint failed, so writes since the last checkpoint are at risk. */
+  /** A write to the write-ahead log or a checkpoint failed, so the writes since
+   * the last checkpoint are at risk. */
   durabilityError: {
-    /** The durability layer threw this. */
+    /** This is the error that the durability layer threw. */
     error: Error
   }
-  /** The invalidation channel failed, so this instance may be reading partitions that another instance has changed. */
+  /** The invalidation channel failed, so this instance can serve partitions
+   * that another instance has since changed. */
   invalidationError: {
-    /** The adapter threw this. */
+    /** This is the error that the adapter threw. */
     error: Error
   }
 }

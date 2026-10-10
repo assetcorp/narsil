@@ -10,58 +10,62 @@ import { usePolling } from './poll'
 import { isTerminalTask, pollInterval } from './task-state'
 
 /**
- * These settings say how {@link useImport} runs a load and follows it.
+ * These settings control how {@link useImport} starts a load and polls its
+ * progress.
  *
  * @public
  */
 export interface NarsilImportOptions extends NarsilRequestSettings {
-  /** The hook asks the server how far the load has gone at this interval,
-   * every 250 ms unless you set another value, which matches how often the
-   * server updates the figures. The hook waits five seconds between attempts
-   * while the server is failing. */
+  /** The hook asks the server for the progress of the load at this interval in
+   * milliseconds, which is 250 unless you set another value. That default
+   * matches the interval at which the server updates the figures. While the
+   * server is failing, the hook waits five seconds between attempts. */
   pollIntervalMs?: number
-  /** The hook calls this once the load reaches a final status, whichever status
-   * that is. */
+  /** The hook calls this function once the load reaches a final status,
+   * whatever that status is. */
   onSettled?: (record: TaskRecord) => void
 }
 
 /**
- * What {@link useImport} reports, and the methods that it returns.
+ * These fields report where a load from {@link useImport} stands, together with
+ * the functions that control the load.
  *
  * @public
  */
 export interface NarsilImportState {
   /**
-   * Sends a corpus, and returns once the server has received the body and
-   * started the task. The server loads the documents afterwards, while the hook
-   * polls the task.
+   * This function sends a corpus, then returns once the server has received the
+   * body and started the task. The server loads the documents after that, while
+   * the hook polls the task.
    *
-   * @param source - These are the documents, or the NDJSON that you already
-   * hold.
-   * @returns The record is the task the server started.
-   * @throws A `NarsilError` under the code the server sent, and with
-   * `NOT_FOUND` where the server predates the asynchronous import.
+   * @param source - These are the documents, or the NDJSON text that you
+   * already hold.
+   * @returns This is the record of the task that the server started.
+   * @throws A `NarsilError` under the code that the server sent, or with
+   * `NOT_FOUND` when the server is older than the asynchronous import.
    */
   start: (source: ImportSource) => Promise<TaskRecord>
-  /** Asks the load in progress to stop. While the browser is still sending the
-   * corpus, a call aborts the upload, and afterwards it asks the server to stop
-   * the task. The server stops between batches, so the documents that it has
-   * already written stay in the index. */
+  /** This function asks the load in progress to stop. While the browser is
+   * still sending the corpus, a call aborts the upload; after that, a call asks
+   * the server to stop the task. The server stops between batches, so the
+   * documents that it has already written stay in the index. */
   cancel: () => void
-  /** Clears the record and the failure, ready for another load. */
+  /** This function clears the record and the failure, so that the hook is
+   * ready for another load. */
   reset: () => void
-  /** This is the task, from the moment the server starts it. */
+  /** This is the record of the task, from the moment that the server starts
+   * it. */
   task: TaskRecord | undefined
-  /** This is how far the load has gone, which suits a progress bar. */
+  /** This is the progress of the load, which suits a progress bar. */
   progress: TaskProgress | undefined
-  /** This counts the documents that the server indexed and refused, and the
-   * hook sets it once the load finishes. */
+  /** This counts the documents that the server indexed and refused, which the
+   * hook sets once the load finishes. */
   result: ImportResult | undefined
-  /** This is the failure that stopped the load, or the one that the last poll
-   * ended on. */
+  /** This is the failure that stopped the load, or the failure that ended the
+   * last poll. */
   error: NarsilError | undefined
-  /** This is true from the moment you call `start` until the load reaches a
-   * final status. */
+  /** This is true from the call to `start` until the load reaches a final
+   * status. */
   isImporting: boolean
 }
 
@@ -74,25 +78,26 @@ interface ImportProgress {
 const NOTHING: ImportProgress = { task: undefined, error: undefined, starting: false }
 
 /**
- * Loads a corpus into an index and reports how far the load has gone.
+ * This hook loads a corpus into an index on a server and reports the progress
+ * of the load.
  *
  * The hook starts the load as a task, so the request returns as soon as the
- * server has received the body. A corpus that takes longer to load than the
- * response timeout of a proxy therefore still loads. The hook then polls the
- * task until the load succeeds, fails, or ends in a cancellation. While the
- * page is hidden, the hook pauses polling.
+ * server has received the body. A corpus can therefore load even when the load
+ * takes longer than the response timeout of a proxy. The hook then polls the
+ * task until the load succeeds, fails, or ends in a cancellation, pausing
+ * whenever the page is hidden.
  *
  * Unmounting the component stops the polling alone, because the server finishes
  * the load either way. Follow the load again with {@link useTask}, under the id
  * of the record that `start` returns.
  *
- * @param indexName - This names the index that receives the corpus.
- * @param options - These set the poll interval, the callback for the final
- * record, the headers, and the deadline.
- * @returns The state holds the task, the progress, the result, the failure, and
- * the three methods that drive a load.
- * @throws A `NarsilError` with `CONFIG_INVALID` as it renders under a provider
- * that holds an engine, because only a server handles imports.
+ * @param indexName - This is the name of the index that receives the corpus.
+ * @param options - These settings can set the poll interval, the callback for
+ * the final record, the headers, and the deadline.
+ * @returns The state holds the task, the progress, the result, the failure,
+ * and the three functions that control a load.
+ * @throws A `NarsilError` with `CONFIG_INVALID` during the render under a
+ * provider that holds an engine, because only a server handles imports.
  *
  * @public
  */

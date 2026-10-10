@@ -1,6 +1,6 @@
 # React
 
-`@delali/narsil/react` gives a React application Narsil's reads as hooks, over a client of a server or over an engine in the same page. Each hook sends one request and reports where that request stands. Whenever its arguments change, the hook sends the request again.
+`@delali/narsil/react` turns Narsil's read methods into React hooks, which call either a client of a server or an engine in the same page. Each hook sends one request and reports where that request stands. Whenever its arguments change, the hook sends the request again.
 
 ```tsx
 import { createNarsilClient } from '@delali/narsil/client'
@@ -47,21 +47,21 @@ export function App() {
 }
 ```
 
-Create the engine outside the component tree as well, because a render that creates an engine creates a new one every time, with none of the indexes that the first one holds. The provider throws `CONFIG_INVALID` as it renders when its props set both a client and an engine, or neither.
+Create the engine outside the component tree as well, because a render that creates an engine creates a new one every time, so every hook under the provider starts again. The provider throws `CONFIG_INVALID` as it renders when its props set both a client and an engine, or neither.
 
-Under an engine, each read hook returns the same data that a client returns from a server that holds the same index. A vector field comes back as an array of numbers under both, while `elapsed` reports the time that the engine spent in the page. The engine answers in the page, so the hooks leave out `headers` and `timeoutMs`.
+Under an engine, each read hook returns the same data that a client returns from a server that holds the same index. A vector field comes back as an array of numbers under both, while `elapsed` reports the time that the engine spent in the page. The engine computes its results in the page, so the hooks pass it neither `headers` nor `timeoutMs`.
 
-`useTask`, `useTasks`, and `useImport` throw `CONFIG_INVALID` as they render under an engine, because only a server handles tasks and imports. `useNarsilClient` throws the same error under an engine, because the provider holds no client, so import the engine into a component that writes and call the write method on the engine itself.
+`useTask`, `useTasks`, and `useImport` throw `CONFIG_INVALID` as they render under an engine, because only a server handles tasks and imports. `useNarsilClient` throws the same error under an engine, because the provider holds no client. Import the engine into a component that writes, and call the write method on the engine itself.
 
 ### Refreshing after a write
 
-The provider listens for the engine's `write` event, whose payload holds the name of the index. The engine emits it after the inserts, updates, and removals, singly or in a batch, and after `clear`, `restore`, `rebalance`, `rebuildAnalysis`, `compactVectors`, `optimizeVectors`, `createIndex`, and `dropIndex`. A call that throws emits it too, because a call can change the index before it throws. After a write, every hook that reads that index searches again, while `useIndexes` searches again after a write to any index.
+The provider registers a listener for the engine's `write` event, whose payload holds the name of the index. The engine emits the event after the inserts, updates, and removals, singly or in a batch, and after `clear`, `restore`, `rebalance`, `rebuildAnalysis`, `compactVectors`, `optimizeVectors`, `createIndex`, and `dropIndex`. The engine also emits it after a call that throws, because a call can change the index before it throws. After a write, every hook that reads that index searches again, while `useIndexes` searches again after a write to any index.
 
 The provider starts the refresh once 200 ms pass with no further write, so each mounted hook searches once per burst of writes, after the last write in the burst. The 200 ms matches the default update interval of [live queries in Couchbase Lite](https://docs.couchbase.com/mobile/1.4.4/couchbase-lite-ios/interfaceCBLLiveQuery.html). Set `refreshAfterWriteMs` on the provider for a longer or a shorter wait. While an application keeps writing at intervals shorter than that wait, the last answer stays on screen.
 
 A hook discards any answer that is still in flight when the engine reports a write to its index, so an older answer never replaces a newer one.
 
-The engine emits the event once a query can see the write, which means after every worker copy applies it and after any rebalance in progress replays it, so the search that the refresh sends includes the write. A search that finishes between the write and the event can therefore still reach the screen, until the refresh replaces its answer. Where an engine shares an IndexedDB store with other tabs through `createBroadcastChannelInvalidation()`, it also emits the event after it reloads an index that another tab saved, so the hooks in every tab refresh.
+The engine emits the event once a query can see the write, which means after every worker copy applies the write and after any rebalance in progress replays it, so the search that the refresh sends includes the write. A search that finishes between the write and the event can therefore show its answer on screen until the refresh replaces it. Where an engine shares an IndexedDB store with other tabs through `createBroadcastChannelInvalidation()`, it also emits the event after it reloads an index that another tab saved, so the hooks in every tab refresh.
 
 The engine waits for a write to become visible only while a listener is registered for the event, so a write adds no step while nothing listens.
 
@@ -71,21 +71,21 @@ Every hook that reads returns the same five fields.
 
 | Field | What it holds |
 | --- | --- |
-| `data` | This is the answer, and it stays `undefined` until the first one arrives. |
-| `error` | This is the `NarsilError` that the last request ended on, and the next success clears it. |
-| `isLoading` | This is true until the first answer arrives, so show a spinner while it is true. |
+| `data` | This is the answer, which stays `undefined` until the first request succeeds. |
+| `error` | This is the `NarsilError` that ended the last request, until the next success clears it. |
+| `isLoading` | This is true while the hook has no answer to show and a request is in flight, so show a spinner while it is true. |
 | `isFetching` | This is true while any request is in flight, a refresh included, so dim the list while it is true. |
-| `refresh` | Calling it sends the request again, and the answer already on screen stays there until the new one arrives. |
+| `refresh` | Calling it sends the request again, while the answer already on screen stays until the new answer replaces it. |
 
 The last argument of every read hook holds the same settings, apart from `useTask`, where `pollIntervalMs` replaces `refreshIntervalMs`.
 
 | Setting | What it does |
 | --- | --- |
 | `enabled` | The hook sends nothing while this is false, so keep it false until the search has a term. A request already in flight continues until the provider drops its key, which happens `keepAliveMs` after the last component that reads the key unmounts. That interval is 2,000 ms unless you set another value on the provider. |
-| `keepPreviousData` | The hits already on screen stay there while the next answer loads. |
+| `keepPreviousData` | The hits already on screen stay there while the next request is in flight. |
 | `refreshIntervalMs` | The hook sends the request again at this interval in milliseconds, pausing while the page is hidden. |
-| `headers` | A client sends these headers with the request, while an engine leaves them out. |
-| `timeoutMs` | A client gives the server this many milliseconds to answer, while an engine leaves the setting out. |
+| `headers` | A client sends these headers with the request, while the hooks pass none to an engine. |
+| `timeoutMs` | A client gives the server this many milliseconds to respond, while the hooks pass no deadline to an engine. |
 
 ## The hooks
 
@@ -109,7 +109,7 @@ const client = useNarsilClient()
 const onSave = useCallback(() => client.put('movies', id, document), [client, id, document])
 ```
 
-`useDocument` returns `undefined` with no failure for a document that the index does not hold, so check `isLoading` to tell an empty answer from one that is still on its way. Passing no id switches the hook off, which suits a detail panel until somebody picks a row.
+`useDocument` returns `undefined` with no failure for a document that the index does not hold, so check `isLoading` to tell an empty answer from one that is still in flight. A missing id switches the hook off, which suits a detail panel until somebody picks a row.
 
 ## One request for the whole tree
 
@@ -133,16 +133,20 @@ function Search() {
     { enabled: deferred.length > 1, keepPreviousData: true },
   )
 
+  const onTermChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
+    setTerm(event.target.value)
+  }, [])
+
   return (
     <>
-      <input value={term} onChange={event => setTerm(event.target.value)} />
+      <input value={term} onChange={onTermChange} />
       <ol style={{ opacity: isFetching ? 0.6 : 1 }}>{data?.hits.map(hit => <Hit key={hit.id} hit={hit} />)}</ol>
     </>
   )
 }
 ```
 
-`useDeferredValue` keeps the input responsive while React renders the results. The `enabled` setting holds back the first request until the term has two characters. An answer that reaches the hook after a newer one never replaces it, however slowly the server answers.
+`useDeferredValue` keeps the input responsive while React renders the results. The `enabled` setting holds back the first request until the term has two characters. The hook never lets an older answer replace a newer one, however slowly the server responds.
 
 ## Loading a corpus
 
@@ -159,18 +163,18 @@ function Importer({ documents }: { documents: AnyDocument[] }) {
   return (
     <>
       <button onClick={onImport} disabled={isImporting}>Import</button>
-      {isImporting && <button onClick={cancel}>Stop</button>}
-      {progress && <progress value={progress.bytesProcessed} max={progress.bytesTotal} />}
-      {result && <p>{result.indexed} indexed, {result.failed} refused</p>}
-      {error && <p role="alert">{error.message}</p>}
+      {isImporting ? <button onClick={cancel}>Stop</button> : null}
+      {progress ? <progress value={progress.bytesProcessed} max={progress.bytesTotal} /> : null}
+      {result ? <p>{result.indexed} indexed, {result.failed} refused</p> : null}
+      {error ? <p role="alert">{error.message}</p> : null}
     </>
   )
 }
 ```
 
-`start` returns once the server has received the body and started the task. Where the server refuses the corpus, `start` throws the server's own failure and the hook reports it in `error`, so catch the error from the call that you await. Once the task starts, the hook polls it every 250 ms, which matches how often the server updates the figures. The hook stops polling once the task succeeds, fails, or ends in a cancellation. While the server is failing, the hook waits five seconds between attempts.
+`start` returns once the server has received the body and started the task. Where the server refuses the corpus, `start` throws the failure that the server sent, which the hook also reports in `error`, so catch the error from the call that you await. Once the task starts, the hook polls it every 250 ms, which matches how often the server updates the figures. The hook stops polling once the task succeeds, fails, or ends in a cancellation. While the server is failing, the hook waits five seconds between attempts.
 
-`task` holds the record from the moment the server starts the task, while `progress` and `result` are two of its fields. `onSettled` fires once, on the final record. `cancel` aborts the upload while the browser is still sending the corpus, and after that it asks the server to stop the task. `reset` clears the record and the failure, ready for another load.
+`task` holds the record from the moment that the server starts the task, while `progress` and `result` are two of its fields. `onSettled` fires once, on the final record. `cancel` aborts the upload while the browser is still sending the corpus, and after that it asks the server to stop the task. `reset` clears the record and the failure, so that the hook is ready for another load.
 
 Unmounting the component stops the polling alone, because the server finishes the load either way. Follow the load again with `useTask`, under the id that `start` returns.
 
@@ -178,15 +182,15 @@ The server refuses a body over its `maxImportBytes` limit, 100 MB by default, wi
 
 ## Following any task
 
-`useTask` polls a task until the task reaches a final status, and then it stops.
+`useTask` polls a task until the task reaches a final status, then stops polling.
 
 ```tsx
 const { data: task } = useTask(taskId)
 ```
 
-A failed task comes back as a record with its `error` field set, because a part-finished import still reports what it indexed, so check `task.status`. The hook reports `null` for a record that the server no longer holds, then stops polling.
+A failed task comes back as a record with its `error` field set, because the record of a part-finished import still counts the documents that it indexed. Check `task.status` to tell the outcomes apart. The hook reports `null` for a record that the server no longer holds, then stops polling.
 
-The hook pauses polling while the page is hidden, and it fetches the figures once as soon as the page is visible again.
+The hook pauses polling while the page is hidden, then fetches the figures once as soon as the page is visible again.
 
 ## Keys and arguments
 
@@ -205,7 +209,7 @@ const { error } = useQuery('movies', params)
 if (error?.code === ErrorCodes.INDEX_NOT_FOUND) return <CreateIndexPrompt />
 ```
 
-Under a client, the six client codes in the [client guide](client.md#errors) reach a hook as well. The hook reports `CLIENT_CONNECTION_FAILED` for a request that the browser fails to send, and `CLIENT_UNEXPECTED_ERROR` for a failure that the client cannot attribute to the server. After a failure, `data` keeps the last answer, while the next success clears `error`.
+Under a client, a hook can also report the six client codes in the [client guide](client.md#errors). The hook reports `CLIENT_CONNECTION_FAILED` for a request that the browser fails to send, and `CLIENT_UNEXPECTED_ERROR` for a failure that the client cannot attribute to the server. After a failure, `data` keeps the last answer, while the next success clears `error`.
 
 A hook called outside a `NarsilProvider` throws `CONFIG_INVALID` as it renders.
 
