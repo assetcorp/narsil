@@ -101,15 +101,21 @@ export function buildFilterContext(
     textRangeBitset: (fieldPath: string, bounds: TextRangeBounds) =>
       textRangeBitsetOf(state, fieldPath, flat[fieldPath], bounds, capacity),
     isPatternField: (fieldPath: string) => patternFields.has(fieldPath),
-    patternBitset: (fieldPath: string, operator: PatternOperator, text: string, caseFold: boolean) => {
+    matchPattern: (
+      fieldPath: string,
+      operator: PatternOperator,
+      text: string,
+      caseFold: boolean,
+      into: Uint32Array,
+    ) => {
       const index = state.patternIndexes.get(fieldPath)
-      if (index === undefined) return createBitSet(capacity)
-      return requirePatternSearch(fieldPath).matchBitset({
+      if (index === undefined) return
+      requirePatternSearch(fieldPath).matchInto({
         operator,
         text,
         caseFold,
         index,
-        capacity,
+        matches: into,
         meter,
         host: PATTERN_HOST,
         valueOf: internalId => getFieldValue(internalId, fieldPath),

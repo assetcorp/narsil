@@ -7,7 +7,14 @@ import {
   RUN_LIST_INITIAL_CAPACITY,
 } from './constants'
 import { buildArrays, EMPTY_POSTINGS, type RunSource, sortedRunOrder } from './runs-arrays'
-import { collectRunKeys, forEachTextValue, holdsTextValue, runKey, runKeyCodePoints } from './text'
+import {
+  appendTextCodePoints,
+  collectRunKeys,
+  forEachTextValue,
+  holdsTextValue,
+  runKey,
+  runKeyCodePoints,
+} from './text'
 
 interface RunList {
   ids: Uint32Array
@@ -52,7 +59,7 @@ export function createGrowingPatternIndex(host: PatternHost): PatternIndexWriter
     const keys = new Set<string>()
     forEachTextValue(value, text => {
       folded.length = 0
-      host.appendFolded(text, folded)
+      appendTextCodePoints(text, true, host, folded)
       collectRunKeys(folded, keys)
     })
     return keys
@@ -186,7 +193,12 @@ export function createGrowingPatternIndex(host: PatternHost): PatternIndexWriter
     },
 
     bytes(): number {
-      return listBytes + runs.size * RUN_ENTRY_OVERHEAD_BYTES + documents.size * DOCUMENT_ENTRY_BYTES
+      return (
+        listBytes +
+        runs.size * RUN_ENTRY_OVERHEAD_BYTES +
+        documents.size * DOCUMENT_ENTRY_BYTES +
+        (documentsCache?.byteLength ?? 0)
+      )
     },
   }
 }

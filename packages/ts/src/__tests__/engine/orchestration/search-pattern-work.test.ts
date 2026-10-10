@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { MAX_MATCHER_STATE_BYTES } from '../../../core/pattern-index/constants'
 import {
   createPatternWorkMeter,
@@ -40,10 +40,33 @@ describe('the pattern work that a copy does for a search', () => {
     const answering = searchViaWorker(harness.state, 'prose', { term: 'b' }, undefined, undefined, answeredSearch)
     await settle()
     const answeringCopy = queries(harness)[1]
-    joinPatternWorkMeter(patternWorkOf(answeringCopy)).add(40)
-    answeringCopy.resolve(EMPTY)
+    const copyWork = joinPatternWorkMeter(patternWorkOf(answeringCopy))
+    copyWork.add(40)
+    answeringCopy.resolve({ ...EMPTY, patternWorkSpent: copyWork.spent() })
     await answering
     expect(answeredSearch.remaining()).toBe(60)
+  })
+
+  it('adds the work that each copy reports when the runtime offers no shared memory', async () => {
+    vi.stubGlobal('SharedArrayBuffer', undefined)
+    try {
+      const harness = recordingHarness(2, ['prose'], 4)
+      const search = createPatternWorkMeter(100)
+      const pending = searchViaWorker(harness.state, 'prose', { term: 'a' }, undefined, undefined, search)
+      await settle()
+      const [left, right] = queries(harness)
+      expect(patternWorkOf(left).counter).toBeNull()
+      const leftWork = joinPatternWorkMeter(patternWorkOf(left))
+      const rightWork = joinPatternWorkMeter(patternWorkOf(right))
+      leftWork.add(30)
+      rightWork.add(25)
+      left.resolve({ ...EMPTY, patternWorkSpent: leftWork.spent() })
+      right.resolve({ ...EMPTY, patternWorkSpent: rightWork.spent() })
+      await pending
+      expect(search.remaining()).toBe(45)
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 
   it('passes the cap error of a copy to the caller in place of a fallback', async () => {

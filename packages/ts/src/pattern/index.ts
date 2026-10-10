@@ -4,8 +4,9 @@ import { patternSearchModule } from './module'
 export type { PatternSearch } from '../types/pattern'
 
 /**
- * A browser app passes this object to {@link registerPatternSearch} before it
- * creates or loads an index with a pattern field.
+ * This object holds the pattern search code, which a browser app has to pass
+ * to {@link registerPatternSearch} before it creates or loads an index with a
+ * pattern field.
  *
  * ```ts
  * import { registerPatternSearch } from '@delali/narsil'

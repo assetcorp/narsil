@@ -74,7 +74,7 @@ function requirePatternField(fieldPath: string, operator: string, type: FieldTyp
   const declared =
     type === undefined ? `The schema declares no field "${fieldPath}"` : `Field "${fieldPath}" has type "${type}"`
   invalid(
-    `"${operator}" applies to a pattern field alone, meaning a "verbatim" field or a text field whose type includes "pattern", because the engine keeps no pattern index for any other field. ${declared}`,
+    `"${operator}" applies to a pattern field alone, meaning a "verbatim" field or a text field whose type includes "pattern", because the engine keeps a pattern index for those fields alone. ${declared}`,
     fieldPath,
     operator,
   )
@@ -83,14 +83,14 @@ function requirePatternField(fieldPath: string, operator: string, type: FieldTyp
 function requirePatternText(fieldPath: string, operator: string, text: string, caseFold: boolean): void {
   if (exceedsCodePoints(text, MAX_PATTERN_TEXT_CODE_POINTS)) {
     invalid(
-      `"${operator}" on pattern field "${fieldPath}" holds more than ${MAX_PATTERN_TEXT_CODE_POINTS} code points`,
+      `The text of "${operator}" on pattern field "${fieldPath}" holds more than ${MAX_PATTERN_TEXT_CODE_POINTS} code points`,
       fieldPath,
       operator,
     )
   }
   if (caseFold && foldedCodePointCount(text) > MAX_PATTERN_POSITIONS) {
     invalid(
-      `"${operator}" on pattern field "${fieldPath}" folds to more than ${MAX_PATTERN_POSITIONS} code points, which is the most positions that a pattern may hold`,
+      `The text of "${operator}" on pattern field "${fieldPath}" has a case fold of more than ${MAX_PATTERN_POSITIONS} code points, while a pattern holds at most ${MAX_PATTERN_POSITIONS} positions`,
       fieldPath,
       operator,
     )

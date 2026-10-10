@@ -36,13 +36,15 @@ export interface NarsilConfig {
   /** These limits close indexes while keeping their durable files ready to reopen. */
   lifecycle?: IndexLifecycleConfig
   /**
-   * This caps the work that the pattern tests of one search may take, counted
-   * across every partition that the search reads. The engine counts one unit
-   * for each entry that it reads from a pattern index and one for each step of
-   * its matcher, and it throws `SEARCH_WORK_CAP_EXCEEDED` once the count
-   * exceeds the cap. The cap defaults to 25,000,000 units. For any value other
-   * than a whole number from 1 to `Number.MAX_SAFE_INTEGER`,
-   * {@link createNarsil} throws `CONFIG_INVALID`.
+   * This is the most work that the engine may do on the pattern tests of one
+   * search, counted over every partition that it searches. The engine adds one
+   * unit for each entry that it reads from a pattern index and one for each
+   * step of its matcher. For a text shorter than three code points, it counts
+   * each document that it checks as an entry that it reads. Once the count
+   * passes the cap, the engine throws `SEARCH_WORK_CAP_EXCEEDED`. The cap
+   * defaults to 25,000,000 units. For any value other than a whole number from
+   * 1 to `Number.MAX_SAFE_INTEGER`, {@link createNarsil} throws
+   * `CONFIG_INVALID`.
    */
   patternWorkCap?: number
 }

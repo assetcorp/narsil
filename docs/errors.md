@@ -22,7 +22,7 @@ The codes in this table are the ones that callers handle most often:
 | `DOC_NOT_FOUND` / `DOC_ALREADY_EXISTS` | A read, update, or removal names an unknown id, or an insert reuses one. |
 | `DOC_VALIDATION_FAILED` / `DOC_MISSING_REQUIRED_FIELD` | A document does not match the schema or omits a required field. |
 | `SEARCH_INVALID_FIELD` / `SEARCH_INVALID_FILTER` / `SEARCH_INVALID_CURSOR` | A query names an unknown field, passes a malformed filter, or replays a bad cursor. |
-| `SEARCH_WORK_CAP_EXCEEDED` | The pattern tests of a search take more work than the `patternWorkCap` engine setting allows, so the engine stops before it checks every candidate. The HTTP server answers it with status 400, and a cluster coordinator fails the whole query when a node raises it, whatever `allowPartialResults` holds. See [Pattern tests](filters-facets-and-pagination.md#pattern-tests). |
+| `SEARCH_WORK_CAP_EXCEEDED` | The engine stops a search before it checks every candidate, because the work on its pattern tests passes the cap in the `patternWorkCap` engine setting. The HTTP server answers this error with status 400. When a node raises it, a cluster coordinator fails the whole query, whatever the value of `allowPartialResults`. See [Pattern tests](filters-facets-and-pagination.md#pattern-tests). |
 | `VECTOR_DIMENSION_MISMATCH` | A vector's length differs from the field's declared dimension. |
 | `EMBEDDING_FAILED` / `EMBEDDING_CONFIG_INVALID` | An adapter call fails, or the embedding configuration is contradictory. |
 | `PARTITION_CAPACITY_EXCEEDED` / `PARTITION_REBALANCING_BACKPRESSURE` | An insert passes the capacity cap, or a config change collides with a running reshape. |

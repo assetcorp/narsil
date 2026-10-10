@@ -42,7 +42,7 @@ function isWireRecord(value: unknown): value is Record<string, unknown> {
 function corruptPatternEntry(field: string): NarsilError {
   return new NarsilError(
     ErrorCodes.PERSISTENCE_LOAD_FAILED,
-    `The pattern entry of field "${field}" in this partition holds no list of document IDs and map of runs`,
+    `The pattern entry of field "${field}" in this partition must hold a list of document IDs and a map of runs`,
     { field },
   )
 }
@@ -52,7 +52,7 @@ export function patternIndexesFromWire(raw: unknown): { pattern?: Record<string,
   if (!isWireRecord(raw)) {
     throw new NarsilError(
       ErrorCodes.PERSISTENCE_LOAD_FAILED,
-      'The pattern entry of this partition holds no map of fields',
+      'The pattern entry of this partition must be a map of fields',
     )
   }
   const pattern: Record<string, SerializedPatternIndex> = Object.create(null)

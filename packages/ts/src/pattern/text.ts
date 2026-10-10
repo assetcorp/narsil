@@ -1,21 +1,14 @@
 import { PATTERN_RUN_CODE_POINTS } from '../core/pattern-index/constants'
 import type { PatternHost } from '../core/pattern-index/types'
 
-const BASIC_PLANE_LAST = 0xffff
-
-export function appendCodePoints(text: string, out: number[]): void {
-  for (let at = 0; at < text.length; at++) {
-    const codePoint = text.codePointAt(at) ?? 0
-    out.push(codePoint)
-    if (codePoint > BASIC_PLANE_LAST) at++
-  }
-}
+export const BASIC_PLANE_LAST = 0xffff
 
 export function appendTextCodePoints(text: string, caseFold: boolean, host: PatternHost, out: number[]): void {
-  if (caseFold) {
-    host.appendFolded(text, out)
-  } else {
-    appendCodePoints(text, out)
+  for (let at = 0; at < text.length; at++) {
+    const codePoint = text.codePointAt(at) ?? 0
+    if (codePoint > BASIC_PLANE_LAST) at++
+    if (caseFold) host.appendFoldedCodePoint(codePoint, out)
+    else out.push(codePoint)
   }
 }
 

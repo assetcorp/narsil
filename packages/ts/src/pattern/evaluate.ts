@@ -1,10 +1,10 @@
-import { bitsetSet, createBitSet } from '../core/bitset'
+import { bitsetHas, bitsetSet } from '../core/bitset'
 import { PATTERN_RUN_CODE_POINTS } from '../core/pattern-index/constants'
-import type { PatternIndexReader, PatternMatchRequest, PatternOperator } from '../core/pattern-index/types'
+import type { PatternHost, PatternIndexReader, PatternMatchRequest, PatternOperator } from '../core/pattern-index/types'
 import { literalAutomaton } from './automaton'
 import { SHORTLIST_INTERSECT_RATIO } from './constants'
 import { LazyDfa } from './lazy-dfa'
-import { appendTextCodePoints, forEachTextValue, runKey } from './text'
+import { appendTextCodePoints, BASIC_PLANE_LAST, forEachTextValue, runKey } from './text'
 import { WorkTally } from './work-tally'
 
 const ANCHORED_START: ReadonlySet<PatternOperator> = new Set(['eq', 'startsWith'])
@@ -35,9 +35,13 @@ function intersect(candidates: Uint32Array, list: Uint32Array, tally: WorkTally)
   return kept.subarray(0, keptCount)
 }
 
-function shortlist(index: PatternIndexReader, folded: readonly number[], tally: WorkTally): Uint32Array | null {
+function shortlist(index: PatternIndexReader, folded: readonly number[], tally: WorkTally): Uint32Array {
   const lists = distinctRunLists(index, folded)
-  if (lists.length === 0) return null
+  if (lists.length === 0) {
+    const documents = index.documents()
+    tally.add(documents.length)
+    return documents
+  }
   let candidates = lists[0]
   tally.add(candidates.length)
   for (let at = 1; at < lists.length && candidates.length > 0; at++) {
@@ -47,36 +51,56 @@ function shortlist(index: PatternIndexReader, folded: readonly number[], tally: 
   return candidates
 }
 
-export function matchPatternBitset(request: PatternMatchRequest): Uint32Array {
-  const { operator, text, caseFold, index, capacity, host } = request
+function matchesText(
+  matcher: LazyDfa,
+  text: string,
+  caseFold: boolean,
+  host: PatternHost,
+  folded: number[],
+  tally: WorkTally,
+): boolean {
+  if (!matcher.begin()) return matcher.matched()
+  for (let at = 0; at < text.length; at++) {
+    const codePoint = text.codePointAt(at) ?? 0
+    if (codePoint > BASIC_PLANE_LAST) at++
+    if (!caseFold) {
+      if (!matcher.feed(codePoint, tally)) return matcher.matched()
+      continue
+    }
+    folded.length = 0
+    host.appendFoldedCodePoint(codePoint, folded)
+    for (const foldedCodePoint of folded) {
+      if (!matcher.feed(foldedCodePoint, tally)) return matcher.matched()
+    }
+  }
+  return matcher.matched()
+}
+
+export function matchPattern(request: PatternMatchRequest): void {
+  const { operator, text, caseFold, index, matches, host } = request
   const tally = new WorkTally(request.meter)
-  const result = createBitSet(capacity)
 
   const testCodePoints: number[] = []
   appendTextCodePoints(text, caseFold, host, testCodePoints)
   const foldedTest: number[] = []
-  host.appendFolded(text, foldedTest)
+  appendTextCodePoints(text, true, host, foldedTest)
 
   const matcher = new LazyDfa(
     literalAutomaton(testCodePoints, ANCHORED_START.has(operator), ANCHORED_END.has(operator)),
     request.meter.matcherStateBytes,
   )
-  const candidates = shortlist(index, foldedTest, tally) ?? index.documents()
-  const valueCodePoints: number[] = []
+  const candidates = shortlist(index, foldedTest, tally)
+  const folded: number[] = []
   let matched = false
   const testValue = (value: string): void => {
-    if (matched) return
-    valueCodePoints.length = 0
-    appendTextCodePoints(value, caseFold, host, valueCodePoints)
-    matched = matcher.matches(valueCodePoints, valueCodePoints.length, tally)
+    if (!matched) matched = matchesText(matcher, value, caseFold, host, folded, tally)
   }
 
   for (const ordinal of candidates) {
-    if (ordinal >= capacity) continue
+    if (ordinal >>> 5 >= matches.length || bitsetHas(matches, ordinal)) continue
     matched = false
     forEachTextValue(request.valueOf(ordinal), testValue)
-    if (matched) bitsetSet(result, ordinal)
+    if (matched) bitsetSet(matches, ordinal)
   }
   tally.flush()
-  return result
 }
