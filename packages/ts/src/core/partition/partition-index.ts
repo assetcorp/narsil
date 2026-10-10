@@ -5,6 +5,7 @@ import type { FacetResult } from '../../types/results'
 import type { AnyDocument, SchemaDefinition } from '../../types/schema'
 import type { FacetConfig } from '../../types/search'
 import type { ComparableSortValue, SortMode } from '../ordering'
+import type { PatternWorkMeter } from '../pattern-index/types'
 import type { ResolvedProjection } from '../projection'
 import type { PartitionStatsView } from '../statistics'
 import type { FacetMatchSet } from './facets'
@@ -58,9 +59,9 @@ export interface PartitionIndex {
     fieldTypes: readonly (string | undefined)[],
     modes: readonly SortMode[],
   ): ComparableSortValue[]
-  applyFilters(filters: FilterExpression, schema: SchemaDefinition): Set<string>
-  applyFiltersBitset(filters: FilterExpression, schema: SchemaDefinition): Uint32Array
-  filterMatches(filters: FilterExpression, schema: SchemaDefinition): PartitionFilterMatches
+  applyFilters(filters: FilterExpression, schema: SchemaDefinition, meter: PatternWorkMeter): Set<string>
+  applyFiltersBitset(filters: FilterExpression, schema: SchemaDefinition, meter: PatternWorkMeter): Uint32Array
+  filterMatches(filters: FilterExpression, schema: SchemaDefinition, meter: PatternWorkMeter): PartitionFilterMatches
   computeFacets(matched: FacetMatchSet, config: FacetConfig, schema: SchemaDefinition): Record<string, FacetResult>
   suggestTerms(surfacePrefix: string, stemmedPrefix: string, limit: number): PartitionSuggestion[]
   expandTermPrefix(surfacePrefix: string, stemmedToken: string, maxExpansions: number): string[]

@@ -1,4 +1,5 @@
 import { bitsetFromSet, bitsetToSet } from '../../../core/bitset'
+import type { PatternOperator } from '../../../core/pattern-index/types'
 import type { FilterContext } from '../../../filters/evaluator'
 import { evaluateFilters } from '../../../filters/evaluator'
 import type { FieldIndex } from '../../../filters/operators'
@@ -105,10 +106,44 @@ export function makeEnumFieldIndex(field: string): FieldIndex {
   }
 }
 
+export const skus: Record<number, string> = {
+  0: 'LAP-001',
+  1: 'NOV-002',
+  2: 'TSH-003',
+  3: 'HEA-004',
+  4: 'COO-005',
+}
+
+function skuPasses(sku: string, operator: PatternOperator, text: string, caseFold: boolean): boolean {
+  const value = caseFold ? sku.toLowerCase() : sku
+  const wanted = caseFold ? text.toLowerCase() : text
+  if (operator === 'eq') return value === wanted
+  if (operator === 'startsWith') return value.startsWith(wanted)
+  if (operator === 'endsWith') return value.endsWith(wanted)
+  return value.includes(wanted)
+}
+
+function skuBitset(operator: PatternOperator, text: string, caseFold: boolean): Uint32Array {
+  const matched = new Set<number>()
+  for (const [id, sku] of Object.entries(skus)) {
+    if (skuPasses(sku, operator, text, caseFold)) matched.add(Number(id))
+  }
+  return bitsetFromSet(matched, CAPACITY)
+}
+
+export const NO_PATTERN_FIELDS: Pick<FilterContext, 'isPatternField' | 'patternBitset' | 'patternValuesBitset'> = {
+  isPatternField: () => false,
+  patternBitset: () => new Uint32Array(1),
+  patternValuesBitset: () => new Uint32Array(1),
+}
+
 export function buildContext(): FilterContext {
   const allDocIds = new Set([0, 1, 2, 3, 4])
   return {
-    fieldTypes: { price: 'number', inStock: 'boolean', category: 'enum' },
+    isPatternField: fieldPath => fieldPath === 'sku',
+    patternBitset: (_fieldPath, operator, text, caseFold) => skuBitset(operator, text, caseFold),
+    patternValuesBitset: () => bitsetFromSet(new Set(Object.keys(skus).map(Number)), CAPACITY),
+    fieldTypes: { price: 'number', inStock: 'boolean', category: 'enum', sku: 'verbatim' },
     fieldIndexes: {
       price: makeNumericFieldIndex('price'),
       inStock: makeBooleanFieldIndex('inStock'),

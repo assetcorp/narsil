@@ -104,3 +104,19 @@ export function compareSortStrings(a: string, b: string): number {
   if (folded !== 0) return folded
   return compareCodePoints(a, b)
 }
+
+export function appendFoldedCodePoints(text: string, out: number[]): void {
+  const single = singleFoldTable()
+  const multi = multiFoldTable()
+  const cursor: FoldCursor = { index: 0, pending: null, pendingIndex: 0 }
+  for (let codePoint = nextFoldedCodePoint(text, cursor, single, multi); codePoint !== EXHAUSTED; ) {
+    out.push(codePoint)
+    codePoint = nextFoldedCodePoint(text, cursor, single, multi)
+  }
+}
+
+export function foldedCodePointCount(text: string): number {
+  const folded: number[] = []
+  appendFoldedCodePoints(text, folded)
+  return folded.length
+}

@@ -24,6 +24,7 @@ import {
   scoringConfigFor,
   searchOptionsFor,
   vectorSearchersOf,
+  withPatternWork,
 } from './shared'
 import { executeSortedQueryPage, sortsWithoutScores } from './sorted'
 import { executeHybridSearch, executeVectorSearch } from './vector'
@@ -39,8 +40,9 @@ function requireCursorDepth(cursor: string | undefined, signature: string | null
 
 export async function executeQuery<T = AnyDocument>(
   params: QueryParams,
-  context: QueryContext,
+  callerContext: QueryContext,
 ): Promise<QueryResult<T>> {
+  const context = withPatternWork(callerContext)
   const { manager, language, config, workerSearch, indexName } = context
   const startTime = now()
   const limit = clampLimit(params.limit)
@@ -95,12 +97,25 @@ export async function executeQuery<T = AnyDocument>(
     } else {
       const scoring = scoringConfigFor(params, context)
       const workerResult = workerSearch
-        ? await workerSearch(indexName, params, broadcastStatsForWorker(params, context, scoring), context.partitionIds)
+        ? await workerSearch(
+            indexName,
+            params,
+            broadcastStatsForWorker(params, context, scoring),
+            context.partitionIds,
+            context.patternWork,
+          )
         : null
       if (workerResult) {
         fanOutResult = workerResult
       } else {
-        fanOutResult = await fanOutQuery(manager, params, language, config.schema, scoring, searchOptionsFor(manager))
+        fanOutResult = await fanOutQuery(
+          manager,
+          params,
+          language,
+          config.schema,
+          scoring,
+          searchOptionsFor(manager, context.patternWork),
+        )
       }
     }
 
@@ -250,7 +265,8 @@ export async function executeQuery<T = AnyDocument>(
   }
 }
 
-export async function executePreflight(params: QueryParams, context: QueryContext): Promise<PreflightResult> {
+export async function executePreflight(params: QueryParams, callerContext: QueryContext): Promise<PreflightResult> {
+  const context = withPatternWork(callerContext)
   const { manager, language, config, workerSearch, indexName } = context
   const startTime = now()
 
@@ -283,13 +299,19 @@ export async function executePreflight(params: QueryParams, context: QueryContex
     countExact = result.matchedExact !== false
   } else if (countsWithoutScores(params)) {
     totalMatched = fanOutMatchCount(manager, params, language, config.schema, {
-      searchOptions: searchOptionsFor(manager),
+      searchOptions: searchOptionsFor(manager, context.patternWork),
       partitionIds: context.partitionIds,
     })
   } else {
     const scoring = scoringConfigFor(params, context)
     const workerResult = workerSearch
-      ? await workerSearch(indexName, params, broadcastStatsForWorker(params, context, scoring), context.partitionIds)
+      ? await workerSearch(
+          indexName,
+          params,
+          broadcastStatsForWorker(params, context, scoring),
+          context.partitionIds,
+          context.patternWork,
+        )
       : null
     if (workerResult) {
       totalMatched = workerResult.totalMatched
@@ -300,7 +322,7 @@ export async function executePreflight(params: QueryParams, context: QueryContex
         language,
         config.schema,
         scoring,
-        searchOptionsFor(manager),
+        searchOptionsFor(manager, context.patternWork),
       )
       totalMatched = fanOutResult.totalMatched
     }

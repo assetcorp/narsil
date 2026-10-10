@@ -4,6 +4,7 @@ import { createEngineIndex } from '../../../engine/index-lifecycle'
 import { shutdownEngine } from '../../../engine/lifecycle'
 import { insertDocument } from '../../../engine/mutations'
 import type { QueryContext } from '../../../engine/query'
+import { withPatternWork } from '../../../engine/query/shared'
 import { executeHybridSearch } from '../../../engine/query/vector'
 import type { IndexConfig } from '../../../types/schema'
 import type { QueryParams } from '../../../types/search'
@@ -73,7 +74,7 @@ describe('hybrid query legs', () => {
       },
     }
 
-    const result = await executeHybridSearch(hybridParams, context, 10, 0)
+    const result = await executeHybridSearch(hybridParams, withPatternWork(context), 10, 0)
 
     expect(vectorInFlightDuringText).toBe(true)
     expect(result.scored.map(doc => doc.docId)).toEqual(['B', 'A', 'C'])

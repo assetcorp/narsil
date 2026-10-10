@@ -1,4 +1,5 @@
 import { readHeapStatistics } from '#platform/heap-statistics'
+import { joinPatternWorkMeter } from '../core/pattern-index/work-meter'
 import { ErrorCodes, NarsilError } from '../errors'
 import { getLanguage } from '../languages/registry'
 import { sanitizeGlobalStats } from '../partitioning/distributed-scoring'
@@ -251,7 +252,7 @@ export function createDirectExecutor(options?: DirectExecutorOptions): Executor 
             partitionIds: action.partitionIds,
             ...(action.globalStats !== undefined ? { globalStats: sanitizeGlobalStats(action.globalStats) } : {}),
           },
-          entry.searchOptions,
+          { ...entry.searchOptions, patternWork: joinPatternWorkMeter(action.patternWork) },
         )
         return result as T
       }

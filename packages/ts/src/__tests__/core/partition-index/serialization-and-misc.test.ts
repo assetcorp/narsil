@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createPartitionIndex, type PartitionIndex } from '../../../core/partition'
+import { createPatternWorkMeter } from '../../../core/pattern-index/work-meter'
 import type { SchemaDefinition } from '../../../types/schema'
 import { english, makePartition, simpleSchema } from './fixtures'
 
@@ -65,7 +66,7 @@ describe('PartitionIndex serialization and misc', () => {
       const restored = makePartition(0)
       restored.deserialize(serialized, simpleSchema)
 
-      const result = restored.applyFilters({ fields: { price: { gte: 15 } } }, simpleSchema)
+      const result = restored.applyFilters({ fields: { price: { gte: 15 } } }, simpleSchema, createPatternWorkMeter())
       expect(result.size).toBe(1)
       expect(result.has('doc2')).toBe(true)
     })
@@ -128,6 +129,7 @@ describe('PartitionIndex serialization and misc', () => {
           },
         },
         geoSchema,
+        createPatternWorkMeter(),
       )
       expect(result.has('nyc')).toBe(true)
     })

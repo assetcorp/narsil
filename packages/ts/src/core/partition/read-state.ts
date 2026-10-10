@@ -4,6 +4,7 @@ import type { FieldType, SchemaDefinition } from '../../types/schema'
 import type { DocumentStoreReader } from '../document-store'
 import type { BooleanFieldIndexReader, EnumFieldIndexReader, NumericFieldIndexReader } from '../field-index'
 import type { InvertedIndexReader } from '../inverted-index'
+import type { PatternIndexReader } from '../pattern-index/types'
 import type { PartitionStatsView } from '../statistics'
 import type { SurfaceRegistryReader } from '../surface-registry'
 import type { ScoreBuffer } from './score-buffer'
@@ -18,6 +19,7 @@ export interface PartitionReadState {
   readonly booleanIndexes: ReadonlyMap<string, BooleanFieldIndexReader>
   readonly enumIndexes: ReadonlyMap<string, EnumFieldIndexReader>
   readonly geoIndexes: ReadonlyMap<string, GeoIndexReader>
+  readonly patternIndexes: ReadonlyMap<string, PatternIndexReader>
   readonly fieldNameTable: FieldNameTable
   readonly trackPositions: boolean
   flatSchemaCache: Record<string, FieldType> | null

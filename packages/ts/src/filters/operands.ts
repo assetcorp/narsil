@@ -1,3 +1,9 @@
+import { exceedsCodePoints, foldedCodePointCount } from '../core/ordering'
+import {
+  MAX_PATTERN_POSITIONS,
+  MAX_PATTERN_TEXT_CODE_POINTS,
+  PATTERN_TEST_OPERATORS,
+} from '../core/pattern-index/constants'
 import { ErrorCodes, NarsilError } from '../errors'
 import { requirePolygonRing } from '../geo/polygon'
 import { parsedTypeOf } from '../schema/validator/field-type'
@@ -61,6 +67,59 @@ function requireTextRangeField(fieldPath: string, operator: string, type: FieldT
     fieldPath,
     operator,
   )
+}
+
+function requirePatternField(fieldPath: string, operator: string, type: FieldType | undefined): void {
+  if (parsedTypeOf(type)?.pattern === true) return
+  const declared =
+    type === undefined ? `The schema declares no field "${fieldPath}"` : `Field "${fieldPath}" has type "${type}"`
+  invalid(
+    `"${operator}" applies to a pattern field alone, meaning a "verbatim" field or a text field whose type includes "pattern", because the engine keeps no pattern index for any other field. ${declared}`,
+    fieldPath,
+    operator,
+  )
+}
+
+function requirePatternText(fieldPath: string, operator: string, text: string, caseFold: boolean): void {
+  if (exceedsCodePoints(text, MAX_PATTERN_TEXT_CODE_POINTS)) {
+    invalid(
+      `"${operator}" on pattern field "${fieldPath}" holds more than ${MAX_PATTERN_TEXT_CODE_POINTS} code points`,
+      fieldPath,
+      operator,
+    )
+  }
+  if (caseFold && foldedCodePointCount(text) > MAX_PATTERN_POSITIONS) {
+    invalid(
+      `"${operator}" on pattern field "${fieldPath}" folds to more than ${MAX_PATTERN_POSITIONS} code points, which is the most positions that a pattern may hold`,
+      fieldPath,
+      operator,
+    )
+  }
+}
+
+function requirePatternOperands(fieldPath: string, filter: Record<string, unknown>, type: FieldType | undefined): void {
+  if (filter.contains !== undefined) {
+    if (typeof filter.contains !== 'string') {
+      invalid(`"contains" on field "${fieldPath}" must be a string`, fieldPath, 'contains')
+    }
+    requirePatternField(fieldPath, 'contains', type)
+  }
+  if (filter.caseFold !== undefined) {
+    if (typeof filter.caseFold !== 'boolean') {
+      invalid(`"caseFold" on field "${fieldPath}" must be true or false`, fieldPath, 'caseFold')
+    }
+    requirePatternField(fieldPath, 'caseFold', type)
+  }
+  if (parsedTypeOf(type)?.pattern !== true) return
+  const caseFold = filter.caseFold === true
+  for (const operator of PATTERN_TEST_OPERATORS) {
+    const operand = filter[operator]
+    if (typeof operand === 'string') requirePatternText(fieldPath, operator, operand, caseFold)
+    if (!Array.isArray(operand)) continue
+    for (const text of operand) {
+      if (typeof text === 'string') requirePatternText(fieldPath, operator, text, caseFold)
+    }
+  }
 }
 
 function requireRadius(fieldPath: string, radius: unknown): void {
@@ -203,6 +262,7 @@ export function requireValidOperands(
     }
     requireValidOperands(`${fieldPath}.size`, size as Record<string, unknown>, 'number')
   }
+  requirePatternOperands(fieldPath, filter, type)
   if (filter.radius !== undefined) requireRadius(fieldPath, filter.radius)
   if (filter.polygon !== undefined) {
     if (!isObjectRecord(filter.polygon)) {

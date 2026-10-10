@@ -1,3 +1,4 @@
+import type { SearchPatternWork } from '../../core/pattern-index/work-meter'
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { FanOutResult } from '../../partitioning/fan-out'
 import { detectRuntime } from '../../runtime/detect'
@@ -264,7 +265,9 @@ export function createWorkerOrchestrator(
       params: QueryParams,
       globalStats?: GlobalStatistics,
       partitionIds?: number[],
-    ): Promise<FanOutResult | null> => searchViaWorker(state, indexName, params, globalStats, partitionIds),
+      patternWork?: SearchPatternWork,
+    ): Promise<FanOutResult | null> =>
+      searchViaWorker(state, indexName, params, globalStats, partitionIds, patternWork),
     hasWorkerPool: (): boolean => state.workerPool !== null,
     mainCopyQueries: (): MainCopyQueries => state.mainCopyQueries ?? 'lone',
     shareMainThread: (): void => {

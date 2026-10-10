@@ -1,3 +1,4 @@
+import type { SearchPatternWork } from '../../core/pattern-index/work-meter'
 import type { FanOutResult } from '../../partitioning/fan-out'
 import type { EmbeddingAdapter } from '../../types/adapters'
 import type { MainCopyQueries, NarsilConfig } from '../../types/config'
@@ -38,6 +39,7 @@ export interface WorkerOrchestrator {
     params: QueryParams,
     globalStats?: GlobalStatistics,
     partitionIds?: number[],
+    patternWork?: SearchPatternWork,
   ): Promise<FanOutResult | null>
   hasWorkerPool(): boolean
   mainCopyQueries(): MainCopyQueries

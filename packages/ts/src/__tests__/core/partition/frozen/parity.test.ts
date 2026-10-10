@@ -8,6 +8,7 @@ import { searchFulltext } from '../../../../core/partition/search'
 import { sortedPageOf, sortValuesOf } from '../../../../core/partition/sorting'
 import { expandTermPrefix, suggestDisplayTerms } from '../../../../core/partition/suggestions'
 import { getAllDocIds } from '../../../../core/partition/utils'
+import { createPatternWorkMeter } from '../../../../core/pattern-index/work-meter'
 import type { InternalSearchParams } from '../../../../types/internal'
 import type { AnyDocument } from '../../../../types/schema'
 import { english, simpleSchema } from '../../partition-index/fixtures'
@@ -138,12 +139,14 @@ describe('a frozen segment answers every read like the live partition it froze',
       },
     }
 
-    expect(applyPartitionFilters(frozen, filters, simpleSchema)).toEqual(live.applyFilters(filters, simpleSchema))
+    expect(applyPartitionFilters(frozen, filters, simpleSchema, createPatternWorkMeter())).toEqual(
+      live.applyFilters(filters, simpleSchema, createPatternWorkMeter()),
+    )
 
-    const liveMatches = live.filterMatches(filters, simpleSchema)
-    const frozenMatches = partitionFilterMatches(frozen, filters, simpleSchema)
+    const liveMatches = live.filterMatches(filters, simpleSchema, createPatternWorkMeter())
+    const frozenMatches = partitionFilterMatches(frozen, filters, simpleSchema, createPatternWorkMeter())
     expect(frozenMatches.count).toBe(liveMatches.count)
-    for (const docId of applyPartitionFilters(frozen, filters, simpleSchema)) {
+    for (const docId of applyPartitionFilters(frozen, filters, simpleSchema, createPatternWorkMeter())) {
       expect(frozenMatches.hasExternal(docId)).toBe(true)
     }
   })
@@ -153,14 +156,18 @@ describe('a frozen segment answers every read like the live partition it froze',
     const filters = { fields: { price: { gte: 5 } } }
 
     const liveResult = live.searchFulltext(
-      termParams({ tokens: ['apple'], exact: true, filterBitset: live.applyFiltersBitset(filters, simpleSchema) }),
+      termParams({
+        tokens: ['apple'],
+        exact: true,
+        filterBitset: live.applyFiltersBitset(filters, simpleSchema, createPatternWorkMeter()),
+      }),
     )
     const frozenResult = searchFulltext(
       frozen,
       termParams({
         tokens: ['apple'],
         exact: true,
-        filterBitset: live.applyFiltersBitset(filters, simpleSchema),
+        filterBitset: live.applyFiltersBitset(filters, simpleSchema, createPatternWorkMeter()),
       }),
     )
 
@@ -246,7 +253,12 @@ describe('a tombstone removes a document from every frozen read', () => {
     const matches = searchFulltextMatches(frozen, termParams({ tokens: ['apple'], exact: true }))
     expect(matches.matchedDocIds().has(victim)).toBe(false)
 
-    const filtered = applyPartitionFilters(frozen, { fields: { price: { gte: 0 } } }, simpleSchema)
+    const filtered = applyPartitionFilters(
+      frozen,
+      { fields: { price: { gte: 0 } } },
+      simpleSchema,
+      createPatternWorkMeter(),
+    )
     expect(filtered.has(victim)).toBe(false)
 
     const page = sortedPageOf(frozen, {
@@ -313,7 +325,9 @@ describe('a tombstone removes a document from every frozen read', () => {
     }
 
     const filters = { fields: { price: { between: [0, 9] as [number, number] } } }
-    expect(applyPartitionFilters(frozen, filters, simpleSchema)).toEqual(live.applyFilters(filters, simpleSchema))
+    expect(applyPartitionFilters(frozen, filters, simpleSchema, createPatternWorkMeter())).toEqual(
+      live.applyFilters(filters, simpleSchema, createPatternWorkMeter()),
+    )
     for (const doc of survivors) {
       expect(frozen.docStore.get(String(doc.id))?.fields).toEqual(doc)
     }

@@ -1,3 +1,4 @@
+import { requirePatternSearchFor } from '../core/pattern-index/registry'
 import { ErrorCodes, NarsilError } from '../errors'
 import { getLanguage } from '../languages/registry'
 import {
@@ -51,6 +52,7 @@ export async function createEngineIndex(
   }
   const schema = validateSchema(requestedConfig.schema)
   const indexConfig = schema === requestedConfig.schema ? requestedConfig : { ...requestedConfig, schema }
+  requirePatternSearchFor(schema)
   validatePatternValueLimit(indexConfig.patternValueLimit)
   validateVectorPromotion(indexConfig.vectorPromotion)
   validateVectorStorage(indexConfig.vectorPromotion, core.filesystemDurability)

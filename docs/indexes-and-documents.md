@@ -25,14 +25,14 @@ await narsil.createIndex('articles', {
 
 ### Text fields
 
-The engine splits a `string` value into words, so it can find the document by any word in the value. It stores a `verbatim` value exactly as written, as one piece of text. Because the engine keeps that value whole, it leaves a `verbatim` field out of keyword search, although it can test the whole value in a filter. Declare a file path, a URL, an order code, or a log line as `verbatim`.
+The engine splits a `string` value into words, so it can find the document by any word in the value. It stores a `verbatim` value exactly as written, as one piece of text. Because the engine keeps that value whole, it leaves a `verbatim` field out of keyword search, although it can test the whole value in a filter. Every `verbatim` field is a pattern field, so a filter can also test it with [`contains` and `caseFold`](filters-facets-and-pagination.md#pattern-tests). Declare a file path, a URL, an order code, or a log line as `verbatim`.
 
 Add any of three options to a `string` or `string[]` type, each after a colon and in any order:
 
 | Option | Effect |
 | --- | --- |
 | `sortable` | The engine can sort by the field. On a single `string` field, it can also [test a text range](filters-facets-and-pagination.md#text-ranges). |
-| `pattern` | The engine raises `DOC_VALIDATION_FAILED` for a value in the field that is longer than the [pattern value limit](#pattern-value-limit). A later release will add pattern search, which will test the field. |
+| `pattern` | The engine keeps a pattern index for the field, so a filter can test it with [`contains` and `caseFold`](filters-facets-and-pagination.md#pattern-tests). It raises `DOC_VALIDATION_FAILED` for a value in the field that is longer than the [pattern value limit](#pattern-value-limit). |
 | `partial` | A later release will add partial-word search, which will match parts of the words in the field. |
 
 Add `sortable` alone to a `verbatim` or `verbatim[]` type. The engine stores the options in the order `sortable`, `pattern`, `partial`, whatever their order in the type name, so `getStats` returns `string:sortable:partial` for a field declared as `string:partial:sortable`. It raises `SCHEMA_INVALID_TYPE` for an unknown type, for an option outside the list for its type, such as `number:sortable` or `verbatim:pattern`, and for an option written twice. It applies the same check whenever it loads a schema, as it reopens an index from disk, restores a snapshot, or receives a schema from the cluster. For that reason, an engine raises the same error for an index with a type from a newer version, so that it serves an index only with all of its fields.

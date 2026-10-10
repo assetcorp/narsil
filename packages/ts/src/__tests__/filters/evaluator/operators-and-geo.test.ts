@@ -5,7 +5,7 @@ import type { FilterContext } from '../../../filters/evaluator'
 import { evaluateFilters } from '../../../filters/evaluator'
 import type { FieldIndex, GeoFieldIndex } from '../../../filters/operators'
 import type { FilterExpression } from '../../../types/filters'
-import { buildContext, resultSet } from './fixtures'
+import { buildContext, NO_PATTERN_FIELDS, resultSet } from './fixtures'
 
 describe('evaluateFilters operators, presence, and geo', () => {
   const ctx = buildContext()
@@ -23,6 +23,7 @@ describe('evaluateFilters operators, presence, and geo', () => {
       fieldIndexes: {},
       getFieldValue: (id, field) => sparseProducts[id]?.[field],
       textRangeBitset: () => new Uint32Array(1),
+      ...NO_PATTERN_FIELDS,
       allDocIds: sparseAllDocIds,
       capacity: 4,
       allDocIdsBitset: bitsetFromSet(sparseAllDocIds, 4),
@@ -56,6 +57,7 @@ describe('evaluateFilters operators, presence, and geo', () => {
       fieldIndexes: {},
       getFieldValue: (id, field) => dataProducts[id]?.[field],
       textRangeBitset: () => new Uint32Array(1),
+      ...NO_PATTERN_FIELDS,
       allDocIds: emptyAllDocIds,
       capacity: 3,
       allDocIdsBitset: bitsetFromSet(emptyAllDocIds, 3),
@@ -132,6 +134,7 @@ describe('evaluateFilters operators, presence, and geo', () => {
         fieldIndexes: { location: geoIdx },
         getFieldValue: () => undefined,
         textRangeBitset: () => new Uint32Array(1),
+        ...NO_PATTERN_FIELDS,
         allDocIds: geoAllDocIds,
         capacity: 4,
         allDocIdsBitset: bitsetFromSet(geoAllDocIds, 4),
@@ -156,6 +159,7 @@ describe('evaluateFilters operators, presence, and geo', () => {
         fieldIndexes: { location: geoIdx },
         getFieldValue: () => undefined,
         textRangeBitset: () => new Uint32Array(1),
+        ...NO_PATTERN_FIELDS,
         allDocIds: geoAllDocIds,
         capacity: 3,
         allDocIdsBitset: bitsetFromSet(geoAllDocIds, 3),

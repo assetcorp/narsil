@@ -59,5 +59,6 @@ function emptyPayload(): SegmentPayload {
     boolean: [],
     enums: [],
     geo: [],
+    pattern: [],
   }
 }

@@ -1,6 +1,7 @@
 import type { FilterExpression } from '../../../types/filters'
 import type { SchemaDefinition } from '../../../types/schema'
 import { bitsetHas } from '../../bitset'
+import type { PatternWorkMeter } from '../../pattern-index/types'
 import { applyPartitionFilters, applyPartitionFiltersBitset, type PartitionFilterMatches } from '../filters'
 import type { PartitionReadState } from '../read-state'
 
@@ -48,10 +49,11 @@ export function compositeFiltersBitset(
   layout: OrdinalLayout,
   filters: FilterExpression,
   schema: SchemaDefinition,
+  meter: PatternWorkMeter,
 ): Uint32Array {
   const composite = new Uint32Array(Math.ceil(layout.totalCapacity / WORD_BITS))
   for (let i = 0; i < subs.length; i++) {
-    placeSubBitset(composite, layout, i, applyPartitionFiltersBitset(subs[i], filters, schema))
+    placeSubBitset(composite, layout, i, applyPartitionFiltersBitset(subs[i], filters, schema, meter))
   }
   return composite
 }
@@ -60,10 +62,11 @@ export function compositeFilters(
   subs: readonly PartitionReadState[],
   filters: FilterExpression,
   schema: SchemaDefinition,
+  meter: PatternWorkMeter,
 ): Set<string> {
   const combined = new Set<string>()
   for (const sub of subs) {
-    for (const docId of applyPartitionFilters(sub, filters, schema)) {
+    for (const docId of applyPartitionFilters(sub, filters, schema, meter)) {
       combined.add(docId)
     }
   }
@@ -75,8 +78,9 @@ export function compositeFilterMatches(
   layout: OrdinalLayout,
   filters: FilterExpression,
   schema: SchemaDefinition,
+  meter: PatternWorkMeter,
 ): PartitionFilterMatches {
-  const bits = compositeFiltersBitset(subs, layout, filters, schema)
+  const bits = compositeFiltersBitset(subs, layout, filters, schema, meter)
 
   let count = 0
   for (let i = 0; i < subs.length; i++) {

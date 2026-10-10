@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { PartitionIndex } from '../../../core/partition'
 import { segmentTransferables } from '../../../core/partition/segment-payload'
+import { createPatternWorkMeter } from '../../../core/pattern-index/work-meter'
 import { ErrorCodes, NarsilError } from '../../../errors'
 import type { FilterExpression } from '../../../types/filters'
 import type { SchemaDefinition } from '../../../types/schema'
@@ -108,7 +109,9 @@ describe('mergeSegment', () => {
       { fields: { category: { eq: 'music' } } },
     ]
     for (const filter of filters) {
-      expect(merged.applyFilters(filter, geoSchema)).toEqual(sequential.applyFilters(filter, geoSchema))
+      expect(merged.applyFilters(filter, geoSchema, createPatternWorkMeter())).toEqual(
+        sequential.applyFilters(filter, geoSchema, createPatternWorkMeter()),
+      )
     }
   })
 

@@ -3,6 +3,7 @@ import type { SerializablePartition } from '../../types/internal'
 import type { SchemaDefinition } from '../../types/schema'
 import { createBooleanIndex, createEnumIndex, createNumericIndex } from '../field-index'
 import type { SerializedPartitionStats } from '../statistics'
+import { loadPatternIndexes, serializePatternIndexes } from './pattern-snapshot'
 import { getFlatSchema, type PartitionState } from './utils'
 
 export function serializePartition(
@@ -90,6 +91,7 @@ export function serializePartition(
   }
 
   const serializedStats = state.stats.serialize()
+  const serializedPattern = serializePatternIndexes(state, schema)
 
   return {
     indexName,
@@ -106,6 +108,7 @@ export function serializePartition(
       boolean: serializedBoolean,
       enum: serializedEnum,
       geopoint: serializedGeo,
+      ...(serializedPattern === undefined ? {} : { pattern: serializedPattern }),
     },
     surfaceForms: state.surfaceRegistry.serialize(),
     statistics: serializedStats,
@@ -213,4 +216,6 @@ export function deserializePartition(
       throw new Error(`Schema mismatch: serialized data contains unknown field "${field}" not present in schema`)
     }
   }
+
+  loadPatternIndexes(state, data.fieldIndexes.pattern, schema)
 }

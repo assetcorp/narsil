@@ -81,6 +81,11 @@ export interface VectorEntry {
   magnitude: number
 }
 
+export interface SerializedPatternIndex {
+  docIds: string[]
+  runs: Record<string, unknown>
+}
+
 export interface SerializablePartition {
   indexName: string
   partitionId: number
@@ -107,6 +112,7 @@ export interface SerializablePartition {
     boolean: Record<string, { trueDocs: string[]; falseDocs: string[] }>
     enum: Record<string, Record<string, string[]>>
     geopoint: Record<string, Array<{ lat: number; lon: number; docId: string }>>
+    pattern?: Record<string, SerializedPatternIndex>
   }
   surfaceForms?: SerializedSurfaceForms
   vectorData?: Record<

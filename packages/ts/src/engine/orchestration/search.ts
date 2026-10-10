@@ -1,3 +1,5 @@
+import type { SearchPatternWork, SharedPatternWork } from '../../core/pattern-index/work-meter'
+import { ErrorCodes, NarsilError } from '../../errors'
 import { type FanOutResult, kWayMerge } from '../../partitioning/fan-out'
 import type { PartitionManager } from '../../partitioning/manager'
 import { mergeFacets, oversampledFacetConfig } from '../../search/facets'
@@ -49,6 +51,7 @@ function queryAction(
   params: QueryParams,
   globalStats: GlobalStatistics | undefined,
   partitionIds: number[] | undefined,
+  patternWork: SharedPatternWork | undefined,
 ) {
   return {
     type: 'query' as const,
@@ -57,6 +60,7 @@ function queryAction(
     requestId: createRequestId(),
     ...(partitionIds !== undefined ? { partitionIds } : {}),
     ...(globalStats !== undefined ? { globalStats } : {}),
+    ...(patternWork !== undefined ? { patternWork } : {}),
   }
 }
 
@@ -66,6 +70,7 @@ async function runSplit(
   indexName: string,
   params: QueryParams,
   globalStats: GlobalStatistics | undefined,
+  patternWork: SharedPatternWork | undefined,
 ): Promise<FanOutResult> {
   const assignments = partitionsPerLease(scope, leases.length)
   const workerParams =
@@ -73,7 +78,7 @@ async function runSplit(
   const results = await Promise.all(
     assignments.map((partitionIds, at) =>
       leases[at].executor
-        .execute<FanOutResult>(queryAction(indexName, workerParams, globalStats, partitionIds))
+        .execute<FanOutResult>(queryAction(indexName, workerParams, globalStats, partitionIds, patternWork))
         .finally(() => leases[at].release()),
     ),
   )
@@ -101,6 +106,7 @@ export async function searchViaWorker(
   params: QueryParams,
   globalStats?: GlobalStatistics,
   partitionIds?: number[],
+  patternWork?: SearchPatternWork,
 ): Promise<FanOutResult | null> {
   const pool = state.workerPool
   if (!pool) return null
@@ -117,14 +123,23 @@ export async function searchViaWorker(
   try {
     if (idle.length >= 2 && scoresPerPartition(state, indexName, params, globalStats)) {
       leases.push(...idle)
-      return await runSplit(leases, scope, indexName, params, globalStats)
+      const fork = patternWork?.fork(leases.length)
+      const merged = await runSplit(leases, scope, indexName, params, globalStats, fork?.shared)
+      fork?.absorb()
+      return merged
     }
     for (const lease of idle.slice(1)) lease.release()
     const lease = idle[0] ?? (takeMainCopyTurn(state) ? null : pool.leaseLeastBusy())
     if (lease === null) return null
     leases.push(lease)
-    return await lease.executor.execute<FanOutResult>(queryAction(indexName, params, globalStats, partitionIds))
+    const fork = patternWork?.fork(1)
+    const result = await lease.executor.execute<FanOutResult>(
+      queryAction(indexName, params, globalStats, partitionIds, fork?.shared),
+    )
+    fork?.absorb()
+    return result
   } catch (err) {
+    if (err instanceof NarsilError && err.code === ErrorCodes.SEARCH_WORK_CAP_EXCEEDED) throw err
     console.warn('Worker search failed, falling back to local:', err)
     return null
   } finally {

@@ -14,6 +14,8 @@ import {
   type EnumFieldIndex,
   type NumericFieldIndex,
 } from '../field-index'
+import { patternIndexOf } from '../pattern-index/host'
+import type { PatternIndexWriter } from '../pattern-index/types'
 import { visitTokens } from '../tokenizer/tokenize'
 import { GrowableUint32 } from './growable-uint32'
 import { encodeFieldIndexes } from './segment-field-indexes'
@@ -35,6 +37,7 @@ interface FieldIndexes {
   booleanIndexes: Map<string, BooleanFieldIndex>
   enumIndexes: Map<string, EnumFieldIndex>
   geoIndexes: Map<string, GeoIndex>
+  patternIndexes: Map<string, PatternIndexWriter>
 }
 
 function indexOf<T>(indexes: Map<string, T>, fieldPath: string, create: () => T): T {
@@ -343,6 +346,7 @@ export function buildSegmentPayload(
     booleanIndexes: new Map(),
     enumIndexes: new Map(),
     geoIndexes: new Map(),
+    patternIndexes: new Map(),
   }
 
   let positionOffset = 0
@@ -353,9 +357,10 @@ export function buildSegmentPayload(
 
   for (let ordinal = 0; ordinal < documents.length; ordinal++) {
     const document = documents[ordinal].document as Record<string, unknown>
-    for (const { path: fieldPath, base: fieldType } of fields) {
+    for (const { path: fieldPath, base: fieldType, pattern } of fields) {
       const value = getNestedValue(document, fieldPath)
       if (value === undefined || value === null) continue
+      if (pattern) patternIndexOf(filters.patternIndexes, fieldPath).add(ordinal, value)
       if (!isWordIndexedBase(fieldType)) {
         indexFilterValue(filters, ordinal, fieldPath, fieldType, value)
         continue

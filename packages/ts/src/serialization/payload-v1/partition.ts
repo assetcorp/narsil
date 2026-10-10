@@ -1,6 +1,7 @@
 import { decode, encode } from '@msgpack/msgpack'
+import { ErrorCodes, NarsilError } from '../../errors'
 import { requireValidFieldTypes } from '../../schema/validator/schema'
-import type { SerializablePartition, SerializedSurfaceForms } from '../../types/internal'
+import type { SerializablePartition, SerializedPatternIndex, SerializedSurfaceForms } from '../../types/internal'
 import { VALID_HNSW_METRICS } from '../constants'
 import { dropStoredVectorValues } from '../stored-vector-values'
 
@@ -18,6 +19,55 @@ export function sanitizeSurfaceForms(raw: unknown): SerializedSurfaceForms | und
     }
   }
   return count > 0 ? result : undefined
+}
+
+export interface RawPatternIndex {
+  doc_ids: string[]
+  runs: Record<string, unknown>
+}
+
+export function patternIndexesToWire(pattern: Record<string, SerializedPatternIndex> | undefined): {
+  pattern?: Record<string, RawPatternIndex>
+} {
+  if (pattern === undefined) return {}
+  const wire: Record<string, RawPatternIndex> = Object.create(null)
+  for (const [field, index] of Object.entries(pattern)) wire[field] = { doc_ids: index.docIds, runs: index.runs }
+  return { pattern: wire }
+}
+
+function isWireRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
+function corruptPatternEntry(field: string): NarsilError {
+  return new NarsilError(
+    ErrorCodes.PERSISTENCE_LOAD_FAILED,
+    `The pattern entry of field "${field}" in this partition holds no list of document IDs and map of runs`,
+    { field },
+  )
+}
+
+export function patternIndexesFromWire(raw: unknown): { pattern?: Record<string, SerializedPatternIndex> } {
+  if (raw === undefined || raw === null) return {}
+  if (!isWireRecord(raw)) {
+    throw new NarsilError(
+      ErrorCodes.PERSISTENCE_LOAD_FAILED,
+      'The pattern entry of this partition holds no map of fields',
+    )
+  }
+  const pattern: Record<string, SerializedPatternIndex> = Object.create(null)
+  for (const [field, index] of Object.entries(raw)) {
+    if (!isWireRecord(index) || !isWireRecord(index.runs) || !Array.isArray(index.doc_ids)) {
+      throw corruptPatternEntry(field)
+    }
+    const docIds: string[] = []
+    for (const docId of index.doc_ids) {
+      if (typeof docId !== 'string') throw corruptPatternEntry(field)
+      docIds.push(docId)
+    }
+    pattern[field] = { docIds, runs: index.runs }
+  }
+  return { pattern }
 }
 
 export interface RawPartitionPayload {
@@ -46,6 +96,7 @@ export interface RawPartitionPayload {
     boolean: Record<string, { true_docs: string[]; false_docs: string[] }>
     enum: Record<string, Record<string, string[]>>
     geopoint: Record<string, Array<{ lat: number; lon: number; doc_id: string }>>
+    pattern?: Record<string, RawPatternIndex>
   }
   surface_forms?: SerializedSurfaceForms
   vector_data?: Record<
@@ -128,6 +179,7 @@ function partitionToWire(partition: SerializablePartition): RawPartitionPayload 
       boolean: wireBoolean,
       enum: partition.fieldIndexes.enum,
       geopoint: wireGeopoint,
+      ...patternIndexesToWire(partition.fieldIndexes.pattern),
     },
     surface_forms: partition.surfaceForms,
     statistics: {
@@ -220,6 +272,7 @@ function wireToPartition(raw: RawPartitionPayload): SerializablePartition {
       boolean,
       enum: raw.field_indexes?.enum ?? {},
       geopoint,
+      ...patternIndexesFromWire(raw.field_indexes?.pattern),
     },
     surfaceForms: sanitizeSurfaceForms(raw.surface_forms),
     vectorData,

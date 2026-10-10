@@ -16,6 +16,7 @@ import type { FacetConfig } from '../../types/search'
 import { createDocumentStore } from '../document-store'
 import { createInvertedIndex } from '../inverted-index'
 import type { ComparableSortValue, SortMode } from '../ordering'
+import type { PatternWorkMeter } from '../pattern-index/types'
 import { cloneProjected, type ResolvedProjection } from '../projection'
 import { createPartitionStats } from '../statistics'
 import { createSurfaceRegistry } from '../surface-registry'
@@ -84,6 +85,7 @@ export function createPartitionIndex(partitionId: number, trackPositions = true)
     booleanIndexes: new Map(),
     enumIndexes: new Map(),
     geoIndexes: new Map(),
+    patternIndexes: new Map(),
     fieldNameTable,
     flatSchemaCache: null,
     lastSchemaRef: null,
@@ -104,6 +106,7 @@ export function createPartitionIndex(partitionId: number, trackPositions = true)
     state.booleanIndexes.clear()
     state.enumIndexes.clear()
     state.geoIndexes.clear()
+    state.patternIndexes.clear()
     state.stats.deserialize({ totalDocuments: 0, totalFieldLengths: {}, averageFieldLengths: {}, docFrequencies: {} })
     state.flatSchemaCache = null
     state.lastSchemaRef = null
@@ -327,16 +330,20 @@ export function createPartitionIndex(partitionId: number, trackPositions = true)
       return sortValuesOf(state, docId, fields, fieldTypes, modes)
     },
 
-    applyFilters(filters: FilterExpression, schema: SchemaDefinition): Set<string> {
-      return applyPartitionFilters(state, filters, schema)
+    applyFilters(filters: FilterExpression, schema: SchemaDefinition, meter: PatternWorkMeter): Set<string> {
+      return applyPartitionFilters(state, filters, schema, meter)
     },
 
-    applyFiltersBitset(filters: FilterExpression, schema: SchemaDefinition): Uint32Array {
-      return applyPartitionFiltersBitset(state, filters, schema)
+    applyFiltersBitset(filters: FilterExpression, schema: SchemaDefinition, meter: PatternWorkMeter): Uint32Array {
+      return applyPartitionFiltersBitset(state, filters, schema, meter)
     },
 
-    filterMatches(filters: FilterExpression, schema: SchemaDefinition): PartitionFilterMatches {
-      return partitionFilterMatches(state, filters, schema)
+    filterMatches(
+      filters: FilterExpression,
+      schema: SchemaDefinition,
+      meter: PatternWorkMeter,
+    ): PartitionFilterMatches {
+      return partitionFilterMatches(state, filters, schema, meter)
     },
 
     computeFacets(matched: FacetMatchSet, config: FacetConfig, schema: SchemaDefinition): Record<string, FacetResult> {

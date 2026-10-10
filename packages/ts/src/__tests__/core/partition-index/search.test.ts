@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { PartitionIndex } from '../../../core/partition'
+import { createPatternWorkMeter } from '../../../core/pattern-index/work-meter'
 import { english, makePartition, simpleSchema } from './fixtures'
 
 describe('PartitionIndex search, filters, and facets', () => {
@@ -105,7 +106,7 @@ describe('PartitionIndex search, filters, and facets', () => {
       partition.insert('doc2', { title: 'two', price: 20 }, simpleSchema, english)
       partition.insert('doc3', { title: 'three', price: 30 }, simpleSchema, english)
 
-      const result = partition.applyFilters({ fields: { price: { gte: 20 } } }, simpleSchema)
+      const result = partition.applyFilters({ fields: { price: { gte: 20 } } }, simpleSchema, createPatternWorkMeter())
       expect(result.size).toBe(2)
       expect(result.has('doc2')).toBe(true)
       expect(result.has('doc3')).toBe(true)
@@ -115,7 +116,11 @@ describe('PartitionIndex search, filters, and facets', () => {
       partition.insert('doc1', { title: 'one', active: true }, simpleSchema, english)
       partition.insert('doc2', { title: 'two', active: false }, simpleSchema, english)
 
-      const result = partition.applyFilters({ fields: { active: { eq: true } } }, simpleSchema)
+      const result = partition.applyFilters(
+        { fields: { active: { eq: true } } },
+        simpleSchema,
+        createPatternWorkMeter(),
+      )
       expect(result.size).toBe(1)
       expect(result.has('doc1')).toBe(true)
     })
@@ -124,7 +129,11 @@ describe('PartitionIndex search, filters, and facets', () => {
       partition.insert('doc1', { title: 'one', category: 'books' }, simpleSchema, english)
       partition.insert('doc2', { title: 'two', category: 'electronics' }, simpleSchema, english)
 
-      const result = partition.applyFilters({ fields: { category: { eq: 'electronics' } } }, simpleSchema)
+      const result = partition.applyFilters(
+        { fields: { category: { eq: 'electronics' } } },
+        simpleSchema,
+        createPatternWorkMeter(),
+      )
       expect(result.size).toBe(1)
       expect(result.has('doc2')).toBe(true)
     })
@@ -139,6 +148,7 @@ describe('PartitionIndex search, filters, and facets', () => {
           and: [{ fields: { price: { gte: 20 } } }, { fields: { active: { eq: true } } }],
         },
         simpleSchema,
+        createPatternWorkMeter(),
       )
       expect(result.size).toBe(1)
       expect(result.has('doc2')).toBe(true)

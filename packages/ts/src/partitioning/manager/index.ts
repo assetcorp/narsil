@@ -5,6 +5,7 @@ import { type CompositePartition, createCompositePartition } from '../../core/pa
 import type { LiveTailFreezer } from '../../core/partition/composite/compaction'
 import type { FrozenSegment } from '../../core/partition/frozen'
 import type { SegmentPayload } from '../../core/partition/segment-payload'
+import { requirePatternSearchFor } from '../../core/pattern-index/registry'
 import { projectionKeepsField, type ResolvedProjection } from '../../core/projection'
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { SerializablePartition } from '../../types/internal'
@@ -28,6 +29,7 @@ export function createPartitionManager(
   initialPartitionCount?: number,
   vectorIndexes?: Map<string, VectorIndex>,
 ): PartitionManager {
+  requirePatternSearchFor(config.schema)
   const count = initialPartitionCount ?? 1
   const analysis = resolveIndexAnalysis(config)
   const trackPositions = config.trackPositions ?? true

@@ -46,6 +46,10 @@ describe('httpStatusForNarsilError', () => {
     }
   })
 
+  it('answers a search that passes the pattern work cap with 400', () => {
+    expect(httpStatusForNarsilError(ErrorCodes.SEARCH_WORK_CAP_EXCEEDED)).toBe(400)
+  })
+
   it('treats a malformed narsil file as a client failure', () => {
     expect(httpStatusForNarsilError(ErrorCodes.ENVELOPE_INVALID_MAGIC)).toBe(400)
     expect(httpStatusForNarsilError(ErrorCodes.ENVELOPE_VERSION_MISMATCH)).toBe(400)

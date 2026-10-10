@@ -1,4 +1,6 @@
 import type { PartitionIndex } from '../../core/partition'
+import type { PatternWorkMeter } from '../../core/pattern-index/types'
+import { createPatternWorkMeter, type SearchPatternWork } from '../../core/pattern-index/work-meter'
 import { ErrorCodes, NarsilError } from '../../errors'
 import { requireValidFilter } from '../../filters/operands'
 import { pruneStatsToQueryTerms } from '../../partitioning/distributed-scoring'
@@ -27,6 +29,7 @@ export interface QueryContext {
     params: QueryParams,
     globalStats?: GlobalStatistics,
     partitionIds?: number[],
+    patternWork?: SearchPatternWork,
   ) => Promise<FanOutResult | null>
   indexName: string
   broadcastStats?: (indexName: string) => GlobalStatistics | undefined
@@ -34,6 +37,15 @@ export interface QueryContext {
   cursorBinding: string
   /** The vector fields a search runs against where they are not the manager's own indexes, as on a request thread. */
   vectorSearchers?: ReadonlyMap<string, VectorSearcher>
+  patternWorkCap?: number
+}
+
+export interface SearchContext extends QueryContext {
+  readonly patternWork: SearchPatternWork
+}
+
+export function withPatternWork(context: QueryContext): SearchContext {
+  return { ...context, patternWork: createPatternWorkMeter(context.patternWorkCap) }
 }
 
 export function partitionsFor(manager: PartitionManager, partitionIds: number[] | undefined): PartitionIndex[] {
@@ -124,11 +136,12 @@ export function broadcastStatsForWorker(
   return pruneStatsToQueryTerms(scoring.globalStats, term, context.language, context.manager.analysis)
 }
 
-export function searchOptionsFor(manager: PartitionManager): FulltextSearchOptions {
+export function searchOptionsFor(manager: PartitionManager, patternWork: PatternWorkMeter): FulltextSearchOptions {
   return {
     bm25Params: manager.config.bm25,
     stopWords: manager.analysis.stopWords,
     customTokenizer: manager.analysis.customTokenizer,
+    patternWork,
   }
 }
 
@@ -136,12 +149,13 @@ export function collectFilterDocIds(
   manager: PartitionManager,
   params: QueryParams,
   schema: IndexConfig['schema'],
-  partitionIds?: number[],
+  partitionIds: number[] | undefined,
+  patternWork: PatternWorkMeter,
 ): Set<string> {
   const filterDocIds = new Set<string>()
   if (!params.filters) return filterDocIds
   for (const partition of partitionsFor(manager, partitionIds)) {
-    const partitionFiltered = partition.applyFilters(params.filters, schema)
+    const partitionFiltered = partition.applyFilters(params.filters, schema, patternWork)
     for (const docId of partitionFiltered) {
       filterDocIds.add(docId)
     }
