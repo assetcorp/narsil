@@ -19,6 +19,7 @@ import { BATCH_CHUNK_SIZE } from '../constants'
 import type { IndexRegistryEntry } from '../core'
 import type { DurabilityIntegration, DurableMutation } from '../durability-integration'
 import type { IndexStateCoordinator } from '../index-state'
+import { validatePatternValueLimit } from '../validation'
 import { restoredConfigFields, restoredEmbedding, type SnapshotEnvelope } from './restore-config'
 
 async function recordRestoredDocuments(
@@ -84,6 +85,7 @@ export async function createSnapshot(manager: PartitionManager, entry: IndexRegi
     ...(config.strict !== undefined ? { strict: config.strict } : {}),
     ...(config.required !== undefined ? { required: config.required } : {}),
     ...(config.vectorPromotion !== undefined ? { vectorPromotion: config.vectorPromotion } : {}),
+    ...(config.patternValueLimit !== undefined ? { patternValueLimit: config.patternValueLimit } : {}),
     ...(config.embedding !== undefined
       ? {
           embedding: {
@@ -165,8 +167,8 @@ export async function restoreFromSnapshot(indexName: string, data: Uint8Array, d
   const embedding = restoredEmbedding(envelope.embedding)
 
   const language = getLanguage(envelope.language)
-  const schema = envelope.schema as SchemaDefinition
-  validateSchema(schema)
+  const schema = validateSchema(envelope.schema as SchemaDefinition)
+  validatePatternValueLimit(configFields.patternValueLimit)
   validateVectorPromotion(configFields.vectorPromotion)
   validateVectorStorage(configFields.vectorPromotion, deps.filesystemDurability)
   if (configFields.required !== undefined && configFields.required.length > 0) {

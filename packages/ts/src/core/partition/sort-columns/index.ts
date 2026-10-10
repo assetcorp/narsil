@@ -1,3 +1,4 @@
+import { isListBase, parsedTypeOf } from '../../../schema/validator/field-type'
 import type { DocumentStoreReader } from '../../document-store'
 import {
   type ComparableSortValue,
@@ -48,7 +49,8 @@ interface ColumnEntry {
 }
 
 function mayHoldList(fieldType: string | undefined): boolean {
-  return fieldType === undefined || fieldType.endsWith('[]')
+  const parsed = parsedTypeOf(fieldType)
+  return parsed === undefined || isListBase(parsed.base)
 }
 
 function columnKeyOf(field: string, fieldType: string | undefined, mode: SortMode): string {

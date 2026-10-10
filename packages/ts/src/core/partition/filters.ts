@@ -1,8 +1,11 @@
 import { evaluateFilters, type FilterContext } from '../../filters/evaluator'
 import type { FieldIndex, GeoFieldIndex } from '../../filters/operators'
+import { schemaFieldsOf } from '../../schema/validator'
 import type { FilterExpression } from '../../types/filters'
 import type { SchemaDefinition } from '../../types/schema'
 import { bitsetFromSet, bitsetHas } from '../bitset'
+import type { TextRangeBounds } from './sort-columns/range'
+import { textRangeBitsetOf } from './sorting'
 import { getAllInternalDocIds, getFieldValueByInternalId, getFlatSchema, type PartitionReadState } from './utils'
 
 const EMPTY_GEO_INDEX: GeoFieldIndex = {
@@ -15,7 +18,7 @@ export function buildFilterContext(state: PartitionReadState, schema: SchemaDefi
   const fieldIndexes: Record<string, FieldIndex> = {}
   const capacity = state.docStore.internalIdCapacity()
 
-  for (const [fieldPath, fieldType] of Object.entries(flat)) {
+  for (const { path: fieldPath, base: fieldType } of schemaFieldsOf(schema)) {
     if (fieldType === 'number' || fieldType === 'number[]') {
       const numIdx = state.numericIndexes.get(fieldPath)
       if (numIdx) {
@@ -85,6 +88,8 @@ export function buildFilterContext(state: PartitionReadState, schema: SchemaDefi
     fieldIndexes,
     getFieldValue: (internalId: number, fieldPath: string) =>
       getFieldValueByInternalId(state.docStore, internalId, fieldPath),
+    textRangeBitset: (fieldPath: string, bounds: TextRangeBounds) =>
+      textRangeBitsetOf(state, fieldPath, flat[fieldPath], bounds, capacity),
     get allDocIds() {
       if (!cachedAllDocIds) {
         cachedAllDocIds = getAllInternalDocIds(state.docStore)

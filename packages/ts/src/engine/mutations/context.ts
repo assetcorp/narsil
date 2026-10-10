@@ -1,4 +1,5 @@
 import type { PartitionManager } from '../../partitioning/manager'
+import type { CapacityScope } from '../../partitioning/manager/capacity'
 import type { BufferedDocState, WAQEntry } from '../../partitioning/write-ahead-queue'
 import type { PluginRegistry } from '../../plugins/registry'
 import type { EmbeddingAdapter } from '../../types/adapters'
@@ -7,6 +8,7 @@ import type { AnyDocument, IndexConfig } from '../../types/schema'
 import type { DirectExecutorExtensions } from '../../workers/direct-executor'
 import type { Executor } from '../../workers/executor'
 import type { WorkerOrchestrator } from '../orchestration'
+import type { InsertedDocuments } from '../watermark'
 
 export interface DurableWriteToken {
   indexName: string
@@ -57,6 +59,7 @@ export interface MutationContext {
   pendingRebalanceWrites: (name: string) => number
   rebalanceTargetPartitionCount: (name: string) => number | undefined
   bufferedDocState: (name: string, docId: string) => BufferedDocState | undefined
-  checkWatermark: (name: string) => void
+  capacityScope: CapacityScope
+  checkWatermark: (name: string, inserted?: InsertedDocuments) => void
   checkHeapPressure: (name: string) => void
 }

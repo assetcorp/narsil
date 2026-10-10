@@ -22,6 +22,7 @@ import type { GlobalStatistics } from '../../types/internal'
 import type { ListResult, PartitionStatsResult, PreflightResult, QueryResult, SuggestResult } from '../../types/results'
 import type { AnyDocument, FieldType, IndexConfig, SchemaDefinition } from '../../types/schema'
 import type { ListParams, QueryParams, SuggestParams } from '../../types/search'
+import { withPartitionCount } from '../cluster/index-settings'
 import { MAX_PARTITION_COUNT } from '../constants'
 import type { ReplicationLogEntry } from '../replication/types'
 import { createHeldPartitionRecord } from './held-partitions'
@@ -42,7 +43,7 @@ export interface ClusterLocalEngine extends Narsil {
     indexName: string,
     partitionId: number,
     bytes: Uint8Array,
-    schema: SchemaDefinition,
+    config: IndexConfig,
     partitionCount: number,
   ): Promise<void>
   queryPartitions<T = AnyDocument>(
@@ -74,15 +75,17 @@ export async function createClusterLocalEngine(
 ): Promise<ClusterLocalEngine> {
   requireKnownConfig(config)
   const runnableConfig = await resolveRunnableConfig(config)
-  const core = createEngineCore(runnableConfig, hooks)
+  const core = createEngineCore(runnableConfig, hooks, 'partition')
   await startEngineCore(core, runnableConfig)
   core.orchestrator.shareMainThread()
   const engine = createNarsilFromCore(core, runnableConfig)
   const heldPartitions = createHeldPartitionRecord(core)
 
   return Object.assign(engine, {
+    createIndex: (name: string, indexConfig: IndexConfig) =>
+      createEngineIndex(core, runnableConfig, name, indexConfig, { adapterBinding: 'deferred' }),
     createIndexWithUuid: (name: string, indexConfig: IndexConfig, indexUuid?: string) =>
-      createEngineIndex(core, runnableConfig, name, indexConfig, indexUuid),
+      createEngineIndex(core, runnableConfig, name, indexConfig, { indexUuid }),
     acquireIndexForReplication: (indexName: string) => core.indexState.acquire(indexName, false),
     indexUuidOf: (indexName: string) => core.indexRegistry.get(indexName)?.indexUuid,
     stampIndexUuid: (indexName: string, indexUuid: string) => stampIndexUuid(core, indexName, indexUuid),
@@ -98,9 +101,9 @@ export async function createClusterLocalEngine(
       indexName: string,
       partitionId: number,
       bytes: Uint8Array,
-      schema: SchemaDefinition,
+      indexConfig: IndexConfig,
       partitionCount: number,
-    ) => restoreReplicationPartition(core, engine, indexName, partitionId, bytes, schema, partitionCount),
+    ) => restoreReplicationPartition(core, engine, indexName, partitionId, bytes, indexConfig, partitionCount),
     queryPartitions: <T = AnyDocument>(
       indexName: string,
       params: QueryParams,
@@ -157,11 +160,12 @@ async function restoreReplicationPartition(
   indexName: string,
   partitionId: number,
   bytes: Uint8Array,
-  schema: SchemaDefinition,
+  indexConfig: IndexConfig,
   partitionCount: number,
 ): Promise<void> {
   core.guardShutdown()
   validatePartitionRestoreTarget(indexName, partitionId, partitionCount)
+  const schema = indexConfig.schema
 
   let partition: ReturnType<typeof deserializePayloadV2>
   try {
@@ -185,7 +189,7 @@ async function restoreReplicationPartition(
       core,
       engine,
       indexName,
-      schema,
+      indexConfig,
       partition.language,
       partitionCount,
     )
@@ -291,7 +295,7 @@ async function ensureReplicationIndex(
   core: EngineCore,
   engine: Narsil,
   indexName: string,
-  schema: SchemaDefinition,
+  coordinatorConfig: IndexConfig,
   languageName: string,
   partitionCount: number,
 ): Promise<{ config: IndexConfig; created: boolean }> {
@@ -299,11 +303,10 @@ async function ensureReplicationIndex(
   const existing = core.indexRegistry.get(indexName)
   let created = false
   if (existing === undefined) {
-    const indexConfig: IndexConfig = {
-      schema,
-      language: language.name,
-      partitions: { maxPartitions: partitionCount },
-    }
+    const indexConfig = withPartitionCount(
+      { ...coordinatorConfig, language: coordinatorConfig.language ?? language.name },
+      partitionCount,
+    )
     try {
       await engine.createIndex(indexName, indexConfig)
       created = true
@@ -322,7 +325,7 @@ async function ensureReplicationIndex(
       receivedLanguage: language.name,
     })
   }
-  validateExistingSchema(indexName, schema, entry.config.schema)
+  validateExistingSchema(indexName, coordinatorConfig.schema, entry.config.schema)
 
   const manager = core.requireManager(indexName)
   if (manager.partitionCount > partitionCount) {

@@ -346,7 +346,7 @@ export async function insertBatchViaSegments(
     vecIndexes.get(fieldPath)?.scheduleBuild()
   }
 
-  ctx.checkWatermark(indexName)
+  ctx.checkWatermark(indexName, outcome.succeeded)
   ctx.checkHeapPressure(indexName)
   await ctx.orchestrator.scaleOutReadyIndexes()
   if (options?.wait === true) await awaitWriteVisibility(ctx, indexName)

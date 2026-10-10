@@ -29,7 +29,7 @@ describe('bootstrap sync hardening', () => {
 
   beforeEach(() => {
     mockEngine = makeMockEngine()
-    coordinator = makeMockCoordinator({ title: 'text' })
+    coordinator = makeMockCoordinator({ title: 'string' })
     scripted = makeScriptedTransport()
   })
 

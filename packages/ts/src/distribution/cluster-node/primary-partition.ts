@@ -1,4 +1,8 @@
 import { ErrorCodes, NarsilError } from '../../errors'
+import { validateSchema } from '../../schema/validator'
+import type { IndexConfig } from '../../types/schema'
+import { getClusterIndexConfig } from '../cluster/index-metadata'
+import { withPartitionCount } from '../cluster/index-settings'
 import type { ClusterCoordinator, PartitionAssignment } from '../coordinator/types'
 import { validateRestoredSchema } from './bootstrap-restore'
 import type { ClusterLocalEngine } from './local-engine'
@@ -33,8 +37,15 @@ export async function preparePrimaryPartition(
   partitionId: number,
   deps: PrimaryPartitionDeps,
 ): Promise<boolean> {
-  const schema = await deps.coordinator.getSchema(indexName)
-  if (schema === null) {
+  const storedSchema = await deps.coordinator.getSchema(indexName)
+  if (storedSchema === null) {
+    return false
+  }
+  let config: IndexConfig
+  try {
+    config = await getClusterIndexConfig(deps.coordinator, indexName, validateSchema(storedSchema))
+  } catch (error) {
+    deps.onError(error)
     return false
   }
   const allocation = await deps.coordinator.getAllocation(indexName)
@@ -45,10 +56,7 @@ export async function preparePrimaryPartition(
   const existing = deps.engine.listIndexes().find(index => index.name === indexName)
   if (existing === undefined) {
     try {
-      await deps.engine.createIndex(indexName, {
-        schema,
-        partitions: { maxPartitions: allocation.assignments.size },
-      })
+      await deps.engine.createIndex(indexName, withPartitionCount(config, allocation.assignments.size))
     } catch (error) {
       if (!(error instanceof NarsilError) || error.code !== ErrorCodes.INDEX_ALREADY_EXISTS) {
         deps.onError(error)
@@ -56,7 +64,7 @@ export async function preparePrimaryPartition(
       }
     }
   } else {
-    const schemaError = validateRestoredSchema(deps.engine, indexName, deps.nodeId, schema)
+    const schemaError = validateRestoredSchema(deps.engine, indexName, deps.nodeId, config.schema)
     if (schemaError !== null) {
       deps.onError(schemaError)
       return false

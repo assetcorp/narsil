@@ -1,4 +1,4 @@
-import { type ComparableSortValue, toComparableSortValue } from '../core/ordering'
+import { type ComparableSortValue, exceedsCodePoints, toComparableSortValue } from '../core/ordering'
 import { SORT_VALUE_MAX_CODE_POINTS } from '../core/ordering/constants'
 import { ErrorCodes, NarsilError } from '../errors'
 import type { SortSpec } from '../types/search'
@@ -33,23 +33,6 @@ export interface PageCursor {
 function invalidCursor(cursor: string, reason: string): NarsilError {
   const shown = cursor.length > 100 ? `${cursor.slice(0, 100)}...` : cursor
   return new NarsilError(ErrorCodes.SEARCH_INVALID_CURSOR, `Failed to decode cursor: ${reason}`, { cursor: shown })
-}
-
-function exceedsCodePoints(value: string, maximum: number): boolean {
-  if (value.length <= maximum) return false
-  let counted = 0
-  let i = 0
-  while (i < value.length) {
-    const unit = value.charCodeAt(i)
-    if (unit >= 0xd800 && unit < 0xdc00 && i + 1 < value.length) {
-      const low = value.charCodeAt(i + 1)
-      if (low >= 0xdc00 && low < 0xe000) i++
-    }
-    i++
-    counted++
-    if (counted > maximum) return true
-  }
-  return false
 }
 
 /**

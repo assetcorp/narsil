@@ -1,7 +1,6 @@
 import { createGeoIndex } from '../../geo/geo-index'
-import { isTextFieldType } from '../../schema/validator'
+import type { BaseFieldType, SchemaField } from '../../schema/validator'
 import type { LanguageModule } from '../../types/language'
-import type { FieldType } from '../../types/schema'
 import type { ReadonlyStoredDocument } from '../document-store'
 import {
   type BooleanFieldIndex,
@@ -19,14 +18,14 @@ import {
   tokenizeOptions,
 } from './utils'
 
-export function ensureFieldIndex(state: PartitionState, fieldPath: string, fieldType: FieldType): void {
-  if ((fieldType === 'number' || fieldType === 'number[]') && !state.numericIndexes.has(fieldPath)) {
+export function ensureFieldIndex(state: PartitionState, fieldPath: string, base: BaseFieldType): void {
+  if ((base === 'number' || base === 'number[]') && !state.numericIndexes.has(fieldPath)) {
     state.numericIndexes.set(fieldPath, createNumericIndex())
-  } else if ((fieldType === 'boolean' || fieldType === 'boolean[]') && !state.booleanIndexes.has(fieldPath)) {
+  } else if ((base === 'boolean' || base === 'boolean[]') && !state.booleanIndexes.has(fieldPath)) {
     state.booleanIndexes.set(fieldPath, createBooleanIndex())
-  } else if ((fieldType === 'enum' || fieldType === 'enum[]') && !state.enumIndexes.has(fieldPath)) {
+  } else if ((base === 'enum' || base === 'enum[]') && !state.enumIndexes.has(fieldPath)) {
     state.enumIndexes.set(fieldPath, createEnumIndex())
-  } else if (fieldType === 'geopoint' && !state.geoIndexes.has(fieldPath)) {
+  } else if (base === 'geopoint' && !state.geoIndexes.has(fieldPath)) {
     state.geoIndexes.set(fieldPath, createGeoIndex())
   }
 }
@@ -196,7 +195,7 @@ export function indexDocument(
   state: PartitionState,
   docId: string,
   document: Record<string, unknown>,
-  flatSchema: Record<string, FieldType>,
+  fields: readonly SchemaField[],
   language: LanguageModule,
   options?: PartitionInsertOptions,
 ): { fieldLengths: Record<string, number>; tokensByField: Record<string, string[]> } {
@@ -204,24 +203,24 @@ export function indexDocument(
   const tokensByField: Record<string, string[]> = {}
   const internalId = resolveInternalId(state, docId)
 
-  for (const [fieldPath, fieldType] of Object.entries(flatSchema)) {
+  for (const { path: fieldPath, base } of fields) {
     const value = getNestedValue(document, fieldPath)
     if (value === undefined || value === null) continue
 
-    ensureFieldIndex(state, fieldPath, fieldType)
+    ensureFieldIndex(state, fieldPath, base)
 
-    if (isTextFieldType(fieldType)) {
+    if (base === 'string') {
       indexStringField(state, internalId, fieldPath, value as string, language, options, fieldLengths, tokensByField)
-    } else if (fieldType === 'number') {
+    } else if (base === 'number') {
       getOrCreateNumericIndex(state, fieldPath).insert(internalId, value as number)
-    } else if (fieldType === 'boolean') {
+    } else if (base === 'boolean') {
       getOrCreateBooleanIndex(state, fieldPath).insert(internalId, value as boolean)
-    } else if (fieldType === 'enum') {
+    } else if (base === 'enum') {
       state.enumIndexes.get(fieldPath)?.insert(internalId, value as string)
-    } else if (fieldType === 'geopoint') {
+    } else if (base === 'geopoint') {
       const geo = value as { lat: number; lon: number }
       state.geoIndexes.get(fieldPath)?.insert(internalId, geo.lat, geo.lon)
-    } else if (fieldType === 'string[]') {
+    } else if (base === 'string[]') {
       indexStringArrayField(
         state,
         internalId,
@@ -232,13 +231,13 @@ export function indexDocument(
         fieldLengths,
         tokensByField,
       )
-    } else if (fieldType === 'number[]') {
+    } else if (base === 'number[]') {
       const numIdx = getOrCreateNumericIndex(state, fieldPath)
       for (const num of value as number[]) numIdx.insert(internalId, num)
-    } else if (fieldType === 'boolean[]') {
+    } else if (base === 'boolean[]') {
       const boolIdx = getOrCreateBooleanIndex(state, fieldPath)
       for (const b of value as boolean[]) boolIdx.insert(internalId, b)
-    } else if (fieldType === 'enum[]') {
+    } else if (base === 'enum[]') {
       const enumIdx = state.enumIndexes.get(fieldPath)
       if (enumIdx) {
         for (const e of value as string[]) enumIdx.insert(internalId, e)
@@ -253,7 +252,7 @@ export function removeFromIndexes(
   state: PartitionState,
   docId: string,
   storedDoc: ReadonlyStoredDocument,
-  flatSchema: Record<string, FieldType>,
+  schemaFields: readonly SchemaField[],
   language: LanguageModule,
   options?: PartitionInsertOptions,
 ): { fieldLengths: Record<string, number>; tokensByField: Record<string, string[]> } {
@@ -263,11 +262,11 @@ export function removeFromIndexes(
   const internalId = resolveInternalId(state, docId)
   const opts = tokenizeOptions(options)
 
-  for (const [fieldPath, fieldType] of Object.entries(flatSchema)) {
+  for (const { path: fieldPath, base } of schemaFields) {
     const value = getNestedValue(fields as Record<string, unknown>, fieldPath)
     if (value === undefined || value === null) continue
 
-    if (isTextFieldType(fieldType)) {
+    if (base === 'string') {
       const result = tokenize(value as string, language, opts)
       fieldLengths[fieldPath] = result.tokens.length
       const uniqueTokens = new Set<string>()
@@ -282,15 +281,15 @@ export function removeFromIndexes(
       for (const token of uniqueTokens) state.invertedIdx.remove(token, internalId)
       applySurfaceCounts(state, surfaceCounts, -1)
       tokensByField[fieldPath] = fieldTokenList
-    } else if (fieldType === 'number') {
+    } else if (base === 'number') {
       state.numericIndexes.get(fieldPath)?.remove(internalId, value as number)
-    } else if (fieldType === 'boolean') {
+    } else if (base === 'boolean') {
       state.booleanIndexes.get(fieldPath)?.remove(internalId, value as boolean)
-    } else if (fieldType === 'enum') {
+    } else if (base === 'enum') {
       state.enumIndexes.get(fieldPath)?.remove(internalId, value as string)
-    } else if (fieldType === 'geopoint') {
+    } else if (base === 'geopoint') {
       state.geoIndexes.get(fieldPath)?.remove(internalId)
-    } else if (fieldType === 'string[]') {
+    } else if (base === 'string[]') {
       const arr = value as string[]
       const uniqueTokens = new Set<string>()
       const fieldTokenList: string[] = []
@@ -308,17 +307,17 @@ export function removeFromIndexes(
       for (const token of uniqueTokens) state.invertedIdx.remove(token, internalId)
       applySurfaceCounts(state, surfaceCounts, -1)
       tokensByField[fieldPath] = fieldTokenList
-    } else if (fieldType === 'number[]') {
+    } else if (base === 'number[]') {
       const numIdx = state.numericIndexes.get(fieldPath)
       if (numIdx) {
         for (const num of value as number[]) numIdx.remove(internalId, num)
       }
-    } else if (fieldType === 'boolean[]') {
+    } else if (base === 'boolean[]') {
       const boolIdx = state.booleanIndexes.get(fieldPath)
       if (boolIdx) {
         for (const b of value as boolean[]) boolIdx.remove(internalId, b)
       }
-    } else if (fieldType === 'enum[]') {
+    } else if (base === 'enum[]') {
       const enumIdx = state.enumIndexes.get(fieldPath)
       if (enumIdx) {
         for (const e of value as string[]) enumIdx.remove(internalId, e)

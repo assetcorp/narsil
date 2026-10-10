@@ -165,6 +165,7 @@ export interface IndexMetadata {
   strict?: boolean
   required?: string[]
   vectorPromotion?: VectorIndexConfig
+  patternValueLimit?: number
 }
 
 /** Persisted so recovery can restore field mappings and rebind the adapter by

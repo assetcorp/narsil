@@ -1,7 +1,7 @@
 import { ErrorCodes, NarsilError } from '../errors'
 import { getLanguage } from '../languages/registry'
 import { validateEmbeddingConfig } from '../schema/embedding-validator'
-import { validateVectorStorage } from '../schema/validator'
+import { validateSchema, validateVectorStorage } from '../schema/validator'
 import type { EmbeddingAdapter } from '../types/adapters'
 import type { NarsilConfig } from '../types/config'
 import type { IndexMetadata } from '../types/internal'
@@ -12,7 +12,14 @@ import type { AnalysisRebuildCoordinator } from './analysis-rebuild'
 import type { IndexRegistryEntry } from './core'
 import type { IndexStateCoordinator } from './index-state'
 import { reconstructSchemaFromMetadata } from './recovery-schema'
+import { validatePatternValueLimit } from './validation'
 import { getVectorFieldPaths } from './vector-fields'
+
+const RECOVERY_CONFIG_ERROR_CODES: ReadonlySet<string> = new Set([
+  ErrorCodes.CONFIG_INVALID,
+  ErrorCodes.SCHEMA_INVALID_TYPE,
+  ErrorCodes.SCHEMA_INVALID_VECTOR_DIMENSION,
+])
 
 export interface MetadataIndexDeps {
   config: NarsilConfig | undefined
@@ -47,6 +54,16 @@ function resolveEmbeddingAdapter(
   return { adapter: candidate, name }
 }
 
+function recoveryFailure(metadata: IndexMetadata, err: unknown): unknown {
+  if (!(err instanceof NarsilError) || !RECOVERY_CONFIG_ERROR_CODES.has(err.code)) return err
+  return new NarsilError(err.code, `Recovery of index "${metadata.indexName}" failed: ${err.message}`, {
+    ...err.details,
+    indexName: metadata.indexName,
+    tokenizer: metadata.tokenizer,
+    stopWords: metadata.stopWords,
+  })
+}
+
 export async function createIndexFromMetadata(
   deps: MetadataIndexDeps,
   metadata: IndexMetadata,
@@ -61,20 +78,19 @@ export async function createIndexFromMetadata(
   }
   const indexConfig = reconstructSchemaFromMetadata(metadata)
   const language = getLanguage(indexConfig.language ?? 'english')
+  try {
+    indexConfig.schema = validateSchema(indexConfig.schema)
+    validatePatternValueLimit(indexConfig.patternValueLimit)
+  } catch (err) {
+    throw recoveryFailure(metadata, err)
+  }
   const embedding = resolveEmbeddingAdapter(deps, metadata, indexConfig.schema)
 
   try {
     validateVectorStorage(indexConfig.vectorPromotion, deps.filesystemDurability)
     if (loadData) deps.executor.createIndex(metadata.indexName, indexConfig, language)
   } catch (err) {
-    if (err instanceof NarsilError && err.code === ErrorCodes.CONFIG_INVALID) {
-      throw new NarsilError(err.code, `Recovery of index "${metadata.indexName}" failed: ${err.message}`, {
-        indexName: metadata.indexName,
-        tokenizer: metadata.tokenizer,
-        stopWords: metadata.stopWords,
-      })
-    }
-    throw err
+    throw recoveryFailure(metadata, err)
   }
   deps.indexRegistry.set(metadata.indexName, {
     config: indexConfig,

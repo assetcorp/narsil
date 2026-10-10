@@ -247,7 +247,12 @@ export interface FacetResult {
 export type FieldFilter = ComparisonFilter | StringFilter | ArrayFilter | PresenceFilter | GeoFilter;
 
 // @public
-export type FieldType = 'string' | 'string:sortable' | 'number' | 'boolean' | 'enum' | 'geopoint' | `vector[${number}]` | 'string[]' | 'number[]' | 'boolean[]' | 'enum[]';
+export type FieldOptionChain<Remaining extends string> = {
+    [Option in Remaining]: `:${Option}` | `:${Option}${FieldOptionChain<Exclude<Remaining, Option>>}`;
+}[Remaining];
+
+// @public
+export type FieldType = 'string' | `string${FieldOptionChain<TextFieldOption>}` | 'string[]' | `string[]${FieldOptionChain<TextFieldOption>}` | 'verbatim' | 'verbatim:sortable' | 'verbatim[]' | 'verbatim[]:sortable' | 'number' | 'boolean' | 'enum' | 'geopoint' | `vector[${number}]` | 'number[]' | 'boolean[]' | 'enum[]';
 
 // @public
 export type FilterExpression = {
@@ -363,6 +368,7 @@ export interface IndexConfig {
     embedding?: EmbeddingFieldConfig;
     language?: string;
     partitions?: PartitionConfig;
+    patternValueLimit?: number;
     required?: string[];
     schema: SchemaDefinition;
     stopWords?: StopWordOverride | string;
@@ -587,6 +593,7 @@ export type NarsilEventMap = {
         documentCount: number;
         capacity: number;
         partitionCount: number;
+        partitionId?: number;
     };
     heapPressure: {
         indexName: string;
@@ -826,7 +833,12 @@ export interface StaleAnalysis {
 export type StopWordOverride = Set<string> | ((defaults: Set<string>) => Set<string>);
 
 // @public
-export type StringFilter = ComparisonFilter & {
+export type StringFilter = Pick<ComparisonFilter, 'eq' | 'ne'> & {
+    gt?: string;
+    lt?: string;
+    gte?: string;
+    lte?: string;
+    between?: [string, string];
     in?: string[];
     nin?: string[];
     startsWith?: string;
@@ -851,6 +863,9 @@ export interface SuggestResult {
 
 // @public
 export type TermMatchPolicy = 'all' | 'any' | number;
+
+// @public
+export type TextFieldOption = 'sortable' | 'pattern' | 'partial';
 
 // @public
 export interface TokenizerConfig {

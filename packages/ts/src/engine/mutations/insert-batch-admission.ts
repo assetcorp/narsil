@@ -10,8 +10,10 @@ import {
   admitInsert,
   asBatchInsertError,
   collectRequiredFieldFailures,
+  createPendingAdmissions,
   embedChunkDocuments,
   providedDocId,
+  recordPendingAdmission,
 } from './insert-admission'
 
 export interface AdmittedInsert {
@@ -36,6 +38,7 @@ export async function admitBatchDocuments(
   const required = entry.config.required
   const admitted: AdmittedInsert[] = []
   const admittedIds = new Set<string>()
+  const pending = createPendingAdmissions()
 
   for (let chunkStart = 0; chunkStart < documents.length; chunkStart += BATCH_CHUNK_SIZE) {
     if (ctx.abortController.signal.aborted) break
@@ -76,17 +79,18 @@ export async function admitBatchDocuments(
           validateVectorDimensions(extractedVectors, vecIndexes)
         }
 
-        admitInsert(ctx, indexName, manager, docId, admitted.length)
+        admitInsert(ctx, indexName, manager, docId, pending)
         if (admittedIds.has(docId) || manager.has(docId)) {
           throw new NarsilError(ErrorCodes.DOC_ALREADY_EXISTS, `Document "${docId}" already exists`, { docId })
         }
 
-        validateDocument(partitionDoc as AnyDocument, entry.config.schema)
+        validateDocument(partitionDoc as AnyDocument, entry.config.schema, entry.config.patternValueLimit)
         if (strict) {
           validateDocumentStrict(partitionDoc, entry.config.schema)
         }
 
         admittedIds.add(docId)
+        recordPendingAdmission(ctx, pending, manager, docId)
         admitted.push({ docId, document: documents[i], partitionDoc: partitionDoc as AnyDocument, extractedVectors })
       } catch (err) {
         failed.push({ docId, error: asBatchInsertError(err) })

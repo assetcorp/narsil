@@ -41,7 +41,7 @@ A node plays one or more of three roles. A `data` node holds partitions and serv
 
 ## Create, drop, and clear an index
 
-`createIndex` publishes the schema through the coordinator, and the controller then assigns the partitions to nodes. The call returns once every partition is in service, so a write that you send straight afterwards reaches a primary that holds the index. The options set how the engine spreads the index and how long the call waits:
+`createIndex` publishes the schema through the coordinator, after which the controller assigns the partitions to nodes. The call returns once every partition is in service, so a primary that holds the index receives a write that you send straight afterwards. The options set how the engine spreads the index and how long the call waits:
 
 ```ts
 await node.createIndex(
@@ -51,11 +51,17 @@ await node.createIndex(
 )
 ```
 
-`partitionCount` defaults to 5 and stays fixed for the life of the index. `replicationFactor` counts the copies beyond the primary and defaults to 1, which means two copies of every partition. A factor of 0 keeps one copy, so you lose that partition's documents when the node holding it fails.
+`partitionCount` defaults to 5 and stays fixed for the life of the index. `replicationFactor` counts the copies beyond the primary and defaults to 1, which means two copies of every partition. A factor of 0 keeps one copy, so you lose that partition's documents when the node that holds it fails.
 
-`waitForServingMs` bounds the wait and defaults to 30000. The call returns at the deadline whether or not the partitions are in service. It returns at once where no registered node holds the `controller` role or none holds the `data` role, because no node would allocate the index. The node refuses a write that arrives before the allocation exists, raising `QUERY_ROUTING_FAILED`, which names the state the cluster is in. A caller that passes 0 to skip the wait can therefore expect that code until the controller finishes. See [What a node serves](#what-a-node-serves).
+Every node creates its copy of the index with the configuration that you pass to `createIndex`, because the creating node stores that configuration in the coordinator beside the schema. A node cannot serialise code into the coordinator, so give the tokenizer and the embedding adapter by the names that you registered them under, and give the stop words as a set or as a registered name. For a tokenizer instance, an adapter instance, or a stop word function, `createIndex` raises `CONFIG_INVALID`. Register the language module and each of those names on every node, because any node can create a copy of the index or lead one of its partitions.
 
-`dropIndex` removes the index from the whole cluster. The dropping node clears the index metadata and drops the schema. The controller observes the drop and empties the allocation, which every holder answers by dropping its local copy. The teardown finishes after the call returns, so a query racing the drop can reach a node whose copy is already gone. The name becomes reusable once the coordinator state is gone.
+A node without filesystem durability raises `CONFIG_INVALID` as it creates its copy of an index whose `vectorPromotion.storage` is `disk`, so only the nodes with filesystem durability can hold that index's partitions. Give every data node filesystem durability before you create such an index.
+
+In a cluster, `partitions.maxDocsPerPartition` caps each partition on its own, because a node can hold only some of an index's partitions. The primary of a partition fails an insert into it with `PARTITION_CAPACITY_EXCEEDED` once the partition holds that many documents, while each replica applies every write that its primary acknowledges. The hash can assign more document ids to one partition than to another, so inserts into a full partition can fail while inserts into the other partitions succeed. With `partitions.watermark` set, the primary emits `partitionWatermark` with a `partitionId` when one of its partitions crosses the threshold. The partition count of a cluster index stays fixed for life, so when an index reaches its capacity, create a new index with more partitions and reindex into it.
+
+`waitForServingMs` bounds the wait and defaults to 30000. The call returns at the deadline whether or not the partitions are in service. It returns at once where no registered node holds the `controller` role or none holds the `data` role, because no node can allocate the index. A write that a node receives before the allocation exists fails with `QUERY_ROUTING_FAILED`, whose message gives the state of the cluster. A caller that passes 0 to skip the wait can therefore expect that code until the controller places the partitions. See [What a node serves](#what-a-node-serves).
+
+`dropIndex` removes the index from the whole cluster. The node that receives the call clears the index metadata and drops the schema. The controller then empties the allocation, after which every node that holds a copy drops it. The teardown finishes after the call returns, so a client that queries during the teardown can hit a node whose copy is already gone. The name becomes reusable once the coordinator state is gone.
 
 `clear` empties an index and keeps it. The engine sends each removal through the replication log the way it sends a single `remove`, so it performs one listing and one batched removal per page while it clears a large index.
 

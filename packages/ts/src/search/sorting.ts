@@ -11,9 +11,11 @@ import {
   sortModeOf,
   toReducedSortValue,
 } from '../core/ordering'
+import { SORT_VALUE_MAX_CODE_POINTS } from '../core/ordering/constants'
 import { ErrorCodes, NarsilError } from '../errors'
 import { undeclaredFieldOnStrictIndex } from '../filters/operands'
-import { flattenSchema, SORTABLE_TEXT_FIELD_TYPE } from '../schema/validator'
+import { flattenSchema } from '../schema/validator'
+import { isStringValuedBase, parsedTypeOf, withSortableOption } from '../schema/validator/field-type'
 import { isGeopointOrVectorType } from '../schema/validator/shared'
 import type { Hit } from '../types/results'
 import type { AnyDocument, SchemaDefinition } from '../types/schema'
@@ -84,10 +86,11 @@ export function requireSortableFields(sort: SortSpec | undefined, schema: Schema
       )
     }
     requireSortMode(entry, fieldType)
-    if (fieldType === 'string') {
+    const parsed = parsedTypeOf(fieldType)
+    if (parsed !== undefined && isStringValuedBase(parsed.base) && !parsed.sortable) {
       throw new NarsilError(
         ErrorCodes.SEARCH_INVALID_FIELD,
-        `The engine sorts by text field "${entry.field}" only where the schema declares it "${SORTABLE_TEXT_FIELD_TYPE}", because ordering text takes far more memory per document than ordering a number`,
+        `The engine sorts by text field "${entry.field}" only where its type includes "sortable", as in "${withSortableOption(parsed)}", because it keeps up to the first ${SORT_VALUE_MAX_CODE_POINTS} code points of every document's value in memory to sort by a text field`,
         { field: entry.field, fieldType },
       )
     }

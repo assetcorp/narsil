@@ -1,9 +1,10 @@
 import { ErrorCodes, NarsilError } from '../../errors'
 import { createGeoIndex, type GeoIndex } from '../../geo/geo-index'
 import { validateDocument, validateDocumentStrict } from '../../schema/validator/document'
-import { flattenSchema } from '../../schema/validator/schema'
+import { type BaseFieldType, isWordIndexedBase } from '../../schema/validator/field-type'
+import { schemaFieldsOf } from '../../schema/validator/schema'
 import type { LanguageModule } from '../../types/language'
-import type { AnyDocument, FieldType, SchemaDefinition } from '../../types/schema'
+import type { AnyDocument, SchemaDefinition } from '../../types/schema'
 import { MAX_TERM_FREQUENCY } from '../constants'
 import {
   type BooleanFieldIndex,
@@ -49,7 +50,7 @@ function indexFilterValue(
   indexes: FieldIndexes,
   ordinal: number,
   fieldPath: string,
-  fieldType: FieldType,
+  fieldType: BaseFieldType,
   value: unknown,
 ): void {
   if (fieldType === 'number' || fieldType === 'number[]') {
@@ -88,7 +89,7 @@ function validateAsAnInsertDoes(
 ): void {
   if (options?.validate === false) return
   for (const { document } of documents) {
-    validateDocument(document, schema)
+    validateDocument(document, schema, options?.patternValueLimit)
     if (options?.strict) validateDocumentStrict(document as Record<string, unknown>, schema)
   }
 }
@@ -332,7 +333,7 @@ export function buildSegmentPayload(
   refuseRepeatedDocIds(documents)
   validateAsAnInsertDoes(documents, schema, options)
 
-  const fields = Object.entries(flattenSchema(schema))
+  const fields = schemaFieldsOf(schema)
   const tokenizing = tokenizeOptions(options)
   const postings = new TextPostings(trackPositions)
   const surfaces = new SurfaceCounts()
@@ -352,10 +353,10 @@ export function buildSegmentPayload(
 
   for (let ordinal = 0; ordinal < documents.length; ordinal++) {
     const document = documents[ordinal].document as Record<string, unknown>
-    for (const [fieldPath, fieldType] of fields) {
+    for (const { path: fieldPath, base: fieldType } of fields) {
       const value = getNestedValue(document, fieldPath)
       if (value === undefined || value === null) continue
-      if (fieldType !== 'string' && fieldType !== 'string[]') {
+      if (!isWordIndexedBase(fieldType)) {
         indexFilterValue(filters, ordinal, fieldPath, fieldType, value)
         continue
       }
