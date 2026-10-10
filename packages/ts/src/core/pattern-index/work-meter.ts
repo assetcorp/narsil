@@ -11,7 +11,7 @@ export interface SharedPatternWork {
 
 export interface PatternWorkFork {
   readonly shared: SharedPatternWork
-  absorb(): void
+  absorb(units: number): void
 }
 
 export interface SearchPatternWork extends PatternWorkMeter {
@@ -19,12 +19,16 @@ export interface SearchPatternWork extends PatternWorkMeter {
   fork(workerCount: number): PatternWorkFork
 }
 
+export interface JoinedPatternWork extends PatternWorkMeter {
+  spent(): number
+}
+
 const COUNTER_BYTES = 8
 
 function capExceeded(cap: number): NarsilError {
   return new NarsilError(
     ErrorCodes.SEARCH_WORK_CAP_EXCEEDED,
-    `The pattern tests of this search passed the work cap of ${cap} units, so the engine stopped before it checked every candidate. Narrow the tests, or raise the patternWorkCap engine setting`,
+    `The engine stopped this search before it checked every candidate, because the work on its pattern tests passed the cap of ${cap} units. Narrow the tests, or raise the patternWorkCap engine setting`,
     { cap },
   )
 }
@@ -44,16 +48,14 @@ function localMeter(cap: number, spent: number, matcherStateBytes: number): Sear
     },
     fork(workerCount: number): PatternWorkFork {
       const shareOfState = Math.floor(matcherStateBytes / Math.max(1, workerCount))
-      if (typeof SharedArrayBuffer !== 'function') {
-        return { shared: { cap, spent: total, counter: null, matcherStateBytes: shareOfState }, absorb: () => {} }
+      let counter: SharedArrayBuffer | null = null
+      if (typeof SharedArrayBuffer === 'function') {
+        counter = new SharedArrayBuffer(COUNTER_BYTES)
+        new BigInt64Array(counter)[0] = BigInt(total)
       }
-      const counter = new SharedArrayBuffer(COUNTER_BYTES)
-      const view = new BigInt64Array(counter)
-      const seed = total
-      view[0] = BigInt(seed)
       return {
-        shared: { cap, spent: seed, counter, matcherStateBytes: shareOfState },
-        absorb: () => meter.add(Number(Atomics.load(view, 0)) - seed),
+        shared: { cap, spent: total, counter, matcherStateBytes: shareOfState },
+        absorb: units => meter.add(units),
       }
     },
   }
@@ -64,10 +66,8 @@ export function createPatternWorkMeter(cap: number = DEFAULT_PATTERN_WORK_CAP): 
   return localMeter(cap, 0, MAX_MATCHER_STATE_BYTES)
 }
 
-export function joinPatternWorkMeter(work: SharedPatternWork | undefined): PatternWorkMeter {
-  if (work === undefined) return createPatternWorkMeter()
-  if (work.counter === null) return localMeter(work.cap, work.spent, work.matcherStateBytes)
-  const view = new BigInt64Array(work.counter)
+function sharedMeter(work: SharedPatternWork, counter: SharedArrayBuffer): PatternWorkMeter {
+  const view = new BigInt64Array(counter)
   return {
     matcherStateBytes: work.matcherStateBytes,
     add(units: number): void {
@@ -78,5 +78,21 @@ export function joinPatternWorkMeter(work: SharedPatternWork | undefined): Patte
     remaining(): number {
       return work.cap - Number(Atomics.load(view, 0))
     },
+  }
+}
+
+export function joinPatternWorkMeter(work: SharedPatternWork): JoinedPatternWork {
+  const meter =
+    work.counter === null ? localMeter(work.cap, work.spent, work.matcherStateBytes) : sharedMeter(work, work.counter)
+  let spent = 0
+  return {
+    matcherStateBytes: meter.matcherStateBytes,
+    add(units: number): void {
+      if (units <= 0) return
+      spent += units
+      meter.add(units)
+    },
+    remaining: () => meter.remaining(),
+    spent: () => spent,
   }
 }

@@ -129,6 +129,18 @@ describe('the pattern entry of a snapshot', () => {
     })
   })
 
+  it('raises PERSISTENCE_LOAD_FAILED for a document that its document list names twice', async () => {
+    const snapshot = await rewritePartitions(await narsil.snapshot(PATTERN_INDEX), partition => {
+      const entry = codeEntryOf(partition)
+      if (entry === undefined || entry.doc_ids.length === 0) return
+      entry.doc_ids.push(entry.doc_ids[0])
+    })
+    await narsil.dropIndex(PATTERN_INDEX)
+    await expect(narsil.restore(PATTERN_INDEX, snapshot)).rejects.toMatchObject({
+      code: ErrorCodes.PERSISTENCE_LOAD_FAILED,
+    })
+  })
+
   it('raises PERSISTENCE_LOAD_FAILED for positions out of ascending order', async () => {
     const snapshot = await rewritePartitions(await narsil.snapshot(PATTERN_INDEX), partition => {
       const entry = codeEntryOf(partition)

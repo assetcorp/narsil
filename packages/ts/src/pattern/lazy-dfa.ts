@@ -1,13 +1,22 @@
-import { hasPosition, type PositionAutomaton } from './automaton'
-import { MATCHER_KEY_CHARACTER_BYTES, MATCHER_STATE_OVERHEAD_BYTES, MATCHER_TRANSITION_BYTES } from './constants'
+import { hasPosition, type PositionAutomaton, setPosition } from './automaton'
+import {
+  MATCHER_KEY_CHARACTER_BYTES,
+  MATCHER_MIN_CODE_POINTS_PER_STATE,
+  MATCHER_STATE_OVERHEAD_BYTES,
+  MATCHER_TRANSITION_BYTES,
+} from './constants'
+import { PositionSimulation } from './position-simulation'
 import type { WorkTally } from './work-tally'
 
 interface DfaState {
   readonly positions: Uint32Array
   readonly steps: number
   readonly accepting: boolean
+  readonly generation: number
   readonly next: Map<number, DfaState>
 }
+
+const UNCACHED_GENERATION = -1
 
 function countPositions(words: Uint32Array): number {
   let count = 0
@@ -30,8 +39,13 @@ function stateBytes(positions: Uint32Array, key: string): number {
 
 export class LazyDfa {
   private states = new Map<string, DfaState>()
+  private generation = 0
   private cachedBytes = 0
+  private codePointsSinceReset = 0
   private start: DfaState
+  private state: DfaState
+  private simulation: PositionSimulation | null = null
+  private decided: boolean | null = null
   private readonly cacheLimitBytes: number
 
   constructor(
@@ -40,24 +54,64 @@ export class LazyDfa {
   ) {
     this.cacheLimitBytes = stateLimitBytes - automaton.bytes
     this.start = this.intern(automaton.first.slice(), automaton.nullable)
+    this.state = this.start
+    if (this.wantsSimulation()) this.simulate(this.start)
   }
 
-  matches(codePoints: readonly number[], length: number, tally: WorkTally): boolean {
-    const { anchoredStart, anchoredEnd, nullable } = this.automaton
-    let state = this.start
-    if (!anchoredEnd && state.accepting) return true
-    for (let at = 0; at < length; at++) {
-      if (state.steps === 0) return anchoredStart ? false : nullable
-      tally.add(state.steps)
-      state = this.step(state, codePoints[at])
-      if (!anchoredEnd && state.accepting) return true
+  begin(): boolean {
+    this.decided = null
+    if (this.simulation !== null) this.simulation.reset()
+    else this.state = this.start
+    if (!this.automaton.anchoredEnd && this.accepting()) return this.decide(true)
+    return true
+  }
+
+  feed(codePoint: number, tally: WorkTally): boolean {
+    const steps = this.simulation === null ? this.state.steps : this.simulation.steps
+    if (steps === 0) return this.decide(!this.automaton.anchoredStart && this.automaton.nullable)
+    tally.add(steps)
+    if (this.simulation !== null) {
+      this.simulation.advance(codePoint)
+    } else {
+      this.codePointsSinceReset++
+      this.state = this.step(this.state, codePoint)
+      if (this.wantsSimulation()) this.simulate(this.state)
     }
-    return anchoredEnd && state.accepting
+    if (!this.automaton.anchoredEnd && this.accepting()) return this.decide(true)
+    return true
+  }
+
+  matched(): boolean {
+    return this.decided ?? (this.automaton.anchoredEnd && this.accepting())
+  }
+
+  private accepting(): boolean {
+    return this.simulation === null ? this.state.accepting : this.simulation.accepting
+  }
+
+  private decide(outcome: boolean): boolean {
+    this.decided = outcome
+    return false
+  }
+
+  private wantsSimulation(): boolean {
+    return this.simulation === null && this.state.generation === UNCACHED_GENERATION
+  }
+
+  private simulate(from: DfaState): void {
+    const simulation = new PositionSimulation(this.automaton)
+    simulation.load(from.positions, from.accepting)
+    this.simulation = simulation
+    this.states = new Map()
+    this.cachedBytes = 0
   }
 
   private step(state: DfaState, codePoint: number): DfaState {
-    const cached = state.next.get(codePoint)
-    if (cached !== undefined) return cached
+    const current = state.generation === this.generation
+    if (current) {
+      const cached = state.next.get(codePoint)
+      if (cached !== undefined) return cached
+    }
     const { automaton } = this
     const positions = new Uint32Array(automaton.words)
     let accepting = false
@@ -68,7 +122,8 @@ export class LazyDfa {
         const position = (word << 5) + (31 - Math.clz32(bits & -bits))
         bits &= bits - 1
         if (!automaton.accepts(position, codePoint)) continue
-        automaton.addFollowers(position, positions)
+        const followers = automaton.followerCount(position)
+        for (let index = 0; index < followers; index++) setPosition(positions, automaton.follower(position, index))
         if (hasPosition(automaton.last, position)) accepting = true
       }
     }
@@ -77,9 +132,9 @@ export class LazyDfa {
       if (automaton.nullable) accepting = true
     }
     const next = this.intern(positions, accepting)
-    if (this.cachedBytes + MATCHER_TRANSITION_BYTES > this.cacheLimitBytes) return next
+    if (!current || state.generation !== this.generation || next.generation !== this.generation) return next
+    if (!this.reserve(MATCHER_TRANSITION_BYTES) || state.generation !== this.generation) return next
     state.next.set(codePoint, next)
-    this.cachedBytes += MATCHER_TRANSITION_BYTES
     return next
   }
 
@@ -87,17 +142,29 @@ export class LazyDfa {
     const key = stateKey(positions, accepting)
     const existing = this.states.get(key)
     if (existing !== undefined) return existing
-    const bytes = stateBytes(positions, key)
-    if (this.cachedBytes > 0 && this.cachedBytes + bytes > this.cacheLimitBytes) this.emptyCache()
-    const state: DfaState = { positions, steps: countPositions(positions), accepting, next: new Map() }
+    const steps = countPositions(positions)
+    if (!this.reserve(stateBytes(positions, key))) {
+      return { positions, steps, accepting, generation: UNCACHED_GENERATION, next: new Map() }
+    }
+    const state: DfaState = { positions, steps, accepting, generation: this.generation, next: new Map() }
     this.states.set(key, state)
-    this.cachedBytes += bytes
     return state
   }
 
-  private emptyCache(): void {
+  private reserve(bytes: number): boolean {
+    if (this.cachedBytes + bytes <= this.cacheLimitBytes) {
+      this.cachedBytes += bytes
+      return true
+    }
+    if (this.states.size === 0 || this.codePointsSinceReset < MATCHER_MIN_CODE_POINTS_PER_STATE * this.states.size) {
+      return false
+    }
     this.states = new Map()
     this.cachedBytes = 0
-    if (this.start !== undefined) this.start = this.intern(this.start.positions, this.start.accepting)
+    this.codePointsSinceReset = 0
+    this.generation++
+    this.start = this.intern(this.start.positions, this.start.accepting)
+    if (this.start.generation === UNCACHED_GENERATION) return false
+    return this.reserve(bytes)
   }
 }

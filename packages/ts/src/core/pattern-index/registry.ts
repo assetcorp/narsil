@@ -18,18 +18,20 @@ function isPatternSearchModule(value: PatternSearch): value is PatternSearchModu
     typeof value.readArrays === 'function' &&
     'mergeArrays' in value &&
     typeof value.mergeArrays === 'function' &&
-    'matchBitset' in value &&
-    typeof value.matchBitset === 'function'
+    'matchInto' in value &&
+    typeof value.matchInto === 'function'
   )
 }
 
 /**
- * Makes pattern search available to every index that declares a pattern field.
+ * This makes pattern search available to every index whose schema declares a
+ * pattern field, meaning a `verbatim` field or a text field whose type
+ * includes `pattern`.
  *
- * A Node process needs no call, because it loads the pattern search code by
- * itself. A browser app imports `patternSearch` from `@delali/narsil/pattern`
- * and registers it before it creates or loads an index whose schema holds a
- * `verbatim` field or a text field whose type includes `pattern`.
+ * A Node process needs no such call, because it loads the pattern search code
+ * by itself. A browser app has to import `patternSearch` from
+ * `@delali/narsil/pattern` and pass it to this function before it creates or
+ * loads an index with a pattern field.
  *
  * @param module - The `patternSearch` object that `@delali/narsil/pattern`
  * exports.

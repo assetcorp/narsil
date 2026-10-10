@@ -12,7 +12,8 @@ export interface PositionAutomaton {
   readonly anchoredEnd: boolean
   readonly bytes: number
   accepts(position: number, codePoint: number): boolean
-  addFollowers(position: number, into: Uint32Array): void
+  followerCount(position: number): number
+  follower(position: number, index: number): number
 }
 
 export function wordsFor(size: number): number {
@@ -50,8 +51,7 @@ export function literalAutomaton(
     anchoredEnd,
     bytes: first.byteLength + last.byteLength + size * CODE_POINT_BYTES,
     accepts: (position, codePoint) => codePoints[position] === codePoint,
-    addFollowers: (position, into) => {
-      if (position + 1 < size) setPosition(into, position + 1)
-    },
+    followerCount: position => (position + 1 < size ? 1 : 0),
+    follower: position => position + 1,
   }
 }

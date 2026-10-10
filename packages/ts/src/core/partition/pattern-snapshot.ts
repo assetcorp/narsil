@@ -78,7 +78,16 @@ function requirePositions(fieldPath: string, key: string, list: unknown, documen
   return list
 }
 
+function requireDistinctDocuments(fieldPath: string, docIds: readonly string[]): void {
+  const seen = new Set<string>()
+  for (const docId of docIds) {
+    if (seen.has(docId)) throw loadFailed(fieldPath, `the document list names "${docId}" twice`)
+    seen.add(docId)
+  }
+}
+
 function decodePatternEntry(fieldPath: string, entry: SerializedPatternIndex): PatternIndexArrays {
+  requireDistinctDocuments(fieldPath, entry.docIds)
   const runs: number[] = []
   const offsets: number[] = [0]
   const postings: number[] = []

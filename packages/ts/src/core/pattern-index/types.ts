@@ -23,7 +23,7 @@ export interface PatternIndexWriter extends PatternIndexReader {
 }
 
 export interface PatternHost {
-  appendFolded(text: string, out: number[]): void
+  appendFoldedCodePoint(codePoint: number, out: number[]): void
 }
 
 export interface PatternWorkMeter {
@@ -39,7 +39,7 @@ export interface PatternMatchRequest {
   readonly text: string
   readonly caseFold: boolean
   readonly index: PatternIndexReader
-  readonly capacity: number
+  readonly matches: Uint32Array
   readonly meter: PatternWorkMeter
   readonly host: PatternHost
   valueOf(ordinal: number): unknown
@@ -54,5 +54,5 @@ export interface PatternSearchModule extends PatternSearch {
   createIndex(host: PatternHost): PatternIndexWriter
   readArrays(arrays: PatternIndexArrays): PatternIndexReader
   mergeArrays(fieldPath: string, inputs: readonly PatternMergeInput[]): PatternIndexArrays
-  matchBitset(request: PatternMatchRequest): Uint32Array
+  matchInto(request: PatternMatchRequest): void
 }

@@ -23,15 +23,18 @@ function partitionsPerLease(scope: number[], leaseCount: number): number[][] {
 function mergeWorkerResults(results: FanOutResult[], facetConfig: FacetConfig | undefined): FanOutResult {
   const merged = kWayMerge(results.map(result => result.scored))
   let totalMatched = 0
+  let patternWorkSpent = 0
   const workerFacets: Array<Record<string, FacetResult>> = []
   for (const result of results) {
     totalMatched += result.totalMatched
+    patternWorkSpent += result.patternWorkSpent ?? 0
     if (result.facets !== undefined) workerFacets.push(result.facets)
   }
   return {
     scored: merged,
     totalMatched,
     facets: facetConfig !== undefined && workerFacets.length > 0 ? mergeFacets(workerFacets, facetConfig) : undefined,
+    patternWorkSpent,
   }
 }
 
@@ -125,7 +128,7 @@ export async function searchViaWorker(
       leases.push(...idle)
       const fork = patternWork?.fork(leases.length)
       const merged = await runSplit(leases, scope, indexName, params, globalStats, fork?.shared)
-      fork?.absorb()
+      fork?.absorb(merged.patternWorkSpent ?? 0)
       return merged
     }
     for (const lease of idle.slice(1)) lease.release()
@@ -136,7 +139,7 @@ export async function searchViaWorker(
     const result = await lease.executor.execute<FanOutResult>(
       queryAction(indexName, params, globalStats, partitionIds, fork?.shared),
     )
-    fork?.absorb()
+    fork?.absorb(result.patternWorkSpent ?? 0)
     return result
   } catch (err) {
     if (err instanceof NarsilError && err.code === ErrorCodes.SEARCH_WORK_CAP_EXCEEDED) throw err

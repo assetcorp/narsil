@@ -38,12 +38,13 @@ export type ComparisonFilter = {
  *
  * A pattern field is a `verbatim` or `verbatim[]` field, or a `string` or
  * `string[]` field whose type includes `pattern`. On such a field, the engine
- * resolves `eq`, `ne`, `in`, `nin`, `startsWith`, `endsWith`, and `contains`
- * through the field's pattern index, and `caseFold` applies to each of those
- * tests. The engine compares the code points of each value as stored, with no
+ * answers `eq`, `ne`, `in`, `nin`, `startsWith`, `endsWith`, and `contains`
+ * from the field's pattern index. `caseFold` applies to each of those tests.
+ * The engine compares the code points of each value as stored, with no
  * Unicode normalisation. It throws `SEARCH_INVALID_FILTER` for `contains` or
- * `caseFold` on any other field, and for a test text longer than 1,024 code
- * points on a pattern field.
+ * `caseFold` on any other field, for a test text longer than 1,024 code points
+ * on a pattern field, and for a `caseFold` test whose text has a case fold
+ * longer than 2,048 code points.
  *
  * @public
  */
@@ -70,9 +71,9 @@ export type StringFilter = Pick<ComparisonFilter, 'eq' | 'ne'> & {
   contains?: string
   /**
    * While this is true, the engine compares the case fold of each value of a
-   * pattern field with the case fold of the text, so that a test for `error`
-   * matches `ERROR`. It applies to `eq`, `ne`, `in`, `nin`, `startsWith`,
-   * `endsWith`, and `contains`.
+   * pattern field with the case fold of the text, so a test for `error` matches
+   * `ERROR`. It applies to `eq`, `ne`, `in`, `nin`, `startsWith`, `endsWith`,
+   * and `contains`.
    */
   caseFold?: boolean
 }

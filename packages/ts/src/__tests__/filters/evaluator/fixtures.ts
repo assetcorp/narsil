@@ -1,4 +1,4 @@
-import { bitsetFromSet, bitsetToSet } from '../../../core/bitset'
+import { bitsetFromSet, bitsetSet, bitsetToSet } from '../../../core/bitset'
 import type { PatternOperator } from '../../../core/pattern-index/types'
 import type { FilterContext } from '../../../filters/evaluator'
 import { evaluateFilters } from '../../../filters/evaluator'
@@ -123,17 +123,15 @@ function skuPasses(sku: string, operator: PatternOperator, text: string, caseFol
   return value.includes(wanted)
 }
 
-function skuBitset(operator: PatternOperator, text: string, caseFold: boolean): Uint32Array {
-  const matched = new Set<number>()
+function matchSkus(operator: PatternOperator, text: string, caseFold: boolean, into: Uint32Array): void {
   for (const [id, sku] of Object.entries(skus)) {
-    if (skuPasses(sku, operator, text, caseFold)) matched.add(Number(id))
+    if (skuPasses(sku, operator, text, caseFold)) bitsetSet(into, Number(id))
   }
-  return bitsetFromSet(matched, CAPACITY)
 }
 
-export const NO_PATTERN_FIELDS: Pick<FilterContext, 'isPatternField' | 'patternBitset' | 'patternValuesBitset'> = {
+export const NO_PATTERN_FIELDS: Pick<FilterContext, 'isPatternField' | 'matchPattern' | 'patternValuesBitset'> = {
   isPatternField: () => false,
-  patternBitset: () => new Uint32Array(1),
+  matchPattern: () => {},
   patternValuesBitset: () => new Uint32Array(1),
 }
 
@@ -141,7 +139,7 @@ export function buildContext(): FilterContext {
   const allDocIds = new Set([0, 1, 2, 3, 4])
   return {
     isPatternField: fieldPath => fieldPath === 'sku',
-    patternBitset: (_fieldPath, operator, text, caseFold) => skuBitset(operator, text, caseFold),
+    matchPattern: (_fieldPath, operator, text, caseFold, into) => matchSkus(operator, text, caseFold, into),
     patternValuesBitset: () => bitsetFromSet(new Set(Object.keys(skus).map(Number)), CAPACITY),
     fieldTypes: { price: 'number', inStock: 'boolean', category: 'enum', sku: 'verbatim' },
     fieldIndexes: {

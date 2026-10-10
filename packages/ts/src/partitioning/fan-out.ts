@@ -24,6 +24,7 @@ export interface FanOutResult {
   totalMatched: number
   matchedExact?: boolean
   facets?: Record<string, FacetResult>
+  patternWorkSpent?: number
 }
 
 interface PartitionSearchOutcome {

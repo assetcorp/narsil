@@ -1,8 +1,8 @@
-import { appendFoldedCodePoints } from '../ordering/fold-compare'
+import { appendFoldedCodePoint } from '../ordering/fold-compare'
 import { requirePatternSearch } from './registry'
 import type { PatternHost, PatternIndexWriter } from './types'
 
-export const PATTERN_HOST: PatternHost = { appendFolded: appendFoldedCodePoints }
+export const PATTERN_HOST: PatternHost = { appendFoldedCodePoint }
 
 export function patternIndexOf(indexes: Map<string, PatternIndexWriter>, fieldPath: string): PatternIndexWriter {
   let index = indexes.get(fieldPath)
