@@ -20,6 +20,7 @@ export interface PartitionReadState {
   readonly enumIndexes: ReadonlyMap<string, EnumFieldIndexReader>
   readonly geoIndexes: ReadonlyMap<string, GeoIndexReader>
   readonly patternIndexes: ReadonlyMap<string, PatternIndexReader>
+  readonly sizeIndexes: ReadonlyMap<string, NumericFieldIndexReader>
   readonly fieldNameTable: FieldNameTable
   readonly trackPositions: boolean
   flatSchemaCache: Record<string, FieldType> | null

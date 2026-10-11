@@ -5,7 +5,7 @@ import type { NarsilConfig } from '../../../types/config'
 import type { FilterExpression } from '../../../types/filters'
 import type { AnyDocument } from '../../../types/schema'
 import { postJson, scaledOut, startTestServer, type TestServer, waitFor } from '../../server/helpers'
-import { COMMON_TERM, INDEX, SCHEMA } from './corpus'
+import { type Churn, COMMON_TERM, INDEX, SCHEMA } from './corpus'
 import { fieldVerdict, type Verdict } from './oracle'
 
 export const WORKERS_BUILT = existsSync(new URL('../../../../dist/workers/entry.mjs', import.meta.url))
@@ -30,6 +30,13 @@ export async function startFilterServer(
   expect(inserted.failed).toEqual([])
   if (config.workers?.enabled !== false) await waitFor(() => scaledOut(server.engine, INDEX))
   return { label, server, client }
+}
+
+export async function applyChurn(target: FilterServer, churn: Churn): Promise<void> {
+  const updated = await target.client.updateBatch(INDEX, churn.updates, { wait: true })
+  expect(updated.failed).toEqual([])
+  const removed = await target.client.removeBatch(INDEX, churn.removals, { wait: true })
+  expect(removed.failed).toEqual([])
 }
 
 export interface FilterAnswer {

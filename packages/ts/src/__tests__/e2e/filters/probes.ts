@@ -106,7 +106,20 @@ export function fieldProbe(random: Random): FieldProbe {
     case 11:
       return geoProbe(random)
     default: {
-      const field = pick(random, ['price', 'tags', 'name', 'brand', 'location', 'dims.label', 'colours'])
+      const field = pick(random, [
+        'price',
+        'tags',
+        'name',
+        'brand',
+        'location',
+        'dims.label',
+        'colours',
+        'title',
+        'sizes',
+        'flags',
+        'inStock',
+        'category',
+      ])
       return { field, filter: { [pick(random, PRESENCE_OPERATORS)]: random() < 0.8 } }
     }
   }

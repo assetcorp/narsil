@@ -78,18 +78,12 @@ function filterPasses(values: string[], filter: FieldFilter): boolean {
   return true
 }
 
-export function expectedIds(
-  documents: readonly AnyDocument[],
-  field: string,
-  filter: FieldFilter,
-  matchesWithoutValues: ReadonlySet<string>,
-): string[] {
+export function expectedIds(documents: readonly AnyDocument[], field: string, filter: FieldFilter): string[] {
   const ids: string[] = []
   for (const document of documents) {
-    const id = String(document.id)
-    const values = textValuesOf(document, field)
-    const passes = values.length === 0 ? matchesWithoutValues.has(id) : filterPasses(values, filter)
-    if (passes) ids.push(id)
+    const stored = document[field]
+    if (stored === undefined || stored === null) continue
+    if (filterPasses(textValuesOf(document, field), filter)) ids.push(String(document.id))
   }
   return ids.sort()
 }

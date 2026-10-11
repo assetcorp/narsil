@@ -7,7 +7,7 @@ describe('a scalar filter operator on a list of strings', () => {
 
   beforeAll(async () => {
     narsil = await createNarsil({ workers: { enabled: false } })
-    await narsil.createIndex('recipes', { schema: { title: 'string', tags: 'string[]' } })
+    await narsil.createIndex('recipes', { schema: { title: 'string', tags: 'string[]:pattern', notes: 'string[]' } })
     await narsil.insertBatch('recipes', [
       { id: 'stew', title: 'Winter stew recipe', tags: ['vegan', 'slow-cooked'] },
       { id: 'salad', title: 'Summer salad recipe', tags: ['raw', 'quick'] },
@@ -38,4 +38,13 @@ describe('a scalar filter operator on a list of strings', () => {
       expect(result.hits.map(hit => hit.id).sort()).toEqual([...expected].sort())
     })
   }
+
+  it('refuses each of those tests on a list of strings without a pattern index', async () => {
+    for (const [, filters] of cases) {
+      const onNotes = { fields: { notes: Object.values(filters.fields ?? {})[0] } }
+      await expect(narsil.query('recipes', { term: 'recipe', filters: onNotes })).rejects.toMatchObject({
+        code: 'SEARCH_INVALID_FILTER',
+      })
+    }
+  })
 })

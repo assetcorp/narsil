@@ -191,7 +191,7 @@ export function executeListDocuments<T = AnyDocument>(params: ListParams, contex
   const limit = clampListLimit(params.limit)
   const signature = sortSignatureOf(params.sort)
   requireSortableFields(params.sort, schema, context.strict === true)
-  requireValidQueryFilter(params.filters, schema, context.strict === true)
+  requireValidQueryFilter(params.filters, schema)
 
   const binding = listBindingOf(params.filters)
   let cursor: PageCursor | null = null

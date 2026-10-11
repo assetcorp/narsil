@@ -2,7 +2,7 @@ import { ErrorCodes, NarsilError } from '../../errors'
 import { createGeoIndex } from '../../geo/geo-index'
 import type { PostingListView, SerializedSurfaceForms } from '../../types/internal'
 import type { AnyDocument } from '../../types/schema'
-import { createBooleanIndex, createEnumIndex, createNumericIndex } from '../field-index'
+import { createBooleanIndex, createEnumIndex, createNumericIndex, type NumericFieldIndex } from '../field-index'
 import { patternIndexOf } from '../pattern-index/host'
 import type { PatternIndexArrays } from '../pattern-index/types'
 import { encodeFieldIndexes } from './segment-field-indexes'
@@ -29,6 +29,7 @@ export interface SegmentPayload {
   enums: Array<{ fieldPath: string; values: string[]; offsets: Uint32Array; docIds: Uint32Array }>
   geo: Array<{ fieldPath: string; docIds: Uint32Array; latitudes: Float64Array; longitudes: Float64Array }>
   pattern: PatternIndexArrays[]
+  sizes: Array<{ fieldPath: string; docIds: Uint32Array; values: Float64Array }>
 }
 
 function collectBuffer(buffers: ArrayBuffer[], view: ArrayBufferView | null): void {
@@ -45,7 +46,7 @@ export function segmentTransferables(payload: SegmentPayload): ArrayBuffer[] {
   collectBuffer(buffers, payload.positionOffsets)
   collectBuffer(buffers, payload.positionValues)
   for (const column of payload.fieldLengthColumns) collectBuffer(buffers, column)
-  for (const entry of payload.numeric) {
+  for (const entry of [...payload.numeric, ...payload.sizes]) {
     collectBuffer(buffers, entry.docIds)
     collectBuffer(buffers, entry.values)
   }
@@ -246,15 +247,24 @@ function mergePayloadPostings(target: PartitionState, payload: SegmentPayload, o
   }
 }
 
-function mergePayloadFieldIndexes(target: PartitionState, payload: SegmentPayload, ordinalBase: number): void {
-  for (const entry of payload.numeric) {
-    let index = target.numericIndexes.get(entry.fieldPath)
+function mergePayloadNumericIndexes(
+  target: Map<string, NumericFieldIndex>,
+  entries: SegmentPayload['numeric'],
+  ordinalBase: number,
+): void {
+  for (const entry of entries) {
+    let index = target.get(entry.fieldPath)
     if (index === undefined) {
       index = createNumericIndex()
-      target.numericIndexes.set(entry.fieldPath, index)
+      target.set(entry.fieldPath, index)
     }
     for (let i = 0; i < entry.docIds.length; i++) index.insert(ordinalBase + entry.docIds[i], entry.values[i])
   }
+}
+
+function mergePayloadFieldIndexes(target: PartitionState, payload: SegmentPayload, ordinalBase: number): void {
+  mergePayloadNumericIndexes(target.numericIndexes, payload.numeric, ordinalBase)
+  mergePayloadNumericIndexes(target.sizeIndexes, payload.sizes, ordinalBase)
 
   for (const entry of payload.boolean) {
     let index = target.booleanIndexes.get(entry.fieldPath)

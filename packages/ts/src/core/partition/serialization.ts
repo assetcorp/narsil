@@ -5,6 +5,7 @@ import { createBooleanIndex, createEnumIndex, createNumericIndex } from '../fiel
 import type { SerializedPartitionStats } from '../statistics'
 import { loadPatternIndexes, serializePatternIndexes } from './pattern-snapshot'
 import { getFlatSchema, type PartitionState } from './utils'
+import { rebuildSizeIndexes } from './value-sizes'
 
 export function serializePartition(
   state: PartitionState,
@@ -218,4 +219,5 @@ export function deserializePartition(
   }
 
   loadPatternIndexes(state, data.fieldIndexes.pattern, schema)
+  rebuildSizeIndexes(state, schema)
 }

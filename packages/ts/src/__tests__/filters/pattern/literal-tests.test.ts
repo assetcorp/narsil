@@ -114,7 +114,7 @@ describe('a filter that a pattern field alone accepts', () => {
     for (const filter of [{ contains: 'plain' }, { caseFold: true, eq: 'plain text' }, { caseFold: false }]) {
       await expect(listedIds(narsil, 'plain', filter)).rejects.toMatchObject({ code: ErrorCodes.SEARCH_INVALID_FILTER })
       await expect(listedIds(narsil, 'missing', filter)).rejects.toMatchObject({
-        code: ErrorCodes.SEARCH_INVALID_FILTER,
+        code: ErrorCodes.SEARCH_INVALID_FIELD,
       })
     }
   })

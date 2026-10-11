@@ -99,6 +99,11 @@ export function freezeEncodedSegmentShared(
       docIds: sharedUint32(entry.docIds),
       values: sharedFloat64(entry.values),
     })),
+    sizes: payload.sizes.map(entry => ({
+      fieldPath: entry.fieldPath,
+      docIds: sharedUint32(entry.docIds),
+      values: sharedFloat64(entry.values),
+    })),
     boolean: payload.boolean.map(entry => ({
       fieldPath: entry.fieldPath,
       trueDocs: sharedUint32(entry.trueDocs),

@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { MAX_FILTER_TESTS } from '../../../filters/constants'
 import type { NarsilConfig } from '../../../types/config'
 import type { AnyDocument } from '../../../types/schema'
 import { seededRandom } from '../../filters/pattern/random-corpus'
@@ -75,15 +76,16 @@ describe.each([
         { fields: { line: { contains: 'a', caseFold: 1 } } },
         { fields: { sku: { in: 'SKU-2022-00002' } } },
         { fields: { body: { contains: 'entry' } } },
-        { fields: { lineText: { eq: 'x', caseFold: true } } },
-        { fields: { lineText: { eq: 'x', caseFold: false } } },
-        { fields: { nowhere: { contains: 'x' } } },
+        { fields: { body: { eq: 'x', caseFold: true } } },
+        { fields: { body: { eq: 'x', caseFold: false } } },
+        { fields: { body: { contains: 'x' } } },
         { fields: { line: { contains: 'a'.repeat(MAX_TEXT_CODE_POINTS + 1) } } },
         { fields: { line: { contains: '😀'.repeat(MAX_TEXT_CODE_POINTS + 1) } } },
         { fields: { sku: { in: ['ok', 'b'.repeat(MAX_TEXT_CODE_POINTS + 1)] } } },
         { fields: { line: { contains: 'ﬃ'.repeat(700), caseFold: true } } },
       ]
       for (const filters of malformed) await expectRejected(server, filters, 'SEARCH_INVALID_FILTER')
+      await expectRejected(server, { fields: { nowhere: { contains: 'x' } } }, 'SEARCH_INVALID_FIELD')
       expect((await timedSearch(server, searchBody(NORMAL_FILTERS))).status).toBe(200)
     },
   )
@@ -94,6 +96,22 @@ describe.each([
       { fields: { line: { contains: '😀'.repeat(MAX_TEXT_CODE_POINTS) } } },
       { fields: { line: { contains: 'ß'.repeat(MAX_TEXT_CODE_POINTS), caseFold: true } } },
       { fields: { line: { contains: '' } } },
+      {
+        fields: {
+          line: {
+            in: ['ß'.repeat(MAX_TEXT_CODE_POINTS), 'ẞ'.repeat(MAX_TEXT_CODE_POINTS), `${'ß'.repeat(1_023)}a`],
+            caseFold: true,
+          },
+        },
+      },
+      {
+        fields: {
+          line: {
+            nin: ['ß'.repeat(MAX_TEXT_CODE_POINTS), 'ẞ'.repeat(MAX_TEXT_CODE_POINTS)],
+            caseFold: true,
+          },
+        },
+      },
     ]
     for (const filters of atLimit) {
       const response = await timedSearch(server, searchBody(filters))
@@ -127,9 +145,9 @@ describe.each([
           { fields: { line: { contains: HOSTILE_TEXT } } },
         ],
         [
-          'a body of thousands of long or clauses',
+          'the most long or clauses that a filter holds',
           {
-            or: Array.from({ length: 4_500 }, (_, at) => ({
+            or: Array.from({ length: MAX_FILTER_TESTS }, (_, at) => ({
               fields: { line: { contains: repeatedCodePoints(CJK_FIRST + at, 1_000) } },
             })),
           },
@@ -143,8 +161,8 @@ describe.each([
           },
         ],
         [
-          'thousands of ne tests',
-          { or: Array.from({ length: 5_000 }, (_, at) => ({ fields: { sku: { ne: `SKU-${at}` } } })) },
+          'the most ne tests that a filter holds',
+          { or: Array.from({ length: MAX_FILTER_TESTS }, (_, at) => ({ fields: { sku: { ne: `SKU-${at}` } } })) },
         ],
       ]
       for (const [label, filters] of hostileFilters) {

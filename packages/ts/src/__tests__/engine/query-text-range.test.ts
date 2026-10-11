@@ -90,12 +90,14 @@ describe('a range test on a sortable text field', () => {
       ['title', { lt: 'invoice' }],
       ['label', { between: ['a', 'z'] }],
       ['price', { gt: 'a' }],
-      ['undeclared', { lte: 'a' }],
       ['code', { between: ['a', 1] } as unknown as FieldFilter],
     ]
     for (const [field, filter] of refused) {
       await expect(idsWhere(narsil, field, filter)).rejects.toMatchObject({ code: ErrorCodes.SEARCH_INVALID_FILTER })
     }
+    await expect(idsWhere(narsil, 'undeclared', { lte: 'a' })).rejects.toMatchObject({
+      code: ErrorCodes.SEARCH_INVALID_FIELD,
+    })
   })
 })
 

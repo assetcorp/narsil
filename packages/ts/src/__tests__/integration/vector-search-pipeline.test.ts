@@ -7,7 +7,7 @@ const DIM = 8
 
 const schema: SchemaDefinition = {
   title: 'string',
-  category: 'string',
+  category: 'enum',
   embedding: `vector[${DIM}]`,
 }
 

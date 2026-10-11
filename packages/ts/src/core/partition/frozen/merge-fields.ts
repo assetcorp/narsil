@@ -4,7 +4,7 @@ import type { PatternMergeInput } from '../../pattern-index/types'
 import type { SegmentPayload } from '../segment-payload'
 import type { SegmentRemap } from './merge-postings'
 
-type FieldIndexes = Pick<SegmentPayload, 'numeric' | 'boolean' | 'enums' | 'geo' | 'pattern'>
+type FieldIndexes = Pick<SegmentPayload, 'numeric' | 'boolean' | 'enums' | 'geo' | 'pattern' | 'sizes'>
 
 interface RemappedRow {
   docId: number
@@ -74,12 +74,11 @@ function remapDocIds(inputs: readonly SegmentRemap[], pick: (at: number) => Uint
   return out
 }
 
-function mergeNumeric(inputs: readonly SegmentRemap[]): SegmentPayload['numeric'] {
-  const byFieldPath = rowsByFieldPath(
-    inputs,
-    input => input.segment.arrays.numeric,
-    (entry, at) => [entry.values[at]],
-  )
+function mergeNumeric(
+  inputs: readonly SegmentRemap[],
+  pick: (input: SegmentRemap) => SegmentPayload['numeric'],
+): SegmentPayload['numeric'] {
+  const byFieldPath = rowsByFieldPath(inputs, pick, (entry, at) => [entry.values[at]])
   const merged: SegmentPayload['numeric'] = []
   for (const [fieldPath, rows] of byFieldPath) {
     rows.sort((a, b) => a.values[0] - b.values[0] || a.docId - b.docId)
@@ -178,10 +177,11 @@ function mergePattern(inputs: readonly SegmentRemap[]): SegmentPayload['pattern'
 
 export function mergeFieldIndexes(inputs: readonly SegmentRemap[]): FieldIndexes {
   return {
-    numeric: mergeNumeric(inputs),
+    numeric: mergeNumeric(inputs, input => input.segment.arrays.numeric),
     boolean: mergeBoolean(inputs),
     enums: mergeEnums(inputs),
     geo: mergeGeo(inputs),
     pattern: mergePattern(inputs),
+    sizes: mergeNumeric(inputs, input => input.segment.arrays.sizes),
   }
 }

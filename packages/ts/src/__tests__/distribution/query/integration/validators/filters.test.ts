@@ -292,6 +292,23 @@ describe('validateFilterExpression geo operators', () => {
     }
   })
 
+  it('refuses a filter of more than 1,024 tests across its nested expressions, as a node would', () => {
+    const tests = (count: number) => Array.from({ length: count }, (_, at) => ({ fields: { price: { eq: at } } }))
+    const nested = (count: number) => ({
+      and: [
+        { or: tests(200) },
+        { or: tests(200) },
+        { or: tests(200) },
+        { or: tests(200) },
+        { not: { or: tests(count) } },
+      ],
+    })
+    expect(() => validateFilterExpression(nested(224), 'filters')).not.toThrow()
+    expect(() => validateFilterExpression(nested(225), 'filters')).toThrow(
+      'holds 1025 tests, above the maximum of 1024',
+    )
+  })
+
   it('accepts a well-formed polygon', () => {
     expect(() =>
       validateFilterExpression(
