@@ -1,10 +1,12 @@
-import { exceedsCodePoints, foldedCodePointCount } from '../core/ordering'
+import { exceedsCodePoints, foldedCodePointCount, holdsUnpairedSurrogate } from '../core/ordering'
 import {
   MAX_PATTERN_POSITIONS,
   MAX_PATTERN_TEXT_CODE_POINTS,
   PATTERN_TEST_OPERATORS,
 } from '../core/pattern-index/constants'
 import { ErrorCodes, NarsilError } from '../errors'
+import { MAX_LATITUDE_DEGREES, MAX_LONGITUDE_DEGREES } from '../geo/constants'
+import { isLatitude, isLongitude } from '../geo/coordinates'
 import { requirePolygonRing } from '../geo/polygon'
 import { parsedTypeOf } from '../schema/validator/field-type'
 import type { FilterExpression } from '../types/filters'
@@ -139,6 +141,20 @@ function requireRadius(fieldPath: string, radius: unknown): void {
       'radius',
     )
   }
+  if (!isLatitude(circle.lat as number)) {
+    invalid(
+      `"radius.lat" on field "${fieldPath}" must be from -${MAX_LATITUDE_DEGREES} to ${MAX_LATITUDE_DEGREES}, and this filter sets ${String(circle.lat)}`,
+      fieldPath,
+      'radius',
+    )
+  }
+  if (!isLongitude(circle.lon as number)) {
+    invalid(
+      `"radius.lon" on field "${fieldPath}" must be from -${MAX_LONGITUDE_DEGREES} to ${MAX_LONGITUDE_DEGREES}, and this filter sets ${String(circle.lon)}`,
+      fieldPath,
+      'radius',
+    )
+  }
 }
 
 interface FilterFieldRules {
@@ -195,11 +211,26 @@ export function requireValidFilter(
   requireValidExpression(expression, { fieldTypes, declaredOnly }, 0)
 }
 
+function requireWellFormedText(fieldPath: string, filter: Record<string, unknown>): void {
+  for (const [operator, operand] of Object.entries(filter)) {
+    const texts: unknown[] = Array.isArray(operand) ? operand : [operand]
+    for (const text of texts) {
+      if (typeof text !== 'string' || !holdsUnpairedSurrogate(text)) continue
+      invalid(
+        `The text of "${operator}" on field "${fieldPath}" holds an unpaired surrogate, the half of a character such as an emoji whose other half is missing, so no stored value can hold it`,
+        fieldPath,
+        operator,
+      )
+    }
+  }
+}
+
 export function requireValidOperands(
   fieldPath: string,
   filter: Record<string, unknown>,
   type: FieldType | undefined,
 ): void {
+  requireWellFormedText(fieldPath, filter)
   for (const operator of RANGE_OPERATORS) {
     const bound = filter[operator]
     if (bound === undefined) continue

@@ -15,6 +15,21 @@ export function exceedsCodePoints(value: string, maximum: number): boolean {
   return false
 }
 
+const SURROGATE_UNIT = /[\ud800-\udfff]/
+
+export function holdsUnpairedSurrogate(value: string): boolean {
+  if (!SURROGATE_UNIT.test(value)) return false
+  for (let i = 0; i < value.length; i++) {
+    const unit = value.charCodeAt(i)
+    if (unit < 0xd800 || unit >= 0xe000) continue
+    if (unit >= 0xdc00) return true
+    const low = value.charCodeAt(i + 1)
+    if (!(low >= 0xdc00 && low < 0xe000)) return true
+    i++
+  }
+  return false
+}
+
 export function codePointCount(value: string): number {
   let counted = 0
   for (let i = 0; i < value.length; i++) {

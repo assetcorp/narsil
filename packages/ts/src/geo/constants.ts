@@ -1,5 +1,8 @@
 export const DEG_TO_RAD = Math.PI / 180
 
+export const MAX_LATITUDE_DEGREES = 90
+export const MAX_LONGITUDE_DEGREES = 180
+
 export const MIN_POLYGON_POINTS = 3
 export const ANTIMERIDIAN_SPAN_DEGREES = 180
 export const FULL_TURN_DEGREES = 360

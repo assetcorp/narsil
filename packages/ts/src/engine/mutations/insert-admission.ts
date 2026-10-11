@@ -12,8 +12,31 @@ import type { MutationContext } from './context'
  * it. Returns undefined for an absent or non-string id, leaving the caller to
  * fall back to an explicit id argument or generation. */
 export function providedDocId(document: AnyDocument): string | undefined {
+  if (document === null || typeof document !== 'object') return undefined
   const id = (document as { id?: unknown }).id
   return typeof id === 'string' && id.length > 0 ? id : undefined
+}
+
+export function requireDocumentObject(document: unknown): void {
+  if (document !== null && typeof document === 'object' && !Array.isArray(document)) return
+  const received = Array.isArray(document) ? 'a list' : document === null ? 'null' : `a ${typeof document}`
+  throw new NarsilError(
+    ErrorCodes.DOC_VALIDATION_FAILED,
+    `Each document must be an object, while this entry is ${received}`,
+    {
+      received,
+    },
+  )
+}
+
+export function requireMatchingDocId(docId: string, document: AnyDocument): void {
+  const embeddedDocId = providedDocId(document)
+  if (embeddedDocId === undefined || embeddedDocId === docId) return
+  throw new NarsilError(
+    ErrorCodes.DOC_VALIDATION_FAILED,
+    `The call names document id "${docId}" while the document's own id field is "${embeddedDocId}", so the stored document would contradict the key that it is stored under`,
+    { docId, documentId: embeddedDocId },
+  )
 }
 
 export function asBatchInsertError(err: unknown): NarsilError {

@@ -1,4 +1,3 @@
-import { ErrorCodes, NarsilError } from '../../errors'
 import { validateRequiredFields } from '../../schema/validator'
 import type { AnyDocument, InsertOptions } from '../../types/schema'
 import { assertDocumentCarriesMappedVectors, embedDocumentFields } from '../embed'
@@ -6,7 +5,7 @@ import { validateDocId } from '../validation'
 import { insertDocumentVectors, prepareDocumentVectors, validateVectorDimensions } from '../vector-coordinator'
 import type { MutationContext } from './context'
 import { rollbackInsertedDocument } from './durable-rollback'
-import { admitInsert, providedDocId } from './insert-admission'
+import { admitInsert, providedDocId, requireMatchingDocId } from './insert-admission'
 import { awaitWriteVisibility } from './write-visibility'
 
 export async function insertDocument(
@@ -19,15 +18,8 @@ export async function insertDocument(
   ctx.guardShutdown()
   const entry = ctx.requireIndex(indexName)
 
-  const embeddedDocId = providedDocId(document)
-  if (docId !== undefined && embeddedDocId !== undefined && embeddedDocId !== docId) {
-    throw new NarsilError(
-      ErrorCodes.DOC_VALIDATION_FAILED,
-      `The call names document id "${docId}" while the document's own id field is "${embeddedDocId}", so the stored document would contradict the key that it is stored under`,
-      { docId, documentId: embeddedDocId },
-    )
-  }
-  const resolvedDocId = docId ?? embeddedDocId ?? ctx.idGenerator()
+  if (docId !== undefined) requireMatchingDocId(docId, document)
+  const resolvedDocId = docId ?? providedDocId(document) ?? ctx.idGenerator()
   validateDocId(resolvedDocId)
 
   await ctx.pluginRegistry.runHook('beforeInsert', { indexName, docId: resolvedDocId, document })

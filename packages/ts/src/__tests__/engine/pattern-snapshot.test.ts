@@ -141,6 +141,28 @@ describe('the pattern entry of a snapshot', () => {
     })
   })
 
+  it('raises PERSISTENCE_LOAD_FAILED for a run key that holds two or four code points, and accepts one of three', async () => {
+    const original = await narsil.snapshot(PATTERN_INDEX)
+    await narsil.dropIndex(PATTERN_INDEX)
+    for (const key of ['ab', 'abcd', '😀a']) {
+      const snapshot = await rewritePartitions(original, partition => {
+        const entry = codeEntryOf(partition)
+        if (entry === undefined || entry.doc_ids.length === 0) return
+        entry.runs[key] = [0]
+      })
+      await expect(narsil.restore(PATTERN_INDEX, snapshot), key).rejects.toMatchObject({
+        code: ErrorCodes.PERSISTENCE_LOAD_FAILED,
+      })
+    }
+    const threeCodePoints = await rewritePartitions(original, partition => {
+      const entry = codeEntryOf(partition)
+      if (entry === undefined || entry.doc_ids.length === 0) return
+      entry.runs['😀ab'] = [0]
+    })
+    await narsil.restore(PATTERN_INDEX, threeCodePoints)
+    expect(await narsil.countDocuments(PATTERN_INDEX)).toBe(patternDocuments().length)
+  })
+
   it('raises PERSISTENCE_LOAD_FAILED for positions out of ascending order', async () => {
     const snapshot = await rewritePartitions(await narsil.snapshot(PATTERN_INDEX), partition => {
       const entry = codeEntryOf(partition)

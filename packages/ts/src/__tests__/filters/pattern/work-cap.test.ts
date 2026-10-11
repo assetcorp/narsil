@@ -32,22 +32,32 @@ afterEach(async () => {
 })
 
 describe('the work cap on pattern tests', () => {
-  it('counts each shortlist entry and each matcher step of a contains test', async () => {
-    const withinCap = await engineWith({ patternWorkCap: 6 }, 1, ['abcabc'])
+  it('counts each run lookup, each shortlist entry, and each matcher step of a contains test', async () => {
+    const withinCap = await engineWith({ patternWorkCap: 7 }, 1, ['abcabc'])
     expect(await listed(withinCap, { contains: 'abc' })).toEqual(['d0'])
 
-    const overCap = await engineWith({ patternWorkCap: 5 }, 1, ['abcabc'])
+    const overCap = await engineWith({ patternWorkCap: 6 }, 1, ['abcabc'])
     await expect(listed(overCap, { contains: 'abc' })).rejects.toMatchObject({
       code: ErrorCodes.SEARCH_WORK_CAP_EXCEEDED,
-      details: { cap: 5 },
+      details: { cap: 6 },
+    })
+  })
+
+  it('counts each run that an in list looks up, also where no document holds the run', async () => {
+    const withinCap = await engineWith({ patternWorkCap: 4 }, 1, ['zzzzzz'])
+    expect(await listed(withinCap, { in: ['abcd', 'efgh'] })).toEqual([])
+
+    const overCap = await engineWith({ patternWorkCap: 3 }, 1, ['zzzzzz'])
+    await expect(listed(overCap, { in: ['abcd', 'efgh'] })).rejects.toMatchObject({
+      code: ErrorCodes.SEARCH_WORK_CAP_EXCEEDED,
     })
   })
 
   it('counts an eq test as the regular expression anchored at both ends', async () => {
-    const withinCap = await engineWith({ patternWorkCap: 9 }, 1, ['abcabc'])
+    const withinCap = await engineWith({ patternWorkCap: 12 }, 1, ['abcabc'])
     expect(await listed(withinCap, { eq: 'abcabc' })).toEqual(['d0'])
 
-    const overCap = await engineWith({ patternWorkCap: 8 }, 1, ['abcabc'])
+    const overCap = await engineWith({ patternWorkCap: 11 }, 1, ['abcabc'])
     await expect(listed(overCap, { eq: 'abcabc' })).rejects.toMatchObject({
       code: ErrorCodes.SEARCH_WORK_CAP_EXCEEDED,
     })
@@ -76,16 +86,16 @@ describe('the work cap on pattern tests', () => {
   })
 
   it('counts a value that an in list repeats once', async () => {
-    const narsil = await engineWith({ patternWorkCap: 9 }, 1, ['abcabc'])
+    const narsil = await engineWith({ patternWorkCap: 12 }, 1, ['abcabc'])
     expect(await listed(narsil, { in: ['abcabc', 'abcabc', 'abcabc'] })).toEqual(['d0'])
   })
 
   it('counts the work of one search across every partition that it reads', async () => {
     const codes = ['abcabc', 'abcabc', 'abcabc', 'abcabc', 'abcabc', 'abcabc']
-    const withinCap = await engineWith({ patternWorkCap: 36 }, 3, codes)
+    const withinCap = await engineWith({ patternWorkCap: 39 }, 3, codes)
     expect(await listed(withinCap, { contains: 'abc' })).toHaveLength(6)
 
-    const overCap = await engineWith({ patternWorkCap: 35 }, 3, codes)
+    const overCap = await engineWith({ patternWorkCap: 38 }, 3, codes)
     await expect(listed(overCap, { contains: 'abc' })).rejects.toMatchObject({
       code: ErrorCodes.SEARCH_WORK_CAP_EXCEEDED,
     })
@@ -104,7 +114,7 @@ describe('the work cap on pattern tests', () => {
   })
 
   it('starts each search with a fresh count', async () => {
-    const narsil = await engineWith({ patternWorkCap: 6 }, 1, ['abcabc'])
+    const narsil = await engineWith({ patternWorkCap: 7 }, 1, ['abcabc'])
     for (let search = 0; search < 3; search++) expect(await listed(narsil, { contains: 'abc' })).toEqual(['d0'])
   })
 

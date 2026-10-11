@@ -1,5 +1,12 @@
 import { ErrorCodes, NarsilError } from '../errors'
-import { ANTIMERIDIAN_SPAN_DEGREES, FULL_TURN_DEGREES, MIN_POLYGON_POINTS } from './constants'
+import {
+  ANTIMERIDIAN_SPAN_DEGREES,
+  FULL_TURN_DEGREES,
+  MAX_LATITUDE_DEGREES,
+  MAX_LONGITUDE_DEGREES,
+  MIN_POLYGON_POINTS,
+} from './constants'
+import { isLatitude, isLongitude } from './coordinates'
 
 type GeoPoint = { lat: number; lon: number }
 
@@ -13,11 +20,18 @@ export function requirePolygonRing(points: unknown): void {
   }
   points.forEach((point: unknown, position: number) => {
     const { lat, lon } = (point ?? {}) as { lat?: unknown; lon?: unknown }
-    if (typeof lat === 'number' && Number.isFinite(lat) && typeof lon === 'number' && Number.isFinite(lon)) return
+    if (typeof lat !== 'number' || !Number.isFinite(lat) || typeof lon !== 'number' || !Number.isFinite(lon)) {
+      throw new NarsilError(
+        ErrorCodes.SEARCH_INVALID_FILTER,
+        `A polygon point carries a finite "lat" and "lon", and the point at position ${position} does not`,
+        { position },
+      )
+    }
+    if (isLatitude(lat) && isLongitude(lon)) return
     throw new NarsilError(
       ErrorCodes.SEARCH_INVALID_FILTER,
-      `A polygon point carries a finite "lat" and "lon", and the point at position ${position} does not`,
-      { position },
+      `A polygon point has a "lat" from -${MAX_LATITUDE_DEGREES} to ${MAX_LATITUDE_DEGREES} and a "lon" from -${MAX_LONGITUDE_DEGREES} to ${MAX_LONGITUDE_DEGREES}, and the point at position ${position} sets ${lat}, ${lon}`,
+      { position, lat, lon },
     )
   })
 }

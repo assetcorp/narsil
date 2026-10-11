@@ -112,19 +112,21 @@ function pushValueTests(
   capacity: number,
   getValue: GetFieldValue,
   fieldIndex: FieldIndex | undefined,
+  listField: boolean,
   bitsets: Uint32Array[],
 ): void {
+  const exclusionIndex = listField ? undefined : fieldIndex
   if (f.eq !== undefined) {
     bitsets.push(applyEqBitset(f.eq as number | string | boolean, getAllDocsBitset, capacity, getValue, fieldIndex))
   }
   if (f.ne !== undefined) {
-    bitsets.push(applyNeBitset(f.ne as number | string | boolean, getAllDocsBitset, capacity, getValue, fieldIndex))
+    bitsets.push(applyNeBitset(f.ne as number | string | boolean, getAllDocsBitset, capacity, getValue, exclusionIndex))
   }
   if (f.in !== undefined) {
     bitsets.push(applyInBitset(f.in as string[], getAllDocsBitset, capacity, getValue, fieldIndex))
   }
   if (f.nin !== undefined) {
-    bitsets.push(applyNinBitset(f.nin as string[], getAllDocsBitset, capacity, getValue, fieldIndex))
+    bitsets.push(applyNinBitset(f.nin as string[], getAllDocsBitset, capacity, getValue, exclusionIndex))
   }
   if (f.startsWith !== undefined) {
     bitsets.push(applyStartsWithBitset(f.startsWith as string, getAllDocsBitset, capacity, getValue))
@@ -168,7 +170,8 @@ function evaluateFieldFilter(fieldPath: string, filter: FieldFilter, context: Fi
   if (context.isPatternField(fieldPath)) {
     evaluatePatternTests(fieldPath, f, context, bitsets)
   } else {
-    pushValueTests(f, getAllDocsBitset, capacity, getValue, fieldIndex, bitsets)
+    const listField = context.fieldTypes[fieldPath]?.split(':')[0].endsWith('[]') === true
+    pushValueTests(f, getAllDocsBitset, capacity, getValue, fieldIndex, listField, bitsets)
   }
   for (const operator of TEXT_RANGE_OPERATORS) {
     const bound = f[operator]

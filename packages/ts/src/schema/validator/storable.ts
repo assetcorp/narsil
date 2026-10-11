@@ -1,7 +1,10 @@
+import { holdsUnpairedSurrogate } from '../../core/ordering/code-points'
 import { ErrorCodes, NarsilError } from '../../errors'
 import { MAX_DOCUMENT_NESTING_DEPTH } from '../constants'
 
 const RESERVED_OBJECT_KEYS = new Set(['__proto__', 'constructor', 'prototype'])
+const UNPAIRED_SURROGATE_REASON =
+  'holds an unpaired surrogate, the half of a character such as an emoji whose other half is missing, so the engine cannot store it as UTF-8'
 
 function reject(path: string, reason: string): never {
   throw new NarsilError(ErrorCodes.DOC_VALIDATION_FAILED, `Field "${path === '' ? '(document)' : path}" ${reason}`, {
@@ -17,8 +20,11 @@ function isPlainObject(value: object): boolean {
 function walkStorable(value: unknown, path: string, depth: number, ancestors: Set<object>, skip: Set<string>): void {
   if (value === null || value === undefined) return
   const kind = typeof value
-  if (kind === 'string' || kind === 'boolean') return
-  if (kind === 'number') return
+  if (kind === 'string') {
+    if (holdsUnpairedSurrogate(value as string)) reject(path, UNPAIRED_SURROGATE_REASON)
+    return
+  }
+  if (kind === 'boolean' || kind === 'number') return
   if (kind === 'bigint' || kind === 'symbol' || kind === 'function') {
     reject(path, `holds a ${kind}, which cannot be stored or recovered`)
   }
@@ -50,6 +56,7 @@ function walkStorable(value: unknown, path: string, depth: number, ancestors: Se
       if (RESERVED_OBJECT_KEYS.has(key)) {
         reject(keyPath, 'uses a reserved object key')
       }
+      if (holdsUnpairedSurrogate(key)) reject(keyPath, `has a name that ${UNPAIRED_SURROGATE_REASON}`)
       if (skip.has(keyPath)) continue
       walkStorable(record[key], keyPath, depth + 1, ancestors, skip)
     }

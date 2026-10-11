@@ -188,7 +188,7 @@ describe('the pattern matcher', () => {
     expect(keyCharacters).toBeLessThanOrEqual(4 * units)
   })
 
-  it('folds a test once in a search and builds no matcher where no document holds its runs', () => {
+  it('folds a test once in a search, and counts only its run lookups where no document holds its runs', () => {
     const values = ['plain value', 'another value']
     let folds = 0
     let lookups = 0
@@ -225,7 +225,7 @@ describe('the pattern matcher', () => {
     }
     expect(folds).toBe(1_024)
     expect(lookups).toBeLessThanOrEqual(2 * SHORTLIST_RUN_LOOKUPS)
-    expect(meter.spent()).toBe(0)
+    expect(meter.spent()).toBe(lookups)
   })
 
   it('reports work to a count that copies share at the share of the flush interval that each copy gets', () => {

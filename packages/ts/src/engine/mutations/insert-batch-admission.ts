@@ -14,6 +14,7 @@ import {
   embedChunkDocuments,
   providedDocId,
   recordPendingAdmission,
+  requireDocumentObject,
 } from './insert-admission'
 
 export interface AdmittedInsert {
@@ -65,6 +66,7 @@ export async function admitBatchDocuments(
 
       const docId = providedDocId(documents[i]) ?? ctx.idGenerator()
       try {
+        requireDocumentObject(documents[i])
         validateDocId(docId)
 
         if (hasBeforeHook) {

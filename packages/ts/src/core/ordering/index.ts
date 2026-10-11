@@ -1,4 +1,4 @@
-export { compareCodePoints, exceedsCodePoints } from './code-points'
+export { compareCodePoints, exceedsCodePoints, holdsUnpairedSurrogate } from './code-points'
 export { appendFoldedCodePoints, compareCaseFolded, compareSortStrings, foldedCodePointCount } from './fold-compare'
 export { FOLD_ENTRY_COUNT, FOLD_UNICODE_VERSION, multiFoldTable, singleFoldTable } from './fold-table'
 export {
