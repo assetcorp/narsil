@@ -7,13 +7,13 @@ export const COMMON_TERM = 'item'
 export const SCHEMA: SchemaDefinition = {
   body: 'string',
   title: 'string',
-  name: 'string:sortable',
+  name: 'string:sortable:pattern',
   brand: 'verbatim',
   category: 'enum',
   price: 'number',
   rating: 'number',
   inStock: 'boolean',
-  tags: 'string[]',
+  tags: 'string[]:pattern',
   sizes: 'number[]',
   flags: 'boolean[]',
   colours: 'enum[]',
@@ -107,6 +107,33 @@ export function productCorpus(count: number, seed: number): AnyDocument[] {
     })
     if (random() < 0.05) document.price = null
     if (random() < 0.05) document.tags = null
+    if (random() < 0.05) document.title = ''
     return document
   })
+}
+
+export interface Churn {
+  updates: Array<{ docId: string; document: AnyDocument }>
+  removals: string[]
+}
+
+export function churnOf(documents: readonly AnyDocument[], seed: number): Churn {
+  const random = seededRandom(seed)
+  const replacements = productCorpus(documents.length, seed + 1)
+  const churn: Churn = { updates: [], removals: [] }
+  documents.forEach((document, at) => {
+    const docId = String(document.id)
+    const roll = random()
+    if (roll < 0.08) churn.removals.push(docId)
+    else if (roll < 0.23) churn.updates.push({ docId, document: { ...replacements[at], id: docId } })
+  })
+  return churn
+}
+
+export function afterChurn(documents: readonly AnyDocument[], churn: Churn): AnyDocument[] {
+  const removed = new Set(churn.removals)
+  const replaced = new Map(churn.updates.map(update => [update.docId, update.document]))
+  return documents
+    .filter(document => !removed.has(String(document.id)))
+    .map(document => replaced.get(String(document.id)) ?? document)
 }

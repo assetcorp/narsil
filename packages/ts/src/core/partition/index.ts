@@ -86,6 +86,7 @@ export function createPartitionIndex(partitionId: number, trackPositions = true)
     enumIndexes: new Map(),
     geoIndexes: new Map(),
     patternIndexes: new Map(),
+    sizeIndexes: new Map(),
     fieldNameTable,
     flatSchemaCache: null,
     lastSchemaRef: null,
@@ -107,6 +108,7 @@ export function createPartitionIndex(partitionId: number, trackPositions = true)
     state.enumIndexes.clear()
     state.geoIndexes.clear()
     state.patternIndexes.clear()
+    state.sizeIndexes.clear()
     state.stats.deserialize({ totalDocuments: 0, totalFieldLengths: {}, averageFieldLengths: {}, docFrequencies: {} })
     state.flatSchemaCache = null
     state.lastSchemaRef = null

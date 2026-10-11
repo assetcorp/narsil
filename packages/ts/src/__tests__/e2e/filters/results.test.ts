@@ -3,9 +3,10 @@ import { createNarsilClient } from '../../../client'
 import type { FilterExpression } from '../../../types/filters'
 import { seededRandom } from '../../filters/pattern/random-corpus'
 import { startTestServer } from '../../server/helpers'
-import { INDEX, productCorpus } from './corpus'
+import { afterChurn, churnOf, INDEX, productCorpus } from './corpus'
 import {
   answerOf,
+  applyChurn,
   expectAgreesWithOracle,
   type FilterAnswer,
   type FilterServer,
@@ -18,24 +19,27 @@ const CORPUS_SIZE = 2_000
 const FIELD_PROBES = 400
 const EXPRESSIONS = 250
 
-describe('filters sent over HTTP to differently built servers', () => {
-  const documents = productCorpus(CORPUS_SIZE, 51)
+describe('filters sent over HTTP to differently built servers, after updates and removals', () => {
+  const loaded = productCorpus(CORPUS_SIZE, 51)
+  const churn = churnOf(loaded, 55)
+  const documents = afterChurn(loaded, churn)
   const allIds = documents.map(document => String(document.id)).sort()
   const targets: FilterServer[] = []
 
   beforeAll(async () => {
-    targets.push(await startFilterServer('one partition', { workers: { enabled: false } }, documents, 1))
-    targets.push(await startFilterServer('four partitions', { workers: { enabled: false } }, documents, 4))
+    targets.push(await startFilterServer('one partition', { workers: { enabled: false } }, loaded, 1))
+    targets.push(await startFilterServer('four partitions', { workers: { enabled: false } }, loaded, 4))
     if (WORKERS_BUILT) {
       targets.push(
         await startFilterServer(
           'worker copies',
           { workers: { promotionThreshold: 200, count: 3, mainCopyQueries: 'none' } },
-          documents,
+          loaded,
           4,
         ),
       )
     }
+    for (const target of targets) await applyChurn(target, churn)
   }, 120_000)
 
   afterAll(async () => {

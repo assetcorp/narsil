@@ -21,5 +21,6 @@ export interface SegmentColumns extends SegmentPostingColumns {
   enums: SegmentPayload['enums']
   geo: SegmentPayload['geo']
   pattern: SegmentPayload['pattern']
+  sizes: SegmentPayload['sizes']
   surfaceForms: SerializedSurfaceForms | null
 }

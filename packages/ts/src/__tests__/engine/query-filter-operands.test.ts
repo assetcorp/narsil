@@ -8,7 +8,7 @@ describe('a filter whose operands cannot match the field', () => {
   beforeAll(async () => {
     narsil = await createNarsil({ workers: { enabled: false } })
     await narsil.createIndex('bikes', {
-      schema: { name: 'string', price: 'number', category: 'enum', electric: 'boolean', depot: 'geopoint' },
+      schema: { name: 'string:pattern', price: 'number', category: 'enum', electric: 'boolean', depot: 'geopoint' },
     })
     await narsil.insertBatch('bikes', [
       {
@@ -36,6 +36,48 @@ describe('a filter whose operands cannot match the field', () => {
       { fields: { price: { between: [700, 'x'] as unknown as [number, number] } } },
     ],
     ['a negative radius', { fields: { depot: { radius: { lat: 51.5, lon: -0.1, distance: -5, unit: 'km' } } } }],
+    [
+      'a radius centre north of the pole',
+      { fields: { depot: { radius: { lat: 95, lon: 0, distance: 5, unit: 'km' } } } },
+    ],
+    [
+      'a radius centre past the antimeridian',
+      { fields: { depot: { radius: { lat: 0, lon: 180.5, distance: 5, unit: 'km' } } } },
+    ],
+    [
+      'a polygon corner south of the pole',
+      {
+        fields: {
+          depot: {
+            polygon: {
+              points: [
+                { lat: 0, lon: 0 },
+                { lat: -91, lon: 1 },
+                { lat: 1, lon: 1 },
+              ],
+            },
+          },
+        },
+      },
+    ],
+    [
+      'a polygon corner past the antimeridian, nested under "not"',
+      {
+        not: {
+          fields: {
+            depot: {
+              polygon: {
+                points: [
+                  { lat: 0, lon: 0 },
+                  { lat: 1, lon: -200 },
+                  { lat: 1, lon: 1 },
+                ],
+              },
+            },
+          },
+        },
+      },
+    ],
     ['a string compared with a number field', { fields: { price: { eq: '700' } } }],
     ['a number compared with a boolean field', { fields: { electric: { eq: 1 } } }],
     ['"in" on a number field', { fields: { price: { in: ['700'] } } }],
@@ -53,9 +95,10 @@ describe('a filter whose operands cannot match the field', () => {
     await expect(narsil.listDocuments('bikes', { filters })).rejects.toMatchObject({ code: 'SEARCH_INVALID_FILTER' })
   })
 
-  it('still filters by a value stored in a field outside the schema', async () => {
-    const result = await narsil.query('bikes', { term: 'bike', filters: { fields: { weight: { eq: 12 } } } })
-    expect(result.hits.map(hit => hit.id)).toEqual(['trail'])
+  it('refuses a filter on a value stored in a field outside the schema, which no index holds', async () => {
+    await expect(
+      narsil.query('bikes', { term: 'bike', filters: { fields: { weight: { eq: 12 } } } }),
+    ).rejects.toMatchObject({ code: 'SEARCH_INVALID_FIELD', details: { field: 'weight', option: 'filter' } })
   })
 
   it('still matches a radius of zero and well-formed operators', async () => {
@@ -71,5 +114,21 @@ describe('a filter whose operands cannot match the field', () => {
       },
     })
     expect(result.hits.map(hit => hit.id)).toEqual(['urban'])
+  })
+
+  it('refuses a centre off the globe on an index that holds no documents yet', async () => {
+    await narsil.createIndex('depots', { schema: { depot: 'geopoint' } })
+    const filters: FilterExpression = { fields: { depot: { radius: { lat: 90.01, lon: 0, distance: 1, unit: 'km' } } } }
+    await expect(narsil.query('depots', { filters })).rejects.toMatchObject({ code: 'SEARCH_INVALID_FILTER' })
+    await expect(narsil.listDocuments('depots', { filters })).rejects.toMatchObject({ code: 'SEARCH_INVALID_FILTER' })
+  })
+
+  it('matches a circle centred on the edge of the globe', async () => {
+    await narsil.insertBatch('bikes', [{ id: 'polar', name: 'Polar bike', depot: { lat: 90, lon: 180 } }])
+    const page = await narsil.listDocuments('bikes', {
+      filters: { fields: { depot: { radius: { lat: 90, lon: -180, distance: 1, unit: 'km' } } } },
+    })
+    expect(page.documents.map(document => document.id)).toEqual(['polar'])
+    await narsil.remove('bikes', 'polar')
   })
 })

@@ -44,6 +44,11 @@ export type ComparisonFilter = {
  * `string[]` field whose type includes `pattern`. On such a field, the engine
  * answers `eq`, `ne`, `in`, `nin`, `startsWith`, `endsWith`, and `contains`
  * from the field's pattern index. `caseFold` applies to each of those tests.
+ * The engine answers all of them except `contains` on an `enum` or `enum[]`
+ * field as well, from the field's index of values. It throws
+ * `SEARCH_INVALID_FILTER` for `eq`, `ne`, `in`, `nin`, `startsWith`, or
+ * `endsWith` on a `string` or `string[]` field whose type leaves out
+ * `pattern`, because such a field keeps no index of whole values.
  * The engine compares the code points of each value as stored, with no
  * Unicode normalisation. It throws `SEARCH_INVALID_FILTER` for `contains` or
  * `caseFold` on any other field, for a test text longer than 1,024 code points
@@ -83,16 +88,22 @@ export type StringFilter = Pick<ComparisonFilter, 'eq' | 'ne'> & {
 }
 
 /**
- * Tests the contents of an array field.
+ * Tests the contents of a list field, which is a `number[]`, `boolean[]`,
+ * `enum[]`, `verbatim[]`, or `string[]` field.
+ *
+ * The engine throws `SEARCH_INVALID_FILTER` for these tests on any other
+ * field, for a value whose type differs from the type of the list's elements,
+ * and for `containsAll` or `matchesAny` on a `string[]` field whose type leaves
+ * out `pattern`.
  *
  * @public
  */
 export type ArrayFilter = {
-  /** This matches an array holding every one of the values. */
+  /** This matches a list holding every one of the values, so an empty set of values matches every list. */
   containsAll?: (string | number | boolean)[]
-  /** This matches an array holding at least one of the values. */
+  /** This matches a list holding at least one of the values. */
   matchesAny?: (string | number | boolean)[]
-  /** This compares the array's length. */
+  /** This compares the number of elements in the list. */
   size?: ComparisonFilter
 }
 
@@ -103,13 +114,13 @@ export type ArrayFilter = {
  * @public
  */
 export type PresenceFilter = {
-  /** This matches a document where the field is present. */
+  /** This matches a document where the field holds a value other than null. */
   exists?: boolean
-  /** This matches a document where the field is absent. */
+  /** This matches a document where the field is absent or null. */
   notExists?: boolean
-  /** This matches an empty string or an empty array. */
+  /** This matches a document where the field is absent, null, an empty string, or an empty list. */
   isEmpty?: boolean
-  /** This matches a string or array holding something. */
+  /** This matches a document where the field holds a value other than an empty string or an empty list. */
   isNotEmpty?: boolean
 }
 
@@ -187,11 +198,15 @@ export type GeoFilter = GeoRadiusFilter | GeoPolygonFilter
 export type FieldFilter = ComparisonFilter | StringFilter | ArrayFilter | PresenceFilter | GeoFilter
 
 /**
- * The filter a query runs, built from per-field tests and the boolean
+ * The filter that a query runs, built from per-field tests and the boolean
  * operators that combine them.
  *
- * Nest the operators to whatever depth the query needs. The engine applies the
- * filter before scoring, so a narrow filter makes a search cheaper.
+ * The engine answers every test from an index that it keeps for the field. It
+ * applies the filter before scoring, so a narrow filter makes a search
+ * cheaper. A filter nests at most 30 levels deep and holds at most 1,024
+ * tests, counted across every field and nested expression, and the engine
+ * throws `SEARCH_INVALID_FILTER` past either limit. It throws
+ * `SEARCH_INVALID_FIELD` for a test on a field that the schema leaves out.
  *
  * @public
  */

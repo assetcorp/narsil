@@ -1,4 +1,5 @@
 import { ErrorCodes, NarsilError } from '../errors'
+import { type LocationBox, longitudeBoxes } from './cells'
 import {
   ANTIMERIDIAN_SPAN_DEGREES,
   FULL_TURN_DEGREES,
@@ -7,6 +8,7 @@ import {
   MIN_POLYGON_POINTS,
 } from './constants'
 import { isLatitude, isLongitude } from './coordinates'
+import { buildLongitudeEdgeTree, forEachEdgeSpanning } from './edge-tree'
 
 type GeoPoint = { lat: number; lon: number }
 
@@ -69,20 +71,36 @@ export function polygonContainment(polygon: readonly GeoPoint[]): (lat: number, 
     lats[i] = polygon[i].lat
     lons[i] = unwrap ? eastward(polygon[i].lon) : polygon[i].lon
   }
+  const edges = buildLongitudeEdgeTree(lons)
 
   return (lat: number, rawLon: number): boolean => {
     const lon = unwrap ? eastward(rawLon) : rawLon
     let inside = false
-    for (let i = 0, j = n - 1; i < n; j = i++) {
-      const lonI = lons[i]
-      const lonJ = lons[j]
-      if (lonI > lon !== lonJ > lon) {
-        const intersectLat = lats[i] + ((lats[j] - lats[i]) / (lonJ - lonI)) * (lon - lonI)
-        if (lat < intersectLat) inside = !inside
-      }
-    }
+    forEachEdgeSpanning(edges, lon, (i, j) => {
+      const intersectLat = lats[i] + ((lats[j] - lats[i]) / (lons[j] - lons[i])) * (lon - lons[i])
+      if (lat < intersectLat) inside = !inside
+    })
     return inside
   }
+}
+
+export function polygonBoxes(polygon: readonly GeoPoint[]): LocationBox[] {
+  if (polygon.length < MIN_POLYGON_POINTS) return []
+  const unwrap = crossesAntimeridian(polygon)
+  let south = Number.POSITIVE_INFINITY
+  let north = Number.NEGATIVE_INFINITY
+  let west = Number.POSITIVE_INFINITY
+  let east = Number.NEGATIVE_INFINITY
+  for (const point of polygon) {
+    const lon = unwrap ? eastward(point.lon) : point.lon
+    south = Math.min(south, point.lat)
+    north = Math.max(north, point.lat)
+    west = Math.min(west, lon)
+    east = Math.max(east, lon)
+  }
+  if (west >= MAX_LONGITUDE_DEGREES)
+    return longitudeBoxes(south, north, west - FULL_TURN_DEGREES, east - FULL_TURN_DEGREES)
+  return longitudeBoxes(south, north, west, east)
 }
 
 export function isPointInPolygon(lat: number, lon: number, polygon: readonly GeoPoint[]): boolean {

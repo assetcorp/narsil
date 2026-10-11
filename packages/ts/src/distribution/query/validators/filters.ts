@@ -1,9 +1,16 @@
 import { exceedsCodePoints } from '../../../core/ordering'
 import type { ErrorCode } from '../../../errors'
 import { FIELD_FILTER_OPERATORS, FILTER_EXPRESSION_KEYS } from '../../../filters/keys'
+import { filterTestCount } from '../../../filters/operands'
 import { MAX_LATITUDE_DEGREES, MAX_LONGITUDE_DEGREES, MIN_POLYGON_POINTS } from '../../../geo/constants'
 import { isLatitude, isLongitude } from '../../../geo/coordinates'
-import { MAX_FILTER_ARRAY_SIZE, MAX_FILTER_DEPTH, MAX_FILTER_FIELDS, MAX_FILTER_STRING_LENGTH } from '../constants'
+import {
+  MAX_FILTER_ARRAY_SIZE,
+  MAX_FILTER_DEPTH,
+  MAX_FILTER_FIELDS,
+  MAX_FILTER_STRING_LENGTH,
+  MAX_FILTER_TESTS,
+} from '../constants'
 import { isFiniteNumber, isRecord, SEARCH_INVALID_FILTER, throwInvalid, validateFieldName } from './common'
 
 const GEO_UNITS = ['km', 'mi', 'm'] as const
@@ -326,5 +333,17 @@ export function validateFilterExpression(
     } else if (key === 'not') {
       validateFilterExpression(clauseValue, `${fieldLabel}.not`, errorCode, depth + 1)
     }
+  }
+  if (depth > 0) return
+  const tests = filterTestCount(value)
+  if (tests > MAX_FILTER_TESTS) {
+    throwInvalid(
+      errorCode,
+      `Invalid payload: "${fieldLabel}" holds ${tests} tests, above the maximum of ${MAX_FILTER_TESTS}`,
+      {
+        tests,
+        limit: MAX_FILTER_TESTS,
+      },
+    )
   }
 }

@@ -34,6 +34,7 @@ function emptyPayload(documentCount: number): SegmentPayload {
     enums: [],
     geo: [],
     pattern: [],
+    sizes: [],
   }
 }
 

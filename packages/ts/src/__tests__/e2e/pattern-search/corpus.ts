@@ -6,22 +6,13 @@ import { codePointsOf, textValuesOf } from './oracle'
 export const INDEX = 'operations'
 export const COMMON_TERM = 'entry'
 
-export const PATTERN_FIELDS = {
-  line: 'lineText',
-  sku: 'skuText',
-  emails: 'emailsText',
-} as const
-
-export type PatternField = keyof typeof PATTERN_FIELDS
+export type PatternField = 'line' | 'sku' | 'emails'
 
 export const SCHEMA: SchemaDefinition = {
   body: 'string',
   line: 'string:pattern',
-  lineText: 'string',
   sku: 'verbatim',
-  skuText: 'string',
   emails: 'verbatim[]',
-  emailsText: 'string[]',
 }
 
 const SERVICES = ['payment-service', 'Payment-Gateway', 'inventory', 'STRASSE-Router', 'Straße-router', 'auth']
@@ -41,14 +32,6 @@ const MESSAGES = [
 const PEOPLE = ['Ama.Mensah', 'kofi.boateng', 'Efua.Owusu', 'YAW.ASANTE', 'Jürgen.Weiß', 'Σοφία']
 const DOMAINS = ['example.com', 'Example.ORG', 'mail.example.com', 'straße.de']
 
-function withTwins(document: AnyDocument): AnyDocument {
-  const twinned: AnyDocument = { ...document }
-  for (const [field, twin] of Object.entries(PATTERN_FIELDS)) {
-    if (document[field] !== undefined) twinned[twin] = document[field]
-  }
-  return twinned
-}
-
 export function operationsCorpus(count: number, seed: number): AnyDocument[] {
   const random = seededRandom(seed)
   const pick = <T>(items: readonly T[]): T => items[Math.floor(random() * items.length)]
@@ -63,7 +46,7 @@ export function operationsCorpus(count: number, seed: number): AnyDocument[] {
     if (at % 7 !== 0) {
       document.emails = Array.from({ length: at % 4 }, () => `${pick(PEOPLE)}@${pick(DOMAINS)}`)
     }
-    return withTwins(document)
+    return document
   })
 }
 
@@ -89,7 +72,7 @@ export function generatedProbes(
   seed: number,
 ): Array<[PatternField, FieldFilter]> {
   const random = seededRandom(seed)
-  const fields = Object.keys(PATTERN_FIELDS) as PatternField[]
+  const fields: PatternField[] = ['line', 'sku', 'emails']
   const probes: Array<[PatternField, FieldFilter]> = []
   while (probes.length < count) {
     const field = fields[Math.floor(random() * fields.length)]
@@ -165,15 +148,3 @@ export const EDGE_PROBES: Array<[PatternField, FieldFilter]> = [
   ['emails', { nin: ['YAW.ASANTE@example.com'], caseFold: true }],
   ['emails', { contains: 'weiss', caseFold: true }],
 ]
-
-export function exactTwinFilter(filter: FieldFilter): FieldFilter | null {
-  const probe = filter as Record<string, unknown>
-  const twin: Record<string, unknown> = {}
-  for (const operator of ['ne', 'nin'] as const) {
-    if (probe[operator] !== undefined) twin[operator] = probe[operator]
-  }
-  for (const operator of ['eq', 'in', 'startsWith', 'endsWith', 'contains'] as const) {
-    if (probe[operator] !== undefined) return null
-  }
-  return Object.keys(twin).length === 0 ? null : (twin as FieldFilter)
-}

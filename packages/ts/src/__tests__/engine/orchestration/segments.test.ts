@@ -60,5 +60,6 @@ function emptyPayload(): SegmentPayload {
     enums: [],
     geo: [],
     pattern: [],
+    sizes: [],
   }
 }

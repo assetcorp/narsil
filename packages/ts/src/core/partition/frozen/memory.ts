@@ -13,7 +13,7 @@ export function frozenSegmentBytes(segment: FrozenSegment): number {
     bytes += arrays.documentTable.blob.byteLength + arrays.documentTable.offsets.byteLength
   }
   for (const column of arrays.fieldLengthColumns) bytes += column.byteLength
-  for (const entry of arrays.numeric) bytes += entry.docIds.byteLength + entry.values.byteLength
+  for (const entry of [...arrays.numeric, ...arrays.sizes]) bytes += entry.docIds.byteLength + entry.values.byteLength
   for (const entry of arrays.boolean) bytes += entry.trueDocs.byteLength + entry.falseDocs.byteLength
   for (const entry of arrays.enums) bytes += entry.offsets.byteLength + entry.docIds.byteLength
   for (const entry of arrays.geo) {

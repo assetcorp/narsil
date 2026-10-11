@@ -196,16 +196,12 @@ export function requireValidQueryOptions(params: QueryParams, config: IndexConfi
   const strict = config.strict === true
   requireValidTypoTolerance(params)
   requireSortableFields(params.sort, config.schema, strict)
-  requireValidQueryFilter(params.filters, config.schema, strict)
+  requireValidQueryFilter(params.filters, config.schema)
   requireUsableQueryFields(params, config.schema, strict)
 }
 
-export function requireValidQueryFilter(
-  filters: FilterExpression | undefined,
-  schema: IndexConfig['schema'],
-  strict = false,
-): void {
-  if (filters !== undefined) requireValidFilter(filters, flattenSchema(schema), strict)
+export function requireValidQueryFilter(filters: FilterExpression | undefined, schema: IndexConfig['schema']): void {
+  if (filters !== undefined) requireValidFilter(filters, flattenSchema(schema))
 }
 
 export function requireVectorSearchable(params: QueryParams, context: QueryContext, needsVector: boolean): void {

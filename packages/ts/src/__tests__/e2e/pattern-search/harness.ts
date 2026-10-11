@@ -7,8 +7,7 @@ import type { NarsilConfig } from '../../../types/config'
 import type { FieldFilter } from '../../../types/filters'
 import type { AnyDocument } from '../../../types/schema'
 import { scaledOut, startTestServer, waitFor } from '../../server/helpers'
-import { COMMON_TERM, INDEX, PATTERN_FIELDS, type PatternField, SCHEMA } from './corpus'
-import { expectedIds, textValuesOf } from './oracle'
+import { COMMON_TERM, INDEX, SCHEMA } from './corpus'
 
 export const WORKERS_BUILT = existsSync(new URL('../../../../dist/workers/entry.mjs', import.meta.url))
 export const WORKER_COPIES: NarsilConfig['workers'] = { promotionThreshold: 200, count: 4, mainCopyQueries: 'none' }
@@ -70,27 +69,4 @@ export async function countOf(server: PatternServer, field: string, filter: Fiel
     filters: { fields: { [field]: filter } },
   })
   return preflight.count
-}
-
-function withoutValues(documents: readonly AnyDocument[], field: string): Set<string> {
-  return new Set(
-    documents.filter(document => textValuesOf(document, field).length === 0).map(document => String(document.id)),
-  )
-}
-
-export async function expectedFor(
-  server: PatternServer,
-  documents: readonly AnyDocument[],
-  field: PatternField,
-  filter: FieldFilter,
-  twinFilter: FieldFilter | null,
-): Promise<string[]> {
-  const empty = withoutValues(documents, field)
-  const matchesWithoutValues = new Set<string>()
-  if (twinFilter !== null) {
-    for (const id of await searchIds(server, PATTERN_FIELDS[field], twinFilter)) {
-      if (empty.has(id)) matchesWithoutValues.add(id)
-    }
-  }
-  return expectedIds(documents, field, filter, matchesWithoutValues)
 }

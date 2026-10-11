@@ -63,6 +63,6 @@ export function repeatedCodePoints(first: number, length: number): string {
 export function longValueCorpus(count: number, valueLength: number): AnyDocument[] {
   return Array.from({ length: count }, (_, at) => {
     const line = `${'a'.repeat(valueLength - 1)}${at % 2 === 0 ? 'b' : 'c'}`
-    return { id: `long${String(at).padStart(5, '0')}`, body: COMMON_TERM, line, lineText: line, sku: `SKU-${at}` }
+    return { id: `long${String(at).padStart(5, '0')}`, body: COMMON_TERM, line, sku: `SKU-${at}` }
   })
 }

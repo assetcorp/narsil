@@ -8,7 +8,7 @@ describe('the pattern filters of one partition', () => {
     vi.restoreAllMocks()
   })
 
-  it('reads the documents that hold a value in a field once for every ne and nin test on it in a search', async () => {
+  it('takes the documents that hold a value for ne and nin from the value sizes, reading no pattern document list', async () => {
     let documentReads = 0
     const createIndex = patternSearchModule.createIndex
     vi.spyOn(patternSearchModule, 'createIndex').mockImplementation(host => {
@@ -41,7 +41,7 @@ describe('the pattern filters of one partition', () => {
         limit: 10,
       })
       expect(page.documents.map(document => document.id)).toEqual(['o3'])
-      expect(documentReads).toBe(1)
+      expect(documentReads).toBe(0)
     } finally {
       await narsil.shutdown()
     }

@@ -1,5 +1,6 @@
 import { bitsetHas, bitsetSet, createBitSet } from '../../bitset'
 import type { BooleanFieldIndexReader, EnumFieldIndexReader, NumericFieldIndexReader } from '../../field-index'
+import { ValueAffixes } from '../../field-index/affixes'
 import type { SegmentPayload } from '../segment-payload'
 
 function lowerBound(values: Float64Array, value: number): number {
@@ -141,7 +142,25 @@ export function createFrozenEnumReader(entry: SegmentPayload['enums'][number]): 
     return rangeByValue.get(value) ?? { from: 0, to: 0 }
   }
 
+  let affixes: ValueAffixes | null = null
+  function bitsetOfValues(matching: readonly string[], capacity: number): Uint32Array {
+    const bits = createBitSet(capacity)
+    for (const value of matching) {
+      const { from, to } = rangeOf(value)
+      for (let i = from; i < to; i++) bitsetSet(bits, docIds[i])
+    }
+    return bits
+  }
+
   return {
+    queryPrefixBitset: (prefix, capacity) => {
+      affixes ??= new ValueAffixes(values)
+      return bitsetOfValues(affixes.withPrefix(prefix), capacity)
+    },
+    querySuffixBitset: (suffix, capacity) => {
+      affixes ??= new ValueAffixes(values)
+      return bitsetOfValues(affixes.withSuffix(suffix), capacity)
+    },
     serialize: () => {
       const byValue: Record<string, number[]> = Object.create(null)
       for (let i = 0; i < values.length; i++) {

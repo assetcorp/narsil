@@ -1,19 +1,19 @@
 import { evaluateFilters, type FilterContext } from '../../filters/evaluator'
-import type { FieldIndex, GeoFieldIndex } from '../../filters/operators'
 import { schemaFieldsOf } from '../../schema/validator'
 import type { FilterExpression } from '../../types/filters'
 import type { SchemaDefinition } from '../../types/schema'
-import { bitsetFromSet, bitsetHas, bitsetSet, createBitSet } from '../bitset'
+import { bitsetHas, bitsetSet, createBitSet } from '../bitset'
 import { PATTERN_HOST } from '../pattern-index/host'
 import { requirePatternSearch } from '../pattern-index/registry'
 import type { PatternOperator, PatternWorkMeter } from '../pattern-index/types'
 import type { TextRangeBounds } from './sort-columns/range'
 import { textRangeBitsetOf } from './sorting'
-import { getAllInternalDocIds, getFieldValueByInternalId, getFlatSchema, type PartitionReadState } from './utils'
+import { getFieldValueByInternalId, getFlatSchema, type PartitionReadState } from './utils'
 
-const EMPTY_GEO_INDEX: GeoFieldIndex = {
-  radiusQuery: () => new Set<number>(),
-  polygonQuery: () => new Set<number>(),
+function liveDocumentsBitset(state: PartitionReadState, capacity: number): Uint32Array {
+  const bits = createBitSet(capacity)
+  for (const internalId of state.docStore.allInternalIds()) bitsetSet(bits, internalId)
+  return bits
 }
 
 export function buildFilterContext(
@@ -22,83 +22,24 @@ export function buildFilterContext(
   meter: PatternWorkMeter,
 ): FilterContext {
   const flat = getFlatSchema(state, schema)
-  const fieldIndexes: Record<string, FieldIndex> = {}
   const capacity = state.docStore.internalIdCapacity()
   const patternFields = new Set<string>()
+  for (const { path: fieldPath, pattern } of schemaFieldsOf(schema)) {
+    if (pattern) patternFields.add(fieldPath)
+  }
   const getFieldValue = (internalId: number, fieldPath: string): unknown =>
     getFieldValueByInternalId(state.docStore, internalId, fieldPath)
 
-  for (const { path: fieldPath, base: fieldType, pattern } of schemaFieldsOf(schema)) {
-    if (pattern) patternFields.add(fieldPath)
-    if (fieldType === 'number' || fieldType === 'number[]') {
-      const numIdx = state.numericIndexes.get(fieldPath)
-      if (numIdx) {
-        fieldIndexes[fieldPath] = {
-          type: 'numeric',
-          index: {
-            eq: (v: number) => numIdx.queryEq(v),
-            gt: (v: number) => numIdx.queryGt(v),
-            gte: (v: number) => numIdx.queryGte(v),
-            lt: (v: number) => numIdx.queryLt(v),
-            lte: (v: number) => numIdx.queryLte(v),
-            between: (min: number, max: number) => numIdx.queryBetween(min, max),
-            allDocIds: () => numIdx.getAllDocIds(),
-            eqBitset: (v: number, cap: number) => numIdx.queryEqBitset(v, cap),
-            gtBitset: (v: number, cap: number) => numIdx.queryGtBitset(v, cap),
-            gteBitset: (v: number, cap: number) => numIdx.queryGteBitset(v, cap),
-            ltBitset: (v: number, cap: number) => numIdx.queryLtBitset(v, cap),
-            lteBitset: (v: number, cap: number) => numIdx.queryLteBitset(v, cap),
-            betweenBitset: (min: number, max: number, cap: number) => numIdx.queryBetweenBitset(min, max, cap),
-            allDocIdsBitset: (cap: number) => numIdx.getAllDocIdsBitset(cap),
-          },
-        }
-      }
-    } else if (fieldType === 'boolean' || fieldType === 'boolean[]') {
-      const boolIdx = state.booleanIndexes.get(fieldPath)
-      if (boolIdx) {
-        fieldIndexes[fieldPath] = {
-          type: 'boolean',
-          index: {
-            getTrue: () => boolIdx.queryEq(true),
-            getFalse: () => boolIdx.queryEq(false),
-            allDocIds: () => boolIdx.getAllDocIds(),
-            getTrueBitset: (cap: number) => boolIdx.queryEqBitset(true, cap),
-            getFalseBitset: (cap: number) => boolIdx.queryEqBitset(false, cap),
-            allDocIdsBitset: (cap: number) => boolIdx.getAllDocIdsBitset(cap),
-          },
-        }
-      }
-    } else if (fieldType === 'enum' || fieldType === 'enum[]') {
-      const enumIdx = state.enumIndexes.get(fieldPath)
-      if (enumIdx) {
-        fieldIndexes[fieldPath] = {
-          type: 'enum',
-          index: {
-            getDocIds: (v: string) => enumIdx.queryEq(v),
-            allDocIds: () => enumIdx.getAllDocIds(),
-            getDocIdsBitset: (v: string, cap: number) => enumIdx.queryEqBitset(v, cap),
-            getDocIdsInBitset: (values: string[], cap: number) => enumIdx.queryInBitset(values, cap),
-            allDocIdsBitset: (cap: number) => enumIdx.getAllDocIdsBitset(cap),
-          },
-        }
-      }
-    } else if (fieldType === 'geopoint') {
-      const geoIdx = state.geoIndexes.get(fieldPath)
-      fieldIndexes[fieldPath] = {
-        type: 'geopoint',
-        index: geoIdx === undefined ? EMPTY_GEO_INDEX : (geoIdx as GeoFieldIndex),
-      }
-    }
-  }
-
-  let cachedAllDocIds: Set<number> | null = null
   let cachedAllDocIdsBitset: Uint32Array | null = null
   const cachedPatternValueBitsets = new Map<string, Uint32Array>()
 
   return {
     fieldTypes: flat,
-    fieldIndexes,
-    getFieldValue,
+    numericIndex: fieldPath => state.numericIndexes.get(fieldPath),
+    booleanIndex: fieldPath => state.booleanIndexes.get(fieldPath),
+    enumIndex: fieldPath => state.enumIndexes.get(fieldPath),
+    geoIndex: fieldPath => state.geoIndexes.get(fieldPath),
+    sizeIndex: fieldPath => state.sizeIndexes.get(fieldPath),
     textRangeBitset: (fieldPath: string, bounds: TextRangeBounds) =>
       textRangeBitsetOf(state, fieldPath, flat[fieldPath], bounds, capacity),
     isPatternField: (fieldPath: string) => patternFields.has(fieldPath),
@@ -125,23 +66,13 @@ export function buildFilterContext(
     patternValuesBitset: (fieldPath: string) => {
       const cached = cachedPatternValueBitsets.get(fieldPath)
       if (cached !== undefined) return cached
-      const bits = createBitSet(capacity)
-      const documents = state.patternIndexes.get(fieldPath)?.documents()
-      if (documents !== undefined) for (const internalId of documents) bitsetSet(bits, internalId)
+      const bits = state.sizeIndexes.get(fieldPath)?.getAllDocIdsBitset(capacity) ?? createBitSet(capacity)
       cachedPatternValueBitsets.set(fieldPath, bits)
       return bits
     },
-    get allDocIds() {
-      if (!cachedAllDocIds) {
-        cachedAllDocIds = getAllInternalDocIds(state.docStore)
-      }
-      return cachedAllDocIds
-    },
     capacity,
     get allDocIdsBitset() {
-      if (!cachedAllDocIdsBitset) {
-        cachedAllDocIdsBitset = bitsetFromSet(this.allDocIds, capacity)
-      }
+      cachedAllDocIdsBitset ??= liveDocumentsBitset(state, capacity)
       return cachedAllDocIdsBitset
     },
   }

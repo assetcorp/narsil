@@ -1,28 +1,36 @@
+import type { NumericFieldIndexReader } from '../field-index'
 import type { SegmentPayload } from './segment-payload'
 import type { PartitionReadState } from './utils'
 
 export type SegmentFieldIndexes = Pick<
   PartitionReadState,
-  'numericIndexes' | 'booleanIndexes' | 'enumIndexes' | 'geoIndexes' | 'patternIndexes'
+  'numericIndexes' | 'booleanIndexes' | 'enumIndexes' | 'geoIndexes' | 'patternIndexes' | 'sizeIndexes'
 >
 
-export function encodeFieldIndexes(
-  state: SegmentFieldIndexes,
+function encodeNumericIndexes(
+  indexes: ReadonlyMap<string, NumericFieldIndexReader>,
   remap: Int32Array,
-): Pick<SegmentPayload, 'numeric' | 'boolean' | 'enums' | 'geo' | 'pattern'> {
-  const survives = (internalId: number): boolean => remap[internalId] >= 0
-
-  const numeric: SegmentPayload['numeric'] = []
-  for (const [fieldPath, index] of state.numericIndexes) {
-    const entries = index.serialize().filter(entry => survives(entry.docId))
+): SegmentPayload['numeric'] {
+  const encoded: SegmentPayload['numeric'] = []
+  for (const [fieldPath, index] of indexes) {
+    const entries = index.serialize().filter(entry => remap[entry.docId] >= 0)
     const docIds = new Uint32Array(entries.length)
     const values = new Float64Array(entries.length)
     for (let i = 0; i < entries.length; i++) {
       docIds[i] = remap[entries[i].docId]
       values[i] = entries[i].value
     }
-    numeric.push({ fieldPath, docIds, values })
+    encoded.push({ fieldPath, docIds, values })
   }
+  return encoded
+}
+
+export function encodeFieldIndexes(
+  state: SegmentFieldIndexes,
+  remap: Int32Array,
+): Pick<SegmentPayload, 'numeric' | 'boolean' | 'enums' | 'geo' | 'pattern' | 'sizes'> {
+  const survives = (internalId: number): boolean => remap[internalId] >= 0
+  const numeric = encodeNumericIndexes(state.numericIndexes, remap)
 
   const booleans: SegmentPayload['boolean'] = []
   for (const [fieldPath, index] of state.booleanIndexes) {
@@ -70,5 +78,5 @@ export function encodeFieldIndexes(
   const pattern: SegmentPayload['pattern'] = []
   for (const [fieldPath, index] of state.patternIndexes) pattern.push(index.toArrays(fieldPath, remap))
 
-  return { numeric, boolean: booleans, enums, geo, pattern }
+  return { numeric, boolean: booleans, enums, geo, pattern, sizes: encodeNumericIndexes(state.sizeIndexes, remap) }
 }

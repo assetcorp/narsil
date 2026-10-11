@@ -55,8 +55,9 @@ describe('query options that name a field on a strict index', () => {
     expect(result.hits.map(hit => hit.id)).toEqual(['a-urban'])
   })
 
-  it('keeps reading stored values for an undeclared field on an index that is not strict', async () => {
-    const result = await narsil.query('loose-bikes', { term: 'bike', filters: { fields: { prcie: { lt: 800 } } } })
-    expect(result.count).toBe(0)
+  it('refuses a filter on an undeclared field on an index that is not strict as well', async () => {
+    await expect(
+      narsil.query('loose-bikes', { term: 'bike', filters: { fields: { prcie: { lt: 800 } } } }),
+    ).rejects.toMatchObject({ code: 'SEARCH_INVALID_FIELD', details: { field: 'prcie', option: 'filter' } })
   })
 })

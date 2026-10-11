@@ -22,6 +22,7 @@ export interface PartitionState extends PartitionReadState {
   readonly enumIndexes: Map<string, EnumFieldIndex>
   readonly geoIndexes: Map<string, GeoIndex>
   readonly patternIndexes: Map<string, PatternIndexWriter>
+  readonly sizeIndexes: Map<string, NumericFieldIndex>
 }
 
 export function getOrCreateFieldNameIndex(table: FieldNameTable, fieldName: string): number {

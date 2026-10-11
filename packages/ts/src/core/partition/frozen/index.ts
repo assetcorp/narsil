@@ -105,6 +105,8 @@ function assembleFrozenSegment(
 
   const numericIndexes = new Map<string, NumericFieldIndexReader>()
   for (const entry of source.numeric) numericIndexes.set(entry.fieldPath, createFrozenNumericReader(entry))
+  const sizeIndexes = new Map<string, NumericFieldIndexReader>()
+  for (const entry of source.sizes) sizeIndexes.set(entry.fieldPath, createFrozenNumericReader(entry))
   const booleanIndexes = new Map<string, BooleanFieldIndexReader>()
   for (const entry of source.boolean) booleanIndexes.set(entry.fieldPath, createFrozenBooleanReader(entry))
   const enumIndexes = new Map<string, EnumFieldIndexReader>()
@@ -133,6 +135,7 @@ function assembleFrozenSegment(
     enumIndexes,
     geoIndexes: buildGeoReaders(source.geo),
     patternIndexes,
+    sizeIndexes,
     fieldNameTable,
     trackPositions: source.positionOffsets !== null,
     flatSchemaCache: null,

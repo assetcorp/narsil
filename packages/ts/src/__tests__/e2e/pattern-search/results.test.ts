@@ -5,18 +5,9 @@ import { afterEach, describe, expect, it } from 'vitest'
 import type { NarsilConfig } from '../../../types/config'
 import type { FieldFilter } from '../../../types/filters'
 import type { AnyDocument } from '../../../types/schema'
-import {
-  EDGE_PROBES,
-  exactTwinFilter,
-  generatedProbes,
-  INDEX,
-  operationsCorpus,
-  PATTERN_FIELDS,
-  type PatternField,
-} from './corpus'
+import { EDGE_PROBES, generatedProbes, INDEX, operationsCorpus, type PatternField } from './corpus'
 import {
   countOf,
-  expectedFor,
   listIds,
   loadCorpus,
   NO_WORKERS,
@@ -26,6 +17,7 @@ import {
   WORKER_COPIES,
   WORKERS_BUILT,
 } from './harness'
+import { expectedIds } from './oracle'
 
 const CORPUS_SIZE = 2_000
 const GENERATED_PROBES = 300
@@ -46,37 +38,21 @@ function probesFor(documents: readonly AnyDocument[], seed: number): Array<[Patt
   return [...EDGE_PROBES, ...generatedProbes(documents, GENERATED_PROBES, seed)]
 }
 
-function usesFold(filter: FieldFilter): boolean {
-  return (filter as Record<string, unknown>).caseFold === true
-}
-
-function withoutFoldSetting(filter: FieldFilter): FieldFilter {
-  const { caseFold: _caseFold, ...exact } = filter as Record<string, unknown>
-  return exact as FieldFilter
-}
-
 async function expectEveryProbe(server: PatternServer, documents: readonly AnyDocument[], seed: number): Promise<void> {
   for (const [field, filter] of probesFor(documents, seed)) {
     const label = `${field} ${JSON.stringify(filter)}`
-    const expected = await expectedFor(server, documents, field, filter, exactTwinFilter(filter))
+    const expected = expectedIds(documents, field, filter)
     expect(await searchIds(server, field, filter), label).toEqual(expected)
     expect(await listIds(server, field, filter), label).toEqual(expected)
     expect(await countOf(server, field, filter), label).toBe(expected.length)
-    if (!usesFold(filter) && (filter as Record<string, unknown>).contains === undefined) {
-      expect(await searchIds(server, PATTERN_FIELDS[field], withoutFoldSetting(filter)), `twin ${label}`).toEqual(
-        expected,
-      )
-    }
   }
 }
 
 function rewritten(document: AnyDocument, at: number): AnyDocument {
   const line = `2025-01-01T00:00:00Z FATAL [Straße-Router] rewritten ${at} ΣΊΣΥΦΟΣ`
-  const changed: AnyDocument = { ...document, line, lineText: line }
-  if (at % 2 === 0) {
-    delete changed.sku
-    delete changed.skuText
-  }
+  const changed: AnyDocument = { ...document, line }
+  if (at % 2 === 0) delete changed.sku
+  if (at % 4 === 1) changed.emails = []
   return changed
 }
 

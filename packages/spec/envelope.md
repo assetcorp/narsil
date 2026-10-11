@@ -148,7 +148,9 @@ Document {
 }
 ```
 
-`fields` holds the raw field values keyed by field name, and a nested object uses a dot-separated key such as `author.name`. A vector field value never appears in `fields`, because it is held in the vector index file for that field. A writer must remove every value the schema declares as a vector before it encodes a document. A reader must discard any vector value it finds in `fields`, because an earlier writer may have stored one there. `field_lengths` holds the token count of each text field after analysis, which BM25 scoring reads.
+`fields` holds the raw field values keyed by field name. For a value inside a nested object, the key is the field names on its path joined by dots, as in `author.name`. The vector index file of each vector field holds that field's values, so `fields` holds no vector value. A writer must remove every value that the schema declares as a vector before it encodes a document. A reader must discard any vector value that it finds in `fields`, because an earlier writer may have stored one there. `field_lengths` holds the token count of each text field after analysis, which is the `|D|` of that field in [Multi-Field Scoring](algorithms.md#multi-field-scoring).
+
+An implementation must raise `DOC_VALIDATION_FAILED` for a document whose ID, field names, or string values hold a surrogate code point, U+D800 to U+DFFF, because RFC 3629 defines UTF-8 only for the code points outside that range. It must raise `SEARCH_INVALID_FILTER` for filter text that holds one as well. In a UTF-16 string, such a code point is a surrogate unit outside a pair, because a pair of surrogate units encodes one code point above U+FFFF.
 
 ### Inverted Index
 

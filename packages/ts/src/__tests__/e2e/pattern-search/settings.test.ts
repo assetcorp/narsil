@@ -58,7 +58,7 @@ describe('the patternWorkCap engine setting', () => {
         code: 'SEARCH_WORK_CAP_EXCEEDED',
       })
     }
-    const plain = await timedSearch(server, searchBody({ fields: { body: { eq: COMMON_TERM } } }))
+    const plain = await timedSearch(server, searchBody({ fields: { line: { exists: true } } }))
     expect(plain.status).toBe(200)
     expect(plain.hits).toBeGreaterThan(0)
   })
