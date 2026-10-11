@@ -242,7 +242,7 @@ export function createDirectExecutor(options?: DirectExecutorOptions): Executor 
 
       case 'query': {
         const entry = requireIndex(action.indexName)
-        const patternWork = action.patternWork === undefined ? null : joinPatternWorkMeter(action.patternWork)
+        const patternWork = joinPatternWorkMeter(action.patternWork)
         const result: FanOutResult = await fanOutQuery(
           entry.manager,
           action.params,
@@ -253,17 +253,18 @@ export function createDirectExecutor(options?: DirectExecutorOptions): Executor 
             partitionIds: action.partitionIds,
             ...(action.globalStats !== undefined ? { globalStats: sanitizeGlobalStats(action.globalStats) } : {}),
           },
-          patternWork === null ? entry.searchOptions : { ...entry.searchOptions, patternWork },
+          { ...entry.searchOptions, patternWork },
         )
-        if (patternWork !== null) result.patternWorkSpent = patternWork.spent()
+        result.patternWorkSpent = patternWork.spent()
         return result as T
       }
 
       case 'preflight': {
         const entry = requireIndex(action.indexName)
+        const searchOptions = { ...entry.searchOptions, patternWork: joinPatternWorkMeter(action.patternWork) }
         if (countsWithoutScores(action.params)) {
           const count = fanOutMatchCount(entry.manager, action.params, entry.language, entry.config.schema, {
-            searchOptions: entry.searchOptions,
+            searchOptions,
           })
           return { count } as T
         }
@@ -273,7 +274,7 @@ export function createDirectExecutor(options?: DirectExecutorOptions): Executor 
           entry.language,
           entry.config.schema,
           { scoringMode: entry.config.defaultScoring ?? 'local' },
-          entry.searchOptions,
+          searchOptions,
         )
         return { count: result.totalMatched } as T
       }

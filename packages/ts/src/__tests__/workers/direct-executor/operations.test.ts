@@ -7,7 +7,7 @@ import type { SchemaDefinition } from '../../../types/schema'
 import { createDirectExecutor, type DirectExecutorExtensions } from '../../../workers/direct-executor'
 import type { Executor } from '../../../workers/executor'
 import type { BuiltSegmentResult } from '../../../workers/protocol'
-import { config, reqId, schema } from './fixtures'
+import { config, patternWork, reqId, schema } from './fixtures'
 
 describe('DirectExecutor', () => {
   let executor: Executor & DirectExecutorExtensions
@@ -47,6 +47,7 @@ describe('DirectExecutor', () => {
         indexName: 'products',
         params: { term: 'brown' },
         requestId: reqId(),
+        patternWork: patternWork(),
       })
 
       expect(result.scored.length).toBe(2)
@@ -81,6 +82,7 @@ describe('DirectExecutor', () => {
         indexName: 'products',
         params: { term: 'brown' },
         requestId: reqId(),
+        patternWork: patternWork(),
       })
 
       expect(result.count).toBe(2)
@@ -304,6 +306,7 @@ describe('DirectExecutor', () => {
           indexName: 'products',
           params: { term: 'brown' },
           requestId: reqId(),
+          patternWork: patternWork(),
         })
         expect(result.totalMatched).toBe(2)
         expect(result.scored.map(doc => doc.docId).sort()).toEqual(['doc-1', 'doc-2'])

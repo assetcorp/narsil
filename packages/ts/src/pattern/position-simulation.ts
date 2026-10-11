@@ -37,16 +37,18 @@ export class PositionSimulation {
     this.accepting = this.automaton.nullable
   }
 
-  load(positions: Uint32Array, accepting: boolean): void {
-    this.activeCount = 0
-    for (let word = 0; word < positions.length; word++) {
-      let bits = positions[word]
-      while (bits !== 0) {
-        this.active[this.activeCount++] = (word << 5) + (31 - Math.clz32(bits & -bits))
-        bits &= bits - 1
-      }
-    }
+  get firstPositions(): Uint32Array {
+    return this.first
+  }
+
+  load(active: Uint32Array, accepting: boolean): void {
+    this.active.set(active)
+    this.activeCount = active.length
     this.accepting = accepting
+  }
+
+  sortedActive(): Uint32Array {
+    return this.active.slice(0, this.activeCount).sort()
   }
 
   advance(codePoint: number): void {

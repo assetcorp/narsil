@@ -263,9 +263,9 @@ export function createWorkerOrchestrator(
     searchViaWorker: (
       indexName: string,
       params: QueryParams,
-      globalStats?: GlobalStatistics,
-      partitionIds?: number[],
-      patternWork?: SearchPatternWork,
+      globalStats: GlobalStatistics | undefined,
+      partitionIds: number[] | undefined,
+      patternWork: SearchPatternWork,
     ): Promise<FanOutResult | null> =>
       searchViaWorker(state, indexName, params, globalStats, partitionIds, patternWork),
     hasWorkerPool: (): boolean => state.workerPool !== null,

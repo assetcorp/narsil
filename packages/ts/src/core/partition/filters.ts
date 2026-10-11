@@ -93,6 +93,7 @@ export function buildFilterContext(
 
   let cachedAllDocIds: Set<number> | null = null
   let cachedAllDocIdsBitset: Uint32Array | null = null
+  const cachedPatternValueBitsets = new Map<string, Uint32Array>()
 
   return {
     fieldTypes: flat,
@@ -122,9 +123,12 @@ export function buildFilterContext(
       })
     },
     patternValuesBitset: (fieldPath: string) => {
+      const cached = cachedPatternValueBitsets.get(fieldPath)
+      if (cached !== undefined) return cached
       const bits = createBitSet(capacity)
       const documents = state.patternIndexes.get(fieldPath)?.documents()
       if (documents !== undefined) for (const internalId of documents) bitsetSet(bits, internalId)
+      cachedPatternValueBitsets.set(fieldPath, bits)
       return bits
     },
     get allDocIds() {

@@ -27,9 +27,9 @@ export interface QueryContext {
   workerSearch?: (
     indexName: string,
     params: QueryParams,
-    globalStats?: GlobalStatistics,
-    partitionIds?: number[],
-    patternWork?: SearchPatternWork,
+    globalStats: GlobalStatistics | undefined,
+    partitionIds: number[] | undefined,
+    patternWork: SearchPatternWork,
   ) => Promise<FanOutResult | null>
   indexName: string
   broadcastStats?: (indexName: string) => GlobalStatistics | undefined
