@@ -1,5 +1,5 @@
+import { MATCHER_SIMULATION_BYTES_PER_POSITION } from '../core/pattern-index/constants'
 import { hasPosition, type PositionAutomaton } from './automaton'
-import { MATCHER_SIMULATION_BYTES_PER_POSITION } from './constants'
 
 const LAST_STAMP = 0xffffffff
 

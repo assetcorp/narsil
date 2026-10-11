@@ -1,9 +1,15 @@
 import { describe, expect, it, vi } from 'vitest'
 import { bitsetToSet, createBitSet } from '../../core/bitset'
-import { MAX_MATCHER_STATE_BYTES } from '../../core/pattern-index/constants'
+import {
+  MATCHER_STATE_OVERHEAD_BYTES,
+  MAX_MATCHER_STATE_BYTES,
+  MAX_PATTERN_POSITIONS,
+} from '../../core/pattern-index/constants'
 import { PATTERN_HOST } from '../../core/pattern-index/host'
+import { widestPatternSplit } from '../../core/pattern-index/matcher-budget'
 import type { PatternHost, PatternIndexWriter, PatternOperator } from '../../core/pattern-index/types'
 import { createPatternWorkMeter, joinPatternWorkMeter } from '../../core/pattern-index/work-meter'
+import { literalAutomaton } from '../../pattern/automaton'
 import { patternSearchModule } from '../../pattern/module'
 import { PositionSimulation } from '../../pattern/position-simulation'
 import { literalPasses } from '../filters/pattern/fixtures'
@@ -108,5 +114,30 @@ describe('the pattern matcher', () => {
     const result = run(values, index, 'startsWith', 'x', true, FULL_BUDGET_WORKERS, countingHost)
     expect(result.matched).toEqual([0])
     expect(folds).toBeLessThanOrEqual(5)
+  })
+
+  it('holds the longest test within the share of state that the widest split gives each copy', () => {
+    const widest = widestPatternSplit(MAX_PATTERN_POSITIONS)
+    const share = Math.floor(MAX_MATCHER_STATE_BYTES / widest)
+    const automaton = literalAutomaton(new Array(MAX_PATTERN_POSITIONS).fill(0x73), false, false)
+    const footprint =
+      automaton.bytes +
+      new PositionSimulation(automaton).bytes +
+      MATCHER_STATE_OVERHEAD_BYTES +
+      automaton.first.byteLength
+    expect(footprint).toBeLessThanOrEqual(share)
+
+    const doubleFolds = ['ß', 'ﬀ', 'ﬁ', 'ﬂ', 'ﬆ']
+    const text = Array.from(
+      { length: MAX_PATTERN_POSITIONS / 2 },
+      (_, at) => doubleFolds[at % doubleFolds.length],
+    ).join('')
+    const values = [text, text.toUpperCase(), `${text.slice(0, -1)}x`, `x${text}`, `${text}${text}`, 'ss']
+    const index = indexOf(values)
+    for (const operator of ['eq', 'startsWith', 'endsWith', 'contains'] as const) {
+      expect(run(values, index, operator, text, true, widest), operator).toEqual(
+        run(values, index, operator, text, true, FULL_BUDGET_WORKERS),
+      )
+    }
   })
 })
