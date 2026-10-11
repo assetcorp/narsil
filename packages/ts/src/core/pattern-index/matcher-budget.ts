@@ -1,8 +1,8 @@
 import {
   MATCHER_CODE_POINT_BYTES,
   MATCHER_SIMULATION_BYTES_PER_POSITION,
+  MATCHER_STATE_BUDGET_BYTES,
   MATCHER_STATE_OVERHEAD_BYTES,
-  MAX_MATCHER_STATE_BYTES,
 } from './constants'
 
 const POSITIONS_PER_WORD = 32
@@ -20,10 +20,10 @@ export function smallestMatcherBytes(positions: number): number {
     automatonBytes(positions) +
     positions * MATCHER_SIMULATION_BYTES_PER_POSITION +
     MATCHER_STATE_OVERHEAD_BYTES +
-    positionWords(positions) * Uint32Array.BYTES_PER_ELEMENT
+    positions * Uint32Array.BYTES_PER_ELEMENT
   )
 }
 
 export function widestPatternSplit(positions: number): number {
-  return Math.max(1, Math.floor(MAX_MATCHER_STATE_BYTES / smallestMatcherBytes(positions)))
+  return Math.max(1, Math.floor(MATCHER_STATE_BUDGET_BYTES / smallestMatcherBytes(positions)))
 }

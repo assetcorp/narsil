@@ -5,8 +5,8 @@
  *
  * A Node process loads this code by itself. A browser bundle includes it only
  * where the app imports `patternSearch` from `@delali/narsil/pattern` and
- * passes it to {@link registerPatternSearch}, so the bundle of an app without
- * a pattern field leaves it out.
+ * passes it to {@link registerPatternSearch}, so a bundler can leave it out of
+ * an app that has no pattern field.
  *
  * @public
  */

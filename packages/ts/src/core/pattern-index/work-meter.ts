@@ -1,5 +1,5 @@
 import { ErrorCodes, NarsilError } from '../../errors'
-import { DEFAULT_PATTERN_WORK_CAP, MAX_MATCHER_STATE_BYTES } from './constants'
+import { DEFAULT_PATTERN_WORK_CAP, MATCHER_STATE_BUDGET_BYTES, PATTERN_WORK_FLUSH_UNITS } from './constants'
 import type { PatternWorkMeter } from './types'
 
 export interface SharedPatternWork {
@@ -7,11 +7,12 @@ export interface SharedPatternWork {
   readonly spent: number
   readonly counter: SharedArrayBuffer | null
   readonly matcherStateBytes: number
+  readonly flushUnits: number
 }
 
 export interface PatternWorkFork {
   readonly shared: SharedPatternWork
-  absorb(units: number): void
+  settle(reportedUnits: number): void
 }
 
 export interface SearchPatternWork extends PatternWorkMeter {
@@ -33,29 +34,52 @@ function capExceeded(cap: number): NarsilError {
   )
 }
 
-function localMeter(cap: number, spent: number, matcherStateBytes: number): SearchPatternWork {
+function localMeter(cap: number, spent: number, matcherStateBytes: number, flushUnits: number): SearchPatternWork {
   let total = spent
+  let sharedCount: BigInt64Array | null = null
+  const spentSoFar = (): number => (sharedCount === null ? total : Number(Atomics.load(sharedCount, 0)))
   const meter: SearchPatternWork = {
     cap,
     matcherStateBytes,
+    flushUnits,
     add(units: number): void {
       if (units <= 0) return
-      total += units
+      if (sharedCount === null) total += units
+      else total = Number(Atomics.add(sharedCount, 0, BigInt(units))) + units
       if (total > cap) throw capExceeded(cap)
     },
     remaining(): number {
-      return cap - total
+      return cap - spentSoFar()
     },
     fork(workerCount: number): PatternWorkFork {
-      const shareOfState = Math.floor(matcherStateBytes / Math.max(1, workerCount))
+      const copies = Math.max(1, workerCount)
+      const seed = spentSoFar()
       let counter: SharedArrayBuffer | null = null
       if (typeof SharedArrayBuffer === 'function') {
         counter = new SharedArrayBuffer(COUNTER_BYTES)
-        new BigInt64Array(counter)[0] = BigInt(total)
+        new BigInt64Array(counter)[0] = BigInt(seed)
+      }
+      const shared: SharedPatternWork = {
+        cap,
+        spent: seed,
+        counter,
+        matcherStateBytes: Math.floor(matcherStateBytes / copies),
+        flushUnits: Math.max(1, Math.floor(flushUnits / copies)),
       }
       return {
-        shared: { cap, spent: total, counter, matcherStateBytes: shareOfState },
-        absorb: units => meter.add(units),
+        shared,
+        settle(reportedUnits: number): void {
+          if (counter === null) {
+            meter.add(reportedUnits)
+            return
+          }
+          const unitsSinceFork = spentSoFar() - seed
+          const view = new BigInt64Array(counter)
+          if (unitsSinceFork > 0) Atomics.add(view, 0, BigInt(unitsSinceFork))
+          sharedCount = view
+          total = spentSoFar()
+          if (total > cap) throw capExceeded(cap)
+        },
       }
     },
   }
@@ -63,13 +87,14 @@ function localMeter(cap: number, spent: number, matcherStateBytes: number): Sear
 }
 
 export function createPatternWorkMeter(cap: number = DEFAULT_PATTERN_WORK_CAP): SearchPatternWork {
-  return localMeter(cap, 0, MAX_MATCHER_STATE_BYTES)
+  return localMeter(cap, 0, MATCHER_STATE_BUDGET_BYTES, PATTERN_WORK_FLUSH_UNITS)
 }
 
 function sharedMeter(work: SharedPatternWork, counter: SharedArrayBuffer): PatternWorkMeter {
   const view = new BigInt64Array(counter)
   return {
     matcherStateBytes: work.matcherStateBytes,
+    flushUnits: work.flushUnits,
     add(units: number): void {
       if (units <= 0) return
       const total = Number(Atomics.add(view, 0, BigInt(units))) + units
@@ -83,10 +108,13 @@ function sharedMeter(work: SharedPatternWork, counter: SharedArrayBuffer): Patte
 
 export function joinPatternWorkMeter(work: SharedPatternWork): JoinedPatternWork {
   const meter =
-    work.counter === null ? localMeter(work.cap, work.spent, work.matcherStateBytes) : sharedMeter(work, work.counter)
+    work.counter === null
+      ? localMeter(work.cap, work.spent, work.matcherStateBytes, work.flushUnits)
+      : sharedMeter(work, work.counter)
   let spent = 0
   return {
     matcherStateBytes: meter.matcherStateBytes,
+    flushUnits: meter.flushUnits,
     add(units: number): void {
       if (units <= 0) return
       spent += units

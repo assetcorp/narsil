@@ -19,9 +19,9 @@ export type WorkerAction =
       requestId: string
       partitionIds?: number[]
       globalStats?: GlobalStatistics
-      patternWork?: SharedPatternWork
+      patternWork: SharedPatternWork
     }
-  | { type: 'preflight'; indexName: string; params: QueryParams; requestId: string }
+  | { type: 'preflight'; indexName: string; params: QueryParams; requestId: string; patternWork: SharedPatternWork }
   | { type: 'get'; indexName: string; docId: string; requestId: string }
   | { type: 'has'; indexName: string; docId: string; requestId: string }
   | { type: 'count'; indexName: string; requestId: string }

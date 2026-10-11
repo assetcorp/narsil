@@ -74,7 +74,7 @@ function requirePatternField(fieldPath: string, operator: string, type: FieldTyp
   const declared =
     type === undefined ? `The schema declares no field "${fieldPath}"` : `Field "${fieldPath}" has type "${type}"`
   invalid(
-    `"${operator}" applies to a pattern field alone, meaning a "verbatim" field or a text field whose type includes "pattern", because the engine keeps a pattern index for those fields alone. ${declared}`,
+    `"${operator}" applies only to a pattern field, because only a pattern field has a pattern index. A pattern field is a "verbatim" field, or a text field whose type includes "pattern". ${declared}`,
     fieldPath,
     operator,
   )

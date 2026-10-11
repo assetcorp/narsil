@@ -58,13 +58,17 @@ export function serializePatternIndexes(
 function appendRunCodePoints(fieldPath: string, key: string, out: number[]): void {
   const start = out.length
   for (const character of key) out.push(character.codePointAt(0) ?? 0)
-  if (out.length - start !== PATTERN_RUN_CODE_POINTS) {
-    throw loadFailed(fieldPath, `the key "${key}" holds no run of three code points`)
+  const count = out.length - start
+  if (count !== PATTERN_RUN_CODE_POINTS) {
+    throw loadFailed(
+      fieldPath,
+      `the key "${key}" holds ${count} code points, while each key must hold ${PATTERN_RUN_CODE_POINTS}`,
+    )
   }
 }
 
 function requirePositions(fieldPath: string, key: string, list: unknown, documentCount: number): number[] {
-  if (!Array.isArray(list)) throw loadFailed(fieldPath, `the run "${key}" holds no list of positions`)
+  if (!Array.isArray(list)) throw loadFailed(fieldPath, `the run "${key}" must map to a list of positions`)
   let previous = -1
   for (const position of list) {
     if (!Number.isInteger(position) || position < 0 || position >= documentCount) {

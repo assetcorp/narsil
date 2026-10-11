@@ -70,7 +70,7 @@ export type StringFilter = Pick<ComparisonFilter, 'eq' | 'ne'> & {
   /** This matches a pattern field whose value holds the text anywhere in it. */
   contains?: string
   /**
-   * While this is true, the engine compares the case fold of each value of a
+   * When this is true, the engine compares the case fold of each value of a
    * pattern field with the case fold of the text, so a test for `error` matches
    * `ERROR`. It applies to `eq`, `ne`, `in`, `nin`, `startsWith`, `endsWith`,
    * and `contains`.

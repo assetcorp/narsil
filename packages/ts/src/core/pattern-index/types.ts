@@ -28,6 +28,7 @@ export interface PatternHost {
 
 export interface PatternWorkMeter {
   readonly matcherStateBytes: number
+  readonly flushUnits: number
   add(units: number): void
   remaining(): number
 }

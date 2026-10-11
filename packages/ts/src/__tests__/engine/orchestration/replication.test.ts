@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { SegmentPayload } from '../../../core/partition/segment-payload'
+import { createPatternWorkMeter } from '../../../core/pattern-index/work-meter'
 import { MAX_PENDING_REPLICATION_DOCUMENTS, REPLICATION_WINDOW } from '../../../engine/orchestration/constants'
 import { awaitReplicationIdle, awaitWritesApplied, replicateToWorkers } from '../../../engine/orchestration/replication'
 import { searchViaWorker } from '../../../engine/orchestration/search'
@@ -240,7 +241,14 @@ describe('a copy answers while writes are still reaching it', () => {
     const write = harness.dispatched.shift()
     expect(write?.action.type).toBe('insert')
 
-    const served = searchViaWorker(harness.state, 'prose', { term: 'a' })
+    const served = searchViaWorker(
+      harness.state,
+      'prose',
+      { term: 'a' },
+      undefined,
+      undefined,
+      createPatternWorkMeter(),
+    )
     await settle()
     const query = harness.dispatched.shift()
     expect(query?.action.type).toBe('query')

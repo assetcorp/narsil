@@ -14,33 +14,40 @@ function textPositions(text: unknown, caseFold: boolean): number {
   return caseFold ? foldedCodePointCount(text) : codePointCount(text)
 }
 
-function largestTestOf(filter: Record<string, unknown>): number {
+function larger(left: number | null, right: number | null): number | null {
+  if (left === null) return right
+  if (right === null) return left
+  return Math.max(left, right)
+}
+
+function largestTestOf(filter: Record<string, unknown>): number | null {
   const caseFold = filter.caseFold === true
-  let largest = 0
+  let largest: number | null = null
   for (const operator of PATTERN_TEST_OPERATORS) {
     const operand = filter[operator]
+    if (operand === undefined) continue
     const texts = Array.isArray(operand) ? operand : [operand]
-    for (const text of texts) largest = Math.max(largest, textPositions(text, caseFold))
+    for (const text of texts) largest = larger(largest, textPositions(text, caseFold))
   }
   return largest
 }
 
-function largestIn(expression: FilterExpression, patternFields: ReadonlySet<string>): number {
-  let largest = 0
+function largestIn(expression: FilterExpression, patternFields: ReadonlySet<string>): number | null {
+  let largest: number | null = null
   if (isRecord(expression.fields)) {
     for (const [fieldPath, filter] of Object.entries(expression.fields)) {
-      if (patternFields.has(fieldPath) && isRecord(filter)) largest = Math.max(largest, largestTestOf(filter))
+      if (patternFields.has(fieldPath) && isRecord(filter)) largest = larger(largest, largestTestOf(filter))
     }
   }
   const nested = [...(expression.and ?? []), ...(expression.or ?? [])]
   if (expression.not !== undefined) nested.push(expression.not)
-  for (const child of nested) largest = Math.max(largest, largestIn(child, patternFields))
+  for (const child of nested) largest = larger(largest, largestIn(child, patternFields))
   return largest
 }
 
-export function largestPatternTest(expression: FilterExpression | undefined, schema: SchemaDefinition): number {
-  if (expression === undefined) return 0
+export function largestPatternTest(expression: FilterExpression | undefined, schema: SchemaDefinition): number | null {
+  if (expression === undefined) return null
   const patternFields = new Set<string>()
   for (const { path, pattern } of schemaFieldsOf(schema)) if (pattern) patternFields.add(path)
-  return patternFields.size === 0 ? 0 : largestIn(expression, patternFields)
+  return patternFields.size === 0 ? null : largestIn(expression, patternFields)
 }

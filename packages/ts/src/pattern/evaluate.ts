@@ -1,8 +1,14 @@
 import { bitsetHas, bitsetSet } from '../core/bitset'
 import { PATTERN_RUN_CODE_POINTS } from '../core/pattern-index/constants'
-import type { PatternHost, PatternIndexReader, PatternMatchRequest, PatternOperator } from '../core/pattern-index/types'
+import type {
+  PatternHost,
+  PatternIndexReader,
+  PatternMatchRequest,
+  PatternOperator,
+  PatternWorkMeter,
+} from '../core/pattern-index/types'
 import { literalAutomaton } from './automaton'
-import { SHORTLIST_INTERSECT_RATIO } from './constants'
+import { SHORTLIST_INTERSECT_RATIO, SHORTLIST_RUN_LOOKUPS } from './constants'
 import { LazyDfa } from './lazy-dfa'
 import { appendTextCodePoints, BASIC_PLANE_LAST, forEachTextValue, runKey } from './text'
 import { WorkTally } from './work-tally'
@@ -10,16 +16,37 @@ import { WorkTally } from './work-tally'
 const ANCHORED_START: ReadonlySet<PatternOperator> = new Set(['eq', 'startsWith'])
 const ANCHORED_END: ReadonlySet<PatternOperator> = new Set(['eq', 'endsWith'])
 
-function distinctRunLists(index: PatternIndexReader, folded: readonly number[]): Uint32Array[] {
+const shortlistRunsBySearch = new WeakMap<PatternWorkMeter, Map<string, Uint32Array>>()
+
+function spreadRuns(folded: readonly number[]): Uint32Array {
+  const runCount = folded.length - PATTERN_RUN_CODE_POINTS + 1
+  if (runCount <= 0) return new Uint32Array(0)
+  const picks = Math.min(runCount, SHORTLIST_RUN_LOOKUPS)
   const seen = new Set<string>()
-  const lists: Uint32Array[] = []
-  for (let at = 0; at + PATTERN_RUN_CODE_POINTS <= folded.length; at++) {
+  const runs: number[] = []
+  for (let pick = 0; pick < picks; pick++) {
+    const at = picks === 1 ? 0 : Math.round((pick * (runCount - 1)) / (picks - 1))
     const key = runKey(folded[at], folded[at + 1], folded[at + 2])
     if (seen.has(key)) continue
     seen.add(key)
-    lists.push(index.postings(folded[at], folded[at + 1], folded[at + 2]))
+    runs.push(folded[at], folded[at + 1], folded[at + 2])
   }
-  return lists.sort((left, right) => left.length - right.length)
+  return Uint32Array.from(runs)
+}
+
+function shortlistRuns(text: string, host: PatternHost, meter: PatternWorkMeter): Uint32Array {
+  let runsByText = shortlistRunsBySearch.get(meter)
+  if (runsByText === undefined) {
+    runsByText = new Map()
+    shortlistRunsBySearch.set(meter, runsByText)
+  }
+  const known = runsByText.get(text)
+  if (known !== undefined) return known
+  const folded: number[] = []
+  appendTextCodePoints(text, true, host, folded)
+  const runs = spreadRuns(folded)
+  runsByText.set(text, runs)
+  return runs
 }
 
 function intersect(candidates: Uint32Array, list: Uint32Array, tally: WorkTally): Uint32Array {
@@ -35,9 +62,13 @@ function intersect(candidates: Uint32Array, list: Uint32Array, tally: WorkTally)
   return kept.subarray(0, keptCount)
 }
 
-function shortlist(index: PatternIndexReader, folded: readonly number[], tally: WorkTally): Uint32Array | null {
-  const lists = distinctRunLists(index, folded)
-  if (lists.length === 0) return null
+function shortlist(index: PatternIndexReader, runs: Uint32Array, tally: WorkTally): Uint32Array | null {
+  if (runs.length === 0) return null
+  const lists: Uint32Array[] = []
+  for (let at = 0; at < runs.length; at += PATTERN_RUN_CODE_POINTS) {
+    lists.push(index.postings(runs[at], runs[at + 1], runs[at + 2]))
+  }
+  lists.sort((left, right) => left.length - right.length)
   let candidates = lists[0]
   tally.add(candidates.length)
   for (let at = 1; at < lists.length && candidates.length > 0; at++) {
@@ -45,6 +76,16 @@ function shortlist(index: PatternIndexReader, folded: readonly number[], tally: 
     candidates = intersect(candidates, lists[at], tally)
   }
   return candidates
+}
+
+function matcherFor(request: PatternMatchRequest): LazyDfa {
+  const { operator, text, caseFold, host } = request
+  const testCodePoints: number[] = []
+  appendTextCodePoints(text, caseFold, host, testCodePoints)
+  return new LazyDfa(
+    literalAutomaton(testCodePoints, ANCHORED_START.has(operator), ANCHORED_END.has(operator)),
+    request.meter.matcherStateBytes,
+  )
 }
 
 function matchesText(
@@ -73,30 +114,22 @@ function matchesText(
 }
 
 export function matchPattern(request: PatternMatchRequest): void {
-  const { operator, text, caseFold, index, matches, host } = request
+  const { text, caseFold, index, matches, host } = request
   const tally = new WorkTally(request.meter)
-
-  const testCodePoints: number[] = []
-  appendTextCodePoints(text, caseFold, host, testCodePoints)
-  const foldedTest: number[] = []
-  appendTextCodePoints(text, true, host, foldedTest)
-
-  const matcher = new LazyDfa(
-    literalAutomaton(testCodePoints, ANCHORED_START.has(operator), ANCHORED_END.has(operator)),
-    request.meter.matcherStateBytes,
-  )
-  const shortlisted = shortlist(index, foldedTest, tally)
+  const shortlisted = shortlist(index, shortlistRuns(text, host, request.meter), tally)
   const scanning = shortlisted === null
   const candidates = shortlisted ?? index.documents()
   const folded: number[] = []
+  let matcher: LazyDfa | null = null
   let matched = false
   const testValue = (value: string): void => {
-    if (!matched) matched = matchesText(matcher, value, caseFold, host, folded, tally)
+    if (!matched && matcher !== null) matched = matchesText(matcher, value, caseFold, host, folded, tally)
   }
 
   for (const ordinal of candidates) {
     if (ordinal >>> 5 >= matches.length || bitsetHas(matches, ordinal)) continue
     if (scanning) tally.add(1)
+    matcher ??= matcherFor(request)
     matched = false
     forEachTextValue(request.valueOf(ordinal), testValue)
     if (matched) bitsetSet(matches, ordinal)

@@ -3,7 +3,7 @@ import { registerStopWords, registerTokenizer } from '../../../analysis/registry
 import type { FanOutResult } from '../../../partitioning/fan-out'
 import type { CustomTokenizer, IndexConfig } from '../../../types/schema'
 import { createDirectExecutor } from '../../../workers/direct-executor'
-import { reqId, schema } from './fixtures'
+import { patternWork, reqId, schema } from './fixtures'
 
 const SENTENCE = 'the rise of the machine'
 
@@ -29,6 +29,7 @@ describe('the executor a worker runs searches under the analysis its index confi
       indexName: 'prose',
       params: { term: 'the' },
       requestId: reqId(),
+      patternWork: patternWork(),
     })
 
     expect(result.scored.map(hit => hit.docId)).toEqual(['doc-1'])
@@ -43,6 +44,7 @@ describe('the executor a worker runs searches under the analysis its index confi
       indexName: 'prose',
       params: { term: 'machine' },
       requestId: reqId(),
+      patternWork: patternWork(),
     })
 
     expect(result.scored).toEqual([])
@@ -57,6 +59,7 @@ describe('the executor a worker runs searches under the analysis its index confi
       indexName: 'prose',
       params: { term: 'the' },
       requestId: reqId(),
+      patternWork: patternWork(),
     })
 
     expect(result.count).toBe(1)
@@ -77,6 +80,7 @@ describe('the executor a worker runs searches under the analysis its index confi
       indexName: 'prose',
       params: { term: 'z' },
       requestId: reqId(),
+      patternWork: patternWork(),
     })
 
     expect(result.scored).toEqual([])
@@ -86,6 +90,7 @@ describe('the executor a worker runs searches under the analysis its index confi
       indexName: 'prose',
       params: { term: 'm' },
       requestId: reqId(),
+      patternWork: patternWork(),
     })
 
     expect(found.scored.map(hit => hit.docId)).toEqual(['doc-1'])
@@ -101,6 +106,7 @@ describe('the executor a worker runs searches under the analysis its index confi
       indexName: 'prose',
       params: { term: 'the' },
       requestId: reqId(),
+      patternWork: patternWork(),
     })
 
     expect(result.scored.map(hit => hit.docId)).toEqual(['doc-1'])

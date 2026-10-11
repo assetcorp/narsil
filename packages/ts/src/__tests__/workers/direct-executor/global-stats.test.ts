@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { FanOutResult } from '../../../partitioning/fan-out'
 import type { GlobalStatistics } from '../../../types/internal'
 import { createDirectExecutor } from '../../../workers/direct-executor'
-import { config, reqId } from './fixtures'
+import { config, patternWork, reqId } from './fixtures'
 
 async function seedExecutor() {
   const executor = createDirectExecutor()
@@ -30,6 +30,7 @@ function queryAction(globalStats?: GlobalStatistics) {
     indexName: 'library',
     params: { term: 'machine', scoring: 'broadcast' as const, includeScoreComponents: true },
     requestId: reqId(),
+    patternWork: patternWork(),
     ...(globalStats !== undefined ? { globalStats } : {}),
   }
 }
@@ -65,6 +66,7 @@ describe('the executor a worker runs scores with the statistics the query action
       indexName: 'library',
       params: { term: 'machine', scoring: 'dfs', includeScoreComponents: true },
       requestId: reqId(),
+      patternWork: patternWork(),
     })
 
     expect(broadcastNoStats.scored).toEqual(dfs.scored)
@@ -79,6 +81,7 @@ describe('the executor a worker runs scores with the statistics the query action
       indexName: 'library',
       params: { term: 'machine', includeScoreComponents: true },
       requestId: reqId(),
+      patternWork: patternWork(),
     })
     const token = Object.keys(local.scored[0].idf)[0]
 

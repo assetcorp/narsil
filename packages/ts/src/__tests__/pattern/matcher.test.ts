@@ -1,23 +1,38 @@
 import { describe, expect, it, vi } from 'vitest'
 import { bitsetToSet, createBitSet } from '../../core/bitset'
 import {
+  MATCHER_STATE_BUDGET_BYTES,
   MATCHER_STATE_OVERHEAD_BYTES,
-  MAX_MATCHER_STATE_BYTES,
   MAX_PATTERN_POSITIONS,
 } from '../../core/pattern-index/constants'
 import { PATTERN_HOST } from '../../core/pattern-index/host'
 import { widestPatternSplit } from '../../core/pattern-index/matcher-budget'
-import type { PatternHost, PatternIndexWriter, PatternOperator } from '../../core/pattern-index/types'
+import type {
+  PatternHost,
+  PatternIndexReader,
+  PatternIndexWriter,
+  PatternOperator,
+  PatternWorkMeter,
+} from '../../core/pattern-index/types'
 import { createPatternWorkMeter, joinPatternWorkMeter } from '../../core/pattern-index/work-meter'
 import { literalAutomaton } from '../../pattern/automaton'
+import { SHORTLIST_RUN_LOOKUPS } from '../../pattern/constants'
+import { LazyDfa } from '../../pattern/lazy-dfa'
 import { patternSearchModule } from '../../pattern/module'
 import { PositionSimulation } from '../../pattern/position-simulation'
+import { WorkTally } from '../../pattern/work-tally'
 import { literalPasses } from '../filters/pattern/fixtures'
 
 const WORK_CAP = 1_000_000_000
 const FULL_BUDGET_WORKERS = 1
 const THRASHING_BUDGET_WORKERS = 200
-const NO_CACHE_BUDGET_WORKERS = MAX_MATCHER_STATE_BYTES
+const NO_CACHE_BUDGET_WORKERS = MATCHER_STATE_BUDGET_BYTES
+const CJK_FIRST = 0x4e00
+const LATIN_EXTENDED_FIRST = 0x0100
+
+function distinctText(length: number, first: number): string {
+  return String.fromCodePoint(...Array.from({ length }, (_, at) => first + at))
+}
 
 function indexOf(values: readonly string[]): PatternIndexWriter {
   const index = patternSearchModule.createIndex(PATTERN_HOST)
@@ -63,12 +78,12 @@ function nearMisses(text: string): string[] {
 
 describe('the pattern matcher', () => {
   it('returns the same documents and counts the same work whatever the state budget', () => {
-    const simulated = vi.spyOn(PositionSimulation.prototype, 'advance')
-    const simulatedSteps = { full: 0, thrashing: 0, none: 0 }
-    const runCounted = (budget: keyof typeof simulatedSteps, ...args: Parameters<typeof run>) => {
+    const simulated = vi.spyOn(PositionSimulation.prototype, 'reset')
+    const simulatedValues = { full: 0, thrashing: 0, none: 0 }
+    const runCounted = (budget: keyof typeof simulatedValues, ...args: Parameters<typeof run>) => {
       const before = simulated.mock.calls.length
       const result = run(...args)
-      simulatedSteps[budget] += simulated.mock.calls.length - before
+      simulatedValues[budget] += simulated.mock.calls.length - before
       return result
     }
     try {
@@ -96,9 +111,9 @@ describe('the pattern matcher', () => {
     } finally {
       simulated.mockRestore()
     }
-    expect(simulatedSteps.full).toBe(0)
-    expect(simulatedSteps.thrashing).toBeGreaterThan(0)
-    expect(simulatedSteps.thrashing).toBeLessThan(simulatedSteps.none)
+    expect(simulatedValues.full).toBe(0)
+    expect(simulatedValues.thrashing).toBeGreaterThan(0)
+    expect(simulatedValues.thrashing).toBeLessThan(simulatedValues.none)
   })
 
   it('reads a value only as far as the answer needs', () => {
@@ -118,13 +133,11 @@ describe('the pattern matcher', () => {
 
   it('holds the longest test within the share of state that the widest split gives each copy', () => {
     const widest = widestPatternSplit(MAX_PATTERN_POSITIONS)
-    const share = Math.floor(MAX_MATCHER_STATE_BYTES / widest)
+    const share = Math.floor(MATCHER_STATE_BUDGET_BYTES / widest)
     const automaton = literalAutomaton(new Array(MAX_PATTERN_POSITIONS).fill(0x73), false, false)
+    const simulation = new PositionSimulation(automaton)
     const footprint =
-      automaton.bytes +
-      new PositionSimulation(automaton).bytes +
-      MATCHER_STATE_OVERHEAD_BYTES +
-      automaton.first.byteLength
+      automaton.bytes + simulation.bytes + MATCHER_STATE_OVERHEAD_BYTES + simulation.firstPositions.byteLength
     expect(footprint).toBeLessThanOrEqual(share)
 
     const doubleFolds = ['ß', 'ﬀ', 'ﬁ', 'ﬂ', 'ﬆ']
@@ -139,5 +152,109 @@ describe('the pattern matcher', () => {
         run(values, index, operator, text, true, FULL_BUDGET_WORKERS),
       )
     }
+  })
+
+  it('builds each state in time that follows the steps it counts, however long the test', () => {
+    const dfa = new LazyDfa(
+      literalAutomaton(
+        Array.from(distinctText(MAX_PATTERN_POSITIONS, CJK_FIRST), character => character.codePointAt(0) ?? 0),
+        false,
+        false,
+      ),
+      MATCHER_STATE_BUDGET_BYTES,
+    )
+    const meter = createPatternWorkMeter(WORK_CAP)
+    const tally = new WorkTally(meter)
+    const join = Uint32Array.prototype.join
+    let keyCharacters = 0
+    const joined = vi.spyOn(Uint32Array.prototype, 'join').mockImplementation(function (
+      this: Uint32Array,
+      separator?: string,
+    ) {
+      const key = join.call(this, separator)
+      keyCharacters += key.length
+      return key
+    })
+    try {
+      dfa.begin()
+      for (const character of distinctText(2_000, LATIN_EXTENDED_FIRST)) dfa.feed(character.codePointAt(0) ?? 0, tally)
+    } finally {
+      joined.mockRestore()
+    }
+    tally.flush()
+    const units = WORK_CAP - meter.remaining()
+    expect(units).toBe(2_000)
+    expect(keyCharacters).toBeGreaterThan(0)
+    expect(keyCharacters).toBeLessThanOrEqual(4 * units)
+  })
+
+  it('folds a test once in a search and builds no matcher where no document holds its runs', () => {
+    const values = ['plain value', 'another value']
+    let folds = 0
+    let lookups = 0
+    const countingHost: PatternHost = {
+      appendFoldedCodePoint(codePoint, out) {
+        folds++
+        PATTERN_HOST.appendFoldedCodePoint(codePoint, out)
+      },
+    }
+    const counting = (index: PatternIndexWriter): PatternIndexReader => ({
+      documents: () => index.documents(),
+      postings(first, second, third) {
+        lookups++
+        return index.postings(first, second, third)
+      },
+      toArrays: (fieldPath, remap) => index.toArrays(fieldPath, remap),
+      bytes: () => index.bytes(),
+    })
+    const text = distinctText(1_024, CJK_FIRST)
+    const meter = joinPatternWorkMeter(createPatternWorkMeter(WORK_CAP).fork(1).shared)
+    for (const index of [indexOf(values), indexOf(values)]) {
+      const matches = createBitSet(values.length)
+      patternSearchModule.matchInto({
+        operator: 'contains',
+        text,
+        caseFold: true,
+        index: counting(index),
+        matches,
+        meter,
+        host: countingHost,
+        valueOf: ordinal => values[ordinal],
+      })
+      expect(bitsetToSet(matches).size).toBe(0)
+    }
+    expect(folds).toBe(1_024)
+    expect(lookups).toBeLessThanOrEqual(2 * SHORTLIST_RUN_LOOKUPS)
+    expect(meter.spent()).toBe(0)
+  })
+
+  it('reports work to a count that copies share at the share of the flush interval that each copy gets', () => {
+    const copies = 64
+    const shared = joinPatternWorkMeter(createPatternWorkMeter(WORK_CAP).fork(copies).shared)
+    const reports: number[] = []
+    const recording: PatternWorkMeter = {
+      matcherStateBytes: shared.matcherStateBytes,
+      flushUnits: shared.flushUnits,
+      add(units) {
+        reports.push(units)
+        shared.add(units)
+      },
+      remaining: () => shared.remaining(),
+    }
+    const values = Array.from({ length: 20 }, () => `${'ab'.repeat(4_000)}x`)
+    const matches = createBitSet(values.length)
+    patternSearchModule.matchInto({
+      operator: 'endsWith',
+      text: 'abx',
+      caseFold: false,
+      index: indexOf(values),
+      matches,
+      meter: recording,
+      host: PATTERN_HOST,
+      valueOf: ordinal => values[ordinal],
+    })
+    expect(bitsetToSet(matches).size).toBe(values.length)
+    expect(shared.spent()).toBeGreaterThan(20 * shared.flushUnits)
+    expect(Math.max(...reports)).toBeLessThanOrEqual(shared.flushUnits + 'abx'.length)
   })
 })
