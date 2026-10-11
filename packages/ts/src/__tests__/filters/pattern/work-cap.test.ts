@@ -64,6 +64,17 @@ describe('the work cap on pattern tests', () => {
     })
   })
 
+  it('counts only the documents that a test without a run checks, leaving out those that an in list matched already', async () => {
+    const codes = ['ab', 'xy']
+    const withinCap = await engineWith({ patternWorkCap: 8 }, 1, codes)
+    expect(await listed(withinCap, { in: ['ab', 'xy'] })).toEqual(['d0', 'd1'])
+
+    const overCap = await engineWith({ patternWorkCap: 7 }, 1, codes)
+    await expect(listed(overCap, { in: ['ab', 'xy'] })).rejects.toMatchObject({
+      code: ErrorCodes.SEARCH_WORK_CAP_EXCEEDED,
+    })
+  })
+
   it('counts a value that an in list repeats once', async () => {
     const narsil = await engineWith({ patternWorkCap: 9 }, 1, ['abcabc'])
     expect(await listed(narsil, { in: ['abcabc', 'abcabc', 'abcabc'] })).toEqual(['d0'])
