@@ -5,9 +5,13 @@
  * @public
  */
 export type ComparisonFilter = {
-  /** This matches a field equal to the value. */
+  /** This matches a field equal to the value, or a list field where one element equals it. */
   eq?: number | string | boolean
-  /** This matches a field holding anything other than the value. */
+  /**
+   * This matches a document that holds the field with a value other than this
+   * one, or a list field where every element differs from it, which an empty
+   * list does.
+   */
   ne?: number | string | boolean
   /** This matches a field greater than the number. */
   gt?: number
@@ -117,9 +121,9 @@ export type PresenceFilter = {
 export type GeoRadiusFilter = {
   /** The engine tests the field against this circle. */
   radius: {
-    /** The centre has this latitude, in degrees. */
+    /** The centre has this latitude, in degrees from -90 to 90. For any other value, the engine throws `SEARCH_INVALID_FILTER`. */
     lat: number
-    /** The centre has this longitude, in degrees. */
+    /** The centre has this longitude, in degrees from -180 to 180. For any other value, the engine throws `SEARCH_INVALID_FILTER`. */
     lon: number
     /** The circle has this radius, measured in `unit`. */
     distance: number
@@ -154,7 +158,8 @@ export type GeoPolygonFilter = {
      * The engine closes the ring through these corners in the order that you
      * list them, so you can leave the first point off the end. It throws
      * `SEARCH_INVALID_FILTER` for a ring of fewer than three corners, since
-     * such a ring encloses no area. List the corners counter-clockwise around
+     * such a ring encloses no area, and for a corner whose latitude is outside
+     * -90 to 90 or whose longitude is outside -180 to 180. List the corners counter-clockwise around
      * the area, as in an exterior ring of GeoJSON. Where the corners
      * span 180 degrees of longitude or more, the engine matches the area on
      * the left of that path, so a ring listed that way can cross the

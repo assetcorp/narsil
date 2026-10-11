@@ -1,7 +1,8 @@
 import { exceedsCodePoints } from '../../../core/ordering'
 import type { ErrorCode } from '../../../errors'
 import { FIELD_FILTER_OPERATORS, FILTER_EXPRESSION_KEYS } from '../../../filters/keys'
-import { MIN_POLYGON_POINTS } from '../../../geo/constants'
+import { MAX_LATITUDE_DEGREES, MAX_LONGITUDE_DEGREES, MIN_POLYGON_POINTS } from '../../../geo/constants'
+import { isLatitude, isLongitude } from '../../../geo/coordinates'
 import { MAX_FILTER_ARRAY_SIZE, MAX_FILTER_DEPTH, MAX_FILTER_FIELDS, MAX_FILTER_STRING_LENGTH } from '../constants'
 import { isFiniteNumber, isRecord, SEARCH_INVALID_FILTER, throwInvalid, validateFieldName } from './common'
 
@@ -45,6 +46,21 @@ function validateNumericOperand(value: unknown, fieldLabel: string, errorCode: E
     throwInvalid(errorCode, `Invalid payload: "${fieldLabel}" must be a finite number`)
   }
   return value
+}
+
+function validateCoordinates(lat: unknown, lon: unknown, fieldLabel: string, errorCode: ErrorCode): void {
+  if (!isLatitude(validateNumericOperand(lat, `${fieldLabel}.lat`, errorCode))) {
+    throwInvalid(
+      errorCode,
+      `Invalid payload: "${fieldLabel}.lat" must be from -${MAX_LATITUDE_DEGREES} to ${MAX_LATITUDE_DEGREES}`,
+    )
+  }
+  if (!isLongitude(validateNumericOperand(lon, `${fieldLabel}.lon`, errorCode))) {
+    throwInvalid(
+      errorCode,
+      `Invalid payload: "${fieldLabel}.lon" must be from -${MAX_LONGITUDE_DEGREES} to ${MAX_LONGITUDE_DEGREES}`,
+    )
+  }
 }
 
 function validateBooleanOperand(value: unknown, fieldLabel: string, errorCode: ErrorCode): boolean {
@@ -113,8 +129,7 @@ function validateGeoRadius(value: unknown, fieldLabel: string, errorCode: ErrorC
   if (!isRecord(value)) {
     throwInvalid(errorCode, `Invalid payload: "${fieldLabel}" must be an object`)
   }
-  validateNumericOperand(value.lat, `${fieldLabel}.lat`, errorCode)
-  validateNumericOperand(value.lon, `${fieldLabel}.lon`, errorCode)
+  validateCoordinates(value.lat, value.lon, fieldLabel, errorCode)
   validateNumericOperand(value.distance, `${fieldLabel}.distance`, errorCode)
   if ((value.distance as number) < 0) {
     throwInvalid(errorCode, `Invalid payload: "${fieldLabel}.distance" must be non-negative`)
@@ -157,8 +172,7 @@ function validateGeoPolygon(value: unknown, fieldLabel: string, errorCode: Error
     if (!isRecord(point)) {
       throwInvalid(errorCode, `Invalid payload: "${fieldLabel}.points[${i}]" must be an object`)
     }
-    validateNumericOperand(point.lat, `${fieldLabel}.points[${i}].lat`, errorCode)
-    validateNumericOperand(point.lon, `${fieldLabel}.points[${i}].lon`, errorCode)
+    validateCoordinates(point.lat, point.lon, `${fieldLabel}.points[${i}]`, errorCode)
   }
   if (value.inside !== undefined) {
     validateBooleanOperand(value.inside, `${fieldLabel}.inside`, errorCode)

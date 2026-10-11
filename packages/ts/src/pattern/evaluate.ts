@@ -66,6 +66,7 @@ function shortlist(index: PatternIndexReader, runs: Uint32Array, tally: WorkTall
   if (runs.length === 0) return null
   const lists: Uint32Array[] = []
   for (let at = 0; at < runs.length; at += PATTERN_RUN_CODE_POINTS) {
+    tally.add(1)
     lists.push(index.postings(runs[at], runs[at + 1], runs[at + 2]))
   }
   lists.sort((left, right) => left.length - right.length)

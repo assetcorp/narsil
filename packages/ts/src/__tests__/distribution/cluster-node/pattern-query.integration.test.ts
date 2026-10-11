@@ -36,7 +36,12 @@ async function pollUntil(predicate: () => Promise<boolean> | boolean): Promise<b
   return false
 }
 
-describe('a pattern test in a cluster', () => {
+describe.each([
+  { allowPartialResults: true },
+  { allowPartialResults: false },
+])('a pattern test in a cluster whose router sets allowPartialResults to $allowPartialResults', ({
+  allowPartialResults,
+}) => {
   let coordinator: ClusterCoordinator
   let nodes: ClusterNode[]
   let transports: NodeTransport[]
@@ -72,6 +77,7 @@ describe('a pattern test in a cluster', () => {
       address: 'router:9200',
       nodeId: 'router',
       roles: ['coordinator', 'controller'],
+      query: { allowPartialResults },
     })
     await router.start()
     nodes.push(router)

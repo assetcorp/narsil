@@ -1,7 +1,7 @@
-import { appendFoldedCodePoints } from '../../../core/ordering'
 import type { Narsil } from '../../../narsil'
 import type { FieldFilter } from '../../../types/filters'
 import type { AnyDocument, IndexConfig } from '../../../types/schema'
+import { codePointsOf } from '../../e2e/pattern-search/oracle'
 
 export const PATTERN_INDEX = 'records'
 
@@ -89,15 +89,6 @@ export const PROBE_TEXTS = [
   'beta',
   'zzz',
 ]
-
-function codePointsOf(text: string, caseFold: boolean): number[] {
-  if (caseFold) {
-    const folded: number[] = []
-    appendFoldedCodePoints(text, folded)
-    return folded
-  }
-  return Array.from(text, character => character.codePointAt(0) ?? 0)
-}
 
 function indexOfRun(value: number[], text: number[], from: number): number {
   for (let start = from; start + text.length <= value.length; start++) {

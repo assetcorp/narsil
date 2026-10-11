@@ -253,6 +253,45 @@ describe('validateFilterExpression geo operators', () => {
     ).toThrow(/at least 3 points/)
   })
 
+  it('rejects a radius centre or polygon point off the globe, and accepts one on its edge', () => {
+    const corner = (lat: number, lon: number) => ({
+      fields: {
+        location: {
+          polygon: {
+            points: [
+              { lat: 0, lon: 0 },
+              { lat, lon },
+              { lat: 1, lon: 1 },
+            ],
+          },
+        },
+      },
+    })
+    const centre = (lat: number, lon: number) => ({
+      fields: { location: { radius: { lat, lon, distance: 1, unit: 'km' as const } } },
+    })
+    for (const [lat, lon, coordinate] of [
+      [95, 0, 'lat'],
+      [-90.5, 0, 'lat'],
+      [0, 200, 'lon'],
+      [0, -180.001, 'lon'],
+    ] as const) {
+      expect(() => validateFilterExpression(centre(lat, lon), 'filters')).toThrow(
+        `"filters.fields.location.radius.${coordinate}" must be from`,
+      )
+      expect(() => validateFilterExpression(corner(lat, lon), 'filters')).toThrow(
+        `"filters.fields.location.polygon.points[1].${coordinate}" must be from`,
+      )
+    }
+    for (const [lat, lon] of [
+      [90, 180],
+      [-90, -180],
+    ]) {
+      expect(() => validateFilterExpression(centre(lat, lon), 'filters')).not.toThrow()
+      expect(() => validateFilterExpression(corner(lat, lon), 'filters')).not.toThrow()
+    }
+  })
+
   it('accepts a well-formed polygon', () => {
     expect(() =>
       validateFilterExpression(

@@ -13,7 +13,7 @@ import {
 } from '../vector-coordinator'
 import type { MutationContext } from './context'
 import { rollbackUpdatedDocument } from './durable-rollback'
-import { admitBufferedUpsert } from './insert-admission'
+import { admitBufferedUpsert, requireMatchingDocId } from './insert-admission'
 import { recordChunk } from './record-batch'
 import { awaitWriteVisibility } from './write-visibility'
 
@@ -89,6 +89,7 @@ async function prepareUpdate(
 ): Promise<PreparedUpdate> {
   ctx.guardShutdown()
   validateDocId(docId)
+  requireMatchingDocId(docId, document)
 
   const manager = ctx.requireManager(indexName)
   if (ctx.pluginRegistry.hasHooks('beforeUpdate')) {
@@ -215,6 +216,24 @@ export async function updateDocument(
   if (options?.wait === true) await awaitWriteVisibility(ctx, indexName)
 }
 
+function reportedDocIdOf(update: unknown): string {
+  const docId = update !== null && typeof update === 'object' ? (update as { docId?: unknown }).docId : undefined
+  return typeof docId === 'string' ? docId : ''
+}
+
+function requireUpdateEntry(update: unknown): { document: AnyDocument } {
+  if (update !== null && typeof update === 'object' && !Array.isArray(update)) {
+    const { docId, document } = update as { docId?: unknown; document?: unknown }
+    if (typeof docId === 'string' && document !== null && typeof document === 'object' && !Array.isArray(document)) {
+      return { document: document as AnyDocument }
+    }
+  }
+  throw new NarsilError(
+    ErrorCodes.DOC_VALIDATION_FAILED,
+    'Each entry of a batch update must be an object whose docId is a string and whose document is an object',
+  )
+}
+
 export async function updateDocumentBatch(
   ctx: MutationContext,
   indexName: string,
@@ -234,10 +253,13 @@ export async function updateDocumentBatch(
     const chunkEnd = Math.min(chunkStart + BATCH_CHUNK_SIZE, updates.length)
     const prepared: PreparedUpdate[] = []
     for (let i = chunkStart; i < chunkEnd; i++) {
+      const update: unknown = updates[i]
+      const docId = reportedDocIdOf(update)
       try {
-        prepared.push(await prepareUpdate(ctx, indexName, entry, updates[i].docId, updates[i].document))
+        const { document } = requireUpdateEntry(update)
+        prepared.push(await prepareUpdate(ctx, indexName, entry, docId, document))
       } catch (err) {
-        failed.push({ docId: updates[i].docId, error: asUpdateError(err) })
+        failed.push({ docId, error: asUpdateError(err) })
       }
     }
 
