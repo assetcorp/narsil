@@ -35,13 +35,9 @@ function intersect(candidates: Uint32Array, list: Uint32Array, tally: WorkTally)
   return kept.subarray(0, keptCount)
 }
 
-function shortlist(index: PatternIndexReader, folded: readonly number[], tally: WorkTally): Uint32Array {
+function shortlist(index: PatternIndexReader, folded: readonly number[], tally: WorkTally): Uint32Array | null {
   const lists = distinctRunLists(index, folded)
-  if (lists.length === 0) {
-    const documents = index.documents()
-    tally.add(documents.length)
-    return documents
-  }
+  if (lists.length === 0) return null
   let candidates = lists[0]
   tally.add(candidates.length)
   for (let at = 1; at < lists.length && candidates.length > 0; at++) {
@@ -89,7 +85,9 @@ export function matchPattern(request: PatternMatchRequest): void {
     literalAutomaton(testCodePoints, ANCHORED_START.has(operator), ANCHORED_END.has(operator)),
     request.meter.matcherStateBytes,
   )
-  const candidates = shortlist(index, foldedTest, tally)
+  const shortlisted = shortlist(index, foldedTest, tally)
+  const scanning = shortlisted === null
+  const candidates = shortlisted ?? index.documents()
   const folded: number[] = []
   let matched = false
   const testValue = (value: string): void => {
@@ -98,6 +96,7 @@ export function matchPattern(request: PatternMatchRequest): void {
 
   for (const ordinal of candidates) {
     if (ordinal >>> 5 >= matches.length || bitsetHas(matches, ordinal)) continue
+    if (scanning) tally.add(1)
     matched = false
     forEachTextValue(request.valueOf(ordinal), testValue)
     if (matched) bitsetSet(matches, ordinal)

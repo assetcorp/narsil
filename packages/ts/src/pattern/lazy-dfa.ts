@@ -95,11 +95,19 @@ export class LazyDfa {
   }
 
   private simulate(from: DfaState): void {
-    this.states = new Map()
-    this.cachedBytes = 0
+    this.dropCache()
+    this.state = this.start
     const simulation = new PositionSimulation(this.automaton)
     simulation.load(from.positions, from.accepting)
     this.simulation = simulation
+  }
+
+  private dropCache(): void {
+    for (const state of this.states.values()) state.next.clear()
+    this.start.next.clear()
+    this.state.next.clear()
+    this.states = new Map()
+    this.cachedBytes = 0
   }
 
   private step(state: DfaState, codePoint: number): DfaState {
@@ -155,8 +163,7 @@ export class LazyDfa {
     if (this.states.size === 0 || this.codePointsSinceReset < MATCHER_MIN_CODE_POINTS_PER_STATE * this.states.size) {
       return false
     }
-    this.states = new Map()
-    this.cachedBytes = 0
+    this.dropCache()
     this.codePointsSinceReset = 0
     this.generation++
     this.start = this.intern(this.start.positions, this.start.accepting)
