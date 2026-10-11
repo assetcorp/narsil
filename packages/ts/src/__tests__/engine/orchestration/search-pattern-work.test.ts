@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
-import { MAX_MATCHER_STATE_BYTES } from '../../../core/pattern-index/constants'
+import { MAX_MATCHER_STATE_BYTES, MAX_PATTERN_POSITIONS } from '../../../core/pattern-index/constants'
+import { smallestMatcherBytes, widestPatternSplit } from '../../../core/pattern-index/matcher-budget'
 import {
   createPatternWorkMeter,
   joinPatternWorkMeter,
@@ -8,7 +9,8 @@ import {
 import { searchViaWorker } from '../../../engine/orchestration/search'
 import { ErrorCodes, NarsilError } from '../../../errors'
 import type { FanOutResult } from '../../../partitioning/fan-out'
-import { type OrchestratorHarness, type RecordedDispatch, recordingHarness, settle } from './fixtures'
+import { SCRATCH_SLOTS_PER_THREAD_POOL } from '../../../vector/constants'
+import { type OrchestratorHarness, type RecordedDispatch, recordingHarness, registryWith, settle } from './fixtures'
 
 const EMPTY: FanOutResult = { scored: [], totalMatched: 0 }
 
@@ -24,6 +26,39 @@ function patternWorkOf(entry: RecordedDispatch): SharedPatternWork {
 }
 
 describe('the pattern work that a copy does for a search', () => {
+  it('splits a search over no more copies than its matcher state budget can serve', async () => {
+    const copyCount = SCRATCH_SLOTS_PER_THREAD_POOL
+    const harness = recordingHarness(copyCount, ['prose'], copyCount, {
+      indexRegistry: registryWith('prose', { title: 'string', code: 'verbatim' }),
+    })
+    const search = (contains: string) =>
+      searchViaWorker(
+        harness.state,
+        'prose',
+        { term: 'a', filters: { fields: { code: { contains, caseFold: true } } } },
+        undefined,
+        undefined,
+        createPatternWorkMeter(),
+      )
+
+    const longest = search('ß'.repeat(MAX_PATTERN_POSITIONS / 2))
+    await settle()
+    const narrowed = queries(harness)
+    expect(narrowed).toHaveLength(widestPatternSplit(MAX_PATTERN_POSITIONS))
+    expect(narrowed.length).toBeLessThan(copyCount)
+    expect(patternWorkOf(narrowed[0]).matcherStateBytes).toBeGreaterThanOrEqual(
+      smallestMatcherBytes(MAX_PATTERN_POSITIONS),
+    )
+    harness.releaseAll()
+    await longest
+
+    const short = search('abc')
+    await settle()
+    expect(queries(harness)).toHaveLength(copyCount)
+    harness.releaseAll()
+    await short
+  })
+
   it('joins the search count only once the copy answers', async () => {
     const harness = recordingHarness(1, ['prose'])
 

@@ -1,6 +1,4 @@
-import { CODE_POINT_BYTES } from './constants'
-
-const WORD_BITS = 32
+import { automatonBytes, positionWords } from '../core/pattern-index/matcher-budget'
 
 export interface PositionAutomaton {
   readonly size: number
@@ -14,10 +12,6 @@ export interface PositionAutomaton {
   accepts(position: number, codePoint: number): boolean
   followerCount(position: number): number
   follower(position: number, index: number): number
-}
-
-export function wordsFor(size: number): number {
-  return Math.max(1, Math.ceil(size / WORD_BITS))
 }
 
 export function setPosition(words: Uint32Array, position: number): void {
@@ -34,7 +28,7 @@ export function literalAutomaton(
   anchoredEnd: boolean,
 ): PositionAutomaton {
   const size = codePoints.length
-  const words = wordsFor(size)
+  const words = positionWords(size)
   const first = new Uint32Array(words)
   const last = new Uint32Array(words)
   if (size > 0) {
@@ -49,7 +43,7 @@ export function literalAutomaton(
     nullable: size === 0,
     anchoredStart,
     anchoredEnd,
-    bytes: first.byteLength + last.byteLength + size * CODE_POINT_BYTES,
+    bytes: automatonBytes(size),
     accepts: (position, codePoint) => codePoints[position] === codePoint,
     followerCount: position => (position + 1 < size ? 1 : 0),
     follower: position => position + 1,

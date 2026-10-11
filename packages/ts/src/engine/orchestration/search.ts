@@ -1,3 +1,5 @@
+import { widestPatternSplit } from '../../core/pattern-index/matcher-budget'
+import { largestPatternTest } from '../../core/pattern-index/query-positions'
 import type { SearchPatternWork, SharedPatternWork } from '../../core/pattern-index/work-meter'
 import { ErrorCodes, NarsilError } from '../../errors'
 import { type FanOutResult, kWayMerge } from '../../partitioning/fan-out'
@@ -88,6 +90,12 @@ async function runSplit(
   return mergeWorkerResults(results, params.facets)
 }
 
+function patternSplitWidth(state: OrchestratorState, indexName: string, params: QueryParams): number {
+  const schema = state.indexRegistry.get(indexName)?.config.schema
+  if (schema === undefined) return Number.POSITIVE_INFINITY
+  return widestPatternSplit(largestPatternTest(params.filters, schema))
+}
+
 function takeMainCopyTurn(state: OrchestratorState): boolean {
   if (state.mainCopyQueries === 'none' || state.mainCopyTurnTaken) return false
   state.mainCopyTurnTaken = true
@@ -121,7 +129,7 @@ export async function searchViaWorker(
   if (answersFasterOnMainCopy(state, pool, manager)) return null
 
   const scope = partitionIds ?? Array.from({ length: manager.partitionCount }, (_, partitionId) => partitionId)
-  const idle = pool.leaseIdle(scope.length)
+  const idle = pool.leaseIdle(Math.min(scope.length, patternSplitWidth(state, indexName, params)))
   const leases: WorkerLease[] = []
   try {
     if (idle.length >= 2 && scoresPerPartition(state, indexName, params, globalStats)) {

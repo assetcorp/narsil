@@ -1,10 +1,6 @@
+import { MATCHER_STATE_OVERHEAD_BYTES } from '../core/pattern-index/constants'
 import { hasPosition, type PositionAutomaton, setPosition } from './automaton'
-import {
-  MATCHER_KEY_CHARACTER_BYTES,
-  MATCHER_MIN_CODE_POINTS_PER_STATE,
-  MATCHER_STATE_OVERHEAD_BYTES,
-  MATCHER_TRANSITION_BYTES,
-} from './constants'
+import { MATCHER_KEY_CHARACTER_BYTES, MATCHER_MIN_CODE_POINTS_PER_STATE, MATCHER_TRANSITION_BYTES } from './constants'
 import { PositionSimulation } from './position-simulation'
 import type { WorkTally } from './work-tally'
 
@@ -99,11 +95,11 @@ export class LazyDfa {
   }
 
   private simulate(from: DfaState): void {
+    this.states = new Map()
+    this.cachedBytes = 0
     const simulation = new PositionSimulation(this.automaton)
     simulation.load(from.positions, from.accepting)
     this.simulation = simulation
-    this.states = new Map()
-    this.cachedBytes = 0
   }
 
   private step(state: DfaState, codePoint: number): DfaState {

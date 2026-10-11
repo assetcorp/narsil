@@ -15,6 +15,19 @@ export function exceedsCodePoints(value: string, maximum: number): boolean {
   return false
 }
 
+export function codePointCount(value: string): number {
+  let counted = 0
+  for (let i = 0; i < value.length; i++) {
+    const unit = value.charCodeAt(i)
+    if (unit >= 0xd800 && unit < 0xdc00 && i + 1 < value.length) {
+      const low = value.charCodeAt(i + 1)
+      if (low >= 0xdc00 && low < 0xe000) i++
+    }
+    counted++
+  }
+  return counted
+}
+
 function adjustUtf16Unit(unit: number): number {
   if (unit < 0xd800) return unit
   if (unit < 0xe000) return unit + 0x2000
