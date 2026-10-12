@@ -320,7 +320,7 @@ The range starts at 0 and has no upper bound, and a lower value means more simil
 
 ## Haversine Distance
 
-Haversine gives the great-circle distance between two points on a sphere of the mean Earth radius. It takes one closed formula, and [Vincenty Distance](#vincenty-distance) states how far the two results differ.
+Haversine gives the great-circle distance between two points on a sphere of the mean Earth radius through one closed formula, while [Vincenty Distance](#vincenty-distance) states how far that distance can differ from the distance on the WGS-84 ellipsoid.
 
 ```text
 a = sin^2((lat2 - lat1) / 2)
@@ -329,7 +329,7 @@ c = 2 * atan2(squareRoot(a), squareRoot(1 - a))
 distance = R * c
 ```
 
-`lat1`, `lon1`, `lat2`, and `lon2` are in radians, which an implementation computes from degrees by multiplying by PI and dividing by 180. `R` is 6,371,008.8 metres, the mean Earth radius, and the result is in metres.
+`lat1`, `lon1`, `lat2`, and `lon2` are in radians, which an implementation computes from degrees by multiplying by PI and dividing by 180. `R` is 6,371,008.8 metres, the mean Earth radius, so the result is in metres.
 
 | Unit | Conversion from metres |
 |------|------------------------|
@@ -481,7 +481,7 @@ centroid(polygon: List<GeoPoint>) -> GeoPoint
   return { lat: cx, lon: cy }
 ```
 
-An implementation must place a point exactly on an edge outside the polygon, which is the result of ray casting at a boundary. `isPointInPolygon` must return false for a polygon of fewer than three points. An implementation must reject with `SEARCH_INVALID_FILTER` a geo polygon filter of fewer than three points, or one with a point whose latitude or longitude is not a finite number or is outside the range that [Haversine Distance](#haversine-distance) sets. The result for a self-intersecting polygon is undefined, although an implementation may support such a polygon under the even-odd rule of ray casting.
+An implementation must place a point exactly on an edge outside the polygon, which is the result of ray casting at a boundary. `isPointInPolygon` must return false for a polygon of fewer than three points. An implementation must reject with `SEARCH_INVALID_FILTER` a geo polygon filter of fewer than three points, or one with a point whose latitude or longitude is not a finite number or is outside the range that [Haversine Distance](#haversine-distance) states. The result for a self-intersecting polygon is undefined, although an implementation may support such a polygon under the even-odd rule of ray casting.
 
 ---
 

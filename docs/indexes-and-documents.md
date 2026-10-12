@@ -4,7 +4,7 @@ An index holds documents under a schema that fixes the type of every field. This
 
 ## Indexes
 
-`createIndex(name, config)` creates an index from a schema. Each field of the schema has one of the types `string`, `verbatim`, `number`, `boolean`, `enum`, `geopoint`, or `vector[N]`, or one of the list types `string[]`, `verbatim[]`, `number[]`, `boolean[]`, or `enum[]`. A developer can nest objects up to 4 levels deep in a schema. Narsil validates every document against the schema as it inserts the document. A `number`, `number[]`, or vector field holds finite numbers alone, so the engine raises `DOC_VALIDATION_FAILED` for `Infinity`, which a JSON body produces from a number such as `1e400`, and for `NaN`.
+`createIndex(name, config)` creates an index from a schema. Each field of the schema has one of the types `string`, `verbatim`, `number`, `boolean`, `enum`, `geopoint`, or `vector[N]`, or one of the list types `string[]`, `verbatim[]`, `number[]`, `boolean[]`, or `enum[]`. A developer can nest objects up to 4 levels deep in a schema. Narsil validates every document against the schema as it inserts the document. A `number`, `number[]`, or vector field holds finite numbers alone, so the engine raises `DOC_VALIDATION_FAILED` for `Infinity`, which a JSON parser produces from a number such as `1e400`, and for `NaN`.
 
 ```ts
 await narsil.createIndex('articles', {
@@ -84,7 +84,7 @@ With durability configured, `close(indexName)` releases an index's memory and ke
 
 ### Insert
 
-`insert(indexName, document, docId?, options?)` takes the document id from the `docId` argument, or else from a string `id` field on the document itself, and otherwise Narsil generates a UUID v7. The method returns that id. Where the call passes a `docId` and the document holds a different `id`, `insert` throws `DOC_VALIDATION_FAILED`, because the stored document would contradict the id that it is stored under, and `update` throws the same error for the same reason. For that reason too, a document's own `id` field must hold a non-empty string, so the engine raises `DOC_VALIDATION_FAILED` for an `id` that holds a number, an empty string, or `null`.
+`insert(indexName, document, docId?, options?)` takes the document id from the `docId` argument, or else from a string `id` field on the document itself. Where neither holds an id, Narsil generates a UUID v7. In every case, the method returns the id that it stored the document under. Where the call passes a `docId` and the document holds a different `id`, `insert` throws `DOC_VALIDATION_FAILED`, because the document would then contradict the id that the engine stores it under. `update` throws the same error for the same reason. For that reason too, a document's own `id` field must hold a non-empty string, so the engine raises `DOC_VALIDATION_FAILED` for an `id` that holds a number, an empty string, or `null`.
 
 ```ts
 const generatedId = await narsil.insert('products', { title: 'Trackball Mouse' })
@@ -96,7 +96,7 @@ await narsil.insert('products', { id: 'kb-043', title: 'Tenkeyless Keyboard' })
 
 Inserting an id that already exists fails with `DOC_ALREADY_EXISTS`, and `update` fails with `DOC_NOT_FOUND` where the id is missing, so an upsert would have to check `has()` first and pick the call that fits. The HTTP server's PUT endpoint packages that check as one request.
 
-The engine stores text as UTF-8, so it raises `DOC_VALIDATION_FAILED` for a document that holds half of a character in a value, in a field name, or in its id. JavaScript keeps a character such as an emoji as two halves, and an app that cuts `'Great service 😀'` one place short keeps only the first half of the emoji, which UTF-8 text cannot hold. The error names the field, so that you can find where the app cuts the text. The engine raises `SEARCH_INVALID_FILTER` for a filter whose text holds half of a character, because no stored value can match it.
+The engine stores text as UTF-8, so it raises `DOC_VALIDATION_FAILED` for a document that holds half of a character in a value, in a field name, or in its id. JavaScript holds a character such as an emoji as two halves, so an app that cuts `'Great service 😀'` one place short keeps only the first half of the emoji. UTF-8 encodes whole characters alone, so the engine has no form in which it can store that half. The error names the field, so that you can find where the app cuts the text. The engine raises `SEARCH_INVALID_FILTER` for a filter whose text holds half of a character, because no stored value can match it.
 
 ### Read
 

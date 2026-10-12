@@ -1,3 +1,4 @@
+import { bitsetSet, createBitSet } from '../core/bitset'
 import type { GeopointEntry } from '../types/internal'
 import { coveringRanges, type LocationBox, locationCode, radiusBoxes } from './cells'
 import { haversineDistance } from './haversine'
@@ -7,6 +8,7 @@ import { vincentyDistance } from './vincenty'
 export interface GeoIndexReader {
   radiusQuery(lat: number, lon: number, distanceMeters: number, inside: boolean, highPrecision: boolean): Set<number>
   polygonQuery(points: Array<{ lat: number; lon: number }>, inside: boolean): Set<number>
+  documentsBitset(capacity: number): Uint32Array
   serialize(): GeopointEntry[]
 }
 
@@ -102,6 +104,12 @@ export function createGeoIndex(): GeoIndex {
     polygonQuery(points: Array<{ lat: number; lon: number }>, inside: boolean): Set<number> {
       const contains = polygonContainment(points)
       return matching(polygonBoxes(points), entry => contains(entry.lat, entry.lon), inside)
+    },
+
+    documentsBitset(capacity: number): Uint32Array {
+      const bits = createBitSet(capacity)
+      for (const entry of entries) bitsetSet(bits, entry.docId)
+      return bits
     },
 
     clear(): void {

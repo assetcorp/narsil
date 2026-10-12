@@ -12,8 +12,10 @@ import { mergeFrozenSegments } from '../../../core/partition/frozen/merge'
 import type { PartitionReadState } from '../../../core/partition/read-state'
 import { buildSegmentPayload } from '../../../core/partition/segment-builder'
 import type { SegmentPayload } from '../../../core/partition/segment-payload'
+import { keepsValueSize } from '../../../core/partition/value-sizes'
 import { createPatternWorkMeter } from '../../../core/pattern-index/work-meter'
 import { flattenSchema } from '../../../schema/validator'
+import { parsedTypeOf } from '../../../schema/validator/field-type'
 import type { FilterExpression } from '../../../types/filters'
 import type { AnyDocument } from '../../../types/schema'
 import { afterChurn, churnOf, productCorpus, SCHEMA } from '../../e2e/filters/corpus'
@@ -153,9 +155,17 @@ describe('a filter answered from every way that a partition holds its documents'
     expect(decided).toBeGreaterThan(PROBES * 100)
   }, 120_000)
 
-  it('keeps one size entry for each document that holds a field, after updates and removals', () => {
+  it('keeps one size entry for each document that holds a text or list field, after updates and removals', () => {
+    const sizedFields = Object.entries(flattenSchema(SCHEMA))
+      .filter(([, type]) => {
+        const base = parsedTypeOf(type)?.base
+        return base !== undefined && keepsValueSize(base)
+      })
+      .map(([field]) => field)
+    expect(sizedFields.length).toBeGreaterThan(3)
     for (const [label, state] of states) {
-      for (const field of Object.keys(flattenSchema(SCHEMA))) {
+      expect([...state.sizeIndexes.keys()].sort(), label).toEqual([...sizedFields].sort())
+      for (const field of sizedFields) {
         const holders = current.filter(document => {
           const value = valueAt(document, field)
           return value !== undefined && value !== null

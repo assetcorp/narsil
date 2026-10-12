@@ -29,7 +29,7 @@ export function createEnumIndex(): EnumFieldIndex {
   let affixes: ValueAffixes | null = null
 
   function affixesOf(): ValueAffixes {
-    affixes ??= new ValueAffixes(valueMap.keys())
+    affixes ??= new ValueAffixes(value => valueMap.has(value), valueMap.keys())
     return affixes
   }
 
@@ -47,7 +47,7 @@ export function createEnumIndex(): EnumFieldIndex {
       if (!docSet) {
         docSet = new Set()
         valueMap.set(value, docSet)
-        affixes = null
+        affixes?.add(value)
       }
       docSet.add(internalId)
     },
@@ -58,7 +58,7 @@ export function createEnumIndex(): EnumFieldIndex {
       docSet.delete(internalId)
       if (docSet.size > 0) return
       valueMap.delete(value)
-      affixes = null
+      affixes?.forget()
     },
 
     queryPrefixBitset(prefix: string, capacity: number): Uint32Array {

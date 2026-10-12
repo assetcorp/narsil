@@ -1,4 +1,4 @@
-import { bitsetAndInto, bitsetAndNotInto, bitsetFromSet, bitsetOrInto, createBitSet } from '../core/bitset'
+import { bitsetAndInto, bitsetAndNotInto, bitsetFromSet, bitsetIsEmpty, bitsetSet, createBitSet } from '../core/bitset'
 import type { BooleanFieldIndexReader, EnumFieldIndexReader, NumericFieldIndexReader } from '../core/field-index'
 import type { TextRangeBounds } from '../core/partition/sort-columns/range'
 import type { GeoIndexReader } from '../geo/geo-index'
@@ -35,7 +35,7 @@ class FieldBits {
   }
 
   present(): Uint32Array {
-    return this.context.sizeIndex(this.fieldPath)?.getAllDocIdsBitset(this.context.capacity) ?? this.none()
+    return this.context.presentBitset(this.fieldPath)
   }
 
   holdingSomething(): Uint32Array {
@@ -89,6 +89,30 @@ function elementBits(context: FilterContext, fieldPath: string, parsed: ParsedFi
   return context.enumIndex(fieldPath)?.queryEqBitset(value, capacity) ?? createBitSet(capacity)
 }
 
+function anyElementBits(
+  context: FilterContext,
+  fieldPath: string,
+  parsed: ParsedFieldType,
+  values: readonly Scalar[],
+): Uint32Array {
+  const { capacity } = context
+  const union = createBitSet(capacity)
+  if (parsed.pattern) {
+    for (const value of values) context.matchPattern(fieldPath, 'eq', value as string, false, union)
+    return union
+  }
+  if (parsed.base === 'enum[]') {
+    return context.enumIndex(fieldPath)?.queryInBitset(values as string[], capacity) ?? union
+  }
+  const numbers = context.numericIndex(fieldPath)
+  const booleans = context.booleanIndex(fieldPath)
+  for (const value of values) {
+    if (typeof value === 'number') for (const docId of numbers?.queryEq(value) ?? []) bitsetSet(union, docId)
+    if (typeof value === 'boolean') for (const docId of booleans?.queryEq(value) ?? []) bitsetSet(union, docId)
+  }
+  return union
+}
+
 function distinctScalars(values: unknown): Scalar[] {
   return [...new Set(values as Scalar[])]
 }
@@ -101,16 +125,13 @@ function narrowByElements(
   bits: FieldBits,
   narrow: Narrow,
 ): void {
-  if (f.matchesAny !== undefined) {
-    const union = bits.none()
-    for (const value of distinctScalars(f.matchesAny))
-      bitsetOrInto(union, elementBits(context, fieldPath, parsed, value))
-    narrow(union)
-  }
+  if (f.matchesAny !== undefined) narrow(anyElementBits(context, fieldPath, parsed, distinctScalars(f.matchesAny)))
   if (f.containsAll !== undefined) {
-    const all = bits.present()
-    for (const value of distinctScalars(f.containsAll))
+    const all = bits.present().slice()
+    for (const value of distinctScalars(f.containsAll)) {
+      if (bitsetIsEmpty(all)) break
       bitsetAndInto(all, elementBits(context, fieldPath, parsed, value))
+    }
     narrow(all)
   }
   if (f.size !== undefined) {

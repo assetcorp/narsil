@@ -1,7 +1,8 @@
 import { evaluateFilters, type FilterContext } from '../../filters/evaluator'
 import { schemaFieldsOf } from '../../schema/validator'
+import { parsedTypeOf } from '../../schema/validator/field-type'
 import type { FilterExpression } from '../../types/filters'
-import type { SchemaDefinition } from '../../types/schema'
+import type { FieldType, SchemaDefinition } from '../../types/schema'
 import { bitsetHas, bitsetSet, createBitSet } from '../bitset'
 import { PATTERN_HOST } from '../pattern-index/host'
 import { requirePatternSearch } from '../pattern-index/registry'
@@ -9,6 +10,25 @@ import type { PatternOperator, PatternWorkMeter } from '../pattern-index/types'
 import type { TextRangeBounds } from './sort-columns/range'
 import { textRangeBitsetOf } from './sorting'
 import { getFieldValueByInternalId, getFlatSchema, type PartitionReadState } from './utils'
+import { keepsValueSize } from './value-sizes'
+
+function presentBitsetOf(
+  state: PartitionReadState,
+  fieldPath: string,
+  type: FieldType | undefined,
+  capacity: number,
+): Uint32Array {
+  const base = parsedTypeOf(type)?.base
+  let present: Uint32Array | undefined
+  if (base === 'number') present = state.numericIndexes.get(fieldPath)?.getAllDocIdsBitset(capacity)
+  else if (base === 'boolean') present = state.booleanIndexes.get(fieldPath)?.getAllDocIdsBitset(capacity)
+  else if (base === 'enum') present = state.enumIndexes.get(fieldPath)?.getAllDocIdsBitset(capacity)
+  else if (base === 'geopoint') present = state.geoIndexes.get(fieldPath)?.documentsBitset(capacity)
+  else if (base !== undefined && keepsValueSize(base)) {
+    present = state.sizeIndexes.get(fieldPath)?.getAllDocIdsBitset(capacity)
+  }
+  return present ?? createBitSet(capacity)
+}
 
 function liveDocumentsBitset(state: PartitionReadState, capacity: number): Uint32Array {
   const bits = createBitSet(capacity)
@@ -31,7 +51,7 @@ export function buildFilterContext(
     getFieldValueByInternalId(state.docStore, internalId, fieldPath)
 
   let cachedAllDocIdsBitset: Uint32Array | null = null
-  const cachedPatternValueBitsets = new Map<string, Uint32Array>()
+  const cachedPresentBitsets = new Map<string, Uint32Array>()
 
   return {
     fieldTypes: flat,
@@ -63,12 +83,12 @@ export function buildFilterContext(
         valueOf: internalId => getFieldValue(internalId, fieldPath),
       })
     },
-    patternValuesBitset: (fieldPath: string) => {
-      const cached = cachedPatternValueBitsets.get(fieldPath)
+    presentBitset: (fieldPath: string) => {
+      const cached = cachedPresentBitsets.get(fieldPath)
       if (cached !== undefined) return cached
-      const bits = state.sizeIndexes.get(fieldPath)?.getAllDocIdsBitset(capacity) ?? createBitSet(capacity)
-      cachedPatternValueBitsets.set(fieldPath, bits)
-      return bits
+      const present = presentBitsetOf(state, fieldPath, flat[fieldPath], capacity)
+      cachedPresentBitsets.set(fieldPath, present)
+      return present
     },
     capacity,
     get allDocIdsBitset() {

@@ -20,34 +20,72 @@ function firstAtOrAfter(sorted: readonly string[], key: string): number {
   return lo
 }
 
-export class ValueAffixes {
-  private readonly forward: string[]
-  private readonly backward: string[]
-  private readonly originalOfBackward: string[]
+interface Column {
+  keys: string[]
+  values: string[]
+}
 
-  constructor(values: Iterable<string>) {
-    this.forward = [...values].sort(compareUnits)
-    const pairs = this.forward.map(value => [reversedUnits(value), value] as const)
-    pairs.sort((left, right) => compareUnits(left[0], right[0]))
-    this.backward = pairs.map(pair => pair[0])
-    this.originalOfBackward = pairs.map(pair => pair[1])
+function settledColumn(column: Column, holds: (value: string) => boolean): Column {
+  const { keys, values } = column
+  const order: number[] = []
+  for (let at = 0; at < keys.length; at++) if (holds(values[at])) order.push(at)
+  order.sort((left, right) => compareUnits(keys[left], keys[right]) || compareUnits(values[left], values[right]))
+  const settled: Column = { keys: [], values: [] }
+  for (const at of order) {
+    const last = settled.values.length - 1
+    if (last >= 0 && settled.keys[last] === keys[at] && settled.values[last] === values[at]) continue
+    settled.keys.push(keys[at])
+    settled.values.push(values[at])
+  }
+  return settled
+}
+
+export class ValueAffixes {
+  private forward: Column = { keys: [], values: [] }
+  private backward: Column = { keys: [], values: [] }
+  private settled = true
+
+  constructor(
+    private readonly holds: (value: string) => boolean,
+    values: Iterable<string>,
+  ) {
+    for (const value of values) this.add(value)
+  }
+
+  add(value: string): void {
+    this.forward.keys.push(value)
+    this.forward.values.push(value)
+    this.backward.keys.push(reversedUnits(value))
+    this.backward.values.push(value)
+    this.settled = false
+  }
+
+  forget(): void {
+    this.settled = false
   }
 
   withPrefix(prefix: string): string[] {
-    const found: string[] = []
-    for (let at = firstAtOrAfter(this.forward, prefix); at < this.forward.length; at++) {
-      if (!this.forward[at].startsWith(prefix)) break
-      found.push(this.forward[at])
-    }
-    return found
+    this.settle()
+    return this.matching(this.forward, prefix)
   }
 
   withSuffix(suffix: string): string[] {
-    const key = reversedUnits(suffix)
+    this.settle()
+    return this.matching(this.backward, reversedUnits(suffix))
+  }
+
+  private settle(): void {
+    if (this.settled) return
+    this.forward = settledColumn(this.forward, this.holds)
+    this.backward = settledColumn(this.backward, this.holds)
+    this.settled = true
+  }
+
+  private matching(column: Column, start: string): string[] {
     const found: string[] = []
-    for (let at = firstAtOrAfter(this.backward, key); at < this.backward.length; at++) {
-      if (!this.backward[at].startsWith(key)) break
-      found.push(this.originalOfBackward[at])
+    for (let at = firstAtOrAfter(column.keys, start); at < column.keys.length; at++) {
+      if (!column.keys[at].startsWith(start)) break
+      found.push(column.values[at])
     }
     return found
   }

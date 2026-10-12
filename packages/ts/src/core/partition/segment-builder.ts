@@ -187,7 +187,7 @@ export function buildSegmentPayload(
     for (const { path: fieldPath, base: fieldType, pattern } of fields) {
       const value = getNestedValue(document, fieldPath)
       if (value === undefined || value === null) continue
-      recordValueSize(filters.sizeIndexes, ordinal, fieldPath, value)
+      recordValueSize(filters.sizeIndexes, ordinal, fieldPath, fieldType, value)
       if (pattern) patternIndexOf(filters.patternIndexes, fieldPath).add(ordinal, value)
       if (!isWordIndexedBase(fieldType)) {
         indexFilterValue(filters, ordinal, fieldPath, fieldType, value)
