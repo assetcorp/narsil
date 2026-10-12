@@ -126,6 +126,71 @@ describe('an index that release 0.3 saved with a write-ahead log', () => {
     ])
   })
 
+  it('opens an index whose graph keeps one neighbour per node, and rebuilds that graph', async () => {
+    const directory = await roots.make('narsil-upgrade-single-neighbour-')
+    await copyReleaseFixture('wal', directory)
+    const metaPath = join(directory, 'products', 'meta')
+    await writeFile(
+      metaPath,
+      resealed(new Uint8Array(await readFile(metaPath)), raw => {
+        const promotion = (raw.vector_promotion ?? {}) as Record<string, unknown>
+        const hnsw = (promotion.hnsw_config ?? {}) as Record<string, unknown>
+        return { ...raw, vector_promotion: { ...promotion, hnsw_config: { ...hnsw, m: 1 } } }
+      }),
+    )
+    const graphPath = join(directory, EARLIER_GRAPH_FILE)
+    await writeFile(
+      graphPath,
+      resealed(new Uint8Array(await readFile(graphPath)), raw => ({
+        ...raw,
+        graphs: (raw.graphs as Array<Record<string, unknown>>).map(graph => ({ ...graph, m: 1 })),
+      })),
+    )
+    const config = { workers: { enabled: false }, durability: { directory } }
+    const products = await expectedFixtureDocuments('wal-expected.json')
+    const target = products['doc-0002'].embedding as number[]
+
+    const engine = track(await createNarsil(config))
+    await expectFixtureDocuments(engine, 'products', products, 'embedding')
+    const nearest = await engine.query('products', { vector: { field: 'embedding', value: target }, limit: 1 })
+    expect(nearest.hits[0]?.id).toBe('doc-0002')
+    await engine.shutdown()
+
+    const reopened = track(await createNarsil(config))
+    await expectFixtureDocuments(reopened, 'products', products, 'embedding')
+    const again = await reopened.query('products', { vector: { field: 'embedding', value: target }, limit: 1 })
+    expect(again.hits[0]?.id).toBe('doc-0002')
+  })
+
+  it('reports each upgrade during start-up to the listeners that the engine settings name', async () => {
+    const directory = await roots.make('narsil-upgrade-start-events-')
+    await copyReleaseFixture('wal', directory)
+    const events: Array<NarsilEventMap['layoutUpgrade']> = []
+    track(
+      await createNarsil({
+        workers: { enabled: false },
+        durability: { directory },
+        events: { layoutUpgrade: event => events.push(event) },
+      }),
+    )
+
+    expect(events.map(({ indexName, status }) => `${indexName} ${status}`).sort()).toEqual([
+      'notes completed',
+      'notes started',
+      'products completed',
+      'products started',
+    ])
+  })
+
+  it('refuses an events setting that holds anything other than functions', async () => {
+    const listeners = [{ layoutUpgrade: 'not a function' }, { layoutUpgrades: () => undefined }, 'listeners', [() => 1]]
+    for (const events of listeners) {
+      await expect(createNarsil({ workers: { enabled: false }, events } as never)).rejects.toMatchObject({
+        code: ErrorCodes.CONFIG_INVALID,
+      })
+    }
+  })
+
   it('refuses a manifest of a layout before release 0.3, naming the export as the way across', async () => {
     const directory = await roots.make('narsil-upgrade-too-old-')
     await copyReleaseFixture('wal', directory)

@@ -1,3 +1,4 @@
+import { raiseEarlierReleaseGraphSetting } from '../schema/validator'
 import type { IndexMetadata } from '../types/internal'
 import type { FieldType, IndexConfig, SchemaDefinition } from '../types/schema'
 
@@ -62,7 +63,7 @@ export function reconstructSchemaFromMetadata(metadata: IndexMetadata): IndexCon
     config.required = metadata.required
   }
   if (metadata.vectorPromotion !== undefined) {
-    config.vectorPromotion = metadata.vectorPromotion
+    config.vectorPromotion = raiseEarlierReleaseGraphSetting(metadata.vectorPromotion)
   }
   if (metadata.patternValueLimit !== undefined) {
     config.patternValueLimit = metadata.patternValueLimit

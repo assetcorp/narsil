@@ -6,7 +6,7 @@ import { createReplicationLog } from '../../../../distribution/replication/log'
 import type { ReplicationLog, ReplicationLogEntry } from '../../../../distribution/replication/types'
 import { ReplicationMessageTypes, type SyncRequestPayload } from '../../../../distribution/transport/types'
 import { crc32 } from '../../../../serialization/crc32'
-import { joinBytes } from '../../../e2e/portability/archive-oracle'
+import { bytesOf } from '../../../e2e/portability/archive-oracle'
 import {
   buildSnapshotChunkBytes,
   buildSnapshotEndBytes,
@@ -73,11 +73,12 @@ describe('runBootstrapSync - live sync protocol alignment', () => {
         }
         appliedEntries.push(entry)
       },
-      restoreReplicationPartition: async (indexName, partitionId, chunks, _schema, partitionCount) => {
+      restoreReplicationPartition: async (indexName, partitionId, source, _schema, partitionCount) => {
+        const bytes = source instanceof Uint8Array ? source : await bytesOf(source)
         if (overrides.restoreRejects !== undefined) {
           throw overrides.restoreRejects
         }
-        restoredPartitions.push({ indexName, partitionId, bytes: joinBytes(chunks), partitionCount })
+        restoredPartitions.push({ indexName, partitionId, bytes, partitionCount })
         mockEngine.setHasIndex(true)
       },
       onSnapshotApplied: overrides.onSnapshotApplied,

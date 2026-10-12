@@ -214,7 +214,6 @@ export const ErrorCodes: {
     readonly SNAPSHOT_SYNC_UNAUTHORIZED: "SNAPSHOT_SYNC_UNAUTHORIZED";
     readonly SNAPSHOT_SYNC_REQUEST_INVALID: "SNAPSHOT_SYNC_REQUEST_INVALID";
     readonly SNAPSHOT_SYNC_INDEX_NOT_FOUND: "SNAPSHOT_SYNC_INDEX_NOT_FOUND";
-    readonly SNAPSHOT_SYNC_TOO_LARGE: "SNAPSHOT_SYNC_TOO_LARGE";
     readonly SNAPSHOT_SYNC_CAPACITY_EXHAUSTED: "SNAPSHOT_SYNC_CAPACITY_EXHAUSTED";
     readonly SNAPSHOT_SYNC_SNAPSHOT_FAILED: "SNAPSHOT_SYNC_SNAPSHOT_FAILED";
     readonly SNAPSHOT_SYNC_DECODE_FAILED: "SNAPSHOT_SYNC_DECODE_FAILED";
@@ -566,6 +565,7 @@ export interface NarsilConfig {
     durability?: DurabilityConfig;
     embedding?: EmbeddingAdapter;
     embeddingAdapters?: Record<string, EmbeddingAdapter>;
+    events?: NarsilEventHandlers;
     idGenerator?: () => string;
     invalidation?: InvalidationAdapter;
     lifecycle?: IndexLifecycleConfig;
@@ -584,6 +584,11 @@ export class NarsilError extends Error {
 
 // @public
 export type NarsilErrorCode = ErrorCode | ServerErrorCode | ClientErrorCode | (string & {});
+
+// @public
+export type NarsilEventHandlers = {
+    [K in keyof NarsilEventMap]?: (payload: NarsilEventMap[K]) => void;
+};
 
 // @public
 export type NarsilEventMap = {

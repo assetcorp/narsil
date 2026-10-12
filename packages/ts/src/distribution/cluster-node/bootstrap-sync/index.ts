@@ -155,7 +155,11 @@ export async function executeBootstrapSync(
     return false
   }
 
-  const fetchDeps = { transport: deps.transport, sourceNodeId: deps.sourceNodeId }
+  const fetchDeps = {
+    transport: deps.transport,
+    sourceNodeId: deps.sourceNodeId,
+    spoolDirectory: deps.snapshotSpoolDirectory,
+  }
   const fetchResult = await fetchSnapshotFromAnyTarget(
     indexName,
     primaryNodeId,
@@ -183,21 +187,25 @@ export async function executeBootstrapSync(
     return false
   }
 
-  if (abortCheck()) {
-    surfaceAborted(deps, indexName, primaryNodeId)
-    return false
+  let restoreSucceeded: boolean
+  try {
+    if (abortCheck()) {
+      surfaceAborted(deps, indexName, primaryNodeId)
+      return false
+    }
+    restoreSucceeded = await applyRestore(
+      state,
+      entry,
+      indexName,
+      primaryNodeId,
+      fetchResult.snapshot.read(),
+      schemaResult,
+      deadline,
+      deps,
+    )
+  } finally {
+    await fetchResult.snapshot.discard()
   }
-
-  const restoreSucceeded = await applyRestore(
-    state,
-    entry,
-    indexName,
-    primaryNodeId,
-    fetchResult.chunks,
-    schemaResult,
-    deadline,
-    deps,
-  )
   if (!restoreSucceeded) {
     return false
   }

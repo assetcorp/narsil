@@ -1,4 +1,4 @@
-import { encode } from '@msgpack/msgpack'
+import { encodeDocument } from '../../../serialization/document-encoding'
 import { topLevelMapKeys } from '../../../serialization/msgpack-without-fields'
 import type { SerializedSurfaceForms } from '../../../types/internal'
 import { createSurfaceRegistry } from '../../surface-registry'
@@ -108,21 +108,21 @@ function holdsADiscardedField(bytes: Uint8Array, discardedFields: readonly strin
 function encodedDocumentsOf(input: SegmentRemap): (ordinal: number) => Uint8Array {
   const table = input.segment.arrays.documentTable
   const encoded: Array<Uint8Array | undefined> = new Array(input.remap.length)
-  const encodeDocument = (ordinal: number): Uint8Array => {
+  const encodeOrdinal = (ordinal: number): Uint8Array => {
     let bytes = encoded[ordinal]
     if (bytes === undefined) {
-      bytes = encode(input.segment.documentSource.docAt(ordinal))
+      bytes = encodeDocument(input.segment.documentSource.docAt(ordinal))
       encoded[ordinal] = bytes
     }
     return bytes
   }
-  if (table === null) return encodeDocument
+  if (table === null) return encodeOrdinal
   const discardedFields = table.discardedFields
   return ordinal => {
-    if (encoded[ordinal] !== undefined) return encodeDocument(ordinal)
+    if (encoded[ordinal] !== undefined) return encodeOrdinal(ordinal)
     const stored = table.blob.subarray(table.offsets[ordinal], table.offsets[ordinal + 1])
     if (discardedFields === undefined || !holdsADiscardedField(stored, discardedFields)) return stored
-    return encodeDocument(ordinal)
+    return encodeOrdinal(ordinal)
   }
 }
 

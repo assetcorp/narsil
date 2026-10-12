@@ -71,7 +71,7 @@ export async function streamSnapshotToReplica(
 
   let offset = 0
   let lastYieldAt = now()
-  for (const source of build.chunks) {
+  for await (const source of build.read()) {
     for (let from = 0; from < source.byteLength; from += SNAPSHOT_CHUNK_SIZE) {
       const chunk = source.subarray(from, Math.min(from + SNAPSHOT_CHUNK_SIZE, source.byteLength))
       const chunkPayload: SnapshotChunkPayload = {

@@ -1,5 +1,6 @@
-import { decode, encode } from '@msgpack/msgpack'
+import { decode } from '@msgpack/msgpack'
 import { ErrorCodes, NarsilError } from '../../../errors'
+import { encodeDocument } from '../../../serialization/document-encoding'
 import type { AnyDocument } from '../../../types/schema'
 import { documentValueBytes } from '../../document-store'
 
@@ -64,7 +65,7 @@ export function encodeDocumentTableData(documents: ReadonlyArray<AnyDocument>): 
   const encoded: Uint8Array[] = new Array(documents.length)
   let blobLength = 0
   for (let ordinal = 0; ordinal < documents.length; ordinal++) {
-    const bytes = encode(documents[ordinal])
+    const bytes = encodeDocument(documents[ordinal])
     encoded[ordinal] = bytes
     blobLength += bytes.length
   }

@@ -1,6 +1,14 @@
-import type { NarsilEventMap } from '../types/events'
+import type { NarsilEventHandlers, NarsilEventMap } from '../types/events'
 
 export type EngineEventHandlers = Map<string, Set<(payload: unknown) => void>>
+
+export function eventHandlersOf(events: NarsilEventHandlers | undefined): EngineEventHandlers {
+  const handlers: EngineEventHandlers = new Map()
+  for (const [event, handler] of Object.entries(events ?? {})) {
+    if (typeof handler === 'function') handlers.set(event, new Set([handler as (payload: unknown) => void]))
+  }
+  return handlers
+}
 
 export function emitEngineEvent<E extends keyof NarsilEventMap>(
   eventHandlers: EngineEventHandlers,

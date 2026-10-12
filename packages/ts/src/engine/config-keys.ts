@@ -6,6 +6,7 @@ import type {
   NarsilConfig,
   WorkerConfig,
 } from '../types/config'
+import type { NarsilEventMap } from '../types/events'
 
 const NARSIL_CONFIG_KEYS: Record<keyof NarsilConfig, true> = {
   persistence: true,
@@ -19,6 +20,21 @@ const NARSIL_CONFIG_KEYS: Record<keyof NarsilConfig, true> = {
   analysis: true,
   lifecycle: true,
   patternWorkCap: true,
+  events: true,
+}
+
+const EVENT_NAMES: Record<keyof NarsilEventMap, true> = {
+  write: true,
+  workerCrash: true,
+  workerPromote: true,
+  workerPromoteFailure: true,
+  partitionRebalance: true,
+  partitionWatermark: true,
+  heapPressure: true,
+  analysisRebuild: true,
+  layoutUpgrade: true,
+  durabilityError: true,
+  invalidationError: true,
 }
 
 const DURABILITY_CONFIG_KEYS: Record<keyof DurabilityConfig, true> = {
@@ -91,6 +107,27 @@ export function requireKnownConfig(config: NarsilConfig | undefined): void {
   requireKnownKeys('analysis.', config.analysis, ANALYSIS_CONFIG_KEYS)
   requireNamedPlugins(config.plugins)
   requireValidPatternWorkCap(config.patternWorkCap)
+  requireEventListeners(config.events)
+}
+
+function requireEventListeners(events: unknown): void {
+  if (events === undefined) return
+  if (typeof events !== 'object' || events === null || Array.isArray(events)) {
+    throw new NarsilError(
+      ErrorCodes.CONFIG_INVALID,
+      'The configuration sets "events" to something other than an object that maps event names to functions',
+      { setting: 'events' },
+    )
+  }
+  requireKnownKeys('events.', events, EVENT_NAMES)
+  for (const [event, listener] of Object.entries(events)) {
+    if (listener === undefined || typeof listener === 'function') continue
+    throw new NarsilError(
+      ErrorCodes.CONFIG_INVALID,
+      `The configuration sets "events.${event}" to something other than a function`,
+      { setting: `events.${event}` },
+    )
+  }
 }
 
 function requireValidPatternWorkCap(cap: unknown): void {

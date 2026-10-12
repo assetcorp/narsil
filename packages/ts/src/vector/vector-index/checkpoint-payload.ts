@@ -1,7 +1,7 @@
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { VectorMetric } from '../brute-force'
 import type { NumberedGraphParts, NumberedHnswGraph } from '../hnsw'
-import { MAX_M, MIN_M } from '../hnsw/constants'
+import { EARLIER_RELEASE_MIN_M, MAX_M, MIN_M } from '../hnsw/constants'
 import { codesOf, VECTOR_INDEX_PART_VECTORS, type VectorIndexCodes } from './payload'
 
 export const VECTOR_FILE_PAYLOAD_VERSION = 1
@@ -92,14 +92,16 @@ function isMetric(value: unknown): value is VectorMetric {
   return METRICS.some(metric => metric === value)
 }
 
-function decodeNumberedGraph(raw: unknown): NumberedHnswGraph {
+function decodeNumberedGraph(raw: unknown, minimumM: number): NumberedHnswGraph {
   const name = 'vector graph'
   if (!isRecord(raw)) invalid(name, 'each graph must be a map')
   const entryPoint = raw.entryPoint ?? null
   if (entryPoint !== null && !isIntegerUpTo(entryPoint, 0xffff_ffff))
     invalid(name, 'entryPoint must be a uint32 or nil')
   if (!isIntegerUpTo(raw.maxLayer, 0xff)) invalid(name, 'maxLayer must be a uint8')
-  if (!isIntegerUpTo(raw.m, MAX_M) || raw.m < MIN_M) invalid(name, `m must be a whole number from ${MIN_M} to ${MAX_M}`)
+  if (!isIntegerUpTo(raw.m, MAX_M) || raw.m < minimumM) {
+    invalid(name, `m must be a whole number from ${minimumM} to ${MAX_M}`)
+  }
   if (!isIntegerUpTo(raw.efConstruction, 0xffff)) invalid(name, 'efConstruction must be a uint16')
   if (!isMetric(raw.metric)) invalid(name, 'metric must name a supported metric', { metric: raw.metric })
   if (!(raw.levels instanceof Uint8Array)) invalid(name, 'levels must be bytes')
@@ -121,7 +123,11 @@ export function decodeVectorGraphPayload(raw: unknown): VectorGraphPayload {
   requireVersion(name, raw.v, VECTOR_GRAPH_PAYLOAD_VERSION)
   if (typeof raw.fieldName !== 'string') invalid(name, 'fieldName must be a string')
   if (!Array.isArray(raw.graphs)) invalid(name, 'graphs must be a list')
-  return { v: VECTOR_GRAPH_PAYLOAD_VERSION, fieldName: raw.fieldName, graphs: raw.graphs.map(decodeNumberedGraph) }
+  return {
+    v: VECTOR_GRAPH_PAYLOAD_VERSION,
+    fieldName: raw.fieldName,
+    graphs: raw.graphs.map(graph => decodeNumberedGraph(graph, EARLIER_RELEASE_MIN_M)),
+  }
 }
 
 export function decodeVectorGraphPartPayload(raw: unknown): VectorGraphPartPayload {
@@ -130,7 +136,11 @@ export function decodeVectorGraphPartPayload(raw: unknown): VectorGraphPartPaylo
   requireVersion(name, raw.v, VECTOR_GRAPH_PART_PAYLOAD_VERSION)
   if (typeof raw.fieldName !== 'string') invalid(name, 'fieldName must be a string')
   if (!Array.isArray(raw.graphs)) invalid(name, 'graphs must be a list')
-  return { v: VECTOR_GRAPH_PART_PAYLOAD_VERSION, fieldName: raw.fieldName, graphs: raw.graphs.map(decodeNumberedGraph) }
+  return {
+    v: VECTOR_GRAPH_PART_PAYLOAD_VERSION,
+    fieldName: raw.fieldName,
+    graphs: raw.graphs.map(graph => decodeNumberedGraph(graph, MIN_M)),
+  }
 }
 
 function sameGraphHeader(a: NumberedHnswGraph, b: NumberedHnswGraph): boolean {

@@ -1,10 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import {
-  MAX_VECTOR_DIMENSION,
-  MAX_VECTOR_TEXT_LENGTH,
-  validateSearchPayload,
-} from '../../../../distribution/query/codec'
+import { MAX_VECTOR_TEXT_LENGTH, validateSearchPayload } from '../../../../distribution/query/codec'
 import type { WireVectorQueryParams } from '../../../../distribution/transport/types'
+
+const WIDEST_STORED_VECTOR = 65_535
 
 function makeSearchPayload(vector: WireVectorQueryParams | unknown | null): Record<string, unknown> {
   const filled =
@@ -141,7 +139,7 @@ describe('validateSearchPayload vector substructure', () => {
   })
 
   it('rejects a value array exceeding the dimension limit', () => {
-    const oversized = new Array(MAX_VECTOR_DIMENSION + 1).fill(0.1)
+    const oversized = new Array(WIDEST_STORED_VECTOR + 1).fill(0.1)
     expect(() =>
       validateSearchPayload(makeSearchPayload({ field: 'embedding', value: oversized, text: null, similarity: null })),
     ).toThrow(/params\.vector\.value/)
@@ -201,12 +199,12 @@ describe('validateSearchPayload vector substructure', () => {
     ).toThrow(/params\.vector\.text/)
   })
 
-  it('accepts a value array exactly at the dimension limit', () => {
-    const sized = new Array(MAX_VECTOR_DIMENSION).fill(0.1)
+  it('accepts a query as wide as the widest vector field that an upgraded index can hold', () => {
+    const sized = new Array(WIDEST_STORED_VECTOR).fill(0.1)
     const result = validateSearchPayload(
       makeSearchPayload({ field: 'embedding', value: sized, text: null, similarity: null }),
     )
-    expect(result.params.vector?.value).toHaveLength(MAX_VECTOR_DIMENSION)
+    expect(result.params.vector?.value).toHaveLength(WIDEST_STORED_VECTOR)
   })
 
   it('accepts text exactly at the length limit', () => {

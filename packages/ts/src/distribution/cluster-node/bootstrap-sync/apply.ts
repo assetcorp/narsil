@@ -2,7 +2,6 @@ import { ErrorCodes, NarsilError } from '../../../errors'
 import type { Narsil } from '../../../narsil'
 import type { IndexConfig, SchemaDefinition } from '../../../types/schema'
 import { withPartitionCount } from '../../cluster/index-settings'
-import { crc32OfChunks } from '../../replication/snapshot-bytes'
 import { finalizeSnapshotStream } from '../../replication/snapshot-stream-assembler'
 import type { SyncEntriesPayload } from '../../transport/types'
 import { withDeadline } from '../bootstrap-fetch'
@@ -69,37 +68,26 @@ export async function applyLiveSnapshotSync(
 ): Promise<LiveSyncResult> {
   const finalized = finalizeSnapshotStream(frameState.snapshotState)
   if (!finalized.ok) {
-    return { ok: false, error: streamFailureToError(finalized) }
+    return { ok: false, error: streamFailureToError({ ...finalized, details: { ...finalized.details, target } }) }
   }
 
-  const computedChecksum = crc32OfChunks(finalized.chunks)
-  if (computedChecksum !== finalized.header.checksum) {
-    return {
-      ok: false,
-      error: new NarsilError(
-        ErrorCodes.SNAPSHOT_SYNC_CHECKSUM_MISMATCH,
-        'computed checksum does not match header checksum',
-        {
-          computed: computedChecksum,
-          header: finalized.header.checksum,
-          target,
-        },
-      ),
-    }
+  let restoreError: NarsilError | null
+  try {
+    restoreError = await restoreLiveSnapshotPartition(
+      state,
+      entry,
+      indexName,
+      partitionId,
+      target,
+      finalized.snapshot.read(),
+      coordinatorConfig,
+      partitionCount,
+      deadline,
+      deps,
+    )
+  } finally {
+    await finalized.snapshot.discard()
   }
-
-  const restoreError = await restoreLiveSnapshotPartition(
-    state,
-    entry,
-    indexName,
-    partitionId,
-    target,
-    finalized.chunks,
-    coordinatorConfig,
-    partitionCount,
-    deadline,
-    deps,
-  )
   if (restoreError !== null) {
     return { ok: false, error: restoreError }
   }
@@ -132,7 +120,7 @@ export async function restoreLiveSnapshotPartition(
   indexName: string,
   partitionId: number,
   primaryNodeId: string,
-  chunks: readonly Uint8Array[],
+  source: AsyncIterable<Uint8Array>,
   coordinatorConfig: IndexConfig,
   partitionCount: number,
   deadline: number,
@@ -163,7 +151,7 @@ export async function restoreLiveSnapshotPartition(
 
   try {
     await withDeadline(
-      deps.restoreReplicationPartition(indexName, partitionId, chunks, coordinatorConfig, partitionCount),
+      deps.restoreReplicationPartition(indexName, partitionId, source, coordinatorConfig, partitionCount),
       remainingMs,
       indexName,
       'partition-restore',

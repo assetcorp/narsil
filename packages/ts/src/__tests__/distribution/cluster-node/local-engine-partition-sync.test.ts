@@ -33,7 +33,7 @@ describe('ClusterLocalEngine partition snapshot restore', () => {
       const partitionArchive = await engine.archiveReplicationPartition('products', 0, () => 1)
       await engine.remove('products', partitionZeroDocId)
 
-      await engine.restoreReplicationPartition('products', 0, partitionArchive.chunks, { schema }, 2)
+      await engine.restoreReplicationPartition('products', 0, partitionArchive.stream, { schema }, 2)
 
       await expect(engine.get('products', partitionZeroDocId)).resolves.toEqual({ title: 'partition zero' })
       await expect(engine.get('products', partitionOneDocId)).resolves.toEqual({ title: 'partition one' })
@@ -57,7 +57,7 @@ describe('ClusterLocalEngine partition snapshot restore', () => {
       await replica.restoreReplicationPartition(
         'products',
         0,
-        partitionArchive.chunks,
+        partitionArchive.stream,
         { schema, patternValueLimit: 4 },
         1,
       )
@@ -90,7 +90,7 @@ describe('ClusterLocalEngine partition snapshot restore', () => {
       await replica.insert('papers', { title: 'other partition', embedding: [0, 0, 1, 0] }, inOne)
 
       const partitionArchive = await source.archiveReplicationPartition('papers', 0, () => inZero.length)
-      await replica.restoreReplicationPartition('papers', 0, partitionArchive.chunks, config, 2)
+      await replica.restoreReplicationPartition('papers', 0, partitionArchive.stream, config, 2)
 
       for (const [i, id] of inZero.entries()) {
         expect(Array.from((await replica.get('papers', id))?.embedding as Float32Array)).toEqual([1, i, 0, 0])

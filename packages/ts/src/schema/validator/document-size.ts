@@ -1,5 +1,5 @@
-import { encode } from '@msgpack/msgpack'
 import { ErrorCodes, NarsilError } from '../../errors'
+import { encodeDocument } from '../../serialization/document-encoding'
 import { MAX_DOCUMENT_BYTES, MAX_DOCUMENT_NESTING_DEPTH } from '../constants'
 
 const LARGEST_HEADER_BYTES = 5
@@ -37,7 +37,7 @@ export function messagePackUpperBoundBytes(value: unknown): number {
 
 function encodedBytesOf(document: Record<string, unknown>): number | null {
   try {
-    return encode(document).byteLength
+    return encodeDocument(document).byteLength
   } catch {
     return null
   }

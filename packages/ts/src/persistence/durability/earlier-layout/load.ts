@@ -7,6 +7,7 @@ import { resolvePartitionInsertOptions } from '../../../partitioning/insert-opti
 import type { PartitionManager } from '../../../partitioning/manager'
 import { openChecksummedEnvelope } from '../../../serialization/envelope-file'
 import { HEADER_SIZE } from '../../../serialization/header'
+import { MIN_M } from '../../../vector/hnsw/constants'
 import type { VectorIndex } from '../../../vector/vector-index'
 import {
   decodeVectorFilePayload,
@@ -112,7 +113,9 @@ async function readGraph(store: CheckpointStore, ref: EarlierVectorFieldRef): Pr
     what: `graph file "${ref.graphKey}"`,
     allowsCompression: true,
   })
-  return graphPartsOfEarlierPayload(decodeVectorGraphPayload(decode(payload)))
+  const graph = decodeVectorGraphPayload(decode(payload))
+  if (graph.graphs.some(numbered => numbered.m < MIN_M)) return null
+  return graphPartsOfEarlierPayload(graph)
 }
 
 async function loadVectorField(

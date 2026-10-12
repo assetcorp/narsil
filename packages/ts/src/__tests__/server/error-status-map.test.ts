@@ -97,6 +97,6 @@ describe('httpStatusForNarsilError', () => {
     expect(httpStatusForNarsilError(ErrorCodes.NODE_NOT_JOINED)).toBe(503)
     expect(httpStatusForNarsilError(ErrorCodes.SNAPSHOT_SYNC_UNAUTHORIZED)).toBe(403)
     expect(httpStatusForNarsilError(ErrorCodes.SNAPSHOT_SYNC_INDEX_NOT_FOUND)).toBe(404)
-    expect(httpStatusForNarsilError(ErrorCodes.SNAPSHOT_SYNC_TOO_LARGE)).toBe(413)
+    expect(httpStatusForNarsilError(ErrorCodes.SNAPSHOT_SYNC_CHUNK_SIZE_EXCEEDED)).toBe(413)
   })
 })

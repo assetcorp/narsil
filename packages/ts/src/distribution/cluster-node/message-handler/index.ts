@@ -23,6 +23,7 @@ export function createDataNodeHandler(deps: DataNodeHandlerDeps): TransportHandl
         coordinator: deps.coordinator,
         state: deps.snapshotSyncState,
         resolveHeaderMetadata: deps.resolveHeaderMetadata,
+        spoolDirectory: deps.snapshotSpoolDirectory,
       })
       return
     }

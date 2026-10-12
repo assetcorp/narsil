@@ -15,7 +15,7 @@ import type { SnapshotSyncHandlerDeps, SnapshotSyncHandlerState, SnapshotSyncStr
 import { decodeRequest, validateSourceId } from './validation'
 
 export type { SingleResponseSink } from '../snapshot-stream-writer'
-export { defaultSnapshotHeaderMetadataProvider } from './metadata'
+export { defaultSnapshotHeaderMetadataProvider, nodeSnapshotHeaderMetadata } from './metadata'
 export type {
   SnapshotHeaderMetadata,
   SnapshotHeaderMetadataProvider,

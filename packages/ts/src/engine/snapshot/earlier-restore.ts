@@ -2,6 +2,7 @@ import { decode } from '@msgpack/msgpack'
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { PartitionManager } from '../../partitioning/manager'
 import { setNestedValue } from '../../partitioning/manager/nested-values'
+import { raiseEarlierReleaseGraphSetting } from '../../schema/validator'
 import { unpackIndexSnapshotEnvelope } from '../../serialization/envelope'
 import { deserializePayloadV1 } from '../../serialization/payload-v1'
 import { documentsOfPayloadV2 } from '../../serialization/payload-v2'
@@ -51,7 +52,7 @@ async function decodeEarlierSnapshot(data: Uint8Array): Promise<SnapshotEnvelope
     invalidSnapshot('Invalid snapshot: missing or invalid language')
   }
   if (!Array.isArray(envelope.partitions)) invalidSnapshot('Invalid snapshot: missing partitions')
-  return envelope
+  return { ...envelope, vectorPromotion: raiseEarlierReleaseGraphSetting(envelope.vectorPromotion) }
 }
 
 function vectorsOfSnapshot(envelope: SnapshotEnvelope): VectorsByDocument {

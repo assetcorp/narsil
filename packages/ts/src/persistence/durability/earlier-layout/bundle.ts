@@ -3,6 +3,7 @@ import { ErrorCodes, NarsilError } from '../../../errors'
 import { requireValidFieldTypes } from '../../../schema/validator/schema'
 import { unpackEnvelopeBytes } from '../../../serialization/envelope'
 import { deserializePayloadV2 } from '../../../serialization/payload-v2'
+import { MIN_M } from '../../../vector/hnsw/constants'
 import type { VectorIndexPayload } from '../../../vector/vector-index'
 import { decodeVectorIndexParts } from '../../../vector/vector-index/payload'
 import type { PartitionCheckpoint } from '../partition-checkpoint'
@@ -93,7 +94,8 @@ export async function loadSnapshotBundle(bytes: Uint8Array, deps: EarlierLoadDep
     deps.manager.deserializePartition(i, deserializePayloadV2(bundle.partitions[i]))
   }
   for (const [fieldPath, parts] of Object.entries(bundle.vectorIndexes)) {
-    deps.vectorIndexes.get(fieldPath)?.deserialize(parts)
+    const rebuildsGraph = parts.some(part => part.graphs.some(graph => graph.m < MIN_M))
+    deps.vectorIndexes.get(fieldPath)?.deserialize(rebuildsGraph ? parts.map(part => ({ ...part, graphs: [] })) : parts)
   }
   return bundle.checkpoint
 }

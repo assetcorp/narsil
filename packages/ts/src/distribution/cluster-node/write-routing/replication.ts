@@ -1,5 +1,5 @@
-import { encode } from '@msgpack/msgpack'
 import { ErrorCodes, NarsilError } from '../../../errors'
+import { encodeDocument } from '../../../serialization/document-encoding'
 import type { AnyDocument } from '../../../types/schema'
 import { chunkByBudget } from '../../chunking'
 import { CONTROLLER_LEASE_KEY } from '../../cluster/controller/types'
@@ -52,7 +52,7 @@ export function appendIndexReplicationEntry(
     partitionId,
     indexName,
     documentId,
-    document: encode(document),
+    document: encodeDocument(document),
   })
 }
 
