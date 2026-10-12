@@ -1,7 +1,11 @@
 import { decode, encode } from '@msgpack/msgpack'
 import { compareCodePoints } from '../../core/ordering'
 import { ErrorCodes, NarsilError } from '../../errors'
+import { messagePackUpperBoundBytes } from '../../schema/validator/document-size'
 import { openChecksummedEnvelope, packChecksummedEnvelope } from '../../serialization/envelope-file'
+import type { LanguageModule } from '../../types/language'
+import type { IndexConfig } from '../../types/schema'
+import { MAX_INDEX_CONFIGURATION_BYTES } from '../constants'
 import type { IndexRegistryEntry } from '../core'
 import type { SnapshotEnvelope } from './restore-config'
 
@@ -24,12 +28,32 @@ function refuseCode(entry: IndexRegistryEntry): void {
 
 export function indexConfigurationOf(entry: IndexRegistryEntry): Record<string, unknown> {
   refuseCode(entry)
-  const config = entry.config
+  return configurationPayloadOf(entry.config, entry.language, entry.embeddingAdapterName)
+}
+
+export function requireConfigurationWithinSizeLimit(config: IndexConfig, language: LanguageModule): void {
+  const adapter = config.embedding?.adapter
+  const payload = configurationPayloadOf(config, language, typeof adapter === 'string' ? adapter : null)
+  if (messagePackUpperBoundBytes(payload) <= MAX_INDEX_CONFIGURATION_BYTES) return
+  const bytes = encode(payload).byteLength
+  if (bytes <= MAX_INDEX_CONFIGURATION_BYTES) return
+  throw new NarsilError(
+    ErrorCodes.CONFIG_INVALID,
+    `The index configuration takes ${bytes} bytes as MessagePack, but an index configuration may take at most ${MAX_INDEX_CONFIGURATION_BYTES}`,
+    { bytes, maximum: MAX_INDEX_CONFIGURATION_BYTES },
+  )
+}
+
+function configurationPayloadOf(
+  config: IndexConfig,
+  language: LanguageModule,
+  adapterName: string | null,
+): Record<string, unknown> {
   const bm25 = config.bm25
   return {
     schema: config.schema,
-    language: entry.language.name,
-    analysisRevision: entry.language.revision,
+    language: language.name,
+    analysisRevision: language.revision,
     ...(typeof config.tokenizer === 'string' ? { tokenizer: config.tokenizer } : {}),
     ...(typeof config.stopWords === 'string' ? { stopWords: config.stopWords } : {}),
     ...(config.stopWords instanceof Set ? { stopWordList: [...config.stopWords].sort(compareCodePoints) } : {}),
@@ -53,7 +77,7 @@ export function indexConfigurationOf(entry: IndexRegistryEntry): Record<string, 
       ? {
           embedding: {
             fields: config.embedding.fields,
-            ...(entry.embeddingAdapterName !== null ? { adapter: entry.embeddingAdapterName } : {}),
+            ...(adapterName !== null ? { adapter: adapterName } : {}),
           },
         }
       : {}),

@@ -54,8 +54,9 @@ The engine applies these limits when you create an index or write a document:
 | The `string` and `string[]` fields in one schema | 65,536 | `SCHEMA_INVALID_TYPE` |
 | `vectorPromotion.hnswConfig.m` | A whole number from 2 to 512 | `CONFIG_INVALID` |
 | The length of a document ID | From 1 to 512 UTF-16 code units, which is the `length` of a JavaScript string | `DOC_VALIDATION_FAILED` |
+| The size of a new index's configuration as MessagePack, stop word lists and field names included | 16,777,216 bytes (16 MiB) | `CONFIG_INVALID` |
 
-The engine applies the first two limits only to new indexes and new writes, so an index that you saved with release 0.3 keeps every larger document and every vector field of up to 65,535 dimensions, which a single engine and a cluster can both search. See [Indexes from an earlier release](persistence-and-durability.md#indexes-from-an-earlier-release).
+The engine applies the first two limits and the configuration limit only to new indexes and new writes, so an index that you saved with release 0.3 keeps every larger document, every vector field of up to 65,535 dimensions, and a configuration of any size, which a single engine and a cluster can both search. When an import creates an index from an export of such an index, it applies the limits of a new index, so it refuses a larger configuration or a wider vector field. Every import refuses a document above 16 MiB, because it writes each document as a new write. See [Indexes from an earlier release](persistence-and-durability.md#indexes-from-an-earlier-release).
 
 ### IndexConfig
 
