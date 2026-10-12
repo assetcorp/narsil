@@ -13,7 +13,7 @@ import { decodeVectorFilePayload } from '../../vector/vector-index/checkpoint-pa
 import { isDead } from '../../vector/vector-index/dead-bits'
 import { bytesToVectors } from '../../vector/vector-index/payload'
 import { EXPORT_CHUNK_BYTES } from '../constants'
-import { encodeExactJson } from './json-line'
+import { encodeDocumentJson, encodeExactJson } from './json-line'
 
 export const DOCUMENT_EXPORT_FORMAT = 'narsil-export'
 export const DOCUMENT_EXPORT_VERSION = 1
@@ -104,7 +104,7 @@ async function* documentLines(checkpoint: ArchiveCheckpoint): AsyncGenerator<str
           const location = located.get(docId)
           if (location !== undefined) setNestedValue(document, fieldPath, await readVector(checkpoint, location))
         }
-        yield `${encodeExactJson(document, docId)}\n`
+        yield `${encodeDocumentJson(document, docId)}\n`
       }
     }
   }

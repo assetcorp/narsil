@@ -129,6 +129,46 @@ describe('document exports over HTTP', () => {
     expect((await getJson<{ count: number }>(server.base, '/indexes/copy/count')).body.count).toBe(documents.size)
   })
 
+  it('carries a stored map whose only key begins with a dollar sign through an export and refuses a forged tag', async () => {
+    const { server } = await serverWithCatalog()
+    const document = { id: 'dollars', title: 'ledger', meta: { $date: [1, 2] }, list: [{ $: 'x' }, { $bytes: 5 }] }
+    expect(
+      (await postJson(server.base, '/indexes', { name: 'notes', config: { schema: { title: 'string' } } })).status,
+    ).toBe(201)
+    const inserted = await postJson<{ failed: unknown[] }>(server.base, '/indexes/notes/documents/_batch', {
+      action: 'insert',
+      documents: [document],
+    })
+    expect(inserted.body.failed).toEqual([])
+
+    const text = await (await fetch(`${server.base}/indexes/notes/export`)).text()
+    const line = text.split('\n')[1]
+    expect(JSON.parse(line)).toEqual({
+      id: 'dollars',
+      title: 'ledger',
+      meta: { $object: { $date: [1, 2] } },
+      list: [{ $object: { $: 'x' } }, { $object: { $bytes: 5 } }],
+    })
+
+    const started = await postRaw<TaskRecord>(
+      server.base,
+      '/indexes/copy/import',
+      new TextEncoder().encode(`${text}{"id":"forged","title":"x","meta":{"$bytes":"AQJ="}}\n`),
+      'application/x-ndjson',
+    )
+    const task = await finished(server.base, started.body.id)
+
+    expect(task.result).toEqual({
+      indexed: 1,
+      failed: 1,
+      errors: [{ line: 3, code: 'DOC_VALIDATION_FAILED', message: expect.any(String) }],
+      errorsTruncated: false,
+    })
+    expect(
+      (await getJson<{ document: unknown }>(server.base, '/indexes/copy/documents/dollars')).body.document,
+    ).toEqual(document)
+  })
+
   it('caps the refusals a task reports at the server limit while it counts every one', async () => {
     const { server } = await serverWithCatalog({ maxImportErrors: 2 })
     const header = (await (await fetch(`${server.base}/indexes/catalog/export`)).text()).split('\n')[0]

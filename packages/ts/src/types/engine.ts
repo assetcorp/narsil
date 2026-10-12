@@ -257,11 +257,15 @@ export interface Narsil extends IndexLifecycleOperations, DocumentWriteOperation
    * document from one checkpoint; otherwise, it takes them from the index in
    * memory at one moment.
    *
+   * JSON has no type for a date, for raw bytes, or for an infinite number or
+   * `NaN`, so the engine writes each such value as a tag. Each tag is an
+   * object with one key that begins with `$`, such as
+   * `{"$date":[1700000000,123000000]}`. The engine also wraps a stored object
+   * whose only key begins with `$` in an `$object` tag, because the import
+   * treats every other object of that shape as a tag.
+   *
    * @param indexName - The index to export.
    * @returns A stream of the export's UTF-8 bytes.
-   * @throws A `NarsilError` with `DOC_VALIDATION_FAILED` on the stream when a
-   * document contains a value that JSON has no type for, such as a date, raw
-   * bytes, an infinite number, or `NaN`.
    */
   exportDocuments(indexName: string): Promise<ReadableStream<Uint8Array>>
   /**
@@ -273,6 +277,11 @@ export interface Narsil extends IndexLifecycleOperations, DocumentWriteOperation
    * documents, you can run an interrupted import again to make the index equal
    * to the export. When a line is invalid or the engine rejects its document,
    * the engine records the refusal and continues with the next line.
+   *
+   * The engine converts each tag that {@link Narsil.exportDocuments} writes
+   * into the value that the tag stands for. When an object has one key that
+   * begins with `$` and that key names no tag, or when a tag holds an invalid
+   * value, the engine refuses the line.
    *
    * @param indexName - The index that receives the documents.
    * @param data - The export's bytes, as one array, a stream, or an async

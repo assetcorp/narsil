@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { ErrorCodes, NarsilError } from '../../../errors'
+import { ErrorCodes } from '../../../errors'
 import { createNarsil, type Narsil } from '../../../narsil'
 import type { AnyDocument, IndexConfig } from '../../../types/schema'
 import { bytesOf } from './archive-oracle'
@@ -212,19 +212,5 @@ describe('reading a hostile document export', () => {
     expect(lines).toEqual(Array.from({ length: 1_000 }, (_, at) => at + 2))
     expect(result.refused[0].code).toBe(ErrorCodes.DOC_VALIDATION_FAILED)
     expect(result.refused[0].message).not.toBe('The line is not JSON')
-  })
-
-  it('refuses to export a document that holds a value JSON cannot carry', async () => {
-    const engine = track(await createNarsil({ workers: { enabled: false } }))
-    await engine.createIndex('files', { schema: { title: 'string' } })
-    await engine.insert('files', { title: 'scan', thumbnail: new Uint8Array([1, 2, 3]) }, 'scan')
-
-    try {
-      await bytesOf(await engine.exportDocuments('files'))
-      throw new Error('the export carried raw bytes')
-    } catch (error) {
-      expect(error).toBeInstanceOf(NarsilError)
-      expect((error as NarsilError).code).toBe(ErrorCodes.DOC_VALIDATION_FAILED)
-    }
   })
 })

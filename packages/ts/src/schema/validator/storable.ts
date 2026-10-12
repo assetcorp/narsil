@@ -29,7 +29,11 @@ function walkStorable(value: unknown, path: string, depth: number, ancestors: Se
     reject(path, `holds a ${kind}, which cannot be stored or recovered`)
   }
   const container = value as object
-  if (container instanceof Date || container instanceof Uint8Array) return
+  if (container instanceof Date) {
+    if (Number.isNaN(container.getTime())) reject(path, 'holds an invalid date, which the engine cannot store')
+    return
+  }
+  if (container instanceof Uint8Array) return
   const isArray = Array.isArray(container)
   if (!isArray && !isPlainObject(container)) {
     reject(

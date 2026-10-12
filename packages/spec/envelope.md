@@ -129,6 +129,8 @@ An implementation must raise `DOC_VALIDATION_FAILED` for a document whose ID, fi
 
 An implementation must raise `DOC_VALIDATION_FAILED` when a caller writes a document whose MessagePack encoding, vector values included, is longer than 16,777,216 bytes, so that a [keyword segment](#keyword-segment-payload) that holds the document alone stays inside the [file size](#file-size) limit.
 
+An implementation must raise `DOC_VALIDATION_FAILED` for a document ID that is empty or longer than 512 UTF-16 code units, so that every line of a [document export](durability.md#document-export) stays inside the length that a reader must accept.
+
 ### Surface Forms
 
 A surface form is the normalised but unstemmed spelling of an indexed token, exactly as the analyser produced it before stemming: lower-cased, possessives stripped, and diacritics handled as the language module requires. Surface forms let the engine answer suggestion and prefix queries with words that a reader recognises while the inverted index stays stemmed.
