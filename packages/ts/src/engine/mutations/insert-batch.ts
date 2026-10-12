@@ -10,6 +10,7 @@ import {
   collectRequiredFieldFailures,
   embedChunkDocuments,
   providedDocId,
+  requireDocumentObject,
 } from './insert-admission'
 import type { AdmittedInsert } from './insert-batch-admission'
 import { applyInsertChunk } from './insert-batch-apply'
@@ -107,6 +108,7 @@ export async function insertDocumentBatch(
 
       const batchDocId = providedDocId(documents[i]) ?? ctx.idGenerator()
       try {
+        requireDocumentObject(documents[i])
         validateDocId(batchDocId)
 
         if (hasBeforeHook) {

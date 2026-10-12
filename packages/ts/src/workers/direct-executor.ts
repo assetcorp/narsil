@@ -1,8 +1,9 @@
 import { readHeapStatistics } from '#platform/heap-statistics'
+import { joinPatternWorkMeter } from '../core/pattern-index/work-meter'
 import { ErrorCodes, NarsilError } from '../errors'
 import { getLanguage } from '../languages/registry'
 import { sanitizeGlobalStats } from '../partitioning/distributed-scoring'
-import { fanOutQuery } from '../partitioning/fan-out'
+import { type FanOutResult, fanOutQuery } from '../partitioning/fan-out'
 import { createPartitionManager, type PartitionManager } from '../partitioning/manager'
 import { countsWithoutScores, fanOutMatchCount } from '../partitioning/match-count'
 import { createPartitionRouter } from '../partitioning/router'
@@ -241,7 +242,8 @@ export function createDirectExecutor(options?: DirectExecutorOptions): Executor 
 
       case 'query': {
         const entry = requireIndex(action.indexName)
-        const result = await fanOutQuery(
+        const patternWork = joinPatternWorkMeter(action.patternWork)
+        const result: FanOutResult = await fanOutQuery(
           entry.manager,
           action.params,
           entry.language,
@@ -251,16 +253,18 @@ export function createDirectExecutor(options?: DirectExecutorOptions): Executor 
             partitionIds: action.partitionIds,
             ...(action.globalStats !== undefined ? { globalStats: sanitizeGlobalStats(action.globalStats) } : {}),
           },
-          entry.searchOptions,
+          { ...entry.searchOptions, patternWork },
         )
+        result.patternWorkSpent = patternWork.spent()
         return result as T
       }
 
       case 'preflight': {
         const entry = requireIndex(action.indexName)
+        const searchOptions = { ...entry.searchOptions, patternWork: joinPatternWorkMeter(action.patternWork) }
         if (countsWithoutScores(action.params)) {
           const count = fanOutMatchCount(entry.manager, action.params, entry.language, entry.config.schema, {
-            searchOptions: entry.searchOptions,
+            searchOptions,
           })
           return { count } as T
         }
@@ -270,7 +274,7 @@ export function createDirectExecutor(options?: DirectExecutorOptions): Executor 
           entry.language,
           entry.config.schema,
           { scoringMode: entry.config.defaultScoring ?? 'local' },
-          entry.searchOptions,
+          searchOptions,
         )
         return { count: result.totalMatched } as T
       }

@@ -1,23 +1,31 @@
+import { exceedsCodePoints } from '../../../core/ordering'
 import type { ErrorCode } from '../../../errors'
 import { FIELD_FILTER_OPERATORS, FILTER_EXPRESSION_KEYS } from '../../../filters/keys'
-import { MIN_POLYGON_POINTS } from '../../../geo/constants'
-import { MAX_FILTER_ARRAY_SIZE, MAX_FILTER_DEPTH, MAX_FILTER_FIELDS, MAX_FILTER_STRING_LENGTH } from '../constants'
+import { filterTestCount } from '../../../filters/operands'
+import { MAX_LATITUDE_DEGREES, MAX_LONGITUDE_DEGREES, MIN_POLYGON_POINTS } from '../../../geo/constants'
+import { isLatitude, isLongitude } from '../../../geo/coordinates'
+import {
+  MAX_FILTER_ARRAY_SIZE,
+  MAX_FILTER_DEPTH,
+  MAX_FILTER_FIELDS,
+  MAX_FILTER_STRING_LENGTH,
+  MAX_FILTER_TESTS,
+} from '../constants'
 import { isFiniteNumber, isRecord, SEARCH_INVALID_FILTER, throwInvalid, validateFieldName } from './common'
 
 const GEO_UNITS = ['km', 'mi', 'm'] as const
 
+function throwTooLong(value: string, fieldLabel: string, errorCode: ErrorCode): never {
+  throwInvalid(
+    errorCode,
+    `Invalid payload: "${fieldLabel}" exceeds the maximum length of ${MAX_FILTER_STRING_LENGTH} code points`,
+    { length: [...value].length, limit: MAX_FILTER_STRING_LENGTH },
+  )
+}
+
 function validateScalarPrimitive(value: unknown, fieldLabel: string, errorCode: ErrorCode): number | string | boolean {
   if (typeof value === 'string') {
-    if (value.length > MAX_FILTER_STRING_LENGTH) {
-      throwInvalid(
-        errorCode,
-        `Invalid payload: "${fieldLabel}" exceeds maximum length of ${MAX_FILTER_STRING_LENGTH}`,
-        {
-          length: value.length,
-          limit: MAX_FILTER_STRING_LENGTH,
-        },
-      )
-    }
+    if (exceedsCodePoints(value, MAX_FILTER_STRING_LENGTH)) throwTooLong(value, fieldLabel, errorCode)
     return value
   }
   if (typeof value === 'number') {
@@ -36,12 +44,7 @@ function validateBoundedString(value: unknown, fieldLabel: string, errorCode: Er
   if (typeof value !== 'string') {
     throwInvalid(errorCode, `Invalid payload: "${fieldLabel}" must be a string`)
   }
-  if (value.length > MAX_FILTER_STRING_LENGTH) {
-    throwInvalid(errorCode, `Invalid payload: "${fieldLabel}" exceeds maximum length of ${MAX_FILTER_STRING_LENGTH}`, {
-      length: value.length,
-      limit: MAX_FILTER_STRING_LENGTH,
-    })
-  }
+  if (exceedsCodePoints(value, MAX_FILTER_STRING_LENGTH)) throwTooLong(value, fieldLabel, errorCode)
   return value
 }
 
@@ -50,6 +53,21 @@ function validateNumericOperand(value: unknown, fieldLabel: string, errorCode: E
     throwInvalid(errorCode, `Invalid payload: "${fieldLabel}" must be a finite number`)
   }
   return value
+}
+
+function validateCoordinates(lat: unknown, lon: unknown, fieldLabel: string, errorCode: ErrorCode): void {
+  if (!isLatitude(validateNumericOperand(lat, `${fieldLabel}.lat`, errorCode))) {
+    throwInvalid(
+      errorCode,
+      `Invalid payload: "${fieldLabel}.lat" must be from -${MAX_LATITUDE_DEGREES} to ${MAX_LATITUDE_DEGREES}`,
+    )
+  }
+  if (!isLongitude(validateNumericOperand(lon, `${fieldLabel}.lon`, errorCode))) {
+    throwInvalid(
+      errorCode,
+      `Invalid payload: "${fieldLabel}.lon" must be from -${MAX_LONGITUDE_DEGREES} to ${MAX_LONGITUDE_DEGREES}`,
+    )
+  }
 }
 
 function validateBooleanOperand(value: unknown, fieldLabel: string, errorCode: ErrorCode): boolean {
@@ -118,8 +136,7 @@ function validateGeoRadius(value: unknown, fieldLabel: string, errorCode: ErrorC
   if (!isRecord(value)) {
     throwInvalid(errorCode, `Invalid payload: "${fieldLabel}" must be an object`)
   }
-  validateNumericOperand(value.lat, `${fieldLabel}.lat`, errorCode)
-  validateNumericOperand(value.lon, `${fieldLabel}.lon`, errorCode)
+  validateCoordinates(value.lat, value.lon, fieldLabel, errorCode)
   validateNumericOperand(value.distance, `${fieldLabel}.distance`, errorCode)
   if ((value.distance as number) < 0) {
     throwInvalid(errorCode, `Invalid payload: "${fieldLabel}.distance" must be non-negative`)
@@ -162,8 +179,7 @@ function validateGeoPolygon(value: unknown, fieldLabel: string, errorCode: Error
     if (!isRecord(point)) {
       throwInvalid(errorCode, `Invalid payload: "${fieldLabel}.points[${i}]" must be an object`)
     }
-    validateNumericOperand(point.lat, `${fieldLabel}.points[${i}].lat`, errorCode)
-    validateNumericOperand(point.lon, `${fieldLabel}.points[${i}].lon`, errorCode)
+    validateCoordinates(point.lat, point.lon, `${fieldLabel}.points[${i}]`, errorCode)
   }
   if (value.inside !== undefined) {
     validateBooleanOperand(value.inside, `${fieldLabel}.inside`, errorCode)
@@ -184,8 +200,12 @@ function validateLeafOperator(opKey: string, opValue: unknown, leafLabel: string
     validateBetween(opValue, opLabel, errorCode)
     return
   }
-  if (opKey === 'startsWith' || opKey === 'endsWith') {
+  if (opKey === 'startsWith' || opKey === 'endsWith' || opKey === 'contains') {
     validateBoundedString(opValue, opLabel, errorCode)
+    return
+  }
+  if (opKey === 'caseFold') {
+    validateBooleanOperand(opValue, opLabel, errorCode)
     return
   }
   if (opKey === 'in' || opKey === 'nin') {
@@ -313,5 +333,17 @@ export function validateFilterExpression(
     } else if (key === 'not') {
       validateFilterExpression(clauseValue, `${fieldLabel}.not`, errorCode, depth + 1)
     }
+  }
+  if (depth > 0) return
+  const tests = filterTestCount(value)
+  if (tests > MAX_FILTER_TESTS) {
+    throwInvalid(
+      errorCode,
+      `Invalid payload: "${fieldLabel}" holds ${tests} tests, above the maximum of ${MAX_FILTER_TESTS}`,
+      {
+        tests,
+        limit: MAX_FILTER_TESTS,
+      },
+    )
   }
 }

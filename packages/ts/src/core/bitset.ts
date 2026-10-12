@@ -44,6 +44,22 @@ export function bitsetOr(a: Uint32Array, b: Uint32Array): Uint32Array {
   return result
 }
 
+export function bitsetAndInto(target: Uint32Array, other: Uint32Array): void {
+  const shared = Math.min(target.length, other.length)
+  for (let i = 0; i < shared; i++) target[i] &= other[i]
+  target.fill(0, shared)
+}
+
+export function bitsetOrInto(target: Uint32Array, other: Uint32Array): void {
+  const shared = Math.min(target.length, other.length)
+  for (let i = 0; i < shared; i++) target[i] |= other[i]
+}
+
+export function bitsetAndNotInto(target: Uint32Array, removed: Uint32Array): void {
+  const shared = Math.min(target.length, removed.length)
+  for (let i = 0; i < shared; i++) target[i] &= ~removed[i]
+}
+
 export function bitsetNot(bs: Uint32Array, capacity: number): Uint32Array {
   const result = new Uint32Array(bs.length)
   const fullWords = capacity >>> 5

@@ -1,3 +1,4 @@
+import { encode } from '@msgpack/msgpack'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { AllocationTable } from '../../../../distribution/coordinator/types'
 import type { QueryRoutingDeps } from '../../../../distribution/query/routing'
@@ -8,7 +9,7 @@ import {
   type InMemoryNetwork,
   type NodeTransport,
 } from '../../../../distribution/transport'
-import { NarsilError } from '../../../../errors'
+import { ErrorCodes, NarsilError } from '../../../../errors'
 import {
   createSearchResultMessage,
   makeAllocationTable,
@@ -123,6 +124,34 @@ describe('distributedQuery partial results and failures', () => {
     expect(result.coverage.totalPartitions).toBe(2)
     expect(result.coverage.queriedPartitions).toBe(1)
     expect(result.coverage.failedPartitions).toBe(1)
+  })
+
+  it('fails the whole query when a node passes the pattern work cap, whatever allowPartialResults holds', async () => {
+    setupDataNode(network, transports, 'node-a', (msg, respond) => {
+      const resultPayload = makeSearchResultResponse([
+        { partitionId: 0, scored: [{ docId: 'doc-1', score: 5.0 }], totalHits: 1 },
+      ])
+      respond(createSearchResultMessage(resultPayload, 'node-a', msg.requestId))
+    })
+    setupDataNode(network, transports, 'node-b', (msg, respond) => {
+      respond({
+        type: `${msg.type}.error`,
+        sourceId: 'node-b',
+        requestId: msg.requestId,
+        payload: encode({ error: true, code: ErrorCodes.SEARCH_WORK_CAP_EXCEEDED, message: 'over the cap' }),
+      })
+    })
+
+    const table = makeAllocationTable([
+      [0, makeAssignment({ primary: 'node-a' })],
+      [1, makeAssignment({ primary: 'node-b' })],
+    ])
+
+    for (const allowPartialResults of [true, false]) {
+      await expect(
+        distributedQuery('products', makeQueryParams(), makeDeps(table), { allowPartialResults }),
+      ).rejects.toMatchObject({ code: ErrorCodes.SEARCH_WORK_CAP_EXCEEDED })
+    }
   })
 
   it('handles all partitions failing gracefully with allowPartialResults', async () => {

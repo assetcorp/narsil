@@ -320,7 +320,7 @@ The range starts at 0 and has no upper bound, and a lower value means more simil
 
 ## Haversine Distance
 
-Haversine gives the great-circle distance between two points on a sphere of the mean Earth radius. It takes one closed formula, and [Vincenty Distance](#vincenty-distance) states how far the two results differ.
+Haversine gives the great-circle distance between two points on a sphere of the mean Earth radius through one closed formula, while [Vincenty Distance](#vincenty-distance) states how far that distance can differ from the distance on the WGS-84 ellipsoid.
 
 ```text
 a = sin^2((lat2 - lat1) / 2)
@@ -329,7 +329,7 @@ c = 2 * atan2(squareRoot(a), squareRoot(1 - a))
 distance = R * c
 ```
 
-`lat1`, `lon1`, `lat2`, and `lon2` are in radians, which an implementation computes from degrees by multiplying by PI and dividing by 180. `R` is 6,371,008.8 metres, the mean Earth radius, and the result is in metres.
+`lat1`, `lon1`, `lat2`, and `lon2` are in radians, which an implementation computes from degrees by multiplying by PI and dividing by 180. `R` is 6,371,008.8 metres, the mean Earth radius, so the result is in metres.
 
 | Unit | Conversion from metres |
 |------|------------------------|
@@ -337,9 +337,11 @@ distance = R * c
 | `mi` | distance / 1609.344 |
 | `m` | distance unchanged |
 
-An implementation must accept only these three units in a geo radius filter, and it must reject any other with `SEARCH_INVALID_FILTER`. It must reject a radius whose `distance` is negative or not a finite number with `SEARCH_INVALID_FILTER` as well.
+An implementation must accept only these three units in a geo radius filter, so it must reject any other unit with `SEARCH_INVALID_FILTER`. It must reject a radius whose `distance` is negative or not a finite number with `SEARCH_INVALID_FILTER` as well.
 
-Two identical points give 0, and two antipodal points give `PI * R`, which is half the circumference. Latitude must be from -90 to 90 and longitude from -180 to 180, and an implementation must reject any other value as a schema validation error at insertion.
+Two identical points give 0, while two antipodal points give `PI * R`, which is half the circumference.
+
+An implementation must accept a latitude from -90 to 90 and a longitude from -180 to 180. It must reject any other value with a schema validation error when a caller inserts a document, and with `SEARCH_INVALID_FILTER` when a caller gives it as the centre of a geo radius filter or as a point of a geo polygon filter.
 
 ---
 
@@ -479,7 +481,7 @@ centroid(polygon: List<GeoPoint>) -> GeoPoint
   return { lat: cx, lon: cy }
 ```
 
-An implementation must place a point exactly on an edge outside the polygon, which is the result of ray casting at a boundary. `isPointInPolygon` must return false for a polygon of fewer than three points, and an implementation must reject with `SEARCH_INVALID_FILTER` a geo polygon filter of fewer than three points, or one with a point whose latitude or longitude is not a finite number. The result for a self-intersecting polygon is undefined. An implementation may support such a polygon under the even-odd rule of ray casting.
+An implementation must place a point exactly on an edge outside the polygon, which is the result of ray casting at a boundary. `isPointInPolygon` must return false for a polygon of fewer than three points. An implementation must reject with `SEARCH_INVALID_FILTER` a geo polygon filter of fewer than three points, or one with a point whose latitude or longitude is not a finite number or is outside the range that [Haversine Distance](#haversine-distance) states. The result for a self-intersecting polygon is undefined, although an implementation may support such a polygon under the even-odd rule of ray casting.
 
 ---
 
@@ -764,7 +766,7 @@ An implementation must stop adding positions once the total passes 2,048, so tha
 
 An implementation must match without backtracking, so that it checks one value in at most as many steps as the value's code points multiplied by the pattern's positions, where one step tests one pattern position against one code point. It must hold at most 1 MB of matcher state for one search, so when a cache of matcher states fills, it may empty the cache and continue.
 
-An implementation must count the work of every test on a pattern field across every partition that it answers the search for, adding one unit for each step and one unit for each shortlist entry that it reads. It must count one step for each pattern position that a match can reach at each code point that it checks. It must count each literal test as the regular expression that it equals, such as `^text$` for `eq` and `text` for `contains`, with every metacharacter in the text escaped. It must stop the search and raise `SEARCH_WORK_CAP_EXCEEDED` once the count exceeds the work cap, which defaults to 25,000,000 units and which a caller may change through an engine setting.
+An implementation must count the work of every test on a pattern field across every partition that it answers the search for, adding one unit for each run that it looks up in a pattern index, one unit for each shortlist entry that it reads, and one unit for each step. For a test from which it can take no run, it must count each document that it checks as a shortlist entry that it reads. It must count one step for each pattern position that a match can reach at each code point that it checks. It must count each literal test as the regular expression that it equals, such as `^text$` for `eq` and `text` for `contains`, with every metacharacter in the text escaped. It must count an `in` or a `nin` test as one `eq` test for each distinct value in its list, so the limit of 2,048 positions applies to each value on its own. It must stop the search and raise `SEARCH_WORK_CAP_EXCEEDED` once the count exceeds the work cap, which defaults to 25,000,000 units and which a caller may change through an engine setting.
 
 ### Pattern Index
 

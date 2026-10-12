@@ -1,6 +1,8 @@
 import { bitsetIsEmpty } from '../core/bitset'
 import { fuzzyTermMatches } from '../core/fuzzy'
 import type { PartitionIndex, PartitionSearchMatches } from '../core/partition'
+import type { PatternWorkMeter } from '../core/pattern-index/types'
+import { createPatternWorkMeter } from '../core/pattern-index/work-meter'
 import { tokenize } from '../core/tokenizer'
 import { ErrorCodes, NarsilError } from '../errors'
 import { flattenSchema, isWordIndexedFieldType } from '../schema/validator'
@@ -16,6 +18,7 @@ export interface FulltextSearchOptions {
   stopWords?: Set<string> | ((defaults: Set<string>) => Set<string>)
   customTokenizer?: CustomTokenizer
   globalStats?: GlobalStatistics
+  patternWork?: PatternWorkMeter
 }
 
 function resolvePrefixExpansion(
@@ -100,7 +103,11 @@ function prepareFulltextQuery(
 
   let filterBitset: Uint32Array | undefined
   if (params.filters) {
-    filterBitset = partition.applyFiltersBitset(params.filters, schema)
+    filterBitset = partition.applyFiltersBitset(
+      params.filters,
+      schema,
+      options?.patternWork ?? createPatternWorkMeter(),
+    )
     if (bitsetIsEmpty(filterBitset)) return null
   }
 

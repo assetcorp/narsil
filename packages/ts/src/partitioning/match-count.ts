@@ -1,3 +1,4 @@
+import { createPatternWorkMeter } from '../core/pattern-index/work-meter'
 import { type FulltextSearchOptions, fulltextMatches } from '../search/fulltext'
 import type { LanguageModule } from '../types/language'
 import type { SchemaDefinition } from '../types/schema'
@@ -34,8 +35,12 @@ export function fanOutMatchCount(
   options?: MatchCountOptions,
 ): number {
   let count = 0
+  const searchOptions = {
+    ...options?.searchOptions,
+    patternWork: options?.searchOptions?.patternWork ?? createPatternWorkMeter(),
+  }
   for (const partition of partitionsIn(manager, options?.partitionIds)) {
-    const matches = fulltextMatches(partition, params, language, schema, options?.searchOptions)
+    const matches = fulltextMatches(partition, params, language, schema, searchOptions)
     if (matches !== null) count += matches.count
   }
   return count

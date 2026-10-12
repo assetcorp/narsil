@@ -1,6 +1,8 @@
 import { isWordIndexedBase, type SchemaField } from '../../schema/validator'
+import { patternIndexOf } from '../pattern-index/host'
 import { ensureFieldIndex } from './indexing'
 import { getNestedValue, type PartitionState } from './utils'
+import { forgetValueSize, recordValueSize } from './value-sizes'
 
 function resolveInternalId(state: PartitionState, docId: string): number {
   const internalId = state.docStore.getInternalId(docId)
@@ -19,7 +21,7 @@ export function updateFieldIndexOnly(
 ): void {
   const internalId = resolveInternalId(state, docId)
 
-  for (const { path: fieldPath, base: fieldType } of fields) {
+  for (const { path: fieldPath, base: fieldType, pattern } of fields) {
     if (isWordIndexedBase(fieldType)) continue
 
     const oldVal = getNestedValue(oldFields as Record<string, unknown>, fieldPath)
@@ -36,8 +38,17 @@ export function updateFieldIndexOnly(
     )
       continue
 
+    forgetValueSize(state.sizeIndexes, internalId, fieldPath, fieldType, oldVal)
+    recordValueSize(state.sizeIndexes, internalId, fieldPath, fieldType, newVal)
     if (newVal !== undefined && newVal !== null) {
       ensureFieldIndex(state, fieldPath, fieldType)
+    }
+
+    if (pattern) {
+      if (oldVal !== undefined && oldVal !== null) state.patternIndexes.get(fieldPath)?.remove(internalId, oldVal)
+      if (newVal !== undefined && newVal !== null) {
+        patternIndexOf(state.patternIndexes, fieldPath).add(internalId, newVal)
+      }
     }
 
     if (fieldType === 'number') {

@@ -179,6 +179,7 @@ export async function startRequestThreads(options: RequestThreadHostOptions): Pr
               build: options.build,
               authorizes: authorize !== undefined,
               searchHooks,
+              patternWorkCap: options.core.patternWorkCap,
             },
           },
           [channel.port1],

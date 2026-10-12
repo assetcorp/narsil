@@ -148,7 +148,9 @@ Document {
 }
 ```
 
-`fields` holds the raw field values keyed by field name, and a nested object uses a dot-separated key such as `author.name`. A vector field value never appears in `fields`, because it is held in the vector index file for that field. A writer must remove every value the schema declares as a vector before it encodes a document. A reader must discard any vector value it finds in `fields`, because an earlier writer may have stored one there. `field_lengths` holds the token count of each text field after analysis, which BM25 scoring reads.
+`fields` holds the raw field values keyed by field name. For a value inside a nested object, the key is the field names on its path joined by dots, as in `author.name`. The vector index file of each vector field holds that field's values, so `fields` holds no vector value. A writer must remove every value that the schema declares as a vector before it encodes a document. A reader must discard any vector value that it finds in `fields`, because an earlier writer may have stored one there. `field_lengths` holds the token count of each text field after analysis, which is the `|D|` of that field in [Multi-Field Scoring](algorithms.md#multi-field-scoring).
+
+An implementation must raise `DOC_VALIDATION_FAILED` for a document whose ID, field names, or string values hold a surrogate code point, U+D800 to U+DFFF, because RFC 3629 defines UTF-8 only for the code points outside that range. It must raise `SEARCH_INVALID_FILTER` for filter text that holds one as well. In a UTF-16 string, such a code point is a surrogate unit outside a pair, because a pair of surrogate units encodes one code point above U+FFFF.
 
 ### Inverted Index
 
@@ -205,7 +207,7 @@ GeopointEntry {
 
 Numeric entries are stored in ascending order of `value`, so a reader can binary-search them straight after decoding.
 
-`pattern` maps each pattern field to the pattern index that [Pattern Index](algorithms.md#pattern-index) defines. `doc_ids` lists the documents that hold a value in the field. Each key of `runs` is a run of three code points, whose list holds, in ascending order, the positions in `doc_ids` of the documents whose folded value contains that run. A writer must leave `pattern` out of a partition that has no pattern field, so that it writes the same bytes for such a partition as before. A reader must raise `PERSISTENCE_LOAD_FAILED` for a list that holds a position outside `doc_ids` or out of ascending order. A reader that finds no entry for a pattern field must rebuild that field's index from `documents`, because an older writer may have saved the partition without it.
+`pattern` maps each pattern field to the pattern index that [Pattern Index](algorithms.md#pattern-index) defines. `doc_ids` lists the documents that hold a value in the field. Each key of `runs` is a run of three code points, whose list holds, in ascending order, the positions in `doc_ids` of the documents whose folded value contains that run. A writer must leave `pattern` out of a partition that has no pattern field, so that it writes the same bytes for such a partition as before. A reader must raise `PERSISTENCE_LOAD_FAILED` for a `doc_ids` list that names one document twice, for a key of `runs` whose length differs from three code points, and for a list that holds a position outside `doc_ids` or out of ascending order. A reader that finds no entry for a pattern field must rebuild that field's index from `documents`, because an older writer may have saved the partition without it.
 
 ### Surface Forms
 

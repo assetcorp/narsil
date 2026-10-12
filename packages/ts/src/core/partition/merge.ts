@@ -1,6 +1,7 @@
 import { ErrorCodes, NarsilError } from '../../errors'
 import { createGeoIndex } from '../../geo/geo-index'
-import { createBooleanIndex, createEnumIndex, createNumericIndex } from '../field-index'
+import { createBooleanIndex, createEnumIndex, createNumericIndex, type NumericFieldIndex } from '../field-index'
+import { patternIndexOf } from '../pattern-index/host'
 import { getOrCreateFieldNameIndex, type PartitionState } from './utils'
 
 function mergeDocuments(target: PartitionState, source: PartitionState): Map<number, number> {
@@ -62,12 +63,16 @@ function mergeSurfaceForms(target: PartitionState, source: PartitionState): void
   }
 }
 
-function mergeFieldIndexes(target: PartitionState, source: PartitionState, idMapping: Map<number, number>): void {
-  for (const [fieldPath, index] of source.numericIndexes) {
-    let targetIndex = target.numericIndexes.get(fieldPath)
+function mergeNumericIndexes(
+  target: Map<string, NumericFieldIndex>,
+  source: ReadonlyMap<string, NumericFieldIndex>,
+  idMapping: Map<number, number>,
+): void {
+  for (const [fieldPath, index] of source) {
+    let targetIndex = target.get(fieldPath)
     if (targetIndex === undefined) {
       targetIndex = createNumericIndex()
-      target.numericIndexes.set(fieldPath, targetIndex)
+      target.set(fieldPath, targetIndex)
     }
     for (const entry of index.serialize()) {
       const targetInternalId = idMapping.get(entry.docId)
@@ -75,6 +80,11 @@ function mergeFieldIndexes(target: PartitionState, source: PartitionState, idMap
       targetIndex.insert(targetInternalId, entry.value)
     }
   }
+}
+
+function mergeFieldIndexes(target: PartitionState, source: PartitionState, idMapping: Map<number, number>): void {
+  mergeNumericIndexes(target.numericIndexes, source.numericIndexes, idMapping)
+  mergeNumericIndexes(target.sizeIndexes, source.sizeIndexes, idMapping)
 
   for (const [fieldPath, index] of source.booleanIndexes) {
     let targetIndex = target.booleanIndexes.get(fieldPath)
@@ -118,6 +128,13 @@ function mergeFieldIndexes(target: PartitionState, source: PartitionState, idMap
       if (targetInternalId === undefined) continue
       targetIndex.insert(targetInternalId, entry.lat, entry.lon)
     }
+  }
+
+  for (const [fieldPath, index] of source.patternIndexes) {
+    patternIndexOf(target.patternIndexes, fieldPath).addArrays(
+      index.toArrays(fieldPath, null),
+      sourceInternalId => idMapping.get(sourceInternalId) ?? -1,
+    )
   }
 }
 

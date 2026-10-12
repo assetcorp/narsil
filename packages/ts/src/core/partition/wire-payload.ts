@@ -1,6 +1,7 @@
-import type { RawPartitionPayload } from '../../serialization/payload-v1'
+import { patternIndexesToWire, type RawPartitionPayload } from '../../serialization/payload-v1'
 import type { RawPartitionPayloadV2 } from '../../serialization/payload-v2'
 import type { SchemaDefinition } from '../../types/schema'
+import { serializePatternIndexes } from './pattern-snapshot'
 import { getFlatSchema, type PartitionState } from './utils'
 
 export function serializePartitionToWirePayload(
@@ -102,6 +103,7 @@ export function serializePartitionToWirePayload(
       boolean: wireBoolean,
       enum: wireEnum,
       geopoint: wireGeo,
+      ...patternIndexesToWire(serializePatternIndexes(state, schema)),
     },
     surface_forms: state.surfaceRegistry.serialize(),
     statistics: {
@@ -229,6 +231,7 @@ export function serializePartitionToWirePayloadV2(
       boolean: wireBoolean,
       enum: wireEnum,
       geopoint: wireGeo,
+      ...patternIndexesToWire(serializePatternIndexes(state, schema)),
     },
     surface_forms: state.surfaceRegistry.serialize(),
     statistics: {

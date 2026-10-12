@@ -1,14 +1,26 @@
 import { describe, expect, it } from 'vitest'
+import { createPatternWorkMeter } from '../../../core/pattern-index/work-meter'
 import { MAIN_COPY_LONE_QUERY_DOCUMENTS } from '../../../engine/orchestration/constants'
 import { searchViaWorker } from '../../../engine/orchestration/search'
-import type { IndexRegistry } from '../../../engine/orchestration/types'
+import type { IndexRegistry, OrchestratorState } from '../../../engine/orchestration/types'
 import { getLanguage } from '../../../languages/registry'
 import type { FanOutResult } from '../../../partitioning/fan-out'
 import type { GlobalStatistics } from '../../../types/internal'
 import type { IndexConfig } from '../../../types/schema'
+import type { QueryParams } from '../../../types/search'
 import { type OrchestratorHarness, type RecordedDispatch, recordingHarness, settle } from './fixtures'
 
 const EMPTY: FanOutResult = { scored: [], totalMatched: 0 }
+
+function workerSearch(
+  state: OrchestratorState,
+  indexName: string,
+  params: QueryParams,
+  globalStats?: GlobalStatistics,
+  partitionIds?: number[],
+): Promise<FanOutResult | null> {
+  return searchViaWorker(state, indexName, params, globalStats, partitionIds, createPatternWorkMeter())
+}
 
 function registryWith(config: IndexConfig): IndexRegistry {
   return new Map([['prose', { config, language: getLanguage('english'), embeddingAdapter: null }]])
@@ -26,9 +38,9 @@ describe('a whole query goes to the copy with the fewest queries in flight', () 
   it('sends a one-partition query to a different idle copy each time while earlier queries are still running', async () => {
     const harness = recordingHarness(3, ['prose'])
 
-    const first = searchViaWorker(harness.state, 'prose', { term: 'a' })
-    const second = searchViaWorker(harness.state, 'prose', { term: 'b' })
-    const third = searchViaWorker(harness.state, 'prose', { term: 'c' })
+    const first = workerSearch(harness.state, 'prose', { term: 'a' })
+    const second = workerSearch(harness.state, 'prose', { term: 'b' })
+    const third = workerSearch(harness.state, 'prose', { term: 'c' })
     await settle()
 
     const sent = queries(harness)
@@ -43,17 +55,17 @@ describe('a whole query goes to the copy with the fewest queries in flight', () 
   it('answers on the main copy once every copy is busy, then on the copy that finished first', async () => {
     const harness = recordingHarness(2, ['prose'])
 
-    const first = searchViaWorker(harness.state, 'prose', { term: 'a' })
-    const second = searchViaWorker(harness.state, 'prose', { term: 'b' })
+    const first = workerSearch(harness.state, 'prose', { term: 'a' })
+    const second = workerSearch(harness.state, 'prose', { term: 'b' })
     await settle()
     const [firstSent, secondSent] = queries(harness)
 
-    expect(await searchViaWorker(harness.state, 'prose', { term: 'c' })).toBeNull()
+    expect(await workerSearch(harness.state, 'prose', { term: 'c' })).toBeNull()
     expect(queries(harness)).toHaveLength(2)
 
     secondSent.resolve(EMPTY)
     await second
-    const fourth = searchViaWorker(harness.state, 'prose', { term: 'd' })
+    const fourth = workerSearch(harness.state, 'prose', { term: 'd' })
     await settle()
     const fourthSent = queries(harness)[2]
     expect(fourthSent.workerId).toBe(secondSent.workerId)
@@ -68,16 +80,16 @@ describe('a whole query goes to the copy with the fewest queries in flight', () 
     const harness = recordingHarness(2, ['prose'])
 
     const held = [
-      searchViaWorker(harness.state, 'prose', { term: 'a' }),
-      searchViaWorker(harness.state, 'prose', { term: 'b' }),
+      workerSearch(harness.state, 'prose', { term: 'a' }),
+      workerSearch(harness.state, 'prose', { term: 'b' }),
     ]
     await settle()
     expect(queries(harness)).toHaveLength(2)
 
     const overflow = [
-      searchViaWorker(harness.state, 'prose', { term: 'c' }),
-      searchViaWorker(harness.state, 'prose', { term: 'd' }),
-      searchViaWorker(harness.state, 'prose', { term: 'e' }),
+      workerSearch(harness.state, 'prose', { term: 'c' }),
+      workerSearch(harness.state, 'prose', { term: 'd' }),
+      workerSearch(harness.state, 'prose', { term: 'e' }),
     ]
     expect(await overflow[0]).toBeNull()
     expect(queries(harness)).toHaveLength(4)
@@ -90,7 +102,7 @@ describe('a whole query goes to the copy with the fewest queries in flight', () 
     ).toBe(2)
 
     await settle()
-    expect(await searchViaWorker(harness.state, 'prose', { term: 'f' })).toBeNull()
+    expect(await workerSearch(harness.state, 'prose', { term: 'f' })).toBeNull()
     expect(queries(harness)).toHaveLength(4)
 
     harness.releaseAll()
@@ -100,14 +112,14 @@ describe('a whole query goes to the copy with the fewest queries in flight', () 
   it('keeps sending whole queries when only one copy is idle', async () => {
     const harness = recordingHarness(2, ['prose'], 4)
 
-    const split = searchViaWorker(harness.state, 'prose', { term: 'a' })
+    const split = workerSearch(harness.state, 'prose', { term: 'a' })
     await settle()
     const halves = queries(harness)
     expect(halves).toHaveLength(2)
     halves[0].resolve(EMPTY)
     await settle()
 
-    const next = searchViaWorker(harness.state, 'prose', { term: 'b' })
+    const next = workerSearch(harness.state, 'prose', { term: 'b' })
     await settle()
 
     const sent = queries(harness)
@@ -125,7 +137,7 @@ describe('a lone query on a small index skips the worker hop', () => {
     const harness = recordingHarness(3, ['prose'])
     harness.setDocumentCount(5_000)
 
-    expect(await searchViaWorker(harness.state, 'prose', { term: 'a' })).toBeNull()
+    expect(await workerSearch(harness.state, 'prose', { term: 'a' })).toBeNull()
     await settle()
     expect(queries(harness)).toHaveLength(0)
   })
@@ -134,7 +146,7 @@ describe('a lone query on a small index skips the worker hop', () => {
     const harness = recordingHarness(3, ['prose'])
     harness.setDocumentCount(MAIN_COPY_LONE_QUERY_DOCUMENTS + 1)
 
-    const pending = searchViaWorker(harness.state, 'prose', { term: 'a' })
+    const pending = workerSearch(harness.state, 'prose', { term: 'a' })
     await settle()
     expect(queries(harness)).toHaveLength(1)
 
@@ -145,13 +157,13 @@ describe('a lone query on a small index skips the worker hop', () => {
   it('sends a small index query to a copy while another query is still running', async () => {
     const harness = recordingHarness(3, ['prose'])
 
-    const large = searchViaWorker(harness.state, 'prose', { term: 'a' })
+    const large = workerSearch(harness.state, 'prose', { term: 'a' })
     await settle()
     const [first] = queries(harness)
     expect(first).toBeDefined()
 
     harness.setDocumentCount(5_000)
-    const small = searchViaWorker(harness.state, 'prose', { term: 'b' })
+    const small = workerSearch(harness.state, 'prose', { term: 'b' })
     await settle()
 
     const sent = queries(harness)
@@ -168,7 +180,7 @@ describe('the engine sends every query to a copy where the host shares its main 
     const harness = recordingHarness(3, ['prose'], 1, { mainCopyQueries: 'none' })
     harness.setDocumentCount(5_000)
 
-    const pending = searchViaWorker(harness.state, 'prose', { term: 'a' })
+    const pending = workerSearch(harness.state, 'prose', { term: 'a' })
     await settle()
     expect(queries(harness)).toHaveLength(1)
 
@@ -181,7 +193,7 @@ describe('a query naming several partitions may split across idle copies', () =>
   it('gives each idle copy its own partitions and merges the answers', async () => {
     const harness = recordingHarness(2, ['prose'], 4)
 
-    const pending = searchViaWorker(harness.state, 'prose', { term: 'a' })
+    const pending = workerSearch(harness.state, 'prose', { term: 'a' })
     await settle()
 
     const sent = queries(harness)
@@ -206,7 +218,7 @@ describe('a query naming several partitions may split across idle copies', () =>
   it('splits only the partitions the caller named', async () => {
     const harness = recordingHarness(3, ['prose'], 6)
 
-    const pending = searchViaWorker(harness.state, 'prose', { term: 'a' }, undefined, [1, 4])
+    const pending = workerSearch(harness.state, 'prose', { term: 'a' }, undefined, [1, 4])
     await settle()
 
     const sent = queries(harness)
@@ -222,7 +234,7 @@ describe('a query naming several partitions may split across idle copies', () =>
       indexRegistry: registryWith({ schema: { title: 'string' }, defaultScoring: 'dfs' }),
     })
 
-    const pending = searchViaWorker(harness.state, 'prose', { term: 'a' })
+    const pending = workerSearch(harness.state, 'prose', { term: 'a' })
     await settle()
 
     const sent = queries(harness)
@@ -244,13 +256,13 @@ describe('a query naming several partitions may split across idle copies', () =>
       averageFieldLengths: {},
     }
 
-    const withoutStats = searchViaWorker(harness.state, 'prose', { term: 'a' })
+    const withoutStats = workerSearch(harness.state, 'prose', { term: 'a' })
     await settle()
     expect(queries(harness)).toHaveLength(1)
     harness.releaseAll()
     await withoutStats
 
-    const withStats = searchViaWorker(harness.state, 'prose', { term: 'a' }, stats)
+    const withStats = workerSearch(harness.state, 'prose', { term: 'a' }, stats)
     await settle()
     expect(queries(harness)).toHaveLength(2)
 
@@ -264,13 +276,13 @@ describe('a copy answers only once it holds every write', () => {
     const harness = recordingHarness(2, [], 1)
     harness.state.copyLoadBuffers.set('prose', [])
 
-    expect(await searchViaWorker(harness.state, 'prose', { term: 'a' })).toBeNull()
+    expect(await workerSearch(harness.state, 'prose', { term: 'a' })).toBeNull()
   })
 
   it('falls back to the main copy when the copy fails mid-query', async () => {
     const harness = recordingHarness(1, ['prose'])
 
-    const pending = searchViaWorker(harness.state, 'prose', { term: 'a' })
+    const pending = workerSearch(harness.state, 'prose', { term: 'a' })
     await settle()
     queries(harness)[0].reject(new Error('worker gone'))
 

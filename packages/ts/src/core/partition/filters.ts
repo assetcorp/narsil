@@ -1,106 +1,98 @@
 import { evaluateFilters, type FilterContext } from '../../filters/evaluator'
-import type { FieldIndex, GeoFieldIndex } from '../../filters/operators'
 import { schemaFieldsOf } from '../../schema/validator'
+import { parsedTypeOf } from '../../schema/validator/field-type'
 import type { FilterExpression } from '../../types/filters'
-import type { SchemaDefinition } from '../../types/schema'
-import { bitsetFromSet, bitsetHas } from '../bitset'
+import type { FieldType, SchemaDefinition } from '../../types/schema'
+import { bitsetHas, bitsetSet, createBitSet } from '../bitset'
+import { PATTERN_HOST } from '../pattern-index/host'
+import { requirePatternSearch } from '../pattern-index/registry'
+import type { PatternOperator, PatternWorkMeter } from '../pattern-index/types'
 import type { TextRangeBounds } from './sort-columns/range'
 import { textRangeBitsetOf } from './sorting'
-import { getAllInternalDocIds, getFieldValueByInternalId, getFlatSchema, type PartitionReadState } from './utils'
+import { getFieldValueByInternalId, getFlatSchema, type PartitionReadState } from './utils'
+import { keepsValueSize } from './value-sizes'
 
-const EMPTY_GEO_INDEX: GeoFieldIndex = {
-  radiusQuery: () => new Set<number>(),
-  polygonQuery: () => new Set<number>(),
+function presentBitsetOf(
+  state: PartitionReadState,
+  fieldPath: string,
+  type: FieldType | undefined,
+  capacity: number,
+): Uint32Array {
+  const base = parsedTypeOf(type)?.base
+  let present: Uint32Array | undefined
+  if (base === 'number') present = state.numericIndexes.get(fieldPath)?.getAllDocIdsBitset(capacity)
+  else if (base === 'boolean') present = state.booleanIndexes.get(fieldPath)?.getAllDocIdsBitset(capacity)
+  else if (base === 'enum') present = state.enumIndexes.get(fieldPath)?.getAllDocIdsBitset(capacity)
+  else if (base === 'geopoint') present = state.geoIndexes.get(fieldPath)?.documentsBitset(capacity)
+  else if (base !== undefined && keepsValueSize(base)) {
+    present = state.sizeIndexes.get(fieldPath)?.getAllDocIdsBitset(capacity)
+  }
+  return present ?? createBitSet(capacity)
 }
 
-export function buildFilterContext(state: PartitionReadState, schema: SchemaDefinition): FilterContext {
+function liveDocumentsBitset(state: PartitionReadState, capacity: number): Uint32Array {
+  const bits = createBitSet(capacity)
+  for (const internalId of state.docStore.allInternalIds()) bitsetSet(bits, internalId)
+  return bits
+}
+
+export function buildFilterContext(
+  state: PartitionReadState,
+  schema: SchemaDefinition,
+  meter: PatternWorkMeter,
+): FilterContext {
   const flat = getFlatSchema(state, schema)
-  const fieldIndexes: Record<string, FieldIndex> = {}
   const capacity = state.docStore.internalIdCapacity()
-
-  for (const { path: fieldPath, base: fieldType } of schemaFieldsOf(schema)) {
-    if (fieldType === 'number' || fieldType === 'number[]') {
-      const numIdx = state.numericIndexes.get(fieldPath)
-      if (numIdx) {
-        fieldIndexes[fieldPath] = {
-          type: 'numeric',
-          index: {
-            eq: (v: number) => numIdx.queryEq(v),
-            gt: (v: number) => numIdx.queryGt(v),
-            gte: (v: number) => numIdx.queryGte(v),
-            lt: (v: number) => numIdx.queryLt(v),
-            lte: (v: number) => numIdx.queryLte(v),
-            between: (min: number, max: number) => numIdx.queryBetween(min, max),
-            allDocIds: () => numIdx.getAllDocIds(),
-            eqBitset: (v: number, cap: number) => numIdx.queryEqBitset(v, cap),
-            gtBitset: (v: number, cap: number) => numIdx.queryGtBitset(v, cap),
-            gteBitset: (v: number, cap: number) => numIdx.queryGteBitset(v, cap),
-            ltBitset: (v: number, cap: number) => numIdx.queryLtBitset(v, cap),
-            lteBitset: (v: number, cap: number) => numIdx.queryLteBitset(v, cap),
-            betweenBitset: (min: number, max: number, cap: number) => numIdx.queryBetweenBitset(min, max, cap),
-            allDocIdsBitset: (cap: number) => numIdx.getAllDocIdsBitset(cap),
-          },
-        }
-      }
-    } else if (fieldType === 'boolean' || fieldType === 'boolean[]') {
-      const boolIdx = state.booleanIndexes.get(fieldPath)
-      if (boolIdx) {
-        fieldIndexes[fieldPath] = {
-          type: 'boolean',
-          index: {
-            getTrue: () => boolIdx.queryEq(true),
-            getFalse: () => boolIdx.queryEq(false),
-            allDocIds: () => boolIdx.getAllDocIds(),
-            getTrueBitset: (cap: number) => boolIdx.queryEqBitset(true, cap),
-            getFalseBitset: (cap: number) => boolIdx.queryEqBitset(false, cap),
-            allDocIdsBitset: (cap: number) => boolIdx.getAllDocIdsBitset(cap),
-          },
-        }
-      }
-    } else if (fieldType === 'enum' || fieldType === 'enum[]') {
-      const enumIdx = state.enumIndexes.get(fieldPath)
-      if (enumIdx) {
-        fieldIndexes[fieldPath] = {
-          type: 'enum',
-          index: {
-            getDocIds: (v: string) => enumIdx.queryEq(v),
-            allDocIds: () => enumIdx.getAllDocIds(),
-            getDocIdsBitset: (v: string, cap: number) => enumIdx.queryEqBitset(v, cap),
-            getDocIdsInBitset: (values: string[], cap: number) => enumIdx.queryInBitset(values, cap),
-            allDocIdsBitset: (cap: number) => enumIdx.getAllDocIdsBitset(cap),
-          },
-        }
-      }
-    } else if (fieldType === 'geopoint') {
-      const geoIdx = state.geoIndexes.get(fieldPath)
-      fieldIndexes[fieldPath] = {
-        type: 'geopoint',
-        index: geoIdx === undefined ? EMPTY_GEO_INDEX : (geoIdx as GeoFieldIndex),
-      }
-    }
+  const patternFields = new Set<string>()
+  for (const { path: fieldPath, pattern } of schemaFieldsOf(schema)) {
+    if (pattern) patternFields.add(fieldPath)
   }
+  const getFieldValue = (internalId: number, fieldPath: string): unknown =>
+    getFieldValueByInternalId(state.docStore, internalId, fieldPath)
 
-  let cachedAllDocIds: Set<number> | null = null
   let cachedAllDocIdsBitset: Uint32Array | null = null
+  const cachedPresentBitsets = new Map<string, Uint32Array>()
 
   return {
     fieldTypes: flat,
-    fieldIndexes,
-    getFieldValue: (internalId: number, fieldPath: string) =>
-      getFieldValueByInternalId(state.docStore, internalId, fieldPath),
+    numericIndex: fieldPath => state.numericIndexes.get(fieldPath),
+    booleanIndex: fieldPath => state.booleanIndexes.get(fieldPath),
+    enumIndex: fieldPath => state.enumIndexes.get(fieldPath),
+    geoIndex: fieldPath => state.geoIndexes.get(fieldPath),
+    sizeIndex: fieldPath => state.sizeIndexes.get(fieldPath),
     textRangeBitset: (fieldPath: string, bounds: TextRangeBounds) =>
       textRangeBitsetOf(state, fieldPath, flat[fieldPath], bounds, capacity),
-    get allDocIds() {
-      if (!cachedAllDocIds) {
-        cachedAllDocIds = getAllInternalDocIds(state.docStore)
-      }
-      return cachedAllDocIds
+    isPatternField: (fieldPath: string) => patternFields.has(fieldPath),
+    matchPattern: (
+      fieldPath: string,
+      operator: PatternOperator,
+      text: string,
+      caseFold: boolean,
+      into: Uint32Array,
+    ) => {
+      const index = state.patternIndexes.get(fieldPath)
+      if (index === undefined) return
+      requirePatternSearch(fieldPath).matchInto({
+        operator,
+        text,
+        caseFold,
+        index,
+        matches: into,
+        meter,
+        host: PATTERN_HOST,
+        valueOf: internalId => getFieldValue(internalId, fieldPath),
+      })
+    },
+    presentBitset: (fieldPath: string) => {
+      const cached = cachedPresentBitsets.get(fieldPath)
+      if (cached !== undefined) return cached
+      const present = presentBitsetOf(state, fieldPath, flat[fieldPath], capacity)
+      cachedPresentBitsets.set(fieldPath, present)
+      return present
     },
     capacity,
     get allDocIdsBitset() {
-      if (!cachedAllDocIdsBitset) {
-        cachedAllDocIdsBitset = bitsetFromSet(this.allDocIds, capacity)
-      }
+      cachedAllDocIdsBitset ??= liveDocumentsBitset(state, capacity)
       return cachedAllDocIdsBitset
     },
   }
@@ -110,8 +102,9 @@ export function applyPartitionFilters(
   state: PartitionReadState,
   filters: FilterExpression,
   schema: SchemaDefinition,
+  meter: PatternWorkMeter,
 ): Set<string> {
-  const context = buildFilterContext(state, schema)
+  const context = buildFilterContext(state, schema, meter)
   const resultBitset = evaluateFilters(filters, context)
   const resolver = state.docStore.resolver()
   const externalResult = new Set<string>()
@@ -136,8 +129,9 @@ export function applyPartitionFiltersBitset(
   state: PartitionReadState,
   filters: FilterExpression,
   schema: SchemaDefinition,
+  meter: PatternWorkMeter,
 ): Uint32Array {
-  const context = buildFilterContext(state, schema)
+  const context = buildFilterContext(state, schema, meter)
   return evaluateFilters(filters, context)
 }
 
@@ -154,8 +148,9 @@ export function partitionFilterMatches(
   state: PartitionReadState,
   filters: FilterExpression,
   schema: SchemaDefinition,
+  meter: PatternWorkMeter,
 ): PartitionFilterMatches {
-  const accepted = applyPartitionFiltersBitset(state, filters, schema)
+  const accepted = applyPartitionFiltersBitset(state, filters, schema, meter)
   const docStore = state.docStore
   const resolver = docStore.resolver()
 

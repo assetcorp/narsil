@@ -18,6 +18,7 @@ const NARSIL_CONFIG_KEYS: Record<keyof NarsilConfig, true> = {
   durability: true,
   analysis: true,
   lifecycle: true,
+  patternWorkCap: true,
 }
 
 const DURABILITY_CONFIG_KEYS: Record<keyof DurabilityConfig, true> = {
@@ -89,4 +90,15 @@ export function requireKnownConfig(config: NarsilConfig | undefined): void {
   requireKnownKeys('lifecycle.', config.lifecycle, LIFECYCLE_CONFIG_KEYS)
   requireKnownKeys('analysis.', config.analysis, ANALYSIS_CONFIG_KEYS)
   requireNamedPlugins(config.plugins)
+  requireValidPatternWorkCap(config.patternWorkCap)
+}
+
+function requireValidPatternWorkCap(cap: unknown): void {
+  if (cap === undefined) return
+  if (typeof cap === 'number' && Number.isSafeInteger(cap) && cap >= 1) return
+  throw new NarsilError(
+    ErrorCodes.CONFIG_INVALID,
+    `The configuration sets "patternWorkCap" to ${String(cap)}, while the cap must be a whole number from 1 to ${Number.MAX_SAFE_INTEGER}`,
+    { setting: 'patternWorkCap' },
+  )
 }

@@ -10,7 +10,7 @@ const DOCUMENT_COUNT = 24
 
 const schema: SchemaDefinition = {
   title: 'string',
-  shelf: 'string',
+  shelf: 'enum',
   embedding: `vector[${DIMENSION}]`,
 }
 

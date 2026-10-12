@@ -1,4 +1,5 @@
 import { generateId } from '../core/id-generator'
+import { DEFAULT_PATTERN_WORK_CAP } from '../core/pattern-index/constants'
 import { ErrorCodes, NarsilError } from '../errors'
 import type { PartitionManager } from '../partitioning/manager'
 import type { CapacityScope } from '../partitioning/manager/capacity'
@@ -80,6 +81,7 @@ export interface EngineCore {
   readonly indexState: IndexStateCoordinator
   readonly mutationCtx: MutationContext
   readonly rebalanceCtx: RebalanceContext
+  readonly patternWorkCap: number
 }
 
 export function createEngineCore(
@@ -347,5 +349,6 @@ export function createEngineCore(
     indexState,
     mutationCtx,
     rebalanceCtx,
+    patternWorkCap: config?.patternWorkCap ?? DEFAULT_PATTERN_WORK_CAP,
   }
 }

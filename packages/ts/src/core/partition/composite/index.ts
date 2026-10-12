@@ -8,6 +8,7 @@ import type { AnyDocument, SchemaDefinition } from '../../../types/schema'
 import type { FacetConfig } from '../../../types/search'
 import type { ComparableSortValue } from '../../ordering'
 import { compareCodePoints } from '../../ordering'
+import type { PatternWorkMeter } from '../../pattern-index/types'
 import { cloneProjected, type ResolvedProjection } from '../../projection'
 import { computeFacets, type FacetMatchSet } from '../facets'
 import type { PartitionFilterMatches } from '../filters'
@@ -253,16 +254,20 @@ export function createCompositePartition(
       return compositeSearchMatches(subs(), layout(), params)
     },
 
-    applyFilters(filters: FilterExpression, schema: SchemaDefinition): Set<string> {
-      return compositeFilters(subs(), filters, schema)
+    applyFilters(filters: FilterExpression, schema: SchemaDefinition, meter: PatternWorkMeter): Set<string> {
+      return compositeFilters(subs(), filters, schema, meter)
     },
 
-    applyFiltersBitset(filters: FilterExpression, schema: SchemaDefinition): Uint32Array {
-      return compositeFiltersBitset(subs(), layout(), filters, schema)
+    applyFiltersBitset(filters: FilterExpression, schema: SchemaDefinition, meter: PatternWorkMeter): Uint32Array {
+      return compositeFiltersBitset(subs(), layout(), filters, schema, meter)
     },
 
-    filterMatches(filters: FilterExpression, schema: SchemaDefinition): PartitionFilterMatches {
-      return compositeFilterMatches(subs(), layout(), filters, schema)
+    filterMatches(
+      filters: FilterExpression,
+      schema: SchemaDefinition,
+      meter: PatternWorkMeter,
+    ): PartitionFilterMatches {
+      return compositeFilterMatches(subs(), layout(), filters, schema, meter)
     },
 
     computeFacets(matched: FacetMatchSet, config: FacetConfig, schema: SchemaDefinition): Record<string, FacetResult> {

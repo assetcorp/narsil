@@ -135,7 +135,12 @@ export async function serveRequests(
   if (child === null) throw new Error('This uWebSockets.js build offers no child apps')
 
   const relay = createRelayClient(settings.port, settings.touchIntervalMs)
-  const local = createThreadReadEngine({ executor, relay, searchHooks: settings.searchHooks })
+  const local = createThreadReadEngine({
+    executor,
+    relay,
+    searchHooks: settings.searchHooks,
+    patternWorkCap: settings.patternWorkCap,
+  })
   const run = createRouteRunner({
     authorize: settings.authorizes ? context => relay.authorize(context) : undefined,
     gate: createSharedRequestGate(settings.gate, settings.maxConcurrentRequests, settings.gateSlot),

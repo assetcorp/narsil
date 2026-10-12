@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { PartitionIndex } from '../../../core/partition'
+import { createPatternWorkMeter } from '../../../core/pattern-index/work-meter'
 import { ErrorCodes, NarsilError } from '../../../errors'
 import { english, makePartition, simpleSchema } from './fixtures'
 
@@ -123,7 +124,7 @@ describe('PartitionIndex CRUD operations', () => {
       partition.insert('doc1', { title: 'hello world' }, simpleSchema, english)
       partition.update('doc1', { title: 'hello world', price: 42 }, simpleSchema, english)
 
-      const result = partition.applyFilters({ fields: { price: { eq: 42 } } }, simpleSchema)
+      const result = partition.applyFilters({ fields: { price: { eq: 42 } } }, simpleSchema, createPatternWorkMeter())
       expect(result.size).toBe(1)
       expect(result.has('doc1')).toBe(true)
     })

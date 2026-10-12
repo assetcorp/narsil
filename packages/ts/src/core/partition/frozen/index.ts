@@ -3,6 +3,8 @@ import type { FieldNameTable, SerializedSurfaceForms } from '../../../types/inte
 import type { AnyDocument } from '../../../types/schema'
 import type { BooleanFieldIndexReader, EnumFieldIndexReader, NumericFieldIndexReader } from '../../field-index'
 import { generateId } from '../../id-generator'
+import { requirePatternSearch } from '../../pattern-index/registry'
+import type { PatternIndexReader } from '../../pattern-index/types'
 import type { PartitionStatsView } from '../../statistics'
 import type { PartitionReadState } from '../read-state'
 import type { SegmentPayload } from '../segment-payload'
@@ -103,10 +105,16 @@ function assembleFrozenSegment(
 
   const numericIndexes = new Map<string, NumericFieldIndexReader>()
   for (const entry of source.numeric) numericIndexes.set(entry.fieldPath, createFrozenNumericReader(entry))
+  const sizeIndexes = new Map<string, NumericFieldIndexReader>()
+  for (const entry of source.sizes) sizeIndexes.set(entry.fieldPath, createFrozenNumericReader(entry))
   const booleanIndexes = new Map<string, BooleanFieldIndexReader>()
   for (const entry of source.boolean) booleanIndexes.set(entry.fieldPath, createFrozenBooleanReader(entry))
   const enumIndexes = new Map<string, EnumFieldIndexReader>()
   for (const entry of source.enums) enumIndexes.set(entry.fieldPath, createFrozenEnumReader(entry))
+  const patternIndexes = new Map<string, PatternIndexReader>()
+  for (const entry of source.pattern) {
+    patternIndexes.set(entry.fieldPath, requirePatternSearch(entry.fieldPath).readArrays(entry))
+  }
 
   const fieldNameTable: FieldNameTable = {
     names: [...source.fieldNames],
@@ -126,6 +134,8 @@ function assembleFrozenSegment(
     booleanIndexes,
     enumIndexes,
     geoIndexes: buildGeoReaders(source.geo),
+    patternIndexes,
+    sizeIndexes,
     fieldNameTable,
     trackPositions: source.positionOffsets !== null,
     flatSchemaCache: null,

@@ -8,7 +8,7 @@ import { normalizeSort, sortModesOf } from '../../search/sorting'
 import type { FacetResult, Hit } from '../../types/results'
 import type { AnyDocument } from '../../types/schema'
 import type { QueryParams } from '../../types/search'
-import { partitionsFor, type QueryContext, searchOptionsFor } from './shared'
+import { partitionsFor, type SearchContext, searchOptionsFor } from './shared'
 
 /**
  * Reports whether a sorted query ranks by sort values alone, which is what
@@ -43,7 +43,7 @@ export interface SortedQueryPage<T = AnyDocument> {
  */
 export function executeSortedQueryPage<T = AnyDocument>(
   params: QueryParams,
-  context: QueryContext,
+  context: SearchContext,
   limit: number,
   offset: number,
   sortSignature: string,
@@ -67,7 +67,7 @@ export function executeSortedQueryPage<T = AnyDocument>(
   const fieldTypes = fields.map(field => flatSchema[field])
   const modes = sortModesOf(normalized)
 
-  const options = searchOptionsFor(manager)
+  const options = searchOptionsFor(manager, context.patternWork)
   const partitions = partitionsFor(manager, context.partitionIds)
   const partitionLimit = offset + limit + 1
 

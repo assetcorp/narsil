@@ -1,5 +1,6 @@
 import { MessageChannel } from 'node:worker_threads'
 import { describe, expect, it, vi } from 'vitest'
+import { DEFAULT_PATTERN_WORK_CAP } from '../../core/pattern-index/constants'
 import type { RequestThreadSettings } from '../../server/request-threads/messages'
 import { closeRequestThread, serveRequests } from '../../server/request-threads/thread'
 import { createActionHandler } from '../../workers/action-handler'
@@ -46,6 +47,7 @@ function settings(): RequestThreadSettings {
     build: { version: null, gitSha: null, dirty: false },
     authorizes: false,
     searchHooks: false,
+    patternWorkCap: DEFAULT_PATTERN_WORK_CAP,
   }
 }
 

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { createPatternWorkMeter } from '../../../core/pattern-index/work-meter'
 import { POOL_RESTART_DELAY_MS } from '../../../engine/orchestration/constants'
 import { noteAccess } from '../../../engine/orchestration/idle'
 import {
@@ -279,7 +280,9 @@ describe('a crashed worker is replaced', () => {
     expect(release(sent, 'dropIndex').map(entry => entry.workerId)).toEqual([0])
     await settle()
     expect(state.copyLoadBuffers.has('prose')).toBe(true)
-    expect(await searchViaWorker(state, 'prose', { term: 'a' })).toBeNull()
+    expect(
+      await searchViaWorker(state, 'prose', { term: 'a' }, undefined, undefined, createPatternWorkMeter()),
+    ).toBeNull()
 
     await replicateToWorkers(state, {
       type: 'insert',

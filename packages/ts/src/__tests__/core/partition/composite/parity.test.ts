@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { createPartitionIndex, type PartitionIndex } from '../../../../core/partition'
 import { type CompositePartition, createCompositePartition } from '../../../../core/partition/composite'
 import { createFrozenSegment } from '../../../../core/partition/frozen'
+import { createPatternWorkMeter } from '../../../../core/pattern-index/work-meter'
 import { ErrorCodes, NarsilError } from '../../../../errors'
 import type { InternalSearchParams } from '../../../../types/internal'
 import type { AnyDocument, SchemaDefinition } from '../../../../types/schema'
@@ -141,13 +142,17 @@ describe('a composite of frozen segments plus a live tail matches one merged par
     const filters = { fields: { price: { gte: 5 } } }
 
     const base = baseline.searchFulltext(
-      termParams({ tokens: ['apple'], exact: true, filterBitset: baseline.applyFiltersBitset(filters, simpleSchema) }),
+      termParams({
+        tokens: ['apple'],
+        exact: true,
+        filterBitset: baseline.applyFiltersBitset(filters, simpleSchema, createPatternWorkMeter()),
+      }),
     )
     const fanned = composite.searchFulltext(
       termParams({
         tokens: ['apple'],
         exact: true,
-        filterBitset: composite.applyFiltersBitset(filters, simpleSchema),
+        filterBitset: composite.applyFiltersBitset(filters, simpleSchema, createPatternWorkMeter()),
       }),
     )
 
@@ -165,9 +170,11 @@ describe('a composite of frozen segments plus a live tail matches one merged par
       },
     }
 
-    expect(composite.applyFilters(filters, simpleSchema)).toEqual(baseline.applyFilters(filters, simpleSchema))
-    expect(composite.filterMatches(filters, simpleSchema).count).toBe(
-      baseline.filterMatches(filters, simpleSchema).count,
+    expect(composite.applyFilters(filters, simpleSchema, createPatternWorkMeter())).toEqual(
+      baseline.applyFilters(filters, simpleSchema, createPatternWorkMeter()),
+    )
+    expect(composite.filterMatches(filters, simpleSchema, createPatternWorkMeter()).count).toBe(
+      baseline.filterMatches(filters, simpleSchema, createPatternWorkMeter()).count,
     )
 
     const params = termParams({ tokens: ['apple', 'banana'], exact: true })
@@ -200,8 +207,8 @@ describe('a composite of frozen segments plus a live tail matches one merged par
     const base = baseline.searchFulltext(params)
     expect(fanned.totalMatched).toBe(base.totalMatched)
     expect(fanned.matchedOrdinalBitset).toBeDefined()
-    expect(composite.filterMatches(filters, simpleSchema).count).toBe(
-      baseline.filterMatches(filters, simpleSchema).count,
+    expect(composite.filterMatches(filters, simpleSchema, createPatternWorkMeter()).count).toBe(
+      baseline.filterMatches(filters, simpleSchema, createPatternWorkMeter()).count,
     )
     expect(composite.searchFulltextMatches(params).ordinalBitset().length).toBeGreaterThan(0)
 
@@ -285,7 +292,7 @@ describe('composite writes route to the owning part', () => {
     const found = composite.searchFulltext(termParams({ tokens: ['zebra'], exact: true }))
     expect(found.scored.some(doc => doc.docId === target)).toBe(true)
 
-    const filtered = composite.applyFilters({ fields: { price: { eq: 99 } } }, simpleSchema)
+    const filtered = composite.applyFilters({ fields: { price: { eq: 99 } } }, simpleSchema, createPatternWorkMeter())
     expect(filtered.has(target)).toBe(true)
   })
 
@@ -348,7 +355,9 @@ describe('composite writes route to the owning part', () => {
     }
 
     const filters = { fields: { price: { between: [2, 7] as [number, number] }, active: { eq: true } } }
-    expect(loaded.applyFilters(filters, simpleSchema)).toEqual(baseline.applyFilters(filters, simpleSchema))
+    expect(loaded.applyFilters(filters, simpleSchema, createPatternWorkMeter())).toEqual(
+      baseline.applyFilters(filters, simpleSchema, createPatternWorkMeter()),
+    )
     expect(loaded.has(removedFrozen)).toBe(false)
     expect(loaded.get(updated)).toMatchObject({ title: 'zebra unique' })
 

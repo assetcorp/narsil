@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { PartitionIndex } from '../../../core/partition'
+import { createPatternWorkMeter } from '../../../core/pattern-index/work-meter'
 import type { SchemaDefinition } from '../../../types/schema'
 import { english, makePartition } from './fixtures'
 
@@ -37,6 +38,7 @@ describe('PartitionIndex nested, geopoint, and array schemas', () => {
           fields: { 'metadata.rating': { gte: 4 } },
         },
         nestedSchema,
+        createPatternWorkMeter(),
       )
       expect(result.size).toBe(1)
       expect(result.has('doc2')).toBe(true)
@@ -63,6 +65,7 @@ describe('PartitionIndex nested, geopoint, and array schemas', () => {
           },
         },
         geoSchema,
+        createPatternWorkMeter(),
       )
 
       expect(result.has('nyc')).toBe(true)

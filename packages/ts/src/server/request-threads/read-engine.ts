@@ -29,10 +29,11 @@ export interface ThreadReadEngineOptions {
   relay: RelayClient
   /** A plugin observes searches on the main thread when this reads true, so every search goes to the main thread. */
   searchHooks: boolean
+  patternWorkCap: number
 }
 
 export function createThreadReadEngine(options: ThreadReadEngineOptions): ThreadReadEngine {
-  const { executor, relay, searchHooks } = options
+  const { executor, relay, searchHooks, patternWorkCap } = options
 
   function vectorFieldsOf(context: IndexQueryContext): string[] {
     return [...extractVectorFieldsFromSchema(context.config.schema).keys()]
@@ -125,6 +126,7 @@ export function createThreadReadEngine(options: ThreadReadEngineOptions): Thread
         indexName,
         cursorBinding: queryBindingOf(params),
         vectorSearchers: context.vectorSearchers,
+        patternWorkCap,
       })
       if (context.analysisStale) result.analysisStale = true
       return result
@@ -138,6 +140,7 @@ export function createThreadReadEngine(options: ThreadReadEngineOptions): Thread
         indexName,
         cursorBinding: queryBindingOf(params),
         vectorSearchers: context.vectorSearchers,
+        patternWorkCap,
       })
       if (context.analysisStale) result.analysisStale = true
       return result
@@ -172,6 +175,7 @@ export function createThreadReadEngine(options: ThreadReadEngineOptions): Thread
         manager,
         schema: context.config.schema,
         strict: context.config.strict,
+        patternWorkCap,
       })
     },
   }

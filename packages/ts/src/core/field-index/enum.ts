@@ -1,6 +1,9 @@
 import { bitsetHas, bitsetSet, createBitSet } from '../bitset'
+import { ValueAffixes } from './affixes'
 
 export interface EnumFieldIndexReader {
+  queryPrefixBitset(prefix: string, capacity: number): Uint32Array
+  querySuffixBitset(suffix: string, capacity: number): Uint32Array
   queryEq(value: string): Set<number>
   queryNe(value: string): Set<number>
   queryIn(values: string[]): Set<number>
@@ -23,6 +26,12 @@ export interface EnumFieldIndex extends EnumFieldIndexReader {
 
 export function createEnumIndex(): EnumFieldIndex {
   const valueMap = new Map<string, Set<number>>()
+  let affixes: ValueAffixes | null = null
+
+  function affixesOf(): ValueAffixes {
+    affixes ??= new ValueAffixes(value => valueMap.has(value), valueMap.keys())
+    return affixes
+  }
 
   function allDocs(): Set<number> {
     const result = new Set<number>()
@@ -38,6 +47,7 @@ export function createEnumIndex(): EnumFieldIndex {
       if (!docSet) {
         docSet = new Set()
         valueMap.set(value, docSet)
+        affixes?.add(value)
       }
       docSet.add(internalId)
     },
@@ -46,7 +56,17 @@ export function createEnumIndex(): EnumFieldIndex {
       const docSet = valueMap.get(value)
       if (!docSet) return
       docSet.delete(internalId)
-      if (docSet.size === 0) valueMap.delete(value)
+      if (docSet.size > 0) return
+      valueMap.delete(value)
+      affixes?.forget()
+    },
+
+    queryPrefixBitset(prefix: string, capacity: number): Uint32Array {
+      return this.queryInBitset(affixesOf().withPrefix(prefix), capacity)
+    },
+
+    querySuffixBitset(suffix: string, capacity: number): Uint32Array {
+      return this.queryInBitset(affixesOf().withSuffix(suffix), capacity)
     },
 
     queryEq(value: string): Set<number> {
@@ -133,6 +153,7 @@ export function createEnumIndex(): EnumFieldIndex {
 
     clear(): void {
       valueMap.clear()
+      affixes = null
     },
 
     serialize(): Record<string, number[]> {
@@ -145,6 +166,7 @@ export function createEnumIndex(): EnumFieldIndex {
 
     deserialize(data: Record<string, number[]>): void {
       valueMap.clear()
+      affixes = null
       for (const value of Object.keys(data)) {
         valueMap.set(value, new Set(data[value]))
       }

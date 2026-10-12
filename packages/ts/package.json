@@ -50,6 +50,10 @@
     "#platform/native-crc32": {
       "browser": "./src/serialization/native-crc32.browser.ts",
       "default": "./src/serialization/native-crc32.ts"
+    },
+    "#platform/pattern-search": {
+      "browser": "./src/core/pattern-index/platform.browser.ts",
+      "default": "./src/core/pattern-index/platform.ts"
     }
   },
   "sideEffects": false,
@@ -130,6 +134,10 @@
     "./embeddings/openai": {
       "import": "./dist/embeddings/openai.mjs",
       "types": "./dist/embeddings/openai.d.ts"
+    },
+    "./pattern": {
+      "import": "./dist/pattern.mjs",
+      "types": "./dist/pattern.d.ts"
     },
     "./languages/*": {
       "import": "./dist/languages/*.mjs",

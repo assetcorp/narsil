@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
+import { createPatternWorkMeter } from '../../core/pattern-index/work-meter'
 import { createWorkerOrchestrator, type WorkerOrchestrator } from '../../engine/orchestration'
 import { getLanguage } from '../../languages/registry'
 import { createNarsil, type Narsil } from '../../narsil'
@@ -13,11 +14,12 @@ import { createDirectExecutor } from '../../workers/direct-executor'
 const schema = { title: 'string' as const, category: 'string' as const }
 const indexConfig: IndexConfig = { schema, language: 'english' }
 
+function searchForWireless(orchestrator: WorkerOrchestrator): Promise<FanOutResult | null> {
+  return orchestrator.searchViaWorker('products', { term: 'wireless' }, undefined, undefined, createPatternWorkMeter())
+}
+
 async function answeredByCopy(orchestrator: WorkerOrchestrator): Promise<FanOutResult | null> {
-  const answers = await Promise.all([
-    orchestrator.searchViaWorker('products', { term: 'wireless' }),
-    orchestrator.searchViaWorker('products', { term: 'wireless' }),
-  ])
+  const answers = await Promise.all([searchForWireless(orchestrator), searchForWireless(orchestrator)])
   const fromCopies = answers.filter(answer => answer !== null)
   expect(fromCopies).toHaveLength(1)
   return fromCopies[0]
@@ -79,7 +81,7 @@ describe('worker resynchronisation after a rebalance', () => {
 
     const wasPromoted = activeOrchestrator.desyncIndex('products')
     expect(wasPromoted).toBe(true)
-    expect(await activeOrchestrator.searchViaWorker('products', { term: 'wireless' })).toBeNull()
+    expect(await searchForWireless(activeOrchestrator)).toBeNull()
 
     await activeOrchestrator.resyncIndex('products', wasPromoted)
 

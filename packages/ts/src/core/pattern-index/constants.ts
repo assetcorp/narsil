@@ -1,0 +1,10 @@
+export const DEFAULT_PATTERN_WORK_CAP = 25_000_000
+export const MAX_PATTERN_TEXT_CODE_POINTS = 1_024
+export const MAX_PATTERN_POSITIONS = 2_048
+export const MATCHER_STATE_BUDGET_BYTES = 1_000_000
+export const MATCHER_CODE_POINT_BYTES = 8
+export const MATCHER_SIMULATION_BYTES_PER_POSITION = 16
+export const MATCHER_STATE_OVERHEAD_BYTES = 96
+export const PATTERN_WORK_FLUSH_UNITS = 65_536
+export const PATTERN_RUN_CODE_POINTS = 3
+export const PATTERN_TEST_OPERATORS = ['eq', 'ne', 'in', 'nin', 'startsWith', 'endsWith', 'contains'] as const

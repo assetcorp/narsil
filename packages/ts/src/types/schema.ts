@@ -19,12 +19,13 @@ export type AnyDocument = Record<string, unknown> & {
  *
  * The engine can sort by a field whose type includes `sortable`. On a single
  * `string` field with that option, the engine can also test a text range with
- * `gt`, `gte`, `lt`, `lte`, or `between`. The engine raises
- * `DOC_VALIDATION_FAILED` for a value longer than
- * {@link IndexConfig.patternValueLimit} in a field whose type includes
- * `pattern`. A later release will add pattern search and partial-word search,
- * which will test the fields whose types include `pattern` and `partial`
- * respectively.
+ * `gt`, `gte`, `lt`, `lte`, or `between`. The engine keeps a pattern index for
+ * a field whose type includes `pattern`. It answers `contains`, `eq`, `ne`,
+ * `in`, `nin`, `startsWith`, and `endsWith` on that field from the index,
+ * comparing case folds for any of those tests that sets `caseFold`. The engine
+ * raises `DOC_VALIDATION_FAILED` for a value longer than
+ * {@link IndexConfig.patternValueLimit} in such a field. A later release will
+ * add partial-word search for the fields whose types include `partial`.
  *
  * @public
  */
@@ -54,7 +55,8 @@ export type FieldOptionChain<Remaining extends string> = {
  * The engine stores and compares a `verbatim` value exactly as written, as one
  * piece of text. Because the engine keeps that value whole, it leaves the
  * field out of keyword search, although it can test the whole value in a
- * filter.
+ * filter. The engine keeps a pattern index for every `verbatim` field, so it
+ * can also test such a field with `contains` and `caseFold`.
  *
  * Add the {@link TextFieldOption} options to a `string` or `string[]` type, or
  * `sortable` alone to a `verbatim` or `verbatim[]` type, as in
