@@ -148,7 +148,7 @@ export async function waitForEtcdReady(endpoint: string): Promise<void> {
   )
 }
 
-export async function startEtcdContainer(): Promise<EtcdContainerHandle> {
+export async function startEtcdContainer(serverFlags: readonly string[] = []): Promise<EtcdContainerHandle> {
   const hostPort = await getAvailablePort()
   const name = `narsil-etcd-${randomUUID()}`
   const endpoint = `http://127.0.0.1:${hostPort}`
@@ -179,6 +179,7 @@ export async function startEtcdContainer(): Promise<EtcdContainerHandle> {
     'http://127.0.0.1:2380',
     '--initial-cluster',
     'node1=http://127.0.0.1:2380',
+    ...serverFlags,
   ])
 
   try {
