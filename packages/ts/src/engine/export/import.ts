@@ -7,6 +7,7 @@ import { IMPORT_BATCH_DOCUMENTS, MAX_EXPORT_LINE_BYTES, MAX_IMPORT_REFUSALS_REPO
 import { requireConfigurationShape } from '../snapshot/index-configuration'
 import { restoredConfigFields, restoredEmbedding } from '../snapshot/restore-config'
 import { type ExportLine, exportLines } from './lines'
+import { untagDocumentLine } from './tags'
 import { DOCUMENT_EXPORT_FORMAT, DOCUMENT_EXPORT_VERSION } from './write'
 
 interface PendingDocument {
@@ -145,6 +146,13 @@ async function takeLine(state: ImportState, entry: ExportLine): Promise<void> {
   }
   if (!isRecord(document) || typeof document.id !== 'string' || document.id.length === 0) {
     refuse(state, entry.line, ErrorCodes.DOC_VALIDATION_FAILED, 'The line holds no document with a string id')
+    return
+  }
+  try {
+    untagDocumentLine(entry.text, document)
+  } catch (error) {
+    if (!(error instanceof NarsilError)) throw error
+    refuse(state, entry.line, error.code, error.message)
     return
   }
   if (state.batchIds.has(document.id)) await flush(state)

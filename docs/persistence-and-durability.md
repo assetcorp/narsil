@@ -165,7 +165,18 @@ const result = await narsil.importDocumentExport('products', createReadStream('.
 // { imported: 1204, refusedCount: 0, refused: [] }
 ```
 
-The first line of an export is a header containing the format name, the format version, and the index configuration. Each later line contains one document, with the document's ID under `id` and the value of each vector field as an array of numbers. The engine writes each number so that a JSON parser returns the same value that the index stores, negative zero included. With write-ahead log durability, the engine takes every document from one checkpoint, as it does for a snapshot; otherwise, it takes them from the index in memory at one moment. JSON's only value types are finite numbers, strings, booleans, null, arrays, and objects, so the engine raises `DOC_VALIDATION_FAILED` on the stream when a document contains a date, raw bytes, an infinite number, or `NaN`.
+The first line of an export is a header containing the format name, the format version, and the index configuration. Each later line contains one document, with the document's ID under `id` and the value of each vector field as an array of numbers. The engine writes each number so that a JSON parser returns the same value that the index stores, negative zero included. With write-ahead log durability, the engine takes every document from one checkpoint, as it does for a snapshot; otherwise, it takes them from the index in memory at one moment.
+
+JSON has no type for a date, for raw bytes, or for an infinite number or `NaN`, so the engine writes each such value as a tag. Each tag is an object with one key that begins with `$`, as this table shows:
+
+| Value in the document | Text in the export |
+| --- | --- |
+| `new Date(1700000000123)` | `{"$date":[1700000000,123000000]}`, the seconds and nanoseconds since the start of 1970 |
+| `new Uint8Array([1, 2, 3])` | `{"$bytes":"AQID"}`, the bytes in base64 |
+| `NaN`, `Infinity`, and `-Infinity` | `{"$number":"NaN"}`, `{"$number":"Infinity"}`, and `{"$number":"-Infinity"}` |
+| `{ $price: 4 }` | `{"$object":{"$price":4}}` |
+
+The engine wraps an object whose only key begins with `$` in an `$object` tag, as the last row shows, because the import treats every other object of that shape as a tag. The import converts each tag back into the value that the tag stands for. When an object has one key that begins with `$` and that key names none of the four tags, or when a tag holds an invalid value, the import refuses the line.
 
 When the name that you pass to `importDocumentExport` is free, the engine creates the index from the export's configuration. When an index of that name exists, the engine writes into it if every field has the same type in its schema as in the export's header. If any field's type differs, the engine raises `CONFIG_INVALID` before it writes a document. The engine raises the same error, again before it writes anything, when the first line is anything other than a version 1 header.
 
