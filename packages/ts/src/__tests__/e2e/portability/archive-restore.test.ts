@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { ErrorCodes } from '../../../errors'
 import { createNarsil, type Narsil } from '../../../narsil'
 import type { AnyDocument } from '../../../types/schema'
-import { bytesOf, sealEnvelope } from './archive-oracle'
+import { bytesOf, resealed, sealEnvelope } from './archive-oracle'
 import {
   CATALOG_CONFIG,
   catalogOf,
@@ -160,6 +160,32 @@ describe.each(ENGINE_KINDS)('restoring into $name', target => {
       const nearest = await engine.get('products', hits[0]?.id ?? '')
       expect(asPlainVector(nearest?.embedding)).toEqual(target.map(Math.fround))
     }
+  })
+})
+
+describe('a release 0.3 snapshot file whose graph keeps one neighbour per node', () => {
+  it('restores every document with a graph setting that this release accepts', async () => {
+    const expected = JSON.parse(await readFile(new URL('snapshot-tier-expected.json', FIXTURE), 'utf8')) as Record<
+      string,
+      AnyDocument
+    >
+    const original = new Uint8Array(await readFile(new URL('products-0.3.0.nrsl', FIXTURE)))
+    const singleNeighbour = resealed(original, raw => {
+      const promotion = (raw.vectorPromotion ?? {}) as Record<string, unknown>
+      const hnsw = (promotion.hnswConfig ?? {}) as Record<string, unknown>
+      return { ...raw, vectorPromotion: { ...promotion, hnswConfig: { ...hnsw, m: 1 } } }
+    })
+    const engine = track(await createNarsil({ workers: { enabled: false } }))
+
+    await engine.restore('products', singleNeighbour)
+
+    expect(await engine.countDocuments('products')).toBe(Object.keys(expected).length)
+    const [id, document] = Object.entries(expected)[0]
+    const target = (document as AnyDocument & { embedding: number[] }).embedding
+    const hits = (await engine.query('products', { vector: { field: 'embedding', value: target }, limit: 1 })).hits
+    expect(asPlainVector((await engine.get('products', hits[0]?.id ?? ''))?.embedding)).toEqual(
+      asPlainVector((await engine.get('products', id))?.embedding),
+    )
   })
 })
 

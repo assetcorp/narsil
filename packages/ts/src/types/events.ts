@@ -154,7 +154,9 @@ export type NarsilEventMap = {
    * recovers it, before it serves the index's first request. Because the
    * engine writes the new manifest last, the earlier files stay intact through
    * a failed rewrite. The engine then starts the rewrite again the next time
-   * it recovers the index. */
+   * it recovers the index. Without index lifecycle settings, the engine
+   * recovers every index before {@link createNarsil} returns, so pass the
+   * listener in the `events` setting of {@link createNarsil}. */
   layoutUpgrade: {
     /** This is the name of the index under rewrite. */
     indexName: string
@@ -179,4 +181,14 @@ export type NarsilEventMap = {
     /** This is the error that the adapter threw. */
     error: Error
   }
+}
+
+/**
+ * This map holds a listener for any event of {@link NarsilEventMap}, so that
+ * the engine can register each listener before it starts.
+ *
+ * @public
+ */
+export type NarsilEventHandlers = {
+  [K in keyof NarsilEventMap]?: (payload: NarsilEventMap[K]) => void
 }

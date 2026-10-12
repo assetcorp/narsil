@@ -34,7 +34,7 @@ export type {
   StaleAnalysis,
   WorkerConfig,
 } from './types/config'
-export type { NarsilEventMap } from './types/events'
+export type { NarsilEventHandlers, NarsilEventMap } from './types/events'
 export type {
   ArrayFilter,
   ComparisonFilter,

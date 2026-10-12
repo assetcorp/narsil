@@ -36,7 +36,7 @@ A hook may be async, and the engine waits for every `before*` hook to finish bef
 
 ## Events
 
-`on(event, handler)` subscribes to engine events and `off(event, handler)` unsubscribes. `NarsilEventMap` gives each payload its type.
+`on(event, handler)` subscribes to engine events and `off(event, handler)` unsubscribes. `NarsilEventMap` gives each payload its type. To receive the events that the engine emits while `createNarsil` starts, such as `layoutUpgrade`, pass the handlers in the `events` setting, as in `createNarsil({ events: { layoutUpgrade: report } })`. `createNarsil` raises `CONFIG_INVALID` when that setting is anything other than an object that maps event names to functions.
 
 | Event | Payload | Meaning |
 | --- | --- | --- |

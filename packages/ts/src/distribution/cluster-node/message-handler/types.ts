@@ -11,6 +11,7 @@ export interface DataNodeHandlerDeps {
   coordinator: ClusterCoordinator
   writeDeps: WriteRoutingDeps
   snapshotSyncState: SnapshotSyncHandlerState
+  snapshotSpoolDirectory?: string
   resolveHeaderMetadata?: SnapshotHeaderMetadataProvider
   isBootstrapSynced?: (indexName: string, partitionId: number) => boolean
 }

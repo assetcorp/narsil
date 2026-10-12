@@ -14,15 +14,15 @@ import {
   runEngineSuggest,
 } from '../../narsil/reads'
 import type { NarsilConfig } from '../../types/config'
+import type { ByteSource } from '../../types/engine'
 import type { GlobalStatistics } from '../../types/internal'
 import type { ListResult, PartitionStatsResult, PreflightResult, QueryResult, SuggestResult } from '../../types/results'
 import type { AnyDocument, IndexConfig } from '../../types/schema'
 import type { ListParams, QueryParams, SuggestParams } from '../../types/search'
-import type { SnapshotBytes } from '../replication/snapshot-bytes'
 import type { ReplicationLogEntry } from '../replication/types'
 import { createHeldPartitionRecord } from './held-partitions'
 import { applyLocalReplicationEntry } from './local-replication'
-import { archiveReplicationPartition, restoreReplicationPartition } from './partition-archive'
+import { archiveReplicationPartition, type PartitionArchive, restoreReplicationPartition } from './partition-archive'
 
 export interface ClusterLocalEngine extends Narsil {
   createIndexWithUuid(name: string, config: IndexConfig, indexUuid?: string): Promise<void>
@@ -38,11 +38,11 @@ export interface ClusterLocalEngine extends Narsil {
     indexName: string,
     partitionId: number,
     lastSeqNo: () => number,
-  ): Promise<SnapshotBytes & { lastSeqNo: number }>
+  ): Promise<PartitionArchive>
   restoreReplicationPartition(
     indexName: string,
     partitionId: number,
-    chunks: readonly Uint8Array[],
+    source: ByteSource,
     config: IndexConfig,
     partitionCount: number,
   ): Promise<void>
@@ -100,10 +100,10 @@ export async function createClusterLocalEngine(
     restoreReplicationPartition: (
       indexName: string,
       partitionId: number,
-      chunks: readonly Uint8Array[],
+      source: ByteSource,
       indexConfig: IndexConfig,
       partitionCount: number,
-    ) => restoreReplicationPartition(core, engine, indexName, partitionId, chunks, indexConfig, partitionCount),
+    ) => restoreReplicationPartition(core, engine, indexName, partitionId, source, indexConfig, partitionCount),
     queryPartitions: <T = AnyDocument>(
       indexName: string,
       params: QueryParams,

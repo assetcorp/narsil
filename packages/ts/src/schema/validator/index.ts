@@ -19,4 +19,4 @@ export {
   validateSchema,
 } from './schema'
 export { assertStorableDocument } from './storable'
-export { validateVectorPromotion, validateVectorStorage } from './vector-promotion'
+export { raiseEarlierReleaseGraphSetting, validateVectorPromotion, validateVectorStorage } from './vector-promotion'

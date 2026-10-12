@@ -22,6 +22,7 @@ export interface SnapshotSyncHandlerDeps {
   coordinator: ClusterCoordinator
   state: SnapshotSyncHandlerState
   resolveHeaderMetadata?: SnapshotHeaderMetadataProvider
+  spoolDirectory?: string
 }
 
 export interface SnapshotSyncStreamOptions {

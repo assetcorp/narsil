@@ -54,7 +54,7 @@ The engine applies these limits when you create an index or write a document:
 | The `string` and `string[]` fields in one schema | 65,536 | `SCHEMA_INVALID_TYPE` |
 | `vectorPromotion.hnswConfig.m` | A whole number from 2 to 512 | `CONFIG_INVALID` |
 
-The engine applies the first two limits only to new indexes and new writes, so an index that you saved with release 0.3 keeps every larger document and every vector field of up to 65,535 dimensions. A cluster node accepts a query vector of at most 4,096 dimensions, so you can search a wider field only on a single engine. See [Indexes from an earlier release](persistence-and-durability.md#indexes-from-an-earlier-release).
+The engine applies the first two limits only to new indexes and new writes, so an index that you saved with release 0.3 keeps every larger document and every vector field of up to 65,535 dimensions, which a single engine and a cluster can both search. See [Indexes from an earlier release](persistence-and-durability.md#indexes-from-an-earlier-release).
 
 ### IndexConfig
 

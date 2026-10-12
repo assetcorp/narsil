@@ -1,5 +1,6 @@
-import { decode, encode } from '@msgpack/msgpack'
+import { decode } from '@msgpack/msgpack'
 import { ErrorCodes, NarsilError } from '../../../errors'
+import { encodeDocument } from '../../../serialization/document-encoding'
 import type { AnyDocument } from '../../../types/schema'
 import { createForwardMessage } from '../../replication/codec'
 import type { ForwardPayload, NodeTransport, TransportMessage } from '../../transport/types'
@@ -36,7 +37,7 @@ export async function forwardInsertToRemote(
     indexName,
     documentId: docId,
     operation: 'insert',
-    document: encode(document),
+    document: encodeDocument(document),
     updateFields: null,
   }
   const message = createForwardMessage(payload, deps.nodeId)
@@ -63,7 +64,7 @@ export async function forwardUpdateToRemote(
     indexName,
     documentId: docId,
     operation: 'update',
-    document: encode(document),
+    document: encodeDocument(document),
     updateFields: null,
   }
   const message = createForwardMessage(payload, deps.nodeId)

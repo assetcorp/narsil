@@ -1,6 +1,6 @@
 import { decode, encode } from '@msgpack/msgpack'
 import { ErrorCodes, NarsilError } from '../../../errors'
-import { crc32OfChunks } from '../../replication/snapshot-bytes'
+import { defaultSpoolDirectory, spoolSnapshotStream } from '../../replication/snapshot-spool'
 import { decideSyncTier, validateSyncRequest } from '../../replication/sync-primary'
 import type { RespondFn, SyncEntriesPayload, TransportMessage } from '../../transport/types'
 import { ReplicationMessageTypes } from '../../transport/types'
@@ -110,6 +110,7 @@ export async function handleSyncRequestMessage(
         coordinator: deps.coordinator,
         state: deps.snapshotSyncState,
         resolveHeaderMetadata: deps.resolveHeaderMetadata,
+        spoolDirectory: deps.snapshotSpoolDirectory,
       },
       {
         metadata: {
@@ -125,7 +126,8 @@ export async function handleSyncRequestMessage(
             request.partitionId,
             () => log.localLogEnd,
           )
-          return { ...archive, checksum: crc32OfChunks(archive.chunks) }
+          const directory = deps.snapshotSpoolDirectory ?? defaultSpoolDirectory()
+          return { ...(await spoolSnapshotStream(directory, archive.stream)), lastSeqNo: archive.lastSeqNo }
         },
         afterSnapshot: async (trailingSink, build) => {
           const entries = log.getEntriesFrom((build.lastSeqNo ?? snapshotSeqNo) + 1)

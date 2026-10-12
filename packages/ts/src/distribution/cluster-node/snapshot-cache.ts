@@ -1,19 +1,45 @@
 import { ErrorCodes, NarsilError } from '../../errors'
+import type { SpooledSnapshot } from '../replication/snapshot-spool'
 import {
   DEFAULT_MAX_CONCURRENT_SNAPSHOTS,
   DEFAULT_MAX_PER_SOURCE_SNAPSHOTS,
   DEFAULT_MAX_STREAMS_PER_INDEX,
 } from './constants'
 
-export interface SnapshotBuildResult {
-  chunks: Uint8Array[]
-  totalBytes: number
-  checksum: number
+export interface SnapshotBuildResult extends SpooledSnapshot {
   lastSeqNo?: number
+}
+
+export interface SnapshotBuildLease {
+  build: SnapshotBuildResult
+  release(): Promise<void>
 }
 
 interface SnapshotInFlightEntry {
   promise: Promise<SnapshotBuildResult>
+  holders: number
+}
+
+export function soleSnapshotLease(build: SnapshotBuildResult): SnapshotBuildLease {
+  return { build, release: () => build.discard() }
+}
+
+function sharedLease(entry: SnapshotInFlightEntry, build: SnapshotBuildResult): SnapshotBuildLease {
+  let released = false
+  return {
+    build,
+    async release(): Promise<void> {
+      if (released) return
+      released = true
+      entry.holders -= 1
+      if (entry.holders === 0) await build.discard()
+    },
+  }
+}
+
+async function joinSnapshotBuild(entry: SnapshotInFlightEntry): Promise<SnapshotBuildLease> {
+  entry.holders += 1
+  return sharedLease(entry, await entry.promise)
 }
 
 export interface SnapshotCacheState {
@@ -136,17 +162,17 @@ export type SnapshotBuilder = () => Promise<SnapshotBuildResult>
  * Best-effort single-flight coordination. Concurrent requesters observed before
  * the in-flight build resolves share one build. The in-flight slot is cleared
  * the moment the build settles so any later requester triggers a fresh build.
- * Memory peak: each concurrent participant in a single build holds one
- * reference to the same chunks; separate builds each own their own chunks.
+ * Every participant in a single build holds a lease on the same spooled file,
+ * and the last lease to end deletes that file.
  */
 export async function acquireSnapshotBuild(
   state: SnapshotCacheState,
   indexName: string,
   builder: SnapshotBuilder,
-): Promise<SnapshotBuildResult> {
+): Promise<SnapshotBuildLease> {
   const existing = state.cache.get(indexName)
   if (existing !== undefined) {
-    return existing.promise
+    return joinSnapshotBuild(existing)
   }
 
   if (state.active >= state.maxConcurrent) {
@@ -173,7 +199,7 @@ export async function acquireSnapshotBuild(
   }
 
   const rawBuild: Promise<SnapshotBuildResult> = (async () => builder())()
-  const entry: SnapshotInFlightEntry = { promise: rawBuild }
+  const entry: SnapshotInFlightEntry = { promise: rawBuild, holders: 0 }
   entry.promise = rawBuild.then(
     result => {
       clearEntry(entry)
@@ -186,5 +212,5 @@ export async function acquireSnapshotBuild(
   )
   state.cache.set(indexName, entry)
 
-  return entry.promise
+  return joinSnapshotBuild(entry)
 }

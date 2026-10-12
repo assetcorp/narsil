@@ -1,8 +1,9 @@
 import { encode } from '@msgpack/msgpack'
 import { generateId } from '../../core/id-generator'
 import { ErrorCodes, NarsilError, type NarsilErrorCode } from '../../errors'
-import { crc32OfChunks } from '../replication/snapshot-bytes'
+import { defaultSpoolDirectory } from '../replication/snapshot-spool'
 import {
+  abandonSnapshotStream,
   createSnapshotStreamState,
   finalizeSnapshotStream,
   handleIncomingSnapshotFrame,
@@ -66,6 +67,7 @@ export function isTransientFailure(code: NarsilErrorCode, details: Record<string
 export interface FetchFromTargetsDeps {
   transport: NodeTransport
   sourceNodeId: string
+  spoolDirectory?: string
 }
 
 export async function fetchSnapshotFromAnyTarget(
@@ -228,7 +230,11 @@ async function fetchSnapshotFromTarget(
     payload: encode(requestPayload),
   }
 
-  const streamState = createSnapshotStreamState({ indexName, partitionId: null })
+  const streamState = createSnapshotStreamState({
+    indexName,
+    partitionId: null,
+    spoolDirectory: deps.spoolDirectory ?? defaultSpoolDirectory(),
+  })
 
   const remainingMs = deadline - Date.now()
   if (remainingMs <= 0) {
@@ -246,6 +252,7 @@ async function fetchSnapshotFromTarget(
     })
     await withDeadline(streamWork, remainingMs, indexName, 'stream')
   } catch (err) {
+    abandonSnapshotStream(streamState)
     if (err instanceof NarsilError && err.code === ErrorCodes.SNAPSHOT_SYNC_TIMEOUT) {
       return toStreamFailure(err, ErrorCodes.SNAPSHOT_SYNC_TIMEOUT, 'snapshot stream deadline exceeded')
     }
@@ -255,21 +262,7 @@ async function fetchSnapshotFromTarget(
     return toStreamFailure(err, ErrorCodes.SNAPSHOT_SYNC_PRIMARY_ERROR, 'snapshot fetch raised non-transport error')
   }
 
-  const result = finalizeSnapshotStream(streamState)
-  if (!result.ok) {
-    return result
-  }
-
-  const computedChecksum = crc32OfChunks(result.chunks)
-  if (computedChecksum !== result.header.checksum) {
-    return {
-      ok: false,
-      code: ErrorCodes.SNAPSHOT_SYNC_CHECKSUM_MISMATCH,
-      message: 'computed checksum does not match header checksum',
-      details: { computed: computedChecksum, header: result.header.checksum },
-    }
-  }
-  return result
+  return finalizeSnapshotStream(streamState)
 }
 
 export async function withDeadline<T>(work: Promise<T>, ms: number, indexName: string, phase: string): Promise<T> {

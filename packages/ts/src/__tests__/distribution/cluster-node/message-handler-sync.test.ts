@@ -1,3 +1,6 @@
+import { mkdtemp, readdir, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { decode, encode } from '@msgpack/msgpack'
 import { describe, expect, it, vi } from 'vitest'
 import { createCatchUpState } from '../../../distribution/cluster-node/catch-up'
@@ -169,10 +172,15 @@ describe('createDataNodeHandler sync_request routing', () => {
     const archiveReplicationPartition = vi
       .fn()
       .mockImplementation(async (_indexName: string, _partitionId: number, lastSeqNo: () => number) => ({
-        chunks: [snapshotBytes],
-        totalBytes: snapshotBytes.byteLength,
+        stream: new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(snapshotBytes)
+            controller.close()
+          },
+        }),
         lastSeqNo: lastSeqNo(),
       }))
+    const spoolDirectory = await mkdtemp(join(tmpdir(), 'narsil-sync-spool-'))
     const engine = {
       listIndexes: () => [{ name: 'products', state: 'open' }],
       acquireIndexForReplication: async () => () => {},
@@ -189,6 +197,7 @@ describe('createDataNodeHandler sync_request routing', () => {
         catchUp: createCatchUpState(),
       } as unknown as DataNodeHandlerDeps['writeDeps'],
       snapshotSyncState: createSnapshotSyncHandlerState(),
+      snapshotSpoolDirectory: spoolDirectory,
     })
     const responses: TransportMessage[] = []
 
@@ -196,6 +205,8 @@ describe('createDataNodeHandler sync_request routing', () => {
       responses.push(response)
     })
 
+    expect(await readdir(spoolDirectory)).toEqual([])
+    await rm(spoolDirectory, { recursive: true, force: true })
     expect(responses.map(response => response.type)).toEqual([
       ReplicationMessageTypes.SNAPSHOT_START,
       ReplicationMessageTypes.SNAPSHOT_CHUNK,

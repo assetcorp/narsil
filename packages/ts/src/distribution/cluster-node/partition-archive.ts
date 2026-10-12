@@ -15,23 +15,28 @@ import type { SegmentManifest } from '../../persistence/durability/segment/manif
 import type { CheckpointStore } from '../../persistence/durability/segment/store'
 import { readListedFile } from '../../persistence/durability/segment/store'
 import { openChecksummedEnvelope } from '../../serialization/envelope-file'
+import type { ByteSource } from '../../types/engine'
 import type { SerializablePartition } from '../../types/internal'
 import type { IndexConfig } from '../../types/schema'
 import { decodeVectorFilePayload } from '../../vector/vector-index/checkpoint-payload'
 import { isDead } from '../../vector/vector-index/dead-bits'
 import { bytesToVectors } from '../../vector/vector-index/payload'
 import { MAX_PARTITION_COUNT } from '../constants'
-import { collectSnapshotStream, iterateChunks, type SnapshotBytes } from '../replication/snapshot-bytes'
 import { ensureReplicationIndex, flattenSchema, requireSameFlatSchema } from './replication-index'
 
 const VECTOR_FILE_ENVELOPE_VERSION = 2
+
+export interface PartitionArchive {
+  stream: ReadableStream<Uint8Array>
+  lastSeqNo: number
+}
 
 export async function archiveReplicationPartition(
   core: EngineCore,
   indexName: string,
   partitionId: number,
   lastSeqNo: () => number,
-): Promise<SnapshotBytes & { lastSeqNo: number }> {
+): Promise<PartitionArchive> {
   core.guardShutdown()
   const release = await core.indexState.acquire(indexName, false)
   try {
@@ -50,8 +55,7 @@ export async function archiveReplicationPartition(
       partitionId,
     })
     const config = await encodeIndexConfiguration(entry)
-    const bytes = await collectSnapshotStream(archiveStream({ ...checkpoint, config, sourceIndexName: indexName }))
-    return { ...bytes, lastSeqNo: captured }
+    return { stream: archiveStream({ ...checkpoint, config, sourceIndexName: indexName }), lastSeqNo: captured }
   } finally {
     release()
   }
@@ -85,13 +89,13 @@ interface ReceivedArchive {
 async function receiveArchive(
   indexName: string,
   partitionId: number,
-  chunks: readonly Uint8Array[],
+  source: ByteSource,
   schema: Record<string, string>,
 ): Promise<ReceivedArchive> {
   const store = memoryCheckpointStore()
   let language = ''
   let received: SegmentManifest | null = null
-  await readSnapshotArchive(createByteReader(iterateChunks(chunks)), {
+  await readSnapshotArchive(createByteReader(source), {
     config: async bytes => {
       const { payload } = await openChecksummedEnvelope(bytes, {
         envelopeFormatVersion: 5,
@@ -191,13 +195,13 @@ export async function restoreReplicationPartition(
   engine: Narsil,
   indexName: string,
   partitionId: number,
-  chunks: readonly Uint8Array[],
+  source: ByteSource,
   indexConfig: IndexConfig,
   partitionCount: number,
 ): Promise<void> {
   core.guardShutdown()
   requireRestoreTarget(indexName, partitionId, partitionCount)
-  const archive = await receiveArchive(indexName, partitionId, chunks, flattenSchema(indexConfig.schema))
+  const archive = await receiveArchive(indexName, partitionId, source, flattenSchema(indexConfig.schema))
   let release = core.indexRegistry.has(indexName) ? await core.indexState.acquire(indexName, false) : null
   try {
     const restoreIndex = await ensureReplicationIndex(

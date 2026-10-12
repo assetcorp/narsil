@@ -6,6 +6,7 @@ import type {
   SnapshotStartPayload,
 } from '../transport/types'
 import { SNAPSHOT_CHUNK_SIZE } from './constants'
+import { openSnapshotSpoolWriter, type SnapshotSpoolWriter } from './snapshot-spool'
 
 export interface SnapshotStreamFailure {
   ok: false
@@ -17,13 +18,14 @@ export interface SnapshotStreamFailure {
 export interface SnapshotStreamExpectation {
   indexName: string
   partitionId: number | null
+  spoolDirectory: string
 }
 
 export interface SnapshotStreamState {
   expectation: SnapshotStreamExpectation
   header: ReplicationSnapshotHeader | null
   totalBytes: number | null
-  chunks: Uint8Array[]
+  spool: SnapshotSpoolWriter | null
   accumulatedBytes: number
   expectedNextOffset: number
   endPayload: SnapshotEndPayload | null
@@ -41,6 +43,21 @@ export function fail(
     return
   }
   state.failure = { ok: false, code, message, details }
+  releaseSpool(state)
+}
+
+export function releaseSpool(state: SnapshotStreamState): void {
+  const spool = state.spool
+  if (spool === null) return
+  state.spool = null
+  spool.discard()
+}
+
+function spoolFailure(state: SnapshotStreamState, err: unknown): void {
+  const cause = err instanceof Error ? err.message : String(err)
+  fail(state, ErrorCodes.SNAPSHOT_SYNC_RESTORE_FAILED, `the snapshot could not be written to local storage: ${cause}`, {
+    cause,
+  })
 }
 
 export function applyErrorEnvelope(state: SnapshotStreamState, record: Record<string, unknown>): void {
@@ -96,9 +113,14 @@ export function applyStartPayload(state: SnapshotStreamState, record: Record<str
     return
   }
 
+  try {
+    state.spool = openSnapshotSpoolWriter(state.expectation.spoolDirectory)
+  } catch (err) {
+    spoolFailure(state, err)
+    return
+  }
   state.header = header
   state.totalBytes = start.totalBytes
-  state.chunks = []
 }
 
 export function applyChunkPayload(state: SnapshotStreamState, payload: SnapshotChunkPayload): void {
@@ -156,7 +178,16 @@ export function applyChunkPayload(state: SnapshotStreamState, payload: SnapshotC
     })
     return
   }
-  state.chunks.push(payload.data.slice())
+  if (state.spool === null) {
+    fail(state, ErrorCodes.SNAPSHOT_SYNC_FRAME_INVALID, 'received chunk after the snapshot stream closed')
+    return
+  }
+  try {
+    state.spool.write(payload.data)
+  } catch (err) {
+    spoolFailure(state, err)
+    return
+  }
   state.accumulatedBytes = nextBytes
   state.expectedNextOffset = payload.offset + payload.data.byteLength
 }
