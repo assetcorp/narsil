@@ -1,4 +1,5 @@
 import { encode } from '@msgpack/msgpack'
+import { topLevelMapKeys } from '../../../serialization/msgpack-without-fields'
 import type { SerializedSurfaceForms } from '../../../types/internal'
 import { createSurfaceRegistry } from '../../surface-registry'
 import type { SegmentPayload } from '../segment-payload'
@@ -8,11 +9,26 @@ import { mergeFieldIndexes } from './merge-fields'
 import { mergePostings, type SegmentRemap } from './merge-postings'
 import { freezeEncodedSegmentShared, type SharedSegmentSnapshot } from './shared-snapshot'
 
-function remapOf(segment: FrozenSegment, docIds: string[]): Int32Array {
+export interface SegmentSelection {
+  segment: FrozenSegment
+  keep?: (ordinal: number) => boolean
+}
+
+export interface MergedSegmentContents {
+  payload: SegmentPayload
+  documents: EncodedDocumentTableData
+}
+
+export function selectionKeeps(selection: SegmentSelection, ordinal: number): boolean {
+  return selection.keep === undefined ? !selection.segment.isTombstoned(ordinal) : selection.keep(ordinal)
+}
+
+function remapOf(selection: SegmentSelection, docIds: string[]): Int32Array {
+  const { segment } = selection
   const count = segment.arrays.documentCount
   const remap = new Int32Array(count).fill(-1)
   for (let ordinal = 0; ordinal < count; ordinal++) {
-    if (segment.isTombstoned(ordinal)) continue
+    if (!selectionKeeps(selection, ordinal)) continue
     remap[ordinal] = docIds.length
     docIds.push(segment.arrays.idTable.idAt(ordinal))
   }
@@ -26,8 +42,8 @@ function fieldNameIndex(fieldNames: string[], name: string): number {
   return fieldNames.length - 1
 }
 
-function fieldIndexRemapOf(segment: FrozenSegment, fieldNames: string[]): Uint8Array {
-  const remap = new Uint8Array(segment.arrays.fieldNames.length)
+function fieldIndexRemapOf(segment: FrozenSegment, fieldNames: string[]): Uint16Array {
+  const remap = new Uint16Array(segment.arrays.fieldNames.length)
   for (let i = 0; i < segment.arrays.fieldNames.length; i++) {
     remap[i] = fieldNameIndex(fieldNames, segment.arrays.fieldNames[i])
   }
@@ -79,19 +95,34 @@ function mergeSurfaceForms(inputs: readonly SegmentRemap[]): SerializedSurfaceFo
   return registry.size() === 0 ? null : registry.serialize()
 }
 
+function holdsADiscardedField(bytes: Uint8Array, discardedFields: readonly string[]): boolean {
+  const keys = topLevelMapKeys(bytes)
+  if (keys === null) return true
+  for (const fieldPath of discardedFields) {
+    const dot = fieldPath.indexOf('.')
+    if (keys.has(dot < 0 ? fieldPath : fieldPath.slice(0, dot))) return true
+  }
+  return false
+}
+
 function encodedDocumentsOf(input: SegmentRemap): (ordinal: number) => Uint8Array {
   const table = input.segment.arrays.documentTable
-  if (table !== null) {
-    return ordinal => table.blob.subarray(table.offsets[ordinal], table.offsets[ordinal + 1])
-  }
   const encoded: Array<Uint8Array | undefined> = new Array(input.remap.length)
-  return ordinal => {
+  const encodeDocument = (ordinal: number): Uint8Array => {
     let bytes = encoded[ordinal]
     if (bytes === undefined) {
       bytes = encode(input.segment.documentSource.docAt(ordinal))
       encoded[ordinal] = bytes
     }
     return bytes
+  }
+  if (table === null) return encodeDocument
+  const discardedFields = table.discardedFields
+  return ordinal => {
+    if (encoded[ordinal] !== undefined) return encodeDocument(ordinal)
+    const stored = table.blob.subarray(table.offsets[ordinal], table.offsets[ordinal + 1])
+    if (discardedFields === undefined || !holdsADiscardedField(stored, discardedFields)) return stored
+    return encodeDocument(ordinal)
   }
 }
 
@@ -118,13 +149,17 @@ function mergeDocuments(inputs: readonly SegmentRemap[], documentCount: number):
 
 export function mergeFrozenSegments(segments: readonly FrozenSegment[]): SharedSegmentSnapshot | null {
   if (typeof SharedArrayBuffer !== 'function') return null
+  const merged = mergeSegmentContents(segments.map(segment => ({ segment })))
+  return freezeEncodedSegmentShared(merged.payload, merged.documents)
+}
 
+export function mergeSegmentContents(selections: readonly SegmentSelection[]): MergedSegmentContents {
   const docIds: string[] = []
   const fieldNames: string[] = []
-  const inputs: SegmentRemap[] = segments.map(segment => ({
-    segment,
-    remap: remapOf(segment, docIds),
-    fieldIndexRemap: fieldIndexRemapOf(segment, fieldNames),
+  const inputs: SegmentRemap[] = selections.map(selection => ({
+    segment: selection.segment,
+    remap: remapOf(selection, docIds),
+    fieldIndexRemap: fieldIndexRemapOf(selection.segment, fieldNames),
   }))
   const documentCount = docIds.length
   const postings = mergePostings(inputs)
@@ -149,5 +184,5 @@ export function mergeFrozenSegments(segments: readonly FrozenSegment[]): SharedS
     ...mergeFieldIndexes(inputs),
   }
 
-  return freezeEncodedSegmentShared(payload, mergeDocuments(inputs, documentCount))
+  return { payload, documents: mergeDocuments(inputs, documentCount) }
 }

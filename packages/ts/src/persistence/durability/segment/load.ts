@@ -1,53 +1,60 @@
 import { ErrorCodes, NarsilError } from '../../../errors'
-import type { DurableDirectory } from '../durable-filesystem'
-import type { ReplayDeps } from '../recovery'
-import type { PartitionCheckpoint } from '../snapshot-bundle'
-import { manifestKey, segmentsPrefix, snapshotBundleKey } from './layout'
-import { loadPartitionSegmentBySegment } from './load-partition'
-import {
-  decodeSegmentManifest,
-  manifestReferencedKeys,
-  type PartitionManifestEntry,
-  type SegmentManifest,
-} from './manifest'
-import { mergeTimeOrderedSegments } from './merge'
-import { readSegmentContents, type SegmentContents } from './segment-file'
-import { loadVectorField } from './vector'
+import type { PartitionManager } from '../../../partitioning/manager'
+import type { VectorIndex } from '../../../vector/vector-index'
+import type { PartitionCheckpoint } from '../partition-checkpoint'
+import { manifestKey, segmentsPrefix } from './layout'
+import { loadPartitionSegments } from './load-partition'
+import type { SegmentManifest } from './manifest'
+import { type DecodedManifest, decodeSegmentManifest } from './manifest-decode'
+import type { CheckpointStore } from './store'
+import { loadVectorField } from './vector-load'
 
-export async function readSegmentManifest(
-  directory: DurableDirectory,
-  indexName: string,
-): Promise<SegmentManifest | null> {
-  const bytes = await directory.read(manifestKey(indexName))
-  if (bytes === null) {
-    return null
-  }
-  return decodeSegmentManifest(bytes)
+export interface CheckpointLoadDeps {
+  manager: PartitionManager
+  vectorIndexes: Map<string, VectorIndex>
 }
 
-export async function loadSegmentedSnapshot(
-  directory: DurableDirectory,
-  indexName: string,
-  manifest: SegmentManifest,
-  deps: ReplayDeps,
-): Promise<PartitionCheckpoint[]> {
-  let highestPartitionId = manifest.partitions.length - 1
-  for (const partition of manifest.partitions) {
-    if (partition.partitionId > highestPartitionId) {
-      highestPartitionId = partition.partitionId
-    }
-  }
-  while (deps.manager.partitionCount <= highestPartitionId) {
-    const before = deps.manager.partitionCount
+export async function readSegmentManifest(store: CheckpointStore, indexName: string): Promise<DecodedManifest | null> {
+  const bytes = await store.read(manifestKey(indexName))
+  if (bytes === null) return null
+  return decodeSegmentManifest(bytes, indexName)
+}
+
+export async function readCurrentManifest(store: CheckpointStore, indexName: string): Promise<SegmentManifest | null> {
+  const decoded = await readSegmentManifest(store, indexName)
+  if (decoded === null) return null
+  if (decoded.kind === 'current') return decoded.manifest
+  throw new NarsilError(
+    ErrorCodes.PERSISTENCE_SAVE_FAILED,
+    `Index "${indexName}" still holds the layout of an earlier release, which recovery upgrades before any checkpoint`,
+    { indexName },
+  )
+}
+
+export function growPartitionsTo(manager: PartitionManager, highestPartitionId: number): void {
+  while (manager.partitionCount <= highestPartitionId) {
+    const before = manager.partitionCount
     try {
-      deps.manager.addPartition()
+      manager.addPartition()
     } catch {
       break
     }
-    if (deps.manager.partitionCount === before) {
-      break
-    }
+    if (manager.partitionCount === before) break
   }
+}
+
+export async function loadSegmentedCheckpoint(
+  store: CheckpointStore,
+  indexName: string,
+  manifest: SegmentManifest,
+  deps: CheckpointLoadDeps,
+  decodesEveryDocument = false,
+): Promise<PartitionCheckpoint[]> {
+  let highestPartitionId = manifest.partitions.length - 1
+  for (const partition of manifest.partitions) {
+    if (partition.partitionId > highestPartitionId) highestPartitionId = partition.partitionId
+  }
+  growPartitionsTo(deps.manager, highestPartitionId)
 
   for (const partition of manifest.partitions) {
     if (partition.partitionId >= deps.manager.partitionCount) {
@@ -57,50 +64,24 @@ export async function loadSegmentedSnapshot(
         { indexName, partitionId: partition.partitionId, partitionCount: deps.manager.partitionCount },
       )
     }
-    if (deps.storedTermsAreCurrent === true) {
-      await loadPartitionSegmentBySegment(directory, partition, deps.manager)
-    } else {
-      await loadPartitionWithItsStoredTerms(directory, indexName, partition, deps)
-    }
+    await loadPartitionSegments(store, partition, deps.manager, { schema: manifest.schema, decodesEveryDocument })
   }
 
   for (const vector of manifest.vectors) {
     const vectorIndex = deps.vectorIndexes.get(vector.fieldPath)
     if (vectorIndex === undefined) continue
-    await loadVectorField(directory, indexName, vector, vectorIndex)
+    await loadVectorField(store, vector, vectorIndex)
   }
 
   return manifest.checkpoint
 }
 
-async function loadPartitionWithItsStoredTerms(
-  directory: DurableDirectory,
+export async function reclaimUnlistedKeys(
+  store: CheckpointStore,
   indexName: string,
-  partition: PartitionManifestEntry,
-  deps: ReplayDeps,
+  referenced: ReadonlySet<string>,
 ): Promise<void> {
-  const ordered: SegmentContents[] = []
-  for (const segment of partition.segments) {
-    ordered.push(await readSegmentContents(directory, segment.key))
+  for (const key of await store.list(segmentsPrefix(indexName))) {
+    if (!referenced.has(key)) await store.remove(key)
   }
-
-  const merged = mergeTimeOrderedSegments(ordered, {
-    indexName,
-    partitionId: partition.partitionId,
-    totalPartitions: deps.manager.partitionCount,
-    language: deps.manager.language.name,
-  })
-  deps.manager.deserializePartition(partition.partitionId, merged)
-}
-
-export async function reclaimOrphanedSegments(
-  directory: DurableDirectory,
-  indexName: string,
-  manifest: SegmentManifest,
-): Promise<void> {
-  const referenced = manifestReferencedKeys(manifest)
-  for (const key of await directory.list(segmentsPrefix(indexName))) {
-    if (!referenced.has(key)) await directory.remove(key)
-  }
-  await directory.remove(snapshotBundleKey(indexName))
 }

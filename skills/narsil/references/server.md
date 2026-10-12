@@ -75,7 +75,7 @@ const results = await search.query('products', { term: 'folding bicycle', limit:
 ```
 
 - `process.env` exists only on a server. In a browser bundle, read the search-only key from the app's public build settings, such as `import.meta.env.VITE_NARSIL_SEARCH_KEY` under Vite, and keep the admin key out of every bundle.
-- The admin methods that take a while, which are `restore`, `rebalance`, `optimizeVectors`, and `rebuildAnalysis`, return a task record. `await client.waitForTask(record.id)` returns the record once the task ends, and it throws nothing for a failed task, so check `status` and `error`.
+- The admin methods that take a while, which are `restore`, `importDocumentExport`, `rebalance`, `optimizeVectors`, and `rebuildAnalysis`, return a task record. `await client.waitForTask(record.id)` returns the record once the task ends, and it throws nothing for a failed task, so check `status` and `error`.
 - For a React app, install `react`, wrap the tree in `<NarsilProvider client={client}>`, and call `useQuery(indexName, params, { keepPreviousData: true })` from `@delali/narsil/react`. Build the client outside every component.
 
 From any other language, send JSON with the caller's key:
@@ -96,12 +96,12 @@ Content-Type: application/json
 
 ## Move an embedded index behind the server
 
-The embedded engine and the server read the same `.nrsl` format, so move the built index across whole:
+The embedded engine and the server restore the same snapshot archive, so stream the built index across whole:
 
 ```ts
 const admin = createNarsilClient({ url: 'https://search.example.com', apiKey: process.env.NARSIL_ADMIN_KEY })
-const bytes = await narsil.snapshot('products')
-const record = await admin.restore('products', bytes)
+const archive = await narsil.snapshot('products')
+const record = await admin.restore('products', archive)
 const finished = await admin.waitForTask(record.id)
 if (finished.status !== 'succeeded') throw new Error(finished.error?.message ?? finished.status)
 ```

@@ -1,12 +1,12 @@
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { decode } from '@msgpack/msgpack'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { ErrorCodes } from '../../errors'
 import { createNarsil, type Narsil } from '../../narsil'
-import { readMetadataEnvelope, unpackIndexSnapshotEnvelope } from '../../serialization/envelope'
+import { readMetadataEnvelope } from '../../serialization/envelope'
 import type { IndexConfig } from '../../types/schema'
+import { bytesOf, decodedPayload, entryNamed, readTar } from '../e2e/portability/archive-oracle'
 
 const schema: IndexConfig['schema'] = {
   title: 'string',
@@ -79,8 +79,8 @@ describe('the pattern value limit across a reopen and a restore', () => {
     const writer = await createNarsil({ workers: { enabled: false }, durability: { directory: root } })
     await writer.createIndex('limited', { schema, patternValueLimit: 5 })
     await writer.createIndex('open', { schema })
-    const limitedSnapshot = await writer.snapshot('limited')
-    const openSnapshot = await writer.snapshot('open')
+    const limitedSnapshot = await bytesOf(await writer.snapshot('limited'))
+    const openSnapshot = await bytesOf(await writer.snapshot('open'))
     await writer.shutdown()
 
     const storedLimit = async (indexName: string) =>
@@ -88,10 +88,9 @@ describe('the pattern value limit across a reopen and a restore', () => {
         .patternValueLimit
     expect(await storedLimit('limited')).toBe(5)
     expect(await storedLimit('open')).toBeUndefined()
-    const snapshotPayload = async (bytes: Uint8Array) =>
-      decode(await unpackIndexSnapshotEnvelope(bytes)) as Record<string, unknown>
-    expect((await snapshotPayload(limitedSnapshot)).patternValueLimit).toBe(5)
-    expect(Object.hasOwn(await snapshotPayload(openSnapshot), 'patternValueLimit')).toBe(false)
+    const snapshotPayload = (bytes: Uint8Array) => decodedPayload(entryNamed(readTar(bytes), 'config').data)
+    expect(snapshotPayload(limitedSnapshot).patternValueLimit).toBe(5)
+    expect(Object.hasOwn(snapshotPayload(openSnapshot), 'patternValueLimit')).toBe(false)
 
     const reader = await createNarsil({ workers: { enabled: false }, durability: { directory: root } })
     try {

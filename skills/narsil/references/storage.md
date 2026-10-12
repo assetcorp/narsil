@@ -24,7 +24,11 @@ With durability, `narsil.close(indexName)` releases an index from memory and `na
 
 ## Move an index as one snapshot
 
-`await narsil.snapshot(indexName)` returns the whole index as a `Uint8Array` in the portable `.nrsl` format, and `await narsil.restore(indexName, bytes)` rebuilds it under that name, replacing any index that holds the name. Store the bytes as a backup, or send them to another process or a server. `restore` throws `ENVELOPE_INVALID_MAGIC` for bytes that are no snapshot, and `ENVELOPE_VERSION_MISMATCH` for another version of the format.
+`await narsil.snapshot(indexName)` returns a `ReadableStream` of the index's portable snapshot archive. Write the stream to a file as a backup, or send it to another process or a server. `await narsil.restore(indexName, data)` creates the index under that name from a `Uint8Array`, a `ReadableStream`, or an async iterable such as a Node.js file stream, and it replaces any index of that name. The engine checks every file of the archive before it replaces an existing index. It throws `PERSISTENCE_LOAD_FAILED` for a malformed archive and `ENVELOPE_VERSION_MISMATCH` for a format version other than the ones that this release implements.
+
+## Move an index across releases
+
+`await narsil.exportDocuments(indexName)` returns a `ReadableStream` of JSON Lines text, with the index configuration on the first line and one document on each later line. The format stays the same in every release, so `await narsil.importDocumentExport(indexName, data)` on a later release creates the index from the export. The engine replaces each document whose ID the index already contains. `refused` in the result holds the first 1,000 refused lines, each with its line number and error code. The engine opens an index that you saved with the previous release and rewrites it in the current layout, so use an export to move an index across more than one release.
 
 ## Partitions
 

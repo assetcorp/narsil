@@ -268,6 +268,14 @@ export function createVectorStore(options?: VectorStoreOptions): VectorStore {
       }
     },
 
+    *docIds(): IterableIterator<string> {
+      if (open === null) return
+      for (let ordinal = 0; ordinal < ordToDoc.length; ordinal++) {
+        const docId = ordToDoc[ordinal]
+        if (docId !== undefined) yield docId
+      }
+    },
+
     clear(): void {
       forgetDocuments()
       if (open === null) return

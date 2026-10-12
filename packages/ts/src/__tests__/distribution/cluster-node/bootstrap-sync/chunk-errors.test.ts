@@ -1,4 +1,3 @@
-import { encode } from '@msgpack/msgpack'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createBootstrapSyncState, runBootstrapSync } from '../../../../distribution/cluster-node/bootstrap-sync'
 import type { ClusterCoordinator } from '../../../../distribution/coordinator/types'
@@ -90,36 +89,6 @@ describe('runBootstrapSync - chunk and stream errors', () => {
     expect(onError).toHaveBeenCalledTimes(1)
     const err = onError.mock.calls[0][0] as NarsilError
     expect(err.details.innerCode).toBe(ErrorCodes.SNAPSHOT_SYNC_CHECKSUM_MISMATCH)
-  })
-
-  it('surfaces SNAPSHOT_SYNC_TOO_LARGE when totalBytes exceeds the limit', async () => {
-    const hugeStart = encode({
-      header: {
-        lastSeqNo: 0,
-        primaryTerm: 0,
-        partitionId: 0,
-        indexName: 'products',
-        checksum: 0,
-      },
-      totalBytes: 3 * 1024 * 1024 * 1024,
-    })
-    scripted.setScript([hugeStart])
-
-    const onError = vi.fn()
-    const state = createBootstrapSyncState()
-    const result = await runBootstrapSync(
-      state,
-      'products',
-      0,
-      'primary-node',
-      makeDeps(mockEngine.engine, coordinator, scripted.transport, { onError }),
-    )
-
-    expect(result).toBe(false)
-    expect(mockEngine.restoreCalls.length).toBe(0)
-    expect(onError).toHaveBeenCalledTimes(1)
-    const err = onError.mock.calls[0][0] as NarsilError
-    expect(err.details.innerCode).toBe(ErrorCodes.SNAPSHOT_SYNC_TOO_LARGE)
   })
 
   it('surfaces SNAPSHOT_SYNC_PRIMARY_ERROR when the primary sends an error envelope', async () => {

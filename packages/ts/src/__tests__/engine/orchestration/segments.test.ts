@@ -47,7 +47,7 @@ function emptyPayload(): SegmentPayload {
     postingOffsets: new Uint32Array(1),
     postingDocIds: new Uint32Array(0),
     postingFrequencies: new Uint16Array(0),
-    postingFieldIndices: new Uint8Array(0),
+    postingFieldIndices: new Uint16Array(0),
     positionOffsets: null,
     positionValues: null,
     fieldLengthNames: [],

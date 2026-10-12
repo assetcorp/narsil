@@ -113,7 +113,7 @@ describe('index lifecycle', () => {
     const { metadata } = await readMetadataEnvelope(metadataBytes)
     delete metadata.documentCount
     await storage.save('products/meta', await writeMetadataEnvelope(metadata, { checksum: true }))
-    await storage.save('products/snapshot', new Uint8Array([9, 9, 9]))
+    await storage.save('products/manifest', new Uint8Array([9, 9, 9]))
 
     engine = await createNarsil({ persistence: storage, durability: { tier: 'snapshot' }, lifecycle: {} })
 
@@ -199,7 +199,7 @@ describe('index lifecycle', () => {
     let rejectSnapshot = false
     const adapter: PersistenceAdapter = {
       save(key, data) {
-        if (rejectSnapshot && key.endsWith('/snapshot')) return Promise.reject(new Error('snapshot unavailable'))
+        if (rejectSnapshot && key.endsWith('/manifest')) return Promise.reject(new Error('snapshot unavailable'))
         return storage.save(key, data)
       },
       load: key => storage.load(key),
@@ -224,7 +224,7 @@ describe('index lifecycle', () => {
     let blockNextSnapshot = false
     const adapter: PersistenceAdapter = {
       async save(key, data) {
-        if (blockNextSnapshot && key.endsWith('/snapshot')) {
+        if (blockNextSnapshot && key.endsWith('/manifest')) {
           blockNextSnapshot = false
           saveStarted.resolve()
           await saveGate.promise
@@ -330,7 +330,7 @@ describe('index lifecycle', () => {
     let blockNextSnapshot = false
     const adapter: PersistenceAdapter = {
       async save(key, data) {
-        if (blockNextSnapshot && key.endsWith('/snapshot')) {
+        if (blockNextSnapshot && key.endsWith('/manifest')) {
           blockNextSnapshot = false
           saveStarted.resolve()
           await saveGate.promise
@@ -364,7 +364,7 @@ describe('index lifecycle', () => {
     const adapter: PersistenceAdapter = {
       save: (key, data) => storage.save(key, data),
       async load(key) {
-        if (blockSnapshotLoad && key.endsWith('/snapshot')) {
+        if (blockSnapshotLoad && key.endsWith('/manifest')) {
           loadStarted.resolve()
           await loadGate.promise
         }
@@ -402,7 +402,7 @@ describe('index lifecycle', () => {
     const adapter: PersistenceAdapter = {
       save: (key, data) => storage.save(key, data),
       async load(key) {
-        if (rejectSnapshotLoad && key.endsWith('/snapshot')) {
+        if (rejectSnapshotLoad && key.endsWith('/manifest')) {
           snapshotLoads += 1
           throw new Error('snapshot unavailable')
         }

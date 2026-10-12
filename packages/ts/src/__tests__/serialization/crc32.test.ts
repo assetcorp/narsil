@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { computeOffThreadChecksum } from '../../serialization/checksum-dispatch'
+import { checksumOfChunks } from '../../serialization/chunk-checksum'
 import { crc32, crc32Final, crc32Init, crc32Update } from '../../serialization/crc32'
 
 describe('crc32', () => {
@@ -95,21 +95,20 @@ describe('crc32 incremental', () => {
   })
 })
 
-describe('computeOffThreadChecksum', () => {
-  it('matches the synchronous checksum and returns the payload bytes intact', async () => {
-    for (const size of [0, 1, 4095, 4096, 4097, 1_000_000]) {
+describe('checksumOfChunks', () => {
+  it('matches the checksum of the joined bytes however the chunks split them', async () => {
+    for (const size of [0, 1, 4095, 4096, 4097, 9_000_000]) {
       const data = new Uint8Array(size)
       for (let i = 0; i < size; i++) {
         data[i] = (i * 13 + 5) & 0xff
       }
-      const expectedChecksum = crc32(data)
-      const expectedBytes = Uint8Array.from(data)
+      const expected = crc32(data)
+      const third = Math.floor(size / 3)
 
-      const { checksum, payload } = await computeOffThreadChecksum(data)
-
-      expect(checksum).toBe(expectedChecksum)
-      expect(payload.length).toBe(size)
-      expect([...payload]).toEqual([...expectedBytes])
+      expect(await checksumOfChunks([data])).toBe(expected)
+      expect(
+        await checksumOfChunks([data.subarray(0, third), data.subarray(third, 2 * third), data.subarray(2 * third)]),
+      ).toBe(expected)
     }
   })
 })

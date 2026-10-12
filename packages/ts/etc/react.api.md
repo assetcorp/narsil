@@ -289,7 +289,7 @@ export interface TaskRecord {
 export type TaskStatus = 'running' | 'succeeded' | 'failed' | 'cancelled';
 
 // @public
-export type TaskType = 'optimizeVectors' | 'rebalance' | 'restore' | 'import' | 'rebuildAnalysis';
+export type TaskType = 'optimizeVectors' | 'rebalance' | 'restore' | 'import' | 'importExport' | 'rebuildAnalysis';
 
 // @public
 export function useDocument(indexName: string, docId: string | null | undefined, options?: NarsilReadOptions): NarsilReadState<AnyDocument | undefined>;

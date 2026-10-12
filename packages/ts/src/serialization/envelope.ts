@@ -1,16 +1,10 @@
 import { ErrorCodes, NarsilError } from '../errors'
-import { VERSION } from '../index'
-import type { IndexMetadata, SerializablePartition } from '../types/internal'
-import { checksumOfChunks, computeOffThreadChecksum } from './checksum-dispatch'
+import type { IndexMetadata } from '../types/internal'
 import { crc32 } from './crc32'
+import { engineVersionParts } from './envelope-file'
 import type { NrslFlags, NrslHeader } from './header'
 import { HEADER_SIZE, readHeader, writeHeader } from './header'
-import { deserializeMetadata, deserializePayloadV1, serializeMetadata, serializePayloadV1 } from './payload-v1'
-
-export interface EnvelopeParts {
-  header: Uint8Array
-  payload: Uint8Array
-}
+import { deserializeMetadata, serializeMetadata } from './payload-v1'
 
 const CURRENT_ENVELOPE_VERSION = 1
 const SNAPSHOT_ENVELOPE_VERSION = 2
@@ -20,11 +14,6 @@ export interface EnvelopeOptions {
   compression?: 'none' | 'gzip'
   checksum?: boolean
   envelopeFormatVersion?: number
-}
-
-function parseEngineVersion(version: string): [number, number, number] {
-  const parts = version.split('.')
-  return [parseInt(parts[0] ?? '0', 10), parseInt(parts[1] ?? '0', 10), parseInt(parts[2] ?? '0', 10)]
 }
 
 async function collectStream(stream: ReadableStream<Uint8Array>): Promise<Uint8Array> {
@@ -83,7 +72,7 @@ async function packEnvelope(payloadBytes: Uint8Array, options: EnvelopeOptions):
   }
 
   const checksum = flags.checksumPresent ? crc32(finalPayload) : 0
-  const [major, minor, patch] = parseEngineVersion(VERSION)
+  const [major, minor, patch] = engineVersionParts()
   const envelopeFormatVersion = options.envelopeFormatVersion ?? CURRENT_ENVELOPE_VERSION
 
   const header: NrslHeader = {
@@ -162,63 +151,8 @@ async function unpackEnvelope(
   return { header, payloadBytes }
 }
 
-export async function packEnvelopeBytes(payloadBytes: Uint8Array, options: EnvelopeOptions = {}): Promise<Uint8Array> {
-  return packEnvelope(payloadBytes, { ...options, envelopeFormatVersion: SNAPSHOT_ENVELOPE_VERSION })
-}
-
-function snapshotEnvelopeHeader(payloadLength: number, checksum: number): Uint8Array {
-  const [major, minor, patch] = parseEngineVersion(VERSION)
-  return writeHeader({
-    magic: 'NRSL',
-    envelopeFormatVersion: SNAPSHOT_ENVELOPE_VERSION,
-    engineVersionMajor: major,
-    engineVersionMinor: minor,
-    engineVersionPatch: patch,
-    payloadLength,
-    flags: {
-      compressionEnabled: false,
-      compressionAlgorithm: 'none',
-      checksumPresent: true,
-      encryptionEnabled: false,
-    },
-    checksum,
-    reserved: new Uint8Array(14),
-  })
-}
-
-export async function packSnapshotEnvelopeParts(payloadBytes: Uint8Array): Promise<EnvelopeParts> {
-  const { checksum, payload } = await computeOffThreadChecksum(payloadBytes)
-  return { header: snapshotEnvelopeHeader(payload.length, checksum), payload }
-}
-
-export async function packSnapshotEnvelopeChunks(payloadChunks: readonly Uint8Array[]): Promise<Uint8Array[]> {
-  let payloadLength = 0
-  for (const chunk of payloadChunks) payloadLength += chunk.length
-  const checksum = await checksumOfChunks(payloadChunks)
-  return [snapshotEnvelopeHeader(payloadLength, checksum), ...payloadChunks]
-}
-
-export async function packSnapshotEnvelopePartsRetrying(buildPayload: () => Uint8Array): Promise<EnvelopeParts> {
-  try {
-    return await packSnapshotEnvelopeParts(buildPayload())
-  } catch {
-    return packSnapshotEnvelopeParts(buildPayload())
-  }
-}
-
-export function concatEnvelopeParts(parts: EnvelopeParts): Uint8Array {
-  const combined = new Uint8Array(parts.header.length + parts.payload.length)
-  combined.set(parts.header, 0)
-  combined.set(parts.payload, parts.header.length)
-  return combined
-}
-
 export async function unpackEnvelopeBytes(data: Uint8Array): Promise<{ header: NrslHeader; payloadBytes: Uint8Array }> {
   return unpackEnvelope(data, SNAPSHOT_ENVELOPE_VERSION)
-}
-
-export async function packIndexSnapshotEnvelope(payloadBytes: Uint8Array): Promise<Uint8Array> {
-  return packEnvelope(payloadBytes, { checksum: true, envelopeFormatVersion: INDEX_SNAPSHOT_ENVELOPE_VERSION })
 }
 
 export async function unpackIndexSnapshotEnvelope(data: Uint8Array): Promise<Uint8Array> {
@@ -230,22 +164,6 @@ export async function unpackIndexSnapshotEnvelope(data: Uint8Array): Promise<Uin
     )
   }
   return payloadBytes
-}
-
-export async function writePartitionEnvelope(
-  partition: SerializablePartition,
-  options: EnvelopeOptions = {},
-): Promise<Uint8Array> {
-  const payloadBytes = serializePayloadV1(partition)
-  return packEnvelope(payloadBytes, options)
-}
-
-export async function readPartitionEnvelope(
-  data: Uint8Array,
-): Promise<{ header: NrslHeader; partition: SerializablePartition }> {
-  const { header, payloadBytes } = await unpackEnvelope(data)
-  const partition = deserializePayloadV1(payloadBytes)
-  return { header, partition }
 }
 
 export async function writeMetadataEnvelope(meta: IndexMetadata, options: EnvelopeOptions = {}): Promise<Uint8Array> {

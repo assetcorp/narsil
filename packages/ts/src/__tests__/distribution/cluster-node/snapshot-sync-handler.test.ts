@@ -6,7 +6,7 @@ import {
   type SnapshotSyncHandlerState,
 } from '../../../distribution/cluster-node/snapshot-sync-handler'
 import type { AllocationTable, ClusterCoordinator, PartitionAssignment } from '../../../distribution/coordinator/types'
-import { MAX_SNAPSHOT_SIZE_BYTES, SNAPSHOT_CHUNK_SIZE } from '../../../distribution/replication/constants'
+import { SNAPSHOT_CHUNK_SIZE } from '../../../distribution/replication/constants'
 import {
   SNAPSHOT_HEADER_SENTINEL_PARTITION_ID,
   SNAPSHOT_HEADER_SENTINEL_SEQNO,
@@ -38,7 +38,13 @@ function makeMockEngine(options: MockEngineOptions = {}): Narsil {
       if (options.snapshotRejects !== undefined) {
         throw options.snapshotRejects
       }
-      return options.snapshotBytes ?? new Uint8Array(0)
+      const bytes = options.snapshotBytes ?? new Uint8Array(0)
+      return new ReadableStream<Uint8Array>({
+        start(controller) {
+          if (bytes.byteLength > 0) controller.enqueue(bytes)
+          controller.close()
+        },
+      })
     }),
   } as unknown as Narsil
   return engine
@@ -219,23 +225,6 @@ describe('handleSnapshotSyncRequest', () => {
     expect(envelope.type).toBe(`${ReplicationMessageTypes.SNAPSHOT_SYNC_REQUEST}.error`)
     const decoded = decode(envelope.payload) as { code: string }
     expect(decoded.code).toBe(ErrorCodes.SNAPSHOT_SYNC_INDEX_NOT_FOUND)
-  })
-
-  it('returns TOO_LARGE when the snapshot exceeds the size limit', async () => {
-    const snapshotBytes = {
-      byteLength: MAX_SNAPSHOT_SIZE_BYTES + 1,
-      subarray: () => new Uint8Array(0),
-    } as unknown as Uint8Array
-    const engine = makeMockEngine({ snapshotBytes })
-    const coordinator = makeCoordinator(makeAllocation('products', 'primary', ['replica-node']))
-    const { respond, responses } = collectResponses()
-
-    await handleSnapshotSyncRequest(makeRequest('products'), respond, makeDeps(engine, coordinator))
-
-    expect(responses.length).toBe(1)
-    const decoded = decode(responses[0].payload) as { code: string }
-    expect(responses[0].type).toBe(`${ReplicationMessageTypes.SNAPSHOT_SYNC_REQUEST}.error`)
-    expect(decoded.code).toBe(ErrorCodes.SNAPSHOT_SYNC_TOO_LARGE)
   })
 
   it('returns SNAPSHOT_SYNC_REQUEST_INVALID when the request has no indexName', async () => {

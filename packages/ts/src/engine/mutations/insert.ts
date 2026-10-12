@@ -1,4 +1,4 @@
-import { validateRequiredFields } from '../../schema/validator'
+import { requireDocumentWithinSizeLimit, validateRequiredFields } from '../../schema/validator'
 import type { AnyDocument, InsertOptions } from '../../types/schema'
 import { assertDocumentCarriesMappedVectors, embedDocumentFields } from '../embed'
 import { validateDocId } from '../validation'
@@ -45,6 +45,7 @@ export async function insertDocument(
     }
   }
 
+  requireDocumentWithinSizeLimit(document as Record<string, unknown>)
   const insertManager = ctx.requireManager(indexName)
   admitInsert(ctx, indexName, insertManager, resolvedDocId)
   const insertVecIndexes = insertManager.getVectorIndexes()

@@ -2,6 +2,7 @@ import type { HttpRequest, HttpResponse } from 'uWebSockets.js'
 import type { RequestGate } from './concurrency-gate'
 import { ServerErrorCodes } from './errors'
 import { type ResponseSink, sendError } from './response'
+import { type SpooledBody, spoolBody } from './spool'
 import type { OnRequestHook, RequestContext, RequestDenial } from './types'
 
 export interface ResponseAbort {
@@ -103,6 +104,7 @@ export interface RouteContext {
   query: URLSearchParams
   contentType: string
   rawBody: Buffer | null
+  spooledBody: SpooledBody | null
   abort: ResponseAbort
   /** The request's method, path, headers, and peer address, captured where an admission hook runs. */
   hookContext: RequestContext | null
@@ -113,6 +115,7 @@ export type RouteHandler = (ctx: RouteContext) => Promise<void> | void
 export interface RouteOptions {
   paramCount?: number
   needsBody?: boolean
+  spoolsBody?: boolean
   maxBytes: number
   /** Skips the auth hook and the concurrency gate. Used for liveness and
    * readiness probes, which must answer regardless of auth or load. */
@@ -156,6 +159,19 @@ export function sinkWritingAfterStatus(res: ResponseSink, headers: Array<[string
     },
     end(body) {
       res.end(body)
+      return sink
+    },
+    write(chunk) {
+      return res.write(chunk)
+    },
+    pause() {
+      res.pause()
+    },
+    resume() {
+      res.resume()
+    },
+    close() {
+      res.close()
       return sink
     },
     endWithoutBody() {
@@ -273,20 +289,38 @@ export function createRouteRunner(deps: RunnerDeps) {
         : Promise.resolve<Buffer | null>(null)
       const hookPromise: Promise<Authorization> =
         hookContext !== null && authorize !== undefined ? authorize(hookContext) : Promise.resolve({ allowed: true })
+      const spoolPromise =
+        opts.spoolsBody === true
+          ? spoolBody(
+              res,
+              opts.maxBytes,
+              abort,
+              hookPromise.then(authorization => authorization.allowed),
+            ).catch(() => null)
+          : Promise.resolve<SpooledBody | null>(null)
 
-      Promise.all([bodyPromise, hookPromise])
-        .then(async ([rawBody, authorization]) => {
-          if (abort.aborted) return
+      Promise.all([bodyPromise, spoolPromise, hookPromise])
+        .then(async ([rawBody, spooledBody, authorization]) => {
+          const discardSpool = (): void => {
+            void spooledBody?.remove().catch(() => undefined)
+          }
+          if (abort.aborted) {
+            discardSpool()
+            return
+          }
           if (!authorization.allowed) {
+            discardSpool()
             sendDenial(res, authorization)
             return
           }
+          if (opts.spoolsBody === true && spooledBody === null) return
           if (gated && !gate.tryAcquire()) {
+            discardSpool()
             sendError(res, 429, ServerErrorCodes.TOO_MANY_REQUESTS, 'The server is at capacity; retry shortly')
             return
           }
           try {
-            await handler({ res, params, query, contentType, rawBody, abort, hookContext })
+            await handler({ res, params, query, contentType, rawBody, spooledBody, abort, hookContext })
           } catch (err) {
             if (!abort.aborted) {
               sendError(res, 500, ServerErrorCodes.INTERNAL_ERROR, 'An unexpected error occurred')

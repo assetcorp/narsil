@@ -1,8 +1,9 @@
+import { encode } from '@msgpack/msgpack'
 import { describe, expect, it } from 'vitest'
-import { deserializePayloadV2, encodeRawPayloadV2, type RawPartitionPayloadV2 } from '../../../serialization/payload-v2'
+import { deserializePayloadV2, type RawPartitionPayloadV2 } from '../../../serialization/payload-v2'
 import { makeMinimalPayload, roundtrip } from './fixtures'
 
-describe('encodeRawPayloadV2 / deserializePayloadV2 - vector data and full payloads', () => {
+describe('deserializePayloadV2 - vector data and full payloads', () => {
   it('roundtrips a payload with vector data and HNSW graph and no codes', () => {
     const wire = makeMinimalPayload({
       schema: { embedding: 'vector[3]' },
@@ -273,50 +274,6 @@ describe('encodeRawPayloadV2 / deserializePayloadV2 - vector data and full paylo
     expect(restored.documents['doc-1'].fieldLengths.title).toBe(3)
   })
 
-  it('produces compact binary output compared to JSON', () => {
-    const wire: RawPartitionPayloadV2 = {
-      v: 2,
-      index_name: 'products',
-      partition_id: 0,
-      total_partitions: 1,
-      language: 'english',
-      schema: { title: 'string', price: 'number' },
-      doc_count: 2,
-      avg_doc_length: 2,
-      documents: {
-        'doc-1': { fields: { title: 'headphones', price: 50 }, field_lengths: { title: 1 } },
-        'doc-2': { fields: { title: 'keyboard', price: 80 }, field_lengths: { title: 1 } },
-      },
-      inverted_index: {
-        field_names: ['title'],
-        entries: {
-          headphon: { df: 1, ids: ['doc-1'], tf: [1], fi: new Uint8Array([0]), pos: [[0]] },
-          keyboard: { df: 1, ids: ['doc-2'], tf: [1], fi: new Uint8Array([0]), pos: [[0]] },
-        },
-      },
-      field_indexes: {
-        numeric: {
-          price: [
-            { value: 50, doc_id: 'doc-1' },
-            { value: 80, doc_id: 'doc-2' },
-          ],
-        },
-        boolean: {},
-        enum: {},
-        geopoint: {},
-      },
-      statistics: {
-        total_documents: 2,
-        total_field_lengths: { title: 2 },
-        average_field_lengths: { title: 1 },
-        doc_frequencies: { headphon: 1, keyboard: 1 },
-      },
-    }
-    const bytes = encodeRawPayloadV2(wire)
-    const json = new TextEncoder().encode(JSON.stringify(wire))
-    expect(bytes.length).toBeLessThan(json.length)
-  })
-
   it('resolves inverted index field names from the field_names array', () => {
     const wire = makeMinimalPayload({
       schema: { title: 'string', description: 'string' },
@@ -377,7 +334,7 @@ describe('encodeRawPayloadV2 / deserializePayloadV2 - vector data and full paylo
     const raw = { ...wire } as Record<string, unknown>
     delete raw.language
 
-    const bytes = encodeRawPayloadV2(raw as unknown as RawPartitionPayloadV2)
+    const bytes = encode(raw)
     const restored = deserializePayloadV2(bytes)
     expect(restored.language).toBe('english')
   })

@@ -1,7 +1,7 @@
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { FieldType, SchemaDefinition } from '../../types/schema'
-import { MAX_NESTING_DEPTH } from '../constants'
-import { type ParsedFieldType, parseFieldType } from './field-type'
+import { MAX_NESTING_DEPTH, MAX_TEXT_FIELDS, MAX_VECTOR_DIMENSION } from '../constants'
+import { isWordIndexedBase, type ParsedFieldType, parseFieldType } from './field-type'
 import { FIELD_NAME_PATTERN, isPlainObject, PROTOTYPE_POLLUTION_KEYS, RESERVED_ROOT_FIELDS } from './shared'
 
 export interface SchemaField extends ParsedFieldType {
@@ -84,10 +84,33 @@ export function validateSchema(schema: SchemaDefinition): SchemaDefinition {
     throw new NarsilError(ErrorCodes.SCHEMA_INVALID_TYPE, 'Schema must define at least one field')
   }
 
-  return validateSchemaFields(schema, 1, '')
+  const validated = validateSchemaFields(schema, 1, '')
+  requireTextFieldCount(schemaFieldsOf(validated).filter(field => isWordIndexedBase(field.base)).length)
+  return validated
+}
+
+function requireTextFieldCount(count: number): void {
+  if (count <= MAX_TEXT_FIELDS) return
+  throw new NarsilError(
+    ErrorCodes.SCHEMA_INVALID_TYPE,
+    `The schema declares ${count} string and string[] fields, but a schema holds at most ${MAX_TEXT_FIELDS}`,
+    { textFields: count, maximum: MAX_TEXT_FIELDS },
+  )
+}
+
+export function requireCreatableSchema(schema: SchemaDefinition): void {
+  for (const field of schemaFieldsOf(schema)) {
+    if (field.base !== 'vector' || field.dimension <= MAX_VECTOR_DIMENSION) continue
+    throw new NarsilError(
+      ErrorCodes.SCHEMA_INVALID_VECTOR_DIMENSION,
+      `Vector field "${field.path}" has ${field.dimension} dimensions, but a new index takes at most ${MAX_VECTOR_DIMENSION}`,
+      { field: field.path, dimension: field.dimension, maximum: MAX_VECTOR_DIMENSION },
+    )
+  }
 }
 
 export function requireValidFieldTypes(flatSchema: Readonly<Record<string, unknown>>): void {
+  let textFields = 0
   for (const [path, type] of Object.entries(flatSchema)) {
     if (typeof type !== 'string') {
       throw new NarsilError(
@@ -96,8 +119,9 @@ export function requireValidFieldTypes(flatSchema: Readonly<Record<string, unkno
         { field: path, type: String(type) },
       )
     }
-    parseFieldType(type, path)
+    if (isWordIndexedBase(parseFieldType(type, path).base)) textFields += 1
   }
+  requireTextFieldCount(textFields)
 }
 
 function flattenRecursive(schema: SchemaDefinition, prefix: string, result: Record<string, FieldType>): void {

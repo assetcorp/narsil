@@ -74,6 +74,5 @@ export interface PartitionIndex {
     language: string,
     schema: SchemaDefinition,
   ): SerializablePartition
-  serializeToBytes(indexName: string, totalPartitions: number, language: string, schema: SchemaDefinition): Uint8Array
   deserialize(data: SerializablePartition, schema: SchemaDefinition): void
 }

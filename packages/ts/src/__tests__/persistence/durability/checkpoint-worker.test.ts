@@ -15,10 +15,12 @@ import { CHECKPOINT_WORKER_TIMEOUT_MS, DEFAULT_COMPACTION_THRESHOLD } from '../.
 import { createDurableDirectory } from '../../../persistence/durability/durable-filesystem'
 import { rebuildSegmentsFromDurable } from '../../../persistence/durability/rebuild'
 import { loadMetadata } from '../../../persistence/durability/recovery'
-import { commitCheckpointManifest } from '../../../persistence/durability/segment'
+import { directoryCheckpointStore } from '../../../persistence/durability/segment/store'
+import { commitCheckpointManifest } from '../../../persistence/durability/segment/write'
 import { SINGLE_NODE_PRIMARY_TERM } from '../../../persistence/durability/seq-owner'
 import type { IndexMetadata } from '../../../types/internal'
 import type { IndexConfig } from '../../../types/schema'
+import { manifestOnDisk } from './manifest-on-disk'
 
 const SCHEMA: IndexConfig = {
   schema: { title: 'string', body: 'string', year: 'number' },
@@ -26,13 +28,20 @@ const SCHEMA: IndexConfig = {
 }
 
 async function rebuildSegmentsAndCommit(root: string, metadata: IndexMetadata, lastSeqNo: number): Promise<void> {
+  const prior = await manifestOnDisk(root, metadata.indexName)
   const segments = await rebuildSegmentsFromDurable(
     root,
     metadata,
     [{ partitionId: 0, lastSeqNo, primaryTerm: SINGLE_NODE_PRIMARY_TERM }],
     DEFAULT_COMPACTION_THRESHOLD,
+    prior,
   )
-  await commitCheckpointManifest(createDurableDirectory(root), metadata, segments)
+  await commitCheckpointManifest(
+    directoryCheckpointStore(createDurableDirectory(root)),
+    metadata,
+    segments,
+    prior?.vectors ?? [],
+  )
 }
 
 function doc(i: number): { title: string; body: string; year: number } {
@@ -191,7 +200,7 @@ describe('off-thread checkpoint worker', () => {
         createdAt: 0,
         engineVersion: '0',
       }
-      const run = runWorker(worker, { root, metadata, targets: [], compactionThreshold: 1 })
+      const run = runWorker(worker, { root, metadata, targets: [], compactionThreshold: 1, prior: null })
       await vi.advanceTimersByTimeAsync(4 * pause + 1)
 
       expect(await run).toEqual({ written: segments, timedOut: false })

@@ -48,6 +48,9 @@ export interface CreateIndexRequest {
 export function createServer(engine: Narsil, options?: ServerOptions): NarsilServer;
 
 // @public
+export const DOCUMENT_EXPORT_CAPABILITY = "indexes.documentExport";
+
+// @public
 export type ErrorCode = (typeof ErrorCodes)[keyof typeof ErrorCodes];
 
 // @public
@@ -292,6 +295,7 @@ export interface ServerLimits {
     maxImportBytes?: number;
     maxImportErrors?: number;
     maxLineBytes?: number;
+    maxRestoreBytes?: number;
     maxResultWindow?: number;
     maxTaskPageSize?: number;
 }
@@ -390,7 +394,7 @@ export interface TaskStore {
 }
 
 // @public
-export type TaskType = 'optimizeVectors' | 'rebalance' | 'restore' | 'import' | 'rebuildAnalysis';
+export type TaskType = 'optimizeVectors' | 'rebalance' | 'restore' | 'import' | 'importExport' | 'rebuildAnalysis';
 
 // (No @packageDocumentation comment for this package)
 

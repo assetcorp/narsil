@@ -38,6 +38,15 @@ export const REBUILD_ANALYSIS_CAPABILITY = 'indexes.rebuildAnalysis'
 export const INDEX_LIFECYCLE_CAPABILITY = 'indexes.lifecycle'
 
 /**
+ * Marks a server that answers `GET /indexes/{name}/export` with a stream of a
+ * document export and imports an export sent to `POST /indexes/{name}/import`
+ * in a task.
+ *
+ * @public
+ */
+export const DOCUMENT_EXPORT_CAPABILITY = 'indexes.documentExport'
+
+/**
  * Every capability this server announces at `/capabilities`.
  *
  * A client reads this list to find out whether an optional route or mode is
@@ -52,4 +61,5 @@ export const SERVER_CAPABILITIES: readonly string[] = [
   TASK_FILTER_CAPABILITY,
   REBUILD_ANALYSIS_CAPABILITY,
   INDEX_LIFECYCLE_CAPABILITY,
+  DOCUMENT_EXPORT_CAPABILITY,
 ]

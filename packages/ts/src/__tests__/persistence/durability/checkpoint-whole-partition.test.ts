@@ -3,9 +3,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createNarsil, type Narsil } from '../../../narsil'
-import { createDurableDirectory } from '../../../persistence/durability/durable-filesystem'
-import { readSegmentManifest } from '../../../persistence/durability/segment'
 import type { IndexConfig } from '../../../types/schema'
+import { requireManifestOnDisk } from './manifest-on-disk'
 
 const SCHEMA: IndexConfig = {
   schema: { title: 'string', year: 'number' },
@@ -20,8 +19,7 @@ async function insertRange(engine: Narsil, from: number, to: number): Promise<vo
 }
 
 async function segmentDocCounts(root: string): Promise<number[]> {
-  const manifest = await readSegmentManifest(createDurableDirectory(root), 'docs')
-  if (manifest === null) throw new Error('manifest missing')
+  const manifest = await requireManifestOnDisk(root, 'docs')
   return manifest.partitions[0].segments.map(segment => segment.docCount)
 }
 

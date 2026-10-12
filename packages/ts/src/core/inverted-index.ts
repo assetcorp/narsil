@@ -283,7 +283,7 @@ export function createInvertedIndex(fieldNameTable: FieldNameTable): InvertedInd
         const docIdSet = new Set<number>()
         const docIds = new Array<number>(count)
         const termFrequencies = new Uint16Array(count)
-        const fieldNameIndices = new Uint8Array(count)
+        const fieldNameIndices = new Uint16Array(count)
         let hasPositions = false
         let validCount = 0
         let totalTermFrequency = 0

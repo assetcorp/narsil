@@ -73,9 +73,12 @@ export interface DurabilityIntegrationHooks {
     | undefined
   createIndexFromMetadata: IndexDurabilityHooks['createIndexFromMetadata']
   recordCheckpoint: IndexDurabilityHooks['recordCheckpoint']
+  onLayoutUpgrade?: IndexDurabilityHooks['onLayoutUpgrade']
   onFatalError: IndexDurabilityHooks['onFatalError']
   checkpointPublisher?: CheckpointPublisher
 }
+
+export type MetadataConfig = NonNullable<ReturnType<DurabilityIntegrationHooks['getIndexConfig']>>
 
 function buildMetadata(
   indexName: string,
@@ -83,15 +86,23 @@ function buildMetadata(
   documentCount?: number,
 ): IndexMetadata | undefined {
   const config = hooks.getIndexConfig(indexName)
-  const manager = hooks.getManager(indexName)
   if (config === undefined) {
     return undefined
   }
+  return metadataFromConfig(indexName, config, hooks.getManager(indexName)?.partitionCount, documentCount)
+}
+
+export function metadataFromConfig(
+  indexName: string,
+  config: MetadataConfig,
+  partitionCount: number | undefined,
+  documentCount?: number,
+): IndexMetadata {
   const metadata: IndexMetadata = {
     indexName,
     schema: config.schema,
     language: config.language,
-    partitionCount: manager?.partitionCount ?? config.partitionCount,
+    partitionCount: partitionCount ?? config.partitionCount,
     bm25Params: { k1: config.k1, b: config.b },
     createdAt: Date.now(),
     engineVersion: VERSION,
@@ -156,6 +167,7 @@ export function createDurabilityIntegration(
     buildMetadata: (indexName, documentCount) => buildMetadata(indexName, hooks, documentCount),
     createIndexFromMetadata: hooks.createIndexFromMetadata,
     recordCheckpoint: hooks.recordCheckpoint,
+    onLayoutUpgrade: hooks.onLayoutUpgrade,
     onFatalError: hooks.onFatalError,
   }
 

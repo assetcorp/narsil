@@ -22,7 +22,7 @@ import {
   optimize as optimizeOp,
 } from './maintenance'
 import type { VectorIndexPayload } from './payload'
-import { deserialize as deserializeOp, serialize as serializeOp } from './persistence'
+import { deserialize as deserializeOp } from './persistence'
 import { fetchedOutcome, search as searchOp, searchWithFilter } from './search'
 import {
   assignStorePartitions,
@@ -81,12 +81,10 @@ export interface VectorIndex {
   optimize(): Promise<void>
   maintenanceStatus(): MaintenanceStatus
   estimateMemoryBytes(): number
-  /** Writes the field as the parts the envelope specification defines, in ordinal order. */
-  serialize(): VectorIndexPayload[]
-  /** Reads the field back from its parts, which may run several partitions' sequences end to end, and holds every vector in memory. */
+  /** Reads the field back from the parts of an earlier snapshot, whose parts can place the sequences of several partitions end to end, and keeps every vector in memory. */
   deserialize(parts: VectorIndexPayload[]): void
   /** Fixes what a checkpoint writes for the field now: the vector files that it keeps with their dead vectors, the vectors that go into new files, and the graph with every vector numbered by that file list. The plan reads one new file at a time, so that a checkpoint holds one file in memory while it writes a field of any size. A file read after a recalibration throws, because its codes would disagree with the centroid of the files before it. */
-  planCheckpoint(listedKeys: readonly string[] | null): VectorCheckpointPlan
+  planCheckpoint(listedKeys: readonly string[] | null, rewritesGraph?: boolean): VectorCheckpointPlan
   /** Records the files of a checkpoint whose manifest is durable, so that the next plan writes the vectors that arrive after it and no others. */
   recordCheckpoint(plan: VectorCheckpointPlan, written: readonly WrittenVectorFile[]): void
   /** Empties the field and returns a reader that takes a checkpoint's vector files one at a time, in manifest order, and its graph last. A field kept on disk reads its vectors from the files where the checkpoint holds a graph or enough vectors for one. */
@@ -354,12 +352,12 @@ export function createVectorIndex(
     },
     maintenanceStatus: () => maintenanceStatusOp(state),
     estimateMemoryBytes: () => estimateMemoryBytesOp(state),
-    serialize: () => serializeOp(state),
     deserialize: (parts: VectorIndexPayload[]) => {
       invalidateWorkerCopies(state)
       deserializeOp(state, parts)
     },
-    planCheckpoint: (listedKeys: readonly string[] | null) => planCheckpointOp(state, listedKeys),
+    planCheckpoint: (listedKeys: readonly string[] | null, rewritesGraph?: boolean) =>
+      planCheckpointOp(state, listedKeys, rewritesGraph),
     recordCheckpoint: (plan: VectorCheckpointPlan, written: readonly WrittenVectorFile[]) =>
       recordCheckpointOp(state, plan, written),
     restoreCheckpoint: (shape: CheckpointRestoreShape) => {

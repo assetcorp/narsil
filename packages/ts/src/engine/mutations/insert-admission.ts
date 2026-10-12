@@ -1,6 +1,6 @@
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { PartitionManager } from '../../partitioning/manager'
-import { validateRequiredFields } from '../../schema/validator'
+import { requireDocumentWithinSizeLimit, validateRequiredFields } from '../../schema/validator'
 import type { EmbeddingAdapter } from '../../types/adapters'
 import type { BatchResult } from '../../types/results'
 import type { AnyDocument, EmbeddingFieldConfig, IndexConfig } from '../../types/schema'
@@ -18,7 +18,10 @@ export function providedDocId(document: AnyDocument): string | undefined {
 }
 
 export function requireDocumentObject(document: unknown): void {
-  if (document !== null && typeof document === 'object' && !Array.isArray(document)) return
+  if (document !== null && typeof document === 'object' && !Array.isArray(document)) {
+    requireDocumentWithinSizeLimit(document as Record<string, unknown>)
+    return
+  }
   const received = Array.isArray(document) ? 'a list' : document === null ? 'null' : `a ${typeof document}`
   throw new NarsilError(
     ErrorCodes.DOC_VALIDATION_FAILED,

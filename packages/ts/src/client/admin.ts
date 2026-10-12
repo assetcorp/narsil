@@ -9,14 +9,15 @@ import { indexPath } from './paths'
 import { readArray, readBody } from './response-shape'
 
 /**
- * These methods run the operations that maintain an index: checkpoints,
- * snapshots, vector maintenance, partitioning, and analysis rebuilds.
+ * These methods carry out the operations that maintain an index: checkpoints,
+ * snapshots, document exports, vector maintenance, partitioning, and analysis
+ * rebuilds.
  *
- * Four of them can run for minutes, so each answers with a {@link TaskRecord}
- * while the work carries on, and you follow it with
- * {@link TaskOperations.waitForTask}. The {@link Narsil} methods they mirror
- * return nothing and finish before they resolve, which is the one place this
- * client parts from the engine.
+ * Five of them can take minutes, so each answers with a {@link TaskRecord}
+ * while the work continues. Follow that task with
+ * {@link TaskOperations.waitForTask}. The {@link Narsil} methods that they
+ * mirror finish their work before they resolve, which is the one place where
+ * this client differs from the engine.
  *
  * @public
  */
@@ -31,35 +32,93 @@ export interface AdminOperations {
    */
   checkpoint(indexName: string, options?: RequestOptions): Promise<void>
   /**
-   * Downloads one index as a portable `.nrsl` file, which any Narsil
-   * implementation can read back.
+   * Returns a stream of an index's snapshot archive. Any implementation of
+   * the Narsil format can restore the archive.
    *
-   * The whole index crosses the network, so this call sets no deadline of its
-   * own and waits for as long as the download takes until
-   * {@link NarsilClientOptions.timeoutMs} or a per-call `timeoutMs` sets one.
+   * The download takes longer as the index grows, so this method sets no
+   * deadline of its own. It waits until the download ends, unless
+   * {@link NarsilClientOptions.timeoutMs} or a per-call `timeoutMs` sets a
+   * deadline.
    *
-   * @param indexName - This names the index to serialise.
+   * @param indexName - This names the index to stream.
    * @param options - This sets the signal, the deadline, and the headers for
    * this request.
-   * @returns The bytes make up the file.
+   * @returns The stream holds the archive's bytes in the order that the server
+   * sends them.
    */
-  snapshot(indexName: string, options?: RequestOptions): Promise<Uint8Array>
+  snapshot(indexName: string, options?: RequestOptions): Promise<ReadableStream<Uint8Array>>
   /**
-   * Replaces an index with the contents of a `.nrsl` file, dropping whatever
-   * the index held.
+   * Uploads a snapshot archive and replaces the named index with the
+   * archive's contents. The method also accepts the single `.nrsl` file that
+   * `snapshot` returned in release 0.3.
    *
-   * The load runs as a task, so this resolves once the server has read the
-   * bytes, and the index comes back afterwards.
+   * The server writes the upload to a temporary file and restores the index
+   * in a task. This method therefore resolves once the server holds the whole
+   * upload, and the task's status changes to `succeeded` once the restored
+   * index is ready.
    *
    * @param indexName - This names the index to replace.
-   * @param data - These are the file's bytes.
+   * @param data - This is the archive, as one byte array or a stream of bytes.
    * @param options - This sets the signal, the deadline, and the headers for
    * this request.
    * @returns The record is the task to follow.
-   * @throws A `NarsilError` with `DOC_VALIDATION_FAILED` or an `ENVELOPE_`
-   * code, reported on the task, when the bytes hold no readable snapshot.
+   * @throws A `NarsilError` with `PAYLOAD_TOO_LARGE` when the upload passes
+   * the server's `maxRestoreBytes` limit, and with `EMPTY_BODY` for an empty
+   * upload. The task reports `PERSISTENCE_LOAD_FAILED`,
+   * `PERSISTENCE_CRC_MISMATCH`, `ENVELOPE_VERSION_MISMATCH`, or
+   * `CONFIG_INVALID` in its `error` when a check of the archive fails.
    */
-  restore(indexName: string, data: Uint8Array, options?: RequestOptions): Promise<TaskRecord>
+  restore(
+    indexName: string,
+    data: Uint8Array | ReadableStream<Uint8Array>,
+    options?: RequestOptions,
+  ): Promise<TaskRecord>
+  /**
+   * Returns a stream of an index's document export. The export is JSON Lines
+   * text, with the index configuration on the first line and one document on
+   * each later line. Pass the export to
+   * {@link AdminOperations.importDocumentExport} to load it into a server of
+   * this release or a later one.
+   *
+   * The download takes longer as the index grows, so this method sets no
+   * deadline of its own. It waits until the download ends, unless
+   * {@link NarsilClientOptions.timeoutMs} or a per-call `timeoutMs` sets a
+   * deadline.
+   *
+   * @param indexName - This names the index to export.
+   * @param options - This sets the signal, the deadline, and the headers for
+   * this request.
+   * @returns The stream holds the export's UTF-8 bytes in the order that the
+   * server sends them.
+   */
+  exportDocuments(indexName: string, options?: RequestOptions): Promise<ReadableStream<Uint8Array>>
+  /**
+   * Uploads a document export and imports it into an index in a task. Where
+   * the name is free, the engine creates the index from the export's
+   * configuration. The engine replaces each document whose ID the index
+   * already contains.
+   *
+   * The server writes the upload to a temporary file before the task starts,
+   * so this method resolves once the server holds the whole upload. When the
+   * task finishes, its result holds the number of imported documents and the
+   * refused lines.
+   *
+   * @param indexName - This names the index that receives the documents.
+   * @param data - This is the export, as one byte array or a stream of bytes.
+   * @param options - This sets the signal, the deadline, and the headers for
+   * this request.
+   * @returns The record is the task to follow.
+   * @throws A `NarsilError` with `PAYLOAD_TOO_LARGE` when the upload passes
+   * the server's `maxRestoreBytes` limit, and with `EMPTY_BODY` for an empty
+   * upload. The task reports `CONFIG_INVALID` in its `error` when the first
+   * line is anything other than an export header, or when the named index
+   * exists with a different schema.
+   */
+  importDocumentExport(
+    indexName: string,
+    data: Uint8Array | ReadableStream<Uint8Array>,
+    options?: RequestOptions,
+  ): Promise<TaskRecord>
   /**
    * Reports the state of each vector field, and what maintenance would cost.
    *
@@ -162,10 +221,9 @@ export function createAdminOperations(transport: Transport): AdminOperations {
       await transport.json({ method: 'POST', path: `${indexPath(indexName)}/_checkpoint`, options })
     },
     snapshot(indexName, options) {
-      return transport.binary({
+      return transport.stream({
         method: 'GET',
         path: `${indexPath(indexName)}/snapshot`,
-        binaryAnswer: true,
         defaultTimeoutMs: NO_TIMEOUT,
         options,
       })
@@ -177,6 +235,26 @@ export function createAdminOperations(transport: Transport): AdminOperations {
         path,
         body: data,
         contentType: 'application/octet-stream',
+        defaultTimeoutMs: NO_TIMEOUT,
+        options,
+      })
+      return readBody<TaskRecord>(payload, path)
+    },
+    exportDocuments(indexName, options) {
+      return transport.stream({
+        method: 'GET',
+        path: `${indexPath(indexName)}/export`,
+        defaultTimeoutMs: NO_TIMEOUT,
+        options,
+      })
+    },
+    async importDocumentExport(indexName, data, options) {
+      const path = `${indexPath(indexName)}/import`
+      const payload = await transport.json({
+        method: 'POST',
+        path,
+        body: data,
+        contentType: 'application/x-ndjson',
         defaultTimeoutMs: NO_TIMEOUT,
         options,
       })

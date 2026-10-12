@@ -3,6 +3,7 @@ import { createHNSWIndex, type SerializedHNSWGraph } from '../../../vector/hnsw'
 import { createVectorSearchPool, type VectorSearchPool } from '../../../vector/search-pool'
 import type { SharedVectorFieldHandles } from '../../../vector/shared-field/types'
 import { createVectorStore } from '../../../vector/vector-store'
+import { graphView } from './fixtures'
 
 const DIMENSION = 64
 const DOC_COUNT = 3000
@@ -86,7 +87,7 @@ describe('several threads placing vectors in one graph at once', () => {
       expect(outcomes.every(outcome => outcome !== null)).toBe(true)
       expect(graph.size).toBe(DOC_COUNT)
 
-      orphans.push(...unreachableNodes(graph.serialize()))
+      orphans.push(...unreachableNodes(graphView(graph, store)))
       await activePool.drop(handle)
       store.release()
     }

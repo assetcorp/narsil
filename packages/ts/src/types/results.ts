@@ -1,4 +1,4 @@
-import type { NarsilError } from '../errors'
+import type { NarsilError, NarsilErrorCode } from '../errors'
 import type { AnyDocument, SchemaDefinition } from './schema'
 
 /**
@@ -201,6 +201,21 @@ export interface BatchResult {
   succeeded: string[]
   /** The engine rejected each of these documents, and each entry carries the error that rejected it. */
   failed: Array<{ docId: string; error: NarsilError }>
+}
+
+/**
+ * What {@link Narsil.importDocumentExport} returns. The engine continues past each
+ * refused line, so read the refusals to learn which documents it skipped.
+ *
+ * @public
+ */
+export interface DocumentImportResult {
+  /** The engine wrote this many documents, counting each one that it replaced. */
+  imported: number
+  /** The engine refused this many lines in total. */
+  refusedCount: number
+  /** These are the 1,000 refusals with the lowest line numbers. Each entry contains the line number, where the header is line 1, along with the error code and a message. */
+  refused: Array<{ line: number; code: NarsilErrorCode; message: string }>
 }
 
 /**

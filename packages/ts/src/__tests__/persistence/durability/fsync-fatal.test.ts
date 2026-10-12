@@ -69,6 +69,9 @@ function failingSyncDirectory(): { directory: DurableDirectory; appended: Uint8A
     async remove(): Promise<void> {
       return undefined
     },
+    async move(): Promise<void> {
+      return undefined
+    },
     async list(): Promise<string[]> {
       return []
     },

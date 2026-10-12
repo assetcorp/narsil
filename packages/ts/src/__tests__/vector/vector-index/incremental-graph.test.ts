@@ -1,14 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createVectorIndex, type VectorIndex } from '../../../vector/vector-index'
+import { fieldView } from './field-view'
 import { DIM, normalizedVector } from './fixtures'
 
 const FIRST_BATCH = 300
 const SECOND_BATCH = 300
 
 function levelsByDocId(index: VectorIndex): Map<string, number> {
-  const payload = index.serialize()
   const levels = new Map<string, number>()
-  const graph = payload[0]?.graphs[0]
+  const graph = fieldView(index).graphs[0]
   if (graph === undefined) return levels
   for (const [docId, level] of graph.nodes) {
     levels.set(docId, level)

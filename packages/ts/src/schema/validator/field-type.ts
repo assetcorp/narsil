@@ -1,5 +1,6 @@
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { FieldType, TextFieldOption } from '../../types/schema'
+import { MAX_STORED_VECTOR_DIMENSION } from '../constants'
 import { VECTOR_PATTERN } from './shared'
 
 export type BaseFieldType =
@@ -66,11 +67,11 @@ function parseBase(baseName: string, path: string, type: string): { base: BaseFi
     invalidType(path, type, `Field "${path}" has an unsupported type: "${type}"`)
   }
   const dimension = Number.parseInt(vectorMatch[1], 10)
-  if (dimension <= 0) {
+  if (dimension <= 0 || dimension > MAX_STORED_VECTOR_DIMENSION) {
     throw new NarsilError(
       ErrorCodes.SCHEMA_INVALID_VECTOR_DIMENSION,
-      `Vector field "${path}" must have a positive dimension, got ${dimension}`,
-      { field: path, dimension },
+      `Vector field "${path}" has ${dimension} dimensions, but a vector field holds from 1 to ${MAX_STORED_VECTOR_DIMENSION}`,
+      { field: path, dimension, maximum: MAX_STORED_VECTOR_DIMENSION },
     )
   }
   return { base: 'vector', dimension }

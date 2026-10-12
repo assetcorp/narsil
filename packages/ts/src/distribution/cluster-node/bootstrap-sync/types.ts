@@ -37,7 +37,7 @@ export interface BootstrapSyncDeps {
   restoreReplicationPartition?: (
     indexName: string,
     partitionId: number,
-    bytes: Uint8Array,
+    chunks: readonly Uint8Array[],
     config: IndexConfig,
     partitionCount: number,
   ) => Promise<void>
@@ -51,7 +51,7 @@ export interface LiveBootstrapSyncDeps extends BootstrapSyncDeps {
   restoreReplicationPartition: (
     indexName: string,
     partitionId: number,
-    bytes: Uint8Array,
+    chunks: readonly Uint8Array[],
     config: IndexConfig,
     partitionCount: number,
   ) => Promise<void>

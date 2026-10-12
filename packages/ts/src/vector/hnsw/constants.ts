@@ -1,5 +1,6 @@
 export const MAX_LAYER_CAP = 32
 export const MAX_M = 512
+export const MIN_M = 2
 export const INITIAL_UPPER_SLOTS = 64
 export const INITIAL_LIST_CAPACITY = 64
 export const PLACEMENT_ROOM_REQUESTS = 8

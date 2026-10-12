@@ -1,10 +1,15 @@
-import { concatEnvelopeParts, readMetadataEnvelope, writeMetadataEnvelope } from '../../serialization/envelope'
+import { readMetadataEnvelope, writeMetadataEnvelope } from '../../serialization/envelope'
 import type { PersistenceAdapter } from '../../types/adapters'
-import { buildSnapshotBundleBytes, snapshotStorageKey } from './checkpoint'
-import { countSnapshotBundleDocuments } from './checkpoint-count'
-import { DEFAULT_CHECKPOINT_INTERVAL_MS, DEFAULT_CHECKPOINT_MUTATION_THRESHOLD } from './constants'
-import { loadSnapshotBundleBytes, snapshotCheckpointFor } from './recovery'
-import { SINGLE_NODE_PRIMARY_TERM } from './seq-owner'
+import { countCheckpointDocuments } from './checkpoint-count'
+import { recoverCheckpoint } from './checkpoint-recovery'
+import {
+  DEFAULT_CHECKPOINT_INTERVAL_MS,
+  DEFAULT_CHECKPOINT_MUTATION_THRESHOLD,
+  DEFAULT_COMPACTION_THRESHOLD,
+} from './constants'
+import { snapshotCheckpointFor } from './recovery'
+import { adapterCheckpointStore } from './segment/store'
+import { writeSnapshotOnlyCheckpoint } from './snapshot-only-checkpoint'
 import type {
   CheckpointPublisher,
   DurabilityConfig,
@@ -77,35 +82,26 @@ export function createSnapshotOnlyManager(
     }
   }
 
-  async function performCheckpoint(indexName: string, indexState: SnapshotIndexState): Promise<void> {
+  async function performCheckpoint(
+    indexName: string,
+    indexState: SnapshotIndexState,
+    fromMemory: boolean,
+  ): Promise<void> {
     const manager = hooks.getManager(indexName)
     const metadata = hooks.buildMetadata(indexName)
     if (manager === undefined || metadata === undefined) {
       return
     }
 
-    const documentCount = manager.countDocuments()
-    const seqNoByPartition = new Map<number, number>()
-    const primaryTermByPartition = new Map<number, number>()
-    for (let i = 0; i < manager.partitionCount; i += 1) {
-      seqNoByPartition.set(i, indexState.appliedSeqNoByPartition.get(i) ?? 0)
-      primaryTermByPartition.set(i, SINGLE_NODE_PRIMARY_TERM)
-    }
-
-    const { parts } = await buildSnapshotBundleBytes({
+    const documentCount = await writeSnapshotOnlyCheckpoint({
+      adapter,
       indexName,
-      schema: metadata.schema,
-      language: metadata.language,
-      ...(metadata.analysisRevision !== undefined ? { analysisRevision: metadata.analysisRevision } : {}),
-      ...(metadata.tokenizer !== undefined ? { tokenizer: metadata.tokenizer } : {}),
-      ...(metadata.stopWords !== undefined ? { stopWords: metadata.stopWords } : {}),
-      ...(metadata.stopWordList !== undefined ? { stopWordList: metadata.stopWordList } : {}),
+      metadata,
       manager,
       vectorIndexes: hooks.getVectorIndexes(indexName),
-      seqNoByPartition,
-      primaryTermByPartition,
+      appliedSeqNoByPartition: indexState.appliedSeqNoByPartition,
+      rewritesEveryPartition: fromMemory,
     })
-    await adapter.save(snapshotStorageKey(indexName), concatEnvelopeParts(parts))
     await queueMetadataWrite(indexName, async () => {
       const checkpointMetadata = hooks.buildMetadata(indexName, documentCount)
       if (checkpointMetadata === undefined) return
@@ -124,19 +120,19 @@ export function createSnapshotOnlyManager(
     }
   }
 
-  async function checkpointIndex(indexName: string, forceFresh = false): Promise<void> {
+  async function checkpointIndex(indexName: string, fromMemory = false): Promise<void> {
     const indexState = indexes.get(indexName)
     if (indexState === undefined || indexState.unloading) {
       return
     }
     if (indexState.checkpointInFlight !== null) {
       await indexState.checkpointInFlight
-      if (!forceFresh) {
+      if (!fromMemory) {
         return
       }
     }
     const run = indexState.applyChain
-      .then(() => performCheckpoint(indexName, indexState))
+      .then(() => performCheckpoint(indexName, indexState, fromMemory))
       .finally(() => {
         indexState.checkpointInFlight = null
       })
@@ -186,33 +182,41 @@ export function createSnapshotOnlyManager(
     }
 
     const manager = hooks.getManager(indexName)
-    if (manager === undefined) {
+    const current = hooks.buildMetadata(indexName)
+    if (manager === undefined || current === undefined) {
       return
     }
-    const snapshotBytes = await adapter.load(snapshotStorageKey(indexName))
-    if (snapshotBytes === null) {
-      return
-    }
-    const checkpoint = await loadSnapshotBundleBytes(snapshotBytes, {
+    const recovered = await recoverCheckpoint({
+      store: adapterCheckpointStore(adapter),
+      indexName,
+      metadata: current,
       manager,
-      vectorFieldPaths: hooks.getVectorFieldPaths(indexName),
       vectorIndexes: hooks.getVectorIndexes(indexName),
+      storedTermsAreCurrent: metadata.analysisRevision === manager.language.revision,
+      compactionThreshold: DEFAULT_COMPACTION_THRESHOLD,
+      keepsUnlistedFiles: false,
+      replay: async checkpoint => checkpoint,
+      onLayoutUpgrade: hooks.onLayoutUpgrade,
     })
     const indexState = getOrCreateIndexState(indexName)
     for (let partitionId = 0; partitionId < manager.partitionCount; partitionId += 1) {
-      const persistedSeqNo = snapshotCheckpointFor(checkpoint, partitionId)
+      const persistedSeqNo = snapshotCheckpointFor(recovered.checkpoint, partitionId)
       if (persistedSeqNo > 0) {
         indexState.appliedSeqNoByPartition.set(partitionId, persistedSeqNo)
       }
     }
+    if (recovered.upgradedDocumentCount !== null) {
+      const upgradedCount = recovered.upgradedDocumentCount
+      await queueMetadataWrite(indexName, async () => {
+        const upgraded = hooks.buildMetadata(indexName, upgradedCount)
+        if (upgraded === undefined) return
+        await adapter.save(metadataKey(indexName), await writeMetadataEnvelope(upgraded, { checksum: true }))
+      }).catch(() => undefined)
+    }
   }
 
-  async function countStoredBundleDocuments(indexName: string): Promise<number> {
-    const snapshotBytes = await adapter.load(snapshotStorageKey(indexName))
-    if (snapshotBytes === null) {
-      return 0
-    }
-    return countSnapshotBundleDocuments(snapshotBytes)
+  function countStoredBundleDocuments(indexName: string): Promise<number> {
+    return countCheckpointDocuments(adapterCheckpointStore(adapter), indexName)
   }
 
   async function recordMutation(record: MutationRecord): Promise<number> {

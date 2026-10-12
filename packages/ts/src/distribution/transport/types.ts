@@ -34,7 +34,7 @@ export interface TransportConfig {
   requestTimeout: number
   /** A replication entry may take this long to reach a replica and come back acknowledged. */
   replicationTimeout: number
-  /** A whole snapshot transfer, which moves a partition between nodes, may take this long. */
+  /** A node waits this long for each next chunk of a snapshot transfer, which moves a partition or an index between nodes, so that the node can receive a transfer of any size while the sender keeps sending. */
   snapshotTimeout: number
 }
 

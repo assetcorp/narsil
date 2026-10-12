@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createHNSWIndex, type HNSWIndex } from '../../../vector/hnsw'
 import { createVectorStore, type VectorStore } from '../../../vector/vector-store'
-import { DIM, insertVec, removeVec, seededVector } from './fixtures'
+import { DIM, graphView, insertVec, removeVec, seededVector } from './fixtures'
 
 describe('HNSWIndex graph structure integrity', () => {
   let store: VectorStore
@@ -25,7 +25,7 @@ describe('HNSWIndex graph structure integrity', () => {
 
     connIndex.rebuild()
 
-    const serialized = connIndex.serialize()
+    const serialized = graphView(connIndex, connStore)
     for (const [, , layerConns] of serialized.nodes) {
       const layer0 = layerConns.find(([l]) => l === 0)
       if (layer0) {
@@ -42,7 +42,7 @@ describe('HNSWIndex graph structure integrity', () => {
       insertVec(store, index, `doc${i}`, seededVector(DIM, i + 1))
     }
 
-    const serialized = index.serialize()
+    const serialized = graphView(index, store)
     const adjacency = new Map<string, Set<string>[]>()
     for (const [docId, maxLayer, layerConns] of serialized.nodes) {
       const layers: Set<string>[] = Array.from({ length: maxLayer + 1 }, () => new Set())
@@ -77,7 +77,7 @@ describe('HNSWIndex graph structure integrity', () => {
       insertVec(largeStore, largeIndex, `doc${i}`, seededVector(DIM, i + 1))
     }
 
-    const serialized = largeIndex.serialize()
+    const serialized = graphView(largeIndex, largeStore)
     const Mmax0 = 4 * 2
 
     for (const [, , layerConns] of serialized.nodes) {
@@ -95,7 +95,7 @@ describe('HNSWIndex graph structure integrity', () => {
       insertVec(largeStore, largeIndex, `doc${i}`, seededVector(DIM, i + 1))
     }
 
-    const serialized = largeIndex.serialize()
+    const serialized = graphView(largeIndex, largeStore)
     const nodeIds = new Set(serialized.nodes.map(([docId]) => docId))
 
     for (const [docId, , layerConns] of serialized.nodes) {
@@ -116,7 +116,7 @@ describe('HNSWIndex graph structure integrity', () => {
       insertVec(largeStore, largeIndex, `doc${i}`, seededVector(DIM, i + 1))
     }
 
-    const serialized = largeIndex.serialize()
+    const serialized = graphView(largeIndex, largeStore)
     const layerCounts = new Map<number, number>()
 
     for (const [, maxLayer] of serialized.nodes) {

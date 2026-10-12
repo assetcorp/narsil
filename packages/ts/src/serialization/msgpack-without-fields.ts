@@ -100,6 +100,25 @@ function stringKeyAt(bytes: Uint8Array, view: DataView, offset: number): { key: 
   }
 }
 
+export function topLevelMapKeys(bytes: Uint8Array): Set<string> | null {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+  const top = headerAt(view, 0)
+  if (top === null || top.bodyBytes !== 0) return null
+  const tag = view.getUint8(0)
+  if (!((tag >= 0x80 && tag <= 0x8f) || MAP_TAGS.has(tag))) return null
+  const keys = new Set<string>()
+  let offset = top.headerBytes
+  for (let pair = 0; pair < top.children / 2; pair += 1) {
+    const key = stringKeyAt(bytes, view, offset)
+    if (key === null) return null
+    const valueEnd = endOfValue(view, key.end)
+    if (valueEnd === null) return null
+    keys.add(key.key)
+    offset = valueEnd
+  }
+  return keys
+}
+
 export function decodeMapWithoutFields(
   bytes: Uint8Array,
   skippedFields: ReadonlySet<string>,

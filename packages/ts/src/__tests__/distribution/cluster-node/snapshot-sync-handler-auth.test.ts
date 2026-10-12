@@ -14,6 +14,7 @@ import type {
 import { ReplicationMessageTypes, type RespondFn, type TransportMessage } from '../../../distribution/transport/types'
 import { ErrorCodes } from '../../../errors'
 import type { Narsil } from '../../../narsil'
+import { snapshotStreamOf } from './snapshot-stream'
 
 function makeAssignment(overrides: Partial<PartitionAssignment> = {}): PartitionAssignment {
   return {
@@ -42,7 +43,7 @@ function makeCoordinator(allocation: AllocationTable | null): ClusterCoordinator
 function makeEngine(bytes = new Uint8Array(4)): Narsil {
   return {
     listIndexes: vi.fn().mockReturnValue([{ name: 'products' }]),
-    snapshot: vi.fn().mockResolvedValue(bytes),
+    snapshot: vi.fn().mockImplementation(async () => snapshotStreamOf(bytes)),
   } as unknown as Narsil
 }
 

@@ -135,7 +135,7 @@ export class TextPostings {
     const writeCursor = postingOffsets.slice(0, tokenCount)
     const postingDocIds = new Uint32Array(postings)
     const postingFrequencies = new Uint16Array(postings)
-    const postingFieldIndices = new Uint8Array(postings)
+    const postingFieldIndices = new Uint16Array(postings)
     const logRowOfPosting = new Uint32Array(postings)
     for (let row = 0; row < postings; row++) {
       const target = writeCursor[this.logToken.values[row]]++

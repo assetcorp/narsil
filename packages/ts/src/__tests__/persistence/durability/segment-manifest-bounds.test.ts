@@ -5,216 +5,252 @@ import { getLanguage } from '../../../languages/registry'
 import { createPartitionManager } from '../../../partitioning/manager'
 import { createPartitionRouter } from '../../../partitioning/router'
 import { createDurableDirectory } from '../../../persistence/durability/durable-filesystem'
-import { loadSegmentedSnapshot } from '../../../persistence/durability/segment/load'
-import {
-  decodeSegmentManifest,
-  MAX_SEGMENTS_PER_PARTITION,
-  SEGMENT_MANIFEST_VERSION,
-  type SegmentManifest,
-} from '../../../persistence/durability/segment/manifest'
-import { packSnapshotEnvelopeParts } from '../../../serialization/envelope'
+import { loadSegmentedCheckpoint } from '../../../persistence/durability/segment/load'
+import { MAX_SEGMENTS_PER_PARTITION, type SegmentManifest } from '../../../persistence/durability/segment/manifest'
+import { decodeSegmentManifest } from '../../../persistence/durability/segment/manifest-decode'
+import { directoryCheckpointStore } from '../../../persistence/durability/segment/store'
 import type { IndexConfig } from '../../../types/schema'
+import { sealEnvelope } from '../../e2e/portability/archive-oracle'
 
-async function encodeRawManifest(payload: Record<string, unknown>): Promise<Uint8Array> {
-  const parts = await packSnapshotEnvelopeParts(encode(payload))
-  const combined = new Uint8Array(parts.header.length + parts.payload.length)
-  combined.set(parts.header, 0)
-  combined.set(parts.payload, parts.header.length)
-  return combined
+const MANIFEST_ENVELOPE_VERSION = 2
+const VECTOR_KEY_STEM = 'docs/segments/vec-embedding-1l4nfg2'
+
+function manifestBytes(payload: Record<string, unknown>): Uint8Array {
+  return sealEnvelope(MANIFEST_ENVELOPE_VERSION, encode(payload))
+}
+
+function segmentKey(id: number): string {
+  return `docs/segments/0/s${String(id).padStart(16, '0')}`
+}
+
+function segment(id: number, overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return { id, key: segmentKey(id), docCount: 5, tombstoneCount: 0, bytes: 512, checksum: 7, ...overrides }
+}
+
+function manifestWith(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    version: 7,
+    schema: { title: 'string', embedding: 'vector[8]' },
+    language: 'english',
+    checkpoint: [{ partitionId: 0, lastSeqNo: 7, primaryTerm: 1 }],
+    partitions: [{ partitionId: 0, nextSegmentId: 2, segments: [segment(1)] }],
+    vectors: [],
+    ...overrides,
+  }
+}
+
+const embedding = {
+  fieldPath: 'embedding',
+  nextFileId: 5,
+  files: [
+    {
+      id: 2,
+      key: `${VECTOR_KEY_STEM}-f0000000000000002`,
+      count: 9,
+      dead: Uint8Array.of(4, 1),
+      bytes: 900,
+      checksum: 11,
+    },
+    { id: 4, key: `${VECTOR_KEY_STEM}-f0000000000000004`, count: 3, dead: null, bytes: 300, checksum: 12 },
+  ],
+  graphGeneration: 3,
+  graphParts: [
+    { key: `${VECTOR_KEY_STEM}-graph-g3-p0000000000000000`, bytes: 400, checksum: 13 },
+    { key: `${VECTOR_KEY_STEM}-graph-g3-p0000000000000001`, bytes: 100, checksum: 14 },
+  ],
+}
+
+async function refusalOf(payload: Record<string, unknown>): Promise<NarsilError> {
+  try {
+    await decodeSegmentManifest(manifestBytes(payload), 'docs')
+  } catch (error) {
+    if (error instanceof NarsilError) return error
+    throw error
+  }
+  throw new Error('the reader accepted the manifest')
+}
+
+async function currentManifestOf(payload: Record<string, unknown>): Promise<SegmentManifest> {
+  const decoded = await decodeSegmentManifest(manifestBytes(payload), 'docs')
+  if (decoded.kind !== 'current') throw new Error('the reader took the manifest for an earlier layout')
+  return decoded.manifest
 }
 
 describe('segment manifest decode bounds', () => {
-  it('rejects an unsupported manifest version', async () => {
-    const bytes = await encodeRawManifest({
-      version: 2,
-      schema: { title: 'string' },
-      language: 'english',
-      checkpoint: [],
-      partitions: [],
+  it('accepts a well-formed manifest with its file lengths and checksums', async () => {
+    const manifest = await currentManifestOf(manifestWith({ vectors: [embedding] }))
+
+    expect(manifest.partitions[0].segments[0]).toEqual({
+      id: 1,
+      key: segmentKey(1),
+      docCount: 5,
+      tombstoneCount: 0,
+      bytes: 512,
+      checksum: 7,
     })
-    await expect(decodeSegmentManifest(bytes)).rejects.toThrow(/Unsupported segment manifest version/)
+    expect(manifest.partitions[0].nextSegmentId).toBe(2)
+    expect(manifest.vectors).toEqual([embedding])
   })
 
-  it('accepts a well-formed manifest', async () => {
-    const bytes = await encodeRawManifest({
-      version: SEGMENT_MANIFEST_VERSION,
-      schema: { title: 'string' },
-      language: 'english',
-      checkpoint: [{ partitionId: 0, lastSeqNo: 7, primaryTerm: 1 }],
+  it('hands a layout 6 manifest to the upgrade and refuses every other layout', async () => {
+    const earlier = await decodeSegmentManifest(manifestBytes(manifestWith({ version: 6 })), 'docs')
+    expect(earlier.kind).toBe('earlier')
+
+    for (const version of [2, 5, 8, 'seven']) {
+      const refusal = await refusalOf(manifestWith({ version }))
+      expect(refusal.code).toBe(ErrorCodes.ENVELOPE_VERSION_MISMATCH)
+      expect(refusal.message).toMatch(/export/i)
+    }
+  })
+
+  it('refuses a manifest whose envelope is not version 2', async () => {
+    const bytes = sealEnvelope(1, encode(manifestWith()))
+
+    await expect(decodeSegmentManifest(bytes, 'docs')).rejects.toMatchObject({
+      code: ErrorCodes.ENVELOPE_VERSION_MISMATCH,
+    })
+  })
+
+  it('refuses a listed key that the path convention does not build for the entry', async () => {
+    const wrongSegment = manifestWith({
+      partitions: [{ partitionId: 0, nextSegmentId: 2, segments: [segment(1, { key: '../../etc/passwd' })] }],
+    })
+    const wrongPartition = manifestWith({
       partitions: [
-        {
-          partitionId: 0,
-          nextSegmentId: 2,
-          segments: [{ id: 1, key: 'docs/segments/0/s0000000000000001', docCount: 5, tombstoneCount: 0 }],
-        },
+        { partitionId: 0, nextSegmentId: 2, segments: [segment(1, { key: 'docs/segments/1/s0000000000000001' })] },
       ],
     })
-    const manifest = await decodeSegmentManifest(bytes)
-    expect(manifest.partitions[0].segments[0].id).toBe(1)
-    expect(manifest.partitions[0].nextSegmentId).toBe(2)
+    const wrongIndex = manifestWith({
+      partitions: [
+        { partitionId: 0, nextSegmentId: 2, segments: [segment(1, { key: 'other/segments/0/s0000000000000001' })] },
+      ],
+    })
+    const wrongGraphPart = manifestWith({
+      vectors: [{ ...embedding, graphParts: [embedding.graphParts[1], embedding.graphParts[0]] }],
+    })
+    const wrongVectorFile = manifestWith({
+      vectors: [{ ...embedding, files: [{ ...embedding.files[0], key: embedding.files[1].key }] }],
+    })
+
+    for (const payload of [wrongSegment, wrongPartition, wrongIndex, wrongGraphPart, wrongVectorFile]) {
+      expect((await refusalOf(payload)).code).toBe(ErrorCodes.PERSISTENCE_LOAD_FAILED)
+    }
   })
 
-  const embedding = {
-    fieldPath: 'embedding',
-    nextFileId: 5,
-    files: [
-      { id: 2, key: 'docs/segments/vec-embedding-1l4nfg2-f0000000000000002', count: 9, dead: Uint8Array.of(4, 1) },
-      { id: 4, key: 'docs/segments/vec-embedding-1l4nfg2-f0000000000000004', count: 3, dead: null },
-    ],
-    graphGeneration: 3,
-    graphKey: 'docs/segments/vec-embedding-1l4nfg2-graph-g3',
-  }
-
-  function manifestWithVectors(vectors: unknown[]): Promise<Uint8Array> {
-    return encodeRawManifest({
-      version: SEGMENT_MANIFEST_VERSION,
-      schema: { title: 'string', embedding: 'vector[8]' },
-      language: 'english',
-      checkpoint: [],
-      partitions: [],
-      vectors,
-    })
-  }
-
-  it('reads the vector files and the graph file of each field from the manifest itself', async () => {
-    const bytes = await manifestWithVectors([embedding])
-    expect((await decodeSegmentManifest(bytes)).vectors).toEqual([embedding])
+  it('refuses a file length below the header, above the file size limit, or missing, and a checksum outside uint32', async () => {
+    for (const overrides of [
+      { bytes: 31 },
+      { bytes: 2_147_483_648 },
+      { bytes: undefined },
+      { bytes: 1.5 },
+      { checksum: -1 },
+      { checksum: 2 ** 32 },
+      { checksum: undefined },
+    ]) {
+      const payload = manifestWith({
+        partitions: [{ partitionId: 0, nextSegmentId: 2, segments: [segment(1, overrides)] }],
+      })
+      expect((await refusalOf(payload)).code).toBe(ErrorCodes.PERSISTENCE_LOAD_FAILED)
+    }
   })
 
   it('reads a field with no vector file and no graph', async () => {
-    const empty = { fieldPath: 'embedding', nextFileId: 0, files: [], graphGeneration: 0, graphKey: null }
-    expect((await decodeSegmentManifest(await manifestWithVectors([empty]))).vectors).toEqual([empty])
+    const empty = { fieldPath: 'embedding', nextFileId: 0, files: [], graphGeneration: 0, graphParts: [] }
+
+    expect((await currentManifestOf(manifestWith({ vectors: [empty] }))).vectors).toEqual([empty])
   })
 
-  it('rejects a manifest that lists one vector field twice', async () => {
-    const bytes = await manifestWithVectors([embedding, { ...embedding, graphGeneration: 4 }])
-    await expect(decodeSegmentManifest(bytes)).rejects.toThrow(/lists the vector field "embedding" twice/)
-  })
-
-  it('rejects dead marks of any length but one bit per vector', async () => {
-    const files = [{ ...embedding.files[0], dead: Uint8Array.of(4) }]
-    const bytes = await manifestWithVectors([{ ...embedding, files }])
-    await expect(decodeSegmentManifest(bytes)).rejects.toThrow(/wrong number of bytes/)
-  })
-
-  it('rejects a graph file named at generation 0, which no writer reaches', async () => {
-    const bytes = await manifestWithVectors([{ ...embedding, graphGeneration: 0 }])
-    await expect(decodeSegmentManifest(bytes)).rejects.toMatchObject({ code: ErrorCodes.PERSISTENCE_LOAD_FAILED })
-  })
-
-  it('rejects a vector file that counts more than 65,536 vectors', async () => {
-    const files = [{ ...embedding.files[1], count: 65_537 }]
-    const bytes = await manifestWithVectors([{ ...embedding, files }])
-    await expect(decodeSegmentManifest(bytes)).rejects.toThrow(/invalid count/)
-  })
-
-  it('rejects a vector file listed twice and a file at the next file id', async () => {
-    const twice = await manifestWithVectors([{ ...embedding, files: [embedding.files[0], embedding.files[0]] }])
-    const atNext = await manifestWithVectors([{ ...embedding, nextFileId: 4 }])
-    await expect(decodeSegmentManifest(twice)).rejects.toThrow(/twice or at its next file id/)
-    await expect(decodeSegmentManifest(atNext)).rejects.toThrow(/twice or at its next file id/)
-  })
-
-  it('rejects a segment list above the maximum', async () => {
-    const segments = []
-    for (let i = 0; i <= MAX_SEGMENTS_PER_PARTITION; i += 1) {
-      segments.push({ id: i, key: `docs/segments/0/s${i}`, docCount: 1, tombstoneCount: 0 })
+  it('refuses a vector field listed twice, graph parts at generation 0, and a field with no list of parts', async () => {
+    const { graphParts: _parts, ...withoutParts } = embedding
+    for (const vectors of [
+      [embedding, { ...embedding, graphGeneration: 4 }],
+      [{ ...embedding, graphGeneration: 0 }],
+      [withoutParts],
+    ]) {
+      expect((await refusalOf(manifestWith({ vectors }))).code).toBe(ErrorCodes.PERSISTENCE_LOAD_FAILED)
     }
-    const bytes = await encodeRawManifest({
-      version: SEGMENT_MANIFEST_VERSION,
-      schema: { title: 'string' },
-      language: 'english',
-      checkpoint: [],
-      partitions: [{ partitionId: 0, nextSegmentId: segments.length, segments }],
-    })
-    await expect(decodeSegmentManifest(bytes)).rejects.toThrow(/exceeding the maximum/)
   })
 
-  it('rejects a manifest that reuses a segment id', async () => {
-    const bytes = await encodeRawManifest({
-      version: SEGMENT_MANIFEST_VERSION,
-      schema: { title: 'string' },
-      language: 'english',
-      checkpoint: [],
-      partitions: [
-        {
-          partitionId: 0,
-          nextSegmentId: 2,
-          segments: [
-            { id: 1, key: 'docs/segments/0/s-a', docCount: 1, tombstoneCount: 0 },
-            { id: 1, key: 'docs/segments/0/s-b', docCount: 1, tombstoneCount: 0 },
-          ],
-        },
-      ],
-    })
-    await expect(decodeSegmentManifest(bytes)).rejects.toThrow(/reuses segment id/)
+  it('refuses dead marks of any length but one bit per vector, and a vector file above 65,536 vectors', async () => {
+    const shortDead = [{ ...embedding.files[0], dead: Uint8Array.of(4) }]
+    const tooMany = [{ ...embedding.files[1], count: 65_537 }]
+
+    expect((await refusalOf(manifestWith({ vectors: [{ ...embedding, files: shortDead }] }))).message).toMatch(
+      /wrong number of bytes/,
+    )
+    expect((await refusalOf(manifestWith({ vectors: [{ ...embedding, files: tooMany }] }))).message).toMatch(
+      /invalid count/,
+    )
   })
 
-  it('rejects a next segment id that does not exceed an existing segment id', async () => {
-    const bytes = await encodeRawManifest({
-      version: SEGMENT_MANIFEST_VERSION,
-      schema: { title: 'string' },
-      language: 'english',
-      checkpoint: [],
-      partitions: [
-        {
-          partitionId: 0,
-          nextSegmentId: 1,
-          segments: [{ id: 1, key: 'docs/segments/0/s1', docCount: 1, tombstoneCount: 0 }],
-        },
-      ],
-    })
-    await expect(decodeSegmentManifest(bytes)).rejects.toThrow(/does not exceed an existing segment id/)
+  it('refuses a vector file listed twice and a file at the next file id', async () => {
+    const twice = manifestWith({ vectors: [{ ...embedding, files: [embedding.files[0], embedding.files[0]] }] })
+    const atNext = manifestWith({ vectors: [{ ...embedding, nextFileId: 4 }] })
+
+    expect((await refusalOf(twice)).message).toMatch(/twice or at its next file id/)
+    expect((await refusalOf(atNext)).message).toMatch(/twice or at its next file id/)
   })
 
-  it('rejects a segment reference with a negative document count', async () => {
-    const bytes = await encodeRawManifest({
-      version: SEGMENT_MANIFEST_VERSION,
-      schema: { title: 'string' },
-      language: 'english',
-      checkpoint: [],
-      partitions: [
-        {
-          partitionId: 0,
-          nextSegmentId: 1,
-          segments: [{ id: 0, key: 'docs/segments/0/s0', docCount: -1, tombstoneCount: 0 }],
-        },
+  it('refuses a segment list above the maximum', async () => {
+    const segments = []
+    for (let i = 0; i <= MAX_SEGMENTS_PER_PARTITION; i += 1) segments.push(segment(i))
+    const payload = manifestWith({ partitions: [{ partitionId: 0, nextSegmentId: segments.length, segments }] })
+
+    expect((await refusalOf(payload)).code).toBe(ErrorCodes.PERSISTENCE_LOAD_FAILED)
+  })
+
+  it('refuses a reused segment id, a next segment id at or below an existing id, and a negative count', async () => {
+    for (const partitions of [
+      [{ partitionId: 0, nextSegmentId: 2, segments: [segment(1), segment(1)] }],
+      [{ partitionId: 0, nextSegmentId: 1, segments: [segment(1)] }],
+      [{ partitionId: 0, nextSegmentId: 2, segments: [segment(1, { docCount: -1 })] }],
+      [
+        { partitionId: 0, nextSegmentId: 2, segments: [segment(1)] },
+        { partitionId: 0, nextSegmentId: 2, segments: [] },
       ],
+    ]) {
+      expect((await refusalOf(manifestWith({ partitions }))).code).toBe(ErrorCodes.PERSISTENCE_LOAD_FAILED)
+    }
+  })
+
+  it('refuses a payload that is not a map and a schema that names an unknown type', async () => {
+    const notAMap = sealEnvelope(MANIFEST_ENVELOPE_VERSION, encode(['version', 7]))
+
+    await expect(decodeSegmentManifest(notAMap, 'docs')).rejects.toMatchObject({
+      code: ErrorCodes.PERSISTENCE_LOAD_FAILED,
     })
-    await expect(decodeSegmentManifest(bytes)).rejects.toThrow(NarsilError)
+    expect((await refusalOf(manifestWith({ schema: { title: 'glob' } }))).code).toBe(ErrorCodes.SCHEMA_INVALID_TYPE)
   })
 })
 
 describe('segment load partition bounds', () => {
-  it('rejects a manifest partition id beyond the partition cap', async () => {
+  it('refuses a manifest partition id beyond the partition cap', async () => {
     const config: IndexConfig = {
       schema: { title: 'string' },
       language: 'english',
       partitions: { maxPartitions: 1 },
     }
-    const language = getLanguage('english')
-    const router = createPartitionRouter()
-    const manager = createPartitionManager('docs', config, language, router, 1, new Map())
-
-    const manifest: SegmentManifest = {
-      version: SEGMENT_MANIFEST_VERSION,
-      schema: { title: 'string' },
-      language: 'english',
-      checkpoint: [],
-      partitions: [
-        { partitionId: 0, nextSegmentId: 0, segments: [] },
-        { partitionId: 1, nextSegmentId: 0, segments: [] },
-      ],
-      vectors: [],
-    }
-
-    const directory = createDurableDirectory('/tmp/narsil-bounds-unused')
-    await expect(
-      loadSegmentedSnapshot(directory, 'docs', manifest, {
-        manager,
-        vectorFieldPaths: new Set(),
-        vectorIndexes: new Map(),
+    const manager = createPartitionManager(
+      'docs',
+      config,
+      getLanguage('english'),
+      createPartitionRouter(),
+      1,
+      new Map(),
+    )
+    const manifest = await currentManifestOf(
+      manifestWith({
+        schema: { title: 'string' },
+        partitions: [
+          { partitionId: 0, nextSegmentId: 0, segments: [] },
+          { partitionId: 1, nextSegmentId: 0, segments: [] },
+        ],
       }),
-    ).rejects.toThrow(/beyond the partition count/)
+    )
+
+    const store = directoryCheckpointStore(createDurableDirectory('/tmp/narsil-bounds-unused'))
+    await expect(
+      loadSegmentedCheckpoint(store, 'docs', manifest, { manager, vectorIndexes: new Map() }),
+    ).rejects.toMatchObject({ code: ErrorCodes.PERSISTENCE_LOAD_FAILED })
   })
 })

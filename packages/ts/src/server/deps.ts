@@ -5,6 +5,7 @@ import type { TaskRegistry } from './tasks'
 export interface ResolvedLimits {
   maxBodyBytes: number
   maxImportBytes: number
+  maxRestoreBytes: number
   maxLineBytes: number
   importBatchSize: number
   maxConcurrentRequests: number

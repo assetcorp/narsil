@@ -1,10 +1,5 @@
 import type { EngineCore, EventHandler } from '../engine/core'
-import {
-  announceIndexCreated,
-  createEngineIndex,
-  dropEngineIndex,
-  registerEngineEmbeddingAdapter,
-} from '../engine/index-lifecycle'
+import { createEngineIndex, dropEngineIndex, registerEngineEmbeddingAdapter } from '../engine/index-lifecycle'
 import { shutdownEngine } from '../engine/lifecycle'
 import {
   insertDocument,
@@ -15,9 +10,7 @@ import {
   updateDocumentBatch,
 } from '../engine/mutations'
 import { executeRebalance } from '../engine/rebalance-executor'
-import { createSnapshot, restoreFromSnapshot } from '../engine/snapshot'
 import { validatePartitionConfig } from '../engine/validation'
-import { getVectorFieldPaths } from '../engine/vector-fields'
 import {
   compactVectors as executeCompactVectors,
   optimizeVectors as executeOptimizeVectors,
@@ -45,6 +38,7 @@ import type {
 import type { AnyDocument, IndexConfig, InsertOptions, PartitionConfig, WriteOptions } from '../types/schema'
 import type { ListParams, QueryParams, SuggestParams } from '../types/search'
 import { bindEngineCore } from './internals'
+import { portabilityOperations } from './portability'
 import { runEngineListDocuments, runEnginePreflight, runEngineQuery, runEngineSuggest } from './reads'
 
 export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): Narsil {
@@ -81,7 +75,11 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
 
   const narsil: Narsil = {
     createIndex(name: string, indexConfig: IndexConfig): Promise<void> {
-      return emitWriteEventAfter(core, name, createEngineIndex(core, config, name, indexConfig))
+      return emitWriteEventAfter(
+        core,
+        name,
+        createEngineIndex(core, config, name, indexConfig, { appliesCreationLimits: true }),
+      )
     },
 
     registerEmbeddingAdapter(name: string, adapter: EmbeddingAdapter): void {
@@ -212,31 +210,7 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
       await withOpenIndexWrite(indexName, () => core.analysisRebuild.rebuild(indexName))
     },
 
-    async snapshot(indexName: string): Promise<Uint8Array> {
-      guardShutdown()
-      return withOpenIndex(indexName, () => createSnapshot(requireManager(indexName), requireIndex(indexName)))
-    },
-
-    async restore(indexName: string, data: Uint8Array): Promise<void> {
-      guardShutdown()
-      const restored = restoreFromSnapshot(indexName, data, {
-        executor,
-        indexRegistry,
-        getVectorFieldPaths,
-        dropIndex: name => dropEngineIndex(core, name),
-        announceIndexCreated: (name, restoredConfig) => announceIndexCreated(core, name, restoredConfig),
-        requireManager,
-        durability,
-        filesystemDurability: core.filesystemDurability,
-        embeddingAdapters: core.embeddingAdapters,
-        defaultEmbeddingAdapter: config?.embedding ?? null,
-        markAnalysisStale: core.analysisRebuild.markStale,
-        clearAnalysisStale: core.analysisRebuild.clearStale,
-        indexState: core.indexState,
-      })
-      await emitWriteEventAfter(core, indexName, restored)
-      core.heapPressureNotifier.check(indexName)
-    },
+    ...portabilityOperations(core, config, () => narsil),
 
     async checkpoint(indexName: string): Promise<void> {
       guardShutdown()

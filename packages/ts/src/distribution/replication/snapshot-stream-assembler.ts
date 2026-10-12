@@ -22,7 +22,7 @@ export type { SnapshotStreamExpectation, SnapshotStreamFailure, SnapshotStreamSt
 
 export interface SnapshotStreamSuccess {
   ok: true
-  bytes: Uint8Array
+  chunks: Uint8Array[]
   header: ReplicationSnapshotHeader
   end: SnapshotEndPayload
 }
@@ -34,7 +34,7 @@ export function createSnapshotStreamState(expectation: SnapshotStreamExpectation
     expectation,
     header: null,
     totalBytes: null,
-    assembled: null,
+    chunks: [],
     accumulatedBytes: 0,
     expectedNextOffset: 0,
     endPayload: null,
@@ -118,7 +118,7 @@ export function finalizeSnapshotStream(state: SnapshotStreamState): SnapshotStre
   if (state.failure !== null) {
     return state.failure
   }
-  if (state.header === null || state.totalBytes === null || state.assembled === null) {
+  if (state.header === null || state.totalBytes === null) {
     return {
       ok: false,
       code: ErrorCodes.SNAPSHOT_SYNC_CHUNK_MISSING,
@@ -152,7 +152,7 @@ export function finalizeSnapshotStream(state: SnapshotStreamState): SnapshotStre
   }
   return {
     ok: true,
-    bytes: state.assembled,
+    chunks: state.chunks,
     header: state.header,
     end: state.endPayload,
   }

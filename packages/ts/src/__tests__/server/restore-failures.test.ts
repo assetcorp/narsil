@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { TaskRecord } from '../../server'
+import { bytesOf } from '../e2e/portability/archive-oracle'
 import { getJson, postJson, postRaw, startTestServer, type TestServer } from './helpers'
 
 async function waitForTerminalStatus(base: string, taskId: string): Promise<TaskRecord> {
@@ -33,21 +34,27 @@ describe('restore with a body that is not a snapshot', () => {
     const finished = await restoreBytes(server.base, new Uint8Array([1, 2, 3, 4]))
 
     expect(finished.status).toBe('failed')
+    expect(finished.error?.code).toBe('PERSISTENCE_LOAD_FAILED')
+  })
+
+  it('names the failure of an old-format snapshot cut inside its header', async () => {
+    const finished = await restoreBytes(server.base, new Uint8Array([0x4e, 0x52, 0x53, 0x4c, 3, 0, 0]))
+
+    expect(finished.status).toBe('failed')
     expect(finished.error?.code).toBe('ENVELOPE_INVALID_MAGIC')
     expect(finished.error?.message).toContain('32 bytes')
   })
 
-  it('rejects a body that carries no envelope header', async () => {
+  it('rejects a body that holds no snapshot archive', async () => {
     const finished = await restoreBytes(server.base, new Uint8Array(40).fill(0xc0))
 
     expect(finished.status).toBe('failed')
-    expect(finished.error?.code).toBe('ENVELOPE_INVALID_MAGIC')
-    expect(finished.error?.message).toContain('NRSL')
+    expect(finished.error?.code).toBe('PERSISTENCE_LOAD_FAILED')
   })
 
   it('round-trips a snapshot the engine produced', async () => {
     await postJson(server.base, '/indexes/movies/documents', { document: { title: 'Dune' } })
-    const bytes = await server.engine.snapshot('movies')
+    const bytes = await bytesOf(await server.engine.snapshot('movies'))
     await postJson(server.base, '/indexes', { name: 'copy', config: { schema: { title: 'string' } } })
 
     const started = await postRaw<TaskRecord>(server.base, '/indexes/copy/restore', bytes, 'application/octet-stream')

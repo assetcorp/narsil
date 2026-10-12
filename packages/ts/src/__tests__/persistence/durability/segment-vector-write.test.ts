@@ -3,7 +3,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createDurableDirectory } from '../../../persistence/durability/durable-filesystem'
-import { writeLiveVectors } from '../../../persistence/durability/segment/vector'
+import { directoryCheckpointStore } from '../../../persistence/durability/segment/store'
+import { writeLiveVectors } from '../../../persistence/durability/segment/vector-write'
 import { createVectorIndex } from '../../../vector/vector-index'
 import { DIM, normalizedVector } from '../../vector/vector-index/fixtures'
 
@@ -26,7 +27,7 @@ describe('a vector file that a checkpoint writes while the field changes', () =>
     index.compact()
 
     const written = await writeLiveVectors({
-      directory: createDurableDirectory(root),
+      store: directoryCheckpointStore(createDurableDirectory(root)),
       indexName: 'docs',
       plans: new Map([['embedding', plan]]),
       priorVectors: [],
@@ -43,7 +44,7 @@ describe('a vector file that a checkpoint writes while the field changes', () =>
     for (let i = 0; i < 3; i += 1) index.insert(`doc${i}`, normalizedVector(DIM, i + 1))
 
     const written = await writeLiveVectors({
-      directory: createDurableDirectory(root),
+      store: directoryCheckpointStore(createDurableDirectory(root)),
       indexName: 'docs',
       plans: new Map([['embedding', index.planCheckpoint(null)]]),
       priorVectors: [],

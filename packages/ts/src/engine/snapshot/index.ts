@@ -1,298 +1,105 @@
-import { resolveIndexAnalysis } from '../../analysis/registry'
-import { compareCodePoints } from '../../core/ordering'
 import { ErrorCodes, NarsilError } from '../../errors'
-import { getLanguage } from '../../languages/registry'
 import type { PartitionManager } from '../../partitioning/manager'
-import { validateEmbeddingConfig, validateRequiredFieldsInSchema } from '../../schema/embedding-validator'
-import { validateSchema, validateVectorPromotion, validateVectorStorage } from '../../schema/validator'
-import { packIndexSnapshotEnvelope, unpackIndexSnapshotEnvelope } from '../../serialization/envelope'
-import { deserializePayloadV1 } from '../../serialization/payload-v1'
-import { deserializePayloadV2 } from '../../serialization/payload-v2'
-import type { EmbeddingAdapter } from '../../types/adapters'
-import type { IndexConfig, SchemaDefinition } from '../../types/schema'
-import type { VectorIndexPayload } from '../../vector/vector-index'
-import { decodeVectorIndexParts } from '../../vector/vector-index/payload'
-import type { DirectExecutorExtensions } from '../../workers/direct-executor'
-import type { Executor } from '../../workers/executor'
-import type { StaleIndex } from '../analysis-rebuild'
-import { BATCH_CHUNK_SIZE } from '../constants'
+import { type ByteSource, createByteReader } from '../../persistence/archive/byte-reader'
+import { buildArchiveFromMemory } from '../../persistence/archive/from-memory'
+import { archiveStream } from '../../persistence/archive/write'
+import type { ArchiveCheckpoint } from '../../persistence/durability/archive-checkpoint'
+import { MAX_FILE_BYTES } from '../../serialization/constants'
+import { HEADER_SIZE, hasNrslMagic, readHeader } from '../../serialization/header'
 import type { IndexRegistryEntry } from '../core'
-import type { DurabilityIntegration, DurableMutation } from '../durability-integration'
-import type { IndexStateCoordinator } from '../index-state'
-import { validatePatternValueLimit } from '../validation'
-import { restoredConfigFields, restoredEmbedding, type SnapshotEnvelope } from './restore-config'
+import type { DurabilityIntegration } from '../durability-integration'
+import { indexMetadataOf } from '../durability-wiring'
+import { restoreArchive } from './archive-restore'
+import { restoreEarlierSnapshot } from './earlier-restore'
+import { encodeIndexConfiguration } from './index-configuration'
+import type { RestoreDeps } from './restore-setup'
 
-async function recordRestoredDocuments(
-  durability: DurabilityIntegration,
-  indexName: string,
-  restored: readonly DurableMutation[],
-): Promise<void> {
-  if (restored.length === 0) return
-  for (const outcome of await durability.recordMutationBatch(indexName, restored)) {
-    if (!outcome.ok) {
-      throw outcome.error
-    }
-  }
-}
+export type { RestoreDeps } from './restore-setup'
 
-export async function createSnapshot(manager: PartitionManager, entry: IndexRegistryEntry): Promise<Uint8Array> {
-  if (entry.config.tokenizer !== undefined && typeof entry.config.tokenizer !== 'string') {
-    throw new NarsilError(
-      ErrorCodes.CONFIG_INVALID,
-      'A snapshot persists no code, so the index tokenizer must be a name registered with registerTokenizer',
-    )
-  }
-  if (typeof entry.config.stopWords === 'function') {
-    throw new NarsilError(
-      ErrorCodes.CONFIG_INVALID,
-      'A snapshot persists no code, so the index stop words must be a name registered with registerStopWords',
-    )
-  }
-  const partitionBuffers: Uint8Array[] = []
-  for (let i = 0; i < manager.partitionCount; i++) {
-    partitionBuffers.push(manager.serializePartitionToBytes(i))
-  }
+const NRSL_MAGIC_BYTES = 4
 
-  const snapshotVecIndexes = manager.getVectorIndexes()
-  const vectorPayloads: Record<string, VectorIndexPayload[]> = {}
-  for (const [fieldPath, vecIndex] of snapshotVecIndexes) {
-    vectorPayloads[fieldPath] = vecIndex.serialize()
-  }
-
-  const config = entry.config
-  const bm25 = config.bm25
-  const { encode } = await import('@msgpack/msgpack')
-  const payload = encode({
-    version: 2,
-    schema: config.schema,
-    language: entry.language.name,
-    analysisRevision: entry.language.revision,
-    ...(typeof config.tokenizer === 'string' ? { tokenizer: config.tokenizer } : {}),
-    ...(typeof config.stopWords === 'string' ? { stopWords: config.stopWords } : {}),
-    ...(config.stopWords instanceof Set ? { stopWordList: [...config.stopWords].sort(compareCodePoints) } : {}),
-    ...(bm25 !== undefined
-      ? {
-          bm25: {
-            ...(bm25.k1 !== undefined ? { k1: bm25.k1 } : {}),
-            ...(bm25.b !== undefined ? { b: bm25.b } : {}),
-          },
-        }
-      : {}),
-    surfaceForms: config.surfaceForms !== false,
-    ...(config.partitions !== undefined ? { partitionConfig: config.partitions } : {}),
-    ...(config.defaultScoring !== undefined ? { defaultScoring: config.defaultScoring } : {}),
-    ...(config.trackPositions !== undefined ? { trackPositions: config.trackPositions } : {}),
-    ...(config.strict !== undefined ? { strict: config.strict } : {}),
-    ...(config.required !== undefined ? { required: config.required } : {}),
-    ...(config.vectorPromotion !== undefined ? { vectorPromotion: config.vectorPromotion } : {}),
-    ...(config.patternValueLimit !== undefined ? { patternValueLimit: config.patternValueLimit } : {}),
-    ...(config.embedding !== undefined
-      ? {
-          embedding: {
-            fields: config.embedding.fields,
-            ...(entry.embeddingAdapterName !== null ? { adapter: entry.embeddingAdapterName } : {}),
-          },
-        }
-      : {}),
-    partitions: partitionBuffers,
-    vectorIndexes: vectorPayloads,
-  })
-  return packIndexSnapshotEnvelope(payload)
-}
-
-export interface RestoreDeps {
-  executor: Executor & DirectExecutorExtensions
-  indexRegistry: Map<string, IndexRegistryEntry>
-  getVectorFieldPaths: (schema: SchemaDefinition) => Set<string>
-  dropIndex: (name: string) => Promise<void>
-  announceIndexCreated: (name: string, config: IndexConfig) => Promise<void>
-  requireManager: (name: string) => PartitionManager
+export interface SnapshotDeps {
+  indexName: string
+  manager: PartitionManager
+  entry: IndexRegistryEntry
   durability: DurabilityIntegration | null
-  filesystemDurability: boolean
-  embeddingAdapters: Map<string, EmbeddingAdapter>
-  defaultEmbeddingAdapter: EmbeddingAdapter | null
-  markAnalysisStale: (index: StaleIndex) => void
-  clearAnalysisStale: (indexName: string) => void
-  indexState: Pick<IndexStateCoordinator, 'registerOpen' | 'acquire' | 'forget'>
 }
 
-export async function restoreFromSnapshot(indexName: string, data: Uint8Array, deps: RestoreDeps): Promise<void> {
-  if (!(data instanceof Uint8Array)) {
-    throw new NarsilError(ErrorCodes.DOC_VALIDATION_FAILED, 'Snapshot data must be a Uint8Array')
-  }
-
-  const payloadBytes = await unpackIndexSnapshotEnvelope(data)
-
-  const { decode } = await import('@msgpack/msgpack')
-  let decoded: unknown
-  try {
-    decoded = decode(payloadBytes)
-  } catch (err) {
-    throw new NarsilError(
-      ErrorCodes.DOC_VALIDATION_FAILED,
-      `Snapshot data is not a Narsil snapshot: ${err instanceof Error ? err.message : String(err)}`,
-      { bytes: data.length },
-    )
-  }
-
-  if (typeof decoded !== 'object' || decoded === null || Array.isArray(decoded)) {
-    throw new NarsilError(ErrorCodes.DOC_VALIDATION_FAILED, 'Snapshot data does not hold a snapshot envelope', {
-      bytes: data.length,
-    })
-  }
-
-  const envelope = decoded as SnapshotEnvelope
-
-  if (envelope.version !== 1 && envelope.version !== 2) {
-    throw new NarsilError(
-      ErrorCodes.DOC_VALIDATION_FAILED,
-      `Unsupported snapshot version: ${envelope.version}. Expected version 1 or 2`,
-      { version: envelope.version },
-    )
-  }
-
-  if (!envelope.schema || typeof envelope.schema !== 'object') {
-    throw new NarsilError(ErrorCodes.DOC_VALIDATION_FAILED, 'Invalid snapshot: missing or invalid schema')
-  }
-
-  if (!envelope.language || typeof envelope.language !== 'string') {
-    throw new NarsilError(ErrorCodes.DOC_VALIDATION_FAILED, 'Invalid snapshot: missing or invalid language')
-  }
-
-  if (!Array.isArray(envelope.partitions)) {
-    throw new NarsilError(ErrorCodes.DOC_VALIDATION_FAILED, 'Invalid snapshot: missing partitions')
-  }
-
-  const configFields = restoredConfigFields(envelope)
-  const embedding = restoredEmbedding(envelope.embedding)
-
-  const language = getLanguage(envelope.language)
-  const schema = validateSchema(envelope.schema as SchemaDefinition)
-  validatePatternValueLimit(configFields.patternValueLimit)
-  validateVectorPromotion(configFields.vectorPromotion)
-  validateVectorStorage(configFields.vectorPromotion, deps.filesystemDurability)
-  if (configFields.required !== undefined && configFields.required.length > 0) {
-    validateRequiredFieldsInSchema(configFields.required, schema)
-  }
-
-  const indexConfig: IndexConfig = {
-    schema,
-    language: envelope.language,
-    ...configFields,
-    ...(embedding !== undefined
-      ? {
-          embedding: {
-            fields: embedding.fields,
-            ...(embedding.adapter !== undefined ? { adapter: embedding.adapter } : {}),
-          },
-        }
-      : {}),
-  }
-  resolveIndexAnalysis(indexConfig)
-
-  const adapterName = embedding?.adapter ?? null
-  let embeddingAdapter: EmbeddingAdapter | null = null
-  if (embedding !== undefined) {
-    const candidate =
-      adapterName !== null ? (deps.embeddingAdapters.get(adapterName) ?? null) : deps.defaultEmbeddingAdapter
-    if (candidate) {
-      validateEmbeddingConfig({ fields: embedding.fields, adapter: candidate }, schema, undefined)
-      embeddingAdapter = candidate
-    }
-  }
-
-  if (deps.indexRegistry.has(indexName)) {
-    await deps.dropIndex(indexName)
-  }
-
-  const storedRevision = typeof envelope.analysisRevision === 'string' ? envelope.analysisRevision : null
-  deps.clearAnalysisStale(indexName)
-  if (storedRevision !== language.revision) {
-    deps.markAnalysisStale({
-      indexName,
-      language: language.name,
-      storedRevision,
-      currentRevision: language.revision,
-    })
-  }
-
-  deps.executor.createIndex(indexName, indexConfig, language)
-  const vectorFieldPaths = deps.getVectorFieldPaths(schema)
-  deps.indexRegistry.set(indexName, {
-    config: indexConfig,
-    language,
-    embeddingAdapter,
-    embeddingAdapterName: adapterName,
-    vectorFieldPaths,
-    indexUuid: null,
-    heldPartitions: null,
-    documentCount: 0,
-    partitionCount: envelope.partitions.length,
+export async function checkpointForArchive(deps: SnapshotDeps): Promise<ArchiveCheckpoint> {
+  const durable = deps.durability?.manager
+  if (durable?.openArchiveCheckpoint !== undefined) return durable.openArchiveCheckpoint(deps.indexName)
+  return buildArchiveFromMemory({
+    indexName: deps.indexName,
+    metadata: indexMetadataOf(deps.indexName, deps.entry, deps.manager.partitionCount),
+    manager: deps.manager,
+    vectorIndexes: deps.manager.getVectorIndexes(),
+    appliedSeqNo: partitionId => durable?.highestPersistedSeqNo(deps.indexName, partitionId) ?? 0,
+    partitionId: null,
   })
-  await deps.indexState.registerOpen(indexName)
-  const release = await deps.indexState.acquire(indexName, false)
-
-  try {
-    const manager = deps.requireManager(indexName)
-
-    while (manager.partitionCount < envelope.partitions.length) {
-      manager.addPartition()
-    }
-
-    const deserializePartitionPayload = envelope.version === 2 ? deserializePayloadV2 : deserializePayloadV1
-
-    for (let i = 0; i < envelope.partitions.length; i++) {
-      const partition = deserializePartitionPayload(envelope.partitions[i])
-      manager.deserializePartition(i, partition)
-    }
-
-    if (envelope.vectorIndexes) {
-      const restoreVecIndexes = manager.getVectorIndexes()
-      for (const [fieldPath, parts] of Object.entries(envelope.vectorIndexes)) {
-        const vecIndex = restoreVecIndexes.get(fieldPath)
-        if (vecIndex) {
-          vecIndex.deserialize(decodeVectorIndexParts(parts))
-        }
-      }
-    }
-    const entry = deps.indexRegistry.get(indexName)
-    if (entry !== undefined) {
-      entry.documentCount = manager.countDocuments()
-      entry.partitionCount = manager.partitionCount
-    }
-
-    if (deps.durability) {
-      for (let partitionId = 0; partitionId < manager.partitionCount; partitionId++) {
-        let restored: DurableMutation[] = []
-        for (const docId of manager.getPartition(partitionId).docIds()) {
-          const document = manager.get(docId)
-          if (document === undefined) continue
-          restored.push({ docId, document, apply: noopApply })
-          if (restored.length === BATCH_CHUNK_SIZE) {
-            await recordRestoredDocuments(deps.durability, indexName, restored)
-            restored = []
-          }
-        }
-        await recordRestoredDocuments(deps.durability, indexName, restored)
-      }
-      await deps.durability.manager.persistMetadata(indexName)
-      await deps.durability.manager.checkpoint(indexName)
-    }
-
-    await deps.announceIndexCreated(indexName, indexConfig)
-  } catch (err) {
-    try {
-      deps.executor.dropIndex(indexName)
-    } catch (_) {}
-    deps.indexRegistry.delete(indexName)
-    deps.indexState.forget(indexName)
-    if (deps.durability) {
-      await deps.durability.manager.removeIndex(indexName).catch(() => undefined)
-    }
-    throw err
-  } finally {
-    release()
-  }
 }
 
-function noopApply(): void {}
+export async function createSnapshot(deps: SnapshotDeps): Promise<ReadableStream<Uint8Array>> {
+  const config = await encodeIndexConfiguration(deps.entry)
+  const checkpoint = await checkpointForArchive(deps)
+  return archiveStream({ ...checkpoint, config, sourceIndexName: deps.indexName })
+}
+
+function requireSnapshotSource(data: unknown): ByteSource {
+  if (data instanceof Uint8Array) return data
+  if (data !== null && typeof data === 'object') {
+    if (typeof (data as ReadableStream).getReader === 'function') return data as ReadableStream<Uint8Array>
+    if (typeof (data as AsyncIterable<Uint8Array>)[Symbol.asyncIterator] === 'function') {
+      return data as AsyncIterable<Uint8Array>
+    }
+  }
+  throw new NarsilError(
+    ErrorCodes.DOC_VALIDATION_FAILED,
+    'Snapshot data must be a Uint8Array, a ReadableStream of bytes, or an async iterable of bytes',
+  )
+}
+
+async function readEarlierSnapshotFile(reader: ReturnType<typeof createByteReader>): Promise<Uint8Array> {
+  const length = HEADER_SIZE + readHeader(await reader.peek(HEADER_SIZE)).payloadLength
+  if (length > MAX_FILE_BYTES) {
+    throw new NarsilError(
+      ErrorCodes.PERSISTENCE_LOAD_FAILED,
+      `The snapshot declares ${length} bytes, above the file size limit of ${MAX_FILE_BYTES}`,
+      { bytes: length },
+    )
+  }
+  const bytes = (await reader.readExactly(length)) ?? new Uint8Array(0)
+  if (bytes.byteLength < length) {
+    throw new NarsilError(
+      ErrorCodes.PERSISTENCE_LOAD_FAILED,
+      'The snapshot ends before the payload its header declares',
+    )
+  }
+  const trailing = await reader.readExactly(1)
+  if (trailing !== null && trailing.byteLength > 0) {
+    throw new NarsilError(
+      ErrorCodes.PERSISTENCE_LOAD_FAILED,
+      'The snapshot holds bytes after the payload its header declares',
+    )
+  }
+  return bytes
+}
+
+export async function restoreFromSnapshot(indexName: string, data: unknown, deps: RestoreDeps): Promise<void> {
+  const reader = createByteReader(requireSnapshotSource(data))
+  const head = await reader.peek(NRSL_MAGIC_BYTES)
+  if (head.byteLength >= NRSL_MAGIC_BYTES && hasNrslMagic(head)) {
+    let bytes: Uint8Array
+    try {
+      bytes = await readEarlierSnapshotFile(reader)
+    } finally {
+      await reader.close()
+    }
+    await restoreEarlierSnapshot(indexName, bytes, deps)
+    return
+  }
+  if (head.byteLength === 0) {
+    await reader.close()
+    throw new NarsilError(ErrorCodes.DOC_VALIDATION_FAILED, 'Snapshot data is empty')
+  }
+  await restoreArchive(indexName, reader, deps)
+}

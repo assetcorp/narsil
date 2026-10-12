@@ -1,12 +1,22 @@
+import { MAX_DOC_ID_LENGTH } from '../../engine/constants'
+import { MAX_FILE_BYTES } from '../../serialization/constants'
+import { osqBitsOf } from '../osq'
+import { osqRecordBytes } from '../osq/record'
 import { STORE_CALIBRATION_GENERATION } from '../vector-store/handles'
 import {
   VECTOR_FILE_MAX_VECTORS,
   VECTOR_FILE_PAYLOAD_VERSION,
-  VECTOR_GRAPH_PAYLOAD_VERSION,
+  VECTOR_GRAPH_PART_PAYLOAD_VERSION,
+  VECTOR_GRAPH_PART_VECTORS,
   type VectorFilePayload,
-  type VectorGraphPayload,
+  type VectorGraphPartPayload,
 } from './checkpoint-payload'
-import { VECTOR_FILE_REPLACED_ABOVE_DEAD_SHARE } from './constants'
+import {
+  VECTOR_FILE_CENTROID_BYTES_PER_COMPONENT,
+  VECTOR_FILE_FIXED_OVERHEAD_BYTES,
+  VECTOR_FILE_REPLACED_ABOVE_DEAD_SHARE,
+  VECTOR_FILE_STRING_HEADER_BYTES,
+} from './constants'
 import { deadBitsWhere, NO_LIVE_VECTOR_AT_POSITION } from './dead-bits'
 import { vectorsToBytes } from './payload'
 import { codedCentroid, partCodes } from './persistence'
@@ -44,9 +54,23 @@ export interface VectorCheckpointPlan {
   readonly kept: readonly KeptVectorFile[]
   readonly keptFiles: readonly SavedVectorFile[]
   readonly newFiles: number
-  readonly graph: VectorGraphPayload | null
+  readonly graphParts: readonly VectorGraphPartPayload[] | null
   readonly signature: FieldSignature
   readNewFile(index: number): NewVectorFile
+}
+
+export function vectorsPerFile(dimension: number, codeBits: number | null): number {
+  const recordBytes =
+    codeBits === 1 || codeBits === 2 || codeBits === 4 || codeBits === 8 ? osqRecordBytes(dimension, codeBits) : 0
+  const docIdBytes = VECTOR_FILE_STRING_HEADER_BYTES + MAX_DOC_ID_LENGTH * 3
+  const perVector = dimension * 4 + recordBytes + docIdBytes
+  const overhead = VECTOR_FILE_FIXED_OVERHEAD_BYTES + dimension * VECTOR_FILE_CENTROID_BYTES_PER_COMPONENT
+  const fitting = Math.floor((MAX_FILE_BYTES - overhead) / perVector)
+  return Math.max(1, Math.min(VECTOR_FILE_MAX_VECTORS, fitting))
+}
+
+function fileCapacityOf(state: VectorIndexState): number {
+  return vectorsPerFile(state.dimension, osqBitsOf(state.quantizationMode))
 }
 
 function calibrationOf(state: VectorIndexState): number | null {
@@ -101,10 +125,15 @@ function filesWorthKeeping(
   return kept
 }
 
-function absorbSmallerPartialFiles(kept: SavedVectorFile[], liveCounts: number[], vectorsToWrite: number): void {
+function absorbSmallerPartialFiles(
+  kept: SavedVectorFile[],
+  liveCounts: number[],
+  vectorsToWrite: number,
+  capacity: number,
+): void {
   let pending = vectorsToWrite
   for (let index = kept.length - 1; index >= 0 && pending > 0; index--) {
-    if (kept[index].ordinals.length >= VECTOR_FILE_MAX_VECTORS) continue
+    if (kept[index].ordinals.length >= capacity) continue
     if (liveCounts[index] > pending) return
     pending += liveCounts[index]
     kept.splice(index, 1)
@@ -165,13 +194,14 @@ function numberEveryVector(
   return { numberOfOrdinal, ordinalOfNumber }
 }
 
-function graphOf(state: VectorIndexState, numbers: VectorNumbers): VectorGraphPayload | null {
-  if (state.hnsw === null) return null
-  return {
-    v: VECTOR_GRAPH_PAYLOAD_VERSION,
-    fieldName: state.fieldName,
-    graphs: [state.hnsw.serializeNumbered(numbers.numberOfOrdinal, numbers.ordinalOfNumber)],
-  }
+function graphPartsOf(state: VectorIndexState, numbers: VectorNumbers): VectorGraphPartPayload[] | null {
+  if (state.hnsw === null || numbers.ordinalOfNumber.length === 0) return null
+  const parts = state.hnsw.serializeNumbered(
+    numbers.numberOfOrdinal,
+    numbers.ordinalOfNumber,
+    VECTOR_GRAPH_PART_VECTORS,
+  )
+  return parts.map(graph => ({ v: VECTOR_GRAPH_PART_PAYLOAD_VERSION, fieldName: state.fieldName, graphs: [graph] }))
 }
 
 function readFile(
@@ -203,19 +233,25 @@ function readFile(
   }
 }
 
-export function planCheckpoint(state: VectorIndexState, listedKeys: readonly string[] | null): VectorCheckpointPlan {
+export function planCheckpoint(
+  state: VectorIndexState,
+  listedKeys: readonly string[] | null,
+  rewritesGraph = false,
+): VectorCheckpointPlan {
   const signature = signatureOf(state)
   const calibration = signature.calibration
   const trusted = registryMatches(state, listedKeys)
 
+  const capacity = fileCapacityOf(state)
   const liveCounts: number[] = []
   const keptFiles = filesWorthKeeping(state, trusted ? state.savedFiles : [], calibration, liveCounts)
-  absorbSmallerPartialFiles(keptFiles, liveCounts, countOutside(state, liveCounts))
+  absorbSmallerPartialFiles(keptFiles, liveCounts, countOutside(state, liveCounts), capacity)
   const written = ordinalsOutsideOf(state, keptFiles)
   const writtenDocIds = written.map(ordinal => state.store.docIdForOrdinal(ordinal) ?? '')
   const centroid = codedCentroid(state)
   const listedBefore = trusted && listedKeys !== null
-  const unchanged = listedBefore && sameSignature(state.savedSignature, signature) && written.length === 0
+  const unchanged =
+    !rewritesGraph && listedBefore && sameSignature(state.savedSignature, signature) && written.length === 0
 
   return {
     unchanged,
@@ -226,12 +262,12 @@ export function planCheckpoint(state: VectorIndexState, listedKeys: readonly str
       count: file.ordinals.length,
       dead: deadBitsOf(state, file),
     })),
-    newFiles: Math.ceil(written.length / VECTOR_FILE_MAX_VECTORS),
-    graph: unchanged ? null : graphOf(state, numberEveryVector(state, keptFiles, written)),
+    newFiles: Math.ceil(written.length / capacity),
+    graphParts: unchanged ? null : graphPartsOf(state, numberEveryVector(state, keptFiles, written)),
     signature,
     readNewFile(index: number): NewVectorFile {
-      const start = index * VECTOR_FILE_MAX_VECTORS
-      const end = start + VECTOR_FILE_MAX_VECTORS
+      const start = index * capacity
+      const end = start + capacity
       return readFile(state, written.slice(start, end), writtenDocIds.slice(start, end), centroid)
     },
   }

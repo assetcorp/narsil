@@ -47,20 +47,41 @@ export class GrpcClientPool {
       openStreamMethod.responseDeserialize,
       messageBytes,
       this.metadata(),
-      this.callOptions(this.config.snapshotTimeout),
+      {},
     )
 
     return new Promise<void>((resolve, reject) => {
       let settled = false
+      const timeoutMs = this.config.snapshotTimeout
+      let idleTimer: ReturnType<typeof setTimeout> | null = null
 
       const settle = (fn: () => void): void => {
+        if (idleTimer !== null) clearTimeout(idleTimer)
         if (!settled) {
           settled = true
           fn()
         }
       }
 
+      const rearm = (): void => {
+        if (idleTimer !== null) clearTimeout(idleTimer)
+        idleTimer = setTimeout(() => {
+          call.cancel()
+          settle(() =>
+            reject(
+              new TransportError(
+                TransportErrorCodes.TIMEOUT,
+                `No chunk of the stream from '${target}' arrived within ${timeoutMs}ms`,
+                { target, requestId: message.requestId, timeoutMs },
+              ),
+            ),
+          )
+        }, timeoutMs)
+      }
+      rearm()
+
       call.on('data', (chunk: Uint8Array) => {
+        rearm()
         try {
           handler(chunk)
         } catch (err) {

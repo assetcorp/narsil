@@ -1,8 +1,8 @@
 import { ErrorCodes, NarsilError } from '../../../errors'
 import type { Narsil } from '../../../narsil'
-import { crc32 } from '../../../serialization/crc32'
 import type { IndexConfig, SchemaDefinition } from '../../../types/schema'
 import { withPartitionCount } from '../../cluster/index-settings'
+import { crc32OfChunks } from '../../replication/snapshot-bytes'
 import { finalizeSnapshotStream } from '../../replication/snapshot-stream-assembler'
 import type { SyncEntriesPayload } from '../../transport/types'
 import { withDeadline } from '../bootstrap-fetch'
@@ -72,7 +72,7 @@ export async function applyLiveSnapshotSync(
     return { ok: false, error: streamFailureToError(finalized) }
   }
 
-  const computedChecksum = crc32(finalized.bytes)
+  const computedChecksum = crc32OfChunks(finalized.chunks)
   if (computedChecksum !== finalized.header.checksum) {
     return {
       ok: false,
@@ -94,7 +94,7 @@ export async function applyLiveSnapshotSync(
     indexName,
     partitionId,
     target,
-    finalized.bytes,
+    finalized.chunks,
     coordinatorConfig,
     partitionCount,
     deadline,
@@ -132,7 +132,7 @@ export async function restoreLiveSnapshotPartition(
   indexName: string,
   partitionId: number,
   primaryNodeId: string,
-  bytes: Uint8Array,
+  chunks: readonly Uint8Array[],
   coordinatorConfig: IndexConfig,
   partitionCount: number,
   deadline: number,
@@ -163,7 +163,7 @@ export async function restoreLiveSnapshotPartition(
 
   try {
     await withDeadline(
-      deps.restoreReplicationPartition(indexName, partitionId, bytes, coordinatorConfig, partitionCount),
+      deps.restoreReplicationPartition(indexName, partitionId, chunks, coordinatorConfig, partitionCount),
       remainingMs,
       indexName,
       'partition-restore',

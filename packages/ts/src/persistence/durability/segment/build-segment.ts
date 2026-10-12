@@ -1,4 +1,6 @@
 import { decode } from '@msgpack/msgpack'
+import { createFrozenSegment } from '../../../core/partition/frozen'
+import type { SegmentSelection } from '../../../core/partition/frozen/merge'
 import { buildSegmentPayload, type SegmentDocument } from '../../../core/partition/segment-builder'
 import { restoreVectorFields } from '../../../distribution/replication/replica'
 import type { ReplicationLogEntry } from '../../../distribution/replication/types'
@@ -19,7 +21,7 @@ export interface BuildSegmentInput {
 }
 
 export interface BuiltSegment {
-  payload: Uint8Array
+  selections: SegmentSelection[]
   tombstones: string[]
   docCount: number
 }
@@ -78,15 +80,9 @@ export async function buildSegmentFromEntries(input: BuildSegmentInput): Promise
     resolvePartitionInsertOptions(input.config, manager.analysis),
     input.config.trackPositions ?? true,
   )
-  manager.mergeSegment(
-    0,
+  const segment = createFrozenSegment(
     payload,
     documents.map(entry => entry.document),
   )
-
-  return {
-    payload: manager.serializePartitionToBytes(0),
-    tombstones,
-    docCount: live.size,
-  }
+  return { selections: [{ segment }], tombstones, docCount: live.size }
 }

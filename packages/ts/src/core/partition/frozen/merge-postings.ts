@@ -5,7 +5,7 @@ import type { FrozenSegment } from './index'
 export interface SegmentRemap {
   segment: FrozenSegment
   remap: Int32Array
-  fieldIndexRemap: Uint8Array
+  fieldIndexRemap: Uint16Array
 }
 
 export interface MergedPostings extends SegmentPostingColumns {
@@ -138,7 +138,7 @@ export function mergePostings(inputs: readonly SegmentRemap[]): MergedPostings {
   const postingOffsets = new Uint32Array(tokenCount + 1)
   const postingDocIds = new Uint32Array(totalPostings)
   const postingFrequencies = new Uint16Array(totalPostings)
-  const postingFieldIndices = new Uint8Array(totalPostings)
+  const postingFieldIndices = new Uint16Array(totalPostings)
   const positionOffsets = hasPositions ? new Uint32Array(totalPostings + 1) : null
   const positionValues = hasPositions ? new Uint32Array(totalPositions) : null
   let postingCursor = 0

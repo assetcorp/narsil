@@ -192,7 +192,7 @@ export function yieldToEventLoop(): Promise<void> {
 }
 
 export function* allLiveDocIds(state: VectorIndexState): Iterable<string> {
-  for (const [docId] of state.store.entries()) {
+  for (const docId of state.store.docIds()) {
     if (state.tombstones.has(docId)) continue
     yield docId
   }

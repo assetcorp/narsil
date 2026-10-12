@@ -1,6 +1,5 @@
 import { ErrorCodes, NarsilError } from '../../../errors'
-import { crc32 } from '../../../serialization/crc32'
-import { MAX_SNAPSHOT_SIZE_BYTES } from '../../replication/constants'
+import { collectSnapshotStream, crc32OfChunks, type SnapshotBytes } from '../../replication/snapshot-bytes'
 import type { SnapshotSyncRequestPayload, TransportMessage } from '../../transport/types'
 import {
   acquireSnapshotBuild,
@@ -50,17 +49,6 @@ export async function acquireAndStream(
       return
     }
 
-    if (build.bytes.byteLength > MAX_SNAPSHOT_SIZE_BYTES) {
-      await respondError(
-        sink,
-        deps.nodeId,
-        message.requestId,
-        ErrorCodes.SNAPSHOT_SYNC_TOO_LARGE,
-        `Snapshot size ${build.bytes.byteLength} exceeds the ${MAX_SNAPSHOT_SIZE_BYTES} byte limit`,
-      )
-      return
-    }
-
     let streamHandle: StreamSlotHandle
     try {
       streamHandle = acquireStreamSlot(deps.state, indexName)
@@ -72,11 +60,12 @@ export async function acquireAndStream(
     }
 
     try {
-      const metadata = options.metadata ?? (await resolveHeaderMetadata(deps, indexName, request.partitionId ?? null))
+      const resolved = options.metadata ?? (await resolveHeaderMetadata(deps, indexName, request.partitionId ?? null))
+      const metadata = build.lastSeqNo === undefined ? resolved : { ...resolved, lastSeqNo: build.lastSeqNo }
       await streamSnapshotToReplica(sink, deps.nodeId, message.requestId, indexName, build, metadata, {
         closeOnEnd: options.closeOnEnd,
       })
-      await options.afterSnapshot?.(sink)
+      await options.afterSnapshot?.(sink, build)
       if (options.closeOnEnd === false) {
         sink.closed = true
       }
@@ -89,9 +78,9 @@ export async function acquireAndStream(
 }
 
 export async function buildSnapshot(deps: SnapshotSyncHandlerDeps, indexName: string): Promise<SnapshotBuildResult> {
-  let bytes: Uint8Array
+  let collected: SnapshotBytes
   try {
-    bytes = await deps.engine.snapshot(indexName)
+    collected = await collectSnapshotStream(await deps.engine.snapshot(indexName))
   } catch (err) {
     if (err instanceof NarsilError) {
       throw err
@@ -102,8 +91,7 @@ export async function buildSnapshot(deps: SnapshotSyncHandlerDeps, indexName: st
       cause: errMessage,
     })
   }
-  const checksum = bytes.byteLength <= MAX_SNAPSHOT_SIZE_BYTES ? crc32(bytes) : 0
-  return { bytes, checksum }
+  return { ...collected, checksum: crc32OfChunks(collected.chunks) }
 }
 
 export function buildSnapshotForRequest(

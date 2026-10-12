@@ -5,7 +5,7 @@ import type { ImportResult } from './requests'
  *
  * @public
  */
-export type TaskType = 'optimizeVectors' | 'rebalance' | 'restore' | 'import' | 'rebuildAnalysis'
+export type TaskType = 'optimizeVectors' | 'rebalance' | 'restore' | 'import' | 'importExport' | 'rebuildAnalysis'
 
 /**
  * Where a long-running operation stands.
@@ -73,7 +73,7 @@ export interface TaskRecord {
   cancelRequestedAt?: number
   /** How far the work has gone, which an import reports and other task types omit. */
   progress?: TaskProgress
-  /** What the work produced, which an import reports once it finishes. */
+  /** What the work produced, which an `import` or `importExport` task reports once it finishes. */
   result?: ImportResult
   /** This says why the task failed, and a failed task alone carries it. */
   error?: { code: string; message: string; details?: Record<string, unknown> }

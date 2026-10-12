@@ -48,6 +48,8 @@ export interface ServerHandlers {
   rebalance: RouteHandler
   partitionConfig: RouteHandler
   restore: RouteHandler
+  exportDocuments: RouteHandler
+  importExport: RouteHandler
 }
 
 export type RouteMethod = 'get' | 'post' | 'put' | 'patch' | 'del'
@@ -119,7 +121,14 @@ export function serverRoutes(limits: ResolvedLimits): RouteSpec[] {
       method: 'post',
       path: '/indexes/:name/restore',
       handler: 'restore',
-      options: { paramCount: 1, needsBody: true, maxBytes: maxImportBytes },
+      options: { paramCount: 1, spoolsBody: true, maxBytes: limits.maxRestoreBytes },
+    },
+    { method: 'get', path: '/indexes/:name/export', handler: 'exportDocuments', options: named },
+    {
+      method: 'post',
+      path: '/indexes/:name/import',
+      handler: 'importExport',
+      options: { paramCount: 1, spoolsBody: true, maxBytes: limits.maxRestoreBytes },
     },
   ]
 }

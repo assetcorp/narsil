@@ -1,5 +1,5 @@
 import type { VectorStore } from '../vector-store'
-import { adjacencySlots, collectNeighbors, createNode, replaceNeighbors } from './adjacency'
+import { adjacencySlots, createNode, replaceNeighbors } from './adjacency'
 import { MAX_LAYER_CAP } from './constants'
 import { GRAPH_ENTRY_POINT, GRAPH_NODE_COUNT, GRAPH_TOP_LAYER } from './handles'
 import { resetGraph } from './mutation'
@@ -8,52 +8,11 @@ import {
   ensureCapacity,
   entryPointOf,
   type HNSWGraphState,
-  isTombstoned,
   maxConns,
   nodeExists,
   nodeMaxLayer,
   type SerializedHNSWGraph,
-  topLayerOf,
 } from './shared'
-
-export function serializeGraph(state: HNSWGraphState, store: VectorStore): SerializedHNSWGraph {
-  const nodeArray: Array<[string, number, Array<[number, string[]]>]> = []
-  const slots = adjacencySlots(state.adjacency)
-  for (let ord = 0; ord < slots; ord++) {
-    const maxLayer = nodeMaxLayer(state, ord)
-    if (maxLayer === -1) continue
-    if (isTombstoned(state, ord)) continue
-    const docId = store.docIdForOrdinal(ord)
-    if (docId === undefined) continue
-
-    const layerConns: Array<[number, string[]]> = []
-    for (let layer = 0; layer <= maxLayer; layer++) {
-      const liveNeighbors: string[] = []
-      for (const neighborOrd of collectNeighbors(state.adjacency, ord, layer)) {
-        if (isTombstoned(state, neighborOrd)) continue
-        const neighborDoc = store.docIdForOrdinal(neighborOrd)
-        if (neighborDoc === undefined) continue
-        liveNeighbors.push(neighborDoc)
-      }
-      if (liveNeighbors.length > 0) {
-        layerConns.push([layer, liveNeighbors])
-      }
-    }
-    nodeArray.push([docId, maxLayer, layerConns])
-  }
-
-  const entryOrd = entryPointOf(state)
-  const entryPoint = entryOrd === -1 ? null : (store.docIdForOrdinal(entryOrd) ?? null)
-
-  return {
-    entryPoint,
-    maxLayer: topLayerOf(state),
-    m: state.M,
-    efConstruction: state.efCons,
-    metric: state.buildMetric,
-    nodes: nodeArray,
-  }
-}
 
 interface ResolvedNode {
   ord: number

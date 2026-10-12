@@ -6,8 +6,10 @@ import {
 } from './constants'
 
 export interface SnapshotBuildResult {
-  bytes: Uint8Array
+  chunks: Uint8Array[]
+  totalBytes: number
   checksum: number
+  lastSeqNo?: number
 }
 
 interface SnapshotInFlightEntry {
@@ -135,7 +137,7 @@ export type SnapshotBuilder = () => Promise<SnapshotBuildResult>
  * the in-flight build resolves share one build. The in-flight slot is cleared
  * the moment the build settles so any later requester triggers a fresh build.
  * Memory peak: each concurrent participant in a single build holds one
- * reference to the same Uint8Array; separate builds each own their own bytes.
+ * reference to the same chunks; separate builds each own their own chunks.
  */
 export async function acquireSnapshotBuild(
   state: SnapshotCacheState,

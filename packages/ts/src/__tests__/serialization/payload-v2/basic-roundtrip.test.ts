@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { makeMinimalPayload, roundtrip } from './fixtures'
 
-describe('encodeRawPayloadV2 / deserializePayloadV2 - basic round-trips', () => {
+describe('deserializePayloadV2 - basic payloads', () => {
   it('roundtrips a minimal empty payload', () => {
     const wire = makeMinimalPayload()
     const restored = roundtrip(wire)

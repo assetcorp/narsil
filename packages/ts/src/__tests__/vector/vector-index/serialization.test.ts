@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ErrorCodes, NarsilError } from '../../../errors'
 import { createVectorIndex, type VectorIndex, type VectorIndexPayload } from '../../../vector/vector-index'
 import { bytesToVectors, decodeVectorIndexPart, vectorsToBytes } from '../../../vector/vector-index/payload'
+import { fieldView } from './field-view'
 import { DIM, normalizedVector, vectorFromValues } from './fixtures'
 
 function partOf(
@@ -25,7 +26,22 @@ function partOf(
   }
 }
 
-describe('VectorIndex serialization', () => {
+function earlierPayloadOf(index: VectorIndex): VectorIndexPayload {
+  const view = fieldView(index)
+  return {
+    v: 3,
+    fieldName: 'embedding',
+    dimension: DIM,
+    part: 0,
+    parts: 1,
+    docIds: view.docIds,
+    graphs: view.graphs,
+    codes: view.codes,
+    vectors: view.vectors,
+  }
+}
+
+describe('reading the vector field of an earlier snapshot', () => {
   let index: VectorIndex
 
   beforeEach(() => {
@@ -38,18 +54,7 @@ describe('VectorIndex serialization', () => {
     vi.useRealTimers()
   })
 
-  it('writes no graph once every vector is removed and reads an empty graph as none', async () => {
-    for (let i = 0; i < 6; i++) index.insert(`doc${i}`, normalizedVector(DIM, i + 1))
-    index.scheduleBuild()
-    await vi.advanceTimersByTimeAsync(1)
-    await index.awaitPendingBuild()
-    expect(index.maintenanceStatus().graphCount).toBe(1)
-    for (let i = 0; i < 6; i++) index.remove(`doc${i}`)
-
-    const [emptied] = index.serialize()
-    expect(emptied.docIds).toHaveLength(0)
-    expect(emptied.graphs).toHaveLength(0)
-
+  it('reads a graph that holds no node as no graph', () => {
     const headerOnly = {
       entryPoint: null,
       maxLayer: 0,
@@ -63,92 +68,27 @@ describe('VectorIndex serialization', () => {
     expect(index.maintenanceStatus().graphCount).toBe(0)
   })
 
-  it('serialize writes one versioned part with the vectors as little-endian float32 bytes', () => {
-    index.insert('doc1', vectorFromValues(1, 0, 0, 0))
-    index.insert('doc2', vectorFromValues(0, 1, 0, 0))
-
-    const parts = index.serialize()
-
-    expect(parts).toHaveLength(1)
-    const [part] = parts
-    expect(part.v).toBe(3)
-    expect(part.fieldName).toBe('embedding')
-    expect(part.dimension).toBe(DIM)
-    expect(part.part).toBe(0)
-    expect(part.parts).toBe(1)
-    expect(part.docIds).toEqual(['doc1', 'doc2'])
-    expect(part.graphs).toHaveLength(0)
-    expect(part.codes).toBeNull()
-    expect(part.vectors.byteLength).toBe(2 * DIM * 4)
-    expect(Array.from(bytesToVectors(part.vectors))).toEqual([1, 0, 0, 0, 0, 1, 0, 0])
-  })
-
-  it('serialize excludes tombstoned docs', () => {
-    index.insert('doc1', vectorFromValues(1, 0, 0, 0))
-    index.insert('doc2', vectorFromValues(0, 1, 0, 0))
-    index.remove('doc1')
-
-    const [part] = index.serialize()
-
-    expect(part.docIds).toEqual(['doc2'])
-    expect(part.vectors.byteLength).toBe(DIM * 4)
-  })
-
-  it('serialize includes HNSW graph when built', async () => {
-    for (let i = 0; i < 6; i++) {
-      index.insert(`doc${i}`, normalizedVector(DIM, i + 1))
-    }
-    index.scheduleBuild()
-    await vi.advanceTimersToNextTimerAsync()
-    await index.awaitPendingBuild()
-
-    const [part] = index.serialize()
-
-    expect(part.graphs).toHaveLength(1)
-    expect(part.graphs[0].nodes.length).toBeGreaterThan(0)
-  })
-
-  it('serialize writes a code record per vector once the quantizer has calibrated', async () => {
-    const sqIndex = createVectorIndex('vec', DIM, { threshold: 5, quantization: 'osq4' })
-    try {
-      for (let i = 0; i < 6; i++) {
-        sqIndex.insert(`doc${i}`, normalizedVector(DIM, i + 1))
-      }
-      sqIndex.scheduleBuild()
-      await vi.advanceTimersToNextTimerAsync()
-      await sqIndex.awaitPendingBuild()
-
-      const [part] = sqIndex.serialize()
-      expect(part.codes).not.toBeNull()
-      expect(part.codes?.bits).toBe(4)
-      expect(part.codes?.centroid).toHaveLength(DIM)
-      expect(part.codes?.records.byteLength).toBe(6 * (Math.ceil((DIM * 4) / 8) + 16))
-    } finally {
-      sqIndex.dispose()
-    }
-  })
-
-  it('deserialize restores vectors', () => {
-    index.insert('doc1', vectorFromValues(1, 0, 0, 0))
-    index.insert('doc2', vectorFromValues(0, 1, 0, 0))
-
-    const parts = index.serialize()
-
+  it('restores the vectors', () => {
     const restored = createVectorIndex('embedding', DIM, { threshold: 5, quantization: 'none' })
-    restored.deserialize(parts)
+    restored.deserialize([
+      partOf(
+        ['doc1', 'doc2'],
+        [
+          [1, 0, 0, 0],
+          [0, 1, 0, 0],
+        ],
+      ),
+    ])
 
     expect(restored.size).toBe(2)
     expect(restored.has('doc1')).toBe(true)
     expect(restored.has('doc2')).toBe(true)
-
-    const v1 = restored.getVector('doc1')
-    expect(v1).not.toBeNull()
-    expect(Array.from(v1 as Float32Array)).toEqual([1, 0, 0, 0])
+    expect(Array.from(restored.getVector('doc1') ?? [])).toEqual([1, 0, 0, 0])
 
     restored.dispose()
   })
 
-  it('deserialize restores HNSW graph', async () => {
+  it('restores the graph', async () => {
     for (let i = 0; i < 6; i++) {
       index.insert(`doc${i}`, normalizedVector(DIM, i + 1))
     }
@@ -156,10 +96,8 @@ describe('VectorIndex serialization', () => {
     await vi.advanceTimersToNextTimerAsync()
     await index.awaitPendingBuild()
 
-    const parts = index.serialize()
-
     const restored = createVectorIndex('embedding', DIM, { threshold: 5, quantization: 'none' })
-    restored.deserialize(parts)
+    restored.deserialize([earlierPayloadOf(index)])
 
     expect(restored.maintenanceStatus().graphCount).toBe(1)
     expect(restored.maintenanceStatus().bufferSize).toBe(0)
@@ -167,7 +105,7 @@ describe('VectorIndex serialization', () => {
     restored.dispose()
   })
 
-  it('deserialize restores the code records and the centroid without quantizing again', async () => {
+  it('restores the code records and the centroid without quantizing again', async () => {
     const sqIndex = createVectorIndex('vec', DIM, { threshold: 5, quantization: 'osq4' })
     for (let i = 0; i < 6; i++) {
       sqIndex.insert(`doc${i}`, normalizedVector(DIM, i + 1))
@@ -176,12 +114,25 @@ describe('VectorIndex serialization', () => {
     await vi.advanceTimersToNextTimerAsync()
     await sqIndex.awaitPendingBuild()
 
-    const [written] = sqIndex.serialize()
+    const written = fieldView(sqIndex)
+    expect(written.codes?.records.byteLength).toBe(6 * (Math.ceil((DIM * 4) / 8) + 16))
 
     const restored = createVectorIndex('vec', DIM, { threshold: 5, quantization: 'osq4' })
-    restored.deserialize([written])
+    restored.deserialize([
+      {
+        v: 3,
+        fieldName: 'vec',
+        dimension: DIM,
+        part: 0,
+        parts: 1,
+        docIds: written.docIds,
+        graphs: written.graphs,
+        codes: written.codes,
+        vectors: written.vectors,
+      },
+    ])
 
-    const [again] = restored.serialize()
+    const again = fieldView(restored)
     expect(again.codes).not.toBeNull()
     expect(again.codes?.centroid).toEqual(written.codes?.centroid)
     expect(Array.from(again.codes?.records ?? [])).toEqual(Array.from(written.codes?.records ?? []))
@@ -190,21 +141,21 @@ describe('VectorIndex serialization', () => {
     restored.dispose()
   })
 
-  it('deserialize throws on dimension mismatch', () => {
+  it('throws on a dimension mismatch', () => {
     const payload = partOf([], [], { dimension: 8, vectors: new Uint8Array(0) })
 
     expect(() => index.deserialize([payload])).toThrow(NarsilError)
     expect(() => index.deserialize([payload])).toThrow(/dimension/)
   })
 
-  it('the part reader rejects a vectors bin whose length disagrees with the document count', () => {
+  it('rejects a vectors bin whose length disagrees with the document count', () => {
     const raw = { ...partOf(['bad'], [[1, 0, 0, 0]]), vectors: new Uint8Array(3) }
 
     expect(() => decodeVectorIndexPart(raw)).toThrow(NarsilError)
     expect(() => decodeVectorIndexPart(raw)).toThrow(/float32/)
   })
 
-  it('the part reader rejects the earlier unversioned layout with ENVELOPE_VERSION_MISMATCH', () => {
+  it('rejects the unversioned layout before it with ENVELOPE_VERSION_MISMATCH', () => {
     const legacy = { fieldName: 'embedding', dimension: DIM, vectors: [], graphs: [], sq8: null }
 
     try {
@@ -216,13 +167,8 @@ describe('VectorIndex serialization', () => {
     }
   })
 
-  it('serialize then deserialize round-trip preserves search results', async () => {
-    const vectors = new Map<string, Float32Array>()
-    for (let i = 0; i < 6; i++) {
-      const v = normalizedVector(DIM, i + 1)
-      vectors.set(`doc${i}`, v)
-      index.insert(`doc${i}`, v)
-    }
+  it('answers the same searches after a read', async () => {
+    for (let i = 0; i < 6; i++) index.insert(`doc${i}`, normalizedVector(DIM, i + 1))
     index.scheduleBuild()
     await vi.advanceTimersToNextTimerAsync()
     await index.awaitPendingBuild()
@@ -230,13 +176,10 @@ describe('VectorIndex serialization', () => {
     const query = normalizedVector(DIM, 45)
     const originalResults = index.search(query, 5, { metric: 'cosine', minSimilarity: 0 }).results
 
-    const parts = index.serialize()
-
     const restored = createVectorIndex('embedding', DIM, { threshold: 5, quantization: 'none' })
-    restored.deserialize(parts)
+    restored.deserialize([earlierPayloadOf(index)])
 
     const restoredResults = restored.search(query, 5, { metric: 'cosine', minSimilarity: 0 }).results
-
     expect(restoredResults.length).toBe(originalResults.length)
     for (let i = 0; i < originalResults.length; i++) {
       expect(restoredResults[i].docId).toBe(originalResults[i].docId)
@@ -246,17 +189,17 @@ describe('VectorIndex serialization', () => {
     restored.dispose()
   })
 
-  it('deserialize with no graphs puts all docs in buffer', () => {
-    const payload = partOf(
-      ['a', 'b'],
-      [
-        [1, 0, 0, 0],
-        [0, 1, 0, 0],
-      ],
-    )
-
+  it('puts every vector in the buffer when the payload holds no graph', () => {
     const restored = createVectorIndex('embedding', DIM, { threshold: 5, quantization: 'none' })
-    restored.deserialize([payload])
+    restored.deserialize([
+      partOf(
+        ['a', 'b'],
+        [
+          [1, 0, 0, 0],
+          [0, 1, 0, 0],
+        ],
+      ),
+    ])
 
     expect(restored.maintenanceStatus().graphCount).toBe(0)
     expect(restored.maintenanceStatus().bufferSize).toBe(2)
@@ -264,15 +207,13 @@ describe('VectorIndex serialization', () => {
     restored.dispose()
   })
 
-  it('deserialize with graphs puts unmatched docs in buffer', async () => {
-    for (let i = 0; i < 6; i++) {
-      index.insert(`doc${i}`, normalizedVector(DIM, i + 1))
-    }
+  it('puts a vector the graph leaves out in the buffer', async () => {
+    for (let i = 0; i < 6; i++) index.insert(`doc${i}`, normalizedVector(DIM, i + 1))
     index.scheduleBuild()
     await vi.advanceTimersToNextTimerAsync()
     await index.awaitPendingBuild()
 
-    const [part] = index.serialize()
+    const part = earlierPayloadOf(index)
     const extra = normalizedVector(DIM, 59)
     const joined = new Float32Array(bytesToVectors(part.vectors).length + DIM)
     joined.set(bytesToVectors(part.vectors), 0)
@@ -288,16 +229,24 @@ describe('VectorIndex serialization', () => {
     restored.dispose()
   })
 
-  it('deserialize joins the sequences of several partition files into one store', () => {
-    const first = partOf(['a'], [[1, 0, 0, 0]])
-    const second = partOf(['b'], [[0, 1, 0, 0]])
-
+  it('joins the sequences of several partition files into one store', () => {
     const restored = createVectorIndex('embedding', DIM, { threshold: 5, quantization: 'none' })
-    restored.deserialize([first, second])
+    restored.deserialize([partOf(['a'], [[1, 0, 0, 0]]), partOf(['b'], [[0, 1, 0, 0]])])
 
     expect(restored.size).toBe(2)
     expect(Array.from(restored.getVector('b') ?? [])).toEqual([0, 1, 0, 0])
 
     restored.dispose()
+  })
+
+  it('leaves a removed vector out of what a checkpoint writes', () => {
+    index.insert('doc1', vectorFromValues(1, 0, 0, 0))
+    index.insert('doc2', vectorFromValues(0, 1, 0, 0))
+    index.remove('doc1')
+
+    const view = fieldView(index)
+
+    expect(view.docIds).toEqual(['doc2'])
+    expect(Array.from(bytesToVectors(view.vectors))).toEqual([0, 1, 0, 0])
   })
 })

@@ -1,0 +1,1 @@
+export const MAX_PAX_HEADER_BYTES = 65_536

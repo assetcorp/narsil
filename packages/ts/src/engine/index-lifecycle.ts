@@ -6,7 +6,12 @@ import {
   validateRegisteredAdapter,
   validateRequiredFieldsInSchema,
 } from '../schema/embedding-validator'
-import { validateSchema, validateVectorPromotion, validateVectorStorage } from '../schema/validator'
+import {
+  requireCreatableSchema,
+  validateSchema,
+  validateVectorPromotion,
+  validateVectorStorage,
+} from '../schema/validator'
 import type { EmbeddingAdapter } from '../types/adapters'
 import type { NarsilConfig } from '../types/config'
 import type { IndexConfig } from '../types/schema'
@@ -31,6 +36,7 @@ export type EmbeddingAdapterBinding = 'required' | 'deferred'
 export interface IndexCreationOptions {
   indexUuid?: string
   adapterBinding?: EmbeddingAdapterBinding
+  appliesCreationLimits?: boolean
 }
 
 export async function announceIndexCreated(core: EngineCore, name: string, config: IndexConfig): Promise<void> {
@@ -44,13 +50,14 @@ export async function createEngineIndex(
   requestedConfig: IndexConfig,
   creation: IndexCreationOptions = {},
 ): Promise<void> {
-  const { indexUuid, adapterBinding = 'required' } = creation
+  const { indexUuid, adapterBinding = 'required', appliesCreationLimits = false } = creation
   core.guardShutdown()
   validateIndexName(name)
   if (core.indexRegistry.has(name)) {
     throw new NarsilError(ErrorCodes.INDEX_ALREADY_EXISTS, `Index "${name}" already exists`, { indexName: name })
   }
   const schema = validateSchema(requestedConfig.schema)
+  if (appliesCreationLimits) requireCreatableSchema(schema)
   const indexConfig = schema === requestedConfig.schema ? requestedConfig : { ...requestedConfig, schema }
   requirePatternSearchFor(schema)
   validatePatternValueLimit(indexConfig.patternValueLimit)
