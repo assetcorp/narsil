@@ -1,8 +1,14 @@
-import type { Etcd3 } from 'etcd3'
+import * as etcd3 from 'etcd3'
 import { describe, expect, it } from 'vitest'
+import { DEFAULT_ETCD_MAX_REQUEST_BYTES } from '../../../../distribution/coordinator/etcd/constants'
 import { LeaseManager } from '../../../../distribution/coordinator/etcd/leases'
 import { writeNodeRegistration } from '../../../../distribution/coordinator/etcd/registration'
+import { createEtcdWriteGuard } from '../../../../distribution/coordinator/etcd/request-size'
 import type { NodeRegistration } from '../../../../distribution/coordinator/types'
+
+type Etcd3 = etcd3.Etcd3
+
+const guard = createEtcdWriteGuard(etcd3, DEFAULT_ETCD_MAX_REQUEST_BYTES)
 
 interface StoredKey {
   value: Buffer
@@ -89,7 +95,7 @@ describe('writeNodeRegistration', () => {
     const { client, store, leases } = makeClient()
     const leaseManager = new LeaseManager()
 
-    await writeNodeRegistration({ client, leaseManager, key, ttlSeconds: 15 }, makeRegistration())
+    await writeNodeRegistration({ client, leaseManager, guard, key, ttlSeconds: 15 }, makeRegistration())
 
     expect(store.has(key)).toBe(true)
     expect(leases).toHaveLength(1)
@@ -101,9 +107,9 @@ describe('writeNodeRegistration', () => {
     const leaseManager = new LeaseManager()
     const registration = makeRegistration()
 
-    await writeNodeRegistration({ client, leaseManager, key, ttlSeconds: 15 }, registration)
-    await writeNodeRegistration({ client, leaseManager, key, ttlSeconds: 15 }, registration)
-    await writeNodeRegistration({ client, leaseManager, key, ttlSeconds: 15 }, registration)
+    await writeNodeRegistration({ client, leaseManager, guard, key, ttlSeconds: 15 }, registration)
+    await writeNodeRegistration({ client, leaseManager, guard, key, ttlSeconds: 15 }, registration)
+    await writeNodeRegistration({ client, leaseManager, guard, key, ttlSeconds: 15 }, registration)
 
     expect(leases).toHaveLength(1)
     expect(leases[0].keepaliveCount).toBe(2)
@@ -114,9 +120,9 @@ describe('writeNodeRegistration', () => {
     const { client, leases } = makeClient()
     const leaseManager = new LeaseManager()
 
-    await writeNodeRegistration({ client, leaseManager, key, ttlSeconds: 15 }, makeRegistration())
+    await writeNodeRegistration({ client, leaseManager, guard, key, ttlSeconds: 15 }, makeRegistration())
     await writeNodeRegistration(
-      { client, leaseManager, key, ttlSeconds: 15 },
+      { client, leaseManager, guard, key, ttlSeconds: 15 },
       makeRegistration({ address: 'data-1.cluster.local:9300' }),
     )
 
@@ -137,8 +143,8 @@ describe('writeNodeRegistration', () => {
     const leaseManager = new LeaseManager()
     const registration = makeRegistration()
 
-    const first = writeNodeRegistration({ client, leaseManager, key, ttlSeconds: 15 }, registration)
-    const second = writeNodeRegistration({ client, leaseManager, key, ttlSeconds: 15 }, registration)
+    const first = writeNodeRegistration({ client, leaseManager, guard, key, ttlSeconds: 15 }, registration)
+    const second = writeNodeRegistration({ client, leaseManager, guard, key, ttlSeconds: 15 }, registration)
     releaseFirstResponse()
     await Promise.all([first, second])
 
@@ -152,9 +158,9 @@ describe('writeNodeRegistration', () => {
     const leaseManager = new LeaseManager()
     const registration = makeRegistration()
 
-    await writeNodeRegistration({ client, leaseManager, key, ttlSeconds: 15 }, registration)
+    await writeNodeRegistration({ client, leaseManager, guard, key, ttlSeconds: 15 }, registration)
     leases[0].revoked = true
-    await writeNodeRegistration({ client, leaseManager, key, ttlSeconds: 15 }, registration)
+    await writeNodeRegistration({ client, leaseManager, guard, key, ttlSeconds: 15 }, registration)
 
     expect(leases).toHaveLength(2)
     expect(store.get(key)?.lease).toBe(leases[1])
