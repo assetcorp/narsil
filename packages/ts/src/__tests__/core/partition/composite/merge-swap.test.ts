@@ -3,6 +3,7 @@ import { createPartitionIndex, type PartitionIndex } from '../../../../core/part
 import { createCompositePartition } from '../../../../core/partition/composite'
 import { createFrozenSegment, createSharedFrozenSegment } from '../../../../core/partition/frozen'
 import { mergeFrozenSegments } from '../../../../core/partition/frozen/merge'
+import { createPatternWorkMeter } from '../../../../core/pattern-index/work-meter'
 import type { InternalSearchParams } from '../../../../types/internal'
 import type { AnyDocument, SchemaDefinition } from '../../../../types/schema'
 import { english, simpleSchema } from '../../partition-index/fixtures'
@@ -139,12 +140,16 @@ describe('swapping merged frozen segments into a composite partition', () => {
         category: { in: ['fruit', 'stone'] },
       },
     }
-    expect(composite.applyFilters(fields, schema)).toEqual(baseline.applyFilters(fields, schema))
-    expect(composite.applyFilters(fields, schema).size).toBeGreaterThan(0)
+    expect(composite.applyFilters(fields, schema, createPatternWorkMeter())).toEqual(
+      baseline.applyFilters(fields, schema, createPatternWorkMeter()),
+    )
+    expect(composite.applyFilters(fields, schema, createPatternWorkMeter()).size).toBeGreaterThan(0)
 
     const nearby = { fields: { location: { radius: { lat: 51, lon: -0.5, distance: 200, unit: 'km' as const } } } }
-    expect(composite.applyFilters(nearby, schema)).toEqual(baseline.applyFilters(nearby, schema))
-    expect(composite.applyFilters(nearby, schema).size).toBeGreaterThan(0)
+    expect(composite.applyFilters(nearby, schema, createPatternWorkMeter())).toEqual(
+      baseline.applyFilters(nearby, schema, createPatternWorkMeter()),
+    )
+    expect(composite.applyFilters(nearby, schema, createPatternWorkMeter()).size).toBeGreaterThan(0)
 
     const allIds = new Set([...composite.docIds()])
     expect(composite.computeFacets(allIds, { category: {}, active: {} }, schema)).toEqual(

@@ -69,9 +69,10 @@ describe('query options that name a field', () => {
     expect(result.facets?.colour).toEqual({ values: {}, count: 0, errorBound: 0 })
   })
 
-  it('treats a field named after an object built-in as a field that no document stores', async () => {
-    const filtered = await narsil.query('bikes', { term: 'bike', filters: { fields: { constructor: { eq: 'x' } } } })
-    expect(filtered.count).toBe(0)
+  it('treats a field named after an object built-in as a field outside the schema', async () => {
+    await expect(
+      narsil.query('bikes', { term: 'bike', filters: { fields: { constructor: { eq: 'x' } } } }),
+    ).rejects.toMatchObject({ code: 'SEARCH_INVALID_FIELD', details: { field: 'constructor', option: 'filter' } })
 
     const sorted = await narsil.query('bikes', { term: 'bike', sort: [{ field: 'toString', direction: 'asc' }] })
     expect(sorted.count).toBe(3)

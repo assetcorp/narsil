@@ -117,6 +117,18 @@ describe('validateFilterExpression operands', () => {
     ).toThrow(/startsWith/)
   })
 
+  it('accepts contains and caseFold, and counts a string in code points', () => {
+    const astral = '😀'.repeat(MAX_FILTER_STRING_LENGTH)
+    expect(() =>
+      validateFilterExpression({ fields: { code: { contains: astral, caseFold: true } } }, 'filters'),
+    ).not.toThrow()
+    expect(() => validateFilterExpression({ fields: { code: { contains: `${astral}x` } } }, 'filters')).toThrow(
+      /code points/,
+    )
+    expect(() => validateFilterExpression({ fields: { code: { caseFold: 'yes' } } }, 'filters')).toThrow(/caseFold/)
+    expect(() => validateFilterExpression({ fields: { code: { contains: 3 } } }, 'filters')).toThrow(/contains/)
+  })
+
   it('rejects exists with a non-boolean', () => {
     expect(() =>
       validateFilterExpression({ fields: { name: { exists: 'yes' as unknown as boolean } } }, 'filters'),
@@ -239,6 +251,62 @@ describe('validateFilterExpression geo operators', () => {
         'filters',
       ),
     ).toThrow(/at least 3 points/)
+  })
+
+  it('rejects a radius centre or polygon point off the globe, and accepts one on its edge', () => {
+    const corner = (lat: number, lon: number) => ({
+      fields: {
+        location: {
+          polygon: {
+            points: [
+              { lat: 0, lon: 0 },
+              { lat, lon },
+              { lat: 1, lon: 1 },
+            ],
+          },
+        },
+      },
+    })
+    const centre = (lat: number, lon: number) => ({
+      fields: { location: { radius: { lat, lon, distance: 1, unit: 'km' as const } } },
+    })
+    for (const [lat, lon, coordinate] of [
+      [95, 0, 'lat'],
+      [-90.5, 0, 'lat'],
+      [0, 200, 'lon'],
+      [0, -180.001, 'lon'],
+    ] as const) {
+      expect(() => validateFilterExpression(centre(lat, lon), 'filters')).toThrow(
+        `"filters.fields.location.radius.${coordinate}" must be from`,
+      )
+      expect(() => validateFilterExpression(corner(lat, lon), 'filters')).toThrow(
+        `"filters.fields.location.polygon.points[1].${coordinate}" must be from`,
+      )
+    }
+    for (const [lat, lon] of [
+      [90, 180],
+      [-90, -180],
+    ]) {
+      expect(() => validateFilterExpression(centre(lat, lon), 'filters')).not.toThrow()
+      expect(() => validateFilterExpression(corner(lat, lon), 'filters')).not.toThrow()
+    }
+  })
+
+  it('refuses a filter of more than 1,024 tests across its nested expressions, as a node would', () => {
+    const tests = (count: number) => Array.from({ length: count }, (_, at) => ({ fields: { price: { eq: at } } }))
+    const nested = (count: number) => ({
+      and: [
+        { or: tests(200) },
+        { or: tests(200) },
+        { or: tests(200) },
+        { or: tests(200) },
+        { not: { or: tests(count) } },
+      ],
+    })
+    expect(() => validateFilterExpression(nested(224), 'filters')).not.toThrow()
+    expect(() => validateFilterExpression(nested(225), 'filters')).toThrow(
+      'holds 1025 tests, above the maximum of 1024',
+    )
   })
 
   it('accepts a well-formed polygon', () => {

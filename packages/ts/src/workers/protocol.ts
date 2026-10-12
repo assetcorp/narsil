@@ -1,6 +1,7 @@
 import type { PartitionInsertOptions } from '../core/partition'
 import type { SharedSegmentSnapshot } from '../core/partition/frozen'
 import type { SegmentPayload } from '../core/partition/segment-payload'
+import type { SharedPatternWork } from '../core/pattern-index/work-meter'
 import type { RequestThreadSettings } from '../server/request-threads/messages'
 import type { GlobalStatistics, SerializablePartition } from '../types/internal'
 import type { AnyDocument, IndexConfig } from '../types/schema'
@@ -18,8 +19,9 @@ export type WorkerAction =
       requestId: string
       partitionIds?: number[]
       globalStats?: GlobalStatistics
+      patternWork: SharedPatternWork
     }
-  | { type: 'preflight'; indexName: string; params: QueryParams; requestId: string }
+  | { type: 'preflight'; indexName: string; params: QueryParams; requestId: string; patternWork: SharedPatternWork }
   | { type: 'get'; indexName: string; docId: string; requestId: string }
   | { type: 'has'; indexName: string; docId: string; requestId: string }
   | { type: 'count'; indexName: string; requestId: string }

@@ -9,6 +9,7 @@ import {
   createNumericIndex,
   type NumericFieldIndex,
 } from '../field-index'
+import { patternIndexOf } from '../pattern-index/host'
 import { tokenize, tokenizeIterator } from '../tokenizer'
 import {
   getNestedValue,
@@ -17,6 +18,7 @@ import {
   type PartitionState,
   tokenizeOptions,
 } from './utils'
+import { forgetValueSize, recordValueSize } from './value-sizes'
 
 export function ensureFieldIndex(state: PartitionState, fieldPath: string, base: BaseFieldType): void {
   if ((base === 'number' || base === 'number[]') && !state.numericIndexes.has(fieldPath)) {
@@ -203,11 +205,13 @@ export function indexDocument(
   const tokensByField: Record<string, string[]> = {}
   const internalId = resolveInternalId(state, docId)
 
-  for (const { path: fieldPath, base } of fields) {
+  for (const { path: fieldPath, base, pattern } of fields) {
     const value = getNestedValue(document, fieldPath)
     if (value === undefined || value === null) continue
 
+    recordValueSize(state.sizeIndexes, internalId, fieldPath, base, value)
     ensureFieldIndex(state, fieldPath, base)
+    if (pattern) patternIndexOf(state.patternIndexes, fieldPath).add(internalId, value)
 
     if (base === 'string') {
       indexStringField(state, internalId, fieldPath, value as string, language, options, fieldLengths, tokensByField)
@@ -262,9 +266,11 @@ export function removeFromIndexes(
   const internalId = resolveInternalId(state, docId)
   const opts = tokenizeOptions(options)
 
-  for (const { path: fieldPath, base } of schemaFields) {
+  for (const { path: fieldPath, base, pattern } of schemaFields) {
     const value = getNestedValue(fields as Record<string, unknown>, fieldPath)
     if (value === undefined || value === null) continue
+    forgetValueSize(state.sizeIndexes, internalId, fieldPath, base, value)
+    if (pattern) state.patternIndexes.get(fieldPath)?.remove(internalId, value)
 
     if (base === 'string') {
       const result = tokenize(value as string, language, opts)

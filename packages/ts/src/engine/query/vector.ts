@@ -11,6 +11,7 @@ import {
   partitionsForVectorSearch,
   type QueryContext,
   resolveVectorIndex,
+  type SearchContext,
   scoringConfigFor,
   searchOptionsFor,
   vectorResultsToScored,
@@ -43,7 +44,7 @@ export function vectorFetchDepth(limit: number, offset: number, cursorDepth: num
 
 export async function executeVectorSearch(
   params: QueryParams,
-  context: QueryContext,
+  context: SearchContext,
   limit: number,
   offset: number,
   cursorDepth = 0,
@@ -62,7 +63,7 @@ export async function executeVectorSearch(
   let filterDocIds: Set<string> | undefined
   let filterPartitions: ReadonlySet<number> | undefined
   if (params.filters) {
-    filterDocIds = collectFilterDocIds(manager, params, config.schema, partitionIds)
+    filterDocIds = collectFilterDocIds(manager, params, config.schema, partitionIds, context.patternWork)
     if (filterDocIds.size === 0) {
       return { scored: [], totalMatched: 0 }
     }
@@ -85,7 +86,7 @@ export async function executeVectorSearch(
   return { scored, totalMatched: outcome.matched, matchedExact: outcome.matchedExact }
 }
 
-async function textLeg(textOnlyParams: QueryParams, context: QueryContext): Promise<FanOutResult> {
+async function textLeg(textOnlyParams: QueryParams, context: SearchContext): Promise<FanOutResult> {
   const { manager, language, config, workerSearch, indexName } = context
   const scoring = scoringConfigFor(textOnlyParams, context)
   if (workerSearch) {
@@ -94,10 +95,18 @@ async function textLeg(textOnlyParams: QueryParams, context: QueryContext): Prom
       textOnlyParams,
       broadcastStatsForWorker(textOnlyParams, context, scoring),
       context.partitionIds,
+      context.patternWork,
     )
     if (viaWorker) return viaWorker
   }
-  return fanOutQuery(manager, textOnlyParams, language, config.schema, scoring, searchOptionsFor(manager))
+  return fanOutQuery(
+    manager,
+    textOnlyParams,
+    language,
+    config.schema,
+    scoring,
+    searchOptionsFor(manager, context.patternWork),
+  )
 }
 
 async function vectorLeg(
@@ -128,7 +137,7 @@ async function vectorLeg(
 
 export async function executeHybridSearch(
   params: QueryParams,
-  context: QueryContext,
+  context: SearchContext,
   limit: number,
   offset: number,
   cursorDepth = 0,
@@ -139,7 +148,7 @@ export async function executeHybridSearch(
 
   let filterDocIds: Set<string> | undefined
   if (params.filters) {
-    filterDocIds = collectFilterDocIds(manager, params, config.schema, context.partitionIds)
+    filterDocIds = collectFilterDocIds(manager, params, config.schema, context.partitionIds, context.patternWork)
     if (filterDocIds.size === 0) {
       return { scored: [], totalMatched: 0 }
     }

@@ -1,5 +1,14 @@
 import { ErrorCodes, NarsilError } from '../errors'
-import { ANTIMERIDIAN_SPAN_DEGREES, FULL_TURN_DEGREES, MIN_POLYGON_POINTS } from './constants'
+import { type LocationBox, longitudeBoxes } from './cells'
+import {
+  ANTIMERIDIAN_SPAN_DEGREES,
+  FULL_TURN_DEGREES,
+  MAX_LATITUDE_DEGREES,
+  MAX_LONGITUDE_DEGREES,
+  MIN_POLYGON_POINTS,
+} from './constants'
+import { isLatitude, isLongitude } from './coordinates'
+import { buildLongitudeEdgeTree, forEachEdgeSpanning } from './edge-tree'
 
 type GeoPoint = { lat: number; lon: number }
 
@@ -13,11 +22,18 @@ export function requirePolygonRing(points: unknown): void {
   }
   points.forEach((point: unknown, position: number) => {
     const { lat, lon } = (point ?? {}) as { lat?: unknown; lon?: unknown }
-    if (typeof lat === 'number' && Number.isFinite(lat) && typeof lon === 'number' && Number.isFinite(lon)) return
+    if (typeof lat !== 'number' || !Number.isFinite(lat) || typeof lon !== 'number' || !Number.isFinite(lon)) {
+      throw new NarsilError(
+        ErrorCodes.SEARCH_INVALID_FILTER,
+        `A polygon point carries a finite "lat" and "lon", and the point at position ${position} does not`,
+        { position },
+      )
+    }
+    if (isLatitude(lat) && isLongitude(lon)) return
     throw new NarsilError(
       ErrorCodes.SEARCH_INVALID_FILTER,
-      `A polygon point carries a finite "lat" and "lon", and the point at position ${position} does not`,
-      { position },
+      `A polygon point must hold a "lat" from -${MAX_LATITUDE_DEGREES} to ${MAX_LATITUDE_DEGREES} and a "lon" from -${MAX_LONGITUDE_DEGREES} to ${MAX_LONGITUDE_DEGREES}, while the point at position ${position} holds ${lat}, ${lon}`,
+      { position, lat, lon },
     )
   })
 }
@@ -55,20 +71,36 @@ export function polygonContainment(polygon: readonly GeoPoint[]): (lat: number, 
     lats[i] = polygon[i].lat
     lons[i] = unwrap ? eastward(polygon[i].lon) : polygon[i].lon
   }
+  const edges = buildLongitudeEdgeTree(lons)
 
   return (lat: number, rawLon: number): boolean => {
     const lon = unwrap ? eastward(rawLon) : rawLon
     let inside = false
-    for (let i = 0, j = n - 1; i < n; j = i++) {
-      const lonI = lons[i]
-      const lonJ = lons[j]
-      if (lonI > lon !== lonJ > lon) {
-        const intersectLat = lats[i] + ((lats[j] - lats[i]) / (lonJ - lonI)) * (lon - lonI)
-        if (lat < intersectLat) inside = !inside
-      }
-    }
+    forEachEdgeSpanning(edges, lon, (i, j) => {
+      const intersectLat = lats[i] + ((lats[j] - lats[i]) / (lons[j] - lons[i])) * (lon - lons[i])
+      if (lat < intersectLat) inside = !inside
+    })
     return inside
   }
+}
+
+export function polygonBoxes(polygon: readonly GeoPoint[]): LocationBox[] {
+  if (polygon.length < MIN_POLYGON_POINTS) return []
+  const unwrap = crossesAntimeridian(polygon)
+  let south = Number.POSITIVE_INFINITY
+  let north = Number.NEGATIVE_INFINITY
+  let west = Number.POSITIVE_INFINITY
+  let east = Number.NEGATIVE_INFINITY
+  for (const point of polygon) {
+    const lon = unwrap ? eastward(point.lon) : point.lon
+    south = Math.min(south, point.lat)
+    north = Math.max(north, point.lat)
+    west = Math.min(west, lon)
+    east = Math.max(east, lon)
+  }
+  if (west >= MAX_LONGITUDE_DEGREES)
+    return longitudeBoxes(south, north, west - FULL_TURN_DEGREES, east - FULL_TURN_DEGREES)
+  return longitudeBoxes(south, north, west, east)
 }
 
 export function isPointInPolygon(lat: number, lon: number, polygon: readonly GeoPoint[]): boolean {

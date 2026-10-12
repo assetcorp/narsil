@@ -6,6 +6,7 @@ export {
   registerStopWords,
   registerTokenizer,
 } from './analysis/registry'
+export { registerPatternSearch } from './core/pattern-index/registry'
 export {
   clearNormalizationCache,
   configureNormalizationCache,
@@ -48,6 +49,7 @@ export type {
 export type { LanguageModule, TokenizerConfig } from './types/language'
 export type { IndexLifecycleOperations } from './types/lifecycle'
 export type { MemoryStats, ProcessMemoryReport, WorkerCopyReport } from './types/memory'
+export type { PatternSearch } from './types/pattern'
 export type {
   IndexContext,
   InsertContext,

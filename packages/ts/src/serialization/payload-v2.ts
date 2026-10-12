@@ -2,7 +2,7 @@ import { decode, encode } from '@msgpack/msgpack'
 import { requireValidFieldTypes } from '../schema/validator/schema'
 import type { SerializablePartition, SerializedSurfaceForms } from '../types/internal'
 import { VALID_HNSW_METRICS } from './constants'
-import { sanitizeSurfaceForms } from './payload-v1'
+import { patternIndexesFromWire, type RawPatternIndex, sanitizeSurfaceForms } from './payload-v1'
 import { dropStoredVectorValues } from './stored-vector-values'
 
 interface ColumnarPostingList {
@@ -32,6 +32,7 @@ export interface RawPartitionPayloadV2 {
     boolean: Record<string, { true_docs: string[]; false_docs: string[] }>
     enum: Record<string, Record<string, string[]>>
     geopoint: Record<string, Array<{ lat: number; lon: number; doc_id: string }>>
+    pattern?: Record<string, RawPatternIndex>
   }
   surface_forms?: SerializedSurfaceForms
   vector_data?: Record<
@@ -165,6 +166,7 @@ export function deserializePayloadV2(data: Uint8Array): SerializablePartition {
       boolean,
       enum: raw.field_indexes?.enum ?? {},
       geopoint,
+      ...patternIndexesFromWire(raw.field_indexes?.pattern),
     },
     surfaceForms: sanitizeSurfaceForms(raw.surface_forms),
     vectorData,

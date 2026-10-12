@@ -1,3 +1,4 @@
+import { holdsUnpairedSurrogate } from '../core/ordering/code-points'
 import { ErrorCodes, NarsilError } from '../errors'
 import { MAX_PATTERN_VALUE_LIMIT, MIN_PATTERN_VALUE_LIMIT } from '../schema/constants'
 import { clampRowCount } from '../search/pagination'
@@ -73,6 +74,14 @@ export function validateDocId(docId: string): void {
 
   if (docId.includes('\0')) {
     throw new NarsilError(ErrorCodes.DOC_VALIDATION_FAILED, 'Document ID must not contain null bytes', { docId })
+  }
+
+  if (holdsUnpairedSurrogate(docId)) {
+    throw new NarsilError(
+      ErrorCodes.DOC_VALIDATION_FAILED,
+      'Document ID holds an unpaired surrogate, the half of a character such as an emoji whose other half is missing, so the engine cannot store it as UTF-8',
+      { docId },
+    )
   }
 }
 

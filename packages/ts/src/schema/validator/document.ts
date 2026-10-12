@@ -85,8 +85,20 @@ export function validateDocument(
     })
   }
 
+  requireIdFieldKey(document)
   assertStorableDocument(document, vectorFieldPaths(schema))
   validateDocumentFields(document, schema, '', patternValueLimit)
+}
+
+function requireIdFieldKey(document: Record<string, unknown>): void {
+  if (!Object.hasOwn(document, 'id')) return
+  const id = document.id
+  if (typeof id === 'string' && id.length > 0) return
+  throw new NarsilError(
+    ErrorCodes.DOC_VALIDATION_FAILED,
+    `Field "id" holds ${typeof id === 'string' ? 'an empty string' : id === null ? 'null' : `a ${typeof id}`}, while the engine stores a document under its id field, so that field must hold a non-empty string`,
+    { field: 'id', received: id === null ? 'null' : typeof id },
+  )
 }
 
 function collectExtraFields(

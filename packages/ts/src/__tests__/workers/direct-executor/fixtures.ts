@@ -1,3 +1,4 @@
+import { createPatternWorkMeter, type SharedPatternWork } from '../../../core/pattern-index/work-meter'
 import type { IndexConfig, SchemaDefinition } from '../../../types/schema'
 import { createRequestId } from '../../../workers/protocol'
 
@@ -13,4 +14,8 @@ export const config: IndexConfig = {
 
 export function reqId(): string {
   return createRequestId()
+}
+
+export function patternWork(): SharedPatternWork {
+  return createPatternWorkMeter().fork(1).shared
 }

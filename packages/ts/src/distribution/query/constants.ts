@@ -1,7 +1,7 @@
 import { RESULT_WINDOW } from '../../search/constants'
 import { MAX_PARTITION_COUNT } from '../constants'
 
-export { MAX_FILTER_DEPTH } from '../../filters/constants'
+export { MAX_FILTER_ARRAY_SIZE, MAX_FILTER_DEPTH, MAX_FILTER_TESTS } from '../../filters/constants'
 export { MAX_PREFIX_LENGTH, MAX_TOLERANCE } from '../../search/constants'
 
 export const MAX_PARTITION_IDS = MAX_PARTITION_COUNT
@@ -15,7 +15,6 @@ export const MAX_FACETS = 64
 export const MAX_FACET_RANGES = 1_000
 export const MAX_FETCH_DOCUMENT_IDS = 10_000
 export const MAX_FILTER_FIELDS = 256
-export const MAX_FILTER_ARRAY_SIZE = 65_536
 export const MAX_FILTER_STRING_LENGTH = 1024
 export const MAX_LIMIT = 10_000
 export const MAX_OFFSET = 10_000

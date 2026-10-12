@@ -32,6 +32,7 @@ const nodeEntry: Record<string, string> = {
   'serialization/crc32-worker': 'src/serialization/crc32-worker.ts',
   'persistence/durability/checkpoint-worker': 'src/persistence/durability/checkpoint-worker.ts',
   'embeddings/openai': 'src/embeddings/openai.ts',
+  pattern: 'src/pattern/index.ts',
   ...languageEntries(),
   distribution: 'src/distribution/index.ts',
   'distribution/coordinator/in-memory': 'src/distribution/coordinator/in-memory.ts',

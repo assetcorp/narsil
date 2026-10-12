@@ -9,6 +9,15 @@ interface FoldCursor {
 
 const EXHAUSTED = -1
 
+function foldOf(
+  codePoint: number,
+  single: ReadonlyMap<number, number>,
+  multi: ReadonlyMap<number, readonly number[]>,
+): number | readonly number[] {
+  if (codePoint < 0x80) return codePoint >= 0x41 && codePoint <= 0x5a ? codePoint + 0x20 : codePoint
+  return single.get(codePoint) ?? multi.get(codePoint) ?? codePoint
+}
+
 function nextFoldedCodePoint(
   text: string,
   cursor: FoldCursor,
@@ -29,9 +38,6 @@ function nextFoldedCodePoint(
 
   let cp = text.charCodeAt(cursor.index)
   cursor.index++
-  if (cp < 0x80) {
-    return cp >= 0x41 && cp <= 0x5a ? cp + 0x20 : cp
-  }
   if (cp >= 0xd800 && cp < 0xdc00 && cursor.index < text.length) {
     const low = text.charCodeAt(cursor.index)
     if (low >= 0xdc00 && low < 0xe000) {
@@ -40,17 +46,13 @@ function nextFoldedCodePoint(
     }
   }
 
-  const mapped = single.get(cp)
-  if (mapped !== undefined) return mapped
-
-  const expansion = multi.get(cp)
-  if (expansion === undefined) return cp
-
-  if (expansion.length > 1) {
-    cursor.pending = expansion
+  const folded = foldOf(cp, single, multi)
+  if (typeof folded === 'number') return folded
+  if (folded.length > 1) {
+    cursor.pending = folded
     cursor.pendingIndex = 1
   }
-  return expansion[0]
+  return folded[0]
 }
 
 /**
@@ -103,4 +105,29 @@ export function compareSortStrings(a: string, b: string): number {
   const folded = compareCaseFolded(a, b)
   if (folded !== 0) return folded
   return compareCodePoints(a, b)
+}
+
+export function appendFoldedCodePoint(codePoint: number, out: number[]): void {
+  const folded = foldOf(codePoint, singleFoldTable(), multiFoldTable())
+  if (typeof folded === 'number') {
+    out.push(folded)
+    return
+  }
+  for (const foldedCodePoint of folded) out.push(foldedCodePoint)
+}
+
+export function appendFoldedCodePoints(text: string, out: number[]): void {
+  const single = singleFoldTable()
+  const multi = multiFoldTable()
+  const cursor: FoldCursor = { index: 0, pending: null, pendingIndex: 0 }
+  for (let codePoint = nextFoldedCodePoint(text, cursor, single, multi); codePoint !== EXHAUSTED; ) {
+    out.push(codePoint)
+    codePoint = nextFoldedCodePoint(text, cursor, single, multi)
+  }
+}
+
+export function foldedCodePointCount(text: string): number {
+  const folded: number[] = []
+  appendFoldedCodePoints(text, folded)
+  return folded.length
 }

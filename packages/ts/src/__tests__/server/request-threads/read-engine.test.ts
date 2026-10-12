@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { DEFAULT_PATTERN_WORK_CAP } from '../../../core/pattern-index/constants'
 import { createThreadReadEngine } from '../../../server/request-threads/read-engine'
 import type { RelayClient } from '../../../server/request-threads/relay-client'
 import type { DirectExecutorExtensions, IndexQueryContext } from '../../../workers/direct-executor'
@@ -15,7 +16,12 @@ function threadWithoutHeldVectors() {
     queryContextOf: () => context,
     holdsVectorField: () => false,
   } as unknown as DirectExecutorExtensions
-  return createThreadReadEngine({ executor, relay: {} as RelayClient, searchHooks: false })
+  return createThreadReadEngine({
+    executor,
+    relay: {} as RelayClient,
+    searchHooks: false,
+    patternWorkCap: DEFAULT_PATTERN_WORK_CAP,
+  })
 }
 
 describe('a request thread holding an index whose vector field it lacks', () => {

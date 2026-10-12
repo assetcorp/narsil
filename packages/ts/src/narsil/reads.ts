@@ -75,6 +75,7 @@ export async function runEngineQuery<T = AnyDocument>(
       broadcastStats: broadcastStatsFor(core, options),
       partitionIds: options?.partitionIds,
       cursorBinding: queryBindingOf(params),
+      patternWorkCap: core.patternWorkCap,
     })
 
     if (core.pluginRegistry.hasHooks('afterSearch')) {
@@ -129,6 +130,7 @@ export async function runEnginePreflight(
       broadcastStats: broadcastStatsFor(core, options),
       partitionIds: options?.partitionIds,
       cursorBinding: queryBindingOf(params),
+      patternWorkCap: core.patternWorkCap,
     })
     if (core.analysisRebuild.isStale(indexName)) {
       result.analysisStale = true
@@ -227,6 +229,7 @@ export async function runEngineListDocuments<T = AnyDocument>(
       schema: entry.config.schema,
       strict: entry.config.strict,
       partitionIds,
+      patternWorkCap: core.patternWorkCap,
     })
   } finally {
     release()

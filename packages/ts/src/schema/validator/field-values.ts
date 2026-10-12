@@ -1,5 +1,6 @@
 import { exceedsCodePoints } from '../../core/ordering/code-points'
 import { ErrorCodes, NarsilError } from '../../errors'
+import { isLatitude, isLongitude } from '../../geo/coordinates'
 import type { ParsedFieldType } from './field-type'
 import { isPlainObject } from './shared'
 
@@ -28,7 +29,7 @@ export function validateGeopoint(path: string, value: unknown): void {
     })
   }
 
-  if (value.lat < -90 || value.lat > 90) {
+  if (!isLatitude(value.lat)) {
     throw new NarsilError(
       ErrorCodes.SCHEMA_INVALID_GEOPOINT,
       `Field "${path}" geopoint lat must be between -90 and 90`,
@@ -39,7 +40,7 @@ export function validateGeopoint(path: string, value: unknown): void {
     )
   }
 
-  if (value.lon < -180 || value.lon > 180) {
+  if (!isLongitude(value.lon)) {
     throw new NarsilError(
       ErrorCodes.SCHEMA_INVALID_GEOPOINT,
       `Field "${path}" geopoint lon must be between -180 and 180`,
@@ -73,7 +74,7 @@ export function validateVector(path: string, value: unknown, expectedDimension: 
   }
 
   for (let i = 0; i < arr.length; i++) {
-    if (typeof arr[i] !== 'number' || Number.isNaN(arr[i])) {
+    if (typeof arr[i] !== 'number' || !Number.isFinite(arr[i])) {
       throw new NarsilError(
         ErrorCodes.DOC_VALIDATION_FAILED,
         `Field "${path}" vector element at index ${i} is not a valid number`,
@@ -100,11 +101,12 @@ export function validateTypedArray(path: string, value: unknown, elementType: 's
         { field: path, index: i, expected: elementType, received: typeof el },
       )
     }
-    if (elementType === 'number' && Number.isNaN(el as number)) {
-      throw new NarsilError(ErrorCodes.DOC_VALIDATION_FAILED, `Field "${path}" array element at index ${i} is NaN`, {
-        field: path,
-        index: i,
-      })
+    if (elementType === 'number' && !Number.isFinite(el as number)) {
+      throw new NarsilError(
+        ErrorCodes.DOC_VALIDATION_FAILED,
+        `Field "${path}" array element at index ${i} is ${String(el)}, while a number field holds finite numbers alone`,
+        { field: path, index: i },
+      )
     }
   }
 }
@@ -142,11 +144,11 @@ export function validateFieldValue(
       if (type.pattern) validatePatternValue(path, value, patternValueLimit)
       return
     case 'number':
-      if (typeof value !== 'number' || Number.isNaN(value)) {
-        throw new NarsilError(ErrorCodes.DOC_VALIDATION_FAILED, `Field "${path}" expected a valid number`, {
+      if (typeof value !== 'number' || !Number.isFinite(value)) {
+        throw new NarsilError(ErrorCodes.DOC_VALIDATION_FAILED, `Field "${path}" expected a finite number`, {
           field: path,
           expected: 'number',
-          received: Number.isNaN(value) ? 'NaN' : typeof value,
+          received: typeof value === 'number' ? String(value) : typeof value,
         })
       }
       return
