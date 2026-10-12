@@ -34,7 +34,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function configOfHeader(line: ExportLine | undefined): IndexConfig {
-  if (line === undefined || !('text' in line)) invalidHeader('is missing')
+  if (line === undefined) invalidHeader('is missing')
+  if (!('text' in line)) {
+    invalidHeader(
+      line.refused === 'too-long' ? `passes the line limit of ${MAX_EXPORT_LINE_BYTES} bytes` : 'is not UTF-8',
+    )
+  }
   let raw: unknown
   try {
     raw = JSON.parse(line.text)

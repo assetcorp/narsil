@@ -399,6 +399,8 @@ The `held_partitions` field records the partitions of the index this copy holds,
 
 An index configuration payload records the configuration of one index, so that the restore operation can create the index from a [snapshot archive](durability.md#snapshot-archive) with the configuration that it had. A writer must set `envelope_format_version` to 5 and must set the checksum flag. Its field names are camelCase.
 
+An implementation must raise `CONFIG_INVALID` when a caller creates an index whose configuration payload is longer than 16,777,216 bytes, the size of the longest document that [Documents](#documents) allows, so that the header of a [document export](durability.md#document-export) stays inside the line length that a reader must accept.
+
 The payload is a MessagePack map:
 
 ```text

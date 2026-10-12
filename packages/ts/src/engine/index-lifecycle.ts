@@ -16,6 +16,7 @@ import type { EmbeddingAdapter } from '../types/adapters'
 import type { NarsilConfig } from '../types/config'
 import type { IndexConfig } from '../types/schema'
 import type { EngineCore, IndexRegistryEntry } from './core'
+import { requireConfigurationWithinSizeLimit } from './snapshot/index-configuration'
 import { validateBM25Params, validateIndexName, validatePartitionConfig, validatePatternValueLimit } from './validation'
 import { getVectorFieldPaths } from './vector-fields'
 
@@ -116,6 +117,7 @@ export async function createEngineIndex(
     validateRequiredFieldsInSchema(indexConfig.required, indexConfig.schema)
   }
   const language = getLanguage(indexConfig.language ?? 'english')
+  if (appliesCreationLimits) requireConfigurationWithinSizeLimit(indexConfig, language)
   core.executor.createIndex(name, indexConfig, language)
   core.indexRegistry.set(name, {
     config: indexConfig,

@@ -63,6 +63,27 @@ describe('the limits on a new index', () => {
     }
   })
 
+  it('takes a configuration under 16 MiB as MessagePack through an export and refuses a larger one', async () => {
+    const engine = await plainEngine()
+    const STOP_WORD_BYTES = 66
+    const stopWords = (count: number) =>
+      new Set(Array.from({ length: count }, (_, at) => `w${String(at).padStart(63, '0')}`))
+    const under = Math.floor((SIXTEEN_MIB - 4_096) / STOP_WORD_BYTES)
+    const over = Math.ceil(SIXTEEN_MIB / STOP_WORD_BYTES) + 1
+
+    await engine.createIndex('large', { schema: { title: 'string' }, stopWords: stopWords(under) })
+    await engine.insert('large', { title: 'lantern' }, 'only')
+    await expect(
+      engine.createIndex('too-large', { schema: { title: 'string' }, stopWords: stopWords(over) }),
+    ).rejects.toMatchObject({ code: ErrorCodes.CONFIG_INVALID, details: { maximum: SIXTEEN_MIB } })
+    expect(engine.listIndexes().map(index => index.name)).toEqual(['large'])
+
+    const exported = await bytesOf(await engine.exportDocuments('large'))
+    const target = await plainEngine()
+    expect(await target.importDocumentExport('copy', exported)).toEqual({ imported: 1, refusedCount: 0, refused: [] })
+    expect(await target.get('copy', 'only')).toEqual({ id: 'only', title: 'lantern' })
+  })
+
   it('refuses a write-ahead log segment limit above 2,147,483,647 bytes', async () => {
     const directory = await roots.make('narsil-segment-limit-')
 
