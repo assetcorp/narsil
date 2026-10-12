@@ -38,8 +38,8 @@ export function updateFieldIndexOnly(
     )
       continue
 
-    forgetValueSize(state.sizeIndexes, internalId, fieldPath, oldVal)
-    recordValueSize(state.sizeIndexes, internalId, fieldPath, newVal)
+    forgetValueSize(state.sizeIndexes, internalId, fieldPath, fieldType, oldVal)
+    recordValueSize(state.sizeIndexes, internalId, fieldPath, fieldType, newVal)
     if (newVal !== undefined && newVal !== null) {
       ensureFieldIndex(state, fieldPath, fieldType)
     }

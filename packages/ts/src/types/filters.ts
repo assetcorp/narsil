@@ -29,7 +29,7 @@ export type ComparisonFilter = {
  * The engine tests a text field against this filter for equality, for a text
  * range, or with the set and prefix tests.
  *
- * The engine compares each element of a `string[]` or `verbatim[]` field, so
+ * The engine compares each element of a `string[]`, `verbatim[]`, or `enum[]` field, so
  * it matches a document with `eq`, `in`, `startsWith`, `endsWith`, or
  * `contains` where one element passes the test, while it matches a document
  * with `ne` or `nin` where every element differs from the values.
@@ -44,8 +44,8 @@ export type ComparisonFilter = {
  * `string[]` field whose type includes `pattern`. On such a field, the engine
  * answers `eq`, `ne`, `in`, `nin`, `startsWith`, `endsWith`, and `contains`
  * from the field's pattern index. `caseFold` applies to each of those tests.
- * The engine answers all of them except `contains` on an `enum` or `enum[]`
- * field as well, from the field's index of values. It throws
+ * On an `enum` or `enum[]` field, the engine answers `eq`, `ne`, `in`, `nin`,
+ * `startsWith`, and `endsWith` from the field's index of values. It throws
  * `SEARCH_INVALID_FILTER` for `eq`, `ne`, `in`, `nin`, `startsWith`, or
  * `endsWith` on a `string` or `string[]` field whose type leaves out
  * `pattern`, because such a field keeps no index of whole values.
@@ -68,9 +68,9 @@ export type StringFilter = Pick<ComparisonFilter, 'eq' | 'ne'> & {
   lte?: string
   /** This matches a value inside the inclusive range in sort order, given as `[low, high]`. */
   between?: [string, string]
-  /** This matches a field equal to any value in the list. */
+  /** This matches a field equal to any value in the list, which holds at most 65,536 values. */
   in?: string[]
-  /** This matches a field that differs from every value in the list. */
+  /** This matches a field that differs from every value in the list, which holds at most 65,536 values. */
   nin?: string[]
   /** This matches a field starting with the text. */
   startsWith?: string
@@ -99,9 +99,9 @@ export type StringFilter = Pick<ComparisonFilter, 'eq' | 'ne'> & {
  * @public
  */
 export type ArrayFilter = {
-  /** This matches a list holding every one of the values, so an empty set of values matches every list. */
+  /** This matches a list holding every one of the values, at most 65,536 of them, so an empty set of values matches every list. */
   containsAll?: (string | number | boolean)[]
-  /** This matches a list holding at least one of the values. */
+  /** This matches a list holding at least one of the values, at most 65,536 of them. */
   matchesAny?: (string | number | boolean)[]
   /** This compares the number of elements in the list. */
   size?: ComparisonFilter
@@ -168,10 +168,11 @@ export type GeoPolygonFilter = {
     /**
      * The engine closes the ring through these corners in the order that you
      * list them, so you can leave the first point off the end. It throws
-     * `SEARCH_INVALID_FILTER` for a ring of fewer than three corners, since
-     * such a ring encloses no area, and for a corner whose latitude is outside
-     * -90 to 90 or whose longitude is outside -180 to 180. List the corners counter-clockwise around
-     * the area, as in an exterior ring of GeoJSON. Where the corners
+     * `SEARCH_INVALID_FILTER` for a ring of fewer than three corners, which
+     * encloses no area, and for a corner whose latitude is outside -90 to 90
+     * or whose longitude is outside -180 to 180. It also throws that error for
+     * a ring of more than 65,536 corners. List the corners counter-clockwise
+     * around the area, as in an exterior ring of GeoJSON. Where the corners
      * span 180 degrees of longitude or more, the engine matches the area on
      * the left of that path, so a ring listed that way can cross the
      * antimeridian or span more than half the globe.
@@ -204,8 +205,8 @@ export type FieldFilter = ComparisonFilter | StringFilter | ArrayFilter | Presen
  * The engine answers every test from an index that it keeps for the field. It
  * applies the filter before scoring, so a narrow filter makes a search
  * cheaper. A filter nests at most 30 levels deep and holds at most 1,024
- * tests, counted across every field and nested expression, and the engine
- * throws `SEARCH_INVALID_FILTER` past either limit. It throws
+ * tests, counted across every field and nested expression. Past either limit,
+ * the engine throws `SEARCH_INVALID_FILTER`, while it throws
  * `SEARCH_INVALID_FIELD` for a test on a field that the schema leaves out.
  *
  * @public

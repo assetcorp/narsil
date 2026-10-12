@@ -32,7 +32,7 @@ export function requirePolygonRing(points: unknown): void {
     if (isLatitude(lat) && isLongitude(lon)) return
     throw new NarsilError(
       ErrorCodes.SEARCH_INVALID_FILTER,
-      `A polygon point has a "lat" from -${MAX_LATITUDE_DEGREES} to ${MAX_LATITUDE_DEGREES} and a "lon" from -${MAX_LONGITUDE_DEGREES} to ${MAX_LONGITUDE_DEGREES}, and the point at position ${position} sets ${lat}, ${lon}`,
+      `A polygon point must hold a "lat" from -${MAX_LATITUDE_DEGREES} to ${MAX_LATITUDE_DEGREES} and a "lon" from -${MAX_LONGITUDE_DEGREES} to ${MAX_LONGITUDE_DEGREES}, while the point at position ${position} holds ${lat}, ${lon}`,
       { position, lat, lon },
     )
   })

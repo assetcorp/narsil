@@ -22,7 +22,7 @@ export function requireWholeValueIndex(fieldPath: string, filter: Record<string,
   for (const operator of WHOLE_VALUE_OPERATORS) {
     if (filter[operator] === undefined) continue
     invalid(
-      `"${operator}" compares whole values of field "${fieldPath}", and the engine finds whole text values only through a pattern index, which a "${parsed.base}" field keeps when its type includes "pattern". Declare the field as "${parsed.base}:pattern" to filter it this way`,
+      `"${operator}" compares whole values of field "${fieldPath}", which the engine finds only through a pattern index. A "${parsed.base}" field keeps a pattern index where its type includes "pattern", so declare the field as "${parsed.base}:pattern" in a new index to filter it this way`,
       fieldPath,
       operator,
     )
@@ -43,7 +43,7 @@ function listElementKind(fieldPath: string, operator: string, type: FieldType): 
   const kind = base === undefined ? undefined : ELEMENT_KIND_BY_BASE[base]
   if (kind !== undefined) return kind
   return invalid(
-    `"${operator}" tests the elements of a list field, and the schema declares field "${fieldPath}" as "${type}"`,
+    `"${operator}" tests the elements of a list field, while the schema declares field "${fieldPath}" as "${type}"`,
     fieldPath,
     operator,
   )
@@ -74,7 +74,7 @@ export function requireSizeOperands(fieldPath: string, filter: Record<string, un
   for (const [operator, operand] of Object.entries(size)) {
     if (!SIZE_OPERATOR_SET.has(operator)) {
       invalid(
-        `"size" on field "${fieldPath}" takes ${SIZE_OPERATORS.join(', ')}, and "${operator}" is none of them`,
+        `"size" on field "${fieldPath}" takes ${SIZE_OPERATORS.join(', ')}, while "${operator}" is none of them`,
         fieldPath,
         'size',
       )

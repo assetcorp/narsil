@@ -209,7 +209,7 @@ export function indexDocument(
     const value = getNestedValue(document, fieldPath)
     if (value === undefined || value === null) continue
 
-    recordValueSize(state.sizeIndexes, internalId, fieldPath, value)
+    recordValueSize(state.sizeIndexes, internalId, fieldPath, base, value)
     ensureFieldIndex(state, fieldPath, base)
     if (pattern) patternIndexOf(state.patternIndexes, fieldPath).add(internalId, value)
 
@@ -269,7 +269,7 @@ export function removeFromIndexes(
   for (const { path: fieldPath, base, pattern } of schemaFields) {
     const value = getNestedValue(fields as Record<string, unknown>, fieldPath)
     if (value === undefined || value === null) continue
-    forgetValueSize(state.sizeIndexes, internalId, fieldPath, value)
+    forgetValueSize(state.sizeIndexes, internalId, fieldPath, base, value)
     if (pattern) state.patternIndexes.get(fieldPath)?.remove(internalId, value)
 
     if (base === 'string') {

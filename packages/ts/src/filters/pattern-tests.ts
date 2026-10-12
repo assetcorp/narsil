@@ -4,13 +4,13 @@ import type { PatternOperator } from '../core/pattern-index/types'
 export interface PatternFilterContext {
   isPatternField(fieldPath: string): boolean
   matchPattern(fieldPath: string, operator: PatternOperator, text: string, caseFold: boolean, into: Uint32Array): void
-  patternValuesBitset(fieldPath: string): Uint32Array
+  presentBitset(fieldPath: string): Uint32Array
   readonly capacity: number
   readonly allDocIdsBitset: Uint32Array
 }
 
 function excluding(context: PatternFilterContext, fieldPath: string, excluded: Uint32Array): Uint32Array {
-  const universe = bitsetAnd(context.patternValuesBitset(fieldPath), context.allDocIdsBitset)
+  const universe = bitsetAnd(context.presentBitset(fieldPath), context.allDocIdsBitset)
   return bitsetAnd(universe, bitsetNot(excluded, context.capacity))
 }
 

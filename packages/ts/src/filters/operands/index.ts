@@ -36,7 +36,7 @@ export function undeclaredFieldOnStrictIndex(field: string, option: string): Nar
 export function undeclaredFilterField(field: string): NarsilError {
   return new NarsilError(
     ErrorCodes.SEARCH_INVALID_FIELD,
-    `The schema declares no field "${field}", and the engine answers a filter only from the indexes that it keeps for declared fields. Declare the field in the schema of a new index to filter by it`,
+    `The schema declares no field "${field}", while the engine answers a filter only from the indexes that it keeps for declared fields. Declare the field in the schema of a new index to filter by it`,
     { field, option: 'filter' },
   )
 }

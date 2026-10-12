@@ -143,6 +143,11 @@ export function createFrozenEnumReader(entry: SegmentPayload['enums'][number]): 
   }
 
   let affixes: ValueAffixes | null = null
+  function affixesOf(): ValueAffixes {
+    affixes ??= new ValueAffixes(() => true, values)
+    return affixes
+  }
+
   function bitsetOfValues(matching: readonly string[], capacity: number): Uint32Array {
     const bits = createBitSet(capacity)
     for (const value of matching) {
@@ -153,14 +158,8 @@ export function createFrozenEnumReader(entry: SegmentPayload['enums'][number]): 
   }
 
   return {
-    queryPrefixBitset: (prefix, capacity) => {
-      affixes ??= new ValueAffixes(values)
-      return bitsetOfValues(affixes.withPrefix(prefix), capacity)
-    },
-    querySuffixBitset: (suffix, capacity) => {
-      affixes ??= new ValueAffixes(values)
-      return bitsetOfValues(affixes.withSuffix(suffix), capacity)
-    },
+    queryPrefixBitset: (prefix, capacity) => bitsetOfValues(affixesOf().withPrefix(prefix), capacity),
+    querySuffixBitset: (suffix, capacity) => bitsetOfValues(affixesOf().withSuffix(suffix), capacity),
     serialize: () => {
       const byValue: Record<string, number[]> = Object.create(null)
       for (let i = 0; i < values.length; i++) {
