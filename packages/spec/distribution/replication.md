@@ -195,20 +195,21 @@ The fallback runs when the primary's log no longer holds what the replica needs,
    { lastSeqNo, lastPrimaryTerm }.
 2. The primary finds that its log does not cover the gap.
 3. The primary starts a snapshot transfer:
-   a. It serialises the partition in the .nrsl format, the same
-      format persistence snapshots use.
+   a. It writes the snapshot archive of the partition, as
+      Snapshot Archive in durability.md defines.
    b. It prepends a replication snapshot header:
         ReplicationSnapshotHeader {
-          lastSeqNo:   uint64   (the seqNo at snapshot time)
+          lastSeqNo:   uint64   (the lastSeqNo that the archive's
+                                 manifest records for the partition)
           primaryTerm: uint64
           partitionId: uint32
           indexName:   string
-          checksum:    uint32   (CRC32 of the snapshot bytes)
+          checksum:    uint32   (CRC32 of the archive bytes)
         }
-   c. It streams the snapshot to the replica over the node
+   c. It streams the archive to the replica over the node
       transport.
-4. The replica verifies the checksum, then decodes and loads the
-   partition.
+4. The replica verifies the checksum, then applies the archive
+   to its copy of the partition.
 5. The primary streams the log entries that arrived during the
    transfer, from the header's lastSeqNo + 1 to the current head.
 6. The replica applies those entries.

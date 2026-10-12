@@ -18,7 +18,7 @@ A node holds its index in memory. Persistence comes in two tiers, and each publi
 
 The strong tier pairs a periodic snapshot with a write-ahead log.
 
-- The **snapshot**, or checkpoint, is the full index state at a point in time, written atomically as a `.nrsl` envelope; see [envelope.md](envelope.md). It is taken periodically.
+- The **snapshot**, or checkpoint, is the full index state at a point in time, which a node writes as the files of a [segmented checkpoint](#segmented-checkpoint) and commits with one atomic write of their manifest. A node takes one periodically.
 - The **write-ahead log** is an append-only, per-partition log of mutations. A mutation reaches the log durably before the write is acknowledged.
 
 Recovery loads the latest snapshot and then replays the log records whose sequence number exceeds the snapshot's recorded checkpoint position. This tier needs a real filesystem, because it relies on append, fsync, and atomic rename. Its guarantee is that no acknowledged write is lost; see [Durability Modes](#durability-modes).
@@ -91,7 +91,7 @@ The log for one partition is a sequence of append-only segment files.
 - Each `(indexName, partitionId)` pair has one log.
 - The key is `<indexName>/wal/<partitionId>/<startSeqNo>`, where `startSeqNo` is the sequence number of the segment's first record, written as 16 digits with leading zeros so that segments sort lexically in sequence order.
 - A segment is append-only and is never modified in place. Reclaiming one means deleting the whole file; see [Checkpoint and Truncation](#checkpoint-and-truncation).
-- A new segment opens when the active segment grows past `segment_max_bytes`, 67108864 by default, which is 64 MB, or when a checkpoint runs.
+- A node must open a new segment before an append that would carry the active segment past `segment_max_bytes`, and when a checkpoint runs. `segment_max_bytes` is 67,108,864 by default, which is 64 MiB, and a node must refuse a value above 2,147,483,647 with `CONFIG_INVALID`, so that every segment stays inside the [file size](envelope.md#file-size) limit.
 
 Because a segment is only ever appended to or deleted whole, a reader can never meet a stale record left over from an earlier use of the same bytes.
 
@@ -171,84 +171,52 @@ Recovery reads the fsynced frontier deterministically and treats any failure ins
 
 ---
 
-## Snapshot Checkpoint Format
+## Atomic Write
 
-A snapshot is a full-index checkpoint held in a single `.nrsl` envelope. The snapshot-only tier writes it on every persist, and the write-ahead log tier writes the [segmented checkpoint](#segmented-checkpoint) instead.
+A node must replace the content of a key atomically and durably wherever this document calls for an atomic write:
 
-The container is the `.nrsl` envelope from [envelope.md](envelope.md) with the checksum flag set; the CRC32 payload checksum is mandatory for a snapshot. The payload is the snapshot bundle, a MessagePack map. The envelope's `envelope_format_version` is 2, and the bundle's own `version` field is 2. The two are separate numbers, and a reader rejects a bundle whose `version` is anything other than 2.
-
-```text
-SnapshotBundle {
-  version:           uint8         (2)
-  schema:            Map<string, string>
-  language:          string
-  analysis_revision: string        (optional; the language module revision)
-  tokenizer:         string        (optional; the registered tokeniser name)
-  stop_words:        string        (optional; the registered stop word set name)
-  stop_word_list:    List<string>  (optional; the words of a literal stop word set)
-  partitions:     List<bytes>   (version 2 partition payloads)
-  vectorIndexes:  Map<string, List<VectorIndexPayload>>   (the parts of each field, in part order)
-  checkpoint:     List<PartitionCheckpoint>
-}
-
-PartitionCheckpoint {
-  partitionId: uint32
-  lastSeqNo:   uint64   (the highest seqNo this snapshot contains)
-  primaryTerm: uint64
-}
-```
-
-`checkpoint` records, per partition, the highest `seqNo` the snapshot already holds, and recovery replays each partition's log from `lastSeqNo + 1`. The field is additive: a reader that does not find it treats every partition's `lastSeqNo` as 0 and replays the whole log.
-
-`analysis_revision`, `tokenizer`, `stop_words`, and `stop_word_list` are additive as well. They carry the analysis from [Index Metadata](#index-metadata), so a reader recreates the index with the analysis the snapshot was taken with, and a name nothing is registered under raises `CONFIG_INVALID`. A revision that differs from the one the reader's language module carries means the snapshot's terms are stale, and [Index Metadata](envelope.md#index-metadata) in envelope.md governs what the reader does about it.
-
-### Atomic Snapshot Write
-
-A snapshot must replace its predecessor atomically and durably:
-
-1. Serialise the bundle and wrap it in the `.nrsl` envelope with its CRC.
+1. Wrap the payload in the `.nrsl` envelope with its CRC.
 2. Write the bytes to a temporary file in the same directory as the destination.
 3. fsync the temporary file.
-4. Rename the temporary file over `<indexName>/snapshot`.
+4. Rename the temporary file over the key's file.
 5. fsync the containing directory.
 
-A crash before step 4 leaves the previous snapshot intact and the temporary file is discarded during recovery. A crash after step 4 but before log truncation leaves the new snapshot alongside the full log, and recovery still reaches the correct state because replay filters by sequence number. Every fsync error is fatal, as described in [Durability Modes](#durability-modes).
+A crash before step 4 leaves the previous content in place, and recovery then discards the temporary file. Every fsync error is fatal, as [Durability Modes](#durability-modes) describes.
 
 ---
 
 ## Segmented Checkpoint
 
-The write-ahead log tier checkpoints its documents and its vectors incrementally, so the cost of writing them grows with the changes since the last checkpoint, while a checkpoint writes the graph of a changed vector field whole.
+Both persistence tiers write the segmented checkpoint. It stores documents and vectors in files that later checkpoints leave unchanged, so the bytes that a checkpoint writes grow with the changes since the last checkpoint, while a checkpoint writes the graph of a changed vector field whole.
 
 ### Layout
 
-A segmented checkpoint is a manifest, the segment files of each partition, and the vector files and the graph file of each vector field, stored under the keys in [Storage Path Convention](envelope.md#storage-path-convention). A writer must number a partition's segments upwards from zero and zero-pad each id to 16 digits, so that segment keys sort in creation order. A partition must hold at most 65,536 segments.
+A segmented checkpoint is a manifest, the segment files of each partition, and the vector files and graph parts of each vector field, stored under the keys in [Storage Path Convention](envelope.md#storage-path-convention). A writer must number a partition's segments upwards from zero and zero-pad each id to 16 digits, so that segment keys sort in creation order. A partition must hold at most 65,536 segments. Every file of the checkpoint must stay inside the [file size](envelope.md#file-size) limit.
 
-A segment file is a `.nrsl` envelope with the checksum flag set and `envelope_format_version` 2, whose payload is a MessagePack map:
+A segment file is a `.nrsl` envelope with the checksum flag set and `envelope_format_version` 4, whose payload is a [keyword segment payload](envelope.md#keyword-segment-payload).
 
-```text
-SegmentFile {
-  payload:    bytes         (a version 2 partition payload holding the segment's documents)
-  tombstones: List<string>  (document IDs that this segment removes from older segments)
-}
-```
+A vector file is a `.nrsl` envelope with the checksum flag set and `envelope_format_version` 2, whose payload is a [vector file payload](envelope.md#vector-file-payload). A writer must number a field's vector files upwards from zero, must zero-pad each id to 16 digits, and must leave a vector file unchanged after it writes the file.
 
-A vector file is the same envelope, with a [vector file payload](envelope.md#vector-file-payload) as its payload. A writer must number a field's vector files upwards from zero, must zero-pad each id to 16 digits, and must leave a vector file unchanged after it writes the file.
-
-A graph file is the same envelope, with a [vector graph payload](envelope.md#vector-graph-payload) as its payload. A vector field has one list of vector files and at most one graph file for the whole index, because a [vector index](vector-index.md) covers every partition.
+A graph part is a `.nrsl` envelope with the checksum flag set and `envelope_format_version` 2, whose payload is a [vector graph payload](envelope.md#vector-graph-payload). A writer must number the parts of one generation upwards from zero. A vector field has one list of vector files and the graph parts of at most one generation for the whole index, because a [vector index](vector-index.md) covers every partition.
 
 ### Manifest
 
-Writing the manifest commits a checkpoint. The manifest is a `.nrsl` envelope with the same flags, whose payload is a MessagePack map. A reader must reject a manifest whose `version` is anything other than 6.
+Writing the manifest commits a checkpoint. The manifest is a `.nrsl` envelope with the checksum flag set and `envelope_format_version` 2, whose payload is a MessagePack map. A reader must upgrade an index whose manifest `version` is 6, as [Earlier Layouts](#earlier-layouts) defines, and it must reject a manifest whose `version` is anything other than 6 or 7 with `ENVELOPE_VERSION_MISMATCH`.
 
 ```text
 SegmentManifest {
-  version:    uint8   (6)
+  version:    uint8   (7)
   schema:     Map<string, string>
   language:   string
   checkpoint: List<PartitionCheckpoint>
   partitions: List<PartitionManifestEntry>
   vectors:    List<VectorFieldRef>   (one entry per vector field)
+}
+
+PartitionCheckpoint {
+  partitionId: uint32
+  lastSeqNo:   uint64   (the highest seqNo that the checkpoint holds)
+  primaryTerm: uint64
 }
 
 PartitionManifestEntry {
@@ -262,25 +230,37 @@ SegmentRef {
   key:            string
   docCount:       uint32
   tombstoneCount: uint32
+  bytes:          uint64   (the length of the file, header included)
+  checksum:       uint32   (the checksum in the file's header)
 }
 
 VectorFieldRef {
   fieldPath:       string
   nextFileId:      uint64
   files:           List<VectorFileRef>
-  graphGeneration: uint64          (the generation of the field's newest graph file, 0 before its first)
-  graphKey:        string or nil   (nil while the field holds no graph)
+  graphGeneration: uint64          (the generation of the field's newest graph parts, 0 before its first)
+  graphParts:      List<FileRef>   (in part order, empty while the field holds no graph)
 }
 
 VectorFileRef {
-  id:    uint64
-  key:   string
-  count: uint32         (the vectors in the file, dead ones included)
-  dead:  bytes or nil   (one bit per vector, nil while every vector is live)
+  id:       uint64
+  key:      string
+  count:    uint32         (the vectors in the file, dead ones included)
+  dead:     bytes or nil   (one bit per vector, nil while every vector is live)
+  bytes:    uint64         (the length of the file, header included)
+  checksum: uint32         (the checksum in the file's header)
+}
+
+FileRef {
+  key:      string
+  bytes:    uint64   (the length of the file, header included)
+  checksum: uint32   (the checksum in the file's header)
 }
 ```
 
-`checkpoint` holds the same list as the snapshot bundle holds, so recovery must replay each partition's log from its `lastSeqNo + 1`.
+`checkpoint` records, for each partition, the highest `seqNo` that the checkpoint holds, so recovery must replay each partition's log from its `lastSeqNo + 1`.
+
+A reader must raise `PERSISTENCE_LOAD_FAILED` for a listed key that differs from the key that [Storage Path Convention](envelope.md#storage-path-convention) builds for the entry, where a graph part's number is its position in `graphParts`. A reader must compare a file's length with `bytes` before it reads the file, and it must raise the same error for a file whose length or header checksum differs from the manifest, so that it loads no file other than the one that the checkpoint wrote.
 
 The order of `files` numbers every vector of the field. The vectors of the first file take the numbers from 0 upwards in position order, and each later file continues from the number where the file before it ends. A dead vector keeps its number.
 
@@ -288,19 +268,19 @@ Vector `i` of a file is dead when bit `i mod 8` of byte `floor(i / 8)` of `dead`
 
 ### Writing a Checkpoint
 
-1. For each partition, read the log records between the previous checkpoint's `lastSeqNo` and the new one, and write one segment under the next segment id. That segment must hold the documents that those records inserted or updated, and a tombstone for each document that they removed. Write no segment for a partition with no changes. A writer may instead take a changed partition's whole content from the partition that it searches through, and write it as one segment under the next segment id. The manifest must then list that segment as the partition's only segment. The writer must take the content while it applies no mutation to the partition, so that the segment holds the effect of every record up to `lastSeqNo` and of no later record.
-2. When any partition changed, write every vector of each field that no vector file of the previous manifest holds into new vector files of at most 65,536 vectors each, under the field's next file ids. A checkpoint with no changes must keep the previous vector files and graph file. A vector file is the only place where a checkpoint stores a vector value, so the document segment of step 1 must hold none.
+1. For each partition, read the log records between the previous checkpoint's `lastSeqNo` and the new one, and write their effect as one or more segments under the next segment ids. Between them, those segments must hold each document that the records inserted or updated, in exactly one segment, and a tombstone for each document that the records removed. A writer must start another segment before a segment's file would pass the [file size](envelope.md#file-size) limit. Write no segment for a partition with no changes. A writer may instead take a changed partition's whole content from the partition that it searches through, and write it as one or more segments under the next segment ids, split by the same rule. The manifest must then list those segments as the partition's only segments. The writer must take the content while it applies no mutation to the partition, so that the segments hold the effect of every record up to `lastSeqNo` and of no later record.
+2. When any partition changed, write every vector of each field that no vector file of the previous manifest holds into new vector files of at most 65,536 vectors each, under the field's next file ids. A checkpoint with no changes must keep the previous vector files and graph parts. A vector file is the only place where a checkpoint stores a vector value, so the document segment of step 1 must hold none.
 3. Mark as dead, in the new manifest, every listed vector whose document the field no longer holds with that value. That covers a removed document, a replaced vector, and a document that a log record stores with no value for the field, because the record replaces the document that the earlier vector came from.
 4. A writer may replace a listed vector file by writing its live vectors into new vector files, and the new manifest must then omit the replaced file. A writer should replace a file whose dead share exceeds 0.2. A writer that recalibrates a field must replace every vector file of the field, so that every listed file holds its codes under one centroid.
-5. When a field holds a graph, write the graph whole as a new graph file at the field's next graph generation. The graph file must number its vectors by the new manifest's `files`, and it must hold live vectors alone.
-6. A writer may take a field's vectors, graph, and codes from the vector index that it searches through. The vector files and the graph file may then hold the effect of a log record above a partition's `lastSeqNo`, provided that the record is durable before step 8, because recovery replays that record over them.
-7. When a partition's segment count exceeds the compaction threshold, 12 by default, merge its oldest segments into one, so that the count returns to the threshold. A writer may merge fewer segments, or none, where the merged segment would hold more than 200,000 documents, so that a reader holds a bounded segment in memory.
-8. Write the manifest atomically over `<indexName>/manifest` with the same atomic write as the snapshot bundle. The manifest write is the commit point, so a crash before it leaves the previous manifest in force and the new files unreferenced.
-9. Once the manifest is durable, delete every key that the previous manifest references and the new one does not, and delete any `<indexName>/snapshot` bundle.
+5. When a field holds a graph, write the graph whole as the graph parts of the field's next graph generation. The parts must number their vectors by the new manifest's `files`, and they must hold live vectors alone.
+6. A writer may take a field's vectors, graph, and codes from the vector index that it searches through. The vector files and the graph parts may then hold the effect of a log record above a partition's `lastSeqNo`, provided that the record is durable before step 8, because recovery replays that record over them.
+7. When a partition's segment count exceeds the compaction threshold, 12 by default, merge its oldest segments into one, so that the count returns to the threshold. A writer must merge fewer segments, or none, where the merged segment's file would pass the [file size](envelope.md#file-size) limit, and it may merge fewer for any other reason, such as to bound the memory that it uses during the merge.
+8. Write the manifest over `<indexName>/manifest` with an [atomic write](#atomic-write). The manifest write is the commit point, so a crash before it leaves the previous manifest in force and the new files unreferenced.
+9. Once the manifest is durable, delete every key that the previous manifest references and the new one does not.
 
 ### Structural-Merge Recovery
 
-Recovery must load a partition by reading the segments that the manifest lists for it, in id order, and merging them, so that the newest occurrence of a document wins and a tombstone removes the document from every older segment. Recovery must load each vector field once, from the live vectors of the vector files that the manifest lists for it and from the graph file that the manifest names. Recovery must treat a live vector that the graph file holds no node for as a vector inserted after promotion; see [Post-Promotion Insertion](vector-index.md#post-promotion-insertion).
+Recovery must load a partition by reading the segments that the manifest lists for it, in id order, and merging them, so that the newest occurrence of a document wins and a tombstone removes the document from every older segment. Recovery must load each segment's keyword index and field indexes from the arrays that the segment stores, with no new analysis of its documents. Recovery must load each vector field once, from the live vectors of the vector files that the manifest lists for it and from the graph parts that the manifest lists for it. Recovery must treat a live vector that the graph parts hold no node for as a vector inserted after promotion; see [Post-Promotion Insertion](vector-index.md#post-promotion-insertion).
 
 Recovery must delete every key under `<indexName>/segments/` that the manifest does not reference, because a checkpoint that crashes before its manifest write leaves such keys behind.
 
@@ -351,9 +331,26 @@ With lifecycle settings configured, a node must load each persisted index's meta
 
 Corruption is handled by kind:
 
-- A checkpoint envelope CRC mismatch, in the manifest, a segment, or a snapshot bundle, is fatal for that index; raise `PERSISTENCE_CRC_MISMATCH`.
+- A checkpoint envelope CRC mismatch, in the manifest or in any file that it lists, is fatal for that index; raise `PERSISTENCE_CRC_MISMATCH`.
 - Corruption in the middle of the log is fatal; raise `PERSISTENCE_WAL_CORRUPT`.
 - A truncated active-segment tail is normal; truncate it and carry on.
+
+---
+
+## Earlier Layouts
+
+Each release of the engine must open an index that the release before it saved, and it must rewrite that index in the current layout. Before 1.0, the earlier layout is the one that the [specification of engine 0.3.0](https://github.com/assetcorp/narsil/tree/narsil-ts@v0.3.0/packages/spec) defines: a version 6 manifest whose segment files hold version 2 partition payloads and whose vector fields each have one graph file, or a snapshot bundle under `<indexName>/snapshot`. A reader must reject any older layout with `ENVELOPE_VERSION_MISMATCH`, and the error must name [document export](#document-export) as the way to carry an index across more than one release.
+
+A node must upgrade an index in the earlier layout as part of recovering it, before it serves the index, in four steps:
+
+1. Load the index as the earlier release loads it, reading one earlier file at a time, and replay the log records above the checkpoint that the earlier layout records.
+2. Write every file of a full checkpoint in the current layout, under keys that the earlier layout leaves unused. The vector files of the earlier layout keep their format, so the new manifest may list them as they stand, with their lengths and checksums.
+3. Commit the upgrade by writing the current manifest over `<indexName>/manifest` with an [atomic write](#atomic-write), or by saving it through the adapter on the snapshot-only tier.
+4. Delete every key that only the earlier layout lists, `<indexName>/snapshot` included.
+
+The earlier layout stays whole until step 3, so a crash before that step leaves the index as the earlier release saved it. The next recovery then deletes the files that the crash left unlisted and starts the upgrade again. Where a current manifest and `<indexName>/snapshot` both exist, a crash interrupted step 4, so recovery must load the manifest and delete the bundle. A node holds the index in memory during the upgrade, as it does during any recovery, so the memory that the upgrade needs beyond the index itself is one earlier file that it reads and one new file that it writes at a time.
+
+The upgrade keeps every document and every vector field of the index, including a document or a vector field above the limits that [Documents](envelope.md#documents) and [Field Types](envelope.md#field-types) set for new writes. The restore operation must accept the index snapshot that the earlier release's snapshot operation returned, and it must insert that snapshot's documents and vectors as new writes. Every node of a cluster must run the same release, because a node sends and accepts snapshot transfers in the current layout alone.
 
 ---
 
@@ -375,21 +372,57 @@ A node serialises a partition's apply, sequence-number assignment, and append, s
 
 ## Snapshot-Only Persistence
 
-A persistence adapter that is not filesystem-backed, such as an in-memory store, IndexedDB, an object store, or a key-value service, cannot run the write-ahead log, because a `save(key, bytes)` interface expresses neither append nor fsync. Such a backend persists snapshots alone.
+A persistence adapter that is not filesystem-backed, such as an in-memory store, IndexedDB, an object store, or a key-value service, cannot run the write-ahead log, because a `save(key, bytes)` interface expresses neither append nor fsync. Such a backend persists checkpoints alone.
 
-- On the same interval and mutation-count triggers a checkpoint uses, the node writes the index snapshot, the same `.nrsl` envelope as [Tier 1](#tier-1-write-ahead-log-durability-filesystem-only), through the adapter's `save` under the key `<indexName>/snapshot`. No log is written.
-- The snapshot write must be atomic at whatever granularity the backend offers. A single object-store PUT is atomic, and so is an IndexedDB transaction. A filesystem-backed adapter must use the temporary-file-then-rename sequence.
-- Recovery loads the snapshot through the adapter's `load` and replays no log.
+- On the same interval and mutation-count triggers that a checkpoint uses, the node writes a [segmented checkpoint](#segmented-checkpoint) through the adapter's `save`, one key for each file. The node writes no log, so it builds each segment from the whole content of a changed partition, as step 1 of [Writing a Checkpoint](#writing-a-checkpoint) allows.
+- The node must save every file of a checkpoint before it saves the manifest, so that saving the manifest commits the checkpoint. It must delete the keys that only the previous manifest lists once that save returns. A filesystem-backed adapter must save the manifest with an [atomic write](#atomic-write).
+- Recovery loads the manifest and the files that it lists through the adapter's `load` and replays no log. It must delete every key under `<indexName>/segments/` that the manifest does not list, which it finds through the adapter's `list`.
 
-The guarantee is that the index is durable up to the last snapshot, and a crash loses every write made since. A node must publish that weaker guarantee and must never imply the write-ahead log guarantee for a snapshot-only backend.
+The guarantee is that the index is durable up to the last checkpoint, and a crash loses every write made since. A node must publish that weaker guarantee and must never imply the write-ahead log guarantee for a snapshot-only backend.
 
 Configuring write-ahead log durability, by setting `durability.directory`, against a non-filesystem backend is a configuration error and raises `CONFIG_INVALID`.
 
 ---
 
+## Snapshot Archive
+
+A snapshot archive holds one checkpoint of an index, or of one partition of an index, as a single stream of bytes. The engine's snapshot operation returns the archive of an index, which its restore operation reads to create an index. A primary sends the archive of one partition to a replica during a [full snapshot](distribution/replication.md#tier-2-full-snapshot) sync.
+
+An archive must use the pax interchange format that POSIX.1-2008 defines for the `pax` utility, with its entries in this order:
+
+1. An entry named `config`, holding an [index configuration payload](envelope.md#index-configuration-payload).
+2. An entry named `manifest`, holding the checkpoint's [manifest](#manifest).
+3. One entry for each file that the manifest lists, in the order that the manifest lists them, named by the file's key without its leading `<indexName>/`.
+
+A writer must write each entry as a regular file. Where the ustar `name` and `prefix` fields cannot hold an entry's name, the writer must precede the entry with a pax extended header that holds a `path` record. A reader must accept those two entry types alone. It must raise `PERSISTENCE_LOAD_FAILED` for any other entry type, for an entry out of the order above, for a later entry whose name the manifest does not list or that appears twice, for an entry whose length or checksum differs from the manifest, and for an archive that ends before it holds every file that the manifest lists. It must compare each entry's length with the manifest, or with the [file size](envelope.md#file-size) limit for `config` and `manifest`, before it reads the entry, so that no entry can make it allocate more than that limit.
+
+A node with write-ahead log durability must take a checkpoint before it writes the archive of an index, and the archive must hold that checkpoint. The node must keep every file of that checkpoint until it finishes writing the archive or the caller abandons the archive, even after a later checkpoint stops listing those files. A node without write-ahead log durability, and a node that writes the archive of one partition, must build the archive's files from the index in memory while it applies no mutation to the content that the archive holds.
+
+The archive of one partition must hold a manifest that lists that partition alone and no graph part, and vector files that hold the vectors of that partition's documents alone.
+
+A node that restores an archive into durable storage must write every other file before it writes the manifest, so that a crash during the restore leaves no manifest that lists a missing file. It must number the first write to each partition after the restore one above the `lastSeqNo` that the manifest records for that partition, because recovery replays only the log records above that number. Every node that restores an archive must decode every document before it serves the index, as the [keyword segment payload](envelope.md#keyword-segment-payload) requires. A replica that applies the archive of a partition must replace its copy of that partition with the archive's segments, must remove from each vector field the vectors of the documents that its copy held, and must insert every vector that the archive holds.
+
+---
+
+## Document Export
+
+A document export holds the configuration and the documents of one index as JSON Lines, a text format that no release of the engine changes, so that an index can move across any number of releases, between implementations, or into a new schema. The engine's export operation writes it as a stream, and its import operation reads it.
+
+Every line must hold one JSON object in UTF-8, ended by a line feed. The first line must be the header, and every later line must hold one document:
+
+```text
+{ "format": "narsil-export", "version": 1, "index": IndexConfiguration }
+```
+
+`index` holds the keys of the [index configuration payload](envelope.md#index-configuration-payload) as JSON. A document line holds the document as the engine stores it, with its ID under `id` and the value of each vector field as an array of numbers. A writer must write each number so that parsing it returns the same float64 value, negative zero included. A writer must take every document from one moment of the index, and a node with write-ahead log durability must take them from one checkpoint, whose files it must keep until the export ends, as a [snapshot archive](#snapshot-archive) does.
+
+A reader must reject with `CONFIG_INVALID` an export whose first line is not a header of version 1. It must accept a line of up to 100,663,296 bytes, six times the longest document that [Documents](envelope.md#documents) allows, because JSON spells one MessagePack byte in at most six characters. The import operation must create the index from the header, or use an existing index whose schema matches the header where the caller names one. It must insert the documents in batches, so that it holds one batch in memory at a time. It must replace a document whose ID the index already holds, so that running an interrupted import again leaves the index equal to the export. It must report each line that it refuses, with the line's number and error code, and it must go on with the next line.
+
+---
+
 ## Platform Notes
 
-- POSIX rename is atomic for concurrent readers, but atomicity is not durability. Durability needs the temporary-file fsync and the directory fsync from the [atomic snapshot write](#atomic-snapshot-write).
+- POSIX rename is atomic for concurrent readers, but atomicity is not durability. Durability needs the temporary-file fsync and the directory fsync from the [atomic write](#atomic-write).
 - On Linux, fsync flushes to the storage device. On macOS, the runtime's fsync tries `F_FULLFSYNC`, a true flush to permanent storage, and falls back to a plain fsync only on volumes that lack support for it, such as some network and external disks. A node therefore gets process-crash durability on every platform, power-loss durability on Linux and on typical local macOS disks, and process-crash-only durability on the macOS volumes where `F_FULLFSYNC` is unavailable. No native extension is required.
 - On Windows, renaming over an existing file is not guaranteed atomic and a directory fsync does nothing, so durability on Windows is best-effort.
 

@@ -221,12 +221,12 @@ The entries must belong to one partition of one index, share one `primaryTerm`, 
 {
   partitionId: uint32
   indexName:   string
-  offset:      uint64   (byte offset within the whole snapshot)
-  data:        bytes    (one chunk of snapshot data)
+  offset:      uint64   (byte offset within the snapshot archive)
+  data:        bytes    (one chunk of the archive)
 }
 ```
 
-Chunks arrive through `stream`, and the receiver rebuilds the snapshot by writing each chunk at its offset.
+The sender delivers chunks through `stream`, and the receiver rebuilds the [snapshot archive](../durability.md#snapshot-archive) by writing each chunk at its offset.
 
 ### replication.snapshot_end
 
@@ -235,11 +235,11 @@ Chunks arrive through `stream`, and the receiver rebuilds the snapshot by writin
   partitionId: uint32
   indexName:   string
   totalBytes:  uint64   (the final total, for verification)
-  checksum:    uint32   (CRC32 of the complete snapshot)
+  checksum:    uint32   (CRC32 of the complete archive)
 }
 ```
 
-This message says every chunk has been sent. The receiver checks that `totalBytes` matches what it accumulated and verifies the checksum before it loads the snapshot.
+The sender sends this message after the last chunk. The receiver checks that `totalBytes` matches what it accumulated and verifies the checksum before it applies the archive.
 
 ### replication.insync_add
 
@@ -682,9 +682,7 @@ Every transport message is serialised as MessagePack under these rules:
 
 ### Maximum Message Size
 
-A transport message, streamed snapshot chunks aside, must not exceed 64 MB, which stops a sender from forcing an unbounded allocation on the receiver. A sender whose response would exceed the limit, such as a fetch result carrying many large documents, must split it across several messages or return an error.
-
-A snapshot chunk has no per-chunk limit of its own, because the streaming protocol controls the flow.
+A transport message, a snapshot chunk included, must not exceed 64 MB, which stops a sender from forcing an unbounded allocation on the receiver. A sender whose response would exceed the limit, such as a fetch result carrying many large documents, must split it across several messages or return an error.
 
 ---
 
@@ -704,7 +702,7 @@ TransportConfig {
 | `connectTimeout` | 5,000 ms | The longest wait to open a connection to a peer node |
 | `requestTimeout` | 30,000 ms | The longest wait for a query request and its response |
 | `replicationTimeout` | 10,000 ms | The longest wait for a replication entry acknowledgement |
-| `snapshotTimeout` | 300,000 ms | The longest a complete snapshot transfer may take |
+| `snapshotTimeout` | 300,000 ms | The longest wait for the next chunk of a snapshot transfer, so that a transfer of any size can finish while the sender keeps sending chunks |
 
 ---
 
