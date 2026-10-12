@@ -253,8 +253,8 @@ export interface Narsil extends IndexLifecycleOperations, DocumentWriteOperation
    * The first line is a header containing the format name, the format
    * version, and the index configuration. Each later line contains one
    * document, with its ID under `id` and the value of each vector field as an
-   * array of numbers. With write-ahead log durability, the engine takes every
-   * document from one checkpoint; otherwise, it takes them from the index in
+   * array of numbers. With write-ahead log durability, the engine exports every
+   * document from one checkpoint; otherwise, it exports them from the index in
    * memory at one moment.
    *
    * JSON has no type for a date, for raw bytes, or for an infinite number or
@@ -262,7 +262,7 @@ export interface Narsil extends IndexLifecycleOperations, DocumentWriteOperation
    * object with one key that begins with `$`, such as
    * `{"$date":[1700000000,123000000]}`. The engine also wraps a stored object
    * whose only key begins with `$` in an `$object` tag, because the import
-   * treats every other object of that shape as a tag.
+   * decodes every other object of that shape as a tag.
    *
    * @param indexName - The index to export.
    * @returns A stream of the export's UTF-8 bytes.

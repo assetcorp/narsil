@@ -11,6 +11,7 @@ export function createEtcdCoordinator(config?: Partial<EtcdCoordinatorConfig>): 
 export interface EtcdCoordinatorConfig {
     endpoints: string[];
     keyPrefix: string;
+    maxRequestBytes: number;
     nodeHeartbeatTtlSeconds: number;
 }
 
