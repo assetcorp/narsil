@@ -21,18 +21,15 @@ function requireKnownKeys(value: object, known: ReadonlySet<string>, describe: (
 }
 
 class Narrowing {
-  private readonly bits: Uint32Array
-
-  constructor(universe: Uint32Array) {
-    this.bits = universe.slice()
-  }
+  private bits: Uint32Array | null = null
 
   narrow = (matched: Uint32Array): void => {
-    bitsetAndInto(this.bits, matched)
+    if (this.bits === null) this.bits = matched.slice()
+    else bitsetAndInto(this.bits, matched)
   }
 
-  value(): Uint32Array {
-    return this.bits
+  value(universe: () => Uint32Array): Uint32Array {
+    return this.bits ?? universe().slice()
   }
 }
 
@@ -58,7 +55,7 @@ export function evaluateFilters(expression: FilterExpression, context: FilterCon
       `A filter expression takes "fields", "and", "or", and "not", and "${key}" is none of them. A per-field test such as { ${key}: { eq: ... } } belongs under "fields"`,
   )
 
-  const narrowing = new Narrowing(context.allDocIdsBitset)
+  const narrowing = new Narrowing()
 
   if (expression.fields) {
     for (const [fieldPath, filter] of Object.entries(expression.fields)) {
@@ -83,5 +80,5 @@ export function evaluateFilters(expression: FilterExpression, context: FilterCon
     narrowing.narrow(kept)
   }
 
-  return narrowing.value()
+  return narrowing.value(() => context.allDocIdsBitset)
 }
