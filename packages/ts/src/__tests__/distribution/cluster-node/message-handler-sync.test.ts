@@ -166,12 +166,18 @@ describe('createDataNodeHandler sync_request routing', () => {
     })
     const snapshotBytes = new Uint8Array([1, 2, 3, 4])
     const snapshot = vi.fn()
-    const serializeReplicationPartition = vi.fn().mockResolvedValue(snapshotBytes)
+    const archiveReplicationPartition = vi
+      .fn()
+      .mockImplementation(async (_indexName: string, _partitionId: number, lastSeqNo: () => number) => ({
+        chunks: [snapshotBytes],
+        totalBytes: snapshotBytes.byteLength,
+        lastSeqNo: lastSeqNo(),
+      }))
     const engine = {
       listIndexes: () => [{ name: 'products', state: 'open' }],
       acquireIndexForReplication: async () => () => {},
       snapshot,
-      serializeReplicationPartition,
+      archiveReplicationPartition,
     } as unknown as ClusterLocalEngine
 
     const handler = createDataNodeHandler({
@@ -206,7 +212,7 @@ describe('createDataNodeHandler sync_request routing', () => {
     expect(chunkPayload.partitionId).toBe(0)
     expect(chunkPayload.data).toEqual(snapshotBytes)
     expect(snapshot).not.toHaveBeenCalled()
-    expect(serializeReplicationPartition).toHaveBeenCalledWith('products', 0)
+    expect(archiveReplicationPartition).toHaveBeenCalledWith('products', 0, expect.any(Function))
 
     const trailingPayload = decode(responses[3].payload) as SyncEntriesPayload
     expect(trailingPayload.entries).toHaveLength(0)

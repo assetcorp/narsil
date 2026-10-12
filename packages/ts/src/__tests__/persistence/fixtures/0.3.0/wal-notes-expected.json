@@ -1,0 +1,742 @@
+{
+ "note-1": {
+  "text": "basalt note about fjord and stones",
+  "rank": 1
+ },
+ "note-10": {
+  "text": "kestrel note about cedar and stones",
+  "rank": 10
+ },
+ "note-100": {
+  "text": "ember note about indigo and stones",
+  "rank": 100
+ },
+ "note-101": {
+  "text": "fjord note about basalt and stones",
+  "rank": 101
+ },
+ "note-102": {
+  "text": "granite note about granite and stones",
+  "rank": 102
+ },
+ "note-103": {
+  "text": "harbour note about lagoon and stones",
+  "rank": 103
+ },
+ "note-105": {
+  "text": "juniper note about juniper and stones",
+  "rank": 105
+ },
+ "note-106": {
+  "text": "kestrel note about cedar and stones",
+  "rank": 106
+ },
+ "note-107": {
+  "text": "lagoon note about harbour and stones",
+  "rank": 107
+ },
+ "note-108": {
+  "text": "amber note about amber and stones",
+  "rank": 108
+ },
+ "note-109": {
+  "text": "basalt note about fjord and stones",
+  "rank": 109
+ },
+ "note-11": {
+  "text": "lagoon note about harbour and stones",
+  "rank": 11
+ },
+ "note-110": {
+  "text": "cedar note about kestrel and stones",
+  "rank": 110
+ },
+ "note-111": {
+  "text": "delta note about delta and stones",
+  "rank": 111
+ },
+ "note-112": {
+  "text": "ember note about indigo and stones",
+  "rank": 112
+ },
+ "note-113": {
+  "text": "fjord note about basalt and stones",
+  "rank": 113
+ },
+ "note-114": {
+  "text": "granite note about granite and stones",
+  "rank": 114
+ },
+ "note-115": {
+  "text": "harbour note about lagoon and stones",
+  "rank": 115
+ },
+ "note-116": {
+  "text": "indigo note about ember and stones",
+  "rank": 116
+ },
+ "note-118": {
+  "text": "kestrel note about cedar and stones",
+  "rank": 118
+ },
+ "note-119": {
+  "text": "lagoon note about harbour and stones",
+  "rank": 119
+ },
+ "note-12": {
+  "text": "amber note about amber and stones",
+  "rank": 12
+ },
+ "note-120": {
+  "text": "amber note about amber and stones",
+  "rank": 120
+ },
+ "note-121": {
+  "text": "basalt note about fjord and stones",
+  "rank": 121
+ },
+ "note-122": {
+  "text": "cedar note about kestrel and stones",
+  "rank": 122
+ },
+ "note-123": {
+  "text": "delta note about delta and stones",
+  "rank": 123
+ },
+ "note-124": {
+  "text": "ember note about indigo and stones",
+  "rank": 124
+ },
+ "note-125": {
+  "text": "fjord note about basalt and stones",
+  "rank": 125
+ },
+ "note-126": {
+  "text": "granite note about granite and stones",
+  "rank": 126
+ },
+ "note-127": {
+  "text": "harbour note about lagoon and stones",
+  "rank": 127
+ },
+ "note-128": {
+  "text": "indigo note about ember and stones",
+  "rank": 128
+ },
+ "note-129": {
+  "text": "juniper note about juniper and stones",
+  "rank": 129
+ },
+ "note-131": {
+  "text": "lagoon note about harbour and stones",
+  "rank": 131
+ },
+ "note-132": {
+  "text": "amber note about amber and stones",
+  "rank": 132
+ },
+ "note-133": {
+  "text": "basalt note about fjord and stones",
+  "rank": 133
+ },
+ "note-134": {
+  "text": "cedar note about kestrel and stones",
+  "rank": 134
+ },
+ "note-135": {
+  "text": "delta note about delta and stones",
+  "rank": 135
+ },
+ "note-136": {
+  "text": "ember note about indigo and stones",
+  "rank": 136
+ },
+ "note-137": {
+  "text": "fjord note about basalt and stones",
+  "rank": 137
+ },
+ "note-138": {
+  "text": "granite note about granite and stones",
+  "rank": 138
+ },
+ "note-139": {
+  "text": "harbour note about lagoon and stones",
+  "rank": 139
+ },
+ "note-14": {
+  "text": "cedar note about kestrel and stones",
+  "rank": 14
+ },
+ "note-140": {
+  "text": "indigo note about ember and stones",
+  "rank": 140
+ },
+ "note-141": {
+  "text": "juniper note about juniper and stones",
+  "rank": 141
+ },
+ "note-142": {
+  "text": "kestrel note about cedar and stones",
+  "rank": 142
+ },
+ "note-144": {
+  "text": "amber note about amber and stones",
+  "rank": 144
+ },
+ "note-145": {
+  "text": "basalt note about fjord and stones",
+  "rank": 145
+ },
+ "note-146": {
+  "text": "cedar note about kestrel and stones",
+  "rank": 146
+ },
+ "note-147": {
+  "text": "delta note about delta and stones",
+  "rank": 147
+ },
+ "note-148": {
+  "text": "ember note about indigo and stones",
+  "rank": 148
+ },
+ "note-149": {
+  "text": "fjord note about basalt and stones",
+  "rank": 149
+ },
+ "note-15": {
+  "text": "delta note about delta and stones",
+  "rank": 15
+ },
+ "note-150": {
+  "text": "granite note about granite and stones",
+  "rank": 150
+ },
+ "note-151": {
+  "text": "harbour note about lagoon and stones",
+  "rank": 151
+ },
+ "note-152": {
+  "text": "indigo note about ember and stones",
+  "rank": 152
+ },
+ "note-153": {
+  "text": "juniper note about juniper and stones",
+  "rank": 153
+ },
+ "note-154": {
+  "text": "kestrel note about cedar and stones",
+  "rank": 154
+ },
+ "note-155": {
+  "text": "lagoon note about harbour and stones",
+  "rank": 155
+ },
+ "note-157": {
+  "text": "basalt note about fjord and stones",
+  "rank": 157
+ },
+ "note-158": {
+  "text": "cedar note about kestrel and stones",
+  "rank": 158
+ },
+ "note-159": {
+  "text": "delta note about delta and stones",
+  "rank": 159
+ },
+ "note-16": {
+  "text": "ember note about indigo and stones",
+  "rank": 16
+ },
+ "note-160": {
+  "text": "ember note about indigo and stones",
+  "rank": 160
+ },
+ "note-161": {
+  "text": "fjord note about basalt and stones",
+  "rank": 161
+ },
+ "note-162": {
+  "text": "granite note about granite and stones",
+  "rank": 162
+ },
+ "note-163": {
+  "text": "harbour note about lagoon and stones",
+  "rank": 163
+ },
+ "note-164": {
+  "text": "indigo note about ember and stones",
+  "rank": 164
+ },
+ "note-165": {
+  "text": "juniper note about juniper and stones",
+  "rank": 165
+ },
+ "note-166": {
+  "text": "kestrel note about cedar and stones",
+  "rank": 166
+ },
+ "note-167": {
+  "text": "lagoon note about harbour and stones",
+  "rank": 167
+ },
+ "note-168": {
+  "text": "amber note about amber and stones",
+  "rank": 168
+ },
+ "note-17": {
+  "text": "fjord note about basalt and stones",
+  "rank": 17
+ },
+ "note-170": {
+  "text": "cedar note about kestrel and stones",
+  "rank": 170
+ },
+ "note-171": {
+  "text": "delta note about delta and stones",
+  "rank": 171
+ },
+ "note-172": {
+  "text": "ember note about indigo and stones",
+  "rank": 172
+ },
+ "note-173": {
+  "text": "fjord note about basalt and stones",
+  "rank": 173
+ },
+ "note-174": {
+  "text": "granite note about granite and stones",
+  "rank": 174
+ },
+ "note-175": {
+  "text": "harbour note about lagoon and stones",
+  "rank": 175
+ },
+ "note-176": {
+  "text": "indigo note about ember and stones",
+  "rank": 176
+ },
+ "note-177": {
+  "text": "juniper note about juniper and stones",
+  "rank": 177
+ },
+ "note-178": {
+  "text": "kestrel note about cedar and stones",
+  "rank": 178
+ },
+ "note-179": {
+  "text": "lagoon note about harbour and stones",
+  "rank": 179
+ },
+ "note-18": {
+  "text": "granite note about granite and stones",
+  "rank": 18
+ },
+ "note-180": {
+  "text": "amber note about amber and stones",
+  "rank": 180
+ },
+ "note-181": {
+  "text": "basalt note about fjord and stones",
+  "rank": 181
+ },
+ "note-183": {
+  "text": "delta note about delta and stones",
+  "rank": 183
+ },
+ "note-184": {
+  "text": "ember note about indigo and stones",
+  "rank": 184
+ },
+ "note-185": {
+  "text": "fjord note about basalt and stones",
+  "rank": 185
+ },
+ "note-186": {
+  "text": "granite note about granite and stones",
+  "rank": 186
+ },
+ "note-187": {
+  "text": "harbour note about lagoon and stones",
+  "rank": 187
+ },
+ "note-188": {
+  "text": "indigo note about ember and stones",
+  "rank": 188
+ },
+ "note-189": {
+  "text": "juniper note about juniper and stones",
+  "rank": 189
+ },
+ "note-19": {
+  "text": "harbour note about lagoon and stones",
+  "rank": 19
+ },
+ "note-190": {
+  "text": "kestrel note about cedar and stones",
+  "rank": 190
+ },
+ "note-191": {
+  "text": "lagoon note about harbour and stones",
+  "rank": 191
+ },
+ "note-192": {
+  "text": "amber note about amber and stones",
+  "rank": 192
+ },
+ "note-193": {
+  "text": "basalt note about fjord and stones",
+  "rank": 193
+ },
+ "note-194": {
+  "text": "cedar note about kestrel and stones",
+  "rank": 194
+ },
+ "note-195": {
+  "text": "delta note about delta and stones",
+  "rank": 195
+ },
+ "note-196": {
+  "text": "ember note about indigo and stones",
+  "rank": 196
+ },
+ "note-197": {
+  "text": "fjord note about basalt and stones",
+  "rank": 197
+ },
+ "note-198": {
+  "text": "granite note about granite and stones",
+  "rank": 198
+ },
+ "note-199": {
+  "text": "harbour note about lagoon and stones",
+  "rank": 199
+ },
+ "note-2": {
+  "text": "cedar note about kestrel and stones",
+  "rank": 2
+ },
+ "note-20": {
+  "text": "indigo note about ember and stones",
+  "rank": 20
+ },
+ "note-21": {
+  "text": "juniper note about juniper and stones",
+  "rank": 21
+ },
+ "note-22": {
+  "text": "kestrel note about cedar and stones",
+  "rank": 22
+ },
+ "note-23": {
+  "text": "lagoon note about harbour and stones",
+  "rank": 23
+ },
+ "note-24": {
+  "text": "amber note about amber and stones",
+  "rank": 24
+ },
+ "note-25": {
+  "text": "basalt note about fjord and stones",
+  "rank": 25
+ },
+ "note-27": {
+  "text": "delta note about delta and stones",
+  "rank": 27
+ },
+ "note-28": {
+  "text": "ember note about indigo and stones",
+  "rank": 28
+ },
+ "note-29": {
+  "text": "fjord note about basalt and stones",
+  "rank": 29
+ },
+ "note-3": {
+  "text": "delta note about delta and stones",
+  "rank": 3
+ },
+ "note-30": {
+  "text": "granite note about granite and stones",
+  "rank": 30
+ },
+ "note-31": {
+  "text": "harbour note about lagoon and stones",
+  "rank": 31
+ },
+ "note-32": {
+  "text": "indigo note about ember and stones",
+  "rank": 32
+ },
+ "note-33": {
+  "text": "juniper note about juniper and stones",
+  "rank": 33
+ },
+ "note-34": {
+  "text": "kestrel note about cedar and stones",
+  "rank": 34
+ },
+ "note-35": {
+  "text": "lagoon note about harbour and stones",
+  "rank": 35
+ },
+ "note-36": {
+  "text": "amber note about amber and stones",
+  "rank": 36
+ },
+ "note-37": {
+  "text": "basalt note about fjord and stones",
+  "rank": 37
+ },
+ "note-38": {
+  "text": "cedar note about kestrel and stones",
+  "rank": 38
+ },
+ "note-4": {
+  "text": "ember note about indigo and stones",
+  "rank": 4
+ },
+ "note-40": {
+  "text": "ember note about indigo and stones",
+  "rank": 40
+ },
+ "note-41": {
+  "text": "fjord note about basalt and stones",
+  "rank": 41
+ },
+ "note-42": {
+  "text": "granite note about granite and stones",
+  "rank": 42
+ },
+ "note-43": {
+  "text": "harbour note about lagoon and stones",
+  "rank": 43
+ },
+ "note-44": {
+  "text": "indigo note about ember and stones",
+  "rank": 44
+ },
+ "note-45": {
+  "text": "juniper note about juniper and stones",
+  "rank": 45
+ },
+ "note-46": {
+  "text": "kestrel note about cedar and stones",
+  "rank": 46
+ },
+ "note-47": {
+  "text": "lagoon note about harbour and stones",
+  "rank": 47
+ },
+ "note-48": {
+  "text": "amber note about amber and stones",
+  "rank": 48
+ },
+ "note-49": {
+  "text": "basalt note about fjord and stones",
+  "rank": 49
+ },
+ "note-5": {
+  "text": "fjord note about basalt and stones",
+  "rank": 5
+ },
+ "note-50": {
+  "text": "cedar note about kestrel and stones",
+  "rank": 50
+ },
+ "note-51": {
+  "text": "delta note about delta and stones",
+  "rank": 51
+ },
+ "note-53": {
+  "text": "fjord note about basalt and stones",
+  "rank": 53
+ },
+ "note-54": {
+  "text": "granite note about granite and stones",
+  "rank": 54
+ },
+ "note-55": {
+  "text": "harbour note about lagoon and stones",
+  "rank": 55
+ },
+ "note-56": {
+  "text": "indigo note about ember and stones",
+  "rank": 56
+ },
+ "note-57": {
+  "text": "juniper note about juniper and stones",
+  "rank": 57
+ },
+ "note-58": {
+  "text": "kestrel note about cedar and stones",
+  "rank": 58
+ },
+ "note-59": {
+  "text": "lagoon note about harbour and stones",
+  "rank": 59
+ },
+ "note-6": {
+  "text": "granite note about granite and stones",
+  "rank": 6
+ },
+ "note-60": {
+  "text": "amber note about amber and stones",
+  "rank": 60
+ },
+ "note-61": {
+  "text": "basalt note about fjord and stones",
+  "rank": 61
+ },
+ "note-62": {
+  "text": "cedar note about kestrel and stones",
+  "rank": 62
+ },
+ "note-63": {
+  "text": "delta note about delta and stones",
+  "rank": 63
+ },
+ "note-64": {
+  "text": "ember note about indigo and stones",
+  "rank": 64
+ },
+ "note-66": {
+  "text": "granite note about granite and stones",
+  "rank": 66
+ },
+ "note-67": {
+  "text": "harbour note about lagoon and stones",
+  "rank": 67
+ },
+ "note-68": {
+  "text": "indigo note about ember and stones",
+  "rank": 68
+ },
+ "note-69": {
+  "text": "juniper note about juniper and stones",
+  "rank": 69
+ },
+ "note-7": {
+  "text": "harbour note about lagoon and stones",
+  "rank": 7
+ },
+ "note-70": {
+  "text": "kestrel note about cedar and stones",
+  "rank": 70
+ },
+ "note-71": {
+  "text": "lagoon note about harbour and stones",
+  "rank": 71
+ },
+ "note-72": {
+  "text": "amber note about amber and stones",
+  "rank": 72
+ },
+ "note-73": {
+  "text": "basalt note about fjord and stones",
+  "rank": 73
+ },
+ "note-74": {
+  "text": "cedar note about kestrel and stones",
+  "rank": 74
+ },
+ "note-75": {
+  "text": "delta note about delta and stones",
+  "rank": 75
+ },
+ "note-76": {
+  "text": "ember note about indigo and stones",
+  "rank": 76
+ },
+ "note-77": {
+  "text": "fjord note about basalt and stones",
+  "rank": 77
+ },
+ "note-79": {
+  "text": "harbour note about lagoon and stones",
+  "rank": 79
+ },
+ "note-8": {
+  "text": "indigo note about ember and stones",
+  "rank": 8
+ },
+ "note-80": {
+  "text": "indigo note about ember and stones",
+  "rank": 80
+ },
+ "note-81": {
+  "text": "juniper note about juniper and stones",
+  "rank": 81
+ },
+ "note-82": {
+  "text": "kestrel note about cedar and stones",
+  "rank": 82
+ },
+ "note-83": {
+  "text": "lagoon note about harbour and stones",
+  "rank": 83
+ },
+ "note-84": {
+  "text": "amber note about amber and stones",
+  "rank": 84
+ },
+ "note-85": {
+  "text": "basalt note about fjord and stones",
+  "rank": 85
+ },
+ "note-86": {
+  "text": "cedar note about kestrel and stones",
+  "rank": 86
+ },
+ "note-87": {
+  "text": "delta note about delta and stones",
+  "rank": 87
+ },
+ "note-88": {
+  "text": "ember note about indigo and stones",
+  "rank": 88
+ },
+ "note-89": {
+  "text": "fjord note about basalt and stones",
+  "rank": 89
+ },
+ "note-9": {
+  "text": "juniper note about juniper and stones",
+  "rank": 9
+ },
+ "note-90": {
+  "text": "granite note about granite and stones",
+  "rank": 90
+ },
+ "note-92": {
+  "text": "indigo note about ember and stones",
+  "rank": 92
+ },
+ "note-93": {
+  "text": "juniper note about juniper and stones",
+  "rank": 93
+ },
+ "note-94": {
+  "text": "kestrel note about cedar and stones",
+  "rank": 94
+ },
+ "note-95": {
+  "text": "lagoon note about harbour and stones",
+  "rank": 95
+ },
+ "note-96": {
+  "text": "amber note about amber and stones",
+  "rank": 96
+ },
+ "note-97": {
+  "text": "basalt note about fjord and stones",
+  "rank": 97
+ },
+ "note-98": {
+  "text": "cedar note about kestrel and stones",
+  "rank": 98
+ },
+ "note-99": {
+  "text": "delta note about delta and stones",
+  "rank": 99
+ }
+}

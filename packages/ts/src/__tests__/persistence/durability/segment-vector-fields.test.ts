@@ -4,14 +4,15 @@ import { join } from 'node:path'
 import { decode } from '@msgpack/msgpack'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createNarsil } from '../../../narsil'
+import { engineCoreOf } from '../../../narsil/internals'
 import { createDurableDirectory, type DurableDirectory } from '../../../persistence/durability/durable-filesystem'
-import { readSegmentManifest } from '../../../persistence/durability/segment'
-import { unpackEnvelopeBytes, unpackIndexSnapshotEnvelope } from '../../../serialization/envelope'
 import type { IndexConfig } from '../../../types/schema'
 import { osqRecordBytes } from '../../../vector/osq/record'
-import type { VectorFilePayload, VectorGraphPayload } from '../../../vector/vector-index'
-import { decodeVectorFilePayload, decodeVectorGraphPayload } from '../../../vector/vector-index/checkpoint-payload'
-import { decodeVectorIndexPart } from '../../../vector/vector-index/payload'
+import type { VectorFilePayload } from '../../../vector/vector-index'
+import { decodeVectorFilePayload } from '../../../vector/vector-index/checkpoint-payload'
+import { joinBytes, openEnvelope } from '../../e2e/portability/archive-oracle'
+import { fieldView } from '../../vector/vector-index/field-view'
+import { requireManifestOnDisk } from './manifest-on-disk'
 
 const DIMENSION = 8
 
@@ -28,6 +29,11 @@ function embeddingFor(seed: number): number[] {
   return values
 }
 
+function uint32s(bytes: Uint8Array): number[] {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+  return Array.from({ length: bytes.byteLength / 4 }, (_, i) => view.getUint32(i * 4, true))
+}
+
 async function documentSegmentFields(
   directory: DurableDirectory,
   indexName: string,
@@ -39,37 +45,59 @@ async function documentSegmentFields(
 
   for (const key of documentKeys) {
     const bytes = await directory.read(key)
-    if (bytes === null) {
-      continue
-    }
-    const { payloadBytes } = await unpackEnvelopeBytes(bytes)
-    const container = decode(payloadBytes) as { payload: Uint8Array }
-    const payload = decode(container.payload) as {
-      documents: Record<string, { fields: Record<string, unknown> }>
-    }
-    const stored = payload.documents[docId]
-    if (stored !== undefined) {
-      return stored.fields
+    if (bytes === null) continue
+    const payload = decode(openEnvelope(bytes).payload) as Record<string, Uint8Array>
+    const idOffsets = uint32s(payload.idOffsets)
+    const documentOffsets = uint32s(payload.documentOffsets)
+    for (let ordinal = 0; ordinal + 1 < idOffsets.length; ordinal++) {
+      const id = new TextDecoder().decode(payload.ids.subarray(idOffsets[ordinal], idOffsets[ordinal + 1]))
+      if (id !== docId) continue
+      return decode(payload.documents.subarray(documentOffsets[ordinal], documentOffsets[ordinal + 1])) as Record<
+        string,
+        unknown
+      >
     }
   }
   throw new Error(`Document "${docId}" appears in no segment`)
 }
 
+interface SavedGraph {
+  entryPoint: number | null
+  levels: Uint8Array
+  neighbours: Uint8Array
+}
+
 async function savedVectorField(
   directory: DurableDirectory,
   indexName: string,
-): Promise<{ files: VectorFilePayload[]; graph: VectorGraphPayload }> {
-  const manifest = await readSegmentManifest(directory, indexName)
-  const field = manifest?.vectors[0]
-  if (field === undefined || field.graphKey === null) throw new Error('the manifest lists no vector field with a graph')
+): Promise<{ files: VectorFilePayload[]; graph: SavedGraph }> {
+  const manifest = await requireManifestOnDisk(directory, indexName)
+  const field = manifest.vectors[0]
+  if (field === undefined || field.graphParts.length === 0) {
+    throw new Error('the manifest lists no vector field with a graph')
+  }
   const payloadOf = async (key: string): Promise<unknown> => {
     const bytes = await directory.read(key)
     if (bytes === null) throw new Error(`"${key}" is missing`)
-    return decode((await unpackEnvelopeBytes(bytes)).payloadBytes)
+    return decode(openEnvelope(bytes).payload)
   }
   const files: VectorFilePayload[] = []
   for (const file of field.files) files.push(decodeVectorFilePayload(await payloadOf(file.key)))
-  return { files, graph: decodeVectorGraphPayload(await payloadOf(field.graphKey)) }
+  const parts: SavedGraph[] = []
+  for (const part of field.graphParts) {
+    const raw = (await payloadOf(part.key)) as { v: number; graphs: SavedGraph[] }
+    expect(raw.v).toBe(2)
+    expect(raw.graphs).toHaveLength(1)
+    parts.push(raw.graphs[0])
+  }
+  return {
+    files,
+    graph: {
+      entryPoint: parts[0].entryPoint,
+      levels: joinBytes(parts.map(part => part.levels)),
+      neighbours: joinBytes(parts.map(part => part.neighbours)),
+    },
+  }
 }
 
 describe('vector fields in a segmented checkpoint', () => {
@@ -137,8 +165,7 @@ describe('vector fields in a segmented checkpoint', () => {
       12 * osqRecordBytes(DIMENSION, 8),
       4 * osqRecordBytes(DIMENSION, 8),
     ])
-    expect(saved.graph.graphs).toHaveLength(1)
-    expect([...saved.graph.graphs[0].levels].filter(level => level > 0)).toHaveLength(16)
+    expect([...saved.graph.levels].filter(level => level > 0)).toHaveLength(16)
 
     const reader = await createNarsil({ durability: { directory: root } })
     expect((await reader.query('papers', query)).hits.map(hit => hit.id)).toEqual(expected)
@@ -154,15 +181,14 @@ describe('vector fields in a segmented checkpoint', () => {
     expect((await writer.insertBatch('papers', papers)).failed).toEqual([])
     await writer.optimizeVectors('papers', 'embedding')
     await writer.checkpoint('papers')
-    const snapshot = decode(await unpackIndexSnapshotEnvelope(await writer.snapshot('papers'))) as {
-      vectorIndexes: Record<string, unknown[]>
-    }
-    const searchedThrough = decodeVectorIndexPart(snapshot.vectorIndexes.embedding[0]).graphs[0]
+    const searchedField = engineCoreOf(writer)?.executor.getManager('papers')?.getVectorIndexes().get('embedding')
+    if (searchedField === undefined) throw new Error('the engine holds no embedding field')
+    const searchedThrough = fieldView(searchedField).graphs[0]
     await writer.shutdown()
 
     const saved = await savedVectorField(createDurableDirectory(root), 'papers')
     const docIds = saved.files.flatMap(file => file.docIds)
-    const graph = saved.graph.graphs[0]
+    const graph = saved.graph
     const neighbours = new DataView(graph.neighbours.buffer, graph.neighbours.byteOffset, graph.neighbours.byteLength)
     const nodes: Array<[string, number, Array<[number, string[]]>]> = []
     let cursor = 0
@@ -204,10 +230,10 @@ describe('vector fields in a segmented checkpoint', () => {
     expect(vectorKeys).toHaveLength(3)
     expect(vectorKeys[0]).toMatch(/^papers\/segments\/vec-embedding-[a-z0-9]+-f0{16}$/)
     expect(vectorKeys[1]).toMatch(/^papers\/segments\/vec-embedding-[a-z0-9]+-f0{15}1$/)
-    expect(vectorKeys[2]).toMatch(/^papers\/segments\/vec-embedding-[a-z0-9]+-graph-g\d+$/)
+    expect(vectorKeys[2]).toMatch(/^papers\/segments\/vec-embedding-[a-z0-9]+-graph-g\d+-p0{16}$/)
     const saved = await savedVectorField(directory, 'papers')
     expect(saved.files.map(file => file.docIds.length)).toEqual([60, 30])
-    expect([...saved.graph.graphs[0].levels].filter(level => level > 0)).toHaveLength(90)
+    expect([...saved.graph.levels].filter(level => level > 0)).toHaveLength(90)
 
     const reader = await createNarsil({ durability: { directory: root }, workers: { enabled: false } })
     expect((await reader.vectorMaintenanceStatus('papers'))[0]).toMatchObject({ graphCount: 1, bufferSize: 0 })

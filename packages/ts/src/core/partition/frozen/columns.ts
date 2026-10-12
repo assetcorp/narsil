@@ -5,7 +5,7 @@ export interface SegmentPostingColumns {
   postingOffsets: Uint32Array
   postingDocIds: Uint32Array
   postingFrequencies: Uint16Array
-  postingFieldIndices: Uint8Array
+  postingFieldIndices: Uint16Array
   positionOffsets: Uint32Array | null
   positionValues: Uint32Array | null
 }

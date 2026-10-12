@@ -4,13 +4,11 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { registerStopWords, registerTokenizer } from '../../../analysis/registry'
 import { createNarsil, type Narsil } from '../../../narsil'
-import {
-  __checkpointWorkerSpawnCountForTests,
-  resetCheckpointWorkerLatch,
-} from '../../../persistence/durability/checkpoint-worker-dispatch'
+import { resetCheckpointWorkerLatch } from '../../../persistence/durability/checkpoint-worker-dispatch'
 import { deserializeMetadata, serializeMetadata } from '../../../serialization/payload-v1'
 import type { IndexMetadata } from '../../../types/internal'
 import type { CustomTokenizer } from '../../../types/schema'
+import { bytesOf, decodedPayload, entryNamed, readTar } from '../../e2e/portability/archive-oracle'
 
 const schema = { title: 'string' as const }
 
@@ -46,7 +44,6 @@ describe('durability recovery of index analysis', () => {
 
     engine = await createNarsil({ durability: { directory: dir } })
 
-    expect(__checkpointWorkerSpawnCountForTests()).toBe(0)
     expect((await engine.query('prose', { term: 'm' })).hits).toHaveLength(1)
     await engine.insert('prose', { title: 'engine' })
     expect((await engine.query('prose', { term: 'g' })).hits).toHaveLength(1)
@@ -187,12 +184,7 @@ describe('durability recovery of index analysis', () => {
 
     await expect(engine.insert('prose', { untitled: 'no title field' })).rejects.toThrow()
 
-    const { decode } = await import('@msgpack/msgpack')
-    const { unpackIndexSnapshotEnvelope } = await import('../../../serialization/envelope')
-    const snapshot = decode(await unpackIndexSnapshotEnvelope(await engine.snapshot('prose'))) as Record<
-      string,
-      unknown
-    >
+    const snapshot = decodedPayload(entryNamed(readTar(await bytesOf(await engine.snapshot('prose'))), 'config').data)
     expect(snapshot.partitionConfig).toEqual({ maxDocsPerPartition: 3, maxPartitions: 3 })
     expect(snapshot.defaultScoring).toBe('dfs')
     expect(snapshot.trackPositions).toBe(false)

@@ -93,6 +93,7 @@ export interface VectorStore extends VectorBuildReader {
   get(docId: string): VectorStoreEntry | undefined
   has(docId: string): boolean
   entries(): IterableIterator<[string, VectorStoreEntry]>
+  docIds(): IterableIterator<string>
   clear(): void
   /** Gives up the shared blocks, which the memory the vectors occupy returns with, and leaves an empty store behind. */
   release(): void

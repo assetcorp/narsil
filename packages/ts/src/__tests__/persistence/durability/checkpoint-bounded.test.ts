@@ -15,11 +15,10 @@ import {
   type SerialisablePartitions,
   wholePartitionsWhereMostChanged,
 } from '../../../persistence/durability/checkpoint-capture'
-import { createDurableDirectory } from '../../../persistence/durability/durable-filesystem'
 import type { IndexState, PartitionState } from '../../../persistence/durability/manager-state'
-import { readSegmentManifest } from '../../../persistence/durability/segment'
 import type { IndexConfig } from '../../../types/schema'
 import type { VectorIndex } from '../../../vector/vector-index'
+import { requireManifestOnDisk } from './manifest-on-disk'
 
 const SCHEMA: IndexConfig = {
   schema: { title: 'string', year: 'number' },
@@ -35,10 +34,8 @@ async function insertRange(engine: Narsil, from: number, to: number): Promise<vo
   expect(result.failed).toEqual([])
 }
 
-async function manifestOf(root: string) {
-  const manifest = await readSegmentManifest(createDurableDirectory(root), 'docs')
-  if (manifest === null) throw new Error('manifest missing')
-  return manifest
+function manifestOf(root: string) {
+  return requireManifestOnDisk(root, 'docs')
 }
 
 function indexStateAt(appliedSeqNo: number): IndexState {
@@ -78,7 +75,7 @@ describe('a checkpoint of more log records than one checkpoint may cover', () =>
       NO_VECTOR_FIELDS,
       () => {
         wholePartitionsAsked = true
-        return { serialized: new Map(), captured: [] }
+        return { contents: [], captured: [] }
       },
       [{ partitionId: 0, lastSeqNo: 5, primaryTerm: 1 }],
     )
@@ -104,7 +101,6 @@ describe('a checkpoint of more log records than one checkpoint may cover', () =>
   it('leaves a partition above the document limit to the log, however much of it changed', () => {
     const partitions = {
       getPartition: () => ({ count: () => 31 }),
-      serializePartitionToBytes: () => new Uint8Array(1),
     } as unknown as SerialisablePartitions
     const wholePartitionsOf = wholePartitionsWhereMostChanged(partitions, {
       priorCheckpoint: [],
@@ -115,7 +111,7 @@ describe('a checkpoint of more log records than one checkpoint may cover', () =>
 
     const whole = wholePartitionsOf([{ partitionId: 0, lastSeqNo: 31, primaryTerm: 1 }])
 
-    expect(whole.serialized.size).toBe(0)
+    expect(whole.contents).toEqual([])
     expect(whole.captured).toEqual([])
   })
 

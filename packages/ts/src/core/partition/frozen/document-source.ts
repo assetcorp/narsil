@@ -1,4 +1,5 @@
 import { decode, encode } from '@msgpack/msgpack'
+import { ErrorCodes, NarsilError } from '../../../errors'
 import type { AnyDocument } from '../../../types/schema'
 import { documentValueBytes } from '../../document-store'
 
@@ -11,6 +12,45 @@ export interface FrozenDocumentSource {
 export interface EncodedDocumentTableData {
   blob: Uint8Array
   offsets: Uint32Array
+  discardedFields?: readonly string[]
+}
+
+function removeFieldAtPath(document: Record<string, unknown>, fieldPath: string): void {
+  const segments = fieldPath.split('.')
+  let current: Record<string, unknown> = document
+  for (let i = 0; i < segments.length - 1; i += 1) {
+    const next = current[segments[i]]
+    if (next === null || typeof next !== 'object' || Array.isArray(next)) return
+    current = next as Record<string, unknown>
+  }
+  delete current[segments[segments.length - 1]]
+}
+
+export function decodeStoredDocument(bytes: Uint8Array, discardedFields: readonly string[] | undefined): AnyDocument {
+  let decoded: unknown
+  try {
+    decoded = decode(bytes)
+  } catch (error) {
+    throw new NarsilError(
+      ErrorCodes.PERSISTENCE_LOAD_FAILED,
+      `A stored document is not MessagePack: ${error instanceof Error ? error.message : String(error)}`,
+    )
+  }
+  if (decoded === null || typeof decoded !== 'object' || Array.isArray(decoded) || decoded instanceof Uint8Array) {
+    throw new NarsilError(ErrorCodes.PERSISTENCE_LOAD_FAILED, 'A stored document decodes to something other than a map')
+  }
+  const document = decoded as Record<string, unknown>
+  if (discardedFields !== undefined) {
+    for (const fieldPath of discardedFields) removeFieldAtPath(document, fieldPath)
+  }
+  return document as AnyDocument
+}
+
+export function decodeEveryStoredDocument(data: EncodedDocumentTableData): void {
+  const count = data.offsets.length - 1
+  for (let ordinal = 0; ordinal < count; ordinal++) {
+    decodeStoredDocument(data.blob.subarray(data.offsets[ordinal], data.offsets[ordinal + 1]), data.discardedFields)
+  }
 }
 
 /**
@@ -64,7 +104,7 @@ export function wrapEncodedDocumentTable(data: EncodedDocumentTableData): Frozen
     docAt(ordinal: number): AnyDocument {
       let document = decoded[ordinal]
       if (document === undefined) {
-        document = decode(blob.slice(offsets[ordinal], offsets[ordinal + 1])) as AnyDocument
+        document = decodeStoredDocument(blob.slice(offsets[ordinal], offsets[ordinal + 1]), data.discardedFields)
         decoded[ordinal] = document
         decodedBytes += documentValueBytes(document)
       }

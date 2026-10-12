@@ -44,7 +44,7 @@ export async function applyRestore(
   entry: BootstrapEntry,
   indexName: string,
   primaryNodeId: string,
-  bytes: Uint8Array,
+  chunks: readonly Uint8Array[],
   coordinatorSchema: SchemaDefinition,
   deadline: number,
   deps: BootstrapSyncDeps,
@@ -69,7 +69,7 @@ export async function applyRestore(
     return false
   }
 
-  const restoreError = await executeEngineRestore(deps.engine, indexName, primaryNodeId, bytes, remainingMs)
+  const restoreError = await executeEngineRestore(deps.engine, indexName, primaryNodeId, chunks, remainingMs)
   if (restoreError !== null) {
     surfaceError(deps, indexName, primaryNodeId, restoreError)
     return false

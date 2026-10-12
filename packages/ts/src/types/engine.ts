@@ -3,6 +3,7 @@ import type { NarsilEventMap } from './events'
 import type { IndexLifecycleOperations } from './lifecycle'
 import type { MemoryStats } from './memory'
 import type {
+  DocumentImportResult,
   IndexInfo,
   IndexStats,
   ListResult,
@@ -15,6 +16,15 @@ import type {
 import type { AnyDocument, IndexConfig, PartitionConfig } from './schema'
 import type { ListParams, QueryParams, SuggestParams } from './search'
 import type { DocumentWriteOperations } from './writes'
+
+/**
+ * The bytes that {@link Narsil.restore} and {@link Narsil.importDocumentExport}
+ * accept, as one array, a stream of chunks, or an async iterable of chunks,
+ * such as a Node.js file stream.
+ *
+ * @public
+ */
+export type ByteSource = Uint8Array | ReadableStream<Uint8Array> | AsyncIterable<Uint8Array>
 
 /**
  * The search engine, and everything you do with it.
@@ -195,28 +205,85 @@ export interface Narsil extends IndexLifecycleOperations, DocumentWriteOperation
    */
   rebuildAnalysis(indexName: string): Promise<void>
   /**
-   * Serialises a whole index into the portable `.nrsl` format, which any
-   * Narsil implementation reads.
+   * Returns a stream of the index's snapshot archive. The archive is a pax
+   * file containing the index's configuration and the files of one
+   * checkpoint, and any implementation of the Narsil format can restore it.
    *
-   * @param indexName - The index to serialise.
-   * @returns The file's bytes, ready to store or send.
+   * With write-ahead log durability, the engine takes a checkpoint before it
+   * starts the stream, so the archive contains every write that the engine
+   * acknowledged before the call. The engine keeps that checkpoint's files on
+   * disk until the stream ends or you cancel it. Without write-ahead log
+   * durability, the engine builds the archive's files from the index in
+   * memory.
+   *
+   * @param indexName - The index to stream.
+   * @returns A stream of the archive's bytes, which you can write to a file or
+   * send over a network.
    */
-  snapshot(indexName: string): Promise<Uint8Array>
+  snapshot(indexName: string): Promise<ReadableStream<Uint8Array>>
   /**
-   * Loads an index from snapshot bytes, replacing whatever the name held.
+   * Creates an index from a snapshot under the name that you pass, replacing
+   * any index of that name.
    *
-   * The engine reads the `.nrsl` envelope that {@link Narsil.snapshot} writes.
+   * The engine accepts the archive that {@link Narsil.snapshot} streams. It
+   * also accepts the single `.nrsl` file that `snapshot` returned in release
+   * 0.3, and it inserts that file's documents and vectors as new writes. The
+   * engine reads an archive one file at a time. Before it replaces an existing
+   * index, it checks each file against the archive's manifest and decodes
+   * every document, so a failed check leaves the existing index unchanged.
    *
-   * @param indexName - The name the restored index takes.
-   * @param data - Bytes that {@link Narsil.snapshot} produced.
-   * @throws A `NarsilError` with `ENVELOPE_INVALID_MAGIC` when the bytes are
-   * shorter than an envelope header or open with anything other than the
-   * `NRSL` magic bytes, `ENVELOPE_VERSION_MISMATCH` when the envelope carries a
-   * format version other than the index snapshot format,
-   * `PERSISTENCE_CRC_MISMATCH` when the payload fails its checksum, and
-   * `DOC_VALIDATION_FAILED` when the envelope holds no valid index snapshot.
+   * @param indexName - The name that the restored index takes.
+   * @param data - The snapshot's bytes, as one array, a stream, or an async
+   * iterable of chunks.
+   * @throws A `NarsilError` with `PERSISTENCE_LOAD_FAILED` when the archive is
+   * malformed or a file's length differs from the manifest. The engine raises
+   * `PERSISTENCE_CRC_MISMATCH` when a file's checksum differs from its
+   * contents, and `ENVELOPE_VERSION_MISMATCH` when a file has a format version
+   * other than the ones that this release implements. It raises
+   * `CONFIG_INVALID` when the archive's configuration is invalid, and
+   * `DOC_VALIDATION_FAILED` when the data is empty or the release 0.3 file is
+   * invalid.
    */
-  restore(indexName: string, data: Uint8Array): Promise<void>
+  restore(indexName: string, data: ByteSource): Promise<void>
+  /**
+   * Returns a stream of the index's document export. The export is JSON Lines
+   * text whose format stays the same in every release, so you can use it to
+   * move an index across releases or between implementations.
+   *
+   * The first line is a header containing the format name, the format
+   * version, and the index configuration. Each later line contains one
+   * document, with its ID under `id` and the value of each vector field as an
+   * array of numbers. With write-ahead log durability, the engine takes every
+   * document from one checkpoint; otherwise, it takes them from the index in
+   * memory at one moment.
+   *
+   * @param indexName - The index to export.
+   * @returns A stream of the export's UTF-8 bytes.
+   * @throws A `NarsilError` with `DOC_VALIDATION_FAILED` on the stream when a
+   * document contains a value that JSON has no type for, such as a date, raw
+   * bytes, an infinite number, or `NaN`.
+   */
+  exportDocuments(indexName: string): Promise<ReadableStream<Uint8Array>>
+  /**
+   * Imports a document export into the named index. Where the name is free,
+   * the engine creates the index from the export's configuration.
+   *
+   * The engine writes the documents in batches and replaces any document
+   * whose ID the index already contains. Because it replaces existing
+   * documents, you can run an interrupted import again to make the index equal
+   * to the export. When a line is invalid or the engine rejects its document,
+   * the engine records the refusal and continues with the next line.
+   *
+   * @param indexName - The index that receives the documents.
+   * @param data - The export's bytes, as one array, a stream, or an async
+   * iterable of chunks.
+   * @returns The number of imported documents, the number of refused lines,
+   * and the 1,000 refusals with the lowest line numbers.
+   * @throws A `NarsilError` with `CONFIG_INVALID` when the first line is
+   * anything other than a version 1 header, or when the named index exists
+   * with a different schema.
+   */
+  importDocumentExport(indexName: string, data: ByteSource): Promise<DocumentImportResult>
   /**
    * Writes an index's current state to the durability directory, so a restart
    * replays less of the log.

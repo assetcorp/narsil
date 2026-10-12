@@ -5,7 +5,7 @@ import type {
   SnapshotEndPayload,
   SnapshotStartPayload,
 } from '../transport/types'
-import { MAX_SNAPSHOT_SIZE_BYTES, SNAPSHOT_CHUNK_SIZE } from './constants'
+import { SNAPSHOT_CHUNK_SIZE } from './constants'
 
 export interface SnapshotStreamFailure {
   ok: false
@@ -23,7 +23,7 @@ export interface SnapshotStreamState {
   expectation: SnapshotStreamExpectation
   header: ReplicationSnapshotHeader | null
   totalBytes: number | null
-  assembled: Uint8Array | null
+  chunks: Uint8Array[]
   accumulatedBytes: number
   expectedNextOffset: number
   endPayload: SnapshotEndPayload | null
@@ -95,21 +95,14 @@ export function applyStartPayload(state: SnapshotStreamState, record: Record<str
     fail(state, ErrorCodes.SNAPSHOT_SYNC_HEADER_INVALID, 'totalBytes must be a non-negative integer')
     return
   }
-  if (start.totalBytes > MAX_SNAPSHOT_SIZE_BYTES) {
-    fail(state, ErrorCodes.SNAPSHOT_SYNC_TOO_LARGE, `totalBytes ${start.totalBytes} exceeds the limit`, {
-      totalBytes: start.totalBytes,
-      limit: MAX_SNAPSHOT_SIZE_BYTES,
-    })
-    return
-  }
 
   state.header = header
   state.totalBytes = start.totalBytes
-  state.assembled = new Uint8Array(start.totalBytes)
+  state.chunks = []
 }
 
 export function applyChunkPayload(state: SnapshotStreamState, payload: SnapshotChunkPayload): void {
-  if (state.totalBytes === null || state.assembled === null || state.header === null) {
+  if (state.totalBytes === null || state.header === null) {
     fail(state, ErrorCodes.SNAPSHOT_SYNC_FRAME_INVALID, 'received chunk before SNAPSHOT_START')
     return
   }
@@ -163,7 +156,7 @@ export function applyChunkPayload(state: SnapshotStreamState, payload: SnapshotC
     })
     return
   }
-  state.assembled.set(payload.data, payload.offset)
+  state.chunks.push(payload.data.slice())
   state.accumulatedBytes = nextBytes
   state.expectedNextOffset = payload.offset + payload.data.byteLength
 }

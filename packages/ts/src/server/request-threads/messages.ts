@@ -41,7 +41,18 @@ export interface RelayedRequest {
   query: string
   contentType: string
   rawBody: Uint8Array | null
+  spooledBody: { path: string; bytes: number } | null
   hookContext: RequestContext | null
+}
+
+export interface StreamCreditNote {
+  type: 'stream-credit'
+  requestId: number
+}
+
+export interface StreamCancelNote {
+  type: 'stream-cancel'
+  requestId: number
 }
 
 export interface AuthorizeRequest {
@@ -62,7 +73,34 @@ export interface TouchIndexNote {
   indexName: string
 }
 
-export type RelayRequest = RelayedRequest | AuthorizeRequest | EmbedQueryRequest | TouchIndexNote
+export type RelayRequest =
+  | RelayedRequest
+  | AuthorizeRequest
+  | EmbedQueryRequest
+  | TouchIndexNote
+  | StreamCreditNote
+  | StreamCancelNote
+
+export interface RelayedStreamStart {
+  type: 'stream-start'
+  requestId: number
+  status: number
+  headers: Array<[string, string]>
+}
+
+export interface RelayedStreamChunk {
+  type: 'stream-chunk'
+  requestId: number
+  chunk: Uint8Array
+}
+
+export interface RelayedStreamEnd {
+  type: 'stream-end'
+  requestId: number
+  failed: boolean
+}
+
+export type RelayedStreamPart = RelayedStreamStart | RelayedStreamChunk | RelayedStreamEnd
 
 export interface RelayedResponse {
   type: 'response'

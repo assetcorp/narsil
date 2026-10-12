@@ -280,9 +280,10 @@ export function createWorkerOrchestrator(
     stopRequestThreads: (): void => stopRequestThreads(state),
     desyncIndex: (indexName: string): boolean => {
       state.desyncedIndexes.add(indexName)
+      const loading = state.copyTransitions.get(indexName)
       const wasScaledOut = state.scaledOutIndexes.delete(indexName)
       if (wasScaledOut) withdrawCopies(indexName)
-      return wasScaledOut
+      return wasScaledOut || (loading !== undefined && loading.kind !== 'drop')
     },
     resyncIndex,
     noteAccess: (indexName: string): void => noteAccess(state, indexName),

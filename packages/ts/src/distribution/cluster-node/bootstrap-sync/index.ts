@@ -193,7 +193,7 @@ export async function executeBootstrapSync(
     entry,
     indexName,
     primaryNodeId,
-    fetchResult.bytes,
+    fetchResult.chunks,
     schemaResult,
     deadline,
     deps,

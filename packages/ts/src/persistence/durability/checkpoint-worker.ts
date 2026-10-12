@@ -1,14 +1,16 @@
 import type { IndexMetadata } from '../../types/internal'
 import { CHECKPOINT_WORKER_HEARTBEAT_MS } from './constants'
+import type { PartitionCheckpoint } from './partition-checkpoint'
 import { rebuildSegmentsFromDurable } from './rebuild'
-import type { CapturedWholePartition, CheckpointSegmentsWritten } from './segment'
-import type { PartitionCheckpoint } from './snapshot-bundle'
+import type { CapturedWholePartition } from './segment/captured-partition'
+import type { CheckpointSegmentsWritten, PriorCheckpoint } from './segment/write'
 
 export interface CheckpointWorkerRequest {
   root: string
   metadata: IndexMetadata
   targets: PartitionCheckpoint[]
   compactionThreshold: number
+  prior: PriorCheckpoint | null
   capturedPartitions?: CapturedWholePartition[]
 }
 
@@ -50,6 +52,7 @@ async function handleRequest(raw: unknown): Promise<CheckpointWorkerSuccess> {
     request.metadata,
     request.targets,
     request.compactionThreshold,
+    request.prior ?? null,
     request.capturedPartitions,
   )
   return { type: 'success', segments }

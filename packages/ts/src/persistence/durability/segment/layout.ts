@@ -27,15 +27,23 @@ export function vectorFileKey(indexName: string, fieldPath: string, fileId: numb
   return `${segmentsPrefix(indexName)}vec-${encodeFieldPath(fieldPath)}-f${formatSegmentId(fileId)}`
 }
 
-export function vectorGraphKey(indexName: string, fieldPath: string, generation: number): string {
-  if (!Number.isSafeInteger(generation) || generation <= 0) {
-    throw new NarsilError(
-      ErrorCodes.PERSISTENCE_SAVE_FAILED,
-      `Vector graph generation ${generation} must be a positive integer`,
-      { generation },
-    )
-  }
+function requireGeneration(generation: number): void {
+  if (Number.isSafeInteger(generation) && generation > 0) return
+  throw new NarsilError(
+    ErrorCodes.PERSISTENCE_SAVE_FAILED,
+    `Vector graph generation ${generation} must be a positive integer`,
+    { generation },
+  )
+}
+
+export function earlierGraphKey(indexName: string, fieldPath: string, generation: number): string {
+  requireGeneration(generation)
   return `${segmentsPrefix(indexName)}vec-${encodeFieldPath(fieldPath)}-graph-g${generation}`
+}
+
+export function graphPartKey(indexName: string, fieldPath: string, generation: number, part: number): string {
+  requireGeneration(generation)
+  return `${segmentsPrefix(indexName)}vec-${encodeFieldPath(fieldPath)}-graph-g${generation}-p${formatSegmentId(part)}`
 }
 
 function formatSegmentId(segmentId: number): string {

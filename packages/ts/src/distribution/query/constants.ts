@@ -2,6 +2,7 @@ import { RESULT_WINDOW } from '../../search/constants'
 import { MAX_PARTITION_COUNT } from '../constants'
 
 export { MAX_FILTER_ARRAY_SIZE, MAX_FILTER_DEPTH, MAX_FILTER_TESTS } from '../../filters/constants'
+export { MAX_VECTOR_DIMENSION } from '../../schema/constants'
 export { MAX_PREFIX_LENGTH, MAX_TOLERANCE } from '../../search/constants'
 
 export const MAX_PARTITION_IDS = MAX_PARTITION_COUNT
@@ -45,5 +46,4 @@ export const MAX_GROUPS_PER_RESPONSE = 65_536
 
 export const MAX_FACET_SIZE = 1_000
 export const DEFAULT_MAX_FACET_BUCKETS = 100
-export const MAX_VECTOR_DIMENSION = 8192
 export const MAX_VECTOR_TEXT_LENGTH = 16_384

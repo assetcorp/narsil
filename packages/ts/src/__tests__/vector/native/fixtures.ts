@@ -7,6 +7,7 @@ import type { VectorQuantizationMode, VectorStorageMode } from '../../../types/s
 import type { VectorMetric } from '../../../vector/brute-force'
 import { setNativeSearchCoreEnabled } from '../../../vector/native/backend'
 import { createVectorIndex, type VectorIndex } from '../../../vector/vector-index'
+import { fieldView } from '../vector-index/field-view'
 
 export const DIMENSION = 53
 export const DOCUMENTS = 600
@@ -98,7 +99,7 @@ export async function builtIndex(options: BuiltIndexOptions): Promise<VectorInde
 const BYTES_BEFORE_THE_VECTORS = 3
 
 export async function moveVectorsToAFile(index: VectorIndex, directory: string, name: string): Promise<string> {
-  const [part] = index.serialize()
+  const part = fieldView(index)
   const path = join(directory, name)
   const bytes = new Uint8Array(BYTES_BEFORE_THE_VECTORS + part.vectors.byteLength)
   bytes.set(part.vectors, BYTES_BEFORE_THE_VECTORS)

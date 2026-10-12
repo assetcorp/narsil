@@ -20,6 +20,7 @@ import {
   DEFAULT_MAX_IMPORT_BYTES,
   DEFAULT_MAX_IMPORT_ERRORS,
   DEFAULT_MAX_LINE_BYTES,
+  DEFAULT_MAX_RESTORE_BYTES,
   DEFAULT_MAX_RESULT_WINDOW,
   DEFAULT_MAX_TASK_PAGE_SIZE,
 } from './constants'
@@ -28,6 +29,7 @@ import type { HandlerDeps, ResolvedBuild, ResolvedLimits } from './deps'
 import { createAdminHandlers } from './handlers/admin'
 import { createCapabilitiesHandler } from './handlers/capabilities'
 import { createClusterHandlers } from './handlers/cluster'
+import { createDocumentExportHandlers } from './handlers/document-export'
 import { createDocumentHandlers } from './handlers/documents'
 import { createHealthHandlers } from './handlers/health'
 import { createImportHandler } from './handlers/import'
@@ -47,6 +49,7 @@ function resolveLimits(limits: ServerLimits | undefined): ResolvedLimits {
   return {
     maxBodyBytes: limits?.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES,
     maxImportBytes: limits?.maxImportBytes ?? DEFAULT_MAX_IMPORT_BYTES,
+    maxRestoreBytes: limits?.maxRestoreBytes ?? DEFAULT_MAX_RESTORE_BYTES,
     maxLineBytes: limits?.maxLineBytes ?? DEFAULT_MAX_LINE_BYTES,
     importBatchSize: limits?.importBatchSize ?? DEFAULT_IMPORT_BATCH_SIZE,
     maxConcurrentRequests: limits?.maxConcurrentRequests ?? DEFAULT_MAX_CONCURRENT_REQUESTS,
@@ -84,6 +87,7 @@ function mainThreadHandlers(deps: HandlerDeps): ServerHandlers {
   const doc = createDocumentHandlers(deps)
   const search = createSearchHandlers(deps)
   const admin = createAdminHandlers(deps)
+  const documentExport = createDocumentExportHandlers(deps)
   const health = createHealthHandlers(deps)
   const cluster = createClusterHandlers(deps)
   const version = createVersionHandler(deps)
@@ -132,6 +136,8 @@ function mainThreadHandlers(deps: HandlerDeps): ServerHandlers {
     rebalance: admin.rebalance,
     partitionConfig: admin.partitionConfig,
     restore: admin.restore,
+    exportDocuments: documentExport.exportDocuments,
+    importExport: documentExport.importExport,
   }
 }
 

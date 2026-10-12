@@ -41,11 +41,19 @@ interface RawResponse {
   body: Buffer
 }
 
-function parseHead(head: string): { statusCode: number; contentType: string; contentLength: number } {
+interface ResponseHead {
+  statusCode: number
+  contentType: string
+  contentLength: number
+  chunked: boolean
+}
+
+function parseHead(head: string): ResponseHead {
   const lines = head.split('\r\n')
   const statusCode = Number.parseInt(lines[0].split(' ')[1] ?? '', 10)
   let contentType = ''
   let contentLength = -1
+  let chunked = false
   for (const line of lines.slice(1)) {
     const idx = line.indexOf(':')
     if (idx === -1) continue
@@ -53,8 +61,23 @@ function parseHead(head: string): { statusCode: number; contentType: string; con
     const value = line.slice(idx + 1).trim()
     if (key === 'content-type') contentType = value
     else if (key === 'content-length') contentLength = Number.parseInt(value, 10)
+    else if (key === 'transfer-encoding') chunked = value.toLowerCase().includes('chunked')
   }
-  return { statusCode, contentType, contentLength }
+  return { statusCode, contentType, contentLength, chunked }
+}
+
+function dechunked(body: Buffer): Buffer {
+  const parts: Buffer[] = []
+  let at = 0
+  for (;;) {
+    const lineEnd = body.indexOf('\r\n', at)
+    if (lineEnd === -1) throw new Error('a chunk size line never ends')
+    const size = Number.parseInt(body.toString('latin1', at, lineEnd).split(';')[0], 16)
+    if (!Number.isInteger(size) || size < 0) throw new Error('a chunk size is not hexadecimal')
+    if (size === 0) return Buffer.concat(parts)
+    parts.push(body.subarray(lineEnd + 2, lineEnd + 2 + size))
+    at = lineEnd + 2 + size + 2
+  }
 }
 
 function slowRequest(
@@ -67,7 +90,7 @@ function slowRequest(
     const socket = net.connect(port, host)
     const chunks: Buffer[] = []
     let received = 0
-    let head: { statusCode: number; contentType: string; contentLength: number } | null = null
+    let head: ResponseHead | null = null
     let headEnd = -1
     let settled = false
     let timer: NodeJS.Timeout | null = null
@@ -93,7 +116,12 @@ function slowRequest(
       }
       settled = true
       cleanup()
-      resolve({ statusCode: parsed.statusCode, contentType: parsed.contentType, body: buffer.subarray(headEnd) })
+      const body = buffer.subarray(headEnd)
+      resolve({
+        statusCode: parsed.statusCode,
+        contentType: parsed.contentType,
+        body: parsed.chunked ? dechunked(body) : body,
+      })
     }
 
     const absorb = (piece: Buffer): void => {
@@ -181,7 +209,7 @@ describe('a slow reader cannot force unbounded native buffering of a large respo
     const response = await slowRequest(host, port, raw, { chunkBytes: 16 * 1024, intervalMs: 20, timeoutMs: 30_000 })
 
     expect(response.statusCode).toBe(200)
-    expect(response.contentType).toBe('application/octet-stream')
+    expect(response.contentType).toBe('application/x-tar')
     expect(response.body.byteLength).toBe(baseline.byteLength)
     expect(response.body.equals(baseline)).toBe(true)
   }, 45_000)

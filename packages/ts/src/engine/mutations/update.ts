@@ -1,5 +1,5 @@
 import { ErrorCodes, NarsilError } from '../../errors'
-import { validateRequiredFields } from '../../schema/validator'
+import { requireDocumentWithinSizeLimit, validateRequiredFields } from '../../schema/validator'
 import type { BatchResult } from '../../types/results'
 import type { AnyDocument, WriteOptions } from '../../types/schema'
 import { BATCH_CHUNK_SIZE } from '../constants'
@@ -122,6 +122,7 @@ async function prepareUpdate(
     }
   }
 
+  requireDocumentWithinSizeLimit(document as Record<string, unknown>)
   const oldDocument = manager.get(docId)
   const oldPartitionDoc = manager.getRef(docId)
   const rollbackDoc = oldPartitionDoc ? (structuredClone(oldPartitionDoc) as AnyDocument) : undefined

@@ -8,9 +8,10 @@ import { createNarsil } from '../../../narsil'
 import { createPartitionManager } from '../../../partitioning/manager'
 import { createPartitionRouter } from '../../../partitioning/router'
 import { createDurableDirectory } from '../../../persistence/durability/durable-filesystem'
-import { readSegmentManifest } from '../../../persistence/durability/segment'
-import { loadPartitionSegmentBySegment } from '../../../persistence/durability/segment/load-partition'
+import { loadPartitionSegments } from '../../../persistence/durability/segment/load-partition'
+import { directoryCheckpointStore } from '../../../persistence/durability/segment/store'
 import type { IndexConfig } from '../../../types/schema'
+import { manifestOnDisk } from './manifest-on-disk'
 
 const CONFIG: IndexConfig = { schema: { title: 'string', year: 'number' }, language: 'english' }
 
@@ -41,12 +42,15 @@ describe('a partition that recovery loads one checkpoint segment at a time', () 
   it('keeps the newest copy of each document, drops what a later segment removed, and holds them frozen', async () => {
     await writeThreeCheckpoints()
     const directory = createDurableDirectory(root)
-    const manifest = await readSegmentManifest(directory, 'docs')
+    const manifest = await manifestOnDisk(directory, 'docs')
     const partition = manifest?.partitions[0]
     if (partition === undefined) throw new Error('the manifest lists no partition')
     const manager = createPartitionManager('docs', CONFIG, getLanguage('english'), createPartitionRouter(), 1)
 
-    await loadPartitionSegmentBySegment(directory, partition, manager)
+    await loadPartitionSegments(directoryCheckpointStore(directory), partition, manager, {
+      schema: { title: 'string', year: 'number' },
+      decodesEveryDocument: false,
+    })
 
     expect(partition.segments).toHaveLength(3)
     expect(manager.countDocuments()).toBe(6)

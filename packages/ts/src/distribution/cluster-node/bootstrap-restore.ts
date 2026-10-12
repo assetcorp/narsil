@@ -4,6 +4,7 @@ import { validateSchema } from '../../schema/validator'
 import type { IndexConfig, SchemaDefinition } from '../../types/schema'
 import { getClusterIndexConfig } from '../cluster/index-metadata'
 import type { ClusterCoordinator } from '../coordinator/types'
+import { iterateChunks } from '../replication/snapshot-bytes'
 import { withDeadline } from './bootstrap-fetch'
 import { localIndexIsGone } from './local-index-gone'
 import { diffSchemas, type SchemaDiffEntry } from './schema-diff'
@@ -98,11 +99,11 @@ export async function executeEngineRestore(
   engine: Narsil,
   indexName: string,
   primaryNodeId: string,
-  bytes: Uint8Array,
+  chunks: readonly Uint8Array[],
   remainingMs: number,
 ): Promise<NarsilError | null> {
   try {
-    await withDeadline(engine.restore(indexName, bytes), remainingMs, indexName, 'restore')
+    await withDeadline(engine.restore(indexName, iterateChunks(chunks)), remainingMs, indexName, 'restore')
     return null
   } catch (err) {
     if (err instanceof NarsilError && err.code === ErrorCodes.SNAPSHOT_SYNC_TIMEOUT) {

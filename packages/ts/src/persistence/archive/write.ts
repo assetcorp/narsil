@@ -1,0 +1,58 @@
+import { type FileRef, manifestFileRefs, type SegmentManifest } from '../durability/segment/manifest'
+import { ARCHIVE_CONFIG_ENTRY, ARCHIVE_MANIFEST_ENTRY } from './read'
+import { tarEnd, tarEntryHeaders, tarPadding } from './tar'
+
+export interface ArchiveSource {
+  config: Uint8Array
+  manifestBytes: Uint8Array
+  manifest: SegmentManifest
+  sourceIndexName: string
+  readFile(ref: FileRef): Promise<Uint8Array>
+  release(): void
+}
+
+function entryChunks(name: string, bytes: Uint8Array): Uint8Array[] {
+  return [...tarEntryHeaders(name, bytes.byteLength), bytes, tarPadding(bytes.byteLength)].filter(
+    chunk => chunk.byteLength > 0,
+  )
+}
+
+async function* archiveChunks(source: ArchiveSource): AsyncGenerator<Uint8Array> {
+  yield* entryChunks(ARCHIVE_CONFIG_ENTRY, source.config)
+  yield* entryChunks(ARCHIVE_MANIFEST_ENTRY, source.manifestBytes)
+  const prefix = `${source.sourceIndexName}/`
+  for (const ref of manifestFileRefs(source.manifest)) {
+    yield* entryChunks(ref.key.slice(prefix.length), await source.readFile(ref))
+  }
+  yield tarEnd()
+}
+
+export function archiveStream(source: ArchiveSource): ReadableStream<Uint8Array> {
+  const chunks = archiveChunks(source)
+  let released = false
+  const release = (): void => {
+    if (released) return
+    released = true
+    source.release()
+  }
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const step = await chunks.next()
+        if (step.done) {
+          release()
+          controller.close()
+          return
+        }
+        controller.enqueue(step.value)
+      } catch (error) {
+        release()
+        controller.error(error)
+      }
+    },
+    async cancel() {
+      release()
+      await chunks.return(undefined)
+    },
+  })
+}

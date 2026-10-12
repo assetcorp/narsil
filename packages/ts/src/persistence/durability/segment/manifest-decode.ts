@@ -1,190 +1,141 @@
 import { decode } from '@msgpack/msgpack'
 import { ErrorCodes, NarsilError } from '../../../errors'
 import { requireValidFieldTypes } from '../../../schema/validator/schema'
-import { unpackEnvelopeBytes } from '../../../serialization/envelope'
-import type { PartitionCheckpoint } from '../snapshot-bundle'
+import { openChecksummedEnvelope } from '../../../serialization/envelope-file'
+import type { PartitionCheckpoint } from '../partition-checkpoint'
+import { segmentKey } from './layout'
 import {
-  MAX_SEGMENT_ID,
+  EARLIER_SEGMENT_MANIFEST_VERSION,
+  MANIFEST_ENVELOPE_VERSION,
   MAX_SEGMENTS_PER_PARTITION,
   type PartitionManifestEntry,
   SEGMENT_MANIFEST_VERSION,
   type SegmentManifest,
   type SegmentRef,
 } from './manifest'
+import { invalidManifest, isId, isRecord, isSequenceNumber, isUint32, readFileRef } from './manifest-fields'
 import { normalizeVectorFields } from './manifest-vectors-decode'
 
-interface RawSegmentRef {
-  id?: number
-  key?: string
-  docCount?: number
-  tombstoneCount?: number
+export type DecodedManifest =
+  | { kind: 'current'; manifest: SegmentManifest }
+  | { kind: 'earlier'; payload: Record<string, unknown> }
+
+export async function openManifestPayload(data: Uint8Array): Promise<Record<string, unknown>> {
+  const { payload } = await openChecksummedEnvelope(data, {
+    envelopeFormatVersion: MANIFEST_ENVELOPE_VERSION,
+    what: 'segment manifest',
+    allowsCompression: true,
+  })
+  const raw = decode(payload)
+  if (!isRecord(raw)) invalidManifest('is not a map')
+  return raw
 }
 
-interface RawPartitionEntry {
-  partitionId?: number
-  nextSegmentId?: number
-  segments?: RawSegmentRef[]
+export function listedKeysOf(raw: Record<string, unknown>): string[] {
+  const keys: string[] = []
+  for (const partition of Array.isArray(raw.partitions) ? raw.partitions : []) {
+    if (!isRecord(partition) || !Array.isArray(partition.segments)) continue
+    for (const segment of partition.segments)
+      if (isRecord(segment) && typeof segment.key === 'string') keys.push(segment.key)
+  }
+  for (const field of Array.isArray(raw.vectors) ? raw.vectors : []) {
+    if (!isRecord(field)) continue
+    for (const list of [field.files, field.graphParts]) {
+      if (!Array.isArray(list)) continue
+      for (const file of list) if (isRecord(file) && typeof file.key === 'string') keys.push(file.key)
+    }
+  }
+  return keys
 }
 
-interface RawManifest {
-  version?: number
-  schema?: Record<string, string>
-  language?: string
-  checkpoint?: Array<{ partitionId?: number; lastSeqNo?: number; primaryTerm?: number }>
-  partitions?: RawPartitionEntry[]
-  vectors?: unknown
+export async function decodeSegmentManifest(data: Uint8Array, indexName: string): Promise<DecodedManifest> {
+  return decodeManifestPayload(await openManifestPayload(data), indexName)
 }
 
-export async function decodeSegmentManifest(data: Uint8Array): Promise<SegmentManifest> {
-  const { payloadBytes } = await unpackEnvelopeBytes(data)
-  const raw = decode(payloadBytes) as RawManifest
-
+export function decodeManifestPayload(raw: Record<string, unknown>, indexName: string): DecodedManifest {
+  if (raw.version === EARLIER_SEGMENT_MANIFEST_VERSION) return { kind: 'earlier', payload: raw }
   if (raw.version !== SEGMENT_MANIFEST_VERSION) {
     throw new NarsilError(
-      ErrorCodes.PERSISTENCE_LOAD_FAILED,
-      `Unsupported segment manifest version ${raw.version}; expected ${SEGMENT_MANIFEST_VERSION}`,
-      { version: raw.version },
+      ErrorCodes.ENVELOPE_VERSION_MISMATCH,
+      `The segment manifest of index "${indexName}" holds layout ${String(raw.version)}, which this release cannot open. Export the index with the release that wrote it and import the export`,
+      { indexName, version: raw.version },
     )
   }
-
-  const base = validateManifestCommon(raw)
-
+  const schema = raw.schema
+  if (!isRecord(schema)) invalidManifest('is missing its schema')
+  requireValidFieldTypes(schema)
+  if (typeof raw.language !== 'string') invalidManifest('is missing its language')
   return {
-    version: SEGMENT_MANIFEST_VERSION,
-    schema: base.schema,
-    language: base.language,
-    checkpoint: normalizeCheckpoint(raw.checkpoint),
-    partitions: normalizePartitions(raw.partitions),
-    vectors: normalizeVectorFields(raw.vectors),
+    kind: 'current',
+    manifest: {
+      version: SEGMENT_MANIFEST_VERSION,
+      schema: schema as Record<string, string>,
+      language: raw.language,
+      checkpoint: normalizeCheckpoint(raw.checkpoint),
+      partitions: normalizePartitions(raw.partitions, indexName),
+      vectors: normalizeVectorFields(raw.vectors, indexName),
+    },
   }
 }
 
-function validateManifestCommon(raw: RawManifest): { schema: Record<string, string>; language: string } {
-  if (raw.schema === undefined || typeof raw.schema !== 'object') {
-    throw new NarsilError(ErrorCodes.PERSISTENCE_LOAD_FAILED, 'Segment manifest is missing schema')
-  }
-  if (typeof raw.language !== 'string') {
-    throw new NarsilError(ErrorCodes.PERSISTENCE_LOAD_FAILED, 'Segment manifest is missing language')
-  }
-  requireValidFieldTypes(raw.schema)
-  return { schema: raw.schema, language: raw.language }
-}
-
-function normalizeCheckpoint(raw: RawManifest['checkpoint']): PartitionCheckpoint[] {
-  if (!Array.isArray(raw)) {
-    return []
-  }
-  const result: PartitionCheckpoint[] = []
-  for (const entry of raw) {
+export function normalizeCheckpoint(raw: unknown): PartitionCheckpoint[] {
+  if (!Array.isArray(raw)) invalidManifest('is missing its checkpoint list')
+  const seen = new Set<number>()
+  return raw.map(entry => {
     if (
-      typeof entry?.partitionId !== 'number' ||
-      typeof entry.lastSeqNo !== 'number' ||
-      typeof entry.primaryTerm !== 'number'
+      !isRecord(entry) ||
+      !isUint32(entry.partitionId) ||
+      !isSequenceNumber(entry.lastSeqNo) ||
+      !isSequenceNumber(entry.primaryTerm) ||
+      seen.has(entry.partitionId)
     ) {
-      continue
+      invalidManifest('has an invalid partition checkpoint', { entry })
     }
-    result.push({ partitionId: entry.partitionId, lastSeqNo: entry.lastSeqNo, primaryTerm: entry.primaryTerm })
-  }
-  return result
+    seen.add(entry.partitionId)
+    return { partitionId: entry.partitionId, lastSeqNo: entry.lastSeqNo, primaryTerm: entry.primaryTerm }
+  })
 }
 
-function normalizePartitions(raw: RawManifest['partitions']): PartitionManifestEntry[] {
-  if (!Array.isArray(raw)) {
-    throw new NarsilError(ErrorCodes.PERSISTENCE_LOAD_FAILED, 'Segment manifest is missing partition entries')
-  }
-  const result: PartitionManifestEntry[] = []
-  for (const entry of raw) {
-    if (!isNonNegativeInteger(entry?.partitionId)) {
-      throw new NarsilError(ErrorCodes.PERSISTENCE_LOAD_FAILED, 'Segment manifest has a partition without a valid id', {
-        partitionId: entry?.partitionId,
-      })
+function normalizePartitions(raw: unknown, indexName: string): PartitionManifestEntry[] {
+  if (!Array.isArray(raw)) invalidManifest('is missing partition entries')
+  const seen = new Set<number>()
+  return raw.map(entry => {
+    if (!isRecord(entry) || !isUint32(entry.partitionId) || seen.has(entry.partitionId)) {
+      invalidManifest('has a partition without a valid id', { partitionId: isRecord(entry) ? entry.partitionId : null })
     }
-    const segments = normalizeSegments(entry.segments, entry.partitionId)
-    const nextSegmentId = readNextSegmentId(entry.nextSegmentId, segments, entry.partitionId)
-    result.push({
+    seen.add(entry.partitionId)
+    const segments = normalizeSegments(entry.segments, indexName, entry.partitionId)
+    return {
       partitionId: entry.partitionId,
-      nextSegmentId,
+      nextSegmentId: readNextSegmentId(entry.nextSegmentId, segments, entry.partitionId),
       segments,
-    })
-  }
-  return result
+    }
+  })
 }
 
-function normalizeSegments(raw: RawSegmentRef[] | undefined, partitionId: number): SegmentRef[] {
-  if (raw === undefined) {
-    return []
-  }
-  if (!Array.isArray(raw)) {
-    throw new NarsilError(ErrorCodes.PERSISTENCE_LOAD_FAILED, 'Segment manifest has malformed segment references', {
-      partitionId,
-    })
-  }
+function normalizeSegments(raw: unknown, indexName: string, partitionId: number): SegmentRef[] {
+  if (!Array.isArray(raw)) invalidManifest('has malformed segment references', { partitionId })
   if (raw.length > MAX_SEGMENTS_PER_PARTITION) {
-    throw new NarsilError(
-      ErrorCodes.PERSISTENCE_LOAD_FAILED,
-      `Segment manifest lists ${raw.length} segments for partition ${partitionId}, exceeding the maximum of ${MAX_SEGMENTS_PER_PARTITION}`,
-      { partitionId, segmentCount: raw.length, maximum: MAX_SEGMENTS_PER_PARTITION },
-    )
+    invalidManifest(`lists ${raw.length} segments for partition ${partitionId}, above ${MAX_SEGMENTS_PER_PARTITION}`)
   }
   const seenIds = new Set<number>()
-  const result: SegmentRef[] = []
-  for (const segment of raw) {
-    if (
-      !isSegmentId(segment?.id) ||
-      !isNonNegativeInteger(segment.docCount) ||
-      !isNonNegativeInteger(segment.tombstoneCount) ||
-      !isKey(segment.key)
-    ) {
-      throw new NarsilError(ErrorCodes.PERSISTENCE_LOAD_FAILED, 'Segment manifest has an invalid segment reference', {
-        partitionId,
-        segment,
-      })
+  return raw.map(segment => {
+    if (!isRecord(segment) || !isId(segment.id) || !isUint32(segment.docCount) || !isUint32(segment.tombstoneCount)) {
+      invalidManifest('has an invalid segment reference', { partitionId })
     }
-    if (seenIds.has(segment.id)) {
-      throw new NarsilError(
-        ErrorCodes.PERSISTENCE_LOAD_FAILED,
-        `Segment manifest reuses segment id ${segment.id} in partition ${partitionId}`,
-        { partitionId, segmentId: segment.id },
-      )
-    }
+    if (seenIds.has(segment.id)) invalidManifest(`reuses segment id ${segment.id} in partition ${partitionId}`)
     seenIds.add(segment.id)
-    result.push({
-      id: segment.id,
-      key: segment.key,
-      docCount: segment.docCount,
-      tombstoneCount: segment.tombstoneCount,
-    })
-  }
-  return result
+    const ref = readFileRef(segment, segmentKey(indexName, partitionId, segment.id), 'segment')
+    return { ...ref, id: segment.id, docCount: segment.docCount, tombstoneCount: segment.tombstoneCount }
+  })
 }
 
-function readNextSegmentId(value: unknown, segments: SegmentRef[], partitionId: number): number {
-  if (!isSegmentId(value)) {
-    throw new NarsilError(ErrorCodes.PERSISTENCE_LOAD_FAILED, 'Segment manifest has an invalid next segment id', {
-      partitionId,
-      nextSegmentId: value,
-    })
-  }
+function readNextSegmentId(value: unknown, segments: readonly SegmentRef[], partitionId: number): number {
+  if (!isId(value)) invalidManifest('has an invalid next segment id', { partitionId })
   for (const segment of segments) {
     if (segment.id >= value) {
-      throw new NarsilError(
-        ErrorCodes.PERSISTENCE_LOAD_FAILED,
-        `Segment manifest next segment id ${value} does not exceed an existing segment id ${segment.id}`,
-        { partitionId, nextSegmentId: value, segmentId: segment.id },
-      )
+      invalidManifest(`next segment id ${value} does not exceed segment id ${segment.id}`, { partitionId })
     }
   }
   return value
-}
-
-function isNonNegativeInteger(value: unknown): value is number {
-  return typeof value === 'number' && Number.isInteger(value) && value >= 0
-}
-
-function isSegmentId(value: unknown): value is number {
-  return typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= MAX_SEGMENT_ID
-}
-
-function isKey(value: unknown): value is string {
-  return typeof value === 'string' && value.length > 0 && !value.includes('\0')
 }

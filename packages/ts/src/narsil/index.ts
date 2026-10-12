@@ -6,7 +6,7 @@ import type { NarsilConfig } from '../types/config'
 import type { Narsil } from '../types/engine'
 import { createNarsilFromCore } from './operations'
 
-export type { Narsil } from '../types/engine'
+export type { ByteSource, Narsil } from '../types/engine'
 export { createNarsilFromCore } from './operations'
 
 /**

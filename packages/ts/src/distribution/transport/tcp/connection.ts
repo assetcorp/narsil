@@ -4,6 +4,7 @@ import { MAX_MESSAGE_SIZE_BYTES } from '../constants'
 import { TransportError, TransportErrorCodes, type TransportMessage } from '../types'
 import { decodeTransportMessage, encodeFrame, encodeTransportMessage, FrameParser, type WireFrame } from './framing'
 import { parseAddress } from './parse-address'
+import { createPendingStream, type PendingStream } from './pending-stream'
 import {
   FRAME_TYPE_REQUEST,
   FRAME_TYPE_RESPONSE,
@@ -20,14 +21,6 @@ export { parseAddress } from './parse-address'
 interface PendingRequest {
   target: string
   resolve: (message: TransportMessage) => void
-  reject: (error: Error) => void
-  timer: ReturnType<typeof setTimeout>
-}
-
-interface PendingStream {
-  target: string
-  handler: (chunk: Uint8Array) => void
-  resolve: () => void
   reject: (error: Error) => void
   timer: ReturnType<typeof setTimeout>
 }
@@ -113,26 +106,20 @@ export class TcpConnectionPool {
     const pendingKey = `${target}:${message.requestId}`
 
     return new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.pendingStreams.delete(pendingKey)
-        reject(
-          new TransportError(
-            TransportErrorCodes.TIMEOUT,
-            `Stream to '${target}' timed out after ${this.config.snapshotTimeout}ms`,
-            {
-              target,
-              requestId: message.requestId,
-              timeoutMs: this.config.snapshotTimeout,
-            },
-          ),
-        )
-      }, this.config.snapshotTimeout)
-
-      this.pendingStreams.set(pendingKey, { target, handler, resolve, reject, timer })
+      const pending = createPendingStream({
+        target,
+        requestId: message.requestId,
+        timeoutMs: this.config.snapshotTimeout,
+        handler,
+        resolve,
+        reject,
+        forget: () => this.pendingStreams.delete(pendingKey),
+      })
+      this.pendingStreams.set(pendingKey, pending)
 
       socket.write(frame, err => {
         if (err) {
-          clearTimeout(timer)
+          clearTimeout(pending.timer)
           this.pendingStreams.delete(pendingKey)
           reject(
             new TransportError(
@@ -278,6 +265,7 @@ export class TcpConnectionPool {
 
       const pendingStream = this.pendingStreams.get(pendingKey)
       if (pendingStream !== undefined) {
+        pendingStream.rearm()
         try {
           const message = decodeTransportMessage(frame.data)
           pendingStream.handler(message.payload)
@@ -299,6 +287,7 @@ export class TcpConnectionPool {
     if (frame.frameType === FRAME_TYPE_STREAM_CHUNK) {
       const pending = this.pendingStreams.get(pendingKey)
       if (pending !== undefined) {
+        pending.rearm()
         pending.handler(frame.data)
       }
       return

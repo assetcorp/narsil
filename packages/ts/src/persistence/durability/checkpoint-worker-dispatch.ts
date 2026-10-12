@@ -7,7 +7,7 @@ import {
   CHECKPOINT_WORKER_IDLE_MS,
   CHECKPOINT_WORKER_TIMEOUT_MS,
 } from './constants'
-import type { CheckpointSegmentsWritten } from './segment'
+import type { CheckpointSegmentsWritten } from './segment/write'
 
 export interface WorkerHandle {
   postMessage(msg: unknown, transfer?: ArrayBuffer[]): void

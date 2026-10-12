@@ -170,6 +170,8 @@ export function clusterNodeEngine(node: ClusterNode, options?: ClusterEngineOpti
     rebuildAnalysis: () => unsupported('rebuildAnalysis'),
     snapshot: () => unsupported('snapshot'),
     restore: () => unsupported('restore'),
+    exportDocuments: () => unsupported('exportDocuments'),
+    importDocumentExport: () => unsupported('importDocumentExport'),
     rebalance: () => unsupported('rebalance'),
     updatePartitionConfig: () => unsupported('updatePartitionConfig'),
     compactVectors: () => unsupported('compactVectors'),

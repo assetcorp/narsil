@@ -3,6 +3,7 @@ import { runInNewContext } from 'node:vm'
 import { describe, expect, it } from 'vitest'
 import { createCompositePartition } from '../../../../core/partition/composite'
 import { createFrozenSegment } from '../../../../core/partition/frozen'
+import { mergeSegmentContents } from '../../../../core/partition/frozen/merge'
 import { buildSegmentPayload } from '../../../../core/partition/segment-builder'
 import type { AnyDocument, SchemaDefinition } from '../../../../types/schema'
 import { english } from '../../partition-index/fixtures'
@@ -53,8 +54,9 @@ describe('serialising a partition that holds frozen segments', () => {
 
     collect()
     const liveBefore = getHeapStatistics().used_heap_size
-    const bytes = composite.serializeToBytes('papers', 1, 'english', SCHEMA)
-    expect(bytes.byteLength).toBeGreaterThan(MB)
+    const segmentIds = composite.frozenSegmentSizes().map(size => size.segmentId)
+    const merged = mergeSegmentContents(composite.frozenSegmentsById(segmentIds).map(segment => ({ segment })))
+    expect(merged.documents.blob.byteLength).toBeGreaterThan(MB)
     collect()
     const retained = getHeapStatistics().used_heap_size - liveBefore
 

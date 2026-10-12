@@ -8,6 +8,7 @@ import { createDurableDirectory } from '../../../persistence/durability/durable-
 import type { VectorQuantizationMode } from '../../../types/schema'
 import { setNativeSearchCoreEnabled } from '../../../vector/native/backend'
 import { loadNativeCore } from '../../../vector/native/loader'
+import { fieldView } from '../vector-index/field-view'
 import {
   binaryBuilt,
   builtIndex,
@@ -84,7 +85,7 @@ describe.skipIf(!binaryBuilt)('the native search core over a field kept on disk'
         })
         await settleBuild(index)
         random.mockRestore()
-        graphs.push(index.serialize()[0].graphs)
+        graphs.push(fieldView(index).graphs)
       } finally {
         index.dispose()
       }

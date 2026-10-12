@@ -40,7 +40,7 @@ A hook may be async, and the engine waits for every `before*` hook to finish bef
 
 | Event | Payload | Meaning |
 | --- | --- | --- |
-| `write` | `{ indexName }` | A call changed what a read returns from the index. The engine emits the event once per call after the inserts, updates, and removals, singly or in a batch, and after `clear`, `restore`, `rebalance`, `rebuildAnalysis`, `compactVectors`, `optimizeVectors`, `createIndex`, and `dropIndex`, even when the call throws. The engine emits it once a query can see the change, waiting for that only while a listener is registered. The [React hooks](react.md#refreshing-after-a-write) search again after each burst of these events. |
+| `write` | `{ indexName }` | A call changed what a read returns from the index. The engine emits the event once per call after the inserts, updates, and removals, singly or in a batch, and after `clear`, `restore`, `importDocumentExport`, `rebalance`, `rebuildAnalysis`, `compactVectors`, `optimizeVectors`, `createIndex`, and `dropIndex`, even when the call throws. The engine emits it once a query can see the change, waiting for that only while a listener is registered. The [React hooks](react.md#refreshing-after-a-write) search again after each burst of these events. |
 | `durabilityError` | `{ error }` | A write-ahead log append or a checkpoint write failed, on either tier. |
 | `invalidationError` | `{ error }` | An invalidation adapter publish, subscribe, or reload failed. |
 | `workerCrash` | `{ workerId, indexNames, error }` | A worker died. The pool drops it and fails the requests that it was serving with `WORKER_CRASHED`, while the engine answers each of those queries again on the main thread, so the caller receives a result. The remaining workers keep answering, and once none is left, the main thread answers every query. |
@@ -50,6 +50,7 @@ A hook may be async, and the engine waits for every `before*` hook to finish bef
 | `partitionWatermark` | `{ indexName, documentCount, capacity, partitionCount, partitionId? }` | An index crossed its watermark fraction of capacity. On a cluster node, the engine reports the document count and the capacity of the one partition that `partitionId` names, which is a partition that the node leads. See [Partitions and rebalancing](partitions-and-workers.md#partitions-and-rebalancing) and [the cluster guide](cluster.md#create-drop-and-clear-an-index). |
 | `heapPressure` | `{ indexName, heapUsed, heapLimit, estimatedMemoryBytes }` | The process heap crossed nine tenths of its limit during a write to the named index or a load of it. See [The Node heap limit](#the-node-heap-limit). |
 | `analysisRebuild` | `{ indexName, status, partitionsRebuilt, partitionCount, error? }` | A rebuild of an index's terms started, completed, or failed. See [Analysis revisions](language-support.md#analysis-revisions). |
+| `layoutUpgrade` | `{ indexName, status, layout, error? }` | The engine started, completed, or failed the rewrite of an index that you saved with release 0.3. `layout` is `manifest` where the earlier index is a segment manifest with its files, and `bundle` where it is a single snapshot bundle. See [Indexes from an earlier release](persistence-and-durability.md#indexes-from-an-earlier-release). |
 
 ```ts
 narsil.on('durabilityError', payload => {

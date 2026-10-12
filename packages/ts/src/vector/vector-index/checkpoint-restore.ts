@@ -1,9 +1,9 @@
 import { ErrorCodes, NarsilError } from '../../errors'
-import { createHNSWIndex } from '../hnsw'
-import { requireWholeNeighbourLists } from '../hnsw/numbered-graph'
+import { createHNSWIndex, type HNSWIndex, type NumberedGraphParts } from '../hnsw'
+import { requireWholeNeighbourLists, topLayerInParts } from '../hnsw/numbered-graph'
 import { osqBitsOf } from '../osq'
 import { magnitude } from '../similarity'
-import type { VectorFilePayload, VectorGraphPayload } from './checkpoint-payload'
+import type { VectorFilePayload, VectorGraphParts } from './checkpoint-payload'
 import { type SavedVectorFile, signatureOf } from './checkpoint-plan'
 import { isDead, NO_LIVE_VECTOR_AT_POSITION } from './dead-bits'
 import { readsFromDisk, type VectorPartFile } from './disk'
@@ -27,7 +27,7 @@ export interface CheckpointRestoreShape {
 
 export interface VectorCheckpointRestore {
   addFile(file: LoadedVectorFile): void
-  finish(graph: VectorGraphPayload | null): void
+  finish(graph: VectorGraphParts | null): void
 }
 
 function sameCentroid(a: readonly number[], b: readonly number[]): boolean {
@@ -37,14 +37,29 @@ function sameCentroid(a: readonly number[], b: readonly number[]): boolean {
 }
 
 function bufferEveryVectorOutsideTheGraph(state: VectorIndexState): void {
-  for (const [docId] of state.store.entries()) {
+  for (const docId of state.store.docIds()) {
     if (state.tombstones.has(docId)) continue
     if (state.hnsw === null || !state.hnsw.has(docId)) state.buffer.add(docId)
   }
 }
 
-function restoreGraph(state: VectorIndexState, payload: VectorGraphPayload | null, ordinalOfNumber: Int32Array): void {
-  const first = payload?.graphs[0]
+function insertNodesOfLaterGraph(
+  state: VectorIndexState,
+  graph: HNSWIndex,
+  later: NumberedGraphParts,
+  ordinals: Int32Array,
+): void {
+  for (const part of later.parts) requireWholeNeighbourLists(part)
+  for (let number = 0; number < ordinals.length; number++) {
+    const ordinal = ordinals[number]
+    if (ordinal === NO_LIVE_VECTOR_AT_POSITION || topLayerInParts(later, number) < 0) continue
+    const docId = state.store.docIdForOrdinal(ordinal)
+    if (docId !== undefined && !graph.has(docId)) graph.insertOrdinal(ordinal)
+  }
+}
+
+function restoreGraph(state: VectorIndexState, payload: VectorGraphParts | null, ordinalOfNumber: Int32Array): void {
+  const first = payload?.graphs[0]?.parts[0]
   if (payload === null || first === undefined) {
     bufferEveryVectorOutsideTheGraph(state)
     return
@@ -55,17 +70,9 @@ function restoreGraph(state: VectorIndexState, payload: VectorGraphPayload | nul
     { m: first.m, efConstruction: first.efConstruction, metric: first.metric },
     state.osq ?? undefined,
   )
-  graph.deserializeNumbered(first, ordinalOfNumber)
+  graph.deserializeNumbered(payload.graphs[0], ordinalOfNumber)
   adoptGraph(state, graph)
-  for (const later of payload.graphs.slice(1)) {
-    requireWholeNeighbourLists(later)
-    for (let number = 0; number < later.levels.length && number < ordinalOfNumber.length; number++) {
-      const ordinal = ordinalOfNumber[number]
-      if (later.levels[number] === 0 || ordinal === NO_LIVE_VECTOR_AT_POSITION) continue
-      const docId = state.store.docIdForOrdinal(ordinal)
-      if (docId !== undefined && !graph.has(docId)) graph.insertOrdinal(ordinal)
-    }
-  }
+  for (const later of payload.graphs.slice(1)) insertNodesOfLaterGraph(state, graph, later, ordinalOfNumber)
   bufferEveryVectorOutsideTheGraph(state)
   if (state.buffer.size <= graph.size) return
   adoptGraph(state, null)
@@ -139,7 +146,7 @@ export function beginCheckpointRestore(
     files.push({ id: file.id, key: file.key, ordinals, coded: payload.codes !== null })
   }
 
-  function finish(graph: VectorGraphPayload | null): void {
+  function finish(graph: VectorGraphParts | null): void {
     const codesRestored = restoresCodes && codesAgree && sharedCodes !== null
     if (restoresCodes && !codesRestored) recalibrateFromStore(state)
 

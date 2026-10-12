@@ -3,6 +3,9 @@ import type { PartitionManager } from '../../partitioning/manager'
 import type { DurabilityConfig } from '../../types/config'
 import type { IndexMetadata } from '../../types/internal'
 import type { VectorIndex } from '../../vector/vector-index'
+import type { ArchiveCheckpoint, RestoreStaging } from './archive-checkpoint'
+import type { LayoutUpgradeEvent } from './earlier-layout/upgrade'
+import type { PartitionCheckpoint } from './partition-checkpoint'
 
 export type { DurabilityConfig }
 
@@ -13,6 +16,7 @@ export interface IndexDurabilityHooks {
   buildMetadata(indexName: string, documentCount?: number): IndexMetadata | undefined
   createIndexFromMetadata(metadata: IndexMetadata, loadData: boolean): Promise<void>
   recordCheckpoint?(indexName: string, documentCount: number, partitionCount: number): void
+  onLayoutUpgrade?(event: LayoutUpgradeEvent): void
   onFatalError(error: Error): void
 }
 
@@ -45,6 +49,9 @@ export interface DurabilityManager {
    * rebuilt its terms replaces what earlier segments hold. */
   checkpointFromMemory?(indexName: string): Promise<void>
   checkpointAll(): Promise<void>
+  openArchiveCheckpoint?(indexName: string): Promise<ArchiveCheckpoint>
+  stageRestore?(indexName: string): RestoreStaging
+  adoptRestoredCheckpoint?(indexName: string, checkpoint: readonly PartitionCheckpoint[]): void
   removeIndex(indexName: string): Promise<void>
   unloadIndex(indexName: string): Promise<void>
   reloadIndex?(indexName: string): Promise<void>

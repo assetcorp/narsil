@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createNarsil, type Narsil } from '../../narsil'
 import type { SchemaDefinition } from '../../types/schema'
+import { bytesOf } from '../e2e/portability/archive-oracle'
 
 const DIM = 4
 
@@ -32,8 +33,7 @@ describe('snapshot and restore with vector data', () => {
     await narsil.insert('docs', { title: 'alpha', embedding: vec(0.9, 0.1) }, 'id-alpha')
     await narsil.insert('docs', { title: 'beta', embedding: vec(0.1, 0.9) }, 'id-beta')
 
-    const snapshotData = await narsil.snapshot('docs')
-    expect(snapshotData).toBeInstanceOf(Uint8Array)
+    const snapshotData = await bytesOf(await narsil.snapshot('docs'))
     expect(snapshotData.byteLength).toBeGreaterThan(0)
 
     await narsil.dropIndex('docs')
@@ -80,7 +80,7 @@ describe('snapshot and restore with vector data', () => {
     expect(vectorResult.hits[0].id).toBe('near')
   })
 
-  it('handles restore of a v1 snapshot without vectorIndexes field gracefully', async () => {
+  it('restores an index that holds no vector field', async () => {
     await narsil.createIndex('docs', { schema: { title: 'string' }, language: 'english' })
     await narsil.insert('docs', { title: 'test document' }, 'doc-1')
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { ErrorCodes, NarsilError } from '../../../errors'
-import { createHNSWIndex, type HNSWIndex } from '../../../vector/hnsw'
+import { createHNSWIndex, type HNSWIndex, type NumberedGraphParts, type NumberedHnswGraph } from '../../../vector/hnsw'
 import { createVectorStore, type VectorStore } from '../../../vector/vector-store'
 import { DIM, insertVec, seededVector } from './fixtures'
 
@@ -18,6 +18,16 @@ function identityNumbers(count: number): Int32Array {
   return Int32Array.from({ length: count }, (_, i) => i)
 }
 
+function wholeGraph(index: HNSWIndex, numberOfOrdinal: Int32Array, ordinalOfNumber: Int32Array): NumberedHnswGraph {
+  const [graph] = index.serializeNumbered(numberOfOrdinal, ordinalOfNumber, Math.max(1, ordinalOfNumber.length))
+  if (graph === undefined) throw new Error('the graph wrote no part')
+  return graph
+}
+
+function onePart(graph: NumberedHnswGraph): NumberedGraphParts {
+  return { partSize: graph.levels.length, parts: [graph] }
+}
+
 function uint32At(bytes: Uint8Array, index: number): number {
   return new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(index * 4, true)
 }
@@ -29,7 +39,7 @@ describe('an HNSW graph written with numbered vectors', () => {
     const ordinalOfNumber = new Int32Array(VECTORS + 3).fill(-1)
     for (let ordinal = 0; ordinal < VECTORS; ordinal++) ordinalOfNumber[ordinal + 3] = ordinal
 
-    const graph = index.serializeNumbered(shifted, ordinalOfNumber)
+    const graph = wholeGraph(index, shifted, ordinalOfNumber)
 
     expect(graph.levels).toHaveLength(VECTORS + 3)
     expect([...graph.levels.subarray(0, 3)]).toEqual([0, 0, 0])
@@ -44,7 +54,7 @@ describe('an HNSW graph written with numbered vectors', () => {
   it('restores the same search results on a store that numbers its ordinals differently', () => {
     const { index } = buildGraph()
     const numbers = identityNumbers(VECTORS)
-    const graph = index.serializeNumbered(numbers, numbers)
+    const graph = wholeGraph(index, numbers, numbers)
 
     const reordered = createVectorStore()
     const ordinalOfNumber = new Int32Array(VECTORS)
@@ -53,7 +63,7 @@ describe('an HNSW graph written with numbered vectors', () => {
       ordinalOfNumber[number] = reordered.insert(`doc${number}`, seededVector(DIM, number + 1))
     }
     const restored = createHNSWIndex(DIM, reordered, CONFIG)
-    restored.deserializeNumbered(graph, ordinalOfNumber)
+    restored.deserializeNumbered(onePart(graph), ordinalOfNumber)
 
     expect(restored.size).toBe(VECTORS)
     expect(restored.entryPointId).toBe(index.entryPointId)
@@ -69,7 +79,7 @@ describe('an HNSW graph written with numbered vectors', () => {
     const ordinalOfNumber = identityNumbers(VECTORS)
     ordinalOfNumber[5] = -1
 
-    const graph = index.serializeNumbered(numberOfOrdinal, ordinalOfNumber)
+    const graph = wholeGraph(index, numberOfOrdinal, ordinalOfNumber)
 
     expect(graph.levels[5]).toBe(0)
     const values = graph.neighbours.byteLength / 4
@@ -87,12 +97,12 @@ describe('an HNSW graph written with numbered vectors', () => {
   it('skips a dead vector and a link to a vector that holds no node when it reads a graph', () => {
     const { index, store } = buildGraph()
     const numbers = identityNumbers(VECTORS)
-    const graph = index.serializeNumbered(numbers, numbers)
+    const graph = wholeGraph(index, numbers, numbers)
     const ordinalOfNumber = identityNumbers(VECTORS)
     ordinalOfNumber[7] = -1
 
     const restored = createHNSWIndex(DIM, store, CONFIG)
-    restored.deserializeNumbered(graph, ordinalOfNumber)
+    restored.deserializeNumbered(onePart(graph), ordinalOfNumber)
 
     expect(restored.size).toBe(VECTORS - 1)
     expect(restored.has('doc7')).toBe(false)
@@ -103,13 +113,13 @@ describe('an HNSW graph written with numbered vectors', () => {
   it('refuses a graph whose neighbours end inside a list', () => {
     const { index, store } = buildGraph()
     const numbers = identityNumbers(VECTORS)
-    const graph = index.serializeNumbered(numbers, numbers)
+    const graph = wholeGraph(index, numbers, numbers)
     const truncated = { ...graph, neighbours: graph.neighbours.subarray(0, graph.neighbours.byteLength - 4) }
 
     const restored = createHNSWIndex(DIM, store, CONFIG)
     let thrown: unknown
     try {
-      restored.deserializeNumbered(truncated, numbers)
+      restored.deserializeNumbered(onePart(truncated), numbers)
     } catch (error) {
       thrown = error
     }
@@ -121,12 +131,27 @@ describe('an HNSW graph written with numbered vectors', () => {
   it('starts from a node on the highest layer when the entry point names a vector with no node', () => {
     const { index, store } = buildGraph()
     const numbers = identityNumbers(VECTORS)
-    const graph = { ...index.serializeNumbered(numbers, numbers), entryPoint: null }
+    const graph = { ...wholeGraph(index, numbers, numbers), entryPoint: null }
 
     const restored = createHNSWIndex(DIM, store, CONFIG)
-    restored.deserializeNumbered(graph, numbers)
+    restored.deserializeNumbered(onePart(graph), numbers)
 
     expect(restored.entryPointId).not.toBeNull()
     expect(restored.search(seededVector(DIM, 3), 3, 'cosine', 0)).toHaveLength(3)
+  })
+
+  it('reads back the same graph from parts of any size', () => {
+    const { index, store } = buildGraph()
+    const numbers = identityNumbers(VECTORS)
+    const query = seededVector(DIM, 41)
+    const expected = index.search(query, 8, 'cosine', 0).map(result => result.docId)
+    for (const partSize of [1, 7, 16, VECTORS]) {
+      const parts = index.serializeNumbered(numbers, numbers, partSize)
+      expect(parts).toHaveLength(Math.ceil(VECTORS / partSize))
+      const restored = createHNSWIndex(DIM, store, CONFIG)
+      restored.deserializeNumbered({ partSize, parts }, numbers)
+      expect(restored.size).toBe(VECTORS)
+      expect(restored.search(query, 8, 'cosine', 0).map(result => result.docId)).toEqual(expected)
+    }
   })
 })

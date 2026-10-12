@@ -275,11 +275,6 @@ export function createPartitionManager(
       return partitions[partitionId].serialize(indexName, partitions.length, language.name, config.schema)
     },
 
-    serializePartitionToBytes(partitionId: number): Uint8Array {
-      validatePartitionId(partitionId)
-      return partitions[partitionId].serializeToBytes(indexName, partitions.length, language.name, config.schema)
-    },
-
     mergeSegment(partitionId: number, payload: SegmentPayload, documents: ReadonlyArray<AnyDocument>): void {
       validatePartitionId(partitionId)
       const partition = partitions[partitionId]

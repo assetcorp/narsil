@@ -3,14 +3,13 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createNarsil } from '../../../narsil'
-import { createDurableDirectory } from '../../../persistence/durability/durable-filesystem'
-import { readSegmentManifest } from '../../../persistence/durability/segment'
 import type { IndexConfig } from '../../../types/schema'
+import { manifestOnDisk } from './manifest-on-disk'
 
 const vectorSave = vi.hoisted(() => ({ failing: false }))
 
-vi.mock('../../../persistence/durability/segment/vector', async importOriginal => {
-  const original = await importOriginal<typeof import('../../../persistence/durability/segment/vector')>()
+vi.mock('../../../persistence/durability/segment/vector-write', async importOriginal => {
+  const original = await importOriginal<typeof import('../../../persistence/durability/segment/vector-write')>()
   return {
     ...original,
     writeLiveVectors: async (input: Parameters<typeof original.writeLiveVectors>[0]) => {
@@ -53,7 +52,7 @@ describe('a checkpoint whose vector save fails', () => {
       await writer.insert('papers', { title: `harbour paper ${i}`, embedding: embeddingFor(i) }, `p${i}`)
     }
     await writer.checkpoint('papers')
-    const before = await readSegmentManifest(createDurableDirectory(root), 'papers')
+    const before = await manifestOnDisk(root, 'papers')
 
     for (let i = 40; i < 45; i += 1) {
       await writer.insert('papers', { title: `harbour paper ${i}`, embedding: embeddingFor(i) }, `p${i}`)
@@ -62,7 +61,7 @@ describe('a checkpoint whose vector save fails', () => {
     await expect(writer.checkpoint('papers')).rejects.toThrow(/simulated crash/)
     vectorSave.failing = false
 
-    expect(await readSegmentManifest(createDurableDirectory(root), 'papers')).toEqual(before)
+    expect(await manifestOnDisk(root, 'papers')).toEqual(before)
     await writer.shutdown()
 
     const reader = await createNarsil({ durability: { directory: root }, workers: { enabled: false } })

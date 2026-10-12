@@ -135,6 +135,15 @@ export function indexReadyForCopies(state: OrchestratorState, indexName: string,
   return true
 }
 
+function discardLoadedCopies(state: OrchestratorState, pool: WorkerPool, indexName: string): void {
+  const holders = pool.executorsHolding(indexName)
+  pool.removeIndex(indexName)
+  state.segmentLedger.delete(indexName)
+  void Promise.allSettled(
+    holders.map(worker => worker.execute({ type: 'dropIndex', indexName, requestId: `stale-load-drop-${indexName}` })),
+  )
+}
+
 async function loadCopies(state: OrchestratorState, indexName: string, reason: string): Promise<void> {
   const entry = state.indexRegistry.get(indexName)
   const manager = state.executor.getManager(indexName)
@@ -154,6 +163,10 @@ async function loadCopies(state: OrchestratorState, indexName: string, reason: s
   try {
     freezeLiveTailsBeforeCopiesLoad(manager)
     await transferIndexToPool(indexName, pool, entry.config, manager, state.callbacks?.isAnalysisStale?.(indexName))
+    if (state.desyncedIndexes.has(indexName)) {
+      discardLoadedCopies(state, pool, indexName)
+      return
+    }
     state.scaledOutIndexes.add(indexName)
     state.lastAccessAt.set(indexName, Date.now())
     state.poolRetryDelayMs = POOL_RESTART_DELAY_MS

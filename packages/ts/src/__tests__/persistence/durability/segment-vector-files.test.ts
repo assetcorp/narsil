@@ -4,9 +4,9 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createNarsil, type Narsil } from '../../../narsil'
 import { createDurableDirectory } from '../../../persistence/durability/durable-filesystem'
-import { readSegmentManifest } from '../../../persistence/durability/segment'
 import type { VectorFieldRef } from '../../../persistence/durability/segment/manifest'
 import type { IndexConfig } from '../../../types/schema'
+import { manifestOnDisk } from './manifest-on-disk'
 
 const DIMENSION = 8
 
@@ -44,7 +44,7 @@ describe('the vector files of a segmented checkpoint', () => {
   }
 
   async function listedField(): Promise<VectorFieldRef> {
-    const manifest = await readSegmentManifest(createDurableDirectory(root), 'papers')
+    const manifest = await manifestOnDisk(root, 'papers')
     const field = manifest?.vectors[0]
     if (field === undefined) throw new Error('the manifest lists no vector field')
     return field
@@ -108,7 +108,7 @@ describe('the vector files of a segmented checkpoint', () => {
 
     expect(second.files.map(file => file.count)).toEqual([20])
     expect(await directory.list('papers/segments/')).toContain(first.files[0].key)
-    expect(await directory.list('papers/segments/')).not.toContain(first.graphKey)
+    for (const part of first.graphParts) expect(await directory.list('papers/segments/')).not.toContain(part.key)
 
     await engine.compactVectors('papers', 'embedding')
     await insertPapers(engine, 30, 31)

@@ -1,0 +1,10 @@
+{
+ "documentCount": 185,
+ "partitionCount": 4,
+ "estimatedMemoryBytes": 124493,
+ "language": "english",
+ "schema": {
+  "text": "string",
+  "rank": "number"
+ }
+}

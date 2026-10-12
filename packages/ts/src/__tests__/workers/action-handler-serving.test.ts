@@ -35,6 +35,7 @@ function settings(): RequestThreadSettings {
     limits: {
       maxBodyBytes: 1024,
       maxImportBytes: 1024,
+      maxRestoreBytes: 1024,
       maxLineBytes: 1024,
       importBatchSize: 10,
       maxConcurrentRequests: 0,

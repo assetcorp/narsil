@@ -277,18 +277,19 @@ export function createInMemoryTransport(
 
       return new Promise<void>((resolve, reject) => {
         let settled = false
-        const timeoutId = setTimeout(() => {
+        const expire = (): void => {
           if (!settled) {
             settled = true
             reject(
               new TransportError(
                 TransportErrorCodes.TIMEOUT,
-                `Stream to node '${target}' timed out after ${resolvedConfig.snapshotTimeout}ms`,
+                `No chunk of the stream from node '${target}' arrived within ${resolvedConfig.snapshotTimeout}ms`,
                 { target, requestId: message.requestId, timeoutMs: resolvedConfig.snapshotTimeout },
               ),
             )
           }
-        }, resolvedConfig.snapshotTimeout)
+        }
+        let timeoutId = setTimeout(expire, resolvedConfig.snapshotTimeout)
 
         const settle = (action: () => void): void => {
           if (settled) {
@@ -304,6 +305,8 @@ export function createInMemoryTransport(
             if (settled) {
               return Promise.resolve()
             }
+            clearTimeout(timeoutId)
+            timeoutId = setTimeout(expire, resolvedConfig.snapshotTimeout)
             try {
               handler(payload)
             } catch (error) {

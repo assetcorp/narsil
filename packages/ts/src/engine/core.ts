@@ -218,6 +218,9 @@ export function createEngineCore(
     emitFatalError(error: Error) {
       emitEngineEvent(eventHandlers, 'durabilityError', { error })
     },
+    emitLayoutUpgrade(event) {
+      emitEngineEvent(eventHandlers, 'layoutUpgrade', event)
+    },
     publishCheckpointedPartitions: (indexName, partitions) =>
       invalidation?.publishPartitions(indexName, partitions) ?? Promise.resolve(),
     recordCheckpoint(indexName, documentCount, partitionCount) {

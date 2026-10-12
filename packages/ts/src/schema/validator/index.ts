@@ -1,4 +1,5 @@
 export { validateDocument, validateDocumentStrict, validateRequiredFields } from './document'
+export { requireDocumentWithinSizeLimit } from './document-size'
 export {
   type BaseFieldType,
   isSingleStringFieldType,
@@ -11,6 +12,7 @@ export {
 export {
   extractVectorFieldsFromSchema,
   flattenSchema,
+  requireCreatableSchema,
   requireValidFieldTypes,
   type SchemaField,
   schemaFieldsOf,

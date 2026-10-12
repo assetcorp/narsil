@@ -1,10 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import {
-  createVectorIndex,
-  type VectorFilePayload,
-  type VectorGraphPayload,
-  type VectorIndex,
-} from '../../../vector/vector-index'
+import { createVectorIndex, type VectorFilePayload, type VectorIndex } from '../../../vector/vector-index'
+import { assembleGraphParts, type VectorGraphParts } from '../../../vector/vector-index/checkpoint-payload'
 import { bytesToVectors } from '../../../vector/vector-index/payload'
 import { DIM, normalizedVector } from './fixtures'
 
@@ -18,13 +14,13 @@ interface ListedFile {
 
 interface Checkpoint {
   files: ListedFile[]
-  graph: VectorGraphPayload | null
+  graph: VectorGraphParts | null
   wrote: string[]
 }
 
 function createWriter(index: VectorIndex) {
   let listed: ListedFile[] | null = null
-  let graph: VectorGraphPayload | null = null
+  let graph: VectorGraphParts | null = null
   let nextId = 0
 
   return {
@@ -47,7 +43,7 @@ function createWriter(index: VectorIndex) {
       }
       index.recordCheckpoint(plan, written)
       listed = files
-      graph = plan.graph
+      graph = plan.graphParts === null ? null : assembleGraphParts(plan.graphParts)
       return { files, graph, wrote: written.map(file => file.key) }
     },
   }

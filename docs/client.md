@@ -48,9 +48,9 @@ const controller = new AbortController()
 const results = await client.query('movies', { term: 'matrix' }, { signal: controller.signal, timeoutMs: 2000 })
 ```
 
-A `snapshot` reads the whole index, so give that call its own `maxResponseBytes` or none at all where the client sets one.
+`maxResponseBytes` applies only to an error answer from `snapshot` and `exportDocuments`, because both methods return the server's body to you as a stream.
 
-Four calls move a corpus or a whole index, so `importDocuments`, `startImport`, `snapshot`, and `restore` set no deadline of their own. Each of them waits for as long as the server takes, until you set `timeoutMs` on the client or on the call.
+Six methods send or receive a corpus or a whole index, so `importDocuments`, `startImport`, `snapshot`, `restore`, `exportDocuments`, and `importDocumentExport` set no deadline of their own. Each of them waits for as long as the server takes, until you set `timeoutMs` on the client or on the call.
 
 ## Errors
 
@@ -105,9 +105,26 @@ const finished = await client.waitForTask(task.id, {
 })
 ```
 
+## Snapshots and exports
+
+`snapshot` and `exportDocuments` return the server's answer as a stream of bytes, so you can write a whole index to a file without holding it in memory. `restore` and `importDocumentExport` each take a byte array or a stream. Once the server holds the whole upload, each of them resolves with a task record to follow.
+
+```ts
+import { createReadStream, createWriteStream } from 'node:fs'
+import { Readable, Writable } from 'node:stream'
+
+const archive = await client.snapshot('movies')
+await archive.pipeTo(Writable.toWeb(createWriteStream('./movies.tar')))
+
+const task = await client.restore('movies', Readable.toWeb(createReadStream('./movies.tar')))
+await client.waitForTask(task.id)
+```
+
+An older server answers the export routes with 404, so check `supports(DOCUMENT_EXPORT_CAPABILITY)` before you call `exportDocuments` or `importDocumentExport`. The [server guide](http-server.md#snapshots-and-exports) covers the upload limit and the shape of an import's result.
+
 ## Following a task
 
-Five operations run as tasks: an import started through `startImport`, `restore`, `rebalance`, `optimizeVectors`, and `rebuildAnalysis`. Each answers straight away with a record holding an `id`, a `status`, and, for an import alone, a `progress` object.
+Six operations execute as tasks: an import started through `startImport`, `restore`, `importDocumentExport`, `rebalance`, `optimizeVectors`, and `rebuildAnalysis`. Each answers straight away with a record holding an `id`, a `status`, and, for an import alone, a `progress` object.
 
 `waitForTask` polls until the task reaches `succeeded`, `failed`, or `cancelled`, then returns the record it ended on. A failed task comes back with its `error` set while the call throws nothing, because a part-finished import still reports what it indexed. Read the status you get back.
 
@@ -152,7 +169,7 @@ The client reads the answer once and keeps it, because a server cannot take on a
 | Bulk | `insertBatch`, `updateBatch`, `removeBatch`, `getMultiple`, `listDocuments`, `importDocuments`, `startImport` |
 | Search | `query`, `preflight`, `suggest` |
 | Tasks | `getTask`, `listTasks`, `cancelTask`, `waitForTask` |
-| Maintenance | `checkpoint`, `snapshot`, `restore`, `vectorMaintenanceStatus`, `compactVectors`, `optimizeVectors`, `rebalance`, `updatePartitionConfig`, `rebuildAnalysis`, `getMemoryStats` |
+| Maintenance | `checkpoint`, `snapshot`, `restore`, `exportDocuments`, `importDocumentExport`, `vectorMaintenanceStatus`, `compactVectors`, `optimizeVectors`, `rebalance`, `updatePartitionConfig`, `rebuildAnalysis`, `getMemoryStats` |
 | Server | `version`, `capabilities`, `supports`, `isAlive`, `isReady` |
 
 `createIndex` takes whatever JSON can express of the engine's configuration. A custom tokeniser, a stop-word function, and an embedding adapter are all functions, so name a language and a server-registered adapter instead. The [HTTP server guide](http-server.md) covers the `embeddingAdapters` option a server registers those under.

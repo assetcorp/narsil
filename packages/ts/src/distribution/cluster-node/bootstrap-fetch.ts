@@ -1,7 +1,7 @@
 import { encode } from '@msgpack/msgpack'
 import { generateId } from '../../core/id-generator'
 import { ErrorCodes, NarsilError, type NarsilErrorCode } from '../../errors'
-import { crc32 } from '../../serialization/crc32'
+import { crc32OfChunks } from '../replication/snapshot-bytes'
 import {
   createSnapshotStreamState,
   finalizeSnapshotStream,
@@ -260,7 +260,7 @@ async function fetchSnapshotFromTarget(
     return result
   }
 
-  const computedChecksum = crc32(result.bytes)
+  const computedChecksum = crc32OfChunks(result.chunks)
   if (computedChecksum !== result.header.checksum) {
     return {
       ok: false,
