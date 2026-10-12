@@ -91,6 +91,7 @@ export async function createEtcdCoordinator(config?: Partial<EtcdCoordinatorConf
         {
           client,
           leaseManager,
+          guard,
           key: keys.node(registration.nodeId),
           ttlSeconds: resolvedConfig.nodeHeartbeatTtlSeconds,
         },

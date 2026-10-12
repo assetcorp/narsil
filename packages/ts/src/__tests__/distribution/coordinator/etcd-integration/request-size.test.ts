@@ -8,6 +8,7 @@ import {
   type EtcdContainerHandle,
   eventually,
   MANAGED_ETCD_ENDPOINT,
+  makeNodeRegistration,
   runDocker,
   startEtcdContainer,
   stopEtcdContainer,
@@ -133,6 +134,31 @@ describe('EtcdCoordinator integration - request size', () => {
     expect(refused.code).toBe(ErrorCodes.CONFIG_INVALID)
     expect(await coordinator.getSchema('wide')).toBeNull()
     expect(await coordinator.listSchemas()).toEqual([])
+  }, 60_000)
+
+  it('refuses a node registration too large for one request and leaves no lease or node behind', async () => {
+    const { coordinator } = await coordinatorFor(endpoint())
+    const oversized = makeNodeRegistration({ address: `node-1.cluster.local:9200/${'a'.repeat(1_600_000)}` })
+
+    const refused = await refusalOf(coordinator.registerNode(oversized))
+    expect(refused.code).toBe(ErrorCodes.CONFIG_INVALID)
+    expect(await coordinator.listNodes()).toEqual([])
+
+    await coordinator.registerNode(makeNodeRegistration())
+    expect((await coordinator.listNodes()).map(node => node.nodeId)).toEqual(['node-1'])
+  }, 60_000)
+
+  it('turns the etcd refusal of a node registration into CONFIG_INVALID and registers the node once it fits', async () => {
+    const { coordinator } = await coordinatorFor(endpoint(), EIGHT_MIB)
+    const oversized = makeNodeRegistration({ address: `node-1.cluster.local:9200/${'a'.repeat(1_600_000)}` })
+
+    const refused = await refusalOf(coordinator.registerNode(oversized))
+    expect(refused.code).toBe(ErrorCodes.CONFIG_INVALID)
+    expect(refused.message).toContain('etcd reports')
+    expect(await coordinator.listNodes()).toEqual([])
+
+    await coordinator.registerNode(makeNodeRegistration())
+    expect((await coordinator.listNodes()).map(node => node.nodeId)).toEqual(['node-1'])
   }, 60_000)
 
   it('turns the etcd refusal of a request above its limit into CONFIG_INVALID and keeps serving', async () => {

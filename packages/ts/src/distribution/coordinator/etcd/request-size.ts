@@ -13,6 +13,7 @@ export interface EtcdWrite {
 }
 
 export interface EtcdWriteGuard {
+  requireFits(write: EtcdWrite): number
   send<T>(write: EtcdWrite, perform: () => Promise<T>): Promise<T>
 }
 
@@ -43,16 +44,20 @@ function refusedForSize(etcd3: Etcd3Module, error: unknown): boolean {
 }
 
 export function createEtcdWriteGuard(etcd3: Etcd3Module, maxRequestBytes: number): EtcdWriteGuard {
+  function requireFits(write: EtcdWrite): number {
+    const bytes = requestBytesOf(write)
+    if (bytes <= maxRequestBytes) return bytes
+    throw new NarsilError(
+      ErrorCodes.CONFIG_INVALID,
+      `The request to write "${write.key}" would be ${bytes} bytes, more than the maxRequestBytes of ${maxRequestBytes}. Raise maxRequestBytes in createEtcdCoordinator together with the --max-request-bytes value of etcd.`,
+      { key: write.key, bytes, maxRequestBytes },
+    )
+  }
+
   return {
+    requireFits,
     async send<T>(write: EtcdWrite, perform: () => Promise<T>): Promise<T> {
-      const bytes = requestBytesOf(write)
-      if (bytes > maxRequestBytes) {
-        throw new NarsilError(
-          ErrorCodes.CONFIG_INVALID,
-          `The request to write "${write.key}" would be ${bytes} bytes, more than the maxRequestBytes of ${maxRequestBytes}. Raise maxRequestBytes in createEtcdCoordinator together with the --max-request-bytes value of etcd.`,
-          { key: write.key, bytes, maxRequestBytes },
-        )
-      }
+      const bytes = requireFits(write)
       try {
         return await perform()
       } catch (error) {
