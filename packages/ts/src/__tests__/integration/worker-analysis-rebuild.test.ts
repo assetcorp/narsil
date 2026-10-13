@@ -79,6 +79,7 @@ describe.skipIf(!built)('an index promoted to a worker thread', () => {
       const unstemmed = await narsil.query('prose', { term: 'jumping' })
       expect(unstemmed.hits).toHaveLength(4)
 
+      await new Promise(resolve => setImmediate(resolve))
       const bothCopies = await Promise.all([
         narsil.query('prose', { term: WORKER_ONLY_STOP_WORD }),
         narsil.query('prose', { term: WORKER_ONLY_STOP_WORD }),
