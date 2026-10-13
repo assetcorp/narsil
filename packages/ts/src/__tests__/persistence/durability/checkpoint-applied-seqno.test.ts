@@ -5,8 +5,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createNarsil } from '../../../narsil'
 import { readCommitMarker } from '../../../persistence/durability/commit-marker'
 import { createDurableDirectory } from '../../../persistence/durability/durable-filesystem'
-import { decodeSegmentManifest } from '../../../persistence/durability/segment/manifest'
 import type { IndexConfig } from '../../../types/schema'
+import { requireManifestOnDisk } from './manifest-on-disk'
 
 const SCHEMA: IndexConfig = {
   schema: { title: 'string' },
@@ -42,11 +42,7 @@ describe('checkpoint records the applied sequence number', () => {
       throw new Error('commit marker unreadable')
     }
 
-    const manifestBytes = await directory.read('docs/manifest')
-    if (manifestBytes === null) {
-      throw new Error('manifest missing')
-    }
-    const manifest = await decodeSegmentManifest(manifestBytes)
+    const manifest = await requireManifestOnDisk(directory, 'docs')
     expect(manifest.checkpoint[0].lastSeqNo).toBe(marker.state.highestDurableSeqNo)
     expect(manifest.checkpoint[0].lastSeqNo).toBe(2)
   })

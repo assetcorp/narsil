@@ -98,11 +98,11 @@ export async function executeEngineRestore(
   engine: Narsil,
   indexName: string,
   primaryNodeId: string,
-  bytes: Uint8Array,
+  source: AsyncIterable<Uint8Array>,
   remainingMs: number,
 ): Promise<NarsilError | null> {
   try {
-    await withDeadline(engine.restore(indexName, bytes), remainingMs, indexName, 'restore')
+    await withDeadline(engine.restore(indexName, source), remainingMs, indexName, 'restore')
     return null
   } catch (err) {
     if (err instanceof NarsilError && err.code === ErrorCodes.SNAPSHOT_SYNC_TIMEOUT) {

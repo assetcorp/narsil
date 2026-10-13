@@ -1,5 +1,6 @@
 import { encode } from '@msgpack/msgpack'
 import { describe, expect, it } from 'vitest'
+import { type MergedSegmentContents, mergeSegmentContents } from '../../../core/partition/frozen/merge'
 import { buildEntry } from '../../../distribution/replication/entry-checksum'
 import type { ReplicationLogEntry } from '../../../distribution/replication/types'
 import { getLanguage } from '../../../languages/registry'
@@ -27,7 +28,7 @@ async function* inOrder(entries: ReplicationLogEntry[]): AsyncGenerator<Replicat
   yield* entries
 }
 
-async function segmentOf(entries: ReplicationLogEntry[]): Promise<Uint8Array | undefined> {
+async function segmentOf(entries: ReplicationLogEntry[]): Promise<MergedSegmentContents | undefined> {
   const built = await buildSegmentFromEntries({
     indexName: 'papers',
     config: CONFIG,
@@ -35,7 +36,7 @@ async function segmentOf(entries: ReplicationLogEntry[]): Promise<Uint8Array | u
     vectorFieldPaths: new Set(['embedding']),
     entries: inOrder(entries),
   })
-  return built?.payload
+  return built === null ? undefined : mergeSegmentContents(built.selections)
 }
 
 describe('a document segment built from the log', () => {

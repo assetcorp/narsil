@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { isCompositePartition } from '../../../core/partition/composite'
+import { mergeSegmentContents } from '../../../core/partition/frozen/merge'
 import { createNarsil, type Narsil } from '../../../narsil'
 import { engineCoreOf } from '../../../narsil/internals'
 import {
@@ -11,12 +12,12 @@ import {
   __failNextCheckpointWorkerForTests,
   resetCheckpointWorkerLatch,
 } from '../../../persistence/durability/checkpoint-worker-dispatch'
-import { createDurableDirectory } from '../../../persistence/durability/durable-filesystem'
-import { readSegmentManifest } from '../../../persistence/durability/segment'
 import {
   captureWholePartition,
-  serializeCapturedPartition,
+  contentsOfCaptured,
+  partitionContentsOf,
 } from '../../../persistence/durability/segment/captured-partition'
+import { requireManifestOnDisk } from './manifest-on-disk'
 
 const distEntry = new URL('../../../../dist/workers/entry.mjs', import.meta.url)
 const built = existsSync(distEntry)
@@ -59,8 +60,7 @@ function managerOf(engine: Narsil) {
 }
 
 async function segmentDocCounts(root: string): Promise<number[]> {
-  const manifest = await readSegmentManifest(createDurableDirectory(root), 'docs')
-  if (manifest === null) throw new Error('manifest missing')
+  const manifest = await requireManifestOnDisk(root, 'docs')
   return manifest.partitions[0].segments.map(segment => segment.docCount)
 }
 
@@ -77,7 +77,7 @@ describe.skipIf(!built)('a checkpoint of a partition that holds frozen segments'
     await rm(root, { recursive: true, force: true })
   })
 
-  it('serialises a captured partition to the bytes that the engine itself would write', async () => {
+  it('captures a partition with the contents that the engine itself would write', async () => {
     const engine = await engineWithFrozenSegments(root)
     await engine.remove('docs', 'd17')
     await engine.update('docs', 'd600', { title: 'slipway bell', year: 2001 })
@@ -87,15 +87,12 @@ describe.skipIf(!built)('a checkpoint of a partition that holds frozen segments'
 
     const captured = captureWholePartition(manager, 0)
     if (captured === null) throw new Error('the partition was not captured')
-    const fromCapture = serializeCapturedPartition(
-      'docs',
-      { schema: manager.schema, language: 'english' },
-      'english',
-      captured,
-    )
+    const fromCapture = mergeSegmentContents(contentsOfCaptured(captured).selections)
+    const fromMemory = mergeSegmentContents(partitionContentsOf(manager, 0).selections)
 
     expect(captured.docCount).toBe(1004)
-    expect(Buffer.from(fromCapture).equals(Buffer.from(manager.serializePartitionToBytes(0)))).toBe(true)
+    expect(fromCapture.payload.documentCount).toBe(1004)
+    expect(fromCapture).toEqual(fromMemory)
     await engine.shutdown()
   }, 30_000)
 

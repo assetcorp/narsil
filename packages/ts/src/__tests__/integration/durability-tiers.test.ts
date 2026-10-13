@@ -96,7 +96,9 @@ describe('durability tiers', () => {
     await writer.insert('movies', { title: 'Lost', year: 2099 }, 'lost-1')
 
     const keys = await adapter.list('movies/')
-    expect(keys).toContain('movies/snapshot')
+    expect(keys).toContain('movies/manifest')
+    expect(keys).not.toContain('movies/snapshot')
+    expect(keys.some(k => k.startsWith('movies/segments/0/s'))).toBe(true)
     expect(keys.some(k => k.startsWith('movies/wal/'))).toBe(false)
 
     const reader = await createNarsil({

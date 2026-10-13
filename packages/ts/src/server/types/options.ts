@@ -74,8 +74,15 @@ export interface CorsOptions {
 export interface ServerLimits {
   /** Cap for JSON request bodies (single doc, batch, search). Excess → 413. */
   maxBodyBytes?: number
-  /** Cap for the NDJSON import stream and binary restore body. Excess → 413. */
+  /** Cap for the NDJSON import stream. Excess → 413. */
   maxImportBytes?: number
+  /** The server accepts a snapshot archive for `POST /indexes/{name}/restore`
+   * and a document export for `POST /indexes/{name}/import` of up to this many
+   * bytes, and it answers a larger upload with 413. The server writes each
+   * upload to a temporary file as the upload arrives, so it needs the same
+   * memory for an upload of any size. The default is 64 GiB, and 0 accepts an
+   * upload of any size. */
+  maxRestoreBytes?: number
   /** Cap for a single NDJSON line, so one unterminated line cannot exhaust memory. Excess → 413. */
   maxLineBytes?: number
   /** Documents handed to the engine per batch during NDJSON import; the loop yields between batches. */

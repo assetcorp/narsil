@@ -9,6 +9,7 @@ import type { AllocationTable, ClusterCoordinator, PartitionAssignment } from '.
 import { ReplicationMessageTypes, type RespondFn, type TransportMessage } from '../../../distribution/transport/types'
 import { ErrorCodes } from '../../../errors'
 import type { Narsil } from '../../../narsil'
+import { snapshotStreamOf } from './snapshot-stream'
 
 function makeAssignment(overrides: Partial<PartitionAssignment> = {}): PartitionAssignment {
   return {
@@ -54,16 +55,11 @@ function makeMockEngine(options: MockEngineOptions = {}): Narsil {
   return {
     listIndexes: vi.fn().mockReturnValue(options.indexes ?? [{ name: 'products' }]),
     snapshot: vi.fn().mockImplementation(async () => {
-      if (options.snapshotCalls !== undefined) {
-        options.snapshotCalls.value += 1
-      }
-      if (options.snapshotDelayMs !== undefined) {
+      if (options.snapshotCalls !== undefined) options.snapshotCalls.value += 1
+      if (options.snapshotDelayMs !== undefined)
         await new Promise(resolve => setTimeout(resolve, options.snapshotDelayMs))
-      }
-      if (options.snapshotRejects === true) {
-        throw new Error('engine snapshot failed')
-      }
-      return options.snapshotBytes ?? new Uint8Array(0)
+      if (options.snapshotRejects === true) throw new Error('engine snapshot failed')
+      return snapshotStreamOf(options.snapshotBytes ?? new Uint8Array(0))
     }),
   } as unknown as Narsil
 }
@@ -277,7 +273,7 @@ describe('snapshot sync handler hardening', () => {
       listIndexes: vi.fn().mockReturnValue([{ name: 'alpha' }, { name: 'beta' }, { name: 'gamma' }]),
       snapshot: vi.fn().mockImplementation(async () => {
         await new Promise(resolve => setTimeout(resolve, 25))
-        return new Uint8Array(8)
+        return snapshotStreamOf(new Uint8Array(8))
       }),
     } as unknown as Narsil
 
@@ -350,7 +346,7 @@ describe('snapshot sync handler hardening', () => {
       listIndexes: vi.fn().mockReturnValue([{ name: 'products' }]),
       snapshot: vi.fn().mockImplementation(async () => {
         snapshotCalls.value += 1
-        return currentBytes
+        return snapshotStreamOf(currentBytes)
       }),
     } as unknown as Narsil
 

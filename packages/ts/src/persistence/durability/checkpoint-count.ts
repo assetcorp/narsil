@@ -1,47 +1,44 @@
-import { deserializePayloadV2 } from '../../serialization/payload-v2'
-import type { DurableDirectory } from './durable-filesystem'
-import { countLiveDocuments, readSegmentContents, readSegmentManifest } from './segment'
-import type { SegmentContents } from './segment/segment-file'
-import { decodeSnapshotBundle } from './snapshot-bundle'
+import { countSnapshotBundleDocuments as countBundle, decodeSnapshotBundle } from './earlier-layout/bundle'
+import { decodeEarlierManifest } from './earlier-layout/manifest'
+import { countLiveDocuments } from './earlier-layout/merge'
+import { type EarlierSegmentContents, readEarlierSegmentContents } from './earlier-layout/segment'
+import { snapshotBundleKey } from './segment/layout'
+import { readSegmentManifest } from './segment/load'
+import type { SegmentManifest } from './segment/manifest'
+import { readSegmentFile } from './segment/segment-file'
+import type { CheckpointStore } from './segment/store'
 
-/**
- * Counts the live documents in an index's last completed checkpoint, reading
- * the segment manifest. An index with no manifest holds no checkpointed
- * documents, so the count is zero. A read or decode failure propagates,
- * because a count the store cannot back must stay unknown.
- *
- * @param directory - The durable store holding the index's files.
- * @param indexName - The index whose checkpoint is counted.
- * @returns The number of documents the last checkpoint holds.
- */
-export async function countCheckpointDocuments(directory: DurableDirectory, indexName: string): Promise<number> {
-  const manifest = await readSegmentManifest(directory, indexName)
-  if (manifest === null) {
-    return 0
-  }
+const decoder = new TextDecoder()
+
+async function countCurrentLayout(store: CheckpointStore, manifest: SegmentManifest): Promise<number> {
   let total = 0
   for (const partition of manifest.partitions) {
-    const ordered: SegmentContents[] = []
-    for (const segment of partition.segments) {
-      ordered.push(await readSegmentContents(directory, segment.key))
+    const live = new Set<string>()
+    for (const ref of partition.segments) {
+      const contents = await readSegmentFile(store, ref)
+      for (const docId of contents.tombstones) live.delete(docId)
+      const ids = contents.arrays.idTable
+      for (let ordinal = 0; ordinal < contents.arrays.documentCount; ordinal++) {
+        live.add(decoder.decode(ids.blob.subarray(ids.offsets[ordinal], ids.offsets[ordinal + 1])))
+      }
     }
-    total += countLiveDocuments(ordered)
+    total += live.size
   }
   return total
 }
 
-/**
- * Counts the documents a snapshot bundle holds across all of its partitions.
- * A decode failure propagates.
- *
- * @param bytes - The encoded snapshot bundle.
- * @returns The number of documents in the bundle.
- */
-export async function countSnapshotBundleDocuments(bytes: Uint8Array): Promise<number> {
-  const bundle = await decodeSnapshotBundle(bytes)
-  let total = 0
-  for (const partitionBytes of bundle.partitions) {
-    total += Object.keys(deserializePayloadV2(partitionBytes).documents).length
+export async function countCheckpointDocuments(store: CheckpointStore, indexName: string): Promise<number> {
+  const decoded = await readSegmentManifest(store, indexName)
+  if (decoded?.kind === 'current') return countCurrentLayout(store, decoded.manifest)
+  if (decoded?.kind === 'earlier') {
+    let total = 0
+    for (const partition of decodeEarlierManifest(decoded.payload).partitions) {
+      const ordered: EarlierSegmentContents[] = []
+      for (const segment of partition.segments) ordered.push(await readEarlierSegmentContents(store, segment.key))
+      total += countLiveDocuments(ordered)
+    }
+    return total
   }
-  return total
+  const bundle = await store.read(snapshotBundleKey(indexName))
+  return bundle === null ? 0 : countBundle(await decodeSnapshotBundle(bundle))
 }

@@ -1,16 +1,11 @@
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { decode, encode } from '@msgpack/msgpack'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { ErrorCodes } from '../../../errors'
 import { createNarsil } from '../../../narsil'
-import {
-  packIndexSnapshotEnvelope,
-  readMetadataEnvelope,
-  unpackIndexSnapshotEnvelope,
-  writeMetadataEnvelope,
-} from '../../../serialization/envelope'
+import { readMetadataEnvelope, writeMetadataEnvelope } from '../../../serialization/envelope'
+import { bytesOf, entryNamed, readTar, resealed, withEntry, writeTar } from '../../e2e/portability/archive-oracle'
 
 describe('field types on reopen and restore', () => {
   let root: string
@@ -43,12 +38,18 @@ describe('field types on reopen and restore', () => {
     const writer = await createNarsil({ workers: { enabled: false }, durability: { directory: root } })
     await writer.createIndex('books', { schema: { title: 'string', code: 'verbatim' } })
     await writer.insert('books', { title: 'Dune', code: 'ISBN 0441013597' }, 'b1')
-    const snapshot = await writer.snapshot('books')
+    const entries = readTar(await bytesOf(await writer.snapshot('books')))
     await writer.shutdown()
 
-    const payload = decode(await unpackIndexSnapshotEnvelope(snapshot)) as Record<string, unknown>
-    const unknownTypeSnapshot = await packIndexSnapshotEnvelope(
-      encode({ ...payload, schema: { title: 'string', code: 'verbatim:partial' } }),
+    const unknownTypeSnapshot = writeTar(
+      withEntry(
+        entries,
+        'config',
+        resealed(entryNamed(entries, 'config').data, payload => ({
+          ...payload,
+          schema: { title: 'string', code: 'verbatim:partial' },
+        })),
+      ),
     )
     const engine = await createNarsil({ workers: { enabled: false } })
     try {

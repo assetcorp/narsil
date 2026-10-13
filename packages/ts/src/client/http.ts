@@ -8,11 +8,8 @@ export interface RequestSpec {
   method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
   path: string
   query?: Record<string, string | undefined>
-  body?: string | Uint8Array
+  body?: string | Uint8Array | ReadableStream<Uint8Array>
   contentType?: string
-  /** Setting this reads a successful answer as bytes, which the snapshot
-   * download needs. A failure still answers with a JSON error envelope. */
-  binaryAnswer?: boolean
   defaultTimeoutMs?: number
   options?: RequestOptions
 }
@@ -22,7 +19,7 @@ export interface RequestSpec {
 export interface Transport {
   json<T>(spec: RequestSpec): Promise<T>
   jsonOrNull<T>(spec: RequestSpec, absentCode: string): Promise<T | null>
-  binary(spec: RequestSpec): Promise<Uint8Array>
+  stream(spec: RequestSpec): Promise<ReadableStream<Uint8Array>>
   probe(spec: RequestSpec): Promise<number>
 }
 
@@ -93,26 +90,15 @@ async function readStreamCapped(stream: ReadableStream<Uint8Array>, limitBytes: 
   return body
 }
 
-async function readAnswer(
-  response: Response,
-  limitBytes: number,
-  wantsBytes: boolean,
-): Promise<{ text: string; bytes: Uint8Array | null }> {
+async function readAnswer(response: Response, limitBytes: number): Promise<string> {
   const stream: ReadableStream<Uint8Array> | null | undefined = response.body
   if (limitBytes > 0 && stream !== null && stream !== undefined) {
-    const body = await readStreamCapped(stream, limitBytes)
-    return wantsBytes ? { text: '', bytes: body } : { text: new TextDecoder().decode(body), bytes: null }
-  }
-
-  if (wantsBytes) {
-    const bytes = new Uint8Array(await response.arrayBuffer())
-    if (limitBytes > 0 && bytes.byteLength > limitBytes) throw new ResponseTooLargeError(limitBytes)
-    return { text: '', bytes }
+    return new TextDecoder().decode(await readStreamCapped(stream, limitBytes))
   }
 
   const text = await response.text()
   if (limitBytes > 0 && text.length > limitBytes) throw new ResponseTooLargeError(limitBytes)
-  return { text, bytes: null }
+  return text
 }
 
 function invalidResponse(message: string, details: Record<string, unknown>): NarsilError {
@@ -194,20 +180,34 @@ export function createTransport(options: NarsilClientOptions): Transport {
 
   async function exchange(
     spec: RequestSpec,
-  ): Promise<{ status: number; text: string; bytes: Uint8Array | null; url: string }> {
+    keepsStream = false,
+  ): Promise<{
+    status: number
+    text: string
+    stream: ReadableStream<Uint8Array> | null
+    url: string
+  }> {
     const url = `${base}${withQuery(spec.path, spec.query)}`
     const headers: Record<string, string> = { ...baseHeaders, ...spec.options?.headers }
     if (spec.contentType !== undefined) headers['content-type'] = spec.contentType
     const timeoutMs = resolveTimeout(spec)
     const deadline = startDeadline(timeoutMs, spec.options?.signal)
+    let handedOver = false
 
     try {
-      const init: RequestInit = { method: spec.method, headers, signal: deadline.signal }
+      const init: RequestInit & { duplex?: 'half' } = { method: spec.method, headers, signal: deadline.signal }
       if (spec.body !== undefined) init.body = spec.body as BodyInit
+      if (spec.body instanceof ReadableStream) init.duplex = 'half'
       const response = await send(url, init)
-      const wantsBytes = spec.binaryAnswer === true && response.ok
-      const answer = await readAnswer(response, resolveResponseCeiling(spec), wantsBytes)
-      return { status: response.status, url, ...answer }
+      if (keepsStream && response.ok && response.body !== null) {
+        handedOver = true
+        const stream = response.body.pipeThrough(
+          new TransformStream<Uint8Array, Uint8Array>({ flush: () => deadline.release() }),
+        )
+        return { status: response.status, url, text: '', stream }
+      }
+      const text = await readAnswer(response, resolveResponseCeiling(spec))
+      return { status: response.status, url, stream: null, text }
     } catch (err) {
       if (err instanceof ResponseTooLargeError) {
         throw invalidResponse(`The server at ${url} answered more than this client reads: ${err.message}`, {
@@ -233,7 +233,7 @@ export function createTransport(options: NarsilClientOptions): Transport {
         { url },
       )
     } finally {
-      deadline.release()
+      if (!handedOver) deadline.release()
     }
   }
 
@@ -263,9 +263,9 @@ export function createTransport(options: NarsilClientOptions): Transport {
         throw err
       }
     },
-    async binary(spec: RequestSpec): Promise<Uint8Array> {
-      const { status, text, bytes, url } = await exchange(spec)
-      if (bytes !== null) return bytes
+    async stream(spec: RequestSpec): Promise<ReadableStream<Uint8Array>> {
+      const { status, text, stream, url } = await exchange(spec, true)
+      if (stream !== null) return stream
       throw errorFromBody(status, parse(status, text, url), url)
     },
     async probe(spec: RequestSpec): Promise<number> {

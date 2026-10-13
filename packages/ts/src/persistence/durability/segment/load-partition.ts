@@ -1,20 +1,44 @@
-import { createSharedFrozenSegment } from '../../../core/partition/frozen'
-import { freezeSegmentShared } from '../../../core/partition/frozen/shared-snapshot'
-import { buildSegmentPayload } from '../../../core/partition/segment-builder'
-import { resolvePartitionInsertOptions } from '../../../partitioning/insert-options'
+import { generateId } from '../../../core/id-generator'
+import { createSharedFrozenSegment, type FrozenSegment } from '../../../core/partition/frozen'
+import { decodeEveryStoredDocument } from '../../../core/partition/frozen/document-source'
+import { ErrorCodes, NarsilError } from '../../../errors'
 import type { PartitionManager } from '../../../partitioning/manager'
-import type { DurableDirectory } from '../durable-filesystem'
+import type { KeywordSegmentContents } from '../../../serialization/keyword-segment/types'
 import type { PartitionManifestEntry } from './manifest'
-import { addSegmentSchema } from './merge'
-import { readSegmentDocuments, type SegmentDocuments } from './segment-file'
+import { readSegmentFile } from './segment-file'
+import type { CheckpointStore } from './store'
 
-function removeWhatTheSegmentReplaces(manager: PartitionManager, segment: SegmentDocuments): void {
+export interface PartitionLoadOptions {
+  schema: Record<string, string>
+  decodesEveryDocument: boolean
+}
+
+function requireAgreedSchema(agreed: Record<string, string>, schema: Record<string, string>, key: string): void {
+  for (const [field, type] of Object.entries(schema)) {
+    const existing = agreed[field]
+    if (existing !== undefined && existing !== type) {
+      throw new NarsilError(
+        ErrorCodes.PERSISTENCE_LOAD_FAILED,
+        `The segment "${key}" gives field "${field}" the type "${type}", while the index gives it "${existing}"`,
+        { key, field, existing, found: type },
+      )
+    }
+  }
+}
+
+function removeWhatTheSegmentReplaces(
+  manager: PartitionManager,
+  segment: FrozenSegment,
+  contents: KeywordSegmentContents,
+): void {
   manager.beginBatchRemove()
   try {
-    for (const docId of segment.tombstones) {
+    for (const docId of contents.tombstones) {
       if (manager.has(docId)) manager.remove(docId)
     }
-    for (const { docId } of segment.documents) {
+    const ids = segment.arrays.idTable
+    for (let ordinal = 0; ordinal < ids.count; ordinal++) {
+      const docId = ids.idAt(ordinal)
       if (manager.has(docId)) manager.remove(docId)
     }
   } finally {
@@ -22,39 +46,23 @@ function removeWhatTheSegmentReplaces(manager: PartitionManager, segment: Segmen
   }
 }
 
-function attachDocuments(manager: PartitionManager, partitionId: number, segment: SegmentDocuments): void {
-  if (segment.documents.length === 0) return
-  const payload = buildSegmentPayload(
-    segment.documents,
-    manager.config.schema,
-    manager.language,
-    resolvePartitionInsertOptions(manager.config, manager.analysis),
-    manager.config.trackPositions ?? true,
-  )
-  const documents = segment.documents.map(entry => entry.document)
-  const snapshot = freezeSegmentShared(payload, documents)
-  if (snapshot === null) {
-    manager.mergeSegment(partitionId, payload, documents)
-    return
-  }
-  manager.attachFrozenSegment(partitionId, createSharedFrozenSegment(snapshot))
-}
-
 function yieldToEventLoop(): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, 0))
 }
 
-export async function loadPartitionSegmentBySegment(
-  directory: DurableDirectory,
+export async function loadPartitionSegments(
+  store: CheckpointStore,
   partition: PartitionManifestEntry,
   manager: PartitionManager,
+  options: PartitionLoadOptions,
 ): Promise<void> {
-  const agreedSchema: Record<string, string> = {}
   for (const ref of partition.segments) {
-    const segment = await readSegmentDocuments(directory, ref.key)
-    addSegmentSchema(agreedSchema, segment.schema)
-    removeWhatTheSegmentReplaces(manager, segment)
-    attachDocuments(manager, partition.partitionId, segment)
+    const contents = await readSegmentFile(store, ref)
+    requireAgreedSchema(options.schema, contents.schema, ref.key)
+    if (options.decodesEveryDocument) decodeEveryStoredDocument(contents.arrays.documentTable)
+    const segment = createSharedFrozenSegment({ ...contents.arrays, segmentId: generateId() })
+    removeWhatTheSegmentReplaces(manager, segment, contents)
+    if (contents.arrays.documentCount > 0) manager.attachFrozenSegment(partition.partitionId, segment)
     await yieldToEventLoop()
   }
 }

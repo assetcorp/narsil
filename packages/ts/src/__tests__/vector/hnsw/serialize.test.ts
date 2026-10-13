@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createHNSWIndex, type HNSWIndex } from '../../../vector/hnsw'
 import { createVectorStore, type VectorStore } from '../../../vector/vector-store'
-import { DIM, insertVec, seededVector } from './fixtures'
+import { DIM, graphView, insertVec, seededVector } from './fixtures'
 
 describe('HNSWIndex serialize / deserialize', () => {
   let store: VectorStore
@@ -17,7 +17,7 @@ describe('HNSWIndex serialize / deserialize', () => {
       insertVec(store, index, `doc${i}`, seededVector(DIM, i + 1))
     }
 
-    const serialized = index.serialize()
+    const serialized = graphView(index, store)
 
     expect(serialized.entryPoint).toBe(index.entryPointId)
     expect(serialized.maxLayer).toBe(index.topLayer)
@@ -38,7 +38,7 @@ describe('HNSWIndex serialize / deserialize', () => {
       insertVec(store, index, `doc${i}`, seededVector(DIM, i + 1))
     }
 
-    const serialized = index.serialize()
+    const serialized = graphView(index, store)
 
     const restored = createHNSWIndex(DIM, store, { m: 4, efConstruction: 32 })
     restored.deserialize(serialized)
@@ -53,7 +53,7 @@ describe('HNSWIndex serialize / deserialize', () => {
     insertVec(store, index, 'doc1', seededVector(DIM, 31))
     insertVec(store, index, 'doc2', seededVector(DIM, 38))
 
-    const serialized = index.serialize()
+    const serialized = graphView(index, store)
     for (const node of serialized.nodes) {
       expect(node).toHaveLength(3)
       const [docId, maxLayer, layerConns] = node
@@ -73,7 +73,7 @@ describe('HNSWIndex serialize / deserialize', () => {
     const eucIndex = createHNSWIndex(DIM, eucStore, { m: 4, efConstruction: 32, metric: 'euclidean' })
     insertVec(eucStore, eucIndex, 'doc1', seededVector(DIM, 45))
 
-    const serialized = eucIndex.serialize()
+    const serialized = graphView(eucIndex, eucStore)
     expect(serialized.metric).toBe('euclidean')
   })
 
@@ -82,7 +82,7 @@ describe('HNSWIndex serialize / deserialize', () => {
       insertVec(store, index, `doc${i}`, seededVector(DIM, i + 1))
     }
 
-    const serialized = index.serialize()
+    const serialized = graphView(index, store)
     const epDocId = serialized.entryPoint
 
     const partialStore = createVectorStore()
@@ -108,7 +108,7 @@ describe('HNSWIndex serialize / deserialize', () => {
       insertVec(store, index, `doc${i}`, seededVector(DIM, i + 1))
     }
 
-    const serialized = index.serialize()
+    const serialized = graphView(index, store)
     const emptyStore = createVectorStore()
 
     const restored = createHNSWIndex(DIM, emptyStore, { m: 4, efConstruction: 32 })
@@ -127,7 +127,7 @@ describe('HNSWIndex serialize / deserialize', () => {
       insertVec(store, index, `doc${i}`, seededVector(DIM, i + 1))
     }
 
-    const serialized = index.serialize()
+    const serialized = graphView(index, store)
     delete (serialized as unknown as Record<string, unknown>).metric
 
     const restored = createHNSWIndex(DIM, store, { m: 4, efConstruction: 32, metric: 'euclidean' })
@@ -145,7 +145,7 @@ describe('HNSWIndex serialize / deserialize', () => {
     index.markTombstone('doc0')
     index.markTombstone('doc1')
 
-    const serialized = index.serialize()
+    const serialized = graphView(index, store)
     expect(serialized.nodes).toHaveLength(8)
 
     const serializedIds = new Set(serialized.nodes.map(([id]) => id))

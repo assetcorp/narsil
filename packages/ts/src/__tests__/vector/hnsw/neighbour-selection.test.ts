@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createHNSWIndex } from '../../../vector/hnsw'
 import { createVectorStore } from '../../../vector/vector-store'
-import { DIM, insertVec, seededVector } from './fixtures'
+import { DIM, graphView, insertVec, seededVector } from './fixtures'
 
 function unitVector(...values: number[]): Float32Array {
   const vector = new Float32Array(DIM)
@@ -34,7 +34,7 @@ describe('HNSW neighbour selection', () => {
     insertVec(store, index, 'neighbour-of-anchor', unitVector(Math.cos(0.1), Math.sin(0.1), 0, 0, 0, 0, 0, 0))
     insertVec(store, index, 'distant', unitVector(0.02, 0, 1, 0, 0, 0, 0, 0))
 
-    const nodes = index.serialize().nodes
+    const nodes = graphView(index, store).nodes
     expect(baseLayerNeighbours(nodes, 'distant')).toEqual(['anchor'])
   })
 
@@ -50,7 +50,7 @@ describe('HNSW neighbour selection', () => {
       insertVec(store, index, `axis${axis}`, corner)
     }
 
-    const nodes = index.serialize().nodes
+    const nodes = graphView(index, store).nodes
     expect(baseLayerNeighbours(nodes, 'centre')).toHaveLength(2 * m)
   })
 
@@ -64,7 +64,7 @@ describe('HNSW neighbour selection', () => {
       insertVec(store, index, `doc${i}`, seededVector(DIM, i + 1))
     }
 
-    const nodes = index.serialize().nodes
+    const nodes = graphView(index, store).nodes
     let totalLinks = 0
     for (const [docId] of nodes) {
       const links = baseLayerNeighbours(nodes, docId)

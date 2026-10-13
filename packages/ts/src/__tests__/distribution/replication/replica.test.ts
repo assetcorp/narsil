@@ -79,7 +79,6 @@ function createMockVectorIndex(dimension: number): VectorIndex {
       estimatedOptimizeMs: 0,
     })),
     estimateMemoryBytes: vi.fn(() => 0),
-    serialize: vi.fn(() => []),
     planCheckpoint: vi.fn(() => {
       throw new Error('The fake vector index plans no checkpoint')
     }),

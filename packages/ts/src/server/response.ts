@@ -8,6 +8,10 @@ export interface ResponseSink {
   writeStatus(status: string): ResponseSink
   writeHeader(key: string, value: string): ResponseSink
   end(body?: string | Uint8Array): ResponseSink
+  write(chunk: Uint8Array): boolean
+  pause(): void
+  resume(): void
+  close(): ResponseSink
   endWithoutBody(): ResponseSink
   tryEnd(body: Uint8Array, totalSize: number): [boolean, boolean]
   getWriteOffset(): number
@@ -35,7 +39,7 @@ const STATUS_TEXT: Record<number, string> = {
   503: '503 Service Unavailable',
 }
 
-function statusLine(status: number): string {
+export function statusLine(status: number): string {
   return STATUS_TEXT[status] ?? `${status}`
 }
 
@@ -91,11 +95,66 @@ export function sendError(
   })
 }
 
-/** Streams a binary body with backpressure handling. The snapshot body is the
- * whole serialized index, so it is always streamed rather than copied into
- * native memory for a slow reader. */
 export function sendBinary(res: ResponseSink, data: Uint8Array, abort: ResponseAbort, status = 200): void {
   streamBody(res, abort, data, status, [['Content-Type', 'application/octet-stream']])
+}
+
+export async function sendStream(
+  res: ResponseSink,
+  abort: ResponseAbort,
+  source: ReadableStream<Uint8Array>,
+  headers: Array<[string, string]>,
+): Promise<void> {
+  const reader = source.getReader()
+  let wake: (() => void) | null = null
+  abort.onAbort(() => wake?.())
+  const waitUntilWritable = (): Promise<void> =>
+    new Promise(resolve => {
+      wake = () => {
+        wake = null
+        resolve()
+      }
+      res.onWritable(() => {
+        wake?.()
+        return true
+      })
+    })
+  let started = false
+  const begin = (): void => {
+    if (started) return
+    started = true
+    res.writeStatus(statusLine(200))
+    for (const [key, value] of headers) res.writeHeader(key, value)
+  }
+  try {
+    for (;;) {
+      const step = await reader.read()
+      if (abort.aborted) {
+        await reader.cancel().catch(() => undefined)
+        return
+      }
+      if (step.done) {
+        res.cork(() => {
+          begin()
+          res.end()
+        })
+        return
+      }
+      let writable = true
+      res.cork(() => {
+        begin()
+        writable = res.write(step.value)
+      })
+      if (!writable && !abort.aborted) await waitUntilWritable()
+    }
+  } catch (err) {
+    await reader.cancel().catch(() => undefined)
+    if (abort.aborted) return
+    if (!started) throw err
+    res.cork(() => {
+      res.close()
+    })
+  }
 }
 
 export function sendEmpty(res: ResponseSink, status: number): void {

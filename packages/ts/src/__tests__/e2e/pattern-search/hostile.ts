@@ -42,17 +42,18 @@ export async function expectServedWhileHostile(
   server: PatternServer,
   hostileBody: unknown,
   normalFilters: unknown,
+  label: string,
 ): Promise<TimedResponse> {
   const hostile = timedSearch(server, hostileBody)
   const normal = await timedSearch(server, searchBody(normalFilters))
   const answered = await hostile
-  expect(normal.status).toBe(200)
-  expect(normal.hits).toBeGreaterThan(0)
-  expect(answered.elapsedMs).toBeLessThan(HOSTILE_SEARCH_DEADLINE_MS)
+  expect(normal.status, label).toBe(200)
+  expect(normal.hits, label).toBeGreaterThan(0)
+  expect(answered.elapsedMs, label).toBeLessThan(HOSTILE_SEARCH_DEADLINE_MS)
   const normalDeadline = server.workerCopies
     ? NORMAL_SEARCH_DEADLINE_MS
     : answered.elapsedMs + NORMAL_SEARCH_DEADLINE_MS
-  expect(normal.elapsedMs).toBeLessThan(normalDeadline)
+  expect(normal.elapsedMs, label).toBeLessThan(normalDeadline)
   return answered
 }
 

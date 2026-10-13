@@ -85,9 +85,6 @@ function createMockVectorIndex(
     estimateMemoryBytes() {
       return 0
     },
-    serialize() {
-      return []
-    },
     planCheckpoint() {
       throw new Error('The fake vector index plans no checkpoint')
     },

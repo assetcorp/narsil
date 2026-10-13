@@ -173,22 +173,45 @@ describe('WAL writer', () => {
     expect(entries.map(e => e.seqNo)).toEqual([1, 2, 3, 4, 5])
   })
 
-  it('holds one batch in one segment and rolls before the next batch', async () => {
-    const writer = createWalWriter(directory, { indexName: 'movies', partitionId: 0, segmentMaxBytes: 200 })
+  it('rolls inside a batch before any append that would carry a segment past its limit', async () => {
+    const segmentMaxBytes = 200
+    const writer = createWalWriter(directory, { indexName: 'movies', partitionId: 0, segmentMaxBytes })
     const first = Array.from({ length: 12 }, (_, i) => entry(i + 1))
     await writer.appendAll(first)
     await writer.commit()
-    expect(segmentKeys(await directory.list('movies/wal/0/')).length).toBe(1)
-
     const second = Array.from({ length: 3 }, (_, i) => entry(i + 13))
     await writer.appendAll(second)
     await writer.commit()
     await writer.close()
 
     const keys = segmentKeys(await directory.list('movies/wal/0/'))
-    expect(keys.length).toBe(2)
+    expect(keys.length).toBeGreaterThan(2)
+    for (const key of keys) {
+      const bytes = await directory.read(key)
+      expect(bytes?.byteLength).toBeLessThanOrEqual(segmentMaxBytes)
+    }
     const entries = await readAllEntries(directory)
     expect(entries.map(e => e.seqNo)).toEqual([...first, ...second].map(e => e.seqNo))
+  })
+
+  it('writes a record larger than the segment limit alone in its own segment', async () => {
+    const writer = createWalWriter(directory, { indexName: 'movies', partitionId: 0, segmentMaxBytes: 200 })
+    const large = buildEntry({
+      seqNo: 2,
+      primaryTerm: 1,
+      operation: 'INDEX',
+      partitionId: 0,
+      indexName: 'movies',
+      documentId: 'doc-large',
+      document: new Uint8Array(1_000).fill(7),
+    })
+    await writer.appendAll([entry(1), large, entry(3)])
+    await writer.commit()
+    await writer.close()
+
+    const keys = segmentKeys(await directory.list('movies/wal/0/'))
+    expect(keys.map(key => parseSegmentStartSeqNo(key))).toEqual([1, 2, 3])
+    expect((await readAllEntries(directory)).map(e => e.seqNo)).toEqual([1, 2, 3])
   })
 
   it('writes nothing for an empty batch', async () => {

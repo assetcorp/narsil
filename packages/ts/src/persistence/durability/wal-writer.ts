@@ -1,6 +1,7 @@
 import { compareCodePoints } from '../../core/ordering'
 import type { ReplicationLogEntry } from '../../distribution/replication/types'
 import { ErrorCodes, NarsilError } from '../../errors'
+import { MAX_FILE_BYTES } from '../../serialization/constants'
 import { DEFAULT_SEGMENT_MAX_BYTES } from './constants'
 import type { AppendHandle, DurableDirectory } from './durable-filesystem'
 import { createGroupCommitCoordinator } from './group-commit'
@@ -177,14 +178,18 @@ export function createWalWriter(directory: DurableDirectory, config: WalWriterCo
     return joined
   }
 
-  async function appendFrames(entries: readonly ReplicationLogEntry[]): Promise<void> {
-    if (entries.length === 0) {
-      return
+  function framesThatFit(frames: readonly Uint8Array[], start: number): number {
+    const room = segmentMaxBytes - activeBytes
+    let end = start + 1
+    let bytes = frames[start].length
+    while (end < frames.length && bytes + frames[end].length <= room) {
+      bytes += frames[end].length
+      end += 1
     }
-    const joined = joinFrames(entries.map(frameRecord))
-    const firstSeqNo = entries[0].seqNo
-    await ensureSegment(firstSeqNo)
-    await maybeRoll(firstSeqNo, joined.length)
+    return end
+  }
+
+  async function appendGroup(frames: readonly Uint8Array[], entries: readonly ReplicationLogEntry[]): Promise<void> {
     const activeHandle = handle
     if (activeHandle === null) {
       throw new NarsilError(
@@ -193,11 +198,34 @@ export function createWalWriter(directory: DurableDirectory, config: WalWriterCo
         { indexName: config.indexName, partitionId: config.partitionId },
       )
     }
+    const joined = joinFrames([...frames])
+    if (activeBytes + joined.length > MAX_FILE_BYTES) {
+      throw new NarsilError(
+        ErrorCodes.PERSISTENCE_SAVE_FAILED,
+        `A log record of ${joined.length} bytes would carry WAL segment "${activeKey}" past the file size limit of ${MAX_FILE_BYTES} bytes`,
+        { indexName: config.indexName, partitionId: config.partitionId, bytes: joined.length },
+      )
+    }
     await activeHandle.append(joined)
     activeBytes += joined.length
     const lastSeqNo = entries[entries.length - 1].seqNo
     if (lastSeqNo > highestAppendedSeqNo) {
       highestAppendedSeqNo = lastSeqNo
+    }
+  }
+
+  async function appendFrames(entries: readonly ReplicationLogEntry[]): Promise<void> {
+    if (entries.length === 0) {
+      return
+    }
+    const frames = entries.map(frameRecord)
+    await ensureSegment(entries[0].seqNo)
+    let start = 0
+    while (start < frames.length) {
+      await maybeRoll(entries[start].seqNo, frames[start].length)
+      const end = framesThatFit(frames, start)
+      await appendGroup(frames.slice(start, end), entries.slice(start, end))
+      start = end
     }
   }
 

@@ -1,6 +1,6 @@
 import { decode, encode } from '@msgpack/msgpack'
 import { ErrorCodes, NarsilError } from '../../../errors'
-import { crc32 } from '../../../serialization/crc32'
+import { defaultSpoolDirectory, spoolSnapshotStream } from '../../replication/snapshot-spool'
 import { decideSyncTier, validateSyncRequest } from '../../replication/sync-primary'
 import type { RespondFn, SyncEntriesPayload, TransportMessage } from '../../transport/types'
 import { ReplicationMessageTypes } from '../../transport/types'
@@ -110,6 +110,7 @@ export async function handleSyncRequestMessage(
         coordinator: deps.coordinator,
         state: deps.snapshotSyncState,
         resolveHeaderMetadata: deps.resolveHeaderMetadata,
+        spoolDirectory: deps.snapshotSpoolDirectory,
       },
       {
         metadata: {
@@ -120,11 +121,16 @@ export async function handleSyncRequestMessage(
         closeOnEnd: false,
         disableBuildCache: true,
         buildSnapshot: async () => {
-          const bytes = await deps.engine.serializeReplicationPartition(request.indexName, request.partitionId)
-          return { bytes, checksum: crc32(bytes) }
+          const archive = await deps.engine.archiveReplicationPartition(
+            request.indexName,
+            request.partitionId,
+            () => log.localLogEnd,
+          )
+          const directory = deps.snapshotSpoolDirectory ?? defaultSpoolDirectory()
+          return { ...(await spoolSnapshotStream(directory, archive.stream)), lastSeqNo: archive.lastSeqNo }
         },
-        afterSnapshot: async trailingSink => {
-          const entries = log.getEntriesFrom(snapshotSeqNo + 1)
+        afterSnapshot: async (trailingSink, build) => {
+          const entries = log.getEntriesFrom((build.lastSeqNo ?? snapshotSeqNo) + 1)
           await sendSyncEntriesResponse(message, trailingSink, deps, entries)
         },
       },

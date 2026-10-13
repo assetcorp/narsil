@@ -106,7 +106,7 @@ Every hit holds the document, its id, and its BM25 score. Beside the hits, `resu
 
 **Geosearch.** [Geo filters](https://github.com/assetcorp/narsil/blob/main/docs/geosearch.md) match documents by radius, using Haversine or Vincenty distance, or by polygon containment. You can combine a geo filter with every other query feature.
 
-**Storage.** [Persistence adapters](https://github.com/assetcorp/narsil/blob/main/docs/persistence-and-durability.md) store indexes on the filesystem, in IndexedDB, in memory, or in a backend of your own. With durability on, the engine keeps a write-ahead log with periodic checkpoints and recovers on its own after a crash. A snapshot captures a whole index as one portable byte array.
+**Storage.** [Persistence adapters](https://github.com/assetcorp/narsil/blob/main/docs/persistence-and-durability.md) store indexes on the filesystem, in IndexedDB, in memory, or in a backend of your own. With durability on, the engine keeps a write-ahead log with periodic checkpoints and recovers on its own after a crash. You can stream a whole index into a portable snapshot archive, or export its documents as JSON Lines to move the index across releases.
 
 **Scale.** The engine routes each document to a [partition](https://github.com/assetcorp/narsil/blob/main/docs/partitions-and-workers.md) by a deterministic hash. When you call `rebalance()`, the engine reshapes the partitions online and buffers incoming writes in a write-ahead queue. Once an index holds 1,000 documents, the engine serves keyword queries from worker copies on half its worker threads, while the HTTP server receives requests on the threads that hold those copies.
 
@@ -124,7 +124,7 @@ Every hit holds the document, its id, and its BM25 score. Beside the hits, `resu
 | [Hybrid search](https://github.com/assetcorp/narsil/blob/main/docs/hybrid-search.md) | Reciprocal rank fusion and linear blending of text and vector rankings |
 | [Geosearch](https://github.com/assetcorp/narsil/blob/main/docs/geosearch.md) | Radius and polygon filters, and the two distance formulas |
 | [Embedding adapters](https://github.com/assetcorp/narsil/blob/main/docs/embedding-adapters.md) | Automatic embedding on insert and query, named adapters, the bundled ones, and custom ones |
-| [Persistence and durability](https://github.com/assetcorp/narsil/blob/main/docs/persistence-and-durability.md) | Storage backends, the write-ahead log, checkpoints, recovery, and snapshots |
+| [Persistence and durability](https://github.com/assetcorp/narsil/blob/main/docs/persistence-and-durability.md) | Storage backends, the write-ahead log, checkpoints, recovery, snapshots, document exports, and indexes from an earlier release |
 | [Partitions and workers](https://github.com/assetcorp/narsil/blob/main/docs/partitions-and-workers.md) | Partition routing, online rebalancing, worker copies, and multi-instance invalidation |
 | [Language support](https://github.com/assetcorp/narsil/blob/main/docs/language-support.md) | The 107 language modules, analysis revisions and rebuilds, and named tokenizers and stop words |
 | [HTTP server](https://github.com/assetcorp/narsil/blob/main/docs/http-server.md) | Wrapping an engine in a REST API, every route it serves, and long-running tasks |

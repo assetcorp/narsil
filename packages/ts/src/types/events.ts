@@ -149,6 +149,26 @@ export type NarsilEventMap = {
      * status includes. */
     error?: Error
   }
+  /** The engine started, completed, or failed the rewrite of an index that you
+   * saved with an earlier release. The engine rewrites the index as it
+   * recovers it, before it serves the index's first request. Because the
+   * engine writes the new manifest last, the earlier files stay intact through
+   * a failed rewrite. The engine then starts the rewrite again the next time
+   * it recovers the index. Without index lifecycle settings, the engine
+   * recovers every index before {@link createNarsil} returns, so pass the
+   * listener in the `events` setting of {@link createNarsil}. */
+  layoutUpgrade: {
+    /** This is the name of the index under rewrite. */
+    indexName: string
+    /** This is the stage that the rewrite has reached. */
+    status: 'started' | 'completed' | 'failed'
+    /** This is `manifest` where the earlier index is a segment manifest with
+     * its files, and `bundle` where it is a single snapshot bundle. */
+    layout: 'manifest' | 'bundle'
+    /** This is the error that stopped the rewrite, which only a `failed`
+     * status includes. */
+    error?: Error
+  }
   /** A write to the write-ahead log or a checkpoint failed, so the writes since
    * the last checkpoint are at risk. */
   durabilityError: {
@@ -161,4 +181,14 @@ export type NarsilEventMap = {
     /** This is the error that the adapter threw. */
     error: Error
   }
+}
+
+/**
+ * This map holds a listener for any event of {@link NarsilEventMap}, so that
+ * the engine can register each listener before it starts.
+ *
+ * @public
+ */
+export type NarsilEventHandlers = {
+  [K in keyof NarsilEventMap]?: (payload: NarsilEventMap[K]) => void
 }

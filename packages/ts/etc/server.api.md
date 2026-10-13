@@ -48,6 +48,9 @@ export interface CreateIndexRequest {
 export function createServer(engine: Narsil, options?: ServerOptions): NarsilServer;
 
 // @public
+export const DOCUMENT_EXPORT_CAPABILITY = "indexes.documentExport";
+
+// @public
 export type ErrorCode = (typeof ErrorCodes)[keyof typeof ErrorCodes];
 
 // @public
@@ -123,7 +126,6 @@ export const ErrorCodes: {
     readonly SNAPSHOT_SYNC_UNAUTHORIZED: "SNAPSHOT_SYNC_UNAUTHORIZED";
     readonly SNAPSHOT_SYNC_REQUEST_INVALID: "SNAPSHOT_SYNC_REQUEST_INVALID";
     readonly SNAPSHOT_SYNC_INDEX_NOT_FOUND: "SNAPSHOT_SYNC_INDEX_NOT_FOUND";
-    readonly SNAPSHOT_SYNC_TOO_LARGE: "SNAPSHOT_SYNC_TOO_LARGE";
     readonly SNAPSHOT_SYNC_CAPACITY_EXHAUSTED: "SNAPSHOT_SYNC_CAPACITY_EXHAUSTED";
     readonly SNAPSHOT_SYNC_SNAPSHOT_FAILED: "SNAPSHOT_SYNC_SNAPSHOT_FAILED";
     readonly SNAPSHOT_SYNC_DECODE_FAILED: "SNAPSHOT_SYNC_DECODE_FAILED";
@@ -292,6 +294,7 @@ export interface ServerLimits {
     maxImportBytes?: number;
     maxImportErrors?: number;
     maxLineBytes?: number;
+    maxRestoreBytes?: number;
     maxResultWindow?: number;
     maxTaskPageSize?: number;
 }
@@ -390,7 +393,7 @@ export interface TaskStore {
 }
 
 // @public
-export type TaskType = 'optimizeVectors' | 'rebalance' | 'restore' | 'import' | 'rebuildAnalysis';
+export type TaskType = 'optimizeVectors' | 'rebalance' | 'restore' | 'import' | 'importExport' | 'rebuildAnalysis';
 
 // (No @packageDocumentation comment for this package)
 

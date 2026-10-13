@@ -35,7 +35,7 @@ export interface CompactPostingList {
   length: number
   docIds: number[]
   termFrequencies: Uint16Array
-  fieldNameIndices: Uint8Array
+  fieldNameIndices: Uint16Array
   positions: number[][] | null
   docIdSet: Set<number>
   deletedDocs: Set<number>

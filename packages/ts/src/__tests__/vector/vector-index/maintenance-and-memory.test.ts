@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { WASM_PAGE_BYTES } from '../../../vector/constants'
 import { createVectorIndex, type VectorIndex } from '../../../vector/vector-index'
+import { fieldView } from './field-view'
 import { DIM, normalizedVector, vectorFromValues } from './fixtures'
 
 const QUANTIZATION_VISIBLE_DIM = 1536
@@ -166,7 +167,7 @@ describe('VectorIndex quantization integration', () => {
       await vi.advanceTimersToNextTimerAsync()
       await sqIndex.awaitPendingBuild()
 
-      const [part] = sqIndex.serialize()
+      const part = fieldView(sqIndex)
       expect(part.codes).not.toBeNull()
       expect(part.codes?.bits).toBe(8)
       expect(part.codes?.centroid).toHaveLength(DIM)
@@ -184,7 +185,7 @@ describe('VectorIndex quantization integration', () => {
     await vi.advanceTimersToNextTimerAsync()
     await index.awaitPendingBuild()
 
-    const [part] = index.serialize()
+    const part = fieldView(index)
     expect(part.codes).toBeNull()
   })
 

@@ -49,7 +49,6 @@ export interface PartitionManager {
   countDocuments(): number
 
   serializePartition(partitionId: number): SerializablePartition
-  serializePartitionToBytes(partitionId: number): Uint8Array
   deserializePartition(partitionId: number, data: SerializablePartition): void
   mergeSegment(partitionId: number, payload: SegmentPayload, documents: ReadonlyArray<AnyDocument>): void
   attachFrozenSegment(partitionId: number, segment: FrozenSegment): void

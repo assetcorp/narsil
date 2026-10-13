@@ -37,11 +37,12 @@ export interface BootstrapSyncDeps {
   restoreReplicationPartition?: (
     indexName: string,
     partitionId: number,
-    bytes: Uint8Array,
+    source: AsyncIterable<Uint8Array>,
     config: IndexConfig,
     partitionCount: number,
   ) => Promise<void>
   deadlineMs?: number
+  snapshotSpoolDirectory?: string
 }
 
 export interface LiveBootstrapSyncDeps extends BootstrapSyncDeps {
@@ -51,7 +52,7 @@ export interface LiveBootstrapSyncDeps extends BootstrapSyncDeps {
   restoreReplicationPartition: (
     indexName: string,
     partitionId: number,
-    bytes: Uint8Array,
+    source: AsyncIterable<Uint8Array>,
     config: IndexConfig,
     partitionCount: number,
   ) => Promise<void>

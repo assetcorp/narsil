@@ -97,7 +97,7 @@ An implementation must accept an `oversample` that is a finite number of at leas
 
 ### optimize()
 
-`optimize` restructures the index for faster search. A segment-based implementation merges several graphs into fewer, larger ones, while a single-graph implementation folds its buffered vectors into the graph. A single-graph implementation must rebuild the graph once callers remove more than a fifth of its vectors. A quantised index must recalibrate its quantiser whenever `optimize` rebuilds or merges a graph, as Lucene recomputes its centroid when it merges segments.
+`optimize` restructures the index for faster search. A segment-based implementation merges several graphs into fewer, larger ones, while a single-graph implementation folds its buffered vectors into the graph. A single-graph implementation must rebuild the graph once callers remove more than a fifth of its vectors. A quantised index must recalibrate its quantiser whenever `optimize` rebuilds or merges a graph, because the centroid of the merged vectors can differ from the centroid of each part.
 
 A caller should expect latency proportional to the total vector count. An implementation must release the processor during the operation, so a single-threaded runtime must yield between chunks and a runtime with threads may do the work in the background.
 
@@ -432,7 +432,7 @@ StoreHeader {
 }
 ```
 
-A `CodeBlock` must hold `OSQRecord`s, as [Vector Index Payload](envelope.md#vector-index-payload) defines, with no padding between them. Each entry of a `VectorBlock` must hold one vector in a span of `dimension * 4` bytes, which the implementation rounds up to a multiple of 16. Every block of a list must hold the same number of entries, so ordinal `o` is entry `o mod entriesPerBlock` of block `floor(o / entriesPerBlock)`. A `vectors` entry is nil where the index holds every vector of that block on disk. The core must read a vector whose `vectorFile` entry is 0 or above from that file, at its `vectorOffset`. An implementation must leave a vector file unchanged while a core maps it, and it must detach every core from that file before it deletes the file. The core uses words 0, 3, 4, and 7 of the store header alone.
+A `CodeBlock` must hold `OSQRecord`s, as [Vector File Payload](envelope.md#vector-file-payload) defines, with no padding between them. Each entry of a `VectorBlock` must hold one vector in a span of `dimension * 4` bytes, which the implementation rounds up to a multiple of 16. Every block of a list must hold the same number of entries, so ordinal `o` is entry `o mod entriesPerBlock` of block `floor(o / entriesPerBlock)`. A `vectors` entry is nil where the index holds every vector of that block on disk. The core must read a vector whose `vectorFile` entry is 0 or above from that file, at its `vectorOffset`. An implementation must leave a vector file unchanged while a core maps it, and it must detach every core from that file before it deletes the file. The core uses words 0, 3, 4, and 7 of the store header alone.
 
 The core must skip an ordinal at or above `slots`, a list that ends above `upperUsed`, and a vector that ends beyond its file, because a corrupt value could otherwise send the core outside a region.
 
@@ -540,11 +540,11 @@ Incremental insertion loses throughput as the index grows, because every insert 
 
 ## Serialisation
 
-An implementation must serialise vector index data apart from partition data. [Vector Index Payload](envelope.md#vector-index-payload) defines the payload layout.
+An implementation must serialise vector index data apart from partition data. [Vector File Payload](envelope.md#vector-file-payload) and [Vector Graph Payload](envelope.md#vector-graph-payload) define the layouts that a checkpoint writes.
 
 ### Storage
 
-A vector index payload holds one part of a field, and the snapshot bundle and the index snapshot each hold those parts as the list under the field in their `vectorIndexes` map. The [segmented checkpoint](durability.md#segmented-checkpoint) writes a field as [vector files](envelope.md#vector-file-payload) and one [graph file](envelope.md#vector-graph-payload). A partition payload that must hold its own vectors, such as one that a thread sends to another thread, embeds them as [Vector Data](envelope.md#vector-data).
+The [segmented checkpoint](durability.md#segmented-checkpoint) and the [snapshot archive](durability.md#snapshot-archive) hold a field as [vector files](envelope.md#vector-file-payload) and the parts of at most one [graph](envelope.md#vector-graph-payload).
 
 ### Multi-Graph Format
 
@@ -552,9 +552,9 @@ A vector index payload holds one part of a field, and the snapshot bundle and th
 
 - A single-graph implementation writes a list of length 1.
 - A segment-based implementation writes one graph per segment.
-- The vectors keep one ordinal order across the parts whatever the graph count. The graphs of a vector index payload name each vector by its `docId`, while the graphs of a vector graph payload name it by its number.
+- The vectors keep one numbering across the parts whatever the graph count, and every graph names each vector by its number.
 
-Every implementation must read a vector index payload and a vector graph payload that hold any number of graphs. A vector index payload with zero graphs stores vectors for brute-force search alone.
+Every implementation must read a vector graph payload that holds any number of graphs. A field whose manifest lists no graph part holds its vectors for brute-force search alone.
 
 ### Deserialisation Strategy
 
@@ -571,7 +571,7 @@ VectorIndexConfig {
   quantization:    'osq8' or 'osq4' or 'osq2' or 'osq1' or 'none'  (default by dimension)
   storage:         'memory' or 'disk'                              (default by environment)
   hnswConfig {
-    m:              uint8    (maximum connections, default 16)
+    m:              uint16   (maximum connections, from 2 to 512, default 16)
     efConstruction: uint16   (build quality, default 200)
     metric:         'cosine' or 'dotProduct' or 'euclidean'
   }

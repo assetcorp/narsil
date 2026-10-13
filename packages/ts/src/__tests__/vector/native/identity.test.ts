@@ -1,6 +1,7 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { setNativeSearchCoreEnabled } from '../../../vector/native/backend'
 import { loadNativeCore } from '../../../vector/native/loader'
+import { fieldView } from '../vector-index/field-view'
 import {
   binaryBuilt,
   builtIndex,
@@ -88,8 +89,8 @@ describe.skipIf(!binaryBuilt)('the native search core against the WebAssembly se
         try {
           expect(placed).toBe(DOCUMENTS)
           expect(recordsWritten > 0).toBe(quantization !== 'none')
-          const fromNativeCore = throughNativeCore.serialize()[0]
-          const fromWebAssembly = throughWebAssembly.serialize()[0]
+          const fromNativeCore = fieldView(throughNativeCore)
+          const fromWebAssembly = fieldView(throughWebAssembly)
           expect(fromNativeCore.graphs).toEqual(fromWebAssembly.graphs)
           expect(fromNativeCore.codes).toEqual(fromWebAssembly.codes)
         } finally {

@@ -179,8 +179,8 @@ export function decodePayload<T>(payload: Uint8Array): T {
 
 export {
   MAX_LIST_CURSOR_LENGTH,
+  MAX_STORED_VECTOR_DIMENSION,
   MAX_SUGGEST_WIRE_LIMIT,
-  MAX_VECTOR_DIMENSION,
   MAX_VECTOR_TEXT_LENGTH,
 } from './constants'
 export { validateFetchPayload, validateFetchResultPayload } from './validators/fetch'

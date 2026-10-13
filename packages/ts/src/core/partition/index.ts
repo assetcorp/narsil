@@ -1,6 +1,5 @@
 import { ErrorCodes, NarsilError } from '../../errors'
 import { schemaFieldsOf, validateDocument, validateDocumentStrict } from '../../schema/validator'
-import { encodeRawPayloadV2 } from '../../serialization/payload-v2'
 import type { FilterExpression } from '../../types/filters'
 import type {
   GlobalStatistics,
@@ -48,7 +47,6 @@ import {
 } from './sorting'
 import { expandTermPrefix, type PartitionSuggestion, suggestDisplayTerms } from './suggestions'
 import { type PartitionInsertOptions, type PartitionState, textFieldsChanged } from './utils'
-import { serializePartitionToWirePayloadV2 } from './wire-payload'
 
 export type { GlobalStatistics, InternalSearchParams, InternalSearchResult, ScoredDocument }
 export type { PartitionInsertOptions }
@@ -367,16 +365,6 @@ export function createPartitionIndex(partitionId: number, trackPositions = true)
       schema: SchemaDefinition,
     ): SerializablePartition {
       return serializePartition(state, partitionId, indexName, totalPartitions, language, schema)
-    },
-
-    serializeToBytes(
-      indexName: string,
-      totalPartitions: number,
-      language: string,
-      schema: SchemaDefinition,
-    ): Uint8Array {
-      const wire = serializePartitionToWirePayloadV2(state, partitionId, indexName, totalPartitions, language, schema)
-      return encodeRawPayloadV2(wire)
     },
 
     deserialize(data: SerializablePartition, schema: SchemaDefinition): void {

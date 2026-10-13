@@ -1,96 +1,9 @@
-import type { PartitionManager } from '../../partitioning/manager'
-import type { EnvelopeParts } from '../../serialization/envelope'
-import type { VectorIndex, VectorIndexPayload } from '../../vector/vector-index'
 import { readCommitMarker } from './commit-marker'
 import type { DurableDirectory } from './durable-filesystem'
-import {
-  encodeSnapshotBundle,
-  type PartitionCheckpoint,
-  SNAPSHOT_BUNDLE_VERSION,
-  type SnapshotBundle,
-} from './snapshot-bundle'
-
-export interface CheckpointInput {
-  indexName: string
-  schema: Record<string, string>
-  language: string
-  analysisRevision?: string
-  tokenizer?: string
-  stopWords?: string
-  stopWordList?: string[]
-  manager: PartitionManager
-  vectorIndexes: Map<string, VectorIndex>
-  seqNoByPartition: Map<number, number>
-  primaryTermByPartition: Map<number, number>
-}
-
-function snapshotKey(indexName: string): string {
-  return `${indexName}/snapshot`
-}
+import type { PartitionCheckpoint } from './partition-checkpoint'
 
 function walPrefix(indexName: string, partitionId: number): string {
   return `${indexName}/wal/${partitionId}/`
-}
-
-export async function buildSnapshotBundleBytes(
-  input: CheckpointInput,
-): Promise<{ parts: EnvelopeParts; checkpoint: PartitionCheckpoint[] }> {
-  const partitionBuffers: Uint8Array[] = []
-  const checkpoint: PartitionCheckpoint[] = []
-
-  for (let i = 0; i < input.manager.partitionCount; i += 1) {
-    partitionBuffers.push(input.manager.serializePartitionToBytes(i))
-    checkpoint.push({
-      partitionId: i,
-      lastSeqNo: input.seqNoByPartition.get(i) ?? 0,
-      primaryTerm: input.primaryTermByPartition.get(i) ?? 0,
-    })
-  }
-
-  const vectorPayloads: Record<string, VectorIndexPayload[]> = {}
-  for (const [fieldPath, vecIndex] of input.vectorIndexes) {
-    vectorPayloads[fieldPath] = vecIndex.serialize()
-  }
-
-  const bundle: SnapshotBundle = {
-    version: SNAPSHOT_BUNDLE_VERSION,
-    schema: input.schema,
-    language: input.language,
-    ...(input.analysisRevision !== undefined ? { analysisRevision: input.analysisRevision } : {}),
-    ...(input.tokenizer !== undefined ? { tokenizer: input.tokenizer } : {}),
-    ...(input.stopWords !== undefined ? { stopWords: input.stopWords } : {}),
-    ...(input.stopWordList !== undefined ? { stopWordList: input.stopWordList } : {}),
-    partitions: partitionBuffers,
-    vectorIndexes: vectorPayloads,
-    checkpoint,
-  }
-
-  let parts: EnvelopeParts
-  try {
-    parts = await encodeSnapshotBundle(bundle)
-  } catch {
-    parts = await encodeSnapshotBundle(bundle)
-  }
-
-  return { parts, checkpoint }
-}
-
-export function snapshotStorageKey(indexName: string): string {
-  return snapshotKey(indexName)
-}
-
-export async function writeSnapshotFile(
-  directory: DurableDirectory,
-  input: CheckpointInput,
-): Promise<PartitionCheckpoint[]> {
-  const { parts, checkpoint } = await buildSnapshotBundleBytes(input)
-  await directory.atomicWrite(snapshotKey(input.indexName), [parts.header, parts.payload])
-  return checkpoint
-}
-
-export async function writeCheckpoint(directory: DurableDirectory, input: CheckpointInput): Promise<void> {
-  const checkpoint = await writeSnapshotFile(directory, input)
-  await truncateCoveredSegments(directory, input.indexName, checkpoint)
 }
 
 export async function truncateCoveredSegments(

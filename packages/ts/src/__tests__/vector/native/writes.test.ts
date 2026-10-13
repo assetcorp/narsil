@@ -4,6 +4,7 @@ import { GRAPH_LOCK } from '../../../vector/hnsw/handles'
 import { setNativeSearchCoreEnabled } from '../../../vector/native/backend'
 import { loadNativeCore } from '../../../vector/native/loader'
 import type { VectorIndex } from '../../../vector/vector-index'
+import { fieldView } from '../vector-index/field-view'
 import {
   binaryBuilt,
   builtIndex,
@@ -67,7 +68,7 @@ describe.skipIf(!binaryBuilt)('graph writes through the native search core', () 
         )
         expect(compactions.mock.results.map(result => result.value)).toEqual([0])
         expect(throughNativeCore.size).toBe(DOCUMENTS - removed)
-        expect(throughNativeCore.serialize()[0].graphs).toEqual(throughWebAssembly.serialize()[0].graphs)
+        expect(fieldView(throughNativeCore).graphs).toEqual(fieldView(throughWebAssembly).graphs)
         expect(searchAll(throughNativeCore, 'cosine', true)).toEqual(searchAll(throughWebAssembly, 'cosine', false))
       } finally {
         removals.mockRestore()
@@ -151,17 +152,17 @@ describe.skipIf(!binaryBuilt)('graph writes through the native search core', () 
     const index = await builtIndex({ quantization: 'osq8', metric: 'euclidean', native: true })
     const calibrations = vi.spyOn(core, 'calibrate')
     try {
-      const centroidBefore = index.serialize()[0].codes?.centroid
+      const centroidBefore = fieldView(index).codes?.centroid
       for (let position = 0; position < DOCUMENTS; position += 2) index.remove(docIdOf(position))
       index.compact()
       expect(calibrations).toHaveBeenCalledTimes(0)
-      expect(index.serialize()[0].codes?.centroid).toEqual(centroidBefore)
+      expect(fieldView(index).codes?.centroid).toEqual(centroidBefore)
 
       for (let position = 1; position < DOCUMENTS / 2; position += 2) index.remove(docIdOf(position))
       await index.optimize()
       await settleBuild(index)
       expect(calibrations.mock.results.map(result => result.value)).toEqual([0])
-      expect(index.serialize()[0].codes?.centroid).not.toEqual(centroidBefore)
+      expect(fieldView(index).codes?.centroid).not.toEqual(centroidBefore)
       expect(searchAll(index, 'euclidean', true).every(hits => hits.length === 10)).toBe(true)
     } finally {
       calibrations.mockRestore()

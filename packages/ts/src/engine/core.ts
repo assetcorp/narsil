@@ -21,7 +21,7 @@ import { type AnalysisRebuildCoordinator, wireAnalysisRebuild } from './analysis
 import { resolveDurabilityTier } from './durability-config'
 import type { DurabilityIntegration } from './durability-integration'
 import { createDurabilityFromTier } from './durability-wiring'
-import { emitEngineEvent } from './events'
+import { emitEngineEvent, eventHandlersOf } from './events'
 import type { HeapPressureNotifier } from './heap-pressure'
 import { createIndexFromMetadata as createIndexFromMetadataOp } from './index-from-metadata'
 import type { IndexStateCoordinator } from './index-state'
@@ -90,6 +90,7 @@ export function createEngineCore(
   capacityScope: CapacityScope = 'index',
 ): EngineCore {
   validateWorkerConfig(config?.workers, config?.lifecycle)
+  const eventHandlers = eventHandlersOf(config?.events)
   const vectorWorkerCount = splitWorkerBudget(resolveWorkerCount(config?.workers?.count)).vector
   const vectorCopyPolicy: VectorWorkerCopyPolicy = {
     enabled: (config?.workers?.enabled ?? workersEnabledByDefault()) && vectorWorkerCount > 0,
@@ -119,7 +120,6 @@ export function createEngineCore(
       embeddingAdapters.set(name, adapter)
     }
   }
-  const eventHandlers = new Map<string, Set<EventHandler>>()
   const shutdownState = { isShutdown: false }
   const abortController = new AbortController()
   const rebalancingIndexes = new Set<string>()
@@ -217,6 +217,9 @@ export function createEngineCore(
     createIndexFromMetadata,
     emitFatalError(error: Error) {
       emitEngineEvent(eventHandlers, 'durabilityError', { error })
+    },
+    emitLayoutUpgrade(event) {
+      emitEngineEvent(eventHandlers, 'layoutUpgrade', event)
     },
     publishCheckpointedPartitions: (indexName, partitions) =>
       invalidation?.publishPartitions(indexName, partitions) ?? Promise.resolve(),

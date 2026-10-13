@@ -6,6 +6,7 @@ import type { ControllerNode } from '../cluster/controller/types'
 import { createDataNodeLifecycle } from '../cluster/node-lifecycle'
 import type { DataNodeHandle } from '../cluster/node-lifecycle/types'
 import type { NodeRegistration, NodeRole } from '../coordinator/types'
+import { openSnapshotSpoolDirectory } from '../replication/snapshot-spool'
 import type { ReplicationLog } from '../replication/types'
 import type { TransportMessage } from '../transport/types'
 import { cleanupRemovedPartition } from './bootstrap-cleanup'
@@ -33,7 +34,7 @@ import {
   getReplicationLog as readReplicationLog,
   seedReplicationLog as writeSeededReplicationLog,
 } from './replication-logs'
-import { createSnapshotSyncHandlerState, defaultSnapshotHeaderMetadataProvider } from './snapshot-sync-handler'
+import { createSnapshotSyncHandlerState, nodeSnapshotHeaderMetadata } from './snapshot-sync-handler'
 import { createMultiplexedControllerTransport, createNotReadyHandler } from './transport-listener'
 import type { ClusterNode, ClusterNodeConfig } from './types'
 import { DEFAULT_CAPACITY } from './types'
@@ -83,6 +84,10 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
     onIndexClose: indexName => deleteIndexReplicationLogs(replicationLogs, indexName),
   })
   localEngine = engine
+  const snapshotSpool = await openSnapshotSpoolDirectory(config.engine?.durability?.directory).catch(async err => {
+    await engine.shutdown()
+    throw err
+  })
 
   function replicationLogKey(indexName: string, partitionId: number): string {
     return buildReplicationLogKey(indexName, partitionId)
@@ -159,6 +164,7 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
     applyReplicationEntry: engine.applyReplicationEntry,
     restoreReplicationPartition: engine.restoreReplicationPartition,
     onError: forwardOnError,
+    snapshotSpoolDirectory: snapshotSpool.path,
   }
 
   const primaryPartitionDeps: PrimaryPartitionDeps = {
@@ -313,6 +319,7 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
           coordinator: config.coordinator,
           writeDeps,
           snapshotSyncState: snapshotSyncHandlerState,
+          snapshotSpoolDirectory: snapshotSpool.path,
           resolveHeaderMetadata: resolveSnapshotHeaderMetadata,
           isBootstrapSynced: (indexName: string, partitionId: number) =>
             hasCompletedBootstrapSync(bootstrapSyncState, indexName, partitionId),
@@ -352,32 +359,18 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
       await Promise.all([...heldPartitionWrites])
 
       await engine.shutdown()
+      await snapshotSpool.dispose()
     },
   }
 
   return node
 
-  async function resolveSnapshotHeaderMetadata(indexName: string, partitionId: number | null) {
-    const fallback = await defaultSnapshotHeaderMetadataProvider(config.coordinator, indexName)
-    if (partitionId === null) {
-      return fallback
-    }
-
-    const localIndex = engine.listIndexes().find(index => index.name === indexName)
-    const release = localIndex !== undefined ? await engine.acquireIndexForReplication(indexName) : null
-    try {
-      const allocation = await config.coordinator.getAllocation(indexName)
-      const assignment = allocation?.assignments.get(partitionId)
-      const log = getReplicationLog(indexName, partitionId)
-
-      return {
-        partitionId,
-        primaryTerm: assignment?.primaryTerm ?? fallback.primaryTerm,
-        lastSeqNo: log.newestSeqNo ?? 0,
-      }
-    } finally {
-      release?.()
-    }
+  function resolveSnapshotHeaderMetadata(indexName: string, partitionId: number | null) {
+    return nodeSnapshotHeaderMetadata(
+      { coordinator: config.coordinator, engine, getReplicationLog },
+      indexName,
+      partitionId,
+    )
   }
 }
 

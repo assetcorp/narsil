@@ -1,6 +1,5 @@
 import { ErrorCodes, NarsilError } from '../../../errors'
-import { crc32 } from '../../../serialization/crc32'
-import { MAX_SNAPSHOT_SIZE_BYTES } from '../../replication/constants'
+import { defaultSpoolDirectory, spoolSnapshotStream } from '../../replication/snapshot-spool'
 import type { SnapshotSyncRequestPayload, TransportMessage } from '../../transport/types'
 import {
   acquireSnapshotBuild,
@@ -8,9 +7,11 @@ import {
   acquireStreamSlot,
   releaseSourceSlot,
   releaseStreamSlot,
+  type SnapshotBuildLease,
   type SnapshotBuildResult,
   type SourceSlotHandle,
   type StreamSlotHandle,
+  soleSnapshotLease,
 } from '../snapshot-cache'
 import { respondError, type SingleResponseSink, streamSnapshotToReplica } from '../snapshot-stream-writer'
 
@@ -36,12 +37,12 @@ export async function acquireAndStream(
   }
 
   try {
-    let build: SnapshotBuildResult
+    let lease: SnapshotBuildLease
     try {
       const buildForRequest = async () => buildSnapshotForRequest(deps, indexName, options)
-      build =
+      lease =
         options.disableBuildCache === true
-          ? await buildForRequest()
+          ? soleSnapshotLease(await buildForRequest())
           : await acquireSnapshotBuild(deps.state, indexName, buildForRequest)
     } catch (err) {
       const code = err instanceof NarsilError ? err.code : ErrorCodes.SNAPSHOT_SYNC_SNAPSHOT_FAILED
@@ -50,48 +51,56 @@ export async function acquireAndStream(
       return
     }
 
-    if (build.bytes.byteLength > MAX_SNAPSHOT_SIZE_BYTES) {
-      await respondError(
-        sink,
-        deps.nodeId,
-        message.requestId,
-        ErrorCodes.SNAPSHOT_SYNC_TOO_LARGE,
-        `Snapshot size ${build.bytes.byteLength} exceeds the ${MAX_SNAPSHOT_SIZE_BYTES} byte limit`,
-      )
-      return
-    }
-
-    let streamHandle: StreamSlotHandle
     try {
-      streamHandle = acquireStreamSlot(deps.state, indexName)
-    } catch (err) {
-      const code = err instanceof NarsilError ? err.code : ErrorCodes.SNAPSHOT_SYNC_CAPACITY_EXHAUSTED
-      const errMessage = err instanceof Error ? err.message : String(err)
-      await respondError(sink, deps.nodeId, message.requestId, code, errMessage)
-      return
-    }
-
-    try {
-      const metadata = options.metadata ?? (await resolveHeaderMetadata(deps, indexName, request.partitionId ?? null))
-      await streamSnapshotToReplica(sink, deps.nodeId, message.requestId, indexName, build, metadata, {
-        closeOnEnd: options.closeOnEnd,
-      })
-      await options.afterSnapshot?.(sink)
-      if (options.closeOnEnd === false) {
-        sink.closed = true
-      }
+      await streamLeasedSnapshot(message, sink, request, deps, options, lease.build)
     } finally {
-      releaseStreamSlot(deps.state, streamHandle)
+      await lease.release()
     }
   } finally {
     releaseSourceSlot(deps.state, sourceHandle)
   }
 }
 
-export async function buildSnapshot(deps: SnapshotSyncHandlerDeps, indexName: string): Promise<SnapshotBuildResult> {
-  let bytes: Uint8Array
+async function streamLeasedSnapshot(
+  message: TransportMessage,
+  sink: SingleResponseSink,
+  request: SnapshotSyncRequestPayload,
+  deps: SnapshotSyncHandlerDeps,
+  options: SnapshotSyncStreamOptions,
+  build: SnapshotBuildResult,
+): Promise<void> {
+  const { indexName } = request
+  let streamHandle: StreamSlotHandle
   try {
-    bytes = await deps.engine.snapshot(indexName)
+    streamHandle = acquireStreamSlot(deps.state, indexName)
+  } catch (err) {
+    const code = err instanceof NarsilError ? err.code : ErrorCodes.SNAPSHOT_SYNC_CAPACITY_EXHAUSTED
+    const errMessage = err instanceof Error ? err.message : String(err)
+    await respondError(sink, deps.nodeId, message.requestId, code, errMessage)
+    return
+  }
+
+  try {
+    const resolved = options.metadata ?? (await resolveHeaderMetadata(deps, indexName, request.partitionId ?? null))
+    const metadata = build.lastSeqNo === undefined ? resolved : { ...resolved, lastSeqNo: build.lastSeqNo }
+    await streamSnapshotToReplica(sink, deps.nodeId, message.requestId, indexName, build, metadata, {
+      closeOnEnd: options.closeOnEnd,
+    })
+    await options.afterSnapshot?.(sink, build)
+    if (options.closeOnEnd === false) {
+      sink.closed = true
+    }
+  } finally {
+    releaseStreamSlot(deps.state, streamHandle)
+  }
+}
+
+export async function buildSnapshot(deps: SnapshotSyncHandlerDeps, indexName: string): Promise<SnapshotBuildResult> {
+  try {
+    return await spoolSnapshotStream(
+      deps.spoolDirectory ?? defaultSpoolDirectory(),
+      await deps.engine.snapshot(indexName),
+    )
   } catch (err) {
     if (err instanceof NarsilError) {
       throw err
@@ -102,8 +111,6 @@ export async function buildSnapshot(deps: SnapshotSyncHandlerDeps, indexName: st
       cause: errMessage,
     })
   }
-  const checksum = bytes.byteLength <= MAX_SNAPSHOT_SIZE_BYTES ? crc32(bytes) : 0
-  return { bytes, checksum }
 }
 
 export function buildSnapshotForRequest(

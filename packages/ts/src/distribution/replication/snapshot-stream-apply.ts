@@ -5,7 +5,8 @@ import type {
   SnapshotEndPayload,
   SnapshotStartPayload,
 } from '../transport/types'
-import { MAX_SNAPSHOT_SIZE_BYTES, SNAPSHOT_CHUNK_SIZE } from './constants'
+import { SNAPSHOT_CHUNK_SIZE } from './constants'
+import { openSnapshotSpoolWriter, type SnapshotSpoolWriter } from './snapshot-spool'
 
 export interface SnapshotStreamFailure {
   ok: false
@@ -17,13 +18,14 @@ export interface SnapshotStreamFailure {
 export interface SnapshotStreamExpectation {
   indexName: string
   partitionId: number | null
+  spoolDirectory: string
 }
 
 export interface SnapshotStreamState {
   expectation: SnapshotStreamExpectation
   header: ReplicationSnapshotHeader | null
   totalBytes: number | null
-  assembled: Uint8Array | null
+  spool: SnapshotSpoolWriter | null
   accumulatedBytes: number
   expectedNextOffset: number
   endPayload: SnapshotEndPayload | null
@@ -41,6 +43,21 @@ export function fail(
     return
   }
   state.failure = { ok: false, code, message, details }
+  releaseSpool(state)
+}
+
+export function releaseSpool(state: SnapshotStreamState): void {
+  const spool = state.spool
+  if (spool === null) return
+  state.spool = null
+  spool.discard()
+}
+
+function spoolFailure(state: SnapshotStreamState, err: unknown): void {
+  const cause = err instanceof Error ? err.message : String(err)
+  fail(state, ErrorCodes.SNAPSHOT_SYNC_RESTORE_FAILED, `the snapshot could not be written to local storage: ${cause}`, {
+    cause,
+  })
 }
 
 export function applyErrorEnvelope(state: SnapshotStreamState, record: Record<string, unknown>): void {
@@ -95,21 +112,19 @@ export function applyStartPayload(state: SnapshotStreamState, record: Record<str
     fail(state, ErrorCodes.SNAPSHOT_SYNC_HEADER_INVALID, 'totalBytes must be a non-negative integer')
     return
   }
-  if (start.totalBytes > MAX_SNAPSHOT_SIZE_BYTES) {
-    fail(state, ErrorCodes.SNAPSHOT_SYNC_TOO_LARGE, `totalBytes ${start.totalBytes} exceeds the limit`, {
-      totalBytes: start.totalBytes,
-      limit: MAX_SNAPSHOT_SIZE_BYTES,
-    })
+
+  try {
+    state.spool = openSnapshotSpoolWriter(state.expectation.spoolDirectory)
+  } catch (err) {
+    spoolFailure(state, err)
     return
   }
-
   state.header = header
   state.totalBytes = start.totalBytes
-  state.assembled = new Uint8Array(start.totalBytes)
 }
 
 export function applyChunkPayload(state: SnapshotStreamState, payload: SnapshotChunkPayload): void {
-  if (state.totalBytes === null || state.assembled === null || state.header === null) {
+  if (state.totalBytes === null || state.header === null) {
     fail(state, ErrorCodes.SNAPSHOT_SYNC_FRAME_INVALID, 'received chunk before SNAPSHOT_START')
     return
   }
@@ -163,7 +178,16 @@ export function applyChunkPayload(state: SnapshotStreamState, payload: SnapshotC
     })
     return
   }
-  state.assembled.set(payload.data, payload.offset)
+  if (state.spool === null) {
+    fail(state, ErrorCodes.SNAPSHOT_SYNC_FRAME_INVALID, 'received chunk after the snapshot stream closed')
+    return
+  }
+  try {
+    state.spool.write(payload.data)
+  } catch (err) {
+    spoolFailure(state, err)
+    return
+  }
   state.accumulatedBytes = nextBytes
   state.expectedNextOffset = payload.offset + payload.data.byteLength
 }

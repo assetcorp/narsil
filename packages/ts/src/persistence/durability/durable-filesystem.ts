@@ -35,7 +35,10 @@ export interface DurableDirectory {
   atomicWrite(key: string, data: Uint8Array | readonly Uint8Array[]): Promise<void>
   syncDirectoryOf(key: string): Promise<void>
   read(key: string): Promise<Uint8Array | null>
+  readRange?(key: string, offset: number, length: number): Promise<Uint8Array>
+  byteLength?(key: string): Promise<number | null>
   remove(key: string): Promise<void>
+  move(from: string, to: string): Promise<void>
   list(prefix: string): Promise<string[]>
   /** Reports the absolute path a key maps to, which a reader opening the file by position needs. */
   pathOf(key: string): Promise<string>
@@ -265,6 +268,48 @@ export function createDurableDirectory(root: string): DurableDirectory {
       }
     },
 
+    async readRange(key: string, offset: number, length: number): Promise<Uint8Array> {
+      const { path: filePath } = await resolve(key)
+      const fs = await getFs()
+      let handle: FileHandle | null = null
+      try {
+        handle = await fs.open(filePath, 'r')
+        const bytes = new Uint8Array(length)
+        let filled = 0
+        while (filled < length) {
+          const { bytesRead } = await handle.read(bytes, filled, length - filled, offset + filled)
+          if (bytesRead === 0) break
+          filled += bytesRead
+        }
+        if (filled < length) {
+          throw new NarsilError(ErrorCodes.PERSISTENCE_LOAD_FAILED, `"${key}" ends before the bytes a read asked for`, {
+            key,
+            offset,
+            length,
+          })
+        }
+        return bytes
+      } finally {
+        await handle?.close()
+      }
+    },
+
+    async byteLength(key: string): Promise<number | null> {
+      const { path: filePath } = await resolve(key)
+      const fs = await getFs()
+      try {
+        return (await fs.stat(filePath)).size
+      } catch (err: unknown) {
+        if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+          return null
+        }
+        throw new NarsilError(ErrorCodes.PERSISTENCE_LOAD_FAILED, `Failed to read the length of "${key}"`, {
+          key,
+          cause: err instanceof Error ? err.message : String(err),
+        })
+      }
+    },
+
     async remove(key: string): Promise<void> {
       const { path: filePath, pathMod } = await resolve(key)
       const fs = await getFs()
@@ -280,6 +325,16 @@ export function createDurableDirectory(root: string): DurableDirectory {
         })
       }
       await fsyncDirectory(pathMod.dirname(filePath), fs)
+    },
+
+    async move(from: string, to: string): Promise<void> {
+      const source = await resolve(from)
+      const target = await resolve(to)
+      const fs = await getFs()
+      await ensureDir(target.path, target.pathMod, fs)
+      await fs.rename(source.path, target.path)
+      await fsyncDirectory(target.pathMod.dirname(target.path), fs)
+      await fsyncDirectory(source.pathMod.dirname(source.path), fs)
     },
 
     async list(prefix: string): Promise<string[]> {

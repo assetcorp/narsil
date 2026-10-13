@@ -1,6 +1,6 @@
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { VectorIndexConfig } from '../../types/schema'
-import { MAX_M } from '../../vector/hnsw/constants'
+import { EARLIER_RELEASE_MIN_M, MAX_M, MIN_M } from '../../vector/hnsw/constants'
 
 const QUANTIZATION_MODES: ReadonlySet<string> = new Set(['osq8', 'osq4', 'osq2', 'osq1', 'none'])
 const STORAGE_MODES: ReadonlySet<string> = new Set(['memory', 'disk'])
@@ -29,6 +29,14 @@ export function validateVectorStorage(config: VectorIndexConfig | undefined, fil
   }
 }
 
+export function raiseEarlierReleaseGraphSetting<T>(config: T): T {
+  if (typeof config !== 'object' || config === null) return config
+  const hnsw: unknown = (config as { hnswConfig?: unknown }).hnswConfig
+  if (typeof hnsw !== 'object' || hnsw === null) return config
+  if ((hnsw as { m?: unknown }).m !== EARLIER_RELEASE_MIN_M) return config
+  return { ...config, hnswConfig: { ...hnsw, m: MIN_M } }
+}
+
 export function validateVectorPromotion(config: VectorIndexConfig | undefined): void {
   if (config === undefined) return
 
@@ -49,8 +57,8 @@ export function validateVectorPromotion(config: VectorIndexConfig | undefined): 
   const hnsw = config.hnswConfig
   if (hnsw === undefined) return
 
-  if (hnsw.m !== undefined && (!isPositiveInteger(hnsw.m) || hnsw.m > MAX_M)) {
-    fail(`vectorPromotion.hnswConfig.m must be a positive integer no greater than ${MAX_M}`, { m: hnsw.m })
+  if (hnsw.m !== undefined && (!Number.isInteger(hnsw.m) || hnsw.m < MIN_M || hnsw.m > MAX_M)) {
+    fail(`vectorPromotion.hnswConfig.m must be a whole number from ${MIN_M} to ${MAX_M}`, { m: hnsw.m })
   }
 
   if (hnsw.efConstruction !== undefined && !isPositiveInteger(hnsw.efConstruction)) {

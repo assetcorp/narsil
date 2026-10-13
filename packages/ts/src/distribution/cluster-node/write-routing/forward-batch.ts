@@ -1,5 +1,6 @@
-import { decode, encode } from '@msgpack/msgpack'
+import { decode } from '@msgpack/msgpack'
 import { ErrorCodes, NarsilError } from '../../../errors'
+import { encodeDocument } from '../../../serialization/document-encoding'
 import type { BatchResult } from '../../../types/results'
 import type { AnyDocument } from '../../../types/schema'
 import { chunkByBudget } from '../../chunking'
@@ -33,7 +34,7 @@ function toWireOperation(item: ForwardBatchItem): ForwardBatchOperation {
   return {
     documentId: item.documentId,
     operation: item.operation,
-    document: item.document === null ? null : encode(item.document),
+    document: item.document === null ? null : encodeDocument(item.document),
     updateFields: null,
   }
 }

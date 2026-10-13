@@ -1,37 +1,39 @@
 import { encode } from '@msgpack/msgpack'
-import { type EnvelopeParts, packSnapshotEnvelopePartsRetrying } from '../../../serialization/envelope'
-import type { PartitionCheckpoint } from '../snapshot-bundle'
+import { type PackedEnvelope, packChecksummedEnvelope } from '../../../serialization/envelope-file'
+import type { PartitionCheckpoint } from '../partition-checkpoint'
 
-export const SEGMENT_MANIFEST_VERSION = 6
+export const SEGMENT_MANIFEST_VERSION = 7
+export const EARLIER_SEGMENT_MANIFEST_VERSION = 6
+export const MANIFEST_ENVELOPE_VERSION = 2
 
 export const MAX_SEGMENTS_PER_PARTITION = 65_536
 
 export const MAX_SEGMENT_ID = 0xffff_ffff_ffff
 
-export interface SegmentRef {
-  id: number
+export interface FileRef {
   key: string
+  bytes: number
+  checksum: number
+}
+
+export interface SegmentRef extends FileRef {
+  id: number
   docCount: number
   tombstoneCount: number
 }
 
-export interface VectorFileRef {
+export interface VectorFileRef extends FileRef {
   id: number
-  key: string
-  /** The file holds this many vectors, dead ones included. */
   count: number
-  /** Bit `i` reads 1 where vector `i` of the file is dead, and null while every vector is live. */
   dead: Uint8Array | null
 }
 
 export interface VectorFieldRef {
   fieldPath: string
   nextFileId: number
-  /** The field's vector files, whose order numbers every vector of the field. */
   files: VectorFileRef[]
   graphGeneration: number
-  /** The field's graph file lies under this key, and null while the field holds no graph. */
-  graphKey: string | null
+  graphParts: FileRef[]
 }
 
 export interface PartitionManifestEntry {
@@ -49,36 +51,41 @@ export interface SegmentManifest {
   vectors: VectorFieldRef[]
 }
 
-export function encodeSegmentManifest(manifest: SegmentManifest): Promise<EnvelopeParts> {
-  return packSnapshotEnvelopePartsRetrying(() =>
-    encode({
-      version: SEGMENT_MANIFEST_VERSION,
-      schema: manifest.schema,
-      language: manifest.language,
-      checkpoint: manifest.checkpoint.map(c => ({
-        partitionId: c.partitionId,
-        lastSeqNo: c.lastSeqNo,
-        primaryTerm: c.primaryTerm,
+function fileRefOnTheWire(ref: FileRef): FileRef {
+  return { key: ref.key, bytes: ref.bytes, checksum: ref.checksum }
+}
+
+export function encodeSegmentManifest(manifest: SegmentManifest): Promise<PackedEnvelope> {
+  const payload = encode({
+    version: SEGMENT_MANIFEST_VERSION,
+    schema: manifest.schema,
+    language: manifest.language,
+    checkpoint: manifest.checkpoint.map(c => ({
+      partitionId: c.partitionId,
+      lastSeqNo: c.lastSeqNo,
+      primaryTerm: c.primaryTerm,
+    })),
+    partitions: manifest.partitions.map(p => ({
+      partitionId: p.partitionId,
+      nextSegmentId: p.nextSegmentId,
+      segments: p.segments.map(s => ({
+        id: s.id,
+        key: s.key,
+        docCount: s.docCount,
+        tombstoneCount: s.tombstoneCount,
+        bytes: s.bytes,
+        checksum: s.checksum,
       })),
-      partitions: manifest.partitions.map(p => ({
-        partitionId: p.partitionId,
-        nextSegmentId: p.nextSegmentId,
-        segments: p.segments.map(s => ({
-          id: s.id,
-          key: s.key,
-          docCount: s.docCount,
-          tombstoneCount: s.tombstoneCount,
-        })),
-      })),
-      vectors: manifest.vectors.map(v => ({
-        fieldPath: v.fieldPath,
-        nextFileId: v.nextFileId,
-        files: v.files.map(f => ({ id: f.id, key: f.key, count: f.count, dead: f.dead })),
-        graphGeneration: v.graphGeneration,
-        graphKey: v.graphKey,
-      })),
-    }),
-  )
+    })),
+    vectors: manifest.vectors.map(v => ({
+      fieldPath: v.fieldPath,
+      nextFileId: v.nextFileId,
+      files: v.files.map(f => ({ id: f.id, ...fileRefOnTheWire(f), count: f.count, dead: f.dead })),
+      graphGeneration: v.graphGeneration,
+      graphParts: v.graphParts.map(fileRefOnTheWire),
+    })),
+  })
+  return packChecksummedEnvelope([payload], MANIFEST_ENVELOPE_VERSION, 'segment manifest')
 }
 
 export function manifestReferencedKeys(manifest: SegmentManifest): Set<string> {
@@ -90,9 +97,14 @@ export function manifestReferencedKeys(manifest: SegmentManifest): Set<string> {
   }
   for (const vector of manifest.vectors) {
     for (const file of vector.files) keys.add(file.key)
-    if (vector.graphKey !== null) keys.add(vector.graphKey)
+    for (const part of vector.graphParts) keys.add(part.key)
   }
   return keys
 }
 
-export { decodeSegmentManifest } from './manifest-decode'
+export function manifestFileRefs(manifest: SegmentManifest): FileRef[] {
+  const refs: FileRef[] = []
+  for (const partition of manifest.partitions) refs.push(...partition.segments)
+  for (const vector of manifest.vectors) refs.push(...vector.files, ...vector.graphParts)
+  return refs
+}

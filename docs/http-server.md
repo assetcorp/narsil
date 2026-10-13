@@ -46,7 +46,8 @@ The full surface:
 | `POST /indexes/{name}/documents/_list` | The endpoint pages through every stored document, in document-id order or in an order the body names. See [Listing documents](#listing-documents). |
 | `POST /indexes/{name}/documents/_import` | The endpoint streams an NDJSON corpus in bounded batches, and `?async=true` runs it as a task instead. See [Tasks](#tasks). |
 | `POST /indexes/{name}/search`, `POST /indexes/{name}/search/preflight`, `POST /indexes/{name}/suggest` | The endpoints run queries, match counts, and autocomplete. Each response carries `analysisStale: true` while the index holds terms an earlier analysis produced. See [Analysis revisions](language-support.md#analysis-revisions). |
-| `POST /indexes/{name}/_checkpoint`, `GET /indexes/{name}/snapshot`, `POST /indexes/{name}/restore` | The endpoints force a checkpoint, download a snapshot, and restore one. |
+| `POST /indexes/{name}/_checkpoint`, `GET /indexes/{name}/snapshot`, `POST /indexes/{name}/restore` | The endpoints force a checkpoint, stream a snapshot archive, and restore an index from an archive as a task. See [Snapshots and exports](#snapshots-and-exports). |
+| `GET /indexes/{name}/export`, `POST /indexes/{name}/import` | The endpoints stream a document export and import one as a task. See [Snapshots and exports](#snapshots-and-exports). |
 | `GET /indexes/{name}/vector-maintenance`, `POST /indexes/{name}/vectors/_compact`, `POST /indexes/{name}/vectors/_optimize` | The endpoints report and run vector maintenance. |
 | `POST /indexes/{name}/_rebalance`, `POST /indexes/{name}/partition-config` | The endpoints reshape partitions and adjust partition caps. |
 | `POST /indexes/{name}/_rebuild-analysis` | The endpoint reanalyses every document, which an index needs after its language module changes revision. |
@@ -82,7 +83,7 @@ process.on('uncaughtException', async error => {
 
 ## Tasks
 
-Five operations take long enough that the server answers before they finish: an import sent with `?async=true`, `restore`, `_rebalance`, `vectors/_optimize`, and `_rebuild-analysis`. Each one answers 202 with a task record and carries on in the background. Every one of them uses the same record shape, which `GET /tasks/{id}` returns again as the work proceeds.
+Six operations take long enough that the server answers before they finish: an import sent with `?async=true`, `restore`, the `import` of a document export, `_rebalance`, `vectors/_optimize`, and `_rebuild-analysis`. Each one answers 202 with a task record and carries on in the background. Every one of them uses the same record shape, which `GET /tasks/{id}` returns again as the work proceeds.
 
 ```json
 {
@@ -118,10 +119,21 @@ Each running task holds its own working set, and an async import holds the whole
     "tasks.cancel",
     "tasks.filter",
     "indexes.rebuildAnalysis",
-    "indexes.lifecycle"
+    "indexes.lifecycle",
+    "indexes.documentExport"
   ]
 }
 ```
+
+## Snapshots and exports
+
+`GET /indexes/{name}/snapshot` streams the index's snapshot archive with the content type `application/x-tar`. `GET /indexes/{name}/export` streams the index's document export with the content type `application/x-ndjson`. The [persistence guide](persistence-and-durability.md#snapshots-and-restore) describes both formats and which checkpoint the engine reads for each stream.
+
+`POST /indexes/{name}/restore` takes a snapshot archive as the request body, while `POST /indexes/{name}/import` takes a document export. The server writes each body to a temporary file as the body arrives. It pauses the upload whenever it holds 8 MiB of the body in memory that it has yet to write to the disk, so the server needs the same memory for an upload of any size. Once the upload ends, the server answers 202 with a task record. In the task, the engine restores the index or imports the documents from that file, after which the server deletes the file.
+
+The server limits both bodies to `limits.maxRestoreBytes`, 64 GiB by default, and answers a larger body with 413 `PAYLOAD_TOO_LARGE`. Set the limit to 0 to accept an upload of any size. The server answers an empty body with 400 `EMPTY_BODY`.
+
+When an import of a document export finishes, its task record holds `result` with the fields of an NDJSON import's result: `indexed`, `failed`, `errors`, and `errorsTruncated`. `failed` is the number of refused lines, while `errors` holds the first `limits.maxImportErrors` refusals by line number, each with its line number, error code, and message. The server tracks `progress` for an NDJSON import alone.
 
 ## Cluster routes
 

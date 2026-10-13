@@ -126,7 +126,7 @@ describe.each([
     'stops a search whose matcher work passes the cap, and answers another search meanwhile',
     async () => {
       const hostile = searchBody({ fields: { line: { contains: `${'a'.repeat(MAX_TEXT_CODE_POINTS - 1)}b` } } })
-      const answered = await expectServedWhileHostile(server, hostile, NORMAL_FILTERS)
+      const answered = await expectServedWhileHostile(server, hostile, NORMAL_FILTERS, 'a test past the work cap')
       expect({ status: answered.status, code: answered.code }).toEqual({
         status: 400,
         code: 'SEARCH_WORK_CAP_EXCEEDED',
@@ -166,7 +166,7 @@ describe.each([
         ],
       ]
       for (const [label, filters] of hostileFilters) {
-        const answered = await expectServedWhileHostile(server, searchBody(filters), NORMAL_FILTERS)
+        const answered = await expectServedWhileHostile(server, searchBody(filters), NORMAL_FILTERS, label)
         expect([200, 400], label).toContain(answered.status)
         if (answered.status === 400) expect(answered.code, label).toBe('SEARCH_WORK_CAP_EXCEEDED')
       }

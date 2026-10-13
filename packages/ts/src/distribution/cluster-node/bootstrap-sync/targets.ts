@@ -2,6 +2,8 @@ import { encode } from '@msgpack/msgpack'
 import { generateId } from '../../../core/id-generator'
 import { ErrorCodes, NarsilError } from '../../../errors'
 import type { IndexConfig } from '../../../types/schema'
+import { defaultSpoolDirectory } from '../../replication/snapshot-spool'
+import { abandonSnapshotStream } from '../../replication/snapshot-stream-assembler'
 import type { SyncRequestPayload, TransportMessage } from '../../transport/types'
 import { ReplicationMessageTypes } from '../../transport/types'
 import { isTransientFailure, withDeadline } from '../bootstrap-fetch'
@@ -13,6 +15,7 @@ import type {
   BootstrapEntry,
   BootstrapSyncState,
   LiveBootstrapSyncDeps,
+  LiveSyncFrameState,
   LiveSyncResult,
   LocalLogState,
 } from './types'
@@ -147,7 +150,7 @@ export async function syncFromAnyTarget(
   return { ok: false, error: lastError }
 }
 
-export async function syncFromTarget(
+async function syncFromTarget(
   state: BootstrapSyncState,
   entry: BootstrapEntry,
   indexName: string,
@@ -158,6 +161,40 @@ export async function syncFromTarget(
   deadline: number,
   deps: LiveBootstrapSyncDeps,
   abortCheck: AbortCheck,
+): Promise<LiveSyncResult> {
+  const spoolDirectory = deps.snapshotSpoolDirectory ?? defaultSpoolDirectory()
+  const frameState = createLiveSyncFrameState(indexName, partitionId, spoolDirectory)
+  try {
+    return await syncFrameStateFromTarget(
+      state,
+      entry,
+      indexName,
+      partitionId,
+      target,
+      coordinatorConfig,
+      partitionCount,
+      deadline,
+      deps,
+      abortCheck,
+      frameState,
+    )
+  } finally {
+    abandonSnapshotStream(frameState.snapshotState)
+  }
+}
+
+async function syncFrameStateFromTarget(
+  state: BootstrapSyncState,
+  entry: BootstrapEntry,
+  indexName: string,
+  partitionId: number,
+  target: string,
+  coordinatorConfig: IndexConfig,
+  partitionCount: number,
+  deadline: number,
+  deps: LiveBootstrapSyncDeps,
+  abortCheck: AbortCheck,
+  frameState: LiveSyncFrameState,
 ): Promise<LiveSyncResult> {
   const logState = readLocalLogState(indexName, partitionId, deps)
   const requestPayload: SyncRequestPayload = {
@@ -173,7 +210,6 @@ export async function syncFromTarget(
     payload: encode(requestPayload),
   }
 
-  const frameState = createLiveSyncFrameState(indexName, partitionId)
   const remainingMs = deadline - Date.now()
   if (remainingMs <= 0) {
     return {

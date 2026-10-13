@@ -15,6 +15,7 @@ function routeContext(rawBody: Buffer): RouteContext {
     query: new URLSearchParams(),
     contentType: 'application/x-ndjson',
     rawBody,
+    spooledBody: null,
     abort: { ...NO_ABORT, aborted: true },
     hookContext: null,
   }

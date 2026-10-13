@@ -58,7 +58,7 @@ function inputsFor(chunks: SegmentDocument[][], trackPositions: boolean): Segmen
         chunk.map(entry => entry.document),
       ),
       remap,
-      fieldIndexRemap: Uint8Array.from(payload.fieldNames, (_, i) => i),
+      fieldIndexRemap: Uint16Array.from(payload.fieldNames, (_, i) => i),
     }
   })
 }

@@ -6,15 +6,16 @@ import { decode, encode } from '@msgpack/msgpack'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createNarsil } from '../../../narsil'
 import { createDurableDirectory } from '../../../persistence/durability/durable-filesystem'
-import { concatEnvelopeParts, packSnapshotEnvelopeParts, unpackEnvelopeBytes } from '../../../serialization/envelope'
+import { unpackEnvelopeBytes } from '../../../serialization/envelope'
 import { HEADER_SIZE } from '../../../serialization/header'
 import type { IndexConfig } from '../../../types/schema'
 import type { SharedVectorFieldHandles } from '../../../vector/shared-field/types'
-import { createVectorIndex, type VectorIndexPayload } from '../../../vector/vector-index'
+import { createVectorIndex } from '../../../vector/vector-index'
 import { decodeVectorFilePayload } from '../../../vector/vector-index/checkpoint-payload'
 import { vectorsToBytes } from '../../../vector/vector-index/payload'
 import type { SharedCopyHost } from '../../../vector/vector-index/shared'
 import { createVectorStore } from '../../../vector/vector-store'
+import { type FieldView, fieldView } from './field-view'
 import { createFakeVectorThreads, DIM, normalizedVector } from './fixtures'
 
 function asAnotherThreadReceives(handles: SharedVectorFieldHandles): SharedVectorFieldHandles {
@@ -27,19 +28,25 @@ function asAnotherThreadReceives(handles: SharedVectorFieldHandles): SharedVecto
   return received.message
 }
 
-async function writePart(
-  directory: string,
-  part: VectorIndexPayload,
-): Promise<{ path: string; vectorsOffset: number }> {
-  const envelope = await packSnapshotEnvelopeParts(encode(part))
-  const path = join(directory, `part-${part.part}`)
-  await writeFile(path, concatEnvelopeParts(envelope))
-  return { path, vectorsOffset: HEADER_SIZE + envelope.payload.length - part.docIds.length * part.dimension * 4 }
+async function writePart(directory: string, part: FieldView): Promise<{ path: string; vectorsOffset: number }> {
+  const payload = encode({
+    v: 1,
+    fieldName: 'embedding',
+    dimension: DIM,
+    docIds: part.docIds,
+    codes: null,
+    vectors: part.vectors,
+  })
+  const path = join(directory, 'part-0')
+  const bytes = new Uint8Array(HEADER_SIZE + payload.byteLength)
+  bytes.set(payload, HEADER_SIZE)
+  await writeFile(path, bytes)
+  return { path, vectorsOffset: bytes.byteLength - part.docIds.length * DIM * 4 }
 }
 
 async function overwriteVector(
   file: { path: string; vectorsOffset: number },
-  part: VectorIndexPayload,
+  part: FieldView,
   docId: string,
   vector: Float32Array,
 ): Promise<void> {
@@ -115,7 +122,7 @@ describe('a vector field kept on disk', () => {
     for (let i = 0; i < 12; i++) index.insert(`doc${i}`, normalizedVector(DIM, i + 1))
     await buildGraph(index)
     const query = normalizedVector(DIM, 7)
-    const [part] = index.serialize()
+    const part = fieldView(index)
     const file = await writePart(directory, part)
     index.insert('doc1', normalizedVector(DIM, 50))
     const before = index.search(query, 3, { metric: 'cosine', minSimilarity: 0 }).results
@@ -171,7 +178,7 @@ describe('a vector field kept on disk', () => {
       index.insert(docId, normalizedVector(DIM, i + 1))
     })
     await buildGraph(index)
-    const [part] = index.serialize()
+    const part = fieldView(index)
     const file = await writePart(directory, part)
 
     await index.adoptDiskLayout({ ...file, docIds: part.docIds })
@@ -187,7 +194,7 @@ describe('a vector field kept on disk', () => {
     const config = { threshold: 8, quantization: 'none' as const }
     const source = createVectorIndex('embedding', DIM, config, { enabled: false }, 'docs', 'memory')
     for (let i = 0; i < 4; i++) source.insert(`doc${i}`, normalizedVector(DIM, i + 1))
-    const [part] = source.serialize()
+    const part = fieldView(source)
     const file = await writePart(directory, part)
     source.dispose()
 
@@ -198,8 +205,8 @@ describe('a vector field kept on disk', () => {
       key: 'part-0',
       payload: {
         v: 1,
-        fieldName: part.fieldName,
-        dimension: part.dimension,
+        fieldName: 'embedding',
+        dimension: DIM,
         docIds: part.docIds,
         codes: null,
         vectors: part.vectors,
@@ -281,7 +288,7 @@ describe('a vector field kept on disk', () => {
       schema: { embedding: `vector[${DIM}]` },
       vectorPromotion: { storage: 'disk' },
     })
-    const snapshot = await durable.snapshot('papers')
+    const snapshot = new Uint8Array(await new Response(await durable.snapshot('papers')).arrayBuffer())
     await durable.shutdown()
     await expect(engine.restore('papers', snapshot)).rejects.toMatchObject({ code: 'CONFIG_INVALID' })
     await engine.shutdown()

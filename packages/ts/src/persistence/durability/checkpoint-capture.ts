@@ -1,26 +1,23 @@
-import type { PartitionManager } from '../../partitioning/manager'
 import type { VectorCheckpointPlan, VectorIndex } from '../../vector/vector-index'
 import {
   LOG_RECORDS_PER_CHECKPOINT,
   WHOLE_PARTITION_LARGEST_DOCUMENT_COUNT,
   WHOLE_PARTITION_MIN_CHANGED_SHARE,
 } from './constants'
-import type { DurableDirectory } from './durable-filesystem'
 import type { IndexState, PartitionState } from './manager-state'
+import type { PartitionCheckpoint } from './partition-checkpoint'
 import { snapshotCheckpointFor } from './recovery'
 import {
   type CapturablePartitions,
   type CapturedWholePartition,
   captureWholePartition,
-  type SegmentManifest,
-  type VectorCheckpointLayout,
-  type VectorFieldRef,
-  type VectorFieldWritten,
-  type WholePartitionSegment,
-  writeLiveVectors,
-} from './segment'
+  type PartitionContents,
+  partitionContentsOf,
+} from './segment/captured-partition'
+import type { SegmentManifest, VectorFieldRef } from './segment/manifest'
+import type { CheckpointStore } from './segment/store'
+import { type VectorCheckpointLayout, type VectorFieldWritten, writeLiveVectors } from './segment/vector-write'
 import { SINGLE_NODE_PRIMARY_TERM } from './seq-owner'
-import type { PartitionCheckpoint } from './snapshot-bundle'
 
 export interface CheckpointedPartitions {
   readonly partitionCount: number
@@ -88,17 +85,17 @@ export async function makeEveryAppliedMutationDurable(
   }
 }
 
-export type SerialisablePartitions = CapturablePartitions & Pick<PartitionManager, 'serializePartitionToBytes'>
+export type SerialisablePartitions = CapturablePartitions
 
 export interface WholePartitions {
-  serialized: Map<number, WholePartitionSegment>
+  contents: PartitionContents[]
   captured: CapturedWholePartition[]
 }
 
 export type WholePartitionsOf = (targets: readonly PartitionCheckpoint[]) => WholePartitions
 
 function noWholePartitions(): WholePartitions {
-  return { serialized: new Map(), captured: [] }
+  return { contents: [], captured: [] }
 }
 
 export interface WholePartitionRules {
@@ -114,7 +111,7 @@ export function wholePartitionsWhereMostChanged(
 ): WholePartitionsOf {
   const { priorCheckpoint, priorPartitionIds, everyPartition, aWorkerCanSerialise } = rules
   return targets => {
-    const whole: WholePartitions = { serialized: new Map(), captured: [] }
+    const whole: WholePartitions = { contents: [], captured: [] }
     const changed = targets.filter(
       target => everyPartition || target.lastSeqNo !== snapshotCheckpointFor(priorCheckpoint, target.partitionId),
     )
@@ -132,10 +129,7 @@ export function wholePartitionsWhereMostChanged(
       if (captured !== null) {
         whole.captured.push(captured)
       } else if (everyPartition || !aWorkerCanSerialise) {
-        whole.serialized.set(partitionId, {
-          payload: manager.serializePartitionToBytes(partitionId),
-          docCount: manager.getPartition(partitionId).count(),
-        })
+        whole.contents.push(partitionContentsOf(manager, partitionId))
       }
     }
     return whole
@@ -185,7 +179,7 @@ export async function captureCheckpoint(
 }
 
 export async function writeCapturedVectors(
-  directory: DurableDirectory,
+  store: CheckpointStore,
   indexName: string,
   capture: CheckpointCapture,
   priorManifest: SegmentManifest | null,
@@ -203,6 +197,6 @@ export async function writeCapturedVectors(
   if (!rewriteUnchanged && everyFieldWritten && noPartitionChanged) {
     return { vectors: priorVectors, layouts: [], written: [] }
   }
-  const written = await writeLiveVectors({ directory, indexName, plans: capture.vectorPlans, priorVectors })
+  const written = await writeLiveVectors({ store, indexName, plans: capture.vectorPlans, priorVectors })
   return { vectors: written.refs, layouts: written.layouts, written: written.written }
 }

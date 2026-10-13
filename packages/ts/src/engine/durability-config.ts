@@ -1,4 +1,5 @@
 import { ErrorCodes, NarsilError } from '../errors'
+import { MAX_FILE_BYTES } from '../serialization/constants'
 import type { DurabilityConfig, NarsilConfig } from '../types/config'
 import type { DurabilityTier } from './durability-integration'
 
@@ -28,6 +29,11 @@ function requireValidDurabilityConfig(durability: DurabilityConfig): void {
   requireKnob('checkpointMutationThreshold', durability.checkpointMutationThreshold, 1)
   requireKnob('flushIntervalMs', durability.flushIntervalMs, 0)
   requireKnob('segmentMaxBytes', durability.segmentMaxBytes, 1)
+  if (durability.segmentMaxBytes !== undefined && durability.segmentMaxBytes > MAX_FILE_BYTES) {
+    throw configError(
+      `durability.segmentMaxBytes must be at most ${MAX_FILE_BYTES}, the largest file that every implementation reads, got ${durability.segmentMaxBytes}`,
+    )
+  }
   requireKnob('compactionThreshold', durability.compactionThreshold, 1)
 
   if (durability.tier === 'snapshot') {

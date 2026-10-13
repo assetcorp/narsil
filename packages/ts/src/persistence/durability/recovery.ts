@@ -2,12 +2,10 @@ import { applyDeleteEntry, applyIndexEntry } from '../../distribution/replicatio
 import type { ReplicationLogEntry } from '../../distribution/replication/types'
 import type { PartitionManager } from '../../partitioning/manager'
 import { readMetadataEnvelope } from '../../serialization/envelope'
-import { deserializePayloadV2 } from '../../serialization/payload-v2'
 import type { IndexMetadata } from '../../types/internal'
 import type { VectorIndex } from '../../vector/vector-index'
 import type { DurableDirectory } from './durable-filesystem'
-import { loadSegmentedSnapshot, readSegmentManifest } from './segment'
-import { checkpointLastSeqNo, decodeSnapshotBundle, type PartitionCheckpoint } from './snapshot-bundle'
+import { checkpointLastSeqNo, type PartitionCheckpoint } from './partition-checkpoint'
 import { SEGMENT_HEADER_SIZE } from './wal-framing'
 import { durableRecordMissing, readWalSegments, type SegmentRef } from './wal-segments'
 
@@ -21,8 +19,6 @@ export interface ReplayDeps {
   manager: PartitionManager
   vectorFieldPaths: Set<string>
   vectorIndexes: Map<string, VectorIndex>
-  /** True where the analysis that wrote the checkpoint is the analysis the index resolves now, so recovery may take the terms from the documents again. */
-  storedTermsAreCurrent?: boolean
 }
 
 export async function listPersistedIndexes(directory: DurableDirectory): Promise<string[]> {
@@ -43,39 +39,6 @@ export async function loadMetadata(directory: DurableDirectory, indexName: strin
   }
   const { metadata } = await readMetadataEnvelope(bytes)
   return metadata
-}
-
-export async function loadSnapshotBundleBytes(bytes: Uint8Array, deps: ReplayDeps): Promise<PartitionCheckpoint[]> {
-  const bundle = await decodeSnapshotBundle(bytes)
-
-  while (deps.manager.partitionCount < bundle.partitions.length) {
-    deps.manager.addPartition()
-  }
-  if (bundle.partitions.length > 0) {
-    deps.manager.trimPartitions(bundle.partitions.length)
-  }
-  for (let i = 0; i < bundle.partitions.length; i += 1) {
-    deps.manager.deserializePartition(i, deserializePayloadV2(bundle.partitions[i]))
-  }
-  for (const [fieldPath, parts] of Object.entries(bundle.vectorIndexes)) {
-    const vecIndex = deps.vectorIndexes.get(fieldPath)
-    if (vecIndex) {
-      vecIndex.deserialize(parts)
-    }
-  }
-  return bundle.checkpoint
-}
-
-export async function loadSnapshot(
-  directory: DurableDirectory,
-  indexName: string,
-  deps: ReplayDeps,
-): Promise<PartitionCheckpoint[]> {
-  const manifest = await readSegmentManifest(directory, indexName)
-  if (manifest === null) {
-    return []
-  }
-  return loadSegmentedSnapshot(directory, indexName, manifest, deps)
 }
 
 export async function replayWal(
