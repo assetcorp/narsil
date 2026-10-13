@@ -19,6 +19,7 @@ function searchForWireless(orchestrator: WorkerOrchestrator): Promise<FanOutResu
 }
 
 async function answeredByCopy(orchestrator: WorkerOrchestrator): Promise<FanOutResult | null> {
+  await new Promise(resolve => setImmediate(resolve))
   const answers = await Promise.all([searchForWireless(orchestrator), searchForWireless(orchestrator)])
   const fromCopies = answers.filter(answer => answer !== null)
   expect(fromCopies).toHaveLength(1)
