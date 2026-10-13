@@ -1,4 +1,5 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
+import { writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 import type { Narsil } from '@delali/narsil'
@@ -50,7 +51,7 @@ async function buildIndex(documents: VectorRows, precision: VectorPrecision, dir
       await insertAll(narsil, documents, precision)
       await awaitBackgroundGraph(narsil, precision)
     })
-    writeFileSync(snapshotPath(directory, precision), await narsil.snapshot(precision))
+    await writeFile(snapshotPath(directory, precision), await narsil.snapshot(precision))
   } finally {
     await narsil.shutdown()
   }
