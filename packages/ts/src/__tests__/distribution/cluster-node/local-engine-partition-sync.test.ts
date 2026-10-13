@@ -30,10 +30,10 @@ describe('ClusterLocalEngine partition snapshot restore', () => {
       await engine.insert('products', { title: 'partition one' }, partitionOneDocId)
       await engine.insert('audit', { name: 'keep audit' }, 'audit-1')
 
-      const partitionSnapshot = await engine.serializeReplicationPartition('products', 0)
+      const partitionArchive = await engine.archiveReplicationPartition('products', 0, () => 1)
       await engine.remove('products', partitionZeroDocId)
 
-      await engine.restoreReplicationPartition('products', 0, partitionSnapshot, { schema }, 2)
+      await engine.restoreReplicationPartition('products', 0, partitionArchive.stream, { schema }, 2)
 
       await expect(engine.get('products', partitionZeroDocId)).resolves.toEqual({ title: 'partition zero' })
       await expect(engine.get('products', partitionOneDocId)).resolves.toEqual({ title: 'partition one' })
@@ -52,14 +52,57 @@ describe('ClusterLocalEngine partition snapshot restore', () => {
     try {
       await source.createIndex('products', { schema, patternValueLimit: 4, partitions: { maxPartitions: 1 } })
       await source.insert('products', { title: 'Lamp', sku: 'LAMP' }, 'lamp')
-      const partitionSnapshot = await source.serializeReplicationPartition('products', 0)
+      const partitionArchive = await source.archiveReplicationPartition('products', 0, () => 1)
 
-      await replica.restoreReplicationPartition('products', 0, partitionSnapshot, { schema, patternValueLimit: 4 }, 1)
+      await replica.restoreReplicationPartition(
+        'products',
+        0,
+        partitionArchive.stream,
+        { schema, patternValueLimit: 4 },
+        1,
+      )
 
       await expect(replica.get('products', 'lamp')).resolves.toEqual({ title: 'Lamp', sku: 'LAMP' })
       await expect(replica.insert('products', { title: 'Desk', sku: 'DESK-01' }, 'desk')).rejects.toMatchObject({
         code: ErrorCodes.DOC_VALIDATION_FAILED,
       })
+    } finally {
+      await source.shutdown()
+      await replica.shutdown()
+    }
+  })
+
+  it('carries the vectors of the partition and replaces the vectors the replica held for it', async () => {
+    const source = await createClusterLocalEngine()
+    const replica = await createClusterLocalEngine()
+    const schema: SchemaDefinition = { title: 'string', embedding: 'vector[4]' }
+    const config = { schema, partitions: { maxPartitions: 2 } }
+    const inZero = Array.from({ length: 6 }, (_, i) => docIdForPartition(0, 2, `zero-${i}`))
+    const inOne = docIdForPartition(1, 2, 'one')
+
+    try {
+      await source.createIndex('papers', config)
+      await replica.createIndex('papers', config)
+      for (const [i, id] of inZero.entries()) {
+        await source.insert('papers', { title: `paper ${i}`, embedding: [1, i, 0, 0] }, id)
+      }
+      await replica.insert('papers', { title: 'stale', embedding: [0, 0, 0, 1] }, docIdForPartition(0, 2, 'stale'))
+      await replica.insert('papers', { title: 'other partition', embedding: [0, 0, 1, 0] }, inOne)
+
+      const partitionArchive = await source.archiveReplicationPartition('papers', 0, () => inZero.length)
+      await replica.restoreReplicationPartition('papers', 0, partitionArchive.stream, config, 2)
+
+      for (const [i, id] of inZero.entries()) {
+        expect(Array.from((await replica.get('papers', id))?.embedding as Float32Array)).toEqual([1, i, 0, 0])
+      }
+      expect(await replica.get('papers', docIdForPartition(0, 2, 'stale'))).toBeUndefined()
+      const nearest = await replica.query('papers', { vector: { field: 'embedding', value: [0, 0, 0, 1] }, limit: 8 })
+      expect(nearest.hits.map(hit => hit.id).sort()).toEqual([...inZero, inOne].sort())
+      const sameAsSource = await replica.query('papers', {
+        vector: { field: 'embedding', value: [1, 5, 0, 0] },
+        limit: 1,
+      })
+      expect(sameAsSource.hits[0]?.id).toBe(inZero[5])
     } finally {
       await source.shutdown()
       await replica.shutdown()

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createHNSWIndex, type SerializedHNSWGraph } from '../../../vector/hnsw'
 import { createVectorStore } from '../../../vector/vector-store'
+import { graphView } from './fixtures'
 
 const DIM = 8
 const COUNT = 40
@@ -129,7 +130,7 @@ describe('a graph payload that does not match this configuration', () => {
     const before = graph.search(query, 5, 'cosine', -1, { efSearch: 32 })
 
     const restored = createHNSWIndex(DIM, store, { m: M, efConstruction: 50, metric: 'cosine' })
-    restored.deserialize(graph.serialize())
+    restored.deserialize(graphView(graph, store))
 
     const after = restored.search(query, 5, 'cosine', -1, { efSearch: 32 })
     expect(after.map(h => h.docId)).toEqual(before.map(h => h.docId))

@@ -47,6 +47,37 @@ function sharedSurfaceTable(payload: SegmentPayload): SurfaceTableData | null {
   return { blob: sharedUint8(table.blob), offsets: sharedUint32(table.offsets), counts: sharedUint32(table.counts) }
 }
 
+export type SegmentArraysData = Omit<SharedSegmentSnapshot, 'segmentId'>
+
+export function segmentArraysOf(payload: SegmentPayload, documentData: EncodedDocumentTableData): SegmentArraysData {
+  const tokenTable = encodeFrozenTokenTableData(payload.tokens, payload.docFrequencies)
+  const idTable = encodeExternalIdTableData(payload.docIds)
+  const surfaceTable = payload.surfaceForms === null ? null : encodeSurfaceTable(payload.surfaceForms)
+  return {
+    documentCount: payload.documentCount,
+    fieldNames: payload.fieldNames,
+    fieldLengthNames: payload.fieldLengthNames,
+    fieldLengthColumns: payload.fieldLengthColumns,
+    totalFieldLengths: payload.totalFieldLengths,
+    tokenTable,
+    idTable,
+    documentTable: documentData,
+    postingOffsets: payload.postingOffsets,
+    postingDocIds: payload.postingDocIds,
+    postingFrequencies: payload.postingFrequencies,
+    postingFieldIndices: payload.postingFieldIndices,
+    positionOffsets: payload.positionOffsets,
+    positionValues: payload.positionValues,
+    numeric: payload.numeric,
+    sizes: payload.sizes,
+    boolean: payload.boolean,
+    enums: payload.enums,
+    geo: payload.geo,
+    pattern: payload.pattern,
+    surfaceTable: surfaceTable === null || surfaceTable.counts.length === 0 ? null : surfaceTable,
+  }
+}
+
 export function freezeSegmentShared(
   payload: SegmentPayload,
   documents: ReadonlyArray<AnyDocument>,
@@ -87,11 +118,12 @@ export function freezeEncodedSegmentShared(
     documentTable: {
       blob: sharedUint8(documentData.blob),
       offsets: sharedUint32(documentData.offsets),
+      ...(documentData.discardedFields === undefined ? {} : { discardedFields: documentData.discardedFields }),
     },
     postingOffsets: sharedUint32(payload.postingOffsets),
     postingDocIds: sharedUint32(payload.postingDocIds),
     postingFrequencies: sharedUint16(payload.postingFrequencies),
-    postingFieldIndices: sharedUint8(payload.postingFieldIndices),
+    postingFieldIndices: sharedUint16(payload.postingFieldIndices),
     positionOffsets: payload.positionOffsets === null ? null : sharedUint32(payload.positionOffsets),
     positionValues: payload.positionValues === null ? null : sharedUint32(payload.positionValues),
     numeric: payload.numeric.map(entry => ({

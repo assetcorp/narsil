@@ -1,13 +1,10 @@
 import type { IndexMetadata } from '../../types/internal'
 import { runCheckpointOnWorker } from './checkpoint-worker-dispatch'
 import type { DurableDirectory } from './durable-filesystem'
-import {
-  type CapturedWholePartition,
-  type CheckpointSegmentsWritten,
-  type WholePartitionSegment,
-  writeCheckpointSegments,
-} from './segment'
-import type { PartitionCheckpoint } from './snapshot-bundle'
+import type { PartitionCheckpoint } from './partition-checkpoint'
+import type { CapturedWholePartition, PartitionContents } from './segment/captured-partition'
+import { directoryCheckpointStore } from './segment/store'
+import { type CheckpointSegmentsWritten, type PriorCheckpoint, writeCheckpointSegments } from './segment/write'
 
 export interface IndexCheckpointSegmentsWrite {
   directory: DurableDirectory
@@ -15,12 +12,13 @@ export interface IndexCheckpointSegmentsWrite {
   targets: PartitionCheckpoint[]
   compactionThreshold: number
   canOffload: boolean
-  wholePartitions: ReadonlyMap<number, WholePartitionSegment>
+  prior: PriorCheckpoint | null
+  wholePartitions: readonly PartitionContents[]
   capturedPartitions: readonly CapturedWholePartition[]
 }
 
 function workerCanWriteEverySegment(input: IndexCheckpointSegmentsWrite): boolean {
-  if (!input.canOffload || input.wholePartitions.size > 0) return false
+  if (!input.canOffload || input.wholePartitions.length > 0) return false
   const analysesTextInProcessOnly = input.metadata.tokenizer !== undefined || input.metadata.stopWords !== undefined
   if (!analysesTextInProcessOnly) return true
   return input.targets.every(target =>
@@ -28,20 +26,10 @@ function workerCanWriteEverySegment(input: IndexCheckpointSegmentsWrite): boolea
   )
 }
 
-/**
- * Writes the document segments of one index checkpoint in a worker or in the current process.
- *
- * @param input - The checkpoint target, the partitions already serialised
- * from memory, the partitions captured for a worker to serialise, and the storage settings.
- * @returns The segments that the manifest of this checkpoint must list. A worker builds a
- * segment from the log or from a captured partition, so the write stays in the current
- * process once any partition arrives already serialised, and it returns there when the
- * worker fails.
- */
 export async function writeIndexCheckpointSegments(
   input: IndexCheckpointSegmentsWrite,
 ): Promise<CheckpointSegmentsWritten> {
-  const { directory, metadata, targets, compactionThreshold, wholePartitions, capturedPartitions } = input
+  const { directory, metadata, targets, compactionThreshold, prior, wholePartitions, capturedPartitions } = input
 
   const offloaded = workerCanWriteEverySegment(input)
     ? await runCheckpointOnWorker({
@@ -49,6 +37,7 @@ export async function writeIndexCheckpointSegments(
         metadata,
         targets,
         compactionThreshold,
+        prior,
         capturedPartitions: [...capturedPartitions],
       })
     : null
@@ -58,10 +47,12 @@ export async function writeIndexCheckpointSegments(
   }
 
   return writeCheckpointSegments({
+    store: directoryCheckpointStore(directory),
     directory,
     metadata,
     targets,
     compactionThreshold,
+    prior,
     wholePartitions,
     capturedPartitions,
   })

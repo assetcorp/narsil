@@ -43,6 +43,21 @@ To sort by a text field, the engine keeps up to the first 512 code points of eve
 
 The engine raises `DOC_VALIDATION_FAILED` for a document whose value in a `verbatim` field, or in a field whose type includes `pattern`, is longer than the index's `patternValueLimit` in code points. It tests each element of a list on its own. Set `patternValueLimit` to a whole number from 1 to 65,536, or leave it unset for a limit of 8,192 code points. For any other value, `createIndex` throws `CONFIG_INVALID`. Where a developer sets a limit, the engine writes it into the index metadata and into each snapshot, so that it can apply the same limit after it reopens or restores the index.
 
+### Limits
+
+The engine applies these limits when you create an index or write a document:
+
+| Limit | Value | Error |
+| --- | --- | --- |
+| The size of one document as MessagePack, vector values included | 16,777,216 bytes (16 MiB) | `DOC_VALIDATION_FAILED` |
+| The dimensions of a vector field in a new index | 4,096 | `SCHEMA_INVALID_VECTOR_DIMENSION` |
+| The `string` and `string[]` fields in one schema | 65,536 | `SCHEMA_INVALID_TYPE` |
+| `vectorPromotion.hnswConfig.m` | A whole number from 2 to 512 | `CONFIG_INVALID` |
+| The length of a document ID | From 1 to 512 UTF-16 code units, which is the `length` of a JavaScript string | `DOC_VALIDATION_FAILED` |
+| The size of a new index's configuration as MessagePack, stop word lists and field names included | 16,777,216 bytes (16 MiB) | `CONFIG_INVALID` |
+
+The engine applies the first two limits and the configuration limit only to new indexes and new writes, so an index that you saved with release 0.3 keeps every larger document, every vector field of up to 65,535 dimensions, and a configuration of any size, which a single engine and a cluster can both search. When an import creates an index from an export of such an index, it applies the limits of a new index, so it refuses a larger configuration or a wider vector field. Every import refuses a document above 16 MiB, because it writes each document as a new write. See [Indexes from an earlier release](persistence-and-durability.md#indexes-from-an-earlier-release).
+
 ### IndexConfig
 
 | Field | Type | Description |

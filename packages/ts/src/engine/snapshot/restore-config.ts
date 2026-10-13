@@ -233,9 +233,12 @@ export function readSharedConfigFields(source: ConfigFieldSource, reject: Config
   }
 }
 
-export function restoredConfigFields(envelope: SnapshotEnvelope): RestoredConfigFields {
-  const shared = readSharedConfigFields(envelope, rejectSnapshot)
-  const partitions = restoredPartitionConfig(envelope.partitionConfig)
+export function restoredConfigFields(
+  envelope: SnapshotEnvelope,
+  reject: ConfigFieldRejection = rejectSnapshot,
+): RestoredConfigFields {
+  const shared = readSharedConfigFields(envelope, reject)
+  const partitions = restoredPartitionConfig(envelope.partitionConfig, reject)
   return {
     ...shared,
     ...(partitions !== undefined ? { partitions } : {}),

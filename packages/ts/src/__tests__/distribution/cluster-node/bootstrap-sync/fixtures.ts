@@ -15,6 +15,7 @@ import {
 } from '../../../../distribution/transport/types'
 import type { Narsil } from '../../../../narsil'
 import { crc32 } from '../../../../serialization/crc32'
+import { bytesOf } from '../../../e2e/portability/archive-oracle'
 
 export type ScriptedChunk = Uint8Array
 
@@ -62,7 +63,8 @@ export function makeMockEngine(options: MockEngineOptions = {}): MockEngineHandl
       hasIndex = false
       dropIndexCalls.push(name)
     },
-    restore: async (indexName: string, data: Uint8Array) => {
+    restore: async (indexName: string, source: Uint8Array | AsyncIterable<Uint8Array>) => {
+      const data = source instanceof Uint8Array ? source : await bytesOf(source)
       announceRestoreStarted()
       if (restoreHold !== null) {
         await restoreHold

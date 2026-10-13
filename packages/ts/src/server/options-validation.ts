@@ -8,6 +8,7 @@ const ENGINE_METHOD_SAMPLE = ['createIndex', 'listIndexes', 'insert', 'query', '
 const LIMITS_UNBOUNDED_AT_ZERO = [
   'maxBodyBytes',
   'maxImportBytes',
+  'maxRestoreBytes',
   'maxLineBytes',
   'maxImportErrors',
   'maxConcurrentRequests',

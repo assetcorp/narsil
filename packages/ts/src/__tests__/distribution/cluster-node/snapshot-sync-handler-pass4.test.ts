@@ -9,6 +9,7 @@ import type { AllocationTable, ClusterCoordinator, PartitionAssignment } from '.
 import { ReplicationMessageTypes, type RespondFn, type TransportMessage } from '../../../distribution/transport/types'
 import { ErrorCodes } from '../../../errors'
 import type { Narsil } from '../../../narsil'
+import { snapshotStreamOf } from './snapshot-stream'
 
 function makeAssignment(overrides: Partial<PartitionAssignment> = {}): PartitionAssignment {
   return {
@@ -67,7 +68,7 @@ function makeEngine(indexes: string[], snapshotDelayMs = 0): Narsil {
       if (snapshotDelayMs > 0) {
         await new Promise(resolve => setTimeout(resolve, snapshotDelayMs))
       }
-      return new Uint8Array(16)
+      return snapshotStreamOf(new Uint8Array(16))
     }),
   } as unknown as Narsil
 }

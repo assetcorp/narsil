@@ -48,7 +48,7 @@ describe('runBootstrapSync - happy path and state', () => {
     expect(state.inFlight.has('products:0')).toBe(false)
   })
 
-  it('pre-allocates a contiguous buffer for assembly rather than copying per chunk', async () => {
+  it('hands the restore every byte of an archive that spans several chunks, in order', async () => {
     const totalBytes = SNAPSHOT_CHUNK_SIZE * 2 + 17
     const { chunks, bytes } = makeScriptedSnapshot('products', totalBytes)
     scripted.setScript(chunks)

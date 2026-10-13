@@ -64,6 +64,48 @@ describe('TcpTransport', () => {
       expect(received[2]).toEqual(chunk3)
     })
 
+    it('waits snapshotTimeout for each next chunk, so a stream may run longer than the timeout', async () => {
+      const target = `127.0.0.1:${portB}`
+      await transportB.listen(async (message, respond) => {
+        for (let at = 0; at < 6; at++) {
+          await respond({ ...message, sourceId: 'node-b', payload: new Uint8Array([at]) })
+          await new Promise(resolve => setTimeout(resolve, 120))
+        }
+      })
+      const slow = createTcpTransport('stream-slow', { host: '127.0.0.1', port: 0, snapshotTimeout: 400 })
+
+      try {
+        const received: Uint8Array[] = []
+        const started = Date.now()
+        await slow.stream(target, makeMessage({ requestId: 'req-slow-stream' }), chunk => {
+          received.push(chunk)
+        })
+
+        expect(Date.now() - started).toBeGreaterThan(400)
+        expect(received.map(chunk => chunk[0])).toEqual([0, 1, 2, 3, 4, 5])
+      } finally {
+        await slow.shutdown()
+      }
+    })
+
+    it('times out a stream once one gap between chunks passes snapshotTimeout', async () => {
+      const target = `127.0.0.1:${portB}`
+      await transportB.listen(async (message, respond) => {
+        await respond({ ...message, sourceId: 'node-b', payload: new Uint8Array([0]) })
+        await new Promise(resolve => setTimeout(resolve, 700))
+        await respond({ ...message, sourceId: 'node-b', payload: new Uint8Array([1]) })
+      })
+      const stalled = createTcpTransport('stream-stalled', { host: '127.0.0.1', port: 0, snapshotTimeout: 300 })
+
+      try {
+        await expect(
+          stalled.stream(target, makeMessage({ requestId: 'req-stalled-stream' }), () => undefined),
+        ).rejects.toMatchObject({ code: TransportErrorCodes.TIMEOUT })
+      } finally {
+        await stalled.shutdown()
+      }
+    })
+
     it('handles empty stream with no chunks', async () => {
       const target = `127.0.0.1:${portB}`
 

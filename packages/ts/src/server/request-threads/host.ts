@@ -1,4 +1,6 @@
 import type { TemplatedApp } from 'uWebSockets.js'
+import { rm } from 'node:fs/promises'
+import path from 'node:path'
 import { MessageChannel, type MessagePort } from 'node:worker_threads'
 import type { EngineCore } from '../../engine/core'
 import type { RequestThreadListener } from '../../engine/orchestration'
@@ -13,8 +15,9 @@ import { ServerErrorCodes, toHttpError } from '../errors'
 import type { Authorizer, RouteContext } from '../request'
 import { sendError } from '../response'
 import type { ServerHandlers } from '../routes'
+import type { SpooledBody } from '../spool'
 import { type AcceptorApp, acceptorOf } from './acceptor'
-import { createCapturingResponse, toRelayedResponse } from './captured-response'
+import { type CapturingResponse, createCapturingResponse, toRelayedResponse } from './captured-response'
 import type {
   AuthorizeRequest,
   EmbedQueryRequest,
@@ -47,17 +50,34 @@ interface ServingThread {
   executor: Executor
 }
 
-const NO_ABORT = { aborted: false, onAbort: () => undefined }
+const RELAYED_TYPES: ReadonlySet<string> = new Set(['request', 'authorize', 'embed', 'stream-credit', 'stream-cancel'])
 
 function isRelayRequest(message: unknown): message is RelayRequest {
   if (typeof message !== 'object' || message === null) return false
   const { type, requestId } = message as { type?: unknown; requestId?: unknown }
   if (type === 'touch') return true
-  return typeof requestId === 'number' && (type === 'request' || type === 'authorize' || type === 'embed')
+  return typeof requestId === 'number' && typeof type === 'string' && RELAYED_TYPES.has(type)
 }
 
-async function answerRequest(handlers: ServerHandlers, request: RelayedRequest): Promise<RelayReply> {
-  const captured = createCapturingResponse(request.hookContext?.remoteAddress ?? '')
+function spooledBodyOf(relayed: RelayedRequest['spooledBody']): SpooledBody | null {
+  if (relayed === null) return null
+  return {
+    path: relayed.path,
+    bytes: relayed.bytes,
+    remove: () => rm(path.dirname(relayed.path), { recursive: true, force: true }),
+  }
+}
+
+async function answerRequest(
+  handlers: ServerHandlers,
+  request: RelayedRequest,
+  port: MessagePort,
+  streams: Map<number, CapturingResponse>,
+): Promise<RelayReply | null> {
+  const captured = createCapturingResponse(request.hookContext?.remoteAddress ?? '', request.requestId, (part, moved) =>
+    port.postMessage(part, moved),
+  )
+  streams.set(request.requestId, captured)
   const ctx: RouteContext = {
     res: captured.sink,
     params: request.params,
@@ -67,7 +87,8 @@ async function answerRequest(handlers: ServerHandlers, request: RelayedRequest):
       request.rawBody === null
         ? null
         : Buffer.from(request.rawBody.buffer, request.rawBody.byteOffset, request.rawBody.byteLength),
-    abort: NO_ABORT,
+    spooledBody: spooledBodyOf(request.spooledBody),
+    abort: captured.abort,
     hookContext: request.hookContext,
   }
   try {
@@ -76,7 +97,9 @@ async function answerRequest(handlers: ServerHandlers, request: RelayedRequest):
     sendError(ctx.res, 500, ServerErrorCodes.INTERNAL_ERROR, 'An unexpected error occurred')
   }
   captured.finishUnanswered()
-  return toRelayedResponse(request.requestId, await captured.done)
+  const answered = await captured.done
+  streams.delete(request.requestId)
+  return answered === null ? null : toRelayedResponse(request.requestId, answered)
 }
 
 async function answerAuthorize(authorize: Authorizer | undefined, request: AuthorizeRequest): Promise<RelayReply> {
@@ -132,19 +155,30 @@ export async function startRequestThreads(options: RequestThreadHostOptions): Pr
   let stopped = false
 
   function relayFrom(port: MessagePort): void {
+    const streams = new Map<number, CapturingResponse>()
     port.on('message', (message: unknown) => {
       if (!isRelayRequest(message)) return
       if (message.type === 'touch') {
         core.orchestrator.noteAccess(message.indexName)
         return
       }
+      if (message.type === 'stream-credit') {
+        streams.get(message.requestId)?.credit()
+        return
+      }
+      if (message.type === 'stream-cancel') {
+        streams.get(message.requestId)?.cancel()
+        return
+      }
       const reply =
         message.type === 'request'
-          ? answerRequest(handlers, message)
+          ? answerRequest(handlers, message, port, streams)
           : message.type === 'authorize'
             ? answerAuthorize(authorize, message)
             : answerEmbed(core, message)
-      void reply.then(answer => port.postMessage(answer))
+      void reply.then(answer => {
+        if (answer !== null) port.postMessage(answer)
+      })
     })
   }
 

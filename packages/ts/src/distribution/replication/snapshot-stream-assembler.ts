@@ -6,6 +6,7 @@ import type {
   SnapshotEndPayload,
   SnapshotStartPayload,
 } from '../transport/types'
+import type { SpooledSnapshot } from './snapshot-spool'
 import {
   applyChunkPayload,
   applyEndPayload,
@@ -13,6 +14,7 @@ import {
   applyStartPayload,
   classifyFrameShape,
   fail,
+  releaseSpool,
   type SnapshotStreamExpectation,
   type SnapshotStreamFailure,
   type SnapshotStreamState,
@@ -22,7 +24,7 @@ export type { SnapshotStreamExpectation, SnapshotStreamFailure, SnapshotStreamSt
 
 export interface SnapshotStreamSuccess {
   ok: true
-  bytes: Uint8Array
+  snapshot: SpooledSnapshot
   header: ReplicationSnapshotHeader
   end: SnapshotEndPayload
 }
@@ -34,7 +36,7 @@ export function createSnapshotStreamState(expectation: SnapshotStreamExpectation
     expectation,
     header: null,
     totalBytes: null,
-    assembled: null,
+    spool: null,
     accumulatedBytes: 0,
     expectedNextOffset: 0,
     endPayload: null,
@@ -114,11 +116,22 @@ export function handleIncomingSnapshotRecord(state: SnapshotStreamState, record:
   fail(state, ErrorCodes.SNAPSHOT_SYNC_FRAME_INVALID, 'unrecognised snapshot frame shape')
 }
 
+export function abandonSnapshotStream(state: SnapshotStreamState): void {
+  fail(state, ErrorCodes.SNAPSHOT_SYNC_ABORTED, 'the snapshot stream was abandoned before it finished')
+  releaseSpool(state)
+}
+
 export function finalizeSnapshotStream(state: SnapshotStreamState): SnapshotStreamResult {
+  const result = settleSnapshotStream(state)
+  if (!result.ok) releaseSpool(state)
+  return result
+}
+
+function settleSnapshotStream(state: SnapshotStreamState): SnapshotStreamResult {
   if (state.failure !== null) {
     return state.failure
   }
-  if (state.header === null || state.totalBytes === null || state.assembled === null) {
+  if (state.header === null || state.totalBytes === null) {
     return {
       ok: false,
       code: ErrorCodes.SNAPSHOT_SYNC_CHUNK_MISSING,
@@ -150,9 +163,28 @@ export function finalizeSnapshotStream(state: SnapshotStreamState): SnapshotStre
       },
     }
   }
+  const spool = state.spool
+  if (spool === null) {
+    return {
+      ok: false,
+      code: ErrorCodes.SNAPSHOT_SYNC_FRAME_INVALID,
+      message: 'the snapshot stream was already settled',
+      details: { indexName: state.expectation.indexName },
+    }
+  }
+  const computed = spool.checksum()
+  if (computed !== state.header.checksum) {
+    return {
+      ok: false,
+      code: ErrorCodes.SNAPSHOT_SYNC_CHECKSUM_MISMATCH,
+      message: 'computed checksum does not match header checksum',
+      details: { computed, header: state.header.checksum },
+    }
+  }
+  state.spool = null
   return {
     ok: true,
-    bytes: state.assembled,
+    snapshot: spool.finish(),
     header: state.header,
     end: state.endPayload,
   }

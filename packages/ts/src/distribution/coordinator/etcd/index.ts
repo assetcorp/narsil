@@ -1,7 +1,5 @@
 import type { Etcd3 as Etcd3Client, IKeyValue, Watcher } from 'etcd3'
-import { compareCodePoints } from '../../../core/ordering'
 import { ErrorCodes, NarsilError } from '../../../errors'
-import type { SchemaDefinition } from '../../../types/schema'
 import { MAX_WATCHERS } from '../constants'
 import type {
   AllocationEvent,
@@ -10,19 +8,15 @@ import type {
   NodeEvent,
   NodeRegistration,
   PartitionState,
-  SchemaEvent,
 } from '../types'
+import { ETCD_MAX_RESPONSE_BYTES } from './constants'
 import { coordinatorKeys, extractSuffix } from './keys'
 import { LeaseManager } from './leases'
 import { loadEtcd3Module } from './loader'
 import { writeNodeRegistration } from './registration'
-import {
-  deserializeAllocationTable,
-  deserializeNodeRegistration,
-  deserializeSchema,
-  serializeAllocationTable,
-  serializeSchema,
-} from './serialization'
+import { createEtcdWriteGuard, requireEtcdMaxRequestBytes } from './request-size'
+import { deserializeAllocationTable, deserializeNodeRegistration, serializeAllocationTable } from './serialization'
+import { storedValueMethods } from './stored-values'
 import { DEFAULT_ETCD_CONFIG, type EtcdCoordinatorConfig } from './types'
 import { validateNodeId, validatePartitionState } from './validation'
 
@@ -30,19 +24,21 @@ export type { EtcdCoordinatorConfig } from './types'
 export { validateNodeId } from './validation'
 
 /**
- * Builds a coordinator backed by etcd, which is what holds a cluster's shared
- * state across hosts and restarts.
+ * Builds a coordinator backed by etcd, which stores a cluster's shared state
+ * across hosts and restarts.
  *
- * etcd gives the coordinator what a cluster depends on: leases that expire once
- * a node misses its heartbeats, and compare-and-set writes that keep two
- * controllers from disagreeing. Install `etcd3` alongside this package,
- * because it is an optional peer dependency this call loads on demand.
+ * etcd provides the two mechanisms that a cluster uses: leases, which expire
+ * once a node misses its heartbeats, and compare-and-set writes, which stop two
+ * controllers from writing conflicting state. Install `etcd3` alongside this
+ * package, because it is an optional peer dependency that this call loads on
+ * demand.
  *
- * @param config - Endpoints, key prefix, and heartbeat lifetime to override.
- * Anything you leave out keeps its default.
- * @returns A coordinator you pass as a cluster node's `coordinator`.
+ * @param config - The endpoints, key prefix, heartbeat lifetime, and request
+ * size to override. Every setting that you leave out keeps its default.
+ * @returns A coordinator that you pass as a cluster node's `coordinator`.
  * @throws A `NarsilError` with `COORDINATOR_DEPENDENCY_MISSING` when `etcd3`
- * is not installed.
+ * is not installed, or with `CONFIG_INVALID` when `maxRequestBytes` is not a
+ * whole number from 1,025 to 2,147,483,647.
  *
  * @public
  */
@@ -52,8 +48,13 @@ export async function createEtcdCoordinator(config?: Partial<EtcdCoordinatorConf
     ...config,
   }
 
+  requireEtcdMaxRequestBytes(resolvedConfig.maxRequestBytes)
   const etcd3Module = await loadEtcd3Module()
-  const client: Etcd3Client = new etcd3Module.Etcd3({ hosts: resolvedConfig.endpoints })
+  const client: Etcd3Client = new etcd3Module.Etcd3({
+    hosts: resolvedConfig.endpoints,
+    grpcOptions: { 'grpc.max_receive_message_length': ETCD_MAX_RESPONSE_BYTES },
+  })
+  const guard = createEtcdWriteGuard(etcd3Module, resolvedConfig.maxRequestBytes)
   const leaseManager = new LeaseManager()
   const watchers = new Set<Watcher>()
   let isShutdown = false
@@ -90,6 +91,7 @@ export async function createEtcdCoordinator(config?: Partial<EtcdCoordinatorConf
         {
           client,
           leaseManager,
+          guard,
           key: keys.node(registration.nodeId),
           ttlSeconds: resolvedConfig.nodeHeartbeatTtlSeconds,
         },
@@ -158,15 +160,18 @@ export async function createEtcdCoordinator(config?: Partial<EtcdCoordinatorConf
       assertNotShutdown()
       const key = keys.allocation(indexName)
       const data = Buffer.from(serializeAllocationTable(table))
+      const write = { key, value: data, expected: null }
 
       if (expectedVersion === undefined) {
-        await client.put(key).value(data).exec()
+        await guard.send(write, () => client.put(key).value(data).exec())
         return true
       }
 
       if (expectedVersion === null) {
-        const txn = await client.if(key, 'Create', '==', 0).then(client.put(key).value(data)).commit()
-        return txn.succeeded
+        return guard.send(write, async () => {
+          const txn = await client.if(key, 'Create', '==', 0).then(client.put(key).value(data)).commit()
+          return txn.succeeded
+        })
       }
 
       const response = await client.get(key).exec()
@@ -179,8 +184,10 @@ export async function createEtcdCoordinator(config?: Partial<EtcdCoordinatorConf
         return false
       }
 
-      const txn = await client.if(key, 'Mod', '==', kv.mod_revision).then(client.put(key).value(data)).commit()
-      return txn.succeeded
+      return guard.send(write, async () => {
+        const txn = await client.if(key, 'Mod', '==', kv.mod_revision).then(client.put(key).value(data)).commit()
+        return txn.succeeded
+      })
     },
 
     async deleteAllocation(indexName: string): Promise<void> {
@@ -277,85 +284,7 @@ export async function createEtcdCoordinator(config?: Partial<EtcdCoordinatorConf
       await entry.lease.revoke().catch(() => {})
     },
 
-    async get(key: string): Promise<Uint8Array | null> {
-      assertNotShutdown()
-      const etcdKey = keys.generic(key)
-      const buf = await client.get(etcdKey).buffer()
-      if (buf === null) {
-        return null
-      }
-      return new Uint8Array(buf)
-    },
-
-    async compareAndSet(key: string, expected: Uint8Array | null, value: Uint8Array): Promise<boolean> {
-      assertNotShutdown()
-      const etcdKey = keys.generic(key)
-      const newValue = Buffer.from(value)
-
-      if (expected === null) {
-        const txn = await client.if(etcdKey, 'Create', '==', 0).then(client.put(etcdKey).value(newValue)).commit()
-        return txn.succeeded
-      }
-
-      const expectedBuf = Buffer.from(expected)
-      const txn = await client
-        .if(etcdKey, 'Value', '==', expectedBuf)
-        .then(client.put(etcdKey).value(newValue))
-        .commit()
-      return txn.succeeded
-    },
-
-    async getSchema(indexName: string): Promise<SchemaDefinition | null> {
-      assertNotShutdown()
-      const key = keys.schema(indexName)
-      const buf = await client.get(key).buffer()
-      if (buf === null) {
-        return null
-      }
-      return deserializeSchema(buf)
-    },
-
-    async putSchema(indexName: string, schema: SchemaDefinition): Promise<void> {
-      assertNotShutdown()
-      const key = keys.schema(indexName)
-      await client.put(key).value(serializeSchema(schema)).exec()
-    },
-
-    async dropSchema(indexName: string): Promise<void> {
-      assertNotShutdown()
-      await client.delete().key(keys.schema(indexName)).exec()
-    },
-
-    async listSchemas(): Promise<string[]> {
-      assertNotShutdown()
-      const prefix = keys.schemaPrefix()
-      const result = await client.getAll().prefix(prefix).keys()
-      return result.map(fullKey => extractSuffix(fullKey, prefix)).sort(compareCodePoints)
-    },
-
-    async watchSchemas(handler: (event: SchemaEvent) => void): Promise<() => void> {
-      assertNotShutdown()
-      const prefix = keys.schemaPrefix()
-      const watcher = await client.watch().prefix(prefix).create()
-      addWatcher(watcher)
-
-      watcher.on('put', (kv: IKeyValue) => {
-        try {
-          const schema = deserializeSchema(kv.value)
-          const fullKey = kv.key.toString()
-          const indexName = extractSuffix(fullKey, prefix)
-          handler({ type: 'schema_created', indexName, schema })
-        } catch (_) {}
-      })
-
-      watcher.on('delete', (kv: IKeyValue) => {
-        const fullKey = kv.key.toString()
-        const indexName = extractSuffix(fullKey, prefix)
-        handler({ type: 'schema_dropped', indexName, schema: null })
-      })
-
-      return () => removeWatcher(watcher)
-    },
+    ...storedValueMethods({ client, keys, guard, assertNotShutdown, addWatcher, removeWatcher }),
 
     async getLeaseHolder(key: string): Promise<string | null> {
       assertNotShutdown()

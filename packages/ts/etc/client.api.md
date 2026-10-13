@@ -8,12 +8,14 @@
 export interface AdminOperations {
     checkpoint(indexName: string, options?: RequestOptions): Promise<void>;
     compactVectors(indexName: string, fieldName?: string, options?: RequestOptions): Promise<void>;
+    exportDocuments(indexName: string, options?: RequestOptions): Promise<ReadableStream<Uint8Array>>;
     getMemoryStats(options?: RequestOptions): Promise<MemoryStatsResponse>;
+    importDocumentExport(indexName: string, data: Uint8Array | ReadableStream<Uint8Array>, options?: RequestOptions): Promise<TaskRecord>;
     optimizeVectors(indexName: string, fieldName?: string, options?: RequestOptions): Promise<TaskRecord>;
     rebalance(indexName: string, targetPartitionCount: number, options?: RequestOptions): Promise<TaskRecord>;
     rebuildAnalysis(indexName: string, options?: RequestOptions): Promise<TaskRecord>;
-    restore(indexName: string, data: Uint8Array, options?: RequestOptions): Promise<TaskRecord>;
-    snapshot(indexName: string, options?: RequestOptions): Promise<Uint8Array>;
+    restore(indexName: string, data: Uint8Array | ReadableStream<Uint8Array>, options?: RequestOptions): Promise<TaskRecord>;
+    snapshot(indexName: string, options?: RequestOptions): Promise<ReadableStream<Uint8Array>>;
     updatePartitionConfig(indexName: string, partitionConfig: Partial<PartitionConfig>, options?: RequestOptions): Promise<void>;
     vectorMaintenanceStatus(indexName: string, options?: RequestOptions): Promise<VectorMaintenanceResult[]>;
 }
@@ -61,6 +63,9 @@ export interface CreateIndexEmbedding {
 
 // @public
 export function createNarsilClient(options: NarsilClientOptions): NarsilClient;
+
+// @public
+export const DOCUMENT_EXPORT_CAPABILITY = "indexes.documentExport";
 
 // @public
 export interface DocumentOperations {
@@ -150,7 +155,6 @@ export const ErrorCodes: {
     readonly SNAPSHOT_SYNC_UNAUTHORIZED: "SNAPSHOT_SYNC_UNAUTHORIZED";
     readonly SNAPSHOT_SYNC_REQUEST_INVALID: "SNAPSHOT_SYNC_REQUEST_INVALID";
     readonly SNAPSHOT_SYNC_INDEX_NOT_FOUND: "SNAPSHOT_SYNC_INDEX_NOT_FOUND";
-    readonly SNAPSHOT_SYNC_TOO_LARGE: "SNAPSHOT_SYNC_TOO_LARGE";
     readonly SNAPSHOT_SYNC_CAPACITY_EXHAUSTED: "SNAPSHOT_SYNC_CAPACITY_EXHAUSTED";
     readonly SNAPSHOT_SYNC_SNAPSHOT_FAILED: "SNAPSHOT_SYNC_SNAPSHOT_FAILED";
     readonly SNAPSHOT_SYNC_DECODE_FAILED: "SNAPSHOT_SYNC_DECODE_FAILED";
@@ -405,7 +409,7 @@ export interface TaskRecord {
 export type TaskStatus = 'running' | 'succeeded' | 'failed' | 'cancelled';
 
 // @public
-export type TaskType = 'optimizeVectors' | 'rebalance' | 'restore' | 'import' | 'rebuildAnalysis';
+export type TaskType = 'optimizeVectors' | 'rebalance' | 'restore' | 'import' | 'importExport' | 'rebuildAnalysis';
 
 // @public
 export interface WaitForTaskOptions extends RequestOptions {

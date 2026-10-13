@@ -51,8 +51,7 @@ export async function streamSnapshotToReplica(
   metadata: SnapshotHeaderMetadata,
   options: StreamSnapshotOptions = {},
 ): Promise<void> {
-  const snapshotBytes = build.bytes
-  const totalBytes = snapshotBytes.byteLength
+  const totalBytes = build.totalBytes
   const checksum = build.checksum
 
   const header: ReplicationSnapshotHeader = {
@@ -72,25 +71,23 @@ export async function streamSnapshotToReplica(
 
   let offset = 0
   let lastYieldAt = now()
-  while (offset < totalBytes) {
-    const end = Math.min(offset + SNAPSHOT_CHUNK_SIZE, totalBytes)
-    const chunk = snapshotBytes.subarray(offset, end)
-
-    const chunkPayload: SnapshotChunkPayload = {
-      partitionId: metadata.partitionId,
-      indexName,
-      offset,
-      data: chunk,
-    }
-    const chunkBytes = encode(chunkPayload)
-    assertMessageWithinLimit(chunkBytes, 'SNAPSHOT_CHUNK')
-    await respondMessage(sink, ReplicationMessageTypes.SNAPSHOT_CHUNK, nodeId, requestId, chunkBytes)
-
-    offset = end
-
-    if (offset < totalBytes && now() - lastYieldAt >= SNAPSHOT_CHUNK_YIELD_INTERVAL_MS) {
-      await yieldToEventLoop()
-      lastYieldAt = now()
+  for await (const source of build.read()) {
+    for (let from = 0; from < source.byteLength; from += SNAPSHOT_CHUNK_SIZE) {
+      const chunk = source.subarray(from, Math.min(from + SNAPSHOT_CHUNK_SIZE, source.byteLength))
+      const chunkPayload: SnapshotChunkPayload = {
+        partitionId: metadata.partitionId,
+        indexName,
+        offset,
+        data: chunk,
+      }
+      const chunkBytes = encode(chunkPayload)
+      assertMessageWithinLimit(chunkBytes, 'SNAPSHOT_CHUNK')
+      await respondMessage(sink, ReplicationMessageTypes.SNAPSHOT_CHUNK, nodeId, requestId, chunkBytes)
+      offset += chunk.byteLength
+      if (offset < totalBytes && now() - lastYieldAt >= SNAPSHOT_CHUNK_YIELD_INTERVAL_MS) {
+        await yieldToEventLoop()
+        lastYieldAt = now()
+      }
     }
   }
 

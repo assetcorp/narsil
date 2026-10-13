@@ -174,12 +174,14 @@ HNSW builds a proximity graph in layers.
 - **Layers 1 upward** each hold a random subset of the layer below, and their connections span longer distances.
 - **The top layer** holds the fewest nodes, and every search starts there.
 
-Layer assignment follows an exponential distribution:
+Layer assignment follows an exponential distribution, capped at layer 32:
 
 ```text
-layer = floor(-ln(random()) * mL)
+layer = minimum(floor(-ln(random()) * mL), 32)
 where mL = 1 / ln(M)
 ```
+
+`M` must be a whole number from 2 to 512, since `mL` divides by `ln(M)` and `ln(1)` is 0. An implementation must raise `CONFIG_INVALID` for any other value. With those two bounds, one node holds at most 33 lists of connections, so a [graph part](envelope.md#vector-graph-payload) of 16,384 vectors stays inside the [file size](envelope.md#file-size) limit.
 
 ### Insertion
 
@@ -770,7 +772,7 @@ An implementation must count the work of every test on a pattern field across ev
 
 ### Pattern Index
 
-An implementation must keep a pattern index for each pattern field, mapping every run of three consecutive code points in the field's folded values to the documents whose value holds that run. [Field Indexes](envelope.md#field-indexes) defines how a partition stores it. An implementation may build the shortlist for a test from any runs that every matching value must hold, but it must check each shortlisted document against the whole test, so the shortlist changes only how long a search takes. It must check every value of the field for a test from which it can take no run, such as `\d{4}`.
+An implementation must keep a pattern index for each pattern field, mapping every run of three consecutive code points in the field's folded values to the documents whose value holds that run. The [keyword segment payload](envelope.md#keyword-segment-payload) defines how a segment stores it. An implementation may build the shortlist for a test from any runs that every matching value must hold, but it must check each shortlisted document against the whole test, so the shortlist changes only how long a search takes. It must check every value of the field for a test from which it can take no run, such as `\d{4}`.
 
 ### Typo Test
 
@@ -820,7 +822,7 @@ Three properties follow:
 
 ## Optimised Scalar Quantisation (OSQ)
 
-OSQ quantises each vector against a centroid, over an interval that it fits to that vector, as Lucene's optimised scalar quantisation does. A document code holds 8, 4, 2, or 1 bits per dimension for `osq8`, `osq4`, `osq2`, or `osq1`, and a query code holds `QUERY_BITS[bits]` bits per dimension.
+OSQ quantises each vector against a centroid, over an interval that it fits to that vector. A document code holds 8, 4, 2, or 1 bits per dimension for `osq8`, `osq4`, `osq2`, or `osq1`, and a query code holds `QUERY_BITS[bits]` bits per dimension.
 
 ### Centroid
 

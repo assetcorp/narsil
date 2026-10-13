@@ -1,3 +1,6 @@
+import { mkdtemp, readdir, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { decode, encode } from '@msgpack/msgpack'
 import { describe, expect, it, vi } from 'vitest'
 import { createCatchUpState } from '../../../distribution/cluster-node/catch-up'
@@ -166,12 +169,23 @@ describe('createDataNodeHandler sync_request routing', () => {
     })
     const snapshotBytes = new Uint8Array([1, 2, 3, 4])
     const snapshot = vi.fn()
-    const serializeReplicationPartition = vi.fn().mockResolvedValue(snapshotBytes)
+    const archiveReplicationPartition = vi
+      .fn()
+      .mockImplementation(async (_indexName: string, _partitionId: number, lastSeqNo: () => number) => ({
+        stream: new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(snapshotBytes)
+            controller.close()
+          },
+        }),
+        lastSeqNo: lastSeqNo(),
+      }))
+    const spoolDirectory = await mkdtemp(join(tmpdir(), 'narsil-sync-spool-'))
     const engine = {
       listIndexes: () => [{ name: 'products', state: 'open' }],
       acquireIndexForReplication: async () => () => {},
       snapshot,
-      serializeReplicationPartition,
+      archiveReplicationPartition,
     } as unknown as ClusterLocalEngine
 
     const handler = createDataNodeHandler({
@@ -183,6 +197,7 @@ describe('createDataNodeHandler sync_request routing', () => {
         catchUp: createCatchUpState(),
       } as unknown as DataNodeHandlerDeps['writeDeps'],
       snapshotSyncState: createSnapshotSyncHandlerState(),
+      snapshotSpoolDirectory: spoolDirectory,
     })
     const responses: TransportMessage[] = []
 
@@ -190,6 +205,8 @@ describe('createDataNodeHandler sync_request routing', () => {
       responses.push(response)
     })
 
+    expect(await readdir(spoolDirectory)).toEqual([])
+    await rm(spoolDirectory, { recursive: true, force: true })
     expect(responses.map(response => response.type)).toEqual([
       ReplicationMessageTypes.SNAPSHOT_START,
       ReplicationMessageTypes.SNAPSHOT_CHUNK,
@@ -206,7 +223,7 @@ describe('createDataNodeHandler sync_request routing', () => {
     expect(chunkPayload.partitionId).toBe(0)
     expect(chunkPayload.data).toEqual(snapshotBytes)
     expect(snapshot).not.toHaveBeenCalled()
-    expect(serializeReplicationPartition).toHaveBeenCalledWith('products', 0)
+    expect(archiveReplicationPartition).toHaveBeenCalledWith('products', 0, expect.any(Function))
 
     const trailingPayload = decode(responses[3].payload) as SyncEntriesPayload
     expect(trailingPayload.entries).toHaveLength(0)

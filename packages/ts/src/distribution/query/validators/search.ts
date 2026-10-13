@@ -9,9 +9,9 @@ import {
   MAX_FIELDS_LIST,
   MAX_LIMIT,
   MAX_OFFSET,
+  MAX_STORED_VECTOR_DIMENSION,
   MAX_TERM_LENGTH,
   MAX_TOLERANCE,
-  MAX_VECTOR_DIMENSION,
   MAX_VECTOR_TEXT_LENGTH,
 } from '../constants'
 import {
@@ -69,11 +69,11 @@ function validateVectorParams(value: unknown): void {
       )
     }
     const dims = value.value.length
-    if (dims === 0 || dims > MAX_VECTOR_DIMENSION) {
+    if (dims === 0 || dims > MAX_STORED_VECTOR_DIMENSION) {
       throwInvalid(
         CONFIG_INVALID,
-        `Invalid SearchPayload: "params.vector.value" length must be between 1 and ${MAX_VECTOR_DIMENSION}`,
-        { length: dims, limit: MAX_VECTOR_DIMENSION },
+        `Invalid SearchPayload: "params.vector.value" length must be between 1 and ${MAX_STORED_VECTOR_DIMENSION}`,
+        { length: dims, limit: MAX_STORED_VECTOR_DIMENSION },
       )
     }
     for (let i = 0; i < dims; i++) {

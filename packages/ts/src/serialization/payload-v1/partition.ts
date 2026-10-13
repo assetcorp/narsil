@@ -1,4 +1,4 @@
-import { decode, encode } from '@msgpack/msgpack'
+import { decode } from '@msgpack/msgpack'
 import { ErrorCodes, NarsilError } from '../../errors'
 import { requireValidFieldTypes } from '../../schema/validator/schema'
 import type { SerializablePartition, SerializedPatternIndex, SerializedSurfaceForms } from '../../types/internal'
@@ -24,15 +24,6 @@ export function sanitizeSurfaceForms(raw: unknown): SerializedSurfaceForms | und
 export interface RawPatternIndex {
   doc_ids: string[]
   runs: Record<string, unknown>
-}
-
-export function patternIndexesToWire(pattern: Record<string, SerializedPatternIndex> | undefined): {
-  pattern?: Record<string, RawPatternIndex>
-} {
-  if (pattern === undefined) return {}
-  const wire: Record<string, RawPatternIndex> = Object.create(null)
-  for (const [field, index] of Object.entries(pattern)) wire[field] = { doc_ids: index.docIds, runs: index.runs }
-  return { pattern: wire }
 }
 
 function isWireRecord(value: unknown): value is Record<string, unknown> {
@@ -124,70 +115,6 @@ export interface RawPartitionPayload {
     total_field_lengths: Record<string, number>
     average_field_lengths: Record<string, number>
     doc_frequencies: Record<string, number>
-  }
-}
-
-function partitionToWire(partition: SerializablePartition): RawPartitionPayload {
-  const wireDocuments: RawPartitionPayload['documents'] = {}
-  for (const [docId, doc] of Object.entries(partition.documents)) {
-    wireDocuments[docId] = {
-      fields: doc.fields,
-      field_lengths: doc.fieldLengths,
-    }
-  }
-
-  const wireIndex: RawPartitionPayload['inverted_index'] = {}
-  for (const [token, list] of Object.entries(partition.invertedIndex)) {
-    wireIndex[token] = {
-      doc_freq: list.docFrequency,
-      postings: list.postings.map(p => ({
-        doc_id: p.docId,
-        term_freq: p.termFrequency,
-        field: p.field,
-        positions: p.positions,
-      })),
-    }
-  }
-
-  const wireNumeric: RawPartitionPayload['field_indexes']['numeric'] = {}
-  for (const [field, entries] of Object.entries(partition.fieldIndexes.numeric)) {
-    wireNumeric[field] = entries.map(e => ({ value: e.value, doc_id: e.docId }))
-  }
-
-  const wireBoolean: RawPartitionPayload['field_indexes']['boolean'] = {}
-  for (const [field, idx] of Object.entries(partition.fieldIndexes.boolean)) {
-    wireBoolean[field] = { true_docs: idx.trueDocs, false_docs: idx.falseDocs }
-  }
-
-  const wireGeopoint: RawPartitionPayload['field_indexes']['geopoint'] = {}
-  for (const [field, entries] of Object.entries(partition.fieldIndexes.geopoint)) {
-    wireGeopoint[field] = entries.map(e => ({ lat: e.lat, lon: e.lon, doc_id: e.docId }))
-  }
-
-  return {
-    index_name: partition.indexName,
-    partition_id: partition.partitionId,
-    total_partitions: partition.totalPartitions,
-    language: partition.language,
-    schema: partition.schema,
-    doc_count: partition.docCount,
-    avg_doc_length: partition.avgDocLength,
-    documents: wireDocuments,
-    inverted_index: wireIndex,
-    field_indexes: {
-      numeric: wireNumeric,
-      boolean: wireBoolean,
-      enum: partition.fieldIndexes.enum,
-      geopoint: wireGeopoint,
-      ...patternIndexesToWire(partition.fieldIndexes.pattern),
-    },
-    surface_forms: partition.surfaceForms,
-    statistics: {
-      total_documents: partition.statistics.totalDocuments,
-      total_field_lengths: partition.statistics.totalFieldLengths,
-      average_field_lengths: partition.statistics.averageFieldLengths,
-      doc_frequencies: partition.statistics.docFrequencies,
-    },
   }
 }
 
@@ -283,15 +210,6 @@ function wireToPartition(raw: RawPartitionPayload): SerializablePartition {
       docFrequencies: raw.statistics?.doc_frequencies ?? {},
     },
   }
-}
-
-export function serializePayloadV1(partition: SerializablePartition): Uint8Array {
-  const wire = partitionToWire(partition)
-  return encode(wire)
-}
-
-export function encodeRawPayload(wire: RawPartitionPayload): Uint8Array {
-  return encode(wire)
 }
 
 export function deserializePayloadV1(data: Uint8Array): SerializablePartition {

@@ -1,4 +1,5 @@
-import { deserializePayloadV2, encodeRawPayloadV2, type RawPartitionPayloadV2 } from '../../../serialization/payload-v2'
+import { encode } from '@msgpack/msgpack'
+import { deserializePayloadV2, type RawPartitionPayloadV2 } from '../../../serialization/payload-v2'
 
 export function makeMinimalPayload(overrides: Partial<RawPartitionPayloadV2> = {}): RawPartitionPayloadV2 {
   return {
@@ -24,6 +25,6 @@ export function makeMinimalPayload(overrides: Partial<RawPartitionPayloadV2> = {
 }
 
 export function roundtrip(wire: RawPartitionPayloadV2) {
-  const bytes = encodeRawPayloadV2(wire)
+  const bytes = encode(wire)
   return deserializePayloadV2(bytes)
 }

@@ -1,48 +1,8 @@
 import { ErrorCodes, NarsilError } from '../../errors'
 import { createHNSWIndex, type SerializedHNSWGraph } from '../hnsw'
 import { type OsqQuantizer, osqBitsOf } from '../osq'
-import {
-  bytesToVectors,
-  VECTOR_INDEX_PART_VECTORS,
-  VECTOR_INDEX_PAYLOAD_VERSION,
-  type VectorIndexCodes,
-  type VectorIndexPayload,
-  vectorsToBytes,
-} from './payload'
+import { bytesToVectors, type VectorIndexCodes, type VectorIndexPayload } from './payload'
 import { adoptGraph, emptyFieldBeforeRestore, recalibrateFromStore, type VectorIndexState } from './shared'
-
-function liveDocIds(state: VectorIndexState): string[] {
-  const docIds: string[] = []
-  for (let ordinal = 0; ordinal < state.store.slots; ordinal++) {
-    const docId = state.store.docIdForOrdinal(ordinal)
-    if (docId === undefined || state.tombstones.has(docId)) continue
-    docIds.push(docId)
-  }
-  return docIds
-}
-
-function partVectors(state: VectorIndexState, docIds: readonly string[]): Float32Array {
-  const dimension = state.dimension
-  const vectors = new Float32Array(docIds.length * dimension)
-  for (let i = 0; i < docIds.length; i++) {
-    const entry = state.store.get(docIds[i])
-    if (entry !== undefined) vectors.set(entry.vector, i * dimension)
-  }
-  return vectors
-}
-
-function graphsPerPart(state: VectorIndexState, partOf: Map<string, number>, parts: number): SerializedHNSWGraph[][] {
-  const sliced: SerializedHNSWGraph[][] = Array.from({ length: parts }, () => [])
-  if (state.hnsw === null || partOf.size === 0) return sliced
-  const graph = state.hnsw.serialize()
-  const nodesPerPart: SerializedHNSWGraph['nodes'][] = Array.from({ length: parts }, () => [])
-  for (const node of graph.nodes) {
-    const part = partOf.get(node[0])
-    if (part !== undefined) nodesPerPart[part].push(node)
-  }
-  for (let part = 0; part < parts; part++) sliced[part].push({ ...graph, nodes: nodesPerPart[part] })
-  return sliced
-}
 
 function recordFor(state: VectorIndexState, quantizer: OsqQuantizer, docId: string): Uint8Array | undefined {
   const record = quantizer.recordOf(docId)
@@ -88,44 +48,6 @@ export function partCodes(
     if (record !== undefined) records.set(record, i * layout.slotStride)
   }
   return { bits: quantizer.bits, centroid, records }
-}
-
-interface VectorIndexPartsPlan {
-  readonly parts: number
-  readPart(part: number): VectorIndexPayload
-}
-
-function planParts(state: VectorIndexState): VectorIndexPartsPlan {
-  const docIds = liveDocIds(state)
-  const parts = Math.max(1, Math.ceil(docIds.length / VECTOR_INDEX_PART_VECTORS))
-  const partOf = new Map<string, number>()
-  for (let i = 0; i < docIds.length; i++) partOf.set(docIds[i], Math.floor(i / VECTOR_INDEX_PART_VECTORS))
-  const graphs = graphsPerPart(state, partOf, parts)
-  const centroid = codedCentroid(state)
-
-  return {
-    parts,
-    readPart(part: number): VectorIndexPayload {
-      const start = part * VECTOR_INDEX_PART_VECTORS
-      const slice = docIds.slice(start, start + VECTOR_INDEX_PART_VECTORS)
-      return {
-        v: VECTOR_INDEX_PAYLOAD_VERSION,
-        fieldName: state.fieldName,
-        dimension: state.dimension,
-        part,
-        parts,
-        docIds: slice,
-        graphs: graphs[part],
-        codes: partCodes(state, slice, centroid),
-        vectors: vectorsToBytes(partVectors(state, slice)),
-      }
-    },
-  }
-}
-
-export function serialize(state: VectorIndexState): VectorIndexPayload[] {
-  const plan = planParts(state)
-  return Array.from({ length: plan.parts }, (_, part) => plan.readPart(part))
 }
 
 interface Sequence {
@@ -189,7 +111,7 @@ function restoreCodes(state: VectorIndexState, sequences: Sequence[]): void {
 
 function restoreGraphs(state: VectorIndexState, graphs: SerializedHNSWGraph[]): void {
   if (graphs.length === 0) {
-    for (const [docId] of state.store.entries()) {
+    for (const docId of state.store.docIds()) {
       if (!state.tombstones.has(docId)) state.buffer.add(docId)
     }
     return
@@ -214,7 +136,7 @@ function restoreGraphs(state: VectorIndexState, graphs: SerializedHNSWGraph[]): 
     }
   }
 
-  for (const [docId] of state.store.entries()) {
+  for (const docId of state.store.docIds()) {
     if (state.tombstones.has(docId)) continue
     if (!restoredHnsw.has(docId)) state.buffer.add(docId)
   }
@@ -222,7 +144,7 @@ function restoreGraphs(state: VectorIndexState, graphs: SerializedHNSWGraph[]): 
   if (state.buffer.size > restoredHnsw.size) {
     adoptGraph(state, null)
     state.buffer.clear()
-    for (const [docId] of state.store.entries()) {
+    for (const docId of state.store.docIds()) {
       if (!state.tombstones.has(docId)) state.buffer.add(docId)
     }
   }

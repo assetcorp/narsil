@@ -169,12 +169,13 @@ export function createNarsilSerializableAdapter(): SerializableEngine {
 
     async serialize() {
       if (!instance) return new Uint8Array(0)
-      return instance.snapshot('bench')
+      return new Uint8Array(await new Response(await instance.snapshot('bench')).arrayBuffer())
     },
 
     async deserializeAndSearch(serialized: Uint8Array | string, query: string) {
+      if (typeof serialized === 'string') throw new Error('Narsil restores a snapshot from bytes, not from text')
       const fresh = await createNarsil(SINGLE_THREAD)
-      await fresh.restore('bench', serialized as Uint8Array)
+      await fresh.restore('bench', serialized)
       const result = await fresh.query('bench', { term: query })
       await fresh.shutdown()
       return result.count

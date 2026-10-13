@@ -4,8 +4,8 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createNarsil } from '../../../narsil'
 import { createDurableDirectory } from '../../../persistence/durability/durable-filesystem'
-import { decodeSegmentManifest } from '../../../persistence/durability/segment/manifest'
 import type { IndexConfig } from '../../../types/schema'
+import { requireManifestOnDisk } from './manifest-on-disk'
 
 const SCHEMA: IndexConfig = {
   schema: { title: 'string', body: 'string', year: 'number' },
@@ -20,13 +20,8 @@ function doc(i: number): { title: string; body: string; year: number } {
   }
 }
 
-async function readManifest(root: string, indexName: string) {
-  const directory = createDurableDirectory(root)
-  const bytes = await directory.read(`${indexName}/manifest`)
-  if (bytes === null) {
-    throw new Error('manifest missing')
-  }
-  return decodeSegmentManifest(bytes)
+function readManifest(root: string, indexName: string) {
+  return requireManifestOnDisk(root, indexName)
 }
 
 async function segmentFiles(root: string, indexName: string, partitionId: number): Promise<string[]> {

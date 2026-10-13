@@ -61,9 +61,14 @@ function savedTopLayer(state: HNSWGraphState, ordinal: number): number {
   return Math.min(nodeMaxLayer(state, ordinal), MAX_LAYER_CAP)
 }
 
-function largestNeighbourValueCount(state: HNSWGraphState, topLayers: Int8Array): number {
+export interface NumberedGraphParts {
+  partSize: number
+  parts: readonly NumberedHnswGraph[]
+}
+
+function neighbourValueCount(state: HNSWGraphState, topLayers: Int8Array, start: number, end: number): number {
   let values = 0
-  for (let number = 0; number < topLayers.length; number++) {
+  for (let number = start; number < end; number++) {
     const top = topLayers[number]
     if (top < 0) continue
     values += state.adjacency.level0Stride + top * state.adjacency.upperStride
@@ -71,26 +76,20 @@ function largestNeighbourValueCount(state: HNSWGraphState, topLayers: Int8Array)
   return values
 }
 
-export function serializeNumberedGraph(
+function serializePart(
   state: HNSWGraphState,
-  numberOfOrdinal: Int32Array,
-  ordinalOfNumber: Int32Array,
-): NumberedHnswGraph {
+  numbers: { numberOfOrdinal: Int32Array; ordinalOfNumber: Int32Array; topLayers: Int8Array },
+  start: number,
+  end: number,
+): { levels: Uint8Array; neighbours: Uint8Array } {
+  const { numberOfOrdinal, ordinalOfNumber, topLayers } = numbers
   const adjacency = state.adjacency
-  const slots = adjacencySlots(adjacency)
-  const topLayers = new Int8Array(ordinalOfNumber.length).fill(-1)
-  const levels = new Uint8Array(ordinalOfNumber.length)
-  for (let number = 0; number < ordinalOfNumber.length; number++) {
-    const ordinal = ordinalOfNumber[number]
-    if (ordinal >= slots) continue
-    topLayers[number] = savedTopLayer(state, ordinal)
-    levels[number] = topLayers[number] + 1
-  }
-
-  const values = new Uint32Array(largestNeighbourValueCount(state, topLayers))
+  const levels = new Uint8Array(end - start)
+  const values = new Uint32Array(neighbourValueCount(state, topLayers, start, end))
   let cursor = 0
-  for (let number = 0; number < ordinalOfNumber.length; number++) {
+  for (let number = start; number < end; number++) {
     const top = topLayers[number]
+    levels[number - start] = top + 1
     for (let layer = 0; layer <= top; layer++) {
       const base = layerBase(adjacency, ordinalOfNumber[number], layer)
       const array = layerArray(adjacency, layer)
@@ -108,20 +107,40 @@ export function serializeNumberedGraph(
       values[countAt] = cursor - countAt - 1
     }
   }
+  return { levels, neighbours: littleEndianBytesOf(values.subarray(0, cursor)) }
+}
 
+export function serializeNumberedGraphParts(
+  state: HNSWGraphState,
+  numberOfOrdinal: Int32Array,
+  ordinalOfNumber: Int32Array,
+  partSize: number,
+): NumberedHnswGraph[] {
+  const slots = adjacencySlots(state.adjacency)
+  const topLayers = new Int8Array(ordinalOfNumber.length).fill(-1)
+  for (let number = 0; number < ordinalOfNumber.length; number++) {
+    const ordinal = ordinalOfNumber[number]
+    if (ordinal >= slots) continue
+    topLayers[number] = savedTopLayer(state, ordinal)
+  }
   const entryOrdinal = entryPointOf(state)
   const entryNumber =
     entryOrdinal >= 0 && entryOrdinal < numberOfOrdinal.length ? numberOfOrdinal[entryOrdinal] : NO_NUMBER
   const entryHoldsNode = entryNumber !== NO_NUMBER && topLayers[entryNumber] >= 0
-  return {
+  const header = {
     entryPoint: entryHoldsNode ? entryNumber : null,
     maxLayer: Math.max(0, Math.min(topLayerOf(state), MAX_LAYER_CAP)),
     m: state.M,
     efConstruction: state.efCons,
     metric: state.buildMetric,
-    levels,
-    neighbours: littleEndianBytesOf(values.subarray(0, cursor)),
   }
+  const numbers = { numberOfOrdinal, ordinalOfNumber, topLayers }
+  const parts: NumberedHnswGraph[] = []
+  for (let start = 0; start < ordinalOfNumber.length; start += partSize) {
+    const end = Math.min(start + partSize, ordinalOfNumber.length)
+    parts.push({ ...header, ...serializePart(state, numbers, start, end) })
+  }
+  return parts
 }
 
 function endsInsideAList(): never {
@@ -145,62 +164,80 @@ export function requireWholeNeighbourLists(graph: NumberedHnswGraph): void {
   }
 }
 
-function topLayerIn(graph: NumberedHnswGraph, number: number): number {
-  return number < graph.levels.length ? graph.levels[number] - 1 : -1
+export function topLayerInParts(graph: NumberedGraphParts, number: number): number {
+  const part = graph.parts[Math.floor(number / graph.partSize)]
+  if (part === undefined) return -1
+  const at = number % graph.partSize
+  return at < part.levels.length ? part.levels[at] - 1 : -1
+}
+
+function highestNodeOrdinal(graph: NumberedGraphParts, ordinalAt: (number: number) => number): number {
+  let highest = -1
+  for (let p = 0; p < graph.parts.length; p++) {
+    const levels = graph.parts[p].levels
+    for (let at = 0; at < levels.length; at++) {
+      const ordinal = ordinalAt(p * graph.partSize + at)
+      if (levels[at] > 0 && ordinal > highest) highest = ordinal
+    }
+  }
+  return highest
 }
 
 export function deserializeNumberedGraph(
   state: HNSWGraphState,
-  graph: NumberedHnswGraph,
+  graph: NumberedGraphParts,
   ordinalOfNumber: Int32Array,
 ): void {
-  requireWholeNeighbourLists(graph)
+  for (const part of graph.parts) requireWholeNeighbourLists(part)
   resetGraph(state)
-  const values = valuesOf(graph.neighbours)
   const ordinalAt = (number: number) => (number < ordinalOfNumber.length ? ordinalOfNumber[number] : NO_ORDINAL)
-
-  let highestOrdinal = -1
-  for (let number = 0; number < graph.levels.length; number++) {
-    if (graph.levels[number] > 0 && ordinalAt(number) > highestOrdinal) highestOrdinal = ordinalAt(number)
-  }
+  const highestOrdinal = highestNodeOrdinal(graph, ordinalAt)
   if (highestOrdinal >= 0) ensureCapacity(state, highestOrdinal + 1)
 
   const kept: number[] = []
-  let cursor = 0
   let highestLayer = -1
   let nodeOnHighestLayer = NO_ORDINAL
-  for (let number = 0; number < graph.levels.length; number++) {
-    const top = graph.levels[number] - 1
-    if (top < 0) continue
-    const ordinal = ordinalAt(number)
-    const keptTop = Math.min(top, MAX_LAYER_CAP)
-    if (ordinal !== NO_ORDINAL) {
-      createNode(state.adjacency, ordinal, keptTop)
-      Atomics.add(state.header, GRAPH_NODE_COUNT, 1)
-      if (keptTop > highestLayer) {
-        highestLayer = keptTop
-        nodeOnHighestLayer = ordinal
+  for (let p = 0; p < graph.parts.length; p++) {
+    const part = graph.parts[p]
+    const values = valuesOf(part.neighbours)
+    let cursor = 0
+    for (let at = 0; at < part.levels.length; at++) {
+      const number = p * graph.partSize + at
+      const top = part.levels[at] - 1
+      if (top < 0) continue
+      const ordinal = ordinalAt(number)
+      const keptTop = Math.min(top, MAX_LAYER_CAP)
+      if (ordinal !== NO_ORDINAL) {
+        createNode(state.adjacency, ordinal, keptTop)
+        Atomics.add(state.header, GRAPH_NODE_COUNT, 1)
+        if (keptTop > highestLayer) {
+          highestLayer = keptTop
+          nodeOnHighestLayer = ordinal
+        }
       }
-    }
-    for (let layer = 0; layer <= top; layer++) {
-      const count = values[cursor]
-      kept.length = 0
-      const limit = maxConns(state, layer)
-      for (let i = 1; i <= count && kept.length < limit; i++) {
-        const neighbour = values[cursor + i]
-        const neighbourOrdinal = ordinalAt(neighbour)
-        if (neighbourOrdinal === NO_ORDINAL || neighbour === number || topLayerIn(graph, neighbour) < layer) continue
-        if (!kept.includes(neighbourOrdinal)) kept.push(neighbourOrdinal)
-      }
-      cursor += count + 1
-      if (ordinal !== NO_ORDINAL && layer <= keptTop) {
-        replaceNeighbors(state.adjacency, ordinal, layer, kept, kept.length)
+      for (let layer = 0; layer <= top; layer++) {
+        const count = values[cursor]
+        kept.length = 0
+        const limit = maxConns(state, layer)
+        for (let i = 1; i <= count && kept.length < limit; i++) {
+          const neighbour = values[cursor + i]
+          const neighbourOrdinal = ordinalAt(neighbour)
+          if (neighbourOrdinal === NO_ORDINAL || neighbour === number) continue
+          if (topLayerInParts(graph, neighbour) < layer) continue
+          if (!kept.includes(neighbourOrdinal)) kept.push(neighbourOrdinal)
+        }
+        cursor += count + 1
+        if (ordinal !== NO_ORDINAL && layer <= keptTop) {
+          replaceNeighbors(state.adjacency, ordinal, layer, kept, kept.length)
+        }
       }
     }
   }
 
-  const entryOrdinal = graph.entryPoint === null ? NO_ORDINAL : ordinalAt(graph.entryPoint)
-  const entryTop = graph.entryPoint === null ? -1 : Math.min(topLayerIn(graph, graph.entryPoint), MAX_LAYER_CAP)
+  const first = graph.parts[0]
+  const entryPoint = first === undefined ? null : first.entryPoint
+  const entryOrdinal = entryPoint === null ? NO_ORDINAL : ordinalAt(entryPoint)
+  const entryTop = entryPoint === null ? -1 : Math.min(topLayerInParts(graph, entryPoint), MAX_LAYER_CAP)
   const entryIsUsable = entryOrdinal !== NO_ORDINAL && entryTop >= 0
   Atomics.store(state.header, GRAPH_ENTRY_POINT, entryIsUsable ? entryOrdinal : nodeOnHighestLayer)
   Atomics.store(state.header, GRAPH_TOP_LAYER, entryIsUsable ? entryTop : highestLayer)

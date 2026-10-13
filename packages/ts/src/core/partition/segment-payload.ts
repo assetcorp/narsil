@@ -16,7 +16,7 @@ export interface SegmentPayload {
   postingOffsets: Uint32Array
   postingDocIds: Uint32Array
   postingFrequencies: Uint16Array
-  postingFieldIndices: Uint8Array
+  postingFieldIndices: Uint16Array
   positionOffsets: Uint32Array | null
   positionValues: Uint32Array | null
   fieldLengthNames: string[]
@@ -150,7 +150,7 @@ export function encodeSegmentState(state: PartitionReadState): SegmentPayload {
   const postingOffsets = new Uint32Array(state.invertedIdx.size() + 1)
   const postingDocIds = new Uint32Array(postings)
   const postingFrequencies = new Uint16Array(postings)
-  const postingFieldIndices = new Uint8Array(postings)
+  const postingFieldIndices = new Uint16Array(postings)
   const positionOffsets = hasPositions ? new Uint32Array(postings + 1) : null
   const positionValues = hasPositions ? new Uint32Array(positions) : null
 

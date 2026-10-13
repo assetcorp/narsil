@@ -1,6 +1,7 @@
 import { buildEntry } from '../../distribution/replication/entry-checksum'
 import type { ReplicationLogEntry } from '../../distribution/replication/types'
 import { writeMetadataEnvelope } from '../../serialization/envelope'
+import { createArchiveCheckpointAccess, removeAbandonedRestores } from './archive-checkpoint'
 import { runDurableCheckpoint } from './checkpoint-run'
 import { terminateCheckpointWorker } from './checkpoint-worker-dispatch'
 import {
@@ -55,22 +56,21 @@ export function createDurabilityManager(
   let asyncFlushTimer: ReturnType<typeof setInterval> | null = null
   let shuttingDown = false
   let fatalError: Error | null = null
+  const heldCheckpointFiles = new Map<string, number>()
   const directoryWatch = createDirectoryWatch(directory, () => shuttingDown || fatalError !== null, markFatal)
 
-  function markFatal(error: Error): void {
-    if (fatalError !== null) {
-      return
-    }
-    fatalError = error
+  function stopTimers(): void {
     directoryWatch.stop()
-    if (checkpointTimer !== null) {
-      clearInterval(checkpointTimer)
-      checkpointTimer = null
-    }
-    if (asyncFlushTimer !== null) {
-      clearInterval(asyncFlushTimer)
-      asyncFlushTimer = null
-    }
+    if (checkpointTimer !== null) clearInterval(checkpointTimer)
+    if (asyncFlushTimer !== null) clearInterval(asyncFlushTimer)
+    checkpointTimer = null
+    asyncFlushTimer = null
+  }
+
+  function markFatal(error: Error): void {
+    if (fatalError !== null) return
+    fatalError = error
+    stopTimers()
     hooks.onFatalError(error)
   }
 
@@ -218,6 +218,7 @@ export function createDurabilityManager(
       fromMemory,
       mutationThreshold: checkpointMutationThreshold,
       mayContinue: () => !indexState.unloading && !shuttingDown && fatalError === null,
+      holdsCheckpointFiles: () => heldCheckpointFiles.has(indexName),
       queueMetadataWrite,
       markFatal,
     })
@@ -276,9 +277,11 @@ export function createDurabilityManager(
       {
         directory,
         hooks,
+        compactionThreshold,
         registerPartition: (name, partitionId, startSeqNo) => {
           getOrCreatePartition(name, partitionId, startSeqNo)
         },
+        holdsCheckpointFiles: name => heldCheckpointFiles.has(name),
         queueMetadataWrite,
       },
       indexName,
@@ -293,6 +296,7 @@ export function createDurabilityManager(
 
     async recover(metadataOnly = false): Promise<void> {
       await directoryWatch.claim()
+      await removeAbandonedRestores(directory)
       const names = await listPersistedIndexes(directory)
       for (const indexName of names) {
         await recoverIndex(indexName, metadataOnly)
@@ -369,17 +373,16 @@ export function createDurabilityManager(
       metadataWrites.delete(indexName)
     },
 
+    ...createArchiveCheckpointAccess({
+      directory,
+      held: heldCheckpointFiles,
+      checkpoint: name => checkpointIndex(name),
+      registerPartition: (name, partitionId, startSeqNo) => getOrCreatePartition(name, partitionId, startSeqNo),
+    }),
+
     async shutdown(): Promise<void> {
       shuttingDown = true
-      directoryWatch.stop()
-      if (checkpointTimer !== null) {
-        clearInterval(checkpointTimer)
-        checkpointTimer = null
-      }
-      if (asyncFlushTimer !== null) {
-        clearInterval(asyncFlushTimer)
-        asyncFlushTimer = null
-      }
+      stopTimers()
       for (const indexState of indexes.values()) {
         if (indexState.checkpointInFlight !== null) {
           await indexState.checkpointInFlight.catch(() => undefined)

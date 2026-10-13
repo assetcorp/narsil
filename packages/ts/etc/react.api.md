@@ -96,7 +96,6 @@ export const ErrorCodes: {
     readonly SNAPSHOT_SYNC_UNAUTHORIZED: "SNAPSHOT_SYNC_UNAUTHORIZED";
     readonly SNAPSHOT_SYNC_REQUEST_INVALID: "SNAPSHOT_SYNC_REQUEST_INVALID";
     readonly SNAPSHOT_SYNC_INDEX_NOT_FOUND: "SNAPSHOT_SYNC_INDEX_NOT_FOUND";
-    readonly SNAPSHOT_SYNC_TOO_LARGE: "SNAPSHOT_SYNC_TOO_LARGE";
     readonly SNAPSHOT_SYNC_CAPACITY_EXHAUSTED: "SNAPSHOT_SYNC_CAPACITY_EXHAUSTED";
     readonly SNAPSHOT_SYNC_SNAPSHOT_FAILED: "SNAPSHOT_SYNC_SNAPSHOT_FAILED";
     readonly SNAPSHOT_SYNC_DECODE_FAILED: "SNAPSHOT_SYNC_DECODE_FAILED";
@@ -289,7 +288,7 @@ export interface TaskRecord {
 export type TaskStatus = 'running' | 'succeeded' | 'failed' | 'cancelled';
 
 // @public
-export type TaskType = 'optimizeVectors' | 'rebalance' | 'restore' | 'import' | 'rebuildAnalysis';
+export type TaskType = 'optimizeVectors' | 'rebalance' | 'restore' | 'import' | 'importExport' | 'rebuildAnalysis';
 
 // @public
 export function useDocument(indexName: string, docId: string | null | undefined, options?: NarsilReadOptions): NarsilReadState<AnyDocument | undefined>;

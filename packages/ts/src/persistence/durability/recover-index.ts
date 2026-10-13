@@ -1,37 +1,44 @@
 import { writeMetadataEnvelope } from '../../serialization/envelope'
 import { countCheckpointDocuments } from './checkpoint-count'
+import { recoverCheckpoint } from './checkpoint-recovery'
 import type { DurableDirectory } from './durable-filesystem'
-import { loadMetadata, loadSnapshot, replayWal, snapshotCheckpointFor } from './recovery'
-import { readSegmentManifest, reclaimOrphanedSegments } from './segment'
+import { checkpointPrimaryTerm, type PartitionCheckpoint } from './partition-checkpoint'
+import { loadMetadata, replayWal, snapshotCheckpointFor } from './recovery'
+import { directoryCheckpointStore } from './segment/store'
+import { SINGLE_NODE_PRIMARY_TERM } from './seq-owner'
 import type { IndexDurabilityHooks } from './types'
 
 export interface RecoverPersistedIndexDeps {
   directory: DurableDirectory
   hooks: IndexDurabilityHooks
+  compactionThreshold: number
   registerPartition(indexName: string, partitionId: number, startSeqNo: number): void
+  holdsCheckpointFiles(indexName: string): boolean
   queueMetadataWrite(indexName: string, write: () => Promise<void>): Promise<void>
 }
 
-/**
- * Recovers one persisted index from the write-ahead tier. A metadata-only
- * recovery registers the index closed, and when its metadata predates the
- * checkpoint count it derives the count from the checkpoint and writes the
- * upgraded metadata back. A count the store fails to back stays absent, so
- * the metadata never carries a number no checkpoint produced. A full recovery
- * loads the checkpoint, replays the log, and registers each partition at its
- * highest replayed sequence number.
- *
- * @param deps - The durable store, the engine hooks, and the manager's
- * partition and metadata registrars.
- * @param indexName - The index to recover.
- * @param metadataOnly - True registers the index closed without loading data.
- */
+async function writeCountedMetadata(
+  deps: RecoverPersistedIndexDeps,
+  indexName: string,
+  documentCount: number,
+): Promise<void> {
+  await deps
+    .queueMetadataWrite(indexName, async () => {
+      const metadata = deps.hooks.buildMetadata(indexName, documentCount)
+      if (metadata === undefined) return
+      const bytes = await writeMetadataEnvelope(metadata, { checksum: true })
+      await deps.directory.atomicWrite(`${indexName}/meta`, bytes)
+    })
+    .catch(() => undefined)
+}
+
 export async function recoverPersistedIndex(
   deps: RecoverPersistedIndexDeps,
   indexName: string,
   metadataOnly: boolean,
 ): Promise<void> {
   const { directory, hooks } = deps
+  const store = directoryCheckpointStore(directory)
   const metadata = await loadMetadata(directory, indexName)
   if (metadata === null) {
     return
@@ -39,7 +46,7 @@ export async function recoverPersistedIndex(
   let derivedCount: number | undefined
   if (metadataOnly && metadata.documentCount === undefined) {
     try {
-      derivedCount = await countCheckpointDocuments(directory, indexName)
+      derivedCount = await countCheckpointDocuments(store, indexName)
       metadata.documentCount = derivedCount
     } catch {
       derivedCount = undefined
@@ -48,42 +55,57 @@ export async function recoverPersistedIndex(
   await hooks.createIndexFromMetadata(metadata, !metadataOnly)
 
   if (metadataOnly) {
-    if (derivedCount !== undefined) {
-      await deps
-        .queueMetadataWrite(indexName, async () => {
-          const upgraded = hooks.buildMetadata(indexName, derivedCount)
-          if (upgraded === undefined) {
-            return
-          }
-          const bytes = await writeMetadataEnvelope(upgraded, { checksum: true })
-          await directory.atomicWrite(`${indexName}/meta`, bytes)
-        })
-        .catch(() => undefined)
-    }
+    if (derivedCount !== undefined) await writeCountedMetadata(deps, indexName, derivedCount)
     return
   }
 
   const manager = hooks.getManager(indexName)
-  if (manager === undefined) {
+  const current = hooks.buildMetadata(indexName)
+  if (manager === undefined || current === undefined) {
     return
   }
   const replayDeps = {
     manager,
     vectorFieldPaths: hooks.getVectorFieldPaths(indexName),
     vectorIndexes: hooks.getVectorIndexes(indexName),
+  }
+  const replay = async (checkpoint: PartitionCheckpoint[]): Promise<PartitionCheckpoint[]> => {
+    const replayed: PartitionCheckpoint[] = []
+    for (let partitionId = 0; partitionId < manager.partitionCount; partitionId += 1) {
+      const fromSeqNo = snapshotCheckpointFor(checkpoint, partitionId)
+      const { highestSeqNo, highestPrimaryTerm } = await replayWal(
+        directory,
+        indexName,
+        partitionId,
+        fromSeqNo,
+        replayDeps,
+      )
+      const primaryTerm = Math.max(
+        checkpointPrimaryTerm(checkpoint, partitionId),
+        highestPrimaryTerm,
+        SINGLE_NODE_PRIMARY_TERM,
+      )
+      replayed.push({ partitionId, lastSeqNo: highestSeqNo, primaryTerm })
+    }
+    return replayed
+  }
+
+  const recovered = await recoverCheckpoint({
+    store,
+    indexName,
+    metadata: current,
+    manager,
+    vectorIndexes: replayDeps.vectorIndexes,
     storedTermsAreCurrent: metadata.analysisRevision === manager.language.revision,
+    compactionThreshold: deps.compactionThreshold,
+    keepsUnlistedFiles: deps.holdsCheckpointFiles(indexName),
+    replay,
+    onLayoutUpgrade: hooks.onLayoutUpgrade,
+  })
+  for (const { partitionId, lastSeqNo } of recovered.checkpoint) {
+    deps.registerPartition(indexName, partitionId, lastSeqNo)
   }
-
-  const checkpoint = await loadSnapshot(directory, indexName, replayDeps)
-
-  const manifest = await readSegmentManifest(directory, indexName)
-  if (manifest !== null) {
-    await reclaimOrphanedSegments(directory, indexName, manifest)
-  }
-
-  for (let partitionId = 0; partitionId < manager.partitionCount; partitionId += 1) {
-    const fromSeqNo = snapshotCheckpointFor(checkpoint, partitionId)
-    const { highestSeqNo } = await replayWal(directory, indexName, partitionId, fromSeqNo, replayDeps)
-    deps.registerPartition(indexName, partitionId, highestSeqNo)
+  if (recovered.upgradedDocumentCount !== null) {
+    await writeCountedMetadata(deps, indexName, recovered.upgradedDocumentCount)
   }
 }

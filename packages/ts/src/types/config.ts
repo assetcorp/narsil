@@ -1,4 +1,5 @@
 import type { EmbeddingAdapter, InvalidationAdapter, PersistenceAdapter } from './adapters'
+import type { NarsilEventHandlers } from './events'
 import type { NarsilPlugin } from './plugins'
 import type { BM25Params, CustomTokenizer } from './schema'
 
@@ -35,6 +36,15 @@ export interface NarsilConfig {
   analysis?: AnalysisConfig
   /** These limits close indexes while keeping their durable files ready to reopen. */
   lifecycle?: IndexLifecycleConfig
+  /**
+   * These listeners receive events from the moment that the engine starts.
+   * The engine registers each one before it recovers any index, so a listener
+   * here receives the `layoutUpgrade` events of that recovery, which come
+   * before {@link createNarsil} returns the engine. For a name outside
+   * {@link NarsilEventMap}, or an entry that is not a function,
+   * {@link createNarsil} throws `CONFIG_INVALID`.
+   */
+  events?: NarsilEventHandlers
   /**
    * This is the most work that the engine may do on the pattern tests of one
    * search, counted over every partition that it searches. The engine adds one

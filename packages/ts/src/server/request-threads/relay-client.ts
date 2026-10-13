@@ -3,9 +3,9 @@ import { ErrorCodes, NarsilError } from '../../errors'
 import type { VectorQueryConfig } from '../../types/search'
 import { ServerErrorCodes } from '../errors'
 import type { Authorization, RouteContext } from '../request'
-import { type ResponseSink, sendError, sendRelayed } from '../response'
+import { type ResponseSink, sendError, sendRelayed, statusLine } from '../response'
 import type { RequestContext } from '../types'
-import type { EmbeddedReply, RelayedRoute, RelayReply } from './messages'
+import type { EmbeddedReply, RelayedRoute, RelayedStreamPart, RelayReply } from './messages'
 
 export interface RelayClient {
   authorize(context: RequestContext): Promise<Authorization>
@@ -19,6 +19,54 @@ function isRelayReply(message: unknown): message is RelayReply {
   if (typeof message !== 'object' || message === null) return false
   const { type, requestId } = message as { type?: unknown; requestId?: unknown }
   return typeof requestId === 'number' && (type === 'response' || type === 'authorized' || type === 'embedded')
+}
+
+function isStreamPart(message: unknown): message is RelayedStreamPart {
+  if (typeof message !== 'object' || message === null) return false
+  const { type, requestId } = message as { type?: unknown; requestId?: unknown }
+  return typeof requestId === 'number' && (type === 'stream-start' || type === 'stream-chunk' || type === 'stream-end')
+}
+
+interface StreamWriter {
+  ctx: RouteContext
+  started: boolean
+  finish(): void
+}
+
+function writeStreamPart(port: MessagePort, writer: StreamWriter, part: RelayedStreamPart): void {
+  const { ctx } = writer
+  if (part.type === 'stream-end') {
+    if (!ctx.abort.aborted) {
+      ctx.res.cork(() => {
+        if (part.failed) ctx.res.close()
+        else ctx.res.end()
+      })
+    }
+    writer.finish()
+    return
+  }
+  if (ctx.abort.aborted) return
+  if (part.type === 'stream-start') {
+    writer.started = true
+    ctx.res.cork(() => {
+      ctx.res.writeStatus(statusLine(part.status))
+      for (const [key, value] of part.headers) ctx.res.writeHeader(key, value)
+    })
+    return
+  }
+  let writable = true
+  ctx.res.cork(() => {
+    writable = ctx.res.write(part.chunk)
+  })
+  const credit = (): void => port.postMessage({ type: 'stream-credit', requestId: part.requestId })
+  if (writable) {
+    credit()
+    return
+  }
+  ctx.res.onWritable(() => {
+    credit()
+    return true
+  })
 }
 
 function errorOf(reply: EmbeddedReply): NarsilError {
@@ -66,11 +114,18 @@ export function createRelayClient(port: MessagePort, touchIntervalMs: number): R
     for (const entry of waiting) entry.reject(portClosedError())
   }
 
+  const writers = new Map<number, StreamWriter>()
   port.on('message', (message: unknown) => {
+    if (isStreamPart(message)) {
+      const writer = writers.get(message.requestId)
+      if (writer !== undefined) writeStreamPart(port, writer, message)
+      return
+    }
     if (!isRelayReply(message)) return
     const waiting = pending.get(message.requestId)
     if (waiting === undefined) return
     pending.delete(message.requestId)
+    writers.delete(message.requestId)
     waiting.resolve(message)
   })
   port.on('close', failAll)
@@ -104,27 +159,40 @@ export function createRelayClient(port: MessagePort, touchIntervalMs: number): R
       return { allowed: true }
     },
     async request(route, ctx) {
-      let reply: RelayReply
+      let reply: RelayReply | null
       const body = relayedBody(ctx.rawBody)
       try {
-        reply = await send(
-          requestId => ({
-            type: 'request',
-            requestId,
-            route,
-            params: ctx.params,
-            query: ctx.query.toString(),
-            contentType: ctx.contentType,
-            rawBody: body.bytes,
-            hookContext: ctx.hookContext,
-          }),
-          body.moved,
-        )
+        reply = await new Promise<RelayReply | null>((resolve, reject) => {
+          void send(requestId => {
+            writers.set(requestId, {
+              ctx,
+              started: false,
+              finish: () => {
+                writers.delete(requestId)
+                pending.delete(requestId)
+                resolve(null)
+              },
+            })
+            ctx.abort.onAbort(() => port.postMessage({ type: 'stream-cancel', requestId }))
+            return {
+              type: 'request',
+              requestId,
+              route,
+              params: ctx.params,
+              query: ctx.query.toString(),
+              contentType: ctx.contentType,
+              rawBody: body.bytes,
+              spooledBody:
+                ctx.spooledBody === null ? null : { path: ctx.spooledBody.path, bytes: ctx.spooledBody.bytes },
+              hookContext: ctx.hookContext,
+            }
+          }, body.moved).then(resolve, reject)
+        })
       } catch {
         if (!ctx.abort.aborted) sendUnavailable(ctx.res)
         return
       }
-      if (reply.type !== 'response' || ctx.abort.aborted) return
+      if (reply === null || reply.type !== 'response' || ctx.abort.aborted) return
       sendRelayed(ctx.res, ctx.abort, reply.status, reply.headers, reply.body)
     },
     async embed(indexName, vector) {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { type MergeFallback, mergeTimeOrderedSegments } from '../../../persistence/durability/segment/merge'
-import type { SegmentContents } from '../../../persistence/durability/segment/segment-file'
+import { type MergeFallback, mergeTimeOrderedSegments } from '../../../persistence/durability/earlier-layout/merge'
+import type { EarlierSegmentContents as SegmentContents } from '../../../persistence/durability/earlier-layout/segment'
 import type { SerializablePartition, SerializedSurfaceForms } from '../../../types/internal'
 
 function fallback(): MergeFallback {

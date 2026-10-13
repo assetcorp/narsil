@@ -6,7 +6,7 @@ export function createPostingList(): CompactPostingList {
     length: 0,
     docIds: [],
     termFrequencies: new Uint16Array(POSTING_LIST_INITIAL_CAPACITY),
-    fieldNameIndices: new Uint8Array(POSTING_LIST_INITIAL_CAPACITY),
+    fieldNameIndices: new Uint16Array(POSTING_LIST_INITIAL_CAPACITY),
     positions: null,
     docIdSet: new Set(),
     deletedDocs: new Set(),
@@ -23,7 +23,7 @@ export function growTypedArrays(list: CompactPostingList): void {
   newTF.set(list.termFrequencies)
   list.termFrequencies = newTF
 
-  const newFNI = new Uint8Array(newCap)
+  const newFNI = new Uint16Array(newCap)
   newFNI.set(list.fieldNameIndices)
   list.fieldNameIndices = newFNI
 }

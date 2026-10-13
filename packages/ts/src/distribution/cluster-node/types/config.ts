@@ -32,7 +32,14 @@ export interface ClusterNodeConfig {
   nodeId?: string
   /** This node offers this much capacity, which the allocator weighs. It offers {@link DEFAULT_CAPACITY} by default. */
   capacity?: NodeCapacity
-  /** These settings configure the engine this node runs locally, such as its persistence and durability. */
+  /**
+   * These settings configure the engine this node runs locally, such as its persistence and durability.
+   *
+   * When the node sends or receives a copy of an index, it writes that copy to disk so that the copy never has to fit
+   * in memory. The copy goes into a `.snapshot-transfer` directory inside the durability directory, or into the
+   * system's temporary directory when the engine has no durability directory, and the node deletes it once the
+   * transfer ends.
+   */
   engine?: NarsilConfig
   /** These replication settings override the engine's own, and anything you leave out keeps its value. */
   replication?: Partial<ReplicationConfig>

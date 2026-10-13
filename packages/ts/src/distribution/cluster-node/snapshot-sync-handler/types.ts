@@ -22,12 +22,13 @@ export interface SnapshotSyncHandlerDeps {
   coordinator: ClusterCoordinator
   state: SnapshotSyncHandlerState
   resolveHeaderMetadata?: SnapshotHeaderMetadataProvider
+  spoolDirectory?: string
 }
 
 export interface SnapshotSyncStreamOptions {
   metadata?: SnapshotHeaderMetadata
   closeOnEnd?: boolean
-  afterSnapshot?: (sink: SingleResponseSink) => void | Promise<void>
+  afterSnapshot?: (sink: SingleResponseSink, build: SnapshotBuildResult) => void | Promise<void>
   disableBuildCache?: boolean
   buildSnapshot?: (indexName: string) => Promise<SnapshotBuildResult> | SnapshotBuildResult
 }

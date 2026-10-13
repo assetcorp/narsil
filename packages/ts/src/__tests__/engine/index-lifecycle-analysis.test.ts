@@ -5,7 +5,6 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { registerTokenizer } from '../../analysis/registry'
 import { ErrorCodes } from '../../errors'
 import { createNarsil, type Narsil } from '../../narsil'
-import { decodeSnapshotBundle } from '../../persistence/durability/snapshot-bundle'
 import type { PersistenceAdapter } from '../../types/adapters'
 import type { CustomTokenizer } from '../../types/schema'
 
@@ -90,7 +89,7 @@ describe('index creation analysis rules under durability', () => {
     expect((await engine.query('prose', { term: 'm' })).hits).toHaveLength(1)
   })
 
-  it('carries the analysis names in the snapshot-only checkpoint bundle', async () => {
+  it('writes a snapshot-only checkpoint as segments and reopens it onto the tokenizer it names', async () => {
     registerTokenizer('lifecycle-checkpoint-letters', perLetter)
     const store = new Map<string, Uint8Array>()
     engine = await createNarsil({ persistence: memoryAdapter(store) })
@@ -98,14 +97,15 @@ describe('index creation analysis rules under durability', () => {
     await engine.createIndex('prose', { schema, tokenizer: 'lifecycle-checkpoint-letters' })
     await engine.insert('prose', { title: 'machine' })
     await engine.checkpoint('prose')
+    await engine.shutdown()
 
-    const bytes = store.get('prose/snapshot')
-    expect(bytes).toBeDefined()
-    if (bytes === undefined) {
-      return
-    }
-    const bundle = await decodeSnapshotBundle(bytes)
-    expect(bundle.tokenizer).toBe('lifecycle-checkpoint-letters')
-    expect(bundle.stopWords).toBeUndefined()
+    expect(store.has('prose/snapshot')).toBe(false)
+    expect(store.has('prose/manifest')).toBe(true)
+    expect([...store.keys()].some(key => key.startsWith('prose/segments/0/s'))).toBe(true)
+
+    engine = await createNarsil({ persistence: memoryAdapter(store) })
+    expect((await engine.query('prose', { term: 'm' })).hits).toHaveLength(1)
+    await engine.insert('prose', { title: 'engine' })
+    expect((await engine.query('prose', { term: 'n' })).hits).toHaveLength(2)
   })
 })

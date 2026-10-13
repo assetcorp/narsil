@@ -6,6 +6,7 @@ export interface FrozenTokenTable {
   readonly bytes: number
   find(token: string): number
   tokenAt(sortedIndex: number): string
+  byteLengthAt(sortedIndex: number): number
   payloadSlot(sortedIndex: number): number
   documentFrequencyAt(sortedIndex: number): number
   prefixRange(prefix: string): { start: number; end: number }
@@ -109,6 +110,10 @@ export function wrapFrozenTokenTable(data: FrozenTokenTableData): FrozenTokenTab
         decodedTokens[sortedIndex] = token
       }
       return token
+    },
+
+    byteLengthAt(sortedIndex: number): number {
+      return offsets[sortedIndex + 1] - offsets[sortedIndex]
     },
 
     payloadSlot(sortedIndex: number): number {

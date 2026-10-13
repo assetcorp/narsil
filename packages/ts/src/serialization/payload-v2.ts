@@ -1,4 +1,4 @@
-import { decode, encode } from '@msgpack/msgpack'
+import { decode } from '@msgpack/msgpack'
 import { requireValidFieldTypes } from '../schema/validator/schema'
 import type { SerializablePartition, SerializedSurfaceForms } from '../types/internal'
 import { VALID_HNSW_METRICS } from './constants'
@@ -61,10 +61,6 @@ export interface RawPartitionPayloadV2 {
     average_field_lengths: Record<string, number>
     doc_frequencies: Record<string, number>
   }
-}
-
-export function encodeRawPayloadV2(wire: RawPartitionPayloadV2): Uint8Array {
-  return encode(wire)
 }
 
 function validateHnswMetric(value: unknown): 'cosine' | 'dotProduct' | 'euclidean' | undefined {

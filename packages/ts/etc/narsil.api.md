@@ -38,6 +38,9 @@ export interface BM25Params {
 }
 
 // @public
+export type ByteSource = Uint8Array | ReadableStream<Uint8Array> | AsyncIterable<Uint8Array>;
+
+// @public
 export function clearNormalizationCache(): void;
 
 // @public
@@ -76,6 +79,17 @@ export interface CustomTokenizer {
         token: string;
         position: number;
     }>;
+}
+
+// @public
+export interface DocumentImportResult {
+    imported: number;
+    refused: Array<{
+        line: number;
+        code: NarsilErrorCode;
+        message: string;
+    }>;
+    refusedCount: number;
 }
 
 // @public
@@ -200,7 +214,6 @@ export const ErrorCodes: {
     readonly SNAPSHOT_SYNC_UNAUTHORIZED: "SNAPSHOT_SYNC_UNAUTHORIZED";
     readonly SNAPSHOT_SYNC_REQUEST_INVALID: "SNAPSHOT_SYNC_REQUEST_INVALID";
     readonly SNAPSHOT_SYNC_INDEX_NOT_FOUND: "SNAPSHOT_SYNC_INDEX_NOT_FOUND";
-    readonly SNAPSHOT_SYNC_TOO_LARGE: "SNAPSHOT_SYNC_TOO_LARGE";
     readonly SNAPSHOT_SYNC_CAPACITY_EXHAUSTED: "SNAPSHOT_SYNC_CAPACITY_EXHAUSTED";
     readonly SNAPSHOT_SYNC_SNAPSHOT_FAILED: "SNAPSHOT_SYNC_SNAPSHOT_FAILED";
     readonly SNAPSHOT_SYNC_DECODE_FAILED: "SNAPSHOT_SYNC_DECODE_FAILED";
@@ -520,12 +533,14 @@ export interface Narsil extends IndexLifecycleOperations, DocumentWriteOperation
     countDocuments(indexName: string): Promise<number>;
     createIndex(name: string, config: IndexConfig): Promise<void>;
     dropIndex(name: string): Promise<void>;
+    exportDocuments(indexName: string): Promise<ReadableStream<Uint8Array>>;
     get(indexName: string, docId: string): Promise<AnyDocument | undefined>;
     getMemoryStats(): Promise<MemoryStats>;
     getMultiple(indexName: string, docIds: string[]): Promise<Map<string, AnyDocument>>;
     getPartitionStats(indexName: string): PartitionStatsResult[];
     getStats(indexName: string): IndexStats;
     has(indexName: string, docId: string): Promise<boolean>;
+    importDocumentExport(indexName: string, data: ByteSource): Promise<DocumentImportResult>;
     listDocuments<T = AnyDocument>(indexName: string, params?: ListParams): Promise<ListResult<T>>;
     listIndexes(): IndexInfo[];
     off<K extends keyof NarsilEventMap>(event: K, handler: (payload: NarsilEventMap[K]) => void): void;
@@ -536,9 +551,9 @@ export interface Narsil extends IndexLifecycleOperations, DocumentWriteOperation
     rebalance(indexName: string, targetPartitionCount: number): Promise<void>;
     rebuildAnalysis(indexName: string): Promise<void>;
     registerEmbeddingAdapter(name: string, adapter: EmbeddingAdapter): void;
-    restore(indexName: string, data: Uint8Array): Promise<void>;
+    restore(indexName: string, data: ByteSource): Promise<void>;
     shutdown(): Promise<void>;
-    snapshot(indexName: string): Promise<Uint8Array>;
+    snapshot(indexName: string): Promise<ReadableStream<Uint8Array>>;
     suggest(indexName: string, params: SuggestParams): Promise<SuggestResult>;
     updatePartitionConfig(indexName: string, config: Partial<PartitionConfig>): Promise<void>;
     vectorMaintenanceStatus(indexName: string): VectorMaintenanceResult[];
@@ -550,6 +565,7 @@ export interface NarsilConfig {
     durability?: DurabilityConfig;
     embedding?: EmbeddingAdapter;
     embeddingAdapters?: Record<string, EmbeddingAdapter>;
+    events?: NarsilEventHandlers;
     idGenerator?: () => string;
     invalidation?: InvalidationAdapter;
     lifecycle?: IndexLifecycleConfig;
@@ -568,6 +584,11 @@ export class NarsilError extends Error {
 
 // @public
 export type NarsilErrorCode = ErrorCode | ServerErrorCode | ClientErrorCode | (string & {});
+
+// @public
+export type NarsilEventHandlers = {
+    [K in keyof NarsilEventMap]?: (payload: NarsilEventMap[K]) => void;
+};
 
 // @public
 export type NarsilEventMap = {
@@ -611,6 +632,12 @@ export type NarsilEventMap = {
         status: 'started' | 'completed' | 'failed';
         partitionsRebuilt: number;
         partitionCount: number;
+        error?: Error;
+    };
+    layoutUpgrade: {
+        indexName: string;
+        status: 'started' | 'completed' | 'failed';
+        layout: 'manifest' | 'bundle';
         error?: Error;
     };
     durabilityError: {

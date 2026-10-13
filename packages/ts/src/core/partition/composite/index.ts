@@ -182,11 +182,6 @@ export function createCompositePartition(
       return composedScratch().serialize(indexName, totalPartitions, language, schema)
     },
 
-    serializeToBytes(indexName: string, totalPartitions: number, language: string, schema: SchemaDefinition) {
-      if (frozen.length === 0) return live.serializeToBytes(indexName, totalPartitions, language, schema)
-      return composedScratch().serializeToBytes(indexName, totalPartitions, language, schema)
-    },
-
     deserialize(data, schema): void {
       frozen.length = 0
       invalidateDocFrequencies()

@@ -10,9 +10,13 @@ import type { ReplicationLogEntry } from '../../replication/types'
 import type { SyncEntriesPayload } from '../../transport/types'
 import type { LiveSyncFrameState } from './types'
 
-export function createLiveSyncFrameState(indexName: string, partitionId: number): LiveSyncFrameState {
+export function createLiveSyncFrameState(
+  indexName: string,
+  partitionId: number,
+  spoolDirectory: string,
+): LiveSyncFrameState {
   return {
-    snapshotState: createSnapshotStreamState({ indexName, partitionId }),
+    snapshotState: createSnapshotStreamState({ indexName, partitionId, spoolDirectory }),
     syncEntries: [],
     sawSnapshotFrame: false,
     error: null,

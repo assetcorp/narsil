@@ -1,0 +1,7752 @@
+{
+ "doc-0000": {
+  "title": "amber amber item 0",
+  "body": "The amber running quickly over the amber revision 1",
+  "tags": [
+   "amber",
+   "basalt"
+  ],
+  "price": 0.25,
+  "inStock": false,
+  "category": "tools",
+  "location": {
+   "lat": -85,
+   "lon": -175
+  },
+  "embedding": [
+   0.507,
+   -0.38,
+   0.246,
+   -0.107,
+   -0.035,
+   0.175,
+   -0.313,
+   0.444
+  ]
+ },
+ "doc-0001": {
+  "title": "basalt fjord item 1",
+  "body": "The delta running quickly over the harbour revision 0",
+  "tags": [
+   "basalt",
+   "cedar"
+  ],
+  "price": 37.25,
+  "inStock": true,
+  "category": "garden",
+  "location": {
+   "lat": -72,
+   "lon": -146
+  },
+  "embedding": [
+   0.657,
+   -0.544,
+   0.42,
+   -0.288,
+   0.15,
+   -0.009,
+   -0.132,
+   0.271
+  ]
+ },
+ "doc-0002": {
+  "title": "cedar kestrel item 2",
+  "body": "The granite running quickly over the cedar revision 0",
+  "tags": [
+   "cedar",
+   "delta"
+  ],
+  "price": 74.25,
+  "inStock": true,
+  "category": "kitchen",
+  "location": {
+   "lat": -59,
+   "lon": -117
+  },
+  "embedding": [
+   0.991,
+   -0.961,
+   0.913,
+   -0.846,
+   0.763,
+   -0.664,
+   0.551,
+   -0.428
+  ]
+ },
+ "doc-0004": {
+  "title": "ember indigo item 4",
+  "body": "The amber running quickly over the ember revision 0",
+  "tags": [
+   "amber",
+   "fjord"
+  ],
+  "price": 148.25,
+  "inStock": true,
+  "category": "tools",
+  "location": {
+   "lat": -33,
+   "lon": -59
+  },
+  "embedding": [
+   0.271,
+   -0.404,
+   0.529,
+   -0.644,
+   0.745,
+   -0.832,
+   0.902,
+   -0.954
+  ]
+ },
+ "doc-0005": {
+  "title": "fjord basalt item 5",
+  "body": "The delta running quickly over the lagoon revision 0",
+  "tags": [
+   "basalt",
+   "amber"
+  ],
+  "price": 185.25,
+  "inStock": true,
+  "category": "garden",
+  "location": {
+   "lat": -20,
+   "lon": -30
+  },
+  "embedding": [
+   -0.428,
+   0.296,
+   -0.159,
+   0.018,
+   0.124,
+   -0.262,
+   0.396,
+   -0.522
+  ]
+ },
+ "doc-0006": {
+  "title": "granite granite item 6",
+  "body": "The granite running quickly over the granite revision 0",
+  "tags": [
+   "cedar",
+   "basalt"
+  ],
+  "price": 222.25,
+  "inStock": false,
+  "category": "kitchen",
+  "location": {
+   "lat": -7,
+   "lon": -1
+  },
+  "embedding": [
+   -0.917,
+   0.851,
+   -0.768,
+   0.67,
+   -0.559,
+   0.436,
+   -0.305,
+   0.167
+  ]
+ },
+ "doc-0007": {
+  "title": "harbour lagoon item 7",
+  "body": "The juniper running quickly over the basalt revision 1",
+  "tags": [
+   "delta",
+   "cedar"
+  ],
+  "price": 259.25,
+  "inStock": true,
+  "category": "books",
+  "location": {
+   "lat": 6,
+   "lon": 28
+  },
+  "embedding": [
+   -0.67,
+   0.768,
+   -0.851,
+   0.916,
+   -0.964,
+   0.992,
+   -1,
+   0.988
+  ]
+ },
+ "doc-0008": {
+  "title": "indigo ember item 8",
+  "body": "The amber running quickly over the indigo revision 0",
+  "tags": [
+   "amber",
+   "delta"
+  ],
+  "price": 296.25,
+  "inStock": true,
+  "category": "tools",
+  "location": {
+   "lat": 19,
+   "lon": 57
+  },
+  "embedding": [
+   -0.522,
+   0.637,
+   -0.739,
+   0.827,
+   -0.898,
+   0.951,
+   -0.985,
+   1
+  ]
+ },
+ "doc-0009": {
+  "title": "juniper juniper item 9",
+  "body": "The delta running quickly over the delta revision 0",
+  "tags": [
+   "basalt",
+   "ember"
+  ],
+  "price": 333.25,
+  "inStock": false,
+  "category": "garden",
+  "location": {
+   "lat": 32,
+   "lon": 86
+  },
+  "embedding": [
+   0.167,
+   -0.027,
+   -0.115,
+   0.254,
+   -0.388,
+   0.514,
+   -0.63,
+   0.733
+  ]
+ },
+ "doc-0010": {
+  "title": "kestrel cedar item 10",
+  "body": "The granite running quickly over the kestrel revision 0",
+  "tags": [
+   "cedar",
+   "fjord"
+  ],
+  "price": 370.25,
+  "inStock": true,
+  "category": "kitchen",
+  "location": {
+   "lat": 45,
+   "lon": 115
+  },
+  "embedding": [
+   0.774,
+   -0.677,
+   0.566,
+   -0.444,
+   0.313,
+   -0.176,
+   0.035,
+   0.106
+  ]
+ },
+ "doc-0011": {
+  "title": "lagoon harbour item 11",
+  "body": "The juniper running quickly over the fjord revision 0",
+  "tags": [
+   "delta",
+   "amber"
+  ],
+  "price": 407.25,
+  "inStock": true,
+  "category": "books",
+  "location": {
+   "lat": 58,
+   "lon": 144
+  },
+  "embedding": [
+   1,
+   -0.994,
+   0.968,
+   -0.923,
+   0.86,
+   -0.779,
+   0.683,
+   -0.573
+  ]
+ },
+ "doc-0012": {
+  "title": "amber amber item 12",
+  "body": "The amber running quickly over the amber revision 0",
+  "tags": [
+   "amber",
+   "basalt"
+  ],
+  "price": 444.25,
+  "inStock": false,
+  "category": "tools",
+  "location": {
+   "lat": 71,
+   "lon": 173
+  },
+  "embedding": [
+   0.733,
+   -0.822,
+   0.894,
+   -0.948,
+   0.984,
+   -0.999,
+   0.995,
+   -0.971
+  ]
+ },
+ "doc-0013": {
+  "title": "basalt fjord item 13",
+  "body": "The delta running quickly over the harbour revision 0",
+  "tags": [
+   "basalt",
+   "cedar"
+  ],
+  "price": 481.25,
+  "inStock": true,
+  "category": "garden",
+  "location": {
+   "lat": 84,
+   "lon": -148
+  },
+  "embedding": [
+   0.106,
+   -0.245,
+   0.38,
+   -0.506,
+   0.623,
+   -0.727,
+   0.817,
+   -0.89
+  ]
+ },
+ "doc-0015": {
+  "title": "delta delta item 15",
+  "body": "The juniper running quickly over the juniper revision 0",
+  "tags": [
+   "delta",
+   "ember"
+  ],
+  "price": 55.25,
+  "inStock": false,
+  "category": "books",
+  "location": {
+   "lat": -60,
+   "lon": -90
+  },
+  "embedding": [
+   -0.971,
+   0.927,
+   -0.865,
+   0.785,
+   -0.69,
+   0.581,
+   -0.46,
+   0.33
+  ]
+ },
+ "doc-0016": {
+  "title": "ember indigo item 16",
+  "body": "The amber running quickly over the ember revision 0",
+  "tags": [
+   "amber",
+   "fjord"
+  ],
+  "price": 92.25,
+  "inStock": true,
+  "category": "tools",
+  "location": {
+   "lat": -47,
+   "lon": -61
+  },
+  "embedding": [
+   -0.89,
+   0.945,
+   -0.982,
+   0.999,
+   -0.996,
+   0.973,
+   -0.93,
+   0.869
+  ]
+ },
+ "doc-0017": {
+  "title": "fjord basalt item 17",
+  "body": "The delta running quickly over the lagoon revision 0",
+  "tags": [
+   "basalt",
+   "amber"
+  ],
+  "price": 129.25,
+  "inStock": true,
+  "category": "garden",
+  "location": {
+   "lat": -34,
+   "lon": -32
+  },
+  "embedding": [
+   -0.371,
+   0.499,
+   -0.616,
+   0.721,
+   -0.812,
+   0.886,
+   -0.943,
+   0.98
+  ]
+ },
+ "doc-0018": {
+  "title": "granite granite item 18",
+  "body": "The granite running quickly over the granite revision 0",
+  "tags": [
+   "cedar",
+   "basalt"
+  ],
+  "price": 166.25,
+  "inStock": false,
+  "category": "kitchen",
+  "location": {
+   "lat": -21,
+   "lon": -3
+  },
+  "embedding": [
+   0.33,
+   -0.193,
+   0.053,
+   0.088,
+   -0.228,
+   0.363,
+   -0.491,
+   0.609
+  ]
+ },
+ "doc-0019": {
+  "title": "harbour lagoon item 19",
+  "body": "The juniper running quickly over the basalt revision 0",
+  "tags": [
+   "delta",
+   "cedar"
+  ],
+  "price": 203.25,
+  "inStock": true,
+  "category": "books",
+  "location": {
+   "lat": -8,
+   "lon": 26
+  },
+  "embedding": [
+   0.869,
+   -0.79,
+   0.696,
+   -0.588,
+   0.468,
+   -0.338,
+   0.202,
+   -0.062
+  ]
+ },
+ "doc-0020": {
+  "title": "indigo ember item 20",
+  "body": "The amber running quickly over the indigo revision 0",
+  "tags": [
+   "amber",
+   "delta"
+  ],
+  "price": 240.25,
+  "inStock": true,
+  "category": "tools",
+  "location": {
+   "lat": 5,
+   "lon": 55
+  },
+  "embedding": [
+   0.98,
+   -0.998,
+   0.996,
+   -0.975,
+   0.933,
+   -0.873,
+   0.796,
+   -0.702
+  ]
+ },
+ "doc-0021": {
+  "title": "juniper juniper item 21",
+  "body": "The delta running quickly over the delta revision 1",
+  "tags": [
+   "basalt",
+   "ember"
+  ],
+  "price": 277.25,
+  "inStock": false,
+  "category": "garden",
+  "location": {
+   "lat": 18,
+   "lon": 84
+  },
+  "embedding": [
+   0.123,
+   -0.262,
+   0.395,
+   -0.521,
+   0.636,
+   -0.739,
+   0.826,
+   -0.898
+  ]
+ },
+ "doc-0022": {
+  "title": "kestrel cedar item 22",
+  "body": "The granite running quickly over the kestrel revision 0",
+  "tags": [
+   "cedar",
+   "fjord"
+  ],
+  "price": 314.25,
+  "inStock": true,
+  "category": "kitchen",
+  "location": {
+   "lat": 31,
+   "lon": 113
+  },
+  "embedding": [
+   -0.062,
+   -0.08,
+   0.219,
+   -0.355,
+   0.483,
+   -0.602,
+   0.709,
+   -0.801
+  ]
+ },
+ "doc-0023": {
+  "title": "lagoon harbour item 23",
+  "body": "The juniper running quickly over the fjord revision 0",
+  "tags": [
+   "delta",
+   "amber"
+  ],
+  "price": 351.25,
+  "inStock": true,
+  "category": "books",
+  "location": {
+   "lat": 44,
+   "lon": 142
+  },
+  "embedding": [
+   -0.702,
+   0.595,
+   -0.476,
+   0.347,
+   -0.211,
+   0.071,
+   0.071,
+   -0.211
+  ]
+ },
+ "doc-0024": {
+  "title": "amber amber item 24",
+  "body": "The amber running quickly over the amber revision 0",
+  "tags": [
+   "amber",
+   "basalt"
+  ],
+  "price": 388.25,
+  "inStock": false,
+  "category": "tools",
+  "location": {
+   "lat": 57,
+   "lon": 171
+  },
+  "embedding": [
+   -0.997,
+   0.977,
+   -0.936,
+   0.878,
+   -0.801,
+   0.709,
+   -0.602,
+   0.483
+  ]
+ },
+ "doc-0026": {
+  "title": "cedar kestrel item 26",
+  "body": "The granite running quickly over the cedar revision 0",
+  "tags": [
+   "cedar",
+   "delta"
+  ],
+  "price": 462.25,
+  "inStock": true,
+  "category": "kitchen",
+  "location": {
+   "lat": 83,
+   "lon": -121
+  },
+  "embedding": [
+   -0.211,
+   0.347,
+   -0.476,
+   0.595,
+   -0.702,
+   0.796,
+   -0.873,
+   0.933
+  ]
+ },
+ "doc-0027": {
+  "title": "delta delta item 27",
+  "body": "The juniper running quickly over the juniper revision 0",
+  "tags": [
+   "delta",
+   "ember"
+  ],
+  "price": 499.25,
+  "inStock": false,
+  "category": "books",
+  "location": {
+   "lat": -74,
+   "lon": -92
+  },
+  "embedding": [
+   0.483,
+   -0.355,
+   0.219,
+   -0.08,
+   -0.062,
+   0.202,
+   -0.338,
+   0.468
+  ]
+ },
+ "doc-0028": {
+  "title": "ember indigo item 28",
+  "body": "The amber running quickly over the ember revision 1",
+  "tags": [
+   "amber",
+   "fjord"
+  ],
+  "price": 36.25,
+  "inStock": true,
+  "category": "tools",
+  "location": {
+   "lat": -61,
+   "lon": -63
+  },
+  "embedding": [
+   0.983,
+   -0.999,
+   0.995,
+   -0.971,
+   0.927,
+   -0.865,
+   0.785,
+   -0.69
+  ]
+ },
+ "doc-0029": {
+  "title": "fjord basalt item 29",
+  "body": "The delta running quickly over the lagoon revision 0",
+  "tags": [
+   "basalt",
+   "amber"
+  ],
+  "price": 73.25,
+  "inStock": true,
+  "category": "garden",
+  "location": {
+   "lat": -48,
+   "lon": -34
+  },
+  "embedding": [
+   0.933,
+   -0.975,
+   0.996,
+   -0.998,
+   0.98,
+   -0.943,
+   0.886,
+   -0.812
+  ]
+ },
+ "doc-0030": {
+  "title": "granite granite item 30",
+  "body": "The granite running quickly over the granite revision 0",
+  "tags": [
+   "cedar",
+   "basalt"
+  ],
+  "price": 110.25,
+  "inStock": false,
+  "category": "kitchen",
+  "location": {
+   "lat": -35,
+   "lon": -5
+  },
+  "embedding": [
+   0.468,
+   -0.588,
+   0.696,
+   -0.79,
+   0.869,
+   -0.93,
+   0.973,
+   -0.996
+  ]
+ },
+ "doc-0031": {
+  "title": "harbour lagoon item 31",
+  "body": "The juniper running quickly over the basalt revision 0",
+  "tags": [
+   "delta",
+   "cedar"
+  ],
+  "price": 147.25,
+  "inStock": true,
+  "category": "books",
+  "location": {
+   "lat": -22,
+   "lon": 24
+  },
+  "embedding": [
+   -0.228,
+   0.088,
+   0.053,
+   -0.193,
+   0.33,
+   -0.46,
+   0.581,
+   -0.69
+  ]
+ },
+ "doc-0032": {
+  "title": "indigo ember item 32",
+  "body": "The amber running quickly over the indigo revision 0",
+  "tags": [
+   "amber",
+   "delta"
+  ],
+  "price": 184.25,
+  "inStock": true,
+  "category": "tools",
+  "location": {
+   "lat": -9,
+   "lon": 53
+  },
+  "embedding": [
+   -0.812,
+   0.721,
+   -0.616,
+   0.499,
+   -0.371,
+   0.237,
+   -0.097,
+   -0.044
+  ]
+ },
+ "doc-0033": {
+  "title": "juniper juniper item 33",
+  "body": "The delta running quickly over the delta revision 0",
+  "tags": [
+   "basalt",
+   "ember"
+  ],
+  "price": 221.25,
+  "inStock": false,
+  "category": "garden",
+  "location": {
+   "lat": 4,
+   "lon": 82
+  },
+  "embedding": [
+   -0.996,
+   0.999,
+   -0.982,
+   0.945,
+   -0.89,
+   0.817,
+   -0.727,
+   0.623
+  ]
+ },
+ "doc-0034": {
+  "title": "kestrel cedar item 34",
+  "body": "The granite running quickly over the kestrel revision 0",
+  "tags": [
+   "cedar",
+   "fjord"
+  ],
+  "price": 258.25,
+  "inStock": true,
+  "category": "kitchen",
+  "location": {
+   "lat": 17,
+   "lon": 111
+  },
+  "embedding": [
+   -0.69,
+   0.785,
+   -0.865,
+   0.927,
+   -0.971,
+   0.995,
+   -0.999,
+   0.984
+  ]
+ },
+ "doc-0035": {
+  "title": "lagoon harbour item 35",
+  "body": "The juniper running quickly over the fjord revision 1",
+  "tags": [
+   "delta",
+   "amber"
+  ],
+  "price": 295.25,
+  "inStock": true,
+  "category": "books",
+  "location": {
+   "lat": 30,
+   "lon": 140
+  },
+  "embedding": [
+   0.468,
+   -0.339,
+   0.203,
+   -0.063,
+   -0.079,
+   0.219,
+   -0.354,
+   0.483
+  ]
+ },
+ "doc-0037": {
+  "title": "basalt fjord item 37",
+  "body": "The delta running quickly over the harbour revision 0",
+  "tags": [
+   "basalt",
+   "cedar"
+  ],
+  "price": 369.25,
+  "inStock": true,
+  "category": "garden",
+  "location": {
+   "lat": 56,
+   "lon": -152
+  },
+  "embedding": [
+   0.984,
+   -0.948,
+   0.894,
+   -0.822,
+   0.733,
+   -0.63,
+   0.514,
+   -0.388
+  ]
+ },
+ "doc-0038": {
+  "title": "cedar kestrel item 38",
+  "body": "The granite running quickly over the cedar revision 0",
+  "tags": [
+   "cedar",
+   "delta"
+  ],
+  "price": 406.25,
+  "inStock": true,
+  "category": "kitchen",
+  "location": {
+   "lat": 69,
+   "lon": -123
+  },
+  "embedding": [
+   0.86,
+   -0.923,
+   0.968,
+   -0.994,
+   1,
+   -0.985,
+   0.951,
+   -0.898
+  ]
+ },
+ "doc-0039": {
+  "title": "delta delta item 39",
+  "body": "The juniper running quickly over the juniper revision 0",
+  "tags": [
+   "delta",
+   "ember"
+  ],
+  "price": 443.25,
+  "inStock": false,
+  "category": "books",
+  "location": {
+   "lat": 82,
+   "lon": -94
+  },
+  "embedding": [
+   0.313,
+   -0.444,
+   0.566,
+   -0.677,
+   0.774,
+   -0.856,
+   0.92,
+   -0.966
+  ]
+ },
+ "doc-0040": {
+  "title": "ember indigo item 40",
+  "body": "The amber running quickly over the ember revision 0",
+  "tags": [
+   "amber",
+   "fjord"
+  ],
+  "price": 480.25,
+  "inStock": true,
+  "category": "tools",
+  "location": {
+   "lat": -75,
+   "lon": -65
+  },
+  "embedding": [
+   -0.388,
+   0.254,
+   -0.115,
+   -0.027,
+   0.167,
+   -0.305,
+   0.436,
+   -0.559
+  ]
+ },
+ "doc-0041": {
+  "title": "fjord basalt item 41",
+  "body": "The delta running quickly over the lagoon revision 0",
+  "tags": [
+   "basalt",
+   "amber"
+  ],
+  "price": 17.25,
+  "inStock": true,
+  "category": "garden",
+  "location": {
+   "lat": -62,
+   "lon": -36
+  },
+  "embedding": [
+   -0.898,
+   0.827,
+   -0.739,
+   0.637,
+   -0.522,
+   0.396,
+   -0.262,
+   0.124
+  ]
+ },
+ "doc-0042": {
+  "title": "granite granite item 42",
+  "body": "The granite running quickly over the granite revision 1",
+  "tags": [
+   "cedar",
+   "basalt"
+  ],
+  "price": 54.25,
+  "inStock": false,
+  "category": "kitchen",
+  "location": {
+   "lat": -49,
+   "lon": -7
+  },
+  "embedding": [
+   -0.702,
+   0.795,
+   -0.873,
+   0.933,
+   -0.975,
+   0.996,
+   -0.998,
+   0.98
+  ]
+ },
+ "doc-0043": {
+  "title": "harbour lagoon item 43",
+  "body": "The juniper running quickly over the basalt revision 0",
+  "tags": [
+   "delta",
+   "cedar"
+  ],
+  "price": 91.25,
+  "inStock": true,
+  "category": "books",
+  "location": {
+   "lat": -36,
+   "lon": 22
+  },
+  "embedding": [
+   -0.559,
+   0.67,
+   -0.768,
+   0.851,
+   -0.917,
+   0.964,
+   -0.992,
+   1
+  ]
+ },
+ "doc-0044": {
+  "title": "indigo ember item 44",
+  "body": "The amber running quickly over the indigo revision 0",
+  "tags": [
+   "amber",
+   "delta"
+  ],
+  "price": 128.25,
+  "inStock": true,
+  "category": "tools",
+  "location": {
+   "lat": -23,
+   "lon": 51
+  },
+  "embedding": [
+   0.124,
+   0.018,
+   -0.159,
+   0.296,
+   -0.428,
+   0.551,
+   -0.664,
+   0.763
+  ]
+ },
+ "doc-0045": {
+  "title": "juniper juniper item 45",
+  "body": "The delta running quickly over the delta revision 0",
+  "tags": [
+   "basalt",
+   "ember"
+  ],
+  "price": 165.25,
+  "inStock": false,
+  "category": "garden",
+  "location": {
+   "lat": -10,
+   "lon": 80
+  },
+  "embedding": [
+   0.745,
+   -0.644,
+   0.529,
+   -0.404,
+   0.271,
+   -0.132,
+   -0.009,
+   0.15
+  ]
+ },
+ "doc-0046": {
+  "title": "kestrel cedar item 46",
+  "body": "The granite running quickly over the kestrel revision 0",
+  "tags": [
+   "cedar",
+   "fjord"
+  ],
+  "price": 202.25,
+  "inStock": true,
+  "category": "kitchen",
+  "location": {
+   "lat": 3,
+   "lon": 109
+  },
+  "embedding": [
+   1,
+   -0.988,
+   0.956,
+   -0.906,
+   0.837,
+   -0.751,
+   0.65,
+   -0.537
+  ]
+ },
+ "doc-0048": {
+  "title": "amber amber item 48",
+  "body": "The amber running quickly over the amber revision 0",
+  "tags": [
+   "amber",
+   "basalt"
+  ],
+  "price": 276.25,
+  "inStock": false,
+  "category": "tools",
+  "location": {
+   "lat": 29,
+   "lon": 167
+  },
+  "embedding": [
+   0.15,
+   -0.288,
+   0.42,
+   -0.544,
+   0.657,
+   -0.757,
+   0.841,
+   -0.909
+  ]
+ },
+ "doc-0049": {
+  "title": "basalt fjord item 49",
+  "body": "The delta running quickly over the harbour revision 1",
+  "tags": [
+   "basalt",
+   "cedar"
+  ],
+  "price": 313.25,
+  "inStock": true,
+  "category": "garden",
+  "location": {
+   "lat": 42,
+   "lon": -154
+  },
+  "embedding": [
+   -0.89,
+   0.817,
+   -0.728,
+   0.623,
+   -0.507,
+   0.38,
+   -0.246,
+   0.107
+  ]
+ },
+ "doc-0050": {
+  "title": "cedar kestrel item 50",
+  "body": "The granite running quickly over the cedar revision 0",
+  "tags": [
+   "cedar",
+   "delta"
+  ],
+  "price": 350.25,
+  "inStock": true,
+  "category": "kitchen",
+  "location": {
+   "lat": 55,
+   "lon": -125
+  },
+  "embedding": [
+   -0.959,
+   0.909,
+   -0.841,
+   0.757,
+   -0.657,
+   0.544,
+   -0.42,
+   0.288
+  ]
+ },
+ "doc-0051": {
+  "title": "delta delta item 51",
+  "body": "The juniper running quickly over the juniper revision 0",
+  "tags": [
+   "delta",
+   "ember"
+  ],
+  "price": 387.25,
+  "inStock": false,
+  "category": "books",
+  "location": {
+   "lat": 68,
+   "lon": -96
+  },
+  "embedding": [
+   -0.909,
+   0.959,
+   -0.989,
+   1,
+   -0.991,
+   0.961,
+   -0.913,
+   0.846
+  ]
+ },
+ "doc-0052": {
+  "title": "ember indigo item 52",
+  "body": "The amber running quickly over the ember revision 0",
+  "tags": [
+   "amber",
+   "fjord"
+  ],
+  "price": 424.25,
+  "inStock": true,
+  "category": "tools",
+  "location": {
+   "lat": 81,
+   "lon": -67
+  },
+  "embedding": [
+   -0.412,
+   0.537,
+   -0.65,
+   0.751,
+   -0.837,
+   0.906,
+   -0.956,
+   0.988
+  ]
+ },
+ "doc-0053": {
+  "title": "fjord basalt item 53",
+  "body": "The delta running quickly over the lagoon revision 0",
+  "tags": [
+   "basalt",
+   "amber"
+  ],
+  "price": 461.25,
+  "inStock": true,
+  "category": "garden",
+  "location": {
+   "lat": -76,
+   "lon": -38
+  },
+  "embedding": [
+   0.288,
+   -0.15,
+   0.009,
+   0.132,
+   -0.271,
+   0.404,
+   -0.529,
+   0.644
+  ]
+ },
+ "doc-0054": {
+  "title": "granite granite item 54",
+  "body": "The granite running quickly over the granite revision 0",
+  "tags": [
+   "cedar",
+   "basalt"
+  ],
+  "price": 498.25,
+  "inStock": false,
+  "category": "kitchen",
+  "location": {
+   "lat": -63,
+   "lon": -9
+  },
+  "embedding": [
+   0.846,
+   -0.763,
+   0.664,
+   -0.551,
+   0.428,
+   -0.296,
+   0.159,
+   -0.018
+  ]
+ },
+ "doc-0055": {
+  "title": "harbour lagoon item 55",
+  "body": "The juniper running quickly over the basalt revision 0",
+  "tags": [
+   "delta",
+   "cedar"
+  ],
+  "price": 35.25,
+  "inStock": true,
+  "category": "books",
+  "location": {
+   "lat": -50,
+   "lon": 20
+  },
+  "embedding": [
+   0.988,
+   -1,
+   0.992,
+   -0.964,
+   0.917,
+   -0.851,
+   0.768,
+   -0.67
+  ]
+ },
+ "doc-0056": {
+  "title": "indigo ember item 56",
+  "body": "The amber running quickly over the indigo revision 1",
+  "tags": [
+   "amber",
+   "delta"
+  ],
+  "price": 72.25,
+  "inStock": true,
+  "category": "tools",
+  "location": {
+   "lat": -37,
+   "lon": 49
+  },
+  "embedding": [
+   0.167,
+   -0.304,
+   0.436,
+   -0.558,
+   0.67,
+   -0.768,
+   0.851,
+   -0.916
+  ]
+ },
+ "doc-0057": {
+  "title": "juniper juniper item 57",
+  "body": "The delta running quickly over the delta revision 0",
+  "tags": [
+   "basalt",
+   "ember"
+  ],
+  "price": 109.25,
+  "inStock": false,
+  "category": "garden",
+  "location": {
+   "lat": -24,
+   "lon": 78
+  },
+  "embedding": [
+   -0.018,
+   -0.124,
+   0.262,
+   -0.396,
+   0.522,
+   -0.637,
+   0.739,
+   -0.827
+  ]
+ },
+ "doc-0059": {
+  "title": "lagoon harbour item 59",
+  "body": "The juniper running quickly over the fjord revision 0",
+  "tags": [
+   "delta",
+   "amber"
+  ],
+  "price": 183.25,
+  "inStock": true,
+  "category": "books",
+  "location": {
+   "lat": 2,
+   "lon": 136
+  },
+  "embedding": [
+   -0.993,
+   0.966,
+   -0.92,
+   0.856,
+   -0.774,
+   0.677,
+   -0.566,
+   0.444
+  ]
+ },
+ "doc-0060": {
+  "title": "amber amber item 60",
+  "body": "The amber running quickly over the amber revision 0",
+  "tags": [
+   "amber",
+   "basalt"
+  ],
+  "price": 220.25,
+  "inStock": false,
+  "category": "tools",
+  "location": {
+   "lat": 15,
+   "lon": 165
+  },
+  "embedding": [
+   -0.827,
+   0.898,
+   -0.951,
+   0.985,
+   -1,
+   0.994,
+   -0.968,
+   0.923
+  ]
+ },
+ "doc-0061": {
+  "title": "basalt fjord item 61",
+  "body": "The delta running quickly over the harbour revision 0",
+  "tags": [
+   "basalt",
+   "cedar"
+  ],
+  "price": 257.25,
+  "inStock": true,
+  "category": "garden",
+  "location": {
+   "lat": 28,
+   "lon": -156
+  },
+  "embedding": [
+   -0.254,
+   0.388,
+   -0.514,
+   0.63,
+   -0.733,
+   0.822,
+   -0.894,
+   0.948
+  ]
+ },
+ "doc-0062": {
+  "title": "cedar kestrel item 62",
+  "body": "The granite running quickly over the cedar revision 0",
+  "tags": [
+   "cedar",
+   "delta"
+  ],
+  "price": 294.25,
+  "inStock": true,
+  "category": "kitchen",
+  "location": {
+   "lat": 41,
+   "lon": -127
+  },
+  "embedding": [
+   0.444,
+   -0.313,
+   0.176,
+   -0.035,
+   -0.106,
+   0.245,
+   -0.38,
+   0.506
+  ]
+ },
+ "doc-0063": {
+  "title": "delta delta item 63",
+  "body": "The juniper running quickly over the juniper revision 1",
+  "tags": [
+   "delta",
+   "ember"
+  ],
+  "price": 331.25,
+  "inStock": false,
+  "category": "books",
+  "location": {
+   "lat": 54,
+   "lon": -98
+  },
+  "embedding": [
+   0.991,
+   -1,
+   0.989,
+   -0.959,
+   0.91,
+   -0.842,
+   0.757,
+   -0.657
+  ]
+ },
+ "doc-0064": {
+  "title": "ember indigo item 64",
+  "body": "The amber running quickly over the ember revision 0",
+  "tags": [
+   "amber",
+   "fjord"
+  ],
+  "price": 368.25,
+  "inStock": true,
+  "category": "tools",
+  "location": {
+   "lat": 67,
+   "lon": -69
+  },
+  "embedding": [
+   0.948,
+   -0.984,
+   0.999,
+   -0.995,
+   0.971,
+   -0.927,
+   0.865,
+   -0.785
+  ]
+ },
+ "doc-0065": {
+  "title": "fjord basalt item 65",
+  "body": "The delta running quickly over the lagoon revision 0",
+  "tags": [
+   "basalt",
+   "amber"
+  ],
+  "price": 405.25,
+  "inStock": true,
+  "category": "garden",
+  "location": {
+   "lat": 80,
+   "lon": -40
+  },
+  "embedding": [
+   0.506,
+   -0.623,
+   0.727,
+   -0.817,
+   0.89,
+   -0.945,
+   0.982,
+   -0.999
+  ]
+ },
+ "doc-0066": {
+  "title": "granite granite item 66",
+  "body": "The granite running quickly over the granite revision 0",
+  "tags": [
+   "cedar",
+   "basalt"
+  ],
+  "price": 442.25,
+  "inStock": false,
+  "category": "kitchen",
+  "location": {
+   "lat": -77,
+   "lon": -11
+  },
+  "embedding": [
+   -0.185,
+   0.044,
+   0.097,
+   -0.237,
+   0.371,
+   -0.499,
+   0.616,
+   -0.721
+  ]
+ },
+ "doc-0067": {
+  "title": "harbour lagoon item 67",
+  "body": "The juniper running quickly over the basalt revision 0",
+  "tags": [
+   "delta",
+   "cedar"
+  ],
+  "price": 479.25,
+  "inStock": true,
+  "category": "books",
+  "location": {
+   "lat": -64,
+   "lon": 18
+  },
+  "embedding": [
+   -0.785,
+   0.69,
+   -0.581,
+   0.46,
+   -0.33,
+   0.194,
+   -0.053,
+   -0.088
+  ]
+ },
+ "doc-0068": {
+  "title": "indigo ember item 68",
+  "body": "The amber running quickly over the indigo revision 0",
+  "tags": [
+   "amber",
+   "delta"
+  ],
+  "price": 16.25,
+  "inStock": true,
+  "category": "tools",
+  "location": {
+   "lat": -51,
+   "lon": 47
+  },
+  "embedding": [
+   -0.999,
+   0.996,
+   -0.973,
+   0.93,
+   -0.869,
+   0.79,
+   -0.696,
+   0.588
+  ]
+ },
+ "doc-0070": {
+  "title": "kestrel cedar item 70",
+  "body": "The granite running quickly over the kestrel revision 1",
+  "tags": [
+   "cedar",
+   "fjord"
+  ],
+  "price": 90.25,
+  "inStock": true,
+  "category": "kitchen",
+  "location": {
+   "lat": -25,
+   "lon": 105
+  },
+  "embedding": [
+   0.429,
+   -0.297,
+   0.159,
+   -0.018,
+   -0.123,
+   0.262,
+   -0.395,
+   0.521
+  ]
+ },
+ "doc-0071": {
+  "title": "lagoon harbour item 71",
+  "body": "The juniper running quickly over the fjord revision 0",
+  "tags": [
+   "delta",
+   "amber"
+  ],
+  "price": 127.25,
+  "inStock": true,
+  "category": "books",
+  "location": {
+   "lat": -12,
+   "lon": 134
+  },
+  "embedding": [
+   0.588,
+   -0.468,
+   0.338,
+   -0.202,
+   0.062,
+   0.08,
+   -0.219,
+   0.355
+  ]
+ },
+ "doc-0072": {
+  "title": "amber amber item 72",
+  "body": "The amber running quickly over the amber revision 0",
+  "tags": [
+   "amber",
+   "basalt"
+  ],
+  "price": 164.25,
+  "inStock": false,
+  "category": "tools",
+  "location": {
+   "lat": 1,
+   "lon": 163
+  },
+  "embedding": [
+   0.975,
+   -0.933,
+   0.873,
+   -0.796,
+   0.702,
+   -0.595,
+   0.476,
+   -0.347
+  ]
+ },
+ "doc-0073": {
+  "title": "basalt fjord item 73",
+  "body": "The delta running quickly over the harbour revision 0",
+  "tags": [
+   "basalt",
+   "cedar"
+  ],
+  "price": 201.25,
+  "inStock": true,
+  "category": "garden",
+  "location": {
+   "lat": 14,
+   "lon": -158
+  },
+  "embedding": [
+   0.882,
+   -0.94,
+   0.978,
+   -0.998,
+   0.997,
+   -0.977,
+   0.936,
+   -0.878
+  ]
+ },
+ "doc-0074": {
+  "title": "cedar kestrel item 74",
+  "body": "The granite running quickly over the cedar revision 0",
+  "tags": [
+   "cedar",
+   "delta"
+  ],
+  "price": 238.25,
+  "inStock": true,
+  "category": "kitchen",
+  "location": {
+   "lat": 27,
+   "lon": -129
+  },
+  "embedding": [
+   0.355,
+   -0.483,
+   0.602,
+   -0.709,
+   0.801,
+   -0.878,
+   0.936,
+   -0.977
+  ]
+ },
+ "doc-0075": {
+  "title": "delta delta item 75",
+  "body": "The juniper running quickly over the juniper revision 0",
+  "tags": [
+   "delta",
+   "ember"
+  ],
+  "price": 275.25,
+  "inStock": false,
+  "category": "books",
+  "location": {
+   "lat": 40,
+   "lon": -100
+  },
+  "embedding": [
+   -0.347,
+   0.211,
+   -0.071,
+   -0.071,
+   0.211,
+   -0.347,
+   0.475,
+   -0.595
+  ]
+ },
+ "doc-0076": {
+  "title": "ember indigo item 76",
+  "body": "The amber running quickly over the ember revision 0",
+  "tags": [
+   "amber",
+   "fjord"
+  ],
+  "price": 312.25,
+  "inStock": true,
+  "category": "tools",
+  "location": {
+   "lat": 53,
+   "lon": -71
+  },
+  "embedding": [
+   -0.878,
+   0.801,
+   -0.709,
+   0.602,
+   -0.483,
+   0.355,
+   -0.219,
+   0.08
+  ]
+ },
+ "doc-0077": {
+  "title": "fjord basalt item 77",
+  "body": "The delta running quickly over the lagoon revision 1",
+  "tags": [
+   "basalt",
+   "amber"
+  ],
+  "price": 349.25,
+  "inStock": true,
+  "category": "garden",
+  "location": {
+   "lat": 66,
+   "lon": -42
+  },
+  "embedding": [
+   -0.733,
+   0.821,
+   -0.894,
+   0.948,
+   -0.983,
+   0.999,
+   -0.995,
+   0.971
+  ]
+ },
+ "doc-0078": {
+  "title": "granite granite item 78",
+  "body": "The granite running quickly over the granite revision 0",
+  "tags": [
+   "cedar",
+   "basalt"
+  ],
+  "price": 386.25,
+  "inStock": false,
+  "category": "kitchen",
+  "location": {
+   "lat": 79,
+   "lon": -13
+  },
+  "embedding": [
+   -0.595,
+   0.702,
+   -0.796,
+   0.873,
+   -0.933,
+   0.975,
+   -0.996,
+   0.998
+  ]
+ },
+ "doc-0079": {
+  "title": "harbour lagoon item 79",
+  "body": "The juniper running quickly over the basalt revision 0",
+  "tags": [
+   "delta",
+   "cedar"
+  ],
+  "price": 423.25,
+  "inStock": true,
+  "category": "books",
+  "location": {
+   "lat": -78,
+   "lon": 16
+  },
+  "embedding": [
+   0.08,
+   0.062,
+   -0.202,
+   0.338,
+   -0.468,
+   0.588,
+   -0.696,
+   0.79
+  ]
+ },
+ "doc-0081": {
+  "title": "juniper juniper item 81",
+  "body": "The delta running quickly over the delta revision 0",
+  "tags": [
+   "basalt",
+   "ember"
+  ],
+  "price": 497.25,
+  "inStock": false,
+  "category": "garden",
+  "location": {
+   "lat": -52,
+   "lon": 74
+  },
+  "embedding": [
+   0.998,
+   -0.98,
+   0.943,
+   -0.886,
+   0.812,
+   -0.721,
+   0.616,
+   -0.499
+  ]
+ },
+ "doc-0082": {
+  "title": "kestrel cedar item 82",
+  "body": "The granite running quickly over the kestrel revision 0",
+  "tags": [
+   "cedar",
+   "fjord"
+  ],
+  "price": 34.25,
+  "inStock": true,
+  "category": "kitchen",
+  "location": {
+   "lat": -39,
+   "lon": 103
+  },
+  "embedding": [
+   0.79,
+   -0.869,
+   0.93,
+   -0.973,
+   0.996,
+   -0.999,
+   0.982,
+   -0.945
+  ]
+ },
+ "doc-0083": {
+  "title": "lagoon harbour item 83",
+  "body": "The juniper running quickly over the fjord revision 0",
+  "tags": [
+   "delta",
+   "amber"
+  ],
+  "price": 71.25,
+  "inStock": true,
+  "category": "books",
+  "location": {
+   "lat": -26,
+   "lon": 132
+  },
+  "embedding": [
+   0.193,
+   -0.33,
+   0.46,
+   -0.581,
+   0.69,
+   -0.785,
+   0.865,
+   -0.927
+  ]
+ },
+ "doc-0084": {
+  "title": "amber amber item 84",
+  "body": "The amber running quickly over the amber revision 1",
+  "tags": [
+   "amber",
+   "basalt"
+  ],
+  "price": 108.25,
+  "inStock": false,
+  "category": "tools",
+  "location": {
+   "lat": -13,
+   "lon": 161
+  },
+  "embedding": [
+   -0.869,
+   0.791,
+   -0.697,
+   0.588,
+   -0.468,
+   0.339,
+   -0.203,
+   0.063
+  ]
+ },
+ "doc-0085": {
+  "title": "basalt fjord item 85",
+  "body": "The delta running quickly over the harbour revision 0",
+  "tags": [
+   "basalt",
+   "cedar"
+  ],
+  "price": 145.25,
+  "inStock": true,
+  "category": "garden",
+  "location": {
+   "lat": 0,
+   "lon": -160
+  },
+  "embedding": [
+   -0.945,
+   0.89,
+   -0.817,
+   0.727,
+   -0.623,
+   0.506,
+   -0.38,
+   0.245
+  ]
+ },
+ "doc-0086": {
+  "title": "cedar kestrel item 86",
+  "body": "The granite running quickly over the cedar revision 0",
+  "tags": [
+   "cedar",
+   "delta"
+  ],
+  "price": 182.25,
+  "inStock": true,
+  "category": "kitchen",
+  "location": {
+   "lat": 13,
+   "lon": -131
+  },
+  "embedding": [
+   -0.927,
+   0.971,
+   -0.995,
+   0.999,
+   -0.984,
+   0.948,
+   -0.894,
+   0.822
+  ]
+ },
+ "doc-0087": {
+  "title": "delta delta item 87",
+  "body": "The juniper running quickly over the juniper revision 0",
+  "tags": [
+   "delta",
+   "ember"
+  ],
+  "price": 219.25,
+  "inStock": false,
+  "category": "books",
+  "location": {
+   "lat": 26,
+   "lon": -102
+  },
+  "embedding": [
+   -0.452,
+   0.573,
+   -0.683,
+   0.779,
+   -0.86,
+   0.923,
+   -0.968,
+   0.994
+  ]
+ },
+ "doc-0088": {
+  "title": "ember indigo item 88",
+  "body": "The amber running quickly over the ember revision 0",
+  "tags": [
+   "amber",
+   "fjord"
+  ],
+  "price": 256.25,
+  "inStock": true,
+  "category": "tools",
+  "location": {
+   "lat": 39,
+   "lon": -73
+  },
+  "embedding": [
+   0.245,
+   -0.106,
+   -0.035,
+   0.176,
+   -0.313,
+   0.444,
+   -0.566,
+   0.677
+  ]
+ },
+ "doc-0089": {
+  "title": "fjord basalt item 89",
+  "body": "The delta running quickly over the lagoon revision 0",
+  "tags": [
+   "basalt",
+   "amber"
+  ],
+  "price": 293.25,
+  "inStock": true,
+  "category": "garden",
+  "location": {
+   "lat": 52,
+   "lon": -44
+  },
+  "embedding": [
+   0.822,
+   -0.733,
+   0.63,
+   -0.514,
+   0.388,
+   -0.254,
+   0.115,
+   0.026
+  ]
+ },
+ "doc-0090": {
+  "title": "granite granite item 90",
+  "body": "The granite running quickly over the granite revision 0",
+  "tags": [
+   "cedar",
+   "basalt"
+  ],
+  "price": 330.25,
+  "inStock": false,
+  "category": "kitchen",
+  "location": {
+   "lat": 65,
+   "lon": -15
+  },
+  "embedding": [
+   0.994,
+   -1,
+   0.985,
+   -0.951,
+   0.898,
+   -0.827,
+   0.739,
+   -0.637
+  ]
+ },
+ "doc-0092": {
+  "title": "indigo ember item 92",
+  "body": "The amber running quickly over the indigo revision 0",
+  "tags": [
+   "amber",
+   "delta"
+  ],
+  "price": 404.25,
+  "inStock": true,
+  "category": "tools",
+  "location": {
+   "lat": -79,
+   "lon": 43
+  },
+  "embedding": [
+   0.026,
+   -0.167,
+   0.305,
+   -0.436,
+   0.559,
+   -0.67,
+   0.768,
+   -0.851
+  ]
+ },
+ "doc-0093": {
+  "title": "juniper juniper item 93",
+  "body": "The delta running quickly over the delta revision 0",
+  "tags": [
+   "basalt",
+   "ember"
+  ],
+  "price": 441.25,
+  "inStock": false,
+  "category": "garden",
+  "location": {
+   "lat": -66,
+   "lon": 72
+  },
+  "embedding": [
+   -0.637,
+   0.522,
+   -0.396,
+   0.262,
+   -0.124,
+   -0.018,
+   0.159,
+   -0.296
+  ]
+ },
+ "doc-0094": {
+  "title": "kestrel cedar item 94",
+  "body": "The granite running quickly over the kestrel revision 0",
+  "tags": [
+   "cedar",
+   "fjord"
+  ],
+  "price": 478.25,
+  "inStock": true,
+  "category": "kitchen",
+  "location": {
+   "lat": -53,
+   "lon": 101
+  },
+  "embedding": [
+   -0.987,
+   0.954,
+   -0.902,
+   0.832,
+   -0.745,
+   0.644,
+   -0.529,
+   0.404
+  ]
+ },
+ "doc-0095": {
+  "title": "lagoon harbour item 95",
+  "body": "The juniper running quickly over the fjord revision 0",
+  "tags": [
+   "delta",
+   "amber"
+  ],
+  "price": 15.25,
+  "inStock": true,
+  "category": "books",
+  "location": {
+   "lat": -40,
+   "lon": 130
+  },
+  "embedding": [
+   -0.851,
+   0.916,
+   -0.964,
+   0.992,
+   -1,
+   0.988,
+   -0.956,
+   0.906
+  ]
+ },
+ "doc-0096": {
+  "title": "amber amber item 96",
+  "body": "The amber running quickly over the amber revision 0",
+  "tags": [
+   "amber",
+   "basalt"
+  ],
+  "price": 52.25,
+  "inStock": false,
+  "category": "tools",
+  "location": {
+   "lat": -27,
+   "lon": 159
+  },
+  "embedding": [
+   -0.296,
+   0.428,
+   -0.551,
+   0.664,
+   -0.763,
+   0.846,
+   -0.913,
+   0.961
+  ]
+ },
+ "doc-0097": {
+  "title": "basalt fjord item 97",
+  "body": "The delta running quickly over the harbour revision 0",
+  "tags": [
+   "basalt",
+   "cedar"
+  ],
+  "price": 89.25,
+  "inStock": true,
+  "category": "garden",
+  "location": {
+   "lat": -14,
+   "lon": -162
+  },
+  "embedding": [
+   0.404,
+   -0.271,
+   0.132,
+   0.009,
+   -0.15,
+   0.288,
+   -0.42,
+   0.544
+  ]
+ },
+ "doc-0098": {
+  "title": "cedar kestrel item 98",
+  "body": "The granite running quickly over the cedar revision 1",
+  "tags": [
+   "cedar",
+   "delta"
+  ],
+  "price": 126.25,
+  "inStock": true,
+  "category": "kitchen",
+  "location": {
+   "lat": -1,
+   "lon": -133
+  },
+  "embedding": [
+   0.996,
+   -0.999,
+   0.982,
+   -0.946,
+   0.89,
+   -0.817,
+   0.728,
+   -0.624
+  ]
+ },
+ "doc-0099": {
+  "title": "delta delta item 99",
+  "body": "The juniper running quickly over the juniper revision 0",
+  "tags": [
+   "delta",
+   "ember"
+  ],
+  "price": 163.25,
+  "inStock": false,
+  "category": "books",
+  "location": {
+   "lat": 12,
+   "lon": -104
+  },
+  "embedding": [
+   0.961,
+   -0.991,
+   1,
+   -0.989,
+   0.959,
+   -0.909,
+   0.842,
+   -0.757
+  ]
+ },
+ "doc-0100": {
+  "title": "ember indigo item 100",
+  "body": "The amber running quickly over the ember revision 0",
+  "tags": [
+   "amber",
+   "fjord"
+  ],
+  "price": 200.25,
+  "inStock": true,
+  "category": "tools",
+  "location": {
+   "lat": 25,
+   "lon": -75
+  },
+  "embedding": [
+   0.544,
+   -0.657,
+   0.757,
+   -0.841,
+   0.909,
+   -0.959,
+   0.989,
+   -1
+  ]
+ },
+ "doc-0101": {
+  "title": "fjord basalt item 101",
+  "body": "The delta running quickly over the lagoon revision 0",
+  "tags": [
+   "basalt",
+   "amber"
+  ],
+  "price": 237.25,
+  "inStock": true,
+  "category": "garden",
+  "location": {
+   "lat": 38,
+   "lon": -46
+  },
+  "embedding": [
+   -0.141,
+   0,
+   0.141,
+   -0.279,
+   0.412,
+   -0.537,
+   0.65,
+   -0.751
+  ]
+ },
+ "doc-0103": {
+  "title": "harbour lagoon item 103",
+  "body": "The juniper running quickly over the basalt revision 0",
+  "tags": [
+   "delta",
+   "cedar"
+  ],
+  "price": 311.25,
+  "inStock": true,
+  "category": "books",
+  "location": {
+   "lat": 64,
+   "lon": 12
+  },
+  "embedding": [
+   -1,
+   0.991,
+   -0.961,
+   0.913,
+   -0.846,
+   0.763,
+   -0.664,
+   0.551
+  ]
+ },
+ "doc-0104": {
+  "title": "indigo ember item 104",
+  "body": "The amber running quickly over the indigo revision 0",
+  "tags": [
+   "amber",
+   "delta"
+  ],
+  "price": 348.25,
+  "inStock": true,
+  "category": "tools",
+  "location": {
+   "lat": 77,
+   "lon": 41
+  },
+  "embedding": [
+   -0.751,
+   0.837,
+   -0.906,
+   0.956,
+   -0.988,
+   1,
+   -0.992,
+   0.964
+  ]
+ },
+ "doc-0105": {
+  "title": "juniper juniper item 105",
+  "body": "The delta running quickly over the delta revision 1",
+  "tags": [
+   "basalt",
+   "ember"
+  ],
+  "price": 385.25,
+  "inStock": false,
+  "category": "garden",
+  "location": {
+   "lat": -80,
+   "lon": 70
+  },
+  "embedding": [
+   0.388,
+   -0.254,
+   0.115,
+   0.026,
+   -0.167,
+   0.304,
+   -0.436,
+   0.558
+  ]
+ },
+ "doc-0106": {
+  "title": "kestrel cedar item 106",
+  "body": "The granite running quickly over the kestrel revision 0",
+  "tags": [
+   "cedar",
+   "fjord"
+  ],
+  "price": 422.25,
+  "inStock": true,
+  "category": "kitchen",
+  "location": {
+   "lat": -67,
+   "lon": 99
+  },
+  "embedding": [
+   0.551,
+   -0.428,
+   0.296,
+   -0.159,
+   0.018,
+   0.124,
+   -0.262,
+   0.396
+  ]
+ },
+ "doc-0107": {
+  "title": "lagoon harbour item 107",
+  "body": "The juniper running quickly over the fjord revision 0",
+  "tags": [
+   "delta",
+   "amber"
+  ],
+  "price": 459.25,
+  "inStock": true,
+  "category": "books",
+  "location": {
+   "lat": -54,
+   "lon": 128
+  },
+  "embedding": [
+   0.964,
+   -0.917,
+   0.851,
+   -0.768,
+   0.67,
+   -0.559,
+   0.436,
+   -0.305
+  ]
+ },
+ "doc-0108": {
+  "title": "amber amber item 108",
+  "body": "The amber running quickly over the amber revision 0",
+  "tags": [
+   "amber",
+   "basalt"
+  ],
+  "price": 496.25,
+  "inStock": false,
+  "category": "tools",
+  "location": {
+   "lat": -41,
+   "lon": 157
+  },
+  "embedding": [
+   0.902,
+   -0.954,
+   0.987,
+   -1,
+   0.993,
+   -0.966,
+   0.92,
+   -0.856
+  ]
+ },
+ "doc-0109": {
+  "title": "basalt fjord item 109",
+  "body": "The delta running quickly over the harbour revision 0",
+  "tags": [
+   "basalt",
+   "cedar"
+  ],
+  "price": 33.25,
+  "inStock": true,
+  "category": "garden",
+  "location": {
+   "lat": -28,
+   "lon": -164
+  },
+  "embedding": [
+   0.396,
+   -0.521,
+   0.637,
+   -0.739,
+   0.827,
+   -0.898,
+   0.951,
+   -0.985
+  ]
+ },
+ "doc-0110": {
+  "title": "cedar kestrel item 110",
+  "body": "The granite running quickly over the cedar revision 0",
+  "tags": [
+   "cedar",
+   "delta"
+  ],
+  "price": 70.25,
+  "inStock": true,
+  "category": "kitchen",
+  "location": {
+   "lat": -15,
+   "lon": -135
+  },
+  "embedding": [
+   -0.305,
+   0.167,
+   -0.027,
+   -0.115,
+   0.254,
+   -0.388,
+   0.514,
+   -0.63
+  ]
+ },
+ "doc-0111": {
+  "title": "delta delta item 111",
+  "body": "The juniper running quickly over the juniper revision 0",
+  "tags": [
+   "delta",
+   "ember"
+  ],
+  "price": 107.25,
+  "inStock": false,
+  "category": "books",
+  "location": {
+   "lat": -2,
+   "lon": -106
+  },
+  "embedding": [
+   -0.856,
+   0.774,
+   -0.677,
+   0.566,
+   -0.444,
+   0.313,
+   -0.176,
+   0.035
+  ]
+ },
+ "doc-0112": {
+  "title": "ember indigo item 112",
+  "body": "The amber running quickly over the ember revision 1",
+  "tags": [
+   "amber",
+   "fjord"
+  ],
+  "price": 144.25,
+  "inStock": true,
+  "category": "tools",
+  "location": {
+   "lat": 11,
+   "lon": -77
+  },
+  "embedding": [
+   -0.762,
+   0.846,
+   -0.913,
+   0.961,
+   -0.991,
+   1,
+   -0.989,
+   0.959
+  ]
+ },
+ "doc-0113": {
+  "title": "fjord basalt item 113",
+  "body": "The delta running quickly over the lagoon revision 0",
+  "tags": [
+   "basalt",
+   "amber"
+  ],
+  "price": 181.25,
+  "inStock": true,
+  "category": "garden",
+  "location": {
+   "lat": 24,
+   "lon": -48
+  },
+  "embedding": [
+   -0.63,
+   0.733,
+   -0.822,
+   0.894,
+   -0.948,
+   0.984,
+   -0.999,
+   0.995
+  ]
+ },
+ "doc-0114": {
+  "title": "granite granite item 114",
+  "body": "The granite running quickly over the granite revision 0",
+  "tags": [
+   "cedar",
+   "basalt"
+  ],
+  "price": 218.25,
+  "inStock": false,
+  "category": "kitchen",
+  "location": {
+   "lat": 37,
+   "lon": -19
+  },
+  "embedding": [
+   0.035,
+   0.106,
+   -0.245,
+   0.38,
+   -0.506,
+   0.623,
+   -0.727,
+   0.817
+  ]
+ },
+ "doc-0115": {
+  "title": "harbour lagoon item 115",
+  "body": "The juniper running quickly over the basalt revision 0",
+  "tags": [
+   "delta",
+   "cedar"
+  ],
+  "price": 255.25,
+  "inStock": true,
+  "category": "books",
+  "location": {
+   "lat": 50,
+   "lon": 10
+  },
+  "embedding": [
+   0.683,
+   -0.573,
+   0.452,
+   -0.322,
+   0.185,
+   -0.044,
+   -0.097,
+   0.237
+  ]
+ },
+ "doc-0116": {
+  "title": "indigo ember item 116",
+  "body": "The amber running quickly over the indigo revision 0",
+  "tags": [
+   "amber",
+   "delta"
+  ],
+  "price": 292.25,
+  "inStock": true,
+  "category": "tools",
+  "location": {
+   "lat": 63,
+   "lon": 39
+  },
+  "embedding": [
+   0.995,
+   -0.971,
+   0.927,
+   -0.865,
+   0.785,
+   -0.69,
+   0.581,
+   -0.46
+  ]
+ },
+ "doc-0117": {
+  "title": "juniper juniper item 117",
+  "body": "The delta running quickly over the delta revision 0",
+  "tags": [
+   "basalt",
+   "ember"
+  ],
+  "price": 329.25,
+  "inStock": false,
+  "category": "garden",
+  "location": {
+   "lat": 76,
+   "lon": 68
+  },
+  "embedding": [
+   0.817,
+   -0.89,
+   0.945,
+   -0.982,
+   0.999,
+   -0.996,
+   0.973,
+   -0.93
+  ]
+ },
+ "doc-0118": {
+  "title": "kestrel cedar item 118",
+  "body": "The granite running quickly over the kestrel revision 0",
+  "tags": [
+   "cedar",
+   "fjord"
+  ],
+  "price": 366.25,
+  "inStock": true,
+  "category": "kitchen",
+  "location": {
+   "lat": -81,
+   "lon": 97
+  },
+  "embedding": [
+   0.237,
+   -0.371,
+   0.499,
+   -0.616,
+   0.721,
+   -0.812,
+   0.886,
+   -0.942
+  ]
+ },
+ "doc-0119": {
+  "title": "lagoon harbour item 119",
+  "body": "The juniper running quickly over the fjord revision 1",
+  "tags": [
+   "delta",
+   "amber"
+  ],
+  "price": 403.25,
+  "inStock": true,
+  "category": "books",
+  "location": {
+   "lat": -68,
+   "lon": 126
+  },
+  "embedding": [
+   -0.847,
+   0.763,
+   -0.664,
+   0.552,
+   -0.429,
+   0.297,
+   -0.159,
+   0.018
+  ]
+ },
+ "doc-0120": {
+  "title": "amber amber item 120",
+  "body": "The amber running quickly over the amber revision 0",
+  "tags": [
+   "amber",
+   "basalt"
+  ],
+  "price": 440.25,
+  "inStock": false,
+  "category": "tools",
+  "location": {
+   "lat": -55,
+   "lon": 155
+  },
+  "embedding": [
+   -0.93,
+   0.869,
+   -0.79,
+   0.696,
+   -0.588,
+   0.468,
+   -0.338,
+   0.202
+  ]
+ },
+ "doc-0121": {
+  "title": "basalt fjord item 121",
+  "body": "The delta running quickly over the harbour revision 0",
+  "tags": [
+   "basalt",
+   "cedar"
+  ],
+  "price": 477.25,
+  "inStock": true,
+  "category": "garden",
+  "location": {
+   "lat": -42,
+   "lon": -166
+  },
+  "embedding": [
+   -0.942,
+   0.98,
+   -0.998,
+   0.996,
+   -0.975,
+   0.933,
+   -0.873,
+   0.796
+  ]
+ },
+ "doc-0122": {
+  "title": "cedar kestrel item 122",
+  "body": "The granite running quickly over the cedar revision 0",
+  "tags": [
+   "cedar",
+   "delta"
+  ],
+  "price": 14.25,
+  "inStock": true,
+  "category": "kitchen",
+  "location": {
+   "lat": -29,
+   "lon": -137
+  },
+  "embedding": [
+   -0.491,
+   0.609,
+   -0.715,
+   0.806,
+   -0.882,
+   0.939,
+   -0.978,
+   0.998
+  ]
+ },
+ "doc-0123": {
+  "title": "delta delta item 123",
+  "body": "The juniper running quickly over the juniper revision 0",
+  "tags": [
+   "delta",
+   "ember"
+  ],
+  "price": 51.25,
+  "inStock": false,
+  "category": "books",
+  "location": {
+   "lat": -16,
+   "lon": -108
+  },
+  "embedding": [
+   0.202,
+   -0.062,
+   -0.079,
+   0.219,
+   -0.355,
+   0.483,
+   -0.602,
+   0.709
+  ]
+ },
+ "doc-0124": {
+  "title": "ember indigo item 124",
+  "body": "The amber running quickly over the ember revision 0",
+  "tags": [
+   "amber",
+   "fjord"
+  ],
+  "price": 88.25,
+  "inStock": true,
+  "category": "tools",
+  "location": {
+   "lat": -3,
+   "lon": -79
+  },
+  "embedding": [
+   0.796,
+   -0.702,
+   0.595,
+   -0.476,
+   0.347,
+   -0.211,
+   0.071,
+   0.071
+  ]
+ },
+ "doc-0125": {
+  "title": "fjord basalt item 125",
+  "body": "The delta running quickly over the lagoon revision 0",
+  "tags": [
+   "basalt",
+   "amber"
+  ],
+  "price": 125.25,
+  "inStock": true,
+  "category": "garden",
+  "location": {
+   "lat": 10,
+   "lon": -50
+  },
+  "embedding": [
+   0.998,
+   -0.997,
+   0.977,
+   -0.936,
+   0.878,
+   -0.801,
+   0.709,
+   -0.602
+  ]
+ },
+ "doc-0126": {
+  "title": "granite granite item 126",
+  "body": "The granite running quickly over the granite revision 1",
+  "tags": [
+   "cedar",
+   "basalt"
+  ],
+  "price": 162.25,
+  "inStock": false,
+  "category": "kitchen",
+  "location": {
+   "lat": 23,
+   "lon": -21
+  },
+  "embedding": [
+   0.253,
+   -0.387,
+   0.513,
+   -0.629,
+   0.733,
+   -0.821,
+   0.894,
+   -0.948
+  ]
+ },
+ "doc-0127": {
+  "title": "harbour lagoon item 127",
+  "body": "The juniper running quickly over the basalt revision 0",
+  "tags": [
+   "delta",
+   "cedar"
+  ],
+  "price": 199.25,
+  "inStock": true,
+  "category": "books",
+  "location": {
+   "lat": 36,
+   "lon": 8
+  },
+  "embedding": [
+   0.071,
+   -0.211,
+   0.347,
+   -0.475,
+   0.595,
+   -0.702,
+   0.796,
+   -0.873
+  ]
+ },
+ "doc-0128": {
+  "title": "indigo ember item 128",
+  "body": "The amber running quickly over the indigo revision 0",
+  "tags": [
+   "amber",
+   "delta"
+  ],
+  "price": 236.25,
+  "inStock": true,
+  "category": "tools",
+  "location": {
+   "lat": 49,
+   "lon": 37
+  },
+  "embedding": [
+   -0.602,
+   0.483,
+   -0.355,
+   0.22,
+   -0.08,
+   -0.062,
+   0.202,
+   -0.338
+  ]
+ },
+ "doc-0129": {
+  "title": "juniper juniper item 129",
+  "body": "The delta running quickly over the delta revision 0",
+  "tags": [
+   "basalt",
+   "ember"
+  ],
+  "price": 273.25,
+  "inStock": false,
+  "category": "garden",
+  "location": {
+   "lat": 62,
+   "lon": 66
+  },
+  "embedding": [
+   -0.978,
+   0.94,
+   -0.882,
+   0.806,
+   -0.715,
+   0.609,
+   -0.491,
+   0.363
+  ]
+ },
+ "doc-0130": {
+  "title": "kestrel cedar item 130",
+  "body": "The granite running quickly over the kestrel revision 0",
+  "tags": [
+   "cedar",
+   "fjord"
+  ],
+  "price": 310.25,
+  "inStock": true,
+  "category": "kitchen",
+  "location": {
+   "lat": 75,
+   "lon": 95
+  },
+  "embedding": [
+   -0.873,
+   0.933,
+   -0.975,
+   0.996,
+   -0.998,
+   0.98,
+   -0.943,
+   0.886
+  ]
+ },
+ "doc-0131": {
+  "title": "lagoon harbour item 131",
+  "body": "The juniper running quickly over the fjord revision 0",
+  "tags": [
+   "delta",
+   "amber"
+  ],
+  "price": 347.25,
+  "inStock": true,
+  "category": "books",
+  "location": {
+   "lat": -82,
+   "lon": 124
+  },
+  "embedding": [
+   -0.338,
+   0.468,
+   -0.588,
+   0.696,
+   -0.79,
+   0.869,
+   -0.93,
+   0.973
+  ]
+ },
+ "doc-0132": {
+  "title": "amber amber item 132",
+  "body": "The amber running quickly over the amber revision 0",
+  "tags": [
+   "amber",
+   "basalt"
+  ],
+  "price": 384.25,
+  "inStock": false,
+  "category": "tools",
+  "location": {
+   "lat": -69,
+   "lon": 153
+  },
+  "embedding": [
+   0.363,
+   -0.228,
+   0.088,
+   0.053,
+   -0.193,
+   0.33,
+   -0.46,
+   0.581
+  ]
+ },
+ "doc-0133": {
+  "title": "basalt fjord item 133",
+  "body": "The delta running quickly over the harbour revision 1",
+  "tags": [
+   "basalt",
+   "cedar"
+  ],
+  "price": 421.25,
+  "inStock": true,
+  "category": "garden",
+  "location": {
+   "lat": -56,
+   "lon": -168
+  },
+  "embedding": [
+   0.999,
+   -0.996,
+   0.973,
+   -0.93,
+   0.869,
+   -0.791,
+   0.697,
+   -0.588
+  ]
+ },
+ "doc-0134": {
+  "title": "cedar kestrel item 134",
+  "body": "The granite running quickly over the cedar revision 0",
+  "tags": [
+   "cedar",
+   "delta"
+  ],
+  "price": 458.25,
+  "inStock": true,
+  "category": "kitchen",
+  "location": {
+   "lat": -43,
+   "lon": -139
+  },
+  "embedding": [
+   0.973,
+   -0.996,
+   0.999,
+   -0.982,
+   0.945,
+   -0.89,
+   0.817,
+   -0.727
+  ]
+ },
+ "doc-0135": {
+  "title": "delta delta item 135",
+  "body": "The juniper running quickly over the juniper revision 0",
+  "tags": [
+   "delta",
+   "ember"
+  ],
+  "price": 495.25,
+  "inStock": false,
+  "category": "books",
+  "location": {
+   "lat": -30,
+   "lon": -110
+  },
+  "embedding": [
+   0.581,
+   -0.69,
+   0.785,
+   -0.865,
+   0.927,
+   -0.971,
+   0.995,
+   -0.999
+  ]
+ },
+ "doc-0136": {
+  "title": "ember indigo item 136",
+  "body": "The amber running quickly over the ember revision 0",
+  "tags": [
+   "amber",
+   "fjord"
+  ],
+  "price": 32.25,
+  "inStock": true,
+  "category": "tools",
+  "location": {
+   "lat": -17,
+   "lon": -81
+  },
+  "embedding": [
+   -0.097,
+   -0.044,
+   0.185,
+   -0.322,
+   0.452,
+   -0.573,
+   0.683,
+   -0.779
+  ]
+ },
+ "doc-0137": {
+  "title": "fjord basalt item 137",
+  "body": "The delta running quickly over the lagoon revision 0",
+  "tags": [
+   "basalt",
+   "amber"
+  ],
+  "price": 69.25,
+  "inStock": true,
+  "category": "garden",
+  "location": {
+   "lat": -4,
+   "lon": -52
+  },
+  "embedding": [
+   -0.727,
+   0.623,
+   -0.506,
+   0.38,
+   -0.245,
+   0.106,
+   0.035,
+   -0.176
+  ]
+ },
+ "doc-0138": {
+  "title": "granite granite item 138",
+  "body": "The granite running quickly over the granite revision 0",
+  "tags": [
+   "cedar",
+   "basalt"
+  ],
+  "price": 106.25,
+  "inStock": false,
+  "category": "kitchen",
+  "location": {
+   "lat": 9,
+   "lon": -23
+  },
+  "embedding": [
+   -0.999,
+   0.984,
+   -0.948,
+   0.894,
+   -0.822,
+   0.733,
+   -0.63,
+   0.514
+  ]
+ },
+ "doc-0139": {
+  "title": "harbour lagoon item 139",
+  "body": "The juniper running quickly over the basalt revision 0",
+  "tags": [
+   "delta",
+   "cedar"
+  ],
+  "price": 143.25,
+  "inStock": true,
+  "category": "books",
+  "location": {
+   "lat": 22,
+   "lon": 6
+  },
+  "embedding": [
+   -0.779,
+   0.86,
+   -0.923,
+   0.968,
+   -0.994,
+   1,
+   -0.985,
+   0.951
+  ]
+ },
+ "doc-0140": {
+  "title": "indigo ember item 140",
+  "body": "The amber running quickly over the indigo revision 0",
+  "tags": [
+   "amber",
+   "delta"
+  ],
+  "price": 180.25,
+  "inStock": true,
+  "category": "tools",
+  "location": {
+   "lat": 35,
+   "lon": 35
+  },
+  "embedding": [
+   -0.176,
+   0.313,
+   -0.444,
+   0.566,
+   -0.677,
+   0.774,
+   -0.855,
+   0.92
+  ]
+ },
+ "doc-0141": {
+  "title": "juniper juniper item 141",
+  "body": "The delta running quickly over the delta revision 0",
+  "tags": [
+   "basalt",
+   "ember"
+  ],
+  "price": 217.25,
+  "inStock": false,
+  "category": "garden",
+  "location": {
+   "lat": 48,
+   "lon": 64
+  },
+  "embedding": [
+   0.514,
+   -0.388,
+   0.254,
+   -0.115,
+   -0.026,
+   0.167,
+   -0.305,
+   0.436
+  ]
+ },
+ "doc-0142": {
+  "title": "kestrel cedar item 142",
+  "body": "The granite running quickly over the kestrel revision 0",
+  "tags": [
+   "cedar",
+   "fjord"
+  ],
+  "price": 254.25,
+  "inStock": true,
+  "category": "kitchen",
+  "location": {
+   "lat": 61,
+   "lon": 93
+  },
+  "embedding": [
+   0.951,
+   -0.898,
+   0.827,
+   -0.739,
+   0.637,
+   -0.522,
+   0.396,
+   -0.262
+  ]
+ },
+ "doc-0143": {
+  "title": "lagoon harbour item 143",
+  "body": "The juniper running quickly over the fjord revision 0",
+  "tags": [
+   "delta",
+   "amber"
+  ],
+  "price": 291.25,
+  "inStock": true,
+  "category": "books",
+  "location": {
+   "lat": 74,
+   "lon": 122
+  },
+  "embedding": [
+   0.92,
+   -0.966,
+   0.993,
+   -1,
+   0.987,
+   -0.954,
+   0.902,
+   -0.832
+  ]
+ },
+ "doc-0144": {
+  "title": "amber amber item 144",
+  "body": "The amber running quickly over the amber revision 0",
+  "tags": [
+   "amber",
+   "basalt"
+  ],
+  "price": 328.25,
+  "inStock": false,
+  "category": "tools",
+  "location": {
+   "lat": -83,
+   "lon": 151
+  },
+  "embedding": [
+   0.436,
+   -0.559,
+   0.67,
+   -0.768,
+   0.851,
+   -0.916,
+   0.964,
+   -0.992
+  ]
+ },
+ "doc-0145": {
+  "title": "basalt fjord item 145",
+  "body": "The delta running quickly over the harbour revision 0",
+  "tags": [
+   "basalt",
+   "cedar"
+  ],
+  "price": 365.25,
+  "inStock": true,
+  "category": "garden",
+  "location": {
+   "lat": -70,
+   "lon": -170
+  },
+  "embedding": [
+   -0.262,
+   0.124,
+   0.018,
+   -0.159,
+   0.296,
+   -0.428,
+   0.551,
+   -0.664
+  ]
+ },
+ "doc-0146": {
+  "title": "cedar kestrel item 146",
+  "body": "The granite running quickly over the cedar revision 0",
+  "tags": [
+   "cedar",
+   "delta"
+  ],
+  "price": 402.25,
+  "inStock": true,
+  "category": "kitchen",
+  "location": {
+   "lat": -57,
+   "lon": -141
+  },
+  "embedding": [
+   -0.832,
+   0.745,
+   -0.644,
+   0.529,
+   -0.404,
+   0.271,
+   -0.132,
+   -0.009
+  ]
+ },
+ "doc-0147": {
+  "title": "delta delta item 147",
+  "body": "The juniper running quickly over the juniper revision 0",
+  "tags": [
+   "delta",
+   "ember"
+  ],
+  "price": 439.25,
+  "inStock": false,
+  "category": "books",
+  "location": {
+   "lat": -44,
+   "lon": -112
+  },
+  "embedding": [
+   -0.992,
+   1,
+   -0.988,
+   0.956,
+   -0.906,
+   0.837,
+   -0.751,
+   0.65
+  ]
+ },
+ "doc-0148": {
+  "title": "ember indigo item 148",
+  "body": "The amber running quickly over the ember revision 0",
+  "tags": [
+   "amber",
+   "fjord"
+  ],
+  "price": 476.25,
+  "inStock": true,
+  "category": "tools",
+  "location": {
+   "lat": -31,
+   "lon": -83
+  },
+  "embedding": [
+   -0.664,
+   0.762,
+   -0.846,
+   0.913,
+   -0.961,
+   0.991,
+   -1,
+   0.989
+  ]
+ },
+ "doc-0149": {
+  "title": "fjord basalt item 149",
+  "body": "The delta running quickly over the lagoon revision 0",
+  "tags": [
+   "basalt",
+   "amber"
+  ],
+  "price": 13.25,
+  "inStock": true,
+  "category": "garden",
+  "location": {
+   "lat": -18,
+   "lon": -54
+  },
+  "embedding": [
+   -0.009,
+   0.15,
+   -0.288,
+   0.42,
+   -0.544,
+   0.657,
+   -0.757,
+   0.841
+  ]
+ },
+ "doc-0150": {
+  "title": "granite granite item 150",
+  "body": "The granite running quickly over the granite revision 0",
+  "tags": [
+   "cedar",
+   "basalt"
+  ],
+  "price": 50.25,
+  "inStock": false,
+  "category": "kitchen",
+  "location": {
+   "lat": -5,
+   "lon": -25
+  },
+  "embedding": [
+   0.65,
+   -0.537,
+   0.412,
+   -0.28,
+   0.141,
+   0,
+   -0.141,
+   0.279
+  ]
+ },
+ "doc-0151": {
+  "title": "harbour lagoon item 151",
+  "body": "The juniper running quickly over the basalt revision 0",
+  "tags": [
+   "delta",
+   "cedar"
+  ],
+  "price": 87.25,
+  "inStock": true,
+  "category": "books",
+  "location": {
+   "lat": 8,
+   "lon": 4
+  },
+  "embedding": [
+   0.989,
+   -0.959,
+   0.909,
+   -0.842,
+   0.757,
+   -0.657,
+   0.544,
+   -0.42
+  ]
+ },
+ "doc-0152": {
+  "title": "indigo ember item 152",
+  "body": "The amber running quickly over the indigo revision 0",
+  "tags": [
+   "amber",
+   "delta"
+  ],
+  "price": 124.25,
+  "inStock": true,
+  "category": "tools",
+  "location": {
+   "lat": 21,
+   "lon": 33
+  },
+  "embedding": [
+   0.841,
+   -0.909,
+   0.959,
+   -0.989,
+   1,
+   -0.991,
+   0.961,
+   -0.913
+  ]
+ },
+ "doc-0153": {
+  "title": "juniper juniper item 153",
+  "body": "The delta running quickly over the delta revision 0",
+  "tags": [
+   "basalt",
+   "ember"
+  ],
+  "price": 161.25,
+  "inStock": false,
+  "category": "garden",
+  "location": {
+   "lat": 34,
+   "lon": 62
+  },
+  "embedding": [
+   0.279,
+   -0.412,
+   0.536,
+   -0.65,
+   0.751,
+   -0.837,
+   0.906,
+   -0.956
+  ]
+ },
+ "doc-0154": {
+  "title": "kestrel cedar item 154",
+  "body": "The granite running quickly over the kestrel revision 0",
+  "tags": [
+   "cedar",
+   "fjord"
+  ],
+  "price": 198.25,
+  "inStock": true,
+  "category": "kitchen",
+  "location": {
+   "lat": 47,
+   "lon": 91
+  },
+  "embedding": [
+   -0.42,
+   0.288,
+   -0.15,
+   0.009,
+   0.132,
+   -0.271,
+   0.404,
+   -0.529
+  ]
+ },
+ "doc-0155": {
+  "title": "lagoon harbour item 155",
+  "body": "The juniper running quickly over the fjord revision 0",
+  "tags": [
+   "delta",
+   "amber"
+  ],
+  "price": 235.25,
+  "inStock": true,
+  "category": "books",
+  "location": {
+   "lat": 60,
+   "lon": 120
+  },
+  "embedding": [
+   -0.913,
+   0.846,
+   -0.763,
+   0.664,
+   -0.552,
+   0.428,
+   -0.296,
+   0.159
+  ]
+ },
+ "doc-0156": {
+  "title": "amber amber item 156",
+  "body": "The amber running quickly over the amber revision 0",
+  "tags": [
+   "amber",
+   "basalt"
+  ],
+  "price": 272.25,
+  "inStock": false,
+  "category": "tools",
+  "location": {
+   "lat": 73,
+   "lon": 149
+  },
+  "embedding": [
+   -0.956,
+   0.988,
+   -1,
+   0.992,
+   -0.964,
+   0.917,
+   -0.851,
+   0.768
+  ]
+ },
+ "doc-0157": {
+  "title": "basalt fjord item 157",
+  "body": "The delta running quickly over the harbour revision 0",
+  "tags": [
+   "basalt",
+   "cedar"
+  ],
+  "price": 309.25,
+  "inStock": true,
+  "category": "garden",
+  "location": {
+   "lat": -84,
+   "lon": -172
+  },
+  "embedding": [
+   -0.529,
+   0.643,
+   -0.745,
+   0.832,
+   -0.902,
+   0.954,
+   -0.987,
+   1
+  ]
+ },
+ "doc-0158": {
+  "title": "cedar kestrel item 158",
+  "body": "The granite running quickly over the cedar revision 0",
+  "tags": [
+   "cedar",
+   "delta"
+  ],
+  "price": 346.25,
+  "inStock": true,
+  "category": "kitchen",
+  "location": {
+   "lat": -71,
+   "lon": -143
+  },
+  "embedding": [
+   0.159,
+   -0.018,
+   -0.123,
+   0.262,
+   -0.396,
+   0.521,
+   -0.637,
+   0.739
+  ]
+ },
+ "doc-0159": {
+  "title": "delta delta item 159",
+  "body": "The juniper running quickly over the juniper revision 0",
+  "tags": [
+   "delta",
+   "ember"
+  ],
+  "price": 383.25,
+  "inStock": false,
+  "category": "books",
+  "location": {
+   "lat": -58,
+   "lon": -114
+  },
+  "embedding": [
+   0.768,
+   -0.67,
+   0.559,
+   -0.436,
+   0.305,
+   -0.167,
+   0.027,
+   0.115
+  ]
+ },
+ "doc-0160": {
+  "title": "ember indigo item 160",
+  "body": "The amber running quickly over the ember revision 0",
+  "tags": [
+   "amber",
+   "fjord"
+  ],
+  "price": 420.25,
+  "inStock": true,
+  "category": "tools",
+  "location": {
+   "lat": -45,
+   "lon": -85
+  },
+  "embedding": [
+   1,
+   -0.993,
+   0.966,
+   -0.92,
+   0.856,
+   -0.774,
+   0.677,
+   -0.566
+  ]
+ },
+ "doc-0161": {
+  "title": "fjord basalt item 161",
+  "body": "The delta running quickly over the lagoon revision 0",
+  "tags": [
+   "basalt",
+   "amber"
+  ],
+  "price": 457.25,
+  "inStock": true,
+  "category": "garden",
+  "location": {
+   "lat": -32,
+   "lon": -56
+  },
+  "embedding": [
+   0.739,
+   -0.827,
+   0.898,
+   -0.951,
+   0.985,
+   -1,
+   0.994,
+   -0.968
+  ]
+ },
+ "doc-0162": {
+  "title": "granite granite item 162",
+  "body": "The granite running quickly over the granite revision 0",
+  "tags": [
+   "cedar",
+   "basalt"
+  ],
+  "price": 494.25,
+  "inStock": false,
+  "category": "kitchen",
+  "location": {
+   "lat": -19,
+   "lon": -27
+  },
+  "embedding": [
+   0.115,
+   -0.254,
+   0.388,
+   -0.514,
+   0.63,
+   -0.733,
+   0.822,
+   -0.894
+  ]
+ },
+ "doc-0163": {
+  "title": "harbour lagoon item 163",
+  "body": "The juniper running quickly over the basalt revision 0",
+  "tags": [
+   "delta",
+   "cedar"
+  ],
+  "price": 31.25,
+  "inStock": true,
+  "category": "books",
+  "location": {
+   "lat": -6,
+   "lon": 2
+  },
+  "embedding": [
+   -0.566,
+   0.444,
+   -0.313,
+   0.176,
+   -0.035,
+   -0.106,
+   0.245,
+   -0.38
+  ]
+ },
+ "doc-0164": {
+  "title": "indigo ember item 164",
+  "body": "The amber running quickly over the indigo revision 0",
+  "tags": [
+   "amber",
+   "delta"
+  ],
+  "price": 68.25,
+  "inStock": true,
+  "category": "tools",
+  "location": {
+   "lat": 7,
+   "lon": 31
+  },
+  "embedding": [
+   -0.968,
+   0.923,
+   -0.86,
+   0.78,
+   -0.683,
+   0.573,
+   -0.452,
+   0.322
+  ]
+ },
+ "doc-0165": {
+  "title": "juniper juniper item 165",
+  "body": "The delta running quickly over the delta revision 0",
+  "tags": [
+   "basalt",
+   "ember"
+  ],
+  "price": 105.25,
+  "inStock": false,
+  "category": "garden",
+  "location": {
+   "lat": 20,
+   "lon": 60
+  },
+  "embedding": [
+   -0.894,
+   0.948,
+   -0.984,
+   0.999,
+   -0.995,
+   0.971,
+   -0.927,
+   0.865
+  ]
+ },
+ "doc-0166": {
+  "title": "kestrel cedar item 166",
+  "body": "The granite running quickly over the kestrel revision 0",
+  "tags": [
+   "cedar",
+   "fjord"
+  ],
+  "price": 142.25,
+  "inStock": true,
+  "category": "kitchen",
+  "location": {
+   "lat": 33,
+   "lon": 89
+  },
+  "embedding": [
+   -0.38,
+   0.506,
+   -0.623,
+   0.727,
+   -0.817,
+   0.89,
+   -0.945,
+   0.982
+  ]
+ },
+ "doc-0167": {
+  "title": "lagoon harbour item 167",
+  "body": "The juniper running quickly over the fjord revision 0",
+  "tags": [
+   "delta",
+   "amber"
+  ],
+  "price": 179.25,
+  "inStock": true,
+  "category": "books",
+  "location": {
+   "lat": 46,
+   "lon": 118
+  },
+  "embedding": [
+   0.322,
+   -0.185,
+   0.044,
+   0.097,
+   -0.237,
+   0.371,
+   -0.499,
+   0.616
+  ]
+ },
+ "doc-0168": {
+  "title": "amber amber item 168",
+  "body": "The amber running quickly over the amber revision 0",
+  "tags": [
+   "amber",
+   "basalt"
+  ],
+  "price": 216.25,
+  "inStock": false,
+  "category": "tools",
+  "location": {
+   "lat": 59,
+   "lon": 147
+  },
+  "embedding": [
+   0.865,
+   -0.785,
+   0.69,
+   -0.581,
+   0.46,
+   -0.33,
+   0.194,
+   -0.053
+  ]
+ },
+ "doc-0169": {
+  "title": "basalt fjord item 169",
+  "body": "The delta running quickly over the harbour revision 0",
+  "tags": [
+   "basalt",
+   "cedar"
+  ],
+  "price": 253.25,
+  "inStock": true,
+  "category": "garden",
+  "location": {
+   "lat": 72,
+   "lon": -174
+  },
+  "embedding": [
+   0.982,
+   -0.999,
+   0.996,
+   -0.973,
+   0.93,
+   -0.869,
+   0.79,
+   -0.696
+  ]
+ },
+ "doc-0170": {
+  "title": "cedar kestrel item 170",
+  "body": "The granite running quickly over the cedar revision 0",
+  "tags": [
+   "cedar",
+   "delta"
+  ],
+  "price": 290.25,
+  "inStock": true,
+  "category": "kitchen",
+  "location": {
+   "lat": -85,
+   "lon": -145
+  },
+  "embedding": [
+   0.616,
+   -0.721,
+   0.812,
+   -0.886,
+   0.942,
+   -0.98,
+   0.998,
+   -0.996
+  ]
+ },
+ "doc-0171": {
+  "title": "delta delta item 171",
+  "body": "The juniper running quickly over the juniper revision 0",
+  "tags": [
+   "delta",
+   "ember"
+  ],
+  "price": 327.25,
+  "inStock": false,
+  "category": "books",
+  "location": {
+   "lat": -72,
+   "lon": -116
+  },
+  "embedding": [
+   -0.053,
+   -0.088,
+   0.228,
+   -0.363,
+   0.491,
+   -0.609,
+   0.715,
+   -0.806
+  ]
+ },
+ "doc-0172": {
+  "title": "ember indigo item 172",
+  "body": "The amber running quickly over the ember revision 0",
+  "tags": [
+   "amber",
+   "fjord"
+  ],
+  "price": 364.25,
+  "inStock": true,
+  "category": "tools",
+  "location": {
+   "lat": -59,
+   "lon": -87
+  },
+  "embedding": [
+   -0.696,
+   0.588,
+   -0.468,
+   0.338,
+   -0.202,
+   0.062,
+   0.079,
+   -0.219
+  ]
+ },
+ "doc-0173": {
+  "title": "fjord basalt item 173",
+  "body": "The delta running quickly over the lagoon revision 0",
+  "tags": [
+   "basalt",
+   "amber"
+  ],
+  "price": 401.25,
+  "inStock": true,
+  "category": "garden",
+  "location": {
+   "lat": -46,
+   "lon": -58
+  },
+  "embedding": [
+   -0.996,
+   0.975,
+   -0.933,
+   0.873,
+   -0.796,
+   0.702,
+   -0.595,
+   0.476
+  ]
+ },
+ "doc-0174": {
+  "title": "granite granite item 174",
+  "body": "The granite running quickly over the granite revision 0",
+  "tags": [
+   "cedar",
+   "basalt"
+  ],
+  "price": 438.25,
+  "inStock": false,
+  "category": "kitchen",
+  "location": {
+   "lat": -33,
+   "lon": -29
+  },
+  "embedding": [
+   -0.806,
+   0.882,
+   -0.939,
+   0.978,
+   -0.998,
+   0.997,
+   -0.977,
+   0.936
+  ]
+ },
+ "doc-0175": {
+  "title": "harbour lagoon item 175",
+  "body": "The juniper running quickly over the basalt revision 0",
+  "tags": [
+   "delta",
+   "cedar"
+  ],
+  "price": 475.25,
+  "inStock": true,
+  "category": "books",
+  "location": {
+   "lat": -20,
+   "lon": 0
+  },
+  "embedding": [
+   -0.219,
+   0.355,
+   -0.483,
+   0.602,
+   -0.709,
+   0.801,
+   -0.878,
+   0.936
+  ]
+ },
+ "doc-0176": {
+  "title": "indigo ember item 176",
+  "body": "The amber running quickly over the indigo revision 0",
+  "tags": [
+   "amber",
+   "delta"
+  ],
+  "price": 12.25,
+  "inStock": true,
+  "category": "tools",
+  "location": {
+   "lat": -7,
+   "lon": 29
+  },
+  "embedding": [
+   0.476,
+   -0.347,
+   0.211,
+   -0.071,
+   -0.071,
+   0.211,
+   -0.347,
+   0.475
+  ]
+ },
+ "doc-0177": {
+  "title": "juniper juniper item 177",
+  "body": "The delta running quickly over the delta revision 0",
+  "tags": [
+   "basalt",
+   "ember"
+  ],
+  "price": 49.25,
+  "inStock": false,
+  "category": "garden",
+  "location": {
+   "lat": 6,
+   "lon": 58
+  },
+  "embedding": [
+   0.936,
+   -0.878,
+   0.801,
+   -0.709,
+   0.602,
+   -0.483,
+   0.355,
+   -0.22
+  ]
+ },
+ "doc-0178": {
+  "title": "kestrel cedar item 178",
+  "body": "The granite running quickly over the kestrel revision 0",
+  "tags": [
+   "cedar",
+   "fjord"
+  ],
+  "price": 86.25,
+  "inStock": true,
+  "category": "kitchen",
+  "location": {
+   "lat": 19,
+   "lon": 87
+  },
+  "embedding": [
+   0.936,
+   -0.977,
+   0.997,
+   -0.998,
+   0.978,
+   -0.94,
+   0.882,
+   -0.806
+  ]
+ },
+ "doc-0179": {
+  "title": "lagoon harbour item 179",
+  "body": "The juniper running quickly over the fjord revision 0",
+  "tags": [
+   "delta",
+   "amber"
+  ],
+  "price": 123.25,
+  "inStock": true,
+  "category": "books",
+  "location": {
+   "lat": 32,
+   "lon": 116
+  },
+  "embedding": [
+   0.475,
+   -0.595,
+   0.702,
+   -0.796,
+   0.873,
+   -0.933,
+   0.975,
+   -0.996
+  ]
+ },
+ "doc-0180": {
+  "title": "amber amber item 180",
+  "body": "The amber running quickly over the amber revision 0",
+  "tags": [
+   "amber",
+   "basalt"
+  ],
+  "price": 160.25,
+  "inStock": false,
+  "category": "tools",
+  "location": {
+   "lat": 45,
+   "lon": 145
+  },
+  "embedding": [
+   -0.22,
+   0.08,
+   0.062,
+   -0.202,
+   0.338,
+   -0.468,
+   0.588,
+   -0.696
+  ]
+ },
+ "doc-0181": {
+  "title": "basalt fjord item 181",
+  "body": "The delta running quickly over the harbour revision 0",
+  "tags": [
+   "basalt",
+   "cedar"
+  ],
+  "price": 197.25,
+  "inStock": true,
+  "category": "garden",
+  "location": {
+   "lat": 58,
+   "lon": 174
+  },
+  "embedding": [
+   -0.806,
+   0.715,
+   -0.609,
+   0.491,
+   -0.363,
+   0.228,
+   -0.088,
+   -0.053
+  ]
+ },
+ "doc-0182": {
+  "title": "cedar kestrel item 182",
+  "body": "The granite running quickly over the cedar revision 0",
+  "tags": [
+   "cedar",
+   "delta"
+  ],
+  "price": 234.25,
+  "inStock": true,
+  "category": "kitchen",
+  "location": {
+   "lat": 71,
+   "lon": -147
+  },
+  "embedding": [
+   -0.996,
+   0.998,
+   -0.98,
+   0.943,
+   -0.886,
+   0.812,
+   -0.721,
+   0.616
+  ]
+ },
+ "doc-0183": {
+  "title": "delta delta item 183",
+  "body": "The juniper running quickly over the juniper revision 0",
+  "tags": [
+   "delta",
+   "ember"
+  ],
+  "price": 271.25,
+  "inStock": false,
+  "category": "books",
+  "location": {
+   "lat": 84,
+   "lon": -118
+  },
+  "embedding": [
+   -0.696,
+   0.79,
+   -0.869,
+   0.93,
+   -0.973,
+   0.996,
+   -0.999,
+   0.982
+  ]
+ },
+ "doc-0184": {
+  "title": "ember indigo item 184",
+  "body": "The amber running quickly over the ember revision 0",
+  "tags": [
+   "amber",
+   "fjord"
+  ],
+  "price": 308.25,
+  "inStock": true,
+  "category": "tools",
+  "location": {
+   "lat": -73,
+   "lon": -89
+  },
+  "embedding": [
+   -0.053,
+   0.193,
+   -0.33,
+   0.46,
+   -0.581,
+   0.69,
+   -0.785,
+   0.864
+  ]
+ },
+ "doc-0185": {
+  "title": "fjord basalt item 185",
+  "body": "The delta running quickly over the lagoon revision 0",
+  "tags": [
+   "basalt",
+   "amber"
+  ],
+  "price": 345.25,
+  "inStock": true,
+  "category": "garden",
+  "location": {
+   "lat": -60,
+   "lon": -60
+  },
+  "embedding": [
+   0.616,
+   -0.499,
+   0.372,
+   -0.237,
+   0.097,
+   0.044,
+   -0.185,
+   0.322
+  ]
+ },
+ "doc-0186": {
+  "title": "granite granite item 186",
+  "body": "The granite running quickly over the granite revision 0",
+  "tags": [
+   "cedar",
+   "basalt"
+  ],
+  "price": 382.25,
+  "inStock": false,
+  "category": "kitchen",
+  "location": {
+   "lat": -47,
+   "lon": -31
+  },
+  "embedding": [
+   0.982,
+   -0.945,
+   0.89,
+   -0.817,
+   0.727,
+   -0.623,
+   0.506,
+   -0.38
+  ]
+ },
+ "doc-0187": {
+  "title": "harbour lagoon item 187",
+  "body": "The juniper running quickly over the basalt revision 0",
+  "tags": [
+   "delta",
+   "cedar"
+  ],
+  "price": 419.25,
+  "inStock": true,
+  "category": "books",
+  "location": {
+   "lat": -34,
+   "lon": -2
+  },
+  "embedding": [
+   0.864,
+   -0.927,
+   0.971,
+   -0.995,
+   0.999,
+   -0.984,
+   0.948,
+   -0.894
+  ]
+ },
+ "doc-0188": {
+  "title": "indigo ember item 188",
+  "body": "The amber running quickly over the indigo revision 0",
+  "tags": [
+   "amber",
+   "delta"
+  ],
+  "price": 456.25,
+  "inStock": true,
+  "category": "tools",
+  "location": {
+   "lat": -21,
+   "lon": 27
+  },
+  "embedding": [
+   0.322,
+   -0.452,
+   0.573,
+   -0.683,
+   0.779,
+   -0.86,
+   0.923,
+   -0.968
+  ]
+ },
+ "doc-0189": {
+  "title": "juniper juniper item 189",
+  "body": "The delta running quickly over the delta revision 0",
+  "tags": [
+   "basalt",
+   "ember"
+  ],
+  "price": 493.25,
+  "inStock": false,
+  "category": "garden",
+  "location": {
+   "lat": -8,
+   "lon": 56
+  },
+  "embedding": [
+   -0.38,
+   0.245,
+   -0.106,
+   -0.035,
+   0.176,
+   -0.313,
+   0.444,
+   -0.566
+  ]
+ },
+ "doc-0190": {
+  "title": "kestrel cedar item 190",
+  "body": "The granite running quickly over the kestrel revision 0",
+  "tags": [
+   "cedar",
+   "fjord"
+  ],
+  "price": 30.25,
+  "inStock": true,
+  "category": "kitchen",
+  "location": {
+   "lat": 5,
+   "lon": 85
+  },
+  "embedding": [
+   -0.894,
+   0.822,
+   -0.733,
+   0.63,
+   -0.514,
+   0.388,
+   -0.254,
+   0.115
+  ]
+ },
+ "doc-0191": {
+  "title": "lagoon harbour item 191",
+  "body": "The juniper running quickly over the fjord revision 0",
+  "tags": [
+   "delta",
+   "amber"
+  ],
+  "price": 67.25,
+  "inStock": true,
+  "category": "books",
+  "location": {
+   "lat": 18,
+   "lon": 114
+  },
+  "embedding": [
+   -0.968,
+   0.994,
+   -1,
+   0.985,
+   -0.951,
+   0.898,
+   -0.827,
+   0.739
+  ]
+ },
+ "doc-0192": {
+  "title": "amber amber item 192",
+  "body": "The amber running quickly over the amber revision 0",
+  "tags": [
+   "amber",
+   "basalt"
+  ],
+  "price": 104.25,
+  "inStock": false,
+  "category": "tools",
+  "location": {
+   "lat": 31,
+   "lon": 143
+  },
+  "embedding": [
+   -0.566,
+   0.677,
+   -0.774,
+   0.855,
+   -0.92,
+   0.966,
+   -0.993,
+   1
+  ]
+ },
+ "doc-0193": {
+  "title": "basalt fjord item 193",
+  "body": "The delta running quickly over the harbour revision 0",
+  "tags": [
+   "basalt",
+   "cedar"
+  ],
+  "price": 141.25,
+  "inStock": true,
+  "category": "garden",
+  "location": {
+   "lat": 44,
+   "lon": 172
+  },
+  "embedding": [
+   0.115,
+   0.026,
+   -0.167,
+   0.305,
+   -0.436,
+   0.559,
+   -0.67,
+   0.768
+  ]
+ },
+ "doc-0194": {
+  "title": "cedar kestrel item 194",
+  "body": "The granite running quickly over the cedar revision 0",
+  "tags": [
+   "cedar",
+   "delta"
+  ],
+  "price": 178.25,
+  "inStock": true,
+  "category": "kitchen",
+  "location": {
+   "lat": 57,
+   "lon": -149
+  },
+  "embedding": [
+   0.739,
+   -0.637,
+   0.522,
+   -0.396,
+   0.262,
+   -0.124,
+   -0.018,
+   0.159
+  ]
+ },
+ "doc-0195": {
+  "title": "delta delta item 195",
+  "body": "The juniper running quickly over the juniper revision 0",
+  "tags": [
+   "delta",
+   "ember"
+  ],
+  "price": 215.25,
+  "inStock": false,
+  "category": "books",
+  "location": {
+   "lat": 70,
+   "lon": -120
+  },
+  "embedding": [
+   1,
+   -0.987,
+   0.954,
+   -0.902,
+   0.832,
+   -0.745,
+   0.644,
+   -0.529
+  ]
+ },
+ "doc-0196": {
+  "title": "ember indigo item 196",
+  "body": "The amber running quickly over the ember revision 0",
+  "tags": [
+   "amber",
+   "fjord"
+  ],
+  "price": 252.25,
+  "inStock": true,
+  "category": "tools",
+  "location": {
+   "lat": 83,
+   "lon": -91
+  },
+  "embedding": [
+   0.768,
+   -0.851,
+   0.916,
+   -0.964,
+   0.992,
+   -1,
+   0.988,
+   -0.956
+  ]
+ },
+ "doc-0197": {
+  "title": "fjord basalt item 197",
+  "body": "The delta running quickly over the lagoon revision 0",
+  "tags": [
+   "basalt",
+   "amber"
+  ],
+  "price": 289.25,
+  "inStock": true,
+  "category": "garden",
+  "location": {
+   "lat": -74,
+   "lon": -62
+  },
+  "embedding": [
+   0.159,
+   -0.296,
+   0.428,
+   -0.551,
+   0.664,
+   -0.762,
+   0.846,
+   -0.913
+  ]
+ },
+ "doc-0198": {
+  "title": "granite granite item 198",
+  "body": "The granite running quickly over the granite revision 0",
+  "tags": [
+   "cedar",
+   "basalt"
+  ],
+  "price": 326.25,
+  "inStock": false,
+  "category": "kitchen",
+  "location": {
+   "lat": -61,
+   "lon": -33
+  },
+  "embedding": [
+   -0.529,
+   0.404,
+   -0.271,
+   0.132,
+   0.009,
+   -0.15,
+   0.288,
+   -0.42
+  ]
+ },
+ "doc-0199": {
+  "title": "harbour lagoon item 199",
+  "body": "The juniper running quickly over the basalt revision 0",
+  "tags": [
+   "delta",
+   "cedar"
+  ],
+  "price": 363.25,
+  "inStock": true,
+  "category": "books",
+  "location": {
+   "lat": -48,
+   "lon": -4
+  },
+  "embedding": [
+   -0.956,
+   0.906,
+   -0.837,
+   0.751,
+   -0.65,
+   0.537,
+   -0.412,
+   0.28
+  ]
+ },
+ "doc-0200": {
+  "title": "indigo ember item 200",
+  "body": "The amber running quickly over the indigo revision 0",
+  "tags": [
+   "amber",
+   "delta"
+  ],
+  "price": 400.25,
+  "inStock": true,
+  "category": "tools",
+  "location": {
+   "lat": -35,
+   "lon": 25
+  },
+  "embedding": [
+   -0.913,
+   0.961,
+   -0.991,
+   1,
+   -0.989,
+   0.959,
+   -0.909,
+   0.842
+  ]
+ },
+ "doc-0201": {
+  "title": "juniper juniper item 201",
+  "body": "The delta running quickly over the delta revision 0",
+  "tags": [
+   "basalt",
+   "ember"
+  ],
+  "price": 437.25,
+  "inStock": false,
+  "category": "garden",
+  "location": {
+   "lat": -22,
+   "lon": 54
+  },
+  "embedding": [
+   -0.42,
+   0.544,
+   -0.657,
+   0.757,
+   -0.841,
+   0.909,
+   -0.959,
+   0.989
+  ]
+ },
+ "doc-0202": {
+  "title": "kestrel cedar item 202",
+  "body": "The granite running quickly over the kestrel revision 0",
+  "tags": [
+   "cedar",
+   "fjord"
+  ],
+  "price": 474.25,
+  "inStock": true,
+  "category": "kitchen",
+  "location": {
+   "lat": -9,
+   "lon": 83
+  },
+  "embedding": [
+   0.28,
+   -0.141,
+   0,
+   0.141,
+   -0.279,
+   0.412,
+   -0.536,
+   0.65
+  ]
+ },
+ "doc-0203": {
+  "title": "lagoon harbour item 203",
+  "body": "The juniper running quickly over the fjord revision 0",
+  "tags": [
+   "delta",
+   "amber"
+  ],
+  "price": 11.25,
+  "inStock": true,
+  "category": "books",
+  "location": {
+   "lat": 4,
+   "lon": 112
+  },
+  "embedding": [
+   0.842,
+   -0.757,
+   0.657,
+   -0.544,
+   0.42,
+   -0.288,
+   0.15,
+   -0.009
+  ]
+ },
+ "doc-0204": {
+  "title": "amber amber item 204",
+  "body": "The amber running quickly over the amber revision 0",
+  "tags": [
+   "amber",
+   "basalt"
+  ],
+  "price": 48.25,
+  "inStock": false,
+  "category": "tools",
+  "location": {
+   "lat": 17,
+   "lon": 141
+  },
+  "embedding": [
+   0.989,
+   -1,
+   0.991,
+   -0.961,
+   0.913,
+   -0.846,
+   0.763,
+   -0.664
+  ]
+ },
+ "doc-0205": {
+  "title": "basalt fjord item 205",
+  "body": "The delta running quickly over the harbour revision 0",
+  "tags": [
+   "basalt",
+   "cedar"
+  ],
+  "price": 85.25,
+  "inStock": true,
+  "category": "garden",
+  "location": {
+   "lat": 30,
+   "lon": 170
+  },
+  "embedding": [
+   0.65,
+   -0.751,
+   0.837,
+   -0.906,
+   0.956,
+   -0.988,
+   1,
+   -0.992
+  ]
+ },
+ "doc-0206": {
+  "title": "cedar kestrel item 206",
+  "body": "The granite running quickly over the cedar revision 0",
+  "tags": [
+   "cedar",
+   "delta"
+  ],
+  "price": 122.25,
+  "inStock": true,
+  "category": "kitchen",
+  "location": {
+   "lat": 43,
+   "lon": -151
+  },
+  "embedding": [
+   -0.009,
+   -0.132,
+   0.271,
+   -0.404,
+   0.529,
+   -0.643,
+   0.745,
+   -0.832
+  ]
+ },
+ "doc-0207": {
+  "title": "delta delta item 207",
+  "body": "The juniper running quickly over the juniper revision 0",
+  "tags": [
+   "delta",
+   "ember"
+  ],
+  "price": 159.25,
+  "inStock": false,
+  "category": "books",
+  "location": {
+   "lat": 56,
+   "lon": -122
+  },
+  "embedding": [
+   -0.664,
+   0.552,
+   -0.428,
+   0.296,
+   -0.159,
+   0.018,
+   0.123,
+   -0.262
+  ]
+ },
+ "doc-0208": {
+  "title": "ember indigo item 208",
+  "body": "The amber running quickly over the ember revision 0",
+  "tags": [
+   "amber",
+   "fjord"
+  ],
+  "price": 196.25,
+  "inStock": true,
+  "category": "tools",
+  "location": {
+   "lat": 69,
+   "lon": -93
+  },
+  "embedding": [
+   -0.992,
+   0.964,
+   -0.917,
+   0.851,
+   -0.768,
+   0.67,
+   -0.559,
+   0.436
+  ]
+ },
+ "doc-0209": {
+  "title": "fjord basalt item 209",
+  "body": "The delta running quickly over the lagoon revision 0",
+  "tags": [
+   "basalt",
+   "amber"
+  ],
+  "price": 233.25,
+  "inStock": true,
+  "category": "garden",
+  "location": {
+   "lat": 82,
+   "lon": -64
+  },
+  "embedding": [
+   -0.832,
+   0.902,
+   -0.954,
+   0.987,
+   -1,
+   0.993,
+   -0.966,
+   0.92
+  ]
+ },
+ "doc-0210": {
+  "title": "granite granite item 210",
+  "body": "The granite running quickly over the granite revision 0",
+  "tags": [
+   "cedar",
+   "basalt"
+  ],
+  "price": 270.25,
+  "inStock": false,
+  "category": "kitchen",
+  "location": {
+   "lat": -75,
+   "lon": -35
+  },
+  "embedding": [
+   -0.262,
+   0.396,
+   -0.521,
+   0.637,
+   -0.739,
+   0.827,
+   -0.898,
+   0.951
+  ]
+ },
+ "doc-0211": {
+  "title": "harbour lagoon item 211",
+  "body": "The juniper running quickly over the basalt revision 0",
+  "tags": [
+   "delta",
+   "cedar"
+  ],
+  "price": 307.25,
+  "inStock": true,
+  "category": "books",
+  "location": {
+   "lat": -62,
+   "lon": -6
+  },
+  "embedding": [
+   0.436,
+   -0.305,
+   0.167,
+   -0.027,
+   -0.115,
+   0.254,
+   -0.388,
+   0.514
+  ]
+ },
+ "doc-0212": {
+  "title": "indigo ember item 212",
+  "body": "The amber running quickly over the indigo revision 0",
+  "tags": [
+   "amber",
+   "delta"
+  ],
+  "price": 344.25,
+  "inStock": true,
+  "category": "tools",
+  "location": {
+   "lat": -49,
+   "lon": 23
+  },
+  "embedding": [
+   0.92,
+   -0.856,
+   0.774,
+   -0.677,
+   0.566,
+   -0.444,
+   0.313,
+   -0.176
+  ]
+ },
+ "doc-0213": {
+  "title": "juniper juniper item 213",
+  "body": "The delta running quickly over the delta revision 0",
+  "tags": [
+   "basalt",
+   "ember"
+  ],
+  "price": 381.25,
+  "inStock": false,
+  "category": "garden",
+  "location": {
+   "lat": -36,
+   "lon": 52
+  },
+  "embedding": [
+   0.951,
+   -0.985,
+   1,
+   -0.994,
+   0.968,
+   -0.924,
+   0.86,
+   -0.78
+  ]
+ },
+ "doc-0214": {
+  "title": "kestrel cedar item 214",
+  "body": "The granite running quickly over the kestrel revision 0",
+  "tags": [
+   "cedar",
+   "fjord"
+  ],
+  "price": 418.25,
+  "inStock": true,
+  "category": "kitchen",
+  "location": {
+   "lat": -23,
+   "lon": 81
+  },
+  "embedding": [
+   0.514,
+   -0.63,
+   0.733,
+   -0.822,
+   0.894,
+   -0.948,
+   0.984,
+   -0.999
+  ]
+ },
+ "doc-0215": {
+  "title": "lagoon harbour item 215",
+  "body": "The juniper running quickly over the fjord revision 0",
+  "tags": [
+   "delta",
+   "amber"
+  ],
+  "price": 455.25,
+  "inStock": true,
+  "category": "books",
+  "location": {
+   "lat": -10,
+   "lon": 110
+  },
+  "embedding": [
+   -0.176,
+   0.036,
+   0.106,
+   -0.245,
+   0.379,
+   -0.506,
+   0.623,
+   -0.727
+  ]
+ },
+ "doc-0216": {
+  "title": "amber amber item 216",
+  "body": "The amber running quickly over the amber revision 0",
+  "tags": [
+   "amber",
+   "basalt"
+  ],
+  "price": 492.25,
+  "inStock": false,
+  "category": "tools",
+  "location": {
+   "lat": 3,
+   "lon": 139
+  },
+  "embedding": [
+   -0.78,
+   0.683,
+   -0.573,
+   0.452,
+   -0.322,
+   0.185,
+   -0.044,
+   -0.097
+  ]
+ },
+ "doc-0217": {
+  "title": "basalt fjord item 217",
+  "body": "The delta running quickly over the harbour revision 0",
+  "tags": [
+   "basalt",
+   "cedar"
+  ],
+  "price": 29.25,
+  "inStock": true,
+  "category": "garden",
+  "location": {
+   "lat": 16,
+   "lon": 168
+  },
+  "embedding": [
+   -0.999,
+   0.995,
+   -0.971,
+   0.927,
+   -0.865,
+   0.785,
+   -0.69,
+   0.581
+  ]
+ },
+ "doc-0218": {
+  "title": "cedar kestrel item 218",
+  "body": "The granite running quickly over the cedar revision 0",
+  "tags": [
+   "cedar",
+   "delta"
+  ],
+  "price": 66.25,
+  "inStock": true,
+  "category": "kitchen",
+  "location": {
+   "lat": 29,
+   "lon": -153
+  },
+  "embedding": [
+   -0.727,
+   0.817,
+   -0.89,
+   0.945,
+   -0.982,
+   0.999,
+   -0.996,
+   0.973
+  ]
+ },
+ "doc-0219": {
+  "title": "delta delta item 219",
+  "body": "The juniper running quickly over the juniper revision 0",
+  "tags": [
+   "delta",
+   "ember"
+  ],
+  "price": 103.25,
+  "inStock": false,
+  "category": "books",
+  "location": {
+   "lat": 42,
+   "lon": -124
+  },
+  "embedding": [
+   -0.097,
+   0.237,
+   -0.371,
+   0.499,
+   -0.616,
+   0.721,
+   -0.812,
+   0.886
+  ]
+ },
+ "doc-0220": {
+  "title": "ember indigo item 220",
+  "body": "The amber running quickly over the ember revision 0",
+  "tags": [
+   "amber",
+   "fjord"
+  ],
+  "price": 140.25,
+  "inStock": true,
+  "category": "tools",
+  "location": {
+   "lat": 55,
+   "lon": -95
+  },
+  "embedding": [
+   0.581,
+   -0.46,
+   0.33,
+   -0.194,
+   0.053,
+   0.088,
+   -0.228,
+   0.363
+  ]
+ },
+ "doc-0221": {
+  "title": "fjord basalt item 221",
+  "body": "The delta running quickly over the lagoon revision 0",
+  "tags": [
+   "basalt",
+   "amber"
+  ],
+  "price": 177.25,
+  "inStock": true,
+  "category": "garden",
+  "location": {
+   "lat": 68,
+   "lon": -66
+  },
+  "embedding": [
+   0.973,
+   -0.93,
+   0.869,
+   -0.791,
+   0.696,
+   -0.588,
+   0.468,
+   -0.338
+  ]
+ },
+ "doc-0222": {
+  "title": "granite granite item 222",
+  "body": "The granite running quickly over the granite revision 0",
+  "tags": [
+   "cedar",
+   "basalt"
+  ],
+  "price": 214.25,
+  "inStock": false,
+  "category": "kitchen",
+  "location": {
+   "lat": 81,
+   "lon": -37
+  },
+  "embedding": [
+   0.886,
+   -0.942,
+   0.98,
+   -0.998,
+   0.996,
+   -0.975,
+   0.933,
+   -0.873
+  ]
+ },
+ "doc-0223": {
+  "title": "harbour lagoon item 223",
+  "body": "The juniper running quickly over the basalt revision 0",
+  "tags": [
+   "delta",
+   "cedar"
+  ],
+  "price": 251.25,
+  "inStock": true,
+  "category": "books",
+  "location": {
+   "lat": -76,
+   "lon": -8
+  },
+  "embedding": [
+   0.363,
+   -0.491,
+   0.609,
+   -0.715,
+   0.806,
+   -0.882,
+   0.939,
+   -0.978
+  ]
+ },
+ "doc-0224": {
+  "title": "indigo ember item 224",
+  "body": "The amber running quickly over the indigo revision 0",
+  "tags": [
+   "amber",
+   "delta"
+  ],
+  "price": 288.25,
+  "inStock": true,
+  "category": "tools",
+  "location": {
+   "lat": -63,
+   "lon": 21
+  },
+  "embedding": [
+   -0.338,
+   0.202,
+   -0.062,
+   -0.079,
+   0.219,
+   -0.355,
+   0.483,
+   -0.602
+  ]
+ },
+ "doc-0225": {
+  "title": "juniper juniper item 225",
+  "body": "The delta running quickly over the delta revision 0",
+  "tags": [
+   "basalt",
+   "ember"
+  ],
+  "price": 325.25,
+  "inStock": false,
+  "category": "garden",
+  "location": {
+   "lat": -50,
+   "lon": 50
+  },
+  "embedding": [
+   -0.873,
+   0.796,
+   -0.702,
+   0.595,
+   -0.476,
+   0.347,
+   -0.211,
+   0.071
+  ]
+ },
+ "doc-0226": {
+  "title": "kestrel cedar item 226",
+  "body": "The granite running quickly over the kestrel revision 0",
+  "tags": [
+   "cedar",
+   "fjord"
+  ],
+  "price": 362.25,
+  "inStock": true,
+  "category": "kitchen",
+  "location": {
+   "lat": -37,
+   "lon": 79
+  },
+  "embedding": [
+   -0.978,
+   0.998,
+   -0.997,
+   0.977,
+   -0.937,
+   0.878,
+   -0.801,
+   0.709
+  ]
+ },
+ "doc-0227": {
+  "title": "lagoon harbour item 227",
+  "body": "The juniper running quickly over the fjord revision 0",
+  "tags": [
+   "delta",
+   "amber"
+  ],
+  "price": 399.25,
+  "inStock": true,
+  "category": "books",
+  "location": {
+   "lat": -24,
+   "lon": 108
+  },
+  "embedding": [
+   -0.602,
+   0.709,
+   -0.801,
+   0.878,
+   -0.936,
+   0.977,
+   -0.997,
+   0.998
+  ]
+ },
+ "doc-0228": {
+  "title": "amber amber item 228",
+  "body": "The amber running quickly over the amber revision 0",
+  "tags": [
+   "amber",
+   "basalt"
+  ],
+  "price": 436.25,
+  "inStock": false,
+  "category": "tools",
+  "location": {
+   "lat": -11,
+   "lon": 137
+  },
+  "embedding": [
+   0.071,
+   0.071,
+   -0.211,
+   0.347,
+   -0.475,
+   0.595,
+   -0.702,
+   0.796
+  ]
+ },
+ "doc-0229": {
+  "title": "basalt fjord item 229",
+  "body": "The delta running quickly over the harbour revision 0",
+  "tags": [
+   "basalt",
+   "cedar"
+  ],
+  "price": 473.25,
+  "inStock": true,
+  "category": "garden",
+  "location": {
+   "lat": 2,
+   "lon": 166
+  },
+  "embedding": [
+   0.709,
+   -0.602,
+   0.483,
+   -0.355,
+   0.22,
+   -0.08,
+   -0.062,
+   0.202
+  ]
+ },
+ "doc-0230": {
+  "title": "cedar kestrel item 230",
+  "body": "The granite running quickly over the cedar revision 0",
+  "tags": [
+   "cedar",
+   "delta"
+  ],
+  "price": 10.25,
+  "inStock": true,
+  "category": "kitchen",
+  "location": {
+   "lat": 15,
+   "lon": -155
+  },
+  "embedding": [
+   0.998,
+   -0.978,
+   0.94,
+   -0.882,
+   0.806,
+   -0.715,
+   0.609,
+   -0.491
+  ]
+ },
+ "doc-0231": {
+  "title": "delta delta item 231",
+  "body": "The juniper running quickly over the juniper revision 0",
+  "tags": [
+   "delta",
+   "ember"
+  ],
+  "price": 47.25,
+  "inStock": false,
+  "category": "books",
+  "location": {
+   "lat": 28,
+   "lon": -126
+  },
+  "embedding": [
+   0.796,
+   -0.873,
+   0.933,
+   -0.975,
+   0.996,
+   -0.998,
+   0.98,
+   -0.943
+  ]
+ },
+ "doc-0232": {
+  "title": "ember indigo item 232",
+  "body": "The amber running quickly over the ember revision 0",
+  "tags": [
+   "amber",
+   "fjord"
+  ],
+  "price": 84.25,
+  "inStock": true,
+  "category": "tools",
+  "location": {
+   "lat": 41,
+   "lon": -97
+  },
+  "embedding": [
+   0.202,
+   -0.338,
+   0.468,
+   -0.588,
+   0.696,
+   -0.79,
+   0.869,
+   -0.93
+  ]
+ },
+ "doc-0233": {
+  "title": "fjord basalt item 233",
+  "body": "The delta running quickly over the lagoon revision 0",
+  "tags": [
+   "basalt",
+   "amber"
+  ],
+  "price": 121.25,
+  "inStock": true,
+  "category": "garden",
+  "location": {
+   "lat": 54,
+   "lon": -68
+  },
+  "embedding": [
+   -0.491,
+   0.363,
+   -0.228,
+   0.089,
+   0.053,
+   -0.193,
+   0.33,
+   -0.46
+  ]
+ },
+ "doc-0234": {
+  "title": "granite granite item 234",
+  "body": "The granite running quickly over the granite revision 0",
+  "tags": [
+   "cedar",
+   "basalt"
+  ],
+  "price": 158.25,
+  "inStock": false,
+  "category": "kitchen",
+  "location": {
+   "lat": 67,
+   "lon": -39
+  },
+  "embedding": [
+   -0.943,
+   0.886,
+   -0.812,
+   0.721,
+   -0.616,
+   0.499,
+   -0.372,
+   0.237
+  ]
+ },
+ "doc-0235": {
+  "title": "harbour lagoon item 235",
+  "body": "The juniper running quickly over the basalt revision 0",
+  "tags": [
+   "delta",
+   "cedar"
+  ],
+  "price": 195.25,
+  "inStock": true,
+  "category": "books",
+  "location": {
+   "lat": 80,
+   "lon": -10
+  },
+  "embedding": [
+   -0.93,
+   0.973,
+   -0.996,
+   0.999,
+   -0.982,
+   0.945,
+   -0.89,
+   0.817
+  ]
+ },
+ "doc-0236": {
+  "title": "indigo ember item 236",
+  "body": "The amber running quickly over the indigo revision 0",
+  "tags": [
+   "amber",
+   "delta"
+  ],
+  "price": 232.25,
+  "inStock": true,
+  "category": "tools",
+  "location": {
+   "lat": -77,
+   "lon": 19
+  },
+  "embedding": [
+   -0.46,
+   0.58,
+   -0.69,
+   0.785,
+   -0.864,
+   0.927,
+   -0.97,
+   0.995
+  ]
+ },
+ "doc-0237": {
+  "title": "juniper juniper item 237",
+  "body": "The delta running quickly over the delta revision 0",
+  "tags": [
+   "basalt",
+   "ember"
+  ],
+  "price": 269.25,
+  "inStock": false,
+  "category": "garden",
+  "location": {
+   "lat": -64,
+   "lon": 48
+  },
+  "embedding": [
+   0.237,
+   -0.097,
+   -0.044,
+   0.185,
+   -0.321,
+   0.452,
+   -0.573,
+   0.683
+  ]
+ },
+ "doc-0238": {
+  "title": "kestrel cedar item 238",
+  "body": "The granite running quickly over the kestrel revision 0",
+  "tags": [
+   "cedar",
+   "fjord"
+  ],
+  "price": 306.25,
+  "inStock": true,
+  "category": "kitchen",
+  "location": {
+   "lat": -51,
+   "lon": 77
+  },
+  "embedding": [
+   0.817,
+   -0.727,
+   0.623,
+   -0.506,
+   0.38,
+   -0.245,
+   0.106,
+   0.035
+  ]
+ },
+ "doc-0239": {
+  "title": "lagoon harbour item 239",
+  "body": "The juniper running quickly over the fjord revision 0",
+  "tags": [
+   "delta",
+   "amber"
+  ],
+  "price": 343.25,
+  "inStock": true,
+  "category": "books",
+  "location": {
+   "lat": -38,
+   "lon": 106
+  },
+  "embedding": [
+   0.995,
+   -0.999,
+   0.984,
+   -0.948,
+   0.894,
+   -0.822,
+   0.733,
+   -0.63
+  ]
+ },
+ "doc-0240": {
+  "title": "amber amber item 240",
+  "body": "The amber running quickly over the amber revision 0",
+  "tags": [
+   "amber",
+   "basalt"
+  ],
+  "price": 380.25,
+  "inStock": false,
+  "category": "tools",
+  "location": {
+   "lat": -25,
+   "lon": 135
+  },
+  "embedding": [
+   0.683,
+   -0.779,
+   0.86,
+   -0.923,
+   0.968,
+   -0.994,
+   1,
+   -0.985
+  ]
+ },
+ "doc-0241": {
+  "title": "basalt fjord item 241",
+  "body": "The delta running quickly over the harbour revision 0",
+  "tags": [
+   "basalt",
+   "cedar"
+  ],
+  "price": 417.25,
+  "inStock": true,
+  "category": "garden",
+  "location": {
+   "lat": -12,
+   "lon": 164
+  },
+  "embedding": [
+   0.035,
+   -0.176,
+   0.313,
+   -0.444,
+   0.566,
+   -0.677,
+   0.774,
+   -0.855
+  ]
+ },
+ "doc-0242": {
+  "title": "cedar kestrel item 242",
+  "body": "The granite running quickly over the cedar revision 0",
+  "tags": [
+   "cedar",
+   "delta"
+  ],
+  "price": 454.25,
+  "inStock": true,
+  "category": "kitchen",
+  "location": {
+   "lat": 1,
+   "lon": -157
+  },
+  "embedding": [
+   -0.63,
+   0.514,
+   -0.388,
+   0.254,
+   -0.115,
+   -0.026,
+   0.167,
+   -0.305
+  ]
+ },
+ "doc-0243": {
+  "title": "delta delta item 243",
+  "body": "The juniper running quickly over the juniper revision 0",
+  "tags": [
+   "delta",
+   "ember"
+  ],
+  "price": 491.25,
+  "inStock": false,
+  "category": "books",
+  "location": {
+   "lat": 14,
+   "lon": -128
+  },
+  "embedding": [
+   -0.985,
+   0.951,
+   -0.898,
+   0.827,
+   -0.739,
+   0.637,
+   -0.522,
+   0.396
+  ]
+ },
+ "doc-0244": {
+  "title": "ember indigo item 244",
+  "body": "The amber running quickly over the ember revision 0",
+  "tags": [
+   "amber",
+   "fjord"
+  ],
+  "price": 28.25,
+  "inStock": true,
+  "category": "tools",
+  "location": {
+   "lat": 27,
+   "lon": -99
+  },
+  "embedding": [
+   -0.855,
+   0.92,
+   -0.966,
+   0.993,
+   -1,
+   0.987,
+   -0.954,
+   0.902
+  ]
+ },
+ "doc-0245": {
+  "title": "fjord basalt item 245",
+  "body": "The delta running quickly over the lagoon revision 0",
+  "tags": [
+   "basalt",
+   "amber"
+  ],
+  "price": 65.25,
+  "inStock": true,
+  "category": "garden",
+  "location": {
+   "lat": 40,
+   "lon": -70
+  },
+  "embedding": [
+   -0.305,
+   0.436,
+   -0.559,
+   0.67,
+   -0.768,
+   0.851,
+   -0.916,
+   0.964
+  ]
+ },
+ "doc-0246": {
+  "title": "granite granite item 246",
+  "body": "The granite running quickly over the granite revision 0",
+  "tags": [
+   "cedar",
+   "basalt"
+  ],
+  "price": 102.25,
+  "inStock": false,
+  "category": "kitchen",
+  "location": {
+   "lat": 53,
+   "lon": -41
+  },
+  "embedding": [
+   0.396,
+   -0.263,
+   0.124,
+   0.018,
+   -0.158,
+   0.296,
+   -0.428,
+   0.551
+  ]
+ },
+ "doc-0247": {
+  "title": "harbour lagoon item 247",
+  "body": "The juniper running quickly over the basalt revision 0",
+  "tags": [
+   "delta",
+   "cedar"
+  ],
+  "price": 139.25,
+  "inStock": true,
+  "category": "books",
+  "location": {
+   "lat": 66,
+   "lon": -12
+  },
+  "embedding": [
+   0.902,
+   -0.832,
+   0.745,
+   -0.644,
+   0.529,
+   -0.404,
+   0.271,
+   -0.133
+  ]
+ },
+ "doc-0248": {
+  "title": "indigo ember item 248",
+  "body": "The amber running quickly over the indigo revision 0",
+  "tags": [
+   "amber",
+   "delta"
+  ],
+  "price": 176.25,
+  "inStock": true,
+  "category": "tools",
+  "location": {
+   "lat": 79,
+   "lon": 17
+  },
+  "embedding": [
+   0.964,
+   -0.992,
+   1,
+   -0.988,
+   0.956,
+   -0.906,
+   0.837,
+   -0.751
+  ]
+ },
+ "doc-0249": {
+  "title": "juniper juniper item 249",
+  "body": "The delta running quickly over the delta revision 0",
+  "tags": [
+   "basalt",
+   "ember"
+  ],
+  "price": 213.25,
+  "inStock": false,
+  "category": "garden",
+  "location": {
+   "lat": -78,
+   "lon": 46
+  },
+  "embedding": [
+   0.551,
+   -0.664,
+   0.762,
+   -0.846,
+   0.913,
+   -0.961,
+   0.991,
+   -1
+  ]
+ },
+ "doc-0250": {
+  "title": "kestrel cedar item 250",
+  "body": "The granite running quickly over the kestrel revision 0",
+  "tags": [
+   "cedar",
+   "fjord"
+  ],
+  "price": 250.25,
+  "inStock": true,
+  "category": "kitchen",
+  "location": {
+   "lat": -65,
+   "lon": 75
+  },
+  "embedding": [
+   -0.133,
+   -0.009,
+   0.15,
+   -0.288,
+   0.42,
+   -0.544,
+   0.657,
+   -0.757
+  ]
+ },
+ "doc-0251": {
+  "title": "lagoon harbour item 251",
+  "body": "The juniper running quickly over the fjord revision 0",
+  "tags": [
+   "delta",
+   "amber"
+  ],
+  "price": 287.25,
+  "inStock": true,
+  "category": "books",
+  "location": {
+   "lat": -52,
+   "lon": 104
+  },
+  "embedding": [
+   -0.751,
+   0.65,
+   -0.537,
+   0.412,
+   -0.28,
+   0.141,
+   0,
+   -0.141
+  ]
+ },
+ "doc-0252": {
+  "title": "amber amber item 252",
+  "body": "The amber running quickly over the amber revision 0",
+  "tags": [
+   "amber",
+   "basalt"
+  ],
+  "price": 324.25,
+  "inStock": false,
+  "category": "tools",
+  "location": {
+   "lat": -39,
+   "lon": 133
+  },
+  "embedding": [
+   -1,
+   0.989,
+   -0.959,
+   0.909,
+   -0.842,
+   0.757,
+   -0.657,
+   0.544
+  ]
+ },
+ "doc-0253": {
+  "title": "basalt fjord item 253",
+  "body": "The delta running quickly over the harbour revision 0",
+  "tags": [
+   "basalt",
+   "cedar"
+  ],
+  "price": 361.25,
+  "inStock": true,
+  "category": "garden",
+  "location": {
+   "lat": -26,
+   "lon": 162
+  },
+  "embedding": [
+   -0.757,
+   0.841,
+   -0.909,
+   0.959,
+   -0.989,
+   1,
+   -0.991,
+   0.961
+  ]
+ },
+ "doc-0254": {
+  "title": "cedar kestrel item 254",
+  "body": "The granite running quickly over the cedar revision 0",
+  "tags": [
+   "cedar",
+   "delta"
+  ],
+  "price": 398.25,
+  "inStock": true,
+  "category": "kitchen",
+  "location": {
+   "lat": -13,
+   "lon": -159
+  },
+  "embedding": [
+   -0.141,
+   0.279,
+   -0.412,
+   0.536,
+   -0.65,
+   0.751,
+   -0.837,
+   0.906
+  ]
+ },
+ "doc-0255": {
+  "title": "delta delta item 255",
+  "body": "The juniper running quickly over the juniper revision 0",
+  "tags": [
+   "delta",
+   "ember"
+  ],
+  "price": 435.25,
+  "inStock": false,
+  "category": "books",
+  "location": {
+   "lat": 0,
+   "lon": -130
+  },
+  "embedding": [
+   0.544,
+   -0.42,
+   0.288,
+   -0.15,
+   0.009,
+   0.132,
+   -0.271,
+   0.404
+  ]
+ },
+ "doc-0256": {
+  "title": "ember indigo item 256",
+  "body": "The amber running quickly over the ember revision 0",
+  "tags": [
+   "amber",
+   "fjord"
+  ],
+  "price": 472.25,
+  "inStock": true,
+  "category": "tools",
+  "location": {
+   "lat": 13,
+   "lon": -101
+  },
+  "embedding": [
+   0.961,
+   -0.913,
+   0.846,
+   -0.763,
+   0.664,
+   -0.552,
+   0.428,
+   -0.297
+  ]
+ },
+ "doc-0257": {
+  "title": "fjord basalt item 257",
+  "body": "The delta running quickly over the lagoon revision 0",
+  "tags": [
+   "basalt",
+   "amber"
+  ],
+  "price": 9.25,
+  "inStock": true,
+  "category": "garden",
+  "location": {
+   "lat": 26,
+   "lon": -72
+  },
+  "embedding": [
+   0.906,
+   -0.956,
+   0.988,
+   -1,
+   0.992,
+   -0.964,
+   0.917,
+   -0.851
+  ]
+ },
+ "doc-0258": {
+  "title": "granite granite item 258",
+  "body": "The granite running quickly over the granite revision 0",
+  "tags": [
+   "cedar",
+   "basalt"
+  ],
+  "price": 46.25,
+  "inStock": false,
+  "category": "kitchen",
+  "location": {
+   "lat": 39,
+   "lon": -43
+  },
+  "embedding": [
+   0.404,
+   -0.529,
+   0.643,
+   -0.745,
+   0.832,
+   -0.902,
+   0.954,
+   -0.987
+  ]
+ },
+ "doc-0259": {
+  "title": "harbour lagoon item 259",
+  "body": "The juniper running quickly over the basalt revision 0",
+  "tags": [
+   "delta",
+   "cedar"
+  ],
+  "price": 83.25,
+  "inStock": true,
+  "category": "books",
+  "location": {
+   "lat": 52,
+   "lon": -14
+  },
+  "embedding": [
+   -0.297,
+   0.159,
+   -0.018,
+   -0.123,
+   0.262,
+   -0.396,
+   0.521,
+   -0.637
+  ]
+ },
+ "doc-0260": {
+  "title": "indigo ember item 260",
+  "body": "The amber running quickly over the indigo revision 0",
+  "tags": [
+   "amber",
+   "delta"
+  ],
+  "price": 120.25,
+  "inStock": true,
+  "category": "tools",
+  "location": {
+   "lat": 65,
+   "lon": 15
+  },
+  "embedding": [
+   -0.851,
+   0.768,
+   -0.67,
+   0.559,
+   -0.436,
+   0.305,
+   -0.168,
+   0.027
+  ]
+ },
+ "doc-0261": {
+  "title": "juniper juniper item 261",
+  "body": "The delta running quickly over the delta revision 0",
+  "tags": [
+   "basalt",
+   "ember"
+  ],
+  "price": 157.25,
+  "inStock": false,
+  "category": "garden",
+  "location": {
+   "lat": 78,
+   "lon": 44
+  },
+  "embedding": [
+   -0.987,
+   1,
+   -0.993,
+   0.966,
+   -0.92,
+   0.856,
+   -0.774,
+   0.677
+  ]
+ },
+ "doc-0262": {
+  "title": "kestrel cedar item 262",
+  "body": "The granite running quickly over the kestrel revision 0",
+  "tags": [
+   "cedar",
+   "fjord"
+  ],
+  "price": 194.25,
+  "inStock": true,
+  "category": "kitchen",
+  "location": {
+   "lat": -79,
+   "lon": 73
+  },
+  "embedding": [
+   -0.637,
+   0.739,
+   -0.827,
+   0.898,
+   -0.951,
+   0.985,
+   -1,
+   0.994
+  ]
+ },
+ "doc-0263": {
+  "title": "lagoon harbour item 263",
+  "body": "The juniper running quickly over the fjord revision 0",
+  "tags": [
+   "delta",
+   "amber"
+  ],
+  "price": 231.25,
+  "inStock": true,
+  "category": "books",
+  "location": {
+   "lat": -66,
+   "lon": 102
+  },
+  "embedding": [
+   0.027,
+   0.115,
+   -0.254,
+   0.388,
+   -0.514,
+   0.63,
+   -0.733,
+   0.822
+  ]
+ },
+ "doc-0264": {
+  "title": "amber amber item 264",
+  "body": "The amber running quickly over the amber revision 0",
+  "tags": [
+   "amber",
+   "basalt"
+  ],
+  "price": 268.25,
+  "inStock": false,
+  "category": "tools",
+  "location": {
+   "lat": -53,
+   "lon": 131
+  },
+  "embedding": [
+   0.677,
+   -0.566,
+   0.444,
+   -0.313,
+   0.176,
+   -0.036,
+   -0.106,
+   0.245
+  ]
+ },
+ "doc-0265": {
+  "title": "basalt fjord item 265",
+  "body": "The delta running quickly over the harbour revision 0",
+  "tags": [
+   "basalt",
+   "cedar"
+  ],
+  "price": 305.25,
+  "inStock": true,
+  "category": "garden",
+  "location": {
+   "lat": -40,
+   "lon": 160
+  },
+  "embedding": [
+   0.994,
+   -0.968,
+   0.924,
+   -0.86,
+   0.78,
+   -0.683,
+   0.574,
+   -0.452
+  ]
+ },
+ "doc-0266": {
+  "title": "cedar kestrel item 266",
+  "body": "The granite running quickly over the cedar revision 0",
+  "tags": [
+   "cedar",
+   "delta"
+  ],
+  "price": 342.25,
+  "inStock": true,
+  "category": "kitchen",
+  "location": {
+   "lat": -27,
+   "lon": -161
+  },
+  "embedding": [
+   0.822,
+   -0.894,
+   0.948,
+   -0.984,
+   0.999,
+   -0.995,
+   0.971,
+   -0.927
+  ]
+ },
+ "doc-0267": {
+  "title": "delta delta item 267",
+  "body": "The juniper running quickly over the juniper revision 0",
+  "tags": [
+   "delta",
+   "ember"
+  ],
+  "price": 379.25,
+  "inStock": false,
+  "category": "books",
+  "location": {
+   "lat": -14,
+   "lon": -132
+  },
+  "embedding": [
+   0.245,
+   -0.379,
+   0.506,
+   -0.623,
+   0.727,
+   -0.817,
+   0.89,
+   -0.945
+  ]
+ },
+ "doc-0268": {
+  "title": "ember indigo item 268",
+  "body": "The amber running quickly over the ember revision 0",
+  "tags": [
+   "amber",
+   "fjord"
+  ],
+  "price": 416.25,
+  "inStock": true,
+  "category": "tools",
+  "location": {
+   "lat": -1,
+   "lon": -103
+  },
+  "embedding": [
+   -0.452,
+   0.322,
+   -0.185,
+   0.044,
+   0.097,
+   -0.237,
+   0.371,
+   -0.499
+  ]
+ },
+ "doc-0269": {
+  "title": "fjord basalt item 269",
+  "body": "The delta running quickly over the lagoon revision 0",
+  "tags": [
+   "basalt",
+   "amber"
+  ],
+  "price": 453.25,
+  "inStock": true,
+  "category": "garden",
+  "location": {
+   "lat": 12,
+   "lon": -74
+  },
+  "embedding": [
+   -0.927,
+   0.865,
+   -0.785,
+   0.69,
+   -0.581,
+   0.46,
+   -0.33,
+   0.194
+  ]
+ },
+ "doc-0270": {
+  "title": "granite granite item 270",
+  "body": "The granite running quickly over the granite revision 0",
+  "tags": [
+   "cedar",
+   "basalt"
+  ],
+  "price": 490.25,
+  "inStock": false,
+  "category": "kitchen",
+  "location": {
+   "lat": 25,
+   "lon": -45
+  },
+  "embedding": [
+   -0.945,
+   0.982,
+   -0.999,
+   0.996,
+   -0.973,
+   0.93,
+   -0.869,
+   0.791
+  ]
+ },
+ "doc-0271": {
+  "title": "harbour lagoon item 271",
+  "body": "The juniper running quickly over the basalt revision 0",
+  "tags": [
+   "delta",
+   "cedar"
+  ],
+  "price": 27.25,
+  "inStock": true,
+  "category": "books",
+  "location": {
+   "lat": 38,
+   "lon": -16
+  },
+  "embedding": [
+   -0.499,
+   0.616,
+   -0.721,
+   0.812,
+   -0.886,
+   0.942,
+   -0.98,
+   0.998
+  ]
+ },
+ "doc-0272": {
+  "title": "indigo ember item 272",
+  "body": "The amber running quickly over the indigo revision 0",
+  "tags": [
+   "amber",
+   "delta"
+  ],
+  "price": 64.25,
+  "inStock": true,
+  "category": "tools",
+  "location": {
+   "lat": 51,
+   "lon": 13
+  },
+  "embedding": [
+   0.194,
+   -0.053,
+   -0.088,
+   0.228,
+   -0.363,
+   0.491,
+   -0.609,
+   0.715
+  ]
+ },
+ "doc-0273": {
+  "title": "juniper juniper item 273",
+  "body": "The delta running quickly over the delta revision 0",
+  "tags": [
+   "basalt",
+   "ember"
+  ],
+  "price": 101.25,
+  "inStock": false,
+  "category": "garden",
+  "location": {
+   "lat": 64,
+   "lon": 42
+  },
+  "embedding": [
+   0.791,
+   -0.696,
+   0.588,
+   -0.468,
+   0.338,
+   -0.202,
+   0.062,
+   0.079
+  ]
+ },
+ "doc-0274": {
+  "title": "kestrel cedar item 274",
+  "body": "The granite running quickly over the kestrel revision 0",
+  "tags": [
+   "cedar",
+   "fjord"
+  ],
+  "price": 138.25,
+  "inStock": true,
+  "category": "kitchen",
+  "location": {
+   "lat": 77,
+   "lon": 71
+  },
+  "embedding": [
+   0.998,
+   -0.996,
+   0.975,
+   -0.933,
+   0.873,
+   -0.796,
+   0.703,
+   -0.595
+  ]
+ },
+ "doc-0275": {
+  "title": "lagoon harbour item 275",
+  "body": "The juniper running quickly over the fjord revision 0",
+  "tags": [
+   "delta",
+   "amber"
+  ],
+  "price": 175.25,
+  "inStock": true,
+  "category": "books",
+  "location": {
+   "lat": -80,
+   "lon": 100
+  },
+  "embedding": [
+   0.715,
+   -0.806,
+   0.882,
+   -0.939,
+   0.978,
+   -0.998,
+   0.997,
+   -0.977
+  ]
+ },
+ "doc-0276": {
+  "title": "amber amber item 276",
+  "body": "The amber running quickly over the amber revision 0",
+  "tags": [
+   "amber",
+   "basalt"
+  ],
+  "price": 212.25,
+  "inStock": false,
+  "category": "tools",
+  "location": {
+   "lat": -67,
+   "lon": 129
+  },
+  "embedding": [
+   0.079,
+   -0.219,
+   0.355,
+   -0.483,
+   0.602,
+   -0.709,
+   0.801,
+   -0.878
+  ]
+ },
+ "doc-0277": {
+  "title": "basalt fjord item 277",
+  "body": "The delta running quickly over the harbour revision 0",
+  "tags": [
+   "basalt",
+   "cedar"
+  ],
+  "price": 249.25,
+  "inStock": true,
+  "category": "garden",
+  "location": {
+   "lat": -54,
+   "lon": 158
+  },
+  "embedding": [
+   -0.595,
+   0.476,
+   -0.347,
+   0.211,
+   -0.071,
+   -0.071,
+   0.211,
+   -0.346
+  ]
+ },
+ "doc-0278": {
+  "title": "cedar kestrel item 278",
+  "body": "The granite running quickly over the cedar revision 0",
+  "tags": [
+   "cedar",
+   "delta"
+  ],
+  "price": 286.25,
+  "inStock": true,
+  "category": "kitchen",
+  "location": {
+   "lat": -41,
+   "lon": -163
+  },
+  "embedding": [
+   -0.977,
+   0.937,
+   -0.878,
+   0.801,
+   -0.709,
+   0.602,
+   -0.483,
+   0.355
+  ]
+ },
+ "doc-0279": {
+  "title": "delta delta item 279",
+  "body": "The juniper running quickly over the juniper revision 0",
+  "tags": [
+   "delta",
+   "ember"
+  ],
+  "price": 323.25,
+  "inStock": false,
+  "category": "books",
+  "location": {
+   "lat": -28,
+   "lon": -134
+  },
+  "embedding": [
+   -0.878,
+   0.936,
+   -0.977,
+   0.997,
+   -0.998,
+   0.978,
+   -0.94,
+   0.882
+  ]
+ },
+ "doc-0280": {
+  "title": "ember indigo item 280",
+  "body": "The amber running quickly over the ember revision 0",
+  "tags": [
+   "amber",
+   "fjord"
+  ],
+  "price": 360.25,
+  "inStock": true,
+  "category": "tools",
+  "location": {
+   "lat": -15,
+   "lon": -105
+  },
+  "embedding": [
+   -0.346,
+   0.475,
+   -0.595,
+   0.702,
+   -0.796,
+   0.873,
+   -0.933,
+   0.975
+  ]
+ },
+ "doc-0281": {
+  "title": "fjord basalt item 281",
+  "body": "The delta running quickly over the lagoon revision 0",
+  "tags": [
+   "basalt",
+   "amber"
+  ],
+  "price": 397.25,
+  "inStock": true,
+  "category": "garden",
+  "location": {
+   "lat": -2,
+   "lon": -76
+  },
+  "embedding": [
+   0.355,
+   -0.22,
+   0.08,
+   0.062,
+   -0.202,
+   0.338,
+   -0.468,
+   0.588
+  ]
+ },
+ "doc-0282": {
+  "title": "granite granite item 282",
+  "body": "The granite running quickly over the granite revision 0",
+  "tags": [
+   "cedar",
+   "basalt"
+  ],
+  "price": 434.25,
+  "inStock": false,
+  "category": "kitchen",
+  "location": {
+   "lat": 11,
+   "lon": -47
+  },
+  "embedding": [
+   0.882,
+   -0.807,
+   0.715,
+   -0.609,
+   0.491,
+   -0.363,
+   0.228,
+   -0.089
+  ]
+ },
+ "doc-0283": {
+  "title": "harbour lagoon item 283",
+  "body": "The juniper running quickly over the basalt revision 0",
+  "tags": [
+   "delta",
+   "cedar"
+  ],
+  "price": 471.25,
+  "inStock": true,
+  "category": "books",
+  "location": {
+   "lat": 24,
+   "lon": -18
+  },
+  "embedding": [
+   0.975,
+   -0.996,
+   0.998,
+   -0.98,
+   0.943,
+   -0.886,
+   0.812,
+   -0.721
+  ]
+ },
+ "doc-0284": {
+  "title": "indigo ember item 284",
+  "body": "The amber running quickly over the indigo revision 0",
+  "tags": [
+   "amber",
+   "delta"
+  ],
+  "price": 8.25,
+  "inStock": true,
+  "category": "tools",
+  "location": {
+   "lat": 37,
+   "lon": 11
+  },
+  "embedding": [
+   0.588,
+   -0.696,
+   0.79,
+   -0.869,
+   0.93,
+   -0.973,
+   0.996,
+   -0.999
+  ]
+ },
+ "doc-0285": {
+  "title": "juniper juniper item 285",
+  "body": "The delta running quickly over the delta revision 0",
+  "tags": [
+   "basalt",
+   "ember"
+  ],
+  "price": 45.25,
+  "inStock": false,
+  "category": "garden",
+  "location": {
+   "lat": 50,
+   "lon": 40
+  },
+  "embedding": [
+   -0.089,
+   -0.053,
+   0.193,
+   -0.33,
+   0.46,
+   -0.58,
+   0.69,
+   -0.785
+  ]
+ },
+ "doc-0286": {
+  "title": "kestrel cedar item 286",
+  "body": "The granite running quickly over the kestrel revision 0",
+  "tags": [
+   "cedar",
+   "fjord"
+  ],
+  "price": 82.25,
+  "inStock": true,
+  "category": "kitchen",
+  "location": {
+   "lat": 63,
+   "lon": 69
+  },
+  "embedding": [
+   -0.721,
+   0.616,
+   -0.499,
+   0.372,
+   -0.237,
+   0.097,
+   0.044,
+   -0.185
+  ]
+ },
+ "doc-0287": {
+  "title": "lagoon harbour item 287",
+  "body": "The juniper running quickly over the fjord revision 0",
+  "tags": [
+   "delta",
+   "amber"
+  ],
+  "price": 119.25,
+  "inStock": true,
+  "category": "books",
+  "location": {
+   "lat": 76,
+   "lon": 98
+  },
+  "embedding": [
+   -0.999,
+   0.982,
+   -0.945,
+   0.89,
+   -0.817,
+   0.727,
+   -0.623,
+   0.507
+  ]
+ },
+ "doc-0288": {
+  "title": "amber amber item 288",
+  "body": "The amber running quickly over the amber revision 0",
+  "tags": [
+   "amber",
+   "basalt"
+  ],
+  "price": 156.25,
+  "inStock": false,
+  "category": "tools",
+  "location": {
+   "lat": -81,
+   "lon": 127
+  },
+  "embedding": [
+   -0.785,
+   0.864,
+   -0.927,
+   0.97,
+   -0.995,
+   0.999,
+   -0.984,
+   0.948
+  ]
+ },
+ "doc-0289": {
+  "title": "basalt fjord item 289",
+  "body": "The delta running quickly over the harbour revision 0",
+  "tags": [
+   "basalt",
+   "cedar"
+  ],
+  "price": 193.25,
+  "inStock": true,
+  "category": "garden",
+  "location": {
+   "lat": -68,
+   "lon": 156
+  },
+  "embedding": [
+   -0.185,
+   0.321,
+   -0.452,
+   0.573,
+   -0.683,
+   0.779,
+   -0.86,
+   0.923
+  ]
+ },
+ "doc-0290": {
+  "title": "cedar kestrel item 290",
+  "body": "The granite running quickly over the cedar revision 0",
+  "tags": [
+   "cedar",
+   "delta"
+  ],
+  "price": 230.25,
+  "inStock": true,
+  "category": "kitchen",
+  "location": {
+   "lat": -55,
+   "lon": -165
+  },
+  "embedding": [
+   0.507,
+   -0.38,
+   0.245,
+   -0.106,
+   -0.035,
+   0.176,
+   -0.313,
+   0.444
+  ]
+ },
+ "doc-0291": {
+  "title": "delta delta item 291",
+  "body": "The juniper running quickly over the juniper revision 0",
+  "tags": [
+   "delta",
+   "ember"
+  ],
+  "price": 267.25,
+  "inStock": false,
+  "category": "books",
+  "location": {
+   "lat": -42,
+   "lon": -136
+  },
+  "embedding": [
+   0.948,
+   -0.894,
+   0.822,
+   -0.733,
+   0.63,
+   -0.514,
+   0.388,
+   -0.254
+  ]
+ },
+ "doc-0292": {
+  "title": "ember indigo item 292",
+  "body": "The amber running quickly over the ember revision 0",
+  "tags": [
+   "amber",
+   "fjord"
+  ],
+  "price": 304.25,
+  "inStock": true,
+  "category": "tools",
+  "location": {
+   "lat": -29,
+   "lon": -107
+  },
+  "embedding": [
+   0.923,
+   -0.968,
+   0.994,
+   -1,
+   0.985,
+   -0.951,
+   0.898,
+   -0.827
+  ]
+ },
+ "doc-0293": {
+  "title": "fjord basalt item 293",
+  "body": "The delta running quickly over the lagoon revision 0",
+  "tags": [
+   "basalt",
+   "amber"
+  ],
+  "price": 341.25,
+  "inStock": true,
+  "category": "garden",
+  "location": {
+   "lat": -16,
+   "lon": -78
+  },
+  "embedding": [
+   0.444,
+   -0.566,
+   0.677,
+   -0.774,
+   0.855,
+   -0.92,
+   0.966,
+   -0.993
+  ]
+ },
+ "doc-0294": {
+  "title": "granite granite item 294",
+  "body": "The granite running quickly over the granite revision 0",
+  "tags": [
+   "cedar",
+   "basalt"
+  ],
+  "price": 378.25,
+  "inStock": false,
+  "category": "kitchen",
+  "location": {
+   "lat": -3,
+   "lon": -49
+  },
+  "embedding": [
+   -0.254,
+   0.115,
+   0.026,
+   -0.167,
+   0.305,
+   -0.436,
+   0.559,
+   -0.67
+  ]
+ },
+ "doc-0295": {
+  "title": "harbour lagoon item 295",
+  "body": "The juniper running quickly over the basalt revision 0",
+  "tags": [
+   "delta",
+   "cedar"
+  ],
+  "price": 415.25,
+  "inStock": true,
+  "category": "books",
+  "location": {
+   "lat": 10,
+   "lon": -20
+  },
+  "embedding": [
+   -0.827,
+   0.739,
+   -0.637,
+   0.522,
+   -0.396,
+   0.263,
+   -0.124,
+   -0.018
+  ]
+ },
+ "doc-0296": {
+  "title": "indigo ember item 296",
+  "body": "The amber running quickly over the indigo revision 0",
+  "tags": [
+   "amber",
+   "delta"
+  ],
+  "price": 452.25,
+  "inStock": true,
+  "category": "tools",
+  "location": {
+   "lat": 23,
+   "lon": 9
+  },
+  "embedding": [
+   -0.993,
+   1,
+   -0.987,
+   0.954,
+   -0.902,
+   0.832,
+   -0.745,
+   0.644
+  ]
+ },
+ "doc-0297": {
+  "title": "juniper juniper item 297",
+  "body": "The delta running quickly over the delta revision 0",
+  "tags": [
+   "basalt",
+   "ember"
+  ],
+  "price": 489.25,
+  "inStock": false,
+  "category": "garden",
+  "location": {
+   "lat": 36,
+   "lon": 38
+  },
+  "embedding": [
+   -0.67,
+   0.768,
+   -0.851,
+   0.916,
+   -0.964,
+   0.992,
+   -1,
+   0.988
+  ]
+ },
+ "doc-0298": {
+  "title": "kestrel cedar item 298",
+  "body": "The granite running quickly over the kestrel revision 0",
+  "tags": [
+   "cedar",
+   "fjord"
+  ],
+  "price": 26.25,
+  "inStock": true,
+  "category": "kitchen",
+  "location": {
+   "lat": 49,
+   "lon": 67
+  },
+  "embedding": [
+   -0.018,
+   0.158,
+   -0.296,
+   0.428,
+   -0.551,
+   0.663,
+   -0.762,
+   0.846
+  ]
+ },
+ "doc-0299": {
+  "title": "lagoon harbour item 299",
+  "body": "The juniper running quickly over the fjord revision 0",
+  "tags": [
+   "delta",
+   "amber"
+  ],
+  "price": 63.25,
+  "inStock": true,
+  "category": "books",
+  "location": {
+   "lat": 62,
+   "lon": 96
+  },
+  "embedding": [
+   0.644,
+   -0.529,
+   0.404,
+   -0.271,
+   0.133,
+   0.009,
+   -0.15,
+   0.288
+  ]
+ },
+ "doc-0300": {
+  "title": "amber amber item 300",
+  "body": "The amber running quickly over the amber revision 0",
+  "tags": [
+   "amber",
+   "basalt"
+  ],
+  "price": 100.25,
+  "inStock": false,
+  "category": "tools",
+  "location": {
+   "lat": 75,
+   "lon": 125
+  },
+  "embedding": [
+   0.988,
+   -0.956,
+   0.906,
+   -0.837,
+   0.751,
+   -0.65,
+   0.537,
+   -0.412
+  ]
+ },
+ "doc-0301": {
+  "title": "basalt fjord item 301",
+  "body": "The delta running quickly over the harbour revision 0",
+  "tags": [
+   "basalt",
+   "cedar"
+  ],
+  "price": 137.25,
+  "inStock": true,
+  "category": "garden",
+  "location": {
+   "lat": -82,
+   "lon": 154
+  },
+  "embedding": [
+   0.846,
+   -0.913,
+   0.961,
+   -0.991,
+   1,
+   -0.989,
+   0.959,
+   -0.909
+  ]
+ },
+ "doc-0302": {
+  "title": "cedar kestrel item 302",
+  "body": "The granite running quickly over the cedar revision 0",
+  "tags": [
+   "cedar",
+   "delta"
+  ],
+  "price": 174.25,
+  "inStock": true,
+  "category": "kitchen",
+  "location": {
+   "lat": -69,
+   "lon": -167
+  },
+  "embedding": [
+   0.288,
+   -0.42,
+   0.544,
+   -0.657,
+   0.757,
+   -0.841,
+   0.909,
+   -0.959
+  ]
+ },
+ "doc-0303": {
+  "title": "delta delta item 303",
+  "body": "The juniper running quickly over the juniper revision 0",
+  "tags": [
+   "delta",
+   "ember"
+  ],
+  "price": 211.25,
+  "inStock": false,
+  "category": "books",
+  "location": {
+   "lat": -56,
+   "lon": -138
+  },
+  "embedding": [
+   -0.412,
+   0.28,
+   -0.141,
+   0,
+   0.141,
+   -0.279,
+   0.412,
+   -0.536
+  ]
+ },
+ "doc-0304": {
+  "title": "ember indigo item 304",
+  "body": "The amber running quickly over the ember revision 0",
+  "tags": [
+   "amber",
+   "fjord"
+  ],
+  "price": 248.25,
+  "inStock": true,
+  "category": "tools",
+  "location": {
+   "lat": -43,
+   "lon": -109
+  },
+  "embedding": [
+   -0.909,
+   0.842,
+   -0.757,
+   0.657,
+   -0.544,
+   0.42,
+   -0.288,
+   0.15
+  ]
+ },
+ "doc-0305": {
+  "title": "fjord basalt item 305",
+  "body": "The delta running quickly over the lagoon revision 0",
+  "tags": [
+   "basalt",
+   "amber"
+  ],
+  "price": 285.25,
+  "inStock": true,
+  "category": "garden",
+  "location": {
+   "lat": -30,
+   "lon": -80
+  },
+  "embedding": [
+   -0.959,
+   0.989,
+   -1,
+   0.991,
+   -0.961,
+   0.913,
+   -0.846,
+   0.763
+  ]
+ },
+ "doc-0306": {
+  "title": "granite granite item 306",
+  "body": "The granite running quickly over the granite revision 0",
+  "tags": [
+   "cedar",
+   "basalt"
+  ],
+  "price": 322.25,
+  "inStock": false,
+  "category": "kitchen",
+  "location": {
+   "lat": -17,
+   "lon": -51
+  },
+  "embedding": [
+   -0.536,
+   0.65,
+   -0.751,
+   0.837,
+   -0.906,
+   0.956,
+   -0.988,
+   1
+  ]
+ },
+ "doc-0307": {
+  "title": "harbour lagoon item 307",
+  "body": "The juniper running quickly over the basalt revision 0",
+  "tags": [
+   "delta",
+   "cedar"
+  ],
+  "price": 359.25,
+  "inStock": true,
+  "category": "books",
+  "location": {
+   "lat": -4,
+   "lon": -22
+  },
+  "embedding": [
+   0.15,
+   -0.009,
+   -0.132,
+   0.271,
+   -0.404,
+   0.529,
+   -0.643,
+   0.745
+  ]
+ },
+ "doc-0308": {
+  "title": "indigo ember item 308",
+  "body": "The amber running quickly over the indigo revision 0",
+  "tags": [
+   "amber",
+   "delta"
+  ],
+  "price": 396.25,
+  "inStock": true,
+  "category": "tools",
+  "location": {
+   "lat": 9,
+   "lon": 7
+  },
+  "embedding": [
+   0.763,
+   -0.664,
+   0.552,
+   -0.428,
+   0.297,
+   -0.159,
+   0.018,
+   0.123
+  ]
+ },
+ "doc-0309": {
+  "title": "juniper juniper item 309",
+  "body": "The delta running quickly over the delta revision 0",
+  "tags": [
+   "basalt",
+   "ember"
+  ],
+  "price": 433.25,
+  "inStock": false,
+  "category": "garden",
+  "location": {
+   "lat": 22,
+   "lon": 36
+  },
+  "embedding": [
+   1,
+   -0.992,
+   0.964,
+   -0.917,
+   0.851,
+   -0.768,
+   0.67,
+   -0.559
+  ]
+ },
+ "doc-0310": {
+  "title": "kestrel cedar item 310",
+  "body": "The granite running quickly over the kestrel revision 0",
+  "tags": [
+   "cedar",
+   "fjord"
+  ],
+  "price": 470.25,
+  "inStock": true,
+  "category": "kitchen",
+  "location": {
+   "lat": 35,
+   "lon": 65
+  },
+  "embedding": [
+   0.745,
+   -0.832,
+   0.902,
+   -0.954,
+   0.987,
+   -1,
+   0.993,
+   -0.966
+  ]
+ },
+ "doc-0311": {
+  "title": "lagoon harbour item 311",
+  "body": "The juniper running quickly over the fjord revision 0",
+  "tags": [
+   "delta",
+   "amber"
+  ],
+  "price": 7.25,
+  "inStock": true,
+  "category": "books",
+  "location": {
+   "lat": 48,
+   "lon": 94
+  },
+  "embedding": [
+   0.123,
+   -0.262,
+   0.396,
+   -0.521,
+   0.637,
+   -0.739,
+   0.827,
+   -0.898
+  ]
+ },
+ "doc-0312": {
+  "title": "amber amber item 312",
+  "body": "The amber running quickly over the amber revision 0",
+  "tags": [
+   "amber",
+   "basalt"
+  ],
+  "price": 44.25,
+  "inStock": false,
+  "category": "tools",
+  "location": {
+   "lat": 61,
+   "lon": 123
+  },
+  "embedding": [
+   -0.559,
+   0.436,
+   -0.305,
+   0.168,
+   -0.027,
+   -0.115,
+   0.254,
+   -0.388
+  ]
+ },
+ "doc-0313": {
+  "title": "basalt fjord item 313",
+  "body": "The delta running quickly over the harbour revision 0",
+  "tags": [
+   "basalt",
+   "cedar"
+  ],
+  "price": 81.25,
+  "inStock": true,
+  "category": "garden",
+  "location": {
+   "lat": 74,
+   "lon": 152
+  },
+  "embedding": [
+   -0.966,
+   0.92,
+   -0.856,
+   0.774,
+   -0.677,
+   0.566,
+   -0.444,
+   0.313
+  ]
+ },
+ "doc-0314": {
+  "title": "cedar kestrel item 314",
+  "body": "The granite running quickly over the cedar revision 0",
+  "tags": [
+   "cedar",
+   "delta"
+  ],
+  "price": 118.25,
+  "inStock": true,
+  "category": "kitchen",
+  "location": {
+   "lat": -83,
+   "lon": -169
+  },
+  "embedding": [
+   -0.898,
+   0.951,
+   -0.985,
+   1,
+   -0.994,
+   0.968,
+   -0.924,
+   0.86
+  ]
+ },
+ "doc-0315": {
+  "title": "delta delta item 315",
+  "body": "The juniper running quickly over the juniper revision 0",
+  "tags": [
+   "delta",
+   "ember"
+  ],
+  "price": 155.25,
+  "inStock": false,
+  "category": "books",
+  "location": {
+   "lat": -70,
+   "lon": -140
+  },
+  "embedding": [
+   -0.388,
+   0.514,
+   -0.63,
+   0.733,
+   -0.822,
+   0.894,
+   -0.948,
+   0.984
+  ]
+ },
+ "doc-0316": {
+  "title": "ember indigo item 316",
+  "body": "The amber running quickly over the ember revision 0",
+  "tags": [
+   "amber",
+   "fjord"
+  ],
+  "price": 192.25,
+  "inStock": true,
+  "category": "tools",
+  "location": {
+   "lat": -57,
+   "lon": -111
+  },
+  "embedding": [
+   0.313,
+   -0.176,
+   0.036,
+   0.106,
+   -0.245,
+   0.379,
+   -0.506,
+   0.623
+  ]
+ },
+ "doc-0317": {
+  "title": "fjord basalt item 317",
+  "body": "The delta running quickly over the lagoon revision 0",
+  "tags": [
+   "basalt",
+   "amber"
+  ],
+  "price": 229.25,
+  "inStock": true,
+  "category": "garden",
+  "location": {
+   "lat": -44,
+   "lon": -82
+  },
+  "embedding": [
+   0.86,
+   -0.78,
+   0.683,
+   -0.574,
+   0.452,
+   -0.322,
+   0.185,
+   -0.044
+  ]
+ },
+ "doc-0318": {
+  "title": "granite granite item 318",
+  "body": "The granite running quickly over the granite revision 0",
+  "tags": [
+   "cedar",
+   "basalt"
+  ],
+  "price": 266.25,
+  "inStock": false,
+  "category": "kitchen",
+  "location": {
+   "lat": -31,
+   "lon": -53
+  },
+  "embedding": [
+   0.984,
+   -0.999,
+   0.995,
+   -0.971,
+   0.927,
+   -0.865,
+   0.785,
+   -0.69
+  ]
+ },
+ "doc-0319": {
+  "title": "harbour lagoon item 319",
+  "body": "The juniper running quickly over the basalt revision 0",
+  "tags": [
+   "delta",
+   "cedar"
+  ],
+  "price": 303.25,
+  "inStock": true,
+  "category": "books",
+  "location": {
+   "lat": -18,
+   "lon": -24
+  },
+  "embedding": [
+   0.623,
+   -0.727,
+   0.817,
+   -0.89,
+   0.945,
+   -0.982,
+   0.999,
+   -0.996
+  ]
+ }
+}

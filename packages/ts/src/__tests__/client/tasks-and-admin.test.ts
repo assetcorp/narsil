@@ -7,6 +7,7 @@ import {
   type TaskRecord,
 } from '../../client'
 import { NarsilError } from '../../errors'
+import { bytesOf } from '../e2e/portability/archive-oracle'
 import { startTestServer, type TestServer } from '../server/helpers'
 
 const SCHEMA = { title: 'string' }
@@ -96,7 +97,7 @@ describe('client task and maintenance routes', () => {
 
   it('takes a snapshot and restores it as a task', async () => {
     await client.insertBatch('movies', movies(4))
-    const bytes = await client.snapshot('movies')
+    const bytes = await bytesOf(await client.snapshot('movies'))
     expect(bytes.byteLength).toBeGreaterThan(0)
 
     await client.clear('movies')
@@ -111,7 +112,7 @@ describe('client task and maintenance routes', () => {
       pollIntervalMs: 5,
     })
     expect(record.status).toBe('failed')
-    expect(record.error?.code).toBe('ENVELOPE_INVALID_MAGIC')
+    expect(record.error?.code).toBe('PERSISTENCE_LOAD_FAILED')
   })
 
   it('checkpoints, reports vector maintenance, and reshapes partitions', async () => {

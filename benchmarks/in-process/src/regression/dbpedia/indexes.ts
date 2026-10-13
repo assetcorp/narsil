@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { createReadStream } from 'node:fs'
 import { resolve } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { createNarsil, type IndexConfig, type Narsil, type VectorMaintenanceResult } from '@delali/narsil'
@@ -67,11 +67,11 @@ export function indexDirectory(): string {
 }
 
 export function snapshotPath(directory: string, precision: VectorPrecision): string {
-  return resolve(directory, `dbpedia-100k-${precision}.nrsl`)
+  return resolve(directory, `dbpedia-100k-${precision}.tar`)
 }
 
 export async function restoreIndex(narsil: Narsil, directory: string, precision: VectorPrecision): Promise<void> {
-  await narsil.restore(precision, readFileSync(snapshotPath(directory, precision)))
+  await narsil.restore(precision, createReadStream(snapshotPath(directory, precision)))
   if (!graphComplete(narsil.vectorMaintenanceStatus(precision))) {
     throw new Error(`the ${precision} snapshot holds no finished vector graph; rebuild it with pnpm dbpedia:build`)
   }

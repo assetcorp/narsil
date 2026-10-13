@@ -3,7 +3,6 @@ import { describe, expect, it } from 'vitest'
 import {
   deserializeMetadata,
   deserializePayloadV1,
-  encodeRawPayload,
   type RawPartitionPayload,
   serializeMetadata,
 } from '../../../serialization/payload-v1'
@@ -143,7 +142,7 @@ describe('payload-v1 backward compat: vector_data read path', () => {
         doc_frequencies: {},
       },
     }
-    const bytes = encodeRawPayload(wire)
+    const bytes = encode(wire)
     const restored = deserializePayloadV1(bytes)
 
     const vectorData = restored.vectorData
@@ -189,7 +188,7 @@ describe('payload-v1 backward compat: vector_data read path', () => {
         doc_frequencies: {},
       },
     }
-    const bytes = encodeRawPayload(wire)
+    const bytes = encode(wire)
     const restored = deserializePayloadV1(bytes)
 
     const vectorData = restored.vectorData
@@ -230,7 +229,7 @@ describe('payload-v1 backward compat: vector_data read path', () => {
         doc_frequencies: {},
       },
     }
-    const bytes = encodeRawPayload(wire)
+    const bytes = encode(wire)
     const restored = deserializePayloadV1(bytes)
 
     const vectorData = restored.vectorData

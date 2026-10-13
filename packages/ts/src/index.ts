@@ -16,7 +16,7 @@ export {
 export type { ClientErrorCode, ErrorCode, NarsilErrorCode, ServerErrorCode } from './errors'
 export { ClientErrorCodes, ErrorCodes, isNarsilError, NarsilError, ServerErrorCodes } from './errors'
 export { getLanguage, registerLanguage } from './languages/registry'
-export type { Narsil } from './narsil'
+export type { ByteSource, Narsil } from './narsil'
 export { createNarsil } from './narsil'
 export type {
   EmbeddingAdapter,
@@ -34,7 +34,7 @@ export type {
   StaleAnalysis,
   WorkerConfig,
 } from './types/config'
-export type { NarsilEventMap } from './types/events'
+export type { NarsilEventHandlers, NarsilEventMap } from './types/events'
 export type {
   ArrayFilter,
   ComparisonFilter,
@@ -62,6 +62,7 @@ export type {
 } from './types/plugins'
 export type {
   BatchResult,
+  DocumentImportResult,
   FacetResult,
   GroupResult,
   HighlightMatch,

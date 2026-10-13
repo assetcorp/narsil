@@ -7,9 +7,8 @@ import type {
   PatternOperator,
   PatternWorkMeter,
 } from '../core/pattern-index/types'
-import { literalAutomaton } from './automaton'
 import { SHORTLIST_INTERSECT_RATIO, SHORTLIST_RUN_LOOKUPS } from './constants'
-import { LazyDfa } from './lazy-dfa'
+import { LiteralMatcher } from './literal-matcher'
 import { appendTextCodePoints, BASIC_PLANE_LAST, forEachTextValue, runKey } from './text'
 import { WorkTally } from './work-tally'
 
@@ -79,18 +78,15 @@ function shortlist(index: PatternIndexReader, runs: Uint32Array, tally: WorkTall
   return candidates
 }
 
-function matcherFor(request: PatternMatchRequest): LazyDfa {
+function matcherFor(request: PatternMatchRequest): LiteralMatcher {
   const { operator, text, caseFold, host } = request
   const testCodePoints: number[] = []
   appendTextCodePoints(text, caseFold, host, testCodePoints)
-  return new LazyDfa(
-    literalAutomaton(testCodePoints, ANCHORED_START.has(operator), ANCHORED_END.has(operator)),
-    request.meter.matcherStateBytes,
-  )
+  return new LiteralMatcher(Uint32Array.from(testCodePoints), ANCHORED_START.has(operator), ANCHORED_END.has(operator))
 }
 
 function matchesText(
-  matcher: LazyDfa,
+  matcher: LiteralMatcher,
   text: string,
   caseFold: boolean,
   host: PatternHost,
@@ -121,7 +117,7 @@ export function matchPattern(request: PatternMatchRequest): void {
   const scanning = shortlisted === null
   const candidates = shortlisted ?? index.documents()
   const folded: number[] = []
-  let matcher: LazyDfa | null = null
+  let matcher: LiteralMatcher | null = null
   let matched = false
   const testValue = (value: string): void => {
     if (!matched && matcher !== null) matched = matchesText(matcher, value, caseFold, host, folded, tally)

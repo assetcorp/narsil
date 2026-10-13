@@ -1,9 +1,11 @@
+import { createReadStream } from 'node:fs'
 import type { PartitionConfig } from '../../types/schema'
+import { SNAPSHOT_ARCHIVE_CONTENT_TYPE } from '../constants'
 import type { HandlerDeps } from '../deps'
 import { ServerErrorCodes } from '../errors'
 import { parseJsonOptional, rejectInvalid, respondError, respondJson } from '../handler-utils'
 import type { RouteContext } from '../request'
-import { sendBinary, sendError } from '../response'
+import { sendError, sendStream } from '../response'
 import type { MemoryStatsResponse, RebalanceBody } from '../types'
 import { parseTaskListQuery, validateRebalance } from '../validation'
 
@@ -25,9 +27,12 @@ export function createAdminHandlers(deps: HandlerDeps) {
 
   async function snapshot(ctx: RouteContext): Promise<void> {
     try {
-      const bytes = await engine.snapshot(ctx.params[0])
-      if (ctx.abort.aborted) return
-      sendBinary(ctx.res, bytes, ctx.abort)
+      const archive = await engine.snapshot(ctx.params[0])
+      if (ctx.abort.aborted) {
+        await archive.cancel()
+        return
+      }
+      await sendStream(ctx.res, ctx.abort, archive, [['Content-Type', SNAPSHOT_ARCHIVE_CONTENT_TYPE]])
     } catch (err) {
       respondError(ctx, err)
     }
@@ -124,15 +129,26 @@ export function createAdminHandlers(deps: HandlerDeps) {
   }
 
   async function restore(ctx: RouteContext): Promise<void> {
-    const raw = ctx.rawBody
-    if (!raw || raw.length === 0) {
+    const spooled = ctx.spooledBody
+    if (spooled === null || spooled.bytes === 0) {
+      await spooled?.remove()
       sendError(ctx.res, 400, ServerErrorCodes.EMPTY_BODY, 'Request body is empty')
       return
     }
     const name = ctx.params[0]
-    const bytes = new Uint8Array(raw)
-    const record = await tasks.start('restore', name, () => engine.restore(name, bytes))
-    respondJson(ctx, record, 202)
+    try {
+      const record = await tasks.start('restore', name, async () => {
+        try {
+          await engine.restore(name, createReadStream(spooled.path))
+        } finally {
+          await spooled.remove()
+        }
+      })
+      respondJson(ctx, record, 202)
+    } catch (err) {
+      await spooled.remove()
+      respondError(ctx, err)
+    }
   }
 
   async function getTask(ctx: RouteContext): Promise<void> {

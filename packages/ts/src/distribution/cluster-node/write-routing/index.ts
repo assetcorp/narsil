@@ -1,8 +1,10 @@
 import { generateId } from '../../../core/id-generator'
 import { providedDocId } from '../../../engine/mutations/insert-admission'
+import { requireConfigurationWithinSizeLimit } from '../../../engine/snapshot/index-configuration'
 import { ErrorCodes, NarsilError } from '../../../errors'
+import { getLanguage } from '../../../languages/registry'
 import type { Narsil } from '../../../narsil'
-import { validateSchema } from '../../../schema/validator'
+import { requireCreatableSchema, validateSchema } from '../../../schema/validator'
 import type { AnyDocument, IndexConfig, InsertOptions } from '../../../types/schema'
 import { type IndexMetadata, indexConfigKey, putIndexMetadata, validateIndexName } from '../../cluster/index-metadata'
 import { indexSettingsOf, withPartitionCount } from '../../cluster/index-settings'
@@ -56,10 +58,15 @@ export async function routeCreateIndex(
 ): Promise<void> {
   validateIndexName(name)
   const config: IndexConfig = { ...requestedConfig, schema: validateSchema(requestedConfig.schema) }
+  requireCreatableSchema(config.schema)
 
   const partitionCount = options?.partitionCount ?? DEFAULT_PARTITION_COUNT
   const replicationFactor = options?.replicationFactor ?? DEFAULT_REPLICATION_FACTOR
   validateCreateIndexOptions(partitionCount, replicationFactor)
+  requireConfigurationWithinSizeLimit(
+    withPartitionCount(config, partitionCount),
+    getLanguage(config.language ?? 'english'),
+  )
 
   const constraints: AllocationConstraints = {
     zoneAwareness: false,

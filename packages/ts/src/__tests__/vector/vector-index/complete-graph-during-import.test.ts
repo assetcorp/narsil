@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createVectorIndex, type VectorIndex } from '../../../vector/vector-index'
+import { fieldView } from './field-view'
 import { DIM, normalizedVector } from './fixtures'
 
 const FIRST_BATCH = 300
@@ -15,7 +16,7 @@ function insertRange(index: VectorIndex, from: number, to: number): void {
 
 function placedDocIds(index: VectorIndex): Set<string> {
   const placed = new Set<string>()
-  const graph = index.serialize()[0]?.graphs[0]
+  const graph = fieldView(index).graphs[0]
   if (graph === undefined) return placed
   for (const [docId] of graph.nodes) placed.add(docId)
   return placed

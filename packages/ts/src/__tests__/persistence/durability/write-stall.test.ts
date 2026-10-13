@@ -3,15 +3,14 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createNarsil } from '../../../narsil'
-import { createDurableDirectory } from '../../../persistence/durability/durable-filesystem'
 import type { IndexState } from '../../../persistence/durability/manager-state'
-import { readSegmentManifest } from '../../../persistence/durability/segment'
 import {
   checkpointIsDue,
   noteCheckpointCommitted,
   releaseStalledWrites,
   stallWhileCheckpointsFallBehind,
 } from '../../../persistence/durability/write-stall'
+import { manifestOnDisk } from './manifest-on-disk'
 
 function indexStateWith(backlogBytes: number, checkpointInFlight: Promise<void> | null): IndexState {
   return {
@@ -121,7 +120,7 @@ describe('an import that outruns its checkpoints', () => {
 
     const results = await Promise.all(batches)
     await engine.checkpoint('docs')
-    const manifest = await readSegmentManifest(createDurableDirectory(root), 'docs')
+    const manifest = await manifestOnDisk(root, 'docs')
     await engine.shutdown()
 
     expect(results.flatMap(result => result.failed)).toEqual([])

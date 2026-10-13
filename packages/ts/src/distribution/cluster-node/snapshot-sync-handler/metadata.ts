@@ -3,6 +3,8 @@ import {
   SNAPSHOT_HEADER_SENTINEL_PARTITION_ID,
   SNAPSHOT_HEADER_SENTINEL_SEQNO,
 } from '../../replication/snapshot-constants'
+import type { ReplicationLog } from '../../replication/types'
+import type { ClusterLocalEngine } from '../local-engine'
 
 import type { SnapshotHeaderMetadata, SnapshotSyncHandlerDeps } from './types'
 
@@ -28,6 +30,39 @@ export async function defaultSnapshotHeaderMetadataProvider(
     partitionId: SNAPSHOT_HEADER_SENTINEL_PARTITION_ID,
     primaryTerm: 0,
     lastSeqNo: SNAPSHOT_HEADER_SENTINEL_SEQNO,
+  }
+}
+
+export interface NodeSnapshotHeaderDeps {
+  coordinator: ClusterCoordinator
+  engine: ClusterLocalEngine
+  getReplicationLog: (indexName: string, partitionId: number) => ReplicationLog
+}
+
+export async function nodeSnapshotHeaderMetadata(
+  deps: NodeSnapshotHeaderDeps,
+  indexName: string,
+  partitionId: number | null,
+): Promise<SnapshotHeaderMetadata> {
+  const fallback = await defaultSnapshotHeaderMetadataProvider(deps.coordinator, indexName)
+  if (partitionId === null) {
+    return fallback
+  }
+
+  const localIndex = deps.engine.listIndexes().find(index => index.name === indexName)
+  const release = localIndex !== undefined ? await deps.engine.acquireIndexForReplication(indexName) : null
+  try {
+    const allocation = await deps.coordinator.getAllocation(indexName)
+    const assignment = allocation?.assignments.get(partitionId)
+    const log = deps.getReplicationLog(indexName, partitionId)
+
+    return {
+      partitionId,
+      primaryTerm: assignment?.primaryTerm ?? fallback.primaryTerm,
+      lastSeqNo: log.newestSeqNo ?? 0,
+    }
+  } finally {
+    release?.()
   }
 }
 
