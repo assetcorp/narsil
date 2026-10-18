@@ -36,17 +36,18 @@ function isPartialWordSearchModule(value: PartialWordSearch): value is PartialWo
 }
 
 /**
- * This makes partial-word search available to every index whose schema
- * declares a field whose type includes `partial`.
+ * Call this to give the engine the partial-word search code, so that it can
+ * create and load an index with a field whose type includes `partial`.
  *
- * A Node process needs no such call, because it loads the partial-word search
- * code by itself. A browser app has to import `partialWordSearch` from
- * `@delali/narsil/partial-words` and pass it to this function before it
- * creates or loads an index with a `partial` field.
+ * A Node process loads that code by itself, so only a browser app has to
+ * make this call. In a browser, import `partialWordSearch` from
+ * `@delali/narsil/partial-words` and pass it here before the app creates or
+ * loads an index with a `partial` field.
  *
- * @param module - The `partialWordSearch` object that
+ * @param module - Pass the `partialWordSearch` object that
  * `@delali/narsil/partial-words` exports.
- * @throws A `NarsilError` with `CONFIG_INVALID` for any other object.
+ * @throws The engine throws a `NarsilError` with `CONFIG_INVALID` for any
+ * other object.
  *
  * @public
  */
@@ -54,7 +55,7 @@ export function registerPartialWordSearch(module: PartialWordSearch): void {
   if (!isPartialWordSearchModule(module)) {
     throw new NarsilError(
       ErrorCodes.CONFIG_INVALID,
-      'registerPartialWordSearch takes the partialWordSearch object that "@delali/narsil/partial-words" exports',
+      'Pass registerPartialWordSearch the partialWordSearch object that "@delali/narsil/partial-words" exports',
     )
   }
   registered = module
@@ -69,7 +70,7 @@ export function requirePartialWordSearchFor(schema: SchemaDefinition): void {
   if (fields.length === 0 || availablePartialWordSearch() !== null) return
   throw new NarsilError(
     ErrorCodes.CONFIG_INVALID,
-    `Field "${fields[0]}" declares "partial", but this bundle contains no partial-word search code. Add import { partialWordSearch } from '@delali/narsil/partial-words', then call registerPartialWordSearch(partialWordSearch) before you create or load the index`,
+    `The type of field "${fields[0]}" includes "partial", but this bundle contains no partial-word search code. Add import { partialWordSearch } from '@delali/narsil/partial-words', then call registerPartialWordSearch(partialWordSearch) before you create or load the index`,
     { field: fields[0] },
   )
 }

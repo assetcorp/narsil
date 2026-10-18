@@ -34,8 +34,8 @@ const results = await narsil.query('products', {
 - A query scores with BM25 and admits a document that holds any one term. Set `termMatch: 'all'`, or a number of terms, to demand more.
 - `tolerance` defaults to 0, so a misspelt word matches nothing until you set it. Set 1 or 2. The engine applies it only to indexed terms that share the first `prefixLength` characters with the query term, 2 by default, so a typo in the first two letters still misses.
 - For search as you type, set `prefix: true`, which completes the last word. `narsil.suggest(index, { prefix, limit })` returns whole terms for a dropdown.
-- To find `proof` inside `waterproof`, declare the field as `string:partial` and set `partialWords: true` on the query. The engine matches each query word of three or more characters inside the longer words of that field, and it ranks those matches below whole words.
-- The engine stems text, so `bicycles` matches `bicycle`. `exact: true` turns off tolerance, prefix completion, and partial-word matches.
+- To find `proof` inside `waterproof`, declare the field as `string:partial` and set `partialWords: true` on the query. The engine then matches each query word of three or more characters inside the longer words of that field, although it ranks those matches below whole-word matches.
+- The engine stems text, so `bicycles` matches `bicycle`. Under `exact: true`, the engine turns off tolerance, prefix completion, and partial-word matching.
 
 ## Filters and facet counts
 

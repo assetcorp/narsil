@@ -4,9 +4,9 @@ import type { PartialWordSearch } from '../types/partial-words'
 export type { PartialWordSearch } from '../types/partial-words'
 
 /**
- * This object holds the partial-word search code, which a browser app has to
- * pass to {@link registerPartialWordSearch} before it creates or loads an
- * index with a `partial` field.
+ * This object contains the partial-word search code. A browser app has to
+ * pass it to {@link registerPartialWordSearch} before the app creates or
+ * loads an index with a `partial` field.
  *
  * ```ts
  * import { registerPartialWordSearch } from '@delali/narsil'
@@ -15,8 +15,8 @@ export type { PartialWordSearch } from '../types/partial-words'
  * registerPartialWordSearch(partialWordSearch)
  * ```
  *
- * A Node process loads the partial-word search code by itself, so it needs no
- * such call.
+ * A Node process loads that code by itself, so only a browser app has to make
+ * this call.
  *
  * @public
  */

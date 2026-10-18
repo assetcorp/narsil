@@ -1,16 +1,17 @@
 /**
- * This object holds the code with which the engine matches a query word
- * inside the longer words of each field whose type includes `partial`, which
- * a query asks for with `partialWords`.
+ * An app passes an object of this type to {@link registerPartialWordSearch}
+ * to give the engine its partial-word search code. The engine uses that code
+ * to match each query word inside the longer words of a field whose type
+ * includes `partial`, whenever a query has {@link QueryParams.partialWords}
+ * set.
  *
- * A Node process loads this code by itself. A browser bundle includes it only
- * where the app imports `partialWordSearch` from `@delali/narsil/partial-words`
- * and passes it to {@link registerPartialWordSearch}, so a bundler can leave it
- * out of an app that has no `partial` field.
+ * A Node process loads this code by itself. A browser bundle contains it only
+ * when the app imports `partialWordSearch` from `@delali/narsil/partial-words`,
+ * so a bundler can leave it out of an app that has no `partial` field.
  *
  * @public
  */
 export interface PartialWordSearch {
-  /** This is always `'partialWords'`, the name of the code that the object holds. */
+  /** The engine checks that this name is `'partialWords'` when an app registers the object. */
   readonly name: 'partialWords'
 }

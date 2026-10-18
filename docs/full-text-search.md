@@ -60,9 +60,11 @@ const results = await narsil.query('products', {
 
 ## Matching inside words
 
-With `partialWords: true`, the engine also matches each query word of three or more characters inside the longer words of every field whose type includes `partial`, so `proof` finds a jacket whose title contains `waterproof`. Declare such a field as `string:partial` or `string[]:partial`. The engine looks for the query word, as the query writes it, inside each word as the documents wrote it. It then matches every document that contains the stem of a word that it found, so once one title contains `waterproofs`, the query word `proofs` also finds the titles that contain `waterproof`.
+With `partialWords: true`, the engine also matches each query word of three or more characters inside the longer words of every field whose type includes `partial`, so a search for `proof` matches a jacket with `waterproof` in its title. Declare such a field as `string:partial` or `string[]:partial`. The engine looks for the query word, before stemming, inside each word exactly as that word appears in a document. It then matches every document that contains a word with the same stem as a word that it found there. If one title contains `waterproofs`, for example, a search for `proofs` also matches the titles that contain `waterproof`, because the two words share the stem `waterproof`.
 
-The engine adds at most 50 such words to a query and shares them equally among the query words, taking first the words that the most documents contain. It scores a match inside a longer word in proportion to the share of that word that the query word covers. Since `proof` covers 5 of the 10 characters in `waterproof`, the engine scores that match at half of what `proof` itself would score at the same frequency in a field of the same length. The engine applies no `tolerance` to these matches, and it ignores the setting under `exact: true` and in a search whose `fields` name no `partial` field. It highlights whole-word matches alone, so it leaves untagged a word that it matched from inside.
+The engine adds at most 50 such words to a query, which it divides as evenly as it can among the query words. Within the share of each query word, it adds first the words that the most documents contain. It scores a match inside a longer word in proportion to the part of that word that the query word makes up. Since `proof` makes up 5 of the 10 characters in `waterproof`, the engine scores that match at half of what it gives `proof` as a whole word at the same frequency in a field of the same length. The engine applies no `tolerance` to these matches. It ignores `partialWords` under `exact: true`, and also in a search whose `fields` list contains no `partial` field.
+
+With `highlight`, the engine tags each whole word that contains a query word of three or more characters in a searched `partial` field, so it tags `waterproof` in a search for `proof`. It leaves every stop word untagged, because it leaves stop words out of the index. It also leaves a word untagged where the engine matched the document only through a shared stem, such as `waterproof` in a search for `proofs`.
 
 ```ts
 await narsil.createIndex('products', {
@@ -75,9 +77,9 @@ const results = await narsil.query('products', {
 })
 ```
 
-The engine needs the spelling that each document wrote, so it throws `CONFIG_INVALID` for a `partial` field in an index whose `surfaceForms` setting is off. It keeps the lookup of written words in memory and never writes it to a file. When it loads or restores an index that has a `partial` field, it reads those fields in every stored document to build the lookup again. The engine does that work either while it loads the index or during the first search that sets `partialWords`, so it can lengthen the load or that first search. For an index without a `partial` field, the engine builds no lookup.
+The engine matches inside the original spellings of words, which it records only while the index's `surfaceForms` setting is on, so it throws `CONFIG_INVALID` for a `partial` field in an index whose `surfaceForms` setting is off. It keeps its list of those spellings in memory alone, which means that a saved index file contains none of it. When the engine loads or restores an index with a `partial` field, it goes through those fields in every stored document to build the list again. It does that work either while it loads the index or during the first query with `partialWords: true`, so the load or that query can take longer. For an index without a `partial` field, the engine builds no such list.
 
-A Node process loads the partial-word search code by itself. A browser bundle includes that code only where the app imports `partialWordSearch` and registers it. The app has to register `partialWordSearch` before it creates or loads an index with a `partial` field:
+A Node process loads the partial-word search code by itself. A browser bundle contains that code only when the app imports `partialWordSearch` and registers it. Register `partialWordSearch` before the app creates or loads an index with a `partial` field:
 
 ```ts
 import { registerPartialWordSearch } from '@delali/narsil'
@@ -86,7 +88,7 @@ import { partialWordSearch } from '@delali/narsil/partial-words'
 registerPartialWordSearch(partialWordSearch)
 ```
 
-Without that registration, the engine throws `CONFIG_INVALID` for an index with a `partial` field, with a message that names the import.
+Without that registration, the engine throws `CONFIG_INVALID` for an index with a `partial` field, and the error message contains the import line.
 
 ## Score and coverage thresholds
 
@@ -102,7 +104,7 @@ const results = await narsil.query('products', {
 
 ## Highlighting
 
-With `highlight`, the engine returns snippets in which it tags each word that it matched. It tags a word whose stem equals a query stem, and a word within `tolerance` of a query stem. Under `prefix: true`, it tags a word for the last query term only when that word completes the term or shares its stem. The engine analyses the text of each returned field again, so it tags the same words whatever the index's `trackPositions` setting is.
+With `highlight`, the engine returns snippets in which it tags each word that it matched. It tags a word whose stem equals a query stem, and a word within `tolerance` of a query stem. Under `prefix: true`, it tags a word for the last query term only when that word completes the term or shares its stem. Under `partialWords: true`, it also tags a word in a `partial` field that contains a query word; see [Matching inside words](#matching-inside-words) for the rules. The engine analyses the text of each returned field again, so it tags the same words whatever the index's `trackPositions` setting is.
 
 ```ts
 const results = await narsil.query('products', {

@@ -124,25 +124,33 @@ export interface QueryParams {
   /**
    * With this set, the engine also matches each query word of three or more
    * characters inside the longer words of every field whose type includes
-   * `partial`, so `proof` matches `waterproof`. It counts each Unicode code
-   * point as one character, and it compares the word as the query writes it
-   * with each indexed word as the document wrote it. It adds at most 50 such
-   * words to the whole query, which it shares equally among those query
-   * words, and it takes first the words that the most documents hold. A word
-   * that it adds scores below the query word itself at the same frequency in
-   * a field of the same length. The engine applies no `tolerance` to these
-   * matches, and it ignores this setting where `exact` is true or where the
-   * searched fields include no `partial` field. The setting is false by
-   * default, and the engine throws `CONFIG_INVALID` for a value other than a
-   * boolean.
+   * `partial`, so a search for `proof` matches a document with `waterproof`
+   * in such a field. The engine counts each Unicode code point as one
+   * character. It looks for the query word, before stemming, inside each word
+   * exactly as that word appears in a document.
+   *
+   * The engine adds at most 50 such words to a query, which it divides as
+   * evenly as it can among the query words. Within the share of each query
+   * word, it adds first the words that the most documents contain. It scores
+   * a match inside a longer word in proportion to the part of that word that
+   * the query word makes up, so it scores such a match below a whole-word
+   * match at the same frequency in a field of the same length. With
+   * `highlight`, it tags each whole word that contains a query word in a
+   * searched `partial` field.
+   *
+   * The engine applies no `tolerance` to these matches. It ignores this
+   * setting where `exact` is true or where the searched fields include no
+   * `partial` field. Where the setting is absent, the engine treats it as
+   * false, while it throws `CONFIG_INVALID` for any value other than `true`
+   * or `false`.
    */
   partialWords?: boolean
   /**
-   * Setting this makes the engine match each query term only against an equal
-   * indexed term, which turns off fuzzy matching, prefix completion, and
-   * partial-word search. The engine still stems the query, because the index
-   * stores stemmed terms, so
-   * `running` matches a document that holds `runs` through their shared stem.
+   * With this set, the engine matches each query term only against an equal
+   * indexed term, so it turns off fuzzy matching, prefix completion, and
+   * partial-word matching. The engine still stems the query, because the
+   * index stores stemmed terms, so a search for `running` matches a document
+   * that contains `runs` through the stem that both words share.
    */
   exact?: boolean
   /**
