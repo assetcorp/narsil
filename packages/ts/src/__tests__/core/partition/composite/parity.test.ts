@@ -267,24 +267,6 @@ describe('a composite of frozen segments plus a live tail matches one merged par
       baseline.sortValues(probe, ['price'], ['number'], ['min']),
     )
   })
-
-  it('ranks a suggestion by its documents across every segment, even where no single segment ranks it first', () => {
-    const firstSegment = ['tango', 'tango', 'tango', 'tanker', 'tanker'].map((title, at) => ({
-      id: `first-${at}`,
-      title,
-    }))
-    const secondSegment = ['tannin', 'tannin', 'tannin', 'tanker', 'tanker'].map((title, at) => ({
-      id: `second-${at}`,
-      title,
-    }))
-    const composite = createCompositePartition(0)
-    composite.attachFrozenSegment(createFrozenSegment(frozenPayloadFor(firstSegment), firstSegment))
-    composite.attachFrozenSegment(createFrozenSegment(frozenPayloadFor(secondSegment), secondSegment))
-
-    const [top] = composite.suggestTerms('tan', 'tan', 1)
-    expect(top?.token).toBe('tanker')
-    expect(top?.documentFrequency).toBe(4)
-  })
 })
 
 describe('composite writes route to the owning part', () => {

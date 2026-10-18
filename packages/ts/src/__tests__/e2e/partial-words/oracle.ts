@@ -53,7 +53,7 @@ function lengthOf(text: string): number {
   return Array.from(text).length
 }
 
-function inCodePointOrder(left: string, right: string): number {
+export function inCodePointOrder(left: string, right: string): number {
   const leftPoints = Array.from(left, character => character.codePointAt(0) ?? 0)
   const rightPoints = Array.from(right, character => character.codePointAt(0) ?? 0)
   const shared = Math.min(leftPoints.length, rightPoints.length)
