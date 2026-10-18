@@ -3,6 +3,7 @@ import type { ComparableSortValue, SortMode } from '../../core/ordering'
 import type { PartitionIndex, PartitionInsertOptions } from '../../core/partition'
 import type { LiveTailFreezer } from '../../core/partition/composite/compaction'
 import type { FrozenSegment } from '../../core/partition/frozen'
+import type { PartialWordAnalysis } from '../../core/partition/partial-words/spellings'
 import type { SegmentPayload } from '../../core/partition/segment-payload'
 import type { ResolvedProjection } from '../../core/projection'
 import type { SerializablePartition } from '../../types/internal'
@@ -18,6 +19,7 @@ export interface PartitionManager {
   readonly language: LanguageModule
   readonly config: IndexConfig
   readonly analysis: ResolvedAnalysis
+  readonly partialWordAnalysis: PartialWordAnalysis | null
 
   getPartition(partitionId: number): PartitionIndex
   partitionAt(index: number): PartitionIndex | undefined

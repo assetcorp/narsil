@@ -1,3 +1,4 @@
+import { compareCodePoints } from '../../core/ordering'
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { FieldType, SchemaDefinition } from '../../types/schema'
 import { MAX_NESTING_DEPTH, MAX_TEXT_FIELDS, MAX_VECTOR_DIMENSION } from '../constants'
@@ -157,6 +158,20 @@ export function schemaFieldsOf(schema: SchemaDefinition): readonly SchemaField[]
   }
   const frozen = Object.freeze(fields)
   parsedSchemas.set(schema, frozen)
+  return frozen
+}
+
+const partialFieldsBySchema = new WeakMap<SchemaDefinition, readonly string[]>()
+
+export function partialFieldsOf(schema: SchemaDefinition): readonly string[] {
+  const cached = partialFieldsBySchema.get(schema)
+  if (cached !== undefined) return cached
+  const paths: string[] = []
+  for (const field of schemaFieldsOf(schema)) {
+    if (field.partial) paths.push(field.path)
+  }
+  const frozen = Object.freeze(paths.sort(compareCodePoints))
+  partialFieldsBySchema.set(schema, frozen)
   return frozen
 }
 

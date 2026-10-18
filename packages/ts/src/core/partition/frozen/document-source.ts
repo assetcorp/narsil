@@ -8,6 +8,7 @@ export interface FrozenDocumentSource {
   readonly count: number
   readonly byteLength: number
   docAt(ordinal: number): AnyDocument
+  readAt(ordinal: number): AnyDocument
 }
 
 export interface EncodedDocumentTableData {
@@ -45,6 +46,16 @@ export function decodeStoredDocument(bytes: Uint8Array, discardedFields: readonl
     for (const fieldPath of discardedFields) removeFieldAtPath(document, fieldPath)
   }
   return document as AnyDocument
+}
+
+export function* storedDocumentsOf(data: EncodedDocumentTableData): Generator<AnyDocument> {
+  const count = data.offsets.length - 1
+  for (let ordinal = 0; ordinal < count; ordinal++) {
+    yield decodeStoredDocument(
+      data.blob.subarray(data.offsets[ordinal], data.offsets[ordinal + 1]),
+      data.discardedFields,
+    )
+  }
 }
 
 export function decodeEveryStoredDocument(data: EncodedDocumentTableData): void {
@@ -111,6 +122,12 @@ export function wrapEncodedDocumentTable(data: EncodedDocumentTableData): Frozen
       }
       return document
     },
+    readAt(ordinal: number): AnyDocument {
+      return (
+        decoded[ordinal] ??
+        decodeStoredDocument(blob.subarray(offsets[ordinal], offsets[ordinal + 1]), data.discardedFields)
+      )
+    },
   }
 }
 
@@ -131,6 +148,9 @@ export function wrapDocumentArray(documents: ReadonlyArray<AnyDocument>): Frozen
     count: documents.length,
     byteLength: residentBytes,
     docAt(ordinal: number): AnyDocument {
+      return documents[ordinal]
+    },
+    readAt(ordinal: number): AnyDocument {
       return documents[ordinal]
     },
   }

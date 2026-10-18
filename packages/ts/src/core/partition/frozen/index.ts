@@ -6,6 +6,8 @@ import { generateId } from '../../id-generator'
 import { requirePatternSearch } from '../../pattern-index/registry'
 import type { PatternIndexReader } from '../../pattern-index/types'
 import type { PartitionStatsView } from '../../statistics'
+import { buildPartialWordTableFrom, createFrozenPartialWords } from '../partial-words/registry'
+import type { PartialWordTableData } from '../partial-words/types'
 import type { PartitionReadState } from '../read-state'
 import type { SegmentPayload } from '../segment-payload'
 import type { SegmentColumns } from './columns'
@@ -26,7 +28,7 @@ import { buildFrozenTokenTable, type FrozenTokenTable, wrapFrozenTokenTable } fr
 import { createFrozenTombstones } from './tombstones'
 
 export type { SharedSegmentSnapshot } from './shared-snapshot'
-export { freezeSegmentShared } from './shared-snapshot'
+export { freezeSegmentShared, shareSegmentArrays } from './shared-snapshot'
 export type { FrozenTokenTable } from './token-table'
 export { buildFrozenTokenTable } from './token-table'
 
@@ -89,11 +91,21 @@ function buildGeoReaders(entries: SegmentPayload['geo']): Map<string, GeoIndexRe
   return readers
 }
 
+function* survivingDocuments(
+  documentSource: FrozenDocumentSource,
+  tombstones: ReturnType<typeof createFrozenTombstones>,
+): Generator<AnyDocument> {
+  for (let ordinal = 0; ordinal < documentSource.count; ordinal++) {
+    if (!tombstones.has(ordinal)) yield documentSource.readAt(ordinal)
+  }
+}
+
 function assembleFrozenSegment(
   segmentId: string,
   source: FrozenSegmentSource,
   documentSource: FrozenDocumentSource,
   sharedSnapshot: SharedSegmentSnapshot | null,
+  partialWordTable: PartialWordTableData | null,
 ): FrozenSegment {
   const tombstones = createFrozenTombstones()
   const postingViews = createFrozenPostingViews(source, tombstones)
@@ -102,6 +114,10 @@ function assembleFrozenSegment(
     lengthColumns.set(source.fieldLengthNames[i], source.fieldLengthColumns[i])
   }
   const docStore = createFrozenDocTable(source.idTable, lengthColumns, documentSource, tombstones)
+  const partialWords = createFrozenPartialWords(partialWordTable, source.tokenTable, {
+    documentAt: ordinal => documentSource.readAt(ordinal),
+    survivors: () => survivingDocuments(documentSource, tombstones),
+  })
 
   const numericIndexes = new Map<string, NumericFieldIndexReader>()
   for (const entry of source.numeric) numericIndexes.set(entry.fieldPath, createFrozenNumericReader(entry))
@@ -137,6 +153,7 @@ function assembleFrozenSegment(
     patternIndexes,
     sizeIndexes,
     fieldNameTable,
+    partialWords,
     trackPositions: source.positionOffsets !== null,
     flatSchemaCache: null,
     lastSchemaRef: null,
@@ -160,6 +177,7 @@ function assembleFrozenSegment(
       if (ordinal === undefined) return false
       const added = tombstones.add(ordinal)
       if (added) {
+        partialWords.afterRemoval(ordinal)
         docStore.releaseSortedDocIds()
         segment.sortColumns = null
         segment.scoreBuffer = null
@@ -182,11 +200,12 @@ export function createFrozenSegment(
   documents: ReadonlyArray<AnyDocument>,
   segmentId?: string,
 ): FrozenSegment {
+  const tokenTable = buildFrozenTokenTable(payload.tokens, payload.docFrequencies)
   return assembleFrozenSegment(
     segmentId ?? generateId(),
     {
       ...payload,
-      tokenTable: buildFrozenTokenTable(payload.tokens, payload.docFrequencies),
+      tokenTable,
       idTable: buildExternalIdTable(payload.docIds),
       documentTable: null,
       readSurfaceForms: () => payload.surfaceForms,
@@ -194,6 +213,7 @@ export function createFrozenSegment(
     },
     wrapDocumentArray(documents),
     null,
+    payload.partialSpellings === null ? null : buildPartialWordTableFrom(payload.partialSpellings, tokenTable),
   )
 }
 
@@ -217,5 +237,6 @@ export function createSharedFrozenSegment(snapshot: SharedSegmentSnapshot): Froz
     },
     wrapEncodedDocumentTable(snapshot.documentTable),
     snapshot,
+    snapshot.partialWords,
   )
 }

@@ -220,4 +220,5 @@ export function deserializePartition(
 
   loadPatternIndexes(state, data.fieldIndexes.pattern, schema)
   rebuildSizeIndexes(state, schema)
+  state.partialWords.forgetSpellings()
 }

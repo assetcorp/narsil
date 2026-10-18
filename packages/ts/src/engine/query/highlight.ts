@@ -1,16 +1,73 @@
 import type { ResolvedAnalysis } from '../../analysis/registry'
+import { codePointCount } from '../../core/ordering/code-points'
 import { tokenize } from '../../core/tokenizer'
-import { highlightField } from '../../highlighting/highlighter'
-import { DEFAULT_FUZZY_PREFIX_LENGTH } from '../../search/constants'
+import { highlightField, type PartialWordHighlight } from '../../highlighting/highlighter'
+import { partialFieldsOf } from '../../schema/validator'
+import {
+  DEFAULT_FUZZY_PREFIX_LENGTH,
+  PARTIAL_WORD_MIN_CODE_POINTS,
+  PARTIAL_WORDS_ADDED_PER_QUERY,
+} from '../../search/constants'
 import type { LanguageModule } from '../../types/language'
 import type { HighlightMatch, Hit } from '../../types/results'
+import type { SchemaDefinition } from '../../types/schema'
 import type { QueryParams } from '../../types/search'
+
+type QueryToken = { token: string; position: number }
+
+interface PartialWordTagging {
+  fields: ReadonlySet<string>
+  highlight: PartialWordHighlight
+}
+
+function writtenWordsOf(params: QueryParams, language: LanguageModule, analysis: ResolvedAnalysis): QueryToken[] {
+  return tokenize(params.term ?? '', language, {
+    stem: false,
+    removeStopWords: true,
+    customTokenizer: analysis.customTokenizer,
+    stopWordOverride: analysis.stopWords,
+  }).tokens
+}
+
+function partialWordTagging(
+  params: QueryParams,
+  schema: SchemaDefinition,
+  queryTokens: readonly QueryToken[],
+  written: readonly QueryToken[],
+  analysis: ResolvedAnalysis,
+): PartialWordTagging | null {
+  if (params.partialWords !== true || params.exact === true) return null
+  const fields = partialFieldsOf(schema).filter(field => params.fields === undefined || params.fields.includes(field))
+  if (fields.length === 0) return null
+
+  const writtenAt = new Map<number, string>()
+  for (const word of written) {
+    if (!writtenAt.has(word.position)) writtenAt.set(word.position, word.token)
+  }
+  const seenTokens = new Set<string>()
+  const words: string[] = []
+  for (const queryToken of queryTokens) {
+    if (seenTokens.has(queryToken.token)) continue
+    seenTokens.add(queryToken.token)
+    const word = writtenAt.get(queryToken.position)
+    if (word === undefined || codePointCount(word) < PARTIAL_WORD_MIN_CODE_POINTS) continue
+    words.push(word)
+    if (words.length === PARTIAL_WORDS_ADDED_PER_QUERY) break
+  }
+  if (words.length === 0) return null
+
+  return {
+    fields: new Set(fields),
+    highlight: { words, customTokenizer: analysis.customTokenizer, stopWordOverride: analysis.stopWords },
+  }
+}
 
 export function applyHighlights<T>(
   hits: Array<Hit<T>>,
   params: QueryParams,
   language: LanguageModule,
   analysis: ResolvedAnalysis,
+  schema: SchemaDefinition,
   readStoredDocument?: (docId: string) => Record<string, unknown> | undefined,
 ): void {
   if (!params.highlight) return
@@ -21,18 +78,16 @@ export function applyHighlights<T>(
     customTokenizer: analysis.customTokenizer,
     stopWordOverride: analysis.stopWords,
   })
+  const queryTokens = queryTokenResult.tokens
+  const usesPrefix = params.prefix === true && params.exact !== true && queryTokens.length > 0
+  const usesPartialWords = params.partialWords === true && params.exact !== true && queryTokens.length > 0
+  const written = usesPrefix || usesPartialWords ? writtenWordsOf(params, language, analysis) : []
 
   let prefixToken: string | undefined
   let completedToken: string | undefined
-  if (params.prefix === true && params.exact !== true && queryTokenResult.tokens.length > 0) {
-    const lastToken = queryTokenResult.tokens[queryTokenResult.tokens.length - 1]
-    const unstemmed = tokenize(params.term ?? '', language, {
-      stem: false,
-      removeStopWords: true,
-      customTokenizer: analysis.customTokenizer,
-      stopWordOverride: analysis.stopWords,
-    })
-    for (const t of unstemmed.tokens) {
+  if (usesPrefix) {
+    const lastToken = queryTokens[queryTokens.length - 1]
+    for (const t of written) {
       if (t.position === lastToken.position) {
         prefixToken = t.token
         completedToken = lastToken.token
@@ -40,6 +95,7 @@ export function applyHighlights<T>(
       }
     }
   }
+  const partialWords = usesPartialWords ? partialWordTagging(params, schema, queryTokens, written, analysis) : null
 
   for (const hit of hits) {
     const highlights: Record<string, HighlightMatch> = {}
@@ -52,7 +108,7 @@ export function applyHighlights<T>(
         fieldValue = stored?.[field]
       }
       if (typeof fieldValue === 'string') {
-        highlights[field] = highlightField(fieldValue, queryTokenResult.tokens, language, {
+        highlights[field] = highlightField(fieldValue, queryTokens, language, {
           preTag: params.highlight.preTag,
           postTag: params.highlight.postTag,
           maxSnippetLength: params.highlight.maxSnippetLength,
@@ -60,6 +116,7 @@ export function applyHighlights<T>(
           completedToken,
           tolerance: params.exact === true ? 0 : (params.tolerance ?? 0),
           prefixLength: params.prefixLength ?? DEFAULT_FUZZY_PREFIX_LENGTH,
+          partialWords: partialWords?.fields.has(field) === true ? partialWords.highlight : undefined,
         })
       }
     }

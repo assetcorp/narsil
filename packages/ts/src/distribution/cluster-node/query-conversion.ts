@@ -29,6 +29,7 @@ export function wireParamsToLocal(wire: WireQueryParams, facetShardSize?: number
     termMatch: wire.termMatch ?? undefined,
     prefixLength: wire.prefixLength ?? undefined,
     prefix: wire.prefix ?? undefined,
+    partialWords: wire.partialWords ?? undefined,
     exact: wire.exact ?? undefined,
     pinned:
       wire.pinned !== null ? wire.pinned.map(entry => ({ docId: entry.docId, position: entry.position })) : undefined,
@@ -136,6 +137,7 @@ export function localParamsToWire(params: QueryParams): WireQueryParams {
     termMatch: params.termMatch ?? null,
     prefixLength: params.prefixLength ?? null,
     prefix: params.prefix ?? null,
+    partialWords: params.partialWords ?? null,
     exact: params.exact ?? null,
     pinned:
       params.pinned !== undefined

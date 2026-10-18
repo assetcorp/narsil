@@ -1,6 +1,7 @@
 import type { InternalSearchParams, PostingListView } from '../../types/internal'
 import { bitsetHas, bitsetSet, createBitSet } from '../bitset'
 import type { PartitionFilterMatches } from './filters'
+import { partialFieldMarks, termGroupOf, typoMatchesFor } from './group-scoring'
 import { postingColumns } from './posting-columns'
 import type { PartitionReadState } from './utils'
 
@@ -17,8 +18,7 @@ export interface PartitionSearchMatches extends PartitionFilterMatches {
 function markPostingList(
   matched: Uint32Array,
   list: PostingListView,
-  fieldNames: string[],
-  fields: string[] | undefined,
+  markedFields: Uint8Array,
   filterBitset: Uint32Array | undefined,
 ): void {
   const { docIds, fieldNameIndices, deletedDocs, hasDeleted, count } = postingColumns(list)
@@ -26,37 +26,38 @@ function markPostingList(
     const internalId = docIds[pi]
     if (hasDeleted && deletedDocs.has(internalId)) continue
     if (filterBitset && !bitsetHas(filterBitset, internalId)) continue
-    if (fields && !fields.includes(fieldNames[fieldNameIndices[pi]])) continue
+    if (markedFields[fieldNameIndices[pi]] === 0) continue
     bitsetSet(matched, internalId)
   }
 }
 
+function searchedFieldMarks(fieldNames: readonly string[], fields: readonly string[] | undefined): Uint8Array {
+  const marks = new Uint8Array(fieldNames.length)
+  for (let fieldIndex = 0; fieldIndex < fieldNames.length; fieldIndex++) {
+    if (fields === undefined || fields.includes(fieldNames[fieldIndex])) marks[fieldIndex] = 1
+  }
+  return marks
+}
+
 export function searchFulltextMatches(state: PartitionReadState, params: InternalSearchParams): PartitionSearchMatches {
-  const { queryTokens, prefixExpansion, fields, tolerance = 0, prefixLength = 2, exact = false, filterBitset } = params
+  const { queryTokens, termGroups, fields, tolerance = 0, prefixLength = 2, exact = false, filterBitset } = params
 
   const fieldNames = state.fieldNameTable.names
   const matched = createBitSet(state.docStore.internalIdCapacity())
+  const searched = searchedFieldMarks(fieldNames, fields)
+  const partial = partialFieldMarks(fieldNames, params.partialFields)
+  const searchedPartial = searched.map((mark, fieldIndex) => mark & partial[fieldIndex])
 
   for (const qt of queryTokens) {
-    if (prefixExpansion && qt.token === prefixExpansion.token) {
-      const seen = new Set<string>()
-      for (const term of [qt.token, ...prefixExpansion.terms]) {
-        if (seen.has(term)) continue
-        seen.add(term)
-        const postingList = state.invertedIdx.lookup(term)
-        if (postingList) markPostingList(matched, postingList, fieldNames, fields, filterBitset)
-      }
-      continue
+    const group = termGroupOf(termGroups, qt.token)
+    for (const match of typoMatchesFor(state.invertedIdx, qt.token, group, exact, tolerance, prefixLength)) {
+      markPostingList(matched, match.postingList, searched, filterBitset)
     }
-
-    if (exact || tolerance === 0) {
-      const postingList = state.invertedIdx.lookup(qt.token)
-      if (postingList) markPostingList(matched, postingList, fieldNames, fields, filterBitset)
-      continue
-    }
-
-    for (const match of state.invertedIdx.fuzzyLookup(qt.token, tolerance, prefixLength)) {
-      markPostingList(matched, match.postingList, fieldNames, fields, filterBitset)
+    if (group === undefined) continue
+    for (const member of group.members) {
+      const postingList = state.invertedIdx.lookup(member.token)
+      if (postingList === undefined) continue
+      markPostingList(matched, postingList, member.factor > 0 ? searched : searchedPartial, filterBitset)
     }
   }
 

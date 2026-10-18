@@ -15,7 +15,7 @@ export function liveTailCount(manager: PartitionManager, partitionId: number): n
 
 function freezeIntoSharedSegment(manager: PartitionManager, partitionId: number): FrozenSegment | null {
   return manager.freezeLiveTail(partitionId, (payload, documents) => {
-    const snapshot = freezeSegmentShared(payload, documents)
+    const snapshot = freezeSegmentShared(payload, documents, undefined, manager.partialWordAnalysis)
     return snapshot === null ? null : createSharedFrozenSegment(snapshot)
   })
 }

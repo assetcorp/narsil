@@ -6,12 +6,13 @@ import { createPatternWorkMeter } from '../core/pattern-index/work-meter'
 import { tokenize } from '../core/tokenizer'
 import { ErrorCodes, NarsilError } from '../errors'
 import { flattenSchema, isWordIndexedFieldType } from '../schema/validator'
-import type { GlobalStatistics, InternalSearchResult, ScoredDocument } from '../types/internal'
+import type { ExpandedTermGroup, GlobalStatistics, InternalSearchResult, ScoredDocument } from '../types/internal'
 import type { LanguageModule } from '../types/language'
 import type { BM25Params, CustomTokenizer, FieldType, SchemaDefinition } from '../types/schema'
 import type { QueryParams, TermMatchPolicy } from '../types/search'
-import { DEFAULT_FUZZY_PREFIX_LENGTH, DEFAULT_PAGE_SIZE, PREFIX_MAX_EXPANSIONS } from './constants'
+import { DEFAULT_FUZZY_PREFIX_LENGTH, DEFAULT_PAGE_SIZE } from './constants'
 import { clampRowCount } from './pagination'
+import { type ResolvedTermGroups, resolveTermGroups } from './term-groups'
 
 export interface FulltextSearchOptions {
   bm25Params?: BM25Params
@@ -21,50 +22,8 @@ export interface FulltextSearchOptions {
   patternWork?: PatternWorkMeter
 }
 
-function resolvePrefixExpansion(
-  partition: PartitionIndex,
-  params: QueryParams,
-  language: LanguageModule,
-  options: FulltextSearchOptions | undefined,
-  queryTokens: Array<{ token: string; position: number }>,
-  lastToken: { token: string; position: number },
-): { token: string; terms: string[] } | undefined {
-  const term = params.term
-  if (term === undefined) return undefined
-
-  const unstemmed = tokenize(term, language, {
-    stem: false,
-    removeStopWords: true,
-    customTokenizer: options?.customTokenizer,
-    stopWordOverride: options?.stopWords,
-  })
-
-  let surfacePrefix: string | undefined
-  for (const t of unstemmed.tokens) {
-    if (t.position === lastToken.position) {
-      surfacePrefix = t.token
-      break
-    }
-  }
-  if (surfacePrefix === undefined || surfacePrefix.length === 0) return undefined
-
-  const expansions = partition.expandTermPrefix(surfacePrefix, lastToken.token, PREFIX_MAX_EXPANSIONS)
-  const terms: string[] = []
-  for (const expanded of expansions) {
-    if (expanded !== lastToken.token) terms.push(expanded)
-  }
-
-  for (const qt of queryTokens) {
-    if (qt.token === lastToken.token) {
-      return { token: qt.token, terms }
-    }
-  }
-  return undefined
-}
-
-interface PreparedFulltextQuery {
+interface PreparedFulltextQuery extends ResolvedTermGroups {
   queryTokens: Array<{ token: string; position: number }>
-  prefixExpansion?: { token: string; terms: string[] }
   filterBitset?: Uint32Array
 }
 
@@ -95,12 +54,6 @@ function prepareFulltextQuery(
 
   const queryTokens = deduplicateTokens(queryTokenResult.tokens)
 
-  let prefixExpansion: { token: string; terms: string[] } | undefined
-  if (params.prefix === true && params.exact !== true) {
-    const lastToken = queryTokenResult.tokens[queryTokenResult.tokens.length - 1]
-    prefixExpansion = resolvePrefixExpansion(partition, params, language, options, queryTokens, lastToken)
-  }
-
   let filterBitset: Uint32Array | undefined
   if (params.filters) {
     filterBitset = partition.applyFiltersBitset(
@@ -111,7 +64,9 @@ function prepareFulltextQuery(
     if (bitsetIsEmpty(filterBitset)) return null
   }
 
-  return { queryTokens, prefixExpansion, filterBitset }
+  const lastToken = queryTokenResult.tokens[queryTokenResult.tokens.length - 1]
+  const groups = resolveTermGroups(partition, params, language, schema, queryTokens, lastToken, options)
+  return { queryTokens, ...groups, filterBitset }
 }
 
 /**
@@ -138,7 +93,8 @@ export function fulltextMatches(
 
   return partition.searchFulltextMatches({
     queryTokens: prepared.queryTokens,
-    prefixExpansion: prepared.prefixExpansion,
+    termGroups: prepared.termGroups,
+    partialFields: prepared.partialFields,
     fields: params.fields,
     tolerance: params.tolerance ?? 0,
     prefixLength: params.prefixLength ?? DEFAULT_FUZZY_PREFIX_LENGTH,
@@ -158,7 +114,7 @@ export function fulltextSearch(
   if (prepared === null) {
     return { scored: [], totalMatched: 0 }
   }
-  const { queryTokens, prefixExpansion, filterBitset } = prepared
+  const { queryTokens, termGroups, partialFields, filterBitset } = prepared
 
   const needsAllResults =
     params.minScore !== undefined ||
@@ -177,7 +133,8 @@ export function fulltextSearch(
 
   const rawResult = partition.searchFulltext({
     queryTokens,
-    prefixExpansion,
+    termGroups,
+    partialFields,
     fields: params.fields,
     boost: params.boost,
     tolerance: params.tolerance ?? 0,
@@ -203,7 +160,8 @@ export function fulltextSearch(
       params.tolerance ?? 0,
       params.prefixLength ?? DEFAULT_FUZZY_PREFIX_LENGTH,
       params.exact ?? false,
-      prefixExpansion,
+      termGroups,
+      partialFields ?? [],
     )
   }
 
@@ -259,27 +217,37 @@ function filterByTermCoverage(
   tolerance: number,
   prefixLength: number,
   exact: boolean,
-  prefixExpansion?: { token: string; terms: string[] },
+  termGroups: readonly ExpandedTermGroup[] | undefined,
+  partialFields: readonly string[],
 ): ScoredDocument[] {
   const requiredCount = policy === 'all' ? queryTokens.length : (policy as number)
 
   if (requiredCount <= 0) return scored
   if (requiredCount > queryTokens.length) return []
 
-  const expansionTerms = prefixExpansion ? new Set(prefixExpansion.terms) : undefined
+  const groups = new Map<string, CoverageGroup>()
+  for (const group of termGroups ?? []) {
+    const partialOnly = new Set<string>()
+    for (const member of group.members) {
+      if (member.factor === 0) partialOnly.add(member.token)
+    }
+    groups.set(group.token, {
+      members: new Set(group.members.map(member => member.token)),
+      partialOnly,
+      typoMatches: group.typoMatches,
+    })
+  }
 
   return scored.filter(doc => {
-    const matched = countDocTermMatches(
-      doc,
-      queryTokens,
-      tolerance,
-      prefixLength,
-      exact,
-      prefixExpansion?.token,
-      expansionTerms,
-    )
+    const matched = countDocTermMatches(doc, queryTokens, tolerance, prefixLength, exact, groups, partialFields)
     return matched >= requiredCount
   })
+}
+
+interface CoverageGroup {
+  members: ReadonlySet<string>
+  partialOnly: ReadonlySet<string>
+  typoMatches: boolean
 }
 
 function countDocTermMatches(
@@ -288,31 +256,41 @@ function countDocTermMatches(
   tolerance: number,
   prefixLength: number,
   exact: boolean,
-  prefixToken?: string,
-  expansionTerms?: Set<string>,
+  groups: ReadonlyMap<string, CoverageGroup>,
+  partialFields: readonly string[],
 ): number {
   const indexTokens = Object.keys(doc.idf)
   if (indexTokens.length === 0) return 0
 
   let count = 0
   for (const qt of queryTokens) {
-    if (prefixToken !== undefined && qt.token === prefixToken) {
-      if (prefixTokenSatisfied(qt.token, indexTokens, expansionTerms)) {
-        count++
-      }
-      continue
-    }
-    if (queryTermSatisfied(qt.token, indexTokens, tolerance, prefixLength, exact)) {
-      count++
-    }
+    const group = groups.get(qt.token)
+    const satisfied =
+      group === undefined
+        ? queryTermSatisfied(qt.token, indexTokens, tolerance, prefixLength, exact)
+        : groupSatisfied(group, doc, indexTokens, partialFields) ||
+          (group.typoMatches && queryTermSatisfied(qt.token, indexTokens, tolerance, prefixLength, exact))
+    if (satisfied) count++
   }
   return count
 }
 
-function prefixTokenSatisfied(prefixToken: string, indexTokens: string[], expansionTerms?: Set<string>): boolean {
+function matchedInPartialField(doc: ScoredDocument, token: string, partialFields: readonly string[]): boolean {
+  for (const field of partialFields) {
+    if (doc.termFrequencies[`${field}:${token}`] !== undefined) return true
+  }
+  return false
+}
+
+function groupSatisfied(
+  group: CoverageGroup,
+  doc: ScoredDocument,
+  indexTokens: readonly string[],
+  partialFields: readonly string[],
+): boolean {
   for (const indexToken of indexTokens) {
-    if (indexToken === prefixToken) return true
-    if (expansionTerms?.has(indexToken)) return true
+    if (!group.members.has(indexToken)) continue
+    if (!group.partialOnly.has(indexToken) || matchedInPartialField(doc, indexToken, partialFields)) return true
   }
   return false
 }

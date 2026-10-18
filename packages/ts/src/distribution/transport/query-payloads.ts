@@ -68,6 +68,7 @@ export interface WireQueryParams {
   termMatch: 'all' | 'any' | number | null
   prefixLength: number | null
   prefix: boolean | null
+  partialWords: boolean | null
   exact: boolean | null
   pinned: WirePinnedEntry[] | null
   mode: 'fulltext' | 'vector' | 'hybrid' | null

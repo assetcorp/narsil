@@ -1,6 +1,7 @@
 import { createGeoIndex } from '../../geo/geo-index'
 import type { BaseFieldType, SchemaField } from '../../schema/validator'
 import type { LanguageModule } from '../../types/language'
+import { MAX_TERM_FREQUENCY } from '../constants'
 import type { ReadonlyStoredDocument } from '../document-store'
 import {
   type BooleanFieldIndex,
@@ -11,6 +12,7 @@ import {
 } from '../field-index'
 import { patternIndexOf } from '../pattern-index/host'
 import { tokenize, tokenizeIterator } from '../tokenizer'
+import { countSpelling, type SpellingCounts } from './partial-words/spellings'
 import {
   getNestedValue,
   getOrCreateFieldNameIndex,
@@ -60,6 +62,21 @@ function resolveInternalId(state: PartitionState, docId: string): number {
 
 type SurfaceCounts = Map<string, { token: string; count: number }>
 
+export interface IndexedText {
+  fieldLengths: Record<string, number>
+  tokensByField: Record<string, string[]>
+  partialSpellings: SpellingCounts | null
+}
+
+function emptyIndexedText(fields: readonly SchemaField[]): IndexedText {
+  const holdsPartialField = fields.some(field => field.partial)
+  return { fieldLengths: {}, tokensByField: {}, partialSpellings: holdsPartialField ? new Map() : null }
+}
+
+function partialSpellingsFor(field: SchemaField, indexed: IndexedText): SpellingCounts | null {
+  return field.partial ? indexed.partialSpellings : null
+}
+
 function countSurface(counts: SurfaceCounts, surface: string | undefined, token: string): void {
   if (surface === undefined || surface.length === 0) return
   const existing = counts.get(surface)
@@ -67,6 +84,25 @@ function countSurface(counts: SurfaceCounts, surface: string | undefined, token:
     existing.count++
   } else {
     counts.set(surface, { token, count: 1 })
+  }
+}
+
+function countOccurrence(
+  counts: SurfaceCounts,
+  spellings: SpellingCounts | null,
+  surface: string | undefined,
+  token: string,
+): void {
+  countSurface(counts, surface, token)
+  if (spellings !== null) countSpelling(spellings, token, surface ?? token, 1)
+}
+
+function addFieldOccurrences(occurrencesByToken: Map<string, number>, fieldTokens: readonly string[]): void {
+  const fieldCounts = new Map<string, number>()
+  for (const token of fieldTokens) fieldCounts.set(token, (fieldCounts.get(token) ?? 0) + 1)
+  for (const [token, count] of fieldCounts) {
+    const stored = count > MAX_TERM_FREQUENCY ? MAX_TERM_FREQUENCY : count
+    occurrencesByToken.set(token, (occurrencesByToken.get(token) ?? 0) + stored)
   }
 }
 
@@ -89,6 +125,7 @@ export function indexStringField(
   options: PartitionInsertOptions | undefined,
   fieldLengths: Record<string, number>,
   tokensByField: Record<string, string[]>,
+  spellings: SpellingCounts | null = null,
 ): void {
   const fieldTokenList: string[] = []
   const fieldNameIndex = getOrCreateFieldNameIndex(state.fieldNameTable, fieldPath)
@@ -106,7 +143,7 @@ export function indexStringField(
         tokenFreqs.set(t.token, { count: 1, positions: [t.position] })
       }
       fieldTokenList.push(t.token)
-      countSurface(surfaceCounts, t.surface, t.token)
+      countOccurrence(surfaceCounts, spellings, t.surface, t.token)
     }
 
     for (const [token, freq] of tokenFreqs) {
@@ -117,7 +154,7 @@ export function indexStringField(
     for (const t of tokenizeIterator(text, language, opts)) {
       tokenCounts.set(t.token, (tokenCounts.get(t.token) ?? 0) + 1)
       fieldTokenList.push(t.token)
-      countSurface(surfaceCounts, t.surface, t.token)
+      countOccurrence(surfaceCounts, spellings, t.surface, t.token)
     }
 
     for (const [token, count] of tokenCounts) {
@@ -139,6 +176,7 @@ export function indexStringArrayField(
   options: PartitionInsertOptions | undefined,
   fieldLengths: Record<string, number>,
   tokensByField: Record<string, string[]>,
+  spellings: SpellingCounts | null = null,
 ): void {
   const fieldTokenList: string[] = []
   const fieldNameIndex = getOrCreateFieldNameIndex(state.fieldNameTable, fieldPath)
@@ -160,7 +198,7 @@ export function indexStringArrayField(
           tokenFreqs.set(t.token, { count: 1, positions: [positionOffset + t.position] })
         }
         fieldTokenList.push(t.token)
-        countSurface(surfaceCounts, t.surface, t.token)
+        countOccurrence(surfaceCounts, spellings, t.surface, t.token)
         itemTokenCount++
       }
       positionOffset += itemTokenCount
@@ -178,7 +216,7 @@ export function indexStringArrayField(
       for (const t of tokenizeIterator(item, language, opts)) {
         tokenCounts.set(t.token, (tokenCounts.get(t.token) ?? 0) + 1)
         fieldTokenList.push(t.token)
-        countSurface(surfaceCounts, t.surface, t.token)
+        countOccurrence(surfaceCounts, spellings, t.surface, t.token)
       }
     }
 
@@ -200,12 +238,13 @@ export function indexDocument(
   fields: readonly SchemaField[],
   language: LanguageModule,
   options?: PartitionInsertOptions,
-): { fieldLengths: Record<string, number>; tokensByField: Record<string, string[]> } {
-  const fieldLengths: Record<string, number> = {}
-  const tokensByField: Record<string, string[]> = {}
+): IndexedText {
+  const indexed = emptyIndexedText(fields)
+  const { fieldLengths, tokensByField } = indexed
   const internalId = resolveInternalId(state, docId)
 
-  for (const { path: fieldPath, base, pattern } of fields) {
+  for (const field of fields) {
+    const { path: fieldPath, base, pattern } = field
     const value = getNestedValue(document, fieldPath)
     if (value === undefined || value === null) continue
 
@@ -214,7 +253,17 @@ export function indexDocument(
     if (pattern) patternIndexOf(state.patternIndexes, fieldPath).add(internalId, value)
 
     if (base === 'string') {
-      indexStringField(state, internalId, fieldPath, value as string, language, options, fieldLengths, tokensByField)
+      indexStringField(
+        state,
+        internalId,
+        fieldPath,
+        value as string,
+        language,
+        options,
+        fieldLengths,
+        tokensByField,
+        partialSpellingsFor(field, indexed),
+      )
     } else if (base === 'number') {
       getOrCreateNumericIndex(state, fieldPath).insert(internalId, value as number)
     } else if (base === 'boolean') {
@@ -234,6 +283,7 @@ export function indexDocument(
         options,
         fieldLengths,
         tokensByField,
+        partialSpellingsFor(field, indexed),
       )
     } else if (base === 'number[]') {
       const numIdx = getOrCreateNumericIndex(state, fieldPath)
@@ -249,7 +299,7 @@ export function indexDocument(
     }
   }
 
-  return { fieldLengths, tokensByField }
+  return indexed
 }
 
 export function removeFromIndexes(
@@ -259,14 +309,16 @@ export function removeFromIndexes(
   schemaFields: readonly SchemaField[],
   language: LanguageModule,
   options?: PartitionInsertOptions,
-): { fieldLengths: Record<string, number>; tokensByField: Record<string, string[]> } {
-  const fieldLengths: Record<string, number> = {}
-  const tokensByField: Record<string, string[]> = {}
+): IndexedText {
+  const removed = emptyIndexedText(schemaFields)
+  const { fieldLengths, tokensByField } = removed
   const fields = storedDoc.fields
   const internalId = resolveInternalId(state, docId)
   const opts = tokenizeOptions(options)
+  const occurrencesByToken = new Map<string, number>()
 
-  for (const { path: fieldPath, base, pattern } of schemaFields) {
+  for (const field of schemaFields) {
+    const { path: fieldPath, base, pattern } = field
     const value = getNestedValue(fields as Record<string, unknown>, fieldPath)
     if (value === undefined || value === null) continue
     forgetValueSize(state.sizeIndexes, internalId, fieldPath, base, value)
@@ -275,16 +327,15 @@ export function removeFromIndexes(
     if (base === 'string') {
       const result = tokenize(value as string, language, opts)
       fieldLengths[fieldPath] = result.tokens.length
-      const uniqueTokens = new Set<string>()
       const fieldTokenList: string[] = []
       const surfaceCounts: SurfaceCounts = new Map()
+      const spellings = partialSpellingsFor(field, removed)
       for (let i = 0; i < result.tokens.length; i++) {
         const t = result.tokens[i]
-        uniqueTokens.add(t.token)
         fieldTokenList.push(t.token)
-        countSurface(surfaceCounts, result.surfaces?.[i], t.token)
+        countOccurrence(surfaceCounts, spellings, result.surfaces?.[i], t.token)
       }
-      for (const token of uniqueTokens) state.invertedIdx.remove(token, internalId)
+      addFieldOccurrences(occurrencesByToken, fieldTokenList)
       applySurfaceCounts(state, surfaceCounts, -1)
       tokensByField[fieldPath] = fieldTokenList
     } else if (base === 'number') {
@@ -297,20 +348,19 @@ export function removeFromIndexes(
       state.geoIndexes.get(fieldPath)?.remove(internalId)
     } else if (base === 'string[]') {
       const arr = value as string[]
-      const uniqueTokens = new Set<string>()
       const fieldTokenList: string[] = []
       const surfaceCounts: SurfaceCounts = new Map()
+      const spellings = partialSpellingsFor(field, removed)
       for (const item of arr) {
         const result = tokenize(item, language, opts)
         for (let i = 0; i < result.tokens.length; i++) {
           const t = result.tokens[i]
-          uniqueTokens.add(t.token)
           fieldTokenList.push(t.token)
-          countSurface(surfaceCounts, result.surfaces?.[i], t.token)
+          countOccurrence(surfaceCounts, spellings, result.surfaces?.[i], t.token)
         }
       }
       fieldLengths[fieldPath] = fieldTokenList.length
-      for (const token of uniqueTokens) state.invertedIdx.remove(token, internalId)
+      addFieldOccurrences(occurrencesByToken, fieldTokenList)
       applySurfaceCounts(state, surfaceCounts, -1)
       tokensByField[fieldPath] = fieldTokenList
     } else if (base === 'number[]') {
@@ -331,5 +381,7 @@ export function removeFromIndexes(
     }
   }
 
-  return { fieldLengths, tokensByField }
+  for (const [token, occurrences] of occurrencesByToken) state.invertedIdx.remove(token, internalId, occurrences)
+
+  return removed
 }

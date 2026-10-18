@@ -28,6 +28,11 @@ export function createFrozenInvertedReader(table: FrozenTokenTable, views: Froze
       return views.viewReadOnce(table.payloadSlot(at), table.documentFrequencyAt(at))
     },
 
+    documentFrequency(token: string): number {
+      const at = table.find(token)
+      return at < 0 ? 0 : table.documentFrequencyAt(at)
+    },
+
     fuzzyLookup(
       token: string,
       tolerance: number,

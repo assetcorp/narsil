@@ -192,9 +192,19 @@ export function requireKnownMode(params: QueryParams): void {
   )
 }
 
+function requireBooleanPartialWords(params: QueryParams): void {
+  const setting: unknown = params.partialWords
+  if (setting === undefined || typeof setting === 'boolean') return
+  throw new NarsilError(ErrorCodes.CONFIG_INVALID, 'The "partialWords" query option takes true or false', {
+    option: 'partialWords',
+    received: setting === null ? 'null' : typeof setting,
+  })
+}
+
 export function requireValidQueryOptions(params: QueryParams, config: IndexConfig): void {
   const strict = config.strict === true
   requireValidTypoTolerance(params)
+  requireBooleanPartialWords(params)
   requireSortableFields(params.sort, config.schema, strict)
   requireValidQueryFilter(params.filters, config.schema)
   requireUsableQueryFields(params, config.schema, strict)

@@ -42,18 +42,10 @@ export function recordComponents(
   })
 }
 
-/**
- * Folds a prefix expansion's winning contribution into a document's score
- * components.
- *
- * @param components - The records collected so far in this query.
- * @param internalId - The internal id of the document that matched.
- * @param contribution - The best-scoring expanded term for that document.
- */
-export function mergePrefixComponents(
+export function mergeGroupComponents(
   components: Map<number, ScoreComponents>,
   internalId: number,
-  contribution: PrefixContribution,
+  contribution: GroupContribution,
 ): void {
   const existing = components.get(internalId)
   if (existing) {
@@ -78,18 +70,18 @@ export interface ResolvedTokenPostings {
     postingList: PostingListView
   }>
   totalPostings: number
-  isPrefix?: boolean
+  group: GroupMatch[] | null
 }
 
-export interface PrefixMatch {
+export interface GroupMatch {
   token: string
   factor: number
+  partialFactor: number
   postingList: PostingListView
-  docFreq: number
   idf: number
 }
 
-export interface PrefixContribution {
+export interface GroupContribution {
   score: number
   token: string
   idf: number

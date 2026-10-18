@@ -48,6 +48,7 @@ function emptyPayload(): SegmentPayload {
     totalFieldLengths: {},
     docFrequencies: {},
     surfaceForms: null,
+    partialSpellings: null,
     numeric: [],
     boolean: [],
     enums: [],
