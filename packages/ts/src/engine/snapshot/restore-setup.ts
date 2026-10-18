@@ -12,7 +12,7 @@ import type { StaleIndex } from '../analysis-rebuild'
 import type { IndexRegistryEntry } from '../core'
 import type { DurabilityIntegration } from '../durability-integration'
 import type { IndexStateCoordinator } from '../index-state'
-import { validatePatternValueLimit } from '../validation'
+import { requireSurfaceFormsForPartialFields, validatePatternValueLimit } from '../validation'
 import {
   type ConfigFieldRejection,
   restoredConfigFields,
@@ -60,6 +60,7 @@ export function prepareRestoredIndex(
   const language = getLanguage(languageName)
   const schema = validateSchema(configuration.schema as SchemaDefinition)
   validatePatternValueLimit(configFields.patternValueLimit)
+  requireSurfaceFormsForPartialFields(schema, configFields.surfaceForms)
   validateVectorPromotion(configFields.vectorPromotion)
   validateVectorStorage(configFields.vectorPromotion, deps.filesystemDurability)
   if (configFields.required !== undefined && configFields.required.length > 0) {

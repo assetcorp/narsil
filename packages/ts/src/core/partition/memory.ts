@@ -47,6 +47,7 @@ export function estimatePartitionBytes(state: PartitionReadState): number {
   bytes += docCount * state.geoIndexes.size * FIELD_ENTRY_OVERHEAD_BYTES
   bytes += docCount * state.sizeIndexes.size * FIELD_ENTRY_OVERHEAD_BYTES
   for (const index of state.patternIndexes.values()) bytes += index.bytes()
+  bytes += state.partialWords.bytes()
 
   return bytes + sortColumnBytes(state)
 }

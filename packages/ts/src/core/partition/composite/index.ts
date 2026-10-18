@@ -16,10 +16,13 @@ import type { FrozenSegment } from '../frozen'
 import { frozenSegmentBytes } from '../frozen/memory'
 import { createPartitionIndex, type PartitionIndex, partitionStateOf } from '../index'
 import type { PartitionSearchMatches } from '../matches'
+import { expandPartialWords } from '../partial-words/registry'
+import type { PartialWordAnalysis } from '../partial-words/spellings'
+import type { AddedWord, PartialWordRequest } from '../partial-words/types'
 import type { PartitionReadState } from '../read-state'
 import { encodeSegmentState, type SegmentPayload } from '../segment-payload'
 import type { SortedPageEntry, SortPageRequest } from '../sorting'
-import type { PartitionSuggestion } from '../suggestions'
+import { expandTermPrefix, type PartitionSuggestion } from '../suggestions'
 import type { PartitionInsertOptions } from '../utils'
 import {
   freezeLiveTailInto,
@@ -39,7 +42,7 @@ import {
 import { compositeSearchFulltext, compositeSearchMatches } from './search'
 import { compositeSortedPage, compositeSortValues } from './sorting'
 import { buildAggregateStatsView, mergeDocFrequencies } from './stats'
-import { compositeExpandTermPrefix, compositeSuggestTerms } from './suggest'
+import { compositeSuggestTerms } from './suggest'
 
 export interface CompositePartition extends PartitionIndex {
   readonly live: PartitionIndex
@@ -300,7 +303,15 @@ export function createCompositePartition(
     },
 
     expandTermPrefix(surfacePrefix: string, stemmedToken: string, maxExpansions: number): string[] {
-      return compositeExpandTermPrefix(subs(), surfacePrefix, stemmedToken, maxExpansions)
+      return expandTermPrefix(subs(), surfacePrefix, stemmedToken, maxExpansions)
+    },
+
+    expandPartialWords(analysis: PartialWordAnalysis, requests: readonly PartialWordRequest[]): AddedWord[][] {
+      return expandPartialWords(subs(), analysis, requests)
+    },
+
+    preparePartialWords(analysis: PartialWordAnalysis): void {
+      expandPartialWords(subs(), analysis, [])
     },
 
     get(docId: string, projection?: ResolvedProjection): AnyDocument | undefined {

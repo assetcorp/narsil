@@ -1,6 +1,6 @@
 # Full-text search
 
-This guide explains term matching, typo tolerance, prefix completion, match thresholds, highlighting, scoring modes, and suggestions. The [Filters, facets, and pagination](filters-facets-and-pagination.md) guide explains how to narrow and page the result set that a query returns.
+This guide explains term matching, typo tolerance, prefix completion, matching inside words, match thresholds, highlighting, scoring modes, and suggestions. The [Filters, facets, and pagination](filters-facets-and-pagination.md) guide explains how to narrow and page the result set that a query returns.
 
 Every search goes through `query(indexName, params)`. Set its `mode` parameter to `'fulltext'`, which is the default, or to `'vector'` or `'hybrid'`.
 
@@ -58,6 +58,38 @@ const results = await narsil.query('products', {
 })
 ```
 
+## Matching inside words
+
+With `partialWords: true`, the engine also matches each query word of three or more characters inside the longer words of every field whose type includes `partial`, so a search for `proof` matches a jacket with `waterproof` in its title. Declare such a field as `string:partial` or `string[]:partial`. The engine looks for the query word, before stemming, inside each word exactly as that word appears in a document. It then matches every document that contains a word with the same stem as a word that it found there. If one title contains `waterproofs`, for example, a search for `proofs` also matches the titles that contain `waterproof`, because the two words share the stem `waterproof`.
+
+The engine adds at most 50 such words to a query, which it divides as evenly as it can among the query words. Within the share of each query word, it adds first the words that the most documents contain. It scores a match inside a longer word in proportion to the part of that word that the query word makes up. Since `proof` makes up 5 of the 10 characters in `waterproof`, the engine scores that match at half of what it gives `proof` as a whole word at the same frequency in a field of the same length. The engine applies no `tolerance` to these matches. It ignores `partialWords` under `exact: true`, and also in a search whose `fields` list contains no `partial` field.
+
+With `highlight`, the engine tags each whole word that contains a query word of three or more characters in a searched `partial` field, so it tags `waterproof` in a search for `proof`. It leaves every stop word untagged, because it leaves stop words out of the index. It also leaves a word untagged where the engine matched the document only through a shared stem, such as `waterproof` in a search for `proofs`.
+
+```ts
+await narsil.createIndex('products', {
+  schema: { title: 'string:partial', description: 'string' },
+})
+
+const results = await narsil.query('products', {
+  term: 'proof',
+  partialWords: true,
+})
+```
+
+The engine matches inside the original spellings of words, which it records only while the index's `surfaceForms` setting is on, so it throws `CONFIG_INVALID` for a `partial` field in an index whose `surfaceForms` setting is off. It keeps its list of those spellings in memory alone, which means that a saved index file contains none of it. When the engine loads or restores an index with a `partial` field, it goes through those fields in every stored document to build the list again. It does that work either while it loads the index or during the first query with `partialWords: true`, so the load or that query can take longer. For an index without a `partial` field, the engine builds no such list.
+
+A Node process loads the partial-word search code by itself. A browser bundle contains that code only when the app imports `partialWordSearch` and registers it. Register `partialWordSearch` before the app creates or loads an index with a `partial` field:
+
+```ts
+import { registerPartialWordSearch } from '@delali/narsil'
+import { partialWordSearch } from '@delali/narsil/partial-words'
+
+registerPartialWordSearch(partialWordSearch)
+```
+
+Without that registration, the engine throws `CONFIG_INVALID` for an index with a `partial` field, and the error message contains the import line.
+
 ## Score and coverage thresholds
 
 With `minScore`, the engine drops every hit whose score is below that floor. BM25 scores have no fixed upper bound, so under a floor that works for one index and query, the engine can drop every hit of another. Choose the floor from scores that you have seen on your own corpus. With `termMatch`, you set how many query terms a document has to match. Under the default, `'any'`, a document has to match one term, under `'all'` every term, and under a number at least that many terms. The engine counts a query term as matched under the same `tolerance` and `prefixLength` that the search uses.
@@ -72,7 +104,7 @@ const results = await narsil.query('products', {
 
 ## Highlighting
 
-With `highlight`, the engine returns snippets in which it tags each word that it matched. It tags a word whose stem equals a query stem, and a word within `tolerance` of a query stem. Under `prefix: true`, it tags a word for the last query term only when that word completes the term or shares its stem. The engine analyses the text of each returned field again, so it tags the same words whatever the index's `trackPositions` setting is.
+With `highlight`, the engine returns snippets in which it tags each word that it matched. It tags a word whose stem equals a query stem, and a word within `tolerance` of a query stem. Under `prefix: true`, it tags a word for the last query term only when that word completes the term or shares its stem. Under `partialWords: true`, it also tags a word in a `partial` field that contains a query word; see [Matching inside words](#matching-inside-words) for the rules. The engine analyses the text of each returned field again, so it tags the same words whatever the index's `trackPositions` setting is.
 
 ```ts
 const results = await narsil.query('products', {

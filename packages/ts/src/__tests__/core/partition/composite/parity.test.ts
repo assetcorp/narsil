@@ -118,7 +118,17 @@ describe('a composite of frozen segments plus a live tail matches one merged par
 
     const params = termParams({
       tokens: ['appl'],
-      prefixExpansion: { token: 'appl', terms: baseTerms.filter(term => term !== 'appl') },
+      termGroups: [
+        {
+          token: 'appl',
+          members: ['appl', ...baseTerms].map(term => ({
+            token: term,
+            factor: term === 'appl' ? 1 : 0.5,
+            partialFactor: 0.5,
+          })),
+          typoMatches: false,
+        },
+      ],
     })
     const base = baseline.searchFulltext(params)
     const fanned = composite.searchFulltext(params)

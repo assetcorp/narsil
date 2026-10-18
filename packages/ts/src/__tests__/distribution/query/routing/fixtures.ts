@@ -62,6 +62,7 @@ export function makeQueryParams(overrides: Partial<WireQueryParams> = {}): WireQ
     termMatch: null,
     prefixLength: null,
     prefix: null,
+    partialWords: null,
     exact: null,
     pinned: null,
     mode: null,

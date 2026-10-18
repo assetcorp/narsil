@@ -2,7 +2,7 @@ import { ErrorCodes, NarsilError } from '../../errors'
 import { createGeoIndex, type GeoIndex } from '../../geo/geo-index'
 import { validateDocument, validateDocumentStrict } from '../../schema/validator/document'
 import { type BaseFieldType, isWordIndexedBase } from '../../schema/validator/field-type'
-import { schemaFieldsOf } from '../../schema/validator/schema'
+import { partialFieldsOf, schemaFieldsOf } from '../../schema/validator/schema'
 import type { LanguageModule } from '../../types/language'
 import type { AnyDocument, SchemaDefinition } from '../../types/schema'
 import {
@@ -18,6 +18,7 @@ import type { PatternIndexWriter } from '../pattern-index/types'
 import { visitTokens } from '../tokenizer/tokenize'
 import { SEGMENT_TOKEN_TABLE_START } from './constants'
 import { GrowableUint32 } from './growable-uint32'
+import { countSpelling, encodePartialSpellings, type SpellingCounts } from './partial-words/spellings'
 import { encodeFieldIndexes } from './segment-field-indexes'
 import type { SegmentPayload } from './segment-payload'
 import { TextPostings } from './segment-postings'
@@ -176,15 +177,19 @@ export function buildSegmentPayload(
     sizeIndexes: new Map(),
   }
 
+  const partialFields = partialFieldsOf(schema)
+  const spellings: SpellingCounts = new Map()
+  let fieldSpellings: SpellingCounts | null = null
   let positionOffset = 0
   const addToken = (token: string, position: number, surface: string | undefined): void => {
     postings.addToken(token, positionOffset + position)
     surfaces.count(surface, token)
+    if (fieldSpellings !== null) countSpelling(fieldSpellings, token, surface ?? token, 1)
   }
 
   for (let ordinal = 0; ordinal < documents.length; ordinal++) {
     const document = documents[ordinal].document as Record<string, unknown>
-    for (const { path: fieldPath, base: fieldType, pattern } of fields) {
+    for (const { path: fieldPath, base: fieldType, pattern, partial } of fields) {
       const value = getNestedValue(document, fieldPath)
       if (value === undefined || value === null) continue
       recordValueSize(filters.sizeIndexes, ordinal, fieldPath, fieldType, value)
@@ -193,6 +198,7 @@ export function buildSegmentPayload(
         indexFilterValue(filters, ordinal, fieldPath, fieldType, value)
         continue
       }
+      fieldSpellings = partial ? spellings : null
       postings.beginField()
       positionOffset = 0
       for (const text of fieldType === 'string' ? [value as string] : (value as string[])) {
@@ -215,6 +221,7 @@ export function buildSegmentPayload(
     fieldLengthColumns: lengths.columns,
     totalFieldLengths: lengths.totalsByName(),
     surfaceForms: surfaces.encode(),
+    partialSpellings: partialFields.length === 0 ? null : encodePartialSpellings(partialFields, spellings),
     ...encodeFieldIndexes(filters, identity),
   }
 }

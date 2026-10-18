@@ -1,6 +1,7 @@
 import { generateId } from '../../../core/id-generator'
 import { providedDocId } from '../../../engine/mutations/insert-admission'
 import { requireConfigurationWithinSizeLimit } from '../../../engine/snapshot/index-configuration'
+import { requireSurfaceFormsForPartialFields } from '../../../engine/validation'
 import { ErrorCodes, NarsilError } from '../../../errors'
 import { getLanguage } from '../../../languages/registry'
 import type { Narsil } from '../../../narsil'
@@ -59,6 +60,7 @@ export async function routeCreateIndex(
   validateIndexName(name)
   const config: IndexConfig = { ...requestedConfig, schema: validateSchema(requestedConfig.schema) }
   requireCreatableSchema(config.schema)
+  requireSurfaceFormsForPartialFields(config.schema, config.surfaceForms)
 
   const partitionCount = options?.partitionCount ?? DEFAULT_PARTITION_COUNT
   const replicationFactor = options?.replicationFactor ?? DEFAULT_REPLICATION_FACTOR

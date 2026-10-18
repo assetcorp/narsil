@@ -1,23 +1,24 @@
 import type { GlobalStatistics, InternalSearchParams } from '../../../types/internal'
 import type { PartitionStatsView } from '../../statistics'
+import { termGroupOf, typoMatchesFor } from '../group-scoring'
 import type { PartitionReadState } from '../read-state'
+import { partitionDocumentFrequency } from '../suggestions'
 
 function collectCandidateTerms(subs: readonly PartitionReadState[], params: InternalSearchParams): Set<string> {
-  const { queryTokens, prefixExpansion, tolerance = 0, prefixLength = 2, exact = false } = params
+  const { queryTokens, termGroups, tolerance = 0, prefixLength = 2, exact = false } = params
   const terms = new Set<string>()
 
   for (const qt of queryTokens) {
-    if (prefixExpansion && qt.token === prefixExpansion.token) {
-      terms.add(qt.token)
-      for (const term of prefixExpansion.terms) terms.add(term)
-      continue
+    const group = termGroupOf(termGroups, qt.token)
+    if (group !== undefined) {
+      for (const member of group.members) terms.add(member.token)
     }
-    if (exact || tolerance === 0) {
+    if (group === undefined && (exact || tolerance === 0)) {
       terms.add(qt.token)
       continue
     }
     for (const sub of subs) {
-      for (const match of sub.invertedIdx.fuzzyLookup(qt.token, tolerance, prefixLength)) {
+      for (const match of typoMatchesFor(sub.invertedIdx, qt.token, group, exact, tolerance, prefixLength)) {
         terms.add(match.token)
       }
     }
@@ -32,11 +33,7 @@ export function resolveQueryTermFrequencies(
 ): Record<string, number> {
   const frequencies: Record<string, number> = Object.create(null)
   for (const term of collectCandidateTerms(subs, params)) {
-    let total = 0
-    for (const sub of subs) {
-      const list = sub.invertedIdx.lookup(term)
-      if (list !== undefined) total += list.docIdSet.size
-    }
+    const total = partitionDocumentFrequency(subs, term)
     if (total > 0) frequencies[term] = total
   }
   return frequencies

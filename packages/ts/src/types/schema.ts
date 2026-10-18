@@ -24,8 +24,12 @@ export type AnyDocument = Record<string, unknown> & {
  * `in`, `nin`, `startsWith`, and `endsWith` on that field from the index,
  * comparing case folds for any of those tests that sets `caseFold`. The engine
  * raises `DOC_VALIDATION_FAILED` for a value longer than
- * {@link IndexConfig.patternValueLimit} in such a field. A later release will
- * add partial-word search for the fields whose types include `partial`.
+ * {@link IndexConfig.patternValueLimit} in such a field. For a query with
+ * {@link QueryParams.partialWords} set, the engine also matches each query
+ * word inside the longer words of a field whose type includes `partial`. It
+ * raises `CONFIG_INVALID` for such a field in an index whose `surfaceForms`
+ * setting is false, because it matches inside the original spellings of
+ * words, which it records only while that setting is on.
  *
  * @public
  */

@@ -2,6 +2,13 @@ import { fuzzyTermMatches } from '../core/fuzzy'
 import { tokenize } from '../core/tokenizer'
 import type { LanguageModule } from '../types/language'
 import type { HighlightMatch } from '../types/results'
+import type { CustomTokenizer, StopWordOverride } from '../types/schema'
+
+export interface PartialWordHighlight {
+  words: readonly string[]
+  customTokenizer?: CustomTokenizer
+  stopWordOverride?: StopWordOverride
+}
 
 export interface HighlightOptions {
   preTag?: string
@@ -16,6 +23,7 @@ export interface HighlightOptions {
   completedToken?: string
   tolerance?: number
   prefixLength?: number
+  partialWords?: PartialWordHighlight
 }
 
 interface CharRange {
@@ -128,6 +136,37 @@ function applySnippetTruncation(
   return { snippet, visiblePositions }
 }
 
+function containsPartialWord(spelling: string, words: readonly string[]): boolean {
+  for (const word of words) {
+    if (spelling.length > word.length && spelling.includes(word)) return true
+  }
+  return false
+}
+
+function partialWordMatcher(
+  text: string,
+  language: LanguageModule,
+  partial: PartialWordHighlight,
+): (position: number, fieldToken: string) => boolean {
+  const indexed = tokenize(text, language, {
+    stem: true,
+    removeStopWords: true,
+    collectSurfaces: true,
+    customTokenizer: partial.customTokenizer,
+    stopWordOverride: partial.stopWordOverride,
+  })
+  const positions = new Set<number>()
+  const spellings = new Set<string>()
+  for (let at = 0; at < indexed.tokens.length; at++) {
+    const spelling = indexed.surfaces?.[at] ?? indexed.tokens[at].token
+    if (!containsPartialWord(spelling, partial.words)) continue
+    positions.add(indexed.tokens[at].position)
+    spellings.add(spelling)
+  }
+  if (partial.customTokenizer !== undefined) return (_position, fieldToken) => spellings.has(fieldToken)
+  return position => positions.has(position)
+}
+
 export function highlightField(
   text: string,
   queryTokens: Array<{ token: string; position: number }>,
@@ -176,11 +215,15 @@ export function highlightField(
     return matches
   }
 
+  const matchesInside =
+    options?.partialWords === undefined ? null : partialWordMatcher(text, language, options.partialWords)
+
   for (let i = 0; i < fieldResult.tokens.length; i++) {
     if (i >= charOffsets.length) break
     const fieldToken = fieldResult.tokens[i].token
     const prefixMatch = prefixToken !== undefined && fieldToken.startsWith(prefixToken)
-    if (prefixMatch || matchesQuery(fieldToken)) {
+    const insideMatch = matchesInside?.(fieldResult.tokens[i].position, fieldToken) === true
+    if (prefixMatch || insideMatch || matchesQuery(fieldToken)) {
       matchedRanges.push({ start: charOffsets[i].start, end: charOffsets[i].end })
     }
   }

@@ -29,6 +29,7 @@ function makeWireParams(overrides: Partial<WireQueryParams> = {}): WireQueryPara
     termMatch: null,
     prefixLength: null,
     prefix: null,
+    partialWords: null,
     exact: null,
     pinned: null,
     mode: null,

@@ -1,0 +1,93 @@
+import type { PartialWordSearch } from '../../../types/partial-words'
+import type { AnyDocument } from '../../../types/schema'
+import type { DocumentStoreReader } from '../../document-store'
+import type { FrozenTokenTable } from '../frozen/token-table'
+import type { PartitionReadState } from '../read-state'
+import type { PartialSpellings, PartialWordAnalysis, SpellingCounts } from './spellings'
+
+export interface PartialWordProbe {
+  readonly text: string
+  readonly codePoints: readonly number[]
+  readonly utf8: Uint8Array
+}
+
+export type PartialWordVisitor = (token: string, spellingLength: number) => void
+
+export interface PartialWordReader {
+  forEachContaining(probe: PartialWordProbe, visit: PartialWordVisitor): void
+  bytes(): number
+}
+
+export interface PartialWordTableReader extends PartialWordReader {
+  entryOf(spelling: string, token: string): number
+}
+
+export interface PartialWordSlot {
+  readerFor(analysis: PartialWordAnalysis): PartialWordReader | null
+  spellings(): PartialSpellings | null
+  bytes(): number
+}
+
+export interface PartialWordTableData {
+  fields: string[]
+  spellings: Uint8Array
+  spellingOffsets: Uint32Array
+  spellingTokens: Uint32Array
+  spellingCounts: Uint32Array
+  runs: Uint32Array
+  runOffsets: Uint32Array
+  runEntries: Uint32Array
+}
+
+export interface PartialWordRequest {
+  readonly written: string
+  readonly ownToken: string
+  readonly share: number
+  readonly tolerance: number
+  readonly prefixLength: number
+}
+
+export interface AddedWord {
+  readonly token: string
+  readonly factor: number
+}
+
+export interface GrowingPartialWordView {
+  readonly docStore: Pick<DocumentStoreReader, 'all' | 'count' | 'get' | 'getExternalId'>
+}
+
+export interface GrowingPartialWordSlot extends PartialWordSlot {
+  afterDocument(
+    fields: readonly string[],
+    internalId: number,
+    spellings: SpellingCounts | null,
+    direction: 1 | -1,
+  ): void
+  afterMerge(spellings: PartialSpellings | null, internalIds: readonly number[]): void
+  forgetSpellings(): void
+  clear(): void
+}
+
+export interface FrozenPartialWordDocuments {
+  documentAt(ordinal: number): AnyDocument
+  survivors(): Iterable<AnyDocument>
+}
+
+export interface FrozenPartialWordSlot extends PartialWordSlot {
+  afterRemoval(ordinal: number): void
+}
+
+export interface PartialWordSearchModule extends PartialWordSearch {
+  createGrowingSlot(view: GrowingPartialWordView): GrowingPartialWordSlot
+  createFrozenSlot(
+    initial: PartialWordTableData | null,
+    tokenTable: FrozenTokenTable,
+    documents: FrozenPartialWordDocuments,
+  ): FrozenPartialWordSlot
+  buildTable(source: PartialSpellings, tokenTable: FrozenTokenTable): PartialWordTableData
+  expand(
+    subs: readonly PartitionReadState[],
+    analysis: PartialWordAnalysis,
+    requests: readonly PartialWordRequest[],
+  ): AddedWord[][]
+}

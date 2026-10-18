@@ -1,3 +1,4 @@
+import { requirePartialWordSearchFor } from '../core/partition/partial-words/registry'
 import { requirePatternSearchFor } from '../core/pattern-index/registry'
 import { ErrorCodes, NarsilError } from '../errors'
 import { getLanguage } from '../languages/registry'
@@ -17,7 +18,13 @@ import type { NarsilConfig } from '../types/config'
 import type { IndexConfig } from '../types/schema'
 import type { EngineCore, IndexRegistryEntry } from './core'
 import { requireConfigurationWithinSizeLimit } from './snapshot/index-configuration'
-import { validateBM25Params, validateIndexName, validatePartitionConfig, validatePatternValueLimit } from './validation'
+import {
+  requireSurfaceFormsForPartialFields,
+  validateBM25Params,
+  validateIndexName,
+  validatePartitionConfig,
+  validatePatternValueLimit,
+} from './validation'
 import { getVectorFieldPaths } from './vector-fields'
 
 async function runLifecycleHook(
@@ -61,7 +68,9 @@ export async function createEngineIndex(
   if (appliesCreationLimits) requireCreatableSchema(schema)
   const indexConfig = schema === requestedConfig.schema ? requestedConfig : { ...requestedConfig, schema }
   requirePatternSearchFor(schema)
+  requirePartialWordSearchFor(schema)
   validatePatternValueLimit(indexConfig.patternValueLimit)
+  requireSurfaceFormsForPartialFields(schema, indexConfig.surfaceForms)
   validateVectorPromotion(indexConfig.vectorPromotion)
   validateVectorStorage(indexConfig.vectorPromotion, core.filesystemDurability)
   validateBM25Params(indexConfig.bm25)

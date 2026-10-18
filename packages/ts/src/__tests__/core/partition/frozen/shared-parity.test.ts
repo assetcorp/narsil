@@ -109,8 +109,8 @@ describe('a shared frozen segment answers every read like its plain twin', () =>
       expect(sharedResult.scored.map(d => [d.docId, d.score])).toEqual(plainResult.scored.map(d => [d.docId, d.score]))
     }
 
-    expect(expandTermPrefix(shared, 'appl', 'appl', 50).sort()).toEqual(
-      expandTermPrefix(plain, 'appl', 'appl', 50).sort(),
+    expect(expandTermPrefix([shared], 'appl', 'appl', 50).sort()).toEqual(
+      expandTermPrefix([plain], 'appl', 'appl', 50).sort(),
     )
     expect(suggestDisplayTerms(shared, 'app', 'app', 10)).toEqual(suggestDisplayTerms(plain, 'app', 'app', 10))
   })

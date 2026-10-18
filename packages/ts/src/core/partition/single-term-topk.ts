@@ -50,7 +50,7 @@ export function prunableSingleTermList(
   fieldNames: readonly string[],
 ): PostingListView | null {
   if (params.queryTokens.length !== 1) return null
-  if (params.prefixExpansion !== undefined) return null
+  if (params.termGroups !== undefined && params.termGroups.length > 0) return null
   if (params.exact !== true && (params.tolerance ?? 0) !== 0) return null
   if (params.termMatch !== undefined && params.termMatch !== 'any') return null
   if (params.collectComponents !== false) return null
