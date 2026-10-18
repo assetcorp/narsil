@@ -5,6 +5,7 @@ import type { AnyDocument } from '../../types/schema'
 import { createBooleanIndex, createEnumIndex, createNumericIndex, type NumericFieldIndex } from '../field-index'
 import { patternIndexOf } from '../pattern-index/host'
 import type { PatternIndexArrays } from '../pattern-index/types'
+import type { PartialSpellings } from './partial-words/spellings'
 import { encodeFieldIndexes } from './segment-field-indexes'
 import { getOrCreateFieldNameIndex, type PartitionReadState, type PartitionState } from './utils'
 
@@ -24,6 +25,7 @@ export interface SegmentPayload {
   totalFieldLengths: Record<string, number>
   docFrequencies: Record<string, number>
   surfaceForms: SerializedSurfaceForms | null
+  partialSpellings: PartialSpellings | null
   numeric: Array<{ fieldPath: string; docIds: Uint32Array; values: Float64Array }>
   boolean: Array<{ fieldPath: string; trueDocs: Uint32Array; falseDocs: Uint32Array }>
   enums: Array<{ fieldPath: string; values: string[]; offsets: Uint32Array; docIds: Uint32Array }>
@@ -212,6 +214,7 @@ export function encodeSegmentState(state: PartitionReadState): SegmentPayload {
     totalFieldLengths: fieldLengths.totals,
     docFrequencies,
     surfaceForms: state.surfaceRegistry.size() === 0 ? null : state.surfaceRegistry.serialize(),
+    partialSpellings: state.partialWords.spellings(),
     ...encodeFieldIndexes(state, remap),
   }
 }
@@ -352,6 +355,8 @@ export function mergeSegmentPayload(
     }
   }
 
+  const mergedIds = Array.from({ length: payload.docIds.length }, (_, at) => ordinalBase + at)
+  target.partialWords.afterMerge(payload.partialSpellings, mergedIds)
   target.sortColumns = null
   target.scoreBuffer = null
 }

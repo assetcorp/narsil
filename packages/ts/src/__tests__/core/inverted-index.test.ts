@@ -78,14 +78,14 @@ describe('InvertedIndex', () => {
     it('removes all entries for a docId from a token', () => {
       idx.insert('steel', 0, 1, fieldIdx(table, 'title'), [0])
       idx.insert('steel', 0, 2, fieldIdx(table, 'body'), [0, 3])
-      idx.remove('steel', 0)
+      idx.remove('steel', 0, 3)
       expect(idx.lookup('steel')).toBeUndefined()
     })
 
     it('removes only the specified docId, keeping others', () => {
       idx.insert('steel', 0, 1, fieldIdx(table, 'title'), [0])
       idx.insert('steel', 1, 1, fieldIdx(table, 'title'), [0])
-      idx.remove('steel', 0)
+      idx.remove('steel', 0, 1)
       const list = idx.lookup('steel')
       expect(list).toBeDefined()
       expect(list?.length).toBe(1)
@@ -94,19 +94,19 @@ describe('InvertedIndex', () => {
     })
 
     it('does nothing when the token does not exist', () => {
-      idx.remove('nonexistent', 0)
+      idx.remove('nonexistent', 0, 1)
       expect(idx.size()).toBe(0)
     })
 
     it('does nothing when the docId does not exist under the token', () => {
       idx.insert('steel', 0, 1, fieldIdx(table, 'title'), [0])
-      idx.remove('steel', 99)
+      idx.remove('steel', 99, 1)
       expect(idx.lookup('steel')?.length).toBe(1)
     })
 
     it('cleans up the token entirely when the last posting is removed', () => {
       idx.insert('rare', 0, 1, fieldIdx(table, 'title'), [0])
-      idx.remove('rare', 0)
+      idx.remove('rare', 0, 1)
       expect(idx.has('rare')).toBe(false)
       expect(idx.size()).toBe(0)
     })
@@ -335,16 +335,15 @@ describe('InvertedIndex', () => {
         idx.insert('sword', i, 2, titleIdx, null)
       }
       for (let i = 0; i < 6; i++) {
-        idx.remove('sword', i)
+        idx.remove('sword', i, 2)
       }
       expect(idx.lookup('sword')?.totalTermFrequency).toBe(8)
     })
-
     it('subtracts the old occurrences when a document is re-inserted', () => {
       const titleIdx = fieldIdx(table, 'title')
       idx.insert('sword', 0, 4, titleIdx, null)
       idx.insert('sword', 1, 1, titleIdx, null)
-      idx.remove('sword', 0)
+      idx.remove('sword', 0, 4)
       idx.insert('sword', 0, 2, titleIdx, null)
       expect(idx.lookup('sword')?.totalTermFrequency).toBe(3)
     })

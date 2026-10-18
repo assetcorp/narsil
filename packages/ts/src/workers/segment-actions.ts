@@ -94,7 +94,7 @@ export function runSegmentAction(entry: SegmentIndexEntry, action: SegmentAction
 
     case 'compactSegments': {
       const partition = requireComposite(entry, action.indexName, action.partitionId, 'compact')
-      return mergeFrozenSegments(partition.frozenSegmentsById(action.segmentIds))
+      return mergeFrozenSegments(partition.frozenSegmentsById(action.segmentIds), entry.manager.partialWordAnalysis)
     }
 
     case 'swapSegments': {

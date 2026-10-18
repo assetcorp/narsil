@@ -32,6 +32,10 @@ describe('queryBindingOf', () => {
 
   it('binds a changed match option differently', () => {
     expect(queryBindingOf({ term: 'espresso', exact: true })).not.toBe(queryBindingOf({ term: 'espresso' }))
+    expect(queryBindingOf({ term: 'espresso', partialWords: true })).not.toBe(queryBindingOf({ term: 'espresso' }))
+    expect(queryBindingOf({ term: 'espresso', partialWords: true })).not.toBe(
+      queryBindingOf({ term: 'espresso', exact: true }),
+    )
     expect(queryBindingOf({ term: 'espresso', tolerance: 1 })).not.toBe(queryBindingOf({ term: 'espresso' }))
     expect(queryBindingOf({ term: 'espresso', termMatch: 'all' })).not.toBe(queryBindingOf({ term: 'espresso' }))
     expect(queryBindingOf({ term: 'espresso', minScore: 0.5 })).not.toBe(queryBindingOf({ term: 'espresso' }))
@@ -78,7 +82,7 @@ describe('queryBindingOf', () => {
       view.setFloat64(0, n, false)
       stream.push(4, ...new Uint8Array(view.buffer))
     }
-    for (let slot = 0; slot < 13; slot++) absent()
+    for (let slot = 0; slot < 14; slot++) absent()
     stream.push(7)
     uint32(2)
     string('field')
@@ -152,7 +156,7 @@ describe('listBindingOf', () => {
     expect(listBindingOf(undefined)).toMatch(/^[0-9a-f]{8}$/)
   })
 
-  it('binds a filterless listing to the documented worked example', () => {
-    expect(listBindingOf(undefined)).toBe('05537a07')
+  it('binds a filterless listing to the hash of sixteen absent values', () => {
+    expect(listBindingOf(undefined)).toBe('69691905')
   })
 })

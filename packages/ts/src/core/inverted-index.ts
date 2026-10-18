@@ -19,6 +19,7 @@ export interface TermSuggestion {
 export interface InvertedIndexReader {
   lookup(token: string): PostingListView | undefined
   lookupReadOnce?(token: string): PostingListView | undefined
+  documentFrequency(token: string): number
   fuzzyLookup(
     token: string,
     tolerance: number,
@@ -38,7 +39,7 @@ export interface InvertedIndex extends InvertedIndexReader {
     fieldNameIndex: number,
     positions: number[] | null,
   ): void
-  remove(token: string, internalId: number): void
+  remove(token: string, internalId: number, occurrences: number): void
   beginBatch(): void
   endBatch(): void
   lookup(token: string): CompactPostingList | undefined
@@ -146,13 +147,14 @@ export function createInvertedIndex(fieldNameTable: FieldNameTable): InvertedInd
       list.length++
     },
 
-    remove(token: string, internalId: number): void {
+    remove(token: string, internalId: number, occurrences: number): void {
       const list = index.get(token)
       if (!list || !list.docIdSet.has(internalId)) return
 
       list.structureRevision++
       list.docIdSet.delete(internalId)
       list.deletedDocs.add(internalId)
+      list.totalTermFrequency = Math.max(0, list.totalTermFrequency - occurrences)
 
       if (list.docIdSet.size === 0) {
         index.delete(token)
@@ -190,6 +192,10 @@ export function createInvertedIndex(fieldNameTable: FieldNameTable): InvertedInd
 
     lookup(token: string): CompactPostingList | undefined {
       return index.get(token)
+    },
+
+    documentFrequency(token: string): number {
+      return index.get(token)?.docIdSet.size ?? 0
     },
 
     fuzzyLookup(

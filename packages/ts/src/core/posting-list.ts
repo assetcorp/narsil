@@ -46,8 +46,6 @@ export function compactList(list: CompactPostingList): void {
         }
       }
       writeIdx++
-    } else {
-      list.totalTermFrequency -= list.termFrequencies[i]
     }
   }
   list.docIds.length = writeIdx
@@ -73,8 +71,6 @@ export function compactDocEntries(list: CompactPostingList, internalId: number):
         }
       }
       writeIdx++
-    } else {
-      list.totalTermFrequency -= list.termFrequencies[i]
     }
   }
   list.docIds.length = writeIdx

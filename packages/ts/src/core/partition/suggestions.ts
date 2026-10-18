@@ -71,38 +71,43 @@ export function suggestDisplayTerms(
   return results
 }
 
+export function partitionDocumentFrequency(subs: readonly PartitionReadState[], token: string): number {
+  let documents = 0
+  for (const sub of subs) documents += sub.invertedIdx.documentFrequency(token)
+  return documents
+}
+
 export function expandTermPrefix(
-  state: PartitionReadState,
+  subs: readonly PartitionReadState[],
   surfacePrefix: string,
   stemmedToken: string,
   maxExpansions: number,
 ): string[] {
   if (maxExpansions <= 0 || surfacePrefix.length === 0) return []
 
-  const dfByToken = new Map<string, number>()
-
-  for (const candidate of state.surfaceRegistry.candidatesForPrefix(surfacePrefix)) {
-    if (dfByToken.has(candidate.token)) continue
-    const postingList = state.invertedIdx.lookup(candidate.token)
-    if (!postingList || postingList.docIdSet.size === 0) continue
-    dfByToken.set(candidate.token, postingList.docIdSet.size)
-  }
-
+  const candidates = new Set<string>()
+  const holdsSurfaceForms = subs.some(sub => sub.surfaceRegistry.size() > 0)
   const termPrefixes =
-    state.surfaceRegistry.size() === 0 && stemmedToken !== surfacePrefix && stemmedToken.length > 0
+    !holdsSurfaceForms && stemmedToken !== surfacePrefix && stemmedToken.length > 0
       ? [surfacePrefix, stemmedToken]
       : [surfacePrefix]
 
-  for (const prefix of termPrefixes) {
-    for (const suggestion of state.invertedIdx.prefixSearch(prefix, Number.MAX_SAFE_INTEGER)) {
-      if (dfByToken.has(suggestion.term)) continue
-      if (verbatimOccurrences(state, suggestion.term) === 0) continue
-      dfByToken.set(suggestion.term, suggestion.documentFrequency)
+  for (const sub of subs) {
+    for (const candidate of sub.surfaceRegistry.candidatesForPrefix(surfacePrefix)) candidates.add(candidate.token)
+    for (const prefix of termPrefixes) {
+      for (const suggestion of sub.invertedIdx.prefixSearch(prefix, Number.MAX_SAFE_INTEGER)) {
+        if (candidates.has(suggestion.term)) continue
+        if (verbatimOccurrences(sub, suggestion.term) > 0) candidates.add(suggestion.term)
+      }
     }
   }
 
-  const entries = Array.from(dfByToken.entries())
-  entries.sort((a, b) => b[1] - a[1] || compareCodePoints(a[0], b[0]))
-  if (entries.length > maxExpansions) entries.length = maxExpansions
-  return entries.map(e => e[0])
+  const ranked: Array<{ token: string; documents: number }> = []
+  for (const token of candidates) {
+    const documents = partitionDocumentFrequency(subs, token)
+    if (documents > 0) ranked.push({ token, documents })
+  }
+  ranked.sort((a, b) => b.documents - a.documents || compareCodePoints(a.token, b.token))
+  if (ranked.length > maxExpansions) ranked.length = maxExpansions
+  return ranked.map(entry => entry.token)
 }

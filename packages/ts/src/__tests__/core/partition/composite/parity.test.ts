@@ -118,7 +118,17 @@ describe('a composite of frozen segments plus a live tail matches one merged par
 
     const params = termParams({
       tokens: ['appl'],
-      prefixExpansion: { token: 'appl', terms: baseTerms.filter(term => term !== 'appl') },
+      termGroups: [
+        {
+          token: 'appl',
+          members: ['appl', ...baseTerms].map(term => ({
+            token: term,
+            factor: term === 'appl' ? 1 : 0.5,
+            partialFactor: 0.5,
+          })),
+          typoMatches: false,
+        },
+      ],
     })
     const base = baseline.searchFulltext(params)
     const fanned = composite.searchFulltext(params)
@@ -256,6 +266,24 @@ describe('a composite of frozen segments plus a live tail matches one merged par
     expect(composite.sortValues(probe, ['price'], ['number'], ['min'])).toEqual(
       baseline.sortValues(probe, ['price'], ['number'], ['min']),
     )
+  })
+
+  it('ranks a suggestion by its documents across every segment, even where no single segment ranks it first', () => {
+    const firstSegment = ['tango', 'tango', 'tango', 'tanker', 'tanker'].map((title, at) => ({
+      id: `first-${at}`,
+      title,
+    }))
+    const secondSegment = ['tannin', 'tannin', 'tannin', 'tanker', 'tanker'].map((title, at) => ({
+      id: `second-${at}`,
+      title,
+    }))
+    const composite = createCompositePartition(0)
+    composite.attachFrozenSegment(createFrozenSegment(frozenPayloadFor(firstSegment), firstSegment))
+    composite.attachFrozenSegment(createFrozenSegment(frozenPayloadFor(secondSegment), secondSegment))
+
+    const [top] = composite.suggestTerms('tan', 'tan', 1)
+    expect(top?.token).toBe('tanker')
+    expect(top?.documentFrequency).toBe(4)
   })
 })
 

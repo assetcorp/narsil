@@ -2,6 +2,7 @@ import { encodeDocument } from '../../../serialization/document-encoding'
 import { topLevelMapKeys } from '../../../serialization/msgpack-without-fields'
 import type { SerializedSurfaceForms } from '../../../types/internal'
 import { createSurfaceRegistry } from '../../surface-registry'
+import type { PartialWordAnalysis } from '../partial-words/spellings'
 import type { SegmentPayload } from '../segment-payload'
 import type { EncodedDocumentTableData } from './document-source'
 import type { FrozenSegment } from './index'
@@ -147,10 +148,13 @@ function mergeDocuments(inputs: readonly SegmentRemap[], documentCount: number):
   return { blob, offsets }
 }
 
-export function mergeFrozenSegments(segments: readonly FrozenSegment[]): SharedSegmentSnapshot | null {
+export function mergeFrozenSegments(
+  segments: readonly FrozenSegment[],
+  analysis: PartialWordAnalysis | null,
+): SharedSegmentSnapshot | null {
   if (typeof SharedArrayBuffer !== 'function') return null
   const merged = mergeSegmentContents(segments.map(segment => ({ segment })))
-  return freezeEncodedSegmentShared(merged.payload, merged.documents)
+  return freezeEncodedSegmentShared(merged.payload, merged.documents, undefined, analysis)
 }
 
 export function mergeSegmentContents(selections: readonly SegmentSelection[]): MergedSegmentContents {
@@ -181,6 +185,7 @@ export function mergeSegmentContents(selections: readonly SegmentSelection[]): M
     totalFieldLengths: lengths.totalFieldLengths,
     docFrequencies: postings.docFrequencies,
     surfaceForms: mergeSurfaceForms(inputs),
+    partialSpellings: null,
     ...mergeFieldIndexes(inputs),
   }
 

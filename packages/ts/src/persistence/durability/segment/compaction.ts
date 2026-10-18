@@ -1,5 +1,4 @@
-import { generateId } from '../../../core/id-generator'
-import { createSharedFrozenSegment, type FrozenSegment } from '../../../core/partition/frozen'
+import { createSharedFrozenSegment, type FrozenSegment, shareSegmentArrays } from '../../../core/partition/frozen'
 import { MAX_FILE_BYTES } from '../../../serialization/constants'
 import type { KeywordSegmentContents } from '../../../serialization/keyword-segment/types'
 import { COMPACTION_LARGEST_MERGED_DOCUMENT_COUNT, SEGMENT_FILE_FRAMING_SLACK_BYTES } from '../constants'
@@ -62,7 +61,7 @@ function chooseWindow(segments: readonly SegmentRef[], wantedLength: number): Me
 }
 
 function frozenOf(contents: KeywordSegmentContents): FrozenSegment {
-  return createSharedFrozenSegment({ ...contents.arrays, segmentId: generateId() })
+  return createSharedFrozenSegment(shareSegmentArrays(contents.arrays, null))
 }
 
 function applyTimeOrder(frozen: readonly FrozenSegment[], contents: readonly KeywordSegmentContents[]): void {

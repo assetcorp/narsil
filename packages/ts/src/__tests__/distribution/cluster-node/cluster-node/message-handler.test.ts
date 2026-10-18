@@ -128,6 +128,7 @@ describe('createClusterNode message handler', () => {
           termMatch: null,
           prefixLength: null,
           prefix: null,
+          partialWords: null,
           exact: null,
           pinned: null,
           mode: null,

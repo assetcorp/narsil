@@ -1,6 +1,6 @@
 import { compareCodePoints } from '../../ordering'
 import type { PartitionReadState } from '../read-state'
-import { expandTermPrefix, type PartitionSuggestion, suggestDisplayTerms } from '../suggestions'
+import { type PartitionSuggestion, suggestDisplayTerms } from '../suggestions'
 
 export function compositeSuggestTerms(
   subs: readonly PartitionReadState[],
@@ -8,10 +8,11 @@ export function compositeSuggestTerms(
   stemmedPrefix: string,
   limit: number,
 ): PartitionSuggestion[] {
+  if (limit <= 0) return []
   const merged = new Map<string, { documentFrequency: number; surfaceOccurrences: Map<string, number> }>()
 
   for (const sub of subs) {
-    for (const suggestion of suggestDisplayTerms(sub, surfacePrefix, stemmedPrefix, limit)) {
+    for (const suggestion of suggestDisplayTerms(sub, surfacePrefix, stemmedPrefix, Number.MAX_SAFE_INTEGER)) {
       let entry = merged.get(suggestion.token)
       if (entry === undefined) {
         entry = { documentFrequency: 0, surfaceOccurrences: new Map() }
@@ -37,23 +38,4 @@ export function compositeSuggestTerms(
   suggestions.sort((a, b) => b.documentFrequency - a.documentFrequency || compareCodePoints(a.token, b.token))
   if (suggestions.length > limit) suggestions.length = limit
   return suggestions
-}
-
-export function compositeExpandTermPrefix(
-  subs: readonly PartitionReadState[],
-  surfacePrefix: string,
-  stemmedToken: string,
-  maxExpansions: number,
-): string[] {
-  const expansions: string[] = []
-  const seen = new Set<string>()
-  for (const sub of subs) {
-    for (const term of expandTermPrefix(sub, surfacePrefix, stemmedToken, maxExpansions)) {
-      if (seen.has(term)) continue
-      seen.add(term)
-      expansions.push(term)
-      if (expansions.length === maxExpansions) return expansions
-    }
-  }
-  return expansions
 }

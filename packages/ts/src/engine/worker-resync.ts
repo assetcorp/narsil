@@ -18,7 +18,7 @@ function captureComposite(manager: PartitionManager, partitionId: number): Captu
   const segmentIds = partition.frozenSegmentSizes().map(size => size.segmentId)
   const frozen: SharedFrozenSegment[] = []
   for (const segment of partition.frozenSegmentsById(segmentIds)) {
-    const shared = shareFrozenSegment(segment)
+    const shared = shareFrozenSegment(segment, manager.partialWordAnalysis)
     if (shared === null) return null
     frozen.push(shared)
   }

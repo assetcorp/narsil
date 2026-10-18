@@ -12,6 +12,7 @@ export {
 export {
   extractVectorFieldsFromSchema,
   flattenSchema,
+  partialFieldsOf,
   requireCreatableSchema,
   requireValidFieldTypes,
   type SchemaField,

@@ -8,6 +8,7 @@ import type { InvertedIndex } from '../inverted-index'
 import type { PatternIndexWriter } from '../pattern-index/types'
 import type { PartitionStats } from '../statistics'
 import type { SurfaceRegistry } from '../surface-registry'
+import type { GrowingPartialWordSlot } from './partial-words/types'
 import type { PartitionReadState } from './read-state'
 
 export type { PartitionReadState } from './read-state'
@@ -23,6 +24,7 @@ export interface PartitionState extends PartitionReadState {
   readonly geoIndexes: Map<string, GeoIndex>
   readonly patternIndexes: Map<string, PatternIndexWriter>
   readonly sizeIndexes: Map<string, NumericFieldIndex>
+  readonly partialWords: GrowingPartialWordSlot
 }
 
 export function getOrCreateFieldNameIndex(table: FieldNameTable, fieldName: string): number {

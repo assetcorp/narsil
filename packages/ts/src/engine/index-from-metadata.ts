@@ -12,7 +12,7 @@ import type { AnalysisRebuildCoordinator } from './analysis-rebuild'
 import type { IndexRegistryEntry } from './core'
 import type { IndexStateCoordinator } from './index-state'
 import { reconstructSchemaFromMetadata } from './recovery-schema'
-import { validatePatternValueLimit } from './validation'
+import { requireSurfaceFormsForPartialFields, validatePatternValueLimit } from './validation'
 import { getVectorFieldPaths } from './vector-fields'
 
 const RECOVERY_CONFIG_ERROR_CODES: ReadonlySet<string> = new Set([
@@ -81,6 +81,7 @@ export async function createIndexFromMetadata(
   try {
     indexConfig.schema = validateSchema(indexConfig.schema)
     validatePatternValueLimit(indexConfig.patternValueLimit)
+    requireSurfaceFormsForPartialFields(indexConfig.schema, indexConfig.surfaceForms)
   } catch (err) {
     throw recoveryFailure(metadata, err)
   }

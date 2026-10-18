@@ -1,5 +1,4 @@
-import { generateId } from '../../../core/id-generator'
-import { createSharedFrozenSegment, type FrozenSegment } from '../../../core/partition/frozen'
+import { createSharedFrozenSegment, type FrozenSegment, shareSegmentArrays } from '../../../core/partition/frozen'
 import { decodeEveryStoredDocument } from '../../../core/partition/frozen/document-source'
 import { ErrorCodes, NarsilError } from '../../../errors'
 import type { PartitionManager } from '../../../partitioning/manager'
@@ -60,7 +59,7 @@ export async function loadPartitionSegments(
     const contents = await readSegmentFile(store, ref)
     requireAgreedSchema(options.schema, contents.schema, ref.key)
     if (options.decodesEveryDocument) decodeEveryStoredDocument(contents.arrays.documentTable)
-    const segment = createSharedFrozenSegment({ ...contents.arrays, segmentId: generateId() })
+    const segment = createSharedFrozenSegment(shareSegmentArrays(contents.arrays, manager.partialWordAnalysis))
     removeWhatTheSegmentReplaces(manager, segment, contents)
     if (contents.arrays.documentCount > 0) manager.attachFrozenSegment(partition.partitionId, segment)
     await yieldToEventLoop()

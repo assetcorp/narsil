@@ -50,7 +50,7 @@ describe('swapping merged frozen segments into a composite partition', () => {
 
     const segmentIds = composite.frozenSegmentSizes().map(size => size.segmentId)
     const segments = composite.frozenSegmentsById(segmentIds)
-    const merged = mergeFrozenSegments(segments)
+    const merged = mergeFrozenSegments(segments, null)
     if (merged === null) throw new Error('this runtime shares no memory')
     expect(merged.documentCount).toBe(allDocs.length)
 
@@ -89,7 +89,7 @@ describe('swapping merged frozen segments into a composite partition', () => {
     composite.attachFrozenSegment(createFrozenSegment(frozenPayloadFor(newer), newer))
 
     const segmentIds = composite.frozenSegmentSizes().map(size => size.segmentId)
-    const merged = mergeFrozenSegments(composite.frozenSegmentsById(segmentIds))
+    const merged = mergeFrozenSegments(composite.frozenSegmentsById(segmentIds), null)
     if (merged === null) throw new Error('this runtime shares no memory')
     expect(merged.documentCount).toBe(4)
 
@@ -129,7 +129,7 @@ describe('swapping merged frozen segments into a composite partition', () => {
       composite.attachFrozenSegment(createFrozenSegment(frozenPayloadFor(chunk, schema), chunk))
     }
     const segmentIds = composite.frozenSegmentSizes().map(size => size.segmentId)
-    const merged = mergeFrozenSegments(composite.frozenSegmentsById(segmentIds))
+    const merged = mergeFrozenSegments(composite.frozenSegmentsById(segmentIds), null)
     if (merged === null) throw new Error('this runtime shares no memory')
     composite.swapFrozenSegments(segmentIds, createSharedFrozenSegment(merged))
 

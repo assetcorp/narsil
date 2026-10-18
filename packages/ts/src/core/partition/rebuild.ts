@@ -70,5 +70,6 @@ export function rebuildTextIndex(
     }
   } finally {
     state.invertedIdx.endBatch()
+    state.partialWords.forgetSpellings()
   }
 }

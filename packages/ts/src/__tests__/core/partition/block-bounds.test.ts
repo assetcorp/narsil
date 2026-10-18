@@ -149,7 +149,7 @@ describe('posting block bounds', () => {
     index.insert(TERM, 600, 50, 0, null)
     const columns = columnsFor(1000)
     const list = listFor(index)
-    index.remove(TERM, 600)
+    index.remove(TERM, 600, 51)
     expect(list.deletedDocs.size).toBe(1)
     const afterRemove = blockBoundsFor(list, columns)
     expectBoundsMatchRecount(list, columns, afterRemove)
@@ -170,7 +170,9 @@ describe('posting block bounds', () => {
     const columns = columnsFor(200)
     const list = listFor(index)
     blockBoundsFor(list, columns)
-    for (let internalId = 0; internalId < 100; internalId++) index.remove(TERM, internalId)
+    for (let internalId = 0; internalId < 100; internalId++) {
+      index.remove(TERM, internalId, (internalId % 9) + 1 + (internalId % 2 === 0 ? 1 : 0))
+    }
     expect(list.deletedDocs.size).toBeLessThan(100)
     const bounds = blockBoundsFor(list, columns)
     expectBoundsMatchRecount(list, columns, bounds)

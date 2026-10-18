@@ -92,12 +92,22 @@ describe('a frozen segment answers every read like the live partition it froze',
     const { live, frozen } = buildPair()
 
     const liveTerms = live.expandTermPrefix('appl', 'appl', 50)
-    const frozenTerms = expandTermPrefix(frozen, 'appl', 'appl', 50)
+    const frozenTerms = expandTermPrefix([frozen], 'appl', 'appl', 50)
     expect([...frozenTerms].sort()).toEqual([...liveTerms].sort())
 
     const params = termParams({
       tokens: ['appl'],
-      prefixExpansion: { token: 'appl', terms: liveTerms.filter(term => term !== 'appl') },
+      termGroups: [
+        {
+          token: 'appl',
+          members: ['appl', ...liveTerms].map(term => ({
+            token: term,
+            factor: term === 'appl' ? 1 : 0.5,
+            partialFactor: 0.5,
+          })),
+          typoMatches: false,
+        },
+      ],
     })
     const liveResult = live.searchFulltext(params)
     const frozenResult = searchFulltext(frozen, params)
