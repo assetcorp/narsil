@@ -7,6 +7,7 @@ import type { InvertedIndexReader } from '../inverted-index'
 import type { PatternIndexReader } from '../pattern-index/types'
 import type { PartitionStatsView } from '../statistics'
 import type { SurfaceRegistryReader } from '../surface-registry'
+import type { PartialWordSlot } from './partial-words/types'
 import type { ScoreBuffer } from './score-buffer'
 import type { SortColumnSet } from './sort-columns'
 
@@ -22,6 +23,7 @@ export interface PartitionReadState {
   readonly patternIndexes: ReadonlyMap<string, PatternIndexReader>
   readonly sizeIndexes: ReadonlyMap<string, NumericFieldIndexReader>
   readonly fieldNameTable: FieldNameTable
+  readonly partialWords: PartialWordSlot
   readonly trackPositions: boolean
   flatSchemaCache: Record<string, FieldType> | null
   lastSchemaRef: SchemaDefinition | null

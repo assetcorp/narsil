@@ -1,9 +1,10 @@
 import { holdsUnpairedSurrogate } from '../core/ordering/code-points'
 import { ErrorCodes, NarsilError } from '../errors'
 import { MAX_PATTERN_VALUE_LIMIT, MIN_PATTERN_VALUE_LIMIT } from '../schema/constants'
+import { partialFieldsOf } from '../schema/validator'
 import { clampRowCount } from '../search/pagination'
 import type { IndexLifecycleConfig, WorkerConfig } from '../types/config'
-import type { BM25Params } from '../types/schema'
+import type { BM25Params, SchemaDefinition } from '../types/schema'
 import {
   ABSOLUTE_WINDOWS_PATH_PATTERN,
   DEFAULT_LIMIT,
@@ -106,6 +107,17 @@ export function validatePartitionConfig(partitions: {
       watermark,
     })
   }
+}
+
+export function requireSurfaceFormsForPartialFields(schema: SchemaDefinition, surfaceForms: unknown): void {
+  if (surfaceForms !== false) return
+  const partialFields = partialFieldsOf(schema)
+  if (partialFields.length === 0) return
+  throw new NarsilError(
+    ErrorCodes.CONFIG_INVALID,
+    `Field "${partialFields[0]}" declares "partial", which compares words as the documents wrote them, so its index needs surfaceForms left on`,
+    { fields: [...partialFields], surfaceForms: false },
+  )
 }
 
 export function validatePatternValueLimit(limit: unknown): void {

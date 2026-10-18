@@ -144,7 +144,7 @@ async function compactPartitionSegments(
   const mainCanMerge = composite !== null && mainHoldsAll(composite, segmentIds)
   let snapshot = await compactOnWorker(state, indexName, partitionId, segmentIds)
   if (snapshot === null && mainCanMerge && composite !== null) {
-    snapshot = mergeFrozenSegments(composite.frozenSegmentsById(segmentIds))
+    snapshot = mergeFrozenSegments(composite.frozenSegmentsById(segmentIds), manager.partialWordAnalysis)
   }
   if (snapshot === null) {
     if (!mainCanMerge) forgetLedgerSegments(state, indexName, partitionId, segmentIds)

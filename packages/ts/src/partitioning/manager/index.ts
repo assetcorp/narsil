@@ -4,6 +4,7 @@ import { createPartitionIndex, type PartitionIndex, type PartitionInsertOptions 
 import { type CompositePartition, createCompositePartition } from '../../core/partition/composite'
 import type { LiveTailFreezer } from '../../core/partition/composite/compaction'
 import type { FrozenSegment } from '../../core/partition/frozen'
+import { requirePartialWordSearchFor } from '../../core/partition/partial-words/registry'
 import type { SegmentPayload } from '../../core/partition/segment-payload'
 import { requirePatternSearchFor } from '../../core/pattern-index/registry'
 import { projectionKeepsField, type ResolvedProjection } from '../../core/projection'
@@ -13,7 +14,7 @@ import type { LanguageModule } from '../../types/language'
 import type { PartitionStatsResult } from '../../types/results'
 import type { AnyDocument, IndexConfig } from '../../types/schema'
 import type { VectorIndex } from '../../vector/vector-index'
-import { resolvePartitionInsertOptions } from '../insert-options'
+import { resolvePartialWordAnalysis, resolvePartitionInsertOptions } from '../insert-options'
 import type { PartitionRouter } from '../router'
 import { createCapacityChecks } from './capacity'
 import { setNestedValue } from './nested-values'
@@ -30,8 +31,10 @@ export function createPartitionManager(
   vectorIndexes?: Map<string, VectorIndex>,
 ): PartitionManager {
   requirePatternSearchFor(config.schema)
+  requirePartialWordSearchFor(config.schema)
   const count = initialPartitionCount ?? 1
   const analysis = resolveIndexAnalysis(config)
+  const partialWordAnalysis = resolvePartialWordAnalysis(config, language, analysis)
   const trackPositions = config.trackPositions ?? true
   const vecIndexes: Map<string, VectorIndex> = vectorIndexes ?? new Map()
   let partitions: PartitionIndex[] = []
@@ -53,6 +56,10 @@ export function createPartitionManager(
 
   function resolveInsertOptions(options?: PartitionInsertOptions): PartitionInsertOptions | undefined {
     return resolvePartitionInsertOptions(config, analysis, options)
+  }
+
+  function preparePartialWords(partitionId: number): void {
+    if (partialWordAnalysis !== null) partitions[partitionId].preparePartialWords(partialWordAnalysis)
   }
 
   function locateDocument(docId: string): number | undefined {
@@ -114,6 +121,9 @@ export function createPartitionManager(
     },
     get analysis() {
       return analysis
+    },
+    get partialWordAnalysis() {
+      return partialWordAnalysis
     },
 
     getPartition(partitionId: number): PartitionIndex {
@@ -203,6 +213,7 @@ export function createPartitionManager(
     rebuildTextIndex(partitionId: number): void {
       validatePartitionId(partitionId)
       partitions[partitionId].rebuildTextIndex(config.schema, language, resolveInsertOptions())
+      preparePartialWords(partitionId)
     },
 
     beginBatchRemove(): void {
@@ -320,6 +331,7 @@ export function createPartitionManager(
     deserializePartition(partitionId: number, data: SerializablePartition): void {
       validatePartitionId(partitionId)
       partitions[partitionId].deserialize(data, config.schema)
+      preparePartialWords(partitionId)
       rebuildDocPartitionMapForPartition(partitionId)
     },
 

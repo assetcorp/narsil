@@ -666,6 +666,11 @@ export interface NarsilPlugin {
 }
 
 // @public
+export interface PartialWordSearch {
+    readonly name: 'partialWords';
+}
+
+// @public
 export interface PartitionConfig {
     maxDocsPerPartition?: number;
     maxPartitions?: number;
@@ -757,6 +762,7 @@ export interface QueryParams {
     minScore?: number;
     mode?: SearchMode;
     offset?: number;
+    partialWords?: boolean;
     pinned?: Array<{
         docId: string;
         position: number;
@@ -787,6 +793,9 @@ export interface QueryResult<T = AnyDocument> {
 
 // @public
 export function registerLanguage(module: LanguageModule): void;
+
+// @public
+export function registerPartialWordSearch(module: PartialWordSearch): void;
 
 // @public
 export function registerPatternSearch(module: PatternSearch): void;

@@ -54,6 +54,10 @@
     "#platform/pattern-search": {
       "browser": "./src/core/pattern-index/platform.browser.ts",
       "default": "./src/core/pattern-index/platform.ts"
+    },
+    "#platform/partial-word-search": {
+      "browser": "./src/core/partition/partial-words/platform.browser.ts",
+      "default": "./src/core/partition/partial-words/platform.ts"
     }
   },
   "sideEffects": false,
@@ -138,6 +142,10 @@
     "./pattern": {
       "import": "./dist/pattern.mjs",
       "types": "./dist/pattern.d.ts"
+    },
+    "./partial-words": {
+      "import": "./dist/partial-words.mjs",
+      "types": "./dist/partial-words.d.ts"
     },
     "./languages/*": {
       "import": "./dist/languages/*.mjs",

@@ -1,16 +1,22 @@
 import type { InternalSearchParams, InternalSearchResult, PostingListView } from '../../types/internal'
 import { bitsetHas, bitsetSet, createBitSet } from '../bitset'
-import type { InvertedIndexReader } from '../inverted-index'
 import { computeBM25WithIDF, computeIDF, resolveBM25Params } from '../scorer'
 import { fieldLengthOf, loadFieldScoring } from './field-scoring'
+import {
+  computeGroupContributions,
+  type GroupScoringContext,
+  groupPostingCount,
+  partialFieldMarks,
+  resolveGroupMatches,
+  termGroupOf,
+  typoMatchesFor,
+} from './group-scoring'
 import { multiTermTopK, prunableMultiTermLists } from './multi-term-topk'
 import { postingColumns } from './posting-columns'
-import { computePrefixContributions, type PrefixScoringContext, resolvePrefixMatches } from './prefix-scoring'
 import { addScore, beginScoring, createScoreBuffer, hasScore, topKFromBuffer } from './score-buffer'
 import {
-  mergePrefixComponents,
-  type PrefixContribution,
-  type PrefixMatch,
+  type GroupContribution,
+  mergeGroupComponents,
   type ResolvedTokenPostings,
   recordComponents,
   type ScoreComponents,
@@ -20,26 +26,17 @@ import type { PartitionReadState } from './utils'
 
 export { prunableSingleTermList } from './single-term-topk'
 
+type ResolvedMatch = ResolvedTokenPostings['matches'][number]
+
 function globalDocFreqFor(docFreqs: Record<string, number>, term: string, fallback: number): number {
   return Object.hasOwn(docFreqs, term) ? docFreqs[term] : fallback
-}
-
-function matchesFor(
-  index: InvertedIndexReader,
-  token: string,
-  exact: boolean,
-  tolerance: number,
-  prefixLength: number,
-): Array<{ token: string; postingList: PostingListView }> {
-  if (!exact) return index.fuzzyLookup(token, tolerance, prefixLength)
-  const postingList = index.lookup(token)
-  return postingList ? [{ token, postingList }] : []
 }
 
 export function searchFulltext(state: PartitionReadState, params: InternalSearchParams): InternalSearchResult {
   const {
     queryTokens,
-    prefixExpansion,
+    termGroups,
+    partialFields,
     fields,
     boost,
     tolerance = 0,
@@ -78,20 +75,85 @@ export function searchFulltext(state: PartitionReadState, params: InternalSearch
     return globalStats ? globalDocFreqFor(globalStats.docFrequencies, token, list.docIdSet.size) : list.docIdSet.size
   }
 
-  const prefixContext: PrefixScoringContext = {
+  const groupContext: GroupScoringContext = {
     index: state.invertedIdx,
     fields: fieldScoring,
+    partialMarks: partialFieldMarks(fieldNames, partialFields),
     fieldNames,
     totalDocs,
     k1,
     b,
     filterBitset,
-    documentFrequency,
+    globalFrequency(token: string): number | undefined {
+      if (globalStats === undefined || !Object.hasOwn(globalStats.docFrequencies, token)) return undefined
+      return globalStats.docFrequencies[token]
+    },
   }
 
-  function mergePrefixContribution(internalId: number, contribution: PrefixContribution): void {
+  function mergeGroupContribution(internalId: number, contribution: GroupContribution): void {
     addScore(scoreBuffer, internalId, contribution.score)
-    if (components !== null) mergePrefixComponents(components, internalId, contribution)
+    if (components !== null) mergeGroupComponents(components, internalId, contribution)
+  }
+
+  function resolveMatch(token: string, postingList: PostingListView): ResolvedMatch {
+    const docFreq = documentFrequency(token, postingList)
+    return { token, docFreq, idf: computeIDF(docFreq, totalDocs), postingList }
+  }
+
+  function scorePostings(match: ResolvedMatch, onlyScored: boolean): void {
+    const { docIds, termFrequencies, fieldNameIndices, deletedDocs, hasDeleted, count } = postingColumns(
+      match.postingList,
+    )
+    if (!onlyScored && !hasDeleted && filterBitset === undefined && components === null) {
+      for (let pi = 0; pi < count; pi++) {
+        const internalId = docIds[pi]
+        const fieldIndex = fieldNameIndices[pi]
+        if (searchable[fieldIndex] === 0) continue
+        const avgLen = averageLengths[fieldIndex]
+        const actualFieldLength = fieldLengthOf(lengthColumns, fieldIndex, internalId, avgLen)
+        const termScore = scoresAreZero
+          ? 0
+          : computeBM25WithIDF(termFrequencies[pi], match.idf, actualFieldLength, avgLen, k1, b)
+        addScore(scoreBuffer, internalId, termScore * boosts[fieldIndex])
+      }
+      return
+    }
+
+    for (let pi = 0; pi < count; pi++) {
+      const internalId = docIds[pi]
+      if (hasDeleted && deletedDocs.has(internalId)) continue
+      if (filterBitset && !bitsetHas(filterBitset, internalId)) continue
+      if (onlyScored && !hasScore(scoreBuffer, internalId)) continue
+      const fieldIndex = fieldNameIndices[pi]
+      if (searchable[fieldIndex] === 0) continue
+      const termFrequency = termFrequencies[pi]
+      const avgLen = averageLengths[fieldIndex]
+      const actualFieldLength = fieldLengthOf(lengthColumns, fieldIndex, internalId, avgLen)
+
+      const termScore = scoresAreZero
+        ? 0
+        : computeBM25WithIDF(termFrequency, match.idf, actualFieldLength, avgLen, k1, b)
+      addScore(scoreBuffer, internalId, termScore * boosts[fieldIndex])
+      if (components !== null) {
+        recordComponents(
+          components,
+          internalId,
+          fieldNames[fieldIndex],
+          match.token,
+          termFrequency,
+          actualFieldLength,
+          match.idf,
+        )
+      }
+    }
+  }
+
+  function scoreGroup(group: ResolvedTokenPostings['group'], onlyScored: boolean): void {
+    if (group === null) return
+    for (const [internalId, contribution] of computeGroupContributions(groupContext, group, collectComponents)) {
+      if (onlyScored && !hasScore(scoreBuffer, internalId)) continue
+      mergeGroupContribution(internalId, contribution)
+    }
   }
 
   const prunableList = prunableSingleTermList(params, state.invertedIdx, fieldNames)
@@ -124,146 +186,32 @@ export function searchFulltext(state: PartitionReadState, params: InternalSearch
 
   if (useIntersection) {
     const resolved: ResolvedTokenPostings[] = []
-    let prefixMatches: PrefixMatch[] = []
     for (const qt of queryTokens) {
-      if (prefixExpansion && qt.token === prefixExpansion.token) {
-        prefixMatches = resolvePrefixMatches(prefixContext, qt.token, prefixExpansion.terms)
-        let totalPostings = 0
-        for (const m of prefixMatches) {
-          totalPostings += m.postingList.length
-        }
-        resolved.push({ token: qt.token, matches: [], totalPostings, isPrefix: true })
-        continue
-      }
-
-      const rawMatches = matchesFor(state.invertedIdx, qt.token, exact, tolerance, prefixLength)
-
-      let totalPostings = 0
-      const matches: ResolvedTokenPostings['matches'] = []
-      for (const m of rawMatches) {
-        const docFreq = documentFrequency(m.token, m.postingList)
-        const idf = computeIDF(docFreq, totalDocs)
+      const group = termGroupOf(termGroups, qt.token)
+      const groupMatches = group === undefined ? null : resolveGroupMatches(groupContext, group)
+      let totalPostings = groupMatches === null ? 0 : groupPostingCount(groupMatches)
+      const matches: ResolvedMatch[] = []
+      for (const m of typoMatchesFor(state.invertedIdx, qt.token, group, exact, tolerance, prefixLength)) {
         totalPostings += m.postingList.length
-        matches.push({ token: m.token, docFreq, idf, postingList: m.postingList })
+        matches.push(resolveMatch(m.token, m.postingList))
       }
-
-      resolved.push({ token: qt.token, matches, totalPostings })
+      resolved.push({ token: qt.token, matches, totalPostings, group: groupMatches })
     }
 
     resolved.sort((a, b) => a.totalPostings - b.totalPostings)
 
     for (let tokenIndex = 0; tokenIndex < resolved.length; tokenIndex++) {
-      if (resolved[tokenIndex].isPrefix) {
-        const contributions = computePrefixContributions(prefixContext, prefixMatches, collectComponents)
-        for (const [internalId, contribution] of contributions) {
-          if (tokenIndex > 0 && !hasScore(scoreBuffer, internalId)) continue
-          mergePrefixContribution(internalId, contribution)
-        }
-        continue
-      }
-
-      for (const match of resolved[tokenIndex].matches) {
-        const { docIds, termFrequencies, fieldNameIndices, deletedDocs, hasDeleted, count } = postingColumns(
-          match.postingList,
-        )
-        for (let pi = 0; pi < count; pi++) {
-          const internalId = docIds[pi]
-          if (hasDeleted && deletedDocs.has(internalId)) continue
-          if (filterBitset && !bitsetHas(filterBitset, internalId)) continue
-          if (tokenIndex > 0 && !hasScore(scoreBuffer, internalId)) continue
-          const fieldIndex = fieldNameIndices[pi]
-          if (searchable[fieldIndex] === 0) continue
-
-          const termFrequency = termFrequencies[pi]
-          const fieldBoost = boosts[fieldIndex]
-          const avgLen = averageLengths[fieldIndex]
-          const actualFieldLength = fieldLengthOf(lengthColumns, fieldIndex, internalId, avgLen)
-
-          let termScore = scoresAreZero
-            ? 0
-            : computeBM25WithIDF(termFrequency, match.idf, actualFieldLength, avgLen, k1, b)
-          termScore *= fieldBoost
-
-          addScore(scoreBuffer, internalId, termScore)
-          if (components !== null) {
-            recordComponents(
-              components,
-              internalId,
-              fieldNames[fieldIndex],
-              match.token,
-              termFrequency,
-              actualFieldLength,
-              match.idf,
-            )
-          }
-        }
-      }
+      const onlyScored = tokenIndex > 0
+      for (const match of resolved[tokenIndex].matches) scorePostings(match, onlyScored)
+      scoreGroup(resolved[tokenIndex].group, onlyScored)
     }
   } else {
     for (const qt of queryTokens) {
-      if (prefixExpansion && qt.token === prefixExpansion.token) {
-        const contributions = computePrefixContributions(
-          prefixContext,
-          resolvePrefixMatches(prefixContext, qt.token, prefixExpansion.terms),
-          collectComponents,
-        )
-        for (const [internalId, contribution] of contributions) {
-          mergePrefixContribution(internalId, contribution)
-        }
-        continue
+      const group = termGroupOf(termGroups, qt.token)
+      for (const m of typoMatchesFor(state.invertedIdx, qt.token, group, exact, tolerance, prefixLength)) {
+        scorePostings(resolveMatch(m.token, m.postingList), false)
       }
-
-      const matchingPostings = matchesFor(state.invertedIdx, qt.token, exact, tolerance, prefixLength)
-
-      for (const match of matchingPostings) {
-        const idf = computeIDF(documentFrequency(match.token, match.postingList), totalDocs)
-
-        const { docIds, termFrequencies, fieldNameIndices, deletedDocs, hasDeleted, count } = postingColumns(
-          match.postingList,
-        )
-        if (!hasDeleted && filterBitset === undefined && components === null) {
-          for (let pi = 0; pi < count; pi++) {
-            const internalId = docIds[pi]
-            const fieldIndex = fieldNameIndices[pi]
-            if (searchable[fieldIndex] === 0) continue
-            const avgLen = averageLengths[fieldIndex]
-            const actualFieldLength = fieldLengthOf(lengthColumns, fieldIndex, internalId, avgLen)
-            const termScore = scoresAreZero
-              ? 0
-              : computeBM25WithIDF(termFrequencies[pi], idf, actualFieldLength, avgLen, k1, b)
-            addScore(scoreBuffer, internalId, termScore * boosts[fieldIndex])
-          }
-          continue
-        }
-
-        for (let pi = 0; pi < count; pi++) {
-          const internalId = docIds[pi]
-          if (hasDeleted && deletedDocs.has(internalId)) continue
-          if (filterBitset && !bitsetHas(filterBitset, internalId)) continue
-          const fieldIndex = fieldNameIndices[pi]
-          if (searchable[fieldIndex] === 0) continue
-          const termFrequency = termFrequencies[pi]
-          const fieldBoost = boosts[fieldIndex]
-          const avgLen = averageLengths[fieldIndex]
-          const actualFieldLength = fieldLengthOf(lengthColumns, fieldIndex, internalId, avgLen)
-
-          let termScore = scoresAreZero ? 0 : computeBM25WithIDF(termFrequency, idf, actualFieldLength, avgLen, k1, b)
-          termScore *= fieldBoost
-
-          addScore(scoreBuffer, internalId, termScore)
-          if (components !== null) {
-            recordComponents(
-              components,
-              internalId,
-              fieldNames[fieldIndex],
-              match.token,
-              termFrequency,
-              actualFieldLength,
-              idf,
-            )
-          }
-        }
-      }
+      if (group !== undefined) scoreGroup(resolveGroupMatches(groupContext, group), false)
     }
   }
 

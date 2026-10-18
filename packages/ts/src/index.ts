@@ -6,6 +6,7 @@ export {
   registerStopWords,
   registerTokenizer,
 } from './analysis/registry'
+export { registerPartialWordSearch } from './core/partition/partial-words/registry'
 export { registerPatternSearch } from './core/pattern-index/registry'
 export {
   clearNormalizationCache,
@@ -49,6 +50,7 @@ export type {
 export type { LanguageModule, TokenizerConfig } from './types/language'
 export type { IndexLifecycleOperations } from './types/lifecycle'
 export type { MemoryStats, ProcessMemoryReport, WorkerCopyReport } from './types/memory'
+export type { PartialWordSearch } from './types/partial-words'
 export type { PatternSearch } from './types/pattern'
 export type {
   IndexContext,

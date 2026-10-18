@@ -11,6 +11,8 @@ import type { PartitionStatsView } from '../statistics'
 import type { FacetMatchSet } from './facets'
 import type { PartitionFilterMatches } from './filters'
 import type { PartitionSearchMatches } from './matches'
+import type { PartialWordAnalysis } from './partial-words/spellings'
+import type { AddedWord, PartialWordRequest } from './partial-words/types'
 import type { SegmentPayload } from './segment-payload'
 import type { SortedPageEntry, SortPageRequest } from './sorting'
 import type { PartitionSuggestion } from './suggestions'
@@ -65,6 +67,8 @@ export interface PartitionIndex {
   computeFacets(matched: FacetMatchSet, config: FacetConfig, schema: SchemaDefinition): Record<string, FacetResult>
   suggestTerms(surfacePrefix: string, stemmedPrefix: string, limit: number): PartitionSuggestion[]
   expandTermPrefix(surfacePrefix: string, stemmedToken: string, maxExpansions: number): string[]
+  expandPartialWords(analysis: PartialWordAnalysis, requests: readonly PartialWordRequest[]): AddedWord[][]
+  preparePartialWords(analysis: PartialWordAnalysis): void
 
   estimateMemoryBytes(): number
 

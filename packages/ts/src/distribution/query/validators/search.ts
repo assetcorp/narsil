@@ -290,6 +290,10 @@ function validateParams(params: Record<string, unknown>): void {
     validateBooleanParam(params.prefix, 'prefix')
   }
 
+  if (params.partialWords !== null && params.partialWords !== undefined) {
+    validateBooleanParam(params.partialWords, 'partialWords')
+  }
+
   if (params.exact !== null) {
     validateBooleanParam(params.exact, 'exact')
   }

@@ -32,7 +32,7 @@ describe('routing to the pruned single-term scan', () => {
 
   it('keeps routing to the scan while the list holds tombstones', () => {
     const index = buildIndex(20)
-    index.remove('alpha', 7)
+    index.remove('alpha', 7, 2)
     const list = index.lookup('alpha')
     expect(list).toBeDefined()
     expect(list?.deletedDocs.size).toBe(1)
@@ -58,7 +58,18 @@ describe('routing to the pruned single-term scan', () => {
           { token: 'beta', position: 1 },
         ],
       },
-      { prefixExpansion: { token: 'alpha', terms: ['alphabet'] } },
+      {
+        termGroups: [
+          {
+            token: 'alpha',
+            members: [
+              { token: 'alpha', factor: 1, partialFactor: 1 },
+              { token: 'alphabet', factor: 0.625, partialFactor: 0.625 },
+            ],
+            typoMatches: false,
+          },
+        ],
+      },
       { tolerance: 1 },
       { termMatch: 'all' },
       { collectComponents: true },

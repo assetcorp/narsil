@@ -30,6 +30,7 @@ function emptyPayload(documentCount: number): SegmentPayload {
     totalFieldLengths: {},
     docFrequencies: {},
     surfaceForms: null,
+    partialSpellings: null,
     numeric: [],
     boolean: [],
     enums: [],

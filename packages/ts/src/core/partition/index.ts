@@ -1,5 +1,5 @@
 import { ErrorCodes, NarsilError } from '../../errors'
-import { schemaFieldsOf, validateDocument, validateDocumentStrict } from '../../schema/validator'
+import { partialFieldsOf, schemaFieldsOf, validateDocument, validateDocumentStrict } from '../../schema/validator'
 import type { FilterExpression } from '../../types/filters'
 import type {
   GlobalStatistics,
@@ -31,6 +31,9 @@ import { indexDocument, removeFromIndexes } from './indexing'
 import { type PartitionSearchMatches, searchFulltextMatches } from './matches'
 import { estimatePartitionBytes } from './memory'
 import { mergeSegmentState } from './merge'
+import { createGrowingPartialWords, expandPartialWords } from './partial-words/registry'
+import type { PartialWordAnalysis } from './partial-words/spellings'
+import type { AddedWord, PartialWordRequest } from './partial-words/types'
 import type { PartitionIndex } from './partition-index'
 import { rebuildTextIndex } from './rebuild'
 import { searchFulltext } from './search'
@@ -73,10 +76,11 @@ export function partitionStateOf(partition: PartitionIndex): PartitionState {
 
 export function createPartitionIndex(partitionId: number, trackPositions = true): PartitionIndex {
   const fieldNameTable = { names: [] as string[], indexMap: new Map<string, number>() }
+  const docStore = createDocumentStore()
 
   const state: PartitionState = {
     invertedIdx: createInvertedIndex(fieldNameTable),
-    docStore: createDocumentStore(),
+    docStore,
     stats: createPartitionStats(),
     surfaceRegistry: createSurfaceRegistry(),
     numericIndexes: new Map(),
@@ -86,6 +90,7 @@ export function createPartitionIndex(partitionId: number, trackPositions = true)
     patternIndexes: new Map(),
     sizeIndexes: new Map(),
     fieldNameTable,
+    partialWords: createGrowingPartialWords({ docStore }),
     flatSchemaCache: null,
     lastSchemaRef: null,
     trackPositions,
@@ -107,6 +112,7 @@ export function createPartitionIndex(partitionId: number, trackPositions = true)
     state.geoIndexes.clear()
     state.patternIndexes.clear()
     state.sizeIndexes.clear()
+    state.partialWords.clear()
     state.stats.deserialize({ totalDocuments: 0, totalFieldLengths: {}, averageFieldLengths: {}, docFrequencies: {} })
     state.flatSchemaCache = null
     state.lastSchemaRef = null
@@ -145,7 +151,7 @@ export function createPartitionIndex(partitionId: number, trackPositions = true)
       }
 
       const internalId = state.docStore.ensureInternalId(docId)
-      const { fieldLengths, tokensByField } = indexDocument(
+      const { fieldLengths, tokensByField, partialSpellings } = indexDocument(
         state,
         docId,
         document as Record<string, unknown>,
@@ -159,6 +165,7 @@ export function createPartitionIndex(partitionId: number, trackPositions = true)
         state.docStore.store(docId, document, fieldLengths)
       }
       state.stats.addDocument(fieldLengths, tokensByField)
+      state.partialWords.afterDocument(partialFieldsOf(schema), internalId, partialSpellings, 1)
       recordSortValues(state, internalId, document as Record<string, unknown>)
     },
 
@@ -171,7 +178,7 @@ export function createPartitionIndex(partitionId: number, trackPositions = true)
         })
       }
 
-      const { fieldLengths, tokensByField } = removeFromIndexes(
+      const { fieldLengths, tokensByField, partialSpellings } = removeFromIndexes(
         state,
         docId,
         stored,
@@ -182,6 +189,9 @@ export function createPartitionIndex(partitionId: number, trackPositions = true)
       const internalId = state.docStore.getInternalId(docId)
       state.docStore.remove(docId)
       state.stats.removeDocument(fieldLengths, tokensByField)
+      if (internalId !== undefined) {
+        state.partialWords.afterDocument(partialFieldsOf(schema), internalId, partialSpellings, -1)
+      }
       forgetSortValues(state, internalId)
     },
 
@@ -232,30 +242,20 @@ export function createPartitionIndex(partitionId: number, trackPositions = true)
       const needsTextReindex = textFieldsChanged(stored.fields, document as Record<string, unknown>, fields)
 
       if (needsTextReindex) {
-        const { fieldLengths: oldFieldLengths, tokensByField: oldTokens } = removeFromIndexes(
-          state,
-          docId,
-          stored,
-          fields,
-          language,
-          options,
-        )
-        state.stats.removeDocument(oldFieldLengths, oldTokens)
+        const previous = removeFromIndexes(state, docId, stored, fields, language, options)
+        state.stats.removeDocument(previous.fieldLengths, previous.tokensByField)
         const previousInternalId = state.docStore.getInternalId(docId)
+        if (previousInternalId !== undefined) {
+          state.partialWords.afterDocument(partialFieldsOf(schema), previousInternalId, previous.partialSpellings, -1)
+        }
         state.docStore.remove(docId)
         forgetSortValues(state, previousInternalId)
         const internalId = state.docStore.ensureInternalId(docId)
 
-        const { fieldLengths: newFieldLengths, tokensByField: newTokens } = indexDocument(
-          state,
-          docId,
-          document as Record<string, unknown>,
-          fields,
-          language,
-          options,
-        )
-        state.docStore.store(docId, document, newFieldLengths)
-        state.stats.addDocument(newFieldLengths, newTokens)
+        const next = indexDocument(state, docId, document as Record<string, unknown>, fields, language, options)
+        state.docStore.store(docId, document, next.fieldLengths)
+        state.stats.addDocument(next.fieldLengths, next.tokensByField)
+        state.partialWords.afterDocument(partialFieldsOf(schema), internalId, next.partialSpellings, 1)
         recordSortValues(state, internalId, document as Record<string, unknown>)
       } else {
         updateFieldIndexOnly(state, docId, stored.fields, document as Record<string, unknown>, fields)
@@ -355,7 +355,15 @@ export function createPartitionIndex(partitionId: number, trackPositions = true)
     },
 
     expandTermPrefix(surfacePrefix: string, stemmedToken: string, maxExpansions: number): string[] {
-      return expandTermPrefix(state, surfacePrefix, stemmedToken, maxExpansions)
+      return expandTermPrefix([state], surfacePrefix, stemmedToken, maxExpansions)
+    },
+
+    expandPartialWords(analysis: PartialWordAnalysis, requests: readonly PartialWordRequest[]): AddedWord[][] {
+      return expandPartialWords([state], analysis, requests)
+    },
+
+    preparePartialWords(analysis: PartialWordAnalysis): void {
+      expandPartialWords([state], analysis, [])
     },
 
     serialize(

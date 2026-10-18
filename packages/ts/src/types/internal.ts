@@ -39,7 +39,6 @@ export interface CompactPostingList {
   positions: number[][] | null
   docIdSet: Set<number>
   deletedDocs: Set<number>
-  /** Sum of live termFrequencies; stale-high between remove and compaction. */
   totalTermFrequency: number
   /**
    * Counts changes to existing entries or to the tombstone set. An append
@@ -223,14 +222,22 @@ export interface InternalSearchResult {
  */
 export type SerializedSurfaceForms = Record<string, number | [number, string]>
 
+export interface ExpandedTermMember {
+  token: string
+  factor: number
+  partialFactor: number
+}
+
+export interface ExpandedTermGroup {
+  token: string
+  members: ExpandedTermMember[]
+  typoMatches: boolean
+}
+
 export interface InternalSearchParams {
   queryTokens: Array<{ token: string; position: number }>
-  /**
-   * Present when the query treats its last token as an unfinished word.
-   * `token` is the stemmed last query token; `terms` are the index terms
-   * its typed prefix expands to (the exact token itself excluded).
-   */
-  prefixExpansion?: { token: string; terms: string[] }
+  termGroups?: ExpandedTermGroup[]
+  partialFields?: string[]
   fields?: string[]
   boost?: Record<string, number>
   tolerance?: number

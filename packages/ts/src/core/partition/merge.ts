@@ -145,6 +145,7 @@ export function mergeSegmentState(target: PartitionState, source: PartitionState
   mergeFieldIndexes(target, source, idMapping)
   mergeStatistics(target, source)
   mergeSurfaceForms(target, source)
+  target.partialWords.afterMerge(source.partialWords.spellings(), [...idMapping.values()])
   target.sortColumns = null
   target.scoreBuffer = null
 }
