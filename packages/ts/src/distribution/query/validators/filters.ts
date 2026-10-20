@@ -14,6 +14,7 @@ import {
 import { isFiniteNumber, isRecord, SEARCH_INVALID_FILTER, throwInvalid, validateFieldName } from './common'
 
 const GEO_UNITS = ['km', 'mi', 'm'] as const
+const TEXT_OPERATORS: ReadonlySet<string> = new Set(['startsWith', 'endsWith', 'contains', 'wildcard', 'regex'])
 
 function throwTooLong(value: string, fieldLabel: string, errorCode: ErrorCode): never {
   throwInvalid(
@@ -200,7 +201,7 @@ function validateLeafOperator(opKey: string, opValue: unknown, leafLabel: string
     validateBetween(opValue, opLabel, errorCode)
     return
   }
-  if (opKey === 'startsWith' || opKey === 'endsWith' || opKey === 'contains') {
+  if (TEXT_OPERATORS.has(opKey)) {
     validateBoundedString(opValue, opLabel, errorCode)
     return
   }

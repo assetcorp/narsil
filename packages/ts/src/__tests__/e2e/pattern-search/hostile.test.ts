@@ -21,6 +21,7 @@ const MAX_TEXT_CODE_POINTS = 1_024
 const NORMAL_FILTERS = { fields: { sku: { eq: 'SKU-2022-00002' } } }
 const MISSED_TEST_POSITION = 30
 const PARTITIONS = 8
+const MAX_PATTERN_POSITIONS = 2_048
 
 function nearMissOf(test: string): string {
   const characters = Array.from(test)
@@ -83,6 +84,19 @@ describe.each([
         { fields: { line: { contains: '😀'.repeat(MAX_TEXT_CODE_POINTS + 1) } } },
         { fields: { sku: { in: ['ok', 'b'.repeat(MAX_TEXT_CODE_POINTS + 1)] } } },
         { fields: { line: { contains: 'ﬃ'.repeat(700), caseFold: true } } },
+        { fields: { line: { regex: '(?=refused)' } } },
+        { fields: { line: { regex: '(a)\\1' } } },
+        { fields: { line: { regex: 'a*?' } } },
+        { fields: { line: { regex: `${'('.repeat(33)}a${')'.repeat(33)}` } } },
+        { fields: { line: { regex: 'a{2049}' } } },
+        { fields: { line: { regex: '(ab){1024}c' } } },
+        { fields: { line: { regex: 'a'.repeat(MAX_TEXT_CODE_POINTS + 1) } } },
+        { fields: { line: { regex: '<9-1>' } } },
+        { fields: { line: { regex: ['a'] } } },
+        { fields: { line: { wildcard: 'abc\\' } } },
+        { fields: { line: { wildcard: 7 } } },
+        { fields: { body: { regex: 'entry' } } },
+        { fields: { body: { wildcard: 'entry' } } },
       ]
       for (const filters of malformed) await expectRejected(server, filters, 'SEARCH_INVALID_FILTER')
       await expectRejected(server, { fields: { nowhere: { contains: 'x' } } }, 'SEARCH_INVALID_FIELD')
@@ -112,6 +126,11 @@ describe.each([
           },
         },
       },
+      { fields: { line: { regex: `${'('.repeat(32)}a${')'.repeat(32)}` } } },
+      { fields: { line: { regex: 'q{2048}' } } },
+      { fields: { line: { regex: `ß{1024}`, caseFold: true } } },
+      { fields: { line: { regex: 'q'.repeat(MAX_TEXT_CODE_POINTS) } } },
+      { fields: { line: { wildcard: `${'q'.repeat(MAX_TEXT_CODE_POINTS - 2)}*?` } } },
     ]
     for (const filters of atLimit) {
       const response = await timedSearch(server, searchBody(filters))
@@ -158,6 +177,30 @@ describe.each([
             fields: {
               sku: { in: Array.from({ length: 4_500 }, (_, at) => repeatedCodePoints(CJK_FIRST + at, 1_000)) },
             },
+          },
+        ],
+        [
+          'a regex whose deterministic states outgrow the state budget',
+          { fields: { line: { regex: `[ab]*a[ab]{${MAX_PATTERN_POSITIONS - 2}}` } } },
+        ],
+        ['a regex that keeps every position alive', { fields: { line: { regex: '(.*a){1000}c' } } }],
+        [
+          'a regex whose word edges guard many branches',
+          {
+            fields: {
+              line: {
+                regex: `(${Array.from({ length: 200 }, (_, at) => `\\b${String.fromCodePoint(0x4e00 + at)}`).join('|')})`,
+              },
+            },
+          },
+        ],
+        ['a wildcard of many stars', { fields: { line: { wildcard: `${'*a'.repeat(500)}*` } } }],
+        [
+          'the most long regex or clauses that a filter holds',
+          {
+            or: Array.from({ length: MAX_FILTER_TESTS }, (_, at) => ({
+              fields: { line: { regex: `[ab]*${String.fromCodePoint(0x4e00 + at)}[ab]{1000}` } },
+            })),
           },
         ],
         [

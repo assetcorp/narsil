@@ -42,18 +42,21 @@ export type ComparisonFilter = {
  *
  * A pattern field is a `verbatim` or `verbatim[]` field, or a `string` or
  * `string[]` field whose type includes `pattern`. On such a field, the engine
- * answers `eq`, `ne`, `in`, `nin`, `startsWith`, `endsWith`, and `contains`
- * from the field's pattern index. `caseFold` applies to each of those tests.
+ * answers `eq`, `ne`, `in`, `nin`, `startsWith`, `endsWith`, `contains`,
+ * `wildcard`, and `regex` from the field's pattern index. `caseFold` applies
+ * to each of those tests.
  * On an `enum` or `enum[]` field, the engine answers `eq`, `ne`, `in`, `nin`,
  * `startsWith`, and `endsWith` from the field's index of values. It throws
  * `SEARCH_INVALID_FILTER` for `eq`, `ne`, `in`, `nin`, `startsWith`, or
  * `endsWith` on a `string` or `string[]` field whose type leaves out
  * `pattern`, because such a field keeps no index of whole values.
  * The engine compares the code points of each value as stored, with no
- * Unicode normalisation. It throws `SEARCH_INVALID_FILTER` for `contains` or
- * `caseFold` on any other field, for a test text longer than 1,024 code points
- * on a pattern field, and for a `caseFold` test whose text has a case fold
- * longer than 2,048 code points.
+ * Unicode normalisation. It throws `SEARCH_INVALID_FILTER` for `contains`,
+ * `wildcard`, `regex`, or `caseFold` on any other field, for a test text or a
+ * pattern longer than 1,024 code points on a pattern field, for a literal
+ * `caseFold` test whose text has a case fold longer than 2,048 code points,
+ * and for a `wildcard` or `regex` pattern outside its syntax or beyond its
+ * limits.
  *
  * @public
  */
@@ -79,10 +82,49 @@ export type StringFilter = Pick<ComparisonFilter, 'eq' | 'ne'> & {
   /** This matches a pattern field whose value holds the text anywhere in it. */
   contains?: string
   /**
+   * This matches a pattern field whose whole value matches the wildcard
+   * pattern, as `INV-*-2024` matches `INV-0042-2024`.
+   *
+   * In the pattern, `*` matches any sequence of code points, the empty one
+   * included, and `?` matches exactly one code point. A `\` makes the code
+   * point after it literal, so `\*` matches an asterisk. The engine throws
+   * `SEARCH_INVALID_FILTER` for a pattern that ends in a lone `\`, and for a
+   * pattern with more than 2,048 positions, where each `*`, each `?`, and each
+   * other code point counts once, or under `caseFold` once for each code point
+   * of its case fold.
+   */
+  wildcard?: string
+  /**
+   * This matches a pattern field where some part of the value matches the
+   * regular expression, while `^` and `$` match only at the start and the end
+   * of the whole value.
+   *
+   * The syntax holds literals, `.`, `\d`, `\w`, `\s`, sets such as `[a-z]`
+   * and `[^0-9]`, groups, `|`, the repeats `*`, `+`, `?`, `{n}`, `{n,}`, and
+   * `{n,m}`, the anchors `^` and `$`, the word edge `\b`, and number ranges
+   * such as `<1-65535>`, which match the digits of any whole number from the
+   * low end to the high end. A `\` before an ASCII punctuation mark makes it
+   * literal. `.` matches any code point, a line break included. The matcher
+   * never backtracks, so it checks a value in at most as many steps as the
+   * value's code points multiplied by the pattern's positions.
+   *
+   * The engine throws `SEARCH_INVALID_FILTER` for any construct outside that
+   * syntax, such as a back-reference, a lookaround, a lazy repeat, or an inline
+   * flag. It throws the same error for a pattern whose groups nest more than 32
+   * deep, for a count above 2,048, and for a pattern with more than 2,048
+   * positions. A server whose operator set its `allowRegex` option to false
+   * refuses every `regex` test.
+   */
+  regex?: string
+  /**
    * When this is true, the engine compares the case fold of each value of a
    * pattern field with the case fold of the text, so a test for `error` matches
    * `ERROR`. It applies to `eq`, `ne`, `in`, `nin`, `startsWith`, `endsWith`,
-   * and `contains`.
+   * `contains`, `wildcard`, and `regex`.
+   *
+   * Under `caseFold`, a set that is not negated also matches the case fold of
+   * a member written alone in it where that fold holds several code points, so
+   * `[ß]` matches `ss`.
    */
   caseFold?: boolean
 }

@@ -22,7 +22,7 @@ const server = createServer(engine, {
 await server.listen()
 ```
 
-`ServerOptions` also accepts `cors`, an `onRequest` hook for authentication, which the main thread runs once per request on behalf of every request thread, `limits` for body-size, concurrency, result-window, and fetch-count caps, where `maxConcurrentRequests` counts the requests in flight on every thread together, `embeddingAdapters` that JSON index configs reference by name, a `taskStore` that keeps long-running task status across restarts, an `instanceId` for task recovery, `allowInsecure` for trusted private networks, and `cluster` for a server fronting a cluster node. See [Cluster routes](#cluster-routes). The server refuses to bind a non-loopback address without an `onRequest` hook, because the admin endpoints can destroy data.
+`ServerOptions` also accepts `cors`, an `onRequest` hook for authentication, which the main thread runs once per request on behalf of every request thread, `limits` for body-size, concurrency, result-window, and fetch-count caps, where `maxConcurrentRequests` counts the requests in flight on every thread together, `embeddingAdapters` that JSON index configs reference by name, a `taskStore` that keeps long-running task status across restarts, an `instanceId` for task recovery, `allowInsecure` for trusted private networks, `allowRegex` to refuse regular expressions from every client, and `cluster` for a server fronting a cluster node. See [Regular expressions](#regular-expressions) and [Cluster routes](#cluster-routes). The server refuses to bind a non-loopback address without an `onRequest` hook, because the admin endpoints can destroy data.
 
 The full surface:
 
@@ -52,6 +52,16 @@ The full surface:
 | `POST /indexes/{name}/_rebalance`, `POST /indexes/{name}/partition-config` | The endpoints reshape partitions and adjust partition caps. |
 | `POST /indexes/{name}/_rebuild-analysis` | The endpoint reanalyses every document, which an index needs after its language module changes revision. |
 | `GET /tasks`, `GET /tasks/{id}`, `POST /tasks/{id}/_cancel` | The endpoints list, report, and stop long-running tasks. See [Tasks](#tasks). |
+
+## Regular expressions
+
+The server answers a `regex` test on a pattern field from any client by default. Every pattern test runs inside the engine's `patternWorkCap`, and the matcher never backtracks, so a regular expression costs at most as much work as that cap allows. Set `allowRegex: false` on a public endpoint that should take no regular expressions at all:
+
+```ts
+const server = createServer(engine, { host: '127.0.0.1', port: 7700, allowRegex: false })
+```
+
+While `allowRegex` is false, the server answers every search, preflight, and document list whose filter holds a `regex` test, at any depth of `and`, `or`, and `not`, with 400 and `SEARCH_INVALID_FILTER`, and the message names the option. The request threads refuse it in the same way before they search a worker copy. The other pattern tests, such as `contains` and `wildcard`, stay available, so a client can still match `INV-*-2024`. The server refuses a value other than true or false with `CONFIG_INVALID` when you create it. See [Pattern tests](filters-facets-and-pagination.md#pattern-tests) for the syntax and the limits.
 
 ## Shutting down
 

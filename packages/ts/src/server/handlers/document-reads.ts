@@ -4,6 +4,7 @@ import type { AnyDocument } from '../../types/schema'
 import type { ListParams } from '../../types/search'
 import type { ResolvedLimits } from '../deps'
 import { parseJson, rejectInvalid, respondError, respondJson } from '../handler-utils'
+import { refuseRegex } from '../regex-policy'
 import type { RouteContext } from '../request'
 import type { MultiGetBody } from '../types'
 import { validateList, validateMultiGet } from '../validation'
@@ -16,10 +17,11 @@ export type ReadEngine = Pick<
 export interface ReadHandlerDeps {
   engine: ReadEngine
   limits: ResolvedLimits
+  allowRegex: boolean
 }
 
 export function createDocumentReadHandlers(deps: ReadHandlerDeps) {
-  const { engine, limits } = deps
+  const { engine, limits, allowRegex } = deps
 
   async function get(ctx: RouteContext): Promise<void> {
     try {
@@ -76,6 +78,7 @@ export function createDocumentReadHandlers(deps: ReadHandlerDeps) {
       rejectInvalid(ctx, failure)
       return
     }
+    if (refuseRegex(ctx, params.filters, allowRegex)) return
     try {
       respondJson(ctx, await engine.listDocuments(ctx.params[0], params))
     } catch (err) {

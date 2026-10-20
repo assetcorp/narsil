@@ -1,7 +1,8 @@
 import type { Narsil } from '../../../narsil'
 import type { FieldFilter } from '../../../types/filters'
 import type { AnyDocument, IndexConfig } from '../../../types/schema'
-import { codePointsOf } from '../../e2e/pattern-search/oracle'
+import { codePointsOf } from './case-folding'
+import { expressionPasses } from './expression-oracle'
 
 export const PATTERN_INDEX = 'records'
 
@@ -139,6 +140,11 @@ export function referenceIds(documents: AnyDocument[], field: string, filter: Fi
       const text = probe[operator]
       if (typeof text !== 'string') continue
       if (!anyElement(value, element => literalPasses(element, operator, text, caseFold))) return false
+    }
+    for (const operator of ['wildcard', 'regex'] as const) {
+      const pattern = probe[operator]
+      if (typeof pattern !== 'string') continue
+      if (!anyElement(value, element => expressionPasses(element, operator, pattern, caseFold))) return false
     }
     return true
   }

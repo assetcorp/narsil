@@ -19,7 +19,11 @@ function isPatternSearchModule(value: PatternSearch): value is PatternSearchModu
     'mergeArrays' in value &&
     typeof value.mergeArrays === 'function' &&
     'matchInto' in value &&
-    typeof value.matchInto === 'function'
+    typeof value.matchInto === 'function' &&
+    'checkExpression' in value &&
+    typeof value.checkExpression === 'function' &&
+    'expressionFootprint' in value &&
+    typeof value.expressionFootprint === 'function'
   )
 }
 

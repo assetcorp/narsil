@@ -1,11 +1,12 @@
 import type { QueryParams, SuggestParams } from '../../types/search'
 import { parseJson, rejectInvalid, respondError, respondJson } from '../handler-utils'
+import { refuseRegex } from '../regex-policy'
 import type { RouteContext } from '../request'
 import { validateQuery, validateSuggest } from '../validation'
 import type { ReadHandlerDeps } from './document-reads'
 
 export function createSearchHandlers(deps: ReadHandlerDeps) {
-  const { engine, limits } = deps
+  const { engine, limits, allowRegex } = deps
 
   async function search(ctx: RouteContext): Promise<void> {
     const params = parseJson<QueryParams>(ctx)
@@ -15,6 +16,7 @@ export function createSearchHandlers(deps: ReadHandlerDeps) {
       rejectInvalid(ctx, failure)
       return
     }
+    if (refuseRegex(ctx, params.filters, allowRegex)) return
     try {
       respondJson(ctx, await engine.query(ctx.params[0], params))
     } catch (err) {
@@ -30,6 +32,7 @@ export function createSearchHandlers(deps: ReadHandlerDeps) {
       rejectInvalid(ctx, failure)
       return
     }
+    if (refuseRegex(ctx, params.filters, allowRegex)) return
     try {
       respondJson(ctx, await engine.preflight(ctx.params[0], params))
     } catch (err) {

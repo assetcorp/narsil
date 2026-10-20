@@ -36,7 +36,7 @@ import { createImportHandler } from './handlers/import'
 import { createIndexHandlers } from './handlers/indexes'
 import { createSearchHandlers } from './handlers/search'
 import { createVersionHandler } from './handlers/version'
-import { assertServerEngine, assertServerLimits } from './options-validation'
+import { assertAllowRegex, assertServerEngine, assertServerLimits } from './options-validation'
 import { authorizerFor, createRouteRunner } from './request'
 import { type RequestThreadHost, startRequestThreads } from './request-threads/host'
 import { registerServerRoutes, type ServerHandlers } from './routes'
@@ -156,6 +156,7 @@ class NarsilHttpServer implements NarsilServer {
   constructor(engine: Narsil, options: ServerOptions = {}) {
     assertServerEngine(engine)
     assertServerLimits(options.limits)
+    assertAllowRegex(options.allowRegex)
     this.host = options.host ?? '127.0.0.1'
     this.port = options.port ?? 9876
     this.options = options
@@ -171,6 +172,7 @@ class NarsilHttpServer implements NarsilServer {
       engine,
       tasks: new TaskRegistry(taskStore, instanceId, limits.maxConcurrentTasks),
       limits,
+      allowRegex: options.allowRegex ?? true,
       isReady: () => this.ready,
       build: resolveBuild(options.build),
       cluster: options.cluster,
@@ -234,7 +236,7 @@ class NarsilHttpServer implements NarsilServer {
     const core = engineCoreOf(this.engine)
     const threadCount = core === undefined ? 0 : core.orchestrator.requestThreadCount()
     const gate = createSharedGateBuffer(gateSlotOfWorker(threadCount))
-    const { limits, build } = this.deps
+    const { limits, build, allowRegex } = this.deps
     const handlers = mainThreadHandlers(this.deps)
     const run = createRouteRunner({
       authorize,
@@ -246,7 +248,17 @@ class NarsilHttpServer implements NarsilServer {
 
     if (core === undefined || threadCount === 0 || !detectRuntime().supportsWorkerThreads) return
     try {
-      this.threads = await startRequestThreads({ core, app, handlers, authorize, gate, limits, build, cors })
+      this.threads = await startRequestThreads({
+        core,
+        app,
+        handlers,
+        authorize,
+        gate,
+        limits,
+        allowRegex,
+        build,
+        cors,
+      })
     } catch (err) {
       console.warn('The server could not start request threads, so the main thread answers every request:', err)
     }

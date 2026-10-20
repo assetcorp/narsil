@@ -23,6 +23,8 @@ export const FIELD_FILTER_OPERATORS = [
   'startsWith',
   'endsWith',
   'contains',
+  'wildcard',
+  'regex',
   'caseFold',
   'containsAll',
   'matchesAny',

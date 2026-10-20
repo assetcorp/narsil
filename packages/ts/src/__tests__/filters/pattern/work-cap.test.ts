@@ -113,6 +113,64 @@ describe('the work cap on pattern tests', () => {
     ).rejects.toMatchObject({ code: ErrorCodes.SEARCH_WORK_CAP_EXCEEDED })
   })
 
+  it('counts each run lookup, each shortlist entry, and each matcher step of a regex test', async () => {
+    const lookups = 1
+    const shortlistEntries = 1
+    const steps = 1 + 1 + 1 + 2 + 2
+    const cap = lookups + shortlistEntries + steps
+    const withinCap = await engineWith({ patternWorkCap: cap }, 1, ['xxabc'])
+    expect(await listed(withinCap, { regex: 'abc' })).toEqual(['d0'])
+
+    const overCap = await engineWith({ patternWorkCap: cap - 1 }, 1, ['xxabc'])
+    await expect(listed(overCap, { regex: 'abc' })).rejects.toMatchObject({
+      code: ErrorCodes.SEARCH_WORK_CAP_EXCEEDED,
+    })
+  })
+
+  it('counts each position that a wildcard match reaches at each code point', async () => {
+    const steps = 2 + 3 + 3 + 2 + 3 + 3
+    const cap = 1 + 1 + steps
+    const withinCap = await engineWith({ patternWorkCap: cap }, 1, ['abcabc'])
+    expect(await listed(withinCap, { wildcard: '*abc' })).toEqual(['d0'])
+
+    const overCap = await engineWith({ patternWorkCap: cap - 1 }, 1, ['abcabc'])
+    await expect(listed(overCap, { wildcard: '*abc' })).rejects.toMatchObject({
+      code: ErrorCodes.SEARCH_WORK_CAP_EXCEEDED,
+    })
+  })
+
+  it('counts each document that a regex test without a run reads, and each step on its values', async () => {
+    const codes = ['', 'x1', '12', 'a12']
+    const documentsRead = codes.length
+    const steps = 0 + 2 + 3 + 4
+    const withinCap = await engineWith({ patternWorkCap: documentsRead + steps }, 1, codes)
+    expect(await listed(withinCap, { regex: '\\d{2}' })).toEqual(['d2', 'd3'])
+
+    const overCap = await engineWith({ patternWorkCap: documentsRead + steps - 1 }, 1, codes)
+    await expect(listed(overCap, { regex: '\\d{2}' })).rejects.toMatchObject({
+      code: ErrorCodes.SEARCH_WORK_CAP_EXCEEDED,
+    })
+  })
+
+  it('stops a regex test that passes the default cap, and runs it once patternWorkCap allows the work', async () => {
+    let state = 7
+    const nextBit = () => {
+      state = (state * 1_103_515_245 + 12_345) % 2_147_483_648
+      return state % 2
+    }
+    const codes = Array.from({ length: 30 }, () =>
+      Array.from({ length: 1_500 }, () => (nextBit() === 0 ? 'a' : 'b')).join(''),
+    )
+    const regex = '[ab]*a[ab]{2000}'
+    const defaultCap = await engineWith({}, 2, codes)
+    await expect(listed(defaultCap, { regex })).rejects.toMatchObject({
+      code: ErrorCodes.SEARCH_WORK_CAP_EXCEEDED,
+      details: { cap: 25_000_000 },
+    })
+    const raised = await engineWith({ patternWorkCap: 1_000_000_000 }, 2, codes)
+    expect(await listed(raised, { regex })).toEqual([])
+  }, 60_000)
+
   it('starts each search with a fresh count', async () => {
     const narsil = await engineWith({ patternWorkCap: 7 }, 1, ['abcabc'])
     for (let search = 0; search < 3; search++) expect(await listed(narsil, { contains: 'abc' })).toEqual(['d0'])
