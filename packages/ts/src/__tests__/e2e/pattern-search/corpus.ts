@@ -1,5 +1,6 @@
 import type { FieldFilter } from '../../../types/filters'
 import type { AnyDocument, SchemaDefinition } from '../../../types/schema'
+import { randomExpressionProbe } from '../../filters/pattern/expression-probes'
 import { seededRandom } from '../../filters/pattern/random-corpus'
 import { codePointsOf, textValuesOf } from './oracle'
 
@@ -89,7 +90,9 @@ export function generatedProbes(
       whole ? value : test === 'startsWith' ? sliceByCodePoints(value, 0, 1 + start) : piece,
       random,
     )
-    if (random() < 0.2) {
+    if (random() < 0.25) {
+      probes.push([field, randomExpressionProbe(random, [value])])
+    } else if (random() < 0.2) {
       probes.push([
         field,
         { [random() < 0.5 ? 'in' : 'nin']: [text, variantOf(value, random), 'absent value'], caseFold },
@@ -147,4 +150,23 @@ export const EDGE_PROBES: Array<[PatternField, FieldFilter]> = [
   ['emails', { ne: 'kofi.boateng@mail.example.com' }],
   ['emails', { nin: ['YAW.ASANTE@example.com'], caseFold: true }],
   ['emails', { contains: 'weiss', caseFold: true }],
+  ['line', { regex: 'refused to 10\\.0\\.0\\.\\d+:<1-65535>', caseFold: true }],
+  ['line', { regex: '^\\d{4}-\\d{2}-<01-09>T' }],
+  ['line', { regex: '\\[(payment|inventory)' }],
+  ['line', { regex: '\\[stra[ß]e-router\\]', caseFold: true }],
+  ['line', { regex: 'σ|😀', caseFold: true }],
+  ['line', { regex: '\\(attempt [1-3]\\)$' }],
+  ['line', { regex: '\\bERROR\\b' }],
+  ['line', { regex: '\\s{2}' }],
+  ['line', { regex: '' }],
+  ['line', { wildcard: '2024-03-0?T*ERROR*', caseFold: true }],
+  ['line', { wildcard: '*(attempt ?)' }],
+  ['line', { wildcard: '*' }],
+  ['sku', { wildcard: 'SKU-202?-*' }],
+  ['sku', { wildcard: 'sku-2021-0000?', caseFold: true }],
+  ['sku', { regex: '^sku-<2020-2022>-<00000-00500>$', caseFold: true }],
+  ['sku', { regex: '^SKU-\\d+-<0-500>$' }],
+  ['emails', { wildcard: '*@*.de', caseFold: true }],
+  ['emails', { regex: '^[a-z]+\\.[a-z]+@', caseFold: true }],
+  ['emails', { regex: '^[^@]+@example\\.(com|org)$' }],
 ]

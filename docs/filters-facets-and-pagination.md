@@ -4,7 +4,7 @@ The engine narrows and orders the results of a query by its filters, facet count
 
 ## Filters
 
-Filter on any field that the schema declares with comparison operators (`eq`, `ne`, `gt`, `lt`, `gte`, `lte`, `between`), string operators (`in`, `nin`, `startsWith`, `endsWith`, and `contains` on a [pattern field](#pattern-tests)), array operators (`containsAll`, `matchesAny`, `size`), and presence checks (`exists`, `notExists`, `isEmpty`, `isNotEmpty`). Combine filter expressions with `and`, `or`, and `not`. The engine compares each element of a list field with `eq`, `ne`, `in`, `nin`, `startsWith`, `endsWith`, and `contains`, so `eq: 'vegan'` matches a document whose list includes `'vegan'`. Meanwhile, `ne` and `nin` match a document that holds the field where every element of the list differs from the values, which an empty list does. However, they leave out a document that lacks the field.
+Filter on any field that the schema declares with comparison operators (`eq`, `ne`, `gt`, `lt`, `gte`, `lte`, `between`), string operators (`in`, `nin`, `startsWith`, `endsWith`, and `contains`, `wildcard`, and `regex` on a [pattern field](#pattern-tests)), array operators (`containsAll`, `matchesAny`, `size`), and presence checks (`exists`, `notExists`, `isEmpty`, `isNotEmpty`). Combine filter expressions with `and`, `or`, and `not`. The engine compares each element of a list field with `eq`, `ne`, `in`, `nin`, `startsWith`, `endsWith`, `contains`, `wildcard`, and `regex`, so `eq: 'vegan'` matches a document whose list includes `'vegan'`. Meanwhile, `ne` and `nin` match a document that holds the field where every element of the list differs from the values, which an empty list does. However, they leave out a document that lacks the field.
 
 ```ts
 const results = await narsil.query('products', {
@@ -49,7 +49,7 @@ The engine orders the values as a [sort](#sort) on the field does, comparing the
 
 ### Pattern tests
 
-A pattern field is a `verbatim` or `verbatim[]` field, or a `string` or `string[]` field whose type includes `pattern`. The engine keeps a pattern index for each such field, which it uses to find every document whose value holds the text of a `contains` test anywhere in it. In the query below, the engine returns only the `checkout` matches whose message holds `connection refused` in any mix of upper and lower case.
+A pattern field is a `verbatim` or `verbatim[]` field, or a `string` or `string[]` field whose type includes `pattern`. The engine keeps a pattern index for each such field, which it uses to find every document whose value holds the text of a `contains` test anywhere in it, matches a [wildcard pattern](#wildcard-patterns), or holds a match of a [regular expression](#regular-expressions). In the query below, the engine returns only the `checkout` matches whose message holds `connection refused` in any mix of upper and lower case.
 
 ```ts
 const failures = await narsil.query('logs', {
@@ -58,11 +58,11 @@ const failures = await narsil.query('logs', {
 })
 ```
 
-With `caseFold: true`, the engine compares the Unicode case fold of each value with the fold of the text. A test for `error` then matches `ERROR` in the same way that a test for `strasse` matches `Straße`. `caseFold` applies to `eq`, `ne`, `in`, `nin`, `startsWith`, `endsWith`, and `contains` on a pattern field. Without it, the engine compares the code points exactly. The engine compares each value as stored, with no Unicode normalisation, so `café` with a precomposed `é` and `café` with a combining accent are different values. If your app receives both forms, normalise the text before you insert it.
+With `caseFold: true`, the engine compares the Unicode case fold of each value with the fold of the text. A test for `error` then matches `ERROR` in the same way that a test for `strasse` matches `Straße`. `caseFold` applies to `eq`, `ne`, `in`, `nin`, `startsWith`, `endsWith`, `contains`, `wildcard`, and `regex` on a pattern field. Without it, the engine compares the code points exactly. The engine compares each value as stored, with no Unicode normalisation, so `café` with a precomposed `é` and `café` with a combining accent are different values. If your app receives both forms, normalise the text before you insert it.
 
 The pattern index maps each run of three code points in a field's folded values to the documents that hold that run. For a test on a pattern field, the engine takes its candidates from the rarest of as many as 16 runs that it picks across the case fold of the text. It then checks each candidate against the whole test. The engine answers `eq`, `ne`, `in`, `nin`, `startsWith`, and `endsWith` on a pattern field in the same way, while it refuses those tests on a text field without a pattern index, as [Indexes behind each test](#indexes-behind-each-test) explains. The engine can take no run from a text whose case fold is shorter than three code points, so for such a text it checks every document that holds a value in the field.
 
-The engine throws `SEARCH_INVALID_FILTER` for `contains` or `caseFold` on any other field, for a text longer than 1,024 code points in a test on a pattern field, and for a `caseFold` test whose text has a case fold longer than 2,048 code points. It also limits the work that it does on the pattern tests of one search, which it counts over every partition that it searches. It adds one unit to the count for each run of three code points that it looks up in a pattern index, one for each entry that it reads from a pattern index, and one for each step of its matcher. For a text whose case fold is shorter than three code points, it counts each document that it checks as an entry that it reads. It counts an `in` or `nin` test as one `eq` test for each distinct value in its list. Once the count passes the `patternWorkCap` engine setting, which defaults to 25,000,000 units, the engine throws `SEARCH_WORK_CAP_EXCEEDED`. See [Configuration](configuration.md#narsilconfig) for the setting.
+The engine throws `SEARCH_INVALID_FILTER` for `contains`, `wildcard`, `regex`, or `caseFold` on any other field, for a text or a pattern longer than 1,024 code points in a test on a pattern field, and for a literal `caseFold` test whose text has a case fold longer than 2,048 code points. [Pattern limits](#pattern-limits) lists the limits on a wildcard pattern and a regular expression. It also limits the work that it does on the pattern tests of one search, which it counts over every partition that it searches. It adds one unit to the count for each run of three code points that it looks up in a pattern index, one for each entry that it reads from a pattern index, and one for each step of its matcher. A step tests one position of a pattern against one code point, and the engine counts one step for each position that a match can reach at each code point that it checks. It counts each literal test as the regular expression that it equals, such as `^text$` for `eq`. For a text whose case fold is shorter than three code points, and for a pattern from which it can take no run, it counts each document that it checks as an entry that it reads. It counts an `in` or `nin` test as one `eq` test for each distinct value in its list. Once the count passes the `patternWorkCap` engine setting, which defaults to 25,000,000 units, the engine throws `SEARCH_WORK_CAP_EXCEEDED`. See [Configuration](configuration.md#narsilconfig) for the setting.
 
 A Node process loads the pattern search code by itself. A browser bundle includes that code only where the app imports `patternSearch` and registers it. The app has to register `patternSearch` before it creates or loads an index with a pattern field:
 
@@ -74,6 +74,58 @@ registerPatternSearch(patternSearch)
 ```
 
 Without that registration, the engine throws `CONFIG_INVALID` for an index with a pattern field, with a message that names the import.
+
+### Wildcard patterns
+
+A `wildcard` test matches a value where the whole value matches the pattern. In the pattern, `*` matches any sequence of code points, the empty one included, and `?` matches exactly one code point. A `\` makes the code point after it literal, so `\*` matches an asterisk and `\\` matches a backslash, while every other code point matches itself. In the query below, `INV-*-2024` matches `INV-0042-2024` and `INV--2024`, but not `INV-2024`.
+
+```ts
+const invoices = await narsil.listDocuments('orders', {
+  filters: { fields: { code: { wildcard: 'INV-*-2024' } } },
+})
+```
+
+The engine throws `SEARCH_INVALID_FILTER` for a pattern that ends in a `\` with no code point after it.
+
+### Regular expressions
+
+A `regex` test matches a value where some part of the value matches the expression, so `refused` matches `connection refused`. Anchor the expression with `^` and `$` to match the whole value, because they match only at the start and the end of the value, never at a line break inside it. Narsil reads its own syntax, which the table below lists in full:
+
+| Construct | Meaning |
+|-----------|---------|
+| `a` | It matches the code point itself. Every code point matches itself except `\ . \| * + ? { } ( ) [ ] ^ $ < >`. |
+| `\.` | A `\` before an ASCII punctuation mark matches that mark, so `\.` matches a full stop. |
+| `.` | It matches any one code point, a line break included. |
+| `\d`, `\w`, `\s` | They match an ASCII digit; an ASCII letter, digit, or `_`; and a tab, line feed, form feed, carriage return, or space. |
+| `[a-z_]`, `[^0-9]` | A set matches one code point in it, and a set that opens with `^` matches one code point outside it. A set may hold code points, ranges such as `a-z`, and the three classes. Write `\-`, `\]`, `\[`, and `\\` for those code points inside a set. |
+| `x\|y` | It matches `x` or `y`. |
+| `(x)` | A group matches `x`, so `(ab)+` repeats both code points. |
+| `x*`, `x+`, `x?` | They match `x` zero or more times, one or more times, or at most once. |
+| `x{n}`, `x{n,}`, `x{n,m}` | They match `x` exactly `n` times, at least `n` times, or from `n` to `m` times. |
+| `^`, `$` | They match at the start and at the end of the value. |
+| `\b` | It matches at an edge between a `\w` code point and either a code point outside `\w` or an end of the value. |
+| `<low-high>` | It matches the digits of a whole number from `low` to `high`. |
+
+The engine throws `SEARCH_INVALID_FILTER` for any construct outside that syntax, such as a back-reference, a lookahead or lookbehind, a lazy or possessive repeat such as `*?`, an inline flag, a non-capturing group such as `(?:x)`, a Unicode property class, or an escape such as `\n`. It throws the same error for a set range or a number range whose low end is above its high end, and for `{n,m}` where `n` is above `m`.
+
+A number range holds from 1 to 15 digits at each end. Where both ends hold the same number of digits, it matches a number zero-padded to that width, so `<007-123>` matches `007`, `080`, and `123`. Otherwise it matches a number written with no leading zero, so `port=<1-65535>` matches `port=443` but not `port=0443`. The range matches digits alone, and a regular expression matches anywhere in a value, so `port=<1-65535>` also matches the start of `port=99999`. Add `$` or `\b` after the range to stop it there.
+
+Under `caseFold`, a literal code point matches its case fold, and `.` and the classes match one code point of the folded value. A set matches a code point of the folded value that equals the fold of one of its members. A set that does not open with `^` also matches the fold of a member written alone in it where that fold holds several code points, so `[ß]` matches `ss`, and `stra[ß]e` matches both `Straße` and `STRASSE`. A range in a set matches one code point alone.
+
+The matcher never backtracks. It builds the states of a deterministic machine as it reads each value, so it checks a value in at most as many steps as the value's code points multiplied by the pattern's positions, however the pattern nests its repeats. The engine takes the candidates for a regular expression or a wildcard pattern from the runs of three code points that every match has to hold, such as `INV-` in `^INV-\d+$`. Where the pattern holds no such run, as `\d{4}` holds none, the engine checks every value of the field, and it counts each document that it checks towards the work cap.
+
+### Pattern limits
+
+Before it builds a matcher, the engine throws `SEARCH_INVALID_FILTER` for a pattern longer than 1,024 code points, for a pattern whose groups nest more than 32 deep, for a count above 2,048, and for a pattern with more than 2,048 positions. It counts the positions of a pattern as follows:
+
+- A code point, `.`, a class, a set, `*` in a wildcard pattern, and `?` in a wildcard pattern each count as one position. Under `caseFold`, a code point counts once for each code point of its case fold, and a set that does not open with `^` adds the code points of each distinct fold that it matches as a sequence.
+- `^`, `$`, and `\b` count as no position.
+- A repeat counts the positions of what it repeats once for `*`, `+`, and `?`, `n` times for `{n}`, `n` times or once, whichever is more, for `{n,}`, and `m` times for `{n,m}`.
+- A number range counts the positions of the expression that it stands for, so `<1-65535>` counts 61 positions.
+
+So `a{2048}` is at the limit, while `(ab){1025}` and, under `caseFold`, `ß{1025}` pass it.
+
+The matcher holds at most 1 MB of state for one search, so it empties its cache of states whenever the cache fills and goes on reading. A search that a worker copy splits gives each copy an equal share of that 1 MB, and the engine splits a search over no more copies than its largest pattern fits. An HTTP server can refuse every `regex` test through its `allowRegex` option, as [the HTTP server guide](http-server.md#regular-expressions) explains.
 
 ## Facets
 

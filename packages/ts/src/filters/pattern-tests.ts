@@ -41,4 +41,6 @@ export function evaluatePatternTests(
   if (typeof filter.startsWith === 'string') bitsets.push(matching('startsWith', [filter.startsWith]))
   if (typeof filter.endsWith === 'string') bitsets.push(matching('endsWith', [filter.endsWith]))
   if (typeof filter.contains === 'string') bitsets.push(matching('contains', [filter.contains]))
+  if (typeof filter.wildcard === 'string') bitsets.push(matching('wildcard', [filter.wildcard]))
+  if (typeof filter.regex === 'string') bitsets.push(matching('regex', [filter.regex]))
 }

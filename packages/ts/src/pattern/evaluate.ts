@@ -1,39 +1,35 @@
 import { bitsetHas, bitsetSet } from '../core/bitset'
-import { PATTERN_RUN_CODE_POINTS } from '../core/pattern-index/constants'
 import type {
+  ExpressionOperator,
   PatternHost,
-  PatternIndexReader,
   PatternMatchRequest,
   PatternOperator,
   PatternWorkMeter,
 } from '../core/pattern-index/types'
-import { SHORTLIST_INTERSECT_RATIO, SHORTLIST_RUN_LOOKUPS } from './constants'
+import { type RunQuery, spreadRuns } from './expression'
+import { searchExpressions } from './expression-cache'
 import { LiteralMatcher } from './literal-matcher'
-import { appendTextCodePoints, BASIC_PLANE_LAST, forEachTextValue, runKey } from './text'
+import { shortlist } from './shortlist'
+import { appendTextCodePoints, BASIC_PLANE_LAST, forEachTextValue } from './text'
 import { WorkTally } from './work-tally'
+
+interface ValueMatcher {
+  begin(): boolean
+  feed(codePoint: number, tally: WorkTally): boolean
+  matched(): boolean
+}
+
+interface PreparedTest {
+  readonly runs: RunQuery
+  matcher(): ValueMatcher
+}
 
 const ANCHORED_START: ReadonlySet<PatternOperator> = new Set(['eq', 'startsWith'])
 const ANCHORED_END: ReadonlySet<PatternOperator> = new Set(['eq', 'endsWith'])
 
-const shortlistRunsBySearch = new WeakMap<PatternWorkMeter, Map<string, Uint32Array>>()
+const shortlistRunsBySearch = new WeakMap<PatternWorkMeter, Map<string, RunQuery>>()
 
-function spreadRuns(folded: readonly number[]): Uint32Array {
-  const runCount = folded.length - PATTERN_RUN_CODE_POINTS + 1
-  if (runCount <= 0) return new Uint32Array(0)
-  const picks = Math.min(runCount, SHORTLIST_RUN_LOOKUPS)
-  const seen = new Set<string>()
-  const runs: number[] = []
-  for (let pick = 0; pick < picks; pick++) {
-    const at = picks === 1 ? 0 : Math.round((pick * (runCount - 1)) / (picks - 1))
-    const key = runKey(folded[at], folded[at + 1], folded[at + 2])
-    if (seen.has(key)) continue
-    seen.add(key)
-    runs.push(folded[at], folded[at + 1], folded[at + 2])
-  }
-  return Uint32Array.from(runs)
-}
-
-function shortlistRuns(text: string, host: PatternHost, meter: PatternWorkMeter): Uint32Array {
+function literalRuns(text: string, host: PatternHost, meter: PatternWorkMeter): RunQuery {
   let runsByText = shortlistRunsBySearch.get(meter)
   if (runsByText === undefined) {
     runsByText = new Map()
@@ -43,50 +39,36 @@ function shortlistRuns(text: string, host: PatternHost, meter: PatternWorkMeter)
   if (known !== undefined) return known
   const folded: number[] = []
   appendTextCodePoints(text, true, host, folded)
-  const runs = spreadRuns(folded)
+  const runs: RunQuery = { kind: 'all', runs: spreadRuns([folded]) }
   runsByText.set(text, runs)
   return runs
 }
 
-function intersect(candidates: Uint32Array, list: Uint32Array, tally: WorkTally): Uint32Array {
-  const kept = new Uint32Array(Math.min(candidates.length, list.length))
-  let keptCount = 0
-  let read = 0
-  for (const candidate of candidates) {
-    while (read < list.length && list[read] < candidate) read++
-    if (read === list.length) break
-    if (list[read] === candidate) kept[keptCount++] = candidate
+function literalTest(request: PatternMatchRequest): PreparedTest {
+  const { operator, text, caseFold, host, meter } = request
+  return {
+    runs: literalRuns(text, host, meter),
+    matcher: () => {
+      const testCodePoints: number[] = []
+      appendTextCodePoints(text, caseFold, host, testCodePoints)
+      return new LiteralMatcher(
+        Uint32Array.from(testCodePoints),
+        ANCHORED_START.has(operator),
+        ANCHORED_END.has(operator),
+      )
+    },
   }
-  tally.add(Math.min(list.length, read + 1))
-  return kept.subarray(0, keptCount)
 }
 
-function shortlist(index: PatternIndexReader, runs: Uint32Array, tally: WorkTally): Uint32Array | null {
-  if (runs.length === 0) return null
-  const lists: Uint32Array[] = []
-  for (let at = 0; at < runs.length; at += PATTERN_RUN_CODE_POINTS) {
-    tally.add(1)
-    lists.push(index.postings(runs[at], runs[at + 1], runs[at + 2]))
-  }
-  lists.sort((left, right) => left.length - right.length)
-  let candidates = lists[0]
-  tally.add(candidates.length)
-  for (let at = 1; at < lists.length && candidates.length > 0; at++) {
-    if (lists[at].length > candidates.length * SHORTLIST_INTERSECT_RATIO) break
-    candidates = intersect(candidates, lists[at], tally)
-  }
-  return candidates
-}
-
-function matcherFor(request: PatternMatchRequest): LiteralMatcher {
-  const { operator, text, caseFold, host } = request
-  const testCodePoints: number[] = []
-  appendTextCodePoints(text, caseFold, host, testCodePoints)
-  return new LiteralMatcher(Uint32Array.from(testCodePoints), ANCHORED_START.has(operator), ANCHORED_END.has(operator))
+function expressionTest(request: PatternMatchRequest, operator: ExpressionOperator): PreparedTest {
+  const { text, caseFold, host, meter } = request
+  const expressions = searchExpressions(meter)
+  const entry = expressions.expression(operator, text, caseFold, host)
+  return { runs: entry.prepared.runs, matcher: () => expressions.matcher(entry) }
 }
 
 function matchesText(
-  matcher: LiteralMatcher,
+  matcher: ValueMatcher,
   text: string,
   caseFold: boolean,
   host: PatternHost,
@@ -111,13 +93,15 @@ function matchesText(
 }
 
 export function matchPattern(request: PatternMatchRequest): void {
-  const { text, caseFold, index, matches, host } = request
+  const { operator, caseFold, index, matches, host } = request
   const tally = new WorkTally(request.meter)
-  const shortlisted = shortlist(index, shortlistRuns(text, host, request.meter), tally)
+  const test =
+    operator === 'wildcard' || operator === 'regex' ? expressionTest(request, operator) : literalTest(request)
+  const shortlisted = shortlist(index, test.runs, tally)
   const scanning = shortlisted === null
   const candidates = shortlisted ?? index.documents()
   const folded: number[] = []
-  let matcher: LiteralMatcher | null = null
+  let matcher: ValueMatcher | null = null
   let matched = false
   const testValue = (value: string): void => {
     if (!matched && matcher !== null) matched = matchesText(matcher, value, caseFold, host, folded, tally)
@@ -126,7 +110,7 @@ export function matchPattern(request: PatternMatchRequest): void {
   for (const ordinal of candidates) {
     if (ordinal >>> 5 >= matches.length || bitsetHas(matches, ordinal)) continue
     if (scanning) tally.add(1)
-    matcher ??= matcherFor(request)
+    matcher ??= test.matcher()
     matched = false
     forEachTextValue(request.valueOf(ordinal), testValue)
     if (matched) bitsetSet(matches, ordinal)

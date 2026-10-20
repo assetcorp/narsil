@@ -34,6 +34,7 @@ export interface RequestThreadHostOptions {
   authorize: Authorizer | undefined
   gate: SharedArrayBuffer
   limits: ResolvedLimits
+  allowRegex: boolean
   build: ResolvedBuild
   cors: ResolvedCors | null
 }
@@ -214,6 +215,7 @@ export async function startRequestThreads(options: RequestThreadHostOptions): Pr
               authorizes: authorize !== undefined,
               searchHooks,
               patternWorkCap: options.core.patternWorkCap,
+              allowRegex: options.allowRegex,
             },
           },
           [channel.port1],

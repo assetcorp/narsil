@@ -1,5 +1,5 @@
 import { widestPatternSplit } from '../../core/pattern-index/matcher-budget'
-import { largestPatternTest } from '../../core/pattern-index/query-positions'
+import { largestPatternFootprint } from '../../core/pattern-index/query-positions'
 import type { PatternWorkFork, SearchPatternWork, SharedPatternWork } from '../../core/pattern-index/work-meter'
 import { ErrorCodes, NarsilError } from '../../errors'
 import { type FanOutResult, kWayMerge } from '../../partitioning/fan-out'
@@ -104,7 +104,7 @@ function isWorkCapError(err: unknown): boolean {
 function patternSplitWidth(state: OrchestratorState, indexName: string, params: QueryParams): number {
   const schema = state.indexRegistry.get(indexName)?.config.schema
   if (schema === undefined) return Number.POSITIVE_INFINITY
-  const largest = largestPatternTest(params.filters, schema)
+  const largest = largestPatternFootprint(params.filters, schema)
   if (largest === null) return Number.POSITIVE_INFINITY
   if (typeof SharedArrayBuffer !== 'function') return 1
   return widestPatternSplit(largest)

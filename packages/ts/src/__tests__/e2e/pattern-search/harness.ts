@@ -19,6 +19,7 @@ export interface PatternServer {
   readonly client: NarsilClient
   readonly base: string
   readonly workerCopies: boolean
+  readonly requestThreads: number
   stop(): Promise<void>
 }
 
@@ -32,6 +33,7 @@ export async function startPatternServer(
     client: createNarsilClient({ url: started.base }),
     base: started.base,
     workerCopies: config.workers?.enabled !== false,
+    requestThreads: started.server.requestThreadCount,
     stop: () => started.stop(),
   }
 }

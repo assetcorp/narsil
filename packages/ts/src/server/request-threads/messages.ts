@@ -27,6 +27,8 @@ export interface RequestThreadSettings {
   /** True where a plugin observes searches, so the thread sends every search to the main thread. */
   searchHooks: boolean
   patternWorkCap: number
+  /** False where the server refuses every `regex` test, which the thread then refuses before it runs a search. */
+  allowRegex: boolean
 }
 
 export type ThreadOnlyRoute = 'livez' | 'version' | 'capabilities'

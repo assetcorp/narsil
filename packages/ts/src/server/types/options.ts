@@ -166,6 +166,18 @@ export interface ServerOptions {
    */
   allowInsecure?: boolean
   /**
+   * The server accepts a `regex` test from any client while this is true,
+   * which is the default. While it is false, the server answers every search,
+   * preflight, and document list request whose filter holds a `regex` test with
+   * 400 and `SEARCH_INVALID_FILTER`, and the message names this option. The other
+   * pattern tests, such as `contains` and `wildcard`, stay available.
+   *
+   * The engine bounds the work of every pattern test by its `patternWorkCap`
+   * setting either way, so turn this off on a public endpoint that should take
+   * no regular expressions at all.
+   */
+  allowRegex?: boolean
+  /**
    * The cluster-facing side of the node this server fronts, which is
    * `node.cluster` on a {@link ClusterNode}. With it set, `/readyz` answers
    * 200 only while the node reports `SERVING`, `/cluster` reports the

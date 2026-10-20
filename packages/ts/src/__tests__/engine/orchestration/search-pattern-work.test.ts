@@ -4,6 +4,7 @@ import {
   MAX_PATTERN_POSITIONS,
   PATTERN_WORK_FLUSH_UNITS,
 } from '../../../core/pattern-index/constants'
+import { PATTERN_HOST } from '../../../core/pattern-index/host'
 import { smallestMatcherBytes, widestPatternSplit } from '../../../core/pattern-index/matcher-budget'
 import {
   createPatternWorkMeter,
@@ -13,6 +14,7 @@ import {
 import { searchViaWorker } from '../../../engine/orchestration/search'
 import { ErrorCodes, NarsilError } from '../../../errors'
 import type { FanOutResult } from '../../../partitioning/fan-out'
+import { compileExpression, programFootprint } from '../../../pattern/expression'
 import { SCRATCH_SLOTS_PER_THREAD_POOL } from '../../../vector/constants'
 import { type OrchestratorHarness, type RecordedDispatch, recordingHarness, registryWith, settle } from './fixtures'
 
@@ -41,20 +43,20 @@ describe('the pattern work that a copy does for a search', () => {
   it('splits a search over no more copies than its matcher state budget can serve', async () => {
     const copyCount = SCRATCH_SLOTS_PER_THREAD_POOL
     const harness = patternSearchHarness(copyCount)
-    const search = (contains: string) =>
+    const search = (filter: Record<string, unknown>) =>
       searchViaWorker(
         harness.state,
         'prose',
-        { term: 'a', filters: { fields: { code: { contains, caseFold: true } } } },
+        { term: 'a', filters: { fields: { code: filter } } },
         undefined,
         undefined,
         createPatternWorkMeter(),
       )
 
-    const longest = search('ß'.repeat(MAX_PATTERN_POSITIONS / 2))
+    const longest = search({ contains: 'ß'.repeat(MAX_PATTERN_POSITIONS / 2), caseFold: true })
     await settle()
     const narrowed = queries(harness)
-    expect(narrowed).toHaveLength(widestPatternSplit(MAX_PATTERN_POSITIONS))
+    expect(narrowed).toHaveLength(widestPatternSplit(smallestMatcherBytes(MAX_PATTERN_POSITIONS)))
     expect(narrowed.length).toBeLessThan(copyCount)
     expect(patternWorkOf(narrowed[0]).matcherStateBytes).toBeGreaterThanOrEqual(
       smallestMatcherBytes(MAX_PATTERN_POSITIONS),
@@ -62,7 +64,18 @@ describe('the pattern work that a copy does for a search', () => {
     answerAll(harness)
     await longest
 
-    const short = search('abc')
+    const regex = `[ab]*a[ab]{${MAX_PATTERN_POSITIONS - 2}}`
+    const footprint = programFootprint(compileExpression('regex', regex, false, PATTERN_HOST).program)
+    const widestRegex = search({ regex })
+    await settle()
+    const regexCopies = queries(harness)
+    expect(regexCopies).toHaveLength(widestPatternSplit(footprint))
+    expect(regexCopies.length).toBeLessThan(copyCount)
+    expect(patternWorkOf(regexCopies[0]).matcherStateBytes).toBeGreaterThanOrEqual(footprint)
+    answerAll(harness)
+    await widestRegex
+
+    const short = search({ contains: 'abc', caseFold: true })
     await settle()
     expect(queries(harness)).toHaveLength(copyCount)
     answerAll(harness)

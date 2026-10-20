@@ -8,6 +8,7 @@ import { createInMemoryNetwork, createInMemoryTransport } from '../../../distrib
 import { ErrorCodes } from '../../../errors'
 import type { FieldFilter } from '../../../types/filters'
 import type { AnyDocument } from '../../../types/schema'
+import { EXPRESSION_PROBES } from '../../filters/pattern/expression-probes'
 import { PATTERN_INDEX, patternConfig, patternDocuments, referenceIds } from '../../filters/pattern/fixtures'
 
 const POLL_INTERVAL_MS = 25
@@ -25,6 +26,12 @@ const PROBES: Array<[string, FieldFilter]> = [
   ['title', { contains: 'error', caseFold: true }],
   ['tags', { in: ['beta', 'gamma'] }],
   ['tags', { nin: ['beta'] }],
+  ['code', { wildcard: 'inv-*-00?', caseFold: true }],
+  ['code', { regex: '^INV-<2024-2025>-\\d+$' }],
+  ['code', { regex: 'stra[ß]e', caseFold: true }],
+  ['title', { regex: '\\bball\\b|full$', caseFold: true }],
+  ['tags', { wildcard: '?eta', caseFold: true }],
+  ...EXPRESSION_PROBES.map((filter): [string, FieldFilter] => ['tags', filter]),
 ]
 
 async function pollUntil(predicate: () => Promise<boolean> | boolean): Promise<boolean> {
@@ -119,8 +126,20 @@ describe.each([
   }, 30_000)
 
   it('fails the whole query when one node passes its work cap', async () => {
-    await expect(
-      router.query(PATTERN_INDEX, { term: 'record', filters: { fields: { code: { contains: 'zz' } } } }),
-    ).rejects.toMatchObject({ code: ErrorCodes.SEARCH_WORK_CAP_EXCEEDED })
+    for (const filter of [{ contains: 'zz' }, { regex: 'x{2000}y' }, { wildcard: '*zz*' }]) {
+      await expect(
+        router.query(PATTERN_INDEX, { term: 'record', filters: { fields: { code: filter } } }),
+        JSON.stringify(filter),
+      ).rejects.toMatchObject({ code: ErrorCodes.SEARCH_WORK_CAP_EXCEEDED })
+    }
+  }, 30_000)
+
+  it('refuses a pattern outside the grammar with the error that one engine raises', async () => {
+    for (const regex of ['(?=a)', 'a{2049}', '(a']) {
+      await expect(
+        router.query(PATTERN_INDEX, { term: 'record', filters: { fields: { code: { regex } } } }),
+        regex,
+      ).rejects.toMatchObject({ code: ErrorCodes.SEARCH_INVALID_FILTER })
+    }
   }, 30_000)
 })

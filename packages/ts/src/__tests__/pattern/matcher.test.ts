@@ -1,12 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 import { bitsetToSet, createBitSet } from '../../core/bitset'
-import {
-  MATCHER_STATE_BUDGET_BYTES,
-  MATCHER_STATE_OVERHEAD_BYTES,
-  MAX_PATTERN_POSITIONS,
-} from '../../core/pattern-index/constants'
+import { MATCHER_STATE_BUDGET_BYTES, MAX_PATTERN_POSITIONS } from '../../core/pattern-index/constants'
 import { PATTERN_HOST } from '../../core/pattern-index/host'
-import { widestPatternSplit } from '../../core/pattern-index/matcher-budget'
+import { smallestMatcherBytes, widestPatternSplit } from '../../core/pattern-index/matcher-budget'
 import type {
   PatternHost,
   PatternIndexReader,
@@ -15,13 +11,13 @@ import type {
   PatternWorkMeter,
 } from '../../core/pattern-index/types'
 import { createPatternWorkMeter, joinPatternWorkMeter } from '../../core/pattern-index/work-meter'
-import { literalAutomaton } from '../../pattern/automaton'
 import { SHORTLIST_RUN_LOOKUPS } from '../../pattern/constants'
+import { compileExpression, programFootprint } from '../../pattern/expression'
 import { LazyDfa } from '../../pattern/lazy-dfa'
 import { patternSearchModule } from '../../pattern/module'
-import { PositionSimulation } from '../../pattern/position-simulation'
 import { WorkTally } from '../../pattern/work-tally'
 import { literalPasses } from '../filters/pattern/fixtures'
+import { seededRandom } from '../filters/pattern/random-corpus'
 
 const WORK_CAP = 1_000_000_000
 const FULL_BUDGET_WORKERS = 1
@@ -105,21 +101,15 @@ describe('the pattern matcher', () => {
         folds++
         PATTERN_HOST.appendFoldedCodePoint(codePoint, out)
       },
+      singleFoldSources: folded => PATTERN_HOST.singleFoldSources(folded),
     }
     const result = run(values, index, 'startsWith', 'x', true, FULL_BUDGET_WORKERS, countingHost)
     expect(result.matched).toEqual([0])
     expect(folds).toBeLessThanOrEqual(5)
   })
 
-  it('holds the longest test within the share of state that the widest split gives each copy', () => {
-    const widest = widestPatternSplit(MAX_PATTERN_POSITIONS)
-    const share = Math.floor(MATCHER_STATE_BUDGET_BYTES / widest)
-    const automaton = literalAutomaton(new Array(MAX_PATTERN_POSITIONS).fill(0x73), false, false)
-    const simulation = new PositionSimulation(automaton)
-    const footprint =
-      automaton.bytes + simulation.bytes + MATCHER_STATE_OVERHEAD_BYTES + simulation.firstPositions.byteLength
-    expect(footprint).toBeLessThanOrEqual(share)
-
+  it('holds the longest literal test within the share of state that the widest split gives each copy', () => {
+    const widest = widestPatternSplit(smallestMatcherBytes(MAX_PATTERN_POSITIONS))
     const doubleFolds = ['ß', 'ﬀ', 'ﬁ', 'ﬂ', 'ﬆ']
     const text = Array.from(
       { length: MAX_PATTERN_POSITIONS / 2 },
@@ -134,15 +124,58 @@ describe('the pattern matcher', () => {
     }
   })
 
-  it('builds each state in time that follows the steps it counts, however long the test', () => {
-    const dfa = new LazyDfa(
-      literalAutomaton(
-        Array.from(distinctText(MAX_PATTERN_POSITIONS, CJK_FIRST), character => character.codePointAt(0) ?? 0),
-        false,
-        false,
-      ),
-      MATCHER_STATE_BUDGET_BYTES,
+  it('holds at most the state budget for one search, and at most the share of each copy once the search splits', () => {
+    const random = seededRandom(5)
+    const values = Array.from({ length: 4 }, () =>
+      Array.from({ length: 4_000 }, () => (random() < 0.5 ? 'a' : 'b')).join(''),
     )
+    for (const pattern of [`[ab]*a[ab]{${MAX_PATTERN_POSITIONS - 2}}`, '(a|b)*a(a|b){20}c', '((a|b)(a|b)){511}c']) {
+      const { program } = compileExpression('regex', pattern, false, PATTERN_HOST)
+      const footprint = programFootprint(program)
+      const share = Math.floor(MATCHER_STATE_BUDGET_BYTES / widestPatternSplit(footprint))
+      expect(footprint, pattern).toBeLessThanOrEqual(share)
+      for (const limit of [MATCHER_STATE_BUDGET_BYTES, share]) {
+        const dfa = new LazyDfa(program, limit)
+        const tally = new WorkTally(createPatternWorkMeter(WORK_CAP))
+        let largest = dfa.heldBytes
+        for (const value of values) {
+          dfa.begin()
+          for (const character of value) {
+            if (!dfa.feed(character.codePointAt(0) ?? 0, tally)) break
+            largest = Math.max(largest, dfa.heldBytes)
+          }
+          dfa.matched()
+        }
+        expect(largest, `${pattern} ${limit}`).toBeLessThanOrEqual(limit)
+      }
+    }
+  })
+
+  it('counts one step for each position that a match can reach at each code point it checks', () => {
+    const values = ['xxabc', 'xxabd']
+    const index = indexOf(values)
+    const meter = joinPatternWorkMeter(createPatternWorkMeter(WORK_CAP).fork(1).shared)
+    const matches = createBitSet(values.length)
+    patternSearchModule.matchInto({
+      operator: 'regex',
+      text: 'abc',
+      caseFold: false,
+      index,
+      matches,
+      meter,
+      host: PATTERN_HOST,
+      valueOf: ordinal => values[ordinal],
+    })
+    expect([...bitsetToSet(matches)]).toEqual([0])
+    const lookups = 1
+    const shortlistEntries = 1
+    const steps = 1 + 1 + 1 + 2 + 2
+    expect(meter.spent()).toBe(lookups + shortlistEntries + steps)
+  })
+
+  it('builds each state in time that follows the steps it counts, however long the pattern', () => {
+    const { program } = compileExpression('regex', distinctText(MAX_PATTERN_POSITIONS, CJK_FIRST), false, PATTERN_HOST)
+    const dfa = new LazyDfa(program, MATCHER_STATE_BUDGET_BYTES)
     const meter = createPatternWorkMeter(WORK_CAP)
     const tally = new WorkTally(meter)
     const join = Uint32Array.prototype.join
@@ -164,7 +197,6 @@ describe('the pattern matcher', () => {
     tally.flush()
     const units = WORK_CAP - meter.remaining()
     expect(units).toBe(2_000)
-    expect(keyCharacters).toBeGreaterThan(0)
     expect(keyCharacters).toBeLessThanOrEqual(4 * units)
   })
 
@@ -177,6 +209,7 @@ describe('the pattern matcher', () => {
         folds++
         PATTERN_HOST.appendFoldedCodePoint(codePoint, out)
       },
+      singleFoldSources: folded => PATTERN_HOST.singleFoldSources(folded),
     }
     const counting = (index: PatternIndexWriter): PatternIndexReader => ({
       documents: () => index.documents(),

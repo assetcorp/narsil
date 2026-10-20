@@ -893,6 +893,8 @@ export type StringFilter = Pick<ComparisonFilter, 'eq' | 'ne'> & {
     startsWith?: string;
     endsWith?: string;
     contains?: string;
+    wildcard?: string;
+    regex?: string;
     caseFold?: boolean;
 };
 

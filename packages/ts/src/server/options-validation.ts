@@ -51,3 +51,12 @@ export function assertServerLimits(limits: ServerLimits | undefined): void {
   for (const field of LIMITS_UNBOUNDED_AT_ZERO) assertLimit(field, limits[field], MIN_UNBOUNDED_SERVER_LIMIT)
   for (const field of COUNTED_LIMITS) assertLimit(field, limits[field], MIN_COUNTED_SERVER_LIMIT)
 }
+
+export function assertAllowRegex(allowRegex: unknown): void {
+  if (allowRegex === undefined || typeof allowRegex === 'boolean') return
+  throw new NarsilError(
+    ErrorCodes.CONFIG_INVALID,
+    `allowRegex must be true or false; however, this configuration sets it to ${String(allowRegex)}`,
+    { field: 'allowRegex', value: String(allowRegex) },
+  )
+}
