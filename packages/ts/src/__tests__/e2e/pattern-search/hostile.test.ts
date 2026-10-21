@@ -183,9 +183,9 @@ describe.each([
           'a regex whose deterministic states outgrow the state budget',
           { fields: { line: { regex: `[ab]*a[ab]{${MAX_PATTERN_POSITIONS - 2}}` } } },
         ],
-        ['a regex that keeps every position alive', { fields: { line: { regex: '(.*a){1000}c' } } }],
+        ['a regex in which a match can reach every position', { fields: { line: { regex: '(.*a){1000}c' } } }],
         [
-          'a regex whose word edges guard many branches',
+          'a regex with a word edge before each of many branches',
           {
             fields: {
               line: {
@@ -196,7 +196,7 @@ describe.each([
         ],
         ['a wildcard of many stars', { fields: { line: { wildcard: `${'*a'.repeat(500)}*` } } }],
         [
-          'the most long regex or clauses that a filter holds',
+          'as many long regex or clauses as a filter can hold',
           {
             or: Array.from({ length: MAX_FILTER_TESTS }, (_, at) => ({
               fields: { line: { regex: `[ab]*${String.fromCodePoint(0x4e00 + at)}[ab]{1000}` } },

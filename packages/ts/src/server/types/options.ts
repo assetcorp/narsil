@@ -167,14 +167,16 @@ export interface ServerOptions {
   allowInsecure?: boolean
   /**
    * The server accepts a `regex` test from any client while this is true,
-   * which is the default. While it is false, the server answers every search,
-   * preflight, and document list request whose filter holds a `regex` test with
-   * 400 and `SEARCH_INVALID_FILTER`, and the message names this option. The other
-   * pattern tests, such as `contains` and `wildcard`, stay available.
+   * which is the default. While it is false, the server answers 400 with
+   * `SEARCH_INVALID_FILTER` to every search, preflight, and document list
+   * request whose filter holds a `regex` test, and the error message tells the
+   * client that this option refused the test. The other pattern tests, such as
+   * `contains` and `wildcard`, stay available.
    *
-   * The engine bounds the work of every pattern test by its `patternWorkCap`
-   * setting either way, so turn this off on a public endpoint that should take
-   * no regular expressions at all.
+   * The engine limits the work of every pattern test through its
+   * `patternWorkCap` setting, whatever this option holds. Set this option to
+   * false on a public endpoint that should accept no regular expressions at
+   * all.
    */
   allowRegex?: boolean
   /**

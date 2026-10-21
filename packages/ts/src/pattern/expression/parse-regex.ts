@@ -43,8 +43,10 @@ const RESERVED: ReadonlySet<number> = new Set([
   LESS,
   GREATER,
 ])
-const NO_COUNT = 'holds a "{" that opens no count such as {2}, {2,}, or {2,5}, so write "\\{" to match it'
-const RANGE_ENDS_IN_CLASS = 'holds a set range that ends in a class instead of a code point'
+const NO_COUNT =
+  'holds a "{" that doesn\'t open a count such as {2}, {2,}, or {2,5}. Write "\\{" to match the brace itself'
+const RANGE_ENDS_IN_CLASS =
+  'holds a set range whose high end is a class, while both ends of a set range must be code points'
 const SET_NEVER_CLOSES = 'opens a set that it never closes'
 
 const CLASS_ESCAPES: ReadonlyMap<number, ClassName> = new Map([
@@ -69,11 +71,11 @@ function isDigit(codePoint: number | undefined): boolean {
 
 function unknownEscape(codePoint: number): string {
   const shown = quoted(`\\${String.fromCodePoint(codePoint)}`)
-  if (isDigit(codePoint)) return `holds the back-reference ${shown}, and the grammar has no back-references`
+  if (isDigit(codePoint)) return `holds the back-reference ${shown}, which the grammar leaves out`
   if (codePoint === 0x70 || codePoint === 0x50) {
-    return `holds the Unicode property class ${shown}, and the grammar has no property classes`
+    return `holds the Unicode property class ${shown}, which the grammar leaves out`
   }
-  return `holds ${shown}, while a "\\" may precede only an ASCII punctuation mark, "d", "w", "s", or "b"`
+  return `holds ${shown}. A "\\" can come only before an ASCII punctuation mark, "d", "w", "s", or "b"`
 }
 
 function reservedHere(codePoint: number): string {
@@ -81,7 +83,7 @@ function reservedHere(codePoint: number): string {
   if (codePoint === STAR || codePoint === PLUS || codePoint === QUESTION) {
     return `holds the repeat ${quoted(shown)} with nothing before it to repeat`
   }
-  return `holds ${quoted(shown)}, which the grammar reserves, so write ${quoted(`\\${shown}`)} to match it`
+  return `holds ${quoted(shown)}, which has a meaning of its own in the grammar. Write ${quoted(`\\${shown}`)} to match the code point itself`
 }
 
 class RegexReader {
@@ -126,7 +128,7 @@ class RegexReader {
     const next = this.peek()
     if (repeated !== atom && (next === STAR || next === PLUS || next === QUESTION || next === OPEN_BRACE)) {
       this.fail(
-        `holds a second repeat ${quoted(String.fromCodePoint(next))}, while the grammar allows one repeat for each atom and has no lazy or possessive repeats`,
+        `holds a second repeat ${quoted(String.fromCodePoint(next))} after one atom. The grammar allows one repeat for each atom, so it has no lazy or possessive repeats`,
         this.at,
       )
     }
@@ -160,7 +162,7 @@ class RegexReader {
   private parseGroup(start: number): PatternNode {
     if (this.peek() === QUESTION) {
       this.fail(
-        'holds "(?", which opens a lookaround, an inline flag, or a non-capturing group, and the grammar has none of them',
+        'holds "(?", which opens a lookaround, an inline flag, or a non-capturing group. The grammar leaves out all three',
         start,
       )
     }
@@ -195,7 +197,7 @@ class RegexReader {
     }
     this.at++
     if (max !== null && min > max) {
-      this.fail(`repeats an atom from ${min} to ${max} times, so its lower count is above its upper count`, start)
+      this.fail(`holds the count {${min},${max}}, whose lower count is above its upper count`, start)
     }
     return { kind: 'repeat', body: atom, min, max }
   }
@@ -226,7 +228,7 @@ class RegexReader {
       items.push(this.parseSetItem())
     }
     this.at++
-    if (items.length === 0) this.fail('holds a set with no members', start)
+    if (items.length === 0) this.fail('holds an empty set', start)
     return { kind: 'set', negated, items }
   }
 
@@ -253,7 +255,10 @@ class RegexReader {
     if (codePoint === undefined) this.fail(SET_NEVER_CLOSES, start)
     if (codePoint === OPEN_BRACKET || codePoint === CLOSE_BRACKET || codePoint === HYPHEN) {
       const shown = String.fromCodePoint(codePoint)
-      this.fail(`holds ${quoted(shown)} inside a set, so write ${quoted(`\\${shown}`)} to match it there`, start)
+      this.fail(
+        `holds ${quoted(shown)} inside a set. Write ${quoted(`\\${shown}`)} to match that code point there`,
+        start,
+      )
     }
     if (codePoint !== BACKSLASH) return codePoint
     const escaped = this.codePoints[this.at++]
@@ -272,7 +277,7 @@ class RegexReader {
     const closing = this.codePoints[this.at++]
     if (low === '' || high === '' || closing !== GREATER) {
       this.fail(
-        `holds a "<" that opens no number range such as <1-65535>, with from 1 to ${MAX_NUMBER_RANGE_DIGITS} digits at each end, so write "\\<" to match it`,
+        `holds a "<" that doesn't open a number range such as <1-65535>. Each end of a number range holds from 1 to ${MAX_NUMBER_RANGE_DIGITS} digits. Write "\\<" to match the "<" itself`,
         start,
       )
     }

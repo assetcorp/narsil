@@ -63,7 +63,7 @@ describe.each([
   { where: 'on request threads and worker copies', config: { workers: WORKER_COPIES }, runnable: WORKERS_BUILT },
 ])('a server whose allowRegex option is false $where', ({ config, runnable }) => {
   it.skipIf(!runnable)(
-    'refuses every regex test, wherever it sits in a filter, and answers every other test',
+    'refuses a regex test at any depth of a filter, but answers the other pattern tests',
     async () => {
       const documents = operationsCorpus(CORPUS_SIZE, 51)
       const server = await started(config, { allowRegex: false })

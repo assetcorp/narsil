@@ -139,7 +139,7 @@ describe('the work cap on pattern tests', () => {
     })
   })
 
-  it('counts each document that a regex test without a run reads, and each step on its values', async () => {
+  it('counts each document that the engine checks for a regex test with no run, and each step on its values', async () => {
     const codes = ['', 'x1', '12', 'a12']
     const documentsRead = codes.length
     const steps = 0 + 2 + 3 + 4
@@ -152,7 +152,7 @@ describe('the work cap on pattern tests', () => {
     })
   })
 
-  it('stops a regex test that passes the default cap, and runs it once patternWorkCap allows the work', async () => {
+  it('stops a regex test whose work exceeds the default cap, and answers it once patternWorkCap allows the work', async () => {
     let state = 7
     const nextBit = () => {
       state = (state * 1_103_515_245 + 12_345) % 2_147_483_648
