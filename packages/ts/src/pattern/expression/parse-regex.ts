@@ -48,6 +48,8 @@ const NO_COUNT =
 const RANGE_ENDS_IN_CLASS =
   'holds a set range whose high end is a class, while both ends of a set range must be code points'
 const SET_NEVER_CLOSES = 'opens a set that it never closes'
+const NEGATED_EMPTY_SET =
+  'holds the set "[^]", which has no member, because a "^" after "[" always negates the set. Write "\\^" to match a caret, "." to match any code point, or "\\]" to match "]" inside a set'
 
 const CLASS_ESCAPES: ReadonlyMap<number, ClassName> = new Map([
   [0x64, 'digit'],
@@ -218,7 +220,7 @@ class RegexReader {
   }
 
   private parseSet(start: number): PatternNode {
-    const negated = this.peek() === CARET && this.peek(1) !== CLOSE_BRACKET
+    const negated = this.peek() === CARET
     if (negated) this.at++
     const items: SetItem[] = []
     for (;;) {
@@ -228,7 +230,7 @@ class RegexReader {
       items.push(this.parseSetItem())
     }
     this.at++
-    if (items.length === 0) this.fail('holds an empty set', start)
+    if (items.length === 0) this.fail(negated ? NEGATED_EMPTY_SET : 'holds an empty set', start)
     return { kind: 'set', negated, items }
   }
 

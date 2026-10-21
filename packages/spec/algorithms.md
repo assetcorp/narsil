@@ -709,7 +709,7 @@ range   = "<" low "-" high ">"
 | `\b` | It matches at an edge between a `\w` code point and either a code point outside `\w` or an end of the value. |
 | `<low-high>` | It matches the digits of a whole number from `low` to `high`. |
 
-An implementation must raise `SEARCH_INVALID_FILTER` for a set range or a number range whose low end is above its high end, and for `{n,m}` where `n` is above `m`.
+A `^` directly after the `[` of a set always negates the set, so an implementation must raise `SEARCH_INVALID_FILTER` for `[^]`, which holds no member. An implementation must raise the same error for a set range or a number range whose low end is above its high end, and for `{n,m}` where `n` is above `m`.
 
 A number range matches a number written with no leading zero, unless `low` and `high` hold the same number of digits, in which case it matches a number zero-padded to that many digits. An implementation must match a number range as the pattern that `numberRange` returns:
 
@@ -719,8 +719,9 @@ numberRange(low: string, high: string) -> string
     return sameWidth(low, high)
   parts = an empty list
   start = the number that low holds
-  for width from the digit count of start to length(high):
-    last = minimum(the number that high holds, 10^width - 1)
+  highest = the number that high holds
+  for width from the digit count of start to the digit count of highest:
+    last = minimum(highest, 10^width - 1)
     append sameWidth(decimal(start), decimal(last)) to parts
     start = 10^width
   return "(" + parts joined by "|" + ")"

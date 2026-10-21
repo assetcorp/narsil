@@ -136,7 +136,7 @@ class Translator {
   }
 
   private set(): string {
-    const negated = this.characters[this.at] === '^' && this.characters[this.at + 1] !== ']'
+    const negated = this.characters[this.at] === '^'
     if (negated) this.at++
     const members: number[] = []
     const alone: number[] = []
