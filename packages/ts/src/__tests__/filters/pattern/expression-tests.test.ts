@@ -104,6 +104,20 @@ describe('a wildcard or regex test on a pattern field', () => {
     }
   })
 
+  it('matches each value by its own fold when a folded set holds a range of code points', async () => {
+    const singles = Array.from('abcijklmnrstuvxyzABIJKLMNSTZ0_ſKẞßıİσςΣΩωÀÖàöé中')
+    const documents = [...singles, 'ss', 'jm', 'mj', 'kſK'].map((code, at) => ({ id: `f${at}`, body: 'record', code }))
+    const narsil = await engineWith(patternConfig, documents)
+    const regexes = ['^[J-L]$', '^[^J-L]$', '^[J-L]+$', '^[R-T]$', '^[K]$', '^[Σ-Ω]$', '^[À-Ö]$', '^[^À-Ö]+$', '[a-c]']
+    for (const regex of regexes) {
+      await expectReference(narsil, documents, 'code', { regex, caseFold: true })
+      await expectReference(narsil, documents, 'code', { regex })
+    }
+    for (const wildcard of ['[J-L]', 'ſ*', '*K']) {
+      await expectReference(narsil, documents, 'code', { wildcard, caseFold: true })
+    }
+  })
+
   it.each(
     SEEDS,
   )('returns the reference documents through writes, updates, removals, and a restore (seed %i)', async seed => {

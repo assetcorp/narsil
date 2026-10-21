@@ -3,16 +3,20 @@ import {
   ANY_CONTEXT_MASK,
   ASSERT_STATE,
   CONSUME_STATE,
+  type CodePointClasses,
   type CodePointTest,
   closeOver,
+  codePointClasses,
   contextOf,
   createClosureScratch,
+  type FoldTargetCheck,
   MATCH_REACHED,
   MATCH_STATE,
   OTHER_CODE_POINT,
   type PatternProgram,
   SPLIT_STATE,
   WORD_CODE_POINT,
+  WORD_KIND_EDGES,
 } from '../automaton'
 import { PROGRAM_POSITION_BYTES, PROGRAM_STATE_BYTES } from './constants'
 import type { Plan } from './lower'
@@ -107,10 +111,56 @@ function startsOnlyAtStart(program: PatternProgram): boolean {
   return true
 }
 
-function programBytes(states: number, positions: number, tests: Iterable<CodePointTest | null>): number {
+function collectClassEdges(plan: Plan, edges: Set<number>, tests: Set<CodePointTest>): void {
+  switch (plan.kind) {
+    case 'consume':
+      if (plan.literal >= 0) {
+        edges.add(plan.literal)
+        edges.add(plan.literal + 1)
+      } else if (plan.test !== null && !tests.has(plan.test)) {
+        tests.add(plan.test)
+        const { ranges } = plan.test
+        for (let at = 0; at < ranges.length; at += 2) {
+          edges.add(ranges[at])
+          edges.add(ranges[at + 1] + 1)
+        }
+      }
+      return
+    case 'assert':
+      return
+    case 'sequence':
+      for (const item of plan.items) collectClassEdges(item, edges, tests)
+      return
+    case 'choice':
+      for (const branch of plan.branches) collectClassEdges(branch, edges, tests)
+      return
+    case 'repeat':
+      collectClassEdges(plan.body, edges, tests)
+  }
+}
+
+function planClasses(plan: Plan): CodePointClasses {
+  const edges = new Set<number>(WORD_KIND_EDGES)
+  const tests = new Set<CodePointTest>()
+  collectClassEdges(plan, edges, tests)
+  let isFoldTarget: FoldTargetCheck | null = null
+  for (const test of tests) isFoldTarget ??= test.isFoldTarget
+  return codePointClasses(Uint32Array.from(edges).sort(), isFoldTarget)
+}
+
+function programBytes(
+  states: number,
+  positions: number,
+  tests: Iterable<CodePointTest | null>,
+  classes: CodePointClasses,
+): number {
   const distinct = new Set<CodePointTest>()
   for (const test of tests) if (test !== null) distinct.add(test)
-  let bytes = states * PROGRAM_STATE_BYTES + positions * PROGRAM_POSITION_BYTES
+  let bytes =
+    states * PROGRAM_STATE_BYTES +
+    positions * PROGRAM_POSITION_BYTES +
+    classes.starts.byteLength +
+    classes.direct.byteLength
   for (const test of distinct) bytes += test.bytes
   return bytes
 }
@@ -160,7 +210,11 @@ export function planSize(plan: Plan): ProgramSize {
   const tests = new Set<CodePointTest>()
   const size = sizeOf(plan, tests)
   const states = size.states + 1
-  return { states, positions: size.positions, bytes: programBytes(states, size.positions, tests) }
+  return {
+    states,
+    positions: size.positions,
+    bytes: programBytes(states, size.positions, tests, planClasses(plan)),
+  }
 }
 
 export function compileProgram(plan: Plan): PatternProgram {
@@ -191,6 +245,7 @@ export function compileProgram(plan: Plan): PatternProgram {
       tests[target] = builder.tests[state]
     }
   }
+  const classes = planClasses(plan)
   const draft: PatternProgram = {
     positions: builder.positions,
     states: count,
@@ -202,7 +257,8 @@ export function compileProgram(plan: Plan): PatternProgram {
     tests,
     start: renumbered[start],
     anchoredStart: false,
-    bytes: programBytes(count, builder.positions, tests),
+    classes,
+    bytes: programBytes(count, builder.positions, tests, classes),
   }
   return { ...draft, anchoredStart: startsOnlyAtStart(draft) }
 }

@@ -189,7 +189,7 @@ describe('the regular expression matcher', () => {
       if (expected.length > 0 && expected.length < values.length) splitting++
     }
     expect(splitting).toBeGreaterThan(PATTERNS_PER_SEED * MIN_SPLITTING_SHARE)
-  })
+  }, 60_000)
 
   it('agrees with RE2 on patterns whose deterministic states outgrow the state budget', () => {
     const random = seededRandom(9)

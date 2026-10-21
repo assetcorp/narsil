@@ -1,3 +1,5 @@
+import { DIRECT_CLASS_CODE_POINTS } from './constants'
+
 export const BEFORE_VALUE_START = 0
 export const AFTER_VALUE_END = 0
 export const WORD_CODE_POINT = 1
@@ -20,10 +22,16 @@ export const TESTED_CODE_POINT = -1
 
 export const MATCH_REACHED = -1
 
+export type FoldTargetCheck = (codePoint: number) => boolean
+
 export interface CodePointTest {
   readonly bytes: number
+  readonly ranges: Uint32Array
+  readonly isFoldTarget: FoldTargetCheck | null
   has(codePoint: number): boolean
 }
+
+export const WORD_KIND_EDGES: readonly number[] = [0x30, 0x3a, 0x41, 0x5b, 0x5f, 0x60, 0x61, 0x7b]
 
 export interface PatternProgram {
   readonly positions: number
@@ -36,7 +44,40 @@ export interface PatternProgram {
   readonly tests: ReadonlyArray<CodePointTest | null>
   readonly start: number
   readonly anchoredStart: boolean
+  readonly classes: CodePointClasses
   readonly bytes: number
+}
+
+export interface CodePointClasses {
+  readonly starts: Uint32Array
+  readonly isFoldTarget: FoldTargetCheck | null
+  readonly direct: Int32Array
+}
+
+function searchedClass(starts: Uint32Array, isFoldTarget: FoldTargetCheck | null, codePoint: number): number {
+  if (isFoldTarget?.(codePoint)) return -1 - codePoint
+  let low = 0
+  let high = starts.length
+  while (low < high) {
+    const middle = (low + high) >>> 1
+    if (starts[middle] <= codePoint) low = middle + 1
+    else high = middle
+  }
+  return low
+}
+
+export function codePointClasses(starts: Uint32Array, isFoldTarget: FoldTargetCheck | null): CodePointClasses {
+  const direct = new Int32Array(DIRECT_CLASS_CODE_POINTS)
+  for (let codePoint = 0; codePoint < direct.length; codePoint++) {
+    direct[codePoint] = searchedClass(starts, isFoldTarget, codePoint)
+  }
+  return { starts, isFoldTarget, direct }
+}
+
+export function classOf(program: PatternProgram, codePoint: number): number {
+  const { classes } = program
+  if (codePoint < classes.direct.length) return classes.direct[codePoint]
+  return searchedClass(classes.starts, classes.isFoldTarget, codePoint)
 }
 
 export function isWordCodePoint(codePoint: number): boolean {

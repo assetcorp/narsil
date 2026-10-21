@@ -1,6 +1,12 @@
 import { MATCHER_STATE_OVERHEAD_BYTES } from '../core/pattern-index/constants'
-import { BEFORE_VALUE_START, type PatternProgram } from './automaton'
-import { MATCHER_KEY_CHARACTER_BYTES, MATCHER_MIN_CODE_POINTS_PER_STATE, MATCHER_TRANSITION_BYTES } from './constants'
+import { BEFORE_VALUE_START, classOf, type PatternProgram } from './automaton'
+import {
+  MATCHER_EDGE_SLOT_BYTES,
+  MATCHER_KEY_CHARACTER_BYTES,
+  MATCHER_MIN_CODE_POINTS_PER_STATE,
+  MATCHER_TRANSITION_BYTES,
+  MAX_DENSE_EDGE_CLASSES,
+} from './constants'
 import { PositionSimulation, STEP_DEAD, STEP_MATCHED } from './position-simulation'
 import type { WorkTally } from './work-tally'
 
@@ -8,7 +14,8 @@ interface DfaState {
   readonly positions: Uint32Array
   readonly previousKind: number
   readonly generation: number
-  readonly edges: Map<number, DfaEdge>
+  denseEdges: Array<DfaEdge | undefined> | null
+  sparseEdges: Map<number, DfaEdge> | null
   endMatch: boolean | null
 }
 
@@ -25,9 +32,15 @@ function decidedState(): DfaState {
     positions: new Uint32Array(0),
     previousKind: BEFORE_VALUE_START,
     generation: DECIDED_GENERATION,
-    edges: new Map(),
+    denseEdges: null,
+    sparseEdges: null,
     endMatch: null,
   }
+}
+
+function clearEdges(state: DfaState): void {
+  state.denseEdges = null
+  state.sparseEdges = null
 }
 
 const MATCHED = decidedState()
@@ -52,11 +65,16 @@ export class LazyDfa {
   private decided: boolean | null = null
   private readonly simulation: PositionSimulation
   private readonly cacheLimitBytes: number
+  private readonly directClasses: Int32Array
+  private readonly denseClasses: number
 
   constructor(
     private readonly program: PatternProgram,
     stateLimitBytes: number,
   ) {
+    this.directClasses = program.classes.direct
+    const classCount = program.classes.starts.length + 1
+    this.denseClasses = classCount <= MAX_DENSE_EDGE_CLASSES ? classCount : 0
     this.simulation = new PositionSimulation(program)
     this.cacheLimitBytes = stateLimitBytes - program.bytes - this.simulation.bytes
     this.start = this.intern(new Uint32Array(0), BEFORE_VALUE_START)
@@ -85,7 +103,9 @@ export class LazyDfa {
       return true
     }
     this.codePointsSinceReset++
-    const edge = this.edge(this.state, codePoint)
+    const direct = this.directClasses
+    const codePointClass = codePoint < direct.length ? direct[codePoint] : classOf(this.program, codePoint)
+    const edge = this.edge(this.state, codePoint, codePointClass)
     tally.add(edge.steps)
     if (edge.target === MATCHED) return this.decide(true)
     if (edge.target === DEAD) return this.decide(false)
@@ -129,17 +149,18 @@ export class LazyDfa {
   }
 
   private dropCache(): void {
-    for (const state of this.states.values()) state.edges.clear()
-    this.start.edges.clear()
-    this.state.edges.clear()
+    for (const state of this.states.values()) clearEdges(state)
+    clearEdges(this.start)
+    clearEdges(this.state)
     this.states = new Map()
     this.cachedBytes = 0
   }
 
-  private edge(state: DfaState, codePoint: number): DfaEdge {
+  private edge(state: DfaState, codePoint: number, codePointClass: number): DfaEdge {
     const current = state.generation === this.generation
+    const dense = codePointClass >= 0 && codePointClass < this.denseClasses
     if (current) {
-      const cached = state.edges.get(codePoint)
+      const cached = dense ? state.denseEdges?.[codePointClass] : state.sparseEdges?.get(codePointClass)
       if (cached !== undefined) return cached
     }
     const { simulation } = this
@@ -153,7 +174,17 @@ export class LazyDfa {
     const targetCached = target.generation === DECIDED_GENERATION || target.generation === this.generation
     if (!current || state.generation !== this.generation || !targetCached) return edge
     if (!this.reserve(MATCHER_TRANSITION_BYTES) || state.generation !== this.generation) return edge
-    state.edges.set(codePoint, edge)
+    if (!dense) {
+      state.sparseEdges ??= new Map()
+      state.sparseEdges.set(codePointClass, edge)
+      return edge
+    }
+    if (state.denseEdges === null) {
+      const slotBytes = this.denseClasses * MATCHER_EDGE_SLOT_BYTES
+      if (!this.reserve(slotBytes) || state.generation !== this.generation) return edge
+      state.denseEdges = new Array<DfaEdge | undefined>(this.denseClasses).fill(undefined)
+    }
+    state.denseEdges[codePointClass] = edge
     return edge
   }
 
@@ -165,7 +196,8 @@ export class LazyDfa {
       positions,
       previousKind,
       generation,
-      edges: new Map(),
+      denseEdges: null,
+      sparseEdges: null,
       endMatch: null,
     })
     if (!this.reserve(stateBytes(positions, key))) return fresh(UNCACHED_GENERATION)

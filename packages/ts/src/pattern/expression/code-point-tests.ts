@@ -47,6 +47,8 @@ function rangeBoundsOf(items: readonly SetItem[]): number[] {
 function rangeTest(ranges: Uint32Array, negated: boolean): CodePointTest {
   return {
     bytes: ranges.byteLength + CODE_POINT_TEST_ENTRY_BYTES,
+    ranges,
+    isFoldTarget: null,
     has: codePoint => inRanges(ranges, codePoint) !== negated,
   }
 }
@@ -59,6 +61,8 @@ function foldedRangeTest(ranges: Uint32Array, negated: boolean, host: PatternHos
   }
   return {
     bytes: ranges.byteLength + CODE_POINT_TEST_ENTRY_BYTES,
+    ranges,
+    isFoldTarget: folded => host.singleFoldSources(folded).length > 0,
     has: folded => holdsFold(folded) !== negated,
   }
 }
