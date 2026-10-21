@@ -30,7 +30,7 @@ function refusedRegex(filters: unknown, allowRegex: boolean): NarsilError | null
   if (fieldPath === null) return null
   return new NarsilError(
     ErrorCodes.SEARCH_INVALID_FILTER,
-    `This server refuses every "regex" test, because its operator set the allowRegex server option to false. Test field "${fieldPath}" with "contains" or "wildcard" instead`,
+    `This server refuses every "regex" test, because its operator set the allowRegex server option to false. Test field "${fieldPath}" with "contains" or "wildcard"`,
     { fieldPath, operator: 'regex', option: 'allowRegex' },
   )
 }

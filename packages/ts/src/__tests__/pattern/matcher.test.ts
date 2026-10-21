@@ -108,7 +108,7 @@ describe('the pattern matcher', () => {
     expect(folds).toBeLessThanOrEqual(5)
   })
 
-  it('holds the longest literal test within the share of state that the widest split gives each copy', () => {
+  it('keeps the longest literal test within the share of state that each copy gets in the widest split', () => {
     const widest = widestPatternSplit(smallestMatcherBytes(MAX_PATTERN_POSITIONS))
     const doubleFolds = ['ß', 'ﬀ', 'ﬁ', 'ﬂ', 'ﬆ']
     const text = Array.from(
@@ -151,7 +151,7 @@ describe('the pattern matcher', () => {
     }
   })
 
-  it('counts one step for each position that a match can reach at each code point it checks', () => {
+  it('counts one step for each position that a match can reach at each code point that it checks', () => {
     const values = ['xxabc', 'xxabd']
     const index = indexOf(values)
     const meter = joinPatternWorkMeter(createPatternWorkMeter(WORK_CAP).fork(1).shared)
@@ -173,7 +173,7 @@ describe('the pattern matcher', () => {
     expect(meter.spent()).toBe(lookups + shortlistEntries + steps)
   })
 
-  it('builds each state in time that follows the steps it counts, however long the pattern', () => {
+  it('builds each state in time that grows with the steps that it counts, however long the pattern is', () => {
     const { program } = compileExpression('regex', distinctText(MAX_PATTERN_POSITIONS, CJK_FIRST), false, PATTERN_HOST)
     const dfa = new LazyDfa(program, MATCHER_STATE_BUDGET_BYTES)
     const meter = createPatternWorkMeter(WORK_CAP)

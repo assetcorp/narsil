@@ -27,17 +27,17 @@ export interface CompiledExpression {
 
 function describe(label: ExpressionLabel): string {
   return label.fieldPath === null
-    ? `The "${label.operator}" pattern`
-    : `The "${label.operator}" pattern on pattern field "${label.fieldPath}"`
+    ? `the "${label.operator}" pattern`
+    : `the "${label.operator}" pattern on pattern field "${label.fieldPath}"`
 }
 
 function failureFor(label: ExpressionLabel): Fail {
   return (reason, at) => {
-    throw new NarsilError(ErrorCodes.SEARCH_INVALID_FILTER, `${describe(label)} ${reason}, at code point ${at + 1}`, {
-      fieldPath: label.fieldPath,
-      operator: label.operator,
-      codePoint: at + 1,
-    })
+    throw new NarsilError(
+      ErrorCodes.SEARCH_INVALID_FILTER,
+      `The engine refuses ${describe(label)} at code point ${at + 1}. The pattern ${reason}`,
+      { fieldPath: label.fieldPath, operator: label.operator, codePoint: at + 1 },
+    )
   }
 }
 
@@ -49,7 +49,7 @@ function parsedWithinLimits(label: ExpressionLabel, text: string, caseFold: bool
   if (positions > MAX_PATTERN_POSITIONS) {
     throw new NarsilError(
       ErrorCodes.SEARCH_INVALID_FILTER,
-      `${describe(label)} has more than ${MAX_PATTERN_POSITIONS} positions${caseFold ? ' once case folded' : ''}, so the engine refuses it before it builds a matcher. Each code point, class, and set counts once, a count such as {5} multiplies what it repeats, and a number range counts as the pattern it stands for`,
+      `The engine refuses ${describe(label)} before it builds a matcher, because the pattern holds more than ${MAX_PATTERN_POSITIONS} positions${caseFold ? ' once the engine folds its case' : ''}. A literal code point, a class, and a set each count as one position. A count such as {5} multiplies the positions of what it repeats. A number range counts the positions of the pattern that it stands for`,
       { fieldPath: label.fieldPath, operator: label.operator, limit: MAX_PATTERN_POSITIONS },
     )
   }
