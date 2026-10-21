@@ -21,7 +21,8 @@ export function numberRange(low: string, high: string): string {
   const highest = Number(high)
   const parts: string[] = []
   let start = Number(low)
-  for (let width = String(start).length; width <= high.length && start <= highest; width++) {
+  const widest = String(highest).length
+  for (let width = String(start).length; width <= widest; width++) {
     const last = Math.min(highest, 10 ** width - 1)
     parts.push(sameWidth(String(start), String(last)))
     start = 10 ** width

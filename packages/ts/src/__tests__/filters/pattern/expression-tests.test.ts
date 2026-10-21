@@ -174,6 +174,8 @@ describe('a wildcard or regex test on a pattern field', () => {
       'a{3,2}',
       'a{x}',
       '[]',
+      '[^]',
+      '[^]a]',
       '[a-]',
       '[-a]',
       '[z-a]',
