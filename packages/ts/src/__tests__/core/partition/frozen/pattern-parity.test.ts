@@ -13,6 +13,7 @@ import { buildSegmentPayload } from '../../../../core/partition/segment-builder'
 import { createPatternWorkMeter } from '../../../../core/pattern-index/work-meter'
 import type { FieldFilter } from '../../../../types/filters'
 import type { AnyDocument } from '../../../../types/schema'
+import { EXPRESSION_PROBES } from '../../../filters/pattern/expression-probes'
 import { PROBE_TEXTS, patternConfig, patternDocuments, referenceIds } from '../../../filters/pattern/fixtures'
 import { english } from '../../partition-index/fixtures'
 
@@ -28,6 +29,8 @@ function probes(): FieldFilter[] {
     }
   }
   list.push({ in: ['ab', 'STRASSE', 'beta'] }, { nin: ['ab', 'beta'], caseFold: true })
+  for (const probe of EXPRESSION_PROBES)
+    list.push(probe, { ...probe, caseFold: !('caseFold' in probe && probe.caseFold) })
   return list
 }
 

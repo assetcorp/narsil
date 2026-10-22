@@ -129,6 +129,21 @@ describe('validateFilterExpression operands', () => {
     expect(() => validateFilterExpression({ fields: { code: { contains: 3 } } }, 'filters')).toThrow(/contains/)
   })
 
+  it('accepts wildcard and regex patterns up to the length limit in code points, and refuses any other operand', () => {
+    const astral = '😀'.repeat(MAX_FILTER_STRING_LENGTH)
+    for (const operator of ['wildcard', 'regex']) {
+      expect(() => validateFilterExpression({ fields: { code: { [operator]: astral } } }, 'filters')).not.toThrow()
+      expect(() => validateFilterExpression({ fields: { code: { [operator]: `${astral}x` } } }, 'filters')).toThrow(
+        /code points/,
+      )
+      for (const operand of [3, null, ['a'], { a: 1 }]) {
+        expect(() => validateFilterExpression({ fields: { code: { [operator]: operand } } }, 'filters')).toThrow(
+          new RegExp(operator),
+        )
+      }
+    }
+  })
+
   it('rejects exists with a non-boolean', () => {
     expect(() =>
       validateFilterExpression({ fields: { name: { exists: 'yes' as unknown as boolean } } }, 'filters'),

@@ -7,6 +7,7 @@ import type { ResolvedLimits } from '../deps'
 import { parseJson, rejectInvalid, respondError, respondJson } from '../handler-utils'
 import { createDocumentReadHandlers } from '../handlers/document-reads'
 import { versionReport } from '../handlers/version'
+import { refuseRegex } from '../regex-policy'
 import { createRouteRunner, type RouteContext, type RouteHandler } from '../request'
 import { registerServerRoutes, type ServerHandlers, serverRoutes } from '../routes'
 import { loadUWebSockets } from '../runtime'
@@ -33,12 +34,13 @@ function onWholeDocuments(local: ThreadReadEngine, handler: RouteHandler, fallba
 interface SearchHandlerOptions {
   fallback: RouteHandler
   maxResultWindow: number
+  allowRegex: boolean
   staysOnThread: (indexName: string, params: QueryParams) => boolean
   answer: (indexName: string, params: QueryParams) => Promise<unknown>
 }
 
 function searchHandler(options: SearchHandlerOptions): RouteHandler {
-  const { fallback, maxResultWindow, staysOnThread, answer } = options
+  const { fallback, maxResultWindow, allowRegex, staysOnThread, answer } = options
   return async ctx => {
     const params = parseJson<QueryParams>(ctx)
     if (!params) return
@@ -47,6 +49,7 @@ function searchHandler(options: SearchHandlerOptions): RouteHandler {
       rejectInvalid(ctx, failure)
       return
     }
+    if (refuseRegex(ctx, params.filters, allowRegex)) return
     if (!staysOnThread(ctx.params[0], params)) {
       await fallback(ctx)
       return
@@ -95,7 +98,8 @@ function relayedHandlers(relay: RelayClient, limits: ResolvedLimits): Record<Rel
 }
 
 function threadHandlers(local: ThreadReadEngine, relay: RelayClient, settings: RequestThreadSettings): ServerHandlers {
-  const reads = createDocumentReadHandlers({ engine: local, limits: settings.limits })
+  const { allowRegex } = settings
+  const reads = createDocumentReadHandlers({ engine: local, limits: settings.limits, allowRegex })
   const forwarded = relayedHandlers(relay, settings.limits)
   const { maxResultWindow } = settings.limits
   return {
@@ -106,12 +110,14 @@ function threadHandlers(local: ThreadReadEngine, relay: RelayClient, settings: R
     search: searchHandler({
       fallback: forwarded.search,
       maxResultWindow,
+      allowRegex,
       staysOnThread: (name, params) => local.canAnswer(name, params),
       answer: (name, params) => local.query(name, params),
     }),
     preflight: searchHandler({
       fallback: forwarded.preflight,
       maxResultWindow,
+      allowRegex,
       staysOnThread: (name, params) => local.canCount(name, params),
       answer: (name, params) => local.preflight(name, params),
     }),

@@ -27,33 +27,43 @@ export type ComparisonFilter = {
 
 /**
  * The engine tests a text field against this filter for equality, for a text
- * range, or with the set and prefix tests.
+ * range, or with the set, prefix, and pattern tests.
  *
- * The engine compares each element of a `string[]`, `verbatim[]`, or `enum[]` field, so
- * it matches a document with `eq`, `in`, `startsWith`, `endsWith`, or
- * `contains` where one element passes the test, while it matches a document
- * with `ne` or `nin` where every element differs from the values.
+ * On a `string[]`, `verbatim[]`, or `enum[]` field, the engine tests each
+ * element of the list on its own. A document passes `eq`, `in`, `startsWith`,
+ * `endsWith`, `contains`, `wildcard`, or `regex` when one element passes the
+ * test. However, a document passes `ne` or `nin` only when every element
+ * differs from the values.
  *
  * The engine applies the range tests `gt`, `gte`, `lt`, `lte`, and `between`
- * to a single `string` or `verbatim` field whose type includes `sortable`,
- * while it throws `SEARCH_INVALID_FILTER` for a text range on any other field.
- * It orders the values as a sort on the field does, comparing their case folds
- * first and their raw code points only where the folds are equal.
+ * to a single `string` or `verbatim` field whose type includes `sortable`. It
+ * throws `SEARCH_INVALID_FILTER` for a text range on any other field. It
+ * orders the values as a sort on the field does, so it compares their case
+ * folds first and compares their raw code points only where the folds are
+ * equal.
  *
  * A pattern field is a `verbatim` or `verbatim[]` field, or a `string` or
- * `string[]` field whose type includes `pattern`. On such a field, the engine
- * answers `eq`, `ne`, `in`, `nin`, `startsWith`, `endsWith`, and `contains`
- * from the field's pattern index. `caseFold` applies to each of those tests.
+ * `string[]` field whose type includes `pattern`. On a pattern field, the
+ * engine answers `eq`, `ne`, `in`, `nin`, `startsWith`, `endsWith`,
+ * `contains`, `wildcard`, and `regex` from the field's pattern index, and
+ * `caseFold` applies to each of those tests. The engine compares the code
+ * points of each value as they are stored, with no Unicode normalisation.
+ *
  * On an `enum` or `enum[]` field, the engine answers `eq`, `ne`, `in`, `nin`,
- * `startsWith`, and `endsWith` from the field's index of values. It throws
- * `SEARCH_INVALID_FILTER` for `eq`, `ne`, `in`, `nin`, `startsWith`, or
- * `endsWith` on a `string` or `string[]` field whose type leaves out
- * `pattern`, because such a field keeps no index of whole values.
- * The engine compares the code points of each value as stored, with no
- * Unicode normalisation. It throws `SEARCH_INVALID_FILTER` for `contains` or
- * `caseFold` on any other field, for a test text longer than 1,024 code points
- * on a pattern field, and for a `caseFold` test whose text has a case fold
- * longer than 2,048 code points.
+ * `startsWith`, and `endsWith` from the field's index of values. A `string` or
+ * `string[]` field whose type leaves out `pattern` keeps no index of whole
+ * values, so the engine throws `SEARCH_INVALID_FILTER` for those six tests,
+ * and for `matchesAny` and `containsAll`, on such a field.
+ *
+ * The engine also throws `SEARCH_INVALID_FILTER` in these cases:
+ *
+ * - The filter sets `contains`, `wildcard`, `regex`, or `caseFold` on a field
+ *   that is not a pattern field.
+ * - The text or the pattern of a test on a pattern field holds more than 1,024
+ *   code points.
+ * - A literal test under `caseFold` has a text whose case fold holds more than
+ *   2,048 code points.
+ * - A `wildcard` or `regex` pattern breaks its syntax or one of its limits.
  *
  * @public
  */
@@ -79,10 +89,54 @@ export type StringFilter = Pick<ComparisonFilter, 'eq' | 'ne'> & {
   /** This matches a pattern field whose value holds the text anywhere in it. */
   contains?: string
   /**
+   * This matches a pattern field when the whole value matches the wildcard
+   * pattern. For example, `INV-*-2024` matches `INV-0042-2024`.
+   *
+   * In the pattern, `*` matches any sequence of code points, including an
+   * empty one, and `?` matches exactly one code point. Write `\` before a code
+   * point to match that code point itself, so `\*` matches an asterisk.
+   *
+   * The engine throws `SEARCH_INVALID_FILTER` for a pattern that ends in a
+   * `\` with no code point after it. It throws the same error for a pattern
+   * with more than 2,048 positions. Each `*`, each `?`, and each other code
+   * point counts as one position, except that under `caseFold` a code point
+   * counts once for each code point of its case fold.
+   */
+  wildcard?: string
+  /**
+   * This matches a pattern field when some part of the value matches the
+   * regular expression. `^` and `$` match only at the start and at the end of
+   * the whole value.
+   *
+   * The engine accepts literal code points, `.`, `\d`, `\w`, and `\s`, sets
+   * such as `[a-z]` and `[^0-9]`, groups, and `|`. It also accepts the repeats
+   * `*`, `+`, `?`, `{n}`, `{n,}`, and `{n,m}`, the anchors `^` and `$`, the
+   * word edge `\b`, and number ranges such as `<1-65535>`. A number range
+   * matches the digits of any whole number from its low end to its high end.
+   * Write `\` before an ASCII punctuation mark to match the mark itself. The
+   * `.` matches any code point, including a line break.
+   *
+   * The matcher never backtracks, so it checks a value in at most as many
+   * steps as the value's code points multiplied by the pattern's positions.
+   *
+   * The engine throws `SEARCH_INVALID_FILTER` for any construct outside that
+   * syntax, such as a back-reference, a lookaround, a lazy repeat, or an inline
+   * flag. It throws the same error when the groups of a pattern nest more than
+   * 32 deep, when a count is above 2,048, and when a pattern holds more than
+   * 2,048 positions. When the operator of an HTTP server sets its `allowRegex`
+   * option to false, the server refuses every `regex` test.
+   */
+  regex?: string
+  /**
    * When this is true, the engine compares the case fold of each value of a
-   * pattern field with the case fold of the text, so a test for `error` matches
-   * `ERROR`. It applies to `eq`, `ne`, `in`, `nin`, `startsWith`, `endsWith`,
-   * and `contains`.
+   * pattern field with the case fold of the text, so a test for `error`
+   * matches `ERROR`. It applies to `eq`, `ne`, `in`, `nin`, `startsWith`,
+   * `endsWith`, `contains`, `wildcard`, and `regex`.
+   *
+   * Under `caseFold`, a set that does not open with `^` can also match a
+   * sequence of code points. When a member that the set holds on its own folds
+   * to several code points, the set matches that whole fold, so `[ß]` matches
+   * `ss`.
    */
   caseFold?: boolean
 }

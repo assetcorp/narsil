@@ -1,94 +1,115 @@
-import { MATCHER_SIMULATION_BYTES_PER_POSITION } from '../core/pattern-index/constants'
-import { hasPosition, type PositionAutomaton } from './automaton'
+import {
+  AFTER_VALUE_END,
+  accepts,
+  BEFORE_VALUE_START,
+  type ClosureScratch,
+  closeOver,
+  contextOf,
+  createClosureScratch,
+  kindOf,
+  MATCH_REACHED,
+  type PatternProgram,
+} from './automaton'
+import { SIMULATION_POSITION_BYTES, SIMULATION_STATE_BYTES } from './constants'
 
-const LAST_STAMP = 0xffffffff
+export const STEP_CONTINUES = 0
+export const STEP_MATCHED = 1
+export const STEP_DEAD = 2
+
+interface StartClosure {
+  readonly positions: Uint32Array
+  readonly matches: boolean
+}
+
+const CONTEXTS = 9
+
+export function simulationBytes(program: Pick<PatternProgram, 'states' | 'positions'>): number {
+  const startClosureBytes = CONTEXTS * Uint32Array.BYTES_PER_ELEMENT
+  return program.states * SIMULATION_STATE_BYTES + program.positions * (SIMULATION_POSITION_BYTES + startClosureBytes)
+}
 
 export class PositionSimulation {
-  accepting = false
-  private active: Uint32Array
-  private following: Uint32Array
-  private readonly marks: Uint32Array
-  private readonly first: Uint32Array
-  private activeCount = 0
-  private stamp = 0
+  steps = 0
+  previousKind = BEFORE_VALUE_START
+  private after: Uint32Array
+  private afterCount = 0
+  private readonly candidates: Uint32Array
+  private readonly scratch: ClosureScratch
+  private readonly starts: Array<StartClosure | null> = new Array(CONTEXTS).fill(null)
 
-  constructor(private readonly automaton: PositionAutomaton) {
-    this.active = new Uint32Array(automaton.size)
-    this.following = new Uint32Array(automaton.size)
-    this.marks = new Uint32Array(automaton.size)
-    const first: number[] = []
-    for (let position = 0; position < automaton.size; position++) {
-      if (hasPosition(automaton.first, position)) first.push(position)
-    }
-    this.first = Uint32Array.from(first)
-  }
-
-  get steps(): number {
-    return this.activeCount
+  constructor(private readonly program: PatternProgram) {
+    this.after = new Uint32Array(program.positions)
+    this.candidates = new Uint32Array(program.positions)
+    this.scratch = createClosureScratch(program.states)
   }
 
   get bytes(): number {
-    return this.automaton.size * MATCHER_SIMULATION_BYTES_PER_POSITION
+    return simulationBytes(this.program)
   }
 
   reset(): void {
-    this.active.set(this.first)
-    this.activeCount = this.first.length
-    this.accepting = this.automaton.nullable
+    this.afterCount = 0
+    this.previousKind = BEFORE_VALUE_START
   }
 
-  get firstPositions(): Uint32Array {
-    return this.first
+  load(positions: Uint32Array, previousKind: number): void {
+    this.after.set(positions)
+    this.afterCount = positions.length
+    this.previousKind = previousKind
   }
 
-  load(active: Uint32Array, accepting: boolean): void {
-    this.active.set(active)
-    this.activeCount = active.length
-    this.accepting = accepting
+  sortedAfter(): Uint32Array {
+    return this.after.slice(0, this.afterCount).sort()
   }
 
-  sortedActive(): Uint32Array {
-    return this.active.slice(0, this.activeCount).sort()
-  }
-
-  advance(codePoint: number): void {
-    const { automaton, marks } = this
-    const following = this.following
-    const stamp = this.nextStamp()
-    let count = 0
-    let accepting = false
-    for (let at = 0; at < this.activeCount; at++) {
-      const position = this.active[at]
-      if (!automaton.accepts(position, codePoint)) continue
-      if (hasPosition(automaton.last, position)) accepting = true
-      const followers = automaton.followerCount(position)
-      for (let index = 0; index < followers; index++) {
-        const follower = automaton.follower(position, index)
-        if (marks[follower] === stamp) continue
-        marks[follower] = stamp
-        following[count++] = follower
-      }
+  step(codePoint: number): number {
+    const { program, candidates } = this
+    const following = kindOf(codePoint)
+    const reached = this.close(contextOf(this.previousKind, following))
+    if (reached === MATCH_REACHED) {
+      this.steps = 0
+      return STEP_MATCHED
     }
-    if (!automaton.anchoredStart) {
-      for (const position of this.first) {
-        if (marks[position] === stamp) continue
-        marks[position] = stamp
-        following[count++] = position
-      }
-      if (automaton.nullable) accepting = true
+    this.steps = reached
+    let kept = 0
+    for (let at = 0; at < reached; at++) {
+      const position = candidates[at]
+      if (accepts(program, position, codePoint)) this.after[kept++] = position
     }
-    this.following = this.active
-    this.active = following
-    this.activeCount = count
-    this.accepting = accepting
+    this.afterCount = kept
+    this.previousKind = following
+    return kept === 0 && program.anchoredStart ? STEP_DEAD : STEP_CONTINUES
   }
 
-  private nextStamp(): number {
-    if (this.stamp === LAST_STAMP) {
-      this.marks.fill(0)
-      this.stamp = 0
+  endMatches(): boolean {
+    return this.close(contextOf(this.previousKind, AFTER_VALUE_END)) === MATCH_REACHED
+  }
+
+  private startClosure(context: number): StartClosure {
+    const known = this.starts[context]
+    if (known !== null) return known
+    const reached = closeOver(this.program, this.after, 0, true, context, this.scratch, this.candidates)
+    const closure: StartClosure =
+      reached === MATCH_REACHED
+        ? { positions: new Uint32Array(0), matches: true }
+        : { positions: this.candidates.slice(0, reached), matches: false }
+    this.starts[context] = closure
+    return closure
+  }
+
+  private close(context: number): number {
+    const fromStart = this.previousKind === BEFORE_VALUE_START || !this.program.anchoredStart
+    const start = fromStart ? this.startClosure(context) : null
+    if (start?.matches) return MATCH_REACHED
+    const { program, scratch, candidates } = this
+    let count = closeOver(program, this.after, this.afterCount, false, context, scratch, candidates)
+    if (count === MATCH_REACHED || start === null) return count
+    const { marks, stamp } = scratch
+    for (const position of start.positions) {
+      if (marks[position] === stamp) continue
+      marks[position] = stamp
+      candidates[count++] = position
     }
-    this.stamp++
-    return this.stamp
+    return count
   }
 }

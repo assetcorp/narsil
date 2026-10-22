@@ -208,6 +208,7 @@
     "etcd3": "1.1.2",
     "fflate": "0.8.3",
     "jsdom": "28.1.0",
+    "re2-wasm": "1.0.2",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "selfsigned": "5.5.0",
