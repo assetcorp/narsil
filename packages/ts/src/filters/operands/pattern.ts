@@ -2,8 +2,11 @@ import { exceedsCodePoints, foldedCodePointCount, holdsUnpairedSurrogate } from 
 import {
   MAX_PATTERN_POSITIONS,
   MAX_PATTERN_TEXT_CODE_POINTS,
+  PATTERN_EXPRESSION_OPERATORS,
   PATTERN_TEST_OPERATORS,
 } from '../../core/pattern-index/constants'
+import { PATTERN_HOST } from '../../core/pattern-index/host'
+import { requirePatternSearch } from '../../core/pattern-index/registry'
 import { parsedTypeOf } from '../../schema/validator/field-type'
 import type { FieldType } from '../../types/schema'
 import { invalid } from './checks'
@@ -19,14 +22,17 @@ function requirePatternField(fieldPath: string, operator: string, type: FieldTyp
   )
 }
 
+function requireTextLength(fieldPath: string, operator: string, text: string): void {
+  if (!exceedsCodePoints(text, MAX_PATTERN_TEXT_CODE_POINTS)) return
+  invalid(
+    `The text of "${operator}" on pattern field "${fieldPath}" holds more than ${MAX_PATTERN_TEXT_CODE_POINTS} code points`,
+    fieldPath,
+    operator,
+  )
+}
+
 function requirePatternText(fieldPath: string, operator: string, text: string, caseFold: boolean): void {
-  if (exceedsCodePoints(text, MAX_PATTERN_TEXT_CODE_POINTS)) {
-    invalid(
-      `The text of "${operator}" on pattern field "${fieldPath}" holds more than ${MAX_PATTERN_TEXT_CODE_POINTS} code points`,
-      fieldPath,
-      operator,
-    )
-  }
+  requireTextLength(fieldPath, operator, text)
   if (caseFold && foldedCodePointCount(text) > MAX_PATTERN_POSITIONS) {
     invalid(
       `The text of "${operator}" on pattern field "${fieldPath}" has a case fold of more than ${MAX_PATTERN_POSITIONS} code points, while a pattern holds at most ${MAX_PATTERN_POSITIONS} positions`,
@@ -37,6 +43,24 @@ function requirePatternText(fieldPath: string, operator: string, text: string, c
 }
 
 const ELEMENT_OPERATORS = ['matchesAny', 'containsAll'] as const
+
+function requireExpressions(fieldPath: string, filter: Record<string, unknown>, type: FieldType | undefined): void {
+  for (const operator of PATTERN_EXPRESSION_OPERATORS) {
+    const pattern = filter[operator]
+    if (pattern === undefined) continue
+    if (typeof pattern !== 'string')
+      invalid(`"${operator}" on field "${fieldPath}" must be a string`, fieldPath, operator)
+    requirePatternField(fieldPath, operator, type)
+    requireTextLength(fieldPath, operator, pattern)
+    requirePatternSearch(fieldPath).checkExpression(
+      operator,
+      pattern,
+      filter.caseFold === true,
+      fieldPath,
+      PATTERN_HOST,
+    )
+  }
+}
 
 export function requirePatternOperands(
   fieldPath: string,
@@ -55,6 +79,7 @@ export function requirePatternOperands(
     }
     requirePatternField(fieldPath, 'caseFold', type)
   }
+  requireExpressions(fieldPath, filter, type)
   if (parsedTypeOf(type)?.pattern !== true) return
   const caseFold = filter.caseFold === true
   for (const operator of PATTERN_TEST_OPERATORS) {

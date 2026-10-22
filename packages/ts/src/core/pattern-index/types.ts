@@ -24,6 +24,7 @@ export interface PatternIndexWriter extends PatternIndexReader {
 
 export interface PatternHost {
   appendFoldedCodePoint(codePoint: number, out: number[]): void
+  singleFoldSources(folded: number): readonly number[]
 }
 
 export interface PatternWorkMeter {
@@ -33,7 +34,9 @@ export interface PatternWorkMeter {
   remaining(): number
 }
 
-export type PatternOperator = 'eq' | 'startsWith' | 'endsWith' | 'contains'
+export type ExpressionOperator = 'wildcard' | 'regex'
+
+export type PatternOperator = 'eq' | 'startsWith' | 'endsWith' | 'contains' | ExpressionOperator
 
 export interface PatternMatchRequest {
   readonly operator: PatternOperator
@@ -56,4 +59,12 @@ export interface PatternSearchModule extends PatternSearch {
   readArrays(arrays: PatternIndexArrays): PatternIndexReader
   mergeArrays(fieldPath: string, inputs: readonly PatternMergeInput[]): PatternIndexArrays
   matchInto(request: PatternMatchRequest): void
+  checkExpression(
+    operator: ExpressionOperator,
+    text: string,
+    caseFold: boolean,
+    fieldPath: string,
+    host: PatternHost,
+  ): void
+  expressionFootprint(operator: ExpressionOperator, text: string, caseFold: boolean, host: PatternHost): number
 }

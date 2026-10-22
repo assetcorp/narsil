@@ -1,0 +1,6 @@
+export const MAX_PATTERN_GROUP_DEPTH = 32
+export const MAX_PATTERN_REPEAT_COUNT = 2_048
+export const MAX_NUMBER_RANGE_DIGITS = 15
+export const CODE_POINT_TEST_ENTRY_BYTES = 8
+export const PROGRAM_STATE_BYTES = 11
+export const PROGRAM_POSITION_BYTES = 12

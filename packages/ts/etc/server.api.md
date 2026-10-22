@@ -302,6 +302,7 @@ export interface ServerLimits {
 // @public
 export interface ServerOptions {
     allowInsecure?: boolean;
+    allowRegex?: boolean;
     build?: {
         version?: string;
         gitSha?: string;

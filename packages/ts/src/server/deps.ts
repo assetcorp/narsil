@@ -28,6 +28,7 @@ export interface HandlerDeps {
   engine: Narsil
   tasks: TaskRegistry
   limits: ResolvedLimits
+  allowRegex: boolean
   isReady: () => boolean
   build: ResolvedBuild
   cluster: ClusterNamespace | undefined

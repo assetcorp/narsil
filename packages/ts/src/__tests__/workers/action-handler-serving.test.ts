@@ -49,6 +49,7 @@ function settings(): RequestThreadSettings {
     authorizes: false,
     searchHooks: false,
     patternWorkCap: DEFAULT_PATTERN_WORK_CAP,
+    allowRegex: true,
   }
 }
 
