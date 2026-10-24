@@ -150,6 +150,7 @@ function narsilMatches(values: readonly string[], index: PatternIndexWriter, pat
     operator: 'regex',
     text: pattern,
     caseFold: false,
+    tolerance: 0,
     index,
     matches,
     meter,

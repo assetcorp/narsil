@@ -2,6 +2,7 @@ import type { FieldFilter } from '../../../types/filters'
 import type { AnyDocument, SchemaDefinition } from '../../../types/schema'
 import { randomExpressionProbe } from '../../filters/pattern/expression-probes'
 import { seededRandom } from '../../filters/pattern/random-corpus'
+import { acceptedTolerance } from '../../filters/pattern/typo-oracle'
 import { codePointsOf, textValuesOf } from './oracle'
 
 export const INDEX = 'operations'
@@ -104,7 +105,50 @@ export function generatedProbes(
   return probes
 }
 
+const TYPO_CODE_POINTS = ['x', 'Z', '0', '-', 'ß', 'σ', '😀']
+const TYPO_TOLERANCES = [0, 1, 2, 'auto'] as const
+
+function misspelt(value: string, edits: number, random: () => number): string {
+  const characters = Array.from(value)
+  for (let edit = 0; edit < edits; edit++) {
+    const at = Math.floor(random() * (characters.length + 1))
+    const replacement = TYPO_CODE_POINTS[Math.floor(random() * TYPO_CODE_POINTS.length)]
+    const kind = Math.floor(random() * 3)
+    if (kind === 0) characters.splice(at, 0, replacement)
+    else if (kind === 1) characters.splice(at, 1)
+    else characters.splice(at, 1, replacement)
+  }
+  return characters.join('')
+}
+
+export function typoProbes(
+  documents: readonly AnyDocument[],
+  count: number,
+  seed: number,
+): Array<[PatternField, FieldFilter]> {
+  const random = seededRandom(seed)
+  const fields: PatternField[] = ['line', 'sku', 'emails']
+  const probes: Array<[PatternField, FieldFilter]> = []
+  while (probes.length < count) {
+    const field = fields[Math.floor(random() * fields.length)]
+    const values = textValuesOf(documents[Math.floor(random() * documents.length)], field)
+    if (values.length === 0) continue
+    const value = values[Math.floor(random() * values.length)]
+    const text = variantOf(misspelt(value, Math.floor(random() * 3), random), random)
+    const tolerance = TYPO_TOLERANCES[Math.floor(random() * TYPO_TOLERANCES.length)]
+    if (acceptedTolerance(text, tolerance) === null) continue
+    probes.push([field, { eq: text, tolerance, caseFold: random() < 0.5 }])
+  }
+  return probes
+}
+
 export const EDGE_PROBES: Array<[PatternField, FieldFilter]> = [
+  ['sku', { eq: 'SKU-2O22-00002', tolerance: 1 }],
+  ['sku', { eq: 'sku-2O22-0002', tolerance: 2, caseFold: true }],
+  ['sku', { eq: 'SKU-2022-00002', tolerance: 'auto', ne: 'SKU-2022-00002' }],
+  ['emails', { eq: 'kofi.boateng@mail.exampel.com', tolerance: 'auto' }],
+  ['emails', { eq: 'JURGEN.WEISS@STRASE.DE', tolerance: 2, caseFold: true }],
+  ['line', { eq: '2024-03-02T10:01:00Z error [auth] Timeout after 3000 ms (attempt 2)', tolerance: 'auto' }],
   ['line', { contains: 'refused' }],
   ['line', { contains: 'REFUSED', caseFold: true }],
   ['line', { contains: 'strasse-router', caseFold: true }],

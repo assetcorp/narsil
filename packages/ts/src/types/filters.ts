@@ -139,6 +139,33 @@ export type StringFilter = Pick<ComparisonFilter, 'eq' | 'ne'> & {
    * `ss`.
    */
   caseFold?: boolean
+  /**
+   * This lets the `eq` test of a pattern field match a value within this many
+   * edits of the text, so a test for `INV-2O24` with a tolerance of 1 matches
+   * `INV-2024`. An edit inserts, deletes, or replaces one code point, so a
+   * swap of two neighbouring code points counts as two edits. With `caseFold`,
+   * the engine counts the edits between the case folds of the value and the
+   * text. The tolerance applies to `eq` alone, so the other tests of the field
+   * still compare exactly.
+   *
+   * The engine takes its candidates from the pattern index, so the case fold
+   * of the text has to hold enough distinct runs of three code points. For a
+   * tolerance of `k`, the engine needs `k × (2 + f) + 1` runs, where `f` is
+   * the number of code points in the longest case fold among the text's code
+   * points, which is 1 for most text. A tolerance of 1 on `INV-2O24`
+   * therefore needs 4 of its 6 runs, while a tolerance of 2 needs 7. Under
+   * `'auto'`, the engine uses 2 where the text holds enough runs for 2,
+   * otherwise 1 where it holds enough for 1, and otherwise 0.
+   *
+   * The engine throws `SEARCH_INVALID_FILTER` for a tolerance of 1 or 2 on a
+   * text with too few runs, stating how many runs that tolerance needs. It
+   * throws the same error for any other tolerance, for a tolerance on a field
+   * that is not a pattern field, and for a tolerance in a filter without an
+   * `eq` test. Towards the pattern work cap, it counts one unit for each cell
+   * that it fills in the table of edit distances between the text and a
+   * value.
+   */
+  tolerance?: 0 | 1 | 2 | 'auto'
 }
 
 /**

@@ -22,6 +22,10 @@ const NORMAL_FILTERS = { fields: { sku: { eq: 'SKU-2022-00002' } } }
 const MISSED_TEST_POSITION = 30
 const PARTITIONS = 8
 const MAX_PATTERN_POSITIONS = 2_048
+const TYPO_FIRST = 0x8000
+const NEAR_MISS_VALUES = 2_000
+const TYPO_SECOND_EDIT_FIRST = 100
+const TYPO_SECOND_EDIT_SPAN = 800
 
 function nearMissOf(test: string): string {
   const characters = Array.from(test)
@@ -39,7 +43,16 @@ function scatteredCorpus(count: number, test: string): AnyDocument[] {
   })
 }
 
+function nearMissCorpus(count: number, test: string): AnyDocument[] {
+  return Array.from({ length: count }, (_, at) => {
+    const characters = Array.from(nearMissOf(test))
+    characters[TYPO_SECOND_EDIT_FIRST + (at % TYPO_SECOND_EDIT_SPAN)] = 'y'
+    return { id: `near${at}`, body: 'entry', line: characters.join('') }
+  })
+}
+
 const HOSTILE_TEXT = repeatedCodePoints(CJK_FIRST, MAX_TEXT_CODE_POINTS)
+const TYPO_TEXT = repeatedCodePoints(TYPO_FIRST, MAX_TEXT_CODE_POINTS)
 
 describe.each([
   { where: 'on the main thread', workers: NO_WORKERS, runnable: true },
@@ -57,6 +70,7 @@ describe.each([
         ...operationsCorpus(2_000, 21),
         ...longValueCorpus(40, LONG_VALUE_CODE_POINTS),
         ...scatteredCorpus(40, HOSTILE_TEXT),
+        ...nearMissCorpus(NEAR_MISS_VALUES, TYPO_TEXT),
       ],
       PARTITIONS,
     )
@@ -97,6 +111,11 @@ describe.each([
         { fields: { line: { wildcard: 7 } } },
         { fields: { body: { regex: 'entry' } } },
         { fields: { body: { wildcard: 'entry' } } },
+        { fields: { sku: { eq: 'SKU-2022-00002', tolerance: 3 } } },
+        { fields: { sku: { eq: 'SKU-2022-00002', tolerance: 'any' } } },
+        { fields: { sku: { eq: 'SKU-20', tolerance: 2 } } },
+        { fields: { sku: { contains: 'SKU-2022', tolerance: 1 } } },
+        { fields: { body: { eq: 'entry', tolerance: 'auto' } } },
       ]
       for (const filters of malformed) await expectRejected(server, filters, 'SEARCH_INVALID_FILTER')
       await expectRejected(server, { fields: { nowhere: { contains: 'x' } } }, 'SEARCH_INVALID_FIELD')
@@ -150,6 +169,19 @@ describe.each([
         status: 400,
         code: 'SEARCH_WORK_CAP_EXCEEDED',
       })
+
+      const tolerantTest = { fields: { line: { eq: TYPO_TEXT, tolerance: 2 } } }
+      const tolerant = searchBody({ or: [tolerantTest, tolerantTest, tolerantTest] })
+      const tolerantAnswer = await expectServedWhileHostile(
+        server,
+        tolerant,
+        NORMAL_FILTERS,
+        'distance tables past the work cap',
+      )
+      expect({ status: tolerantAnswer.status, code: tolerantAnswer.code }).toEqual({
+        status: 400,
+        code: 'SEARCH_WORK_CAP_EXCEEDED',
+      })
     },
     60_000,
   )
@@ -200,6 +232,22 @@ describe.each([
           {
             or: Array.from({ length: MAX_FILTER_TESTS }, (_, at) => ({
               fields: { line: { regex: `[ab]*${String.fromCodePoint(0x4e00 + at)}[ab]{1000}` } },
+            })),
+          },
+        ],
+        [
+          'a long test with a tolerance of 2 that fills a distance table for thousands of values',
+          { fields: { line: { eq: TYPO_TEXT, tolerance: 2 } } },
+        ],
+        [
+          'a long test with a tolerance of 2 against scattered values',
+          { fields: { line: { eq: HOSTILE_TEXT, tolerance: 2 } } },
+        ],
+        [
+          'as many long tests with a tolerance of 2 as a filter can hold',
+          {
+            or: Array.from({ length: MAX_FILTER_TESTS }, (_, at) => ({
+              fields: { line: { eq: repeatedCodePoints(CJK_FIRST + at, 1_000), tolerance: 2 } },
             })),
           },
         ],
