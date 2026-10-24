@@ -79,7 +79,7 @@ function elementBits(context: FilterContext, fieldPath: string, parsed: ParsedFi
   const { capacity } = context
   if (parsed.pattern) {
     const matches = createBitSet(capacity)
-    context.matchPattern(fieldPath, 'eq', value as string, false, matches)
+    context.matchPattern(fieldPath, 'eq', value as string, false, 0, matches)
     return matches
   }
   if (typeof value === 'number')
@@ -98,7 +98,7 @@ function anyElementBits(
   const { capacity } = context
   const union = createBitSet(capacity)
   if (parsed.pattern) {
-    for (const value of values) context.matchPattern(fieldPath, 'eq', value as string, false, union)
+    for (const value of values) context.matchPattern(fieldPath, 'eq', value as string, false, 0, union)
     return union
   }
   if (parsed.base === 'enum[]') {

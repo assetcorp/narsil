@@ -1,6 +1,7 @@
 export interface FuzzyMatch {
   distance: number
   withinTolerance: boolean
+  cells: number
 }
 
 type Characters = string | readonly string[]
@@ -39,8 +40,13 @@ export function fuzzyTermMatches(
 }
 
 export function boundedLevenshtein(a: string, b: string, tolerance: number): FuzzyMatch {
-  if (tolerance < 0) return { distance: -1, withinTolerance: false }
-  if (a === b) return { distance: 0, withinTolerance: true }
+  if (tolerance < 0) return { distance: -1, withinTolerance: false, cells: 0 }
+  if (a === b) return { distance: 0, withinTolerance: true, cells: 0 }
+  return tabulatedLevenshtein(a, b, tolerance)
+}
+
+export function tabulatedLevenshtein(a: string, b: string, tolerance: number): FuzzyMatch {
+  if (tolerance < 0) return { distance: -1, withinTolerance: false, cells: 0 }
   if (hasSurrogate(a) || hasSurrogate(b)) return bandedDistance(Array.from(a), Array.from(b), tolerance)
   return bandedDistance(a, b, tolerance)
 }
@@ -50,12 +56,13 @@ function bandedDistance(a: Characters, b: Characters, tolerance: number): FuzzyM
   const n = b.length
   const beyond = tolerance + 1
 
-  if (Math.abs(m - n) > tolerance) return { distance: beyond, withinTolerance: false }
+  if (Math.abs(m - n) > tolerance) return { distance: beyond, withinTolerance: false, cells: 0 }
 
   let previous = new Uint32Array(n + 1).fill(beyond)
   let current = new Uint32Array(n + 1).fill(beyond)
   const firstRowEnd = Math.min(n, tolerance)
   for (let j = 0; j <= firstRowEnd; j++) previous[j] = j
+  let cells = 0
 
   for (let i = 1; i <= m; i++) {
     const low = Math.max(1, i - tolerance)
@@ -63,6 +70,7 @@ function bandedDistance(a: Characters, b: Characters, tolerance: number): FuzzyM
     current[low - 1] = low === 1 ? i : beyond
     let rowMin = current[low - 1]
     const character = a[i - 1]
+    if (high >= low) cells += high - low + 1
 
     for (let j = low; j <= high; j++) {
       const substitution = previous[j - 1] + (character === b[j - 1] ? 0 : 1)
@@ -71,12 +79,12 @@ function bandedDistance(a: Characters, b: Characters, tolerance: number): FuzzyM
       if (cell < rowMin) rowMin = cell
     }
 
-    if (rowMin > tolerance) return { distance: beyond, withinTolerance: false }
+    if (rowMin > tolerance) return { distance: beyond, withinTolerance: false, cells }
     const finished = previous
     previous = current
     current = finished
   }
 
   const distance = previous[n]
-  return { distance, withinTolerance: distance <= tolerance }
+  return { distance, withinTolerance: distance <= tolerance, cells }
 }

@@ -7,6 +7,13 @@ import {
 } from '../../core/pattern-index/constants'
 import { PATTERN_HOST } from '../../core/pattern-index/host'
 import { requirePatternSearch } from '../../core/pattern-index/registry'
+import {
+  distinctTypoRunCount,
+  foldTypoText,
+  isPatternTolerance,
+  typoRunsNeeded,
+} from '../../core/pattern-index/typo-runs'
+import { ErrorCodes, NarsilError } from '../../errors'
 import { parsedTypeOf } from '../../schema/validator/field-type'
 import type { FieldType } from '../../types/schema'
 import { invalid } from './checks'
@@ -80,6 +87,7 @@ export function requirePatternOperands(
     requirePatternField(fieldPath, 'caseFold', type)
   }
   requireExpressions(fieldPath, filter, type)
+  if (filter.tolerance !== undefined) requirePatternField(fieldPath, 'tolerance', type)
   if (parsedTypeOf(type)?.pattern !== true) return
   const caseFold = filter.caseFold === true
   for (const operator of PATTERN_TEST_OPERATORS) {
@@ -97,6 +105,32 @@ export function requirePatternOperands(
       if (typeof text === 'string') requirePatternText(fieldPath, operator, text, false)
     }
   }
+  requireTolerance(fieldPath, filter)
+}
+
+function requireTolerance(fieldPath: string, filter: Record<string, unknown>): void {
+  const { tolerance, eq } = filter
+  if (tolerance === undefined) return
+  if (!isPatternTolerance(tolerance)) {
+    invalid(`"tolerance" on field "${fieldPath}" must be 0, 1, 2, or "auto"`, fieldPath, 'tolerance')
+  }
+  if (typeof eq !== 'string') {
+    invalid(
+      `"tolerance" applies only to an "eq" test, while the filter on field "${fieldPath}" sets no "eq" with text`,
+      fieldPath,
+      'tolerance',
+    )
+  }
+  if (tolerance === 0 || tolerance === 'auto') return
+  const text = foldTypoText(eq, PATTERN_HOST)
+  const requiredRuns = typoRunsNeeded(tolerance, text.longestFold)
+  const distinctRuns = distinctTypoRunCount(text, requiredRuns)
+  if (distinctRuns >= requiredRuns) return
+  throw new NarsilError(
+    ErrorCodes.SEARCH_INVALID_FILTER,
+    `A tolerance of ${tolerance} on "eq" of pattern field "${fieldPath}" needs ${requiredRuns} distinct runs of three code points in the case fold of the text, while the text holds ${distinctRuns}. Lengthen the text, lower the tolerance, or set it to "auto"`,
+    { fieldPath, operator: 'tolerance', requiredRuns, distinctRuns },
+  )
 }
 
 export function requireWellFormedText(fieldPath: string, filter: Record<string, unknown>): void {
