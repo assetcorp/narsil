@@ -15,8 +15,8 @@ describe('boundedLevenshtein', () => {
   })
 
   it('counts each added character when the indexed word starts with the query', () => {
-    expect(boundedLevenshtein('cat', 'cats', 1)).toEqual({ distance: 1, withinTolerance: true })
-    expect(boundedLevenshtein('sec', 'secur', 1)).toEqual({ distance: 2, withinTolerance: false })
+    expect(boundedLevenshtein('cat', 'cats', 1)).toMatchObject({ distance: 1, withinTolerance: true })
+    expect(boundedLevenshtein('sec', 'secur', 1)).toMatchObject({ distance: 2, withinTolerance: false })
   })
 
   it('returns correct distance for single insertion inside the word', () => {
@@ -90,12 +90,12 @@ describe('boundedLevenshtein', () => {
   })
 
   it('counts a supplementary character as one edit', () => {
-    expect(boundedLevenshtein('a', '\u{1F600}', 1)).toEqual({ distance: 1, withinTolerance: true })
+    expect(boundedLevenshtein('a', '\u{1F600}', 1)).toMatchObject({ distance: 1, withinTolerance: true })
   })
 
   it('checks two long words in time that grows with their length', () => {
     const shared = 'a'.repeat(100_000)
-    expect(boundedLevenshtein(`${shared}b`, `${shared}c`, 1)).toEqual({ distance: 1, withinTolerance: true })
+    expect(boundedLevenshtein(`${shared}b`, `${shared}c`, 1)).toMatchObject({ distance: 1, withinTolerance: true })
   })
 })
 

@@ -15,6 +15,7 @@ import type { FieldFilter } from '../../../../types/filters'
 import type { AnyDocument } from '../../../../types/schema'
 import { EXPRESSION_PROBES } from '../../../filters/pattern/expression-probes'
 import { PROBE_TEXTS, patternConfig, patternDocuments, referenceIds } from '../../../filters/pattern/fixtures'
+import { TYPO_TEXTS } from '../../../filters/pattern/typo-oracle'
 import { english } from '../../partition-index/fixtures'
 
 const schema = patternConfig.schema
@@ -27,6 +28,9 @@ function probes(): FieldFilter[] {
       list.push({ contains: text, caseFold }, { eq: text, caseFold }, { ne: text, caseFold })
       list.push({ startsWith: text, caseFold }, { endsWith: text, caseFold })
     }
+  }
+  for (const text of [...PROBE_TEXTS, ...TYPO_TEXTS]) {
+    list.push({ eq: text, tolerance: 'auto' }, { eq: text, tolerance: 'auto', caseFold: true })
   }
   list.push({ in: ['ab', 'STRASSE', 'beta'] }, { nin: ['ab', 'beta'], caseFold: true })
   for (const probe of EXPRESSION_PROBES)

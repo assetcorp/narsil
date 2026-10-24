@@ -31,6 +31,9 @@ const PROBES: Array<[string, FieldFilter]> = [
   ['code', { regex: 'stra[ß]e', caseFold: true }],
   ['title', { regex: '\\bball\\b|full$', caseFold: true }],
   ['tags', { wildcard: '?eta', caseFold: true }],
+  ['code', { eq: 'INV-2O24-001', tolerance: 'auto', caseFold: true }],
+  ['code', { eq: 'Strase', tolerance: 1, caseFold: true }],
+  ['tags', { eq: 'gammma', tolerance: 1 }],
   ...EXPRESSION_PROBES.map((filter): [string, FieldFilter] => ['tags', filter]),
 ]
 
@@ -139,6 +142,15 @@ describe.each([
       await expect(
         router.query(PATTERN_INDEX, { term: 'record', filters: { fields: { code: { regex } } } }),
         regex,
+      ).rejects.toMatchObject({ code: ErrorCodes.SEARCH_INVALID_FILTER })
+    }
+    for (const filter of [
+      { eq: 'INV-2O24', tolerance: 2 },
+      { eq: 'INV-2O24-001', tolerance: 3 },
+    ]) {
+      await expect(
+        router.query(PATTERN_INDEX, { term: 'record', filters: { fields: { code: filter as FieldFilter } } }),
+        JSON.stringify(filter),
       ).rejects.toMatchObject({ code: ErrorCodes.SEARCH_INVALID_FILTER })
     }
   }, 30_000)

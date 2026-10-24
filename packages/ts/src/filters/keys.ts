@@ -26,6 +26,7 @@ export const FIELD_FILTER_OPERATORS = [
   'wildcard',
   'regex',
   'caseFold',
+  'tolerance',
   'containsAll',
   'matchesAny',
   'size',

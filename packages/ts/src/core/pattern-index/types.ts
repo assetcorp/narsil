@@ -38,10 +38,13 @@ export type ExpressionOperator = 'wildcard' | 'regex'
 
 export type PatternOperator = 'eq' | 'startsWith' | 'endsWith' | 'contains' | ExpressionOperator
 
+export type PatternTolerance = 0 | 1 | 2 | 'auto'
+
 export interface PatternMatchRequest {
   readonly operator: PatternOperator
   readonly text: string
   readonly caseFold: boolean
+  readonly tolerance: PatternTolerance
   readonly index: PatternIndexReader
   readonly matches: Uint32Array
   readonly meter: PatternWorkMeter

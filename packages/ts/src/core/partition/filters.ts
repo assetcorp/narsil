@@ -6,7 +6,7 @@ import type { FieldType, SchemaDefinition } from '../../types/schema'
 import { bitsetHas, bitsetSet, createBitSet } from '../bitset'
 import { PATTERN_HOST } from '../pattern-index/host'
 import { requirePatternSearch } from '../pattern-index/registry'
-import type { PatternOperator, PatternWorkMeter } from '../pattern-index/types'
+import type { PatternOperator, PatternTolerance, PatternWorkMeter } from '../pattern-index/types'
 import type { TextRangeBounds } from './sort-columns/range'
 import { textRangeBitsetOf } from './sorting'
 import { getFieldValueByInternalId, getFlatSchema, type PartitionReadState } from './utils'
@@ -68,6 +68,7 @@ export function buildFilterContext(
       operator: PatternOperator,
       text: string,
       caseFold: boolean,
+      tolerance: PatternTolerance,
       into: Uint32Array,
     ) => {
       const index = state.patternIndexes.get(fieldPath)
@@ -76,6 +77,7 @@ export function buildFilterContext(
         operator,
         text,
         caseFold,
+        tolerance,
         index,
         matches: into,
         meter,

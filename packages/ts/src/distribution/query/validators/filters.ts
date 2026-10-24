@@ -1,4 +1,5 @@
 import { exceedsCodePoints } from '../../../core/ordering'
+import { isPatternTolerance } from '../../../core/pattern-index/typo-runs'
 import type { ErrorCode } from '../../../errors'
 import { FIELD_FILTER_OPERATORS, FILTER_EXPRESSION_KEYS } from '../../../filters/keys'
 import { filterTestCount } from '../../../filters/operands'
@@ -207,6 +208,12 @@ function validateLeafOperator(opKey: string, opValue: unknown, leafLabel: string
   }
   if (opKey === 'caseFold') {
     validateBooleanOperand(opValue, opLabel, errorCode)
+    return
+  }
+  if (opKey === 'tolerance') {
+    if (!isPatternTolerance(opValue)) {
+      throwInvalid(errorCode, `Invalid payload: "${opLabel}" must be 0, 1, 2, or "auto"`)
+    }
     return
   }
   if (opKey === 'in' || opKey === 'nin') {

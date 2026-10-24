@@ -129,6 +129,19 @@ describe('validateFilterExpression operands', () => {
     expect(() => validateFilterExpression({ fields: { code: { contains: 3 } } }, 'filters')).toThrow(/contains/)
   })
 
+  it('accepts a tolerance of 0, 1, 2, or auto, and refuses any other operand', () => {
+    for (const tolerance of [0, 1, 2, 'auto']) {
+      expect(() =>
+        validateFilterExpression({ fields: { code: { eq: 'INV-2O24-001', tolerance } } }, 'filters'),
+      ).not.toThrow()
+    }
+    for (const tolerance of [3, -1, 1.5, '1', 'AUTO', null, true, [1], { k: 1 }]) {
+      expect(() =>
+        validateFilterExpression({ fields: { code: { eq: 'INV-2O24-001', tolerance } } }, 'filters'),
+      ).toThrow(/tolerance/)
+    }
+  })
+
   it('accepts wildcard and regex patterns up to the length limit in code points, and refuses any other operand', () => {
     const astral = '😀'.repeat(MAX_FILTER_STRING_LENGTH)
     for (const operator of ['wildcard', 'regex']) {

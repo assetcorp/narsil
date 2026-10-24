@@ -896,6 +896,7 @@ export type StringFilter = Pick<ComparisonFilter, 'eq' | 'ne'> & {
     wildcard?: string;
     regex?: string;
     caseFold?: boolean;
+    tolerance?: 0 | 1 | 2 | 'auto';
 };
 
 // @public

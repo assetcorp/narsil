@@ -20,6 +20,7 @@ const TEXT_OPERATORS = ['startsWith', 'endsWith'] as const
 const EQUALITY_OPERATORS = ['eq', 'ne'] as const
 const LIST_OPERATORS = ['in', 'nin'] as const
 const GEO_OPERATORS = ['radius', 'polygon'] as const
+const TEST_MODIFIERS: ReadonlySet<string> = new Set(['caseFold', 'tolerance'])
 
 function invalidShape(message: string): never {
   throw new NarsilError(ErrorCodes.SEARCH_INVALID_FILTER, message)
@@ -131,7 +132,7 @@ export function filterTestCount(expression: unknown): number {
 function testsIn(filter: Record<string, unknown>): number {
   let tests = 0
   for (const [operator, operand] of Object.entries(filter)) {
-    if (operator === 'caseFold') continue
+    if (TEST_MODIFIERS.has(operator)) continue
     tests += operator === 'size' && isObjectRecord(operand) ? Math.max(1, Object.keys(operand).length) : 1
   }
   return Math.max(1, tests)

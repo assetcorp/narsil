@@ -1,9 +1,17 @@
 import { bitsetAnd, bitsetNot, createBitSet } from '../core/bitset'
-import type { PatternOperator } from '../core/pattern-index/types'
+import type { PatternOperator, PatternTolerance } from '../core/pattern-index/types'
+import { isPatternTolerance } from '../core/pattern-index/typo-runs'
 
 export interface PatternFilterContext {
   isPatternField(fieldPath: string): boolean
-  matchPattern(fieldPath: string, operator: PatternOperator, text: string, caseFold: boolean, into: Uint32Array): void
+  matchPattern(
+    fieldPath: string,
+    operator: PatternOperator,
+    text: string,
+    caseFold: boolean,
+    tolerance: PatternTolerance,
+    into: Uint32Array,
+  ): void
   presentBitset(fieldPath: string): Uint32Array
   readonly capacity: number
   readonly allDocIdsBitset: Uint32Array
@@ -28,13 +36,14 @@ export function evaluatePatternTests(
   bitsets: Uint32Array[],
 ): void {
   const caseFold = filter.caseFold === true
-  const matching = (operator: PatternOperator, texts: Iterable<string>): Uint32Array => {
+  const matching = (operator: PatternOperator, texts: Iterable<string>, tolerance: PatternTolerance = 0) => {
     const into = createBitSet(context.capacity)
-    for (const text of texts) context.matchPattern(fieldPath, operator, text, caseFold, into)
+    for (const text of texts) context.matchPattern(fieldPath, operator, text, caseFold, tolerance, into)
     return into
   }
 
-  if (typeof filter.eq === 'string') bitsets.push(matching('eq', [filter.eq]))
+  const eqTolerance = isPatternTolerance(filter.tolerance) ? filter.tolerance : 0
+  if (typeof filter.eq === 'string') bitsets.push(matching('eq', [filter.eq], eqTolerance))
   if (typeof filter.ne === 'string') bitsets.push(excluding(context, fieldPath, matching('eq', [filter.ne])))
   if (filter.in !== undefined) bitsets.push(matching('eq', textsOf(filter.in)))
   if (filter.nin !== undefined) bitsets.push(excluding(context, fieldPath, matching('eq', textsOf(filter.nin))))

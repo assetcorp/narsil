@@ -2,6 +2,7 @@ import type { FieldFilter } from '../../../types/filters'
 import type { AnyDocument } from '../../../types/schema'
 import { codePointsOf } from '../../filters/pattern/case-folding'
 import { expressionPasses } from '../../filters/pattern/expression-oracle'
+import { acceptedTolerance, withinTolerance } from '../../filters/pattern/typo-oracle'
 
 export { codePointsOf, UNICODE_FOLDS } from '../../filters/pattern/case-folding'
 
@@ -38,12 +39,19 @@ export function textValuesOf(document: AnyDocument, field: string): string[] {
   return value.filter((element): element is string => typeof element === 'string')
 }
 
+function eqPasses(values: string[], text: string, tolerance: unknown, caseFold: boolean): boolean {
+  if (tolerance === undefined) return values.some(value => valuePasses(value, 'eq', text, caseFold))
+  const accepted = acceptedTolerance(text, tolerance)
+  if (accepted === null) throw new Error(`The engine refuses a tolerance of ${String(tolerance)} on "${text}"`)
+  return values.some(value => withinTolerance(value, text, accepted, caseFold))
+}
+
 function filterPasses(values: string[], filter: FieldFilter): boolean {
   const probe = filter as Record<string, unknown>
   const caseFold = probe.caseFold === true
   const any = (test: ValueTest, text: string) => values.some(value => valuePasses(value, test, text, caseFold))
   const texts = (operand: unknown): string[] => (Array.isArray(operand) ? operand : [])
-  if (typeof probe.eq === 'string' && !any('eq', probe.eq)) return false
+  if (typeof probe.eq === 'string' && !eqPasses(values, probe.eq, probe.tolerance, caseFold)) return false
   if (typeof probe.ne === 'string' && any('eq', probe.ne)) return false
   if (probe.in !== undefined && !texts(probe.in).some(text => any('eq', text))) return false
   if (probe.nin !== undefined && texts(probe.nin).some(text => any('eq', text))) return false
