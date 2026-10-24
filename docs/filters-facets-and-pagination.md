@@ -32,7 +32,7 @@ A text field keeps an index of whole values only where it is a `verbatim` field 
 
 The engine applies `containsAll`, `matchesAny`, and `size` to list fields alone. The values of `containsAll` and `matchesAny` must have the type of the list's elements, such as numbers for a `number[]` field. The engine throws `SEARCH_INVALID_FIELD` for a filter on a field that the schema leaves out, on every index, because it keeps no index for such a field.
 
-The engine throws `SEARCH_INVALID_FILTER` for a filter that holds more than 1,024 tests, counted across every field and nested expression. Each operator counts as one test, as does each bound of `size`, while `caseFold` counts as none. An expression or a field filter with no test of its own also counts as one, because the engine reads and checks each of them all the same. The engine throws the same error for an `in`, `nin`, `containsAll`, or `matchesAny` list of more than 65,536 values and for a polygon of more than 65,536 corners.
+The engine throws `SEARCH_INVALID_FILTER` for a filter that holds more than 1,024 tests, counted across every field and nested expression. Each operator counts as one test, as does each bound of `size`, while `caseFold` and `tolerance` count as none. An expression or a field filter with no test of its own also counts as one, because the engine reads and checks each of them all the same. The engine throws the same error for an `in`, `nin`, `containsAll`, or `matchesAny` list of more than 65,536 values and for a polygon of more than 65,536 corners.
 
 ### Text ranges
 
@@ -64,12 +64,12 @@ The pattern index maps each run of three code points in a field's folded values 
 
 The engine throws `SEARCH_INVALID_FILTER` in these cases:
 
-- The filter sets `contains`, `wildcard`, `regex`, or `caseFold` on a field that is not a pattern field.
+- The filter sets `contains`, `wildcard`, `regex`, `caseFold`, or `tolerance` on a field that is not a pattern field.
 - The text or the pattern of a test on a pattern field holds more than 1,024 code points.
 - A literal test under `caseFold` has a text whose case fold holds more than 2,048 code points.
 - A wildcard pattern or a regular expression breaks one of the rules in [Pattern limits](#pattern-limits).
 
-The engine also limits the work that it spends on the pattern tests of one search, counting that work across every partition that it searches. It adds one unit for each run of three code points that it looks up in a pattern index, one unit for each entry that it reads from a pattern index, and one unit for each step of its matcher. A step tests one position of a pattern against one code point. At each code point that the matcher checks, the engine counts one step for each position that a match can reach. The engine counts each literal test as the regular expression that it equals, such as `^text$` for an `eq` test. When it can take no run from a test, it counts each document that it checks as an entry that it reads. That happens for a text whose case fold is shorter than three code points, and for a pattern that holds no run of three literal code points. The engine counts an `in` or `nin` test as one `eq` test for each distinct value in its list. Once the count exceeds the `patternWorkCap` engine setting, which defaults to 25,000,000 units, the engine throws `SEARCH_WORK_CAP_EXCEEDED`. See [Configuration](configuration.md#narsilconfig) for the setting.
+The engine also limits the work that it spends on the pattern tests of one search, counting that work across every partition that it searches. It adds one unit for each run of three code points that it looks up in a pattern index, one unit for each entry that it reads from a pattern index, and one unit for each step of its matcher. A step tests one position of a pattern against one code point. At each code point that the matcher checks, the engine counts one step for each position that a match can reach. The engine counts each literal test as the regular expression that it equals, such as `^text$` for an `eq` test. When it can take no run from a test, it counts each document that it checks as an entry that it reads. That happens for a text whose case fold is shorter than three code points, and for a pattern that holds no run of three literal code points. The engine counts an `in` or `nin` test as one `eq` test for each distinct value in its list. For an `eq` test with a [tolerance](#typos-in-an-eq-test), it counts one step for each cell that it fills in the table of edit distances between the text and a value. Once the count exceeds the `patternWorkCap` engine setting, which defaults to 25,000,000 units, the engine throws `SEARCH_WORK_CAP_EXCEEDED`. See [Configuration](configuration.md#narsilconfig) for the setting.
 
 A Node process loads the pattern search code by itself. A browser bundle includes that code only when the app imports `patternSearch` and registers it. The app has to register `patternSearch` before it creates or loads an index with a pattern field:
 
@@ -81,6 +81,22 @@ registerPatternSearch(patternSearch)
 ```
 
 Without that registration, the engine throws `CONFIG_INVALID` for an index with a pattern field, and the error message tells you which import to add.
+
+### Typos in an eq test
+
+A `tolerance` on an `eq` test of a pattern field lets the test match a value within that many edits of the text as well. An edit inserts, deletes, or replaces one code point, so a swap of two neighbouring code points counts as two edits. In the query below, the text holds the letter O where the order code holds a zero, so the engine returns the order `INV-2024-0042`, which is one edit away from the text.
+
+```ts
+const orders = await narsil.listDocuments('orders', {
+  filters: { fields: { code: { eq: 'INV-2O24-0042', tolerance: 1 } } },
+})
+```
+
+A tolerance can be 0, 1, 2, or `'auto'`. With `caseFold`, the engine counts the edits between the case folds of the value and the text, so `inv-2o24-0042` with a tolerance of 1 matches `INV-2024-0042` as well. The engine counts edits with the same distance that it applies in [fuzzy matching](full-text-search.md#fuzzy-matching), although the `tolerance` of a query applies to its terms alone and leaves its filters exact. The tolerance of a filter applies to its `eq` test alone, so the other tests on the field still compare the text exactly.
+
+The engine takes its candidates from the pattern index. A value within `k` edits of the text holds at least one of any `k × (2 + f) + 1` distinct runs of three code points in the case fold of the text, where `f` is the number of code points in the longest case fold among the text's code points. `f` is 1 for most text, while it is 2 for a text that holds `ß`, because `ß` folds to `ss`. From as many as 16 distinct runs that it picks across the case fold of the text, the engine reads the documents of the `k × (2 + f) + 1` runs that the fewest documents hold. It then counts the edits between the text and the value of each of those documents.
+
+The engine therefore needs `k × (2 + f) + 1` distinct runs in the text for a tolerance of `k`. `INV-2O24` holds 6 distinct runs, so the engine accepts a tolerance of 1 on it, which needs 4, while it refuses a tolerance of 2, which needs 7. For a tolerance of 1 or 2 on a text with too few runs, the engine throws `SEARCH_INVALID_FILTER` with a message that states how many runs the tolerance needs. Under `'auto'`, the engine uses 2 where the text holds enough runs for 2, otherwise 1 where it holds enough for 1, and otherwise 0, so the engine never raises that error under `'auto'`. The engine throws `SEARCH_INVALID_FILTER` for any other tolerance, for a tolerance on a field that isn't a pattern field, and for a tolerance in a filter that sets no `eq` test.
 
 ### Wildcard patterns
 

@@ -3,6 +3,7 @@ import type { FieldFilter } from '../../../types/filters'
 import type { AnyDocument, IndexConfig } from '../../../types/schema'
 import { codePointsOf } from './case-folding'
 import { expressionPasses } from './expression-oracle'
+import { acceptedTolerance, withinTolerance } from './typo-oracle'
 
 export const PATTERN_INDEX = 'records'
 
@@ -121,6 +122,13 @@ function anyElement(value: unknown, test: (text: string) => boolean): boolean {
   return Array.isArray(value) && value.some(element => typeof element === 'string' && test(element))
 }
 
+function equalsWithin(text: string, tolerance: unknown, caseFold: boolean): (element: string) => boolean {
+  if (tolerance === undefined) return element => literalPasses(element, 'eq', text, caseFold)
+  const accepted = acceptedTolerance(text, tolerance)
+  if (accepted === null) throw new Error(`The engine refuses a tolerance of ${String(tolerance)} on "${text}"`)
+  return element => withinTolerance(element, text, accepted, caseFold)
+}
+
 function holdsValue(value: unknown): boolean {
   return typeof value === 'string' || Array.isArray(value)
 }
@@ -130,7 +138,9 @@ export function referenceIds(documents: AnyDocument[], field: string, filter: Fi
   const caseFold = probe.caseFold === true
   const passes = (value: unknown): boolean => {
     const equals = (text: string) => (element: string) => literalPasses(element, 'eq', text, caseFold)
-    if (typeof probe.eq === 'string' && !anyElement(value, equals(probe.eq))) return false
+    if (typeof probe.eq === 'string' && !anyElement(value, equalsWithin(probe.eq, probe.tolerance, caseFold))) {
+      return false
+    }
     if (typeof probe.ne === 'string' && (!holdsValue(value) || anyElement(value, equals(probe.ne)))) return false
     if (Array.isArray(probe.in) && !probe.in.some(text => anyElement(value, equals(text)))) return false
     if (Array.isArray(probe.nin) && (!holdsValue(value) || probe.nin.some(text => anyElement(value, equals(text))))) {

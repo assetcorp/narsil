@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import type { NarsilConfig } from '../../../types/config'
 import type { FieldFilter } from '../../../types/filters'
 import type { AnyDocument } from '../../../types/schema'
-import { EDGE_PROBES, generatedProbes, INDEX, operationsCorpus, type PatternField } from './corpus'
+import { EDGE_PROBES, generatedProbes, INDEX, operationsCorpus, type PatternField, typoProbes } from './corpus'
 import {
   countOf,
   listIds,
@@ -21,6 +21,7 @@ import { expectedIds } from './oracle'
 
 const CORPUS_SIZE = 2_000
 const GENERATED_PROBES = 300
+const TYPO_PROBES = 60
 
 const servers: PatternServer[] = []
 
@@ -35,7 +36,11 @@ async function started(config: NarsilConfig): Promise<PatternServer> {
 }
 
 function probesFor(documents: readonly AnyDocument[], seed: number): Array<[PatternField, FieldFilter]> {
-  return [...EDGE_PROBES, ...generatedProbes(documents, GENERATED_PROBES, seed)]
+  return [
+    ...EDGE_PROBES,
+    ...generatedProbes(documents, GENERATED_PROBES, seed),
+    ...typoProbes(documents, TYPO_PROBES, seed),
+  ]
 }
 
 async function expectEveryProbe(server: PatternServer, documents: readonly AnyDocument[], seed: number): Promise<void> {

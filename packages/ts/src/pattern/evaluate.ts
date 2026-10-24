@@ -11,6 +11,7 @@ import { searchExpressions } from './expression-cache'
 import { LiteralMatcher } from './literal-matcher'
 import { shortlist } from './shortlist'
 import { appendTextCodePoints, BASIC_PLANE_LAST, forEachTextValue } from './text'
+import { matchWithinTolerance, typoTestFor } from './typo'
 import { WorkTally } from './work-tally'
 
 interface ValueMatcher {
@@ -92,9 +93,21 @@ function matchesText(
   return matcher.matched()
 }
 
+function answeredByTypoTest(request: PatternMatchRequest, tally: WorkTally): boolean {
+  if (request.operator !== 'eq' || request.tolerance === 0) return false
+  const test = typoTestFor(request)
+  if (test === null) return false
+  matchWithinTolerance(request, test, tally)
+  return true
+}
+
 export function matchPattern(request: PatternMatchRequest): void {
   const { operator, caseFold, index, matches, host } = request
   const tally = new WorkTally(request.meter)
+  if (answeredByTypoTest(request, tally)) {
+    tally.flush()
+    return
+  }
   const test =
     operator === 'wildcard' || operator === 'regex' ? expressionTest(request, operator) : literalTest(request)
   const shortlisted = shortlist(index, test.runs, tally)

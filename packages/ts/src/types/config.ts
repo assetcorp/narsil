@@ -53,7 +53,9 @@ export interface NarsilConfig {
    * each step of its matcher. For a text whose case fold is shorter than three
    * code points, it counts each document that it checks as an entry that it
    * reads. It counts an `in` or `nin` test as one `eq` test for each distinct
-   * value in its list. Once the count passes the cap, the engine throws
+   * value in its list. For an `eq` test with a `tolerance`, it also adds one
+   * unit for each cell that it fills in the table of edit distances between
+   * the text and a value. Once the count passes the cap, the engine throws
    * `SEARCH_WORK_CAP_EXCEEDED`. The cap
    * defaults to 25,000,000 units. For any value other than a whole number from
    * 1 to `Number.MAX_SAFE_INTEGER`, {@link createNarsil} throws
