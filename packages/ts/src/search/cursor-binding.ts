@@ -12,6 +12,9 @@ const STRING_TAG = 5
 const LIST_TAG = 6
 const MAP_TAG = 7
 
+const LENGTH_BYTES = 4
+const LAST_ASCII_UNIT = 0x7f
+
 const encoder = new TextEncoder()
 
 interface BindingStream {
@@ -52,12 +55,28 @@ function writeNumber(stream: BindingStream, value: number): void {
   stream.length += 8
 }
 
-function writeString(stream: BindingStream, value: string): void {
+function writeEncodedString(stream: BindingStream, value: string): void {
   const encoded = encoder.encode(value)
   writeUint32(stream, encoded.length)
   ensureCapacity(stream, encoded.length)
   stream.bytes.set(encoded, stream.length)
   stream.length += encoded.length
+}
+
+function writeString(stream: BindingStream, value: string): void {
+  ensureCapacity(stream, LENGTH_BYTES + value.length)
+  const start = stream.length + LENGTH_BYTES
+  const bytes = stream.bytes
+  for (let at = 0; at < value.length; at++) {
+    const unit = value.charCodeAt(at)
+    if (unit > LAST_ASCII_UNIT) {
+      writeEncodedString(stream, value)
+      return
+    }
+    bytes[start + at] = unit
+  }
+  writeUint32(stream, value.length)
+  stream.length += value.length
 }
 
 class NumberList {

@@ -5,6 +5,7 @@ import {
   encodePartialSpellings,
   type PartialSpellings,
   type PartialWordAnalysis,
+  sameFields,
   spellingCountsOf,
 } from '../partial-words/spellings'
 import type { PartialWordTableData } from '../partial-words/types'
@@ -57,7 +58,7 @@ function sharedSurfaceTable(payload: SegmentPayload): SurfaceTableData | null {
 }
 
 function sharePartialWordTable(table: PartialWordTableData): PartialWordTableData {
-  if (typeof SharedArrayBuffer !== 'function') return table
+  if (typeof SharedArrayBuffer !== 'function' || table.runEntries.buffer instanceof SharedArrayBuffer) return table
   return {
     fields: [...table.fields],
     spellings: sharedUint8(table.spellings),
@@ -85,24 +86,37 @@ function sharedPartialWordsOf(
   return table === null ? null : sharePartialWordTable(table)
 }
 
-export type SegmentArraysData = Omit<SharedSegmentSnapshot, 'segmentId' | 'partialWords'>
+function partialWordsMatch(table: PartialWordTableData | null, analysis: PartialWordAnalysis | null): boolean {
+  if (table === null) return analysis === null || analysis.fields.length === 0
+  return analysis === null || sameFields(table.fields, analysis.fields)
+}
+
+export type SegmentArraysData = Omit<SharedSegmentSnapshot, 'segmentId'>
 
 export function shareSegmentArrays(
   arrays: SegmentArraysData,
   analysis: PartialWordAnalysis | null,
   segmentId?: string,
 ): SharedSegmentSnapshot {
-  return {
-    ...arrays,
-    segmentId: segmentId ?? generateId(),
-    partialWords: sharedPartialWordsOf(arrays.tokenTable, null, arrays.documentTable, analysis),
-  }
+  const partialWords = partialWordsMatch(arrays.partialWords, analysis)
+    ? arrays.partialWords
+    : sharedPartialWordsOf(arrays.tokenTable, null, arrays.documentTable, analysis)
+  return { ...arrays, segmentId: segmentId ?? generateId(), partialWords }
 }
 
-export function segmentArraysOf(payload: SegmentPayload, documentData: EncodedDocumentTableData): SegmentArraysData {
+export function segmentArraysOf(
+  payload: SegmentPayload,
+  documentData: EncodedDocumentTableData,
+  reusedPartialWords: PartialWordTableData | null = null,
+): SegmentArraysData {
   const tokenTable = encodeFrozenTokenTableData(payload.tokens, payload.docFrequencies)
   const idTable = encodeExternalIdTableData(payload.docIds)
   const surfaceTable = payload.surfaceForms === null ? null : encodeSurfaceTable(payload.surfaceForms)
+  const partialWords =
+    reusedPartialWords ??
+    (payload.partialSpellings === null
+      ? null
+      : buildPartialWordTableFrom(payload.partialSpellings, wrapFrozenTokenTable(tokenTable)))
   return {
     documentCount: payload.documentCount,
     fieldNames: payload.fieldNames,
@@ -125,6 +139,7 @@ export function segmentArraysOf(payload: SegmentPayload, documentData: EncodedDo
     geo: payload.geo,
     pattern: payload.pattern,
     surfaceTable: surfaceTable === null || surfaceTable.counts.length === 0 ? null : surfaceTable,
+    partialWords,
   }
 }
 
@@ -143,6 +158,7 @@ export function freezeEncodedSegmentShared(
   documentData: EncodedDocumentTableData,
   segmentId?: string,
   analysis: PartialWordAnalysis | null = null,
+  reusedPartialWords: PartialWordTableData | null = null,
 ): SharedSegmentSnapshot | null {
   if (typeof SharedArrayBuffer !== 'function') return null
 
@@ -213,6 +229,9 @@ export function freezeEncodedSegmentShared(
       postings: sharedUint32(entry.postings),
     })),
     surfaceTable: sharedSurfaceTable(payload),
-    partialWords: sharedPartialWordsOf(tokenData, payload.partialSpellings, documentData, analysis),
+    partialWords:
+      reusedPartialWords === null
+        ? sharedPartialWordsOf(tokenData, payload.partialSpellings, documentData, analysis)
+        : sharePartialWordTable(reusedPartialWords),
   }
 }

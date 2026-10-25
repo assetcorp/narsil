@@ -131,4 +131,46 @@ describe('a filter whose operands cannot match the field', () => {
     expect(page.documents.map(document => document.id)).toEqual(['polar'])
     await narsil.remove('bikes', 'polar')
   })
+
+  it('names the undeclared field before an unknown key anywhere in the same filter', async () => {
+    const unknownBeside = { fields: { weight: { eq: 12 } }, weights: true } as unknown as FilterExpression
+    const unknownBefore = {
+      fields: { price: { above: 1 } },
+      and: [{ fields: { weight: { eq: 12 } } }],
+    } as unknown as FilterExpression
+    for (const filters of [unknownBeside, unknownBefore]) {
+      await expect(narsil.query('bikes', { term: 'bike', filters })).rejects.toMatchObject({
+        code: 'SEARCH_INVALID_FIELD',
+        details: { field: 'weight', option: 'filter' },
+      })
+    }
+    await expect(
+      narsil.query('bikes', {
+        term: 'bike',
+        filters: { fields: { price: { above: 1 } } } as unknown as FilterExpression,
+      }),
+    ).rejects.toMatchObject({ code: 'SEARCH_INVALID_FILTER', details: { key: 'above' } })
+  })
+
+  it('answers from the filter it checked when the operand changes on a later read', async () => {
+    let reads = 0
+    const price = {
+      get gt(): unknown {
+        reads++
+        return reads <= 2 ? 1000 : 'every bike'
+      },
+    }
+    const filters = { fields: { price } } as unknown as FilterExpression
+    const result = await narsil.query('bikes', { term: 'bike', filters, limit: 10 })
+    expect(result.hits.map(hit => hit.id)).toEqual(['trail'])
+  })
+
+  it('refuses a listing filter whose list claims the longest length an array can take without walking its empty slots', async () => {
+    const values = new Array<string>(2 ** 32 - 1)
+    const filters: FilterExpression = { fields: { category: { in: values } } }
+    await expect(narsil.listDocuments('bikes', { filters, limit: 10 })).rejects.toMatchObject({
+      code: 'SEARCH_INVALID_FILTER',
+      details: { fieldPath: 'category', operator: 'in' },
+    })
+  })
 })

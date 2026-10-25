@@ -1,5 +1,6 @@
 import { mergeSegmentContents, type SegmentSelection, selectionKeeps } from '../../../core/partition/frozen/merge'
 import { segmentArraysOf } from '../../../core/partition/frozen/shared-snapshot'
+import type { PartialSpellings, PartialWordAnalysis } from '../../../core/partition/partial-words/spellings'
 import type { SegmentPayload } from '../../../core/partition/segment-payload'
 import { ErrorCodes, NarsilError } from '../../../errors'
 import { MAX_FILE_BYTES } from '../../../serialization/constants'
@@ -21,6 +22,7 @@ export interface SegmentWriteRequest {
   partitionId: number
   nextSegmentId: number
   schema: Record<string, string>
+  partialWordAnalysis: PartialWordAnalysis | null
   selections: readonly SegmentSelection[]
   tombstones: readonly string[]
   mergesIntoOneFile?: boolean
@@ -58,20 +60,31 @@ function emptyPayload(): SegmentPayload {
   }
 }
 
+function noSpellingsOf(analysis: PartialWordAnalysis | null): PartialSpellings | null {
+  if (analysis === null || analysis.fields.length === 0) return null
+  return { fields: [...analysis.fields], tokens: [], spellings: [], counts: [] }
+}
+
 function contentsOfGroup(
   group: SegmentFileGroup | null,
-  schema: Record<string, string>,
+  request: SegmentWriteRequest,
   tombstones: string[],
 ): KeywordSegmentContents {
+  const { schema, partialWordAnalysis } = request
   if (group === null) {
+    const payload = { ...emptyPayload(), partialSpellings: noSpellingsOf(partialWordAnalysis) }
     return {
       schema,
       tombstones,
-      arrays: segmentArraysOf(emptyPayload(), { blob: new Uint8Array(0), offsets: new Uint32Array(1) }),
+      arrays: segmentArraysOf(payload, { blob: new Uint8Array(0), offsets: new Uint32Array(1) }),
     }
   }
-  const merged = mergeSegmentContents(group.selections)
-  return { schema, tombstones, arrays: segmentArraysOf(merged.payload, merged.documents) }
+  const merged = mergeSegmentContents(group.selections, partialWordAnalysis)
+  return {
+    schema,
+    tombstones,
+    arrays: segmentArraysOf(merged.payload, merged.documents, merged.reusedPartialWords),
+  }
 }
 
 interface WriteState {
@@ -93,7 +106,7 @@ function requireRoomForAnotherSegment(state: WriteState): void {
 async function writeGroup(state: WriteState, group: SegmentFileGroup | null): Promise<void> {
   const { request } = state
   const tombstones = state.tombstonesWritten ? [] : [...request.tombstones]
-  const contents = contentsOfGroup(group, request.schema, tombstones)
+  const contents = contentsOfGroup(group, request, tombstones)
   const encoded = encodeKeywordSegment(contents)
   if (HEADER_SIZE + encoded.byteLength > MAX_FILE_BYTES && group !== null && group.documentCount > 1) {
     const [first, second] = halvesOf(group)

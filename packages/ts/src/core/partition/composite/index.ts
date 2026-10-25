@@ -6,6 +6,7 @@ import type { LanguageModule } from '../../../types/language'
 import type { FacetResult } from '../../../types/results'
 import type { AnyDocument, SchemaDefinition } from '../../../types/schema'
 import type { FacetConfig } from '../../../types/search'
+import type { ReadonlyStoredDocument } from '../../document-store'
 import type { ComparableSortValue } from '../../ordering'
 import { compareCodePoints } from '../../ordering'
 import type { PatternWorkMeter } from '../../pattern-index/types'
@@ -102,6 +103,14 @@ export function createCompositePartition(
   function frozenOwner(docId: string): FrozenSegment | undefined {
     for (const segment of frozen) {
       if (segment.hasDocument(docId)) return segment
+    }
+    return undefined
+  }
+
+  function frozenStored(docId: string): ReadonlyStoredDocument | undefined {
+    for (const segment of frozen) {
+      const stored = segment.docStore.get(docId)
+      if (stored !== undefined) return stored
     }
     return undefined
   }
@@ -315,19 +324,14 @@ export function createCompositePartition(
     },
 
     get(docId: string, projection?: ResolvedProjection): AnyDocument | undefined {
-      const owner = frozenOwner(docId)
-      if (owner !== undefined) {
-        const stored = owner.docStore.get(docId)
-        return stored === undefined ? undefined : cloneProjected(stored.fields, projection)
-      }
+      const stored = frozenStored(docId)
+      if (stored !== undefined) return cloneProjected(stored.fields, projection)
       return live.get(docId, projection)
     },
 
     getRef(docId: string): AnyDocument | undefined {
-      const owner = frozenOwner(docId)
-      if (owner !== undefined) {
-        return owner.docStore.get(docId)?.fields as AnyDocument | undefined
-      }
+      const stored = frozenStored(docId)
+      if (stored !== undefined) return stored.fields as AnyDocument
       return live.getRef(docId)
     },
 

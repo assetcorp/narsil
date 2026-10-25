@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { MAX_FILTER_ARRAY_SIZE, MAX_FILTER_DEPTH, MAX_FILTER_TESTS } from '../../filters/constants'
-import { filterTestCount, requireValidFilter } from '../../filters/operands'
+import { filterTestCount, validatedFilterOf } from '../../filters/operands'
 import type { FilterExpression } from '../../types/filters'
 import type { FieldType } from '../../types/schema'
 
@@ -17,7 +17,7 @@ const FIELD_TYPES: Record<string, FieldType> = {
 }
 
 function malformed(expression: unknown): () => void {
-  return () => requireValidFilter(expression as FilterExpression, FIELD_TYPES)
+  return () => validatedFilterOf(expression as FilterExpression, FIELD_TYPES)
 }
 
 function nestedNot(depth: number): FilterExpression {

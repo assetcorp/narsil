@@ -1,4 +1,5 @@
 import { compareCodePoints } from '../../ordering'
+import { LOOKUP_KEY_SCRATCH_BYTES } from '../constants'
 
 export interface StringBlob {
   blob: Uint8Array
@@ -6,7 +7,15 @@ export interface StringBlob {
 }
 
 const SURROGATE = /[\ud800-\udfff]/
+const UTF8_BYTES_PER_UTF16_UNIT = 3
 const encoder = new TextEncoder()
+const lookupKeyBytes = new Uint8Array(LOOKUP_KEY_SCRATCH_BYTES)
+
+export function encodeLookupKey(text: string): Uint8Array {
+  if (text.length * UTF8_BYTES_PER_UTF16_UNIT > LOOKUP_KEY_SCRATCH_BYTES) return encoder.encode(text)
+  const { written } = encoder.encodeInto(text, lookupKeyBytes)
+  return lookupKeyBytes.subarray(0, written)
+}
 
 function encodeOneByOne(strings: readonly string[]): StringBlob {
   const encoded: Uint8Array[] = new Array(strings.length)

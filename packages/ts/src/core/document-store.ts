@@ -214,6 +214,9 @@ export function createDocumentStore(): DocumentStore {
     toInternal(externalId: string): number | undefined {
       return forwardMap.get(externalId)
     },
+    isLive(internalId: number): boolean {
+      return reverseMap[internalId] !== undefined
+    },
   }
 
   return {

@@ -22,7 +22,7 @@ export function textRangeBitsetOf(
 ): Uint32Array {
   const column = ensureColumns(state).column(fieldPath, fieldType, 'min')
   const resolver = state.docStore.resolver()
-  return selectTextRange(column, bounds, capacity, internalId => resolver.toExternal(internalId) !== undefined)
+  return selectTextRange(column, bounds, capacity, internalId => resolver.isLive(internalId))
 }
 
 export function sortedPageOf(state: PartitionReadState, request: SortPageRequest): SortedPageEntry[] {

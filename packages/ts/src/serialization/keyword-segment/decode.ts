@@ -7,6 +7,7 @@ import {
   decodeEnumColumns,
   decodeFieldLengths,
   decodeGeopointColumns,
+  decodePartialWords,
   decodePatternColumns,
   decodeSurfaceForms,
   decodeValueColumns,
@@ -175,12 +176,13 @@ export function decodeKeywordSegment(payload: Uint8Array, shared: boolean): Keyw
     corrupt(`fieldNames holds ${fieldNames.length} names, above the limit of ${MAX_SEGMENT_FIELD_NAMES}`)
   }
   const context: ColumnContext = { documentCount, shared }
+  const postings = decodePostings(raw, fieldNames, context)
   const arrays: KeywordSegmentArrays = {
     documentCount,
     fieldNames,
     idTable: decodeIds(raw, context),
     documentTable: decodeDocuments(raw, schema, context),
-    ...decodePostings(raw, fieldNames, context),
+    ...postings,
     ...decodeFieldLengths(raw.fieldLengths, context),
     numeric: decodeValueColumns(raw.numeric, 'numeric', context),
     sizes: decodeValueColumns(raw.sizes, 'sizes', context),
@@ -189,6 +191,7 @@ export function decodeKeywordSegment(payload: Uint8Array, shared: boolean): Keyw
     geo: decodeGeopointColumns(raw.geopoint, context),
     pattern: decodePatternColumns(raw.pattern, context),
     surfaceTable: decodeSurfaceForms(raw.surfaceForms, context),
+    partialWords: decodePartialWords(raw.partialWords, postings.tokenTable.offsets.length - 1, context),
   }
   return { schema, tombstones, arrays }
 }

@@ -18,7 +18,7 @@ import type { FilterExpression } from '../../types/filters'
 import type { ListedDocument, ListResult } from '../../types/results'
 import type { AnyDocument, SchemaDefinition } from '../../types/schema'
 import type { ListParams, SortSpec } from '../../types/search'
-import { requireValidQueryFilter } from '../query/shared'
+import { validQueryFilter } from '../query/shared'
 import { clampLimit, now } from '../validation'
 
 export interface ListContext {
@@ -191,7 +191,7 @@ export function executeListDocuments<T = AnyDocument>(params: ListParams, contex
   const limit = clampListLimit(params.limit)
   const signature = sortSignatureOf(params.sort)
   requireSortableFields(params.sort, schema, context.strict === true)
-  requireValidQueryFilter(params.filters, schema)
+  const filters = validQueryFilter(params.filters, schema)
 
   const binding = listBindingOf(params.filters)
   let cursor: PageCursor | null = null
@@ -207,9 +207,7 @@ export function executeListDocuments<T = AnyDocument>(params: ListParams, contex
           .map(partitionId => manager.partitionAt(partitionId))
           .filter((partition): partition is NonNullable<typeof partition> => partition !== undefined)
   const filtered =
-    params.filters === undefined
-      ? null
-      : collectFilterMatches(partitions, params.filters, schema, context.patternWorkCap)
+    filters === undefined ? null : collectFilterMatches(partitions, filters, schema, context.patternWorkCap)
   const total = filtered === null ? countAcrossPartitions(manager, context.partitionIds, partitions) : filtered.total
 
   const page =

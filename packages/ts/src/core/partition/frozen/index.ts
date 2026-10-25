@@ -7,7 +7,7 @@ import { requirePatternSearch } from '../../pattern-index/registry'
 import type { PatternIndexReader } from '../../pattern-index/types'
 import type { PartitionStatsView } from '../../statistics'
 import { buildPartialWordTableFrom, createFrozenPartialWords } from '../partial-words/registry'
-import type { PartialWordTableData } from '../partial-words/types'
+import type { FrozenPartialWordSlot, PartialWordTableData } from '../partial-words/types'
 import type { PartitionReadState } from '../read-state'
 import type { SegmentPayload } from '../segment-payload'
 import type { SegmentColumns } from './columns'
@@ -36,6 +36,7 @@ export interface FrozenSegment extends PartitionReadState {
   readonly segmentId: string
   readonly documentSource: FrozenDocumentSource
   readonly sharedSnapshot: SharedSegmentSnapshot | null
+  readonly partialWords: FrozenPartialWordSlot
   /** The segment serves from these flat arrays, which a merge reads as they stand, decoding no document. */
   readonly arrays: FrozenSegmentArrays
   liveDocumentCount(): number
@@ -91,15 +92,6 @@ function buildGeoReaders(entries: SegmentPayload['geo']): Map<string, GeoIndexRe
   return readers
 }
 
-function* survivingDocuments(
-  documentSource: FrozenDocumentSource,
-  tombstones: ReturnType<typeof createFrozenTombstones>,
-): Generator<AnyDocument> {
-  for (let ordinal = 0; ordinal < documentSource.count; ordinal++) {
-    if (!tombstones.has(ordinal)) yield documentSource.readAt(ordinal)
-  }
-}
-
 function assembleFrozenSegment(
   segmentId: string,
   source: FrozenSegmentSource,
@@ -115,8 +107,9 @@ function assembleFrozenSegment(
   }
   const docStore = createFrozenDocTable(source.idTable, lengthColumns, documentSource, tombstones)
   const partialWords = createFrozenPartialWords(partialWordTable, source.tokenTable, {
+    count: documentSource.count,
     documentAt: ordinal => documentSource.readAt(ordinal),
-    survivors: () => survivingDocuments(documentSource, tombstones),
+    isTombstoned: ordinal => tombstones.has(ordinal),
   })
 
   const numericIndexes = new Map<string, NumericFieldIndexReader>()
