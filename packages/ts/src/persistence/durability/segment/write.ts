@@ -1,9 +1,14 @@
+import { resolveIndexAnalysis } from '../../../analysis/registry'
+import type { PartitionInsertOptions } from '../../../core/partition'
+import type { PartialWordAnalysis } from '../../../core/partition/partial-words/spellings'
 import type { ReplicationLogEntry } from '../../../distribution/replication/types'
 import { reconstructSchemaFromMetadata } from '../../../engine/recovery-schema'
 import { ErrorCodes, NarsilError } from '../../../errors'
 import { getLanguage } from '../../../languages/registry'
-import { extractVectorFieldsFromSchema } from '../../../schema/validator/schema'
+import { resolvePartitionInsertOptions } from '../../../partitioning/insert-options'
+import { extractVectorFieldsFromSchema, partialFieldsOf } from '../../../schema/validator/schema'
 import type { IndexMetadata } from '../../../types/internal'
+import type { LanguageModule } from '../../../types/language'
 import type { IndexConfig } from '../../../types/schema'
 import { DEFAULT_COMPACTION_THRESHOLD } from '../constants'
 import type { DurableDirectory } from '../durable-filesystem'
@@ -54,8 +59,36 @@ interface PartitionWriteContext {
   input: CheckpointSegmentsInput
   indexName: string
   config: IndexConfig
+  partialWordAnalysis: PartialWordAnalysis | null
   vectorFieldPaths: Set<string>
   compactionThreshold: number
+}
+
+interface ResolvedTextAnalysis {
+  language: LanguageModule
+  options: PartitionInsertOptions | undefined
+}
+
+function partialWordAnalysisOf(config: IndexConfig): PartialWordAnalysis | null {
+  const fields = partialFieldsOf(config.schema)
+  if (fields.length === 0) return null
+  let resolved: ResolvedTextAnalysis | null = null
+  const resolve = (): ResolvedTextAnalysis => {
+    resolved ??= {
+      language: getLanguage(config.language ?? 'english'),
+      options: resolvePartitionInsertOptions(config, resolveIndexAnalysis(config)),
+    }
+    return resolved
+  }
+  return {
+    fields,
+    get language() {
+      return resolve().language
+    },
+    get options() {
+      return resolve().options
+    },
+  }
 }
 
 function resolveCompactionThreshold(configured: number): number {
@@ -84,6 +117,7 @@ async function writeWholePartition(
     partitionId,
     nextSegmentId: priorPartition?.nextSegmentId ?? 0,
     schema: context.input.metadata.schema,
+    partialWordAnalysis: context.partialWordAnalysis,
     selections: whole.selections,
     tombstones: [],
   })
@@ -112,6 +146,7 @@ async function writeLoggedChanges(
       partitionId,
       nextSegmentId,
       schema: context.input.metadata.schema,
+      partialWordAnalysis: context.partialWordAnalysis,
       selections: built.selections,
       tombstones: built.tombstones,
     })
@@ -130,6 +165,7 @@ async function writeLoggedChanges(
     indexName: context.indexName,
     partitionId,
     schema: context.input.metadata.schema,
+    partialWordAnalysis: context.partialWordAnalysis,
     segments,
     nextSegmentId,
     compactionThreshold: context.compactionThreshold,
@@ -163,6 +199,7 @@ export async function writeCheckpointSegments(input: CheckpointSegmentsInput): P
     input,
     indexName: input.metadata.indexName,
     config,
+    partialWordAnalysis: partialWordAnalysisOf(config),
     vectorFieldPaths: new Set(extractVectorFieldsFromSchema(config.schema).keys()),
     compactionThreshold: resolveCompactionThreshold(input.compactionThreshold),
   }

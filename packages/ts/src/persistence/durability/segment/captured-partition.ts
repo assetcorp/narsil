@@ -37,7 +37,7 @@ function selectionOfMask(segment: FrozenSegment, keep: Uint8Array): SegmentSelec
 
 function frozenLiveTail(live: PartitionIndex, shared: boolean): FrozenSegment | null {
   if (live.count() === 0) return null
-  const payload = { ...live.encodeSegment(), partialSpellings: null }
+  const payload = live.encodeSegment()
   const documents = survivorDocumentsOf(partitionStateOf(live), payload)
   if (shared) {
     const snapshot = freezeSegmentShared(payload, documents)

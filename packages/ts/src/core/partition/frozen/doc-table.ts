@@ -43,6 +43,9 @@ export function createFrozenDocTable(
     toInternal(externalId: string): number | undefined {
       return liveOrdinal(externalId)
     },
+    isLive(internalId: number): boolean {
+      return internalId >= 0 && internalId < capacity && !tombstones.has(internalId)
+    },
   }
 
   return {

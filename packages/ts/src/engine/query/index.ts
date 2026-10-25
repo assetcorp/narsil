@@ -19,10 +19,10 @@ import {
   coverageFor,
   type QueryContext,
   requireKnownMode,
-  requireValidQueryOptions,
   requireVectorSearchable,
   scoringConfigFor,
   searchOptionsFor,
+  validQueryParams,
   vectorSearchersOf,
   withPatternWork,
 } from './shared'
@@ -39,25 +39,25 @@ function requireCursorDepth(cursor: string | undefined, signature: string | null
 }
 
 export async function executeQuery<T = AnyDocument>(
-  params: QueryParams,
+  request: QueryParams,
   callerContext: QueryContext,
 ): Promise<QueryResult<T>> {
   const context = withPatternWork(callerContext)
   const { manager, language, config, workerSearch, indexName } = context
   const startTime = now()
-  const limit = clampLimit(params.limit)
-  const offset = clampOffset(params.offset)
+  const limit = clampLimit(request.limit)
+  const offset = clampOffset(request.offset)
   requireWithinResultWindow(limit, offset)
-  const sortFields = normalizeSort(params.sort)
-  requireKnownMode(params)
-  const sortSignature = sortSignatureOf(params.sort)
+  const sortFields = normalizeSort(request.sort)
+  requireKnownMode(request)
+  const sortSignature = sortSignatureOf(request.sort)
 
-  const hasTerm = params.term !== undefined && params.term.trim().length > 0
-  const hasVector = params.vector !== undefined && params.vector.value !== undefined
-  const isHybridMode = params.mode === 'hybrid' || (hasTerm && hasVector)
-  const isVectorOnly = (params.mode === 'vector' || (hasVector && !hasTerm)) && !isHybridMode
+  const hasTerm = request.term !== undefined && request.term.trim().length > 0
+  const hasVector = request.vector !== undefined && request.vector.value !== undefined
+  const isHybridMode = request.mode === 'hybrid' || (hasTerm && hasVector)
+  const isVectorOnly = (request.mode === 'vector' || (hasVector && !hasTerm)) && !isHybridMode
 
-  if (sortSignature !== null && (isHybridMode || params.hybrid !== undefined)) {
+  if (sortSignature !== null && (isHybridMode || request.hybrid !== undefined)) {
     throw new NarsilError(
       ErrorCodes.SEARCH_INVALID_MODE,
       'A hybrid query cannot carry a sort, because fusion defines the order of hybrid results',
@@ -65,7 +65,7 @@ export async function executeQuery<T = AnyDocument>(
     )
   }
 
-  requireValidQueryOptions(params, config)
+  const params = validQueryParams(request, config)
   requireVectorSearchable(params, context, isVectorOnly || isHybridMode)
 
   let paginated: Array<Hit<T>>
@@ -265,13 +265,13 @@ export async function executeQuery<T = AnyDocument>(
   }
 }
 
-export async function executePreflight(params: QueryParams, callerContext: QueryContext): Promise<PreflightResult> {
+export async function executePreflight(request: QueryParams, callerContext: QueryContext): Promise<PreflightResult> {
   const context = withPatternWork(callerContext)
   const { manager, language, config, workerSearch, indexName } = context
   const startTime = now()
 
-  requireKnownMode(params)
-  requireValidQueryOptions(params, config)
+  requireKnownMode(request)
+  const params = validQueryParams(request, config)
   const hasTerm = params.term !== undefined && params.term.trim().length > 0
   const hasVector = params.vector !== undefined && params.vector.value !== undefined
   const isHybridMode = params.mode === 'hybrid' || (hasTerm && hasVector)

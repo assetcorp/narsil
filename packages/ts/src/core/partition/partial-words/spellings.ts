@@ -1,7 +1,10 @@
 import type { LanguageModule } from '../../../types/language'
 import type { AnyDocument } from '../../../types/schema'
-import { tokenizeIterator } from '../../tokenizer'
+import { visitTokens } from '../../tokenizer/tokenize'
 import { getNestedValue, type PartitionInsertOptions, tokenizeOptions } from '../utils'
+import { PARTIAL_WORD_RUN_CODE_POINTS } from './constants'
+
+const LAST_BASIC_PLANE_CODE_POINT = 0xffff
 
 export interface PartialWordAnalysis {
   readonly fields: readonly string[]
@@ -18,7 +21,22 @@ export interface PartialSpellings {
   counts: number[]
 }
 
+export function codePointCountOf(text: string): number {
+  let count = 0
+  for (let index = 0; index < text.length; count++) {
+    index += (text.codePointAt(index) ?? 0) > LAST_BASIC_PLANE_CODE_POINT ? 2 : 1
+  }
+  return count
+}
+
+function holdsRun(spelling: string): boolean {
+  if (spelling.length > 2 * PARTIAL_WORD_RUN_CODE_POINTS) return true
+  if (spelling.length <= PARTIAL_WORD_RUN_CODE_POINTS) return false
+  return codePointCountOf(spelling) > PARTIAL_WORD_RUN_CODE_POINTS
+}
+
 export function countSpelling(counts: SpellingCounts, token: string, spelling: string, change: number): void {
+  if (!holdsRun(spelling)) return
   let byToken = counts.get(token)
   if (byToken === undefined) {
     if (change <= 0) return
@@ -47,11 +65,12 @@ export function countDocumentSpellings(
   direction: 1 | -1,
 ): void {
   const tokenizing = { ...tokenizeOptions(analysis.options), collectSurfaces: true }
+  const countOccurrence = (token: string, _position: number, surface: string | undefined): void => {
+    countSpelling(counts, token, surface ?? token, direction)
+  }
   for (const field of analysis.fields) {
     for (const text of textsOf(getNestedValue(document as Record<string, unknown>, field))) {
-      for (const occurrence of tokenizeIterator(text, analysis.language, tokenizing)) {
-        countSpelling(counts, occurrence.token, occurrence.surface ?? occurrence.token, direction)
-      }
+      visitTokens(text, analysis.language, tokenizing, countOccurrence)
     }
   }
 }

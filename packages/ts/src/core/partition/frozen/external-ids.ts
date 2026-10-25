@@ -1,5 +1,5 @@
 import { compareCodePoints } from '../../ordering'
-import { codePointOrder, encodeStringBlob } from './string-blob'
+import { codePointOrder, encodeLookupKey, encodeStringBlob } from './string-blob'
 
 export interface ExternalIdTable {
   readonly count: number
@@ -16,7 +16,6 @@ export interface ExternalIdTableData {
   sortedOrdinals: Uint32Array
 }
 
-const encoder = new TextEncoder()
 const decoder = new TextDecoder()
 
 export function encodeExternalIdTableData(docIds: readonly string[]): ExternalIdTableData {
@@ -38,12 +37,14 @@ export function wrapExternalIdTable(data: ExternalIdTableData): ExternalIdTable 
   const { blob, offsets, sortedOrdinals } = data
   const count = sortedOrdinals.length
   const decoded: Array<string | undefined> = new Array(count)
+  const decodedOrdinals = new Map<string, number>()
 
   function idAt(ordinal: number): string {
     let id = decoded[ordinal]
     if (id === undefined) {
       id = decoder.decode(blob.subarray(offsets[ordinal], offsets[ordinal + 1]))
       decoded[ordinal] = id
+      decodedOrdinals.set(id, ordinal)
     }
     return id
   }
@@ -55,7 +56,9 @@ export function wrapExternalIdTable(data: ExternalIdTableData): ExternalIdTable 
     idAt,
 
     ordinalOf(docId: string): number {
-      const query = encoder.encode(docId)
+      const known = decodedOrdinals.get(docId)
+      if (known !== undefined) return known
+      const query = encodeLookupKey(docId)
       let lo = 0
       let hi = count
       while (lo < hi) {

@@ -51,6 +51,15 @@ function requirePatternText(fieldPath: string, operator: string, text: string, c
 
 const ELEMENT_OPERATORS = ['matchesAny', 'containsAll'] as const
 
+export const PATTERN_OPERAND_KEYS = [
+  'contains',
+  'caseFold',
+  'tolerance',
+  ...PATTERN_EXPRESSION_OPERATORS,
+  ...PATTERN_TEST_OPERATORS,
+  ...ELEMENT_OPERATORS,
+] as const
+
 function requireExpressions(fieldPath: string, filter: Record<string, unknown>, type: FieldType | undefined): void {
   for (const operator of PATTERN_EXPRESSION_OPERATORS) {
     const pattern = filter[operator]
@@ -133,16 +142,19 @@ function requireTolerance(fieldPath: string, filter: Record<string, unknown>): v
   )
 }
 
-export function requireWellFormedText(fieldPath: string, filter: Record<string, unknown>): void {
-  for (const [operator, operand] of Object.entries(filter)) {
-    const texts: unknown[] = Array.isArray(operand) ? operand : [operand]
-    for (const text of texts) {
-      if (typeof text !== 'string' || !holdsUnpairedSurrogate(text)) continue
-      invalid(
-        `The text of "${operator}" on field "${fieldPath}" holds an unpaired surrogate, the half of a character such as an emoji whose other half is missing, so no stored value can hold it`,
-        fieldPath,
-        operator,
-      )
-    }
+function requireWellFormedOperand(fieldPath: string, operator: string, text: unknown): void {
+  if (typeof text !== 'string' || !holdsUnpairedSurrogate(text)) return
+  invalid(
+    `The text of "${operator}" on field "${fieldPath}" holds an unpaired surrogate, the half of a character such as an emoji whose other half is missing, so no stored value can hold it`,
+    fieldPath,
+    operator,
+  )
+}
+
+export function requireWellFormedText(fieldPath: string, operator: string, operand: unknown): void {
+  if (!Array.isArray(operand)) {
+    requireWellFormedOperand(fieldPath, operator, operand)
+    return
   }
+  for (const text of operand) requireWellFormedOperand(fieldPath, operator, text)
 }

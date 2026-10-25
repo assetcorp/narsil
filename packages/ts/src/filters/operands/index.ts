@@ -1,7 +1,8 @@
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { FilterExpression } from '../../types/filters'
 import type { FieldType } from '../../types/schema'
-import { MAX_FILTER_DEPTH, MAX_FILTER_TESTS } from '../constants'
+import { FILTER_OPERAND_COPY_DEPTH, MAX_FILTER_DEPTH, MAX_FILTER_TESTS } from '../constants'
+import { FIELD_FILTER_OPERATORS, FILTER_EXPRESSION_KEYS } from '../keys'
 import {
   invalid,
   isFiniteNumber,
@@ -12,8 +13,17 @@ import {
   requireTextRangeField,
 } from './checks'
 import { requireGeoOperands } from './geo'
-import { requireElementOperands, requirePresenceOperands, requireSizeOperands, requireWholeValueIndex } from './lists'
-import { requirePatternOperands, requireWellFormedText } from './pattern'
+import {
+  ELEMENT_OPERATORS,
+  PRESENCE_OPERATORS,
+  requireElementOperands,
+  requirePresenceOperands,
+  requireSizeOperands,
+  requireWholeValueIndex,
+  SIZE_OPERAND_KEYS,
+  WHOLE_VALUE_OPERATORS,
+} from './lists'
+import { PATTERN_OPERAND_KEYS, requirePatternOperands, requireWellFormedText } from './pattern'
 
 const RANGE_OPERATORS = ['gt', 'lt', 'gte', 'lte'] as const
 const TEXT_OPERATORS = ['startsWith', 'endsWith'] as const
@@ -21,9 +31,20 @@ const EQUALITY_OPERATORS = ['eq', 'ne'] as const
 const LIST_OPERATORS = ['in', 'nin'] as const
 const GEO_OPERATORS = ['radius', 'polygon'] as const
 const TEST_MODIFIERS: ReadonlySet<string> = new Set(['caseFold', 'tolerance'])
+const EXPRESSION_KEYS: ReadonlySet<string> = new Set(FILTER_EXPRESSION_KEYS)
+const OPERATOR_KEYS: ReadonlySet<string> = new Set(FIELD_FILTER_OPERATORS)
+const PROTOTYPE_KEY = '__proto__'
+
+const validatedFilters = new WeakMap<object, Readonly<Record<string, FieldType>>>()
+
+type OperandCheck = (fieldPath: string, filter: Record<string, unknown>, type: FieldType) => void
 
 function invalidShape(message: string): never {
   throw new NarsilError(ErrorCodes.SEARCH_INVALID_FILTER, message)
+}
+
+function invalidKey(message: string, key: string): never {
+  throw new NarsilError(ErrorCodes.SEARCH_INVALID_FILTER, message, { key })
 }
 
 export function undeclaredFieldOnStrictIndex(field: string, option: string): NarsilError {
@@ -106,22 +127,63 @@ function requireValueOperands(fieldPath: string, filter: Record<string, unknown>
   }
 }
 
-export function requireValidOperands(fieldPath: string, filter: Record<string, unknown>, type: FieldType): void {
-  requireWellFormedText(fieldPath, filter)
-  requireRangeOperands(fieldPath, filter, type)
-  requireValueOperands(fieldPath, filter, type)
-  requireWholeValueIndex(fieldPath, filter, type)
-  requirePresenceOperands(fieldPath, filter)
-  requireElementOperands(fieldPath, filter, type)
-  requireSizeOperands(fieldPath, filter, type)
-  requirePatternOperands(fieldPath, filter, type)
-  requireGeoOperands(fieldPath, filter)
+const OPERAND_CHECKS: ReadonlyArray<readonly [readonly string[], OperandCheck]> = [
+  [[...RANGE_OPERATORS, 'between'], requireRangeOperands],
+  [[...TEXT_OPERATORS, ...EQUALITY_OPERATORS, ...LIST_OPERATORS, ...GEO_OPERATORS], requireValueOperands],
+  [WHOLE_VALUE_OPERATORS, requireWholeValueIndex],
+  [PRESENCE_OPERATORS, requirePresenceOperands],
+  [ELEMENT_OPERATORS, requireElementOperands],
+  [SIZE_OPERAND_KEYS, requireSizeOperands],
+  [PATTERN_OPERAND_KEYS, requirePatternOperands],
+  [GEO_OPERATORS, requireGeoOperands],
+]
+
+const CHECKS_BY_OPERATOR: ReadonlyMap<string, number> = checksByOperator()
+
+function checksByOperator(): Map<string, number> {
+  const checks = new Map<string, number>()
+  for (let at = 0; at < OPERAND_CHECKS.length; at++) {
+    for (const operator of OPERAND_CHECKS[at][0]) checks.set(operator, (checks.get(operator) ?? 0) | (1 << at))
+  }
+  return checks
+}
+
+function testsOfOperator(operator: string, operand: unknown): number {
+  if (TEST_MODIFIERS.has(operator)) return 0
+  return operator === 'size' && isObjectRecord(operand) ? Math.max(1, Object.keys(operand).length) : 1
+}
+
+function requireValidFieldTests(
+  fieldPath: string,
+  filter: Record<string, unknown>,
+  type: FieldType,
+  walk: FilterWalk,
+): void {
+  const operators = Object.keys(filter)
+  let wanted = 0
+  let tests = 0
+  for (const operator of operators) {
+    if (walk.unknownKey === null && !OPERATOR_KEYS.has(operator)) {
+      walk.unknownKey = {
+        message: `Field "${fieldPath}" is tested with "${operator}", which is no filter operator`,
+        key: operator,
+      }
+    }
+    tests += testsOfOperator(operator, filter[operator])
+    wanted |= CHECKS_BY_OPERATOR.get(operator) ?? 0
+  }
+  countTests(walk, Math.max(1, tests))
+  for (const operator of operators) requireWellFormedText(fieldPath, operator, filter[operator])
+  for (let at = 0; wanted !== 0; at++, wanted >>>= 1) {
+    if ((wanted & 1) !== 0) OPERAND_CHECKS[at][1](fieldPath, filter, type)
+  }
 }
 
 export function filterTestCount(expression: unknown): number {
   if (!isObjectRecord(expression)) return 0
   const fieldFilters = isObjectRecord(expression.fields) ? Object.values(expression.fields) : []
-  let tests = fieldFilters.length === 0 && !holdsNestedExpressions(expression) ? 1 : 0
+  let tests =
+    fieldFilters.length === 0 && !holdsNestedExpressions(expression.and, expression.or, expression.not) ? 1 : 0
   for (const filter of fieldFilters) tests += isObjectRecord(filter) ? testsIn(filter) : 1
   for (const list of [expression.and, expression.or]) {
     if (Array.isArray(list)) for (const nested of list) tests += filterTestCount(nested)
@@ -131,10 +193,7 @@ export function filterTestCount(expression: unknown): number {
 
 function testsIn(filter: Record<string, unknown>): number {
   let tests = 0
-  for (const [operator, operand] of Object.entries(filter)) {
-    if (TEST_MODIFIERS.has(operator)) continue
-    tests += operator === 'size' && isObjectRecord(operand) ? Math.max(1, Object.keys(operand).length) : 1
-  }
+  for (const [operator, operand] of Object.entries(filter)) tests += testsOfOperator(operator, operand)
   return Math.max(1, tests)
 }
 
@@ -145,47 +204,109 @@ function countTests(walk: FilterWalk, tests: number): void {
   }
 }
 
-function holdsNestedExpressions(expression: Record<string, unknown>): boolean {
-  const { and, or, not } = expression
+function holdsNestedExpressions(and: unknown, or: unknown, not: unknown): boolean {
   return (Array.isArray(and) && and.length > 0) || (Array.isArray(or) && or.length > 0) || not !== undefined
+}
+
+interface UnknownFilterKey {
+  readonly message: string
+  readonly key: string
 }
 
 interface FilterWalk {
   readonly fieldTypes: Readonly<Record<string, FieldType>>
   tests: number
+  unknownKey: UnknownFilterKey | null
 }
 
-function requireValidExpression(expression: unknown, walk: FilterWalk, depth: number): void {
+function noteUnknownExpressionKey(expression: Record<string, unknown>, walk: FilterWalk): void {
+  for (const key in expression) {
+    if (!Object.hasOwn(expression, key) || EXPRESSION_KEYS.has(key)) continue
+    walk.unknownKey = {
+      message: `A filter expression takes "fields", "and", "or", and "not", and "${key}" is none of them. A per-field test such as { ${key}: { eq: ... } } belongs under "fields"`,
+      key,
+    }
+    return
+  }
+}
+
+function setOwn(record: Record<string, unknown>, key: string, value: unknown): void {
+  if (key === PROTOTYPE_KEY) {
+    Object.defineProperty(record, key, { value, enumerable: true, writable: true, configurable: true })
+  } else {
+    record[key] = value
+  }
+}
+
+function ownedOperandOf(value: unknown, fieldPath: string, operator: string, depth: number): unknown {
+  if (typeof value !== 'object' || value === null || depth > FILTER_OPERAND_COPY_DEPTH) return value
+  if (Array.isArray(value)) {
+    requireListLength(fieldPath, operator, value)
+    const owned: unknown[] = []
+    for (let at = 0; at < value.length; at++) owned.push(ownedOperandOf(value[at], fieldPath, operator, depth + 1))
+    return owned
+  }
+  const record = value as Record<string, unknown>
+  const owned: Record<string, unknown> = {}
+  for (const key of Object.keys(record)) setOwn(owned, key, ownedOperandOf(record[key], fieldPath, operator, depth + 1))
+  return owned
+}
+
+function ownedFieldFilterOf(fieldPath: string, filter: Record<string, unknown>): Record<string, unknown> {
+  const owned: Record<string, unknown> = {}
+  for (const operator of Object.keys(filter)) {
+    setOwn(owned, operator, ownedOperandOf(filter[operator], fieldPath, operator, 1))
+  }
+  return owned
+}
+
+function ownedFieldFiltersOf(fields: Record<string, unknown>, walk: FilterWalk): Record<string, unknown> {
+  const owned: Record<string, unknown> = {}
+  for (const fieldPath of Object.keys(fields)) {
+    const type = walk.fieldTypes[fieldPath]
+    if (!Object.hasOwn(walk.fieldTypes, fieldPath) || type === undefined) throw undeclaredFilterField(fieldPath)
+    const filter = fields[fieldPath]
+    if (!isObjectRecord(filter)) invalidShape(`The filter on field "${fieldPath}" must be an object of tests`)
+    const ownedFilter = ownedFieldFilterOf(fieldPath, filter)
+    requireValidFieldTests(fieldPath, ownedFilter, type, walk)
+    setOwn(owned, fieldPath, ownedFilter)
+  }
+  return owned
+}
+
+function ownedClauseOf(clause: 'and' | 'or', list: unknown, walk: FilterWalk, depth: number): unknown[] {
+  if (!Array.isArray(list)) invalidShape(`"${clause}" in a filter expression must be a list of filter expressions`)
+  const owned: unknown[] = []
+  for (let at = 0; at < list.length; at++) owned.push(ownedExpressionOf(list[at], walk, depth + 1))
+  return owned
+}
+
+function ownedExpressionOf(expression: unknown, walk: FilterWalk, depth: number): Record<string, unknown> {
   if (depth > MAX_FILTER_DEPTH) invalidShape(`A filter expression nests at most ${MAX_FILTER_DEPTH} levels deep`)
   if (!isObjectRecord(expression)) invalidShape('Each filter expression must be an object')
+  if (walk.unknownKey === null) noteUnknownExpressionKey(expression, walk)
   const { fields, and, or, not } = expression
   if (fields !== undefined && !isObjectRecord(fields)) {
     invalidShape('"fields" in a filter expression must be an object keyed by field path')
   }
-  const fieldFilters = Object.entries(fields ?? {})
-  if (fieldFilters.length === 0 && !holdsNestedExpressions(expression)) countTests(walk, 1)
-  for (const [fieldPath, filter] of fieldFilters) {
-    const type = walk.fieldTypes[fieldPath]
-    if (!Object.hasOwn(walk.fieldTypes, fieldPath) || type === undefined) throw undeclaredFilterField(fieldPath)
-    if (!isObjectRecord(filter)) invalidShape(`The filter on field "${fieldPath}" must be an object of tests`)
-    countTests(walk, testsIn(filter))
-    requireValidOperands(fieldPath, filter, type)
-  }
-  for (const [clause, list] of [
-    ['and', and],
-    ['or', or],
-  ] as const) {
-    if (list === undefined) continue
-    if (!Array.isArray(list)) invalidShape(`"${clause}" in a filter expression must be a list of filter expressions`)
-    for (const nested of list) requireValidExpression(nested, walk, depth + 1)
-  }
-  if (not !== undefined) requireValidExpression(not, walk, depth + 1)
+  const owned: Record<string, unknown> = {}
+  const fieldCount = fields === undefined ? 0 : Object.keys(fields).length
+  if (fieldCount === 0 && !holdsNestedExpressions(and, or, not)) countTests(walk, 1)
+  if (fields !== undefined) owned.fields = ownedFieldFiltersOf(fields, walk)
+  if (and !== undefined) owned.and = ownedClauseOf('and', and, walk, depth)
+  if (or !== undefined) owned.or = ownedClauseOf('or', or, walk, depth)
+  if (not !== undefined) owned.not = ownedExpressionOf(not, walk, depth + 1)
+  return owned
 }
 
-export function requireValidFilter(
-  expression: FilterExpression | undefined,
+export function validatedFilterOf(
+  expression: FilterExpression,
   fieldTypes: Readonly<Record<string, FieldType>>,
-): void {
-  if (expression === undefined || expression === null) return
-  requireValidExpression(expression, { fieldTypes, tests: 0 }, 0)
+): FilterExpression {
+  if (validatedFilters.get(expression) === fieldTypes) return expression
+  const walk: FilterWalk = { fieldTypes, tests: 0, unknownKey: null }
+  const validated = ownedExpressionOf(expression, walk, 0) as FilterExpression
+  if (walk.unknownKey !== null) invalidKey(walk.unknownKey.message, walk.unknownKey.key)
+  validatedFilters.set(validated, fieldTypes)
+  return validated
 }

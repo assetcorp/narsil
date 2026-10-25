@@ -1,4 +1,5 @@
 import type { SurfaceTableData } from '../../core/partition/frozen/surface-table'
+import type { PartialWordTableData } from '../../core/partition/partial-words/types'
 import { bytesFrom, float64sFrom, uint32sFrom } from './little-endian'
 import {
   corrupt,
@@ -11,9 +12,12 @@ import {
 } from './raw-fields'
 import type { KeywordSegmentArrays } from './types'
 import {
+  requireBelow,
+  requireNonZero,
   requireOffsets,
   requireOrdinals,
   requireRunsAscend,
+  requireSpellingEntriesAscend,
   requireStrictlyAscending,
   requireUtf8Entries,
   requireValuesAscendWithoutNaN,
@@ -144,4 +148,38 @@ export function decodeSurfaceForms(raw: unknown, context: ColumnContext): Surfac
   requireOffsets(offsets, blob.length, 'surfaceForms.offsets')
   requireUtf8Entries(blob, offsets, 'surfaceForms.text')
   return counts.length === 0 ? null : { blob, offsets, counts }
+}
+
+export function decodePartialWords(
+  raw: unknown,
+  tokenCount: number,
+  context: ColumnContext,
+): PartialWordTableData | null {
+  if (raw === null || raw === undefined) return null
+  const column = requireRecord(raw, 'partialWords')
+  const fields = requireStrings(column.fields, 'partialWords.fields')
+  const spellings = bytesFrom(requireBytes(column.text, 'partialWords.text', 1), context.shared)
+  const spellingOffsets = uint32Column(column, 'offsets', 'partialWords', context)
+  const spellingTokens = uint32Column(column, 'tokens', 'partialWords', context)
+  const spellingCounts = uint32Column(column, 'counts', 'partialWords', context)
+  const entries = spellingTokens.length
+  requireCount(spellingOffsets.length, entries + 1, 'partialWords.offsets')
+  requireCount(spellingCounts.length, entries, 'partialWords.counts')
+  requireOffsets(spellingOffsets, spellings.length, 'partialWords.offsets')
+  requireUtf8Entries(spellings, spellingOffsets, 'partialWords.text')
+  requireBelow(spellingTokens, tokenCount, 'partialWords.tokens')
+  requireNonZero(spellingCounts, 'partialWords.counts')
+  requireSpellingEntriesAscend(spellings, spellingOffsets, spellingTokens, 'partialWords')
+
+  const runs = uint32sFrom(requireBytes(column.runs, 'partialWords.runs', 4 * CODE_POINTS_PER_RUN), context.shared)
+  requireRunsAscend(runs, 'partialWords.runs')
+  const runOffsets = uint32Column(column, 'runOffsets', 'partialWords', context)
+  const runEntries = uint32Column(column, 'runEntries', 'partialWords', context)
+  requireCount(runOffsets.length, runs.length / CODE_POINTS_PER_RUN + 1, 'partialWords.runOffsets')
+  requireOffsets(runOffsets, runEntries.length, 'partialWords.runOffsets')
+  requireBelow(runEntries, entries, 'partialWords.runEntries')
+  for (let run = 0; run + 1 < runOffsets.length; run++) {
+    requireStrictlyAscending(runEntries, runOffsets[run], runOffsets[run + 1], 'partialWords.runEntries')
+  }
+  return { fields, spellings, spellingOffsets, spellingTokens, spellingCounts, runs, runOffsets, runEntries }
 }

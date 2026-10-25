@@ -102,6 +102,23 @@ describe('queryBindingOf', () => {
     )
   })
 
+  it('binds a term outside ASCII to its UTF-8 bytes in the byte stream of the specification', () => {
+    const streamOf = (term: string): string => {
+      const stream: number[] = []
+      const string = (s: string) => {
+        const bytes = Buffer.from(s, 'utf8')
+        stream.push(5, (bytes.length >>> 24) & 0xff, (bytes.length >>> 16) & 0xff, (bytes.length >>> 8) & 0xff)
+        stream.push(bytes.length & 0xff, ...bytes)
+      }
+      string(term)
+      for (let slot = 0; slot < 14; slot++) stream.push(0)
+      string('local')
+      return fnv1aBytes(Uint8Array.from(stream)).toString(16).padStart(8, '0')
+    }
+    const terms = ['café crème', '日本の珈琲', 'rocket 🚀 roast', 'half \uD83D of a pair', `${'a'.repeat(300)}é`, '']
+    for (const term of terms) expect(queryBindingOf({ term }), term).toBe(streamOf(term))
+  })
+
   it('binds a changed vector differently', () => {
     const base = queryBindingOf({ vector: { field: 'embedding', value: [0.1, 0.2, 0.3] } })
     const changed = queryBindingOf({ vector: { field: 'embedding', value: [0.1, 0.2, 0.4] } })

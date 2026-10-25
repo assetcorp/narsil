@@ -90,6 +90,8 @@ const EMPTY_FROZEN_SLOT: FrozenPartialWordSlot = {
   spellings: () => null,
   bytes: () => 0,
   afterRemoval: () => undefined,
+  tableOfEveryDocument: () => null,
+  countKeptSpellings: () => undefined,
 }
 
 export function createGrowingPartialWords(view: GrowingPartialWordView): GrowingPartialWordSlot {

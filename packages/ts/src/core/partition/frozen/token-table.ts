@@ -1,4 +1,4 @@
-import { codePointOrder, encodeStringBlob } from './string-blob'
+import { codePointOrder, encodeLookupKey, encodeStringBlob } from './string-blob'
 
 export interface FrozenTokenTable {
   readonly size: number
@@ -97,7 +97,7 @@ export function wrapFrozenTokenTable(data: FrozenTokenTableData): FrozenTokenTab
     bytes: blob.byteLength + offsets.byteLength + payloadSlots.byteLength + documentFrequencies.byteLength,
 
     find(token: string): number {
-      const query = encoder.encode(token)
+      const query = encodeLookupKey(token)
       const at = lowerBound(query)
       if (at >= size) return -1
       return compareBytes(blob, offsets[at], offsets[at + 1], query) === 0 ? at : -1

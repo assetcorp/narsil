@@ -2,7 +2,7 @@ import type { PartitionIndex } from '../../core/partition'
 import type { PatternWorkMeter } from '../../core/pattern-index/types'
 import { createPatternWorkMeter, type SearchPatternWork } from '../../core/pattern-index/work-meter'
 import { ErrorCodes, NarsilError } from '../../errors'
-import { requireValidFilter } from '../../filters/operands'
+import { validatedFilterOf } from '../../filters/operands'
 import { pruneStatsToQueryTerms } from '../../partitioning/distributed-scoring'
 import type { FanOutConfig, FanOutResult } from '../../partitioning/fan-out'
 import type { PartitionManager } from '../../partitioning/manager'
@@ -201,17 +201,22 @@ function requireBooleanPartialWords(params: QueryParams): void {
   })
 }
 
-export function requireValidQueryOptions(params: QueryParams, config: IndexConfig): void {
+export function validQueryParams(params: QueryParams, config: IndexConfig): QueryParams {
   const strict = config.strict === true
   requireValidTypoTolerance(params)
   requireBooleanPartialWords(params)
   requireSortableFields(params.sort, config.schema, strict)
-  requireValidQueryFilter(params.filters, config.schema)
+  const filters = validQueryFilter(params.filters, config.schema)
   requireUsableQueryFields(params, config.schema, strict)
+  return filters === params.filters ? params : { ...params, filters }
 }
 
-export function requireValidQueryFilter(filters: FilterExpression | undefined, schema: IndexConfig['schema']): void {
-  if (filters !== undefined) requireValidFilter(filters, flattenSchema(schema))
+export function validQueryFilter(
+  filters: FilterExpression | undefined,
+  schema: IndexConfig['schema'],
+): FilterExpression | undefined {
+  if (filters === undefined || filters === null) return filters
+  return validatedFilterOf(filters, flattenSchema(schema))
 }
 
 export function requireVectorSearchable(params: QueryParams, context: QueryContext, needsVector: boolean): void {

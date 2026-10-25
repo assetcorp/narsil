@@ -69,12 +69,15 @@ export interface GrowingPartialWordSlot extends PartialWordSlot {
 }
 
 export interface FrozenPartialWordDocuments {
+  readonly count: number
   documentAt(ordinal: number): AnyDocument
-  survivors(): Iterable<AnyDocument>
+  isTombstoned(ordinal: number): boolean
 }
 
 export interface FrozenPartialWordSlot extends PartialWordSlot {
   afterRemoval(ordinal: number): void
+  tableOfEveryDocument(analysis: PartialWordAnalysis): PartialWordTableData | null
+  countKeptSpellings(counts: SpellingCounts, analysis: PartialWordAnalysis, mergedOrdinals: Int32Array): void
 }
 
 export interface PartialWordSearchModule extends PartialWordSearch {

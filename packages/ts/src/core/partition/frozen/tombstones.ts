@@ -18,7 +18,7 @@ export function createFrozenTombstones(): FrozenTombstones {
       return revision
     },
     has(internalId: number): boolean {
-      return removed.has(internalId)
+      return removed.size > 0 && removed.has(internalId)
     },
     add(internalId: number): boolean {
       if (removed.has(internalId)) return false

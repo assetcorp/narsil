@@ -2,9 +2,19 @@ import { parsedTypeOf } from '../../schema/validator/field-type'
 import type { FieldType } from '../../types/schema'
 import { invalid, isFiniteNumber, isObjectRecord, kindOfValue, type OperandKind, requireListLength } from './checks'
 
-const WHOLE_VALUE_OPERATORS = ['eq', 'ne', 'in', 'nin', 'startsWith', 'endsWith', 'matchesAny', 'containsAll'] as const
-const ELEMENT_OPERATORS = ['matchesAny', 'containsAll'] as const
-const PRESENCE_OPERATORS = ['exists', 'notExists', 'isEmpty', 'isNotEmpty'] as const
+export const WHOLE_VALUE_OPERATORS = [
+  'eq',
+  'ne',
+  'in',
+  'nin',
+  'startsWith',
+  'endsWith',
+  'matchesAny',
+  'containsAll',
+] as const
+export const ELEMENT_OPERATORS = ['matchesAny', 'containsAll'] as const
+export const PRESENCE_OPERATORS = ['exists', 'notExists', 'isEmpty', 'isNotEmpty'] as const
+export const SIZE_OPERAND_KEYS = ['size'] as const
 const SIZE_OPERATORS = ['eq', 'ne', 'gt', 'gte', 'lt', 'lte', 'between'] as const
 const SIZE_OPERATOR_SET: ReadonlySet<string> = new Set(SIZE_OPERATORS)
 
