@@ -17,14 +17,6 @@ export function codePointsOf(text: string): number[] {
   return points
 }
 
-export function codePointCountOf(text: string): number {
-  let count = 0
-  for (let index = 0; index < text.length; count++) {
-    index += (text.codePointAt(index) ?? 0) > LAST_BASIC_PLANE_CODE_POINT ? 2 : 1
-  }
-  return count
-}
-
 export function runKeyAt(points: readonly number[], at: number): string {
   return String.fromCodePoint(points[at], points[at + 1], points[at + 2])
 }

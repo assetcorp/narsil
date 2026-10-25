@@ -21,14 +21,18 @@ export interface PartialSpellings {
   counts: number[]
 }
 
-export function holdsRun(spelling: string): boolean {
+export function codePointCountOf(text: string): number {
+  let count = 0
+  for (let index = 0; index < text.length; count++) {
+    index += (text.codePointAt(index) ?? 0) > LAST_BASIC_PLANE_CODE_POINT ? 2 : 1
+  }
+  return count
+}
+
+function holdsRun(spelling: string): boolean {
   if (spelling.length > 2 * PARTIAL_WORD_RUN_CODE_POINTS) return true
   if (spelling.length <= PARTIAL_WORD_RUN_CODE_POINTS) return false
-  let points = 0
-  for (let index = 0; index < spelling.length; points++) {
-    index += (spelling.codePointAt(index) ?? 0) > LAST_BASIC_PLANE_CODE_POINT ? 2 : 1
-  }
-  return points > PARTIAL_WORD_RUN_CODE_POINTS
+  return codePointCountOf(spelling) > PARTIAL_WORD_RUN_CODE_POINTS
 }
 
 export function countSpelling(counts: SpellingCounts, token: string, spelling: string, change: number): void {
