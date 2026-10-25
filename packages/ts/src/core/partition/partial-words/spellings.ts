@@ -1,6 +1,6 @@
 import type { LanguageModule } from '../../../types/language'
 import type { AnyDocument } from '../../../types/schema'
-import { tokenizeIterator } from '../../tokenizer'
+import { visitTokens } from '../../tokenizer/tokenize'
 import { getNestedValue, type PartitionInsertOptions, tokenizeOptions } from '../utils'
 
 export interface PartialWordAnalysis {
@@ -47,11 +47,12 @@ export function countDocumentSpellings(
   direction: 1 | -1,
 ): void {
   const tokenizing = { ...tokenizeOptions(analysis.options), collectSurfaces: true }
+  const countOccurrence = (token: string, _position: number, surface: string | undefined): void => {
+    countSpelling(counts, token, surface ?? token, direction)
+  }
   for (const field of analysis.fields) {
     for (const text of textsOf(getNestedValue(document as Record<string, unknown>, field))) {
-      for (const occurrence of tokenizeIterator(text, analysis.language, tokenizing)) {
-        countSpelling(counts, occurrence.token, occurrence.surface ?? occurrence.token, direction)
-      }
+      visitTokens(text, analysis.language, tokenizing, countOccurrence)
     }
   }
 }

@@ -11,7 +11,8 @@ import {
   type NumericFieldIndex,
 } from '../field-index'
 import { patternIndexOf } from '../pattern-index/host'
-import { tokenize, tokenizeIterator } from '../tokenizer'
+import { tokenize } from '../tokenizer'
+import { visitTokens } from '../tokenizer/tokenize'
 import { countSpelling, type SpellingCounts } from './partial-words/spellings'
 import {
   getNestedValue,
@@ -134,28 +135,28 @@ export function indexStringField(
 
   if (state.trackPositions) {
     const tokenFreqs = new Map<string, { count: number; positions: number[] }>()
-    for (const t of tokenizeIterator(text, language, opts)) {
-      const existing = tokenFreqs.get(t.token)
+    visitTokens(text, language, opts, (token, position, surface) => {
+      const existing = tokenFreqs.get(token)
       if (existing) {
         existing.count++
-        existing.positions.push(t.position)
+        existing.positions.push(position)
       } else {
-        tokenFreqs.set(t.token, { count: 1, positions: [t.position] })
+        tokenFreqs.set(token, { count: 1, positions: [position] })
       }
-      fieldTokenList.push(t.token)
-      countOccurrence(surfaceCounts, spellings, t.surface, t.token)
-    }
+      fieldTokenList.push(token)
+      countOccurrence(surfaceCounts, spellings, surface, token)
+    })
 
     for (const [token, freq] of tokenFreqs) {
       state.invertedIdx.insert(token, internalId, freq.count, fieldNameIndex, freq.positions)
     }
   } else {
     const tokenCounts = new Map<string, number>()
-    for (const t of tokenizeIterator(text, language, opts)) {
-      tokenCounts.set(t.token, (tokenCounts.get(t.token) ?? 0) + 1)
-      fieldTokenList.push(t.token)
-      countOccurrence(surfaceCounts, spellings, t.surface, t.token)
-    }
+    visitTokens(text, language, opts, (token, _position, surface) => {
+      tokenCounts.set(token, (tokenCounts.get(token) ?? 0) + 1)
+      fieldTokenList.push(token)
+      countOccurrence(surfaceCounts, spellings, surface, token)
+    })
 
     for (const [token, count] of tokenCounts) {
       state.invertedIdx.insert(token, internalId, count, fieldNameIndex, null)
@@ -187,20 +188,22 @@ export function indexStringArrayField(
     const tokenFreqs = new Map<string, { count: number; positions: number[] }>()
     let positionOffset = 0
 
-    for (const item of arr) {
-      let itemTokenCount = 0
-      for (const t of tokenizeIterator(item, language, opts)) {
-        const existing = tokenFreqs.get(t.token)
-        if (existing) {
-          existing.count++
-          existing.positions.push(positionOffset + t.position)
-        } else {
-          tokenFreqs.set(t.token, { count: 1, positions: [positionOffset + t.position] })
-        }
-        fieldTokenList.push(t.token)
-        countOccurrence(surfaceCounts, spellings, t.surface, t.token)
-        itemTokenCount++
+    let itemTokenCount = 0
+    const addToken = (token: string, position: number, surface: string | undefined): void => {
+      const existing = tokenFreqs.get(token)
+      if (existing) {
+        existing.count++
+        existing.positions.push(positionOffset + position)
+      } else {
+        tokenFreqs.set(token, { count: 1, positions: [positionOffset + position] })
       }
+      fieldTokenList.push(token)
+      countOccurrence(surfaceCounts, spellings, surface, token)
+      itemTokenCount++
+    }
+    for (const item of arr) {
+      itemTokenCount = 0
+      visitTokens(item, language, opts, addToken)
       positionOffset += itemTokenCount
     }
 
@@ -212,13 +215,12 @@ export function indexStringArrayField(
   } else {
     const tokenCounts = new Map<string, number>()
 
-    for (const item of arr) {
-      for (const t of tokenizeIterator(item, language, opts)) {
-        tokenCounts.set(t.token, (tokenCounts.get(t.token) ?? 0) + 1)
-        fieldTokenList.push(t.token)
-        countOccurrence(surfaceCounts, spellings, t.surface, t.token)
-      }
+    const addToken = (token: string, _position: number, surface: string | undefined): void => {
+      tokenCounts.set(token, (tokenCounts.get(token) ?? 0) + 1)
+      fieldTokenList.push(token)
+      countOccurrence(surfaceCounts, spellings, surface, token)
     }
+    for (const item of arr) visitTokens(item, language, opts, addToken)
 
     fieldLengths[fieldPath] = fieldTokenList.length
 

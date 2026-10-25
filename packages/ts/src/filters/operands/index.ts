@@ -12,8 +12,17 @@ import {
   requireTextRangeField,
 } from './checks'
 import { requireGeoOperands } from './geo'
-import { requireElementOperands, requirePresenceOperands, requireSizeOperands, requireWholeValueIndex } from './lists'
-import { requirePatternOperands, requireWellFormedText } from './pattern'
+import {
+  ELEMENT_OPERATORS,
+  PRESENCE_OPERATORS,
+  requireElementOperands,
+  requirePresenceOperands,
+  requireSizeOperands,
+  requireWholeValueIndex,
+  SIZE_OPERAND_KEYS,
+  WHOLE_VALUE_OPERATORS,
+} from './lists'
+import { PATTERN_OPERAND_KEYS, requirePatternOperands, requireWellFormedText } from './pattern'
 
 const RANGE_OPERATORS = ['gt', 'lt', 'gte', 'lte'] as const
 const TEXT_OPERATORS = ['startsWith', 'endsWith'] as const
@@ -21,6 +30,8 @@ const EQUALITY_OPERATORS = ['eq', 'ne'] as const
 const LIST_OPERATORS = ['in', 'nin'] as const
 const GEO_OPERATORS = ['radius', 'polygon'] as const
 const TEST_MODIFIERS: ReadonlySet<string> = new Set(['caseFold', 'tolerance'])
+
+type OperandCheck = (fieldPath: string, filter: Record<string, unknown>, type: FieldType) => void
 
 function invalidShape(message: string): never {
   throw new NarsilError(ErrorCodes.SEARCH_INVALID_FILTER, message)
@@ -106,16 +117,36 @@ function requireValueOperands(fieldPath: string, filter: Record<string, unknown>
   }
 }
 
+const OPERAND_CHECKS: ReadonlyArray<readonly [readonly string[], OperandCheck]> = [
+  [[...RANGE_OPERATORS, 'between'], requireRangeOperands],
+  [[...TEXT_OPERATORS, ...EQUALITY_OPERATORS, ...LIST_OPERATORS, ...GEO_OPERATORS], requireValueOperands],
+  [WHOLE_VALUE_OPERATORS, requireWholeValueIndex],
+  [PRESENCE_OPERATORS, requirePresenceOperands],
+  [ELEMENT_OPERATORS, requireElementOperands],
+  [SIZE_OPERAND_KEYS, requireSizeOperands],
+  [PATTERN_OPERAND_KEYS, requirePatternOperands],
+  [GEO_OPERATORS, requireGeoOperands],
+]
+
+const CHECKS_BY_OPERATOR: ReadonlyMap<string, number> = checksByOperator()
+
+function checksByOperator(): Map<string, number> {
+  const checks = new Map<string, number>()
+  for (let at = 0; at < OPERAND_CHECKS.length; at++) {
+    for (const operator of OPERAND_CHECKS[at][0]) checks.set(operator, (checks.get(operator) ?? 0) | (1 << at))
+  }
+  return checks
+}
+
 export function requireValidOperands(fieldPath: string, filter: Record<string, unknown>, type: FieldType): void {
-  requireWellFormedText(fieldPath, filter)
-  requireRangeOperands(fieldPath, filter, type)
-  requireValueOperands(fieldPath, filter, type)
-  requireWholeValueIndex(fieldPath, filter, type)
-  requirePresenceOperands(fieldPath, filter)
-  requireElementOperands(fieldPath, filter, type)
-  requireSizeOperands(fieldPath, filter, type)
-  requirePatternOperands(fieldPath, filter, type)
-  requireGeoOperands(fieldPath, filter)
+  let wanted = 0
+  for (const operator in filter) {
+    if (Object.hasOwn(filter, operator)) requireWellFormedText(fieldPath, operator, filter[operator])
+    wanted |= CHECKS_BY_OPERATOR.get(operator) ?? 0
+  }
+  for (let at = 0; wanted !== 0; at++, wanted >>>= 1) {
+    if ((wanted & 1) !== 0) OPERAND_CHECKS[at][1](fieldPath, filter, type)
+  }
 }
 
 export function filterTestCount(expression: unknown): number {

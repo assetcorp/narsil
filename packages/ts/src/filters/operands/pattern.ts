@@ -51,6 +51,15 @@ function requirePatternText(fieldPath: string, operator: string, text: string, c
 
 const ELEMENT_OPERATORS = ['matchesAny', 'containsAll'] as const
 
+export const PATTERN_OPERAND_KEYS = [
+  'contains',
+  'caseFold',
+  'tolerance',
+  ...PATTERN_EXPRESSION_OPERATORS,
+  ...PATTERN_TEST_OPERATORS,
+  ...ELEMENT_OPERATORS,
+] as const
+
 function requireExpressions(fieldPath: string, filter: Record<string, unknown>, type: FieldType | undefined): void {
   for (const operator of PATTERN_EXPRESSION_OPERATORS) {
     const pattern = filter[operator]
@@ -142,14 +151,10 @@ function requireWellFormedOperand(fieldPath: string, operator: string, text: unk
   )
 }
 
-export function requireWellFormedText(fieldPath: string, filter: Record<string, unknown>): void {
-  for (const operator in filter) {
-    if (!Object.hasOwn(filter, operator)) continue
-    const operand = filter[operator]
-    if (!Array.isArray(operand)) {
-      requireWellFormedOperand(fieldPath, operator, operand)
-      continue
-    }
-    for (const text of operand) requireWellFormedOperand(fieldPath, operator, text)
+export function requireWellFormedText(fieldPath: string, operator: string, operand: unknown): void {
+  if (!Array.isArray(operand)) {
+    requireWellFormedOperand(fieldPath, operator, operand)
+    return
   }
+  for (const text of operand) requireWellFormedOperand(fieldPath, operator, text)
 }
