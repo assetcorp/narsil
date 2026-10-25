@@ -29,6 +29,9 @@ function createTestResolver(mapping: Array<[number, string]>): InternalIdResolve
     toInternal(externalId: string): number | undefined {
       return forward.get(externalId)
     },
+    isLive(internalId: number): boolean {
+      return reverse.has(internalId)
+    },
   }
 }
 
