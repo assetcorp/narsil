@@ -2,7 +2,7 @@ import { bitsetAndInto, bitsetAndNotInto, bitsetOrInto, createBitSet } from '../
 import { parsedTypeOf } from '../schema/validator/field-type'
 import type { FieldFilter, FilterExpression } from '../types/filters'
 import { type FilterContext, narrowByFieldTests } from './field-tests'
-import { requireValidatedFilter, undeclaredFilterField } from './operands'
+import { undeclaredFilterField, validatedFilterOf } from './operands'
 
 export type { FilterContext } from './field-tests'
 
@@ -55,6 +55,5 @@ function evaluateExpression(expression: FilterExpression, context: FilterContext
 }
 
 export function evaluateFilters(expression: FilterExpression, context: FilterContext): Uint32Array {
-  requireValidatedFilter(expression, context.fieldTypes)
-  return evaluateExpression(expression, context)
+  return evaluateExpression(validatedFilterOf(expression, context.fieldTypes), context)
 }

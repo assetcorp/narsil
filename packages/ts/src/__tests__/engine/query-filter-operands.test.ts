@@ -131,4 +131,17 @@ describe('a filter whose operands cannot match the field', () => {
     expect(page.documents.map(document => document.id)).toEqual(['polar'])
     await narsil.remove('bikes', 'polar')
   })
+
+  it('answers from the filter it checked when the operand changes on a later read', async () => {
+    let reads = 0
+    const price = {
+      get gt(): unknown {
+        reads++
+        return reads <= 2 ? 1000 : 'every bike'
+      },
+    }
+    const filters = { fields: { price } } as unknown as FilterExpression
+    const result = await narsil.query('bikes', { term: 'bike', filters, limit: 10 })
+    expect(result.hits.map(hit => hit.id)).toEqual(['trail'])
+  })
 })
