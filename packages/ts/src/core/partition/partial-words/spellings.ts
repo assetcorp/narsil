@@ -2,6 +2,9 @@ import type { LanguageModule } from '../../../types/language'
 import type { AnyDocument } from '../../../types/schema'
 import { visitTokens } from '../../tokenizer/tokenize'
 import { getNestedValue, type PartitionInsertOptions, tokenizeOptions } from '../utils'
+import { PARTIAL_WORD_RUN_CODE_POINTS } from './constants'
+
+const LAST_BASIC_PLANE_CODE_POINT = 0xffff
 
 export interface PartialWordAnalysis {
   readonly fields: readonly string[]
@@ -18,7 +21,18 @@ export interface PartialSpellings {
   counts: number[]
 }
 
+export function holdsRun(spelling: string): boolean {
+  if (spelling.length > 2 * PARTIAL_WORD_RUN_CODE_POINTS) return true
+  if (spelling.length <= PARTIAL_WORD_RUN_CODE_POINTS) return false
+  let points = 0
+  for (let index = 0; index < spelling.length; points++) {
+    index += (spelling.codePointAt(index) ?? 0) > LAST_BASIC_PLANE_CODE_POINT ? 2 : 1
+  }
+  return points > PARTIAL_WORD_RUN_CODE_POINTS
+}
+
 export function countSpelling(counts: SpellingCounts, token: string, spelling: string, change: number): void {
+  if (!holdsRun(spelling)) return
   let byToken = counts.get(token)
   if (byToken === undefined) {
     if (change <= 0) return
