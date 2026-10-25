@@ -14,7 +14,6 @@ const MAP_TAG = 7
 
 const LENGTH_BYTES = 4
 const LAST_ASCII_UNIT = 0x7f
-const MAX_UTF8_BYTES_PER_UTF16_UNIT = 3
 
 const encoder = new TextEncoder()
 
@@ -56,22 +55,28 @@ function writeNumber(stream: BindingStream, value: number): void {
   stream.length += 8
 }
 
+function writeEncodedString(stream: BindingStream, value: string): void {
+  const encoded = encoder.encode(value)
+  writeUint32(stream, encoded.length)
+  ensureCapacity(stream, encoded.length)
+  stream.bytes.set(encoded, stream.length)
+  stream.length += encoded.length
+}
+
 function writeString(stream: BindingStream, value: string): void {
-  ensureCapacity(stream, LENGTH_BYTES + value.length * MAX_UTF8_BYTES_PER_UTF16_UNIT)
-  const start = stream.length
+  ensureCapacity(stream, LENGTH_BYTES + value.length)
+  const start = stream.length + LENGTH_BYTES
   const bytes = stream.bytes
-  let written = 0
-  while (written < value.length) {
-    const unit = value.charCodeAt(written)
-    if (unit > LAST_ASCII_UNIT) break
-    bytes[start + LENGTH_BYTES + written] = unit
-    written++
+  for (let at = 0; at < value.length; at++) {
+    const unit = value.charCodeAt(at)
+    if (unit > LAST_ASCII_UNIT) {
+      writeEncodedString(stream, value)
+      return
+    }
+    bytes[start + at] = unit
   }
-  if (written < value.length) {
-    written = encoder.encodeInto(value, bytes.subarray(start + LENGTH_BYTES)).written
-  }
-  writeUint32(stream, written)
-  stream.length += written
+  writeUint32(stream, value.length)
+  stream.length += value.length
 }
 
 class NumberList {
