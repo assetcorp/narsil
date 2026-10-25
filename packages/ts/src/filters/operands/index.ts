@@ -1,7 +1,7 @@
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { FilterExpression } from '../../types/filters'
 import type { FieldType } from '../../types/schema'
-import { FILTER_COPY_DEPTH, MAX_FILTER_DEPTH, MAX_FILTER_TESTS } from '../constants'
+import { FILTER_OPERAND_COPY_DEPTH, MAX_FILTER_DEPTH, MAX_FILTER_TESTS } from '../constants'
 import { FIELD_FILTER_OPERATORS, FILTER_EXPRESSION_KEYS } from '../keys'
 import {
   invalid,
@@ -33,6 +33,7 @@ const GEO_OPERATORS = ['radius', 'polygon'] as const
 const TEST_MODIFIERS: ReadonlySet<string> = new Set(['caseFold', 'tolerance'])
 const EXPRESSION_KEYS: ReadonlySet<string> = new Set(FILTER_EXPRESSION_KEYS)
 const OPERATOR_KEYS: ReadonlySet<string> = new Set(FIELD_FILTER_OPERATORS)
+const PROTOTYPE_KEY = '__proto__'
 
 const validatedFilters = new WeakMap<object, Readonly<Record<string, FieldType>>>()
 
@@ -158,11 +159,12 @@ function requireValidFieldTests(
   type: FieldType,
   walk: FilterWalk,
 ): void {
+  const operators = Object.keys(filter)
   let wanted = 0
   let tests = 0
-  for (const operator of Object.keys(filter)) {
-    if (!OPERATOR_KEYS.has(operator)) {
-      walk.unknownKey ??= {
+  for (const operator of operators) {
+    if (walk.unknownKey === null && !OPERATOR_KEYS.has(operator)) {
+      walk.unknownKey = {
         message: `Field "${fieldPath}" is tested with "${operator}", which is no filter operator`,
         key: operator,
       }
@@ -171,7 +173,7 @@ function requireValidFieldTests(
     wanted |= CHECKS_BY_OPERATOR.get(operator) ?? 0
   }
   countTests(walk, Math.max(1, tests))
-  for (const operator of Object.keys(filter)) requireWellFormedText(fieldPath, operator, filter[operator])
+  for (const operator of operators) requireWellFormedText(fieldPath, operator, filter[operator])
   for (let at = 0; wanted !== 0; at++, wanted >>>= 1) {
     if ((wanted & 1) !== 0) OPERAND_CHECKS[at][1](fieldPath, filter, type)
   }
@@ -180,7 +182,8 @@ function requireValidFieldTests(
 export function filterTestCount(expression: unknown): number {
   if (!isObjectRecord(expression)) return 0
   const fieldFilters = isObjectRecord(expression.fields) ? Object.values(expression.fields) : []
-  let tests = fieldFilters.length === 0 && !holdsNestedExpressions(expression) ? 1 : 0
+  let tests =
+    fieldFilters.length === 0 && !holdsNestedExpressions(expression.and, expression.or, expression.not) ? 1 : 0
   for (const filter of fieldFilters) tests += isObjectRecord(filter) ? testsIn(filter) : 1
   for (const list of [expression.and, expression.or]) {
     if (Array.isArray(list)) for (const nested of list) tests += filterTestCount(nested)
@@ -201,8 +204,7 @@ function countTests(walk: FilterWalk, tests: number): void {
   }
 }
 
-function holdsNestedExpressions(expression: Record<string, unknown>): boolean {
-  const { and, or, not } = expression
+function holdsNestedExpressions(and: unknown, or: unknown, not: unknown): boolean {
   return (Array.isArray(and) && and.length > 0) || (Array.isArray(or) && or.length > 0) || not !== undefined
 }
 
@@ -217,48 +219,84 @@ interface FilterWalk {
   unknownKey: UnknownFilterKey | null
 }
 
-function requireValidExpression(expression: unknown, walk: FilterWalk, depth: number): void {
+function noteUnknownExpressionKey(expression: Record<string, unknown>, walk: FilterWalk): void {
+  for (const key in expression) {
+    if (!Object.hasOwn(expression, key) || EXPRESSION_KEYS.has(key)) continue
+    walk.unknownKey = {
+      message: `A filter expression takes "fields", "and", "or", and "not", and "${key}" is none of them. A per-field test such as { ${key}: { eq: ... } } belongs under "fields"`,
+      key,
+    }
+    return
+  }
+}
+
+function setOwn(record: Record<string, unknown>, key: string, value: unknown): void {
+  if (key === PROTOTYPE_KEY) {
+    Object.defineProperty(record, key, { value, enumerable: true, writable: true, configurable: true })
+  } else {
+    record[key] = value
+  }
+}
+
+function ownedOperandOf(value: unknown, fieldPath: string, operator: string, depth: number): unknown {
+  if (typeof value !== 'object' || value === null || depth > FILTER_OPERAND_COPY_DEPTH) return value
+  if (Array.isArray(value)) {
+    requireListLength(fieldPath, operator, value)
+    const owned: unknown[] = []
+    for (let at = 0; at < value.length; at++) owned.push(ownedOperandOf(value[at], fieldPath, operator, depth + 1))
+    return owned
+  }
+  const record = value as Record<string, unknown>
+  const owned: Record<string, unknown> = {}
+  for (const key of Object.keys(record)) setOwn(owned, key, ownedOperandOf(record[key], fieldPath, operator, depth + 1))
+  return owned
+}
+
+function ownedFieldFilterOf(fieldPath: string, filter: Record<string, unknown>): Record<string, unknown> {
+  const owned: Record<string, unknown> = {}
+  for (const operator of Object.keys(filter)) {
+    setOwn(owned, operator, ownedOperandOf(filter[operator], fieldPath, operator, 1))
+  }
+  return owned
+}
+
+function ownedFieldFiltersOf(fields: Record<string, unknown>, walk: FilterWalk): Record<string, unknown> {
+  const owned: Record<string, unknown> = {}
+  for (const fieldPath of Object.keys(fields)) {
+    const type = walk.fieldTypes[fieldPath]
+    if (!Object.hasOwn(walk.fieldTypes, fieldPath) || type === undefined) throw undeclaredFilterField(fieldPath)
+    const filter = fields[fieldPath]
+    if (!isObjectRecord(filter)) invalidShape(`The filter on field "${fieldPath}" must be an object of tests`)
+    const ownedFilter = ownedFieldFilterOf(fieldPath, filter)
+    requireValidFieldTests(fieldPath, ownedFilter, type, walk)
+    setOwn(owned, fieldPath, ownedFilter)
+  }
+  return owned
+}
+
+function ownedClauseOf(clause: 'and' | 'or', list: unknown, walk: FilterWalk, depth: number): unknown[] {
+  if (!Array.isArray(list)) invalidShape(`"${clause}" in a filter expression must be a list of filter expressions`)
+  const owned: unknown[] = []
+  for (let at = 0; at < list.length; at++) owned.push(ownedExpressionOf(list[at], walk, depth + 1))
+  return owned
+}
+
+function ownedExpressionOf(expression: unknown, walk: FilterWalk, depth: number): Record<string, unknown> {
   if (depth > MAX_FILTER_DEPTH) invalidShape(`A filter expression nests at most ${MAX_FILTER_DEPTH} levels deep`)
   if (!isObjectRecord(expression)) invalidShape('Each filter expression must be an object')
-  const unknown = walk.unknownKey === null ? Object.keys(expression).find(key => !EXPRESSION_KEYS.has(key)) : undefined
-  if (unknown !== undefined) {
-    walk.unknownKey = {
-      message: `A filter expression takes "fields", "and", "or", and "not", and "${unknown}" is none of them. A per-field test such as { ${unknown}: { eq: ... } } belongs under "fields"`,
-      key: unknown,
-    }
-  }
+  if (walk.unknownKey === null) noteUnknownExpressionKey(expression, walk)
   const { fields, and, or, not } = expression
   if (fields !== undefined && !isObjectRecord(fields)) {
     invalidShape('"fields" in a filter expression must be an object keyed by field path')
   }
-  const fieldFilters = Object.entries(fields ?? {})
-  if (fieldFilters.length === 0 && !holdsNestedExpressions(expression)) countTests(walk, 1)
-  for (const [fieldPath, filter] of fieldFilters) {
-    const type = walk.fieldTypes[fieldPath]
-    if (!Object.hasOwn(walk.fieldTypes, fieldPath) || type === undefined) throw undeclaredFilterField(fieldPath)
-    if (!isObjectRecord(filter)) invalidShape(`The filter on field "${fieldPath}" must be an object of tests`)
-    requireValidFieldTests(fieldPath, filter, type, walk)
-  }
-  for (const [clause, list] of [
-    ['and', and],
-    ['or', or],
-  ] as const) {
-    if (list === undefined) continue
-    if (!Array.isArray(list)) invalidShape(`"${clause}" in a filter expression must be a list of filter expressions`)
-    for (const nested of list) requireValidExpression(nested, walk, depth + 1)
-  }
-  if (not !== undefined) requireValidExpression(not, walk, depth + 1)
-}
-
-function ownedCopyOf(value: unknown, depth: number): unknown {
-  if (typeof value !== 'object' || value === null || depth >= FILTER_COPY_DEPTH) return value
-  if (Array.isArray(value)) {
-    const copy: unknown[] = new Array(value.length)
-    for (let at = 0; at < value.length; at++) copy[at] = ownedCopyOf(value[at], depth + 1)
-    return copy
-  }
-  const record = value as Record<string, unknown>
-  return Object.fromEntries(Object.keys(record).map(key => [key, ownedCopyOf(record[key], depth + 1)]))
+  const owned: Record<string, unknown> = {}
+  const fieldCount = fields === undefined ? 0 : Object.keys(fields).length
+  if (fieldCount === 0 && !holdsNestedExpressions(and, or, not)) countTests(walk, 1)
+  if (fields !== undefined) owned.fields = ownedFieldFiltersOf(fields, walk)
+  if (and !== undefined) owned.and = ownedClauseOf('and', and, walk, depth)
+  if (or !== undefined) owned.or = ownedClauseOf('or', or, walk, depth)
+  if (not !== undefined) owned.not = ownedExpressionOf(not, walk, depth + 1)
+  return owned
 }
 
 export function validatedFilterOf(
@@ -266,11 +304,9 @@ export function validatedFilterOf(
   fieldTypes: Readonly<Record<string, FieldType>>,
 ): FilterExpression {
   if (validatedFilters.get(expression) === fieldTypes) return expression
-  const owned = ownedCopyOf(expression, 0)
   const walk: FilterWalk = { fieldTypes, tests: 0, unknownKey: null }
-  requireValidExpression(owned, walk, 0)
+  const validated = ownedExpressionOf(expression, walk, 0) as FilterExpression
   if (walk.unknownKey !== null) invalidKey(walk.unknownKey.message, walk.unknownKey.key)
-  const validated = owned as FilterExpression
   validatedFilters.set(validated, fieldTypes)
   return validated
 }

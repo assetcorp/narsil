@@ -164,4 +164,13 @@ describe('a filter whose operands cannot match the field', () => {
     const result = await narsil.query('bikes', { term: 'bike', filters, limit: 10 })
     expect(result.hits.map(hit => hit.id)).toEqual(['trail'])
   })
+
+  it('refuses a listing filter whose list claims the longest length an array can take without walking its empty slots', async () => {
+    const values = new Array<string>(2 ** 32 - 1)
+    const filters: FilterExpression = { fields: { category: { in: values } } }
+    await expect(narsil.listDocuments('bikes', { filters, limit: 10 })).rejects.toMatchObject({
+      code: 'SEARCH_INVALID_FILTER',
+      details: { fieldPath: 'category', operator: 'in' },
+    })
+  })
 })
