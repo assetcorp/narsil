@@ -50,9 +50,12 @@ const normalizationCache = new Map<string, Map<string, string>>()
 let normalizationCacheSize = 0
 let maxCacheSize = computeDefaultCacheSize()
 
-let cachedLangName = ''
+let cachedLanguageName = ''
+let cachedLanguageRevision = ''
 let cachedFlags = ''
 let cachedBucket: Map<string, string> | null = null
+
+const TRANSFORM_FLAGS = ['', 'd', 's', 'sd'] as const
 
 /**
  * Sets how many normalised tokens the engine keeps cached.
@@ -95,15 +98,22 @@ export function configureNormalizationCache(maxSize: number): void {
 }
 
 function getCacheBucket(language: LanguageModule, flags: string): Map<string, string> {
-  const langKey = `${language.name}@${language.revision}`
-  if (cachedBucket && langKey === cachedLangName && flags === cachedFlags) return cachedBucket
-  const key = `${langKey}:${flags}`
+  if (
+    cachedBucket &&
+    language.name === cachedLanguageName &&
+    language.revision === cachedLanguageRevision &&
+    flags === cachedFlags
+  ) {
+    return cachedBucket
+  }
+  const key = `${language.name}@${language.revision}:${flags}`
   let bucket = normalizationCache.get(key)
   if (!bucket) {
     bucket = new Map()
     normalizationCache.set(key, bucket)
   }
-  cachedLangName = langKey
+  cachedLanguageName = language.name
+  cachedLanguageRevision = language.revision
   cachedFlags = flags
   cachedBucket = bucket
   return bucket
@@ -137,7 +147,7 @@ export function transformToken(
   stem: boolean,
   removeDiacritics: boolean,
 ): string {
-  const flags = (stem ? 's' : '') + (removeDiacritics ? 'd' : '')
+  const flags = TRANSFORM_FLAGS[(stem ? 2 : 0) + (removeDiacritics ? 1 : 0)]
   let bucket = getCacheBucket(language, flags)
   const cached = bucket.get(raw)
   if (cached !== undefined) return cached
