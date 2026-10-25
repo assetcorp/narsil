@@ -178,6 +178,7 @@ A version 1 keyword segment payload is a MessagePack map:
   geopoint:            List<GeopointColumn>
   pattern:             List<PatternColumn>
   surfaceForms:        SurfaceFormColumn or nil
+  partialWords:        PartialWordColumn or nil
 }
 
 FieldLengthColumn {
@@ -224,6 +225,17 @@ SurfaceFormColumn {
   offsets: bytes   (uint32, two values per entry plus one)
   counts:  bytes   (uint32 per entry, its occurrence count)
 }
+
+PartialWordColumn {
+  fields:     List<string>
+  text:       bytes   (each written spelling in UTF-8)
+  offsets:    bytes   (uint32, one value more than the entry count)
+  tokens:     bytes   (uint32 per entry, an index into tokens)
+  counts:     bytes   (uint32 per entry, its occurrence count)
+  runs:       bytes   (uint32 per code point, three code points per run, runs in ascending order)
+  runOffsets: bytes   (uint32, one value more than the run count)
+  runEntries: bytes   (uint32 per member, an entry, in ascending order within each run)
+}
 ```
 
 Every number inside a `bytes` value is little-endian. An ordinal numbers a document of the segment, counting from 0 in the order of `ids`.
@@ -236,7 +248,9 @@ An offsets array divides a list into entries, so that entry `i` starts at value 
 
 Each `FieldLengthColumn` holds, for every document, the field length of one text field as [Documents](#documents) defines it, with 0 for a document that holds no value in the field. `numeric` holds a `ValueColumn` for each `number` and `number[]` field, with one entry for each value of the field in each document. `sizes` holds a `ValueColumn` for each `string`, `verbatim`, and array field, with one entry for each document that holds a value in the field. The value of that entry is the length of the document's array, or 1 for a single string, or 0 for an empty string. Entry `v` of an `EnumColumn`'s `offsets` gives the documents that hold value `v` of its `values`, which must name each value once. Each `PatternColumn` holds the [pattern index](algorithms.md#pattern-index) of one pattern field. Its `documents` lists the documents that hold a value in the field. Entry `r` of its `offsets` gives the postings of run `r`, whose three code points `runs` holds from position `3r`. `surfaceForms` holds the [surface forms](#surface-forms) of the segment, and it is nil where the segment holds none.
 
-Before it serves a query from the segment, a reader must raise `PERSISTENCE_LOAD_FAILED` for a `bytes` value whose length is not a whole number of its values, for an offsets array that breaks the rules above, for any column whose number of values differs from the count that the structure above gives it, and for `ids`, `tokens`, or `text` that is not valid UTF-8. It must raise the same error for an ordinal at or above `documentCount`, for a `postingFields` value at or above the length of `fieldNames`, for an `idOrder` that repeats an ordinal, and for a `documentFrequencies` value that is 0 or larger than its token's posting count. It must raise the same error where the tokens, the IDs taken in `idOrder` order, the runs of a `PatternColumn`, its `documents`, or the postings of one of its runs fail to ascend strictly, where an `EnumColumn` names a value twice, where a `ValueColumn`'s values descend or hold a NaN, where a `GeopointColumn` holds a latitude outside -90 to 90 or a longitude outside -180 to 180, and where exactly one of `positionOffsets` and `positions` is nil.
+`partialWords` holds the written spellings that [Partial-Word Search](algorithms.md#partial-word-search) matches. A writer must set it to nil only where the schema declares no `partial` field. Its `fields` lists the `partial` fields of the schema in code point order. Each entry gives a written spelling of more than three code points from those fields, the token of that spelling, and the number of times that the spelling occurs in those fields across the segment's documents. The entries must ascend strictly by spelling in code point order and then by token. Entry `r` of `runOffsets` gives the entries whose spelling holds run `r`, whose three code points `runs` holds from position `3r`.
+
+Before it serves a query from the segment, a reader must raise `PERSISTENCE_LOAD_FAILED` for a `bytes` value whose length is not a whole number of its values, for an offsets array that breaks the rules above, for any column whose number of values differs from the count that the structure above gives it, and for `ids`, `tokens`, or `text` that is not valid UTF-8. It must raise the same error for an ordinal at or above `documentCount`, for a `postingFields` value at or above the length of `fieldNames`, for an `idOrder` that repeats an ordinal, and for a `documentFrequencies` value that is 0 or larger than its token's posting count. It must raise the same error where the tokens, the IDs taken in `idOrder` order, the runs of a `PatternColumn`, its `documents`, or the postings of one of its runs fail to ascend strictly, where an `EnumColumn` names a value twice, where a `ValueColumn`'s values descend or hold a NaN, where a `GeopointColumn` holds a latitude outside -90 to 90 or a longitude outside -180 to 180, and where exactly one of `positionOffsets` and `positions` is nil. It must raise the same error where a `PartialWordColumn` gives a token at or above the token count, a count of 0, or a `runEntries` value at or above its entry count, and where its entries, its runs, or the members of one of its runs fail to ascend strictly.
 
 A reader may decode each document when it first reads the document, and it must raise `PERSISTENCE_LOAD_FAILED` where a document's bytes decode to anything other than a map. A node that restores a [snapshot archive](durability.md#snapshot-archive) must decode every document before it serves the index, because the archive can come from outside the node.
 

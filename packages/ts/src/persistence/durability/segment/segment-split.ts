@@ -81,7 +81,7 @@ function fixedBytesOf(segment: FrozenSegment, chargesTokens: boolean): number {
   const surfaces = segment.sharedSnapshot?.surfaceTable ?? null
   if (surfaces !== null) bytes += surfaces.blob.byteLength + surfaces.offsets.byteLength + surfaces.counts.byteLength
   else bytes += messagePackUpperBoundBytes(arrays.readSurfaceForms())
-  return bytes
+  return bytes + segment.partialWords.bytes()
 }
 
 function keptDocumentsOf(selection: SegmentSelection, chargesTokens: boolean): KeptDocuments {

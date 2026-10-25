@@ -70,6 +70,31 @@ export function requireEntriesAscend(
   }
 }
 
+export function requireSpellingEntriesAscend(
+  blob: Uint8Array,
+  offsets: Uint32Array,
+  tokens: Uint32Array,
+  name: string,
+): void {
+  for (let at = 1; at < tokens.length; at++) {
+    const order = compareEntries(blob, offsets, at - 1, at) || tokens[at - 1] - tokens[at]
+    if (order >= 0) corrupt(`${name} fails to ascend strictly at entry ${at}`, { field: name, at })
+  }
+}
+
+export function requireBelow(values: Uint32Array, limit: number, name: string): void {
+  for (let at = 0; at < values.length; at++) {
+    if (values[at] >= limit)
+      corrupt(`${name} holds ${values[at]} at entry ${at}, at or above ${limit}`, { field: name, at })
+  }
+}
+
+export function requireNonZero(values: Uint32Array, name: string): void {
+  for (let at = 0; at < values.length; at++) {
+    if (values[at] === 0) corrupt(`${name} holds 0 at entry ${at}`, { field: name, at })
+  }
+}
+
 export function requirePermutation(order: Uint32Array, name: string): void {
   const seen = new Uint8Array(order.length)
   for (let at = 0; at < order.length; at++) {

@@ -3,7 +3,7 @@ import { MessagePackChunks } from './msgpack-chunks'
 import { postingsInTokenOrder } from './token-order'
 import { KEYWORD_SEGMENT_PAYLOAD_VERSION, type KeywordSegmentArrays, type KeywordSegmentContents } from './types'
 
-const TOP_LEVEL_ENTRIES = 27
+const TOP_LEVEL_ENTRIES = 28
 
 function writeFieldLengths(out: MessagePackChunks, arrays: KeywordSegmentArrays): void {
   out.array(arrays.fieldLengthNames.length)
@@ -73,6 +73,22 @@ function writeSurfaceForms(out: MessagePackChunks, arrays: KeywordSegmentArrays)
   out.key('counts').binary(littleEndianBytes(table.counts))
 }
 
+function writePartialWords(out: MessagePackChunks, arrays: KeywordSegmentArrays): void {
+  const table = arrays.partialWords
+  if (table === null) {
+    out.value(null)
+    return
+  }
+  out.map(8).key('fields').value(table.fields)
+  out.key('text').binary(table.spellings)
+  out.key('offsets').binary(littleEndianBytes(table.spellingOffsets))
+  out.key('tokens').binary(littleEndianBytes(table.spellingTokens))
+  out.key('counts').binary(littleEndianBytes(table.spellingCounts))
+  out.key('runs').binary(littleEndianBytes(table.runs))
+  out.key('runOffsets').binary(littleEndianBytes(table.runOffsets))
+  out.key('runEntries').binary(littleEndianBytes(table.runEntries))
+}
+
 export function encodeKeywordSegment(contents: KeywordSegmentContents): MessagePackChunks {
   const { arrays } = contents
   const postings = postingsInTokenOrder(arrays)
@@ -115,5 +131,7 @@ export function encodeKeywordSegment(contents: KeywordSegmentContents): MessageP
   writePatternColumns(out, arrays.pattern)
   out.key('surfaceForms')
   writeSurfaceForms(out, arrays)
+  out.key('partialWords')
+  writePartialWords(out, arrays)
   return out
 }
