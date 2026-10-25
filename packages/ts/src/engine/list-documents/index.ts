@@ -193,7 +193,7 @@ export function executeListDocuments<T = AnyDocument>(params: ListParams, contex
   requireSortableFields(params.sort, schema, context.strict === true)
   const filters = validQueryFilter(params.filters, schema)
 
-  const binding = listBindingOf(filters)
+  const binding = listBindingOf(params.filters)
   let cursor: PageCursor | null = null
   if (params.cursor !== undefined) {
     cursor = decodePageCursor(params.cursor)
