@@ -133,16 +133,23 @@ function requireTolerance(fieldPath: string, filter: Record<string, unknown>): v
   )
 }
 
+function requireWellFormedOperand(fieldPath: string, operator: string, text: unknown): void {
+  if (typeof text !== 'string' || !holdsUnpairedSurrogate(text)) return
+  invalid(
+    `The text of "${operator}" on field "${fieldPath}" holds an unpaired surrogate, the half of a character such as an emoji whose other half is missing, so no stored value can hold it`,
+    fieldPath,
+    operator,
+  )
+}
+
 export function requireWellFormedText(fieldPath: string, filter: Record<string, unknown>): void {
-  for (const [operator, operand] of Object.entries(filter)) {
-    const texts: unknown[] = Array.isArray(operand) ? operand : [operand]
-    for (const text of texts) {
-      if (typeof text !== 'string' || !holdsUnpairedSurrogate(text)) continue
-      invalid(
-        `The text of "${operator}" on field "${fieldPath}" holds an unpaired surrogate, the half of a character such as an emoji whose other half is missing, so no stored value can hold it`,
-        fieldPath,
-        operator,
-      )
+  for (const operator in filter) {
+    if (!Object.hasOwn(filter, operator)) continue
+    const operand = filter[operator]
+    if (!Array.isArray(operand)) {
+      requireWellFormedOperand(fieldPath, operator, operand)
+      continue
     }
+    for (const text of operand) requireWellFormedOperand(fieldPath, operator, text)
   }
 }
