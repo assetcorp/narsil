@@ -77,4 +77,23 @@ describe('a spelling that leaves a frozen segment with its last document', () =>
     expect(restored.failed).toEqual([])
     expect(await idsInsideThePlural(second)).toEqual([SINGULAR_ONLY, PLURAL_ONLY].sort())
   }, 60_000)
+
+  it('stops matching after a checkpoint merges the removal into the segment that held it', async () => {
+    directory = await mkdtemp(join(tmpdir(), 'narsil-partial-merged-removals-'))
+    const durability = { directory, compactionThreshold: 1 }
+    const first = await startWorkshopServer({ workers: NO_WORKERS, durability })
+    await createWorkshopIndex(first, [...workshopCorpus(300, 73), ...SPELLING_DOCUMENTS])
+    await first.client.checkpoint(INDEX)
+    await first.stop()
+
+    const second = await startWorkshopServer({ workers: NO_WORKERS, durability })
+    await removePlural(second)
+    await second.client.checkpoint(INDEX)
+    await second.stop()
+
+    const third = await startWorkshopServer({ workers: NO_WORKERS, durability })
+    servers.push(third)
+    expect(await idsInsideThePlural(third)).toEqual([])
+    expect((await searchOver(third.client)({ term: 'oilskin' })).map(hit => hit.id)).toEqual([SINGULAR_ONLY])
+  }, 60_000)
 })

@@ -2,7 +2,13 @@ import { encodeDocument } from '../../../serialization/document-encoding'
 import { topLevelMapKeys } from '../../../serialization/msgpack-without-fields'
 import type { SerializedSurfaceForms } from '../../../types/internal'
 import { createSurfaceRegistry } from '../../surface-registry'
-import type { PartialWordAnalysis } from '../partial-words/spellings'
+import {
+  encodePartialSpellings,
+  type PartialSpellings,
+  type PartialWordAnalysis,
+  type SpellingCounts,
+} from '../partial-words/spellings'
+import type { PartialWordTableData } from '../partial-words/types'
 import type { SegmentPayload } from '../segment-payload'
 import type { EncodedDocumentTableData } from './document-source'
 import type { FrozenSegment } from './index'
@@ -18,6 +24,12 @@ export interface SegmentSelection {
 export interface MergedSegmentContents {
   payload: SegmentPayload
   documents: EncodedDocumentTableData
+  reusedPartialWords: PartialWordTableData | null
+}
+
+interface MergedPartialWords {
+  spellings: PartialSpellings | null
+  reused: PartialWordTableData | null
 }
 
 export function selectionKeeps(selection: SegmentSelection, ordinal: number): boolean {
@@ -148,16 +160,46 @@ function mergeDocuments(inputs: readonly SegmentRemap[], documentCount: number):
   return { blob, offsets }
 }
 
+function keepsEveryDocument(remap: Int32Array): boolean {
+  for (let ordinal = 0; ordinal < remap.length; ordinal++) {
+    if (remap[ordinal] < 0) return false
+  }
+  return true
+}
+
+function mergePartialWords(
+  inputs: readonly SegmentRemap[],
+  mergedTokenCount: number,
+  analysis: PartialWordAnalysis | null,
+): MergedPartialWords {
+  if (analysis === null || analysis.fields.length === 0) return { spellings: null, reused: null }
+  if (inputs.length === 1) {
+    const [only] = inputs
+    const table = only.segment.partialWords.tableOfEveryDocument(analysis)
+    const keepsTokens = mergedTokenCount === only.segment.arrays.tokenTable.size
+    if (table !== null && keepsTokens && keepsEveryDocument(only.remap)) return { spellings: null, reused: table }
+  }
+  const counts: SpellingCounts = new Map()
+  for (const input of inputs) input.segment.partialWords.countKeptSpellings(counts, analysis, input.remap)
+  return { spellings: encodePartialSpellings(analysis.fields, counts), reused: null }
+}
+
 export function mergeFrozenSegments(
   segments: readonly FrozenSegment[],
   analysis: PartialWordAnalysis | null,
 ): SharedSegmentSnapshot | null {
   if (typeof SharedArrayBuffer !== 'function') return null
-  const merged = mergeSegmentContents(segments.map(segment => ({ segment })))
-  return freezeEncodedSegmentShared(merged.payload, merged.documents, undefined, analysis)
+  const merged = mergeSegmentContents(
+    segments.map(segment => ({ segment })),
+    analysis,
+  )
+  return freezeEncodedSegmentShared(merged.payload, merged.documents, undefined, analysis, merged.reusedPartialWords)
 }
 
-export function mergeSegmentContents(selections: readonly SegmentSelection[]): MergedSegmentContents {
+export function mergeSegmentContents(
+  selections: readonly SegmentSelection[],
+  analysis: PartialWordAnalysis | null = null,
+): MergedSegmentContents {
   const docIds: string[] = []
   const fieldNames: string[] = []
   const inputs: SegmentRemap[] = selections.map(selection => ({
@@ -168,6 +210,7 @@ export function mergeSegmentContents(selections: readonly SegmentSelection[]): M
   const documentCount = docIds.length
   const postings = mergePostings(inputs)
   const lengths = mergeFieldLengths(inputs, documentCount)
+  const partialWords = mergePartialWords(inputs, postings.tokens.length, analysis)
 
   const payload: SegmentPayload = {
     documentCount,
@@ -185,9 +228,9 @@ export function mergeSegmentContents(selections: readonly SegmentSelection[]): M
     totalFieldLengths: lengths.totalFieldLengths,
     docFrequencies: postings.docFrequencies,
     surfaceForms: mergeSurfaceForms(inputs),
-    partialSpellings: null,
+    partialSpellings: partialWords.spellings,
     ...mergeFieldIndexes(inputs),
   }
 
-  return { payload, documents: mergeDocuments(inputs, documentCount) }
+  return { payload, documents: mergeDocuments(inputs, documentCount), reusedPartialWords: partialWords.reused }
 }

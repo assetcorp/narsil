@@ -2,9 +2,38 @@ import { compareCodePoints } from '../../ordering'
 import { encodeStringBlob } from '../frozen/string-blob'
 import type { FrozenTokenTable } from '../frozen/token-table'
 import { PARTIAL_WORD_RUN_CODE_POINTS } from './constants'
-import type { PartialSpellings } from './spellings'
+import { countSpelling, type PartialSpellings, type SpellingCounts } from './spellings'
 import { codePointsOf, partialWordProbe, runKeyAt, utf8CodePointCount, utf8Contains } from './text'
 import type { PartialWordProbe, PartialWordTableData, PartialWordTableReader, PartialWordVisitor } from './types'
+
+const decoder = new TextDecoder()
+
+interface SpellingEntry {
+  spelling: string
+  tokenIndex: number
+  count: number
+}
+
+function compareEntries(left: SpellingEntry, right: SpellingEntry): number {
+  return compareCodePoints(left.spelling, right.spelling) || left.tokenIndex - right.tokenIndex
+}
+
+function orderedEntriesOf(source: PartialSpellings, tokenTable: FrozenTokenTable): SpellingEntry[] {
+  const entries: SpellingEntry[] = []
+  for (let at = 0; at < source.tokens.length; at++) {
+    if (source.counts[at] <= 0) continue
+    const tokenIndex = tokenTable.find(source.tokens[at])
+    if (tokenIndex >= 0) entries.push({ spelling: source.spellings[at], tokenIndex, count: source.counts[at] })
+  }
+  entries.sort(compareEntries)
+  const distinct: SpellingEntry[] = []
+  for (const entry of entries) {
+    const last = distinct[distinct.length - 1]
+    if (last !== undefined && compareEntries(last, entry) === 0) last.count += entry.count
+    else distinct.push(entry)
+  }
+  return distinct
+}
 
 export function buildPartialWordTable(source: PartialSpellings, tokenTable: FrozenTokenTable): PartialWordTableData {
   const spellings: string[] = []
@@ -27,11 +56,7 @@ export function buildPartialWordTable(source: PartialSpellings, tokenTable: Froz
     }
   }
 
-  for (let at = 0; at < source.tokens.length; at++) {
-    if (source.counts[at] <= 0) continue
-    const tokenIndex = tokenTable.find(source.tokens[at])
-    if (tokenIndex >= 0) addSpelling(source.spellings[at], tokenIndex, source.counts[at])
-  }
+  for (const entry of orderedEntriesOf(source, tokenTable)) addSpelling(entry.spelling, entry.tokenIndex, entry.count)
 
   const runKeys = [...runLists.keys()].sort(compareCodePoints)
   const runs = new Uint32Array(runKeys.length * PARTIAL_WORD_RUN_CODE_POINTS)
@@ -57,6 +82,18 @@ export function buildPartialWordTable(source: PartialSpellings, tokenTable: Froz
     runs,
     runOffsets,
     runEntries,
+  }
+}
+
+export function countTableSpellings(
+  counts: SpellingCounts,
+  table: PartialWordTableData,
+  tokenTable: FrozenTokenTable,
+): void {
+  const { spellings, spellingOffsets, spellingTokens, spellingCounts } = table
+  for (let entry = 0; entry < spellingTokens.length; entry++) {
+    const spelling = decoder.decode(spellings.subarray(spellingOffsets[entry], spellingOffsets[entry + 1]))
+    countSpelling(counts, tokenTable.tokenAt(spellingTokens[entry]), spelling, spellingCounts[entry])
   }
 }
 
