@@ -152,24 +152,29 @@ function testsOfOperator(operator: string, operand: unknown): number {
   return operator === 'size' && isObjectRecord(operand) ? Math.max(1, Object.keys(operand).length) : 1
 }
 
-function requireValidFieldTests(fieldPath: string, filter: Record<string, unknown>, type: FieldType): number {
+function requireValidFieldTests(
+  fieldPath: string,
+  filter: Record<string, unknown>,
+  type: FieldType,
+  walk: FilterWalk,
+): void {
   let wanted = 0
   let tests = 0
-  for (const operator in filter) {
-    if (Object.hasOwn(filter, operator)) {
-      if (!OPERATOR_KEYS.has(operator)) {
-        invalidKey(`Field "${fieldPath}" is tested with "${operator}", which is no filter operator`, operator)
+  for (const operator of Object.keys(filter)) {
+    if (!OPERATOR_KEYS.has(operator)) {
+      walk.unknownKey ??= {
+        message: `Field "${fieldPath}" is tested with "${operator}", which is no filter operator`,
+        key: operator,
       }
-      const operand = filter[operator]
-      requireWellFormedText(fieldPath, operator, operand)
-      tests += testsOfOperator(operator, operand)
     }
+    tests += testsOfOperator(operator, filter[operator])
     wanted |= CHECKS_BY_OPERATOR.get(operator) ?? 0
   }
+  countTests(walk, Math.max(1, tests))
+  for (const operator of Object.keys(filter)) requireWellFormedText(fieldPath, operator, filter[operator])
   for (let at = 0; wanted !== 0; at++, wanted >>>= 1) {
     if ((wanted & 1) !== 0) OPERAND_CHECKS[at][1](fieldPath, filter, type)
   }
-  return Math.max(1, tests)
 }
 
 export function filterTestCount(expression: unknown): number {
@@ -201,20 +206,26 @@ function holdsNestedExpressions(expression: Record<string, unknown>): boolean {
   return (Array.isArray(and) && and.length > 0) || (Array.isArray(or) && or.length > 0) || not !== undefined
 }
 
+interface UnknownFilterKey {
+  readonly message: string
+  readonly key: string
+}
+
 interface FilterWalk {
   readonly fieldTypes: Readonly<Record<string, FieldType>>
   tests: number
+  unknownKey: UnknownFilterKey | null
 }
 
 function requireValidExpression(expression: unknown, walk: FilterWalk, depth: number): void {
   if (depth > MAX_FILTER_DEPTH) invalidShape(`A filter expression nests at most ${MAX_FILTER_DEPTH} levels deep`)
   if (!isObjectRecord(expression)) invalidShape('Each filter expression must be an object')
-  for (const key of Object.keys(expression)) {
-    if (EXPRESSION_KEYS.has(key)) continue
-    invalidKey(
-      `A filter expression takes "fields", "and", "or", and "not", and "${key}" is none of them. A per-field test such as { ${key}: { eq: ... } } belongs under "fields"`,
-      key,
-    )
+  const unknown = walk.unknownKey === null ? Object.keys(expression).find(key => !EXPRESSION_KEYS.has(key)) : undefined
+  if (unknown !== undefined) {
+    walk.unknownKey = {
+      message: `A filter expression takes "fields", "and", "or", and "not", and "${unknown}" is none of them. A per-field test such as { ${unknown}: { eq: ... } } belongs under "fields"`,
+      key: unknown,
+    }
   }
   const { fields, and, or, not } = expression
   if (fields !== undefined && !isObjectRecord(fields)) {
@@ -226,7 +237,7 @@ function requireValidExpression(expression: unknown, walk: FilterWalk, depth: nu
     const type = walk.fieldTypes[fieldPath]
     if (!Object.hasOwn(walk.fieldTypes, fieldPath) || type === undefined) throw undeclaredFilterField(fieldPath)
     if (!isObjectRecord(filter)) invalidShape(`The filter on field "${fieldPath}" must be an object of tests`)
-    countTests(walk, requireValidFieldTests(fieldPath, filter, type))
+    requireValidFieldTests(fieldPath, filter, type, walk)
   }
   for (const [clause, list] of [
     ['and', and],
@@ -256,7 +267,9 @@ export function validatedFilterOf(
 ): FilterExpression {
   if (validatedFilters.get(expression) === fieldTypes) return expression
   const owned = ownedCopyOf(expression, 0)
-  requireValidExpression(owned, { fieldTypes, tests: 0 }, 0)
+  const walk: FilterWalk = { fieldTypes, tests: 0, unknownKey: null }
+  requireValidExpression(owned, walk, 0)
+  if (walk.unknownKey !== null) invalidKey(walk.unknownKey.message, walk.unknownKey.key)
   const validated = owned as FilterExpression
   validatedFilters.set(validated, fieldTypes)
   return validated
