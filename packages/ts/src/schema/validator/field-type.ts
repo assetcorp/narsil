@@ -1,6 +1,6 @@
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { FieldType, TextFieldOption } from '../../types/schema'
-import { MAX_STORED_VECTOR_DIMENSION } from '../constants'
+import { MAX_STORED_VECTOR_DIMENSION, PARSED_FIELD_TYPE_CACHE_ENTRIES } from '../constants'
 import { VECTOR_PATTERN } from './shared'
 
 export type BaseFieldType =
@@ -112,10 +112,16 @@ export function parseFieldType(type: string, path: string): ParsedFieldType {
   }
 }
 
+const parsedTypesByName = new Map<string, ParsedFieldType>()
+
 export function parsedTypeOf(type: string | undefined): ParsedFieldType | undefined {
   if (type === undefined) return undefined
+  const known = parsedTypesByName.get(type)
+  if (known !== undefined) return known
   try {
-    return parseFieldType(type, '')
+    const parsed = Object.freeze(parseFieldType(type, ''))
+    if (parsedTypesByName.size < PARSED_FIELD_TYPE_CACHE_ENTRIES) parsedTypesByName.set(type, parsed)
+    return parsed
   } catch {
     return undefined
   }
