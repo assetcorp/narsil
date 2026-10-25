@@ -1,19 +1,21 @@
 import type { AnyDocument } from '../../../types/schema'
 import {
   GROWING_PARTIAL_ENTRY_BYTES,
+  GROWING_PARTIAL_PENDING_ENTRIES_PER_ENTRY,
   GROWING_PARTIAL_PENDING_ENTRY_BYTES,
   GROWING_PARTIAL_RUN_BYTES,
   GROWING_PARTIAL_RUN_MEMBER_BYTES,
   PARTIAL_WORD_RUN_CODE_POINTS,
 } from './constants'
 import {
+  codePointCountOf,
   countDocumentSpellings,
   type PartialSpellings,
   type PartialWordAnalysis,
   type SpellingCounts,
   sameFields,
 } from './spellings'
-import { codePointCountOf, codePointsOf, packedRunKeyAt } from './text'
+import { codePointsOf, packedRunKeyAt } from './text'
 import type {
   GrowingPartialWordSlot,
   GrowingPartialWordView,
@@ -63,12 +65,14 @@ export function createGrowingPartialWordSlot(view: GrowingPartialWordView): Grow
     entryCounts[entry] = count
     entryInRuns[entry] = false
     entriesOutsideRuns.push(entry)
-    if (entriesOutsideRuns.length > 2 * entrySpellings.length) keepOnlyEntriesOutsideRuns()
+    if (entriesOutsideRuns.length > GROWING_PARTIAL_PENDING_ENTRIES_PER_ENTRY * entrySpellings.length) {
+      dropFreedAndRepeatedPendingEntries()
+    }
     byToken.set(spelling, entry)
     liveEntries++
   }
 
-  function keepOnlyEntriesOutsideRuns(): void {
+  function dropFreedAndRepeatedPendingEntries(): void {
     let kept = 0
     for (const entry of entriesOutsideRuns) {
       if (entryLengths[entry] === 0 || entryInRuns[entry]) continue
