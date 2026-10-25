@@ -1,20 +1,19 @@
 import type { AnyDocument } from '../../../types/schema'
 import {
-  GROWING_PARTIAL_COUNTED_SPELLING_BYTES,
   GROWING_PARTIAL_ENTRY_BYTES,
+  GROWING_PARTIAL_PENDING_ENTRY_BYTES,
   GROWING_PARTIAL_RUN_BYTES,
   GROWING_PARTIAL_RUN_MEMBER_BYTES,
   PARTIAL_WORD_RUN_CODE_POINTS,
 } from './constants'
 import {
   countDocumentSpellings,
-  encodePartialSpellings,
   type PartialSpellings,
   type PartialWordAnalysis,
   type SpellingCounts,
   sameFields,
 } from './spellings'
-import { codePointsOf, runKeyAt } from './text'
+import { codePointCountOf, codePointsOf, packedRunKeyAt } from './text'
 import type {
   GrowingPartialWordSlot,
   GrowingPartialWordView,
@@ -27,98 +26,134 @@ export function createGrowingPartialWordSlot(view: GrowingPartialWordView): Grow
   let fields: readonly string[] = []
   let everyDocumentPending = false
   const pending = new Set<number>()
-  const counts: SpellingCounts = new Map()
   const entriesByToken = new Map<string, Map<string, number>>()
   const entrySpellings: string[] = []
   const entryTokens: string[] = []
   const entryLengths: number[] = []
+  const entryCounts: number[] = []
+  const entryInRuns: boolean[] = []
   const freeEntries: number[] = []
-  const runs = new Map<string, Set<number>>()
+  const entriesOutsideRuns: number[] = []
+  const runs = new Map<number | string, Set<number>>()
   let liveEntries = 0
   let runMembers = 0
-  let countedSpellings = 0
 
   function resetSpellings(): void {
     pending.clear()
-    counts.clear()
-    countedSpellings = 0
     entriesByToken.clear()
     entrySpellings.length = 0
     entryTokens.length = 0
     entryLengths.length = 0
+    entryCounts.length = 0
+    entryInRuns.length = 0
     freeEntries.length = 0
+    entriesOutsideRuns.length = 0
     runs.clear()
     liveEntries = 0
     runMembers = 0
   }
 
-  function addEntry(token: string, spelling: string): void {
-    const points = codePointsOf(spelling)
-    if (points.length <= PARTIAL_WORD_RUN_CODE_POINTS) return
+  function addEntry(byToken: Map<string, number>, token: string, spelling: string, count: number): void {
+    const length = codePointCountOf(spelling)
+    if (length <= PARTIAL_WORD_RUN_CODE_POINTS) return
     const entry = freeEntries.pop() ?? entrySpellings.length
     entrySpellings[entry] = spelling
     entryTokens[entry] = token
-    entryLengths[entry] = points.length
-    let byToken = entriesByToken.get(token)
-    if (byToken === undefined) {
-      byToken = new Map()
-      entriesByToken.set(token, byToken)
-    }
+    entryLengths[entry] = length
+    entryCounts[entry] = count
+    entryInRuns[entry] = false
+    entriesOutsideRuns.push(entry)
+    if (entriesOutsideRuns.length > 2 * entrySpellings.length) keepOnlyEntriesOutsideRuns()
     byToken.set(spelling, entry)
     liveEntries++
+  }
+
+  function keepOnlyEntriesOutsideRuns(): void {
+    let kept = 0
+    for (const entry of entriesOutsideRuns) {
+      if (entryLengths[entry] === 0 || entryInRuns[entry]) continue
+      entryInRuns[entry] = true
+      entriesOutsideRuns[kept++] = entry
+    }
+    entriesOutsideRuns.length = kept
+    for (let at = 0; at < kept; at++) entryInRuns[entriesOutsideRuns[at]] = false
+  }
+
+  function addToRuns(entry: number): void {
+    const points = codePointsOf(entrySpellings[entry])
     for (let at = 0; at + PARTIAL_WORD_RUN_CODE_POINTS <= points.length; at++) {
-      const key = runKeyAt(points, at)
+      const key = packedRunKeyAt(points, at)
       let members = runs.get(key)
       if (members === undefined) {
         members = new Set()
         runs.set(key, members)
       }
-      if (members.has(entry)) continue
+      const size = members.size
       members.add(entry)
-      runMembers++
+      if (members.size !== size) runMembers++
     }
+    entryInRuns[entry] = true
   }
 
-  function removeEntry(token: string, spelling: string): void {
-    const byToken = entriesByToken.get(token)
-    const entry = byToken?.get(spelling)
-    if (byToken === undefined || entry === undefined) return
-    const points = codePointsOf(spelling)
+  function addEntriesToRuns(): void {
+    for (const entry of entriesOutsideRuns) {
+      if (entryLengths[entry] > 0 && !entryInRuns[entry]) addToRuns(entry)
+    }
+    entriesOutsideRuns.length = 0
+  }
+
+  function removeFromRuns(entry: number): void {
+    const points = codePointsOf(entrySpellings[entry])
     for (let at = 0; at + PARTIAL_WORD_RUN_CODE_POINTS <= points.length; at++) {
-      const key = runKeyAt(points, at)
+      const key = packedRunKeyAt(points, at)
       const members = runs.get(key)
       if (members === undefined || !members.delete(entry)) continue
       runMembers--
       if (members.size === 0) runs.delete(key)
     }
+    entryInRuns[entry] = false
+  }
+
+  function removeEntry(byToken: Map<string, number>, token: string, spelling: string, entry: number): void {
+    if (entryInRuns[entry]) removeFromRuns(entry)
     byToken.delete(spelling)
     if (byToken.size === 0) entriesByToken.delete(token)
     entrySpellings[entry] = ''
     entryTokens[entry] = ''
     entryLengths[entry] = 0
+    entryCounts[entry] = 0
     freeEntries.push(entry)
     liveEntries--
   }
 
   function change(token: string, spelling: string, delta: number): void {
-    let byToken = counts.get(token)
-    const before = byToken?.get(spelling) ?? 0
-    const after = Math.max(0, before + delta)
-    if (after === before) return
+    let byToken = entriesByToken.get(token)
+    const entry = byToken?.get(spelling)
+    if (byToken !== undefined && entry !== undefined) {
+      const after = entryCounts[entry] + delta
+      if (after > 0) entryCounts[entry] = after
+      else removeEntry(byToken, token, spelling, entry)
+      return
+    }
+    if (delta <= 0) return
     if (byToken === undefined) {
       byToken = new Map()
-      counts.set(token, byToken)
+      entriesByToken.set(token, byToken)
     }
-    if (after > 0) byToken.set(spelling, after)
-    else byToken.delete(spelling)
-    if (byToken.size === 0) counts.delete(token)
-    if (before === 0) {
-      countedSpellings++
-      addEntry(token, spelling)
-    } else if (after === 0) {
-      countedSpellings--
-      removeEntry(token, spelling)
+    addEntry(byToken, token, spelling, delta)
+    if (byToken.size === 0) entriesByToken.delete(token)
+  }
+
+  function encodedSpellings(): PartialSpellings {
+    const encoded: PartialSpellings = { fields: [...fields], tokens: [], spellings: [], counts: [] }
+    for (const [token, byToken] of entriesByToken) {
+      for (const [spelling, entry] of byToken) {
+        encoded.tokens.push(token)
+        encoded.spellings.push(spelling)
+        encoded.counts.push(entryCounts[entry])
+      }
     }
+    return encoded
   }
 
   function applyCounts(source: SpellingCounts, direction: 1 | -1): void {
@@ -164,7 +199,7 @@ export function createGrowingPartialWordSlot(view: GrowingPartialWordView): Grow
       if (points.length < PARTIAL_WORD_RUN_CODE_POINTS) return
       let narrowest: Set<number> | null = null
       for (let at = 0; at + PARTIAL_WORD_RUN_CODE_POINTS <= points.length; at++) {
-        const members = runs.get(runKeyAt(points, at))
+        const members = runs.get(packedRunKeyAt(points, at))
         if (members === undefined) return
         if (narrowest === null || members.size < narrowest.size) narrowest = members
       }
@@ -187,12 +222,13 @@ export function createGrowingPartialWordSlot(view: GrowingPartialWordView): Grow
       if (analysis.fields.length === 0) return null
       adoptFields(analysis.fields)
       resolvePending(analysis)
+      addEntriesToRuns()
       return reader
     },
 
     spellings(): PartialSpellings | null {
       if (fields.length === 0 || everyDocumentPending || pending.size > 0) return null
-      return encodePartialSpellings(fields, counts)
+      return encodedSpellings()
     },
 
     afterDocument(
@@ -250,7 +286,7 @@ export function createGrowingPartialWordSlot(view: GrowingPartialWordView): Grow
         liveEntries * GROWING_PARTIAL_ENTRY_BYTES +
         runs.size * GROWING_PARTIAL_RUN_BYTES +
         runMembers * GROWING_PARTIAL_RUN_MEMBER_BYTES +
-        countedSpellings * GROWING_PARTIAL_COUNTED_SPELLING_BYTES
+        entriesOutsideRuns.length * GROWING_PARTIAL_PENDING_ENTRY_BYTES
       )
     },
   }
