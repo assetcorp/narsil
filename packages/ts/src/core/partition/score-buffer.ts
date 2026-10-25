@@ -1,4 +1,4 @@
-import type { ScoredDocument } from '../../types/internal'
+import type { InternalIdResolver, ScoredDocument } from '../../types/internal'
 import { SCORE_BUFFER_INITIAL_TOUCHED_CAPACITY } from './constants'
 import type { ScoreComponents } from './scoring'
 import { EMPTY_COMPONENTS } from './scoring'
@@ -91,7 +91,7 @@ export function markCounted(buffer: ScoreBuffer, internalId: number): boolean {
 export function kthBestScore(
   buffer: ScoreBuffer,
   selection: Float64Array,
-  resolver: { toExternal(id: number): string | undefined },
+  resolver: Pick<InternalIdResolver, 'isLive'>,
 ): number {
   const wanted = selection.length
   const { touched, touchedCount, scores } = buffer
@@ -100,7 +100,7 @@ export function kthBestScore(
     const internalId = touched[index]
     const score = scores[internalId]
     if (size === wanted && score <= selection[0]) continue
-    if (resolver.toExternal(internalId) === undefined) continue
+    if (!resolver.isLive(internalId)) continue
     let at = 0
     if (size < wanted) {
       at = size++

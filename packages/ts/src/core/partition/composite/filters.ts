@@ -92,7 +92,7 @@ export function compositeFilterMatches(
       const base = wordIndex << 5
       while (word !== 0) {
         const trailingZeros = Math.clz32(word & -word) ^ 31
-        if (resolver.toExternal(base + trailingZeros) !== undefined) count++
+        if (resolver.isLive(base + trailingZeros)) count++
         word &= word - 1
       }
     }

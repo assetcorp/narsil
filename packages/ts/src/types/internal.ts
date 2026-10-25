@@ -61,6 +61,7 @@ export interface StoredDocument {
 export interface InternalIdResolver {
   toExternal(internalId: number): string | undefined
   toInternal(externalId: string): number | undefined
+  isLive(internalId: number): boolean
 }
 
 export interface NumericIndexEntry {
