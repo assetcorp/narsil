@@ -1,7 +1,7 @@
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { FilterExpression } from '../../types/filters'
 import type { FieldType } from '../../types/schema'
-import { MAX_FILTER_DEPTH, MAX_FILTER_TESTS } from '../constants'
+import { FILTER_COPY_DEPTH, MAX_FILTER_DEPTH, MAX_FILTER_TESTS } from '../constants'
 import { FIELD_FILTER_OPERATORS, FILTER_EXPRESSION_KEYS } from '../keys'
 import {
   invalid,
@@ -239,18 +239,25 @@ function requireValidExpression(expression: unknown, walk: FilterWalk, depth: nu
   if (not !== undefined) requireValidExpression(not, walk, depth + 1)
 }
 
-export function requireValidFilter(
-  expression: FilterExpression | undefined,
-  fieldTypes: Readonly<Record<string, FieldType>>,
-): void {
-  if (expression === undefined || expression === null) return
-  requireValidExpression(expression, { fieldTypes, tests: 0 }, 0)
-  validatedFilters.set(expression, fieldTypes)
+function ownedCopyOf(value: unknown, depth: number): unknown {
+  if (typeof value !== 'object' || value === null || depth >= FILTER_COPY_DEPTH) return value
+  if (Array.isArray(value)) {
+    const copy: unknown[] = new Array(value.length)
+    for (let at = 0; at < value.length; at++) copy[at] = ownedCopyOf(value[at], depth + 1)
+    return copy
+  }
+  const record = value as Record<string, unknown>
+  return Object.fromEntries(Object.keys(record).map(key => [key, ownedCopyOf(record[key], depth + 1)]))
 }
 
-export function requireValidatedFilter(
+export function validatedFilterOf(
   expression: FilterExpression,
   fieldTypes: Readonly<Record<string, FieldType>>,
-): void {
-  if (validatedFilters.get(expression) !== fieldTypes) requireValidFilter(expression, fieldTypes)
+): FilterExpression {
+  if (validatedFilters.get(expression) === fieldTypes) return expression
+  const owned = ownedCopyOf(expression, 0)
+  requireValidExpression(owned, { fieldTypes, tests: 0 }, 0)
+  const validated = owned as FilterExpression
+  validatedFilters.set(validated, fieldTypes)
+  return validated
 }
