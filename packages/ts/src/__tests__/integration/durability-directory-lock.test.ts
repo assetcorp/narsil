@@ -1,15 +1,21 @@
-import { spawnSync } from 'node:child_process'
-import { access, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { type ChildProcess, spawn, spawnSync } from 'node:child_process'
+import { access, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createNarsil, type Narsil } from '../../narsil'
 
 const LOCK_FILE = '.narsil.lock'
 
+const FORWARD_CLOCK_STEP_MS = 60_000
+
+const CHILD_WRITER = fileURLToPath(new URL('./durability-crash/child-writer-dist.mjs', import.meta.url))
+
 describe('a write-ahead log directory held by one engine', () => {
   let root: string
   const engines: Narsil[] = []
+  const children: ChildProcess[] = []
 
   async function open(): Promise<Narsil> {
     const engine = await createNarsil({ durability: { directory: root, mode: 'sync' }, workers: { enabled: false } })
@@ -22,6 +28,7 @@ describe('a write-ahead log directory held by one engine', () => {
   })
 
   afterEach(async () => {
+    for (const child of children.splice(0)) child.kill('SIGKILL')
     for (const engine of engines.splice(0)) await engine.shutdown().catch(() => undefined)
     await rm(root, { recursive: true, force: true })
   })
@@ -45,10 +52,72 @@ describe('a write-ahead log directory held by one engine', () => {
     expect(await second.countDocuments('orders')).toBe(1)
   })
 
-  it('refuses a directory whose lock names another live process', async () => {
-    await writeFile(join(root, LOCK_FILE), `${process.ppid}\n`)
+  async function startHoldingEngine(documentCount: number): Promise<ChildProcess> {
+    const holder = spawn(process.execPath, [CHILD_WRITER], {
+      env: {
+        ...process.env,
+        NARSIL_WAL_DIR: root,
+        NARSIL_DOC_COUNT: String(documentCount),
+        NARSIL_EXIT: 'wait-for-kill',
+      },
+      stdio: ['ignore', 'pipe', 'inherit'],
+    })
+    children.push(holder)
+    await new Promise<void>((resolve, reject) => {
+      holder.stdout?.on('data', (chunk: Buffer) => {
+        if (chunk.toString().includes('ACKED')) resolve()
+      })
+      holder.once('exit', code => reject(new Error(`the holding engine exited with code ${code}`)))
+    })
+    return holder
+  }
+
+  it('refuses a directory that an engine in another live process holds, and takes it over once that process is killed', async () => {
+    const holder = await startHoldingEngine(3)
 
     await expect(open()).rejects.toMatchObject({ code: 'CONFIG_INVALID' })
+
+    const exited = new Promise(resolve => holder.once('exit', resolve))
+    holder.kill('SIGKILL')
+    await exited
+    const engine = await open()
+    expect(await engine.countDocuments('movies')).toBe(3)
+  })
+
+  it.runIf(process.platform === 'linux')(
+    'refuses a directory that a live engine holds after the clock steps forward past the start time that it recorded',
+    async () => {
+      await startHoldingEngine(0)
+      const lockPath = join(root, LOCK_FILE)
+      const [pid, threadId, startMs, nonce] = (await readFile(lockPath, 'utf8')).split('\n')
+      const recordedBeforeTheStep = `${pid}\n${threadId}\n${Number(startMs) - FORWARD_CLOCK_STEP_MS}\n${nonce}\n`
+      await writeFile(lockPath, recordedBeforeTheStep)
+
+      await expect(open()).rejects.toMatchObject({ code: 'CONFIG_INVALID' })
+      expect(await readFile(lockPath, 'utf8')).toBe(recordedBeforeTheStep)
+    },
+  )
+
+  describe.runIf(process.platform === 'linux')('a lock whose process id is in use again by something else', () => {
+    async function openOverLockOf(pid: number): Promise<void> {
+      await writeFile(join(root, LOCK_FILE), `${pid}\n0\n0\ncrashed-engine\n`)
+
+      const engine = await open()
+      await engine.createIndex('orders', { schema: { item: 'string' } })
+      await engine.insert('orders', { item: 'kettle' }, 'o1')
+      expect(await engine.countDocuments('orders')).toBe(1)
+    }
+
+    it('takes over the lock when that id now belongs to a thread of the opening process', async () => {
+      const threadIds = (await readdir('/proc/self/task')).map(Number).filter(id => id !== process.pid)
+      expect(threadIds.length).toBeGreaterThan(0)
+
+      await openOverLockOf(threadIds[0] ?? process.pid)
+    })
+
+    it('takes over the lock when that id now belongs to a live process that started after the recorded one', async () => {
+      await openOverLockOf(process.ppid)
+    })
   })
 
   it('releases the directory when recovery fails, so a repaired directory opens in the same process', async () => {
