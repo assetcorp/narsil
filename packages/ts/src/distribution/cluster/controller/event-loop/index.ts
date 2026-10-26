@@ -3,7 +3,7 @@ import type { NodeTransport, RespondFn, TransportMessage } from '../../../transp
 import { ClusterMessageTypes, ReplicationMessageTypes } from '../../../transport/types'
 import { handleSchemaEvent, scheduleDebouncedAllocation } from './allocation'
 import { handleInsyncAddMessage, handleInsyncRemoveMessage, handleQueuedBootstrapComplete } from './insync-messages'
-import { clearEventLoopWatchers, type EventLoopState } from './state'
+import { changesTopology, clearEventLoopWatchers, type EventLoopState } from './state'
 
 export { clearEventLoopWatchers, createEventLoopState, type EventLoopState } from './state'
 
@@ -12,7 +12,8 @@ export { clearEventLoopWatchers, createEventLoopState, type EventLoopState } fro
  * primary sends it.
  *
  * The controller registers a watcher on node registrations and another on schemas, listens for in-sync and bootstrap
- * messages, and runs the allocator once for every index it starts with. A failure at any of those steps drops the watchers this call had
+ * messages, and runs the allocator once for every index it starts with. A registration that changes only its memory
+ * figures or its partition sizes starts no allocation run, because every node writes those again on each heartbeat. A failure at any of those steps drops the watchers this call had
  * already registered, before the error reaches the caller, so that a controller which failed to start leaves
  * nothing running behind it.
  *
@@ -37,8 +38,10 @@ export async function startEventLoop(
   state.controllerNodeId = nodeId
 
   try {
-    state.unwatchNodes = await coordinator.watchNodes((_event: NodeEvent) => {
-      scheduleDebouncedAllocation(state, coordinator, isActive, onError)
+    state.unwatchNodes = await coordinator.watchNodes((event: NodeEvent) => {
+      if (changesTopology(state, event)) {
+        scheduleDebouncedAllocation(state, coordinator, isActive, onError)
+      }
     })
 
     state.unwatchSchemas = await coordinator.watchSchemas((event: SchemaEvent) => {

@@ -21,7 +21,18 @@ interface ReadyBody {
 interface TopologyBody {
   node: { nodeId: string; roles: string[]; readiness: string; isController: boolean }
   controllerNodeId: string | null
-  nodes: Array<{ nodeId: string; address: string; roles: string[] }>
+  nodes: Array<{
+    nodeId: string
+    address: string
+    roles: string[]
+    memory: {
+      processBytes: number
+      processLimitBytes: number
+      heapBytes: number
+      heapLimitBytes: number
+      full: boolean
+    }
+  }>
 }
 
 interface AllocationBody {
@@ -95,8 +106,24 @@ describe('the cluster endpoints of a server serving a cluster node', () => {
     expect(topology.body.node.isController).toBe(true)
     expect(topology.body.controllerNodeId).toBe('node-a')
     expect(topology.body.nodes).toEqual([
-      { nodeId: 'node-a', address: 'node-a:9200', roles: ['data', 'coordinator', 'controller'] },
+      {
+        nodeId: 'node-a',
+        address: 'node-a:9200',
+        roles: ['data', 'coordinator', 'controller'],
+        memory: {
+          processBytes: expect.any(Number),
+          processLimitBytes: expect.any(Number),
+          heapBytes: expect.any(Number),
+          heapLimitBytes: expect.any(Number),
+          full: false,
+        },
+      },
     ])
+    const memory = topology.body.nodes[0].memory
+    expect(memory.processBytes).toBeGreaterThan(0)
+    expect(memory.processBytes).toBeLessThan(memory.processLimitBytes)
+    expect(memory.heapBytes).toBeGreaterThan(0)
+    expect(memory.heapBytes).toBeLessThan(memory.heapLimitBytes)
   })
 
   it('reports the allocation of one index at /indexes/:name/cluster, partition by partition', async () => {

@@ -1,7 +1,9 @@
+import type { NodeEvent, NodeRegistration } from '../../../coordinator/types'
 import type { NodeTransport } from '../../../transport/types'
 
 export interface EventLoopState {
   unwatchNodes: (() => void) | null
+  placementByNodeId: Map<string, string>
   unwatchSchemas: (() => void) | null
   unwatchTransport: (() => void) | null
   knownIndexes: Set<string>
@@ -22,6 +24,7 @@ export interface EventLoopState {
 export function createEventLoopState(initialIndexNames: string[]): EventLoopState {
   return {
     unwatchNodes: null,
+    placementByNodeId: new Map(),
     unwatchSchemas: null,
     unwatchTransport: null,
     knownIndexes: new Set(initialIndexNames),
@@ -47,6 +50,7 @@ export function clearEventLoopWatchers(state: EventLoopState): void {
     state.unwatchNodes()
     state.unwatchNodes = null
   }
+  state.placementByNodeId.clear()
   if (state.unwatchSchemas !== null) {
     state.unwatchSchemas()
     state.unwatchSchemas = null
@@ -63,4 +67,22 @@ export function clearEventLoopWatchers(state: EventLoopState): void {
     clearTimeout(timer)
   }
   state.teardownTimers.clear()
+}
+
+function placementOf(registration: NodeRegistration): string {
+  const { memory: _memory, partitionBytes: _partitionBytes, ...placement } = registration
+  return JSON.stringify(placement)
+}
+
+export function changesTopology(state: EventLoopState, event: NodeEvent): boolean {
+  if (event.type === 'node_left' || event.registration === null) {
+    state.placementByNodeId.delete(event.nodeId)
+    return true
+  }
+  const placement = placementOf(event.registration)
+  if (state.placementByNodeId.get(event.nodeId) === placement) {
+    return false
+  }
+  state.placementByNodeId.set(event.nodeId, placement)
+  return true
 }

@@ -178,9 +178,18 @@ A server that fronts a cluster node takes `node.cluster` as the `cluster` option
 {
   "node": { "nodeId": "node-a", "roles": ["data", "coordinator", "controller"], "status": "active", "readiness": "SERVING", "isController": true },
   "controllerNodeId": "node-a",
-  "nodes": [{ "nodeId": "node-a", "address": "node-a:9200", "roles": ["data", "coordinator", "controller"] }]
+  "nodes": [
+    {
+      "nodeId": "node-a",
+      "address": "node-a:9200",
+      "roles": ["data", "coordinator", "controller"],
+      "memory": { "processBytes": 412090368, "processLimitBytes": 4294967296, "heapBytes": 201326592, "heapLimitBytes": 2197815296, "full": false }
+    }
+  ]
 }
 ```
+
+`memory` holds the figures from the node's latest heartbeat, and it reads `null` for a node that has yet to report any. While a node reports `full`, every node refuses inserts and updates to each index that has a copy on that node, as the [cluster guide](cluster.md#when-a-node-runs-short-of-memory) describes.
 
 `GET /indexes/{name}/cluster` reports one index's allocation partition by partition, in partition order. An index the controller has yet to allocate answers with `allocated` false and no partitions. A name the cluster would never accept answers 400 `INVALID_REQUEST`.
 

@@ -22,7 +22,7 @@ function acquireCollector(): CollectGarbage | null {
   }
 }
 
-function collectAndReturnPages(): boolean {
+export function collectAndReturnPages(): boolean {
   const collect = acquireCollector()
   if (collect === null) return false
   try {

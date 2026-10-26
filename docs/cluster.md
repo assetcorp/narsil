@@ -85,6 +85,36 @@ The node groups the work of a batch call before it sends anything. For `insertBa
 
 When a write fails after the node applies it locally, the node rolls it back before it returns the error, so a failed insert removes the document, and a failed update or remove restores the document that the partition held before.
 
+## When a node runs short of memory
+
+Each node measures its memory once a second and sends the figures to the coordinator with every heartbeat. A node counts as full once its resident memory passes 90% of the memory that its host or its container allows, or once its V8 heap passes 90% of the heap limit, which `--max-old-space-size` sets. It counts as clear again once both figures fall below 80%, and that gap keeps a node close to the limit from switching between the two states on every measurement. Before a node reports itself full, it runs a garbage collection, at most once every five seconds, so that only live data can hold the block in place.
+
+While a node that holds a copy of an index reports full, every node refuses an insert or an update to that index with `CLUSTER_WRITE_BLOCKED`, which the HTTP server answers with status 429. The error's `details` carry the reason `node_memory_full`, the `indexName`, and the sorted `fullNodeIds`. A batch call fails whole, so none of its documents reach any partition. Removes, searches, and reads go through as usual, and an index with no copy on the full node keeps accepting writes. The node that receives a write enforces the block, and so does the primary that the write is forwarded to. A replica, however, applies every entry that reaches the replication log, because a replica that refused an entry would fall out of the in-sync set.
+
+Each node judges its own state from its latest measurement and the state of every other node from the registrations that the coordinator's node watch delivers to it. A node rewrites its registration as soon as it turns full or clear, so the other nodes learn of the change as soon as the coordinator delivers that write. `GET /cluster` reports each node's `memory` figures, `full` among them, so you can see which node holds the block.
+
+To lift the block, free memory on the node that reports full, or give it more:
+
+- Remove documents from the indexes that have a copy on that node, or drop one of those indexes.
+- Restart the node with a larger container limit or a larger `--max-old-space-size`.
+
+The cluster accepts writes again once every node that holds a copy reports clear. Set `memory` on a node's configuration to move its two levels, each a fraction above 0 and at most 1. `createClusterNode` raises `CONFIG_INVALID` where `resumeWritesBelow` is not below `blockWritesAbove`:
+
+```ts
+await createClusterNode({
+  coordinator,
+  transport: createInMemoryTransport('node-c', network),
+  address: 'node-c:9200',
+  memory: { blockWritesAbove: 0.85, resumeWritesBelow: 0.75 },
+})
+```
+
+A burst of writes can fill a heap between two of the node's once-a-second measurements, so each node also bounds the documents of the inserts and updates that it holds in flight. The node counts a write's documents from the moment that it accepts the write until the write completes, both where a client sends the write to it and where another node forwards the write to it as primary. The bound is 2% of the heap limit by default. That default is low because indexing can take many times a document's size in heap: in the repository's memory tests under `packages/ts/src/__tests__/e2e/cluster-memory/`, a node that indexed documents of 120 words drawn from a 20,000-word vocabulary added about 14 bytes of heap for every byte of document text. When a new insert or update would carry the total past the bound, the node refuses it with `CLUSTER_WRITE_BLOCKED` and status 429, and the error's `details` include the reason `write_bytes_in_flight` together with the `nodeId`, the `requestBytes`, the `inFlightBytes`, and the `limitBytes`. A batch larger than the bound fails even on an idle node, so send smaller batches. Removes and replicated entries never count against the bound. Set `memory.inFlightWriteFraction` to move it, as a fraction above 0 and at most 1.
+
+When a primary refuses a write that another node forwarded to it, for either reason, the entry node answers with the primary's code, message, and `details`, to which it adds the `indexName` and the `primaryNodeId`, so the reason reaches the client either way. A primary on an earlier release of Narsil sends no details, so the error's `details` then include only the `indexName` and the `primaryNodeId`.
+
+The controller places partitions by size as well. Each node reports the estimated size of every partition that it holds, and the controller takes the largest size that any node reports for a partition, or 50 MiB for a partition that no node reports yet. It gives a node a new copy only where that copy fits, together with what the node already holds, within the node's `capacity.memoryBytes`, which defaults to 8,000,000,000 bytes, and it gives no new copy to a node that reports full.
+
 ## Searches
 
 `query` has two phases so that the cluster moves as few bytes as possible. The coordinator picks one copy of each partition, sends each selected node the query and the partition ids that it picked the node for, merges the scored ids into one ranking, and then fetches the full documents for the winning page alone. Each data node answers for exactly the named partitions, so two nodes holding overlapping copies never double-count a document.
