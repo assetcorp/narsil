@@ -82,7 +82,8 @@ export interface ClusterMemoryConfig {
    * forward to it as primary. It refuses a write whose documents would carry that total past the limit with
    * `CLUSTER_WRITE_BLOCKED`, and the error's details include the reason `write_bytes_in_flight`. It never refuses a
    * replicated entry or a remove. The fraction must lie above 0 and at most 1, and it is 0.02 where you name none,
-   * which is low because indexing a document can add about 14 bytes to the heap for every byte of its text.
+   * which is low because indexing a document can take many times the size of its text in heap. A value of 1 allows
+   * writes in flight up to the whole heap limit.
    */
   inFlightWriteFraction?: number
 }
