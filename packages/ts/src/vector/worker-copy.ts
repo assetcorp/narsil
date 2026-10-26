@@ -56,10 +56,11 @@ function restoreQuantizer(snapshot: WorkerCopySnapshot, store: VectorStore): Osq
   quantizer.restoreCentroid(snapshot.codes.centroid)
   const recordBytes = osqRecordBytes(snapshot.dimension, bits)
   for (let ordinal = 0; ordinal < snapshot.codes.present.length; ordinal++) {
-    if (snapshot.codes.present[ordinal] !== 1) continue
-    const docId = store.docIdForOrdinal(ordinal)
-    if (docId === undefined) continue
-    quantizer.restoreRecord(docId, snapshot.codes.records.subarray(ordinal * recordBytes, (ordinal + 1) * recordBytes))
+    if (snapshot.codes.present[ordinal] !== 1 || ordinal >= store.slots) continue
+    quantizer.restoreRecordAtOrdinal(
+      ordinal,
+      snapshot.codes.records.subarray(ordinal * recordBytes, (ordinal + 1) * recordBytes),
+    )
   }
   return quantizer
 }

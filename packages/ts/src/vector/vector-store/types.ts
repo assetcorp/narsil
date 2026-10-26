@@ -30,6 +30,8 @@ export interface VectorStoreSnapshot {
   magnitudes: Float64Array
   /** This names the document at each ordinal, and it reads `null` where the ordinal holds none. */
   docIds: Array<string | null>
+  /** This lists each ordinal that a document left when it took a new vector, whose vector the graph passes through until compaction. */
+  replacedOrdinals: number[]
 }
 
 export interface VectorSearchReader {
