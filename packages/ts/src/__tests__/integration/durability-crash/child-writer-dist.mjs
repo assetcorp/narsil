@@ -51,7 +51,7 @@ async function main() {
     return
   }
 
-  await new Promise(() => undefined)
+  setInterval(() => undefined, 60_000)
 }
 
 main().catch(err => {

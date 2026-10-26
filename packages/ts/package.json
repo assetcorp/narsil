@@ -27,6 +27,10 @@
       "browser": "./src/persistence/durability/node-fs.browser.ts",
       "default": "./src/persistence/durability/node-fs.ts"
     },
+    "#platform/lock-holder": {
+      "browser": "./src/persistence/durability/lock-holder.browser.ts",
+      "default": "./src/persistence/durability/lock-holder.ts"
+    },
     "#platform/node-worker": {
       "browser": "./src/workers/node-worker.browser.ts",
       "default": "./src/workers/node-worker.ts"
