@@ -1,15 +1,17 @@
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { VectorMetric } from '../brute-force'
-import { adjacencySlots, createNode, layerArray, layerBase, replaceNeighbors } from './adjacency'
+import { adjacencySlots, createNode, replaceNeighbors } from './adjacency'
 import { MAX_LAYER_CAP } from './constants'
 import { GRAPH_ENTRY_POINT, GRAPH_NODE_COUNT, GRAPH_TOP_LAYER } from './handles'
 import { resetGraph } from './mutation'
+import { createSavedNeighbourScratch, savedNeighbourNumbers } from './saved-neighbours'
 import {
   ensureCapacity,
   entryPointOf,
   type HNSWGraphState,
   isTombstoned,
   maxConns,
+  nodeDistanceFunction,
   nodeMaxLayer,
   topLayerOf,
 } from './shared'
@@ -82,8 +84,10 @@ function serializePart(
   start: number,
   end: number,
 ): { levels: Uint8Array; neighbours: Uint8Array } {
-  const { numberOfOrdinal, ordinalOfNumber, topLayers } = numbers
-  const adjacency = state.adjacency
+  const { ordinalOfNumber, topLayers } = numbers
+  const distance = nodeDistanceFunction(state, state.buildMetric)
+  const scratch = createSavedNeighbourScratch()
+  const neighbours: number[] = []
   const levels = new Uint8Array(end - start)
   const values = new Uint32Array(neighbourValueCount(state, topLayers, start, end))
   let cursor = 0
@@ -91,20 +95,10 @@ function serializePart(
     const top = topLayers[number]
     levels[number - start] = top + 1
     for (let layer = 0; layer <= top; layer++) {
-      const base = layerBase(adjacency, ordinalOfNumber[number], layer)
-      const array = layerArray(adjacency, layer)
-      const held = base === -1 ? 0 : Math.min(array[base], maxConns(state, layer))
-      const countAt = cursor
-      cursor += 1
-      for (let i = 1; i <= held; i++) {
-        const neighbourOrdinal = array[base + i]
-        if (neighbourOrdinal < 0 || neighbourOrdinal >= numberOfOrdinal.length) continue
-        const neighbour = numberOfOrdinal[neighbourOrdinal]
-        if (neighbour === NO_NUMBER || neighbour === number || topLayers[neighbour] < layer) continue
-        values[cursor] = neighbour
-        cursor += 1
-      }
-      values[countAt] = cursor - countAt - 1
+      savedNeighbourNumbers(state, numbers, ordinalOfNumber[number], layer, distance, scratch, neighbours)
+      values[cursor] = neighbours.length
+      values.set(neighbours, cursor + 1)
+      cursor += neighbours.length + 1
     }
   }
   return { levels, neighbours: littleEndianBytesOf(values.subarray(0, cursor)) }
