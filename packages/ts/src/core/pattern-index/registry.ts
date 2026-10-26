@@ -7,24 +7,23 @@ import type { PatternSearchModule } from './types'
 
 let registered: PatternSearchModule | null = null
 
+const MODULE_FUNCTIONS = [
+  'createIndex',
+  'readArrays',
+  'mergeArrays',
+  'matchInto',
+  'checkExpression',
+  'expressionFootprint',
+  'largestFootprint',
+  'checkOperands',
+  'evaluateTests',
+  'serializeIndex',
+  'decodeIndex',
+] as const
+
 function isPatternSearchModule(value: PatternSearch): value is PatternSearchModule {
-  return (
-    value !== null &&
-    typeof value === 'object' &&
-    value.name === 'pattern' &&
-    'createIndex' in value &&
-    typeof value.createIndex === 'function' &&
-    'readArrays' in value &&
-    typeof value.readArrays === 'function' &&
-    'mergeArrays' in value &&
-    typeof value.mergeArrays === 'function' &&
-    'matchInto' in value &&
-    typeof value.matchInto === 'function' &&
-    'checkExpression' in value &&
-    typeof value.checkExpression === 'function' &&
-    'expressionFootprint' in value &&
-    typeof value.expressionFootprint === 'function'
-  )
+  if (value === null || typeof value !== 'object' || value.name !== 'pattern') return false
+  return MODULE_FUNCTIONS.every(name => typeof Reflect.get(value, name) === 'function')
 }
 
 /**

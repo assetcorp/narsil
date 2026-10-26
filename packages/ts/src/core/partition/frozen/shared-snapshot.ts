@@ -1,13 +1,7 @@
 import type { AnyDocument } from '../../../types/schema'
 import { generateId } from '../../id-generator'
-import { buildPartialWordTableFrom } from '../partial-words/registry'
-import {
-  encodePartialSpellings,
-  type PartialSpellings,
-  type PartialWordAnalysis,
-  sameFields,
-  spellingCountsOf,
-} from '../partial-words/spellings'
+import { buildPartialWordTableFrom, partialSpellingsOfDocuments } from '../partial-words/registry'
+import { type PartialSpellings, type PartialWordAnalysis, sameFields } from '../partial-words/spellings'
 import type { PartialWordTableData } from '../partial-words/types'
 import type { SegmentPayload } from '../segment-payload'
 import type { SegmentColumns } from './columns'
@@ -79,7 +73,7 @@ function sharedPartialWordsOf(
 ): PartialWordTableData | null {
   let source = spellings
   if (source === null && analysis !== null && analysis.fields.length > 0) {
-    source = encodePartialSpellings(analysis.fields, spellingCountsOf(storedDocumentsOf(documentData), analysis))
+    source = partialSpellingsOfDocuments(storedDocumentsOf(documentData), analysis)
   }
   if (source === null || source.fields.length === 0) return null
   const table = buildPartialWordTableFrom(source, wrapFrozenTokenTable(tokenData))

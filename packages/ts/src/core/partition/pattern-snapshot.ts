@@ -1,44 +1,9 @@
-import { ErrorCodes, NarsilError } from '../../errors'
 import { schemaFieldsOf } from '../../schema/validator'
 import type { SerializedPatternIndex } from '../../types/internal'
 import type { SchemaDefinition } from '../../types/schema'
-import { PATTERN_RUN_CODE_POINTS } from '../pattern-index/constants'
 import { patternIndexOf } from '../pattern-index/host'
-import type { PatternIndexArrays, PatternIndexReader } from '../pattern-index/types'
+import { requirePatternSearch } from '../pattern-index/registry'
 import { getNestedValue, type PartitionState } from './utils'
-
-function loadFailed(fieldPath: string, problem: string): NarsilError {
-  return new NarsilError(
-    ErrorCodes.PERSISTENCE_LOAD_FAILED,
-    `The pattern index of field "${fieldPath}" in this partition is corrupt: ${problem}`,
-    { field: fieldPath },
-  )
-}
-
-function serializePatternIndex(state: PartitionState, fieldPath: string, index: PatternIndexReader) {
-  const resolver = state.docStore.resolver()
-  const arrays = index.toArrays(fieldPath, null)
-  const positionOf = new Map<number, number>()
-  const docIds: string[] = []
-  for (const ordinal of arrays.docIds) {
-    const externalId = resolver.toExternal(ordinal)
-    if (externalId === undefined) continue
-    positionOf.set(ordinal, docIds.length)
-    docIds.push(externalId)
-  }
-  const runs: Record<string, number[]> = Object.create(null)
-  for (let run = 0; run + 1 < arrays.offsets.length; run++) {
-    const positions: number[] = []
-    for (let at = arrays.offsets[run]; at < arrays.offsets[run + 1]; at++) {
-      const position = positionOf.get(arrays.postings[at])
-      if (position !== undefined) positions.push(position)
-    }
-    if (positions.length === 0) continue
-    const base = run * PATTERN_RUN_CODE_POINTS
-    runs[String.fromCodePoint(arrays.runs[base], arrays.runs[base + 1], arrays.runs[base + 2])] = positions
-  }
-  return { docIds, runs }
-}
 
 export function serializePatternIndexes(
   state: PartitionState,
@@ -46,69 +11,17 @@ export function serializePatternIndexes(
 ): Record<string, SerializedPatternIndex> | undefined {
   const patternFields = schemaFieldsOf(schema).filter(field => field.pattern)
   if (patternFields.length === 0) return undefined
+  const resolver = state.docStore.resolver()
+  const toExternal = (ordinal: number): string | undefined => resolver.toExternal(ordinal)
   const serialized: Record<string, SerializedPatternIndex> = Object.create(null)
   for (const { path: fieldPath } of patternFields) {
     const index = state.patternIndexes.get(fieldPath)
     serialized[fieldPath] =
-      index === undefined ? { docIds: [], runs: {} } : serializePatternIndex(state, fieldPath, index)
+      index === undefined
+        ? { docIds: [], runs: {} }
+        : requirePatternSearch(fieldPath).serializeIndex(fieldPath, index, toExternal)
   }
   return serialized
-}
-
-function appendRunCodePoints(fieldPath: string, key: string, out: number[]): void {
-  const start = out.length
-  for (const character of key) out.push(character.codePointAt(0) ?? 0)
-  const count = out.length - start
-  if (count !== PATTERN_RUN_CODE_POINTS) {
-    throw loadFailed(
-      fieldPath,
-      `the key "${key}" holds ${count} code points, while each key must hold ${PATTERN_RUN_CODE_POINTS}`,
-    )
-  }
-}
-
-function requirePositions(fieldPath: string, key: string, list: unknown, documentCount: number): number[] {
-  if (!Array.isArray(list)) throw loadFailed(fieldPath, `the run "${key}" must map to a list of positions`)
-  let previous = -1
-  for (const position of list) {
-    if (!Number.isInteger(position) || position < 0 || position >= documentCount) {
-      throw loadFailed(fieldPath, `the run "${key}" names position ${String(position)} outside its document list`)
-    }
-    if (position <= previous) {
-      throw loadFailed(fieldPath, `the positions of the run "${key}" are out of ascending order`)
-    }
-    previous = position
-  }
-  return list
-}
-
-function requireDistinctDocuments(fieldPath: string, docIds: readonly string[]): void {
-  const seen = new Set<string>()
-  for (const docId of docIds) {
-    if (seen.has(docId)) throw loadFailed(fieldPath, `the document list names "${docId}" twice`)
-    seen.add(docId)
-  }
-}
-
-function decodePatternEntry(fieldPath: string, entry: SerializedPatternIndex): PatternIndexArrays {
-  requireDistinctDocuments(fieldPath, entry.docIds)
-  const runs: number[] = []
-  const offsets: number[] = [0]
-  const postings: number[] = []
-  for (const [key, list] of Object.entries(entry.runs)) {
-    appendRunCodePoints(fieldPath, key, runs)
-    for (const position of requirePositions(fieldPath, key, list, entry.docIds.length)) postings.push(position)
-    offsets.push(postings.length)
-  }
-  const positions = new Uint32Array(entry.docIds.length)
-  for (let position = 0; position < positions.length; position++) positions[position] = position
-  return {
-    fieldPath,
-    docIds: positions,
-    runs: Uint32Array.from(runs),
-    offsets: Uint32Array.from(offsets),
-    postings: Uint32Array.from(postings),
-  }
 }
 
 function rebuildPatternIndex(state: PartitionState, fieldPath: string): void {
@@ -133,7 +46,7 @@ export function loadPatternIndexes(
       rebuildPatternIndex(state, fieldPath)
       continue
     }
-    const decoded = decodePatternEntry(fieldPath, entry)
+    const decoded = requirePatternSearch(fieldPath).decodeIndex(fieldPath, entry)
     const ordinals = entry.docIds.map(docId => resolver.toInternal(docId) ?? -1)
     patternIndexOf(state.patternIndexes, fieldPath).addArrays(decoded, position => ordinals[position])
   }

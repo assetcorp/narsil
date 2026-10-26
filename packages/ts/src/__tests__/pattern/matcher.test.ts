@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { bitsetToSet, createBitSet } from '../../core/bitset'
 import { MATCHER_STATE_BUDGET_BYTES, MAX_PATTERN_POSITIONS } from '../../core/pattern-index/constants'
 import { PATTERN_HOST } from '../../core/pattern-index/host'
-import { smallestMatcherBytes, widestPatternSplit } from '../../core/pattern-index/matcher-budget'
+import { widestPatternSplit } from '../../core/pattern-index/matcher-budget'
 import type {
   PatternHost,
   PatternIndexReader,
@@ -13,6 +13,7 @@ import type {
 import { createPatternWorkMeter, joinPatternWorkMeter } from '../../core/pattern-index/work-meter'
 import { SHORTLIST_RUN_LOOKUPS } from '../../pattern/constants'
 import { compileExpression, programFootprint } from '../../pattern/expression'
+import { smallestMatcherBytes } from '../../pattern/footprint'
 import { LazyDfa } from '../../pattern/lazy-dfa'
 import { patternSearchModule } from '../../pattern/module'
 import { WorkTally } from '../../pattern/work-tally'
@@ -102,7 +103,7 @@ describe('the pattern matcher', () => {
         folds++
         PATTERN_HOST.appendFoldedCodePoint(codePoint, out)
       },
-      singleFoldSources: folded => PATTERN_HOST.singleFoldSources(folded),
+      singleFolds: () => PATTERN_HOST.singleFolds(),
     }
     const result = run(values, index, 'startsWith', 'x', true, FULL_BUDGET_WORKERS, countingHost)
     expect(result.matched).toEqual([0])
@@ -211,7 +212,7 @@ describe('the pattern matcher', () => {
         folds++
         PATTERN_HOST.appendFoldedCodePoint(codePoint, out)
       },
-      singleFoldSources: folded => PATTERN_HOST.singleFoldSources(folded),
+      singleFolds: () => PATTERN_HOST.singleFolds(),
     }
     const counting = (index: PatternIndexWriter): PatternIndexReader => ({
       documents: () => index.documents(),
