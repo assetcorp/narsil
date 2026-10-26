@@ -1,7 +1,13 @@
-import { readFileSync } from 'node:fs'
-import { readFile, rename, unlink, writeFile } from 'node:fs/promises'
+import { close, openSync, readFileSync } from 'node:fs'
+import { readdir, readFile, readlink, realpath, rename, unlink, writeFile } from 'node:fs/promises'
 import { endianness } from 'node:os'
+import { dirname } from 'node:path'
 import { DIRECTORY_LOCK_PROCESS_START_TOLERANCE_MS } from './constants'
+
+interface RecordedProcess {
+  pid: number
+  processStartMs: number | null
+}
 
 type ProcessIdentity =
   | { kind: 'process'; startMs: number }
@@ -95,13 +101,53 @@ async function identifyProcess(pid: number): Promise<ProcessIdentity> {
   }
 }
 
-export async function recordedProcessIsAlive(pid: number, recordedStartMs: number | null): Promise<boolean> {
-  if (!signalReaches(pid)) return false
-  const found = await identifyProcess(pid)
+async function descriptorTargets(pid: number): Promise<string[] | null> {
+  const descriptorDirectory = `/proc/${pid}/fd`
+  let descriptors: string[]
+  try {
+    descriptors = await readdir(descriptorDirectory)
+  } catch {
+    return null
+  }
+  const targets: string[] = []
+  for (const descriptor of descriptors) {
+    try {
+      targets.push(await readlink(`${descriptorDirectory}/${descriptor}`))
+    } catch (err) {
+      if (errnoOf(err) !== 'ENOENT') return null
+    }
+  }
+  return targets
+}
+
+async function holdsFileInDirectoryOf(pid: number, lockPath: string): Promise<boolean> {
+  const targets = await descriptorTargets(pid)
+  if (targets === null) return false
+  const directory = await realpath(dirname(lockPath)).catch(() => null)
+  if (directory === null) return false
+  const inside = directory.endsWith('/') ? directory : `${directory}/`
+  return targets.some(target => target === directory || target.startsWith(inside))
+}
+
+export async function holderIsLive(holder: RecordedProcess, self: RecordedProcess, lockPath: string): Promise<boolean> {
+  if (holder.pid === self.pid) {
+    if (holder.processStartMs === null || self.processStartMs === null) return false
+    if (Math.abs(holder.processStartMs - self.processStartMs) <= DIRECTORY_LOCK_PROCESS_START_TOLERANCE_MS) return true
+    return holdsFileInDirectoryOf(holder.pid, lockPath)
+  }
+  if (!signalReaches(holder.pid)) return false
+  const found = await identifyProcess(holder.pid)
   if (found.kind === 'thread' || found.kind === 'exited') return false
-  if (found.kind === 'unknown') return signalReaches(pid)
-  if (recordedStartMs === null) return true
-  return found.startMs - recordedStartMs <= DIRECTORY_LOCK_PROCESS_START_TOLERANCE_MS
+  if (found.kind === 'unknown') return signalReaches(holder.pid)
+  if (holder.processStartMs === null) return true
+  if (found.startMs - holder.processStartMs <= DIRECTORY_LOCK_PROCESS_START_TOLERANCE_MS) return true
+  return holdsFileInDirectoryOf(holder.pid, lockPath)
+}
+
+export function holdDirectoryOpen(directory: string): () => void {
+  if (process.platform !== 'linux') return () => undefined
+  const descriptor = openSync(directory, 'r')
+  return () => close(descriptor, () => undefined)
 }
 
 export async function removeStaleLock(

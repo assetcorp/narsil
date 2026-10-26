@@ -1,5 +1,18 @@
-export async function recordedProcessIsAlive(_pid: number, _recordedStartMs: number | null): Promise<boolean> {
+interface RecordedProcess {
+  pid: number
+  processStartMs: number | null
+}
+
+export async function holderIsLive(
+  _holder: RecordedProcess,
+  _self: RecordedProcess,
+  _lockPath: string,
+): Promise<boolean> {
   return true
+}
+
+export function holdDirectoryOpen(_directory: string): () => void {
+  return () => undefined
 }
 
 export async function removeStaleLock(

@@ -1,12 +1,8 @@
 import { type FsModule, getFs, getPath } from '#platform/durable-fs'
-import { recordedProcessIsAlive, removeStaleLock } from '#platform/lock-holder'
+import { holdDirectoryOpen, holderIsLive, removeStaleLock } from '#platform/lock-holder'
 import { nodeThreadId } from '#platform/node-worker'
 import { ErrorCodes, NarsilError } from '../../errors'
-import {
-  DIRECTORY_LOCK_ATTEMPTS,
-  DIRECTORY_LOCK_PROCESS_START_TOLERANCE_MS,
-  DIRECTORY_LOCK_SETTLE_MS,
-} from './constants'
+import { DIRECTORY_LOCK_ATTEMPTS, DIRECTORY_LOCK_SETTLE_MS } from './constants'
 
 const LOCK_FILE_NAME = '.narsil.lock'
 
@@ -70,12 +66,6 @@ async function settledHolder(fs: FsModule, lockPath: string): Promise<LockReadin
   return readHolder(fs, lockPath)
 }
 
-async function holderIsLive(holder: LockHolder, self: LockHolder): Promise<boolean> {
-  if (holder.pid !== self.pid) return recordedProcessIsAlive(holder.pid, holder.processStartMs)
-  if (holder.processStartMs === null || self.processStartMs === null) return false
-  return Math.abs(holder.processStartMs - self.processStartMs) <= DIRECTORY_LOCK_PROCESS_START_TOLERANCE_MS
-}
-
 function sameReading(first: LockReading, second: LockReading): boolean {
   if (typeof first !== 'object' || typeof second !== 'object') return first === second
   return formatHolder(first) === formatHolder(second)
@@ -127,7 +117,7 @@ async function acquire(fs: FsModule, root: string, lockPath: string, self: LockH
   for (let attempt = 0; attempt < DIRECTORY_LOCK_ATTEMPTS; attempt++) {
     if (await createLockFile(fs, lockPath, draftPath, content)) return
     const holder = await settledHolder(fs, lockPath)
-    if (typeof holder === 'object' && (await holderIsLive(holder, self))) {
+    if (typeof holder === 'object' && (await holderIsLive(holder, self, lockPath))) {
       throw heldElsewhere(root, holderLabel(holder, self), lockPath)
     }
     await removeStaleLock(lockPath, `${draftPath}.aside`, text =>
@@ -152,7 +142,18 @@ export async function lockDirectory(root: string): Promise<DirectoryLock> {
   const resolvedRoot = pathMod.resolve(root)
   const lockPath = pathMod.join(resolvedRoot, LOCK_FILE_NAME)
   const self = await describeSelf()
+
+  async function holds(): Promise<boolean> {
+    const holder = await readHolder(fs, lockPath)
+    return typeof holder === 'object' && holder.nonce === self.nonce
+  }
+
+  async function removeOwnLockFile(): Promise<void> {
+    if (await holds().catch(() => false)) await fs.unlink(lockPath).catch(() => undefined)
+  }
+
   let directoryKey: string | null = null
+  let closeDirectory: () => void = () => undefined
   try {
     await fs.mkdir(resolvedRoot, { recursive: true })
     const stat = await fs.stat(resolvedRoot, { bigint: true })
@@ -161,8 +162,10 @@ export async function lockDirectory(root: string): Promise<DirectoryLock> {
     lockedDirectories.add(key)
     directoryKey = key
     await acquire(fs, root, lockPath, self)
+    closeDirectory = holdDirectoryOpen(resolvedRoot)
   } catch (err) {
     if (directoryKey !== null) lockedDirectories.delete(directoryKey)
+    await removeOwnLockFile()
     if (err instanceof NarsilError) throw err
     throw new NarsilError(
       ErrorCodes.PERSISTENCE_SAVE_FAILED,
@@ -174,11 +177,6 @@ export async function lockDirectory(root: string): Promise<DirectoryLock> {
   const heldKey = directoryKey
   let released = false
 
-  async function holds(): Promise<boolean> {
-    const holder = await readHolder(fs, lockPath)
-    return typeof holder === 'object' && holder.nonce === self.nonce
-  }
-
   return {
     holds,
 
@@ -186,7 +184,8 @@ export async function lockDirectory(root: string): Promise<DirectoryLock> {
       if (released) return
       released = true
       lockedDirectories.delete(heldKey)
-      if (await holds().catch(() => false)) await fs.unlink(lockPath).catch(() => undefined)
+      await removeOwnLockFile()
+      closeDirectory()
     },
   }
 }

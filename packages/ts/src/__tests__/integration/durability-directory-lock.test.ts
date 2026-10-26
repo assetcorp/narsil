@@ -8,6 +8,8 @@ import { createNarsil, type Narsil } from '../../narsil'
 
 const LOCK_FILE = '.narsil.lock'
 
+const FORWARD_CLOCK_STEP_MS = 60_000
+
 const CHILD_WRITER = fileURLToPath(new URL('./durability-crash/child-writer-dist.mjs', import.meta.url))
 
 describe('a write-ahead log directory held by one engine', () => {
@@ -50,27 +52,51 @@ describe('a write-ahead log directory held by one engine', () => {
     expect(await second.countDocuments('orders')).toBe(1)
   })
 
-  it('refuses a directory that an engine in another live process holds, and takes it over once that process is killed', async () => {
+  async function startHoldingEngine(documentCount: number): Promise<ChildProcess> {
     const holder = spawn(process.execPath, [CHILD_WRITER], {
-      env: { ...process.env, NARSIL_WAL_DIR: root, NARSIL_DOC_COUNT: '3', NARSIL_EXIT: 'wait-for-kill' },
+      env: {
+        ...process.env,
+        NARSIL_WAL_DIR: root,
+        NARSIL_DOC_COUNT: String(documentCount),
+        NARSIL_EXIT: 'wait-for-kill',
+      },
       stdio: ['ignore', 'pipe', 'inherit'],
     })
     children.push(holder)
-    const exited = new Promise(resolve => holder.once('exit', resolve))
     await new Promise<void>((resolve, reject) => {
       holder.stdout?.on('data', (chunk: Buffer) => {
         if (chunk.toString().includes('ACKED')) resolve()
       })
       holder.once('exit', code => reject(new Error(`the holding engine exited with code ${code}`)))
     })
+    return holder
+  }
+
+  it('refuses a directory that an engine in another live process holds, and takes it over once that process is killed', async () => {
+    const holder = await startHoldingEngine(3)
 
     await expect(open()).rejects.toMatchObject({ code: 'CONFIG_INVALID' })
 
+    const exited = new Promise(resolve => holder.once('exit', resolve))
     holder.kill('SIGKILL')
     await exited
     const engine = await open()
     expect(await engine.countDocuments('movies')).toBe(3)
   })
+
+  it.runIf(process.platform === 'linux')(
+    'refuses a directory that a live engine holds after the clock steps forward past the start time that it recorded',
+    async () => {
+      await startHoldingEngine(0)
+      const lockPath = join(root, LOCK_FILE)
+      const [pid, threadId, startMs, nonce] = (await readFile(lockPath, 'utf8')).split('\n')
+      const recordedBeforeTheStep = `${pid}\n${threadId}\n${Number(startMs) - FORWARD_CLOCK_STEP_MS}\n${nonce}\n`
+      await writeFile(lockPath, recordedBeforeTheStep)
+
+      await expect(open()).rejects.toMatchObject({ code: 'CONFIG_INVALID' })
+      expect(await readFile(lockPath, 'utf8')).toBe(recordedBeforeTheStep)
+    },
+  )
 
   describe.runIf(process.platform === 'linux')('a lock whose process id is in use again by something else', () => {
     async function openOverLockOf(pid: number): Promise<void> {
