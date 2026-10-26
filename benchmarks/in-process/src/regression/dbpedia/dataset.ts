@@ -94,6 +94,10 @@ export function loadDocuments(directory: string, limit = DBPEDIA_DOCUMENTS): Vec
   return readRows(directory, 'docs', limit, 'documents.jsonl.gz')
 }
 
+export function loadDocumentIds(directory: string): string[] {
+  return [...readTexts(resolve(directory, 'documents.jsonl.gz')).keys()]
+}
+
 export function loadQueries(directory: string, limit: number): VectorRows {
   return readRows(directory, 'queries', limit, 'queries.jsonl.gz')
 }
