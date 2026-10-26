@@ -22,6 +22,7 @@ export function compact(state: VectorIndexState): void {
     state.compactedNodeCount += state.hnsw.tombstoneCount
     state.hnsw.compactTombstones()
   }
+  state.freshGraph?.compactTombstones()
 
   for (const docId of state.tombstones) {
     state.store.remove(docId)
