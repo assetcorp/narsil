@@ -88,7 +88,7 @@
     "revisions:record": "tsx scripts/analysis-revisions.ts --record",
     "api": "tsx scripts/api-surface.ts",
     "api:write": "tsx scripts/api-surface.ts --write",
-    "bundle-size:write": "node scripts/check-browser-bundle.mjs --update-baseline",
+    "bundle-size:write": "rm -rf dist && tsup && node scripts/check-browser-bundle.mjs --update-baseline",
     "lookalikes": "tsx scripts/lookalike-counts.ts",
     "lookalikes:collect": "tsx scripts/lookalike-counts.ts --collect",
     "fold-table": "tsx scripts/fold-table.ts",

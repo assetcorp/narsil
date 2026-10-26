@@ -23,7 +23,7 @@ await narsil.updatePartitionConfig('logs', { maxDocsPerPartition: 500_000 })
 
 `partitions.watermark` adds an early warning before the hard cap. Set it to a fraction above 0 and at most 1, and the engine emits the `partitionWatermark` event, carrying the document count, the capacity, and the partition count, when an insert or a partition config change carries the index across `watermark * capacity` documents. The event then stays quiet while the count stays at or above that threshold, and it re-arms when the count drops back below it or when a rebalance or config change raises the capacity, so a listener can trigger one rebalance per crossing without debouncing. `createIndex` and `updatePartitionConfig` both validate the partition fields and reject a non-positive-integer cap or a watermark outside the range with `CONFIG_INVALID`.
 
-Two measured costs are worth knowing before raising partition counts:
+Two costs are worth knowing before you raise partition counts:
 
 **Single-process overhead.** Partitioning pays off where the shards run on separate workers or on separate hosts. Inside one Node.js thread, more partitions can slow both inserts and searches, while they buy no scaling in return. Keep `maxPartitions` low for a single-process deployment, and raise it once the partitions fan out.
 
