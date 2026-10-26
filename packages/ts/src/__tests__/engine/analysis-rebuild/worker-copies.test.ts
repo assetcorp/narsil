@@ -141,22 +141,29 @@ describe.skipIf(!built)('a rebuild of an index with copies on worker threads', (
     await expectNewAnswersEverywhere(opened, corpus)
   }, 120_000)
 
-  it('keeps every document when a copy load that waited on a starting worker pool freezes partitions during the rebuild', async () => {
-    const corpus = new OracleCorpus()
-    const random = seededRandom(59)
-    const snapshot = await snapshotUnderFirstRevision(corpus, random, STARTING_POOL_DOCUMENTS)
-    const opened = await openWithWorkers(STARTING_POOL_DOCUMENTS + 1, false)
-    await opened.restore('prose', snapshot)
-    await opened.rebalance('prose', STARTING_POOL_PARTITIONS)
-    const title = sentence(random)
-    await opened.insert('prose', { title }, 'threshold')
-    corpus.write('threshold', title, SECOND_REVISION)
+  it.each([
+    ['before the rebuild reaches most of them', STARTING_POOL_PARTITIONS],
+    ['in the middle of the build of the only partition', 1],
+  ])(
+    'keeps every document when a copy load that waited on a starting worker pool freezes partitions %s',
+    async (_when, partitions) => {
+      const corpus = new OracleCorpus()
+      const random = seededRandom(59)
+      const snapshot = await snapshotUnderFirstRevision(corpus, random, STARTING_POOL_DOCUMENTS)
+      const opened = await openWithWorkers(STARTING_POOL_DOCUMENTS + 1, false)
+      await opened.restore('prose', snapshot)
+      await opened.rebalance('prose', partitions)
+      const title = sentence(random)
+      await opened.insert('prose', { title }, 'threshold')
+      corpus.write('threshold', title, SECOND_REVISION)
 
-    await opened.query('prose', { term: 'warm' })
-    await opened.rebuildAnalysis('prose')
+      await opened.query('prose', { term: 'warm' })
+      await opened.rebuildAnalysis('prose')
 
-    await expectNewAnswersEverywhere(opened, corpus)
-  }, 120_000)
+      await expectNewAnswersEverywhere(opened, corpus)
+    },
+    120_000,
+  )
 
   it('answers every search from one revision on the main copy and on every worker copy', async () => {
     const corpus = new OracleCorpus()
