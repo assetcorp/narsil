@@ -111,7 +111,7 @@ function traverse(
     setSingleEntryPoint(workspace, entryPoint)
 
     for (let layer = topLayerOf(state); layer >= 1; layer--) {
-      searchLayer(state, query, qMag, 1, layer, searchMetric, true, distFn, candidates)
+      searchLayer(state, query, qMag, 1, layer, searchMetric, false, distFn, candidates)
       if (candidates.size > 0) {
         setSingleEntryPoint(workspace, candidates.ords[0])
       }
