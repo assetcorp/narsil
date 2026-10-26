@@ -358,7 +358,7 @@ Candidate {
 
 Before an implementation calls `place`, it must store the vector of `ordinal`, call `quantise` for that ordinal while `calibrated` is 1, and grow every region of the graph until the region can hold the node and its lists. `place` must return `needsRoom` and leave the graph unchanged where `slotCapacity` or `upperCapacity` leaves no room for the node, so that the implementation can grow the region and call `place` again.
 
-`remove` must store 1 in the `tombstones` entry of `ordinal` and raise `tombstoneCount` by 1. It must also move the entry point to the live node with the highest top layer where `ordinal` is the entry point.
+`remove` must store 1 in the `tombstones` entry of `ordinal` and raise `tombstoneCount` by 1. It must leave the entry point unchanged, because a search passes through a tombstoned node.
 
 `compact` must take every tombstoned node out of the graph, as [Removal](algorithms.md#removal) defines, and lower `nodeCount` and `tombstoneCount` by 1 for each node. An implementation must hold the graph alone, as [Locks](#locks) defines, while it calls `compact`, and `compact` must change the graph only while `graphLock` holds -1.
 
