@@ -4,6 +4,7 @@ import { encodeDocument } from '../../../serialization/document-encoding'
 import type { AnyDocument } from '../../../types/schema'
 import { createForwardMessage } from '../../replication/codec'
 import type { ForwardPayload, NodeTransport, TransportMessage } from '../../transport/types'
+import { remoteErrorDetails } from '../error-reply'
 import { sendThroughTargets } from '../transport-failure'
 import { resolveNodeTargets } from './assignment'
 import type { WriteRoutingDeps } from './types'
@@ -20,7 +21,7 @@ export function assertForwardResponse(
       typeof decoded.message === 'string'
         ? decoded.message
         : `Remote primary rejected a forwarded write for index '${indexName}'`,
-      { indexName, primaryNodeId },
+      { ...remoteErrorDetails(decoded.details), indexName, primaryNodeId },
     )
   }
   return decoded

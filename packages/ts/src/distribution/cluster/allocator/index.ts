@@ -2,6 +2,7 @@ import { ErrorCodes, NarsilError } from '../../../errors'
 import type { AllocationConstraints, AllocationTable, NodeRegistration } from '../../coordinator/types'
 import { createDeciderChain } from './deciders'
 import { initialAllocate } from './initial'
+import { readPartitionSizes } from './partition-sizes'
 import { rebalanceAllocate } from './rebalance'
 import type { AllocationResult } from './types'
 
@@ -33,7 +34,7 @@ export function allocate(
     })
   }
 
-  const deciders = createDeciderChain(constraints)
+  const deciders = createDeciderChain(constraints, readPartitionSizes(nodes, indexName))
 
   if (currentTable === null) {
     return initialAllocate(dataNodes, indexName, partitionCount, replicationFactor, constraints, deciders)
@@ -43,7 +44,7 @@ export function allocate(
 }
 
 export type { AllocationConstraints, AllocationTable, NodeRegistration }
-export { DEFAULT_ESTIMATED_PARTITION_BYTES, LEADERSHIP_IMBALANCE_THRESHOLD, REBALANCE_THRESHOLD } from '../constants'
+export { ESTIMATED_PARTITION_BYTES, LEADERSHIP_IMBALANCE_THRESHOLD, REBALANCE_THRESHOLD } from '../constants'
 export { createDeciderChain, runDeciders } from './deciders'
 export { initialAllocate } from './initial'
 export { capacityShares, rebalanceLeadership } from './leadership'
