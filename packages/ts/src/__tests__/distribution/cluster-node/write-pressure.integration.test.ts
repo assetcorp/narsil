@@ -1,9 +1,11 @@
 import { setTimeout as sleep } from 'node:timers/promises'
+import { decode } from '@msgpack/msgpack'
 import { afterEach, describe, expect, it } from 'vitest'
 import { createClusterNode } from '../../../distribution/cluster-node'
 import type { ClusterMemoryConfig, ClusterNode } from '../../../distribution/cluster-node/types'
 import { createInMemoryCoordinator } from '../../../distribution/coordinator'
 import type { ClusterCoordinator } from '../../../distribution/coordinator/types'
+import { createForwardBatchMessage, createForwardMessage } from '../../../distribution/replication/codec'
 import { createInMemoryNetwork, createInMemoryTransport } from '../../../distribution/transport'
 import type { NodeTransport } from '../../../distribution/transport/types'
 import { ErrorCodes, NarsilError } from '../../../errors'
@@ -21,6 +23,7 @@ interface RealNode {
 }
 
 const started: RealNode[] = []
+const peers: NodeTransport[] = []
 const coordinators: ClusterCoordinator[] = []
 
 afterEach(async () => {
@@ -28,6 +31,7 @@ afterEach(async () => {
     await node.shutdown()
     await transport.shutdown()
   }
+  for (const peer of peers.splice(0)) await peer.shutdown()
   for (const coordinator of coordinators.splice(0)) await coordinator.shutdown()
 })
 
@@ -166,6 +170,37 @@ describe('a cluster node refuses inserts and updates whose documents would pass 
     expect(batch.succeeded).toEqual([])
     expect(batch.failed.map(failure => failure.docId).sort()).toEqual(['table-2', 'table-3'])
     for (const failure of batch.failed) expectForwardedInFlightRefusal(failure.error)
+
+    const peer = createInMemoryTransport('peer-x', network)
+    peers.push(peer)
+    const fieldsOnly = { document: null, updateFields: { title: largeTable(5).title } }
+    const forwarded = await peer.send(
+      'node-a',
+      createForwardMessage(
+        { indexName: 'catalogue', documentId: 'chair-1', operation: 'update', ...fieldsOnly },
+        'peer-x',
+      ),
+    )
+    expect(decode(forwarded.payload)).toMatchObject({ code: ErrorCodes.CLUSTER_WRITE_BLOCKED })
+    const forwardedBatch = await peer.send(
+      'node-a',
+      createForwardBatchMessage(
+        {
+          indexName: 'catalogue',
+          operations: [
+            { documentId: 'chair-1', operation: 'update', ...fieldsOnly },
+            { documentId: 'chair-1', operation: 'update', ...fieldsOnly },
+          ],
+        },
+        'peer-x',
+      ),
+    )
+    const batchReply = decode(forwardedBatch.payload) as { results?: Array<{ errorCode?: unknown }> }
+    expect(batchReply.results?.map(result => result.errorCode)).toEqual([
+      ErrorCodes.CLUSTER_WRITE_BLOCKED,
+      ErrorCodes.CLUSTER_WRITE_BLOCKED,
+    ])
+    expect(await entry.get('catalogue', 'chair-1')).toEqual({ title: 'walnut chair', price: 120 })
 
     const small = await entry.insertBatch('catalogue', [{ id: 'chair-2', title: 'beech chair', price: 90 }])
     expect(small.succeeded).toEqual(['chair-2'])

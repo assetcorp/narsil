@@ -2,7 +2,7 @@ import { compareCodePoints } from '../../../core/ordering'
 import { ErrorCodes, NarsilError } from '../../../errors'
 import type { AllocationTable, ClusterCoordinator, NodeEvent } from '../../coordinator/types'
 
-export const NODE_MEMORY_FULL_REASON = 'node_memory_full'
+const NODE_MEMORY_FULL_REASON = 'node_memory_full'
 
 export interface NodeMemoryView {
   fullNodeIds(): ReadonlySet<string>

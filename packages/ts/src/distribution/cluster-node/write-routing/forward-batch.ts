@@ -9,6 +9,7 @@ import type { PartitionAssignment } from '../../coordinator/types'
 import { createForwardBatchMessage, validateForwardBatchResultPayload } from '../../replication/codec'
 import type { ForwardBatchOperation, ForwardBatchOperationResult, ForwardBatchPayload } from '../../transport/types'
 import { findWriteBlock } from '../memory/write-block'
+import { estimateForwardedBytes } from '../memory/write-pressure'
 import { requireAssignedPrimary, resolvePartitionId } from './assignment'
 import {
   assertForwardResponse,
@@ -185,7 +186,7 @@ function admitForwardedWrites(
   let bytes = 0
   for (const operation of payload.operations) {
     if (operation.operation !== 'remove') {
-      bytes += operation.document?.byteLength ?? 0
+      bytes += estimateForwardedBytes(operation)
     }
   }
   if (deps.writePressure === undefined || bytes === 0) {

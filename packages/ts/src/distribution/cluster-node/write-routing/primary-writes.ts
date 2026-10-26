@@ -6,7 +6,7 @@ import type { PartitionAssignment } from '../../coordinator/types'
 import type { ReplicationLogEntry } from '../../replication/types'
 import type { ForwardPayload } from '../../transport/types'
 import { requireWritableIndex } from '../memory/write-block'
-import { withAdmittedWrite } from '../memory/write-pressure'
+import { estimateForwardedBytes, withAdmittedWrite } from '../memory/write-pressure'
 import { assertSufficientActiveReplicas, resolvePrimaryAssignment } from './assignment'
 import { rollbackPrimaryInsert, rollbackPrimaryRemove, rollbackPrimaryUpdate } from './failures'
 import { enqueuePartitionWrite } from './partition-queue'
@@ -303,7 +303,7 @@ export function applyForwardedWrite(payload: ForwardPayload, deps: WriteRoutingD
   return withAdmittedWrite(
     deps.writePressure,
     payload.indexName,
-    () => payload.document?.byteLength ?? 0,
+    () => estimateForwardedBytes(payload),
     () => applyAdmittedForwardedWrite(payload, deps),
   )
 }
