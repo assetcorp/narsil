@@ -4,6 +4,7 @@ import type { ReplicationLog } from '../../replication/types'
 import type { NodeTransport } from '../../transport/types'
 import type { CatchUpState } from '../catch-up/state'
 import type { NodeMemoryView } from '../memory/write-block'
+import type { WritePressure } from '../memory/write-pressure'
 import type { PartitionWriteQueues } from './partition-queue'
 
 export interface WriteRoutingDeps {
@@ -18,6 +19,7 @@ export interface WriteRoutingDeps {
   resolveNodeTargets?: (nodeId: string) => Promise<string[]>
   waitForActiveReplicas?: number
   memoryView?: NodeMemoryView
+  writePressure?: WritePressure
 }
 
 export interface PrimaryAssignmentResolution {

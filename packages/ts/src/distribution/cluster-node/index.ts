@@ -137,6 +137,7 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
     resolveNodeTargets,
     waitForActiveReplicas: config.replication?.waitForActiveReplicas,
     memoryView: memoryReporting.view,
+    writePressure: memoryReporting.writePressure,
   }
 
   const orphanedIndexes = new Set<string>()

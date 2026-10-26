@@ -2,6 +2,8 @@ import { compareCodePoints } from '../../../core/ordering'
 import { ErrorCodes, NarsilError } from '../../../errors'
 import type { AllocationTable, ClusterCoordinator, NodeEvent } from '../../coordinator/types'
 
+export const NODE_MEMORY_FULL_REASON = 'node_memory_full'
+
 export interface NodeMemoryView {
   fullNodeIds(): ReadonlySet<string>
   start(): Promise<void>
@@ -95,7 +97,7 @@ export function findWriteBlock(table: AllocationTable, view: NodeMemoryView | un
   return new NarsilError(
     ErrorCodes.CLUSTER_WRITE_BLOCKED,
     `Index '${table.indexName}' refuses inserts and updates because ${holders} full memory. Remove documents from the indexes on that node or give it more memory, and writes resume once its memory falls below the resume threshold.`,
-    { indexName: table.indexName, fullNodeIds: blockingNodeIds },
+    { reason: NODE_MEMORY_FULL_REASON, indexName: table.indexName, fullNodeIds: blockingNodeIds },
   )
 }
 

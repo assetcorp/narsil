@@ -4,6 +4,7 @@ import type { BatchResult } from '../../../types/results'
 import type { AnyDocument, InsertOptions } from '../../../types/schema'
 import type { AllocationTable, PartitionAssignment } from '../../coordinator/types'
 import { requireWritableIndex } from '../memory/write-block'
+import { estimateDocumentsBytes, withAdmittedWrite } from '../memory/write-pressure'
 import { routableAllocation } from '../routable-allocation'
 import { requireAssignedPrimary, resolvePartitionId } from './assignment'
 import { type ForwardBatchItem, forwardBatchToRemote } from './forward-batch'
@@ -83,7 +84,21 @@ function collectGroupFailure(
   }
 }
 
-export async function routeInsertBatch(
+export function routeInsertBatch(
+  indexName: string,
+  documents: AnyDocument[],
+  deps: WriteRoutingDeps,
+  options?: InsertOptions,
+): Promise<BatchResult> {
+  return withAdmittedWrite(
+    deps.writePressure,
+    indexName,
+    () => estimateDocumentsBytes(documents),
+    () => routeAdmittedInsertBatch(indexName, documents, deps, options),
+  )
+}
+
+async function routeAdmittedInsertBatch(
   indexName: string,
   documents: AnyDocument[],
   deps: WriteRoutingDeps,
@@ -171,7 +186,20 @@ export async function routeRemoveBatch(
   return { succeeded, failed }
 }
 
-export async function routeUpdateBatch(
+export function routeUpdateBatch(
+  indexName: string,
+  updates: Array<{ docId: string; document: AnyDocument }>,
+  deps: WriteRoutingDeps,
+): Promise<BatchResult> {
+  return withAdmittedWrite(
+    deps.writePressure,
+    indexName,
+    () => estimateDocumentsBytes(updates.map(update => update.document)),
+    () => routeAdmittedUpdateBatch(indexName, updates, deps),
+  )
+}
+
+async function routeAdmittedUpdateBatch(
   indexName: string,
   updates: Array<{ docId: string; document: AnyDocument }>,
   deps: WriteRoutingDeps,

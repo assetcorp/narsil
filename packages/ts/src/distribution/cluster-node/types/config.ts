@@ -76,6 +76,15 @@ export interface ClusterMemoryConfig {
    * above 0 and below `blockWritesAbove`, and it is 0.8 where you name none.
    */
   resumeWritesBelow?: number
+  /**
+   * The node holds at most this fraction of its heap limit in the documents of inserts and updates that it has
+   * accepted and not yet finished, counting both the writes that clients send it and the writes that other nodes
+   * forward to it as primary. It refuses a write whose documents would carry that total past the limit with
+   * `CLUSTER_WRITE_BLOCKED`, and the error's details include the reason `write_bytes_in_flight`. It never refuses a
+   * replicated entry or a remove. The fraction must lie above 0 and at most 1, and it is 0.02 where you name none,
+   * which is low because indexing a document can add about 14 bytes to the heap for every byte of its text.
+   */
+  inFlightWriteFraction?: number
 }
 
 /**

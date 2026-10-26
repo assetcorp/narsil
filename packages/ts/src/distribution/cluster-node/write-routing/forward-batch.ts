@@ -178,9 +178,45 @@ function groupIntoRuns(payload: ForwardBatchPayload, partitionCount: number): Ma
   return runsByPartition
 }
 
+function admitForwardedWrites(
+  payload: ForwardBatchPayload,
+  deps: WriteRoutingDeps,
+): { release: () => void; refusal: NarsilError | null } {
+  let bytes = 0
+  for (const operation of payload.operations) {
+    if (operation.operation !== 'remove') {
+      bytes += operation.document?.byteLength ?? 0
+    }
+  }
+  if (deps.writePressure === undefined || bytes === 0) {
+    return { release: () => {}, refusal: null }
+  }
+  try {
+    return { release: deps.writePressure.admit(payload.indexName, bytes), refusal: null }
+  } catch (error) {
+    if (!(error instanceof NarsilError)) {
+      throw error
+    }
+    return { release: () => {}, refusal: error }
+  }
+}
+
 export async function applyForwardedBatch(
   payload: ForwardBatchPayload,
   deps: WriteRoutingDeps,
+): Promise<ForwardBatchOperationResult[]> {
+  const admission = admitForwardedWrites(payload, deps)
+  try {
+    return await applyAdmittedForwardedBatch(payload, deps, admission.refusal)
+  } finally {
+    admission.release()
+  }
+}
+
+async function applyAdmittedForwardedBatch(
+  payload: ForwardBatchPayload,
+  deps: WriteRoutingDeps,
+  refusal: NarsilError | null,
 ): Promise<ForwardBatchOperationResult[]> {
   const results: ForwardBatchOperationResult[] = new Array(payload.operations.length)
   const table = await deps.coordinator.getAllocation(payload.indexName)
@@ -199,7 +235,7 @@ export async function applyForwardedBatch(
 
   const runsByPartition = groupIntoRuns(payload, table.assignments.size)
   const writesIndex = payload.operations.some(operation => operation.operation !== 'remove')
-  const block = writesIndex ? findWriteBlock(table, deps.memoryView) : null
+  const block = writesIndex ? (refusal ?? findWriteBlock(table, deps.memoryView)) : null
 
   await Promise.all(
     Array.from(runsByPartition.entries()).map(async ([partitionId, runs]) => {

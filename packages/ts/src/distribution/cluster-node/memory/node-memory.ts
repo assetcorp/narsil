@@ -2,9 +2,11 @@ import { collectAndReturnPages } from '#platform/idle-heap-cleanup'
 import type { ClusterCoordinator, IndexPartitionBytes, NodeRegistration } from '../../coordinator/types'
 import {
   DEFAULT_BLOCK_WRITES_ABOVE,
+  DEFAULT_IN_FLIGHT_WRITE_FRACTION,
   DEFAULT_RESUME_WRITES_BELOW,
   FULL_MEMORY_COLLECTION_INTERVAL_MS,
   MEMORY_SAMPLE_INTERVAL_MS,
+  WRITE_MEMORY_SAMPLE_MAX_AGE_MS,
 } from '../constants'
 import type { ClusterLocalEngine } from '../local-engine'
 import type { ClusterMemoryConfig } from '../types'
@@ -12,9 +14,11 @@ import { readMemoryFigures } from './measure'
 import { createMemoryMonitor } from './monitor'
 import { collectPartitionBytes } from './partition-bytes'
 import { createNodeMemoryView, type NodeMemoryView } from './write-block'
+import { createWritePressure, type WritePressure } from './write-pressure'
 
 export interface NodeMemoryReporting {
   view: NodeMemoryView
+  writePressure: WritePressure
   currentRegistration(): NodeRegistration
   start(): Promise<void>
   stop(): void
@@ -53,8 +57,18 @@ export function createNodeMemoryReporting(options: NodeMemoryReportingOptions): 
     localIsFull: monitor.isFull,
   })
 
+  const heapLimitBytes = readMemoryFigures()?.heapLimitBytes ?? Number.POSITIVE_INFINITY
+  const writePressure = createWritePressure({
+    nodeId: options.registration.nodeId,
+    limitBytes: Math.floor(
+      heapLimitBytes * (options.config?.inFlightWriteFraction ?? DEFAULT_IN_FLIGHT_WRITE_FRACTION),
+    ),
+    beforeAdmit: () => monitor.sampleIfOlderThan(WRITE_MEMORY_SAMPLE_MAX_AGE_MS),
+  })
+
   return {
     view,
+    writePressure,
     async start() {
       monitor.start()
       await view.start()

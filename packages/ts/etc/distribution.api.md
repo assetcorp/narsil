@@ -65,6 +65,7 @@ export interface ClusterEngineOptions {
 // @public
 export interface ClusterMemoryConfig {
     blockWritesAbove?: number;
+    inFlightWriteFraction?: number;
     resumeWritesBelow?: number;
 }
 
