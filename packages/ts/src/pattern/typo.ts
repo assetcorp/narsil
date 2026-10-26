@@ -7,9 +7,9 @@ import type {
   PatternMatchRequest,
   PatternWorkMeter,
 } from '../core/pattern-index/types'
-import { distinctTypoRuns, foldTypoText, resolvedTypoTolerance, typoRunsNeeded } from '../core/pattern-index/typo-runs'
 import { SHORTLIST_RUN_LOOKUPS } from './constants'
 import { appendTextCodePoints, BASIC_PLANE_LAST, forEachTextValue } from './text'
+import { distinctTypoRuns, foldTypoText, resolvedTypoTolerance, typoRunsNeeded } from './typo-text'
 import type { WorkTally } from './work-tally'
 
 class TypoComparison {

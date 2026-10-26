@@ -18,7 +18,8 @@ import type { PatternIndexWriter } from '../pattern-index/types'
 import { visitTokens } from '../tokenizer/tokenize'
 import { SEGMENT_TOKEN_TABLE_START } from './constants'
 import { GrowableUint32 } from './growable-uint32'
-import { countSpelling, encodePartialSpellings, type SpellingCounts } from './partial-words/spellings'
+import { countPartialSpelling, encodePartialSpellingsOf } from './partial-words/registry'
+import type { SpellingCounts } from './partial-words/spellings'
 import { encodeFieldIndexes } from './segment-field-indexes'
 import type { SegmentPayload } from './segment-payload'
 import { TextPostings } from './segment-postings'
@@ -184,7 +185,7 @@ export function buildSegmentPayload(
   const addToken = (token: string, position: number, surface: string | undefined): void => {
     postings.addToken(token, positionOffset + position)
     surfaces.count(surface, token)
-    if (fieldSpellings !== null) countSpelling(fieldSpellings, token, surface ?? token, 1)
+    if (fieldSpellings !== null) countPartialSpelling(fieldSpellings, token, surface ?? token, 1)
   }
 
   for (let ordinal = 0; ordinal < documents.length; ordinal++) {
@@ -221,7 +222,7 @@ export function buildSegmentPayload(
     fieldLengthColumns: lengths.columns,
     totalFieldLengths: lengths.totalsByName(),
     surfaceForms: surfaces.encode(),
-    partialSpellings: partialFields.length === 0 ? null : encodePartialSpellings(partialFields, spellings),
+    partialSpellings: partialFields.length === 0 ? null : encodePartialSpellingsOf(partialFields, spellings),
     ...encodeFieldIndexes(filters, identity),
   }
 }

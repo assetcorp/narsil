@@ -1,7 +1,10 @@
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { builtinModules } from 'node:module'
 import { dirname, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { parseArgs } from 'node:util'
+import { build } from 'esbuild'
+import { gzipSync } from 'fflate'
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -12,6 +15,12 @@ const BROWSER_ENTRIES = [
   'dist/pattern.mjs',
   'dist/partial-words.mjs',
 ]
+
+const SIZE_APP = 'scripts/browser-bundle-app.mjs'
+const SIZE_BASELINE = 'scripts/browser-bundle-size.json'
+const GZIP_LEVEL = 9
+
+const { values: options } = parseArgs({ options: { 'update-baseline': { type: 'boolean', default: false } } })
 
 const SPECIFIER = /(?:\bfrom\s*|\bimport\s*\(?\s*|\brequire\s*\(\s*)["']([^"']+)["']/g
 const builtins = new Set([...builtinModules, ...builtinModules.map(name => `node:${name}`)])
@@ -77,3 +86,61 @@ if (failed) {
 }
 
 console.log(`\n${BROWSER_ENTRIES.length} browser entries reach no Node.js built-in module`)
+
+async function gzippedAppBytes() {
+  const bundled = await build({
+    entryPoints: [resolve(packageRoot, SIZE_APP)],
+    bundle: true,
+    minify: true,
+    format: 'esm',
+    platform: 'browser',
+    target: 'es2022',
+    conditions: ['browser', 'import'],
+    legalComments: 'none',
+    write: false,
+    logLevel: 'error',
+  })
+  const [output] = bundled.outputFiles
+  return { minified: output.contents.length, gzipped: gzipSync(output.contents, { level: GZIP_LEVEL }).length }
+}
+
+const measured = await gzippedAppBytes()
+const baselinePath = resolve(packageRoot, SIZE_BASELINE)
+const described = `${SIZE_APP} bundles to ${measured.gzipped} bytes gzipped (${measured.minified} bytes minified)`
+
+if (options['update-baseline']) {
+  writeFileSync(baselinePath, `${JSON.stringify({ gzippedBytes: measured.gzipped }, null, 2)}\n`)
+  console.log(`${described}, now recorded in ${SIZE_BASELINE}`)
+  process.exit(0)
+}
+
+if (!existsSync(baselinePath)) {
+  console.error(`${described}, and ${SIZE_BASELINE} records no size. Run this check with --update-baseline.`)
+  process.exit(1)
+}
+
+const recorded = JSON.parse(readFileSync(baselinePath, 'utf8')).gzippedBytes
+if (!Number.isInteger(recorded) || recorded <= 0) {
+  console.error(`${SIZE_BASELINE} must hold a positive whole number in "gzippedBytes".`)
+  process.exit(1)
+}
+
+if (measured.gzipped > recorded) {
+  console.error(
+    `FAIL ${described}, ${measured.gzipped - recorded} bytes over the ${recorded} that ${SIZE_BASELINE} records.`,
+  )
+  console.error(
+    'An app that imports neither "@delali/narsil/pattern" nor "@delali/narsil/partial-words" must not download more code.',
+  )
+  console.error(
+    "Move code that only an optional feature calls behind that feature's import, or, when the growth is deliberate, run this check with --update-baseline and commit the new size.",
+  )
+  process.exit(1)
+}
+
+console.log(`ok  ${described}, within the ${recorded} that ${SIZE_BASELINE} records`)
+if (measured.gzipped < recorded) {
+  console.log(
+    `The bundle shrank by ${recorded - measured.gzipped} bytes. Record the smaller size with --update-baseline.`,
+  )
+}

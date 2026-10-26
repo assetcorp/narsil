@@ -1,21 +1,6 @@
 import { bitsetAnd, bitsetNot, createBitSet } from '../core/bitset'
-import type { PatternOperator, PatternTolerance } from '../core/pattern-index/types'
-import { isPatternTolerance } from '../core/pattern-index/typo-runs'
-
-export interface PatternFilterContext {
-  isPatternField(fieldPath: string): boolean
-  matchPattern(
-    fieldPath: string,
-    operator: PatternOperator,
-    text: string,
-    caseFold: boolean,
-    tolerance: PatternTolerance,
-    into: Uint32Array,
-  ): void
-  presentBitset(fieldPath: string): Uint32Array
-  readonly capacity: number
-  readonly allDocIdsBitset: Uint32Array
-}
+import { isPatternTolerance } from '../core/pattern-index/tolerance'
+import type { PatternFilterContext, PatternOperator, PatternTolerance } from '../core/pattern-index/types'
 
 function excluding(context: PatternFilterContext, fieldPath: string, excluded: Uint32Array): Uint32Array {
   const universe = bitsetAnd(context.presentBitset(fieldPath), context.allDocIdsBitset)

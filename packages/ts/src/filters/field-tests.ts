@@ -1,12 +1,13 @@
 import { bitsetAndInto, bitsetAndNotInto, bitsetFromSet, bitsetIsEmpty, bitsetSet, createBitSet } from '../core/bitset'
 import type { BooleanFieldIndexReader, EnumFieldIndexReader, NumericFieldIndexReader } from '../core/field-index'
 import type { TextRangeBounds } from '../core/partition/sort-columns/range'
+import { requirePatternSearch } from '../core/pattern-index/registry'
+import type { PatternFilterContext } from '../core/pattern-index/types'
 import type { GeoIndexReader } from '../geo/geo-index'
 import type { ParsedFieldType } from '../schema/validator/field-type'
 import type { GeoPolygonFilter, GeoRadiusFilter } from '../types/filters'
 import type { FieldType } from '../types/schema'
 import { GEO_UNIT_METRES } from './constants'
-import { evaluatePatternTests, type PatternFilterContext } from './pattern-tests'
 
 export interface FilterContext extends PatternFilterContext {
   readonly fieldTypes: Readonly<Record<string, FieldType>>
@@ -252,7 +253,7 @@ export function narrowByFieldTests(
   narrowByTextRange(fieldPath, f, context, narrow)
   if (parsed.pattern) {
     const patternBits: Uint32Array[] = []
-    evaluatePatternTests(fieldPath, f, context, patternBits)
+    requirePatternSearch(fieldPath).evaluateTests(fieldPath, f, context, patternBits)
     for (const matched of patternBits) narrow(matched)
   } else {
     narrowByValue(fieldPath, f, parsed, context, bits, narrow)

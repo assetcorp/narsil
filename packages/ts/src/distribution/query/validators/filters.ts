@@ -1,5 +1,5 @@
 import { exceedsCodePoints } from '../../../core/ordering'
-import { isPatternTolerance } from '../../../core/pattern-index/typo-runs'
+import { isPatternTolerance } from '../../../core/pattern-index/tolerance'
 import type { ErrorCode } from '../../../errors'
 import { FIELD_FILTER_OPERATORS, FILTER_EXPRESSION_KEYS } from '../../../filters/keys'
 import { filterTestCount } from '../../../filters/operands'

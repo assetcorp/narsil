@@ -12,6 +12,12 @@ export function appendTextCodePoints(text: string, caseFold: boolean, host: Patt
   }
 }
 
+export function foldedCodePointCount(text: string, host: PatternHost): number {
+  const folded: number[] = []
+  appendTextCodePoints(text, true, host, folded)
+  return folded.length
+}
+
 export function runKey(first: number, second: number, third: number): string {
   return String.fromCodePoint(first, second, third)
 }

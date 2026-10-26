@@ -2,12 +2,8 @@ import { encodeDocument } from '../../../serialization/document-encoding'
 import { topLevelMapKeys } from '../../../serialization/msgpack-without-fields'
 import type { SerializedSurfaceForms } from '../../../types/internal'
 import { createSurfaceRegistry } from '../../surface-registry'
-import {
-  encodePartialSpellings,
-  type PartialSpellings,
-  type PartialWordAnalysis,
-  type SpellingCounts,
-} from '../partial-words/spellings'
+import { encodePartialSpellingsOf } from '../partial-words/registry'
+import type { PartialSpellings, PartialWordAnalysis, SpellingCounts } from '../partial-words/spellings'
 import type { PartialWordTableData } from '../partial-words/types'
 import type { SegmentPayload } from '../segment-payload'
 import type { EncodedDocumentTableData } from './document-source'
@@ -181,7 +177,7 @@ function mergePartialWords(
   }
   const counts: SpellingCounts = new Map()
   for (const input of inputs) input.segment.partialWords.countKeptSpellings(counts, analysis, input.remap)
-  return { spellings: encodePartialSpellings(analysis.fields, counts), reused: null }
+  return { spellings: encodePartialSpellingsOf(analysis.fields, counts), reused: null }
 }
 
 export function mergeFrozenSegments(

@@ -200,7 +200,7 @@ The engine compares string values by their Unicode case fold, so it places `appl
 
 The engine orders a missing value after every present value, in either direction. Between present values of different types, it orders numbers first, then strings, then booleans.
 
-For the first sorted query on a field, the engine builds a column of that field's values. For every later page, it then selects from that column the documents that follow the cursor anchor. On 120,000 documents on an Apple M-series laptop, the build took 159 ms for short text and 398 ms for values above the 512 code point window, while each later page took 0.1 ms. The engine updates the column on every write, which lowered insert throughput by 12% for one text field and one number field over 119,000 documents.
+For the first sorted query on a field, the engine builds a column of that field's values. For every later page, it then selects from that column the documents that follow the cursor anchor. Once the engine has built a column, it updates that column on every write, so each column that it keeps adds work to every insert.
 
 ```ts
 const results = await narsil.query('products', {

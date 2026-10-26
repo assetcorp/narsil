@@ -5,7 +5,7 @@ import {
   PATTERN_WORK_FLUSH_UNITS,
 } from '../../../core/pattern-index/constants'
 import { PATTERN_HOST } from '../../../core/pattern-index/host'
-import { smallestMatcherBytes, widestPatternSplit } from '../../../core/pattern-index/matcher-budget'
+import { widestPatternSplit } from '../../../core/pattern-index/matcher-budget'
 import {
   createPatternWorkMeter,
   joinPatternWorkMeter,
@@ -15,6 +15,7 @@ import { searchViaWorker } from '../../../engine/orchestration/search'
 import { ErrorCodes, NarsilError } from '../../../errors'
 import type { FanOutResult } from '../../../partitioning/fan-out'
 import { compileExpression, programFootprint } from '../../../pattern/expression'
+import { smallestMatcherBytes } from '../../../pattern/footprint'
 import { SCRATCH_SLOTS_PER_THREAD_POOL } from '../../../vector/constants'
 import { type OrchestratorHarness, type RecordedDispatch, recordingHarness, registryWith, settle } from './fixtures'
 
