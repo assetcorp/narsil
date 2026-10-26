@@ -15,6 +15,7 @@ import { waitForServingAllocation } from '../allocation-wait'
 import { DEFAULT_CREATE_INDEX_WAIT_MS } from '../constants'
 import { localIndexIsGone } from '../local-index-gone'
 import { requireWritableIndex } from '../memory/write-block'
+import { estimateDocumentBytes, withAdmittedWrite } from '../memory/write-pressure'
 import type { CreateIndexOptions } from '../types'
 import { DEFAULT_PARTITION_COUNT, DEFAULT_REPLICATION_FACTOR } from '../types'
 import { resolvePrimaryAssignment } from './assignment'
@@ -178,7 +179,22 @@ export async function routeDropIndex(name: string, coordinator: ClusterCoordinat
   await coordinator.dropSchema(name)
 }
 
-export async function routeInsert(
+export function routeInsert(
+  indexName: string,
+  document: AnyDocument,
+  docId: string | undefined,
+  deps: WriteRoutingDeps,
+  options?: InsertOptions,
+): Promise<string> {
+  return withAdmittedWrite(
+    deps.writePressure,
+    indexName,
+    () => estimateDocumentBytes(document),
+    () => routeAdmittedInsert(indexName, document, docId, deps, options),
+  )
+}
+
+async function routeAdmittedInsert(
   indexName: string,
   document: AnyDocument,
   docId: string | undefined,
@@ -224,7 +240,21 @@ export async function routeRemove(indexName: string, docId: string, deps: WriteR
   return forwardRemoveToRemote(indexName, docId, primaryNodeId, deps)
 }
 
-export async function routeUpdate(
+export function routeUpdate(
+  indexName: string,
+  docId: string,
+  document: AnyDocument,
+  deps: WriteRoutingDeps,
+): Promise<void> {
+  return withAdmittedWrite(
+    deps.writePressure,
+    indexName,
+    () => estimateDocumentBytes(document),
+    () => routeAdmittedUpdate(indexName, docId, document, deps),
+  )
+}
+
+async function routeAdmittedUpdate(
   indexName: string,
   docId: string,
   document: AnyDocument,

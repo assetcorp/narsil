@@ -6,12 +6,17 @@ import {
   MAX_WAIT_FOR_ACTIVE_REPLICAS,
   MIN_CONTROLLER_LEASE_TTL_MS,
 } from './constants'
-import type { ClusterNodeConfig } from './types'
+import type { ClusterMemoryConfig, ClusterNodeConfig } from './types'
 
-function validateMemoryConfig(blockWritesAbove: unknown, resumeWritesBelow: unknown): void {
+function validateMemoryConfig(memory: ClusterMemoryConfig): void {
+  if (typeof memory !== 'object' || memory === null) {
+    throw new NarsilError(ErrorCodes.CONFIG_INVALID, 'ClusterNodeConfig.memory must be an object', { memory })
+  }
+  const { blockWritesAbove, resumeWritesBelow, inFlightWriteFraction } = memory
   for (const [name, value] of [
     ['blockWritesAbove', blockWritesAbove],
     ['resumeWritesBelow', resumeWritesBelow],
+    ['inFlightWriteFraction', inFlightWriteFraction],
   ] as const) {
     if (value !== undefined && (typeof value !== 'number' || !Number.isFinite(value) || value <= 0 || value > 1)) {
       throw new NarsilError(
@@ -106,7 +111,7 @@ export function validateClusterNodeConfig(config: ClusterNodeConfig): void {
   }
 
   if (config.memory !== undefined) {
-    validateMemoryConfig(config.memory.blockWritesAbove, config.memory.resumeWritesBelow)
+    validateMemoryConfig(config.memory)
   }
 
   if (config.controller !== undefined) {

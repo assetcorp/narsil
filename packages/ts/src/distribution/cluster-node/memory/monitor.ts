@@ -15,6 +15,7 @@ export interface MemoryMonitor {
   report(): NodeMemoryReport | null
   isFull(): boolean
   sample(): void
+  sampleIfOlderThan(maxAgeMs: number): void
   start(): void
   stop(): void
 }
@@ -36,6 +37,7 @@ export function createMemoryMonitor(options: MemoryMonitorOptions): MemoryMonito
   let latest: NodeMemoryReport | null = null
   let timer: ReturnType<typeof setInterval> | null = null
   let lastCollectionAt = Number.NEGATIVE_INFINITY
+  let lastSampleAt = Number.NEGATIVE_INFINITY
 
   function figuresWithoutGarbage(figures: MemoryFigures): MemoryFigures {
     const now = Date.now()
@@ -50,6 +52,7 @@ export function createMemoryMonitor(options: MemoryMonitorOptions): MemoryMonito
   }
 
   function sample(): void {
+    lastSampleAt = Date.now()
     let figures = options.read()
     if (figures === null) {
       return
@@ -70,6 +73,11 @@ export function createMemoryMonitor(options: MemoryMonitorOptions): MemoryMonito
     report: () => latest,
     isFull: () => latest?.full ?? false,
     sample,
+    sampleIfOlderThan(maxAgeMs) {
+      if (timer !== null && Date.now() - lastSampleAt >= maxAgeMs) {
+        sample()
+      }
+    },
     start() {
       if (timer !== null) {
         return

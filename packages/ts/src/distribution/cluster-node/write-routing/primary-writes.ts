@@ -6,6 +6,7 @@ import type { PartitionAssignment } from '../../coordinator/types'
 import type { ReplicationLogEntry } from '../../replication/types'
 import type { ForwardPayload } from '../../transport/types'
 import { requireWritableIndex } from '../memory/write-block'
+import { withAdmittedWrite } from '../memory/write-pressure'
 import { assertSufficientActiveReplicas, resolvePrimaryAssignment } from './assignment'
 import { rollbackPrimaryInsert, rollbackPrimaryRemove, rollbackPrimaryUpdate } from './failures'
 import { enqueuePartitionWrite } from './partition-queue'
@@ -295,7 +296,19 @@ async function replicateAppendedWrites(
   return succeeded
 }
 
-export async function applyForwardedWrite(payload: ForwardPayload, deps: WriteRoutingDeps): Promise<string> {
+export function applyForwardedWrite(payload: ForwardPayload, deps: WriteRoutingDeps): Promise<string> {
+  if (payload.operation === 'remove') {
+    return applyAdmittedForwardedWrite(payload, deps)
+  }
+  return withAdmittedWrite(
+    deps.writePressure,
+    payload.indexName,
+    () => payload.document?.byteLength ?? 0,
+    () => applyAdmittedForwardedWrite(payload, deps),
+  )
+}
+
+async function applyAdmittedForwardedWrite(payload: ForwardPayload, deps: WriteRoutingDeps): Promise<string> {
   const resolution = await resolvePrimaryAssignment(payload.indexName, payload.documentId, deps, true)
   if (resolution === null) {
     throw new NarsilError(
