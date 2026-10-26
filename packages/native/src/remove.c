@@ -8,10 +8,6 @@
 #include <stdint.h>
 #include <string.h>
 
-static int is_tombstoned(const walk_context *context, int32_t ordinal) {
-  return atomic_load(atomic_byte(context->graph->tombstones, (uint32_t)ordinal)) == 1;
-}
-
 static void begin_graph_write(walk_context *context, const narsil_graph *graph, uint32_t thread_slot) {
   memset(context, 0, sizeof *context);
   context->graph = graph;
