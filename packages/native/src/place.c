@@ -114,7 +114,7 @@ static narsil_status select_every_layer(const walk_context *context, const narsi
   use_single_entry(workspace, load_word(context->graph->header, NARSIL_GRAPH_WORD_ENTRY_POINT));
   narsil_status status = descend_layers(context, span.graph_top, request->top_layer + 1, &candidates);
   for (int32_t layer = span.link_top; layer >= 0 && status == NARSIL_OK; layer--) {
-    layer_search search = {ef_construction, layer};
+    layer_search search = {ef_construction, layer, 0};
     status = search_layer(context, search, &candidates);
     if (status != NARSIL_OK) { break; }
     if (candidates.count > 0) {
@@ -187,7 +187,6 @@ narsil_status narsil_place(narsil_workspace *workspace, const narsil_graph *grap
   const float *vector = stored_vector(store, request->ordinal, workspace->placed_vector);
   if (vector == NULL) { return NARSIL_INVALID_ARGUMENT; }
   context.thread_slot = request->thread_slot;
-  context.skip_tombstones = 0;
   walk_with_query(&context, vector);
   if (!context.uses_codes) { context.query.magnitude = store->magnitudes[request->ordinal]; }
 
