@@ -68,6 +68,7 @@ async function foldIntoGraph(state: VectorIndexState): Promise<void> {
   const graph = state.hnsw
   if (graph === null || rebuildNeeded) {
     if (state.osq?.isCalibrated()) recalibrateWhileNoThreadSearches(state, graph)
+    else calibrateQuantizer(state)
     await buildGraphFromStore(state)
   } else {
     await insertMissing(state, graph)
