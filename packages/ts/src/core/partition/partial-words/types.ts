@@ -1,3 +1,6 @@
+import type { PartialWordHighlight } from '../../../highlighting/highlighter'
+import type { ExpandedTermGroup } from '../../../types/internal'
+import type { LanguageModule } from '../../../types/language'
 import type { PartialWordSearch } from '../../../types/partial-words'
 import type { AnyDocument } from '../../../types/schema'
 import type { DocumentStoreReader } from '../../document-store'
@@ -47,6 +50,20 @@ export interface PartialWordRequest {
   readonly prefixLength: number
 }
 
+export interface PartialWordQueryToken {
+  readonly token: string
+  readonly position: number
+}
+
+export interface PartialWordQuery {
+  readonly queryTokens: readonly PartialWordQueryToken[]
+  readonly written: ReadonlyMap<number, string>
+  readonly prefixToken: string | undefined
+  readonly tolerance: number
+  readonly prefixLength: number | undefined
+  readonly analysis: PartialWordAnalysis
+}
+
 export interface AddedWord {
   readonly token: string
   readonly factor: number
@@ -93,4 +110,18 @@ export interface PartialWordSearchModule extends PartialWordSearch {
     analysis: PartialWordAnalysis,
     requests: readonly PartialWordRequest[],
   ): AddedWord[][]
+  countSpelling(counts: SpellingCounts, token: string, spelling: string, change: number): void
+  encodeSpellings(fields: readonly string[], counts: SpellingCounts): PartialSpellings
+  spellingCountsOf(documents: Iterable<AnyDocument>, analysis: PartialWordAnalysis): SpellingCounts
+  highlightMatcher(
+    text: string,
+    language: LanguageModule,
+    partial: PartialWordHighlight,
+  ): (position: number, fieldToken: string) => boolean
+  addTermMembers(
+    query: PartialWordQuery,
+    expand: (analysis: PartialWordAnalysis, requests: readonly PartialWordRequest[]) => AddedWord[][],
+    groupOf: (token: string, typoMatches: boolean) => ExpandedTermGroup,
+  ): void
+  highlightWords(queryTokens: readonly PartialWordQueryToken[], written: readonly PartialWordQueryToken[]): string[]
 }

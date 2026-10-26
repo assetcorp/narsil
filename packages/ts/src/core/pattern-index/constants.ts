@@ -10,3 +10,4 @@ export const PATTERN_RUN_CODE_POINTS = 3
 export const MAX_PATTERN_TOLERANCE = 2
 export const PATTERN_TEST_OPERATORS = ['eq', 'ne', 'in', 'nin', 'startsWith', 'endsWith', 'contains'] as const
 export const PATTERN_EXPRESSION_OPERATORS = ['wildcard', 'regex'] as const
+export const PATTERN_ELEMENT_OPERATORS = ['matchesAny', 'containsAll'] as const

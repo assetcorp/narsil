@@ -1,5 +1,6 @@
 import type { PatternHost } from '../../core/pattern-index/types'
 import type { CodePointTest } from '../automaton'
+import { singleFoldSourcesOf } from '../fold-sources'
 import type { ClassName, SetItem } from './ast'
 import { CODE_POINT_TEST_ENTRY_BYTES } from './constants'
 
@@ -54,15 +55,16 @@ function rangeTest(ranges: Uint32Array, negated: boolean): CodePointTest {
 }
 
 function foldedRangeTest(ranges: Uint32Array, negated: boolean, host: PatternHost): CodePointTest {
+  const singleFoldSources = singleFoldSourcesOf(host)
   const holdsFold = (folded: number): boolean => {
     if (inRanges(ranges, folded)) return true
-    for (const source of host.singleFoldSources(folded)) if (inRanges(ranges, source)) return true
+    for (const source of singleFoldSources(folded)) if (inRanges(ranges, source)) return true
     return false
   }
   return {
     bytes: ranges.byteLength + CODE_POINT_TEST_ENTRY_BYTES,
     ranges,
-    isFoldTarget: folded => host.singleFoldSources(folded).length > 0,
+    isFoldTarget: folded => singleFoldSources(folded).length > 0,
     has: folded => holdsFold(folded) !== negated,
   }
 }

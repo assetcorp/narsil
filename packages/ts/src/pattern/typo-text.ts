@@ -1,16 +1,10 @@
-import { MAX_PATTERN_TOLERANCE, PATTERN_RUN_CODE_POINTS } from './constants'
-import type { PatternHost, PatternTolerance } from './types'
-
-const BASIC_PLANE_LAST = 0xffff
+import { MAX_PATTERN_TOLERANCE, PATTERN_RUN_CODE_POINTS } from '../core/pattern-index/constants'
+import type { PatternHost, PatternTolerance } from '../core/pattern-index/types'
+import { BASIC_PLANE_LAST, runKey } from './text'
 
 export interface TypoText {
   readonly folded: readonly number[]
   readonly longestFold: number
-}
-
-export function isPatternTolerance(value: unknown): value is PatternTolerance {
-  if (value === 'auto') return true
-  return typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= MAX_PATTERN_TOLERANCE
 }
 
 export function foldTypoText(text: string, host: PatternHost): TypoText {
@@ -31,7 +25,7 @@ export function distinctTypoRuns(text: TypoText, limit: number): number[] {
   const seen = new Set<string>()
   const runs: number[] = []
   for (let at = 0; at + PATTERN_RUN_CODE_POINTS <= folded.length && seen.size < limit; at++) {
-    const key = String.fromCodePoint(folded[at], folded[at + 1], folded[at + 2])
+    const key = runKey(folded[at], folded[at + 1], folded[at + 2])
     if (seen.has(key)) continue
     seen.add(key)
     runs.push(folded[at], folded[at + 1], folded[at + 2])
