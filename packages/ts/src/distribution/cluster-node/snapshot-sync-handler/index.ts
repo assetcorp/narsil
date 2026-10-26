@@ -6,6 +6,7 @@ import {
   DEFAULT_MAX_STREAMS_PER_INDEX,
   MAX_SNAPSHOT_SYNC_REQUEST_BYTES,
 } from '../constants'
+import { transportableDetails } from '../error-reply'
 import { authorizeSnapshotRequest } from '../snapshot-auth'
 import { createSnapshotCacheState } from '../snapshot-cache'
 import { createSingleResponseSink, respondError, type SingleResponseSink } from '../snapshot-stream-writer'
@@ -54,7 +55,7 @@ export async function handleSnapshotSyncRequest(
   } catch (err) {
     const code = err instanceof NarsilError ? err.code : ErrorCodes.SNAPSHOT_SYNC_SNAPSHOT_FAILED
     const errMessage = err instanceof Error ? err.message : String(err)
-    await respondError(sink, deps.nodeId, message.requestId, code, errMessage)
+    await respondError(sink, deps.nodeId, message.requestId, code, errMessage, transportableDetails(err))
   }
 }
 

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   validateAckPayload,
   validateEntryPayload,
+  validateForwardBatchResultPayload,
   validateInsyncConfirmPayload,
 } from '../../../distribution/replication/codec'
 
@@ -142,6 +143,37 @@ describe('validateAckPayload', () => {
   it('rejects when indexName is not a string', () => {
     expect(() => validateAckPayload({ seqNo: 1, partitionId: 0, indexName: false })).toThrow(
       '"indexName" must be a string',
+    )
+  })
+})
+
+describe('validateForwardBatchResultPayload', () => {
+  const refused = {
+    documentId: 'chair-1',
+    success: false,
+    errorCode: 'CLUSTER_WRITE_BLOCKED',
+    errorMessage: 'refused',
+  }
+
+  it.each([
+    ['absent', refused],
+    ['null', { ...refused, errorDetails: null }],
+    ['a plain object', { ...refused, errorDetails: { reason: 'write_bytes_in_flight', limitBytes: 4096 } }],
+    ['an object without a prototype', { ...refused, errorDetails: Object.create(null) }],
+  ])('accepts errorDetails that is %s', (_, result) => {
+    expect(validateForwardBatchResultPayload({ results: [result] }).results).toHaveLength(1)
+  })
+
+  it.each([
+    ['a string', 'write_bytes_in_flight'],
+    ['a number', 7],
+    ['a boolean', true],
+    ['an array', ['write_bytes_in_flight']],
+    ['binary', new Uint8Array([1, 2, 3])],
+    ['a date', new Date(0)],
+  ])('rejects errorDetails that is %s', (_, errorDetails) => {
+    expect(() => validateForwardBatchResultPayload({ results: [{ ...refused, errorDetails }] })).toThrow(
+      '"results[0].errorDetails" must be an object or absent',
     )
   })
 })

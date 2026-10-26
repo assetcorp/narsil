@@ -3,6 +3,7 @@ import { type AllocationWatcherState, createAllocationWatcherState, stopAllocati
 import {
   createRegistrationHeartbeatState,
   type RegistrationHeartbeatState,
+  renewRegistrationNow,
   stopRegistrationHeartbeat,
 } from './heartbeat'
 import { joinCluster, leaveCluster } from './join'
@@ -13,7 +14,8 @@ import type { DataNodeHandle, DataNodeLifecycleStatus, NodeLifecycleConfig } fro
  *
  * The handle reports its own status, and it runs one lifecycle operation at a time, so a `leave` called while a
  * `join` is still running waits for that join rather than interleaving with it. A node that has shut down cannot
- * rejoin through the same handle.
+ * rejoin through the same handle. `renewRegistration` writes the registration at once, outside that queue, and does
+ * nothing while the node is outside the cluster.
  *
  * @param config - The lifecycle configuration, which names the coordinator, the transport, this node's
  *   registration, and the retry limits every bootstrap follows.
@@ -100,6 +102,12 @@ export function createDataNodeLifecycle(config: NodeLifecycleConfig): DataNodeHa
           throw error
         }
       })
+    },
+
+    renewRegistration(): void {
+      if (status === 'active' || status === 'joining') {
+        renewRegistrationNow(heartbeatState, config)
+      }
     },
 
     leave(): Promise<void> {
