@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
+import type { ClusterMemoryConfig } from '../../../distribution/cluster-node/types'
 import {
   type EtcdContainerHandle,
   MANAGED_ETCD_ENDPOINT,
@@ -20,7 +21,8 @@ const VOCABULARY_WORDS = 20_000
 const HEAP_SAMPLE_INTERVAL_MS = 50
 const PROPAGATION_TIMEOUT_MS = 20_000
 const CRASH_TIMEOUT_MS = 120_000
-const UNBOUNDED_FRACTION = 1
+const MEMORY_BLOCK_SWITCHED_OFF: ClusterMemoryConfig = { blockWritesAbove: 1, resumeWritesBelow: 0.99 }
+const IN_FLIGHT_BOUND_SWITCHED_OFF: ClusterMemoryConfig = { ...MEMORY_BLOCK_SWITCHED_OFF, inFlightWriteFraction: 1 }
 const LETTERS = 'abcdefghijklmnopqrstuvwxyz'
 
 interface Furniture {
@@ -149,14 +151,14 @@ describe('a cluster node on etcd bounds the bytes of inserts and updates in flig
     await stopEtcdContainer(container?.name ?? null)
   }, 60_000)
 
-  async function startSingleNode(inFlightWriteFraction?: number): Promise<NodeProcess> {
+  async function startSingleNode(memory: ClusterMemoryConfig): Promise<NodeProcess> {
     if (container === null) throw new Error('etcd never started')
     const started = await startNodeProcess({
       nodeId: 'node-1',
       etcdEndpoint: container.endpoint,
       keyPrefix: `_narsil_write_pressure_${randomUUID()}`,
       heapMegabytes: HEAP_MEGABYTES,
-      inFlightWriteFraction,
+      memory,
     })
     node = started
     const created = await request(started.base, 'POST', '/indexes', {
@@ -173,7 +175,7 @@ describe('a cluster node on etcd bounds the bytes of inserts and updates in flig
   }
 
   it('refuses the excess of a burst with 429 and keeps every write it accepted', async () => {
-    const bounded = await startSingleNode()
+    const bounded = await startSingleNode(MEMORY_BLOCK_SWITCHED_OFF)
     const { outcomes, peakHeapBytes, sourceBytes } = await fireConcurrentBatches(bounded)
 
     expect(bounded.exited(), bounded.output()).toBe(false)
@@ -220,14 +222,17 @@ describe('a cluster node on etcd bounds the bytes of inserts and updates in flig
     expect(bounded.exited(), bounded.output()).toBe(false)
   }, 300_000)
 
-  it('runs out of heap under the same burst when the bound covers the whole heap', async () => {
-    const unbounded = await startSingleNode(UNBOUNDED_FRACTION)
+  it('runs out of heap under the same burst once the bound covers the whole heap', async () => {
+    const unbounded = await startSingleNode(IN_FLIGHT_BOUND_SWITCHED_OFF)
     const { outcomes, sourceBytes } = await fireConcurrentBatches(unbounded)
+    const replies = new Map<string, number>()
+    for (const outcome of outcomes) {
+      const key = String(outcome.status ?? 'no reply')
+      replies.set(key, (replies.get(key) ?? 0) + 1)
+    }
+    const tally = [...replies].map(([status, count]) => `${count} × ${status}`).join(', ')
+    console.log(`unbounded node: ${tally} for ${megabytes(sourceBytes)} sent`)
     await waitFor('the unbounded node to run out of heap', CRASH_TIMEOUT_MS, async () => unbounded.exited())
-    const answered = outcomes.filter(outcome => outcome.status !== null).length
-    console.log(
-      `unbounded node: exited after answering ${answered} of ${outcomes.length} batches, ${megabytes(sourceBytes)} sent`,
-    )
     expect(unbounded.output()).toMatch(/heap out of memory/i)
   }, 300_000)
 })

@@ -2,6 +2,7 @@ import { type ChildProcess, spawn } from 'node:child_process'
 import { createServer } from 'node:net'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
+import type { ClusterMemoryConfig } from '../../../distribution/cluster-node/types'
 
 const NODE_SCRIPT = fileURLToPath(new URL('./node-process.mjs', import.meta.url))
 const READY_TIMEOUT_MS = 60_000
@@ -41,17 +42,15 @@ export async function startNodeProcess(options: {
   etcdEndpoint: string
   keyPrefix: string
   heapMegabytes: number
-  inFlightWriteFraction?: number
+  memory?: ClusterMemoryConfig
 }): Promise<NodeProcess> {
   const httpPort = await freePort()
   const transportPort = await freePort()
-  const { NARSIL_IN_FLIGHT_WRITE_FRACTION: _inherited, ...parentEnv } = process.env
+  const { NARSIL_MEMORY_CONFIG: _inherited, ...parentEnv } = process.env
   const child: ChildProcess = spawn(process.execPath, [`--max-old-space-size=${options.heapMegabytes}`, NODE_SCRIPT], {
     env: {
       ...parentEnv,
-      ...(options.inFlightWriteFraction === undefined
-        ? {}
-        : { NARSIL_IN_FLIGHT_WRITE_FRACTION: String(options.inFlightWriteFraction) }),
+      ...(options.memory === undefined ? {} : { NARSIL_MEMORY_CONFIG: JSON.stringify(options.memory) }),
       NODE_OPTIONS: '',
       NARSIL_NODE_ID: options.nodeId,
       NARSIL_HTTP_PORT: String(httpPort),
