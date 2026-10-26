@@ -1,4 +1,5 @@
 import type { PartitionManager } from '../partitioning/manager'
+import { rebuildTextIndexes } from '../partitioning/text-rebuild'
 import type { DurabilityManager } from '../persistence/durability/types'
 import type { AnalysisConfig, StaleAnalysis } from '../types/config'
 import { emitEngineEvent } from './events'
@@ -35,12 +36,6 @@ interface StaleEntry {
   run: Promise<void> | null
 }
 
-function yieldToEventLoop(): Promise<void> {
-  return new Promise<void>(resolve => {
-    setTimeout(resolve, 0)
-  })
-}
-
 function toError(value: unknown): Error {
   return value instanceof Error ? value : new Error(String(value))
 }
@@ -50,6 +45,7 @@ export interface AnalysisRebuildWiring {
   getManager(indexName: string): PartitionManager | undefined
   desyncIndex(indexName: string): boolean
   resyncIndex(indexName: string, wasPromoted: boolean): Promise<void>
+  recordCurrentAnalysis(indexName: string): void
   durabilityManager: DurabilityManager | null
   eventHandlers: Map<string, Set<(payload: unknown) => void>>
 }
@@ -61,9 +57,13 @@ export function wireAnalysisRebuild(wiring: AnalysisRebuildWiring): AnalysisRebu
     resyncIndex: wiring.resyncIndex,
     async persistAnalysisRevision(indexName: string): Promise<void> {
       const durability = wiring.durabilityManager
-      if (durability === null) return
-      await durability.persistMetadata(indexName)
+      if (durability === null) {
+        wiring.recordCurrentAnalysis(indexName)
+        return
+      }
       await (durability.checkpointFromMemory?.(indexName) ?? durability.checkpoint(indexName))
+      wiring.recordCurrentAnalysis(indexName)
+      await durability.persistMetadata(indexName)
     },
     emit(payload) {
       emitEngineEvent(wiring.eventHandlers, 'analysisRebuild', payload)
@@ -91,12 +91,20 @@ export function createAnalysisRebuildCoordinator(
 
     const wasPromoted = deps.desyncIndex(indexName)
     try {
-      for (let partitionId = 0; partitionId < manager.partitionCount; partitionId += 1) {
-        manager.rebuildTextIndex(partitionId)
-        entry.partitionsRebuilt = partitionId + 1
-        await yieldToEventLoop()
+      const rebuilt = await rebuildTextIndexes(manager, {
+        isCurrent: () => deps.getManager(indexName) === manager && stale.get(indexName) === entry,
+        onPartitionBuilt(partitionsBuilt) {
+          entry.partitionsRebuilt = partitionsBuilt
+        },
+        onSwitch() {
+          stale.delete(indexName)
+        },
+      })
+      if (!rebuilt) {
+        entry.run = null
+        if (deps.getManager(indexName) === manager) await deps.resyncIndex(indexName, wasPromoted)
+        return
       }
-      stale.delete(indexName)
       await deps.persistAnalysisRevision(indexName)
       await deps.resyncIndex(indexName, wasPromoted)
       deps.emit({
@@ -107,7 +115,6 @@ export function createAnalysisRebuildCoordinator(
       })
     } catch (err) {
       const error = toError(err)
-      stale.set(indexName, entry)
       entry.run = null
       await deps.resyncIndex(indexName, wasPromoted).catch(() => undefined)
       deps.emit({

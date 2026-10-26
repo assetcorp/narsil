@@ -35,7 +35,6 @@ import { createGrowingPartialWords, expandPartialWords } from './partial-words/r
 import type { PartialWordAnalysis } from './partial-words/spellings'
 import type { AddedWord, PartialWordRequest } from './partial-words/types'
 import type { PartitionIndex } from './partition-index'
-import { rebuildTextIndex } from './rebuild'
 import { searchFulltext } from './search'
 import { encodeSegmentState, mergeSegmentPayload, type SegmentPayload } from './segment-payload'
 import { deserializePartition, serializePartition } from './serialization'
@@ -263,10 +262,6 @@ export function createPartitionIndex(partitionId: number, trackPositions = true)
         const internalId = state.docStore.getInternalId(docId)
         if (internalId !== undefined) recordSortValues(state, internalId, document as Record<string, unknown>)
       }
-    },
-
-    rebuildTextIndex(schema: SchemaDefinition, language: LanguageModule, options?: PartitionInsertOptions): void {
-      rebuildTextIndex(state, schema, language, options)
     },
 
     get(docId: string, projection?: ResolvedProjection): AnyDocument | undefined {
