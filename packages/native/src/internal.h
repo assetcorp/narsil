@@ -91,6 +91,7 @@ typedef struct {
 typedef struct {
   uint32_t candidate_limit;
   int32_t layer;
+  int excludes_tombstones;
 } layer_search;
 
 typedef struct {
@@ -113,7 +114,6 @@ typedef struct {
   int pairs_use_codes;
   uint32_t slots;
   uint32_t store_slots;
-  int skip_tombstones;
   uint32_t code_bytes;
   uint32_t record_bytes;
   double centroid_dot;
@@ -163,6 +163,10 @@ static inline _Atomic(int32_t) *atomic_word(int32_t *words, uint32_t index) {
 
 static inline _Atomic(uint8_t) *atomic_byte(uint8_t *bytes, uint32_t index) {
   return (_Atomic(uint8_t) *)(bytes + index);
+}
+
+static inline int is_tombstoned(const walk_context *context, int32_t ordinal) {
+  return atomic_load(atomic_byte(context->graph->tombstones, (uint32_t)ordinal)) == 1;
 }
 
 uint32_t grown_capacity(uint32_t first, uint32_t needed);

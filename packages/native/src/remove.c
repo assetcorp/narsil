@@ -8,25 +8,12 @@
 #include <stdint.h>
 #include <string.h>
 
-static int is_tombstoned(const walk_context *context, int32_t ordinal) {
-  return atomic_load(atomic_byte(context->graph->tombstones, (uint32_t)ordinal)) == 1;
-}
-
 static void begin_graph_write(walk_context *context, const narsil_graph *graph, uint32_t thread_slot) {
   memset(context, 0, sizeof *context);
   context->graph = graph;
   context->thread_slot = thread_slot;
   int32_t slots = load_word(graph->header, NARSIL_GRAPH_WORD_SLOTS);
   context->slots = slots < 0 ? 0 : (uint32_t)slots;
-}
-
-static void move_entry_off(const walk_context *context, int32_t ordinal) {
-  if (load_word(context->graph->header, NARSIL_GRAPH_WORD_ENTRY_POINT) != ordinal) { return; }
-  entry_lock(context->graph);
-  if (load_word(context->graph->header, NARSIL_GRAPH_WORD_ENTRY_POINT) == ordinal) {
-    store_entry_point(context, highest_node(context, 0));
-  }
-  entry_unlock(context->graph);
 }
 
 narsil_status narsil_remove(const narsil_graph *graph, const narsil_remove_request *request) {
@@ -45,7 +32,6 @@ narsil_status narsil_remove(const narsil_graph *graph, const narsil_remove_reque
     if (atomic_compare_exchange_strong(atomic_byte(graph->tombstones, (uint32_t)ordinal), &live, 1)) {
       atomic_fetch_add(atomic_word(graph->header, NARSIL_GRAPH_WORD_TOMBSTONE_COUNT), 1);
     }
-    move_entry_off(&context, ordinal);
   }
   graph_unlock_shared(graph, request->thread_slot);
   return status;

@@ -288,6 +288,7 @@ export interface VectorStoreSnapshot {
     dimension: number;
     docIds: Array<string | null>;
     magnitudes: Float64Array;
+    replacedOrdinals: number[];
     slots: number;
     vectors: Float32Array;
 }

@@ -247,22 +247,28 @@ export function searchWithFilter(
     }
   }
 
-  const graphOptions = { filter, efSearch, oversample }
-  if (state.buffer.size === 0) {
-    const hnswResults = state.hnsw.search(query, k, metric, minSimilarity, graphOptions)
-    return fetchedOutcome(
-      state,
-      hnswResults.map(r => ({ docId: r.docId, score: r.score })),
-      minSimilarity,
-      filter,
-    )
-  }
-
   const hnswResults = state.hnsw
-    .search(query, k, metric, minSimilarity, graphOptions)
+    .search(query, k, metric, minSimilarity, { filter, efSearch, oversample })
     .map(r => ({ docId: r.docId, score: r.score }))
 
-  const buffered = bruteForceSearch(state, query, k, metric, minSimilarity, bufferCandidates(state, filter))
+  return fetchedOutcome(
+    state,
+    withBufferedVectors(state, query, k, options, filter, hnswResults),
+    minSimilarity,
+    filter,
+  )
+}
 
-  return fetchedOutcome(state, mergeResults(hnswResults, buffered.results, k), minSimilarity, filter)
+export function withBufferedVectors(
+  state: VectorIndexState,
+  query: Float32Array,
+  k: number,
+  options: VectorSearchOptions,
+  filter: OrdinalFilter | undefined,
+  graphResults: VectorScoredResult[],
+): VectorScoredResult[] {
+  if (state.buffer.size === 0) return graphResults
+  const candidates = bufferCandidates(state, filter)
+  const buffered = bruteForceSearch(state, query, k, options.metric, options.minSimilarity, candidates)
+  return mergeResults(graphResults, buffered.results, k)
 }

@@ -1,7 +1,7 @@
 import { ErrorCodes, NarsilError } from '../../errors'
-import type { VectorMetric } from '../brute-force'
 import type { OrdinalFilter } from '../ordinal-filter'
 import type { OsqBits } from '../osq/quantize'
+import { magnitude } from '../similarity'
 import { BLOCK_MAX_BYTES } from './blocks'
 import { appendDocId, resetDocIds } from './doc-ids'
 import {
@@ -14,6 +14,7 @@ import {
   STORE_SLOTS,
   sharedVectorStoreBytes,
 } from './handles'
+import { docIdsOf, entriesOf, snapshotOf } from './listing'
 import {
   blockFullyCold,
   ensureOrdinal,
@@ -25,6 +26,7 @@ import {
   relayout,
   writeVector,
 } from './open-store'
+import { createOrdinalReads, entryAt } from './ordinal-reads'
 import type {
   ArenaQueryVector,
   DiskLocation,
@@ -53,6 +55,7 @@ export function createVectorStore(options?: VectorStoreOptions): VectorStore {
   const blockBytes = options?.blockBytes ?? BLOCK_MAX_BYTES
   const docToOrd = new Map<string, number>()
   const ordToDoc: Array<string | undefined> = []
+  const replacedOrdinals = new Set<number>()
   let unknownPartitions = 0
   let liveCount = 0
   let open: OpenStore | null =
@@ -61,8 +64,13 @@ export function createVectorStore(options?: VectorStoreOptions): VectorStore {
   function forgetDocuments(): void {
     docToOrd.clear()
     ordToDoc.length = 0
+    replacedOrdinals.clear()
     unknownPartitions = 0
     liveCount = 0
+  }
+
+  function readable(ordinal: number): boolean {
+    return ordToDoc[ordinal] !== undefined || replacedOrdinals.has(ordinal)
   }
 
   function requireOpen(): OpenStore {
@@ -84,11 +92,30 @@ export function createVectorStore(options?: VectorStoreOptions): VectorStore {
     if (store.partitions[ordinal] === UNKNOWN_PARTITION) unknownPartitions -= 1
   }
 
-  function claimOrdinal(store: OpenStore, docId: string, cold: boolean, partitionId?: number): number {
+  function keepReplacedOrdinal(store: OpenStore, ordinal: number): void {
+    ordToDoc[ordinal] = undefined
+    if (store.partitions[ordinal] === UNKNOWN_PARTITION) unknownPartitions -= 1
+    store.partitions[ordinal] = NO_PARTITION
+    replacedOrdinals.add(ordinal)
+  }
+
+  function restoreReplacedVector(store: OpenStore, ordinal: number, vector: Float32Array): void {
+    store.diskFile[ordinal] = IN_MEMORY
+    writeVector(store, ordinal, vector)
+    Atomics.store(store.present, ordinal, 1)
+    replacedOrdinals.add(ordinal)
+  }
+
+  function claimSlot(store: OpenStore, docId: string, cold: boolean): number {
     const ordinal = Atomics.load(store.handles.header, STORE_SLOTS)
     ensureOrdinal(store, ordinal, cold)
     store.diskFile[ordinal] = IN_MEMORY
     appendDocId(store.handles, ordinal, docId)
+    return ordinal
+  }
+
+  function claimOrdinal(store: OpenStore, docId: string, cold: boolean, partitionId?: number): number {
+    const ordinal = claimSlot(store, docId, cold)
     recordPartition(store, ordinal, partitionId)
     ordToDoc[ordinal] = docId
     docToOrd.set(docId, ordinal)
@@ -100,6 +127,13 @@ export function createVectorStore(options?: VectorStoreOptions): VectorStore {
     Atomics.store(store.present, ordinal, 1)
   }
 
+  function publishOnDisk(store: OpenStore, ordinal: number, vectorMagnitude: number, location: DiskLocation): void {
+    store.magnitudes[ordinal] = vectorMagnitude
+    store.diskOffset[ordinal] = location.offset
+    store.diskFile[ordinal] = location.fileIndex
+    publishOrdinal(store, ordinal)
+  }
+
   function appendOrdinal(store: OpenStore, docId: string, vector: Float32Array, partitionId?: number): number {
     const ordinal = claimOrdinal(store, docId, false, partitionId)
     writeVector(store, ordinal, vector)
@@ -107,9 +141,15 @@ export function createVectorStore(options?: VectorStoreOptions): VectorStore {
     return ordinal
   }
 
-  function settleReplacement(store: OpenStore, ordinal: number, previous: number | undefined): number {
+  function settleReplacement(
+    store: OpenStore,
+    ordinal: number,
+    previous: number | undefined,
+    keepsReplacedVector: boolean,
+  ): number {
     if (previous !== undefined) {
-      retireOrdinal(store, previous)
+      if (keepsReplacedVector) keepReplacedOrdinal(store, previous)
+      else retireOrdinal(store, previous)
       return ordinal
     }
     liveCount++
@@ -117,11 +157,9 @@ export function createVectorStore(options?: VectorStoreOptions): VectorStore {
     return ordinal
   }
 
-  function entryAt(store: OpenStore, ordinal: number): VectorStoreEntry {
-    return { vector: store.view.vectorAt(ordinal), magnitude: store.magnitudes[ordinal] }
-  }
-
   return {
+    ...createOrdinalReads(() => open, readable),
+
     get size() {
       return liveCount
     },
@@ -146,7 +184,11 @@ export function createVectorStore(options?: VectorStoreOptions): VectorStore {
       return requireOpen().view
     },
 
-    insert(docId: string, vector: Float32Array, partitionId?: number): number {
+    get replacedVectorCount() {
+      return replacedOrdinals.size
+    },
+
+    insert(docId: string, vector: Float32Array, partitionId?: number, keepsReplacedVector = false): number {
       if (open === null) open = openHandles(vector.length, codeBits, blockBytes)
       const store = open
       if (vector.length !== store.handles.dimension) {
@@ -158,7 +200,14 @@ export function createVectorStore(options?: VectorStoreOptions): VectorStore {
       }
       const previous = docToOrd.get(docId)
       const ordinal = appendOrdinal(store, docId, vector, partitionId)
-      return settleReplacement(store, ordinal, previous)
+      return settleReplacement(store, ordinal, previous, keepsReplacedVector)
+    },
+
+    releaseReplacedVectors(): number[] {
+      const released = [...replacedOrdinals]
+      replacedOrdinals.clear()
+      if (open !== null) for (const ordinal of released) Atomics.store(open.present, ordinal, 0)
+      return released
     },
 
     insertCold(docId: string, vectorMagnitude: number, location: DiskLocation, partitionId?: number): number {
@@ -166,11 +215,25 @@ export function createVectorStore(options?: VectorStoreOptions): VectorStore {
       const previous = docToOrd.get(docId)
       Atomics.store(store.handles.header, STORE_RELEASED_VECTORS_TO_DISK, 1)
       const ordinal = claimOrdinal(store, docId, true, partitionId)
-      store.magnitudes[ordinal] = vectorMagnitude
-      store.diskOffset[ordinal] = location.offset
-      store.diskFile[ordinal] = location.fileIndex
+      publishOnDisk(store, ordinal, vectorMagnitude, location)
+      return settleReplacement(store, ordinal, previous, false)
+    },
+
+    insertReplaced(docId: string, vector: Float32Array, location?: DiskLocation): number {
+      if (open === null) open = openHandles(vector.length, codeBits, blockBytes)
+      const store = open
+      if (location !== undefined) Atomics.store(store.handles.header, STORE_RELEASED_VECTORS_TO_DISK, 1)
+      const ordinal = claimSlot(store, docId, location !== undefined)
+      store.partitions[ordinal] = NO_PARTITION
+      ordToDoc[ordinal] = undefined
+      replacedOrdinals.add(ordinal)
+      if (location !== undefined) {
+        publishOnDisk(store, ordinal, magnitude(vector), location)
+        return ordinal
+      }
+      writeVector(store, ordinal, vector)
       publishOrdinal(store, ordinal)
-      return settleReplacement(store, ordinal, previous)
+      return ordinal
     },
 
     addVectorFile(path: string): number {
@@ -201,11 +264,11 @@ export function createVectorStore(options?: VectorStoreOptions): VectorStore {
       const store = requireOpen()
       let released = 0
       for (let index = 0; index < store.handles.blocks.length; index++) {
-        if (store.handles.blocks[index] === null || !blockFullyCold(store, index, ordToDoc)) continue
+        if (store.handles.blocks[index] === null || !blockFullyCold(store, index, ordToDoc, replacedOrdinals)) continue
         store.handles.blocks[index] = null
         released += 1
       }
-      if (released + forgetUnreferencedFiles(store, ordToDoc) > 0) relayout(store)
+      if (released + forgetUnreferencedFiles(store, ordToDoc, replacedOrdinals) > 0) relayout(store)
       return released
     },
 
@@ -259,22 +322,9 @@ export function createVectorStore(options?: VectorStoreOptions): VectorStore {
       return ordinal >= 0 && ordinal < ordToDoc.length && ordToDoc[ordinal] !== undefined
     },
 
-    *entries(): IterableIterator<[string, VectorStoreEntry]> {
-      if (open === null) return
-      for (let ordinal = 0; ordinal < ordToDoc.length; ordinal++) {
-        const docId = ordToDoc[ordinal]
-        if (docId === undefined) continue
-        yield [docId, entryAt(open, ordinal)]
-      }
-    },
+    entries: () => entriesOf(open, ordToDoc),
 
-    *docIds(): IterableIterator<string> {
-      if (open === null) return
-      for (let ordinal = 0; ordinal < ordToDoc.length; ordinal++) {
-        const docId = ordToDoc[ordinal]
-        if (docId !== undefined) yield docId
-      }
-    },
+    docIds: () => docIdsOf(open, ordToDoc),
 
     clear(): void {
       forgetDocuments()
@@ -312,68 +362,18 @@ export function createVectorStore(options?: VectorStoreOptions): VectorStore {
       return ordToDoc[ordinal]
     },
 
-    entryForOrdinal(ordinal: number): VectorStoreEntry | undefined {
-      if (open === null || ordinal < 0 || ordinal >= ordToDoc.length || ordToDoc[ordinal] === undefined) {
-        return undefined
-      }
-      return entryAt(open, ordinal)
-    },
-
-    distanceByOrdinal(ordA: number, ordB: number, metric: VectorMetric): number {
-      if (open === null || ordToDoc[ordA] === undefined || ordToDoc[ordB] === undefined) {
-        return Number.POSITIVE_INFINITY
-      }
-      return open.view.distanceByOrdinal(ordA, ordB, metric)
-    },
-
     prepareQueryArena(query: Float32Array): ArenaQueryVector | null {
       return open === null ? null : open.view.prepareQueryArena(query)
     },
 
-    distanceFromArena(prepared: ArenaQueryVector, ordinal: number, metric: VectorMetric): number {
-      if (open === null || ordToDoc[ordinal] === undefined) return Number.POSITIVE_INFINITY
-      return open.view.distanceFromArena(prepared, ordinal, metric)
-    },
-
-    queryDistance(prepared: ArenaQueryVector, metric: VectorMetric): (ordinal: number) => number {
-      if (open === null) return () => Number.POSITIVE_INFINITY
-      const inner = open.view.queryDistance(prepared, metric)
-      return ordinal => (ordToDoc[ordinal] === undefined ? Number.POSITIVE_INFINITY : inner(ordinal))
-    },
-
-    ordinalDistance(from: number, metric: VectorMetric): (ordinal: number) => number {
-      const pair = this.pairDistance(metric)
-      return ordinal => pair(from, ordinal)
-    },
-
-    pairDistance(metric: VectorMetric): (ordA: number, ordB: number) => number {
-      if (open === null) return () => Number.POSITIVE_INFINITY
-      const inner = open.view.pairDistance(metric)
-      return (ordA, ordB) =>
-        ordToDoc[ordA] === undefined || ordToDoc[ordB] === undefined ? Number.POSITIVE_INFINITY : inner(ordA, ordB)
-    },
-
-    exportSnapshot(): VectorStoreSnapshot {
-      const slots = ordToDoc.length
-      const dimension = open === null ? 0 : open.handles.dimension
-      const vectors = new Float32Array(slots * dimension)
-      const magnitudes = new Float64Array(slots)
-      const docIds: Array<string | null> = new Array(slots)
-      for (let ordinal = 0; ordinal < slots; ordinal++) {
-        const docId = ordToDoc[ordinal]
-        docIds[ordinal] = docId ?? null
-        if (docId === undefined || open === null) continue
-        vectors.set(open.view.vectorAt(ordinal), ordinal * dimension)
-        magnitudes[ordinal] = open.magnitudes[ordinal]
-      }
-      return { dimension, slots, vectors, magnitudes, docIds }
-    },
+    exportSnapshot: () => snapshotOf(open, ordToDoc, replacedOrdinals),
 
     restoreSnapshot(snapshot: VectorStoreSnapshot): void {
       this.clear()
       if (snapshot.dimension === 0 || snapshot.slots === 0) return
       if (open === null) open = openHandles(snapshot.dimension, codeBits, blockBytes)
       const store = open
+      const replaced = new Set(snapshot.replacedOrdinals)
       for (let ordinal = 0; ordinal < snapshot.slots; ordinal++) {
         const docId = snapshot.docIds[ordinal]
         const vector = snapshot.vectors.subarray(ordinal * snapshot.dimension, (ordinal + 1) * snapshot.dimension)
@@ -381,6 +381,7 @@ export function createVectorStore(options?: VectorStoreOptions): VectorStore {
           ensureOrdinal(store, ordinal, false)
           ordToDoc[ordinal] = undefined
           store.partitions[ordinal] = NO_PARTITION
+          if (replaced.has(ordinal)) restoreReplacedVector(store, ordinal, vector)
           Atomics.store(store.handles.header, STORE_SLOTS, ordinal + 1)
           continue
         }

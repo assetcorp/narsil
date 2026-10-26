@@ -22,7 +22,12 @@ export async function adoptVectorLayouts(
     const vecIndex = vectorIndexes.get(layout.fieldPath)
     if (vecIndex === undefined || vecIndex.storage !== 'disk') continue
     const path = await pathOf.call(store, layout.key)
-    await vecIndex.adoptDiskLayout({ path, docIds: layout.docIds, vectorsOffset: layout.vectorsOffset })
+    await vecIndex.adoptDiskLayout({
+      path,
+      docIds: layout.docIds,
+      dead: layout.dead,
+      vectorsOffset: layout.vectorsOffset,
+    })
   }
 }
 

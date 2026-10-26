@@ -163,6 +163,10 @@ export function emptyFieldBeforeRestore(state: VectorIndexState): void {
   state.savedSignature = null
 }
 
+export function releaseReplacedVectors(state: VectorIndexState): void {
+  for (const ordinal of state.store.releaseReplacedVectors()) state.osq?.removeOrdinal(ordinal)
+}
+
 export function adoptGraph(state: VectorIndexState, graph: HNSWIndex | null): void {
   if (graph === null && state.hnsw !== null) {
     state.hnsw.clear()

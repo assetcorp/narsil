@@ -287,13 +287,6 @@ export function markTombstone(state: HNSWGraphState, ord: number): void {
   if (Atomics.compareExchange(state.tombstones, ord, 0, 1) === 0) {
     Atomics.add(state.header, GRAPH_TOMBSTONE_COUNT, 1)
   }
-  if (entryPointOf(state) !== ord) return
-  lockEntry(state.locks)
-  try {
-    if (entryPointOf(state) === ord) setEntryPoint(state, highestNode(state, false))
-  } finally {
-    unlockEntry(state.locks)
-  }
 }
 
 export function compactTombstones(state: HNSWGraphState): void {
