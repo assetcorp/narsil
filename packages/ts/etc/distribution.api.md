@@ -63,6 +63,13 @@ export interface ClusterEngineOptions {
 }
 
 // @public
+export interface ClusterMemoryConfig {
+    blockWritesAbove?: number;
+    inFlightWriteFraction?: number;
+    resumeWritesBelow?: number;
+}
+
+// @public
 export interface ClusterNamespace {
     getAllocation(indexName: string): Promise<AllocationTable | null>;
     getControllerNodeId(): Promise<string | null>;
@@ -116,6 +123,7 @@ export interface ClusterNodeConfig {
     controller?: ClusterControllerConfig;
     coordinator: ClusterCoordinator;
     engine?: NarsilConfig;
+    memory?: ClusterMemoryConfig;
     nodeId?: string;
     onError?: (error: Error) => void;
     query?: ClusterQueryConfig;
@@ -160,6 +168,12 @@ export const DEFAULT_PARTITION_COUNT = 5;
 export const DEFAULT_REPLICATION_FACTOR = 1;
 
 // @public
+export interface IndexPartitionBytes {
+    indexName: string;
+    partitions: Array<[partitionId: number, bytes: number]>;
+}
+
+// @public
 export type ListenHandler = (message: TransportMessage, respond: RespondFn) => void | Promise<void>;
 
 // @public
@@ -177,14 +191,25 @@ export interface NodeEvent {
 }
 
 // @public
+export interface NodeMemoryReport {
+    full: boolean;
+    heapBytes: number;
+    heapLimitBytes: number;
+    processBytes: number;
+    processLimitBytes: number;
+}
+
+// @public
 export type NodeReadiness = 'STARTING' | 'JOINING' | 'SERVING' | 'LEAVING';
 
 // @public
 export interface NodeRegistration {
     address: string;
     capacity: NodeCapacity;
+    memory?: NodeMemoryReport;
     metadata?: Record<string, string>;
     nodeId: string;
+    partitionBytes?: IndexPartitionBytes[];
     roles: NodeRole[];
     startedAt: string;
     version: string;

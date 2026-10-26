@@ -5,6 +5,8 @@ import type { AnyDocument, InsertOptions } from '../../../types/schema'
 import type { PartitionAssignment } from '../../coordinator/types'
 import type { ReplicationLogEntry } from '../../replication/types'
 import type { ForwardPayload } from '../../transport/types'
+import { requireWritableIndex } from '../memory/write-block'
+import { estimateForwardedBytes, withAdmittedWrite } from '../memory/write-pressure'
 import { assertSufficientActiveReplicas, resolvePrimaryAssignment } from './assignment'
 import { rollbackPrimaryInsert, rollbackPrimaryRemove, rollbackPrimaryUpdate } from './failures'
 import { enqueuePartitionWrite } from './partition-queue'
@@ -294,7 +296,19 @@ async function replicateAppendedWrites(
   return succeeded
 }
 
-export async function applyForwardedWrite(payload: ForwardPayload, deps: WriteRoutingDeps): Promise<string> {
+export function applyForwardedWrite(payload: ForwardPayload, deps: WriteRoutingDeps): Promise<string> {
+  if (payload.operation === 'remove') {
+    return applyAdmittedForwardedWrite(payload, deps)
+  }
+  return withAdmittedWrite(
+    deps.writePressure,
+    payload.indexName,
+    () => estimateForwardedBytes(payload),
+    () => applyAdmittedForwardedWrite(payload, deps),
+  )
+}
+
+async function applyAdmittedForwardedWrite(payload: ForwardPayload, deps: WriteRoutingDeps): Promise<string> {
   const resolution = await resolvePrimaryAssignment(payload.indexName, payload.documentId, deps, true)
   if (resolution === null) {
     throw new NarsilError(
@@ -302,6 +316,9 @@ export async function applyForwardedWrite(payload: ForwardPayload, deps: WriteRo
       `No allocation table is available for forwarded write to index '${payload.indexName}'`,
       { indexName: payload.indexName },
     )
+  }
+  if (payload.operation !== 'remove') {
+    requireWritableIndex(resolution.table, deps.memoryView)
   }
 
   if (payload.operation === 'insert') {

@@ -61,6 +61,19 @@ TransportMessage {
 }
 ```
 
+A node whose handler fails a request must answer with a message whose `type` is the request's `type` followed by `.error`, and whose payload holds the failure:
+
+```text
+{
+  error:   true
+  code:    string                        (the NarsilError code)
+  message: string
+  details: Map<string, value> or absent  (the NarsilError details)
+}
+```
+
+When a primary refuses a forwarded mutation, the node that forwarded it must pass the primary's `code`, `message`, and `details` to the client.
+
 ### Replication Messages
 
 | Type | Direction | Description |
@@ -154,9 +167,12 @@ The response carries one result per operation, in operation order:
     success:      boolean
     errorCode:    string or absent   (the NarsilError code, present when success is false)
     errorMessage: string or absent   (present when success is false)
+    errorDetails: Map<string, value> or absent   (the NarsilError details, when success is false)
   }>
 }
 ```
+
+The node that forwarded the batch must pass each failed result's `errorCode`, `errorMessage`, and `errorDetails` to the client.
 
 ### replication.entry
 

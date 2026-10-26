@@ -68,7 +68,12 @@ export function createClusterHandlers(deps: HandlerDeps) {
       respondJson(ctx, {
         node: describeNode(cluster),
         controllerNodeId,
-        nodes: nodes.map(node => ({ nodeId: node.nodeId, address: node.address, roles: [...node.roles] })),
+        nodes: nodes.map(node => ({
+          nodeId: node.nodeId,
+          address: node.address,
+          roles: [...node.roles],
+          memory: node.memory ?? null,
+        })),
       })
     } catch (err) {
       respondError(ctx, err)

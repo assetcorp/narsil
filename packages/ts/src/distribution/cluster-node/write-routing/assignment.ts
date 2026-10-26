@@ -63,7 +63,7 @@ export async function resolvePrimaryAssignment(
     )
   }
 
-  return { partitionId, assignment }
+  return { table, partitionId, assignment }
 }
 
 export function assertSufficientActiveReplicas(

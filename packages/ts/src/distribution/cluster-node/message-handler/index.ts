@@ -1,7 +1,6 @@
-import { encode } from '@msgpack/msgpack'
-import { NarsilError } from '../../../errors'
 import type { RespondFn, TransportMessage } from '../../transport/types'
 import { ClusterMessageTypes, QueryMessageTypes, ReplicationMessageTypes } from '../../transport/types'
+import { encodeErrorReplyFrom } from '../error-reply'
 import { handleSnapshotSyncRequest } from '../snapshot-sync-handler'
 import { handlePartitionStores } from './partition-stores'
 import { handleFetch, handleSearch, handleStats } from './queries'
@@ -73,11 +72,7 @@ export function createDataNodeHandler(deps: DataNodeHandlerDeps): TransportHandl
           return
       }
     } catch (err) {
-      const errorPayload = encode({
-        error: true,
-        code: err instanceof NarsilError ? err.code : 'INTERNAL_ERROR',
-        message: err instanceof Error ? err.message : String(err),
-      })
+      const errorPayload = encodeErrorReplyFrom(err, 'INTERNAL_ERROR')
       await respond({
         type: `${message.type}.error`,
         sourceId: deps.nodeId,
