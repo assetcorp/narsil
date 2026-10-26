@@ -15,7 +15,7 @@ function requireEnv(name) {
 const nodeId = requireEnv('NARSIL_NODE_ID')
 const transportPort = Number(requireEnv('NARSIL_TRANSPORT_PORT'))
 const httpPort = Number(requireEnv('NARSIL_HTTP_PORT'))
-const inFlightWriteFraction = process.env.NARSIL_IN_FLIGHT_WRITE_FRACTION
+const memoryConfig = process.env.NARSIL_MEMORY_CONFIG
 
 const coordinator = await createEtcdCoordinator({
   endpoints: [requireEnv('NARSIL_ETCD_ENDPOINT')],
@@ -31,7 +31,7 @@ const node = await createClusterNode({
   roles: ['data', 'coordinator', 'controller'],
   engine: { workers: { enabled: false } },
   controller: { leaseTtlMs: 5_000, standbyRetryMs: 1_000 },
-  memory: inFlightWriteFraction === undefined ? undefined : { inFlightWriteFraction: Number(inFlightWriteFraction) },
+  memory: memoryConfig === undefined ? undefined : JSON.parse(memoryConfig),
   onError: error => process.stderr.write(`${nodeId}: ${error.message}\n`),
 })
 await node.start()
