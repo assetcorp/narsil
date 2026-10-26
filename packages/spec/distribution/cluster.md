@@ -450,6 +450,8 @@ when inFlightBytes + requestBytes > inFlightFraction * heapLimitBytes:
 
 `requestBytes` is the node's estimate of the bytes in the documents of the write. That estimate must rise with the length of every string and binary value in those documents, including the fields of a partial update. `inFlightBytes` is the sum of `requestBytes` over every insert and update that is in progress on the node, from the moment that the node accepts it until it completes, whether a client sends it to the node or another node forwards it there. A node that receives a write from a client and holds the primary for it must count that write once. The in-flight fraction is 0.02 by default. An implementation must let each node set it to any value above 0 and at most 1. A node must leave removes and replicated entries out of `inFlightBytes` and accept them whatever the value of `inFlightBytes`.
 
+The details of a `CLUSTER_WRITE_BLOCKED` refusal must hold a `reason`, which is `node_memory_full` under the block and `write_bytes_in_flight` under the bound on writes in progress.
+
 ---
 
 ## Controller Election
