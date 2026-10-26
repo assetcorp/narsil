@@ -103,6 +103,7 @@ export async function createIndexFromMetadata(
     heldPartitions: metadata.heldPartitions ?? null,
     documentCount: metadata.documentCount ?? 0,
     partitionCount: metadata.partitionCount,
+    analysisRevision: metadata.analysisRevision ?? null,
   })
   if (loadData) await deps.indexState().registerOpen(metadata.indexName)
   else deps.indexState().registerClosed(metadata.indexName)

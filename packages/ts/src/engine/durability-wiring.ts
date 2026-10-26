@@ -74,7 +74,7 @@ export function metadataConfigOf(entry: IndexRegistryEntry): MetadataConfig {
     b: entry.config.bm25?.b ?? 0.75,
     ...(embedding !== undefined ? { embedding } : {}),
     surfaceForms: entry.config.surfaceForms !== false,
-    analysisRevision: entry.language.revision,
+    ...(entry.analysisRevision !== null ? { analysisRevision: entry.analysisRevision } : {}),
     ...(typeof entry.config.tokenizer === 'string' ? { tokenizer: entry.config.tokenizer } : {}),
     ...(typeof entry.config.stopWords === 'string' ? { stopWords: entry.config.stopWords } : {}),
     ...(entry.config.stopWords instanceof Set

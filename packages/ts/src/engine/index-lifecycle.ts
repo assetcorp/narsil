@@ -138,6 +138,7 @@ export async function createEngineIndex(
     heldPartitions: null,
     documentCount: 0,
     partitionCount: indexConfig.partitions?.maxPartitions ?? 1,
+    analysisRevision: language.revision,
   })
   await core.indexState.registerOpen(name)
   if (core.durability) {
