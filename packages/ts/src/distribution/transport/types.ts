@@ -195,6 +195,7 @@ export interface ForwardBatchOperationResult {
   success: boolean
   errorCode: string | null
   errorMessage: string | null
+  errorDetails?: Record<string, unknown> | null
 }
 
 export interface ForwardBatchResultPayload {

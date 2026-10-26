@@ -1,6 +1,7 @@
 import { ErrorCodes, NarsilError } from '../../../errors'
 import { defaultSpoolDirectory, spoolSnapshotStream } from '../../replication/snapshot-spool'
 import type { SnapshotSyncRequestPayload, TransportMessage } from '../../transport/types'
+import { transportableDetails } from '../error-reply'
 import {
   acquireSnapshotBuild,
   acquireSourceSlot,
@@ -32,7 +33,7 @@ export async function acquireAndStream(
   } catch (err) {
     const code = err instanceof NarsilError ? err.code : ErrorCodes.SNAPSHOT_SYNC_CAPACITY_EXHAUSTED
     const errMessage = err instanceof Error ? err.message : String(err)
-    await respondError(sink, deps.nodeId, message.requestId, code, errMessage)
+    await respondError(sink, deps.nodeId, message.requestId, code, errMessage, transportableDetails(err))
     return
   }
 
@@ -47,7 +48,7 @@ export async function acquireAndStream(
     } catch (err) {
       const code = err instanceof NarsilError ? err.code : ErrorCodes.SNAPSHOT_SYNC_SNAPSHOT_FAILED
       const errMessage = err instanceof Error ? err.message : String(err)
-      await respondError(sink, deps.nodeId, message.requestId, code, errMessage)
+      await respondError(sink, deps.nodeId, message.requestId, code, errMessage, transportableDetails(err))
       return
     }
 
@@ -76,7 +77,7 @@ async function streamLeasedSnapshot(
   } catch (err) {
     const code = err instanceof NarsilError ? err.code : ErrorCodes.SNAPSHOT_SYNC_CAPACITY_EXHAUSTED
     const errMessage = err instanceof Error ? err.message : String(err)
-    await respondError(sink, deps.nodeId, message.requestId, code, errMessage)
+    await respondError(sink, deps.nodeId, message.requestId, code, errMessage, transportableDetails(err))
     return
   }
 
