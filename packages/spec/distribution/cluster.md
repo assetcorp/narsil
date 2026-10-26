@@ -170,6 +170,19 @@ NodeRegistration {
   }
   startedAt: string          (ISO 8601 timestamp)
   version:   string          (specification version, such as '1.0')
+  memory: {
+    processBytes:      uint64
+    processLimitBytes: uint64
+    heapBytes:         uint64
+    heapLimitBytes:    uint64
+    full:              boolean
+  } or absent
+  partitionBytes: List<IndexPartitionBytes> or absent
+}
+
+IndexPartitionBytes {
+  indexName:  string
+  partitions: List<List<uint64>>   (each entry is [partitionId, bytes])
 }
 ```
 
@@ -196,6 +209,23 @@ The ISO 8601 timestamp of when the node started. It serves diagnostics, and it b
 ### version
 
 The specification version the node follows. Nodes on incompatible versions must not share a cluster, and the controller rejects a registration whose major version differs from its own.
+
+### memory
+
+The memory that the node uses, which the [Memory Write Block](#memory-write-block) reads. A node that runs where it cannot measure these figures leaves the field absent.
+
+- `processBytes` must be the resident memory of the whole process, because a node can keep vectors and saved segments outside the heap.
+- `processLimitBytes` must be the memory limit that a container sets on the process, or the host's total memory where no container sets one.
+- `heapBytes` must be the heap that the node's main thread uses, and `heapLimitBytes` the size to which that heap may grow.
+- `full` must hold the value that the [Memory Write Block](#memory-write-block) rules give it.
+
+### partitionBytes
+
+The estimated size in bytes of each partition copy that the node holds, grouped by index. A node may leave a partition out, which keeps the registration within the size limit of the coordinator's requests, and it must then leave out its smallest partitions first.
+
+### Heartbeat
+
+A node must write its registration again with current `memory` and `partitionBytes` values on every heartbeat, and it must write it at once whenever `full` changes. A change that touches only `memory` and `partitionBytes` is not a topology change, so the controller must not run the allocator for it.
 
 ---
 
@@ -385,6 +415,34 @@ Three rules govern what a node serves:
 
 ---
 
+## Memory Write Block
+
+A node sets `full` in its registration once either memory figure passes the block fraction of its limit, and it clears `full` once both figures fall below the resume fraction:
+
+```text
+when not full and (processBytes > blockFraction * processLimitBytes
+                   or heapBytes > blockFraction * heapLimitBytes):
+  full = true
+when full and processBytes < resumeFraction * processLimitBytes
+          and heapBytes < resumeFraction * heapLimitBytes:
+  full = false
+```
+
+The block fraction is 0.9 and the resume fraction is 0.8 by default. An implementation must let each node set both, and it must accept only a resume fraction that is above 0 and below a block fraction of at most 1. A node should measure its memory at least once a second, because a node that measures it only on each heartbeat can run out of memory between two heartbeats.
+
+Six rules govern the block:
+
+- A node must refuse an insert or an update with `CLUSTER_WRITE_BLOCKED` while any node that the index's allocation table names as a primary or a replica reports `full`.
+- A node must refuse the whole of a batch insert or a batch update to a blocked index.
+- A primary must refuse a forwarded insert or update to a blocked index as well, so that a write which another node forwarded before it learnt of the block still meets it.
+- A node must accept removes, searches, and document reads to a blocked index, so that an operator can free memory by removing documents.
+- A node must judge its own `full` value from its latest measurement, and it may judge every other node's from the latest registration that it has received for that node.
+- A replica must apply every replicated entry whatever its own `full` value, because a refused entry would leave the copies of a partition holding different documents.
+
+The block lifts once no node that holds a copy of the index reports `full`.
+
+---
+
 ## Controller Election
 
 Exactly one controller is active at a time, elected by acquiring a lease on the well-known key `_narsil/controller`.
@@ -431,7 +489,7 @@ With `currentTable` absent, meaning a new index, the allocator uses `partitionCo
 The allocator must satisfy five constraints:
 
 - **No co-location.** A partition's primary and its replicas are on different nodes.
-- **Capacity awareness.** No node receives more partitions than its reported memory can hold.
+- **Capacity awareness.** No node receives a partition copy that would carry its held bytes past `capacity.memoryBytes`, and no node that reports `full` receives a new copy.
 - **Balance.** Partitions spread as evenly as node capacity allows.
 - **Minimal movement.** A recomputation after a topology change moves as few partitions as it can, because stability beats perfect balance.
 - **Zone awareness**, optional. When nodes report zone or rack metadata, replicas spread across zones.
@@ -443,6 +501,8 @@ AllocationConstraints {
   maxShardsPerNode: uint32 or absent (an optional upper bound)
 }
 ```
+
+The allocator must size a partition by the largest `bytes` value that any node reports for it in `partitionBytes`, and it must count a partition that no node reports as 52,428,800 bytes. A node's held bytes are the sum of every size that it reports, plus the size of each copy that the table assigns to it and that it leaves out of its report.
 
 The heuristic itself is implementation-defined. This specification fixes the inputs, the outputs, and the constraints, and leaves the choice open between rendezvous hashing, consistent hashing with bounded loads, a greedy weight-based balancer, and constraint-solver placement. Whichever an implementation picks must satisfy the constraints above and produce identical output for identical input.
 
@@ -678,3 +738,4 @@ A community adapter, whether it targets Consul, ZooKeeper, FoundationDB, or Redi
 |------|-------------|
 | `NODE_NOT_READY` | A message reached a node that has yet to finish joining the cluster. |
 | `NODE_NOT_CONTROLLER` | A controller message reached a node that holds no controller lease. |
+| `CLUSTER_WRITE_BLOCKED` | An insert or an update targets an index that has a copy on a node reporting `full`. |
