@@ -90,6 +90,7 @@ export async function loadVectorField(
   const restore = vectorIndex.restoreCheckpoint({
     liveVectors: liveVectorsOf(ref),
     holdsGraph: ref.graphParts.length > 0,
+    graph: await readGraphParts(store, ref),
   })
   for (const file of ref.files) {
     const { payload, payloadLength } = await readVectorFile(store, file, ref.fieldPath)
@@ -107,5 +108,5 @@ export async function loadVectorField(
             },
     })
   }
-  restore.finish(await readGraphParts(store, ref))
+  restore.finish()
 }

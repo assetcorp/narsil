@@ -1,6 +1,7 @@
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { OrdinalFilter } from '../ordinal-filter'
 import type { OsqBits } from '../osq/quantize'
+import { magnitude } from '../similarity'
 import { BLOCK_MAX_BYTES } from './blocks'
 import { appendDocId, resetDocIds } from './doc-ids'
 import {
@@ -13,6 +14,7 @@ import {
   STORE_SLOTS,
   sharedVectorStoreBytes,
 } from './handles'
+import { docIdsOf, entriesOf, snapshotOf } from './listing'
 import {
   blockFullyCold,
   ensureOrdinal,
@@ -104,11 +106,16 @@ export function createVectorStore(options?: VectorStoreOptions): VectorStore {
     replacedOrdinals.add(ordinal)
   }
 
-  function claimOrdinal(store: OpenStore, docId: string, cold: boolean, partitionId?: number): number {
+  function claimSlot(store: OpenStore, docId: string, cold: boolean): number {
     const ordinal = Atomics.load(store.handles.header, STORE_SLOTS)
     ensureOrdinal(store, ordinal, cold)
     store.diskFile[ordinal] = IN_MEMORY
     appendDocId(store.handles, ordinal, docId)
+    return ordinal
+  }
+
+  function claimOrdinal(store: OpenStore, docId: string, cold: boolean, partitionId?: number): number {
+    const ordinal = claimSlot(store, docId, cold)
     recordPartition(store, ordinal, partitionId)
     ordToDoc[ordinal] = docId
     docToOrd.set(docId, ordinal)
@@ -118,6 +125,13 @@ export function createVectorStore(options?: VectorStoreOptions): VectorStore {
   function publishOrdinal(store: OpenStore, ordinal: number): void {
     Atomics.store(store.handles.header, STORE_SLOTS, ordinal + 1)
     Atomics.store(store.present, ordinal, 1)
+  }
+
+  function publishOnDisk(store: OpenStore, ordinal: number, vectorMagnitude: number, location: DiskLocation): void {
+    store.magnitudes[ordinal] = vectorMagnitude
+    store.diskOffset[ordinal] = location.offset
+    store.diskFile[ordinal] = location.fileIndex
+    publishOrdinal(store, ordinal)
   }
 
   function appendOrdinal(store: OpenStore, docId: string, vector: Float32Array, partitionId?: number): number {
@@ -201,11 +215,25 @@ export function createVectorStore(options?: VectorStoreOptions): VectorStore {
       const previous = docToOrd.get(docId)
       Atomics.store(store.handles.header, STORE_RELEASED_VECTORS_TO_DISK, 1)
       const ordinal = claimOrdinal(store, docId, true, partitionId)
-      store.magnitudes[ordinal] = vectorMagnitude
-      store.diskOffset[ordinal] = location.offset
-      store.diskFile[ordinal] = location.fileIndex
-      publishOrdinal(store, ordinal)
+      publishOnDisk(store, ordinal, vectorMagnitude, location)
       return settleReplacement(store, ordinal, previous, false)
+    },
+
+    insertReplaced(docId: string, vector: Float32Array, location?: DiskLocation): number {
+      if (open === null) open = openHandles(vector.length, codeBits, blockBytes)
+      const store = open
+      if (location !== undefined) Atomics.store(store.handles.header, STORE_RELEASED_VECTORS_TO_DISK, 1)
+      const ordinal = claimSlot(store, docId, location !== undefined)
+      store.partitions[ordinal] = NO_PARTITION
+      ordToDoc[ordinal] = undefined
+      replacedOrdinals.add(ordinal)
+      if (location !== undefined) {
+        publishOnDisk(store, ordinal, magnitude(vector), location)
+        return ordinal
+      }
+      writeVector(store, ordinal, vector)
+      publishOrdinal(store, ordinal)
+      return ordinal
     },
 
     addVectorFile(path: string): number {
@@ -294,22 +322,9 @@ export function createVectorStore(options?: VectorStoreOptions): VectorStore {
       return ordinal >= 0 && ordinal < ordToDoc.length && ordToDoc[ordinal] !== undefined
     },
 
-    *entries(): IterableIterator<[string, VectorStoreEntry]> {
-      if (open === null) return
-      for (let ordinal = 0; ordinal < ordToDoc.length; ordinal++) {
-        const docId = ordToDoc[ordinal]
-        if (docId === undefined) continue
-        yield [docId, entryAt(open, ordinal)]
-      }
-    },
+    entries: () => entriesOf(open, ordToDoc),
 
-    *docIds(): IterableIterator<string> {
-      if (open === null) return
-      for (let ordinal = 0; ordinal < ordToDoc.length; ordinal++) {
-        const docId = ordToDoc[ordinal]
-        if (docId !== undefined) yield docId
-      }
-    },
+    docIds: () => docIdsOf(open, ordToDoc),
 
     clear(): void {
       forgetDocuments()
@@ -351,20 +366,7 @@ export function createVectorStore(options?: VectorStoreOptions): VectorStore {
       return open === null ? null : open.view.prepareQueryArena(query)
     },
 
-    exportSnapshot(): VectorStoreSnapshot {
-      const slots = ordToDoc.length
-      const dimension = open === null ? 0 : open.handles.dimension
-      const vectors = new Float32Array(slots * dimension)
-      const magnitudes = new Float64Array(slots)
-      const docIds: Array<string | null> = new Array(slots)
-      for (let ordinal = 0; ordinal < slots; ordinal++) {
-        docIds[ordinal] = ordToDoc[ordinal] ?? null
-        if (open === null || !readable(ordinal)) continue
-        vectors.set(open.view.vectorAt(ordinal), ordinal * dimension)
-        magnitudes[ordinal] = open.magnitudes[ordinal]
-      }
-      return { dimension, slots, vectors, magnitudes, docIds, replacedOrdinals: [...replacedOrdinals] }
-    },
+    exportSnapshot: () => snapshotOf(open, ordToDoc, replacedOrdinals),
 
     restoreSnapshot(snapshot: VectorStoreSnapshot): void {
       this.clear()

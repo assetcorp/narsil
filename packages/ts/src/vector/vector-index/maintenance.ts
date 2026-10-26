@@ -11,6 +11,7 @@ import {
   liveSize,
   type MaintenanceStatus,
   recalibrateFromStore,
+  releaseReplacedVectors,
   type VectorIndexState,
 } from './shared'
 import { dropSharedGraph } from './worker-copies'
@@ -32,7 +33,7 @@ export function compact(state: VectorIndexState): void {
     }
   }
 
-  for (const ordinal of state.store.releaseReplacedVectors()) state.osq?.removeOrdinal(ordinal)
+  releaseReplacedVectors(state)
   state.tombstones.clear()
 }
 

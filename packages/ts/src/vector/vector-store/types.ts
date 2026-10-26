@@ -81,6 +81,7 @@ export interface VectorStore extends VectorBuildReader {
   releaseReplacedVectors(): number[]
   /** Appends a document whose vector a checkpoint file holds at a fresh ordinal, holding no block slot for it. */
   insertCold(docId: string, magnitude: number, location: DiskLocation, partitionId?: number): number
+  insertReplaced(docId: string, vector: Float32Array, location?: DiskLocation): number
   /** Adds a checkpoint file the store reads released vectors from, and returns its index. */
   addVectorFile(path: string): number
   /** Reports whether a checkpoint file holds an ordinal's vector. */

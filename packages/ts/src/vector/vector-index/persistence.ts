@@ -31,6 +31,7 @@ export function partCodes(
   state: VectorIndexState,
   docIds: readonly string[],
   centroid: number[] | null,
+  tombstonedAt: ReadonlyMap<number, number>,
 ): VectorIndexCodes | null {
   const quantizer = state.osq
   const layout = state.store.handles.codeLayout
@@ -44,7 +45,9 @@ export function partCodes(
   }
   const records = new Uint8Array(docIds.length * layout.slotStride)
   for (let i = 0; i < docIds.length; i++) {
-    const record = recordFor(state, quantizer, docIds[i])
+    const tombstoned = tombstonedAt.get(i)
+    const record =
+      tombstoned === undefined ? recordFor(state, quantizer, docIds[i]) : quantizer.recordAtOrdinal(tombstoned)
     if (record !== undefined) records.set(record, i * layout.slotStride)
   }
   return { bits: quantizer.bits, centroid, records }

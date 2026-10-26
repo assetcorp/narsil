@@ -4,17 +4,9 @@ import { adjacencySlots, createNode, layerArray, layerBase, replaceNeighbors } f
 import { MAX_LAYER_CAP } from './constants'
 import { GRAPH_ENTRY_POINT, GRAPH_NODE_COUNT, GRAPH_TOP_LAYER } from './handles'
 import { resetGraph } from './mutation'
-import { graphToSave, NO_NUMBER } from './saved-graph'
-import {
-  ensureCapacity,
-  entryPointOf,
-  type HNSWGraphState,
-  isTombstoned,
-  maxConns,
-  nodeMaxLayer,
-  topLayerOf,
-} from './shared'
+import { ensureCapacity, entryPointOf, type HNSWGraphState, maxConns, nodeMaxLayer, topLayerOf } from './shared'
 
+const NO_NUMBER = -1
 const NO_ORDINAL = -1
 const NO_LAYER = -1
 const BYTES_PER_VALUE = 4
@@ -57,7 +49,7 @@ function valuesOf(bytes: Uint8Array): Uint32Array {
 }
 
 function savedTopLayer(state: HNSWGraphState, ordinal: number): number {
-  if (ordinal === NO_ORDINAL || isTombstoned(state, ordinal)) return NO_LAYER
+  if (ordinal === NO_ORDINAL) return NO_LAYER
   return Math.min(nodeMaxLayer(state, ordinal), MAX_LAYER_CAP)
 }
 
@@ -111,12 +103,11 @@ function serializePart(
 }
 
 export function serializeNumberedGraphParts(
-  liveState: HNSWGraphState,
+  state: HNSWGraphState,
   numberOfOrdinal: Int32Array,
   ordinalOfNumber: Int32Array,
   partSize: number,
 ): NumberedHnswGraph[] {
-  const state = graphToSave(liveState, numberOfOrdinal)
   const slots = adjacencySlots(state.adjacency)
   const topLayers = new Int8Array(ordinalOfNumber.length).fill(-1)
   for (let number = 0; number < ordinalOfNumber.length; number++) {
@@ -142,6 +133,30 @@ export function serializeNumberedGraphParts(
     parts.push({ ...header, ...serializePart(state, numbers, start, end) })
   }
   return parts
+}
+
+export function graphWithoutNodes(
+  part: NumberedHnswGraph,
+  firstNumber: number,
+  numbers: ReadonlySet<number>,
+): NumberedHnswGraph {
+  const values = valuesOf(part.neighbours)
+  const levels = part.levels.slice()
+  const kept = new Uint32Array(values.length)
+  let cursor = 0
+  let length = 0
+  for (let at = 0; at < part.levels.length; at++) {
+    const start = cursor
+    for (let layer = 0; layer < part.levels[at]; layer++) cursor += values[cursor] + 1
+    if (numbers.has(firstNumber + at)) {
+      levels[at] = 0
+      continue
+    }
+    kept.set(values.subarray(start, cursor), length)
+    length += cursor - start
+  }
+  const entryPoint = part.entryPoint !== null && numbers.has(part.entryPoint) ? null : part.entryPoint
+  return { ...part, entryPoint, levels, neighbours: littleEndianBytesOf(kept.subarray(0, length)) }
 }
 
 function endsInsideAList(): never {

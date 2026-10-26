@@ -87,7 +87,7 @@ export interface VectorIndex {
   planCheckpoint(listedKeys: readonly string[] | null, rewritesGraph?: boolean): VectorCheckpointPlan
   /** Records the files of a checkpoint whose manifest is durable, so that the next plan writes the vectors that arrive after it and no others. */
   recordCheckpoint(plan: VectorCheckpointPlan, written: readonly WrittenVectorFile[]): void
-  /** Empties the field and returns a reader that takes a checkpoint's vector files one at a time, in manifest order, and its graph last. A field kept on disk reads its vectors from the files where the checkpoint holds a graph or enough vectors for one. */
+  /** Empties the field and returns a reader that takes a checkpoint's vector files one at a time, in manifest order, after the graph that `shape` carries. A field kept on disk reads its vectors from the files where the checkpoint holds a graph or enough vectors for one, and a dead vector that the graph holds a node for comes back as a tombstone. */
   restoreCheckpoint(shape: CheckpointRestoreShape): VectorCheckpointRestore
   /** Lists the paths of the vector files that the field still reads vectors from. */
   vectorFilesInUse(): string[]

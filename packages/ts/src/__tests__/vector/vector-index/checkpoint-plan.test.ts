@@ -35,8 +35,8 @@ function createWriter(index: VectorIndex) {
       })
       const written = []
       for (let i = 0; i < plan.newFiles; i++) {
-        const { payload, ordinals } = plan.readNewFile(i)
-        const file = { id: nextId, key: `file-${nextId}`, count: payload.docIds.length, dead: null, payload }
+        const { payload, ordinals, dead } = plan.readNewFile(i)
+        const file = { id: nextId, key: `file-${nextId}`, count: payload.docIds.length, dead, payload }
         nextId += 1
         files.push(file)
         written.push({ id: file.id, key: file.key, ordinals })
@@ -56,9 +56,13 @@ function restoreInto(target: VectorIndex, checkpoint: Checkpoint): void {
       if (file.dead === null || ((file.dead[i >> 3] >> (i & 7)) & 1) === 0) liveVectors += 1
     }
   }
-  const restore = target.restoreCheckpoint({ liveVectors, holdsGraph: checkpoint.graph !== null })
+  const restore = target.restoreCheckpoint({
+    liveVectors,
+    holdsGraph: checkpoint.graph !== null,
+    graph: checkpoint.graph,
+  })
   for (const file of checkpoint.files) restore.addFile({ ...file, location: null })
-  restore.finish(checkpoint.graph)
+  restore.finish()
 }
 
 function deadPositions(file: ListedFile): number[] {
@@ -192,6 +196,33 @@ describe('the vector files a checkpoint plans for a field', () => {
     expect(file.payload.docIds).toEqual(['doc0', 'doc1', 'doc2'])
     expect([...bytesToVectors(file.payload.vectors).subarray(DIM, 2 * DIM)]).toEqual(new Array(DIM).fill(0))
     expect([...file.ordinals]).toEqual([0, -1, 2])
+  })
+
+  it('saves no graph node for a vector that compaction releases between the plan and the read', async () => {
+    insertRange(0, 40)
+    await buildGraph(index)
+    index.remove('doc5')
+    const plan = index.planCheckpoint(null)
+    index.remove('doc9')
+    index.compact()
+
+    const { payload, dead } = plan.readNewFile(0)
+    const graph = plan.graphParts === null ? null : assembleGraphParts(plan.graphParts)
+    const restored = createVectorIndex('embedding', DIM, { threshold: 5, quantization: 'none' }, { enabled: false })
+    restoreInto(restored, {
+      files: [{ id: 0, key: 'file-0', count: payload.docIds.length, dead, payload }],
+      graph,
+      wrote: ['file-0'],
+    })
+
+    expect(graph).not.toBeNull()
+    expect(restored.size).toBe(38)
+    expect(restored.maintenanceStatus()).toMatchObject({ graphCount: 1, bufferSize: 0, tombstoneRatio: 0 })
+    const query = normalizedVector(DIM, 21)
+    expect(restored.search(query, 5, { metric: 'cosine', minSimilarity: 0 }).results.map(hit => hit.docId)).toEqual(
+      index.search(query, 5, { metric: 'cosine', minSimilarity: 0 }).results.map(hit => hit.docId),
+    )
+    restored.dispose()
   })
 
   it('restores the vectors, the dead marks, and the graph into a field that answers the same search', async () => {
