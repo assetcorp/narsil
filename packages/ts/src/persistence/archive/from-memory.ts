@@ -55,7 +55,7 @@ function partitionVectorPlan(vectorIndex: VectorIndex, docIds: readonly string[]
       codes: null,
       vectors: vectorsToBytes(packed),
     }
-    files.push({ payload, ordinals: new Int32Array(slice.length) })
+    files.push({ payload, ordinals: new Int32Array(slice.length), dead: null })
   }
   return {
     unchanged: false,

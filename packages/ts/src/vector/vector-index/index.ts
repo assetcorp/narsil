@@ -23,7 +23,7 @@ import {
 } from './maintenance'
 import type { VectorIndexPayload } from './payload'
 import { deserialize as deserializeOp } from './persistence'
-import { fetchedOutcome, search as searchOp, searchWithFilter } from './search'
+import { fetchedOutcome, search as searchOp, searchWithFilter, withBufferedVectors } from './search'
 import {
   assignStorePartitions,
   filterForOptions,
@@ -87,7 +87,7 @@ export interface VectorIndex {
   planCheckpoint(listedKeys: readonly string[] | null, rewritesGraph?: boolean): VectorCheckpointPlan
   /** Records the files of a checkpoint whose manifest is durable, so that the next plan writes the vectors that arrive after it and no others. */
   recordCheckpoint(plan: VectorCheckpointPlan, written: readonly WrittenVectorFile[]): void
-  /** Empties the field and returns a reader that takes a checkpoint's vector files one at a time, in manifest order, and its graph last. A field kept on disk reads its vectors from the files where the checkpoint holds a graph or enough vectors for one. */
+  /** Empties the field and returns a reader that takes a checkpoint's vector files one at a time, in manifest order, after the graph that `shape` carries. A field kept on disk reads its vectors from the files where the checkpoint holds a graph or enough vectors for one, and a dead vector that the graph holds a node for comes back as a tombstone. */
   restoreCheckpoint(shape: CheckpointRestoreShape): VectorCheckpointRestore
   /** Lists the paths of the vector files that the field still reads vectors from. */
   vectorFilesInUse(): string[]
@@ -218,11 +218,14 @@ export function createVectorIndex(
     }
     noteWrite(state)
     state.tombstones.delete(docId)
-    state.store.insert(docId, vector, partitionId)
+    const graphHoldsPrevious =
+      previous !== undefined &&
+      ((state.hnsw?.holdsNode(previous) ?? false) || (state.freshGraph?.holdsNode(previous) ?? false))
+    state.store.insert(docId, vector, partitionId, graphHoldsPrevious)
     if (previous !== undefined) {
       state.hnsw?.markTombstoneOrdinal(previous)
       state.freshGraph?.markTombstoneOrdinal(previous)
-      state.osq?.removeOrdinal(previous)
+      if (!graphHoldsPrevious) state.osq?.removeOrdinal(previous)
     }
     state.buffer.add(docId)
     state.pendingLocations.delete(docId)
@@ -305,10 +308,12 @@ export function createVectorIndex(
       efSearch: options.efSearch,
       oversample: options.oversample,
     })
-    if (viaWorkerCopy !== null) return fetchedOutcome(state, viaWorkerCopy, options.minSimilarity, filter)
-
     if (confined && state.revision !== filterRevision) {
       filter = filterForOptions(state, options)
+    }
+    if (viaWorkerCopy !== null) {
+      const results = withBufferedVectors(state, query, k, options, filter, viaWorkerCopy)
+      return fetchedOutcome(state, results, options.minSimilarity, filter)
     }
     return searchWithFilter(state, query, k, options, filter)
   }

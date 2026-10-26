@@ -37,7 +37,7 @@ export function searchLayer(
   ef: number,
   layer: number,
   metric: VectorMetric,
-  skipTombstones: boolean,
+  excludeTombstones: boolean,
   distFn: ((ord: number) => number) | undefined,
   results: DistanceList,
 ): void {
@@ -58,10 +58,10 @@ export function searchLayer(
     if (state.visited[epOrd] === stamp) continue
     state.visited[epOrd] = stamp
     if (!nodeExists(state, epOrd)) continue
-    if (skipTombstones && isTombstoned(state, epOrd)) continue
     const dist = getDistance(epOrd)
     if (dist === Number.POSITIVE_INFINITY) continue
     pushHeap(frontier, epOrd, dist)
+    if (excludeTombstones && isTombstoned(state, epOrd)) continue
     pushHeap(found, epOrd, dist)
     if (found.size > ef) {
       popHeap(found)
@@ -71,7 +71,7 @@ export function searchLayer(
   if (found.size > 0) furthestDist = found.distances[0]
 
   while (popHeap(frontier)) {
-    if (frontier.topDistance > furthestDist) break
+    if (frontier.topDistance > furthestDist && found.size >= ef) break
 
     const count = readNeighborsLocked(state, frontier.topOrd, layer)
     for (let i = 0; i < count; i++) {
@@ -80,8 +80,6 @@ export function searchLayer(
       if (state.visited[neighborOrd] === stamp) continue
       state.visited[neighborOrd] = stamp
 
-      if (skipTombstones && isTombstoned(state, neighborOrd)) continue
-
       if (!nodeExists(state, neighborOrd)) continue
 
       const dist = getDistance(neighborOrd)
@@ -89,6 +87,7 @@ export function searchLayer(
 
       if (dist < furthestDist || found.size < ef) {
         pushHeap(frontier, neighborOrd, dist)
+        if (excludeTombstones && isTombstoned(state, neighborOrd)) continue
         pushHeap(found, neighborOrd, dist)
         if (found.size > ef) {
           popHeap(found)

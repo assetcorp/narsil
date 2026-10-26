@@ -108,13 +108,19 @@ export function writeVector(store: OpenStore, ordinal: number, vector: Float32Ar
   store.magnitudes[ordinal] = magnitude(vector)
 }
 
-export function blockFullyCold(store: OpenStore, blockIndex: number, documents: OrdinalDocuments): boolean {
+export function blockFullyCold(
+  store: OpenStore,
+  blockIndex: number,
+  documents: OrdinalDocuments,
+  replacedOrdinals: ReadonlySet<number>,
+): boolean {
   const capacity = store.handles.layout.capacity
   const slots = Atomics.load(store.handles.header, STORE_SLOTS)
   const end = Math.min(slots, (blockIndex + 1) * capacity)
   if (end < (blockIndex + 1) * capacity) return false
   for (let ordinal = blockIndex * capacity; ordinal < end; ordinal++) {
-    if (documents[ordinal] !== undefined && store.diskFile[ordinal] === IN_MEMORY) return false
+    const held = documents[ordinal] !== undefined || replacedOrdinals.has(ordinal)
+    if (held && store.diskFile[ordinal] === IN_MEMORY) return false
   }
   return true
 }
@@ -129,10 +135,15 @@ export function fileHoldsSameBytes(store: OpenStore, ordinal: number, location: 
   return true
 }
 
-export function forgetUnreferencedFiles(store: OpenStore, documents: OrdinalDocuments): number {
+export function forgetUnreferencedFiles(
+  store: OpenStore,
+  documents: OrdinalDocuments,
+  replacedOrdinals: ReadonlySet<number>,
+): number {
   const referenced = new Set<number>()
   for (let ordinal = 0; ordinal < documents.length; ordinal++) {
-    if (documents[ordinal] !== undefined && store.diskFile[ordinal] !== IN_MEMORY) {
+    const held = documents[ordinal] !== undefined || replacedOrdinals.has(ordinal)
+    if (held && store.diskFile[ordinal] !== IN_MEMORY) {
       referenced.add(store.diskFile[ordinal])
     }
   }
