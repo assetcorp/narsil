@@ -41,12 +41,17 @@ export async function startNodeProcess(options: {
   etcdEndpoint: string
   keyPrefix: string
   heapMegabytes: number
+  inFlightWriteFraction?: number
 }): Promise<NodeProcess> {
   const httpPort = await freePort()
   const transportPort = await freePort()
+  const { NARSIL_IN_FLIGHT_WRITE_FRACTION: _inherited, ...parentEnv } = process.env
   const child: ChildProcess = spawn(process.execPath, [`--max-old-space-size=${options.heapMegabytes}`, NODE_SCRIPT], {
     env: {
-      ...process.env,
+      ...parentEnv,
+      ...(options.inFlightWriteFraction === undefined
+        ? {}
+        : { NARSIL_IN_FLIGHT_WRITE_FRACTION: String(options.inFlightWriteFraction) }),
       NODE_OPTIONS: '',
       NARSIL_NODE_ID: options.nodeId,
       NARSIL_HTTP_PORT: String(httpPort),

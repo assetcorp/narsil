@@ -340,6 +340,10 @@ describe('a cluster node checks its memory thresholds', () => {
     [{ blockWritesAbove: 0.6, resumeWritesBelow: 0.6 }],
     [{ blockWritesAbove: 0.5, resumeWritesBelow: 0.9 }],
     [{ blockWritesAbove: '0.9' as unknown as number }],
+    [{ inFlightWriteFraction: 0 }],
+    [{ inFlightWriteFraction: 1.5 }],
+    [{ inFlightWriteFraction: Number.POSITIVE_INFINITY }],
+    [{ inFlightWriteFraction: '0.02' as unknown as number }],
   ])('refuses %o with CONFIG_INVALID', async memory => {
     const coordinator = createInMemoryCoordinator()
     const transport = createInMemoryTransport('node-a', createInMemoryNetwork())
