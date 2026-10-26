@@ -441,6 +441,15 @@ Six rules govern the block:
 
 The block lifts once no node that holds a copy of the index reports `full`.
 
+A node must also bound the bytes of the inserts and updates in progress on it, because a burst of writes can exhaust the node's memory between two of its measurements:
+
+```text
+when inFlightBytes + requestBytes > inFlightFraction * heapLimitBytes:
+  refuse the write with CLUSTER_WRITE_BLOCKED
+```
+
+`requestBytes` is the node's estimate of the bytes in the documents of the write. That estimate must rise with the length of every string and binary value in those documents, including the fields of a partial update. `inFlightBytes` is the sum of `requestBytes` over every insert and update that is in progress on the node, from the moment that the node accepts it until it completes, whether a client sends it to the node or another node forwards it there. A node that receives a write from a client and holds the primary for it must count that write once. The in-flight fraction is 0.02 by default. An implementation must let each node set it to any value above 0 and at most 1. A node must leave removes and replicated entries out of `inFlightBytes` and accept them whatever the value of `inFlightBytes`.
+
 ---
 
 ## Controller Election
@@ -738,4 +747,4 @@ A community adapter, whether it targets Consul, ZooKeeper, FoundationDB, or Redi
 |------|-------------|
 | `NODE_NOT_READY` | A message reached a node that has yet to finish joining the cluster. |
 | `NODE_NOT_CONTROLLER` | A controller message reached a node that holds no controller lease. |
-| `CLUSTER_WRITE_BLOCKED` | An insert or an update targets an index that has a copy on a node reporting `full`. |
+| `CLUSTER_WRITE_BLOCKED` | An insert or an update targets an index that has a copy on a node reporting `full`, or a node refuses it under its bound on the bytes of writes in progress. |
