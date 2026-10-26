@@ -97,6 +97,13 @@ export function createVectorStore(options?: VectorStoreOptions): VectorStore {
     replacedOrdinals.add(ordinal)
   }
 
+  function restoreReplacedVector(store: OpenStore, ordinal: number, vector: Float32Array): void {
+    store.diskFile[ordinal] = IN_MEMORY
+    writeVector(store, ordinal, vector)
+    Atomics.store(store.present, ordinal, 1)
+    replacedOrdinals.add(ordinal)
+  }
+
   function claimOrdinal(store: OpenStore, docId: string, cold: boolean, partitionId?: number): number {
     const ordinal = Atomics.load(store.handles.header, STORE_SLOTS)
     ensureOrdinal(store, ordinal, cold)
@@ -351,13 +358,12 @@ export function createVectorStore(options?: VectorStoreOptions): VectorStore {
       const magnitudes = new Float64Array(slots)
       const docIds: Array<string | null> = new Array(slots)
       for (let ordinal = 0; ordinal < slots; ordinal++) {
-        const docId = ordToDoc[ordinal]
-        docIds[ordinal] = docId ?? null
-        if (docId === undefined || open === null) continue
+        docIds[ordinal] = ordToDoc[ordinal] ?? null
+        if (open === null || !readable(ordinal)) continue
         vectors.set(open.view.vectorAt(ordinal), ordinal * dimension)
         magnitudes[ordinal] = open.magnitudes[ordinal]
       }
-      return { dimension, slots, vectors, magnitudes, docIds }
+      return { dimension, slots, vectors, magnitudes, docIds, replacedOrdinals: [...replacedOrdinals] }
     },
 
     restoreSnapshot(snapshot: VectorStoreSnapshot): void {
@@ -365,6 +371,7 @@ export function createVectorStore(options?: VectorStoreOptions): VectorStore {
       if (snapshot.dimension === 0 || snapshot.slots === 0) return
       if (open === null) open = openHandles(snapshot.dimension, codeBits, blockBytes)
       const store = open
+      const replaced = new Set(snapshot.replacedOrdinals)
       for (let ordinal = 0; ordinal < snapshot.slots; ordinal++) {
         const docId = snapshot.docIds[ordinal]
         const vector = snapshot.vectors.subarray(ordinal * snapshot.dimension, (ordinal + 1) * snapshot.dimension)
@@ -372,6 +379,7 @@ export function createVectorStore(options?: VectorStoreOptions): VectorStore {
           ensureOrdinal(store, ordinal, false)
           ordToDoc[ordinal] = undefined
           store.partitions[ordinal] = NO_PARTITION
+          if (replaced.has(ordinal)) restoreReplacedVector(store, ordinal, vector)
           Atomics.store(store.handles.header, STORE_SLOTS, ordinal + 1)
           continue
         }

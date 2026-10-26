@@ -140,9 +140,7 @@ function captureCloneCodes(state: VectorIndexState): WorkerCopyCodes | null {
   const records = new Uint8Array(slots * layout.slotStride)
   const present = new Uint8Array(slots)
   for (let ordinal = 0; ordinal < slots; ordinal++) {
-    const docId = state.store.docIdForOrdinal(ordinal)
-    if (docId === undefined) continue
-    const record = quantizer.recordOf(docId)
+    const record = quantizer.recordAtOrdinal(ordinal)
     if (record === undefined) continue
     records.set(record, ordinal * layout.slotStride)
     present[ordinal] = 1

@@ -93,8 +93,18 @@ export function createOsqQuantizer(
       return view.recordAt(ordinal)
     },
 
+    recordAtOrdinal(ordinal) {
+      const view = shared()
+      if (view === null || !view.holdsOrdinal(ordinal)) return undefined
+      return view.recordAt(ordinal)
+    },
+
     restoreRecord(docId, record) {
       requireShared().restoreRecord(ordinalOf(docId), record)
+    },
+
+    restoreRecordAtOrdinal(ordinal, record) {
+      requireShared().restoreRecord(ordinal, record)
     },
 
     restoreCentroid(centroid) {
