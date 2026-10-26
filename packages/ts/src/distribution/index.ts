@@ -1,5 +1,6 @@
 export type {
   ClusterControllerConfig,
+  ClusterMemoryConfig,
   ClusterNamespace,
   ClusterNode,
   ClusterNodeConfig,
@@ -21,8 +22,10 @@ export type {
   AllocationEvent,
   AllocationTable,
   ClusterCoordinator,
+  IndexPartitionBytes,
   NodeCapacity,
   NodeEvent,
+  NodeMemoryReport,
   NodeRegistration,
   NodeRole,
   PartitionAssignment,

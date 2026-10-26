@@ -8,7 +8,6 @@ import type { DataNodeHandle } from '../cluster/node-lifecycle/types'
 import type { NodeRegistration, NodeRole } from '../coordinator/types'
 import { openSnapshotSpoolDirectory } from '../replication/snapshot-spool'
 import type { ReplicationLog } from '../replication/types'
-import type { TransportMessage } from '../transport/types'
 import { cleanupRemovedPartition } from './bootstrap-cleanup'
 import {
   clearBootstrapSyncIndex,
@@ -22,8 +21,9 @@ import { createAllocationErrorForwarder, createErrorForwarder } from './error-fo
 import { type ClusterLocalEngine, createClusterLocalEngine } from './local-engine'
 import { adoptClusterIdentity, orphanedIndexError, reconcileLocalIndexes } from './local-index-reconcile'
 import { seedReopenedPrimaryLogs } from './local-replication'
+import { createNodeMemoryReporting } from './memory/node-memory'
 import { createDataNodeHandler } from './message-handler'
-import { resolveNodeTargets as resolveTargetsForNode, sendToNode as sendMessageToNode } from './node-messaging'
+import { resolveNodeTargets as resolveTargetsForNode } from './node-messaging'
 import { createClusterNodeOperations } from './node-operations'
 import { createClusterOperationTracker } from './operation-tracker'
 import { type PrimaryPartitionDeps, preparePrimaryPartition } from './primary-partition'
@@ -89,10 +89,6 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
     throw err
   })
 
-  function replicationLogKey(indexName: string, partitionId: number): string {
-    return buildReplicationLogKey(indexName, partitionId)
-  }
-
   function getReplicationLog(indexName: string, partitionId: number): ReplicationLog {
     return readReplicationLog(replicationLogs, indexName, partitionId, config.replication)
   }
@@ -103,10 +99,6 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
 
   async function resolveNodeTargets(targetNodeId: string): Promise<string[]> {
     return resolveTargetsForNode(config, targetNodeId)
-  }
-
-  async function _sendToNode(targetNodeId: string, message: TransportMessage): Promise<TransportMessage> {
-    return sendMessageToNode(config, targetNodeId, message)
   }
 
   const forwardOnError = createErrorForwarder(config.onError)
@@ -120,6 +112,14 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
     startedAt: new Date().toISOString(),
     version: SPEC_VERSION,
   }
+
+  const memoryReporting = createNodeMemoryReporting({
+    registration,
+    engine,
+    coordinator: config.coordinator,
+    config: config.memory,
+    onFullChange: () => lifecycle.renewRegistration(),
+  })
 
   const hasDataRole = roles.includes('data')
   const hasControllerRole = roles.includes('controller')
@@ -136,6 +136,7 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
     catchUp: createCatchUpState(),
     resolveNodeTargets,
     waitForActiveReplicas: config.replication?.waitForActiveReplicas,
+    memoryView: memoryReporting.view,
   }
 
   const orphanedIndexes = new Set<string>()
@@ -191,6 +192,7 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
 
   const lifecycle: DataNodeHandle = createDataNodeLifecycle({
     registration,
+    currentRegistration: memoryReporting.currentRegistration,
     coordinator: config.coordinator,
     transport: config.transport,
     knownIndexNames: [],
@@ -206,7 +208,7 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
     retainedPartitionIds: (indexName: string) => engine.heldPartitionsOf(indexName) ?? [],
     onRemovePartition: (indexName: string, partitionId: number) => {
       clearBootstrapSyncIndex(bootstrapSyncState, indexName, partitionId)
-      replicationLogs.delete(replicationLogKey(indexName, partitionId))
+      replicationLogs.delete(buildReplicationLogKey(indexName, partitionId))
       trackHeldPartitionWrite(engine.forgetHeldPartition(indexName, partitionId))
       void cleanupRemovedPartition(indexName, partitionId, {
         engine,
@@ -306,6 +308,7 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
         unregisterNotReadyHandler = await config.transport.listen(createNotReadyHandler(nodeId))
       }
 
+      await memoryReporting.start()
       await lifecycle.join()
 
       if (controller !== null) {
@@ -351,6 +354,7 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
       }
 
       await lifecycle.shutdown()
+      memoryReporting.stop()
 
       if (controller !== null) {
         await controller.shutdown()
@@ -376,6 +380,7 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
 
 export type {
   ClusterControllerConfig,
+  ClusterMemoryConfig,
   ClusterNamespace,
   ClusterNode,
   ClusterNodeConfig,

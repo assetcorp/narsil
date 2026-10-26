@@ -3,6 +3,7 @@ import { ErrorCodes, NarsilError } from '../../../errors'
 import type { BatchResult } from '../../../types/results'
 import type { AnyDocument, InsertOptions } from '../../../types/schema'
 import type { AllocationTable, PartitionAssignment } from '../../coordinator/types'
+import { requireWritableIndex } from '../memory/write-block'
 import { routableAllocation } from '../routable-allocation'
 import { requireAssignedPrimary, resolvePartitionId } from './assignment'
 import { type ForwardBatchItem, forwardBatchToRemote } from './forward-batch'
@@ -92,6 +93,7 @@ export async function routeInsertBatch(
   if (table === null) {
     return deps.engine.insertBatch(indexName, documents, options)
   }
+  requireWritableIndex(table, deps.memoryView)
 
   const withIds = documents.map(doc => ({
     doc,
@@ -178,6 +180,7 @@ export async function routeUpdateBatch(
   if (table === null) {
     return deps.engine.updateBatch(indexName, updates)
   }
+  requireWritableIndex(table, deps.memoryView)
 
   const routed = routeBatchItems(table, indexName, updates, update => update.docId, deps.nodeId)
   const succeeded: string[] = []

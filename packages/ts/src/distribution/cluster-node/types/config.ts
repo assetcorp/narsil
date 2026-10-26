@@ -47,8 +47,35 @@ export interface ClusterNodeConfig {
   query?: ClusterQueryConfig
   /** These settings govern how this node stands for controller election, and anything you leave out keeps its default. */
   controller?: ClusterControllerConfig
+  /** These settings govern when this node's memory blocks writes across the cluster, and anything you leave out keeps its default. */
+  memory?: ClusterMemoryConfig
   /** This receives the failures the node reports while running on its own, away from any call you made. */
   onError?: (error: Error) => void
+}
+
+/**
+ * When this node counts as full, which is what makes the cluster refuse inserts and updates to every index with a
+ * copy on the node.
+ *
+ * The node measures its process memory against the container's limit, or the host's memory where no container sets
+ * one, and its main thread's heap against the heap limit, once a second. It counts as full once either figure passes
+ * `blockWritesAbove` of its limit, and as clear again once both fall below `resumeWritesBelow`, so that a node hovering
+ * at the threshold does not switch writes on and off. Removes and searches go through while the node is full, which is
+ * how an operator frees memory.
+ *
+ * @public
+ */
+export interface ClusterMemoryConfig {
+  /**
+   * The node counts as full once either memory figure passes this fraction of its limit. It must lie above
+   * `resumeWritesBelow` and at most 1, and it is 0.9 where you name none.
+   */
+  blockWritesAbove?: number
+  /**
+   * A full node counts as clear again once both memory figures fall below this fraction of their limits. It must lie
+   * above 0 and below `blockWritesAbove`, and it is 0.8 where you name none.
+   */
+  resumeWritesBelow?: number
 }
 
 /**

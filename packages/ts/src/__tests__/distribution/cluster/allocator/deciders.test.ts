@@ -132,16 +132,19 @@ describe('colocationDecider', () => {
 })
 
 describe('createCapacityDecider', () => {
-  const capacityDecider = createCapacityDecider(50 * 1024 * 1024)
+  const capacityDecider = createCapacityDecider()
 
   it('rejects when adding another partition would exceed memory', () => {
     const nodeMap = new Map([['node-a', makeNode('node-a', 100 * 1024 * 1024)]])
-    const counts = new Map([['node-a', 2]])
+    const allAssignments = new Map([
+      [1, makeAssignment('node-a', [])],
+      [2, makeAssignment('node-a', [])],
+    ])
 
     const verdict = capacityDecider.canAllocate(
       buildContext({
         candidateNodeId: 'node-a',
-        nodeAssignmentCounts: counts,
+        allAssignments,
         nodes: nodeMap,
       }),
     )
@@ -150,12 +153,12 @@ describe('createCapacityDecider', () => {
 
   it('allows when within memory budget', () => {
     const nodeMap = new Map([['node-a', makeNode('node-a', 200 * 1024 * 1024)]])
-    const counts = new Map([['node-a', 1]])
+    const allAssignments = new Map([[1, makeAssignment('node-a', [])]])
 
     const verdict = capacityDecider.canAllocate(
       buildContext({
         candidateNodeId: 'node-a',
-        nodeAssignmentCounts: counts,
+        allAssignments,
         nodes: nodeMap,
       }),
     )
