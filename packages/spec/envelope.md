@@ -327,7 +327,7 @@ Byte `i` of `levels` in part `p` describes vector `p * 16384 + i`, and it must h
 
 At the largest `m` of 512 and the highest top layer of 32 that [HNSW](algorithms.md#hnsw-hierarchical-navigable-small-world) allows, the lists of one node fill at most 69,765 bytes, so a part of 16,384 vectors holds at most about 1.14 GB and stays inside the [file size](#file-size) limit.
 
-A reader must skip a neighbour that is a dead vector, a vector with no node, or a node whose top layer lies below the layer of the list. A reader must reject a payload whose `neighbours` ends inside a list with `PERSISTENCE_LOAD_FAILED`. Where `entryPoint` is nil or is a vector with no node, a reader must start every search from a node on the graph's highest layer.
+A reader must skip a neighbour that is a vector with no node or a node whose top layer lies below the layer of the list. A reader must reject a payload whose `neighbours` ends inside a list with `PERSISTENCE_LOAD_FAILED`. Where `entryPoint` is nil or is a vector with no node, a reader must start every search from a node on the graph's highest layer.
 
 ---
 

@@ -137,7 +137,7 @@ describe('HNSWIndex serialize / deserialize', () => {
     expect(restored.entryPointId).not.toBeNull()
   })
 
-  it('serialization excludes tombstoned nodes', () => {
+  it('serialization keeps tombstoned nodes that hold a number', () => {
     for (let i = 0; i < 10; i++) {
       insertVec(store, index, `doc${i}`, seededVector(DIM, i + 1))
     }
@@ -146,10 +146,10 @@ describe('HNSWIndex serialize / deserialize', () => {
     index.markTombstone('doc1')
 
     const serialized = graphView(index, store)
-    expect(serialized.nodes).toHaveLength(8)
+    expect(serialized.nodes).toHaveLength(10)
 
     const serializedIds = new Set(serialized.nodes.map(([id]) => id))
-    expect(serializedIds.has('doc0')).toBe(false)
-    expect(serializedIds.has('doc1')).toBe(false)
+    expect(serializedIds.has('doc0')).toBe(true)
+    expect(serializedIds.has('doc1')).toBe(true)
   })
 })

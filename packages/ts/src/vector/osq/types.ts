@@ -38,8 +38,12 @@ export interface OsqQuantizer extends QuantizerBuildReader {
   getLevels(docId: string): Uint8Array | undefined
   /** Reads a document's record in place, or undefined where it holds none. */
   recordOf(docId: string): Uint8Array | undefined
+  /** Reads the record at an ordinal in place, or undefined where it holds none. */
+  recordAtOrdinal(ordinal: number): Uint8Array | undefined
   /** Copies a record written elsewhere into a stored document's slot. */
   restoreRecord(docId: string, record: Uint8Array): void
+  /** Copies a record written elsewhere into the slot of an ordinal whose vector the store holds. */
+  restoreRecordAtOrdinal(ordinal: number, record: Uint8Array): void
   restoreCentroid(centroid: Float32Array): void
   /** Calibrates again over the stored vectors of the given ordinals and rewrites the record of each. */
   recalibrate(ordinals: Int32Array): void

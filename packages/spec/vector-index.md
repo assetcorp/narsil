@@ -60,11 +60,11 @@ MaintenanceStatus {
 
 ### insert(docId, vector)
 
-`insert` stores a vector under `docId`, in place of any vector that `docId` holds. The vector must hold exactly `dimension` elements, and an implementation must reject any other length with `VECTOR_DIMENSION_MISMATCH`.
+`insert` stores a vector under `docId`, in place of any vector that `docId` holds. Where `docId` already holds a vector, an implementation must remove that vector as `remove` does. The new vector must hold exactly `dimension` elements, and an implementation must reject any other length with `VECTOR_DIMENSION_MISMATCH`.
 
 ### remove(docId)
 
-`remove` marks the vector of `docId` as removed. An implementation may remove the vector at once, or it may leave a tombstone, which keeps the vector in the graph while every search skips it. `compact` takes a tombstoned vector out of the graph. `remove` does nothing for a `docId` that the index lacks.
+`remove` marks the vector of `docId` as removed. An implementation may remove the vector at once, or it may leave a tombstone, which keeps the vector in the graph. A search must pass through a tombstoned vector to reach its neighbours, but it must not return that vector. `compact` takes a tombstoned vector out of the graph. `remove` does nothing for a `docId` that the index lacks.
 
 ### search(query, k, options)
 
@@ -358,7 +358,7 @@ Candidate {
 
 Before an implementation calls `place`, it must store the vector of `ordinal`, call `quantise` for that ordinal while `calibrated` is 1, and grow every region of the graph until the region can hold the node and its lists. `place` must return `needsRoom` and leave the graph unchanged where `slotCapacity` or `upperCapacity` leaves no room for the node, so that the implementation can grow the region and call `place` again.
 
-`remove` must store 1 in the `tombstones` entry of `ordinal` and raise `tombstoneCount` by 1. It must also move the entry point to the live node with the highest top layer where `ordinal` is the entry point.
+`remove` must store 1 in the `tombstones` entry of `ordinal` and raise `tombstoneCount` by 1. It must leave the entry point unchanged, because a search passes through a tombstoned node.
 
 `compact` must take every tombstoned node out of the graph, as [Removal](algorithms.md#removal) defines, and lower `nodeCount` and `tombstoneCount` by 1 for each node. An implementation must hold the graph alone, as [Locks](#locks) defines, while it calls `compact`, and `compact` must change the graph only while `graphLock` holds -1.
 
@@ -413,7 +413,7 @@ Store {
   centroid:     float32[dimension]
   vectors:      List<VectorBlock or nil>
   magnitudes:   float64 per ordinal
-  present:      uint8 per ordinal     (1 where the ordinal holds a live vector)
+  present:      uint8 per ordinal     (1 where the ordinal holds a live or tombstoned vector)
   vectorFile:   int32 per ordinal     (the position in files of the file that holds the vector, or -1 where a block holds it)
   vectorOffset: uint32 per ordinal    (the byte offset of the vector in that file)
   files:        List<string>          (the path of each vector file)

@@ -8,7 +8,13 @@ import { type SavedVectorFile, signatureOf } from './checkpoint-plan'
 import { isDead, NO_LIVE_VECTOR_AT_POSITION } from './dead-bits'
 import { readsFromDisk, type VectorPartFile } from './disk'
 import { bytesToVectors, type VectorIndexCodes } from './payload'
-import { adoptGraph, emptyFieldBeforeRestore, recalibrateFromStore, type VectorIndexState } from './shared'
+import {
+  adoptGraph,
+  emptyFieldBeforeRestore,
+  recalibrateFromStore,
+  releaseReplacedVectors,
+  type VectorIndexState,
+} from './shared'
 
 const CALIBRATION_NEVER_CURRENT = -1
 
@@ -23,11 +29,12 @@ export interface LoadedVectorFile {
 export interface CheckpointRestoreShape {
   liveVectors: number
   holdsGraph: boolean
+  graph: VectorGraphParts | null
 }
 
 export interface VectorCheckpointRestore {
   addFile(file: LoadedVectorFile): void
-  finish(graph: VectorGraphParts | null): void
+  finish(): void
 }
 
 function sameCentroid(a: readonly number[], b: readonly number[]): boolean {
@@ -58,9 +65,15 @@ function insertNodesOfLaterGraph(
   }
 }
 
-function restoreGraph(state: VectorIndexState, payload: VectorGraphParts | null, ordinalOfNumber: Int32Array): void {
+function restoreGraph(
+  state: VectorIndexState,
+  payload: VectorGraphParts | null,
+  ordinalOfNumber: Int32Array,
+  tombstoned: ReadonlySet<number>,
+): void {
   const first = payload?.graphs[0]?.parts[0]
   if (payload === null || first === undefined) {
+    releaseReplacedVectors(state)
     bufferEveryVectorOutsideTheGraph(state)
     return
   }
@@ -71,11 +84,13 @@ function restoreGraph(state: VectorIndexState, payload: VectorGraphParts | null,
     state.osq ?? undefined,
   )
   graph.deserializeNumbered(payload.graphs[0], ordinalOfNumber)
+  for (const ordinal of tombstoned) graph.markTombstoneOrdinal(ordinal)
   adoptGraph(state, graph)
   for (const later of payload.graphs.slice(1)) insertNodesOfLaterGraph(state, graph, later, ordinalOfNumber)
   bufferEveryVectorOutsideTheGraph(state)
   if (state.buffer.size <= graph.size) return
   adoptGraph(state, null)
+  releaseReplacedVectors(state)
   state.buffer.clear()
   bufferEveryVectorOutsideTheGraph(state)
 }
@@ -88,6 +103,9 @@ export function beginCheckpointRestore(
   const cold = readsFromDisk(state) && (shape.holdsGraph || shape.liveVectors >= state.promotionThreshold)
   const restoresCodes = state.osq !== null && osqBitsOf(state.quantizationMode) !== null && shape.holdsGraph
   const files: Array<{ id: number; key: string; ordinals: Int32Array; coded: boolean }> = []
+  const graphNodes = shape.graph?.graphs[0] ?? null
+  const tombstoned = new Set<number>()
+  let nextNumber = 0
   let sharedCodes: VectorIndexCodes | null = null
   let codesAgree = true
 
@@ -110,8 +128,14 @@ export function beginCheckpointRestore(
     const stride = layout.slotStride
     for (let i = 0; i < ordinals.length; i++) {
       if (ordinals[i] === NO_LIVE_VECTOR_AT_POSITION) continue
-      quantizer.restoreRecord(payload.docIds[i], codes.records.subarray(i * stride, (i + 1) * stride))
+      const record = codes.records.subarray(i * stride, (i + 1) * stride)
+      if (tombstoned.has(ordinals[i])) quantizer.restoreRecordAtOrdinal(ordinals[i], record)
+      else quantizer.restoreRecord(payload.docIds[i], record)
     }
+  }
+
+  function graphHoldsNodeFor(number: number): boolean {
+    return graphNodes !== null && topLayerInParts(graphNodes, number) >= 0
   }
 
   function addFile(file: LoadedVectorFile): void {
@@ -128,13 +152,21 @@ export function beginCheckpointRestore(
     const vectors = bytesToVectors(payload.vectors)
     const fileIndex = onDisk && cold ? state.store.addVectorFile(location.path) : null
     const ordinals = new Int32Array(payload.docIds.length).fill(NO_LIVE_VECTOR_AT_POSITION)
+    const firstNumber = nextNumber
+    nextNumber += payload.docIds.length
     for (let i = 0; i < payload.docIds.length; i++) {
-      if (isDead(file.dead, i)) continue
+      const dead = isDead(file.dead, i)
+      if (dead && !graphHoldsNodeFor(firstNumber + i)) continue
       const docId = payload.docIds[i]
-      const replaced = state.store.getOrdinal(docId)
-      if (replaced !== undefined) state.osq?.removeOrdinal(replaced)
       const vector = vectors.subarray(i * dimension, (i + 1) * dimension)
       const offset = onDisk ? location.vectorsOffset + i * dimension * 4 : 0
+      if (dead) {
+        ordinals[i] = state.store.insertReplaced(docId, vector, fileIndex === null ? undefined : { fileIndex, offset })
+        tombstoned.add(ordinals[i])
+        continue
+      }
+      const replaced = state.store.getOrdinal(docId)
+      if (replaced !== undefined) state.osq?.removeOrdinal(replaced)
       if (fileIndex !== null) {
         ordinals[i] = state.store.insertCold(docId, magnitude(vector), { fileIndex, offset })
         continue
@@ -146,9 +178,12 @@ export function beginCheckpointRestore(
     files.push({ id: file.id, key: file.key, ordinals, coded: payload.codes !== null })
   }
 
-  function finish(graph: VectorGraphParts | null): void {
+  function finish(): void {
     const codesRestored = restoresCodes && codesAgree && sharedCodes !== null
-    if (restoresCodes && !codesRestored) recalibrateFromStore(state)
+    if (restoresCodes && !codesRestored) {
+      recalibrateFromStore(state)
+      for (const ordinal of tombstoned) state.osq?.writeCodes(ordinal)
+    }
 
     let total = 0
     for (const file of files) total += file.ordinals.length
@@ -156,12 +191,15 @@ export function beginCheckpointRestore(
     let number = 0
     for (const file of files) {
       for (let i = 0; i < file.ordinals.length; i++) {
-        if (!state.store.holdsOrdinal(file.ordinals[i])) file.ordinals[i] = NO_LIVE_VECTOR_AT_POSITION
+        const ordinal = file.ordinals[i]
+        if (!state.store.holdsOrdinal(ordinal) && !tombstoned.has(ordinal)) {
+          file.ordinals[i] = NO_LIVE_VECTOR_AT_POSITION
+        }
       }
       ordinalOfNumber.set(file.ordinals, number)
       number += file.ordinals.length
     }
-    restoreGraph(state, graph, ordinalOfNumber)
+    restoreGraph(state, shape.graph, ordinalOfNumber, tombstoned)
 
     const current = signatureOf(state).calibration
     const codedUnder = codesRestored && current !== null ? current : CALIBRATION_NEVER_CURRENT

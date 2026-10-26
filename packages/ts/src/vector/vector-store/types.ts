@@ -30,6 +30,8 @@ export interface VectorStoreSnapshot {
   magnitudes: Float64Array
   /** This names the document at each ordinal, and it reads `null` where the ordinal holds none. */
   docIds: Array<string | null>
+  /** This lists the ordinals of vectors that an update replaced, and the store keeps each of those vectors so that a search can pass through it until compaction. */
+  replacedOrdinals: number[]
 }
 
 export interface VectorSearchReader {
@@ -73,10 +75,13 @@ export interface VectorStore extends VectorBuildReader {
   readonly handles: SharedVectorStoreHandles
   /** This thread reads the store through this view. */
   readonly view: SharedVectorStoreView
-  /** Appends the vector at a fresh ordinal, retiring the ordinal the document held before, and returns the new one. */
-  insert(docId: string, vector: Float32Array, partitionId?: number): number
+  /** Appends the vector at a fresh ordinal and returns the new one. Where `keepsReplacedVector` is true, the store keeps the document's previous vector readable at its old ordinal until {@link VectorStore.releaseReplacedVectors} runs; otherwise the store retires the old ordinal at once. */
+  insert(docId: string, vector: Float32Array, partitionId?: number, keepsReplacedVector?: boolean): number
+  readonly replacedVectorCount: number
+  releaseReplacedVectors(): number[]
   /** Appends a document whose vector a checkpoint file holds at a fresh ordinal, holding no block slot for it. */
   insertCold(docId: string, magnitude: number, location: DiskLocation, partitionId?: number): number
+  insertReplaced(docId: string, vector: Float32Array, location?: DiskLocation): number
   /** Adds a checkpoint file the store reads released vectors from, and returns its index. */
   addVectorFile(path: string): number
   /** Reports whether a checkpoint file holds an ordinal's vector. */
