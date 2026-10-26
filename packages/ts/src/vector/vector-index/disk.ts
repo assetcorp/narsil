@@ -1,4 +1,5 @@
 import { DISK_ADOPTION_YIELD_INTERVAL } from './constants'
+import { isDead } from './dead-bits'
 import { type VectorIndexState, yieldToEventLoop } from './shared'
 import { resendSharedHandles } from './worker-copies'
 
@@ -9,6 +10,7 @@ export interface VectorPartFile {
 
 export interface VectorFileLayout extends VectorPartFile {
   docIds: string[]
+  dead: Uint8Array | null
 }
 
 export interface PendingVectorLocation {
@@ -30,6 +32,7 @@ function* locationsOf(
 ): IterableIterator<[string, PendingVectorLocation]> {
   const stride = state.dimension * 4
   for (let i = 0; i < layout.docIds.length; i++) {
+    if (isDead(layout.dead, i)) continue
     yield [layout.docIds[i], { path: layout.path, offset: layout.vectorsOffset + i * stride }]
   }
 }

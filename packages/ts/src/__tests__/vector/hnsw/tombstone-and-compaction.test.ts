@@ -33,16 +33,22 @@ describe('HNSWIndex tombstone removal', () => {
     expect(index.entryPointId).toBeNull()
   })
 
-  it('removes the entry point and elects a new one', () => {
+  it('keeps a tombstoned entry point until compaction and answers from the live nodes through it', () => {
     for (let i = 0; i < 10; i++) {
       insertVec(store, index, `doc${i}`, seededVector(DIM, i + 1))
     }
 
     const oldEntry = index.entryPointId
-    expect(oldEntry).not.toBeNull()
-    removeVec(store, index, oldEntry as string)
+    if (oldEntry === null) throw new Error('the graph holds no entry point')
+    index.markTombstone(oldEntry)
 
     expect(index.size).toBe(9)
+    expect(index.entryPointId).toBe(oldEntry)
+    const found = index.search(seededVector(DIM, 1), 10, 'cosine', -1).map(hit => hit.docId)
+    expect(found).toHaveLength(9)
+    expect(found).not.toContain(oldEntry)
+
+    index.compactTombstones()
     expect(index.entryPointId).not.toBeNull()
     expect(index.entryPointId).not.toBe(oldEntry)
   })

@@ -126,7 +126,7 @@ describe('a vector field kept on disk', () => {
     const file = await writePart(directory, part)
     index.insert('doc1', normalizedVector(DIM, 50))
     const before = index.search(query, 3, { metric: 'cosine', minSimilarity: 0 }).results
-    await index.adoptDiskLayout({ ...file, docIds: part.docIds })
+    await index.adoptDiskLayout({ ...file, docIds: part.docIds, dead: null })
 
     expect(index.search(query, 3, { metric: 'cosine', minSimilarity: 0 }).results.map(hit => hit.docId)).toEqual(
       before.map(hit => hit.docId),
@@ -181,7 +181,7 @@ describe('a vector field kept on disk', () => {
     const part = fieldView(index)
     const file = await writePart(directory, part)
 
-    await index.adoptDiskLayout({ ...file, docIds: part.docIds })
+    await index.adoptDiskLayout({ ...file, docIds: part.docIds, dead: null })
 
     const view = heldHandle === undefined ? undefined : threads.viewOf(heldHandle)
     expect(view?.store.isCold(view.ordinalOf('doc5') ?? -1)).toBe(true)
@@ -199,7 +199,7 @@ describe('a vector field kept on disk', () => {
     source.dispose()
 
     const index = createVectorIndex('embedding', DIM, config, { enabled: false }, 'docs', 'disk')
-    const restore = index.restoreCheckpoint({ liveVectors: part.docIds.length, holdsGraph: false })
+    const restore = index.restoreCheckpoint({ liveVectors: part.docIds.length, holdsGraph: false, graph: null })
     restore.addFile({
       id: 0,
       key: 'part-0',
@@ -214,8 +214,8 @@ describe('a vector field kept on disk', () => {
       dead: null,
       location: file,
     })
-    restore.finish(null)
-    await index.adoptDiskLayout({ ...file, docIds: part.docIds })
+    restore.finish()
+    await index.adoptDiskLayout({ ...file, docIds: part.docIds, dead: null })
     const replaced = new Float32Array([0.5, 0.25, 0.125, 0.0625])
     await overwriteVector(file, part, 'doc1', replaced)
     expect(Array.from(index.getVector('doc1') ?? [])).toEqual(Array.from(normalizedVector(DIM, 2)))

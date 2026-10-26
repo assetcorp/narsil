@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createVectorIndex, type VectorIndex } from '../../../vector/vector-index'
-import { DIM, normalizedVector, vectorFromValues } from './fixtures'
+import { fieldView } from './field-view'
+import { DIM, normalizedVector, seededVector, vectorFromValues } from './fixtures'
 
 describe('VectorIndex compact', () => {
   let index: VectorIndex
@@ -117,6 +118,30 @@ describe('VectorIndex optimize', () => {
       expect(sqIndex.maintenanceStatus().bufferSize).toBe(0)
     } finally {
       sqIndex.dispose()
+    }
+  })
+})
+
+describe('VectorIndex optimize on a 4-bit field with no graph yet', () => {
+  it('saves a 4-bit record for every vector when it builds the first graph', async () => {
+    const dimension = 64
+    const vectorCount = 2000
+    const fourBitRecordBytes = 32 + 16
+    const index = createVectorIndex(
+      'embedding',
+      dimension,
+      { threshold: vectorCount + 1, quantization: 'osq4' },
+      { enabled: false },
+    )
+    try {
+      for (let i = 0; i < vectorCount; i++) index.insert(`doc${i}`, seededVector(dimension, i + 1))
+
+      await index.optimize()
+
+      expect(index.maintenanceStatus().graphCount).toBe(1)
+      expect(fieldView(index).codes?.records.byteLength).toBe(vectorCount * fourBitRecordBytes)
+    } finally {
+      index.dispose()
     }
   })
 })
