@@ -27,9 +27,9 @@
       "browser": "./src/persistence/durability/node-fs.browser.ts",
       "default": "./src/persistence/durability/node-fs.ts"
     },
-    "#platform/recorded-process": {
-      "browser": "./src/persistence/durability/recorded-process.browser.ts",
-      "default": "./src/persistence/durability/recorded-process.ts"
+    "#platform/lock-holder": {
+      "browser": "./src/persistence/durability/lock-holder.browser.ts",
+      "default": "./src/persistence/durability/lock-holder.ts"
     },
     "#platform/node-worker": {
       "browser": "./src/workers/node-worker.browser.ts",

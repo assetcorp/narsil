@@ -1,6 +1,6 @@
 import { type FsModule, getFs, getPath } from '#platform/durable-fs'
+import { recordedProcessIsAlive, removeStaleLock } from '#platform/lock-holder'
 import { nodeThreadId } from '#platform/node-worker'
-import { recordedProcessRuns } from '#platform/recorded-process'
 import { ErrorCodes, NarsilError } from '../../errors'
 import {
   DIRECTORY_LOCK_ATTEMPTS,
@@ -71,7 +71,7 @@ async function settledHolder(fs: FsModule, lockPath: string): Promise<LockReadin
 }
 
 async function holderIsLive(holder: LockHolder, self: LockHolder): Promise<boolean> {
-  if (holder.pid !== self.pid) return recordedProcessRuns(holder.pid, holder.processStartMs)
+  if (holder.pid !== self.pid) return recordedProcessIsAlive(holder.pid, holder.processStartMs)
   if (holder.processStartMs === null || self.processStartMs === null) return false
   return Math.abs(holder.processStartMs - self.processStartMs) <= DIRECTORY_LOCK_PROCESS_START_TOLERANCE_MS
 }
@@ -130,10 +130,9 @@ async function acquire(fs: FsModule, root: string, lockPath: string, self: LockH
     if (typeof holder === 'object' && (await holderIsLive(holder, self))) {
       throw heldElsewhere(root, holderLabel(holder, self), lockPath)
     }
-    if (!sameReading(holder, await readHolder(fs, lockPath))) continue
-    await fs.unlink(lockPath).catch(err => {
-      if (errnoOf(err) !== 'ENOENT') throw err
-    })
+    await removeStaleLock(lockPath, `${draftPath}.aside`, text =>
+      sameReading(holder, parseHolder(text) ?? 'unreadable'),
+    )
   }
   throw heldElsewhere(root, 'another process', lockPath)
 }

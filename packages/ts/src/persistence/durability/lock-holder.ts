@@ -1,4 +1,5 @@
-import { readFile } from 'node:fs/promises'
+import { readFileSync } from 'node:fs'
+import { readFile, rename, unlink, writeFile } from 'node:fs/promises'
 import { endianness } from 'node:os'
 import { DIRECTORY_LOCK_PROCESS_START_TOLERANCE_MS } from './constants'
 
@@ -18,6 +19,10 @@ const EXITED_STATES = new Set(['Z', 'X', 'x'])
 const UNKNOWN: ProcessIdentity = { kind: 'unknown' }
 
 let clockTicksPerSecond: Promise<number | null> | null = null
+
+function errnoOf(err: unknown): string | undefined {
+  return (err as NodeJS.ErrnoException | null)?.code
+}
 
 function readWord(bytes: Buffer, offset: number, wordBytes: number, littleEndian: boolean): bigint {
   if (wordBytes === 8) return littleEndian ? bytes.readBigUInt64LE(offset) : bytes.readBigUInt64BE(offset)
@@ -58,19 +63,17 @@ function signalReaches(pid: number): boolean {
     process.kill(pid, 0)
     return true
   } catch (err) {
-    return (err as NodeJS.ErrnoException | null)?.code === 'EPERM'
+    return errnoOf(err) === 'EPERM'
   }
 }
 
 async function identifyProcess(pid: number): Promise<ProcessIdentity> {
   try {
-    const [status, stat, uptime, ticksPerSecond] = await Promise.all([
+    const [status, stat, ticksPerSecond] = await Promise.all([
       readFile(`/proc/${pid}/status`, 'utf8'),
       readFile(`/proc/${pid}/stat`, 'utf8'),
-      readFile('/proc/uptime', 'utf8'),
       clockTicks(),
     ])
-    const nowMs = Date.now()
     const leader = threadGroupOf(status)
     if (leader === null) return UNKNOWN
     if (leader !== pid) return { kind: 'thread' }
@@ -83,7 +86,8 @@ async function identifyProcess(pid: number): Promise<ProcessIdentity> {
     const state = statField(fieldsAfterCommand, STAT_STATE_FIELD)
     if (state !== undefined && EXITED_STATES.has(state)) return { kind: 'exited' }
     const startTicks = Number(statField(fieldsAfterCommand, STAT_START_TIME_FIELD))
-    const uptimeSeconds = Number.parseFloat(uptime)
+    const uptimeSeconds = Number.parseFloat(readFileSync('/proc/uptime', 'utf8'))
+    const nowMs = Date.now()
     if (ticksPerSecond === null || !Number.isFinite(startTicks) || !Number.isFinite(uptimeSeconds)) return UNKNOWN
     return { kind: 'process', startMs: Math.round(nowMs - (uptimeSeconds - startTicks / ticksPerSecond) * 1000) }
   } catch {
@@ -91,10 +95,34 @@ async function identifyProcess(pid: number): Promise<ProcessIdentity> {
   }
 }
 
-export async function recordedProcessRuns(pid: number, recordedStartMs: number | null): Promise<boolean> {
+export async function recordedProcessIsAlive(pid: number, recordedStartMs: number | null): Promise<boolean> {
   if (!signalReaches(pid)) return false
   const found = await identifyProcess(pid)
   if (found.kind === 'thread' || found.kind === 'exited') return false
-  if (found.kind === 'unknown' || recordedStartMs === null) return true
+  if (found.kind === 'unknown') return signalReaches(pid)
+  if (recordedStartMs === null) return true
   return found.startMs - recordedStartMs <= DIRECTORY_LOCK_PROCESS_START_TOLERANCE_MS
+}
+
+export async function removeStaleLock(
+  lockPath: string,
+  asidePath: string,
+  isStale: (text: string) => boolean,
+): Promise<void> {
+  try {
+    await rename(lockPath, asidePath)
+  } catch (err) {
+    if (errnoOf(err) === 'ENOENT') return
+    throw err
+  }
+  try {
+    const moved = await readFile(asidePath, 'utf8')
+    if (!isStale(moved)) {
+      await writeFile(lockPath, moved, { flag: 'wx' }).catch(err => {
+        if (errnoOf(err) !== 'EEXIST') throw err
+      })
+    }
+  } finally {
+    await unlink(asidePath).catch(() => undefined)
+  }
 }
