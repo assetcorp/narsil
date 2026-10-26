@@ -173,24 +173,31 @@ describe('a rebuild switches every partition to the new terms at one point', () 
     expect(await engine.countDocuments('prose')).toBe(corpus.size)
   }, 120_000)
 
-  it('abandons the rebuild of an index dropped while it runs and leaves a new one under that name current', async () => {
+  it('finishes the rebuild before a drop that arrives while it runs and leaves a new index under that name current', async () => {
     const corpus = new OracleCorpus()
     await writeUnderFirstRevision(corpus)
-    engine = await createNarsil({
+    const opened = await createNarsil({
       durability: { directory: dir },
       analysis: { rebuild: 'manual' },
       workers: { enabled: false },
     })
+    engine = opened
+    const started = new Promise<void>(resolve => {
+      opened.on('analysisRebuild', payload => {
+        if (payload.status === 'started') resolve()
+      })
+    })
 
-    const rebuilding = engine.rebuildAnalysis('prose')
-    await engine.dropIndex('prose')
+    const rebuilding = opened.rebuildAnalysis('prose')
+    await started
+    await opened.dropIndex('prose')
     await rebuilding
-    await engine.createIndex('prose', { schema: SCHEMA, language: LANGUAGE })
-    await engine.insert('prose', { title: 'jumping river' }, 'fresh')
+    await opened.createIndex('prose', { schema: SCHEMA, language: LANGUAGE })
+    await opened.insert('prose', { title: 'jumping river' }, 'fresh')
 
-    const result = await engine.query('prose', { term: 'jump' })
+    const result = await opened.query('prose', { term: 'jump' })
     expect(result.analysisStale).toBeUndefined()
     expect(result.hits.map(hit => hit.id)).toEqual(['fresh'])
-    expect(engine.listIndexes()[0].analysisStale).toBeUndefined()
+    expect(opened.listIndexes()[0].analysisStale).toBeUndefined()
   }, 120_000)
 })
