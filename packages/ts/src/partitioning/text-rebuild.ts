@@ -61,10 +61,10 @@ function applyWrittenDocuments(pass: RebuildPass, built: PartitionIndex[]): void
 }
 
 async function rebuildOnce(pass: RebuildPass): Promise<boolean> {
-  const sources = pass.manager.getAllPartitions()
+  const partitionCount = pass.manager.partitionCount
   const built: PartitionIndex[] = []
-  for (let partitionId = 0; partitionId < sources.length; partitionId++) {
-    const partition = await buildPartition(pass, sources[partitionId], partitionId)
+  for (let partitionId = 0; partitionId < partitionCount; partitionId++) {
+    const partition = await buildPartition(pass, pass.manager.getPartition(partitionId), partitionId)
     if (partition === null) return false
     built.push(partition)
     pass.hooks.onPartitionBuilt(built.length)
