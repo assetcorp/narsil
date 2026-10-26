@@ -73,8 +73,10 @@ export interface VectorStore extends VectorBuildReader {
   readonly handles: SharedVectorStoreHandles
   /** This thread reads the store through this view. */
   readonly view: SharedVectorStoreView
-  /** Appends the vector at a fresh ordinal, retiring the ordinal the document held before, and returns the new one. */
-  insert(docId: string, vector: Float32Array, partitionId?: number): number
+  /** Appends the vector at a fresh ordinal and returns the new one. Where `keepsReplacedVector` is true, the ordinal that the document held before keeps its vector readable until {@link VectorStore.releaseReplacedVectors}; otherwise the store retires that ordinal at once. */
+  insert(docId: string, vector: Float32Array, partitionId?: number, keepsReplacedVector?: boolean): number
+  readonly replacedVectorCount: number
+  releaseReplacedVectors(): number[]
   /** Appends a document whose vector a checkpoint file holds at a fresh ordinal, holding no block slot for it. */
   insertCold(docId: string, magnitude: number, location: DiskLocation, partitionId?: number): number
   /** Adds a checkpoint file the store reads released vectors from, and returns its index. */
