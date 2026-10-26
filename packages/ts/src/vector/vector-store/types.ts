@@ -30,7 +30,7 @@ export interface VectorStoreSnapshot {
   magnitudes: Float64Array
   /** This names the document at each ordinal, and it reads `null` where the ordinal holds none. */
   docIds: Array<string | null>
-  /** This lists each ordinal that a document left when it took a new vector, whose vector the graph passes through until compaction. */
+  /** This lists the ordinals of vectors that an update replaced, and the store keeps each of those vectors so that a search can pass through it until compaction. */
   replacedOrdinals: number[]
 }
 
@@ -75,7 +75,7 @@ export interface VectorStore extends VectorBuildReader {
   readonly handles: SharedVectorStoreHandles
   /** This thread reads the store through this view. */
   readonly view: SharedVectorStoreView
-  /** Appends the vector at a fresh ordinal and returns the new one. Where `keepsReplacedVector` is true, the ordinal that the document held before keeps its vector readable until {@link VectorStore.releaseReplacedVectors}; otherwise the store retires that ordinal at once. */
+  /** Appends the vector at a fresh ordinal and returns the new one. Where `keepsReplacedVector` is true, the store keeps the document's previous vector readable at its old ordinal until {@link VectorStore.releaseReplacedVectors} runs; otherwise the store retires the old ordinal at once. */
   insert(docId: string, vector: Float32Array, partitionId?: number, keepsReplacedVector?: boolean): number
   readonly replacedVectorCount: number
   releaseReplacedVectors(): number[]
