@@ -51,6 +51,7 @@ vi.mock('../../../vector/search-pool', async importOriginal => {
 })
 
 const MOVED_AGAIN_COUNT = 60
+const BUFFERED_COUNT = 5
 
 const workerPaths = [
   { path: 'shared memory', clones: false },
@@ -142,6 +143,40 @@ describe.each(backends)('a vector search past re-embedded vectors on worker copi
         movedAgain,
         queries.map(query => query.map(value => value - FAR_AWAY_OFFSET)),
       )
+      const answeredAfter = clones ? poolUse.clonedSearches : poolUse.sharedSearches
+      expect(answeredAfter - answeredBefore).toBe(QUERY_COUNT)
+    },
+  )
+
+  it.skipIf(!available).each(workerPaths)(
+    'answers from worker copies over $path with re-embedded documents that the graph has not taken in yet',
+    async ({ clones }) => {
+      if (clones) vi.stubGlobal('SharedArrayBuffer', undefined)
+      const opened = await openPapers({ workers: { count: 2 } }, large.documents)
+      narsil = opened
+      await untilWorkersAnswer(opened, clones)
+
+      const movedFew = large.kept.slice(0, BUFFERED_COUNT).map(document => ({
+        id: document.id,
+        embedding: document.embedding.map(value => value - FAR_AWAY_OFFSET),
+      }))
+      const result = await opened.updateBatch(
+        'papers',
+        movedFew.map(document => ({ docId: document.id, document })),
+      )
+      expect(result.failed).toEqual([])
+      await untilWorkersAnswer(opened, clones)
+      expect(opened.vectorMaintenanceStatus('papers')[0]?.bufferSize).toBe(BUFFERED_COUNT)
+
+      const moved = new Set(movedFew.map(document => document.id))
+      const answeredBefore = clones ? poolUse.clonedSearches : poolUse.sharedSearches
+      for (const query of queries) {
+        const found = await search(
+          opened,
+          query.map(value => value - FAR_AWAY_OFFSET),
+        )
+        expect(found.hits.slice(0, BUFFERED_COUNT).filter(hit => moved.has(hit.id))).toHaveLength(BUFFERED_COUNT)
+      }
       const answeredAfter = clones ? poolUse.clonedSearches : poolUse.sharedSearches
       expect(answeredAfter - answeredBefore).toBe(QUERY_COUNT)
     },

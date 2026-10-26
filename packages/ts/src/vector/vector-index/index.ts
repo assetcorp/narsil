@@ -23,7 +23,7 @@ import {
 } from './maintenance'
 import type { VectorIndexPayload } from './payload'
 import { deserialize as deserializeOp } from './persistence'
-import { fetchedOutcome, search as searchOp, searchWithFilter } from './search'
+import { fetchedOutcome, search as searchOp, searchWithFilter, withBufferedVectors } from './search'
 import {
   assignStorePartitions,
   filterForOptions,
@@ -308,10 +308,12 @@ export function createVectorIndex(
       efSearch: options.efSearch,
       oversample: options.oversample,
     })
-    if (viaWorkerCopy !== null) return fetchedOutcome(state, viaWorkerCopy, options.minSimilarity, filter)
-
     if (confined && state.revision !== filterRevision) {
       filter = filterForOptions(state, options)
+    }
+    if (viaWorkerCopy !== null) {
+      const results = withBufferedVectors(state, query, k, options, filter, viaWorkerCopy)
+      return fetchedOutcome(state, results, options.minSimilarity, filter)
     }
     return searchWithFilter(state, query, k, options, filter)
   }
