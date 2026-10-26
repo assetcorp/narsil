@@ -1,5 +1,6 @@
 import { MAX_DOC_ID_LENGTH } from '../../engine/constants'
 import { MAX_FILE_BYTES } from '../../serialization/constants'
+import { graphWithoutNodes } from '../hnsw/numbered-graph'
 import { osqBitsOf } from '../osq'
 import { osqRecordBytes } from '../osq/record'
 import { STORE_CALIBRATION_GENERATION } from '../vector-store/handles'
@@ -47,6 +48,7 @@ export interface KeptVectorFile {
 export interface NewVectorFile {
   payload: VectorFilePayload
   ordinals: Int32Array
+  dead: Uint8Array | null
 }
 
 export interface VectorCheckpointPlan {
@@ -98,10 +100,18 @@ function isLive(state: VectorIndexState, ordinal: number): boolean {
   return docId !== undefined && !state.tombstones.has(docId)
 }
 
-function liveCountOf(state: VectorIndexState, file: SavedVectorFile): number {
-  let live = 0
-  for (let i = 0; i < file.ordinals.length; i++) if (isLive(state, file.ordinals[i])) live += 1
-  return live
+function isGraphTombstone(state: VectorIndexState, ordinal: number): boolean {
+  return ordinal !== NO_LIVE_VECTOR_AT_POSITION && state.hnsw !== null && state.hnsw.holdsTombstone(ordinal)
+}
+
+function isCarried(state: VectorIndexState, ordinal: number): boolean {
+  return isLive(state, ordinal) || isGraphTombstone(state, ordinal)
+}
+
+function carriedCountOf(state: VectorIndexState, file: SavedVectorFile): number {
+  let carried = 0
+  for (let i = 0; i < file.ordinals.length; i++) if (isCarried(state, file.ordinals[i])) carried += 1
+  return carried
 }
 
 function deadBitsOf(state: VectorIndexState, file: SavedVectorFile): Uint8Array | null {
@@ -112,32 +122,32 @@ function filesWorthKeeping(
   state: VectorIndexState,
   listed: readonly SavedVectorFile[],
   calibration: number | null,
-  liveCounts: number[],
+  carriedCounts: number[],
 ): SavedVectorFile[] {
   const kept: SavedVectorFile[] = []
   for (const file of listed) {
-    const live = liveCountOf(state, file)
-    const deadShare = file.ordinals.length === 0 ? 1 : 1 - live / file.ordinals.length
-    if (file.calibration !== calibration || deadShare > VECTOR_FILE_REPLACED_ABOVE_DEAD_SHARE) continue
+    const carried = carriedCountOf(state, file)
+    const deadWithoutNodeShare = file.ordinals.length === 0 ? 1 : 1 - carried / file.ordinals.length
+    if (file.calibration !== calibration || deadWithoutNodeShare > VECTOR_FILE_REPLACED_ABOVE_DEAD_SHARE) continue
     kept.push(file)
-    liveCounts.push(live)
+    carriedCounts.push(carried)
   }
   return kept
 }
 
 function absorbSmallerPartialFiles(
   kept: SavedVectorFile[],
-  liveCounts: number[],
+  carriedCounts: number[],
   vectorsToWrite: number,
   capacity: number,
 ): void {
   let pending = vectorsToWrite
   for (let index = kept.length - 1; index >= 0 && pending > 0; index--) {
     if (kept[index].ordinals.length >= capacity) continue
-    if (liveCounts[index] > pending) return
-    pending += liveCounts[index]
+    if (carriedCounts[index] > pending) return
+    pending += carriedCounts[index]
     kept.splice(index, 1)
-    liveCounts.splice(index, 1)
+    carriedCounts.splice(index, 1)
   }
 }
 
@@ -152,15 +162,16 @@ function ordinalsOutsideOf(state: VectorIndexState, kept: readonly SavedVectorFi
   }
   const outside: number[] = []
   for (let ordinal = 0; ordinal < slots; ordinal++) {
-    if (saved[ordinal] === 0 && isLive(state, ordinal)) outside.push(ordinal)
+    if (saved[ordinal] === 0 && isCarried(state, ordinal)) outside.push(ordinal)
   }
   return outside
 }
 
-function countOutside(state: VectorIndexState, liveCounts: readonly number[]): number {
+function countOutside(state: VectorIndexState, carriedCounts: readonly number[]): number {
   let held = 0
-  for (const live of liveCounts) held += live
-  return Math.max(0, state.store.size - state.tombstones.size - held)
+  for (const carried of carriedCounts) held += carried
+  const tombstonedNodes = state.hnsw?.tombstoneCount ?? 0
+  return Math.max(0, state.store.size - state.tombstones.size + tombstonedNodes - held)
 }
 
 interface VectorNumbers {
@@ -181,7 +192,7 @@ function numberEveryVector(
   for (const file of kept) {
     for (let i = 0; i < file.ordinals.length; i++, number++) {
       const ordinal = file.ordinals[i]
-      if (!isLive(state, ordinal)) continue
+      if (!isCarried(state, ordinal)) continue
       numberOfOrdinal[ordinal] = number
       ordinalOfNumber[number] = ordinal
     }
@@ -204,21 +215,45 @@ function graphPartsOf(state: VectorIndexState, numbers: VectorNumbers): VectorGr
   return parts.map(graph => ({ v: VECTOR_GRAPH_PART_PAYLOAD_VERSION, fieldName: state.fieldName, graphs: [graph] }))
 }
 
+function graphPartsWithoutNodes(
+  parts: readonly VectorGraphPartPayload[],
+  numbers: ReadonlySet<number>,
+): VectorGraphPartPayload[] {
+  return parts.map((part, index) => ({
+    ...part,
+    graphs: part.graphs.map(graph => graphWithoutNodes(graph, index * VECTOR_GRAPH_PART_VECTORS, numbers)),
+  }))
+}
+
+interface PlannedVector {
+  ordinal: number
+  docId: string
+  tombstoned: boolean
+}
+
+function plannedVectorOf(state: VectorIndexState, ordinal: number): PlannedVector {
+  const docId = state.store.docIdForOrdinal(ordinal) ?? state.store.view.docIdAt(ordinal) ?? ''
+  return { ordinal, docId, tombstoned: !isLive(state, ordinal) }
+}
+
 function readFile(
   state: VectorIndexState,
-  planned: readonly number[],
-  docIds: string[],
+  planned: readonly PlannedVector[],
   centroid: number[] | null,
 ): NewVectorFile {
   const dimension = state.dimension
   const vectors = new Float32Array(planned.length * dimension)
   const ordinals = new Int32Array(planned.length).fill(NO_LIVE_VECTOR_AT_POSITION)
+  const tombstonedAt = new Map<number, number>()
+  const docIds = planned.map(vector => vector.docId)
   for (let i = 0; i < planned.length; i++) {
-    const held = state.store.holdsOrdinal(planned[i]) ? planned[i] : state.store.getOrdinal(docIds[i])
+    const { ordinal, docId, tombstoned } = planned[i]
+    const held = tombstoned || state.store.holdsOrdinal(ordinal) ? ordinal : state.store.getOrdinal(docId)
     const entry = held === undefined ? undefined : state.store.entryForOrdinal(held)
     if (held === undefined || entry === undefined) continue
     vectors.set(entry.vector, i * dimension)
     ordinals[i] = held
+    if (tombstoned) tombstonedAt.set(i, held)
   }
   return {
     payload: {
@@ -226,10 +261,11 @@ function readFile(
       fieldName: state.fieldName,
       dimension,
       docIds,
-      codes: partCodes(state, docIds, centroid),
+      codes: partCodes(state, docIds, centroid, tombstonedAt),
       vectors: vectorsToBytes(vectors),
     },
     ordinals,
+    dead: deadBitsWhere(planned.length, i => planned[i].tombstoned || ordinals[i] === NO_LIVE_VECTOR_AT_POSITION),
   }
 }
 
@@ -243,15 +279,21 @@ export function planCheckpoint(
   const trusted = registryMatches(state, listedKeys)
 
   const capacity = fileCapacityOf(state)
-  const liveCounts: number[] = []
-  const keptFiles = filesWorthKeeping(state, trusted ? state.savedFiles : [], calibration, liveCounts)
-  absorbSmallerPartialFiles(keptFiles, liveCounts, countOutside(state, liveCounts), capacity)
+  const carriedCounts: number[] = []
+  const keptFiles = filesWorthKeeping(state, trusted ? state.savedFiles : [], calibration, carriedCounts)
+  absorbSmallerPartialFiles(keptFiles, carriedCounts, countOutside(state, carriedCounts), capacity)
   const written = ordinalsOutsideOf(state, keptFiles)
-  const writtenDocIds = written.map(ordinal => state.store.docIdForOrdinal(ordinal) ?? '')
+  const planned = written.map(ordinal => plannedVectorOf(state, ordinal))
   const centroid = codedCentroid(state)
   const listedBefore = trusted && listedKeys !== null
   const unchanged =
     !rewritesGraph && listedBefore && sameSignature(state.savedSignature, signature) && written.length === 0
+  let firstWrittenNumber = 0
+  for (const file of keptFiles) firstWrittenNumber += file.ordinals.length
+  const graphParts = unchanged ? null : graphPartsOf(state, numberEveryVector(state, keptFiles, written))
+  const vanished = new Set<number>()
+  let vanishedWhenStripped = 0
+  let graphPartsToWrite = graphParts
 
   return {
     unchanged,
@@ -263,12 +305,22 @@ export function planCheckpoint(
       dead: deadBitsOf(state, file),
     })),
     newFiles: Math.ceil(written.length / capacity),
-    graphParts: unchanged ? null : graphPartsOf(state, numberEveryVector(state, keptFiles, written)),
+    get graphParts() {
+      if (graphParts !== null && vanished.size !== vanishedWhenStripped) {
+        graphPartsToWrite = graphPartsWithoutNodes(graphParts, vanished)
+        vanishedWhenStripped = vanished.size
+      }
+      return graphPartsToWrite
+    },
     signature,
     readNewFile(index: number): NewVectorFile {
       const start = index * capacity
       const end = start + capacity
-      return readFile(state, written.slice(start, end), writtenDocIds.slice(start, end), centroid)
+      const file = readFile(state, planned.slice(start, end), centroid)
+      for (let i = 0; i < file.ordinals.length; i++) {
+        if (file.ordinals[i] === NO_LIVE_VECTOR_AT_POSITION) vanished.add(firstWrittenNumber + start + i)
+      }
+      return file
     },
   }
 }

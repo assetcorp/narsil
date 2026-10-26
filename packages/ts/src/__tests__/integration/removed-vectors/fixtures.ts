@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, expect } from 'vitest'
 import { createNarsil, type Narsil } from '../../../narsil'
 import type { NarsilConfig } from '../../../types/config'
-import type { AnyDocument, IndexConfig } from '../../../types/schema'
+import type { AnyDocument, IndexConfig, VectorQuantizationMode } from '../../../types/schema'
 import { loadNativeCore } from '../../../vector/native/loader'
 import { binaryBuilt, pointAtTheHostBinary, seededRandom } from '../../vector/native/fixtures'
 
@@ -17,14 +17,18 @@ export const FAR_AWAY_OFFSET = 20
 const RING_WIDTH = 10
 export const SETTLE_DEADLINE_MS = 20_000
 
-export const indexConfig: IndexConfig = {
-  schema: { embedding: `vector[${DIMENSION}]` },
-  vectorPromotion: {
-    threshold: 50,
-    quantization: 'none',
-    hnswConfig: { m: 8, efConstruction: 60, metric: 'euclidean' },
-  },
+export function indexConfigOf(quantization: VectorQuantizationMode): IndexConfig {
+  return {
+    schema: { embedding: `vector[${DIMENSION}]` },
+    vectorPromotion: {
+      threshold: 50,
+      quantization,
+      hnswConfig: { m: 8, efConstruction: 60, metric: 'euclidean' },
+    },
+  }
 }
+
+export const indexConfig = indexConfigOf('none')
 
 export type Paper = AnyDocument & {
   id: string
@@ -86,7 +90,7 @@ const ring = new Set<string>()
 for (const query of ringQueries) {
   for (const id of ranked(ringDocuments, query).slice(K, K + RING_WIDTH)) ring.add(id)
 }
-const outsideTheRing = ringDocuments.filter(document => !ring.has(document.id))
+export const outsideTheRing = ringDocuments.filter(document => !ring.has(document.id))
 
 export function search(narsil: Narsil, query: number[]) {
   return narsil.query('papers', {
@@ -131,6 +135,15 @@ export async function ringRecall(narsil: Narsil): Promise<number> {
   return found / (K * ringQueries.length)
 }
 
+export async function ringAnswers(narsil: Narsil): Promise<string[][]> {
+  const answers: string[][] = []
+  for (const query of ringQueries) {
+    const result = await search(narsil, query)
+    answers.push(result.hits.map(hit => hit.id))
+  }
+  return answers
+}
+
 export async function untilGraphSettled(narsil: Narsil): Promise<void> {
   const deadline = Date.now() + SETTLE_DEADLINE_MS
   while (
@@ -143,9 +156,13 @@ export async function untilGraphSettled(narsil: Narsil): Promise<void> {
   }
 }
 
-export async function openPapers(config: NarsilConfig, documents: Paper[]): Promise<Narsil> {
+export async function openPapers(
+  config: NarsilConfig,
+  documents: Paper[],
+  papersConfig: IndexConfig = indexConfig,
+): Promise<Narsil> {
   const narsil = await createNarsil(config)
-  await narsil.createIndex('papers', indexConfig)
+  await narsil.createIndex('papers', papersConfig)
   await narsil.insertBatch('papers', documents)
   await untilGraphSettled(narsil)
   return narsil
@@ -168,8 +185,11 @@ export async function removeChanged(narsil: Narsil, corpus: Corpus): Promise<voi
   expect(result.failed).toEqual([])
 }
 
-export async function openPapersWithoutTheRing(config: NarsilConfig): Promise<Narsil> {
-  const narsil = await openPapers(config, ringDocuments)
+export async function openPapersWithoutTheRing(
+  config: NarsilConfig,
+  papersConfig: IndexConfig = indexConfig,
+): Promise<Narsil> {
+  const narsil = await openPapers(config, ringDocuments, papersConfig)
   const result = await narsil.removeBatch('papers', [...ring])
   expect(result.failed).toEqual([])
   return narsil

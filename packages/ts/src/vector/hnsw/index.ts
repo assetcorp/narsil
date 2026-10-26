@@ -66,6 +66,7 @@ export interface HNSWIndex {
   markTombstone(docId: string): void
   markTombstoneOrdinal(ordinal: number): void
   holdsNode(ordinal: number): boolean
+  holdsTombstone(ordinal: number): boolean
   has(docId: string): boolean
   isTombstoned(docId: string): boolean
   search(
@@ -212,6 +213,7 @@ export function createHNSWIndex(
     },
     markTombstoneOrdinal: (ordinal: number) => markTombstoneOp(state, ordinal),
     holdsNode: (ordinal: number) => hasNode(state.adjacency, ordinal),
+    holdsTombstone: (ordinal: number) => hasNode(state.adjacency, ordinal) && isTombstoned(state, ordinal),
     has: (docId: string) => {
       const ord = store.getOrdinal(docId)
       return ord !== undefined && hasNode(state.adjacency, ord) && !isTombstoned(state, ord)

@@ -104,7 +104,7 @@ export async function moveVectorsToAFile(index: VectorIndex, directory: string, 
   const bytes = new Uint8Array(BYTES_BEFORE_THE_VECTORS + part.vectors.byteLength)
   bytes.set(part.vectors, BYTES_BEFORE_THE_VECTORS)
   await writeFile(path, bytes)
-  await index.adoptDiskLayout({ path, vectorsOffset: BYTES_BEFORE_THE_VECTORS, docIds: part.docIds })
+  await index.adoptDiskLayout({ path, vectorsOffset: BYTES_BEFORE_THE_VECTORS, docIds: part.docIds, dead: null })
   return path
 }
 

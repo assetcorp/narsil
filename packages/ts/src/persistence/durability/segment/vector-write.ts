@@ -2,7 +2,6 @@ import { encode } from '@msgpack/msgpack'
 import { ErrorCodes, NarsilError } from '../../../errors'
 import { packChecksummedEnvelope } from '../../../serialization/envelope-file'
 import type { VectorCheckpointPlan, WrittenVectorFile } from '../../../vector/vector-index'
-import { deadBitsWhere, NO_LIVE_VECTOR_AT_POSITION } from '../../../vector/vector-index/dead-bits'
 import { graphPartKey, vectorFileKey } from './layout'
 import type { FileRef, VectorFieldRef, VectorFileRef } from './manifest'
 import type { CheckpointStore } from './store'
@@ -13,6 +12,7 @@ export interface VectorCheckpointLayout {
   fieldPath: string
   key: string
   docIds: string[]
+  dead: Uint8Array | null
   vectorsOffset: number
 }
 
@@ -88,7 +88,7 @@ async function writeField(
   const files: VectorFileRef[] = plan.kept.map(kept => keptFileRef(input, prior, kept))
   const written: WrittenVectorFile[] = []
   for (let index = 0; index < plan.newFiles; index++) {
-    const { payload, ordinals } = plan.readNewFile(index)
+    const { payload, ordinals, dead } = plan.readNewFile(index)
     const id = nextFileId
     nextFileId += 1
     const key = vectorFileKey(input.indexName, fieldPath, id)
@@ -98,13 +98,13 @@ async function writeField(
       `vector file "${key}"`,
     )
     await input.store.write(key, packed.chunks)
-    const dead = deadBitsWhere(ordinals.length, position => ordinals[position] === NO_LIVE_VECTOR_AT_POSITION)
     files.push({ id, key, count: payload.docIds.length, dead, bytes: packed.byteLength, checksum: packed.checksum })
     written.push({ id, key, ordinals })
     outcome.layouts.push({
       fieldPath,
       key,
       docIds: payload.docIds,
+      dead,
       vectorsOffset: packed.byteLength - payload.vectors.byteLength,
     })
   }

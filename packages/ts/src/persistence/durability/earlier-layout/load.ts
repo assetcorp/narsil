@@ -126,7 +126,11 @@ async function loadVectorField(
 ): Promise<void> {
   let liveVectors = 0
   for (const file of ref.files) liveVectors += file.count - countDead(file.dead, file.count)
-  const restore = vectorIndex.restoreCheckpoint({ liveVectors, holdsGraph: ref.graphKey !== null })
+  const restore = vectorIndex.restoreCheckpoint({
+    liveVectors,
+    holdsGraph: ref.graphKey !== null,
+    graph: await readGraph(store, ref),
+  })
   for (const file of ref.files) {
     const bytes = await store.read(file.key)
     if (bytes === null) {
@@ -162,7 +166,7 @@ async function loadVectorField(
             },
     })
   }
-  restore.finish(await readGraph(store, ref))
+  restore.finish()
 }
 
 export async function loadEarlierLayout(
