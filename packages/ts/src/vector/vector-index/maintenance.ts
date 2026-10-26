@@ -16,7 +16,7 @@ import {
 import { dropSharedGraph } from './worker-copies'
 
 export function compact(state: VectorIndexState): void {
-  if (state.tombstones.size === 0) return
+  if (state.tombstones.size === 0 && state.store.replacedVectorCount === 0) return
 
   if (state.hnsw) {
     state.compactedNodeCount += state.hnsw.tombstoneCount
@@ -31,6 +31,7 @@ export function compact(state: VectorIndexState): void {
     }
   }
 
+  for (const ordinal of state.store.releaseReplacedVectors()) state.osq?.removeOrdinal(ordinal)
   state.tombstones.clear()
 }
 
@@ -122,8 +123,9 @@ export function maintenanceStatus(state: VectorIndexState): MaintenanceStatus {
   const storeSize = state.store.size
   const graphCount = state.hnsw ? 1 : 0
   const graphNodes = state.hnsw === null ? storeSize : state.hnsw.size + state.hnsw.tombstoneCount
-  const tombstoneRatio = graphNodes > 0 ? state.tombstones.size / graphNodes : 0
-  const estimatedCompactMs = Math.round(state.tombstones.size * ESTIMATED_MS_PER_TOMBSTONE * state.dimensionScale)
+  const tombstoned = state.tombstones.size + state.store.replacedVectorCount
+  const tombstoneRatio = graphNodes > 0 ? tombstoned / graphNodes : 0
+  const estimatedCompactMs = Math.round(tombstoned * ESTIMATED_MS_PER_TOMBSTONE * state.dimensionScale)
   const optimizeVectorCount = state.hnsw === null || graphNeedsRebuild(state) ? storeSize : state.buffer.size
   const estimatedOptimizeMs = Math.round(optimizeVectorCount * ESTIMATED_MS_PER_VECTOR_REBUILD * state.dimensionScale)
 

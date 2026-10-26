@@ -218,11 +218,14 @@ export function createVectorIndex(
     }
     noteWrite(state)
     state.tombstones.delete(docId)
-    state.store.insert(docId, vector, partitionId)
+    const graphHoldsPrevious =
+      previous !== undefined &&
+      ((state.hnsw?.holdsNode(previous) ?? false) || (state.freshGraph?.holdsNode(previous) ?? false))
+    state.store.insert(docId, vector, partitionId, graphHoldsPrevious)
     if (previous !== undefined) {
       state.hnsw?.markTombstoneOrdinal(previous)
       state.freshGraph?.markTombstoneOrdinal(previous)
-      state.osq?.removeOrdinal(previous)
+      if (!graphHoldsPrevious) state.osq?.removeOrdinal(previous)
     }
     state.buffer.add(docId)
     state.pendingLocations.delete(docId)
