@@ -60,11 +60,11 @@ MaintenanceStatus {
 
 ### insert(docId, vector)
 
-`insert` stores a vector under `docId`, in place of any vector that `docId` holds. The vector must hold exactly `dimension` elements, and an implementation must reject any other length with `VECTOR_DIMENSION_MISMATCH`.
+`insert` stores a vector under `docId`, in place of any vector that `docId` holds. Where `docId` already holds a vector, an implementation must remove that vector as `remove` does. The new vector must hold exactly `dimension` elements, and an implementation must reject any other length with `VECTOR_DIMENSION_MISMATCH`.
 
 ### remove(docId)
 
-`remove` marks the vector of `docId` as removed. An implementation may remove the vector at once, or it may leave a tombstone, which keeps the vector in the graph, where a search passes through it to reach its neighbours and never returns it. `compact` takes a tombstoned vector out of the graph. `remove` does nothing for a `docId` that the index lacks.
+`remove` marks the vector of `docId` as removed. An implementation may remove the vector at once, or it may leave a tombstone, which keeps the vector in the graph. A search must pass through a tombstoned vector to reach its neighbours, but it must not return that vector. `compact` takes a tombstoned vector out of the graph. `remove` does nothing for a `docId` that the index lacks.
 
 ### search(query, k, options)
 
