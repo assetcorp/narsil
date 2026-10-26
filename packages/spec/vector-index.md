@@ -64,7 +64,7 @@ MaintenanceStatus {
 
 ### remove(docId)
 
-`remove` marks the vector of `docId` as removed. An implementation may remove the vector at once, or it may leave a tombstone, which keeps the vector in the graph while every search skips it. `compact` takes a tombstoned vector out of the graph. `remove` does nothing for a `docId` that the index lacks.
+`remove` marks the vector of `docId` as removed. An implementation may remove the vector at once, or it may leave a tombstone, which keeps the vector in the graph, where a search passes through it to reach its neighbours and never returns it. `compact` takes a tombstoned vector out of the graph. `remove` does nothing for a `docId` that the index lacks.
 
 ### search(query, k, options)
 
