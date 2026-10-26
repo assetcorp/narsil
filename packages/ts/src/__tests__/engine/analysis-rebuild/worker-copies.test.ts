@@ -27,6 +27,8 @@ const built = existsSync(distEntry)
 const SCHEMA = { title: 'string' as const }
 const DOCUMENTS = 3_000
 const PARTITIONS = 3
+const STARTING_POOL_DOCUMENTS = 80_000
+const STARTING_POOL_PARTITIONS = 8
 
 describe.skipIf(!built)('a rebuild of an index with copies on worker threads', () => {
   let dir: string
@@ -77,18 +79,26 @@ describe.skipIf(!built)('a rebuild of an index with copies on worker threads', (
     expect(await opened.countDocuments('prose')).toBe(corpus.size)
   }
 
-  async function restoreWithWorkersRunning(corpus: OracleCorpus, random: () => number): Promise<Narsil> {
+  async function snapshotUnderFirstRevision(
+    corpus: OracleCorpus,
+    random: () => number,
+    count: number,
+  ): Promise<Uint8Array> {
     registerRevision(FIRST_REVISION)
     const writer = await createNarsil({ workers: { enabled: false } })
     await writer.createIndex('prose', { schema: SCHEMA, language: LANGUAGE })
-    const documents = Array.from({ length: DOCUMENTS }, (_, i) => ({ id: `doc-${i}`, title: sentence(random) }))
+    const documents = Array.from({ length: count }, (_, i) => ({ id: `doc-${i}`, title: sentence(random) }))
     await writer.insertBatch('prose', documents)
     for (const document of documents) corpus.write(document.id, document.title, FIRST_REVISION)
     await writer.rebalance('prose', PARTITIONS)
     const snapshot = await bytesOf(await writer.snapshot('prose'))
     await writer.shutdown()
     registerRevision(SECOND_REVISION)
+    return snapshot
+  }
 
+  async function restoreWithWorkersRunning(corpus: OracleCorpus, random: () => number): Promise<Narsil> {
+    const snapshot = await snapshotUnderFirstRevision(corpus, random, DOCUMENTS)
     const opened = await openWithWorkers(DOCUMENTS + 200, false)
     await opened.createIndex('warm', { schema: SCHEMA, language: LANGUAGE })
     await opened.insertBatch(
@@ -128,6 +138,23 @@ describe.skipIf(!built)('a rebuild of an index with copies on worker threads', (
     for (const document of batch) corpus.write(document.id, document.title, SECOND_REVISION)
 
     expect(inserted.failed).toEqual([])
+    await expectNewAnswersEverywhere(opened, corpus)
+  }, 120_000)
+
+  it('keeps every document when a copy load that waited on a starting worker pool freezes partitions during the rebuild', async () => {
+    const corpus = new OracleCorpus()
+    const random = seededRandom(59)
+    const snapshot = await snapshotUnderFirstRevision(corpus, random, STARTING_POOL_DOCUMENTS)
+    const opened = await openWithWorkers(STARTING_POOL_DOCUMENTS + 1, false)
+    await opened.restore('prose', snapshot)
+    await opened.rebalance('prose', STARTING_POOL_PARTITIONS)
+    const title = sentence(random)
+    await opened.insert('prose', { title }, 'threshold')
+    corpus.write('threshold', title, SECOND_REVISION)
+
+    await opened.query('prose', { term: 'warm' })
+    await opened.rebuildAnalysis('prose')
+
     await expectNewAnswersEverywhere(opened, corpus)
   }, 120_000)
 
