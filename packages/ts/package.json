@@ -27,6 +27,10 @@
       "browser": "./src/persistence/durability/node-fs.browser.ts",
       "default": "./src/persistence/durability/node-fs.ts"
     },
+    "#platform/recorded-process": {
+      "browser": "./src/persistence/durability/recorded-process.browser.ts",
+      "default": "./src/persistence/durability/recorded-process.ts"
+    },
     "#platform/node-worker": {
       "browser": "./src/workers/node-worker.browser.ts",
       "default": "./src/workers/node-worker.ts"

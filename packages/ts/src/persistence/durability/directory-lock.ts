@@ -1,5 +1,6 @@
 import { type FsModule, getFs, getPath } from '#platform/durable-fs'
 import { nodeThreadId } from '#platform/node-worker'
+import { recordedProcessRuns } from '#platform/recorded-process'
 import { ErrorCodes, NarsilError } from '../../errors'
 import {
   DIRECTORY_LOCK_ATTEMPTS,
@@ -29,15 +30,6 @@ type LockReading = LockHolder | 'absent' | 'unreadable'
 
 function errnoOf(err: unknown): string | undefined {
   return (err as NodeJS.ErrnoException | null)?.code
-}
-
-function processIsRunning(pid: number): boolean {
-  try {
-    process.kill(pid, 0)
-    return true
-  } catch (err) {
-    return errnoOf(err) === 'EPERM'
-  }
 }
 
 function integerOrNull(text: string | undefined): number | null {
@@ -78,10 +70,15 @@ async function settledHolder(fs: FsModule, lockPath: string): Promise<LockReadin
   return readHolder(fs, lockPath)
 }
 
-function holderIsLive(holder: LockHolder, self: LockHolder): boolean {
-  if (holder.pid !== self.pid) return processIsRunning(holder.pid)
+async function holderIsLive(holder: LockHolder, self: LockHolder): Promise<boolean> {
+  if (holder.pid !== self.pid) return recordedProcessRuns(holder.pid, holder.processStartMs)
   if (holder.processStartMs === null || self.processStartMs === null) return false
   return Math.abs(holder.processStartMs - self.processStartMs) <= DIRECTORY_LOCK_PROCESS_START_TOLERANCE_MS
+}
+
+function sameReading(first: LockReading, second: LockReading): boolean {
+  if (typeof first !== 'object' || typeof second !== 'object') return first === second
+  return formatHolder(first) === formatHolder(second)
 }
 
 function heldElsewhere(root: string, holder: string, lockPath: string): NarsilError {
@@ -130,9 +127,10 @@ async function acquire(fs: FsModule, root: string, lockPath: string, self: LockH
   for (let attempt = 0; attempt < DIRECTORY_LOCK_ATTEMPTS; attempt++) {
     if (await createLockFile(fs, lockPath, draftPath, content)) return
     const holder = await settledHolder(fs, lockPath)
-    if (typeof holder === 'object' && holderIsLive(holder, self)) {
+    if (typeof holder === 'object' && (await holderIsLive(holder, self))) {
       throw heldElsewhere(root, holderLabel(holder, self), lockPath)
     }
+    if (!sameReading(holder, await readHolder(fs, lockPath))) continue
     await fs.unlink(lockPath).catch(err => {
       if (errnoOf(err) !== 'ENOENT') throw err
     })
