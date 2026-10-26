@@ -1,7 +1,36 @@
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { NodeRole } from '../coordinator/types'
-import { MAX_WAIT_FOR_ACTIVE_REPLICAS, MIN_CONTROLLER_LEASE_TTL_MS } from './constants'
+import {
+  DEFAULT_BLOCK_WRITES_ABOVE,
+  DEFAULT_RESUME_WRITES_BELOW,
+  MAX_WAIT_FOR_ACTIVE_REPLICAS,
+  MIN_CONTROLLER_LEASE_TTL_MS,
+} from './constants'
 import type { ClusterNodeConfig } from './types'
+
+function validateMemoryConfig(blockWritesAbove: unknown, resumeWritesBelow: unknown): void {
+  for (const [name, value] of [
+    ['blockWritesAbove', blockWritesAbove],
+    ['resumeWritesBelow', resumeWritesBelow],
+  ] as const) {
+    if (value !== undefined && (typeof value !== 'number' || !Number.isFinite(value) || value <= 0 || value > 1)) {
+      throw new NarsilError(
+        ErrorCodes.CONFIG_INVALID,
+        `ClusterNodeConfig.memory.${name} must be a number above 0 and at most 1`,
+        { [name]: value },
+      )
+    }
+  }
+  const block = typeof blockWritesAbove === 'number' ? blockWritesAbove : DEFAULT_BLOCK_WRITES_ABOVE
+  const resume = typeof resumeWritesBelow === 'number' ? resumeWritesBelow : DEFAULT_RESUME_WRITES_BELOW
+  if (resume >= block) {
+    throw new NarsilError(
+      ErrorCodes.CONFIG_INVALID,
+      `ClusterNodeConfig.memory.resumeWritesBelow (${resume}) must lie below blockWritesAbove (${block})`,
+      { blockWritesAbove: block, resumeWritesBelow: resume },
+    )
+  }
+}
 
 export function validateClusterNodeConfig(config: ClusterNodeConfig): void {
   if (config.address.length === 0) {
@@ -74,6 +103,10 @@ export function validateClusterNodeConfig(config: ClusterNodeConfig): void {
         { partitionTimeout },
       )
     }
+  }
+
+  if (config.memory !== undefined) {
+    validateMemoryConfig(config.memory.blockWritesAbove, config.memory.resumeWritesBelow)
   }
 
   if (config.controller !== undefined) {

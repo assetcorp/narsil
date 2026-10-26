@@ -1,15 +1,14 @@
-import type { SchemaDefinition } from '../../types/schema'
+import type { SchemaDefinition } from '../../../types/schema'
+import type { NodeEvent, NodeRegistration } from './node'
 
-/**
- * What a node does in a cluster. A node may hold several roles at once.
- *
- * A `data` node holds partitions and answers queries, a `coordinator` node
- * routes requests without holding data, and a `controller` node runs the
- * allocation decisions for the whole cluster.
- *
- * @public
- */
-export type NodeRole = 'data' | 'coordinator' | 'controller'
+export type {
+  IndexPartitionBytes,
+  NodeCapacity,
+  NodeEvent,
+  NodeMemoryReport,
+  NodeRegistration,
+  NodeRole,
+} from './node'
 
 /**
  * Where one partition stands in its move between nodes.
@@ -39,43 +38,6 @@ export type UnassignedReason =
   | 'HOLDER_UNREACHABLE'
   | 'HOLDER_IDENTITY_MISMATCH'
   | 'HOLDER_WITHOUT_DATA'
-
-/**
- * What one node has to offer, which the allocator weighs when it places
- * partitions.
- *
- * @public
- */
-export interface NodeCapacity {
-  /** The node can give this much memory to indexes. */
-  memoryBytes: number
-  /** The node has this many cores available. */
-  cpuCores: number
-  /** The node can give this much disk to durability, and reports `null` when it keeps nothing on disk. */
-  diskBytes: number | null
-}
-
-/**
- * What a node publishes about itself when it joins a cluster.
- *
- * @public
- */
-export interface NodeRegistration {
-  /** This identifies the node across the cluster, and must stay stable across restarts. */
-  nodeId: string
-  /** Peers reach the node at this address, as the transport writes it. */
-  address: string
-  /** The node holds these roles in the cluster. */
-  roles: NodeRole[]
-  /** The node offers this much capacity. */
-  capacity: NodeCapacity
-  /** The node started at this ISO 8601 timestamp. */
-  startedAt: string
-  /** The node runs this engine version, which is what a mixed-version cluster reads. */
-  version: string
-  /** These free-form labels are where a zone or rack goes for zone-aware allocation. */
-  metadata?: Record<string, string>
-}
 
 /**
  * Which nodes hold one partition, and where that partition stands.
@@ -115,20 +77,6 @@ export interface AllocationTable {
   replicationFactor: number
   /** These assignments are keyed by partition id. */
   assignments: Map<number, PartitionAssignment>
-}
-
-/**
- * Tells watchers that a node joined or left.
- *
- * @public
- */
-export interface NodeEvent {
-  /** This says which change it is. */
-  type: 'node_joined' | 'node_left'
-  /** This node joined or left. */
-  nodeId: string
-  /** The node published this on joining, and it is `null` when the node left. */
-  registration: NodeRegistration | null
 }
 
 /**

@@ -8,6 +8,7 @@ import { WIRE_BATCH_BUDGET } from '../../constants'
 import type { PartitionAssignment } from '../../coordinator/types'
 import { createForwardBatchMessage, validateForwardBatchResultPayload } from '../../replication/codec'
 import type { ForwardBatchOperation, ForwardBatchOperationResult, ForwardBatchPayload } from '../../transport/types'
+import { findWriteBlock } from '../memory/write-block'
 import { requireAssignedPrimary, resolvePartitionId } from './assignment'
 import {
   assertForwardResponse,
@@ -197,10 +198,18 @@ export async function applyForwardedBatch(
   }
 
   const runsByPartition = groupIntoRuns(payload, table.assignments.size)
+  const writesIndex = payload.operations.some(operation => operation.operation !== 'remove')
+  const block = writesIndex ? findWriteBlock(table, deps.memoryView) : null
 
   await Promise.all(
     Array.from(runsByPartition.entries()).map(async ([partitionId, runs]) => {
       for (const run of runs) {
+        if (block !== null && run.operation !== 'remove') {
+          for (const { index, wire } of run.operations) {
+            results[index] = failureResult(wire.documentId, block)
+          }
+          continue
+        }
         await applyRun(payload.indexName, partitionId, run, table.assignments.get(partitionId), deps, results)
       }
     }),

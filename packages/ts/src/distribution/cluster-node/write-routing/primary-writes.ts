@@ -5,6 +5,7 @@ import type { AnyDocument, InsertOptions } from '../../../types/schema'
 import type { PartitionAssignment } from '../../coordinator/types'
 import type { ReplicationLogEntry } from '../../replication/types'
 import type { ForwardPayload } from '../../transport/types'
+import { requireWritableIndex } from '../memory/write-block'
 import { assertSufficientActiveReplicas, resolvePrimaryAssignment } from './assignment'
 import { rollbackPrimaryInsert, rollbackPrimaryRemove, rollbackPrimaryUpdate } from './failures'
 import { enqueuePartitionWrite } from './partition-queue'
@@ -302,6 +303,9 @@ export async function applyForwardedWrite(payload: ForwardPayload, deps: WriteRo
       `No allocation table is available for forwarded write to index '${payload.indexName}'`,
       { indexName: payload.indexName },
     )
+  }
+  if (payload.operation !== 'remove') {
+    requireWritableIndex(resolution.table, deps.memoryView)
   }
 
   if (payload.operation === 'insert') {

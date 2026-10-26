@@ -5,6 +5,7 @@ export type DataNodeLifecycleStatus = 'stopped' | 'joining' | 'active' | 'leavin
 
 export interface NodeLifecycleConfig {
   registration: NodeRegistration
+  currentRegistration?: () => NodeRegistration
   coordinator: ClusterCoordinator
   transport: NodeTransport
   knownIndexNames: string[]
@@ -28,6 +29,7 @@ export interface DataNodeHandle {
   readonly registered: boolean
   readonly pendingPartitionCount: number
   join(): Promise<void>
+  renewRegistration(): void
   leave(): Promise<void>
   shutdown(): Promise<void>
 }

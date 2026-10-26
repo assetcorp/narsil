@@ -1,3 +1,4 @@
+import type { PartitionSizes } from '../partition-sizes'
 import type { AllocationConstraints, Decider, DeciderContext, DeciderVerdict } from '../types'
 import { balanceDecider } from './balance'
 import { createCapacityDecider } from './capacity'
@@ -5,11 +6,11 @@ import { colocationDecider } from './colocation'
 import { createMaxShardsDecider } from './max-shards'
 import { createZoneDecider } from './zone'
 
-export function createDeciderChain(constraints: AllocationConstraints, estimatedPartitionBytes?: number): Decider[] {
+export function createDeciderChain(constraints: AllocationConstraints, partitionSizes?: PartitionSizes): Decider[] {
   const deciders: Decider[] = [
     colocationDecider,
     createMaxShardsDecider(constraints.maxShardsPerNode),
-    createCapacityDecider(estimatedPartitionBytes),
+    createCapacityDecider(partitionSizes),
   ]
 
   if (constraints.zoneAwareness) {

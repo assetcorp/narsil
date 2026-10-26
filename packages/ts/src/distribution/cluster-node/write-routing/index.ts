@@ -14,6 +14,7 @@ import type { AllocationConstraints, ClusterCoordinator } from '../../coordinato
 import { waitForServingAllocation } from '../allocation-wait'
 import { DEFAULT_CREATE_INDEX_WAIT_MS } from '../constants'
 import { localIndexIsGone } from '../local-index-gone'
+import { requireWritableIndex } from '../memory/write-block'
 import type { CreateIndexOptions } from '../types'
 import { DEFAULT_PARTITION_COUNT, DEFAULT_REPLICATION_FACTOR } from '../types'
 import { resolvePrimaryAssignment } from './assignment'
@@ -191,6 +192,7 @@ export async function routeInsert(
     return deps.engine.insert(indexName, document, resolvedDocId, options)
   }
 
+  requireWritableIndex(resolution.table, deps.memoryView)
   const primaryNodeId = resolution.assignment.primary
   if (primaryNodeId === deps.nodeId) {
     return applyPrimaryInsert(
@@ -234,6 +236,7 @@ export async function routeUpdate(
     return deps.engine.update(indexName, docId, document)
   }
 
+  requireWritableIndex(resolution.table, deps.memoryView)
   const primaryNodeId = resolution.assignment.primary
   if (primaryNodeId === deps.nodeId) {
     return applyPrimaryUpdate(indexName, docId, document, resolution.partitionId, resolution.assignment, deps)
