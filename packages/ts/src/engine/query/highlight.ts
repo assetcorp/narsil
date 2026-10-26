@@ -1,13 +1,9 @@
 import type { ResolvedAnalysis } from '../../analysis/registry'
-import { codePointCount } from '../../core/ordering/code-points'
+import { partialWordsToHighlight } from '../../core/partition/partial-words/registry'
 import { tokenize } from '../../core/tokenizer'
 import { highlightField, type PartialWordHighlight } from '../../highlighting/highlighter'
 import { partialFieldsOf } from '../../schema/validator'
-import {
-  DEFAULT_FUZZY_PREFIX_LENGTH,
-  PARTIAL_WORD_MIN_CODE_POINTS,
-  PARTIAL_WORDS_ADDED_PER_QUERY,
-} from '../../search/constants'
+import { DEFAULT_FUZZY_PREFIX_LENGTH } from '../../search/constants'
 import type { LanguageModule } from '../../types/language'
 import type { HighlightMatch, Hit } from '../../types/results'
 import type { SchemaDefinition } from '../../types/schema'
@@ -40,20 +36,7 @@ function partialWordTagging(
   const fields = partialFieldsOf(schema).filter(field => params.fields === undefined || params.fields.includes(field))
   if (fields.length === 0) return null
 
-  const writtenAt = new Map<number, string>()
-  for (const word of written) {
-    if (!writtenAt.has(word.position)) writtenAt.set(word.position, word.token)
-  }
-  const seenTokens = new Set<string>()
-  const words: string[] = []
-  for (const queryToken of queryTokens) {
-    if (seenTokens.has(queryToken.token)) continue
-    seenTokens.add(queryToken.token)
-    const word = writtenAt.get(queryToken.position)
-    if (word === undefined || codePointCount(word) < PARTIAL_WORD_MIN_CODE_POINTS) continue
-    words.push(word)
-    if (words.length === PARTIAL_WORDS_ADDED_PER_QUERY) break
-  }
+  const words = partialWordsToHighlight(queryTokens, written)
   if (words.length === 0) return null
 
   return {

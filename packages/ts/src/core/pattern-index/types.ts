@@ -1,3 +1,5 @@
+import type { FilterExpression } from '../../types/filters'
+import type { SerializedPatternIndex } from '../../types/internal'
 import type { PatternSearch } from '../../types/pattern'
 
 export interface PatternIndexArrays {
@@ -24,7 +26,22 @@ export interface PatternIndexWriter extends PatternIndexReader {
 
 export interface PatternHost {
   appendFoldedCodePoint(codePoint: number, out: number[]): void
-  singleFoldSources(folded: number): readonly number[]
+  singleFolds(): ReadonlyMap<number, number>
+}
+
+export interface PatternFilterContext {
+  isPatternField(fieldPath: string): boolean
+  matchPattern(
+    fieldPath: string,
+    operator: PatternOperator,
+    text: string,
+    caseFold: boolean,
+    tolerance: PatternTolerance,
+    into: Uint32Array,
+  ): void
+  presentBitset(fieldPath: string): Uint32Array
+  readonly capacity: number
+  readonly allDocIdsBitset: Uint32Array
 }
 
 export interface PatternWorkMeter {
@@ -70,4 +87,18 @@ export interface PatternSearchModule extends PatternSearch {
     host: PatternHost,
   ): void
   expressionFootprint(operator: ExpressionOperator, text: string, caseFold: boolean, host: PatternHost): number
+  largestFootprint(expression: FilterExpression, patternFields: ReadonlySet<string>, host: PatternHost): number | null
+  checkOperands(fieldPath: string, filter: Record<string, unknown>, host: PatternHost): void
+  evaluateTests(
+    fieldPath: string,
+    filter: Record<string, unknown>,
+    context: PatternFilterContext,
+    bitsets: Uint32Array[],
+  ): void
+  serializeIndex(
+    fieldPath: string,
+    index: PatternIndexReader,
+    toExternal: (ordinal: number) => string | undefined,
+  ): SerializedPatternIndex
+  decodeIndex(fieldPath: string, entry: SerializedPatternIndex): PatternIndexArrays
 }

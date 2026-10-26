@@ -13,7 +13,8 @@ import {
 import { patternIndexOf } from '../pattern-index/host'
 import { tokenize } from '../tokenizer'
 import { visitTokens } from '../tokenizer/tokenize'
-import { countSpelling, type SpellingCounts } from './partial-words/spellings'
+import { countPartialSpelling } from './partial-words/registry'
+import type { SpellingCounts } from './partial-words/spellings'
 import {
   getNestedValue,
   getOrCreateFieldNameIndex,
@@ -95,7 +96,7 @@ function countOccurrence(
   token: string,
 ): void {
   countSurface(counts, surface, token)
-  if (spellings !== null) countSpelling(spellings, token, surface ?? token, 1)
+  if (spellings !== null) countPartialSpelling(spellings, token, surface ?? token, 1)
 }
 
 function addFieldOccurrences(occurrencesByToken: Map<string, number>, fieldTokens: readonly string[]): void {
