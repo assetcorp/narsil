@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createNarsilClient } from '../../../client'
+import { ErrorCodes } from '../../../errors'
 import { createNarsil, type Narsil } from '../../../narsil'
 import { resetCheckpointWorkerLatch } from '../../../persistence/durability/checkpoint-worker-dispatch'
 import type { QueryResult } from '../../../types/results'
@@ -173,31 +174,39 @@ describe('a rebuild switches every partition to the new terms at one point', () 
     expect(await engine.countDocuments('prose')).toBe(corpus.size)
   }, 120_000)
 
-  it('finishes the rebuild before a drop that arrives while it runs and leaves a new index under that name current', async () => {
-    const corpus = new OracleCorpus()
-    await writeUnderFirstRevision(corpus)
-    const opened = await createNarsil({
-      durability: { directory: dir },
-      analysis: { rebuild: 'manual' },
-      workers: { enabled: false },
-    })
-    engine = opened
-    const started = new Promise<void>(resolve => {
-      opened.on('analysisRebuild', payload => {
-        if (payload.status === 'started') resolve()
+  it.each([
+    ['as the rebuild is requested', false],
+    ['once the rebuild has started', true],
+  ] as const)(
+    'drops an index whose rebuild a caller requested when the drop arrives %s and leaves a new index under that name current',
+    async (_when, afterStart) => {
+      const corpus = new OracleCorpus()
+      await writeUnderFirstRevision(corpus)
+      const opened = await createNarsil({
+        durability: { directory: dir },
+        analysis: { rebuild: 'manual' },
+        workers: { enabled: false },
       })
-    })
+      engine = opened
+      const started = new Promise<void>(resolve => {
+        opened.on('analysisRebuild', payload => {
+          if (payload.status === 'started') resolve()
+        })
+      })
 
-    const rebuilding = opened.rebuildAnalysis('prose')
-    await started
-    await opened.dropIndex('prose')
-    await rebuilding
-    await opened.createIndex('prose', { schema: SCHEMA, language: LANGUAGE })
-    await opened.insert('prose', { title: 'jumping river' }, 'fresh')
+      const rebuilding = opened.rebuildAnalysis('prose')
+      if (afterStart) await started
+      const [rebuilt, dropped] = await Promise.allSettled([rebuilding, opened.dropIndex('prose')])
+      expect(dropped.status).toBe('fulfilled')
+      if (rebuilt.status === 'rejected') expect(rebuilt.reason).toMatchObject({ code: ErrorCodes.INDEX_NOT_FOUND })
+      await opened.createIndex('prose', { schema: SCHEMA, language: LANGUAGE })
+      await opened.insert('prose', { title: 'jumping river' }, 'fresh')
 
-    const result = await opened.query('prose', { term: 'jump' })
-    expect(result.analysisStale).toBeUndefined()
-    expect(result.hits.map(hit => hit.id)).toEqual(['fresh'])
-    expect(opened.listIndexes()[0].analysisStale).toBeUndefined()
-  }, 120_000)
+      const result = await opened.query('prose', { term: 'jump' })
+      expect(result.analysisStale).toBeUndefined()
+      expect(result.hits.map(hit => hit.id)).toEqual(['fresh'])
+      expect(opened.listIndexes()[0].analysisStale).toBeUndefined()
+    },
+    120_000,
+  )
 })

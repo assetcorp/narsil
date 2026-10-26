@@ -28,12 +28,20 @@ export interface AnalysisRebuildCoordinator {
   review(indexName: string): Promise<void>
   reviewStaleIndexes(): Promise<void>
   rebuild(indexName: string): Promise<void>
+  abandon(indexName: string): Promise<void>
 }
 
 interface StaleEntry {
   index: StaleIndex
   partitionsRebuilt: number
   run: Promise<void> | null
+  abandoned: boolean
+}
+
+interface ActiveRebuild {
+  indexName: string
+  entry: StaleEntry
+  done: Promise<void>
 }
 
 function toError(value: unknown): Error {
@@ -78,10 +86,11 @@ export function createAnalysisRebuildCoordinator(
   const stale = new Map<string, StaleEntry>()
   const rebuildMode = config?.rebuild ?? 'auto'
   let queue: Promise<void> = Promise.resolve()
+  let active: ActiveRebuild | null = null
 
   async function rebuildNow(indexName: string, entry: StaleEntry): Promise<void> {
     const manager = deps.getManager(indexName)
-    if (manager === undefined) {
+    if (manager === undefined || entry.abandoned) {
       entry.run = null
       return
     }
@@ -92,7 +101,7 @@ export function createAnalysisRebuildCoordinator(
     const wasPromoted = deps.desyncIndex(indexName)
     try {
       const rebuilt = await rebuildTextIndexes(manager, {
-        isCurrent: () => deps.getManager(indexName) === manager && stale.get(indexName) === entry,
+        isCurrent: () => deps.getManager(indexName) === manager && stale.get(indexName) === entry && !entry.abandoned,
         onPartitionBuilt(partitionsBuilt) {
           entry.partitionsRebuilt = partitionsBuilt
         },
@@ -128,11 +137,21 @@ export function createAnalysisRebuildCoordinator(
     }
   }
 
+  function runTracked(indexName: string, entry: StaleEntry): Promise<void> {
+    const done = rebuildNow(indexName, entry)
+    const tracked: ActiveRebuild = { indexName, entry, done }
+    active = tracked
+    return done.finally(() => {
+      if (active === tracked) active = null
+    })
+  }
+
   function enqueue(indexName: string, entry: StaleEntry): Promise<void> {
     if (entry.run !== null) {
       return entry.run
     }
-    const run = queue.then(() => rebuildNow(indexName, entry))
+    entry.abandoned = false
+    const run = queue.then(() => runTracked(indexName, entry))
     entry.run = run
     queue = run.then(
       () => undefined,
@@ -170,7 +189,7 @@ export function createAnalysisRebuildCoordinator(
       if (existing !== undefined && existing.run !== null) {
         return
       }
-      stale.set(index.indexName, { index, partitionsRebuilt: 0, run: null })
+      stale.set(index.indexName, { index, partitionsRebuilt: 0, run: null, abandoned: false })
     },
 
     clearStale(indexName: string): void {
@@ -183,6 +202,15 @@ export function createAnalysisRebuildCoordinator(
 
     isRunning(indexName: string): boolean {
       return stale.get(indexName)?.run !== null && stale.get(indexName)?.run !== undefined
+    },
+
+    async abandon(indexName: string): Promise<void> {
+      const entry = stale.get(indexName)
+      if (entry !== undefined && entry.run !== null) entry.abandoned = true
+      const running = active
+      if (running === null || running.indexName !== indexName) return
+      running.entry.abandoned = true
+      await running.done.catch(() => undefined)
     },
 
     review(indexName: string): Promise<void> {
