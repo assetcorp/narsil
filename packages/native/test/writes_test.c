@@ -105,6 +105,7 @@ static void remove_then_compact(narsil_workspace *workspace) {
   check(fixture != NULL, "the fixture has its memory");
   if (fixture == NULL) { return; }
   place_every_node(workspace, fixture);
+  int32_t entry_before_removal = fixture->graph_header[NARSIL_GRAPH_WORD_ENTRY_POINT];
   int32_t removed = 0;
   for (int32_t node = 0; node < NODES; node += REMOVED_STEP) {
     check(remove_one(fixture, node) == NARSIL_OK, "remove returns NARSIL_OK");
@@ -114,8 +115,8 @@ static void remove_then_compact(narsil_workspace *workspace) {
   check(fixture->graph_header[NARSIL_GRAPH_WORD_TOMBSTONE_COUNT] == removed,
         "remove raises tombstoneCount once for each ordinal");
   int32_t entry = fixture->graph_header[NARSIL_GRAPH_WORD_ENTRY_POINT];
-  check(entry > 0 && fixture->tombstones[entry] == 0 && fixture_top_layer(entry) == 1,
-        "remove moves the entry point to the live node with the highest top layer");
+  check(entry == entry_before_removal && fixture->tombstones[entry] == 1,
+        "remove leaves the entry point on the tombstoned node");
 
   narsil_compact_request compaction = {NARSIL_METRIC_EUCLIDEAN, WRITER_THREAD_SLOT};
   check(narsil_compact(workspace, &fixture->graph, &fixture->store, &compaction) == NARSIL_GRAPH_NOT_HELD_ALONE,
@@ -128,6 +129,10 @@ static void remove_then_compact(narsil_workspace *workspace) {
   fixture->graph_header[NARSIL_GRAPH_WORD_LOCK] = NOTHING_HELD;
   check(fixture->graph_header[NARSIL_GRAPH_WORD_NODE_COUNT] == NODES - removed, "compact lowers nodeCount");
   check(fixture->graph_header[NARSIL_GRAPH_WORD_TOMBSTONE_COUNT] == 0, "compact lowers tombstoneCount to 0");
+  int32_t entry_after_compaction = fixture->graph_header[NARSIL_GRAPH_WORD_ENTRY_POINT];
+  check(entry_after_compaction >= 0 && fixture->node_levels[entry_after_compaction] > 0 &&
+            fixture_top_layer(entry_after_compaction) == 1,
+        "compact moves the entry point to the live node with the highest top layer");
   for (int32_t node = 0; node < NODES; node += REMOVED_STEP) {
     check(fixture->node_levels[node] == 0 && fixture->tombstones[node] == 0, "compact takes the node out");
   }
