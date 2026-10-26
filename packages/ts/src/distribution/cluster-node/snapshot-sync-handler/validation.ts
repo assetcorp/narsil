@@ -3,6 +3,7 @@ import { INDEX_NAME_PATTERN, MAX_INDEX_NAME_LENGTH } from '../../../engine/const
 import { ErrorCodes, NarsilError } from '../../../errors'
 import type { SnapshotSyncRequestPayload, TransportMessage } from '../../transport/types'
 import { MAX_SOURCE_ID_LENGTH } from '../constants'
+import { transportableDetails } from '../error-reply'
 import { respondError, type SingleResponseSink } from '../snapshot-stream-writer'
 
 import type { SnapshotSyncHandlerDeps } from './types'
@@ -54,7 +55,7 @@ export async function decodeRequest(
   } catch (err) {
     const code = err instanceof NarsilError ? err.code : ErrorCodes.SNAPSHOT_SYNC_REQUEST_INVALID
     const errMessage = err instanceof Error ? err.message : String(err)
-    await respondError(sink, deps.nodeId, message.requestId, code, errMessage)
+    await respondError(sink, deps.nodeId, message.requestId, code, errMessage, transportableDetails(err))
     return null
   }
 }

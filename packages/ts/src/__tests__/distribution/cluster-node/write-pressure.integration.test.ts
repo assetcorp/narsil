@@ -91,7 +91,13 @@ function expectInFlightRefusal(error: NarsilError | null, nodeId: string): void 
 function expectForwardedInFlightRefusal(error: NarsilError | null): void {
   expect(error?.code).toBe(ErrorCodes.CLUSTER_WRITE_BLOCKED)
   expect(error?.message).toContain("Node 'node-a' refuses this write to index 'catalogue'")
-  expect(error?.message).toContain('past the limit')
+  expect(error?.details).toMatchObject({
+    reason: 'write_bytes_in_flight',
+    indexName: 'catalogue',
+    nodeId: 'node-a',
+    primaryNodeId: 'node-a',
+  })
+  expect(Number(error?.details.requestBytes)).toBeGreaterThan(LARGE_TITLE_CHARACTERS)
 }
 
 describe('a cluster node refuses inserts and updates whose documents would pass its bound on write bytes in flight', () => {

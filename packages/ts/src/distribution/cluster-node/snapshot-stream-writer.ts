@@ -12,6 +12,7 @@ import type {
 } from '../transport/types'
 import { ReplicationMessageTypes } from '../transport/types'
 import { SNAPSHOT_CHUNK_YIELD_INTERVAL_MS } from './constants'
+import { encodeErrorReply } from './error-reply'
 import type { SnapshotBuildResult } from './snapshot-cache'
 
 export const SNAPSHOT_SYNC_ERROR_TYPE = `${ReplicationMessageTypes.SNAPSHOT_SYNC_REQUEST}.error`
@@ -149,12 +150,13 @@ export async function respondError(
   requestId: string,
   code: ErrorCode | string,
   message: string,
+  details?: Record<string, unknown>,
 ): Promise<void> {
   const response: TransportMessage = {
     type: SNAPSHOT_SYNC_ERROR_TYPE,
     sourceId,
     requestId,
-    payload: encode({ error: true, code, message }),
+    payload: encodeErrorReply(code, message, details),
   }
   await sink(response)
   sink.closed = true

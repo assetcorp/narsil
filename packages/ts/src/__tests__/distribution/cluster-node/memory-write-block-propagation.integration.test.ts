@@ -171,10 +171,26 @@ describe('a full primary refuses inserts and updates that another node forwards 
       ['table-2', ErrorCodes.CLUSTER_WRITE_BLOCKED],
       ['table-3', ErrorCodes.CLUSTER_WRITE_BLOCKED],
     ])
+    for (const failure of batch.failed) {
+      expect(failure.error.details).toMatchObject({
+        reason: 'node_memory_full',
+        fullNodeIds: ['node-a'],
+        primaryNodeId: 'node-a',
+      })
+    }
+    const single = await entry.insert('catalogue', { title: 'elm table', price: 280 }, 'table-4').then(
+      () => null,
+      (error: unknown) => error,
+    )
+    expect(single instanceof NarsilError ? single.details : null).toMatchObject({
+      reason: 'node_memory_full',
+      fullNodeIds: ['node-a'],
+      primaryNodeId: 'node-a',
+    })
     expect(await codeOf(entry.update('catalogue', 'table-1', { title: 'renamed', price: 1 }))).toBe(
       ErrorCodes.CLUSTER_WRITE_BLOCKED,
     )
-    for (const absent of ['table-1', 'table-2', 'table-3']) {
+    for (const absent of ['table-1', 'table-2', 'table-3', 'table-4']) {
       expect(await entry.has('catalogue', absent)).toBe(false)
     }
     expect(await entry.countDocuments('catalogue')).toBe(0)

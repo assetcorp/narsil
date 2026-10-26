@@ -1,4 +1,3 @@
-import { encode } from '@msgpack/msgpack'
 import { type ErrorCode, ErrorCodes } from '../../errors'
 import {
   ClusterMessageTypes,
@@ -7,6 +6,7 @@ import {
   type RespondFn,
   type TransportMessage,
 } from '../transport/types'
+import { encodeErrorReply } from './error-reply'
 
 export type TransportHandler = (message: TransportMessage, respond: RespondFn) => void | Promise<void>
 
@@ -32,7 +32,7 @@ function refuseMessage(
     type: `${message.type}.error`,
     sourceId: nodeId,
     requestId: message.requestId,
-    payload: encode({ error: true, code, message: text }),
+    payload: encodeErrorReply(code, text, { nodeId }),
   })
 }
 

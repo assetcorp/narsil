@@ -8,6 +8,7 @@ import { WIRE_BATCH_BUDGET } from '../../constants'
 import type { PartitionAssignment } from '../../coordinator/types'
 import { createForwardBatchMessage, validateForwardBatchResultPayload } from '../../replication/codec'
 import type { ForwardBatchOperation, ForwardBatchOperationResult, ForwardBatchPayload } from '../../transport/types'
+import { transportableDetails } from '../error-reply'
 import { findWriteBlock } from '../memory/write-block'
 import { estimateForwardedBytes } from '../memory/write-pressure'
 import { requireAssignedPrimary, resolvePartitionId } from './assignment'
@@ -135,7 +136,7 @@ export async function forwardBatchToRemote(
             operationResult.errorCode ?? ErrorCodes.QUERY_ROUTING_FAILED,
             operationResult.errorMessage ??
               `Remote primary rejected forwarded operation '${operationResult.documentId}'`,
-            { indexName, primaryNodeId },
+            { ...(operationResult.errorDetails ?? {}), indexName, primaryNodeId },
           ),
         })
       }
@@ -376,5 +377,6 @@ function failureResult(documentId: string, error: NarsilError): ForwardBatchOper
     success: false,
     errorCode: error.code,
     errorMessage: error.message,
+    errorDetails: transportableDetails(error) ?? null,
   }
 }

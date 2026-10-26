@@ -132,6 +132,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
 }
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (!isRecord(value)) {
+    return false
+  }
+  const prototype = Object.getPrototypeOf(value)
+  return prototype === Object.prototype || prototype === null
+}
+
 export function validateEntryPayload(decoded: unknown): EntryPayload {
   if (!isRecord(decoded) || !isRecord(decoded.entry)) {
     throw new Error('Invalid EntryPayload: missing or invalid "entry" field')
@@ -258,6 +266,9 @@ export function validateForwardBatchResultPayload(decoded: unknown): ForwardBatc
     }
     if (result.errorMessage !== null && typeof result.errorMessage !== 'string') {
       throw new Error(`Invalid ForwardBatchResultPayload: "results[${index}].errorMessage" must be a string or null`)
+    }
+    if (result.errorDetails !== undefined && result.errorDetails !== null && !isPlainObject(result.errorDetails)) {
+      throw new Error(`Invalid ForwardBatchResultPayload: "results[${index}].errorDetails" must be an object or absent`)
     }
   }
   return decoded as unknown as ForwardBatchResultPayload
