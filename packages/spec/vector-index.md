@@ -413,7 +413,7 @@ Store {
   centroid:     float32[dimension]
   vectors:      List<VectorBlock or nil>
   magnitudes:   float64 per ordinal
-  present:      uint8 per ordinal     (1 where the ordinal holds a live vector)
+  present:      uint8 per ordinal     (1 where the ordinal holds a live or tombstoned vector)
   vectorFile:   int32 per ordinal     (the position in files of the file that holds the vector, or -1 where a block holds it)
   vectorOffset: uint32 per ordinal    (the byte offset of the vector in that file)
   files:        List<string>          (the path of each vector file)
