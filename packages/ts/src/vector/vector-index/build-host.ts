@@ -1,9 +1,10 @@
 import { GRAPH_BUILD_CHUNKS_IN_FLIGHT_PER_WORKER, GRAPH_BUILD_DISPATCH_CHUNK } from '../constants'
 import type { HNSWIndex } from '../hnsw'
+import { sharedMemoryAvailable } from '../shared-buffers/growable'
 import type { GraphInsertOutcome } from '../shared-field/types'
 import { BUILD_CHUNK_SIZE, WORKER_COPY_MIN_VECTORS } from './constants'
 import { liveSize, threadsHoldCurrentLayout, type VectorIndexState, yieldToEventLoop } from './shared'
-import { shareGraph } from './worker-copies'
+import { noteWrite, shareGraph } from './worker-copies'
 
 export type OrdinalDispatcher = (ordinals: Int32Array) => Promise<GraphInsertOutcome | null>
 
@@ -29,7 +30,7 @@ async function dispatcherFor(state: VectorIndexState, graph: HNSWIndex): Promise
       workerCount: Math.max(1, host.workerCount),
     }
   }
-  if (liveSize(state) < WORKER_COPY_MIN_VECTORS) return null
+  if (liveSize(state) < WORKER_COPY_MIN_VECTORS || !sharedMemoryAvailable()) return null
   const handle = await shareGraph(state, graph, graph === state.hnsw)
   const pool = state.workerCopyPool
   if (handle === null || pool === null || state.sharedHandles.get(graph)?.mode !== 'shared') return null
@@ -142,8 +143,10 @@ async function insertLocally(
     state.buffer.delete(docId)
     count += 1
     if (count % BUILD_CHUNK_SIZE === 0) {
+      noteWrite(state)
       await yieldToEventLoop()
     }
   }
+  if (count > 0) noteWrite(state)
   return !state.disposed
 }
