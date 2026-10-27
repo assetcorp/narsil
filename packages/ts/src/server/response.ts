@@ -7,7 +7,7 @@ export interface ResponseSink {
   cork(callback: () => void): ResponseSink
   writeStatus(status: string): ResponseSink
   writeHeader(key: string, value: string): ResponseSink
-  end(body?: string | Uint8Array): ResponseSink
+  end(body?: string | Uint8Array, closeConnection?: boolean): ResponseSink
   write(chunk: Uint8Array): boolean
   pause(): void
   resume(): void

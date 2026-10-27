@@ -8,6 +8,7 @@ import type { RequestContext, RequestDenial } from '../types'
 export interface RequestThreadSettings {
   /** The thread sends every request it cannot answer itself down this port, and asks it for each authorisation. */
   port: MessagePort
+  departure: SharedArrayBuffer
   /** The requests in flight on every thread count in this shared memory, one slot per thread. */
   gate: SharedArrayBuffer
   /** The slot of the shared memory this thread counts its own requests in. */
@@ -74,11 +75,16 @@ export interface TouchIndexNote {
   indexName: string
 }
 
+export interface LeavingNote {
+  type: 'leaving'
+}
+
 export type RelayRequest =
   | RelayedRequest
   | AuthorizeRequest
   | EmbedQueryRequest
   | TouchIndexNote
+  | LeavingNote
   | StreamCreditNote
   | StreamCancelNote
 
