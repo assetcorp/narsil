@@ -86,6 +86,7 @@ function restoreGraph(
   graph.deserializeNumbered(payload.graphs[0], ordinalOfNumber)
   for (const ordinal of tombstoned) graph.markTombstoneOrdinal(ordinal)
   adoptGraph(state, graph)
+  state.shuffledBuildCount = first.shuffledBuildCount ?? null
   for (const later of payload.graphs.slice(1)) insertNodesOfLaterGraph(state, graph, later, ordinalOfNumber)
   bufferEveryVectorOutsideTheGraph(state)
   if (state.buffer.size <= graph.size) return

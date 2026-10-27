@@ -110,6 +110,9 @@ export interface VectorIndexState {
   hnsw: HNSWIndex | null
   /** The graph a build is filling from the store, which a replacement retires its old ordinal in. */
   freshGraph: HNSWIndex | null
+  shuffledBuildCount: number | null
+  shuffledRebuild: Promise<void> | null
+  readonly onLoadedGraphRepaired: () => void
   compactedNodeCount: number
   building: boolean
   buildScheduled: boolean
@@ -173,6 +176,7 @@ export function adoptGraph(state: VectorIndexState, graph: HNSWIndex | null): vo
     state.hnsw.clear()
   }
   state.hnsw = graph
+  state.shuffledBuildCount = null
   state.compactedNodeCount = 0
 
   if (graph === null) return

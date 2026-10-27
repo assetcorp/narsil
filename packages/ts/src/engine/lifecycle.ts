@@ -23,6 +23,10 @@ export async function shutdownEngine(core: EngineCore): Promise<void> {
 
   core.indexState.dispose()
 
+  if (durability) {
+    await durability.manager.shutdown()
+  }
+
   for (const [name] of indexRegistry) {
     const manager = executor.getManager(name)
     if (manager) {
@@ -30,10 +34,6 @@ export async function shutdownEngine(core: EngineCore): Promise<void> {
         vectorIndex.dispose()
       }
     }
-  }
-
-  if (durability) {
-    await durability.manager.shutdown()
   }
 
   if (core.invalidation) {

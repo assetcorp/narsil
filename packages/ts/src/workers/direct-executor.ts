@@ -59,6 +59,7 @@ export interface DirectExecutorOptions {
   threadSlot?: number
   /** A vector field whose configuration names no storage keeps its full-precision vectors here. */
   vectorStorage?: VectorStorageMode
+  onVectorGraphRepaired?: (indexName: string) => void
 }
 
 interface IndexEntry {
@@ -102,6 +103,7 @@ export function createDirectExecutor(options?: DirectExecutorOptions): Executor 
           vectorWorkerCopies,
           indexName,
           config.vectorPromotion?.storage ?? vectorStorage,
+          () => options?.onVectorGraphRepaired?.(indexName),
         ),
       )
     }

@@ -212,7 +212,12 @@ function graphPartsOf(state: VectorIndexState, numbers: VectorNumbers): VectorGr
     numbers.ordinalOfNumber,
     VECTOR_GRAPH_PART_VECTORS,
   )
-  return parts.map(graph => ({ v: VECTOR_GRAPH_PART_PAYLOAD_VERSION, fieldName: state.fieldName, graphs: [graph] }))
+  const shuffledBuildCount = state.shuffledBuildCount
+  return parts.map(graph => ({
+    v: VECTOR_GRAPH_PART_PAYLOAD_VERSION,
+    fieldName: state.fieldName,
+    graphs: [shuffledBuildCount === null ? graph : { ...graph, shuffledBuildCount }],
+  }))
 }
 
 function graphPartsWithoutNodes(
@@ -261,7 +266,7 @@ function readFile(
       fieldName: state.fieldName,
       dimension,
       docIds,
-      codes: partCodes(state, docIds, centroid, tombstonedAt),
+      codes: partCodes(state, docIds, centroid, tombstonedAt, vectors, ordinals),
       vectors: vectorsToBytes(vectors),
     },
     ordinals,

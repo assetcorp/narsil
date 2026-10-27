@@ -2,6 +2,7 @@ import { readMetadataEnvelope, writeMetadataEnvelope } from '../../serialization
 import type { PersistenceAdapter } from '../../types/adapters'
 import { countCheckpointDocuments } from './checkpoint-count'
 import { recoverCheckpoint } from './checkpoint-recovery'
+import { checkpointInTurn, createIndexLoads } from './checkpoint-turn'
 import {
   DEFAULT_CHECKPOINT_INTERVAL_MS,
   DEFAULT_CHECKPOINT_MUTATION_THRESHOLD,
@@ -42,6 +43,7 @@ export function createSnapshotOnlyManager(
 
   const indexes = new Map<string, SnapshotIndexState>()
   const metadataWrites = new Map<string, Promise<void>>()
+  const loads = createIndexLoads()
   let checkpointTimer: ReturnType<typeof setInterval> | null = null
   let shuttingDown = false
 
@@ -120,24 +122,15 @@ export function createSnapshotOnlyManager(
     }
   }
 
-  async function checkpointIndex(indexName: string, fromMemory = false): Promise<void> {
+  async function checkpointIndex(indexName: string, fromMemory = false, afterInFlight = fromMemory): Promise<void> {
     const indexState = indexes.get(indexName)
-    if (indexState === undefined || indexState.unloading) {
-      return
-    }
-    if (indexState.checkpointInFlight !== null) {
-      await indexState.checkpointInFlight
-      if (!fromMemory) {
-        return
-      }
-    }
-    const run = indexState.applyChain
-      .then(() => performCheckpoint(indexName, indexState, fromMemory))
-      .finally(() => {
-        indexState.checkpointInFlight = null
-      })
-    indexState.checkpointInFlight = run
-    return run
+    if (indexState === undefined || indexState.unloading) return
+    return checkpointInTurn(indexState, {
+      joinsInFlight: !afterInFlight,
+      mayStart: () => !indexState.unloading && !shuttingDown,
+      perform: () => indexState.applyChain.then(() => performCheckpoint(indexName, indexState, fromMemory)),
+      afterSettling: () => undefined,
+    })
   }
 
   function queueMetadataWrite(indexName: string, write: () => Promise<void>): Promise<void> {
@@ -150,7 +143,11 @@ export function createSnapshotOnlyManager(
     return queued
   }
 
-  async function recoverIndex(indexName: string, metadataOnly = false): Promise<void> {
+  function recoverIndex(indexName: string, metadataOnly = false): Promise<void> {
+    return loads.track(indexName, loadIndex(indexName, metadataOnly))
+  }
+
+  async function loadIndex(indexName: string, metadataOnly: boolean): Promise<void> {
     const metaBytes = await adapter.load(metadataKey(indexName))
     if (metaBytes === null) {
       return
@@ -298,6 +295,13 @@ export function createSnapshotOnlyManager(
 
     checkpointFromMemory(indexName: string): Promise<void> {
       return checkpointIndex(indexName, true)
+    },
+
+    async checkpointAfterInFlight(indexName: string): Promise<void> {
+      await loads.settled(indexName)
+      await checkpointIndex(indexName, false, true).catch(err => {
+        hooks.onFatalError(err instanceof Error ? err : new Error(String(err)))
+      })
     },
 
     async checkpointAll(): Promise<void> {

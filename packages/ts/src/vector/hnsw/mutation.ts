@@ -32,6 +32,7 @@ import {
   GRAPH_TOP_LAYER,
   publishGraphCapacity,
 } from './handles'
+import { shuffleInPlace } from './insertion-order'
 import { isLive, noteNodeLeftUnlinked, writeKeepingLastLinks } from './last-links'
 import { lockEntry, lockGraphShared, lockNodeWrite, unlockEntry, unlockGraphShared, unlockNodeWrite } from './locks'
 import {
@@ -365,7 +366,7 @@ export function rebuild(state: HNSWGraphState): void {
 
   resetGraph(state)
 
-  for (const ord of liveOrds) {
+  for (const ord of shuffleInPlace(liveOrds)) {
     if (!state.store.holdsOrdinal(ord)) continue
     insertNode(state, ord, true)
   }

@@ -6,13 +6,15 @@ import { createNarsil, type Narsil } from '../../../narsil'
 import { createFilesystemPersistence } from '../../../persistence/filesystem'
 import type { NarsilEventMap } from '../../../types/events'
 import type { AnyDocument } from '../../../types/schema'
-import { decodedPayload, openEnvelope, resealed } from './archive-oracle'
+import { waitFor } from '../../server/helpers'
+import { decodedPayload, openEnvelope, resealed, savedShuffledBuildCount } from './archive-oracle'
 import { temporaryRoots } from './harness'
 import { copyReleaseFixture, expectedFixtureDocuments, expectFixtureDocuments } from './release-0.3-fixture'
 
 const roots = temporaryRoots()
 const engines: Narsil[] = []
 const EARLIER_GRAPH_FILE = 'products/segments/vec-embedding-1l4nfg2-graph-g1'
+const GRAPH_REPAIR_TIMEOUT_MS = 30_000
 
 afterEach(async () => {
   for (const engine of engines.splice(0)) await engine.shutdown().catch(() => undefined)
@@ -74,18 +76,19 @@ describe('an index that release 0.3 saved with a write-ahead log', () => {
 
   it('rewrites the index in the current layout, removes the earlier files, and upgrades once', async () => {
     const { directory, config, engine } = await openUpgraded()
+    await waitFor(async () => (await savedShuffledBuildCount(directory, 'products')) !== null, GRAPH_REPAIR_TIMEOUT_MS)
     await engine.shutdown()
 
     const manifestBytes = new Uint8Array(await readFile(join(directory, 'products', 'manifest')))
     const manifest = decodedPayload(manifestBytes)
     expect(manifest.version).toBe(7)
-    expect(await filesUnder(directory, 'products/segments/')).toEqual(listedKeys(manifest))
     expect(await filesUnder(directory, EARLIER_GRAPH_FILE)).toEqual([])
     expect(decodedPayload(new Uint8Array(await readFile(join(directory, 'notes', 'manifest')))).version).toBe(7)
 
     const reopened = track(await createNarsil(config))
     await expectFixtureDocuments(reopened, 'products', await expectedFixtureDocuments('wal-expected.json'), 'embedding')
     await reopened.shutdown()
+    expect(await filesUnder(directory, 'products/segments/')).toEqual(listedKeys(manifest))
     expect(new Uint8Array(await readFile(join(directory, 'products', 'manifest')))).toEqual(manifestBytes)
   })
 
