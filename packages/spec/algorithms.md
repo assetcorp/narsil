@@ -223,15 +223,16 @@ An implementation must leave every live node other than the entry point with at 
 
 ```text
 connectUnreached(nearby: List<node>)
-  reached = the nodes that a walk from the entry point reaches at layer 0
+  reached = the nodes that a walk from the entry point reaches at layer 0, each with the node that the walk first reached it through
   for each live node x, skipping x where reached already holds it:
     hosts = the live nodes in reached, those in nearby or in the list of x first, each group nearest to x first
     h = the first node in hosts whose list holds fewer than 2 * M entries
     when hosts holds no such node:
-      h = the first node in hosts whose list holds a node with two or more incoming connections
+      h = the first node in hosts whose list holds a node that the walk first reached through a node other than h
       take the node farthest from h among those out of the list of h
     append x to the list of h
-    add x and every node that a walk from x reaches to reached
+    add x to reached, first reached through h
+    add every node that a walk from x reaches to reached, each with the node that the walk first reached it through
 ```
 
 ### Search
