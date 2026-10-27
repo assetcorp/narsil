@@ -14,6 +14,7 @@ import {
 import { beginCheckpointRestore, type CheckpointRestoreShape, type VectorCheckpointRestore } from './checkpoint-restore'
 import { DEFAULT_FILTER_THRESHOLD, DEFAULT_PROMOTION_THRESHOLD, OSQ4_MIN_DIMENSION } from './constants'
 import { adoptDiskLayout as adoptDiskLayoutOp, type VectorFileLayout } from './disk'
+import { createRemovedDocuments, createUnplacedVectors } from './flagged-documents'
 import {
   compact as compactOp,
   completeGraph as completeGraphOp,
@@ -155,8 +156,8 @@ export function createVectorIndex(
     hnswConfig,
     workerCopies,
     store,
-    tombstones: new Set<string>(),
-    buffer: new Set<string>(),
+    tombstones: createRemovedDocuments(store),
+    buffer: createUnplacedVectors(store),
     pendingLocations: new Map(),
     savedFiles: [],
     savedSignature: null,

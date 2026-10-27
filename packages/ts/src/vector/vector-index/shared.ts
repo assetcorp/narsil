@@ -168,6 +168,7 @@ export function releaseReplacedVectors(state: VectorIndexState): void {
 }
 
 export function adoptGraph(state: VectorIndexState, graph: HNSWIndex | null): void {
+  if (state.hnsw !== null && state.hnsw !== graph) state.hnsw.retire()
   if (graph === null && state.hnsw !== null) {
     state.hnsw.clear()
   }

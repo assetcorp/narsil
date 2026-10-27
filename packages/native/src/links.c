@@ -48,7 +48,7 @@ void list_sort_nearest_first(scored_list *list) {
   }
 }
 
-static uint32_t stored_count(const int32_t *list, uint32_t capacity) {
+uint32_t stored_count(const int32_t *list, uint32_t capacity) {
   if (list[0] < 0) { return 0; }
   return (uint32_t)list[0] > capacity ? capacity : (uint32_t)list[0];
 }
@@ -64,6 +64,7 @@ void list_add(const walk_context *context, node_layer position, int32_t neighbou
   if (count + 1 > capacity) { return; }
   list[count + 1] = neighbour;
   list[0] = (int32_t)(count + 1);
+  if (position.layer == 0) { note_linked(context, neighbour); }
 }
 
 void list_take_out(const walk_context *context, node_layer position, int32_t neighbour) {
@@ -75,8 +76,28 @@ void list_take_out(const walk_context *context, node_layer position, int32_t nei
     if (list[i] != neighbour) { continue; }
     for (uint32_t moved = i; moved < count; moved++) { list[moved] = list[moved + 1]; }
     list[0] = (int32_t)(count - 1);
+    if (position.layer == 0) { note_unlinked(context, neighbour); }
     return;
   }
+}
+
+void list_write_counted(const walk_context *context, node_layer position, const int32_t *neighbours, uint32_t count) {
+  uint32_t capacity = 0;
+  int32_t *list = list_at(context, position, &capacity);
+  if (list == NULL) { return; }
+  if (position.layer > 0) {
+    list_replace(context, position, neighbours, count);
+    return;
+  }
+  held_links held = {list + 1, stored_count(list, capacity), 0};
+  held_links written = {neighbours, count > capacity ? capacity : count, 0};
+  for (uint32_t i = 0; i < held.count; i++) {
+    if (!list_holds(written, held.ordinals[i])) { note_unlinked(context, held.ordinals[i]); }
+  }
+  for (uint32_t i = 0; i < written.count; i++) {
+    if (!list_holds(held, written.ordinals[i])) { note_linked(context, written.ordinals[i]); }
+  }
+  list_replace(context, position, neighbours, count);
 }
 
 void list_replace(const walk_context *context, node_layer position, const int32_t *neighbours, uint32_t count) {
@@ -117,12 +138,21 @@ void list_prune(const walk_context *context, node_layer position) {
   candidates->count = 0;
   for (uint32_t i = 1; i <= count; i++) {
     double distance = pair_distance(context, position.ordinal, list[i]);
-    if (distance == HUGE_VAL) { continue; }
+    if (distance == HUGE_VAL) {
+      if (position.layer == 0) { note_unlinked(context, list[i]); }
+      continue;
+    }
     candidates->ordinals[candidates->count] = list[i];
     candidates->distances[candidates->count] = distance;
     candidates->count += 1;
   }
   uint32_t kept = select_neighbours(context, candidates, limit, context->workspace->kept);
+  if (position.layer == 0) {
+    held_links every_candidate = {NULL, 0, 1};
+    (void)write_keeping_last_links(context, position.ordinal, candidates, context->workspace->kept, kept,
+                                   every_candidate);
+    return;
+  }
   list_replace(context, position, context->workspace->kept, kept);
 }
 

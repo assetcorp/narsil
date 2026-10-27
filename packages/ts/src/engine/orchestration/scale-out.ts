@@ -14,7 +14,7 @@ import {
 } from './eligibility'
 import { freezeLiveTailsBeforeCopiesLoad } from './live-tail'
 import { deferPoolRestart, handleWorkerCrash, handleWorkerThreadGone, retirePool } from './repair'
-import { enqueueReplication } from './replication'
+import { enqueueReplication, markCopiesLoaded } from './replication'
 import { announceRequestThreads } from './request-threads'
 import type { CopyTransition, OrchestratorState } from './types'
 import { refreshVectorCopies } from './vector-copies'
@@ -162,7 +162,13 @@ async function loadCopies(state: OrchestratorState, indexName: string, reason: s
   state.copyLoadBuffers.set(indexName, buffered)
   try {
     freezeLiveTailsBeforeCopiesLoad(manager)
-    await transferIndexToPool(indexName, pool, entry.config, manager, state.callbacks?.isAnalysisStale?.(indexName))
+    const copyLoad = await transferIndexToPool(
+      indexName,
+      pool,
+      entry.config,
+      manager,
+      state.callbacks?.isAnalysisStale?.(indexName),
+    )
     if (state.desyncedIndexes.has(indexName)) {
       discardLoadedCopies(state, pool, indexName)
       return
@@ -171,6 +177,7 @@ async function loadCopies(state: OrchestratorState, indexName: string, reason: s
     state.lastAccessAt.set(indexName, Date.now())
     state.poolRetryDelayMs = POOL_RESTART_DELAY_MS
     for (const action of buffered) enqueueReplication(state, indexName, action)
+    markCopiesLoaded(state, indexName, copyLoad)
   } catch (err) {
     if (dropReason !== undefined) state.droppedCopies.set(indexName, dropReason)
     throw err

@@ -1,5 +1,6 @@
 import type { VectorMetric } from '../brute-force'
-import { layerArray, layerBase, readNeighbors, replaceNeighbors } from './adjacency'
+import { layerArray, layerBase, noteUnlinked, readNeighbors, writeNeighbors } from './adjacency'
+import { writeKeepingLastLinks } from './last-links'
 import { beginNodeRead, nodeReadHeld } from './locks'
 import {
   ensureVisited,
@@ -156,7 +157,10 @@ export function pruneConnections(
   for (let i = 1; i <= count; i++) {
     const connOrd = neighbors[base + i]
     const dist = distance(ord, connOrd)
-    if (dist === Number.POSITIVE_INFINITY) continue
+    if (dist === Number.POSITIVE_INFINITY) {
+      if (layer === 0) noteUnlinked(adjacency, connOrd)
+      continue
+    }
     candidates.ords[candidates.size] = connOrd
     candidates.distances[candidates.size] = dist
     candidates.size += 1
@@ -164,5 +168,13 @@ export function pruneConnections(
 
   const kept = state.workspace.pruneSelection
   selectNeighborsHeuristic(state, candidates, mc, distance, kept)
-  replaceNeighbors(adjacency, ord, layer, kept.ords, kept.size)
+  if (layer === 0) {
+    writeKeepingLastLinks(state, ord, state.workspace.working, kept, everyCandidateWasHeld)
+    return
+  }
+  writeNeighbors(adjacency, ord, layer, kept.ords, kept.size)
+}
+
+function everyCandidateWasHeld(): boolean {
+  return true
 }

@@ -39,7 +39,7 @@ function managerOf(serialised: number[]): PartitionManager {
   } as unknown as PartitionManager
 }
 
-async function drain(recorder: Recorder, transfer: Promise<void>): Promise<void> {
+async function drain(recorder: Recorder, transfer: Promise<unknown>): Promise<void> {
   let settled = false
   const watched = transfer.finally(() => {
     settled = true

@@ -6,6 +6,8 @@ import type { IndexConfig } from '../types/schema'
 import type { Executor } from '../workers/executor'
 import type { WorkerPool } from '../workers/pool'
 
+let copyLoadSequence = 0
+
 interface CapturedPartition {
   partitionId: number
   live: SerializablePartition
@@ -92,14 +94,14 @@ async function sendPartition(indexName: string, executors: Executor[], captured:
  * @param analysisStale - Whether the main copy's stored analysis is stale, so
  * that each copy reports the same on its results.
  */
-export async function transferIndexToPool(
+export function transferIndexToPool(
   indexName: string,
   pool: WorkerPool,
   config: IndexConfig,
   manager: PartitionManager,
   analysisStale = false,
-): Promise<void> {
-  await loadIndexOntoWorkers(
+): Promise<string> {
+  return loadIndexOntoWorkers(
     indexName,
     pool.getAllExecutors(),
     config,
@@ -129,7 +131,9 @@ export async function loadIndexOntoWorkers(
   manager: PartitionManager,
   onDropped?: () => void,
   analysisStale = false,
-): Promise<void> {
+): Promise<string> {
+  copyLoadSequence += 1
+  const copyLoad = `${indexName}#${copyLoadSequence}`
   const captured = capturePartitions(manager)
   await Promise.allSettled(
     executors.map(workerExecutor =>
@@ -145,10 +149,12 @@ export async function loadIndexOntoWorkers(
         config,
         requestId: `resync-create-${indexName}`,
         analysisStale,
+        copyLoad,
       }),
     ),
   )
   for (const partition of captured) {
     await sendPartition(indexName, executors, partition)
   }
+  return copyLoad
 }
