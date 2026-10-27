@@ -1,7 +1,7 @@
 import { noteFallback } from '../native/backend'
 import { nativeFieldFor } from '../native/field'
 import { nativeConnect } from '../native/writes'
-import { adjacencySlots, incomingCount, layerBase, noteLinked, noteUnlinked } from './adjacency'
+import { adjacencySlots, layerBase, noteLinked, noteUnlinked } from './adjacency'
 import { ABSENT } from './adjacency/views'
 import { GRAPH_UNLINKED_NODES } from './handles'
 import { isLive } from './last-links'
@@ -10,18 +10,26 @@ import { entryPointOf, type HNSWGraphState, nodeDistanceFunction, nodeExists } f
 
 interface Walk {
   reached: Uint8Array
+  firstReachedThrough: Int32Array
   queue: Int32Array
   head: number
   tail: number
 }
 
-type HostTest = (state: HNSWGraphState, host: number) => boolean
+type HostTest = (state: HNSWGraphState, walk: Walk, host: number) => boolean
 
-function walkFrom(state: HNSWGraphState, walk: Walk, start: number): void {
+const NOT_REACHED_THROUGH_A_NODE = -1
+
+function reach(walk: Walk, node: number, through: number): void {
+  walk.reached[node] = 1
+  walk.firstReachedThrough[node] = through
+  walk.queue[walk.tail++] = node
+}
+
+function walkFrom(state: HNSWGraphState, walk: Walk, start: number, through: number): void {
   const adjacency = state.adjacency
   if (walk.reached[start] === 1) return
-  walk.reached[start] = 1
-  walk.queue[walk.tail++] = start
+  reach(walk, start, through)
   while (walk.head < walk.tail) {
     const ord = walk.queue[walk.head++]
     const base = layerBase(adjacency, ord, 0)
@@ -30,23 +38,28 @@ function walkFrom(state: HNSWGraphState, walk: Walk, start: number): void {
     for (let i = 1; i <= count; i++) {
       const next = adjacency.level0[base + i]
       if (next < 0 || next >= walk.reached.length || walk.reached[next] === 1 || !nodeExists(state, next)) continue
-      walk.reached[next] = 1
-      walk.queue[walk.tail++] = next
+      reach(walk, next, ord)
     }
   }
 }
 
-function hasRoom(state: HNSWGraphState, host: number): boolean {
+function hasRoom(state: HNSWGraphState, _walk: Walk, host: number): boolean {
   const base = layerBase(state.adjacency, host, 0)
   return base !== ABSENT && state.adjacency.level0[base] < state.Mmax0
 }
 
-function holdsSharedLink(state: HNSWGraphState, host: number): boolean {
+function reachedThroughAnotherNode(walk: Walk, host: number, neighbour: number): boolean {
+  if (neighbour < 0 || neighbour >= walk.reached.length || walk.reached[neighbour] !== 1) return false
+  const through = walk.firstReachedThrough[neighbour]
+  return through !== NOT_REACHED_THROUGH_A_NODE && through !== host
+}
+
+function holdsLinkOutsideTheWalk(state: HNSWGraphState, walk: Walk, host: number): boolean {
   const adjacency = state.adjacency
   const base = layerBase(adjacency, host, 0)
   if (base === ABSENT) return false
   const count = adjacency.level0[base]
-  for (let i = 1; i <= count; i++) if (incomingCount(adjacency, adjacency.level0[base + i]) >= 2) return true
+  for (let i = 1; i <= count; i++) if (reachedThroughAnotherNode(walk, host, adjacency.level0[base + i])) return true
   return false
 }
 
@@ -68,7 +81,7 @@ function nearestHost(
   let best = -1
   let bestDistance = Number.POSITIVE_INFINITY
   const consider = (host: number): void => {
-    if (host === orphan || walk.reached[host] !== 1 || !isLive(state, host) || !test(state, host)) return
+    if (host === orphan || walk.reached[host] !== 1 || !isLive(state, host) || !test(state, walk, host)) return
     const away = distance(orphan, host)
     if (best === -1 || away < bestDistance) {
       best = host
@@ -83,7 +96,7 @@ function nearestHost(
   return best
 }
 
-function takeOutFarthestSharedLink(state: HNSWGraphState, host: number): void {
+function takeOutFarthestLinkOutsideTheWalk(state: HNSWGraphState, walk: Walk, host: number): void {
   const adjacency = state.adjacency
   const base = layerBase(adjacency, host, 0)
   if (base === ABSENT) return
@@ -93,7 +106,7 @@ function takeOutFarthestSharedLink(state: HNSWGraphState, host: number): void {
   let farthestDistance = Number.NEGATIVE_INFINITY
   for (let i = 1; i <= count; i++) {
     const neighbour = adjacency.level0[base + i]
-    if (incomingCount(adjacency, neighbour) < 2) continue
+    if (!reachedThroughAnotherNode(walk, host, neighbour)) continue
     const away = distance(host, neighbour)
     if (farthest === -1 || away > farthestDistance) {
       farthest = i
@@ -121,8 +134,14 @@ export function connectUnreached(state: HNSWGraphState, nearby: ArrayLike<number
   const slots = adjacencySlots(state.adjacency)
   const entry = entryPointOf(state)
   if (entry < 0 || entry >= slots || !nodeExists(state, entry)) return
-  const walk: Walk = { reached: new Uint8Array(slots), queue: new Int32Array(slots), head: 0, tail: 0 }
-  walkFrom(state, walk, entry)
+  const walk: Walk = {
+    reached: new Uint8Array(slots),
+    firstReachedThrough: new Int32Array(slots),
+    queue: new Int32Array(slots),
+    head: 0,
+    tail: 0,
+  }
+  walkFrom(state, walk, entry, NOT_REACHED_THROUGH_A_NODE)
   const held = { list: [] as number[], holds: new Uint8Array(slots) }
   for (let i = 0; i < nearby.length; i++) {
     const ord = nearby[i]
@@ -134,12 +153,12 @@ export function connectUnreached(state: HNSWGraphState, nearby: ArrayLike<number
     if (walk.reached[orphan] === 1 || !isLive(state, orphan)) continue
     let host = nearestHost(state, walk, orphan, held, hasRoom)
     if (host === -1) {
-      host = nearestHost(state, walk, orphan, held, holdsSharedLink)
+      host = nearestHost(state, walk, orphan, held, holdsLinkOutsideTheWalk)
       if (host === -1) continue
-      takeOutFarthestSharedLink(state, host)
+      takeOutFarthestLinkOutsideTheWalk(state, walk, host)
     }
     appendTo(state, host, orphan)
-    walkFrom(state, walk, orphan)
+    walkFrom(state, walk, orphan, host)
   }
 }
 

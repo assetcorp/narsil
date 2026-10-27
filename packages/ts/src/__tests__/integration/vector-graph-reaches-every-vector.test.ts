@@ -99,6 +99,59 @@ async function compactAwayTheOnlyLinkIntoAChain(
   return { saved, removed, compacted }
 }
 
+function closedGroup(members: number[], position: number): number[] {
+  return Array.from({ length: members.length - 1 }, (_, i) => members[(position + 1 + i) % members.length])
+}
+
+async function compactWhileEveryReachedListIsFull(
+  opened: Narsil,
+): Promise<{ saved: GraphWalk; orphanGroups: string[]; compacted: GraphWalk }> {
+  let sharedTarget = -1
+  let removed = -1
+  let orphanGroups: number[] = []
+  const archive = await snapshotWithBaseLists(await opened.snapshot(INDEX), FIELD, baseListLimit => {
+    const span = (from: number, length: number): number[] => Array.from({ length }, (_, i) => from + i)
+    const firstOrphanGroup = [0, ...span(2, baseListLimit)]
+    const secondOrphanGroup = [1, ...span(baseListLimit + 2, baseListLimit)]
+    orphanGroups = [...firstOrphanGroup, ...secondOrphanGroup]
+    const host = 2 * baseListLimit + 2
+    sharedTarget = host + 1
+    removed = host + 2
+    const reachedOnlyFromHost = span(host + 3, baseListLimit - 1)
+    const ring = span(3 * baseListLimit + 4, CLIPS - 3 * baseListLimit - 4)
+    const ringList = (position: number): number[] =>
+      Array.from({ length: baseListLimit }, (_, i) => ring[(position + 1 + i) % ring.length])
+    const listOf = new Map<number, number[]>()
+    firstOrphanGroup.forEach((number, position) => {
+      listOf.set(number, closedGroup(firstOrphanGroup, position))
+    })
+    secondOrphanGroup.forEach((number, position) => {
+      listOf.set(number, closedGroup(secondOrphanGroup, position))
+    })
+    listOf.set(0, [host, ...closedGroup(firstOrphanGroup, 0).slice(0, -1)])
+    listOf.set(1, [sharedTarget, ...closedGroup(secondOrphanGroup, 0).slice(0, -1)])
+    listOf.set(host, [sharedTarget, ...reachedOnlyFromHost])
+    listOf.set(sharedTarget, ringList(0))
+    listOf.set(removed, [])
+    reachedOnlyFromHost.forEach((number, position) => {
+      listOf.set(number, ringList(position))
+    })
+    ring.forEach((number, position) => {
+      listOf.set(number, ringList(position))
+    })
+    listOf.set(ring[1], [...ringList(1).slice(0, -1), host])
+    listOf.set(ring[2], [...ringList(2).slice(0, -1), removed])
+    return { entryPoint: ring[0], baseListOf: number => listOf.get(number) ?? [] }
+  })
+  const saved = await walkSavedGraph(new Blob([archive]).stream(), INDEX, FIELD)
+  await opened.restore(RESTORED_INDEX, archive)
+  const removal = await opened.removeBatch(RESTORED_INDEX, [saved.liveDocIds[removed]])
+  expect(removal.failed).toEqual([])
+  await opened.compactVectors(RESTORED_INDEX, FIELD)
+  const compacted = await walkSavedGraph(await opened.snapshot(RESTORED_INDEX), RESTORED_INDEX, FIELD)
+  return { saved, orphanGroups: orphanGroups.map(number => saved.liveDocIds[number]), compacted }
+}
+
 searchWithTheHostBinary()
 
 describe.each(backends)('a vector graph built from 4-bit codes through $name', ({ native, available }) => {
@@ -257,6 +310,23 @@ describe.each(backends)('a vector graph built from 4-bit codes through $name', (
       expect(saved.baseListOf.get(saved.liveDocIds[CHAIN_TAIL])).toEqual([saved.liveDocIds[CHAIN_HEAD]])
       const remaining = clips.map(clip => clip.id).filter(id => id !== removed)
       expect([...compacted.liveDocIds].sort()).toEqual(remaining.sort())
+      expect(missedBy(compacted)).toEqual({ unplaced: [], unreached: [] })
+      if (native) {
+        expect(fallbacks).not.toContain('compact')
+        expect(fallbacks).not.toContain('connect')
+      }
+    },
+    300_000,
+  )
+
+  it.skipIf(!available)(
+    'keeps every vector reachable when the walk must take a link out of a full list to connect a closed group',
+    async () => {
+      const { opened } = await openTheClips()
+
+      const { saved, orphanGroups, compacted } = await compactWhileEveryReachedListIsFull(opened)
+      expect([...saved.unreached].sort()).toEqual([...orphanGroups].sort())
+      expect(compacted.nodeCount).toBe(CLIPS - 1)
       expect(missedBy(compacted)).toEqual({ unplaced: [], unreached: [] })
       if (native) {
         expect(fallbacks).not.toContain('compact')
