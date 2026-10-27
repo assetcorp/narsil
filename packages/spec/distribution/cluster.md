@@ -68,6 +68,7 @@ ClusterCoordinator {
 - `putAllocation` must be atomic: the whole table is written or nothing is.
 - `putAllocation` takes an optimistic concurrency check through `expectedVersion`. With a version supplied, the write succeeds only when the stored table carries that version. With `expectedVersion` absent, the write succeeds only when no table exists for the index yet. It returns true when the write succeeded and false when the check failed.
 - That check is what stops a split brain: a controller that has lost its lease cannot overwrite a newer table written by its successor, because the version has already moved on.
+- `putAllocation` must also check, in the same atomic operation, that the writing node holds the `_narsil/controller` lease, and it must return false where it does not, so that a controller whose lease expired before its next renewal cannot write a table.
 
 ### deleteAllocation(indexName)
 
@@ -188,7 +189,7 @@ IndexPartitionBytes {
 
 ### nodeId
 
-A unique identifier generated at startup, recommended as a time-ordered UUID v7. It is ephemeral and changes on every restart, which keeps a stale registration from outliving a crash.
+A unique identifier, recommended as a time-ordered UUID v7. A node with a durability directory must generate its `nodeId` once, store it in that directory, and reuse it on every later start, so that the controller recognises the node's copies after a restart. A node without a durability directory must generate a new `nodeId` on every start. A node must wait for the lease of a live registration under its `nodeId` to expire before it registers.
 
 ### address
 
@@ -711,9 +712,11 @@ An operator deletes an orphaned copy explicitly, and every automatic path leaves
 ```text
 1. The node's lease expires in the cluster coordinator.
 2. A node_left event fires.
-3. The controller reassigns exactly as it does for a graceful
-   departure, without waiting for the failed node to finish
-   anything.
+3. The controller promotes a replica at once for every partition
+   that the failed node led, and it waits nodeLeftDelayMs, 60000
+   by default, before it moves the failed node's replicas to
+   other nodes. When the failed node registers again under the
+   same nodeId within that time, it keeps its replicas.
 4. A partition where the failed node was primary and no in-sync
    replica remains moves to UNASSIGNED, and the controller records
    its last holders in lastHolders. It stays unavailable until one
