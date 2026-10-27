@@ -219,7 +219,7 @@ keepLastLinks(p, kept: List<node>, dropped: List<node>, limit: uint32) -> List<n
   return kept
 ```
 
-An implementation must leave every live node other than the entry point with at least one incoming connection at layer 0 once an insertion, a removal, or a load completes. Where the rules in this section leave such a node with none, as when `keepLastLinks` finds no node to replace or a removal takes away the last connection into a node, the implementation must run `connectUnreached` before the write or the load completes. At a removal, `nearby` holds the other neighbours of every vector that the write removes, and it is empty otherwise.
+An implementation must leave every live node other than the entry point with at least one incoming connection at layer 0 once an insertion, a removal, or a load completes. Where the rules in this section leave such a node with none, as when `keepLastLinks` finds no node to replace or a removal takes away the last connection into a node, the implementation must run `connectUnreached` before the write or the load completes. An implementation must also run `connectUnreached` once before every write that removes vectors completes, because the members of a group that only link to one another each keep an incoming connection, so no count reveals the group. At a removal, `nearby` holds the other neighbours of every vector that the write removes, and it is empty otherwise.
 
 ```text
 connectUnreached(nearby: List<node>)
