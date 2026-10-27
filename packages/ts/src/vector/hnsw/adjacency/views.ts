@@ -34,8 +34,8 @@ export function openAdjacency(handles: SharedGraphHandles, m: number, mMax0: num
 }
 
 export function rebindNodes(adj: Adjacency): void {
-  adj.incoming = fixedView(adj.handles.incoming, Int32Array)
   adj.nodeLevels = fixedView(adj.handles.nodeLevels, Uint8Array)
+  adj.incoming = fixedView(adj.handles.incoming, Int32Array)
   adj.level0 = fixedView(adj.handles.level0, Int32Array)
   adj.upperBase = fixedView(adj.handles.upperBase, Int32Array)
 }
