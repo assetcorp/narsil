@@ -97,7 +97,7 @@ An implementation must accept an `oversample` that is a finite number of at leas
 
 ### optimize()
 
-`optimize` restructures the index for faster search. A segment-based implementation merges several graphs into fewer, larger ones, while a single-graph implementation folds its buffered vectors into the graph. A single-graph implementation must rebuild the graph once callers remove more than a fifth of its vectors. A quantised index must recalibrate its quantiser whenever `optimize` rebuilds or merges a graph, because the centroid of the merged vectors can differ from the centroid of each part.
+`optimize` restructures the index for faster search. A segment-based implementation merges several graphs into fewer, larger ones, while a single-graph implementation folds its buffered vectors into the graph. A single-graph implementation must rebuild the graph once callers remove more than a fifth of its vectors. A quantised index must recalibrate its quantiser whenever `optimize` rebuilds or merges a graph, because the centroid of the merged vectors can differ from the centroid of each part. It must also recalibrate before every shuffled rebuild that [Insertion Order](#insertion-order) requires.
 
 A caller should expect latency proportional to the total vector count. An implementation must release the processor during the operation, so a single-threaded runtime must yield between chunks and a runtime with threads may do the work in the background.
 
@@ -283,7 +283,7 @@ VectorIndexConfig {
 
 An `osq8`, `osq4`, `osq2`, or `osq1` index stores eight, four, two, or one bits per dimension, as [Optimised Scalar Quantisation (OSQ)](algorithms.md#optimised-scalar-quantisation-osq) defines. An index whose `quantization` is `none` stores no code. When `quantization` is absent, an implementation must use `osq4` at 384 dimensions and above and `osq8` below 384.
 
-A quantised index calibrates its quantiser once its vector count reaches the HNSW promotion threshold, and it calibrates again when `optimize` rebuilds or merges a graph. A quantised index places a new vector in the graph by scoring it as a query against the codes of its neighbours.
+A quantised index calibrates its quantiser once its vector count reaches the HNSW promotion threshold. It calibrates again whenever `optimize` rebuilds or merges a graph, and before every shuffled rebuild that [Insertion Order](#insertion-order) requires. A quantised index places a new vector in the graph by scoring it as a query against the codes of its neighbours.
 
 ---
 
@@ -536,6 +536,14 @@ After promotion, an implementation must add each new vector to the graph in one 
 
 Incremental insertion loses throughput as the index grows, because every insert walks the graph. Buffered and segment-based insertion keep insert throughput steady, and each search does more work in exchange.
 
+### Insertion Order
+
+An application can insert its vectors in groups of close neighbours, such as the passages of one file followed by the passages of the next. When a builder places vectors in that order, it can link most of them only to vectors from their own group, so a search can miss a vector that a brute-force scan ranks first.
+
+An implementation must therefore insert the vectors in a shuffled order whenever it builds a graph from every vector, which includes promotion and every rebuild that `optimize` performs. After that build, the implementation adds each new vector in the order that the vector arrives, through one of the ways in [Post-Promotion Insertion](#post-promotion-insertion), so it must rebuild the graph in a shuffled order once the graph holds twice the vectors that it held after its last shuffled build, counting only the vectors that remain after removals.
+
+A quantised index must recalibrate its quantiser from every vector before each of those rebuilds, because at promotion it calibrated from the vectors that had arrived by then, and those can come from a few groups. The implementation must keep every search available while it rebuilds, as the [Promotion Contract](#promotion-contract) requires during promotion.
+
 ---
 
 ## Serialisation
@@ -558,7 +566,7 @@ Every implementation must read a vector graph payload that holds any number of g
 
 ### Deserialisation Strategy
 
-An implementation may choose what it does with the graphs that it loads. It may search each graph independently and merge the results, merge every graph into one on load, or keep the large graphs separate while it merges the small ones. The recall floors in [Cross-Implementation Result Equivalence](#cross-implementation-result-equivalence) apply whichever strategy an implementation chooses.
+An implementation may choose what it does with the graphs that it loads. It may search each graph independently and merge the results, merge every graph into one on load, or keep the large graphs separate while it merges the small ones. When an implementation loads a graph that has no `shuffledBuildCount`, as [Vector Graph Payload](envelope.md#vector-graph-payload) defines, it must rebuild that graph once in a shuffled order, recalibrating first where the index is quantised, while every search stays available. It must write the field at the first save after that rebuild. The recall floors in [Cross-Implementation Result Equivalence](#cross-implementation-result-equivalence) apply whichever strategy an implementation chooses.
 
 ---
 
