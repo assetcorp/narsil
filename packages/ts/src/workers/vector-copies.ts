@@ -54,7 +54,8 @@ export function loadHeldVectorCopy(
 }
 
 export function holdsVectorField(held: HeldVectorCopies, fieldName: string): boolean {
-  return held.fields.get(fieldName)?.view.readsEveryVector === true
+  const view = held.fields.get(fieldName)?.view
+  return view?.readsEveryVector === true && !view.graphRetired
 }
 
 export function dropHeldVectorCopy(held: HeldVectorCopies, fieldName: string, handle: string): void {

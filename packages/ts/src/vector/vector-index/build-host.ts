@@ -117,7 +117,7 @@ async function placeChunk(
       continue
     }
     if (!state.tombstones.has(docId) && !graph.has(docId) && graph.insertOrdinal(ordinal)) placedHere += 1
-    state.buffer.delete(docId)
+    if (graph === state.hnsw) state.buffer.delete(docId)
   }
   if (placedHere > 0 && outcome !== null && !fallback.shortAnswerWarned) {
     fallback.shortAnswerWarned = true
@@ -140,7 +140,7 @@ async function insertLocally(
     const ordinal = state.store.getOrdinal(docId)
     if (ordinal === undefined) continue
     graph.insertOrdinal(ordinal)
-    state.buffer.delete(docId)
+    if (graph === state.hnsw) state.buffer.delete(docId)
     count += 1
     if (count % BUILD_CHUNK_SIZE === 0) {
       noteWrite(state)

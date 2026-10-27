@@ -24,7 +24,7 @@ import { DEFAULT_COPY_IDLE_TIMEOUT_MS, DEFAULT_COPY_THRESHOLD, POOL_RESTART_DELA
 import { isIndexBusy, noteAccess, startIdleSweep, stopIdleSweep } from './idle'
 import { flushGrownTails } from './live-tail'
 import { cancelRepair } from './repair'
-import { awaitReplicationIdle, awaitWritesApplied, replicateToWorkers } from './replication'
+import { awaitReplicationIdle, awaitWritesApplied, markCopiesLoaded, replicateToWorkers } from './replication'
 import { requestThreadCountOf, serveRequestsOnWorkers, stopRequestThreads } from './request-threads'
 import {
   copyThresholdReason,
@@ -173,8 +173,15 @@ export function createWorkerOrchestrator(
     const manager = executor.getManager(indexName)
     if (pool !== null && entry !== undefined && manager !== undefined) {
       try {
-        await transferIndexToPool(indexName, pool, entry.config, manager, callbacks?.isAnalysisStale?.(indexName))
+        const copyLoad = await transferIndexToPool(
+          indexName,
+          pool,
+          entry.config,
+          manager,
+          callbacks?.isAnalysisStale?.(indexName),
+        )
         state.scaledOutIndexes.add(indexName)
+        markCopiesLoaded(state, indexName, copyLoad)
         refreshVectorCopies(state, indexName)
       } catch (repairError) {
         throw new NarsilError(

@@ -69,6 +69,7 @@ interface IndexEntry {
   vectorIndexes: Map<string, VectorIndex>
   vectorCopies: HeldVectorCopies
   analysisStale: boolean
+  awaitedCopyLoad: string | null
 }
 
 const NO_VECTOR_WORKER_COPIES: VectorWorkerCopyPolicy = { enabled: false }
@@ -108,6 +109,16 @@ export function createDirectExecutor(options?: DirectExecutorOptions): Executor 
   }
 
   function createIndex(indexName: string, config: IndexConfig, language: LanguageModule, analysisStale = false): void {
+    addIndex(indexName, config, language, analysisStale, null)
+  }
+
+  function addIndex(
+    indexName: string,
+    config: IndexConfig,
+    language: LanguageModule,
+    analysisStale: boolean,
+    awaitedCopyLoad: string | null,
+  ): void {
     if (indexes.has(indexName)) {
       throw new NarsilError(ErrorCodes.INDEX_ALREADY_EXISTS, `Index "${indexName}" already exists`, {
         indexName,
@@ -131,6 +142,7 @@ export function createDirectExecutor(options?: DirectExecutorOptions): Executor 
       vectorIndexes,
       vectorCopies: createHeldVectorCopies(),
       analysisStale,
+      awaitedCopyLoad,
     })
   }
 
@@ -156,7 +168,7 @@ export function createDirectExecutor(options?: DirectExecutorOptions): Executor 
 
   function queryContextOf(indexName: string): IndexQueryContext | undefined {
     const entry = indexes.get(indexName)
-    if (entry === undefined) return undefined
+    if (entry === undefined || entry.awaitedCopyLoad !== null) return undefined
     return {
       manager: entry.manager,
       config: entry.config,
@@ -189,7 +201,13 @@ export function createDirectExecutor(options?: DirectExecutorOptions): Executor 
 
       case 'createIndex': {
         const language = getLanguage(action.config.language ?? 'english')
-        createIndex(action.indexName, action.config, language, action.analysisStale ?? false)
+        addIndex(action.indexName, action.config, language, action.analysisStale ?? false, action.copyLoad ?? null)
+        return undefined as T
+      }
+
+      case 'copyLoaded': {
+        const entry = indexes.get(action.indexName)
+        if (entry?.awaitedCopyLoad === action.copyLoad) entry.awaitedCopyLoad = null
         return undefined as T
       }
 

@@ -12,6 +12,7 @@ import {
   STORE_BLOCK_COUNT,
   STORE_CODE_BLOCK_COUNT,
   STORE_SLOTS,
+  unplacedChunkCount,
 } from './handles'
 import type { DiskLocation } from './types'
 import { openSharedVectorStore, type SharedVectorStoreView } from './view'
@@ -89,6 +90,9 @@ export function ensureOrdinal(store: OpenStore, ordinal: number, cold: boolean):
   const { handles } = store
   growBufferTo(handles.magnitudes, (ordinal + 1) * 8)
   growBufferTo(handles.present, ordinal + 1)
+  growBufferTo(handles.unplaced, ordinal + 1)
+  growBufferTo(handles.unplacedChunks, unplacedChunkCount(ordinal) * 4)
+  growBufferTo(handles.removed, ordinal + 1)
   growBufferTo(handles.partitions, (ordinal + 1) * 4)
   growBufferTo(handles.codePresent, ordinal + 1)
   const diskFileBytes = handles.diskFile.byteLength

@@ -1,4 +1,9 @@
-import { MAX_DOC_ID_TABLE_BYTES, MAX_VECTOR_ORDINALS, VECTOR_STORE_INITIAL_CAPACITY } from '../constants'
+import {
+  MAX_DOC_ID_TABLE_BYTES,
+  MAX_VECTOR_ORDINALS,
+  UNPLACED_FLAG_CHUNK_ORDINALS,
+  VECTOR_STORE_INITIAL_CAPACITY,
+} from '../constants'
 import type { OsqBits } from '../osq/quantize'
 import { createFixedBuffer, createGrowableBuffer, type GrowableBuffer } from '../shared-buffers/growable'
 import {
@@ -19,6 +24,8 @@ export const STORE_DOC_ID_BYTES = 5
 export const STORE_CODE_BLOCK_COUNT = 6
 export const STORE_CALIBRATION_GENERATION = 7
 export const STORE_RELEASED_VECTORS_TO_DISK = 8
+export const STORE_UNPLACED_COUNT = 9
+export const STORE_REMOVED_COUNT = 10
 const STORE_HEADER_WORDS = 16
 
 export const IN_MEMORY = -1
@@ -60,6 +67,12 @@ export interface SharedVectorStoreHandles {
   magnitudes: GrowableBuffer
   /** This holds one byte per ordinal, which reads 1 where the ordinal holds a live vector. */
   present: GrowableBuffer
+  /** This holds one byte per ordinal, which reads 1 where the graph has yet to place the ordinal's vector. */
+  unplaced: GrowableBuffer
+  /** This holds one 32-bit count for each fixed run of ordinals, which counts the unplaced flags that the run holds, so that a reader can skip every run whose count reads 0. */
+  unplacedChunks: GrowableBuffer
+  /** This holds one byte per ordinal, which reads 1 where the field has removed the ordinal's document while it keeps the vector. */
+  removed: GrowableBuffer
   /** This holds each ordinal's partition, or a negative marker where the store knows none. */
   partitions: GrowableBuffer
   /** This holds every document id, UTF-8 encoded end to end in ordinal order. */
@@ -82,6 +95,10 @@ function fixedInt32(words: number): Int32Array {
 
 function fixedFloat32(length: number): Float32Array {
   return new Float32Array(createFixedBuffer(length * 4), 0, length)
+}
+
+export function unplacedChunkCount(ordinals: number): number {
+  return Math.floor(ordinals / UNPLACED_FLAG_CHUNK_ORDINALS) + 1
 }
 
 function perOrdinal(bytesPerOrdinal: number): GrowableBuffer {
@@ -114,6 +131,9 @@ export function createSharedVectorStoreHandles(
     vectorFiles: [],
     magnitudes: perOrdinal(8),
     present: perOrdinal(1),
+    unplaced: perOrdinal(1),
+    unplacedChunks: createGrowableBuffer(4, unplacedChunkCount(MAX_VECTOR_ORDINALS) * 4),
+    removed: perOrdinal(1),
     partitions: perOrdinal(4),
     docIdBytes: createGrowableBuffer(VECTOR_STORE_INITIAL_CAPACITY * 16, MAX_DOC_ID_TABLE_BYTES),
     docIdOffsets: perOrdinal(4),
@@ -132,6 +152,9 @@ export function sharedVectorStoreBytes(handles: SharedVectorStoreHandles): numbe
   for (const block of handles.codeBlocks) bytes += blockBuffer(block).byteLength
   bytes += handles.magnitudes.byteLength
   bytes += handles.present.byteLength
+  bytes += handles.unplaced.byteLength
+  bytes += handles.unplacedChunks.byteLength
+  bytes += handles.removed.byteLength
   bytes += handles.partitions.byteLength
   bytes += handles.docIdBytes.byteLength
   bytes += handles.docIdOffsets.byteLength
