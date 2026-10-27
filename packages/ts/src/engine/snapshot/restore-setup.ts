@@ -123,6 +123,7 @@ export async function createRestoredIndex(
     heldPartitions: null,
     documentCount: 0,
     partitionCount,
+    analysisRevision: prepared.storedRevision,
   })
   await deps.indexState.registerOpen(indexName)
   const release = await deps.indexState.acquire(indexName, false)

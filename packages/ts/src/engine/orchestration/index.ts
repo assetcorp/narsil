@@ -110,7 +110,14 @@ export function createWorkerOrchestrator(
   }
   startIdleSweep(state)
 
+  function settlingCopyWork(indexName: string): Promise<void> | undefined {
+    return state.copyTransitions.get(indexName)?.done ?? state.compactionsInFlight.get(indexName)
+  }
+
   async function resyncIndex(indexName: string, wasScaledOut: boolean): Promise<void> {
+    for (let pending = settlingCopyWork(indexName); pending !== undefined; pending = settlingCopyWork(indexName)) {
+      await pending
+    }
     state.desyncedIndexes.delete(indexName)
     if (!wasScaledOut) return
     await scaleOutIndex(state, indexName, copyThresholdReason(state, indexName))

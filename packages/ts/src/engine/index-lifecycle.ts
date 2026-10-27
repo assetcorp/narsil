@@ -138,6 +138,7 @@ export async function createEngineIndex(
     heldPartitions: null,
     documentCount: 0,
     partitionCount: indexConfig.partitions?.maxPartitions ?? 1,
+    analysisRevision: language.revision,
   })
   await core.indexState.registerOpen(name)
   if (core.durability) {
@@ -150,6 +151,7 @@ export async function dropEngineIndex(core: EngineCore, name: string): Promise<v
   core.guardShutdown()
   const entry = core.requireIndex(name)
   await core.indexState.drop(name, async () => {
+    await core.analysisRebuild.abandon(name)
     await core.orchestrator.closeIndex(name)
     if (core.durability) {
       try {

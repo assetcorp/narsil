@@ -28,12 +28,17 @@ function refuseCode(entry: IndexRegistryEntry): void {
 
 export function indexConfigurationOf(entry: IndexRegistryEntry): Record<string, unknown> {
   refuseCode(entry)
-  return configurationPayloadOf(entry.config, entry.language, entry.embeddingAdapterName)
+  return configurationPayloadOf(entry.config, entry.language, entry.embeddingAdapterName, entry.analysisRevision)
 }
 
 export function requireConfigurationWithinSizeLimit(config: IndexConfig, language: LanguageModule): void {
   const adapter = config.embedding?.adapter
-  const payload = configurationPayloadOf(config, language, typeof adapter === 'string' ? adapter : null)
+  const payload = configurationPayloadOf(
+    config,
+    language,
+    typeof adapter === 'string' ? adapter : null,
+    language.revision,
+  )
   if (messagePackUpperBoundBytes(payload) <= MAX_INDEX_CONFIGURATION_BYTES) return
   const bytes = encode(payload).byteLength
   if (bytes <= MAX_INDEX_CONFIGURATION_BYTES) return
@@ -48,12 +53,13 @@ function configurationPayloadOf(
   config: IndexConfig,
   language: LanguageModule,
   adapterName: string | null,
+  analysisRevision: string | null,
 ): Record<string, unknown> {
   const bm25 = config.bm25
   return {
     schema: config.schema,
     language: language.name,
-    analysisRevision: language.revision,
+    ...(analysisRevision !== null ? { analysisRevision } : {}),
     ...(typeof config.tokenizer === 'string' ? { tokenizer: config.tokenizer } : {}),
     ...(typeof config.stopWords === 'string' ? { stopWords: config.stopWords } : {}),
     ...(config.stopWords instanceof Set ? { stopWordList: [...config.stopWords].sort(compareCodePoints) } : {}),

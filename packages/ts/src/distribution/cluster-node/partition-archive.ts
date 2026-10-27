@@ -43,6 +43,7 @@ export async function archiveReplicationPartition(
     const entry = core.requireIndex(indexName)
     const manager = core.requireManager(indexName)
     let captured = 0
+    const config = await encodeIndexConfiguration(entry)
     const checkpoint = await buildArchiveFromMemory({
       indexName,
       metadata: indexMetadataOf(indexName, entry, manager.partitionCount),
@@ -54,7 +55,6 @@ export async function archiveReplicationPartition(
       },
       partitionId,
     })
-    const config = await encodeIndexConfiguration(entry)
     return { stream: archiveStream({ ...checkpoint, config, sourceIndexName: indexName }), lastSeqNo: captured }
   } finally {
     release()
@@ -82,6 +82,7 @@ function requireRestoreTarget(indexName: string, partitionId: number, partitionC
 
 interface ReceivedArchive {
   language: string
+  analysisRevision: string | null
   manifest: SegmentManifest
   store: CheckpointStore
 }
@@ -94,6 +95,7 @@ async function receiveArchive(
 ): Promise<ReceivedArchive> {
   const store = memoryCheckpointStore()
   let language = ''
+  let analysisRevision: string | null = null
   let received: SegmentManifest | null = null
   await readSnapshotArchive(createByteReader(source), {
     config: async bytes => {
@@ -102,9 +104,10 @@ async function receiveArchive(
         what: 'index configuration',
         allowsCompression: true,
       })
-      const raw = decode(payload) as { language?: unknown }
+      const raw = decode(payload) as { language?: unknown; analysisRevision?: unknown }
       if (typeof raw.language !== 'string') restoreFailed('partition archive names no language', { indexName })
       language = raw.language
+      analysisRevision = typeof raw.analysisRevision === 'string' ? raw.analysisRevision : null
     },
     manifest: async (manifest, sourceName) => {
       const listed = manifest.partitions.map(partition => partition.partitionId)
@@ -131,7 +134,7 @@ async function receiveArchive(
     file: async (name, _ref, bytes) => store.write(`${indexName}/${name}`, [bytes]),
   })
   if (received === null) restoreFailed('partition archive holds no manifest', { indexName, partitionId })
-  return { language, manifest: received, store }
+  return { language, analysisRevision, manifest: received, store }
 }
 
 function emptyPartition(manager: PartitionManager, partitionId: number): SerializablePartition {
@@ -190,6 +193,20 @@ async function replacePartition(
   }
 }
 
+function recordReceivedAnalysis(core: EngineCore, indexName: string, receivedRevision: string | null): void {
+  const entry = core.requireIndex(indexName)
+  const current = entry.language.revision
+  if (receivedRevision === current) return
+  entry.analysisRevision =
+    entry.analysisRevision === current || entry.analysisRevision === receivedRevision ? receivedRevision : null
+  core.analysisRebuild.markStale({
+    indexName,
+    language: entry.language.name,
+    storedRevision: entry.analysisRevision,
+    currentRevision: current,
+  })
+}
+
 export async function restoreReplicationPartition(
   core: EngineCore,
   engine: Narsil,
@@ -224,6 +241,7 @@ export async function restoreReplicationPartition(
     const wasScaledOut = core.orchestrator.desyncIndex(indexName)
     try {
       await replacePartition(core.requireManager(indexName), partitionId, archive)
+      recordReceivedAnalysis(core, indexName, archive.analysisRevision)
     } finally {
       await core.orchestrator.resyncIndex(indexName, wasScaledOut)
     }

@@ -100,8 +100,15 @@ export function createIndexStateCoordinator(
     }
   }
 
+  function transitionPending(indexName: string, entry: LifecycleEntry): boolean {
+    if (entries.get(indexName) !== entry) return true
+    if (entry.state === 'dropping' && entry.dropPromise !== null) return true
+    return entry.state === 'closing' && entry.closePromise !== null
+  }
+
   async function reopen(indexName: string, explicit: boolean): Promise<void> {
-    const entry = await awaitPendingTransitions(indexName)
+    let entry = await awaitPendingTransitions(indexName)
+    while (transitionPending(indexName, entry)) entry = await awaitPendingTransitions(indexName)
     if (entry.state === 'open') return
     if (explicit) {
       entry.reopenFailures = 0

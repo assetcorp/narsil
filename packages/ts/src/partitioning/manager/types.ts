@@ -11,6 +11,7 @@ import type { LanguageModule } from '../../types/language'
 import type { PartitionStatsResult } from '../../types/results'
 import type { AnyDocument, IndexConfig, SchemaDefinition } from '../../types/schema'
 import type { VectorIndex } from '../../vector/vector-index'
+import type { PartitionWriteLog } from './write-log'
 
 export interface PartitionManager {
   readonly partitionCount: number
@@ -25,6 +26,8 @@ export interface PartitionManager {
   partitionAt(index: number): PartitionIndex | undefined
   getAllPartitions(): PartitionIndex[]
   setPartitions(partitions: PartitionIndex[]): void
+  openWriteLog(): PartitionWriteLog
+  adoptRebuiltPartitions(rebuilt: PartitionIndex[]): void
   addPartition(): PartitionIndex
   removePartition(partitionId: number): void
   trimPartitions(count: number): void
@@ -37,7 +40,6 @@ export interface PartitionManager {
   beginBatchRemove(): void
   endBatchRemove(): void
   update(docId: string, document: AnyDocument, options?: PartitionInsertOptions): void
-  rebuildTextIndex(partitionId: number): void
   get(docId: string, projection?: ResolvedProjection): AnyDocument | undefined
   getRef(docId: string): AnyDocument | undefined
   sortValues(

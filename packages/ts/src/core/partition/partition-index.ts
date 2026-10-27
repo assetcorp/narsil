@@ -42,7 +42,6 @@ export interface PartitionIndex {
     language: LanguageModule,
     options?: PartitionInsertOptions,
   ): void
-  rebuildTextIndex(schema: SchemaDefinition, language: LanguageModule, options?: PartitionInsertOptions): void
   get(docId: string, projection?: ResolvedProjection): AnyDocument | undefined
   getRef(docId: string): AnyDocument | undefined
   has(docId: string): boolean
