@@ -12,6 +12,7 @@ export interface RelayClient {
   request(route: RelayedRoute, ctx: RouteContext): Promise<void>
   embed(indexName: string, vector: VectorQueryConfig): Promise<number[]>
   touch(indexName: string): void
+  announceDeparture(): void
   close(): void
 }
 
@@ -211,6 +212,10 @@ export function createRelayClient(port: MessagePort, touchIntervalMs: number): R
       if (last !== undefined && now - last < touchIntervalMs) return
       touchedAt.set(indexName, now)
       port.postMessage({ type: 'touch', indexName })
+    },
+    announceDeparture() {
+      if (closed) return
+      port.postMessage({ type: 'leaving' })
     },
     close() {
       failAll()

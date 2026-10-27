@@ -9,8 +9,11 @@ export const GRAPH_M = 2
 export const GRAPH_MMAX0 = 3
 export const GRAPH_EF_CONSTRUCTION = 4
 export const GRAPH_METRIC = 5
+export const GRAPH_RETIRED = 6
 export const GRAPH_NODE_COUNT = 32
 export const GRAPH_TOMBSTONE_COUNT = 33
+export const GRAPH_UNLINKED_NODES = 34
+export const GRAPH_INCOMING_UNCOUNTED = 35
 export const GRAPH_UPPER_USED = 64
 export const GRAPH_SLOTS = 65
 export const GRAPH_UPPER_CAPACITY = 66
@@ -53,6 +56,8 @@ export interface SharedGraphHandles {
   locks: GrowableBuffer
   /** This holds one byte per ordinal, which reads 1 once a caller removes the document. */
   tombstones: GrowableBuffer
+  /** This holds one word per ordinal, the number of base-layer lists that hold that ordinal. */
+  incoming: GrowableBuffer
   /** This records the node lock and the graph lock each thread slot holds right now. */
   heldLocks: Int32Array
 }
@@ -92,6 +97,7 @@ export function createSharedGraphHandles(shape: SharedGraphShape): SharedGraphHa
     upper: perOrdinal(upperStride * 4, INITIAL_UPPER_SLOTS),
     locks: perOrdinal(4, VECTOR_STORE_INITIAL_CAPACITY),
     tombstones: perOrdinal(1, VECTOR_STORE_INITIAL_CAPACITY),
+    incoming: perOrdinal(4, VECTOR_STORE_INITIAL_CAPACITY),
     heldLocks: new Int32Array(createFixedBuffer(heldWords * 4), 0, heldWords),
   }
   publishGraphCapacity(handles)
@@ -114,6 +120,7 @@ export function publishGraphCapacity(handles: SharedGraphHandles): void {
     Math.floor(handles.upperBase.byteLength / 4),
     Math.floor(handles.locks.byteLength / 4),
     handles.tombstones.byteLength,
+    Math.floor(handles.incoming.byteLength / 4),
   )
   raiseHeaderWord(handles.header, GRAPH_SLOT_CAPACITY, slotCapacity)
   raiseHeaderWord(handles.header, GRAPH_UPPER_CAPACITY, Math.floor(handles.upper.byteLength / 4))

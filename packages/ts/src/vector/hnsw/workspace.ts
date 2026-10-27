@@ -41,6 +41,7 @@ export interface HNSWWorkspace {
   repairCandidates: DistanceList
   /** The neighbours that node takes instead. */
   repairSelection: DistanceList
+  droppedLinks: DistanceList
 }
 
 function createList(capacity: number): DistanceList {
@@ -64,6 +65,7 @@ export function createHNSWWorkspace(): HNSWWorkspace {
     pruneSelection: createList(INITIAL_LIST_CAPACITY),
     repairCandidates: createList(INITIAL_LIST_CAPACITY),
     repairSelection: createList(INITIAL_LIST_CAPACITY),
+    droppedLinks: createList(INITIAL_LIST_CAPACITY),
   }
 }
 

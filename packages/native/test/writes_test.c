@@ -51,6 +51,45 @@ static void check_every_list(const test_fixture *fixture, int removed_step) {
   }
 }
 
+static int is_live_node(const test_fixture *fixture, int32_t node) {
+  return node >= 0 && node < NODES && fixture->node_levels[node] != 0 && fixture->tombstones[node] == 0;
+}
+
+static void check_every_node_is_reached(const test_fixture *fixture) {
+  int32_t links_to[NODES] = {0};
+  uint8_t reached[NODES] = {0};
+  int32_t queue[NODES];
+  for (int32_t node = 0; node < NODES; node++) {
+    if (!is_live_node(fixture, node)) { continue; }
+    const int32_t *list = fixture->level0 + ((size_t)node * BASE_LIST_WORDS);
+    for (int32_t i = 0; i < list[0]; i++) {
+      if (is_live_node(fixture, list[i + 1])) { links_to[list[i + 1]] += 1; }
+    }
+  }
+  int32_t entry = fixture->graph_header[NARSIL_GRAPH_WORD_ENTRY_POINT];
+  uint32_t head = 0;
+  uint32_t tail = 0;
+  if (entry >= 0 && entry < NODES) {
+    reached[entry] = 1;
+    queue[tail++] = entry;
+  }
+  while (head < tail) {
+    int32_t node = queue[head++];
+    const int32_t *list = fixture->level0 + ((size_t)node * BASE_LIST_WORDS);
+    for (int32_t i = 0; i < list[0]; i++) {
+      int32_t next = list[i + 1];
+      if (!is_live_node(fixture, next) || reached[next]) { continue; }
+      reached[next] = 1;
+      queue[tail++] = next;
+    }
+  }
+  for (int32_t node = 0; node < NODES; node++) {
+    if (!is_live_node(fixture, node)) { continue; }
+    check(fixture->incoming[node] == links_to[node], "incoming holds the number of base lists that hold the node");
+    check(reached[node] == 1, "a walk of the base layer from the entry point reaches every live node");
+  }
+}
+
 static int nearest_is_itself(narsil_workspace *workspace, test_fixture *fixture, int32_t node) {
   int32_t ordinals[CANDIDATES];
   double distances[CANDIDATES];
@@ -75,6 +114,7 @@ static void build_a_graph_by_placement(narsil_workspace *workspace) {
             NOTHING_HELD,
         "the held-lock record names no node after every placement");
   check_every_list(fixture, NOTHING_REMOVED);
+  check_every_node_is_reached(fixture);
   int found_itself = 0;
   for (int32_t node = 0; node < NODES; node++) { found_itself += nearest_is_itself(workspace, fixture, node); }
   check(found_itself >= NEAREST_IS_ITSELF_FLOOR,
@@ -123,9 +163,15 @@ static void remove_then_compact(narsil_workspace *workspace) {
         "compact changes nothing while graphLock is not -1");
   check(fixture->graph_header[NARSIL_GRAPH_WORD_NODE_COUNT] == NODES, "a refused compact leaves nodeCount alone");
 
+  narsil_connect_request connection = {NARSIL_METRIC_EUCLIDEAN, WRITER_THREAD_SLOT, NULL, 0};
+  check(narsil_connect_unreached(workspace, &fixture->graph, &fixture->store, &connection) ==
+            NARSIL_GRAPH_NOT_HELD_ALONE,
+        "connectUnreached changes nothing while graphLock is not -1");
   fixture->graph_header[NARSIL_GRAPH_WORD_LOCK] = NARSIL_GRAPH_HELD_ALONE;
   check(narsil_compact(workspace, &fixture->graph, &fixture->store, &compaction) == NARSIL_OK,
         "compact returns NARSIL_OK while the caller holds the graph alone");
+  check(narsil_connect_unreached(workspace, &fixture->graph, &fixture->store, &connection) == NARSIL_OK,
+        "connectUnreached returns NARSIL_OK while the caller holds the graph alone");
   fixture->graph_header[NARSIL_GRAPH_WORD_LOCK] = NOTHING_HELD;
   check(fixture->graph_header[NARSIL_GRAPH_WORD_NODE_COUNT] == NODES - removed, "compact lowers nodeCount");
   check(fixture->graph_header[NARSIL_GRAPH_WORD_TOMBSTONE_COUNT] == 0, "compact lowers tombstoneCount to 0");
@@ -137,6 +183,7 @@ static void remove_then_compact(narsil_workspace *workspace) {
     check(fixture->node_levels[node] == 0 && fixture->tombstones[node] == 0, "compact takes the node out");
   }
   check_every_list(fixture, REMOVED_STEP);
+  check_every_node_is_reached(fixture);
   check(list_count(fixture, 1) > 0, "compact leaves a live node its neighbours");
   check(nearest_is_itself(workspace, fixture, 1), "a search of the compacted graph finds a live vector");
   release_fixture(fixture);

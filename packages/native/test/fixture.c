@@ -116,6 +116,7 @@ static void forget_the_graph(test_fixture *fixture) {
   memset(fixture->level0, 0, sizeof fixture->level0);
   memset(fixture->upper_base, 0, sizeof fixture->upper_base);
   memset(fixture->upper, 0, sizeof fixture->upper);
+  memset(fixture->incoming, 0, sizeof fixture->incoming);
   memset(fixture->code_present, 0, sizeof fixture->code_present);
   fixture->graph_header[NARSIL_GRAPH_WORD_ENTRY_POINT] = -1;
   fixture->graph_header[NARSIL_GRAPH_WORD_TOP_LAYER] = -1;
@@ -146,6 +147,7 @@ test_fixture *build_fixture(uint32_t bits) {
     return NULL;
   }
   write_nodes(fixture, bits);
+  for (int32_t node = 0; node < NODES; node++) { fixture->incoming[node] = MAX_BASE_NEIGHBOURS; }
   int32_t upper_used = write_upper_layer(fixture);
   for (int i = 0; i < DIMENSION; i++) { fixture->centroid[i] = CENTROID_STEP * (float)i; }
 
@@ -173,6 +175,7 @@ test_fixture *build_fixture(uint32_t bits) {
                                   .upper = fixture->upper,
                                   .locks = fixture->locks,
                                   .tombstones = fixture->tombstones,
+                                  .incoming = fixture->incoming,
                                   .held_locks = fixture->held_locks,
                                   .thread_slots = THREAD_SLOTS};
   fixture->store = (narsil_store){.header = fixture->store_header,

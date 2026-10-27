@@ -1,5 +1,4 @@
 import { createBoundedMaxHeap } from '../../core/heap'
-import { compareCodePoints } from '../../core/ordering'
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { VectorMetric } from '../brute-force'
 import { toScore } from '../hnsw/shared'
@@ -8,6 +7,7 @@ import { nativeScoresOf } from '../native/store'
 import { type OrdinalFilter, ordinalFilterHas, ordinalFilterValues } from '../ordinal-filter'
 import { cosineSimilarityWithMagnitudes, dotProduct, euclideanDistance, magnitude } from '../similarity'
 import { scheduleBuild } from './build'
+import { highScoreFirst, mergeResults } from './merge-results'
 import {
   allLiveDocIds,
   filterForOptions,
@@ -64,10 +64,6 @@ export function fetchedOutcome(
 
 function scannedOutcome(scan: ScanOutcome): VectorSearchOutcome {
   return { results: scan.results, matched: scan.matched, matchedExact: true }
-}
-
-function highScoreFirst(a: VectorScoredResult, b: VectorScoredResult): number {
-  return b.score - a.score || compareCodePoints(a.docId, b.docId)
 }
 
 function liveCandidates(state: VectorIndexState, candidates: Iterable<string>): ScanCandidates {
@@ -155,47 +151,6 @@ function bruteForceSearch(
   }
 
   return { results: heap.toSortedArray().reverse(), matched }
-}
-
-function mergeResults(
-  hnswResults: VectorScoredResult[],
-  bufferResults: VectorScoredResult[],
-  k: number,
-): VectorScoredResult[] {
-  const seen = new Set<string>()
-  const merged: VectorScoredResult[] = []
-  let hi = 0
-  let bi = 0
-
-  while (merged.length < k && (hi < hnswResults.length || bi < bufferResults.length)) {
-    const h = hi < hnswResults.length ? hnswResults[hi] : undefined
-    const b = bi < bufferResults.length ? bufferResults[bi] : undefined
-
-    let pick: VectorScoredResult
-    if (h && b) {
-      if (h.score > b.score || (h.score === b.score && compareCodePoints(h.docId, b.docId) < 0)) {
-        pick = h
-        hi++
-      } else {
-        pick = b
-        bi++
-      }
-    } else if (h) {
-      pick = h
-      hi++
-    } else if (b) {
-      pick = b
-      bi++
-    } else {
-      break
-    }
-
-    if (seen.has(pick.docId)) continue
-    seen.add(pick.docId)
-    merged.push(pick)
-  }
-
-  return merged
 }
 
 export function search(

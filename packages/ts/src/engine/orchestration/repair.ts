@@ -2,7 +2,7 @@ import type { WorkerPool, WorkerReplacement } from '../../workers/pool'
 import { createRequestId, type WorkerAction } from '../../workers/protocol'
 import { loadIndexOntoWorkers } from '../worker-resync'
 import { POOL_RESTART_DELAY_MAX_MS, POOL_RESTART_DELAY_MS } from './constants'
-import { enqueueReplication } from './replication'
+import { enqueueReplication, markCopiesLoaded } from './replication'
 import { scheduleRequestThreadPoolRestart } from './request-threads'
 import type { OrchestratorState } from './types'
 import { refreshVectorCopies, releaseVectorLocksOf } from './vector-copies'
@@ -77,8 +77,9 @@ async function loadOntoReplacement(
   if (entry === undefined || manager === undefined || !state.scaledOutIndexes.has(indexName)) return
   const buffered: WorkerAction[] = []
   state.copyLoadBuffers.set(indexName, buffered)
+  let copyLoad: string
   try {
-    await loadIndexOntoWorkers(
+    copyLoad = await loadIndexOntoWorkers(
       indexName,
       [replacement.executor],
       entry.config,
@@ -91,6 +92,7 @@ async function loadOntoReplacement(
     state.copyLoadBuffers.delete(indexName)
     for (const action of buffered) enqueueReplication(state, indexName, action)
   }
+  markCopiesLoaded(state, indexName, copyLoad)
   refreshVectorCopies(state, indexName)
 }
 

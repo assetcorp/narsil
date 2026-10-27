@@ -100,6 +100,7 @@ static narsil_status reserve_for_placement(const walk_context *context, const na
   if (status == NARSIL_OK) { status = list_reserve(&workspace->link_candidates, MAX_NEIGHBOURS_PER_LIST); }
   if (status == NARSIL_OK) { status = workspace_reserve_entry_points(workspace, (uint32_t)ef_construction); }
   if (status == NARSIL_OK) { status = workspace_reserve_visited(workspace, (uint32_t)request->ordinal + 1); }
+  if (status == NARSIL_OK) { status = reserve_last_links(workspace); }
   if (status != NARSIL_OK) { return status; }
   return workspace_reserve_links(workspace, context->graph, (uint32_t)request->top_layer + 1);
 }
@@ -133,7 +134,7 @@ static void write_own_lists(const walk_context *context, const narsil_place_requ
   node_lock(context, request->ordinal);
   for (int32_t layer = link_top; layer >= 0; layer--) {
     node_layer position = {request->ordinal, layer};
-    list_replace(context, position, selection_of(workspace, layer), workspace->selection_counts[layer]);
+    list_write_counted(context, position, selection_of(workspace, layer), workspace->selection_counts[layer]);
   }
   node_unlock(context, request->ordinal);
 }
@@ -155,6 +156,7 @@ static void link_neighbours_back(const walk_context *context, const narsil_place
 
 static narsil_status link_node(walk_context *context, const narsil_place_request *request) {
   link_span span = {load_word(context->graph->header, NARSIL_GRAPH_WORD_TOP_LAYER), 0};
+  int32_t former_entry = load_word(context->graph->header, NARSIL_GRAPH_WORD_ENTRY_POINT);
   span.link_top = request->top_layer < span.graph_top ? request->top_layer : span.graph_top;
   if (span.link_top >= 0) {
     narsil_status status = select_every_layer(context, request, span);
@@ -162,7 +164,12 @@ static narsil_status link_node(walk_context *context, const narsil_place_request
     write_own_lists(context, request, span.link_top);
     link_neighbours_back(context, request, span.link_top);
   }
-  if (request->top_layer > span.graph_top) { raise_entry(context, request); }
+  if (request->top_layer <= span.graph_top) { return NARSIL_OK; }
+  raise_entry(context, request);
+  int demoted = former_entry != NO_NODE &&
+                load_word(context->graph->header, NARSIL_GRAPH_WORD_ENTRY_POINT) != former_entry &&
+                is_live(context, former_entry);
+  if (demoted && incoming_count(context, former_entry) == 0) { note_node_left_unlinked(context); }
   return NARSIL_OK;
 }
 

@@ -16,8 +16,17 @@ import { type ChildApp, childAppOf } from './acceptor'
 import type { RelayedRoute, RequestThreadSettings, ServeRequestsResult, ThreadOnlyRoute } from './messages'
 import { createThreadReadEngine, type ThreadReadEngine } from './read-engine'
 import { createRelayClient, type RelayClient } from './relay-client'
+import { leaveWithoutDeparture, type ThreadDeparture, watchForDeparture } from './thread-departure'
 
 let servingApp: { app: ChildApp; relay: RelayClient } | null = null
+
+function guardEveryRoute(handlers: ServerHandlers, departure: ThreadDeparture): ServerHandlers {
+  const guarded = { ...handlers }
+  for (const route of Object.keys(guarded) as Array<keyof ServerHandlers>) {
+    guarded[route] = departure.guardRoute(handlers[route])
+  }
+  return guarded
+}
 
 function relayed(relay: RelayClient, route: RelayedRoute): RouteHandler {
   return ctx => relay.request(route, ctx)
@@ -57,7 +66,8 @@ function searchHandler(options: SearchHandlerOptions): RouteHandler {
     try {
       respondJson(ctx, await answer(ctx.params[0], params))
     } catch (err) {
-      respondError(ctx, err)
+      if (staysOnThread(ctx.params[0], params)) respondError(ctx, err)
+      else await fallback(ctx)
     }
   }
 }
@@ -141,8 +151,13 @@ export async function serveRequests(
   if (child === null) throw new Error('This uWebSockets.js build offers no child apps')
 
   const relay = createRelayClient(settings.port, settings.touchIntervalMs)
+  const departure = watchForDeparture({
+    relay,
+    departure: new Int32Array(settings.departure),
+    close: closeRequestThread,
+  })
   const local = createThreadReadEngine({
-    executor,
+    executor: departure.guardExecutor(executor),
     relay,
     searchHooks: settings.searchHooks,
     patternWorkCap: settings.patternWorkCap,
@@ -151,14 +166,17 @@ export async function serveRequests(
     authorize: settings.authorizes ? context => relay.authorize(context) : undefined,
     gate: createSharedRequestGate(settings.gate, settings.maxConcurrentRequests, settings.gateSlot),
     corsHeaders: settings.cors ? corsHeaderReader(settings.cors) : undefined,
+    track: departure.track,
   })
-  registerServerRoutes(app, run, threadHandlers(local, relay, settings), settings.limits, settings.cors)
+  const handlers = guardEveryRoute(threadHandlers(local, relay, settings), departure)
+  registerServerRoutes(app, run, handlers, settings.limits, settings.cors)
 
   servingApp = { app: child, relay }
   return { descriptor: child.getDescriptor() }
 }
 
 export function closeRequestThread(): void {
+  leaveWithoutDeparture()
   if (servingApp === null) return
   const { app, relay } = servingApp
   servingApp = null
