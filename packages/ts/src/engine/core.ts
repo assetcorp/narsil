@@ -49,6 +49,7 @@ export type IndexRegistryEntry = {
   heldPartitions: number[] | null
   documentCount: number
   partitionCount: number
+  analysisRevision: string | null
 }
 
 export type EventHandler = (payload: unknown) => void
@@ -270,6 +271,10 @@ export function createEngineCore(
     getManager: indexName => executor.getManager(indexName),
     desyncIndex: indexName => orchestrator.desyncIndex(indexName),
     resyncIndex: (indexName, wasPromoted) => orchestrator.resyncIndex(indexName, wasPromoted),
+    recordCurrentAnalysis: indexName => {
+      const entry = indexRegistry.get(indexName)
+      if (entry !== undefined && !analysisRebuild.isStale(indexName)) entry.analysisRevision = entry.language.revision
+    },
     durabilityManager: durability?.manager ?? null,
   })
 

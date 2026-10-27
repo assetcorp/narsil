@@ -21,6 +21,20 @@ async function enterRead(core: EngineCore, indexName: string): Promise<void> {
   if (core.rebalancingIndexes.has(indexName)) await yieldToEventLoop()
 }
 
+async function readUnderOneAnalysis<R>(
+  core: EngineCore,
+  indexName: string,
+  read: () => Promise<R>,
+): Promise<{ result: R; analysisStale: boolean }> {
+  let analysisStale = core.analysisRebuild.isStale(indexName)
+  let result = await read()
+  while (core.analysisRebuild.isStale(indexName) !== analysisStale) {
+    analysisStale = core.analysisRebuild.isStale(indexName)
+    result = await read()
+  }
+  return { result, analysisStale }
+}
+
 function scopedParams(params: QueryParams, options: ScopedReadOptions | undefined): QueryParams {
   if (options?.globalStats === undefined) {
     return params
@@ -66,7 +80,7 @@ export async function runEngineQuery<T = AnyDocument>(
       ? core.orchestrator.searchViaWorker.bind(core.orchestrator)
       : undefined
 
-    const result = await executeQuery<T>(resolvedParams, {
+    const context = {
       manager,
       language: entry.language,
       config: entry.config,
@@ -76,7 +90,13 @@ export async function runEngineQuery<T = AnyDocument>(
       partitionIds: options?.partitionIds,
       cursorBinding: queryBindingOf(params),
       patternWorkCap: core.patternWorkCap,
-    })
+    }
+    const { result, analysisStale } = await readUnderOneAnalysis(core, indexName, () =>
+      executeQuery<T>(resolvedParams, context),
+    )
+    if (analysisStale) {
+      result.analysisStale = true
+    }
 
     if (core.pluginRegistry.hasHooks('afterSearch')) {
       const observed = { ...result, hits: [...result.hits] } as unknown as QueryResult
@@ -85,10 +105,6 @@ export async function runEngineQuery<T = AnyDocument>(
       } catch (err) {
         console.warn('afterSearch plugin hook error:', err)
       }
-    }
-
-    if (core.analysisRebuild.isStale(indexName)) {
-      result.analysisStale = true
     }
 
     return result
@@ -121,7 +137,7 @@ export async function runEnginePreflight(
     const workerSearch = core.orchestrator.hasWorkerPool()
       ? core.orchestrator.searchViaWorker.bind(core.orchestrator)
       : undefined
-    const result = await executePreflight(resolvedParams, {
+    const context = {
       manager,
       language: entry.language,
       config: entry.config,
@@ -131,8 +147,11 @@ export async function runEnginePreflight(
       partitionIds: options?.partitionIds,
       cursorBinding: queryBindingOf(params),
       patternWorkCap: core.patternWorkCap,
-    })
-    if (core.analysisRebuild.isStale(indexName)) {
+    }
+    const { result, analysisStale } = await readUnderOneAnalysis(core, indexName, () =>
+      executePreflight(resolvedParams, context),
+    )
+    if (analysisStale) {
       result.analysisStale = true
     }
     return result

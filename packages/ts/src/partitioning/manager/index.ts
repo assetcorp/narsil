@@ -11,14 +11,15 @@ import { projectionKeepsField, type ResolvedProjection } from '../../core/projec
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { SerializablePartition } from '../../types/internal'
 import type { LanguageModule } from '../../types/language'
-import type { PartitionStatsResult } from '../../types/results'
 import type { AnyDocument, IndexConfig } from '../../types/schema'
 import type { VectorIndex } from '../../vector/vector-index'
 import { resolvePartialWordAnalysis, resolvePartitionInsertOptions } from '../insert-options'
 import type { PartitionRouter } from '../router'
 import { createCapacityChecks } from './capacity'
 import { setNestedValue } from './nested-values'
+import { aggregateStatsOf, estimateBytesOf, partitionStatsOf } from './stats'
 import type { PartitionManager } from './types'
+import { createWriteLogRecorder } from './write-log'
 
 export type { PartitionManager } from './types'
 
@@ -39,6 +40,7 @@ export function createPartitionManager(
   const vecIndexes: Map<string, VectorIndex> = vectorIndexes ?? new Map()
   let partitions: PartitionIndex[] = []
   const docPartitionMap = new Map<string, number>()
+  const writeLog = createWriteLogRecorder()
 
   for (let i = 0; i < count; i++) {
     partitions.push(createPartitionIndex(i, trackPositions))
@@ -140,8 +142,24 @@ export function createPartitionManager(
     },
 
     setPartitions(newPartitions: PartitionIndex[]): void {
+      writeLog.partitionsReplaced()
       partitions = [...newPartitions]
       rebuildDocPartitionMap()
+    },
+
+    openWriteLog() {
+      return writeLog.open()
+    },
+
+    adoptRebuiltPartitions(rebuilt: PartitionIndex[]): void {
+      if (rebuilt.length !== partitions.length) {
+        throw new NarsilError(
+          ErrorCodes.PARTITION_CORRUPTED,
+          `Index "${indexName}" holds ${partitions.length} partitions, but the rebuild produced ${rebuilt.length}`,
+          { indexName, partitionCount: partitions.length, rebuiltCount: rebuilt.length },
+        )
+      }
+      partitions = [...rebuilt]
     },
 
     addPartition(): PartitionIndex {
@@ -154,12 +172,14 @@ export function createPartitionManager(
         )
       }
       const partition = createPartitionIndex(partitions.length, trackPositions)
+      writeLog.partitionsReplaced()
       partitions.push(partition)
       return partition
     },
 
     removePartition(partitionId: number): void {
       validatePartitionId(partitionId)
+      writeLog.partitionsReplaced()
       partitions.splice(partitionId, 1)
       rebuildDocPartitionMap()
     },
@@ -174,6 +194,7 @@ export function createPartitionManager(
       if (newCount >= partitions.length) {
         return
       }
+      writeLog.partitionsReplaced()
       for (const [docId, pid] of docPartitionMap) {
         if (pid >= newCount) {
           docPartitionMap.delete(docId)
@@ -199,6 +220,7 @@ export function createPartitionManager(
       const insertOpts = resolveInsertOptions(options)
       partitions[pid].insert(docId, document, config.schema, language, insertOpts)
       docPartitionMap.set(docId, pid)
+      writeLog.documentWritten(docId)
     },
 
     remove(docId: string): void {
@@ -208,12 +230,7 @@ export function createPartitionManager(
       }
       partitions[pid].remove(docId, config.schema, language, resolveInsertOptions())
       docPartitionMap.delete(docId)
-    },
-
-    rebuildTextIndex(partitionId: number): void {
-      validatePartitionId(partitionId)
-      partitions[partitionId].rebuildTextIndex(config.schema, language, resolveInsertOptions())
-      preparePartialWords(partitionId)
+      writeLog.documentWritten(docId)
     },
 
     beginBatchRemove(): void {
@@ -236,6 +253,7 @@ export function createPartitionManager(
       const updateOpts = resolveInsertOptions(options)
       partitions[pid].update(docId, document, config.schema, language, updateOpts)
       docPartitionMap.set(docId, pid)
+      writeLog.documentWritten(docId)
     },
 
     get(docId: string, projection?: ResolvedProjection): AnyDocument | undefined {
@@ -294,6 +312,7 @@ export function createPartitionManager(
       partition.endBatch()
       for (const docId of payload.docIds) {
         docPartitionMap.set(docId, partitionId)
+        writeLog.documentWritten(docId)
       }
     },
 
@@ -309,6 +328,7 @@ export function createPartitionManager(
       }
       asCompositePartition(partitionId).attachFrozenSegment(segment)
       registerSegmentDocuments(partitionId, segment)
+      writeLog.segmentWritten(segment)
     },
 
     swapFrozenSegments(partitionId: number, dropSegmentIds: readonly string[], replacement: FrozenSegment): void {
@@ -330,53 +350,22 @@ export function createPartitionManager(
 
     deserializePartition(partitionId: number, data: SerializablePartition): void {
       validatePartitionId(partitionId)
+      writeLog.partitionsReplaced()
       partitions[partitionId].deserialize(data, config.schema)
       preparePartialWords(partitionId)
       rebuildDocPartitionMapForPartition(partitionId)
     },
 
-    getAggregateStats(): {
-      totalDocuments: number
-      docFrequencies: Record<string, number>
-      totalFieldLengths: Record<string, number>
-    } {
-      let totalDocuments = 0
-      const docFrequencies: Record<string, number> = Object.create(null)
-      const totalFieldLengths: Record<string, number> = Object.create(null)
-
-      for (let i = 0; i < partitions.length; i++) {
-        const stats = partitions[i].stats
-        totalDocuments += stats.totalDocuments
-
-        for (const [term, freq] of Object.entries(stats.docFrequencies)) {
-          docFrequencies[term] = (docFrequencies[term] ?? 0) + freq
-        }
-
-        for (const [field, length] of Object.entries(stats.totalFieldLengths)) {
-          totalFieldLengths[field] = (totalFieldLengths[field] ?? 0) + length
-        }
-      }
-
-      return { totalDocuments, docFrequencies, totalFieldLengths }
+    getAggregateStats() {
+      return aggregateStatsOf(partitions)
     },
 
     estimateMemoryBytes(): number {
-      let total = 0
-      for (let i = 0; i < partitions.length; i++) {
-        total += partitions[i].estimateMemoryBytes()
-      }
-      for (const [, vecIndex] of vecIndexes) {
-        total += vecIndex.estimateMemoryBytes()
-      }
-      return total
+      return estimateBytesOf(partitions, vecIndexes)
     },
 
-    getPartitionStats(): PartitionStatsResult[] {
-      return partitions.map((p, i) => ({
-        partitionId: i,
-        documentCount: p.count(),
-        estimatedMemoryBytes: p.estimateMemoryBytes(),
-      }))
+    getPartitionStats() {
+      return partitionStatsOf(partitions)
     },
 
     getVectorIndexes(): Map<string, VectorIndex> {
