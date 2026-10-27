@@ -35,6 +35,7 @@ interface SavedGraph {
   entryPoint: number | null
   levels: Uint8Array
   neighbours: Uint8Array
+  shuffledBuildCount?: number
 }
 
 export interface GraphWalk {
@@ -220,4 +221,21 @@ export async function walkSavedGraph(
     else if (!reached[holder].has(number)) walk.unreached.push(docId)
   })
   return walk
+}
+
+export async function savedShuffledBuildCounts(
+  snapshot: ReadableStream<Uint8Array>,
+  indexName: string,
+  fieldPath: string,
+): Promise<Array<number | null>> {
+  const entries = archiveEntries(await bytesOf(snapshot))
+  const manifestEntry = entries.get('manifest')
+  if (manifestEntry === undefined) throw new Error('the archive holds no manifest')
+  const manifest = envelopePayload(manifestEntry) as { vectors: SavedVectorField[] }
+  const field = manifest.vectors.find(vectors => vectors.fieldPath === fieldPath)
+  if (field === undefined) throw new Error(`the manifest lists no vector field ${fieldPath}`)
+  return field.graphParts.flatMap(partRef => {
+    const payload = envelopePayload(entryOf(entries, indexName, partRef.key)) as { graphs: SavedGraph[] }
+    return payload.graphs.map(graph => graph.shuffledBuildCount ?? null)
+  })
 }

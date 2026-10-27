@@ -34,7 +34,13 @@ interface SavedField {
 }
 
 interface SavedGraphPart {
-  graphs: Array<{ entryPoint: number | null; m: number; levels: Uint8Array; neighbours: Uint8Array }>
+  graphs: Array<{
+    entryPoint: number | null
+    m: number
+    levels: Uint8Array
+    neighbours: Uint8Array
+    shuffledBuildCount?: number
+  }>
 }
 
 function text(bytes: Uint8Array): string {
@@ -174,6 +180,15 @@ export async function snapshotWithBaseLists(
     const { entryPoint, baseListOf } = layout(graph.m * 2)
     graph.entryPoint = entryPoint
     graph.neighbours = withBaseLists(graph.neighbours, graph.levels, number => baseListOf(number))
+  })
+}
+
+export async function snapshotWithoutShuffledBuildCount(
+  snapshot: ReadableStream<Uint8Array>,
+  fieldPath: string,
+): Promise<Uint8Array<ArrayBuffer>> {
+  return withEditedGraphPart(snapshot, fieldPath, part => {
+    for (const graph of part.graphs) delete graph.shuffledBuildCount
   })
 }
 

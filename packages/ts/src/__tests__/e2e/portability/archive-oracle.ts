@@ -1,3 +1,5 @@
+import { readFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import { crc32 } from 'node:zlib'
 import { decode, encode } from '@msgpack/msgpack'
 
@@ -170,6 +172,16 @@ interface ListedFileRef {
   key: string
   bytes: number
   checksum: number
+}
+
+export async function savedShuffledBuildCount(directory: string, indexName: string): Promise<number | null> {
+  const manifest = decodedPayload(new Uint8Array(await readFile(join(directory, indexName, 'manifest'))))
+  const fields = manifest.vectors as Array<{ graphParts: ListedFileRef[] }>
+  const part = fields[0]?.graphParts[0]
+  if (part === undefined) return null
+  const saved = decodedPayload(new Uint8Array(await readFile(join(directory, part.key))))
+  const graphs = saved.graphs as Array<{ shuffledBuildCount?: number }>
+  return graphs[0]?.shuffledBuildCount ?? null
 }
 
 function listedRefs(manifest: Record<string, unknown>): ListedFileRef[] {

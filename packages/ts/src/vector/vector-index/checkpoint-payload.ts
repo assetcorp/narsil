@@ -106,7 +106,7 @@ function decodeNumberedGraph(raw: unknown, minimumM: number): NumberedHnswGraph 
   if (!isMetric(raw.metric)) invalid(name, 'metric must name a supported metric', { metric: raw.metric })
   if (!(raw.levels instanceof Uint8Array)) invalid(name, 'levels must be bytes')
   if (!(raw.neighbours instanceof Uint8Array)) invalid(name, 'neighbours must be bytes')
-  return {
+  const graph: NumberedHnswGraph = {
     entryPoint,
     maxLayer: raw.maxLayer,
     m: raw.m,
@@ -115,6 +115,10 @@ function decodeNumberedGraph(raw: unknown, minimumM: number): NumberedHnswGraph 
     levels: raw.levels,
     neighbours: raw.neighbours,
   }
+  const shuffledBuildCount = raw.shuffledBuildCount ?? null
+  if (shuffledBuildCount === null) return graph
+  if (!isIntegerUpTo(shuffledBuildCount, 0xffff_ffff)) invalid(name, 'shuffledBuildCount must be a uint32')
+  return { ...graph, shuffledBuildCount }
 }
 
 export function decodeVectorGraphPayload(raw: unknown): VectorGraphPayload {
@@ -149,7 +153,8 @@ function sameGraphHeader(a: NumberedHnswGraph, b: NumberedHnswGraph): boolean {
     a.maxLayer === b.maxLayer &&
     a.m === b.m &&
     a.efConstruction === b.efConstruction &&
-    a.metric === b.metric
+    a.metric === b.metric &&
+    a.shuffledBuildCount === b.shuffledBuildCount
   )
 }
 

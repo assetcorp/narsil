@@ -4,7 +4,7 @@ import { DISK_STORAGE_BLOCK_BYTES } from '../constants'
 import type { HNSWConfig } from '../hnsw'
 import { createOsqQuantizer, osqBitsOf } from '../osq'
 import { createVectorStore } from '../vector-store'
-import { scheduleBuild as scheduleBuildOp } from './build'
+import { awaitBuilds, scheduleBuild as scheduleBuildOp, startShuffledRebuild } from './build'
 import {
   planCheckpoint as planCheckpointOp,
   recordCheckpoint as recordCheckpointOp,
@@ -118,6 +118,7 @@ export function createVectorIndex(
   workerCopies: VectorWorkerCopyPolicy = VECTOR_WORKER_COPIES_ALLOWED,
   indexName = '',
   storage: VectorStorageMode = 'memory',
+  onLoadedGraphRepaired: () => void = () => undefined,
 ): VectorIndex {
   if (!Number.isInteger(dimension) || dimension <= 0) {
     throw new NarsilError(
@@ -164,6 +165,9 @@ export function createVectorIndex(
     osq: codeBits === null ? null : createOsqQuantizer(dimension, codeBits, metric, store),
     hnsw: null,
     freshGraph: null,
+    shuffledBuildCount: null,
+    shuffledRebuild: null,
+    onLoadedGraphRepaired,
     compactedNodeCount: 0,
     building: false,
     buildScheduled: false,
@@ -255,12 +259,6 @@ export function createVectorIndex(
     return state.store.has(docId) && !state.tombstones.has(docId)
   }
 
-  async function awaitPendingBuild(): Promise<void> {
-    while (state.pendingBuild) {
-      await state.pendingBuild
-    }
-  }
-
   function releaseHeldMemory(): void {
     state.hnsw = null
     state.freshGraph = null
@@ -276,9 +274,8 @@ export function createVectorIndex(
   function dispose(): void {
     state.disposed = true
     invalidateWorkerCopies(state)
-    const pending = state.pendingBuild
-    if (pending !== null) {
-      void pending.then(releaseHeldMemory, releaseHeldMemory)
+    if (state.pendingBuild !== null || state.shuffledRebuild !== null) {
+      void awaitBuilds(state).then(releaseHeldMemory, releaseHeldMemory)
       return
     }
     releaseHeldMemory()
@@ -340,7 +337,7 @@ export function createVectorIndex(
     partitionsKnown: () => state.store.partitionsKnown,
     assignPartitions: (resolve: (docId: string) => number | undefined) => assignStorePartitions(state, resolve),
     scheduleBuild: () => scheduleBuildOp(state),
-    awaitPendingBuild,
+    awaitPendingBuild: () => awaitBuilds(state),
     completeGraph: () => completeGraphOp(state),
     dispose,
     search: (query: Float32Array, k: number, options: VectorSearchOptions) => searchOp(state, query, k, options),
@@ -361,6 +358,7 @@ export function createVectorIndex(
     deserialize: (parts: VectorIndexPayload[]) => {
       invalidateWorkerCopies(state)
       deserializeOp(state, parts)
+      startShuffledRebuild(state)
     },
     planCheckpoint: (listedKeys: readonly string[] | null, rewritesGraph?: boolean) =>
       planCheckpointOp(state, listedKeys, rewritesGraph),
@@ -368,7 +366,14 @@ export function createVectorIndex(
       recordCheckpointOp(state, plan, written),
     restoreCheckpoint: (shape: CheckpointRestoreShape) => {
       invalidateWorkerCopies(state)
-      return beginCheckpointRestore(state, shape)
+      const restore = beginCheckpointRestore(state, shape)
+      return {
+        addFile: file => restore.addFile(file),
+        finish: () => {
+          restore.finish()
+          startShuffledRebuild(state)
+        },
+      }
     },
     vectorFilesInUse: () =>
       state.store.dimension === 0 ? [] : state.store.handles.vectorFiles.filter(path => path !== ''),

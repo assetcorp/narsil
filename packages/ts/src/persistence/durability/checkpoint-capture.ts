@@ -194,7 +194,8 @@ export async function writeCapturedVectors(
   const everyFieldWritten = [...capture.vectorPlans.keys()].every(fieldPath =>
     priorVectors.some(ref => ref.fieldPath === fieldPath),
   )
-  if (!rewriteUnchanged && everyFieldWritten && noPartitionChanged) {
+  const everyPlanUnchanged = [...capture.vectorPlans.values()].every(plan => plan.unchanged)
+  if (!rewriteUnchanged && everyFieldWritten && noPartitionChanged && everyPlanUnchanged) {
     return { vectors: priorVectors, layouts: [], written: [] }
   }
   const written = await writeLiveVectors({ store, indexName, plans: capture.vectorPlans, priorVectors })

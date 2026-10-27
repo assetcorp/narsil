@@ -21,6 +21,7 @@ export interface NumberedHnswGraph {
   metric: VectorMetric
   levels: Uint8Array
   neighbours: Uint8Array
+  shuffledBuildCount?: number
 }
 
 function swapEveryValue(bytes: Uint8Array): void {
