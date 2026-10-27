@@ -80,25 +80,27 @@ export async function handleSyncRequestMessage(
     )
   }
   const release = await deps.engine.acquireIndexForReplication(request.indexName)
+  const notePosition = (appliedSeqNo: number): void => {
+    if (message.sourceId === deps.nodeId) return
+    recordReplicaPosition(
+      deps.writeDeps.catchUp,
+      request.indexName,
+      request.partitionId,
+      message.sourceId,
+      appliedSeqNo,
+    )
+  }
   try {
-    if (message.sourceId !== deps.nodeId) {
-      recordReplicaPosition(
-        deps.writeDeps.catchUp,
-        request.indexName,
-        request.partitionId,
-        message.sourceId,
-        request.lastSeqNo,
-      )
-    }
-
     const log = deps.writeDeps.getReplicationLog(request.indexName, request.partitionId)
-    const tier = decideSyncTier(log, request.lastSeqNo)
+    const tier = decideSyncTier(log, request.lastSeqNo, request.lastPrimaryTerm)
     if (tier === 'incremental') {
+      notePosition(request.lastSeqNo)
       await sendSyncEntriesResponse(message, respond, deps, log.getEntriesFrom(request.lastSeqNo + 1))
       return
     }
 
     const snapshotSeqNo = log.localLogEnd
+    let snapshotPrimaryTerm = log.termAt(snapshotSeqNo) ?? 0
     const sink = createSingleResponseSink(respond)
     await streamValidatedSnapshotRequest(
       message,
@@ -116,22 +118,27 @@ export async function handleSyncRequestMessage(
         metadata: {
           partitionId: request.partitionId,
           lastSeqNo: snapshotSeqNo,
-          primaryTerm: assignment.primaryTerm,
+          primaryTerm: snapshotPrimaryTerm,
         },
         closeOnEnd: false,
         disableBuildCache: true,
         buildSnapshot: async () => {
-          const archive = await deps.engine.archiveReplicationPartition(
-            request.indexName,
-            request.partitionId,
-            () => log.localLogEnd,
-          )
+          const archive = await deps.engine.archiveReplicationPartition(request.indexName, request.partitionId, () => {
+            snapshotPrimaryTerm = log.termAt(log.localLogEnd) ?? 0
+            return log.localLogEnd
+          })
           const directory = deps.snapshotSpoolDirectory ?? defaultSpoolDirectory()
-          return { ...(await spoolSnapshotStream(directory, archive.stream)), lastSeqNo: archive.lastSeqNo }
+          return {
+            ...(await spoolSnapshotStream(directory, archive.stream)),
+            lastSeqNo: archive.lastSeqNo,
+            primaryTerm: snapshotPrimaryTerm,
+          }
         },
         afterSnapshot: async (trailingSink, build) => {
-          const entries = log.getEntriesFrom((build.lastSeqNo ?? snapshotSeqNo) + 1)
+          const snapshotEnd = build.lastSeqNo ?? snapshotSeqNo
+          const entries = log.getEntriesFrom(snapshotEnd + 1)
           await sendSyncEntriesResponse(message, trailingSink, deps, entries)
+          notePosition(entries.at(-1)?.seqNo ?? snapshotEnd)
         },
       },
     )

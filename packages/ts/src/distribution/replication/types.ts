@@ -35,6 +35,7 @@ export interface ReplicationLog {
   appendCommitted(entry: ReplicationLogEntry): ReplicationLogEntry
   getEntriesFrom(fromSeqNo: number): ReplicationLogEntry[]
   getEntry(seqNo: number): ReplicationLogEntry | undefined
+  termAt(seqNo: number): number | undefined
   verifyChecksum(entry: ReplicationLogEntry): boolean
   readonly localLogEnd: number
   readonly localLogEndPrimaryTerm: number
