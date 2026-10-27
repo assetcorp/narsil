@@ -18,7 +18,7 @@ ClusterCoordinator {
   async watchNodes(handler: (event: NodeEvent) -> nothing) -> (() -> nothing)
 
   async getAllocation(indexName: string) -> AllocationTable or absent
-  async putAllocation(indexName: string, table: AllocationTable, expectedVersion: uint64 or absent) -> boolean
+  async putAllocation(indexName: string, table: AllocationTable, expectedVersion: uint64 or absent, writerNodeId: string) -> boolean
   async deleteAllocation(indexName: string) -> nothing
   async watchAllocation(handler: (event: AllocationEvent) -> nothing) -> (() -> nothing)
 
@@ -62,13 +62,13 @@ ClusterCoordinator {
 
 - Registers a callback that fires as nodes join and leave. A `node_joined` event follows a new registration, and a `node_left` event follows an expired lease or an explicit deregistration.
 
-### getAllocation(indexName) and putAllocation(indexName, table, expectedVersion)
+### getAllocation(indexName) and putAllocation(indexName, table, expectedVersion, writerNodeId)
 
 - These read and write the allocation table of one index.
 - `putAllocation` must be atomic: the whole table is written or nothing is.
 - `putAllocation` takes an optimistic concurrency check through `expectedVersion`. With a version supplied, the write succeeds only when the stored table carries that version. With `expectedVersion` absent, the write succeeds only when no table exists for the index yet. It returns true when the write succeeded and false when the check failed.
 - That check is what stops a split brain: a controller that has lost its lease cannot overwrite a newer table written by its successor, because the version has already moved on.
-- `putAllocation` must also check, in the same atomic operation, that the writing node holds the `_narsil/controller` lease, and it must return false where it does not, so that a controller whose lease expired before its next renewal cannot write a table.
+- `putAllocation` must also check, in the same atomic operation, that the node named by `writerNodeId` holds the `_narsil/controller` lease, and it must return false where it does not, so that a controller whose lease expired before its next renewal cannot write a table.
 
 ### deleteAllocation(indexName)
 
