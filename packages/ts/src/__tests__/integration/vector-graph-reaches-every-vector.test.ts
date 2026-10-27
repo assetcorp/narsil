@@ -73,6 +73,7 @@ async function openSettledClips(): Promise<{ opened: Narsil; clips: Clip[] }> {
 
 async function compactAwayTheOnlyLinkIntoAChain(
   opened: Narsil,
+  chainTailList: readonly number[] = [],
 ): Promise<{ saved: GraphWalk; removed: string; compacted: GraphWalk }> {
   const archive = await snapshotWithBaseLists(await opened.snapshot(INDEX), FIELD, baseListLimit => {
     const baseListOf = (number: number): number[] => {
@@ -81,7 +82,7 @@ async function compactAwayTheOnlyLinkIntoAChain(
         return [CHAIN_MIDDLE, ...reachedElsewhere]
       }
       if (number === CHAIN_MIDDLE) return [CHAIN_TAIL]
-      if (number === CHAIN_TAIL) return []
+      if (number === CHAIN_TAIL) return [...chainTailList]
       if (number === ONLY_LINK_INTO_THE_CHAIN) return [CHAIN_HEAD]
       if (number === CHAIN_ENTRY_POINT) return [FIRST_AFTER_CHAIN_ENTRY_POINT, ONLY_LINK_INTO_THE_CHAIN]
       return number === CLIPS - 1 ? [] : [number + 1]
@@ -237,6 +238,25 @@ describe.each(backends)('a vector graph built from 4-bit codes through $name', (
       const remaining = clips.map(clip => clip.id).filter(id => id !== removed)
       expect([...compacted.liveDocIds].sort()).toEqual(remaining.sort())
       expect(compacted.nodeCount).toBe(CLIPS - 1)
+      expect(missedBy(compacted)).toEqual({ unplaced: [], unreached: [] })
+      if (native) {
+        expect(fallbacks).not.toContain('compact')
+        expect(fallbacks).not.toContain('connect')
+      }
+    },
+    300_000,
+  )
+
+  it.skipIf(!available)(
+    'links a cycle of three vectors back to the entry point once compaction removes the only link into it',
+    async () => {
+      const { opened, clips } = await openTheClips()
+
+      const { saved, removed, compacted } = await compactAwayTheOnlyLinkIntoAChain(opened, [CHAIN_HEAD])
+      expect(missedBy(saved)).toEqual({ unplaced: [], unreached: [] })
+      expect(saved.baseListOf.get(saved.liveDocIds[CHAIN_TAIL])).toEqual([saved.liveDocIds[CHAIN_HEAD]])
+      const remaining = clips.map(clip => clip.id).filter(id => id !== removed)
+      expect([...compacted.liveDocIds].sort()).toEqual(remaining.sort())
       expect(missedBy(compacted)).toEqual({ unplaced: [], unreached: [] })
       if (native) {
         expect(fallbacks).not.toContain('compact')

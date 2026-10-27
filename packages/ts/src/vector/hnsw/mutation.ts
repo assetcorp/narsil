@@ -16,7 +16,7 @@ import {
   replaceNeighbors,
   resetAdjacency,
 } from './adjacency'
-import { baseNeighboursOfRemoved, connectAfterPlacement, connectWhereUnlinked } from './connect-unreached'
+import { baseNeighboursOfRemoved, connectAfterPlacement, connectAfterRemoval } from './connect-unreached'
 import { PLACEMENT_ROOM_REQUESTS } from './constants'
 import { pruneConnections, searchLayer, selectNeighborsHeuristic } from './graph-ops'
 import {
@@ -329,7 +329,7 @@ export function compactTombstones(state: HNSWGraphState): void {
       removeNodeEager(state, ord, excl)
     }
   }
-  connectWhereUnlinked(state, nearby)
+  connectAfterRemoval(state, nearby)
 }
 
 export function resetGraph(state: HNSWGraphState): void {
