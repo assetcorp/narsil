@@ -56,10 +56,16 @@ static void offer(const walk_context *context, int32_t node, int32_t candidate) 
   candidates->count += 1;
 }
 
-static void drop_unreachable_candidates(scored_list *candidates) {
+static void drop_unreachable_candidates(const walk_context *context, node_layer position, held_links held) {
+  scored_list *candidates = &context->workspace->repair_candidates;
   uint32_t kept = 0;
   for (uint32_t i = 0; i < candidates->count; i++) {
-    if (candidates->distances[i] == HUGE_VAL) { continue; }
+    if (candidates->distances[i] == HUGE_VAL) {
+      if (position.layer == 0 && list_holds(held, candidates->ordinals[i])) {
+        note_unlinked(context, candidates->ordinals[i]);
+      }
+      continue;
+    }
     candidates->ordinals[kept] = candidates->ordinals[i];
     candidates->distances[kept] = candidates->distances[i];
     kept += 1;
@@ -71,11 +77,11 @@ static int leaves_with_this_compaction(const walk_context *context, int32_t ordi
   return node_top_layer(context, ordinal) < 0 || is_tombstoned(context, ordinal);
 }
 
-static void gather_repair_candidates(const walk_context *context, node_layer position, removed_node removed) {
+static held_links gather_repair_candidates(const walk_context *context, node_layer position, removed_node removed) {
   narsil_workspace *workspace = context->workspace;
   workspace->repair_candidates.count = 0;
-  uint32_t held = copy_list(context, position, workspace->neighbours);
-  for (uint32_t i = 0; i < held; i++) { offer(context, position.ordinal, workspace->neighbours[i]); }
+  held_links held = {workspace->neighbours, copy_list(context, position, workspace->neighbours), 0};
+  for (uint32_t i = 0; i < held.count; i++) { offer(context, position.ordinal, workspace->neighbours[i]); }
   for (uint32_t i = 0; i < removed.former_count; i++) {
     int32_t other = workspace->former[i];
     if (other == position.ordinal || other == removed.ordinal || leaves_with_this_compaction(context, other)) {
@@ -83,7 +89,8 @@ static void gather_repair_candidates(const walk_context *context, node_layer pos
     }
     offer(context, position.ordinal, other);
   }
-  drop_unreachable_candidates(&workspace->repair_candidates);
+  drop_unreachable_candidates(context, position, held);
+  return held;
 }
 
 static void relink(const walk_context *context, node_layer position, uint32_t selected) {
@@ -104,10 +111,15 @@ static void repair_neighbour(const walk_context *context, node_layer position, r
   uint32_t capacity = 0;
   const int32_t *list = list_at(context, position, &capacity);
   if (list == NULL || list[0] >= (int32_t)limit) { return; }
-  gather_repair_candidates(context, position, removed);
+  held_links held = gather_repair_candidates(context, position, removed);
   uint32_t selected = select_neighbours(context, &workspace->repair_candidates, limit, workspace->repaired);
   node_lock(context, position.ordinal);
-  list_replace(context, position, workspace->repaired, selected);
+  if (position.layer == 0) {
+    selected = write_keeping_last_links(context, position.ordinal, &workspace->repair_candidates, workspace->repaired,
+                                        selected, held);
+  } else {
+    list_replace(context, position, workspace->repaired, selected);
+  }
   node_unlock(context, position.ordinal);
   relink(context, position, selected);
 }
@@ -149,10 +161,15 @@ static void take_node_out(const walk_context *context, int32_t ordinal) {
     node_layer removed = {ordinal, layer};
     unlink_layer(context, removed);
   }
+  int32_t *former_base = context->workspace->former;
+  node_layer base = {ordinal, 0};
+  uint32_t former_base_count = copy_list(context, base, former_base);
+  for (uint32_t i = 0; i < former_base_count; i++) { note_unlinked(context, former_base[i]); }
   node_lock(context, ordinal);
   atomic_store(atomic_byte(graph->node_levels, (uint32_t)ordinal), 0);
   graph->upper_base[ordinal] = 0;
   graph->level0[(size_t)ordinal * ((size_t)list_limit(graph, 0) + NARSIL_LIST_WORDS_OVER_NEIGHBOURS)] = 0;
+  atomic_store(atomic_word(graph->incoming, (uint32_t)ordinal), 0);
   node_unlock(context, ordinal);
   atomic_fetch_sub(atomic_word(graph->header, NARSIL_GRAPH_WORD_NODE_COUNT), 1);
   uint8_t tombstoned = 1;
@@ -174,8 +191,9 @@ narsil_status narsil_compact(narsil_workspace *workspace, const narsil_graph *gr
   }
   context.thread_slot = request->thread_slot;
   status = read_graph_extent(&context);
-  if (status == NARSIL_OK) { status = list_reserve(&workspace->repair_candidates, 2 * MAX_NEIGHBOURS_PER_LIST); }
+  if (status == NARSIL_OK) { status = list_reserve(&workspace->repair_candidates, MAX_REPAIR_CANDIDATES); }
   if (status == NARSIL_OK) { status = list_reserve(&workspace->link_candidates, MAX_NEIGHBOURS_PER_LIST); }
+  if (status == NARSIL_OK) { status = reserve_last_links(workspace); }
   if (status != NARSIL_OK) { return status; }
   if (load_word(graph->header, NARSIL_GRAPH_WORD_TOMBSTONE_COUNT) == 0) { return NARSIL_OK; }
   for (uint32_t ordinal = 0; ordinal < context.slots; ordinal++) {

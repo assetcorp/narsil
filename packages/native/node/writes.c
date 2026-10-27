@@ -28,6 +28,16 @@ enum { REMOVE_GRAPH, REMOVE_ORDINAL, REMOVE_THREAD_SLOT, REMOVE_WAKES, REMOVE_AR
 
 enum { COMPACT_GRAPH, COMPACT_STORE, COMPACT_METRIC, COMPACT_THREAD_SLOT, COMPACT_WAKES, COMPACT_ARGUMENT_COUNT };
 
+enum {
+  CONNECT_GRAPH,
+  CONNECT_STORE,
+  CONNECT_METRIC,
+  CONNECT_NEARBY,
+  CONNECT_THREAD_SLOT,
+  CONNECT_WAKES,
+  CONNECT_ARGUMENT_COUNT
+};
+
 enum { RECORDS_STORE, RECORDS_METRIC, RECORDS_ORDINALS, RECORDS_COUNT, RECORDS_ARGUMENT_COUNT };
 
 typedef narsil_status (*record_work)(narsil_workspace *workspace, const narsil_store *store,
@@ -117,6 +127,36 @@ napi_value compact(napi_env env, napi_callback_info info) {
   report_workspace_memory(env, state);
   if (!hand_over_wakes(env, argv[COMPACT_WAKES], graph)) {
     return throw_error(env, "compact takes an Int32Array of wakes");
+  }
+  return status_of(env, status);
+}
+
+napi_value connect_unreached(napi_env env, napi_callback_info info) {
+  napi_value argv[CONNECT_ARGUMENT_COUNT];
+  if (!callback_arguments(env, info, CONNECT_ARGUMENT_COUNT, argv)) {
+    return throw_error(env, "connectUnreached takes a graph, a store, and four more arguments");
+  }
+  attached_graph *graph = graph_of(env, argv[CONNECT_GRAPH]);
+  attached_store *store = store_of(env, argv[CONNECT_STORE]);
+  thread_state *state = thread_state_of(env);
+  if (graph == NULL || store == NULL || state == NULL) {
+    return throw_error(env, "connectUnreached takes an attached graph and an attached store");
+  }
+  void *nearby = NULL;
+  size_t nearby_length = 0;
+  narsil_connect_request request = {NARSIL_METRIC_COSINE, 0, NULL, 0};
+  if (napi_get_value_uint32(env, argv[CONNECT_METRIC], &request.metric) != napi_ok ||
+      !typed_data(env, argv[CONNECT_NEARBY], napi_int32_array, &nearby, &nearby_length) ||
+      napi_get_value_uint32(env, argv[CONNECT_THREAD_SLOT], &request.thread_slot) != napi_ok) {
+    return throw_error(env, "an argument to connectUnreached has the wrong type");
+  }
+  request.nearby = nearby;
+  request.nearby_count = clamped_count(nearby_length);
+  graph->wakes.count = 0;
+  narsil_status status = narsil_connect_unreached(state->workspace, &graph->graph, &store->store, &request);
+  report_workspace_memory(env, state);
+  if (!hand_over_wakes(env, argv[CONNECT_WAKES], graph)) {
+    return throw_error(env, "connectUnreached takes an Int32Array of wakes");
   }
   return status_of(env, status);
 }
