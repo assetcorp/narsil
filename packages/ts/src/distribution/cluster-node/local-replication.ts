@@ -1,5 +1,6 @@
 import type { EngineCore } from '../../engine/core'
-import type { ClusterCoordinator } from '../coordinator/types'
+import type { PartitionLogPosition } from '../../persistence/durability/types'
+import type { ClusterCoordinator, PartitionAssignment } from '../coordinator/types'
 import { applyDeleteEntry, applyIndexEntry } from '../replication/replica'
 import type { ReplicationConfig, ReplicationLog, ReplicationLogEntry } from '../replication/types'
 import type { ClusterLocalEngine } from './local-engine'
@@ -8,10 +9,15 @@ import { seedReplicationLog } from './replication-logs'
 interface ReopenReplicationInput {
   indexName: string
   nodeId: string
-  engine: Pick<ClusterLocalEngine, 'heldPartitionsOf' | 'highestPersistedSeqNoOf'>
+  engine: Pick<ClusterLocalEngine, 'heldPartitionsOf' | 'persistedPositionOf'>
   coordinator: Pick<ClusterCoordinator, 'getAllocation'>
   replicationLogs: Map<string, ReplicationLog>
   replicationConfig?: Partial<ReplicationConfig>
+}
+
+export function numberingFloor(persisted: PartitionLogPosition, assignment: PartitionAssignment): PartitionLogPosition {
+  if (persisted.seqNo >= assignment.commitPoint) return persisted
+  return { seqNo: assignment.commitPoint, primaryTerm: assignment.primaryTerm }
 }
 
 /**
@@ -26,13 +32,13 @@ export async function seedReopenedPrimaryLogs(input: ReopenReplicationInput): Pr
   for (const partitionId of input.engine.heldPartitionsOf(input.indexName) ?? []) {
     const assignment = allocation.assignments.get(partitionId)
     if (assignment?.primary !== input.nodeId) continue
-    const floor = Math.max(input.engine.highestPersistedSeqNoOf(input.indexName, partitionId), assignment.commitPoint)
+    const floor = numberingFloor(input.engine.persistedPositionOf(input.indexName, partitionId), assignment)
     seedReplicationLog(
       input.replicationLogs,
       input.indexName,
       partitionId,
-      floor + 1,
-      assignment.primaryTerm,
+      floor.seqNo + 1,
+      floor.primaryTerm,
       input.replicationConfig,
     )
   }
@@ -51,9 +57,26 @@ export async function applyLocalReplicationEntry(core: EngineCore, entry: Replic
     const indexEntry = core.requireIndex(entry.indexName)
     const manager = core.requireManager(entry.indexName)
     const vecIndexes = manager.getVectorIndexes()
+    const apply = (): void => {
+      if (entry.operation === 'INDEX') applyIndexEntry(entry, manager, indexEntry.vectorFieldPaths, vecIndexes)
+      else applyDeleteEntry(entry, manager, vecIndexes)
+    }
+    const durable = core.durability?.manager
+    if (durable === undefined) {
+      apply()
+    } else {
+      await durable.recordMutation({
+        indexName: entry.indexName,
+        partitionId: entry.partitionId,
+        operation: entry.operation,
+        documentId: entry.documentId,
+        document: entry.document,
+        apply,
+        replicated: entry,
+      })
+    }
 
     if (entry.operation === 'INDEX') {
-      applyIndexEntry(entry, manager, indexEntry.vectorFieldPaths, vecIndexes)
       const appliedDocument = manager.getRef(entry.documentId)
       if (appliedDocument !== undefined) {
         await core.orchestrator.replicateToWorkers({
@@ -67,7 +90,6 @@ export async function applyLocalReplicationEntry(core: EngineCore, entry: Replic
       return
     }
 
-    applyDeleteEntry(entry, manager, vecIndexes)
     await core.orchestrator.replicateToWorkers({
       type: 'remove',
       indexName: entry.indexName,

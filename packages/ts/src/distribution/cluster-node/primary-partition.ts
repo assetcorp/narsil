@@ -6,6 +6,7 @@ import { withPartitionCount } from '../cluster/index-settings'
 import type { ClusterCoordinator, PartitionAssignment } from '../coordinator/types'
 import { validateRestoredSchema } from './bootstrap-restore'
 import type { ClusterLocalEngine } from './local-engine'
+import { numberingFloor } from './local-replication'
 
 export interface PrimaryPartitionDeps {
   engine: ClusterLocalEngine
@@ -22,10 +23,7 @@ export interface PrimaryPartitionDeps {
  * The node creates the index where it holds no copy, and it checks a copy it already holds against the schema the
  * cluster keeps. A node the controller promoted back after every copy of the partition was lost numbers its next
  * entry above both the commit point the controller stored and everything its own write-ahead log holds, so a
- * replica that returns can still reach that commit point. A node that took the partition on as a replica has no
- * write-ahead log of its own for it, because a replicated write reaches the partition without passing through that
- * log, so the commit point alone carries the floor there and the node renumbers the entries above it that the
- * cluster never acknowledged.
+ * replica that returns can still reach that commit point.
  *
  * @param indexName - The index the partition belongs to.
  * @param partitionId - The partition this node leads.
@@ -87,9 +85,9 @@ function resumeNumberingAboveOwnCopy(
   if (deps.replicationLogPosition(indexName, partitionId) > 0) {
     return
   }
-  const floor = Math.max(deps.engine.highestPersistedSeqNoOf(indexName, partitionId), assignment.commitPoint)
-  if (floor <= 0) {
+  const floor = numberingFloor(deps.engine.persistedPositionOf(indexName, partitionId), assignment)
+  if (floor.seqNo <= 0) {
     return
   }
-  deps.seedReplicationLog(indexName, partitionId, floor + 1, assignment.primaryTerm)
+  deps.seedReplicationLog(indexName, partitionId, floor.seqNo + 1, floor.primaryTerm)
 }

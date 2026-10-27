@@ -1,4 +1,5 @@
 import type { ReplicationLogEntry } from '../../distribution/replication/types'
+import { ErrorCodes, NarsilError } from '../../errors'
 import type { PartitionState } from './manager-state'
 import type { MutationOutcome, MutationRecord } from './types'
 
@@ -7,10 +8,20 @@ export interface PartitionBatchDeps {
   fatalError(): Error | null
   markFatal(error: Error): void
   buildEntry(record: MutationRecord, seqNo: number): ReplicationLogEntry
+  numberEntry(record: MutationRecord): ReplicationLogEntry | null
 }
 
 function toError(err: unknown): Error {
   return err instanceof Error ? err : new Error(String(err))
+}
+
+function requireAscendingSeqNo(record: MutationRecord, seqNo: number, previousSeqNo: number): void {
+  if (seqNo > previousSeqNo) return
+  throw new NarsilError(
+    ErrorCodes.PERSISTENCE_SAVE_FAILED,
+    `Log record ${seqNo} for partition ${record.partitionId} of index "${record.indexName}" does not follow record ${previousSeqNo}`,
+    { indexName: record.indexName, partitionId: record.partitionId, seqNo, previousSeqNo },
+  )
 }
 
 function failUnlessAlreadyFailed(outcomes: MutationOutcome[], count: number, error: Error): void {
@@ -90,19 +101,33 @@ export async function recordPartitionBatch(
       return
     }
     let lastSeqNo = partition.appliedSeqNo
+    const entries: ReplicationLogEntry[] = []
     try {
-      const entries: ReplicationLogEntry[] = []
       for (const i of applied) {
-        lastSeqNo = partition.seqOwner.next()
+        let numbered: ReplicationLogEntry | null
+        try {
+          numbered = deps.numberEntry(records[i])
+        } catch (err) {
+          outcomes[i] = { ok: false, error: err }
+          continue
+        }
+        if (numbered === null) {
+          lastSeqNo = partition.seqOwner.next()
+          entries.push(deps.buildEntry(records[i], lastSeqNo))
+        } else {
+          requireAscendingSeqNo(records[i], numbered.seqNo, lastSeqNo)
+          partition.seqOwner.advanceTo(numbered.seqNo, numbered.primaryTerm)
+          lastSeqNo = numbered.seqNo
+          entries.push(numbered)
+        }
         outcomes[i] = { ok: true, seqNo: lastSeqNo }
-        entries.push(deps.buildEntry(records[i], lastSeqNo))
       }
-      await partition.walWriter.appendAll(entries)
+      if (entries.length > 0) await partition.walWriter.appendAll(entries)
     } catch (err) {
       throw failPartition(partition, deps, err)
     }
     partition.appliedSeqNo = lastSeqNo
-    appendedCount = applied.length
+    appendedCount = entries.length
   })
   partition.appendChain = appended.catch(() => undefined)
 

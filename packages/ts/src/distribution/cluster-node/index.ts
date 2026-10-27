@@ -40,6 +40,7 @@ import type { ClusterNode, ClusterNodeConfig } from './types'
 import { DEFAULT_CAPACITY } from './types'
 import { validateClusterNodeConfig } from './validate-config'
 import type { WriteRoutingDeps } from './write-routing'
+import { createPrimaryNumbering } from './write-routing/numbering'
 import { createPartitionWriteQueues } from './write-routing/partition-queue'
 
 const SPEC_VERSION = '1.0'
@@ -90,7 +91,7 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
   })
 
   function getReplicationLog(indexName: string, partitionId: number): ReplicationLog {
-    return readReplicationLog(replicationLogs, indexName, partitionId, config.replication)
+    return readReplicationLog(replicationLogs, indexName, partitionId, config.replication, engine.persistedPositionOf)
   }
 
   function seedReplicationLog(indexName: string, partitionId: number, startSeqNo: number, lastPrimaryTerm = 0): void {
@@ -125,8 +126,11 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
   const hasControllerRole = roles.includes('controller')
   const controllerTransport = hasDataRole ? createMultiplexedControllerTransport(config.transport, nodeId) : null
 
+  const numbering = createPrimaryNumbering()
+  engine.numberEntriesWith(numbering.numberEntry)
   const writeDeps: WriteRoutingDeps = {
     nodeId,
+    numbering,
     coordinator: config.coordinator,
     engine,
     transport: config.transport,
@@ -164,6 +168,7 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
     getReplicationLog,
     resetReplicationLog: seedReplicationLog,
     applyReplicationEntry: engine.applyReplicationEntry,
+    restartLocalLog: engine.restartLocalLog,
     restoreReplicationPartition: engine.restoreReplicationPartition,
     onError: forwardOnError,
     snapshotSpoolDirectory: snapshotSpool.path,

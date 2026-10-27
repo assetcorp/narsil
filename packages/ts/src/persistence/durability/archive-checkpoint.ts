@@ -71,7 +71,7 @@ export interface ArchiveCheckpointDeps {
   directory: DurableDirectory
   held: Map<string, number>
   checkpoint(indexName: string): Promise<void>
-  registerPartition(indexName: string, partitionId: number, startSeqNo: number): void
+  registerPartition(indexName: string, partitionId: number, startSeqNo: number, primaryTerm: number): void
 }
 
 function releaser(held: Map<string, number>, indexName: string): () => void {
@@ -129,7 +129,9 @@ export function createArchiveCheckpointAccess(deps: ArchiveCheckpointDeps): Arch
     },
 
     adoptRestoredCheckpoint(indexName: string, checkpoint: readonly PartitionCheckpoint[]): void {
-      for (const { partitionId, lastSeqNo } of checkpoint) deps.registerPartition(indexName, partitionId, lastSeqNo)
+      for (const { partitionId, lastSeqNo, primaryTerm } of checkpoint) {
+        deps.registerPartition(indexName, partitionId, lastSeqNo, primaryTerm)
+      }
     },
   }
 }

@@ -1,3 +1,4 @@
+import type { PartitionLogPosition } from '../../persistence/durability/types'
 import { createReplicationLog } from '../replication/log'
 import type { ReplicationConfig, ReplicationLog } from '../replication/types'
 
@@ -10,11 +11,17 @@ export function getReplicationLog(
   indexName: string,
   partitionId: number,
   replicationConfig?: Partial<ReplicationConfig>,
+  persistedPosition?: (indexName: string, partitionId: number) => PartitionLogPosition,
 ): ReplicationLog {
   const key = replicationLogKey(indexName, partitionId)
   let log = replicationLogs.get(key)
   if (log === undefined) {
-    log = createReplicationLog(partitionId, { logRetentionBytes: replicationConfig?.logRetentionBytes })
+    const persisted = persistedPosition?.(indexName, partitionId) ?? { seqNo: 0, primaryTerm: 0 }
+    log = createReplicationLog(partitionId, {
+      logRetentionBytes: replicationConfig?.logRetentionBytes,
+      startSeqNo: persisted.seqNo + 1,
+      lastPrimaryTerm: persisted.primaryTerm,
+    })
     replicationLogs.set(key, log)
   }
   return log

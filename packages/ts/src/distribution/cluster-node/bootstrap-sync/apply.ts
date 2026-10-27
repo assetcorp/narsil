@@ -92,6 +92,23 @@ export async function applyLiveSnapshotSync(
     return { ok: false, error: restoreError }
   }
 
+  try {
+    await deps.restartLocalLog?.(indexName, partitionId, {
+      seqNo: finalized.header.lastSeqNo,
+      primaryTerm: finalized.header.primaryTerm,
+    })
+  } catch (err) {
+    const cause = err instanceof Error ? err.message : String(err)
+    return {
+      ok: false,
+      error: new NarsilError(ErrorCodes.SNAPSHOT_SYNC_RESTORE_FAILED, `local log restart failed: ${cause}`, {
+        indexName,
+        partitionId,
+        primaryNodeId: target,
+        cause,
+      }),
+    }
+  }
   deps.resetReplicationLog(indexName, partitionId, finalized.header.lastSeqNo + 1, finalized.header.primaryTerm)
   const applyResult = await applySyncEntries(
     indexName,

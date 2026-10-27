@@ -13,6 +13,8 @@ import {
   runEngineQueryStats,
   runEngineSuggest,
 } from '../../narsil/reads'
+import { persistedPosition, restartPartitionLog } from '../../persistence/durability/partition-log'
+import type { EntryNumbering, PartitionLogPosition } from '../../persistence/durability/types'
 import type { NarsilConfig } from '../../types/config'
 import type { ByteSource } from '../../types/engine'
 import type { GlobalStatistics } from '../../types/internal'
@@ -30,6 +32,9 @@ export interface ClusterLocalEngine extends Narsil {
   indexUuidOf(indexName: string): string | null | undefined
   stampIndexUuid(indexName: string, indexUuid: string): Promise<void>
   highestPersistedSeqNoOf(indexName: string, partitionId: number): number
+  persistedPositionOf(indexName: string, partitionId: number): PartitionLogPosition
+  numberEntriesWith(numbering: EntryNumbering): void
+  restartLocalLog(indexName: string, partitionId: number, position: PartitionLogPosition): Promise<void>
   heldPartitionsOf(indexName: string): number[] | undefined
   recordHeldPartition(indexName: string, partitionId: number): Promise<void>
   forgetHeldPartition(indexName: string, partitionId: number): Promise<void>
@@ -91,6 +96,10 @@ export async function createClusterLocalEngine(
     stampIndexUuid: (indexName: string, indexUuid: string) => stampIndexUuid(core, indexName, indexUuid),
     highestPersistedSeqNoOf: (indexName: string, partitionId: number) =>
       core.durability?.manager.highestPersistedSeqNo(indexName, partitionId) ?? 0,
+    persistedPositionOf: (indexName: string, partitionId: number) => persistedPositionOf(core, indexName, partitionId),
+    numberEntriesWith: (numbering: EntryNumbering) => core.durability?.manager.numberEntriesWith?.(numbering),
+    restartLocalLog: (indexName: string, partitionId: number, position: PartitionLogPosition) =>
+      restartLocalLog(core, indexName, partitionId, position),
     heldPartitionsOf: (indexName: string) => heldPartitions.held(indexName),
     recordHeldPartition: (indexName: string, partitionId: number) => heldPartitions.record(indexName, partitionId),
     forgetHeldPartition: (indexName: string, partitionId: number) => heldPartitions.forget(indexName, partitionId),
@@ -127,6 +136,28 @@ export async function createClusterLocalEngine(
       }
     },
   })
+}
+
+function persistedPositionOf(core: EngineCore, indexName: string, partitionId: number): PartitionLogPosition {
+  const durable = core.durability?.manager
+  if (durable === undefined) return { seqNo: 0, primaryTerm: 0 }
+  return persistedPosition(durable, indexName, partitionId)
+}
+
+async function restartLocalLog(
+  core: EngineCore,
+  indexName: string,
+  partitionId: number,
+  position: PartitionLogPosition,
+): Promise<void> {
+  const durable = core.durability?.manager
+  if (durable === undefined) return
+  const release = await core.indexState.acquire(indexName, false)
+  try {
+    await restartPartitionLog(durable, indexName, partitionId, position)
+  } finally {
+    release()
+  }
 }
 
 async function stampIndexUuid(core: EngineCore, indexName: string, indexUuid: string): Promise<void> {
