@@ -2,7 +2,6 @@ import { ErrorCodes, NarsilError } from '../../../errors'
 import { everyValueFacetConfig, mergeFacets } from '../../../search/facets'
 import type { FilterExpression } from '../../../types/filters'
 import type { InternalSearchParams, InternalSearchResult } from '../../../types/internal'
-import type { LanguageModule } from '../../../types/language'
 import type { FacetResult } from '../../../types/results'
 import type { AnyDocument, SchemaDefinition } from '../../../types/schema'
 import type { FacetConfig } from '../../../types/search'
@@ -24,7 +23,6 @@ import type { PartitionReadState } from '../read-state'
 import { encodeSegmentState, type SegmentPayload } from '../segment-payload'
 import type { SortedPageEntry, SortPageRequest } from '../sorting'
 import { expandTermPrefix, type PartitionSuggestion } from '../suggestions'
-import type { PartitionInsertOptions } from '../utils'
 import {
   freezeLiveTailInto,
   type LiveTailFreezer,
@@ -174,19 +172,6 @@ export function createCompositePartition(
     encodeSegment(): SegmentPayload {
       if (frozen.length === 0) return live.encodeSegment()
       return composedScratch().encodeSegment()
-    },
-
-    rebuildTextIndex(schema: SchemaDefinition, language: LanguageModule, options?: PartitionInsertOptions): void {
-      invalidateDocFrequencies()
-      if (frozen.length > 0) {
-        for (const segment of frozen) {
-          const payload = encodeSegmentState(segment)
-          if (payload.documentCount === 0) continue
-          live.mergeSegmentPayload(payload, survivorDocumentsOf(segment, payload))
-        }
-        frozen.length = 0
-      }
-      live.rebuildTextIndex(schema, language, options)
     },
 
     serialize(indexName: string, totalPartitions: number, language: string, schema: SchemaDefinition) {
