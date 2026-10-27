@@ -206,6 +206,34 @@ selectNeighbours(node, candidates: List<node>, limit: uint32) -> List<node>
   return selected
 ```
 
+At layer 0, an implementation must pass every list that `selectNeighbours` returns for a node `p` through `keepLastLinks`, so that a live node whose only incoming connection comes from `p` stays in the list of `p`.
+
+```text
+keepLastLinks(p, kept: List<node>, dropped: List<node>, limit: uint32) -> List<node>
+  for each d in dropped, nearest to p first:
+    when d is live and its only incoming connection comes from p:
+      when kept holds fewer than limit entries:
+        append d to kept
+      otherwise, when kept holds a node with two or more incoming connections:
+        put d in place of the node farthest from p among those
+  return kept
+```
+
+An implementation must leave every live node other than the entry point with at least one incoming connection at layer 0 once an insertion, a removal, or a load completes. Where the rules in this section leave such a node with none, as when `keepLastLinks` finds no node to replace or a removal takes away the last connection into a node, the implementation must run `connectUnreached` before the write or the load completes. At a removal, `nearby` holds the other neighbours of every vector that the write removes, and it is empty otherwise.
+
+```text
+connectUnreached(nearby: List<node>)
+  reached = the nodes that a walk from the entry point reaches at layer 0
+  for each live node x, skipping x where reached already holds it:
+    hosts = the live nodes in reached, those in nearby or in the list of x first, each group nearest to x first
+    h = the first node in hosts whose list holds fewer than 2 * M entries
+    when hosts holds no such node:
+      h = the first node in hosts whose list holds a node with two or more incoming connections
+      take the node farthest from h among those out of the list of h
+    append x to the list of h
+    add x and every node that a walk from x reaches to reached
+```
+
 ### Search
 
 An implementation must find the `k` nearest neighbours of a query vector `q` in four steps:
