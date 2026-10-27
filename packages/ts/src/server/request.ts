@@ -139,6 +139,7 @@ export interface RunnerDeps {
   authorize?: Authorizer
   gate: RequestGate
   corsHeaders?: (req: HttpRequest) => Array<[string, string]>
+  track?: (res: ResponseSink, abort: ResponseAbort) => () => void
 }
 
 export function sinkWritingAfterStatus(res: ResponseSink, headers: Array<[string, string]>): ResponseSink {
@@ -157,8 +158,8 @@ export function sinkWritingAfterStatus(res: ResponseSink, headers: Array<[string
       res.writeHeader(key, value)
       return sink
     },
-    end(body) {
-      res.end(body)
+    end(body, closeConnection) {
+      res.end(body, closeConnection)
       return sink
     },
     write(chunk) {
@@ -235,7 +236,7 @@ function sendDenial(res: ResponseSink, authorization: Authorization): void {
  * sheds load past the concurrency cap, and turns any thrown value into a 500.
  */
 export function createRouteRunner(deps: RunnerDeps) {
-  const { authorize, gate, corsHeaders } = deps
+  const { authorize, gate, corsHeaders, track } = deps
 
   return (handler: RouteHandler, opts: RouteOptions) => {
     const paramCount = opts.paramCount ?? 0
@@ -284,6 +285,7 @@ export function createRouteRunner(deps: RunnerDeps) {
         )
         return
       }
+      const release = track?.(res, abort)
       const bodyPromise = needsBody
         ? readBody(res, opts.maxBytes, abort, declaredBytes)
         : Promise.resolve<Buffer | null>(null)
@@ -299,7 +301,7 @@ export function createRouteRunner(deps: RunnerDeps) {
             ).catch(() => null)
           : Promise.resolve<SpooledBody | null>(null)
 
-      Promise.all([bodyPromise, spoolPromise, hookPromise])
+      const running = Promise.all([bodyPromise, spoolPromise, hookPromise])
         .then(async ([rawBody, spooledBody, authorization]) => {
           const discardSpool = (): void => {
             void spooledBody?.remove().catch(() => undefined)
@@ -331,6 +333,7 @@ export function createRouteRunner(deps: RunnerDeps) {
           }
         })
         .catch(() => {})
+      if (release !== undefined) void running.then(release)
     }
   }
 }

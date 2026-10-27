@@ -18,6 +18,7 @@ import type { ServerHandlers } from '../routes'
 import type { SpooledBody } from '../spool'
 import { type AcceptorApp, acceptorOf } from './acceptor'
 import { type CapturingResponse, createCapturingResponse, toRelayedResponse } from './captured-response'
+import { confirmDeparture, createDepartureWord, departureConfirmed } from './departure'
 import type {
   AuthorizeRequest,
   EmbedQueryRequest,
@@ -49,6 +50,7 @@ interface ServingThread {
   descriptor: unknown
   port: MessagePort
   executor: Executor
+  departure: Int32Array<SharedArrayBuffer>
 }
 
 const RELAYED_TYPES: ReadonlySet<string> = new Set(['request', 'authorize', 'embed', 'stream-credit', 'stream-cancel'])
@@ -56,7 +58,7 @@ const RELAYED_TYPES: ReadonlySet<string> = new Set(['request', 'authorize', 'emb
 function isRelayRequest(message: unknown): message is RelayRequest {
   if (typeof message !== 'object' || message === null) return false
   const { type, requestId } = message as { type?: unknown; requestId?: unknown }
-  if (type === 'touch') return true
+  if (type === 'touch' || type === 'leaving') return true
   return typeof requestId === 'number' && typeof type === 'string' && RELAYED_TYPES.has(type)
 }
 
@@ -155,10 +157,24 @@ export async function startRequestThreads(options: RequestThreadHostOptions): Pr
   const threads = new Map<number, ServingThread>()
   let stopped = false
 
-  function relayFrom(port: MessagePort): void {
+  function releaseDescriptor(thread: ServingThread): void {
+    if (thread.descriptor !== null) {
+      try {
+        acceptor.removeChildAppDescriptor(thread.descriptor)
+      } catch {}
+    }
+    confirmDeparture(thread.departure)
+  }
+
+  function relayFrom(thread: ServingThread): void {
+    const { port } = thread
     const streams = new Map<number, CapturingResponse>()
     port.on('message', (message: unknown) => {
       if (!isRelayRequest(message)) return
+      if (message.type === 'leaving') {
+        releaseDescriptor(thread)
+        return
+      }
       if (message.type === 'touch') {
         core.orchestrator.noteAccess(message.indexName)
         return
@@ -184,9 +200,7 @@ export async function startRequestThreads(options: RequestThreadHostOptions): Pr
   }
 
   async function stopThread(workerId: number, thread: ServingThread): Promise<void> {
-    try {
-      acceptor.removeChildAppDescriptor(thread.descriptor)
-    } catch {}
+    releaseDescriptor(thread)
     thread.port.close()
     clearGateSlot(options.gate, gateSlotOfWorker(workerId))
     await thread.executor.execute({ type: 'stopServing', requestId: `stop-serving-${workerId}` }).catch(() => undefined)
@@ -196,7 +210,13 @@ export async function startRequestThreads(options: RequestThreadHostOptions): Pr
     async onWorkerReady(workerId: number, executor: Executor): Promise<void> {
       if (stopped) return
       const channel = new MessageChannel()
-      relayFrom(channel.port2)
+      const thread: ServingThread = {
+        descriptor: null,
+        port: channel.port2,
+        executor,
+        departure: createDepartureWord(),
+      }
+      relayFrom(thread)
       let result: ServeRequestsResult
       try {
         result = await executor.execute<ServeRequestsResult>(
@@ -205,6 +225,7 @@ export async function startRequestThreads(options: RequestThreadHostOptions): Pr
             requestId: `serve-${workerId}`,
             settings: {
               port: channel.port1,
+              departure: thread.departure.buffer,
               gate: options.gate,
               gateSlot: gateSlotOfWorker(workerId),
               maxConcurrentRequests: options.limits.maxConcurrentRequests,
@@ -225,8 +246,8 @@ export async function startRequestThreads(options: RequestThreadHostOptions): Pr
         console.warn(`Worker ${workerId} could not start taking requests:`, err)
         return
       }
-      const thread: ServingThread = { descriptor: result.descriptor, port: channel.port2, executor }
-      if (stopped) {
+      thread.descriptor = result.descriptor
+      if (stopped || departureConfirmed(thread.departure)) {
         await stopThread(workerId, thread)
         return
       }
@@ -237,9 +258,7 @@ export async function startRequestThreads(options: RequestThreadHostOptions): Pr
       const thread = threads.get(workerId)
       if (thread === undefined) return
       threads.delete(workerId)
-      try {
-        acceptor.removeChildAppDescriptor(thread.descriptor)
-      } catch {}
+      releaseDescriptor(thread)
       thread.port.close()
       clearGateSlot(options.gate, gateSlotOfWorker(workerId))
     },
