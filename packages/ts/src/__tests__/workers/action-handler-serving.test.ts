@@ -27,6 +27,7 @@ function settings(): RequestThreadSettings {
   const { port1 } = new MessageChannel()
   return {
     port: port1,
+    departure: new SharedArrayBuffer(4),
     gate: new SharedArrayBuffer(64),
     gateSlot: 1,
     maxConcurrentRequests: 0,

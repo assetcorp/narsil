@@ -301,7 +301,11 @@ describe('a crashed worker is replaced', () => {
 
     const inserts = sent.filter(entry => entry.action.type === 'insert')
     expect(inserts.map(entry => entry.workerId).sort()).toEqual([0, 1])
-    expect(sent).toHaveLength(2)
+    const loaded = sent.filter(entry => entry.action.type === 'copyLoaded')
+    expect(loaded.map(entry => entry.workerId).sort()).toEqual([0, 1])
+    expect(sent).toHaveLength(4)
+    const onReplacement = sent.filter(entry => entry.workerId === 0).map(entry => entry.action.type)
+    expect(onReplacement).toEqual(['insert', 'copyLoaded'])
     expect(
       pool
         .leaseIdle(2)

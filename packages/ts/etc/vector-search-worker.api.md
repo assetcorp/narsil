@@ -92,6 +92,7 @@ export interface SharedFieldLoadRequest {
 export interface SharedGraphHandles {
     header: Int32Array;
     heldLocks: Int32Array;
+    incoming: GrowableBuffer;
     level0: GrowableBuffer;
     locks: GrowableBuffer;
     nodeLevels: GrowableBuffer;
@@ -134,6 +135,9 @@ export interface SharedVectorStoreHandles {
     magnitudes: GrowableBuffer;
     partitions: GrowableBuffer;
     present: GrowableBuffer;
+    removed: GrowableBuffer;
+    unplaced: GrowableBuffer;
+    unplacedChunks: GrowableBuffer;
     vectorFiles: string[];
 }
 
