@@ -1,4 +1,12 @@
 export {
+  countEveryLink,
+  countLinksInto,
+  incomingCount,
+  noteLinked,
+  noteUnlinked,
+  releaseUnlessLast,
+} from './incoming'
+export {
   addNeighbor,
   collectNeighbors,
   layerArray,
@@ -7,6 +15,8 @@ export {
   readNeighbors,
   removeNeighbor,
   replaceNeighbors,
+  writeLoadedBaseList,
+  writeNeighbors,
 } from './neighbors'
 export {
   type Adjacency,

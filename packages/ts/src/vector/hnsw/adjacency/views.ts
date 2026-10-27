@@ -14,6 +14,7 @@ export interface Adjacency {
   level0: Int32Array
   upperBase: Int32Array
   upper: Int32Array
+  incoming: Int32Array
 }
 
 export function openAdjacency(handles: SharedGraphHandles, m: number, mMax0: number): Adjacency {
@@ -28,10 +29,12 @@ export function openAdjacency(handles: SharedGraphHandles, m: number, mMax0: num
     level0: fixedView(handles.level0, Int32Array),
     upperBase: fixedView(handles.upperBase, Int32Array),
     upper: fixedView(handles.upper, Int32Array),
+    incoming: fixedView(handles.incoming, Int32Array),
   }
 }
 
 export function rebindNodes(adj: Adjacency): void {
+  adj.incoming = fixedView(adj.handles.incoming, Int32Array)
   adj.nodeLevels = fixedView(adj.handles.nodeLevels, Uint8Array)
   adj.level0 = fixedView(adj.handles.level0, Int32Array)
   adj.upperBase = fixedView(adj.handles.upperBase, Int32Array)
@@ -79,6 +82,7 @@ export function ensureAdjacencyCapacity(adj: Adjacency, needed: number): void {
   growBufferToExactly(handles.upperBase, capacity * 4)
   growBufferToExactly(handles.locks, capacity * 4)
   growBufferToExactly(handles.tombstones, capacity)
+  growBufferToExactly(handles.incoming, capacity * 4)
   growBufferToExactly(handles.nodeLevels, capacity)
   publishGraphCapacity(handles)
   rebindNodes(adj)
@@ -132,11 +136,13 @@ export function deleteNode(adj: Adjacency, ord: number): void {
   Atomics.store(adj.nodeLevels, ord, 0)
   adj.upperBase[ord] = 0
   adj.level0[ord * adj.level0Stride] = 0
+  Atomics.store(adj.incoming, ord, 0)
 }
 
 export function resetAdjacency(adj: Adjacency): void {
   rebindNodes(adj)
   rebindUpper(adj)
+  adj.incoming.fill(0)
   adj.nodeLevels.fill(0)
   adj.level0.fill(0)
   adj.upperBase.fill(0)
@@ -164,6 +170,7 @@ export function graphBytes(adj: Adjacency): number {
     handles.upper.byteLength +
     handles.locks.byteLength +
     handles.tombstones.byteLength +
+    handles.incoming.byteLength +
     handles.heldLocks.byteLength
   )
 }

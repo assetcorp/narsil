@@ -1,3 +1,4 @@
+import { countLinksOutOf, noteLinked, noteUnlinked } from './incoming'
 import { ABSENT, type Adjacency, nodeLevel, reachUpper } from './views'
 
 export function layerArray(adj: Adjacency, layer: number): Int32Array {
@@ -54,6 +55,7 @@ export function addNeighbor(adj: Adjacency, ord: number, layer: number, neighbor
 
   array[base + count + 1] = neighborOrd
   array[base] = count + 1
+  if (layer === 0) noteLinked(adj, neighborOrd)
 }
 
 export function removeNeighbor(adj: Adjacency, ord: number, layer: number, neighborOrd: number): void {
@@ -68,11 +70,12 @@ export function removeNeighbor(adj: Adjacency, ord: number, layer: number, neigh
       array[base + j] = array[base + j + 1]
     }
     array[base] = count - 1
+    if (layer === 0) noteUnlinked(adj, neighborOrd)
     return
   }
 }
 
-export function replaceNeighbors(
+export function writeNeighbors(
   adj: Adjacency,
   ord: number,
   layer: number,
@@ -89,4 +92,36 @@ export function replaceNeighbors(
     array[base + i + 1] = neighbors[i]
   }
   array[base] = limit
+}
+
+export function writeLoadedBaseList(adj: Adjacency, ord: number, neighbors: ArrayLike<number>, count: number): void {
+  if (neighborCount(adj, ord, 0) > 0) countLinksOutOf(adj, ord, -1)
+  writeNeighbors(adj, ord, 0, neighbors, count)
+  countLinksOutOf(adj, ord, 1)
+}
+
+function holds(neighbors: ArrayLike<number>, count: number, ord: number): boolean {
+  for (let i = 0; i < count; i++) if (neighbors[i] === ord) return true
+  return false
+}
+
+export function replaceNeighbors(
+  adj: Adjacency,
+  ord: number,
+  layer: number,
+  neighbors: ArrayLike<number>,
+  count: number,
+): void {
+  const base = layerBase(adj, ord, layer)
+  if (base === ABSENT) return
+  if (layer > 0) {
+    writeNeighbors(adj, ord, layer, neighbors, count)
+    return
+  }
+  const array = adj.level0
+  const held = array.slice(base + 1, base + 1 + array[base])
+  const limit = Math.min(count, adj.level0Stride - 1)
+  for (const former of held) if (!holds(neighbors, limit, former)) noteUnlinked(adj, former)
+  for (let i = 0; i < limit; i++) if (!holds(held, held.length, neighbors[i])) noteLinked(adj, neighbors[i])
+  writeNeighbors(adj, ord, 0, neighbors, count)
 }

@@ -55,3 +55,21 @@ export function nativeCompact(state: HNSWSearchState, field: NativeField, metric
     field.core.compact(field.graph, field.store.handle, nativeMetricCode(metric), state.locks.threadSlot, field.wakes)
   return writeToTheGraph(state, field, compact) === NATIVE_OK
 }
+
+export function nativeConnect(
+  state: HNSWSearchState,
+  field: NativeField,
+  metric: VectorMetric,
+  nearby: Int32Array,
+): boolean {
+  const connect = () =>
+    field.core.connectUnreached(
+      field.graph,
+      field.store.handle,
+      nativeMetricCode(metric),
+      nearby,
+      state.locks.threadSlot,
+      field.wakes,
+    )
+  return writeToTheGraph(state, field, connect) === NATIVE_OK
+}
