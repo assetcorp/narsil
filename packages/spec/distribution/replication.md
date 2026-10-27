@@ -221,11 +221,16 @@ The fallback runs when the primary's log no longer holds what the replica needs,
 The replica reports its state and the primary decides:
 
 ```text
-if primaryLog.oldestSeqNo <= replica.lastSeqNo + 1:
+when replica.lastSeqNo = 0 and primaryLog has discarded no entry:
   use tier 1, incremental
-else:
+when primaryLog holds an entry at replica.lastSeqNo
+     and that entry's primaryTerm equals replica.lastPrimaryTerm:
+  use tier 1, incremental
+otherwise:
   use tier 2, full snapshot
 ```
+
+A replica must report in `lastPrimaryTerm` the `primaryTerm` of the entry at its `lastSeqNo`, and the `primaryTerm` of a `ReplicationSnapshotHeader` must hold the `primaryTerm` of the entry at the header's `lastSeqNo`, so that a replica whose log took another history from that point receives a snapshot.
 
 ### Partition State During Recovery
 
@@ -292,6 +297,8 @@ A replica whose recorded position falls below the oldest entry the primary retai
 ## Write Durability
 
 Every write replicates to every in-sync replica before it is acknowledged, and that is not configurable. The primary sends each entry to every replica in the in-sync set, and to every replica whose admission it has asked the controller to confirm, and it must wait for all of them. Every other assigned replica receives that entry through the [Catch-Up Feed](#catch-up-feed) instead, so no assigned replica misses an entry and no lagging replica holds a write up. The primary raises the partition's commit point to the entry's `seqNo` once it acknowledges the write.
+
+A replica must append each entry that it receives to its write-ahead log and make the entry durable under its [durability mode](../durability.md#durability-modes) before it acknowledges the entry.
 
 A primary may group contiguous entries for one partition into a single `replication.entry_batch` message, and the replica's one acknowledgement of the batch's last entry then covers every entry in it. A primary must send each partition's entries in sequence-number order, whichever message carries them.
 
