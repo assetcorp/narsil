@@ -6,6 +6,7 @@ export interface NativeGraphMemory {
   upper: Int32Array
   locks: Int32Array
   tombstones: Uint8Array
+  incoming: Int32Array
   heldLocks: Int32Array
 }
 
@@ -72,6 +73,14 @@ export interface NativeCore {
     graph: NativeGraphHandle,
     store: NativeStoreHandle,
     metric: number,
+    threadSlot: number,
+    wakes: Int32Array,
+  ): number
+  connectUnreached(
+    graph: NativeGraphHandle,
+    store: NativeStoreHandle,
+    metric: number,
+    nearby: Int32Array,
     threadSlot: number,
     wakes: Int32Array,
   ): number

@@ -9,11 +9,14 @@ import {
   createNode,
   deleteNode,
   ensureUpperRoom,
+  incomingCount,
   neighborCount,
+  noteUnlinked,
   removeNeighbor,
   replaceNeighbors,
   resetAdjacency,
 } from './adjacency'
+import { baseNeighboursOfRemoved, connectAfterPlacement, connectWhereUnlinked } from './connect-unreached'
 import { PLACEMENT_ROOM_REQUESTS } from './constants'
 import { pruneConnections, searchLayer, selectNeighborsHeuristic } from './graph-ops'
 import {
@@ -23,6 +26,7 @@ import {
   GRAPH_TOP_LAYER,
   publishGraphCapacity,
 } from './handles'
+import { isLive, noteNodeLeftUnlinked, writeKeepingLastLinks } from './last-links'
 import { lockEntry, lockGraphShared, lockNodeWrite, unlockEntry, unlockGraphShared, unlockNodeWrite } from './locks'
 import {
   buildsFromCodes,
@@ -162,11 +166,15 @@ function linkNeighborsBack(state: HNSWGraphState, ord: number, linkTop: number):
 
 function linkNode(state: HNSWGraphState, ord: number, level: number): void {
   const topLayer = topLayerOf(state)
+  const formerEntry = entryPointOf(state)
   const linkTop = selectNeighborsPerLayer(state, ord, level)
   if (linkTop < 0) return
   writeOwnLists(state, ord, linkTop)
   linkNeighborsBack(state, ord, linkTop)
-  if (level > topLayer) raiseEntry(state, ord, level)
+  if (level <= topLayer) return
+  raiseEntry(state, ord, level)
+  const demoted = entryPointOf(state) !== formerEntry && isLive(state, formerEntry)
+  if (demoted && incomingCount(state.adjacency, formerEntry) === 0) noteNodeLeftUnlinked(state)
 }
 
 function writeRecordBeforePlacement(state: HNSWGraphState, ord: number): void {
@@ -196,7 +204,10 @@ export function insertNode(state: HNSWGraphState, ord: number, holdsGraphLock = 
   ensureCapacity(state, ord + 1)
   if (nodeExists(state, ord)) return false
   writeRecordBeforePlacement(state, ord)
-  if (placeThroughTheCore(state, ord, holdsGraphLock)) return true
+  if (placeThroughTheCore(state, ord, holdsGraphLock)) {
+    connectAfterPlacement(state, holdsGraphLock)
+    return true
+  }
   if (nodeExists(state, ord)) return false
   noteFallback('place')
 
@@ -206,11 +217,11 @@ export function insertNode(state: HNSWGraphState, ord: number, holdsGraphLock = 
     const level = randomLevel(state.mL)
     createNode(state.adjacency, ord, level)
     Atomics.add(state.header, GRAPH_NODE_COUNT, 1)
-    if (claimEntryIfEmpty(state, ord, level)) return true
-    linkNode(state, ord, level)
+    if (!claimEntryIfEmpty(state, ord, level)) linkNode(state, ord, level)
   } finally {
     if (!holdsGraphLock) unlockGraphShared(state.locks)
   }
+  connectAfterPlacement(state, holdsGraphLock)
   return true
 }
 
@@ -235,7 +246,8 @@ export function removeNodeEager(state: HNSWGraphState, ord: number, excludeOrds?
       const mc = maxConns(state, layer)
       if (neighborCount(state.adjacency, neighborOrd, layer) >= mc) continue
 
-      const candidateOrds = new Set<number>(collectNeighbors(state.adjacency, neighborOrd, layer))
+      const heldNow = new Set<number>(collectNeighbors(state.adjacency, neighborOrd, layer))
+      const candidateOrds = new Set<number>(heldNow)
       for (const otherOrd of formerNeighbors) {
         if (otherOrd !== neighborOrd && otherOrd !== ord) {
           if (excludeOrds?.has(otherOrd)) continue
@@ -247,13 +259,20 @@ export function removeNodeEager(state: HNSWGraphState, ord: number, excludeOrds?
       candidates.size = 0
       for (const candOrd of candidateOrds) {
         const dist = distance(neighborOrd, candOrd)
-        if (dist === Number.POSITIVE_INFINITY) continue
+        if (dist === Number.POSITIVE_INFINITY) {
+          if (layer === 0 && heldNow.has(candOrd)) noteUnlinked(state.adjacency, candOrd)
+          continue
+        }
         appendToList(candidates, candOrd, dist)
       }
 
       const selected = state.workspace.repairSelection
       selectNeighborsHeuristic(state, candidates, mc, distance, selected)
-      replaceNeighbors(state.adjacency, neighborOrd, layer, selected.ords, selected.size)
+      if (layer === 0) {
+        writeKeepingLastLinks(state, neighborOrd, state.workspace.working, selected, held => heldNow.has(held))
+      } else {
+        replaceNeighbors(state.adjacency, neighborOrd, layer, selected.ords, selected.size)
+      }
 
       for (let i = 0; i < selected.size; i++) {
         const newConnOrd = selected.ords[i]
@@ -265,6 +284,8 @@ export function removeNodeEager(state: HNSWGraphState, ord: number, excludeOrds?
     }
   }
 
+  const formerBaseNeighbors = collectNeighbors(state.adjacency, ord, 0)
+  for (const neighborOrd of formerBaseNeighbors) noteUnlinked(state.adjacency, neighborOrd)
   deleteNode(state.adjacency, ord)
   Atomics.sub(state.header, GRAPH_NODE_COUNT, 1)
   clearTombstone(state, ord)
@@ -291,10 +312,6 @@ export function markTombstone(state: HNSWGraphState, ord: number): void {
 
 export function compactTombstones(state: HNSWGraphState): void {
   if (Atomics.load(state.header, GRAPH_TOMBSTONE_COUNT) === 0) return
-  const field = nativeFieldFor(state)
-  if (field !== null && nativeCompact(state, field, state.buildMetric)) return
-  noteFallback('compact')
-
   const tombstonedOrds: number[] = []
   const slots = adjacencySlots(state.adjacency)
   for (let ord = 0; ord < slots; ord++) {
@@ -302,11 +319,17 @@ export function compactTombstones(state: HNSWGraphState): void {
       tombstonedOrds.push(ord)
     }
   }
+  const nearby = baseNeighboursOfRemoved(state, tombstonedOrds)
 
-  const excl = new Set<number>(tombstonedOrds)
-  for (const ord of tombstonedOrds) {
-    removeNodeEager(state, ord, excl)
+  const field = nativeFieldFor(state)
+  if (field === null || !nativeCompact(state, field, state.buildMetric)) {
+    noteFallback('compact')
+    const excl = new Set<number>(tombstonedOrds)
+    for (const ord of tombstonedOrds) {
+      removeNodeEager(state, ord, excl)
+    }
   }
+  connectWhereUnlinked(state, nearby)
 }
 
 export function resetGraph(state: HNSWGraphState): void {
