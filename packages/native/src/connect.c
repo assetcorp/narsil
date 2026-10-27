@@ -8,10 +8,16 @@
 
 typedef struct {
   uint8_t *reached;
+  int32_t *first_reached_through;
   int32_t *queue;
   uint32_t head;
   uint32_t tail;
 } layer_walk;
+
+typedef struct {
+  int32_t from;
+  int32_t to;
+} base_link;
 
 typedef struct {
   int32_t *list;
@@ -19,7 +25,7 @@ typedef struct {
   uint8_t *holds;
 } nearby_nodes;
 
-typedef int (*host_test)(const walk_context *context, int32_t host);
+typedef int (*host_test)(const walk_context *context, const layer_walk *walk, int32_t host);
 
 static int32_t *base_list(const walk_context *context, int32_t ordinal, uint32_t *count) {
   uint32_t capacity = 0;
@@ -29,10 +35,15 @@ static int32_t *base_list(const walk_context *context, int32_t ordinal, uint32_t
   return list;
 }
 
-static void walk_from(const walk_context *context, layer_walk *walk, int32_t start) {
-  if (walk->reached[start] == 1) { return; }
-  walk->reached[start] = 1;
-  walk->queue[walk->tail++] = start;
+static void reach(layer_walk *walk, base_link arrival) {
+  walk->reached[arrival.to] = 1;
+  walk->first_reached_through[arrival.to] = arrival.from;
+  walk->queue[walk->tail++] = arrival.to;
+}
+
+static void walk_from(const walk_context *context, layer_walk *walk, base_link arrival) {
+  if (walk->reached[arrival.to] == 1) { return; }
+  reach(walk, arrival);
   while (walk->head < walk->tail) {
     int32_t ordinal = walk->queue[walk->head++];
     uint32_t count = 0;
@@ -40,23 +51,31 @@ static void walk_from(const walk_context *context, layer_walk *walk, int32_t sta
     for (uint32_t i = 1; i <= count; i++) {
       int32_t next = list[i];
       if (node_top_layer(context, next) < 0 || walk->reached[next] == 1) { continue; }
-      walk->reached[next] = 1;
-      walk->queue[walk->tail++] = next;
+      base_link onward = {ordinal, next};
+      reach(walk, onward);
     }
   }
 }
 
-static int has_room(const walk_context *context, int32_t host) {
+static int has_room(const walk_context *context, const layer_walk *walk, int32_t host) {
+  (void)walk;
   uint32_t count = 0;
   const int32_t *list = base_list(context, host, &count);
   return list != NULL && count < list_limit(context->graph, 0);
 }
 
-static int holds_shared_link(const walk_context *context, int32_t host) {
+static int reached_through_another_node(const walk_context *context, const layer_walk *walk, base_link link) {
+  if (link.to < 0 || (uint32_t)link.to >= context->slots || walk->reached[link.to] != 1) { return 0; }
+  int32_t through = walk->first_reached_through[link.to];
+  return through != NO_NODE && through != link.from;
+}
+
+static int holds_link_outside_the_walk(const walk_context *context, const layer_walk *walk, int32_t host) {
   uint32_t count = 0;
   const int32_t *list = base_list(context, host, &count);
   for (uint32_t i = 1; i <= count; i++) {
-    if (incoming_count(context, list[i]) >= 2) { return 1; }
+    base_link link = {host, list[i]};
+    if (reached_through_another_node(context, walk, link)) { return 1; }
   }
   return 0;
 }
@@ -68,7 +87,7 @@ typedef struct {
 
 static void consider(const walk_context *context, const layer_walk *walk, int32_t orphan, int32_t host, host_test test,
                      host_choice *best) {
-  if (host == orphan || walk->reached[host] != 1 || !is_live(context, host) || !test(context, host)) { return; }
+  if (host == orphan || walk->reached[host] != 1 || !is_live(context, host) || !test(context, walk, host)) { return; }
   double away = pair_distance(context, orphan, host);
   if (best->ordinal == NO_NODE || away < best->distance) {
     best->ordinal = host;
@@ -94,14 +113,15 @@ static int32_t nearest_host(const walk_context *context, const layer_walk *walk,
   return best.ordinal;
 }
 
-static void take_out_farthest_shared_link(const walk_context *context, int32_t host) {
+static void take_out_farthest_link_outside_the_walk(const walk_context *context, const layer_walk *walk, int32_t host) {
   node_lock(context, host);
   uint32_t count = 0;
   int32_t *list = base_list(context, host, &count);
   uint32_t farthest = 0;
   double farthest_distance = 0;
   for (uint32_t i = 1; i <= count; i++) {
-    if (incoming_count(context, list[i]) < 2) { continue; }
+    base_link link = {host, list[i]};
+    if (!reached_through_another_node(context, walk, link)) { continue; }
     double away = pair_distance(context, host, list[i]);
     if (farthest == 0 || away > farthest_distance) {
       farthest = i;
@@ -138,13 +158,14 @@ static void connect_every_unreached(const walk_context *context, layer_walk *wal
     if (walk->reached[orphan] == 1 || !is_live(context, orphan)) { continue; }
     int32_t host = nearest_host(context, walk, orphan, nearby, has_room);
     if (host == NO_NODE) {
-      host = nearest_host(context, walk, orphan, nearby, holds_shared_link);
+      host = nearest_host(context, walk, orphan, nearby, holds_link_outside_the_walk);
       if (host == NO_NODE) { continue; }
-      take_out_farthest_shared_link(context, host);
+      take_out_farthest_link_outside_the_walk(context, walk, host);
     }
     node_layer host_base = {host, 0};
     append_to(context, host_base, orphan);
-    walk_from(context, walk, orphan);
+    base_link arrival = {host, orphan};
+    walk_from(context, walk, arrival);
   }
 }
 
@@ -169,16 +190,20 @@ narsil_status narsil_connect_unreached(narsil_workspace *workspace, const narsil
   int32_t entry = load_word(graph->header, NARSIL_GRAPH_WORD_ENTRY_POINT);
   if (node_top_layer(&context, entry) < 0) { return NARSIL_OK; }
   size_t slots = context.slots;
-  layer_walk walk = {calloc(slots, sizeof *walk.reached), calloc(slots, sizeof *walk.queue), 0, 0};
+  layer_walk walk = {calloc(slots, sizeof *walk.reached), calloc(slots, sizeof *walk.first_reached_through),
+                     calloc(slots, sizeof *walk.queue), 0, 0};
   nearby_nodes nearby = {calloc((size_t)request->nearby_count + 1, sizeof *nearby.list), 0, calloc(slots, 1)};
-  if (walk.reached != NULL && walk.queue != NULL && nearby.list != NULL && nearby.holds != NULL) {
-    walk_from(&context, &walk, entry);
+  if (walk.reached != NULL && walk.first_reached_through != NULL && walk.queue != NULL && nearby.list != NULL &&
+      nearby.holds != NULL) {
+    base_link arrival = {NO_NODE, entry};
+    walk_from(&context, &walk, arrival);
     gather_nearby(&context, request, &nearby);
     connect_every_unreached(&context, &walk, &nearby);
   } else {
     status = NARSIL_OUT_OF_MEMORY;
   }
   free(walk.reached);
+  free(walk.first_reached_through);
   free(walk.queue);
   free(nearby.list);
   free(nearby.holds);

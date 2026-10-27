@@ -146,7 +146,7 @@ napi_value connect_unreached(napi_env env, napi_callback_info info) {
   size_t nearby_length = 0;
   narsil_connect_request request = {NARSIL_METRIC_COSINE, 0, NULL, 0};
   if (napi_get_value_uint32(env, argv[CONNECT_METRIC], &request.metric) != napi_ok ||
-      !typed_data(env, argv[CONNECT_NEARBY], napi_int32_array, &nearby, &nearby_length) ||
+      !possibly_empty_typed_data(env, argv[CONNECT_NEARBY], napi_int32_array, &nearby, &nearby_length) ||
       napi_get_value_uint32(env, argv[CONNECT_THREAD_SLOT], &request.thread_slot) != napi_ok) {
     return throw_error(env, "an argument to connectUnreached has the wrong type");
   }

@@ -21,6 +21,8 @@ napi_value number_of(napi_env env, int32_t value);
 napi_value status_of(napi_env env, narsil_status status);
 uint32_t clamped_count(size_t count);
 int typed_data(napi_env env, napi_value value, napi_typedarray_type expected, void **data, size_t *length);
+int possibly_empty_typed_data(napi_env env, napi_value value, napi_typedarray_type expected, void **data,
+                              size_t *length);
 int callback_arguments(napi_env env, napi_callback_info info, size_t expected, napi_value *argv);
 attached_graph *graph_of(napi_env env, napi_value value);
 attached_store *store_of(napi_env env, napi_value value);
