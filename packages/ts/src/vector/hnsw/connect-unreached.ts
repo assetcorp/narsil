@@ -160,10 +160,8 @@ function connectThroughEitherCore(state: HNSWGraphState, nearby: Int32Array): vo
   connectUnreached(state, nearby)
 }
 
-export function connectWhereUnlinked(state: HNSWGraphState, nearby: Int32Array): void {
-  if (Atomics.load(state.header, GRAPH_UNLINKED_NODES) !== 0 || holdsUnlinkedNode(state)) {
-    connectThroughEitherCore(state, nearby)
-  }
+export function connectAfterRemoval(state: HNSWGraphState, nearby: Int32Array): void {
+  connectThroughEitherCore(state, nearby)
   Atomics.store(state.header, GRAPH_UNLINKED_NODES, 0)
 }
 
