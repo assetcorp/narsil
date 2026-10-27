@@ -8,6 +8,7 @@ import {
 
 export interface SnapshotBuildResult extends SpooledSnapshot {
   lastSeqNo?: number
+  primaryTerm?: number
 }
 
 export interface SnapshotBuildLease {

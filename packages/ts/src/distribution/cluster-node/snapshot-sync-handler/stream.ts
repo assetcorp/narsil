@@ -83,7 +83,11 @@ async function streamLeasedSnapshot(
 
   try {
     const resolved = options.metadata ?? (await resolveHeaderMetadata(deps, indexName, request.partitionId ?? null))
-    const metadata = build.lastSeqNo === undefined ? resolved : { ...resolved, lastSeqNo: build.lastSeqNo }
+    const metadata = {
+      ...resolved,
+      lastSeqNo: build.lastSeqNo ?? resolved.lastSeqNo,
+      primaryTerm: build.primaryTerm ?? resolved.primaryTerm,
+    }
     await streamSnapshotToReplica(sink, deps.nodeId, message.requestId, indexName, build, metadata, {
       closeOnEnd: options.closeOnEnd,
     })

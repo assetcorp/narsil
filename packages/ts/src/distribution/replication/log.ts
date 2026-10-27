@@ -22,6 +22,8 @@ export function createReplicationLog(
   let nextSeqNo = config?.startSeqNo ?? 1
   let localLogEnd = nextSeqNo - 1
   let localLogEndPrimaryTerm = config?.lastPrimaryTerm ?? 0
+  let seedSeqNo = localLogEnd
+  let seedPrimaryTerm = localLogEndPrimaryTerm
   let commitPoint = nextSeqNo - 1
   let entries: ReplicationLogEntry[] = []
   let headIndex = 0
@@ -208,6 +210,14 @@ export function createReplicationLog(
       return readEntry(seqNo)
     },
 
+    termAt(seqNo: number): number | undefined {
+      const entry = readEntry(seqNo)
+      if (entry !== undefined) return entry.primaryTerm
+      if (seqNo === localLogEnd) return localLogEndPrimaryTerm
+      const nothingAfterTheSeedIsGone = liveCount() === 0 || entries[headIndex].seqNo === seedSeqNo + 1
+      return seqNo === seedSeqNo && nothingAfterTheSeedIsGone ? seedPrimaryTerm : undefined
+    },
+
     verifyChecksum(entry: ReplicationLogEntry): boolean {
       return verifyEntryChecksum(entry)
     },
@@ -255,6 +265,8 @@ export function createReplicationLog(
       totalSizeBytes = 0
       localLogEnd = nextSeqNo - 1
       commitPoint = nextSeqNo - 1
+      seedSeqNo = localLogEnd
+      seedPrimaryTerm = localLogEndPrimaryTerm
     },
   }
 }
