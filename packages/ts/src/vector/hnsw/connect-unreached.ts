@@ -1,9 +1,9 @@
 import { noteFallback } from '../native/backend'
 import { nativeFieldFor } from '../native/field'
 import { nativeConnect } from '../native/writes'
-import { adjacencySlots, layerBase, noteLinked, noteUnlinked } from './adjacency'
-import { ABSENT } from './adjacency/views'
-import { GRAPH_UNLINKED_NODES } from './handles'
+import { adjacencySlots, countEveryLink, layerBase, noteLinked, noteUnlinked } from './adjacency'
+import { ABSENT, reachNode } from './adjacency/views'
+import { GRAPH_INCOMING_UNCOUNTED, GRAPH_UNLINKED_NODES } from './handles'
 import { isLive } from './last-links'
 import { lockGraphExclusive, unlockGraphExclusive } from './locks'
 import { entryPointOf, type HNSWGraphState, nodeDistanceFunction, nodeExists } from './shared'
@@ -205,7 +205,25 @@ export function baseNeighboursOfRemoved(state: HNSWGraphState, removed: readonly
   return Int32Array.from(nearby)
 }
 
-export function linkEveryNodeAfterLoad(state: HNSWGraphState): void {
-  if (holdsUnlinkedNode(state)) connectUnreached(state, new Int32Array(0))
+export function leaveIncomingUncounted(state: HNSWGraphState): void {
   Atomics.store(state.header, GRAPH_UNLINKED_NODES, 0)
+  Atomics.store(state.header, GRAPH_INCOMING_UNCOUNTED, 1)
+}
+
+export function countIncomingBeforeWriting(state: HNSWGraphState, holdsGraphLock: boolean): void {
+  if (Atomics.load(state.header, GRAPH_INCOMING_UNCOUNTED) === 0) return
+  if (!holdsGraphLock) lockGraphExclusive(state.locks)
+  try {
+    if (Atomics.load(state.header, GRAPH_INCOMING_UNCOUNTED) === 0) return
+    const adjacency = state.adjacency
+    const slots = adjacencySlots(adjacency)
+    if (slots > 0) reachNode(adjacency, slots - 1)
+    adjacency.incoming.fill(0)
+    countEveryLink(adjacency, slots)
+    if (holdsUnlinkedNode(state)) connectThroughEitherCore(state, new Int32Array(0))
+    Atomics.store(state.header, GRAPH_UNLINKED_NODES, 0)
+    Atomics.store(state.header, GRAPH_INCOMING_UNCOUNTED, 0)
+  } finally {
+    if (!holdsGraphLock) unlockGraphExclusive(state.locks)
+  }
 }

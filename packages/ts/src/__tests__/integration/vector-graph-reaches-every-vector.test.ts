@@ -71,6 +71,21 @@ async function openSettledClips(): Promise<{ opened: Narsil; clips: Clip[] }> {
   return { opened, clips }
 }
 
+async function restoreThenPlaceOneClip(
+  opened: Narsil,
+  archive: Uint8Array,
+): Promise<{ restored: GraphWalk; placed: GraphWalk; clip: Clip }> {
+  await opened.restore(RESTORED_INDEX, archive)
+  const restored = await walkSavedGraph(await opened.snapshot(RESTORED_INDEX), RESTORED_INDEX, FIELD)
+  const clip: Clip = { id: 'clip-after-restore', title: 'clip after restore', embedding: seeded(CLIPS + 1, DIMENSION) }
+  await opened.insert(RESTORED_INDEX, clip, clip.id)
+  await opened.optimizeVectors(RESTORED_INDEX, FIELD)
+  const [field] = opened.vectorMaintenanceStatus(RESTORED_INDEX)
+  expect({ graphCount: field.graphCount, bufferSize: field.bufferSize }).toEqual({ graphCount: 1, bufferSize: 0 })
+  const placed = await walkSavedGraph(await opened.snapshot(RESTORED_INDEX), RESTORED_INDEX, FIELD)
+  return { restored, placed, clip }
+}
+
 async function compactAwayTheOnlyLinkIntoAChain(
   opened: Narsil,
   chainTailList: readonly number[] = [],
@@ -235,7 +250,7 @@ describe.each(backends)('a vector graph built from 4-bit codes through $name', (
   }
 
   it.skipIf(!available)(
-    'links every vector once it restores a saved graph that left some vectors with no incoming link',
+    'links every vector at the first placement after it restores a saved graph that left some vectors with no incoming link',
     async () => {
       const { opened, clips } = await openTheClips()
 
@@ -246,16 +261,17 @@ describe.each(backends)('a vector graph built from 4-bit codes through $name', (
       const saved = await walkSavedGraph(new Blob([archive]).stream(), INDEX, FIELD)
       expect(saved.unreached.length).toBeGreaterThanOrEqual(CUT_NODES)
 
-      await opened.restore(RESTORED_INDEX, archive)
-      const restored = await walkSavedGraph(await opened.snapshot(RESTORED_INDEX), RESTORED_INDEX, FIELD)
-      expect([...restored.liveDocIds].sort()).toEqual(clips.map(clip => clip.id).sort())
-      expect(missedBy(restored)).toEqual({ unplaced: [], unreached: [] })
+      const { restored, placed, clip } = await restoreThenPlaceOneClip(opened, archive)
+      expect([...restored.unreached].sort()).toEqual([...saved.unreached].sort())
+      expect([...placed.liveDocIds].sort()).toEqual([...clips.map(each => each.id), clip.id].sort())
+      expect(missedBy(placed)).toEqual({ unplaced: [], unreached: [] })
+      if (native) expect(fallbacks).not.toContain('connect')
     },
     300_000,
   )
 
   it.skipIf(!available)(
-    'links two unlinked vectors to the entry point when they come before every node with room for them',
+    'links two unlinked vectors to the entry point at the first placement after a restore when they come before every node with room for them',
     async () => {
       const { opened, clips } = await openTheClips()
 
@@ -272,10 +288,11 @@ describe.each(backends)('a vector graph built from 4-bit codes through $name', (
       const saved = await walkSavedGraph(new Blob([archive]).stream(), INDEX, FIELD)
       expect(saved.unreached).toHaveLength(2)
 
-      await opened.restore(RESTORED_INDEX, archive)
-      const restored = await walkSavedGraph(await opened.snapshot(RESTORED_INDEX), RESTORED_INDEX, FIELD)
-      expect([...restored.liveDocIds].sort()).toEqual(clips.map(clip => clip.id).sort())
-      expect(missedBy(restored)).toEqual({ unplaced: [], unreached: [] })
+      const { restored, placed, clip } = await restoreThenPlaceOneClip(opened, archive)
+      expect([...restored.unreached].sort()).toEqual([...saved.unreached].sort())
+      expect([...placed.liveDocIds].sort()).toEqual([...clips.map(each => each.id), clip.id].sort())
+      expect(missedBy(placed)).toEqual({ unplaced: [], unreached: [] })
+      if (native) expect(fallbacks).not.toContain('connect')
     },
     300_000,
   )
