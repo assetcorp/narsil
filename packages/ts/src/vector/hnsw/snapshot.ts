@@ -1,14 +1,7 @@
 import type { VectorMetric } from '../brute-force'
 import { fixedView } from '../shared-buffers/growable'
-import {
-  adjacencySlots,
-  countEveryLink,
-  ensureAdjacencyCapacity,
-  ensureUpperCapacity,
-  rebindNodes,
-  upperUsed,
-} from './adjacency'
-import { linkEveryNodeAfterLoad } from './connect-unreached'
+import { adjacencySlots, ensureAdjacencyCapacity, ensureUpperCapacity, rebindNodes, upperUsed } from './adjacency'
+import { leaveIncomingUncounted } from './connect-unreached'
 import {
   GRAPH_ENTRY_POINT,
   GRAPH_NODE_COUNT,
@@ -102,6 +95,5 @@ export function restoreSnapshot(state: HNSWGraphState, snapshot: HNSWSnapshot): 
   Atomics.store(state.header, GRAPH_NODE_COUNT, snapshot.nodeCount)
   Atomics.store(state.header, GRAPH_ENTRY_POINT, snapshot.entryPointOrd)
   Atomics.store(state.header, GRAPH_TOP_LAYER, snapshot.topLayer)
-  countEveryLink(adj, snapshot.slots)
-  linkEveryNodeAfterLoad(state)
+  leaveIncomingUncounted(state)
 }

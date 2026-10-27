@@ -16,11 +16,17 @@ import {
   replaceNeighbors,
   resetAdjacency,
 } from './adjacency'
-import { baseNeighboursOfRemoved, connectAfterPlacement, connectAfterRemoval } from './connect-unreached'
+import {
+  baseNeighboursOfRemoved,
+  connectAfterPlacement,
+  connectAfterRemoval,
+  countIncomingBeforeWriting,
+} from './connect-unreached'
 import { PLACEMENT_ROOM_REQUESTS } from './constants'
 import { pruneConnections, searchLayer, selectNeighborsHeuristic } from './graph-ops'
 import {
   GRAPH_ENTRY_POINT,
+  GRAPH_INCOMING_UNCOUNTED,
   GRAPH_NODE_COUNT,
   GRAPH_TOMBSTONE_COUNT,
   GRAPH_TOP_LAYER,
@@ -203,6 +209,7 @@ export function insertNode(state: HNSWGraphState, ord: number, holdsGraphLock = 
   if (!state.store.holdsOrdinal(ord)) return false
   ensureCapacity(state, ord + 1)
   if (nodeExists(state, ord)) return false
+  countIncomingBeforeWriting(state, holdsGraphLock)
   writeRecordBeforePlacement(state, ord)
   if (placeThroughTheCore(state, ord, holdsGraphLock)) {
     connectAfterPlacement(state, holdsGraphLock)
@@ -312,6 +319,7 @@ export function markTombstone(state: HNSWGraphState, ord: number): void {
 
 export function compactTombstones(state: HNSWGraphState): void {
   if (Atomics.load(state.header, GRAPH_TOMBSTONE_COUNT) === 0) return
+  countIncomingBeforeWriting(state, true)
   const tombstonedOrds: number[] = []
   const slots = adjacencySlots(state.adjacency)
   for (let ord = 0; ord < slots; ord++) {
@@ -340,6 +348,7 @@ export function resetGraph(state: HNSWGraphState): void {
   Atomics.store(state.header, GRAPH_NODE_COUNT, 0)
   Atomics.store(state.header, GRAPH_ENTRY_POINT, -1)
   Atomics.store(state.header, GRAPH_TOP_LAYER, -1)
+  Atomics.store(state.header, GRAPH_INCOMING_UNCOUNTED, 0)
 }
 
 export function rebuild(state: HNSWGraphState): void {

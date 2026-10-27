@@ -45,11 +45,6 @@ export function countLinksOutOf(adj: Adjacency, ord: number, step: 1 | -1): void
   }
 }
 
-export function countLinksInto(adj: Adjacency, neighbours: ArrayLike<number>, count: number): void {
-  const incoming = adj.incoming
-  for (let i = 0; i < count; i++) incoming[neighbours[i]] += 1
-}
-
 export function countEveryLink(adj: Adjacency, slots: number): void {
   for (let ord = 0; ord < slots; ord++) countLinksOutOf(adj, ord, 1)
 }

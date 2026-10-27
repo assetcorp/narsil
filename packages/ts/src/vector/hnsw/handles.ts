@@ -13,6 +13,7 @@ export const GRAPH_RETIRED = 6
 export const GRAPH_NODE_COUNT = 32
 export const GRAPH_TOMBSTONE_COUNT = 33
 export const GRAPH_UNLINKED_NODES = 34
+export const GRAPH_INCOMING_UNCOUNTED = 35
 export const GRAPH_UPPER_USED = 64
 export const GRAPH_SLOTS = 65
 export const GRAPH_UPPER_CAPACITY = 66

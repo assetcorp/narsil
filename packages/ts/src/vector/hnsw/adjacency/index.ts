@@ -1,6 +1,5 @@
 export {
   countEveryLink,
-  countLinksInto,
   incomingCount,
   noteLinked,
   noteUnlinked,
@@ -15,7 +14,6 @@ export {
   readNeighbors,
   removeNeighbor,
   replaceNeighbors,
-  writeLoadedBaseList,
   writeNeighbors,
 } from './neighbors'
 export {

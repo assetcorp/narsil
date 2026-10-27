@@ -1,4 +1,4 @@
-import { countLinksOutOf, noteLinked, noteUnlinked } from './incoming'
+import { noteLinked, noteUnlinked } from './incoming'
 import { ABSENT, type Adjacency, nodeLevel, reachUpper } from './views'
 
 export function layerArray(adj: Adjacency, layer: number): Int32Array {
@@ -92,12 +92,6 @@ export function writeNeighbors(
     array[base + i + 1] = neighbors[i]
   }
   array[base] = limit
-}
-
-export function writeLoadedBaseList(adj: Adjacency, ord: number, neighbors: ArrayLike<number>, count: number): void {
-  if (neighborCount(adj, ord, 0) > 0) countLinksOutOf(adj, ord, -1)
-  writeNeighbors(adj, ord, 0, neighbors, count)
-  countLinksOutOf(adj, ord, 1)
 }
 
 function holds(neighbors: ArrayLike<number>, count: number, ord: number): boolean {

@@ -1,6 +1,6 @@
 import type { VectorStore } from '../vector-store'
-import { adjacencySlots, createNode, writeLoadedBaseList, writeNeighbors } from './adjacency'
-import { linkEveryNodeAfterLoad } from './connect-unreached'
+import { adjacencySlots, createNode, writeNeighbors } from './adjacency'
+import { leaveIncomingUncounted } from './connect-unreached'
 import { MAX_LAYER_CAP } from './constants'
 import { GRAPH_ENTRY_POINT, GRAPH_NODE_COUNT, GRAPH_TOP_LAYER } from './handles'
 import { resetGraph } from './mutation'
@@ -68,13 +68,10 @@ export function deserializeGraph(state: HNSWGraphState, store: VectorStore, data
 
   for (const node of nodes) {
     createNode(state.adjacency, node.ord, node.maxLayer)
-    Atomics.add(state.header, GRAPH_NODE_COUNT, 1)
-  }
-  for (const node of nodes) {
     for (const [layer, neighbors] of node.layers) {
-      if (layer === 0) writeLoadedBaseList(state.adjacency, node.ord, neighbors, neighbors.length)
-      else writeNeighbors(state.adjacency, node.ord, layer, neighbors, neighbors.length)
+      writeNeighbors(state.adjacency, node.ord, layer, neighbors, neighbors.length)
     }
+    Atomics.add(state.header, GRAPH_NODE_COUNT, 1)
   }
 
   if (data.entryPoint != null && data.entryPoint !== '') {
@@ -100,5 +97,5 @@ export function deserializeGraph(state: HNSWGraphState, store: VectorStore, data
     Atomics.store(state.header, GRAPH_ENTRY_POINT, bestOrd)
     Atomics.store(state.header, GRAPH_TOP_LAYER, bestLayer)
   }
-  linkEveryNodeAfterLoad(state)
+  leaveIncomingUncounted(state)
 }
