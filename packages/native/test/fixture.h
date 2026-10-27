@@ -26,6 +26,7 @@ typedef struct {
   int32_t upper[UPPER_WORDS];
   int32_t locks[NODES];
   uint8_t tombstones[NODES];
+  int32_t incoming[NODES];
   int32_t held_locks[THREAD_SLOTS * NARSIL_HELD_WORDS_PER_THREAD];
   int32_t store_header[NARSIL_STORE_HEADER_WORDS];
   uint8_t code_present[NODES];
