@@ -12,7 +12,7 @@ export interface RecoverPersistedIndexDeps {
   directory: DurableDirectory
   hooks: IndexDurabilityHooks
   compactionThreshold: number
-  registerPartition(indexName: string, partitionId: number, startSeqNo: number): void
+  registerPartition(indexName: string, partitionId: number, startSeqNo: number, primaryTerm: number): void
   holdsCheckpointFiles(indexName: string): boolean
   queueMetadataWrite(indexName: string, write: () => Promise<void>): Promise<void>
 }
@@ -102,8 +102,8 @@ export async function recoverPersistedIndex(
     replay,
     onLayoutUpgrade: hooks.onLayoutUpgrade,
   })
-  for (const { partitionId, lastSeqNo } of recovered.checkpoint) {
-    deps.registerPartition(indexName, partitionId, lastSeqNo)
+  for (const { partitionId, lastSeqNo, primaryTerm } of recovered.checkpoint) {
+    deps.registerPartition(indexName, partitionId, lastSeqNo, primaryTerm)
   }
   if (recovered.upgradedDocumentCount !== null) {
     await writeCountedMetadata(deps, indexName, recovered.upgradedDocumentCount)

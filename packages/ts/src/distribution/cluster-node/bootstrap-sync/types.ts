@@ -1,5 +1,6 @@
 import type { NarsilError } from '../../../errors'
 import type { Narsil } from '../../../narsil'
+import type { PartitionLogPosition } from '../../../persistence/durability/types'
 import type { IndexConfig } from '../../../types/schema'
 import type { ClusterCoordinator } from '../../coordinator/types'
 import type { createSnapshotStreamState } from '../../replication/snapshot-stream-assembler'
@@ -34,6 +35,7 @@ export interface BootstrapSyncDeps {
   getReplicationLog?: (indexName: string, partitionId: number) => ReplicationLog
   resetReplicationLog?: (indexName: string, partitionId: number, startSeqNo: number, lastPrimaryTerm?: number) => void
   applyReplicationEntry?: (entry: ReplicationLogEntry) => Promise<void>
+  restartLocalLog?: (indexName: string, partitionId: number, position: PartitionLogPosition) => Promise<void>
   restoreReplicationPartition?: (
     indexName: string,
     partitionId: number,

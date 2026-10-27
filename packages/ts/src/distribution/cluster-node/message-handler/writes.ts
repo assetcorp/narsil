@@ -144,7 +144,7 @@ async function applyEntryToLog(entry: ReplicationLogEntry, deps: DataNodeHandler
     return
   }
 
-  const expectedSeqNo = (log.newestSeqNo ?? 0) + 1
+  const expectedSeqNo = log.localLogEnd + 1
   if (entry.seqNo !== expectedSeqNo) {
     const canSeedFromCompletedBootstrap =
       log.entryCount === 0 &&

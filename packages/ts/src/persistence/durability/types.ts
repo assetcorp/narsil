@@ -1,4 +1,4 @@
-import type { ReplicationOperation } from '../../distribution/replication/types'
+import type { ReplicationLogEntry, ReplicationOperation } from '../../distribution/replication/types'
 import type { PartitionManager } from '../../partitioning/manager'
 import type { DurabilityConfig } from '../../types/config'
 import type { IndexMetadata } from '../../types/internal'
@@ -6,6 +6,7 @@ import type { VectorIndex } from '../../vector/vector-index'
 import type { ArchiveCheckpoint, RestoreStaging } from './archive-checkpoint'
 import type { LayoutUpgradeEvent } from './earlier-layout/upgrade'
 import type { PartitionCheckpoint } from './partition-checkpoint'
+import type { PartitionRegistry } from './partition-registry'
 
 export type { DurabilityConfig }
 
@@ -27,9 +28,17 @@ export interface MutationRecord {
   documentId: string
   document: Uint8Array | null
   apply: () => void | Promise<void>
+  replicated?: ReplicationLogEntry
 }
 
 export type MutationOutcome = { ok: true; seqNo: number } | { ok: false; error: unknown }
+
+export type EntryNumbering = (record: MutationRecord) => ReplicationLogEntry | null
+
+export interface PartitionLogPosition {
+  seqNo: number
+  primaryTerm: number
+}
 
 export interface DurabilityManager {
   isActive(): boolean
@@ -38,9 +47,10 @@ export interface DurabilityManager {
   recordMutation(record: MutationRecord): Promise<number>
   recordMutations(records: readonly MutationRecord[]): Promise<MutationOutcome[]>
   /** The highest sequence number this node's own write-ahead log holds for a partition, counting what recovery
-   * replayed. A replicated write reaches the partition without passing through this log, so a node that took the
-   * partition on as a replica reports 0. */
+   * replayed. */
   highestPersistedSeqNo(indexName: string, partitionId: number): number
+  readonly partitionRegistry?: PartitionRegistry
+  numberEntriesWith?(numbering: EntryNumbering): void
   /** Writes the index metadata. Each index takes its writes in turn, so a caller that built its metadata earlier
    * never renames over a later one. */
   persistMetadata(indexName: string): Promise<void>

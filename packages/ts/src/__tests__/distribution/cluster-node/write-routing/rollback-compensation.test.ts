@@ -131,7 +131,7 @@ describe('a primary write rolled back after it reached the log', () => {
     await replica.shutdown()
   })
 
-  it('appends no compensation once another node holds the term, because that node owns the log', async () => {
+  it('records the compensation under its own term once another node holds a newer one, so that its log matches its copy', async () => {
     const soleCopy: PartitionAssignment = { ...ASSIGNMENT, replicas: [], inSyncSet: ['node-a'] }
     await coordinator.putAllocation(INDEX, {
       indexName: INDEX,
@@ -146,7 +146,11 @@ describe('a primary write rolled back after it reached the log', () => {
       applyPrimaryInsert(INDEX, { title: 'widget' }, 'doc-1', PARTITION_ID, soleCopy, deps),
     ).rejects.toMatchObject({ code: 'PARTITION_NOT_PRIMARY' })
 
-    expect(log.getEntriesFrom(1).map(entry => entry.operation)).toEqual(['INDEX'])
+    const entries = log.getEntriesFrom(1)
+    expect(entries.map(entry => [entry.operation, entry.primaryTerm])).toEqual([
+      ['INDEX', PRIMARY_TERM],
+      ['DELETE', PRIMARY_TERM],
+    ])
     expect(await engine.get(INDEX, 'doc-1')).toBeUndefined()
   })
 
