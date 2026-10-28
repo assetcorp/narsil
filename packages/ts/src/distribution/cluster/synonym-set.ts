@@ -4,6 +4,7 @@ import { ErrorCodes, NarsilError } from '../../errors'
 import type { SynonymRule } from '../../types/synonyms'
 import type { ClusterCoordinator } from '../coordinator/types'
 import { isRecord } from '../payload-guards'
+import { MAX_SYNONYM_GENERATION_LENGTH } from './constants'
 
 export interface SynonymSetRef {
   generation: string
@@ -17,7 +18,6 @@ export type SynonymSetRejection = (message: string) => never
 const SYNONYM_CHUNK_BYTES = 1_048_576
 const SYNONYM_SET_PREFIX = '_narsil/synonyms/'
 const MAX_UINT32 = 0xffff_ffff
-const MAX_GENERATION_LENGTH = 128
 const DIGEST_PATTERN = /^[0-9a-f]{64}$/
 const FIRST_PRINTABLE_CODE = 0x20
 
@@ -52,10 +52,10 @@ function synonymSetRefOf(raw: unknown): SynonymSetRef | string {
   if (
     typeof generation !== 'string' ||
     generation.length === 0 ||
-    generation.length > MAX_GENERATION_LENGTH ||
+    generation.length > MAX_SYNONYM_GENERATION_LENGTH ||
     !isKeySegment(generation)
   ) {
-    return 'synonyms.generation must name one stored copy'
+    return 'synonyms.generation must hold 1 to 128 characters, with no control character, slash, or backslash'
   }
   if (typeof digest !== 'string' || !DIGEST_PATTERN.test(digest)) {
     return 'synonyms.digest must be a lowercase hexadecimal SHA-256'

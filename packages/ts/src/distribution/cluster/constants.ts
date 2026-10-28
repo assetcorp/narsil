@@ -23,3 +23,5 @@ export const DEFAULT_NODE_LIFECYCLE_CONFIG = {
   allocationDebounceMs: 250,
   nodeHeartbeatIntervalMs: 10_000,
 } as const
+
+export const MAX_SYNONYM_GENERATION_LENGTH = 128

@@ -4,8 +4,8 @@ import { tokenize } from '../core/tokenizer'
 import type { InvalidationAdapter } from '../types/adapters'
 import type { GlobalStatistics } from '../types/internal'
 import type { LanguageModule } from '../types/language'
-import type { CustomTokenizer, SchemaDefinition, StopWordOverride } from '../types/schema'
-import { addReachedTokens } from './expanded-tokens'
+import type { CustomTokenizer, StopWordOverride } from '../types/schema'
+import { addReachedTokens, type QueryExpansion } from './expanded-tokens'
 import type { PartitionManager } from './manager'
 import { partitionsIn } from './partition-selection'
 
@@ -26,7 +26,8 @@ function analysedQueryTokens(term: string, language: LanguageModule, analysis: Q
   for (const { token } of tokens) {
     unique.add(token)
   }
-  for (const synonym of analysis.synonyms?.expand(unique)?.tokens ?? []) unique.add(synonym)
+  const synonyms = analysis.synonyms?.expand(unique)
+  if (synonyms !== undefined) for (const synonym of synonyms.tokens) unique.add(synonym)
   return unique
 }
 
@@ -50,29 +51,15 @@ export function sanitizeGlobalStats(stats: GlobalStatistics): GlobalStatistics {
   }
 }
 
-export interface StatsExpansion {
-  tolerance?: number | null
-  prefixLength?: number | null
-  prefix?: boolean | null
-  partialWords?: boolean | null
-  exact?: boolean | null
-  fields?: string[] | null
-}
-
-export interface QueryExpansion {
-  options: StatsExpansion
-  schema: SchemaDefinition
-}
-
 export function pruneStatsToQueryTerms(
   stats: GlobalStatistics,
   term: string,
   language: LanguageModule,
   analysis: QueryTermAnalysis,
-  reach?: { partitions: readonly PartitionIndex[]; expansion: QueryExpansion },
+  reached?: { partitions: readonly PartitionIndex[]; expansion: QueryExpansion },
 ): GlobalStatistics {
   const tokens = analysedQueryTokens(term, language, analysis)
-  if (reach !== undefined) addReachedTokens(tokens, reach.partitions, term, reach.expansion, language, analysis)
+  if (reached !== undefined) addReachedTokens(tokens, reached.partitions, term, reached.expansion, language, analysis)
   const docFrequencies: Record<string, number> = Object.create(null)
   for (const token of tokens) {
     if (Object.hasOwn(stats.docFrequencies, token)) {

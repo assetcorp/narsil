@@ -185,7 +185,7 @@ export interface AdminOperations {
    * Replaces the synonym set of an index, which takes effect from the next
    * search without a rebuild. Send an empty list to remove the set.
    *
-   * @param indexName - This names the index whose set the server replaces.
+   * @param indexName - The server replaces the set of this index.
    * @param synonyms - This is the new set, in the shape that
    * {@link SynonymRule} describes.
    * @param options - This sets the signal, the deadline, and the headers for
@@ -198,7 +198,7 @@ export interface AdminOperations {
   /**
    * Reads the synonym set of an index, with every word as the caller wrote it.
    *
-   * @param indexName - This names the index whose set the server returns.
+   * @param indexName - The server returns the set of this index.
    * @param options - This sets the signal, the deadline, and the headers for
    * this request.
    * @returns The rules of the set, or an empty list when the index holds none.
