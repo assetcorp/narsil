@@ -187,45 +187,46 @@ describe('distributed hybrid query - params, cursor, and DFS', () => {
     }
   })
 
-  it('throws SEARCH_INVALID_CURSOR when searchAfter is used with hybrid', async () => {
+  it('pages from the cursor depth and sends each node a request at the hybrid depth without the cursor', async () => {
+    const receivedPayloads: SearchPayload[] = []
+    const ranked = ['doc-1', 'doc-2', 'doc-3', 'doc-4', 'doc-5'].map((docId, i) => ({ docId, score: 5 - i }))
     setupDataNode(network, transports, 'node-a', (msg, respond) => {
       if (msg.type === QueryMessageTypes.SEARCH) {
+        receivedPayloads.push(decodePayload<SearchPayload>(msg.payload))
         respond({
           type: QueryMessageTypes.SEARCH_RESULT,
           sourceId: 'node-a',
           requestId: msg.requestId,
-          payload: encode(
-            makeSearchResultResponse([{ partitionId: 0, scored: [{ docId: 'doc-1', score: 5.0 }], totalHits: 1 }]),
-          ),
+          payload: encode(makeSearchResultResponse([{ partitionId: 0, scored: ranked, totalHits: 5 }])),
         })
       }
     })
 
     const table = makeAllocationTable([[0, makeAssignment({ primary: 'node-a' })]])
+    const params = makeQueryParams({
+      term: 'laptop',
+      vector: makeVectorParams(),
+      hybrid: makeHybridConfig({ depth: 4 }),
+      limit: 2,
+    })
     const cursor = encodePageCursor({
-      anchor: 'doc-1',
-      score: 5.0,
+      anchor: 'doc-2',
+      score: 0,
       sortKey: null,
       sortSignature: null,
-      binding: queryBindingOf(
-        wireParamsToLocal(makeQueryParams({ term: 'laptop', vector: makeVectorParams(), hybrid: makeHybridConfig() })),
-      ),
+      depth: 2,
+      binding: queryBindingOf(wireParamsToLocal(params)),
     })
 
-    const error = await distributedQuery(
-      'products',
-      makeQueryParams({
-        term: 'laptop',
-        vector: makeVectorParams(),
-        hybrid: makeHybridConfig(),
-        searchAfter: cursor,
-      }),
-      makeDeps(table),
-    ).catch((e: unknown) => e)
+    const result = await distributedQuery('products', { ...params, searchAfter: cursor }, makeDeps(table))
 
-    expect(error).toBeInstanceOf(NarsilError)
-    expect((error as NarsilError).code).toBe('SEARCH_INVALID_CURSOR')
-    expect((error as NarsilError).message).toContain('Cursor pagination is not supported for hybrid queries')
+    expect(result.scored.map(entry => entry.docId)).toEqual(['doc-3', 'doc-4'])
+    expect(result.cursor).toBeNull()
+    expect(receivedPayloads).toHaveLength(2)
+    for (const payload of receivedPayloads) {
+      expect([payload.params.searchAfter, payload.params.limit, payload.params.offset]).toEqual([null, 4, 0])
+      expect(payload.params.hybrid).toBeNull()
+    }
   })
 
   it('rejects a hybrid query carrying a sort with SEARCH_INVALID_MODE', async () => {

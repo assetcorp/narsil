@@ -20,3 +20,6 @@ export const MIN_RANK_CONSTANT = 1
 export const DEFAULT_LINEAR_ALPHA = 0.5
 export const MIN_LINEAR_ALPHA = 0
 export const MAX_LINEAR_ALPHA = 1
+export const DEFAULT_HYBRID_DEPTH = 100
+export const MIN_HYBRID_DEPTH = 1
+export const MAX_HYBRID_DEPTH = 10_000

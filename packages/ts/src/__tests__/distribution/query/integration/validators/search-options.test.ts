@@ -10,6 +10,7 @@ import {
   MAX_PINNED_POSITION,
   MAX_TERMS_COUNT,
 } from '../../../../../distribution/query/constants'
+import type { WireHybridConfig } from '../../../../../distribution/transport/types'
 import { makeSearchPayload } from './fixtures'
 
 describe('validateSearchPayload params.facets', () => {
@@ -181,17 +182,24 @@ describe('validateSearchPayload params.vector metric and efSearch', () => {
 describe('validateSearchPayload params.hybrid with absent members', () => {
   it('accepts null members', () => {
     expect(() =>
-      validateSearchPayload(makeSearchPayload({ hybrid: { strategy: null, k: null, alpha: null } })),
+      validateSearchPayload(makeSearchPayload({ hybrid: { strategy: null, k: null, alpha: null, depth: null } })),
     ).not.toThrow()
   })
 
   it('still rejects an out-of-range present member', () => {
-    expect(() => validateSearchPayload(makeSearchPayload({ hybrid: { strategy: null, k: 0, alpha: null } }))).toThrow(
-      /hybrid.k/,
-    )
-    expect(() => validateSearchPayload(makeSearchPayload({ hybrid: { strategy: null, k: null, alpha: 2 } }))).toThrow(
-      /hybrid.alpha/,
-    )
+    expect(() =>
+      validateSearchPayload(makeSearchPayload({ hybrid: { strategy: null, k: 0, alpha: null, depth: null } })),
+    ).toThrow(/hybrid.k/)
+    expect(() =>
+      validateSearchPayload(makeSearchPayload({ hybrid: { strategy: null, k: null, alpha: 2, depth: null } })),
+    ).toThrow(/hybrid.alpha/)
+    for (const depth of [0, 10_001, 2.5]) {
+      expect(() =>
+        validateSearchPayload(makeSearchPayload({ hybrid: { strategy: null, k: null, alpha: null, depth } })),
+      ).toThrow(/hybrid.depth/)
+    }
+    const withoutDepth = { strategy: null, k: null, alpha: null } as unknown as WireHybridConfig
+    expect(() => validateSearchPayload(makeSearchPayload({ hybrid: withoutDepth }))).toThrow(/hybrid.depth/)
   })
 })
 

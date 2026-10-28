@@ -4,9 +4,11 @@ import { resolveProjection } from '../core/projection'
 import { DEFAULT_LIMIT, DEFAULT_OFFSET } from '../engine/constants'
 import { ErrorCodes, NarsilError } from '../errors'
 import { RESULT_WINDOW } from '../search/constants'
-import { decodePageCursor, encodePageCursor, requireMatchingCursor } from '../search/cursor'
+import { decodePageCursor, requireMatchingCursor } from '../search/cursor'
+import { requireWithinHybridDepth, resolveHybridFusion } from '../search/fusion'
 import { clampRowCount } from '../search/pagination'
 import { dedupePinnedEntries, placePinned } from '../search/pinning'
+import { pageByPosition } from '../search/position-page'
 import type { GroupResult, Hit, QueryResult } from '../types/results'
 import type { SchemaDefinition } from '../types/schema'
 import type { QueryParams } from '../types/search'
@@ -78,23 +80,34 @@ export function reorderByRerank<T>(
   return ordered
 }
 
-function lastOrganicHit<T>(page: Array<Hit<T>>, pinnedIds: ReadonlySet<string> | undefined): Hit<T> | undefined {
-  for (let i = page.length - 1; i >= 0; i--) {
-    if (pinnedIds === undefined || !pinnedIds.has(page[i].id)) return page[i]
-  }
-  return undefined
+function fusesTwoRankings(request: QueryParams): boolean {
+  if (request.vector === undefined) return false
+  return request.mode === 'hybrid' || (request.term !== undefined && request.term.trim().length > 0)
 }
 
-function positionOf<T>(ordered: Array<Hit<T>>, id: string): number {
-  for (let i = 0; i < ordered.length; i++) {
-    if (ordered[i].id === id) return i
+function firstStageDepth(
+  request: QueryParams,
+  window: number,
+  cursorDepth: number,
+  offset: number,
+  limit: number,
+): { depth: number; end: number; available: number } {
+  const start = cursorDepth + offset
+  if (!fusesTwoRankings(request)) {
+    requireWithinReach(cursorDepth, offset, limit)
+    const depth = Math.max(window + 1, Math.min(start + limit + 1, RESULT_WINDOW))
+    return { depth, end: start + limit, available: Number.POSITIVE_INFINITY }
   }
-  return -1
-}
-
-function ranksByVectorAlone(request: QueryParams): boolean {
-  if (request.vector === undefined || request.mode === 'hybrid') return false
-  return request.term === undefined || request.term.trim().length === 0
+  const depth = resolveHybridFusion(request.hybrid).depth
+  if (window > depth) {
+    throw new NarsilError(
+      ErrorCodes.RERANK_CONFIG_INVALID,
+      `rerank.window is ${window}, above the hybrid.depth of ${depth} that a hybrid query reranks from`,
+      { window, depth },
+    )
+  }
+  requireWithinHybridDepth(cursorDepth, offset, depth)
+  return { depth, end: Math.min(start + limit, depth), available: depth }
 }
 
 export async function runRerankedQuery<T>(request: QueryParams, io: RerankedQueryIo<T>): Promise<QueryResult<T>> {
@@ -102,13 +115,12 @@ export async function runRerankedQuery<T>(request: QueryParams, io: RerankedQuer
   const limit = clampRowCount(request.limit, DEFAULT_LIMIT)
   const offset = clampRowCount(request.offset, DEFAULT_OFFSET)
   const cursorDepth = request.searchAfter === undefined ? 0 : rerankCursorDepth(request.searchAfter, io.binding)
-  requireWithinReach(cursorDepth, offset, limit)
-  const depth = Math.max(plan.window + 1, Math.min(cursorDepth + offset + limit + 1, RESULT_WINDOW))
+  const { depth, end, available } = firstStageDepth(request, plan.window, cursorDepth, offset, limit)
   const projection = resolveProjection(request.document)
 
   const { rerank: _rerank, pinned: _pinned, searchAfter: _searchAfter, highlight: _highlight, ...firstParams } = request
   const placesPins = request.searchAfter === undefined && request.pinned !== undefined
-  const countsApart = placesPins || ranksByVectorAlone(request)
+  const countsApart = placesPins || (request.vector !== undefined && !fusesTwoRankings(request))
   const [first, plain] = await Promise.all([
     io.firstStage({ ...firstParams, offset: 0, limit: depth, document: false }),
     countsApart
@@ -151,21 +163,8 @@ export async function runRerankedQuery<T>(request: QueryParams, io: RerankedQuer
     await io.score(plan.adapter, plan.query, [])
   }
 
-  const placed = place(ordered)
-  const page = placed.slice(start, start + limit)
   const pinnedIds = placedPins === undefined ? undefined : new Set(placedPins.map(entry => entry.docId))
-  const last = lastOrganicHit(page, pinnedIds)
-  let cursor: string | undefined
-  if (placed.length > start + limit && last !== undefined) {
-    cursor = encodePageCursor({
-      anchor: last.id,
-      score: last.score ?? null,
-      sortKey: null,
-      sortSignature: null,
-      depth: placedPins === undefined ? start + page.lastIndexOf(last) + 1 : positionOf(ordered, last.id) + 1,
-      binding: io.binding,
-    })
-  }
+  const { page, cursor } = pageByPosition(place(ordered), ordered, start, end, available, pinnedIds, io.binding)
 
   await io.fillDocuments(page, first.groups, projection)
   if (request.highlight) io.highlight?.(page, projection)

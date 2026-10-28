@@ -1,4 +1,5 @@
 import { MAX_DOC_ID_LENGTH } from '../../../engine/constants'
+import { MAX_HYBRID_DEPTH, MIN_HYBRID_DEPTH } from '../../../search/constants'
 import {
   MAX_EF_SEARCH,
   MAX_FACET_RANGES,
@@ -55,6 +56,15 @@ export function validateHybridParams(value: unknown): void {
     throwInvalid(
       CONFIG_INVALID,
       'Invalid SearchPayload: "params.hybrid.alpha" must be a finite number in [0, 1], or null',
+    )
+  }
+  if (
+    value.depth !== null &&
+    (!isInteger(value.depth) || value.depth < MIN_HYBRID_DEPTH || value.depth > MAX_HYBRID_DEPTH)
+  ) {
+    throwInvalid(
+      CONFIG_INVALID,
+      `Invalid SearchPayload: "params.hybrid.depth" must be an integer between ${MIN_HYBRID_DEPTH} and ${MAX_HYBRID_DEPTH}, or null`,
     )
   }
 }

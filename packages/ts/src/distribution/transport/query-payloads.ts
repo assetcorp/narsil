@@ -36,6 +36,7 @@ export interface WireHybridConfig {
   strategy: 'rrf' | 'linear' | null
   k: number | null
   alpha: number | null
+  depth: number | null
 }
 
 export interface WireFacetRange {

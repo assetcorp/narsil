@@ -5,9 +5,11 @@ import { type FanOutResult, fanOutQuery } from '../../partitioning/fan-out'
 import { countsWithoutScores, fanOutMatchCount } from '../../partitioning/match-count'
 import { flattenSchema } from '../../schema/validator'
 import { decodePageCursor, requireMatchingCursor, sortSignatureOf } from '../../search/cursor'
+import { requireWithinHybridDepth, resolveHybridFusion } from '../../search/fusion'
 import { applyGrouping } from '../../search/grouping'
 import { applyPagination, type PaginationSortContext, requireWithinResultWindow } from '../../search/pagination'
 import { placePinned } from '../../search/pinning'
+import { pageByPosition } from '../../search/position-page'
 import { applySorting, normalizeSort, sortModesOf } from '../../search/sorting'
 import type { FacetResult, GroupResult, Hit, PreflightResult, QueryResult } from '../../types/results'
 import type { AnyDocument } from '../../types/schema'
@@ -92,13 +94,17 @@ export async function executeQuery<T = AnyDocument>(
       requestedVectorField !== undefined && vectorSearchersOf(context).has(requestedVectorField)
 
     let fanOutResult: FanOutResult
+    let fusedFrom: number | undefined
+    let fusedDepth = 0
 
     if (isVectorOnly && hasGlobalVectorIndex) {
       const depth = requireCursorDepth(params.searchAfter, sortSignature, context.cursorBinding)
       fanOutResult = await executeVectorSearch(params, context, limit, offset, depth)
     } else if (isHybridMode && hasGlobalVectorIndex) {
-      const depth = requireCursorDepth(params.searchAfter, sortSignature, context.cursorBinding)
-      fanOutResult = await executeHybridSearch(params, context, limit, offset, depth)
+      fusedFrom = requireCursorDepth(params.searchAfter, sortSignature, context.cursorBinding)
+      fusedDepth = resolveHybridFusion(params.hybrid).depth
+      requireWithinHybridDepth(fusedFrom, offset, fusedDepth)
+      fanOutResult = await executeHybridSearch(params, context)
     } else {
       const scoring = scoringConfigFor(params, context)
       const workerResult = workerSearch
@@ -181,8 +187,11 @@ export async function executeQuery<T = AnyDocument>(
       })
     }
 
+    const organic = hits
     let pinsFromOutside = 0
-    if (params.pinned && params.searchAfter === undefined && context.partitionIds === undefined) {
+    const pinsPlaced =
+      params.pinned !== undefined && params.searchAfter === undefined && context.partitionIds === undefined
+    if (params.pinned && pinsPlaced) {
       const placement = placePinned(hits, params.pinned, (docId: string) => {
         const doc = manager.getRef(docId)
         if (!doc) return undefined
@@ -205,17 +214,26 @@ export async function executeQuery<T = AnyDocument>(
       params.pinned !== undefined && params.searchAfter === undefined
         ? new Set(params.pinned.map(entry => entry.docId))
         : undefined
-    const paged = applyPagination(
-      hits,
-      limit,
-      offset,
-      context.cursorBinding,
-      params.searchAfter,
-      sortContext,
-      pinnedIds,
-    )
-    paginated = paged.paginated
-    nextCursor = paged.nextCursor
+    if (fusedFrom === undefined) {
+      const paged = applyPagination(
+        hits,
+        limit,
+        offset,
+        context.cursorBinding,
+        params.searchAfter,
+        sortContext,
+        pinnedIds,
+      )
+      paginated = paged.paginated
+      nextCursor = paged.nextCursor
+    } else {
+      const placedIds = pinsPlaced ? pinnedIds : undefined
+      const start = fusedFrom + offset
+      const end = Math.min(start + limit, fusedDepth)
+      const paged = pageByPosition(hits, organic, start, end, fusedDepth, placedIds, context.cursorBinding)
+      paginated = paged.page
+      nextCursor = paged.cursor
+    }
     const holdsEveryMatch =
       fanOutResult.matchedExact !== false && fanOutResult.scored.length === fanOutResult.totalMatched
     count = fanOutResult.totalMatched + (holdsEveryMatch ? pinsFromOutside : 0)
@@ -300,7 +318,7 @@ export async function executePreflight(request: QueryParams, callerContext: Quer
     totalMatched = result.totalMatched
     countExact = result.matchedExact !== false
   } else if (isHybridMode && hasGlobalVectorIndex) {
-    const result = await executeHybridSearch(params, context, preflightLimit, preflightOffset)
+    const result = await executeHybridSearch(params, context)
     totalMatched = result.totalMatched
     countExact = result.matchedExact !== false
   } else if (countsWithoutScores(params)) {

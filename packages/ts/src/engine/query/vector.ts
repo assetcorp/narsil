@@ -135,16 +135,20 @@ async function vectorLeg(
   }
 }
 
-export async function executeHybridSearch(
-  params: QueryParams,
-  context: SearchContext,
-  limit: number,
-  offset: number,
-  cursorDepth = 0,
-): Promise<FanOutResult> {
+function countOfUnion(text: FanOutResult, vectorScored: ScoredDocument[]): number {
+  const textIds = new Set<string>()
+  for (const doc of text.scored) textIds.add(doc.docId)
+  let vectorOnly = 0
+  for (const doc of vectorScored) if (!textIds.has(doc.docId)) vectorOnly++
+  if (text.scored.length === text.totalMatched) return text.totalMatched + vectorOnly
+  return Math.max(text.totalMatched, text.scored.length + vectorOnly)
+}
+
+export async function executeHybridSearch(params: QueryParams, context: SearchContext): Promise<FanOutResult> {
   const { manager, config } = context
-  const { vector: vectorConfig, mode: _mode, hybrid: _hybrid, ...textOnlyParams } = params
+  const { vector: vectorConfig, mode: _mode, hybrid: _hybrid, searchAfter: _after, pinned: _pinned, ...rest } = params
   const fusion = resolveHybridFusion(params.hybrid)
+  const textOnlyParams: QueryParams = { ...rest, limit: fusion.depth, offset: 0 }
 
   let filterDocIds: Set<string> | undefined
   if (params.filters) {
@@ -164,29 +168,35 @@ export async function executeHybridSearch(
     new Float32Array(vectorConfig.value),
     context,
     filterDocIds,
-    vectorFetchDepth(limit, offset, cursorDepth),
+    fusion.depth,
   )
   const [textFanOutResult, vectorOutcome] = await Promise.all([textLeg(textOnlyParams, context), vectorPending])
   const vectorScored = vectorOutcome.scored
+  const textScored = textFanOutResult.scored.slice(0, fusion.depth)
 
   let fusedScored: ScoredDocument[]
   if (fusion.strategy === 'rrf') {
-    fusedScored = reciprocalRankFusion([textFanOutResult.scored, vectorScored], { k: fusion.k })
+    fusedScored = reciprocalRankFusion([textScored, vectorScored], { k: fusion.k })
   } else {
-    fusedScored = linearCombination(textFanOutResult.scored, vectorScored, { alpha: fusion.alpha })
-  }
-
-  if (params.minScore !== undefined && params.minScore > 0) {
-    const threshold = params.minScore
-    fusedScored = fusedScored.filter(doc => doc.score >= threshold)
+    fusedScored = linearCombination(textScored, vectorScored, { alpha: fusion.alpha })
   }
 
   const textHoldsEveryMatch = textFanOutResult.scored.length === textFanOutResult.totalMatched
+  let totalMatched: number
+  let matchedExact = vectorOutcome.holdsEveryMatch && textHoldsEveryMatch
+  if (params.minScore !== undefined && params.minScore > 0) {
+    const threshold = params.minScore
+    fusedScored = fusedScored.filter(doc => doc.score >= threshold)
+    totalMatched = fusedScored.length
+    matchedExact = matchedExact && textScored.length === textFanOutResult.totalMatched
+  } else {
+    totalMatched = countOfUnion(textFanOutResult, vectorScored)
+  }
 
   return {
-    scored: fusedScored,
-    totalMatched: fusedScored.length,
-    matchedExact: vectorOutcome.holdsEveryMatch && textHoldsEveryMatch,
+    scored: fusedScored.length > fusion.depth ? fusedScored.slice(0, fusion.depth) : fusedScored,
+    totalMatched,
+    matchedExact,
     facets: textFanOutResult.facets,
   }
 }
