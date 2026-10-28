@@ -68,7 +68,7 @@ export async function runDocker(args: string[]): Promise<string> {
   return await runCommand('docker', args)
 }
 
-async function getAvailablePort(): Promise<number> {
+export async function getAvailablePort(): Promise<number> {
   return await new Promise<number>((resolve, reject) => {
     const server = createServer()
 

@@ -1,4 +1,4 @@
-export type { EtcdCoordinatorConfig } from './etcd'
+export type { EtcdAuthConfig, EtcdCoordinatorConfig, EtcdTlsConfig } from './etcd'
 export { createEtcdCoordinator } from './etcd'
 export { createInMemoryCoordinator } from './in-memory'
 export type {
