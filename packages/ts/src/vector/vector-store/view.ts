@@ -182,7 +182,7 @@ export function openSharedVectorStore(initial: SharedVectorStoreHandles, threadS
     if (block.stagedOrdinal === ordinal) return true
     const source = vectorFor(ordinal, coldScratchA)
     if (source === null) return false
-    block.float32(0).set(source, block.scratchByteOffset / 4)
+    block.float32(block.scratchByteOffset / 4 + dimension).set(source, block.scratchByteOffset / 4)
     block.stagedOrdinal = ordinal
     return true
   }
@@ -198,7 +198,7 @@ export function openSharedVectorStore(initial: SharedVectorStoreHandles, threadS
   function stageQuery(block: OpenVectorBlock): boolean {
     if (currentQuery === null) return false
     if (block.stagedOrdinal !== QUERY_STAGED) {
-      block.float32(0).set(currentQuery, block.scratchByteOffset / 4)
+      block.float32(block.scratchByteOffset / 4 + dimension).set(currentQuery, block.scratchByteOffset / 4)
       block.stagedOrdinal = QUERY_STAGED
     }
     return true
