@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from ..core.config import BM25Params, EngineConfig
-from ..core.synonym_sets import SynonymRule, solr_rules
 from ..core.types import BEST_CONFIG, EQUAL_PRECISION, FULL_FLOAT, SearchResponse, VectorIndexParams
 from ._lucene import _VECTOR_FIELD, LuceneRestDriver, _raise
 
@@ -15,44 +14,6 @@ _BBQ_OVERSAMPLE = 3.0
 # starts at the recommended 3x and escalates within that bound. BBQ's recall lever is
 # this oversample (the full-precision rescore pool = k * oversample), not num_candidates.
 _BBQ_OVERSAMPLE_GRID = (3.0, 5.0, 8.0, 9.0)
-_SYNONYM_ANALYZER = "english_with_synonyms"
-
-
-def synonym_index_body(k1: float, b: float, analyzer: str, synonyms: tuple[SynonymRule, ...]) -> dict:
-    return {
-        "settings": {
-            "index": {
-                "number_of_shards": 1,
-                "number_of_replicas": 0,
-                "similarity": {"default": {"type": "BM25", "k1": k1, "b": b}},
-                "analysis": {
-                    "filter": {
-                        "english_stop": {"type": "stop", "stopwords": "_english_"},
-                        "english_stemmer": {"type": "stemmer", "language": "english"},
-                        "english_possessive_stemmer": {"type": "stemmer", "language": "possessive_english"},
-                        "query_synonyms": {"type": "synonym_graph", "synonyms": solr_rules(synonyms)},
-                    },
-                    "analyzer": {
-                        _SYNONYM_ANALYZER: {
-                            "tokenizer": "standard",
-                            "filter": [
-                                "english_possessive_stemmer",
-                                "lowercase",
-                                "english_stop",
-                                "english_stemmer",
-                                "query_synonyms",
-                            ],
-                        }
-                    },
-                },
-            }
-        },
-        "mappings": {
-            "properties": {"text": {"type": "text", "analyzer": analyzer, "search_analyzer": _SYNONYM_ANALYZER}}
-        },
-    }
-
-
 class ElasticsearchDriver(LuceneRestDriver):
     def __init__(self, engine: EngineConfig, bm25: BM25Params) -> None:
         super().__init__(engine, bm25)
@@ -70,15 +31,6 @@ class ElasticsearchDriver(LuceneRestDriver):
         self._vector_profile = EQUAL_PRECISION
         self.rescore_oversample_grid = _BBQ_OVERSAMPLE_GRID
         self._rescore_oversample: float | None = None
-
-    def create_index(self, index: str, synonyms: tuple[SynonymRule, ...] | None = None) -> None:
-        if synonyms is None:
-            super().create_index(index)
-            return
-        if self._analyzer != "english":
-            raise ValueError(f"a synonym set rebuilds the english analyzer, not '{self._analyzer}'")
-        response = self._client.put(f"/{index}", json=synonym_index_body(self._k1, self._b, self._analyzer, synonyms))
-        _raise(response)
 
     def set_vector_profile(self, profile: str) -> None:
         """Adopts a profile the driver did not itself create the index under, so a

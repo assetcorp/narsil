@@ -85,3 +85,31 @@ def solr_rules(rules: tuple[SynonymRule, ...]) -> list[str]:
         else:
             lines.append(f"{rule.word} => {', '.join((rule.word, *rule.words))}")
     return lines
+
+
+def typesense_synonym_items(rules: tuple[SynonymRule, ...], locale: str) -> list[dict]:
+    items: list[dict] = []
+    for position, rule in enumerate(rules):
+        item: dict = {"id": f"rule-{position}", "synonyms": list(rule.words), "locale": locale}
+        if rule.word is not None:
+            item["root"] = rule.word
+        items.append(item)
+    return items
+
+
+def meilisearch_synonyms(rules: tuple[SynonymRule, ...]) -> dict[str, list[str]]:
+    mapping: dict[str, dict[str, None]] = {}
+
+    def add(word: str, synonyms: tuple[str, ...]) -> None:
+        targets = mapping.setdefault(word, {})
+        for synonym in synonyms:
+            if synonym != word:
+                targets[synonym] = None
+
+    for rule in rules:
+        if rule.word is None:
+            for word in rule.words:
+                add(word, rule.words)
+        else:
+            add(rule.word, rule.words)
+    return {word: list(targets) for word, targets in mapping.items() if targets}
