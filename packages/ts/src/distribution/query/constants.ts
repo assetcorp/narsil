@@ -9,6 +9,7 @@ export const MAX_PARTITION_IDS = MAX_PARTITION_COUNT
 
 export const MAX_TERM_LENGTH = 1024
 export const MAX_TERMS_COUNT = 65_536
+export const MAX_STATS_TOKENS = 6_553_600
 export const MAX_FIELD_NAME_LENGTH = 255
 export const MAX_FIELDS_LIST = 256
 export const MAX_BOOST_FIELDS = 256

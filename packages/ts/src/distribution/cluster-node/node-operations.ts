@@ -3,6 +3,7 @@ import type { AnyDocument } from '../../types/schema'
 import type { QueryParams } from '../../types/search'
 import type { ClusterCoordinator } from '../coordinator/types'
 import { clearCluster } from './clear'
+import { awaitDropAcknowledgement, awaitTornDownCopy } from './drop-acknowledgement'
 import type { ClusterLocalEngine } from './local-engine'
 import {
   type ClusterReadDeps,
@@ -15,6 +16,7 @@ import {
   statsCluster,
   suggestCluster,
 } from './reads'
+import { readClusterSynonyms, replaceClusterSynonyms } from './synonym-sets'
 import type { ClusterNode, CreateIndexOptions } from './types'
 import {
   routeCreateIndex,
@@ -38,6 +40,8 @@ export type ClusterNodeOperations = Pick<
   | 'update'
   | 'updateBatch'
   | 'dropIndex'
+  | 'updateSynonyms'
+  | 'getSynonyms'
   | 'clear'
   | 'countDocuments'
   | 'listDocuments'
@@ -63,6 +67,7 @@ export interface ClusterNodeOperationDeps {
   engine: ClusterLocalEngine
   coordinator: ClusterCoordinator
   forgetIndex: (indexName: string) => void
+  isOrphaned: (indexName: string) => boolean
 }
 
 export function createClusterNodeOperations(deps: ClusterNodeOperationDeps): ClusterNodeOperations {
@@ -70,7 +75,10 @@ export function createClusterNodeOperations(deps: ClusterNodeOperationDeps): Clu
 
   return {
     async createIndex(name, indexConfig, options?: CreateIndexOptions) {
-      return trackOp(name, () => routeCreateIndex(name, indexConfig, options, coordinator, engine))
+      return trackOp(name, async () => {
+        if (!deps.isOrphaned(name)) await awaitTornDownCopy(engine, coordinator, name)
+        await routeCreateIndex(name, indexConfig, options, coordinator, engine)
+      })
     },
 
     async insert(indexName, document, docId?, options?) {
@@ -99,9 +107,27 @@ export function createClusterNodeOperations(deps: ClusterNodeOperationDeps): Clu
 
     async dropIndex(name) {
       return deps.transitionIndex(name, async () => {
-        await routeDropIndex(name, coordinator, engine)
+        const dropped = await routeDropIndex(name, coordinator, engine)
         deps.forgetIndex(name)
+        if (dropped !== null) {
+          const acknowledgement = { config: readDeps.config, nodeId: readDeps.nodeId, engine, coordinator }
+          await awaitDropAcknowledgement(acknowledgement, name, dropped.indexUuid)
+        }
       })
+    },
+
+    async updateSynonyms(indexName, synonyms) {
+      return trackOp(indexName, () =>
+        replaceClusterSynonyms(
+          { config: readDeps.config, nodeId: readDeps.nodeId, engine, coordinator },
+          indexName,
+          synonyms,
+        ),
+      )
+    },
+
+    async getSynonyms(indexName) {
+      return trackOp(indexName, () => readClusterSynonyms(coordinator, indexName))
     },
 
     async clear(indexName) {

@@ -34,6 +34,7 @@ const nodeEntry: Record<string, string> = {
   'rerankers/http': 'src/rerankers/http.ts',
   pattern: 'src/pattern/index.ts',
   'partial-words': 'src/partial-words/index.ts',
+  synonyms: 'src/synonyms/index.ts',
   ...languageEntries(),
   distribution: 'src/distribution/index.ts',
   'distribution/coordinator/in-memory': 'src/distribution/coordinator/in-memory.ts',

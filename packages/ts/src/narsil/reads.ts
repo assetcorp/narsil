@@ -6,6 +6,7 @@ import type { RerankRunner } from '../engine/query/shared'
 import { resolveVectorText } from '../engine/resolve-vector-text'
 import { executeSuggest } from '../engine/suggest'
 import { collectQueryTermStats } from '../partitioning/distributed-scoring'
+import type { StatsExpansion } from '../partitioning/expanded-tokens'
 import { queryBindingOf } from '../search/cursor-binding'
 import type { GlobalStatistics } from '../types/internal'
 import type { ListResult, PreflightResult, QueryResult, SuggestResult } from '../types/results'
@@ -203,6 +204,12 @@ export interface PartitionQueryStats {
   totalDocuments: number
   docFrequencies: Record<string, number>
   totalFieldLengths: Record<string, number>
+  expanded?: string[]
+}
+
+export interface QueryStatsRequestScope {
+  expansion?: StatsExpansion
+  tokens?: readonly string[]
 }
 
 /**
@@ -214,34 +221,41 @@ export interface PartitionQueryStats {
  * @param indexName - The index to read.
  * @param terms - The query terms whose document frequencies the caller needs.
  * @param partitionIds - The partitions to count, or every partition when omitted.
- * @returns The document total, the document frequency of each term, and the
- * total field lengths across the counted partitions.
+ * @param scope - The query's matching options, under which the engine also
+ * counts every token that typo tolerance, prefix completion, or partial-word
+ * search reaches in a counted partition, and the tokens that the caller wants
+ * counted as given. Omit it to count the terms and their synonyms alone.
+ * @returns The document total, the document frequency of each counted token,
+ * the total field lengths across the counted partitions, and the tokens that a
+ * prefix completion or a partial-word search reached.
  */
 export async function runEngineQueryStats(
   core: EngineCore,
   indexName: string,
   terms: string[],
   partitionIds?: number[],
+  scope?: QueryStatsRequestScope,
 ): Promise<PartitionQueryStats> {
   await enterRead(core, indexName)
   const release = await core.indexState.acquire(indexName)
   try {
     const entry = core.requireIndex(indexName)
     const manager = core.requireManager(indexName)
-    const stats = collectQueryTermStats(
-      manager,
-      terms.join(' '),
-      entry.language,
-      {
-        stopWords: manager.analysis.stopWords,
-        customTokenizer: manager.analysis.customTokenizer,
-      },
-      partitionIds,
-    )
+    const term = terms.join(' ')
+    const analysis = {
+      stopWords: manager.analysis.stopWords,
+      customTokenizer: manager.analysis.customTokenizer,
+      synonyms: manager.synonyms,
+    }
+    const stats = collectQueryTermStats(manager, term, entry.language, analysis, partitionIds, {
+      expansion: scope?.expansion === undefined ? undefined : { options: scope.expansion, schema: entry.config.schema },
+      tokens: scope?.tokens,
+    })
     return {
       totalDocuments: stats.totalDocuments,
       docFrequencies: stats.docFrequencies,
       totalFieldLengths: stats.totalFieldLengths,
+      ...(stats.expanded.length > 0 ? { expanded: stats.expanded } : {}),
     }
   } finally {
     release()

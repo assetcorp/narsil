@@ -17,7 +17,12 @@ const indexConfig: IndexConfig = {
 
 type Registry = Map<
   string,
-  { config: IndexConfig; language: LanguageModule; embeddingAdapter: EmbeddingAdapter | null }
+  {
+    config: IndexConfig
+    language: LanguageModule
+    embeddingAdapter: EmbeddingAdapter | null
+    synonyms: Uint8Array | null
+  }
 >
 
 describe('WorkerOrchestrator replication and lifecycle', () => {
@@ -64,7 +69,15 @@ describe('WorkerOrchestrator replication and lifecycle', () => {
   it('reports every registered index as scaled in before any copy loads', async () => {
     const executor = createDirectExecutor()
     const registry: Registry = new Map([
-      ['products', { config: indexConfig, language: { name: 'english' } as LanguageModule, embeddingAdapter: null }],
+      [
+        'products',
+        {
+          config: indexConfig,
+          language: { name: 'english' } as LanguageModule,
+          embeddingAdapter: null,
+          synonyms: null,
+        },
+      ],
     ])
 
     orchestrator = createWorkerOrchestrator({ workers: { enabled: false } }, executor, registry)

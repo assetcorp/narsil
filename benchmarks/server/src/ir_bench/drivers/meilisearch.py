@@ -10,6 +10,7 @@ import httpx
 from ..core.config import BM25Params, EngineConfig
 from ..core.http_client import build_client
 from ..core.ingest import BatchOutcome, import_batches
+from ..core.synonym_sets import SynonymRule, meilisearch_synonyms
 from ..core.types import (
     INTEGER_MS,
     EngineError,
@@ -85,14 +86,14 @@ class MeilisearchDriver:
             except EngineError:
                 return
 
-    def create_index(self, index: str) -> None:
+    def create_index(self, index: str, synonyms: tuple[SynonymRule, ...] | None = None) -> None:
         response = self._client.post("/indexes", json={"uid": index, "primaryKey": "id"})
         _raise(response)
         self._wait_task(int(response.json()["taskUid"]))
-        settings = self._client.patch(
-            f"/indexes/{index}/settings",
-            json={"searchableAttributes": ["text"], "stopWords": list(LUCENE_ENGLISH_STOP_WORDS)},
-        )
+        body: dict = {"searchableAttributes": ["text"], "stopWords": list(LUCENE_ENGLISH_STOP_WORDS)}
+        if synonyms is not None:
+            body["synonyms"] = meilisearch_synonyms(synonyms)
+        settings = self._client.patch(f"/indexes/{index}/settings", json=body)
         _raise(settings)
         self._wait_task(int(settings.json()["taskUid"]))
 

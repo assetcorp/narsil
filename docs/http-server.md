@@ -59,6 +59,7 @@ The full surface:
 | `POST /indexes/{name}/documents/_list` | The endpoint pages through every stored document, in document-id order or in an order the body names. See [Listing documents](#listing-documents). |
 | `POST /indexes/{name}/documents/_import` | The endpoint streams an NDJSON corpus in bounded batches, and `?async=true` runs it as a task instead. See [Tasks](#tasks). |
 | `POST /indexes/{name}/search`, `POST /indexes/{name}/search/preflight`, `POST /indexes/{name}/suggest` | The endpoints run queries, match counts, and autocomplete. Each response carries `analysisStale: true` while the index holds terms an earlier analysis produced. See [Analysis revisions](language-support.md#analysis-revisions). |
+| `GET /indexes/{name}/synonyms`, `POST /indexes/{name}/synonyms` | The endpoints read and replace the synonym set of an index. `GET` answers `{ "synonyms": [...] }` with every word as it was written. `POST` takes the new set as `{ "synonyms": [...] }`, answers `{ "ok": true }` once every search uses it, and answers 400 for a body of any other shape. An empty list removes the set. See [Synonyms](full-text-search.md#synonyms). |
 | `POST /indexes/{name}/_checkpoint`, `GET /indexes/{name}/snapshot`, `POST /indexes/{name}/restore` | The endpoints force a checkpoint, stream a snapshot archive, and restore an index from an archive as a task. See [Snapshots and exports](#snapshots-and-exports). |
 | `GET /indexes/{name}/export`, `POST /indexes/{name}/import` | The endpoints stream a document export and import one as a task. See [Snapshots and exports](#snapshots-and-exports). |
 | `GET /indexes/{name}/vector-maintenance`, `POST /indexes/{name}/vectors/_compact`, `POST /indexes/{name}/vectors/_optimize` | The endpoints report and run vector maintenance. |
@@ -143,7 +144,8 @@ Each running task holds its own working set, and an async import holds the whole
     "tasks.filter",
     "indexes.rebuildAnalysis",
     "indexes.lifecycle",
-    "indexes.documentExport"
+    "indexes.documentExport",
+    "indexes.synonyms"
   ]
 }
 ```
