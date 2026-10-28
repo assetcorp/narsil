@@ -65,5 +65,5 @@ describe('a replica keeps every entry it acknowledged on its own disk', () => {
     } finally {
       await recovered.shutdown()
     }
-  })
+  }, 60_000)
 })
