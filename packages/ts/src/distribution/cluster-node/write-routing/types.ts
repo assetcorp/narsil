@@ -11,6 +11,7 @@ import type { PartitionWriteQueues } from './partition-queue'
 export interface WriteRoutingDeps {
   nodeId: string
   coordinator: ClusterCoordinator
+  refreshAllocation?: (indexName: string) => Promise<AllocationTable | null>
   engine: Narsil
   transport: NodeTransport
   getReplicationLog: (indexName: string, partitionId: number) => ReplicationLog

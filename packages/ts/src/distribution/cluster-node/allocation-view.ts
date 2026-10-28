@@ -1,0 +1,94 @@
+import type { AllocationTable, ClusterCoordinator, NodeRegistration } from '../coordinator/types'
+
+export interface AllocationView {
+  readonly routing: ClusterCoordinator
+  read(indexName: string): Promise<AllocationTable | null>
+  refresh(indexName: string): Promise<AllocationTable | null>
+  start(): Promise<void>
+  stop(): void
+}
+
+export function createAllocationView(coordinator: ClusterCoordinator): AllocationView {
+  const tables = new Map<string, AllocationTable>()
+  let nodes: Map<string, NodeRegistration> | null = null
+  let watching = false
+  const unwatchers: Array<() => void> = []
+
+  function rememberLive(table: AllocationTable): AllocationTable {
+    const held = tables.get(table.indexName)
+    if (held !== undefined && held.version > table.version) return held
+    if (watching) tables.set(table.indexName, table)
+    return table
+  }
+
+  async function refresh(indexName: string): Promise<AllocationTable | null> {
+    let live: AllocationTable | null
+    try {
+      live = await coordinator.getAllocation(indexName)
+    } catch (error) {
+      const held = tables.get(indexName)
+      if (held !== undefined) return held
+      throw error
+    }
+    if (live === null) {
+      tables.delete(indexName)
+      return null
+    }
+    return rememberLive(live)
+  }
+
+  async function read(indexName: string): Promise<AllocationTable | null> {
+    if (!watching) return coordinator.getAllocation(indexName)
+    return tables.get(indexName) ?? refresh(indexName)
+  }
+
+  async function listNodes(): Promise<NodeRegistration[]> {
+    if (watching && nodes !== null) return [...nodes.values()]
+    const live = await coordinator.listNodes()
+    if (watching) nodes = new Map(live.map(registration => [registration.nodeId, registration]))
+    return live
+  }
+
+  const routing = new Proxy(coordinator, {
+    get(target, property, receiver) {
+      if (property === 'getAllocation') return read
+      if (property === 'listNodes') return listNodes
+      return Reflect.get(target, property, receiver)
+    },
+  })
+
+  return {
+    routing,
+    read,
+    refresh,
+    async start() {
+      if (watching) return
+      unwatchers.push(
+        await coordinator.watchAllocation(event => {
+          tables.set(event.indexName, event.table)
+        }),
+      )
+      unwatchers.push(
+        await coordinator.watchSchemas(event => {
+          if (event.type === 'schema_dropped') tables.delete(event.indexName)
+        }),
+      )
+      unwatchers.push(
+        await coordinator.watchNodes(event => {
+          if (nodes === null) return
+          if (event.registration === null) nodes.delete(event.nodeId)
+          else nodes.set(event.nodeId, event.registration)
+        }),
+      )
+      watching = true
+      const live = await coordinator.listNodes()
+      nodes = new Map(live.map(registration => [registration.nodeId, registration]))
+    },
+    stop() {
+      watching = false
+      for (const unwatch of unwatchers.splice(0)) unwatch()
+      tables.clear()
+      nodes = null
+    },
+  }
+}

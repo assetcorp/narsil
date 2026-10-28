@@ -5,7 +5,13 @@ import type { InsyncAddPayload } from '../../transport/types'
 import { ADMISSION_TIMEOUT_MS } from '../constants'
 import { resolveNodeTargets } from '../write-routing/assignment'
 import type { WriteRoutingDeps } from '../write-routing/types'
-import { type CatchUpState, clearPendingAdmission, markPendingAdmission, type ReplicaCursor } from './state'
+import {
+  type CatchUpState,
+  clearPendingAdmission,
+  markPendingAdmission,
+  type ReplicaCursor,
+  recordAdmittedReplica,
+} from './state'
 
 async function sendToController(
   payload: InsyncAddPayload,
@@ -117,6 +123,8 @@ export async function proposeAdmission(
     const accepted = await withTimeout(sendToController(payload, controllerNodeId, deps), ADMISSION_TIMEOUT_MS, false)
     if (accepted && cursor.syncEpoch !== proposedEpoch) {
       await withTimeout(withdrawAdmission(payload, controllerNodeId, deps), ADMISSION_TIMEOUT_MS, undefined)
+    } else if (accepted) {
+      recordAdmittedReplica(state, indexName, partitionId, replicaNodeId, assignment.primaryTerm)
     }
   } finally {
     clearPendingAdmission(state, indexName, partitionId, replicaNodeId)

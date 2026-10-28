@@ -1,3 +1,5 @@
+import type { PartitionAssignment } from '../../coordinator/types'
+
 export interface ReplicaCursor {
   appliedSeqNo: number
   sending: boolean
@@ -7,6 +9,7 @@ export interface ReplicaCursor {
 export interface CatchUpState {
   cursors: Map<string, Map<string, ReplicaCursor>>
   pendingAdmissions: Map<string, Set<string>>
+  admittedReplicas: Map<string, Map<string, number>>
   inFlightBytes: number
   timer: ReturnType<typeof setInterval> | null
   activeTick: Promise<void> | null
@@ -36,6 +39,7 @@ export function createCatchUpState(): CatchUpState {
   return {
     cursors: new Map(),
     pendingAdmissions: new Map(),
+    admittedReplicas: new Map(),
     inFlightBytes: 0,
     timer: null,
     activeTick: null,
@@ -122,6 +126,64 @@ export function forgetReplica(
 export function getPendingAdmissions(state: CatchUpState, indexName: string, partitionId: number): string[] {
   const pending = state.pendingAdmissions.get(partitionKey(indexName, partitionId))
   return pending === undefined ? [] : [...pending]
+}
+
+export function recordAdmittedReplica(
+  state: CatchUpState,
+  indexName: string,
+  partitionId: number,
+  replicaNodeId: string,
+  primaryTerm: number,
+): void {
+  const key = partitionKey(indexName, partitionId)
+  const admitted = state.admittedReplicas.get(key) ?? new Map<string, number>()
+  admitted.set(replicaNodeId, primaryTerm)
+  state.admittedReplicas.set(key, admitted)
+}
+
+export function forgetAdmittedReplica(
+  state: CatchUpState,
+  indexName: string,
+  partitionId: number,
+  replicaNodeId: string,
+): void {
+  const key = partitionKey(indexName, partitionId)
+  const admitted = state.admittedReplicas.get(key)
+  if (admitted === undefined) return
+  admitted.delete(replicaNodeId)
+  if (admitted.size === 0) state.admittedReplicas.delete(key)
+}
+
+export function admittedBeyondTable(
+  state: CatchUpState,
+  indexName: string,
+  partitionId: number,
+  assignment: PartitionAssignment,
+): string[] {
+  const admitted = state.admittedReplicas.get(partitionKey(indexName, partitionId))
+  if (admitted === undefined) return []
+  const beyond: string[] = []
+  for (const [replicaNodeId, primaryTerm] of [...admitted]) {
+    const settled = assignment.inSyncSet.includes(replicaNodeId) || !assignment.replicas.includes(replicaNodeId)
+    if (settled || primaryTerm !== assignment.primaryTerm) {
+      forgetAdmittedReplica(state, indexName, partitionId, replicaNodeId)
+      continue
+    }
+    beyond.push(replicaNodeId)
+  }
+  return beyond
+}
+
+export function inSyncTargetsOf(
+  state: CatchUpState,
+  indexName: string,
+  partitionId: number,
+  assignment: PartitionAssignment,
+): string[] {
+  return [
+    ...getPendingAdmissions(state, indexName, partitionId),
+    ...admittedBeyondTable(state, indexName, partitionId, assignment),
+  ]
 }
 
 /**

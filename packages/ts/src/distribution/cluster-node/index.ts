@@ -8,25 +8,21 @@ import type { DataNodeHandle } from '../cluster/node-lifecycle/types'
 import type { NodeRegistration, NodeRole } from '../coordinator/types'
 import { openSnapshotSpoolDirectory } from '../replication/snapshot-spool'
 import type { ReplicationLog } from '../replication/types'
+import { createAllocationView } from './allocation-view'
 import { cleanupRemovedPartition } from './bootstrap-cleanup'
-import {
-  clearBootstrapSyncIndex,
-  createBootstrapSyncState,
-  hasCompletedBootstrapSync,
-  runBootstrapSync,
-} from './bootstrap-sync'
+import { clearBootstrapSyncIndex, createBootstrapSyncState, hasCompletedBootstrapSync } from './bootstrap-sync'
 import { createCatchUpState, startCatchUpPump, stopCatchUpPump } from './catch-up'
 import { createClusterNamespace } from './cluster-namespace'
 import { createAllocationErrorForwarder, createErrorForwarder } from './error-forwarding'
 import { type ClusterLocalEngine, createClusterLocalEngine } from './local-engine'
-import { adoptClusterIdentity, orphanedIndexError, reconcileLocalIndexes } from './local-index-reconcile'
+import { orphanedIndexError, reconcileLocalIndexes } from './local-index-reconcile'
 import { seedReopenedPrimaryLogs } from './local-replication'
 import { createNodeMemoryReporting } from './memory/node-memory'
 import { createDataNodeHandler } from './message-handler'
 import { resolveNodeTargets as resolveTargetsForNode } from './node-messaging'
 import { createClusterNodeOperations } from './node-operations'
 import { createClusterOperationTracker } from './operation-tracker'
-import { type PrimaryPartitionDeps, preparePrimaryPartition } from './primary-partition'
+import { createPartitionBootstrap } from './partition-bootstrap'
 import type { ClusterReadDeps } from './reads'
 import {
   replicationLogKey as buildReplicationLogKey,
@@ -98,8 +94,11 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
     writeSeededReplicationLog(replicationLogs, indexName, partitionId, startSeqNo, lastPrimaryTerm, config.replication)
   }
 
+  const allocationView = createAllocationView(config.coordinator)
+  const routingConfig: ClusterNodeConfig = { ...config, coordinator: allocationView.routing }
+
   async function resolveNodeTargets(targetNodeId: string): Promise<string[]> {
-    return resolveTargetsForNode(config, targetNodeId)
+    return resolveTargetsForNode(routingConfig, targetNodeId)
   }
 
   const forwardOnError = createErrorForwarder(config.onError)
@@ -131,7 +130,8 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
   const writeDeps: WriteRoutingDeps = {
     nodeId,
     numbering,
-    coordinator: config.coordinator,
+    coordinator: allocationView.routing,
+    refreshAllocation: allocationView.refresh,
     engine,
     transport: config.transport,
     getReplicationLog,
@@ -159,42 +159,18 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
   let serving = false
   let isShutdown = false
 
-  const bootstrapSyncDeps = {
+  const bootstrapPartition = createPartitionBootstrap({
+    nodeId,
     engine,
     coordinator: config.coordinator,
     transport: config.transport,
-    sourceNodeId: nodeId,
+    state: bootstrapSyncState,
     resolveNodeTargets,
     getReplicationLog,
-    resetReplicationLog: seedReplicationLog,
-    applyReplicationEntry: engine.applyReplicationEntry,
-    restartLocalLog: engine.restartLocalLog,
-    restoreReplicationPartition: engine.restoreReplicationPartition,
+    seedReplicationLog,
     onError: forwardOnError,
     snapshotSpoolDirectory: snapshotSpool.path,
-  }
-
-  const primaryPartitionDeps: PrimaryPartitionDeps = {
-    engine,
-    coordinator: config.coordinator,
-    nodeId,
-    seedReplicationLog,
-    replicationLogPosition: (indexName: string, partitionId: number) =>
-      getReplicationLog(indexName, partitionId).newestSeqNo ?? 0,
-    onError: forwardOnError,
-  }
-
-  async function bootstrapPartition(indexName: string, partitionId: number, primaryNodeId: string): Promise<boolean> {
-    const succeeded =
-      primaryNodeId === nodeId
-        ? await preparePrimaryPartition(indexName, partitionId, primaryPartitionDeps)
-        : await runBootstrapSync(bootstrapSyncState, indexName, partitionId, primaryNodeId, bootstrapSyncDeps)
-    if (succeeded) {
-      await adoptClusterIdentity(engine, config.coordinator, indexName)
-      await engine.recordHeldPartition(indexName, partitionId)
-    }
-    return succeeded
-  }
+  })
 
   const lifecycle: DataNodeHandle = createDataNodeLifecycle({
     registration,
@@ -253,7 +229,7 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
   const trackOp = operationTracker.track
   const transitionIndex = operationTracker.transition
 
-  const readDeps: ClusterReadDeps = { config, nodeId, engine, resolveNodeTargets }
+  const readDeps: ClusterReadDeps = { config: routingConfig, nodeId, engine, resolveNodeTargets }
 
   const cluster = createClusterNamespace({
     nodeId,
@@ -297,6 +273,7 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
 
     async start() {
       guardShutdown()
+      await allocationView.start()
 
       const dispositions = await reconcileLocalIndexes({
         engine,
@@ -326,6 +303,7 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
           nodeId,
           engine,
           coordinator: config.coordinator,
+          allocations: allocationView,
           writeDeps,
           snapshotSyncState: snapshotSyncHandlerState,
           snapshotSpoolDirectory: snapshotSpool.path,
@@ -349,6 +327,7 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
       serving = false
 
       await operationTracker.drain()
+      allocationView.stop()
 
       if (unregisterHandler !== null) {
         unregisterHandler()
