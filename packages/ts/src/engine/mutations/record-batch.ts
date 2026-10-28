@@ -9,17 +9,8 @@ export async function recordChunk(
   applies: readonly (() => Promise<void>)[],
 ): Promise<(ChunkFailure | null)[]> {
   if (mutations.length === 0) return []
-  const admission = ctx.writeAdmission
-  if (admission !== null) return admission.recordChunk(ctx, indexName, mutations, applies, recordEvery)
-  return recordEvery(ctx, indexName, mutations, applies)
-}
-
-async function recordEvery(
-  ctx: MutationContext,
-  indexName: string,
-  mutations: readonly RecordedMutation[],
-  applies: readonly (() => Promise<void>)[],
-): Promise<(ChunkFailure | null)[]> {
+  if (ctx.writeAdmission !== null)
+    return ctx.writeAdmission.recordChunk(ctx, indexName, mutations, applies, recordChunk)
   if (ctx.durability) {
     const outcomes = await ctx.durability.recordMutationBatch(
       indexName,

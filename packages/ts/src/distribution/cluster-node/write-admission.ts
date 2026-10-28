@@ -25,7 +25,7 @@ export function createEngineWriteAdmission(core: EngineCore, admission: WriteAdm
       if (admitted.length === 0) return failures
 
       const outcomes = await recordAdmitted(
-        ctx,
+        { ...ctx, writeAdmission: null },
         indexName,
         admitted.map(i => mutations[i]),
         admitted.map(i => applies[i]),
