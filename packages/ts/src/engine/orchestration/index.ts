@@ -23,6 +23,7 @@ import {
 import { DEFAULT_COPY_IDLE_TIMEOUT_MS, DEFAULT_COPY_THRESHOLD, POOL_RESTART_DELAY_MS } from './constants'
 import { isIndexBusy, noteAccess, startIdleSweep, stopIdleSweep } from './idle'
 import { flushGrownTails } from './live-tail'
+import { releaseIndexCopies } from './release'
 import { cancelRepair } from './repair'
 import { awaitReplicationIdle, awaitWritesApplied, markCopiesLoaded, replicateToWorkers } from './replication'
 import { requestThreadCountOf, serveRequestsOnWorkers, stopRequestThreads } from './request-threads'
@@ -82,6 +83,7 @@ export function createWorkerOrchestrator(
     reportedIneligible: new Set(),
     scaledOutIndexes: new Set(),
     desyncedIndexes: new Set(),
+    copyReleaseHolds: new Map(),
     copyLoadBuffers: new Map(),
     copyTransitions: new Map(),
     droppedCopies: new Map(),
@@ -118,9 +120,24 @@ export function createWorkerOrchestrator(
     for (let pending = settlingCopyWork(indexName); pending !== undefined; pending = settlingCopyWork(indexName)) {
       await pending
     }
+    const hold = state.copyReleaseHolds.get(indexName)
+    if (hold !== undefined) {
+      hold.reloads ||= wasScaledOut
+      return
+    }
     state.desyncedIndexes.delete(indexName)
     if (!wasScaledOut) return
     await scaleOutIndex(state, indexName, copyThresholdReason(state, indexName))
+  }
+
+  async function endCopyRelease(indexName: string, reloads: boolean): Promise<void> {
+    const hold = state.copyReleaseHolds.get(indexName)
+    if (hold === undefined) return resyncIndex(indexName, reloads)
+    hold.holders -= 1
+    hold.reloads ||= reloads
+    if (hold.holders > 0) return
+    state.copyReleaseHolds.delete(indexName)
+    await resyncIndex(indexName, hold.reloads)
   }
 
   async function openIndex(indexName: string): Promise<void> {
@@ -240,7 +257,7 @@ export function createWorkerOrchestrator(
       pool.removeIndex(indexName)
     }
     state.droppedCopies.delete(indexName)
-    state.desyncedIndexes.delete(indexName)
+    if (!state.copyReleaseHolds.has(indexName)) state.desyncedIndexes.delete(indexName)
     state.lastAccessAt.delete(indexName)
     state.replicationQueues.delete(indexName)
     state.segmentLedger.delete(indexName)
@@ -299,6 +316,8 @@ export function createWorkerOrchestrator(
       if (wasScaledOut) withdrawCopies(indexName)
       return wasScaledOut || (loading !== undefined && loading.kind !== 'drop')
     },
+    releaseIndexCopies: (indexName: string): Promise<boolean> => releaseIndexCopies(state, indexName),
+    endCopyRelease,
     resyncIndex,
     noteAccess: (indexName: string): void => noteAccess(state, indexName),
     workerCopies,

@@ -39,6 +39,10 @@
       "browser": "./src/runtime/heap-statistics.browser.ts",
       "default": "./src/runtime/heap-statistics.ts"
     },
+    "#platform/process-limit": {
+      "browser": "./src/runtime/process-limit.browser.ts",
+      "default": "./src/runtime/process-limit.ts"
+    },
     "#platform/idle-heap-cleanup": {
       "browser": "./src/runtime/idle-heap-cleanup.browser.ts",
       "default": "./src/runtime/idle-heap-cleanup.ts"

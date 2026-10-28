@@ -79,6 +79,12 @@ export async function withdrawWorkerCopies(state: VectorIndexState): Promise<voi
   if (state.workerCopies.host === undefined && state.sharedHandles.size === 0) state.workerCopyPool = null
 }
 
+export async function holdWorkerCopies(state: VectorIndexState): Promise<void> {
+  state.workerCopiesHeld = true
+  await state.sharing
+  await withdrawWorkerCopies(state)
+}
+
 export function noteWrite(state: VectorIndexState): void {
   state.revision += 1
   if (state.workerCopyMode === 'clone') invalidateWorkerCopies(state)
@@ -207,7 +213,7 @@ export function shareGraph(
   searchable: boolean,
 ): Promise<string | null> {
   const run = state.sharing.then(async () => {
-    if (!state.workerCopies.enabled || state.disposed) return null
+    if (!state.workerCopies.enabled || state.disposed || state.workerCopiesHeld) return null
     const existing = state.sharedHandles.get(graph)
     const layoutUnchanged = threadsHoldCurrentLayout(state)
     if (existing !== undefined && layoutUnchanged && (existing.searchable || !searchable)) return existing.handle
@@ -223,7 +229,7 @@ export function shareGraph(
 
 export function resendSharedHandles(state: VectorIndexState): Promise<void> {
   const run = state.sharing.then(async () => {
-    if (!state.workerCopies.enabled || state.disposed) return
+    if (!state.workerCopies.enabled || state.disposed || state.workerCopiesHeld) return
     const host = state.workerCopies.host
     for (const [graph, shared] of [...state.sharedHandles]) {
       if (host !== undefined) await loadOnHost(state, host, graph, shared.searchable)
@@ -238,7 +244,7 @@ export function resendSharedHandles(state: VectorIndexState): Promise<void> {
 }
 
 export function scheduleWorkerCopyLoad(state: VectorIndexState): void {
-  if (!state.workerCopies.enabled) return
+  if (!state.workerCopies.enabled || state.workerCopiesHeld) return
   if (state.disposed || state.workerCopyLoading || state.building) return
   const graph = state.hnsw
   const host = state.workerCopies.host
