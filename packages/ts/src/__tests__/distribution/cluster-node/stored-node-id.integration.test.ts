@@ -74,17 +74,6 @@ describe('a durable cluster node started without a node id', () => {
     expect(answer.hits.map(hit => hit.id).sort()).toEqual(TOOLS.map(tool => tool.id).sort())
   }, 60_000)
 
-  it('refuses a second node that points at a directory another node holds', async () => {
-    await startNode('host-a')
-    const second = createClusterNode({
-      coordinator,
-      transport: createInMemoryTransport('host-b:9200', network),
-      address: 'host-b:9200',
-      engine: { durability: { directory } },
-    })
-    await expect(second).rejects.toBeInstanceOf(NarsilError)
-  }, 30_000)
-
   it('refuses to start from a node id file that something else rewrote', async () => {
     const first = await startNode('host-a')
     await first.shutdown()

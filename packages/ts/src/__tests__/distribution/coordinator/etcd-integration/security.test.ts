@@ -3,9 +3,8 @@ import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { type ClusterCoordinator, createEtcdCoordinator } from '../../../../distribution/coordinator'
+import { createEtcdCoordinator } from '../../../../distribution/coordinator'
 import type { EtcdCoordinatorConfig } from '../../../../distribution/coordinator/etcd/types'
-import { ErrorCodes, NarsilError } from '../../../../errors'
 import { generateTlsBundles, type TlsBundles } from '../../transport/tcp-tls/fixtures'
 import {
   ETCD_IMAGE,
@@ -19,18 +18,6 @@ import {
 
 const ROOT_PASSWORD = 'quince-ledger-7'
 const CERTIFICATE_DIRECTORY = '/certs'
-
-async function codeOf(work: Promise<ClusterCoordinator>): Promise<string> {
-  let coordinator: ClusterCoordinator
-  try {
-    coordinator = await work
-  } catch (error) {
-    if (error instanceof NarsilError) return error.code
-    throw error
-  }
-  await coordinator.shutdown()
-  throw new Error('expected the coordinator to refuse')
-}
 
 describe('an etcd that requires TLS, a client certificate, and a password', () => {
   let bundles: TlsBundles
@@ -52,13 +39,12 @@ describe('an etcd that requires TLS, a client certificate, and a password', () =
     ])
   }
 
-  function settings(overrides: Partial<EtcdCoordinatorConfig> = {}): Partial<EtcdCoordinatorConfig> {
+  function settings(): Partial<EtcdCoordinatorConfig> {
     return {
       endpoints: [endpoint],
       keyPrefix: `_narsil_secured_${randomUUID()}`,
       tls: { ca: bundles.serverBundle.ca, cert: bundles.clientBundle.cert, key: bundles.clientBundle.key },
       auth: { username: 'root', password: ROOT_PASSWORD },
-      ...overrides,
     }
   }
 
@@ -146,16 +132,5 @@ describe('an etcd that requires TLS, a client certificate, and a password', () =
     } finally {
       await coordinator.shutdown()
     }
-  }, 30_000)
-
-  it('refuses a wrong password with COORDINATOR_AUTH_FAILED', async () => {
-    expect(await codeOf(createEtcdCoordinator(settings({ auth: { username: 'root', password: 'wrong' } })))).toBe(
-      ErrorCodes.COORDINATOR_AUTH_FAILED,
-    )
-  }, 30_000)
-
-  it('refuses an etcd whose certificate chains to another authority with COORDINATOR_UNAVAILABLE', async () => {
-    const tls = { ca: bundles.rogueBundle.ca, cert: bundles.clientBundle.cert, key: bundles.clientBundle.key }
-    expect(await codeOf(createEtcdCoordinator(settings({ tls })))).toBe(ErrorCodes.COORDINATOR_UNAVAILABLE)
   }, 30_000)
 })

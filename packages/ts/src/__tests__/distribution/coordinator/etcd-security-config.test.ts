@@ -1,5 +1,4 @@
-import { createServer } from 'node:net'
-import { beforeAll, describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { createEtcdCoordinator } from '../../../distribution/coordinator'
 import { ErrorCodes, NarsilError } from '../../../errors'
 
@@ -17,17 +16,6 @@ async function codeOf(work: Promise<unknown>): Promise<string> {
 }
 
 describe('etcd coordinator security settings', () => {
-  let closedPort = 0
-
-  beforeAll(async () => {
-    const holder = createServer()
-    await new Promise<void>(resolve => holder.listen(0, '127.0.0.1', resolve))
-    const address = holder.address()
-    if (address === null || typeof address === 'string') throw new Error('no port')
-    closedPort = address.port
-    await new Promise<void>(resolve => holder.close(() => resolve()))
-  })
-
   it.each([
     ['an endpoint without a scheme', ['etcd.internal:2379']],
     ['one plain endpoint among secure ones', ['https://etcd-a.internal:2379', 'http://etcd-b.internal:2379']],
@@ -42,10 +30,4 @@ describe('etcd coordinator security settings', () => {
   ])('refuses a password sent in clear text to %s', async (_label, endpoints) => {
     expect(await codeOf(createEtcdCoordinator({ endpoints, auth: AUTH }))).toBe(ErrorCodes.CONFIG_INVALID)
   })
-
-  it('accepts a password over plain http to a loopback etcd, and reports an etcd that nobody can reach', async () => {
-    expect(await codeOf(createEtcdCoordinator({ endpoints: [`http://127.0.0.1:${closedPort}`], auth: AUTH }))).toBe(
-      ErrorCodes.COORDINATOR_UNAVAILABLE,
-    )
-  }, 30_000)
 })

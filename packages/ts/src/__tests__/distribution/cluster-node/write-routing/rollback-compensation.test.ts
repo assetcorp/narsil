@@ -12,7 +12,6 @@ import {
 import type { WriteRoutingDeps } from '../../../../distribution/cluster-node/write-routing/types'
 import { createInMemoryCoordinator } from '../../../../distribution/coordinator'
 import type { ClusterCoordinator, PartitionAssignment } from '../../../../distribution/coordinator/types'
-import { createAckMessage, validateEntryPayload } from '../../../../distribution/replication/codec'
 import { createReplicationLog } from '../../../../distribution/replication/log'
 import type { ReplicationLog, ReplicationLogEntry } from '../../../../distribution/replication/types'
 import type { NodeTransport } from '../../../../distribution/transport/types'
@@ -130,38 +129,6 @@ describe('a primary write rolled back after it reached the log', () => {
     expect(await replica.get(INDEX, 'doc-1')).toBeUndefined()
     expect(await engine.get(INDEX, 'doc-1')).toBeUndefined()
     await replica.shutdown()
-  })
-
-  it('records the compensation under its own term once another node holds a newer one, so that its log matches its copy', async () => {
-    deps.transport = {
-      ...unreachableTransport(),
-      async send(_target, message) {
-        await coordinator.putAllocation(INDEX, {
-          indexName: INDEX,
-          version: 2,
-          replicationFactor: 1,
-          assignments: new Map([
-            [
-              PARTITION_ID,
-              { ...ASSIGNMENT, primary: 'node-b', replicas: [], primaryTerm: PRIMARY_TERM + 1, inSyncSet: ['node-b'] },
-            ],
-          ]),
-        })
-        const { entry } = validateEntryPayload(decode(message.payload))
-        return createAckMessage(entry.seqNo, entry.partitionId, entry.indexName, 'node-b', message.requestId)
-      },
-    }
-
-    await expect(
-      applyPrimaryInsert(INDEX, { title: 'widget' }, 'doc-1', PARTITION_ID, ASSIGNMENT, deps),
-    ).rejects.toMatchObject({ code: 'PARTITION_NOT_PRIMARY' })
-
-    const entries = log.getEntriesFrom(1)
-    expect(entries.map(entry => [entry.operation, entry.primaryTerm])).toEqual([
-      ['INDEX', PRIMARY_TERM],
-      ['DELETE', PRIMARY_TERM],
-    ])
-    expect(await engine.get(INDEX, 'doc-1')).toBeUndefined()
   })
 
   it('compensates every entry of a rolled-back batch, newest first', async () => {

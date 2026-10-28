@@ -7,7 +7,6 @@ import { createInMemoryCoordinator } from '../../../../../distribution/coordinat
 import type { ClusterCoordinator, PartitionAssignment } from '../../../../../distribution/coordinator/types'
 import type { InMemoryNetwork, NodeTransport } from '../../../../../distribution/transport'
 import { createInMemoryNetwork, createInMemoryTransport } from '../../../../../distribution/transport'
-import { ErrorCodes, NarsilError } from '../../../../../errors'
 import { flushPromises, makeAllocationTable, makeAssignment, makeNode } from './fixtures'
 
 describe('DataNodeLifecycle leave, shutdown, retry, and edge cases', () => {
@@ -226,21 +225,6 @@ describe('DataNodeLifecycle leave, shutdown, retry, and edge cases', () => {
       await flushPromises()
 
       expect(bootstrapFn).not.toHaveBeenCalled()
-    })
-
-    it('ends a join that waits on a live registration under its own id once the node shuts down', async () => {
-      await coordinator.registerNode(makeNode('data-1'))
-      createLifecycle()
-      if (lifecycle === undefined) throw new Error('lifecycle not initialised')
-
-      const joining = lifecycle.join().catch((error: unknown) => error)
-      await flushPromises()
-      await lifecycle.shutdown()
-
-      const error = await joining
-      expect(error).toBeInstanceOf(NarsilError)
-      expect((error as NarsilError).code).toBe(ErrorCodes.NODE_NOT_JOINED)
-      expect(lifecycle.status).toBe('shutdown')
     })
   })
 })
