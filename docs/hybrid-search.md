@@ -18,9 +18,11 @@ The engine starts the vector ranking first and computes the BM25 ranking while t
 
 The engine orders hybrid results by fusion, so it throws `SEARCH_INVALID_MODE` for a hybrid query that also sets a `sort`.
 
-Each of the two searches fetches `hybrid.depth` results, 100 by default, and the engine pages through the top `depth` of the fused list. Every page of one query therefore comes from the same fused order, whether you page with `offset` or with the cursor that each result carries. The last page stops at `depth`, so it can hold fewer than `limit` hits, and a page that starts at `depth` or beyond raises `SEARCH_RESULT_WINDOW_EXCEEDED`. Raise `depth`, up to 10,000, to page further, although each search then fetches more results for every page.
+For a hybrid query, `count` holds the length of the fused list where you leave `hybrid.depth` out, and the keyword matches plus the vector results that match no keyword where you set it. `countExact` is true only where each of the two rankings contains every matching document. The vector ranking contains only the candidates that the engine fetches for it, so for a field that holds a graph the engine reports a number at or below the true total.
 
-For a hybrid query, `count` holds the keyword matches plus the vector results that match no keyword. `countExact` is true only where each of the two rankings contains every matching document. The vector ranking contains only the results that the engine fetches for it, so for a field that holds a graph the engine reports a number at or below the true total.
+Where you leave `hybrid.depth` out, the engine fetches a deeper vector ranking for each page, so the fused order can change from one page to the next, and a cluster refuses a cursor on such a query with `SEARCH_INVALID_CURSOR`. Set `hybrid.depth` where you need the same order across a run of pages.
+
+Where you set `hybrid.depth`, each of the two searches fetches that many results, and the engine pages through the top `depth` of the fused list. Every page of one query therefore comes from the same fused order, whether you page with `offset` or with the cursor that each result carries. The last page stops at `depth`, so it can hold fewer than `limit` hits, and a page that starts at `depth` or beyond raises `SEARCH_RESULT_WINDOW_EXCEEDED`. A larger `depth`, up to 10,000, lets you page further, although each search then fetches more results for every page.
 
 Set `strategy` to one of two values:
 
