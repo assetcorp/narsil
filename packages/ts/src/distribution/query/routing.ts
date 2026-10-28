@@ -98,18 +98,18 @@ export async function distributedQuery(
 
   const isHybrid = params.vector !== null && (params.term !== null || params.mode === 'hybrid')
 
-  if (isHybrid && params.sort !== null && params.sort.length > 0) {
-    throw new NarsilError(
-      ErrorCodes.SEARCH_INVALID_MODE,
-      'A hybrid query cannot carry a sort, because fusion defines the order of hybrid results',
-      { indexName },
-    )
-  }
-
   if (isHybrid && params.searchAfter !== null && (params.hybrid?.depth ?? null) === null) {
     throw new NarsilError(
       ErrorCodes.SEARCH_INVALID_CURSOR,
       'Cursor pagination is not supported for hybrid queries without hybrid.depth, because fused ranks do not seek. Set hybrid.depth to page by cursor',
+      { indexName },
+    )
+  }
+
+  if (isHybrid && params.sort !== null && params.sort.length > 0) {
+    throw new NarsilError(
+      ErrorCodes.SEARCH_INVALID_MODE,
+      'A hybrid query cannot carry a sort, because fusion defines the order of hybrid results',
       { indexName },
     )
   }

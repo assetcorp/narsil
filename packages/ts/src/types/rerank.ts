@@ -32,11 +32,11 @@ export interface RerankConfig {
   query?: string
   /**
    * The engine reranks this many of the top hits, from 1 to the engine's
-   * `maxRerankWindow`. Where you leave it out, the engine reranks the
-   * smallest of 100, `maxRerankWindow`, and, where a hybrid query sets it,
-   * `hybrid.depth`. A hybrid query that sets `hybrid.depth` reranks its fused
-   * list at that depth, so the engine throws `RERANK_CONFIG_INVALID` when you
-   * set a window above it.
+   * `maxRerankWindow`. Where you leave the window out, the engine reranks the
+   * smallest of 100 and `maxRerankWindow`, and no more than the `hybrid.depth`
+   * of a hybrid query that sets one. A hybrid query that sets `hybrid.depth`
+   * reranks its fused list at that depth, so the engine throws
+   * `RERANK_CONFIG_INVALID` when you set a window above that depth.
    */
   window?: number
 }

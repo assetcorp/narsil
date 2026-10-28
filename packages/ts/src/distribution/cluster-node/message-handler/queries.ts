@@ -30,13 +30,16 @@ export async function handleSearch(
   if (queryParams.group?.limit !== undefined) {
     queryParams.group = { ...queryParams.group, limit: oversampledShardSize(queryParams.group.limit) }
   }
-  if (queryParams.sort === undefined && queryParams.group === undefined) queryParams.document = false
+  const rescoreWindow = payload.params.vector?.rescoreWindow ?? undefined
+  if (rescoreWindow !== undefined && queryParams.sort === undefined && queryParams.group === undefined) {
+    queryParams.document = false
+  }
   const queryResult = await deps.engine.queryPartitions(
     payload.indexName,
     queryParams,
     payload.partitionIds,
     payload.globalStats ?? undefined,
-    payload.params.vector?.rescoreWindow ?? undefined,
+    rescoreWindow,
   )
 
   const normalizedSort = queryParams.sort !== undefined ? normalizeSort(queryParams.sort) : null

@@ -159,6 +159,7 @@ export async function executeHybridQuery(
   const allFacetBounds: Array<Record<string, number> | null> = []
   const allGroups: WireGroupEntry[][] = []
   let totalHits = 0
+  let vectorHits = 0
 
   for (const outcome of textOutcomes) {
     if (outcome.status !== 'success' || outcome.results === null) continue
@@ -183,6 +184,7 @@ export async function executeHybridQuery(
       if (partitionResult.scored.length > 0) {
         vectorScored.push(partitionResult.scored)
       }
+      vectorHits += partitionResult.totalHits
     }
   }
 
@@ -200,7 +202,9 @@ export async function executeHybridQuery(
   const allMatchesPresent =
     coverage.queriedPartitions === coverage.totalPartitions &&
     totalHits <= mergedText.length &&
-    mergedVector.length < depth
+    (fixedDepth === undefined
+      ? mergedVector.length < depth
+      : params.vector?.similarity === null && vectorHits <= mergedVector.length)
   const pins = fixedDepth === undefined || params.searchAfter === null ? params.pinned : null
   const placement =
     pins !== null

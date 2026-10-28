@@ -74,7 +74,11 @@ describe('hybrid query legs', () => {
       },
     }
 
-    const result = await executeHybridSearch(hybridParams, withPatternWork(context))
+    const result = await executeHybridSearch(hybridParams, withPatternWork(context), {
+      limit: 10,
+      offset: 0,
+      cursorDepth: 0,
+    })
 
     expect(vectorInFlightDuringText).toBe(true)
     expect(result.scored.map(doc => doc.docId)).toEqual(['B', 'A', 'C'])
