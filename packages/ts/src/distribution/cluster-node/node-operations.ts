@@ -8,6 +8,7 @@ import {
   type ClusterReadDeps,
   countCluster,
   listCluster,
+  listIndexesCluster,
   partitionStatsCluster,
   preflightCluster,
   queryCluster,
@@ -15,6 +16,7 @@ import {
   statsCluster,
   suggestCluster,
 } from './reads'
+import { rebuildClusterAnalysis } from './rebuild-analysis'
 import type { ClusterNode, CreateIndexOptions } from './types'
 import {
   routeCreateIndex,
@@ -43,6 +45,8 @@ export type ClusterNodeOperations = Pick<
   | 'listDocuments'
   | 'suggest'
   | 'preflight'
+  | 'listIndexes'
+  | 'rebuildAnalysis'
   | 'getStats'
   | 'getPartitionStats'
   | 'checkpoint'
@@ -122,6 +126,16 @@ export function createClusterNodeOperations(deps: ClusterNodeOperationDeps): Clu
 
     async preflight(indexName, params) {
       return trackOp(indexName, () => preflightCluster(readDeps, indexName, params))
+    },
+
+    async rebuildAnalysis(indexName) {
+      return trackOp(indexName, () =>
+        rebuildClusterAnalysis({ nodeId: readDeps.nodeId, config: readDeps.config, engine }, indexName),
+      )
+    },
+
+    async listIndexes() {
+      return trackOp(null, () => listIndexesCluster(readDeps))
     },
 
     async getStats(indexName) {

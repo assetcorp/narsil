@@ -1,3 +1,4 @@
+import { indexReadsOf } from '../../narsil/index-reads'
 import { mapHttpIndexConfig } from '../config-mapping'
 import type { HandlerDeps } from '../deps'
 import { parseJson, rejectInvalid, respondError, respondJson } from '../handler-utils'
@@ -25,9 +26,9 @@ export function createIndexHandlers(deps: HandlerDeps) {
     }
   }
 
-  function list(ctx: RouteContext): void {
+  async function list(ctx: RouteContext): Promise<void> {
     try {
-      respondJson(ctx, { indexes: engine.listIndexes() })
+      respondJson(ctx, { indexes: await indexReadsOf(engine).listIndexes() })
     } catch (err) {
       respondError(ctx, err)
     }
@@ -42,17 +43,17 @@ export function createIndexHandlers(deps: HandlerDeps) {
     }
   }
 
-  function stats(ctx: RouteContext): void {
+  async function stats(ctx: RouteContext): Promise<void> {
     try {
-      respondJson(ctx, engine.getStats(ctx.params[0]))
+      respondJson(ctx, await indexReadsOf(engine).getStats(ctx.params[0]))
     } catch (err) {
       respondError(ctx, err)
     }
   }
 
-  function partitions(ctx: RouteContext): void {
+  async function partitions(ctx: RouteContext): Promise<void> {
     try {
-      respondJson(ctx, { partitions: engine.getPartitionStats(ctx.params[0]) })
+      respondJson(ctx, { partitions: await indexReadsOf(engine).getPartitionStats(ctx.params[0]) })
     } catch (err) {
       respondError(ctx, err)
     }

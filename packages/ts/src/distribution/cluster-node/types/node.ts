@@ -2,6 +2,7 @@ import type { NarsilEventMap } from '../../../types/events'
 import type { MemoryStats } from '../../../types/memory'
 import type {
   BatchResult,
+  IndexInfo,
   IndexStats,
   ListResult,
   PartitionStatsResult,
@@ -182,6 +183,31 @@ export interface ClusterNode {
    * @returns The match count and the time the count took.
    */
   preflight(indexName: string, params: QueryParams): Promise<PreflightResult>
+  /**
+   * Lists every index that the cluster holds a schema for, with its document count summed over every partition, its
+   * partition count, and its language.
+   *
+   * The state, the reopen count, and the stale analysis flag describe this node's own copy, so an index that this node
+   * holds no copy of reports `open` and 0 reopens. An index that a caller drops while the listing runs drops out of it.
+   *
+   * @returns One entry per index, in the order the coordinator lists the schemas.
+   * @throws A `NarsilError` with `QUERY_PARTIAL_FAILURE` where no copy of some partition answers its count.
+   */
+  listIndexes(): Promise<IndexInfo[]>
+  /**
+   * Rebuilds the terms of an index on every node that holds a copy, and resolves once every one of those nodes has
+   * finished.
+   *
+   * Each node rebuilds its own copies from their documents, so a primary and its replicas reach the same terms without
+   * sending entries, and a node skips a copy whose analysis is already current. A node that answers late keeps its
+   * rebuild running, and this call waits for it for as long as the node stays registered.
+   *
+   * @param indexName - The index whose terms are rebuilt.
+   * @throws A `NarsilError` with `INDEX_NOT_FOUND` where the cluster holds no such index, and with
+   *   `QUERY_PARTIAL_FAILURE`, naming each node in `details.nodeIds`, where a node fails, cannot be reached, or leaves
+   *   the cluster before it answers.
+   */
+  rebuildAnalysis(indexName: string): Promise<void>
   /**
    * Describes one index across the cluster: its document count and memory
    * estimate summed over every partition, its partition count, its language,

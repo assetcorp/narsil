@@ -1,7 +1,18 @@
 import { decode } from '@msgpack/msgpack'
 import { createPartitionStoresResultMessage, validatePartitionStoresPayload } from '../../cluster/partition-stores'
 import type { PartitionStoresResultPayload, RespondFn, TransportMessage } from '../../transport/types'
+import type { ClusterLocalEngine } from '../local-engine'
 import type { DataNodeHandlerDeps } from './types'
+
+export function heldPartitionIdsOf(engine: ClusterLocalEngine, indexName: string): number[] {
+  const held = new Set<number>(engine.heldPartitionsOf(indexName) ?? [])
+  for (const partition of engine.getPartitionStats(indexName)) {
+    if (partition.documentCount > 0) {
+      held.add(partition.partitionId)
+    }
+  }
+  return [...held].sort((left, right) => left - right)
+}
 
 function describeLocalCopy(deps: DataNodeHandlerDeps, indexName: string): PartitionStoresResultPayload {
   const absent: PartitionStoresResultPayload = { indexName, indexUuid: null, partitionIds: [] }
@@ -12,13 +23,7 @@ function describeLocalCopy(deps: DataNodeHandlerDeps, indexName: string): Partit
   if (indexUuid === null || indexUuid === undefined) {
     return absent
   }
-  const held = new Set<number>(deps.engine.heldPartitionsOf(indexName) ?? [])
-  for (const partition of deps.engine.getPartitionStats(indexName)) {
-    if (partition.documentCount > 0) {
-      held.add(partition.partitionId)
-    }
-  }
-  return { indexName, indexUuid, partitionIds: [...held].sort((left, right) => left - right) }
+  return { indexName, indexUuid, partitionIds: heldPartitionIdsOf(deps.engine, indexName) }
 }
 
 /**

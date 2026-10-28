@@ -1,4 +1,5 @@
 import { ErrorCodes, NarsilError } from '../../errors'
+import { bindIndexReads } from '../../narsil/index-reads'
 import { bindEngineWriteBlock } from '../../narsil/write-blocks'
 import type { Narsil } from '../../types/engine'
 import type { AnyDocument, IndexConfig, InsertOptions, WriteOptions } from '../../types/schema'
@@ -33,14 +34,16 @@ function rejectWait(options: WriteOptions | undefined): void {
  * serves a single engine.
  *
  * Writes, updates, searches, suggestions, listings, counts, index creation,
- * index removal, and document reads route through the cluster. Checkpointing,
+ * index removal, analysis rebuilds, and document reads route through the cluster. Checkpointing,
  * memory statistics, index opens, index closes, and engine events reach this
  * node's local engine, because each covers a per-node fact. Every other operation fails with
  * `CLUSTER_OPERATION_UNSUPPORTED`, which the HTTP server answers with status
  * 501, so a caller learns the operation is missing rather than reading a
- * wrong answer. That covers `getStats`, `getPartitionStats`, and
- * `listIndexes` as well, because {@link Narsil} declares them synchronous and
- * a cluster answer needs a round trip; call them on the
+ * wrong answer. The HTTP server answers the index list, the index figures,
+ * and the partition figures from the whole cluster. The adapter's own
+ * `getStats`, `getPartitionStats`, and `listIndexes` still fail with
+ * `CLUSTER_OPERATION_UNSUPPORTED`, because {@link Narsil} declares them
+ * synchronous and a cluster answer needs a round trip, so call them on the
  * {@link ClusterNode} itself, where they are asynchronous.
  *
  * @param node - The cluster node the adapter serves.
@@ -147,6 +150,10 @@ export function clusterNodeEngine(node: ClusterNode, options?: ClusterEngineOpti
       return node.checkpoint(indexName)
     },
 
+    async rebuildAnalysis(indexName: string): Promise<void> {
+      return node.rebuildAnalysis(indexName)
+    },
+
     async getMemoryStats() {
       return node.getMemoryStats()
     },
@@ -168,7 +175,6 @@ export function clusterNodeEngine(node: ClusterNode, options?: ClusterEngineOpti
     listIndexes: () => unsupported('listIndexes'),
     getStats: () => unsupported('getStats'),
     getPartitionStats: () => unsupported('getPartitionStats'),
-    rebuildAnalysis: () => unsupported('rebuildAnalysis'),
     snapshot: () => unsupported('snapshot'),
     restore: () => unsupported('restore'),
     exportDocuments: () => unsupported('exportDocuments'),
@@ -180,5 +186,10 @@ export function clusterNodeEngine(node: ClusterNode, options?: ClusterEngineOpti
     vectorMaintenanceStatus: () => unsupported('vectorMaintenanceStatus'),
   }
   bindEngineWriteBlock(engine, node)
+  bindIndexReads(engine, {
+    listIndexes: () => node.listIndexes(),
+    getStats: indexName => node.getStats(indexName),
+    getPartitionStats: indexName => node.getPartitionStats(indexName),
+  })
   return engine
 }

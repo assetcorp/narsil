@@ -169,6 +169,7 @@ export const ClusterMessageTypes = {
   BOOTSTRAP_COMPLETE: 'cluster.bootstrap_complete',
   PARTITION_STORES: 'cluster.partition_stores',
   REPLICATION_FACTOR: 'cluster.replication_factor',
+  REBUILD_ANALYSIS: 'cluster.rebuild_analysis',
 } as const
 
 export interface ForwardPayload {
@@ -347,6 +348,16 @@ export interface BootstrapCompleteResultPayload {
 
 export interface PartitionStoresPayload {
   indexName: string
+}
+
+export interface RebuildAnalysisPayload {
+  indexName: string
+  indexUuid: string
+}
+
+export interface RebuildAnalysisResultPayload {
+  indexName: string
+  rebuiltPartitions: number[]
 }
 
 export interface PartitionStoresResultPayload {
