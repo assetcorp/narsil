@@ -27,7 +27,7 @@ export { createNarsilFromCore } from './operations'
 export async function createNarsil(config?: NarsilConfig): Promise<Narsil> {
   requireKnownConfig(config)
   const runnableConfig = await resolveRunnableConfig(config)
-  const core = createEngineCore(runnableConfig)
+  const core = await createEngineCore(runnableConfig)
   await startEngineCore(core, runnableConfig)
   return createNarsilFromCore(core, runnableConfig)
 }

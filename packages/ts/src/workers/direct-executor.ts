@@ -9,16 +9,12 @@ import { extractVectorFieldsFromSchema } from '../schema/validator'
 import type { FulltextSearchOptions } from '../search/fulltext'
 import type { LanguageModule } from '../types/language'
 import type { IndexConfig, VectorStorageMode } from '../types/schema'
-import {
-  createVectorIndex,
-  type VectorIndex,
-  type VectorSearcher,
-  type VectorWorkerCopyPolicy,
-} from '../vector/vector-index'
+import type { VectorIndex, VectorSearcher, VectorWorkerCopyPolicy } from '../vector/vector-index'
 import type { Executor } from './executor'
 import type { WorkerAction } from './protocol'
 import { runQueryAction } from './query-actions'
 import { growPartitionsTo, isSegmentAction, runSegmentAction } from './segment-actions'
+import { loadedVectorCode, loadVectorCode, loadVectorCodeFor, requireLoadedVectorCode } from './vector-code'
 import {
   closeHeldVectorCopies,
   createHeldVectorCopies,
@@ -97,7 +93,10 @@ export function createDirectExecutor(options?: DirectExecutorOptions): Executor 
 
   function vectorIndexesFor(indexName: string, config: IndexConfig): Map<string, VectorIndex> {
     const vectorIndexes = new Map<string, VectorIndex>()
-    for (const [fieldPath, dim] of extractVectorFieldsFromSchema(config.schema)) {
+    const vectorFields = extractVectorFieldsFromSchema(config.schema)
+    if (vectorFields.size === 0) return vectorIndexes
+    const { createVectorIndex } = requireLoadedVectorCode()
+    for (const [fieldPath, dim] of vectorFields) {
       vectorIndexes.set(
         fieldPath,
         createVectorIndex(
@@ -223,6 +222,8 @@ export function createDirectExecutor(options?: DirectExecutorOptions): Executor 
       }
 
       case 'createIndex': {
+        const loading = loadVectorCodeFor(action.config.schema)
+        if (loading !== null) await loading
         const language = getLanguage(action.config.language ?? 'english')
         const manager = addIndex(
           action.indexName,
@@ -252,6 +253,7 @@ export function createDirectExecutor(options?: DirectExecutorOptions): Executor 
       }
 
       case 'loadVectorCopy': {
+        if (loadedVectorCode() === null) await loadVectorCode()
         const entry = requireIndex(action.indexName)
         loadHeldVectorCopy(
           entry.vectorCopies,
@@ -283,13 +285,13 @@ export function createDirectExecutor(options?: DirectExecutorOptions): Executor 
 
       case 'remove': {
         const entry = requireIndex(action.indexName)
-        entry.manager.remove(action.docId)
+        entry.manager.remove(action.docId, action.removedSpellings)
         return undefined as T
       }
 
       case 'update': {
         const entry = requireIndex(action.indexName)
-        entry.manager.update(action.docId, action.document)
+        entry.manager.update(action.docId, action.document, undefined, action.removedSpellings)
         return undefined as T
       }
 

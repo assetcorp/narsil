@@ -67,12 +67,14 @@ export async function applyLocalReplicationEntry(core: EngineCore, entry: Replic
       return
     }
 
-    applyDeleteEntry(entry, manager, vecIndexes)
+    const removedSpellings = manager.removedSpellingsOf(entry.documentId)
+    applyDeleteEntry(entry, manager, vecIndexes, removedSpellings)
     await core.orchestrator.replicateToWorkers({
       type: 'remove',
       indexName: entry.indexName,
       docId: entry.documentId,
       requestId: `replicate-entry-remove-${entry.indexName}-${entry.partitionId}-${entry.seqNo}`,
+      removedSpellings,
     })
   } finally {
     release()

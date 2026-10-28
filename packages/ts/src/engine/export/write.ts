@@ -13,10 +13,9 @@ import { decodeVectorFilePayload } from '../../vector/vector-index/checkpoint-pa
 import { isDead } from '../../vector/vector-index/dead-bits'
 import { bytesToVectors } from '../../vector/vector-index/payload'
 import { EXPORT_CHUNK_BYTES } from '../constants'
+import { DOCUMENT_EXPORT_FORMAT, DOCUMENT_EXPORT_VERSION } from './import'
 import { encodeDocumentJson, encodeExactJson } from './json-line'
 
-export const DOCUMENT_EXPORT_FORMAT = 'narsil-export'
-export const DOCUMENT_EXPORT_VERSION = 1
 const VECTOR_FILE_ENVELOPE_VERSION = 2
 const FLOAT32_BYTES = 4
 

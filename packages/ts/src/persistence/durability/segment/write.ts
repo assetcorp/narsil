@@ -1,5 +1,6 @@
 import { resolveIndexAnalysis } from '../../../analysis/registry'
 import type { PartitionInsertOptions } from '../../../core/partition'
+import type { TextAnalysis } from '../../../core/partition/frozen/surface-slot'
 import type { PartialWordAnalysis } from '../../../core/partition/partial-words/spellings'
 import type { ReplicationLogEntry } from '../../../distribution/replication/types'
 import { reconstructSchemaFromMetadata } from '../../../engine/recovery-schema'
@@ -60,6 +61,7 @@ interface PartitionWriteContext {
   indexName: string
   config: IndexConfig
   partialWordAnalysis: PartialWordAnalysis | null
+  textAnalysis: TextAnalysis
   vectorFieldPaths: Set<string>
   compactionThreshold: number
 }
@@ -69,9 +71,7 @@ interface ResolvedTextAnalysis {
   options: PartitionInsertOptions | undefined
 }
 
-function partialWordAnalysisOf(config: IndexConfig): PartialWordAnalysis | null {
-  const fields = partialFieldsOf(config.schema)
-  if (fields.length === 0) return null
+function textAnalysisOf(config: IndexConfig): TextAnalysis {
   let resolved: ResolvedTextAnalysis | null = null
   const resolve = (): ResolvedTextAnalysis => {
     resolved ??= {
@@ -81,12 +81,25 @@ function partialWordAnalysisOf(config: IndexConfig): PartialWordAnalysis | null 
     return resolved
   }
   return {
-    fields,
     get language() {
       return resolve().language
     },
     get options() {
       return resolve().options
+    },
+  }
+}
+
+function partialWordAnalysisOf(config: IndexConfig, text: TextAnalysis): PartialWordAnalysis | null {
+  const fields = partialFieldsOf(config.schema)
+  if (fields.length === 0) return null
+  return {
+    fields,
+    get language() {
+      return text.language
+    },
+    get options() {
+      return text.options
     },
   }
 }
@@ -118,6 +131,7 @@ async function writeWholePartition(
     nextSegmentId: priorPartition?.nextSegmentId ?? 0,
     schema: context.input.metadata.schema,
     partialWordAnalysis: context.partialWordAnalysis,
+    textAnalysis: context.textAnalysis,
     selections: whole.selections,
     tombstones: [],
   })
@@ -147,6 +161,7 @@ async function writeLoggedChanges(
       nextSegmentId,
       schema: context.input.metadata.schema,
       partialWordAnalysis: context.partialWordAnalysis,
+      textAnalysis: context.textAnalysis,
       selections: built.selections,
       tombstones: built.tombstones,
     })
@@ -166,6 +181,7 @@ async function writeLoggedChanges(
     partitionId,
     schema: context.input.metadata.schema,
     partialWordAnalysis: context.partialWordAnalysis,
+    textAnalysis: context.textAnalysis,
     segments,
     nextSegmentId,
     compactionThreshold: context.compactionThreshold,
@@ -195,11 +211,13 @@ function carryForwardUncheckpointedPartitions(
 
 export async function writeCheckpointSegments(input: CheckpointSegmentsInput): Promise<CheckpointSegmentsWritten> {
   const config = reconstructSchemaFromMetadata(input.metadata)
+  const textAnalysis = textAnalysisOf(config)
   const context: PartitionWriteContext = {
     input,
     indexName: input.metadata.indexName,
     config,
-    partialWordAnalysis: partialWordAnalysisOf(config),
+    partialWordAnalysis: partialWordAnalysisOf(config, textAnalysis),
+    textAnalysis,
     vectorFieldPaths: new Set(extractVectorFieldsFromSchema(config.schema).keys()),
     compactionThreshold: resolveCompactionThreshold(input.compactionThreshold),
   }

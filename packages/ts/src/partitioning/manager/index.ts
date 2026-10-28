@@ -1,13 +1,14 @@
 import { resolveIndexAnalysis } from '../../analysis/registry'
 import type { ComparableSortValue } from '../../core/ordering'
 import { createPartitionIndex, type PartitionIndex, type PartitionInsertOptions } from '../../core/partition'
-import { type CompositePartition, createCompositePartition } from '../../core/partition/composite'
+import { type CompositePartition, createCompositePartition, isCompositePartition } from '../../core/partition/composite'
 import type { LiveTailFreezer } from '../../core/partition/composite/compaction'
 import type { FrozenSegment } from '../../core/partition/frozen'
+import type { RemovedSpellings } from '../../core/partition/frozen/surface-slot'
 import { requirePartialWordSearchFor } from '../../core/partition/partial-words/registry'
 import type { SegmentPayload } from '../../core/partition/segment-payload'
 import { requirePatternSearchFor } from '../../core/pattern-index/registry'
-import { projectionKeepsField, type ResolvedProjection } from '../../core/projection'
+import type { ResolvedProjection } from '../../core/projection'
 import type { SynonymLookup } from '../../core/synonyms/types'
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { SerializablePartition } from '../../types/internal'
@@ -17,7 +18,9 @@ import type { VectorIndex } from '../../vector/vector-index'
 import { resolvePartialWordAnalysis, resolvePartitionInsertOptions } from '../insert-options'
 import type { PartitionRouter } from '../router'
 import { createCapacityChecks } from './capacity'
-import { setNestedValue } from './nested-values'
+import { mapEveryDocument, mapSegmentDocuments, remapPartitionDocuments } from './doc-locations'
+import { copyVectorsInto } from './nested-values'
+import { requireNewSegmentDocuments } from './segments'
 import { aggregateStatsOf, estimateBytesOf, partitionStatsOf } from './stats'
 import type { PartitionManager } from './types'
 import { createWriteLogRecorder } from './write-log'
@@ -37,6 +40,7 @@ export function createPartitionManager(
   const count = initialPartitionCount ?? 1
   const analysis = resolveIndexAnalysis(config)
   const partialWordAnalysis = resolvePartialWordAnalysis(config, language, analysis)
+  const textAnalysis = { language, options: resolvePartitionInsertOptions(config, analysis) }
   const trackPositions = config.trackPositions ?? true
   const vecIndexes: Map<string, VectorIndex> = vectorIndexes ?? new Map()
   let partitions: PartitionIndex[] = []
@@ -72,39 +76,10 @@ export function createPartitionManager(
 
   function asCompositePartition(partitionId: number): CompositePartition {
     const existing = partitions[partitionId]
-    if ('attachFrozenSegment' in existing) {
-      return existing as CompositePartition
-    }
-    const composite = createCompositePartition(partitionId, trackPositions, existing)
+    if (isCompositePartition(existing)) return existing
+    const composite = createCompositePartition(partitionId, trackPositions, existing, textAnalysis)
     partitions[partitionId] = composite
     return composite
-  }
-
-  function rebuildDocPartitionMap(): void {
-    docPartitionMap.clear()
-    for (let i = 0; i < partitions.length; i++) {
-      for (const docId of partitions[i].docIds()) {
-        docPartitionMap.set(docId, i)
-      }
-    }
-  }
-
-  function registerSegmentDocuments(partitionId: number, segment: FrozenSegment): void {
-    for (const internalId of segment.docStore.allInternalIds()) {
-      const docId = segment.docStore.getExternalId(internalId)
-      if (docId !== undefined) docPartitionMap.set(docId, partitionId)
-    }
-  }
-
-  function rebuildDocPartitionMapForPartition(partitionId: number): void {
-    for (const [docId, pid] of docPartitionMap) {
-      if (pid === partitionId) {
-        docPartitionMap.delete(docId)
-      }
-    }
-    for (const docId of partitions[partitionId].docIds()) {
-      docPartitionMap.set(docId, partitionId)
-    }
   }
 
   const manager: PartitionManager = {
@@ -135,6 +110,9 @@ export function createPartitionManager(
     replaceSynonyms(lookup: SynonymLookup | null): void {
       synonyms = lookup
     },
+    get textAnalysis() {
+      return textAnalysis
+    },
 
     getPartition(partitionId: number): PartitionIndex {
       validatePartitionId(partitionId)
@@ -152,7 +130,7 @@ export function createPartitionManager(
     setPartitions(newPartitions: PartitionIndex[]): void {
       writeLog.partitionsReplaced()
       partitions = [...newPartitions]
-      rebuildDocPartitionMap()
+      mapEveryDocument(docPartitionMap, partitions)
     },
 
     openWriteLog() {
@@ -189,7 +167,7 @@ export function createPartitionManager(
       validatePartitionId(partitionId)
       writeLog.partitionsReplaced()
       partitions.splice(partitionId, 1)
-      rebuildDocPartitionMap()
+      mapEveryDocument(docPartitionMap, partitions)
     },
 
     trimPartitions(newCount: number): void {
@@ -231,12 +209,20 @@ export function createPartitionManager(
       writeLog.documentWritten(docId)
     },
 
-    remove(docId: string): void {
+    removedSpellingsOf(docId: string): RemovedSpellings | undefined {
+      const pid = locateDocument(docId)
+      const partition = pid === undefined ? undefined : partitions[pid]
+      return partition !== undefined && isCompositePartition(partition)
+        ? partition.removedSpellingsOf(docId)
+        : undefined
+    },
+
+    remove(docId: string, removedSpellings?: RemovedSpellings): void {
       const pid = locateDocument(docId)
       if (pid === undefined) {
         throw new NarsilError(ErrorCodes.DOC_NOT_FOUND, `Document "${docId}" not found in any partition`, { docId })
       }
-      partitions[pid].remove(docId, config.schema, language, resolveInsertOptions())
+      partitions[pid].remove(docId, config.schema, language, resolveInsertOptions(), removedSpellings)
       docPartitionMap.delete(docId)
       writeLog.documentWritten(docId)
     },
@@ -253,13 +239,18 @@ export function createPartitionManager(
       }
     },
 
-    update(docId: string, document: AnyDocument, options?: PartitionInsertOptions): void {
+    update(
+      docId: string,
+      document: AnyDocument,
+      options?: PartitionInsertOptions,
+      removedSpellings?: RemovedSpellings,
+    ): void {
       const pid = locateDocument(docId)
       if (pid === undefined) {
         throw new NarsilError(ErrorCodes.DOC_NOT_FOUND, `Document "${docId}" not found in any partition`, { docId })
       }
       const updateOpts = resolveInsertOptions(options)
-      partitions[pid].update(docId, document, config.schema, language, updateOpts)
+      partitions[pid].update(docId, document, config.schema, language, updateOpts, removedSpellings)
       docPartitionMap.set(docId, pid)
       writeLog.documentWritten(docId)
     },
@@ -268,14 +259,7 @@ export function createPartitionManager(
       const pid = locateDocument(docId)
       if (pid === undefined) return undefined
       const doc = partitions[pid].get(docId, projection)
-      if (!doc) return undefined
-      for (const [fieldPath, vecIndex] of vecIndexes) {
-        if (projection !== undefined && !projectionKeepsField(projection, fieldPath)) continue
-        const vector = vecIndex.getVector(docId)
-        if (vector) {
-          setNestedValue(doc as Record<string, unknown>, fieldPath, vector)
-        }
-      }
+      if (doc) copyVectorsInto(doc, docId, vecIndexes, projection)
       return doc
     },
 
@@ -283,6 +267,11 @@ export function createPartitionManager(
       const pid = locateDocument(docId)
       if (pid === undefined) return undefined
       return partitions[pid].getRef(docId)
+    },
+
+    fieldValues(docId: string, fieldPaths: readonly string[]): unknown[] | undefined {
+      const pid = locateDocument(docId)
+      return pid === undefined ? undefined : partitions[pid].fieldValues(docId, fieldPaths)
     },
 
     sortValues(docId, fields, fieldTypes, modes): ComparableSortValue[] {
@@ -326,23 +315,21 @@ export function createPartitionManager(
 
     attachFrozenSegment(partitionId: number, segment: FrozenSegment): void {
       validatePartitionId(partitionId)
-      for (const internalId of segment.docStore.allInternalIds()) {
-        const docId = segment.docStore.getExternalId(internalId)
-        if (docId === undefined || !docPartitionMap.has(docId)) continue
-        throw new NarsilError(ErrorCodes.DOC_ALREADY_EXISTS, `Document "${docId}" already exists`, {
-          docId,
-          partitionId: docPartitionMap.get(docId),
-        })
-      }
+      requireNewSegmentDocuments(segment, docPartitionMap)
       asCompositePartition(partitionId).attachFrozenSegment(segment)
-      registerSegmentDocuments(partitionId, segment)
+      mapSegmentDocuments(docPartitionMap, partitionId, segment)
       writeLog.segmentWritten(segment)
     },
 
-    swapFrozenSegments(partitionId: number, dropSegmentIds: readonly string[], replacement: FrozenSegment): void {
+    swapFrozenSegments(partitionId, dropSegmentIds, replacement, removedSpellings) {
       validatePartitionId(partitionId)
-      asCompositePartition(partitionId).swapFrozenSegments(dropSegmentIds, replacement)
-      registerSegmentDocuments(partitionId, replacement)
+      const applied = asCompositePartition(partitionId).swapFrozenSegments(
+        dropSegmentIds,
+        replacement,
+        removedSpellings,
+      )
+      mapSegmentDocuments(docPartitionMap, partitionId, replacement)
+      return applied
     },
 
     freezeLiveTail(partitionId: number, freeze: LiveTailFreezer): FrozenSegment | null {
@@ -353,7 +340,7 @@ export function createPartitionManager(
     replaceLiveTail(partitionId: number, segment: FrozenSegment): void {
       validatePartitionId(partitionId)
       asCompositePartition(partitionId).replaceLiveTail(segment)
-      registerSegmentDocuments(partitionId, segment)
+      mapSegmentDocuments(docPartitionMap, partitionId, segment)
     },
 
     deserializePartition(partitionId: number, data: SerializablePartition): void {
@@ -361,7 +348,7 @@ export function createPartitionManager(
       writeLog.partitionsReplaced()
       partitions[partitionId].deserialize(data, config.schema)
       preparePartialWords(partitionId)
-      rebuildDocPartitionMapForPartition(partitionId)
+      remapPartitionDocuments(docPartitionMap, partitionId, partitions[partitionId])
     },
 
     getAggregateStats() {

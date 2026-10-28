@@ -1,5 +1,4 @@
 import { ErrorCodes, NarsilError } from '../../../errors'
-import { everyValueFacetConfig, mergeFacets } from '../../../search/facets'
 import type { FilterExpression } from '../../../types/filters'
 import type { InternalSearchParams, InternalSearchResult } from '../../../types/internal'
 import type { FacetResult } from '../../../types/results'
@@ -9,11 +8,12 @@ import type { ReadonlyStoredDocument } from '../../document-store'
 import type { ComparableSortValue } from '../../ordering'
 import { compareCodePoints } from '../../ordering'
 import type { PatternWorkMeter } from '../../pattern-index/types'
-import { cloneProjected, type ResolvedProjection } from '../../projection'
-import { computeFacets, type FacetMatchSet } from '../facets'
+import type { ResolvedProjection } from '../../projection'
+import type { FacetMatchSet } from '../facets'
 import type { PartitionFilterMatches } from '../filters'
 import type { FrozenSegment } from '../frozen'
 import { frozenSegmentBytes } from '../frozen/memory'
+import type { RemovedSpellings, TextAnalysis } from '../frozen/surface-slot'
 import { typoTokensOf } from '../group-scoring'
 import { createPartitionIndex, type PartitionIndex, partitionStateOf } from '../index'
 import type { PartitionSearchMatches } from '../matches'
@@ -31,13 +31,14 @@ import {
   survivorDocumentsOf,
   swapFrozenSegmentList,
 } from './compaction'
+import { compositeDocument, compositeFieldValues } from './documents'
+import { compositeFacets } from './facets'
 import {
   compositeFilterMatches,
   compositeFilters,
   compositeFiltersBitset,
   computeOrdinalLayout,
   type OrdinalLayout,
-  subBitsetView,
 } from './filters'
 import { compositeSearchFulltext, compositeSearchMatches } from './search'
 import { compositeSortedPage, compositeSortValues } from './sorting'
@@ -51,9 +52,14 @@ export interface CompositePartition extends PartitionIndex {
   frozenSegmentsById(segmentIds: readonly string[]): FrozenSegment[]
   /** Adds a frozen segment whose documents the partition manager has already checked against every partition. */
   attachFrozenSegment(segment: FrozenSegment): void
-  swapFrozenSegments(dropSegmentIds: readonly string[], replacement: FrozenSegment): void
+  swapFrozenSegments(
+    dropSegmentIds: readonly string[],
+    replacement: FrozenSegment,
+    removedSpellings?: ReadonlyMap<string, RemovedSpellings>,
+  ): Map<string, RemovedSpellings>
   freezeLiveTail(freeze: LiveTailFreezer): FrozenSegment | null
   replaceLiveTail(segment: FrozenSegment): void
+  removedSpellingsOf(docId: string): RemovedSpellings | undefined
 }
 
 export function isCompositePartition(partition: PartitionIndex): partition is CompositePartition {
@@ -64,6 +70,7 @@ export function createCompositePartition(
   partitionId: number,
   trackPositions = true,
   existingLive?: PartitionIndex,
+  textAnalysis?: TextAnalysis,
 ): CompositePartition {
   const live = existingLive ?? createPartitionIndex(partitionId, trackPositions)
   const liveState = partitionStateOf(live)
@@ -72,6 +79,12 @@ export function createCompositePartition(
 
   function invalidateDocFrequencies(): void {
     docFrequenciesCache = null
+  }
+
+  function bindSegments(): void {
+    invalidateDocFrequencies()
+    if (textAnalysis === undefined) return
+    for (const segment of frozen) segment.removals.bind(textAnalysis)
   }
 
   function cachedDocFrequencies(): Readonly<Record<string, number>> {
@@ -138,26 +151,32 @@ export function createCompositePartition(
       return resolveFrozenSegments(frozen, segmentIds, partitionId)
     },
 
-    swapFrozenSegments(dropSegmentIds: readonly string[], replacement: FrozenSegment): void {
-      swapFrozenSegmentList(frozen, dropSegmentIds, replacement)
-      invalidateDocFrequencies()
+    swapFrozenSegments(
+      dropSegmentIds: readonly string[],
+      replacement: FrozenSegment,
+      removedSpellings?: ReadonlyMap<string, RemovedSpellings>,
+    ): Map<string, RemovedSpellings> {
+      if (textAnalysis !== undefined) replacement.removals.bind(textAnalysis)
+      const applied = swapFrozenSegmentList(frozen, dropSegmentIds, replacement, removedSpellings)
+      bindSegments()
+      return applied
     },
 
     freezeLiveTail(freeze: LiveTailFreezer): FrozenSegment | null {
       const segment = freezeLiveTailInto(live, liveState, frozen, freeze)
-      if (segment !== null) invalidateDocFrequencies()
+      if (segment !== null) bindSegments()
       return segment
     },
 
     replaceLiveTail(segment: FrozenSegment): void {
       live.clear()
       frozen.push(segment)
-      invalidateDocFrequencies()
+      bindSegments()
     },
 
     attachFrozenSegment(segment: FrozenSegment): void {
       frozen.push(segment)
-      invalidateDocFrequencies()
+      bindSegments()
     },
 
     mergeSegment(segment: PartitionIndex): void {
@@ -204,7 +223,7 @@ export function createCompositePartition(
       live.insert(docId, document, schema, language, options)
     },
 
-    update(docId, document, schema, language, options): void {
+    update(docId, document, schema, language, options, removedSpellings): void {
       invalidateDocFrequencies()
       const owner = frozenOwner(docId)
       if (owner === undefined) {
@@ -212,10 +231,10 @@ export function createCompositePartition(
         return
       }
       live.insert(docId, document, schema, language, options)
-      owner.tombstoneDocument(docId)
+      owner.tombstoneDocument(docId, removedSpellings)
     },
 
-    remove(docId, schema, language, options): void {
+    remove(docId, schema, language, options, removedSpellings): void {
       if (live.has(docId)) {
         invalidateDocFrequencies()
         live.remove(docId, schema, language, options)
@@ -228,7 +247,12 @@ export function createCompositePartition(
           partitionId,
         })
       }
-      owner.tombstoneDocument(docId)
+      invalidateDocFrequencies()
+      owner.tombstoneDocument(docId, removedSpellings)
+    },
+
+    removedSpellingsOf(docId: string): RemovedSpellings | undefined {
+      return live.has(docId) ? undefined : frozenOwner(docId)?.removedSpellingsOf(docId)
     },
 
     beginBatch(): void {
@@ -264,25 +288,7 @@ export function createCompositePartition(
     },
 
     computeFacets(matched: FacetMatchSet, config: FacetConfig, schema: SchemaDefinition): Record<string, FacetResult> {
-      const everyValue = everyValueFacetConfig(config)
-      if ('ordinalBitset' in matched) {
-        const ordinalLayout = layout()
-        return mergeFacets(
-          subs().map((sub, index) =>
-            computeFacets(
-              sub,
-              { ordinalBitset: subBitsetView(matched.ordinalBitset, ordinalLayout, index) },
-              everyValue,
-              schema,
-            ),
-          ),
-          config,
-        )
-      }
-      return mergeFacets(
-        subs().map(sub => computeFacets(sub, matched, everyValue, schema)),
-        config,
-      )
+      return compositeFacets(subs(), layout, matched, config, schema)
     },
 
     sortedPage(request: SortPageRequest): SortedPageEntry[] {
@@ -314,9 +320,11 @@ export function createCompositePartition(
     },
 
     get(docId: string, projection?: ResolvedProjection): AnyDocument | undefined {
-      const stored = frozenStored(docId)
-      if (stored !== undefined) return cloneProjected(stored.fields, projection)
-      return live.get(docId, projection)
+      return compositeDocument(frozen, live, docId, projection)
+    },
+
+    fieldValues(docId: string, fieldPaths: readonly string[]): unknown[] | undefined {
+      return compositeFieldValues(frozen, live, docId, fieldPaths)
     },
 
     getRef(docId: string): AnyDocument | undefined {
@@ -339,8 +347,9 @@ export function createCompositePartition(
 
     *docIds(): IterableIterator<string> {
       for (const segment of frozen) {
-        for (const [docId] of segment.docStore.all()) {
-          yield docId
+        for (const internalId of segment.docStore.allInternalIds()) {
+          const docId = segment.docStore.getExternalId(internalId)
+          if (docId !== undefined) yield docId
         }
       }
       yield* live.docIds()
