@@ -124,8 +124,9 @@ describe('an etcd coordinator whose link to etcd drops', () => {
         else leftNodes.add(event.nodeId)
       })
 
+      expect(await writer.acquireLease('_narsil/controller', 'writer', 30_000)).toBe(true)
       const first = makeAllocationTable('books')
-      expect(await writer.putAllocation('books', first, null)).toBe(true)
+      expect(await writer.putAllocation('books', first, null, 'writer')).toBe(true)
       await eventually(
         async () => expect(tableVersions).toContain(1),
         RECOVERY_BUDGET_MS,
@@ -133,8 +134,8 @@ describe('an etcd coordinator whose link to etcd drops', () => {
       )
 
       proxy.cut()
-      expect(await writer.putAllocation('books', { ...first, version: 2 }, 1)).toBe(true)
-      expect(await writer.putAllocation('books', { ...first, version: 3 }, 2)).toBe(true)
+      expect(await writer.putAllocation('books', { ...first, version: 2 }, 1, 'writer')).toBe(true)
+      expect(await writer.putAllocation('books', { ...first, version: 3 }, 2, 'writer')).toBe(true)
       await writer.registerNode(makeNodeRegistration({ nodeId: 'arriving-node' }))
       await writer.deregisterNode('departing-node')
       await compactEverything(raw, `${keyPrefix}/probe`)
@@ -151,7 +152,7 @@ describe('an etcd coordinator whose link to etcd drops', () => {
         'the watches never reported the changes made while the link was down',
       )
 
-      expect(await writer.putAllocation('books', { ...first, version: 4 }, 3)).toBe(true)
+      expect(await writer.putAllocation('books', { ...first, version: 4 }, 3, 'writer')).toBe(true)
       await eventually(
         async () => expect(tableVersions.at(-1)).toBe(4),
         RECOVERY_BUDGET_MS,

@@ -4,10 +4,15 @@ import {
   handleSchemaEvent,
   scheduleDebouncedAllocation,
 } from '../../../../../distribution/cluster/controller/event-loop/allocation'
-import { createEventLoopState } from '../../../../../distribution/cluster/controller/event-loop/state'
+import {
+  createEventLoopState,
+  type EventLoopState,
+} from '../../../../../distribution/cluster/controller/event-loop/state'
 import { createInMemoryCoordinator } from '../../../../../distribution/coordinator'
 import type { ClusterCoordinator } from '../../../../../distribution/coordinator/types'
 import { makeAllocationTable, makeIndexMetadata, makeNode, testSchema } from '../controller/fixtures'
+
+const CONTROLLER = 'controller'
 
 describe('controller allocation retries', () => {
   let coordinator: ClusterCoordinator
@@ -18,7 +23,14 @@ describe('controller allocation retries', () => {
     await coordinator.registerNode(makeNode('data-1'))
     await putIndexMetadata(coordinator, makeIndexMetadata('products', 1, 0))
     await coordinator.putAllocation('products', makeAllocationTable('products', ['data-1'], 1))
+    await coordinator.acquireLease('_narsil/controller', CONTROLLER, 60_000)
   })
+
+  function controllerState(): EventLoopState {
+    const state = createEventLoopState(['products'])
+    state.controllerNodeId = CONTROLLER
+    return state
+  }
 
   afterEach(async () => {
     await coordinator.shutdown()
@@ -32,7 +44,7 @@ describe('controller allocation retries', () => {
   }
 
   it('runs the allocator again after every compare-and-set attempt fails', async () => {
-    const state = createEventLoopState(['products'])
+    const state = controllerState()
     coordinator.putAllocation = async () => false
     const reads: string[] = []
     const readAllocation = coordinator.getAllocation.bind(coordinator)
@@ -55,7 +67,7 @@ describe('controller allocation retries', () => {
   })
 
   it('reports an error when a dropped index keeps losing its teardown write', async () => {
-    const state = createEventLoopState(['products'])
+    const state = controllerState()
     coordinator.putAllocation = async () => false
     const deleteAllocation = vi.fn()
     coordinator.deleteAllocation = deleteAllocation
@@ -77,7 +89,7 @@ describe('controller allocation retries', () => {
   })
 
   it('deletes the allocation of a dropped index once a teardown write lands', async () => {
-    const state = createEventLoopState(['products'])
+    const state = controllerState()
     const deleteAllocation = vi.fn()
     coordinator.deleteAllocation = deleteAllocation
     await coordinator.putSchema('products', testSchema)

@@ -11,6 +11,14 @@ import { createInMemoryNetwork, createInMemoryTransport } from '../../../distrib
 import type { InsyncAddPayload, InsyncRemovePayload, NodeTransport } from '../../../distribution/transport/types'
 import { ReplicationMessageTypes } from '../../../distribution/transport/types'
 
+const CONTROLLER = 'controller'
+
+async function controllerCoordinator(): Promise<ClusterCoordinator> {
+  const coordinator = createInMemoryCoordinator()
+  await coordinator.acquireLease('_narsil/controller', CONTROLLER, 30_000)
+  return coordinator
+}
+
 function makeAllocationTable(overrides?: Partial<AllocationTable>): AllocationTable {
   return {
     indexName: 'products',
@@ -46,7 +54,7 @@ describe('requestInsyncRemoval', () => {
   })
 
   it('returns accepted: true when controller accepts the removal', async () => {
-    coordinator = createInMemoryCoordinator()
+    coordinator = await controllerCoordinator()
     network = createInMemoryNetwork()
     primaryTransport = createInMemoryTransport('node-a', network)
     controllerTransport = createInMemoryTransport('controller', network)
@@ -56,7 +64,7 @@ describe('requestInsyncRemoval', () => {
     await controllerTransport.listen(async (message, respond) => {
       if (message.type === ReplicationMessageTypes.INSYNC_REMOVE) {
         const payload = decodePayload<InsyncRemovePayload>(message.payload)
-        const confirmPayload = await handleInsyncRemoval(payload, coordinator)
+        const confirmPayload = await handleInsyncRemoval(payload, coordinator, CONTROLLER)
         respond(createInsyncConfirmMessage(confirmPayload, 'controller', message.requestId))
       }
     })
@@ -66,7 +74,7 @@ describe('requestInsyncRemoval', () => {
   })
 
   it('returns accepted: false when primaryTerm is stale', async () => {
-    coordinator = createInMemoryCoordinator()
+    coordinator = await controllerCoordinator()
     network = createInMemoryNetwork()
     primaryTransport = createInMemoryTransport('node-a', network)
     controllerTransport = createInMemoryTransport('controller', network)
@@ -76,7 +84,7 @@ describe('requestInsyncRemoval', () => {
     await controllerTransport.listen(async (message, respond) => {
       if (message.type === ReplicationMessageTypes.INSYNC_REMOVE) {
         const payload = decodePayload<InsyncRemovePayload>(message.payload)
-        const confirmPayload = await handleInsyncRemoval(payload, coordinator)
+        const confirmPayload = await handleInsyncRemoval(payload, coordinator, CONTROLLER)
         respond(createInsyncConfirmMessage(confirmPayload, 'controller', message.requestId))
       }
     })
@@ -94,12 +102,13 @@ describe('handleInsyncRemoval', () => {
   })
 
   it('removes the replica from the inSyncSet and updates the allocation table', async () => {
-    coordinator = createInMemoryCoordinator()
+    coordinator = await controllerCoordinator()
     await coordinator.putAllocation('products', makeAllocationTable())
 
     const result = await handleInsyncRemoval(
       { indexName: 'products', partitionId: 0, replicaNodeId: 'node-b', primaryTerm: 1 },
       coordinator,
+      CONTROLLER,
     )
 
     expect(result.accepted).toBe(true)
@@ -111,12 +120,13 @@ describe('handleInsyncRemoval', () => {
   })
 
   it('rejects removal with stale primaryTerm', async () => {
-    coordinator = createInMemoryCoordinator()
+    coordinator = await controllerCoordinator()
     await coordinator.putAllocation('products', makeAllocationTable())
 
     const result = await handleInsyncRemoval(
       { indexName: 'products', partitionId: 0, replicaNodeId: 'node-b', primaryTerm: 99 },
       coordinator,
+      CONTROLLER,
     )
 
     expect(result.accepted).toBe(false)
@@ -127,39 +137,60 @@ describe('handleInsyncRemoval', () => {
   })
 
   it('returns accepted: false for unknown index', async () => {
-    coordinator = createInMemoryCoordinator()
+    coordinator = await controllerCoordinator()
 
     const result = await handleInsyncRemoval(
       { indexName: 'unknown-index', partitionId: 0, replicaNodeId: 'node-b', primaryTerm: 1 },
       coordinator,
+      CONTROLLER,
     )
 
     expect(result.accepted).toBe(false)
   })
 
   it('returns accepted: false for unknown partition', async () => {
-    coordinator = createInMemoryCoordinator()
+    coordinator = await controllerCoordinator()
     await coordinator.putAllocation('products', makeAllocationTable())
 
     const result = await handleInsyncRemoval(
       { indexName: 'products', partitionId: 99, replicaNodeId: 'node-b', primaryTerm: 1 },
       coordinator,
+      CONTROLLER,
     )
 
     expect(result.accepted).toBe(false)
   })
 
   it('increments the allocation table version after removal', async () => {
-    coordinator = createInMemoryCoordinator()
+    coordinator = await controllerCoordinator()
     await coordinator.putAllocation('products', makeAllocationTable())
 
     await handleInsyncRemoval(
       { indexName: 'products', partitionId: 0, replicaNodeId: 'node-b', primaryTerm: 1 },
       coordinator,
+      CONTROLLER,
     )
 
     const table = await coordinator.getAllocation('products')
     expect(table?.version).toBe(2)
+  })
+
+  it('refuses the removal when the answering node no longer holds the controller lease', async () => {
+    coordinator = await controllerCoordinator()
+    await coordinator.putAllocation('products', makeAllocationTable())
+    await coordinator.releaseLease('_narsil/controller')
+    await coordinator.acquireLease('_narsil/controller', 'successor', 30_000)
+
+    const result = await handleInsyncRemoval(
+      { indexName: 'products', partitionId: 0, replicaNodeId: 'node-b', primaryTerm: 1 },
+      coordinator,
+      CONTROLLER,
+    )
+
+    expect(result.accepted).toBe(false)
+    const table = await coordinator.getAllocation('products')
+    expect(table?.version).toBe(1)
+    expect(table?.assignments.get(0)?.inSyncSet).toEqual(['node-b', 'node-c'])
   })
 })
 
@@ -174,7 +205,7 @@ describe('handleInsyncAdmission', () => {
     table: AllocationTable,
     payload: Partial<InsyncAddPayload> = {},
   ): Promise<{ accepted: boolean; inSyncSet: string[]; commitPoint: number; version: number }> {
-    coordinator = createInMemoryCoordinator()
+    coordinator = await controllerCoordinator()
     await coordinator.putAllocation('products', table)
     const confirm = await handleInsyncAdmission(
       {
@@ -187,6 +218,7 @@ describe('handleInsyncAdmission', () => {
         ...payload,
       },
       coordinator,
+      CONTROLLER,
     )
     const stored = await coordinator.getAllocation('products')
     const assignment = stored?.assignments.get(0)

@@ -1,6 +1,6 @@
 import { compareCodePoints } from '../../core/ordering'
 import type { SchemaDefinition } from '../../types/schema'
-import { NODE_HEARTBEAT_TTL_MS } from './constants'
+import { CONTROLLER_LEASE_KEY, NODE_HEARTBEAT_TTL_MS } from './constants'
 import type {
   AllocationEvent,
   AllocationTable,
@@ -164,10 +164,18 @@ export function createInMemoryCoordinator(): ClusterCoordinator {
       return allocations.get(indexName) ?? null
     },
 
-    async putAllocation(indexName: string, table: AllocationTable, expectedVersion?: number | null): Promise<boolean> {
+    async putAllocation(
+      indexName: string,
+      table: AllocationTable,
+      expectedVersion?: number | null,
+      writerNodeId?: string,
+    ): Promise<boolean> {
       assertNotShutdown()
 
       if (expectedVersion !== undefined) {
+        if (!isLeaseValid(CONTROLLER_LEASE_KEY) || leases.get(CONTROLLER_LEASE_KEY)?.nodeId !== writerNodeId) {
+          return false
+        }
         const current = allocations.get(indexName)
         if (expectedVersion === null) {
           if (current !== undefined) {

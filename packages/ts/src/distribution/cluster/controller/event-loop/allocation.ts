@@ -23,6 +23,7 @@ const RETAIN_NONE: RetainedNodes = () => new Set()
 
 async function runAllocatorForIndex(
   coordinator: ClusterCoordinator,
+  writerNodeId: string,
   indexName: string,
   nodes: NodeRegistration[],
   isActive: () => boolean,
@@ -57,12 +58,12 @@ async function runAllocatorForIndex(
     return
   }
 
-  if (await coordinator.putAllocation(indexName, result.table, currentTable.version)) {
+  if (await coordinator.putAllocation(indexName, result.table, currentTable.version, writerNodeId)) {
     return
   }
 
   if (attempt + 1 < ALLOCATION_CAS_ATTEMPTS) {
-    await runAllocatorForIndex(coordinator, indexName, nodes, isActive, retainedFor, attempt + 1)
+    await runAllocatorForIndex(coordinator, writerNodeId, indexName, nodes, isActive, retainedFor, attempt + 1)
     return
   }
 
@@ -94,7 +95,7 @@ async function recoverIndexPartitions(
     isActive,
   )
   if (promoted) {
-    await runAllocatorForIndex(coordinator, indexName, nodes, isActive, retainedFor)
+    await runAllocatorForIndex(coordinator, controllerNodeId, indexName, nodes, isActive, retainedFor)
   }
 }
 
@@ -104,7 +105,8 @@ async function runAllocatorForAllIndexes(
   isActive: () => boolean,
   onError?: (indexName: string, error: unknown) => void,
 ): Promise<void> {
-  if (!isActive()) {
+  const writerNodeId = state.controllerNodeId
+  if (writerNodeId === null || !isActive()) {
     return
   }
 
@@ -121,7 +123,7 @@ async function runAllocatorForAllIndexes(
       return
     }
     try {
-      await runAllocatorForIndex(coordinator, indexName, nodes, isActive, retainedFor)
+      await runAllocatorForIndex(coordinator, writerNodeId, indexName, nodes, isActive, retainedFor)
       await recoverIndexPartitions(state, coordinator, indexName, nodes, isActive, retainedFor)
     } catch (error) {
       anyIndexFailed = true
@@ -182,6 +184,7 @@ export function scheduleDebouncedAllocation(
 async function handleSchemaCreated(
   indexName: string,
   coordinator: ClusterCoordinator,
+  writerNodeId: string,
   knownIndexes: Set<string>,
   isActive: () => boolean,
 ): Promise<void> {
@@ -223,11 +226,11 @@ async function handleSchemaCreated(
   }
 
   const expectedVersion = storedTable !== null ? storedTable.version : null
-  if (await coordinator.putAllocation(indexName, result.table, expectedVersion)) {
+  if (await coordinator.putAllocation(indexName, result.table, expectedVersion, writerNodeId)) {
     return
   }
 
-  await runAllocatorForIndex(coordinator, indexName, nodes, isActive)
+  await runAllocatorForIndex(coordinator, writerNodeId, indexName, nodes, isActive)
 }
 
 function scheduleTeardownRetry(
@@ -263,6 +266,10 @@ async function tearDownAllocation(
   round: number,
   onError?: (indexName: string, error: unknown) => void,
 ): Promise<void> {
+  const writerNodeId = state.controllerNodeId
+  if (writerNodeId === null) {
+    return
+  }
   for (let attempt = 0; attempt < TEARDOWN_CAS_ATTEMPTS; attempt++) {
     if (!isActive()) {
       return
@@ -283,7 +290,7 @@ async function tearDownAllocation(
         replicationFactor: currentTable.replicationFactor,
         assignments: new Map(),
       }
-      const written = await coordinator.putAllocation(indexName, emptyTable, currentTable.version)
+      const written = await coordinator.putAllocation(indexName, emptyTable, currentTable.version, writerNodeId)
       if (!written) {
         continue
       }
@@ -331,7 +338,11 @@ export async function handleSchemaEvent(
   onError?: (indexName: string, error: unknown) => void,
 ): Promise<void> {
   if (event.type === 'schema_created') {
-    await handleSchemaCreated(event.indexName, coordinator, state.knownIndexes, isActive)
+    if (state.controllerNodeId === null) {
+      state.knownIndexes.add(event.indexName)
+      return
+    }
+    await handleSchemaCreated(event.indexName, coordinator, state.controllerNodeId, state.knownIndexes, isActive)
     return
   }
 

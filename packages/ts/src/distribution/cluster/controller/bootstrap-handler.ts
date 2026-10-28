@@ -133,7 +133,7 @@ export async function handleBootstrapCompleteMessage(
 
   let accepted: boolean
   try {
-    accepted = await processBootstrapComplete(payload, coordinator)
+    accepted = await processBootstrapComplete(payload, coordinator, controllerNodeId)
   } catch (_) {
     await sendRejection(respond, controllerNodeId, message.requestId, payload.indexName, payload.partitionId)
     return
@@ -155,6 +155,7 @@ export async function handleBootstrapCompleteMessage(
 async function processBootstrapComplete(
   payload: BootstrapCompletePayload,
   coordinator: ClusterCoordinator,
+  controllerNodeId: string,
 ): Promise<boolean> {
   for (let attempt = 0; attempt < BOOTSTRAP_CAS_ATTEMPTS; attempt++) {
     const table = await coordinator.getAllocation(payload.indexName)
@@ -188,6 +189,7 @@ async function processBootstrapComplete(
       payload.indexName,
       { ...table, version: table.version + 1, assignments: updatedAssignments },
       table.version,
+      controllerNodeId,
     )
     if (written) {
       return true

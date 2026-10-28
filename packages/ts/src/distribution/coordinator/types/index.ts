@@ -171,17 +171,34 @@ export interface ClusterCoordinator {
    */
   getAllocation(indexName: string): Promise<AllocationTable | null>
   /**
-   * Writes one index's allocation, optionally only while nobody else has
-   * changed it first.
+   * Writes one index's allocation without checking the stored version or the
+   * controller lease, which only a test or an operator's repair should do.
    *
    * @param indexName - The index to write.
    * @param table - The allocation to store.
-   * @param expectedVersion - The version the caller read, `null` to write only
-   * while no allocation exists, or omit it to write unconditionally.
-   * @returns True when the write went through, and false when the expected
-   * version no longer matched.
+   * @returns True once the write has gone through.
    */
-  putAllocation(indexName: string, table: AllocationTable, expectedVersion?: number | null): Promise<boolean>
+  putAllocation(indexName: string, table: AllocationTable): Promise<boolean>
+  /**
+   * Writes one index's allocation while the stored table still carries the
+   * version that the caller read and the writer still holds the controller
+   * lease, checking both in one atomic operation.
+   *
+   * @param indexName - The index to write.
+   * @param table - The allocation to store.
+   * @param expectedVersion - The version that the caller read, or `null` to
+   * write only while the index has no allocation yet.
+   * @param writerNodeId - The node that writes the table, which must hold the
+   * `_narsil/controller` lease when the write takes effect.
+   * @returns True when the write went through, and false when the stored
+   * version no longer matched or the writer did not hold the controller lease.
+   */
+  putAllocation(
+    indexName: string,
+    table: AllocationTable,
+    expectedVersion: number | null,
+    writerNodeId: string,
+  ): Promise<boolean>
   /**
    * Removes one index's allocation, which is the last step of dropping the
    * index. Deleting an allocation that does not exist does nothing.
