@@ -7,7 +7,9 @@ import { createRebalancer, type Rebalancer } from '../partitioning/rebalancer'
 import { createPartitionRouter, type PartitionRouter } from '../partitioning/router'
 import type { createWriteAheadQueue, WAQEntry } from '../partitioning/write-ahead-queue'
 import { createPluginRegistry, type PluginRegistry } from '../plugins/registry'
-import { type RerankSettings, resolveRerankSettings, validateRerankAdapter } from '../rerank/registry'
+import { DEFAULT_MAX_RERANK_WINDOW, DEFAULT_RERANK_TIMEOUT_MS } from '../rerank/constants'
+import { validateRerankAdapter } from '../rerank/registry'
+import type { RerankSettings } from '../rerank/settings'
 import { validateRegisteredAdapter } from '../schema/embedding-validator'
 import type { EmbeddingAdapter, RerankAdapter } from '../types/adapters'
 import type { NarsilConfig } from '../types/config'
@@ -93,7 +95,10 @@ export async function createEngineCore(
   capacityScope: CapacityScope = 'index',
 ): Promise<EngineCore> {
   validateWorkerConfig(config?.workers, config?.lifecycle)
-  const rerankSettings = resolveRerankSettings(config)
+  const rerankSettings: RerankSettings =
+    config?.rerankTimeout === undefined && config?.maxRerankWindow === undefined
+      ? { timeoutMs: DEFAULT_RERANK_TIMEOUT_MS, maxWindow: DEFAULT_MAX_RERANK_WINDOW }
+      : (await import('../rerank/runtime')).resolveRerankSettings(config)
   const eventHandlers = eventHandlersOf(config?.events)
   const vectorWorkerCount = splitWorkerBudget(resolveWorkerCount(config?.workers?.count)).vector
   const vectorCopyPolicy: VectorWorkerCopyPolicy = {

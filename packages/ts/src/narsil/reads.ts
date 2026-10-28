@@ -48,7 +48,7 @@ function rerankRunnerFor(core: EngineCore, params: QueryParams): RerankRunner | 
   return {
     maxWindow: core.rerankSettings.maxWindow,
     async score(adapter, query, documents) {
-      const { rerankOnHost } = await import('../rerank/call')
+      const { rerankOnHost } = await import('../rerank/runtime')
       return rerankOnHost(core, adapter, query, documents)
     },
   }
@@ -82,7 +82,7 @@ export async function runEngineQuery<T = AnyDocument>(
     await core.pluginRegistry.runHook('beforeSearch', { indexName, params: scoped })
 
     const resolvedParams = await resolveVectorText(
-      scoped.rerank === undefined ? scoped : (await import('../rerank/query-text')).withRerankQueryText(scoped),
+      scoped.rerank === undefined ? scoped : (await import('../rerank/runtime')).withRerankQueryText(scoped),
       entry.embeddingAdapter,
       core.abortController.signal,
       entry.embeddingAdapterName,

@@ -1,4 +1,3 @@
-import { shutdownRerankAdapters } from '../rerank/registry'
 import type { EmbeddingAdapter } from '../types/adapters'
 import type { NarsilConfig } from '../types/config'
 import type { EngineCore } from './core'
@@ -53,7 +52,9 @@ export async function shutdownEngine(core: EngineCore): Promise<void> {
     } catch {}
   }
 
-  await shutdownRerankAdapters(core.rerankAdapters)
+  if (core.rerankAdapters.size > 0) {
+    await (await import('../rerank/runtime')).shutdownRerankAdapters(core.rerankAdapters)
+  }
 
   await orchestrator.shutdown()
   await executor.shutdown()
