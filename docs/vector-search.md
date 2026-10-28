@@ -41,7 +41,7 @@ In the `vector` parameter, pass either a raw `value` array or a `text` string fo
 
 Set `quantization` to choose how the engine codes each vector once the field holds a graph. In every `osq` mode, the engine applies optimised scalar quantization, which means that it centres each vector on the field's centroid and then fits an interval to that vector alone. The digit in the mode name is the number of bits in each dimension's code, so the engine stores a byte per dimension under `osq8`, and four, two, and one bit under `osq4`, `osq2`, and `osq1`. The engine places each new vector in the graph by scoring it against the codes of its neighbours. When the engine searches, it ranks the candidates by their codes before it re-scores the nearest of them against the full-precision vectors. When you leave `quantization` unset, the engine uses `osq4` at 384 dimensions and above, and `osq8` below 384. Under `none`, the engine stores no code and ranks by the vectors alone.
 
-Set `oversample` to choose how many times k the engine re-scores in a quantized field before it returns the best `limit`. For a value below 1, the engine throws a `NarsilError` with code `CONFIG_INVALID`. When you leave `oversample` unset, the engine sets the number of candidates that it re-scores from k and from the field's dimension. It rounds that number up, and it re-scores at least k candidates:
+Set `oversample` to choose how many times k the engine re-scores in a quantized field before it returns the best `limit`. For a value below 1, the engine throws a `NarsilError` with code `CONFIG_INVALID`. When you leave `oversample` unset, the engine sets the number of candidates that it re-scores from k and from the field's dimension. It rounds that number up, and it re-scores at least 3k candidates under `osq1` and `osq2`, and at least k under `osq4` and `osq8`:
 
 | Quantization | Below 768 dimensions | 768 to 1,023 dimensions | 1,024 dimensions and above |
 | ------------ | -------------------- | ----------------------- | -------------------------- |
@@ -51,6 +51,17 @@ Set `oversample` to choose how many times k the engine re-scores in a quantized 
 | `osq8`       | 2k                   | 2k                      | 2k                         |
 
 The engine ranks the true neighbours less reliably by a one-bit or two-bit code in fewer dimensions, so it re-scores more candidates there. When the engine ranks by a code, the number of places by which a true neighbour slips usually grows more slowly than k, so the engine re-scores the most candidates in proportion to k when k is small. Under `osq1` at 384 dimensions, the engine re-scores 86 candidates on a first page with a `limit` of 1, 221 with a `limit` of 10, and 5,002 with a `limit` of 1,000.
+
+Under `osq1` and `osq2`, these defaults find at least 95% of the true nearest neighbours on six sets of real text embeddings, at every `limit` from 1 to 1,000. On vectors spread evenly across every dimension, however, a one-bit or two-bit code can rank the neighbours less well, so recall can fall below 95% at some limits. On 3,200 vectors at 768 dimensions, drawn from 40 Gaussian clusters with wide noise in every dimension, the defaults find fewer than 95% of the true neighbours at these limits:
+
+| Quantization | `limit` | Recall |
+| ------------ | ------- | ------ |
+| `osq1`       | 200     | 0.903  |
+| `osq1`       | 500     | 0.930  |
+| `osq2`       | 1       | 0.733  |
+| `osq2`       | 200     | 0.944  |
+
+When a search needs more of its true neighbours, raise `oversample` on the query.
 
 When the engine searches a graph under a filter, it walks through the documents that fail the filter but collects only the documents that pass it, so `efSearch` and the re-scoring depth both count only the documents that pass the filter.
 

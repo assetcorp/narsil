@@ -60,14 +60,18 @@ export interface VectorQueryConfig {
    * `CONFIG_INVALID`. The engine ignores it on a field whose quantization is
    * `none`. When a query leaves it unset, the engine sets the number of
    * candidates that it re-scores from k and from the field's dimension. It
-   * rounds that number up, and it re-scores at least k candidates. Below 768
+   * rounds that number up, and it re-scores at least 3k candidates under
+   * `osq1` and `osq2`, and at least k under `osq4` and `osq8`. Below 768
    * dimensions, it re-scores 3.23k + 55.9√k under `osq1` and 2.6k + 17√k under
    * `osq2`. From 768 to 1,023 dimensions, it re-scores 2.2k + 27√k under
    * `osq1` and k + 16√k under `osq2`. At 1,024 dimensions and above, it
    * re-scores 3k under both. Under `osq4`, it re-scores 5k below 1,024
    * dimensions and 2k from 1,024 dimensions, while under `osq8` it re-scores
    * 2k at every dimension. Under a filter, the engine counts only the
-   * candidates that pass the filter.
+   * candidates that pass the filter. On vectors spread evenly across every
+   * dimension, a one-bit or two-bit code can find fewer than 95% of the true
+   * nearest neighbours at these defaults, so raise `oversample` on a query that
+   * needs more of them.
    */
   oversample?: number
 }
