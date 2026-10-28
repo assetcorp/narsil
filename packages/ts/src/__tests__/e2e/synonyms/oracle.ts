@@ -87,7 +87,7 @@ export function synonymsByToken(rules: readonly SynonymRule[]): Map<string, Set<
   return synonyms
 }
 
-export function expandQuery(queryTokens: readonly string[], rules: readonly SynonymRule[]): Map<string, string[]> {
+function expandQuery(queryTokens: readonly string[], rules: readonly SynonymRule[]): Map<string, string[]> {
   const table = synonymsByToken(rules)
   const withSynonyms = queryTokens.filter(token => (table.get(token)?.size ?? 0) > 0).slice(0, SYNONYM_BUDGET)
   const expanded = new Map<string, string[]>()
