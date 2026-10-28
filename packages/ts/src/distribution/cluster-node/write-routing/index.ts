@@ -11,6 +11,7 @@ import type { AnyDocument, IndexConfig, InsertOptions } from '../../../types/sch
 import {
   type IndexMetadata,
   indexConfigKey,
+  indexUuidOfStoredMetadata,
   putIndexMetadata,
   storedSynonymSetOf,
   validateIndexName,
@@ -182,7 +183,15 @@ async function dropLocalCopy(name: string, engine: IndexCreatingEngine): Promise
   }
 }
 
-export async function routeDropIndex(name: string, coordinator: ClusterCoordinator, engine: Narsil): Promise<void> {
+export interface DroppedClusterIndex {
+  indexUuid: string | null
+}
+
+export async function routeDropIndex(
+  name: string,
+  coordinator: ClusterCoordinator,
+  engine: Narsil,
+): Promise<DroppedClusterIndex | null> {
   validateIndexName(name)
 
   const metadataKey = indexConfigKey(name)
@@ -191,9 +200,19 @@ export async function routeDropIndex(name: string, coordinator: ClusterCoordinat
   const schema = await coordinator.getSchema(name)
 
   if (!hasClusterMetadata && schema === null) {
-    return engine.dropIndex(name)
+    if (metadataBytes === null) {
+      await engine.dropIndex(name)
+      return null
+    }
+    try {
+      if (engine.listIndexes().some(index => index.name === name)) await engine.dropIndex(name)
+    } catch (dropError) {
+      if (!(dropError instanceof NarsilError && dropError.code === ErrorCodes.INDEX_NOT_FOUND)) throw dropError
+    }
+    return { indexUuid: null }
   }
 
+  let indexUuid: string | null = null
   if (hasClusterMetadata) {
     const cleared = await coordinator.compareAndSet(metadataKey, metadataBytes, new Uint8Array(0))
     if (!cleared) {
@@ -203,10 +222,12 @@ export async function routeDropIndex(name: string, coordinator: ClusterCoordinat
         { indexName: name },
       )
     }
+    indexUuid = indexUuidOfStoredMetadata(metadataBytes)
     await deleteStoredSynonymSet(coordinator, metadataBytes)
   }
 
   await coordinator.dropSchema(name)
+  return { indexUuid }
 }
 
 export function routeInsert(

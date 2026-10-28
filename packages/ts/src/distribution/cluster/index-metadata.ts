@@ -275,14 +275,24 @@ export async function getClusterIndexConfig(
   return state === null || state.synonyms.length === 0 ? config : { ...config, synonyms: state.synonyms }
 }
 
-export function storedSynonymSetOf(bytes: Uint8Array): { indexUuid: string; ref: SynonymSetRef } | null {
+function decodedMetadataOf(bytes: Uint8Array): Record<string, unknown> | null {
   let decoded: unknown
   try {
     decoded = decode(bytes)
   } catch {
     return null
   }
-  if (!isRecord(decoded) || typeof decoded.indexUuid !== 'string' || !isRecord(decoded.settings)) return null
+  return isRecord(decoded) ? decoded : null
+}
+
+export function indexUuidOfStoredMetadata(bytes: Uint8Array): string | null {
+  const decoded = decodedMetadataOf(bytes)
+  return typeof decoded?.indexUuid === 'string' ? decoded.indexUuid : null
+}
+
+export function storedSynonymSetOf(bytes: Uint8Array): { indexUuid: string; ref: SynonymSetRef } | null {
+  const decoded = decodedMetadataOf(bytes)
+  if (decoded === null || typeof decoded.indexUuid !== 'string' || !isRecord(decoded.settings)) return null
   const ref = synonymSetRefOrNull(decoded.settings.synonyms)
   return ref === null ? null : { indexUuid: decoded.indexUuid, ref }
 }
