@@ -138,6 +138,20 @@ export async function insertFileByFile(engine: Narsil, index: string, passages: 
   await untilSettled(engine, index)
 }
 
+export async function insertFileByFileWithoutOptimizing(
+  engine: Narsil,
+  index: string,
+  passages: Passage[],
+): Promise<void> {
+  for (let start = 0; start < passages.length; start += PASSAGES_PER_FILE) {
+    await engine.insertBatch(index, passages.slice(start, start + PASSAGES_PER_FILE))
+  }
+  await waitFor(async () => {
+    const [field] = engine.vectorMaintenanceStatus(index)
+    return field !== undefined && field.graphCount === 1 && !field.building
+  }, SETTLE_TIMEOUT_MS)
+}
+
 export async function savedCounts(engine: Narsil, index: string): Promise<Array<number | null>> {
   const histories = await savedBuildHistories(await engine.snapshot(index), index, FIELD)
   return histories.map(history => history.shuffledBuildCount)
