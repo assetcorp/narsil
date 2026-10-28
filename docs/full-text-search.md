@@ -92,7 +92,7 @@ Without that registration, the engine throws `CONFIG_INVALID` for an index with 
 
 ## Synonyms
 
-Give an index a synonym set, and a search for a word also matches the words that the set names as its synonyms. A set is a list of rules in two shapes. A two-way rule lists from 2 to 100 `words`, and it makes each of them a synonym of every other. A one-way rule names a `word` and from 1 to 99 `synonyms`, so a search for `word` also matches its synonyms, while a search for one of those synonyms gains nothing from the rule.
+With a synonym set on an index, a search for a word also matches the synonyms that the set gives that word. A set is a list of rules in two shapes. A two-way rule lists from 2 to 100 `words`, and it makes each of them a synonym of every other. A one-way rule holds one `word` and from 1 to 99 `synonyms`, so a search for `word` also matches its synonyms, while the rule adds nothing to a search for one of those synonyms.
 
 ```ts
 await narsil.createIndex('products', {
@@ -118,7 +118,7 @@ await narsil.updateSynonyms('products', [{ words: ['sofa', 'couch', 'settee', 'd
 const rules = await narsil.getSynonyms('products')
 ```
 
-When a newer language revision analyses a stored word to no token or to more than one, the engine skips that word as it loads the index, and keeps the rest of the set.
+Where a newer revision of the language module analyses a stored word to no token or to more than one, the engine skips that word as it loads the index and keeps the rest of the set.
 
 A Node process loads the synonym code by itself. A browser bundle contains that code only when the app imports `synonyms` and registers it. Register `synonyms` before the app creates or loads an index with a synonym set:
 

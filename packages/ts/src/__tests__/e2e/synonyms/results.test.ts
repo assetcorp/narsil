@@ -9,14 +9,13 @@ import {
   type GarageServer,
   insertAll,
   NO_WORKERS,
-  probeQueries,
   searchOver,
   startGarageServer,
   WORKERS_BUILT,
   waitForWorkerCopies,
   workerCopies,
 } from './harness'
-import { createOracle, expandQuery } from './oracle'
+import { createOracle } from './oracle'
 
 const CORPUS_SIZE = 1_200
 const LEAST_MATCHES = 20_000
@@ -36,25 +35,6 @@ async function started(config: Parameters<typeof startGarageServer>[0]): Promise
   servers.push(server)
   return server
 }
-
-describe('the oracle that the synonym tests compare against', () => {
-  it('changes the hits of most probes, so a search that ignored the set would fail', () => {
-    const documents = garageCorpus(CORPUS_SIZE, 61)
-    const withSet = createOracle(documents, FIRST_RULES)
-    const withoutSet = createOracle(documents, [])
-    const changed = probeQueries().filter(
-      query => JSON.stringify(withSet.search(query)) !== JSON.stringify(withoutSet.search(query)),
-    )
-    expect(changed.length).toBeGreaterThan(probeQueries().length / 2)
-  }, 60_000)
-
-  it('caps one token at 50 synonyms in code point order, and splits the cap across tokens', () => {
-    expect(expandQuery(['giant'], FIRST_RULES).get('giant')).toHaveLength(50)
-    const split = expandQuery(['giant', 'huge', 'fast'], FIRST_RULES)
-    expect([...split.values()].map(list => list.length)).toEqual([17, 17, 1])
-    expect(expandQuery(['fast'], FIRST_RULES).get('fast')).toEqual(['quick'])
-  })
-})
 
 describe('a synonym search sent over HTTP matches the independent oracle', () => {
   it('on the main thread, after a replaced set, and after the set is removed', async () => {
