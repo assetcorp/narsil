@@ -562,7 +562,7 @@ A writer must compute CRC32 over the raw payload bytes, after compression when c
 
 ## FNV-1a Hash
 
-FNV-1a is the non-cryptographic hash that partition routing uses, where the partition is `hash(docId) modulo partitionCount`, and that [cursor binding](partitioning.md#cursor-binding) and [replica selection](distribution/query-routing.md#replica-selection) use.
+FNV-1a is the non-cryptographic hash that partition routing uses, where the partition is `hash(docId) modulo partitionCount`, and that [cursor binding](partitioning.md#cursor-binding), [replica selection](distribution/query-routing.md#replica-selection), and the [vector field key](envelope.md#storage-path-convention) use.
 
 ```text
 fnv1a(input: bytes) -> uint32
@@ -583,7 +583,7 @@ fnv1a(input: bytes) -> uint32
 
 The empty string returns the offset basis unchanged, because the loop has no byte to process.
 
-FNV-1a is deterministic, so the same input always gives the same output, and it spreads values evenly enough for routing. An implementation must use FNV-1a for hash-based routing, cursor binding, and replica selection alone, because it offers no cryptographic security.
+FNV-1a is deterministic, so the same input always gives the same output, and it spreads values evenly enough for routing. An implementation must use FNV-1a for hash-based routing, cursor binding, replica selection, and the vector field key alone, because it offers no cryptographic security.
 
 An implementation must hash a string as its UTF-8 bytes, because any other encoding would route one document ID to different partitions in different languages.
 
