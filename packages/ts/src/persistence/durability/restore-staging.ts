@@ -69,7 +69,7 @@ export function createRestoreStaging(
   return {
     store,
     async relocation(): Promise<((path: string) => string) | null> {
-      if (pathOf === undefined) return null
+      if (pathOf === undefined || (await storage.list(stagingPrefix)).length > 0) return null
       const from = await pathOf.call(storage, stagingPrefix.slice(0, -1))
       const to = await pathOf.call(storage, indexName)
       return path => (pathUnder(path, from) ? `${to}${path.slice(from.length)}` : path)
@@ -88,8 +88,12 @@ export function createRestoreStaging(
       }
       committed = true
     },
-    finish(): Promise<void> {
-      return options.finish === undefined ? finishOnStorage() : options.finish(finishOnStorage)
+    async finish(): Promise<void> {
+      try {
+        await (options.finish === undefined ? finishOnStorage() : options.finish(finishOnStorage))
+      } catch (error) {
+        options.onStorageLost?.(toError(error))
+      }
     },
     async removeRetired(): Promise<void> {
       const prefix = retiredPrefix

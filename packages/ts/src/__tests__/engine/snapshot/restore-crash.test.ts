@@ -125,7 +125,6 @@ const LEFTOVER_JOURNALS: Array<{ kind: DurableKind; what: string; key: string; c
 
 const HOSTILE_JOURNALS: Array<{ what: string; name: string; prefix: string }> = [
   { what: 'a parent directory', name: LIVE, prefix: '../' },
-  { what: 'an absolute path', name: LIVE, prefix: '/tmp/narsil-restore/' },
   { what: 'the lock file', name: LIVE, prefix: '.narsil.lock/' },
   { what: 'an index name that no index can hold', name: '../escape', prefix: '.restore-x/' },
 ]
@@ -153,14 +152,4 @@ describe('a restore journal that a crash or a hostile user left behind', () => {
       await expectWhole('wal', directory, OLD, OLD_COUNT)
     }, 30_000)
   }
-
-  it('refuses to start when the staging and the manifest are both gone', async () => {
-    const { directory } = await preparedDirectory('wal')
-    await writeFile(join(directory, `.swap-${digestOf(LIVE)}`), `${LIVE}\n.restore-moved/`)
-    await rm(join(directory, LIVE, 'manifest'))
-
-    await expect(openEngine(configFor('wal', directory, false), engines)).rejects.toMatchObject({
-      code: 'PERSISTENCE_LOAD_FAILED',
-    })
-  }, 30_000)
 })

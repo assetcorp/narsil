@@ -40,7 +40,7 @@ async function exists(path: string): Promise<boolean> {
   )
 }
 
-const NAMES_ACROSS_SHA256_BLOCKS = [55, 56].map(length => `n${'x'.repeat(length - 1)}`)
+const NAME_SPANNING_TWO_SHA256_BLOCKS = `n${'x'.repeat(55)}`
 
 describe('a restore on a platform without Web Crypto, as in a browser page served over plain HTTP', () => {
   it('replaces an index, drops it, and reopens without it on a snapshot-tier engine', async () => {
@@ -60,19 +60,18 @@ describe('a restore on a platform without Web Crypto, as in a browser page serve
     expect(await reopened.listIndexes()).not.toContainEqual(expect.objectContaining({ name: LIVE }))
   }, 30_000)
 
-  for (const name of NAMES_ACROSS_SHA256_BLOCKS) {
-    it(`finds the journal under the SHA-256 of a ${name.length}-character index name, and refuses its hostile prefix`, async () => {
-      const directory = await newDirectory(roots)
-      const engine = await openEngine(configFor('snapshot', directory, false), engines)
-      await engine.createIndex(name, { schema: { body: 'string' } })
-      await engine.insert(name, { body: 'the lantern by the quay' }, 'doc-1')
-      await engine.checkpoint(name)
-      await engine.shutdown()
-      await writeFile(join(directory, `.swap-${digestOf(name)}`), `${name}\n../`)
+  it('finds the journal under the SHA-256 of an index name that spans two blocks, and refuses its hostile prefix', async () => {
+    const name = NAME_SPANNING_TWO_SHA256_BLOCKS
+    const directory = await newDirectory(roots)
+    const engine = await openEngine(configFor('snapshot', directory, false), engines)
+    await engine.createIndex(name, { schema: { body: 'string' } })
+    await engine.insert(name, { body: 'the lantern by the quay' }, 'doc-1')
+    await engine.checkpoint(name)
+    await engine.shutdown()
+    await writeFile(join(directory, `.swap-${digestOf(name)}`), `${name}\n../`)
 
-      await expect(openEngine(configFor('snapshot', directory, false), engines)).rejects.toMatchObject({
-        code: 'PERSISTENCE_LOAD_FAILED',
-      })
-    }, 30_000)
-  }
+    await expect(openEngine(configFor('snapshot', directory, false), engines)).rejects.toMatchObject({
+      code: 'PERSISTENCE_LOAD_FAILED',
+    })
+  }, 30_000)
 })

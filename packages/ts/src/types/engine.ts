@@ -240,9 +240,9 @@ export interface Narsil extends IndexLifecycleOperations, DocumentWriteOperation
    * other than the ones that this release implements. It raises
    * `CONFIG_INVALID` when the archive's configuration is invalid,
    * `DOC_VALIDATION_FAILED` when the data is empty or the release 0.3 file is
-   * invalid, `RESTORE_MEMORY_EXCEEDED` when the restored index needs more heap
-   * or process memory than is free, and `WORKER_TIMEOUT` when a worker thread
-   * still holds the existing index 30 seconds after the engine asks for it.
+   * invalid, `RESTORE_MEMORY_EXCEEDED` when the restored index and the one that
+   * it replaces need more memory than is free, and `WORKER_TIMEOUT` when a
+   * worker still holds the old index 30 seconds after the engine asks for it.
    */
   restore(indexName: string, data: ByteSource): Promise<void>
   /**
