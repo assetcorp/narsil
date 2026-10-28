@@ -8,7 +8,7 @@ from pathlib import Path
 
 import httpx
 
-from ..drivers._stop_words import LUCENE_ENGLISH_STOP_WORDS
+from ..drivers._stop_words import LUCENE_ENGLISH_STOP_WORDS, NARSIL_ENGLISH_STOP_WORDS
 from .synonym_sets import MAX_RULE_WORDS, SynonymRule, parse_synonym_set
 
 OEWN_2024_URL = (
@@ -19,6 +19,7 @@ OEWN_2024_ARCHIVE = "english-wordnet-2024.xml.gz"
 OEWN_ATTRIBUTION = "Open English WordNet 2024, CC BY 4.0, https://github.com/globalwordnet/english-wordnet"
 
 _PLAIN_LOWERCASE_WORD = re.compile(r"^[a-z]+$")
+_STOP_WORDS = frozenset(LUCENE_ENGLISH_STOP_WORDS) | frozenset(NARSIL_ENGLISH_STOP_WORDS)
 _DOWNLOAD_TIMEOUT_SECONDS = 300.0
 
 
@@ -61,7 +62,7 @@ def wordnet_rules(archive: Path) -> tuple[SynonymRule, ...]:
                     synset is not None
                     and lemma is not None
                     and _PLAIN_LOWERCASE_WORD.match(lemma)
-                    and lemma not in LUCENE_ENGLISH_STOP_WORDS
+                    and lemma not in _STOP_WORDS
                 ):
                     by_synset.setdefault(synset, set()).add(lemma)
             elif element.tag == "LexicalEntry":
