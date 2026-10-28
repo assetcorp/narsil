@@ -235,11 +235,7 @@ function filterByTermCoverage(
       if (member.factor === 0) partialOnly.add(member.token)
     }
     groups.set(group.token, {
-      members: new Set(
-        group.synonyms === undefined
-          ? group.members.map(member => member.token)
-          : [...group.members.map(member => member.token), ...group.synonyms.tokens],
-      ),
+      members: new Set([...group.members.map(member => member.token), ...(group.synonyms?.tokens ?? [])]),
       partialOnly,
       typoMatches: group.typoMatches,
     })

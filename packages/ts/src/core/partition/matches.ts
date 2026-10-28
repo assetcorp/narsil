@@ -59,11 +59,9 @@ export function searchFulltextMatches(state: PartitionReadState, params: Interna
       if (postingList === undefined) continue
       markPostingList(matched, postingList, member.factor > 0 ? searched : searchedPartial, filterBitset)
     }
-    if (group.synonyms !== undefined) {
-      for (const synonym of group.synonyms.tokens) {
-        const postingList = state.invertedIdx.lookup(synonym)
-        if (postingList !== undefined) markPostingList(matched, postingList, searched, filterBitset)
-      }
+    for (const synonym of group.synonyms?.tokens ?? []) {
+      const postingList = state.invertedIdx.lookup(synonym)
+      if (postingList !== undefined) markPostingList(matched, postingList, searched, filterBitset)
     }
   }
 

@@ -26,8 +26,7 @@ function analysedQueryTokens(term: string, language: LanguageModule, analysis: Q
   for (const { token } of tokens) {
     unique.add(token)
   }
-  const synonyms = analysis.synonyms?.expand(unique)
-  if (synonyms !== undefined) for (const synonym of synonyms.tokens) unique.add(synonym)
+  for (const synonym of analysis.synonyms?.expand(unique)?.tokens ?? []) unique.add(synonym)
   return unique
 }
 
