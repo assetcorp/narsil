@@ -49,7 +49,7 @@ export async function applyPrimaryInsert(
     const inserted = await numberedWrite(
       scope,
       () => deps.engine.insert(indexName, document, docId, options),
-      insertedDocId => appendStoredCopy(scope, insertedDocId),
+      (insertedDocId, admitted) => appendStoredCopy(scope, insertedDocId, admitted),
     )
     try {
       await replicateEntry(inserted.entry, scope.assignment, deps)
@@ -99,7 +99,7 @@ export async function applyPrimaryUpdate(
     const updated = await numberedWrite(
       scope,
       () => deps.engine.update(indexName, docId, document),
-      () => appendStoredCopy(scope, docId),
+      (_, admitted) => appendStoredCopy(scope, docId, admitted),
     )
     try {
       await replicateEntry(updated.entry, scope.assignment, deps)
@@ -137,7 +137,7 @@ export async function applyPrimaryInsertBatch(
         const inserted = await numberedWrite(
           scope,
           () => deps.engine.insert(indexName, item.doc, item.docId, options),
-          insertedDocId => appendStoredCopy(scope, insertedDocId),
+          (insertedDocId, admitted) => appendStoredCopy(scope, insertedDocId, admitted),
         )
         appended.push({ docId: inserted.value, entry: inserted.entry })
       } catch (err) {
@@ -173,7 +173,7 @@ export async function applyPrimaryUpdateBatch(
         const updated = await numberedWrite(
           scope,
           () => deps.engine.update(indexName, update.docId, update.document),
-          () => appendStoredCopy(scope, update.docId),
+          (_, admitted) => appendStoredCopy(scope, update.docId, admitted),
         )
         appended.push({ docId: update.docId, entry: updated.entry, previousDocument })
       } catch (err) {

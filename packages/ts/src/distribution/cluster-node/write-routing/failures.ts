@@ -71,7 +71,7 @@ export async function rollbackPrimaryUpdate(
     await numberedWrite(
       scope,
       () => scope.deps.engine.update(scope.indexName, documentId, previousDocument),
-      () => appendStoredCopy(scope, documentId),
+      (_, admitted) => appendStoredCopy(scope, documentId, admitted),
     )
   } catch (rollbackError) {
     throw createRollbackFailure('update', scope, documentId, originalError, rollbackError)
@@ -99,7 +99,7 @@ export async function rollbackPrimaryRemove(
     await numberedWrite(
       scope,
       () => scope.deps.engine.insert(scope.indexName, previousDocument, documentId),
-      () => appendStoredCopy(scope, documentId),
+      (_, admitted) => appendStoredCopy(scope, documentId, admitted),
     )
   } catch (rollbackError) {
     throw createRollbackFailure('remove', scope, documentId, originalError, rollbackError)

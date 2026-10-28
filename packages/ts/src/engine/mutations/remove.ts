@@ -85,6 +85,7 @@ export async function removeDocument(
   const prepared = await prepareRemoval(ctx, indexName, docId)
   const apply = applyOfRemoval(ctx, indexName, prepared)
 
+  ctx.admitWrite(indexName, docId, null)
   if (ctx.durability) {
     try {
       await ctx.durability.recordRemove(indexName, docId, apply)
@@ -135,7 +136,9 @@ export async function removeDocumentBatch(
         if (failure !== null) {
           let error = failure.error
           try {
-            await rollbackRemovedDocument(ctx, indexName, removal.docId, removal.restoreDoc, error)
+            if (failure.refused !== true) {
+              await rollbackRemovedDocument(ctx, indexName, removal.docId, removal.restoreDoc, error)
+            }
           } catch (rollbackError) {
             error = rollbackError
           }

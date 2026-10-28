@@ -17,10 +17,12 @@ export interface NumberedWrite<T> {
   entry: ReplicationLogEntry
 }
 
+export type AdmittedDocuments = (documentId: string) => Uint8Array | null | undefined
+
 export async function numberedWrite<T>(
   scope: PrimaryWriteScope,
   write: () => Promise<T>,
-  appendOutsideTheLog: (value: T) => Promise<ReplicationLogEntry>,
+  appendOutsideTheLog: (value: T, admitted: AdmittedDocuments) => Promise<ReplicationLogEntry>,
 ): Promise<NumberedWrite<T>> {
   const writes = scope.deps.numbering?.open(
     scope.indexName,
@@ -35,7 +37,9 @@ export async function numberedWrite<T>(
     writes?.close()
   }
   const recorded = writes?.entries.at(-1)
-  return { value, entry: recorded ?? (await appendOutsideTheLog(value)) }
+  if (recorded !== undefined) return { value, entry: recorded }
+  const admitted: AdmittedDocuments = documentId => writes?.admittedDocument(documentId)
+  return { value, entry: await appendOutsideTheLog(value, admitted) }
 }
 
 export async function storedCopyOf(scope: PrimaryWriteScope, documentId: string): Promise<AnyDocument> {
@@ -50,7 +54,22 @@ export async function storedCopyOf(scope: PrimaryWriteScope, documentId: string)
   return stored
 }
 
-export async function appendStoredCopy(scope: PrimaryWriteScope, documentId: string): Promise<ReplicationLogEntry> {
+export async function appendStoredCopy(
+  scope: PrimaryWriteScope,
+  documentId: string,
+  admitted: AdmittedDocuments,
+): Promise<ReplicationLogEntry> {
+  const admittedDocument = admitted(documentId)
+  if (admittedDocument instanceof Uint8Array) {
+    return scope.deps.getReplicationLog(scope.indexName, scope.partitionId).append({
+      primaryTerm: scope.assignment.primaryTerm,
+      operation: 'INDEX',
+      partitionId: scope.partitionId,
+      indexName: scope.indexName,
+      documentId,
+      document: admittedDocument,
+    })
+  }
   const stored = await storedCopyOf(scope, documentId)
   return appendIndexReplicationEntry(
     scope.indexName,
