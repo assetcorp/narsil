@@ -41,12 +41,15 @@ async function runAllocatorForIndex(
   }
 
   const currentTable = await coordinator.getAllocation(indexName)
-  if (currentTable === null || !isActive()) {
+  if (!isActive()) {
     return
   }
 
   const metadata = await getIndexMetadata(coordinator, indexName)
   if (metadata === null || !isActive()) {
+    return
+  }
+  if (currentTable === null && ((await coordinator.getSchema(indexName)) === null || !isActive())) {
     return
   }
 
@@ -57,14 +60,14 @@ async function runAllocatorForIndex(
     metadata.partitionCount,
     metadata.replicationFactor,
     metadata.constraints,
-    retainedFor(currentTable),
+    currentTable === null ? undefined : retainedFor(currentTable),
   )
 
   if (!isActive()) {
     return
   }
 
-  if (await coordinator.putAllocation(indexName, result.table, currentTable.version, writerNodeId)) {
+  if (await coordinator.putAllocation(indexName, result.table, currentTable?.version ?? null, writerNodeId)) {
     return
   }
 
