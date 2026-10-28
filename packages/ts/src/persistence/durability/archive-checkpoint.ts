@@ -1,10 +1,12 @@
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { DurableDirectory } from './durable-filesystem'
 import type { PartitionCheckpoint } from './partition-checkpoint'
+import { directoryRestoreStorage } from './restore-directory'
+import { createRestoreStaging, type RestoreStaging } from './restore-staging'
 import { manifestKey } from './segment/layout'
 import type { FileRef, SegmentManifest } from './segment/manifest'
 import { decodeSegmentManifest } from './segment/manifest-decode'
-import { type CheckpointStore, directoryCheckpointStore, readListedFile } from './segment/store'
+import { directoryCheckpointStore, readListedFile } from './segment/store'
 
 export interface ArchiveCheckpoint {
   manifestBytes: Uint8Array
@@ -14,57 +16,10 @@ export interface ArchiveCheckpoint {
   release(): void
 }
 
-export interface RestoreStaging {
-  readonly store: CheckpointStore
-  commit(): Promise<CheckpointStore>
-  discard(): Promise<void>
-}
-
 export interface ArchiveCheckpointAccess {
   openArchiveCheckpoint(indexName: string): Promise<ArchiveCheckpoint>
   stageRestore(indexName: string): RestoreStaging
   adoptRestoredCheckpoint(indexName: string, checkpoint: readonly PartitionCheckpoint[]): void
-}
-
-export const RESTORE_STAGING_PREFIX = '.restore-'
-
-function createRestoreStaging(
-  directory: DurableDirectory,
-  indexStore: CheckpointStore,
-  indexName: string,
-): RestoreStaging {
-  const stagingRoot = `${RESTORE_STAGING_PREFIX}${indexName}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}/`
-  const indexRoot = `${indexName}/`
-  const staged = (key: string): string => {
-    if (!key.startsWith(indexRoot)) {
-      throw new NarsilError(ErrorCodes.PERSISTENCE_SAVE_FAILED, `A restore of "${indexName}" cannot stage "${key}"`, {
-        key,
-      })
-    }
-    return `${stagingRoot}${key.slice(indexRoot.length)}`
-  }
-  const unstaged = (key: string): string => `${indexRoot}${key.slice(stagingRoot.length)}`
-  const stagingStore: CheckpointStore = {
-    read: key => directory.read(staged(key)),
-    write: (key, chunks) => directory.atomicWrite(staged(key), chunks),
-    remove: key => directory.remove(staged(key)),
-    list: async prefix => (await directory.list(staged(prefix))).map(unstaged),
-    pathOf: key => directory.pathOf(staged(key)),
-  }
-  return {
-    store: stagingStore,
-    async commit(): Promise<CheckpointStore> {
-      for (const key of await directory.list(stagingRoot)) await directory.move(key, unstaged(key))
-      return indexStore
-    },
-    async discard(): Promise<void> {
-      for (const key of await directory.list(stagingRoot)) await directory.remove(key)
-    },
-  }
-}
-
-export async function removeAbandonedRestores(directory: DurableDirectory): Promise<void> {
-  for (const key of await directory.list(RESTORE_STAGING_PREFIX)) await directory.remove(key)
 }
 
 export interface ArchiveCheckpointDeps {
@@ -72,6 +27,25 @@ export interface ArchiveCheckpointDeps {
   held: Map<string, number>
   checkpoint(indexName: string): Promise<void>
   registerPartition(indexName: string, partitionId: number, startSeqNo: number, primaryTerm: number): void
+  markFatal(error: Error): void
+}
+
+function toError(error: unknown): Error {
+  return error instanceof Error ? error : new Error(String(error))
+}
+
+function stageDirectoryRestore(deps: ArchiveCheckpointDeps, indexName: string): RestoreStaging {
+  return createRestoreStaging(directoryRestoreStorage(deps.directory), indexName, {
+    async finish(run) {
+      try {
+        await run()
+      } catch (error) {
+        deps.markFatal(toError(error))
+        throw error
+      }
+    },
+    onStorageLost: deps.markFatal,
+  })
 }
 
 function releaser(held: Map<string, number>, indexName: string): () => void {
@@ -125,7 +99,7 @@ export function createArchiveCheckpointAccess(deps: ArchiveCheckpointDeps): Arch
     },
 
     stageRestore(indexName: string): RestoreStaging {
-      return createRestoreStaging(deps.directory, store, indexName)
+      return stageDirectoryRestore(deps, indexName)
     },
 
     adoptRestoredCheckpoint(indexName: string, checkpoint: readonly PartitionCheckpoint[]): void {
