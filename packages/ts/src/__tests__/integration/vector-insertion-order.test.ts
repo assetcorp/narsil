@@ -6,6 +6,7 @@ import {
   exactCosineRanking,
   FIELD,
   insertFileByFile,
+  insertFileByFileWithoutOptimizing,
   lengthOfTheMeanUnitVector,
   NARROW_EF_SEARCH,
   NARROW_LIMIT,
@@ -51,7 +52,7 @@ describe('vector search over passages that arrive file by file', () => {
       schema: { [FIELD]: `vector[${DIMENSION}]` },
       vectorPromotion: { quantization: 'osq4' },
     })
-    await insertFileByFile(engine, INDEX, passages)
+    await insertFileByFileWithoutOptimizing(engine, INDEX, passages)
   }, ARRIVAL_TIMEOUT_MS)
 
   afterAll(async () => {
