@@ -187,9 +187,9 @@ describe.each([
   )
 
   it.skipIf(!runnable)(
-    'answers within the deadline each search built to cost the most work below the cap',
+    'answers each costly search below the work cap, stops each one past it, and answers another search meanwhile',
     async () => {
-      const hostileFilters: Array<[string, unknown]> = [
+      const belowTheCap: Array<[string, unknown]> = [
         ['a two-character test that checks every long value', { fields: { line: { contains: 'aa' } } }],
         [
           'a long test of distinct characters against scattered values',
@@ -212,11 +212,6 @@ describe.each([
           },
         ],
         [
-          'a regex whose deterministic states outgrow the state budget',
-          { fields: { line: { regex: `[ab]*a[ab]{${MAX_PATTERN_POSITIONS - 2}}` } } },
-        ],
-        ['a regex in which a match can reach every position', { fields: { line: { regex: '(.*a){1000}c' } } }],
-        [
           'a regex with a word edge before each of many branches',
           {
             fields: {
@@ -224,15 +219,6 @@ describe.each([
                 regex: `(${Array.from({ length: 200 }, (_, at) => `\\b${String.fromCodePoint(0x4e00 + at)}`).join('|')})`,
               },
             },
-          },
-        ],
-        ['a wildcard of many stars', { fields: { line: { wildcard: `${'*a'.repeat(500)}*` } } }],
-        [
-          'as many long regex or clauses as a filter can hold',
-          {
-            or: Array.from({ length: MAX_FILTER_TESTS }, (_, at) => ({
-              fields: { line: { regex: `[ab]*${String.fromCodePoint(0x4e00 + at)}[ab]{1000}` } },
-            })),
           },
         ],
         [
@@ -256,10 +242,32 @@ describe.each([
           { or: Array.from({ length: MAX_FILTER_TESTS }, (_, at) => ({ fields: { sku: { ne: `SKU-${at}` } } })) },
         ],
       ]
-      for (const [label, filters] of hostileFilters) {
+      const pastTheCap: Array<[string, unknown]> = [
+        [
+          'a regex whose deterministic states outgrow the state budget',
+          { fields: { line: { regex: `[ab]*a[ab]{${MAX_PATTERN_POSITIONS - 2}}` } } },
+        ],
+        ['a regex in which a match can reach every position', { fields: { line: { regex: '(.*a){1000}c' } } }],
+        ['a wildcard of many stars', { fields: { line: { wildcard: `${'*a'.repeat(500)}*` } } }],
+        [
+          'as many long regex or clauses as a filter can hold',
+          {
+            or: Array.from({ length: MAX_FILTER_TESTS }, (_, at) => ({
+              fields: { line: { regex: `[ab]*${String.fromCodePoint(0x4e00 + at)}[ab]{1000}` } },
+            })),
+          },
+        ],
+      ]
+      for (const [label, filters] of belowTheCap) {
         const answered = await expectServedWhileHostile(server, searchBody(filters), NORMAL_FILTERS, label)
-        expect([200, 400], label).toContain(answered.status)
-        if (answered.status === 400) expect(answered.code, label).toBe('SEARCH_WORK_CAP_EXCEEDED')
+        expect({ status: answered.status, code: answered.code }, label).toEqual({ status: 200, code: null })
+      }
+      for (const [label, filters] of pastTheCap) {
+        const answered = await expectServedWhileHostile(server, searchBody(filters), NORMAL_FILTERS, label)
+        expect({ status: answered.status, code: answered.code }, label).toEqual({
+          status: 400,
+          code: 'SEARCH_WORK_CAP_EXCEEDED',
+        })
       }
     },
     180_000,
