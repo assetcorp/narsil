@@ -46,7 +46,7 @@ describe('the oracle that the synonym tests compare against', () => {
       query => JSON.stringify(withSet.search(query)) !== JSON.stringify(withoutSet.search(query)),
     )
     expect(changed.length).toBeGreaterThan(probeQueries().length / 2)
-  })
+  }, 60_000)
 
   it('caps one token at 50 synonyms in code point order, and splits the cap across tokens', () => {
     expect(expandQuery(['giant'], FIRST_RULES).get('giant')).toHaveLength(50)

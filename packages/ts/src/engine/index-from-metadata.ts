@@ -12,7 +12,7 @@ import type { AnalysisRebuildCoordinator } from './analysis-rebuild'
 import type { IndexRegistryEntry } from './core'
 import type { IndexStateCoordinator } from './index-state'
 import { reconstructSchemaFromMetadata } from './recovery-schema'
-import { encodeStoredSynonyms, lookupOfStoredSynonyms } from './synonym-sets'
+import { lookupOfStoredSynonyms, prepareStoredSynonyms } from './synonym-sets'
 import { requireSurfaceFormsForPartialFields, validatePatternValueLimit } from './validation'
 import { getVectorFieldPaths } from './vector-fields'
 
@@ -93,18 +93,18 @@ export async function createIndexFromMetadata(
     throw recoveryFailure(metadata, err)
   }
   const embedding = resolveEmbeddingAdapter(deps, metadata, indexConfig.schema)
-  const synonyms = encodeStoredSynonyms(metadata.synonyms)
+  const prepared = prepareStoredSynonyms(
+    metadata.synonyms,
+    indexConfig,
+    language,
+    'The synonym set in the index metadata is invalid: ',
+  )
+  const synonyms = prepared?.encoded ?? null
 
   try {
     validateVectorStorage(indexConfig.vectorPromotion, deps.filesystemDurability)
     if (loadData) {
-      deps.executor.createIndex(
-        metadata.indexName,
-        indexConfig,
-        language,
-        false,
-        lookupOfStoredSynonyms(synonyms, indexConfig, language),
-      )
+      deps.executor.createIndex(metadata.indexName, indexConfig, language, false, prepared?.lookup ?? null)
     }
   } catch (err) {
     throw recoveryFailure(metadata, err)

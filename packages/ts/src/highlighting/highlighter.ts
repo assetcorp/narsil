@@ -25,7 +25,7 @@ export interface HighlightOptions {
   tolerance?: number
   prefixLength?: number
   partialWords?: PartialWordHighlight
-  synonyms?: ReadonlySet<string>
+  synonyms?: readonly string[]
 }
 
 interface CharRange {
@@ -181,7 +181,7 @@ export function highlightField(
     if (known !== undefined) return known
     const stemmedField = language.stemmer ? language.stemmer(fieldToken) : fieldToken
     const matches =
-      synonyms?.has(stemmedField) === true ||
+      synonyms?.includes(stemmedField) === true ||
       stemmedQueryTokens.some((stemmedQuery, index) =>
         fuzzyTermMatches(stemmedQuery, stemmedField, queryTolerances[index], prefixLength),
       )

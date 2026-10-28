@@ -1,15 +1,12 @@
-import { combinePostingLists } from './combined-postings'
-import { expandQuerySynonyms } from './expand'
-import { buildSynonymLookup } from './lookup'
-import { decodeSynonymRules, encodeSynonymRules, parseSynonymRules } from './rules'
+import { applyLoadedSynonyms, replaceSynonymSet } from './operations'
+import { prepareSynonyms, storedSynonymLookup, storedSynonymRules } from './prepare'
 import type { SynonymSearchModule } from './types'
 
 export const synonymSearchModule: SynonymSearchModule = {
   name: 'synonyms',
-  buildLookup: buildSynonymLookup,
-  expandQuery: expandQuerySynonyms,
-  combinePostings: combinePostingLists,
-  parseRules: parseSynonymRules,
-  encodeRules: encodeSynonymRules,
-  decodeRules: decodeSynonymRules,
+  prepare: prepareSynonyms,
+  storedLookup: storedSynonymLookup,
+  decodeRules: storedSynonymRules,
+  replace: replaceSynonymSet,
+  applyLoaded: applyLoadedSynonyms,
 }

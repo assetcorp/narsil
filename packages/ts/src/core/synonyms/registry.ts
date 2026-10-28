@@ -1,20 +1,11 @@
 import { platformSynonymSearch } from '#platform/synonym-search'
 import { ErrorCodes, NarsilError } from '../../errors'
-import type { PostingListView } from '../../types/internal'
-import type { SynonymRule, SynonymSearch } from '../../types/synonyms'
-import type { RaiseSynonymProblem } from './rules'
-import type { QuerySynonyms, SynonymAnalysis, SynonymLookup, SynonymSearchModule } from './types'
+import type { SynonymSearch } from '../../types/synonyms'
+import type { SynonymSearchModule } from './types'
 
 let registered: SynonymSearchModule | null = null
 
-const MODULE_FUNCTIONS = [
-  'buildLookup',
-  'expandQuery',
-  'combinePostings',
-  'parseRules',
-  'encodeRules',
-  'decodeRules',
-] as const
+const MODULE_FUNCTIONS = ['prepare', 'storedLookup', 'decodeRules', 'replace', 'applyLoaded'] as const
 
 function isSynonymSearchModule(value: SynonymSearch): value is SynonymSearchModule {
   if (value === null || typeof value !== 'object' || value.name !== 'synonyms') return false
@@ -46,48 +37,19 @@ export function registerSynonyms(module: SynonymSearch): void {
   registered = module
 }
 
-const SYNONYM_IMPORT_ADVICE = `Add import { synonyms } from '@delali/narsil/synonyms', then call registerSynonyms(synonyms) before you create or load an index with a synonym set`
+export function availableSynonymModule(): SynonymSearchModule | null {
+  return registered ?? platformSynonymSearch()
+}
 
-function synonymModule(): SynonymSearchModule {
-  const module = registered ?? platformSynonymSearch()
+export function synonymModule(): SynonymSearchModule {
+  const module = availableSynonymModule()
   if (module !== null) return module
   throw new NarsilError(
     ErrorCodes.CONFIG_INVALID,
-    `This index holds a synonym set, but this bundle contains no synonym code. ${SYNONYM_IMPORT_ADVICE}`,
+    "This bundle holds no synonym code, so import { synonyms } from '@delali/narsil/synonyms' and pass it to registerSynonyms before you use a synonym set",
   )
 }
 
-export function buildSynonymLookup(
-  rules: readonly SynonymRule[],
-  analysis: SynonymAnalysis,
-  raise: RaiseSynonymProblem | null,
-): SynonymLookup | null {
-  if (rules.length === 0) return null
-  return synonymModule().buildLookup(rules, analysis, raise)
-}
-
-export function expandQuerySynonyms(
-  lookup: SynonymLookup | null | undefined,
-  queryTokens: Iterable<string>,
-): QuerySynonyms | undefined {
-  if (lookup === null || lookup === undefined) return undefined
-  const expanded = synonymModule().expandQuery(lookup, queryTokens)
-  return expanded.size === 0 ? undefined : expanded
-}
-
-export function combineSynonymPostings(lists: readonly PostingListView[]): PostingListView {
-  return synonymModule().combinePostings(lists)
-}
-
-export function parseSynonymRules(value: unknown, raise: RaiseSynonymProblem): SynonymRule[] {
-  if (Array.isArray(value) && value.length === 0) return []
-  return synonymModule().parseRules(value, raise)
-}
-
-export function encodeSynonymRules(rules: readonly SynonymRule[]): Uint8Array {
-  return synonymModule().encodeRules(rules)
-}
-
-export function decodeSynonymRules(bytes: Uint8Array, raise: RaiseSynonymProblem): SynonymRule[] {
-  return synonymModule().decodeRules(bytes, raise)
+export function isEmptySynonymSet(value: unknown): boolean {
+  return value === undefined || (Array.isArray(value) && value.length === 0)
 }

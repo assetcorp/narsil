@@ -66,14 +66,6 @@ function addCompletions(
   }
 }
 
-function addSynonyms(groups: Map<string, ExpandedTermGroup>, synonyms: QuerySynonyms): void {
-  for (const [token, tokenSynonyms] of synonyms) {
-    const group = groupFor(groups, token, true)
-    group.synonyms = tokenSynonyms
-    group.members = group.members.filter(member => member.token === token || !tokenSynonyms.includes(member.token))
-  }
-}
-
 function partialWordAnalysisOf(
   fields: readonly string[],
   language: LanguageModule,
@@ -136,7 +128,7 @@ export function resolveTermGroups(
     )
   }
 
-  if (synonyms !== undefined) addSynonyms(groups, synonyms)
+  synonyms?.addTo(token => groupFor(groups, token, true))
 
   const termGroups = [...groups.values()]
   if (termGroups.length === 0) return {}

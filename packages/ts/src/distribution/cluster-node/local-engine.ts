@@ -1,3 +1,4 @@
+import { synonymModule } from '../../core/synonyms/registry'
 import { requireKnownConfig } from '../../engine/config-keys'
 import { createEngineCore, type EngineCore } from '../../engine/core'
 import { createEngineIndex } from '../../engine/index-lifecycle'
@@ -13,7 +14,6 @@ import {
   runEngineQueryStats,
   runEngineSuggest,
 } from '../../narsil/reads'
-import { applyLoadedSynonyms } from '../../narsil/synonyms'
 import type { NarsilConfig } from '../../types/config'
 import type { ByteSource } from '../../types/engine'
 import type { GlobalStatistics } from '../../types/internal'
@@ -93,7 +93,7 @@ export async function createClusterLocalEngine(
     indexUuidOf: (indexName: string) => core.indexRegistry.get(indexName)?.indexUuid,
     stampIndexUuid: (indexName: string, indexUuid: string) => stampIndexUuid(core, indexName, indexUuid),
     applyStoredSynonyms: (indexName: string, load: () => Promise<readonly SynonymRule[] | null>) =>
-      applyLoadedSynonyms(core, indexName, load),
+      synonymModule().applyLoaded(core, indexName, load),
     highestPersistedSeqNoOf: (indexName: string, partitionId: number) =>
       core.durability?.manager.highestPersistedSeqNo(indexName, partitionId) ?? 0,
     heldPartitionsOf: (indexName: string) => heldPartitions.held(indexName),

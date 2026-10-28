@@ -1,19 +1,8 @@
-import { resolveIndexAnalysis } from '../analysis/registry'
-import { encodeSynonymRules } from '../core/synonyms/registry'
-import {
-  type PreparedSynonyms,
-  prepareSynonyms,
-  raiseConfigInvalid,
-  storedSynonymLookup,
-} from '../core/synonyms/stored'
-import type { SynonymAnalysis, SynonymLookup } from '../core/synonyms/types'
+import { isEmptySynonymSet, synonymModule } from '../core/synonyms/registry'
+import type { PreparedSynonyms, RaiseSynonymProblem, SynonymLookup } from '../core/synonyms/types'
 import type { LanguageModule } from '../types/language'
 import type { IndexConfig } from '../types/schema'
 import type { SynonymRule } from '../types/synonyms'
-
-export function synonymAnalysisOf(config: IndexConfig, language: LanguageModule): SynonymAnalysis {
-  return { language, ...resolveIndexAnalysis(config) }
-}
 
 export function withoutSynonyms(config: IndexConfig): IndexConfig {
   if (!Object.hasOwn(config, 'synonyms')) return config
@@ -21,23 +10,32 @@ export function withoutSynonyms(config: IndexConfig): IndexConfig {
   return rest
 }
 
+export function prepareStoredSynonyms(
+  value: unknown,
+  config: IndexConfig,
+  language: LanguageModule,
+  raise?: RaiseSynonymProblem | string,
+  strictWords = false,
+): PreparedSynonyms | null {
+  return isEmptySynonymSet(value) ? null : synonymModule().prepare(value, config, language, strictWords, raise)
+}
+
 export function prepareConfiguredSynonyms(
   config: IndexConfig,
   language: LanguageModule,
   strictWords = true,
 ): PreparedSynonyms | null {
-  if (config.synonyms === undefined) return null
-  return prepareSynonyms(config.synonyms, synonymAnalysisOf(config, language), raiseConfigInvalid, strictWords)
-}
-
-export function encodeStoredSynonyms(rules: readonly SynonymRule[] | undefined): Uint8Array | null {
-  return rules === undefined || rules.length === 0 ? null : encodeSynonymRules(rules)
+  return prepareStoredSynonyms(config.synonyms, config, language, undefined, strictWords)
 }
 
 export function lookupOfStoredSynonyms(
-  encoded: Uint8Array | null,
+  encoded: Uint8Array | null | undefined,
   config: IndexConfig,
   language: LanguageModule,
 ): SynonymLookup | null {
-  return encoded === null ? null : storedSynonymLookup(encoded, synonymAnalysisOf(config, language))
+  return encoded === null || encoded === undefined ? null : synonymModule().storedLookup(encoded, config, language)
+}
+
+export function rulesOfStoredSynonyms(encoded: Uint8Array | null): SynonymRule[] {
+  return encoded === null ? [] : synonymModule().decodeRules(encoded)
 }

@@ -1,4 +1,3 @@
-import { expandQuerySynonyms } from '../core/synonyms/registry'
 import type { SynonymLookup } from '../core/synonyms/types'
 import { tokenize } from '../core/tokenizer'
 import type { InvalidationAdapter } from '../types/adapters'
@@ -24,12 +23,7 @@ function analysedQueryTokens(term: string, language: LanguageModule, analysis: Q
   for (const { token } of tokens) {
     unique.add(token)
   }
-  const synonyms = expandQuerySynonyms(analysis.synonyms, unique)
-  if (synonyms !== undefined) {
-    for (const tokenSynonyms of synonyms.values()) {
-      for (const synonym of tokenSynonyms) unique.add(synonym)
-    }
-  }
+  for (const synonym of analysis.synonyms?.expand(unique)?.tokens ?? []) unique.add(synonym)
   return unique
 }
 
