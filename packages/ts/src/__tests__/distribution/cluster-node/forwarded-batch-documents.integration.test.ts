@@ -78,4 +78,35 @@ describe('a batch that a router forwards to the primary of another node', () => 
       expect(document?.latitude).toBe(sheet.latitude)
     }
   }, 60_000)
+
+  it('reads negative zero back from a node that holds no copy, at the top level, nested, and in an array', async () => {
+    const router = await start('chart-room', ['coordinator', 'controller'])
+    await start('map-store', ['data'])
+    await router.createIndex(
+      INDEX_NAME,
+      { schema: { title: 'string', latitude: 'number' } },
+      { partitionCount: 2, replicationFactor: 0 },
+    )
+    await waitForActiveAllocation(coordinator, INDEX_NAME)
+    const meridian = { title: 'prime meridian', latitude: -0, origin: { longitude: -0 }, soundings: [3, -0, 7] }
+    await router.insert(INDEX_NAME, meridian, 'meridian')
+
+    function keepsNegativeZero(document: Record<string, unknown> | undefined): void {
+      const origin = document?.origin as { longitude?: unknown } | undefined
+      const soundings = document?.soundings as unknown[] | undefined
+      expect(Object.is(document?.latitude, -0)).toBe(true)
+      expect(Object.is(origin?.longitude, -0)).toBe(true)
+      expect(soundings?.length).toBe(3)
+      expect(Object.is(soundings?.[1], -0)).toBe(true)
+      expect(soundings?.[0]).toBe(3)
+    }
+
+    keepsNegativeZero(await router.get(INDEX_NAME, 'meridian'))
+    keepsNegativeZero((await router.getMultiple(INDEX_NAME, ['meridian'])).get('meridian'))
+    const searched = await router.query(INDEX_NAME, { term: 'meridian', sort: { latitude: 'asc' } })
+    expect(searched.hits.map(hit => hit.id)).toEqual(['meridian'])
+    keepsNegativeZero(searched.hits[0]?.document)
+    const listed = await router.listDocuments(INDEX_NAME, {})
+    keepsNegativeZero(listed.documents.find(entry => entry.id === 'meridian')?.document)
+  }, 60_000)
 })

@@ -1,5 +1,6 @@
 import { decode, encode } from '@msgpack/msgpack'
 import { generateId } from '../../core/id-generator'
+import { encodeDocumentReply } from '../../serialization/document-encoding'
 import type {
   CountPayload,
   CountResultPayload,
@@ -37,7 +38,7 @@ export function createSearchResultMessage(
     type: QueryMessageTypes.SEARCH_RESULT,
     sourceId,
     requestId,
-    payload: encode(payload),
+    payload: encodeDocumentReply(payload),
   }
 }
 
@@ -59,7 +60,7 @@ export function createFetchResultMessage(
     type: QueryMessageTypes.FETCH_RESULT,
     sourceId,
     requestId,
-    payload: encode(payload),
+    payload: encodeDocumentReply(payload),
   }
 }
 
@@ -125,7 +126,7 @@ export function createListResultMessage(
     type: QueryMessageTypes.LIST_RESULT,
     sourceId,
     requestId,
-    payload: encode(payload),
+    payload: encodeDocumentReply(payload),
   }
 }
 
