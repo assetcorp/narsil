@@ -594,7 +594,7 @@ A response carries at most 65,536 groups, so a query whose matches group more fi
   indexName:    string
   partitionIds: List<uint32>
   terms:        List<string>                (the query terms to collect frequencies for)
-  expansion:    StatsExpansion or absent    (the query's matching options; absent counts the terms alone)
+  expansion:    StatsExpansion or absent    (the query's matching options; absent counts the terms and the synonyms that the copy's synonym set adds, with no other expansion)
   tokens:       List<string> or absent      (tokens to count as given, with no analysis or expansion)
 }
 
