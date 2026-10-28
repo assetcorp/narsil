@@ -26,7 +26,7 @@ import { createIndexFromMetadata as createIndexFromMetadataOp } from './index-fr
 import type { IndexStateCoordinator } from './index-state'
 import { type EngineCoreHooks, wireIndexState } from './index-state-wiring'
 import { createInvalidationFromConfig, type InvalidationIntegration } from './invalidation'
-import type { EngineWriteAdmission, MutationContext } from './mutations'
+import type { MutationContext } from './mutations'
 import { type NotifierWiring, wireHeapPressureNotifier, wireWatermarkNotifier } from './notifiers'
 import { createWorkerOrchestrator, type WorkerOrchestrator, workersEnabledByDefault } from './orchestration'
 import type { RebalanceContext } from './rebalance-executor'
@@ -83,7 +83,6 @@ export interface EngineCore {
   readonly mutationCtx: MutationContext
   readonly rebalanceCtx: RebalanceContext
   readonly patternWorkCap: number
-  readonly admitWritesWith: (admission: EngineWriteAdmission) => void
 }
 
 export async function createEngineCore(
@@ -300,15 +299,11 @@ export async function createEngineCore(
     onAccess: indexName => orchestrator.noteAccess(indexName),
   })
 
-  let writeAdmission: EngineWriteAdmission | null = null
-
   const mutationCtx: MutationContext = {
     executor,
     pluginRegistry,
     durability,
-    get writeAdmission() {
-      return writeAdmission
-    },
+    writeAdmission: null,
     orchestrator,
     idGenerator,
     abortController,
@@ -368,8 +363,5 @@ export async function createEngineCore(
     mutationCtx,
     rebalanceCtx,
     patternWorkCap: config?.patternWorkCap ?? DEFAULT_PATTERN_WORK_CAP,
-    admitWritesWith: admission => {
-      writeAdmission = admission
-    },
   }
 }

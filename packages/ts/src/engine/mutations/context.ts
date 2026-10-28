@@ -76,7 +76,7 @@ export interface MutationContext {
   executor: Executor & DirectExecutorExtensions
   pluginRegistry: PluginRegistry
   durability: DurabilityRecorder | null
-  readonly writeAdmission: EngineWriteAdmission | null
+  writeAdmission: EngineWriteAdmission | null
   orchestrator: WorkerOrchestrator
   idGenerator: () => string
   abortController: AbortController

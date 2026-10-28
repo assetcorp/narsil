@@ -116,7 +116,9 @@ export async function createClusterLocalEngine(
       core.durability?.manager.highestPersistedSeqNo(indexName, partitionId) ?? 0,
     persistedPositionOf: (indexName: string, partitionId: number) => persistedPositionOf(core, indexName, partitionId),
     numberEntriesWith: (numbering: EntryNumbering) => core.durability?.manager.numberEntriesWith?.(numbering),
-    admitWritesWith: (admission: WriteAdmission) => core.admitWritesWith(createEngineWriteAdmission(core, admission)),
+    admitWritesWith: (admission: WriteAdmission) => {
+      core.mutationCtx.writeAdmission = createEngineWriteAdmission(core, admission)
+    },
     writeAnalysisOf: (indexName: string) => writeAnalysisOf(core, indexName),
     restartLocalLog: (indexName: string, partitionId: number, position: PartitionLogPosition) =>
       restartLocalLog(core, indexName, partitionId, position),
