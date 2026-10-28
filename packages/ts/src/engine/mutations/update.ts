@@ -1,3 +1,4 @@
+import type { RemovedSpellings } from '../../core/partition/frozen/surface-slot'
 import { ErrorCodes, NarsilError } from '../../errors'
 import { requireDocumentWithinSizeLimit, validateRequiredFields } from '../../schema/validator'
 import type { BatchResult } from '../../types/results'
@@ -46,6 +47,7 @@ interface PreparedUpdate {
   oldDocument: AnyDocument | undefined
   rollbackDoc: AnyDocument | undefined
   extractedVectors: Map<string, Float32Array | null>
+  removedSpellings: RemovedSpellings | undefined
   buffered: boolean
 }
 
@@ -71,6 +73,7 @@ async function settleUpdate(ctx: MutationContext, indexName: string, prepared: P
     docId: prepared.docId,
     document: prepared.partitionDoc,
     requestId: `replicate-update-${prepared.docId}`,
+    removedSpellings: prepared.removedSpellings,
   })
 
   const vecIndexes = ctx.requireManager(indexName).getVectorIndexes()
@@ -151,13 +154,14 @@ async function prepareUpdate(
     oldDocument,
     rollbackDoc,
     extractedVectors,
+    removedSpellings: manager.removedSpellingsOf(docId),
     buffered: false,
   }
 }
 
 function applyOfUpdate(ctx: MutationContext, indexName: string, prepared: PreparedUpdate): () => Promise<void> {
   const manager = ctx.requireManager(indexName)
-  const { docId, document, partitionDoc, rollbackDoc, extractedVectors } = prepared
+  const { docId, document, partitionDoc, rollbackDoc, extractedVectors, removedSpellings } = prepared
   return async (): Promise<void> => {
     if (ctx.isRebalancing(indexName)) {
       const bufferedState = ctx.bufferedDocState(indexName, docId)
@@ -170,7 +174,14 @@ function applyOfUpdate(ctx: MutationContext, indexName: string, prepared: Prepar
       prepared.buffered = true
       return
     }
-    await ctx.executor.execute({ type: 'update', indexName, docId, document: partitionDoc, requestId: docId })
+    await ctx.executor.execute({
+      type: 'update',
+      indexName,
+      docId,
+      document: partitionDoc,
+      requestId: docId,
+      removedSpellings,
+    })
     try {
       updateDocumentVectors(docId, extractedVectors, manager.getVectorIndexes(), manager.partitionIdOf(docId))
     } catch (err) {

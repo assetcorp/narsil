@@ -60,7 +60,7 @@ A change to a language module changes how it analyses text, so the terms an inde
 
 Upgrading this package is the usual way an index goes stale, because a release that corrects a stemmer or a stop word list bumps that module's revision.
 
-A stale index keeps answering. Every `query`, `preflight`, and `suggest` result for it reports `analysisStale: true`, and `listIndexes()` reports the same flag, so a caller can tell that the results came from terms the current analysis no longer produces.
+A stale index keeps answering. Every `query`, `preflight`, and `suggest` result for it reports `analysisStale: true`, and `listIndexes()` reports the same flag, so a caller can tell that the results came from terms the current analysis no longer produces. Until the rebuild finishes, prefix completions and suggestions can still include a spelling from a document that you removed, if the new revision splits words or normalises them differently from the old one.
 
 By default the engine rebuilds the terms in the background from the documents the index already stores, one partition at a time, and it rebuilds one index at a time. A rebuild re-analyses the text of every document in the index, so budget for it on a large one. It leaves vectors and embeddings untouched, because the revision covers text analysis alone. When it finishes, a durable engine writes the new revision into the index metadata and takes a checkpoint, so a later restart finds the index current.
 

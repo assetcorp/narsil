@@ -6,7 +6,7 @@ import { writeMetadataEnvelope } from '../../serialization/envelope'
 import type { VectorIndex } from '../../vector/vector-index'
 import type { DetachedIndex } from '../../workers/direct-executor'
 import type { IndexRegistryEntry } from '../core'
-import { indexMetadataOf } from '../durability-wiring'
+import { indexMetadataOf } from '../durability-metadata'
 import { type PreparedIndex, type RestoreDeps, restoredRegistryEntry } from './restore-setup'
 
 export interface RestoredIndex {

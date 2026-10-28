@@ -3,13 +3,13 @@ import { decode } from '@msgpack/msgpack'
 const FORBIDDEN_KEYS = new Set(['__proto__', 'constructor', 'prototype'])
 const keyDecoder = new TextDecoder('utf-8', { fatal: true })
 
-interface ValueHeader {
+export interface ValueHeader {
   headerBytes: number
   bodyBytes: number
   children: number
 }
 
-function headerAt(view: DataView, offset: number): ValueHeader | null {
+export function headerAt(view: DataView, offset: number): ValueHeader | null {
   if (offset >= view.byteLength) return null
   const tag = view.getUint8(offset)
   if (tag <= 0x7f || tag >= 0xe0) return { headerBytes: 1, bodyBytes: 0, children: 0 }
@@ -73,7 +73,7 @@ const FIXED_BODY_BYTES_BY_TAG = new Map<number, number>([
   [0xd8, 17],
 ])
 
-function endOfValue(view: DataView, start: number): number | null {
+export function endOfValue(view: DataView, start: number): number | null {
   let offset = start
   let pending = 1
   while (pending > 0) {

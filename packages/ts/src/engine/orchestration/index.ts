@@ -23,7 +23,7 @@ import {
 import { DEFAULT_COPY_IDLE_TIMEOUT_MS, DEFAULT_COPY_THRESHOLD, POOL_RESTART_DELAY_MS } from './constants'
 import { isIndexBusy, noteAccess, startIdleSweep, stopIdleSweep } from './idle'
 import { flushGrownTails } from './live-tail'
-import { releaseIndexCopies } from './release'
+import type { CopyReleaseSteps } from './release'
 import { cancelRepair } from './repair'
 import { awaitReplicationIdle, awaitWritesApplied, markCopiesLoaded, replicateToWorkers } from './replication'
 import { requestThreadCountOf, serveRequestsOnWorkers, stopRequestThreads } from './request-threads'
@@ -130,14 +130,11 @@ export function createWorkerOrchestrator(
     await scaleOutIndex(state, indexName, copyThresholdReason(state, indexName))
   }
 
-  async function endCopyRelease(indexName: string, reloads: boolean): Promise<void> {
-    const hold = state.copyReleaseHolds.get(indexName)
-    if (hold === undefined) return resyncIndex(indexName, reloads)
-    hold.holders -= 1
-    hold.reloads ||= reloads
-    if (hold.holders > 0) return
-    state.copyReleaseHolds.delete(indexName)
-    await resyncIndex(indexName, hold.reloads)
+  const copyReleaseSteps: CopyReleaseSteps = {
+    awaitReplicationIdle,
+    cancelIdleMerge,
+    heldNowhere: error => error instanceof NarsilError && error.code === ErrorCodes.INDEX_NOT_FOUND,
+    resyncIndex,
   }
 
   async function openIndex(indexName: string): Promise<void> {
@@ -316,8 +313,18 @@ export function createWorkerOrchestrator(
       if (wasScaledOut) withdrawCopies(indexName)
       return wasScaledOut || (loading !== undefined && loading.kind !== 'drop')
     },
-    releaseIndexCopies: (indexName: string): Promise<boolean> => releaseIndexCopies(state, indexName),
-    endCopyRelease,
+    async releaseIndexCopies(indexName: string): Promise<boolean> {
+      const hold = state.copyReleaseHolds.get(indexName)
+      if (hold === undefined) state.copyReleaseHolds.set(indexName, { holders: 1, reloads: false })
+      else hold.holders += 1
+      state.desyncedIndexes.add(indexName)
+      const { releaseIndexCopies } = await import('./release')
+      return releaseIndexCopies(state, indexName, copyReleaseSteps)
+    },
+    async endCopyRelease(indexName: string, reloads: boolean): Promise<void> {
+      const { endCopyRelease } = await import('./release')
+      await endCopyRelease(state, indexName, reloads, copyReleaseSteps)
+    },
     resyncIndex,
     noteAccess: (indexName: string): void => noteAccess(state, indexName),
     workerCopies,

@@ -8,7 +8,9 @@ import { requireConfigurationShape } from '../snapshot/index-configuration'
 import { restoredConfigFields, restoredEmbedding } from '../snapshot/restore-config'
 import { type ExportLine, exportLines } from './lines'
 import { untagDocumentLine } from './tags'
-import { DOCUMENT_EXPORT_FORMAT, DOCUMENT_EXPORT_VERSION } from './write'
+
+export const DOCUMENT_EXPORT_FORMAT = 'narsil-export'
+export const DOCUMENT_EXPORT_VERSION = 1
 
 interface PendingDocument {
   line: number
