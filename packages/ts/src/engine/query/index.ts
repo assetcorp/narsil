@@ -14,7 +14,7 @@ import type { AnyDocument } from '../../types/schema'
 import type { QueryParams } from '../../types/search'
 import { clampLimit, clampOffset, now } from '../validation'
 import { applyHighlights } from './highlight'
-import type { FixedDepthHybrid } from './hybrid-depth'
+import type { FixedDepthHybrid, searchFixedDepthHybrid } from './hybrid-depth'
 import { runtimeHost } from './runtime-host'
 import {
   broadcastStatsForWorker,
@@ -44,10 +44,21 @@ export async function executeQuery<T = AnyDocument>(
   request: QueryParams,
   callerContext: QueryContext,
 ): Promise<QueryResult<T>> {
-  if (request.rerank !== undefined) {
-    const { executeRerankedQuery } = await import('../../rerank/runtime')
-    return executeRerankedQuery<T>(request, callerContext, executeQuery<T>, runtimeHost)
+  if (request.rerank === undefined && (request.hybrid?.depth ?? null) === null) {
+    return runQuery<T>(request, callerContext, undefined)
   }
+  const runtime = await import('../../rerank/runtime')
+  if (request.rerank !== undefined) {
+    return runtime.executeRerankedQuery<T>(request, callerContext, executeQuery<T>, runtimeHost)
+  }
+  return runQuery<T>(request, callerContext, runtime.searchFixedDepthHybrid)
+}
+
+async function runQuery<T>(
+  request: QueryParams,
+  callerContext: QueryContext,
+  searchFixedDepth: typeof searchFixedDepthHybrid | undefined,
+): Promise<QueryResult<T>> {
   const context = withPatternWork(callerContext)
   const { manager, language, config, workerSearch, indexName } = context
   const startTime = now()
@@ -101,11 +112,10 @@ export async function executeQuery<T = AnyDocument>(
       fanOutResult = await executeVectorSearch(params, context, limit, offset, depth)
     } else if (isHybridMode && hasGlobalVectorIndex) {
       const depth = requireCursorDepth(params.searchAfter, sortSignature, context.cursorBinding)
-      if ((params.hybrid?.depth ?? null) === null) {
+      if (searchFixedDepth === undefined) {
         fanOutResult = await executeHybridSearch(params, context, limit, offset, depth)
       } else {
-        const { searchFixedDepthHybrid } = await import('../../rerank/runtime')
-        const fixed = await searchFixedDepthHybrid(params, context, { cursorDepth: depth, offset, limit }, runtimeHost)
+        const fixed = await searchFixedDepth(params, context, { cursorDepth: depth, offset, limit }, runtimeHost)
         fanOutResult = fixed.result
         pageFixedDepth = fixed.page
       }
