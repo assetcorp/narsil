@@ -39,6 +39,8 @@ export interface QueryContext {
   indexName: string
   broadcastStats?: (indexName: string) => GlobalStatistics | undefined
   partitionIds?: number[]
+  /** The full-precision re-score window that a cluster coordinator sets on the vector search of a hybrid query. */
+  rescoreWindow?: number
   cursorBinding: string
   /** The vector fields a search runs against where they are not the manager's own indexes, as on a request thread. */
   vectorSearchers?: ReadonlyMap<string, VectorSearcher>

@@ -1,6 +1,6 @@
 import { ErrorCodes, NarsilError } from '../../errors'
 import { type FanOutResult, fanOutQuery } from '../../partitioning/fan-out'
-import { RESULT_WINDOW } from '../../search/constants'
+import { HYBRID_RESCORE_WINDOW, RESULT_WINDOW } from '../../search/constants'
 import { linearCombination, reciprocalRankFusion, resolveHybridFusion } from '../../search/fusion'
 import type { ScoredDocument } from '../../types/internal'
 import type { QueryParams, VectorQueryConfig } from '../../types/search'
@@ -80,6 +80,7 @@ export async function executeVectorSearch(
     ...(filterPartitions !== undefined ? { filterPartitions } : {}),
     efSearch: vectorConfig.efSearch,
     oversample: oversampleOf(vectorConfig),
+    ...(context.rescoreWindow !== undefined ? { rescoreWindow: context.rescoreWindow } : {}),
   })
 
   const scored = vectorResultsToScored(outcome.results)
@@ -128,6 +129,7 @@ async function vectorLeg(
     ...(filterPartitions !== undefined ? { filterPartitions } : {}),
     efSearch: vectorConfig.efSearch,
     oversample: oversampleOf(vectorConfig),
+    rescoreWindow: HYBRID_RESCORE_WINDOW,
   })
   return {
     scored: vectorResultsToScored(outcome.results),

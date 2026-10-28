@@ -1,4 +1,4 @@
-import { fnv1aBytes } from '../core/hash'
+import { FNV_OFFSET_BASIS, FNV_PRIME, fnv1aContinue } from '../core/hash'
 import { compareCodePoints } from '../core/ordering'
 import type { FilterExpression } from '../types/filters'
 import type { QueryParams } from '../types/search'
@@ -20,6 +20,38 @@ const encoder = new TextEncoder()
 interface BindingStream {
   bytes: Uint8Array
   length: number
+  hash: number
+}
+
+const scratchNumber = new Float64Array(1)
+const scratchBytes = new Uint8Array(scratchNumber.buffer)
+const HOST_IS_LITTLE_ENDIAN = new Uint8Array(new Uint16Array([1]).buffer)[0] === 1
+
+function flush(stream: BindingStream): void {
+  stream.hash = fnv1aContinue(stream.hash, stream.bytes, stream.length)
+  stream.length = 0
+}
+
+function hashTaggedNumbers(start: number, members: ArrayLike<number>): number {
+  let hash = start
+  const b = scratchBytes
+  for (let i = 0; i < members.length; i++) {
+    scratchNumber[0] = Math.fround(members[i])
+    hash = Math.imul(hash ^ NUMBER_TAG, FNV_PRIME)
+    if (HOST_IS_LITTLE_ENDIAN) {
+      hash = Math.imul(hash ^ b[7], FNV_PRIME)
+      hash = Math.imul(hash ^ b[6], FNV_PRIME)
+      hash = Math.imul(hash ^ b[5], FNV_PRIME)
+      hash = Math.imul(hash ^ b[4], FNV_PRIME)
+      hash = Math.imul(hash ^ b[3], FNV_PRIME)
+      hash = Math.imul(hash ^ b[2], FNV_PRIME)
+      hash = Math.imul(hash ^ b[1], FNV_PRIME)
+      hash = Math.imul(hash ^ b[0], FNV_PRIME)
+    } else {
+      for (let at = 0; at < 8; at++) hash = Math.imul(hash ^ b[at], FNV_PRIME)
+    }
+  }
+  return hash
 }
 
 function ensureCapacity(stream: BindingStream, extra: number): void {
@@ -83,24 +115,11 @@ class NumberList {
   constructor(readonly members: ArrayLike<number>) {}
 }
 
-const NUMBER_MEMBER_BYTES = 9
-const LIST_HEADER_BYTES = 5
-
 function writeNumberList(stream: BindingStream, list: NumberList): void {
-  const count = list.members.length
-  ensureCapacity(stream, LIST_HEADER_BYTES + count * NUMBER_MEMBER_BYTES)
-  const bytes = stream.bytes
-  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
-  let at = stream.length
-  bytes[at] = LIST_TAG
-  view.setUint32(at + 1, count, false)
-  at += LIST_HEADER_BYTES
-  for (let i = 0; i < count; i++) {
-    bytes[at] = NUMBER_TAG
-    view.setFloat64(at + 1, Math.fround(list.members[i]), false)
-    at += NUMBER_MEMBER_BYTES
-  }
-  stream.length = at
+  writeByte(stream, LIST_TAG)
+  writeUint32(stream, list.members.length)
+  flush(stream)
+  stream.hash = hashTaggedNumbers(stream.hash, list.members)
 }
 
 function writeValue(stream: BindingStream, value: unknown): void {
@@ -174,11 +193,12 @@ const FILTERS_SLOT = 2
 const BOUND_SLOT_COUNT = 16
 
 function bindingOf(values: unknown[]): string {
-  const stream: BindingStream = { bytes: new Uint8Array(256), length: 0 }
+  const stream: BindingStream = { bytes: new Uint8Array(256), length: 0, hash: FNV_OFFSET_BASIS }
   for (const value of values) {
     writeValue(stream, value)
   }
-  return fnv1aBytes(stream.bytes.subarray(0, stream.length)).toString(16).padStart(8, '0')
+  flush(stream)
+  return (stream.hash >>> 0).toString(16).padStart(8, '0')
 }
 
 /**

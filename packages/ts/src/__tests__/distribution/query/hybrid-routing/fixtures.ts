@@ -42,6 +42,7 @@ export function makeVectorParams(): WireVectorQueryParams {
     metric: null,
     efSearch: null,
     oversample: null,
+    rescoreWindow: null,
   }
 }
 

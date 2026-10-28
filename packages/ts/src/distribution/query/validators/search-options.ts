@@ -236,6 +236,15 @@ export function validateEfSearchParam(value: unknown): void {
   }
 }
 
+export function validateRescoreWindowParam(value: unknown): void {
+  if (!isInteger(value) || value < MIN_HYBRID_DEPTH || value > MAX_HYBRID_DEPTH) {
+    throwInvalid(
+      CONFIG_INVALID,
+      `Invalid SearchPayload: "params.vector.rescoreWindow" must be an integer between ${MIN_HYBRID_DEPTH} and ${MAX_HYBRID_DEPTH}, or null`,
+    )
+  }
+}
+
 export function validateOversampleParam(value: unknown): void {
   if (typeof value !== 'number' || !Number.isFinite(value) || value < MIN_OVERSAMPLE || value > MAX_OVERSAMPLE) {
     throwInvalid(

@@ -15,6 +15,7 @@ import type { ListParams, QueryParams, SuggestParams } from '../types/search'
 export interface ScopedReadOptions {
   partitionIds?: number[]
   globalStats?: GlobalStatistics
+  rescoreWindow?: number
 }
 
 async function enterRead(core: EngineCore, indexName: string): Promise<void> {
@@ -100,6 +101,7 @@ export async function runEngineQuery<T = AnyDocument>(
       indexName,
       broadcastStats: broadcastStatsFor(core, options),
       partitionIds: options?.partitionIds,
+      rescoreWindow: options?.rescoreWindow,
       cursorBinding: queryBindingOf(params),
       patternWorkCap: core.patternWorkCap,
       rerank: rerankRunnerFor(core, params),

@@ -51,6 +51,7 @@ export interface ClusterLocalEngine extends Narsil {
     params: QueryParams,
     partitionIds: number[],
     globalStats?: GlobalStatistics,
+    rescoreWindow?: number,
   ): Promise<QueryResult<T>>
   preflightPartitions(indexName: string, params: QueryParams, partitionIds: number[]): Promise<PreflightResult>
   suggestPartitions(indexName: string, params: SuggestParams, partitionIds: number[]): Promise<SuggestResult>
@@ -109,7 +110,8 @@ export async function createClusterLocalEngine(
       params: QueryParams,
       partitionIds: number[],
       globalStats?: GlobalStatistics,
-    ) => runEngineQuery<T>(core, indexName, params, { partitionIds, globalStats }),
+      rescoreWindow?: number,
+    ) => runEngineQuery<T>(core, indexName, params, { partitionIds, globalStats, rescoreWindow }),
     preflightPartitions: (indexName: string, params: QueryParams, partitionIds: number[]) =>
       runEnginePreflight(core, indexName, params, { partitionIds }),
     suggestPartitions: (indexName: string, params: SuggestParams, partitionIds: number[]) =>

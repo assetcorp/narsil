@@ -23,3 +23,4 @@ export const MAX_LINEAR_ALPHA = 1
 export const DEFAULT_HYBRID_DEPTH = 100
 export const MIN_HYBRID_DEPTH = 1
 export const MAX_HYBRID_DEPTH = 10_000
+export const HYBRID_RESCORE_WINDOW = 10

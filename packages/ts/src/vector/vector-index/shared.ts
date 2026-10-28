@@ -32,6 +32,8 @@ export interface VectorSearchOptions {
   efSearch?: number
   /** A quantized index re-scores this many times the requested count against full precision. */
   oversample?: number
+  /** When present, a quantized index re-scores only this many times the oversample of the nearest candidates against full precision and keeps the estimated score of the rest, unless a similarity floor makes it re-score every candidate. */
+  rescoreWindow?: number
 }
 
 export interface VectorSearcher {

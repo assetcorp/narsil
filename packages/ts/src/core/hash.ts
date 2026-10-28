@@ -1,5 +1,5 @@
-const FNV_OFFSET_BASIS = 0x811c9dc5
-const FNV_PRIME = 0x01000193
+export const FNV_OFFSET_BASIS = 0x811c9dc5
+export const FNV_PRIME = 0x01000193
 
 const encoder = new TextEncoder()
 
@@ -11,12 +11,15 @@ const encoder = new TextEncoder()
  * @returns The 32-bit hash, as an unsigned integer.
  */
 export function fnv1aBytes(bytes: Uint8Array): number {
-  let hash = FNV_OFFSET_BASIS
-  for (let i = 0; i < bytes.length; i++) {
-    hash ^= bytes[i]
-    hash = Math.imul(hash, FNV_PRIME)
+  return fnv1aContinue(FNV_OFFSET_BASIS, bytes, bytes.length) >>> 0
+}
+
+export function fnv1aContinue(start: number, bytes: Uint8Array, length: number): number {
+  let hash = start
+  for (let i = 0; i < length; i++) {
+    hash = Math.imul(hash ^ bytes[i], FNV_PRIME)
   }
-  return hash >>> 0
+  return hash
 }
 
 export function fnv1aUint32s(values: readonly number[]): number {
