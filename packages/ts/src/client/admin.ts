@@ -2,6 +2,7 @@ import { encodeJson } from '../json-encoding'
 import type { MemoryStatsResponse, TaskRecord } from '../server/types'
 import type { VectorMaintenanceResult } from '../types/results'
 import type { PartitionConfig } from '../types/schema'
+import type { SynonymRule } from '../types/synonyms'
 import { NO_TIMEOUT } from './constants'
 import type { Transport } from './http'
 import type { RequestOptions } from './options'
@@ -181,6 +182,29 @@ export interface AdminOperations {
     options?: RequestOptions,
   ): Promise<void>
   /**
+   * Replaces the synonym set of an index, which takes effect from the next
+   * search without a rebuild. Send an empty list to remove the set.
+   *
+   * @param indexName - The server replaces the set of this index.
+   * @param synonyms - This is the new set, in the shape that
+   * {@link SynonymRule} describes.
+   * @param options - This sets the signal, the deadline, and the headers for
+   * this request.
+   * @throws A `NarsilError` with `CONFIG_INVALID` when a rule breaks that
+   * shape, when a word analyses to no token or to more than one, or when the
+   * set passes its limits. The index then keeps the set that it held before.
+   */
+  updateSynonyms(indexName: string, synonyms: SynonymRule[], options?: RequestOptions): Promise<void>
+  /**
+   * Reads the synonym set of an index, with every word as the caller wrote it.
+   *
+   * @param indexName - The server returns the set of this index.
+   * @param options - This sets the signal, the deadline, and the headers for
+   * this request.
+   * @returns The rules of the set, or an empty list when the index holds none.
+   */
+  getSynonyms(indexName: string, options?: RequestOptions): Promise<SynonymRule[]>
+  /**
    * Reanalyses every document in an index, as a task. An index analysed by an
    * earlier revision of its language module must run this before its terms
    * match again.
@@ -284,6 +308,17 @@ export function createAdminOperations(transport: Transport): AdminOperations {
     },
     async updatePartitionConfig(indexName, partitionConfig, options) {
       await postJson(`${indexPath(indexName)}/partition-config`, partitionConfig, options)
+    },
+    async updateSynonyms(indexName, synonyms, options) {
+      await postJson(`${indexPath(indexName)}/synonyms`, { synonyms }, options)
+    },
+    async getSynonyms(indexName, options) {
+      const path = `${indexPath(indexName)}/synonyms`
+      const body = await readBody<{ synonyms: SynonymRule[] }>(
+        await transport.json({ method: 'GET', path, options }),
+        path,
+      )
+      return body.synonyms
     },
     async rebuildAnalysis(indexName, options) {
       const path = `${indexPath(indexName)}/_rebuild-analysis`

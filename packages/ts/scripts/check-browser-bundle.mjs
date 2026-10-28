@@ -14,6 +14,7 @@ const BROWSER_ENTRIES = [
   'dist/react.mjs',
   'dist/pattern.mjs',
   'dist/partial-words.mjs',
+  'dist/synonyms.mjs',
 ]
 
 const SIZE_APP = 'scripts/browser-bundle-app.mjs'
@@ -208,7 +209,7 @@ if (measured.gzipped > recorded) {
     `FAIL ${described}, ${measured.gzipped - recorded} bytes over the ${recorded} that ${SIZE_BASELINE} records.`,
   )
   console.error(
-    'An app that imports neither "@delali/narsil/pattern" nor "@delali/narsil/partial-words" must not download more code.',
+    'An app that imports none of "@delali/narsil/pattern", "@delali/narsil/partial-words", and "@delali/narsil/synonyms" must not download more code.',
   )
   console.error(
     "Move code that only an optional feature calls behind that feature's import, or, when the growth is deliberate, run this check with --update-baseline and commit the new size.",

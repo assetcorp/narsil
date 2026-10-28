@@ -15,6 +15,7 @@ from ..core.ingest import (
     import_batches,
     retry_delays,
 )
+from ..core.synonym_sets import SynonymRule, solr_rules
 from ..core.types import (
     GRAPH_BUILD_TIMEOUT_SECONDS,
     INTEGER_MS,
@@ -29,6 +30,42 @@ from ..core.types import (
 
 _VECTOR_FIELD = "embedding"
 _TASK_POLL_SECONDS = 1.0
+_SYNONYM_ANALYZER = "english_with_synonyms"
+
+
+def synonym_index_body(k1: float, b: float, analyzer: str, synonyms: tuple[SynonymRule, ...]) -> dict:
+    return {
+        "settings": {
+            "index": {
+                "number_of_shards": 1,
+                "number_of_replicas": 0,
+                "similarity": {"default": {"type": "BM25", "k1": k1, "b": b}},
+                "analysis": {
+                    "filter": {
+                        "english_stop": {"type": "stop", "stopwords": "_english_"},
+                        "english_stemmer": {"type": "stemmer", "language": "english"},
+                        "english_possessive_stemmer": {"type": "stemmer", "language": "possessive_english"},
+                        "query_synonyms": {"type": "synonym_graph", "synonyms": solr_rules(synonyms)},
+                    },
+                    "analyzer": {
+                        _SYNONYM_ANALYZER: {
+                            "tokenizer": "standard",
+                            "filter": [
+                                "english_possessive_stemmer",
+                                "lowercase",
+                                "english_stop",
+                                "english_stemmer",
+                                "query_synonyms",
+                            ],
+                        }
+                    },
+                },
+            }
+        },
+        "mappings": {
+            "properties": {"text": {"type": "text", "analyzer": analyzer, "search_analyzer": _SYNONYM_ANALYZER}}
+        },
+    }
 
 
 def _raise(response: httpx.Response) -> None:
@@ -78,7 +115,14 @@ class LuceneRestDriver:
         if response.status_code not in (200, 404):
             _raise(response)
 
-    def create_index(self, index: str) -> None:
+    def create_index(self, index: str, synonyms: tuple[SynonymRule, ...] | None = None) -> None:
+        if synonyms is not None:
+            if self._analyzer != "english":
+                raise ValueError(f"a synonym set rebuilds the english analyzer, not '{self._analyzer}'")
+            body = synonym_index_body(self._k1, self._b, self._analyzer, synonyms)
+            response = self._client.put(f"/{index}", json=body)
+            _raise(response)
+            return
         body = {
             "settings": {
                 "index": {

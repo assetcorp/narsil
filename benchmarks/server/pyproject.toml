@@ -20,6 +20,7 @@ artifacts = ["pyarrow==25.0.1"]
 
 [project.scripts]
 ir-bench = "ir_bench.cli:main"
+ir-bench-relevance = "ir_bench.relevance:main"
 ir-bench-aggregate = "ir_bench.aggregate:main"
 ir-bench-embed = "ir_bench.embed:main"
 

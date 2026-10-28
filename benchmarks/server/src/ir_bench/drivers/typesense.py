@@ -10,6 +10,7 @@ import httpx
 from ..core.config import BM25Params, EngineConfig
 from ..core.http_client import build_client
 from ..core.ingest import BatchOutcome, import_batches
+from ..core.synonym_sets import SynonymRule, typesense_synonym_items
 from ..core.types import (
     INTEGER_MS,
     EngineError,
@@ -23,6 +24,7 @@ from ._stop_words import LUCENE_ENGLISH_STOP_WORDS
 
 _PER_PAGE = 250
 _STOP_WORDS_SET = "lucene-english"
+_LOCALE = "en"
 
 
 def _raise(response: httpx.Response) -> None:
@@ -67,12 +69,21 @@ class TypesenseDriver:
         response = self._client.delete(f"/collections/{index}")
         if response.status_code not in (200, 404):
             _raise(response)
+        synonyms = self._client.delete(f"/synonym_sets/{index}")
+        if synonyms.status_code not in (200, 404):
+            _raise(synonyms)
 
-    def create_index(self, index: str) -> None:
-        body = {
+    def create_index(self, index: str, synonyms: tuple[SynonymRule, ...] | None = None) -> None:
+        body: dict = {
             "name": index,
-            "fields": [{"name": "text", "type": "string", "locale": "en", "stem": True}],
+            "fields": [{"name": "text", "type": "string", "locale": _LOCALE, "stem": True}],
         }
+        if synonyms is not None:
+            synonym_set = self._client.put(
+                f"/synonym_sets/{index}", json={"items": typesense_synonym_items(synonyms, _LOCALE)}
+            )
+            _raise(synonym_set)
+            body["synonym_sets"] = [index]
         response = self._client.post("/collections", json=body)
         _raise(response)
         stop_words = self._client.put(

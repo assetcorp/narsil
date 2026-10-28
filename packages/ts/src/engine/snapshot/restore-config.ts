@@ -18,6 +18,7 @@ export interface SnapshotEnvelope {
   required?: unknown
   vectorPromotion?: unknown
   patternValueLimit?: unknown
+  synonyms?: unknown
   embedding?: unknown
   partitions?: Uint8Array[]
   vectorIndexes?: Record<string, unknown>
@@ -49,7 +50,7 @@ export type RestoredConfigFields = Omit<IndexConfig, 'schema' | 'language' | 'em
 
 export type SharedConfigFields = Omit<RestoredConfigFields, 'partitions'>
 
-function rejectSnapshot(message: string): never {
+export function rejectSnapshot(message: string): never {
   throw new NarsilError(ErrorCodes.DOC_VALIDATION_FAILED, `Invalid snapshot: ${message}`)
 }
 
