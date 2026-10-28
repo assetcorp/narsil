@@ -173,7 +173,7 @@ Recovery reads the fsynced frontier deterministically and treats any failure ins
 
 ## Atomic Write
 
-A node must replace the content of a key atomically and durably wherever this document calls for an atomic write:
+A node must replace the content of a key atomically and durably wherever this document calls for an atomic write, skipping step 1 only where this document says so:
 
 1. Wrap the payload in the `.nrsl` envelope with its CRC.
 2. Write the bytes to a temporary file in the same directory as the destination.
@@ -319,6 +319,7 @@ The commit marker always references the active segment, which a checkpoint never
 
 With persistence configured and no lifecycle settings, a node must recover on startup before it serves any request:
 
+0. Finish every restore that a crash interrupted, as [Replacing an Index by Restore](#replacing-an-index-by-restore) defines.
 1. Enumerate the persisted indexes from their `<indexName>/meta` keys.
 2. For each index:
    1. Load `<indexName>/meta`, rebuild the schema, language, partition count, and vector fields, and create the index empty.
@@ -402,6 +403,22 @@ The archive of one partition must hold a manifest that lists that partition alon
 
 A node that restores an archive into durable storage must write every other file before it writes the manifest, so that a crash during the restore leaves no manifest that lists a missing file. It must number the first write to each partition after the restore one above the `lastSeqNo` that the manifest records for that partition, because recovery replays only the log records above that number. Every node that restores an archive must decode every document before it serves the index, as the [keyword segment payload](envelope.md#keyword-segment-payload) requires. A replica that applies the archive of a partition must replace its copy of that partition with the archive's segments, must remove from each vector field the vectors of the documents that its copy held, and must insert every vector that the archive holds.
 
+### Replacing an Index by Restore
+
+A restore that names an existing index must leave that index serving every request until the restored index is complete, so that no request finds the index missing or partly loaded. A node therefore builds the restored index apart from the live one, checks every file and decodes every document, and only then replaces the live index. A restore that fails before the replacement leaves the live index as it was. Because the node holds the live index and the restored one at the same time, it must refuse a restore with `RESTORE_MEMORY_EXCEEDED` before it stages any file when its estimate of the memory that the restored index needs, added to the memory in use, would pass the node's heap limit or its process limit.
+
+A node with durable storage writes the restored checkpoint under a staging prefix. A staging prefix is a top-level key prefix made of `.`, then a letter or a digit, then any number of letters, digits, `.`, `_`, and `-`, then `/`, and it never holds `..`. Index names begin with a letter or a digit, so recovery never takes a staging prefix for an index. A staging prefix must stay short whatever the index name, because a file system can limit one file name to 255 bytes while an index name can be that long, so a node must not build a staging prefix from the index name.
+
+Once every staged file is durable, the node commits the replacement by writing a journal under the key `.swap-<digest>` with an [atomic write](#atomic-write), or by saving that key through the adapter on the snapshot-only tier. The digest is the SHA-256 of the index name's UTF-8 bytes, written as 64 lowercase hexadecimal digits, so the journal key stays short and each index has one. The journal holds two lines of UTF-8 text, the index name and then the staging prefix, and nothing else. It skips step 1 of the atomic write, because recovery checks every byte that it reads from the journal. A crash during that write can leave a temporary key that also begins with `.swap-`. On startup, a node must delete every key that begins with `.swap-` and whose remainder is not the digest of that key's own first line, and it must move nothing for that key.
+
+The keys of the restored checkpoint, each relative to `<indexName>/`, are `meta`, `manifest`, and every file that the restored manifest lists. A node reads that manifest under the staging prefix while it is still there, and under `<indexName>/` once it has moved. The node then finishes the journal in three steps:
+
+1. Move each key of the restored checkpoint that is still under the staging prefix to the same key under `<indexName>/`.
+2. Remove every key under `<indexName>/` that is not a key of the restored checkpoint.
+3. Delete the journal.
+
+The node must delete the journal before the restored index writes any key under `<indexName>/`, such as a log record or a checkpoint file, because step 2 would remove that key if the steps ran again. Those steps leave the same keys however many times they run, whether the node moves directories, moves files one at a time, or saves each key under its new name and then deletes the staged key. On startup, before it enumerates the indexes, a node must finish every journal that it finds. It must then delete every staging prefix that no journal names, and it must leave `.narsil.lock`, which [Directory Ownership](#directory-ownership) defines, in place. A crash before the journal exists therefore leaves the old index, and a crash after the journal exists leaves the restored index, whole.
+
 ---
 
 ## Document Export
@@ -454,3 +471,4 @@ A node must reject an operation with `INDEX_REOPEN_CAPACITY_EXHAUSTED` when it n
 | `PERSISTENCE_LOAD_FAILED` | The node cannot read or decode a snapshot or log file. |
 | `PERSISTENCE_SAVE_FAILED` | The node cannot write a snapshot or log file, or the durability directory is missing or replaced; see [Directory Ownership](#directory-ownership). |
 | `CONFIG_INVALID` | A configuration asks for write-ahead log durability on a non-filesystem backend, for durability without a directory, or for the snapshot tier without a persistence adapter, or another running process holds the write-ahead log directory. |
+| `RESTORE_MEMORY_EXCEEDED` | A restore needs more memory than the node has free, as [Replacing an Index by Restore](#replacing-an-index-by-restore) defines. The node refuses it before it stages any file, and the existing index keeps serving. |

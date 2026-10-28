@@ -58,6 +58,7 @@ export function emptyOrchestratorState(overrides: Partial<OrchestratorState> = {
     reportedIneligible: new Set(),
     scaledOutIndexes: new Set(),
     desyncedIndexes: new Set(),
+    copyReleaseHolds: new Map(),
     copyLoadBuffers: new Map(),
     sharedVectorFields: new Map(),
     copyTransitions: new Map(),
