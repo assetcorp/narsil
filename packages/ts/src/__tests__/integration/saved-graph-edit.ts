@@ -40,6 +40,7 @@ interface SavedGraphPart {
     levels: Uint8Array
     neighbours: Uint8Array
     shuffledBuildCount?: number
+    calibratedMeanLength?: number
   }>
 }
 
@@ -189,6 +190,20 @@ export async function snapshotWithoutShuffledBuildCount(
 ): Promise<Uint8Array<ArrayBuffer>> {
   return withEditedGraphPart(snapshot, fieldPath, part => {
     for (const graph of part.graphs) delete graph.shuffledBuildCount
+  })
+}
+
+export async function snapshotWithMeanLength(
+  snapshot: ReadableStream<Uint8Array>,
+  fieldPath: string,
+  calibratedMeanLength: number,
+  keepsShuffledBuildCount: boolean,
+): Promise<Uint8Array<ArrayBuffer>> {
+  return withEditedGraphPart(snapshot, fieldPath, part => {
+    for (const graph of part.graphs) {
+      graph.calibratedMeanLength = calibratedMeanLength
+      if (!keepsShuffledBuildCount) delete graph.shuffledBuildCount
+    }
   })
 }
 

@@ -24,6 +24,7 @@ import {
   WIDE_EF_SEARCH,
   WIDE_LIMIT,
 } from './passages-by-file'
+import { snapshotWithMeanLength } from './saved-graph-edit'
 import { walkSavedGraph } from './saved-graph-walk'
 
 const ARRIVING_PASSAGES = 6_000
@@ -183,5 +184,22 @@ describe('a saved graph and the count of its last shuffled build', { timeout: AR
 
     expect(await savedCounts(engine, 'steady')).toEqual([SAVED_PASSAGES])
     expect(await passagesNotFoundFirst(engine, 'steady', mixed, NARROW_LIMIT, NARROW_EF_SEARCH)).toEqual([])
+  })
+
+  it.each([
+    { keepsShuffledBuildCount: true, calibratedMeanLength: -0.5 },
+    { keepsShuffledBuildCount: false, calibratedMeanLength: -0.5 },
+    { keepsShuffledBuildCount: false, calibratedMeanLength: Number.POSITIVE_INFINITY },
+  ])('refuses a saved mean length of $calibratedMeanLength when the count is kept: $keepsShuffledBuildCount', async ({
+    keepsShuffledBuildCount,
+    calibratedMeanLength,
+  }) => {
+    const damaged = await snapshotWithMeanLength(
+      await engine.snapshot(INDEX),
+      FIELD,
+      calibratedMeanLength,
+      keepsShuffledBuildCount,
+    )
+    await expect(engine.restore('damaged', damaged)).rejects.toMatchObject({ code: 'PERSISTENCE_LOAD_FAILED' })
   })
 })
