@@ -55,12 +55,12 @@ describe('hybrid paging over a 4-bit vector graph', () => {
     await narsil.shutdown()
   })
 
-  function hybrid(strategy: 'rrf' | 'linear', similarity?: number): QueryParams {
+  function hybrid(strategy: 'rrf' | 'linear'): QueryParams {
     return {
       term: TERM,
       termMatch: 'any',
-      vector: { field: 'embedding', value: query, ...(similarity === undefined ? {} : { similarity }) },
-      hybrid: { strategy },
+      vector: { field: 'embedding', value: query },
+      hybrid: { strategy, depth: DEPTH },
     }
   }
 
@@ -108,7 +108,7 @@ describe('hybrid paging over a 4-bit vector graph', () => {
     const params: QueryParams = {
       term: 'quartz',
       vector: { field: 'embedding', value: query, similarity: floor },
-      hybrid: { strategy: 'rrf' },
+      hybrid: { strategy: 'rrf', depth: DEPTH },
     }
     const below = clips.filter(entry => (cosineById.get(entry.id) ?? 0) < floor).length
 

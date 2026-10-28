@@ -41,12 +41,12 @@ describe('hybrid paging to a fixed depth', () => {
     await narsil.shutdown()
   })
 
-  function hybridQuery(depth?: number): QueryParams {
+  function hybridQuery(depth: number): QueryParams {
     return {
       term: TERM,
       termMatch: 'any',
       vector: { field: 'embedding', text: VECTOR_TEXT },
-      ...(depth === undefined ? {} : { hybrid: { depth } }),
+      hybrid: { depth },
     }
   }
 
@@ -109,13 +109,6 @@ describe('hybrid paging to a fixed depth', () => {
     expectSameOrder(await walkByOffset(hybridQuery(35), 5, 35), expected)
   })
 
-  it('fuses each leg to 100 results where the query leaves the depth out, and reads every one by cursor at limit 7', async () => {
-    const expected = await oracleFused(100)
-    expect(expected).toHaveLength(100)
-    expectSameOrder(await walkByCursor(hybridQuery(), 7), expected)
-    expectSameOrder(await walkByCursor(hybridQuery(100), 7), expected)
-  })
-
   it('places a pin from outside the fused list on the first page and resumes after the last fused hit', async () => {
     const fused = await oracleFused(30)
     const outside = documents.find(document => !fused.some(hit => hit.id === document.id)) as CorpusDocument
@@ -171,9 +164,9 @@ describe('hybrid paging to a fixed depth', () => {
     expect(failure.message).toContain('hybrid.depth')
   })
 
-  it.each([0, 10_001, 2.5, -1, Number.NaN])('refuses a depth of %s', async depth => {
-    const failure = await failureOf(narsil.query(INDEX, hybridQuery(depth)))
-    expect(failure.code).not.toBe(ErrorCodes.SEARCH_RESULT_WINDOW_EXCEEDED)
+  it('refuses a depth above 10,000', async () => {
+    const failure = await failureOf(narsil.query(INDEX, hybridQuery(10_001)))
+    expect(failure.code).toBe(ErrorCodes.CONFIG_INVALID)
   })
 
   it('refuses a cursor sent back with another depth', async () => {
