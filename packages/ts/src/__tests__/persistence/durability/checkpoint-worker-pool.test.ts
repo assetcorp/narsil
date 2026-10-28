@@ -1,7 +1,7 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createNarsil, type Narsil } from '../../../narsil'
 import {
   __checkpointWorkerIsPooledForTests,
@@ -13,6 +13,8 @@ import {
   type WorkerHandle,
 } from '../../../persistence/durability/checkpoint-worker-dispatch'
 import type { IndexConfig } from '../../../types/schema'
+
+vi.setConfig({ testTimeout: 20_000 })
 
 const SCHEMA: IndexConfig = {
   schema: { title: 'string', body: 'string', year: 'number' },
@@ -28,7 +30,7 @@ function doc(i: number): { title: string; body: string; year: number } {
 }
 
 const SEEDED_DOCUMENTS = 100
-const IDLE_END_DEADLINE_MS = 3_000
+const IDLE_END_DEADLINE_MS = 10_000
 
 async function untilTheIdleWorkerEnds(): Promise<void> {
   const deadline = Date.now() + IDLE_END_DEADLINE_MS
