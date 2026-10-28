@@ -179,6 +179,7 @@ NodeRegistration {
     full:              boolean
   } or absent
   partitionBytes: List<IndexPartitionBytes> or absent
+  draining:  boolean or absent   (a reader treats an absent value as false)
 }
 
 IndexPartitionBytes {
@@ -209,7 +210,7 @@ The ISO 8601 timestamp of when the node started. It serves diagnostics, and it b
 
 ### version
 
-The specification version the node follows. Nodes on incompatible versions must not share a cluster, and the controller rejects a registration whose major version differs from its own.
+The specification version the node follows. Nodes on incompatible versions must not share a cluster, so the controller places no partition on a node whose major version differs from its own, and it treats a version that it cannot parse as a different major version. A node that finds an active controller on a different major version as it joins must fail its start with `NODE_VERSION_INCOMPATIBLE`. A node that finds no active controller joins, and the controller that a later election chooses keeps it out of allocation where the major versions differ.
 
 ### memory
 
@@ -223,6 +224,15 @@ The memory that the node uses, which the [Memory Write Block](#memory-write-bloc
 ### partitionBytes
 
 The estimated size in bytes of each partition copy that the node holds, grouped by index. A node may leave a partition out, which keeps the registration within the size limit of the coordinator's requests, and it must then leave out its smallest partitions first.
+
+### draining
+
+A node that an operator removes from the cluster writes its registration again with `draining` set to true, and the controller then moves every copy off that node. A change to `draining` is a topology change, so the controller must run the allocator for it. Four rules govern a drain:
+
+- The controller must place no new copy on a draining node.
+- The controller moves each replica on the node as [removingReplicas](#removingreplicas) describes.
+- For each partition that the node leads, the controller first gives the lead to an in-sync replica on another node and raises the `primaryTerm`, and it then moves the node's copy in the same way.
+- A node that writes `draining` back to false stops the drain, and the controller then treats it as it treats any other node.
 
 ### Heartbeat
 
@@ -286,6 +296,7 @@ PartitionAssignment {
   primary:          string or absent   (nodeId of the primary)
   replicas:         List<string>       (nodeIds of the replica nodes)
   inSyncSet:        List<string>       (nodeIds of the replicas fully caught up)
+  removingReplicas: List<string>       (nodeIds that a move takes the partition off, or absent)
   lastHolders:      List<string>       (nodeIds that still hold a copy of an unserved partition, or absent)
   state:            PartitionState
   primaryTerm:      uint64             (the current term, raised on failover)
@@ -307,6 +318,18 @@ It is set per index at creation time, and changing it on an existing index trigg
 ### assignments
 
 A map from partition ID to its assignment, with an entry for every partition in the index. A partition with no live primary has an absent `primary` and the state `UNASSIGNED`.
+
+### removingReplicas
+
+The nodes named here hold a copy that the controller is moving to another node, and a partition with no move under way leaves the field absent. A move adds the target node to `replicas` and the source node to `removingReplicas` in one table write, so that the partition keeps every copy that it held while the new copy catches up. Five rules govern a move:
+
+- A replica in `removingReplicas` stays in `replicas` and in `inSyncSet`, and its primary must send it every entry until the controller removes it.
+- Once the partition holds `replicationFactor` in-sync replicas outside the field, the controller removes each node that the field holds from `replicas` and from `inSyncSet`, and it removes the field.
+- Where `replicas` holds fewer than `replicationFactor` nodes outside the field, because the target of the move left the cluster, the controller removes the field, which cancels the move. A later allocator run may then start another move.
+- The controller must start no second move on a partition while the field is present.
+- The controller must promote a replica in `removingReplicas` only where the in-sync set holds no other candidate.
+
+A move leaves the partition in `ACTIVE`, because the state covers every copy of the partition while a move changes one copy.
 
 ### lastHolders
 
@@ -351,13 +374,7 @@ stateDiagram-v2
     [*] --> UNASSIGNED
     UNASSIGNED --> INITIALISING : node assigned
     INITIALISING --> ACTIVE : bootstrap complete
-    ACTIVE --> MIGRATING : reassignment
-    MIGRATING --> ACTIVE : migration complete
-    ACTIVE --> DECOMMISSIONING : node leaving / RF decrease
-    DECOMMISSIONING --> ACTIVE : decommission cancelled
-    MIGRATING --> UNASSIGNED : all holders lost
     ACTIVE --> UNASSIGNED : all holders lost
-    DECOMMISSIONING --> UNASSIGNED : all holders lost
 ```
 
 | State | Meaning |
@@ -365,15 +382,14 @@ stateDiagram-v2
 | `UNASSIGNED` | No node holds this partition, which happens when an index is first created and when the primary and every replica are lost. |
 | `INITIALISING` | A node is bootstrapping the partition, by incremental catch-up or by snapshot transfer. It serves no reads and accepts no writes while it does. |
 | `ACTIVE` | The partition is fully operational. The primary accepts writes and serves reads, and each replica serves reads and receives replication entries. |
-| `MIGRATING` | The primary or replica assignment is changing. The old holder keeps serving while the new one bootstraps, and the migration finishes once the new holder reaches `ACTIVE`. |
-| `DECOMMISSIONING` | The partition is being removed from a node, because that node is leaving or the replication factor dropped. Reads continue until the transition finishes. |
+| `MIGRATING` | Reserved. The controller writes no partition in this state, and a reader must accept it. |
+| `DECOMMISSIONING` | Reserved. The controller writes no partition in this state, and a reader must accept it. |
 
-Four rules govern the transitions:
+Three rules govern the transitions:
 
 - Only the controller may move a partition between states.
 - A partition in `INITIALISING` moves to `ACTIVE` when the assigned node reports that bootstrapping finished.
-- A partition moves to `MIGRATING` when the controller reassigns it, whether for rebalancing or after a node failure.
-- A partition moves to `DECOMMISSIONING` when a node no longer needs to hold it, because the replication factor dropped or the node is being decommissioned.
+- A partition stays in `ACTIVE` while the controller moves one of its copies, whether for balance, after a node failure, or off a draining node, and [removingReplicas](#removingreplicas) records the move.
 
 A partition whose holders have all failed returns to `UNASSIGNED`.
 
@@ -629,7 +645,7 @@ _narsil/index/{indexName}/config
 
 The `partitionCount` stays fixed for the life of the index, so a caller that needs another count must create a new index and reindex into it. Every node must create its local index with exactly `partitionCount` partitions, so that any holder can load a serialised partition unchanged.
 
-After creation, a caller can change the `replicationFactor` in the allocation table, so the controller applies the new factor at its next rebalance.
+After creation, a caller can change an index's `replicationFactor` by sending [cluster.replication_factor](transport.md#clusterreplication_factor) to the controller. The controller stores the new factor in the index metadata, then writes an allocation table that carries it, and it applies the factor at once. A higher factor fills the new replica slots, and each new copy bootstraps. A lower factor removes the surplus replicas, taking any lagging replica first and then the copy on the busiest node, and it never removes the primary. The index metadata holds the factor that counts, so the controller must take the factor from the metadata on every allocator run, which lets a controller elected after a crash between the two writes finish the change.
 
 ### Index Deletion Flow
 
@@ -721,17 +737,17 @@ An operator deletes an orphaned copy explicitly, and every automatic path leaves
 ### Leaving the Cluster Gracefully
 
 ```text
-1. The node announces its departure by calling deregisterNode.
-2. The controller sees the node_left event.
-3. The controller reassigns that node's partitions:
-   a. a partition it held as primary gets a replica promoted, as
-      described in replication.md
-   b. a partition it held as replica goes to another node
-4. The controller writes the updated allocation table.
-5. The other nodes observe the change and bootstrap whatever they
-   have newly been assigned.
-6. The leaving node shuts down once its in-flight operations finish.
+1. The node writes its registration again with draining set to
+   true.
+2. The controller moves every copy off the node, as the draining
+   field describes.
+3. The node waits until no partition assignment of any index holds
+   its nodeId, as primary, as replica, or in removingReplicas.
+4. The node calls deregisterNode, and it shuts down once its
+   in-flight operations finish.
 ```
+
+A node that deregisters without draining first counts as a failed node, so the controller handles it as [Node Failure](#node-failure) describes and waits nodeLeftDelayMs before it moves the node's replicas. A node can therefore restart in place without moving its data.
 
 ### Node Failure
 
@@ -780,4 +796,5 @@ A community adapter, whether it targets Consul, ZooKeeper, FoundationDB, or Redi
 | `NODE_NOT_CONTROLLER` | A controller message reached a node that holds no controller lease. |
 | `CLUSTER_WRITE_BLOCKED` | An insert or an update targets an index that has a copy on a node reporting `full`, or a node refuses it under its bound on the bytes of writes in progress. |
 | `COORDINATOR_AUTH_FAILED` | etcd refuses the username or the password that the coordinator presents. |
+| `NODE_VERSION_INCOMPATIBLE` | A node's specification version has a major version other than the active controller's, so the node cannot join the cluster. |
 | `COORDINATOR_UNAVAILABLE` | The coordinator reaches no etcd endpoint, or completes no TLS handshake with one, before its dial timeout. |

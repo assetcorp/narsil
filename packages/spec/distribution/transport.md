@@ -119,6 +119,7 @@ When a primary refuses a forwarded mutation, the node that forwarded it must pas
 | `cluster.pong` | any to any | Health check response |
 | `cluster.bootstrap_complete` | data node to controller | Reports that a partition finished bootstrapping |
 | `cluster.partition_stores` | controller to data node | Asks which partitions of an index the node holds on disk |
+| `cluster.replication_factor` | any node to controller | Changes the replication factor of an index |
 
 ---
 
@@ -360,6 +361,19 @@ The response is:
 ```
 
 The node answers from the `held_partitions` field of its own index metadata, which [Index Metadata Payload](../envelope.md#index-metadata-payload) defines. A partition the node holds appears in the list even where that partition holds no document. A node that adopted no copy of the index answers with an absent `indexUuid` and an empty list.
+
+### cluster.replication_factor
+
+A node sends this to the active controller, which it finds with `getLeaseHolder`, to change the replication factor of an index.
+
+```text
+{
+  indexName:         string
+  replicationFactor: uint8
+}
+```
+
+The controller refuses the request with `NODE_NOT_CONTROLLER` where it holds no controller lease, with `CONFIG_INVALID` where the factor is not an integer from 0 to 255, and with `INDEX_NOT_FOUND` where the coordinator holds no metadata for the index. Otherwise it stores the factor in the index metadata with `compareAndSet`, writes the allocation table, and answers with the same payload. [Index Creation Flow](cluster.md#index-creation-flow) gives the rules for applying the new factor.
 
 ### cluster.ping
 
