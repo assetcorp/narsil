@@ -182,6 +182,7 @@ function assembleFrozenSegment(
     lastSchemaRef: null,
     sortColumns: null,
     scoreBuffer: null,
+    vectorOrdinalMaps: null,
 
     liveDocumentCount(): number {
       return source.documentCount - tombstones.size
