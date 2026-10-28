@@ -6,12 +6,16 @@ import {
   configFor,
   corruptFirstSegmentBody,
   fill,
+  type Gate,
   type HammerTarget,
+  HELD_ROUNDS,
   hammer,
+  holdRestores,
   holdsGeneration,
   LIVE,
   NEW,
   newDirectory,
+  newGate,
   OLD,
   OLD_COUNT,
   SOURCE,
@@ -45,13 +49,14 @@ function clientTarget(client: NarsilClient): HammerTarget {
   }
 }
 
-async function serverWithBothGenerations(workers: boolean) {
+async function serverWithBothGenerations(workers: boolean, gate: Gate) {
   const server = await startTestServer(
     undefined,
     configFor('wal', await newDirectory(roots), workers),
     async engine => {
       await fill(engine, LIVE, OLD.documents)
       await fill(engine, SOURCE, NEW.documents)
+      holdRestores(engine, gate.released)
     },
   )
   servers.push(server)
@@ -64,11 +69,12 @@ async function serverWithBothGenerations(workers: boolean) {
 
 function httpCases(workers: boolean): void {
   it('answers every request from the old index or the new one while a restore task replaces it', async () => {
-    const { server, client } = await serverWithBothGenerations(workers)
+    const gate = newGate()
+    const { server, client } = await serverWithBothGenerations(workers, gate)
     const archive = await archiveBytes(server.engine, SOURCE)
 
     const task = client.restore(LIVE, archive).then(started => client.waitForTask(started.id))
-    const observed = await hammer(clientTarget(client), task)
+    const observed = await hammer(clientTarget(client), task, gate.releaseAfter)
 
     expect((await task).status).toBe('succeeded')
     const target = clientTarget(client)
@@ -77,16 +83,17 @@ function httpCases(workers: boolean): void {
       expect(await target.get('old-9')).toBeUndefined()
     }
     expect(observed.failures).toEqual([])
-    expect(observed.rounds).toBeGreaterThan(1)
+    expect(observed.rounds).toBeGreaterThanOrEqual(HELD_ROUNDS)
     expect(await holdsGeneration(server.engine, LIVE, NEW)).toBe(true)
   }, 30_000)
 
   it('keeps the old index serving when the restore task fails to decode the archive', async () => {
-    const { server, client } = await serverWithBothGenerations(workers)
+    const gate = newGate()
+    const { server, client } = await serverWithBothGenerations(workers, gate)
     const archive = corruptFirstSegmentBody(await archiveBytes(server.engine, SOURCE))
 
     const task = client.restore(LIVE, archive).then(started => client.waitForTask(started.id))
-    const observed = await hammer(clientTarget(client), task)
+    const observed = await hammer(clientTarget(client), task, gate.releaseAfter)
 
     expect(await task).toMatchObject({ status: 'failed', error: { code: 'PERSISTENCE_CRC_MISMATCH' } })
     expect(observed.failures).toEqual([])

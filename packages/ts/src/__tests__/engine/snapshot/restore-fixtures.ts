@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { createNarsil, type Narsil } from '../../../narsil'
 import { createFilesystemPersistence } from '../../../persistence/filesystem'
 import type { NarsilConfig } from '../../../types/config'
+import type { ByteSource } from '../../../types/engine'
 import type { AnyDocument } from '../../../types/schema'
 
 export const SCHEMA = { body: 'string', group: 'enum', embedding: 'vector[8]' } as const
@@ -159,15 +160,61 @@ async function checkRound(target: HammerTarget, observed: Observed): Promise<voi
   }
 }
 
-export async function hammer(target: HammerTarget, until: Promise<unknown>): Promise<Observed> {
+export async function hammer(
+  target: HammerTarget,
+  until: Promise<unknown>,
+  onRound?: (rounds: number) => void,
+): Promise<Observed> {
   const settled = settledFlag(until)
   const observed: Observed = { rounds: 0, failures: [], written: [] }
   while (!settled()) {
     await new Promise(resolve => setImmediate(resolve))
     observed.rounds += 1
     await checkRound(target, observed)
+    onRound?.(observed.rounds)
   }
   return observed
+}
+
+export const HELD_ROUNDS = 3
+
+export interface Gate {
+  released: Promise<void>
+  releaseAfter(rounds: number): void
+}
+
+export function newGate(): Gate {
+  let release = (): void => undefined
+  const released = new Promise<void>(resolve => {
+    release = resolve
+  })
+  return {
+    released,
+    releaseAfter(rounds) {
+      if (rounds >= HELD_ROUNDS) release()
+    },
+  }
+}
+
+async function gatheredBytes(data: ByteSource): Promise<Uint8Array> {
+  if (data instanceof Uint8Array) return data
+  if ('getReader' in data) return new Uint8Array(await new Response(data).arrayBuffer())
+  const chunks: Uint8Array[] = []
+  for await (const chunk of data) chunks.push(chunk)
+  return Buffer.concat(chunks)
+}
+
+export async function* heldBack(data: ByteSource, released: Promise<void>): AsyncGenerator<Uint8Array> {
+  const bytes = await gatheredBytes(data)
+  const half = Math.floor(bytes.byteLength / 2)
+  yield bytes.subarray(0, half)
+  await released
+  yield bytes.subarray(half)
+}
+
+export function holdRestores(engine: Narsil, released: Promise<void>): void {
+  const restore = engine.restore.bind(engine)
+  engine.restore = (indexName, data) => restore(indexName, heldBack(data, released))
 }
 
 export type EngineKind = 'memory' | 'wal' | 'snapshot'
