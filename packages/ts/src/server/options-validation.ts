@@ -1,4 +1,5 @@
 import { ErrorCodes, NarsilError } from '../errors'
+import { MAX_RERANK_WINDOW } from '../rerank/constants'
 import type { Narsil } from '../types/engine'
 import { MIN_COUNTED_SERVER_LIMIT, MIN_UNBOUNDED_SERVER_LIMIT } from './constants'
 import type { ServerLimits } from './types'
@@ -15,7 +16,13 @@ const LIMITS_UNBOUNDED_AT_ZERO = [
   'maxConcurrentTasks',
 ] as const
 
-const COUNTED_LIMITS = ['importBatchSize', 'maxResultWindow', 'maxFetchDocuments', 'maxTaskPageSize'] as const
+const COUNTED_LIMITS = [
+  'importBatchSize',
+  'maxResultWindow',
+  'maxRerankWindow',
+  'maxFetchDocuments',
+  'maxTaskPageSize',
+] as const
 
 export function assertServerEngine(engine: Narsil): void {
   const candidate: unknown = engine
@@ -46,10 +53,22 @@ function assertLimit(field: string, value: number | undefined, minimum: number):
   )
 }
 
-export function assertServerLimits(limits: ServerLimits | undefined): void {
+function assertRerankWindowCap(value: number | undefined, engineCap: number | undefined): void {
+  if (value === undefined) return
+  const cap = Math.min(MAX_RERANK_WINDOW, engineCap ?? MAX_RERANK_WINDOW)
+  if (value <= cap) return
+  throw new NarsilError(
+    ErrorCodes.CONFIG_INVALID,
+    `limits.maxRerankWindow must be at most ${cap}, the largest window that the engine accepts; however, this configuration sets it to ${value}`,
+    { field: 'maxRerankWindow', value, maximum: cap },
+  )
+}
+
+export function assertServerLimits(limits: ServerLimits | undefined, engineRerankWindow?: number): void {
   if (limits === undefined) return
   for (const field of LIMITS_UNBOUNDED_AT_ZERO) assertLimit(field, limits[field], MIN_UNBOUNDED_SERVER_LIMIT)
   for (const field of COUNTED_LIMITS) assertLimit(field, limits[field], MIN_COUNTED_SERVER_LIMIT)
+  assertRerankWindowCap(limits.maxRerankWindow, engineRerankWindow)
 }
 
 export function assertAllowRegex(allowRegex: unknown): void {

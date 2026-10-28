@@ -17,6 +17,8 @@ const NARSIL_CONFIG_KEYS: Record<keyof NarsilConfig, true> = {
   embedding: true,
   embeddingAdapters: true,
   rerankAdapters: true,
+  rerankTimeout: true,
+  maxRerankWindow: true,
   durability: true,
   analysis: true,
   lifecycle: true,

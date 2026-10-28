@@ -25,6 +25,9 @@ const narsil = await createNarsil({
 | `workers` | `WorkerConfig` | Controls the worker copies that answer keyword queries in parallel and the vector search pool. See [Worker copies](partitions-and-workers.md#worker-copies). |
 | `embedding` | `EmbeddingAdapter` | Sets the default adapter for auto-embedding text into vectors. See [Embedding adapters](embedding-adapters.md#embedding-adapters). |
 | `embeddingAdapters` | `Record<string, EmbeddingAdapter>` | Registers named adapters that index configs reference by name. Names persist in index metadata, so durability recovery can rebind them. |
+| `rerankAdapters` | `Record<string, RerankAdapter>` | Registers the rerank adapters that a query's `rerank.adapter` refers to by name. See [Reranking](reranking.md#registering-adapters). |
+| `maxRerankWindow` | `number` | Sets the largest `rerank.window` that a query may ask for, from 1 to 1,000, so that it bounds how many documents one query sends to a model. It defaults to 100, and any other value raises `CONFIG_INVALID`. |
+| `rerankTimeout` | `number` | Sets how long, in milliseconds, the engine waits for a rerank adapter before it cancels the call and raises `RERANK_FAILED`. It defaults to 30,000, and a value that is not a whole number of at least 1 raises `CONFIG_INVALID`. |
 | `durability` | `DurabilityConfig` | Enables write-ahead logging and snapshots. See [Durability](persistence-and-durability.md#durability). |
 | `analysis` | `AnalysisConfig` | Controls what the engine does with a recovered index whose stored terms no longer match its language module. See [Analysis revisions](language-support.md#analysis-revisions). |
 | `lifecycle` | `IndexLifecycleConfig` | Sets the limits under which the engine closes idle indexes and keeps their files on disk. See [Index lifecycle](persistence-and-durability.md#index-lifecycle). |

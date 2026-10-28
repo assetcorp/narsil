@@ -98,3 +98,25 @@ export function oracleRerank(firstStage: RankedHit[], window: number, scores: nu
 export function oraclePage(ordered: RankedHit[], offset: number, limit: number, depth = 0): RankedHit[] {
   return ordered.slice(depth + offset, depth + offset + limit)
 }
+
+export function cosineOf(a: ArrayLike<number>, b: ArrayLike<number>): number {
+  let dot = 0
+  let left = 0
+  let right = 0
+  for (let i = 0; i < a.length; i++) {
+    dot += a[i] * b[i]
+    left += a[i] * a[i]
+    right += b[i] * b[i]
+  }
+  return left === 0 || right === 0 ? 0 : dot / Math.sqrt(left * right)
+}
+
+export function oracleRrf(lists: RankedHit[][], k = 60): RankedHit[] {
+  const fused = new Map<string, number>()
+  for (const list of lists) {
+    for (const [rank, hit] of list.entries()) fused.set(hit.id, (fused.get(hit.id) ?? 0) + 1 / (k + rank + 1))
+  }
+  return [...fused]
+    .map(([id, score]) => ({ id, score }))
+    .sort((a, b) => b.score - a.score || compareCodePointOrder(a.id, b.id))
+}

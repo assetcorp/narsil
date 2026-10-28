@@ -11,7 +11,7 @@ export function createSearchHandlers(deps: ReadHandlerDeps) {
   async function search(ctx: RouteContext): Promise<void> {
     const params = parseJson<QueryParams>(ctx)
     if (!params) return
-    const failure = validateQuery(params, limits.maxResultWindow)
+    const failure = validateQuery(params, limits)
     if (failure) {
       rejectInvalid(ctx, failure)
       return
@@ -27,7 +27,7 @@ export function createSearchHandlers(deps: ReadHandlerDeps) {
   async function preflight(ctx: RouteContext): Promise<void> {
     const params = parseJson<QueryParams>(ctx)
     if (!params) return
-    const failure = validateQuery(params, limits.maxResultWindow)
+    const failure = validateQuery(params, limits)
     if (failure) {
       rejectInvalid(ctx, failure)
       return

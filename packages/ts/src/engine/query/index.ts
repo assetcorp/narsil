@@ -42,6 +42,10 @@ export async function executeQuery<T = AnyDocument>(
   request: QueryParams,
   callerContext: QueryContext,
 ): Promise<QueryResult<T>> {
+  if (request.rerank !== undefined) {
+    const { executeRerankedQuery } = await import('./rerank')
+    return executeRerankedQuery<T>(request, callerContext, executeQuery<T>)
+  }
   const context = withPatternWork(callerContext)
   const { manager, language, config, workerSearch, indexName } = context
   const startTime = now()

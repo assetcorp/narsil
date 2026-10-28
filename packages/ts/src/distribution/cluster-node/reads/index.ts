@@ -77,6 +77,16 @@ export async function queryCluster<T = AnyDocument>(
   if (allocation === null) {
     return deps.engine.query<T>(indexName, params)
   }
+  if (params.rerank !== undefined) {
+    const { rerankClusterQuery } = await import('./rerank')
+    return rerankClusterQuery<T>(
+      deps,
+      indexName,
+      params,
+      firstStage => queryCluster<T>(deps, indexName, firstStage),
+      docIds => readDistributedDocuments(deps.config, deps.nodeId, deps.engine, indexName, docIds, allocation),
+    )
+  }
   const wireParams = localParamsToWire(params)
   const queryDeps = {
     transport: deps.config.transport,

@@ -2,6 +2,7 @@ import type { EngineCore } from '../engine/core'
 import { executeListDocuments } from '../engine/list-documents'
 import { yieldToEventLoop } from '../engine/orchestration/turn'
 import { executePreflight, executeQuery } from '../engine/query'
+import type { RerankRunner } from '../engine/query/shared'
 import { resolveVectorText } from '../engine/resolve-vector-text'
 import { executeSuggest } from '../engine/suggest'
 import { collectQueryTermStats } from '../partitioning/distributed-scoring'
@@ -42,6 +43,20 @@ function scopedParams(params: QueryParams, options: ScopedReadOptions | undefine
   return { ...params, scoring: 'broadcast' }
 }
 
+function rerankRunnerFor(core: EngineCore, params: QueryParams): RerankRunner | undefined {
+  if (params.rerank === undefined) return undefined
+  return {
+    maxWindow: core.rerankSettings.maxWindow,
+    async score(adapter, query, documents) {
+      const { callRerankAdapter } = await import('../rerank/call')
+      return callRerankAdapter(core.rerankAdapters, adapter, query, documents, {
+        timeoutMs: core.rerankSettings.timeoutMs,
+        signal: core.abortController.signal,
+      })
+    },
+  }
+}
+
 function broadcastStatsFor(core: EngineCore, options: ScopedReadOptions | undefined) {
   const supplied = options?.globalStats
   if (supplied !== undefined) {
@@ -70,7 +85,7 @@ export async function runEngineQuery<T = AnyDocument>(
     await core.pluginRegistry.runHook('beforeSearch', { indexName, params: scoped })
 
     const resolvedParams = await resolveVectorText(
-      scoped,
+      scoped.rerank === undefined ? scoped : (await import('../rerank/query-text')).withRerankQueryText(scoped),
       entry.embeddingAdapter,
       core.abortController.signal,
       entry.embeddingAdapterName,
@@ -90,6 +105,7 @@ export async function runEngineQuery<T = AnyDocument>(
       partitionIds: options?.partitionIds,
       cursorBinding: queryBindingOf(params),
       patternWorkCap: core.patternWorkCap,
+      rerank: rerankRunnerFor(core, params),
     }
     const { result, analysisStale } = await readUnderOneAnalysis(core, indexName, () =>
       executeQuery<T>(resolvedParams, context),

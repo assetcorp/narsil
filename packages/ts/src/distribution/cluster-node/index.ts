@@ -1,5 +1,6 @@
 import { generateId } from '../../core/id-generator'
 import { ErrorCodes, NarsilError } from '../../errors'
+import { bindRerankWindowSource, rerankWindowCapOf } from '../../narsil/internals'
 import { DEFAULT_CONTROLLER_CONFIG, DEFAULT_NODE_LIFECYCLE_CONFIG } from '../cluster/constants'
 import { createController } from '../cluster/controller'
 import type { ControllerNode } from '../cluster/controller/types'
@@ -369,6 +370,7 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
     },
   }
 
+  bindRerankWindowSource(node, () => rerankWindowCapOf(engine))
   return node
 
   function resolveSnapshotHeaderMetadata(indexName: string, partitionId: number | null) {

@@ -45,7 +45,25 @@ function overWindow(field: string, value: unknown, maxWindow: number): Validatio
  * patch a handler. Custom group reducers are functions and cannot cross JSON, so
  * they are refused outright.
  */
-export function validateQuery(params: QueryParams, maxWindow: number): ValidationFailure | null {
+export interface QueryLimits {
+  maxResultWindow: number
+  maxRerankWindow: number
+}
+
+function overRerankWindow(rerank: unknown, maxRerankWindow: number): ValidationFailure | null {
+  if (!isPlainObject(rerank)) return null
+  const window = rerank.window
+  if (typeof window === 'number' && window > maxRerankWindow) {
+    return {
+      message: `Field "rerank.window" exceeds this server's maximum rerank window of ${maxRerankWindow}`,
+      details: { value: window, limit: maxRerankWindow },
+    }
+  }
+  return null
+}
+
+export function validateQuery(params: QueryParams, limits: QueryLimits): ValidationFailure | null {
+  const maxWindow = limits.maxResultWindow
   if (params.group && typeof params.group === 'object' && 'reduce' in params.group) {
     return {
       message: 'Custom group reducers are not available over HTTP; use "group.fields" and "group.maxPerGroup" only',
@@ -53,6 +71,8 @@ export function validateQuery(params: QueryParams, maxWindow: number): Validatio
   }
   const rowBound = overWindow('limit', params.limit, maxWindow) ?? overWindow('offset', params.offset, maxWindow)
   if (rowBound) return rowBound
+  const reranked = overRerankWindow(params.rerank, limits.maxRerankWindow)
+  if (reranked) return reranked
   if (params.group && typeof params.group === 'object') {
     const grouped =
       overWindow('group.maxPerGroup', (params.group as { maxPerGroup?: unknown }).maxPerGroup, maxWindow) ??

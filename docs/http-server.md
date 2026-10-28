@@ -26,8 +26,9 @@ await server.listen()
 
 - `cors` sets which cross-origin requests the server accepts.
 - `onRequest` is a hook for authentication, which the main thread runs once per request on behalf of every request thread.
-- `limits` sets the caps on body size, concurrency, the result window, and fetch counts, where `maxConcurrentRequests` counts the requests in flight on every thread together.
+- `limits` sets the caps on body size, concurrency, the result window, the rerank window, and fetch counts, where `maxConcurrentRequests` counts the requests in flight on every thread together. `limits.maxRerankWindow` caps the `rerank.window` of a search, so that one remote request sends at most that many documents to a model. It defaults to 100, or to the engine's `maxRerankWindow` where that is lower, and the server answers a larger window with 400 `INVALID_REQUEST`. `createServer` throws `CONFIG_INVALID` for a value outside 1 to the engine's `maxRerankWindow`.
 - `embeddingAdapters` holds the adapters that JSON index configs refer to by name.
+- `rerankAdapters` holds the rerank adapters that a search's `rerank.adapter` refers to by name. The request threads send each model call to the main thread, which holds them. See [Reranking](reranking.md#over-http-and-in-a-cluster).
 - `taskStore` keeps the status of long-running tasks across restarts.
 - `instanceId` lets the server mark its own unfinished tasks as failed after a restart.
 - `allowInsecure` lets the server bind a trusted private network address without an `onRequest` hook.

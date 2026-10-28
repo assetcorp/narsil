@@ -93,6 +93,12 @@ export interface ServerLimits {
    * request cannot ask for an unbounded result set. Excess → 400. Defaults to
    * 10000, matching the cluster query result window. */
   maxResultWindow?: number
+  /** Ceiling for a search's `rerank.window`, so that one remote request can
+   * send at most this many documents to a rerank model. Excess → 400. Set it
+   * from 1 to the engine's `maxRerankWindow`, which the server checks when it
+   * starts. Defaults to 100, or to the engine's `maxRerankWindow` where that
+   * is lower. */
+  maxRerankWindow?: number
   /** Ceiling for the number of document ids in one multi-get request, so one
    * request cannot pull an unbounded number of documents. Excess → 400.
    * Defaults to 10000. */

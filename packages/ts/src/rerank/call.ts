@@ -53,24 +53,75 @@ export function requireRerankAdapter(adapters: ReadonlyMap<string, RerankAdapter
   return adapter
 }
 
+export interface RerankCallOptions {
+  timeoutMs: number
+  signal?: AbortSignal
+}
+
+function timedOut(name: string, timeoutMs: number): NarsilError {
+  return new NarsilError(
+    ErrorCodes.RERANK_FAILED,
+    `Rerank adapter "${name}" did not answer within ${timeoutMs} ms, so the engine cancelled the call`,
+    { adapter: name, timeoutMs },
+  )
+}
+
+function cancelled(name: string): NarsilError {
+  return new NarsilError(ErrorCodes.RERANK_FAILED, `The engine cancelled the call to rerank adapter "${name}"`, {
+    adapter: name,
+  })
+}
+
+function wrapped(err: unknown, name: string): NarsilError {
+  if (err instanceof NarsilError) return err
+  const message = err instanceof Error ? err.message : String(err)
+  return new NarsilError(ErrorCodes.RERANK_FAILED, `Rerank adapter "${name}" failed: ${message}`, {
+    adapter: name,
+    cause: message,
+  })
+}
+
 export async function callRerankAdapter(
   adapters: ReadonlyMap<string, RerankAdapter>,
   name: string,
   query: string,
   documents: string[],
-  signal?: AbortSignal,
+  options: RerankCallOptions,
 ): Promise<number[]> {
   const adapter = requireRerankAdapter(adapters, name)
+  if (documents.length === 0) return []
+  const outer = options.signal
+  if (outer?.aborted) throw cancelled(name)
+
+  const controller = new AbortController()
+  let timer: ReturnType<typeof setTimeout> | undefined
+  let detach: (() => void) | undefined
+  const stopped = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => {
+      controller.abort()
+      reject(timedOut(name, options.timeoutMs))
+    }, options.timeoutMs)
+    if (outer !== undefined) {
+      const onAbort = (): void => {
+        controller.abort()
+        reject(cancelled(name))
+      }
+      outer.addEventListener('abort', onAbort, { once: true })
+      detach = () => outer.removeEventListener('abort', onAbort)
+    }
+  })
+
   let raw: unknown
   try {
-    raw = await adapter.rerank(query, documents, signal)
+    raw = await Promise.race([
+      Promise.resolve().then(() => adapter.rerank(query, documents, controller.signal)),
+      stopped,
+    ])
   } catch (err) {
-    if (err instanceof NarsilError) throw err
-    const message = err instanceof Error ? err.message : String(err)
-    throw new NarsilError(ErrorCodes.RERANK_FAILED, `Rerank adapter "${name}" failed: ${message}`, {
-      adapter: name,
-      cause: message,
-    })
+    throw wrapped(err, name)
+  } finally {
+    clearTimeout(timer)
+    detach?.()
   }
   return scoresOf(raw, documents.length, name)
 }
