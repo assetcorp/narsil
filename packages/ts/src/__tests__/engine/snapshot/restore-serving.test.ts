@@ -9,12 +9,15 @@ import {
   type EngineKind,
   engineTarget,
   fill,
+  HELD_ROUNDS,
   hammer,
+  heldBack,
   holdsGeneration,
   LIVE,
   NEW,
   NEW_COUNT,
   newDirectory,
+  newGate,
   OLD,
   openEngine,
   SOURCE,
@@ -59,13 +62,14 @@ function servingCases(workers: boolean): void {
     it(`answers every request from the old index or the new one, whole, on an engine in ${kind}`, async () => {
       const engine = await engineWithBothGenerations(kind, workers)
       const archive = await engine.snapshot(SOURCE)
+      const gate = newGate()
 
-      const restored = engine.restore(LIVE, archive)
-      const observed = await hammer(engineTarget(engine, LIVE), restored)
+      const restored = engine.restore(LIVE, heldBack(archive, gate.released))
+      const observed = await hammer(engineTarget(engine, LIVE), restored, gate.releaseAfter)
       await restored
 
       expect(observed.failures).toEqual([])
-      expect(observed.rounds).toBeGreaterThan(1)
+      expect(observed.rounds).toBeGreaterThanOrEqual(HELD_ROUNDS)
       expect(await engine.countDocuments(LIVE)).toBeGreaterThanOrEqual(NEW_COUNT)
       expect(await holdsGeneration(engine, LIVE, NEW)).toBe(true)
     }, 30_000)
