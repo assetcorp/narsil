@@ -58,10 +58,26 @@ async function pumpReplica(
   replicaNodeId: string,
   cursor: ReplicaCursor,
 ): Promise<void> {
-  if (cursor.sending) {
+  if (cursor.busy) {
     return
   }
+  cursor.busy = true
+  try {
+    await feedReplica(state, deps, indexName, partitionId, assignment, replicaNodeId, cursor)
+  } finally {
+    cursor.busy = false
+  }
+}
 
+async function feedReplica(
+  state: CatchUpState,
+  deps: WriteRoutingDeps,
+  indexName: string,
+  partitionId: number,
+  assignment: PartitionAssignment,
+  replicaNodeId: string,
+  cursor: ReplicaCursor,
+): Promise<void> {
   const log = deps.getReplicationLog(indexName, partitionId)
 
   if (replicaHasFallenOutOfRetention(log, cursor)) {
@@ -81,7 +97,6 @@ async function pumpReplica(
 
   const reservedBytes = batchBytes(batch)
   const sendingEpoch = cursor.syncEpoch
-  cursor.sending = true
   state.inFlightBytes += reservedBytes
   try {
     const result = await replicateBatchToReplicas(
@@ -96,7 +111,6 @@ async function pumpReplica(
     }
   } finally {
     state.inFlightBytes -= reservedBytes
-    cursor.sending = false
   }
 }
 
@@ -105,6 +119,7 @@ async function pumpPartition(
   deps: WriteRoutingDeps,
   key: string,
   replicas: Map<string, ReplicaCursor>,
+  started: Promise<void>[],
 ): Promise<void> {
   const separator = key.lastIndexOf(':')
   const indexName = key.slice(0, separator)
@@ -127,9 +142,16 @@ async function pumpPartition(
       forgetReplica(state, indexName, partitionId, replicaNodeId)
       continue
     }
-    try {
-      await pumpReplica(state, deps, indexName, partitionId, assignment, replicaNodeId, cursor)
-    } catch (_) {}
+    if (cursor.busy) {
+      continue
+    }
+    const work: Promise<void> = pumpReplica(state, deps, indexName, partitionId, assignment, replicaNodeId, cursor)
+      .catch(() => {})
+      .finally(() => {
+        state.replicaWork.delete(work)
+      })
+    state.replicaWork.add(work)
+    started.push(work)
   }
 }
 
@@ -139,25 +161,27 @@ async function pumpPartition(
  *
  * For every partition this node leads, the primary sends each such replica its next batch, proposes its admission
  * once it holds everything the local log holds, or forgets it once it has fallen behind the retained log and needs
- * a fresh snapshot instead. One replica's failure leaves the others in the tick untouched, and a tick that is
- * already running returns that same tick rather than starting a second one.
+ * a fresh snapshot instead. The pump feeds every replica on its own, so a replica that fails or is slow to answer
+ * holds up only its own feed, and the next tick skips a replica whose last batch or proposal is still in flight. A
+ * tick that is already reading the allocation returns that same tick in place of starting a second one.
  *
  * @param state - The catch-up state that holds the cursors and the in-flight byte total.
  * @param deps - The write routing dependencies, which give the pump the log, the transport, and the coordinator.
- * @returns A promise that settles once the tick has finished.
+ * @returns A promise that settles once every feed that this tick started has finished.
  */
 export function runCatchUpTick(state: CatchUpState, deps: WriteRoutingDeps): Promise<void> {
   if (state.stopped || state.activeTick !== null || state.cursors.size === 0) {
     return state.activeTick ?? Promise.resolve()
   }
 
+  const started: Promise<void>[] = []
   const tick = (async () => {
     for (const [key, replicas] of [...state.cursors]) {
       if (state.stopped) {
         return
       }
       try {
-        await pumpPartition(state, deps, key, replicas)
+        await pumpPartition(state, deps, key, replicas, started)
       } catch (_) {}
     }
   })().finally(() => {
@@ -165,7 +189,9 @@ export function runCatchUpTick(state: CatchUpState, deps: WriteRoutingDeps): Pro
   })
 
   state.activeTick = tick
-  return tick
+  return tick.then(async () => {
+    await Promise.all(started)
+  })
 }
 
 /**
@@ -188,10 +214,11 @@ export function startCatchUpPump(state: CatchUpState, deps: WriteRoutingDeps): v
 }
 
 /**
- * Stops the pump and waits for the tick already running, so that no send outlives the node that started it.
+ * Stops the pump and waits for the tick already running and for every feed still in flight, so that no send
+ * outlives the node that started it.
  *
  * @param state - The catch-up state to stop.
- * @returns A promise that settles once no tick is running.
+ * @returns A promise that settles once no tick and no feed is running.
  */
 export async function stopCatchUpPump(state: CatchUpState): Promise<void> {
   state.stopped = true
@@ -202,4 +229,5 @@ export async function stopCatchUpPump(state: CatchUpState): Promise<void> {
   if (state.activeTick !== null) {
     await state.activeTick
   }
+  await Promise.all([...state.replicaWork])
 }
