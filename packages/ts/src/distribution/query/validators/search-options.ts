@@ -37,6 +37,7 @@ export function validateHybridParams(value: unknown): void {
   if (!isRecord(value)) {
     throwInvalid(CONFIG_INVALID, 'Invalid SearchPayload: "params.hybrid" must be an object')
   }
+  if (!Object.hasOwn(value, 'depth')) value.depth = null
   if (
     value.strategy !== null &&
     !ALLOWED_HYBRID_STRATEGIES.includes(value.strategy as (typeof ALLOWED_HYBRID_STRATEGIES)[number])

@@ -61,6 +61,7 @@ function validateVectorParams(value: unknown): void {
   if (!isRecord(value)) {
     throwInvalid(CONFIG_INVALID, 'Invalid SearchPayload: "params.vector" must be an object')
   }
+  if (!Object.hasOwn(value, 'rescoreWindow')) value.rescoreWindow = null
   validateFieldName(value.field, 'params.vector.field', SEARCH_INVALID_FIELD)
   if (value.value !== null) {
     if (!Array.isArray(value.value)) {

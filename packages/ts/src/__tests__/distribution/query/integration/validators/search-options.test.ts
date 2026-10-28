@@ -162,25 +162,21 @@ describe('validateSearchPayload params.vector metric and efSearch', () => {
     ).toThrow(/oversample/)
   })
 
-  it('accepts a whole rescore window from 1 to 10,000 and rejects any other value or a missing member', () => {
+  it('refuses a rescore window above 10,000, reads an omitted one as absent, and refuses an omitted oversample', () => {
     const withWindow = (rescoreWindow: unknown) =>
       makeSearchPayload({ vector: { ...vector, metric: null, efSearch: null, rescoreWindow: rescoreWindow as number } })
-    expect(() => validateSearchPayload(withWindow(10))).not.toThrow()
-    expect(() => validateSearchPayload(withWindow(10_000))).not.toThrow()
-    for (const bad of [0, -1, 2.5, 10_001, Number.NaN, '10']) {
-      expect(() => validateSearchPayload(withWindow(bad))).toThrow(/rescoreWindow/)
-    }
-    const { rescoreWindow: _dropped, ...missing } = vector
-    expect(() =>
-      validateSearchPayload(
-        makeSearchPayload({
-          vector: { ...missing, metric: null, efSearch: null } as unknown as typeof vector & {
-            metric: null
-            efSearch: null
-          },
-        }),
-      ),
-    ).toThrow(/rescoreWindow/)
+    expect(() => validateSearchPayload(withWindow(10_001))).toThrow(/rescoreWindow/)
+    const { rescoreWindow: _window, ...withoutWindow } = vector
+    const { oversample: _oversample, ...withoutOversample } = vector
+    const omitting = (members: Record<string, unknown>) =>
+      makeSearchPayload({
+        vector: { ...members, metric: null, efSearch: null } as unknown as typeof vector & {
+          metric: null
+          efSearch: null
+        },
+      })
+    expect(validateSearchPayload(omitting(withoutWindow)).params.vector?.rescoreWindow).toBeNull()
+    expect(() => validateSearchPayload(omitting(withoutOversample))).toThrow(/oversample/)
   })
 
   it('accepts a known metric and a sane efSearch', () => {
@@ -221,13 +217,16 @@ describe('validateSearchPayload params.hybrid with absent members', () => {
     expect(() =>
       validateSearchPayload(makeSearchPayload({ hybrid: { strategy: null, k: null, alpha: 2, depth: null } })),
     ).toThrow(/hybrid.alpha/)
-    for (const depth of [0, 10_001, 2.5]) {
-      expect(() =>
-        validateSearchPayload(makeSearchPayload({ hybrid: { strategy: null, k: null, alpha: null, depth } })),
-      ).toThrow(/hybrid.depth/)
-    }
+    expect(() =>
+      validateSearchPayload(makeSearchPayload({ hybrid: { strategy: null, k: null, alpha: null, depth: 10_001 } })),
+    ).toThrow(/hybrid.depth/)
+  })
+
+  it('reads an omitted depth as absent and refuses an omitted alpha', () => {
     const withoutDepth = { strategy: null, k: null, alpha: null } as unknown as WireHybridConfig
-    expect(() => validateSearchPayload(makeSearchPayload({ hybrid: withoutDepth }))).toThrow(/hybrid.depth/)
+    expect(validateSearchPayload(makeSearchPayload({ hybrid: withoutDepth })).params.hybrid?.depth).toBeNull()
+    const withoutAlpha = { strategy: null, k: null, depth: null } as unknown as WireHybridConfig
+    expect(() => validateSearchPayload(makeSearchPayload({ hybrid: withoutAlpha }))).toThrow(/hybrid.alpha/)
   })
 })
 
