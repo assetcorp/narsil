@@ -95,15 +95,36 @@ export async function proposeAdmission(
   replicaNodeId: string,
   cursor: ReplicaCursor,
 ): Promise<void> {
+  if (claimAdmission(state, deps, indexName, partitionId, replicaNodeId, cursor)) {
+    await requestClaimedAdmission(state, deps, indexName, partitionId, assignment, replicaNodeId, cursor)
+  }
+}
+
+export function claimAdmission(
+  state: CatchUpState,
+  deps: WriteRoutingDeps,
+  indexName: string,
+  partitionId: number,
+  replicaNodeId: string,
+  cursor: ReplicaCursor,
+): boolean {
   const log = deps.getReplicationLog(indexName, partitionId)
   if (cursor.appliedSeqNo < log.commitPoint) {
-    return
+    return false
   }
+  return markPendingAdmission(state, indexName, partitionId, replicaNodeId)
+}
 
-  if (!markPendingAdmission(state, indexName, partitionId, replicaNodeId)) {
-    return
-  }
-
+export async function requestClaimedAdmission(
+  state: CatchUpState,
+  deps: WriteRoutingDeps,
+  indexName: string,
+  partitionId: number,
+  assignment: PartitionAssignment,
+  replicaNodeId: string,
+  cursor: ReplicaCursor,
+): Promise<void> {
+  const log = deps.getReplicationLog(indexName, partitionId)
   const proposedEpoch = cursor.syncEpoch
   try {
     const controllerNodeId = await deps.coordinator.getLeaseHolder(CONTROLLER_LEASE_KEY)

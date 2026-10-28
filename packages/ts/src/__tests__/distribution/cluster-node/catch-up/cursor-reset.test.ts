@@ -5,6 +5,7 @@ import {
   recordReplicaPosition,
   runCatchUpTick,
 } from '../../../../distribution/cluster-node/catch-up'
+import { createPartitionWriteQueues } from '../../../../distribution/cluster-node/write-routing/partition-queue'
 import type { WriteRoutingDeps } from '../../../../distribution/cluster-node/write-routing/types'
 import { createInMemoryCoordinator } from '../../../../distribution/coordinator/in-memory'
 import type {
@@ -124,6 +125,7 @@ describe('catch-up after a replica restarts behind its cursor', () => {
       transport: primaryTransport,
       getReplicationLog: () => log,
       catchUp: createCatchUpState(),
+      partitionWriteQueues: createPartitionWriteQueues(),
     } as unknown as WriteRoutingDeps
 
     return { deps, received }
