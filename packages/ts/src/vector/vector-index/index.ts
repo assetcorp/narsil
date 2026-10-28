@@ -91,7 +91,6 @@ export interface VectorIndex {
   recordCheckpoint(plan: VectorCheckpointPlan, written: readonly WrittenVectorFile[]): void
   /** Empties the field and returns a reader that takes a checkpoint's vector files one at a time, in manifest order, after the graph that `shape` carries. A field kept on disk reads its vectors from the files where the checkpoint holds a graph or enough vectors for one, and a dead vector that the graph holds a node for comes back as a tombstone. */
   restoreCheckpoint(shape: CheckpointRestoreShape): VectorCheckpointRestore
-  /** Starts rebuilding the graph from every vector in a shuffled order, in the background, when the graph came from a load that carried no count of its last shuffled build or holds twice the vectors that it held after that build. A loader calls this once the load has finished, so that the rebuild leaves the thread to the load. */
   startShuffledRebuildWhenDue(): void
   /** Lists the paths of the vector files that the field still reads vectors from. */
   vectorFilesInUse(): string[]
