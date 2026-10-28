@@ -112,6 +112,7 @@ function mainThreadHandlers(deps: HandlerDeps): ServerHandlers {
     capabilities: capabilities.report,
     clusterTopology: cluster.topology,
     clusterAllocation: cluster.allocation,
+    clusterReplicationFactor: cluster.replicationFactor,
     memory: admin.memory,
     listTasks: admin.listTasks,
     getTask: admin.getTask,

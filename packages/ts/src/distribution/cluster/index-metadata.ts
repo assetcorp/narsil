@@ -4,6 +4,7 @@ import { ErrorCodes, NarsilError } from '../../errors'
 import type { IndexConfig, SchemaDefinition } from '../../types/schema'
 import { MAX_PARTITION_COUNT, MAX_REPLICATION_FACTOR } from '../constants'
 import type { AllocationConstraints, ClusterCoordinator } from '../coordinator/types'
+import { REPLICATION_FACTOR_CAS_ATTEMPTS } from './constants'
 import { decodeIndexSettings, type IndexSettings, indexConfigFromSettings, isRecord } from './index-settings'
 
 export interface IndexMetadata {
@@ -184,6 +185,35 @@ async function readStoredMetadata(
   const decoded = decode(raw)
   const record = validateDecodedMetadata(decoded, indexName)
   return { record, rawSettings: isRecord(decoded) ? decoded.settings : undefined }
+}
+
+export async function putIndexReplicationFactor(
+  coordinator: ClusterCoordinator,
+  indexName: string,
+  replicationFactor: number,
+): Promise<IndexMetadataRecord | null> {
+  validateIndexName(indexName)
+  const key = indexConfigKey(indexName)
+  for (let attempt = 0; attempt < REPLICATION_FACTOR_CAS_ATTEMPTS; attempt++) {
+    const raw = await coordinator.get(key)
+    if (raw === null || raw.byteLength === 0) {
+      return null
+    }
+    const decoded = decode(raw)
+    const record = validateDecodedMetadata(decoded, indexName)
+    if (record.replicationFactor === replicationFactor) {
+      return record
+    }
+    const updated = encode(isRecord(decoded) ? { ...decoded, replicationFactor } : decoded, { ignoreUndefined: true })
+    if (await coordinator.compareAndSet(key, raw, new Uint8Array(updated))) {
+      return { ...record, replicationFactor }
+    }
+  }
+  throw new NarsilError(
+    ErrorCodes.ALLOCATION_FAILED,
+    `The replication factor of index '${indexName}' lost ${REPLICATION_FACTOR_CAS_ATTEMPTS} compare-and-set attempts`,
+    { indexName, attempts: REPLICATION_FACTOR_CAS_ATTEMPTS },
+  )
 }
 
 export async function getIndexMetadata(

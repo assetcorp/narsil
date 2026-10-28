@@ -190,8 +190,9 @@ export interface ServerOptions {
    * The cluster-facing side of the node this server fronts, which is
    * `node.cluster` on a {@link ClusterNode}. With it set, `/readyz` answers
    * 200 only while the node reports `SERVING`, `/cluster` reports the
-   * topology, and `/indexes/:name/cluster` reports one index's allocation.
-   * Without it, both cluster routes answer 501.
+   * topology, `/indexes/:name/cluster` reports one index's allocation, and
+   * `PUT /indexes/:name/replication-factor` changes one index's replication
+   * factor. Without it, all three cluster routes answer 501.
    */
   cluster?: ClusterNamespace
 }

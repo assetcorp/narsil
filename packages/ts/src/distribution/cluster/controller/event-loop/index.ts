@@ -3,6 +3,7 @@ import type { NodeTransport, RespondFn, TransportMessage } from '../../../transp
 import { ClusterMessageTypes, ReplicationMessageTypes } from '../../../transport/types'
 import { handleSchemaEvent, scheduleDebouncedAllocation } from './allocation'
 import { handleInsyncAddMessage, handleInsyncRemoveMessage, handleQueuedBootstrapComplete } from './insync-messages'
+import { handleReplicationFactorMessage } from './replication-factor'
 import { changesTopology, clearEventLoopWatchers, type EventLoopState } from './state'
 
 export { clearEventLoopWatchers, createEventLoopState, type EventLoopState } from './state'
@@ -11,8 +12,8 @@ export { clearEventLoopWatchers, createEventLoopState, type EventLoopState } fro
  * Starts the work an active controller does, which is to watch the cluster for change and to answer the messages a
  * primary sends it.
  *
- * The controller registers a watcher on node registrations and another on schemas, listens for in-sync and bootstrap
- * messages, and runs the allocator once for every index it starts with. A registration that changes only its memory
+ * The controller registers a watcher on node registrations and another on schemas, listens for in-sync, bootstrap,
+ * and replication factor messages, and runs the allocator once for every index it starts with. A registration that changes only its memory
  * figures or its partition sizes starts no allocation run, because every node writes those again on each heartbeat. A failure at any of those steps drops the watchers this call had
  * already registered, before the error reaches the caller, so that a controller which failed to start leaves
  * nothing running behind it.
@@ -53,6 +54,10 @@ export async function startEventLoop(
     })
 
     state.unwatchTransport = await transport.listen((message: TransportMessage, respond: RespondFn) => {
+      if (message.type === ClusterMessageTypes.REPLICATION_FACTOR) {
+        handleReplicationFactorMessage(state, message, respond, coordinator, nodeId, isActive, onError)
+        return
+      }
       if (!isActive()) {
         return
       }

@@ -175,7 +175,10 @@ export interface ClusterQueryConfig {
 export interface CreateIndexOptions {
   /** The cluster splits the index into this many partitions, and into {@link DEFAULT_PARTITION_COUNT} by default. */
   partitionCount?: number
-  /** The cluster keeps this many copies of each partition, and {@link DEFAULT_REPLICATION_FACTOR} by default. */
+  /**
+   * The cluster keeps this many replicas of each partition besides its primary, and
+   * {@link DEFAULT_REPLICATION_FACTOR} by default.
+   */
   replicationFactor?: number
   /**
    * The creation returns once every partition is in service or once this many milliseconds have passed, which is
@@ -245,6 +248,21 @@ export interface ClusterNamespace {
    * @returns Its id, or `null` while no node holds the lease.
    */
   getControllerNodeId(): Promise<string | null>
+  /**
+   * Changes how many replicas besides its primary each partition of an index keeps.
+   *
+   * The node sends the change to the active controller, which stores the factor in the index metadata and writes an
+   * allocation table that carries it before this call returns. A higher factor adds replicas, and each new copy
+   * catches up from its primary. A lower factor removes the surplus replicas, lagging ones first, and never the
+   * primary.
+   *
+   * @param indexName - The index to change.
+   * @param replicationFactor - The number of replicas besides the primary, an integer from 0 to 255.
+   * @returns A promise that settles once the controller has stored the factor and written the table.
+   * @throws A `NarsilError` with `CONFIG_INVALID` for a factor outside that range, with `INDEX_NOT_FOUND` where the
+   * cluster holds no index of that name, and with `NODE_NOT_CONTROLLER` while no node holds the controller lease.
+   */
+  setReplicationFactor(indexName: string, replicationFactor: number): Promise<void>
 }
 
 /**

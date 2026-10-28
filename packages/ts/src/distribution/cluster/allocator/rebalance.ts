@@ -1,6 +1,7 @@
 import { REBALANCE_THRESHOLD } from '../constants'
 import { capacityShares, rebalanceLeadership } from './leadership'
 import { handleLostNodes } from './lost-nodes'
+import { trimSurplusReplicas } from './surplus-replicas'
 import type {
   AllocationConstraints,
   AllocationResult,
@@ -226,8 +227,13 @@ function pruneInSyncSets(assignments: Map<number, PartitionAssignment>): void {
  * its replica slots, outside the in-sync set, so that it can catch up on them when it registers again; the allocator
  * counts those slots as filled, and it moves them once the node drops out of `retainedNodeIds`.
  *
+ * The table takes `replicationFactor` from the index metadata, so that a factor stored there reaches the table on the
+ * next run. A partition holding more replicas than that factor loses the surplus, lagging replicas first and then the
+ * copy on the busiest node, and it keeps its primary.
+ *
  * @param nodes - The data nodes registered with the cluster coordinator.
  * @param currentTable - The allocation table the coordinator holds today.
+ * @param replicationFactor - The number of replicas besides the primary that the index metadata asks for.
  * @param constraints - The placement rules that every assignment must satisfy.
  * @param deciders - The chain that admits or refuses each candidate node.
  * @param retainedNodeIds - The nodes that left the cluster too recently for the allocator to move their replicas.
@@ -237,6 +243,7 @@ function pruneInSyncSets(assignments: Map<number, PartitionAssignment>): void {
 export function rebalanceAllocate(
   nodes: NodeRegistration[],
   currentTable: AllocationTable,
+  replicationFactor: number,
   constraints: AllocationConstraints,
   deciders: Decider[],
   retainedNodeIds: ReadonlySet<string> = new Set(),
@@ -259,7 +266,9 @@ export function rebalanceAllocate(
 
   handleLostNodes(assignments, activeNodeIds, retainedNodeIds, shares)
 
-  fillReplicaSlots(assignments, sortedNodes, nodeMap, currentTable.replicationFactor, constraints, deciders)
+  trimSurplusReplicas(assignments, sortedNodes, replicationFactor)
+
+  fillReplicaSlots(assignments, sortedNodes, nodeMap, replicationFactor, constraints, deciders)
 
   rebalanceForBalance(assignments, sortedNodes, nodeMap, constraints, deciders, shares)
 
@@ -269,13 +278,13 @@ export function rebalanceAllocate(
 
   clearRecoveryStateOnServedPartitions(assignments)
 
-  const warnings = collectReplicationWarnings(assignments, currentTable.replicationFactor)
+  const warnings = collectReplicationWarnings(assignments, replicationFactor)
 
   return {
     table: {
       indexName: currentTable.indexName,
       version: currentTable.version + 1,
-      replicationFactor: currentTable.replicationFactor,
+      replicationFactor,
       assignments,
     },
     warnings,

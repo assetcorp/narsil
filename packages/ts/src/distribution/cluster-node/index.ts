@@ -27,6 +27,7 @@ import { createClusterNodeOperations } from './node-operations'
 import { createClusterOperationTracker } from './operation-tracker'
 import { createPartitionBootstrap } from './partition-bootstrap'
 import type { ClusterReadDeps } from './reads'
+import { requestReplicationFactor } from './replication-factor'
 import {
   replicationLogKey as buildReplicationLogKey,
   deleteIndexReplicationLogs,
@@ -248,6 +249,7 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
     isShutdown: () => isShutdown,
     isServing: () => serving,
     trackOp,
+    requestReplicationFactor: (indexName, factor) => requestReplicationFactor(config, nodeId, indexName, factor),
   })
 
   const node: ClusterNode = {

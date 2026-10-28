@@ -41,7 +41,7 @@ export function allocate(
     return initialAllocate(dataNodes, indexName, partitionCount, replicationFactor, constraints, deciders)
   }
 
-  return rebalanceAllocate(dataNodes, currentTable, constraints, deciders, retainedNodeIds)
+  return rebalanceAllocate(dataNodes, currentTable, replicationFactor, constraints, deciders, retainedNodeIds)
 }
 
 export type { AllocationConstraints, AllocationTable, NodeRegistration }

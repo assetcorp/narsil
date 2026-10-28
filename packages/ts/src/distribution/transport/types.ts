@@ -168,6 +168,7 @@ export const ClusterMessageTypes = {
   PONG: 'cluster.pong',
   BOOTSTRAP_COMPLETE: 'cluster.bootstrap_complete',
   PARTITION_STORES: 'cluster.partition_stores',
+  REPLICATION_FACTOR: 'cluster.replication_factor',
 } as const
 
 export interface ForwardPayload {
@@ -331,6 +332,11 @@ export interface BootstrapCompletePayload {
   partitionId: number
   nodeId: string
   primaryTerm: number
+}
+
+export interface ReplicationFactorPayload {
+  indexName: string
+  replicationFactor: number
 }
 
 export interface BootstrapCompleteResultPayload {

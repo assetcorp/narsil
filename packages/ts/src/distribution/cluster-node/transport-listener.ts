@@ -19,6 +19,7 @@ const CONTROLLER_MESSAGE_TYPES = new Set<string>([
   ReplicationMessageTypes.INSYNC_ADD,
   ReplicationMessageTypes.INSYNC_REMOVE,
   ClusterMessageTypes.BOOTSTRAP_COMPLETE,
+  ClusterMessageTypes.REPLICATION_FACTOR,
 ])
 
 function refuseMessage(

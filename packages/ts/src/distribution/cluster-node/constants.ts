@@ -9,9 +9,11 @@ import type { NodeCapacity } from '../coordinator/types'
 export const DEFAULT_PARTITION_COUNT = 5
 
 /**
- * The cluster keeps this many copies of each partition when
- * {@link CreateIndexOptions} names no factor. One copy means a lost node costs
- * that partition, so raise it for anything you cannot rebuild.
+ * The cluster keeps this many replicas of each partition, besides its
+ * primary, when {@link CreateIndexOptions} names no factor. One replica
+ * gives two copies of every partition, so the cluster keeps each partition
+ * through the loss of one node, and 0 leaves a partition with its primary
+ * alone.
  *
  * @public
  */
