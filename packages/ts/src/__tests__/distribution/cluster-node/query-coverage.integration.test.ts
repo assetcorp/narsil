@@ -27,7 +27,7 @@ async function pollUntil(predicate: () => Promise<boolean> | boolean): Promise<b
 function shopDocuments(): Array<Record<string, unknown>> {
   const documents: Array<Record<string, unknown>> = []
   for (let index = 0; index < DOCUMENT_TOTAL; index += 1) {
-    documents.push({ id: `item-${index}`, title: `portable grinder ${index}`, price: index })
+    documents.push({ id: `item-${index}`, title: `portable grinder ${index}`, price: index, embedding: [index, 1] })
   }
   return documents
 }
@@ -116,7 +116,7 @@ describe('a cluster search reporting the partitions it lost', () => {
 
     await router.createIndex(
       'shop',
-      { schema: { title: 'string', price: 'number' } },
+      { schema: { title: 'string', price: 'number', embedding: 'vector[2]' } },
       { partitionCount: PARTITION_COUNT, replicationFactor: 0 },
     )
 
@@ -204,6 +204,21 @@ describe('a cluster search reporting the partitions it lost', () => {
     await expect(
       router.query('shop', { term: 'portable', filters: { fields: { price: { startsWith: '7' } } } }),
     ).rejects.toMatchObject({ code: ErrorCodes.SEARCH_INVALID_FILTER })
+  }, 30_000)
+
+  it('passes a group on a vector field back as the field error that each data node raises', async () => {
+    await expect(router.query('shop', { term: 'portable', group: { fields: ['embedding'] } })).rejects.toMatchObject({
+      code: ErrorCodes.SEARCH_INVALID_FIELD,
+    })
+    await expect(
+      strictRouter.query('shop', { term: 'portable', group: { fields: ['title', 'embedding'] } }),
+    ).rejects.toMatchObject({ code: ErrorCodes.SEARCH_INVALID_FIELD })
+    const grouped = await router.query('shop', {
+      term: 'portable',
+      limit: DOCUMENT_TOTAL,
+      group: { fields: ['price'] },
+    })
+    expect(grouped.groups).toHaveLength(DOCUMENT_TOTAL)
   }, 30_000)
 
   it('fails the whole search on a node that refuses partial results', async () => {
