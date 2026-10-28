@@ -179,7 +179,7 @@ export function clusterNodeEngine(node: ClusterNode, options?: ClusterEngineOpti
     restore: () => unsupported('restore'),
     exportDocuments: () => unsupported('exportDocuments'),
     importDocumentExport: () => unsupported('importDocumentExport'),
-    rebalance: () => unsupported('rebalance'),
+    rebalance: (indexName: string, targetPartitionCount: number) => node.rebalance(indexName, targetPartitionCount),
     updatePartitionConfig: () => unsupported('updatePartitionConfig'),
     compactVectors: () => unsupported('compactVectors'),
     optimizeVectors: () => unsupported('optimizeVectors'),

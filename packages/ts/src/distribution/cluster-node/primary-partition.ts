@@ -1,7 +1,7 @@
 import { ErrorCodes, NarsilError } from '../../errors'
 import { validateSchema } from '../../schema/validator'
 import type { IndexConfig } from '../../types/schema'
-import { getClusterIndexConfig } from '../cluster/index-metadata'
+import { getClusterIndexConfig, getIndexMetadata } from '../cluster/index-metadata'
 import { withPartitionCount } from '../cluster/index-settings'
 import type { ClusterCoordinator, PartitionAssignment } from '../coordinator/types'
 import { validateRestoredSchema } from './bootstrap-restore'
@@ -40,8 +40,10 @@ export async function preparePrimaryPartition(
     return false
   }
   let config: IndexConfig
+  let indexUuid: string | undefined
   try {
     config = await getClusterIndexConfig(deps.coordinator, indexName, validateSchema(storedSchema))
+    indexUuid = (await getIndexMetadata(deps.coordinator, indexName))?.indexUuid
   } catch (error) {
     deps.onError(error)
     return false
@@ -54,7 +56,11 @@ export async function preparePrimaryPartition(
   const existing = deps.engine.listIndexes().find(index => index.name === indexName)
   if (existing === undefined) {
     try {
-      await deps.engine.createIndex(indexName, withPartitionCount(config, allocation.assignments.size))
+      await deps.engine.createIndexWithUuid(
+        indexName,
+        withPartitionCount(config, allocation.assignments.size),
+        indexUuid,
+      )
     } catch (error) {
       if (!(error instanceof NarsilError) || error.code !== ErrorCodes.INDEX_ALREADY_EXISTS) {
         deps.onError(error)

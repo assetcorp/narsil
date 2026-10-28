@@ -14,6 +14,7 @@ import { createClusterNamespace } from './cluster-namespace'
 import { createNodeController } from './controller-role'
 import { decommissionNode } from './decommission'
 import { createAllocationErrorForwarder, createErrorForwarder } from './error-forwarding'
+import { servingNameOf } from './generation-routing'
 import { type ClusterLocalEngine, createClusterLocalEngine } from './local-engine'
 import { orphanedIndexError, reconcileLocalIndexes } from './local-index-reconcile'
 import { seedReopenedPrimaryLogs } from './local-replication'
@@ -28,6 +29,8 @@ import { createPartitionBootstrap } from './partition-bootstrap'
 import type { ClusterReadDeps } from './reads'
 import { requestReplicationFactor } from './replication-factor'
 import { replicationLogKey as buildReplicationLogKey, deleteIndexReplicationLogs } from './replication-logs'
+import { requestRebalance, waitForSwap } from './reshard/request'
+import { createReshardState, forgetReshardIndex, forgetReshardPartition, stopEveryReshardJob } from './reshard/state'
 import { routableAllocation } from './routable-allocation'
 import { createSnapshotSyncHandlerState, nodeSnapshotHeaderMetadata } from './snapshot-sync-handler'
 import { createMultiplexedControllerTransport, createNotReadyHandler } from './transport-listener'
@@ -58,6 +61,7 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
   const bootstrapSyncState = createBootstrapSyncState()
   const snapshotSyncHandlerState = createSnapshotSyncHandlerState()
   const replicationLogs = new Map<string, ReplicationLog>()
+  const reshard = createReshardState()
   let localEngine: ClusterLocalEngine | null = null
   const engine = await createClusterLocalEngine(config.engine, {
     async onIndexOpen(indexName) {
@@ -71,7 +75,10 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
         replicationConfig: config.replication,
       })
     },
-    onIndexClose: indexName => deleteIndexReplicationLogs(replicationLogs, indexName),
+    onIndexClose: indexName => {
+      deleteIndexReplicationLogs(replicationLogs, indexName)
+      forgetReshardIndex(reshard, indexName)
+    },
   })
   localEngine = engine
   const snapshotSpool = await openSnapshotSpoolDirectory(config.engine?.durability?.directory).catch(async err => {
@@ -89,6 +96,7 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
     roles,
     engine,
     replicationLogs,
+    reshard,
     renewRegistration: () => lifecycle.renewRegistration(),
   })
   const { registration, allocationView, routingConfig, memoryReporting, writeDeps } = wiring
@@ -146,6 +154,8 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
     },
     retainedPartitionIds: (indexName: string) => engine.heldPartitionsOf(indexName) ?? [],
     onRemovePartition: (indexName: string, partitionId: number) => {
+      const removedIndexUuid = engine.indexUuidOf(indexName)
+      forgetReshardPartition(reshard, indexName, partitionId)
       clearBootstrapSyncIndex(bootstrapSyncState, indexName, partitionId)
       replicationLogs.delete(buildReplicationLogKey(indexName, partitionId))
       trackHeldPartitionWrite(engine.forgetHeldPartition(indexName, partitionId))
@@ -153,6 +163,7 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
         engine,
         coordinator: config.coordinator,
         nodeId,
+        removedIndexUuid,
         onError: forwardOnError,
       })
     },
@@ -181,6 +192,7 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
   const transitionIndex = operationTracker.transition
 
   const readDeps: ClusterReadDeps = { config: routingConfig, nodeId, engine, resolveNodeTargets }
+  const servingName = (indexName: string) => servingNameOf(allocationView.routing, indexName)
 
   const cluster = createClusterNamespace({
     nodeId,
@@ -191,7 +203,8 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
     isShutdown: () => isShutdown,
     isServing: () => serving,
     trackOp,
-    requestReplicationFactor: (indexName, factor) => requestReplicationFactor(config, nodeId, indexName, factor),
+    requestReplicationFactor: async (indexName, factor) =>
+      requestReplicationFactor(config, nodeId, await servingName(indexName), factor),
     observability: {
       nodeId,
       coordinator: allocationView.routing,
@@ -210,12 +223,15 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
       return roles
     },
 
-    open: (indexName: string) => trackOp(indexName, () => engine.open(indexName)),
-    close: (indexName: string) => transitionIndex(indexName, () => engine.close(indexName)),
+    open: (indexName: string) => trackOp(indexName, async () => engine.open(await servingName(indexName))),
+    close: (indexName: string) => transitionIndex(indexName, async () => engine.close(await servingName(indexName))),
 
     ...createClusterNodeOperations({
       trackOp,
       transitionIndex,
+      servingName,
+      requestRebalance: (indexName, count) => requestRebalance(config, nodeId, indexName, count),
+      waitForRebalance: (indexName, job) => waitForSwap(config, indexName, job, guardShutdown),
       readDeps,
       writeDeps,
       engine,
@@ -269,6 +285,7 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
           resolveHeaderMetadata: resolveSnapshotHeaderMetadata,
           isBootstrapSynced: (indexName: string, partitionId: number) =>
             hasCompletedBootstrapSync(bootstrapSyncState, indexName, partitionId),
+          onError: forwardOnError,
         })
         const listener = controllerTransport !== null ? controllerTransport.createHandler(dataHandler) : dataHandler
         unregisterHandler = await config.transport.listen(listener)
@@ -286,6 +303,7 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
     },
 
     async shutdown() {
+      stopEveryReshardJob(reshard)
       await stopCatchUpPump(writeDeps.catchUp)
       if (isShutdown) {
         return

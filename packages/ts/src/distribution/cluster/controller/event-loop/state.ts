@@ -16,6 +16,8 @@ export interface EventLoopState {
   nodeLeftDelayMs: number
   departedAt: Map<string, number>
   departureTimer: ReturnType<typeof setTimeout> | null
+  rebalanceDrivers: Map<string, string>
+  rebalanceEpoch: number
 }
 
 /**
@@ -44,6 +46,8 @@ export function createEventLoopState(
     insyncQueue: Promise.resolve(),
     transport: null,
     controllerNodeId: null,
+    rebalanceDrivers: new Map(),
+    rebalanceEpoch: 0,
   }
 }
 
@@ -83,6 +87,8 @@ export function clearEventLoopWatchers(state: EventLoopState): void {
     state.departureTimer = null
   }
   state.departedAt.clear()
+  state.rebalanceDrivers.clear()
+  state.rebalanceEpoch += 1
 }
 
 function placementOf(registration: NodeRegistration): string {

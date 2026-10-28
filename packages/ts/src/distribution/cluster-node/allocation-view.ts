@@ -14,9 +14,13 @@ export function createAllocationView(coordinator: ClusterCoordinator): Allocatio
   let watching = false
   const unwatchers: Array<() => void> = []
 
+  function tornDown(table: AllocationTable): boolean {
+    return table.assignments.size === 0 && table.generation === undefined
+  }
+
   function rememberLive(table: AllocationTable): AllocationTable {
     const held = tables.get(table.indexName)
-    if (held !== undefined && held.version > table.version) return held
+    if (held !== undefined && held.version > table.version && !tornDown(held)) return held
     if (watching) tables.set(table.indexName, table)
     return table
   }
@@ -39,7 +43,8 @@ export function createAllocationView(coordinator: ClusterCoordinator): Allocatio
 
   async function read(indexName: string): Promise<AllocationTable | null> {
     if (!watching) return coordinator.getAllocation(indexName)
-    return tables.get(indexName) ?? refresh(indexName)
+    const held = tables.get(indexName)
+    return held === undefined || tornDown(held) ? refresh(indexName) : held
   }
 
   async function listNodes(): Promise<NodeRegistration[]> {

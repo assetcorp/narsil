@@ -213,6 +213,9 @@ export interface ClusterNamespace {
   /**
    * Reads how one index is spread across the cluster.
    *
+   * After a change of the partition count, this returns the table of the layout that serves the index, carrying the
+   * index name that you passed.
+   *
    * @param indexName - The index to describe.
    * @returns Its allocation, or `null` when the index has none yet.
    */

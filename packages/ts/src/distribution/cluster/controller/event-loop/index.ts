@@ -3,6 +3,7 @@ import type { NodeTransport, RespondFn, TransportMessage } from '../../../transp
 import { ClusterMessageTypes, ReplicationMessageTypes } from '../../../transport/types'
 import { handleSchemaEvent, scheduleDebouncedAllocation } from './allocation'
 import { handleInsyncAddMessage, handleInsyncRemoveMessage, handleQueuedBootstrapComplete } from './insync-messages'
+import { handleRebalanceMessage, resumeRebalance, resumeRebalances } from './rebalance/request'
 import { handleReplicationFactorMessage } from './replication-factor'
 import { changesTopology, clearEventLoopWatchers, type EventLoopState } from './state'
 
@@ -13,7 +14,8 @@ export { clearEventLoopWatchers, createEventLoopState, type EventLoopState } fro
  * primary sends it.
  *
  * The controller registers a watcher on node registrations and another on schemas, listens for in-sync, bootstrap,
- * and replication factor messages, and runs the allocator once for every index it starts with. A registration that changes only its memory
+ * replication factor, and partition count change messages, runs the allocator once for every index it starts with,
+ * and resumes every partition count change that a previous controller left in its record. A registration that changes only its memory
  * figures or its partition sizes starts no allocation run, because every node writes those again on each heartbeat. A failure at any of those steps drops the watchers this call had
  * already registered, before the error reaches the caller, so that a controller which failed to start leaves
  * nothing running behind it.
@@ -51,11 +53,16 @@ export async function startEventLoop(
           onError(event.indexName, error)
         }
       })
+      void resumeRebalance({ state, coordinator, nodeId, isActive, onError }, event.indexName)
     })
 
     state.unwatchTransport = await transport.listen((message: TransportMessage, respond: RespondFn) => {
       if (message.type === ClusterMessageTypes.REPLICATION_FACTOR) {
         handleReplicationFactorMessage(state, message, respond, coordinator, nodeId, isActive, onError)
+        return
+      }
+      if (message.type === ClusterMessageTypes.REBALANCE) {
+        handleRebalanceMessage({ state, coordinator, nodeId, isActive, onError }, message, respond)
         return
       }
       if (!isActive()) {
@@ -75,4 +82,5 @@ export async function startEventLoop(
   }
 
   scheduleDebouncedAllocation(state, coordinator, isActive, onError)
+  resumeRebalances({ state, coordinator, nodeId, isActive, onError }).catch(error => onError?.('', error))
 }

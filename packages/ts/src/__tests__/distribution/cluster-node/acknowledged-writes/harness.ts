@@ -300,13 +300,14 @@ export async function readCopy(
   probe: NodeTransport,
   nodeId: string,
   partitionId = 0,
+  indexName: string = INDEX,
 ): Promise<Map<string, Record<string, unknown>>> {
   const response = await probe.send(nodeId, {
     type: 'query.list',
     sourceId: 'copy-reader',
     requestId: `copy-read-${nodeId}-${Date.now()}-${Math.random()}`,
     payload: encode({
-      indexName: INDEX,
+      indexName,
       partitionIds: [partitionId],
       cursor: null,
       limit: PROBE_PAGE_LIMIT,

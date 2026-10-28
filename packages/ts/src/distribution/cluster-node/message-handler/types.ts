@@ -16,4 +16,5 @@ export interface DataNodeHandlerDeps {
   snapshotSpoolDirectory?: string
   resolveHeaderMetadata?: SnapshotHeaderMetadataProvider
   isBootstrapSynced?: (indexName: string, partitionId: number) => boolean
+  onError?: (error: unknown) => void
 }

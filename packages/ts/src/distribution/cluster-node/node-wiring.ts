@@ -11,6 +11,7 @@ import {
   replicationLogKey,
   seedReplicationLog as writeSeededReplicationLog,
 } from './replication-logs'
+import type { ReshardState } from './reshard/state'
 import type { ClusterNodeConfig } from './types'
 import { DEFAULT_CAPACITY } from './types'
 import type { WriteRoutingDeps } from './write-routing'
@@ -35,6 +36,7 @@ export function createNodeWiring(input: {
   roles: ReadonlyArray<NodeRole>
   engine: ClusterLocalEngine
   replicationLogs: Map<string, ReplicationLog>
+  reshard: ReshardState
   renewRegistration: () => void
 }): NodeWiring {
   const { config, nodeId, engine, replicationLogs } = input
@@ -90,6 +92,7 @@ export function createNodeWiring(input: {
     memoryView: memoryReporting.view,
     writePressure: memoryReporting.writePressure,
     writeProjection: memoryReporting.writeProjection,
+    reshard: input.reshard,
   }
 
   return {

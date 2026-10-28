@@ -173,6 +173,23 @@ export async function putIndexMetadata(coordinator: ClusterCoordinator, metadata
   return coordinator.compareAndSet(key, current, bytes)
 }
 
+export async function putGenerationMetadata(
+  coordinator: ClusterCoordinator,
+  sourceName: string,
+  generation: { indexName: string; indexUuid: string; partitionCount: number },
+): Promise<boolean> {
+  const sourceBytes = await coordinator.get(indexConfigKey(sourceName))
+  if (sourceBytes === null || sourceBytes.byteLength === 0) return false
+  const decoded = decode(sourceBytes)
+  validateDecodedMetadata(decoded, sourceName)
+  if (!isRecord(decoded)) return false
+  const key = indexConfigKey(generation.indexName)
+  const current = await coordinator.get(key)
+  if (current !== null && current.byteLength > 0) return true
+  const bytes = new Uint8Array(encode({ ...decoded, ...generation }, { ignoreUndefined: true }))
+  return coordinator.compareAndSet(key, current, bytes)
+}
+
 async function readStoredMetadata(
   coordinator: ClusterCoordinator,
   indexName: string,

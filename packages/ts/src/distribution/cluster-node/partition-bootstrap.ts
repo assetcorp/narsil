@@ -3,7 +3,7 @@ import type { ReplicationLog } from '../replication/types'
 import type { NodeTransport } from '../transport/types'
 import { type BootstrapSyncDeps, type BootstrapSyncState, runBootstrapSync } from './bootstrap-sync'
 import type { ClusterLocalEngine } from './local-engine'
-import { adoptClusterIdentity } from './local-index-reconcile'
+import { adoptClusterIdentity, dropSupersededCopy } from './local-index-reconcile'
 import { type PrimaryPartitionDeps, preparePrimaryPartition } from './primary-partition'
 
 export interface PartitionBootstrapDeps {
@@ -49,6 +49,12 @@ export function createPartitionBootstrap(
   }
 
   return async (indexName, partitionId, primaryNodeId) => {
+    try {
+      await dropSupersededCopy(engine, coordinator, indexName)
+    } catch (error) {
+      deps.onError(error)
+      return false
+    }
     const succeeded =
       primaryNodeId === nodeId
         ? await preparePrimaryPartition(indexName, partitionId, primaryDeps)
