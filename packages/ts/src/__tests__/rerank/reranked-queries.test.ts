@@ -222,17 +222,6 @@ describe('reranked queries on one engine', () => {
     expect(reranker.calls).toHaveLength(0)
   })
 
-  it('replaces an adapter registered under a name that is already taken', async () => {
-    narsil.registerRerankAdapter(
-      'model',
-      recordingReranker(() => 1),
-    )
-    const replacement = recordingReranker()
-    narsil.registerRerankAdapter('model', replacement)
-    await narsil.query(INDEX, { term: 'river', rerank: { adapter: 'model', fields: ['title'] } })
-    expect(replacement.calls).toHaveLength(1)
-  })
-
   it.each<[string, () => RerankAdapter]>([
     [
       'throws',

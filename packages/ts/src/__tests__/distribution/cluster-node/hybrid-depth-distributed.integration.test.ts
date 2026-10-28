@@ -1,21 +1,21 @@
 import { decode } from '@msgpack/msgpack'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { createClusterNode } from '../../../distribution/cluster-node'
-import type { ClusterNode } from '../../../distribution/cluster-node/types'
-import { createInMemoryCoordinator } from '../../../distribution/coordinator'
-import type { ClusterCoordinator } from '../../../distribution/coordinator/types'
+import { type ClusterCoordinator, type ClusterNode, createClusterNode, type NodeTransport } from '../../../distribution'
+import { createInMemoryCoordinator } from '../../../distribution/coordinator/in-memory'
 import {
   createInMemoryNetwork,
   createInMemoryTransport,
   type InMemoryNetwork,
-  QueryMessageTypes,
-} from '../../../distribution/transport'
-import type { NodeTransport, SearchPayload } from '../../../distribution/transport/types'
+} from '../../../distribution/transport/in-memory'
 import { ErrorCodes } from '../../../errors'
 import type { QueryParams } from '../../../types/search'
 import { type CorpusDocument, corpus, letterEmbedding, stored } from '../../rerank/corpus'
 import { cosineOf, oracleRrf, type RankedHit } from '../../rerank/oracle'
 import { waitForSettledReplica } from './cluster-harness'
+
+interface SearchPayload {
+  params: Record<string, unknown>
+}
 
 const INDEX = 'library'
 const DATA_NODES = ['data-a', 'data-b']
@@ -72,7 +72,7 @@ function earlierReleaseTransport(
     ...transport,
     listen(handler) {
       return transport.listen((message, respond) => {
-        if (message.type === QueryMessageTypes.SEARCH) {
+        if (message.type === 'query.search') {
           const payload = decode(message.payload) as SearchPayload
           served.push(payload)
           const refusal = earlierReleaseRefusal(payload)
@@ -224,7 +224,7 @@ describe('hybrid paging to a fixed depth on a cluster', () => {
     expect(second.hits).toHaveLength(5)
   }, 30_000)
 
-  it('serves a short last page, and refuses a page that starts at the depth and a depth outside 1 to 10,000', async () => {
+  it('serves a short last page, and refuses a page that starts at the depth, explicit or the default 100, and a depth outside 1 to 10,000', async () => {
     const expected = await oracleFused(20)
     const last = await router.query(INDEX, { ...hybridQuery(20), offset: 15, limit: 10 })
     expect(last.hits.map(hit => hit.id)).toEqual(expected.slice(15).map(hit => hit.id))
@@ -233,6 +233,9 @@ describe('hybrid paging to a fixed depth on a cluster', () => {
       code: ErrorCodes.SEARCH_RESULT_WINDOW_EXCEEDED,
       message: expect.stringContaining('hybrid.depth'),
     })
+    await expect(
+      router.query(INDEX, { term: TERM, termMatch: 'any', vector, offset: 100, limit: 1 }),
+    ).rejects.toMatchObject({ code: ErrorCodes.SEARCH_RESULT_WINDOW_EXCEEDED })
     for (const depth of [0, 10_001, 2.5]) {
       await expect(router.query(INDEX, hybridQuery(depth))).rejects.toMatchObject({
         code: ErrorCodes.CONFIG_INVALID,

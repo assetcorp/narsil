@@ -1,6 +1,5 @@
 import { encode } from '@msgpack/msgpack'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { wireParamsToLocal } from '../../../../distribution/cluster-node/query-conversion'
 import type { AllocationTable } from '../../../../distribution/coordinator/types'
 import { decodePayload } from '../../../../distribution/query/codec'
 import type { QueryRoutingDeps } from '../../../../distribution/query/routing'
@@ -14,8 +13,6 @@ import {
 } from '../../../../distribution/transport'
 import type { SearchPayload } from '../../../../distribution/transport/types'
 import { NarsilError } from '../../../../errors'
-import { encodePageCursor } from '../../../../search/cursor'
-import { queryBindingOf } from '../../../../search/cursor-binding'
 import {
   makeAllocationTable,
   makeAssignment,
@@ -101,24 +98,6 @@ describe('hybrid inference without a hybrid block', () => {
     for (const payload of receivedPayloads) {
       expect(payload.params.mode).toBeNull()
     }
-  })
-
-  it('refuses a cursor page that starts at the default depth of 100', async () => {
-    const params = makeQueryParams({ term: 'laptop', vector: makeVectorParams() })
-    const cursor = encodePageCursor({
-      anchor: 'doc-1',
-      score: 5,
-      sortKey: null,
-      sortSignature: null,
-      depth: 100,
-      binding: queryBindingOf(wireParamsToLocal(params)),
-    })
-    const error = await distributedQuery('products', { ...params, searchAfter: cursor }, makeDeps(table())).catch(
-      (e: unknown) => e,
-    )
-    expect(error).toBeInstanceOf(NarsilError)
-    expect((error as NarsilError).code).toBe('SEARCH_RESULT_WINDOW_EXCEEDED')
-    expect((error as NarsilError).message).toContain('hybrid.depth')
   })
 
   it('rejects a sort with SEARCH_INVALID_MODE', async () => {

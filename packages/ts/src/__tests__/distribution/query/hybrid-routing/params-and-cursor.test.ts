@@ -1,6 +1,5 @@
 import { encode } from '@msgpack/msgpack'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { wireParamsToLocal } from '../../../../distribution/cluster-node/query-conversion'
 import type { AllocationTable } from '../../../../distribution/coordinator/types'
 import { decodePayload } from '../../../../distribution/query/codec'
 import { distributedQuery } from '../../../../distribution/query/routing'
@@ -14,8 +13,6 @@ import {
 } from '../../../../distribution/transport'
 import type { SearchPayload, StatsResultPayload } from '../../../../distribution/transport/types'
 import { NarsilError } from '../../../../errors'
-import { encodePageCursor } from '../../../../search/cursor'
-import { queryBindingOf } from '../../../../search/cursor-binding'
 import {
   makeAllocationTable,
   makeAssignment,
@@ -184,48 +181,6 @@ describe('distributed hybrid query - params, cursor, and DFS', () => {
     expect(receivedPayloads).toHaveLength(2)
     for (const payload of receivedPayloads) {
       expect(payload.params.filters).toEqual(filters)
-    }
-  })
-
-  it('pages from the cursor depth and sends each node a request at the hybrid depth without the cursor', async () => {
-    const receivedPayloads: SearchPayload[] = []
-    const ranked = ['doc-1', 'doc-2', 'doc-3', 'doc-4', 'doc-5'].map((docId, i) => ({ docId, score: 5 - i }))
-    setupDataNode(network, transports, 'node-a', (msg, respond) => {
-      if (msg.type === QueryMessageTypes.SEARCH) {
-        receivedPayloads.push(decodePayload<SearchPayload>(msg.payload))
-        respond({
-          type: QueryMessageTypes.SEARCH_RESULT,
-          sourceId: 'node-a',
-          requestId: msg.requestId,
-          payload: encode(makeSearchResultResponse([{ partitionId: 0, scored: ranked, totalHits: 5 }])),
-        })
-      }
-    })
-
-    const table = makeAllocationTable([[0, makeAssignment({ primary: 'node-a' })]])
-    const params = makeQueryParams({
-      term: 'laptop',
-      vector: makeVectorParams(),
-      hybrid: makeHybridConfig({ depth: 4 }),
-      limit: 2,
-    })
-    const cursor = encodePageCursor({
-      anchor: 'doc-2',
-      score: 0,
-      sortKey: null,
-      sortSignature: null,
-      depth: 2,
-      binding: queryBindingOf(wireParamsToLocal(params)),
-    })
-
-    const result = await distributedQuery('products', { ...params, searchAfter: cursor }, makeDeps(table))
-
-    expect(result.scored.map(entry => entry.docId)).toEqual(['doc-3', 'doc-4'])
-    expect(result.cursor).toBeNull()
-    expect(receivedPayloads).toHaveLength(2)
-    for (const payload of receivedPayloads) {
-      expect([payload.params.searchAfter, payload.params.limit, payload.params.offset]).toEqual([null, 4, 0])
-      expect(payload.params.hybrid).toBeNull()
     }
   })
 

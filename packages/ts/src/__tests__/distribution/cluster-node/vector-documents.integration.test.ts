@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { createClusterNode } from '../../../distribution/cluster-node'
-import type { ClusterNode } from '../../../distribution/cluster-node/types'
-import { createInMemoryCoordinator } from '../../../distribution/coordinator'
-import type { ClusterCoordinator } from '../../../distribution/coordinator/types'
-import { createInMemoryNetwork, createInMemoryTransport, type InMemoryNetwork } from '../../../distribution/transport'
-import type { NodeTransport } from '../../../distribution/transport/types'
+import { type ClusterCoordinator, type ClusterNode, createClusterNode, type NodeTransport } from '../../../distribution'
+import { createInMemoryCoordinator } from '../../../distribution/coordinator/in-memory'
+import {
+  createInMemoryNetwork,
+  createInMemoryTransport,
+  type InMemoryNetwork,
+} from '../../../distribution/transport/in-memory'
 import type { AnyDocument } from '../../../types/schema'
 import { waitForSettledReplica } from './cluster-harness'
 
