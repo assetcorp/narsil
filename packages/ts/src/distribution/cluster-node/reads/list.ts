@@ -17,7 +17,7 @@ import type { ListParams } from '../../../types/search'
 import { createListMessage, validateListResultPayload } from '../../query/codec'
 import type { ListEntryWire, ListPayload, SortField } from '../../transport/types'
 import { routableAllocation } from '../routable-allocation'
-import { type ClusterReadDeps, sendReadRequest, strictScatterGroups } from './scatter'
+import { type ClusterReadDeps, gatherFromEveryPartition, sendReadRequest } from './scatter'
 
 function clampListLimit(limit: number | undefined): number {
   const clamped = Math.max(1, clampLimit(limit))
@@ -107,23 +107,20 @@ export async function listCluster<T = AnyDocument>(
     fields: wireFieldsFor(projection, sortFieldNames ?? []),
   }
 
-  const groups = strictScatterGroups(allocation, indexName)
-  const gathered = await Promise.all(
-    groups.map(group => {
-      if (group.nodeId === deps.nodeId) {
-        return gatherLocalPage(
-          deps,
-          indexName,
-          { ...payload, partitionIds: group.partitionIds },
-          group.partitionIds,
-          sortFieldNames,
-          sortModesOf(normalizedSort),
-        )
-      }
-      const message = createListMessage({ ...payload, partitionIds: group.partitionIds }, deps.nodeId)
-      return sendReadRequest(deps, group.nodeId, message, indexName, validateListResultPayload)
-    }),
-  )
+  const gathered = await gatherFromEveryPartition(allocation, indexName, group => {
+    if (group.nodeId === deps.nodeId) {
+      return gatherLocalPage(
+        deps,
+        indexName,
+        { ...payload, partitionIds: group.partitionIds },
+        group.partitionIds,
+        sortFieldNames,
+        sortModesOf(normalizedSort),
+      )
+    }
+    const message = createListMessage({ ...payload, partitionIds: group.partitionIds }, deps.nodeId)
+    return sendReadRequest(deps, group.nodeId, message, indexName, validateListResultPayload)
+  })
 
   let total = 0
   let nodeReportsMore = false

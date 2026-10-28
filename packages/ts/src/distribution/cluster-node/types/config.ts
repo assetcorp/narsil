@@ -137,11 +137,17 @@ export interface ClusterQueryConfig {
   /**
    * Set this true and a search returns the hits the reachable nodes gave,
    * counting the rest in {@link QueryResult.coverage}, which is what a node
-   * does by default. Set it false and one partition that times out, errors, or
-   * has no active copy fails the whole search with `QUERY_PARTIAL_FAILURE`.
+   * does by default. Set it false, and a partition that times out or errors on
+   * every copy, or that has no active copy, fails the whole search with
+   * `QUERY_PARTIAL_FAILURE`.
    */
   allowPartialResults?: boolean
-  /** A search waits this many milliseconds for each node before it counts that node's partitions as timed out, which is 5000 milliseconds where you name none. */
+  /**
+   * A search waits this many milliseconds for each copy that it asks, and it
+   * asks the next in-sync copy of a partition once that wait runs out. The
+   * search counts the partition as timed out only when every copy has timed
+   * out, and the wait is 5000 milliseconds where you set none.
+   */
   partitionTimeout?: number
 }
 

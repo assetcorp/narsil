@@ -1,5 +1,5 @@
 import { decode } from '@msgpack/msgpack'
-import { type ErrorCode, ErrorCodes, NarsilError } from '../../errors'
+import { ErrorCodes, NarsilError } from '../../errors'
 import { mergePartitionStats } from '../../partitioning/distributed-scoring'
 import type { QueryCoverage } from '../../types/results'
 import type {
@@ -10,13 +10,13 @@ import type {
   TransportMessage,
   WireQueryParams,
 } from '../transport/types'
-import { TransportError } from '../transport/types'
 import {
   createSearchMessage,
   createStatsMessage,
   validateSearchResultPayload,
   validateStatsResultPayload,
 } from './codec'
+import { type CopyRouting, isNodeRejection, nodeRejectionOf, sendWithFailover } from './failover'
 import type { DistributedQueryConfig, QueryRoutingDeps } from './types'
 
 export interface NodeQueryOutcome {
@@ -26,68 +26,40 @@ export interface NodeQueryOutcome {
   results: SearchResultPayload | null
 }
 
-const QUERY_REJECTION_CODES: ReadonlySet<string> = new Set([
-  ErrorCodes.SEARCH_INVALID_FIELD,
-  ErrorCodes.SEARCH_INVALID_FILTER,
-  ErrorCodes.SEARCH_INVALID_MODE,
-  ErrorCodes.SEARCH_INVALID_CURSOR,
-  ErrorCodes.SEARCH_RESULT_WINDOW_EXCEEDED,
-  ErrorCodes.SEARCH_WORK_CAP_EXCEEDED,
-  ErrorCodes.VECTOR_DIMENSION_MISMATCH,
-  ErrorCodes.CONFIG_INVALID,
-])
-
-const nodeRejections = new WeakSet<NarsilError>()
-
 function queryRejectionOf(response: TransportMessage, decoded: unknown): NarsilError | null {
   const body = decoded as { error?: unknown; code?: unknown; message?: unknown } | null
   if (!response.type.endsWith('.error') && body?.error !== true) return null
-  if (typeof body?.code !== 'string' || !QUERY_REJECTION_CODES.has(body.code)) return null
-  const rejection = new NarsilError(body.code as ErrorCode, typeof body.message === 'string' ? body.message : body.code)
-  nodeRejections.add(rejection)
-  return rejection
+  return nodeRejectionOf(body?.code, body?.message)
 }
 
 export async function collectDistributedStats(
   indexName: string,
   params: WireQueryParams,
-  nodeToPartitions: Map<string, number[]>,
+  routing: CopyRouting,
   deps: QueryRoutingDeps,
   config: DistributedQueryConfig,
 ): Promise<GlobalStatistics> {
   const terms = params.term !== null ? params.term.split(/\s+/).filter(t => t.length > 0) : []
-  const statsPromises: Array<Promise<StatsResultPayload | null>> = []
-  const nodeEntries = Array.from(nodeToPartitions.entries())
-
-  for (const [nodeId, partitionIds] of nodeEntries) {
+  const outcomes = await sendWithFailover(routing, async (nodeId, partitionIds) => {
     const message = createStatsMessage({ indexName, partitionIds, terms }, deps.sourceNodeId)
     const targets = await resolveTargets(nodeId, deps)
-    const promise = sendWithTimeout<StatsResultPayload>(
+    return sendWithTimeout<StatsResultPayload>(
       deps.transport,
       targets,
       message,
       config.partitionTimeout,
       validateStatsResultPayload,
     )
-    statsPromises.push(promise)
-  }
+  })
 
-  const results = await Promise.allSettled(statsPromises)
-  const validStats: Array<{
-    totalDocuments: number
-    docFrequencies: Record<string, number>
-    totalFieldLengths: Record<string, number>
-  }> = []
-
-  for (const result of results) {
-    if (result.status === 'fulfilled' && result.value !== null) {
-      validStats.push(result.value)
-    }
+  const validStats: StatsResultPayload[] = []
+  for (const outcome of outcomes) {
+    if (outcome.status === 'success' && outcome.result !== null) validStats.push(outcome.result)
   }
 
   if (validStats.length === 0) {
     throw new NarsilError(ErrorCodes.QUERY_NODE_TIMEOUT, 'All partition stats requests failed during DFS pre-pass', {
-      nodeCount: nodeEntries.length,
+      nodeCount: routing.nodeToPartitions.size,
     })
   }
 
@@ -99,46 +71,33 @@ export async function fanOutSearch(
   params: WireQueryParams,
   globalStats: GlobalStatistics | null,
   facetShardSize: number | null,
-  nodeToPartitions: Map<string, number[]>,
+  routing: CopyRouting,
   deps: QueryRoutingDeps,
   config: DistributedQueryConfig,
 ): Promise<NodeQueryOutcome[]> {
-  const nodeEntries = Array.from(nodeToPartitions.entries())
-  const promises: Array<Promise<NodeQueryOutcome>> = []
-  let rejection: NarsilError | null = null
-
-  for (const [nodeId, partitionIds] of nodeEntries) {
+  const outcomes = await sendWithFailover(routing, async (nodeId, partitionIds) => {
     const message = createSearchMessage(
       { indexName, partitionIds, params, globalStats, facetShardSize },
       deps.sourceNodeId,
     )
     const targets = await resolveTargets(nodeId, deps)
-
-    const promise = sendWithTimeout<SearchResultPayload>(
+    return sendWithTimeout<SearchResultPayload>(
       deps.transport,
       targets,
       message,
       config.partitionTimeout,
       validateSearchResultPayload,
-    ).then(
-      (result): NodeQueryOutcome => ({
-        nodeId,
-        partitionIds,
-        status: result !== null ? 'success' : 'timeout',
-        results: result,
-      }),
-      (error): NodeQueryOutcome => {
-        if (error instanceof NarsilError && nodeRejections.has(error)) rejection ??= error
-        return { nodeId, partitionIds, status: isTimeoutError(error) ? 'timeout' : 'failed', results: null }
-      },
     )
+  })
 
-    promises.push(promise)
-  }
-
-  const outcomes = await Promise.all(promises)
-  if (rejection !== null) throw rejection
-  return outcomes
+  const rejection = outcomes.find(outcome => isNodeRejection(outcome.error))
+  if (rejection !== undefined) throw rejection.error
+  return outcomes.map(outcome => ({
+    nodeId: outcome.nodeId,
+    partitionIds: outcome.partitionIds,
+    status: outcome.status,
+    results: outcome.result,
+  }))
 }
 
 const OUTCOME_SEVERITY: Record<NodeQueryOutcome['status'], number> = { success: 0, timeout: 1, failed: 2 }
@@ -252,8 +211,4 @@ async function sendToFirstReachableTarget(
     }
   }
   throw lastError instanceof Error ? lastError : new Error(String(lastError))
-}
-
-function isTimeoutError(error: unknown): boolean {
-  return error instanceof TransportError && error.code === 'TRANSPORT_TIMEOUT'
 }

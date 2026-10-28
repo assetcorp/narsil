@@ -140,9 +140,11 @@ The coordinator picks each copy by hashing the query together with the partition
 
 A query that a data node refuses, such as one with a malformed filter, fails with the error that the node raises, since every node would raise the same one. Each data node counts facet values over its own partitions, and the coordinator merges them and returns up to each field's `limit`, 10 values by default, highest count first. For a facet with `ranges`, each node counts every range and the coordinator adds up the counts, so the totals are exact, and a facet that sets ranges and no `limit` returns every range. A cluster search counts up to 1,000 ranges on one field and fails with `CONFIG_INVALID` for more. For a facet with `sort: 'asc'`, each node sends the count of every value, up to 10,000 of them, so the coordinator finds the true lowest counts wherever no node holds more values than that.
 
+When the copy that the coordinator picked fails, times out, or cannot be reached, the coordinator sends that partition's part of the query to the next in-sync copy, in the order that the hash gives, and it fetches the documents in the same way. It counts a partition as timed out or failed only once every copy of it has timed out or failed, so a search finds every match while one in-sync copy of each partition answers. The coordinator sends a query that a node refuses to no other copy, because every copy would refuse it.
+
 The cluster answers from the partitions that reply, while the result's `coverage` counts the rest as `totalPartitions`, `queriedPartitions`, `timedOutPartitions`, and `failedPartitions`. Read those figures wherever a degraded answer would mislead a caller, because a lost partition lowers `count` and keeps its documents out of the ranking. An embedded engine fills the same field, counting as read every partition that it holds, so you read the result the same way whether it comes from an engine or from a cluster. While no partition is `ACTIVE` yet, which is the state an index passes through while the controller allocates it, the cluster reads nothing and counts every partition as failed, so the coverage tells you why the answer is empty.
 
-Set `query` on a node's configuration to change how it treats a partition that it cannot reach. `allowPartialResults` is true by default. With `allowPartialResults: false`, the cluster fails the whole search with `QUERY_PARTIAL_FAILURE` as soon as one partition times out, errors, or holds no active copy. When one node stops a search with `SEARCH_WORK_CAP_EXCEEDED`, the cluster fails the whole search with that error, whatever value `allowPartialResults` holds, because the results of the other nodes would leave out every match that the stopped node had yet to find. `partitionTimeout` sets how many milliseconds the coordinator waits for each node, and it defaults to 5000.
+Set `query` on a node's configuration to change how it treats a partition that it cannot reach. `allowPartialResults` is true by default. With `allowPartialResults: false`, the cluster fails the whole search with `QUERY_PARTIAL_FAILURE` as soon as one partition times out or errors on every copy, or holds no active copy. When one node stops a search with `SEARCH_WORK_CAP_EXCEEDED`, the cluster fails the whole search with that error, whatever value `allowPartialResults` holds, because the results of the other nodes would leave out every match that the stopped node had yet to find. `partitionTimeout` sets how many milliseconds the coordinator waits for each copy before it asks the next one, and it defaults to 5000. A search that meets a paused copy can therefore take up to that long again for each further copy that it asks.
 
 ```ts
 await createClusterNode({
@@ -155,7 +157,7 @@ await createClusterNode({
 
 ## Exact reads
 
-`countDocuments`, `getStats`, `getPartitionStats`, `listDocuments`, `suggest`, and `preflight` gather from one copy of every partition and merge:
+`countDocuments`, `getStats`, `getPartitionStats`, `listDocuments`, `suggest`, and `preflight` gather from one copy of every partition, moving to the next in-sync copy where one fails, and merge:
 
 - `countDocuments` sums per-partition document counts.
 - `getStats` sums the counts and memory estimates, and reads the schema from the coordinator.

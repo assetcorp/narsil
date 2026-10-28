@@ -57,9 +57,10 @@ function routingConfig(query: ClusterQueryConfig | undefined): Partial<Distribut
 /**
  * Runs a search across the cluster and returns the hits alongside the partition coverage behind them.
  *
- * The search reads each partition through one copy the allocation table names. It counts a partition with no copy
- * in service as failed, so that a caller reading `coverage` can tell an incomplete answer from a complete one. A
- * node configured with `allowPartialResults` set to false refuses that answer with `QUERY_PARTIAL_FAILURE`.
+ * The search reads each partition from one copy that the allocation table lists, and it asks the next in-sync copy
+ * when that copy fails, times out, or cannot be reached. It counts a partition as failed only once every copy of it
+ * has failed, so that a caller reading `coverage` can tell an incomplete answer from a complete one. A node
+ * configured with `allowPartialResults` set to false refuses that answer with `QUERY_PARTIAL_FAILURE`.
  *
  * @param deps - The cluster configuration, this node's id, the local engine, and the node target resolver.
  * @param indexName - The index to search.

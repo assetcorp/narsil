@@ -59,12 +59,12 @@ export async function executeHybridQuery(
 
   let textGlobalStats: GlobalStatistics | null = null
   if (params.scoring === 'dfs') {
-    textGlobalStats = await collectDistributedStats(indexName, textParams, routing.nodeToPartitions, deps, config)
+    textGlobalStats = await collectDistributedStats(indexName, textParams, routing, deps, config)
   }
 
   const [textOutcomes, vectorOutcomes] = await Promise.all([
-    fanOutSearch(indexName, textParams, textGlobalStats, facetShardSize, routing.nodeToPartitions, deps, config),
-    fanOutSearch(indexName, vectorParams, null, null, routing.nodeToPartitions, deps, config),
+    fanOutSearch(indexName, textParams, textGlobalStats, facetShardSize, routing, deps, config),
+    fanOutSearch(indexName, vectorParams, null, null, routing, deps, config),
   ])
 
   const coverage = buildCoverage(totalPartitions, routing.unavailablePartitions, textOutcomes, vectorOutcomes)
