@@ -65,7 +65,7 @@ function parseEmbeddingItems(data: unknown): OpenAIEmbeddingItem[] {
  *
  * @param config - Endpoint, credentials, model, and vector length.
  * @returns An adapter you pass as `embedding`, or register by name with
- * {@link Narsil.registerEmbeddingAdapter}.
+ * {@link AdapterRegistrationOperations.registerEmbeddingAdapter}.
  * @throws A `NarsilError` with `EMBEDDING_CONFIG_INVALID` when the base URL,
  * the model, or the dimension count is missing or out of range.
  *

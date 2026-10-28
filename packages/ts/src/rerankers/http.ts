@@ -109,7 +109,7 @@ function scoresFromResults(results: unknown, count: number): number[] {
  *
  * @param config - The endpoint, model, key, and limits.
  * @returns An adapter that you pass in `rerankAdapters` or register with
- * {@link Narsil.registerRerankAdapter}.
+ * {@link AdapterRegistrationOperations.registerRerankAdapter}.
  * @throws A `NarsilError` with `RERANK_CONFIG_INVALID` when the base URL, the
  * model, the key, or a limit is missing or out of range.
  *

@@ -158,8 +158,8 @@ export interface EmbeddingAdapter {
  * reorder its first-stage ranking.
  *
  * Register one under a name through {@link NarsilConfig.rerankAdapters} or
- * {@link Narsil.registerRerankAdapter}, and give that name in a query's
- * `rerank.adapter`.
+ * {@link AdapterRegistrationOperations.registerRerankAdapter}, and give that
+ * name in a query's `rerank.adapter`.
  *
  * @public
  */

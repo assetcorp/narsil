@@ -210,9 +210,10 @@ describe('vector search through Narsil query API', () => {
     }
     const queryVector = seededVector(202)
     const limit = 10
+    const depth = 100
 
-    const text = await narsil.query('docs', { term: 'engine', limit: limit + 1 })
-    const vector = await narsil.query('docs', { vector: { field: 'embedding', value: queryVector }, limit: limit + 1 })
+    const text = await narsil.query('docs', { term: 'engine', limit: depth })
+    const vector = await narsil.query('docs', { vector: { field: 'embedding', value: queryVector }, limit: depth })
     const fused = new Map<string, number>()
     for (const hits of [text.hits, vector.hits]) {
       for (let rank = 0; rank < hits.length; rank++) {
