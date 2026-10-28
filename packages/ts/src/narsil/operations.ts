@@ -18,8 +18,9 @@ import {
 } from '../engine/vector-maintenance'
 import { emitWriteEventAfter } from '../engine/write-events'
 import { ErrorCodes, NarsilError } from '../errors'
+import { registerEngineRerankAdapter } from '../rerank/registry'
 import { readProcessMemory } from '../runtime/process-memory'
-import type { EmbeddingAdapter } from '../types/adapters'
+import type { EmbeddingAdapter, RerankAdapter } from '../types/adapters'
 import type { NarsilConfig } from '../types/config'
 import type { Narsil } from '../types/engine'
 import type { NarsilEventMap } from '../types/events'
@@ -84,6 +85,10 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
 
     registerEmbeddingAdapter(name: string, adapter: EmbeddingAdapter): void {
       registerEngineEmbeddingAdapter(core, name, adapter)
+    },
+
+    registerRerankAdapter(name: string, adapter: RerankAdapter): void {
+      registerEngineRerankAdapter(core, name, adapter)
     },
 
     dropIndex(name: string): Promise<void> {

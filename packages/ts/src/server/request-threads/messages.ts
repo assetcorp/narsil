@@ -70,6 +70,14 @@ export interface EmbedQueryRequest {
   vector: VectorQueryConfig
 }
 
+export interface RerankQueryRequest {
+  type: 'rerank'
+  requestId: number
+  adapter: string
+  query: string
+  documents: string[]
+}
+
 export interface TouchIndexNote {
   type: 'touch'
   indexName: string
@@ -83,6 +91,7 @@ export type RelayRequest =
   | RelayedRequest
   | AuthorizeRequest
   | EmbedQueryRequest
+  | RerankQueryRequest
   | TouchIndexNote
   | LeavingNote
   | StreamCreditNote
@@ -131,7 +140,14 @@ export interface EmbeddedReply {
   error: { code: string; message: string; details?: Record<string, unknown> } | null
 }
 
-export type RelayReply = RelayedResponse | AuthorizedReply | EmbeddedReply
+export interface RerankedReply {
+  type: 'reranked'
+  requestId: number
+  scores: number[] | null
+  error: { code: string; message: string; details?: Record<string, unknown> } | null
+}
+
+export type RelayReply = RelayedResponse | AuthorizedReply | EmbeddedReply | RerankedReply
 
 export interface ServeRequestsResult {
   descriptor: unknown

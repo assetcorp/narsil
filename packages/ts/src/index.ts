@@ -20,12 +20,14 @@ export { getLanguage, registerLanguage } from './languages/registry'
 export type { ByteSource, Narsil } from './narsil'
 export { createNarsil } from './narsil'
 export { isSimdAvailable } from './runtime/simd-support'
+export type { AdapterRegistrationOperations } from './types/adapter-registration'
 export type {
   EmbeddingAdapter,
   InvalidationAdapter,
   InvalidationEvent,
   PartitionStatistics,
   PersistenceAdapter,
+  RerankAdapter,
 } from './types/adapters'
 export type {
   AnalysisConfig,

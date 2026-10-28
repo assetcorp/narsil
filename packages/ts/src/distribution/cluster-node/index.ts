@@ -272,6 +272,7 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
 
     open: (indexName: string) => trackOp(indexName, () => engine.open(indexName)),
     close: (indexName: string) => transitionIndex(indexName, () => engine.close(indexName)),
+    registerRerankAdapter: (name, adapter) => engine.registerRerankAdapter(name, adapter),
 
     ...createClusterNodeOperations({
       trackOp,
