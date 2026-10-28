@@ -365,5 +365,9 @@ export function createCompositePartition(
       }
       return total
     },
+
+    readStates(): readonly PartitionReadState[] {
+      return subs()
+    },
   }
 }

@@ -83,7 +83,7 @@ static void place_from_a_file(narsil_workspace *workspace, test_fixture *fixture
   int32_t ordinals[CANDIDATES];
   double distances[CANDIDATES];
   narsil_candidates found = {ordinals, distances, CANDIDATES, 0};
-  narsil_search_request request = {fixture->vectors, NARSIL_METRIC_COSINE, CANDIDATES, 0};
+  narsil_search_request request = {fixture->vectors, NARSIL_METRIC_COSINE, CANDIDATES, 0, {NULL, 0}};
   check(narsil_search(workspace, &fixture->graph, &fixture->store, &request, &found) == NARSIL_OK,
         "search walks a graph whose vectors a file holds");
   check(found.count == CANDIDATES && found.ordinals[0] == 0, "that search finds the vector it asks for");

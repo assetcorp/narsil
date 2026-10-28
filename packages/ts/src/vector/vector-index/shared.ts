@@ -1,11 +1,13 @@
 import type { VectorQuantizationMode, VectorStorageMode } from '../../types/schema'
 import type { VectorMetric } from '../brute-force'
+import { type FilterSubset, type OrdinalSpace, ordinalFilterForSubsets } from '../filter-ordinals'
 import type { HNSWConfig, HNSWIndex } from '../hnsw'
-import { addToOrdinalFilter, createOrdinalFilter, type OrdinalFilter, removeFromOrdinalFilter } from '../ordinal-filter'
+import { createOrdinalFilter, type OrdinalFilter, removeFromOrdinalFilter } from '../ordinal-filter'
 import type { OsqQuantizer } from '../osq'
 import type { VectorSearchPool } from '../search-pool'
 import type { GraphInsertOutcome, SharedVectorFieldHandles } from '../shared-field/types'
 import type { VectorStore } from '../vector-store'
+import { STORE_ORDINAL_LAYOUT_GENERATION } from '../vector-store/handles'
 import type { FieldSignature, SavedVectorFile } from './checkpoint-plan'
 import { REBUILD_REMOVED_RATIO } from './constants'
 import type { PendingVectorLocation } from './disk'
@@ -26,7 +28,8 @@ export interface VectorSearchOutcome {
 export interface VectorSearchOptions {
   metric: VectorMetric
   minSimilarity: number
-  filterDocIds?: Set<string>
+  /** The documents the search may answer from, as one bitset over internal document numbers for each partition or segment. */
+  filterSubsets?: readonly FilterSubset[]
   /** The partitions the search may answer from, which the index resolves to ordinals itself. */
   filterPartitions?: ReadonlySet<number>
   efSearch?: number
@@ -213,28 +216,33 @@ export function ordinalFilterForPartitions(state: VectorIndexState, partitionIds
   return filter
 }
 
+function ordinalSpaceOf(state: VectorIndexState): OrdinalSpace {
+  const store = state.store
+  const handles = store.handles
+  const removed = new Uint8Array(handles.removed)
+  return {
+    fieldName: state.fieldName,
+    slots: store.slots,
+    header: handles.header,
+    layoutGeneration: Atomics.load(handles.header, STORE_ORDINAL_LAYOUT_GENERATION),
+    ordinalOf: docId => store.getOrdinal(docId),
+    holdsCurrentOrdinal: ordinal => store.holdsOrdinal(ordinal),
+    isRemoved: ordinal => ordinal < removed.length && removed[ordinal] === 1,
+  }
+}
+
 export function filterForOptions(
   state: VectorIndexState,
-  options: { filterDocIds?: Set<string>; filterPartitions?: ReadonlySet<number> },
+  options: { filterSubsets?: readonly FilterSubset[]; filterPartitions?: ReadonlySet<number> },
 ): OrdinalFilter | undefined {
-  if (options.filterDocIds !== undefined) {
-    return ordinalFilterForDocIds(state, options.filterDocIds)
+  if (options.filterSubsets !== undefined) {
+    if (state.store.dimension === 0) return createOrdinalFilter(0)
+    return ordinalFilterForSubsets(options.filterSubsets, ordinalSpaceOf(state))
   }
   if (options.filterPartitions !== undefined) {
     return ordinalFilterForPartitions(state, options.filterPartitions)
   }
   return undefined
-}
-
-export function ordinalFilterForDocIds(state: VectorIndexState, docIds: Iterable<string>): OrdinalFilter {
-  const filter = createOrdinalFilter(state.store.slots)
-  for (const docId of docIds) {
-    if (state.tombstones.has(docId)) continue
-    const ordinal = state.store.getOrdinal(docId)
-    if (ordinal === undefined) continue
-    addToOrdinalFilter(filter, ordinal)
-  }
-  return filter
 }
 
 function liveOrdinals(state: VectorIndexState): Int32Array {

@@ -35,6 +35,7 @@ import { createGrowingPartialWords, expandPartialWords } from './partial-words/r
 import type { PartialWordAnalysis } from './partial-words/spellings'
 import type { AddedWord, PartialWordRequest } from './partial-words/types'
 import type { PartitionIndex } from './partition-index'
+import type { PartitionReadState } from './read-state'
 import { searchFulltext } from './search'
 import { encodeSegmentState, mergeSegmentPayload, type SegmentPayload } from './segment-payload'
 import { deserializePartition, serializePartition } from './serialization'
@@ -95,6 +96,7 @@ export function createPartitionIndex(partitionId: number, trackPositions = true)
     trackPositions,
     sortColumns: null,
     scoreBuffer: null,
+    vectorOrdinalMaps: null,
   }
 
   function clearAll(): void {
@@ -117,6 +119,7 @@ export function createPartitionIndex(partitionId: number, trackPositions = true)
     state.lastSchemaRef = null
     state.sortColumns = null
     state.scoreBuffer = null
+    state.vectorOrdinalMaps = null
   }
 
   const partition: PartitionIndex = {
@@ -302,6 +305,10 @@ export function createPartitionIndex(partitionId: number, trackPositions = true)
 
     estimateMemoryBytes(): number {
       return estimatePartitionBytes(state)
+    },
+
+    readStates(): readonly PartitionReadState[] {
+      return [state]
     },
 
     searchFulltext(params: InternalSearchParams): InternalSearchResult {

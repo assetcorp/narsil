@@ -49,5 +49,5 @@ export function estimatePartitionBytes(state: PartitionReadState): number {
   for (const index of state.patternIndexes.values()) bytes += index.bytes()
   bytes += state.partialWords.bytes()
 
-  return bytes + sortColumnBytes(state)
+  return bytes + sortColumnBytes(state) + (state.vectorOrdinalMaps?.bytes ?? 0)
 }
