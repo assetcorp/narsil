@@ -48,7 +48,7 @@ describe('vector writes record partition membership', () => {
   })
 
   it('leaves no membership to work out after the engine writes documents', async () => {
-    const core = createEngineCore()
+    const core = await createEngineCore()
     const engine = createNarsilFromCore(core)
     engines.push(engine)
     await engine.createIndex('products', {

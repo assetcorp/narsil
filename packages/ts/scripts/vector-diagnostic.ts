@@ -1,6 +1,6 @@
 import { createExactSearch } from '../src/__tests__/vector/exact-search'
+import { isSimdAvailable } from '../src/runtime/simd-support'
 import { createHNSWIndex } from '../src/vector/hnsw'
-import { isSimdAvailable } from '../src/vector/simd'
 import { createVectorStore } from '../src/vector/vector-store'
 
 function mulberry32(seed: number): () => number {
