@@ -144,16 +144,28 @@ export interface FetchResultPayload {
   documents: FetchedDocument[]
 }
 
+export interface StatsExpansionPayload {
+  tolerance?: number | null
+  prefixLength?: number | null
+  prefix?: boolean | null
+  partialWords?: boolean | null
+  exact?: boolean | null
+  fields?: string[] | null
+}
+
 export interface StatsPayload {
   indexName: string
   partitionIds: number[]
   terms: string[]
+  expansion?: StatsExpansionPayload | null
+  tokens?: string[] | null
 }
 
 export interface StatsResultPayload {
   totalDocuments: number
   docFrequencies: Record<string, number>
   totalFieldLengths: Record<string, number>
+  expanded?: string[] | null
 }
 
 export interface CountPayload {

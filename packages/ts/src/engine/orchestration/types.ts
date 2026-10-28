@@ -66,7 +66,12 @@ export interface WorkerOrchestratorCallbacks {
 
 export type IndexRegistry = Map<
   string,
-  { config: IndexConfig; language: LanguageModule; embeddingAdapter: EmbeddingAdapter | null }
+  {
+    config: IndexConfig
+    language: LanguageModule
+    embeddingAdapter: EmbeddingAdapter | null
+    synonyms: Uint8Array | null
+  }
 >
 
 export interface ReplicationQueue {

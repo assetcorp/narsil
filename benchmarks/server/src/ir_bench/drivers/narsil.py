@@ -9,6 +9,7 @@ import httpx
 from ..core.config import BM25Params, EngineConfig
 from ..core.http_client import build_client
 from ..core.ingest import NDJSON_CONTENT_TYPE, BatchOutcome, encode_json_lines, import_batches
+from ..core.synonym_sets import SynonymRule, narsil_rules
 from ..core.types import (
     BEST_CONFIG,
     EQUAL_PRECISION,
@@ -110,10 +111,12 @@ class NarsilDriver:
         if response.status_code not in (200, 404):
             _raise_for_envelope(response)
 
-    def create_index(self, index: str) -> None:
+    def create_index(self, index: str, synonyms: tuple[SynonymRule, ...] | None = None) -> None:
         config: dict[str, object] = {"schema": {"text": "string"}, "bm25": {"k1": self._k1, "b": self._b}}
         if self._language:
             config["language"] = self._language
+        if synonyms is not None:
+            config["synonyms"] = narsil_rules(synonyms)
         response = self._client.post("/indexes", json={"name": index, "config": config})
         _raise_for_envelope(response)
 

@@ -35,6 +35,7 @@ interface RawMetadataPayload {
   pattern_value_limit?: unknown
   index_uuid?: unknown
   held_partitions?: unknown
+  synonyms?: unknown
 }
 
 function metadataToWire(meta: IndexMetadata): RawMetadataPayload {
@@ -125,6 +126,9 @@ function metadataToWire(meta: IndexMetadata): RawMetadataPayload {
   }
   if (meta.heldPartitions !== undefined) {
     wire.held_partitions = meta.heldPartitions
+  }
+  if (Array.isArray(meta.synonyms) && meta.synonyms.length > 0) {
+    wire.synonyms = meta.synonyms
   }
   return wire
 }
@@ -265,6 +269,7 @@ function wireToMetadata(raw: RawMetadataPayload): IndexMetadata {
   if (Array.isArray(raw.held_partitions) && raw.held_partitions.every(isNonNegativeInteger)) {
     meta.heldPartitions = raw.held_partitions
   }
+  if (raw.synonyms !== undefined && raw.synonyms !== null) meta.synonyms = raw.synonyms
   return meta
 }
 
