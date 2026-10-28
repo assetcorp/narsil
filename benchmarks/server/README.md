@@ -225,6 +225,17 @@ For a published run, record the host machine:
 BENCH_MACHINE_LABEL="Apple M3 Pro, macOS 26.5.1" ./run-all.sh
 ```
 
+### Relevance alone, with or without a synonym set
+
+`ir-bench-relevance` loads each selected dataset into each selected engine and scores the answers with pytrec_eval, with no embeddings, vector search, or timing. It loads each dataset twice, once without a synonym set and once with one, and it gives every engine the same set: Narsil takes the rules as written, Elasticsearch and OpenSearch take them as a `synonym_graph` filter in the search analyser, Typesense takes them as a linked synonym set, and Meilisearch takes them as its `synonyms` setting. Pass `--synonyms` with a JSON list of rules in Narsil's shape. Without it, the command downloads Open English WordNet 2024, checks the archive against its pinned SHA-256, and builds one two-way rule from each synset's single-word, lowercase lemmas that are not stop words.
+
+```bash
+ir-bench-relevance --out /tmp/relevance --engines narsil,elasticsearch \
+  --engine-url narsil=http://127.0.0.1:7700 --engine-url elasticsearch=http://127.0.0.1:9200
+```
+
+The command writes one TREC run file for each engine, dataset, and variant, the set it sent as `synonyms.json`, and the nDCG@10 figures as `relevance.json`, and it prints them as a table. It refuses an `--out` path under any `results` directory, so a relevance check leaves the published runs alone. `--without-set-only` skips the synonym set, and `--datasets` defaults to SciFact and NFCorpus.
+
 ## Profiles
 
 The results you publish come from the disclosed cloud machine, while a local run
@@ -459,6 +470,9 @@ benchmarks/server/
       comparison_markdown.py the comparison rendered as Markdown
       track_common.py        shared per-track helpers
       harness.py             keyword track and per-engine, per-track orchestration
+      keyword_relevance.py   load a keyword index and score its queries, shared by the keyword track and relevance.py
+      synonym_sets.py        synonym rules: limits, parsing, and each engine's format
+      wordnet_synonyms.py    the pinned Open English WordNet 2024 archive and its two-way rules
       vector_runner.py       vector and hybrid track runners
       config.py              BM25, latency, vector config, per-engine tracks
       config_datasets.py     the dataset entries: source, artifact digest, vector model and dimension
@@ -470,6 +484,7 @@ benchmarks/server/
       typesense.py
       meilisearch.py
     cli.py                   run one engine and all its tracks
+    relevance.py             score keyword relevance alone, with and without one synonym set
     embed.py                 fetch each dataset's artifact, and compute the vectors no artifact provides
     build_dataset.py         build a dataset artifact from the DBpedia parquet files or the BEIR cache
     aggregate.py             merge one run's per-engine results into a comparison

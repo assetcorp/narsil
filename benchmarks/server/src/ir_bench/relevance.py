@@ -15,7 +15,8 @@ from .core.registry import build_driver
 from .core.synonym_sets import SynonymRule, load_synonym_set, narsil_rules
 from .core.wordnet_synonyms import OEWN_ATTRIBUTION, fetch_wordnet, wordnet_rules
 
-SYNONYM_ENGINES = ("narsil", "elasticsearch")
+DEFAULT_ENGINES = "narsil,elasticsearch"
+KEYWORD_TRACK = "keyword"
 DEFAULT_DATASETS = "beir/scifact/test,beir/nfcorpus/test"
 WITHOUT_SET = "without-set"
 WITH_SET = "with-set"
@@ -31,12 +32,23 @@ def scratch_directory(path: Path) -> Path:
 
 
 def _engine(config_engines: dict[str, EngineConfig], name: str, url: str | None) -> EngineConfig:
-    if name not in SYNONYM_ENGINES:
-        raise SystemExit(f"'{name}' takes no synonym set here; choose from {', '.join(SYNONYM_ENGINES)}")
     if name not in config_engines:
-        raise SystemExit(f"the config names no engine '{name}'")
+        raise SystemExit(f"the config has no engine '{name}'")
     engine = config_engines[name]
+    if KEYWORD_TRACK not in engine.tracks:
+        keyword_engines = ", ".join(sorted(n for n, e in config_engines.items() if KEYWORD_TRACK in e.tracks))
+        raise SystemExit(f"'{name}' has no keyword search to score; choose from {keyword_engines}")
     return engine if url is None else dataclasses.replace(engine, url=url.rstrip("/"))
+
+
+def _engine_urls(pairs: list[str]) -> dict[str, str]:
+    urls: dict[str, str] = {}
+    for pair in pairs:
+        name, separator, url = pair.partition("=")
+        if not separator or not name.strip() or not url.strip():
+            raise SystemExit(f"--engine-url takes ENGINE=URL, not '{pair}'")
+        urls[name.strip()] = url.strip()
+    return urls
 
 
 def _synonym_set(source: str | None, out: Path) -> tuple[tuple[SynonymRule, ...], str]:
@@ -52,11 +64,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--out", type=Path, required=True, help="scratch directory outside every results directory")
     parser.add_argument("--config", type=Path, default=Path("config/benchmark.toml"))
-    parser.add_argument("--engines", default=",".join(SYNONYM_ENGINES))
+    parser.add_argument("--engines", default=DEFAULT_ENGINES)
     parser.add_argument("--datasets", default=DEFAULT_DATASETS)
     parser.add_argument("--synonyms", default=None, help="a JSON synonym set; Open English WordNet 2024 when absent")
-    parser.add_argument("--narsil-url", default=None)
-    parser.add_argument("--elasticsearch-url", default=None)
+    parser.add_argument(
+        "--engine-url", action="append", default=[], metavar="ENGINE=URL", help="reach ENGINE at URL instead"
+    )
     parser.add_argument("--without-set-only", action="store_true")
     args = parser.parse_args(argv)
 
@@ -64,7 +77,7 @@ def main(argv: list[str] | None = None) -> int:
     config = load_config(args.config)
     ds.configure(config.datasets, Path(os.environ.get("BENCH_EMBEDDINGS_DIR", str(out / "datasets"))))
     specs = select_datasets(config, args.datasets)
-    urls = {"narsil": args.narsil_url, "elasticsearch": args.elasticsearch_url}
+    urls = _engine_urls(args.engine_url)
     engines = [_engine(config.engines, name.strip(), urls.get(name.strip())) for name in args.engines.split(",")]
 
     variants: list[tuple[str, tuple[SynonymRule, ...] | None]] = [(WITHOUT_SET, None)]
