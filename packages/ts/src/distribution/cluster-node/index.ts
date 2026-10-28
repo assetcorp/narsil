@@ -1,4 +1,3 @@
-import { generateId } from '../../core/id-generator'
 import { ErrorCodes, NarsilError } from '../../errors'
 import { bindWriteBlockLookup } from '../../narsil/write-blocks'
 import { DEFAULT_CONTROLLER_CONFIG, DEFAULT_NODE_LIFECYCLE_CONFIG } from '../cluster/constants'
@@ -21,6 +20,7 @@ import { seedReopenedPrimaryLogs } from './local-replication'
 import { createNodeMemoryReporting } from './memory/node-memory'
 import { findWriteBlock } from './memory/write-block'
 import { createDataNodeHandler } from './message-handler'
+import { resolveNodeId } from './node-identity'
 import { resolveNodeTargets as resolveTargetsForNode } from './node-messaging'
 import { createClusterNodeOperations } from './node-operations'
 import { createClusterOperationTracker } from './operation-tracker'
@@ -61,7 +61,6 @@ const SPEC_VERSION = '1.0'
 export async function createClusterNode(config: ClusterNodeConfig): Promise<ClusterNode> {
   validateClusterNodeConfig(config)
 
-  const nodeId = config.nodeId ?? generateId()
   const roles: ReadonlyArray<NodeRole> = config.roles ?? ['data', 'coordinator', 'controller']
   const capacity = config.capacity ?? DEFAULT_CAPACITY
 
@@ -85,6 +84,10 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
   })
   localEngine = engine
   const snapshotSpool = await openSnapshotSpoolDirectory(config.engine?.durability?.directory).catch(async err => {
+    await engine.shutdown()
+    throw err
+  })
+  const nodeId = await resolveNodeId(config.nodeId, config.engine?.durability?.directory).catch(async err => {
     await engine.shutdown()
     throw err
   })
