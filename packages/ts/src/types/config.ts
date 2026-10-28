@@ -1,4 +1,4 @@
-import type { EmbeddingAdapter, InvalidationAdapter, PersistenceAdapter } from './adapters'
+import type { EmbeddingAdapter, InvalidationAdapter, PersistenceAdapter, RerankAdapter } from './adapters'
 import type { NarsilEventHandlers } from './events'
 import type { NarsilPlugin } from './plugins'
 import type { BM25Params, CustomTokenizer } from './schema'
@@ -30,6 +30,13 @@ export interface NarsilConfig {
   embedding?: EmbeddingAdapter
   /** Named adapters; names persist in index metadata so recovery can rebind. */
   embeddingAdapters?: Record<string, EmbeddingAdapter>
+  /**
+   * These rerank adapters are registered under their keys, so that a query
+   * can give a key in `rerank.adapter`. The engine throws
+   * `RERANK_CONFIG_INVALID` for an empty key and for an entry without a
+   * `rerank` function.
+   */
+  rerankAdapters?: Record<string, RerankAdapter>
   /** These settings recover the writes made since the last snapshot. */
   durability?: DurabilityConfig
   /** These settings control what the engine does when an index's stored analysis differs from its language module. */

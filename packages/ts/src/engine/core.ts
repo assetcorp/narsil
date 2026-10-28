@@ -7,8 +7,9 @@ import { createRebalancer, type Rebalancer } from '../partitioning/rebalancer'
 import { createPartitionRouter, type PartitionRouter } from '../partitioning/router'
 import type { createWriteAheadQueue, WAQEntry } from '../partitioning/write-ahead-queue'
 import { createPluginRegistry, type PluginRegistry } from '../plugins/registry'
+import { validateRerankAdapter } from '../rerank/registry'
 import { validateRegisteredAdapter } from '../schema/embedding-validator'
-import type { EmbeddingAdapter } from '../types/adapters'
+import type { EmbeddingAdapter, RerankAdapter } from '../types/adapters'
 import type { NarsilConfig } from '../types/config'
 import type { IndexMetadata } from '../types/internal'
 import type { LanguageModule } from '../types/language'
@@ -63,6 +64,7 @@ export interface EngineCore {
   readonly idGenerator: () => string
   readonly indexRegistry: Map<string, IndexRegistryEntry>
   readonly embeddingAdapters: Map<string, EmbeddingAdapter>
+  readonly rerankAdapters: Map<string, RerankAdapter>
   readonly eventHandlers: Map<string, Set<EventHandler>>
   readonly shutdownState: { isShutdown: boolean }
   readonly abortController: AbortController
@@ -120,6 +122,11 @@ export async function createEngineCore(
       validateRegisteredAdapter(name, adapter)
       embeddingAdapters.set(name, adapter)
     }
+  }
+  const rerankAdapters = new Map<string, RerankAdapter>()
+  for (const [name, adapter] of Object.entries(config?.rerankAdapters ?? {})) {
+    validateRerankAdapter(name, adapter)
+    rerankAdapters.set(name, adapter)
   }
   const shutdownState = { isShutdown: false }
   const abortController = new AbortController()
@@ -342,6 +349,7 @@ export async function createEngineCore(
     idGenerator,
     indexRegistry,
     embeddingAdapters,
+    rerankAdapters,
     eventHandlers,
     shutdownState,
     abortController,

@@ -33,8 +33,8 @@ function rejectWait(options: WriteOptions | undefined): void {
  *
  * Writes, updates, searches, suggestions, listings, counts, index creation,
  * index removal, and document reads route through the cluster. Checkpointing,
- * memory statistics, index opens, index closes, and engine events reach this
- * node's local engine, because each covers a per-node fact. Every other operation fails with
+ * memory statistics, index opens, index closes, engine events, and rerank adapter
+ * registration reach this node's local engine, because each covers a per-node fact. Every other operation fails with
  * `CLUSTER_OPERATION_UNSUPPORTED`, which the HTTP server answers with status
  * 501, so a caller learns the operation is missing rather than reading a
  * wrong answer. That covers `getStats`, `getPartitionStats`, and
@@ -152,6 +152,10 @@ export function clusterNodeEngine(node: ClusterNode, options?: ClusterEngineOpti
 
     on(event, handler) {
       node.on(event, handler)
+    },
+
+    registerRerankAdapter(name, adapter) {
+      node.registerRerankAdapter(name, adapter)
     },
 
     off(event, handler) {

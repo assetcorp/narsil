@@ -16,6 +16,7 @@ const NARSIL_CONFIG_KEYS: Record<keyof NarsilConfig, true> = {
   workers: true,
   embedding: true,
   embeddingAdapters: true,
+  rerankAdapters: true,
   durability: true,
   analysis: true,
   lifecycle: true,

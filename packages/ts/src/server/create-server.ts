@@ -164,6 +164,9 @@ class NarsilHttpServer implements NarsilServer {
     for (const [name, adapter] of Object.entries(options.embeddingAdapters ?? {})) {
       engine.registerEmbeddingAdapter(name, adapter)
     }
+    for (const [name, adapter] of Object.entries(options.rerankAdapters ?? {})) {
+      engine.registerRerankAdapter(name, adapter)
+    }
     engineCoreOf(engine)?.orchestrator.shareMainThread()
     const taskStore = options.taskStore ?? new InMemoryTaskStore()
     const instanceId = options.instanceId ?? randomUUID()

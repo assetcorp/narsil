@@ -151,3 +151,30 @@ export interface EmbeddingAdapter {
   /** Releases whatever the adapter holds open, such as a model or a connection pool. */
   shutdown?(): Promise<void>
 }
+
+/**
+ * Scores the top hits of a query with a second model, such as a cross-encoder
+ * that reads the query and each document together, so that a query can
+ * reorder its first-stage ranking.
+ *
+ * Register one under a name through {@link NarsilConfig.rerankAdapters} or
+ * {@link Narsil.registerRerankAdapter}, and give that name in a query's
+ * `rerank.adapter`.
+ *
+ * @public
+ */
+export interface RerankAdapter {
+  /**
+   * Scores every document against one query.
+   *
+   * @param query - The text that the model compares each document with.
+   * @param documents - The text of each document, which is an empty string
+   * where a document holds no text in the reranked fields.
+   * @param signal - Aborts a call that the engine no longer needs.
+   * @returns One finite score per document, in the order of `documents`,
+   * where a higher score marks a more relevant document.
+   */
+  rerank(query: string, documents: string[], signal?: AbortSignal): Promise<number[]>
+  /** Releases whatever the adapter holds open, such as a model or a connection pool. The engine calls it once as it shuts down. */
+  shutdown?(): Promise<void>
+}

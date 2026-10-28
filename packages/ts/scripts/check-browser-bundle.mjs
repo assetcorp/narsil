@@ -14,6 +14,7 @@ const BROWSER_ENTRIES = [
   'dist/react.mjs',
   'dist/pattern.mjs',
   'dist/partial-words.mjs',
+  'dist/rerankers/http.mjs',
 ]
 
 const SIZE_APP = 'scripts/browser-bundle-app.mjs'

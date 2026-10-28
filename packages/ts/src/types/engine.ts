@@ -1,4 +1,4 @@
-import type { EmbeddingAdapter } from './adapters'
+import type { AdapterRegistrationOperations } from './adapter-registration'
 import type { NarsilEventMap } from './events'
 import type { IndexLifecycleOperations } from './lifecycle'
 import type { MemoryStats } from './memory'
@@ -37,7 +37,7 @@ export type ByteSource = Uint8Array | ReadableStream<Uint8Array> | AsyncIterable
  *
  * @public
  */
-export interface Narsil extends IndexLifecycleOperations, DocumentWriteOperations {
+export interface Narsil extends IndexLifecycleOperations, DocumentWriteOperations, AdapterRegistrationOperations {
   /**
    * Creates an index you can insert documents into and query.
    *
@@ -50,9 +50,6 @@ export interface Narsil extends IndexLifecycleOperations, DocumentWriteOperation
    * and scoring settings.
    */
   createIndex(name: string, config: IndexConfig): Promise<void>
-  /** Registers an adapter under a name that index configs can reference and
-   * durability metadata can persist; re-registering rebinds referencing indexes. */
-  registerEmbeddingAdapter(name: string, adapter: EmbeddingAdapter): void
   /**
    * Removes an index and everything it holds, including whatever persistence
    * wrote for it. The documents do not come back.

@@ -1,5 +1,5 @@
 import type { ClusterNamespace } from '../../distribution/cluster-node/types'
-import type { EmbeddingAdapter } from '../../types/adapters'
+import type { EmbeddingAdapter, RerankAdapter } from '../../types/adapters'
 import type { TaskStore } from './tasks'
 
 /**
@@ -141,6 +141,13 @@ export interface ServerOptions {
    * needs query-time or ingest-time embedding names a server-registered adapter.
    */
   embeddingAdapters?: Record<string, EmbeddingAdapter>
+  /**
+   * The server registers these rerank adapters on its engine under their
+   * keys, so that a JSON query can give a key in `rerank.adapter`. A rerank
+   * adapter is a function and cannot cross JSON, which is why a query reaches
+   * it by name.
+   */
+  rerankAdapters?: Record<string, RerankAdapter>
   /** These ceilings apply before the server hands any work to the engine. */
   limits?: ServerLimits
   /**
