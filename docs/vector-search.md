@@ -45,12 +45,12 @@ Set `oversample` to choose how many times k the engine re-scores in a quantized 
 
 | Quantization | Below 768 dimensions | 768 to 1,023 dimensions | 1,024 dimensions and above |
 | ------------ | -------------------- | ----------------------- | -------------------------- |
-| `osq1`       | 2.7k + 73√k          | 2.2k + 27√k             | 3k                         |
+| `osq1`       | 3.23k + 55.9√k       | 2.2k + 27√k             | 3k                         |
 | `osq2`       | 2.6k + 17√k          | k + 16√k                | 3k                         |
 | `osq4`       | 5k                   | 5k                      | 2k                         |
 | `osq8`       | 2k                   | 2k                      | 2k                         |
 
-The engine ranks the true neighbours less reliably by a one-bit or two-bit code in fewer dimensions, so it re-scores more candidates there. When the engine ranks by a code, the number of places by which a true neighbour slips usually grows more slowly than k, so the engine re-scores the most candidates in proportion to k when k is small. Under `osq1` at 384 dimensions, the engine re-scores 109 candidates on a first page with a `limit` of 1, 272 with a `limit` of 10, and 5,013 with a `limit` of 1,000.
+The engine ranks the true neighbours less reliably by a one-bit or two-bit code in fewer dimensions, so it re-scores more candidates there. When the engine ranks by a code, the number of places by which a true neighbour slips usually grows more slowly than k, so the engine re-scores the most candidates in proportion to k when k is small. Under `osq1` at 384 dimensions, the engine re-scores 86 candidates on a first page with a `limit` of 1, 221 with a `limit` of 10, and 5,002 with a `limit` of 1,000.
 
 When the engine searches a graph under a filter, it walks through the documents that fail the filter but collects only the documents that pass it, so `efSearch` and the re-scoring depth both count only the documents that pass the filter.
 

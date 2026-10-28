@@ -14,7 +14,7 @@ export const DEFAULT_RESCORE_DEPTH_BY_BITS: Readonly<
   >
 > = {
   1: {
-    narrow: { perLimit: 2.7, perSquareRootOfLimit: 73 },
+    narrow: { perLimit: 3.23, perSquareRootOfLimit: 55.9 },
     middle: { perLimit: 2.2, perSquareRootOfLimit: 27 },
     wide: { perLimit: 3, perSquareRootOfLimit: 0 },
   },

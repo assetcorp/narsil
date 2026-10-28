@@ -61,7 +61,7 @@ export interface VectorQueryConfig {
    * `none`. When a query leaves it unset, the engine sets the number of
    * candidates that it re-scores from k and from the field's dimension. It
    * rounds that number up, and it re-scores at least k candidates. Below 768
-   * dimensions, it re-scores 2.7k + 73√k under `osq1` and 2.6k + 17√k under
+   * dimensions, it re-scores 3.23k + 55.9√k under `osq1` and 2.6k + 17√k under
    * `osq2`. From 768 to 1,023 dimensions, it re-scores 2.2k + 27√k under
    * `osq1` and k + 16√k under `osq2`. At 1,024 dimensions and above, it
    * re-scores 3k under both. Under `osq4`, it re-scores 5k below 1,024
