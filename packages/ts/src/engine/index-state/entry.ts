@@ -1,6 +1,6 @@
 import { ErrorCodes, NarsilError } from '../../errors'
 
-export type LifecycleState = 'open' | 'closed' | 'closing' | 'dropping' | 'reopen-failed'
+export type LifecycleState = 'open' | 'closed' | 'closing' | 'dropping' | 'replacing' | 'reopen-failed'
 
 export interface LifecycleEntry {
   state: LifecycleState
@@ -14,6 +14,7 @@ export interface LifecycleEntry {
   waiterCount: number
   closePromise: Promise<void> | null
   dropPromise: Promise<void> | null
+  replacePromise: Promise<void> | null
   drainResolvers: Set<() => void>
 }
 
@@ -33,6 +34,8 @@ export interface IndexStateCoordinator {
   open(indexName: string): Promise<void>
   close(indexName: string): Promise<void>
   drop(indexName: string, action: () => Promise<void>): Promise<void>
+  replace(indexName: string, action: (wasOpen: boolean) => Promise<void>): Promise<void>
+  registerReplacing(indexName: string, action: () => Promise<void>): Promise<void>
   stateOf(indexName: string): 'open' | 'closed' | 'reopen-failed'
   reopenCount(indexName: string): number
   counts(): { open: number; closed: number; reopens: number }
@@ -52,6 +55,7 @@ export function createLifecycleEntry(state: 'open' | 'closed'): LifecycleEntry {
     waiterCount: 0,
     closePromise: null,
     dropPromise: null,
+    replacePromise: null,
     drainResolvers: new Set(),
   }
 }

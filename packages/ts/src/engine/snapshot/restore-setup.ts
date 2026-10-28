@@ -7,13 +7,15 @@ import { validateSchema, validateVectorPromotion, validateVectorStorage } from '
 import type { EmbeddingAdapter } from '../../types/adapters'
 import type { LanguageModule } from '../../types/language'
 import type { IndexConfig, SchemaDefinition } from '../../types/schema'
-import type { DirectExecutorExtensions } from '../../workers/direct-executor'
+import { createDetachedIndex } from '../../workers/detached-index'
+import type { DetachedIndex, DirectExecutorExtensions, IndexReplacement } from '../../workers/direct-executor'
 import type { Executor } from '../../workers/executor'
 import { loadVectorCodeFor } from '../../workers/vector-code'
 import type { StaleIndex } from '../analysis-rebuild'
 import type { IndexRegistryEntry } from '../core'
 import type { DurabilityIntegration } from '../durability-integration'
 import type { IndexStateCoordinator } from '../index-state'
+import type { WorkerOrchestrator } from '../orchestration/types'
 import { prepareStoredSynonyms } from '../synonym-sets'
 import { requireSurfaceFormsForPartialFields, validatePatternValueLimit } from '../validation'
 import {
@@ -25,19 +27,22 @@ import {
 } from './restore-config'
 
 export interface RestoreDeps {
-  executor: Executor & DirectExecutorExtensions
+  executor: Executor & DirectExecutorExtensions & IndexReplacement
   indexRegistry: Map<string, IndexRegistryEntry>
   getVectorFieldPaths: (schema: SchemaDefinition) => Set<string>
-  dropIndex: (name: string) => Promise<void>
   announceIndexCreated: (name: string, config: IndexConfig) => Promise<void>
-  requireManager: (name: string) => PartitionManager
+  announceIndexDropped: (name: string, config: IndexConfig) => Promise<void>
   durability: DurabilityIntegration | null
   filesystemDurability: boolean
   embeddingAdapters: Map<string, EmbeddingAdapter>
   defaultEmbeddingAdapter: EmbeddingAdapter | null
   markAnalysisStale: (index: StaleIndex) => void
   clearAnalysisStale: (indexName: string) => void
-  indexState: Pick<IndexStateCoordinator, 'registerOpen' | 'acquire' | 'forget'>
+  abandonAnalysisRebuild: (indexName: string) => Promise<void>
+  indexState: Pick<IndexStateCoordinator, 'replace' | 'registerReplacing'>
+  copies: Pick<WorkerOrchestrator, 'desyncIndex' | 'releaseIndexCopies' | 'endCopyRelease' | 'resyncIndex'>
+  forgetWatermark: (indexName: string) => void
+  releaseTimeoutMs: number
 }
 
 export interface PreparedIndex {
@@ -47,11 +52,6 @@ export interface PreparedIndex {
   adapterName: string | null
   storedRevision: string | null
   synonyms: PreparedSynonyms | null
-}
-
-export interface CreatedIndex {
-  manager: PartitionManager
-  release(): void
 }
 
 export function prepareRestoredIndex(
@@ -110,28 +110,31 @@ function restoredSynonyms(
   return prepareStoredSynonyms(raw, config, language, message => reject(`synonyms: ${message}`))
 }
 
-export async function createRestoredIndex(
+export async function prepareDetachedIndex(
   indexName: string,
   prepared: PreparedIndex,
   partitionCount: number,
   deps: RestoreDeps,
-): Promise<CreatedIndex> {
+): Promise<DetachedIndex> {
   const loadingVectorCode = loadVectorCodeFor(prepared.config.schema)
   if (loadingVectorCode !== null) await loadingVectorCode
-  if (deps.indexRegistry.has(indexName)) {
-    await deps.dropIndex(indexName)
-  }
-  deps.clearAnalysisStale(indexName)
-  if (prepared.storedRevision !== prepared.language.revision) {
-    deps.markAnalysisStale({
-      indexName,
-      language: prepared.language.name,
-      storedRevision: prepared.storedRevision,
-      currentRevision: prepared.language.revision,
-    })
-  }
-  deps.executor.createIndex(indexName, prepared.config, prepared.language, false, prepared.synonyms?.lookup ?? null)
-  deps.indexRegistry.set(indexName, {
+  const detached = createDetachedIndex(
+    indexName,
+    prepared.config,
+    prepared.language,
+    prepared.synonyms?.lookup ?? null,
+    deps.executor,
+  )
+  while (detached.manager.partitionCount < partitionCount) detached.manager.addPartition()
+  return detached
+}
+
+export function restoredRegistryEntry(
+  prepared: PreparedIndex,
+  manager: PartitionManager,
+  deps: RestoreDeps,
+): IndexRegistryEntry {
+  return {
     config: prepared.config,
     language: prepared.language,
     embeddingAdapter: prepared.embeddingAdapter,
@@ -139,33 +142,9 @@ export async function createRestoredIndex(
     vectorFieldPaths: deps.getVectorFieldPaths(prepared.config.schema),
     indexUuid: null,
     heldPartitions: null,
-    documentCount: 0,
-    partitionCount,
+    documentCount: manager.countDocuments(),
+    partitionCount: manager.partitionCount,
     analysisRevision: prepared.storedRevision,
     synonyms: prepared.synonyms?.encoded ?? null,
-  })
-  await deps.indexState.registerOpen(indexName)
-  const release = await deps.indexState.acquire(indexName, false)
-  const manager = deps.requireManager(indexName)
-  while (manager.partitionCount < partitionCount) manager.addPartition()
-  return { manager, release }
-}
-
-export async function abandonRestoredIndex(indexName: string, deps: RestoreDeps): Promise<void> {
-  try {
-    deps.executor.dropIndex(indexName)
-  } catch (_) {}
-  deps.indexRegistry.delete(indexName)
-  deps.indexState.forget(indexName)
-  if (deps.durability) {
-    await deps.durability.manager.removeIndex(indexName).catch(() => undefined)
-  }
-}
-
-export function recordRestoredCounts(indexName: string, manager: PartitionManager, deps: RestoreDeps): void {
-  const entry = deps.indexRegistry.get(indexName)
-  if (entry !== undefined) {
-    entry.documentCount = manager.countDocuments()
-    entry.partitionCount = manager.partitionCount
   }
 }

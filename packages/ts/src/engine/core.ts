@@ -17,7 +17,7 @@ import type { IndexMetadata } from '../types/internal'
 import type { LanguageModule } from '../types/language'
 import type { IndexConfig } from '../types/schema'
 import type { VectorWorkerCopyPolicy } from '../vector/vector-index/shared'
-import { createDirectExecutor, type DirectExecutorExtensions } from '../workers/direct-executor'
+import { createDirectExecutor, type DirectExecutorExtensions, type IndexReplacement } from '../workers/direct-executor'
 import type { Executor } from '../workers/executor'
 import { resolveWorkerCount, splitWorkerBudget } from '../workers/worker-count'
 import { type AnalysisRebuildCoordinator, wireAnalysisRebuild } from './analysis-rebuild'
@@ -58,7 +58,7 @@ export type IndexRegistryEntry = {
 export type EventHandler = (payload: unknown) => void
 
 export interface EngineCore {
-  readonly executor: Executor & DirectExecutorExtensions
+  readonly executor: Executor & DirectExecutorExtensions & IndexReplacement
   readonly pluginRegistry: PluginRegistry
   readonly durability: DurabilityIntegration | null
   /** This reads true where the engine writes checkpoints to a filesystem directory, which a vector field kept on disk needs. */
@@ -112,7 +112,7 @@ export async function createEngineCore(
   }
   const durabilityWiring = durabilityTier === null ? null : await import('./durability-wiring')
   const filesystemDurability = durabilityTier?.kind === 'wal'
-  const executor: Executor & DirectExecutorExtensions = createDirectExecutor({
+  const executor: Executor & DirectExecutorExtensions & IndexReplacement = createDirectExecutor({
     vectorWorkerCopies: vectorCopyPolicy,
     vectorStorage: filesystemDurability ? 'disk' : 'memory',
   })
