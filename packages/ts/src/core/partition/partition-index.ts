@@ -66,6 +66,7 @@ export interface PartitionIndex {
   computeFacets(matched: FacetMatchSet, config: FacetConfig, schema: SchemaDefinition): Record<string, FacetResult>
   suggestTerms(surfacePrefix: string, stemmedPrefix: string, limit: number): PartitionSuggestion[]
   expandTermPrefix(surfacePrefix: string, stemmedToken: string, maxExpansions: number): string[]
+  typoTokens(token: string, tolerance: number, prefixLength: number): string[]
   expandPartialWords(analysis: PartialWordAnalysis, requests: readonly PartialWordRequest[]): AddedWord[][]
   preparePartialWords(analysis: PartialWordAnalysis): void
 

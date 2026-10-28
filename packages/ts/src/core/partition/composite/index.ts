@@ -14,6 +14,7 @@ import { computeFacets, type FacetMatchSet } from '../facets'
 import type { PartitionFilterMatches } from '../filters'
 import type { FrozenSegment } from '../frozen'
 import { frozenSegmentBytes } from '../frozen/memory'
+import { typoTokensOf } from '../group-scoring'
 import { createPartitionIndex, type PartitionIndex, partitionStateOf } from '../index'
 import type { PartitionSearchMatches } from '../matches'
 import { expandPartialWords } from '../partial-words/registry'
@@ -298,6 +299,10 @@ export function createCompositePartition(
 
     expandTermPrefix(surfacePrefix: string, stemmedToken: string, maxExpansions: number): string[] {
       return expandTermPrefix(subs(), surfacePrefix, stemmedToken, maxExpansions)
+    },
+
+    typoTokens(token: string, tolerance: number, prefixLength: number): string[] {
+      return typoTokensOf(subs(), token, tolerance, prefixLength)
     },
 
     expandPartialWords(analysis: PartialWordAnalysis, requests: readonly PartialWordRequest[]): AddedWord[][] {

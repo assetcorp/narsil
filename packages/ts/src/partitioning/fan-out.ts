@@ -9,6 +9,7 @@ import type { FacetResult } from '../types/results'
 import type { SchemaDefinition, ScoringMode } from '../types/schema'
 import type { FacetConfig, QueryParams } from '../types/search'
 import { collectQueryTermStats } from './distributed-scoring'
+import { statsExpansionOf } from './expanded-tokens'
 import type { PartitionManager } from './manager'
 import { partitionsIn } from './partition-selection'
 
@@ -71,6 +72,7 @@ export async function fanOutQuery(
           synonyms: searchOptions?.synonyms,
         },
         config.partitionIds,
+        { expansion: { options: statsExpansionOf(params), schema } },
       )
     }
   } else if (effectiveMode === 'broadcast') {

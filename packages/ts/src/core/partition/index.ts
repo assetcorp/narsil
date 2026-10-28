@@ -27,6 +27,7 @@ import {
   type PartitionFilterMatches,
   partitionFilterMatches,
 } from './filters'
+import { typoTokensOf } from './group-scoring'
 import { indexDocument, removeFromIndexes } from './indexing'
 import { type PartitionSearchMatches, searchFulltextMatches } from './matches'
 import { estimatePartitionBytes } from './memory'
@@ -351,6 +352,10 @@ export function createPartitionIndex(partitionId: number, trackPositions = true)
 
     expandTermPrefix(surfacePrefix: string, stemmedToken: string, maxExpansions: number): string[] {
       return expandTermPrefix([state], surfacePrefix, stemmedToken, maxExpansions)
+    },
+
+    typoTokens(token: string, tolerance: number, prefixLength: number): string[] {
+      return typoTokensOf([state], token, tolerance, prefixLength)
     },
 
     expandPartialWords(analysis: PartialWordAnalysis, requests: readonly PartialWordRequest[]): AddedWord[][] {

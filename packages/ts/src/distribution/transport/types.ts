@@ -303,6 +303,7 @@ export type {
   SearchPayload,
   SearchResultPayload,
   SortField,
+  StatsExpansionPayload,
   StatsPayload,
   StatsResultPayload,
   SuggestPayload,
