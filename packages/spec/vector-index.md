@@ -283,7 +283,7 @@ VectorIndexConfig {
 
 An `osq8`, `osq4`, `osq2`, or `osq1` index stores eight, four, two, or one bits per dimension, as [Optimised Scalar Quantisation (OSQ)](algorithms.md#optimised-scalar-quantisation-osq) defines. An index whose `quantization` is `none` stores no code. When `quantization` is absent, an implementation must use `osq4` at 384 dimensions and above and `osq8` below 384.
 
-A quantised index calibrates its quantiser once its vector count reaches the HNSW promotion threshold. It calibrates again whenever `optimize` rebuilds or merges a graph, and before every shuffled rebuild that [Insertion Order](#insertion-order) requires. A quantised index places a new vector in the graph by scoring it as a query against the codes of its neighbours.
+A quantised index calibrates its quantiser once its vector count reaches the HNSW promotion threshold. It calibrates again whenever `optimize` rebuilds or merges a graph, and before every shuffled rebuild that [Insertion Order](#insertion-order) requires. A quantised index finds the candidates for a new vector's connections by scoring the vector as a query against the codes of the graph. Every distance that `selectNeighbours`, `keepLastLinks`, a removal, and `connectUnreached` compare between two nodes must come from the metric on their full-precision vectors.
 
 ---
 
@@ -540,9 +540,21 @@ Incremental insertion loses throughput as the index grows, because every insert 
 
 An application can insert its vectors in groups of close neighbours, such as the passages of one file followed by the passages of the next. When a builder places vectors in that order, it can link most of them only to vectors from their own group, so a search can miss a vector that a brute-force scan ranks first.
 
-An implementation must therefore insert the vectors in a shuffled order whenever it builds a graph from every vector, which includes promotion and every rebuild that `optimize` performs. After that build, the implementation adds each new vector in the order that the vector arrives, through one of the ways in [Post-Promotion Insertion](#post-promotion-insertion), so it must rebuild the graph in a shuffled order once the graph holds twice the vectors that it held after its last shuffled build, counting only the vectors that remain after removals.
+An implementation must therefore insert the vectors in a shuffled order whenever it builds a graph from every vector, which includes promotion and every rebuild that `optimize` performs. After that build, the implementation adds each new vector in the order that it arrives, through one of the ways in [Post-Promotion Insertion](#post-promotion-insertion). A quantised index must measure the drift of its vectors, as [Calibration Drift](#calibration-drift) defines, each time the vectors that remain after removals reach twice the count of its last calibration, and again at each further doubling. When the drift passes 2.5, the implementation must recalibrate its quantiser and rebuild the graph in a shuffled order.
 
 A quantised index must recalibrate its quantiser from every vector before each of those rebuilds, because at promotion it calibrated from the vectors that had arrived by then, and those can come from a few groups. The implementation must keep every search available while it rebuilds, as the [Promotion Contract](#promotion-contract) requires during promotion.
+
+#### Calibration Drift
+
+```
+drift = distance(mean(live), mean(calibration)) / spread(live) / sqrt(1 / count(calibration) - 1 / count(live))
+```
+
+`live` is the set of vectors that remain after removals, and `calibration` is the set that the quantiser last calibrated from. Under cosine, `mean` is the plain mean of the unit vectors, and under any other metric it is the plain mean of the vectors. `spread` is the root-mean-square distance of those vectors from `mean(live)`. Under a random arrival order the drift stays close to 1, because `spread(live) * sqrt(1 / count(calibration) - 1 / count(live))` is the distance that the means of two nested random samples of those sizes keep from each other on average.
+
+Under cosine, an implementation takes `mean(calibration)` as the stored centroid multiplied by `calibratedMeanLength`, and under any other metric as the stored centroid. Where `calibratedMeanLength` is absent, it multiplies the centroid by the length of `mean(live)`, which compares directions alone. A reader takes `shuffledBuildCount` as `count(calibration)`.
+
+An implementation must keep every search and every write available while it recalibrates. It must compute each new code against the new centroid in a copy that no search reads, compute a new code in that copy for each vector that arrives meanwhile, and hold the graph exclusively only while it puts the new codes and the new centroid in place.
 
 ---
 
