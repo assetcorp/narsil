@@ -85,11 +85,16 @@ export async function createTlsPair(
   }
 }
 
-let cachedBundles: TlsBundles | undefined
+export const TLS_BUNDLES_TIMEOUT_MS = 30_000
 
-export async function generateTlsBundles(): Promise<TlsBundles> {
-  if (cachedBundles) return cachedBundles
+let pendingBundles: Promise<TlsBundles> | undefined
 
+export function generateTlsBundles(): Promise<TlsBundles> {
+  pendingBundles ??= createTlsBundles()
+  return pendingBundles
+}
+
+async function createTlsBundles(): Promise<TlsBundles> {
   const caResult = await generate([{ name: 'commonName', value: 'Narsil Test CA' }], {
     keySize: 2048,
     algorithm: 'sha256',
@@ -187,12 +192,11 @@ export async function generateTlsBundles(): Promise<TlsBundles> {
     ca: rotatedCA.cert,
   }
 
-  cachedBundles = {
+  return {
     serverBundle,
     clientBundle,
     rogueBundle,
     rotatedClientBundle,
     rotatedServerBundle,
   }
-  return cachedBundles
 }
