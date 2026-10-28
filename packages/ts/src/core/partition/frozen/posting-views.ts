@@ -1,5 +1,6 @@
 import type { PostingListView } from '../../../types/internal'
 import type { SegmentPayload } from '../segment-payload'
+import type { FrozenLiveCounts } from './live-counts'
 import type { FrozenTombstones } from './tombstones'
 
 type PostingArrays = Pick<
@@ -26,21 +27,25 @@ function sumFrequencies(frequencies: Uint16Array): number {
 }
 
 export interface FrozenPostingViews {
-  viewAt(payloadSlot: number, documentFrequency: number): PostingListView
-  viewReadOnce(payloadSlot: number, documentFrequency: number): PostingListView
+  viewAt(payloadSlot: number, sortedIndex: number): PostingListView
+  viewReadOnce(payloadSlot: number, sortedIndex: number): PostingListView
 }
 
-export function createFrozenPostingViews(payload: PostingArrays, tombstones: FrozenTombstones): FrozenPostingViews {
+export function createFrozenPostingViews(
+  payload: PostingArrays,
+  tombstones: FrozenTombstones,
+  counts: FrozenLiveCounts,
+): FrozenPostingViews {
   const views = new Map<number, PostingListView>()
 
-  function buildView(payloadSlot: number, documentFrequency: number, keepsPositions: boolean): PostingListView {
+  function buildView(payloadSlot: number, sortedIndex: number, keepsPositions: boolean): PostingListView {
     const start = payload.postingOffsets[payloadSlot]
     const end = payload.postingOffsets[payloadSlot + 1]
     const docIds = payload.postingDocIds.subarray(start, end)
     const termFrequencies = payload.postingFrequencies.subarray(start, end)
     const fieldNameIndices = payload.postingFieldIndices.subarray(start, end)
     const ordered = isOrdered(docIds)
-    const totalTermFrequency = sumFrequencies(termFrequencies)
+    const storedTermFrequency = sumFrequencies(termFrequencies)
     const { positionOffsets, positionValues } = payload
     let materializedPositions: Array<readonly number[]> | null = null
 
@@ -63,9 +68,15 @@ export function createFrozenPostingViews(payload: PostingArrays, tombstones: Fro
         if (positionOffsets === null) return 0
         return positionOffsets[start + row + 1] - positionOffsets[start + row]
       },
-      docIdSet: { size: documentFrequency },
+      docIdSet: {
+        get size(): number {
+          return counts.documentFrequency(sortedIndex)
+        },
+      },
       deletedDocs: tombstones,
-      totalTermFrequency,
+      get totalTermFrequency(): number {
+        return storedTermFrequency - counts.removedOccurrences(sortedIndex)
+      },
       get structureRevision() {
         return tombstones.revision
       },
@@ -74,17 +85,17 @@ export function createFrozenPostingViews(payload: PostingArrays, tombstones: Fro
   }
 
   return {
-    viewAt(payloadSlot: number, documentFrequency: number): PostingListView {
+    viewAt(payloadSlot: number, sortedIndex: number): PostingListView {
       let view = views.get(payloadSlot)
       if (view === undefined) {
-        view = buildView(payloadSlot, documentFrequency, true)
+        view = buildView(payloadSlot, sortedIndex, true)
         views.set(payloadSlot, view)
       }
       return view
     },
 
-    viewReadOnce(payloadSlot: number, documentFrequency: number): PostingListView {
-      return buildView(payloadSlot, documentFrequency, false)
+    viewReadOnce(payloadSlot: number, sortedIndex: number): PostingListView {
+      return buildView(payloadSlot, sortedIndex, false)
     },
   }
 }

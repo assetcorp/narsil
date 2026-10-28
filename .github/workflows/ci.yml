@@ -90,6 +90,9 @@ jobs:
           NARSIL_ETCD_ENDPOINT: http://127.0.0.1:2379
         run: pnpm nx run narsil-ts:test:etcd
 
+      - name: Test (frozen removals under a container memory limit)
+        run: pnpm nx run narsil-ts:test:container-memory
+
   benchmarks-harness-tests:
     name: Benchmark harness tests
     runs-on: ubuntu-latest

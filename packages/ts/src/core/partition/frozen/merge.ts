@@ -11,6 +11,7 @@ import type { FrozenSegment } from './index'
 import { mergeFieldIndexes } from './merge-fields'
 import { mergePostings, type SegmentRemap } from './merge-postings'
 import { freezeEncodedSegmentShared, type SharedSegmentSnapshot } from './shared-snapshot'
+import type { TextAnalysis } from './surface-slot'
 
 export interface SegmentSelection {
   segment: FrozenSegment
@@ -91,16 +92,12 @@ function mergeFieldLengths(
   return { fieldLengthNames: names, fieldLengthColumns: columns, totalFieldLengths: totals }
 }
 
-function mergeSurfaceForms(inputs: readonly SegmentRemap[]): SerializedSurfaceForms | null {
+function mergeSurfaceForms(
+  inputs: readonly SegmentRemap[],
+  analysis: TextAnalysis | null,
+): SerializedSurfaceForms | null {
   const registry = createSurfaceRegistry()
-  for (const input of inputs) {
-    const forms = input.segment.arrays.readSurfaceForms()
-    if (forms === null) continue
-    for (const surface of Object.keys(forms)) {
-      const value = forms[surface]
-      if (Array.isArray(value)) registry.add(surface, value[1], value[0])
-    }
-  }
+  for (const input of inputs) input.segment.surfaces.addKeptForms(registry, input.remap, analysis)
   return registry.size() === 0 ? null : registry.serialize()
 }
 
@@ -183,11 +180,13 @@ function mergePartialWords(
 export function mergeFrozenSegments(
   segments: readonly FrozenSegment[],
   analysis: PartialWordAnalysis | null,
+  textAnalysis: TextAnalysis | null,
 ): SharedSegmentSnapshot | null {
   if (typeof SharedArrayBuffer !== 'function') return null
   const merged = mergeSegmentContents(
     segments.map(segment => ({ segment })),
     analysis,
+    textAnalysis,
   )
   return freezeEncodedSegmentShared(merged.payload, merged.documents, undefined, analysis, merged.reusedPartialWords)
 }
@@ -195,6 +194,7 @@ export function mergeFrozenSegments(
 export function mergeSegmentContents(
   selections: readonly SegmentSelection[],
   analysis: PartialWordAnalysis | null = null,
+  textAnalysis: TextAnalysis | null = null,
 ): MergedSegmentContents {
   const docIds: string[] = []
   const fieldNames: string[] = []
@@ -223,7 +223,7 @@ export function mergeSegmentContents(
     fieldLengthColumns: lengths.fieldLengthColumns,
     totalFieldLengths: lengths.totalFieldLengths,
     docFrequencies: postings.docFrequencies,
-    surfaceForms: mergeSurfaceForms(inputs),
+    surfaceForms: mergeSurfaceForms(inputs, textAnalysis),
     partialSpellings: partialWords.spellings,
     ...mergeFieldIndexes(inputs),
   }

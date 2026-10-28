@@ -27,7 +27,7 @@ export function producesSurfaceForms(language: LanguageModule, options?: Tokeniz
 
 const DEFAULT_SPLIT_PATTERN = /[^\p{L}\p{M}\p{N}_'-]+/u
 
-function resolveStopWords(
+export function resolveStopWords(
   language: LanguageModule,
   override?: Set<string> | ((defaults: Set<string>) => Set<string>),
 ): Set<string> {
@@ -105,6 +105,18 @@ export function visitTokens(
     }
     const surface = effectiveDiacritics ? transformToken(candidate, language, false, true) : candidate
     visit(processed, position, surface === processed ? undefined : surface, part)
+  }
+}
+
+export function visitSurfaceSpellings(text: string, language: LanguageModule, visit: (spelling: string) => void): void {
+  const rawParts = splitText(normalizeForSplitting(text), language)
+  const minLength = language.tokenizer?.minTokenLength ?? DEFAULT_MIN_TOKEN_LENGTH
+  const removeDiacritics = language.tokenizer?.normalizeDiacritics ?? false
+  const stripPossessives = language.tokenizer?.stripPossessive ?? false
+  for (const part of rawParts) {
+    const candidate = stripPossessives ? stripPossessive(part) : part
+    if (candidate.length < minLength) continue
+    visit(removeDiacritics ? transformToken(candidate, language, false, true) : candidate)
   }
 }
 

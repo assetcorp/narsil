@@ -248,13 +248,13 @@ export function createDirectExecutor(options?: DirectExecutorOptions): Executor 
 
       case 'remove': {
         const entry = requireIndex(action.indexName)
-        entry.manager.remove(action.docId)
+        entry.manager.remove(action.docId, action.removedSpellings)
         return undefined as T
       }
 
       case 'update': {
         const entry = requireIndex(action.indexName)
-        entry.manager.update(action.docId, action.document)
+        entry.manager.update(action.docId, action.document, undefined, action.removedSpellings)
         return undefined as T
       }
 
