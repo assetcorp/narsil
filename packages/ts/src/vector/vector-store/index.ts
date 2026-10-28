@@ -3,7 +3,7 @@ import type { OrdinalFilter } from '../ordinal-filter'
 import type { OsqBits } from '../osq/quantize'
 import { magnitude } from '../similarity'
 import { BLOCK_MAX_BYTES } from './blocks'
-import { appendDocId, resetDocIds } from './doc-ids'
+import { resetDocIds } from './doc-ids'
 import {
   IN_MEMORY,
   STORE_CALIBRATED,
@@ -17,13 +17,17 @@ import {
 import { docIdsOf, entriesOf, snapshotOf } from './listing'
 import {
   blockFullyCold,
+  claimSlot,
   ensureOrdinal,
   fileHoldsSameBytes,
   forgetUnreferencedFiles,
   type OpenStore,
   openHandles,
   partitionFilterOf,
+  publishOnDisk,
+  publishOrdinal,
   relayout,
+  relocateFiles,
   writeVector,
 } from './open-store'
 import { createOrdinalReads, entryAt } from './ordinal-reads'
@@ -106,32 +110,12 @@ export function createVectorStore(options?: VectorStoreOptions): VectorStore {
     replacedOrdinals.add(ordinal)
   }
 
-  function claimSlot(store: OpenStore, docId: string, cold: boolean): number {
-    const ordinal = Atomics.load(store.handles.header, STORE_SLOTS)
-    ensureOrdinal(store, ordinal, cold)
-    store.diskFile[ordinal] = IN_MEMORY
-    appendDocId(store.handles, ordinal, docId)
-    return ordinal
-  }
-
   function claimOrdinal(store: OpenStore, docId: string, cold: boolean, partitionId?: number): number {
     const ordinal = claimSlot(store, docId, cold)
     recordPartition(store, ordinal, partitionId)
     ordToDoc[ordinal] = docId
     docToOrd.set(docId, ordinal)
     return ordinal
-  }
-
-  function publishOrdinal(store: OpenStore, ordinal: number): void {
-    Atomics.store(store.handles.header, STORE_SLOTS, ordinal + 1)
-    Atomics.store(store.present, ordinal, 1)
-  }
-
-  function publishOnDisk(store: OpenStore, ordinal: number, vectorMagnitude: number, location: DiskLocation): void {
-    store.magnitudes[ordinal] = vectorMagnitude
-    store.diskOffset[ordinal] = location.offset
-    store.diskFile[ordinal] = location.fileIndex
-    publishOrdinal(store, ordinal)
   }
 
   function appendOrdinal(store: OpenStore, docId: string, vector: Float32Array, partitionId?: number): number {
@@ -355,12 +339,7 @@ export function createVectorStore(options?: VectorStoreOptions): VectorStore {
     closeFiles: () => open?.view.close(),
 
     relocateVectorFiles(rewrite: (path: string) => string): void {
-      if (open === null || open.handles.vectorFiles.length === 0) return
-      const files = open.handles.vectorFiles
-      for (let file = 0; file < files.length; file++) {
-        if (files[file].length > 0) files[file] = rewrite(files[file])
-      }
-      relayout(open)
+      if (open !== null) relocateFiles(open, rewrite)
     },
 
     getOrdinal(docId: string): number | undefined {
