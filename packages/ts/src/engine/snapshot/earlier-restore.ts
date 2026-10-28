@@ -171,7 +171,7 @@ async function buildRestoredIndex(
 export async function restoreEarlierSnapshot(indexName: string, data: Uint8Array, deps: RestoreDeps): Promise<void> {
   const envelope = await decodeEarlierSnapshot(data)
   const prepared = prepareRestoredIndex(envelope, deps)
-  if (deps.indexRegistry.has(indexName)) requireRestoreMemory(indexName, footprintOf(envelope, prepared))
+  requireRestoreMemory(indexName, footprintOf(envelope, prepared), deps.indexRegistry.has(indexName))
   const analysedNow = { ...prepared, storedRevision: prepared.language.revision }
   const staging = deps.durability?.manager.stageRestore?.(indexName) ?? null
   try {
