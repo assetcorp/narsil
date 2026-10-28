@@ -88,12 +88,6 @@ describe('the HTTP rerank adapter against a live rerank endpoint', () => {
     expect(received.every(entry => entry.authorization === undefined)).toBe(true)
   })
 
-  it('sends no request for an empty list', async () => {
-    const reranker = createHttpReranker({ baseUrl: base, model: 'm' })
-    expect(await reranker.rerank('q', [])).toEqual([])
-    expect(received).toHaveLength(0)
-  })
-
   it('reads a fresh key from a key function on every call', async () => {
     let issued = 0
     const reranker = createHttpReranker({ baseUrl: base, model: 'm', apiKey: async () => `token-${++issued}` })

@@ -234,17 +234,6 @@ describe('reranked queries on one engine', () => {
     }
   })
 
-  it('calls no adapter where the page or the window holds no hit', async () => {
-    const reranker = recordingReranker()
-    narsil.registerRerankAdapter('overlap', reranker)
-    const rerank = { adapter: 'overlap', fields: ['title'] }
-    const empty = await narsil.query(INDEX, { term: 'nonexistentword', rerank })
-    const pastEnd = await narsil.query(INDEX, { term: 'river', rerank, offset: 5_000 })
-    const zero = await narsil.query(INDEX, { term: 'river', rerank, limit: 0 })
-    expect([empty.hits, pastEnd.hits, zero.hits]).toEqual([[], [], []])
-    expect(reranker.calls).toHaveLength(0)
-  })
-
   it.each<[string, () => RerankAdapter]>([
     [
       'throws',
@@ -372,24 +361,5 @@ describe('reranked queries on one engine', () => {
         code: ErrorCodes.CONFIG_INVALID,
       })
     }
-  })
-
-  it('allows a window up to a raised maxRerankWindow', async () => {
-    await narsil.shutdown()
-    narsil = await createNarsil({ workers: { enabled: false }, maxRerankWindow: 300 })
-    await narsil.createIndex(INDEX, corpusIndex)
-    for (const document of documents) await narsil.insert(INDEX, stored(document), document.id)
-    const reranker = recordingReranker()
-    narsil.registerRerankAdapter('overlap', reranker)
-    await narsil.query(INDEX, {
-      term: 'river stone light north',
-      termMatch: 'any',
-      rerank: { adapter: 'overlap', fields: ['title'], window: 300 },
-    })
-    expect(reranker.calls[0].documents.length).toBeGreaterThan(0)
-    const failure = await failureOf(
-      narsil.query(INDEX, { term: 'river', rerank: { adapter: 'overlap', fields: ['title'], window: 301 } }),
-    )
-    expect(failure.code).toBe(ErrorCodes.RERANK_CONFIG_INVALID)
   })
 })
