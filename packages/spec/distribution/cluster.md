@@ -625,6 +625,8 @@ A node that reads the set must join the chunks in order. Where a chunk is absent
    putAllocation.
 ```
 
+A node that receives a create request while it holds a local copy under the same name, whose index metadata is empty because a drop removed it, waits up to 30,000 ms for step 3 of the [deletion flow](#index-deletion-flow) to remove that copy before it creates the index. The node never deletes the copy itself, because a copy whose metadata is absent may be the only one left, as [Joining the Cluster](#joining-the-cluster) describes.
+
 The `partitionCount` stays fixed for the life of the index, so a caller that needs another count must create a new index and reindex into it. Every node must create its local index with exactly `partitionCount` partitions, so that any holder can load a serialised partition unchanged.
 
 After creation, a caller can change the `replicationFactor` in the allocation table, so the controller applies the new factor at its next rebalance.
@@ -648,21 +650,34 @@ Deleting an index reverses the creation flow, and the controller drives the tear
       expected version
    b. it deletes the table with deleteAllocation
 
-3. Every node holding a partition observes the empty table, drops
-   the partitions it held, and drops its local index once it holds
-   no partition of that index.
+3. Every node observes the empty table through its allocation
+   watch, drops each partition that it held, and drops its local
+   copy of the index once it holds no partition of that index. It
+   drops a copy that never held a partition in the same way, such
+   as the copy that a node makes when it receives the create
+   request.
 
-4. A controller that crashes between steps 2a and 2b leaves an
+4. The node that received the drop request answers it once
+   getAllocation returns no table for the index, its own copy is
+   gone, and every registered data node answers
+   cluster.partition_stores with no copy under the dropped
+   indexUuid. When those three conditions do not all hold within
+   30,000 ms, it raises QUERY_NODE_TIMEOUT naming the nodes that
+   still hold a copy, and the drop stands. A drop of the same name
+   that the caller retries after that error waits for the same
+   three conditions.
+
+5. A controller that crashes between steps 2a and 2b leaves an
    empty table behind. Every reader must treat an allocation table
    with no assignments as absent, so the next create call for the
    same name allocates afresh and the empty table is overwritten.
 
-5. An empty metadata value under the index config key counts as
+6. An empty metadata value under the index config key counts as
    absent, so the next create call for the same name may replace
    it with fresh metadata. A non-empty value still blocks the
    create, exactly as the creation flow describes.
 
-6. A node that stays offline for the whole teardown keeps its
+7. A node that stays offline for the whole teardown keeps its
    local copy, because it observes no allocation change while it
    is gone. It finds that copy orphaned when it rejoins; see
    [Joining the Cluster](#joining-the-cluster).
