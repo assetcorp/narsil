@@ -1,20 +1,14 @@
 import { ErrorCodes, NarsilError } from '../../errors'
-import { decodePageCursor, encodePageCursor } from '../../search/cursor'
+import { decodePageCursor } from '../../search/cursor'
 import { requireWithinHybridDepth, resolveHybridFusion } from '../../search/fusion'
+import { pageByPosition } from '../../search/position-page'
 import { ascendingFacetFields } from '../cluster-node/query-conversion'
-import type {
-  FacetBucket,
-  GlobalStatistics,
-  ScoredEntry,
-  WireGroupEntry,
-  WirePinnedEntry,
-  WireQueryParams,
-} from '../transport/types'
+import type { FacetBucket, GlobalStatistics, ScoredEntry, WireGroupEntry, WireQueryParams } from '../transport/types'
 import { buildCoverage, collectDistributedStats, fanOutSearch } from './fan-out'
 import { distributedLinearCombination, distributedRRF } from './fusion'
 import { mergeGroupsFor } from './group-merge'
 import { mergeAndTruncateScoredEntries, mergeDistributedFacets } from './merge'
-import { lastOrganicEntry, placePinnedEntries } from './pinning'
+import { placePinnedEntries } from './pinning'
 import type { DistributedQueryConfig, DistributedQueryResult, QueryRoutingDeps, RoutingResult } from './types'
 
 interface HybridPage {
@@ -23,27 +17,8 @@ interface HybridPage {
   binding: string
 }
 
-function fusedPageCursor(
-  placed: ScoredEntry[],
-  fused: ScoredEntry[],
-  start: number,
-  page: ScoredEntry[],
-  pinned: WirePinnedEntry[] | null,
-  binding: string,
-  depth: number,
-): string | null {
-  const last = lastOrganicEntry(page, pinned)
-  if (last === undefined || Math.min(placed.length, depth) <= start + page.length) return null
-  const reached =
-    pinned === null ? start + page.lastIndexOf(last) + 1 : fused.findIndex(entry => entry.docId === last.docId) + 1
-  return encodePageCursor({
-    anchor: last.docId,
-    score: last.score,
-    sortKey: null,
-    sortSignature: null,
-    depth: reached,
-    binding,
-  })
+function positionedOf(entry: ScoredEntry): { id: string; score?: number; entry: ScoredEntry } {
+  return entry.score === null ? { id: entry.docId, entry } : { id: entry.docId, score: entry.score, entry }
 }
 
 /**
@@ -53,9 +28,9 @@ function fusedPageCursor(
  * globally merged lists. Under DFS scoring a statistics pre-pass adds a third
  * round trip. The text fan-out alone carries facets and grouping, which keeps
  * both counted once. The coordinator keeps the top `hybrid.depth` of the fused
- * list, takes the page from position d + offset, and writes a cursor whose
- * depth counts the fused list up to the last hit on the page that is not a
- * pinned placement.
+ * list and takes the page from the depth that the request's cursor carries,
+ * plus the offset. It writes a cursor whose depth counts the fused list up to
+ * the last hit on the page that is not a pinned placement.
  *
  * @param indexName - The index to search.
  * @param params - The wire query, which carries a vector and a term or a hybrid mode.
@@ -67,7 +42,7 @@ function fusedPageCursor(
  * @param deps - The transport, the source node id, and the allocation reader.
  * @param config - The partial-results policy and the partition timeout.
  * @returns The fused page, the cursor, the facets, the groups, and the coverage.
- * @throws A {@link NarsilError} carrying `SEARCH_RESULT_WINDOW_EXCEEDED` where the page ends past `hybrid.depth`.
+ * @throws A {@link NarsilError} carrying `SEARCH_RESULT_WINDOW_EXCEEDED` where the page starts at `hybrid.depth` or beyond.
  */
 export async function executeHybridQuery(
   indexName: string,
@@ -172,23 +147,22 @@ export async function executeHybridQuery(
     coverage.queriedPartitions === coverage.totalPartitions &&
     totalHits <= mergedText.length &&
     mergedVector.length < depth
-  const placesPins = params.pinned !== null && params.searchAfter === null
+  const pins = params.searchAfter === null ? params.pinned : null
   const placement =
-    params.pinned !== null && placesPins
-      ? placePinnedEntries(fused, params.pinned, depth, allMatchesPresent)
+    pins !== null
+      ? placePinnedEntries(fused, pins, depth, allMatchesPresent)
       : { entries: fused, placedFromOutside: [] }
-  const start = cursorDepth + page.offset
-  const end = Math.min(start + page.limit, depth)
-  const truncated = end > start ? placement.entries.slice(start, end) : []
-  const cursor = fusedPageCursor(
-    placement.entries,
-    fused,
-    start,
-    truncated,
-    placesPins ? params.pinned : null,
-    page.binding,
-    depth,
-  )
+  const placedIds =
+    pins === null
+      ? undefined
+      : new Set(pins.filter(entry => allMatchesPresent || entry.position < depth).map(entry => entry.docId))
+  const paged = pageByPosition(placement.entries.map(positionedOf), fused.map(positionedOf), {
+    start: cursorDepth + page.offset,
+    limit: page.limit,
+    pinnedIds: placedIds,
+    binding: page.binding,
+  })
+  const truncated = paged.page.map(hit => hit.entry)
   const mergedFacets =
     allFacets.length > 0
       ? mergeDistributedFacets(allFacets, allFacetBounds, facetSize, ascendingFacetFields(params.facets))
@@ -201,7 +175,7 @@ export async function executeHybridQuery(
     facetErrorBounds: mergedFacets?.errorBounds ?? null,
     facetUndercounts: mergedFacets?.undercounts ?? null,
     groups: mergeGroupsFor(params, allGroups, null),
-    cursor,
+    cursor: paged.cursor ?? null,
     coverage,
     pinnedFromOutside: placement.placedFromOutside,
     mergeHeldEveryMatch: allMatchesPresent,

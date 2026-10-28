@@ -242,6 +242,14 @@ describe('reranked queries on one engine', () => {
         },
       }),
     ],
+    [
+      'throws a NarsilError of its own',
+      () => ({
+        async rerank() {
+          throw new NarsilError(ErrorCodes.CONFIG_INVALID, 'the API key function returned nothing')
+        },
+      }),
+    ],
     ['returns too few scores', () => ({ rerank: async () => [1] })],
     [
       'returns a score that is not finite',

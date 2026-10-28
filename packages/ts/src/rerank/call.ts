@@ -73,11 +73,12 @@ function cancelled(name: string): NarsilError {
 }
 
 function wrapped(err: unknown, name: string): NarsilError {
-  if (err instanceof NarsilError) return err
+  if (err instanceof NarsilError && err.code === ErrorCodes.RERANK_FAILED) return err
   const message = err instanceof Error ? err.message : String(err)
   return new NarsilError(ErrorCodes.RERANK_FAILED, `Rerank adapter "${name}" failed: ${message}`, {
     adapter: name,
     cause: message,
+    ...(err instanceof NarsilError ? { causeCode: err.code } : {}),
   })
 }
 
@@ -124,4 +125,17 @@ export async function callRerankAdapter(
     detach?.()
   }
   return scoresOf(raw, documents.length, name)
+}
+
+export interface RerankHost {
+  readonly rerankAdapters: ReadonlyMap<string, RerankAdapter>
+  readonly rerankSettings: { readonly timeoutMs: number }
+  readonly abortController: AbortController
+}
+
+export function rerankOnHost(host: RerankHost, name: string, query: string, documents: string[]): Promise<number[]> {
+  return callRerankAdapter(host.rerankAdapters, name, query, documents, {
+    timeoutMs: host.rerankSettings.timeoutMs,
+    signal: host.abortController.signal,
+  })
 }

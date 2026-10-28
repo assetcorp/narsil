@@ -19,6 +19,7 @@ export interface RerankedQueryIo<T> {
   maxWindow: number
   binding: string
   clampsPins: boolean
+  fusesRankings(request: QueryParams): boolean
   firstStage(params: QueryParams): Promise<QueryResult<T>>
   texts(docIds: string[], fields: string[]): Promise<string[]>
   storedPins(docIds: string[]): Promise<ReadonlySet<string>>
@@ -30,13 +31,7 @@ export interface RerankedQueryIo<T> {
 function rerankCursorDepth(cursor: string, binding: string): number {
   const decoded = decodePageCursor(cursor)
   requireMatchingCursor(decoded, cursor, null, true, binding)
-  if (decoded.depth === undefined) {
-    throw new NarsilError(
-      ErrorCodes.SEARCH_INVALID_CURSOR,
-      'A reranked query pages by the depth that its cursor carries, and this cursor carries none',
-    )
-  }
-  return decoded.depth
+  return decoded.depth ?? 0
 }
 
 function requireWithinReach(cursorDepth: number, offset: number, limit: number): void {
@@ -80,47 +75,34 @@ export function reorderByRerank<T>(
   return ordered
 }
 
-function fusesTwoRankings(request: QueryParams): boolean {
-  if (request.vector === undefined) return false
-  return request.mode === 'hybrid' || (request.term !== undefined && request.term.trim().length > 0)
-}
-
 function firstStageDepth(
-  request: QueryParams,
+  hybridDepth: number | undefined,
   window: number,
   cursorDepth: number,
   offset: number,
   limit: number,
-): { depth: number; end: number; available: number } {
-  const start = cursorDepth + offset
-  if (!fusesTwoRankings(request)) {
+): number {
+  if (hybridDepth === undefined) {
     requireWithinReach(cursorDepth, offset, limit)
-    const depth = Math.max(window + 1, Math.min(start + limit + 1, RESULT_WINDOW))
-    return { depth, end: start + limit, available: Number.POSITIVE_INFINITY }
+    return Math.max(window + 1, Math.min(cursorDepth + offset + limit + 1, RESULT_WINDOW))
   }
-  const depth = resolveHybridFusion(request.hybrid).depth
-  if (window > depth) {
-    throw new NarsilError(
-      ErrorCodes.RERANK_CONFIG_INVALID,
-      `rerank.window is ${window}, above the hybrid.depth of ${depth} that a hybrid query reranks from`,
-      { window, depth },
-    )
-  }
-  requireWithinHybridDepth(cursorDepth, offset, depth)
-  return { depth, end: Math.min(start + limit, depth), available: depth }
+  requireWithinHybridDepth(cursorDepth, offset, hybridDepth)
+  return hybridDepth
 }
 
 export async function runRerankedQuery<T>(request: QueryParams, io: RerankedQueryIo<T>): Promise<QueryResult<T>> {
-  const plan = resolveRerankParams(request, io.schema, io.maxWindow)
+  const fuses = io.fusesRankings(request)
+  const hybridDepth = fuses ? resolveHybridFusion(request.hybrid).depth : undefined
+  const plan = resolveRerankParams(request, io.schema, io.maxWindow, hybridDepth)
   const limit = clampRowCount(request.limit, DEFAULT_LIMIT)
   const offset = clampRowCount(request.offset, DEFAULT_OFFSET)
   const cursorDepth = request.searchAfter === undefined ? 0 : rerankCursorDepth(request.searchAfter, io.binding)
-  const { depth, end, available } = firstStageDepth(request, plan.window, cursorDepth, offset, limit)
+  const depth = firstStageDepth(hybridDepth, plan.window, cursorDepth, offset, limit)
   const projection = resolveProjection(request.document)
 
   const { rerank: _rerank, pinned: _pinned, searchAfter: _searchAfter, highlight: _highlight, ...firstParams } = request
   const placesPins = request.searchAfter === undefined && request.pinned !== undefined
-  const countsApart = placesPins || (request.vector !== undefined && !fusesTwoRankings(request))
+  const countsApart = placesPins || (request.vector !== undefined && !fuses)
   const [first, plain] = await Promise.all([
     io.firstStage({ ...firstParams, offset: 0, limit: depth, document: false }),
     countsApart
@@ -164,7 +146,7 @@ export async function runRerankedQuery<T>(request: QueryParams, io: RerankedQuer
   }
 
   const pinnedIds = placedPins === undefined ? undefined : new Set(placedPins.map(entry => entry.docId))
-  const { page, cursor } = pageByPosition(place(ordered), ordered, start, end, available, pinnedIds, io.binding)
+  const { page, cursor } = pageByPosition(place(ordered), ordered, { start, limit, pinnedIds, binding: io.binding })
 
   await io.fillDocuments(page, first.groups, projection)
   if (request.highlight) io.highlight?.(page, projection)

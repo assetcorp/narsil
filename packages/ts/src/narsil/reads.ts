@@ -48,11 +48,8 @@ function rerankRunnerFor(core: EngineCore, params: QueryParams): RerankRunner | 
   return {
     maxWindow: core.rerankSettings.maxWindow,
     async score(adapter, query, documents) {
-      const { callRerankAdapter } = await import('../rerank/call')
-      return callRerankAdapter(core.rerankAdapters, adapter, query, documents, {
-        timeoutMs: core.rerankSettings.timeoutMs,
-        signal: core.abortController.signal,
-      })
+      const { rerankOnHost } = await import('../rerank/call')
+      return rerankOnHost(core, adapter, query, documents)
     },
   }
 }

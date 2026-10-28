@@ -4,7 +4,7 @@ import { flattenSchema } from '../schema/validator/schema'
 import { normalizeSort } from '../search/sorting'
 import type { SchemaDefinition } from '../types/schema'
 import type { QueryParams } from '../types/search'
-import { DEFAULT_RERANK_WINDOW } from './constants'
+import { DEFAULT_RERANK_WINDOW, MIN_RERANK_WINDOW } from './constants'
 import { rerankQueryTextOf } from './query-text'
 
 export interface ResolvedRerank {
@@ -42,18 +42,32 @@ function requireTextFields(fields: unknown, schema: SchemaDefinition): string[] 
   return checked
 }
 
-function requireWindow(window: unknown, maxWindow: number): number {
-  if (window === undefined) return Math.min(DEFAULT_RERANK_WINDOW, maxWindow)
-  if (typeof window !== 'number' || !Number.isInteger(window) || window < 1 || window > maxWindow) {
-    throw invalid(`rerank.window must be a whole number from 1 to ${maxWindow}`, {
+function requireWindow(window: unknown, maxWindow: number, hybridDepth: number | undefined): number {
+  if (window === undefined) return Math.min(DEFAULT_RERANK_WINDOW, maxWindow, hybridDepth ?? maxWindow)
+  if (typeof window !== 'number' || !Number.isInteger(window) || window < MIN_RERANK_WINDOW || window > maxWindow) {
+    throw invalid(`rerank.window must be a whole number from ${MIN_RERANK_WINDOW} to ${maxWindow}`, {
       window: typeof window === 'number' ? window : String(window),
       maxRerankWindow: maxWindow,
     })
   }
+  if (hybridDepth !== undefined && window > hybridDepth) {
+    throw invalid(
+      `rerank.window is ${window}, above the hybrid.depth of ${hybridDepth} that a hybrid query reranks from`,
+      {
+        window,
+        depth: hybridDepth,
+      },
+    )
+  }
   return window
 }
 
-export function resolveRerankParams(params: QueryParams, schema: SchemaDefinition, maxWindow: number): ResolvedRerank {
+export function resolveRerankParams(
+  params: QueryParams,
+  schema: SchemaDefinition,
+  maxWindow: number,
+  hybridDepth: number | undefined,
+): ResolvedRerank {
   const rerank: unknown = params.rerank
   if (typeof rerank !== 'object' || rerank === null || Array.isArray(rerank)) {
     throw invalid('rerank must be an object that gives an adapter and the fields to rerank by')
@@ -69,7 +83,7 @@ export function resolveRerankParams(params: QueryParams, schema: SchemaDefinitio
     throw invalid('rerank.adapter must give the name of a registered rerank adapter')
   }
   const checkedFields = requireTextFields(fields, schema)
-  const checkedWindow = requireWindow(window, maxWindow)
+  const checkedWindow = requireWindow(window, maxWindow, hybridDepth)
   const query = rerankQueryTextOf(params)
   if (query === undefined) {
     throw invalid('A reranked query needs text to compare each hit with: set rerank.query, term, or vector.text')

@@ -1,3 +1,4 @@
+import { DEFAULT_RERANK_WINDOW } from '../rerank/constants'
 import { MAX_SORT_FIELDS } from '../search/constants'
 import type { ListParams, QueryParams, SuggestParams } from '../types/search'
 import type {
@@ -38,13 +39,6 @@ function overWindow(field: string, value: unknown, maxWindow: number): Validatio
   return null
 }
 
-/**
- * Rejects a query that would build an unbounded result set. Every field that
- * multiplies the number of returned rows is enumerated here in one place, so a
- * new amplifying field is bounded by adding a line rather than by remembering to
- * patch a handler. Custom group reducers are functions and cannot cross JSON, so
- * they are refused outright.
- */
 export interface QueryLimits {
   maxResultWindow: number
   maxRerankWindow: number
@@ -62,6 +56,26 @@ function overRerankWindow(rerank: unknown, maxRerankWindow: number): ValidationF
   return null
 }
 
+export function withServerRerankWindow(params: QueryParams, limits: QueryLimits): QueryParams {
+  const rerank = params.rerank
+  if (rerank === undefined || !isPlainObject(rerank) || rerank.window !== undefined) return params
+  const depth = params.vector === undefined ? undefined : params.hybrid?.depth
+  const fuses = params.term !== undefined || params.mode === 'hybrid'
+  const window =
+    fuses && typeof depth === 'number' && Number.isInteger(depth)
+      ? Math.min(limits.maxRerankWindow, depth)
+      : limits.maxRerankWindow
+  if (window >= DEFAULT_RERANK_WINDOW) return params
+  return { ...params, rerank: { ...rerank, window } }
+}
+
+/**
+ * Rejects a query that would build an unbounded result set. Every field that
+ * multiplies the number of returned rows is enumerated here in one place, so a
+ * new amplifying field is bounded by adding a line rather than by remembering to
+ * patch a handler. Custom group reducers are functions and cannot cross JSON, so
+ * they are refused outright.
+ */
 export function validateQuery(params: QueryParams, limits: QueryLimits): ValidationFailure | null {
   const maxWindow = limits.maxResultWindow
   if (params.group && typeof params.group === 'object' && 'reduce' in params.group) {

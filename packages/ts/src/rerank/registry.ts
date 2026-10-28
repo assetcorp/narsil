@@ -7,6 +7,8 @@ import {
   DEFAULT_RERANK_TIMEOUT_MS,
   MAX_RERANK_TIMEOUT_MS,
   MAX_RERANK_WINDOW,
+  MIN_RERANK_TIMEOUT_MS,
+  MIN_RERANK_WINDOW,
 } from './constants'
 
 export interface RerankSettings {
@@ -21,17 +23,17 @@ function wholeNumberIn(value: unknown, low: number, high: number): value is numb
 export function resolveRerankSettings(config: NarsilConfig | undefined): RerankSettings {
   const timeout: unknown = config?.rerankTimeout
   const maxWindow: unknown = config?.maxRerankWindow
-  if (timeout !== undefined && !wholeNumberIn(timeout, 1, MAX_RERANK_TIMEOUT_MS)) {
+  if (timeout !== undefined && !wholeNumberIn(timeout, MIN_RERANK_TIMEOUT_MS, MAX_RERANK_TIMEOUT_MS)) {
     throw new NarsilError(
       ErrorCodes.CONFIG_INVALID,
-      `rerankTimeout must be a whole number of milliseconds from 1 to ${MAX_RERANK_TIMEOUT_MS}`,
+      `rerankTimeout must be a whole number of milliseconds from ${MIN_RERANK_TIMEOUT_MS} to ${MAX_RERANK_TIMEOUT_MS}`,
       { rerankTimeout: timeout },
     )
   }
-  if (maxWindow !== undefined && !wholeNumberIn(maxWindow, 1, MAX_RERANK_WINDOW)) {
+  if (maxWindow !== undefined && !wholeNumberIn(maxWindow, MIN_RERANK_WINDOW, MAX_RERANK_WINDOW)) {
     throw new NarsilError(
       ErrorCodes.CONFIG_INVALID,
-      `maxRerankWindow must be a whole number from 1 to ${MAX_RERANK_WINDOW}`,
+      `maxRerankWindow must be a whole number from ${MIN_RERANK_WINDOW} to ${MAX_RERANK_WINDOW}`,
       {
         maxRerankWindow: maxWindow,
       },

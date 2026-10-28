@@ -143,6 +143,23 @@ describe('hybrid paging to a fixed depth', () => {
     expect(rest).toEqual(fused.slice(4).map(hit => hit.id))
   })
 
+  it('reaches every fused hit by cursor where pins from outside fill the first page', async () => {
+    const fused = await oracleFused(10)
+    expect(fused).toHaveLength(10)
+    const outside = documents.filter(document => !fused.some(hit => hit.id === document.id)).slice(0, 2)
+    const pinned = outside.map((document, position) => ({ docId: document.id, position }))
+
+    const first = await narsil.query(INDEX, { ...hybridQuery(10), pinned, limit: 10 })
+    expect(first.hits.map(hit => hit.id)).toEqual([
+      ...pinned.map(pin => pin.docId),
+      ...fused.slice(0, 8).map(hit => hit.id),
+    ])
+    const second = await narsil.query(INDEX, { ...hybridQuery(10), pinned, limit: 10, searchAfter: first.cursor })
+
+    expect(second.hits.map(hit => hit.id)).toEqual(fused.slice(8).map(hit => hit.id))
+    expect(second.cursor).toBeUndefined()
+  })
+
   it('serves a short last page up to the depth, and refuses a page that starts at the depth', async () => {
     const expected = await oracleFused(20)
     const last = await narsil.query(INDEX, { ...hybridQuery(20), offset: 15, limit: 10 })
@@ -180,6 +197,25 @@ describe('hybrid paging to a fixed depth', () => {
     const walked = await walkByCursor({ ...hybridQuery(40), rerank: { adapter: 'overlap', fields, window: 15 } }, 6)
 
     expectSameOrder(walked, expected)
+  })
+
+  it('reranks the whole fused list where the query sets hybrid.depth 20 and leaves the window out', async () => {
+    const reranker = recordingReranker()
+    narsil.registerRerankAdapter('overlap', reranker)
+    const fields = ['title']
+    const fused = await oracleFused(20)
+    expect(fused).toHaveLength(20)
+    const byId = new Map(documents.map(document => [document.id, document]))
+    const scores = fused.map(hit =>
+      overlapScore(TERM, rerankTextOf(stored(byId.get(hit.id) as CorpusDocument), fields)),
+    )
+    const expected = oracleRerank(fused, 20, scores)
+
+    const walked = await walkByCursor({ ...hybridQuery(20), rerank: { adapter: 'overlap', fields } }, 6)
+
+    expectSameOrder(walked, expected)
+    expect(reranker.calls.length).toBeGreaterThan(0)
+    expect(reranker.calls.every(call => call.documents.length === 20)).toBe(true)
   })
 
   it('refuses a rerank window larger than the hybrid depth', async () => {

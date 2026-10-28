@@ -5,7 +5,7 @@ import { ServerErrorCodes } from '../errors'
 import type { Authorization, RouteContext } from '../request'
 import { type ResponseSink, sendError, sendRelayed, statusLine } from '../response'
 import type { RequestContext } from '../types'
-import type { EmbeddedReply, RelayedRoute, RelayedStreamPart, RelayReply, RerankedReply } from './messages'
+import type { EmbeddedReply, RelayedRoute, RelayedStreamPart, RelayReply } from './messages'
 
 export interface RelayClient {
   authorize(context: RequestContext): Promise<Authorization>
@@ -74,14 +74,8 @@ function writeStreamPart(port: MessagePort, writer: StreamWriter, part: RelayedS
   })
 }
 
-function errorOf(reply: EmbeddedReply): NarsilError {
-  const error = reply.error ?? { code: ErrorCodes.EMBEDDING_FAILED, message: 'The main thread returned no vector' }
-  return new NarsilError(error.code as never, error.message, error.details)
-}
-
-function rerankErrorOf(reply: RerankedReply): NarsilError {
-  const error = reply.error ?? { code: ErrorCodes.RERANK_FAILED, message: 'The main thread returned no scores' }
-  return new NarsilError(error.code as never, error.message, error.details)
+function relayedErrorOf(error: EmbeddedReply['error'], fallback: NarsilError): NarsilError {
+  return error === null ? fallback : new NarsilError(error.code as never, error.message, error.details)
 }
 
 function portClosedError(): NarsilError {
@@ -207,21 +201,19 @@ export function createRelayClient(port: MessagePort, touchIntervalMs: number): R
     },
     async embed(indexName, vector) {
       const reply = await send(requestId => ({ type: 'embed', requestId, indexName, vector }))
-      if (reply.type !== 'embedded' || reply.value === null) {
-        throw reply.type === 'embedded'
-          ? errorOf(reply)
-          : new NarsilError(ErrorCodes.EMBEDDING_FAILED, 'The main thread returned no vector')
-      }
-      return reply.value
+      if (reply.type === 'embedded' && reply.value !== null) return reply.value
+      throw relayedErrorOf(
+        reply.type === 'embedded' ? reply.error : null,
+        new NarsilError(ErrorCodes.EMBEDDING_FAILED, 'The main thread returned no vector'),
+      )
     },
     async rerank(adapter, query, documents) {
       const reply = await send(requestId => ({ type: 'rerank', requestId, adapter, query, documents }))
-      if (reply.type !== 'reranked' || reply.scores === null) {
-        throw reply.type === 'reranked'
-          ? rerankErrorOf(reply)
-          : new NarsilError(ErrorCodes.RERANK_FAILED, 'The main thread returned no scores')
-      }
-      return reply.scores
+      if (reply.type === 'reranked' && reply.scores !== null) return reply.scores
+      throw relayedErrorOf(
+        reply.type === 'reranked' ? reply.error : null,
+        new NarsilError(ErrorCodes.RERANK_FAILED, 'The main thread returned no scores'),
+      )
     },
     touch(indexName) {
       if (closed) return

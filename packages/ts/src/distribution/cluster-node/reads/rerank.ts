@@ -3,7 +3,7 @@ import { applyProjection } from '../../../core/projection'
 import { now } from '../../../engine/validation'
 import { ErrorCodes, NarsilError } from '../../../errors'
 import { engineCoreOf } from '../../../narsil/internals'
-import { callRerankAdapter } from '../../../rerank/call'
+import { rerankOnHost } from '../../../rerank/call'
 import { rerankTextOf } from '../../../rerank/params'
 import { runRerankedQuery } from '../../../rerank/pipeline'
 import { queryBindingOf } from '../../../search/cursor-binding'
@@ -35,6 +35,7 @@ export async function rerankClusterQuery<T>(
     maxWindow: core.rerankSettings.maxWindow,
     binding: queryBindingOf(params),
     clampsPins: false,
+    fusesRankings: request => request.vector !== undefined && (request.term !== undefined || request.mode === 'hybrid'),
     firstStage,
     async texts(docIds, fields) {
       const documents = await readDocuments(docIds)
@@ -46,11 +47,7 @@ export async function rerankClusterQuery<T>(
     async storedPins(docIds) {
       return new Set((await readDocuments(docIds)).keys())
     },
-    score: (adapter, query, documents) =>
-      callRerankAdapter(core.rerankAdapters, adapter, query, documents, {
-        timeoutMs: core.rerankSettings.timeoutMs,
-        signal: core.abortController.signal,
-      }),
+    score: (adapter, query, documents) => rerankOnHost(core, adapter, query, documents),
     async fillDocuments(hits, groups, projection) {
       const grouped = (groups ?? []).flatMap(group => group.hits)
       if (projection.kind === 'none') {

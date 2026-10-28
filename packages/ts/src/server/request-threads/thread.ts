@@ -11,7 +11,7 @@ import { refuseRegex } from '../regex-policy'
 import { createRouteRunner, type RouteContext, type RouteHandler } from '../request'
 import { registerServerRoutes, type ServerHandlers, serverRoutes } from '../routes'
 import { loadUWebSockets } from '../runtime'
-import { type QueryLimits, validateQuery, validateSuggest } from '../validation'
+import { type QueryLimits, validateQuery, validateSuggest, withServerRerankWindow } from '../validation'
 import { type ChildApp, childAppOf } from './acceptor'
 import type { RelayedRoute, RequestThreadSettings, ServeRequestsResult, ThreadOnlyRoute } from './messages'
 import { createThreadReadEngine, type ThreadReadEngine } from './read-engine'
@@ -64,7 +64,7 @@ function searchHandler(options: SearchHandlerOptions): RouteHandler {
       return
     }
     try {
-      respondJson(ctx, await answer(ctx.params[0], params))
+      respondJson(ctx, await answer(ctx.params[0], withServerRerankWindow(params, limits)))
     } catch (err) {
       if (staysOnThread(ctx.params[0], params)) respondError(ctx, err)
       else await fallback(ctx)
