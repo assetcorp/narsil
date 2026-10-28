@@ -31,6 +31,7 @@ export type {
   SnapshotStartPayload,
   SnapshotSyncRequestPayload,
   SortField,
+  StatsExpansionPayload,
   StatsPayload,
   StatsResultPayload,
   SyncEntriesPayload,

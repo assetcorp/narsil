@@ -1,4 +1,5 @@
 import { resolveIndexAnalysis } from '../../analysis/registry'
+import type { PreparedSynonyms } from '../../core/synonyms/types'
 import { getLanguage } from '../../languages/registry'
 import type { PartitionManager } from '../../partitioning/manager'
 import { validateEmbeddingConfig, validateRequiredFieldsInSchema } from '../../schema/embedding-validator'
@@ -15,9 +16,11 @@ import type { IndexRegistryEntry } from '../core'
 import type { DurabilityIntegration } from '../durability-integration'
 import type { IndexStateCoordinator } from '../index-state'
 import type { WorkerOrchestrator } from '../orchestration/types'
+import { prepareStoredSynonyms } from '../synonym-sets'
 import { requireSurfaceFormsForPartialFields, validatePatternValueLimit } from '../validation'
 import {
   type ConfigFieldRejection,
+  rejectSnapshot,
   restoredConfigFields,
   restoredEmbedding,
   type SnapshotEnvelope,
@@ -48,6 +51,7 @@ export interface PreparedIndex {
   embeddingAdapter: EmbeddingAdapter | null
   adapterName: string | null
   storedRevision: string | null
+  synonyms: PreparedSynonyms | null
 }
 
 export function prepareRestoredIndex(
@@ -92,7 +96,18 @@ export function prepareRestoredIndex(
     }
   }
   const storedRevision = typeof configuration.analysisRevision === 'string' ? configuration.analysisRevision : null
-  return { config, language, embeddingAdapter, adapterName, storedRevision }
+  const synonyms = restoredSynonyms(configuration.synonyms, config, language, reject ?? rejectSnapshot)
+  return { config, language, embeddingAdapter, adapterName, storedRevision, synonyms }
+}
+
+function restoredSynonyms(
+  raw: unknown,
+  config: IndexConfig,
+  language: LanguageModule,
+  reject: ConfigFieldRejection,
+): PreparedSynonyms | null {
+  if (raw === undefined || raw === null) return null
+  return prepareStoredSynonyms(raw, config, language, message => reject(`synonyms: ${message}`))
 }
 
 export async function prepareDetachedIndex(
@@ -103,7 +118,13 @@ export async function prepareDetachedIndex(
 ): Promise<DetachedIndex> {
   const loadingVectorCode = loadVectorCodeFor(prepared.config.schema)
   if (loadingVectorCode !== null) await loadingVectorCode
-  const detached = createDetachedIndex(indexName, prepared.config, prepared.language, deps.executor)
+  const detached = createDetachedIndex(
+    indexName,
+    prepared.config,
+    prepared.language,
+    prepared.synonyms?.lookup ?? null,
+    deps.executor,
+  )
   while (detached.manager.partitionCount < partitionCount) detached.manager.addPartition()
   return detached
 }
@@ -124,5 +145,6 @@ export function restoredRegistryEntry(
     documentCount: manager.countDocuments(),
     partitionCount: manager.partitionCount,
     analysisRevision: prepared.storedRevision,
+    synonyms: prepared.synonyms?.encoded ?? null,
   }
 }

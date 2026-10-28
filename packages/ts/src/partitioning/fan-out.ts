@@ -61,16 +61,14 @@ export async function fanOutQuery(
 
   if (effectiveMode === 'dfs') {
     if (params.term !== undefined && params.term.trim().length > 0) {
-      globalStats = collectQueryTermStats(
-        manager,
-        params.term,
-        language,
-        {
-          stopWords: searchOptions?.stopWords,
-          customTokenizer: searchOptions?.customTokenizer,
-        },
-        config.partitionIds,
-      )
+      const analysis = {
+        stopWords: searchOptions?.stopWords,
+        customTokenizer: searchOptions?.customTokenizer,
+        synonyms: searchOptions?.synonyms,
+      }
+      globalStats = collectQueryTermStats(manager, params.term, language, analysis, config.partitionIds, {
+        expansion: { options: params, schema },
+      })
     }
   } else if (effectiveMode === 'broadcast') {
     globalStats = config.globalStats

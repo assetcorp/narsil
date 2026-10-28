@@ -228,7 +228,7 @@ The scoring mode decides how many round trips the fan-out takes.
 
 **Local**, the default, takes one round trip, and each partition scores with its own statistics.
 
-**DFS**, for distributed frequency statistics, takes two round trips. The first collects `totalDocs`, `docFrequencies`, and `avgFieldLengths` from each partition. The coordinator then sums `totalDocs` and `docFrequencies` and computes weighted `avgFieldLengths`. The second sends the query together with those global statistics, and each partition rescores against globally correct inverse document frequencies.
+**DFS**, for distributed frequency statistics, takes two round trips. The first collects `totalDocs`, `docFrequencies`, and `avgFieldLengths` from each partition. The coordinator then sums `totalDocs` and `docFrequencies` and computes weighted `avgFieldLengths`. The second sends the query together with those global statistics, and each partition rescores against globally correct inverse document frequencies. The `docFrequencies` cover each [synonym](algorithms.md#synonyms) that the query adds, as well as each query term.
 
 **Broadcast** takes one round trip. The coordinator already holds global statistics, refreshed periodically through the invalidation adapter, and sends them with the query.
 
@@ -405,7 +405,7 @@ The listing behaves as follows:
 
 An implementation with parallel execution must hold a worker copy of an index on every worker once the index holds as many documents as the copy threshold. The copy threshold defaults to 1,000 documents. A caller may override that default through the workers configuration.
 
-A write may return before it reaches every worker copy, but the copies must receive the writes in the order the writes returned. A worker copy answers from the writes it holds, so a query may answer without a write that returned before it. A write that carries `wait: true` must return only once every worker copy holding the index has applied it. Likewise, a `waitForWrites(indexName)` call must return only once those copies have applied every write that returned before the call.
+A write may return before it reaches every worker copy, but the copies must receive the writes in the order the writes returned. A worker copy answers from the writes it holds, so a query may answer without a write that returned before it. A write that carries `wait: true` must return only once every worker copy holding the index has applied it. Likewise, a `waitForWrites(indexName)` call must return only once those copies have applied every write that returned before the call. A call that replaces the synonym set of an index must return only once every worker copy holding the index applies the new set.
 
 An implementation that receives a query on the main thread must send the whole query to the worker copy with the fewest queries in flight, except that it may answer on the main copy a query it receives while every copy holds a query, or while no copy holds one and the index holds at most 50,000 documents, unless the workers configuration directs every query to a copy.
 
@@ -435,7 +435,7 @@ A server that stops serving must keep the workers that hold its copies running. 
 
 ### What Crosses into a Worker
 
-A worker runs in its own memory with its own registries, and the engine reaches it by passing messages, so data crosses and code does not. A schema, a stop word set given as a set, and a pair of BM25 parameters all cross. A tokeniser instance, a stop word function, a stemmer, and a language module are code, and none of them crosses.
+A worker runs in its own memory with its own registries, and the engine reaches it by passing messages, so data crosses and code does not. A schema, a stop word set given as a set, a synonym set, and a pair of BM25 parameters all cross. A tokeniser instance, a stop word function, a stemmer, and a language module are code, and none of them crosses.
 
 An index therefore reaches a worker only when its configuration gives a name for each part of its analysis:
 

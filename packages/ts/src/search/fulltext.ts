@@ -3,6 +3,7 @@ import { fuzzyTermMatches } from '../core/fuzzy'
 import type { PartitionIndex, PartitionSearchMatches } from '../core/partition'
 import type { PatternWorkMeter } from '../core/pattern-index/types'
 import { createPatternWorkMeter } from '../core/pattern-index/work-meter'
+import type { SynonymLookup } from '../core/synonyms/types'
 import { tokenize } from '../core/tokenizer'
 import { ErrorCodes, NarsilError } from '../errors'
 import { flattenSchema, isWordIndexedFieldType } from '../schema/validator'
@@ -20,6 +21,7 @@ export interface FulltextSearchOptions {
   customTokenizer?: CustomTokenizer
   globalStats?: GlobalStatistics
   patternWork?: PatternWorkMeter
+  synonyms?: SynonymLookup | null
 }
 
 interface PreparedFulltextQuery extends ResolvedTermGroups {
@@ -65,7 +67,8 @@ function prepareFulltextQuery(
   }
 
   const lastToken = queryTokenResult.tokens[queryTokenResult.tokens.length - 1]
-  const groups = resolveTermGroups(partition, params, language, schema, queryTokens, lastToken, options)
+  const synonyms = params.exact === true ? undefined : options?.synonyms?.expand(queryTokens.map(qt => qt.token))
+  const groups = resolveTermGroups(partition, params, language, schema, queryTokens, lastToken, options, synonyms)
   return { queryTokens, ...groups, filterBitset }
 }
 
@@ -232,7 +235,7 @@ function filterByTermCoverage(
       if (member.factor === 0) partialOnly.add(member.token)
     }
     groups.set(group.token, {
-      members: new Set(group.members.map(member => member.token)),
+      members: new Set([...group.members.map(member => member.token), ...(group.synonyms?.tokens ?? [])]),
       partialOnly,
       typoMatches: group.typoMatches,
     })

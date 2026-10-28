@@ -2,6 +2,7 @@ import { codePointCount } from '../core/ordering/code-points'
 import type { PartitionIndex } from '../core/partition'
 import { addPartialWordMembers } from '../core/partition/partial-words/registry'
 import type { PartialWordAnalysis } from '../core/partition/partial-words/spellings'
+import type { QuerySynonyms } from '../core/synonyms/types'
 import { tokenize } from '../core/tokenizer'
 import { partialFieldsOf } from '../schema/validator'
 import type { ExpandedTermGroup } from '../types/internal'
@@ -97,15 +98,17 @@ export function resolveTermGroups(
   queryTokens: readonly QueryToken[],
   lastToken: QueryToken,
   analysis?: TermGroupAnalysis,
+  synonyms?: QuerySynonyms,
 ): ResolvedTermGroups {
   const term = params.term
   if (term === undefined || params.exact === true) return {}
   const usesPrefix = params.prefix === true
   const partialFields = params.partialWords === true ? partialFieldsOf(schema) : []
   const usesPartialWords = partialFields.length > 0 && searchesAPartialField(params, partialFields)
-  if (!usesPrefix && !usesPartialWords) return {}
+  if (!usesPrefix && !usesPartialWords && synonyms === undefined) return {}
 
-  const written = writtenWordsByPosition(term, language, analysis)
+  const written =
+    usesPrefix || usesPartialWords ? writtenWordsByPosition(term, language, analysis) : new Map<number, string>()
   const groups = new Map<string, ExpandedTermGroup>()
   if (usesPrefix) addCompletions(groups, partition, lastToken, written.get(lastToken.position))
   const prefixToken = groups.has(lastToken.token) ? lastToken.token : undefined
@@ -124,6 +127,8 @@ export function resolveTermGroups(
       (token, typoMatches) => groupFor(groups, token, typoMatches),
     )
   }
+
+  synonyms?.addTo(token => groupFor(groups, token, true))
 
   const termGroups = [...groups.values()]
   if (termGroups.length === 0) return {}

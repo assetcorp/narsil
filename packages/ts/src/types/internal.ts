@@ -1,3 +1,4 @@
+import type { GroupSynonyms } from '../core/synonyms/types'
 import type { PartitionConfig, ScoringMode, VectorIndexConfig } from './schema'
 
 export interface PostingEntry {
@@ -152,6 +153,7 @@ export interface IndexMetadata {
   required?: string[]
   vectorPromotion?: VectorIndexConfig
   patternValueLimit?: number
+  synonyms?: unknown
 }
 
 /** Persisted so recovery can restore field mappings and rebind the adapter by
@@ -213,6 +215,7 @@ export interface ExpandedTermGroup {
   token: string
   members: ExpandedTermMember[]
   typoMatches: boolean
+  synonyms?: GroupSynonyms
 }
 
 export interface InternalSearchParams {

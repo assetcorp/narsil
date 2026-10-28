@@ -1,3 +1,4 @@
+import type { SynonymLookup } from '../../core/synonyms/types'
 import type { PartitionManager } from '../../partitioning/manager'
 import type { FulltextSearchOptions } from '../../search/fulltext'
 import type { LanguageModule } from '../../types/language'
@@ -22,7 +23,13 @@ export interface DirectExecutorExtensions {
   holdsVectorField(indexName: string, fieldName: string): boolean
   /** Reads a document's vector from a field this thread holds in place, or undefined where it holds none for the document. */
   heldVectorOf(indexName: string, fieldName: string, docId: string): Float32Array | undefined
-  createIndex(indexName: string, config: IndexConfig, language: LanguageModule, analysisStale?: boolean): void
+  createIndex(
+    indexName: string,
+    config: IndexConfig,
+    language: LanguageModule,
+    analysisStale?: boolean,
+    synonyms?: SynonymLookup | null,
+  ): void
   dropIndex(indexName: string): void
   listIndexes(): string[]
 }

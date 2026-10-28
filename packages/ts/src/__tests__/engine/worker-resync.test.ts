@@ -61,7 +61,12 @@ describe('transferIndexToPool', () => {
     const recorder = recordingPool()
     const captured: number[] = []
 
-    const transfer = transferIndexToPool('prose', recorder.pool, { schema: { title: 'string' } }, managerOf(captured))
+    const transfer = transferIndexToPool(
+      'prose',
+      recorder.pool,
+      { config: { schema: { title: 'string' } }, synonyms: null },
+      managerOf(captured),
+    )
 
     expect(captured).toEqual([0, 1])
     expect(recorder.sentTypes).toEqual(['dropIndex', 'dropIndex'])
@@ -71,7 +76,15 @@ describe('transferIndexToPool', () => {
   it('creates the index on every worker and then sends each partition in order', async () => {
     const recorder = recordingPool()
 
-    await drain(recorder, transferIndexToPool('prose', recorder.pool, { schema: { title: 'string' } }, managerOf([])))
+    await drain(
+      recorder,
+      transferIndexToPool(
+        'prose',
+        recorder.pool,
+        { config: { schema: { title: 'string' } }, synonyms: null },
+        managerOf([]),
+      ),
+    )
 
     expect(recorder.sentTypes).toEqual([
       'dropIndex',

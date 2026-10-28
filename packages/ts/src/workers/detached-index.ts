@@ -1,3 +1,4 @@
+import type { SynonymLookup } from '../core/synonyms/types'
 import type { LanguageModule } from '../types/language'
 import type { IndexConfig } from '../types/schema'
 import type { VectorWorkerCopyPolicy } from '../vector/vector-index'
@@ -28,9 +29,11 @@ export function createDetachedIndex(
   indexName: string,
   config: IndexConfig,
   language: LanguageModule,
+  synonyms: SynonymLookup | null,
   executor: Pick<IndexReplacement, 'vectorWorkerCopies' | 'createDetachedEntry'>,
 ): DetachedIndex {
   const { policy, attach } = attachablePolicy(executor.vectorWorkerCopies)
   const entry = executor.createDetachedEntry(indexName, config, language, policy)
+  entry.manager.synonyms = synonyms
   return { indexName, manager: entry.manager, entry, attach }
 }
