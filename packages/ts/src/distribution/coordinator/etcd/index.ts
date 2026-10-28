@@ -16,12 +16,14 @@ import { loadEtcd3Module } from './loader'
 import { watchPrefix } from './prefix-watch'
 import { writeNodeRegistration } from './registration'
 import { createEtcdWriteGuard, requireEtcdMaxRequestBytes } from './request-size'
+import { etcdSecurityOptions } from './security'
 import { deserializeAllocationTable, deserializeNodeRegistration, serializeAllocationTable } from './serialization'
+import { probeEtcd } from './start-probe'
 import { storedValueMethods } from './stored-values'
 import { DEFAULT_ETCD_CONFIG, type EtcdCoordinatorConfig } from './types'
 import { validateNodeId, validatePartitionState } from './validation'
 
-export type { EtcdCoordinatorConfig } from './types'
+export type { EtcdAuthConfig, EtcdCoordinatorConfig, EtcdTlsConfig } from './types'
 export { validateNodeId } from './validation'
 
 /**
@@ -34,12 +36,23 @@ export { validateNodeId } from './validation'
  * package, because it is an optional peer dependency that this call loads on
  * demand.
  *
- * @param config - The endpoints, key prefix, heartbeat lifetime, and request
- * size to override. Every setting that you leave out keeps its default.
+ * The call reads from etcd once before it returns, so that a wrong
+ * certificate, a wrong password, or an etcd that nobody can reach fails the
+ * call itself.
+ *
+ * @param config - The endpoints, key prefix, heartbeat lifetime, request
+ * size, TLS certificates, and etcd user to override. Every setting that you
+ * leave out keeps its default.
  * @returns A coordinator that you pass as a cluster node's `coordinator`.
  * @throws A `NarsilError` with `COORDINATOR_DEPENDENCY_MISSING` when `etcd3`
  * is not installed, or with `CONFIG_INVALID` when `maxRequestBytes` is not a
- * whole number from 1,025 to 2,147,483,647.
+ * whole number from 1,025 to 2,147,483,647, when `tls` sets one of `cert`
+ * and `key` without the other or comes with an endpoint outside `https://`,
+ * or when `auth` would send its password over plain HTTP to an address other
+ * than a loopback one. It throws with `COORDINATOR_AUTH_FAILED` when etcd
+ * refuses the user or the password, and with `COORDINATOR_UNAVAILABLE` when
+ * no endpoint answers within 10 seconds or every endpoint fails the TLS
+ * handshake.
  *
  * @public
  */
@@ -50,11 +63,20 @@ export async function createEtcdCoordinator(config?: Partial<EtcdCoordinatorConf
   }
 
   requireEtcdMaxRequestBytes(resolvedConfig.maxRequestBytes)
+  const securityOptions = etcdSecurityOptions(resolvedConfig)
   const etcd3Module = await loadEtcd3Module()
   const client: Etcd3Client = new etcd3Module.Etcd3({
     hosts: resolvedConfig.endpoints,
     grpcOptions: { 'grpc.max_receive_message_length': ETCD_MAX_RESPONSE_BYTES },
+    ...securityOptions,
   })
+  const keys = coordinatorKeys(resolvedConfig)
+  try {
+    await probeEtcd(client, etcd3Module, keys.nodePrefix(), resolvedConfig.endpoints)
+  } catch (error) {
+    client.close()
+    throw error
+  }
   const guard = createEtcdWriteGuard(etcd3Module, resolvedConfig.maxRequestBytes)
   const leaseManager = new LeaseManager()
   const watchers = new Set<Watcher>()
@@ -65,8 +87,6 @@ export async function createEtcdCoordinator(config?: Partial<EtcdCoordinatorConf
       throw new NarsilError(ErrorCodes.CONFIG_INVALID, 'Coordinator has been shut down')
     }
   }
-
-  const keys = coordinatorKeys(resolvedConfig)
 
   function addWatcher(watcher: Watcher): void {
     if (watchers.size >= MAX_WATCHERS) {
