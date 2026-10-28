@@ -593,7 +593,18 @@ A response carries at most 65,536 groups, so a query whose matches group more fi
 {
   indexName:    string
   partitionIds: List<uint32>
-  terms:        List<string>   (the query terms to collect frequencies for)
+  terms:        List<string>                (the query terms to collect frequencies for)
+  expansion:    StatsExpansion or absent    (the query's matching options; absent counts the terms alone)
+  tokens:       List<string> or absent      (tokens to count as given, with no analysis or expansion)
+}
+
+StatsExpansion {
+  tolerance:    uint8 or absent
+  prefixLength: uint32 or absent
+  prefix:       boolean or absent
+  partialWords: boolean or absent
+  exact:        boolean or absent
+  fields:       List<string> or absent
 }
 ```
 
@@ -604,6 +615,7 @@ A response carries at most 65,536 groups, so a query whose matches group more fi
   totalDocuments:    uint32
   docFrequencies:    Map<string, uint32>
   totalFieldLengths: Map<string, uint64>
+  expanded:          List<string> or absent   (each token that a prefix completion or a partial-word search reached)
 }
 ```
 
