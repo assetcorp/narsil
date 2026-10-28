@@ -138,7 +138,7 @@ await narsil.restore('products', createReadStream('./products.tar'))
 
 With write-ahead log durability, the engine writes a checkpoint before it starts the stream, so the archive contains every write that the engine acknowledged before the call. The engine keeps that checkpoint's files on disk until the stream ends or you cancel it, even when it writes a later checkpoint without them. Without write-ahead log durability, the engine builds the archive's files from the index in memory.
 
-The engine reads the archive one file at a time. Before it replaces an existing index, it checks the length and checksum of each file against the manifest and decodes every document. When one of those checks fails, the engine raises an error and leaves the existing index unchanged. With write-ahead log durability, the engine writes the archive's files to a staging directory beside the index, then moves them into place once every check passes. If a crash interrupts a restore, the engine deletes the staging directory the next time it starts.
+The engine reads the archive one file at a time and checks the length and checksum of each file against the manifest. It then loads those files into a separate index, while the existing index goes on answering requests, and swaps the restored index in once it has loaded completely. When a check or the load fails, the engine raises an error and leaves the existing index unchanged and serving. With durability on, the engine writes the archive's files to a staging directory beside the index and keeps a journal while it moves them into place. If a crash interrupts the restore after the engine has written that journal, the engine finishes the move the next time it starts, so the index reopens as the restored one. If the crash comes before the journal exists, the engine deletes the staging directory, and the index reopens as it was.
 
 | Code | Raised when |
 | --- | --- |
@@ -147,6 +147,8 @@ The engine reads the archive one file at a time. Before it replaces an existing 
 | `ENVELOPE_VERSION_MISMATCH` | A file has a format version other than the ones that this release implements. |
 | `CONFIG_INVALID` | The archive's index configuration is invalid. |
 | `DOC_VALIDATION_FAILED` | The data is empty, or the release 0.3 snapshot file is invalid. |
+| `RESTORE_MEMORY_EXCEEDED` | The restored index would need more JavaScript heap or more process memory than the process has free. The engine checks this from the manifest, before it stages any file, and the existing index keeps serving. Drop the index first to free its memory, or give the process more. |
+| `WORKER_TIMEOUT` | A worker thread still holds the existing index 30 seconds after the engine asked every thread to let it go. The existing index keeps serving. |
 
 [`packages/spec`](../packages/spec) defines the archive format, so you can restore a snapshot from this engine in another process, on another machine, or with another implementation of the format. `restore` also accepts the single `.nrsl` file that `snapshot` returned in release 0.3, which the engine loads by inserting the file's documents and vectors as new writes.
 

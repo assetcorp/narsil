@@ -4,32 +4,33 @@ import { ErrorCodes, NarsilError } from '../errors'
 import { getLanguage } from '../languages/registry'
 import { sanitizeGlobalStats } from '../partitioning/distributed-scoring'
 import { type FanOutResult, fanOutQuery } from '../partitioning/fan-out'
-import { createPartitionManager, type PartitionManager } from '../partitioning/manager'
+import type { PartitionManager } from '../partitioning/manager'
 import { countsWithoutScores, fanOutMatchCount } from '../partitioning/match-count'
-import { createPartitionRouter } from '../partitioning/router'
-import { extractVectorFieldsFromSchema } from '../schema/validator'
-import type { FulltextSearchOptions } from '../search/fulltext'
 import type { LanguageModule } from '../types/language'
 import type { IndexConfig, VectorStorageMode } from '../types/schema'
-import {
-  createVectorIndex,
-  type VectorIndex,
-  type VectorSearcher,
-  type VectorWorkerCopyPolicy,
-} from '../vector/vector-index'
+import type { VectorSearcher, VectorWorkerCopyPolicy } from '../vector/vector-index'
 import type { Executor } from './executor'
+import {
+  createDetachedIndex,
+  createIndexEntry,
+  type DetachedIndex,
+  disposeIndexEntry,
+  type IndexEntry,
+  type IndexEntrySettings,
+  vectorIndexesFor,
+} from './index-entry'
 import type { WorkerAction } from './protocol'
 import { growPartitionsTo, isSegmentAction, runSegmentAction } from './segment-actions'
 import {
-  closeHeldVectorCopies,
   createHeldVectorCopies,
   dropHeldVectorCopy,
-  type HeldVectorCopies,
   heldVectorOf,
   holdsVectorField,
   insertIntoHeldGraph,
   loadHeldVectorCopy,
 } from './vector-copies'
+
+export type { DetachedIndex } from './index-entry'
 
 export interface IndexQueryContext {
   manager: PartitionManager
@@ -53,6 +54,17 @@ export interface DirectExecutorExtensions {
   listIndexes(): string[]
 }
 
+export interface IndexReplacement {
+  prepareDetachedIndex(
+    indexName: string,
+    config: IndexConfig,
+    language: LanguageModule,
+    analysisStale?: boolean,
+  ): DetachedIndex
+  installDetachedIndex(detached: DetachedIndex): void
+  discardDetachedIndex(detached: DetachedIndex): void
+}
+
 export interface DirectExecutorOptions {
   vectorWorkerCopies?: VectorWorkerCopyPolicy
   /** The thread writes into this scratch slot inside every vector block it opens, and it takes the same slot in every graph's lock record. */
@@ -61,24 +73,17 @@ export interface DirectExecutorOptions {
   vectorStorage?: VectorStorageMode
 }
 
-interface IndexEntry {
-  manager: PartitionManager
-  config: IndexConfig
-  language: LanguageModule
-  searchOptions: FulltextSearchOptions
-  vectorIndexes: Map<string, VectorIndex>
-  vectorCopies: HeldVectorCopies
-  analysisStale: boolean
-  awaitedCopyLoad: string | null
-}
-
 const NO_VECTOR_WORKER_COPIES: VectorWorkerCopyPolicy = { enabled: false }
 
-export function createDirectExecutor(options?: DirectExecutorOptions): Executor & DirectExecutorExtensions {
+export function createDirectExecutor(
+  options?: DirectExecutorOptions,
+): Executor & DirectExecutorExtensions & IndexReplacement {
   const indexes = new Map<string, IndexEntry>()
-  const vectorWorkerCopies = options?.vectorWorkerCopies ?? NO_VECTOR_WORKER_COPIES
   const threadSlot = options?.threadSlot ?? 0
-  const vectorStorage: VectorStorageMode = options?.vectorStorage ?? 'memory'
+  const settings: IndexEntrySettings = {
+    vectorWorkerCopies: options?.vectorWorkerCopies ?? NO_VECTOR_WORKER_COPIES,
+    vectorStorage: options?.vectorStorage ?? 'memory',
+  }
 
   function requireIndex(indexName: string): IndexEntry {
     const entry = indexes.get(indexName)
@@ -88,24 +93,6 @@ export function createDirectExecutor(options?: DirectExecutorOptions): Executor 
       })
     }
     return entry
-  }
-
-  function vectorIndexesFor(indexName: string, config: IndexConfig): Map<string, VectorIndex> {
-    const vectorIndexes = new Map<string, VectorIndex>()
-    for (const [fieldPath, dim] of extractVectorFieldsFromSchema(config.schema)) {
-      vectorIndexes.set(
-        fieldPath,
-        createVectorIndex(
-          fieldPath,
-          dim,
-          config.vectorPromotion,
-          vectorWorkerCopies,
-          indexName,
-          config.vectorPromotion?.storage ?? vectorStorage,
-        ),
-      )
-    }
-    return vectorIndexes
   }
 
   function createIndex(indexName: string, config: IndexConfig, language: LanguageModule, analysisStale = false): void {
@@ -125,37 +112,18 @@ export function createDirectExecutor(options?: DirectExecutorOptions): Executor 
       })
     }
 
-    const router = createPartitionRouter()
-    const partitionCount = config.partitions?.maxPartitions ?? 1
-    const vectorIndexes = vectorIndexesFor(indexName, config)
-    const manager = createPartitionManager(indexName, config, language, router, partitionCount, vectorIndexes)
-
-    indexes.set(indexName, {
-      manager,
-      config,
-      language,
-      searchOptions: {
-        bm25Params: config.bm25,
-        stopWords: manager.analysis.stopWords,
-        customTokenizer: manager.analysis.customTokenizer,
-      },
-      vectorIndexes,
-      vectorCopies: createHeldVectorCopies(),
-      analysisStale,
-      awaitedCopyLoad,
-    })
+    indexes.set(indexName, createIndexEntry(indexName, config, language, analysisStale, awaitedCopyLoad, settings))
   }
 
   function dropIndex(indexName: string): void {
-    const entry = requireIndex(indexName)
-    for (const vectorIndex of entry.vectorIndexes.values()) {
-      vectorIndex.dispose()
-    }
-    closeHeldVectorCopies(entry.vectorCopies)
-    for (const partition of entry.manager.getAllPartitions()) {
-      partition.clear()
-    }
+    disposeIndexEntry(requireIndex(indexName))
     indexes.delete(indexName)
+  }
+
+  function installDetachedIndex(detached: DetachedIndex): void {
+    const previous = indexes.get(detached.indexName)
+    indexes.set(detached.indexName, detached.entry)
+    if (previous !== undefined && previous !== detached.entry) disposeIndexEntry(previous)
   }
 
   function listIndexes(): string[] {
@@ -329,7 +297,7 @@ export function createDirectExecutor(options?: DirectExecutorOptions): Executor 
           partition.clear()
         }
         entry.manager.setPartitions(partitions)
-        entry.manager.resetVectorIndexes(vectorIndexesFor(action.indexName, entry.config))
+        entry.manager.resetVectorIndexes(vectorIndexesFor(action.indexName, entry.config, settings))
         entry.vectorIndexes = entry.manager.getVectorIndexes()
         entry.vectorCopies = createHeldVectorCopies()
 
@@ -387,5 +355,9 @@ export function createDirectExecutor(options?: DirectExecutorOptions): Executor 
     createIndex,
     dropIndex,
     listIndexes,
+    prepareDetachedIndex: (indexName, config, language, analysisStale = false) =>
+      createDetachedIndex(indexName, config, language, analysisStale, settings),
+    installDetachedIndex,
+    discardDetachedIndex: detached => disposeIndexEntry(detached.entry),
   }
 }

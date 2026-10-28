@@ -354,6 +354,15 @@ export function createVectorStore(options?: VectorStoreOptions): VectorStore {
 
     closeFiles: () => open?.view.close(),
 
+    relocateVectorFiles(rewrite: (path: string) => string): void {
+      if (open === null || open.handles.vectorFiles.length === 0) return
+      const files = open.handles.vectorFiles
+      for (let file = 0; file < files.length; file++) {
+        if (files[file].length > 0) files[file] = rewrite(files[file])
+      }
+      relayout(open)
+    },
+
     getOrdinal(docId: string): number | undefined {
       return docToOrd.get(docId)
     },

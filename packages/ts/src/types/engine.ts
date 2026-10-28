@@ -225,24 +225,24 @@ export interface Narsil extends IndexLifecycleOperations, DocumentWriteOperation
    * Creates an index from a snapshot under the name that you pass, replacing
    * any index of that name.
    *
-   * The engine accepts the archive that {@link Narsil.snapshot} streams. It
-   * also accepts the single `.nrsl` file that `snapshot` returned in release
-   * 0.3, and it inserts that file's documents and vectors as new writes. The
-   * engine reads an archive one file at a time. Before it replaces an existing
-   * index, it checks each file against the archive's manifest and decodes
-   * every document, so a failed check leaves the existing index unchanged.
+   * The engine accepts the archive that {@link Narsil.snapshot} streams and
+   * the `.nrsl` file of release 0.3. It checks each archive file against its
+   * manifest and loads the restored index beside the existing one, which
+   * answers requests until the swap. A failed restore leaves the existing index
+   * serving, and after a crash the engine reopens either the old or the new one.
    *
    * @param indexName - The name that the restored index takes.
-   * @param data - The snapshot's bytes, as one array, a stream, or an async
-   * iterable of chunks.
+   * @param data - The snapshot's bytes, as an array, a stream, or async chunks.
    * @throws A `NarsilError` with `PERSISTENCE_LOAD_FAILED` when the archive is
    * malformed or a file's length differs from the manifest. The engine raises
    * `PERSISTENCE_CRC_MISMATCH` when a file's checksum differs from its
    * contents, and `ENVELOPE_VERSION_MISMATCH` when a file has a format version
    * other than the ones that this release implements. It raises
-   * `CONFIG_INVALID` when the archive's configuration is invalid, and
+   * `CONFIG_INVALID` when the archive's configuration is invalid,
    * `DOC_VALIDATION_FAILED` when the data is empty or the release 0.3 file is
-   * invalid.
+   * invalid, `RESTORE_MEMORY_EXCEEDED` when the restored index needs more heap
+   * or process memory than is free, and `WORKER_TIMEOUT` when a worker thread
+   * still holds the existing index 30 seconds after the engine asks for it.
    */
   restore(indexName: string, data: ByteSource): Promise<void>
   /**

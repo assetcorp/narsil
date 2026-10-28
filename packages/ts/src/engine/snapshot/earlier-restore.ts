@@ -1,7 +1,10 @@
 import { decode } from '@msgpack/msgpack'
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { PartitionManager } from '../../partitioning/manager'
-import { setNestedValue } from '../../partitioning/manager/nested-values'
+import { buildArchiveFromMemory } from '../../persistence/archive/from-memory'
+import { validateStagedCheckpoint } from '../../persistence/archive/validate'
+import type { RestoreStaging } from '../../persistence/durability/restore-staging'
+import { manifestFileRefs } from '../../persistence/durability/segment/manifest'
 import { raiseEarlierReleaseGraphSetting } from '../../schema/validator'
 import { unpackIndexSnapshotEnvelope } from '../../serialization/envelope'
 import { deserializePayloadV1 } from '../../serialization/payload-v1'
@@ -9,16 +12,19 @@ import { documentsOfPayloadV2 } from '../../serialization/payload-v2'
 import type { SerializablePartition } from '../../types/internal'
 import type { AnyDocument } from '../../types/schema'
 import { bytesToVectors, decodeVectorIndexParts } from '../../vector/vector-index/payload'
-import { BATCH_CHUNK_SIZE } from '../constants'
-import type { DurableMutation } from '../durability-integration'
+import type { DetachedIndex } from '../../workers/direct-executor'
+import { indexMetadataOf } from '../durability-wiring'
 import { insertDocumentVectors } from '../vector-coordinator'
+import { loadStagedIndex } from './archive-restore'
+import { earlierSnapshotFootprint, type RestoreFootprint, requireRestoreMemory } from './memory-budget'
+import { installRestoredIndex, type RestoredIndex } from './replace'
 import type { SnapshotEnvelope } from './restore-config'
 import {
-  abandonRestoredIndex,
-  createRestoredIndex,
+  type PreparedIndex,
+  prepareDetachedIndex,
   prepareRestoredIndex,
   type RestoreDeps,
-  recordRestoredCounts,
+  restoredRegistryEntry,
 } from './restore-setup'
 
 type VectorsByDocument = Map<string, Map<string, Float32Array>>
@@ -73,16 +79,20 @@ function vectorsOfSnapshot(envelope: SnapshotEnvelope): VectorsByDocument {
   return byDocument
 }
 
-function documentsOfPartition(envelope: SnapshotEnvelope, payload: Uint8Array): SerializablePartition['documents'] {
-  return envelope.version === 2 ? documentsOfPayloadV2(payload).documents : deserializePayloadV1(payload).documents
+function footprintOf(envelope: SnapshotEnvelope, prepared: PreparedIndex, deps: RestoreDeps): RestoreFootprint {
+  let partitionBytes = 0
+  for (const payload of envelope.partitions ?? []) partitionBytes += payload.byteLength
+  const vectorCounts = new Map<string, number>()
+  for (const [fieldPath, rawParts] of Object.entries(envelope.vectorIndexes ?? {})) {
+    let count = 0
+    for (const part of decodeVectorIndexParts(rawParts)) count += part.docIds.length
+    vectorCounts.set(fieldPath, count)
+  }
+  return earlierSnapshotFootprint(prepared, partitionBytes, vectorCounts, deps.filesystemDurability)
 }
 
-function withVectors(fields: AnyDocument, vectors: Map<string, Float32Array> | undefined): AnyDocument {
-  if (vectors === undefined || vectors.size === 0) return fields
-  const nested = [...vectors.keys()].some(fieldPath => fieldPath.includes('.'))
-  const document = nested ? structuredClone(fields) : { ...fields }
-  for (const [fieldPath, vector] of vectors) setNestedValue(document, fieldPath, vector)
-  return document
+function documentsOfPartition(envelope: SnapshotEnvelope, payload: Uint8Array): SerializablePartition['documents'] {
+  return envelope.version === 2 ? documentsOfPayloadV2(payload).documents : deserializePayloadV1(payload).documents
 }
 
 function insertRestoredDocument(
@@ -101,63 +111,75 @@ function insertRestoredDocument(
   }
 }
 
-async function insertRestoredChunk(
-  indexName: string,
-  manager: PartitionManager,
-  chunk: readonly [string, AnyDocument][],
-  vectors: VectorsByDocument,
-  deps: RestoreDeps,
-): Promise<void> {
-  if (deps.durability === null) {
-    for (const [docId, fields] of chunk) insertRestoredDocument(manager, docId, fields, vectors.get(docId))
-    return
-  }
-  const mutations: DurableMutation[] = chunk.map(([docId, fields]) => ({
-    docId,
-    document: withVectors(fields, vectors.get(docId)),
-    apply: () => insertRestoredDocument(manager, docId, fields, vectors.get(docId)),
-  }))
-  for (const outcome of await deps.durability.recordMutationBatch(indexName, mutations)) {
-    if (!outcome.ok) throw outcome.error
-  }
-}
-
-async function insertSnapshotDocuments(
-  indexName: string,
-  envelope: SnapshotEnvelope,
-  manager: PartitionManager,
-  deps: RestoreDeps,
-): Promise<void> {
+function insertSnapshotDocuments(envelope: SnapshotEnvelope, manager: PartitionManager): void {
   const vectors = vectorsOfSnapshot(envelope)
   for (const payload of envelope.partitions ?? []) {
-    const documents = Object.entries(documentsOfPartition(envelope, payload)).map(
-      ([docId, stored]) => [docId, stored.fields as AnyDocument] as [string, AnyDocument],
-    )
-    for (let start = 0; start < documents.length; start += BATCH_CHUNK_SIZE) {
-      await insertRestoredChunk(indexName, manager, documents.slice(start, start + BATCH_CHUNK_SIZE), vectors, deps)
+    for (const [docId, stored] of Object.entries(documentsOfPartition(envelope, payload))) {
+      insertRestoredDocument(manager, docId, stored.fields as AnyDocument, vectors.get(docId))
     }
   }
   for (const vectorIndex of manager.getVectorIndexes().values()) vectorIndex.scheduleBuild()
 }
 
+async function stageBuiltIndex(
+  indexName: string,
+  prepared: PreparedIndex,
+  built: DetachedIndex,
+  staging: RestoreStaging,
+  deps: RestoreDeps,
+): Promise<RestoredIndex> {
+  const entry = restoredRegistryEntry(prepared, built.manager, deps)
+  const archive = await buildArchiveFromMemory({
+    indexName,
+    metadata: indexMetadataOf(indexName, entry, built.manager.partitionCount),
+    manager: built.manager,
+    vectorIndexes: built.manager.getVectorIndexes(),
+    appliedSeqNo: () => 0,
+    partitionId: null,
+  })
+  try {
+    for (const ref of manifestFileRefs(archive.manifest))
+      await staging.store.write(ref.key, [await archive.readFile(ref)])
+  } finally {
+    archive.release()
+  }
+  await validateStagedCheckpoint(staging.store, archive.manifest)
+  return loadStagedIndex(indexName, { prepared, manifest: archive.manifest }, staging, staging.store, deps)
+}
+
+async function buildRestoredIndex(
+  indexName: string,
+  envelope: SnapshotEnvelope,
+  prepared: PreparedIndex,
+  staging: RestoreStaging | null,
+  deps: RestoreDeps,
+): Promise<RestoredIndex> {
+  const built = prepareDetachedIndex(indexName, prepared, envelope.partitions?.length ?? 0, deps)
+  try {
+    insertSnapshotDocuments(envelope, built.manager)
+    if (staging === null) return { prepared, detached: built, staging: null, checkpoint: [] }
+    const restored = await stageBuiltIndex(indexName, prepared, built, staging, deps)
+    deps.executor.discardDetachedIndex(built)
+    return restored
+  } catch (err) {
+    deps.executor.discardDetachedIndex(built)
+    throw err
+  }
+}
+
 export async function restoreEarlierSnapshot(indexName: string, data: Uint8Array, deps: RestoreDeps): Promise<void> {
   const envelope = await decodeEarlierSnapshot(data)
   const prepared = prepareRestoredIndex(envelope, deps)
+  requireRestoreMemory(indexName, footprintOf(envelope, prepared, deps))
   const analysedNow = { ...prepared, storedRevision: prepared.language.revision }
-  const partitionCount = envelope.partitions?.length ?? 0
-  const { manager, release } = await createRestoredIndex(indexName, analysedNow, partitionCount, deps)
+  const staging = deps.durability?.manager.stageRestore?.(indexName) ?? null
   try {
-    await insertSnapshotDocuments(indexName, envelope, manager, deps)
-    recordRestoredCounts(indexName, manager, deps)
-    if (deps.durability) {
-      await deps.durability.manager.persistMetadata(indexName)
-      await deps.durability.manager.checkpoint(indexName)
-    }
-    await deps.announceIndexCreated(indexName, prepared.config)
-  } catch (err) {
-    await abandonRestoredIndex(indexName, deps)
-    throw err
+    await installRestoredIndex(
+      indexName,
+      await buildRestoredIndex(indexName, envelope, analysedNow, staging, deps),
+      deps,
+    )
   } finally {
-    release()
+    await staging?.discard().catch(() => undefined)
   }
 }
