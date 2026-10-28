@@ -7,7 +7,14 @@ import type { QuerySynonyms, SynonymAnalysis, SynonymLookup, SynonymSearchModule
 
 let registered: SynonymSearchModule | null = null
 
-const MODULE_FUNCTIONS = ['buildLookup', 'expandQuery', 'combinePostings'] as const
+const MODULE_FUNCTIONS = [
+  'buildLookup',
+  'expandQuery',
+  'combinePostings',
+  'parseRules',
+  'encodeRules',
+  'decodeRules',
+] as const
 
 function isSynonymSearchModule(value: SynonymSearch): value is SynonymSearchModule {
   if (value === null || typeof value !== 'object' || value.name !== 'synonyms') return false
@@ -70,4 +77,17 @@ export function expandQuerySynonyms(
 
 export function combineSynonymPostings(lists: readonly PostingListView[]): PostingListView {
   return synonymModule().combinePostings(lists)
+}
+
+export function parseSynonymRules(value: unknown, raise: RaiseSynonymProblem): SynonymRule[] {
+  if (Array.isArray(value) && value.length === 0) return []
+  return synonymModule().parseRules(value, raise)
+}
+
+export function encodeSynonymRules(rules: readonly SynonymRule[]): Uint8Array {
+  return synonymModule().encodeRules(rules)
+}
+
+export function decodeSynonymRules(bytes: Uint8Array, raise: RaiseSynonymProblem): SynonymRule[] {
+  return synonymModule().decodeRules(bytes, raise)
 }

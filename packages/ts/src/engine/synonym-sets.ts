@@ -1,5 +1,5 @@
 import { resolveIndexAnalysis } from '../analysis/registry'
-import { encodeSynonymRules } from '../core/synonyms/rules'
+import { encodeSynonymRules } from '../core/synonyms/registry'
 import {
   type PreparedSynonyms,
   prepareSynonyms,

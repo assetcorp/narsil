@@ -262,7 +262,7 @@ export interface IndexConfig {
    * exactly one token. {@link Narsil.createIndex} throws `CONFIG_INVALID` for
    * a stop word, a phrase, a word that holds a control character, or a set
    * beyond 100,000 rules, 500,000 words, or 4,194,304 bytes of words in UTF-8.
-   * {@link Narsil.updateSynonyms} replaces the set without a rebuild.
+   * {@link SynonymOperations.updateSynonyms} replaces the set without a rebuild.
    */
   synonyms?: SynonymRule[]
 }
