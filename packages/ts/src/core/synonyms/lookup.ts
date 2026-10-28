@@ -3,8 +3,8 @@ import { compareCodePoints } from '../ordering'
 import { encodeLookupKey, encodeStringBlob } from '../partition/frozen/string-blob'
 import { tokenize } from '../tokenizer'
 import { SYNONYM_EXPANSION_CACHE_ENTRIES, SYNONYMS_ADDED_PER_QUERY } from './constants'
-import type { RaiseSynonymProblem } from './rules'
-import type { SynonymAnalysis, SynonymLookup } from './types'
+import { expandQuerySynonyms } from './expand'
+import type { RaiseSynonymProblem, SynonymAnalysis, SynonymLookup } from './types'
 
 const NO_SOURCE = -1
 const NO_SYNONYMS: readonly string[] = Object.freeze([])
@@ -124,9 +124,10 @@ function packedLookup(
     return Object.freeze(synonyms)
   }
 
-  return {
+  const lookup: SynonymLookup = {
     tokenCount: names.length,
     bytes,
+    expand: queryTokens => expandQuerySynonyms(lookup, queryTokens),
     synonymsOf(token: string): readonly string[] {
       const cached = cache.get(token)
       if (cached !== undefined) {
@@ -145,6 +146,7 @@ function packedLookup(
       return synonyms
     },
   }
+  return lookup
 }
 
 export function buildSynonymLookup(

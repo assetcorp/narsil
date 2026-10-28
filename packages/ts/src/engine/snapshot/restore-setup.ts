@@ -1,6 +1,5 @@
 import { resolveIndexAnalysis } from '../../analysis/registry'
-import { encodeSynonymRules, parseSynonymRules } from '../../core/synonyms/registry'
-import type { PreparedSynonyms } from '../../core/synonyms/stored'
+import type { PreparedSynonyms } from '../../core/synonyms/types'
 import { getLanguage } from '../../languages/registry'
 import type { PartitionManager } from '../../partitioning/manager'
 import { validateEmbeddingConfig, validateRequiredFieldsInSchema } from '../../schema/embedding-validator'
@@ -14,7 +13,7 @@ import type { StaleIndex } from '../analysis-rebuild'
 import type { IndexRegistryEntry } from '../core'
 import type { DurabilityIntegration } from '../durability-integration'
 import type { IndexStateCoordinator } from '../index-state'
-import { lookupOfStoredSynonyms } from '../synonym-sets'
+import { prepareStoredSynonyms } from '../synonym-sets'
 import { requireSurfaceFormsForPartialFields, validatePatternValueLimit } from '../validation'
 import {
   type ConfigFieldRejection,
@@ -107,10 +106,7 @@ function restoredSynonyms(
   reject: ConfigFieldRejection,
 ): PreparedSynonyms | null {
   if (raw === undefined || raw === null) return null
-  const rules = parseSynonymRules(raw, message => reject(`synonyms: ${message}`))
-  if (rules.length === 0) return null
-  const encoded = encodeSynonymRules(rules)
-  return { encoded, lookup: lookupOfStoredSynonyms(encoded, config, language) }
+  return prepareStoredSynonyms(raw, config, language, message => reject(`synonyms: ${message}`))
 }
 
 export async function createRestoredIndex(

@@ -8,8 +8,7 @@ import {
   MIN_ONE_WAY_SYNONYMS,
   MIN_TWO_WAY_SYNONYM_WORDS,
 } from './constants'
-
-export type RaiseSynonymProblem = (message: string, details: Record<string, unknown>) => never
+import type { RaiseSynonymProblem } from './types'
 
 const FIRST_PRINTABLE_CODE = 0x20
 

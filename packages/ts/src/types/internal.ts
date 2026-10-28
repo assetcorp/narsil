@@ -1,5 +1,5 @@
+import type { GroupSynonyms } from '../core/synonyms/types'
 import type { PartitionConfig, ScoringMode, VectorIndexConfig } from './schema'
-import type { SynonymRule } from './synonyms'
 
 export interface PostingEntry {
   docId: string
@@ -173,7 +173,7 @@ export interface IndexMetadata {
   required?: string[]
   vectorPromotion?: VectorIndexConfig
   patternValueLimit?: number
-  synonyms?: SynonymRule[]
+  synonyms?: unknown
 }
 
 /** Persisted so recovery can restore field mappings and rebind the adapter by
@@ -235,7 +235,7 @@ export interface ExpandedTermGroup {
   token: string
   members: ExpandedTermMember[]
   typoMatches: boolean
-  synonyms?: readonly string[]
+  synonyms?: GroupSynonyms
 }
 
 export interface InternalSearchParams {

@@ -1,6 +1,5 @@
 import { decode, encode } from '@msgpack/msgpack'
 import { compareCodePoints } from '../../core/ordering'
-import { storedSynonymRules } from '../../core/synonyms/stored'
 import { ErrorCodes, NarsilError } from '../../errors'
 import { messagePackUpperBoundBytes } from '../../schema/validator/document-size'
 import { openChecksummedEnvelope, packChecksummedEnvelope } from '../../serialization/envelope-file'
@@ -9,6 +8,7 @@ import type { IndexConfig } from '../../types/schema'
 import type { SynonymRule } from '../../types/synonyms'
 import { MAX_INDEX_CONFIGURATION_BYTES } from '../constants'
 import type { IndexRegistryEntry } from '../core'
+import { rulesOfStoredSynonyms } from '../synonym-sets'
 import type { SnapshotEnvelope } from './restore-config'
 
 export const INDEX_CONFIGURATION_ENVELOPE_VERSION = 5
@@ -30,7 +30,7 @@ function refuseCode(entry: IndexRegistryEntry): void {
 
 export function indexConfigurationOf(entry: IndexRegistryEntry): Record<string, unknown> {
   refuseCode(entry)
-  const synonyms = entry.synonyms === null ? undefined : storedSynonymRules(entry.synonyms)
+  const synonyms = entry.synonyms === null ? undefined : rulesOfStoredSynonyms(entry.synonyms)
   return configurationPayloadOf(
     entry.config,
     entry.language,

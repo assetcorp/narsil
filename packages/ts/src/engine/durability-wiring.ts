@@ -1,5 +1,4 @@
 import { compareCodePoints } from '../core/ordering'
-import { storedSynonymRules } from '../core/synonyms/stored'
 import type { PartitionManager } from '../partitioning/manager'
 import type { LayoutUpgradeEvent } from '../persistence/durability/earlier-layout/upgrade'
 import { flattenSchema } from '../schema/validator'
@@ -12,6 +11,7 @@ import {
   type MetadataConfig,
   metadataFromConfig,
 } from './durability-integration'
+import { rulesOfStoredSynonyms } from './synonym-sets'
 
 interface DurabilityWiring {
   getManager: (indexName: string) => PartitionManager | undefined
@@ -88,7 +88,7 @@ export function metadataConfigOf(entry: IndexRegistryEntry): MetadataConfig {
     ...(entry.config.required !== undefined ? { required: entry.config.required } : {}),
     ...(entry.config.vectorPromotion !== undefined ? { vectorPromotion: entry.config.vectorPromotion } : {}),
     ...(entry.config.patternValueLimit !== undefined ? { patternValueLimit: entry.config.patternValueLimit } : {}),
-    ...(entry.synonyms !== null ? { synonyms: storedSynonymRules(entry.synonyms) } : {}),
+    ...(entry.synonyms !== null ? { synonyms: rulesOfStoredSynonyms(entry.synonyms) } : {}),
   }
 }
 

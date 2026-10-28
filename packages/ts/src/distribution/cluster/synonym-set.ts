@@ -1,5 +1,5 @@
 import { generateId } from '../../core/id-generator'
-import { decodeSynonymRules } from '../../core/synonyms/registry'
+import { decodeSynonymRules } from '../../core/synonyms/rules'
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { SynonymRule } from '../../types/synonyms'
 import type { ClusterCoordinator } from '../coordinator/types'

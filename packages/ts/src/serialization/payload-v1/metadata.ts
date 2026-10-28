@@ -1,5 +1,4 @@
 import { decode, encode } from '@msgpack/msgpack'
-import { parseSynonymRules } from '../../core/synonyms/registry'
 import { ErrorCodes, NarsilError } from '../../errors'
 import { isQuantizationMode, isStorageMode } from '../../schema/validator/vector-promotion'
 import type { IndexMetadata } from '../../types/internal'
@@ -128,7 +127,7 @@ function metadataToWire(meta: IndexMetadata): RawMetadataPayload {
   if (meta.heldPartitions !== undefined) {
     wire.held_partitions = meta.heldPartitions
   }
-  if (meta.synonyms !== undefined && meta.synonyms.length > 0) {
+  if (Array.isArray(meta.synonyms) && meta.synonyms.length > 0) {
     wire.synonyms = meta.synonyms
   }
   return wire
@@ -270,16 +269,7 @@ function wireToMetadata(raw: RawMetadataPayload): IndexMetadata {
   if (Array.isArray(raw.held_partitions) && raw.held_partitions.every(isNonNegativeInteger)) {
     meta.heldPartitions = raw.held_partitions
   }
-  if (raw.synonyms !== undefined && raw.synonyms !== null) {
-    const synonyms = parseSynonymRules(raw.synonyms, (message, details) => {
-      throw new NarsilError(
-        ErrorCodes.CONFIG_INVALID,
-        `The synonym set in the index metadata is invalid: ${message}`,
-        details,
-      )
-    })
-    if (synonyms.length > 0) meta.synonyms = synonyms
-  }
+  if (raw.synonyms !== undefined && raw.synonyms !== null) meta.synonyms = raw.synonyms
   return meta
 }
 

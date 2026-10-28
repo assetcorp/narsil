@@ -1,5 +1,5 @@
 import { readHeapStatistics } from '#platform/heap-statistics'
-import { storedSynonymLookup } from '../core/synonyms/stored'
+import { synonymModule } from '../core/synonyms/registry'
 import type { SynonymLookup } from '../core/synonyms/types'
 import { ErrorCodes, NarsilError } from '../errors'
 import { getLanguage } from '../languages/registry'
@@ -124,11 +124,11 @@ export function createDirectExecutor(options?: DirectExecutorOptions): Executor 
   }
 
   function lookupOf(
-    manager: PartitionManager,
+    config: IndexConfig,
     language: LanguageModule,
     encoded: Uint8Array | undefined,
   ): SynonymLookup | null {
-    return storedSynonymLookup(encoded, { language, ...manager.analysis })
+    return encoded === undefined ? null : synonymModule().storedLookup(encoded, config, language)
   }
 
   function addIndex(
@@ -232,7 +232,7 @@ export function createDirectExecutor(options?: DirectExecutorOptions): Executor 
           action.copyLoad ?? null,
         )
         try {
-          manager.replaceSynonyms(lookupOf(manager, language, action.synonyms))
+          manager.replaceSynonyms(lookupOf(action.config, language, action.synonyms))
         } catch (err) {
           dropIndex(action.indexName)
           throw err
@@ -299,7 +299,7 @@ export function createDirectExecutor(options?: DirectExecutorOptions): Executor 
 
       case 'replaceSynonyms': {
         const entry = indexes.get(action.indexName)
-        if (entry !== undefined) entry.manager.replaceSynonyms(lookupOf(entry.manager, entry.language, action.synonyms))
+        if (entry !== undefined) entry.manager.replaceSynonyms(lookupOf(entry.config, entry.language, action.synonyms))
         return undefined as T
       }
 
