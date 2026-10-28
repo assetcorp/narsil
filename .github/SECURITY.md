@@ -19,4 +19,4 @@ Include as much as you can:
 
 ## What to expect
 
-You will get an acknowledgement of your report. Once the issue is confirmed, a fix and a coordinated disclosure will follow. The multi-node distribution layer is experimental and not meant for production, so hardening there is still in progress.
+You will get an acknowledgement of your report. Once the issue is confirmed, a fix and a coordinated disclosure will follow.

@@ -2,8 +2,6 @@
 
 Narsil operates as a cluster of nodes that share one set of indexes. The engine splits each index into a fixed number of partitions, each of which takes its writes through one primary node. Before the client receives its answer, every replica of that partition takes the write through a replication log. The documents in [`packages/spec/distribution`](../packages/spec/distribution) define the cross-language contract, while this guide covers the TypeScript implementation under `@delali/narsil/distribution`.
 
-Cluster mode is experimental. The API may change between releases, so pin an exact version before you depend on it.
-
 ## Build a node
 
 A node needs two adapters: a coordinator, which holds the cluster's shared state, and a transport, which sends messages between nodes. The in-memory pair keeps a whole cluster inside one process, which is how the test suite exercises it.
@@ -41,7 +39,55 @@ etcd refuses any request larger than its `--max-request-bytes` setting, which is
 
 A node plays one or more of three roles. A `data` node holds partitions and serves searches. A `coordinator` node fans client requests out and merges the answers. A `controller` node stands for election. The node that holds the lease then assigns partitions to nodes. A node holds all three roles by default, which suits a cluster of three nodes or fewer. Every node registers with the coordinator whatever roles it holds, so the registry lists a coordinator-only node as well. The controller places partitions on `data` nodes alone.
 
-A node that sets a durability directory and no `nodeId` generates its id on its first start, stores it in that directory, and registers under the same id after every restart, so that it takes up the partitions that it held before. When a data node leaves the cluster, whether it shut down or lost its coordinator lease, the controller promotes an in-sync replica at once for every partition that the node led. The controller then waits for `controller.nodeLeftDelayMs`, which is 60000 milliseconds by default, before it moves the node's replicas to other nodes. A node that registers again under the same id within that time keeps its replicas and catches up on the writes that it missed, which can spare it a full copy of each partition. Set `nodeLeftDelayMs` to 0 where you want the controller to move the replicas as soon as a node leaves.
+## Connect to etcd over TLS
+
+`createEtcdCoordinator` connects to etcd over TLS when you set `tls`, and it signs in as an etcd user when you set `auth`:
+
+```ts
+import { readFileSync } from 'node:fs'
+import { createEtcdCoordinator } from '@delali/narsil/distribution/coordinator/etcd'
+
+const coordinator = await createEtcdCoordinator({
+  endpoints: ['https://etcd-1.internal:2379', 'https://etcd-2.internal:2379', 'https://etcd-3.internal:2379'],
+  tls: {
+    ca: readFileSync('/etc/narsil/etcd-ca.pem'),
+    cert: readFileSync('/etc/narsil/etcd-client.pem'),
+    key: readFileSync('/etc/narsil/etcd-client-key.pem'),
+  },
+  auth: { username: 'narsil', password: readFileSync('/etc/narsil/etcd-password', 'utf8').trim() },
+})
+```
+
+`tls.ca` holds the certificate authority, in PEM form, that the certificate of every etcd member must chain to. Set `tls.cert` and `tls.key` together, also in PEM form, where etcd asks each client for a certificate. `auth` holds the `username` and the `password` of the etcd user. `createEtcdCoordinator` raises `CONFIG_INVALID` before it connects in each of these cases:
+
+- `tls` sets one of `cert` and `key` without the other.
+- `tls` is set while an endpoint starts with something other than `https://`.
+- `auth` holds an empty user name or an empty password.
+- `auth` would send the password over `http://` to a host other than a loopback address, which is `localhost`, `::1`, or an address that starts with `127.`.
+
+That last rule keeps the password from crossing a network in clear text, so a password over `http://` works only with an etcd on the same machine. Once the settings pass, the call reads from etcd before it returns, so that a wrong certificate or a wrong password fails the call itself and never a later write. It raises `COORDINATOR_AUTH_FAILED` when etcd refuses the user or the password, and `COORDINATOR_UNAVAILABLE` when no endpoint answers within 10 seconds or every endpoint fails the TLS handshake.
+
+The coordinator recovers from two etcd failures while the node is up. When etcd cancels a watch, the coordinator opens it again and reads the keys once more, so that it reports every change that it missed. When etcd drops the lease that holds a node's registration, the coordinator writes the registration again under a new lease. Where an attempt at either fails, the coordinator tries again after 100 milliseconds, and it doubles that wait after each further failure up to 5 seconds.
+
+## Keep a node's identity across restarts
+
+A node with a durability directory keeps its id in that directory. Where you set no `nodeId`, `createClusterNode` generates an id the first time, writes the id to a `.narsil-node-id` file in `engine.durability.directory`, and reads it back every time after that, so that the controller recognises the copies that the node held before it stopped. A `nodeId` that you set takes precedence, and the node writes it to no file. A node without a durability directory takes a new id on every start, so the cluster treats it as a new node after each restart.
+
+The engine of the node locks the durability directory before the node reads its id, so `createClusterNode` raises `CONFIG_INVALID` for a second node that points at a directory that another node holds. [Durability](persistence-and-durability.md#durability) explains how the lock works. `createClusterNode` raises `CONFIG_INVALID` as well where the `.narsil-node-id` file holds anything other than an id that a node wrote. Restore the file in that case, or delete it so that the node starts under a new id, which leaves the cluster to rebuild the copies that the node held.
+
+A node that stops without leaving the cluster can leave its registration behind until its lease expires, which takes up to `nodeHeartbeatTtlSeconds` of the etcd coordinator, 30 seconds by default. Where the node restarts within that time, `start` waits for the earlier registration to lapse before it registers again, so that two registrations never claim one id at once. `start` raises `NODE_VERSION_INCOMPATIBLE` before it registers where the active controller follows a specification version with another major version, because nodes on different major versions can't share a cluster. The controller also places no partition on a node whose major version differs from its own.
+
+When a data node leaves the cluster, whether it shut down or lost its coordinator lease, the controller promotes an in-sync replica at once for every partition that the node led. The controller then waits for `controller.nodeLeftDelayMs`, which is 60000 milliseconds by default, before it moves the replicas of the node to other nodes. A node that registers again under the same id within that time keeps its replicas and catches up on the writes that it missed, which can spare it a full copy of each partition. Set `nodeLeftDelayMs` to 0 where you want the controller to move the replicas as soon as a node leaves.
+
+## Take a node out of the cluster
+
+`node.decommission()` moves every copy off a node before the node leaves. The node marks its registration as draining, so the controller places nothing new on it. The controller then hands each partition that the node leads to an in-sync replica on another node. It moves each replica that the node holds by adding the new copy first, and it drops the old copy only once enough in-sync copies outside the move remain to meet the replication factor. The call returns once no allocation table holds the node and the node has shut down.
+
+```ts
+await node.decommission({ signal: AbortSignal.timeout(600_000) })
+```
+
+The drain waits for as long as the cluster has no other node that can take a copy, so pass `signal` where you want to stop waiting. An abort rejects the call with the reason of the signal, clears the draining mark, and leaves the node in the cluster. `node.shutdown()` leaves at once, so the controller treats the node as failed and waits for `nodeLeftDelayMs` before it moves the replicas of the node.
 
 ## Create, drop, and clear an index
 
@@ -55,19 +101,25 @@ await node.createIndex(
 )
 ```
 
-`partitionCount` defaults to 5 and stays fixed for the life of the index. `replicationFactor` counts the copies beyond the primary and defaults to 1, which means two copies of every partition. A factor of 0 keeps one copy, so you lose that partition's documents when the node that holds it fails.
+`partitionCount` defaults to 5. `replicationFactor` counts the copies beyond the primary and defaults to 1, which means two copies of every partition. A factor of 0 keeps one copy, so you lose that partition's documents when the node that holds it fails. You can change both later, as [Change the replication factor and the partition count](#change-the-replication-factor-and-the-partition-count) describes.
 
 Every node creates its copy of the index with the configuration that you pass to `createIndex`, because the creating node stores that configuration in the coordinator beside the schema. A node cannot serialise code into the coordinator, so give the tokenizer and the embedding adapter by the names that you registered them under, and give the stop words as a set or as a registered name. For a tokenizer instance, an adapter instance, or a stop word function, `createIndex` raises `CONFIG_INVALID`. Register the language module and each of those names on every node, because any node can create a copy of the index or lead one of its partitions.
 
 A node without filesystem durability raises `CONFIG_INVALID` as it creates its copy of an index whose `vectorPromotion.storage` is `disk`, so only the nodes with filesystem durability can hold that index's partitions. Give every data node filesystem durability before you create such an index.
 
-In a cluster, `partitions.maxDocsPerPartition` caps each partition on its own, because a node can hold only some of an index's partitions. The primary of a partition fails an insert into it with `PARTITION_CAPACITY_EXCEEDED` once the partition holds that many documents, while each replica applies every write that its primary acknowledges. The hash can assign more document ids to one partition than to another, so inserts into a full partition can fail while inserts into the other partitions succeed. With `partitions.watermark` set, the primary emits `partitionWatermark` with a `partitionId` when one of its partitions crosses the threshold. The partition count of a cluster index stays fixed for life, so when an index reaches its capacity, create a new index with more partitions and reindex into it.
+In a cluster, `partitions.maxDocsPerPartition` caps each partition on its own, because a node can hold only some of an index's partitions. The primary of a partition fails an insert into it with `PARTITION_CAPACITY_EXCEEDED` once the partition holds that many documents, while each replica applies every write that its primary acknowledges. The hash can assign more document ids to one partition than to another, so inserts into a full partition can fail while inserts into the other partitions succeed. With `partitions.watermark` set, the primary emits `partitionWatermark` with a `partitionId` when one of its partitions crosses the threshold. When an index reaches its capacity, raise its partition count with `rebalance`, which spreads its documents over more partitions.
 
 `waitForServingMs` bounds the wait and defaults to 30000. The call returns at the deadline whether or not the partitions are in service. It returns at once where no registered node holds the `controller` role or none holds the `data` role, because no node can allocate the index. A write that a node receives before the allocation exists fails with `QUERY_ROUTING_FAILED`, whose message gives the state of the cluster. A caller that passes 0 to skip the wait can therefore expect that code until the controller places the partitions. See [What a node serves](#what-a-node-serves).
 
 `dropIndex` removes the index from the whole cluster. The node that receives the call clears the index metadata and drops the schema. The controller then empties the allocation, after which every node that holds a copy drops it. The teardown finishes after the call returns, so a client that queries during the teardown can hit a node whose copy is already gone. The name becomes reusable once the coordinator state is gone.
 
 `clear` empties an index and keeps it. The engine sends each removal through the replication log the way it sends a single `remove`, so it performs one listing and one batched removal per page while it clears a large index.
+
+## Change the replication factor and the partition count
+
+`node.cluster.setReplicationFactor(indexName, replicationFactor)` changes how many replicas besides the primary each partition of an index keeps, as an integer from 0 to 255. The node sends the change to the active controller, which stores the factor in the index metadata and writes an allocation table that carries it before the call returns. A higher factor adds replicas, each of which catches up from its primary. A lower factor removes the surplus replicas, lagging ones first, and never removes the primary. The call raises `CONFIG_INVALID` for a factor outside that range, `INDEX_NOT_FOUND` where the cluster holds no index of that name, and `NODE_NOT_CONTROLLER` while no node holds the controller lease. Over HTTP, send `PUT /indexes/{name}/replication-factor`, which the [HTTP server guide](http-server.md#cluster-routes) describes.
+
+`node.rebalance(indexName, targetPartitionCount)` moves an index onto a new number of partitions, from 1 to 65,536. The controller creates a hidden index with the new partition count and copies every document into it. Meanwhile the current partitions go on serving reads and writes, and the primary of each one forwards to the hidden index the writes that it takes during the copy. Once every current partition has forwarded all but 1,000 or fewer of its writes, the controller blocks writes to the index, waits for the hidden index to take the last of them, and points the index name at the new partitions in a single allocation write. Each cutover lasts 10 seconds at most, and a write that arrives during it fails with `PARTITION_REBALANCING_BACKPRESSURE`, which the HTTP server answers with status 409, so send that write again once the cutover ends. Where the hidden index has not caught up within those 10 seconds, the controller lifts the block and tries the cutover again later. After 10 tries the controller abandons the change, and the call raises `ALLOCATION_FAILED` while the index keeps its partitions. The call also raises `CONFIG_INVALID` for a count outside that range or equal to the current one, `PARTITION_REBALANCING_BACKPRESSURE` while another change to the same index is in progress, and `NODE_NOT_CONTROLLER` while no node holds the controller lease. Over HTTP, `POST /indexes/{name}/_rebalance` starts the change as a task, which [Tasks](http-server.md#tasks) describes. Once the change finishes, `node.cluster.getAllocation` returns the table of the new partitions under the name of the index.
 
 ## What a node does with the indexes that it already holds
 
@@ -170,9 +222,11 @@ await createClusterNode({
 
 These reads refuse to answer partially, because each returns a figure that a missing partition would silently falsify. The call fails with `QUERY_NO_ACTIVE_REPLICA` where a partition has no reachable copy, and it fails the same way where every copy of a partition is still bootstrapping.
 
+`listIndexes` lists every index that the cluster holds a schema for, with its document count summed over every partition, and it fails with `QUERY_PARTIAL_FAILURE` where no copy of some partition answers its count. The state, the reopen count, and the stale analysis flag in each entry describe the copy on the node that you call. `rebuildAnalysis` rebuilds the terms of an index on every node that holds a copy, and it returns once every one of those nodes has finished. Each node rebuilds its own copies from their documents and skips a copy whose analysis is current. The call fails with `QUERY_PARTIAL_FAILURE` where a node fails, can't be reached, or leaves the cluster before it answers, and the error's `details.nodeIds` holds each such node.
+
 ## What a node serves
 
-A node routes every read and every write for an index through the allocation table that the coordinator holds for it. While the coordinator holds the index metadata and no allocation table yet, the node refuses every read and every write with `QUERY_ROUTING_FAILED`, which the HTTP server answers with status 503. That window opens when `createIndex` publishes the schema and closes when the controller places the partitions. The refusal keeps one node's copy from taking a write that no other node would find. An index that the coordinator holds no metadata for is the one exception, because a node creates such an index on its own engine and serves it from its own copy.
+A node routes every read and every write for an index through its copy of the allocation table, which a watch on the coordinator keeps current. A node that already holds the table of an index therefore goes on routing requests for that index while the coordinator can't be reached. While the coordinator holds the index metadata and no allocation table yet, the node refuses every read and every write with `QUERY_ROUTING_FAILED`, which the HTTP server answers with status 503. That window opens when `createIndex` publishes the schema and closes when the controller places the partitions. The refusal keeps one node's copy from taking a write that no other node would find. An index that the coordinator holds no metadata for is the one exception, because a node creates such an index on its own engine and serves it from its own copy.
 
 A node reports where it stands through `node.cluster.getReadiness()`, which returns one of four states. `STARTING` covers the time before the node holds a registration. `JOINING` covers the time it spends bootstrapping a partition that the controller gives it, so a node returns to `JOINING` whenever the controller gives it another. `SERVING` means the node serves every partition that the controller allocates to it. `LEAVING` begins with shutdown. A node that leads a partition through `MIGRATING` or `DECOMMISSIONING` keeps reporting `SERVING`, because it keeps serving that partition until the transition finishes. `node.cluster.listNodes()` returns every registration that the coordinator holds, while `node.cluster.getControllerNodeId()` names the node holding the controller lease.
 
@@ -184,7 +238,7 @@ A node opens its replication listener before it registers, so a peer that reache
 
 ## What a cluster node refuses
 
-`snapshot`, `restore`, `exportDocuments`, `importDocumentExport`, `rebalance`, `updatePartitionConfig`, `rebuildAnalysis`, the vector maintenance calls, `listIndexes`, the synchronous stats calls, `waitForWrites`, and a write carrying `wait: true` on the `Narsil` adapter fail with `CLUSTER_OPERATION_UNSUPPORTED`, which the HTTP server answers with status 501, so a caller learns that the operation is missing. `rebalance` stays refused because the specification fixes `partitionCount` for the life of an index, while the rest still need a cluster-wide design.
+`snapshot`, `restore`, `exportDocuments`, `importDocumentExport`, `updatePartitionConfig`, the vector maintenance calls, `registerEmbeddingAdapter`, `waitForWrites`, and a write carrying `wait: true` on the `Narsil` adapter fail with `CLUSTER_OPERATION_UNSUPPORTED`, which the HTTP server answers with status 501, so a caller learns that the operation is missing. The adapter's own `listIndexes`, `getStats`, and `getPartitionStats` fail the same way, because the `Narsil` interface declares them synchronous while a cluster answer needs a round trip. Call those three on the `ClusterNode`, where they return promises. The HTTP server answers the index list, the index figures, and the partition figures from the whole cluster.
 
 ## Serve a cluster node over HTTP
 
@@ -199,3 +253,40 @@ await server.listen()
 ```
 
 With that option set, `GET /readyz` answers 200 only while the node reports `SERVING`, `GET /cluster` reports every registered node and the controller, and `GET /indexes/{name}/cluster` reports one index's allocation partition by partition. The [HTTP server guide](http-server.md#cluster-routes) shows each body. Every node can serve HTTP, so a client may send any request to any node, and the node routes it from there.
+
+### Check the health of the cluster
+
+`GET /cluster/health` reports a `green`, `yellow`, or `red` status for the cluster and for each index, and `node.cluster.getHealth()` returns the same answer in code. The node works out each status from the allocation tables that it watches. An index is `green` when every partition is `ACTIVE` with a primary and `replicationFactor` in-sync replicas. It is `yellow` when every partition has a primary but some partition is not `ACTIVE` or holds fewer in-sync replicas, and it is `red` when some partition has no primary, so the documents in that partition can be neither read nor written. A primary or a replica counts only while its node stays registered with the coordinator. The cluster takes the worst status of its indexes, and a cluster that holds no index reports `green`. The route answers 200 whatever the status, so read the status from the body, which the [HTTP server guide](http-server.md#cluster-health) shows.
+
+### Scrape the metrics
+
+`GET /metrics` answers in the Prometheus text format, and `node.cluster.getMetrics()` returns the same figures as objects. Each node reports these series:
+
+- `narsil_replication_lag`, labelled with `index`, `partition`, and `replica`, counts the entries that each replica has yet to acknowledge, for each partition that the node leads.
+- `narsil_commit_point`, labelled with `index` and `partition`, holds the highest sequence number that the node has acknowledged to a client, for each partition that it leads.
+- `narsil_commit_point_floor`, labelled with `index` and `partition`, holds the floor on the commit point that the allocation table stores for every partition in the cluster. The controller raises it only when it admits a replica, so it can trail `narsil_commit_point` by many writes.
+- `narsil_in_sync_replicas`, labelled with `index` and `partition`, counts the replicas besides the primary in the in-sync set of every partition in the cluster.
+- `narsil_coordinator_request_seconds`, labelled with `operation`, is a histogram of how long the calls from the node to the coordinator took, such as `getAllocation`, in buckets from 1 millisecond to 10 seconds. With the etcd coordinator, the histogram times the etcd requests behind each call.
+
+Scrape every node, because each one reports the lag and the commit point only for the partitions that it leads. The health route and the metrics route both pass through the `onRequest` hook of the server, so they take the same authentication as the routes that change data, and a server that fronts a single engine answers both with 501. The [HTTP server guide](http-server.md#metrics) shows each series with its labels.
+
+### Reach every node from the client
+
+`createNarsilClient` from `@delali/narsil/client` takes a list of node URLs, so that the client moves on to another node when one fails:
+
+```ts
+import { createNarsilClient } from '@delali/narsil/client'
+
+const client = createNarsilClient({
+  url: ['https://narsil-1.internal:9701', 'https://narsil-2.internal:9701', 'https://narsil-3.internal:9701'],
+})
+```
+
+The client sends each request to one URL, starting one place after the URL that took the previous request, so that requests spread across the nodes. It moves a request to the next URL when the connection fails, when the request times out, or when the node answers 502, 503, or 504, and it tries each URL at most once per request. The client repeats a request on another node only where repeating it can't apply a change twice:
+
+- A read moves on after any of those failures. The client counts every `GET` as a read, along with a search, a preflight, a suggestion, a document list, and a `_multi-get`.
+- A write moves on only where the client sent no byte of it, because the connection was refused or the host name didn't resolve, or where the node answered `NODE_NOT_READY`. A browser reports no reason for a failed connection, so a write from a browser moves on only after a `NODE_NOT_READY` answer.
+- A write that times out, or that a node answers with 502, 503, or 504 and a code other than `NODE_NOT_READY`, fails with that error, so that you decide whether to send it again.
+- A request whose body is a stream goes to one URL alone, because the client can't read the stream a second time.
+
+After a URL refuses a connection, the client skips it for `urlSkipMs`, 1,000 milliseconds by default, and it doubles that wait after each further refusal up to `maxUrlSkipMs`, 30,000 milliseconds by default. Any answer from the URL other than 502, 503, or 504 ends the skip. The [client guide](client.md) covers the other options.
