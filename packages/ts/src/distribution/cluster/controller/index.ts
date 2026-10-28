@@ -12,11 +12,20 @@ import { clearEventLoopWatchers, createEventLoopState, type EventLoopState, star
 import type { ControllerConfig, ControllerNode } from './types'
 
 export function createController(config: ControllerConfig): ControllerNode {
-  const { nodeId, coordinator, transport, leaseTtlMs, standbyRetryMs, knownIndexNames, onError, onElectionError } =
-    config
+  const {
+    nodeId,
+    coordinator,
+    transport,
+    leaseTtlMs,
+    standbyRetryMs,
+    nodeLeftDelayMs,
+    knownIndexNames,
+    onError,
+    onElectionError,
+  } = config
 
   let electionState: ElectionState = createElectionState()
-  let eventLoopState: EventLoopState = createEventLoopState(knownIndexNames)
+  let eventLoopState: EventLoopState = createEventLoopState(knownIndexNames, nodeLeftDelayMs)
   let stopped = false
 
   function isActive(): boolean {
@@ -139,7 +148,7 @@ export function createController(config: ControllerConfig): ControllerNode {
 
     async shutdown(): Promise<void> {
       await controller.stop()
-      eventLoopState = createEventLoopState([])
+      eventLoopState = createEventLoopState([], nodeLeftDelayMs)
       electionState = createElectionState()
     },
   }

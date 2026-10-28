@@ -13,6 +13,7 @@ export function allocate(
   partitionCount: number,
   replicationFactor: number,
   constraints: AllocationConstraints,
+  retainedNodeIds: ReadonlySet<string> = new Set(),
 ): AllocationResult {
   if (partitionCount <= 0) {
     throw new NarsilError(ErrorCodes.ALLOCATION_INVALID_CONFIG, 'partitionCount must be greater than 0', {
@@ -40,7 +41,7 @@ export function allocate(
     return initialAllocate(dataNodes, indexName, partitionCount, replicationFactor, constraints, deciders)
   }
 
-  return rebalanceAllocate(dataNodes, currentTable, constraints, deciders)
+  return rebalanceAllocate(dataNodes, currentTable, constraints, deciders, retainedNodeIds)
 }
 
 export type { AllocationConstraints, AllocationTable, NodeRegistration }

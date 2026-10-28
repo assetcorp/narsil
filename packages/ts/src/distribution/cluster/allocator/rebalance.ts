@@ -1,7 +1,6 @@
-import { compareCodePoints } from '../../../core/ordering'
 import { REBALANCE_THRESHOLD } from '../constants'
-import { lastHoldersOf } from '../last-holders'
 import { capacityShares, rebalanceLeadership } from './leadership'
+import { handleLostNodes } from './lost-nodes'
 import type {
   AllocationConstraints,
   AllocationResult,
@@ -12,7 +11,7 @@ import type {
   NodeWeight,
   PartitionAssignment,
 } from './types'
-import { computeNodeWeights, countNodeAssignments, countPrimaryAssignments, findBestNode } from './weight'
+import { computeNodeWeights, countNodeAssignments, findBestNode } from './weight'
 
 function cloneAssignments(assignments: Map<number, PartitionAssignment>): Map<number, PartitionAssignment> {
   const cloned = new Map<number, PartitionAssignment>()
@@ -29,98 +28,6 @@ function cloneAssignments(assignments: Map<number, PartitionAssignment>): Map<nu
     })
   }
   return cloned
-}
-
-function markUnassigned(assignment: PartitionAssignment, lastPrimary: string | null, lastInSyncSet: string[]): void {
-  const holders = new Set<string>(lastHoldersOf(assignment))
-  for (const nodeId of lastInSyncSet) {
-    holders.add(nodeId)
-  }
-  if (lastPrimary !== null) {
-    holders.add(lastPrimary)
-  }
-  assignment.primary = null
-  assignment.replicas = []
-  assignment.inSyncSet = []
-  assignment.lastHolders = [...holders].sort(compareCodePoints)
-  assignment.state = 'UNASSIGNED'
-}
-
-function primaryLoadOf(nodeId: string, primaryCounts: Map<string, number>, shares: Map<string, number>): number {
-  const share = shares.get(nodeId)
-  return (primaryCounts.get(nodeId) ?? 0) / (share === undefined || share <= 0 ? 1 : share)
-}
-
-function leastLoadedCandidate(
-  candidates: string[],
-  primaryCounts: Map<string, number>,
-  shares: Map<string, number>,
-): string | undefined {
-  let best: string | undefined
-  for (const candidate of candidates) {
-    if (best === undefined) {
-      best = candidate
-      continue
-    }
-    const bestLoad = primaryLoadOf(best, primaryCounts, shares)
-    const candidateLoad = primaryLoadOf(candidate, primaryCounts, shares)
-    if (candidateLoad < bestLoad || (candidateLoad === bestLoad && candidate < best)) {
-      best = candidate
-    }
-  }
-  return best
-}
-
-function handleLostNodes(
-  assignments: Map<number, PartitionAssignment>,
-  activeNodeIds: Set<string>,
-  shares: Map<string, number>,
-): void {
-  const primaryCounts = countPrimaryAssignments(assignments)
-
-  for (const assignment of assignments.values()) {
-    if (assignment.state === 'UNASSIGNED') {
-      continue
-    }
-
-    const lastPrimary = assignment.primary
-    const lastInSyncSet = [...assignment.inSyncSet]
-    const primaryWasLost = lastPrimary !== null && !activeNodeIds.has(lastPrimary)
-
-    if (primaryWasLost) {
-      assignment.primary = null
-    }
-
-    assignment.replicas = assignment.replicas.filter(id => activeNodeIds.has(id))
-    assignment.inSyncSet = assignment.inSyncSet.filter(id => activeNodeIds.has(id))
-
-    if (!primaryWasLost) {
-      if (assignment.primary === null) {
-        markUnassigned(assignment, lastPrimary, lastInSyncSet)
-      }
-      continue
-    }
-
-    const inSyncCandidates = assignment.replicas.filter(id => assignment.inSyncSet.includes(id))
-
-    if (inSyncCandidates.length === 0) {
-      markUnassigned(assignment, lastPrimary, lastInSyncSet)
-      continue
-    }
-
-    const promoted = leastLoadedCandidate(inSyncCandidates, primaryCounts, shares)
-
-    if (promoted === undefined) {
-      markUnassigned(assignment, lastPrimary, lastInSyncSet)
-      continue
-    }
-
-    primaryCounts.set(promoted, (primaryCounts.get(promoted) ?? 0) + 1)
-    assignment.primary = promoted
-    assignment.replicas = assignment.replicas.filter(id => id !== promoted)
-    assignment.inSyncSet = assignment.inSyncSet.filter(id => id !== promoted)
-    assignment.primaryTerm += 1
-  }
 }
 
 function fillReplicaSlots(
@@ -315,12 +222,15 @@ function pruneInSyncSets(assignments: Map<number, PartitionAssignment>): void {
  * the load out across the nodes, and spreads leadership away from the busiest ones. A partition whose primary fails
  * while no in-sync replica survives moves to `UNASSIGNED`, and its `lastHolders` then records the nodes that still
  * hold the data, so that the controller can recognise one of them when it registers again. A partition that reaches
- * `ACTIVE` loses that record, because a node serves it again.
+ * `ACTIVE` loses that record, because a node serves it again. A node that left the cluster a short time ago keeps
+ * its replica slots, outside the in-sync set, so that it can catch up on them when it registers again; the allocator
+ * counts those slots as filled, and it moves them once the node drops out of `retainedNodeIds`.
  *
  * @param nodes - The data nodes registered with the cluster coordinator.
  * @param currentTable - The allocation table the coordinator holds today.
  * @param constraints - The placement rules that every assignment must satisfy.
  * @param deciders - The chain that admits or refuses each candidate node.
+ * @param retainedNodeIds - The nodes that left the cluster too recently for the allocator to move their replicas.
  * @returns The new table, whose version is one above the current one, alongside a warning for each partition holding
  * fewer replicas than the index asked for.
  */
@@ -329,6 +239,7 @@ export function rebalanceAllocate(
   currentTable: AllocationTable,
   constraints: AllocationConstraints,
   deciders: Decider[],
+  retainedNodeIds: ReadonlySet<string> = new Set(),
 ): AllocationResult {
   const sortedNodes = [...nodes].sort((a, b) => {
     if (a.nodeId < b.nodeId) return -1
@@ -346,7 +257,7 @@ export function rebalanceAllocate(
   const assignments = cloneAssignments(currentTable.assignments)
   const shares = capacityShares(sortedNodes)
 
-  handleLostNodes(assignments, activeNodeIds, shares)
+  handleLostNodes(assignments, activeNodeIds, retainedNodeIds, shares)
 
   fillReplicaSlots(assignments, sortedNodes, nodeMap, currentTable.replicationFactor, constraints, deciders)
 

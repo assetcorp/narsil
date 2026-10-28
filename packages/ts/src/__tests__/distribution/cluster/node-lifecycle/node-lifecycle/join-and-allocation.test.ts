@@ -48,6 +48,7 @@ describe('DataNodeLifecycle join and allocation watcher', () => {
       transport: controllerTransport,
       leaseTtlMs: 15_000,
       standbyRetryMs: 5_000,
+      nodeLeftDelayMs: 0,
       knownIndexNames,
     })
     return controller.start()

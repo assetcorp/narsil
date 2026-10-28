@@ -3,6 +3,7 @@ import type { NodeRole } from '../coordinator/types'
 import {
   DEFAULT_BLOCK_WRITES_ABOVE,
   DEFAULT_RESUME_WRITES_BELOW,
+  MAX_NODE_LEFT_DELAY_MS,
   MAX_WAIT_FOR_ACTIVE_REPLICAS,
   MIN_CONTROLLER_LEASE_TTL_MS,
 } from './constants'
@@ -115,7 +116,7 @@ export function validateClusterNodeConfig(config: ClusterNodeConfig): void {
   }
 
   if (config.controller !== undefined) {
-    const { leaseTtlMs, standbyRetryMs } = config.controller
+    const { leaseTtlMs, standbyRetryMs, nodeLeftDelayMs } = config.controller
     if (leaseTtlMs !== undefined && (!Number.isInteger(leaseTtlMs) || leaseTtlMs < MIN_CONTROLLER_LEASE_TTL_MS)) {
       throw new NarsilError(
         ErrorCodes.CONFIG_INVALID,
@@ -128,6 +129,16 @@ export function validateClusterNodeConfig(config: ClusterNodeConfig): void {
         ErrorCodes.CONFIG_INVALID,
         'ClusterNodeConfig.controller.standbyRetryMs must be a positive integer',
         { standbyRetryMs },
+      )
+    }
+    if (
+      nodeLeftDelayMs !== undefined &&
+      (!Number.isInteger(nodeLeftDelayMs) || nodeLeftDelayMs < 0 || nodeLeftDelayMs > MAX_NODE_LEFT_DELAY_MS)
+    ) {
+      throw new NarsilError(
+        ErrorCodes.CONFIG_INVALID,
+        `ClusterNodeConfig.controller.nodeLeftDelayMs must be an integer from 0 to ${MAX_NODE_LEFT_DELAY_MS}`,
+        { nodeLeftDelayMs },
       )
     }
   }

@@ -9,6 +9,7 @@ import {
   TEARDOWN_RETRY_ROUNDS,
 } from '../../constants'
 import { getIndexMetadata } from '../../index-metadata'
+import { finishDepartureRun, retainedNodesFor, startDepartureRun } from './departures'
 import type { EventLoopState } from './state'
 import { recoverUnassignedPartitions } from './unassigned-recovery'
 
@@ -16,11 +17,16 @@ function holdsDataNode(nodes: NodeRegistration[]): boolean {
   return nodes.some(node => node.roles.includes('data'))
 }
 
+type RetainedNodes = (table: AllocationTable) => ReadonlySet<string>
+
+const RETAIN_NONE: RetainedNodes = () => new Set()
+
 async function runAllocatorForIndex(
   coordinator: ClusterCoordinator,
   indexName: string,
   nodes: NodeRegistration[],
   isActive: () => boolean,
+  retainedFor: RetainedNodes = RETAIN_NONE,
   attempt = 0,
 ): Promise<void> {
   if (!isActive()) {
@@ -44,6 +50,7 @@ async function runAllocatorForIndex(
     metadata.partitionCount,
     metadata.replicationFactor,
     metadata.constraints,
+    retainedFor(currentTable),
   )
 
   if (!isActive()) {
@@ -55,7 +62,7 @@ async function runAllocatorForIndex(
   }
 
   if (attempt + 1 < ALLOCATION_CAS_ATTEMPTS) {
-    await runAllocatorForIndex(coordinator, indexName, nodes, isActive, attempt + 1)
+    await runAllocatorForIndex(coordinator, indexName, nodes, isActive, retainedFor, attempt + 1)
     return
   }
 
@@ -72,6 +79,7 @@ async function recoverIndexPartitions(
   indexName: string,
   nodes: NodeRegistration[],
   isActive: () => boolean,
+  retainedFor: RetainedNodes,
 ): Promise<void> {
   const { transport, controllerNodeId } = state
   if (transport === null || controllerNodeId === null) {
@@ -86,7 +94,7 @@ async function recoverIndexPartitions(
     isActive,
   )
   if (promoted) {
-    await runAllocatorForIndex(coordinator, indexName, nodes, isActive)
+    await runAllocatorForIndex(coordinator, indexName, nodes, isActive, retainedFor)
   }
 }
 
@@ -105,14 +113,16 @@ async function runAllocatorForAllIndexes(
     return
   }
 
+  const departures = startDepartureRun(new Set(nodes.map(node => node.nodeId)))
+  const retainedFor: RetainedNodes = table => retainedNodesFor(state, departures, table)
   let anyIndexFailed = false
   for (const indexName of state.knownIndexes) {
     if (!isActive()) {
       return
     }
     try {
-      await runAllocatorForIndex(coordinator, indexName, nodes, isActive)
-      await recoverIndexPartitions(state, coordinator, indexName, nodes, isActive)
+      await runAllocatorForIndex(coordinator, indexName, nodes, isActive, retainedFor)
+      await recoverIndexPartitions(state, coordinator, indexName, nodes, isActive, retainedFor)
     } catch (error) {
       anyIndexFailed = true
       if (onError !== undefined) {
@@ -120,6 +130,13 @@ async function runAllocatorForAllIndexes(
       }
     }
   }
+
+  if (!isActive()) {
+    return
+  }
+  finishDepartureRun(state, departures, () => {
+    scheduleDebouncedAllocation(state, coordinator, isActive, onError)
+  })
 
   if (anyIndexFailed && isActive()) {
     scheduleDebouncedAllocation(state, coordinator, isActive, onError, ALLOCATION_RETRY_DELAY_MS)

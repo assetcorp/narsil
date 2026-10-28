@@ -54,6 +54,7 @@ describe('Controller election and event loop', () => {
       transport: controllerTransport,
       leaseTtlMs: 15_000,
       standbyRetryMs: 5_000,
+      nodeLeftDelayMs: 0,
       knownIndexNames: [],
       ...overrides,
     })

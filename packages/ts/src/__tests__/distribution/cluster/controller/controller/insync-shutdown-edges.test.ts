@@ -54,6 +54,7 @@ describe('Controller insync removal, shutdown, and edge cases', () => {
       transport: controllerTransport,
       leaseTtlMs: 15_000,
       standbyRetryMs: 5_000,
+      nodeLeftDelayMs: 0,
       knownIndexNames: [],
       ...overrides,
     })

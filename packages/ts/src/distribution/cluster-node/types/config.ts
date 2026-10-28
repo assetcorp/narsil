@@ -126,6 +126,16 @@ export interface ClusterControllerConfig {
    * attempt. It is 5000 milliseconds where you name none.
    */
   standbyRetryMs?: number
+  /**
+   * The controller waits this many milliseconds after a data node leaves
+   * before it moves that node's replicas to other nodes, which is 60000
+   * milliseconds where you set none. It promotes a replica at once for every
+   * partition that the node led, and a node that registers again under the
+   * same node id within this time keeps its replicas and catches up on the
+   * writes that it missed. Set 0 to move the replicas as soon as the node
+   * leaves.
+   */
+  nodeLeftDelayMs?: number
 }
 
 /**
