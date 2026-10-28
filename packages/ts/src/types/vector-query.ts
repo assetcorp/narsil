@@ -75,15 +75,16 @@ export interface HybridConfig {
   /** The engine uses this weight of the vector score, from 0 to 1, under `linear` alone, and 0.5 where you leave it out. It throws `CONFIG_INVALID` for a value outside that range. */
   alpha?: number
   /**
-   * Where you set it, the engine fetches this many results from the keyword
-   * search and from the vector search, fuses them, and pages through the top
-   * `depth` of the fused list, so every page of one query comes from the same
-   * fused order and a cursor can resume it. The last page stops at this depth,
-   * so it can hold fewer hits than the limit. Set a whole number from 1 to
-   * 10,000. The engine throws `CONFIG_INVALID` for any other value, and
+   * Set a depth to get the same fused order on every page of one query, and
+   * a cursor that resumes it. The engine then fetches this many results from
+   * the keyword search and from the vector search, fuses them, and pages
+   * through the top `depth` of the fused list. The last page stops at this
+   * depth, so it can hold fewer hits than the limit. Set a whole number from 1
+   * to 10,000. The engine throws `CONFIG_INVALID` for any other value, and
    * `SEARCH_RESULT_WINDOW_EXCEEDED` for a page that starts at this depth or
-   * beyond. Where you leave it out, each search fetches only enough results
-   * to fill the page, so the fused order can change from one page to the next.
+   * beyond. Where you leave the depth out, each search fetches only enough
+   * results to fill the page, so the fused order can change from one page to
+   * the next, and a cluster refuses a cursor with `SEARCH_INVALID_CURSOR`.
    */
   depth?: number
 }
