@@ -5,7 +5,4 @@ export const OSQ_LAMBDA = 0.1
 export const OSQ_REFINE_ROUNDS = 5
 export const OSQ_REFINE_TOLERANCE = 1e-8
 
-export const DEFAULT_OVERSAMPLE_BY_BITS: Readonly<Record<1 | 2 | 4 | 8, number>> = { 1: 3, 2: 3, 4: 2, 8: 2 }
-export const DEFAULT_OSQ4_NARROW_OVERSAMPLE = 5
-export const OSQ4_NARROW_DIMENSION_LIMIT = 1024
 export const MIN_OVERSAMPLE = 1

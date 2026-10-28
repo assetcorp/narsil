@@ -6,14 +6,9 @@ import { noteFallback } from '../native/backend'
 import { type NativeField, nativeFieldFor } from '../native/field'
 import { nativeRescoredHits, nativeTraverse } from '../native/walk'
 import { type OrdinalFilter, ordinalFilterHas } from '../ordinal-filter'
-import {
-  DEFAULT_OSQ4_NARROW_OVERSAMPLE,
-  DEFAULT_OVERSAMPLE_BY_BITS,
-  OSQ4_NARROW_DIMENSION_LIMIT,
-} from '../osq/constants'
+import { defaultEfSearch, defaultRescoreDepth } from '../search-depth'
 import { magnitude } from '../similarity'
 import type { ArenaQueryVector } from '../vector-store'
-import { DEFAULT_EF_SEARCH } from './constants'
 import { searchLayer } from './graph-ops'
 import { lockGraphShared, unlockGraphShared } from './locks'
 import {
@@ -51,11 +46,6 @@ interface Traversal {
   native: NativeField | null
 }
 
-function defaultOversample(bits: 1 | 2 | 4 | 8, dimension: number): number {
-  if (bits === 4 && dimension < OSQ4_NARROW_DIMENSION_LIMIT) return DEFAULT_OSQ4_NARROW_OVERSAMPLE
-  return DEFAULT_OVERSAMPLE_BY_BITS[bits]
-}
-
 function traverse(
   state: HNSWSearchState,
   query: Float32Array,
@@ -63,30 +53,26 @@ function traverse(
   searchMetric: VectorMetric,
   options: GraphSearchOptions,
 ): Traversal {
-  const liveSize = nodeCountOf(state) - tombstoneCountOf(state)
   const calibrated = activeQuantizer(state)
   const quantizer = calibrated === undefined || calibrated.size === 0 ? undefined : calibrated
   const useQuantized = quantizer !== undefined
   const window = options.rescoreWindow ?? k
-  const depth =
-    quantizer === undefined
-      ? window
-      : Math.ceil(window * (options.oversample ?? defaultOversample(quantizer.bits, state.dimension)))
-  let ef = Math.max(options.efSearch ?? DEFAULT_EF_SEARCH, depth)
-
-  const filter = options.filter
-  if (filter && filter.count < liveSize) {
-    const selectivity = filter.count / liveSize
-    ef = Math.max(ef, Math.ceil(window / Math.max(selectivity, 0.01)))
-    ef = Math.min(ef, liveSize)
+  let depth = window
+  if (quantizer !== undefined) {
+    depth =
+      options.oversample === undefined
+        ? defaultRescoreDepth(quantizer.bits, state.dimension, window)
+        : Math.ceil(window * options.oversample)
   }
+  const ef = Math.max(options.efSearch ?? defaultEfSearch(state.dimension, window), depth)
+  const filter = options.filter
 
   const workspace = state.workspace
   const candidates = workspace.traversal
   const native = nativeFieldFor(state)
   if (native !== null) {
     candidates.size = 0
-    if (nativeTraverse(state, native, query, ef, searchMetric, candidates)) {
+    if (nativeTraverse(state, native, query, ef, searchMetric, filter, candidates)) {
       return { candidates, depth: useQuantized ? depth : 0, arenaQuery: null, qMag: 0, native }
     }
   }
@@ -119,7 +105,7 @@ function traverse(
       }
     }
 
-    searchLayer(state, query, qMag, ef, 0, searchMetric, true, distFn, candidates)
+    searchLayer(state, query, qMag, ef, 0, searchMetric, true, distFn, candidates, filter)
   } finally {
     unlockGraphShared(state.locks)
   }
@@ -196,7 +182,19 @@ function collectHits(
 
   const rescored = rescoredHits(state, traversal, query, traversal.depth, searchMetric, minSimilarity, filter)
   if (options.rescoreWindow === undefined || minSimilarity !== Number.NEGATIVE_INFINITY) return rescored
-  return rescored.concat(estimatedHits(candidates, traversal.depth, searchMetric, minSimilarity, filter))
+  const rest = endOfRescored(candidates, traversal.depth, filter)
+  return rescored.concat(estimatedHits(candidates, rest, searchMetric, minSimilarity, filter))
+}
+
+function endOfRescored(candidates: DistanceList, depth: number, filter: OrdinalFilter | undefined): number {
+  if (filter === undefined) return Math.min(depth, candidates.size)
+  let taken = 0
+  for (let i = 0; i < candidates.size; i++) {
+    if (!ordinalFilterHas(filter, candidates.ords[i])) continue
+    taken += 1
+    if (taken === depth) return i + 1
+  }
+  return candidates.size
 }
 
 function estimatedHits(
@@ -251,11 +249,12 @@ function rescoreWithFullPrecision(
 ): OrdinalHit[] {
   noteFallback('score')
   const rescored: OrdinalHit[] = []
-  const nearest = Math.min(candidates.size, depth)
+  let taken = 0
 
-  for (let i = 0; i < nearest; i++) {
+  for (let i = 0; i < candidates.size && taken < depth; i++) {
     const ord = candidates.ords[i]
     if (filter && !ordinalFilterHas(filter, ord)) continue
+    taken += 1
 
     let fullDistance: number
     if (arenaQuery) {

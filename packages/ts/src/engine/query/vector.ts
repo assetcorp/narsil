@@ -4,10 +4,12 @@ import { RESULT_WINDOW } from '../../search/constants'
 import { linearCombination, reciprocalRankFusion, resolveHybridFusion } from '../../search/fusion'
 import type { ScoredDocument } from '../../types/internal'
 import type { QueryParams, VectorQueryConfig } from '../../types/search'
+import type { FilterSubset } from '../../vector/filter-ordinals'
 import { MIN_OVERSAMPLE } from '../../vector/osq/constants'
+import type { VectorSearcher, VectorSearchOptions, VectorSearchOutcome } from '../../vector/vector-index'
+import { collectFilterSubsets, filterSubsetsMatchNothing, searchCurrentSubsets } from './filter-subsets'
 import {
   broadcastStatsForWorker,
-  collectFilterDocIds,
   partitionsForVectorSearch,
   type QueryContext,
   resolveVectorIndex,
@@ -42,6 +44,48 @@ export function vectorFetchDepth(limit: number, offset: number, cursorDepth: num
   return Math.min(reach + 1, RESULT_WINDOW)
 }
 
+export interface FilteredSearch {
+  readonly first: FilterSubset[]
+  readonly collectAgain: () => FilterSubset[]
+}
+
+export function filteredSearchOf(params: QueryParams, context: SearchContext): FilteredSearch | undefined {
+  const filters = params.filters
+  if (!filters) return undefined
+  const { manager, config, partitionIds, patternWork } = context
+  const collectAgain = () => collectFilterSubsets(manager, filters, config.schema, partitionIds, patternWork)
+  return { first: collectAgain(), collectAgain }
+}
+
+function searchField(
+  vecIndex: VectorSearcher,
+  vectorConfig: VectorQueryConfig,
+  queryVector: Float32Array,
+  k: number,
+  context: QueryContext,
+  filtered: FilteredSearch | undefined,
+  rescoreWindow: number | undefined,
+): Promise<VectorSearchOutcome> {
+  const options: VectorSearchOptions = {
+    metric: vectorConfig.metric ?? 'cosine',
+    minSimilarity: vectorConfig.similarity ?? -Infinity,
+    efSearch: vectorConfig.efSearch,
+    oversample: oversampleOf(vectorConfig),
+    ...(rescoreWindow !== undefined ? { rescoreWindow } : {}),
+  }
+  if (filtered !== undefined) {
+    return searchCurrentSubsets(vecIndex.fieldName, filtered.first, filtered.collectAgain, filterSubsets =>
+      vecIndex.searchParallel(queryVector, k, { ...options, filterSubsets }),
+    )
+  }
+  const filterPartitions = partitionsForVectorSearch(context.manager, vecIndex, context.partitionIds)
+  return vecIndex.searchParallel(
+    queryVector,
+    k,
+    filterPartitions === undefined ? options : { ...options, filterPartitions },
+  )
+}
+
 export async function executeVectorSearch(
   params: QueryParams,
   context: SearchContext,
@@ -49,7 +93,6 @@ export async function executeVectorSearch(
   offset: number,
   cursorDepth = 0,
 ): Promise<FanOutResult> {
-  const { manager, config, partitionIds } = context
   const vectorConfig = params.vector
   if (!vectorConfig || !vectorConfig.value) {
     return { scored: [], totalMatched: 0 }
@@ -60,28 +103,14 @@ export async function executeVectorSearch(
     return { scored: [], totalMatched: 0 }
   }
 
-  let filterDocIds: Set<string> | undefined
-  let filterPartitions: ReadonlySet<number> | undefined
-  if (params.filters) {
-    filterDocIds = collectFilterDocIds(manager, params, config.schema, partitionIds, context.patternWork)
-    if (filterDocIds.size === 0) {
-      return { scored: [], totalMatched: 0 }
-    }
-  } else {
-    filterPartitions = partitionsForVectorSearch(manager, vecIndex, partitionIds)
+  const filtered = filteredSearchOf(params, context)
+  if (filtered !== undefined && filterSubsetsMatchNothing(filtered.first)) {
+    return { scored: [], totalMatched: 0 }
   }
 
   const queryVec = new Float32Array(vectorConfig.value)
   const k = vectorFetchDepth(limit, offset, cursorDepth)
-  const outcome = await vecIndex.searchParallel(queryVec, k, {
-    metric: vectorConfig.metric ?? 'cosine',
-    minSimilarity: vectorConfig.similarity ?? -Infinity,
-    ...(filterDocIds !== undefined ? { filterDocIds } : {}),
-    ...(filterPartitions !== undefined ? { filterPartitions } : {}),
-    efSearch: vectorConfig.efSearch,
-    oversample: oversampleOf(vectorConfig),
-    ...(context.rescoreWindow !== undefined ? { rescoreWindow: context.rescoreWindow } : {}),
-  })
+  const outcome = await searchField(vecIndex, vectorConfig, queryVec, k, context, filtered, context.rescoreWindow)
 
   const scored = vectorResultsToScored(outcome.results)
   return { scored, totalMatched: outcome.matched, matchedExact: outcome.matchedExact }
@@ -114,24 +143,13 @@ export async function vectorLeg(
   vectorConfig: VectorQueryConfig,
   queryVector: Float32Array,
   context: QueryContext,
-  filterDocIds: Set<string> | undefined,
+  filtered: FilteredSearch | undefined,
   k: number,
   rescoreWindow?: number,
 ): Promise<{ scored: ScoredDocument[]; holdsEveryMatch: boolean }> {
-  const { manager } = context
   const vecIndex = resolveVectorIndex(context, vectorConfig.field)
   if (!vecIndex) return { scored: [], holdsEveryMatch: true }
-  const filterPartitions =
-    filterDocIds === undefined ? partitionsForVectorSearch(manager, vecIndex, context.partitionIds) : undefined
-  const outcome = await vecIndex.searchParallel(queryVector, k, {
-    metric: vectorConfig.metric ?? 'cosine',
-    minSimilarity: vectorConfig.similarity ?? -Infinity,
-    ...(filterDocIds !== undefined ? { filterDocIds } : {}),
-    ...(filterPartitions !== undefined ? { filterPartitions } : {}),
-    efSearch: vectorConfig.efSearch,
-    oversample: oversampleOf(vectorConfig),
-    ...(rescoreWindow !== undefined ? { rescoreWindow } : {}),
-  })
+  const outcome = await searchField(vecIndex, vectorConfig, queryVector, k, context, filtered, rescoreWindow)
   return {
     scored: vectorResultsToScored(outcome.results),
     holdsEveryMatch: outcome.matchedExact && outcome.results.length === outcome.matched,
@@ -145,16 +163,12 @@ export async function executeHybridSearch(
   offset: number,
   cursorDepth = 0,
 ): Promise<FanOutResult> {
-  const { manager, config } = context
   const { vector: vectorConfig, mode: _mode, hybrid: _hybrid, ...textOnlyParams } = params
   const fusion = resolveHybridFusion(params.hybrid)
 
-  let filterDocIds: Set<string> | undefined
-  if (params.filters) {
-    filterDocIds = collectFilterDocIds(manager, params, config.schema, context.partitionIds, context.patternWork)
-    if (filterDocIds.size === 0) {
-      return { scored: [], totalMatched: 0 }
-    }
+  const filtered = filteredSearchOf(params, context)
+  if (filtered !== undefined && filterSubsetsMatchNothing(filtered.first)) {
+    return { scored: [], totalMatched: 0 }
   }
 
   if (!vectorConfig || !vectorConfig.value) {
@@ -166,7 +180,7 @@ export async function executeHybridSearch(
     vectorConfig,
     new Float32Array(vectorConfig.value),
     context,
-    filterDocIds,
+    filtered,
     vectorFetchDepth(limit, offset, cursorDepth),
   )
   const [textFanOutResult, vectorOutcome] = await Promise.all([textLeg(textOnlyParams, context), vectorPending])

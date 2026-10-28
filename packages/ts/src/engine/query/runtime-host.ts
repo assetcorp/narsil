@@ -9,9 +9,9 @@ import { clampRowCount } from '../../search/pagination'
 import { dedupePinnedEntries, placePinned } from '../../search/pinning'
 import { normalizeSort } from '../../search/sorting'
 import { now } from '../validation'
+import { filterSubsetsMatchNothing } from './filter-subsets'
 import { applyHighlights } from './highlight'
-import { collectFilterDocIds } from './shared'
-import { textLeg, vectorLeg } from './vector'
+import { filteredSearchOf, textLeg, vectorLeg } from './vector'
 
 export const runtimeHost: RuntimeHost = {
   now,
@@ -31,7 +31,8 @@ export const runtimeHost: RuntimeHost = {
   applyHighlights,
   textLeg,
   vectorLeg,
-  collectFilterDocIds,
+  filteredSearchOf,
+  filterSubsetsMatchNothing,
   reciprocalRankFusion,
   linearCombination,
   resolveHybridFusion,

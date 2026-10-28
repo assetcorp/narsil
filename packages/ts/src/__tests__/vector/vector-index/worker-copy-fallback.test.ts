@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { acquireVectorSearchPool, releaseVectorSearchPool } from '../../../vector/search-pool'
 import { createVectorIndex, type VectorIndex } from '../../../vector/vector-index'
+import { filterSubsetsForDocIds } from '../filter-subsets'
 import { DIM, normalizedVector } from './fixtures'
 
 vi.mock('../../../vector/search-pool', () => ({
@@ -75,7 +76,7 @@ describe('searchParallel without a worker pool', () => {
     await insertAndBuild(index, WORKER_COPY_MIN_VECTORS + 16)
     const query = normalizedVector(DIM, 38)
     const filterDocIds = new Set(['doc1', 'doc2', 'doc3'])
-    const options = { metric: 'cosine', minSimilarity: 0, filterDocIds } as const
+    const options = { metric: 'cosine', minSimilarity: 0, filterSubsets: filterSubsetsForDocIds(filterDocIds) } as const
 
     const parallel = await index.searchParallel(query, 3, options)
 

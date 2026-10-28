@@ -1,6 +1,7 @@
 import type { GeoIndexReader } from '../../geo/geo-index'
 import type { FieldNameTable } from '../../types/internal'
 import type { FieldType, SchemaDefinition } from '../../types/schema'
+import type { VectorOrdinalMaps } from '../../vector/filter-ordinals'
 import type { DocumentStoreReader } from '../document-store'
 import type { BooleanFieldIndexReader, EnumFieldIndexReader, NumericFieldIndexReader } from '../field-index'
 import type { InvertedIndexReader } from '../inverted-index'
@@ -29,4 +30,5 @@ export interface PartitionReadState {
   lastSchemaRef: SchemaDefinition | null
   sortColumns: SortColumnSet | null
   scoreBuffer: ScoreBuffer | null
+  vectorOrdinalMaps: VectorOrdinalMaps | null
 }

@@ -37,18 +37,14 @@ async function fusedAtDepth(
   depth: number,
   legs: RuntimeHost,
 ): Promise<FanOutResult> {
-  const { manager, config } = context
   const { textLeg, vectorLeg } = legs
   const { vector: vectorConfig, mode: _mode, hybrid: _hybrid, searchAfter: _after, pinned: _pinned, ...rest } = params
   const fusion = legs.resolveHybridFusion(params.hybrid)
   const textOnlyParams: QueryParams = { ...rest, limit: depth, offset: 0 }
 
-  let filterDocIds: Set<string> | undefined
-  if (params.filters) {
-    filterDocIds = legs.collectFilterDocIds(manager, params, config.schema, context.partitionIds, context.patternWork)
-    if (filterDocIds.size === 0) {
-      return { scored: [], totalMatched: 0 }
-    }
+  const filtered = legs.filteredSearchOf(params, context)
+  if (filtered !== undefined && legs.filterSubsetsMatchNothing(filtered.first)) {
+    return { scored: [], totalMatched: 0 }
   }
 
   if (!vectorConfig || !vectorConfig.value) {
@@ -60,7 +56,7 @@ async function fusedAtDepth(
     vectorConfig,
     new Float32Array(vectorConfig.value),
     context,
-    filterDocIds,
+    filtered,
     depth,
     HYBRID_RESCORE_WINDOW,
   )
