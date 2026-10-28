@@ -480,10 +480,12 @@ A persistence adapter addresses stored bytes by string key:
 | `<indexName>/meta` | Index metadata |
 | `<indexName>/manifest` | Checkpoint segment manifest |
 | `<indexName>/segments/<partitionId>/s<segmentId>` | One checkpoint segment, id zero-padded to 16 digits |
-| `<indexName>/segments/vec-<fieldPath>-f<fileId>` | One vector file of one vector field for the whole index, file id zero-padded to 16 digits |
-| `<indexName>/segments/vec-<fieldPath>-graph-g<generation>-p<part>` | One graph part of one vector field for the whole index at one generation, part number zero-padded to 16 digits |
+| `<indexName>/segments/vec-<fieldKey>-f<fileId>` | One vector file of one vector field for the whole index, file id zero-padded to 16 digits |
+| `<indexName>/segments/vec-<fieldKey>-graph-g<generation>-p<part>` | One graph part of one vector field for the whole index at one generation, part number zero-padded to 16 digits |
 | `<indexName>/wal/<partitionId>/<startSeqNo>` | Write-ahead log segment, start sequence number zero-padded to 16 digits |
 | `<indexName>/wal/<partitionId>/commit` | Write-ahead log commit marker |
+
+The `<fieldKey>` of a vector field is its path with every `.` replaced by `_`, then a `-`, then the [FNV-1a](algorithms.md#fnv-1a-hash) hash of the path's UTF-8 bytes written in base 36 with lowercase letters, so the field `meta.embedding` takes the key `meta_embedding-` followed by that hash. The hash keeps two paths apart when they differ only in a `.` and a `_`, such as `a.b` and `a_b`. A field path may hold only the letters A to Z and a to z, the digits 0 to 9, `_`, and `.`, and the engine must fail a save with `PERSISTENCE_SAVE_FAILED` for any other path.
 
 A filesystem adapter maps each key to a file path, so an index named `products` produces `data/products/meta`, `data/products/manifest`, and `data/products/segments/0/s0000000000000003`. The segmented keys are defined in [Segmented Checkpoint](durability.md#segmented-checkpoint).
 
