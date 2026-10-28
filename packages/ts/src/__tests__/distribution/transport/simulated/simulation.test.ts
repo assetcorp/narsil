@@ -121,6 +121,7 @@ describe('simulated cluster scenarios', () => {
       address: `${nodeId}:9200`,
       nodeId,
       roles,
+      controller: { nodeLeftDelayMs: 0 },
       ...(options.logRetentionBytes === undefined
         ? {}
         : { replication: { logRetentionBytes: options.logRetentionBytes } }),
