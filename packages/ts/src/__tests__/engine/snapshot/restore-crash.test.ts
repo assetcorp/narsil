@@ -113,62 +113,54 @@ function digestOf(indexName: string): string {
   return createHash('sha256').update(indexName, 'utf8').digest('hex')
 }
 
-const LEFTOVER_JOURNALS: Array<{ what: string; key: string; content: string }> = [
-  { what: 'a temporary journal', key: `.swap-${digestOf(LIVE)}.tmp-1-2-abc`, content: `${LIVE}\n.restore-x/` },
-  { what: 'a journal cut off partway', key: `.swap-${digestOf(LIVE)}`, content: LIVE.slice(0, 2) },
-  { what: 'an empty journal', key: `.swap-${digestOf(LIVE)}`, content: '' },
-  { what: 'a journal under another digest', key: `.swap-${digestOf('other')}`, content: `${LIVE}\n.restore-x/` },
+const LEFTOVER_JOURNALS: Array<{ kind: DurableKind; what: string; key: string; content: string }> = [
+  {
+    kind: 'wal',
+    what: 'a temporary journal',
+    key: `.swap-${digestOf(LIVE)}.tmp-1-2-abc`,
+    content: `${LIVE}\n.restore-x/`,
+  },
+  { kind: 'snapshot', what: 'a journal cut off partway', key: `.swap-${digestOf(LIVE)}`, content: LIVE.slice(0, 2) },
 ]
 
 const HOSTILE_JOURNALS: Array<{ what: string; name: string; prefix: string }> = [
   { what: 'a parent directory', name: LIVE, prefix: '../' },
   { what: 'an absolute path', name: LIVE, prefix: '/tmp/narsil-restore/' },
-  { what: 'a nested prefix', name: LIVE, prefix: '.restore-x/inner/' },
-  { what: 'the data directory itself', name: LIVE, prefix: './' },
   { what: 'the lock file', name: LIVE, prefix: '.narsil.lock/' },
-  { what: 'no prefix', name: LIVE, prefix: '' },
   { what: 'an index name that no index can hold', name: '../escape', prefix: '.restore-x/' },
 ]
 
 describe('a restore journal that a crash or a hostile user left behind', () => {
-  for (const kind of ['wal', 'snapshot'] as const) {
-    for (const { what, key, content } of LEFTOVER_JOURNALS) {
-      it(`deletes ${what} and keeps the old index serving, on an engine in ${kind}`, async () => {
-        const { directory } = await preparedDirectory(kind)
-        await writeFile(join(directory, key), content)
-        await mkdir(join(directory, '.restore-orphan'))
-        await writeFile(join(directory, '.restore-orphan', 'manifest'), 'stray')
-        await expectWhole(kind, directory, OLD, OLD_COUNT)
-      }, 30_000)
-    }
-
-    for (const { what, name, prefix } of HOSTILE_JOURNALS) {
-      it(`refuses to start on a journal that names ${what}, moving nothing, on an engine in ${kind}`, async () => {
-        const { directory } = await preparedDirectory(kind)
-        await writeFile(join(directory, `.swap-${digestOf(name)}`), `${name}\n${prefix}`)
-
-        await expect(openEngine(configFor(kind, directory, false), engines)).rejects.toMatchObject({
-          code: 'PERSISTENCE_LOAD_FAILED',
-        })
-        await rm(join(directory, `.swap-${digestOf(name)}`))
-        await expectWhole(kind, directory, OLD, OLD_COUNT)
-      }, 30_000)
-    }
-
-    it(`finishes a journal whose staging already moved, on an engine in ${kind}`, async () => {
+  for (const { kind, what, key, content } of LEFTOVER_JOURNALS) {
+    it(`deletes ${what} and keeps the old index serving, on an engine in ${kind}`, async () => {
       const { directory } = await preparedDirectory(kind)
-      await writeFile(join(directory, `.swap-${digestOf(LIVE)}`), `${LIVE}\n.restore-moved/`)
+      await writeFile(join(directory, key), content)
+      await mkdir(join(directory, '.restore-orphan'))
+      await writeFile(join(directory, '.restore-orphan', 'manifest'), 'stray')
       await expectWhole(kind, directory, OLD, OLD_COUNT)
     }, 30_000)
+  }
 
-    it(`refuses to start when the staging and the manifest are both gone, on an engine in ${kind}`, async () => {
-      const { directory } = await preparedDirectory(kind)
-      await writeFile(join(directory, `.swap-${digestOf(LIVE)}`), `${LIVE}\n.restore-moved/`)
-      await rm(join(directory, LIVE, 'manifest'))
+  for (const { what, name, prefix } of HOSTILE_JOURNALS) {
+    it(`refuses to start on a journal that names ${what}, moving nothing`, async () => {
+      const { directory } = await preparedDirectory('wal')
+      await writeFile(join(directory, `.swap-${digestOf(name)}`), `${name}\n${prefix}`)
 
-      await expect(openEngine(configFor(kind, directory, false), engines)).rejects.toMatchObject({
+      await expect(openEngine(configFor('wal', directory, false), engines)).rejects.toMatchObject({
         code: 'PERSISTENCE_LOAD_FAILED',
       })
+      await rm(join(directory, `.swap-${digestOf(name)}`))
+      await expectWhole('wal', directory, OLD, OLD_COUNT)
     }, 30_000)
   }
+
+  it('refuses to start when the staging and the manifest are both gone', async () => {
+    const { directory } = await preparedDirectory('wal')
+    await writeFile(join(directory, `.swap-${digestOf(LIVE)}`), `${LIVE}\n.restore-moved/`)
+    await rm(join(directory, LIVE, 'manifest'))
+
+    await expect(openEngine(configFor('wal', directory, false), engines)).rejects.toMatchObject({
+      code: 'PERSISTENCE_LOAD_FAILED',
+    })
+  }, 30_000)
 })

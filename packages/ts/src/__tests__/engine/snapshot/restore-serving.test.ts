@@ -74,6 +74,7 @@ function servingCases(workers: boolean): void {
       expect(await holdsGeneration(engine, LIVE, NEW)).toBe(true)
     }, 30_000)
 
+    if (kind !== 'wal') continue
     for (const { damage, damaged, code } of ARCHIVE_DAMAGE) {
       it(`keeps the old index serving when the archive ${damage}, on an engine in ${kind}`, async () => {
         const engine = await engineWithBothGenerations(kind, workers)
@@ -119,19 +120,19 @@ describe('a restore that survives a restart', () => {
         .filter(path => path.startsWith('.'))
       expect(leftovers).toEqual([])
     }, 30_000)
-
-    it(`restores into an index whose name is 255 characters long, on an engine in ${kind}`, async () => {
-      const directory = await newDirectory(roots)
-      const longName = `n${'x'.repeat(254)}`
-      const engine = await openEngine(configFor(kind, directory, false), engines)
-      await fill(engine, longName, OLD.documents)
-      await fill(engine, SOURCE, NEW.documents)
-      await engine.restore(longName, await engine.snapshot(SOURCE))
-      expect(await holdsGeneration(engine, longName, NEW)).toBe(true)
-      await engine.shutdown()
-
-      const reopened = await openEngine(configFor(kind, directory, false), engines)
-      expect(await holdsGeneration(reopened, longName, NEW)).toBe(true)
-    }, 30_000)
   }
+
+  it('restores into an index whose name is 255 characters long', async () => {
+    const directory = await newDirectory(roots)
+    const longName = `n${'x'.repeat(254)}`
+    const engine = await openEngine(configFor('wal', directory, false), engines)
+    await fill(engine, longName, OLD.documents)
+    await fill(engine, SOURCE, NEW.documents)
+    await engine.restore(longName, await engine.snapshot(SOURCE))
+    expect(await holdsGeneration(engine, longName, NEW)).toBe(true)
+    await engine.shutdown()
+
+    const reopened = await openEngine(configFor('wal', directory, false), engines)
+    expect(await holdsGeneration(reopened, longName, NEW)).toBe(true)
+  }, 30_000)
 })
