@@ -28,7 +28,6 @@ export interface VectorSearchOutcome {
 export interface VectorSearchOptions {
   metric: VectorMetric
   minSimilarity: number
-  /** The engine answers only from the documents that these bitsets mark, where each partition or segment has one bitset over its internal document numbers. */
   filterSubsets?: readonly FilterSubset[]
   /** The partitions the search may answer from, which the index resolves to ordinals itself. */
   filterPartitions?: ReadonlySet<number>
