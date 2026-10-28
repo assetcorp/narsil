@@ -28,6 +28,14 @@ function doc(i: number): { title: string; body: string; year: number } {
 }
 
 const SEEDED_DOCUMENTS = 100
+const IDLE_END_DEADLINE_MS = 3_000
+
+async function untilTheIdleWorkerEnds(): Promise<void> {
+  const deadline = Date.now() + IDLE_END_DEADLINE_MS
+  while (__checkpointWorkerIsPooledForTests() && Date.now() < deadline) {
+    await new Promise(resolve => setTimeout(resolve, 20))
+  }
+}
 
 async function createIndexWhoseLaterCheckpointsReadTheLog(engine: Narsil): Promise<void> {
   await engine.createIndex('docs', SCHEMA)
@@ -78,7 +86,7 @@ describe('pooled checkpoint worker', () => {
     await writer.checkpoint('docs')
     expect(__checkpointWorkerIsPooledForTests()).toBe(true)
 
-    await new Promise(resolve => setTimeout(resolve, 900))
+    await untilTheIdleWorkerEnds()
     expect(__checkpointWorkerIsPooledForTests()).toBe(false)
 
     for (let i = 10; i < 20; i += 1) await writer.insert('docs', doc(i), `d${i}`)
