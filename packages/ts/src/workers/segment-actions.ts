@@ -1,6 +1,7 @@
 import { isCompositePartition } from '../core/partition/composite'
 import { createSharedFrozenSegment, freezeSegmentShared } from '../core/partition/frozen'
 import { mergeFrozenSegments } from '../core/partition/frozen/merge'
+import { NO_REMOVED_SPELLINGS } from '../core/partition/frozen/removal-pass'
 import { buildSegmentPayload } from '../core/partition/segment-builder'
 import { ErrorCodes, NarsilError } from '../errors'
 import { resolvePartitionInsertOptions } from '../partitioning/insert-options'
@@ -85,8 +86,10 @@ export function runSegmentAction(entry: SegmentIndexEntry, action: SegmentAction
     case 'attachSegments': {
       for (const segment of action.segments) {
         growPartitionsTo(entry.manager, segment.partitionId)
-        const frozen = createSharedFrozenSegment(segment.snapshot)
-        for (const docId of segment.tombstonedDocIds ?? []) frozen.tombstoneDocument(docId)
+        const surfaceForms = segment.survivingSurfaceForms
+        const frozen = createSharedFrozenSegment(segment.snapshot, surfaceForms)
+        const spellings = surfaceForms === undefined ? undefined : NO_REMOVED_SPELLINGS
+        for (const docId of segment.tombstonedDocIds ?? []) frozen.tombstoneDocument(docId, spellings)
         entry.manager.attachFrozenSegment(segment.partitionId, frozen)
       }
       return undefined
@@ -94,7 +97,11 @@ export function runSegmentAction(entry: SegmentIndexEntry, action: SegmentAction
 
     case 'compactSegments': {
       const partition = requireComposite(entry, action.indexName, action.partitionId, 'compact')
-      return mergeFrozenSegments(partition.frozenSegmentsById(action.segmentIds), entry.manager.partialWordAnalysis)
+      return mergeFrozenSegments(
+        partition.frozenSegmentsById(action.segmentIds),
+        entry.manager.partialWordAnalysis,
+        entry.manager.textAnalysis,
+      )
     }
 
     case 'swapSegments': {
@@ -103,6 +110,7 @@ export function runSegmentAction(entry: SegmentIndexEntry, action: SegmentAction
         action.partitionId,
         action.dropSegmentIds,
         createSharedFrozenSegment(action.snapshot),
+        action.removedSpellings,
       )
       return undefined
     }

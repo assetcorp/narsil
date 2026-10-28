@@ -27,7 +27,9 @@ function paramsFor(overrides: Partial<InternalSearchParams> = {}): InternalSearc
 describe('routing to the pruned single-term scan', () => {
   it('routes the plain single-term query to the scan', () => {
     const index = buildIndex(20)
-    expect(prunableSingleTermList(paramsFor(), index, FIELD_NAMES)).toBe(index.lookup('alpha'))
+    const routed = prunableSingleTermList(paramsFor(), index, FIELD_NAMES)
+    expect(routed).not.toBeNull()
+    expect(Array.from(routed?.docIds ?? [])).toEqual(Array.from({ length: 20 }, (_, internalId) => internalId))
   })
 
   it('keeps routing to the scan while the list holds tombstones', () => {
@@ -36,7 +38,9 @@ describe('routing to the pruned single-term scan', () => {
     const list = index.lookup('alpha')
     expect(list).toBeDefined()
     expect(list?.deletedDocs.size).toBe(1)
-    expect(prunableSingleTermList(paramsFor(), index, FIELD_NAMES)).toBe(list)
+    const routed = prunableSingleTermList(paramsFor(), index, FIELD_NAMES)
+    expect(routed).not.toBeNull()
+    expect(routed?.deletedDocs.has(7)).toBe(true)
   })
 
   it('refuses bm25 parameters outside the range the block bound is sound for', () => {

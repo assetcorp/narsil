@@ -20,7 +20,6 @@ import { resolveWorkerCount, splitWorkerBudget } from '../workers/worker-count'
 import { type AnalysisRebuildCoordinator, wireAnalysisRebuild } from './analysis-rebuild'
 import { resolveDurabilityTier } from './durability-config'
 import type { DurabilityIntegration } from './durability-integration'
-import { createDurabilityFromTier } from './durability-wiring'
 import { emitEngineEvent, eventHandlersOf } from './events'
 import type { HeapPressureNotifier } from './heap-pressure'
 import { createIndexFromMetadata as createIndexFromMetadataOp } from './index-from-metadata'
@@ -85,11 +84,11 @@ export interface EngineCore {
   readonly patternWorkCap: number
 }
 
-export function createEngineCore(
+export async function createEngineCore(
   config?: NarsilConfig,
   hooks?: EngineCoreHooks,
   capacityScope: CapacityScope = 'index',
-): EngineCore {
+): Promise<EngineCore> {
   validateWorkerConfig(config?.workers, config?.lifecycle)
   const eventHandlers = eventHandlersOf(config?.events)
   const vectorWorkerCount = splitWorkerBudget(resolveWorkerCount(config?.workers?.count)).vector
@@ -101,6 +100,7 @@ export function createEngineCore(
   if (config?.lifecycle !== undefined && durabilityTier === null) {
     throw new NarsilError(ErrorCodes.CONFIG_INVALID, 'Index lifecycle settings require durability')
   }
+  const durabilityWiring = durabilityTier === null ? null : await import('./durability-wiring')
   const filesystemDurability = durabilityTier?.kind === 'wal'
   const executor: Executor & DirectExecutorExtensions = createDirectExecutor({
     vectorWorkerCopies: vectorCopyPolicy,
@@ -213,25 +213,28 @@ export function createEngineCore(
 
   let invalidation: InvalidationIntegration | null = null
 
-  const durability = createDurabilityFromTier(durabilityTier, {
-    getManager: indexName => executor.getManager(indexName),
-    indexRegistry,
-    createIndexFromMetadata,
-    emitFatalError(error: Error) {
-      emitEngineEvent(eventHandlers, 'durabilityError', { error })
-    },
-    emitLayoutUpgrade(event) {
-      emitEngineEvent(eventHandlers, 'layoutUpgrade', event)
-    },
-    publishCheckpointedPartitions: (indexName, partitions) =>
-      invalidation?.publishPartitions(indexName, partitions) ?? Promise.resolve(),
-    recordCheckpoint(indexName, documentCount, partitionCount) {
-      const entry = indexRegistry.get(indexName)
-      if (entry === undefined) return
-      entry.documentCount = documentCount
-      entry.partitionCount = partitionCount
-    },
-  })
+  const durability =
+    durabilityTier === null || durabilityWiring === null
+      ? null
+      : durabilityWiring.createDurabilityFromTier(durabilityTier, {
+          getManager: indexName => executor.getManager(indexName),
+          indexRegistry,
+          createIndexFromMetadata,
+          emitFatalError(error: Error) {
+            emitEngineEvent(eventHandlers, 'durabilityError', { error })
+          },
+          emitLayoutUpgrade(event) {
+            emitEngineEvent(eventHandlers, 'layoutUpgrade', event)
+          },
+          publishCheckpointedPartitions: (indexName, partitions) =>
+            invalidation?.publishPartitions(indexName, partitions) ?? Promise.resolve(),
+          recordCheckpoint(indexName, documentCount, partitionCount) {
+            const entry = indexRegistry.get(indexName)
+            if (entry === undefined) return
+            entry.documentCount = documentCount
+            entry.partitionCount = partitionCount
+          },
+        })
 
   invalidation = createInvalidationFromConfig(config, durabilityTier?.kind ?? null, {
     getManager: indexName => executor.getManager(indexName) ?? undefined,

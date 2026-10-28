@@ -98,7 +98,7 @@ describe('every form of a segment returns the same documents for a pattern test'
     const left = sharedSegment(livePartition(first), first)
     const right = sharedSegment(livePartition(second), second)
     left.tombstoneDocument('r03')
-    const merged = mergeFrozenSegments([left, right], null)
+    const merged = mergeFrozenSegments([left, right], null, null)
     if (merged === null) throw new Error('This runtime offers no shared memory')
     const survivors = documents.filter(document => document.id !== 'r03')
     expectParity(survivors, readerOf(createSharedFrozenSegment(merged)))

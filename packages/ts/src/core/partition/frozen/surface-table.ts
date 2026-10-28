@@ -1,5 +1,4 @@
 import type { SerializedSurfaceForms } from '../../../types/internal'
-import { createSurfaceRegistry, type SurfaceRegistryReader } from '../../surface-registry'
 import { encodeStringBlob } from './string-blob'
 
 export interface SurfaceTableData {
@@ -31,25 +30,4 @@ export function decodeSurfaceTable(table: SurfaceTableData): SerializedSurfaceFo
     forms[surface] = [table.counts[i], token]
   }
   return forms
-}
-
-export function createLazySurfaceReader(load: () => SerializedSurfaceForms | null): SurfaceRegistryReader {
-  let registry: SurfaceRegistryReader | null = null
-
-  function loaded(): SurfaceRegistryReader {
-    if (registry === null) {
-      const built = createSurfaceRegistry()
-      const forms = load()
-      if (forms !== null) built.deserialize(forms)
-      registry = built
-    }
-    return registry
-  }
-
-  return {
-    candidatesForPrefix: prefix => loaded().candidatesForPrefix(prefix),
-    stemChangedTotalFor: token => loaded().stemChangedTotalFor(token),
-    size: () => loaded().size(),
-    serialize: () => loaded().serialize(),
-  }
 }
