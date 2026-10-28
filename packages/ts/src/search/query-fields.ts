@@ -2,7 +2,7 @@ import { ErrorCodes, NarsilError } from '../errors'
 import { undeclaredFieldOnStrictIndex } from '../filters/operands'
 import { flattenSchema } from '../schema/validator'
 import { isWordIndexedFieldType } from '../schema/validator/field-type'
-import { isGeopointOrVectorType } from '../schema/validator/shared'
+import { isGeopointOrVectorType, VECTOR_PATTERN } from '../schema/validator/shared'
 import type { SchemaDefinition } from '../types/schema'
 import type { QueryParams } from '../types/search'
 
@@ -46,17 +46,26 @@ function requireFacetableFields(
   }
 }
 
-function requireDeclaredGroupFields(fields: readonly string[], flatSchema: Record<string, string>): void {
+function requireGroupableFields(fields: readonly string[], flatSchema: Record<string, string>, strict: boolean): void {
   for (const field of fields) {
-    if (flatSchema[field] === undefined) throw undeclaredFieldOnStrictIndex(field, 'group')
+    const fieldType = flatSchema[field]
+    if (strict && fieldType === undefined) throw undeclaredFieldOnStrictIndex(field, 'group')
+    if (fieldType !== undefined && VECTOR_PATTERN.test(fieldType)) {
+      throw new NarsilError(
+        ErrorCodes.SEARCH_INVALID_FIELD,
+        `The engine groups hits by a text, number, boolean, enum, or geopoint field, and the schema declares field "${field}" as "${fieldType}"`,
+        { field, fieldType },
+      )
+    }
   }
 }
 
 export function requireUsableQueryFields(params: QueryParams, schema: SchemaDefinition, strict = false): void {
-  const checksGroup = strict && Array.isArray(params.group?.fields)
+  const groupFields = params.group?.fields
+  const checksGroup = Array.isArray(groupFields) && groupFields.length > 0
   if (params.boost === undefined && params.facets === undefined && !checksGroup) return
   const flatSchema = flattenSchema(schema)
   if (params.boost !== undefined) requireBoostableFields(params.boost, flatSchema)
   if (params.facets !== undefined) requireFacetableFields(params.facets, flatSchema, strict)
-  if (checksGroup && params.group !== undefined) requireDeclaredGroupFields(params.group.fields, flatSchema)
+  if (checksGroup) requireGroupableFields(groupFields, flatSchema, strict)
 }
