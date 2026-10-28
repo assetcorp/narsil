@@ -7,35 +7,13 @@ import type { ReplicationLogEntry } from '../../replication/types'
 import type { ForwardPayload } from '../../transport/types'
 import { requireWritableIndex } from '../memory/write-block'
 import { estimateForwardedBytes, withAdmittedWrite } from '../memory/write-pressure'
-import { assertReshardOpen } from '../reshard/block'
 import { assertSufficientActiveReplicas, resolvePrimaryAssignment } from './assignment'
 import { rollbackPrimaryInsert, rollbackPrimaryRemove, rollbackPrimaryUpdate } from './failures'
+import { inLeadingPartitionQueue } from './leading-queue'
 import { appendDeletion, appendStoredCopy, numberedWrite, type PrimaryWriteScope } from './numbered-write'
-import { enqueuePartitionWrite } from './partition-queue'
 import { applyInProjectedGroups, projectOne } from './projected-groups'
 import { chunkReplicationEntries, replicateEntry, replicateEntryBatch } from './replication'
 import type { WriteRoutingDeps } from './types'
-
-async function currentScope(scope: PrimaryWriteScope): Promise<PrimaryWriteScope> {
-  const { indexName, partitionId, deps } = scope
-  const table = await deps.coordinator.getAllocation(indexName)
-  const assignment = table?.assignments.get(partitionId)
-  if (assignment === undefined || assignment.primary !== deps.nodeId) {
-    throw new NarsilError(
-      ErrorCodes.PARTITION_NOT_PRIMARY,
-      `Node '${deps.nodeId}' stopped leading partition ${partitionId} of index '${indexName}' while the write waited`,
-      { indexName, partitionId, primaryNodeId: assignment?.primary ?? null, localNodeId: deps.nodeId },
-    )
-  }
-  await assertReshardOpen(deps.reshard, deps.coordinator, indexName, partitionId, assignment.primaryTerm)
-  return { ...scope, assignment }
-}
-
-function inPartitionQueue<T>(scope: PrimaryWriteScope, task: (current: PrimaryWriteScope) => Promise<T>): Promise<T> {
-  return enqueuePartitionWrite(scope.deps.partitionWriteQueues, scope.indexName, scope.partitionId, async () =>
-    task(await currentScope(scope)),
-  )
-}
 
 export async function applyPrimaryInsert(
   indexName: string,
@@ -48,7 +26,7 @@ export async function applyPrimaryInsert(
 ): Promise<string> {
   assertSufficientActiveReplicas(indexName, partitionId, assignment, deps)
   const queued: PrimaryWriteScope = { indexName, partitionId, assignment, deps }
-  return inPartitionQueue(queued, async scope => {
+  return inLeadingPartitionQueue(queued, async scope => {
     const projected = projectOne(deps, indexName, document)
     try {
       const inserted = await numberedWrite(
@@ -77,7 +55,7 @@ export async function applyPrimaryRemove(
 ): Promise<void> {
   assertSufficientActiveReplicas(indexName, partitionId, assignment, deps)
   const queued: PrimaryWriteScope = { indexName, partitionId, assignment, deps }
-  await inPartitionQueue(queued, async scope => {
+  await inLeadingPartitionQueue(queued, async scope => {
     const previousDocument = await deps.engine.get(indexName, docId)
     const removed = await numberedWrite(
       scope,
@@ -102,7 +80,7 @@ export async function applyPrimaryUpdate(
 ): Promise<void> {
   assertSufficientActiveReplicas(indexName, partitionId, assignment, deps)
   const queued: PrimaryWriteScope = { indexName, partitionId, assignment, deps }
-  await inPartitionQueue(queued, async scope => {
+  await inLeadingPartitionQueue(queued, async scope => {
     const projected = projectOne(deps, indexName, document)
     try {
       const previousDocument = await deps.engine.get(indexName, docId)
@@ -143,34 +121,38 @@ export async function applyPrimaryInsertBatch(
   assertSufficientActiveReplicas(indexName, partitionId, assignment, deps)
   const queued: PrimaryWriteScope = { indexName, partitionId, assignment, deps }
   const failed: BatchResult['failed'] = []
-  const succeeded = await inPartitionQueue(queued, async scope => {
-    const appended: AppendedWrite[] = []
-    await applyInProjectedGroups(deps, indexName, {
-      items,
-      documentOf: item => item.doc,
-      docIdOf: item => item.docId,
-      failed,
-      apply: async item => {
-        try {
-          const inserted = await numberedWrite(
-            scope,
-            () => deps.engine.insert(indexName, item.doc, item.docId, options),
-            (insertedDocId, admitted) => appendStoredCopy(scope, insertedDocId, admitted),
-          )
-          appended.push({ docId: inserted.value, entry: inserted.entry })
-        } catch (err) {
-          failed.push({ docId: item.docId, error: asWriteError(err, ErrorCodes.DOC_VALIDATION_FAILED, item.docId) })
-        }
-      },
-    })
-    return replicateAppendedWrites(
-      scope.assignment,
-      appended,
-      failed,
-      (write, error) => rollbackPrimaryInsert(scope, write.docId, error),
-      deps,
-    )
-  })
+  const succeeded = await inLeadingPartitionQueue(
+    queued,
+    async scope => {
+      const appended: AppendedWrite[] = []
+      await applyInProjectedGroups(deps, indexName, {
+        items,
+        documentOf: item => item.doc,
+        docIdOf: item => item.docId,
+        failed,
+        apply: async item => {
+          try {
+            const inserted = await numberedWrite(
+              scope,
+              () => deps.engine.insert(indexName, item.doc, item.docId, options),
+              (insertedDocId, admitted) => appendStoredCopy(scope, insertedDocId, admitted),
+            )
+            appended.push({ docId: inserted.value, entry: inserted.entry })
+          } catch (err) {
+            failed.push({ docId: item.docId, error: asWriteError(err, ErrorCodes.DOC_VALIDATION_FAILED, item.docId) })
+          }
+        },
+      })
+      return replicateAppendedWrites(
+        scope.assignment,
+        appended,
+        failed,
+        (write, error) => rollbackPrimaryInsert(scope, write.docId, error),
+        deps,
+      )
+    },
+    failed,
+  )
   return { succeeded, failed }
 }
 
@@ -184,38 +166,42 @@ export async function applyPrimaryUpdateBatch(
   assertSufficientActiveReplicas(indexName, partitionId, assignment, deps)
   const queued: PrimaryWriteScope = { indexName, partitionId, assignment, deps }
   const failed: BatchResult['failed'] = []
-  const succeeded = await inPartitionQueue(queued, async scope => {
-    const appended: AppendedWrite[] = []
-    await applyInProjectedGroups(deps, indexName, {
-      items: updates,
-      documentOf: update => update.document,
-      docIdOf: update => update.docId,
-      failed,
-      apply: async update => {
-        try {
-          const previousDocument = await deps.engine.get(indexName, update.docId)
-          const updated = await numberedWrite(
-            scope,
-            () => deps.engine.update(indexName, update.docId, update.document),
-            (_, admitted) => appendStoredCopy(scope, update.docId, admitted),
-          )
-          appended.push({ docId: update.docId, entry: updated.entry, previousDocument })
-        } catch (err) {
-          failed.push({
-            docId: update.docId,
-            error: asWriteError(err, ErrorCodes.DOC_VALIDATION_FAILED, update.docId),
-          })
-        }
-      },
-    })
-    return replicateAppendedWrites(
-      scope.assignment,
-      appended,
-      failed,
-      (write, error) => rollbackPrimaryUpdate(scope, write.docId, write.previousDocument, error),
-      deps,
-    )
-  })
+  const succeeded = await inLeadingPartitionQueue(
+    queued,
+    async scope => {
+      const appended: AppendedWrite[] = []
+      await applyInProjectedGroups(deps, indexName, {
+        items: updates,
+        documentOf: update => update.document,
+        docIdOf: update => update.docId,
+        failed,
+        apply: async update => {
+          try {
+            const previousDocument = await deps.engine.get(indexName, update.docId)
+            const updated = await numberedWrite(
+              scope,
+              () => deps.engine.update(indexName, update.docId, update.document),
+              (_, admitted) => appendStoredCopy(scope, update.docId, admitted),
+            )
+            appended.push({ docId: update.docId, entry: updated.entry, previousDocument })
+          } catch (err) {
+            failed.push({
+              docId: update.docId,
+              error: asWriteError(err, ErrorCodes.DOC_VALIDATION_FAILED, update.docId),
+            })
+          }
+        },
+      })
+      return replicateAppendedWrites(
+        scope.assignment,
+        appended,
+        failed,
+        (write, error) => rollbackPrimaryUpdate(scope, write.docId, write.previousDocument, error),
+        deps,
+      )
+    },
+    failed,
+  )
   return { succeeded, failed }
 }
 
@@ -229,29 +215,33 @@ export async function applyPrimaryRemoveBatch(
   assertSufficientActiveReplicas(indexName, partitionId, assignment, deps)
   const queued: PrimaryWriteScope = { indexName, partitionId, assignment, deps }
   const failed: BatchResult['failed'] = []
-  const succeeded = await inPartitionQueue(queued, async scope => {
-    const appended: AppendedWrite[] = []
-    for (const docId of docIds) {
-      try {
-        const previousDocument = await deps.engine.get(indexName, docId)
-        const removed = await numberedWrite(
-          scope,
-          () => deps.engine.remove(indexName, docId),
-          () => appendDeletion(scope, docId),
-        )
-        appended.push({ docId, entry: removed.entry, previousDocument })
-      } catch (err) {
-        failed.push({ docId, error: asWriteError(err, ErrorCodes.QUERY_ROUTING_FAILED, docId) })
+  const succeeded = await inLeadingPartitionQueue(
+    queued,
+    async scope => {
+      const appended: AppendedWrite[] = []
+      for (const docId of docIds) {
+        try {
+          const previousDocument = await deps.engine.get(indexName, docId)
+          const removed = await numberedWrite(
+            scope,
+            () => deps.engine.remove(indexName, docId),
+            () => appendDeletion(scope, docId),
+          )
+          appended.push({ docId, entry: removed.entry, previousDocument })
+        } catch (err) {
+          failed.push({ docId, error: asWriteError(err, ErrorCodes.QUERY_ROUTING_FAILED, docId) })
+        }
       }
-    }
-    return replicateAppendedWrites(
-      scope.assignment,
-      appended,
-      failed,
-      (write, error) => rollbackPrimaryRemove(scope, write.docId, write.previousDocument, error),
-      deps,
-    )
-  })
+      return replicateAppendedWrites(
+        scope.assignment,
+        appended,
+        failed,
+        (write, error) => rollbackPrimaryRemove(scope, write.docId, write.previousDocument, error),
+        deps,
+      )
+    },
+    failed,
+  )
   return { succeeded, failed }
 }
 
