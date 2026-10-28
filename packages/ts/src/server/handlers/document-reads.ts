@@ -53,7 +53,7 @@ export function createDocumentReadHandlers(deps: ReadHandlerDeps) {
   }
 
   async function multiGet(ctx: RouteContext): Promise<void> {
-    const body = parseJson<MultiGetBody>(ctx)
+    const body = parseJson<MultiGetBody>(ctx, 'read')
     if (!body) return
     const failure = validateMultiGet(body, limits.maxFetchDocuments)
     if (failure) {
@@ -71,7 +71,7 @@ export function createDocumentReadHandlers(deps: ReadHandlerDeps) {
   }
 
   async function list(ctx: RouteContext): Promise<void> {
-    const params = parseJson<ListParams>(ctx)
+    const params = parseJson<ListParams>(ctx, 'read')
     if (!params) return
     const failure = validateList(params, limits.maxFetchDocuments)
     if (failure) {

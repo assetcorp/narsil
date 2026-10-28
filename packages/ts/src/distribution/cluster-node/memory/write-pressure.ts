@@ -22,7 +22,7 @@ export function createWritePressure(options: WritePressureOptions): WritePressur
     admit(indexName, bytes) {
       options.beforeAdmit()
       const requestBytes = Math.max(0, Math.ceil(bytes))
-      if (inFlight + requestBytes > options.limitBytes) {
+      if (inFlight > 0 && inFlight + requestBytes > options.limitBytes) {
         throw new NarsilError(
           ErrorCodes.CLUSTER_WRITE_BLOCKED,
           `Node '${options.nodeId}' refuses this write to index '${indexName}' because its ${requestBytes} bytes would take the writes in flight on the node from ${inFlight} bytes past the limit of ${options.limitBytes} bytes. Retry once the writes in flight finish, or send smaller batches.`,

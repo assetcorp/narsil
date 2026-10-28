@@ -1,5 +1,6 @@
 import { generateId } from '../../core/id-generator'
 import { ErrorCodes, NarsilError } from '../../errors'
+import { bindWriteBlockLookup } from '../../narsil/write-blocks'
 import { DEFAULT_CONTROLLER_CONFIG, DEFAULT_NODE_LIFECYCLE_CONFIG } from '../cluster/constants'
 import { createController } from '../cluster/controller'
 import type { ControllerNode } from '../cluster/controller/types'
@@ -18,6 +19,7 @@ import { type ClusterLocalEngine, createClusterLocalEngine } from './local-engin
 import { orphanedIndexError, reconcileLocalIndexes } from './local-index-reconcile'
 import { seedReopenedPrimaryLogs } from './local-replication'
 import { createNodeMemoryReporting } from './memory/node-memory'
+import { findWriteBlock } from './memory/write-block'
 import { createDataNodeHandler } from './message-handler'
 import { resolveNodeTargets as resolveTargetsForNode } from './node-messaging'
 import { createClusterNodeOperations } from './node-operations'
@@ -30,6 +32,7 @@ import {
   getReplicationLog as readReplicationLog,
   seedReplicationLog as writeSeededReplicationLog,
 } from './replication-logs'
+import { routableAllocation } from './routable-allocation'
 import { createSnapshotSyncHandlerState, nodeSnapshotHeaderMetadata } from './snapshot-sync-handler'
 import { createMultiplexedControllerTransport, createNotReadyHandler } from './transport-listener'
 import type { ClusterNode, ClusterNodeConfig } from './types'
@@ -143,6 +146,7 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
     waitForActiveReplicas: config.replication?.waitForActiveReplicas,
     memoryView: memoryReporting.view,
     writePressure: memoryReporting.writePressure,
+    writeProjection: memoryReporting.writeProjection,
   }
 
   const orphanedIndexes = new Set<string>()
@@ -353,6 +357,10 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
     },
   }
 
+  bindWriteBlockLookup(node, async indexName => {
+    const table = await routableAllocation(writeDeps.coordinator, indexName).catch(() => null)
+    return table === null ? null : findWriteBlock(table, memoryReporting.view)
+  })
   return node
 
   function resolveSnapshotHeaderMetadata(indexName: string, partitionId: number | null) {

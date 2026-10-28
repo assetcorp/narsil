@@ -9,7 +9,7 @@ export function createSearchHandlers(deps: ReadHandlerDeps) {
   const { engine, limits, allowRegex } = deps
 
   async function search(ctx: RouteContext): Promise<void> {
-    const params = parseJson<QueryParams>(ctx)
+    const params = parseJson<QueryParams>(ctx, 'read')
     if (!params) return
     const failure = validateQuery(params, limits.maxResultWindow)
     if (failure) {
@@ -25,7 +25,7 @@ export function createSearchHandlers(deps: ReadHandlerDeps) {
   }
 
   async function preflight(ctx: RouteContext): Promise<void> {
-    const params = parseJson<QueryParams>(ctx)
+    const params = parseJson<QueryParams>(ctx, 'read')
     if (!params) return
     const failure = validateQuery(params, limits.maxResultWindow)
     if (failure) {
@@ -41,7 +41,7 @@ export function createSearchHandlers(deps: ReadHandlerDeps) {
   }
 
   async function suggest(ctx: RouteContext): Promise<void> {
-    const params = parseJson<SuggestParams>(ctx)
+    const params = parseJson<SuggestParams>(ctx, 'read')
     if (!params) return
     const failure = validateSuggest(params)
     if (failure) {

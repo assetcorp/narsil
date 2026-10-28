@@ -190,6 +190,7 @@ export function httpStatusForNarsilError(code: string): number;
 // @public
 export interface ImportError {
     code: string;
+    details?: Record<string, unknown>;
     docId?: string;
     line?: number;
     message: string;
@@ -289,6 +290,7 @@ export const ServerErrorCodes: {
 export interface ServerLimits {
     importBatchSize?: number;
     maxBodyBytes?: number;
+    maxBodyBytesInFlightFraction?: number;
     maxConcurrentRequests?: number;
     maxConcurrentTasks?: number;
     maxFetchDocuments?: number;

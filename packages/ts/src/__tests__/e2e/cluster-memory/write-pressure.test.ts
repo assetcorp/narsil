@@ -10,7 +10,15 @@ import {
   stopEtcdContainer,
   waitForEtcdReady,
 } from '../../distribution/coordinator/etcd-integration/fixtures'
-import { errorOf, type NodeProcess, request, startNodeProcess, waitFor } from './harness'
+import {
+  errorOf,
+  expectEveryDocumentReadsBack,
+  isServerMemoryRefusal,
+  type NodeProcess,
+  request,
+  startNodeProcess,
+  waitFor,
+} from './harness'
 
 const HEAP_MEGABYTES = 192
 const INDEX_NAME = 'catalogue'
@@ -20,15 +28,25 @@ const WORDS_PER_BODY = 120
 const VOCABULARY_WORDS = 20_000
 const HEAP_SAMPLE_INTERVAL_MS = 50
 const PROPAGATION_TIMEOUT_MS = 20_000
-const CRASH_TIMEOUT_MS = 120_000
+const SEND_BUDGET_HEAP_LIMITS = 3
+const CAPPED_HEAP_BLOCK_FRACTION = 0.75
+const PEAK_NEAR_CAPPED_BLOCK_FRACTION = 0.05
+const V8_INEFFECTIVE_MARK_COMPACT_FRACTION = 0.8
 const MEMORY_BLOCK_SWITCHED_OFF: ClusterMemoryConfig = { blockWritesAbove: 1, resumeWritesBelow: 0.99 }
 const IN_FLIGHT_BOUND_SWITCHED_OFF: ClusterMemoryConfig = { ...MEMORY_BLOCK_SWITCHED_OFF, inFlightWriteFraction: 1 }
 const LETTERS = 'abcdefghijklmnopqrstuvwxyz'
+const BATCH_REFUSAL_REASONS = ['write_bytes_in_flight', 'node_memory_full']
+const MEMORY_REFUSAL_REASONS = ['node_memory_full', 'write_would_fill_memory']
 
 interface Furniture {
   id: string
   title: string
   body: string
+}
+
+interface BatchFailure {
+  docId: string
+  error: { code: string; details?: Record<string, unknown> }
 }
 
 function createRandom(seed: number): () => number {
@@ -90,13 +108,14 @@ async function sendBatch(base: string, documents: Furniture[], payload: string):
 
 async function fireConcurrentBatches(
   node: NodeProcess,
+  firstSerial = 0,
 ): Promise<{ outcomes: BatchOutcome[]; peakHeapBytes: number; sourceBytes: number }> {
   const batches: Array<{ documents: Furniture[]; payload: string }> = []
   let sourceBytes = 0
   for (let batch = 0; batch < CONCURRENT_BATCHES; batch++) {
     const documents: Furniture[] = []
     for (let count = 0; count < BATCH_DOCUMENTS; count++) {
-      documents.push(furnitureNumber(batch * BATCH_DOCUMENTS + count))
+      documents.push(furnitureNumber(firstSerial + batch * BATCH_DOCUMENTS + count))
     }
     const payload = JSON.stringify({ documents })
     sourceBytes += payload.length
@@ -151,7 +170,7 @@ describe('a cluster node on etcd bounds the bytes of inserts and updates in flig
     await stopEtcdContainer(container?.name ?? null)
   }, 60_000)
 
-  async function startSingleNode(memory: ClusterMemoryConfig): Promise<NodeProcess> {
+  async function startSingleNode(memory?: ClusterMemoryConfig): Promise<NodeProcess> {
     if (container === null) throw new Error('etcd never started')
     const started = await startNodeProcess({
       nodeId: 'node-1',
@@ -175,34 +194,52 @@ describe('a cluster node on etcd bounds the bytes of inserts and updates in flig
   }
 
   it('refuses the excess of a burst with 429 and keeps every write it accepted', async () => {
-    const bounded = await startSingleNode(MEMORY_BLOCK_SWITCHED_OFF)
+    const bounded = await startSingleNode()
     const { outcomes, peakHeapBytes, sourceBytes } = await fireConcurrentBatches(bounded)
 
     expect(bounded.exited(), bounded.output()).toBe(false)
     const oracle = new Map<string, Furniture>()
     let refused = 0
+    let refusedDocuments = 0
     for (const outcome of outcomes) {
       expect([200, 429], JSON.stringify(outcome.body).slice(0, 500)).toContain(outcome.status)
       if (outcome.status === 429) {
         refused++
-        expect(errorOf({ status: 429, body: outcome.body }).code).toBe('CLUSTER_WRITE_BLOCKED')
-        expect(errorOf({ status: 429, body: outcome.body }).details).toMatchObject({
-          reason: 'write_bytes_in_flight',
-          indexName: INDEX_NAME,
-          nodeId: 'node-1',
-        })
+        if (isServerMemoryRefusal({ status: 429, body: outcome.body })) continue
+        const refusal = errorOf({ status: 429, body: outcome.body })
+        expect(refusal.code, JSON.stringify(refusal)).toBe('CLUSTER_WRITE_BLOCKED')
+        expect(refusal.details).toMatchObject({ indexName: INDEX_NAME })
+        expect(BATCH_REFUSAL_REASONS).toContain(refusal.details.reason)
+        if (refusal.details.reason === 'node_memory_full') {
+          expect(refusal.details.fullNodeIds).toEqual(['node-1'])
+        } else {
+          expect(refusal.details.nodeId).toBe('node-1')
+        }
         continue
       }
-      expect(outcome.body.failed).toEqual([])
-      for (const document of outcome.documents) oracle.set(document.id, document)
+      const failed = outcome.body.failed as BatchFailure[]
+      for (const failure of failed) {
+        expect(failure.error.code).toBe('CLUSTER_WRITE_BLOCKED')
+        expect(failure.error.details?.reason).toBe('write_would_fill_memory')
+      }
+      refusedDocuments += failed.length
+      const byId = new Map(outcome.documents.map(document => [document.id, document]))
+      for (const docId of outcome.body.succeeded as string[]) {
+        const document = byId.get(docId)
+        if (document === undefined) throw new Error(`the node acknowledged ${docId}, which the batch never held`)
+        oracle.set(docId, document)
+      }
     }
+    const peakOldGenerationBytes = await bounded.peakOldGenerationBytes()
     console.log(
-      `bounded node: ${outcomes.length - refused} of ${outcomes.length} batches accepted, ${refused} refused, ` +
-        `${megabytes(sourceBytes)} sent, heap peaked at ${megabytes(peakHeapBytes)} of ${megabytes(bounded.heapLimitBytes)}`,
+      `bounded node: ${outcomes.length - refused} of ${outcomes.length} batches answered 200, ${refused} refused, ` +
+        `${refusedDocuments} documents refused inside accepted batches, ${oracle.size} documents kept, ` +
+        `${megabytes(sourceBytes)} sent, heapUsed peaked at ${megabytes(peakHeapBytes)} and the old generation at ` +
+        `${megabytes(peakOldGenerationBytes)}, against an old-space limit of ${megabytes(bounded.heapLimitBytes)}`,
     )
     expect(refused).toBeGreaterThan(0)
     expect(oracle.size).toBeGreaterThan(0)
-    expect(peakHeapBytes).toBeLessThan(bounded.heapLimitBytes)
+    expect(peakOldGenerationBytes).toBeLessThan(bounded.heapLimitBytes)
 
     const counted = await request(bounded.base, 'GET', `/indexes/${INDEX_NAME}/count`)
     expect(counted.body.count).toBe(oracle.size)
@@ -213,26 +250,79 @@ describe('a cluster node on etcd bounds the bytes of inserts and updates in flig
       limit: 5,
     })
     expect(chairs.body.count).toBe([...oracle.values()].filter(titledChair).length)
+    await expectEveryDocumentReadsBack(bounded.base, INDEX_NAME, oracle)
 
     const late = furnitureNumber(CONCURRENT_BATCHES * BATCH_DOCUMENTS)
-    const accepted = await request(bounded.base, 'POST', `/indexes/${INDEX_NAME}/documents/_batch`, {
+    const lateReply = await request(bounded.base, 'POST', `/indexes/${INDEX_NAME}/documents/_batch`, {
       documents: [late],
     })
-    expect(accepted.status, JSON.stringify(accepted.body)).toBe(200)
+    expect([200, 429]).toContain(lateReply.status)
+    const lateReasons =
+      lateReply.status === 429
+        ? [errorOf(lateReply).details.reason]
+        : (lateReply.body.failed as BatchFailure[]).map(failure => failure.error.details?.reason)
+    for (const reason of lateReasons) expect(MEMORY_REFUSAL_REASONS).toContain(reason)
     expect(bounded.exited(), bounded.output()).toBe(false)
   }, 300_000)
 
-  it('runs out of heap under the same burst once the bound covers the whole heap', async () => {
+  it('reaches the capped heap block under the same burst once the in-flight bound covers the whole heap', async () => {
     const unbounded = await startSingleNode(IN_FLIGHT_BOUND_SWITCHED_OFF)
-    const { outcomes, sourceBytes } = await fireConcurrentBatches(unbounded)
+    const sendBudgetBytes = unbounded.heapLimitBytes * SEND_BUDGET_HEAP_LIMITS
     const replies = new Map<string, number>()
-    for (const outcome of outcomes) {
-      const key = String(outcome.status ?? 'no reply')
-      replies.set(key, (replies.get(key) ?? 0) + 1)
+    const oracle = new Map<string, Furniture>()
+    let projectionRefusals = 0
+    let fullRefusals = 0
+    let sentBytes = 0
+    let bursts = 0
+    while (projectionRefusals === 0 && fullRefusals === 0 && sentBytes < sendBudgetBytes) {
+      const { outcomes, sourceBytes } = await fireConcurrentBatches(
+        unbounded,
+        bursts * CONCURRENT_BATCHES * BATCH_DOCUMENTS,
+      )
+      bursts++
+      sentBytes += sourceBytes
+      for (const outcome of outcomes) {
+        const key = String(outcome.status ?? 'no reply')
+        replies.set(key, (replies.get(key) ?? 0) + 1)
+        expect([200, 429], JSON.stringify(outcome.body).slice(0, 500)).toContain(outcome.status)
+        if (outcome.status === 429) {
+          if (isServerMemoryRefusal({ status: 429, body: outcome.body })) continue
+          const refusal = errorOf({ status: 429, body: outcome.body })
+          expect(refusal.code, JSON.stringify(refusal)).toBe('CLUSTER_WRITE_BLOCKED')
+          expect(refusal.details.reason).toBe('node_memory_full')
+          fullRefusals++
+          continue
+        }
+        const failed = outcome.body.failed as BatchFailure[]
+        for (const failure of failed) {
+          expect(failure.error.code).toBe('CLUSTER_WRITE_BLOCKED')
+          expect(failure.error.details?.reason).toBe('write_would_fill_memory')
+        }
+        projectionRefusals += failed.length
+        const byId = new Map(outcome.documents.map(document => [document.id, document]))
+        for (const docId of outcome.body.succeeded as string[]) {
+          const document = byId.get(docId)
+          if (document === undefined) throw new Error(`the node acknowledged ${docId}, which the batch never held`)
+          oracle.set(docId, document)
+        }
+      }
+      expect(unbounded.exited(), unbounded.output()).toBe(false)
     }
+    const peakOldGenerationBytes = await unbounded.peakOldGenerationBytes()
+    const peakFraction = peakOldGenerationBytes / unbounded.heapLimitBytes
     const tally = [...replies].map(([status, count]) => `${count} × ${status}`).join(', ')
-    console.log(`unbounded node: ${tally} for ${megabytes(sourceBytes)} sent`)
-    await waitFor('the unbounded node to run out of heap', CRASH_TIMEOUT_MS, async () => unbounded.exited())
-    expect(unbounded.output()).toMatch(/heap out of memory/i)
+    console.log(
+      `unbounded node: ${tally} over ${bursts} bursts and ${megabytes(sentBytes)} sent, ${projectionRefusals} ` +
+        `documents refused with write_would_fill_memory, ${fullRefusals} batches with node_memory_full, the old ` +
+        `generation peaked at ${peakFraction.toFixed(3)} of its limit`,
+    )
+    expect(
+      projectionRefusals + fullRefusals,
+      `the node refused nothing after ${megabytes(sentBytes)} of documents, ${SEND_BUDGET_HEAP_LIMITS} times its heap limit`,
+    ).toBeGreaterThan(0)
+    expect(peakFraction).toBeGreaterThan(CAPPED_HEAP_BLOCK_FRACTION - PEAK_NEAR_CAPPED_BLOCK_FRACTION)
+    expect(peakFraction).toBeLessThan(V8_INEFFECTIVE_MARK_COMPACT_FRACTION)
+    await expectEveryDocumentReadsBack(unbounded.base, INDEX_NAME, oracle)
+    expect(unbounded.exited(), unbounded.output()).toBe(false)
   }, 300_000)
 })

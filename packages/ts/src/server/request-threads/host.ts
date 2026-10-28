@@ -7,6 +7,7 @@ import type { RequestThreadListener } from '../../engine/orchestration'
 import { resolveVectorText } from '../../engine/resolve-vector-text'
 import { isNarsilError } from '../../errors'
 import type { Executor } from '../../workers/executor'
+import { clearBodyBudgetSlot } from '../body-budget'
 import { clearGateSlot, gateSlotOfWorker } from '../concurrency-gate'
 import { INDEX_TOUCH_INTERVALS_PER_IDLE_TIMEOUT, MAX_INDEX_TOUCH_INTERVAL_MS } from '../constants'
 import type { ResolvedCors } from '../cors'
@@ -34,6 +35,7 @@ export interface RequestThreadHostOptions {
   handlers: ServerHandlers
   authorize: Authorizer | undefined
   gate: SharedArrayBuffer
+  bodyBudget: SharedArrayBuffer
   limits: ResolvedLimits
   allowRegex: boolean
   build: ResolvedBuild
@@ -203,6 +205,7 @@ export async function startRequestThreads(options: RequestThreadHostOptions): Pr
     releaseDescriptor(thread)
     thread.port.close()
     clearGateSlot(options.gate, gateSlotOfWorker(workerId))
+    clearBodyBudgetSlot(options.bodyBudget, gateSlotOfWorker(workerId))
     await thread.executor.execute({ type: 'stopServing', requestId: `stop-serving-${workerId}` }).catch(() => undefined)
   }
 
@@ -229,6 +232,7 @@ export async function startRequestThreads(options: RequestThreadHostOptions): Pr
               gate: options.gate,
               gateSlot: gateSlotOfWorker(workerId),
               maxConcurrentRequests: options.limits.maxConcurrentRequests,
+              bodyBudget: options.bodyBudget,
               touchIntervalMs,
               cors: options.cors,
               limits: options.limits,
@@ -261,6 +265,7 @@ export async function startRequestThreads(options: RequestThreadHostOptions): Pr
       releaseDescriptor(thread)
       thread.port.close()
       clearGateSlot(options.gate, gateSlotOfWorker(workerId))
+      clearBodyBudgetSlot(options.bodyBudget, gateSlotOfWorker(workerId))
     },
   }
 

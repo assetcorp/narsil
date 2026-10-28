@@ -1,4 +1,5 @@
 import { ErrorCodes, NarsilError } from '../../errors'
+import { bindEngineWriteBlock } from '../../narsil/write-blocks'
 import type { Narsil } from '../../types/engine'
 import type { AnyDocument, IndexConfig, InsertOptions, WriteOptions } from '../../types/schema'
 import type { ListParams, QueryParams, SuggestParams } from '../../types/search'
@@ -50,7 +51,7 @@ function rejectWait(options: WriteOptions | undefined): void {
  * @public
  */
 export function clusterNodeEngine(node: ClusterNode, options?: ClusterEngineOptions): Narsil {
-  return {
+  const engine: Narsil = {
     open(indexName: string): Promise<void> {
       return node.open(indexName)
     },
@@ -178,4 +179,6 @@ export function clusterNodeEngine(node: ClusterNode, options?: ClusterEngineOpti
     optimizeVectors: () => unsupported('optimizeVectors'),
     vectorMaintenanceStatus: () => unsupported('vectorMaintenanceStatus'),
   }
+  bindEngineWriteBlock(engine, node)
+  return engine
 }

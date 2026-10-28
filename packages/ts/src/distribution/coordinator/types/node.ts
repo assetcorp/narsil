@@ -35,9 +35,15 @@ export interface NodeMemoryReport {
   processBytes: number
   /** The process may hold this many bytes, which is the container's memory limit or else the host's total memory. */
   processLimitBytes: number
-  /** The main thread's heap uses this many bytes. */
+  /**
+   * The main thread's old generation uses this many bytes. The old generation is the V8 heap without the young
+   * generation, which holds new objects until the collector empties it.
+   */
   heapBytes: number
-  /** The main thread's heap may grow to this many bytes. */
+  /**
+   * The main thread's old generation may grow to this many bytes. This is the `--max-old-space-size` figure where the
+   * process sets it, and otherwise V8's heap limit less the young generation's share.
+   */
   heapLimitBytes: number
   /**
    * This is true while the node refuses writes, which starts once either figure passes the block fraction of its limit

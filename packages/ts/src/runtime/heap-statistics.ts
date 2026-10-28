@@ -1,15 +1,24 @@
 import { totalmem } from 'node:os'
-import { getHeapStatistics } from 'node:v8'
+import { getHeapSpaceStatistics, getHeapStatistics } from 'node:v8'
 
 const MEGABYTE_BYTES = 1_048_576
 const IN_MEGABYTES = /^--max-old-space-size=(\d+)$/
 const AS_PERCENTAGE = /^--max-old-space-size-percentage=(\d+(?:\.\d+)?)$/
+const SEMI_SPACE_IN_MEGABYTES = /^--max-semi-space-size=(\d+)$/
+const YOUNG_GENERATION_SPACES = new Set(['new_space', 'new_large_object_space'])
+const V8_YOUNG_GENERATION_BYTES_PER_SEMI_SPACE_BYTE = 3
 
 export interface HeapStatistics {
   usedBytes: number
   limitBytes: number
   availableBytes: number | null
   configuredLimitBytes: number | null
+}
+
+export interface OldGenerationStatistics {
+  usedBytes: number
+  limitBytes: number
+  youngUsedBytes: number
 }
 
 function flagEntries(): string[] {
@@ -51,6 +60,53 @@ let configuredLimit: number | null | undefined
 function configuredLimitBytes(): number | null {
   if (configuredLimit === undefined) configuredLimit = readConfiguredLimit()
   return configuredLimit
+}
+
+function readConfiguredYoungGeneration(): number | null {
+  let megabytes = 0
+  for (const entry of flagEntries()) {
+    const semiSpace = SEMI_SPACE_IN_MEGABYTES.exec(entry)
+    if (semiSpace !== null) megabytes = Number(semiSpace[1])
+  }
+  if (!Number.isFinite(megabytes) || megabytes <= 0) return null
+  const semiSpaceBytes = 2 ** Math.ceil(Math.log2(megabytes)) * MEGABYTE_BYTES
+  return semiSpaceBytes * V8_YOUNG_GENERATION_BYTES_PER_SEMI_SPACE_BYTE
+}
+
+let configuredYoungGeneration: number | null | undefined
+
+function configuredYoungGenerationBytes(): number | null {
+  if (configuredYoungGeneration === undefined) configuredYoungGeneration = readConfiguredYoungGeneration()
+  return configuredYoungGeneration
+}
+
+let heapSizeLimit: number | undefined
+
+function heapSizeLimitBytes(): number {
+  if (heapSizeLimit === undefined) heapSizeLimit = getHeapStatistics().heap_size_limit
+  return heapSizeLimit
+}
+
+export function readOldGenerationStatistics(): OldGenerationStatistics | null {
+  try {
+    let usedBytes = 0
+    let youngCapacityBytes = 0
+    let youngUsedBytes = 0
+    for (const space of getHeapSpaceStatistics()) {
+      if (YOUNG_GENERATION_SPACES.has(space.space_name)) {
+        youngCapacityBytes += space.space_size
+        youngUsedBytes += space.space_used_size
+      } else {
+        usedBytes += space.space_used_size
+      }
+    }
+    const limitBytes =
+      configuredLimitBytes() ?? heapSizeLimitBytes() - (configuredYoungGenerationBytes() ?? youngCapacityBytes)
+    if (!Number.isFinite(usedBytes) || !Number.isFinite(limitBytes) || limitBytes <= 0) return null
+    return { usedBytes, limitBytes, youngUsedBytes: Number.isFinite(youngUsedBytes) ? youngUsedBytes : 0 }
+  } catch {
+    return null
+  }
 }
 
 export function readHeapStatistics(): HeapStatistics | null {

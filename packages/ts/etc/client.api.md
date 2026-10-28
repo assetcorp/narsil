@@ -219,6 +219,7 @@ export interface HttpIndexConfig {
 // @public
 export interface ImportError {
     code: string;
+    details?: Record<string, unknown>;
     docId?: string;
     line?: number;
     message: string;
