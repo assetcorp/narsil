@@ -19,6 +19,10 @@ export interface QuantizerSearchReader {
 export interface QuantizerBuildReader extends QuantizerSearchReader {
   /** Quantizes the stored vector of an ordinal and writes its record. */
   writeCodes(ordinal: number): void
+  /** Estimates the distance between two ordinals from their records. */
+  pairDistance(): (ordA: number, ordB: number) => number
+  /** Estimates the distance from a vector being placed to each ordinal's record, or returns null before calibration. */
+  placementDistance(vector: Float32Array): ((ordinal: number) => number) | null
 }
 
 export interface OsqQuantizer extends QuantizerBuildReader {
