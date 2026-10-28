@@ -1,5 +1,7 @@
 import type { InternalIdResolver } from '../../../types/internal'
+import type { AnyDocument } from '../../../types/schema'
 import type { DocumentStoreReader, ReadonlyStoredDocument } from '../../document-store'
+import type { ResolvedProjection } from '../../projection'
 import type { FrozenDocumentSource } from './document-source'
 import type { ExternalIdTable } from './external-ids'
 import type { FrozenTombstones } from './tombstones'
@@ -11,22 +13,16 @@ export function createFrozenDocTable(
   tombstones: FrozenTombstones,
 ): DocumentStoreReader {
   const capacity = idTable.count
-  const storedCache: Array<ReadonlyStoredDocument | undefined> = new Array(capacity)
   let sortedIds: string[] | null = null
   let sortedRevision = -1
 
   function storedAt(ordinal: number): ReadonlyStoredDocument {
-    let stored = storedCache[ordinal]
-    if (stored === undefined) {
-      const fieldLengths: Record<string, number> = {}
-      for (const [fieldName, column] of lengthColumns) {
-        const length = column[ordinal]
-        if (length > 0) fieldLengths[fieldName] = length
-      }
-      stored = { fields: documents.docAt(ordinal) as Record<string, unknown>, fieldLengths }
-      storedCache[ordinal] = stored
+    const fieldLengths: Record<string, number> = {}
+    for (const [fieldName, column] of lengthColumns) {
+      const length = column[ordinal]
+      if (length > 0) fieldLengths[fieldName] = length
     }
-    return stored
+    return { fields: documents.docAt(ordinal) as Record<string, unknown>, fieldLengths }
   }
 
   function liveOrdinal(docId: string): number | undefined {
@@ -110,6 +106,16 @@ export function createFrozenDocTable(
 
     resolver(): InternalIdResolver {
       return resolver
+    },
+
+    fieldReader(fieldPath: string): (internalId: number) => unknown {
+      const read = documents.fieldReader(fieldPath)
+      return internalId => (resolver.isLive(internalId) ? read(internalId) : undefined)
+    },
+
+    projectedDocument(docId: string, projection?: ResolvedProjection): AnyDocument | undefined {
+      const ordinal = liveOrdinal(docId)
+      return ordinal === undefined ? undefined : documents.projectedAt(ordinal, projection)
     },
   }
 }

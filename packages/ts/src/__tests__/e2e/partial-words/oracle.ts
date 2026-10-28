@@ -141,15 +141,21 @@ export function createOracle(documents: readonly AnyDocument[]): Oracle {
     return denominator === 0 ? 0 : (idf * frequency * (K1 + 1)) / denominator
   }
 
+  const typoMatchesByTerm = new Map<string, string[]>()
+
   function typoMatchesOf(own: string, query: OracleQuery): string[] {
     const tolerance = query.exact === true ? 0 : (query.tolerance ?? 0)
     if (tolerance === 0) return [own]
+    const key = `${tolerance}:${own}`
+    const known = typoMatchesByTerm.get(key)
+    if (known !== undefined) return known
     const matches = [own]
     for (const token of documentFrequency.keys()) {
       if (token === own) continue
       if (!sharesFuzzyPrefix(own, token, DEFAULT_FUZZY_PREFIX_LENGTH)) continue
       if (editDistance(own, token) <= tolerance) matches.push(token)
     }
+    typoMatchesByTerm.set(key, matches)
     return matches
   }
 

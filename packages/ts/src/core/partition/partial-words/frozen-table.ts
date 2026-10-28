@@ -163,21 +163,21 @@ export function readPartialWordTable(
       }
     },
 
-    entryOf(spelling: string, token: string): number {
-      const tokenIndex = tokenTable.find(token)
-      if (tokenIndex < 0) return -1
+    entryOf(spelling: string): number {
       const probe = partialWordProbe(spelling)
       if (probe.codePoints.length <= PARTIAL_WORD_RUN_CODE_POINTS) return -1
       const run = narrowestRun(probe.codePoints)
       if (run < 0) return -1
+      let exhausted = -1
       for (let member = runOffsets[run]; member < runOffsets[run + 1]; member++) {
         const entry = runEntries[member]
-        if (spellingTokens[entry] !== tokenIndex) continue
         const start = spellingOffsets[entry]
         const end = spellingOffsets[entry + 1]
-        if (end - start === probe.utf8.length && utf8Contains(spellings, start, end, probe.utf8)) return entry
+        if (end - start !== probe.utf8.length || !utf8Contains(spellings, start, end, probe.utf8)) continue
+        if ((removedCounts.get(entry) ?? 0) < spellingCounts[entry]) return entry
+        if (exhausted < 0) exhausted = entry
       }
-      return -1
+      return exhausted
     },
 
     bytes(): number {

@@ -1,3 +1,6 @@
+import type { AnyDocument } from '../../../types/schema'
+import { transformToken } from '../../tokenizer/cache'
+import { resolveStopWords } from '../../tokenizer/tokenize'
 import type { FrozenTokenTable } from '../frozen/token-table'
 import { FROZEN_PARTIAL_REMOVED_ENTRY_BYTES } from './constants'
 import { buildPartialWordTable, countTableSpellings, partialWordTableBytes, readPartialWordTable } from './frozen-table'
@@ -8,6 +11,8 @@ import {
   type PartialWordAnalysis,
   type SpellingCounts,
   sameFields,
+  visitDocumentSpellings,
+  visitDocumentSurfaceSpellings,
 } from './spellings'
 import type {
   FrozenPartialWordDocuments,
@@ -33,6 +38,51 @@ function addCounts(target: SpellingCounts, source: SpellingCounts): void {
   }
 }
 
+type UnstemmedSpelling = (spelling: string) => string | null
+
+function countRemovedSpellings(
+  removed: Map<string, number>,
+  document: AnyDocument,
+  analysis: PartialWordAnalysis,
+): void {
+  const count = (spelling: string): void => {
+    removed.set(spelling, (removed.get(spelling) ?? 0) + 1)
+  }
+  if (analysis.options?.customTokenizer !== undefined) {
+    visitDocumentSpellings(document, analysis, (_token, spelling) => count(spelling))
+    return
+  }
+  visitDocumentSurfaceSpellings(document, analysis, count)
+}
+
+function unstemmedSpellingsOf(analysis: PartialWordAnalysis): UnstemmedSpelling {
+  const { language } = analysis
+  if (language.normalizer === undefined || language.tokenizer?.normalizeDiacritics === true) return () => null
+  const stopWords = resolveStopWords(language, analysis.options?.stopWordOverride)
+  return spelling => {
+    if (stopWords.has(spelling)) return null
+    const normalized = transformToken(spelling, language, false, false)
+    return normalized === spelling ? null : normalized
+  }
+}
+
+function subtractRemovedSpellings(
+  counts: SpellingCounts,
+  removed: ReadonlyMap<string, number>,
+  analysis: PartialWordAnalysis,
+): void {
+  const tokenOf = new Map<string, string>()
+  for (const [token, bySpelling] of counts) {
+    for (const spelling of bySpelling.keys()) tokenOf.set(spelling, token)
+  }
+  const unstemmedSpelling = unstemmedSpellingsOf(analysis)
+  for (const [spelling, count] of removed) {
+    const stored = tokenOf.has(spelling) ? spelling : (unstemmedSpelling(spelling) ?? spelling)
+    const token = tokenOf.get(stored)
+    if (token !== undefined) countSpelling(counts, token, stored, -count)
+  }
+}
+
 export function createFrozenPartialWordSlot(
   initial: PartialWordTableData | null,
   tokenTable: FrozenTokenTable,
@@ -51,14 +101,17 @@ export function createFrozenPartialWordSlot(
 
   function subtractPendingRemovals(current: PartialWordTableReader, analysis: PartialWordAnalysis): void {
     if (pendingRemovals.length === 0) return
-    const removed: SpellingCounts = new Map()
-    for (const ordinal of pendingRemovals) countDocumentSpellings(removed, documents.documentAt(ordinal), analysis, 1)
+    const removed = new Map<string, number>()
+    for (const ordinal of pendingRemovals) countRemovedSpellings(removed, documents.documentAt(ordinal), analysis)
     pendingRemovals = []
-    for (const [token, bySpelling] of removed) {
-      for (const [spelling, count] of bySpelling) {
-        const entry = current.entryOf(spelling, token)
-        if (entry >= 0) removedCounts.set(entry, (removedCounts.get(entry) ?? 0) + count)
+    const unstemmedSpelling = unstemmedSpellingsOf(analysis)
+    for (const [spelling, count] of removed) {
+      let entry = current.entryOf(spelling)
+      if (entry < 0) {
+        const fallback = unstemmedSpelling(spelling)
+        if (fallback !== null) entry = current.entryOf(fallback)
       }
+      if (entry >= 0) removedCounts.set(entry, (removedCounts.get(entry) ?? 0) + count)
     }
   }
 
@@ -123,11 +176,16 @@ export function createFrozenPartialWordSlot(
       }
       const corrected: SpellingCounts = new Map()
       countTableSpellings(corrected, table, tokenTable)
+      const removed = new Map<string, number>()
+      const returned: number[] = []
       for (let ordinal = 0; ordinal < mergedOrdinals.length; ordinal++) {
         const kept = mergedOrdinals[ordinal] >= 0
         if (kept === isCounted(ordinal)) continue
-        countDocumentSpellings(corrected, documents.documentAt(ordinal), analysis, kept ? 1 : -1)
+        if (kept) returned.push(ordinal)
+        else countRemovedSpellings(removed, documents.documentAt(ordinal), analysis)
       }
+      subtractRemovedSpellings(corrected, removed, analysis)
+      for (const ordinal of returned) countDocumentSpellings(corrected, documents.documentAt(ordinal), analysis, 1)
       addCounts(counts, corrected)
     },
 

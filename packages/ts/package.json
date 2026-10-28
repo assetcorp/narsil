@@ -39,6 +39,10 @@
       "browser": "./src/runtime/heap-statistics.browser.ts",
       "default": "./src/runtime/heap-statistics.ts"
     },
+    "#platform/process-limit": {
+      "browser": "./src/runtime/process-limit.browser.ts",
+      "default": "./src/runtime/process-limit.ts"
+    },
     "#platform/idle-heap-cleanup": {
       "browser": "./src/runtime/idle-heap-cleanup.browser.ts",
       "default": "./src/runtime/idle-heap-cleanup.ts"
@@ -83,8 +87,9 @@
   },
   "scripts": {
     "build": "rm -rf dist && tsup && node scripts/check-browser-bundle.mjs && tsx scripts/api-surface.ts",
-    "test": "vitest run --exclude='**/vector/recall.test.ts'",
+    "test": "vitest run --exclude='**/vector/recall.test.ts' --exclude='**/frozen-removal-memory/container-removes.test.ts'",
     "test:etcd": "vitest run src/__tests__/distribution/coordinator/etcd-integration/*.test.ts",
+    "test:container-memory": "vitest run src/__tests__/e2e/frozen-removal-memory/container-removes.test.ts",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:recall": "vitest run src/__tests__/vector/recall.test.ts",
