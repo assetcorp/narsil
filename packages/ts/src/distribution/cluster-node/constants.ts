@@ -48,6 +48,7 @@ export const SYNCED_POSITION_REPORT_TIMEOUT_MS = 5_000
 
 export const ADMISSION_TIMEOUT_MS = 10_000
 export const CATCH_UP_TICK_MS = 1_000
+export const CATCH_UP_FEED_WINDOW_MS = 1_000
 export const MAX_CATCH_UP_IN_FLIGHT_BYTES = 67_108_864
 
 export const CLEAR_PAGE_SIZE = 1_000

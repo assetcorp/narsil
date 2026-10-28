@@ -4,9 +4,10 @@ import type { PartitionAssignment } from '../../coordinator/types'
 import { REPLICATION_ENTRY_FIXED_OVERHEAD_BYTES } from '../../replication/constants'
 import { replicateBatchToReplicas } from '../../replication/primary'
 import type { ReplicationLog, ReplicationLogEntry } from '../../replication/types'
-import { CATCH_UP_TICK_MS, MAX_CATCH_UP_IN_FLIGHT_BYTES } from '../constants'
+import { CATCH_UP_FEED_WINDOW_MS, CATCH_UP_TICK_MS, MAX_CATCH_UP_IN_FLIGHT_BYTES } from '../constants'
+import { enqueuePartitionWrite } from '../write-routing/partition-queue'
 import type { WriteRoutingDeps } from '../write-routing/types'
-import { proposeAdmission } from './admission'
+import { claimAdmission, proposeAdmission, requestClaimedAdmission } from './admission'
 import { admittedBeyondTable, type CatchUpState, forgetReplica, type ReplicaCursor } from './state'
 
 function entryBytes(entry: ReplicationLogEntry): number {
@@ -79,22 +80,71 @@ async function feedReplica(
   cursor: ReplicaCursor,
 ): Promise<void> {
   const log = deps.getReplicationLog(indexName, partitionId)
+  const deadline = Date.now() + CATCH_UP_FEED_WINDOW_MS
+  let answeredThisFeed = false
 
-  if (replicaHasFallenOutOfRetention(log, cursor)) {
-    forgetReplica(state, indexName, partitionId, replicaNodeId)
-    return
+  while (!state.stopped) {
+    if (replicaHasFallenOutOfRetention(log, cursor)) {
+      forgetReplica(state, indexName, partitionId, replicaNodeId)
+      return
+    }
+
+    if (cursor.appliedSeqNo >= log.localLogEnd) {
+      await proposeAdmission(state, deps, indexName, partitionId, assignment, replicaNodeId, cursor)
+      return
+    }
+
+    if (Date.now() >= deadline) {
+      return
+    }
+
+    const missing = log.getEntriesFrom(cursor.appliedSeqNo + 1)
+    const batch = nextWireBatch(state, missing)
+    if (batch.length === 0) {
+      return
+    }
+    if (answeredThisFeed && batch.length === missing.length) {
+      await closeGapInPartitionQueue(state, deps, indexName, partitionId, assignment, replicaNodeId, cursor)
+      return
+    }
+    if (!(await sendBatch(state, deps, batch, replicaNodeId, cursor))) {
+      return
+    }
+    answeredThisFeed = true
   }
+}
 
-  if (cursor.appliedSeqNo >= log.localLogEnd) {
-    await proposeAdmission(state, deps, indexName, partitionId, assignment, replicaNodeId, cursor)
-    return
+async function closeGapInPartitionQueue(
+  state: CatchUpState,
+  deps: WriteRoutingDeps,
+  indexName: string,
+  partitionId: number,
+  assignment: PartitionAssignment,
+  replicaNodeId: string,
+  cursor: ReplicaCursor,
+): Promise<void> {
+  const claimed = await enqueuePartitionWrite(deps.partitionWriteQueues, indexName, partitionId, async () => {
+    const log = deps.getReplicationLog(indexName, partitionId)
+    while (cursor.appliedSeqNo < log.localLogEnd) {
+      const batch = nextWireBatch(state, log.getEntriesFrom(cursor.appliedSeqNo + 1))
+      if (state.stopped || batch.length === 0 || !(await sendBatch(state, deps, batch, replicaNodeId, cursor))) {
+        return false
+      }
+    }
+    return claimAdmission(state, deps, indexName, partitionId, replicaNodeId, cursor)
+  })
+  if (claimed) {
+    await requestClaimedAdmission(state, deps, indexName, partitionId, assignment, replicaNodeId, cursor)
   }
+}
 
-  const batch = nextWireBatch(state, log.getEntriesFrom(cursor.appliedSeqNo + 1))
-  if (batch.length === 0) {
-    return
-  }
-
+async function sendBatch(
+  state: CatchUpState,
+  deps: WriteRoutingDeps,
+  batch: ReplicationLogEntry[],
+  replicaNodeId: string,
+  cursor: ReplicaCursor,
+): Promise<boolean> {
   const reservedBytes = batchBytes(batch)
   const sendingEpoch = cursor.syncEpoch
   state.inFlightBytes += reservedBytes
@@ -106,9 +156,11 @@ async function feedReplica(
       deps.nodeId,
       deps.resolveNodeTargets,
     )
-    if (result.acknowledged.includes(replicaNodeId) && cursor.syncEpoch === sendingEpoch) {
-      cursor.appliedSeqNo = batch[batch.length - 1].seqNo
+    if (!result.acknowledged.includes(replicaNodeId) || cursor.syncEpoch !== sendingEpoch) {
+      return false
     }
+    cursor.appliedSeqNo = batch[batch.length - 1].seqNo
+    return true
   } finally {
     state.inFlightBytes -= reservedBytes
   }
@@ -156,12 +208,13 @@ async function pumpPartition(
 }
 
 /**
- * Feeds each replica outside the in-sync set one batch of the entries it lacks, and proposes the ones that have
- * caught up.
+ * Feeds each replica outside the in-sync set the entries it lacks, and proposes the ones that have caught up.
  *
- * For every partition this node leads, the primary sends each such replica its next batch, proposes its admission
- * once it holds everything the local log holds, or forgets it once it has fallen behind the retained log and needs
- * a fresh snapshot instead. The pump feeds every replica on its own, so a replica that fails or is slow to answer
+ * For every partition this node leads, the primary sends each such replica one batch after another for up to
+ * `CATCH_UP_FEED_WINDOW_MS`. Once a replica has acknowledged a batch in that window and the entries it still lacks
+ * fit in one batch, the primary sends them from inside the partition's write queue and marks the admission pending before the queue lets the next write in, so every
+ * later write reaches the replica in order and a steady stream of writes cannot keep it out of the in-sync set. It
+ * forgets a replica once that replica has fallen behind the retained log and needs a fresh snapshot instead. The pump feeds every replica on its own, so a replica that fails or is slow to answer
  * holds up only its own feed, and the next tick skips a replica whose last batch or proposal is still in flight. A
  * tick that is already reading the allocation returns that same tick in place of starting a second one.
  *

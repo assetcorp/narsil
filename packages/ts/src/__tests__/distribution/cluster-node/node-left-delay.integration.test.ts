@@ -19,6 +19,7 @@ const LEAVING_NODE = 'keeper-c'
 const QUIET_WAIT_MS = 2_000
 const SHORT_DELAY_MS = 1_500
 const ALLOCATION_WAIT_MS = 20_000
+const STEADY_WRITERS = 8
 
 type Lighthouse = { id: string; title: string }
 
@@ -62,7 +63,7 @@ describe('a data node that leaves the cluster', () => {
       address: `${nodeId}:9200`,
       nodeId,
       roles: ['data'],
-      engine: { durability: { directory: join(root, nodeId) } },
+      engine: { workers: { enabled: false }, durability: { directory: join(root, nodeId) } },
     })
     running.set(nodeId, node)
     await node.start()
@@ -161,6 +162,45 @@ describe('a data node that leaves the cluster', () => {
     const returned = await waitForAllocation(fullyInSync)
     expect(holdersOf(returned)).toEqual(before)
     await expectEveryLighthouse(90)
+  }, 60_000)
+
+  it('takes its replicas back into the in-sync set while writers keep writing', async () => {
+    await startCluster({})
+    const ledByLeaver = [...(await waitForAllocation(fullyInSync)).assignments]
+      .filter(([, entry]) => entry.primary === LEAVING_NODE)
+      .map(([partitionId]) => partitionId)
+    await stopNode(LEAVING_NODE)
+    await waitForAllocation(table =>
+      ledByLeaver.every(partitionId => table.assignments.get(partitionId)?.primary !== LEAVING_NODE),
+    )
+
+    let writing = true
+    let next = 60
+    const acknowledged = new Map<string, string>()
+    async function writeUntilStopped(): Promise<void> {
+      while (writing) {
+        const light = lighthouses(next, next + 1)[0]
+        next += 1
+        if (light === undefined) return
+        await router.insert(INDEX_NAME, light).then(
+          () => acknowledged.set(light.id, light.title),
+          () => undefined,
+        )
+      }
+    }
+    const writers = Array.from({ length: STEADY_WRITERS }, () => writeUntilStopped())
+
+    try {
+      await startDataNode(LEAVING_NODE)
+      await waitForAllocation(fullyInSync)
+    } finally {
+      writing = false
+      await Promise.all(writers)
+    }
+
+    expect(acknowledged.size).toBeGreaterThan(0)
+    const read = await router.getMultiple(INDEX_NAME, [...acknowledged.keys()])
+    expect(new Map([...read].map(([id, document]) => [id, document.title]))).toEqual(acknowledged)
   }, 60_000)
 
   it('moves its replicas to the other nodes once the delay runs out', async () => {
