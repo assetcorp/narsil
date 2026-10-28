@@ -163,7 +163,7 @@ export function useImport(indexName: string, options?: NarsilImportOptions): Nar
       .getTask(taskId, { ...request.current, signal: controller.signal })
       .then(next => {
         setProgress(prev => {
-          if (prev.task?.id !== taskId) return prev
+          if (prev.task?.id !== taskId || isTerminalTask(prev.task)) return prev
           if (next === null) {
             return {
               ...prev,
@@ -179,7 +179,11 @@ export function useImport(indexName: string, options?: NarsilImportOptions): Nar
       })
       .catch((err: unknown) => {
         if (controller.signal.aborted) return
-        setProgress(prev => (prev.task?.id === taskId ? { ...prev, error: asNarsilError(err, 'The import') } : prev))
+        setProgress(prev =>
+          prev.task?.id === taskId && !isTerminalTask(prev.task)
+            ? { ...prev, error: asNarsilError(err, 'The import') }
+            : prev,
+        )
       })
       .finally(() => {
         inFlight.current = false
