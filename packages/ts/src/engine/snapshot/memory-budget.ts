@@ -3,11 +3,13 @@ import { readResidentMemory } from '#platform/process-limit'
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { SegmentManifest } from '../../persistence/durability/segment/manifest'
 import { extractVectorFieldsFromSchema } from '../../schema/validator'
-import { osqBitsOf } from '../../vector/osq/quantize'
-import { osqRecordBytes } from '../../vector/osq/record'
-import { defaultQuantizationFor } from '../../vector/vector-index'
-import { alignUp } from '../../vector/vector-store/blocks'
 import {
+  RESTORE_EXTERNAL_BYTES_PER_EARLIER_SNAPSHOT_BYTE,
+  RESTORE_EXTERNAL_BYTES_PER_EARLIER_SNAPSHOT_VECTOR,
+  RESTORE_EXTERNAL_BYTES_PER_EARLIER_SNAPSHOT_VECTOR_DIMENSION,
+  RESTORE_EXTERNAL_BYTES_PER_STORED_BYTE,
+  RESTORE_EXTERNAL_BYTES_PER_VECTOR,
+  RESTORE_EXTERNAL_BYTES_PER_VECTOR_DIMENSION,
   RESTORE_HEAP_BYTES_PER_EARLIER_SNAPSHOT_BYTE,
   RESTORE_HEAP_BYTES_PER_EARLIER_SNAPSHOT_VECTOR,
   RESTORE_HEAP_BYTES_PER_EARLIER_SNAPSHOT_VECTOR_DIMENSION,
@@ -20,38 +22,65 @@ import type { PreparedIndex } from './restore-setup'
 const MEGABYTE_BYTES = 1_048_576
 
 export interface RestoreFootprint {
-  storedBytes: number
   heapBytes: number
-  vectorBytes: number
+  externalBytes: number
 }
 
 type MemoryBudget = 'heap' | 'process'
 
-function bytesPerVector(prepared: PreparedIndex, dimension: number, filesystemDurability: boolean): number {
-  const promotion = prepared.config.vectorPromotion
-  const bits = osqBitsOf(promotion?.quantization ?? defaultQuantizationFor(dimension))
-  const codeBytes = bits === null ? 0 : osqRecordBytes(dimension, bits)
-  const storage = promotion?.storage ?? (filesystemDurability ? 'disk' : 'memory')
-  return storage === 'memory' ? alignUp(dimension * 4) + codeBytes : codeBytes
-}
-
-interface VectorHeapRate {
+interface MemoryRate {
+  perStoredByte: number
   perVector: number
-  perDimension: number
+  perVectorDimension: number
 }
 
-const ARCHIVE_VECTOR_HEAP: VectorHeapRate = {
-  perVector: RESTORE_HEAP_BYTES_PER_VECTOR,
-  perDimension: RESTORE_HEAP_BYTES_PER_VECTOR_DIMENSION,
+interface RestoreRates {
+  heap: MemoryRate
+  external: MemoryRate
 }
 
-const EARLIER_SNAPSHOT_VECTOR_HEAP: VectorHeapRate = {
-  perVector: RESTORE_HEAP_BYTES_PER_EARLIER_SNAPSHOT_VECTOR,
-  perDimension: RESTORE_HEAP_BYTES_PER_EARLIER_SNAPSHOT_VECTOR_DIMENSION,
+const ARCHIVE_RATES: RestoreRates = {
+  heap: {
+    perStoredByte: RESTORE_HEAP_BYTES_PER_STORED_BYTE,
+    perVector: RESTORE_HEAP_BYTES_PER_VECTOR,
+    perVectorDimension: RESTORE_HEAP_BYTES_PER_VECTOR_DIMENSION,
+  },
+  external: {
+    perStoredByte: RESTORE_EXTERNAL_BYTES_PER_STORED_BYTE,
+    perVector: RESTORE_EXTERNAL_BYTES_PER_VECTOR,
+    perVectorDimension: RESTORE_EXTERNAL_BYTES_PER_VECTOR_DIMENSION,
+  },
 }
 
-function heapPerVector(rate: VectorHeapRate, dimension: number): number {
-  return rate.perVector + dimension * rate.perDimension
+const EARLIER_SNAPSHOT_RATES: RestoreRates = {
+  heap: {
+    perStoredByte: RESTORE_HEAP_BYTES_PER_EARLIER_SNAPSHOT_BYTE,
+    perVector: RESTORE_HEAP_BYTES_PER_EARLIER_SNAPSHOT_VECTOR,
+    perVectorDimension: RESTORE_HEAP_BYTES_PER_EARLIER_SNAPSHOT_VECTOR_DIMENSION,
+  },
+  external: {
+    perStoredByte: RESTORE_EXTERNAL_BYTES_PER_EARLIER_SNAPSHOT_BYTE,
+    perVector: RESTORE_EXTERNAL_BYTES_PER_EARLIER_SNAPSHOT_VECTOR,
+    perVectorDimension: RESTORE_EXTERNAL_BYTES_PER_EARLIER_SNAPSHOT_VECTOR_DIMENSION,
+  },
+}
+
+interface VectorCount {
+  dimension: number
+  count: number
+}
+
+function bytesAt(rate: MemoryRate, storedBytes: number, vectors: readonly VectorCount[]): number {
+  let bytes = storedBytes * rate.perStoredByte
+  for (const { dimension, count } of vectors) bytes += count * (rate.perVector + dimension * rate.perVectorDimension)
+  return bytes
+}
+
+function footprintAt(rates: RestoreRates, storedBytes: number, vectors: readonly VectorCount[]): RestoreFootprint {
+  return {
+    heapBytes: bytesAt(rates.heap, storedBytes, vectors),
+    externalBytes: bytesAt(rates.external, storedBytes, vectors),
+  }
 }
 
 function deadCountOf(dead: Uint8Array | null): number {
@@ -63,47 +92,28 @@ function deadCountOf(dead: Uint8Array | null): number {
   return count
 }
 
-export function archiveFootprint(
-  prepared: PreparedIndex,
-  manifest: SegmentManifest,
-  filesystemDurability: boolean,
-): RestoreFootprint {
+export function archiveFootprint(prepared: PreparedIndex, manifest: SegmentManifest): RestoreFootprint {
   let segmentBytes = 0
   for (const partition of manifest.partitions) {
     for (const segment of partition.segments) segmentBytes += segment.bytes
   }
   const dimensions = extractVectorFieldsFromSchema(prepared.config.schema)
-  let vectorBytes = 0
-  let heapBytes = segmentBytes * RESTORE_HEAP_BYTES_PER_STORED_BYTE
+  const vectors: VectorCount[] = []
   for (const field of manifest.vectors) {
     const dimension = dimensions.get(field.fieldPath) ?? 0
-    const perVector = bytesPerVector(prepared, dimension, filesystemDurability)
-    const heapBytesPerVector = heapPerVector(ARCHIVE_VECTOR_HEAP, dimension)
-    for (const file of field.files) {
-      const live = Math.max(0, file.count - deadCountOf(file.dead))
-      vectorBytes += live * perVector
-      heapBytes += live * heapBytesPerVector
-    }
-    for (const part of field.graphParts) vectorBytes += part.bytes
+    for (const file of field.files) vectors.push({ dimension, count: Math.max(0, file.count - deadCountOf(file.dead)) })
   }
-  return { storedBytes: segmentBytes, heapBytes, vectorBytes }
+  return footprintAt(ARCHIVE_RATES, segmentBytes, vectors)
 }
 
 export function earlierSnapshotFootprint(
   prepared: PreparedIndex,
   partitionBytes: number,
   vectorCounts: ReadonlyMap<string, number>,
-  filesystemDurability: boolean,
 ): RestoreFootprint {
   const dimensions = extractVectorFieldsFromSchema(prepared.config.schema)
-  let vectorBytes = 0
-  let heapBytes = partitionBytes * RESTORE_HEAP_BYTES_PER_EARLIER_SNAPSHOT_BYTE
-  for (const [fieldPath, count] of vectorCounts) {
-    const dimension = dimensions.get(fieldPath) ?? 0
-    vectorBytes += count * bytesPerVector(prepared, dimension, filesystemDurability)
-    heapBytes += count * heapPerVector(EARLIER_SNAPSHOT_VECTOR_HEAP, dimension)
-  }
-  return { storedBytes: partitionBytes, heapBytes, vectorBytes }
+  const vectors = [...vectorCounts].map(([fieldPath, count]) => ({ dimension: dimensions.get(fieldPath) ?? 0, count }))
+  return footprintAt(EARLIER_SNAPSHOT_RATES, partitionBytes, vectors)
 }
 
 function inMegabytes(bytes: number): number {
@@ -127,7 +137,7 @@ export function requireRestoreMemory(indexName: string, footprint: RestoreFootpr
   }
   const resident = readResidentMemory()
   if (resident !== null) {
-    const neededBytes = footprint.storedBytes + footprint.heapBytes + footprint.vectorBytes
+    const neededBytes = footprint.heapBytes + footprint.externalBytes
     const availableBytes = resident.limitBytes - resident.residentBytes
     if (neededBytes > availableBytes) refuse(indexName, 'process', neededBytes, availableBytes)
   }

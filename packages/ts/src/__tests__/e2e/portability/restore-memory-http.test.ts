@@ -20,7 +20,9 @@ const built = await readdir(new URL('../../../../dist/', import.meta.url)).then(
 const LIVE = 'live'
 const SOURCE = 'source'
 const SERVER_HEAP_MEGABYTES = 64
-const ARCHIVE_DOCUMENTS = 50_000
+const HEAP_REFUSAL_FILES = 2
+const MEGABYTE_BYTES = 1_048_576
+const HEAP_HEADROOM_PER_CODE_BYTE = 4
 const FORGED_DIMENSION = 1_536
 const FORGED_VECTORS_PER_FILE = 65_536
 const OSQ4_CODE_BYTES_PER_DIMENSION = 0.5
@@ -89,19 +91,6 @@ async function startServerProcess(directory: string, heapMegabytes?: number): Pr
   }
   servers.push(server)
   return server
-}
-
-function wordsArchiveDocuments() {
-  let state = 3
-  const random = () => {
-    state = (state * 1664525 + 1013904223) >>> 0
-    return state / 4294967296
-  }
-  const word = () => `w${Math.floor(random() * 20_000).toString(36)}`
-  return Array.from({ length: ARCHIVE_DOCUMENTS }, (_, n) => ({
-    id: `new-${n}`,
-    body: Array.from({ length: 40 }, word).join(' '),
-  }))
 }
 
 interface TarEntry {
@@ -236,11 +225,7 @@ async function expectOldIndexServing(client: NarsilClient): Promise<void> {
 
 describe.skipIf(!built)('a restore that the server has no memory for', () => {
   it('refuses an archive that needs more heap than the server allows, and keeps the old index', async () => {
-    const source = await createNarsil({ workers: { enabled: false } })
-    await source.createIndex(SOURCE, { schema: { body: 'string' } })
-    await source.insertBatch(SOURCE, wordsArchiveDocuments())
-    const archive = await archiveBytes(source, SOURCE)
-    await source.shutdown()
+    const archive = await forgedVectorArchive(HEAP_REFUSAL_FILES)
     const server = await startServerProcess(await newDirectory(roots), SERVER_HEAP_MEGABYTES)
     const client = await liveIndexOn(server)
 
@@ -251,7 +236,7 @@ describe.skipIf(!built)('a restore that the server has no memory for', () => {
       error: { code: 'RESTORE_MEMORY_EXCEEDED', details: { indexName: LIVE, budget: 'heap' } },
     })
     expect(httpStatusForNarsilError(task.error?.code ?? '')).toBe(507)
-    expect(task.error?.details?.neededBytes).toBeGreaterThan(SERVER_HEAP_MEGABYTES * 1_048_576 * 0.5)
+    expect(task.error?.details?.neededBytes).toBeGreaterThan(SERVER_HEAP_MEGABYTES * MEGABYTE_BYTES)
     expect(server.exited()).toBe(false)
     await expectOldIndexServing(client)
   }, 120_000)
@@ -260,7 +245,8 @@ describe.skipIf(!built)('a restore that the server has no memory for', () => {
     const vectorBytesAtLeast = FORGED_VECTORS_PER_FILE * FORGED_DIMENSION * OSQ4_CODE_BYTES_PER_DIMENSION
     const fileCount = Math.ceil((2 * totalmem()) / vectorBytesAtLeast)
     const archive = await forgedVectorArchive(fileCount)
-    const server = await startServerProcess(await newDirectory(roots))
+    const heapMegabytes = Math.ceil((HEAP_HEADROOM_PER_CODE_BYTE * fileCount * vectorBytesAtLeast) / MEGABYTE_BYTES)
+    const server = await startServerProcess(await newDirectory(roots), heapMegabytes)
     const client = await liveIndexOn(server)
 
     const task = await client.waitForTask((await client.restore(LIVE, archive)).id)
