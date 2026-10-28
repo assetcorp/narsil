@@ -1,5 +1,6 @@
 import { mergeSegmentContents, type SegmentSelection, selectionKeeps } from '../../../core/partition/frozen/merge'
 import { segmentArraysOf } from '../../../core/partition/frozen/shared-snapshot'
+import type { TextAnalysis } from '../../../core/partition/frozen/surface-slot'
 import type { PartialSpellings, PartialWordAnalysis } from '../../../core/partition/partial-words/spellings'
 import type { SegmentPayload } from '../../../core/partition/segment-payload'
 import { ErrorCodes, NarsilError } from '../../../errors'
@@ -23,6 +24,7 @@ export interface SegmentWriteRequest {
   nextSegmentId: number
   schema: Record<string, string>
   partialWordAnalysis: PartialWordAnalysis | null
+  textAnalysis: TextAnalysis | null
   selections: readonly SegmentSelection[]
   tombstones: readonly string[]
   mergesIntoOneFile?: boolean
@@ -70,7 +72,7 @@ function contentsOfGroup(
   request: SegmentWriteRequest,
   tombstones: string[],
 ): KeywordSegmentContents {
-  const { schema, partialWordAnalysis } = request
+  const { schema, partialWordAnalysis, textAnalysis } = request
   if (group === null) {
     const payload = { ...emptyPayload(), partialSpellings: noSpellingsOf(partialWordAnalysis) }
     return {
@@ -79,7 +81,7 @@ function contentsOfGroup(
       arrays: segmentArraysOf(payload, { blob: new Uint8Array(0), offsets: new Uint32Array(1) }),
     }
   }
-  const merged = mergeSegmentContents(group.selections, partialWordAnalysis)
+  const merged = mergeSegmentContents(group.selections, partialWordAnalysis, textAnalysis)
   return {
     schema,
     tombstones,

@@ -1,17 +1,25 @@
 import type { PartitionInsertOptions } from '../core/partition'
 import type { SharedSegmentSnapshot } from '../core/partition/frozen'
+import type { RemovedSpellings } from '../core/partition/frozen/surface-slot'
 import type { SegmentPayload } from '../core/partition/segment-payload'
 import type { SharedPatternWork } from '../core/pattern-index/work-meter'
 import type { RequestThreadSettings } from '../server/request-threads/messages'
-import type { GlobalStatistics, SerializablePartition } from '../types/internal'
+import type { GlobalStatistics, SerializablePartition, SerializedSurfaceForms } from '../types/internal'
 import type { AnyDocument, IndexConfig } from '../types/schema'
 import type { QueryParams } from '../types/search'
 import type { SharedVectorFieldHandles } from '../vector/shared-field/types'
 
 export type WorkerAction =
   | { type: 'insert'; indexName: string; docId: string; document: AnyDocument; requestId: string; skipClone?: boolean }
-  | { type: 'remove'; indexName: string; docId: string; requestId: string }
-  | { type: 'update'; indexName: string; docId: string; document: AnyDocument; requestId: string }
+  | { type: 'remove'; indexName: string; docId: string; requestId: string; removedSpellings?: RemovedSpellings }
+  | {
+      type: 'update'
+      indexName: string
+      docId: string
+      document: AnyDocument
+      requestId: string
+      removedSpellings?: RemovedSpellings
+    }
   | {
       type: 'query'
       indexName: string
@@ -82,7 +90,12 @@ export type WorkerAction =
   | {
       type: 'attachSegments'
       indexName: string
-      segments: Array<{ partitionId: number; snapshot: SharedSegmentSnapshot; tombstonedDocIds?: string[] }>
+      segments: Array<{
+        partitionId: number
+        snapshot: SharedSegmentSnapshot
+        tombstonedDocIds?: string[]
+        survivingSurfaceForms?: SerializedSurfaceForms
+      }>
       requestId: string
     }
   | {
@@ -98,6 +111,7 @@ export type WorkerAction =
       partitionId: number
       dropSegmentIds: string[]
       snapshot: SharedSegmentSnapshot
+      removedSpellings?: ReadonlyMap<string, RemovedSpellings>
       requestId: string
     }
   | {

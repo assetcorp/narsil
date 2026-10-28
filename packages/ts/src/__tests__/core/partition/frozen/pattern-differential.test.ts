@@ -67,7 +67,7 @@ function rewrite(composite: CompositePartition, random: Random, documents: Map<s
 function compactFrozen(composite: CompositePartition): void {
   const segmentIds = composite.frozenSegmentSizes().map(size => size.segmentId)
   if (segmentIds.length < 2) return
-  const merged = mergeFrozenSegments(composite.frozenSegmentsById(segmentIds), null)
+  const merged = mergeFrozenSegments(composite.frozenSegmentsById(segmentIds), null, null)
   if (merged !== null) composite.swapFrozenSegments(segmentIds, createSharedFrozenSegment(merged))
 }
 

@@ -1,3 +1,7 @@
+import { projectionKeepsField, type ResolvedProjection } from '../../core/projection'
+import type { AnyDocument } from '../../types/schema'
+import type { VectorIndex } from '../../vector/vector-index'
+
 /**
  * Writes a value at a dotted path, building the objects the path walks
  * through where they are absent.
@@ -22,4 +26,17 @@ export function setNestedValue(obj: Record<string, unknown>, path: string, value
     current = next as Record<string, unknown>
   }
   current[segments[segments.length - 1]] = value
+}
+
+export function copyVectorsInto(
+  document: AnyDocument,
+  docId: string,
+  vectorIndexes: ReadonlyMap<string, VectorIndex>,
+  projection: ResolvedProjection | undefined,
+): void {
+  for (const [fieldPath, vectorIndex] of vectorIndexes) {
+    if (projection !== undefined && !projectionKeepsField(projection, fieldPath)) continue
+    const vector = vectorIndex.getVector(docId)
+    if (vector) setNestedValue(document as Record<string, unknown>, fieldPath, vector)
+  }
 }
