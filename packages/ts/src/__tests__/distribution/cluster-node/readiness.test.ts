@@ -65,7 +65,7 @@ describe('the readiness a data node reports', () => {
       [[0, makeAssignment({ primary: ABSENT_PRIMARY, replicas: [NODE_ID], inSyncSet: [], state: 'ACTIVE' })]],
       INDEX_NAME,
     )
-    expect(await coordinator.putAllocation(INDEX_NAME, table, null)).toBe(true)
+    expect(await coordinator.putAllocation(INDEX_NAME, table)).toBe(true)
 
     await node.start()
 
@@ -83,7 +83,7 @@ describe('the readiness a data node reports', () => {
       ],
       INDEX_NAME,
     )
-    expect(await coordinator.putAllocation(INDEX_NAME, migrating, null)).toBe(true)
+    expect(await coordinator.putAllocation(INDEX_NAME, migrating)).toBe(true)
     await new Promise(resolve => setTimeout(resolve, WATCH_SETTLE_MS))
 
     expect(node.cluster.getReadiness()).toBe('SERVING')
@@ -97,14 +97,14 @@ describe('the readiness a data node reports', () => {
       [[0, makeAssignment({ primary: NODE_ID, inSyncSet: [], state: 'INITIALISING' })]],
       INDEX_NAME,
     )
-    expect(await coordinator.putAllocation(INDEX_NAME, initialising, null)).toBe(true)
+    expect(await coordinator.putAllocation(INDEX_NAME, initialising)).toBe(true)
     expect(await readinessReaches(node, 'JOINING')).toBe(true)
 
     const serving = makeAllocationTable(
       [[0, makeAssignment({ primary: NODE_ID, inSyncSet: [], state: 'ACTIVE' })]],
       INDEX_NAME,
     )
-    expect(await coordinator.putAllocation(INDEX_NAME, { ...serving, version: 2 }, 1)).toBe(true)
+    expect(await coordinator.putAllocation(INDEX_NAME, { ...serving, version: 2 })).toBe(true)
     expect(await readinessReaches(node, 'SERVING')).toBe(true)
 
     const widened = makeAllocationTable(
@@ -114,7 +114,7 @@ describe('the readiness a data node reports', () => {
       ],
       INDEX_NAME,
     )
-    expect(await coordinator.putAllocation(INDEX_NAME, { ...widened, version: 3 }, 2)).toBe(true)
+    expect(await coordinator.putAllocation(INDEX_NAME, { ...widened, version: 3 })).toBe(true)
     expect(await readinessReaches(node, 'JOINING')).toBe(true)
   })
 })

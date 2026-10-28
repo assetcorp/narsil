@@ -310,6 +310,7 @@ describe('bootstrapPartition reporting scope', () => {
           'products',
           makeAllocationTable('products', activated, (stored?.version ?? 1) + 1),
           stored?.version ?? null,
+          'controller-node',
         )
         await respond({
           type: ClusterMessageTypes.BOOTSTRAP_COMPLETE,

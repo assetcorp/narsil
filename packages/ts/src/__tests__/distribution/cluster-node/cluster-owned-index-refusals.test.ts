@@ -72,7 +72,7 @@ describe('a node reading and writing an index the cluster owns', () => {
       ],
       INDEX_NAME,
     )
-    expect(await coordinator.putAllocation(INDEX_NAME, table, null)).toBe(true)
+    expect(await coordinator.putAllocation(INDEX_NAME, table)).toBe(true)
 
     expect(await codeOf(node.countDocuments(INDEX_NAME))).toBe(ErrorCodes.QUERY_NO_ACTIVE_REPLICA)
     expect(await codeOf(node.getStats(INDEX_NAME))).toBe(ErrorCodes.QUERY_NO_ACTIVE_REPLICA)
@@ -124,7 +124,7 @@ describe('a node that refuses partial results reading an index the cluster owns'
       [[0, makeAssignment({ primary: ABSENT_PRIMARY, inSyncSet: [], state: 'INITIALISING' })]],
       INDEX_NAME,
     )
-    expect(await coordinator.putAllocation(INDEX_NAME, table, null)).toBe(true)
+    expect(await coordinator.putAllocation(INDEX_NAME, table)).toBe(true)
 
     expect(await codeOf(node.query(INDEX_NAME, { term: 'portable' }))).toBe(ErrorCodes.QUERY_PARTIAL_FAILURE)
   }, 30_000)

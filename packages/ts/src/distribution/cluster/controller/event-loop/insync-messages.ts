@@ -162,7 +162,7 @@ export function handleInsyncRemoveMessage(
       await respondRefusal(respond, payload, nodeId, message.requestId)
       return
     }
-    const confirmPayload = await handleInsyncRemoval(payload, coordinator)
+    const confirmPayload = await handleInsyncRemoval(payload, coordinator, nodeId)
     await respond(createInsyncConfirmMessage(confirmPayload, nodeId, message.requestId))
   })
 }
@@ -210,7 +210,7 @@ export function handleInsyncAddMessage(
       await respondRefusal(respond, payload, nodeId, message.requestId)
       return
     }
-    const confirmPayload = await handleInsyncAdmission(payload, coordinator)
+    const confirmPayload = await handleInsyncAdmission(payload, coordinator, nodeId)
     await respond(createInsyncConfirmMessage(confirmPayload, nodeId, message.requestId))
 
     if (confirmPayload.accepted && isActive()) {

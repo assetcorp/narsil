@@ -92,6 +92,7 @@ describe('a node restarting to find every partition it held unassigned', () => {
         INDEX_NAME,
         { ...served, version: served.version + 1, assignments: orphaned },
         served.version,
+        (await coordinator.getLeaseHolder('_narsil/controller')) ?? '',
       ),
     ).toBe(true)
   }

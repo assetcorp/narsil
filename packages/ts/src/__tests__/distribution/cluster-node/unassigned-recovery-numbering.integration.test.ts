@@ -101,6 +101,7 @@ describe('a partition recovered from unassigned taking a replica back', () => {
         INDEX_NAME,
         { ...served, version: served.version + 1, assignments: orphaned },
         served.version,
+        (await coordinator.getLeaseHolder('_narsil/controller')) ?? '',
       ),
     ).toBe(true)
   }

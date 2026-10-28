@@ -39,6 +39,7 @@ describe('handleBootstrapCompleteMessage', () => {
 
   async function report(table: AllocationTable, nodeId = 'node-b'): Promise<BootstrapCompleteResultPayload> {
     coordinator = createInMemoryCoordinator()
+    await coordinator.acquireLease('_narsil/controller', 'controller', 30_000)
     await coordinator.putAllocation('products', table)
 
     const message: TransportMessage = {

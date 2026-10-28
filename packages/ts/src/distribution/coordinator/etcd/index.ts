@@ -1,6 +1,6 @@
 import type { Etcd3 as Etcd3Client, IKeyValue, Watcher } from 'etcd3'
 import { ErrorCodes, NarsilError } from '../../../errors'
-import { MAX_WATCHERS } from '../constants'
+import { CONTROLLER_LEASE_KEY, MAX_WATCHERS } from '../constants'
 import type {
   AllocationEvent,
   AllocationTable,
@@ -154,7 +154,12 @@ export async function createEtcdCoordinator(config?: Partial<EtcdCoordinatorConf
       return deserializeAllocationTable(buf)
     },
 
-    async putAllocation(indexName: string, table: AllocationTable, expectedVersion?: number | null): Promise<boolean> {
+    async putAllocation(
+      indexName: string,
+      table: AllocationTable,
+      expectedVersion?: number | null,
+      writerNodeId?: string,
+    ): Promise<boolean> {
       assertNotShutdown()
       const key = keys.allocation(indexName)
       const data = Buffer.from(serializeAllocationTable(table))
@@ -165,9 +170,18 @@ export async function createEtcdCoordinator(config?: Partial<EtcdCoordinatorConf
         return true
       }
 
+      if (writerNodeId === undefined || writerNodeId.length === 0) {
+        return false
+      }
+      const controllerLeaseKey = keys.lease(CONTROLLER_LEASE_KEY)
+
       if (expectedVersion === null) {
         return guard.send(write, async () => {
-          const txn = await client.if(key, 'Create', '==', 0).then(client.put(key).value(data)).commit()
+          const txn = await client
+            .if(key, 'Create', '==', 0)
+            .and(controllerLeaseKey, 'Value', '==', writerNodeId)
+            .then(client.put(key).value(data))
+            .commit()
           return txn.succeeded
         })
       }
@@ -183,7 +197,11 @@ export async function createEtcdCoordinator(config?: Partial<EtcdCoordinatorConf
       }
 
       return guard.send(write, async () => {
-        const txn = await client.if(key, 'Mod', '==', kv.mod_revision).then(client.put(key).value(data)).commit()
+        const txn = await client
+          .if(key, 'Mod', '==', kv.mod_revision)
+          .and(controllerLeaseKey, 'Value', '==', writerNodeId)
+          .then(client.put(key).value(data))
+          .commit()
         return txn.succeeded
       })
     },

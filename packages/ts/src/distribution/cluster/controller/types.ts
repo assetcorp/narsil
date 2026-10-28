@@ -13,7 +13,7 @@ export interface ControllerConfig {
   onElectionError?: (error: unknown) => void
 }
 
-export const CONTROLLER_LEASE_KEY = '_narsil/controller'
+export { CONTROLLER_LEASE_KEY } from '../../coordinator/constants'
 
 export interface ControllerNode {
   readonly isActive: boolean

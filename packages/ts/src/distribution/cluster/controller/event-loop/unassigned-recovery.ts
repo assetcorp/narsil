@@ -229,6 +229,7 @@ async function writeRecoveryOutcome(
       indexName,
       { ...table, version: table.version + 1, assignments },
       table.version,
+      deps.controllerNodeId,
     )
     if (written) {
       return anyPromoted
