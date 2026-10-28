@@ -8,6 +8,7 @@ import type { PartitionAssignment } from '../../coordinator/types'
 import { requestInsyncRemoval } from '../../replication/insync'
 import { replicateBatchToReplicas, replicateToReplicas } from '../../replication/primary'
 import type { ReplicationLogEntry } from '../../replication/types'
+import { recordAcknowledgements } from '../catch-up/acknowledgements'
 import {
   admittedBeyondTable,
   clearPendingAdmission,
@@ -148,6 +149,7 @@ export async function replicateEntry(
   const pending = getPendingAdmissions(deps.catchUp, entry.indexName, entry.partitionId)
   const replicaTargets = getInSyncReplicaTargets(assignment, deps.nodeId, [...pending, ...admitted])
   const result = await replicateToReplicas(entry, replicaTargets, deps.transport, deps.nodeId, deps.resolveNodeTargets)
+  recordAcknowledgements(deps.catchUp, entry.indexName, entry.partitionId, result.acknowledged, entry.seqNo)
   const inSyncFailures = cancelAdmissionsForFailures(entry, result.failed, assignment, admitted, deps)
   await removeFailedReplicasFromInsync(entry, inSyncFailures, deps)
   await assertPrimaryWriteAuthority(entry, deps)
@@ -191,6 +193,7 @@ export async function replicateEntryBatch(
     deps.nodeId,
     deps.resolveNodeTargets,
   )
+  recordAcknowledgements(deps.catchUp, lastEntry.indexName, lastEntry.partitionId, result.acknowledged, lastEntry.seqNo)
   const inSyncFailures = cancelAdmissionsForFailures(lastEntry, result.failed, assignment, admitted, deps)
   await removeFailedReplicasFromInsync(lastEntry, inSyncFailures, deps)
   await assertPrimaryWriteAuthority(lastEntry, deps)

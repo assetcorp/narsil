@@ -56,11 +56,13 @@ function malformedIndexName(indexName: string): string | null {
  * lease, and this node's own readiness, while `/indexes/:name/cluster` reports
  * the allocation of one index partition by partition, and
  * `PUT /indexes/:name/replication-factor` changes how many replicas each
- * partition keeps. A server fronting a single engine answers all three with
+ * partition keeps, and `/cluster/health` reports a green, yellow, or red status
+ * for the cluster and each index with status 200 whatever the status. A server
+ * fronting a single engine answers all four with
  * `CLUSTER_OPERATION_UNSUPPORTED`, which reaches the caller as status 501.
  *
  * @param deps - The handler dependencies, whose `cluster` field carries the node's cluster-facing side.
- * @returns The `topology`, `allocation`, and `replicationFactor` route handlers.
+ * @returns The `topology`, `allocation`, `replicationFactor`, and `health` route handlers.
  */
 export function createClusterHandlers(deps: HandlerDeps) {
   async function topology(ctx: RouteContext): Promise<void> {
@@ -143,5 +145,13 @@ export function createClusterHandlers(deps: HandlerDeps) {
     }
   }
 
-  return { topology, allocation, replicationFactor }
+  async function health(ctx: RouteContext): Promise<void> {
+    try {
+      respondJson(ctx, await requireCluster(deps).getHealth())
+    } catch (err) {
+      respondError(ctx, err)
+    }
+  }
+
+  return { topology, allocation, replicationFactor, health }
 }

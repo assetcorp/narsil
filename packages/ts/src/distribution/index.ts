@@ -18,6 +18,16 @@ export {
 export type { ClusterEngineOptions } from './cluster-node/server-engine'
 export { clusterNodeEngine } from './cluster-node/server-engine'
 export type {
+  ClusterHealth,
+  ClusterHealthStatus,
+  ClusterMetrics,
+  CommitPointFigure,
+  CoordinatorRequestFigure,
+  IndexHealth,
+  PartitionReplicationFigure,
+  ReplicaLagFigure,
+} from './cluster-node/types/observability'
+export type {
   AllocationConstraints,
   AllocationEvent,
   AllocationTable,

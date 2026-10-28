@@ -2,6 +2,8 @@ import type { ControllerNode } from '../cluster/controller/types'
 import { CONTROLLER_LEASE_KEY } from '../cluster/controller/types'
 import type { DataNodeHandle } from '../cluster/node-lifecycle/types'
 import type { ClusterCoordinator, NodeRole } from '../coordinator/types'
+import { readClusterHealth } from './observability/health'
+import { type ClusterMetricsDeps, readClusterMetrics } from './observability/metrics'
 import type { ClusterNamespace, NodeReadiness } from './types'
 
 export interface ClusterNamespaceDeps {
@@ -14,6 +16,7 @@ export interface ClusterNamespaceDeps {
   isServing: () => boolean
   trackOp: <T>(indexName: string | null, fn: () => Promise<T>) => Promise<T>
   requestReplicationFactor: (indexName: string, replicationFactor: number) => Promise<void>
+  observability: ClusterMetricsDeps
 }
 
 function readinessOf(deps: ClusterNamespaceDeps): NodeReadiness {
@@ -65,6 +68,12 @@ export function createClusterNamespace(deps: ClusterNamespaceDeps): ClusterNames
     },
     async setReplicationFactor(indexName: string, replicationFactor: number) {
       return deps.trackOp(null, () => deps.requestReplicationFactor(indexName, replicationFactor))
+    },
+    async getHealth() {
+      return deps.trackOp(null, () => readClusterHealth(deps.observability.coordinator))
+    },
+    async getMetrics() {
+      return deps.trackOp(null, () => readClusterMetrics(deps.observability))
     },
   }
 }

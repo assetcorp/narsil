@@ -9,6 +9,7 @@ import type {
 } from '../../coordinator/types'
 import type { ReplicationConfig } from '../../replication/types'
 import type { NodeTransport } from '../../transport/types'
+import type { ClusterHealth, ClusterMetrics } from './observability'
 
 /**
  * Everything {@link createClusterNode} needs to join a node to a cluster.
@@ -263,6 +264,20 @@ export interface ClusterNamespace {
    * cluster holds no index of that name, and with `NODE_NOT_CONTROLLER` while no node holds the controller lease.
    */
   setReplicationFactor(indexName: string, replicationFactor: number): Promise<void>
+  /**
+   * Reports how well the cluster holds each index, from the allocation tables in the coordinator.
+   *
+   * @returns The status of each index and the worst of them as the status of the cluster.
+   */
+  getHealth(): Promise<ClusterHealth>
+  /**
+   * Reports the replication lag and the live commit point of each partition that this node leads, the stored commit
+   * point floor and in-sync replica count of every partition in the cluster, and the timing of this node's
+   * coordinator calls.
+   *
+   * @returns The figures as they stand when the call reads them.
+   */
+  getMetrics(): Promise<ClusterMetrics>
 }
 
 /**

@@ -10,6 +10,7 @@ export const TEARDOWN_RETRY_DELAY_MS = 500
 export const TEARDOWN_RETRY_ROUNDS = 3
 export const RECOVERY_CAS_ATTEMPTS = 5
 export const REPLICATION_FACTOR_CAS_ATTEMPTS = 5
+export const HIDDEN_GENERATION_PREFIX = 'narsil-generation-'
 export const PARTITION_STORES_TIMEOUT_MS = 5_000
 
 export const DEFAULT_CONTROLLER_CONFIG = {
