@@ -1,11 +1,16 @@
 import { ErrorCodes, NarsilError } from '../../../errors'
+import { CONTROLLER_LEASE_KEY } from '../../coordinator/constants'
 import type { AllocationTable } from '../../coordinator/types'
+import { sharesMajorVersion } from '../version'
 import { type AllocationWatcherState, processInitialAllocations, startAllocationWatcher } from './allocation-watcher'
 import { type RegistrationHeartbeatState, registrationToWrite, startRegistrationHeartbeat } from './heartbeat'
 import type { NodeLifecycleConfig } from './types'
 
 /**
  * Joins this node to the cluster, and returns once it is registered and following its partitions.
+ *
+ * The join fails with `NODE_VERSION_INCOMPATIBLE` before it writes anything where the active controller's
+ * registration carries another major specification version.
  *
  * Where the coordinator still holds a live registration under this node's id, which a node that stopped without
  * leaving leaves behind, the node first waits for that registration's lease to expire, so that two registrations
@@ -30,6 +35,7 @@ export async function joinCluster(
   heartbeatState: RegistrationHeartbeatState,
   signal?: AbortSignal,
 ): Promise<void> {
+  await refuseControllerOnAnotherMajorVersion(config)
   await waitForEarlierRegistrationToLapse(config, signal)
   await config.coordinator.registerNode(registrationToWrite(config))
   config.onRegistered?.()
@@ -41,6 +47,20 @@ export async function joinCluster(
   processInitialAllocations(watcherState, config, initialTables)
 
   await startAllocationWatcher(watcherState, config)
+}
+
+async function refuseControllerOnAnotherMajorVersion(config: NodeLifecycleConfig): Promise<void> {
+  const { nodeId, version } = config.registration
+  const controllerNodeId = await config.coordinator.getLeaseHolder(CONTROLLER_LEASE_KEY)
+  if (controllerNodeId === null || controllerNodeId === nodeId) return
+  const nodes = await config.coordinator.listNodes()
+  const controller = nodes.find(node => node.nodeId === controllerNodeId)
+  if (controller === undefined || sharesMajorVersion(controller.version, version)) return
+  throw new NarsilError(
+    ErrorCodes.NODE_VERSION_INCOMPATIBLE,
+    `Node '${nodeId}' follows specification version ${version}, and the active controller '${controllerNodeId}' follows ${String(controller.version)}, which has another major version`,
+    { nodeId, version, controllerNodeId, controllerVersion: controller.version },
+  )
 }
 
 function abortedJoin(nodeId: string): NarsilError {
