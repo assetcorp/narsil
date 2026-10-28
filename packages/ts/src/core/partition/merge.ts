@@ -28,17 +28,18 @@ function mergeDocuments(target: PartitionState, source: PartitionState): Map<num
 
 function mergePostings(target: PartitionState, source: PartitionState, idMapping: Map<number, number>): void {
   for (const token of source.invertedIdx.tokens()) {
-    const list = source.invertedIdx.lookup(token)
+    const list = source.invertedIdx.lookupReadOnce?.(token) ?? source.invertedIdx.lookup(token)
     if (list === undefined) continue
-    for (let i = 0; i < list.length; i++) {
-      const sourceInternalId = list.docIds[i]
-      if (list.deletedDocs.has(sourceInternalId)) continue
+    const { docIds, termFrequencies, fieldNameIndices, deletedDocs, positions, length } = list
+    for (let i = 0; i < length; i++) {
+      const sourceInternalId = docIds[i]
+      if (deletedDocs.has(sourceInternalId)) continue
       const targetInternalId = idMapping.get(sourceInternalId)
       if (targetInternalId === undefined) continue
-      const fieldName = source.fieldNameTable.names[list.fieldNameIndices[i]]
+      const fieldName = source.fieldNameTable.names[fieldNameIndices[i]]
       const fieldNameIndex = getOrCreateFieldNameIndex(target.fieldNameTable, fieldName)
-      const positions = list.positions === null ? null : list.positions[i]
-      target.invertedIdx.insert(token, targetInternalId, list.termFrequencies[i], fieldNameIndex, positions ?? null)
+      const entryPositions = positions === null ? null : positions[i]
+      target.invertedIdx.insert(token, targetInternalId, termFrequencies[i], fieldNameIndex, entryPositions ?? null)
     }
   }
 }

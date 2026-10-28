@@ -53,6 +53,7 @@ describe('compaction of checkpoint segments under the merged-segment limit', () 
       partitionId: 0,
       schema: { title: 'string' },
       partialWordAnalysis: null,
+      textAnalysis: null,
       segments: partition.segments,
       nextSegmentId: partition.nextSegmentId,
       compactionThreshold: 2,

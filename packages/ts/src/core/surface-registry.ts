@@ -14,6 +14,7 @@ export interface SurfaceRegistryReader {
 }
 
 export interface SurfaceRegistry extends SurfaceRegistryReader {
+  holds(surface: string): boolean
   add(surface: string, token: string, occurrences: number): void
   subtract(surface: string, occurrences: number): void
   clear(): void
@@ -57,6 +58,10 @@ export function createSurfaceRegistry(): SurfaceRegistry {
   }
 
   return {
+    holds(surface: string): boolean {
+      return entries.has(surface)
+    },
+
     add(surface: string, token: string, occurrences: number): void {
       if (surface.length === 0 || token.length === 0 || occurrences <= 0) return
       if (surface === token) return

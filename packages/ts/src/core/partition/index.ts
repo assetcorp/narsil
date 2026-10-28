@@ -49,7 +49,7 @@ import {
   sortValuesOf,
 } from './sorting'
 import { expandTermPrefix, type PartitionSuggestion, suggestDisplayTerms } from './suggestions'
-import { type PartitionInsertOptions, type PartitionState, textFieldsChanged } from './utils'
+import { getNestedValue, type PartitionInsertOptions, type PartitionState, textFieldsChanged } from './utils'
 
 export type { GlobalStatistics, InternalSearchParams, InternalSearchResult, ScoredDocument }
 export type { PartitionInsertOptions }
@@ -277,6 +277,12 @@ export function createPartitionIndex(partitionId: number, trackPositions = true)
       const stored = state.docStore.get(docId)
       if (!stored) return undefined
       return stored.fields as AnyDocument
+    },
+
+    fieldValues(docId: string, fieldPaths: readonly string[]): unknown[] | undefined {
+      const stored = state.docStore.get(docId)
+      if (!stored) return undefined
+      return fieldPaths.map(fieldPath => getNestedValue(stored.fields as Record<string, unknown>, fieldPath))
     },
 
     has(docId: string): boolean {
