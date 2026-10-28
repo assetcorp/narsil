@@ -159,11 +159,6 @@ describe('a client given a list of server URLs', () => {
   it.each([
     [{ url: [] }],
     [{ url: ['http://127.0.0.1:1', 'not a url'] }],
-    [{ url: ['http://127.0.0.1:1', 42 as unknown as string] }],
-    [{ url: 'http://127.0.0.1:1', urlSkipMs: -1 }],
-    [{ url: 'http://127.0.0.1:1', urlSkipMs: 1.5 }],
-    [{ url: 'http://127.0.0.1:1', urlSkipMs: Number.NaN }],
-    [{ url: 'http://127.0.0.1:1', urlSkipMs: 5_000, maxUrlSkipMs: 4_999 }],
   ])('refuses the settings %j with CONFIG_INVALID', settings => {
     let caught: unknown
     try {

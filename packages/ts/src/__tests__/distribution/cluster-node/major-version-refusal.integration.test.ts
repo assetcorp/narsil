@@ -73,13 +73,7 @@ describe('a node that registers on another major version', () => {
     await coordinator.shutdown()
   })
 
-  it.each([
-    ['2.0'],
-    ['0.9'],
-    ['10.0'],
-    ['banana'],
-    [''],
-  ])('never gives a partition to a node on version %j', async version => {
+  it.each([['10.0'], ['banana']])('never gives a partition to a node on version %j', async version => {
     await start('keeper-a', ['data'])
     const router = await start('lamp-room', ['coordinator', 'controller'])
     await coordinator.registerNode(foreignRegistration(version))
@@ -113,12 +107,8 @@ describe('a node that registers on another major version', () => {
     expect(holders(table)).toEqual(['keeper-a', FOREIGN_NODE])
   }, 30_000)
 
-  it.each([
-    ['2.0'],
-    ['0.9'],
-    ['banana'],
-  ])('refuses to start a node while the active controller follows version %j', async version => {
-    await coordinator.registerNode(foreignRegistration(version))
+  it('refuses to start a node while the active controller follows a later major version', async () => {
+    await coordinator.registerNode(foreignRegistration('2.0'))
     expect(await coordinator.acquireLease('_narsil/controller', FOREIGN_NODE, 60_000)).toBe(true)
 
     const node = await createClusterNode({

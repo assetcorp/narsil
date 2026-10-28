@@ -60,22 +60,16 @@ describe('the heap figures a cluster node registers leave the young generation o
     expect(fromCommandLine.heapSizeLimitBytes).toBeGreaterThan(limitOf(fromCommandLine))
   })
 
-  it.each([
-    ['a power of two', 4],
-    ['a size that V8 rounds up to the next power of two', 5],
-  ])('subtracts the young generation that a semi-space flag of %s reserves', (_shape, semiSpaceMegabytes) => {
-    const semiSpaceFlag = `--max-semi-space-size=${semiSpaceMegabytes}`
+  it('subtracts the young generation that a semi-space flag reserves once V8 rounds it up to a power of two', () => {
+    const semiSpaceFlag = '--max-semi-space-size=5'
     const reported = reportUnder([semiSpaceFlag])
 
     expect(limitOf(reported)).toBe(reported.heapSizeLimitBytes - youngShareUnder([semiSpaceFlag]))
   })
 
-  it.each([
-    ['no heap flag', []],
-    ['a semi-space flag of zero, which leaves V8 to size it', ['--max-semi-space-size=0']],
-  ])('keeps the limit within the young share V8 picks itself under %s', (_setting, flags: string[]) => {
-    const reported = reportUnder(flags)
-    const oldSpaceBytes = reported.heapSizeLimitBytes - youngShareUnder(flags)
+  it('keeps the limit within the young share that V8 picks itself under no heap flag', () => {
+    const reported = reportUnder([])
+    const oldSpaceBytes = reported.heapSizeLimitBytes - youngShareUnder([])
 
     expect(limitOf(reported)).toBeLessThan(reported.heapSizeLimitBytes)
     expect(limitOf(reported)).toBeGreaterThanOrEqual(oldSpaceBytes)

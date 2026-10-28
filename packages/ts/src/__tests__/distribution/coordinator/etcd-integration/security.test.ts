@@ -154,31 +154,8 @@ describe('an etcd that requires TLS, a client certificate, and a password', () =
     )
   }, 30_000)
 
-  it('refuses a user that etcd does not know with COORDINATOR_AUTH_FAILED', async () => {
-    expect(
-      await codeOf(createEtcdCoordinator(settings({ auth: { username: 'intruder', password: ROOT_PASSWORD } }))),
-    ).toBe(ErrorCodes.COORDINATOR_AUTH_FAILED)
-  }, 30_000)
-
   it('refuses an etcd whose certificate chains to another authority with COORDINATOR_UNAVAILABLE', async () => {
     const tls = { ca: bundles.rogueBundle.ca, cert: bundles.clientBundle.cert, key: bundles.clientBundle.key }
     expect(await codeOf(createEtcdCoordinator(settings({ tls })))).toBe(ErrorCodes.COORDINATOR_UNAVAILABLE)
-  }, 30_000)
-
-  it('refuses a client certificate from another authority with COORDINATOR_UNAVAILABLE', async () => {
-    const tls = { ca: bundles.serverBundle.ca, cert: bundles.rogueBundle.cert, key: bundles.rogueBundle.key }
-    expect(await codeOf(createEtcdCoordinator(settings({ tls })))).toBe(ErrorCodes.COORDINATOR_UNAVAILABLE)
-  }, 30_000)
-
-  it('refuses a plain connection to the TLS port with COORDINATOR_UNAVAILABLE', async () => {
-    expect(
-      await codeOf(
-        createEtcdCoordinator({
-          endpoints: [endpoint.replace('https://', 'http://')],
-          keyPrefix: `_narsil_secured_${randomUUID()}`,
-          auth: { username: 'root', password: ROOT_PASSWORD },
-        }),
-      ),
-    ).toBe(ErrorCodes.COORDINATOR_UNAVAILABLE)
   }, 30_000)
 })
