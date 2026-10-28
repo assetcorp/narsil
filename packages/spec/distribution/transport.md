@@ -120,6 +120,7 @@ When a primary refuses a forwarded mutation, the node that forwarded it must pas
 | `cluster.bootstrap_complete` | data node to controller | Reports that a partition finished bootstrapping |
 | `cluster.partition_stores` | controller to data node | Asks which partitions of an index the node holds on disk |
 | `cluster.replication_factor` | any node to controller | Changes the replication factor of an index |
+| `cluster.rebuild_analysis` | any node to data node | Rebuilds the terms of every copy of an index that the node holds |
 
 ---
 
@@ -374,6 +375,26 @@ A node sends this to the active controller, which it finds with `getLeaseHolder`
 ```
 
 The controller refuses the request with `NODE_NOT_CONTROLLER` where it holds no controller lease, with `CONFIG_INVALID` where the factor is not an integer from 0 to 255, and with `INDEX_NOT_FOUND` where the coordinator holds no metadata for the index. Otherwise it stores the factor in the index metadata with `compareAndSet`, writes the allocation table, and answers with the same payload. [Index Creation Flow](cluster.md#index-creation-flow) gives the rules for applying the new factor.
+
+### cluster.rebuild_analysis
+
+A node sends this to every node that holds a copy of an index, as [Index Creation Flow](cluster.md#index-creation-flow) describes for a rebuild.
+
+```text
+{
+  indexName: string
+  indexUuid: string   (the identity that the coordinator holds for the index)
+}
+```
+
+A node that holds no copy under that `indexUuid` answers with an empty list, so that it never rebuilds an index of the same name that a caller created again. Otherwise it answers once each rebuild finishes:
+
+```text
+{
+  indexName:         string
+  rebuiltPartitions: List<uint32>   (the copies that it rebuilt, leaving out each copy that was already current)
+}
+```
 
 ### cluster.ping
 
