@@ -779,3 +779,5 @@ A community adapter, whether it targets Consul, ZooKeeper, FoundationDB, or Redi
 | `NODE_NOT_READY` | A message reached a node that has yet to finish joining the cluster. |
 | `NODE_NOT_CONTROLLER` | A controller message reached a node that holds no controller lease. |
 | `CLUSTER_WRITE_BLOCKED` | An insert or an update targets an index that has a copy on a node reporting `full`, or a node refuses it under its bound on the bytes of writes in progress. |
+| `COORDINATOR_AUTH_FAILED` | etcd refuses the username or the password that the coordinator presents. |
+| `COORDINATOR_UNAVAILABLE` | The coordinator reaches no etcd endpoint, or completes no TLS handshake with one, before its dial timeout. |
