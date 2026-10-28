@@ -13,6 +13,27 @@ export interface PrefixWatchHandlers {
   delete(fullKey: string): void
 }
 
+function connectedOrDropped(watcher: Watcher): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const onConnected = (): void => {
+      detach()
+      resolve()
+    }
+    const onDropped = (error: unknown): void => {
+      detach()
+      reject(error)
+    }
+    function detach(): void {
+      watcher.off('connected', onConnected)
+      watcher.off('disconnected', onDropped)
+      watcher.off('error', onDropped)
+    }
+    watcher.once('connected', onConnected)
+    watcher.once('disconnected', onDropped)
+    watcher.once('error', onDropped)
+  })
+}
+
 export async function watchPrefix(
   context: PrefixWatchContext,
   prefix: string,
@@ -34,7 +55,7 @@ export async function watchPrefix(
     handlers.delete(fullKey)
   }
 
-  async function listThenWatch(reportMissedChanges: boolean): Promise<void> {
+  async function listMissedChanges(reportMissedChanges: boolean): Promise<string> {
     const listing = await context.client.getAll().prefix(prefix).exec()
     const listedKeys = new Set<string>()
     for (const kv of listing.kvs) {
@@ -51,12 +72,17 @@ export async function watchPrefix(
         if (!listedKeys.has(fullKey)) recordDelete(fullKey)
       }
     }
+    return String(BigInt(listing.header.revision) + 1n)
+  }
 
-    const watcher = await context.client
-      .watch()
-      .prefix(prefix)
-      .startRevision(String(BigInt(listing.header.revision) + 1n))
-      .create()
+  async function watchFrom(startRevision: string): Promise<void> {
+    const watcher = context.client.watch().prefix(prefix).startRevision(startRevision).watcher()
+    try {
+      await connectedOrDropped(watcher)
+    } catch (error) {
+      watcher.cancel().catch(() => {})
+      throw error
+    }
     if (stopped || context.isShutdown()) {
       watcher.cancel().catch(() => {})
       return
@@ -64,8 +90,13 @@ export async function watchPrefix(
     watcher.on('put', recordPut)
     watcher.on('delete', (kv: IKeyValue) => recordDelete(kv.key.toString()))
     watcher.on('error', () => reopenAfterFailure(watcher))
+    watcher.on('disconnected', () => reopenAfterFailure(watcher))
     context.addWatcher(watcher)
     current = watcher
+  }
+
+  async function listThenWatch(reportMissedChanges: boolean): Promise<void> {
+    await watchFrom(await listMissedChanges(reportMissedChanges))
   }
 
   function scheduleReopen(): void {
@@ -91,7 +122,12 @@ export async function watchPrefix(
     scheduleReopen()
   }
 
-  await listThenWatch(false)
+  const startRevision = await listMissedChanges(false)
+  try {
+    await watchFrom(startRevision)
+  } catch (_) {
+    scheduleReopen()
+  }
 
   return () => {
     stopped = true
