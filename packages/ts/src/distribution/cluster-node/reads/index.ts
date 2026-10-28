@@ -13,6 +13,7 @@ import { countStoredPinsFromOutside, dropUnstoredPinnedEntries, readPinPresence 
 import type { ClusterReadDeps } from './scatter'
 
 export { countCluster, partitionStatsCluster, statsCluster } from './counts'
+export { listIndexesCluster } from './index-list'
 export { listCluster } from './list'
 export type { ClusterReadDeps } from './scatter'
 export { preflightCluster, suggestCluster } from './terms'
