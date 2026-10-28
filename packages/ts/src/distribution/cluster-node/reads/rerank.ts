@@ -1,17 +1,23 @@
-import { getNestedValue } from '../../../core/partition/utils'
-import { applyProjection } from '../../../core/projection'
-import { runtimeHost } from '../../../engine/query/runtime-host'
-import { now } from '../../../engine/validation'
+import type { getNestedValue } from '../../../core/partition/utils'
+import type { applyProjection } from '../../../core/projection'
 import { ErrorCodes, NarsilError } from '../../../errors'
-import { engineCoreOf } from '../../../narsil/internals'
+import type { engineCoreOf } from '../../../narsil/internals'
 import { rerankOnHost } from '../../../rerank/call'
+import type { RuntimeHost } from '../../../rerank/host'
 import { rerankTextOf } from '../../../rerank/params'
 import { runRerankedQuery } from '../../../rerank/pipeline'
-import { queryBindingOf } from '../../../search/cursor-binding'
+import type { queryBindingOf } from '../../../search/cursor-binding'
 import type { QueryResult } from '../../../types/results'
 import type { AnyDocument } from '../../../types/schema'
 import type { QueryParams } from '../../../types/search'
 import type { ClusterReadDeps } from './scatter'
+
+export interface ClusterRerankHost extends RuntimeHost {
+  engineCoreOf: typeof engineCoreOf
+  queryBindingOf: typeof queryBindingOf
+  getNestedValue: typeof getNestedValue
+  applyProjection: typeof applyProjection
+}
 
 type ReadDocuments = (docIds: string[]) => Promise<Map<string, AnyDocument>>
 
@@ -21,9 +27,10 @@ export async function rerankClusterQuery<T>(
   params: QueryParams,
   firstStage: (params: QueryParams) => Promise<QueryResult<T>>,
   readDocuments: ReadDocuments,
+  host: ClusterRerankHost,
 ): Promise<QueryResult<T>> {
-  const startTime = now()
-  const core = engineCoreOf(deps.engine)
+  const startTime = host.now()
+  const core = host.engineCoreOf(deps.engine)
   if (core === undefined) {
     throw new NarsilError(ErrorCodes.RERANK_CONFIG_INVALID, 'This cluster node holds no rerank adapters')
   }
@@ -32,10 +39,10 @@ export async function rerankClusterQuery<T>(
     throw new NarsilError(ErrorCodes.INDEX_NOT_FOUND, `Index "${indexName}" does not exist`, { indexName })
   }
   const result = await runRerankedQuery<T>(params, {
-    host: runtimeHost,
+    host,
     schema,
     maxWindow: core.rerankSettings.maxWindow,
-    binding: queryBindingOf(params),
+    binding: host.queryBindingOf(params),
     clampsPins: false,
     fusesRankings: request => request.vector !== undefined && (request.term !== undefined || request.mode === 'hybrid'),
     firstStage,
@@ -43,7 +50,7 @@ export async function rerankClusterQuery<T>(
       const documents = await readDocuments(docIds)
       return docIds.map(docId => {
         const document = documents.get(docId)
-        return document === undefined ? '' : rerankTextOf(fields.map(field => getNestedValue(document, field)))
+        return document === undefined ? '' : rerankTextOf(fields.map(field => host.getNestedValue(document, field)))
       })
     },
     async storedPins(docIds) {
@@ -60,12 +67,12 @@ export async function rerankClusterQuery<T>(
       const documents = await readDocuments([...hits.map(hit => hit.id), ...grouped.map(hit => hit.id)])
       const read = (docId: string): AnyDocument => {
         const document = documents.get(docId)
-        return document === undefined ? {} : applyProjection(document, projection)
+        return document === undefined ? {} : host.applyProjection(document, projection)
       }
       for (const hit of hits) hit.document = read(hit.id) as T
       for (const hit of grouped) hit.document = read(hit.id)
     },
   })
-  result.elapsed = now() - startTime
+  result.elapsed = host.now() - startTime
   return result
 }
