@@ -125,6 +125,7 @@ export function createReplicationLog(
   }
 
   return {
+    assertFits: assertEntryFitsRetention,
     append(partial) {
       assertEntryFitsRetention(partial)
       const seqNo = nextSeqNo

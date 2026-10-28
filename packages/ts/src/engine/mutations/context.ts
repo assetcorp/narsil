@@ -37,10 +37,19 @@ export interface DurabilityRecorder {
   recordRemove(indexName: string, docId: string, apply: ApplyMutation): Promise<DurableWriteToken>
 }
 
+export type WriteAdmission = (
+  indexName: string,
+  partitionId: number,
+  docId: string,
+  document: AnyDocument | null,
+) => void
+
 export interface MutationContext {
   executor: Executor & DirectExecutorExtensions
   pluginRegistry: PluginRegistry
   durability: DurabilityRecorder | null
+  admitWrite: (indexName: string, docId: string, document: AnyDocument | null) => void
+  readonly admitsWrites: boolean
   orchestrator: WorkerOrchestrator
   idGenerator: () => string
   abortController: AbortController

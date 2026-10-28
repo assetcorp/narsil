@@ -2,6 +2,7 @@ import { requireKnownConfig } from '../../engine/config-keys'
 import { createEngineCore, type EngineCore } from '../../engine/core'
 import { createEngineIndex } from '../../engine/index-lifecycle'
 import { startEngineCore } from '../../engine/lifecycle'
+import type { WriteAdmission } from '../../engine/mutations'
 import { resolveRunnableConfig } from '../../engine/startup-checks'
 import type { Narsil } from '../../narsil'
 import { createNarsilFromCore } from '../../narsil'
@@ -34,6 +35,7 @@ export interface ClusterLocalEngine extends Narsil {
   highestPersistedSeqNoOf(indexName: string, partitionId: number): number
   persistedPositionOf(indexName: string, partitionId: number): PartitionLogPosition
   numberEntriesWith(numbering: EntryNumbering): void
+  admitWritesWith(admission: WriteAdmission): void
   restartLocalLog(indexName: string, partitionId: number, position: PartitionLogPosition): Promise<void>
   heldPartitionsOf(indexName: string): number[] | undefined
   recordHeldPartition(indexName: string, partitionId: number): Promise<void>
@@ -98,6 +100,7 @@ export async function createClusterLocalEngine(
       core.durability?.manager.highestPersistedSeqNo(indexName, partitionId) ?? 0,
     persistedPositionOf: (indexName: string, partitionId: number) => persistedPositionOf(core, indexName, partitionId),
     numberEntriesWith: (numbering: EntryNumbering) => core.durability?.manager.numberEntriesWith?.(numbering),
+    admitWritesWith: (admission: WriteAdmission) => core.admitWritesWith(admission),
     restartLocalLog: (indexName: string, partitionId: number, position: PartitionLogPosition) =>
       restartLocalLog(core, indexName, partitionId, position),
     heldPartitionsOf: (indexName: string) => heldPartitions.held(indexName),

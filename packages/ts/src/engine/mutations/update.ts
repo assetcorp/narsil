@@ -201,6 +201,7 @@ export async function updateDocument(
   const prepared = await prepareUpdate(ctx, indexName, entry, docId, document)
   const apply = applyOfUpdate(ctx, indexName, prepared)
 
+  ctx.admitWrite(indexName, docId, document)
   if (ctx.durability) {
     try {
       await ctx.durability.recordInsertOrUpdate(indexName, docId, document, apply)
@@ -273,7 +274,9 @@ export async function updateDocumentBatch(
       if (failure !== null) {
         let error = failure.error
         try {
-          await rollbackUpdatedDocument(ctx, indexName, update.docId, update.rollbackDoc, error)
+          if (failure.refused !== true) {
+            await rollbackUpdatedDocument(ctx, indexName, update.docId, update.rollbackDoc, error)
+          }
         } catch (rollbackError) {
           error = rollbackError
         }

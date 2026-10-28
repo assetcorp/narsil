@@ -127,6 +127,7 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
 
   const numbering = createPrimaryNumbering()
   engine.numberEntriesWith(numbering.numberEntry)
+  engine.admitWritesWith(numbering.admit)
   const writeDeps: WriteRoutingDeps = {
     nodeId,
     numbering,
