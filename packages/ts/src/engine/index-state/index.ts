@@ -10,6 +10,7 @@ import {
   type LifecycleEntry,
   validateLimit,
 } from './entry'
+import type { ReplaceContext } from './replace'
 
 export type { IndexStateCallbacks, IndexStateCoordinator } from './entry'
 
@@ -42,7 +43,7 @@ export function createIndexStateCoordinator(
   }
 
   function publicState(entry: LifecycleEntry): 'open' | 'closed' | 'reopen-failed' {
-    return entry.state === 'closing' || entry.state === 'dropping' ? 'open' : entry.state
+    return entry.state === 'closing' || entry.state === 'dropping' || entry.state === 'replacing' ? 'open' : entry.state
   }
 
   async function waitForDrain(entry: LifecycleEntry): Promise<void> {
@@ -87,6 +88,11 @@ export function createIndexStateCoordinator(
         entry = entryOf(indexName)
         continue
       }
+      if (entry.state === 'replacing' && entry.replacePromise !== null) {
+        await entry.replacePromise.catch(() => undefined)
+        entry = entryOf(indexName)
+        continue
+      }
       if (entry.state === 'closing' && entry.closePromise !== null) {
         await waitForTransition(
           indexName,
@@ -103,6 +109,7 @@ export function createIndexStateCoordinator(
   function transitionPending(indexName: string, entry: LifecycleEntry): boolean {
     if (entries.get(indexName) !== entry) return true
     if (entry.state === 'dropping' && entry.dropPromise !== null) return true
+    if (entry.state === 'replacing' && entry.replacePromise !== null) return true
     return entry.state === 'closing' && entry.closePromise !== null
   }
 
@@ -157,9 +164,10 @@ export function createIndexStateCoordinator(
         entry = entryOf(indexName)
         continue
       }
-      if (entry.reopenPromise !== null) {
+      const settling = entry.reopenPromise ?? entry.replacePromise
+      if (settling !== null) {
         if (automatic) return false
-        await entry.reopenPromise.catch(() => undefined)
+        await settling.catch(() => undefined)
         entry = entryOf(indexName)
         continue
       }
@@ -205,13 +213,9 @@ export function createIndexStateCoordinator(
         await entry.dropPromise
         return
       }
-      if (entry.reopenPromise !== null) {
-        await entry.reopenPromise.catch(() => undefined)
-        entry = entryOf(indexName)
-        continue
-      }
-      if (entry.closePromise !== null) {
-        await entry.closePromise.catch(() => undefined)
+      const pending = entry.replacePromise ?? entry.reopenPromise ?? entry.closePromise
+      if (pending !== null) {
+        await pending.catch(() => undefined)
         entry = entryOf(indexName)
         continue
       }
@@ -233,6 +237,12 @@ export function createIndexStateCoordinator(
       })
     entry.dropPromise = run
     await run
+  }
+
+  const replaceContext: ReplaceContext = {
+    entryOf,
+    waitForDrain,
+    forget: indexName => entries.delete(indexName),
   }
 
   function exceedsLimits(): boolean {
@@ -337,6 +347,25 @@ export function createIndexStateCoordinator(
     drop(indexName: string, action: () => Promise<void>): Promise<void> {
       return dropEntry(indexName, action)
     },
+    async replace(indexName: string, action: (wasOpen: boolean) => Promise<void>): Promise<void> {
+      const { replaceExclusively } = await import('./replace')
+      await replaceExclusively(replaceContext, indexName, action)
+    },
+    async registerReplacing(indexName: string, action: () => Promise<void>): Promise<void> {
+      const entry = createLifecycleEntry('open')
+      entries.set(indexName, entry)
+      entry.state = 'replacing'
+      const run = import('./replace').then(
+        ({ replaceUnregistered }) => replaceUnregistered(replaceContext, indexName, entry, action),
+        (error: unknown) => {
+          if (entries.get(indexName) === entry) entries.delete(indexName)
+          throw error
+        },
+      )
+      entry.replacePromise = run
+      await run
+      await enforceLimits(indexName)
+    },
     stateOf(indexName: string): 'open' | 'closed' | 'reopen-failed' {
       return publicState(entryOf(indexName))
     },
@@ -348,7 +377,7 @@ export function createIndexStateCoordinator(
       let closed = 0
       let reopens = 0
       for (const entry of entries.values()) {
-        if (entry.state === 'open' || entry.state === 'closing') open += 1
+        if (entry.state === 'open' || entry.state === 'closing' || entry.state === 'replacing') open += 1
         else closed += 1
         reopens += entry.reopenCount
       }
