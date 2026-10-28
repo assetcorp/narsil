@@ -24,8 +24,27 @@ enum {
   SEARCH_THREAD_SLOT,
   SEARCH_ORDINALS,
   SEARCH_DISTANCES,
+  SEARCH_ACCEPTED,
   SEARCH_ARGUMENT_COUNT
 };
+
+static const uint8_t NO_ACCEPTED_ORDINAL = 0;
+
+static int read_accepted_ordinals(napi_env env, napi_value value, narsil_ordinal_set *accepted) {
+  napi_valuetype type = napi_undefined;
+  if (napi_typeof(env, value, &type) != napi_ok) { return 0; }
+  if (type == napi_null) {
+    accepted->bits = NULL;
+    accepted->bytes = 0;
+    return 1;
+  }
+  void *bits = NULL;
+  size_t bytes = 0;
+  if (!possibly_empty_typed_data(env, value, napi_uint8_array, &bits, &bytes)) { return 0; }
+  accepted->bits = bytes == 0 ? &NO_ACCEPTED_ORDINAL : bits;
+  accepted->bytes = clamped_count(bytes);
+  return 1;
+}
 
 enum { SCORE_STORE, SCORE_QUERY, SCORE_METRIC, SCORE_ORDINALS, SCORE_COUNT, SCORE_DISTANCES, SCORE_ARGUMENT_COUNT };
 
@@ -72,7 +91,7 @@ static napi_value detach_store_handle(napi_env env, napi_callback_info info) {
 static napi_value search(napi_env env, napi_callback_info info) {
   napi_value argv[SEARCH_ARGUMENT_COUNT];
   if (!callback_arguments(env, info, SEARCH_ARGUMENT_COUNT, argv)) {
-    return throw_error(env, "search takes a graph, a store, and six more arguments");
+    return throw_error(env, "search takes a graph, a store, and seven more arguments");
   }
   attached_graph *graph = graph_of(env, argv[SEARCH_GRAPH]);
   attached_store *store = store_of(env, argv[SEARCH_STORE]);
@@ -86,8 +105,9 @@ static napi_value search(napi_env env, napi_callback_info info) {
   size_t query_length = 0;
   size_t ordinal_capacity = 0;
   size_t distance_capacity = 0;
-  narsil_search_request request = {NULL, NARSIL_METRIC_COSINE, 0, 0};
+  narsil_search_request request = {NULL, NARSIL_METRIC_COSINE, 0, 0, {NULL, 0}};
   if (!typed_data(env, argv[SEARCH_QUERY], napi_float32_array, &query, &query_length) ||
+      !read_accepted_ordinals(env, argv[SEARCH_ACCEPTED], &request.accepted) ||
       napi_get_value_uint32(env, argv[SEARCH_METRIC], &request.metric) != napi_ok ||
       napi_get_value_uint32(env, argv[SEARCH_CANDIDATE_COUNT], &request.candidate_count) != napi_ok ||
       napi_get_value_uint32(env, argv[SEARCH_THREAD_SLOT], &request.thread_slot) != napi_ok ||

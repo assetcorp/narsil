@@ -26,9 +26,20 @@ export const STORE_CALIBRATION_GENERATION = 7
 export const STORE_RELEASED_VECTORS_TO_DISK = 8
 export const STORE_UNPLACED_COUNT = 9
 export const STORE_REMOVED_COUNT = 10
+export const STORE_ORDINAL_LAYOUT_GENERATION = 11
 const STORE_HEADER_WORDS = 16
 
 export const IN_MEMORY = -1
+
+export function resetStoreHeader(header: Int32Array): void {
+  Atomics.store(header, STORE_SLOTS, 0)
+  Atomics.store(header, STORE_RELEASED_VECTORS_TO_DISK, 0)
+  Atomics.store(header, STORE_LIVE_COUNT, 0)
+  Atomics.store(header, STORE_CODE_COUNT, 0)
+  Atomics.store(header, STORE_CALIBRATED, 0)
+  Atomics.add(header, STORE_CALIBRATION_GENERATION, 1)
+  Atomics.add(header, STORE_ORDINAL_LAYOUT_GENERATION, 1)
+}
 
 /**
  * A thread opens these handles so that it can read one field's vectors,

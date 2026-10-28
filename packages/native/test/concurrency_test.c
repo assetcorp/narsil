@@ -63,7 +63,7 @@ static void *search_beside_the_writer(void *argument) {
 
   for (int search = 0; search < SEARCHES_PER_READER; search++) {
     narsil_candidates found = {ordinals, distances, CANDIDATES, 0};
-    narsil_search_request request = {query, NARSIL_METRIC_COSINE, CANDIDATES, state->thread_slot};
+    narsil_search_request request = {query, NARSIL_METRIC_COSINE, CANDIDATES, state->thread_slot, {NULL, 0}};
     narsil_status status = narsil_search(workspace, &state->fixture->graph, &state->fixture->store, &request, &found);
     if (status != NARSIL_OK) {
       state->status = status;

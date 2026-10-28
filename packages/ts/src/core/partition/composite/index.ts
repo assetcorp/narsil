@@ -7,7 +7,6 @@ import type { AnyDocument, SchemaDefinition } from '../../../types/schema'
 import type { FacetConfig } from '../../../types/search'
 import type { ReadonlyStoredDocument } from '../../document-store'
 import type { ComparableSortValue } from '../../ordering'
-import { compareCodePoints } from '../../ordering'
 import type { PatternWorkMeter } from '../../pattern-index/types'
 import type { ResolvedProjection } from '../../projection'
 import { computeFacets, type FacetMatchSet } from '../facets'
@@ -31,7 +30,7 @@ import {
   survivorDocumentsOf,
   swapFrozenSegmentList,
 } from './compaction'
-import { compositeDocument, compositeFieldValues } from './documents'
+import { compositeDocIds, compositeDocument, compositeFieldValues, compositeSortedDocIds } from './documents'
 import {
   compositeFilterMatches,
   compositeFilters,
@@ -359,24 +358,12 @@ export function createCompositePartition(
       return total
     },
 
-    *docIds(): IterableIterator<string> {
-      for (const segment of frozen) {
-        for (const internalId of segment.docStore.allInternalIds()) {
-          const docId = segment.docStore.getExternalId(internalId)
-          if (docId !== undefined) yield docId
-        }
-      }
-      yield* live.docIds()
+    docIds(): IterableIterator<string> {
+      return compositeDocIds(frozen, live)
     },
 
     sortedDocIds(): readonly string[] {
-      const merged: string[] = []
-      for (const segment of frozen) {
-        merged.push(...segment.docStore.sortedDocIds())
-      }
-      merged.push(...live.sortedDocIds())
-      merged.sort(compareCodePoints)
-      return merged
+      return compositeSortedDocIds(frozen, live)
     },
 
     releaseSortedDocIds(): void {
@@ -392,6 +379,10 @@ export function createCompositePartition(
         total += frozenSegmentBytes(segment)
       }
       return total
+    },
+
+    readStates(): readonly PartitionReadState[] {
+      return subs()
     },
   }
 }
