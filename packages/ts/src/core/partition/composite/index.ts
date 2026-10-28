@@ -1,4 +1,5 @@
 import { ErrorCodes, NarsilError } from '../../../errors'
+import { everyValueFacetConfig, mergeFacets } from '../../../search/facets'
 import type { FilterExpression } from '../../../types/filters'
 import type { InternalSearchParams, InternalSearchResult } from '../../../types/internal'
 import type { FacetResult } from '../../../types/results'
@@ -9,12 +10,11 @@ import type { ComparableSortValue } from '../../ordering'
 import { compareCodePoints } from '../../ordering'
 import type { PatternWorkMeter } from '../../pattern-index/types'
 import type { ResolvedProjection } from '../../projection'
-import type { FacetMatchSet } from '../facets'
+import { computeFacets, type FacetMatchSet } from '../facets'
 import type { PartitionFilterMatches } from '../filters'
 import type { FrozenSegment } from '../frozen'
 import { frozenSegmentBytes } from '../frozen/memory'
 import type { RemovedSpellings, TextAnalysis } from '../frozen/surface-slot'
-import { typoTokensOf } from '../group-scoring'
 import { createPartitionIndex, type PartitionIndex, partitionStateOf } from '../index'
 import type { PartitionSearchMatches } from '../matches'
 import { expandPartialWords } from '../partial-words/registry'
@@ -32,13 +32,13 @@ import {
   swapFrozenSegmentList,
 } from './compaction'
 import { compositeDocument, compositeFieldValues } from './documents'
-import { compositeFacets } from './facets'
 import {
   compositeFilterMatches,
   compositeFilters,
   compositeFiltersBitset,
   computeOrdinalLayout,
   type OrdinalLayout,
+  subBitsetView,
 } from './filters'
 import { compositeSearchFulltext, compositeSearchMatches } from './search'
 import { compositeSortedPage, compositeSortValues } from './sorting'
@@ -288,7 +288,25 @@ export function createCompositePartition(
     },
 
     computeFacets(matched: FacetMatchSet, config: FacetConfig, schema: SchemaDefinition): Record<string, FacetResult> {
-      return compositeFacets(subs(), layout, matched, config, schema)
+      const everyValue = everyValueFacetConfig(config)
+      if ('ordinalBitset' in matched) {
+        const ordinalLayout = layout()
+        return mergeFacets(
+          subs().map((sub, index) =>
+            computeFacets(
+              sub,
+              { ordinalBitset: subBitsetView(matched.ordinalBitset, ordinalLayout, index) },
+              everyValue,
+              schema,
+            ),
+          ),
+          config,
+        )
+      }
+      return mergeFacets(
+        subs().map(sub => computeFacets(sub, matched, everyValue, schema)),
+        config,
+      )
     },
 
     sortedPage(request: SortPageRequest): SortedPageEntry[] {
@@ -305,10 +323,6 @@ export function createCompositePartition(
 
     expandTermPrefix(surfacePrefix: string, stemmedToken: string, maxExpansions: number): string[] {
       return expandTermPrefix(subs(), surfacePrefix, stemmedToken, maxExpansions)
-    },
-
-    typoTokens(token: string, tolerance: number, prefixLength: number): string[] {
-      return typoTokensOf(subs(), token, tolerance, prefixLength)
     },
 
     expandPartialWords(analysis: PartialWordAnalysis, requests: readonly PartialWordRequest[]): AddedWord[][] {

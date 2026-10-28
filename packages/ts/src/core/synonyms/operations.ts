@@ -44,7 +44,7 @@ async function replaceNow(core: EngineCore, indexName: string, value: unknown, s
     entry.synonyms = previous
     throw err
   }
-  manager.replaceSynonyms(prepared?.lookup ?? null)
+  manager.synonyms = prepared?.lookup ?? null
   await core.orchestrator.replicateToWorkers({
     type: 'replaceSynonyms',
     indexName,

@@ -9,7 +9,6 @@ import type { FacetResult } from '../types/results'
 import type { SchemaDefinition, ScoringMode } from '../types/schema'
 import type { FacetConfig, QueryParams } from '../types/search'
 import { collectQueryTermStats } from './distributed-scoring'
-import { statsExpansionOf } from './expanded-tokens'
 import type { PartitionManager } from './manager'
 import { partitionsIn } from './partition-selection'
 
@@ -62,18 +61,14 @@ export async function fanOutQuery(
 
   if (effectiveMode === 'dfs') {
     if (params.term !== undefined && params.term.trim().length > 0) {
-      globalStats = collectQueryTermStats(
-        manager,
-        params.term,
-        language,
-        {
-          stopWords: searchOptions?.stopWords,
-          customTokenizer: searchOptions?.customTokenizer,
-          synonyms: searchOptions?.synonyms,
-        },
-        config.partitionIds,
-        { expansion: { options: statsExpansionOf(params), schema } },
-      )
+      const analysis = {
+        stopWords: searchOptions?.stopWords,
+        customTokenizer: searchOptions?.customTokenizer,
+        synonyms: searchOptions?.synonyms,
+      }
+      globalStats = collectQueryTermStats(manager, params.term, language, analysis, config.partitionIds, {
+        expansion: { options: params, schema },
+      })
     }
   } else if (effectiveMode === 'broadcast') {
     globalStats = config.globalStats

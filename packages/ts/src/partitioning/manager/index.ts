@@ -9,7 +9,6 @@ import { requirePartialWordSearchFor } from '../../core/partition/partial-words/
 import type { SegmentPayload } from '../../core/partition/segment-payload'
 import { requirePatternSearchFor } from '../../core/pattern-index/registry'
 import type { ResolvedProjection } from '../../core/projection'
-import type { SynonymLookup } from '../../core/synonyms/types'
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { SerializablePartition } from '../../types/internal'
 import type { LanguageModule } from '../../types/language'
@@ -18,7 +17,6 @@ import type { VectorIndex } from '../../vector/vector-index'
 import { resolvePartialWordAnalysis, resolvePartitionInsertOptions } from '../insert-options'
 import type { PartitionRouter } from '../router'
 import { createCapacityChecks } from './capacity'
-import { mapEveryDocument, mapSegmentDocuments, remapPartitionDocuments } from './doc-locations'
 import { copyVectorsInto } from './nested-values'
 import { requireNewSegmentDocuments } from './segments'
 import { aggregateStatsOf, estimateBytesOf, partitionStatsOf } from './stats'
@@ -46,7 +44,6 @@ export function createPartitionManager(
   let partitions: PartitionIndex[] = []
   const docPartitionMap = new Map<string, number>()
   const writeLog = createWriteLogRecorder()
-  let synonyms: SynonymLookup | null = null
 
   for (let i = 0; i < count; i++) {
     partitions.push(createPartitionIndex(i, trackPositions))
@@ -82,6 +79,33 @@ export function createPartitionManager(
     return composite
   }
 
+  function rebuildDocPartitionMap(): void {
+    docPartitionMap.clear()
+    for (let i = 0; i < partitions.length; i++) {
+      for (const docId of partitions[i].docIds()) {
+        docPartitionMap.set(docId, i)
+      }
+    }
+  }
+
+  function registerSegmentDocuments(partitionId: number, segment: FrozenSegment): void {
+    for (const internalId of segment.docStore.allInternalIds()) {
+      const docId = segment.docStore.getExternalId(internalId)
+      if (docId !== undefined) docPartitionMap.set(docId, partitionId)
+    }
+  }
+
+  function rebuildDocPartitionMapForPartition(partitionId: number): void {
+    for (const [docId, pid] of docPartitionMap) {
+      if (pid === partitionId) {
+        docPartitionMap.delete(docId)
+      }
+    }
+    for (const docId of partitions[partitionId].docIds()) {
+      docPartitionMap.set(docId, partitionId)
+    }
+  }
+
   const manager: PartitionManager = {
     get partitionCount() {
       return partitions.length
@@ -104,12 +128,7 @@ export function createPartitionManager(
     get partialWordAnalysis() {
       return partialWordAnalysis
     },
-    get synonyms() {
-      return synonyms
-    },
-    replaceSynonyms(lookup: SynonymLookup | null): void {
-      synonyms = lookup
-    },
+    synonyms: null,
     get textAnalysis() {
       return textAnalysis
     },
@@ -130,7 +149,7 @@ export function createPartitionManager(
     setPartitions(newPartitions: PartitionIndex[]): void {
       writeLog.partitionsReplaced()
       partitions = [...newPartitions]
-      mapEveryDocument(docPartitionMap, partitions)
+      rebuildDocPartitionMap()
     },
 
     openWriteLog() {
@@ -167,7 +186,7 @@ export function createPartitionManager(
       validatePartitionId(partitionId)
       writeLog.partitionsReplaced()
       partitions.splice(partitionId, 1)
-      mapEveryDocument(docPartitionMap, partitions)
+      rebuildDocPartitionMap()
     },
 
     trimPartitions(newCount: number): void {
@@ -317,7 +336,7 @@ export function createPartitionManager(
       validatePartitionId(partitionId)
       requireNewSegmentDocuments(segment, docPartitionMap)
       asCompositePartition(partitionId).attachFrozenSegment(segment)
-      mapSegmentDocuments(docPartitionMap, partitionId, segment)
+      registerSegmentDocuments(partitionId, segment)
       writeLog.segmentWritten(segment)
     },
 
@@ -328,7 +347,7 @@ export function createPartitionManager(
         replacement,
         removedSpellings,
       )
-      mapSegmentDocuments(docPartitionMap, partitionId, replacement)
+      registerSegmentDocuments(partitionId, replacement)
       return applied
     },
 
@@ -340,7 +359,7 @@ export function createPartitionManager(
     replaceLiveTail(partitionId: number, segment: FrozenSegment): void {
       validatePartitionId(partitionId)
       asCompositePartition(partitionId).replaceLiveTail(segment)
-      mapSegmentDocuments(docPartitionMap, partitionId, segment)
+      registerSegmentDocuments(partitionId, segment)
     },
 
     deserializePartition(partitionId: number, data: SerializablePartition): void {
@@ -348,7 +367,7 @@ export function createPartitionManager(
       writeLog.partitionsReplaced()
       partitions[partitionId].deserialize(data, config.schema)
       preparePartialWords(partitionId)
-      remapPartitionDocuments(docPartitionMap, partitionId, partitions[partitionId])
+      rebuildDocPartitionMapForPartition(partitionId)
     },
 
     getAggregateStats() {
