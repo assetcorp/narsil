@@ -94,7 +94,8 @@ Under `dfs` scoring the coordinator collects global term statistics before it ru
 Phase 0, statistics collection:
   1. The coordinator sends a statistics request to each data node.
   2. Each data node collects totalDocs, docFrequencies, and
-     totalFieldLengths from its local partitions.
+     totalFieldLengths from its local partitions, counting each
+     query term and each synonym that its copy's synonym set adds.
   3. The coordinator merges every response by summing the counts.
   4. The merged statistics travel in the phase 1 query message.
 

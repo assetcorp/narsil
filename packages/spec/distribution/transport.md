@@ -119,6 +119,7 @@ When a primary refuses a forwarded mutation, the node that forwarded it must pas
 | `cluster.pong` | any to any | Health check response |
 | `cluster.bootstrap_complete` | data node to controller | Reports that a partition finished bootstrapping |
 | `cluster.partition_stores` | controller to data node | Asks which partitions of an index the node holds on disk |
+| `cluster.index_settings` | any node to data node | Asks a node to apply the synonym set that the coordinator holds for an index |
 
 ---
 
@@ -360,6 +361,28 @@ The response is:
 ```
 
 The node answers from the `held_partitions` field of its own index metadata, which [Index Metadata Payload](../envelope.md#index-metadata-payload) defines. A partition the node holds appears in the list even where that partition holds no document. A node that adopted no copy of the index answers with an absent `indexUuid` and an empty list.
+
+### cluster.index_settings
+
+A node sends this to each node that holds a partition of an index once it replaces the synonym set of that index, as [Synonym Set Replacement Flow](cluster.md#synonym-set-replacement-flow) defines.
+
+```text
+{
+  indexName: string
+  indexUuid: string   (the identity of the index whose synonym set changed)
+}
+```
+
+The response is:
+
+```text
+{
+  indexName: string
+  applied:   boolean   (false where the node holds no copy under that indexUuid)
+}
+```
+
+The receiving node must read the index metadata and the synonym set from the coordinator itself, so that the newest stored set wins when two replacements reach it out of order. It must answer only once its copy and every worker copy of it apply the stored set. A node that holds no copy under that `indexUuid` answers with `applied` false, because it applies the stored set when it creates its copy.
 
 ### cluster.ping
 
