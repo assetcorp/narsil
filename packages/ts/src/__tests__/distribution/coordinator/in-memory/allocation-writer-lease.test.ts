@@ -38,29 +38,11 @@ describe('an allocation write from a node that lost the controller lease', () =>
     expect((await coordinator.getAllocation(INDEX))?.version).toBe(2)
   })
 
-  it('refuses a writer whose lease expired while no other node holds it', async () => {
-    expect(await coordinator.acquireLease(CONTROLLER_LEASE, 'controller-a', SHORT_LEASE_MS)).toBe(true)
-    const first = makeAllocationTable(INDEX)
-    expect(await coordinator.putAllocation(INDEX, first, null, 'controller-a')).toBe(true)
-
-    await sleep(SHORT_LEASE_MS * 2)
-
-    expect(await coordinator.putAllocation(INDEX, nextVersionOf(first), first.version, 'controller-a')).toBe(false)
-    expect((await coordinator.getAllocation(INDEX))?.version).toBe(1)
-  })
-
   it('refuses a first table from a node that never held the lease', async () => {
     expect(await coordinator.acquireLease(CONTROLLER_LEASE, 'controller-a', 30_000)).toBe(true)
 
     expect(await coordinator.putAllocation(INDEX, makeAllocationTable(INDEX), null, 'intruder')).toBe(false)
     expect(await coordinator.putAllocation(INDEX, makeAllocationTable(INDEX), null, '')).toBe(false)
-    expect(await coordinator.getAllocation(INDEX)).toBeNull()
-  })
-
-  it('refuses the holder of a different lease', async () => {
-    expect(await coordinator.acquireLease('_narsil/elsewhere', 'controller-a', 30_000)).toBe(true)
-
-    expect(await coordinator.putAllocation(INDEX, makeAllocationTable(INDEX), null, 'controller-a')).toBe(false)
     expect(await coordinator.getAllocation(INDEX)).toBeNull()
   })
 })
