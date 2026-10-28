@@ -16,6 +16,7 @@ import type {
   ScoringMode,
   VectorIndexConfig,
 } from '../../types/schema'
+import { decodeSynonymSetRef, type SynonymSetRef } from './synonym-set'
 
 export interface IndexSettings {
   language: string
@@ -32,6 +33,7 @@ export interface IndexSettings {
   patternValueLimit?: number
   partitionConfig?: ClusterPartitionLimits
   embedding?: RestoredEmbedding
+  synonyms?: SynonymSetRef
 }
 
 export interface ClusterPartitionLimits {
@@ -117,7 +119,7 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
 }
 
-function settingsRejection(indexName: string): ConfigFieldRejection {
+export function settingsRejection(indexName: string): ConfigFieldRejection {
   return (message: string): never => {
     throw new NarsilError(
       ErrorCodes.CONTROLLER_METADATA_INVALID,
@@ -140,6 +142,7 @@ export function decodeIndexSettings(raw: unknown, indexName: string): IndexSetti
   }
   const embedding = restoredEmbedding(raw.embedding, reject)
   const partitions = restoredPartitionConfig(raw.partitionConfig, reject)
+  const synonyms = raw.synonyms === undefined ? undefined : decodeSynonymSetRef(raw.synonyms, reject)
   return {
     language: raw.language,
     ...settingsFieldsOf({
@@ -147,6 +150,7 @@ export function decodeIndexSettings(raw: unknown, indexName: string): IndexSetti
       ...(partitions !== undefined ? { partitions } : {}),
       ...(embedding !== undefined ? { embedding } : {}),
     }),
+    ...(synonyms !== undefined ? { synonyms } : {}),
   }
 }
 
@@ -162,7 +166,7 @@ export function indexConfigFromSettings(
   if (settings === undefined) {
     return { schema }
   }
-  const { language, embedding, partitionConfig, ...fields } = settings
+  const { language, embedding, partitionConfig, synonyms: _synonyms, ...fields } = settings
   return {
     schema,
     language,

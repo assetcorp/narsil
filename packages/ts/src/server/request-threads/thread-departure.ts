@@ -208,8 +208,8 @@ export function watchForDeparture(options: ThreadDepartureOptions): ThreadDepart
         heldVectorOf: refusingOnceDeparting((indexName, fieldName, docId) =>
           executor.heldVectorOf(indexName, fieldName, docId),
         ),
-        createIndex: refusingOnceDeparting((indexName, config, language, analysisStale) =>
-          executor.createIndex(indexName, config, language, analysisStale),
+        createIndex: refusingOnceDeparting((indexName, config, language, analysisStale, synonyms) =>
+          executor.createIndex(indexName, config, language, analysisStale, synonyms),
         ),
         dropIndex: refusingOnceDeparting(indexName => executor.dropIndex(indexName)),
         listIndexes: refusingOnceDeparting(() => executor.listIndexes()),

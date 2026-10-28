@@ -82,7 +82,7 @@ async function loadOntoReplacement(
     copyLoad = await loadIndexOntoWorkers(
       indexName,
       [replacement.executor],
-      entry.config,
+      entry,
       manager,
       undefined,
       state.callbacks?.isAnalysisStale?.(indexName),

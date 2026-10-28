@@ -183,7 +183,7 @@ export function createWorkerOrchestrator(
         const copyLoad = await transferIndexToPool(
           indexName,
           pool,
-          entry.config,
+          entry,
           manager,
           callbacks?.isAnalysisStale?.(indexName),
         )

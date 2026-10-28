@@ -290,6 +290,11 @@ export function createInMemoryCoordinator(): ClusterCoordinator {
       return true
     },
 
+    async delete(key: string): Promise<void> {
+      assertNotShutdown()
+      kvStore.delete(key)
+    },
+
     async getSchema(indexName: string): Promise<SchemaDefinition | null> {
       assertNotShutdown()
       return schemas.get(indexName) ?? null

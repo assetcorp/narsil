@@ -14,8 +14,6 @@ _BBQ_OVERSAMPLE = 3.0
 # starts at the recommended 3x and escalates within that bound. BBQ's recall lever is
 # this oversample (the full-precision rescore pool = k * oversample), not num_candidates.
 _BBQ_OVERSAMPLE_GRID = (3.0, 5.0, 8.0, 9.0)
-
-
 class ElasticsearchDriver(LuceneRestDriver):
     def __init__(self, engine: EngineConfig, bm25: BM25Params) -> None:
         super().__init__(engine, bm25)
