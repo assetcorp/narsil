@@ -1,5 +1,7 @@
 export const DEFAULT_RERANK_TIMEOUT_MS = 30_000
+export const MIN_RERANK_TIMEOUT_MS = 1
 export const MAX_RERANK_TIMEOUT_MS = 2_147_483_647
 export const DEFAULT_MAX_RERANK_WINDOW = 100
+export const MIN_RERANK_WINDOW = 1
 export const MAX_RERANK_WINDOW = 1_000
 export const DEFAULT_RERANK_WINDOW = 100

@@ -77,10 +77,11 @@ export interface HybridConfig {
   /**
    * The engine fetches this many results from the keyword search and from the
    * vector search, fuses them, and pages through the top `depth` of the fused
-   * list, so every page of one query comes from the same fused order. Set a
+   * list, so every page of one query comes from the same fused order. The last
+   * page stops at this depth, so it can hold fewer hits than the limit. Set a
    * whole number from 1 to 10,000, or leave it out for 100. The engine throws
    * `CONFIG_INVALID` for any other value, and `SEARCH_RESULT_WINDOW_EXCEEDED`
-   * for a page that ends past this depth.
+   * for a page that starts at this depth or beyond.
    */
   depth?: number
 }

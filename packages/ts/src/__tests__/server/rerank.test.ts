@@ -5,8 +5,15 @@ import { ErrorCodes, NarsilError } from '../../errors'
 import { createNarsil } from '../../narsil'
 import { createServer } from '../../server'
 import type { QueryParams } from '../../types/search'
-import { type CorpusDocument, corpus, corpusIndex, stored } from '../rerank/corpus'
-import { oracleRerank, overlapScore, type RankedHit, recordingReranker, rerankTextOf } from '../rerank/oracle'
+import { type CorpusDocument, corpus, corpusIndex, letterEmbedding, stored } from '../rerank/corpus'
+import {
+  oracleRerank,
+  oracleRrf,
+  overlapScore,
+  type RankedHit,
+  recordingReranker,
+  rerankTextOf,
+} from '../rerank/oracle'
 import { postJson, startTestServer, type TestServer } from './helpers'
 
 const INDEX = 'docs'
@@ -131,6 +138,47 @@ describe('reranking over HTTP with the published client', () => {
     expect([broken.code, broken.details.status]).toEqual([ErrorCodes.RERANK_FAILED, 503])
     expect(tooWide.status).toBe(400)
     expect(tooWide.body.error.message).toContain('rerank.window')
+  })
+
+  it('sends the model no more documents than the server limit where a query leaves the window out', async () => {
+    const setup = await seeded(150, false)
+    server = setup.server
+    const client = createNarsilClient({ url: server.base })
+    const base: QueryParams = { term: 'harbor cedar river', termMatch: 'any' }
+    const plain = await client.query(INDEX, { ...base, limit: 1 })
+    expect(plain.count).toBeGreaterThan(40)
+
+    const rerank = { adapter: 'overlap', fields: ['title'] }
+    const expected = await oracleOrder(client, setup.documents, base, 40, 'harbor cedar river', rerank.fields)
+    const walked = await walk(client, { ...base, rerank }, 9)
+
+    expectSameOrder(walked, expected)
+  })
+
+  it('lowers the default window to a hybrid.depth below the server limit', async () => {
+    const setup = await seeded(150, false)
+    server = setup.server
+    const client = createNarsilClient({ url: server.base })
+    const term = 'harbor cedar river'
+    const vector = { field: 'embedding', value: Array.from(letterEmbedding('ember')) }
+    const ranked = (hits: Array<{ id: string; score?: number }>): RankedHit[] =>
+      hits.map(hit => ({ id: hit.id, score: hit.score ?? 0 }))
+    const text = await client.query(INDEX, { term, termMatch: 'any', limit: 20 })
+    const vectors = await client.query(INDEX, { vector, limit: 20 })
+    const fused = oracleRrf([ranked(text.hits), ranked(vectors.hits)]).slice(0, 20)
+    expect(fused).toHaveLength(20)
+    const byId = new Map(setup.documents.map(document => [document.id, document]))
+    const scores = fused.map(hit =>
+      overlapScore(term, rerankTextOf(stored(byId.get(hit.id) as CorpusDocument), ['title'])),
+    )
+
+    const walked = await walk(
+      client,
+      { term, termMatch: 'any', vector, hybrid: { depth: 20 }, rerank: { adapter: 'overlap', fields: ['title'] } },
+      6,
+    )
+
+    expectSameOrder(walked, oracleRerank(fused, 20, scores))
   })
 
   it.each<[string, unknown]>([

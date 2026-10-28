@@ -26,7 +26,7 @@ The codes in this table are the ones that callers handle most often:
 | `VECTOR_DIMENSION_MISMATCH` | A vector's length differs from the field's declared dimension. |
 | `EMBEDDING_FAILED` / `EMBEDDING_CONFIG_INVALID` | An adapter call fails, or the embedding configuration is contradictory. |
 | `RERANK_FAILED` | A rerank adapter throws, outlasts `rerankTimeout`, or returns a list of another length or a score that is not a finite number. The HTTP server answers it with status 503. See [Reranking](reranking.md#writing-an-adapter). |
-| `RERANK_CONFIG_INVALID` | A query's `rerank` gives an adapter that the engine has not registered, a field that is not text, a field more than once, a window outside 1 to `maxRerankWindow`, a window above the `hybrid.depth` of a hybrid query, or no query text. The HTTP server answers it with status 400. |
+| `RERANK_CONFIG_INVALID` | A query's `rerank` gives an adapter that the engine has not registered, a field that is not text, a field more than once, a window outside 1 to `maxRerankWindow`, a window that the query sets above the `hybrid.depth` of a hybrid query, or no query text. The HTTP server answers it with status 400. |
 | `PARTITION_CAPACITY_EXCEEDED` / `PARTITION_REBALANCING_BACKPRESSURE` | An insert passes the capacity cap, or a config change collides with a running reshape. |
 | `INDEX_REOPEN_CAPACITY_EXHAUSTED` | The number of callers waiting for one index to reopen goes over `lifecycle.maxReopenWaiters`. See [Index lifecycle](persistence-and-durability.md#index-lifecycle). |
 | `INSTANCE_SHUT_DOWN` | A caller uses an instance after its `shutdown()`, and the HTTP server returns status 503 for that call. |

@@ -2,7 +2,7 @@ import type { QueryParams, SuggestParams } from '../../types/search'
 import { parseJson, rejectInvalid, respondError, respondJson } from '../handler-utils'
 import { refuseRegex } from '../regex-policy'
 import type { RouteContext } from '../request'
-import { validateQuery, validateSuggest } from '../validation'
+import { validateQuery, validateSuggest, withServerRerankWindow } from '../validation'
 import type { ReadHandlerDeps } from './document-reads'
 
 export function createSearchHandlers(deps: ReadHandlerDeps) {
@@ -18,7 +18,7 @@ export function createSearchHandlers(deps: ReadHandlerDeps) {
     }
     if (refuseRegex(ctx, params.filters, allowRegex)) return
     try {
-      respondJson(ctx, await engine.query(ctx.params[0], params))
+      respondJson(ctx, await engine.query(ctx.params[0], withServerRerankWindow(params, limits)))
     } catch (err) {
       respondError(ctx, err)
     }

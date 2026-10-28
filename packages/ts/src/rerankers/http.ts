@@ -12,10 +12,9 @@ const SERVICE = 'Rerank service'
  */
 export interface HttpRerankerConfig {
   /**
-   * The adapter sends each request to this address with `/rerank` added, so
-   * `https://api.cohere.com/v2` reaches Cohere and `https://api.jina.ai/v1`
-   * reaches Jina. A vLLM or Infinity server that you host takes its own
-   * address in the same way.
+   * The adapter sends each request to this address with `/rerank` added.
+   * Give the versioned API address of Cohere or Jina, or the address of a
+   * vLLM or Infinity server that you host.
    */
   baseUrl: string
   /** The service scores the documents with this model. */

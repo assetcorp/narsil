@@ -95,15 +95,13 @@ export async function executeQuery<T = AnyDocument>(
 
     let fanOutResult: FanOutResult
     let fusedFrom: number | undefined
-    let fusedDepth = 0
 
     if (isVectorOnly && hasGlobalVectorIndex) {
       const depth = requireCursorDepth(params.searchAfter, sortSignature, context.cursorBinding)
       fanOutResult = await executeVectorSearch(params, context, limit, offset, depth)
     } else if (isHybridMode && hasGlobalVectorIndex) {
       fusedFrom = requireCursorDepth(params.searchAfter, sortSignature, context.cursorBinding)
-      fusedDepth = resolveHybridFusion(params.hybrid).depth
-      requireWithinHybridDepth(fusedFrom, offset, fusedDepth)
+      requireWithinHybridDepth(fusedFrom, offset, resolveHybridFusion(params.hybrid).depth)
       fanOutResult = await executeHybridSearch(params, context)
     } else {
       const scoring = scoringConfigFor(params, context)
@@ -228,9 +226,12 @@ export async function executeQuery<T = AnyDocument>(
       nextCursor = paged.nextCursor
     } else {
       const placedIds = pinsPlaced ? pinnedIds : undefined
-      const start = fusedFrom + offset
-      const end = Math.min(start + limit, fusedDepth)
-      const paged = pageByPosition(hits, organic, start, end, fusedDepth, placedIds, context.cursorBinding)
+      const paged = pageByPosition(hits, organic, {
+        start: fusedFrom + offset,
+        limit,
+        pinnedIds: placedIds,
+        binding: context.cursorBinding,
+      })
       paginated = paged.page
       nextCursor = paged.cursor
     }

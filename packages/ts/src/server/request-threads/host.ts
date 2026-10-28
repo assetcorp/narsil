@@ -6,7 +6,7 @@ import type { EngineCore } from '../../engine/core'
 import type { RequestThreadListener } from '../../engine/orchestration'
 import { resolveVectorText } from '../../engine/resolve-vector-text'
 import { isNarsilError } from '../../errors'
-import { callRerankAdapter } from '../../rerank/call'
+import { rerankOnHost } from '../../rerank/call'
 import type { Executor } from '../../workers/executor'
 import { clearGateSlot, gateSlotOfWorker } from '../concurrency-gate'
 import { INDEX_TOUCH_INTERVALS_PER_IDLE_TIMEOUT, MAX_INDEX_TOUCH_INTERVAL_MS } from '../constants'
@@ -154,10 +154,7 @@ async function answerEmbed(core: EngineCore, request: EmbedQueryRequest): Promis
 
 async function answerRerank(core: EngineCore, request: RerankQueryRequest): Promise<RelayReply> {
   try {
-    const scores = await callRerankAdapter(core.rerankAdapters, request.adapter, request.query, request.documents, {
-      timeoutMs: core.rerankSettings.timeoutMs,
-      signal: core.abortController.signal,
-    })
+    const scores = await rerankOnHost(core, request.adapter, request.query, request.documents)
     return { type: 'reranked', requestId: request.requestId, scores, error: null }
   } catch (err) {
     if (!isNarsilError(err)) console.warn('Reranking a query for a request thread failed:', err)

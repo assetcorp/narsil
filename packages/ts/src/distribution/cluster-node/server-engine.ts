@@ -36,7 +36,7 @@ function rejectWait(options: WriteOptions | undefined): void {
  * index removal, and document reads route through the cluster. Checkpointing,
  * memory statistics, index opens, index closes, engine events, and rerank
  * adapter registration reach this node's local engine, because each covers a
- * per-node fact, and this node reranks the searches that it receives with the
+ * per-node fact. This node reranks the searches that it receives with the
  * adapters registered on it. Every other operation fails with
  * `CLUSTER_OPERATION_UNSUPPORTED`, which the HTTP server answers with status
  * 501, so a caller learns the operation is missing rather than reading a

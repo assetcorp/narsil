@@ -27,6 +27,9 @@ export async function executeRerankedQuery<T = AnyDocument>(
     maxWindow: runner.maxWindow,
     binding: context.cursorBinding,
     clampsPins: true,
+    fusesRankings: params =>
+      params.vector !== undefined &&
+      (params.mode === 'hybrid' || (params.term !== undefined && params.term.trim().length > 0)),
     firstStage: params => firstStage(params, context),
     async texts(docIds, fields) {
       return docIds.map(docId => rerankTextOf(manager.fieldValues(docId, fields)))
