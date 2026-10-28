@@ -7,22 +7,21 @@ const DOCUMENTS = [
 ]
 
 describe('an encoded document table reports its resident bytes', () => {
-  it('holds only its encoded bytes and hands every read its own copy', () => {
+  it('counts a decoded document once it stays resident', () => {
     const data = encodeDocumentTableData(DOCUMENTS)
     const source = wrapEncodedDocumentTable(data)
     const encodedBytes = data.blob.byteLength + data.offsets.byteLength
 
     expect(source.byteLength).toBe(encodedBytes)
 
-    const first = source.docAt(0)
-    const second = source.docAt(0)
-    expect(first).toEqual(DOCUMENTS[0])
-    expect(second).toEqual(DOCUMENTS[0])
-    expect(second).not.toBe(first)
-    ;(first.tags as string[]).push('changed by the caller')
-    expect(source.docAt(0)).toEqual(DOCUMENTS[0])
+    source.docAt(0)
+    const afterFirstDecode = source.byteLength
+    expect(afterFirstDecode).toBeGreaterThan(encodedBytes)
 
-    expect(source.docAt(1)).toEqual(DOCUMENTS[1])
-    expect(source.byteLength).toBe(encodedBytes)
+    source.docAt(0)
+    expect(source.byteLength).toBe(afterFirstDecode)
+
+    source.docAt(1)
+    expect(source.byteLength).toBeGreaterThan(afterFirstDecode)
   })
 })

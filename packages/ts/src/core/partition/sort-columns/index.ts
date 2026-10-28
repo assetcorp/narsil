@@ -80,9 +80,10 @@ export function createSortColumnSet(docStore: DocumentStoreReader): SortColumnSe
 
   function backfill(key: string, field: string, fieldType: string | undefined, mode: SortMode): ColumnEntry {
     const store = createValueStore(kindForFieldType(fieldType))
-    const read = docStore.fieldReader(field)
-    for (const internalId of docStore.allInternalIds()) {
-      store.set(internalId, toReducedSortValue(read(internalId), mode))
+    for (const [docId, stored] of docStore.all()) {
+      const internalId = docStore.getInternalId(docId)
+      if (internalId === undefined) continue
+      store.set(internalId, toReducedSortValue(readSortField(stored.fields, field), mode))
     }
     const entry: ColumnEntry = {
       field,

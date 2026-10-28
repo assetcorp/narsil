@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { applyGrouping, type GroupedDocuments } from '../../search/grouping'
+import { applyGrouping } from '../../search/grouping'
 import type { Hit } from '../../types/results'
 import type { AnyDocument } from '../../types/schema'
 import type { GroupConfig } from '../../types/search'
@@ -8,23 +8,8 @@ function makeHit(id: string, score: number): Hit {
   return { id, score, document: {} }
 }
 
-function valueAt(document: AnyDocument, fieldPath: string): unknown {
-  let current: unknown = document
-  for (const segment of fieldPath.split('.')) {
-    if (typeof current !== 'object' || current === null || !Object.hasOwn(current, segment)) return undefined
-    current = (current as Record<string, unknown>)[segment]
-  }
-  return current
-}
-
-function makeDocStore(docs: Record<string, AnyDocument>): GroupedDocuments {
-  return {
-    fieldValues: (docId, fieldPaths) => {
-      const document = docs[docId]
-      return document === undefined ? undefined : fieldPaths.map(fieldPath => valueAt(document, fieldPath))
-    },
-    document: docId => docs[docId],
-  }
+function makeDocStore(docs: Record<string, AnyDocument>): (docId: string) => AnyDocument | undefined {
+  return (docId: string) => docs[docId]
 }
 
 describe('applyGrouping', () => {
@@ -186,7 +171,7 @@ describe('applyGrouping', () => {
   describe('empty hits', () => {
     it('returns no groups when there are no hits', () => {
       const config: GroupConfig = { fields: ['category'] }
-      const groups = applyGrouping([], config, makeDocStore({}))
+      const groups = applyGrouping([], config, () => undefined)
       expect(groups).toEqual([])
     })
   })
@@ -195,7 +180,7 @@ describe('applyGrouping', () => {
     it('returns a single group containing all hits when fields is empty', () => {
       const hits = [makeHit('a', 2), makeHit('b', 1)]
       const config: GroupConfig = { fields: [] }
-      const groups = applyGrouping(hits, config, makeDocStore({}))
+      const groups = applyGrouping(hits, config, () => undefined)
 
       expect(groups.length).toBe(1)
       expect(groups[0].hits.length).toBe(2)
