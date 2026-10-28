@@ -103,7 +103,7 @@ async function commitToStorage(
     throw error
   }
   await staging.finish()
-  const relocate = await staging.relocation()
+  const relocate = await staging.relocation().catch(() => null)
   if (relocate !== null) for (const vectorIndex of vectorIndexes) vectorIndex.relocateVectorFiles(relocate)
 }
 
