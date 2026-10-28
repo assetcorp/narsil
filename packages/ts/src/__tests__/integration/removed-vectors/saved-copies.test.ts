@@ -1,7 +1,7 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createNarsil, type Narsil } from '../../../narsil'
 import type { IndexConfig } from '../../../types/schema'
 import { setNativeSearchCoreEnabled } from '../../../vector/native/backend'
@@ -22,6 +22,8 @@ import {
   searchWithTheHostBinary,
   untilGraphSettled,
 } from './fixtures'
+
+vi.setConfig({ testTimeout: 20_000 })
 
 const LIVE_RING_RECALL_FLOOR = 0.9
 

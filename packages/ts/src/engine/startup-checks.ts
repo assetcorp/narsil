@@ -1,4 +1,4 @@
-import { requireSearchBackendSettings } from '#platform/native-core'
+import { requireSearchBackendSettings } from '#platform/search-backend-settings'
 import { requireWorkerEntry } from '#platform/worker-factory'
 import { ErrorCodes, NarsilError } from '../errors'
 import { detectRuntime } from '../runtime/detect'

@@ -57,9 +57,10 @@ export async function applyLocalReplicationEntry(core: EngineCore, entry: Replic
     const indexEntry = core.requireIndex(entry.indexName)
     const manager = core.requireManager(entry.indexName)
     const vecIndexes = manager.getVectorIndexes()
+    const removedSpellings = entry.operation === 'DELETE' ? manager.removedSpellingsOf(entry.documentId) : undefined
     const apply = (): void => {
       if (entry.operation === 'INDEX') applyIndexEntry(entry, manager, indexEntry.vectorFieldPaths, vecIndexes)
-      else applyDeleteEntry(entry, manager, vecIndexes)
+      else applyDeleteEntry(entry, manager, vecIndexes, removedSpellings)
     }
     const durable = core.durability?.manager
     if (durable === undefined) {
@@ -95,6 +96,7 @@ export async function applyLocalReplicationEntry(core: EngineCore, entry: Replic
       indexName: entry.indexName,
       docId: entry.documentId,
       requestId: `replicate-entry-remove-${entry.indexName}-${entry.partitionId}-${entry.seqNo}`,
+      removedSpellings,
     })
   } finally {
     release()

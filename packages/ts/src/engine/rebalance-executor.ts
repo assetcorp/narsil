@@ -72,9 +72,10 @@ async function replayEntry(
       vectorFieldPaths,
     )
     const overwrote = manager.has(entry.docId)
+    const removedSpellings = overwrote ? manager.removedSpellingsOf(entry.docId) : undefined
     if (overwrote) {
       removeDocumentVectors(entry.docId, vecIndexes)
-      manager.remove(entry.docId)
+      manager.remove(entry.docId, removedSpellings)
     }
     manager.insert(entry.docId, partitionDoc as AnyDocument)
     if (extractedVectors.size > 0) {
@@ -88,18 +89,21 @@ async function replayEntry(
     } catch (err) {
       warnHookError('afterInsert', err)
     }
-    await ctx.orchestrator.replicateToWorkers({
-      type: overwrote ? 'update' : 'insert',
+    const replicated = {
       indexName,
       docId: entry.docId,
       document: entry.document,
       requestId: `replicate-insert-${entry.docId}`,
-    })
+    }
+    await ctx.orchestrator.replicateToWorkers(
+      overwrote ? { type: 'update', ...replicated, removedSpellings } : { type: 'insert', ...replicated },
+    )
     return
   }
 
   if (entry.action === 'remove') {
-    manager.remove(entry.docId)
+    const removedSpellings = manager.removedSpellingsOf(entry.docId)
+    manager.remove(entry.docId, removedSpellings)
     removeDocumentVectors(entry.docId, vecIndexes)
     try {
       await ctx.pluginRegistry.runHook('afterRemove', { indexName, docId: entry.docId })
@@ -111,6 +115,7 @@ async function replayEntry(
       indexName,
       docId: entry.docId,
       requestId: `replicate-remove-${entry.docId}`,
+      removedSpellings,
     })
     return
   }
@@ -118,8 +123,9 @@ async function replayEntry(
   if (entry.action === 'update' && entry.document) {
     const oldDocument = manager.get(entry.docId)
     const { updateDoc, updateVectors } = applyReplayUpdateVectors(entry, vectorFieldPaths)
+    const removedSpellings = manager.removedSpellingsOf(entry.docId)
     if (manager.has(entry.docId)) {
-      manager.update(entry.docId, updateDoc)
+      manager.update(entry.docId, updateDoc, undefined, removedSpellings)
     } else {
       manager.insert(entry.docId, updateDoc)
     }
@@ -157,6 +163,7 @@ async function replayEntry(
       docId: entry.docId,
       document: entry.document,
       requestId: `replicate-update-${entry.docId}`,
+      removedSpellings,
     })
   }
 }

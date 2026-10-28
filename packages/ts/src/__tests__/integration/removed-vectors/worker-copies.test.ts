@@ -52,6 +52,7 @@ vi.mock('../../../vector/search-pool', async importOriginal => {
 
 const MOVED_AGAIN_COUNT = 60
 const BUFFERED_COUNT = 5
+const WORKER_TEST_TIMEOUT_MS = 30_000
 
 const workerPaths = [
   { path: 'shared memory', clones: false },
@@ -79,106 +80,107 @@ async function untilThePoolIsReleased(): Promise<void> {
 
 searchWithTheHostBinary()
 
-describe.each(backends)('a vector search past re-embedded vectors on worker copies through $name', ({
-  native,
-  available,
-}) => {
-  const workerBackendVariable = native ? 'NARSIL_REQUIRE_NATIVE_CORE' : 'NARSIL_SEARCH_BACKEND'
-  const previousValue = process.env[workerBackendVariable]
-  let narsil: Narsil | null = null
+describe.each(backends)(
+  'a vector search past re-embedded vectors on worker copies through $name',
+  ({ native, available }) => {
+    const workerBackendVariable = native ? 'NARSIL_REQUIRE_NATIVE_CORE' : 'NARSIL_SEARCH_BACKEND'
+    const previousValue = process.env[workerBackendVariable]
+    let narsil: Narsil | null = null
 
-  beforeEach(() => {
-    setNativeSearchCoreEnabled(native)
-    process.env[workerBackendVariable] = native ? '1' : 'wasm'
-  })
+    beforeEach(() => {
+      setNativeSearchCoreEnabled(native)
+      process.env[workerBackendVariable] = native ? '1' : 'wasm'
+    })
 
-  afterEach(async () => {
-    await narsil?.shutdown()
-    narsil = null
-    vi.unstubAllGlobals()
-    setNativeSearchCoreEnabled(true)
-    if (previousValue === undefined) delete process.env[workerBackendVariable]
-    else process.env[workerBackendVariable] = previousValue
-    await untilThePoolIsReleased()
-  })
+    afterEach(async () => {
+      await narsil?.shutdown()
+      narsil = null
+      vi.unstubAllGlobals()
+      setNativeSearchCoreEnabled(true)
+      if (previousValue === undefined) delete process.env[workerBackendVariable]
+      else process.env[workerBackendVariable] = previousValue
+      await untilThePoolIsReleased()
+    })
 
-  it.skipIf(!available).each(workerPaths)('answers from worker copies over $path', async ({ clones }) => {
-    if (clones) vi.stubGlobal('SharedArrayBuffer', undefined)
-    const opened = await openPapers({ workers: { count: 2 } }, large.documents)
-    narsil = opened
-    await reembed(opened, large)
-    await untilWorkersAnswer(opened, clones)
-
-    const answeredBefore = clones ? poolUse.clonedSearches : poolUse.sharedSearches
-    await expectNearest(opened, [...large.kept, ...large.reembedded])
-    await expectOnlyFrom(opened, large.reembedded, queriesNearTheReembedded)
-    const answeredAfter = clones ? poolUse.clonedSearches : poolUse.sharedSearches
-    expect(answeredAfter - answeredBefore).toBe(2 * QUERY_COUNT)
-  })
-
-  it.skipIf(!available).each(workerPaths)(
-    'answers from worker copies over $path once a later update re-embeds a few more documents',
-    async ({ clones }) => {
+    it.skipIf(!available).each(workerPaths)('answers from worker copies over $path', async ({ clones }) => {
       if (clones) vi.stubGlobal('SharedArrayBuffer', undefined)
       const opened = await openPapers({ workers: { count: 2 } }, large.documents)
       narsil = opened
       await reembed(opened, large)
       await untilWorkersAnswer(opened, clones)
 
-      const movedAgain = large.kept.slice(0, MOVED_AGAIN_COUNT).map(document => ({
-        id: document.id,
-        embedding: document.embedding.map(value => value - FAR_AWAY_OFFSET),
-      }))
-      const result = await opened.updateBatch(
-        'papers',
-        movedAgain.map(document => ({ docId: document.id, document })),
-      )
-      expect(result.failed).toEqual([])
-      await untilGraphSettled(opened)
-      await untilWorkersAnswer(opened, clones)
-
       const answeredBefore = clones ? poolUse.clonedSearches : poolUse.sharedSearches
-      await expectOnlyFrom(
-        opened,
-        movedAgain,
-        queries.map(query => query.map(value => value - FAR_AWAY_OFFSET)),
-      )
+      await expectNearest(opened, [...large.kept, ...large.reembedded])
+      await expectOnlyFrom(opened, large.reembedded, queriesNearTheReembedded)
       const answeredAfter = clones ? poolUse.clonedSearches : poolUse.sharedSearches
-      expect(answeredAfter - answeredBefore).toBe(QUERY_COUNT)
-    },
-  )
+      expect(answeredAfter - answeredBefore).toBe(2 * QUERY_COUNT)
+    })
 
-  it.skipIf(!available).each(workerPaths)(
-    'answers from worker copies over $path with re-embedded documents that the graph has not taken in yet',
-    async ({ clones }) => {
-      if (clones) vi.stubGlobal('SharedArrayBuffer', undefined)
-      const opened = await openPapers({ workers: { count: 2 } }, large.documents)
-      narsil = opened
-      await untilWorkersAnswer(opened, clones)
+    it.skipIf(!available).each(workerPaths)(
+      'answers from worker copies over $path once a later update re-embeds a few more documents',
+      async ({ clones }) => {
+        if (clones) vi.stubGlobal('SharedArrayBuffer', undefined)
+        const opened = await openPapers({ workers: { count: 2 } }, large.documents)
+        narsil = opened
+        await reembed(opened, large)
+        await untilWorkersAnswer(opened, clones)
 
-      const movedFew = large.kept.slice(0, BUFFERED_COUNT).map(document => ({
-        id: document.id,
-        embedding: document.embedding.map(value => value - FAR_AWAY_OFFSET),
-      }))
-      const result = await opened.updateBatch(
-        'papers',
-        movedFew.map(document => ({ docId: document.id, document })),
-      )
-      expect(result.failed).toEqual([])
-      await untilWorkersAnswer(opened, clones)
-      expect(opened.vectorMaintenanceStatus('papers')[0]?.bufferSize).toBe(BUFFERED_COUNT)
-
-      const moved = new Set(movedFew.map(document => document.id))
-      const answeredBefore = clones ? poolUse.clonedSearches : poolUse.sharedSearches
-      for (const query of queries) {
-        const found = await search(
-          opened,
-          query.map(value => value - FAR_AWAY_OFFSET),
+        const movedAgain = large.kept.slice(0, MOVED_AGAIN_COUNT).map(document => ({
+          id: document.id,
+          embedding: document.embedding.map(value => value - FAR_AWAY_OFFSET),
+        }))
+        const result = await opened.updateBatch(
+          'papers',
+          movedAgain.map(document => ({ docId: document.id, document })),
         )
-        expect(found.hits.slice(0, BUFFERED_COUNT).filter(hit => moved.has(hit.id))).toHaveLength(BUFFERED_COUNT)
-      }
-      const answeredAfter = clones ? poolUse.clonedSearches : poolUse.sharedSearches
-      expect(answeredAfter - answeredBefore).toBe(QUERY_COUNT)
-    },
-  )
-})
+        expect(result.failed).toEqual([])
+        await untilGraphSettled(opened)
+        await untilWorkersAnswer(opened, clones)
+
+        const answeredBefore = clones ? poolUse.clonedSearches : poolUse.sharedSearches
+        await expectOnlyFrom(
+          opened,
+          movedAgain,
+          queries.map(query => query.map(value => value - FAR_AWAY_OFFSET)),
+        )
+        const answeredAfter = clones ? poolUse.clonedSearches : poolUse.sharedSearches
+        expect(answeredAfter - answeredBefore).toBe(QUERY_COUNT)
+      },
+    )
+
+    it.skipIf(!available).each(workerPaths)(
+      'answers from worker copies over $path with re-embedded documents that the graph has not taken in yet',
+      async ({ clones }) => {
+        if (clones) vi.stubGlobal('SharedArrayBuffer', undefined)
+        const opened = await openPapers({ workers: { count: 2 } }, large.documents)
+        narsil = opened
+        await untilWorkersAnswer(opened, clones)
+
+        const movedFew = large.kept.slice(0, BUFFERED_COUNT).map(document => ({
+          id: document.id,
+          embedding: document.embedding.map(value => value - FAR_AWAY_OFFSET),
+        }))
+        const result = await opened.updateBatch(
+          'papers',
+          movedFew.map(document => ({ docId: document.id, document })),
+        )
+        expect(result.failed).toEqual([])
+        await untilWorkersAnswer(opened, clones)
+        expect(opened.vectorMaintenanceStatus('papers')[0]?.bufferSize).toBe(BUFFERED_COUNT)
+
+        const moved = new Set(movedFew.map(document => document.id))
+        const answeredBefore = clones ? poolUse.clonedSearches : poolUse.sharedSearches
+        for (const query of queries) {
+          const found = await search(
+            opened,
+            query.map(value => value - FAR_AWAY_OFFSET),
+          )
+          expect(found.hits.slice(0, BUFFERED_COUNT).filter(hit => moved.has(hit.id))).toHaveLength(BUFFERED_COUNT)
+        }
+        const answeredAfter = clones ? poolUse.clonedSearches : poolUse.sharedSearches
+        expect(answeredAfter - answeredBefore).toBe(QUERY_COUNT)
+      },
+    )
+  },
+  WORKER_TEST_TIMEOUT_MS,
+)

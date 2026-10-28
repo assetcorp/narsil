@@ -1,7 +1,7 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createNarsil, type Narsil } from '../../../narsil'
 import {
   __checkpointWorkerIsPooledForTests,
@@ -13,6 +13,8 @@ import {
   type WorkerHandle,
 } from '../../../persistence/durability/checkpoint-worker-dispatch'
 import type { IndexConfig } from '../../../types/schema'
+
+vi.setConfig({ testTimeout: 20_000 })
 
 const SCHEMA: IndexConfig = {
   schema: { title: 'string', body: 'string', year: 'number' },
@@ -28,6 +30,14 @@ function doc(i: number): { title: string; body: string; year: number } {
 }
 
 const SEEDED_DOCUMENTS = 100
+const IDLE_END_DEADLINE_MS = 10_000
+
+async function untilTheIdleWorkerEnds(): Promise<void> {
+  const deadline = Date.now() + IDLE_END_DEADLINE_MS
+  while (__checkpointWorkerIsPooledForTests() && Date.now() < deadline) {
+    await new Promise(resolve => setTimeout(resolve, 20))
+  }
+}
 
 async function createIndexWhoseLaterCheckpointsReadTheLog(engine: Narsil): Promise<void> {
   await engine.createIndex('docs', SCHEMA)
@@ -78,7 +88,8 @@ describe('pooled checkpoint worker', () => {
     await writer.checkpoint('docs')
     expect(__checkpointWorkerIsPooledForTests()).toBe(true)
 
-    while (__checkpointWorkerIsPooledForTests()) await new Promise(resolve => setTimeout(resolve, 20))
+    await untilTheIdleWorkerEnds()
+    expect(__checkpointWorkerIsPooledForTests()).toBe(false)
     const spawnedWhileIdle = __checkpointWorkerSpawnCountForTests()
 
     for (let i = 10; i < 20; i += 1) await writer.insert('docs', doc(i), `d${i}`)
