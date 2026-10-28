@@ -4,7 +4,7 @@ import { DISK_STORAGE_BLOCK_BYTES } from '../constants'
 import type { HNSWConfig } from '../hnsw'
 import { createOsqQuantizer, osqBitsOf } from '../osq'
 import { createVectorStore } from '../vector-store'
-import { awaitBuilds, scheduleBuild as scheduleBuildOp, startShuffledRebuild } from './build'
+import { awaitBuilds, disposeIndex, scheduleBuild as scheduleBuildOp, startShuffledRebuild } from './build'
 import {
   planCheckpoint as planCheckpointOp,
   recordCheckpoint as recordCheckpointOp,
@@ -31,6 +31,7 @@ import {
   handOverBuildTurns,
   liveSize,
   type MaintenanceStatus,
+  noBuildHistory,
   threadsHoldCurrentLayout,
   VECTOR_WORKER_COPIES_ALLOWED,
   type VectorIndexState,
@@ -39,6 +40,7 @@ import {
   type VectorWorkerCopyPolicy,
 } from './shared'
 import {
+  holdWorkerCopies,
   invalidateWorkerCopies,
   noteWrite,
   refreshWorkerCopies,
@@ -98,6 +100,9 @@ export interface VectorIndex {
   adoptDiskLayout(layout: VectorFileLayout): Promise<void>
   /** Withdraws the field from every thread that holds a copy of it and closes every vector file that this thread holds open or maps, so that the caller can delete those files on any platform. It resolves once every thread has closed its copy, and the field opens a file again when a search next reads a vector from it. */
   releaseVectorFiles(): Promise<void>
+  relocateVectorFiles(rewrite: (path: string) => string): void
+  holdWorkerCopies(): Promise<void>
+  resumeWorkerCopies(): void
 
   readonly size: number
   readonly dimension: number
@@ -167,11 +172,7 @@ export function createVectorIndex(
     osq: codeBits === null ? null : createOsqQuantizer(dimension, codeBits, metric, store),
     hnsw: null,
     freshGraph: null,
-    shuffledBuildCount: null,
-    calibratedCount: null,
-    calibratedMeanLength: null,
-    nextDriftCheckAt: Number.POSITIVE_INFINITY,
-    shuffledRebuild: null,
+    ...noBuildHistory(),
     onLoadedGraphRepaired,
     compactedNodeCount: 0,
     building: false,
@@ -185,6 +186,7 @@ export function createVectorIndex(
     workerCopyRevision: -1,
     workerCopyMode: null,
     workerCopyLoading: false,
+    workerCopiesHeld: false,
     sharedHandles: new Map(),
     sharedLayoutRevision: 0,
     sharing: Promise.resolve(),
@@ -267,28 +269,6 @@ export function createVectorIndex(
     return state.store.has(docId) && !state.tombstones.has(docId)
   }
 
-  function releaseHeldMemory(): void {
-    state.hnsw = null
-    state.freshGraph = null
-    state.osq = null
-    state.tombstones.clear()
-    state.buffer.clear()
-    state.pendingLocations.clear()
-    state.savedFiles = []
-    state.savedSignature = null
-    state.store.release()
-  }
-
-  function dispose(): void {
-    state.disposed = true
-    invalidateWorkerCopies(state)
-    if (state.pendingBuild !== null || state.shuffledRebuild !== null) {
-      void awaitBuilds(state).then(releaseHeldMemory, releaseHeldMemory)
-      return
-    }
-    releaseHeldMemory()
-  }
-
   async function searchParallel(
     query: Float32Array,
     k: number,
@@ -348,11 +328,8 @@ export function createVectorIndex(
     scheduleBuild: () => scheduleBuildOp(state),
     awaitPendingBuild: () => awaitBuilds(state),
     completeGraph: () => completeGraphOp(state),
-    dispose,
-    search: (query: Float32Array, k: number, options: VectorSearchOptions) => {
-      handOverBuildTurns(state)
-      return searchOp(state, query, k, options)
-    },
+    dispose: () => disposeIndex(state),
+    search: (query: Float32Array, k: number, options: VectorSearchOptions) => searchOp(state, query, k, options),
     searchParallel,
     refreshWorkerCopies: () => refreshWorkerCopies(state),
     getVector,
@@ -377,11 +354,7 @@ export function createVectorIndex(
       recordCheckpointOp(state, plan, written),
     restoreCheckpoint: (shape: CheckpointRestoreShape) => {
       invalidateWorkerCopies(state)
-      const restore = beginCheckpointRestore(state, shape)
-      return {
-        addFile: file => restore.addFile(file),
-        finish: () => restore.finish(),
-      }
+      return beginCheckpointRestore(state, shape)
     },
     startShuffledRebuildWhenDue: () => startShuffledRebuild(state),
     vectorFilesInUse: () =>
@@ -390,6 +363,16 @@ export function createVectorIndex(
     releaseVectorFiles: async () => {
       await withdrawWorkerCopies(state)
       state.store.closeFiles()
+    },
+    relocateVectorFiles: (rewrite: (path: string) => string) => {
+      state.store.relocateVectorFiles(rewrite)
+      for (const [docId, location] of state.pendingLocations) {
+        state.pendingLocations.set(docId, { ...location, path: rewrite(location.path) })
+      }
+    },
+    holdWorkerCopies: () => holdWorkerCopies(state),
+    resumeWorkerCopies: () => {
+      state.workerCopiesHeld = false
     },
   }
 }

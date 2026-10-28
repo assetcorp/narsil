@@ -1,7 +1,7 @@
 import { buildEntry } from '../../distribution/replication/entry-checksum'
 import type { ReplicationLogEntry } from '../../distribution/replication/types'
 import { writeMetadataEnvelope } from '../../serialization/envelope'
-import { createArchiveCheckpointAccess, removeAbandonedRestores } from './archive-checkpoint'
+import { createArchiveCheckpointAccess } from './archive-checkpoint'
 import { runDurableCheckpoint } from './checkpoint-run'
 import { checkpointInTurn, createIndexLoads } from './checkpoint-turn'
 import { terminateCheckpointWorker } from './checkpoint-worker-dispatch'
@@ -18,6 +18,7 @@ import { drainIndexStateForUnload, type IndexState, type PartitionState } from '
 import { type PartitionBatchDeps, recordBatchesByPartition } from './mutation-batch'
 import { recoverPersistedIndex } from './recover-index'
 import { listPersistedIndexes } from './recovery'
+import { recoverDirectoryRestores } from './restore-directory'
 import { createSeqOwner, SINGLE_NODE_PRIMARY_TERM } from './seq-owner'
 import type {
   DurabilityConfig,
@@ -282,13 +283,11 @@ export function createDurabilityManager(
   }
 
   return {
-    isActive(): boolean {
-      return true
-    },
+    isActive: () => true,
 
     async recover(metadataOnly = false): Promise<void> {
       await directoryWatch.claim()
-      await removeAbandonedRestores(directory)
+      await recoverDirectoryRestores(directory)
       const names = await listPersistedIndexes(directory)
       for (const indexName of names) {
         await recoverIndex(indexName, metadataOnly, false)
@@ -376,6 +375,7 @@ export function createDurabilityManager(
       held: heldCheckpointFiles,
       checkpoint: name => checkpointIndex(name),
       registerPartition: (name, partitionId, startSeqNo) => getOrCreatePartition(name, partitionId, startSeqNo),
+      markFatal,
     }),
 
     async shutdown(): Promise<void> {

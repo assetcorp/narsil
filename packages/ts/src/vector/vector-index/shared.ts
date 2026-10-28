@@ -128,6 +128,7 @@ export interface VectorIndexState {
   workerCopyRevision: number
   workerCopyMode: WorkerCopyMode | null
   workerCopyLoading: boolean
+  workerCopiesHeld: boolean
   /** This maps each graph the threads hold to its handle and the way they hold it, and the null key stands for the vectors alone. */
   readonly sharedHandles: Map<HNSWIndex | null, { handle: string; searchable: boolean; mode: WorkerCopyMode }>
   /** The threads opened the store at this layout revision, so the index sends the handles again once the store adds or releases a block or a file. */
@@ -211,6 +212,19 @@ export function yieldBuildTurn(state: VectorIndexState): Promise<void> {
     const timer = setTimeout(takeTurn, 0)
     state.buildTurnWaiters.set(takeTurn, performance.now())
   })
+}
+
+export function noBuildHistory(): Pick<
+  VectorIndexState,
+  'shuffledBuildCount' | 'calibratedCount' | 'calibratedMeanLength' | 'nextDriftCheckAt' | 'shuffledRebuild'
+> {
+  return {
+    shuffledBuildCount: null,
+    calibratedCount: null,
+    calibratedMeanLength: null,
+    nextDriftCheckAt: Number.POSITIVE_INFINITY,
+    shuffledRebuild: null,
+  }
 }
 
 export function handOverBuildTurns(state: VectorIndexState): void {

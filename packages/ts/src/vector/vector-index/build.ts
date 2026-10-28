@@ -4,7 +4,7 @@ import { insertIntoGraph } from './build-host'
 import { calibrateBeforeBuild, recalibrateWhenDrifted } from './calibration'
 import { releasePendingLocations } from './disk'
 import { adoptGraph, allLiveDocIds, liveSize, type VectorIndexState, yieldBuildTurn } from './shared'
-import { dropSharedGraph, noteWrite, scheduleWorkerCopyLoad } from './worker-copies'
+import { dropSharedGraph, invalidateWorkerCopies, noteWrite, scheduleWorkerCopyLoad } from './worker-copies'
 
 function bufferWhatTheGraphLacks(state: VectorIndexState, graph: HNSWIndex): void {
   for (const docId of allLiveDocIds(state)) {
@@ -187,4 +187,27 @@ export async function awaitBuilds(state: VectorIndexState): Promise<void> {
     if (running === null) return
     await running
   }
+}
+
+function releaseHeldMemory(state: VectorIndexState): void {
+  state.hnsw = null
+  state.freshGraph = null
+  state.osq = null
+  state.tombstones.clear()
+  state.buffer.clear()
+  state.pendingLocations.clear()
+  state.savedFiles = []
+  state.savedSignature = null
+  state.store.release()
+}
+
+export function disposeIndex(state: VectorIndexState): void {
+  state.disposed = true
+  invalidateWorkerCopies(state)
+  const release = (): void => releaseHeldMemory(state)
+  if (state.pendingBuild !== null || state.shuffledRebuild !== null) {
+    void awaitBuilds(state).then(release, release)
+    return
+  }
+  release()
 }
