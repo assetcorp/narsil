@@ -111,6 +111,7 @@ void list_replace(const walk_context *context, node_layer position, const int32_
 }
 
 static uint32_t keep_farthest_rejected(const scored_list *sorted, uint32_t limit, int32_t *selected, uint32_t count) {
+  if (count * 2 >= limit) { return count; }
   uint32_t kept = 0;
   for (uint32_t i = sorted->count; i > 0 && kept < FARTHEST_REJECTED_LINKS_KEPT; i--) {
     if (count >= limit) { return count; }

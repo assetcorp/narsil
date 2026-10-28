@@ -129,6 +129,9 @@ function referenceSelect(state: HNSWGraphState, candidates: Candidate[], cap: nu
     }
     if (accepted) selected.push(candidate)
   }
+  if (selected.length * 2 >= cap) return selected
+  const farthestRejected = working.findLast(candidate => !selected.includes(candidate))
+  if (farthestRejected !== undefined) selected.push(farthestRejected)
   return selected
 }
 

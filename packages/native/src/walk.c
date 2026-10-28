@@ -149,7 +149,7 @@ narsil_status begin_walk(walk_context *context, narsil_workspace *workspace, con
   context->fence = &workspace->fence;
   int holds_codes = store->bits != 0 && store->records_per_block > 0;
   int calibrated = holds_codes && load_word(store->header, NARSIL_STORE_WORD_CALIBRATED) == 1;
-  context->pairs_use_codes = calibrated && store->file_count > 0;
+  context->pairs_use_codes = calibrated;
   context->uses_codes = calibrated && load_word(store->header, NARSIL_STORE_WORD_CODE_COUNT) > 0;
   if (holds_codes) {
     context->code_bytes = code_bytes_of(store->dimension, store->bits);

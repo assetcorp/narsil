@@ -45,7 +45,6 @@ import {
   nodeDistanceFunction,
   nodeExists,
   nodeMaxLayer,
-  placesFromCodes,
   randomLevel,
   reachTombstone,
   topLayerOf,
@@ -108,7 +107,7 @@ function placementDistance(
   fullPrecision: (candOrd: number) => number,
 ): (candOrd: number) => number {
   const quantizer = state.quantizer
-  if (quantizer === undefined || !placesFromCodes(state)) return fullPrecision
+  if (quantizer === undefined || !buildsFromCodes(state)) return fullPrecision
   return quantizer.placementDistance(vector) ?? fullPrecision
 }
 

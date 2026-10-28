@@ -163,16 +163,12 @@ export function nodeDistanceFunction(
 ): (aOrd: number, bOrd: number) => number {
   const storeDistance = state.store.pairDistance(metric)
   const quantizer = state.quantizer
-  if (quantizer === undefined || !placesFromCodes(state)) return storeDistance
+  if (quantizer === undefined || !buildsFromCodes(state)) return storeDistance
   const codeDistance = quantizer.pairDistance()
   return (aOrd, bOrd) => {
     const estimated = codeDistance(aOrd, bOrd)
     return estimated === Number.POSITIVE_INFINITY ? storeDistance(aOrd, bOrd) : estimated
   }
-}
-
-export function placesFromCodes(state: HNSWGraphState): boolean {
-  return buildsFromCodes(state) && state.store.handles.vectorFiles.length > 0
 }
 
 export function queryDistanceByOrd(

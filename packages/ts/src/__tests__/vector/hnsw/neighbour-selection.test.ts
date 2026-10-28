@@ -26,7 +26,7 @@ function baseLayerNeighbours(nodes: Array<[string, number, Array<[number, string
 }
 
 describe('HNSW neighbour selection', () => {
-  it('links a new vector to the diverse candidates alone', () => {
+  it('links a new vector to the diverse candidates and, below half its limit, to the farthest one that it rejects', () => {
     const store = createVectorStore()
     const index = createHNSWIndex(DIM, store, { m: 8, efConstruction: 32, metric: 'cosine' })
 
@@ -35,7 +35,7 @@ describe('HNSW neighbour selection', () => {
     insertVec(store, index, 'distant', unitVector(0.02, 0, 1, 0, 0, 0, 0, 0))
 
     const nodes = graphView(index, store).nodes
-    expect(baseLayerNeighbours(nodes, 'distant')).toEqual(['anchor'])
+    expect(baseLayerNeighbours(nodes, 'distant')).toEqual(['anchor', 'neighbour-of-anchor'])
   })
 
   it('caps a vector at twice m links on the base layer', () => {
