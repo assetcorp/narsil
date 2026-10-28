@@ -138,6 +138,23 @@ describe('cluster-node drop and clear', () => {
     expect(answered.count).toBe(1)
   }, 30_000)
 
+  it('serves only the new documents when a dropped name is created again at once', async () => {
+    if (nodeA === undefined || nodeB === undefined) throw new Error('nodes missing')
+
+    await nodeA.dropIndex('products')
+    await nodeA.createIndex('products', { schema: { title: 'string', price: 'number' } }, { partitionCount: 2 })
+    await nodeA.insert('products', { title: 'Rebuilt Gadget', price: 5 }, 'gadget-rebuilt')
+
+    for (const node of [nodeA, nodeB]) {
+      expect(await node.countDocuments('products')).toBe(1)
+      const stored = await node.getMultiple('products', ['gadget-0', 'gadget-14', 'gadget-rebuilt'])
+      expect([...stored.keys()]).toEqual(['gadget-rebuilt'])
+      expect((await node.query('products', { term: 'Gadget', limit: 50 })).hits.map(hit => hit.id)).toEqual([
+        'gadget-rebuilt',
+      ])
+    }
+  }, 30_000)
+
   it('drops an index that only exists locally when the cluster never allocated it', async () => {
     if (nodeA === undefined) throw new Error('node missing')
     await expect(nodeA.dropIndex('never-created')).rejects.toThrow(

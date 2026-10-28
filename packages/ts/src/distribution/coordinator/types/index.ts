@@ -83,6 +83,12 @@ export interface AllocationTable {
   replicationFactor: number
   /** These assignments are keyed by partition id. */
   assignments: Map<number, PartitionAssignment>
+  /**
+   * The name of the index that serves this index name since a partition count change finished. A table that carries
+   * it holds no assignments, and every read, write, and metadata lookup for this name goes to that index. The field
+   * is absent until the first change of the partition count.
+   */
+  generation?: string
 }
 
 /**

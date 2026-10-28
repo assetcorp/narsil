@@ -41,7 +41,7 @@ async function runAllocatorForIndex(
   }
 
   const currentTable = await coordinator.getAllocation(indexName)
-  if (!isActive()) {
+  if (currentTable?.generation !== undefined || !isActive()) {
     return
   }
 

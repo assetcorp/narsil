@@ -49,7 +49,12 @@ function readinessOf(deps: ClusterNamespaceDeps): NodeReadiness {
 export function createClusterNamespace(deps: ClusterNamespaceDeps): ClusterNamespace {
   return {
     async getAllocation(indexName: string) {
-      return deps.trackOp(null, () => deps.coordinator.getAllocation(indexName))
+      return deps.trackOp(null, async () => {
+        const table = await deps.coordinator.getAllocation(indexName)
+        if (table?.generation === undefined) return table
+        const served = await deps.coordinator.getAllocation(table.generation)
+        return served === null ? null : { ...served, indexName }
+      })
     },
     getNodeInfo() {
       return { nodeId: deps.nodeId, roles: [...deps.roles], status: deps.lifecycle().status }

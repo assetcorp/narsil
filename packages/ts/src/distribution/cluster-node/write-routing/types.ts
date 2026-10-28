@@ -6,6 +6,7 @@ import type { CatchUpState } from '../catch-up/state'
 import type { NodeMemoryView } from '../memory/write-block'
 import type { WritePressure } from '../memory/write-pressure'
 import type { WriteProjection } from '../memory/write-projection'
+import type { ReshardState } from '../reshard/state'
 import type { PrimaryNumbering } from './numbering'
 import type { PartitionWriteQueues } from './partition-queue'
 
@@ -25,6 +26,7 @@ export interface WriteRoutingDeps {
   memoryView?: NodeMemoryView
   writePressure?: WritePressure
   writeProjection?: WriteProjection
+  reshard?: ReshardState
 }
 
 export interface PrimaryAssignmentResolution {

@@ -170,6 +170,11 @@ export const ClusterMessageTypes = {
   PARTITION_STORES: 'cluster.partition_stores',
   REPLICATION_FACTOR: 'cluster.replication_factor',
   REBUILD_ANALYSIS: 'cluster.rebuild_analysis',
+  REBALANCE: 'cluster.rebalance',
+  RESHARD_START: 'cluster.reshard_start',
+  RESHARD_FORWARD: 'cluster.reshard_forward',
+  RESHARD_CUTOVER: 'cluster.reshard_cutover',
+  RESHARD_PURGE: 'cluster.reshard_purge',
 } as const
 
 export interface ForwardPayload {

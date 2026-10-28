@@ -2,6 +2,7 @@ import { describeError, ErrorCodes, NarsilError } from '../../errors'
 import { getIndexMetadata } from '../cluster/index-metadata'
 import type { ClusterCoordinator } from '../coordinator/types'
 import type { ClusterLocalEngine } from './local-engine'
+import { localIndexIsGone } from './local-index-gone'
 
 /**
  * What a node decided about an index it already held when it joined.
@@ -82,6 +83,26 @@ export async function adoptClusterIdentity(
     return
   }
   await engine.stampIndexUuid(indexName, metadata.indexUuid)
+}
+
+export async function dropSupersededCopy(
+  engine: ClusterLocalEngine,
+  coordinator: ClusterCoordinator,
+  indexName: string,
+): Promise<void> {
+  const localUuid = engine.indexUuidOf(indexName)
+  if (typeof localUuid !== 'string') {
+    return
+  }
+  const metadata = await getIndexMetadata(coordinator, indexName)
+  if (metadata === null || metadata.indexUuid === localUuid || engine.indexUuidOf(indexName) !== localUuid) {
+    return
+  }
+  try {
+    await engine.dropIndex(indexName)
+  } catch (error) {
+    if (!localIndexIsGone(error)) throw error
+  }
 }
 
 /**

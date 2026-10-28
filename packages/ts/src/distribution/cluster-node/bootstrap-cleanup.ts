@@ -1,13 +1,15 @@
 import { ErrorCodes, NarsilError } from '../../errors'
-import type { Narsil } from '../../narsil'
+import { getIndexMetadata } from '../cluster/index-metadata'
 import { holdsLastCopy } from '../cluster/last-holders'
 import type { ClusterCoordinator } from '../coordinator/types'
+import type { ClusterLocalEngine } from './local-engine'
 import { localIndexIsGone } from './local-index-gone'
 
 export interface BootstrapCleanupDeps {
-  engine: Narsil
+  engine: Pick<ClusterLocalEngine, 'listIndexes' | 'dropIndex' | 'indexUuidOf'>
   coordinator: ClusterCoordinator
   nodeId: string
+  removedIndexUuid: string | null | undefined
   onError?: (error: unknown) => void
 }
 
@@ -31,11 +33,15 @@ export async function cleanupRemovedPartition(
 ): Promise<void> {
   try {
     const existing = deps.engine.listIndexes().find(idx => idx.name === indexName)
-    if (existing === undefined) {
+    if (existing === undefined || !holdsRemovedCopy(indexName, deps)) {
       return
     }
 
-    if (await nodeHasOtherPartitions(indexName, partitionId, deps)) {
+    const replaced = await clusterReplacedRemovedCopy(indexName, deps)
+    if (!replaced && (await nodeHasOtherPartitions(indexName, partitionId, deps))) {
+      return
+    }
+    if (!holdsRemovedCopy(indexName, deps)) {
       return
     }
 
@@ -55,6 +61,22 @@ export async function cleanupRemovedPartition(
         { indexName, partitionId, cause },
       ),
     )
+  }
+}
+
+function holdsRemovedCopy(indexName: string, deps: BootstrapCleanupDeps): boolean {
+  return deps.engine.indexUuidOf(indexName) === deps.removedIndexUuid
+}
+
+async function clusterReplacedRemovedCopy(indexName: string, deps: BootstrapCleanupDeps): Promise<boolean> {
+  if (typeof deps.removedIndexUuid !== 'string') {
+    return false
+  }
+  try {
+    const metadata = await getIndexMetadata(deps.coordinator, indexName)
+    return metadata === null || metadata.indexUuid !== deps.removedIndexUuid
+  } catch (_) {
+    return false
   }
 }
 

@@ -97,6 +97,7 @@ export async function routeCreateIndex(
   }
 
   try {
+    await dropLocalCopy(name, engine)
     await engine.createIndexWithUuid(name, withPartitionCount(config, partitionCount), metadata.indexUuid)
     await coordinator.putSchema(name, config.schema)
   } catch (createErr) {

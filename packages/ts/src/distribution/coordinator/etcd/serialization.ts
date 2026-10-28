@@ -8,6 +8,7 @@ interface SerializableAllocationTable {
   version: number
   replicationFactor: number
   assignments: Array<[number, PartitionAssignment]>
+  generation?: string
 }
 
 export function serializeAllocationTable(table: AllocationTable): Uint8Array {
@@ -17,6 +18,7 @@ export function serializeAllocationTable(table: AllocationTable): Uint8Array {
     replicationFactor: table.replicationFactor,
     assignments: Array.from(table.assignments.entries()),
   }
+  if (table.generation !== undefined) serializable.generation = table.generation
   return new Uint8Array(encode(serializable))
 }
 
@@ -31,12 +33,14 @@ export function deserializeAllocationTable(data: Buffer): AllocationTable {
   if (!Array.isArray(raw.assignments)) {
     throw new NarsilError(ErrorCodes.CONFIG_INVALID, 'AllocationTable missing or invalid assignments field')
   }
-  return {
+  const table: AllocationTable = {
     indexName: raw.indexName,
     version: raw.version,
     replicationFactor: typeof raw.replicationFactor === 'number' ? raw.replicationFactor : 0,
     assignments: normaliseAssignments(raw.assignments),
   }
+  if (typeof raw.generation === 'string' && raw.generation.length > 0) table.generation = raw.generation
+  return table
 }
 
 function stringsOf(value: unknown): string[] {

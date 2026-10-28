@@ -209,6 +209,23 @@ export interface ClusterNode {
    */
   rebuildAnalysis(indexName: string): Promise<void>
   /**
+   * Moves an index onto a new number of partitions, and resolves once every read and write of the index goes to the new
+   * layout.
+   *
+   * The controller copies every document into a hidden index that has the new partition count while the current
+   * layout keeps serving reads and writes. Once the copy has caught up, writes to the index wait for a cutover of a few
+   * seconds at most, failing with `PARTITION_REBALANCING_BACKPRESSURE` until it finishes, and the index name moves onto
+   * the new layout in a single allocation write.
+   *
+   * @param indexName - The index whose partition count changes.
+   * @param targetPartitionCount - The number of partitions that the index ends up with.
+   * @throws A `NarsilError` with `INDEX_NOT_FOUND` where the cluster holds no such index, with `CONFIG_INVALID` for a
+   *   count outside the allowed range or equal to the current one, with `PARTITION_REBALANCING_BACKPRESSURE` while
+   *   another change to the same index runs, with `NODE_NOT_CONTROLLER` where no node holds the controller lease, and
+   *   with `ALLOCATION_FAILED` where the controller aborts the change.
+   */
+  rebalance(indexName: string, targetPartitionCount: number): Promise<void>
+  /**
    * Describes one index across the cluster: its document count and memory
    * estimate summed over every partition, its partition count, its language,
    * and its schema.
