@@ -28,7 +28,13 @@ export interface ClusterNodeConfig {
   address: string
   /** This node holds these roles in the cluster, and holds data alone by default. */
   roles?: NodeRole[]
-  /** This identifies the node across the cluster. The package generates an id by default, which a restart changes. */
+  /**
+   * This identifies the node across the cluster. Where you leave it out, a node
+   * with a durability directory generates an id once, stores it in that
+   * directory, and reuses it on every later start, so that the controller
+   * recognises the copies that the node holds after a restart. A node without a
+   * durability directory takes a new id on every start.
+   */
   nodeId?: string
   /** This node offers this much capacity, which the allocator weighs. It offers {@link DEFAULT_CAPACITY} by default. */
   capacity?: NodeCapacity

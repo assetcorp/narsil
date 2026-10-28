@@ -6,6 +6,10 @@ import type { NodeLifecycleConfig } from './types'
 /**
  * Joins this node to the cluster, and returns once it is registered and following its partitions.
  *
+ * Where the coordinator still holds a live registration under this node's id, which a node that stopped without
+ * leaving leaves behind, the node first waits for that registration's lease to expire, so that two registrations
+ * never claim one id at once.
+ *
  * The node registers itself, starts the heartbeat that keeps the registration alive, bootstraps every partition the
  * allocation tables already assign to it, and then follows the allocation table for further changes. It reads the
  * table of every index the coordinator holds a schema for, so a node that restarts takes up the partitions it held
@@ -22,6 +26,7 @@ export async function joinCluster(
   watcherState: AllocationWatcherState,
   heartbeatState: RegistrationHeartbeatState,
 ): Promise<void> {
+  await waitForEarlierRegistrationToLapse(config)
   await config.coordinator.registerNode(registrationToWrite(config))
   config.onRegistered?.()
 
@@ -32,6 +37,23 @@ export async function joinCluster(
   processInitialAllocations(watcherState, config, initialTables)
 
   await startAllocationWatcher(watcherState, config)
+}
+
+async function waitForEarlierRegistrationToLapse(config: NodeLifecycleConfig): Promise<void> {
+  const nodeId = config.registration.nodeId
+  let markLapsed: () => void = () => {}
+  const lapsed = new Promise<void>(resolve => {
+    markLapsed = resolve
+  })
+  const unwatch = await config.coordinator.watchNodes(event => {
+    if (event.type === 'node_left' && event.nodeId === nodeId) markLapsed()
+  })
+  try {
+    const registered = await config.coordinator.listNodes()
+    if (registered.some(node => node.nodeId === nodeId)) await lapsed
+  } finally {
+    unwatch()
+  }
 }
 
 async function loadInitialAllocations(config: NodeLifecycleConfig): Promise<AllocationTable[]> {
