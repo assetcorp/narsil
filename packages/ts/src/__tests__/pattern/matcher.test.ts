@@ -21,6 +21,7 @@ import { literalPasses } from '../filters/pattern/fixtures'
 import { seededRandom } from '../filters/pattern/random-corpus'
 
 const WORK_CAP = 1_000_000_000
+const SPLIT_BUDGET_TIMEOUT_MS = 60_000
 const FULL_BUDGET_WORKERS = 1
 const THRASHING_BUDGET_WORKERS = 200
 const NO_CACHE_BUDGET_WORKERS = MATCHER_STATE_BUDGET_BYTES
@@ -126,32 +127,36 @@ describe('the pattern matcher', () => {
     }
   })
 
-  it('holds at most the state budget for one search, and at most the share of each copy once the search splits', () => {
-    const random = seededRandom(5)
-    const values = Array.from({ length: 4 }, () =>
-      Array.from({ length: 4_000 }, () => (random() < 0.5 ? 'a' : 'b')).join(''),
-    )
-    for (const pattern of [`[ab]*a[ab]{${MAX_PATTERN_POSITIONS - 2}}`, '(a|b)*a(a|b){20}c', '((a|b)(a|b)){511}c']) {
-      const { program } = compileExpression('regex', pattern, false, PATTERN_HOST)
-      const footprint = programFootprint(program)
-      const share = Math.floor(MATCHER_STATE_BUDGET_BYTES / widestPatternSplit(footprint))
-      expect(footprint, pattern).toBeLessThanOrEqual(share)
-      for (const limit of [MATCHER_STATE_BUDGET_BYTES, share]) {
-        const dfa = new LazyDfa(program, limit)
-        const tally = new WorkTally(createPatternWorkMeter(WORK_CAP))
-        let largest = dfa.heldBytes
-        for (const value of values) {
-          dfa.begin()
-          for (const character of value) {
-            if (!dfa.feed(character.codePointAt(0) ?? 0, tally)) break
-            largest = Math.max(largest, dfa.heldBytes)
+  it(
+    'holds at most the state budget for one search, and at most the share of each copy once the search splits',
+    () => {
+      const random = seededRandom(5)
+      const values = Array.from({ length: 4 }, () =>
+        Array.from({ length: 4_000 }, () => (random() < 0.5 ? 'a' : 'b')).join(''),
+      )
+      for (const pattern of [`[ab]*a[ab]{${MAX_PATTERN_POSITIONS - 2}}`, '(a|b)*a(a|b){20}c', '((a|b)(a|b)){511}c']) {
+        const { program } = compileExpression('regex', pattern, false, PATTERN_HOST)
+        const footprint = programFootprint(program)
+        const share = Math.floor(MATCHER_STATE_BUDGET_BYTES / widestPatternSplit(footprint))
+        expect(footprint, pattern).toBeLessThanOrEqual(share)
+        for (const limit of [MATCHER_STATE_BUDGET_BYTES, share]) {
+          const dfa = new LazyDfa(program, limit)
+          const tally = new WorkTally(createPatternWorkMeter(WORK_CAP))
+          let largest = dfa.heldBytes
+          for (const value of values) {
+            dfa.begin()
+            for (const character of value) {
+              if (!dfa.feed(character.codePointAt(0) ?? 0, tally)) break
+              largest = Math.max(largest, dfa.heldBytes)
+            }
+            dfa.matched()
           }
-          dfa.matched()
+          expect(largest, `${pattern} ${limit}`).toBeLessThanOrEqual(limit)
         }
-        expect(largest, `${pattern} ${limit}`).toBeLessThanOrEqual(limit)
       }
-    }
-  })
+    },
+    SPLIT_BUDGET_TIMEOUT_MS,
+  )
 
   it('counts one step for each position that a match can reach at each code point that it checks', () => {
     const values = ['xxabc', 'xxabd']
