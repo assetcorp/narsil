@@ -289,7 +289,7 @@ export function createVectorIndex(
     k: number,
     options: VectorSearchOptions,
   ): Promise<VectorSearchOutcome> {
-    const confined = options.filterDocIds !== undefined || options.filterPartitions !== undefined
+    const confined = options.filterSubsets !== undefined || options.filterPartitions !== undefined
     let filter = filterForOptions(state, options)
     if (filter !== undefined) {
       if (state.hnsw) {

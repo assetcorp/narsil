@@ -145,24 +145,6 @@ export function searchOptionsFor(manager: PartitionManager, patternWork: Pattern
   }
 }
 
-export function collectFilterDocIds(
-  manager: PartitionManager,
-  params: QueryParams,
-  schema: IndexConfig['schema'],
-  partitionIds: number[] | undefined,
-  patternWork: PatternWorkMeter,
-): Set<string> {
-  const filterDocIds = new Set<string>()
-  if (!params.filters) return filterDocIds
-  for (const partition of partitionsFor(manager, partitionIds)) {
-    const partitionFiltered = partition.applyFilters(params.filters, schema, patternWork)
-    for (const docId of partitionFiltered) {
-      filterDocIds.add(docId)
-    }
-  }
-  return filterDocIds
-}
-
 export function vectorResultsToScored(results: VectorScoredResult[]): ScoredDocument[] {
   return results.map(r => ({
     docId: r.docId,

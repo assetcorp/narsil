@@ -13,6 +13,7 @@ import type { PartitionFilterMatches } from './filters'
 import type { PartitionSearchMatches } from './matches'
 import type { PartialWordAnalysis } from './partial-words/spellings'
 import type { AddedWord, PartialWordRequest } from './partial-words/types'
+import type { PartitionReadState } from './read-state'
 import type { SegmentPayload } from './segment-payload'
 import type { SortedPageEntry, SortPageRequest } from './sorting'
 import type { PartitionSuggestion } from './suggestions'
@@ -70,6 +71,7 @@ export interface PartitionIndex {
   preparePartialWords(analysis: PartialWordAnalysis): void
 
   estimateMemoryBytes(): number
+  readStates(): readonly PartitionReadState[]
 
   serialize(
     indexName: string,

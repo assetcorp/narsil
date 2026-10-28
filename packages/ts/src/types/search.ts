@@ -281,8 +281,11 @@ export interface VectorQueryConfig {
   /**
    * HNSW exploration factor for approximate search. Higher values raise
    * recall at the cost of latency. Ignored while the field is still
-   * served by the brute-force backend. Defaults to the engine's built-in
-   * value when omitted.
+   * served by the brute-force backend. When a query omits it, the engine
+   * keeps `limit` plus 50 candidates below 768 dimensions, `limit` plus 75
+   * from 768 to 1,023 dimensions, and `limit` alone at 1,024 dimensions and
+   * above, and never fewer than 50. Under a filter, the engine counts only
+   * the candidates that pass the filter.
    */
   efSearch?: number
   /**
@@ -290,9 +293,15 @@ export interface VectorQueryConfig {
    * full-precision vectors before it returns the best `limit`. A value below
    * 1 or one that is not a finite number fails with `CONFIG_INVALID`. The
    * engine ignores this on a field whose quantization is `none`. When a query
-   * omits it, the engine takes 3 for `osq1` and `osq2`, 2 for `osq8`, and 2
-   * for `osq4` at 1,024 dimensions and above, but 5 for `osq4` below 1,024,
-   * where a four-bit code ranks the true neighbours less reliably.
+   * omits it, the engine re-scores a number of candidates that it sets from
+   * `limit`, written k here, and the field's dimension, rounded up and never
+   * below k. Below 768 dimensions, it re-scores 2.7k + 73√k for `osq1` and
+   * 2.6k + 17√k for `osq2`. From 768 to 1,023 dimensions, it re-scores
+   * 2.2k + 27√k for `osq1` and k + 16√k for `osq2`. At 1,024 dimensions and
+   * above, it re-scores 3k for both. It re-scores 5k for `osq4` below 1,024
+   * dimensions and 2k from 1,024 dimensions, and 2k for `osq8` at every
+   * dimension. Under a filter, the engine counts only the candidates that
+   * pass the filter.
    */
   oversample?: number
 }
