@@ -112,6 +112,7 @@ typedef struct {
   narsil_metric metric;
   uint32_t thread_slot;
   int uses_codes;
+  int pairs_use_codes;
   uint32_t slots;
   uint32_t store_slots;
   uint32_t code_bytes;
@@ -229,6 +230,7 @@ narsil_status workspace_reserve_links(narsil_workspace *workspace, const narsil_
 narsil_status begin_walk(walk_context *context, narsil_workspace *workspace, const narsil_graph *graph,
                          const narsil_store *store, uint32_t metric);
 void walk_with_query(walk_context *context, const float *vector);
+void walk_with_placement_query(walk_context *context, const float *vector);
 narsil_status read_graph_extent(walk_context *context);
 void use_single_entry(narsil_workspace *workspace, int32_t ordinal);
 narsil_status search_layer(const walk_context *context, layer_search search, narsil_candidates *out);
@@ -240,9 +242,13 @@ void quantise_vector(narsil_workspace *workspace, const narsil_store *store, nar
 double quantised_level(double value, level_range range, uint32_t bits);
 void prepare_code(narsil_workspace *workspace, const narsil_store *store, narsil_metric metric, const float *vector,
                   prepared_code *code);
+void prepare_code_with_bits(narsil_workspace *workspace, const narsil_store *store, narsil_metric metric,
+                            const float *vector, uint32_t query_bits, prepared_code *code);
 uint32_t code_bytes_of(uint32_t dimension, uint32_t bits);
 uint32_t query_bits_of(uint32_t bits);
+uint32_t placement_query_bits_of(uint32_t bits);
 double estimate_distance(const walk_context *context, const uint8_t *record);
+double estimate_pair_distance(const walk_context *context, const uint8_t *first, const uint8_t *second);
 double pair_distance(const walk_context *context, int32_t first, int32_t second);
 
 float kernel_dot(const float *lhs, const float *rhs, uint32_t dimension);
@@ -251,6 +257,7 @@ float kernel_magnitude(const float *values, uint32_t dimension);
 uint32_t kernel_products_8x8(const uint8_t *document, const uint8_t *query, uint32_t dimension);
 uint32_t kernel_products_4x4(const uint8_t *document, const uint8_t *low, const uint8_t *high, uint32_t bytes);
 uint32_t kernel_products_bits(packed_code document, const uint8_t *planes);
+uint32_t kernel_pair_products(packed_code first, const uint8_t *second, uint32_t dimension);
 
 int is_metric(uint32_t metric);
 int is_code_width(uint32_t bits);

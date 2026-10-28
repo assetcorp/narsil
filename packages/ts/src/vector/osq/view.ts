@@ -2,12 +2,12 @@ import type { VectorMetric } from '../brute-force'
 import { noteFallback } from '../native/backend'
 import { nativeCalibrate, nativeQuantise } from '../native/store'
 import { fixedView } from '../shared-buffers/growable'
-import type { ArenaSimd } from '../simd'
 import { NOTHING_STAGED, type OpenVectorBlock, QUERY_STAGED, slotByteOffset } from '../vector-store/blocks'
 import type { VectorCodeBlockLayout } from '../vector-store/code-blocks'
 import { STORE_CALIBRATED, STORE_CALIBRATION_GENERATION, STORE_CODE_COUNT } from '../vector-store/handles'
 import type { SharedVectorStoreView } from '../vector-store/view'
-import { osqByteLevelProducts, osqDistance, osqEstimate, osqNibbleProducts, osqStagedQueryProducts } from './estimate'
+import { osqDistance, osqEstimate, osqNibblesByByteLevels, osqPlacementQueryBits } from './estimate'
+import { scalarPairProducts, scalarQueryProducts, simdPairProducts, simdQueryProducts } from './products'
 import { createOsqScratch, type OsqBits, osqCentroid, osqQuantize } from './quantize'
 import { type CodeRecoding, createCodeRecoding } from './recoding'
 import { type OsqTrailer, readTrailer, stageQueryLevels, writeRecord } from './record'
@@ -37,6 +37,10 @@ export interface SharedQuantizerView extends QuantizerSearchReader {
   recode(ordinal: number): void
   finishRecoding(): boolean
   abandonRecoding(): void
+  /** Estimates the distance between two ordinals from their records, for a graph built from codes. */
+  pairDistance(): (ordA: number, ordB: number) => number
+  /** Estimates the distance from a vector being placed to each ordinal's record, or returns null before calibration. */
+  placementDistance(vector: Float32Array): ((ordinal: number) => number) | null
 }
 
 export function openSharedQuantizer(
@@ -46,7 +50,9 @@ export function openSharedQuantizer(
 ): SharedQuantizerView {
   const { dimension, bits, queryBits, codeBytes, capacity } = layout
   const scratch = createOsqScratch(dimension)
+  const placementQueryBits = osqPlacementQueryBits(bits)
   const documentTrailer: OsqTrailer = { lower: 0, upper: 0, correction: 0, sum: 0 }
+  const otherTrailer: OsqTrailer = { lower: 0, upper: 0, correction: 0, sum: 0 }
   let codePresent = fixedView(store.handles.codePresent, Uint8Array)
   let centroidDot = 0
   let centroidGeneration = -1
@@ -139,20 +145,16 @@ export function openSharedQuantizer(
     return true
   }
 
-  function simdQueryProducts(simd: ArenaSimd, documentOffset: number, queryOffset: number): number {
-    if (bits === 8) return simd.dot_u8(documentOffset, queryOffset, dimension)
-    if (bits === 4) return simd.osq_dot_nibbles_4x4(documentOffset, queryOffset, codeBytes)
-    return simd.osq_dot_bits(documentOffset, queryOffset, codeBytes, bits)
-  }
-
   function productsAgainstQuery(block: OpenVectorBlock, documentOffset: number, query: OsqQuery): number {
     if (block.simd !== null && stageQuery(block, query)) {
-      return simdQueryProducts(block.simd, documentOffset, block.scratchByteOffset)
+      return simdQueryProducts(block.simd, layout, documentOffset, block.scratchByteOffset)
     }
-    const bytes = block.bytes(documentOffset + codeBytes)
-    if (bits === 8) return osqByteLevelProducts(bytes, documentOffset, query.packed, 0, dimension)
-    if (bits === 4) return osqNibbleProducts(bytes, documentOffset, query.packed, 0, codeBytes)
-    return osqStagedQueryProducts(bytes, documentOffset, bits, query.packed, 0, codeBytes)
+    return scalarQueryProducts(layout, block.bytes(documentOffset + codeBytes), documentOffset, query.packed)
+  }
+
+  function distanceFrom(products: number, query: OsqTrailer, levelBits: OsqBits): number {
+    const estimate = osqEstimate(products, documentTrailer, bits, query, levelBits, dimension, centroidDotNow(), metric)
+    return osqDistance(estimate, metric)
   }
 
   function estimateDistance(ordinal: number, query: OsqQuery): number {
@@ -160,10 +162,7 @@ export function openSharedQuantizer(
     const offset = recordOffset(ordinal)
     const products = productsAgainstQuery(block, offset, query)
     readTrailer(block.data(offset + layout.slotStride), offset, codeBytes, documentTrailer)
-    return osqDistance(
-      osqEstimate(products, documentTrailer, bits, query, queryBits, dimension, centroidDotNow(), metric),
-      metric,
-    )
+    return distanceFrom(products, query, queryBits)
   }
 
   function prepareQuery(query: Float32Array): OsqQuery | null {
@@ -180,6 +179,93 @@ export function openSharedQuantizer(
       sum: code.sum,
     }
     return currentQuery
+  }
+
+  function preparedDistance(prepared: OsqQuery): (ordinal: number) => number {
+    const generic = (ordinal: number): number =>
+      holds(ordinal) ? estimateDistance(ordinal, prepared) : Number.POSITIVE_INFINITY
+    if (store.handles.codeBlocks.length === 0) return generic
+    const block = store.codeBlockOf(0)
+    const simd = block.simd
+    if (simd === null || !block.hasScratch) return generic
+    const presentView = codePresent
+    const limit = Math.min(presentView.length, capacity)
+    const { slotsOffset, slotStride } = layout
+    const data = block.data(slotsOffset + slotStride)
+    const dataLength = data.byteLength
+    const queryOffset = block.scratchByteOffset
+    return ordinal => {
+      if (ordinal < 0 || ordinal >= limit || block.stagedOrdinal !== QUERY_STAGED) return generic(ordinal)
+      if (presentView[ordinal] !== 1) return Number.POSITIVE_INFINITY
+      const offset = slotsOffset + ordinal * slotStride
+      if (offset + slotStride > dataLength) return generic(ordinal)
+      const products = simdQueryProducts(simd, layout, offset, queryOffset)
+      readTrailer(data, offset, codeBytes, documentTrailer)
+      return distanceFrom(products, prepared, queryBits)
+    }
+  }
+
+  function placementDistance(vector: Float32Array): ((ordinal: number) => number) | null {
+    if (placementQueryBits === queryBits) {
+      const prepared = prepareQuery(vector)
+      return prepared === null ? null : preparedDistance(prepared)
+    }
+    if (!isCalibrated() || vector.length !== dimension) return null
+    const code = osqQuantize(vector, store.handles.centroid, placementQueryBits, metric, scratch)
+    const levels = new Uint8Array(2 * codeBytes)
+    levels.set(code.levels)
+    return ordinal => {
+      if (!holds(ordinal)) return Number.POSITIVE_INFINITY
+      const block = store.codeBlockOf(ordinal)
+      const offset = recordOffset(ordinal)
+      const products = osqNibblesByByteLevels(block.bytes(offset + codeBytes), offset, levels, codeBytes)
+      readTrailer(block.data(offset + layout.slotStride), offset, codeBytes, documentTrailer)
+      return distanceFrom(products, code, placementQueryBits)
+    }
+  }
+
+  function distanceBetween(ordA: number, ordB: number): number {
+    if (!holds(ordA) || !holds(ordB)) return Number.POSITIVE_INFINITY
+    const blockA = store.codeBlockOf(ordA)
+    const blockB = store.codeBlockOf(ordB)
+    const offsetA = recordOffset(ordA)
+    const offsetB = recordOffset(ordB)
+    const products =
+      blockA === blockB && blockA.simd !== null
+        ? simdPairProducts(blockA.simd, layout, offsetA, offsetB)
+        : scalarPairProducts(
+            layout,
+            blockA.bytes(offsetA + codeBytes),
+            offsetA,
+            blockB.bytes(offsetB + codeBytes),
+            offsetB,
+          )
+    readTrailer(blockA.data(offsetA + layout.slotStride), offsetA, codeBytes, documentTrailer)
+    readTrailer(blockB.data(offsetB + layout.slotStride), offsetB, codeBytes, otherTrailer)
+    return distanceFrom(products, otherTrailer, bits)
+  }
+
+  function pairDistance(): (ordA: number, ordB: number) => number {
+    if (store.handles.codeBlocks.length === 0) return distanceBetween
+    const block = store.codeBlockOf(0)
+    const simd = block.simd
+    if (simd === null) return distanceBetween
+    const presentView = codePresent
+    const limit = Math.min(presentView.length, capacity)
+    const { slotsOffset, slotStride } = layout
+    const data = block.data(slotsOffset + slotStride)
+    const dataLength = data.byteLength
+    return (ordA, ordB) => {
+      if (ordA < 0 || ordB < 0 || ordA >= limit || ordB >= limit) return distanceBetween(ordA, ordB)
+      if (presentView[ordA] !== 1 || presentView[ordB] !== 1) return Number.POSITIVE_INFINITY
+      const offsetA = slotsOffset + ordA * slotStride
+      const offsetB = slotsOffset + ordB * slotStride
+      if (Math.max(offsetA, offsetB) + slotStride > dataLength) return distanceBetween(ordA, ordB)
+      const products = simdPairProducts(simd, layout, offsetA, offsetB)
+      readTrailer(data, offsetA, codeBytes, documentTrailer)
+      readTrailer(data, offsetB, codeBytes, otherTrailer)
+      return distanceFrom(products, otherTrailer, bits)
+    }
   }
 
   return {
@@ -274,38 +360,8 @@ export function openSharedQuantizer(
       return estimateDistance(ordinal, prepared)
     },
 
-    preparedDistance(prepared) {
-      const generic = (ordinal: number): number =>
-        holds(ordinal) ? estimateDistance(ordinal, prepared) : Number.POSITIVE_INFINITY
-      if (store.handles.codeBlocks.length === 0) return generic
-      const block = store.codeBlockOf(0)
-      const simd = block.simd
-      if (simd === null || !block.hasScratch) return generic
-      const presentView = codePresent
-      const limit = Math.min(presentView.length, capacity)
-      const { slotsOffset, slotStride } = layout
-      const data = block.data(slotsOffset + slotStride)
-      const dataLength = data.byteLength
-      const queryOffset = block.scratchByteOffset
-      return ordinal => {
-        if (ordinal < 0 || ordinal >= limit || block.stagedOrdinal !== QUERY_STAGED) return generic(ordinal)
-        if (presentView[ordinal] !== 1) return Number.POSITIVE_INFINITY
-        const offset = slotsOffset + ordinal * slotStride
-        if (offset + slotStride > dataLength) return generic(ordinal)
-        const products = simdQueryProducts(simd, offset, queryOffset)
-        readTrailer(data, offset, codeBytes, documentTrailer)
-        const estimate = osqEstimate(
-          products,
-          documentTrailer,
-          bits,
-          prepared,
-          queryBits,
-          dimension,
-          centroidDotNow(),
-          metric,
-        )
-        return osqDistance(estimate, metric)
-      }
-    },
+    preparedDistance,
+    pairDistance,
+    placementDistance,
   }
 }

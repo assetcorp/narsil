@@ -144,6 +144,14 @@ export function createOsqQuantizer(
       return view.preparedDistance(prepared)
     },
 
+    pairDistance() {
+      const view = shared()
+      if (view === null) return () => Number.POSITIVE_INFINITY
+      return view.pairDistance()
+    },
+
+    placementDistance: vector => shared()?.placementDistance(vector) ?? null,
+
     clear() {
       const view = shared()
       if (view === null) return

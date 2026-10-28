@@ -95,12 +95,25 @@ double float_distance(const walk_context *context, float_query query, int32_t or
   return metric_distance(context, query, vector, context->store->magnitudes[ordinal]);
 }
 
-double pair_distance(const walk_context *context, int32_t first, int32_t second) {
+static double vector_pair_distance(const walk_context *context, int32_t first, int32_t second) {
   const narsil_store *store = context->store;
   const float *first_vector = stored_vector(store, first, context->workspace->other_vector);
   if (first_vector == NULL) { return HUGE_VAL; }
   float_query query = {first_vector, store->magnitudes[first]};
   return float_distance(context, query, second);
+}
+
+double pair_distance(const walk_context *context, int32_t first, int32_t second) {
+  if (context->pairs_use_codes) {
+    const narsil_store *store = context->store;
+    const uint8_t *first_record = stored_record(store, first);
+    const uint8_t *second_record = stored_record(store, second);
+    if (first_record != NULL && second_record != NULL && store->code_present[first] == 1 &&
+        store->code_present[second] == 1) {
+      return estimate_pair_distance(context, first_record, second_record);
+    }
+  }
+  return vector_pair_distance(context, first, second);
 }
 
 void prefetch_for_walk(const walk_context *context, int32_t ordinal) {

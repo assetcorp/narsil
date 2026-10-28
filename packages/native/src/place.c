@@ -123,11 +123,6 @@ static narsil_status select_every_layer(const walk_context *context, const narsi
       workspace->entry_point_count = candidates.count;
     }
     found->count = candidates.count;
-    if (context->uses_codes) {
-      for (uint32_t i = 0; i < found->count; i++) {
-        found->distances[i] = pair_distance(context, request->ordinal, found->ordinals[i]);
-      }
-    }
     workspace->selection_counts[layer] =
         select_neighbours(context, found, list_limit(context->graph, layer), selection_of(workspace, layer));
   }
@@ -199,7 +194,8 @@ narsil_status narsil_place(narsil_workspace *workspace, const narsil_graph *grap
   const float *vector = stored_vector(store, request->ordinal, workspace->placed_vector);
   if (vector == NULL) { return NARSIL_INVALID_ARGUMENT; }
   context.thread_slot = request->thread_slot;
-  walk_with_query(&context, vector);
+  if (store->file_count == 0) { context.uses_codes = 0; }
+  walk_with_placement_query(&context, vector);
   if (!context.uses_codes) { context.query.magnitude = store->magnitudes[request->ordinal]; }
 
   if (request->graph_held_alone) {
