@@ -44,12 +44,39 @@ export type WriteAdmission = (
   document: AnyDocument | null,
 ) => void
 
+export interface RecordedMutation {
+  docId: string
+  document: AnyDocument | null
+}
+
+export interface ChunkFailure {
+  error: unknown
+  refused?: true
+}
+
+export type RecordChunk = (
+  ctx: MutationContext,
+  indexName: string,
+  mutations: readonly RecordedMutation[],
+  applies: readonly (() => Promise<void>)[],
+) => Promise<(ChunkFailure | null)[]>
+
+export interface EngineWriteAdmission {
+  admit(indexName: string, docId: string, document: AnyDocument | null): void
+  recordChunk(
+    ctx: MutationContext,
+    indexName: string,
+    mutations: readonly RecordedMutation[],
+    applies: readonly (() => Promise<void>)[],
+    recordAdmitted: RecordChunk,
+  ): Promise<(ChunkFailure | null)[]>
+}
+
 export interface MutationContext {
   executor: Executor & DirectExecutorExtensions
   pluginRegistry: PluginRegistry
   durability: DurabilityRecorder | null
-  admitWrite: (indexName: string, docId: string, document: AnyDocument | null) => void
-  readonly admitsWrites: boolean
+  readonly writeAdmission: EngineWriteAdmission | null
   orchestrator: WorkerOrchestrator
   idGenerator: () => string
   abortController: AbortController

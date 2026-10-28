@@ -1,15 +1,6 @@
-import type { AnyDocument } from '../../types/schema'
-import type { MutationContext } from './context'
+import type { ChunkFailure, MutationContext, RecordedMutation } from './context'
 
-export interface ChunkFailure {
-  error: unknown
-  refused?: true
-}
-
-export interface RecordedMutation {
-  docId: string
-  document: AnyDocument | null
-}
+export type { ChunkFailure, RecordedMutation } from './context'
 
 export async function recordChunk(
   ctx: MutationContext,
@@ -18,27 +9,9 @@ export async function recordChunk(
   applies: readonly (() => Promise<void>)[],
 ): Promise<(ChunkFailure | null)[]> {
   if (mutations.length === 0) return []
-  if (!ctx.admitsWrites) return recordEvery(ctx, indexName, mutations, applies)
-  const failures: (ChunkFailure | null)[] = new Array(mutations.length).fill(null)
-  const admitted: number[] = []
-  for (let i = 0; i < mutations.length; i++) {
-    try {
-      ctx.admitWrite(indexName, mutations[i].docId, mutations[i].document)
-      admitted.push(i)
-    } catch (error) {
-      failures[i] = { error, refused: true }
-    }
-  }
-  if (admitted.length === 0) return failures
-
-  const outcomes = await recordEvery(
-    ctx,
-    indexName,
-    admitted.map(i => mutations[i]),
-    admitted.map(i => applies[i]),
-  )
-  for (let k = 0; k < outcomes.length; k++) failures[admitted[k]] = outcomes[k]
-  return failures
+  const admission = ctx.writeAdmission
+  if (admission !== null) return admission.recordChunk(ctx, indexName, mutations, applies, recordEvery)
+  return recordEvery(ctx, indexName, mutations, applies)
 }
 
 async function recordEvery(
