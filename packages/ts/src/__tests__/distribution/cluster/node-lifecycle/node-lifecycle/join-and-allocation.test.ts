@@ -294,7 +294,6 @@ describe('DataNodeLifecycle join and allocation watcher', () => {
     it('triggers demotion and re-sync on zombie primary detection', async () => {
       const bootstrapFn = vi.fn().mockResolvedValue(true)
       const demotionFn = vi.fn()
-      await coordinator.registerNode(makeNode('data-1'))
       await coordinator.registerNode(makeNode('data-2'))
 
       const assignments = new Map<number, PartitionAssignment>()
