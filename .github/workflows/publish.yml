@@ -188,6 +188,12 @@ jobs:
           NARSIL_ETCD_ENDPOINT: http://127.0.0.1:2379
         run: pnpm nx run narsil-ts:test:etcd
 
+      - name: Test (cluster node processes)
+        if: env.RELEASES_NARSIL_TS == 'true'
+        env:
+          NARSIL_ETCD_ENDPOINT: http://127.0.0.1:2379
+        run: pnpm nx run narsil-ts:test:cluster
+
       - name: Cache HuggingFace models
         if: env.RELEASES_NARSIL_TS == 'true'
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
