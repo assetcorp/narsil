@@ -1,5 +1,6 @@
 import type { MemoryStats } from '../../types/memory'
 import type { AnyDocument, InsertOptions, WriteOptions } from '../../types/schema'
+import type { SynonymRule } from '../../types/synonyms'
 
 /** Declarative index configuration accepted over HTTP. Function-valued engine
  * options (custom tokenizer, stopWords-as-function, group reducer, embedding
@@ -93,6 +94,8 @@ export interface HttpIndexConfig {
   required?: string[]
   /** The server returns a `DOC_VALIDATION_FAILED` error for a document whose value in a `verbatim` field, or in a field whose type includes `pattern`, is longer than this many code points. Set a whole number from 1 to 65,536, or leave this unset for a limit of 8,192. */
   patternValueLimit?: number
+  /** A search for a word in one of these rules also matches its synonyms, and the server refuses a set beyond 100,000 rules, 500,000 words, or 4,194,304 bytes of words in UTF-8 with `CONFIG_INVALID`. */
+  synonyms?: SynonymRule[]
 }
 
 /**

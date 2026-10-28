@@ -144,6 +144,7 @@ export async function handleStats(
     payload.indexName,
     payload.terms,
     payload.partitionIds,
+    { expansion: payload.expansion ?? undefined, tokens: payload.tokens ?? undefined },
   )
 
   await respond({

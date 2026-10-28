@@ -287,6 +287,13 @@ export interface ClusterCoordinator {
    * @returns True when the write went through.
    */
   compareAndSet(key: string, expected: Uint8Array | null, value: Uint8Array): Promise<boolean>
+  /**
+   * Removes one key of cluster metadata, and does nothing when the key already
+   * holds nothing.
+   *
+   * @param key - The key to remove.
+   */
+  delete(key: string): Promise<void>
 
   /**
    * Reads one index's schema, which is how a node joining later learns the

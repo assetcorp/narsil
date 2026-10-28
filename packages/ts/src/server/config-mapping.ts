@@ -32,6 +32,7 @@ export function mapHttpIndexConfig(http: HttpIndexConfig): IndexConfig {
   if (http.strict !== undefined) config.strict = http.strict
   if (http.required !== undefined) config.required = http.required
   if (http.patternValueLimit !== undefined) config.patternValueLimit = http.patternValueLimit
+  if (http.synonyms !== undefined) config.synonyms = http.synonyms
 
   if (http.stopWords !== undefined) {
     if (!Array.isArray(http.stopWords) || http.stopWords.some(w => typeof w !== 'string')) {

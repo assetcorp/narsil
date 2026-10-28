@@ -151,6 +151,8 @@ function mainThreadHandlers(deps: HandlerDeps): ServerHandlers {
     optimize: admin.optimize,
     rebalance: admin.rebalance,
     partitionConfig: admin.partitionConfig,
+    readSynonyms: admin.readSynonyms,
+    replaceSynonyms: admin.replaceSynonyms,
     restore: admin.restore,
     exportDocuments: documentExport.exportDocuments,
     importExport: documentExport.importExport,

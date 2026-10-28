@@ -94,9 +94,20 @@ Under `dfs` scoring the coordinator collects global term statistics before it ru
 Phase 0, statistics collection:
   1. The coordinator sends a statistics request to each data node.
   2. Each data node collects totalDocs, docFrequencies, and
-     totalFieldLengths from its local partitions.
-  3. The coordinator merges every response by summing the counts.
-  4. The merged statistics travel in the phase 1 query message.
+     totalFieldLengths from its local partitions, counting each
+     query term, each synonym that its copy's synonym set adds,
+     and each token that the query's typo tolerance, prefix
+     completion, or partial-word search reaches in any local
+     partition, summed over every local partition. It lists in
+     expanded each token that a prefix completion or a
+     partial-word search reached.
+  3. Where the union of every expanded list holds a token that
+     a node left out of its docFrequencies, the coordinator
+     sends that node a second statistics request whose tokens
+     member lists those tokens, and the node counts them as
+     given.
+  4. The coordinator merges every response by summing the counts.
+  5. The merged statistics travel in the phase 1 query message.
 
 Phase 1, query with global statistics:
   As above, except that each data node scores against the
@@ -106,7 +117,7 @@ Phase 2, fetch:
   As above.
 ```
 
-DFS costs one extra round trip. Use it when partition sizes or term distributions differ enough between partitions to move the ranking.
+DFS costs one extra round trip, and a second one where a prefix completion or a partial-word search reaches a token that some node did not count, because each partition caps those expansions on its own. Use it when partition sizes or term distributions differ enough between partitions to move the ranking.
 
 ---
 

@@ -41,6 +41,7 @@ function scheduleProcessAllocation(
   if (pending !== undefined && table.version <= pending.version) {
     state.pendingTables.delete(table.indexName)
     processAllocationChange(state, config, pending)
+    if (pending.assignments.size === 0) config.onIndexTornDown?.(pending.indexName)
   }
   state.pendingTables.set(table.indexName, table)
 
@@ -54,6 +55,7 @@ function scheduleProcessAllocation(
     state.pendingTables.clear()
     for (const pending of tablesToProcess) {
       processAllocationChange(state, config, pending)
+      if (pending.assignments.size === 0) config.onIndexTornDown?.(pending.indexName)
     }
   }, config.allocationDebounceMs)
 }

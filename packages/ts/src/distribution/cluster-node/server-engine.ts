@@ -4,6 +4,7 @@ import { bindEngineWriteBlock } from '../../narsil/write-blocks'
 import type { Narsil } from '../../types/engine'
 import type { AnyDocument, IndexConfig, InsertOptions, WriteOptions } from '../../types/schema'
 import type { ListParams, QueryParams, SuggestParams } from '../../types/search'
+import type { SynonymRule } from '../../types/synonyms'
 import type { ClusterNode, CreateIndexOptions } from './types'
 
 /**
@@ -34,7 +35,7 @@ function rejectWait(options: WriteOptions | undefined): void {
  * serves a single engine.
  *
  * Writes, updates, searches, suggestions, listings, counts, index creation,
- * index removal, analysis rebuilds, and document reads route through the cluster. Checkpointing,
+ * index removal, analysis rebuilds, synonym sets, and document reads route through the cluster. Checkpointing,
  * memory statistics, index opens, index closes, and engine events reach this
  * node's local engine, because each covers a per-node fact. Every other operation fails with
  * `CLUSTER_OPERATION_UNSUPPORTED`, which the HTTP server answers with status
@@ -108,6 +109,14 @@ export function clusterNodeEngine(node: ClusterNode, options?: ClusterEngineOpti
 
     async dropIndex(name: string): Promise<void> {
       return node.dropIndex(name)
+    },
+
+    async updateSynonyms(indexName: string, synonyms: SynonymRule[]): Promise<void> {
+      return node.updateSynonyms(indexName, synonyms)
+    },
+
+    async getSynonyms(indexName: string): Promise<SynonymRule[]> {
+      return node.getSynonyms(indexName)
     },
 
     async clear(indexName: string): Promise<void> {

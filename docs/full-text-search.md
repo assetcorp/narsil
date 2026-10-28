@@ -1,6 +1,6 @@
 # Full-text search
 
-This guide explains term matching, typo tolerance, prefix completion, matching inside words, match thresholds, highlighting, scoring modes, and suggestions. The [Filters, facets, and pagination](filters-facets-and-pagination.md) guide explains how to narrow and page the result set that a query returns.
+This guide explains term matching, typo tolerance, prefix completion, matching inside words, synonyms, match thresholds, highlighting, scoring modes, and suggestions. The [Filters, facets, and pagination](filters-facets-and-pagination.md) guide explains how to narrow and page the result set that a query returns.
 
 Every search goes through `query(indexName, params)`. Set its `mode` parameter to `'fulltext'`, which is the default, or to `'vector'` or `'hybrid'`.
 
@@ -90,6 +90,47 @@ registerPartialWordSearch(partialWordSearch)
 
 Without that registration, the engine throws `CONFIG_INVALID` for an index with a `partial` field, and the error message contains the import line.
 
+## Synonyms
+
+When an index has a synonym set, a search for a word also matches every synonym that the set lists for that word. A set is a list of rules in two shapes. A two-way rule lists from 2 to 100 `words`, each of which becomes a synonym of every other. A one-way rule holds one `word` and from 1 to 99 `synonyms`, so a search for `word` also matches its synonyms, while the rule adds nothing to a search for one of those synonyms.
+
+```ts
+await narsil.createIndex('products', {
+  schema: { title: 'string', description: 'string' },
+  synonyms: [
+    { words: ['sofa', 'couch', 'settee'] },
+    { word: 'laptop', synonyms: ['notebook'] },
+  ],
+})
+
+const results = await narsil.query('products', { term: 'couch' })
+```
+
+The engine analyses each word of the set with the index's language, tokeniser, and stop words, so a rule that holds `couches` also covers `couch` wherever the index stems the two alike. Each word must analyse to exactly one token, so the engine throws `CONFIG_INVALID` for a stop word and for a phrase. It also throws `CONFIG_INVALID` for a word that holds a control character, and for a set of more than 100,000 rules, 500,000 words, or 4,194,304 bytes of words in UTF-8.
+
+The engine expands each query word by one level, so it adds no synonym of a synonym. It adds at most 50 synonyms to a query, which it divides among the query words that have synonyms in query order. Within each word's share, it takes the synonyms in code point order. The engine applies no `tolerance`, prefix completion, or partial matching to a synonym, while under `exact: true` it adds no synonyms at all. It scores a query word and its synonyms as one term, whose frequency in a document is the sum of how often the document holds each of them. That term takes its IDF from whichever of the word and its synonyms the most documents hold. Within one search for `sofa`, a document that holds `couch` twice therefore scores as one that holds `sofa` twice in a field of the same length. Under `'dfs'` and `'broadcast'` scoring, the engine counts the synonyms in the global statistics as well, so every partition and every node scores them alike.
+
+Replace the set with `updateSynonyms`. `getSynonyms` returns the set with each word as you wrote it. The engine applies a new set from the next query without rebuilding the index, because a synonym set changes no stored token. It saves the set with the index, so the set stays in place after a restart and every snapshot includes it. Where the index has copies on worker threads, the promise resolves only once every copy uses the new set. Pass an empty list to remove the set. When `updateSynonyms` throws, the index keeps the set that it held before the call.
+
+```ts
+await narsil.updateSynonyms('products', [{ words: ['sofa', 'couch', 'settee', 'divan'] }])
+
+const rules = await narsil.getSynonyms('products')
+```
+
+Where a newer revision of the language module analyses a stored word to no token or to more than one, the engine skips that word as it loads the index and keeps the rest of the set.
+
+A Node process loads the synonym code by itself. A browser bundle contains that code only when the app imports `synonyms` and registers it. Register `synonyms` before the app creates or loads an index with a synonym set:
+
+```ts
+import { registerSynonyms } from '@delali/narsil'
+import { synonyms } from '@delali/narsil/synonyms'
+
+registerSynonyms(synonyms)
+```
+
+Without that registration, the engine throws `CONFIG_INVALID` for an index with a synonym set, and the error message contains the import line.
+
 ## Score and coverage thresholds
 
 With `minScore`, the engine drops every hit whose score is below that floor. BM25 scores have no fixed upper bound, so under a floor that works for one index and query, the engine can drop every hit of another. Choose the floor from scores that you have seen on your own corpus. With `termMatch`, you set how many query terms a document has to match. Under the default, `'any'`, a document has to match one term, under `'all'` every term, and under a number at least that many terms. The engine counts a query term as matched under the same `tolerance` and `prefixLength` that the search uses.
@@ -104,7 +145,7 @@ const results = await narsil.query('products', {
 
 ## Highlighting
 
-With `highlight`, the engine returns snippets in which it tags each word that it matched. It tags a word whose stem equals a query stem, and a word within `tolerance` of a query stem. Under `prefix: true`, it tags a word for the last query term only when that word completes the term or shares its stem. Under `partialWords: true`, it also tags a word in a `partial` field that contains a query word; see [Matching inside words](#matching-inside-words) for the rules. The engine analyses the text of each returned field again, so it tags the same words whatever the index's `trackPositions` setting is.
+With `highlight`, the engine returns snippets in which it tags each word that it matched. It tags a word whose stem equals a query stem, and a word within `tolerance` of a query stem. Under `prefix: true`, it tags a word for the last query term only when that word completes the term or shares its stem. Under `partialWords: true`, it also tags a word in a `partial` field that contains a query word; see [Matching inside words](#matching-inside-words) for the rules. It also tags a word whose stem is a synonym that the query added; see [Synonyms](#synonyms). The engine analyses the text of each returned field again, so it tags the same words whatever the index's `trackPositions` setting is.
 
 ```ts
 const results = await narsil.query('products', {
