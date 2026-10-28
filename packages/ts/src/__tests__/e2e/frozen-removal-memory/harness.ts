@@ -12,7 +12,6 @@ export const REMOVAL_PROCESS_SCRIPT = fileURLToPath(new URL('./removal-process.m
 export const REPOSITORY_ROOT = fileURLToPath(new URL('../../../../../../', import.meta.url))
 const JOB_FILE = 'job.json'
 const RESULT_FILE = 'result.json'
-const RETURNED_FIELD = 'title'
 
 export type MemoryFill = { kind: 'heap'; limitBytes: number; fraction: number } | { kind: 'resident'; fraction: number }
 
@@ -79,16 +78,9 @@ export function removalPlan(documentCount: number, batchDocuments: number, batch
   return { documents, removalBatches, releaseFillBefore: batches, queries: [...probeQueries(), ...MARKER_QUERIES] }
 }
 
-export async function writeRemovalJob(
-  workDirectory: string,
-  plan: RemovalPlan,
-  fill: MemoryFill,
-  appendixBytes = 0,
-): Promise<string> {
+export async function writeRemovalJob(workDirectory: string, plan: RemovalPlan, fill: MemoryFill): Promise<string> {
   const jobPath = join(workDirectory, JOB_FILE)
   const job = {
-    appendixBytes,
-    returnedField: RETURNED_FIELD,
     bootstrapModule: workshopBootstrapModule(),
     directory: join(workDirectory, 'index'),
     indexName: INDEX,

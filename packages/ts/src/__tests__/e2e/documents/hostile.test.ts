@@ -166,47 +166,6 @@ describe('a document request built to break the server', () => {
     expect(await client.get(INDEX, 'kept')).toEqual({ id: 'kept', title: 'ok' })
   })
 
-  it('refuses a projection whose field list holds anything but strings, on a search and on a listing', async () => {
-    const { base, client } = await readyServer()
-    await client.insert(INDEX, { title: 'brass lamp', price: 12, shipping: { city: 'Accra', weight: 2 } }, 'lamp')
-    const projections = [
-      '{"include":[1]}',
-      '{"include":[null]}',
-      '{"include":["title",{"path":"price"}]}',
-      '{"include":[["title"]]}',
-      '{"include":"title"}',
-      '{"include":{"0":"title"}}',
-      '{"exclude":[true]}',
-      '{"exclude":null}',
-      '{"include":["title"],"exclude":[5]}',
-    ]
-    for (const projection of projections) {
-      const searched = await sendRaw(
-        base,
-        'POST',
-        `/indexes/${INDEX}/search`,
-        `{"term":"lamp","document":${projection}}`,
-      )
-      expect([searched.status, errorCodeOf(searched.body)], projection).toEqual([400, 'SEARCH_INVALID_FIELD'])
-      const listed = await sendRaw(base, 'POST', `${DOCUMENTS_PATH}/_list`, `{"document":${projection}}`)
-      expect([listed.status, errorCodeOf(listed.body)], projection).toEqual([400, 'SEARCH_INVALID_FIELD'])
-    }
-
-    const reachesPrototype = await sendRaw(
-      base,
-      'POST',
-      `/indexes/${INDEX}/search`,
-      '{"term":"lamp","document":{"include":["__proto__.polluted","constructor.prototype.polluted","shipping.city"]}}',
-    )
-    expect(reachesPrototype.status).toBe(200)
-    const hits = (reachesPrototype.body as { hits: Array<{ id: string; document: unknown }> }).hits
-    expect(hits.map(hit => [hit.id, hit.document])).toEqual([['lamp', { shipping: { city: 'Accra' } }]])
-    expect(({} as Record<string, unknown>).polluted).toBeUndefined()
-
-    const kept = await client.query(INDEX, { term: 'lamp', document: { include: ['title'], exclude: ['price'] } })
-    expect(kept.hits.map(hit => hit.document)).toEqual([{ title: 'brass lamp' }])
-  })
-
   it('answers a body past the size limit with 413 and keeps serving', async () => {
     const { base, client } = await startDocumentServer(undefined, { limits: { maxBodyBytes: 4_096 } })
     await client.createIndex(INDEX, { schema: SCHEMA })

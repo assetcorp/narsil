@@ -52,7 +52,6 @@ export interface PartitionIndex {
   ): void
   get(docId: string, projection?: ResolvedProjection): AnyDocument | undefined
   getRef(docId: string): AnyDocument | undefined
-  fieldValues(docId: string, fieldPaths: readonly string[]): unknown[] | undefined
   has(docId: string): boolean
   count(): number
   docIds(): IterableIterator<string>

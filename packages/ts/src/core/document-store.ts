@@ -1,8 +1,6 @@
 import type { InternalIdResolver, StoredDocument } from '../types/internal'
 import type { AnyDocument } from '../types/schema'
 import { compareCodePoints } from './ordering'
-import { getNestedValue } from './partition/utils'
-import { cloneProjected, type ResolvedProjection } from './projection'
 
 export type ReadonlyStoredDocument = {
   readonly fields: Readonly<Record<string, unknown>>
@@ -23,8 +21,6 @@ export interface DocumentStoreReader {
   internalIdCapacity(): number
   contentBytes(): number
   resolver(): InternalIdResolver
-  fieldReader(fieldPath: string): (internalId: number) => unknown
-  projectedDocument(docId: string, projection?: ResolvedProjection): AnyDocument | undefined
 }
 
 export interface DocumentStore extends DocumentStoreReader {
@@ -66,7 +62,7 @@ function sharesABiggerBuffer(value: unknown): boolean {
 }
 
 function withOwnBuffers(value: unknown): unknown {
-  if (value === null || typeof value !== 'object' || value instanceof Date) return value
+  if (value === null || typeof value !== 'object') return value
   if (ArrayBuffer.isView(value)) return detachedView(value)
 
   if (Array.isArray(value)) {
@@ -106,10 +102,6 @@ function withOwnBuffers(value: unknown): unknown {
 export function documentWithOwnBuffers(document: AnyDocument): AnyDocument {
   if (!sharesABiggerBuffer(document)) return document
   return withOwnBuffers(document) as AnyDocument
-}
-
-export function valueWithOwnBuffers(value: unknown): unknown {
-  return sharesABiggerBuffer(value) ? withOwnBuffers(value) : value
 }
 
 const STRING_HEADER_BYTES = 16
@@ -346,19 +338,6 @@ export function createDocumentStore(): DocumentStore {
 
     resolver(): InternalIdResolver {
       return idResolver
-    },
-
-    fieldReader(fieldPath: string): (internalId: number) => unknown {
-      return internalId => {
-        const docId = reverseMap[internalId]
-        const stored = docId === undefined ? undefined : docs.get(docId)
-        return stored === undefined ? undefined : getNestedValue(stored.fields, fieldPath)
-      }
-    },
-
-    projectedDocument(docId: string, projection?: ResolvedProjection): AnyDocument | undefined {
-      const stored = docs.get(docId)
-      return stored === undefined ? undefined : cloneProjected(stored.fields, projection)
     },
   }
 }

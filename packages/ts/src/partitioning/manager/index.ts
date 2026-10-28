@@ -8,7 +8,7 @@ import type { RemovedSpellings } from '../../core/partition/frozen/surface-slot'
 import { requirePartialWordSearchFor } from '../../core/partition/partial-words/registry'
 import type { SegmentPayload } from '../../core/partition/segment-payload'
 import { requirePatternSearchFor } from '../../core/pattern-index/registry'
-import type { ResolvedProjection } from '../../core/projection'
+import { projectionKeepsField, type ResolvedProjection } from '../../core/projection'
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { SerializablePartition } from '../../types/internal'
 import type { LanguageModule } from '../../types/language'
@@ -17,7 +17,7 @@ import type { VectorIndex } from '../../vector/vector-index'
 import { resolvePartialWordAnalysis, resolvePartitionInsertOptions } from '../insert-options'
 import type { PartitionRouter } from '../router'
 import { createCapacityChecks } from './capacity'
-import { copyVectorsInto } from './nested-values'
+import { setNestedValue } from './nested-values'
 import { requireNewSegmentDocuments } from './segments'
 import { aggregateStatsOf, estimateBytesOf, partitionStatsOf } from './stats'
 import type { PartitionManager } from './types'
@@ -277,7 +277,14 @@ export function createPartitionManager(
       const pid = locateDocument(docId)
       if (pid === undefined) return undefined
       const doc = partitions[pid].get(docId, projection)
-      if (doc) copyVectorsInto(doc, docId, vecIndexes, projection)
+      if (!doc) return undefined
+      for (const [fieldPath, vecIndex] of vecIndexes) {
+        if (projection !== undefined && !projectionKeepsField(projection, fieldPath)) continue
+        const vector = vecIndex.getVector(docId)
+        if (vector) {
+          setNestedValue(doc as Record<string, unknown>, fieldPath, vector)
+        }
+      }
       return doc
     },
 
@@ -285,11 +292,6 @@ export function createPartitionManager(
       const pid = locateDocument(docId)
       if (pid === undefined) return undefined
       return partitions[pid].getRef(docId)
-    },
-
-    fieldValues(docId: string, fieldPaths: readonly string[]): unknown[] | undefined {
-      const pid = locateDocument(docId)
-      return pid === undefined ? undefined : partitions[pid].fieldValues(docId, fieldPaths)
     },
 
     sortValues(docId, fields, fieldTypes, modes): ComparableSortValue[] {

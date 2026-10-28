@@ -3,7 +3,7 @@ import type { SchemaDefinition } from '../../types/schema'
 import type { FacetConfig } from '../../types/search'
 import { bitsetSet, createBitSet } from '../bitset'
 import { compareCodePoints } from '../ordering'
-import { getFlatSchema, type PartitionReadState } from './utils'
+import { getFieldValueByInternalId, getFieldValueForDoc, getFlatSchema, type PartitionReadState } from './utils'
 
 type FacetRange = { from: number; to: number }
 
@@ -30,7 +30,6 @@ function ordinalBitsetOf(state: PartitionReadState, matched: FacetMatchSet): Uin
 }
 
 function* matchedFieldValues(state: PartitionReadState, fieldPath: string, matched: FacetMatchSet): Generator<unknown> {
-  const read = state.docStore.fieldReader(fieldPath)
   if ('ordinalBitset' in matched) {
     const bits = matched.ordinalBitset
     for (let wordIndex = 0; wordIndex < bits.length; wordIndex++) {
@@ -39,15 +38,14 @@ function* matchedFieldValues(state: PartitionReadState, fieldPath: string, match
       const base = wordIndex << 5
       while (word !== 0) {
         const trailingZeros = Math.clz32(word & -word) ^ 31
-        yield read(base + trailingZeros)
+        yield getFieldValueByInternalId(state.docStore, base + trailingZeros, fieldPath)
         word &= word - 1
       }
     }
     return
   }
   for (const docId of matched) {
-    const internalId = state.docStore.getInternalId(docId)
-    yield internalId === undefined ? undefined : read(internalId)
+    yield getFieldValueForDoc(state.docStore, docId, fieldPath)
   }
 }
 
