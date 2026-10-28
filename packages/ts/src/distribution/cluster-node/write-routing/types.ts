@@ -1,4 +1,5 @@
 import type { Narsil } from '../../../narsil'
+import type { AnyDocument } from '../../../types/schema'
 import type { AllocationTable, ClusterCoordinator, PartitionAssignment } from '../../coordinator/types'
 import type { ReplicationLog } from '../../replication/types'
 import type { NodeTransport } from '../../transport/types'
@@ -14,6 +15,7 @@ export interface WriteRoutingDeps {
   nodeId: string
   coordinator: ClusterCoordinator
   refreshAllocation?: (indexName: string) => Promise<AllocationTable | null>
+  readPrimaryCopies?: (indexName: string, docIds: readonly string[]) => Promise<Map<string, AnyDocument>>
   engine: Narsil
   transport: NodeTransport
   getReplicationLog: (indexName: string, partitionId: number) => ReplicationLog

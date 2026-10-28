@@ -1,11 +1,12 @@
+import type { AnyDocument } from '../../types/schema'
 import { SPEC_VERSION } from '../cluster/version'
-import type { NodeRegistration, NodeRole } from '../coordinator/types'
+import type { AllocationTable, NodeRegistration, NodeRole } from '../coordinator/types'
 import type { ReplicationLog } from '../replication/types'
 import { type AllocationView, createAllocationView } from './allocation-view'
 import { createCatchUpState } from './catch-up'
 import type { ClusterLocalEngine } from './local-engine'
 import { createNodeMemoryReporting } from './memory/node-memory'
-import { resolveNodeTargets as resolveTargetsForNode } from './node-messaging'
+import { readDistributedDocuments, resolveNodeTargets as resolveTargetsForNode } from './node-messaging'
 import {
   getReplicationLog as readReplicationLog,
   replicationLogKey,
@@ -56,6 +57,21 @@ export function createNodeWiring(input: {
     return resolveTargetsForNode(routingConfig, targetNodeId)
   }
 
+  async function readPrimaryCopies(indexName: string, docIds: readonly string[]): Promise<Map<string, AnyDocument>> {
+    const table = await allocationView.refresh(indexName)
+    if (table === null) return new Map()
+    const primariesOnly: AllocationTable = {
+      ...table,
+      assignments: new Map(
+        [...table.assignments].map(([partitionId, assignment]) => [
+          partitionId,
+          { ...assignment, replicas: [], inSyncSet: [] },
+        ]),
+      ),
+    }
+    return readDistributedDocuments(routingConfig, nodeId, engine, indexName, docIds, primariesOnly)
+  }
+
   const registration: NodeRegistration = {
     nodeId,
     address: config.address,
@@ -81,6 +97,7 @@ export function createNodeWiring(input: {
     numbering,
     coordinator: allocationView.routing,
     refreshAllocation: allocationView.refresh,
+    readPrimaryCopies,
     engine,
     transport: config.transport,
     getReplicationLog,

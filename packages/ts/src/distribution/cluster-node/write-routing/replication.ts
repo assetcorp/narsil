@@ -91,6 +91,8 @@ export async function removeFailedReplicasFromInsync(
 
   const controllerNodeId = await deps.coordinator.getLeaseHolder(CONTROLLER_LEASE_KEY)
   if (controllerNodeId === null) {
+    await deps.refreshAllocation?.(entry.indexName)
+    await assertPrimaryWriteAuthority(entry, deps)
     throw new NarsilError(
       ErrorCodes.REPLICATION_INSYNC_REMOVAL_FAILED,
       `Failed to remove replicas from in-sync set for index '${entry.indexName}': no active controller lease holder`,
@@ -109,6 +111,8 @@ export async function removeFailedReplicasFromInsync(
     )
 
     if (!accepted) {
+      await deps.refreshAllocation?.(entry.indexName)
+      await assertPrimaryWriteAuthority(entry, deps)
       throw new NarsilError(
         ErrorCodes.REPLICATION_INSYNC_REMOVAL_FAILED,
         `Controller rejected in-sync removal for replica '${replicaNodeId}' of index '${entry.indexName}' partition ${entry.partitionId}`,
