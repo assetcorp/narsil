@@ -1,7 +1,6 @@
 import { ErrorCodes, NarsilError } from '../../errors'
 import { bindWriteBlockLookup } from '../../narsil/write-blocks'
-import { DEFAULT_CONTROLLER_CONFIG, DEFAULT_NODE_LIFECYCLE_CONFIG } from '../cluster/constants'
-import { createController } from '../cluster/controller'
+import { DEFAULT_NODE_LIFECYCLE_CONFIG } from '../cluster/constants'
 import type { ControllerNode } from '../cluster/controller/types'
 import { createDataNodeLifecycle } from '../cluster/node-lifecycle'
 import type { DataNodeHandle } from '../cluster/node-lifecycle/types'
@@ -14,6 +13,8 @@ import { cleanupRemovedPartition } from './bootstrap-cleanup'
 import { clearBootstrapSyncIndex, createBootstrapSyncState, hasCompletedBootstrapSync } from './bootstrap-sync'
 import { createCatchUpState, startCatchUpPump, stopCatchUpPump } from './catch-up'
 import { createClusterNamespace } from './cluster-namespace'
+import { createNodeController } from './controller-role'
+import { decommissionNode } from './decommission'
 import { createAllocationErrorForwarder, createErrorForwarder } from './error-forwarding'
 import { type ClusterLocalEngine, createClusterLocalEngine } from './local-engine'
 import { orphanedIndexError, reconcileLocalIndexes } from './local-index-reconcile'
@@ -210,14 +211,7 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
   })
 
   if (hasControllerRole) {
-    controller = createController({
-      nodeId,
-      coordinator: config.coordinator,
-      transport: controllerTransport?.transport ?? config.transport,
-      leaseTtlMs: config.controller?.leaseTtlMs ?? DEFAULT_CONTROLLER_CONFIG.leaseTtlMs,
-      standbyRetryMs: config.controller?.standbyRetryMs ?? DEFAULT_CONTROLLER_CONFIG.standbyRetryMs,
-      nodeLeftDelayMs: config.controller?.nodeLeftDelayMs ?? DEFAULT_CONTROLLER_CONFIG.nodeLeftDelayMs,
-      knownIndexNames: [],
+    controller = createNodeController(config, nodeId, controllerTransport?.transport ?? config.transport, {
       onError: forwardAllocationError,
       onElectionError: forwardOnError,
     })
@@ -326,6 +320,14 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
         startCatchUpPump(writeDeps.catchUp, writeDeps)
       }
       serving = true
+    },
+
+    async decommission(options?: { signal?: AbortSignal }) {
+      guardShutdown()
+      await decommissionNode(
+        { nodeId, coordinator: config.coordinator, registration, lifecycle, node },
+        options?.signal,
+      )
     },
 
     async shutdown() {

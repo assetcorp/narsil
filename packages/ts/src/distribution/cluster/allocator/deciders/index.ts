@@ -3,11 +3,13 @@ import type { AllocationConstraints, Decider, DeciderContext, DeciderVerdict } f
 import { balanceDecider } from './balance'
 import { createCapacityDecider } from './capacity'
 import { colocationDecider } from './colocation'
+import { drainingDecider } from './draining'
 import { createMaxShardsDecider } from './max-shards'
 import { createZoneDecider } from './zone'
 
 export function createDeciderChain(constraints: AllocationConstraints, partitionSizes?: PartitionSizes): Decider[] {
   const deciders: Decider[] = [
+    drainingDecider,
     colocationDecider,
     createMaxShardsDecider(constraints.maxShardsPerNode),
     createCapacityDecider(partitionSizes),
@@ -37,5 +39,6 @@ export function runDeciders(deciders: Decider[], context: DeciderContext): Decid
 export { balanceDecider } from './balance'
 export { createCapacityDecider } from './capacity'
 export { colocationDecider } from './colocation'
+export { drainingDecider } from './draining'
 export { createMaxShardsDecider } from './max-shards'
 export { createZoneDecider } from './zone'

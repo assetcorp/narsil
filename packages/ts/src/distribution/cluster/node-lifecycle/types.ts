@@ -30,6 +30,7 @@ export interface DataNodeHandle {
   readonly pendingPartitionCount: number
   join(): Promise<void>
   renewRegistration(): void
+  writeRegistration(): Promise<void>
   leave(): Promise<void>
   shutdown(): Promise<void>
 }

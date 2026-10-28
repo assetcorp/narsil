@@ -134,7 +134,7 @@ describe('allocator integration', () => {
 
     for (const assignment of rebalancedTable.assignments.values()) {
       expect(assignment.primary).not.toBeNull()
-      expect(assignment.replicas).toHaveLength(1)
+      expect(assignment.replicas.filter(id => assignment.removingReplicas?.includes(id) !== true)).toHaveLength(1)
     }
 
     verifyNoColocationViolations(rebalancedTable)

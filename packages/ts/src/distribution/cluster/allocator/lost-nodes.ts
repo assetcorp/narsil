@@ -16,6 +16,7 @@ function markUnassigned(assignment: PartitionAssignment, lastPrimary: string | n
   assignment.inSyncSet = []
   assignment.lastHolders = [...holders].sort(compareCodePoints)
   assignment.state = 'UNASSIGNED'
+  delete assignment.removingReplicas
 }
 
 function primaryLoadOf(nodeId: string, primaryCounts: Map<string, number>, shares: Map<string, number>): number {
@@ -23,7 +24,7 @@ function primaryLoadOf(nodeId: string, primaryCounts: Map<string, number>, share
   return (primaryCounts.get(nodeId) ?? 0) / (share === undefined || share <= 0 ? 1 : share)
 }
 
-function leastLoadedCandidate(
+export function leastLoadedCandidate(
   candidates: string[],
   primaryCounts: Map<string, number>,
   shares: Map<string, number>,
@@ -43,11 +44,37 @@ function leastLoadedCandidate(
   return best
 }
 
+function promotionCandidate(
+  assignment: PartitionAssignment,
+  drainingNodeIds: ReadonlySet<string>,
+  primaryCounts: Map<string, number>,
+  shares: Map<string, number>,
+): string | undefined {
+  const inSyncCandidates = assignment.replicas.filter(id => assignment.inSyncSet.includes(id))
+  const staying = inSyncCandidates.filter(
+    id => !drainingNodeIds.has(id) && assignment.removingReplicas?.includes(id) !== true,
+  )
+  return (
+    leastLoadedCandidate(staying, primaryCounts, shares) ??
+    leastLoadedCandidate(inSyncCandidates, primaryCounts, shares)
+  )
+}
+
+function keepRemovingReplicasHeld(assignment: PartitionAssignment): void {
+  const removing = assignment.removingReplicas?.filter(id => assignment.replicas.includes(id)) ?? []
+  if (removing.length > 0) {
+    assignment.removingReplicas = removing
+  } else {
+    delete assignment.removingReplicas
+  }
+}
+
 export function handleLostNodes(
   assignments: Map<number, PartitionAssignment>,
   activeNodeIds: Set<string>,
   retainedNodeIds: ReadonlySet<string>,
   shares: Map<string, number>,
+  drainingNodeIds: ReadonlySet<string> = new Set(),
 ): void {
   const primaryCounts = countPrimaryAssignments(assignments)
 
@@ -66,6 +93,7 @@ export function handleLostNodes(
 
     assignment.replicas = assignment.replicas.filter(id => activeNodeIds.has(id) || retainedNodeIds.has(id))
     assignment.inSyncSet = assignment.inSyncSet.filter(id => activeNodeIds.has(id))
+    keepRemovingReplicasHeld(assignment)
 
     if (!primaryWasLost) {
       if (assignment.primary === null) {
@@ -74,8 +102,7 @@ export function handleLostNodes(
       continue
     }
 
-    const inSyncCandidates = assignment.replicas.filter(id => assignment.inSyncSet.includes(id))
-    const promoted = leastLoadedCandidate(inSyncCandidates, primaryCounts, shares)
+    const promoted = promotionCandidate(assignment, drainingNodeIds, primaryCounts, shares)
 
     if (promoted === undefined) {
       markUnassigned(assignment, lastPrimary, lastInSyncSet)
@@ -89,6 +116,7 @@ export function handleLostNodes(
     if (lastPrimary !== null && retainedNodeIds.has(lastPrimary)) {
       assignment.replicas.push(lastPrimary)
     }
+    keepRemovingReplicasHeld(assignment)
     assignment.primaryTerm += 1
   }
 }

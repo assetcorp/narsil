@@ -51,6 +51,12 @@ export interface PartitionAssignment {
   replicas: string[]
   /** These replicas are current enough to be promoted, which is the set a failover picks from. */
   inSyncSet: string[]
+  /**
+   * The controller is moving the copies on these nodes elsewhere, and each one stays in `replicas` and in `inSyncSet`
+   * until the copies outside this list reach the replication factor in sync. The field is absent while no move is
+   * under way.
+   */
+  removingReplicas?: string[]
   /** These nodes still hold a copy of a partition no node serves, and the field stays until the partition is `ACTIVE`. */
   lastHolders?: string[]
   /** This says where the partition stands in its move between nodes. */

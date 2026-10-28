@@ -4,7 +4,8 @@ import type { Decider, DeciderContext, NodeRegistration, NodeWeight, PartitionAs
  * Counts how many partition copies each node carries, whether it holds them as primary or as replica.
  *
  * The allocator reads these counts when it decides where a new copy may go, because a node already carrying many
- * copies is the one it moves work away from.
+ * copies is the one it moves work away from. A copy that a move is taking off a node leaves that node's count, so
+ * that the counts describe the cluster as it will stand once every move under way finishes.
  *
  * @param assignments - The assignments to count, by partition id.
  * @returns The number of copies each node carries, by node id, which omits a node carrying none.
@@ -17,6 +18,7 @@ export function countNodeAssignments(assignments: Map<number, PartitionAssignmen
       counts.set(assignment.primary, (counts.get(assignment.primary) ?? 0) + 1)
     }
     for (const replica of assignment.replicas) {
+      if (assignment.removingReplicas?.includes(replica) === true) continue
       counts.set(replica, (counts.get(replica) ?? 0) + 1)
     }
   }
