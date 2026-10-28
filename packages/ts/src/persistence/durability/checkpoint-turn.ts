@@ -1,3 +1,5 @@
+import type { VectorIndex } from '../../vector/vector-index'
+
 export interface CheckpointTurns {
   checkpointInFlight: Promise<void> | null
 }
@@ -10,21 +12,27 @@ export interface CheckpointTurn {
 }
 
 export interface IndexLoads {
-  track(indexName: string, load: Promise<void>): Promise<void>
+  track(indexName: string, load: Promise<void>, startsGraphRepairs?: boolean): Promise<void>
   settled(indexName: string): Promise<void>
+  startGraphRepairs(indexName: string): void
 }
 
-export function createIndexLoads(): IndexLoads {
+export function createIndexLoads(vectorIndexesOf: (indexName: string) => Map<string, VectorIndex>): IndexLoads {
   const loads = new Map<string, Promise<void>>()
+  const startGraphRepairs = (indexName: string): void => {
+    for (const vectorIndex of vectorIndexesOf(indexName).values()) vectorIndex.startShuffledRebuildWhenDue()
+  }
   return {
-    track(indexName, load) {
+    track(indexName, load, startsGraphRepairs = true) {
+      const loaded = startsGraphRepairs ? load.then(() => startGraphRepairs(indexName)) : load
       loads.set(
         indexName,
-        load.catch(() => undefined),
+        loaded.catch(() => undefined),
       )
-      return load
+      return loaded
     },
     settled: indexName => loads.get(indexName) ?? Promise.resolve(),
+    startGraphRepairs,
   }
 }
 

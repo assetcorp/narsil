@@ -92,6 +92,7 @@ function createMockVectorIndex(
     restoreCheckpoint() {
       return { addFile() {}, finish() {} }
     },
+    startShuffledRebuildWhenDue() {},
     vectorFilesInUse() {
       return []
     },

@@ -43,7 +43,7 @@ export function createSnapshotOnlyManager(
 
   const indexes = new Map<string, SnapshotIndexState>()
   const metadataWrites = new Map<string, Promise<void>>()
-  const loads = createIndexLoads()
+  const loads = createIndexLoads(hooks.getVectorIndexes)
   let checkpointTimer: ReturnType<typeof setInterval> | null = null
   let shuttingDown = false
 
@@ -143,8 +143,8 @@ export function createSnapshotOnlyManager(
     return queued
   }
 
-  function recoverIndex(indexName: string, metadataOnly = false): Promise<void> {
-    return loads.track(indexName, loadIndex(indexName, metadataOnly))
+  function recoverIndex(indexName: string, metadataOnly = false, startsGraphRepairs = true): Promise<void> {
+    return loads.track(indexName, loadIndex(indexName, metadataOnly), startsGraphRepairs)
   }
 
   async function loadIndex(indexName: string, metadataOnly: boolean): Promise<void> {
@@ -246,13 +246,12 @@ export function createSnapshotOnlyManager(
     },
 
     async recover(metadataOnly = false): Promise<void> {
-      const keys = await adapter.list('')
-      for (const key of keys) {
-        if (key.endsWith('/meta')) {
-          await recoverIndex(key.slice(0, -'/meta'.length), metadataOnly)
-        }
-      }
+      const names = (await adapter.list(''))
+        .filter(key => key.endsWith('/meta'))
+        .map(key => key.slice(0, -'/meta'.length))
+      for (const indexName of names) await recoverIndex(indexName, metadataOnly, false)
       startCheckpointTimer()
+      for (const indexName of names) loads.startGraphRepairs(indexName)
     },
 
     recoverIndex(indexName: string): Promise<void> {

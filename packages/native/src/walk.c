@@ -140,13 +140,13 @@ narsil_status begin_walk(walk_context *context, narsil_workspace *workspace, con
   context->metric = (narsil_metric)metric;
   context->fence = &workspace->fence;
   int holds_codes = store->bits != 0 && store->records_per_block > 0;
-  context->pairs_use_codes = holds_codes && load_word(store->header, NARSIL_STORE_WORD_CALIBRATED) == 1;
-  context->uses_codes = context->pairs_use_codes && load_word(store->header, NARSIL_STORE_WORD_CODE_COUNT) > 0;
+  context->uses_codes = holds_codes && load_word(store->header, NARSIL_STORE_WORD_CALIBRATED) == 1 &&
+                        load_word(store->header, NARSIL_STORE_WORD_CODE_COUNT) > 0;
   if (holds_codes) {
     context->code_bytes = code_bytes_of(store->dimension, store->bits);
     context->record_bytes = context->code_bytes + NARSIL_OSQ_TRAILER_BYTES;
   }
-  if (context->pairs_use_codes) { context->centroid_dot = centroid_dot_of(store); }
+  if (context->uses_codes) { context->centroid_dot = centroid_dot_of(store); }
   return workspace_reserve_dimension(workspace, store->dimension);
 }
 

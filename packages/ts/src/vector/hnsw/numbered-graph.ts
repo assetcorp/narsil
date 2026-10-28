@@ -22,6 +22,7 @@ export interface NumberedHnswGraph {
   levels: Uint8Array
   neighbours: Uint8Array
   shuffledBuildCount?: number
+  calibratedMeanLength?: number
 }
 
 function swapEveryValue(bytes: Uint8Array): void {

@@ -112,7 +112,6 @@ typedef struct {
   narsil_metric metric;
   uint32_t thread_slot;
   int uses_codes;
-  int pairs_use_codes;
   uint32_t slots;
   uint32_t store_slots;
   uint32_t code_bytes;
@@ -244,7 +243,6 @@ void prepare_code(narsil_workspace *workspace, const narsil_store *store, narsil
 uint32_t code_bytes_of(uint32_t dimension, uint32_t bits);
 uint32_t query_bits_of(uint32_t bits);
 double estimate_distance(const walk_context *context, const uint8_t *record);
-double estimate_pair_distance(const walk_context *context, const uint8_t *first, const uint8_t *second);
 double pair_distance(const walk_context *context, int32_t first, int32_t second);
 
 float kernel_dot(const float *lhs, const float *rhs, uint32_t dimension);
@@ -253,7 +251,6 @@ float kernel_magnitude(const float *values, uint32_t dimension);
 uint32_t kernel_products_8x8(const uint8_t *document, const uint8_t *query, uint32_t dimension);
 uint32_t kernel_products_4x4(const uint8_t *document, const uint8_t *low, const uint8_t *high, uint32_t bytes);
 uint32_t kernel_products_bits(packed_code document, const uint8_t *planes);
-uint32_t kernel_pair_products(packed_code first, const uint8_t *second, uint32_t dimension);
 
 int is_metric(uint32_t metric);
 int is_code_width(uint32_t bits);

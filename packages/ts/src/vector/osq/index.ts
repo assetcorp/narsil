@@ -119,6 +119,20 @@ export function createOsqQuantizer(
       view.writeCodesOf(ordinals)
     },
 
+    beginRecoding(centroid) {
+      requireShared().beginRecoding(centroid)
+    },
+
+    recode(ordinal) {
+      shared()?.recode(ordinal)
+    },
+
+    finishRecoding: () => shared()?.finishRecoding() ?? false,
+
+    abandonRecoding() {
+      shared()?.abandonRecoding()
+    },
+
     prepareQuery: query => shared()?.prepareQuery(query) ?? null,
 
     distanceFromPreparedByOrdinal: (prepared, ordinal) =>
@@ -129,14 +143,6 @@ export function createOsqQuantizer(
       if (view === null) return () => Number.POSITIVE_INFINITY
       return view.preparedDistance(prepared)
     },
-
-    pairDistance() {
-      const view = shared()
-      if (view === null) return () => Number.POSITIVE_INFINITY
-      return view.pairDistance()
-    },
-
-    distanceBetweenOrdinals: (ordA, ordB) => shared()?.distanceBetweenOrdinals(ordA, ordB) ?? Number.POSITIVE_INFINITY,
 
     clear() {
       const view = shared()

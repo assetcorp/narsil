@@ -1,6 +1,6 @@
 import { MAX_DOC_ID_LENGTH } from '../../engine/constants'
 import { MAX_FILE_BYTES } from '../../serialization/constants'
-import { graphWithoutNodes } from '../hnsw/numbered-graph'
+import { graphWithoutNodes, type NumberedHnswGraph } from '../hnsw/numbered-graph'
 import { osqBitsOf } from '../osq'
 import { osqRecordBytes } from '../osq/record'
 import { STORE_CALIBRATION_GENERATION } from '../vector-store/handles'
@@ -205,6 +205,14 @@ function numberEveryVector(
   return { numberOfOrdinal, ordinalOfNumber }
 }
 
+function withBuildHistory(state: VectorIndexState, graph: NumberedHnswGraph): NumberedHnswGraph {
+  const shuffledBuildCount = state.shuffledBuildCount
+  if (shuffledBuildCount === null) return graph
+  const calibratedMeanLength = state.calibratedMeanLength
+  if (calibratedMeanLength === null) return { ...graph, shuffledBuildCount }
+  return { ...graph, shuffledBuildCount, calibratedMeanLength }
+}
+
 function graphPartsOf(state: VectorIndexState, numbers: VectorNumbers): VectorGraphPartPayload[] | null {
   if (state.hnsw === null || numbers.ordinalOfNumber.length === 0) return null
   const parts = state.hnsw.serializeNumbered(
@@ -212,11 +220,10 @@ function graphPartsOf(state: VectorIndexState, numbers: VectorNumbers): VectorGr
     numbers.ordinalOfNumber,
     VECTOR_GRAPH_PART_VECTORS,
   )
-  const shuffledBuildCount = state.shuffledBuildCount
   return parts.map(graph => ({
     v: VECTOR_GRAPH_PART_PAYLOAD_VERSION,
     fieldName: state.fieldName,
-    graphs: [shuffledBuildCount === null ? graph : { ...graph, shuffledBuildCount }],
+    graphs: [withBuildHistory(state, graph)],
   }))
 }
 

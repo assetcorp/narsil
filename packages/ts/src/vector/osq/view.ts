@@ -7,15 +7,9 @@ import { NOTHING_STAGED, type OpenVectorBlock, QUERY_STAGED, slotByteOffset } fr
 import type { VectorCodeBlockLayout } from '../vector-store/code-blocks'
 import { STORE_CALIBRATED, STORE_CALIBRATION_GENERATION, STORE_CODE_COUNT } from '../vector-store/handles'
 import type { SharedVectorStoreView } from '../vector-store/view'
-import {
-  osqByteLevelProducts,
-  osqDistance,
-  osqEstimate,
-  osqNarrowPairProducts,
-  osqNibbleProducts,
-  osqStagedQueryProducts,
-} from './estimate'
+import { osqByteLevelProducts, osqDistance, osqEstimate, osqNibbleProducts, osqStagedQueryProducts } from './estimate'
 import { createOsqScratch, type OsqBits, osqCentroid, osqQuantize } from './quantize'
+import { type CodeRecoding, createCodeRecoding } from './recoding'
 import { type OsqTrailer, readTrailer, stageQueryLevels, writeRecord } from './record'
 import type { OsqQuery, QuantizerSearchReader } from './types'
 
@@ -39,8 +33,13 @@ export interface SharedQuantizerView extends QuantizerSearchReader {
   writeCentroid(centroid: Float32Array): void
   resetCalibration(): void
   resetCodes(): void
-  /** Estimates the distance between two ordinals from their records, for a graph built from codes. */
-  distanceBetweenOrdinals(ordA: number, ordB: number): number
+  /** Starts taking every record again against a new centroid in memory of its own, while searches go on reading the current records. */
+  beginRecoding(centroid: Float32Array): void
+  /** Takes the record of one ordinal against the new centroid, and does nothing while no recoding runs. */
+  recode(ordinal: number): void
+  /** Puts the new records and centroid in place of the current ones, which the caller does while it holds the graph alone, and reports false where no recoding ran. */
+  finishRecoding(): boolean
+  abandonRecoding(): void
 }
 
 export function openSharedQuantizer(
@@ -51,11 +50,11 @@ export function openSharedQuantizer(
   const { dimension, bits, queryBits, codeBytes, capacity } = layout
   const scratch = createOsqScratch(dimension)
   const documentTrailer: OsqTrailer = { lower: 0, upper: 0, correction: 0, sum: 0 }
-  const otherTrailer: OsqTrailer = { lower: 0, upper: 0, correction: 0, sum: 0 }
   let codePresent = fixedView(store.handles.codePresent, Uint8Array)
   let centroidDot = 0
   let centroidGeneration = -1
   let currentQuery: OsqQuery | null = null
+  let recoding: CodeRecoding | null = null
   const singleOrdinal = new Int32Array(1)
 
   function reach(ordinal: number): boolean {
@@ -116,13 +115,22 @@ export function openSharedQuantizer(
     const offset = recordOffset(ordinal)
     writeRecord(block.bytes(offset + layout.slotStride), offset, code, bits, block.data(offset + layout.slotStride))
     markPresent(ordinal)
+    recoding?.recode(ordinal)
   }
 
   function writeCodesOf(ordinals: Int32Array): void {
     if (!isCalibrated() || ordinals.length === 0) return
-    if (nativeQuantise(store.handles, metric, ordinals)) return
+    if (nativeQuantise(store.handles, metric, ordinals)) {
+      if (recoding !== null) for (const ordinal of ordinals) recoding.recode(ordinal)
+      return
+    }
     noteFallback('quantise')
     for (const ordinal of ordinals) writeRecordOf(ordinal)
+  }
+
+  function clearCodes(ordinal: number): void {
+    if (ordinal < 0 || !reach(ordinal)) return
+    if (Atomics.exchange(codePresent, ordinal, 0) === 1) Atomics.sub(store.handles.header, STORE_CODE_COUNT, 1)
   }
 
   function stageQuery(block: OpenVectorBlock, query: OsqQuery): boolean {
@@ -138,18 +146,6 @@ export function openSharedQuantizer(
     if (bits === 8) return simd.dot_u8(documentOffset, queryOffset, dimension)
     if (bits === 4) return simd.osq_dot_nibbles_4x4(documentOffset, queryOffset, codeBytes)
     return simd.osq_dot_bits(documentOffset, queryOffset, codeBytes, bits)
-  }
-
-  function simdPairProducts(simd: ArenaSimd, offsetA: number, offsetB: number): number {
-    if (bits === 8) return simd.dot_u8(offsetA, offsetB, dimension)
-    if (bits === 4) return simd.osq_dot_nibbles_4x4(offsetA, offsetB, codeBytes)
-    return simd.osq_dot_bits_pair(offsetA, offsetB, codeBytes, bits)
-  }
-
-  function pairProducts(bytesA: Uint8Array, offsetA: number, bytesB: Uint8Array, offsetB: number): number {
-    if (bits === 8) return osqByteLevelProducts(bytesA, offsetA, bytesB, offsetB, dimension)
-    if (bits === 4) return osqNibbleProducts(bytesA, offsetA, bytesB, offsetB, codeBytes)
-    return osqNarrowPairProducts(bytesA, offsetA, bytesB, offsetB, bits, codeBytes)
   }
 
   function productsAgainstQuery(block: OpenVectorBlock, documentOffset: number, query: OsqQuery): number {
@@ -189,26 +185,6 @@ export function openSharedQuantizer(
     return currentQuery
   }
 
-  function distanceBetween(ordA: number, ordB: number): number {
-    if (!holds(ordA) || !holds(ordB)) return Number.POSITIVE_INFINITY
-    const blockA = store.codeBlockOf(ordA)
-    const blockB = store.codeBlockOf(ordB)
-    const offsetA = recordOffset(ordA)
-    const offsetB = recordOffset(ordB)
-    let products: number
-    if (blockA === blockB && blockA.simd !== null) {
-      products = simdPairProducts(blockA.simd, offsetA, offsetB)
-    } else {
-      products = pairProducts(blockA.bytes(offsetA + codeBytes), offsetA, blockB.bytes(offsetB + codeBytes), offsetB)
-    }
-    readTrailer(blockA.data(offsetA + layout.slotStride), offsetA, codeBytes, documentTrailer)
-    readTrailer(blockB.data(offsetB + layout.slotStride), offsetB, codeBytes, otherTrailer)
-    return osqDistance(
-      osqEstimate(products, documentTrailer, bits, otherTrailer, bits, dimension, centroidDotNow(), metric),
-      metric,
-    )
-  }
-
   return {
     bits,
     metric,
@@ -246,6 +222,7 @@ export function openSharedQuantizer(
       const offset = recordOffset(ordinal)
       block.bytes(offset + layout.slotStride).set(record, offset)
       markPresent(ordinal)
+      recoding?.recode(ordinal)
     },
 
     recordAt(ordinal) {
@@ -254,23 +231,43 @@ export function openSharedQuantizer(
       return block.bytes(offset + layout.slotStride).subarray(offset, offset + layout.slotStride)
     },
 
-    clearCodes(ordinal) {
-      if (ordinal < 0 || !reach(ordinal)) return
-      if (Atomics.exchange(codePresent, ordinal, 0) === 1) Atomics.sub(store.handles.header, STORE_CODE_COUNT, 1)
-    },
+    clearCodes,
 
     writeCentroid,
 
     resetCalibration() {
+      recoding = null
       Atomics.store(store.handles.header, STORE_CALIBRATED, 0)
       store.handles.centroid.fill(0)
       Atomics.add(store.handles.header, STORE_CALIBRATION_GENERATION, 1)
     },
 
     resetCodes() {
+      recoding = null
       codePresent = fixedView(store.handles.codePresent, Uint8Array)
       codePresent.fill(0)
       Atomics.store(store.handles.header, STORE_CODE_COUNT, 0)
+    },
+
+    beginRecoding(centroid) {
+      recoding = createCodeRecoding({ store, layout, metric, holds, clearCodes }, Float32Array.from(centroid))
+    },
+
+    recode(ordinal) {
+      recoding?.recode(ordinal)
+    },
+
+    finishRecoding() {
+      if (recoding === null) return false
+      const finished = recoding
+      recoding = null
+      finished.copyIntoStore(store.slots)
+      writeCentroid(finished.centroid)
+      return true
+    },
+
+    abandonRecoding() {
+      recoding = null
     },
 
     prepareQuery,
@@ -306,41 +303,6 @@ export function openSharedQuantizer(
           bits,
           prepared,
           queryBits,
-          dimension,
-          centroidDotNow(),
-          metric,
-        )
-        return osqDistance(estimate, metric)
-      }
-    },
-
-    distanceBetweenOrdinals: distanceBetween,
-
-    pairDistance() {
-      if (store.handles.codeBlocks.length === 0) return distanceBetween
-      const block = store.codeBlockOf(0)
-      const simd = block.simd
-      if (simd === null) return distanceBetween
-      const presentView = codePresent
-      const limit = Math.min(presentView.length, capacity)
-      const data = block.data(0)
-      const dataLength = data.byteLength
-      const { slotsOffset, slotStride } = layout
-      return (ordA, ordB) => {
-        if (ordA < 0 || ordB < 0 || ordA >= limit || ordB >= limit) return distanceBetween(ordA, ordB)
-        if (presentView[ordA] !== 1 || presentView[ordB] !== 1) return Number.POSITIVE_INFINITY
-        const offsetA = slotsOffset + ordA * slotStride
-        const offsetB = slotsOffset + ordB * slotStride
-        if (Math.max(offsetA, offsetB) + slotStride > dataLength) return distanceBetween(ordA, ordB)
-        const products = simdPairProducts(simd, offsetA, offsetB)
-        readTrailer(data, offsetA, codeBytes, documentTrailer)
-        readTrailer(data, offsetB, codeBytes, otherTrailer)
-        const estimate = osqEstimate(
-          products,
-          documentTrailer,
-          bits,
-          otherTrailer,
-          bits,
           dimension,
           centroidDotNow(),
           metric,

@@ -3,7 +3,7 @@ import type { HNSWIndex } from '../hnsw'
 import { sharedMemoryAvailable } from '../shared-buffers/growable'
 import type { GraphInsertOutcome } from '../shared-field/types'
 import { BUILD_CHUNK_SIZE, WORKER_COPY_MIN_VECTORS } from './constants'
-import { liveSize, threadsHoldCurrentLayout, type VectorIndexState, yieldToEventLoop } from './shared'
+import { liveSize, threadsHoldCurrentLayout, type VectorIndexState, yieldBuildTurn } from './shared'
 import { noteWrite, shareGraph } from './worker-copies'
 
 export type OrdinalDispatcher = (ordinals: Int32Array) => Promise<GraphInsertOutcome | null>
@@ -144,7 +144,7 @@ async function insertLocally(
     count += 1
     if (count % BUILD_CHUNK_SIZE === 0) {
       noteWrite(state)
-      await yieldToEventLoop()
+      await yieldBuildTurn(state)
     }
   }
   if (count > 0) noteWrite(state)

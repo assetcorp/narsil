@@ -6,6 +6,7 @@ import {
   exactCosineRanking,
   FIELD,
   insertFileByFile,
+  lengthOfTheMeanUnitVector,
   NARROW_EF_SEARCH,
   NARROW_LIMIT,
   type Passage,
@@ -14,6 +15,8 @@ import {
   questionsNear,
   SETTLE_TIMEOUT_MS,
   savedCounts,
+  savedMeanLengths,
+  shuffledBySeed,
   snapshotFromAnEarlierRelease,
   snapshotWithFarPairs,
   untilSettled,
@@ -27,6 +30,8 @@ const ARRIVING_PASSAGES = 6_000
 const SAVED_PASSAGES = 2_000
 const QUESTIONS = 40
 const RECALL_FLOOR = 0.95
+const MEAN_LENGTH_DIGITS = 5
+const MIXED_ORDER_SEED = 7
 const ARRIVAL_TIMEOUT_MS = 600_000
 const INDEX = 'passages'
 
@@ -103,12 +108,16 @@ describe('a saved graph and the count of its last shuffled build', () => {
     await engine.shutdown()
   })
 
-  it('records the node count of the build and keeps it through a save and a load', async () => {
+  it('records the node count of the build and the length of the mean, and keeps both through a save and a load', async () => {
+    const meanLength = lengthOfTheMeanUnitVector(passages)
     expect(await savedCounts(engine, INDEX)).toEqual([SAVED_PASSAGES])
+    const [saved] = await savedMeanLengths(engine, INDEX)
+    expect(saved).toBeCloseTo(meanLength, MEAN_LENGTH_DIGITS)
 
     await restoredCopy(engine, INDEX, 'copy')
 
     expect(await savedCounts(engine, 'copy')).toEqual([SAVED_PASSAGES])
+    expect(await savedMeanLengths(engine, 'copy')).toEqual([saved])
   })
 
   it('rebuilds a loaded graph that carries no count, and the next save carries one', async () => {
@@ -143,7 +152,7 @@ describe('a saved graph and the count of its last shuffled build', () => {
     expect(missed.length).toBeGreaterThan(0)
   })
 
-  it('rebuilds a loaded graph once it holds twice the nodes of its saved count', async () => {
+  it('rebuilds a loaded graph at a doubling once the files that arrive after the load move the mean', async () => {
     await restoredCopy(engine, INDEX, 'grown')
     const later = passagesArrivingFileByFile(2 * SAVED_PASSAGES).slice(SAVED_PASSAGES)
 
@@ -152,5 +161,27 @@ describe('a saved graph and the count of its last shuffled build', () => {
 
     await insertFileByFile(engine, 'grown', later.slice(SAVED_PASSAGES / 2))
     expect(await savedCounts(engine, 'grown')).toEqual([2 * SAVED_PASSAGES])
+    const [meanLength] = await savedMeanLengths(engine, 'grown')
+    expect(meanLength).toBeCloseTo(
+      lengthOfTheMeanUnitVector(passagesArrivingFileByFile(2 * SAVED_PASSAGES)),
+      MEAN_LENGTH_DIGITS,
+    )
+    const grown = passagesArrivingFileByFile(2 * SAVED_PASSAGES)
+    expect(await passagesNotFoundFirst(engine, 'grown', grown, NARROW_LIMIT, NARROW_EF_SEARCH)).toEqual([])
+  })
+
+  it('keeps a loaded graph past a doubling while the passages that arrive leave the mean where it was', async () => {
+    const mixed = shuffledBySeed(passagesArrivingFileByFile(2 * SAVED_PASSAGES), MIXED_ORDER_SEED)
+    await engine.createIndex('mixed', {
+      schema: { [FIELD]: `vector[${DIMENSION}]` },
+      vectorPromotion: { quantization: 'osq4', threshold: SAVED_PASSAGES },
+    })
+    await insertFileByFile(engine, 'mixed', mixed.slice(0, SAVED_PASSAGES))
+    await restoredCopy(engine, 'mixed', 'steady')
+
+    await insertFileByFile(engine, 'steady', mixed.slice(SAVED_PASSAGES))
+
+    expect(await savedCounts(engine, 'steady')).toEqual([SAVED_PASSAGES])
+    expect(await passagesNotFoundFirst(engine, 'steady', mixed, NARROW_LIMIT, NARROW_EF_SEARCH)).toEqual([])
   })
 })

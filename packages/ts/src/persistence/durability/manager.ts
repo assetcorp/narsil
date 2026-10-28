@@ -58,7 +58,7 @@ export function createDurabilityManager(
   let shuttingDown = false
   let fatalError: Error | null = null
   const heldCheckpointFiles = new Map<string, number>()
-  const loads = createIndexLoads()
+  const loads = createIndexLoads(hooks.getVectorIndexes)
   const directoryWatch = createDirectoryWatch(directory, () => shuttingDown || fatalError !== null, markFatal)
 
   function stopTimers(): void {
@@ -277,8 +277,8 @@ export function createDurabilityManager(
     queueMetadataWrite,
   }
 
-  function recoverIndex(indexName: string, metadataOnly = false): Promise<void> {
-    return loads.track(indexName, recoverPersistedIndex(recoveryDeps, indexName, metadataOnly))
+  function recoverIndex(indexName: string, metadataOnly = false, startsGraphRepairs = true): Promise<void> {
+    return loads.track(indexName, recoverPersistedIndex(recoveryDeps, indexName, metadataOnly), startsGraphRepairs)
   }
 
   return {
@@ -291,11 +291,12 @@ export function createDurabilityManager(
       await removeAbandonedRestores(directory)
       const names = await listPersistedIndexes(directory)
       for (const indexName of names) {
-        await recoverIndex(indexName, metadataOnly)
+        await recoverIndex(indexName, metadataOnly, false)
       }
       await directoryWatch.verify()
       directoryWatch.start()
       startCheckpointTimer()
+      for (const indexName of names) loads.startGraphRepairs(indexName)
     },
 
     recoverIndex(indexName: string): Promise<void> {

@@ -1,17 +1,9 @@
 import { createHNSWIndex, type HNSWIndex } from '../hnsw'
 import { shuffleInPlace } from '../hnsw/insertion-order'
 import { insertIntoGraph } from './build-host'
-import { REBUILD_GROWTH_FACTOR } from './constants'
+import { calibrateBeforeBuild, recalibrateWhenDrifted } from './calibration'
 import { releasePendingLocations } from './disk'
-import {
-  adoptGraph,
-  allLiveDocIds,
-  calibrateQuantizer,
-  liveSize,
-  recalibrateFromStore,
-  type VectorIndexState,
-  yieldToEventLoop,
-} from './shared'
+import { adoptGraph, allLiveDocIds, liveSize, type VectorIndexState, yieldBuildTurn } from './shared'
 import { dropSharedGraph, noteWrite, scheduleWorkerCopyLoad } from './worker-copies'
 
 function bufferWhatTheGraphLacks(state: VectorIndexState, graph: HNSWIndex): void {
@@ -47,26 +39,18 @@ export async function buildGraphFromStore(state: VectorIndexState): Promise<bool
 
 export async function promoteToGraph(state: VectorIndexState): Promise<void> {
   if (liveSize(state) === 0) return
-  calibrateQuantizer(state)
-  await buildGraphFromStore(state)
+  if (await calibrateBeforeBuild(state)) await buildGraphFromStore(state)
 }
 
-export function calibrateBeforeRebuild(state: VectorIndexState, graph: HNSWIndex | null): void {
-  if (!state.osq?.isCalibrated()) {
-    calibrateQuantizer(state)
-    return
-  }
-  if (graph === null) {
-    recalibrateFromStore(state)
-    return
-  }
-  graph.exclusively(() => recalibrateFromStore(state))
-}
-
-export function shuffledBuildDue(state: VectorIndexState, held = state.hnsw?.size ?? 0): boolean {
+export function shuffledRebuildDue(state: VectorIndexState, held = state.hnsw?.size ?? 0): boolean {
   if (state.hnsw === null || held === 0) return false
   if (state.shuffledBuildCount === null) return true
-  return held >= REBUILD_GROWTH_FACTOR * state.shuffledBuildCount
+  return state.osq !== null && held >= state.nextDriftCheckAt
+}
+
+async function recalibratesForRebuild(state: VectorIndexState, graph: HNSWIndex): Promise<boolean> {
+  if (state.shuffledBuildCount === null) return calibrateBeforeBuild(state)
+  return recalibrateWhenDrifted(state, graph.size)
 }
 
 export async function buildExclusively(
@@ -97,15 +81,17 @@ export async function buildExclusively(
 }
 
 async function rebuildInShuffledOrder(state: VectorIndexState): Promise<void> {
-  await yieldToEventLoop()
+  await yieldBuildTurn(state)
   const replacing: { graph: HNSWIndex | null; loadedWithoutCount: boolean } = { graph: null, loadedWithoutCount: false }
   await buildExclusively(
     state,
     async () => {
-      if (!shuffledBuildDue(state)) return
-      replacing.graph = state.hnsw
-      replacing.loadedWithoutCount = state.shuffledBuildCount === null
-      calibrateBeforeRebuild(state, replacing.graph)
+      const graph = state.hnsw
+      if (graph === null || !shuffledRebuildDue(state)) return
+      const loadedWithoutCount = state.shuffledBuildCount === null
+      if (!(await recalibratesForRebuild(state, graph)) || state.hnsw !== graph) return
+      replacing.graph = graph
+      replacing.loadedWithoutCount = loadedWithoutCount
     },
     false,
   )
@@ -115,7 +101,7 @@ async function rebuildInShuffledOrder(state: VectorIndexState): Promise<void> {
 }
 
 export function startShuffledRebuild(state: VectorIndexState): void {
-  if (state.shuffledRebuild !== null || state.disposed || !shuffledBuildDue(state)) return
+  if (state.shuffledRebuild !== null || state.disposed || !shuffledRebuildDue(state)) return
   state.shuffledRebuild = rebuildInShuffledOrder(state)
     .catch((error: unknown) => {
       console.warn(
@@ -140,7 +126,7 @@ async function growGraph(state: VectorIndexState, graph: HNSWIndex, bufferSnapsh
     return true
   }
 
-  if (state.osq && !state.osq.isCalibrated()) calibrateQuantizer(state)
+  if (state.osq && !state.osq.isCalibrated() && !(await calibrateBeforeBuild(state))) return
 
   await insertIntoGraph(state, graph, bufferSnapshot, admit)
   startShuffledRebuild(state)
@@ -189,10 +175,10 @@ export function scheduleBuild(state: VectorIndexState): void {
   if (!buildDue(state)) return
 
   state.buildScheduled = true
-  setTimeout(() => {
+  void yieldBuildTurn(state).then(() => {
     state.buildScheduled = false
     triggerBuild(state)
-  }, 0)
+  })
 }
 
 export async function awaitBuilds(state: VectorIndexState): Promise<void> {

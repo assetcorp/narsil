@@ -66,13 +66,6 @@ double estimate_distance(const walk_context *context, const uint8_t *record) {
   return distance_from_products(context, level_products(context, record), summary_of_record(context, record), query);
 }
 
-double estimate_pair_distance(const walk_context *context, const uint8_t *first, const uint8_t *second) {
-  packed_code document = {first, context->code_bytes, context->store->bits};
-  uint32_t products = kernel_pair_products(document, second, context->store->dimension);
-  return distance_from_products(context, products, summary_of_record(context, first),
-                                summary_of_record(context, second));
-}
-
 double walk_distance(const walk_context *context, int32_t ordinal) {
   if (!context->uses_codes) { return float_distance(context, context->query, ordinal); }
   if (ordinal < 0 || (uint32_t)ordinal >= context->store_slots) { return HUGE_VAL; }
