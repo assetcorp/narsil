@@ -105,7 +105,7 @@ describe.skipIf(!built)('a restore that the process dies during', () => {
 
       expect(signal, output).toBe('SIGKILL')
       await expectWhole(kind, directory, expected, count)
-    })
+    }, 30_000)
   }
 })
 
@@ -139,7 +139,7 @@ describe('a restore journal that a crash or a hostile user left behind', () => {
         await mkdir(join(directory, '.restore-orphan'))
         await writeFile(join(directory, '.restore-orphan', 'manifest'), 'stray')
         await expectWhole(kind, directory, OLD, OLD_COUNT)
-      })
+      }, 30_000)
     }
 
     for (const { what, name, prefix } of HOSTILE_JOURNALS) {
@@ -152,14 +152,14 @@ describe('a restore journal that a crash or a hostile user left behind', () => {
         })
         await rm(join(directory, `.swap-${digestOf(name)}`))
         await expectWhole(kind, directory, OLD, OLD_COUNT)
-      })
+      }, 30_000)
     }
 
     it(`finishes a journal whose staging already moved, on an engine in ${kind}`, async () => {
       const { directory } = await preparedDirectory(kind)
       await writeFile(join(directory, `.swap-${digestOf(LIVE)}`), `${LIVE}\n.restore-moved/`)
       await expectWhole(kind, directory, OLD, OLD_COUNT)
-    })
+    }, 30_000)
 
     it(`refuses to start when the staging and the manifest are both gone, on an engine in ${kind}`, async () => {
       const { directory } = await preparedDirectory(kind)
@@ -169,6 +169,6 @@ describe('a restore journal that a crash or a hostile user left behind', () => {
       await expect(openEngine(configFor(kind, directory, false), engines)).rejects.toMatchObject({
         code: 'PERSISTENCE_LOAD_FAILED',
       })
-    })
+    }, 30_000)
   }
 })

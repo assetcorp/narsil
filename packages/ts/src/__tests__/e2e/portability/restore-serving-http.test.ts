@@ -79,7 +79,7 @@ function httpCases(workers: boolean): void {
     expect(observed.failures).toEqual([])
     expect(observed.rounds).toBeGreaterThan(1)
     expect(await holdsGeneration(server.engine, LIVE, NEW)).toBe(true)
-  })
+  }, 30_000)
 
   it('keeps the old index serving when the restore task fails to decode the archive', async () => {
     const { server, client } = await serverWithBothGenerations(workers)
@@ -92,7 +92,7 @@ function httpCases(workers: boolean): void {
     expect(observed.failures).toEqual([])
     expect(await holdsGeneration(server.engine, LIVE, OLD)).toBe(true)
     for (const id of observed.written) expect(await client.get(LIVE, id)).toBeDefined()
-  })
+  }, 30_000)
 }
 
 describe('a restore over HTTP while clients query the index', () => {

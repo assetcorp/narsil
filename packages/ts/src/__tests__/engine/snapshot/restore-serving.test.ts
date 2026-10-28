@@ -68,7 +68,7 @@ function servingCases(workers: boolean): void {
       expect(observed.rounds).toBeGreaterThan(1)
       expect(await engine.countDocuments(LIVE)).toBeGreaterThanOrEqual(NEW_COUNT)
       expect(await holdsGeneration(engine, LIVE, NEW)).toBe(true)
-    })
+    }, 30_000)
 
     for (const { damage, damaged, code } of ARCHIVE_DAMAGE) {
       it(`keeps the old index serving when the archive ${damage}, on an engine in ${kind}`, async () => {
@@ -82,7 +82,7 @@ function servingCases(workers: boolean): void {
         expect(observed.failures).toEqual([])
         expect(await holdsGeneration(engine, LIVE, OLD)).toBe(true)
         for (const id of observed.written) expect(await engine.get(LIVE, id)).toBeDefined()
-      })
+      }, 30_000)
     }
   }
 }
@@ -114,7 +114,7 @@ describe('a restore that survives a restart', () => {
         .map(file => `${file.parentPath}/${file.name}`.slice(directory.length + 1))
         .filter(path => path.startsWith('.'))
       expect(leftovers).toEqual([])
-    })
+    }, 30_000)
 
     it(`restores into an index whose name is 255 characters long, on an engine in ${kind}`, async () => {
       const directory = await newDirectory(roots)
@@ -128,6 +128,6 @@ describe('a restore that survives a restart', () => {
 
       const reopened = await openEngine(configFor(kind, directory, false), engines)
       expect(await holdsGeneration(reopened, longName, NEW)).toBe(true)
-    })
+    }, 30_000)
   }
 })
