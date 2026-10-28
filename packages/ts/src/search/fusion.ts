@@ -4,9 +4,7 @@ import type { ScoredDocument } from '../types/internal'
 import {
   DEFAULT_LINEAR_ALPHA,
   DEFAULT_RANK_CONSTANT,
-  MAX_HYBRID_DEPTH,
   MAX_LINEAR_ALPHA,
-  MIN_HYBRID_DEPTH,
   MIN_LINEAR_ALPHA,
   MIN_RANK_CONSTANT,
 } from './constants'
@@ -23,14 +21,12 @@ export interface HybridFusionSettings {
   strategy?: string | null
   k?: number | null
   alpha?: number | null
-  depth?: number | null
 }
 
 export interface ResolvedHybridFusion {
   strategy: 'rrf' | 'linear'
   k: number
   alpha: number
-  depth: number | undefined
 }
 
 function rankConstantOf(k: number | null | undefined): number {
@@ -57,39 +53,12 @@ function linearAlphaOf(alpha: number | null | undefined): number {
   return alpha
 }
 
-function hybridDepthOf(depth: number | null | undefined): number | undefined {
-  if (depth === undefined || depth === null) return undefined
-  if (!Number.isInteger(depth) || depth < MIN_HYBRID_DEPTH || depth > MAX_HYBRID_DEPTH) {
-    throw new NarsilError(
-      ErrorCodes.CONFIG_INVALID,
-      `hybrid.depth must be a whole number from ${MIN_HYBRID_DEPTH} to ${MAX_HYBRID_DEPTH}`,
-      { depth },
-    )
-  }
-  return depth
-}
-
-export function requireWithinHybridDepth(cursorDepth: number, offset: number, depth: number): void {
-  const start = cursorDepth + offset
-  if (start < depth) return
-  throw new NarsilError(
-    ErrorCodes.SEARCH_RESULT_WINDOW_EXCEEDED,
-    `A hybrid query pages through the first ${depth} fused results, and this page starts at ${start}. Raise hybrid.depth to page further`,
-    { offset, cursorDepth, depth },
-  )
-}
-
 export function resolveHybridFusion(hybrid: HybridFusionSettings | null | undefined): ResolvedHybridFusion {
   const strategy = hybrid?.strategy ?? 'rrf'
   if (strategy !== 'rrf' && strategy !== 'linear') {
     throw new NarsilError(ErrorCodes.CONFIG_INVALID, `hybrid.strategy must be "rrf" or "linear"`, { strategy })
   }
-  return {
-    strategy,
-    k: rankConstantOf(hybrid?.k),
-    alpha: linearAlphaOf(hybrid?.alpha),
-    depth: hybridDepthOf(hybrid?.depth),
-  }
+  return { strategy, k: rankConstantOf(hybrid?.k), alpha: linearAlphaOf(hybrid?.alpha) }
 }
 
 export function reciprocalRankFusion(lists: ScoredDocument[][], options: RRFOptions): ScoredDocument[] {

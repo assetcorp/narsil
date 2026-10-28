@@ -1,10 +1,8 @@
 import { ErrorCodes, NarsilError } from '../errors'
-import { isStringValuedBase, parsedTypeOf } from '../schema/validator/field-type'
-import { flattenSchema } from '../schema/validator/schema'
-import { normalizeSort } from '../search/sorting'
 import type { SchemaDefinition } from '../types/schema'
 import type { QueryParams } from '../types/search'
 import { DEFAULT_RERANK_WINDOW, MIN_RERANK_WINDOW } from './constants'
+import type { RuntimeHost } from './host'
 import { rerankQueryTextOf } from './query-text'
 
 export interface ResolvedRerank {
@@ -18,19 +16,19 @@ function invalid(message: string, details: Record<string, unknown> = {}): Narsil
   return new NarsilError(ErrorCodes.RERANK_CONFIG_INVALID, message, details)
 }
 
-function requireTextFields(fields: unknown, schema: SchemaDefinition): string[] {
+function requireTextFields(fields: unknown, schema: SchemaDefinition, host: RuntimeHost): string[] {
   if (!Array.isArray(fields) || fields.length === 0) {
     throw invalid('rerank.fields must list at least one text field')
   }
-  const flat = flattenSchema(schema)
+  const flat = host.flattenSchema(schema)
   const checked: string[] = []
   const seen = new Set<string>()
   for (const field of fields) {
     if (typeof field !== 'string') {
       throw invalid('rerank.fields accepts field paths written as strings', { field: String(field) })
     }
-    const parsed = parsedTypeOf(Object.hasOwn(flat, field) ? flat[field] : undefined)
-    if (parsed === undefined || !isStringValuedBase(parsed.base)) {
+    const parsed = host.parsedTypeOf(Object.hasOwn(flat, field) ? flat[field] : undefined)
+    if (parsed === undefined || !host.isStringValuedBase(parsed.base)) {
       throw invalid(`rerank.fields gives "${field}", which the schema does not declare as a text field`, { field })
     }
     if (seen.has(field)) {
@@ -67,12 +65,13 @@ export function resolveRerankParams(
   schema: SchemaDefinition,
   maxWindow: number,
   hybridDepth: number | undefined,
+  host: RuntimeHost,
 ): ResolvedRerank {
   const rerank: unknown = params.rerank
   if (typeof rerank !== 'object' || rerank === null || Array.isArray(rerank)) {
     throw invalid('rerank must be an object that gives an adapter and the fields to rerank by')
   }
-  if (normalizeSort(params.sort).length > 0) {
+  if (host.normalizeSort(params.sort).length > 0) {
     throw new NarsilError(
       ErrorCodes.SEARCH_INVALID_MODE,
       'A query cannot carry both rerank and a sort, because each of them sets the order of the hits',
@@ -82,7 +81,7 @@ export function resolveRerankParams(
   if (typeof adapter !== 'string' || adapter.length === 0) {
     throw invalid('rerank.adapter must give the name of a registered rerank adapter')
   }
-  const checkedFields = requireTextFields(fields, schema)
+  const checkedFields = requireTextFields(fields, schema, host)
   const checkedWindow = requireWindow(window, maxWindow, hybridDepth)
   const query = rerankQueryTextOf(params)
   if (query === undefined) {

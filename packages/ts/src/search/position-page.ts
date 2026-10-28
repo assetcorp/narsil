@@ -1,4 +1,4 @@
-import { encodePageCursor } from './cursor'
+import type { PageCursor } from './cursor'
 
 export interface PositionedHit {
   id: string
@@ -10,6 +10,7 @@ export interface PositionedPage {
   limit: number
   pinnedIds: ReadonlySet<string> | undefined
   binding: string
+  encodeCursor(cursor: PageCursor): string
 }
 
 function lastOrganic<T extends PositionedHit>(page: T[], pinnedIds: ReadonlySet<string> | undefined): T | undefined {
@@ -29,14 +30,14 @@ function positionOf<T extends PositionedHit>(organic: T[], id: string): number {
 export function pageByPosition<T extends PositionedHit>(
   placed: T[],
   organic: T[],
-  { start, limit, pinnedIds, binding }: PositionedPage,
+  { start, limit, pinnedIds, binding, encodeCursor }: PositionedPage,
 ): { page: T[]; cursor?: string } {
   if (limit <= 0) return { page: [] }
   const page = placed.slice(start, start + limit)
   const last = lastOrganic(page, pinnedIds)
   if (placed.length <= start + limit || last === undefined) return { page }
   const depth = pinnedIds === undefined ? start + page.lastIndexOf(last) + 1 : positionOf(organic, last.id) + 1
-  const cursor = encodePageCursor({
+  const cursor = encodeCursor({
     anchor: last.id,
     score: last.score ?? null,
     sortKey: null,

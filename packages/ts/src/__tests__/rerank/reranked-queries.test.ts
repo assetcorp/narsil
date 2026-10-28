@@ -211,6 +211,29 @@ describe('reranked queries on one engine', () => {
     }
   })
 
+  it('highlights the synonyms that matched each hit', async () => {
+    narsil.registerRerankAdapter('overlap', recordingReranker())
+    await narsil.createIndex('garage', { schema: { title: 'string' }, synonyms: [{ words: ['car', 'automobile'] }] })
+    const titles = ['red automobile parked outside', 'blue car by the automobile shop', 'green bicycle']
+    for (const [i, title] of titles.entries()) await narsil.insert('garage', { title }, `g${i}`)
+
+    const result = await narsil.query('garage', {
+      term: 'car',
+      rerank: { adapter: 'overlap', fields: ['title'], query: 'automobile' },
+      highlight: { fields: ['title'] },
+    })
+
+    expect(result.hits.map(hit => hit.id).sort()).toEqual(['g0', 'g1'])
+    for (const hit of result.hits) {
+      const title = titles[Number(hit.id.slice(1))]
+      const expected = [...title.matchAll(/\b(car|automobile)\b/g)].map(match => ({
+        start: match.index,
+        end: match.index + match[0].length,
+      }))
+      expect(hit.highlights?.title?.positions).toEqual(expected)
+    }
+  })
+
   it('calls no adapter where the page or the window holds no hit', async () => {
     const reranker = recordingReranker()
     narsil.registerRerankAdapter('overlap', reranker)

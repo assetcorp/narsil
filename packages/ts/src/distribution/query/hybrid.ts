@@ -1,7 +1,8 @@
 import { ErrorCodes, NarsilError } from '../../errors'
 import { HYBRID_RESCORE_WINDOW } from '../../search/constants'
-import { decodePageCursor } from '../../search/cursor'
-import { requireWithinHybridDepth, resolveHybridFusion } from '../../search/fusion'
+import { decodePageCursor, encodePageCursor } from '../../search/cursor'
+import { resolveHybridFusion } from '../../search/fusion'
+import { fixedHybridDepthOf, requireWithinHybridDepth } from '../../search/hybrid-depth'
 import { pageByPosition } from '../../search/position-page'
 import { ascendingFacetFields } from '../cluster-node/query-conversion'
 import type { FacetBucket, GlobalStatistics, ScoredEntry, WireGroupEntry, WireQueryParams } from '../transport/types'
@@ -81,6 +82,7 @@ function pageFixedDepth(
     limit: page.limit,
     pinnedIds: placedIds,
     binding: page.binding,
+    encodeCursor: encodePageCursor,
   })
   return { page: paged.page.map(hit => hit.entry), cursor: paged.cursor ?? null }
 }
@@ -124,7 +126,7 @@ export async function executeHybridQuery(
   config: DistributedQueryConfig,
 ): Promise<DistributedQueryResult> {
   const fusion = resolveHybridFusion(params.hybrid)
-  const fixedDepth = fusion.depth
+  const fixedDepth = fixedHybridDepthOf(params.hybrid)
   const cursorDepth =
     fixedDepth === undefined || params.searchAfter === null ? 0 : (decodePageCursor(params.searchAfter).depth ?? 0)
   if (fixedDepth !== undefined) requireWithinHybridDepth(cursorDepth, page.offset, fixedDepth)

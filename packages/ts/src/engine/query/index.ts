@@ -5,17 +5,17 @@ import { type FanOutResult, fanOutQuery } from '../../partitioning/fan-out'
 import { countsWithoutScores, fanOutMatchCount } from '../../partitioning/match-count'
 import { flattenSchema } from '../../schema/validator'
 import { decodePageCursor, requireMatchingCursor, sortSignatureOf } from '../../search/cursor'
-import { requireWithinHybridDepth, resolveHybridFusion } from '../../search/fusion'
 import { applyGrouping } from '../../search/grouping'
 import { applyPagination, type PaginationSortContext, requireWithinResultWindow } from '../../search/pagination'
 import { placePinned } from '../../search/pinning'
-import { pageByPosition } from '../../search/position-page'
 import { applySorting, normalizeSort, sortModesOf } from '../../search/sorting'
 import type { FacetResult, GroupResult, Hit, PreflightResult, QueryResult } from '../../types/results'
 import type { AnyDocument } from '../../types/schema'
 import type { QueryParams } from '../../types/search'
 import { clampLimit, clampOffset, now } from '../validation'
 import { applyHighlights } from './highlight'
+import type { FixedDepthHybrid } from './hybrid-depth'
+import { runtimeHost } from './runtime-host'
 import {
   broadcastStatsForWorker,
   coverageFor,
@@ -46,7 +46,7 @@ export async function executeQuery<T = AnyDocument>(
 ): Promise<QueryResult<T>> {
   if (request.rerank !== undefined) {
     const { executeRerankedQuery } = await import('../../rerank/runtime')
-    return executeRerankedQuery<T>(request, callerContext, executeQuery<T>)
+    return executeRerankedQuery<T>(request, callerContext, executeQuery<T>, runtimeHost)
   }
   const context = withPatternWork(callerContext)
   const { manager, language, config, workerSearch, indexName } = context
@@ -94,20 +94,20 @@ export async function executeQuery<T = AnyDocument>(
       requestedVectorField !== undefined && vectorSearchersOf(context).has(requestedVectorField)
 
     let fanOutResult: FanOutResult
-    let fusedFrom: number | undefined
+    let pageFixedDepth: FixedDepthHybrid['page'] | undefined
 
     if (isVectorOnly && hasGlobalVectorIndex) {
       const depth = requireCursorDepth(params.searchAfter, sortSignature, context.cursorBinding)
       fanOutResult = await executeVectorSearch(params, context, limit, offset, depth)
     } else if (isHybridMode && hasGlobalVectorIndex) {
-      const cursorDepth = requireCursorDepth(params.searchAfter, sortSignature, context.cursorBinding)
-      const hybridDepth = resolveHybridFusion(params.hybrid).depth
-      if (hybridDepth === undefined) {
-        fanOutResult = await executeHybridSearch(params, context, { limit, offset, cursorDepth })
+      const depth = requireCursorDepth(params.searchAfter, sortSignature, context.cursorBinding)
+      if ((params.hybrid?.depth ?? null) === null) {
+        fanOutResult = await executeHybridSearch(params, context, limit, offset, depth)
       } else {
-        requireWithinHybridDepth(cursorDepth, offset, hybridDepth)
-        fusedFrom = cursorDepth
-        fanOutResult = await executeHybridSearch(params, context, { depth: hybridDepth })
+        const { searchFixedDepthHybrid } = await import('../../rerank/runtime')
+        const fixed = await searchFixedDepthHybrid(params, context, { cursorDepth: depth, offset, limit }, runtimeHost)
+        fanOutResult = fixed.result
+        pageFixedDepth = fixed.page
       }
     } else {
       const scoring = scoringConfigFor(params, context)
@@ -193,9 +193,7 @@ export async function executeQuery<T = AnyDocument>(
 
     const organic = hits
     let pinsFromOutside = 0
-    const pinsPlaced =
-      params.pinned !== undefined && params.searchAfter === undefined && context.partitionIds === undefined
-    if (params.pinned && pinsPlaced) {
+    if (params.pinned && params.searchAfter === undefined && context.partitionIds === undefined) {
       const placement = placePinned(hits, params.pinned, (docId: string) => {
         const doc = manager.getRef(docId)
         if (!doc) return undefined
@@ -218,7 +216,7 @@ export async function executeQuery<T = AnyDocument>(
       params.pinned !== undefined && params.searchAfter === undefined
         ? new Set(params.pinned.map(entry => entry.docId))
         : undefined
-    if (fusedFrom === undefined) {
+    if (pageFixedDepth === undefined) {
       const paged = applyPagination(
         hits,
         limit,
@@ -231,13 +229,7 @@ export async function executeQuery<T = AnyDocument>(
       paginated = paged.paginated
       nextCursor = paged.nextCursor
     } else {
-      const placedIds = pinsPlaced ? pinnedIds : undefined
-      const paged = pageByPosition(hits, organic, {
-        start: fusedFrom + offset,
-        limit,
-        pinnedIds: placedIds,
-        binding: context.cursorBinding,
-      })
+      const paged = pageFixedDepth(hits, organic, context.partitionIds === undefined ? pinnedIds : undefined)
       paginated = paged.page
       nextCursor = paged.cursor
     }
@@ -325,12 +317,14 @@ export async function executePreflight(request: QueryParams, callerContext: Quer
     totalMatched = result.totalMatched
     countExact = result.matchedExact !== false
   } else if (isHybridMode && hasGlobalVectorIndex) {
-    const hybridDepth = resolveHybridFusion(params.hybrid).depth
-    const reach =
-      hybridDepth === undefined
-        ? { limit: preflightLimit, offset: preflightOffset, cursorDepth: 0 }
-        : { depth: hybridDepth }
-    const result = await executeHybridSearch(params, context, reach)
+    let result: FanOutResult
+    if ((params.hybrid?.depth ?? null) === null) {
+      result = await executeHybridSearch(params, context, preflightLimit, preflightOffset)
+    } else {
+      const { searchFixedDepthHybrid } = await import('../../rerank/runtime')
+      const window = { cursorDepth: 0, offset: 0, limit: 0 }
+      result = (await searchFixedDepthHybrid(params, context, window, runtimeHost)).result
+    }
     totalMatched = result.totalMatched
     countExact = result.matchedExact !== false
   } else if (countsWithoutScores(params)) {

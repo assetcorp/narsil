@@ -1,6 +1,6 @@
 import { ErrorCodes, NarsilError } from '../../errors'
 import { type FanOutResult, fanOutQuery } from '../../partitioning/fan-out'
-import { HYBRID_RESCORE_WINDOW, RESULT_WINDOW } from '../../search/constants'
+import { RESULT_WINDOW } from '../../search/constants'
 import { linearCombination, reciprocalRankFusion, resolveHybridFusion } from '../../search/fusion'
 import type { ScoredDocument } from '../../types/internal'
 import type { QueryParams, VectorQueryConfig } from '../../types/search'
@@ -87,7 +87,7 @@ export async function executeVectorSearch(
   return { scored, totalMatched: outcome.matched, matchedExact: outcome.matchedExact }
 }
 
-async function textLeg(textOnlyParams: QueryParams, context: SearchContext): Promise<FanOutResult> {
+export async function textLeg(textOnlyParams: QueryParams, context: SearchContext): Promise<FanOutResult> {
   const { manager, language, config, workerSearch, indexName } = context
   const scoring = scoringConfigFor(textOnlyParams, context)
   if (workerSearch) {
@@ -110,13 +110,13 @@ async function textLeg(textOnlyParams: QueryParams, context: SearchContext): Pro
   )
 }
 
-async function vectorLeg(
+export async function vectorLeg(
   vectorConfig: VectorQueryConfig,
   queryVector: Float32Array,
   context: QueryContext,
   filterDocIds: Set<string> | undefined,
   k: number,
-  rescoreWindow: number | undefined,
+  rescoreWindow?: number,
 ): Promise<{ scored: ScoredDocument[]; holdsEveryMatch: boolean }> {
   const { manager } = context
   const vecIndex = resolveVectorIndex(context, vectorConfig.field)
@@ -138,36 +138,16 @@ async function vectorLeg(
   }
 }
 
-function countOfUnion(text: FanOutResult, vectorScored: ScoredDocument[]): number {
-  const textIds = new Set<string>()
-  for (const doc of text.scored) textIds.add(doc.docId)
-  let vectorOnly = 0
-  for (const doc of vectorScored) if (!textIds.has(doc.docId)) vectorOnly++
-  if (text.scored.length === text.totalMatched) return text.totalMatched + vectorOnly
-  return Math.max(text.totalMatched, text.scored.length + vectorOnly)
-}
-
-export type HybridReach = { depth: number } | { limit: number; offset: number; cursorDepth: number }
-
-function hybridLegsOf(params: QueryParams, reach: HybridReach): { text: QueryParams; vectorK: number } {
-  if ('depth' in reach) {
-    const { vector: _vector, mode: _mode, hybrid: _hybrid, searchAfter: _after, pinned: _pinned, ...rest } = params
-    return { text: { ...rest, limit: reach.depth, offset: 0 }, vectorK: reach.depth }
-  }
-  const { vector: _vector, mode: _mode, hybrid: _hybrid, ...text } = params
-  return { text, vectorK: vectorFetchDepth(reach.limit, reach.offset, reach.cursorDepth) }
-}
-
 export async function executeHybridSearch(
   params: QueryParams,
   context: SearchContext,
-  reach: HybridReach,
+  limit: number,
+  offset: number,
+  cursorDepth = 0,
 ): Promise<FanOutResult> {
   const { manager, config } = context
-  const vectorConfig = params.vector
+  const { vector: vectorConfig, mode: _mode, hybrid: _hybrid, ...textOnlyParams } = params
   const fusion = resolveHybridFusion(params.hybrid)
-  const depth = 'depth' in reach ? reach.depth : undefined
-  const legs = hybridLegsOf(params, reach)
 
   let filterDocIds: Set<string> | undefined
   if (params.filters) {
@@ -178,7 +158,7 @@ export async function executeHybridSearch(
   }
 
   if (!vectorConfig || !vectorConfig.value) {
-    const textOnly = await textLeg(legs.text, context)
+    const textOnly = await textLeg(textOnlyParams, context)
     return { scored: textOnly.scored, totalMatched: textOnly.totalMatched, facets: textOnly.facets }
   }
 
@@ -187,41 +167,29 @@ export async function executeHybridSearch(
     new Float32Array(vectorConfig.value),
     context,
     filterDocIds,
-    legs.vectorK,
-    depth === undefined ? undefined : HYBRID_RESCORE_WINDOW,
+    vectorFetchDepth(limit, offset, cursorDepth),
   )
-  const [textFanOutResult, vectorOutcome] = await Promise.all([textLeg(legs.text, context), vectorPending])
+  const [textFanOutResult, vectorOutcome] = await Promise.all([textLeg(textOnlyParams, context), vectorPending])
   const vectorScored = vectorOutcome.scored
-  const textScored = depth === undefined ? textFanOutResult.scored : textFanOutResult.scored.slice(0, depth)
 
   let fusedScored: ScoredDocument[]
   if (fusion.strategy === 'rrf') {
-    fusedScored = reciprocalRankFusion([textScored, vectorScored], { k: fusion.k })
+    fusedScored = reciprocalRankFusion([textFanOutResult.scored, vectorScored], { k: fusion.k })
   } else {
-    fusedScored = linearCombination(textScored, vectorScored, { alpha: fusion.alpha })
+    fusedScored = linearCombination(textFanOutResult.scored, vectorScored, { alpha: fusion.alpha })
+  }
+
+  if (params.minScore !== undefined && params.minScore > 0) {
+    const threshold = params.minScore
+    fusedScored = fusedScored.filter(doc => doc.score >= threshold)
   }
 
   const textHoldsEveryMatch = textFanOutResult.scored.length === textFanOutResult.totalMatched
-  const threshold = params.minScore ?? 0
-  const filtersByScore = threshold > 0
-  if (filtersByScore) fusedScored = fusedScored.filter(doc => doc.score >= threshold)
-
-  if (depth === undefined) {
-    return {
-      scored: fusedScored,
-      totalMatched: fusedScored.length,
-      matchedExact: vectorOutcome.holdsEveryMatch && textHoldsEveryMatch,
-      facets: textFanOutResult.facets,
-    }
-  }
 
   return {
-    scored: fusedScored.length > depth ? fusedScored.slice(0, depth) : fusedScored,
-    totalMatched: filtersByScore ? fusedScored.length : countOfUnion(textFanOutResult, vectorScored),
-    matchedExact:
-      vectorOutcome.holdsEveryMatch &&
-      textHoldsEveryMatch &&
-      (!filtersByScore || textScored.length === textFanOutResult.totalMatched),
+    scored: fusedScored,
+    totalMatched: fusedScored.length,
+    matchedExact: vectorOutcome.holdsEveryMatch && textHoldsEveryMatch,
     facets: textFanOutResult.facets,
   }
 }
