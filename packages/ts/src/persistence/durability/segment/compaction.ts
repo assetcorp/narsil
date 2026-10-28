@@ -1,4 +1,5 @@
 import { createSharedFrozenSegment, type FrozenSegment, shareSegmentArrays } from '../../../core/partition/frozen'
+import type { TextAnalysis } from '../../../core/partition/frozen/surface-slot'
 import type { PartialWordAnalysis } from '../../../core/partition/partial-words/spellings'
 import { MAX_FILE_BYTES } from '../../../serialization/constants'
 import type { KeywordSegmentContents } from '../../../serialization/keyword-segment/types'
@@ -14,6 +15,7 @@ export interface CompactionInput {
   partitionId: number
   schema: Record<string, string>
   partialWordAnalysis: PartialWordAnalysis | null
+  textAnalysis: TextAnalysis | null
   segments: SegmentRef[]
   nextSegmentId: number
   compactionThreshold: number
@@ -109,6 +111,7 @@ export async function compactPartitionSegments(input: CompactionInput): Promise<
     nextSegmentId: input.nextSegmentId,
     schema: input.schema,
     partialWordAnalysis: input.partialWordAnalysis,
+    textAnalysis: input.textAnalysis,
     selections: frozen.map(segment => ({ segment })),
     tombstones: retainedTombstones(frozen, contents),
     mergesIntoOneFile: true,

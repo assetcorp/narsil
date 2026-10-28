@@ -1,9 +1,9 @@
-import { releaseLocksHeldBy } from '../../vector/hnsw/locks'
 import type { GraphInsertOutcome, SharedVectorFieldHandles } from '../../vector/shared-field/types'
 import type { SharedCopyHost } from '../../vector/vector-index/shared'
 import type { WorkerLease } from '../../workers/pool'
 import { createRequestId } from '../../workers/protocol'
 import { threadSlotOfWorker } from '../../workers/thread-slot'
+import { requireLoadedVectorCode } from '../../workers/vector-code'
 import { awaitWritesApplied, replicateToWorkers } from './replication'
 import type { OrchestratorState } from './types'
 
@@ -88,6 +88,8 @@ export function sharedCopyHostOf(state: OrchestratorState): SharedCopyHost {
 }
 
 export function releaseVectorLocksOf(state: OrchestratorState, workerId: number): void {
+  if (state.sharedVectorFields.size === 0) return
+  const { releaseLocksHeldBy } = requireLoadedVectorCode()
   for (const handles of state.sharedVectorFields.values()) {
     if (handles.graph !== null) releaseLocksHeldBy(handles.graph, threadSlotOfWorker(workerId))
   }

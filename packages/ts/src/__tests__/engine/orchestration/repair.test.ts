@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, it } from 'vitest'
 import { createPatternWorkMeter } from '../../../core/pattern-index/work-meter'
 import { POOL_RESTART_DELAY_MS } from '../../../engine/orchestration/constants'
 import { noteAccess } from '../../../engine/orchestration/idle'
@@ -21,7 +21,12 @@ import type { Executor } from '../../../workers/executor'
 import { createWorkerPool, type WorkerPool } from '../../../workers/pool'
 import type { WorkerAction } from '../../../workers/protocol'
 import { threadSlotOfWorker } from '../../../workers/thread-slot'
+import { loadVectorCode } from '../../../workers/vector-code'
 import { emptyOrchestratorState, registryWith, settle } from './fixtures'
+
+beforeAll(async () => {
+  await loadVectorCode()
+})
 
 describe('a pool whose every worker has crashed', () => {
   function crashablePool(state: OrchestratorState): { pool: WorkerPool; deaths: Array<(error: Error) => void> } {
@@ -172,10 +177,11 @@ describe('a crashed worker is replaced', () => {
         ...emptyOrchestratorState().executor,
         getManager: () =>
           ({
+            indexName: 'prose',
+            language: { name: 'english' },
             partitionCount: 1,
             countDocuments: () => 0,
             getPartition: () => ({ count: () => 0 }),
-            serializePartition: (partitionId: number) => ({ partitionId }),
           }) as unknown as PartitionManager,
       },
     })

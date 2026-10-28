@@ -192,6 +192,7 @@ export function executeListDocuments<T = AnyDocument>(params: ListParams, contex
   const signature = sortSignatureOf(params.sort)
   requireSortableFields(params.sort, schema, context.strict === true)
   const filters = validQueryFilter(params.filters, schema)
+  const projection = resolveProjection(params.document)
 
   const binding = listBindingOf(params.filters)
   let cursor: PageCursor | null = null
@@ -214,8 +215,6 @@ export function executeListDocuments<T = AnyDocument>(params: ListParams, contex
     params.sort === undefined || signature === null
       ? pageInIdOrder(partitions, cursor, filtered, limit, binding)
       : pageInSortOrder(partitions, cursor, filtered, limit, params.sort, signature, schema, binding)
-
-  const projection = resolveProjection(params.document)
 
   const documents: Array<ListedDocument<T>> = []
   for (const docId of page.ids) {

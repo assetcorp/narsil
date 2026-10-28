@@ -1,13 +1,18 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeAll, describe, expect, it, vi } from 'vitest'
 import type { PartitionManager } from '../../partitioning/manager'
 import type { SharedVectorFieldHandles } from '../../vector/shared-field/types'
 import { createSharedVectorStoreHandles, STORE_BLOCK_COUNT } from '../../vector/vector-store/handles'
+import { loadVectorCode } from '../../workers/vector-code'
 import {
   closeHeldVectorCopies,
   createHeldVectorCopies,
   holdsVectorField,
   loadHeldVectorCopy,
 } from '../../workers/vector-copies'
+
+beforeAll(async () => {
+  await loadVectorCode()
+})
 
 const DIMENSION = 4
 const TEXT_COPY = { has: () => true } as unknown as PartitionManager

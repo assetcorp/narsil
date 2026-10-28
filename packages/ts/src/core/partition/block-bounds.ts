@@ -32,8 +32,9 @@ function scan(
   previous: PostingBlockBounds | null,
   keepBlocks: number,
 ): PostingBlockBounds {
+  const { docIds, termFrequencies, fieldNameIndices, length } = list
   const startEntry = previous !== null && keepBlocks > 0 ? previous.entryEnd[keepBlocks - 1] : 0
-  const capacity = keepBlocks + Math.ceil((list.length - startEntry) / TARGET_BLOCK_ENTRIES) + 1
+  const capacity = keepBlocks + Math.ceil((length - startEntry) / TARGET_BLOCK_ENTRIES) + 1
   const entryEnd = new Int32Array(capacity)
   const maxTermFrequency = new Int32Array(capacity)
   const minFieldLength = new Float64Array(capacity)
@@ -59,16 +60,16 @@ function scan(
   let blockDocs = 0
 
   let entry = startEntry
-  while (entry < list.length) {
-    const docId = list.docIds[entry]
+  while (entry < length) {
+    const docId = docIds[entry]
     const tombstoned = hasDeleted && deleted.has(docId)
     let run = 0
-    while (entry + run < list.length && list.docIds[entry + run] === docId) {
+    while (entry + run < length && docIds[entry + run] === docId) {
       if (!tombstoned) {
         const position = entry + run
-        const termFrequency = list.termFrequencies[position]
+        const termFrequency = termFrequencies[position]
         if (termFrequency > blockMaxTf) blockMaxTf = termFrequency
-        const fieldLength = fieldLengthBound(columns, list.fieldNameIndices[position], docId)
+        const fieldLength = fieldLengthBound(columns, fieldNameIndices[position], docId)
         if (fieldLength < blockMinLen) blockMinLen = fieldLength
       }
       run++
@@ -79,7 +80,7 @@ function scan(
     }
     entry += run
 
-    if (entry - blockStart >= TARGET_BLOCK_ENTRIES || entry === list.length) {
+    if (entry - blockStart >= TARGET_BLOCK_ENTRIES || entry === length) {
       entryEnd[blockIndex] = entry
       maxTermFrequency[blockIndex] = blockMaxTf
       minFieldLength[blockIndex] = blockMinLen === Number.POSITIVE_INFINITY ? ABSENT_FIELD_LENGTH_BOUND : blockMinLen
