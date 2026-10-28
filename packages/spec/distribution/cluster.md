@@ -290,6 +290,7 @@ AllocationTable {
   version:           uint64   (increases on every update)
   replicationFactor: uint8    (replicas per partition, the primary excluded)
   assignments:       Map<uint32, PartitionAssignment>
+  generation:        string or absent   (the index that serves this name after a partition count change)
 }
 
 PartitionAssignment {
@@ -314,6 +315,10 @@ A counter that increases on every update. A node compares its cached version wit
 The number of replicas per partition, not counting the primary, so a factor of 2 gives one primary and two replicas, three copies in total. The default is 1, which is two copies.
 
 It is set per index at creation time, and changing it on an existing index triggers reallocation.
+
+### generation
+
+The name of the index that serves this index name, which the controller writes when a [partition count change](#partition-count-change) finishes. A table that carries `generation` holds no assignments. Every reader must resolve the index name to that generation before it routes a read, a write, or a metadata lookup. A listing reports the index name and leaves out every name that starts with `narsil-generation-`. A table with no assignments and no `generation` still counts as absent, as the [deletion flow](#index-deletion-flow) requires.
 
 ### assignments
 
@@ -643,11 +648,91 @@ _narsil/index/{indexName}/config
    putAllocation.
 ```
 
-The `partitionCount` stays fixed for the life of the index, so a caller that needs another count must create a new index and reindex into it. Every node must create its local index with exactly `partitionCount` partitions, so that any holder can load a serialised partition unchanged.
+A caller changes the `partitionCount` of an index through the [partition count change](#partition-count-change), which keeps reads and writes open until a cutover of a few seconds at most. Every node must create its local index with exactly `partitionCount` partitions, so that any holder can load a serialised partition unchanged.
 
 After creation, a caller can change an index's `replicationFactor` by sending [cluster.replication_factor](transport.md#clusterreplication_factor) to the controller. The controller stores the new factor in the index metadata, then writes an allocation table that carries it, and it applies the factor at once. A higher factor fills the new replica slots, and each new copy bootstraps. A lower factor removes the surplus replicas, taking any lagging replica first and then the copy on the busiest node, and it never removes the primary. The index metadata holds the factor that counts, so the controller must take the factor from the metadata on every allocator run, which lets a controller elected after a crash between the two writes finish the change.
 
 A caller rebuilds the terms of a cluster index through any node, which sends [cluster.rebuild_analysis](transport.md#clusterrebuild_analysis) to every node that holds a copy of the index. Each node rebuilds every copy that it holds from that copy's own documents, as a single engine rebuilds an index, and it builds each copy with the settings in the index metadata, so a primary and its replicas reach the same terms without sending entries. A node skips a copy whose recorded analysis revision already matches the revision of the language module, so a repeated call rebuilds only the copies that are still stale. The node that received the call reports success once every holder answers. It fails the call with `QUERY_PARTIAL_FAILURE`, naming each node that answered with an error, that the transport could not reach, or that left the cluster before it answered.
+
+### Partition Count Change
+
+A caller changes the `partitionCount` of an index by sending [cluster.rebalance](transport.md#clusterrebalance) to the controller. The controller builds the new layout as a hidden generation of the index, copies every document into it while the current generation goes on serving, and moves the index name onto the generation once the copy has caught up, as Vitess switches traffic after it reshards. A forwarded document carries its vector values, so the generation stores them without calling an embedding adapter.
+
+```text
+1. The controller records the change under
+   _narsil/index/{indexName}/rebalance with compareAndSet against
+   an absent value, so that a second change to the same index fails
+   with PARTITION_REBALANCING_BACKPRESSURE while the first one runs.
+2. It creates the generation as an ordinary index named
+   narsil-generation-{indexUuid}, with a fresh indexUuid, the stored
+   schema and settings, the new partitionCount, and the current
+   replicationFactor, and it allocates that index through the
+   creation flow.
+3. Once every partition of the generation is ACTIVE, the controller
+   sends cluster.reshard_start to the primary of each partition of
+   the current generation. That primary takes a snapshot of its
+   partition at its last sequence number S, records S under
+   _narsil/index/{indexName}/rebalance/{partitionId}, and sends
+   every document in the snapshot through cluster.reshard_forward,
+   routed by the new partitionCount.
+4. The primary then reads its replication log from S + 1 in
+   sequence order and forwards each entry as the full document that
+   the entry left, or as a removal. After each batch that the
+   generation acknowledges, it records the highest forwarded
+   sequence number under the same key.
+5. Once every partition has forwarded to within 1,000 entries of
+   its last sequence number, the controller sets the phase of the
+   record to cutover and sends cluster.reshard_cutover with block to
+   each primary of the current generation. Each of those primaries
+   refuses every new write with PARTITION_REBALANCING_BACKPRESSURE,
+   waits for the writes that it has already accepted, and answers
+   with its last sequence number.
+6. Once each recorded forwarded sequence number reaches the one
+   that its primary answered, the controller writes the allocation
+   table of the index name with generation set to the generation's
+   name and no assignments, using the version of the stored table
+   as the expected version. That one write moves every read and
+   write onto the generation.
+7. The current generation then goes through the deletion flow. The
+   controller keeps the schema and the index metadata stored under
+   the index name, so that the name stays taken, and it deletes the
+   record.
+```
+
+Six rules keep the copy exact through faults:
+
+- A forwarded document replaces the stored document where one exists, and the generation inserts it otherwise. A forwarded removal succeeds where the document is already absent, so a primary can resend any entry. Each document lives in one partition of the current generation, so forwarding each partition in sequence order keeps the order of every write to a document.
+- Each forwarded batch carries the primaryTerm of the partition that sent it. A primary of the generation must refuse a batch whose term is lower than the highest that it has accepted for that change and that partition, and a write of the progress key that carries a lower term must fail, so that a demoted primary can neither overwrite newer documents nor move the recorded position back.
+- When the controller promotes a new primary for a partition of the current generation, it sends cluster.reshard_start to that primary, which resumes after the recorded sequence number. Where the log of that primary no longer holds the next entry, the primary sends cluster.reshard_purge to every primary of the generation, which removes every document that routes to that partition under the current `partitionCount`, and it restarts from a new snapshot once they all answer, so that no document that a removal deleted in the gap survives.
+- A primary of the current generation keeps refusing writes with `PARTITION_REBALANCING_BACKPRESSURE` from the cutover block until its copy is dropped, and a primary that the controller promotes while the phase is `cutover` must refuse writes in the same way, so that a router with a stale table retries until its allocation watch delivers the swap.
+- Where the catch-up in step 6 takes longer than 10,000 ms, the controller sends cluster.reshard_cutover with lift, sets the phase back to `copying`, and tries again. After 10 cutover attempts, it aborts the change.
+- An abort, and any failure before the swap, sets the phase to `aborting`, drops the generation through the deletion flow, deletes the record, and lifts the block, so the current generation keeps serving. A newly elected controller reads the record and resumes: in the `copying` phase it sends cluster.reshard_start again, in the `cutover` phase it sends lift and returns to `copying`, and in the `aborting` phase it finishes the drop.
+
+The controller stores the record and each partition's progress as MessagePack in the coordinator's general key-value store:
+
+```text
+_narsil/index/{indexName}/rebalance
+RebalanceRecord {
+  jobId:                string   (a UUID v7 for this change)
+  sourceGeneration:     string   (the index that serves the name now)
+  targetGeneration:     string   (narsil-generation-{indexUuid})
+  targetPartitionCount: uint32
+  phase:                'copying' or 'cutover' or 'aborting'
+  cutoverAttempts:      uint32
+}
+
+_narsil/index/{indexName}/rebalance/{partitionId}
+RebalanceProgress {
+  jobId:          string
+  primaryTerm:    uint64   (the term of the primary that wrote this record)
+  snapshotSeqNo:  uint64
+  forwardedSeqNo: uint64
+}
+```
+
+The controller creates the record with compareAndSet against an absent value and deletes it, with every progress key, once the swap or the abort finishes. The primary of each partition writes its progress key with compareAndSet. The generation keeps its own config, schema, and allocation keys under its own name.
+
+The node that received the call waits until the allocation table of the index name carries the generation that the record names, and it fails the call with `ALLOCATION_FAILED` where the record is deleted first. A node must refuse to create an index whose name starts with `narsil-generation-` through any operation that a caller can reach, failing with `CONFIG_INVALID`.
 
 ### Index Deletion Flow
 
@@ -685,6 +770,8 @@ Deleting an index reverses the creation flow, and the controller drives the tear
    is gone. It finds that copy orphaned when it rejoins; see
    [Joining the Cluster](#joining-the-cluster).
 ```
+
+A drop of an index name whose table carries a `generation` drops that generation through the same flow, and a drop during a partition count change aborts the change first.
 
 A drop is not atomic across nodes: a query routed while the teardown runs can reach a node that already dropped its partitions, and the coordinator then reports the failure through the partial-results rules in [query-routing.md](query-routing.md#partial-results).
 

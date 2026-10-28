@@ -121,6 +121,11 @@ When a primary refuses a forwarded mutation, the node that forwarded it must pas
 | `cluster.partition_stores` | controller to data node | Asks which partitions of an index the node holds on disk |
 | `cluster.replication_factor` | any node to controller | Changes the replication factor of an index |
 | `cluster.rebuild_analysis` | any node to data node | Rebuilds the terms of every copy of an index that the node holds |
+| `cluster.rebalance` | any node to controller | Changes the partition count of an index |
+| `cluster.reshard_start` | controller to primary | Starts or resumes copying one partition into the new generation |
+| `cluster.reshard_forward` | primary to primary | Copies documents and removals into the new generation |
+| `cluster.reshard_cutover` | controller to primary | Blocks or lifts writes for the cutover |
+| `cluster.reshard_purge` | primary to primary | Removes one old partition's documents from the new generation |
 
 ---
 
@@ -393,6 +398,117 @@ A node that holds no copy under that `indexUuid` answers with an empty list, so 
 {
   indexName:         string
   rebuiltPartitions: List<uint32>   (the copies that it rebuilt, leaving out each copy that was already current)
+}
+```
+
+### cluster.rebalance
+
+A node sends this to the active controller to start a [partition count change](cluster.md#partition-count-change).
+
+```text
+{
+  indexName:            string
+  targetPartitionCount: uint32
+}
+```
+
+The controller refuses the request with `NODE_NOT_CONTROLLER` where it holds no controller lease, with `INDEX_NOT_FOUND` where the coordinator holds no metadata for the index, with `CONFIG_INVALID` for a count that the creation flow would refuse or that equals the current count, and with `PARTITION_REBALANCING_BACKPRESSURE` while another change to the index runs. Otherwise it answers once it has written the record:
+
+```text
+{
+  indexName:        string
+  jobId:            string
+  targetGeneration: string
+}
+```
+
+### cluster.reshard_start
+
+The controller sends this to the primary of a partition of the current generation, at the start of the copy and again after it promotes a new primary.
+
+```text
+{
+  indexName:            string
+  jobId:                string
+  sourceGeneration:     string
+  targetGeneration:     string
+  partitionId:          uint32
+  sourcePartitionCount: uint32
+  targetPartitionCount: uint32
+}
+```
+
+A repeat with the same `jobId` and `partitionId` changes nothing while the copy for that partition runs. The primary answers:
+
+```text
+{
+  jobId:         string
+  partitionId:   uint32
+  snapshotSeqNo: uint64
+}
+```
+
+### cluster.reshard_forward
+
+A primary of the current generation sends this to a primary of the new generation.
+
+```text
+{
+  targetGeneration:  string
+  jobId:             string
+  sourcePartitionId: uint32
+  sourcePrimaryTerm: uint64
+  operations:        List<{
+    documentId: string
+    operation:  'replace' or 'remove'
+    document:   bytes or absent   (the encoded document, present for replace)
+  }>
+}
+```
+
+The receiving primary refuses the batch with `REPLICATION_TERM_MISMATCH` where `sourcePrimaryTerm` is lower than the highest that it has accepted for that `jobId` and `sourcePartitionId`. Otherwise it replicates each operation as an ordinary entry, and it answers with one result per operation, in the shape of the results of [replication.forward_batch](#replicationforward_batch).
+
+### cluster.reshard_cutover
+
+The controller sends this to the primary of each partition of the current generation.
+
+```text
+{
+  indexName:   string
+  jobId:       string
+  partitionId: uint32
+  action:      'block' or 'lift'
+}
+```
+
+The primary answers once every write that it accepted before a `block` has finished:
+
+```text
+{
+  jobId:       string
+  partitionId: uint32
+  lastSeqNo:   uint64
+}
+```
+
+### cluster.reshard_purge
+
+A primary of the current generation sends this to every primary of the new generation before it restarts its copy from a new snapshot.
+
+```text
+{
+  targetGeneration:     string
+  jobId:                string
+  sourcePartitionCount: uint32
+  sourcePartitionId:    uint32
+}
+```
+
+Each receiving primary removes every document that it holds whose ID routes to `sourcePartitionId` under `sourcePartitionCount`, and it answers:
+
+```text
+{
+  removed: uint32
 }
 ```
 
