@@ -679,9 +679,10 @@ A caller changes the `partitionCount` of an index by sending [cluster.rebalance]
    sequence order and forwards each entry as the full document that
    the entry left, or as a removal. After each batch that the
    generation acknowledges, it records the highest forwarded
-   sequence number under the same key.
-5. Once every partition has forwarded to within 1,000 entries of
-   its last sequence number, the controller sets the phase of the
+   sequence number under the same key, together with the last
+   sequence number in its log at that moment.
+5. Once the recorded forwarded sequence number of every partition
+   is within 1,000 entries of its recorded last sequence number, the controller sets the phase of the
    record to cutover and sends cluster.reshard_cutover with block to
    each primary of the current generation. Each of those primaries
    refuses every new write with PARTITION_REBALANCING_BACKPRESSURE,
@@ -727,6 +728,7 @@ RebalanceProgress {
   primaryTerm:    uint64   (the term of the primary that wrote this record)
   snapshotSeqNo:  uint64
   forwardedSeqNo: uint64
+  sourceLastSeqNo: uint64  (the last sequence number in the primary's log when it wrote this record)
 }
 ```
 
