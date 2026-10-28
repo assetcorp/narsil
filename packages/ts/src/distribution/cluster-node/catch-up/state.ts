@@ -2,7 +2,7 @@ import type { PartitionAssignment } from '../../coordinator/types'
 
 export interface ReplicaCursor {
   appliedSeqNo: number
-  sending: boolean
+  busy: boolean
   syncEpoch: number
 }
 
@@ -13,6 +13,7 @@ export interface CatchUpState {
   inFlightBytes: number
   timer: ReturnType<typeof setInterval> | null
   activeTick: Promise<void> | null
+  replicaWork: Set<Promise<void>>
   stopped: boolean
 }
 
@@ -43,6 +44,7 @@ export function createCatchUpState(): CatchUpState {
     inFlightBytes: 0,
     timer: null,
     activeTick: null,
+    replicaWork: new Set(),
     stopped: false,
   }
 }
@@ -73,7 +75,7 @@ export function recordReplicaPosition(
   const partition = state.cursors.get(key) ?? new Map<string, ReplicaCursor>()
   const existing = partition.get(replicaNodeId)
   if (existing === undefined) {
-    partition.set(replicaNodeId, { appliedSeqNo, sending: false, syncEpoch: 0 })
+    partition.set(replicaNodeId, { appliedSeqNo, busy: false, syncEpoch: 0 })
   } else if (appliedSeqNo > existing.appliedSeqNo) {
     existing.appliedSeqNo = appliedSeqNo
   } else if (appliedSeqNo < existing.appliedSeqNo) {
