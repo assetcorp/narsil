@@ -20,6 +20,7 @@ export interface AllocationEvent {
 // @public
 export interface AllocationTable {
     assignments: Map<number, PartitionAssignment>;
+    generation?: string;
     indexName: string;
     replicationFactor: number;
     version: number;
@@ -28,6 +29,7 @@ export interface AllocationTable {
 // @public
 export interface ClusterControllerConfig {
     leaseTtlMs?: number;
+    nodeLeftDelayMs?: number;
     standbyRetryMs?: number;
 }
 
@@ -46,7 +48,8 @@ export interface ClusterCoordinator {
     getSchema(indexName: string): Promise<SchemaDefinition | null>;
     listNodes(): Promise<NodeRegistration[]>;
     listSchemas(): Promise<string[]>;
-    putAllocation(indexName: string, table: AllocationTable, expectedVersion?: number | null): Promise<boolean>;
+    putAllocation(indexName: string, table: AllocationTable): Promise<boolean>;
+    putAllocation(indexName: string, table: AllocationTable, expectedVersion: number | null, writerNodeId: string): Promise<boolean>;
     putPartitionState(indexName: string, partitionId: number, state: PartitionState): Promise<void>;
     putSchema(indexName: string, schema: SchemaDefinition): Promise<void>;
     registerNode(registration: NodeRegistration): Promise<void>;
@@ -64,6 +67,15 @@ export interface ClusterEngineOptions {
 }
 
 // @public
+export interface ClusterHealth {
+    indexes: IndexHealth[];
+    status: ClusterHealthStatus;
+}
+
+// @public
+export type ClusterHealthStatus = 'green' | 'yellow' | 'red';
+
+// @public
 export interface ClusterMemoryConfig {
     blockWritesAbove?: number;
     inFlightWriteFraction?: number;
@@ -71,13 +83,24 @@ export interface ClusterMemoryConfig {
 }
 
 // @public
+export interface ClusterMetrics {
+    commitPoints: CommitPointFigure[];
+    coordinatorRequests: CoordinatorRequestFigure[];
+    partitions: PartitionReplicationFigure[];
+    replicationLag: ReplicaLagFigure[];
+}
+
+// @public
 export interface ClusterNamespace {
     getAllocation(indexName: string): Promise<AllocationTable | null>;
     getControllerNodeId(): Promise<string | null>;
+    getHealth(): Promise<ClusterHealth>;
+    getMetrics(): Promise<ClusterMetrics>;
     getNodeInfo(): ClusterNodeInfo;
     getReadiness(): NodeReadiness;
     isControllerActive(): boolean;
     listNodes(): Promise<NodeRegistration[]>;
+    setReplicationFactor(indexName: string, replicationFactor: number): Promise<void>;
 }
 
 // @public
@@ -88,6 +111,9 @@ export interface ClusterNode {
     cluster: ClusterNamespace;
     countDocuments(indexName: string): Promise<number>;
     createIndex(name: string, config: IndexConfig, options?: CreateIndexOptions): Promise<void>;
+    decommission(options?: {
+        signal?: AbortSignal;
+    }): Promise<void>;
     dropIndex(name: string): Promise<void>;
     get(indexName: string, docId: string): Promise<AnyDocument | undefined>;
     getMemoryStats(): Promise<MemoryStats>;
@@ -99,12 +125,15 @@ export interface ClusterNode {
     insert(indexName: string, document: AnyDocument, docId?: string, options?: InsertOptions): Promise<string>;
     insertBatch(indexName: string, documents: AnyDocument[], options?: InsertOptions): Promise<BatchResult>;
     listDocuments<T = AnyDocument>(indexName: string, params?: ListParams): Promise<ListResult<T>>;
+    listIndexes(): Promise<IndexInfo[]>;
     readonly nodeId: string;
     off<K extends keyof NarsilEventMap>(event: K, handler: (payload: NarsilEventMap[K]) => void): void;
     on<K extends keyof NarsilEventMap>(event: K, handler: (payload: NarsilEventMap[K]) => void): void;
     open(indexName: string): Promise<void>;
     preflight(indexName: string, params: QueryParams): Promise<PreflightResult>;
     query<T = AnyDocument>(indexName: string, params: QueryParams): Promise<QueryResult<T>>;
+    rebalance(indexName: string, targetPartitionCount: number): Promise<void>;
+    rebuildAnalysis(indexName: string): Promise<void>;
     remove(indexName: string, docId: string): Promise<void>;
     removeBatch(indexName: string, docIds: string[]): Promise<BatchResult>;
     readonly roles: ReadonlyArray<NodeRole>;
@@ -152,7 +181,23 @@ export interface ClusterQueryConfig {
 }
 
 // @public
-export function createClusterNode(config: ClusterNodeConfig): Promise<ClusterNode>;
+export interface CommitPointFigure {
+    commitPoint: number;
+    indexName: string;
+    partitionId: number;
+}
+
+// @public
+export interface CoordinatorRequestFigure {
+    bucketBoundsSeconds: number[];
+    bucketCounts: number[];
+    count: number;
+    operation: string;
+    sumSeconds: number;
+}
+
+// @public
+export function createClusterNode(callerConfig: ClusterNodeConfig): Promise<ClusterNode>;
 
 // @public
 export interface CreateIndexOptions {
@@ -169,6 +214,16 @@ export const DEFAULT_PARTITION_COUNT = 5;
 
 // @public
 export const DEFAULT_REPLICATION_FACTOR = 1;
+
+// @public
+export interface IndexHealth {
+    indexName: string;
+    partitionCount: number;
+    partitionsWithoutPrimary: number;
+    replicationFactor: number;
+    status: ClusterHealthStatus;
+    underReplicatedPartitions: number;
+}
 
 // @public
 export interface IndexPartitionBytes {
@@ -209,6 +264,7 @@ export type NodeReadiness = 'STARTING' | 'JOINING' | 'SERVING' | 'LEAVING';
 export interface NodeRegistration {
     address: string;
     capacity: NodeCapacity;
+    draining?: boolean;
     memory?: NodeMemoryReport;
     metadata?: Record<string, string>;
     nodeId: string;
@@ -236,13 +292,30 @@ export interface PartitionAssignment {
     lastHolders?: string[];
     primary: string | null;
     primaryTerm: number;
+    removingReplicas?: string[];
     replicas: string[];
     state: PartitionState;
     unassignedReason?: UnassignedReason;
 }
 
 // @public
+export interface PartitionReplicationFigure {
+    commitPointFloor: number;
+    indexName: string;
+    inSyncReplicas: number;
+    partitionId: number;
+}
+
+// @public
 export type PartitionState = 'UNASSIGNED' | 'INITIALISING' | 'ACTIVE' | 'MIGRATING' | 'DECOMMISSIONING';
+
+// @public
+export interface ReplicaLagFigure {
+    indexName: string;
+    lag: number;
+    partitionId: number;
+    replica: string;
+}
 
 // @public
 export interface ReplicationConfig {
