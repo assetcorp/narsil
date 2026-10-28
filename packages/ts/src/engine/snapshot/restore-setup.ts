@@ -1,5 +1,5 @@
 import { resolveIndexAnalysis } from '../../analysis/registry'
-import { encodeSynonymRules, parseSynonymRules } from '../../core/synonyms/rules'
+import { encodeSynonymRules, parseSynonymRules } from '../../core/synonyms/registry'
 import type { PreparedSynonyms } from '../../core/synonyms/stored'
 import { getLanguage } from '../../languages/registry'
 import type { PartitionManager } from '../../partitioning/manager'

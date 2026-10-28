@@ -1,7 +1,7 @@
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { SynonymRule } from '../../types/synonyms'
-import { buildSynonymLookup } from './registry'
-import { decodeSynonymRules, encodeSynonymRules, parseSynonymRules, type RaiseSynonymProblem } from './rules'
+import { buildSynonymLookup, decodeSynonymRules, encodeSynonymRules, parseSynonymRules } from './registry'
+import type { RaiseSynonymProblem } from './rules'
 import type { SynonymAnalysis, SynonymLookup } from './types'
 
 export interface PreparedSynonyms {

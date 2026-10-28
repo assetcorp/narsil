@@ -1,5 +1,5 @@
 import { decode, encode } from '@msgpack/msgpack'
-import { parseSynonymRules } from '../../core/synonyms/rules'
+import { parseSynonymRules } from '../../core/synonyms/registry'
 import { ErrorCodes, NarsilError } from '../../errors'
 import { isQuantizationMode, isStorageMode } from '../../schema/validator/vector-promotion'
 import type { IndexMetadata } from '../../types/internal'

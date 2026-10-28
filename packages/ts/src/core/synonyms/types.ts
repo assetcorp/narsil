@@ -27,4 +27,7 @@ export interface SynonymSearchModule {
   ): SynonymLookup | null
   expandQuery(lookup: SynonymLookup, queryTokens: Iterable<string>): QuerySynonyms
   combinePostings(lists: readonly PostingListView[]): PostingListView
+  parseRules(value: unknown, raise: RaiseSynonymProblem): SynonymRule[]
+  encodeRules(rules: readonly SynonymRule[]): Uint8Array
+  decodeRules(bytes: Uint8Array, raise: RaiseSynonymProblem): SynonymRule[]
 }

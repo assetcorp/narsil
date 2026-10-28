@@ -25,7 +25,7 @@ export interface OneWaySynonymRule {
 
 /**
  * One rule of a synonym set, which {@link IndexConfig.synonyms} and
- * {@link Narsil.updateSynonyms} take as a list.
+ * {@link SynonymOperations.updateSynonyms} take as a list.
  *
  * The engine analyses every word with the language, the tokeniser, and the
  * stop words of the index, so a rule that says `jackets` also matches
