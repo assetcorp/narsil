@@ -61,19 +61,19 @@ export function typoMatchesFor(
 }
 
 export function resolveGroupMatches(context: GroupScoringContext, group: ExpandedTermGroup): GroupMatch[] {
+  const frequencyOf = (token: string): number =>
+    context.globalFrequency(token) ?? context.index.documentFrequency(token)
+  const lookup = (token: string): PostingListView | undefined => context.index.lookup(token)
   const synonyms = group.synonyms
-  let groupDocumentFrequency =
-    synonyms === undefined
-      ? 0
-      : synonyms.documentFrequency(token => context.globalFrequency(token) ?? context.index.documentFrequency(token))
+  let groupDocumentFrequency = synonyms?.documentFrequency(frequencyOf) ?? 0
   const found: Array<{ token: string; factor: number; partialFactor: number; postingList: PostingListView }> = []
   for (const member of group.members) {
-    const documents = context.globalFrequency(member.token) ?? context.index.documentFrequency(member.token)
+    const documents = frequencyOf(member.token)
     if (documents > groupDocumentFrequency) groupDocumentFrequency = documents
     const postingList =
       synonyms !== undefined && member.token === group.token
-        ? synonyms.postings(token => context.index.lookup(token), member.token)
-        : context.index.lookup(member.token)
+        ? synonyms.postings(lookup, member.token)
+        : lookup(member.token)
     if (postingList === undefined) continue
     found.push({ token: member.token, factor: member.factor, partialFactor: member.partialFactor, postingList })
   }
