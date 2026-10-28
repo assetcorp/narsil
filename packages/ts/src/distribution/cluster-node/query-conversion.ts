@@ -76,6 +76,7 @@ function convertWireHybridToLocal(hybrid: WireHybridConfig | null): QueryParams[
   if (hybrid.strategy !== null) local.strategy = hybrid.strategy
   if (hybrid.k !== null) local.k = hybrid.k
   if (hybrid.alpha !== null) local.alpha = hybrid.alpha
+  if (hybrid.depth !== null) local.depth = hybrid.depth
   return local
 }
 
@@ -238,6 +239,7 @@ function convertLocalHybridToWire(hybrid: QueryParams['hybrid']): WireHybridConf
     strategy: hybrid.strategy ?? null,
     k: hybrid.k ?? null,
     alpha: hybrid.alpha ?? null,
+    depth: hybrid.depth ?? null,
   }
 }
 

@@ -46,7 +46,7 @@ export function makeVectorParams(): WireVectorQueryParams {
 }
 
 export function makeHybridConfig(overrides: Partial<WireHybridConfig> = {}): WireHybridConfig {
-  return { strategy: 'rrf', k: 60, alpha: 0.5, ...overrides }
+  return { strategy: 'rrf', k: 60, alpha: 0.5, depth: null, ...overrides }
 }
 
 export function makeQueryParams(overrides: Partial<WireQueryParams> = {}): WireQueryParams {

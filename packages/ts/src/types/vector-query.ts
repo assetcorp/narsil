@@ -74,4 +74,13 @@ export interface HybridConfig {
   k?: number
   /** The engine uses this weight of the vector score, from 0 to 1, under `linear` alone, and 0.5 where you leave it out. It throws `CONFIG_INVALID` for a value outside that range. */
   alpha?: number
+  /**
+   * The engine fetches this many results from the keyword search and from the
+   * vector search, fuses them, and pages through the top `depth` of the fused
+   * list, so every page of one query comes from the same fused order. Set a
+   * whole number from 1 to 10,000, or leave it out for 100. The engine throws
+   * `CONFIG_INVALID` for any other value, and `SEARCH_RESULT_WINDOW_EXCEEDED`
+   * for a page that ends past this depth.
+   */
+  depth?: number
 }

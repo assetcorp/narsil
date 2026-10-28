@@ -98,14 +98,6 @@ export async function distributedQuery(
 
   const isHybrid = params.vector !== null && (params.term !== null || params.mode === 'hybrid')
 
-  if (isHybrid && params.searchAfter !== null) {
-    throw new NarsilError(
-      ErrorCodes.SEARCH_INVALID_CURSOR,
-      'Cursor pagination is not supported for hybrid queries, because fused ranks do not seek',
-      { indexName },
-    )
-  }
-
   if (isHybrid && params.sort !== null && params.sort.length > 0) {
     throw new NarsilError(
       ErrorCodes.SEARCH_INVALID_MODE,
@@ -118,8 +110,7 @@ export async function distributedQuery(
     return executeHybridQuery(
       indexName,
       params,
-      limit,
-      offset,
+      { limit, offset, binding },
       facetShardSize,
       facetSize,
       totalPartitions,

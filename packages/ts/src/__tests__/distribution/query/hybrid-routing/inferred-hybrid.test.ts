@@ -103,20 +103,22 @@ describe('hybrid inference without a hybrid block', () => {
     }
   })
 
-  it('rejects a cursor with SEARCH_INVALID_CURSOR', async () => {
+  it('refuses a cursor page that starts at the default depth of 100', async () => {
     const params = makeQueryParams({ term: 'laptop', vector: makeVectorParams() })
     const cursor = encodePageCursor({
       anchor: 'doc-1',
       score: 5,
       sortKey: null,
       sortSignature: null,
+      depth: 100,
       binding: queryBindingOf(wireParamsToLocal(params)),
     })
     const error = await distributedQuery('products', { ...params, searchAfter: cursor }, makeDeps(table())).catch(
       (e: unknown) => e,
     )
     expect(error).toBeInstanceOf(NarsilError)
-    expect((error as NarsilError).code).toBe('SEARCH_INVALID_CURSOR')
+    expect((error as NarsilError).code).toBe('SEARCH_RESULT_WINDOW_EXCEEDED')
+    expect((error as NarsilError).message).toContain('hybrid.depth')
   })
 
   it('rejects a sort with SEARCH_INVALID_MODE', async () => {
