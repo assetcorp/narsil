@@ -10,6 +10,8 @@ import { createGrpcTransport } from '../../../../distribution/transport/grpc'
 
 type GrpcTransport = Awaited<ReturnType<typeof createGrpcTransport>>
 
+const PATIENT_CONNECT_MS = 10_000
+
 function makeMessage(overrides: Partial<TransportMessage> = {}): TransportMessage {
   return {
     type: ClusterMessageTypes.PING,
@@ -116,6 +118,30 @@ describe('GrpcTransport', () => {
       expect(err).toBeInstanceOf(TransportError)
       expect((err as TransportError).code).toBe(TransportErrorCodes.CONNECT_FAILED)
     })
+
+    it(
+      'fails a connect to a port where nothing listens at once, with the refusal in its message',
+      { timeout: 20_000 },
+      async () => {
+        const patient = await createGrpcTransport('node-d', {
+          host: '127.0.0.1',
+          port: 0,
+          requestTimeout: 2_000,
+          connectTimeout: PATIENT_CONNECT_MS,
+          snapshotTimeout: 5_000,
+        })
+
+        const started = performance.now()
+        const err = await patient.send('127.0.0.1:1', makeMessage()).catch((thrown: TransportError) => thrown)
+        const elapsed = performance.now() - started
+        await patient.shutdown()
+
+        expect(err).toBeInstanceOf(TransportError)
+        expect((err as TransportError).code).toBe(TransportErrorCodes.CONNECT_FAILED)
+        expect((err as TransportError).message).toMatch(/ECONNREFUSED/)
+        expect(elapsed).toBeLessThan(PATIENT_CONNECT_MS / 2)
+      },
+    )
 
     it('answers with an error envelope when the handler rejects', async () => {
       await transportB.listen(() => Promise.reject(new Error('handler exploded')))
