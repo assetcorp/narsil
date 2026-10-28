@@ -30,7 +30,9 @@ Only `url` is required.
 
 | Option | What it does |
 | --- | --- |
-| `url` | The server answers at this address. Pass an `http` or `https` URL, or a path such as `/search-api` that a browser resolves against the page that it loaded from. A path works in a browser alone, because Node has no page to resolve it against. Any other value raises `CONFIG_INVALID`. |
+| `url` | The server answers at this address. Pass an `http` or `https` URL, or a path such as `/search-api` that a browser resolves against the page that it loaded from. A path works in a browser alone, because Node has no page to resolve it against. Pass a list of addresses, such as one for every node in a cluster, so that the client moves a request on to the next address when one fails, as [Reach every node from the client](cluster.md#reach-every-node-from-the-client) describes. An empty list, or any other value, raises `CONFIG_INVALID`. |
+| `urlSkipMs` | After an address in the list refuses a connection, the client skips it for this many milliseconds, 1,000 unless you say otherwise, and twice as long after each further refusal. |
+| `maxUrlSkipMs` | The client never skips an address for longer than this many milliseconds, 30,000 unless you say otherwise. A value below `urlSkipMs` raises `CONFIG_INVALID`. |
 | `apiKey` | The client sends this as `authorization: Bearer <key>`, which a server reads in its `onRequest` hook. For any other scheme, set the header yourself through `headers`. |
 | `headers` | The client sends these with every request, and a per-call header of the same name replaces one. |
 | `timeoutMs` | The client waits this many milliseconds for an answer, and 30,000 unless you say otherwise. Pass 0 so that it waits for as long as the server takes. |

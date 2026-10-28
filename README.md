@@ -24,13 +24,13 @@ Try it in your browser at [narsil.sondelali.com/demo](https://narsil.sondelali.c
 
 ## Project status
 
-Narsil comes in three parts at two levels of maturity.
+Narsil comes in three parts, and all three are stable.
 
 | Part | Status | Details |
 | --- | --- | --- |
 | Embedded engine (`@delali/narsil`) | Stable | You embed the engine in your process for full-text, vector, hybrid, and geosearch. It reports failures through typed error codes. Continuous integration tests it on Node 22 and 24. |
 | Single-node server (`@delali/narsil/server`) | Stable | A REST API wraps the same engine, with a write-ahead log, bulk NDJSON import, and snapshot and restore. |
-| Multi-node cluster (`@delali/narsil/distribution`) | Experimental | The cluster adds node roles, replication, and query routing over an in-process transport, TCP with mTLS, or gRPC. We may change its APIs without notice. |
+| Multi-node cluster (`@delali/narsil/distribution`) | Stable | The cluster adds node roles, replication, and query routing over an in-process transport, TCP with mTLS, or gRPC, and it can keep its shared state in etcd over TLS. |
 
 Every Narsil implementation must load and save the `.nrsl` binary format, which is the contract between them. This TypeScript package is the reference implementation of that format, so a second implementation in Go or Rust is the headline item on the [roadmap](ROADMAP.md).
 
@@ -178,7 +178,7 @@ When we measure Narsil in one process against Orama and MiniSearch, with the sam
 | [Partitions and workers](docs/partitions-and-workers.md) | Partition routing, online rebalancing, worker copies, and multi-instance invalidation |
 | [Language support](docs/language-support.md) | The 107 language modules, analysis revisions and rebuilds, and named tokenizers and stop words |
 | [HTTP server](docs/http-server.md) | Wrapping an engine in a REST API, every route it serves, and long-running tasks |
-| [Cluster mode](docs/cluster.md) | Multi-node indexes: nodes and roles, replication, routed writes, distributed searches and reads, and the calls that fail in a cluster |
+| [Cluster mode](docs/cluster.md) | Multi-node indexes: nodes and roles, etcd over TLS, node identity across restarts, replication, routed writes, distributed searches and reads, cluster health and metrics, and the calls that fail in a cluster |
 | [Client](docs/client.md) | Reaching a server from a browser or Node, following a task, and the codes it raises |
 | [React](docs/react.md) | The hooks over a client or an engine in the page, one shared request per key, and loading a corpus from a component |
 | [Observability](docs/observability.md) | Plugin hooks, engine events, and memory reporting |
@@ -188,7 +188,7 @@ The [specification](packages/spec/) defines the `.nrsl` format, the analysis pip
 
 ## Distribution status
 
-The multi-node cluster mode under `@delali/narsil/distribution` is under active development and experimental. It works over an in-process transport for tests, and over TCP with mTLS or gRPC between processes. We may change its APIs without notice, so keep it out of production for now. [`packages/spec/distribution`](packages/spec/distribution) specifies the design.
+The multi-node cluster mode under `@delali/narsil/distribution` connects its nodes over TCP with mTLS or over gRPC, and over an in-process transport in tests. A node with a durability directory keeps its id there across restarts, and the etcd coordinator connects over TLS with a user and a password. A node that the HTTP server fronts reports the health of the cluster and its own Prometheus metrics. The [cluster guide](docs/cluster.md) covers each of these, and [`packages/spec/distribution`](packages/spec/distribution) specifies the design.
 
 ## Runtime support
 

@@ -51,7 +51,8 @@ export interface NarsilClientOptions {
    * {@link NarsilClientOptions.urlSkipMs}, 1,000 milliseconds unless you say
    * otherwise, then for twice as long after each further refusal, up to
    * {@link NarsilClientOptions.maxUrlSkipMs}, 30,000 milliseconds unless you
-   * say otherwise, and it uses it again once a request to it succeeds. When
+   * say otherwise, and it uses it again once the URL answers with any status
+   * other than 502, 503, or 504. When
    * every URL is in its skip period, the client tries the one whose skip period
    * ends first.
    */

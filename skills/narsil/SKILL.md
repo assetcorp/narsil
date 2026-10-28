@@ -1,6 +1,6 @@
 ---
 name: narsil
-description: Adds search to an app with Narsil, either embedded in the app's own process or served over HTTP to an app in any language. Covers full-text and typo-tolerant search, filters and facet counts, sorting and pagination, semantic and hybrid search through embedding adapters, answers that cite their sources, geosearch, search that keeps working offline in a browser, the HTTP server and its client, persistence and snapshots, and the experimental cluster. Use when the user wants to add search, a search engine, a search bar, autocomplete, faceted filtering, semantic or vector search, or retrieval for an AI assistant to an app, and has not chosen another search engine. Also use when the user mentions Narsil or @delali/narsil, asks to add search through narsil.sondelali.com, or works in a project that already depends on @delali/narsil.
+description: Adds search to an app with Narsil, either embedded in the app's own process or served over HTTP to an app in any language. Covers full-text and typo-tolerant search, filters and facet counts, sorting and pagination, semantic and hybrid search through embedding adapters, answers that cite their sources, geosearch, search that keeps working offline in a browser, the HTTP server and its client, persistence and snapshots, and the multi-node cluster. Use when the user wants to add search, a search engine, a search bar, autocomplete, faceted filtering, semantic or vector search, or retrieval for an AI assistant to an app, and has not chosen another search engine. Also use when the user mentions Narsil or @delali/narsil, asks to add search through narsil.sondelali.com, or works in a project that already depends on @delali/narsil.
 license: Apache-2.0
 ---
 
@@ -62,8 +62,6 @@ Read the reference file for each capability that the task needs:
 | An index that survives a restart, a snapshot, or closing idle indexes | [references/storage.md](references/storage.md) |
 | A server, the client SDK, React hooks, access from another language, or moving an embedded index behind a server | [references/server.md](references/server.md) |
 | Several nodes, replication, or failover | [references/cluster.md](references/cluster.md) |
-
-The multi-node cluster under `@delali/narsil/distribution` is experimental. Tell the user so before you build on it, and wait for them to confirm.
 
 ## 5. Verify and report
 
