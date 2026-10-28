@@ -43,6 +43,7 @@ SearchOptions {
   filterDocIds:  Set<string> or absent
   efSearch:      uint16 or absent
   oversample:    float32 or absent
+  rescoreWindow: uint32 or absent
 }
 
 ScoredResult {
@@ -79,13 +80,17 @@ See [Filtered Search](#filtered-search) for what `filterDocIds` does, and [algor
 `oversample` sets how deep a [quantised](#quantisation) index re-scores against full-precision vectors:
 
 ```text
-depth      = ceiling(k * oversample)
+window     = rescoreWindow where the search sets it, and k otherwise
+depth      = ceiling(window * oversample)
 candidates = traverse the graph by estimated distance with ef = maximum(efSearch, depth)
 rescored   = the depth nearest candidates, scored by the metric on full-precision vectors
-return the best k of rescored
+return the best k of rescored, where the search sets no rescoreWindow or sets minSimilarity
+return the best k of rescored and the remaining candidates otherwise
 ```
 
 An implementation must accept an `oversample` that is a finite number of at least 1, and it must reject any other value with `CONFIG_INVALID`. It must ignore `oversample` on an index whose quantisation is `none`. When `oversample` is absent, an implementation must use its own default, and the recommended defaults are 3 for `osq1` and `osq2` and 2 for `osq4` and `osq8`.
+
+`rescoreWindow` sizes the walk and the re-scoring of a search by a fixed window, so that the cost does not grow with `k`. A search that sets it returns up to `k` results from the candidates that the walk finds, so it can return fewer than `k`. Each candidate beyond the re-scored ones keeps the score that the implementation estimates from its code. Where the search also sets `minSimilarity`, it must return the re-scored candidates alone, each compared with `minSimilarity` at full precision, so that no estimate admits a vector below the floor. On an index whose quantisation is `none`, the walk uses ef = maximum(efSearch, rescoreWindow), and every candidate carries its full-precision score. An implementation must accept a `rescoreWindow` that is a whole number from 1 to 10,000.
 
 ### getVector(docId)
 
@@ -163,18 +168,23 @@ A query that holds both a text term and a vector is a hybrid search. Partitions 
 Fusion defines the order of hybrid results, which a sort would replace, so a hybrid query must hold no `sort`. An implementation must reject a query with `SEARCH_INVALID_MODE` where its sort names any field and the query also holds `hybrid`, or holds both a term and a vector.
 
 ```text
-1. Fan the text query out to every partition and collect the
-   top `depth` { docId, bm25Score } results.
-2. Query the vector index for the vector field and collect the
-   top `depth` { docId, similarityScore } results.
-3. Fuse the two sets with the configured strategy, and keep the
-   top `depth` of the fused list.
-4. Take the page from position d + offset of that list.
+1. Fan the text query out to every partition and collect
+   { docId, bm25Score } results.
+2. Query the vector index for the vector field and collect
+   { docId, similarityScore } results.
+3. Fuse the two sets with the configured strategy.
+4. Apply limit and offset, or the searchAfter cursor.
 5. Attach the document bodies, rebuilt from the partition and the
    vector index.
 ```
 
-`d` is the depth field of the [searchAfter cursor](partitioning.md#searchafter-cursor), and 0 where the request sets no cursor. An implementation must fetch the same `depth` from both searches on every page of a request, so that every page fuses the same two lists and no page repeats or skips a document. It must return the hits from position d + offset up to `depth`, so the last page can hold fewer than `limit` hits, and it must raise `SEARCH_RESULT_WINDOW_EXCEEDED` where d + offset reaches `depth`, stating in the error message that the caller can raise `hybrid.depth`. Where more hits follow the page, the result must carry a cursor whose `d` counts the fused list up to and including the last hit on the page that is not a pinned placement.
+`d` is the depth field of the [searchAfter cursor](partitioning.md#searchafter-cursor), and 0 where the request sets no cursor.
+
+Where the query leaves `hybrid.depth` out, an implementation must pass `d + offset + limit + 1` as the `k` of step 2, capped at the [result window](partitioning.md#deep-pagination). At that depth an implementation fills the page and has one result left over wherever another page follows. It fetches more vectors at a greater depth, so the fused order can change from one page to the next. A caller who needs a stable ranking at depth should set `hybrid.depth`.
+
+Where the query sets `hybrid.depth`, an implementation must collect the top `depth` results in steps 1 and 2, pass the hybrid re-score window as the `rescoreWindow` of step 2, and keep the top `depth` of the fused list in step 3. It must fetch the same `depth` from both searches on every page of a request, so that every page fuses the same two lists and no page repeats or skips a document. It must return the hits from position d + offset up to `depth`, so the last page can hold fewer than `limit` hits, and it must raise `SEARCH_RESULT_WINDOW_EXCEEDED` where d + offset reaches `depth`, stating in the error message that the caller can raise `hybrid.depth`. Where more hits follow the page, the result must carry a cursor whose `d` counts the fused list up to and including the last hit on the page that is not a pinned placement.
+
+The hybrid re-score window is a fixed number, and the recommended value is 10. An implementation must keep it independent of `limit`, `offset`, and the cursor, so that every page walks the graph the same way, re-scores the same candidates, and fuses the same vector list. RRF reads the estimated scores of the remaining candidates only as ranks, and linear fusion normalises them alongside the re-scored scores, since both lie on the metric's scale.
 
 ### Fusion Strategies
 
@@ -185,7 +195,7 @@ hybrid {
   strategy: 'rrf' or 'linear'
   k:        uint32    (the RRF constant, default 60, used by rrf alone)
   alpha:    float32   (a weight from 0 to 1, default 0.5, used by linear alone)
-  depth:    uint32    (the results that each search fetches, from 1 to 10,000, default 100)
+  depth:    uint32 or absent   (the results that each search fetches, from 1 to 10,000; absent fetches by page, as Hybrid Search defines)
 }
 ```
 
