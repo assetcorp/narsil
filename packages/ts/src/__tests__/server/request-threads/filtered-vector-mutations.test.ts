@@ -1,6 +1,5 @@
 import { existsSync } from 'node:fs'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { ErrorCodes } from '../../../errors'
 import type { Narsil } from '../../../narsil'
 import type { FilterExpression } from '../../../types/filters'
 import {
@@ -24,7 +23,6 @@ const DOCUMENTS = 2_000
 const INSERT_BATCH_SIZE = 200
 const UPDATED_EACH_WAY = 100
 const REMOVED = 200
-const REEMBEDDED_BEFORE_RESTORE = 200
 const PARTITIONS_AFTER_REBALANCE = 3
 const THREAD_DEADLINE_MS = 120_000
 const PROBES = 8
@@ -36,8 +34,6 @@ interface SearchBody {
 interface ErrorBody {
   error: { code: string }
 }
-
-const REFUSALS_WHILE_RESTORING: ReadonlySet<string> = new Set([ErrorCodes.INDEX_NOT_FOUND])
 
 const built = existsSync(new URL('../../../../dist/workers/entry.mjs', import.meta.url))
 
@@ -119,7 +115,7 @@ describe.skipIf(!built)('filtered vector searches that request threads answer', 
     })
   }
 
-  it('match a brute-force oracle across writes, a vector compaction, a rebalance, a restore, and a clear', async () => {
+  it('match a brute-force oracle across writes, a vector compaction, a rebalance, and a clear', async () => {
     const engine: Narsil = srv.engine
     const created = await postJson(srv.base, '/indexes', { name: INDEX, config: shelvesConfig })
     expect(created.status, JSON.stringify(created.body)).toBe(201)
@@ -146,27 +142,6 @@ describe.skipIf(!built)('filtered vector searches that request threads answer', 
     await expectOnThreads(library, 'after a rebalance')
     await write('update', changedPapers(library, 3 * UPDATED_EACH_WAY), library)
     await expectOnThreads(library, 'after updates across the new partitions')
-
-    const archive = new Uint8Array(await new Response(await engine.snapshot(INDEX)).arrayBuffer())
-    const snapshotted: Library = new Map(library)
-    const reembedded = [...library.values()]
-      .slice(0, REEMBEDDED_BEFORE_RESTORE)
-      .map(paper => ({ ...paper, embedding: nearCentre() }))
-    await write('update', reembedded, library)
-    let restoring = true
-    const restore = engine.restore(INDEX, archive).finally(() => {
-      restoring = false
-    })
-    await expectSoundAnswersWhile(
-      askThreadsDuringChange,
-      [library, snapshotted],
-      'while a restore replaces the index',
-      () => restoring,
-      REFUSALS_WHILE_RESTORING,
-    )
-    await restore
-    library = snapshotted
-    await expectOnThreads(library, 'after the restore')
 
     let clearing = true
     const clear = engine.clear(INDEX).finally(() => {

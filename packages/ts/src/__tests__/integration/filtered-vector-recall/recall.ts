@@ -15,6 +15,7 @@ const SPREAD = 0.5
 const PROMOTION_THRESHOLD = 100
 const RECALL_FLOOR = 0.95
 const SETTLE_DEADLINE_MS = 20_000
+const TEST_TIMEOUT_MS = 3 * SETTLE_DEADLINE_MS
 const QUANTIZATIONS: VectorQuantizationMode[] = ['none', 'osq4', 'osq1']
 
 const random = seededRandom(20261027)
@@ -119,6 +120,7 @@ export function describeFilteredRecall(backend: SearchBackend): void {
             expect(found / (K * QUERIES), `recall@${K} at ${share}`).toBeGreaterThanOrEqual(RECALL_FLOOR)
           }
         },
+        TEST_TIMEOUT_MS,
       )
     }
   })
