@@ -23,8 +23,7 @@ export interface PartitionManager {
   readonly config: IndexConfig
   readonly analysis: ResolvedAnalysis
   readonly partialWordAnalysis: PartialWordAnalysis | null
-  readonly synonyms: SynonymLookup | null
-  replaceSynonyms(lookup: SynonymLookup | null): void
+  synonyms: SynonymLookup | null
   readonly textAnalysis: TextAnalysis
 
   getPartition(partitionId: number): PartitionIndex

@@ -1,48 +1,19 @@
 import type { PartitionIndex } from '../core/partition'
+import { partitionStateOf } from '../core/partition'
+import { isCompositePartition } from '../core/partition/composite'
+import type { PartitionReadState } from '../core/partition/read-state'
 import { tokenize } from '../core/tokenizer'
 import { DEFAULT_FUZZY_PREFIX_LENGTH } from '../search/constants'
 import { resolveTermGroups, type TermGroupAnalysis } from '../search/term-groups'
 import type { LanguageModule } from '../types/language'
-import type { SchemaDefinition } from '../types/schema'
 import type { QueryParams } from '../types/search'
-
-export interface StatsExpansion {
-  tolerance?: number | null
-  prefixLength?: number | null
-  prefix?: boolean | null
-  partialWords?: boolean | null
-  exact?: boolean | null
-  fields?: string[] | null
-}
-
-export interface QueryExpansion {
-  options: StatsExpansion
-  schema: SchemaDefinition
-}
-
-export interface ExpandedTokens {
-  typoMatches: Set<string>
-  capped: Set<string>
-}
-
-export function statsExpansionOf(params: StatsExpansion): StatsExpansion {
-  return {
-    tolerance: params.tolerance ?? null,
-    prefixLength: params.prefixLength ?? null,
-    prefix: params.prefix ?? null,
-    partialWords: params.partialWords ?? null,
-    exact: params.exact ?? null,
-    fields: params.fields ?? null,
-  }
-}
+import type { QueryExpansion } from './distributed-scoring'
 
 type QueryToken = { token: string; position: number }
 
-function queryTokensOf(
-  term: string,
-  language: LanguageModule,
-  analysis: TermGroupAnalysis,
-): { unique: QueryToken[]; last: QueryToken } | null {
+type AnalysedQuery = { unique: QueryToken[]; last: QueryToken }
+
+function queryTokensOf(term: string, language: LanguageModule, analysis: TermGroupAnalysis): AnalysedQuery | null {
   const { tokens } = tokenize(term, language, {
     stem: true,
     removeStopWords: true,
@@ -59,25 +30,32 @@ function queryTokensOf(
   return tokens.length === 0 ? null : { unique, last: tokens[tokens.length - 1] }
 }
 
-export function addExpandedTokens(
-  into: ExpandedTokens,
+function readStatesOf(partition: PartitionIndex): PartitionReadState[] {
+  if (!isCompositePartition(partition)) return [partitionStateOf(partition)]
+  const segmentIds = partition.frozenSegmentSizes().map(segment => segment.segmentId)
+  return [...partition.frozenSegmentsById(segmentIds), partitionStateOf(partition.live)]
+}
+
+function addPartitionTokens(
+  tokens: Set<string>,
+  capped: Set<string>,
   partition: PartitionIndex,
   term: string,
+  analysed: AnalysedQuery,
   expansion: QueryExpansion,
   language: LanguageModule,
   analysis: TermGroupAnalysis,
 ): void {
   const { options, schema } = expansion
-  if (options.exact === true) return
-  const analysed = queryTokensOf(term, language, analysis)
-  if (analysed === null) return
   const { unique: queryTokens, last: lastToken } = analysed
-
   const tolerance = options.tolerance ?? 0
   const prefixLength = options.prefixLength ?? DEFAULT_FUZZY_PREFIX_LENGTH
   if (tolerance > 0) {
+    const states = readStatesOf(partition)
     for (const { token } of queryTokens) {
-      for (const match of partition.typoTokens(token, tolerance, prefixLength)) into.typoMatches.add(match)
+      for (const state of states) {
+        for (const match of state.invertedIdx.fuzzyLookup(token, tolerance, prefixLength)) tokens.add(match.token)
+      }
     }
   }
 
@@ -92,7 +70,28 @@ export function addExpandedTokens(
   const { termGroups } = resolveTermGroups(partition, params, language, schema, queryTokens, lastToken, analysis)
   for (const group of termGroups ?? []) {
     for (const member of group.members) {
-      if (member.token !== group.token) into.capped.add(member.token)
+      if (member.token !== group.token) capped.add(member.token)
     }
   }
+}
+
+export function addReachedTokens(
+  tokens: Set<string>,
+  partitions: readonly PartitionIndex[],
+  term: string,
+  expansion: QueryExpansion,
+  language: LanguageModule,
+  analysis: TermGroupAnalysis,
+): string[] {
+  const { options } = expansion
+  if (options.exact === true) return []
+  if (!((options.tolerance ?? 0) > 0 || options.prefix === true || options.partialWords === true)) return []
+  const analysed = queryTokensOf(term, language, analysis)
+  if (analysed === null) return []
+  const capped = new Set<string>()
+  for (const partition of partitions) {
+    addPartitionTokens(tokens, capped, partition, term, analysed, expansion, language, analysis)
+  }
+  for (const token of capped) tokens.add(token)
+  return [...capped]
 }

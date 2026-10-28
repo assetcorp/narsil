@@ -4,9 +4,10 @@ import { tokenize } from '../core/tokenizer'
 import type { InvalidationAdapter } from '../types/adapters'
 import type { GlobalStatistics } from '../types/internal'
 import type { LanguageModule } from '../types/language'
-import type { CustomTokenizer, StopWordOverride } from '../types/schema'
-import { addExpandedTokens, type ExpandedTokens, type QueryExpansion } from './expanded-tokens'
+import type { CustomTokenizer, SchemaDefinition, StopWordOverride } from '../types/schema'
+import { addReachedTokens } from './expanded-tokens'
 import type { PartitionManager } from './manager'
+import { partitionsIn } from './partition-selection'
 
 export interface QueryTermAnalysis {
   stopWords?: StopWordOverride
@@ -49,32 +50,18 @@ export function sanitizeGlobalStats(stats: GlobalStatistics): GlobalStatistics {
   }
 }
 
-function partitionsFor(manager: PartitionManager, partitionIds: number[] | undefined): PartitionIndex[] {
-  if (partitionIds === undefined) return manager.getAllPartitions()
-  return partitionIds
-    .map(partitionId => manager.partitionAt(partitionId))
-    .filter((partition): partition is NonNullable<typeof partition> => partition !== undefined)
+export interface StatsExpansion {
+  tolerance?: number | null
+  prefixLength?: number | null
+  prefix?: boolean | null
+  partialWords?: boolean | null
+  exact?: boolean | null
+  fields?: string[] | null
 }
 
-function addReachedTokens(
-  tokens: Set<string>,
-  partitions: readonly PartitionIndex[],
-  term: string,
-  expansion: QueryExpansion,
-  language: LanguageModule,
-  analysis: QueryTermAnalysis,
-): string[] {
-  const reached: ExpandedTokens = { typoMatches: new Set(), capped: new Set() }
-  for (const partition of partitions) addExpandedTokens(reached, partition, term, expansion, language, analysis)
-  for (const token of reached.typoMatches) tokens.add(token)
-  for (const token of reached.capped) tokens.add(token)
-  return [...reached.capped]
-}
-
-export interface StatsReach {
-  manager: PartitionManager
-  partitionIds?: number[]
-  expansion: QueryExpansion
+export interface QueryExpansion {
+  options: StatsExpansion
+  schema: SchemaDefinition
 }
 
 export function pruneStatsToQueryTerms(
@@ -82,13 +69,10 @@ export function pruneStatsToQueryTerms(
   term: string,
   language: LanguageModule,
   analysis: QueryTermAnalysis,
-  reach?: StatsReach,
+  reach?: { partitions: readonly PartitionIndex[]; expansion: QueryExpansion },
 ): GlobalStatistics {
   const tokens = analysedQueryTokens(term, language, analysis)
-  if (reach !== undefined) {
-    const partitions = partitionsFor(reach.manager, reach.partitionIds)
-    addReachedTokens(tokens, partitions, term, reach.expansion, language, analysis)
-  }
+  if (reach !== undefined) addReachedTokens(tokens, reach.partitions, term, reach.expansion, language, analysis)
   const docFrequencies: Record<string, number> = Object.create(null)
   for (const token of tokens) {
     if (Object.hasOwn(stats.docFrequencies, token)) {
@@ -125,7 +109,7 @@ export function collectQueryTermStats(
   const docFrequencies: Record<string, number> = Object.create(null)
   const totalFieldLengths: Record<string, number> = Object.create(null)
 
-  const statsPartitions = partitionsFor(manager, partitionIds)
+  const statsPartitions = partitionsIn(manager, partitionIds)
   for (const token of scope?.tokens ?? []) queryTokens.add(token)
   const expanded =
     scope?.expansion === undefined

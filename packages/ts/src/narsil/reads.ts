@@ -4,8 +4,7 @@ import { yieldToEventLoop } from '../engine/orchestration/turn'
 import { executePreflight, executeQuery } from '../engine/query'
 import { resolveVectorText } from '../engine/resolve-vector-text'
 import { executeSuggest } from '../engine/suggest'
-import { collectQueryTermStats } from '../partitioning/distributed-scoring'
-import type { StatsExpansion } from '../partitioning/expanded-tokens'
+import { collectQueryTermStats, type StatsExpansion } from '../partitioning/distributed-scoring'
 import { queryBindingOf } from '../search/cursor-binding'
 import type { GlobalStatistics } from '../types/internal'
 import type { ListResult, PreflightResult, QueryResult, SuggestResult } from '../types/results'
@@ -226,22 +225,16 @@ export async function runEngineQueryStats(
   try {
     const entry = core.requireIndex(indexName)
     const manager = core.requireManager(indexName)
-    const stats = collectQueryTermStats(
-      manager,
-      terms.join(' '),
-      entry.language,
-      {
-        stopWords: manager.analysis.stopWords,
-        customTokenizer: manager.analysis.customTokenizer,
-        synonyms: manager.synonyms,
-      },
-      partitionIds,
-      {
-        expansion:
-          scope?.expansion === undefined ? undefined : { options: scope.expansion, schema: entry.config.schema },
-        tokens: scope?.tokens,
-      },
-    )
+    const term = terms.join(' ')
+    const analysis = {
+      stopWords: manager.analysis.stopWords,
+      customTokenizer: manager.analysis.customTokenizer,
+      synonyms: manager.synonyms,
+    }
+    const stats = collectQueryTermStats(manager, term, entry.language, analysis, partitionIds, {
+      expansion: scope?.expansion === undefined ? undefined : { options: scope.expansion, schema: entry.config.schema },
+      tokens: scope?.tokens,
+    })
     return {
       totalDocuments: stats.totalDocuments,
       docFrequencies: stats.docFrequencies,

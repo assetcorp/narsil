@@ -119,7 +119,7 @@ export function createDirectExecutor(options?: DirectExecutorOptions): Executor 
     analysisStale = false,
     synonyms: SynonymLookup | null = null,
   ): void {
-    addIndex(indexName, config, language, analysisStale, null).replaceSynonyms(synonyms)
+    addIndex(indexName, config, language, analysisStale, null).synonyms = synonyms
   }
 
   function lookupOf(
@@ -233,7 +233,7 @@ export function createDirectExecutor(options?: DirectExecutorOptions): Executor 
           action.copyLoad ?? null,
         )
         try {
-          manager.replaceSynonyms(lookupOf(action.config, language, action.synonyms))
+          manager.synonyms = lookupOf(action.config, language, action.synonyms)
         } catch (err) {
           dropIndex(action.indexName)
           throw err
@@ -301,7 +301,7 @@ export function createDirectExecutor(options?: DirectExecutorOptions): Executor 
 
       case 'replaceSynonyms': {
         const entry = indexes.get(action.indexName)
-        if (entry !== undefined) entry.manager.replaceSynonyms(lookupOf(entry.config, entry.language, action.synonyms))
+        if (entry !== undefined) entry.manager.synonyms = lookupOf(entry.config, entry.language, action.synonyms)
         return undefined as T
       }
 
