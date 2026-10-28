@@ -31,6 +31,7 @@ ClusterCoordinator {
 
   async get(key: string) -> bytes or absent
   async compareAndSet(key: string, expected: bytes or absent, value: bytes) -> boolean
+  async delete(key: string) -> nothing
 
   async getSchema(indexName: string) -> SchemaDefinition or absent
   async putSchema(indexName: string, schema: SchemaDefinition) -> nothing
@@ -94,6 +95,12 @@ ClusterCoordinator {
 
 - Sets `key` to `value` and returns true when the current value equals `expected`, and returns false otherwise.
 - With `expected` absent, it succeeds only when the key does not exist.
+
+### delete(key)
+
+- Removes `key` from the general key-value store, so that a later `compareAndSet` with `expected` absent can create it again.
+- It is idempotent, so deleting a key that holds nothing is not an error.
+- A node uses it only for keys that no writer changes after it creates them, such as the [synonym set chunks](#synonym-set-storage), so the delete needs no comparison.
 
 ### getSchema, putSchema, dropSchema, listSchemas, and watchSchemas
 
@@ -450,7 +457,7 @@ when inFlightBytes + requestBytes > inFlightFraction * heapLimitBytes:
 
 `requestBytes` is the node's estimate of the bytes in the documents of the write. That estimate must rise with the length of every string and binary value in those documents, including the fields of a partial update. `inFlightBytes` is the sum of `requestBytes` over every insert and update that is in progress on the node, from the moment that the node accepts it until it completes, whether a client sends it to the node or another node forwards it there. A node that receives a write from a client and holds the primary for it must count that write once. The in-flight fraction is 0.02 by default. An implementation must let each node set it to any value above 0 and at most 1. A node must leave removes and replicated entries out of `inFlightBytes` and accept them whatever the value of `inFlightBytes`.
 
-The details of a `CLUSTER_WRITE_BLOCKED` refusal must hold a `reason`, which is `node_memory_full` under the block and `write_bytes_in_flight` under the bound on writes in progress.
+The details of a `CLUSTER_WRITE_BLOCKED` refusal must hold a `reason`, which is `node_memory_full` under the block, `write_bytes_in_flight` under the bound on writes in progress, and `settings_contention` when a [synonym set replacement](#synonym-set-replacement-flow) runs out of retries.
 
 ---
 
@@ -547,12 +554,20 @@ IndexSettings {
   patternValueLimit: uint32                       (optional; the most code points a pattern field value may hold)
   partitionConfig:   PartitionSnapshotLimits      (optional; maxDocsPerPartition and watermark alone)
   embedding:         EmbeddingSnapshotConfig      (optional)
+  synonyms:          SynonymSetRef                (optional; where the coordinator holds the synonym set)
+}
+
+SynonymSetRef {
+  generation: string   (unique identifier of this stored copy, such as a UUID v7)
+  digest:     string   (lowercase hexadecimal SHA-256 of the encoded set)
+  chunkCount: uint32
+  byteLength: uint32
 }
 ```
 
 The creating node generates the `indexUuid`, which identifies the index for as long as the index exists. When a node creates an index under the name of a dropped one, it generates a new `indexUuid`, so the two indexes stay distinct although they share a name. A node must compare the value with the one that it persisted before it adopts a local copy; see [Joining the Cluster](#joining-the-cluster).
 
-The creating node writes its index configuration into `settings`, so that every node builds its copy of the index with the same configuration. Each key of `IndexSettings` has the type, the meaning, and the default of the key of the same name in the [index configuration payload](../envelope.md#index-configuration-payload). Six rules govern the settings:
+The creating node writes its index configuration into `settings`, so that every node builds its copy of the index with the same configuration. Each key of `IndexSettings` has the type, the meaning, and the default of the key of the same name in the [index configuration payload](../envelope.md#index-configuration-payload), except `synonyms`, which references the set that [Synonym Set Storage](#synonym-set-storage) defines, because a set can outgrow one coordinator value. Six rules govern the settings:
 
 - The creating node must write `language` in every case, while it must write each other key only when the index configuration sets that option.
 - The creating node must leave `maxPartitions` out of `partitionConfig`, because `partitionCount` sets the number of partitions. [Capacity in a Cluster](../partitioning.md#capacity-in-a-cluster) defines how each node enforces the other two limits.
@@ -567,16 +582,26 @@ The creating node serialises the record as MessagePack and stores it in the coor
 _narsil/index/{indexName}/config
 ```
 
+### Synonym Set Storage
+
+The encoded set is the MessagePack encoding of the `List<SynonymRule>` that the caller wrote, as [Synonyms](../algorithms.md#synonyms) defines. A node must split the encoded set, in order, into chunks of at most 1,048,576 bytes, so that each write stays inside the request size that etcd accepts by default. It must store chunk `i` under `_narsil/synonyms/{indexUuid}/{generation}/{i}` with `compareAndSet(key, absent, chunk)`, so that no writer can change a stored chunk. Every stored copy takes a fresh `generation`, so that a node that deletes a replaced copy can never delete a copy that another node stored.
+
+A node that reads the set must join the chunks in order. Where a chunk is absent, the node must read the index metadata again, because a replacement can delete the chunks of the copy that the node read first. It must raise `CONTROLLER_METADATA_INVALID` where the metadata still references that generation, where the joined bytes disagree with `byteLength` or `digest`, or where the set breaks the shape or the limits in [Synonyms](../algorithms.md#synonyms), as it rejects any other malformed key of `settings`.
+
 ### Index Creation Flow
 
 ```text
 1. The node that receives the create request:
    a. generates a fresh indexUuid
    b. builds the settings from the index configuration
-   c. writes the index metadata with
+   c. stores the chunks of the synonym set under a fresh generation,
+      as Synonym Set Storage defines, when the configuration holds
+      a non-empty set
+   d. writes the index metadata with
       compareAndSet('_narsil/index/{indexName}/config', absent, bytes),
-      so that a second creation under the same name fails
-   d. writes the schema with putSchema(indexName, schema), which
+      so that a second creation under the same name fails, and
+      deletes the chunks from step c when that compareAndSet fails
+   e. writes the schema with putSchema(indexName, schema), which
       fires a schema_created event
 
 2. The controller receives that event through watchSchemas:
@@ -586,7 +611,7 @@ _narsil/index/{indexName}/config
       replicationFactor, and the constraints from the metadata
    c. it writes the first allocation table with putAllocation
 
-3. When a creating node crashes between steps 1c and 1d, its
+3. When a creating node crashes between steps 1d and 1e, its
    metadata stays orphaned, because the controller allocates an
    index only after its schema_created event. The next create call
    for the same name fails its compareAndSet on the existing key,
@@ -612,7 +637,9 @@ Deleting an index reverses the creation flow, and the controller drives the tear
 1. The node receiving the drop request:
    a. clears the index metadata with
       compareAndSet('_narsil/index/{indexName}/config', current, empty)
-   b. drops the schema with dropSchema(indexName), which fires a
+   b. deletes each chunk of the synonym set that the cleared metadata
+      referenced, with delete(key)
+   c. drops the schema with dropSchema(indexName), which fires a
       schema_dropped event
 
 2. The controller observes that event:
@@ -643,6 +670,42 @@ Deleting an index reverses the creation flow, and the controller drives the tear
 
 A drop is not atomic across nodes: a query routed while the teardown runs can reach a node that already dropped its partitions, and the coordinator then reports the failure through the partial-results rules in [query-routing.md](query-routing.md#partial-results).
 
+### Synonym Set Replacement Flow
+
+```text
+1. The node that receives the replace request:
+   a. raises CONFIG_INVALID for a set that breaks Synonyms in
+      algorithms.md, analysing each word with the index's analysis
+   b. reads the metadata with get('_narsil/index/{indexName}/config'),
+      and raises INDEX_NOT_FOUND where the value is absent, empty,
+      or holds another indexUuid, after it deletes any chunks that
+      it stored in step c
+   c. stores the chunks of a non-empty set under a fresh generation,
+      once for the whole request
+   d. writes the metadata, with settings.synonyms set to the new
+      reference or left out for an empty set, through
+      compareAndSet('_narsil/index/{indexName}/config', current, bytes)
+   e. returns to step b when that compareAndSet fails, until its
+      retry budget runs out, and then deletes its chunks and raises
+      CLUSTER_WRITE_BLOCKED with the reason settings_contention
+   f. deletes each chunk of the generation that the replaced
+      metadata referenced, once the compareAndSet succeeds
+   g. sends cluster.index_settings to every node that the allocation
+      table assigns a partition of the index, and returns once each
+      of them answers; a node that gives no answer within the
+      transport timeout makes the request fail with
+      QUERY_NODE_TIMEOUT, while the stored set stays in place
+
+2. A node that receives cluster.index_settings reads the metadata
+   and the set again, applies the stored set to its copy and to
+   every worker copy, and then answers.
+
+3. A node that misses the message applies the stored set when it
+   adopts its copy, as step 3a of Joining the Cluster describes.
+```
+
+The last replacement to write its metadata wins, because each node retries with its own set after another write changes the metadata. A replacement that fails with `QUERY_NODE_TIMEOUT` keeps the new set stored, so a retry of the same request completes it. A crash between steps 1c and 1d leaves chunks that no metadata references, and they stay in the coordinator.
+
 ---
 
 ## Node Lifecycle
@@ -656,7 +719,7 @@ A drop is not atomic across nodes: a query routed while the teardown runs can re
    metadata with get('_narsil/index/{indexName}/config') and
    compares the stored indexUuid with the one it persisted:
    a. equal values mean the local copy belongs to this index, and
-      the node adopts it
+      the node adopts it with the stored synonym set
    b. differing values mean the cluster created another index
       under the name this copy carries, so the node drops the
       copy and takes the new index on from its primary
