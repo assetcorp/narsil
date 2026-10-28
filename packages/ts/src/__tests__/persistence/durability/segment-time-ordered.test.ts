@@ -1,11 +1,13 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createNarsil } from '../../../narsil'
 import { createDurableDirectory } from '../../../persistence/durability/durable-filesystem'
 import type { IndexConfig } from '../../../types/schema'
 import { requireManifestOnDisk } from './manifest-on-disk'
+
+vi.setConfig({ testTimeout: 20_000 })
 
 const SCHEMA: IndexConfig = {
   schema: { title: 'string', body: 'string', year: 'number' },

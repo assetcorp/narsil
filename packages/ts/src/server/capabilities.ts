@@ -47,6 +47,15 @@ export const INDEX_LIFECYCLE_CAPABILITY = 'indexes.lifecycle'
 export const DOCUMENT_EXPORT_CAPABILITY = 'indexes.documentExport'
 
 /**
+ * Marks a server that reads the synonym set of an index at
+ * `GET /indexes/{name}/synonyms` and replaces it at
+ * `POST /indexes/{name}/synonyms`.
+ *
+ * @public
+ */
+export const SYNONYMS_CAPABILITY = 'indexes.synonyms'
+
+/**
  * Every capability this server announces at `/capabilities`.
  *
  * A client reads this list to find out whether an optional route or mode is
@@ -62,4 +71,5 @@ export const SERVER_CAPABILITIES: readonly string[] = [
   REBUILD_ANALYSIS_CAPABILITY,
   INDEX_LIFECYCLE_CAPABILITY,
   DOCUMENT_EXPORT_CAPABILITY,
+  SYNONYMS_CAPABILITY,
 ]

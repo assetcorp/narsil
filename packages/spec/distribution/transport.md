@@ -118,7 +118,8 @@ When a primary refuses a forwarded mutation, the node that forwarded it must pas
 | `cluster.ping` | any to any | Health check |
 | `cluster.pong` | any to any | Health check response |
 | `cluster.bootstrap_complete` | data node to controller | Reports that a partition finished bootstrapping |
-| `cluster.partition_stores` | controller to data node | Asks which partitions of an index the node holds on disk |
+| `cluster.partition_stores` | controller or dropping node to data node | Asks which partitions of an index the node holds on disk |
+| `cluster.index_settings` | any node to data node | Asks a node to apply the synonym set that the coordinator holds for an index |
 
 ---
 
@@ -341,7 +342,7 @@ The response is:
 
 ### cluster.partition_stores
 
-The controller sends this so that it can find a copy of a partition in `UNASSIGNED` on a node that has registered again.
+The controller sends this so that it can find a copy of a partition in `UNASSIGNED` on a node that has registered again. The node that received a drop request sends it to confirm that no data node still holds a copy, as [Index Deletion Flow](cluster.md#index-deletion-flow) describes.
 
 ```text
 {
@@ -360,6 +361,28 @@ The response is:
 ```
 
 The node answers from the `held_partitions` field of its own index metadata, which [Index Metadata Payload](../envelope.md#index-metadata-payload) defines. A partition the node holds appears in the list even where that partition holds no document. A node that adopted no copy of the index answers with an absent `indexUuid` and an empty list.
+
+### cluster.index_settings
+
+A node sends this to each node that holds a partition of an index once it replaces the synonym set of that index, as [Synonym Set Replacement Flow](cluster.md#synonym-set-replacement-flow) defines.
+
+```text
+{
+  indexName: string
+  indexUuid: string   (the identity of the index whose synonym set changed)
+}
+```
+
+The response is:
+
+```text
+{
+  indexName: string
+  applied:   boolean   (false where the node holds no copy under that indexUuid)
+}
+```
+
+The receiving node must read the index metadata and the synonym set from the coordinator itself, so that the newest stored set wins when two replacements reach it out of order. It must answer only once its copy and every worker copy of it apply the stored set. A node that holds no copy under that `indexUuid` answers with `applied` false, because it applies the stored set when it creates its copy.
 
 ### cluster.ping
 
@@ -570,7 +593,18 @@ A response carries at most 65,536 groups, so a query whose matches group more fi
 {
   indexName:    string
   partitionIds: List<uint32>
-  terms:        List<string>   (the query terms to collect frequencies for)
+  terms:        List<string>                (the query terms to collect frequencies for)
+  expansion:    StatsExpansion or absent    (the query's matching options; absent counts the terms and the synonyms that the copy's synonym set adds, with no other expansion)
+  tokens:       List<string> or absent      (tokens to count as given, with no analysis or expansion)
+}
+
+StatsExpansion {
+  tolerance:    uint8 or absent
+  prefixLength: uint32 or absent
+  prefix:       boolean or absent
+  partialWords: boolean or absent
+  exact:        boolean or absent
+  fields:       List<string> or absent
 }
 ```
 
@@ -581,6 +615,7 @@ A response carries at most 65,536 groups, so a query whose matches group more fi
   totalDocuments:    uint32
   docFrequencies:    Map<string, uint32>
   totalFieldLengths: Map<string, uint64>
+  expanded:          List<string> or absent   (each token that a prefix completion or a partial-word search reached)
 }
 ```
 

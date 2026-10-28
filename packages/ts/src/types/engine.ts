@@ -15,6 +15,7 @@ import type {
 } from './results'
 import type { AnyDocument, IndexConfig, PartitionConfig } from './schema'
 import type { ListParams, QueryParams, SuggestParams } from './search'
+import type { SynonymOperations } from './synonym-operations'
 import type { DocumentWriteOperations } from './writes'
 
 /**
@@ -31,13 +32,12 @@ export type ByteSource = Uint8Array | ReadableStream<Uint8Array> | AsyncIterable
  *
  * One instance holds every index you create, so an application usually keeps a
  * single engine for its lifetime and reaches each index by name. Build one
- * with {@link createNarsil}. The write methods come from
- * {@link DocumentWriteOperations} and the open and close methods from
- * {@link IndexLifecycleOperations}.
+ * with {@link createNarsil}. Its write, open and close, and synonym methods come from
+ * {@link DocumentWriteOperations}, {@link IndexLifecycleOperations}, and {@link SynonymOperations}.
  *
  * @public
  */
-export interface Narsil extends IndexLifecycleOperations, DocumentWriteOperations {
+export interface Narsil extends IndexLifecycleOperations, DocumentWriteOperations, SynonymOperations {
   /**
    * Creates an index you can insert documents into and query.
    *

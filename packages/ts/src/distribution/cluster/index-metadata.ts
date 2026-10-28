@@ -1,10 +1,19 @@
 import { decode, encode } from '@msgpack/msgpack'
 import { INDEX_NAME_PATTERN, MAX_INDEX_NAME_LENGTH } from '../../engine/constants'
 import { ErrorCodes, NarsilError } from '../../errors'
+import { getLanguage } from '../../languages/registry'
 import type { IndexConfig, SchemaDefinition } from '../../types/schema'
+import type { SynonymRule } from '../../types/synonyms'
 import { MAX_PARTITION_COUNT, MAX_REPLICATION_FACTOR } from '../constants'
 import type { AllocationConstraints, ClusterCoordinator } from '../coordinator/types'
-import { decodeIndexSettings, type IndexSettings, indexConfigFromSettings, isRecord } from './index-settings'
+import {
+  decodeIndexSettings,
+  type IndexSettings,
+  indexConfigFromSettings,
+  isRecord,
+  settingsRejection,
+} from './index-settings'
+import { readSynonymSet, type SynonymSetRef, storedSynonymSetRules, synonymSetRefOrNull } from './synonym-set'
 
 export interface IndexMetadata {
   indexUuid: string
@@ -69,6 +78,7 @@ export function indexConfigKey(indexName: string): string {
 export type IndexMetadataRecord = Omit<IndexMetadata, 'settings'>
 
 interface StoredIndexMetadata {
+  bytes: Uint8Array
   record: IndexMetadataRecord
   rawSettings: unknown
 }
@@ -183,7 +193,32 @@ async function readStoredMetadata(
   }
   const decoded = decode(raw)
   const record = validateDecodedMetadata(decoded, indexName)
-  return { record, rawSettings: isRecord(decoded) ? decoded.settings : undefined }
+  return { bytes: raw, record, rawSettings: isRecord(decoded) ? decoded.settings : undefined }
+}
+
+export interface IndexMetadataSnapshot {
+  bytes: Uint8Array
+  record: IndexMetadataRecord
+  settings: IndexSettings | undefined
+}
+
+export async function readIndexMetadataSnapshot(
+  coordinator: ClusterCoordinator,
+  indexName: string,
+): Promise<IndexMetadataSnapshot | null> {
+  const stored = await readStoredMetadata(coordinator, indexName)
+  if (stored === null) return null
+  return { bytes: stored.bytes, record: stored.record, settings: decodeIndexSettings(stored.rawSettings, indexName) }
+}
+
+export function metadataWithSynonymSet(snapshot: IndexMetadataSnapshot, ref: SynonymSetRef | null): Uint8Array {
+  const decoded = decode(snapshot.bytes)
+  const fields = isRecord(decoded) ? decoded : {}
+  const { synonyms: _replaced, ...settings } = isRecord(fields.settings)
+    ? fields.settings
+    : { language: snapshot.settings?.language ?? getLanguage('english').name }
+  const nextSettings = ref === null ? settings : { ...settings, synonyms: ref }
+  return new Uint8Array(encode({ ...fields, settings: nextSettings }, { ignoreUndefined: true }))
 }
 
 export async function getIndexMetadata(
@@ -193,11 +228,71 @@ export async function getIndexMetadata(
   return (await readStoredMetadata(coordinator, indexName))?.record ?? null
 }
 
+export interface StoredIndexState {
+  record: IndexMetadataRecord
+  settings: IndexSettings | undefined
+  synonyms: SynonymRule[]
+}
+
+export async function readIndexState(
+  coordinator: ClusterCoordinator,
+  indexName: string,
+): Promise<StoredIndexState | null> {
+  const reject = settingsRejection(indexName)
+  let stored = await readStoredMetadata(coordinator, indexName)
+  while (stored !== null) {
+    const { record } = stored
+    const settings = decodeIndexSettings(stored.rawSettings, indexName)
+    const ref = settings?.synonyms
+    if (ref === undefined) return { record, settings, synonyms: [] }
+    const encoded = await readSynonymSet(coordinator, record.indexUuid, ref, reject)
+    if (encoded !== null) return { record, settings, synonyms: storedSynonymSetRules(encoded, reject) }
+    stored = await readStoredMetadata(coordinator, indexName)
+    if (stored !== null && referencesSameSet(stored, record.indexUuid, ref, indexName)) {
+      return reject(`a chunk of synonym set ${ref.generation} is missing`)
+    }
+  }
+  return null
+}
+
+function referencesSameSet(
+  stored: StoredIndexMetadata,
+  indexUuid: string,
+  ref: SynonymSetRef,
+  indexName: string,
+): boolean {
+  if (stored.record.indexUuid !== indexUuid) return false
+  return decodeIndexSettings(stored.rawSettings, indexName)?.synonyms?.generation === ref.generation
+}
+
 export async function getClusterIndexConfig(
   coordinator: ClusterCoordinator,
   indexName: string,
   schema: SchemaDefinition,
 ): Promise<IndexConfig> {
-  const stored = await readStoredMetadata(coordinator, indexName)
-  return indexConfigFromSettings(schema, decodeIndexSettings(stored?.rawSettings, indexName), indexName)
+  const state = await readIndexState(coordinator, indexName)
+  const config = indexConfigFromSettings(schema, state?.settings, indexName)
+  return state === null || state.synonyms.length === 0 ? config : { ...config, synonyms: state.synonyms }
+}
+
+function decodedMetadataOf(bytes: Uint8Array): Record<string, unknown> | null {
+  let decoded: unknown
+  try {
+    decoded = decode(bytes)
+  } catch {
+    return null
+  }
+  return isRecord(decoded) ? decoded : null
+}
+
+export function indexUuidOfStoredMetadata(bytes: Uint8Array): string | null {
+  const decoded = decodedMetadataOf(bytes)
+  return typeof decoded?.indexUuid === 'string' ? decoded.indexUuid : null
+}
+
+export function storedSynonymSetOf(bytes: Uint8Array): { indexUuid: string; ref: SynonymSetRef } | null {
+  const decoded = decodedMetadataOf(bytes)
+  if (decoded === null || typeof decoded.indexUuid !== 'string' || !isRecord(decoded.settings)) return null
+  const ref = synonymSetRefOrNull(decoded.settings.synonyms)
+  return ref === null ? null : { indexUuid: decoded.indexUuid, ref }
 }

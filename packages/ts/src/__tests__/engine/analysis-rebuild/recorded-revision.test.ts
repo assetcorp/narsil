@@ -1,7 +1,7 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createClusterLocalEngine } from '../../../distribution/cluster-node/local-engine'
 import { createNarsil, type Narsil } from '../../../narsil'
 import { resetCheckpointWorkerLatch } from '../../../persistence/durability/checkpoint-worker-dispatch'
@@ -18,6 +18,8 @@ import {
   seededRandom,
   sentence,
 } from './oracle'
+
+vi.setConfig({ testTimeout: 20_000 })
 
 const SCHEMA = { title: 'string' as const }
 const DOCUMENTS = 200

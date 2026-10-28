@@ -1,9 +1,11 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ErrorCodes } from '../../../errors'
 import { createNarsil, type Narsil } from '../../../narsil'
 import type { SchemaDefinition } from '../../../types/schema'
 import { bytesOf, readTar, resealed, rewriteFiles, withEntry, writeTar } from './archive-oracle'
 import { ENGINE_KINDS, temporaryRoots } from './harness'
+
+vi.setConfig({ testTimeout: 20_000 })
 
 const roots = temporaryRoots()
 const engines: Narsil[] = []

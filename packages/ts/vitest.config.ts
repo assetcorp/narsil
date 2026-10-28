@@ -5,6 +5,7 @@ export default defineConfig({
     globals: true,
     environment: 'node',
     passWithNoTests: true,
+    setupFiles: ['./src/__tests__/setup/lazy-code.ts'],
     server: {
       deps: {
         external: [/^node:/],

@@ -128,6 +128,7 @@ export function createPartitionManager(
     get partialWordAnalysis() {
       return partialWordAnalysis
     },
+    synonyms: null,
     get textAnalysis() {
       return textAnalysis
     },
