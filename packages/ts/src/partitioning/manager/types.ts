@@ -6,6 +6,7 @@ import type { FrozenSegment } from '../../core/partition/frozen'
 import type { PartialWordAnalysis } from '../../core/partition/partial-words/spellings'
 import type { SegmentPayload } from '../../core/partition/segment-payload'
 import type { ResolvedProjection } from '../../core/projection'
+import type { SynonymLookup } from '../../core/synonyms/types'
 import type { SerializablePartition } from '../../types/internal'
 import type { LanguageModule } from '../../types/language'
 import type { PartitionStatsResult } from '../../types/results'
@@ -21,6 +22,8 @@ export interface PartitionManager {
   readonly config: IndexConfig
   readonly analysis: ResolvedAnalysis
   readonly partialWordAnalysis: PartialWordAnalysis | null
+  readonly synonyms: SynonymLookup | null
+  replaceSynonyms(lookup: SynonymLookup | null): void
 
   getPartition(partitionId: number): PartitionIndex
   partitionAt(index: number): PartitionIndex | undefined

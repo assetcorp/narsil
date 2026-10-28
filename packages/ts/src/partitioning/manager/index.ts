@@ -8,6 +8,7 @@ import { requirePartialWordSearchFor } from '../../core/partition/partial-words/
 import type { SegmentPayload } from '../../core/partition/segment-payload'
 import { requirePatternSearchFor } from '../../core/pattern-index/registry'
 import { projectionKeepsField, type ResolvedProjection } from '../../core/projection'
+import type { SynonymLookup } from '../../core/synonyms/types'
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { SerializablePartition } from '../../types/internal'
 import type { LanguageModule } from '../../types/language'
@@ -41,6 +42,7 @@ export function createPartitionManager(
   let partitions: PartitionIndex[] = []
   const docPartitionMap = new Map<string, number>()
   const writeLog = createWriteLogRecorder()
+  let synonyms: SynonymLookup | null = null
 
   for (let i = 0; i < count; i++) {
     partitions.push(createPartitionIndex(i, trackPositions))
@@ -126,6 +128,12 @@ export function createPartitionManager(
     },
     get partialWordAnalysis() {
       return partialWordAnalysis
+    },
+    get synonyms() {
+      return synonyms
+    },
+    replaceSynonyms(lookup: SynonymLookup | null): void {
+      synonyms = lookup
     },
 
     getPartition(partitionId: number): PartitionIndex {

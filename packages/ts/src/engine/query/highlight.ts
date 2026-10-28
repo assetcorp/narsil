@@ -1,5 +1,7 @@
 import type { ResolvedAnalysis } from '../../analysis/registry'
 import { partialWordsToHighlight } from '../../core/partition/partial-words/registry'
+import { expandQuerySynonyms } from '../../core/synonyms/registry'
+import type { SynonymLookup } from '../../core/synonyms/types'
 import { tokenize } from '../../core/tokenizer'
 import { highlightField, type PartialWordHighlight } from '../../highlighting/highlighter'
 import { partialFieldsOf } from '../../schema/validator'
@@ -45,6 +47,24 @@ function partialWordTagging(
   }
 }
 
+function synonymsToHighlight(
+  params: QueryParams,
+  queryTokens: readonly QueryToken[],
+  lookup: SynonymLookup | null | undefined,
+): ReadonlySet<string> | undefined {
+  if (params.exact === true) return undefined
+  const expanded = expandQuerySynonyms(
+    lookup,
+    queryTokens.map(qt => qt.token),
+  )
+  if (expanded === undefined) return undefined
+  const tokens = new Set<string>()
+  for (const synonyms of expanded.values()) {
+    for (const synonym of synonyms) tokens.add(synonym)
+  }
+  return tokens
+}
+
 export function applyHighlights<T>(
   hits: Array<Hit<T>>,
   params: QueryParams,
@@ -52,6 +72,7 @@ export function applyHighlights<T>(
   analysis: ResolvedAnalysis,
   schema: SchemaDefinition,
   readStoredDocument?: (docId: string) => Record<string, unknown> | undefined,
+  synonymLookup?: SynonymLookup | null,
 ): void {
   if (!params.highlight) return
 
@@ -79,6 +100,7 @@ export function applyHighlights<T>(
     }
   }
   const partialWords = usesPartialWords ? partialWordTagging(params, schema, queryTokens, written, analysis) : null
+  const synonyms = synonymsToHighlight(params, queryTokens, synonymLookup)
 
   for (const hit of hits) {
     const highlights: Record<string, HighlightMatch> = {}
@@ -100,6 +122,7 @@ export function applyHighlights<T>(
           tolerance: params.exact === true ? 0 : (params.tolerance ?? 0),
           prefixLength: params.prefixLength ?? DEFAULT_FUZZY_PREFIX_LENGTH,
           partialWords: partialWords?.fields.has(field) === true ? partialWords.highlight : undefined,
+          synonyms,
         })
       }
     }

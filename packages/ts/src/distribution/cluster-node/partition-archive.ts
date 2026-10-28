@@ -231,11 +231,13 @@ export async function restoreReplicationPartition(
     )
     if (release === null) release = await core.indexState.acquire(indexName, false)
     if (restoreIndex.created) {
+      const synonyms = core.requireIndex(indexName).synonyms
       await core.orchestrator.replicateToWorkers({
         type: 'createIndex',
         indexName,
         config: restoreIndex.config,
         requestId: `replicate-partition-index-${indexName}`,
+        ...(synonyms !== null ? { synonyms } : {}),
       })
     }
     const wasScaledOut = core.orchestrator.desyncIndex(indexName)

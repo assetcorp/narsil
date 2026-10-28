@@ -13,12 +13,14 @@ import {
   runEngineQueryStats,
   runEngineSuggest,
 } from '../../narsil/reads'
+import { applyLoadedSynonyms } from '../../narsil/synonyms'
 import type { NarsilConfig } from '../../types/config'
 import type { ByteSource } from '../../types/engine'
 import type { GlobalStatistics } from '../../types/internal'
 import type { ListResult, PartitionStatsResult, PreflightResult, QueryResult, SuggestResult } from '../../types/results'
 import type { AnyDocument, IndexConfig } from '../../types/schema'
 import type { ListParams, QueryParams, SuggestParams } from '../../types/search'
+import type { SynonymRule } from '../../types/synonyms'
 import type { ReplicationLogEntry } from '../replication/types'
 import { createHeldPartitionRecord } from './held-partitions'
 import { applyLocalReplicationEntry } from './local-replication'
@@ -29,6 +31,7 @@ export interface ClusterLocalEngine extends Narsil {
   acquireIndexForReplication(indexName: string): Promise<() => void>
   indexUuidOf(indexName: string): string | null | undefined
   stampIndexUuid(indexName: string, indexUuid: string): Promise<void>
+  applyStoredSynonyms(indexName: string, load: () => Promise<readonly SynonymRule[] | null>): Promise<boolean>
   highestPersistedSeqNoOf(indexName: string, partitionId: number): number
   heldPartitionsOf(indexName: string): number[] | undefined
   recordHeldPartition(indexName: string, partitionId: number): Promise<void>
@@ -89,6 +92,8 @@ export async function createClusterLocalEngine(
     acquireIndexForReplication: (indexName: string) => core.indexState.acquire(indexName, false),
     indexUuidOf: (indexName: string) => core.indexRegistry.get(indexName)?.indexUuid,
     stampIndexUuid: (indexName: string, indexUuid: string) => stampIndexUuid(core, indexName, indexUuid),
+    applyStoredSynonyms: (indexName: string, load: () => Promise<readonly SynonymRule[] | null>) =>
+      applyLoadedSynonyms(core, indexName, load),
     highestPersistedSeqNoOf: (indexName: string, partitionId: number) =>
       core.durability?.manager.highestPersistedSeqNo(indexName, partitionId) ?? 0,
     heldPartitionsOf: (indexName: string) => heldPartitions.held(indexName),

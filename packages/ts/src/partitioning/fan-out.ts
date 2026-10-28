@@ -68,6 +68,7 @@ export async function fanOutQuery(
         {
           stopWords: searchOptions?.stopWords,
           customTokenizer: searchOptions?.customTokenizer,
+          synonyms: searchOptions?.synonyms,
         },
         config.partitionIds,
       )

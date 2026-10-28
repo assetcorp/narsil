@@ -248,7 +248,7 @@ export async function executeQuery<T = AnyDocument>(
     const readStoredDocument = dropped
       ? (docId: string): Record<string, unknown> | undefined => manager.get(docId, { kind: 'full' })
       : undefined
-    applyHighlights(paginated, params, language, manager.analysis, manager.schema, readStoredDocument)
+    applyHighlights(paginated, params, language, manager.analysis, manager.schema, readStoredDocument, manager.synonyms)
   }
 
   const elapsed = now() - startTime

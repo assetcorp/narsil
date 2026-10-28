@@ -220,6 +220,7 @@ export async function runEngineQueryStats(
       {
         stopWords: manager.analysis.stopWords,
         customTokenizer: manager.analysis.customTokenizer,
+        synonyms: manager.synonyms,
       },
       partitionIds,
     )

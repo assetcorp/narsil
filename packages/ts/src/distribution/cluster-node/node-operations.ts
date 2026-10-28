@@ -15,6 +15,7 @@ import {
   statsCluster,
   suggestCluster,
 } from './reads'
+import { readClusterSynonyms, replaceClusterSynonyms } from './synonym-sets'
 import type { ClusterNode, CreateIndexOptions } from './types'
 import {
   routeCreateIndex,
@@ -38,6 +39,8 @@ export type ClusterNodeOperations = Pick<
   | 'update'
   | 'updateBatch'
   | 'dropIndex'
+  | 'updateSynonyms'
+  | 'getSynonyms'
   | 'clear'
   | 'countDocuments'
   | 'listDocuments'
@@ -102,6 +105,20 @@ export function createClusterNodeOperations(deps: ClusterNodeOperationDeps): Clu
         await routeDropIndex(name, coordinator, engine)
         deps.forgetIndex(name)
       })
+    },
+
+    async updateSynonyms(indexName, synonyms) {
+      return trackOp(indexName, () =>
+        replaceClusterSynonyms(
+          { config: readDeps.config, nodeId: readDeps.nodeId, engine, coordinator },
+          indexName,
+          synonyms,
+        ),
+      )
+    },
+
+    async getSynonyms(indexName) {
+      return trackOp(indexName, () => readClusterSynonyms(coordinator, indexName))
     },
 
     async clear(indexName) {

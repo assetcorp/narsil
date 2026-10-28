@@ -1,11 +1,9 @@
 import { readHeapStatistics } from '#platform/heap-statistics'
-import { joinPatternWorkMeter } from '../core/pattern-index/work-meter'
+import { storedSynonymLookup } from '../core/synonyms/stored'
+import type { SynonymLookup } from '../core/synonyms/types'
 import { ErrorCodes, NarsilError } from '../errors'
 import { getLanguage } from '../languages/registry'
-import { sanitizeGlobalStats } from '../partitioning/distributed-scoring'
-import { type FanOutResult, fanOutQuery } from '../partitioning/fan-out'
 import { createPartitionManager, type PartitionManager } from '../partitioning/manager'
-import { countsWithoutScores, fanOutMatchCount } from '../partitioning/match-count'
 import { createPartitionRouter } from '../partitioning/router'
 import { extractVectorFieldsFromSchema } from '../schema/validator'
 import type { FulltextSearchOptions } from '../search/fulltext'
@@ -19,6 +17,7 @@ import {
 } from '../vector/vector-index'
 import type { Executor } from './executor'
 import type { WorkerAction } from './protocol'
+import { runQueryAction } from './query-actions'
 import { growPartitionsTo, isSegmentAction, runSegmentAction } from './segment-actions'
 import {
   closeHeldVectorCopies,
@@ -48,7 +47,13 @@ export interface DirectExecutorExtensions {
   holdsVectorField(indexName: string, fieldName: string): boolean
   /** Reads a document's vector from a field this thread holds in place, or undefined where it holds none for the document. */
   heldVectorOf(indexName: string, fieldName: string, docId: string): Float32Array | undefined
-  createIndex(indexName: string, config: IndexConfig, language: LanguageModule, analysisStale?: boolean): void
+  createIndex(
+    indexName: string,
+    config: IndexConfig,
+    language: LanguageModule,
+    analysisStale?: boolean,
+    synonyms?: SynonymLookup | null,
+  ): void
   dropIndex(indexName: string): void
   listIndexes(): string[]
 }
@@ -108,8 +113,22 @@ export function createDirectExecutor(options?: DirectExecutorOptions): Executor 
     return vectorIndexes
   }
 
-  function createIndex(indexName: string, config: IndexConfig, language: LanguageModule, analysisStale = false): void {
-    addIndex(indexName, config, language, analysisStale, null)
+  function createIndex(
+    indexName: string,
+    config: IndexConfig,
+    language: LanguageModule,
+    analysisStale = false,
+    synonyms: SynonymLookup | null = null,
+  ): void {
+    addIndex(indexName, config, language, analysisStale, null).replaceSynonyms(synonyms)
+  }
+
+  function lookupOf(
+    manager: PartitionManager,
+    language: LanguageModule,
+    encoded: Uint8Array | undefined,
+  ): SynonymLookup | null {
+    return storedSynonymLookup(encoded, { language, ...manager.analysis })
   }
 
   function addIndex(
@@ -118,7 +137,7 @@ export function createDirectExecutor(options?: DirectExecutorOptions): Executor 
     language: LanguageModule,
     analysisStale: boolean,
     awaitedCopyLoad: string | null,
-  ): void {
+  ): PartitionManager {
     if (indexes.has(indexName)) {
       throw new NarsilError(ErrorCodes.INDEX_ALREADY_EXISTS, `Index "${indexName}" already exists`, {
         indexName,
@@ -138,12 +157,16 @@ export function createDirectExecutor(options?: DirectExecutorOptions): Executor 
         bm25Params: config.bm25,
         stopWords: manager.analysis.stopWords,
         customTokenizer: manager.analysis.customTokenizer,
+        get synonyms() {
+          return manager.synonyms
+        },
       },
       vectorIndexes,
       vectorCopies: createHeldVectorCopies(),
       analysisStale,
       awaitedCopyLoad,
     })
+    return manager
   }
 
   function dropIndex(indexName: string): void {
@@ -201,7 +224,19 @@ export function createDirectExecutor(options?: DirectExecutorOptions): Executor 
 
       case 'createIndex': {
         const language = getLanguage(action.config.language ?? 'english')
-        addIndex(action.indexName, action.config, language, action.analysisStale ?? false, action.copyLoad ?? null)
+        const manager = addIndex(
+          action.indexName,
+          action.config,
+          language,
+          action.analysisStale ?? false,
+          action.copyLoad ?? null,
+        )
+        try {
+          manager.replaceSynonyms(lookupOf(manager, language, action.synonyms))
+        } catch (err) {
+          dropIndex(action.indexName)
+          throw err
+        }
         return undefined as T
       }
 
@@ -258,43 +293,14 @@ export function createDirectExecutor(options?: DirectExecutorOptions): Executor 
         return undefined as T
       }
 
-      case 'query': {
-        const entry = requireIndex(action.indexName)
-        const patternWork = joinPatternWorkMeter(action.patternWork)
-        const result: FanOutResult = await fanOutQuery(
-          entry.manager,
-          action.params,
-          entry.language,
-          entry.config.schema,
-          {
-            scoringMode: action.params.scoring ?? entry.config.defaultScoring ?? 'local',
-            partitionIds: action.partitionIds,
-            ...(action.globalStats !== undefined ? { globalStats: sanitizeGlobalStats(action.globalStats) } : {}),
-          },
-          { ...entry.searchOptions, patternWork },
-        )
-        result.patternWorkSpent = patternWork.spent()
-        return result as T
-      }
+      case 'query':
+      case 'preflight':
+        return (await runQueryAction(requireIndex(action.indexName), action)) as T
 
-      case 'preflight': {
-        const entry = requireIndex(action.indexName)
-        const searchOptions = { ...entry.searchOptions, patternWork: joinPatternWorkMeter(action.patternWork) }
-        if (countsWithoutScores(action.params)) {
-          const count = fanOutMatchCount(entry.manager, action.params, entry.language, entry.config.schema, {
-            searchOptions,
-          })
-          return { count } as T
-        }
-        const result = await fanOutQuery(
-          entry.manager,
-          action.params,
-          entry.language,
-          entry.config.schema,
-          { scoringMode: entry.config.defaultScoring ?? 'local' },
-          searchOptions,
-        )
-        return { count: result.totalMatched } as T
+      case 'replaceSynonyms': {
+        const entry = indexes.get(action.indexName)
+        if (entry !== undefined) entry.manager.replaceSynonyms(lookupOf(entry.manager, entry.language, action.synonyms))
+        return undefined as T
       }
 
       case 'get': {

@@ -133,7 +133,10 @@ export function broadcastStatsForWorker(
   if (term === undefined || term.trim().length === 0) {
     return undefined
   }
-  return pruneStatsToQueryTerms(scoring.globalStats, term, context.language, context.manager.analysis)
+  return pruneStatsToQueryTerms(scoring.globalStats, term, context.language, {
+    ...context.manager.analysis,
+    synonyms: context.manager.synonyms,
+  })
 }
 
 export function searchOptionsFor(manager: PartitionManager, patternWork: PatternWorkMeter): FulltextSearchOptions {
@@ -141,6 +144,7 @@ export function searchOptionsFor(manager: PartitionManager, patternWork: Pattern
     bm25Params: manager.config.bm25,
     stopWords: manager.analysis.stopWords,
     customTokenizer: manager.analysis.customTokenizer,
+    synonyms: manager.synonyms,
     patternWork,
   }
 }

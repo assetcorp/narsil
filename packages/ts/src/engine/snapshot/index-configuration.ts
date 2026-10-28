@@ -1,10 +1,12 @@
 import { decode, encode } from '@msgpack/msgpack'
 import { compareCodePoints } from '../../core/ordering'
+import { storedSynonymRules } from '../../core/synonyms/stored'
 import { ErrorCodes, NarsilError } from '../../errors'
 import { messagePackUpperBoundBytes } from '../../schema/validator/document-size'
 import { openChecksummedEnvelope, packChecksummedEnvelope } from '../../serialization/envelope-file'
 import type { LanguageModule } from '../../types/language'
 import type { IndexConfig } from '../../types/schema'
+import type { SynonymRule } from '../../types/synonyms'
 import { MAX_INDEX_CONFIGURATION_BYTES } from '../constants'
 import type { IndexRegistryEntry } from '../core'
 import type { SnapshotEnvelope } from './restore-config'
@@ -28,7 +30,14 @@ function refuseCode(entry: IndexRegistryEntry): void {
 
 export function indexConfigurationOf(entry: IndexRegistryEntry): Record<string, unknown> {
   refuseCode(entry)
-  return configurationPayloadOf(entry.config, entry.language, entry.embeddingAdapterName, entry.analysisRevision)
+  const synonyms = entry.synonyms === null ? undefined : storedSynonymRules(entry.synonyms)
+  return configurationPayloadOf(
+    entry.config,
+    entry.language,
+    entry.embeddingAdapterName,
+    entry.analysisRevision,
+    synonyms,
+  )
 }
 
 export function requireConfigurationWithinSizeLimit(config: IndexConfig, language: LanguageModule): void {
@@ -54,6 +63,7 @@ function configurationPayloadOf(
   language: LanguageModule,
   adapterName: string | null,
   analysisRevision: string | null,
+  synonyms?: SynonymRule[],
 ): Record<string, unknown> {
   const bm25 = config.bm25
   return {
@@ -79,6 +89,7 @@ function configurationPayloadOf(
     ...(config.required !== undefined ? { required: config.required } : {}),
     ...(config.vectorPromotion !== undefined ? { vectorPromotion: config.vectorPromotion } : {}),
     ...(config.patternValueLimit !== undefined ? { patternValueLimit: config.patternValueLimit } : {}),
+    ...(synonyms !== undefined ? { synonyms } : {}),
     ...(config.embedding !== undefined
       ? {
           embedding: {

@@ -8,6 +8,7 @@ export {
 } from './analysis/registry'
 export { registerPartialWordSearch } from './core/partition/partial-words/registry'
 export { registerPatternSearch } from './core/pattern-index/registry'
+export { registerSynonyms } from './core/synonyms/registry'
 export {
   clearNormalizationCache,
   configureNormalizationCache,
@@ -116,6 +117,8 @@ export type {
   TermMatchPolicy,
   VectorQueryConfig,
 } from './types/search'
+export type { SynonymOperations } from './types/synonym-operations'
+export type { OneWaySynonymRule, SynonymRule, SynonymSearch, TwoWaySynonymRule } from './types/synonyms'
 export type { DocumentWriteOperations } from './types/writes'
 export { isSimdAvailable } from './vector/simd'
 /**

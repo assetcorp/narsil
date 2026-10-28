@@ -1,4 +1,6 @@
 import { resolveIndexAnalysis } from '../../analysis/registry'
+import { encodeSynonymRules, parseSynonymRules } from '../../core/synonyms/rules'
+import type { PreparedSynonyms } from '../../core/synonyms/stored'
 import { getLanguage } from '../../languages/registry'
 import type { PartitionManager } from '../../partitioning/manager'
 import { validateEmbeddingConfig, validateRequiredFieldsInSchema } from '../../schema/embedding-validator'
@@ -12,9 +14,11 @@ import type { StaleIndex } from '../analysis-rebuild'
 import type { IndexRegistryEntry } from '../core'
 import type { DurabilityIntegration } from '../durability-integration'
 import type { IndexStateCoordinator } from '../index-state'
+import { lookupOfStoredSynonyms } from '../synonym-sets'
 import { requireSurfaceFormsForPartialFields, validatePatternValueLimit } from '../validation'
 import {
   type ConfigFieldRejection,
+  rejectSnapshot,
   restoredConfigFields,
   restoredEmbedding,
   type SnapshotEnvelope,
@@ -42,6 +46,7 @@ export interface PreparedIndex {
   embeddingAdapter: EmbeddingAdapter | null
   adapterName: string | null
   storedRevision: string | null
+  synonyms: PreparedSynonyms | null
 }
 
 export interface CreatedIndex {
@@ -91,7 +96,21 @@ export function prepareRestoredIndex(
     }
   }
   const storedRevision = typeof configuration.analysisRevision === 'string' ? configuration.analysisRevision : null
-  return { config, language, embeddingAdapter, adapterName, storedRevision }
+  const synonyms = restoredSynonyms(configuration.synonyms, config, language, reject ?? rejectSnapshot)
+  return { config, language, embeddingAdapter, adapterName, storedRevision, synonyms }
+}
+
+function restoredSynonyms(
+  raw: unknown,
+  config: IndexConfig,
+  language: LanguageModule,
+  reject: ConfigFieldRejection,
+): PreparedSynonyms | null {
+  if (raw === undefined || raw === null) return null
+  const rules = parseSynonymRules(raw, message => reject(`synonyms: ${message}`))
+  if (rules.length === 0) return null
+  const encoded = encodeSynonymRules(rules)
+  return { encoded, lookup: lookupOfStoredSynonyms(encoded, config, language) }
 }
 
 export async function createRestoredIndex(
@@ -112,7 +131,7 @@ export async function createRestoredIndex(
       currentRevision: prepared.language.revision,
     })
   }
-  deps.executor.createIndex(indexName, prepared.config, prepared.language)
+  deps.executor.createIndex(indexName, prepared.config, prepared.language, false, prepared.synonyms?.lookup ?? null)
   deps.indexRegistry.set(indexName, {
     config: prepared.config,
     language: prepared.language,
@@ -124,6 +143,7 @@ export async function createRestoredIndex(
     documentCount: 0,
     partitionCount,
     analysisRevision: prepared.storedRevision,
+    synonyms: prepared.synonyms?.encoded ?? null,
   })
   await deps.indexState.registerOpen(indexName)
   const release = await deps.indexState.acquire(indexName, false)

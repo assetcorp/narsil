@@ -2,6 +2,7 @@ import type { ExpandedTermGroup, PostingListView } from '../../types/internal'
 import { bitsetHas } from '../bitset'
 import type { InvertedIndexReader } from '../inverted-index'
 import { computeBM25WithIDF, computeIDF } from '../scorer'
+import { combineSynonymPostings } from '../synonyms/registry'
 import { type FieldScoring, fieldLengthOf } from './field-scoring'
 import { postingColumns } from './posting-columns'
 import { EMPTY_COMPONENTS, type GroupContribution, type GroupMatch } from './scoring'
@@ -51,20 +52,52 @@ export function typoMatchesFor(
 ): Array<{ token: string; postingList: PostingListView }> {
   if (group !== undefined) {
     if (!group.typoMatches || exact || tolerance === 0) return []
-    return index.fuzzyLookup(token, tolerance, prefixLength).filter(match => match.token !== token)
+    const synonyms = group.synonyms
+    return index
+      .fuzzyLookup(token, tolerance, prefixLength)
+      .filter(match => match.token !== token && (synonyms === undefined || !synonyms.includes(match.token)))
   }
   if (!exact) return index.fuzzyLookup(token, tolerance, prefixLength)
   const postingList = index.lookup(token)
   return postingList ? [{ token, postingList }] : []
 }
 
+function documentFrequencyOf(context: GroupScoringContext, token: string): number {
+  return context.globalFrequency(token) ?? context.index.documentFrequency(token)
+}
+
+function combinedPostingsOf(
+  context: GroupScoringContext,
+  token: string,
+  synonyms: readonly string[],
+): PostingListView | undefined {
+  const lists: PostingListView[] = []
+  const own = context.index.lookup(token)
+  if (own !== undefined) lists.push(own)
+  for (const synonym of synonyms) {
+    const list = context.index.lookup(synonym)
+    if (list !== undefined) lists.push(list)
+  }
+  return lists.length === 0 ? undefined : combineSynonymPostings(lists)
+}
+
 export function resolveGroupMatches(context: GroupScoringContext, group: ExpandedTermGroup): GroupMatch[] {
   let groupDocumentFrequency = 0
   const found: Array<{ token: string; factor: number; partialFactor: number; postingList: PostingListView }> = []
+  const synonyms = group.synonyms
+  if (synonyms !== undefined) {
+    for (const synonym of synonyms) {
+      const documents = documentFrequencyOf(context, synonym)
+      if (documents > groupDocumentFrequency) groupDocumentFrequency = documents
+    }
+  }
   for (const member of group.members) {
-    const documents = context.globalFrequency(member.token) ?? context.index.documentFrequency(member.token)
+    const documents = documentFrequencyOf(context, member.token)
     if (documents > groupDocumentFrequency) groupDocumentFrequency = documents
-    const postingList = context.index.lookup(member.token)
+    const postingList =
+      synonyms !== undefined && member.token === group.token
+        ? combinedPostingsOf(context, member.token, synonyms)
+        : context.index.lookup(member.token)
     if (postingList === undefined) continue
     found.push({ token: member.token, factor: member.factor, partialFactor: member.partialFactor, postingList })
   }

@@ -25,6 +25,7 @@ export interface HighlightOptions {
   tolerance?: number
   prefixLength?: number
   partialWords?: PartialWordHighlight
+  synonyms?: ReadonlySet<string>
 }
 
 interface CharRange {
@@ -172,15 +173,18 @@ export function highlightField(
   const prefixLength = options?.prefixLength ?? 0
   const completedToken = options?.completedToken
   const queryTolerances = queryTokens.map(qt => (qt.token === completedToken ? 0 : tolerance))
+  const synonyms = options?.synonyms
 
   const matchByFieldToken = new Map<string, boolean>()
   const matchesQuery = (fieldToken: string): boolean => {
     const known = matchByFieldToken.get(fieldToken)
     if (known !== undefined) return known
     const stemmedField = language.stemmer ? language.stemmer(fieldToken) : fieldToken
-    const matches = stemmedQueryTokens.some((stemmedQuery, index) =>
-      fuzzyTermMatches(stemmedQuery, stemmedField, queryTolerances[index], prefixLength),
-    )
+    const matches =
+      synonyms?.has(stemmedField) === true ||
+      stemmedQueryTokens.some((stemmedQuery, index) =>
+        fuzzyTermMatches(stemmedQuery, stemmedField, queryTolerances[index], prefixLength),
+      )
     matchByFieldToken.set(fieldToken, matches)
     return matches
   }

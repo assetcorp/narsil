@@ -165,7 +165,7 @@ async function loadCopies(state: OrchestratorState, indexName: string, reason: s
     const copyLoad = await transferIndexToPool(
       indexName,
       pool,
-      entry.config,
+      entry,
       manager,
       state.callbacks?.isAnalysisStale?.(indexName),
     )
