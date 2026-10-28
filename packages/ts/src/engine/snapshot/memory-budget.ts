@@ -1,22 +1,35 @@
 import { readHeapStatistics } from '#platform/heap-statistics'
+import { collectAndReturnPages } from '#platform/idle-heap-cleanup'
 import { readResidentMemory } from '#platform/process-limit'
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { SegmentManifest } from '../../persistence/durability/segment/manifest'
 import { extractVectorFieldsFromSchema } from '../../schema/validator'
 import {
   RESTORE_ESTIMATE_MARGIN,
-  RESTORE_EXTERNAL_BYTES_PER_EARLIER_SNAPSHOT_BYTE,
-  RESTORE_EXTERNAL_BYTES_PER_EARLIER_SNAPSHOT_VECTOR,
-  RESTORE_EXTERNAL_BYTES_PER_EARLIER_SNAPSHOT_VECTOR_DIMENSION,
-  RESTORE_EXTERNAL_BYTES_PER_STORED_BYTE,
-  RESTORE_EXTERNAL_BYTES_PER_VECTOR,
-  RESTORE_EXTERNAL_BYTES_PER_VECTOR_DIMENSION,
-  RESTORE_HEAP_BYTES_PER_EARLIER_SNAPSHOT_BYTE,
-  RESTORE_HEAP_BYTES_PER_EARLIER_SNAPSHOT_VECTOR,
-  RESTORE_HEAP_BYTES_PER_EARLIER_SNAPSHOT_VECTOR_DIMENSION,
-  RESTORE_HEAP_BYTES_PER_STORED_BYTE,
-  RESTORE_HEAP_BYTES_PER_VECTOR,
-  RESTORE_HEAP_BYTES_PER_VECTOR_DIMENSION,
+  RESTORE_FLOOR_EXTERNAL_BYTES_PER_EARLIER_SNAPSHOT_BYTE,
+  RESTORE_FLOOR_EXTERNAL_BYTES_PER_EARLIER_SNAPSHOT_VECTOR,
+  RESTORE_FLOOR_EXTERNAL_BYTES_PER_EARLIER_SNAPSHOT_VECTOR_DIMENSION,
+  RESTORE_FLOOR_EXTERNAL_BYTES_PER_STORED_BYTE,
+  RESTORE_FLOOR_EXTERNAL_BYTES_PER_VECTOR,
+  RESTORE_FLOOR_EXTERNAL_BYTES_PER_VECTOR_DIMENSION,
+  RESTORE_FLOOR_HEAP_BYTES_PER_EARLIER_SNAPSHOT_BYTE,
+  RESTORE_FLOOR_HEAP_BYTES_PER_EARLIER_SNAPSHOT_VECTOR,
+  RESTORE_FLOOR_HEAP_BYTES_PER_EARLIER_SNAPSHOT_VECTOR_DIMENSION,
+  RESTORE_FLOOR_HEAP_BYTES_PER_STORED_BYTE,
+  RESTORE_FLOOR_HEAP_BYTES_PER_VECTOR,
+  RESTORE_FLOOR_HEAP_BYTES_PER_VECTOR_DIMENSION,
+  RESTORE_WORST_EXTERNAL_BYTES_PER_EARLIER_SNAPSHOT_BYTE,
+  RESTORE_WORST_EXTERNAL_BYTES_PER_EARLIER_SNAPSHOT_VECTOR,
+  RESTORE_WORST_EXTERNAL_BYTES_PER_EARLIER_SNAPSHOT_VECTOR_DIMENSION,
+  RESTORE_WORST_EXTERNAL_BYTES_PER_STORED_BYTE,
+  RESTORE_WORST_EXTERNAL_BYTES_PER_VECTOR,
+  RESTORE_WORST_EXTERNAL_BYTES_PER_VECTOR_DIMENSION,
+  RESTORE_WORST_HEAP_BYTES_PER_EARLIER_SNAPSHOT_BYTE,
+  RESTORE_WORST_HEAP_BYTES_PER_EARLIER_SNAPSHOT_VECTOR,
+  RESTORE_WORST_HEAP_BYTES_PER_EARLIER_SNAPSHOT_VECTOR_DIMENSION,
+  RESTORE_WORST_HEAP_BYTES_PER_STORED_BYTE,
+  RESTORE_WORST_HEAP_BYTES_PER_VECTOR,
+  RESTORE_WORST_HEAP_BYTES_PER_VECTOR_DIMENSION,
 } from './constants'
 import type { PreparedIndex } from './restore-setup'
 
@@ -40,29 +53,62 @@ interface RestoreRates {
   external: MemoryRate
 }
 
-const ARCHIVE_RATES: RestoreRates = {
-  heap: {
-    perStoredByte: RESTORE_HEAP_BYTES_PER_STORED_BYTE,
-    perVector: RESTORE_HEAP_BYTES_PER_VECTOR,
-    perVectorDimension: RESTORE_HEAP_BYTES_PER_VECTOR_DIMENSION,
+interface PathRates {
+  worst: RestoreRates
+  floor: RestoreRates
+}
+
+const ARCHIVE_RATES: PathRates = {
+  worst: {
+    heap: {
+      perStoredByte: RESTORE_WORST_HEAP_BYTES_PER_STORED_BYTE,
+      perVector: RESTORE_WORST_HEAP_BYTES_PER_VECTOR,
+      perVectorDimension: RESTORE_WORST_HEAP_BYTES_PER_VECTOR_DIMENSION,
+    },
+    external: {
+      perStoredByte: RESTORE_WORST_EXTERNAL_BYTES_PER_STORED_BYTE,
+      perVector: RESTORE_WORST_EXTERNAL_BYTES_PER_VECTOR,
+      perVectorDimension: RESTORE_WORST_EXTERNAL_BYTES_PER_VECTOR_DIMENSION,
+    },
   },
-  external: {
-    perStoredByte: RESTORE_EXTERNAL_BYTES_PER_STORED_BYTE,
-    perVector: RESTORE_EXTERNAL_BYTES_PER_VECTOR,
-    perVectorDimension: RESTORE_EXTERNAL_BYTES_PER_VECTOR_DIMENSION,
+  floor: {
+    heap: {
+      perStoredByte: RESTORE_FLOOR_HEAP_BYTES_PER_STORED_BYTE,
+      perVector: RESTORE_FLOOR_HEAP_BYTES_PER_VECTOR,
+      perVectorDimension: RESTORE_FLOOR_HEAP_BYTES_PER_VECTOR_DIMENSION,
+    },
+    external: {
+      perStoredByte: RESTORE_FLOOR_EXTERNAL_BYTES_PER_STORED_BYTE,
+      perVector: RESTORE_FLOOR_EXTERNAL_BYTES_PER_VECTOR,
+      perVectorDimension: RESTORE_FLOOR_EXTERNAL_BYTES_PER_VECTOR_DIMENSION,
+    },
   },
 }
 
-const EARLIER_SNAPSHOT_RATES: RestoreRates = {
-  heap: {
-    perStoredByte: RESTORE_HEAP_BYTES_PER_EARLIER_SNAPSHOT_BYTE,
-    perVector: RESTORE_HEAP_BYTES_PER_EARLIER_SNAPSHOT_VECTOR,
-    perVectorDimension: RESTORE_HEAP_BYTES_PER_EARLIER_SNAPSHOT_VECTOR_DIMENSION,
+const EARLIER_SNAPSHOT_RATES: PathRates = {
+  worst: {
+    heap: {
+      perStoredByte: RESTORE_WORST_HEAP_BYTES_PER_EARLIER_SNAPSHOT_BYTE,
+      perVector: RESTORE_WORST_HEAP_BYTES_PER_EARLIER_SNAPSHOT_VECTOR,
+      perVectorDimension: RESTORE_WORST_HEAP_BYTES_PER_EARLIER_SNAPSHOT_VECTOR_DIMENSION,
+    },
+    external: {
+      perStoredByte: RESTORE_WORST_EXTERNAL_BYTES_PER_EARLIER_SNAPSHOT_BYTE,
+      perVector: RESTORE_WORST_EXTERNAL_BYTES_PER_EARLIER_SNAPSHOT_VECTOR,
+      perVectorDimension: RESTORE_WORST_EXTERNAL_BYTES_PER_EARLIER_SNAPSHOT_VECTOR_DIMENSION,
+    },
   },
-  external: {
-    perStoredByte: RESTORE_EXTERNAL_BYTES_PER_EARLIER_SNAPSHOT_BYTE,
-    perVector: RESTORE_EXTERNAL_BYTES_PER_EARLIER_SNAPSHOT_VECTOR,
-    perVectorDimension: RESTORE_EXTERNAL_BYTES_PER_EARLIER_SNAPSHOT_VECTOR_DIMENSION,
+  floor: {
+    heap: {
+      perStoredByte: RESTORE_FLOOR_HEAP_BYTES_PER_EARLIER_SNAPSHOT_BYTE,
+      perVector: RESTORE_FLOOR_HEAP_BYTES_PER_EARLIER_SNAPSHOT_VECTOR,
+      perVectorDimension: RESTORE_FLOOR_HEAP_BYTES_PER_EARLIER_SNAPSHOT_VECTOR_DIMENSION,
+    },
+    external: {
+      perStoredByte: RESTORE_FLOOR_EXTERNAL_BYTES_PER_EARLIER_SNAPSHOT_BYTE,
+      perVector: RESTORE_FLOOR_EXTERNAL_BYTES_PER_EARLIER_SNAPSHOT_VECTOR,
+      perVectorDimension: RESTORE_FLOOR_EXTERNAL_BYTES_PER_EARLIER_SNAPSHOT_VECTOR_DIMENSION,
+    },
   },
 }
 
@@ -77,10 +123,17 @@ function bytesAt(rate: MemoryRate, storedBytes: number, vectors: readonly Vector
   return bytes
 }
 
-function footprintAt(rates: RestoreRates, storedBytes: number, vectors: readonly VectorCount[]): RestoreFootprint {
+function footprintAt(
+  rates: PathRates,
+  replacesIndex: boolean,
+  storedBytes: number,
+  vectors: readonly VectorCount[],
+): RestoreFootprint {
+  const chosen = replacesIndex ? rates.worst : rates.floor
+  const scale = replacesIndex ? RESTORE_ESTIMATE_MARGIN : 1 / RESTORE_ESTIMATE_MARGIN
   return {
-    heapBytes: bytesAt(rates.heap, storedBytes, vectors),
-    externalBytes: bytesAt(rates.external, storedBytes, vectors),
+    heapBytes: bytesAt(chosen.heap, storedBytes, vectors) * scale,
+    externalBytes: bytesAt(chosen.external, storedBytes, vectors) * scale,
   }
 }
 
@@ -93,7 +146,11 @@ function deadCountOf(dead: Uint8Array | null): number {
   return count
 }
 
-export function archiveFootprint(prepared: PreparedIndex, manifest: SegmentManifest): RestoreFootprint {
+export function archiveFootprint(
+  prepared: PreparedIndex,
+  manifest: SegmentManifest,
+  replacesIndex: boolean,
+): RestoreFootprint {
   let segmentBytes = 0
   for (const partition of manifest.partitions) {
     for (const segment of partition.segments) segmentBytes += segment.bytes
@@ -104,30 +161,47 @@ export function archiveFootprint(prepared: PreparedIndex, manifest: SegmentManif
     const dimension = dimensions.get(field.fieldPath) ?? 0
     for (const file of field.files) vectors.push({ dimension, count: Math.max(0, file.count - deadCountOf(file.dead)) })
   }
-  return footprintAt(ARCHIVE_RATES, segmentBytes, vectors)
+  return footprintAt(ARCHIVE_RATES, replacesIndex, segmentBytes, vectors)
 }
 
 export function earlierSnapshotFootprint(
   prepared: PreparedIndex,
   partitionBytes: number,
   vectorCounts: ReadonlyMap<string, number>,
+  replacesIndex: boolean,
 ): RestoreFootprint {
   const dimensions = extractVectorFieldsFromSchema(prepared.config.schema)
   const vectors = [...vectorCounts].map(([fieldPath, count]) => ({ dimension: dimensions.get(fieldPath) ?? 0, count }))
-  return footprintAt(EARLIER_SNAPSHOT_RATES, partitionBytes, vectors)
+  return footprintAt(EARLIER_SNAPSHOT_RATES, replacesIndex, partitionBytes, vectors)
 }
 
 function inMegabytes(bytes: number): number {
   return Math.ceil(bytes / MEGABYTE_BYTES)
 }
 
-function refuse(
-  indexName: string,
-  replacesIndex: boolean,
-  budget: MemoryBudget,
-  neededBytes: number,
-  availableBytes: number,
-): never {
+interface Shortfall {
+  budget: MemoryBudget
+  neededBytes: number
+  availableBytes: number
+}
+
+function shortfallOf(heapBytes: number, processBytes: number, countInUse: boolean): Shortfall | null {
+  const heap = readHeapStatistics()
+  if (heap !== null) {
+    const limitBytes = heap.configuredLimitBytes ?? heap.limitBytes
+    const availableBytes = countInUse ? limitBytes - heap.usedBytes : limitBytes
+    if (heapBytes > availableBytes) return { budget: 'heap', neededBytes: heapBytes, availableBytes }
+  }
+  const resident = readResidentMemory()
+  if (resident !== null) {
+    const availableBytes = countInUse ? resident.limitBytes - resident.residentBytes : resident.limitBytes
+    if (processBytes > availableBytes) return { budget: 'process', neededBytes: processBytes, availableBytes }
+  }
+  return null
+}
+
+function refuse(indexName: string, replacesIndex: boolean, shortfall: Shortfall): never {
+  const { budget, neededBytes, availableBytes } = shortfall
   const where = budget === 'heap' ? 'of JavaScript heap' : 'of process memory'
   const outcome = replacesIndex
     ? 'so the index keeps its earlier contents. Drop the index first to free the memory that it holds, or give the process more memory, then restore again'
@@ -140,17 +214,9 @@ function refuse(
 }
 
 export function requireRestoreMemory(indexName: string, footprint: RestoreFootprint, replacesIndex: boolean): void {
-  const scale = replacesIndex ? 1 : 1 / RESTORE_ESTIMATE_MARGIN
-  const heapBytes = footprint.heapBytes * scale
-  const heap = readHeapStatistics()
-  if (heap !== null) {
-    const availableBytes = (heap.configuredLimitBytes ?? heap.limitBytes) - heap.usedBytes
-    if (heapBytes > availableBytes) refuse(indexName, replacesIndex, 'heap', heapBytes, availableBytes)
-  }
-  const resident = readResidentMemory()
-  if (resident !== null) {
-    const neededBytes = heapBytes + footprint.externalBytes * scale
-    const availableBytes = resident.limitBytes - resident.residentBytes
-    if (neededBytes > availableBytes) refuse(indexName, replacesIndex, 'process', neededBytes, availableBytes)
-  }
+  const processBytes = footprint.heapBytes + footprint.externalBytes
+  if (shortfallOf(footprint.heapBytes, processBytes, true) === null) return
+  const collected = collectAndReturnPages()
+  const shortfall = shortfallOf(footprint.heapBytes, processBytes, collected || replacesIndex)
+  if (shortfall !== null) refuse(indexName, replacesIndex, shortfall)
 }
