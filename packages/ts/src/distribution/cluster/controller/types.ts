@@ -7,6 +7,7 @@ export interface ControllerConfig {
   transport: NodeTransport
   leaseTtlMs: number
   standbyRetryMs: number
+  nodeLeftDelayMs: number
   knownIndexNames: string[]
   onError?: (indexName: string, error: unknown) => void
   onElectionError?: (error: unknown) => void

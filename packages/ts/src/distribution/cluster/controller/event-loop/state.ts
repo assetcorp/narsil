@@ -1,5 +1,6 @@
 import type { NodeEvent, NodeRegistration } from '../../../coordinator/types'
 import type { NodeTransport } from '../../../transport/types'
+import { DEFAULT_CONTROLLER_CONFIG } from '../../constants'
 
 export interface EventLoopState {
   unwatchNodes: (() => void) | null
@@ -12,6 +13,9 @@ export interface EventLoopState {
   insyncQueue: Promise<void>
   transport: NodeTransport | null
   controllerNodeId: string | null
+  nodeLeftDelayMs: number
+  departedAt: Map<string, number>
+  departureTimer: ReturnType<typeof setTimeout> | null
 }
 
 /**
@@ -19,10 +23,17 @@ export interface EventLoopState {
  * pending.
  *
  * @param initialIndexNames - The indexes the controller starts with, which it allocates on its first run.
+ * @param nodeLeftDelayMs - How long the controller waits after a node leaves before it moves that node's replicas.
  * @returns The fresh state, ready for {@link startEventLoop}.
  */
-export function createEventLoopState(initialIndexNames: string[]): EventLoopState {
+export function createEventLoopState(
+  initialIndexNames: string[],
+  nodeLeftDelayMs: number = DEFAULT_CONTROLLER_CONFIG.nodeLeftDelayMs,
+): EventLoopState {
   return {
+    nodeLeftDelayMs,
+    departedAt: new Map(),
+    departureTimer: null,
     unwatchNodes: null,
     placementByNodeId: new Map(),
     unwatchSchemas: null,
@@ -67,6 +78,11 @@ export function clearEventLoopWatchers(state: EventLoopState): void {
     clearTimeout(timer)
   }
   state.teardownTimers.clear()
+  if (state.departureTimer !== null) {
+    clearTimeout(state.departureTimer)
+    state.departureTimer = null
+  }
+  state.departedAt.clear()
 }
 
 function placementOf(registration: NodeRegistration): string {
@@ -77,8 +93,10 @@ function placementOf(registration: NodeRegistration): string {
 export function changesTopology(state: EventLoopState, event: NodeEvent): boolean {
   if (event.type === 'node_left' || event.registration === null) {
     state.placementByNodeId.delete(event.nodeId)
+    state.departedAt.set(event.nodeId, Date.now())
     return true
   }
+  state.departedAt.delete(event.nodeId)
   const placement = placementOf(event.registration)
   if (state.placementByNodeId.get(event.nodeId) === placement) {
     return false

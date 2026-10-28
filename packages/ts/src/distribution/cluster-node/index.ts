@@ -216,6 +216,7 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
       transport: controllerTransport?.transport ?? config.transport,
       leaseTtlMs: config.controller?.leaseTtlMs ?? DEFAULT_CONTROLLER_CONFIG.leaseTtlMs,
       standbyRetryMs: config.controller?.standbyRetryMs ?? DEFAULT_CONTROLLER_CONFIG.standbyRetryMs,
+      nodeLeftDelayMs: config.controller?.nodeLeftDelayMs ?? DEFAULT_CONTROLLER_CONFIG.nodeLeftDelayMs,
       knownIndexNames: [],
       onError: forwardAllocationError,
       onElectionError: forwardOnError,

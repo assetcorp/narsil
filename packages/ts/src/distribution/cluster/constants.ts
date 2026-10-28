@@ -14,6 +14,7 @@ export const PARTITION_STORES_TIMEOUT_MS = 5_000
 export const DEFAULT_CONTROLLER_CONFIG = {
   leaseTtlMs: 15_000,
   standbyRetryMs: 5_000,
+  nodeLeftDelayMs: 60_000,
 } as const
 
 export const DEFAULT_NODE_LIFECYCLE_CONFIG = {
