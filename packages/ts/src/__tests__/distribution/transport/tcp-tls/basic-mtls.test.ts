@@ -1,7 +1,15 @@
 import { beforeAll, describe, expect, it } from 'vitest'
 import { ClusterMessageTypes, TransportError, TransportErrorCodes } from '../../../../distribution/transport'
 import { createTcpTransport } from '../../../../distribution/transport/tcp'
-import { type CertBundle, createTlsPair, echoHandler, generateTlsBundles, makeMessage, makeTlsConfig } from './fixtures'
+import {
+  type CertBundle,
+  createTlsPair,
+  echoHandler,
+  generateTlsBundles,
+  makeMessage,
+  makeTlsConfig,
+  TLS_BUNDLES_TIMEOUT_MS,
+} from './fixtures'
 
 let serverBundle: CertBundle
 let clientBundle: CertBundle
@@ -12,7 +20,7 @@ beforeAll(async () => {
   serverBundle = bundles.serverBundle
   clientBundle = bundles.clientBundle
   rogueBundle = bundles.rogueBundle
-})
+}, TLS_BUNDLES_TIMEOUT_MS)
 
 describe('TcpTransport with mTLS', () => {
   describe('mTLS connection and messaging', () => {

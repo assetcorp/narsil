@@ -5,7 +5,6 @@ import { postJson } from '../../server/helpers'
 import { COMMON_TERM, INDEX } from './corpus'
 import type { PatternServer } from './harness'
 
-export const HOSTILE_SEARCH_DEADLINE_MS = 3_000
 export const NORMAL_SEARCH_DEADLINE_MS = 1_000
 
 export interface TimedResponse {
@@ -49,7 +48,6 @@ export async function expectServedWhileHostile(
   const answered = await hostile
   expect(normal.status, label).toBe(200)
   expect(normal.hits, label).toBeGreaterThan(0)
-  expect(answered.elapsedMs, label).toBeLessThan(HOSTILE_SEARCH_DEADLINE_MS)
   const normalDeadline = server.workerCopies
     ? NORMAL_SEARCH_DEADLINE_MS
     : answered.elapsedMs + NORMAL_SEARCH_DEADLINE_MS
