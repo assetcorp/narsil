@@ -152,11 +152,11 @@ export interface OpenVectorBlock {
   readonly scratchByteOffset: number
   /** This reads the ordinal whose record the scratch holds, or a marker for the query or for nothing. */
   stagedOrdinal: number
-  /** Returns a float32 view over the block that reaches at least the given element. */
+  /** Returns a float32 view over the block that spans at least the given positive count of elements. */
   float32(neededLength: number): Float32Array
-  /** Returns a byte view over the block that reaches at least the given byte. */
+  /** Returns a byte view over the block that spans at least the given positive count of bytes. */
   bytes(neededLength: number): Uint8Array
-  /** Returns a data view over the block that reaches at least the given byte. */
+  /** Returns a data view over the block that spans at least the given positive count of bytes, over the same buffer as the byte view. */
   data(neededLength: number): DataView
 }
 
@@ -171,9 +171,18 @@ export function openVectorBlock(handle: VectorBlockHandle, threadSlot: number): 
   const hasScratch = simd !== null && threadSlot >= 0 && threadSlot < VECTOR_SCRATCH_SLOTS
   const scratchSlot = hasScratch ? threadSlot : 0
 
-  let float32View = fixedView(blockBuffer(handle), Float32Array)
-  let byteView = fixedView(blockBuffer(handle), Uint8Array)
-  let dataView = new DataView(blockBuffer(handle))
+  let float32View: Float32Array
+  let byteView: Uint8Array
+  let dataView: DataView
+
+  function rebindViews(): void {
+    const buffer = blockBuffer(handle)
+    float32View = fixedView(buffer, Float32Array)
+    byteView = fixedView(buffer, Uint8Array)
+    dataView = new DataView(buffer, 0, byteView.length)
+  }
+
+  rebindViews()
 
   return {
     handle,
@@ -182,15 +191,15 @@ export function openVectorBlock(handle: VectorBlockHandle, threadSlot: number): 
     scratchByteOffset: scratchSlot * layout.scratchStride,
     stagedOrdinal: NOTHING_STAGED,
     float32(neededLength: number): Float32Array {
-      if (neededLength > float32View.length) float32View = fixedView(blockBuffer(handle), Float32Array)
+      if (neededLength > float32View.length) rebindViews()
       return float32View
     },
     bytes(neededLength: number): Uint8Array {
-      if (neededLength > byteView.length) byteView = fixedView(blockBuffer(handle), Uint8Array)
+      if (neededLength > byteView.length) rebindViews()
       return byteView
     },
     data(neededLength: number): DataView {
-      if (neededLength > dataView.byteLength) dataView = new DataView(blockBuffer(handle))
+      if (neededLength > byteView.length) rebindViews()
       return dataView
     },
   }
