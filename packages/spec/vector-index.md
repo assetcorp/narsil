@@ -163,17 +163,18 @@ A query that holds both a text term and a vector is a hybrid search. Partitions 
 Fusion defines the order of hybrid results, which a sort would replace, so a hybrid query must hold no `sort`. An implementation must reject a query with `SEARCH_INVALID_MODE` where its sort names any field and the query also holds `hybrid`, or holds both a term and a vector.
 
 ```text
-1. Fan the text query out to every partition and collect
-   { docId, bm25Score } results.
-2. Query the vector index for the vector field and collect
-   { docId, similarityScore } results.
-3. Fuse the two sets with the configured strategy.
-4. Apply limit and offset, or the searchAfter cursor.
+1. Fan the text query out to every partition and collect the
+   top `depth` { docId, bm25Score } results.
+2. Query the vector index for the vector field and collect the
+   top `depth` { docId, similarityScore } results.
+3. Fuse the two sets with the configured strategy, and keep the
+   top `depth` of the fused list.
+4. Take the page from position d + offset of that list.
 5. Attach the document bodies, rebuilt from the partition and the
    vector index.
 ```
 
-An implementation must pass `d + offset + limit + 1` as the `k` of step 2, capped at the [result window](partitioning.md#deep-pagination), where `d` is the depth field of the [searchAfter cursor](partitioning.md#searchafter-cursor), and 0 where the request sets no cursor. At that depth an implementation fills the page and has one result left over wherever another page follows. It fetches more vectors at a greater depth, so the fused order can change from one page to the next. A caller who needs a stable ranking at depth should page a text search or a vector search.
+`d` is the depth field of the [searchAfter cursor](partitioning.md#searchafter-cursor), and 0 where the request sets no cursor. An implementation must fetch the same `depth` from both searches on every page of a request, so that every page fuses the same two lists and no page repeats or skips a document. It must raise `SEARCH_RESULT_WINDOW_EXCEEDED` where d + offset + limit exceeds `depth`, and state in the error message that the caller can raise `hybrid.depth`.
 
 ### Fusion Strategies
 
@@ -184,12 +185,13 @@ hybrid {
   strategy: 'rrf' or 'linear'
   k:        uint32    (the RRF constant, default 60, used by rrf alone)
   alpha:    float32   (a weight from 0 to 1, default 0.5, used by linear alone)
+  depth:    uint32    (the results that each search fetches, from 1 to 10,000, default 100)
 }
 ```
 
 The default strategy is `rrf`.
 
-An implementation must reject with `CONFIG_INVALID` a `strategy` other than those two, a `k` that is not a whole number of at least 1, and an `alpha` outside 0 to 1.
+An implementation must reject with `CONFIG_INVALID` a `strategy` other than those two, a `k` that is not a whole number of at least 1, an `alpha` outside 0 to 1, and a `depth` that is not a whole number from 1 to 10,000.
 
 #### Reciprocal Rank Fusion
 
