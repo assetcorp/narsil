@@ -4,6 +4,7 @@ import type { InvertedIndexReader } from '../inverted-index'
 import { computeBM25WithIDF, computeIDF } from '../scorer'
 import { type FieldScoring, fieldLengthOf } from './field-scoring'
 import { postingColumns } from './posting-columns'
+import type { PartitionReadState } from './read-state'
 import { EMPTY_COMPONENTS, type GroupContribution, type GroupMatch } from './scoring'
 
 export interface GroupScoringContext {
@@ -39,6 +40,19 @@ export function termGroupOf(
     if (group.token === token) return group
   }
   return undefined
+}
+
+export function typoTokensOf(
+  states: readonly PartitionReadState[],
+  token: string,
+  tolerance: number,
+  prefixLength: number,
+): string[] {
+  const found = new Set<string>()
+  for (const state of states) {
+    for (const match of state.invertedIdx.fuzzyLookup(token, tolerance, prefixLength)) found.add(match.token)
+  }
+  return [...found]
 }
 
 export function typoMatchesFor(

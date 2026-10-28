@@ -8,6 +8,7 @@ import type { Narsil } from '../../narsil'
 import { createNarsilFromCore } from '../../narsil'
 import {
   type PartitionQueryStats,
+  type QueryStatsRequestScope,
   runEngineListDocuments,
   runEnginePreflight,
   runEngineQuery,
@@ -58,7 +59,12 @@ export interface ClusterLocalEngine extends Narsil {
   preflightPartitions(indexName: string, params: QueryParams, partitionIds: number[]): Promise<PreflightResult>
   suggestPartitions(indexName: string, params: SuggestParams, partitionIds: number[]): Promise<SuggestResult>
   listPartitions<T = AnyDocument>(indexName: string, params: ListParams, partitionIds: number[]): Promise<ListResult<T>>
-  collectQueryStats(indexName: string, terms: string[], partitionIds: number[]): Promise<PartitionQueryStats>
+  collectQueryStats(
+    indexName: string,
+    terms: string[],
+    partitionIds: number[],
+    scope?: QueryStatsRequestScope,
+  ): Promise<PartitionQueryStats>
   partitionStatsForRead(indexName: string): Promise<PartitionStatsResult[]>
 }
 
@@ -121,8 +127,8 @@ export async function createClusterLocalEngine(
       runEngineSuggest(core, indexName, params, partitionIds),
     listPartitions: <T = AnyDocument>(indexName: string, params: ListParams, partitionIds: number[]) =>
       runEngineListDocuments<T>(core, indexName, params, partitionIds),
-    collectQueryStats: (indexName: string, terms: string[], partitionIds: number[]) =>
-      runEngineQueryStats(core, indexName, terms, partitionIds),
+    collectQueryStats: (indexName: string, terms: string[], partitionIds: number[], scope?: QueryStatsRequestScope) =>
+      runEngineQueryStats(core, indexName, terms, partitionIds, scope),
     partitionStatsForRead: async (indexName: string) => {
       const release = await core.indexState.acquire(indexName)
       try {

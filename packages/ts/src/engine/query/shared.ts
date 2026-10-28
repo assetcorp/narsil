@@ -4,6 +4,7 @@ import { createPatternWorkMeter, type SearchPatternWork } from '../../core/patte
 import { ErrorCodes, NarsilError } from '../../errors'
 import { validatedFilterOf } from '../../filters/operands'
 import { pruneStatsToQueryTerms } from '../../partitioning/distributed-scoring'
+import { statsExpansionOf } from '../../partitioning/expanded-tokens'
 import type { FanOutConfig, FanOutResult } from '../../partitioning/fan-out'
 import type { PartitionManager } from '../../partitioning/manager'
 import { partitionsIn } from '../../partitioning/partition-selection'
@@ -133,10 +134,17 @@ export function broadcastStatsForWorker(
   if (term === undefined || term.trim().length === 0) {
     return undefined
   }
-  return pruneStatsToQueryTerms(scoring.globalStats, term, context.language, {
-    ...context.manager.analysis,
-    synonyms: context.manager.synonyms,
-  })
+  return pruneStatsToQueryTerms(
+    scoring.globalStats,
+    term,
+    context.language,
+    { ...context.manager.analysis, synonyms: context.manager.synonyms },
+    {
+      manager: context.manager,
+      partitionIds: context.partitionIds,
+      expansion: { options: statsExpansionOf(params), schema: context.config.schema },
+    },
+  )
 }
 
 export function searchOptionsFor(manager: PartitionManager, patternWork: PatternWorkMeter): FulltextSearchOptions {

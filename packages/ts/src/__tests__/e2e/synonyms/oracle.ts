@@ -99,6 +99,15 @@ export function expandQuery(queryTokens: readonly string[], rules: readonly Syno
   return expanded
 }
 
+export function documentFrequencies(documents: readonly AnyDocument[]): Map<string, number> {
+  const frequencies = new Map<string, number>()
+  for (const document of documents) {
+    const held = new Set(TEXT_FIELDS.flatMap(field => tokensOf(document[field])))
+    for (const token of held) frequencies.set(token, (frequencies.get(token) ?? 0) + 1)
+  }
+  return frequencies
+}
+
 export interface Oracle {
   search(query: OracleQuery): OracleHit[]
 }
