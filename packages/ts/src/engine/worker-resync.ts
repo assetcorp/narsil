@@ -9,6 +9,11 @@ import type { AnyDocument, IndexConfig } from '../types/schema'
 import type { Executor } from '../workers/executor'
 import type { WorkerPool } from '../workers/pool'
 
+export interface CopySource {
+  config: IndexConfig
+  synonyms: Uint8Array | null
+}
+
 let copyLoadSequence = 0
 
 interface CapturedLiveTail {
@@ -141,7 +146,7 @@ async function sendPartition(
  *
  * @param indexName - The index to copy.
  * @param pool - The worker pool that receives the copies.
- * @param config - The index configuration each worker creates the index from.
+ * @param source - The index configuration each worker creates the index from, and the encoded synonym set it applies.
  * @param manager - The main copy to read.
  * @param analysisStale - Whether the main copy's stored analysis is stale, so
  * that each copy reports the same on its results.
@@ -149,14 +154,14 @@ async function sendPartition(
 export function transferIndexToPool(
   indexName: string,
   pool: WorkerPool,
-  config: IndexConfig,
+  source: CopySource,
   manager: PartitionManager,
   analysisStale = false,
 ): Promise<string> {
   return loadIndexOntoWorkers(
     indexName,
     pool.getAllExecutors(),
-    config,
+    source,
     manager,
     () => pool.addIndexToAll(indexName),
     analysisStale,
@@ -170,7 +175,7 @@ export function transferIndexToPool(
  *
  * @param indexName - The index to copy.
  * @param executors - The workers that receive the copy.
- * @param config - The index configuration each worker creates the index from.
+ * @param source - The index configuration each worker creates the index from, and the encoded synonym set it applies.
  * @param manager - The main copy to read.
  * @param onDropped - Runs once every worker has dropped its old copy, before the new one loads.
  * @param analysisStale - Whether the main copy's stored analysis is stale, so
@@ -179,7 +184,7 @@ export function transferIndexToPool(
 export async function loadIndexOntoWorkers(
   indexName: string,
   executors: Executor[],
-  config: IndexConfig,
+  source: CopySource,
   manager: PartitionManager,
   onDropped?: () => void,
   analysisStale = false,
@@ -198,10 +203,11 @@ export async function loadIndexOntoWorkers(
       workerExecutor.execute({
         type: 'createIndex',
         indexName,
-        config,
+        config: source.config,
         requestId: `resync-create-${indexName}`,
         analysisStale,
         copyLoad,
+        ...(source.synonyms !== null ? { synonyms: source.synonyms } : {}),
       }),
     ),
   )

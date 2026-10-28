@@ -23,7 +23,7 @@ function workerSearch(
 }
 
 function registryWith(config: IndexConfig): IndexRegistry {
-  return new Map([['prose', { config, language: getLanguage('english'), embeddingAdapter: null }]])
+  return new Map([['prose', { config, language: getLanguage('english'), embeddingAdapter: null, synonyms: null }]])
 }
 
 function queries(harness: OrchestratorHarness): RecordedDispatch[] {

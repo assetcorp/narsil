@@ -17,7 +17,7 @@ export interface StoredValueContext {
 
 export type StoredValueMethods = Pick<
   ClusterCoordinator,
-  'get' | 'compareAndSet' | 'getSchema' | 'putSchema' | 'dropSchema' | 'listSchemas' | 'watchSchemas'
+  'get' | 'compareAndSet' | 'delete' | 'getSchema' | 'putSchema' | 'dropSchema' | 'listSchemas' | 'watchSchemas'
 >
 
 export function storedValueMethods(context: StoredValueContext): StoredValueMethods {
@@ -51,6 +51,11 @@ export function storedValueMethods(context: StoredValueContext): StoredValueMeth
           .commit()
         return txn.succeeded
       })
+    },
+
+    async delete(key: string): Promise<void> {
+      assertNotShutdown()
+      await client.delete().key(keys.generic(key)).exec()
     },
 
     async getSchema(indexName: string): Promise<SchemaDefinition | null> {

@@ -10,6 +10,7 @@ export interface AdminOperations {
     compactVectors(indexName: string, fieldName?: string, options?: RequestOptions): Promise<void>;
     exportDocuments(indexName: string, options?: RequestOptions): Promise<ReadableStream<Uint8Array>>;
     getMemoryStats(options?: RequestOptions): Promise<MemoryStatsResponse>;
+    getSynonyms(indexName: string, options?: RequestOptions): Promise<SynonymRule[]>;
     importDocumentExport(indexName: string, data: Uint8Array | ReadableStream<Uint8Array>, options?: RequestOptions): Promise<TaskRecord>;
     optimizeVectors(indexName: string, fieldName?: string, options?: RequestOptions): Promise<TaskRecord>;
     rebalance(indexName: string, targetPartitionCount: number, options?: RequestOptions): Promise<TaskRecord>;
@@ -17,6 +18,7 @@ export interface AdminOperations {
     restore(indexName: string, data: Uint8Array | ReadableStream<Uint8Array>, options?: RequestOptions): Promise<TaskRecord>;
     snapshot(indexName: string, options?: RequestOptions): Promise<ReadableStream<Uint8Array>>;
     updatePartitionConfig(indexName: string, partitionConfig: Partial<PartitionConfig>, options?: RequestOptions): Promise<void>;
+    updateSynonyms(indexName: string, synonyms: SynonymRule[], options?: RequestOptions): Promise<void>;
     vectorMaintenanceStatus(indexName: string, options?: RequestOptions): Promise<VectorMaintenanceResult[]>;
 }
 
@@ -212,6 +214,7 @@ export interface HttpIndexConfig {
     stopWords?: string[];
     strict?: boolean;
     surfaceForms?: boolean;
+    synonyms?: SynonymRule[];
     trackPositions?: boolean;
     vectorPromotion?: Record<string, unknown>;
 }
@@ -346,6 +349,9 @@ export interface ServerVersion {
     vectorSearch?: 'native' | 'wasm';
     version: string | null;
 }
+
+// @public
+export const SYNONYMS_CAPABILITY = "indexes.synonyms";
 
 // @public
 export const TASK_CANCEL_CAPABILITY = "tasks.cancel";

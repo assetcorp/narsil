@@ -175,6 +175,7 @@ export const ClusterMessageTypes = {
   RESHARD_FORWARD: 'cluster.reshard_forward',
   RESHARD_CUTOVER: 'cluster.reshard_cutover',
   RESHARD_PURGE: 'cluster.reshard_purge',
+  INDEX_SETTINGS: 'cluster.index_settings',
 } as const
 
 export interface ForwardPayload {
@@ -309,6 +310,7 @@ export type {
   SearchPayload,
   SearchResultPayload,
   SortField,
+  StatsExpansionPayload,
   StatsPayload,
   StatsResultPayload,
   SuggestPayload,
@@ -369,4 +371,14 @@ export interface PartitionStoresResultPayload {
   indexName: string
   indexUuid: string | null
   partitionIds: number[]
+}
+
+export interface IndexSettingsPayload {
+  indexName: string
+  indexUuid: string
+}
+
+export interface IndexSettingsResultPayload {
+  indexName: string
+  applied: boolean
 }

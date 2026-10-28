@@ -4,6 +4,7 @@ import { encodeErrorReplyFrom } from '../error-reply'
 import { handleRebuildAnalysis } from '../rebuild-analysis'
 import { handleReshardCutover, handleReshardForward, handleReshardPurge, handleReshardStart } from '../reshard/handlers'
 import { handleSnapshotSyncRequest } from '../snapshot-sync-handler'
+import { handleIndexSettings } from './index-settings'
 import { handlePartitionStores } from './partition-stores'
 import { handleFetch, handleSearch, handleStats } from './queries'
 import { handleCount, handleList, handlePreflight, handleSuggest } from './read-handlers'
@@ -84,6 +85,9 @@ export function createDataNodeHandler(deps: DataNodeHandlerDeps): TransportHandl
           return
         case ClusterMessageTypes.RESHARD_PURGE:
           await handleReshardPurge(message, respond, deps)
+          return
+        case ClusterMessageTypes.INDEX_SETTINGS:
+          await handleIndexSettings(message, respond, deps)
           return
         default:
           return

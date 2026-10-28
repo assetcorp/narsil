@@ -50,6 +50,8 @@ export interface ServerHandlers {
   optimize: RouteHandler
   rebalance: RouteHandler
   partitionConfig: RouteHandler
+  readSynonyms: RouteHandler
+  replaceSynonyms: RouteHandler
   restore: RouteHandler
   exportDocuments: RouteHandler
   importExport: RouteHandler
@@ -128,6 +130,8 @@ export function serverRoutes(limits: ResolvedLimits): RouteSpec[] {
     { method: 'post', path: '/indexes/:name/vectors/_optimize', handler: 'optimize', options: namedBody },
     { method: 'post', path: '/indexes/:name/_rebalance', handler: 'rebalance', options: namedBody },
     { method: 'post', path: '/indexes/:name/partition-config', handler: 'partitionConfig', options: namedBody },
+    { method: 'get', path: '/indexes/:name/synonyms', handler: 'readSynonyms', options: named },
+    { method: 'post', path: '/indexes/:name/synonyms', handler: 'replaceSynonyms', options: namedBody },
     {
       method: 'post',
       path: '/indexes/:name/restore',
