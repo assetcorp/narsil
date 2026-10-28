@@ -882,7 +882,7 @@ when initialLow > finalLow:
 
 - `count`, `countExact`, `facets`, and `groups` must be those of the first-stage request at that depth.
 - A query that sets both `rerank` and a sort must raise `SEARCH_INVALID_MODE`, because each of them sets the order of the hits.
-- Where more hits follow the page, the result must carry a cursor whose `d` is d + offset plus the number of hits on the page. The engine must find the start of a reranked page by its position from `d`, because a rescaled hit past the window can share the lowest reranked score.
+- Where more hits follow the page, the result must carry a cursor whose `d` counts the hits of the reranked order up to and including the last hit on the page that is not a pinned placement. The engine must find the start of a reranked page by its position from `d`, because a rescaled hit past the window can share the lowest reranked score.
 - The engine must call no adapter where the window or the page holds no hit.
 
 ---
