@@ -8,7 +8,7 @@
 extern "C" {
 #endif
 
-#define NARSIL_CORE_ABI_VERSION 2
+#define NARSIL_CORE_ABI_VERSION 3
 
 #define NARSIL_GRAPH_HEADER_WORDS 160
 #define NARSIL_STORE_HEADER_WORDS 16
@@ -24,6 +24,7 @@ extern "C" {
 #define NARSIL_GRAPH_WORD_EF_CONSTRUCTION 4
 #define NARSIL_GRAPH_WORD_NODE_COUNT 32
 #define NARSIL_GRAPH_WORD_TOMBSTONE_COUNT 33
+#define NARSIL_GRAPH_WORD_UNLINKED_NODES 34
 #define NARSIL_GRAPH_WORD_UPPER_USED 64
 #define NARSIL_GRAPH_WORD_SLOTS 65
 #define NARSIL_GRAPH_WORD_UPPER_CAPACITY 66
@@ -71,6 +72,7 @@ typedef struct {
   int32_t *upper;
   int32_t *locks;
   uint8_t *tombstones;
+  int32_t *incoming;
   int32_t *held_locks;
   uint32_t thread_slots;
   narsil_wake wake;
@@ -147,6 +149,13 @@ typedef struct {
 
 typedef struct {
   uint32_t metric;
+  uint32_t thread_slot;
+  const int32_t *nearby;
+  uint32_t nearby_count;
+} narsil_connect_request;
+
+typedef struct {
+  uint32_t metric;
   const int32_t *ordinals;
   uint32_t count;
 } narsil_ordinals_request;
@@ -174,6 +183,9 @@ narsil_status narsil_remove(const narsil_graph *graph, const narsil_remove_reque
 
 narsil_status narsil_compact(narsil_workspace *workspace, const narsil_graph *graph, const narsil_store *store,
                              const narsil_compact_request *request);
+
+narsil_status narsil_connect_unreached(narsil_workspace *workspace, const narsil_graph *graph,
+                                       const narsil_store *store, const narsil_connect_request *request);
 
 narsil_status narsil_calibrate(narsil_workspace *workspace, const narsil_store *store,
                                const narsil_ordinals_request *request);

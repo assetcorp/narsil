@@ -1,6 +1,7 @@
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { VectorMetric } from '../brute-force'
-import { adjacencySlots, createNode, layerArray, layerBase, replaceNeighbors } from './adjacency'
+import { adjacencySlots, createNode, layerArray, layerBase, writeNeighbors } from './adjacency'
+import { leaveIncomingUncounted } from './connect-unreached'
 import { MAX_LAYER_CAP } from './constants'
 import { GRAPH_ENTRY_POINT, GRAPH_NODE_COUNT, GRAPH_TOP_LAYER } from './handles'
 import { resetGraph } from './mutation'
@@ -244,7 +245,7 @@ export function deserializeNumberedGraph(
         }
         cursor += count + 1
         if (ordinal !== NO_ORDINAL && layer <= keptTop) {
-          replaceNeighbors(state.adjacency, ordinal, layer, kept, kept.length)
+          writeNeighbors(state.adjacency, ordinal, layer, kept, kept.length)
         }
       }
     }
@@ -257,4 +258,5 @@ export function deserializeNumberedGraph(
   const entryIsUsable = entryOrdinal !== NO_ORDINAL && entryTop >= 0
   Atomics.store(state.header, GRAPH_ENTRY_POINT, entryIsUsable ? entryOrdinal : nodeOnHighestLayer)
   Atomics.store(state.header, GRAPH_TOP_LAYER, entryIsUsable ? entryTop : highestLayer)
+  leaveIncomingUncounted(state)
 }

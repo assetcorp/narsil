@@ -64,6 +64,7 @@ void narsil_workspace_destroy(narsil_workspace *workspace) {
   list_release(&workspace->layer_candidates);
   list_release(&workspace->link_candidates);
   list_release(&workspace->repair_candidates);
+  list_release(&workspace->dropped_links);
   free(workspace->selections);
   free(workspace->selection_counts);
   free(workspace->visited);
@@ -79,7 +80,7 @@ static size_t link_bytes(const narsil_workspace *workspace) {
   size_t selected = (size_t)workspace->selection_layers * workspace->selection_stride * sizeof(int32_t);
   size_t counts = (size_t)workspace->selection_layers * sizeof(uint32_t);
   return list_bytes(&workspace->layer_candidates) + list_bytes(&workspace->link_candidates) +
-         list_bytes(&workspace->repair_candidates) + selected + counts;
+         list_bytes(&workspace->repair_candidates) + list_bytes(&workspace->dropped_links) + selected + counts;
 }
 
 narsil_status workspace_reserve_links(narsil_workspace *workspace, const narsil_graph *graph, uint32_t layers) {

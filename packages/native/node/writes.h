@@ -6,6 +6,7 @@
 napi_value place(napi_env env, napi_callback_info info);
 napi_value remove_node(napi_env env, napi_callback_info info);
 napi_value compact(napi_env env, napi_callback_info info);
+napi_value connect_unreached(napi_env env, napi_callback_info info);
 napi_value calibrate(napi_env env, napi_callback_info info);
 napi_value quantise(napi_env env, napi_callback_info info);
 

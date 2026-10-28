@@ -19,6 +19,10 @@ export async function buildGraphFromStore(state: VectorIndexState): Promise<void
   }
   const previous = state.hnsw
   adoptGraph(state, graph)
+  for (const docId of [...state.buffer]) {
+    const ordinal = state.store.getOrdinal(docId)
+    if (ordinal !== undefined && graph.holdsNode(ordinal) && !graph.holdsTombstone(ordinal)) state.buffer.delete(docId)
+  }
   if (previous !== null && previous !== graph) dropSharedGraph(state, previous)
   await releasePendingLocations(state)
 }

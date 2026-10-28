@@ -164,6 +164,15 @@ export function enqueueReplication(state: OrchestratorState, indexName: string, 
   queue.tail = run
 }
 
+export function markCopiesLoaded(state: OrchestratorState, indexName: string, copyLoad: string): void {
+  enqueueReplication(state, indexName, {
+    type: 'copyLoaded',
+    indexName,
+    copyLoad,
+    requestId: `copy-loaded-${copyLoad}`,
+  })
+}
+
 export async function replicateToWorkers(state: OrchestratorState, action: WorkerAction): Promise<void> {
   if (!('indexName' in action)) {
     if (state.workerPool === null) return

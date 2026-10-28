@@ -1,13 +1,26 @@
 import { createBoundedMaxHeap } from '../../core/heap'
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { VectorMetric } from '../brute-force'
-import type { OrdinalHit } from '../hnsw/search'
-import { entryForOrd, type HNSWSearchState, isTombstoned, toDistance, toScore } from '../hnsw/shared'
+import { toDistance, toScore } from '../hnsw/shared'
 import { noteFallback } from '../native/backend'
 import { nativeScoresOf } from '../native/store'
-import { addToOrdinalFilter, createOrdinalFilter, type OrdinalFilter, ordinalFilterValues } from '../ordinal-filter'
+import {
+  addToOrdinalFilter,
+  createOrdinalFilter,
+  type OrdinalFilter,
+  ordinalFilterHas,
+  ordinalFilterValues,
+} from '../ordinal-filter'
 import { magnitude } from '../similarity'
-import type { VectorScoredResult, VectorSearcher, VectorSearchOptions } from '../vector-index/shared'
+import { highScoreFirst, mergeResults } from '../vector-index/merge-results'
+import type {
+  VectorScoredResult,
+  VectorSearcher,
+  VectorSearchOptions,
+  VectorSearchOutcome,
+} from '../vector-index/shared'
+import type { SharedVectorStoreView } from '../vector-store/view'
+import { readStoreFlags } from './store-flags'
 import type { SharedVectorFieldView } from './view'
 
 export interface SharedVectorSearcherOptions {
@@ -19,82 +32,74 @@ export interface SharedVectorSearcherOptions {
   holdsDocument: (docId: string) => boolean
 }
 
-type ResolvedHit = OrdinalHit & { docId: string }
-
-interface ScannedHits {
-  hits: OrdinalHit[]
-  matched: number
-  matchedExact: boolean
+interface Candidates {
+  ordinals: number[]
+  docIds: string[]
 }
 
-function bestFirst(a: ResolvedHit, b: ResolvedHit): number {
-  return b.score - a.score || (a.docId < b.docId ? -1 : a.docId > b.docId ? 1 : 0)
+interface ScannedResults {
+  results: VectorScoredResult[]
+  matched: number
+}
+
+interface FieldOutcome extends VectorSearchOutcome {
+  resolvedEveryHit: boolean
 }
 
 function distancesInTypeScript(
-  state: HNSWSearchState,
+  store: SharedVectorStoreView,
   query: Float32Array,
   metric: VectorMetric,
   ordinals: number[],
 ): Float64Array {
   noteFallback('score')
-  const arenaQuery = state.store.prepareQueryArena(query)
+  const arenaQuery = store.prepareQueryArena(query)
   const queryMagnitude = arenaQuery ? arenaQuery.magnitude : magnitude(query)
   const distances = new Float64Array(ordinals.length).fill(Number.POSITIVE_INFINITY)
   for (let i = 0; i < ordinals.length; i++) {
     if (arenaQuery) {
-      distances[i] = state.store.distanceFromArena(arenaQuery, ordinals[i], metric)
+      distances[i] = store.distanceFromArena(arenaQuery, ordinals[i], metric)
       continue
     }
-    const entry = entryForOrd(state, ordinals[i])
+    const entry = store.entryForOrdinal(ordinals[i])
     if (entry) distances[i] = toDistance(query, entry.vector, queryMagnitude, entry.magnitude, metric)
   }
   return distances
 }
 
-function bruteForceOrdinals(
-  state: HNSWSearchState,
-  docIdOf: (ord: number) => string | undefined,
+function scoreCandidates(
+  store: SharedVectorStoreView,
+  candidates: Candidates,
   query: Float32Array,
   k: number,
   metric: VectorMetric,
   minSimilarity: number,
-  filter: OrdinalFilter,
-): ScannedHits {
-  const ordinals: number[] = []
-  const docIds: string[] = []
-  for (const ord of ordinalFilterValues(filter)) {
-    if (isTombstoned(state, ord)) continue
-    const docId = docIdOf(ord)
-    if (docId === undefined) continue
-    ordinals.push(ord)
-    docIds.push(docId)
-  }
+): ScannedResults {
+  const { ordinals, docIds } = candidates
+  if (ordinals.length === 0) return { results: [], matched: 0 }
   const distances =
-    nativeScoresOf(state.store.handles, query, metric, ordinals) ??
-    distancesInTypeScript(state, query, metric, ordinals)
-  const heap = createBoundedMaxHeap<ResolvedHit>(bestFirst, k)
+    nativeScoresOf(store.handles, query, metric, ordinals) ?? distancesInTypeScript(store, query, metric, ordinals)
+  const heap = createBoundedMaxHeap<VectorScoredResult>(highScoreFirst, k)
   let matched = 0
   for (let i = 0; i < ordinals.length; i++) {
     if (distances[i] === Number.POSITIVE_INFINITY) continue
     const score = toScore(distances[i], metric)
     if (score < minSimilarity) continue
     matched++
-    heap.push({ ord: ordinals[i], score, docId: docIds[i] })
+    heap.push({ docId: docIds[i], score })
   }
-  return { hits: heap.toSortedArray().reverse(), matched, matchedExact: true }
+  return { results: heap.toSortedArray().reverse(), matched }
 }
 
 export function createSharedVectorSearcher(options: SharedVectorSearcherOptions): VectorSearcher {
   const { fieldName, view, holdsDocument } = options
+  const flags = readStoreFlags(view.store)
 
   function filterForDocIds(allowed: Set<string>): OrdinalFilter {
     const filter = createOrdinalFilter(view.store.slots)
-    const graph = view.graph
     for (const docId of allowed) {
       const ordinal = view.ordinalOf(docId)
-      if (ordinal === undefined) continue
-      if (graph !== null && isTombstoned(graph, ordinal)) continue
+      if (ordinal === undefined || flags.isRemoved(ordinal)) continue
       addToOrdinalFilter(filter, ordinal)
     }
     return filter
@@ -105,9 +110,9 @@ export function createSharedVectorSearcher(options: SharedVectorSearcherOptions)
     const filter = createOrdinalFilter(slots)
     for (let ordinal = 0; ordinal < slots; ordinal++) {
       const partition = view.store.partitionAt(ordinal)
-      if (partition !== undefined && allowed.has(partition) && view.store.holdsOrdinal(ordinal)) {
-        addToOrdinalFilter(filter, ordinal)
-      }
+      if (partition === undefined || !allowed.has(partition)) continue
+      if (!view.store.holdsOrdinal(ordinal) || flags.isRemoved(ordinal)) continue
+      addToOrdinalFilter(filter, ordinal)
     }
     return filter
   }
@@ -118,28 +123,72 @@ export function createSharedVectorSearcher(options: SharedVectorSearcherOptions)
     return undefined
   }
 
-  function hitsFor(
+  function candidatesOf(ordinals: Iterable<number>, filter: OrdinalFilter | undefined): Candidates {
+    const candidates: Candidates = { ordinals: [], docIds: [] }
+    for (const ordinal of ordinals) {
+      if (filter !== undefined && !ordinalFilterHas(filter, ordinal)) continue
+      if (flags.isRemoved(ordinal)) continue
+      const docId = view.docIdOf(ordinal)
+      if (docId === undefined || view.ordinalOf(docId) !== ordinal) continue
+      candidates.ordinals.push(ordinal)
+      candidates.docIds.push(docId)
+    }
+    return candidates
+  }
+
+  function scanned(scan: ScannedResults): FieldOutcome {
+    return { results: scan.results, matched: scan.matched, matchedExact: true, resolvedEveryHit: true }
+  }
+
+  function search(
     query: Float32Array,
     k: number,
     searchOptions: VectorSearchOptions,
-    filter?: OrdinalFilter,
-  ): ScannedHits {
+    filter: OrdinalFilter | undefined,
+  ): FieldOutcome {
     const { metric, minSimilarity, efSearch, oversample } = searchOptions
-    const liveSize = view.liveSize
+    const empty: FieldOutcome = { results: [], matched: 0, matchedExact: true, resolvedEveryHit: true }
+    const liveDocuments = flags.liveDocuments()
+    if (liveDocuments <= 0) return empty
+    if (filter !== undefined && filter.count === 0) return empty
+
+    function fetched(results: VectorScoredResult[], resolvedEveryHit: boolean): FieldOutcome {
+      if (minSimilarity === Number.NEGATIVE_INFINITY) {
+        const matched = filter === undefined ? liveDocuments : filter.count
+        return { results, matched, matchedExact: true, resolvedEveryHit }
+      }
+      return { results, matched: results.length, matchedExact: false, resolvedEveryHit }
+    }
+
+    if (k <= 0) return fetched([], true)
     const graph = view.graph
-    if (
-      graph !== null &&
-      filter !== undefined &&
-      liveSize > 0 &&
-      filter.count / liveSize < view.handles.filterThreshold
-    ) {
-      return bruteForceOrdinals(graph, view.docIdOf, query, k, metric, minSimilarity, filter)
+    if (graph === null) {
+      const ordinals = filter === undefined ? flags.unplacedOrdinals() : ordinalFilterValues(filter)
+      return scanned(scoreCandidates(view.store, candidatesOf(ordinals, filter), query, k, metric, minSimilarity))
     }
-    const hits = view.searchOrdinals(query, k, metric, minSimilarity, { filter, efSearch, oversample })
-    if (minSimilarity === Number.NEGATIVE_INFINITY) {
-      return { hits, matched: filter === undefined ? liveSize : filter.count, matchedExact: true }
+    if (filter !== undefined) {
+      const graphLiveSize = view.liveSize
+      const selectivity = graphLiveSize > 0 ? filter.count / graphLiveSize : 1
+      if (selectivity < view.handles.filterThreshold) {
+        const candidates = candidatesOf(ordinalFilterValues(filter), filter)
+        return scanned(scoreCandidates(view.store, candidates, query, k, metric, minSimilarity))
+      }
     }
-    return { hits, matched: hits.length, matchedExact: false }
+
+    let resolvedEveryHit = true
+    const graphResults: VectorScoredResult[] = []
+    for (const hit of view.searchOrdinals(query, k, metric, minSimilarity, { filter, efSearch, oversample })) {
+      const docId = view.docIdOf(hit.ord)
+      if (docId === undefined) {
+        resolvedEveryHit = false
+        continue
+      }
+      graphResults.push({ docId, score: hit.score })
+    }
+    const unplaced = flags.unplacedOrdinals()
+    if (unplaced.length === 0) return fetched(graphResults, resolvedEveryHit)
+    const scan = scoreCandidates(view.store, candidatesOf(unplaced, filter), query, k, metric, minSimilarity)
+    return fetched(mergeResults(graphResults, scan.results, k), resolvedEveryHit)
   }
 
   return {
@@ -155,22 +204,20 @@ export function createSharedVectorSearcher(options: SharedVectorSearcherOptions)
           { expected: view.handles.dimension, received: query.length },
         )
       }
-      const filter = filterFor(searchOptions)
-      if (filter !== undefined && filter.count === 0) {
-        return Promise.resolve({ results: [], matched: 0, matchedExact: true })
+      const outcome = search(query, k, searchOptions, filterFor(searchOptions))
+      if (view.graphRetired) {
+        throw new NarsilError(
+          ErrorCodes.INDEX_NOT_FOUND,
+          `The main thread replaced the graph of vector field "${fieldName}" while this thread searched it`,
+          { fieldName },
+        )
       }
-      const scanned = hitsFor(query, k, searchOptions, filter)
-      const results: VectorScoredResult[] = []
-      for (const hit of scanned.hits) {
-        const docId = view.docIdOf(hit.ord)
-        if (docId === undefined || !holdsDocument(docId)) continue
-        results.push({ docId, score: hit.score })
-      }
-      const holdsEveryHit = results.length === scanned.hits.length
+      const results = outcome.results.filter(result => holdsDocument(result.docId))
+      const holdsEveryHit = outcome.resolvedEveryHit && results.length === outcome.results.length
       return Promise.resolve({
         results,
-        matched: scanned.matched,
-        matchedExact: scanned.matchedExact && holdsEveryHit,
+        matched: outcome.matched,
+        matchedExact: outcome.matchedExact && holdsEveryHit,
       })
     },
   }
