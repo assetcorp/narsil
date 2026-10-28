@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { readMemoryFigures } from '../../../distribution/cluster-node/memory/measure'
 import { ErrorCodes, NarsilError } from '../../../errors'
 import {
   createTestCluster,
   INDEX,
   ofType,
   partitionAssignment,
+  publishedHeapLimitBytes,
   readCopy,
   type TestCluster,
   waitForCopies,
@@ -55,15 +55,14 @@ describe('a primary that waits on its replica holds a batch in flight', () => {
     ['a bound above one batch', LIMIT_ABOVE_ONE_BATCH],
     ['a bound below one batch, which the first batch passes on an idle node', LIMIT_BELOW_ONE_BATCH],
   ])('refuses the batch that arrives while the first one waits under %s, then accepts it once the first completes', async (_bound, limitInBatches) => {
-    const heapLimitBytes = readMemoryFigures()?.heapLimitBytes
-    if (heapLimitBytes === undefined) throw new Error('this process reports no heap limit')
+    cluster = await createTestCluster()
+    const controller = await cluster.start('controller', { roles: ['controller', 'coordinator'], durable: false })
+    const heapLimitBytes = await publishedHeapLimitBytes(controller)
     const first = batchOf('april')
     const second = batchOf('may')
     const inFlightWriteFraction = (textBytesOf(first) * limitInBatches) / heapLimitBytes
     const memory = { inFlightWriteFraction }
 
-    cluster = await createTestCluster()
-    await cluster.start('controller', { roles: ['controller', 'coordinator'], durable: false })
     await cluster.start('node-a', { durable: false, memory })
     await cluster.start('node-b', { durable: false, memory })
     await cluster

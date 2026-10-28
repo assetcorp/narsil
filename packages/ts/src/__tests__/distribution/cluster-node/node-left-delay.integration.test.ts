@@ -6,7 +6,11 @@ import { createClusterNode } from '../../../distribution/cluster-node'
 import type { ClusterControllerConfig, ClusterNode } from '../../../distribution/cluster-node/types'
 import { createInMemoryCoordinator } from '../../../distribution/coordinator'
 import type { AllocationTable, ClusterCoordinator } from '../../../distribution/coordinator/types'
-import { createInMemoryNetwork, createInMemoryTransport, type InMemoryNetwork } from '../../../distribution/transport'
+import {
+  createInMemoryNetwork,
+  createInMemoryTransport,
+  type InMemoryNetwork,
+} from '../../../distribution/transport/in-memory'
 
 const INDEX_NAME = 'lighthouses'
 const PARTITION_COUNT = 6

@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { readMemoryFigures } from '../../../distribution/cluster-node/memory/measure'
 import { ErrorCodes, NarsilError } from '../../../errors'
 import {
   createTestCluster,
   INDEX,
   partitionAssignment,
+  publishedHeapLimitBytes,
   readCopy,
   SCHEMA,
   type TestCluster,
@@ -33,11 +33,9 @@ describe('a batch that a primary refuses part of the way through', () => {
   })
 
   it('keeps every document it reports as succeeded on the primary and its replica, and no refused one', async () => {
-    const heapLimitBytes = readMemoryFigures()?.heapLimitBytes
-    if (heapLimitBytes === undefined) throw new Error('this process reports no heap limit')
-
     cluster = await createTestCluster()
-    await cluster.start('controller', { roles: ['controller', 'coordinator'], durable: false })
+    const controller = await cluster.start('controller', { roles: ['controller', 'coordinator'], durable: false })
+    const heapLimitBytes = await publishedHeapLimitBytes(controller)
     await cluster.start('node-a', { durable: false })
     await cluster.start('node-b', { durable: false })
     await cluster.node('controller').createIndex(INDEX, { schema: SCHEMA }, { partitionCount: 1, replicationFactor: 1 })
