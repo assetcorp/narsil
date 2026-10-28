@@ -9,12 +9,18 @@ import {
   TEARDOWN_RETRY_ROUNDS,
 } from '../../constants'
 import { getIndexMetadata } from '../../index-metadata'
+import { sharesMajorVersion } from '../../version'
 import { finishDepartureRun, retainedNodesFor, startDepartureRun } from './departures'
 import type { EventLoopState } from './state'
 import { recoverUnassignedPartitions } from './unassigned-recovery'
 
 function holdsDataNode(nodes: NodeRegistration[]): boolean {
   return nodes.some(node => node.roles.includes('data'))
+}
+
+async function listCompatibleNodes(coordinator: ClusterCoordinator): Promise<NodeRegistration[]> {
+  const nodes = await coordinator.listNodes()
+  return nodes.filter(node => sharesMajorVersion(node.version))
 }
 
 type RetainedNodes = (table: AllocationTable) => ReadonlySet<string>
@@ -110,7 +116,7 @@ async function runAllocatorForAllIndexes(
     return
   }
 
-  const nodes = await coordinator.listNodes()
+  const nodes = await listCompatibleNodes(coordinator)
   if (!holdsDataNode(nodes) || !isActive()) {
     return
   }
@@ -199,7 +205,7 @@ async function handleSchemaCreated(
     return
   }
 
-  const nodes = await coordinator.listNodes()
+  const nodes = await listCompatibleNodes(coordinator)
   if (!holdsDataNode(nodes) || !isActive()) {
     return
   }

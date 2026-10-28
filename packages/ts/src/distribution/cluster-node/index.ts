@@ -5,6 +5,7 @@ import { createController } from '../cluster/controller'
 import type { ControllerNode } from '../cluster/controller/types'
 import { createDataNodeLifecycle } from '../cluster/node-lifecycle'
 import type { DataNodeHandle } from '../cluster/node-lifecycle/types'
+import { SPEC_VERSION } from '../cluster/version'
 import type { NodeRegistration, NodeRole } from '../coordinator/types'
 import { openSnapshotSpoolDirectory } from '../replication/snapshot-spool'
 import type { ReplicationLog } from '../replication/types'
@@ -41,8 +42,6 @@ import { validateClusterNodeConfig } from './validate-config'
 import type { WriteRoutingDeps } from './write-routing'
 import { createPrimaryNumbering } from './write-routing/numbering'
 import { createPartitionWriteQueues } from './write-routing/partition-queue'
-
-const SPEC_VERSION = '1.0'
 
 /**
  * Builds one node of a cluster, ready to join.

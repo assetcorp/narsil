@@ -283,7 +283,13 @@ export interface ClusterNode {
   /** This reaches the cluster-facing side of the node. */
   cluster: ClusterNamespace
 
-  /** Joins the cluster: the node registers, takes on its allocated partitions, and starts serving. */
+  /**
+   * Joins the cluster: the node registers, takes on its allocated partitions, and starts serving.
+   *
+   * The start fails with `NODE_VERSION_INCOMPATIBLE` where the active controller follows a specification version
+   * with another major version, because nodes on different major versions cannot share a cluster. A node that finds
+   * no active controller joins, and a later controller on another major version gives it no partition.
+   */
   start(): Promise<void>
   /** Leaves the cluster: the node hands its partitions on, deregisters, and closes the engine it ran. */
   shutdown(): Promise<void>
