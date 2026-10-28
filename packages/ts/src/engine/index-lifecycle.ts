@@ -16,6 +16,7 @@ import {
 import type { EmbeddingAdapter } from '../types/adapters'
 import type { NarsilConfig } from '../types/config'
 import type { IndexConfig } from '../types/schema'
+import { loadVectorCodeFor } from '../workers/vector-code'
 import type { EngineCore, IndexRegistryEntry } from './core'
 import { requireConfigurationWithinSizeLimit } from './snapshot/index-configuration'
 import {
@@ -63,6 +64,8 @@ export async function createEngineIndex(
   creation: IndexCreationOptions = {},
 ): Promise<void> {
   const { indexUuid, adapterBinding = 'required', appliesCreationLimits = false } = creation
+  const loadingVectorCode = loadVectorCodeFor(requestedConfig.schema)
+  if (loadingVectorCode !== null) await loadingVectorCode
   core.guardShutdown()
   validateIndexName(name)
   if (core.indexRegistry.has(name)) {

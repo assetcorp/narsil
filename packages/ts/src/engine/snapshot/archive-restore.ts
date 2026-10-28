@@ -95,7 +95,7 @@ export async function loadStagedIndex(
 ): Promise<RestoredIndex> {
   const { prepared, manifest } = staged
   await store.write(manifestKey(indexName), (await encodeSegmentManifest(manifest)).chunks)
-  const detached = prepareDetachedIndex(indexName, prepared, partitionCountOf(manifest), deps)
+  const detached = await prepareDetachedIndex(indexName, prepared, partitionCountOf(manifest), deps)
   try {
     await loadSegmentedCheckpoint(
       store,

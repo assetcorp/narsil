@@ -35,17 +35,18 @@ export function serializePartition(
   for (const token of state.invertedIdx.tokens()) {
     const list = state.invertedIdx.lookup(token)
     if (!list) continue
-    const hasDeleted = list.deletedDocs.size > 0
+    const { docIds, termFrequencies, fieldNameIndices, deletedDocs, positions, length } = list
+    const hasDeleted = deletedDocs.size > 0
     const postings: Array<{ docId: string; termFrequency: number; field: string; positions: number[] }> = []
-    for (let i = 0; i < list.length; i++) {
-      if (hasDeleted && list.deletedDocs.has(list.docIds[i])) continue
-      const externalId = resolver.toExternal(list.docIds[i])
+    for (let i = 0; i < length; i++) {
+      if (hasDeleted && deletedDocs.has(docIds[i])) continue
+      const externalId = resolver.toExternal(docIds[i])
       if (externalId === undefined) continue
       postings.push({
         docId: externalId,
-        termFrequency: list.termFrequencies[i],
-        field: fieldNames[list.fieldNameIndices[i]],
-        positions: list.positions ? list.positions[i] : [],
+        termFrequency: termFrequencies[i],
+        field: fieldNames[fieldNameIndices[i]],
+        positions: positions === null ? [] : Array.from(positions[i] ?? []),
       })
     }
     if (postings.length > 0) {

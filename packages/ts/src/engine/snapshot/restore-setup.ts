@@ -6,8 +6,10 @@ import { validateSchema, validateVectorPromotion, validateVectorStorage } from '
 import type { EmbeddingAdapter } from '../../types/adapters'
 import type { LanguageModule } from '../../types/language'
 import type { IndexConfig, SchemaDefinition } from '../../types/schema'
+import { createDetachedIndex } from '../../workers/detached-index'
 import type { DetachedIndex, DirectExecutorExtensions, IndexReplacement } from '../../workers/direct-executor'
 import type { Executor } from '../../workers/executor'
+import { loadVectorCodeFor } from '../../workers/vector-code'
 import type { StaleIndex } from '../analysis-rebuild'
 import type { IndexRegistryEntry } from '../core'
 import type { DurabilityIntegration } from '../durability-integration'
@@ -93,13 +95,15 @@ export function prepareRestoredIndex(
   return { config, language, embeddingAdapter, adapterName, storedRevision }
 }
 
-export function prepareDetachedIndex(
+export async function prepareDetachedIndex(
   indexName: string,
   prepared: PreparedIndex,
   partitionCount: number,
   deps: RestoreDeps,
-): DetachedIndex {
-  const detached = deps.executor.prepareDetachedIndex(indexName, prepared.config, prepared.language)
+): Promise<DetachedIndex> {
+  const loadingVectorCode = loadVectorCodeFor(prepared.config.schema)
+  if (loadingVectorCode !== null) await loadingVectorCode
+  const detached = createDetachedIndex(indexName, prepared.config, prepared.language, deps.executor)
   while (detached.manager.partitionCount < partitionCount) detached.manager.addPartition()
   return detached
 }

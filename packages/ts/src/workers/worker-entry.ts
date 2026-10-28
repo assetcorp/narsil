@@ -5,6 +5,7 @@ import { ErrorCodes } from '../errors'
 import { buildErrorResponse, createActionHandler } from './action-handler'
 import { isValidWorkerAction } from './protocol'
 import { threadSlotOfWorker } from './thread-slot'
+import { loadVectorCode } from './vector-code'
 
 export function startWorker(): void {
   setup().catch(err => {
@@ -37,7 +38,7 @@ async function setup(): Promise<void> {
     parentPort = null
   }
 
-  const { createDirectExecutor } = await import('./direct-executor')
+  const [{ createDirectExecutor }] = await Promise.all([import('./direct-executor'), loadVectorCode()])
   const handleAction = createActionHandler(createDirectExecutor({ threadSlot }))
 
   if (parentPort) {

@@ -1,14 +1,44 @@
 import { decode } from '@msgpack/msgpack'
 import { ErrorCodes, NarsilError } from '../../../errors'
 import { encodeDocument } from '../../../serialization/document-encoding'
+import { encodePathSegments, readEncodedPath } from '../../../serialization/msgpack-path'
 import type { AnyDocument } from '../../../types/schema'
-import { documentValueBytes } from '../../document-store'
+import { documentValueBytes, documentWithOwnBuffers, valueWithOwnBuffers } from '../../document-store'
+import {
+  cloneProjected,
+  type ProjectedPathRead,
+  projectIncludedPaths,
+  type ResolvedProjection,
+  readProjectedPath,
+} from '../../projection'
+import { getNestedValue } from '../utils'
 
 export interface FrozenDocumentSource {
   readonly count: number
   readonly byteLength: number
   docAt(ordinal: number): AnyDocument
   readAt(ordinal: number): AnyDocument
+  fieldReader(fieldPath: string): (ordinal: number) => unknown
+  projectedAt(ordinal: number, projection?: ResolvedProjection): AnyDocument
+}
+
+const encodedProjectionPaths = new WeakMap<readonly string[], Uint8Array[] | null>()
+
+function encodedProjectionPathOf(path: readonly string[]): Uint8Array[] | null {
+  let segments = encodedProjectionPaths.get(path)
+  if (segments === undefined) {
+    segments = encodePathSegments(path)
+    encodedProjectionPaths.set(path, segments)
+  }
+  return segments
+}
+
+function sharesPrefix(left: readonly string[], right: readonly string[]): boolean {
+  const shared = Math.min(left.length, right.length)
+  for (let at = 0; at < shared; at++) {
+    if (left[at] !== right[at]) return false
+  }
+  return true
 }
 
 export interface EncodedDocumentTableData {
@@ -94,39 +124,54 @@ export function encodeDocumentTableData(documents: ReadonlyArray<AnyDocument>): 
 }
 
 /**
- * Reads documents from an encoded table, decoding each one on its first read
- * and keeping the decoded copy for later reads.
+ * Reads documents from an encoded table, decoding a fresh copy on every read
+ * so that the table holds nothing beyond its encoded bytes.
  *
  * @param data - The encoded documents and their offsets.
- * @returns A source whose `byteLength` counts the encoded table plus every
- * decoded copy it holds.
+ * @returns A source whose `byteLength` counts the encoded table and its
+ * offsets.
  */
 export function wrapEncodedDocumentTable(data: EncodedDocumentTableData): FrozenDocumentSource {
   const { blob, offsets } = data
   const count = offsets.length - 1
-  const decoded: Array<AnyDocument | undefined> = new Array(count)
-  const encodedBytes = blob.byteLength + offsets.byteLength
-  let decodedBytes = 0
+  const discarded = (data.discardedFields ?? []).map(fieldPath => fieldPath.split('.'))
+  const touchesDiscarded = (path: readonly string[]): boolean =>
+    discarded.some(discardedPath => sharesPrefix(discardedPath, path))
+  const bytesAt = (ordinal: number): Uint8Array => blob.subarray(offsets[ordinal], offsets[ordinal + 1])
+  const docAt = (ordinal: number): AnyDocument =>
+    documentWithOwnBuffers(decodeStoredDocument(bytesAt(ordinal), data.discardedFields))
+
+  function projectedPathAt(ordinal: number, path: string[]): ProjectedPathRead {
+    const segments = encodedProjectionPathOf(path)
+    if (segments === null) return { found: false, value: undefined }
+    const read = touchesDiscarded(path) ? null : readEncodedPath(bytesAt(ordinal), segments, 'missing')
+    if (read === null) return readProjectedPath(docAt(ordinal) as Record<string, unknown>, path)
+    return read.found ? { found: true, value: valueWithOwnBuffers(read.value) } : read
+  }
 
   return {
     count,
-    get byteLength(): number {
-      return encodedBytes + decodedBytes
-    },
-    docAt(ordinal: number): AnyDocument {
-      let document = decoded[ordinal]
-      if (document === undefined) {
-        document = decodeStoredDocument(blob.slice(offsets[ordinal], offsets[ordinal + 1]), data.discardedFields)
-        decoded[ordinal] = document
-        decodedBytes += documentValueBytes(document)
-      }
-      return document
-    },
+    byteLength: blob.byteLength + offsets.byteLength,
+    docAt,
     readAt(ordinal: number): AnyDocument {
-      return (
-        decoded[ordinal] ??
-        decodeStoredDocument(blob.subarray(offsets[ordinal], offsets[ordinal + 1]), data.discardedFields)
-      )
+      return decodeStoredDocument(bytesAt(ordinal), data.discardedFields)
+    },
+    fieldReader(fieldPath: string): (ordinal: number) => unknown {
+      const path = fieldPath.split('.')
+      const segments = encodePathSegments(path)
+      if (segments === null) return () => undefined
+      const decodesDocument = touchesDiscarded(path)
+      return ordinal => {
+        const read = decodesDocument ? null : readEncodedPath(bytesAt(ordinal), segments, 'decode-document')
+        if (read !== null) return valueWithOwnBuffers(read.value)
+        return getNestedValue(docAt(ordinal) as Record<string, unknown>, fieldPath)
+      }
+    },
+    projectedAt(ordinal: number, projection?: ResolvedProjection): AnyDocument {
+      if (projection === undefined || projection.kind === 'full') return docAt(ordinal)
+      if (projection.kind === 'none') return {}
+      if (projection.include === null) return cloneProjected(docAt(ordinal) as Record<string, unknown>, projection)
+      return projectIncludedPaths(projection.include, projection.exclude, path => projectedPathAt(ordinal, path))
     },
   }
 }
@@ -152,6 +197,12 @@ export function wrapDocumentArray(documents: ReadonlyArray<AnyDocument>): Frozen
     },
     readAt(ordinal: number): AnyDocument {
       return documents[ordinal]
+    },
+    fieldReader(fieldPath: string): (ordinal: number) => unknown {
+      return ordinal => getNestedValue(documents[ordinal] as Record<string, unknown>, fieldPath)
+    },
+    projectedAt(ordinal: number, projection?: ResolvedProjection): AnyDocument {
+      return cloneProjected(documents[ordinal] as Record<string, unknown>, projection)
     },
   }
 }

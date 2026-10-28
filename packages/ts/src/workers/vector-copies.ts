@@ -1,8 +1,8 @@
 import type { PartitionManager } from '../partitioning/manager'
-import { createSharedVectorSearcher } from '../vector/shared-field/searcher'
 import type { GraphInsertOutcome, SharedVectorFieldHandles } from '../vector/shared-field/types'
-import { openSharedVectorField, type SharedVectorFieldView } from '../vector/shared-field/view'
+import type { SharedVectorFieldView } from '../vector/shared-field/view'
 import type { VectorSearcher } from '../vector/vector-index/shared'
+import { requireLoadedVectorCode } from './vector-code'
 
 interface HeldField {
   handle: string
@@ -33,6 +33,7 @@ export function loadHeldVectorCopy(
   handles: SharedVectorFieldHandles,
   threadSlot: number,
 ): void {
+  const { createSharedVectorSearcher, openSharedVectorField } = requireLoadedVectorCode()
   const existing = fieldUnderHandle(held, fieldName, handle)
   const view = existing?.view ?? openSharedVectorField(handles, threadSlot)
   if (existing !== undefined) view.adopt(handles)

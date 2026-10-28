@@ -10,7 +10,7 @@ import {
   type LifecycleEntry,
   validateLimit,
 } from './entry'
-import { dropExclusively, type ExclusiveContext, replaceExclusively, replaceUnregistered } from './exclusive'
+import type { ReplaceContext } from './replace'
 
 export type { IndexStateCallbacks, IndexStateCoordinator } from './entry'
 
@@ -206,7 +206,40 @@ export function createIndexStateCoordinator(
     return true
   }
 
-  const exclusiveContext: ExclusiveContext = {
+  async function dropEntry(indexName: string, action: () => Promise<void>): Promise<void> {
+    let entry = entryOf(indexName)
+    while (true) {
+      if (entry.dropPromise !== null) {
+        await entry.dropPromise
+        return
+      }
+      const pending = entry.replacePromise ?? entry.reopenPromise ?? entry.closePromise
+      if (pending !== null) {
+        await pending.catch(() => undefined)
+        entry = entryOf(indexName)
+        continue
+      }
+      break
+    }
+    const previousState = entry.state
+    entry.state = 'dropping'
+    const run = (async () => {
+      await waitForDrain(entry)
+      await action()
+      entries.delete(indexName)
+    })()
+      .catch(error => {
+        entry.state = previousState
+        throw error
+      })
+      .finally(() => {
+        entry.dropPromise = null
+      })
+    entry.dropPromise = run
+    await run
+  }
+
+  const replaceContext: ReplaceContext = {
     entryOf,
     waitForDrain,
     forget: indexName => entries.delete(indexName),
@@ -312,15 +345,25 @@ export function createIndexStateCoordinator(
       await closeEntry(indexName, false)
     },
     drop(indexName: string, action: () => Promise<void>): Promise<void> {
-      return dropExclusively(exclusiveContext, indexName, action)
+      return dropEntry(indexName, action)
     },
-    replace(indexName: string, action: (wasOpen: boolean) => Promise<void>): Promise<void> {
-      return replaceExclusively(exclusiveContext, indexName, action)
+    async replace(indexName: string, action: (wasOpen: boolean) => Promise<void>): Promise<void> {
+      const { replaceExclusively } = await import('./replace')
+      await replaceExclusively(replaceContext, indexName, action)
     },
     async registerReplacing(indexName: string, action: () => Promise<void>): Promise<void> {
       const entry = createLifecycleEntry('open')
       entries.set(indexName, entry)
-      await replaceUnregistered(exclusiveContext, indexName, entry, action)
+      entry.state = 'replacing'
+      const run = import('./replace').then(
+        ({ replaceUnregistered }) => replaceUnregistered(replaceContext, indexName, entry, action),
+        (error: unknown) => {
+          if (entries.get(indexName) === entry) entries.delete(indexName)
+          throw error
+        },
+      )
+      entry.replacePromise = run
+      await run
       await enforceLimits(indexName)
     },
     stateOf(indexName: string): 'open' | 'closed' | 'reopen-failed' {

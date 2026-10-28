@@ -2,12 +2,22 @@ import type { PostingListView } from '../../../types/internal'
 import { boundedLevenshtein, fuzzyPrefixOf } from '../../fuzzy'
 import type { InvertedIndexReader, TermSuggestion } from '../../inverted-index'
 import { compareCodePoints } from '../../ordering'
+import type { FrozenLiveCounts } from './live-counts'
 import type { FrozenPostingViews } from './posting-views'
 import type { FrozenTokenTable } from './token-table'
 
-export function createFrozenInvertedReader(table: FrozenTokenTable, views: FrozenPostingViews): InvertedIndexReader {
+export function createFrozenInvertedReader(
+  table: FrozenTokenTable,
+  views: FrozenPostingViews,
+  counts: FrozenLiveCounts,
+): InvertedIndexReader {
   function viewAtSorted(sortedIndex: number): PostingListView {
-    return views.viewAt(table.payloadSlot(sortedIndex), table.documentFrequencyAt(sortedIndex))
+    return views.viewAt(table.payloadSlot(sortedIndex), sortedIndex)
+  }
+
+  function liveAt(token: string): number {
+    const at = table.find(token)
+    return at < 0 || counts.documentFrequency(at) === 0 ? -1 : at
   }
 
   function candidateRange(prefix: string): { start: number; end: number } {
@@ -17,20 +27,20 @@ export function createFrozenInvertedReader(table: FrozenTokenTable, views: Froze
 
   return {
     lookup(token: string): PostingListView | undefined {
-      const at = table.find(token)
+      const at = liveAt(token)
       if (at < 0) return undefined
       return viewAtSorted(at)
     },
 
     lookupReadOnce(token: string): PostingListView | undefined {
-      const at = table.find(token)
+      const at = liveAt(token)
       if (at < 0) return undefined
-      return views.viewReadOnce(table.payloadSlot(at), table.documentFrequencyAt(at))
+      return views.viewReadOnce(table.payloadSlot(at), at)
     },
 
     documentFrequency(token: string): number {
       const at = table.find(token)
-      return at < 0 ? 0 : table.documentFrequencyAt(at)
+      return at < 0 ? 0 : counts.documentFrequency(at)
     },
 
     fuzzyLookup(
@@ -39,7 +49,7 @@ export function createFrozenInvertedReader(table: FrozenTokenTable, views: Froze
       prefixLength: number,
     ): Array<{ token: string; postingList: PostingListView }> {
       if (tolerance === 0) {
-        const at = table.find(token)
+        const at = liveAt(token)
         return at < 0 ? [] : [{ token, postingList: viewAtSorted(at) }]
       }
 
@@ -52,7 +62,7 @@ export function createFrozenInvertedReader(table: FrozenTokenTable, views: Froze
         const candidate = table.tokenAt(at)
         if (!candidate.startsWith(requiredPrefix)) continue
         const { withinTolerance } = boundedLevenshtein(token, candidate, tolerance)
-        if (withinTolerance) {
+        if (withinTolerance && counts.documentFrequency(at) > 0) {
           results.push({ token: candidate, postingList: viewAtSorted(at) })
         }
       }
@@ -66,7 +76,8 @@ export function createFrozenInvertedReader(table: FrozenTokenTable, views: Froze
       const range = table.prefixRange(prefix)
       const results: TermSuggestion[] = []
       for (let at = range.start; at < range.end; at++) {
-        results.push({ term: table.tokenAt(at), documentFrequency: table.documentFrequencyAt(at) })
+        const documentFrequency = counts.documentFrequency(at)
+        if (documentFrequency > 0) results.push({ term: table.tokenAt(at), documentFrequency })
       }
 
       results.sort((a, b) => b.documentFrequency - a.documentFrequency || compareCodePoints(a.term, b.term))
@@ -75,7 +86,7 @@ export function createFrozenInvertedReader(table: FrozenTokenTable, views: Froze
     },
 
     has(token: string): boolean {
-      return table.find(token) >= 0
+      return liveAt(token) >= 0
     },
 
     *tokens(): IterableIterator<string> {

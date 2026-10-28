@@ -24,33 +24,13 @@ export interface PostingListView {
   readonly fieldNameIndices: ArrayLike<number>
   readonly positions: ReadonlyArray<readonly number[] | undefined> | null
   positionCountAt?(row: number): number
+  readonly holdsPositions?: boolean
+  copyPositionsAt?(row: number, target: Uint32Array, offset: number): number
   readonly docIdSet: { readonly size: number }
   readonly deletedDocs: { readonly size: number; has(internalId: number): boolean }
   readonly totalTermFrequency: number
   readonly structureRevision: number
   readonly ordered: boolean
-}
-
-export interface CompactPostingList {
-  length: number
-  docIds: number[]
-  termFrequencies: Uint16Array
-  fieldNameIndices: Uint16Array
-  positions: number[][] | null
-  docIdSet: Set<number>
-  deletedDocs: Set<number>
-  totalTermFrequency: number
-  /**
-   * Counts changes to existing entries or to the tombstone set. An append
-   * leaves it alone, so derived block bounds extend over the new tail instead
-   * of rebuilding from the start.
-   */
-  structureRevision: number
-  /**
-   * False once an entry lands with a lower document id than the one before
-   * it; compaction recomputes it from the surviving entries.
-   */
-  ordered: boolean
 }
 
 export interface StoredDocument {

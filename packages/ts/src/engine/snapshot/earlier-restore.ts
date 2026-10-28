@@ -13,7 +13,7 @@ import type { SerializablePartition } from '../../types/internal'
 import type { AnyDocument } from '../../types/schema'
 import { bytesToVectors, decodeVectorIndexParts } from '../../vector/vector-index/payload'
 import type { DetachedIndex } from '../../workers/direct-executor'
-import { indexMetadataOf } from '../durability-wiring'
+import { indexMetadataOf } from '../durability-metadata'
 import { insertDocumentVectors } from '../vector-coordinator'
 import { loadStagedIndex } from './archive-restore'
 import { earlierSnapshotFootprint, type RestoreFootprint, requireRestoreMemory } from './memory-budget'
@@ -154,7 +154,7 @@ async function buildRestoredIndex(
   staging: RestoreStaging | null,
   deps: RestoreDeps,
 ): Promise<RestoredIndex> {
-  const built = prepareDetachedIndex(indexName, prepared, envelope.partitions?.length ?? 0, deps)
+  const built = await prepareDetachedIndex(indexName, prepared, envelope.partitions?.length ?? 0, deps)
   try {
     insertSnapshotDocuments(envelope, built.manager)
     if (staging === null) return { prepared, detached: built, staging: null, checkpoint: [] }

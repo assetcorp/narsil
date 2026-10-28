@@ -289,10 +289,10 @@ export function openSharedQuantizer(
       if (simd === null || !block.hasScratch) return generic
       const presentView = codePresent
       const limit = Math.min(presentView.length, capacity)
-      const data = block.data(0)
+      const { slotsOffset, slotStride } = layout
+      const data = block.data(slotsOffset + slotStride)
       const dataLength = data.byteLength
       const queryOffset = block.scratchByteOffset
-      const { slotsOffset, slotStride } = layout
       return ordinal => {
         if (ordinal < 0 || ordinal >= limit || block.stagedOrdinal !== QUERY_STAGED) return generic(ordinal)
         if (presentView[ordinal] !== 1) return Number.POSITIVE_INFINITY
@@ -323,9 +323,9 @@ export function openSharedQuantizer(
       if (simd === null) return distanceBetween
       const presentView = codePresent
       const limit = Math.min(presentView.length, capacity)
-      const data = block.data(0)
-      const dataLength = data.byteLength
       const { slotsOffset, slotStride } = layout
+      const data = block.data(slotsOffset + slotStride)
+      const dataLength = data.byteLength
       return (ordA, ordB) => {
         if (ordA < 0 || ordB < 0 || ordA >= limit || ordB >= limit) return distanceBetween(ordA, ordB)
         if (presentView[ordA] !== 1 || presentView[ordB] !== 1) return Number.POSITIVE_INFINITY
