@@ -45,11 +45,8 @@ export interface OsqQuantizer extends QuantizerBuildReader {
   restoreCentroid(centroid: Float32Array): void
   /** Calibrates again over the stored vectors of the given ordinals and rewrites the record of each. */
   recalibrate(ordinals: Int32Array): void
-  /** Starts taking every record again against a new centroid in memory of its own, while searches go on reading the current records. */
   beginRecoding(centroid: Float32Array): void
-  /** Takes the record of one ordinal against the new centroid, and does nothing while no recoding runs. */
   recode(ordinal: number): void
-  /** Puts the new records and centroid in place of the current ones, which the caller does while it holds the graph alone, and reports false where no recoding ran. */
   finishRecoding(): boolean
   abandonRecoding(): void
   clear(): void
