@@ -1,7 +1,8 @@
 import { decode } from '@msgpack/msgpack'
 import type { EngineCore } from '../../engine/core'
-import { indexMetadataOf } from '../../engine/durability-wiring'
+import { indexMetadataOf } from '../../engine/durability-metadata'
 import { encodeIndexConfiguration } from '../../engine/snapshot/index-configuration'
+import { emptySerializablePartition } from '../../engine/worker-resync'
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { Narsil } from '../../narsil'
 import type { PartitionManager } from '../../partitioning/manager'
@@ -16,7 +17,6 @@ import type { CheckpointStore } from '../../persistence/durability/segment/store
 import { readListedFile } from '../../persistence/durability/segment/store'
 import { openChecksummedEnvelope } from '../../serialization/envelope-file'
 import type { ByteSource } from '../../types/engine'
-import type { SerializablePartition } from '../../types/internal'
 import type { IndexConfig } from '../../types/schema'
 import { decodeVectorFilePayload } from '../../vector/vector-index/checkpoint-payload'
 import { isDead } from '../../vector/vector-index/dead-bits'
@@ -137,22 +137,6 @@ async function receiveArchive(
   return { language, analysisRevision, manifest: received, store }
 }
 
-function emptyPartition(manager: PartitionManager, partitionId: number): SerializablePartition {
-  return {
-    indexName: manager.indexName,
-    partitionId,
-    totalPartitions: manager.partitionCount,
-    language: manager.language.name,
-    schema: {},
-    docCount: 0,
-    avgDocLength: 0,
-    documents: {},
-    invertedIndex: {},
-    fieldIndexes: { numeric: {}, boolean: {}, enum: {}, geopoint: {} },
-    statistics: { totalDocuments: 0, totalFieldLengths: {}, averageFieldLengths: {}, docFrequencies: {} },
-  }
-}
-
 async function replacePartition(
   manager: PartitionManager,
   partitionId: number,
@@ -163,7 +147,7 @@ async function replacePartition(
   for (const vectorIndex of vectorIndexes.values()) {
     for (const docId of held) if (vectorIndex.has(docId)) vectorIndex.remove(docId)
   }
-  manager.deserializePartition(partitionId, emptyPartition(manager, partitionId))
+  manager.deserializePartition(partitionId, emptySerializablePartition(manager, partitionId))
   const entry = archive.manifest.partitions[0]
   if (entry !== undefined) {
     await loadPartitionSegments(archive.store, entry, manager, {

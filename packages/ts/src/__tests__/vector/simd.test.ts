@@ -1,14 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import {
-  isSimdAvailable,
-  simdDotProduct,
-  simdEuclideanDistance,
-  simdMagnitude,
-  simdSquaredEuclideanDistance,
-} from '../../vector/simd'
+import { isSimdAvailable } from '../../index'
+import { simdDotProduct, simdEuclideanDistance, simdMagnitude, simdSquaredEuclideanDistance } from '../../vector/simd'
 
 describe('isSimdAvailable', () => {
-  it('returns true in Node.js 22 where WebAssembly SIMD is supported', () => {
+  it('stays true after the vector code loads its SIMD module in Node.js 22', () => {
+    expect(simdMagnitude(new Float32Array([3, 4]))).not.toBeNull()
     expect(isSimdAvailable()).toBe(true)
   })
 })

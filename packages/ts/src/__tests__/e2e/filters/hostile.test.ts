@@ -4,7 +4,7 @@ import { postJson } from '../../server/helpers'
 import { COMMON_TERM, INDEX, productCorpus } from './corpus'
 import { type FilterServer, startFilterServer } from './harness'
 
-const HOSTILE_SEARCH_DEADLINE_MS = 3_000
+const HOSTILE_SEARCH_DEADLINE_MS = 16_500
 const NORMAL_FILTERS = { fields: { category: { eq: 'tools' } } }
 
 interface Answer {

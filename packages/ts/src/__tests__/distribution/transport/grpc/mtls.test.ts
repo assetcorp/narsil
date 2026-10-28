@@ -1,18 +1,31 @@
-import { afterEach, describe, expect, it } from 'vitest'
-import { ClusterMessageTypes, TransportError, type TransportMessage } from '../../../../distribution/transport'
+import { afterEach, beforeAll, describe, expect, it } from 'vitest'
+import {
+  ClusterMessageTypes,
+  TransportError,
+  TransportErrorCodes,
+  type TransportMessage,
+} from '../../../../distribution/transport'
 import { createGrpcTransport } from '../../../../distribution/transport/grpc'
-import { generateTlsBundles, makeTlsConfig } from '../tcp-tls/fixtures'
+import { generateTlsBundles, makeTlsConfig, TLS_BUNDLES_TIMEOUT_MS, type TlsBundles } from '../tcp-tls/fixtures'
 
 type GrpcTransport = Awaited<ReturnType<typeof createGrpcTransport>>
 
+const CONNECT_TIMEOUT_MS = 10_000
+const TEST_TIMEOUT_MS = 20_000
+
 const activeTransports: GrpcTransport[] = []
+let bundles: TlsBundles
+
+beforeAll(async () => {
+  bundles = await generateTlsBundles()
+}, TLS_BUNDLES_TIMEOUT_MS)
 
 async function createTlsTransport(nodeId: string, tls: ReturnType<typeof makeTlsConfig>): Promise<GrpcTransport> {
   const transport = await createGrpcTransport(nodeId, {
     host: '127.0.0.1',
     port: 0,
     requestTimeout: 5_000,
-    connectTimeout: 3_000,
+    connectTimeout: CONNECT_TIMEOUT_MS,
     snapshotTimeout: 10_000,
     tls,
   })
@@ -29,14 +42,23 @@ function makeMessage(requestId: string): TransportMessage {
   }
 }
 
-describe('GrpcTransport with mutual TLS', () => {
+async function timedSend(
+  transport: GrpcTransport,
+  target: string,
+  message: TransportMessage,
+): Promise<{ err: unknown; elapsed: number }> {
+  const started = performance.now()
+  const err = await transport.send(target, message).catch((thrown: unknown) => thrown)
+  return { err, elapsed: performance.now() - started }
+}
+
+describe('GrpcTransport with mutual TLS', { timeout: TEST_TIMEOUT_MS }, () => {
   afterEach(async () => {
     await Promise.all(activeTransports.map(transport => transport.shutdown()))
     activeTransports.length = 0
   })
 
   it('completes a round trip when both sides present trusted certificates', async () => {
-    const bundles = await generateTlsBundles()
     const server = await createTlsTransport('tls-server', makeTlsConfig(bundles.serverBundle))
     await server.listen((message, respond) => {
       respond({
@@ -55,8 +77,7 @@ describe('GrpcTransport with mutual TLS', () => {
     expect(response.payload).toEqual(new Uint8Array([1, 2, 3]))
   })
 
-  it('rejects a client whose certificate chains to an untrusted authority', async () => {
-    const bundles = await generateTlsBundles()
+  it('rejects a client whose certificate chains to an untrusted authority at once', async () => {
     const server = await createTlsTransport('tls-server', makeTlsConfig(bundles.serverBundle))
     await server.listen((message, respond) => {
       respond({ ...message, type: ClusterMessageTypes.PONG, sourceId: 'tls-server' })
@@ -68,15 +89,14 @@ describe('GrpcTransport with mutual TLS', () => {
       ca: bundles.serverBundle.ca,
     })
 
-    const err = await rogue
-      .send(`127.0.0.1:${server.getPort()}`, makeMessage('tls-req-002'))
-      .catch((thrown: TransportError) => thrown)
+    const { err, elapsed } = await timedSend(rogue, `127.0.0.1:${server.getPort()}`, makeMessage('tls-req-002'))
 
     expect(err).toBeInstanceOf(TransportError)
+    expect((err as TransportError).code).toBe(TransportErrorCodes.CONNECT_FAILED)
+    expect(elapsed).toBeLessThan(CONNECT_TIMEOUT_MS / 2)
   })
 
-  it('fails the handshake when the two sides trust different authorities', async () => {
-    const bundles = await generateTlsBundles()
+  it('fails the handshake at once, with the certificate error in its message, when the two sides trust different authorities', async () => {
     const server = await createTlsTransport('tls-server', makeTlsConfig(bundles.rotatedServerBundle))
     await server.listen((message, respond) => {
       respond({ ...message, type: ClusterMessageTypes.PONG, sourceId: 'tls-server' })
@@ -88,10 +108,11 @@ describe('GrpcTransport with mutual TLS', () => {
       ca: bundles.clientBundle.ca,
     })
 
-    const err = await client
-      .send(`127.0.0.1:${server.getPort()}`, makeMessage('tls-req-003'))
-      .catch((thrown: TransportError) => thrown)
+    const { err, elapsed } = await timedSend(client, `127.0.0.1:${server.getPort()}`, makeMessage('tls-req-003'))
 
     expect(err).toBeInstanceOf(TransportError)
+    expect((err as TransportError).code).toBe(TransportErrorCodes.CONNECT_FAILED)
+    expect((err as TransportError).message).toMatch(/certificate/)
+    expect(elapsed).toBeLessThan(CONNECT_TIMEOUT_MS / 2)
   })
 })

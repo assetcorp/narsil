@@ -1,17 +1,56 @@
 import { isCompositePartition } from '../core/partition/composite'
 import { type SharedFrozenSegment, shareFrozenSegment } from '../core/partition/frozen/share'
+import type { PartitionIndex } from '../core/partition/partition-index'
+import type { SegmentPayload } from '../core/partition/segment-payload'
+import { ErrorCodes, NarsilError } from '../errors'
 import type { PartitionManager } from '../partitioning/manager'
 import type { SerializablePartition } from '../types/internal'
-import type { IndexConfig } from '../types/schema'
+import type { AnyDocument, IndexConfig } from '../types/schema'
 import type { Executor } from '../workers/executor'
 import type { WorkerPool } from '../workers/pool'
 
 let copyLoadSequence = 0
 
+interface CapturedLiveTail {
+  payload: SegmentPayload
+  documents: AnyDocument[]
+}
+
 interface CapturedPartition {
   partitionId: number
-  live: SerializablePartition
+  live: CapturedLiveTail | null
   frozen: SharedFrozenSegment[]
+}
+
+export function emptySerializablePartition(manager: PartitionManager, partitionId: number): SerializablePartition {
+  return {
+    indexName: manager.indexName,
+    partitionId,
+    totalPartitions: manager.partitionCount,
+    language: manager.language.name,
+    schema: {},
+    docCount: 0,
+    avgDocLength: 0,
+    documents: {},
+    invertedIndex: {},
+    fieldIndexes: { numeric: {}, boolean: {}, enum: {}, geopoint: {} },
+    statistics: { totalDocuments: 0, totalFieldLengths: {}, averageFieldLengths: {}, docFrequencies: {} },
+  }
+}
+
+function captureLiveTail(partition: PartitionIndex): CapturedLiveTail | null {
+  if (partition.count() === 0) return null
+  const payload = partition.encodeSegment()
+  const documents = payload.docIds.map(docId => {
+    const document = partition.getRef(docId)
+    if (document === undefined) {
+      throw new NarsilError(ErrorCodes.PARTITION_CORRUPTED, `Document "${docId}" vanished while copying a partition`, {
+        docId,
+      })
+    }
+    return document
+  })
+  return { payload, documents }
 }
 
 function captureComposite(manager: PartitionManager, partitionId: number): CapturedPartition | null {
@@ -24,13 +63,7 @@ function captureComposite(manager: PartitionManager, partitionId: number): Captu
     if (shared === null) return null
     frozen.push(shared)
   }
-  const live = partition.live.serialize(
-    manager.indexName,
-    manager.partitionCount,
-    manager.language.name,
-    manager.schema,
-  )
-  return { partitionId, live, frozen }
+  return { partitionId, live: captureLiveTail(partition.live), frozen }
 }
 
 function capturePartitions(manager: PartitionManager): CapturedPartition[] {
@@ -39,7 +72,7 @@ function capturePartitions(manager: PartitionManager): CapturedPartition[] {
     captured.push(
       captureComposite(manager, partitionId) ?? {
         partitionId,
-        live: manager.serializePartition(partitionId),
+        live: captureLiveTail(manager.getPartition(partitionId)),
         frozen: [],
       },
     )
@@ -47,23 +80,42 @@ function capturePartitions(manager: PartitionManager): CapturedPartition[] {
   return captured
 }
 
-async function sendPartition(indexName: string, executors: Executor[], captured: CapturedPartition): Promise<void> {
+async function sendPartition(
+  manager: PartitionManager,
+  executors: Executor[],
+  captured: CapturedPartition,
+): Promise<void> {
+  const { indexName } = manager
   await Promise.all(
     executors.map(workerExecutor =>
       workerExecutor.execute({
         type: 'deserialize',
         indexName,
         partitionId: captured.partitionId,
-        data: captured.live,
+        data: emptySerializablePartition(manager, captured.partitionId),
         requestId: `resync-${indexName}-${captured.partitionId}`,
       }),
     ),
   )
+  const live = captured.live
+  if (live !== null) {
+    await Promise.all(
+      executors.map(workerExecutor =>
+        workerExecutor.execute({
+          type: 'mergeSegments',
+          indexName,
+          segments: [{ partitionId: captured.partitionId, payload: live.payload, documents: live.documents }],
+          requestId: `resync-live-${indexName}-${captured.partitionId}`,
+        }),
+      ),
+    )
+  }
   if (captured.frozen.length === 0) return
   const segments = captured.frozen.map(shared => ({
     partitionId: captured.partitionId,
     snapshot: shared.snapshot,
     tombstonedDocIds: shared.tombstonedDocIds,
+    survivingSurfaceForms: shared.survivingSurfaceForms,
   }))
   await Promise.all(
     executors.map(workerExecutor =>
@@ -154,7 +206,7 @@ export async function loadIndexOntoWorkers(
     ),
   )
   for (const partition of captured) {
-    await sendPartition(indexName, executors, partition)
+    await sendPartition(manager, executors, partition)
   }
   return copyLoad
 }

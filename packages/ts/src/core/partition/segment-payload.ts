@@ -95,10 +95,12 @@ function countPostings(
     const list = lookupReadOnce(state, token)
     if (list === undefined) continue
     const listPositions = list.positionCountAt === undefined ? list.positions : null
-    const tracksPositions = list.positionCountAt === undefined ? listPositions !== null : state.trackPositions
-    for (let i = 0; i < list.length; i++) {
-      const internalId = list.docIds[i]
-      if (list.deletedDocs.has(internalId) || remap[internalId] < 0) continue
+    const tracksPositions =
+      list.holdsPositions ?? (list.positionCountAt === undefined ? listPositions !== null : state.trackPositions)
+    const { docIds, deletedDocs, length } = list
+    for (let i = 0; i < length; i++) {
+      const internalId = docIds[i]
+      if (deletedDocs.has(internalId) || remap[internalId] < 0) continue
       postings++
       if (!tracksPositions) continue
       hasPositions = true
@@ -162,18 +164,20 @@ export function encodeSegmentState(state: PartitionReadState): SegmentPayload {
   for (const token of state.invertedIdx.tokens()) {
     const list = lookupReadOnce(state, token)
     if (list === undefined) continue
-    const listPositions = positionOffsets === null ? null : list.positions
+    const copyPositionsAt = list.copyPositionsAt?.bind(list)
+    const listPositions = positionOffsets === null || copyPositionsAt !== undefined ? null : list.positions
     const tokenStart = postingCursor
     const countViaSet = !list.ordered
     if (countViaSet) unorderedTokenDocs.clear()
     let uniqueDocs = 0
     let lastCountedDoc = -1
-    for (let i = 0; i < list.length; i++) {
-      const internalId = list.docIds[i]
-      if (list.deletedDocs.has(internalId) || remap[internalId] < 0) continue
+    const { docIds, termFrequencies, fieldNameIndices, deletedDocs, length } = list
+    for (let i = 0; i < length; i++) {
+      const internalId = docIds[i]
+      if (deletedDocs.has(internalId) || remap[internalId] < 0) continue
       postingDocIds[postingCursor] = remap[internalId]
-      postingFrequencies[postingCursor] = list.termFrequencies[i]
-      postingFieldIndices[postingCursor] = list.fieldNameIndices[i]
+      postingFrequencies[postingCursor] = termFrequencies[i]
+      postingFieldIndices[postingCursor] = fieldNameIndices[i]
       if (countViaSet) {
         unorderedTokenDocs.add(internalId)
       } else if (internalId !== lastCountedDoc) {
@@ -183,7 +187,9 @@ export function encodeSegmentState(state: PartitionReadState): SegmentPayload {
       if (positionOffsets !== null && positionValues !== null) {
         positionOffsets[postingCursor] = positionCursor
         const entryPositions = listPositions === null ? null : listPositions[i]
-        if (entryPositions !== null && entryPositions !== undefined) {
+        if (copyPositionsAt !== undefined) {
+          positionCursor += copyPositionsAt(i, positionValues, positionCursor)
+        } else if (entryPositions !== null && entryPositions !== undefined) {
           for (const position of entryPositions) positionValues[positionCursor++] = position
         }
       }

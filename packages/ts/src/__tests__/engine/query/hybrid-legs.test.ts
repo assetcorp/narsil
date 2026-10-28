@@ -28,7 +28,7 @@ describe('hybrid query legs', () => {
   let core: EngineCore
 
   beforeEach(async () => {
-    core = createEngineCore({ workers: { enabled: false } })
+    core = await createEngineCore({ workers: { enabled: false } })
     await createEngineIndex(core, undefined, INDEX_NAME, indexConfig)
     await insertDocument(core.mutationCtx, INDEX_NAME, { title: 'engine engine engine', embedding: [0, 1, 0, 0] }, 'A')
     await insertDocument(core.mutationCtx, INDEX_NAME, { title: 'engine', embedding: [1, 0, 0, 0] }, 'B')
