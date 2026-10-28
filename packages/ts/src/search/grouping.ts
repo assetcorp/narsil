@@ -23,14 +23,9 @@ export function applyGrouping<T = AnyDocument>(
     return [{ values: {}, hits: hits as Array<Hit> }]
   }
 
-  const groupMap = new Map<
-    string,
-    { values: Record<string, unknown>; hits: Array<Hit<T>>; documents: Array<AnyDocument | undefined> }
-  >()
-  const keepsDocuments = group.reduce !== undefined
+  const groupMap = new Map<string, { values: Record<string, unknown>; hits: Array<Hit<T>> }>()
 
   for (const hit of hits) {
-    const doc = keepsDocuments ? documents.document(hit.id) : undefined
     const stored = documents.fieldValues(hit.id, group.fields)
     const fieldValues: unknown[] = []
     const valuesRecord: Record<string, unknown> = {}
@@ -46,9 +41,8 @@ export function applyGrouping<T = AnyDocument>(
 
     if (existing) {
       existing.hits.push(hit)
-      if (keepsDocuments) existing.documents.push(doc)
     } else {
-      groupMap.set(compositeKey, { values: valuesRecord, hits: [hit], documents: keepsDocuments ? [doc] : [] })
+      groupMap.set(compositeKey, { values: valuesRecord, hits: [hit] })
     }
   }
 
@@ -63,7 +57,7 @@ export function applyGrouping<T = AnyDocument>(
     if (group.reduce) {
       const folded = foldGroupReducer(
         group.reduce,
-        everyHit.map((hit, at) => ({ document: entry.documents[at], score: hit.score ?? 0 })),
+        everyHit.map(hit => ({ document: documents.document(hit.id), score: hit.score ?? 0 })),
       )
       if (folded.reducerError !== undefined) {
         result.reducerError = folded.reducerError

@@ -361,8 +361,9 @@ export function createCompositePartition(
 
     *docIds(): IterableIterator<string> {
       for (const segment of frozen) {
-        for (const [docId] of segment.docStore.all()) {
-          yield docId
+        for (const internalId of segment.docStore.allInternalIds()) {
+          const docId = segment.docStore.getExternalId(internalId)
+          if (docId !== undefined) yield docId
         }
       }
       yield* live.docIds()
