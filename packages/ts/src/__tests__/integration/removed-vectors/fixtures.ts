@@ -135,6 +135,15 @@ export async function ringRecall(narsil: Narsil): Promise<number> {
   return found / (K * ringQueries.length)
 }
 
+export async function queryAnswers(narsil: Narsil): Promise<string[][]> {
+  const answers: string[][] = []
+  for (const query of queries) {
+    const result = await search(narsil, query)
+    answers.push(result.hits.map(hit => hit.id))
+  }
+  return answers
+}
+
 export async function ringAnswers(narsil: Narsil): Promise<string[][]> {
   const answers: string[][] = []
   for (const query of ringQueries) {
