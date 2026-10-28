@@ -1,6 +1,6 @@
 import { decode } from '@msgpack/msgpack'
 import type { EngineCore } from '../../engine/core'
-import { indexMetadataOf } from '../../engine/durability-wiring'
+import { indexMetadataOf } from '../../engine/durability-metadata'
 import { encodeIndexConfiguration } from '../../engine/snapshot/index-configuration'
 import { emptySerializablePartition } from '../../engine/worker-resync'
 import { ErrorCodes, NarsilError } from '../../errors'

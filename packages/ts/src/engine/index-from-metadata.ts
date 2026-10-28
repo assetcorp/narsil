@@ -8,6 +8,7 @@ import type { IndexMetadata } from '../types/internal'
 import type { SchemaDefinition } from '../types/schema'
 import type { DirectExecutorExtensions } from '../workers/direct-executor'
 import type { Executor } from '../workers/executor'
+import { loadVectorCodeFor } from '../workers/vector-code'
 import type { AnalysisRebuildCoordinator } from './analysis-rebuild'
 import type { IndexRegistryEntry } from './core'
 import type { IndexStateCoordinator } from './index-state'
@@ -69,6 +70,8 @@ export async function createIndexFromMetadata(
   metadata: IndexMetadata,
   loadData: boolean,
 ): Promise<void> {
+  const loadingVectorCode = loadData ? loadVectorCodeFor(metadata.schema) : null
+  if (loadingVectorCode !== null) await loadingVectorCode
   const existing = deps.indexRegistry.get(metadata.indexName)
   if (existing !== undefined) {
     if (loadData && deps.executor.getManager(metadata.indexName) === undefined) {
