@@ -149,6 +149,7 @@ function holdsOrd(list: DistanceList, ord: number): boolean {
 }
 
 function keepFarthestRejected(sorted: DistanceList, maxConnections: number, selected: DistanceList): void {
+  if (selected.size * 2 >= maxConnections) return
   let kept = 0
   for (let i = sorted.size - 1; i >= 0 && kept < FARTHEST_REJECTED_LINKS_KEPT; i--) {
     if (selected.size >= maxConnections) return
