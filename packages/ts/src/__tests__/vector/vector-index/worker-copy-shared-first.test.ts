@@ -7,6 +7,7 @@ import { acquireVectorSearchPool } from '../../../vector/search-pool'
 import type { GraphInsertOutcome, SharedVectorFieldHandles } from '../../../vector/shared-field/types'
 import { createVectorIndex, type VectorIndex } from '../../../vector/vector-index'
 import { restoreWorkerCopy, type WorkerCopy, type WorkerCopySnapshot } from '../../../vector/worker-copy'
+import { filterSubsetsForDocIds } from '../filter-subsets'
 import { createFakeVectorThreads, DIM, normalizedVector } from './fixtures'
 
 vi.mock('../../../vector/search-pool', () => ({
@@ -143,7 +144,7 @@ describe('worker copy loading picks the shared path first', () => {
     const query = normalizedVector(DIM, 31)
     const filterDocIds = new Set<string>()
     for (let i = 0; i < 100; i++) filterDocIds.add(`doc${i}`)
-    const options = { metric: 'cosine', minSimilarity: 0, filterDocIds } as const
+    const options = { metric: 'cosine', minSimilarity: 0, filterSubsets: filterSubsetsForDocIds(filterDocIds) } as const
 
     const { results: viaWorker } = await index.searchParallel(query, 10, options)
     const { results: local } = index.search(query, 10, options)
@@ -169,7 +170,7 @@ describe('worker copy loading picks the shared path first', () => {
     const query = normalizedVector(DIM, 37)
     const filterDocIds = new Set<string>()
     for (let i = 0; i < 10; i++) filterDocIds.add(`doc${i}`)
-    const options = { metric: 'cosine', minSimilarity: 0, filterDocIds } as const
+    const options = { metric: 'cosine', minSimilarity: 0, filterSubsets: filterSubsetsForDocIds(filterDocIds) } as const
 
     const { results: filtered } = await index.searchParallel(query, 10, options)
     const { results: local } = index.search(query, 10, options)

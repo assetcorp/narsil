@@ -6,10 +6,9 @@ import { BLOCK_MAX_BYTES } from './blocks'
 import { resetDocIds } from './doc-ids'
 import {
   IN_MEMORY,
-  STORE_CALIBRATED,
-  STORE_CALIBRATION_GENERATION,
-  STORE_CODE_COUNT,
+  resetStoreHeader,
   STORE_LIVE_COUNT,
+  STORE_ORDINAL_LAYOUT_GENERATION,
   STORE_RELEASED_VECTORS_TO_DISK,
   STORE_SLOTS,
   sharedVectorStoreBytes,
@@ -322,16 +321,12 @@ export function createVectorStore(options?: VectorStoreOptions): VectorStore {
         relayout(open)
       }
       resetDocIds(open.handles)
-      Atomics.store(open.handles.header, STORE_SLOTS, 0)
-      Atomics.store(open.handles.header, STORE_RELEASED_VECTORS_TO_DISK, 0)
-      Atomics.store(open.handles.header, STORE_LIVE_COUNT, 0)
-      Atomics.store(open.handles.header, STORE_CODE_COUNT, 0)
-      Atomics.store(open.handles.header, STORE_CALIBRATED, 0)
-      Atomics.add(open.handles.header, STORE_CALIBRATION_GENERATION, 1)
+      resetStoreHeader(open.handles.header)
     },
 
     release(): void {
       forgetDocuments()
+      if (open !== null) Atomics.add(open.handles.header, STORE_ORDINAL_LAYOUT_GENERATION, 1)
       open?.view.close()
       open = null
     },

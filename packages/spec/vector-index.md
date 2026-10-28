@@ -74,18 +74,26 @@ MaintenanceStatus {
 
 See [Filtered Search](#filtered-search) for what `filterDocIds` does, and [algorithms.md](algorithms.md) for the metric definitions.
 
-`efSearch` sets the HNSW exploration factor. When `efSearch` is absent, an implementation must use its own default, and the recommended default is 50. A higher value raises recall and lengthens the search.
+`efSearch` sets the HNSW exploration factor. When `efSearch` is absent, an implementation must use its own default. The recommended default is maximum(50, k + margin), where the margin is 50 below 768 dimensions, 75 from 768 to 1,023 dimensions, and 0 from 1,024 dimensions. A higher value raises recall and lengthens the search.
 
 `oversample` sets how deep a [quantised](#quantisation) index re-scores against full-precision vectors:
 
 ```text
-depth      = ceiling(k * oversample)
+depth      = ceiling(k * oversample) where oversample is present
+             defaultDepth(k) where oversample is absent
 candidates = traverse the graph by estimated distance with ef = maximum(efSearch, depth)
-rescored   = the depth nearest candidates, scored by the metric on full-precision vectors
+rescored   = the depth nearest candidates that pass filterDocIds, scored by the metric on full-precision vectors
 return the best k of rescored
 ```
 
-An implementation must accept an `oversample` that is a finite number of at least 1, and it must reject any other value with `CONFIG_INVALID`. It must ignore `oversample` on an index whose quantisation is `none`. When `oversample` is absent, an implementation must use its own default, and the recommended defaults are 3 for `osq1` and `osq2` and 2 for `osq4` and `osq8`.
+An implementation must accept an `oversample` that is a finite number of at least 1, and it must reject any other value with `CONFIG_INVALID`. It must ignore `oversample` on an index whose quantisation is `none`. When `oversample` is absent, an implementation must use its own `defaultDepth(k)`, which must be at least k. The recommended default is maximum(c * k, ceiling(a * k + b * sqrt(k))), where c is 3 for `osq1` and `osq2` and 1 for `osq4` and `osq8`, and a and b depend on the quantisation and the dimensions:
+
+| Quantisation | Below 768 dimensions | 768 to 1,023 dimensions | From 1,024 dimensions |
+| ------------ | -------------------- | ----------------------- | --------------------- |
+| `osq1`       | a = 3.23, b = 55.9   | a = 2.2, b = 27         | a = 3, b = 0          |
+| `osq2`       | a = 2.6, b = 17      | a = 1, b = 16           | a = 3, b = 0          |
+| `osq4`       | a = 5, b = 0         | a = 5, b = 0            | a = 2, b = 0          |
+| `osq8`       | a = 2, b = 0         | a = 2, b = 0            | a = 2, b = 0          |
 
 ### getVector(docId)
 
@@ -256,18 +264,11 @@ At 3% selectivity on an index of 100,000 vectors, the filter admits 3,000 vector
 
 When an index holds several HNSW graphs, as [Serialisation](#serialisation) allows, an implementation must check selectivity for each graph. A filter that admits 3% of the index can admit 10% of one small graph, which is above the threshold, so the implementation walks that graph.
 
-### Adaptive efSearch
+### Filtered Traversal
 
-Filtering cuts the graph's effective connectivity, so an implementation should raise `efSearch` to compensate:
+An implementation must apply the filter on the base layer of the walk and leave the upper layers unfiltered. On the base layer, a node that fails the filter still joins the candidate queue, so that the walk can pass through it to the nodes beyond it, but that node never joins the results. The walk keeps the ef nearest nodes that pass the filter. It stops once it holds ef of them and its nearest unexpanded candidate is further from the query than the furthest of those ef nodes.
 
-```text
-if filterDocIds is present and size(filterDocIds) < totalVectors:
-  selectivity = size(filterDocIds) / totalVectors
-  ef = max(efSearch, ceiling(k / max(selectivity, 0.01)))
-  ef = min(ef, totalVectors)
-```
-
-The search then explores enough candidates to find `k` results that pass the filter, even when most of the nodes that it reaches fail the filter.
+`ef` and the re-scoring depth therefore count only the vectors that pass the filter, so an implementation uses the same `ef` at every selectivity. A narrow filter makes the walk reach more nodes before it holds ef results, which is why the [Selectivity Threshold](#selectivity-threshold) sends a narrow filter to a brute-force scan.
 
 ---
 

@@ -6,6 +6,16 @@ import { createExactSearch } from './exact-search'
 
 const CLUSTER_CENTRES = 64
 const CLUSTER_SPREAD = 0.35
+const WIDE_CLUSTER_CENTRES = 40
+const WIDE_CLUSTER_SPREAD = 0.6
+
+interface Clusters {
+  centres: number
+  spread: number
+}
+
+const TIGHT_CLUSTERS: Clusters = { centres: CLUSTER_CENTRES, spread: CLUSTER_SPREAD }
+const WIDE_CLUSTERS: Clusters = { centres: WIDE_CLUSTER_CENTRES, spread: WIDE_CLUSTER_SPREAD }
 
 function pseudoRandom(seed: number): () => number {
   let state = seed >>> 0
@@ -47,14 +57,14 @@ function unitNormalise(v: Float32Array): Float32Array {
   return v
 }
 
-function clusteredVectors(dim: number, count: number, random: () => number): Float32Array[] {
-  const centres = Array.from({ length: CLUSTER_CENTRES }, () => gaussianVector(dim, random))
+function clusteredVectors(dim: number, count: number, random: () => number, clusters: Clusters): Float32Array[] {
+  const centres = Array.from({ length: clusters.centres }, () => gaussianVector(dim, random))
   const vectors: Float32Array[] = []
   for (let n = 0; n < count; n++) {
-    const centre = centres[Math.floor(random() * CLUSTER_CENTRES)]
+    const centre = centres[Math.floor(random() * clusters.centres)]
     const noise = gaussianVector(dim, random)
     const v = new Float32Array(dim)
-    for (let i = 0; i < dim; i++) v[i] = centre[i] + CLUSTER_SPREAD * noise[i]
+    for (let i = 0; i < dim; i++) v[i] = centre[i] + clusters.spread * noise[i]
     vectors.push(unitNormalise(v))
   }
   return vectors
@@ -80,13 +90,14 @@ function runRecallBenchmark(
   vectorCount: number,
   queryCount: number,
   k: number,
-  efSearch: number,
+  efSearch: number | undefined,
   oversample?: number,
+  clusters: Clusters = TIGHT_CLUSTERS,
 ): number {
   const random = pseudoRandom(20260913 + dim + bits)
   const store = createVectorStore({ dimension: dim, codeBits: bits })
   const quantizer = createOsqQuantizer(dim, bits, 'cosine', store)
-  const corpus = clusteredVectors(dim, vectorCount + queryCount, random)
+  const corpus = clusteredVectors(dim, vectorCount + queryCount, random, clusters)
   const docIds: string[] = []
 
   for (let i = 0; i < vectorCount; i++) {
@@ -126,6 +137,16 @@ describe('HNSW built from OSQ codes, recall@10 on clustered vectors', () => {
   it('achieves >= 95% recall@10 with 2K vectors at 384 dims and 4-bit codes re-scored three deep', () => {
     const avgRecall = runRecallBenchmark(384, 4, 2000, 100, 10, 128, 3)
     expect(avgRecall).toBeGreaterThanOrEqual(0.95)
+  }, 300_000)
+
+  it('achieves >= 95% recall@10 with 5K widely spread vectors at 384 dims and 1-bit codes under the default search settings', () => {
+    const avgRecall = runRecallBenchmark(384, 1, 5000, 100, 10, undefined, undefined, WIDE_CLUSTERS)
+    expect(avgRecall).toBeGreaterThanOrEqual(0.95)
+  }, 300_000)
+
+  it('achieves >= 90% recall@10 with 5K widely spread vectors at 384 dims and 2-bit codes under the default search settings', () => {
+    const avgRecall = runRecallBenchmark(384, 2, 5000, 100, 10, undefined, undefined, WIDE_CLUSTERS)
+    expect(avgRecall).toBeGreaterThanOrEqual(0.9)
   }, 300_000)
 
   it('achieves >= 95% recall@10 with 2K vectors at 128 dims and 8-bit codes', () => {
