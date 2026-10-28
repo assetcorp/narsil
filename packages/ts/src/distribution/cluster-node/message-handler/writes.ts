@@ -1,6 +1,5 @@
 import { decode, encode } from '@msgpack/msgpack'
 import { ErrorCodes, NarsilError } from '../../../errors'
-import type { PartitionAssignment } from '../../coordinator/types'
 import {
   createAckMessage,
   createForwardBatchResultMessage,
@@ -13,6 +12,7 @@ import type { ReplicationLogEntry } from '../../replication/types'
 import type { ForwardPayload, RespondFn, TransportMessage } from '../../transport/types'
 import { ReplicationMessageTypes } from '../../transport/types'
 import { applyForwardedBatch, applyForwardedWrite } from '../write-routing'
+import { resolveValidatedAssignment } from './entry-authority'
 import type { DataNodeHandlerDeps } from './types'
 
 export async function handleForward(
@@ -73,61 +73,6 @@ export async function handleReplicationEntryBatch(
   await respond(
     createAckMessage(lastEntry.seqNo, lastEntry.partitionId, lastEntry.indexName, deps.nodeId, message.requestId),
   )
-}
-
-async function resolveValidatedAssignment(
-  entry: ReplicationLogEntry,
-  sourceNodeId: string,
-  deps: DataNodeHandlerDeps,
-): Promise<PartitionAssignment> {
-  const table = await deps.coordinator.getAllocation(entry.indexName)
-  if (table === null) {
-    throw new NarsilError(
-      ErrorCodes.REPLICATION_ENTRY_INVALID,
-      `No allocation table is available for replication entry on index '${entry.indexName}'`,
-      { indexName: entry.indexName, partitionId: entry.partitionId },
-    )
-  }
-
-  const assignment = table.assignments.get(entry.partitionId)
-  if (assignment === undefined) {
-    throw new NarsilError(
-      ErrorCodes.REPLICATION_ENTRY_INVALID,
-      `No assignment exists for replication entry partition ${entry.partitionId} of index '${entry.indexName}'`,
-      { indexName: entry.indexName, partitionId: entry.partitionId },
-    )
-  }
-
-  if (assignment.primary !== sourceNodeId) {
-    throw new NarsilError(
-      ErrorCodes.REPLICATION_ENTRY_INVALID,
-      `Replication entry for index '${entry.indexName}' partition ${entry.partitionId} came from a non-primary node`,
-      {
-        indexName: entry.indexName,
-        partitionId: entry.partitionId,
-        sourceNodeId,
-        primaryNodeId: assignment.primary,
-      },
-    )
-  }
-
-  if (entry.primaryTerm > assignment.primaryTerm) {
-    throw new NarsilError(
-      ErrorCodes.REPLICATION_TERM_MISMATCH,
-      `Replication entry term ${entry.primaryTerm} is newer than allocation term ${assignment.primaryTerm}`,
-      { indexName: entry.indexName, partitionId: entry.partitionId },
-    )
-  }
-
-  if (!assignment.replicas.includes(deps.nodeId)) {
-    throw new NarsilError(
-      ErrorCodes.REPLICATION_ENTRY_INVALID,
-      `Node '${deps.nodeId}' is not an assigned replica for index '${entry.indexName}' partition ${entry.partitionId}`,
-      { indexName: entry.indexName, partitionId: entry.partitionId, nodeId: deps.nodeId },
-    )
-  }
-
-  return assignment
 }
 
 async function applyEntryToLog(entry: ReplicationLogEntry, deps: DataNodeHandlerDeps): Promise<void> {

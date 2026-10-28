@@ -119,16 +119,32 @@ export function entryForDocument(documentId: string): MessageRule {
 
 export interface FaultyCoordinator extends ClusterCoordinator {
   refuseRegistrationOf(nodeId: string): () => void
+  cutOff(): () => void
 }
 
 export function faultyCoordinator(inner: ClusterCoordinator): FaultyCoordinator {
   const refused = new Set<string>()
+  let unreachable = false
   return new Proxy(inner, {
     get(target, property, receiver) {
       if (property === 'refuseRegistrationOf') {
         return (nodeId: string) => {
           refused.add(nodeId)
           return () => refused.delete(nodeId)
+        }
+      }
+      if (property === 'cutOff') {
+        return () => {
+          unreachable = true
+          return () => {
+            unreachable = false
+          }
+        }
+      }
+      const value = Reflect.get(target, property, receiver)
+      if (unreachable && typeof value === 'function' && property !== 'shutdown') {
+        return async () => {
+          throw new Error(`the coordinator is unreachable, so ${String(property)} failed`)
         }
       }
       if (property === 'registerNode') {
@@ -139,7 +155,7 @@ export function faultyCoordinator(inner: ClusterCoordinator): FaultyCoordinator 
           return target.registerNode(registration)
         }
       }
-      return Reflect.get(target, property, receiver)
+      return value
     },
   }) as FaultyCoordinator
 }

@@ -7,7 +7,7 @@ import type { ReplicationLog, ReplicationLogEntry } from '../../replication/type
 import { CATCH_UP_TICK_MS, MAX_CATCH_UP_IN_FLIGHT_BYTES } from '../constants'
 import type { WriteRoutingDeps } from '../write-routing/types'
 import { proposeAdmission } from './admission'
-import { type CatchUpState, forgetReplica, type ReplicaCursor } from './state'
+import { admittedBeyondTable, type CatchUpState, forgetReplica, type ReplicaCursor } from './state'
 
 function entryBytes(entry: ReplicationLogEntry): number {
   return (
@@ -122,7 +122,8 @@ async function pumpPartition(
     if (state.stopped) {
       return
     }
-    if (!assignment.replicas.includes(replicaNodeId) || assignment.inSyncSet.includes(replicaNodeId)) {
+    const admitted = admittedBeyondTable(state, indexName, partitionId, assignment).includes(replicaNodeId)
+    if (!assignment.replicas.includes(replicaNodeId) || assignment.inSyncSet.includes(replicaNodeId) || admitted) {
       forgetReplica(state, indexName, partitionId, replicaNodeId)
       continue
     }

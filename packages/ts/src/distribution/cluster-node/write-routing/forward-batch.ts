@@ -5,7 +5,7 @@ import type { BatchResult } from '../../../types/results'
 import type { AnyDocument } from '../../../types/schema'
 import { chunkByBudget } from '../../chunking'
 import { WIRE_BATCH_BUDGET } from '../../constants'
-import type { PartitionAssignment } from '../../coordinator/types'
+import type { AllocationTable, PartitionAssignment } from '../../coordinator/types'
 import { createForwardBatchMessage, validateForwardBatchResultPayload } from '../../replication/codec'
 import type { ForwardBatchOperation, ForwardBatchOperationResult, ForwardBatchPayload } from '../../transport/types'
 import { transportableDetails } from '../error-reply'
@@ -215,13 +215,24 @@ export async function applyForwardedBatch(
   }
 }
 
+function leadsEveryPartition(table: AllocationTable | null, payload: ForwardBatchPayload, nodeId: string): boolean {
+  if (table === null || table.assignments.size === 0) return false
+  return payload.operations.every(
+    operation =>
+      table.assignments.get(resolvePartitionId(operation.documentId, table.assignments.size))?.primary === nodeId,
+  )
+}
+
 async function applyAdmittedForwardedBatch(
   payload: ForwardBatchPayload,
   deps: WriteRoutingDeps,
   refusal: NarsilError | null,
 ): Promise<ForwardBatchOperationResult[]> {
   const results: ForwardBatchOperationResult[] = new Array(payload.operations.length)
-  const table = await deps.coordinator.getAllocation(payload.indexName)
+  let table = await deps.coordinator.getAllocation(payload.indexName)
+  if (deps.refreshAllocation !== undefined && !leadsEveryPartition(table, payload, deps.nodeId)) {
+    table = await deps.refreshAllocation(payload.indexName)
+  }
 
   if (table === null || table.assignments.size === 0) {
     const error = new NarsilError(
