@@ -59,7 +59,8 @@ describe('a primary that loses its role with a write in flight takes the new his
     const newPrimary = handedOver.primary ?? ''
 
     inFlight.release()
-    expect((await stranded).state).toBe('refused')
+    expect(await stranded).toEqual({ state: 'acknowledged' })
+    expected.set('stranded', { title: 'stranded transfer', amount: 999 })
 
     await cluster.node(newPrimary).insert(INDEX, { title: 'transfer after handover', amount: 42 }, 'after-handover')
     expected.set('after-handover', { title: 'transfer after handover', amount: 42 })
