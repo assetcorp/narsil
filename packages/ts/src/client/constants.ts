@@ -1,3 +1,5 @@
 export const DEFAULT_REQUEST_TIMEOUT_MS = 30_000
 export const NO_TIMEOUT = 0
 export const DEFAULT_TASK_POLL_INTERVAL_MS = 250
+export const DEFAULT_URL_SKIP_MS = 1_000
+export const DEFAULT_MAX_URL_SKIP_MS = 30_000
