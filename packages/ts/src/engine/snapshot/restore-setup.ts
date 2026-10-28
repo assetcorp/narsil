@@ -8,6 +8,7 @@ import type { LanguageModule } from '../../types/language'
 import type { IndexConfig, SchemaDefinition } from '../../types/schema'
 import type { DirectExecutorExtensions } from '../../workers/direct-executor'
 import type { Executor } from '../../workers/executor'
+import { loadVectorCodeFor } from '../../workers/vector-code'
 import type { StaleIndex } from '../analysis-rebuild'
 import type { IndexRegistryEntry } from '../core'
 import type { DurabilityIntegration } from '../durability-integration'
@@ -100,6 +101,8 @@ export async function createRestoredIndex(
   partitionCount: number,
   deps: RestoreDeps,
 ): Promise<CreatedIndex> {
+  const loadingVectorCode = loadVectorCodeFor(prepared.config.schema)
+  if (loadingVectorCode !== null) await loadingVectorCode
   if (deps.indexRegistry.has(indexName)) {
     await deps.dropIndex(indexName)
   }

@@ -5,7 +5,6 @@ vi.mock('../../vector/simd', () => ({
   simdDotProduct: () => null,
   simdEuclideanDistance: () => null,
   simdSquaredEuclideanDistance: () => null,
-  isSimdAvailable: () => false,
 }))
 
 import {

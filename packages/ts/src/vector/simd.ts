@@ -1,3 +1,4 @@
+import { markSimdUnavailable } from '../runtime/simd-support'
 import type { VectorMetric } from './brute-force'
 import { SIMD_DISTANCE_SHARED_MEMORY_WASM_BASE64, SIMD_DISTANCE_WASM_BASE64 } from './simd-wasm-binary'
 
@@ -41,6 +42,7 @@ try {
   wasmExports = null
   f32View = null
 }
+if (wasmExports === null) markSimdUnavailable()
 
 const OFFSET_B_BYTES = 16384
 
@@ -99,21 +101,6 @@ export function simdSquaredEuclideanDistance(a: Float32Array, b: Float32Array): 
   ensureMemory(a.length)
   copyTwoVectors(a, b)
   return wasmExports.squared_euclidean_distance(0, OFFSET_B_BYTES, a.length)
-}
-
-/**
- * Reports whether the runtime loaded the SIMD module that speeds up vector
- * distance work.
- *
- * Vector search works either way, so read this to explain a difference in
- * search latency between two hosts rather than to decide whether to search.
- *
- * @returns True once the SIMD module has loaded.
- *
- * @public
- */
-export function isSimdAvailable(): boolean {
-  return wasmExports !== null
 }
 
 /**

@@ -51,6 +51,10 @@
       "browser": "./src/vector/native/loader.browser.ts",
       "default": "./src/vector/native/loader.ts"
     },
+    "#platform/search-backend-settings": {
+      "browser": "./src/engine/search-backend-settings.browser.ts",
+      "default": "./src/engine/search-backend-settings.ts"
+    },
     "#platform/native-crc32": {
       "browser": "./src/serialization/native-crc32.browser.ts",
       "default": "./src/serialization/native-crc32.ts"
