@@ -100,6 +100,10 @@ export function createFrozenDocTable(
       return capacity
     },
 
+    numberingGeneration(): number {
+      return 0
+    },
+
     contentBytes(): number {
       return documents.byteLength
     },

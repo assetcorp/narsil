@@ -5,6 +5,7 @@ import { type GraphSearchOptions, type OrdinalHit, searchOrdinals } from '../hns
 import { type HNSWGraphState, nodeCountOf, tombstoneCountOf } from '../hnsw/shared'
 import { openGraphState } from '../hnsw/state'
 import { openSharedQuantizer, type SharedQuantizerView } from '../osq/view'
+import { STORE_ORDINAL_LAYOUT_GENERATION } from '../vector-store/handles'
 import { openSharedVectorStore, type SharedVectorStoreView } from '../vector-store/view'
 import type { GraphInsertOutcome, SharedVectorFieldHandles } from './types'
 
@@ -52,6 +53,7 @@ export function openSharedVectorField(initial: SharedVectorFieldHandles, threadS
   let graph: HNSWGraphState | null = null
   let ordinals: Map<string, number> | null = null
   let scanned = 0
+  let scannedLayoutGeneration = Atomics.load(store.handles.header, STORE_ORDINAL_LAYOUT_GENERATION)
   let placed = 0
 
   function openGraph(next: SharedVectorFieldHandles): void {
@@ -65,6 +67,12 @@ export function openSharedVectorField(initial: SharedVectorFieldHandles, threadS
   }
 
   function ordinalOf(docId: string): number | undefined {
+    const layoutGeneration = Atomics.load(store.handles.header, STORE_ORDINAL_LAYOUT_GENERATION)
+    if (layoutGeneration !== scannedLayoutGeneration) {
+      ordinals = null
+      scanned = 0
+      scannedLayoutGeneration = layoutGeneration
+    }
     const slots = store.slots
     if (ordinals === null) ordinals = new Map()
     for (; scanned < slots; scanned++) {
