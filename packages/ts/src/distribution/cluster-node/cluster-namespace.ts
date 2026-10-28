@@ -13,6 +13,7 @@ export interface ClusterNamespaceDeps {
   isShutdown: () => boolean
   isServing: () => boolean
   trackOp: <T>(indexName: string | null, fn: () => Promise<T>) => Promise<T>
+  requestReplicationFactor: (indexName: string, replicationFactor: number) => Promise<void>
 }
 
 function readinessOf(deps: ClusterNamespaceDeps): NodeReadiness {
@@ -61,6 +62,9 @@ export function createClusterNamespace(deps: ClusterNamespaceDeps): ClusterNames
     },
     async getControllerNodeId() {
       return deps.trackOp(null, () => deps.coordinator.getLeaseHolder(CONTROLLER_LEASE_KEY))
+    },
+    async setReplicationFactor(indexName: string, replicationFactor: number) {
+      return deps.trackOp(null, () => deps.requestReplicationFactor(indexName, replicationFactor))
     },
   }
 }

@@ -187,6 +187,31 @@ export function scheduleDebouncedAllocation(
   state.debounceTimer.unref?.()
 }
 
+export async function allocateIndexNow(
+  state: EventLoopState,
+  coordinator: ClusterCoordinator,
+  indexName: string,
+  isActive: () => boolean,
+  onError?: (indexName: string, error: unknown) => void,
+): Promise<void> {
+  const writerNodeId = state.controllerNodeId
+  if (writerNodeId === null || !isActive()) {
+    return
+  }
+  try {
+    const nodes = await listCompatibleNodes(coordinator)
+    if (holdsDataNode(nodes) && isActive()) {
+      const departures = startDepartureRun(new Set(nodes.map(node => node.nodeId)))
+      const retainedFor: RetainedNodes = table => retainedNodesFor(state, departures, table)
+      await runAllocatorForIndex(coordinator, writerNodeId, indexName, nodes, isActive, retainedFor)
+    }
+  } finally {
+    if (isActive()) {
+      scheduleDebouncedAllocation(state, coordinator, isActive, onError)
+    }
+  }
+}
+
 async function handleSchemaCreated(
   indexName: string,
   coordinator: ClusterCoordinator,

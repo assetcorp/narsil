@@ -12,6 +12,7 @@ export interface ServerHandlers {
   capabilities: RouteHandler
   clusterTopology: RouteHandler
   clusterAllocation: RouteHandler
+  clusterReplicationFactor: RouteHandler
   memory: RouteHandler
   listTasks: RouteHandler
   getTask: RouteHandler
@@ -86,6 +87,12 @@ export function serverRoutes(limits: ResolvedLimits): RouteSpec[] {
     { method: 'get', path: '/indexes/:name/stats', handler: 'indexStats', options: named },
     { method: 'get', path: '/indexes/:name/partitions', handler: 'indexPartitions', options: named },
     { method: 'get', path: '/indexes/:name/cluster', handler: 'clusterAllocation', options: named },
+    {
+      method: 'put',
+      path: '/indexes/:name/replication-factor',
+      handler: 'clusterReplicationFactor',
+      options: namedBody,
+    },
     { method: 'post', path: '/indexes/:name/_clear', handler: 'clearIndex', options: named },
     { method: 'post', path: '/indexes/:name/_open', handler: 'openIndex', options: named },
     { method: 'post', path: '/indexes/:name/_close', handler: 'closeIndex', options: named },
