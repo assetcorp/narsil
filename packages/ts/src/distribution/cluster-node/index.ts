@@ -9,7 +9,7 @@ import type { DataNodeHandle } from '../cluster/node-lifecycle/types'
 import type { NodeRegistration, NodeRole } from '../coordinator/types'
 import { openSnapshotSpoolDirectory } from '../replication/snapshot-spool'
 import type { ReplicationLog } from '../replication/types'
-import { cleanupRemovedPartition } from './bootstrap-cleanup'
+import { cleanupRemovedPartition, releaseTornDownIndex } from './bootstrap-cleanup'
 import {
   clearBootstrapSyncIndex,
   createBootstrapSyncState,
@@ -104,6 +104,7 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
 
   const forwardOnError = createErrorForwarder(config.onError)
   const forwardAllocationError = createAllocationErrorForwarder(forwardOnError)
+  const cleanupDeps = { engine, coordinator: config.coordinator, nodeId, onError: forwardOnError }
 
   const registration: NodeRegistration = {
     nodeId,
@@ -212,13 +213,9 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
       clearBootstrapSyncIndex(bootstrapSyncState, indexName, partitionId)
       replicationLogs.delete(buildReplicationLogKey(indexName, partitionId))
       trackHeldPartitionWrite(engine.forgetHeldPartition(indexName, partitionId))
-      void cleanupRemovedPartition(indexName, partitionId, {
-        engine,
-        coordinator: config.coordinator,
-        nodeId,
-        onError: forwardOnError,
-      })
+      void cleanupRemovedPartition(indexName, partitionId, cleanupDeps)
     },
+    onIndexTornDown: (indexName: string) => void releaseTornDownIndex(indexName, cleanupDeps),
   })
 
   if (hasControllerRole) {
@@ -288,6 +285,7 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
           orphanedIndexes.delete(indexName)
         }
       },
+      isOrphaned: (indexName: string) => orphanedIndexes.has(indexName),
     }),
 
     cluster,

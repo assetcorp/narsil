@@ -25,7 +25,9 @@ export function registryWith(
   indexName: string,
   schema: SchemaDefinition = { title: 'string' },
 ): OrchestratorState['indexRegistry'] {
-  return new Map([[indexName, { config: { schema }, language: getLanguage('english'), embeddingAdapter: null }]])
+  return new Map([
+    [indexName, { config: { schema }, language: getLanguage('english'), embeddingAdapter: null, synonyms: null }],
+  ])
 }
 
 export function emptyOrchestratorState(overrides: Partial<OrchestratorState> = {}): OrchestratorState {

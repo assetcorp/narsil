@@ -182,6 +182,7 @@ export interface HttpIndexConfig {
     stopWords?: string[];
     strict?: boolean;
     surfaceForms?: boolean;
+    synonyms?: SynonymRule[];
     trackPositions?: boolean;
     vectorPromotion?: Record<string, unknown>;
 }
@@ -323,6 +324,9 @@ export interface ServerOptions {
     rerankAdapters?: Record<string, RerankAdapter>;
     taskStore?: TaskStore;
 }
+
+// @public
+export const SYNONYMS_CAPABILITY = "indexes.synonyms";
 
 // @public
 export const TASK_CANCEL_CAPABILITY = "tasks.cancel";

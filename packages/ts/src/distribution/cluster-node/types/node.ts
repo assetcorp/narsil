@@ -12,6 +12,7 @@ import type {
 } from '../../../types/results'
 import type { AnyDocument, IndexConfig, InsertOptions } from '../../../types/schema'
 import type { ListParams, QueryParams, SuggestParams } from '../../../types/search'
+import type { SynonymRule } from '../../../types/synonyms'
 import type { NodeRole } from '../../coordinator/types'
 import type { ClusterNamespace, CreateIndexOptions } from './config'
 
@@ -127,6 +128,39 @@ export interface ClusterNode {
    * @param name - The index to drop.
    */
   dropIndex(name: string): Promise<void>
+  /**
+   * Replaces the synonym set of an index across the cluster, so that every
+   * search that starts after the promise resolves expands its words with the
+   * new set.
+   *
+   * The node stores the set in the coordinator before it asks each node that
+   * holds a partition of the index to apply the set. The promise resolves
+   * once every one of those nodes answers. Pass an empty list to remove the
+   * set.
+   *
+   * @param indexName - The index whose set the cluster replaces.
+   * @param synonyms - The new set, in the shape that {@link SynonymRule}
+   * describes.
+   * @throws A `NarsilError` with `CONFIG_INVALID` when a rule breaks that
+   * shape, when a word analyses to no token or to more than one, or when the
+   * set passes 100,000 rules, 500,000 words, or 4,194,304 bytes of words in
+   * UTF-8. It throws `CLUSTER_WRITE_BLOCKED` when the index metadata changes
+   * between the node's read and its write on every one of its tries, and
+   * `QUERY_NODE_TIMEOUT` when a node holding a partition gives no answer.
+   * After a timeout, the coordinator keeps the new set, so a retry of the
+   * same call can finish applying it.
+   */
+  updateSynonyms(indexName: string, synonyms: SynonymRule[]): Promise<void>
+  /**
+   * Returns the synonym set that the coordinator holds for an index, with
+   * every word as the caller wrote it, or an empty list when the index holds
+   * no set.
+   *
+   * @param indexName - The index whose set the node returns.
+   * @throws A `NarsilError` with `INDEX_NOT_FOUND` when the cluster holds no
+   * index under that name.
+   */
+  getSynonyms(indexName: string): Promise<SynonymRule[]>
   /**
    * Removes every document from an index across the cluster and keeps the
    * index itself, along with its schema and allocation.

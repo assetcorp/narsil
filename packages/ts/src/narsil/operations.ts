@@ -41,6 +41,7 @@ import type { ListParams, QueryParams, SuggestParams } from '../types/search'
 import { bindEngineCore } from './internals'
 import { portabilityOperations } from './portability'
 import { runEngineListDocuments, runEnginePreflight, runEngineQuery, runEngineSuggest } from './reads'
+import { synonymOperations } from './synonyms'
 
 export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): Narsil {
   const {
@@ -216,6 +217,7 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
     },
 
     ...portabilityOperations(core, config, () => narsil),
+    ...synonymOperations(core),
 
     async checkpoint(indexName: string): Promise<void> {
       guardShutdown()

@@ -1,14 +1,23 @@
 import { generateId } from '../../../core/id-generator'
 import { providedDocId } from '../../../engine/mutations/insert-admission'
 import { requireConfigurationWithinSizeLimit } from '../../../engine/snapshot/index-configuration'
+import { prepareConfiguredSynonyms } from '../../../engine/synonym-sets'
 import { requireSurfaceFormsForPartialFields } from '../../../engine/validation'
 import { ErrorCodes, NarsilError } from '../../../errors'
 import { getLanguage } from '../../../languages/registry'
 import type { Narsil } from '../../../narsil'
 import { requireCreatableSchema, validateSchema } from '../../../schema/validator'
 import type { AnyDocument, IndexConfig, InsertOptions } from '../../../types/schema'
-import { type IndexMetadata, indexConfigKey, putIndexMetadata, validateIndexName } from '../../cluster/index-metadata'
+import {
+  type IndexMetadata,
+  indexConfigKey,
+  indexUuidOfStoredMetadata,
+  putIndexMetadata,
+  storedSynonymSetOf,
+  validateIndexName,
+} from '../../cluster/index-metadata'
 import { indexSettingsOf, withPartitionCount } from '../../cluster/index-settings'
+import { deleteSynonymSet, type SynonymSetRef, storeSynonymSet } from '../../cluster/synonym-set'
 import { MAX_PARTITION_COUNT, MAX_REPLICATION_FACTOR } from '../../constants'
 import type { AllocationConstraints, ClusterCoordinator } from '../../coordinator/types'
 import { waitForServingAllocation } from '../allocation-wait'
@@ -67,10 +76,9 @@ export async function routeCreateIndex(
   const partitionCount = options?.partitionCount ?? DEFAULT_PARTITION_COUNT
   const replicationFactor = options?.replicationFactor ?? DEFAULT_REPLICATION_FACTOR
   validateCreateIndexOptions(partitionCount, replicationFactor)
-  requireConfigurationWithinSizeLimit(
-    withPartitionCount(config, partitionCount),
-    getLanguage(config.language ?? 'english'),
-  )
+  const language = getLanguage(config.language ?? 'english')
+  requireConfigurationWithinSizeLimit(withPartitionCount(config, partitionCount), language)
+  const synonyms = prepareConfiguredSynonyms(config, language)
 
   const constraints: AllocationConstraints = {
     zoneAwareness: false,
@@ -78,17 +86,23 @@ export async function routeCreateIndex(
     maxShardsPerNode: null,
   }
 
+  const indexUuid = generateId()
+  const synonymSet = synonyms === null ? null : await storeSynonymSet(coordinator, indexUuid, synonyms.encoded)
   const metadata: IndexMetadata = {
-    indexUuid: generateId(),
+    indexUuid,
     indexName: name,
     partitionCount,
     replicationFactor,
     constraints,
-    settings: indexSettingsOf(config),
+    settings: { ...indexSettingsOf(config), ...(synonymSet !== null ? { synonyms: synonymSet } : {}) },
   }
 
-  const stored = await putIndexMetadata(coordinator, metadata)
+  const stored = await putIndexMetadata(coordinator, metadata).catch(async (err: unknown) => {
+    await discardSynonymSet(coordinator, indexUuid, synonymSet)
+    throw err
+  })
   if (!stored) {
+    await discardSynonymSet(coordinator, indexUuid, synonymSet)
     throw new NarsilError(
       ErrorCodes.INDEX_ALREADY_EXISTS,
       `Index '${name}' already exists in the cluster or a partial creation is pending`,
@@ -124,6 +138,20 @@ export async function routeCreateIndex(
   )
 }
 
+async function discardSynonymSet(
+  coordinator: ClusterCoordinator,
+  indexUuid: string,
+  synonymSet: SynonymSetRef | null,
+): Promise<void> {
+  if (synonymSet === null) return
+  await deleteSynonymSet(coordinator, indexUuid, synonymSet).catch(() => undefined)
+}
+
+async function deleteStoredSynonymSet(coordinator: ClusterCoordinator, metadataBytes: Uint8Array): Promise<void> {
+  const stored = storedSynonymSetOf(metadataBytes)
+  if (stored !== null) await deleteSynonymSet(coordinator, stored.indexUuid, stored.ref)
+}
+
 async function withdrawPartialIndex(
   name: string,
   coordinator: ClusterCoordinator,
@@ -132,7 +160,9 @@ async function withdrawPartialIndex(
   try {
     const currentBytes = await coordinator.get(indexConfigKey(name))
     if (currentBytes !== null && currentBytes.byteLength > 0) {
-      await coordinator.compareAndSet(indexConfigKey(name), currentBytes, new Uint8Array(0))
+      if (await coordinator.compareAndSet(indexConfigKey(name), currentBytes, new Uint8Array(0))) {
+        await deleteStoredSynonymSet(coordinator, currentBytes)
+      }
     }
     await coordinator.dropSchema(name)
     await dropLocalCopy(name, engine)
@@ -153,7 +183,15 @@ async function dropLocalCopy(name: string, engine: IndexCreatingEngine): Promise
   }
 }
 
-export async function routeDropIndex(name: string, coordinator: ClusterCoordinator, engine: Narsil): Promise<void> {
+export interface DroppedClusterIndex {
+  indexUuid: string | null
+}
+
+export async function routeDropIndex(
+  name: string,
+  coordinator: ClusterCoordinator,
+  engine: Narsil,
+): Promise<DroppedClusterIndex | null> {
   validateIndexName(name)
 
   const metadataKey = indexConfigKey(name)
@@ -162,9 +200,19 @@ export async function routeDropIndex(name: string, coordinator: ClusterCoordinat
   const schema = await coordinator.getSchema(name)
 
   if (!hasClusterMetadata && schema === null) {
-    return engine.dropIndex(name)
+    if (metadataBytes === null) {
+      await engine.dropIndex(name)
+      return null
+    }
+    try {
+      if (engine.listIndexes().some(index => index.name === name)) await engine.dropIndex(name)
+    } catch (dropError) {
+      if (!(dropError instanceof NarsilError && dropError.code === ErrorCodes.INDEX_NOT_FOUND)) throw dropError
+    }
+    return { indexUuid: null }
   }
 
+  let indexUuid: string | null = null
   if (hasClusterMetadata) {
     const cleared = await coordinator.compareAndSet(metadataKey, metadataBytes, new Uint8Array(0))
     if (!cleared) {
@@ -174,9 +222,12 @@ export async function routeDropIndex(name: string, coordinator: ClusterCoordinat
         { indexName: name },
       )
     }
+    indexUuid = indexUuidOfStoredMetadata(metadataBytes)
+    await deleteStoredSynonymSet(coordinator, metadataBytes)
   }
 
   await coordinator.dropSchema(name)
+  return { indexUuid }
 }
 
 export function routeInsert(

@@ -5,8 +5,9 @@ import type { SnapshotDeps } from '../engine/snapshot'
 import { indexConfigurationOf } from '../engine/snapshot/index-configuration'
 import { getVectorFieldPaths } from '../engine/vector-fields'
 import { emitWriteEventAfter } from '../engine/write-events'
+import type { ByteSource } from '../types/byte-source'
 import type { NarsilConfig } from '../types/config'
-import type { ByteSource, Narsil } from '../types/engine'
+import type { Narsil } from '../types/engine'
 import type { DocumentImportResult } from '../types/results'
 
 export type PortabilityOperations = Pick<Narsil, 'snapshot' | 'restore' | 'exportDocuments' | 'importDocumentExport'>

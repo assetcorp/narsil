@@ -2,6 +2,7 @@ import { describeError, ErrorCodes, NarsilError } from '../../errors'
 import { getIndexMetadata } from '../cluster/index-metadata'
 import type { ClusterCoordinator } from '../coordinator/types'
 import type { ClusterLocalEngine } from './local-engine'
+import { applyStoredSynonyms } from './synonym-sets'
 
 /**
  * What a node decided about an index it already held when it joined.
@@ -40,6 +41,10 @@ export interface LocalIndexReconcileDeps {
  * A copy whose identity is absent, which is how an index created before this
  * node tracked identity looks, takes the coordinator's identity so that every
  * later join can decide from evidence.
+ *
+ * Each copy that the node adopts takes the synonym set that the coordinator
+ * holds for the index, because the set can change while the node is offline.
+ * Where the node cannot read that set, it keeps the copy without serving it.
  *
  * @param deps - The engine holding the local indexes, the coordinator holding
  * the cluster's, this node's id, and where to report an orphan.
@@ -115,17 +120,20 @@ async function reconcileOne(deps: LocalIndexReconcileDeps, indexName: string): P
     return 'orphaned'
   }
 
-  if (localUuid === clusterUuid) {
-    return 'adopted'
-  }
-
   if (localUuid === null || localUuid === undefined) {
     await deps.engine.stampIndexUuid(indexName, clusterUuid)
-    return 'adopted'
+  } else if (localUuid !== clusterUuid) {
+    await deps.engine.dropIndex(indexName)
+    return 'superseded'
   }
 
-  await deps.engine.dropIndex(indexName)
-  return 'superseded'
+  try {
+    await applyStoredSynonyms(deps.engine, deps.coordinator, indexName, clusterUuid)
+  } catch (error) {
+    report(deps, indexName, `its synonym set could not be read: ${describeError(error)}`)
+    return 'orphaned'
+  }
+  return 'adopted'
 }
 
 function report(deps: LocalIndexReconcileDeps, indexName: string, reason: string): void {

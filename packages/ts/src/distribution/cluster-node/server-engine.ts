@@ -3,6 +3,7 @@ import { bindRerankWindowSource, rerankWindowCapOf } from '../../narsil/internal
 import type { Narsil } from '../../types/engine'
 import type { AnyDocument, IndexConfig, InsertOptions, WriteOptions } from '../../types/schema'
 import type { ListParams, QueryParams, SuggestParams } from '../../types/search'
+import type { SynonymRule } from '../../types/synonyms'
 import type { ClusterNode, CreateIndexOptions } from './types'
 
 /**
@@ -33,11 +34,11 @@ function rejectWait(options: WriteOptions | undefined): void {
  * serves a single engine.
  *
  * Writes, updates, searches, suggestions, listings, counts, index creation,
- * index removal, and document reads route through the cluster. Checkpointing,
- * memory statistics, index opens, index closes, engine events, and rerank
- * adapter registration reach this node's local engine, because each covers a
- * per-node fact. This node reranks the searches that it receives with the
- * adapters registered on it. Every other operation fails with
+ * index removal, synonym sets, and document reads route through the cluster.
+ * Checkpointing, memory statistics, index opens, index closes, engine events,
+ * and rerank adapter registration reach this node's local engine, because
+ * each covers a per-node fact. This node reranks the searches that it
+ * receives with the adapters registered on it. Every other operation fails with
  * `CLUSTER_OPERATION_UNSUPPORTED`, which the HTTP server answers with status
  * 501, so a caller learns the operation is missing rather than reading a
  * wrong answer. That covers `getStats`, `getPartitionStats`, and
@@ -107,6 +108,14 @@ export function clusterNodeEngine(node: ClusterNode, options?: ClusterEngineOpti
 
     async dropIndex(name: string): Promise<void> {
       return node.dropIndex(name)
+    },
+
+    async updateSynonyms(indexName: string, synonyms: SynonymRule[]): Promise<void> {
+      return node.updateSynonyms(indexName, synonyms)
+    },
+
+    async getSynonyms(indexName: string): Promise<SynonymRule[]> {
+      return node.getSynonyms(indexName)
     },
 
     async clear(indexName: string): Promise<void> {

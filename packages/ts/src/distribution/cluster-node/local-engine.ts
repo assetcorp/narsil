@@ -1,3 +1,4 @@
+import { synonymModule } from '../../core/synonyms/registry'
 import { requireKnownConfig } from '../../engine/config-keys'
 import { createEngineCore, type EngineCore } from '../../engine/core'
 import { createEngineIndex } from '../../engine/index-lifecycle'
@@ -7,18 +8,20 @@ import type { Narsil } from '../../narsil'
 import { createNarsilFromCore } from '../../narsil'
 import {
   type PartitionQueryStats,
+  type QueryStatsRequestScope,
   runEngineListDocuments,
   runEnginePreflight,
   runEngineQuery,
   runEngineQueryStats,
   runEngineSuggest,
 } from '../../narsil/reads'
+import type { ByteSource } from '../../types/byte-source'
 import type { NarsilConfig } from '../../types/config'
-import type { ByteSource } from '../../types/engine'
 import type { GlobalStatistics } from '../../types/internal'
 import type { ListResult, PartitionStatsResult, PreflightResult, QueryResult, SuggestResult } from '../../types/results'
 import type { AnyDocument, IndexConfig } from '../../types/schema'
 import type { ListParams, QueryParams, SuggestParams } from '../../types/search'
+import type { SynonymRule } from '../../types/synonyms'
 import type { ReplicationLogEntry } from '../replication/types'
 import { createHeldPartitionRecord } from './held-partitions'
 import { applyLocalReplicationEntry } from './local-replication'
@@ -29,6 +32,7 @@ export interface ClusterLocalEngine extends Narsil {
   acquireIndexForReplication(indexName: string): Promise<() => void>
   indexUuidOf(indexName: string): string | null | undefined
   stampIndexUuid(indexName: string, indexUuid: string): Promise<void>
+  applyStoredSynonyms(indexName: string, load: () => Promise<readonly SynonymRule[] | null>): Promise<boolean>
   highestPersistedSeqNoOf(indexName: string, partitionId: number): number
   heldPartitionsOf(indexName: string): number[] | undefined
   recordHeldPartition(indexName: string, partitionId: number): Promise<void>
@@ -56,7 +60,12 @@ export interface ClusterLocalEngine extends Narsil {
   preflightPartitions(indexName: string, params: QueryParams, partitionIds: number[]): Promise<PreflightResult>
   suggestPartitions(indexName: string, params: SuggestParams, partitionIds: number[]): Promise<SuggestResult>
   listPartitions<T = AnyDocument>(indexName: string, params: ListParams, partitionIds: number[]): Promise<ListResult<T>>
-  collectQueryStats(indexName: string, terms: string[], partitionIds: number[]): Promise<PartitionQueryStats>
+  collectQueryStats(
+    indexName: string,
+    terms: string[],
+    partitionIds: number[],
+    scope?: QueryStatsRequestScope,
+  ): Promise<PartitionQueryStats>
   partitionStatsForRead(indexName: string): Promise<PartitionStatsResult[]>
 }
 
@@ -90,6 +99,8 @@ export async function createClusterLocalEngine(
     acquireIndexForReplication: (indexName: string) => core.indexState.acquire(indexName, false),
     indexUuidOf: (indexName: string) => core.indexRegistry.get(indexName)?.indexUuid,
     stampIndexUuid: (indexName: string, indexUuid: string) => stampIndexUuid(core, indexName, indexUuid),
+    applyStoredSynonyms: (indexName: string, load: () => Promise<readonly SynonymRule[] | null>) =>
+      synonymModule().applyLoaded(core, indexName, load),
     highestPersistedSeqNoOf: (indexName: string, partitionId: number) =>
       core.durability?.manager.highestPersistedSeqNo(indexName, partitionId) ?? 0,
     heldPartitionsOf: (indexName: string) => heldPartitions.held(indexName),
@@ -118,8 +129,8 @@ export async function createClusterLocalEngine(
       runEngineSuggest(core, indexName, params, partitionIds),
     listPartitions: <T = AnyDocument>(indexName: string, params: ListParams, partitionIds: number[]) =>
       runEngineListDocuments<T>(core, indexName, params, partitionIds),
-    collectQueryStats: (indexName: string, terms: string[], partitionIds: number[]) =>
-      runEngineQueryStats(core, indexName, terms, partitionIds),
+    collectQueryStats: (indexName: string, terms: string[], partitionIds: number[], scope?: QueryStatsRequestScope) =>
+      runEngineQueryStats(core, indexName, terms, partitionIds, scope),
     partitionStatsForRead: async (indexName: string) => {
       const release = await core.indexState.acquire(indexName)
       try {

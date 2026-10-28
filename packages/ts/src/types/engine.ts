@@ -1,4 +1,5 @@
 import type { AdapterRegistrationOperations } from './adapter-registration'
+import type { ByteSource } from './byte-source'
 import type { NarsilEventMap } from './events'
 import type { IndexLifecycleOperations } from './lifecycle'
 import type { MemoryStats } from './memory'
@@ -15,29 +16,26 @@ import type {
 } from './results'
 import type { AnyDocument, IndexConfig, PartitionConfig } from './schema'
 import type { ListParams, QueryParams, SuggestParams } from './search'
+import type { SynonymOperations } from './synonym-operations'
 import type { DocumentWriteOperations } from './writes'
-
-/**
- * The bytes that {@link Narsil.restore} and {@link Narsil.importDocumentExport}
- * accept, as one array, a stream of chunks, or an async iterable of chunks,
- * such as a Node.js file stream.
- *
- * @public
- */
-export type ByteSource = Uint8Array | ReadableStream<Uint8Array> | AsyncIterable<Uint8Array>
 
 /**
  * The search engine, and everything you do with it.
  *
  * One instance holds every index you create, so an application usually keeps a
  * single engine for its lifetime and reaches each index by name. Build one
- * with {@link createNarsil}. The write methods come from
- * {@link DocumentWriteOperations} and the open and close methods from
- * {@link IndexLifecycleOperations}.
+ * with {@link createNarsil}. Its write, open and close, synonym, and adapter
+ * registration methods come from {@link DocumentWriteOperations},
+ * {@link IndexLifecycleOperations}, {@link SynonymOperations}, and
+ * {@link AdapterRegistrationOperations}.
  *
  * @public
  */
-export interface Narsil extends IndexLifecycleOperations, DocumentWriteOperations, AdapterRegistrationOperations {
+export interface Narsil
+  extends IndexLifecycleOperations,
+    DocumentWriteOperations,
+    SynonymOperations,
+    AdapterRegistrationOperations {
   /**
    * Creates an index you can insert documents into and query.
    *

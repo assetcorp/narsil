@@ -3,7 +3,9 @@ import { VERSION } from '../index'
 import { flattenSchema } from '../schema/validator'
 import type { IndexEmbeddingMetadata, IndexMetadata } from '../types/internal'
 import type { PartitionConfig, ScoringMode, VectorIndexConfig } from '../types/schema'
+import type { SynonymRule } from '../types/synonyms'
 import type { IndexRegistryEntry } from './core'
+import { rulesOfStoredSynonyms } from './synonym-sets'
 
 export interface MetadataConfig {
   indexUuid?: string
@@ -27,6 +29,7 @@ export interface MetadataConfig {
   required?: string[]
   vectorPromotion?: VectorIndexConfig
   patternValueLimit?: number
+  synonyms?: SynonymRule[]
 }
 
 export function metadataFromConfig(
@@ -87,6 +90,9 @@ export function metadataFromConfig(
   if (config.indexUuid !== undefined) {
     metadata.indexUuid = config.indexUuid
   }
+  if (config.synonyms !== undefined) {
+    metadata.synonyms = config.synonyms
+  }
   if (config.heldPartitions !== undefined) {
     metadata.heldPartitions = config.heldPartitions
   }
@@ -124,6 +130,7 @@ export function metadataConfigOf(entry: IndexRegistryEntry): MetadataConfig {
     ...(entry.config.required !== undefined ? { required: entry.config.required } : {}),
     ...(entry.config.vectorPromotion !== undefined ? { vectorPromotion: entry.config.vectorPromotion } : {}),
     ...(entry.config.patternValueLimit !== undefined ? { patternValueLimit: entry.config.patternValueLimit } : {}),
+    ...(entry.synonyms !== null ? { synonyms: rulesOfStoredSynonyms(entry.synonyms) } : {}),
   }
 }
 

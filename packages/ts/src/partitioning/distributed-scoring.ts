@@ -1,13 +1,18 @@
+import type { PartitionIndex } from '../core/partition'
+import type { SynonymLookup } from '../core/synonyms/types'
 import { tokenize } from '../core/tokenizer'
 import type { InvalidationAdapter } from '../types/adapters'
 import type { GlobalStatistics } from '../types/internal'
 import type { LanguageModule } from '../types/language'
 import type { CustomTokenizer, StopWordOverride } from '../types/schema'
+import { addReachedTokens, type QueryExpansion } from './expanded-tokens'
 import type { PartitionManager } from './manager'
+import { partitionsIn } from './partition-selection'
 
 export interface QueryTermAnalysis {
   stopWords?: StopWordOverride
   customTokenizer?: CustomTokenizer
+  synonyms?: SynonymLookup | null
 }
 
 function analysedQueryTokens(term: string, language: LanguageModule, analysis: QueryTermAnalysis): Set<string> {
@@ -21,6 +26,7 @@ function analysedQueryTokens(term: string, language: LanguageModule, analysis: Q
   for (const { token } of tokens) {
     unique.add(token)
   }
+  for (const synonym of analysis.synonyms?.expand(unique)?.tokens ?? []) unique.add(synonym)
   return unique
 }
 
@@ -49,9 +55,12 @@ export function pruneStatsToQueryTerms(
   term: string,
   language: LanguageModule,
   analysis: QueryTermAnalysis,
+  reached?: { partitions: readonly PartitionIndex[]; expansion: QueryExpansion },
 ): GlobalStatistics {
+  const tokens = analysedQueryTokens(term, language, analysis)
+  if (reached !== undefined) addReachedTokens(tokens, reached.partitions, term, reached.expansion, language, analysis)
   const docFrequencies: Record<string, number> = Object.create(null)
-  for (const token of analysedQueryTokens(term, language, analysis)) {
+  for (const token of tokens) {
     if (Object.hasOwn(stats.docFrequencies, token)) {
       docFrequencies[token] = stats.docFrequencies[token]
     }
@@ -64,24 +73,34 @@ export function pruneStatsToQueryTerms(
   }
 }
 
+export interface QueryStatsScope {
+  expansion?: QueryExpansion
+  tokens?: readonly string[]
+}
+
+export interface QueryTermStats extends GlobalStatistics {
+  expanded: string[]
+}
+
 export function collectQueryTermStats(
   manager: PartitionManager,
   term: string,
   language: LanguageModule,
   analysis: QueryTermAnalysis,
   partitionIds?: number[],
-): GlobalStatistics {
+  scope?: QueryStatsScope,
+): QueryTermStats {
   const queryTokens = analysedQueryTokens(term, language, analysis)
   let totalDocuments = 0
   const docFrequencies: Record<string, number> = Object.create(null)
   const totalFieldLengths: Record<string, number> = Object.create(null)
 
-  const statsPartitions =
-    partitionIds === undefined
-      ? manager.getAllPartitions()
-      : partitionIds
-          .map(partitionId => manager.partitionAt(partitionId))
-          .filter((partition): partition is NonNullable<typeof partition> => partition !== undefined)
+  const statsPartitions = partitionsIn(manager, partitionIds)
+  for (const token of scope?.tokens ?? []) queryTokens.add(token)
+  const expanded =
+    scope?.expansion === undefined
+      ? []
+      : addReachedTokens(queryTokens, statsPartitions, term, scope.expansion, language, analysis)
 
   for (const partition of statsPartitions) {
     const stats = partition.stats
@@ -103,7 +122,7 @@ export function collectQueryTermStats(
     }
   }
 
-  return { totalDocuments, docFrequencies, totalFieldLengths, averageFieldLengths }
+  return { totalDocuments, docFrequencies, totalFieldLengths, averageFieldLengths, expanded }
 }
 
 export function collectGlobalStats(manager: PartitionManager): GlobalStatistics {
