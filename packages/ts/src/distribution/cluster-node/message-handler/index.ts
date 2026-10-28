@@ -2,6 +2,7 @@ import type { RespondFn, TransportMessage } from '../../transport/types'
 import { ClusterMessageTypes, QueryMessageTypes, ReplicationMessageTypes } from '../../transport/types'
 import { encodeErrorReplyFrom } from '../error-reply'
 import { handleSnapshotSyncRequest } from '../snapshot-sync-handler'
+import { handleIndexSettings } from './index-settings'
 import { handlePartitionStores } from './partition-stores'
 import { handleFetch, handleSearch, handleStats } from './queries'
 import { handleCount, handleList, handlePreflight, handleSuggest } from './read-handlers'
@@ -67,6 +68,9 @@ export function createDataNodeHandler(deps: DataNodeHandlerDeps): TransportHandl
           return
         case ClusterMessageTypes.PARTITION_STORES:
           await handlePartitionStores(message, respond, deps)
+          return
+        case ClusterMessageTypes.INDEX_SETTINGS:
+          await handleIndexSettings(message, respond, deps)
           return
         default:
           return

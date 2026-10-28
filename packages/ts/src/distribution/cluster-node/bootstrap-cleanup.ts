@@ -58,6 +58,25 @@ export async function cleanupRemovedPartition(
   }
 }
 
+export async function releaseTornDownIndex(indexName: string, deps: BootstrapCleanupDeps): Promise<void> {
+  try {
+    if (deps.engine.listIndexes().every(index => index.name !== indexName)) return
+    const allocation = await deps.coordinator.getAllocation(indexName)
+    if (allocation !== null && allocation.assignments.size > 0) return
+    await deps.engine.dropIndex(indexName)
+  } catch (err) {
+    if (deps.onError === undefined || localIndexIsGone(err)) return
+    const cause = err instanceof Error ? err.message : String(err)
+    deps.onError(
+      new NarsilError(
+        ErrorCodes.SNAPSHOT_SYNC_RESTORE_FAILED,
+        `failed to drop local index '${indexName}' after its allocation was torn down: ${cause}`,
+        { indexName, cause },
+      ),
+    )
+  }
+}
+
 async function nodeHasOtherPartitions(
   indexName: string,
   removedPartitionId: number,
