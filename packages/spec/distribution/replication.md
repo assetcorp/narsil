@@ -332,9 +332,10 @@ When a partition's primary fails, the controller promotes a replica.
    failed node was primary for.
 4. For each affected partition:
    a. The controller picks a new primary from the in-sync set.
-   b. It prefers, in order, a candidate that has reported no
-      storage errors, then a candidate that previously held the
-      primary role, and breaks any remaining tie arbitrarily.
+   b. It prefers, in order, a candidate outside removingReplicas,
+      then a candidate that has reported no storage errors, then a
+      candidate that previously held the primary role, and breaks
+      any remaining tie arbitrarily.
       Sequence numbers play no part, because in-sync membership
       already proves every candidate holds every acknowledged
       operation.
