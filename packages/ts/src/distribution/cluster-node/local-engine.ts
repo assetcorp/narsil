@@ -84,7 +84,7 @@ export async function createClusterLocalEngine(
 ): Promise<ClusterLocalEngine> {
   requireKnownConfig(config)
   const runnableConfig = await resolveRunnableConfig(config)
-  const core = createEngineCore(runnableConfig, hooks, 'partition')
+  const core = await createEngineCore(runnableConfig, hooks, 'partition')
   await startEngineCore(core, runnableConfig)
   core.orchestrator.shareMainThread()
   const engine = createNarsilFromCore(core, runnableConfig)

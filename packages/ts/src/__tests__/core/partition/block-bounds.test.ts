@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createInvertedIndex, type InvertedIndex } from '../../../core/inverted-index'
 import { blockBoundsFor, type PostingBlockBounds } from '../../../core/partition/block-bounds'
-import type { CompactPostingList, FieldNameTable } from '../../../types/internal'
+import type { FieldNameTable, PostingListView } from '../../../types/internal'
 
 const TERM = 'term'
 
@@ -31,13 +31,13 @@ function columnsFor(documentCount: number): Array<Uint32Array | null> {
   return [title, body]
 }
 
-function listFor(index: InvertedIndex): CompactPostingList {
+function listFor(index: InvertedIndex): PostingListView {
   const list = index.lookup(TERM)
   if (list === undefined) throw new Error('posting list missing')
   return list
 }
 
-function recount(list: CompactPostingList, columns: Array<Uint32Array | null>, start: number, end: number) {
+function recount(list: PostingListView, columns: Array<Uint32Array | null>, start: number, end: number) {
   let maxTf = 0
   let minLen = Number.POSITIVE_INFINITY
   let maxRun = 0
@@ -68,7 +68,7 @@ function recount(list: CompactPostingList, columns: Array<Uint32Array | null>, s
 }
 
 function expectBoundsMatchRecount(
-  list: CompactPostingList,
+  list: PostingListView,
   columns: Array<Uint32Array | null>,
   bounds: PostingBlockBounds,
 ): void {

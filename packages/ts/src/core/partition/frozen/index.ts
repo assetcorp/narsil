@@ -21,9 +21,12 @@ import {
 import { buildExternalIdTable, type ExternalIdTable, wrapExternalIdTable } from './external-ids'
 import { createFrozenBooleanReader, createFrozenEnumReader, createFrozenNumericReader } from './field-indexes'
 import { createFrozenInvertedReader } from './inverted-reader'
+import { createFrozenLiveCounts, type FrozenLiveCounts } from './live-counts'
 import { createFrozenPostingViews } from './posting-views'
+import { createFrozenRemovalPass, type FrozenRemovalPass } from './removal-pass'
 import type { SharedSegmentSnapshot } from './shared-snapshot'
-import { createLazySurfaceReader, decodeSurfaceTable } from './surface-table'
+import { createFrozenSurfaceSlot, type FrozenSurfaceSlot, type RemovedSpellings } from './surface-slot'
+import { decodeSurfaceTable } from './surface-table'
 import { buildFrozenTokenTable, type FrozenTokenTable, wrapFrozenTokenTable } from './token-table'
 import { createFrozenTombstones } from './tombstones'
 
@@ -37,13 +40,17 @@ export interface FrozenSegment extends PartitionReadState {
   readonly documentSource: FrozenDocumentSource
   readonly sharedSnapshot: SharedSegmentSnapshot | null
   readonly partialWords: FrozenPartialWordSlot
+  readonly surfaces: FrozenSurfaceSlot
+  readonly removals: FrozenRemovalPass
   /** The segment serves from these flat arrays, which a merge reads as they stand, decoding no document. */
   readonly arrays: FrozenSegmentArrays
   liveDocumentCount(): number
   hasDocument(docId: string): boolean
   isTombstoned(ordinal: number): boolean
-  tombstoneDocument(docId: string): boolean
+  removedSpellingsOf(docId: string): RemovedSpellings | undefined
+  tombstoneDocument(docId: string, removedSpellings?: RemovedSpellings): boolean
   tombstonedDocIds(): string[]
+  removalBytes(): number
 }
 
 export interface FrozenSegmentArrays extends Omit<SegmentColumns, 'surfaceForms'> {
@@ -59,24 +66,35 @@ interface FrozenSegmentSource extends FrozenSegmentArrays {
   docFrequencies: () => Readonly<Record<string, number>>
 }
 
-function buildStatsView(source: FrozenSegmentSource): PartitionStatsView {
-  const averageFieldLengths: Record<string, number> = {}
-  if (source.documentCount > 0) {
-    for (const [fieldName, total] of Object.entries(source.totalFieldLengths)) {
-      averageFieldLengths[fieldName] = total / source.documentCount
-    }
-  }
-  let materializedFrequencies: Readonly<Record<string, number>> | null = null
+function buildStatsView(counts: FrozenLiveCounts): PartitionStatsView {
   return {
-    totalDocuments: source.documentCount,
-    totalFieldLengths: source.totalFieldLengths,
-    averageFieldLengths,
-    get docFrequencies(): Readonly<Record<string, number>> {
-      if (materializedFrequencies === null) {
-        materializedFrequencies = source.docFrequencies()
-      }
-      return materializedFrequencies
+    get totalDocuments(): number {
+      return counts.totalDocuments()
     },
+    get totalFieldLengths(): Readonly<Record<string, number>> {
+      return counts.totalFieldLengths()
+    },
+    get averageFieldLengths(): Record<string, number> {
+      const documents = counts.totalDocuments()
+      const averages: Record<string, number> = {}
+      if (documents > 0) {
+        for (const [fieldName, total] of Object.entries(counts.totalFieldLengths())) {
+          averages[fieldName] = total / documents
+        }
+      }
+      return averages
+    },
+    get docFrequencies(): Readonly<Record<string, number>> {
+      return counts.docFrequencies()
+    },
+  }
+}
+
+function storedFrequenciesOf(source: FrozenSegmentSource): () => Readonly<Record<string, number>> {
+  let materialized: Readonly<Record<string, number>> | null = null
+  return () => {
+    if (materialized === null) materialized = source.docFrequencies()
+    return materialized
   }
 }
 
@@ -98,9 +116,11 @@ function assembleFrozenSegment(
   documentSource: FrozenDocumentSource,
   sharedSnapshot: SharedSegmentSnapshot | null,
   partialWordTable: PartialWordTableData | null,
+  survivingSurfaceForms?: SerializedSurfaceForms,
 ): FrozenSegment {
   const tombstones = createFrozenTombstones()
-  const postingViews = createFrozenPostingViews(source, tombstones)
+  const counts = createFrozenLiveCounts(source, source.tokenTable, tombstones, storedFrequenciesOf(source))
+  const postingViews = createFrozenPostingViews(source, tombstones, counts)
   const lengthColumns = new Map<string, Uint32Array>()
   for (let i = 0; i < source.fieldLengthNames.length; i++) {
     lengthColumns.set(source.fieldLengthNames[i], source.fieldLengthColumns[i])
@@ -111,6 +131,14 @@ function assembleFrozenSegment(
     documentAt: ordinal => documentSource.readAt(ordinal),
     isTombstoned: ordinal => tombstones.has(ordinal),
   })
+  const textDocuments = {
+    count: documentSource.count,
+    textFields: source.fieldLengthNames,
+    documentAt: (ordinal: number) => documentSource.readAt(ordinal),
+  }
+  const loadSurfaceForms = survivingSurfaceForms === undefined ? source.readSurfaceForms : () => survivingSurfaceForms
+  const surfaces = createFrozenSurfaceSlot(loadSurfaceForms, textDocuments)
+  const removals = createFrozenRemovalPass(textDocuments, surfaces)
 
   const numericIndexes = new Map<string, NumericFieldIndexReader>()
   for (const entry of source.numeric) numericIndexes.set(entry.fieldPath, createFrozenNumericReader(entry))
@@ -135,10 +163,12 @@ function assembleFrozenSegment(
     documentSource,
     sharedSnapshot,
     arrays: source,
-    invertedIdx: createFrozenInvertedReader(source.tokenTable, postingViews),
+    invertedIdx: createFrozenInvertedReader(source.tokenTable, postingViews, counts),
     docStore,
-    stats: buildStatsView(source),
-    surfaceRegistry: createLazySurfaceReader(source.readSurfaceForms),
+    stats: buildStatsView(counts),
+    surfaceRegistry: surfaces.reader,
+    surfaces,
+    removals,
     numericIndexes,
     booleanIndexes,
     enumIndexes,
@@ -165,15 +195,22 @@ function assembleFrozenSegment(
       return tombstones.has(ordinal)
     },
 
-    tombstoneDocument(docId: string): boolean {
+    removedSpellingsOf(docId: string): RemovedSpellings | undefined {
+      const ordinal = docStore.getInternalId(docId)
+      if (ordinal === undefined || tombstones.has(ordinal)) return undefined
+      return removals.spellingsOf(ordinal)
+    },
+
+    tombstoneDocument(docId: string, removedSpellings?: RemovedSpellings): boolean {
       const ordinal = docStore.getInternalId(docId)
       if (ordinal === undefined) return false
       const added = tombstones.add(ordinal)
       if (added) {
+        counts.subtractRemoved(ordinal)
         partialWords.afterRemoval(ordinal)
+        removals.afterRemoval(ordinal, removedSpellings)
         docStore.releaseSortedDocIds()
-        segment.sortColumns = null
-        segment.scoreBuffer = null
+        segment.sortColumns?.forget(ordinal)
       }
       return added
     },
@@ -182,6 +219,10 @@ function assembleFrozenSegment(
       const docIds: string[] = []
       for (const ordinal of tombstones.values()) docIds.push(source.idTable.idAt(ordinal))
       return docIds
+    },
+
+    removalBytes(): number {
+      return counts.bytes()
     },
   }
 
@@ -210,7 +251,10 @@ export function createFrozenSegment(
   )
 }
 
-export function createSharedFrozenSegment(snapshot: SharedSegmentSnapshot): FrozenSegment {
+export function createSharedFrozenSegment(
+  snapshot: SharedSegmentSnapshot,
+  survivingSurfaceForms?: SerializedSurfaceForms,
+): FrozenSegment {
   const tokenTable = wrapFrozenTokenTable(snapshot.tokenTable)
   return assembleFrozenSegment(
     snapshot.segmentId,
@@ -231,5 +275,6 @@ export function createSharedFrozenSegment(snapshot: SharedSegmentSnapshot): Froz
     wrapEncodedDocumentTable(snapshot.documentTable),
     snapshot,
     snapshot.partialWords,
+    survivingSurfaceForms,
   )
 }

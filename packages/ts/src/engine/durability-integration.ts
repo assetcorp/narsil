@@ -1,15 +1,14 @@
 import { fnv1a } from '../core/hash'
 import type { ReplicationOperation } from '../distribution/replication/types'
-import { VERSION } from '../index'
 import { createDurabilityManager, type DurabilityManager } from '../persistence/durability'
 import { createSnapshotOnlyManager } from '../persistence/durability/snapshot-only'
 import type { CheckpointPublisher, IndexDurabilityHooks, MutationRecord } from '../persistence/durability/types'
 import { encodeDocument } from '../serialization/document-encoding'
 import type { PersistenceAdapter } from '../types/adapters'
 import type { DurabilityConfig } from '../types/config'
-import type { IndexEmbeddingMetadata, IndexMetadata } from '../types/internal'
-import type { AnyDocument, PartitionConfig, ScoringMode, VectorIndexConfig } from '../types/schema'
-import type { SynonymRule } from '../types/synonyms'
+import type { IndexMetadata } from '../types/internal'
+import type { AnyDocument } from '../types/schema'
+import { type MetadataConfig, metadataFromConfig } from './durability-metadata'
 
 export type DurabilityTier =
   | { kind: 'wal'; config: DurabilityConfig }
@@ -47,40 +46,13 @@ export interface DurabilityIntegrationHooks {
   getManager: IndexDurabilityHooks['getManager']
   getVectorFieldPaths: IndexDurabilityHooks['getVectorFieldPaths']
   getVectorIndexes: IndexDurabilityHooks['getVectorIndexes']
-  getIndexConfig: (indexName: string) =>
-    | {
-        indexUuid?: string
-        heldPartitions?: number[]
-        documentCount: number
-        partitionCount: number
-        schema: Record<string, string>
-        language: string
-        k1: number
-        b: number
-        embedding?: IndexEmbeddingMetadata
-        surfaceForms?: boolean
-        analysisRevision?: string
-        tokenizer?: string
-        stopWords?: string
-        stopWordList?: string[]
-        partitionLimits?: PartitionConfig
-        defaultScoring?: ScoringMode
-        trackPositions?: boolean
-        strict?: boolean
-        required?: string[]
-        vectorPromotion?: VectorIndexConfig
-        patternValueLimit?: number
-        synonyms?: SynonymRule[]
-      }
-    | undefined
+  getIndexConfig: (indexName: string) => MetadataConfig | undefined
   createIndexFromMetadata: IndexDurabilityHooks['createIndexFromMetadata']
   recordCheckpoint: IndexDurabilityHooks['recordCheckpoint']
   onLayoutUpgrade?: IndexDurabilityHooks['onLayoutUpgrade']
   onFatalError: IndexDurabilityHooks['onFatalError']
   checkpointPublisher?: CheckpointPublisher
 }
-
-export type MetadataConfig = NonNullable<ReturnType<DurabilityIntegrationHooks['getIndexConfig']>>
 
 function buildMetadata(
   indexName: string,
@@ -92,73 +64,6 @@ function buildMetadata(
     return undefined
   }
   return metadataFromConfig(indexName, config, hooks.getManager(indexName)?.partitionCount, documentCount)
-}
-
-export function metadataFromConfig(
-  indexName: string,
-  config: MetadataConfig,
-  partitionCount: number | undefined,
-  documentCount?: number,
-): IndexMetadata {
-  const metadata: IndexMetadata = {
-    indexName,
-    schema: config.schema,
-    language: config.language,
-    partitionCount: partitionCount ?? config.partitionCount,
-    bm25Params: { k1: config.k1, b: config.b },
-    createdAt: Date.now(),
-    engineVersion: VERSION,
-  }
-  metadata.documentCount = documentCount ?? config.documentCount
-  if (config.embedding) {
-    metadata.embedding = config.embedding
-  }
-  if (config.surfaceForms !== undefined) {
-    metadata.surfaceForms = config.surfaceForms
-  }
-  if (config.analysisRevision !== undefined) {
-    metadata.analysisRevision = config.analysisRevision
-  }
-  if (config.tokenizer !== undefined) {
-    metadata.tokenizer = config.tokenizer
-  }
-  if (config.stopWords !== undefined) {
-    metadata.stopWords = config.stopWords
-  }
-  if (config.stopWordList !== undefined) {
-    metadata.stopWordList = config.stopWordList
-  }
-  if (config.partitionLimits !== undefined) {
-    metadata.partitionLimits = config.partitionLimits
-  }
-  if (config.defaultScoring !== undefined) {
-    metadata.defaultScoring = config.defaultScoring
-  }
-  if (config.trackPositions !== undefined) {
-    metadata.trackPositions = config.trackPositions
-  }
-  if (config.strict !== undefined) {
-    metadata.strict = config.strict
-  }
-  if (config.required !== undefined) {
-    metadata.required = config.required
-  }
-  if (config.vectorPromotion !== undefined) {
-    metadata.vectorPromotion = config.vectorPromotion
-  }
-  if (config.patternValueLimit !== undefined) {
-    metadata.patternValueLimit = config.patternValueLimit
-  }
-  if (config.indexUuid !== undefined) {
-    metadata.indexUuid = config.indexUuid
-  }
-  if (config.synonyms !== undefined) {
-    metadata.synonyms = config.synonyms
-  }
-  if (config.heldPartitions !== undefined) {
-    metadata.heldPartitions = config.heldPartitions
-  }
-  return metadata
 }
 
 export function createDurabilityIntegration(

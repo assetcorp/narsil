@@ -28,14 +28,19 @@ function recordingPool(): Recorder {
   return { pool, sentTypes, pending }
 }
 
-function managerOf(serialised: number[]): PartitionManager {
+function managerOf(captured: number[]): PartitionManager {
   return {
+    indexName: 'prose',
+    language: { name: 'english' },
     partitionCount: 2,
-    getPartition: () => ({}),
-    serializePartition(partitionId: number) {
-      serialised.push(partitionId)
-      return { partitionId }
-    },
+    getPartition: (partitionId: number) => ({
+      count: () => 1,
+      encodeSegment() {
+        captured.push(partitionId)
+        return { docIds: [`essay-${partitionId}`] }
+      },
+      getRef: (docId: string) => ({ id: docId, title: 'prose' }),
+    }),
   } as unknown as PartitionManager
 }
 
@@ -54,16 +59,16 @@ async function drain(recorder: Recorder, transfer: Promise<unknown>): Promise<vo
 describe('transferIndexToPool', () => {
   it('reads every partition of the main copy before any message reaches a worker', async () => {
     const recorder = recordingPool()
-    const serialised: number[] = []
+    const captured: number[] = []
 
     const transfer = transferIndexToPool(
       'prose',
       recorder.pool,
       { config: { schema: { title: 'string' } }, synonyms: null },
-      managerOf(serialised),
+      managerOf(captured),
     )
 
-    expect(serialised).toEqual([0, 1])
+    expect(captured).toEqual([0, 1])
     expect(recorder.sentTypes).toEqual(['dropIndex', 'dropIndex'])
     await drain(recorder, transfer)
   })
@@ -88,8 +93,12 @@ describe('transferIndexToPool', () => {
       'createIndex',
       'deserialize',
       'deserialize',
+      'mergeSegments',
+      'mergeSegments',
       'deserialize',
       'deserialize',
+      'mergeSegments',
+      'mergeSegments',
     ])
   })
 })

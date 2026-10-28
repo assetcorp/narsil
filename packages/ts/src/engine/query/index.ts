@@ -67,6 +67,7 @@ export async function executeQuery<T = AnyDocument>(
 
   const params = validQueryParams(request, config)
   requireVectorSearchable(params, context, isVectorOnly || isHybridMode)
+  const projection = resolveProjection(params.document)
 
   let paginated: Array<Hit<T>>
   let nextCursor: string | undefined
@@ -170,7 +171,10 @@ export async function executeQuery<T = AnyDocument>(
     }
 
     if (params.group) {
-      groups = applyGrouping(hits, params.group, (docId: string) => manager.getRef(docId) as AnyDocument | undefined)
+      groups = applyGrouping(hits, params.group, {
+        fieldValues: (docId, fieldPaths) => manager.fieldValues(docId, fieldPaths),
+        document: docId => manager.getRef(docId),
+      })
     }
 
     let pinsFromOutside = 0
@@ -218,8 +222,6 @@ export async function executeQuery<T = AnyDocument>(
       for (const hit of hits) hit.score = undefined
     }
   }
-
-  const projection = resolveProjection(params.document)
 
   if (projection.kind === 'none') {
     for (const hit of paginated) {

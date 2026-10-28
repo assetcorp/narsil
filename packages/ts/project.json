@@ -16,7 +16,7 @@
     "test": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "pnpm vitest run --exclude='**/vector/recall.test.ts'",
+        "command": "pnpm vitest run --exclude='**/vector/recall.test.ts' --exclude='**/frozen-removal-memory/container-removes.test.ts'",
         "cwd": "packages/ts"
       }
     },
@@ -24,6 +24,13 @@
       "executor": "nx:run-commands",
       "options": {
         "command": "pnpm run test:etcd",
+        "cwd": "packages/ts"
+      }
+    },
+    "test:container-memory": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "pnpm run test:container-memory",
         "cwd": "packages/ts"
       }
     },

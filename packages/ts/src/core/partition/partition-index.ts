@@ -10,6 +10,7 @@ import type { ResolvedProjection } from '../projection'
 import type { PartitionStatsView } from '../statistics'
 import type { FacetMatchSet } from './facets'
 import type { PartitionFilterMatches } from './filters'
+import type { RemovedSpellings } from './frozen/surface-slot'
 import type { PartitionSearchMatches } from './matches'
 import type { PartialWordAnalysis } from './partial-words/spellings'
 import type { AddedWord, PartialWordRequest } from './partial-words/types'
@@ -29,7 +30,13 @@ export interface PartitionIndex {
     language: LanguageModule,
     options?: PartitionInsertOptions,
   ): void
-  remove(docId: string, schema: SchemaDefinition, language: LanguageModule, options?: PartitionInsertOptions): void
+  remove(
+    docId: string,
+    schema: SchemaDefinition,
+    language: LanguageModule,
+    options?: PartitionInsertOptions,
+    removedSpellings?: RemovedSpellings,
+  ): void
   beginBatch(): void
   endBatch(): void
   mergeSegment(segment: PartitionIndex): void
@@ -41,9 +48,11 @@ export interface PartitionIndex {
     schema: SchemaDefinition,
     language: LanguageModule,
     options?: PartitionInsertOptions,
+    removedSpellings?: RemovedSpellings,
   ): void
   get(docId: string, projection?: ResolvedProjection): AnyDocument | undefined
   getRef(docId: string): AnyDocument | undefined
+  fieldValues(docId: string, fieldPaths: readonly string[]): unknown[] | undefined
   has(docId: string): boolean
   count(): number
   docIds(): IterableIterator<string>

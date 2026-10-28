@@ -66,10 +66,11 @@ export default defineConfig([
     ...shared,
     entry: { 'index.browser': 'src/index.ts' },
     dts: false,
-    splitting: false,
+    splitting: true,
     external: NODE_EXTERNAL,
     esbuildOptions(options) {
       options.conditions = ['browser', 'import']
+      options.chunkNames = 'browser/[name]-[hash]'
     },
   },
   {
