@@ -25,7 +25,15 @@ export type WorkerAction =
   | { type: 'get'; indexName: string; docId: string; requestId: string }
   | { type: 'has'; indexName: string; docId: string; requestId: string }
   | { type: 'count'; indexName: string; requestId: string }
-  | { type: 'createIndex'; indexName: string; config: IndexConfig; requestId: string; analysisStale?: boolean }
+  | {
+      type: 'createIndex'
+      indexName: string
+      config: IndexConfig
+      requestId: string
+      analysisStale?: boolean
+      copyLoad?: string
+    }
+  | { type: 'copyLoaded'; indexName: string; copyLoad: string; requestId: string }
   | {
       type: 'loadVectorCopy'
       indexName: string
@@ -121,6 +129,7 @@ const KNOWN_ACTION_TYPES: ReadonlyArray<WorkerAction['type']> = [
   'has',
   'count',
   'createIndex',
+  'copyLoaded',
   'loadVectorCopy',
   'dropVectorCopy',
   'insertVectorOrdinals',

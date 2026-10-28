@@ -1,4 +1,5 @@
 import type { VectorMetric } from '../brute-force'
+import { GRAPH_RETIRED } from '../hnsw/handles'
 import { insertNode } from '../hnsw/mutation'
 import { type GraphSearchOptions, type OrdinalHit, searchOrdinals } from '../hnsw/search'
 import { type HNSWGraphState, nodeCountOf, tombstoneCountOf } from '../hnsw/shared'
@@ -16,6 +17,7 @@ export interface SharedVectorFieldView {
   readonly liveSize: number
   /** Reports whether this thread reads every vector of the field, which reads false while the main thread has added a block whose handles it has yet to send. */
   readonly readsEveryVector: boolean
+  readonly graphRetired: boolean
   /** Reports the document id at an ordinal, or undefined where the ordinal holds no live vector. */
   docIdOf(ordinal: number): string | undefined
   /** Reports the ordinal a document id holds, or undefined where the field holds no vector for it. */
@@ -87,6 +89,9 @@ export function openSharedVectorField(initial: SharedVectorFieldHandles, threadS
     },
     get readsEveryVector() {
       return store.holdsEveryBlock
+    },
+    get graphRetired() {
+      return graph !== null && Atomics.load(graph.header, GRAPH_RETIRED) === 1
     },
     docIdOf,
     ordinalOf,

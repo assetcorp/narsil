@@ -5,7 +5,7 @@ import type { OsqQuantizer } from '../osq/types'
 import type { VectorStore } from '../vector-store'
 import { adjacencySlots, graphBytes, hasNode } from './adjacency'
 import { COMPACTION_ABSOLUTE_THRESHOLD, COMPACTION_TOMBSTONE_RATIO } from './constants'
-import { createSharedGraphHandles, type SharedGraphHandles } from './handles'
+import { createSharedGraphHandles, GRAPH_RETIRED, type SharedGraphHandles } from './handles'
 import { lockGraphExclusive, unlockGraphExclusive } from './locks'
 import {
   compactTombstones as compactTombstonesOp,
@@ -77,6 +77,7 @@ export interface HNSWIndex {
     options?: GraphSearchOptions,
   ): ScoredDocument[]
   clear(): void
+  retire(): void
   entries(): IterableIterator<[string, VectorEntry]>
   compactionNeeded(): boolean
   compactTombstones(): void
@@ -230,6 +231,7 @@ export function createHNSWIndex(
       options?: GraphSearchOptions,
     ) => searchOp(state, docIdOf, query, k, searchMetric, minSimilarity, options),
     clear: () => exclusively(() => resetGraph(state)),
+    retire: () => Atomics.store(shared.header, GRAPH_RETIRED, 1),
     entries: entriesIterator,
     compactionNeeded,
     compactTombstones: () => exclusively(() => compactTombstonesOp(state)),

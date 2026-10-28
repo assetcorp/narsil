@@ -14,6 +14,7 @@
 #define QUERY_PLANES 4
 #define MAX_M 512
 #define MAX_NEIGHBOURS_PER_LIST ((2 * MAX_M) + 1)
+#define MAX_REPAIR_CANDIDATES (2 * MAX_NEIGHBOURS_PER_LIST)
 #define BITS_PER_BYTE 8
 #define TRAILER_LOWER 0
 #define TRAILER_UPPER 4
@@ -142,6 +143,7 @@ struct narsil_workspace {
   scored_list layer_candidates;
   scored_list link_candidates;
   scored_list repair_candidates;
+  scored_list dropped_links;
   int32_t *selections;
   uint32_t *selection_counts;
   uint32_t selection_layers;
@@ -151,7 +153,15 @@ struct narsil_workspace {
   int32_t former[MAX_NEIGHBOURS_PER_LIST];
   int32_t kept[MAX_NEIGHBOURS_PER_LIST];
   int32_t repaired[MAX_NEIGHBOURS_PER_LIST];
+  double kept_distances[MAX_NEIGHBOURS_PER_LIST];
+  uint8_t replacement_tried[MAX_NEIGHBOURS_PER_LIST];
 };
+
+typedef struct {
+  const int32_t *ordinals;
+  uint32_t count;
+  int every_candidate;
+} held_links;
 
 static inline int32_t load_word(const int32_t *words, uint32_t index) {
   return atomic_load((const _Atomic(int32_t) *)(words + index));
@@ -196,7 +206,20 @@ void list_take_out(const walk_context *context, node_layer position, int32_t nei
 void list_replace(const walk_context *context, node_layer position, const int32_t *neighbours, uint32_t count);
 uint32_t select_neighbours(const walk_context *context, scored_list *candidates, uint32_t limit, int32_t *selected);
 void list_prune(const walk_context *context, node_layer position);
+uint32_t stored_count(const int32_t *list, uint32_t capacity);
+void list_write_counted(const walk_context *context, node_layer position, const int32_t *neighbours, uint32_t count);
 int32_t highest_node(const walk_context *context, int include_tombstoned);
+
+int32_t incoming_count(const walk_context *context, int32_t ordinal);
+void note_linked(const walk_context *context, int32_t ordinal);
+void note_unlinked(const walk_context *context, int32_t ordinal);
+void note_node_left_unlinked(const walk_context *context);
+int release_unless_last(const walk_context *context, int32_t ordinal);
+int is_live(const walk_context *context, int32_t ordinal);
+narsil_status reserve_last_links(narsil_workspace *workspace);
+int list_holds(held_links list, int32_t ordinal);
+uint32_t write_keeping_last_links(const walk_context *context, int32_t ordinal, const scored_list *sorted,
+                                  int32_t *kept, uint32_t kept_count, held_links held);
 void store_entry_point(const walk_context *context, int32_t ordinal);
 
 narsil_status workspace_reserve_dimension(narsil_workspace *workspace, uint32_t dimension);

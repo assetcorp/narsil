@@ -146,7 +146,13 @@ describe('loading copies of an index whose documents all sit in its live tail', 
 
     expect(frozenCount(main)).toBe(1)
     expect(liveCount(main)).toBe(0)
-    expect(received.map(action => action.type)).toEqual(['dropIndex', 'createIndex', 'deserialize', 'attachSegments'])
+    expect(received.map(action => action.type)).toEqual([
+      'dropIndex',
+      'createIndex',
+      'deserialize',
+      'attachSegments',
+      'copyLoaded',
+    ])
     const copy = worker.getManager('products')
     if (!copy) throw new Error('copy missing')
     expect(frozenCount(copy)).toBe(1)

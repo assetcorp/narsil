@@ -59,24 +59,29 @@ export function createThreadReadEngine(options: ThreadReadEngineOptions): Thread
     )
   }
 
-  function requireContext(indexName: string): IndexQueryContext {
-    const context = executor.queryContextOf(indexName)
-    if (context === undefined) {
-      throw new NarsilError(ErrorCodes.INDEX_NOT_FOUND, `This thread holds no copy of index "${indexName}"`, {
-        indexName,
-      })
+  function heldContext(indexName: string): IndexQueryContext | null {
+    return executor.queryContextOf(indexName) ?? null
+  }
+
+  function wholeDocumentsContext(indexName: string): IndexQueryContext | null {
+    const context = heldContext(indexName)
+    return context !== null && holdsEveryVectorField(indexName, context) ? context : null
+  }
+
+  function requireAnswerable(indexName: string, context: IndexQueryContext | null): IndexQueryContext {
+    if (context === null) {
+      throw new NarsilError(
+        ErrorCodes.INDEX_NOT_FOUND,
+        `This thread holds no copy of index "${indexName}" that answers this request yet`,
+        { indexName },
+      )
     }
     relay.touch(indexName)
     return context
   }
 
   function requireWholeDocuments(indexName: string): { context: IndexQueryContext; manager: PartitionManager } {
-    const context = requireContext(indexName)
-    if (!holdsEveryVectorField(indexName, context)) {
-      throw new NarsilError(ErrorCodes.INDEX_NOT_FOUND, `This thread holds no vectors of index "${indexName}" yet`, {
-        indexName,
-      })
-    }
+    const context = requireAnswerable(indexName, wholeDocumentsContext(indexName))
     return { context, manager: managerOf(indexName, context) }
   }
 
@@ -87,11 +92,6 @@ export function createThreadReadEngine(options: ThreadReadEngineOptions): Thread
     return { ...params, vector: { ...vector, value } }
   }
 
-  function holdsDocumentsOf(indexName: string): boolean {
-    const context = executor.queryContextOf(indexName)
-    return context !== undefined && holdsEveryVectorField(indexName, context)
-  }
-
   function searchableContext(indexName: string, params: QueryParams): IndexQueryContext | null {
     if (searchHooks) return null
     const context = executor.queryContextOf(indexName)
@@ -100,27 +100,24 @@ export function createThreadReadEngine(options: ThreadReadEngineOptions): Thread
     if (field === undefined) return context
     const vectorFields = extractVectorFieldsFromSchema(context.config.schema)
     if (!vectorFields.has(field)) return context
-    return context.vectorSearchers.has(field) ? context : null
+    return context.vectorSearchers.has(field) && executor.holdsVectorField(indexName, field) ? context : null
   }
 
-  function canAnswer(indexName: string, params: QueryParams): boolean {
+  function answerableContext(indexName: string, params: QueryParams): IndexQueryContext | null {
     const context = searchableContext(indexName, params)
-    return context !== null && holdsEveryVectorFieldRead(indexName, context, params)
-  }
-
-  function canCount(indexName: string, params: QueryParams): boolean {
-    return searchableContext(indexName, params) !== null
+    return context !== null && holdsEveryVectorFieldRead(indexName, context, params) ? context : null
   }
 
   return {
-    holdsCopyOf: indexName => executor.queryContextOf(indexName) !== undefined,
-    holdsDocumentsOf,
-    canAnswer,
-    canCount,
+    holdsCopyOf: indexName => heldContext(indexName) !== null,
+    holdsDocumentsOf: indexName => wholeDocumentsContext(indexName) !== null,
+    canAnswer: (indexName, params) => answerableContext(indexName, params) !== null,
+    canCount: (indexName, params) => searchableContext(indexName, params) !== null,
     async query<T = AnyDocument>(indexName: string, params: QueryParams): Promise<QueryResult<T>> {
-      const { context, manager } = requireWholeDocuments(indexName)
-      const result = await executeQuery<T>(await resolvedParams(indexName, params), {
-        manager,
+      const resolved = await resolvedParams(indexName, params)
+      const context = requireAnswerable(indexName, answerableContext(indexName, params))
+      const result = await executeQuery<T>(resolved, {
+        manager: managerOf(indexName, context),
         language: context.language,
         config: context.config,
         indexName,
@@ -132,8 +129,9 @@ export function createThreadReadEngine(options: ThreadReadEngineOptions): Thread
       return result
     },
     async preflight(indexName: string, params: QueryParams): Promise<PreflightResult> {
-      const context = requireContext(indexName)
-      const result = await executePreflight(await resolvedParams(indexName, params), {
+      const resolved = await resolvedParams(indexName, params)
+      const context = requireAnswerable(indexName, searchableContext(indexName, params))
+      const result = await executePreflight(resolved, {
         manager: context.manager,
         language: context.language,
         config: context.config,
@@ -146,7 +144,7 @@ export function createThreadReadEngine(options: ThreadReadEngineOptions): Thread
       return result
     },
     async suggest(indexName: string, params: SuggestParams): Promise<SuggestResult> {
-      const context = requireContext(indexName)
+      const context = requireAnswerable(indexName, heldContext(indexName))
       const result = executeSuggest(context.manager, context.language, params)
       if (context.analysisStale) result.analysisStale = true
       return result
@@ -164,10 +162,10 @@ export function createThreadReadEngine(options: ThreadReadEngineOptions): Thread
       return found
     },
     async has(indexName: string, docId: string): Promise<boolean> {
-      return requireContext(indexName).manager.has(docId)
+      return requireAnswerable(indexName, heldContext(indexName)).manager.has(docId)
     },
     async countDocuments(indexName: string): Promise<number> {
-      return requireContext(indexName).manager.countDocuments()
+      return requireAnswerable(indexName, heldContext(indexName)).manager.countDocuments()
     },
     async listDocuments<T = AnyDocument>(indexName: string, params?: ListParams): Promise<ListResult<T>> {
       const { context, manager } = requireWholeDocuments(indexName)

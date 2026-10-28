@@ -25,14 +25,19 @@ napi_value status_of(napi_env env, narsil_status status) { return number_of(env,
 
 uint32_t clamped_count(size_t count) { return count > UINT32_MAX ? UINT32_MAX : (uint32_t)count; }
 
-int typed_data(napi_env env, napi_value value, napi_typedarray_type expected, void **data, size_t *length) {
+int possibly_empty_typed_data(napi_env env, napi_value value, napi_typedarray_type expected, void **data,
+                              size_t *length) {
   bool is_typed = false;
   if (napi_is_typedarray(env, value, &is_typed) != napi_ok || !is_typed) { return 0; }
   napi_typedarray_type type = napi_int8_array;
   napi_value buffer = NULL;
   size_t offset = 0;
   if (napi_get_typedarray_info(env, value, &type, length, data, &buffer, &offset) != napi_ok) { return 0; }
-  return type == expected && *data != NULL;
+  return type == expected && (*data != NULL || *length == 0);
+}
+
+int typed_data(napi_env env, napi_value value, napi_typedarray_type expected, void **data, size_t *length) {
+  return possibly_empty_typed_data(env, value, expected, data, length) && *data != NULL;
 }
 
 int callback_arguments(napi_env env, napi_callback_info info, size_t expected, napi_value *argv) {

@@ -84,7 +84,16 @@ describe.skipIf(!binaryBuilt)('a process that loads the native search core', () 
       searchAll(index, 'cosine', false)
       index.remove(docIdOf(0))
       index.compact()
-      expect([...performed].sort()).toEqual(['calibrate', 'compact', 'place', 'quantise', 'remove', 'score', 'search'])
+      expect([...performed].sort()).toEqual([
+        'calibrate',
+        'compact',
+        'connect',
+        'place',
+        'quantise',
+        'remove',
+        'score',
+        'search',
+      ])
     } finally {
       index.dispose()
     }
