@@ -97,7 +97,28 @@ export function selectReplica(
 
 export interface PartitionRouting {
   nodeToPartitions: Map<string, number[]>
+  copiesByPartition: Map<number, string[]>
   unavailablePartitions: number[]
+}
+
+export function copiesInSelectionOrder(
+  assignment: PartitionAssignment,
+  selector: ReplicaSelector,
+  partitionId: number,
+): string[] {
+  const remaining = collectActiveCandidates(assignment)
+  const ordered: string[] = []
+  while (remaining.length > 0) {
+    const chosen = selector(remaining, partitionId)
+    const position = remaining.indexOf(chosen)
+    if (position === -1) {
+      ordered.push(chosen, ...remaining)
+      break
+    }
+    ordered.push(chosen)
+    remaining.splice(position, 1)
+  }
+  return ordered
 }
 
 export function selectReplicasForQuery(
@@ -105,15 +126,18 @@ export function selectReplicasForQuery(
   selector: ReplicaSelector = randomSelector,
 ): PartitionRouting {
   const nodeToPartitions = new Map<string, number[]>()
+  const copiesByPartition = new Map<number, string[]>()
   const unavailablePartitions: number[] = []
 
   for (const [partitionId, assignment] of allocationTable.assignments) {
-    const selectedNode = selectReplica(assignment, selector, partitionId)
+    const copies = copiesInSelectionOrder(assignment, selector, partitionId)
+    const selectedNode = copies[0]
 
-    if (selectedNode === null) {
+    if (selectedNode === undefined) {
       unavailablePartitions.push(partitionId)
       continue
     }
+    copiesByPartition.set(partitionId, copies)
 
     let partitions = nodeToPartitions.get(selectedNode)
     if (partitions === undefined) {
@@ -123,5 +147,5 @@ export function selectReplicasForQuery(
     partitions.push(partitionId)
   }
 
-  return { nodeToPartitions, unavailablePartitions }
+  return { nodeToPartitions, copiesByPartition, unavailablePartitions }
 }

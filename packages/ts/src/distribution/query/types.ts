@@ -41,5 +41,6 @@ export interface QueryRoutingDeps {
 
 export interface RoutingResult {
   nodeToPartitions: Map<string, number[]>
+  copiesByPartition: Map<number, string[]>
   unavailablePartitions: number[]
 }
