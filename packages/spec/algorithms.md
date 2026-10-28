@@ -51,7 +51,7 @@ Each field uses its own `|D|`, the token count in that field, and its own `avgdl
 
 ### Expanded Terms
 
-With typo tolerance, prefix completion, or partial-word search, one query term can match several tokens. An implementation must score those tokens as below, where `score(t, D, idf)` is the multi-field score of token `t` in document `D`, computed with that IDF:
+With typo tolerance, prefix completion, partial-word search, or synonyms, one query term can match several tokens. An implementation must score those tokens as below, where `score(t, D, idf)` is the multi-field score of token `t` in document `D`, computed with that IDF:
 
 ```text
 typoScore(D) = SUM over each typo match t of score(t, D, IDF(t))
@@ -64,6 +64,16 @@ groupScore(D) =
 The typo matches of a term are its own token and every token that [Bounded Levenshtein Distance](#bounded-levenshtein-distance) accepts for it, except under `exact`, where they are the own token alone. The last term of a prefix query, and each term that partial-word search applies to, has a group that holds the term's own token, its [completions](#prefix-completion), and its [added words](#partial-word-search). An implementation scores the own token of such a term through the group alone. It gives the last term of a prefix query no typo matches, while it adds the other typo matches of any other term with a group through `typoScore`.
 
 In a group, `factor(t)` is 1 for the own token. For a completion, it is `minimum(1, length(own token) / length(t))`. For an added word, it is the length of the term as written divided by the length of the shortest [written spelling](#partial-word-search) of `t` that contains the term as written. Every length is a count of code points. For a token that is both a completion and an added word, `factor(t)` is the larger of the two. An implementation scores an added word only in the fields whose type includes `partial`.
+
+Where a query term has [synonyms](#synonyms), an implementation must score the term's own token and its synonyms as one combined term `c`, which takes the place of the own token in every formula above:
+
+```text
+tf(c, D)  = SUM over the own token and each synonym s of tf(s, D)
+n(c)      = the largest n(t) over the own token and each synonym
+factor(c) = 1
+```
+
+An implementation must sum `tf` within each field, so that the combined term keeps the length and the boost of that field. Where the term also has a group, the largest `n(t)` of the group covers the synonyms as well. A token that is both a synonym and a typo match, a completion, or an added word counts as a synonym alone.
 
 ### Parameters
 
@@ -87,7 +97,7 @@ Across partitions, an implementation scores BM25 in one of three modes.
 
 **Local scoring**, the default, gives each partition its own `N`, `n(qi)`, and `avgdl`. It takes one round trip, and its scores are approximate where partition sizes or term distributions differ.
 
-**DFS**, for distributed frequency statistics, takes two phases. In the first phase, the coordinator collects `N`, `n(qi)`, and `avgdl` from each partition, sums `N` and `n(qi)`, and computes a weighted `avgdl`. In the second phase, it sends those global values back to the partitions for scoring. The ranking is exact, and it takes two round trips.
+**DFS**, for distributed frequency statistics, takes two phases. In the first phase, the coordinator collects `N`, `n(qi)`, and `avgdl` from each partition, sums `N` and `n(qi)`, and computes a weighted `avgdl`. In the second phase, it sends those global values back to the partitions for scoring. The ranking is exact, and it takes two round trips. Under DFS, the coordinator must also collect and sum `n(s)` for each synonym `s` that the query adds, so that every partition computes the same `n(c)`.
 
 **Statistics broadcast** has each partition publish its local statistics periodically. The coordinator holds a merged set, and every query scores against the latest merge. It takes one round trip, while its statistics can be older than the newest writes.
 
@@ -159,6 +169,33 @@ An implementation must keep only the tokens that a document of the partition hol
 With `partialWords` set on a query, an implementation must also match each query word of at least three code points against the inside of longer indexed words, in the fields whose [type](envelope.md#field-types) includes the `partial` option. It must compare the query word, analysed without stemming, with the written spelling of each word that occurs in a `partial` field, which is the [surface form](envelope.md#surface-forms) of that occurrence where stemming changes it and its token otherwise. It must raise `CONFIG_INVALID` for a `partial` field in an index whose `surfaceForms` setting is off. A writer stores these written spellings in each [keyword segment](envelope.md#keyword-segment-payload), so a reader must derive them from documents only for a segment whose `partialWords` is nil, missing, or lists other fields than the `partial` fields of the index.
 
 An implementation must add at most 50 indexed words to the whole query, which it must divide equally among the query words of at least three code points, in query order. Where `n` is the number of such words, capped at 50, an implementation must give each of the first `n` words up to `floor(50 / n)` added words, plus one more for each of the first `50 mod n` words. An implementation must skip partial matching for every such word after the 50th. For each query word, it must add only words that a `partial` field of the partition holds, leaving out the word's own token and its typo matches. It must take first the words that the most documents of the partition contain, breaking ties in code point order. It must apply no typo tolerance to a partial match. It must skip partial matching where `exact` is set, as it skips typo matching and prefix completion there. It must score each query word's added words as [Expanded Terms](#expanded-terms) defines, so it scores an added word below the word's own token wherever both appear with the same term frequency and field length in the same field.
+
+---
+
+## Synonyms
+
+A caller may give an index a synonym set, which is a list of rules, each in one of two shapes:
+
+```text
+SynonymRule {
+  words: List<string>      (a two-way rule of 2 to 100 words)
+}
+or
+SynonymRule {
+  word:     string         (a one-way rule)
+  synonyms: List<string>   (1 to 99 words)
+}
+```
+
+An implementation must match each word of a two-way rule as a synonym of every other word in that rule. For a one-way rule, it must match each word in `synonyms` as a synonym of `word`, and it must add no synonym for a word in `synonyms`.
+
+An implementation must analyse each word of a set with the language, the tokeniser, and the stop words of the index, stemming included, so that it compares a synonym with a query token in the same stemmed form. It must raise `CONFIG_INVALID` for a set word that analyses to no token, as a stop word does, or to more than one token, as a phrase does. It must also raise `CONFIG_INVALID` for a rule of any other shape or size, for a word that holds a control character from U+0000 to U+001F, and for a set that holds more than 100,000 rules, more than 500,000 words, or more than 4,194,304 bytes of words in UTF-8. A reader that loads a stored set must skip each word that no longer analyses to exactly one token, because a newer language revision can change how the index analyses a word.
+
+The synonyms of a query token are the tokens of the other words in each two-way rule that holds the token, together with the tokens of the `synonyms` in each one-way rule whose `word` analyses to the token, leaving out the query token itself. An implementation must expand a query token by that one level, so it adds no synonym of a synonym.
+
+An implementation must add at most 50 synonyms to the whole query, and it must divide them among the query tokens that have synonyms, in query order, as [Partial-Word Search](#partial-word-search) divides its 50 added words. It must take each token's synonyms in code point order. It must apply no typo tolerance, prefix completion, or partial matching to a synonym, and it must add no synonym where `exact` is set. A document that holds a synonym of a query term matches that term, and an implementation must score that document as [Expanded Terms](#expanded-terms) defines.
+
+An implementation must store the set with its index, as the [index metadata payload](envelope.md#index-metadata-payload) defines, and it must treat an empty set as an absent one. It must apply a replaced set from the next query without rebuilding the index, because a synonym set changes no stored token.
 
 ---
 

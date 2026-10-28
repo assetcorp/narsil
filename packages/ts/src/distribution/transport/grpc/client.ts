@@ -6,6 +6,9 @@ import type { GrpcModule } from './loader'
 import { openStreamMethod, sendMethod } from './service'
 import { channelOptions, type GrpcTransportConfig, toCredentialBuffer } from './types'
 
+const CONNECT_PROBE_PATH = '/narsil.transport.v1.ConnectProbe/LastError'
+const LAST_ERROR_PATTERN = /Last error: (?:Error: )?(.*?)\. Resolution note:/s
+
 interface StatusCarrier {
   code?: number
   message?: string
@@ -168,20 +171,58 @@ export class GrpcClientPool {
 
   private connect(target: string): Promise<Client> {
     const client = new this.grpc.Client(target, this.credentials(), channelOptions())
+    const channel = client.getChannel()
+    const { READY, SHUTDOWN, TRANSIENT_FAILURE } = this.grpc.connectivityState
+    const deadline = Date.now() + this.config.connectTimeout
 
     return new Promise<Client>((resolve, reject) => {
-      client.waitForReady(Date.now() + this.config.connectTimeout, err => {
-        if (err === undefined) {
-          resolve(client)
-          return
-        }
+      const fail = (reason: string): void => {
         client.close()
         reject(
-          new TransportError(TransportErrorCodes.CONNECT_FAILED, `Failed to connect to '${target}': ${err.message}`, {
+          new TransportError(TransportErrorCodes.CONNECT_FAILED, `Failed to connect to '${target}': ${reason}`, {
             target,
           }),
         )
-      })
+      }
+
+      const check = (deadlinePassed?: Error): void => {
+        if (deadlinePassed !== undefined) {
+          fail(`no connection was ready within ${this.config.connectTimeout}ms`)
+          return
+        }
+        try {
+          const state = channel.getConnectivityState(true)
+          if (state === READY) {
+            resolve(client)
+          } else if (state === TRANSIENT_FAILURE) {
+            void this.lastConnectError(client, deadline).then(fail)
+          } else if (state === SHUTDOWN) {
+            fail('the channel shut down')
+          } else {
+            channel.watchConnectivityState(state, deadline, check)
+          }
+        } catch {
+          fail('the channel closed')
+        }
+      }
+      check()
+    })
+  }
+
+  private lastConnectError(client: Client, deadline: number): Promise<string> {
+    return new Promise<string>(resolve => {
+      client.makeUnaryRequest(
+        CONNECT_PROBE_PATH,
+        sendMethod.requestSerialize,
+        sendMethod.responseDeserialize,
+        new Uint8Array(0),
+        this.metadata(),
+        { deadline },
+        err => {
+          const details = err?.details ?? ''
+          resolve(LAST_ERROR_PATTERN.exec(details)?.[1] ?? (details === '' ? 'the channel failed to connect' : details))
+        },
+      )
     })
   }
 

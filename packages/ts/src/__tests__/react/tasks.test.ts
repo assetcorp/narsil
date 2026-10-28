@@ -185,6 +185,41 @@ describe('useImport', () => {
     await view.unmount()
   })
 
+  it('keeps the cancelled record when a poll sent before the cancel answers after it', async () => {
+    const heldPolls: Array<() => void> = []
+    const server = stubServer([
+      route('_import', () => json(record('running')), 'POST'),
+      route('_cancel', () => json(record('cancelled', 1)), 'POST'),
+      route(
+        '/tasks/',
+        () =>
+          new Promise<{ status: number; body: unknown }>(resolve => {
+            heldPolls.push(() => resolve({ status: 200, body: record('running') }))
+          }),
+        'GET',
+      ),
+    ])
+    const view = await renderHook(() => useImport('movies', { pollIntervalMs: FAST_POLL_MS }), clientFor(server))
+
+    await interact(() => {
+      void view.current().start([{ id: 'm1' }])
+    })
+    await waitFor(() => heldPolls.length === 1)
+
+    await interact(() => {
+      view.current().cancel()
+    })
+    await waitFor(() => view.current().task?.status === 'cancelled')
+    const asked = server.countOf('/tasks/')
+
+    for (const release of heldPolls.splice(0)) release()
+    await settle(40)
+    expect(view.current().task?.status).toBe('cancelled')
+    expect(view.current().isImporting).toBe(false)
+    expect(server.countOf('/tasks/')).toBe(asked)
+    await view.unmount()
+  })
+
   it('stops the upload when cancel arrives before the server has taken the load on', async () => {
     const held: { release: (() => void) | null } = { release: null }
     const server = stubServer([

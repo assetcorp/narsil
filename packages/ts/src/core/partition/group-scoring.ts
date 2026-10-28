@@ -51,7 +51,9 @@ export function typoMatchesFor(
 ): Array<{ token: string; postingList: PostingListView }> {
   if (group !== undefined) {
     if (!group.typoMatches || exact || tolerance === 0) return []
-    return index.fuzzyLookup(token, tolerance, prefixLength).filter(match => match.token !== token)
+    return index
+      .fuzzyLookup(token, tolerance, prefixLength)
+      .filter(match => match.token !== token && group.synonyms?.has(match.token) !== true)
   }
   if (!exact) return index.fuzzyLookup(token, tolerance, prefixLength)
   const postingList = index.lookup(token)
@@ -59,12 +61,19 @@ export function typoMatchesFor(
 }
 
 export function resolveGroupMatches(context: GroupScoringContext, group: ExpandedTermGroup): GroupMatch[] {
-  let groupDocumentFrequency = 0
+  const frequencyOf = (token: string): number =>
+    context.globalFrequency(token) ?? context.index.documentFrequency(token)
+  const lookup = (token: string): PostingListView | undefined => context.index.lookup(token)
+  const synonyms = group.synonyms
+  let groupDocumentFrequency = synonyms?.documentFrequency(frequencyOf) ?? 0
   const found: Array<{ token: string; factor: number; partialFactor: number; postingList: PostingListView }> = []
   for (const member of group.members) {
-    const documents = context.globalFrequency(member.token) ?? context.index.documentFrequency(member.token)
+    const documents = frequencyOf(member.token)
     if (documents > groupDocumentFrequency) groupDocumentFrequency = documents
-    const postingList = context.index.lookup(member.token)
+    const postingList =
+      synonyms !== undefined && member.token === group.token
+        ? synonyms.postings(lookup, member.token)
+        : lookup(member.token)
     if (postingList === undefined) continue
     found.push({ token: member.token, factor: member.factor, partialFactor: member.partialFactor, postingList })
   }

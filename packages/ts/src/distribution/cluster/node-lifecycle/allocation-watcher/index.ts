@@ -47,6 +47,7 @@ function scheduleProcessAllocation(
     state.pendingTables.clear()
     for (const pending of tablesToProcess) {
       processAllocationChange(state, config, pending)
+      if (pending.assignments.size === 0) config.onIndexTornDown?.(pending.indexName)
     }
   }, config.allocationDebounceMs)
 }

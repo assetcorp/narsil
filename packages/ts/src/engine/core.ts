@@ -49,6 +49,7 @@ export type IndexRegistryEntry = {
   documentCount: number
   partitionCount: number
   analysisRevision: string | null
+  synonyms: Uint8Array | null
 }
 
 export type EventHandler = (payload: unknown) => void

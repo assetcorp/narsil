@@ -367,6 +367,7 @@ Each index writes a metadata envelope under the key `<indexName>/meta`. It uses 
   pattern_value_limit:   uint32               (optional; the most code points a pattern field value may hold)
   index_uuid:            string               (optional; the cluster identity of the index)
   held_partitions:       List<uint32>         (optional; the partitions of the index this copy holds)
+  synonyms:              List<SynonymRule>    (optional; the synonym set as the caller wrote it)
 }
 
 VectorFieldMeta {
@@ -413,6 +414,8 @@ The `index_uuid` field records the identity a cluster assigned the index when it
 
 The `held_partitions` field records the partitions of the index this copy holds, so that the node can name what it stored when the controller looks for a partition in `UNASSIGNED`. A node must add a partition to the list when it finishes bootstrapping that partition. It must remove a partition from the list when it deletes that partition's copy. A partition that holds no document must still appear in the list, because a controller reading a document count would treat an empty partition as one the node lost. A node must answer [cluster.partition_stores](distribution/transport.md#clusterpartition_stores) from this field. The field is additive, and a node that finds it absent must answer from the partitions whose document count is above zero, because an index written before the field existed records nothing about what it holds.
 
+The `synonyms` field records the index's [synonym set](algorithms.md#synonyms), with each word as the caller wrote it, so that a reader analyses the words with its own language module. A writer must leave the field absent for an index without a set, and a reader must treat an absent field as no set. A reader must reject a stored set that breaks the shape or the limits in [Synonyms](algorithms.md#synonyms) with `CONFIG_INVALID`, as it rejects a stored `quantization` outside its set.
+
 ---
 
 ### Index Configuration Payload
@@ -440,6 +443,7 @@ The payload is a MessagePack map:
   required:          List<string>                 (optional; field paths every document must supply)
   vectorPromotion:   VectorSnapshotPromotion      (optional)
   patternValueLimit: uint32                       (optional; the most code points a pattern field value may hold)
+  synonyms:          List<SynonymRule>            (optional; the synonym set as the caller wrote it)
   embedding:         EmbeddingSnapshotConfig      (optional)
 }
 

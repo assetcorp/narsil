@@ -3,29 +3,19 @@ from __future__ import annotations
 import json
 from collections.abc import Callable
 from pathlib import Path
-from time import perf_counter
 
 from . import datasets as ds
 from .artifacts import dataset_slug
 from .config import BenchmarkConfig, EngineConfig
 from .config_datasets import DatasetSpec
 from .embeddings import EmbeddingStore
+from .keyword_relevance import load_keyword_index, score_keyword_queries
 from .latency import measure_latency, warmup_sample
 from .reporter import write_json
-from .runfile import run_mapping, strict_ranking, write_run_file
-from .scoring import evaluate
 from .throughput import measure_throughput
 from .throughput_process import CpuCounter
 from .throughput_workload import Workload, request_caller
-from .track_common import (
-    best_effort,
-    bulk_load_begin,
-    bulk_load_end,
-    index_name,
-    index_size_bytes,
-    server_setup,
-    verify_indexed,
-)
+from .track_common import best_effort, index_size_bytes, server_setup
 from .types import BEST_CONFIG, EQUAL_PRECISION, EngineError, HYBRID, KEYWORD, SERVER_TIME_UNAVAILABLE, VECTOR
 from .vector_runner import run_hybrid_track, run_vector_track
 
@@ -67,40 +57,21 @@ def run_keyword_track(
     runs_dir: Path,
     engine_cpu: CpuCounter | None = None,
 ) -> dict:
-    index = index_name(spec.dataset_id)
-    print(f"[{driver.name}:{spec.dataset_id}:keyword] loading queries and judgements", flush=True)
+    label = f"{driver.name}:{spec.dataset_id}:keyword"
+    print(f"[{label}] loading queries and judgements", flush=True)
     queries = ds.load_queries(spec.dataset_id)
     qrels = ds.load_qrels(spec.dataset_id)
 
-    driver.drop_index(index)
-    driver.create_index(index)
-
-    print(f"[{driver.name}:{spec.dataset_id}:keyword] ingesting corpus", flush=True)
-    bulk_load_begin(driver, index, spec)
-    build_start = perf_counter()
-    imported = driver.import_documents(
-        index, ds.iter_documents(spec.dataset_id), config.import_batch, config.import_clients
-    )
-    build_seconds = perf_counter() - build_start
-    bulk_load_end(driver, index, spec)
-    indexed = verify_indexed(driver, index, imported, spec.dataset_id)
+    loaded = load_keyword_index(driver, config, spec, label)
+    index = loaded.name
+    indexed = loaded.documents
+    build_seconds = loaded.build_seconds
     ingest_rate = indexed / build_seconds if build_seconds > 0 else 0.0
 
-    metrics = None
-    run_file = None
-    if qrels:
-        print(f"[{driver.name}:{spec.dataset_id}:keyword] running {len(queries)} queries", flush=True)
-        run: dict[str, list[tuple[str, float]]] = {}
-        run_for_scoring: dict[str, dict[str, float]] = {}
-        for query_id, term in queries.items():
-            response = driver.search(index, term, config.run_depth)
-            ranked = strict_ranking(response.hits)
-            run[query_id] = ranked
-            run_for_scoring[query_id] = run_mapping(ranked)
-        run_path = runs_dir / f"{index}.{driver.run_tag}.run"
-        write_run_file(run_path, run, driver.run_tag)
-        metrics = evaluate(qrels, run_for_scoring)
-        run_file = str(run_path)
+    run_path = runs_dir / f"{index}.{driver.run_tag}.run"
+    scores = score_keyword_queries(driver, index, queries, qrels, config.run_depth, run_path, label)
+    metrics = scores.metrics
+    run_file = scores.run_file
 
     print(f"[{driver.name}:{spec.dataset_id}:keyword] measuring query latency and throughput", flush=True)
     server_time = getattr(driver, "server_time", SERVER_TIME_UNAVAILABLE)

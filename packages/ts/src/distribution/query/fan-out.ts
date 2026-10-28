@@ -6,6 +6,8 @@ import type {
   GlobalStatistics,
   NodeTransport,
   SearchResultPayload,
+  StatsExpansionPayload,
+  StatsPayload,
   StatsResultPayload,
   TransportMessage,
   WireQueryParams,
@@ -48,6 +50,70 @@ function queryRejectionOf(response: TransportMessage, decoded: unknown): NarsilE
   return rejection
 }
 
+interface NodeStats {
+  partitionIds: number[]
+  result: StatsResultPayload
+}
+
+function statsExpansionOf(params: WireQueryParams): StatsExpansionPayload {
+  return {
+    tolerance: params.tolerance,
+    prefixLength: params.prefixLength,
+    prefix: params.prefix,
+    partialWords: params.partialWords ?? null,
+    exact: params.exact,
+    fields: params.fields,
+  }
+}
+
+async function requestStats(
+  nodeId: string,
+  payload: StatsPayload,
+  deps: QueryRoutingDeps,
+  config: DistributedQueryConfig,
+): Promise<StatsResultPayload | null> {
+  const message = createStatsMessage(payload, deps.sourceNodeId)
+  const targets = await resolveTargets(nodeId, deps)
+  return sendWithTimeout<StatsResultPayload>(
+    deps.transport,
+    targets,
+    message,
+    config.partitionTimeout,
+    validateStatsResultPayload,
+  )
+}
+
+async function countLeftOutTokens(
+  indexName: string,
+  answered: Array<[string, NodeStats]>,
+  deps: QueryRoutingDeps,
+  config: DistributedQueryConfig,
+): Promise<StatsResultPayload[]> {
+  const reached = new Set<string>()
+  for (const [, { result }] of answered) {
+    for (const token of result.expanded ?? []) reached.add(token)
+  }
+  if (reached.size === 0) return []
+  const counts = await Promise.allSettled(
+    answered.map(async ([nodeId, { partitionIds, result }]) => {
+      const tokens = [...reached].filter(token => !Object.hasOwn(result.docFrequencies, token))
+      if (tokens.length === 0) return null
+      const counted = await requestStats(nodeId, { indexName, partitionIds, terms: [], tokens }, deps, config)
+      if (counted === null) return null
+      const docFrequencies: Record<string, number> = Object.create(null)
+      for (const token of tokens) {
+        if (Object.hasOwn(counted.docFrequencies, token)) docFrequencies[token] = counted.docFrequencies[token]
+      }
+      return { totalDocuments: 0, docFrequencies, totalFieldLengths: {} }
+    }),
+  )
+  const extra: StatsResultPayload[] = []
+  for (const count of counts) {
+    if (count.status === 'fulfilled' && count.value !== null) extra.push(count.value)
+  }
+  return extra
+}
+
 export async function collectDistributedStats(
   indexName: string,
   params: WireQueryParams,
@@ -56,42 +122,30 @@ export async function collectDistributedStats(
   config: DistributedQueryConfig,
 ): Promise<GlobalStatistics> {
   const terms = params.term !== null ? params.term.split(/\s+/).filter(t => t.length > 0) : []
-  const statsPromises: Array<Promise<StatsResultPayload | null>> = []
+  const expansion = statsExpansionOf(params)
   const nodeEntries = Array.from(nodeToPartitions.entries())
+  const results = await Promise.allSettled(
+    nodeEntries.map(([nodeId, partitionIds]) =>
+      requestStats(nodeId, { indexName, partitionIds, terms, expansion }, deps, config),
+    ),
+  )
 
-  for (const [nodeId, partitionIds] of nodeEntries) {
-    const message = createStatsMessage({ indexName, partitionIds, terms }, deps.sourceNodeId)
-    const targets = await resolveTargets(nodeId, deps)
-    const promise = sendWithTimeout<StatsResultPayload>(
-      deps.transport,
-      targets,
-      message,
-      config.partitionTimeout,
-      validateStatsResultPayload,
-    )
-    statsPromises.push(promise)
-  }
-
-  const results = await Promise.allSettled(statsPromises)
-  const validStats: Array<{
-    totalDocuments: number
-    docFrequencies: Record<string, number>
-    totalFieldLengths: Record<string, number>
-  }> = []
-
-  for (const result of results) {
+  const answered: Array<[string, NodeStats]> = []
+  for (const [at, result] of results.entries()) {
     if (result.status === 'fulfilled' && result.value !== null) {
-      validStats.push(result.value)
+      const [nodeId, partitionIds] = nodeEntries[at]
+      answered.push([nodeId, { partitionIds, result: result.value }])
     }
   }
 
-  if (validStats.length === 0) {
+  if (answered.length === 0) {
     throw new NarsilError(ErrorCodes.QUERY_NODE_TIMEOUT, 'All partition stats requests failed during DFS pre-pass', {
       nodeCount: nodeEntries.length,
     })
   }
 
-  return mergePartitionStats(validStats)
+  const leftOut = await countLeftOutTokens(indexName, answered, deps, config)
+  return mergePartitionStats([...answered.map(([, { result }]) => result), ...leftOut])
 }
 
 export async function fanOutSearch(
