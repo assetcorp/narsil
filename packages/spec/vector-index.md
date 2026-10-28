@@ -75,7 +75,7 @@ MaintenanceStatus {
 
 See [Filtered Search](#filtered-search) for what `filterDocIds` does, and [algorithms.md](algorithms.md) for the metric definitions.
 
-`efSearch` sets the HNSW exploration factor. When `efSearch` is absent, an implementation must use its own default. The recommended default is maximum(50, k + margin), where the margin is 50 below 768 dimensions, 75 from 768 to 1,023 dimensions, and 0 from 1,024 dimensions. A higher value raises recall and lengthens the search.
+`efSearch` sets the HNSW exploration factor. When `efSearch` is absent, an implementation must use its own default. The recommended default is maximum(50, w + margin), where w is the search's `rescoreWindow` where it sets one and k otherwise, and the margin is 50 below 768 dimensions, 75 from 768 to 1,023 dimensions, and 0 from 1,024 dimensions. A higher value raises recall and lengthens the search.
 
 `oversample` sets how deep a [quantised](#quantisation) index re-scores against full-precision vectors:
 
@@ -89,7 +89,7 @@ return the best k of rescored, where the search sets no rescoreWindow or sets mi
 return the best k of rescored and the remaining candidates otherwise
 ```
 
-An implementation must accept an `oversample` that is a finite number of at least 1, and it must reject any other value with `CONFIG_INVALID`. It must ignore `oversample` on an index whose quantisation is `none`. When `oversample` is absent, an implementation must use its own `defaultDepth(k)`, which must be at least k. The recommended default is maximum(c * k, ceiling(a * k + b * sqrt(k))), where c is 3 for `osq1` and `osq2` and 1 for `osq4` and `osq8`, and a and b depend on the quantisation and the dimensions:
+An implementation must accept an `oversample` that is a finite number of at least 1, and it must reject any other value with `CONFIG_INVALID`. It must ignore `oversample` on an index whose quantisation is `none`. When `oversample` is absent, an implementation must use its own `defaultDepth(n)`, which must be at least n. The recommended default is maximum(c * n, ceiling(a * n + b * sqrt(n))), where c is 3 for `osq1` and `osq2` and 1 for `osq4` and `osq8`, and a and b depend on the quantisation and the dimensions:
 
 | Quantisation | Below 768 dimensions | 768 to 1,023 dimensions | From 1,024 dimensions |
 | ------------ | -------------------- | ----------------------- | --------------------- |
