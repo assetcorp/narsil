@@ -81,7 +81,6 @@ describe('DataNodeLifecycle bootstrap completion reporting and validation', () =
 
   describe('bootstrap completion reporting to controller', () => {
     it('controller transitions INITIALISING to ACTIVE on bootstrap_complete', async () => {
-      await coordinator.registerNode(makeNode('data-1'))
       await coordinator.registerNode(makeNode('primary-node'))
 
       const assignments = new Map<number, PartitionAssignment>()
@@ -120,7 +119,6 @@ describe('DataNodeLifecycle bootstrap completion reporting and validation', () =
     })
 
     it('does not report bootstrap_complete when partition sync returns false', async () => {
-      await coordinator.registerNode(makeNode('data-1'))
       await coordinator.registerNode(makeNode('primary-node'))
 
       const assignments = new Map<number, PartitionAssignment>()
