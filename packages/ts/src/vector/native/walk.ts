@@ -20,6 +20,7 @@ export function nativeTraverse(
   query: Float32Array,
   candidateCount: number,
   metric: VectorMetric,
+  filter: OrdinalFilter | undefined,
   candidates: DistanceList,
 ): boolean {
   const store = field.store
@@ -35,6 +36,7 @@ export function nativeTraverse(
       state.locks.threadSlot,
       store.ordinals,
       store.distances,
+      filter === undefined ? null : filter.bits,
     )
   } catch (error) {
     stopUsingTheNativeSearchCore(error)
@@ -58,7 +60,7 @@ export function nativeRescoredHits(
   reserveOrdinals(store, nearest)
   const ordinals = store.ordinals
   let kept = 0
-  for (let i = 0; i < nearest; i++) {
+  for (let i = 0; i < candidates.size && kept < nearest; i++) {
     const ord = candidates.ords[i]
     if (filter && !ordinalFilterHas(filter, ord)) continue
     ordinals[kept++] = ord

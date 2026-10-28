@@ -1,4 +1,5 @@
 import type { VectorMetric } from '../brute-force'
+import { type OrdinalFilter, ordinalFilterHas } from '../ordinal-filter'
 import { layerArray, layerBase, noteUnlinked, readNeighbors, writeNeighbors } from './adjacency'
 import { FARTHEST_REJECTED_LINKS_KEPT } from './constants'
 import { writeKeepingLastLinks } from './last-links'
@@ -42,6 +43,7 @@ export function searchLayer(
   excludeTombstones: boolean,
   distFn: ((ord: number) => number) | undefined,
   results: DistanceList,
+  accepted?: OrdinalFilter,
 ): void {
   const getDistance = distFn ?? ((ord: number) => queryDistanceByOrd(state, qVec, qMag, ord, metric))
   const workspace = state.workspace
@@ -64,6 +66,7 @@ export function searchLayer(
     if (dist === Number.POSITIVE_INFINITY) continue
     pushHeap(frontier, epOrd, dist)
     if (excludeTombstones && isTombstoned(state, epOrd)) continue
+    if (accepted && !ordinalFilterHas(accepted, epOrd)) continue
     pushHeap(found, epOrd, dist)
     if (found.size > ef) {
       popHeap(found)
@@ -90,6 +93,7 @@ export function searchLayer(
       if (dist < furthestDist || found.size < ef) {
         pushHeap(frontier, neighborOrd, dist)
         if (excludeTombstones && isTombstoned(state, neighborOrd)) continue
+        if (accepted && !ordinalFilterHas(accepted, neighborOrd)) continue
         pushHeap(found, neighborOrd, dist)
         if (found.size > ef) {
           popHeap(found)

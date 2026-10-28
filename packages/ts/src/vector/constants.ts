@@ -19,6 +19,8 @@ export const VECTOR_INSERT_TIMEOUT_MS = 600_000
 
 export const NATIVE_ATTACH_RETRY_MS = 1_000
 
+export const MAX_RENUMBERED_SEARCH_ATTEMPTS = 3
+
 export const LOCK_SPIN_ITERATIONS = 128
 export const LOCK_WAIT_SLICE_MS = 20
 export const GRAPH_LOCK_WAIT_SLICE_MS = 1

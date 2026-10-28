@@ -275,7 +275,7 @@ export function createVectorIndex(
     options: VectorSearchOptions,
   ): Promise<VectorSearchOutcome> {
     handOverBuildTurns(state)
-    const confined = options.filterDocIds !== undefined || options.filterPartitions !== undefined
+    const confined = options.filterSubsets !== undefined || options.filterPartitions !== undefined
     let filter = filterForOptions(state, options)
     if (filter !== undefined) {
       if (state.hnsw) {

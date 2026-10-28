@@ -93,6 +93,7 @@ typedef struct {
   uint32_t candidate_limit;
   int32_t layer;
   int excludes_tombstones;
+  narsil_ordinal_set accepted;
 } layer_search;
 
 typedef struct {

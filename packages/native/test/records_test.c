@@ -82,7 +82,7 @@ static int nearest_is_itself(narsil_workspace *workspace, test_fixture *fixture,
   double distances[CANDIDATES];
   narsil_candidates found = {ordinals, distances, CANDIDATES, 0};
   const float *query = fixture->vectors + ((size_t)node * fixture_vector_stride_floats());
-  narsil_search_request request = {query, NARSIL_METRIC_EUCLIDEAN, CANDIDATES, 0};
+  narsil_search_request request = {query, NARSIL_METRIC_EUCLIDEAN, CANDIDATES, 0, {NULL, 0}};
   if (narsil_search(workspace, &fixture->graph, &fixture->store, &request, &found) != NARSIL_OK) { return 0; }
   for (uint32_t i = 0; i < found.count && i < 3; i++) {
     if (found.ordinals[i] == node) { return 1; }

@@ -336,11 +336,11 @@ selectivity = size(filterDocIds) / totalVectors
 if selectivity < filterThreshold (0.03 by default):
   scan the vectors in filterDocIds by brute force
 else:
-  traverse the graph with the filter applied during the walk, and
-  raise efSearch to make up for the lost connectivity:
-    ef = maximum(efSearch, ceiling(k / maximum(selectivity, 0.01)))
-    ef = minimum(ef, totalVectors)
+  traverse the graph with the filter applied on the base layer,
+  as Filtered Traversal in vector-index.md defines
 ```
+
+[Filtered Traversal](vector-index.md#filtered-traversal) defines how the walk applies the filter and when it stops.
 
 At 3% selectivity on an index of 100,000 vectors, the filter admits 3,000 vectors, which a brute-force pass scores directly. A walk that fails the filter on 97% of the nodes that it reaches costs more, because it pays for the walk on top of the same comparisons.
 
