@@ -90,7 +90,7 @@ An implementation must accept an `oversample` that is a finite number of at leas
 
 | Quantisation | Below 768 dimensions | 768 to 1,023 dimensions | From 1,024 dimensions |
 | ------------ | -------------------- | ----------------------- | --------------------- |
-| `osq1`       | a = 2.7, b = 73      | a = 2.2, b = 27         | a = 3, b = 0          |
+| `osq1`       | a = 3.23, b = 55.9   | a = 2.2, b = 27         | a = 3, b = 0          |
 | `osq2`       | a = 2.6, b = 17      | a = 1, b = 16           | a = 3, b = 0          |
 | `osq4`       | a = 5, b = 0         | a = 5, b = 0            | a = 2, b = 0          |
 | `osq8`       | a = 2, b = 0         | a = 2, b = 0            | a = 2, b = 0          |
