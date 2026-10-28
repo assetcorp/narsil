@@ -49,6 +49,7 @@ export interface NativeCore {
     threadSlot: number,
     ordinals: Int32Array,
     distances: Float64Array,
+    accepted: Uint8Array | null,
   ): number
   score(
     store: NativeStoreHandle,

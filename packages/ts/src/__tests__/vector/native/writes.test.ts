@@ -4,6 +4,7 @@ import { GRAPH_LOCK } from '../../../vector/hnsw/handles'
 import { setNativeSearchCoreEnabled } from '../../../vector/native/backend'
 import { loadNativeCore } from '../../../vector/native/loader'
 import type { VectorIndex } from '../../../vector/vector-index'
+import { filterSubsetsForDocIds } from '../filter-subsets'
 import { fieldView } from '../vector-index/field-view'
 import {
   binaryBuilt,
@@ -130,7 +131,11 @@ describe.skipIf(!binaryBuilt)('graph writes through the native search core', () 
     const searches = vi.spyOn(core, 'search')
     const allowed = new Set([docIdOf(3), docIdOf(77), docIdOf(410)])
     const [query] = clusteredVectors(1, 5)
-    const options = { metric: 'dotProduct' as const, minSimilarity: Number.NEGATIVE_INFINITY, filterDocIds: allowed }
+    const options = {
+      metric: 'dotProduct' as const,
+      minSimilarity: Number.NEGATIVE_INFINITY,
+      filterSubsets: filterSubsetsForDocIds(allowed),
+    }
     try {
       const fromNativeCore = index.search(query, 3, options)
       expect(scores).toHaveBeenCalledTimes(1)

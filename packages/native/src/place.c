@@ -115,7 +115,7 @@ static narsil_status select_every_layer(const walk_context *context, const narsi
   use_single_entry(workspace, load_word(context->graph->header, NARSIL_GRAPH_WORD_ENTRY_POINT));
   narsil_status status = descend_layers(context, span.graph_top, request->top_layer + 1, &candidates);
   for (int32_t layer = span.link_top; layer >= 0 && status == NARSIL_OK; layer--) {
-    layer_search search = {ef_construction, layer, 0};
+    layer_search search = {ef_construction, layer, 0, {NULL, 0}};
     status = search_layer(context, search, &candidates);
     if (status != NARSIL_OK) { break; }
     if (candidates.count > 0) {

@@ -38,12 +38,20 @@ static int claim_unvisited_node(const walk_context *context, int32_t ordinal) {
   return node_top_layer(context, ordinal) >= 0;
 }
 
+static int accepts(narsil_ordinal_set accepted, int32_t ordinal) {
+  if (accepted.bits == NULL) { return 1; }
+  uint32_t index = (uint32_t)ordinal / BITS_PER_BYTE;
+  if (index >= accepted.bytes) { return 0; }
+  return (accepted.bits[index] & (1U << ((uint32_t)ordinal % BITS_PER_BYTE))) != 0;
+}
+
 static narsil_status keep_candidate(const walk_context *context, layer_search search, scored_node node,
                                     double *furthest) {
   narsil_workspace *workspace = context->workspace;
   narsil_status status = heap_push(&workspace->frontier, node);
   if (status != NARSIL_OK) { return status; }
   if (search.excludes_tombstones && is_tombstoned(context, node.ordinal)) { return NARSIL_OK; }
+  if (!accepts(search.accepted, node.ordinal)) { return NARSIL_OK; }
   status = heap_push(&workspace->found, node);
   if (status != NARSIL_OK) { return status; }
   if (workspace->found.size > search.candidate_limit) { heap_pop(&workspace->found); }
@@ -186,7 +194,7 @@ void use_single_entry(narsil_workspace *workspace, int32_t ordinal) {
 
 narsil_status descend_layers(const walk_context *context, int32_t first, int32_t last, narsil_candidates *out) {
   for (int32_t layer = first; layer >= last; layer--) {
-    layer_search search = {1, layer, 0};
+    layer_search search = {1, layer, 0, {NULL, 0}};
     narsil_status status = search_layer(context, search, out);
     if (status != NARSIL_OK) { return status; }
     if (out->count > 0) { use_single_entry(context->workspace, out->ordinals[0]); }
@@ -215,7 +223,7 @@ narsil_status narsil_search(narsil_workspace *workspace, const narsil_graph *gra
       use_single_entry(workspace, entry);
       status = descend_layers(&context, load_word(graph->header, NARSIL_GRAPH_WORD_TOP_LAYER), 1, nearest);
     }
-    layer_search base = {request->candidate_count, 0, 1};
+    layer_search base = {request->candidate_count, 0, 1, request->accepted};
     if (status == NARSIL_OK) { status = search_layer(&context, base, nearest); }
   }
   graph_unlock_shared(graph, request->thread_slot);
