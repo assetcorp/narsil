@@ -172,10 +172,11 @@ describe('a crashed worker is replaced', () => {
         ...emptyOrchestratorState().executor,
         getManager: () =>
           ({
+            indexName: 'prose',
+            language: { name: 'english' },
             partitionCount: 1,
             countDocuments: () => 0,
             getPartition: () => ({ count: () => 0 }),
-            serializePartition: (partitionId: number) => ({ partitionId }),
           }) as unknown as PartitionManager,
       },
     })

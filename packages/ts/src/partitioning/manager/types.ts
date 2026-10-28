@@ -3,6 +3,7 @@ import type { ComparableSortValue, SortMode } from '../../core/ordering'
 import type { PartitionIndex, PartitionInsertOptions } from '../../core/partition'
 import type { LiveTailFreezer } from '../../core/partition/composite/compaction'
 import type { FrozenSegment } from '../../core/partition/frozen'
+import type { RemovedSpellings, TextAnalysis } from '../../core/partition/frozen/surface-slot'
 import type { PartialWordAnalysis } from '../../core/partition/partial-words/spellings'
 import type { SegmentPayload } from '../../core/partition/segment-payload'
 import type { ResolvedProjection } from '../../core/projection'
@@ -21,6 +22,7 @@ export interface PartitionManager {
   readonly config: IndexConfig
   readonly analysis: ResolvedAnalysis
   readonly partialWordAnalysis: PartialWordAnalysis | null
+  readonly textAnalysis: TextAnalysis
 
   getPartition(partitionId: number): PartitionIndex
   partitionAt(index: number): PartitionIndex | undefined
@@ -36,12 +38,19 @@ export interface PartitionManager {
   assertPartitionCapacity(partitionId: number, pendingWrites?: number): void
   routePartition(docId: string): number
   insert(docId: string, document: AnyDocument, options?: PartitionInsertOptions): void
-  remove(docId: string): void
+  removedSpellingsOf(docId: string): RemovedSpellings | undefined
+  remove(docId: string, removedSpellings?: RemovedSpellings): void
   beginBatchRemove(): void
   endBatchRemove(): void
-  update(docId: string, document: AnyDocument, options?: PartitionInsertOptions): void
+  update(
+    docId: string,
+    document: AnyDocument,
+    options?: PartitionInsertOptions,
+    removedSpellings?: RemovedSpellings,
+  ): void
   get(docId: string, projection?: ResolvedProjection): AnyDocument | undefined
   getRef(docId: string): AnyDocument | undefined
+  fieldValues(docId: string, fieldPaths: readonly string[]): unknown[] | undefined
   sortValues(
     docId: string,
     fields: readonly string[],
@@ -56,7 +65,12 @@ export interface PartitionManager {
   deserializePartition(partitionId: number, data: SerializablePartition): void
   mergeSegment(partitionId: number, payload: SegmentPayload, documents: ReadonlyArray<AnyDocument>): void
   attachFrozenSegment(partitionId: number, segment: FrozenSegment): void
-  swapFrozenSegments(partitionId: number, dropSegmentIds: readonly string[], replacement: FrozenSegment): void
+  swapFrozenSegments(
+    partitionId: number,
+    dropSegmentIds: readonly string[],
+    replacement: FrozenSegment,
+    removedSpellings?: ReadonlyMap<string, RemovedSpellings>,
+  ): Map<string, RemovedSpellings>
   freezeLiveTail(partitionId: number, freeze: LiveTailFreezer): FrozenSegment | null
   replaceLiveTail(partitionId: number, segment: FrozenSegment): void
   getAggregateStats(): {

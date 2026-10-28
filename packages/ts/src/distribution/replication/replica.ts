@@ -1,4 +1,5 @@
 import { decode } from '@msgpack/msgpack'
+import type { RemovedSpellings } from '../../core/partition/frozen/surface-slot'
 import { getNestedValue } from '../../core/partition/utils'
 import { insertDocumentVectors, prepareDocumentVectors, removeDocumentVectors } from '../../engine/vector-coordinator'
 import { ErrorCodes } from '../../errors'
@@ -62,6 +63,7 @@ export function applyDeleteEntry(
   entry: ReplicationLogEntry,
   manager: PartitionManager,
   vecIndexes: Map<string, VectorIndex>,
+  removedSpellings?: RemovedSpellings,
 ): void {
   removeDocumentVectors(entry.documentId, vecIndexes)
 
@@ -69,7 +71,7 @@ export function applyDeleteEntry(
     return
   }
 
-  manager.remove(entry.documentId)
+  manager.remove(entry.documentId, removedSpellings)
 }
 
 export function restoreVectorFields(document: Record<string, unknown>, vectorFieldPaths: Set<string>): void {

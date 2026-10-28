@@ -1,3 +1,4 @@
+import { ErrorCodes, NarsilError } from '../errors'
 import { PROTOTYPE_POLLUTION_KEYS } from '../schema/validator/shared'
 import type { AnyDocument } from '../types/schema'
 import type { DocumentProjection } from '../types/search'
@@ -6,6 +7,26 @@ export type ResolvedProjection =
   | { kind: 'full' }
   | { kind: 'none' }
   | { kind: 'fields'; include: string[][] | null; exclude: string[][] }
+
+function requireFieldPathList(paths: unknown, option: 'include' | 'exclude'): void {
+  if (paths === undefined) return
+  if (!Array.isArray(paths)) {
+    throw new NarsilError(
+      ErrorCodes.SEARCH_INVALID_FIELD,
+      `The "document.${option}" option takes an array of field paths`,
+      { option: `document.${option}`, received: paths === null ? 'null' : typeof paths },
+    )
+  }
+  for (let position = 0; position < paths.length; position++) {
+    const entry: unknown = paths[position]
+    if (typeof entry === 'string') continue
+    throw new NarsilError(
+      ErrorCodes.SEARCH_INVALID_FIELD,
+      `The "document.${option}" option takes field paths as strings, and entry ${position} is not a string`,
+      { option: `document.${option}`, position, received: entry === null ? 'null' : typeof entry },
+    )
+  }
+}
 
 function splitPaths(paths: string[] | undefined): string[][] {
   if (!paths) return []
@@ -35,7 +56,15 @@ function covers(outer: string[], inner: string[]): boolean {
   return true
 }
 
-function readPath(source: Readonly<Record<string, unknown>>, path: string[]): { found: boolean; value: unknown } {
+export interface ProjectedPathRead {
+  found: boolean
+  value: unknown
+}
+
+export function readProjectedPath(
+  source: Readonly<Record<string, unknown>>,
+  path: readonly string[],
+): ProjectedPathRead {
   let current: unknown = source
   for (const segment of path) {
     if (typeof current !== 'object' || current === null || Array.isArray(current))
@@ -86,7 +115,12 @@ function cloneExcept(value: unknown, path: string[], exclude: string[][]): unkno
   for (const key of Object.keys(source)) {
     const childPath = [...path, key]
     if (exclude.some(excluded => covers(excluded, childPath))) continue
-    kept[key] = cloneExcept(source[key], childPath, exclude)
+    Object.defineProperty(kept, key, {
+      value: cloneExcept(source[key], childPath, exclude),
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    })
   }
   return kept
 }
@@ -102,6 +136,8 @@ export function resolveProjection(projection: DocumentProjection | undefined): R
   if (projection === undefined || projection === true) return { kind: 'full' }
   if (projection === false) return { kind: 'none' }
   if (typeof projection !== 'object' || projection === null) return { kind: 'full' }
+  requireFieldPathList(projection.include, 'include')
+  requireFieldPathList(projection.exclude, 'exclude')
   const askedInclude = Array.isArray(projection.include) && projection.include.length > 0
   const askedExclude = Array.isArray(projection.exclude) && projection.exclude.length > 0
   if (!askedInclude && !askedExclude) return { kind: 'full' }
@@ -147,13 +183,20 @@ export function cloneProjected(
   if (projection === undefined || projection.kind === 'full') return structuredClone(document) as AnyDocument
   if (projection.kind === 'none') return {}
   if (projection.include === null) return cloneExcept(document, [], projection.exclude) as AnyDocument
+  return projectIncludedPaths(projection.include, projection.exclude, path => readProjectedPath(document, path))
+}
 
+export function projectIncludedPaths(
+  include: readonly string[][],
+  exclude: string[][],
+  read: (path: string[]) => ProjectedPathRead,
+): AnyDocument {
   const projected: Record<string, unknown> = {}
-  for (const path of projection.include) {
-    if (projection.exclude.some(excluded => covers(excluded, path))) continue
-    const { found, value } = readPath(document, path)
+  for (const path of include) {
+    if (exclude.some(excluded => covers(excluded, path))) continue
+    const { found, value } = read(path)
     if (!found) continue
-    writePath(projected, path, cloneExcept(value, path, projection.exclude))
+    writePath(projected, path, cloneExcept(value, path, exclude))
   }
   return projected as AnyDocument
 }
@@ -177,7 +220,7 @@ export function applyProjection(document: AnyDocument, projection: ResolvedProje
   if (projection.include) {
     projected = {}
     for (const path of projection.include) {
-      const { found, value } = readPath(document, path)
+      const { found, value } = readProjectedPath(document, path)
       if (found) writePath(projected, path, value)
     }
   } else {

@@ -116,10 +116,11 @@ export function recordingHarness(
       shutdown: () => Promise.resolve(),
       getManager: () =>
         ({
+          indexName: 'prose',
+          language: { name: 'english' },
           partitionCount,
           countDocuments: () => documentCount,
           getPartition: () => ({ count: () => 0 }),
-          serializePartition: (partitionId: number) => ({ partitionId }),
         }) as unknown as PartitionManager,
       queryContextOf: () => undefined,
       holdsVectorField: () => false,

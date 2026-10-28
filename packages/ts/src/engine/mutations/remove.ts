@@ -1,3 +1,4 @@
+import type { RemovedSpellings } from '../../core/partition/frozen/surface-slot'
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { BatchResult } from '../../types/results'
 import type { AnyDocument, WriteOptions } from '../../types/schema'
@@ -13,6 +14,7 @@ interface PreparedRemoval {
   docId: string
   document: null
   restoreDoc: AnyDocument | undefined
+  removedSpellings: RemovedSpellings | undefined
   buffered: boolean
 }
 
@@ -30,17 +32,19 @@ async function prepareRemoval(ctx: MutationContext, indexName: string, docId: st
     throw new NarsilError(ErrorCodes.DOC_NOT_FOUND, `Document "${docId}" not found in any partition`, { docId })
   }
 
-  const restoreRef = ctx.durability && !rebalancing ? ctx.requireManager(indexName).getRef(docId) : undefined
+  const manager = ctx.requireManager(indexName)
+  const restoreRef = ctx.durability && !rebalancing ? manager.getRef(docId) : undefined
   return {
     docId,
     document: null,
     restoreDoc: restoreRef ? (structuredClone(restoreRef) as AnyDocument) : undefined,
+    removedSpellings: manager.removedSpellingsOf(docId),
     buffered: false,
   }
 }
 
 function applyOfRemoval(ctx: MutationContext, indexName: string, prepared: PreparedRemoval): () => Promise<void> {
-  const { docId } = prepared
+  const { docId, removedSpellings } = prepared
   return async (): Promise<void> => {
     if (ctx.isRebalancing(indexName)) {
       const bufferedState = ctx.bufferedDocState(indexName, docId)
@@ -54,12 +58,13 @@ function applyOfRemoval(ctx: MutationContext, indexName: string, prepared: Prepa
       prepared.buffered = true
       return
     }
-    await ctx.executor.execute({ type: 'remove', indexName, docId, requestId: docId })
+    await ctx.executor.execute({ type: 'remove', indexName, docId, requestId: docId, removedSpellings })
     removeDocumentVectors(docId, ctx.requireManager(indexName).getVectorIndexes())
   }
 }
 
-async function settleRemoval(ctx: MutationContext, indexName: string, docId: string): Promise<void> {
+async function settleRemoval(ctx: MutationContext, indexName: string, prepared: PreparedRemoval): Promise<void> {
+  const { docId, removedSpellings } = prepared
   try {
     await ctx.pluginRegistry.runHook('afterRemove', { indexName, docId })
   } catch (err) {
@@ -71,6 +76,7 @@ async function settleRemoval(ctx: MutationContext, indexName: string, docId: str
     indexName,
     docId,
     requestId: `replicate-remove-${docId}`,
+    removedSpellings,
   })
 }
 
@@ -96,7 +102,7 @@ export async function removeDocument(
     await apply()
   }
 
-  if (!prepared.buffered) await settleRemoval(ctx, indexName, docId)
+  if (!prepared.buffered) await settleRemoval(ctx, indexName, prepared)
   if (options?.wait === true) await awaitWriteVisibility(ctx, indexName)
 }
 
@@ -142,7 +148,7 @@ export async function removeDocumentBatch(
           failed.push({ docId: removal.docId, error: asRemoveError(error) })
           continue
         }
-        if (!removal.buffered) await settleRemoval(ctx, indexName, removal.docId)
+        if (!removal.buffered) await settleRemoval(ctx, indexName, removal)
         succeeded.push(removal.docId)
       }
 

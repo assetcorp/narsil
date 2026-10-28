@@ -144,22 +144,28 @@ async function compactPartitionSegments(
   const mainCanMerge = composite !== null && mainHoldsAll(composite, segmentIds)
   let snapshot = await compactOnWorker(state, indexName, partitionId, segmentIds)
   if (snapshot === null && mainCanMerge && composite !== null) {
-    snapshot = mergeFrozenSegments(composite.frozenSegmentsById(segmentIds), manager.partialWordAnalysis)
+    snapshot = mergeFrozenSegments(
+      composite.frozenSegmentsById(segmentIds),
+      manager.partialWordAnalysis,
+      manager.textAnalysis,
+    )
   }
   if (snapshot === null) {
     if (!mainCanMerge) forgetLedgerSegments(state, indexName, partitionId, segmentIds)
     return false
   }
 
-  if (mainCanMerge && composite !== null) {
-    composite.swapFrozenSegments(segmentIds, createSharedFrozenSegment(snapshot))
-  }
+  const removedSpellings =
+    mainCanMerge && composite !== null
+      ? composite.swapFrozenSegments(segmentIds, createSharedFrozenSegment(snapshot))
+      : undefined
   await replicateToWorkers(state, {
     type: 'swapSegments',
     indexName,
     partitionId,
     dropSegmentIds: [...segmentIds],
     snapshot,
+    removedSpellings,
     requestId: createRequestId(),
   })
   return true

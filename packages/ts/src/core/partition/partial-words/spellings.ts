@@ -1,6 +1,6 @@
 import type { LanguageModule } from '../../../types/language'
 import type { AnyDocument } from '../../../types/schema'
-import { visitTokens } from '../../tokenizer/tokenize'
+import { visitSurfaceSpellings, visitTokens } from '../../tokenizer/tokenize'
 import { getNestedValue, type PartitionInsertOptions, tokenizeOptions } from '../utils'
 import { PARTIAL_WORD_RUN_CODE_POINTS } from './constants'
 
@@ -58,21 +58,40 @@ function textsOf(value: unknown): readonly string[] {
   return value.filter((element): element is string => typeof element === 'string')
 }
 
+function visitFieldTexts(document: AnyDocument, fields: readonly string[], visit: (text: string) => void): void {
+  for (const field of fields) {
+    for (const text of textsOf(getNestedValue(document as Record<string, unknown>, field))) visit(text)
+  }
+}
+
+export function visitDocumentSpellings(
+  document: AnyDocument,
+  analysis: PartialWordAnalysis,
+  visit: (token: string, spelling: string) => void,
+): void {
+  const tokenizing = { ...tokenizeOptions(analysis.options), collectSurfaces: true }
+  const visitOccurrence = (token: string, _position: number, surface: string | undefined): void => {
+    visit(token, surface ?? token)
+  }
+  visitFieldTexts(document, analysis.fields, text => visitTokens(text, analysis.language, tokenizing, visitOccurrence))
+}
+
+export function visitDocumentSurfaceSpellings(
+  document: AnyDocument,
+  analysis: PartialWordAnalysis,
+  visit: (spelling: string) => void,
+): void {
+  if (analysis.options?.customTokenizer !== undefined) return
+  visitFieldTexts(document, analysis.fields, text => visitSurfaceSpellings(text, analysis.language, visit))
+}
+
 export function countDocumentSpellings(
   counts: SpellingCounts,
   document: AnyDocument,
   analysis: PartialWordAnalysis,
   direction: 1 | -1,
 ): void {
-  const tokenizing = { ...tokenizeOptions(analysis.options), collectSurfaces: true }
-  const countOccurrence = (token: string, _position: number, surface: string | undefined): void => {
-    countSpelling(counts, token, surface ?? token, direction)
-  }
-  for (const field of analysis.fields) {
-    for (const text of textsOf(getNestedValue(document as Record<string, unknown>, field))) {
-      visitTokens(text, analysis.language, tokenizing, countOccurrence)
-    }
-  }
+  visitDocumentSpellings(document, analysis, (token, spelling) => countSpelling(counts, token, spelling, direction))
 }
 
 export function spellingCountsOf(documents: Iterable<AnyDocument>, analysis: PartialWordAnalysis): SpellingCounts {
