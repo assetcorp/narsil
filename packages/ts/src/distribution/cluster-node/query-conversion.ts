@@ -228,6 +228,7 @@ function convertLocalVectorToWire(vector: QueryParams['vector']): WireVectorQuer
     metric: vector.metric ?? null,
     efSearch: vector.efSearch ?? null,
     oversample: vector.oversample ?? null,
+    rescoreWindow: null,
   }
 }
 

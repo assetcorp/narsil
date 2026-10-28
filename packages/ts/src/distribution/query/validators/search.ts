@@ -39,6 +39,7 @@ import {
   validateOversampleParam,
   validatePinnedParam,
   validatePrefixLengthParam,
+  validateRescoreWindowParam,
   validateTermMatchParam,
   validateVectorMetricParam,
 } from './search-options'
@@ -108,6 +109,9 @@ function validateVectorParams(value: unknown): void {
   }
   if (value.oversample !== null) {
     validateOversampleParam(value.oversample)
+  }
+  if (value.rescoreWindow !== null) {
+    validateRescoreWindowParam(value.rescoreWindow)
   }
 }
 

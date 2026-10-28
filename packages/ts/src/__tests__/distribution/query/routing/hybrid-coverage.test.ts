@@ -68,6 +68,7 @@ describe('coverage for a hybrid query whose two legs lose different partitions',
         metric: null,
         efSearch: null,
         oversample: null,
+        rescoreWindow: null,
       },
       hybrid: { strategy: 'rrf', k: 60, alpha: 0.5, depth: null },
     })

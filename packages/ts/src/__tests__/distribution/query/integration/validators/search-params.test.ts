@@ -222,6 +222,7 @@ describe('validateSearchPayload params.sort', () => {
             metric: null,
             efSearch: null,
             oversample: null,
+            rescoreWindow: null,
           },
         }),
       ),

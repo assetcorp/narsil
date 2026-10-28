@@ -211,6 +211,21 @@ describe('hybrid paging to a fixed depth on a cluster', () => {
       expect(payload.params.hybrid).toBeNull()
       expect([payload.params.limit, payload.params.offset, payload.params.searchAfter]).toEqual([30, 0, null])
     }
+    const windows = served.flatMap(payload =>
+      payload.params.vector === null ? [] : [(payload.params.vector as { rescoreWindow: unknown }).rescoreWindow],
+    )
+    expect(windows.length).toBeGreaterThan(0)
+    expect(new Set(windows).size).toBe(1)
+    expect(windows[0]).toEqual(expect.any(Number))
+    expect(windows[0]).toBeGreaterThanOrEqual(1)
+    expect(windows[0]).toBeLessThan(30)
+
+    served.length = 0
+    await router.query(INDEX, { vector, limit: 30 })
+    expect(served.length).toBeGreaterThan(0)
+    expect(served.map(payload => (payload.params.vector as { rescoreWindow: unknown }).rescoreWindow)).toEqual(
+      served.map(() => null),
+    )
   }, 30_000)
 
   it('refuses a cursor written at depth 20 when it comes back at depth 30', async () => {

@@ -1,4 +1,5 @@
 import { ErrorCodes, NarsilError } from '../../errors'
+import { HYBRID_RESCORE_WINDOW } from '../../search/constants'
 import { decodePageCursor } from '../../search/cursor'
 import { requireWithinHybridDepth, resolveHybridFusion } from '../../search/fusion'
 import { pageByPosition } from '../../search/position-page'
@@ -72,6 +73,7 @@ export async function executeHybridQuery(
   const textParams: WireQueryParams = { ...legParams, vector: null }
   const vectorParams: WireQueryParams = {
     ...legParams,
+    vector: legParams.vector === null ? null : { ...legParams.vector, rescoreWindow: HYBRID_RESCORE_WINDOW },
     term: null,
     group: null,
     facets: null,

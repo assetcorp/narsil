@@ -40,6 +40,7 @@ export interface GraphSearchOptions {
   filter?: OrdinalFilter
   efSearch?: number
   oversample?: number
+  rescoreWindow?: number
 }
 
 interface Traversal {
@@ -66,16 +67,17 @@ function traverse(
   const calibrated = activeQuantizer(state)
   const quantizer = calibrated === undefined || calibrated.size === 0 ? undefined : calibrated
   const useQuantized = quantizer !== undefined
+  const window = options.rescoreWindow ?? k
   const depth =
     quantizer === undefined
-      ? k
-      : Math.ceil(k * (options.oversample ?? defaultOversample(quantizer.bits, state.dimension)))
+      ? window
+      : Math.ceil(window * (options.oversample ?? defaultOversample(quantizer.bits, state.dimension)))
   let ef = Math.max(options.efSearch ?? DEFAULT_EF_SEARCH, depth)
 
   const filter = options.filter
   if (filter && filter.count < liveSize) {
     const selectivity = filter.count / liveSize
-    ef = Math.max(ef, Math.ceil(k / Math.max(selectivity, 0.01)))
+    ef = Math.max(ef, Math.ceil(window / Math.max(selectivity, 0.01)))
     ef = Math.min(ef, liveSize)
   }
 
@@ -187,56 +189,53 @@ function collectHits(
     return []
   }
 
-  const { candidates, depth, arenaQuery, qMag, native } = traverse(state, query, k, searchMetric, options)
-
-  if (depth > 0) {
-    if (native === null) {
-      return rescoreWithFullPrecision(
-        state,
-        candidates,
-        query,
-        qMag,
-        arenaQuery,
-        depth,
-        searchMetric,
-        minSimilarity,
-        options.filter,
-      )
-    }
-    const rescored = nativeRescoredHits(
-      native.store,
-      candidates,
-      query,
-      depth,
-      searchMetric,
-      minSimilarity,
-      options.filter,
-    )
-    if (rescored !== null) return rescored
-    const arena = state.store.prepareQueryArena(query)
-    return rescoreWithFullPrecision(
-      state,
-      candidates,
-      query,
-      arena ? arena.magnitude : magnitude(query),
-      arena,
-      depth,
-      searchMetric,
-      minSimilarity,
-      options.filter,
-    )
-  }
-
-  const hits: OrdinalHit[] = []
+  const traversal = traverse(state, query, k, searchMetric, options)
+  const { candidates } = traversal
   const filter = options.filter
-  for (let i = 0; i < candidates.size; i++) {
+  if (traversal.depth === 0) return estimatedHits(candidates, 0, searchMetric, minSimilarity, filter)
+
+  const rescored = rescoredHits(state, traversal, query, traversal.depth, searchMetric, minSimilarity, filter)
+  if (options.rescoreWindow === undefined || minSimilarity !== Number.NEGATIVE_INFINITY) return rescored
+  return rescored.concat(estimatedHits(candidates, traversal.depth, searchMetric, minSimilarity, filter))
+}
+
+function estimatedHits(
+  candidates: DistanceList,
+  from: number,
+  metric: VectorMetric,
+  minSimilarity: number,
+  filter: OrdinalFilter | undefined,
+): OrdinalHit[] {
+  const hits: OrdinalHit[] = []
+  for (let i = from; i < candidates.size; i++) {
     const ord = candidates.ords[i]
     if (filter && !ordinalFilterHas(filter, ord)) continue
-    const score = toScore(candidates.distances[i], searchMetric)
+    const score = toScore(candidates.distances[i], metric)
     if (score < minSimilarity) continue
     hits.push({ ord, score })
   }
   return hits
+}
+
+function rescoredHits(
+  state: HNSWSearchState,
+  traversal: Traversal,
+  query: Float32Array,
+  depth: number,
+  metric: VectorMetric,
+  minSimilarity: number,
+  filter: OrdinalFilter | undefined,
+): OrdinalHit[] {
+  const { candidates, native } = traversal
+  if (native !== null) {
+    const rescored = nativeRescoredHits(native.store, candidates, query, depth, metric, minSimilarity, filter)
+    if (rescored !== null) return rescored
+    const arena = state.store.prepareQueryArena(query)
+    const qMag = arena ? arena.magnitude : magnitude(query)
+    return rescoreWithFullPrecision(state, candidates, query, qMag, arena, depth, metric, minSimilarity, filter)
+  }
+  const { qMag, arenaQuery } = traversal
+  return rescoreWithFullPrecision(state, candidates, query, qMag, arenaQuery, depth, metric, minSimilarity, filter)
 }
 
 function rescoreWithFullPrecision(

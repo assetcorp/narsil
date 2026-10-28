@@ -135,7 +135,14 @@ describe('validateSearchPayload params.mode', () => {
 })
 
 describe('validateSearchPayload params.vector metric and efSearch', () => {
-  const vector = { field: 'embedding', value: [0.1], text: null, similarity: null, oversample: null }
+  const vector = {
+    field: 'embedding',
+    value: [0.1],
+    text: null,
+    similarity: null,
+    oversample: null,
+    rescoreWindow: null,
+  }
 
   it('accepts an oversample of at least 1 and rejects one below it or beyond the ceiling', () => {
     expect(() =>
@@ -153,6 +160,27 @@ describe('validateSearchPayload params.vector metric and efSearch', () => {
         makeSearchPayload({ vector: { ...vector, metric: null, efSearch: null, oversample: MAX_OVERSAMPLE + 1 } }),
       ),
     ).toThrow(/oversample/)
+  })
+
+  it('accepts a whole rescore window from 1 to 10,000 and rejects any other value or a missing member', () => {
+    const withWindow = (rescoreWindow: unknown) =>
+      makeSearchPayload({ vector: { ...vector, metric: null, efSearch: null, rescoreWindow: rescoreWindow as number } })
+    expect(() => validateSearchPayload(withWindow(10))).not.toThrow()
+    expect(() => validateSearchPayload(withWindow(10_000))).not.toThrow()
+    for (const bad of [0, -1, 2.5, 10_001, Number.NaN, '10']) {
+      expect(() => validateSearchPayload(withWindow(bad))).toThrow(/rescoreWindow/)
+    }
+    const { rescoreWindow: _dropped, ...missing } = vector
+    expect(() =>
+      validateSearchPayload(
+        makeSearchPayload({
+          vector: { ...missing, metric: null, efSearch: null } as unknown as typeof vector & {
+            metric: null
+            efSearch: null
+          },
+        }),
+      ),
+    ).toThrow(/rescoreWindow/)
   })
 
   it('accepts a known metric and a sane efSearch', () => {

@@ -30,6 +30,7 @@ export interface WireVectorQueryParams {
   metric: 'cosine' | 'dotProduct' | 'euclidean' | null
   efSearch: number | null
   oversample: number | null
+  rescoreWindow: number | null
 }
 
 export interface WireHybridConfig {
