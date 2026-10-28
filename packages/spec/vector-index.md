@@ -174,7 +174,7 @@ Fusion defines the order of hybrid results, which a sort would replace, so a hyb
    vector index.
 ```
 
-`d` is the depth field of the [searchAfter cursor](partitioning.md#searchafter-cursor), and 0 where the request sets no cursor. An implementation must fetch the same `depth` from both searches on every page of a request, so that every page fuses the same two lists and no page repeats or skips a document. It must raise `SEARCH_RESULT_WINDOW_EXCEEDED` where d + offset + limit exceeds `depth`, and state in the error message that the caller can raise `hybrid.depth`. Where more hits follow the page, the result must carry a cursor whose `d` counts the fused list up to and including the last hit on the page that is not a pinned placement.
+`d` is the depth field of the [searchAfter cursor](partitioning.md#searchafter-cursor), and 0 where the request sets no cursor. An implementation must fetch the same `depth` from both searches on every page of a request, so that every page fuses the same two lists and no page repeats or skips a document. It must return the hits from position d + offset up to `depth`, so the last page can hold fewer than `limit` hits, and it must raise `SEARCH_RESULT_WINDOW_EXCEEDED` where d + offset reaches `depth`, stating in the error message that the caller can raise `hybrid.depth`. Where more hits follow the page, the result must carry a cursor whose `d` counts the fused list up to and including the last hit on the page that is not a pinned placement.
 
 ### Fusion Strategies
 
