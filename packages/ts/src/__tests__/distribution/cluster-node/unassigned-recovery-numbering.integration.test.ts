@@ -63,18 +63,21 @@ describe('a partition recovered from unassigned taking a replica back', () => {
     return started
   }
 
-  async function waitForAllocation(
-    step: string,
-    settled: (table: AllocationTable) => boolean,
-  ): Promise<AllocationTable> {
-    for (let attempt = 0; attempt < 1200; attempt += 1) {
-      const table = await coordinator.getAllocation(INDEX_NAME)
-      if (table !== null && settled(table)) {
-        return table
-      }
-      await new Promise(resolve => setTimeout(resolve, 25))
+  async function waitForAllocation(settled: (table: AllocationTable) => boolean): Promise<AllocationTable> {
+    let settle: ((table: AllocationTable) => void) | undefined
+    const reached = new Promise<AllocationTable>(resolve => {
+      settle = resolve
+    })
+    const unwatch = await coordinator.watchAllocation(event => {
+      if (event.indexName === INDEX_NAME && settled(event.table)) settle?.(event.table)
+    })
+    try {
+      const current = await coordinator.getAllocation(INDEX_NAME)
+      if (current !== null && settled(current)) return current
+      return await reached
+    } finally {
+      unwatch()
     }
-    throw new Error(`the allocation never reached the shape for: ${step}`)
   }
 
   async function markEveryPartitionUnassigned(): Promise<void> {
@@ -106,9 +109,7 @@ describe('a partition recovered from unassigned taking a replica back', () => {
     holder = await startHolder()
     await holder.createIndex(INDEX_NAME, { schema: { title: 'string' } }, { partitionCount: 1, replicationFactor: 1 })
     replica = await startReplica()
-    await waitForAllocation('first admission', table =>
-      [...table.assignments.values()].every(e => e.inSyncSet.includes('node-b')),
-    )
+    await waitForAllocation(table => [...table.assignments.values()].every(e => e.inSyncSet.includes('node-b')))
 
     await replica.shutdown()
     replica = undefined
@@ -117,9 +118,7 @@ describe('a partition recovered from unassigned taking a replica back', () => {
     }
     replica = await startReplica()
 
-    const raised = await waitForAllocation('commit point raised', table =>
-      [...table.assignments.values()].every(e => e.commitPoint > 0),
-    )
+    const raised = await waitForAllocation(table => [...table.assignments.values()].every(e => e.commitPoint > 0))
     expect([...raised.assignments.values()].every(entry => entry.commitPoint >= WRITE_TOTAL)).toBe(true)
 
     await holder.checkpoint(INDEX_NAME)
@@ -129,12 +128,12 @@ describe('a partition recovered from unassigned taking a replica back', () => {
     await holder.shutdown()
 
     holder = await startHolder()
-    await waitForAllocation('holder promoted back', table =>
+    await waitForAllocation(table =>
       [...table.assignments.values()].every(entry => entry.state === 'ACTIVE' && entry.primary === 'node-a'),
     )
     replica = await startReplica()
 
-    const rejoined = await waitForAllocation('replica taken back', table =>
+    const rejoined = await waitForAllocation(table =>
       [...table.assignments.values()].every(entry => entry.inSyncSet.includes('node-b')),
     )
     expect([...rejoined.assignments.values()].every(entry => entry.inSyncSet.includes('node-b'))).toBe(true)

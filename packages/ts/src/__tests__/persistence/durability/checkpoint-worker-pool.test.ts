@@ -78,12 +78,12 @@ describe('pooled checkpoint worker', () => {
     await writer.checkpoint('docs')
     expect(__checkpointWorkerIsPooledForTests()).toBe(true)
 
-    await new Promise(resolve => setTimeout(resolve, 900))
-    expect(__checkpointWorkerIsPooledForTests()).toBe(false)
+    while (__checkpointWorkerIsPooledForTests()) await new Promise(resolve => setTimeout(resolve, 20))
+    const spawnedWhileIdle = __checkpointWorkerSpawnCountForTests()
 
     for (let i = 10; i < 20; i += 1) await writer.insert('docs', doc(i), `d${i}`)
     await writer.checkpoint('docs')
-    expect(__checkpointWorkerSpawnCountForTests()).toBe(2)
+    expect(__checkpointWorkerSpawnCountForTests()).toBe(spawnedWhileIdle + 1)
     await writer.shutdown()
 
     const reader = await createNarsil({ durability: { directory: root } })

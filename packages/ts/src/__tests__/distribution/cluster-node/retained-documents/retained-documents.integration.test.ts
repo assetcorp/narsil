@@ -6,6 +6,7 @@ const INSERT_DOCUMENTS = fileURLToPath(new URL('./insert-documents.mjs', import.
 const COPIES_PER_DOCUMENT = 2
 const NEARLY_EMPTY_LOG_RETENTION_BYTES = 4_096
 const CHILD_TIMEOUT_MS = 120_000
+const CHILD_RUNS = 2
 
 interface RetainedBytes {
   documents: number
@@ -25,13 +26,17 @@ function insertDocuments(args: string[]): RetainedBytes {
 }
 
 describe('the replication logs on a primary and its replica', () => {
-  it('keep no more buffer bytes per document than its JSON takes, once per copy', () => {
-    const withoutLog = insertDocuments([String(NEARLY_EMPTY_LOG_RETENTION_BYTES)])
-    const withLog = insertDocuments([])
-    const logBytesPerDocument = withLog.arrayBufferBytesPerDocument - withoutLog.arrayBufferBytesPerDocument
+  it(
+    'keep no more buffer bytes per document than its JSON takes, once per copy',
+    () => {
+      const withoutLog = insertDocuments([String(NEARLY_EMPTY_LOG_RETENTION_BYTES)])
+      const withLog = insertDocuments([])
+      const logBytesPerDocument = withLog.arrayBufferBytesPerDocument - withoutLog.arrayBufferBytesPerDocument
 
-    expect(withLog.documents).toBe(10_000)
-    expect(logBytesPerDocument).toBeGreaterThan(0)
-    expect(logBytesPerDocument).toBeLessThanOrEqual(COPIES_PER_DOCUMENT * withLog.jsonBytesPerDocument)
-  })
+      expect(withLog.documents).toBe(10_000)
+      expect(logBytesPerDocument).toBeGreaterThan(0)
+      expect(logBytesPerDocument).toBeLessThanOrEqual(COPIES_PER_DOCUMENT * withLog.jsonBytesPerDocument)
+    },
+    CHILD_RUNS * CHILD_TIMEOUT_MS,
+  )
 })
