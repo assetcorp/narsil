@@ -243,6 +243,8 @@ selectNeighbours(node, candidates: List<node>, limit: uint32) -> List<node>
   return selected
 ```
 
+When the rule keeps fewer candidates than the limit, also keep the farthest candidate that it rejected.
+
 At layer 0, an implementation must pass every list that `selectNeighbours` returns for a node `p` through `keepLastLinks`, so that a live node whose only incoming connection comes from `p` stays in the list of `p`.
 
 ```text

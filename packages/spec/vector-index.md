@@ -283,7 +283,7 @@ VectorIndexConfig {
 
 An `osq8`, `osq4`, `osq2`, or `osq1` index stores eight, four, two, or one bits per dimension, as [Optimised Scalar Quantisation (OSQ)](algorithms.md#optimised-scalar-quantisation-osq) defines. An index whose `quantization` is `none` stores no code. When `quantization` is absent, an implementation must use `osq4` at 384 dimensions and above and `osq8` below 384.
 
-A quantised index calibrates its quantiser once its vector count reaches the HNSW promotion threshold. It calibrates again whenever `optimize` rebuilds or merges a graph, and before every shuffled rebuild that [Insertion Order](#insertion-order) requires. A quantised index finds the candidates for a new vector's connections by scoring the vector as a query against the codes of the graph, and it must then rescore those candidates against the new vector's full-precision vector. Every distance that `selectNeighbours`, `keepLastLinks`, a removal, and `connectUnreached` compare must come from the metric on full-precision vectors, because `selectNeighbours` compares the distance from each candidate to the new vector with its distances to the candidates already selected.
+A quantised index calibrates its quantiser once its vector count reaches the HNSW promotion threshold. It calibrates again whenever `optimize` rebuilds or merges a graph, and before every shuffled rebuild that [Insertion Order](#insertion-order) requires. A graph held in memory places a vector with full-precision distances. A graph whose vectors a file holds places it with codes: candidates are scored by quantising the new vector to 8-bit levels for a 4-bit code, or to the field's query width otherwise, and each pair check scores one code against another.
 
 ---
 
