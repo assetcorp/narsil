@@ -581,4 +581,4 @@ The HTTP adapter sends `{ model, query, documents }` and reads `results[{ index,
 | Code | Raised when | Kind |
 |------|-------------|------|
 | `RERANK_FAILED` | The adapter threw, outlasted `rerankTimeout`, returned a list of another length, or returned a score that is not a finite number | runtime |
-| `RERANK_CONFIG_INVALID` | A query gives an adapter name that the engine has not registered, gives a field that the schema does not declare as text, gives a field more than once, sets a window outside 1 to `maxRerankWindow`, sets a window above the `hybrid.depth` of a hybrid query, or carries no query text | configuration |
+| `RERANK_CONFIG_INVALID` | A query gives an adapter name that the engine has not registered, gives a field that the schema does not declare as text, gives a field more than once, sets a window outside 1 to `maxRerankWindow`, sets a window above the `hybrid.depth` that a hybrid query sets, or carries no query text | configuration |
