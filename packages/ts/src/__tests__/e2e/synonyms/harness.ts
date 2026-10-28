@@ -3,7 +3,7 @@ import { expect } from 'vitest'
 import { createNarsilClient, type NarsilClient } from '../../../client'
 import type { Narsil } from '../../../narsil'
 import type { NarsilConfig } from '../../../types/config'
-import type { AnyDocument, IndexConfig } from '../../../types/schema'
+import type { AnyDocument } from '../../../types/schema'
 import type { QueryParams } from '../../../types/search'
 import type { SynonymRule } from '../../../types/synonyms'
 import { scaledOut, startTestServer, waitFor } from '../../server/helpers'
@@ -19,7 +19,7 @@ export function workerCopies(): NarsilConfig['workers'] {
   return { promotionThreshold: 200, count: 2, mainCopyQueries: 'none', bootstrapModule: garageBootstrapModule() }
 }
 
-export function garageConfig(synonyms: SynonymRule[]): IndexConfig {
+export function garageConfig(synonyms: SynonymRule[]) {
   return { schema: SCHEMA, language: LANGUAGE_NAME, partitions: { maxPartitions: 1 }, synonyms }
 }
 

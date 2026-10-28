@@ -60,8 +60,13 @@ describe('worker resynchronisation after a rebalance', () => {
 
     const registry = new Map<
       string,
-      { config: IndexConfig; language: LanguageModule; embeddingAdapter: EmbeddingAdapter | null }
-    >([['products', { config: indexConfig, language: english, embeddingAdapter: null }]])
+      {
+        config: IndexConfig
+        language: LanguageModule
+        embeddingAdapter: EmbeddingAdapter | null
+        synonyms: Uint8Array | null
+      }
+    >([['products', { config: indexConfig, language: english, embeddingAdapter: null, synonyms: null }]])
 
     orchestrator = createWorkerOrchestrator(
       { workers: { enabled: true, count: 2, promotionThreshold: 1 } },
