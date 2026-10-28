@@ -534,3 +534,51 @@ A community adapter, whether it targets Cohere, Voyage AI, or a custom model ser
 - Document the model's dimensions clearly.
 - Handle retries and rate limiting internally.
 - Support cooperative cancellation.
+
+---
+
+## RerankAdapter
+
+The rerank adapter scores documents against a query with a second model, such as a cross-encoder, which scores the query and each document together. Narsil calls it to reorder the top results of a search, as [Reranking](algorithms.md#reranking) defines.
+
+```text
+RerankAdapter {
+  async rerank(query: string, documents: List<string>, cancel: CancelToken) -> List<float64>
+  async shutdown() -> nothing   (optional)
+}
+```
+
+### rerank(query, documents, cancel)
+
+- It must return one score for each document, in the order of `documents`, where a higher score marks a more relevant document.
+- A document string is empty where the document holds no text in the reranked fields.
+- The adapter must handle truncation, chunking, batching, retries, and rate limiting, because each model sets its own input and rate limits.
+- Narsil must cancel the call through `cancel` once it has waited longer than `rerankTimeout`, an engine setting with a default of 30,000 ms, and it must then raise `RERANK_FAILED`.
+- Narsil must raise `RERANK_FAILED` when the call throws, returns a list whose length differs from `documents`, or returns a score that is not a finite number.
+
+### shutdown(), optional
+
+- It releases whatever the adapter holds, such as an inference session or an open connection, and Narsil calls it during engine shutdown.
+- It must be idempotent.
+
+### Named Rerank Adapter Registration
+
+The engine keeps a registry of rerank adapters under names that the caller chooses. An adapter enters the registry through the engine configuration, as a map of name to instance, or later through `registerRerankAdapter(name, adapter)`. Each query gives the name of its adapter, so no index stores a rerank binding, and registering a name that is already taken replaces the adapter for every later query.
+
+The engine setting `maxRerankWindow` sets the largest window that a query may request, from 1 to 1,000 with a default of 100, so that it bounds the documents that one query can send to a model.
+
+### Built-in Rerank Adapters
+
+| Adapter | Package | Environment | Transport |
+|---------|---------|-------------|-----------|
+| HTTP, for a Cohere-compatible `/rerank` endpoint | `@delali/narsil/rerankers/http` | all | HTTP |
+| Transformers.js cross-encoder | `@delali/narsil-embeddings-transformers` | all | ONNX Runtime |
+
+The HTTP adapter sends `{ model, query, documents }` and reads `results[{ index, relevance_score }]`, which is the shape that Cohere, Jina, vLLM, and Infinity serve. It must retry, time out, cancel, and handle its API key the way the [OpenAI-compatible adapter](#openai-compatible-adapter) does. The HTTP adapter must be an entry of its own, so that a bundle which leaves it out carries none of its code.
+
+### RerankAdapter Error Codes
+
+| Code | Raised when | Kind |
+|------|-------------|------|
+| `RERANK_FAILED` | The adapter threw, outlasted `rerankTimeout`, returned a list of another length, or returned a score that is not a finite number | runtime |
+| `RERANK_CONFIG_INVALID` | A query gives an adapter name that the engine has not registered, gives a field that the schema does not declare as text, sets a window outside 1 to `maxRerankWindow`, or carries no query text | configuration |
