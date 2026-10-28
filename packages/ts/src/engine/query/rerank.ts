@@ -1,12 +1,10 @@
-import { projectionKeepsField } from '../../core/projection'
 import { ErrorCodes, NarsilError } from '../../errors'
+import type { RuntimeHost } from '../../rerank/host'
 import { rerankTextOf } from '../../rerank/params'
 import { runRerankedQuery } from '../../rerank/pipeline'
 import type { QueryResult } from '../../types/results'
 import type { AnyDocument } from '../../types/schema'
 import type { QueryParams } from '../../types/search'
-import { now } from '../validation'
-import { applyHighlights } from './highlight'
 import type { QueryContext } from './shared'
 
 type FirstStage<T> = (params: QueryParams, context: QueryContext) => Promise<QueryResult<T>>
@@ -15,14 +13,16 @@ export async function executeRerankedQuery<T = AnyDocument>(
   request: QueryParams,
   context: QueryContext,
   firstStage: FirstStage<T>,
+  host: RuntimeHost,
 ): Promise<QueryResult<T>> {
-  const startTime = now()
+  const startTime = host.now()
   const runner = context.rerank
   if (runner === undefined) {
     throw new NarsilError(ErrorCodes.RERANK_CONFIG_INVALID, 'This search path holds no rerank adapters')
   }
   const { manager } = context
   const result = await runRerankedQuery<T>(request, {
+    host,
     schema: context.config.schema,
     maxWindow: runner.maxWindow,
     binding: context.cursorBinding,
@@ -48,13 +48,21 @@ export async function executeRerankedQuery<T = AnyDocument>(
     },
     highlight(page, projection) {
       const fields = request.highlight?.fields ?? []
-      const dropped = fields.some(field => !projectionKeepsField(projection, field))
+      const dropped = fields.some(field => !host.projectionKeepsField(projection, field))
       const readStoredDocument = dropped
         ? (docId: string): Record<string, unknown> | undefined => manager.get(docId, { kind: 'full' })
         : undefined
-      applyHighlights(page, request, context.language, manager.analysis, manager.schema, readStoredDocument)
+      host.applyHighlights(
+        page,
+        request,
+        context.language,
+        manager.analysis,
+        manager.schema,
+        readStoredDocument,
+        manager.synonyms,
+      )
     },
   })
-  result.elapsed = now() - startTime
+  result.elapsed = host.now() - startTime
   return result
 }

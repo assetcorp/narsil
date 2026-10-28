@@ -1,5 +1,6 @@
 import { getNestedValue } from '../../../core/partition/utils'
 import { applyProjection } from '../../../core/projection'
+import { runtimeHost } from '../../../engine/query/runtime-host'
 import { now } from '../../../engine/validation'
 import { ErrorCodes, NarsilError } from '../../../errors'
 import { engineCoreOf } from '../../../narsil/internals'
@@ -31,6 +32,7 @@ export async function rerankClusterQuery<T>(
     throw new NarsilError(ErrorCodes.INDEX_NOT_FOUND, `Index "${indexName}" does not exist`, { indexName })
   }
   const result = await runRerankedQuery<T>(params, {
+    host: runtimeHost,
     schema,
     maxWindow: core.rerankSettings.maxWindow,
     binding: queryBindingOf(params),
