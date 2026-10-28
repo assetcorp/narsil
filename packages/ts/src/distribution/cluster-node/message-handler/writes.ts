@@ -11,6 +11,7 @@ import { validateReplicationEntry } from '../../replication/replica'
 import type { ReplicationLogEntry } from '../../replication/types'
 import type { ForwardPayload, RespondFn, TransportMessage } from '../../transport/types'
 import { ReplicationMessageTypes } from '../../transport/types'
+import { inReplicaLogOrder } from '../replica-apply-order'
 import { applyForwardedBatch, applyForwardedWrite } from '../write-routing'
 import { resolveValidatedAssignment } from './entry-authority'
 import type { DataNodeHandlerDeps } from './types'
@@ -75,7 +76,12 @@ export async function handleReplicationEntryBatch(
   )
 }
 
-async function applyEntryToLog(entry: ReplicationLogEntry, deps: DataNodeHandlerDeps): Promise<void> {
+function applyEntryToLog(entry: ReplicationLogEntry, deps: DataNodeHandlerDeps): Promise<void> {
+  const log = deps.writeDeps.getReplicationLog(entry.indexName, entry.partitionId)
+  return inReplicaLogOrder(log, () => applyEntryInLogOrder(entry, deps))
+}
+
+async function applyEntryInLogOrder(entry: ReplicationLogEntry, deps: DataNodeHandlerDeps): Promise<void> {
   let log = deps.writeDeps.getReplicationLog(entry.indexName, entry.partitionId)
   const existing = log.getEntry(entry.seqNo)
   if (existing !== undefined) {

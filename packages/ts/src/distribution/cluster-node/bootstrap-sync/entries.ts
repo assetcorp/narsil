@@ -2,6 +2,7 @@ import { ErrorCodes, NarsilError } from '../../../errors'
 import { validateReplicationEntry } from '../../replication/replica'
 import type { ReplicationLog, ReplicationLogEntry } from '../../replication/types'
 import type { SyncEntriesPayload } from '../../transport/types'
+import { inReplicaLogOrder } from '../replica-apply-order'
 import type { ApplyEntriesResult, LiveBootstrapSyncDeps } from './types'
 
 export async function applySyncEntries(
@@ -27,20 +28,9 @@ export async function applySyncEntries(
       if (entryError !== null) {
         return { ok: false, error: entryError }
       }
-      try {
-        await deps.applyReplicationEntry(entry)
-        log.appendCommitted(entry)
-      } catch (err) {
-        const cause = err instanceof Error ? err.message : String(err)
-        return {
-          ok: false,
-          error: new NarsilError(ErrorCodes.REPLICATION_ENTRY_INVALID, `failed to apply sync entry: ${cause}`, {
-            indexName,
-            partitionId,
-            seqNo: entry.seqNo,
-            cause,
-          }),
-        }
+      const applyError = await inReplicaLogOrder(log, () => applySyncEntryOnce(entry, log, deps))
+      if (applyError !== null) {
+        return { ok: false, error: applyError }
       }
       expectedSeqNo = entry.seqNo + 1
       entriesApplied += 1
@@ -52,6 +42,41 @@ export async function applySyncEntries(
     entriesApplied,
     newSeqNo: expectedSeqNo - 1,
   }
+}
+
+async function applySyncEntryOnce(
+  entry: ReplicationLogEntry,
+  log: ReplicationLog,
+  deps: LiveBootstrapSyncDeps,
+): Promise<NarsilError | null> {
+  const where = { indexName: entry.indexName, partitionId: entry.partitionId, seqNo: entry.seqNo }
+  const present = log.getEntry(entry.seqNo)
+  if (present !== undefined) {
+    if (present.checksum === entry.checksum) return null
+    return new NarsilError(
+      ErrorCodes.REPLICATION_ENTRY_INVALID,
+      `Conflicting sync entry at sequence number ${entry.seqNo}`,
+      where,
+    )
+  }
+  if (entry.seqNo !== log.localLogEnd + 1) {
+    return new NarsilError(
+      ErrorCodes.REPLICATION_ENTRY_INVALID,
+      `Out-of-order sync entry ${entry.seqNo}; the local log ends at ${log.localLogEnd}`,
+      where,
+    )
+  }
+  try {
+    await deps.applyReplicationEntry(entry)
+    log.appendCommitted(entry)
+  } catch (err) {
+    const cause = err instanceof Error ? err.message : String(err)
+    return new NarsilError(ErrorCodes.REPLICATION_ENTRY_INVALID, `failed to apply sync entry: ${cause}`, {
+      ...where,
+      cause,
+    })
+  }
+  return null
 }
 
 export function validateSyncEntryBatchTermination(entriesPayloads: SyncEntriesPayload[]): NarsilError | null {
