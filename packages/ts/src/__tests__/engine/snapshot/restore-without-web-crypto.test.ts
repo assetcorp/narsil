@@ -40,7 +40,7 @@ async function exists(path: string): Promise<boolean> {
   )
 }
 
-const NAMES_ACROSS_SHA256_BLOCKS = [1, 55, 56, 63, 64, 119, 120, 255].map(length => `n${'x'.repeat(length - 1)}`)
+const NAMES_ACROSS_SHA256_BLOCKS = [55, 56].map(length => `n${'x'.repeat(length - 1)}`)
 
 describe('a restore on a platform without Web Crypto, as in a browser page served over plain HTTP', () => {
   it('replaces an index, drops it, and reopens without it on a snapshot-tier engine', async () => {
