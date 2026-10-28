@@ -29,6 +29,7 @@ import { createHeldPartitionRecord } from './held-partitions'
 import { applyLocalReplicationEntry } from './local-replication'
 import type { IndexWriteAnalysis } from './memory/document-bound'
 import { archiveReplicationPartition, type PartitionArchive, restoreReplicationPartition } from './partition-archive'
+import { createEngineWriteAdmission } from './write-admission'
 
 export interface ClusterLocalEngine extends Narsil {
   createIndexWithUuid(name: string, config: IndexConfig, indexUuid?: string): Promise<void>
@@ -104,7 +105,7 @@ export async function createClusterLocalEngine(
       core.durability?.manager.highestPersistedSeqNo(indexName, partitionId) ?? 0,
     persistedPositionOf: (indexName: string, partitionId: number) => persistedPositionOf(core, indexName, partitionId),
     numberEntriesWith: (numbering: EntryNumbering) => core.durability?.manager.numberEntriesWith?.(numbering),
-    admitWritesWith: (admission: WriteAdmission) => core.admitWritesWith(admission),
+    admitWritesWith: (admission: WriteAdmission) => core.admitWritesWith(createEngineWriteAdmission(core, admission)),
     writeAnalysisOf: (indexName: string) => writeAnalysisOf(core, indexName),
     restartLocalLog: (indexName: string, partitionId: number, position: PartitionLogPosition) =>
       restartLocalLog(core, indexName, partitionId, position),

@@ -212,7 +212,7 @@ export async function updateDocument(
   const prepared = await prepareUpdate(ctx, indexName, entry, docId, document)
   const apply = applyOfUpdate(ctx, indexName, prepared)
 
-  ctx.admitWrite(indexName, docId, document)
+  ctx.writeAdmission?.admit(indexName, docId, document)
   if (ctx.durability) {
     try {
       await ctx.durability.recordInsertOrUpdate(indexName, docId, document, apply)

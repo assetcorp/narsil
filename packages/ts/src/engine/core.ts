@@ -1,4 +1,3 @@
-import { fnv1a } from '../core/hash'
 import { generateId } from '../core/id-generator'
 import { DEFAULT_PATTERN_WORK_CAP } from '../core/pattern-index/constants'
 import { ErrorCodes, NarsilError } from '../errors'
@@ -13,7 +12,7 @@ import type { EmbeddingAdapter } from '../types/adapters'
 import type { NarsilConfig } from '../types/config'
 import type { IndexMetadata } from '../types/internal'
 import type { LanguageModule } from '../types/language'
-import type { AnyDocument, IndexConfig } from '../types/schema'
+import type { IndexConfig } from '../types/schema'
 import type { VectorWorkerCopyPolicy } from '../vector/vector-index/shared'
 import { createDirectExecutor, type DirectExecutorExtensions } from '../workers/direct-executor'
 import type { Executor } from '../workers/executor'
@@ -27,7 +26,7 @@ import { createIndexFromMetadata as createIndexFromMetadataOp } from './index-fr
 import type { IndexStateCoordinator } from './index-state'
 import { type EngineCoreHooks, wireIndexState } from './index-state-wiring'
 import { createInvalidationFromConfig, type InvalidationIntegration } from './invalidation'
-import type { MutationContext, WriteAdmission } from './mutations'
+import type { EngineWriteAdmission, MutationContext } from './mutations'
 import { type NotifierWiring, wireHeapPressureNotifier, wireWatermarkNotifier } from './notifiers'
 import { createWorkerOrchestrator, type WorkerOrchestrator, workersEnabledByDefault } from './orchestration'
 import type { RebalanceContext } from './rebalance-executor'
@@ -83,7 +82,7 @@ export interface EngineCore {
   readonly mutationCtx: MutationContext
   readonly rebalanceCtx: RebalanceContext
   readonly patternWorkCap: number
-  readonly admitWritesWith: (admission: WriteAdmission) => void
+  readonly admitWritesWith: (admission: EngineWriteAdmission) => void
 }
 
 export async function createEngineCore(
@@ -300,20 +299,14 @@ export async function createEngineCore(
     onAccess: indexName => orchestrator.noteAccess(indexName),
   })
 
-  let writeAdmission: WriteAdmission | null = null
-  function admitWrite(indexName: string, docId: string, document: AnyDocument | null): void {
-    if (writeAdmission === null) return
-    const partitionCount = Math.max(1, requireManager(indexName).partitionCount)
-    writeAdmission(indexName, fnv1a(docId) % partitionCount, docId, document)
-  }
+  let writeAdmission: EngineWriteAdmission | null = null
 
   const mutationCtx: MutationContext = {
     executor,
     pluginRegistry,
     durability,
-    admitWrite,
-    get admitsWrites() {
-      return writeAdmission !== null
+    get writeAdmission() {
+      return writeAdmission
     },
     orchestrator,
     idGenerator,

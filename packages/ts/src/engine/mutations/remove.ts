@@ -91,7 +91,7 @@ export async function removeDocument(
   const prepared = await prepareRemoval(ctx, indexName, docId)
   const apply = applyOfRemoval(ctx, indexName, prepared)
 
-  ctx.admitWrite(indexName, docId, null)
+  ctx.writeAdmission?.admit(indexName, docId, null)
   if (ctx.durability) {
     try {
       await ctx.durability.recordRemove(indexName, docId, apply)
