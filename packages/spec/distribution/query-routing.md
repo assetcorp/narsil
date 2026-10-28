@@ -285,7 +285,7 @@ HNSW search is approximate, so each node returns its best local candidates and t
 
 ### Distributed Hybrid Search
 
-A request routes as hybrid when it carries a vector and either a term or `mode: 'hybrid'`; an absent `hybrid` config fuses with RRF and its defaults. A hybrid request carrying a cursor is rejected with `SEARCH_INVALID_CURSOR`, because fused ranks do not seek.
+A request routes as hybrid when it carries a vector and either a term or `mode: 'hybrid'`; an absent `hybrid` config fuses with RRF and its defaults. The coordinator must reject a hybrid request that carries a cursor and no `rerank` with `SEARCH_INVALID_CURSOR`, because fused ranks do not seek.
 
 A hybrid query runs two separate fan-outs so that the coordinator fuses two globally merged lists. Fusing on each node instead degrades as the partition count grows, because a node fuses only what its own partitions matched.
 
@@ -309,6 +309,10 @@ A hybrid query runs two separate fan-outs so that the coordinator fuses two glob
 6. The coordinator takes the global top-k from the fused list.
 7. The fetch phase runs for those top-k documents.
 ```
+
+### Distributed Reranking
+
+The coordinator that receives a query carrying `rerank` must rerank it with its own registered adapter, as [Reranking](../algorithms.md#reranking) defines. It must send the data nodes the query without `rerank`, `pinned`, or `searchAfter`, with offset 0 and a limit equal to the depth from step 1 of that section. It then merges and fuses their results as it does without `rerank`, and it fetches the reranked fields of the window's documents so that it can rerank them. Last, it places the pinned documents, slices the page from position d + offset, and fetches the page's documents. A reranked hybrid request may carry a cursor, because the coordinator finds each page by its depth. The data nodes count, facet, and group the first-stage request as they do without `rerank`, so they need no rerank adapter, and `QueryParams` carries no rerank member.
 
 ---
 
