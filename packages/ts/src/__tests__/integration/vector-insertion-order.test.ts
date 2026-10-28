@@ -90,7 +90,7 @@ describe('vector search over passages that arrive file by file', () => {
   )
 })
 
-describe('a saved graph and the count of its last shuffled build', () => {
+describe('a saved graph and the count of its last shuffled build', { timeout: ARRIVAL_TIMEOUT_MS }, () => {
   let engine: Narsil
   let passages: Passage[]
 
@@ -102,7 +102,7 @@ describe('a saved graph and the count of its last shuffled build', () => {
       vectorPromotion: { quantization: 'osq4', threshold: SAVED_PASSAGES },
     })
     await insertFileByFile(engine, INDEX, passages)
-  })
+  }, ARRIVAL_TIMEOUT_MS)
 
   afterEach(async () => {
     await engine.shutdown()

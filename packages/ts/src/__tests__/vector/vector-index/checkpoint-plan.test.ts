@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createVectorIndex, type VectorFilePayload, type VectorIndex } from '../../../vector/vector-index'
 import { assembleGraphParts, type VectorGraphParts } from '../../../vector/vector-index/checkpoint-payload'
 import { bytesToVectors } from '../../../vector/vector-index/payload'
-import { DIM, normalizedVector } from './fixtures'
+import { DIM, normalizedVector, vectorFromValues } from './fixtures'
 
 interface ListedFile {
   id: number
@@ -310,7 +310,8 @@ describe('the codes a checkpoint plans for a quantised field', () => {
     await buildGraph(coded)
     const plan = coded.planCheckpoint(null)
     const beforeRecalibration = plan.readNewFile(0).payload
-    for (let i = 12; i < 40; i++) coded.insert(`doc${i}`, normalizedVector(DIM, 3 * i + 5))
+    for (let i = 12; i < 40; i++)
+      coded.insert(`doc${i}`, vectorFromValues(1, 0.01 * (i % 5), 0.01 * (i % 3), 0.01 * (i % 7)))
 
     await coded.optimize()
 

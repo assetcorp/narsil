@@ -262,7 +262,7 @@ export function ordinalFilterForDocIds(state: VectorIndexState, docIds: Iterable
   return filter
 }
 
-function liveOrdinals(state: VectorIndexState): Int32Array {
+export function liveOrdinals(state: VectorIndexState): Int32Array {
   const ordinals: number[] = []
   for (let ordinal = 0; ordinal < state.store.slots; ordinal++) {
     const docId = state.store.docIdForOrdinal(ordinal)

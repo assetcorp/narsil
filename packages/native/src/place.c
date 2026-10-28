@@ -123,6 +123,11 @@ static narsil_status select_every_layer(const walk_context *context, const narsi
       workspace->entry_point_count = candidates.count;
     }
     found->count = candidates.count;
+    if (context->uses_codes) {
+      for (uint32_t i = 0; i < found->count; i++) {
+        found->distances[i] = pair_distance(context, request->ordinal, found->ordinals[i]);
+      }
+    }
     workspace->selection_counts[layer] =
         select_neighbours(context, found, list_limit(context->graph, layer), selection_of(workspace, layer));
   }
