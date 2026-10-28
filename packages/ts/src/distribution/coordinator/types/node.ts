@@ -93,6 +93,11 @@ export interface NodeRegistration {
    * when it places copies.
    */
   partitionBytes?: IndexPartitionBytes[]
+  /**
+   * The node is leaving the cluster where this is true, so the controller places no new copy on it and moves every
+   * copy it holds to other nodes. An absent value counts as false.
+   */
+  draining?: boolean
 }
 
 /**

@@ -5,6 +5,7 @@ import {
   type RegistrationHeartbeatState,
   renewRegistrationNow,
   stopRegistrationHeartbeat,
+  writeRegistrationInTurn,
 } from './heartbeat'
 import { joinCluster, leaveCluster } from './join'
 import type { DataNodeHandle, DataNodeLifecycleStatus, NodeLifecycleConfig } from './types'
@@ -17,6 +18,8 @@ import type { DataNodeHandle, DataNodeLifecycleStatus, NodeLifecycleConfig } fro
  * rejoin through the same handle. A `shutdown` called while a `join` still waits for an earlier registration under
  * this node's id to lapse ends that wait, and the join then fails with `NODE_NOT_JOINED`. `renewRegistration` writes
  * the registration at once, outside that queue, and does nothing while the node is outside the cluster.
+ * `writeRegistration` writes it after the heartbeat renewal in flight, so that no older renewal lands after it, and
+ * it fails with `NODE_NOT_JOINED` while the node is outside the cluster.
  *
  * @param config - The lifecycle configuration, which names the coordinator, the transport, this node's
  *   registration, and the retry limits every bootstrap follows.
@@ -115,6 +118,17 @@ export function createDataNodeLifecycle(config: NodeLifecycleConfig): DataNodeHa
       if (status === 'active' || status === 'joining') {
         renewRegistrationNow(heartbeatState, config)
       }
+    },
+
+    async writeRegistration(): Promise<void> {
+      if (status !== 'active') {
+        throw new NarsilError(
+          ErrorCodes.NODE_NOT_JOINED,
+          `Node '${config.registration.nodeId}' is outside the cluster, so it cannot publish its registration`,
+          { nodeId: config.registration.nodeId, currentStatus: status },
+        )
+      }
+      await writeRegistrationInTurn(heartbeatState, config)
     },
 
     leave(): Promise<void> {

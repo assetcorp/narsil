@@ -77,6 +77,12 @@ function normaliseAssignments(entries: unknown[]): Map<number, PartitionAssignme
     } else {
       delete normalised.lastHolders
     }
+    const removingReplicas = stringsOf(candidate.removingReplicas)
+    if (removingReplicas.length > 0) {
+      normalised.removingReplicas = removingReplicas
+    } else {
+      delete normalised.removingReplicas
+    }
     assignments.set(partitionId, normalised)
   }
   return assignments

@@ -35,15 +35,19 @@ function findSwap(
   heaviest: string,
   counts: Map<string, number>,
   shares: Map<string, number>,
+  excludedNodeIds: ReadonlySet<string>,
 ): LeadershipSwap | null {
   const heaviestLoad = loadOf(heaviest, counts, shares)
   let best: LeadershipSwap | null = null
 
   for (const assignment of assignments.values()) {
-    if (assignment.state !== 'ACTIVE' || assignment.primary !== heaviest) {
+    if (assignment.state !== 'ACTIVE' || assignment.primary !== heaviest || assignment.removingReplicas !== undefined) {
       continue
     }
     for (const candidateNodeId of assignment.inSyncSet) {
+      if (excludedNodeIds.has(candidateNodeId)) {
+        continue
+      }
       const candidateLoad = loadOf(candidateNodeId, counts, shares)
       if (heaviestLoad - candidateLoad < LEADERSHIP_IMBALANCE_THRESHOLD) {
         continue
@@ -78,12 +82,17 @@ function applySwap(swap: LeadershipSwap, previousPrimary: string): void {
  * the cluster acknowledged, so a failover straight afterwards may promote it back. The loop stops once it runs out
  * of worthwhile moves, and it never runs longer than the number of partitions. A node whose partitions offer no
  * worthwhile handover drops out of the search, so that the allocator goes on to the next-busiest node in place of
- * abandoning the whole pass.
+ * abandoning the whole pass. A partition with a move under way keeps its primary, and no excluded node takes a lead.
  *
  * @param assignments - The assignments to rewrite, by partition id.
  * @param shares - Each node's capacity as a multiple of the cluster average, by node id.
+ * @param excludedNodeIds - The nodes that may take no lead, which are the nodes leaving the cluster.
  */
-export function rebalanceLeadership(assignments: Map<number, PartitionAssignment>, shares: Map<string, number>): void {
+export function rebalanceLeadership(
+  assignments: Map<number, PartitionAssignment>,
+  shares: Map<string, number>,
+  excludedNodeIds: ReadonlySet<string> = new Set(),
+): void {
   const withoutHandover = new Set<string>()
   for (let swaps = 0; swaps < assignments.size; swaps++) {
     const counts = countPrimaryAssignments(assignments)
@@ -92,7 +101,7 @@ export function rebalanceLeadership(assignments: Map<number, PartitionAssignment
       return
     }
 
-    const swap = findSwap(assignments, heaviest, counts, shares)
+    const swap = findSwap(assignments, heaviest, counts, shares, excludedNodeIds)
     if (swap === null) {
       withoutHandover.add(heaviest)
       continue
