@@ -38,6 +38,7 @@ import {
   type VectorWorkerCopyPolicy,
 } from './shared'
 import {
+  holdWorkerCopies,
   invalidateWorkerCopies,
   noteWrite,
   refreshWorkerCopies,
@@ -96,6 +97,9 @@ export interface VectorIndex {
   adoptDiskLayout(layout: VectorFileLayout): Promise<void>
   /** Withdraws the field from every thread that holds a copy of it and closes every vector file that this thread holds open or maps, so that the caller can delete those files on any platform. It resolves once every thread has closed its copy, and the field opens a file again when a search next reads a vector from it. */
   releaseVectorFiles(): Promise<void>
+  relocateVectorFiles(rewrite: (path: string) => string): void
+  holdWorkerCopies(): Promise<void>
+  resumeWorkerCopies(): void
 
   readonly size: number
   readonly dimension: number
@@ -175,6 +179,7 @@ export function createVectorIndex(
     workerCopyRevision: -1,
     workerCopyMode: null,
     workerCopyLoading: false,
+    workerCopiesHeld: false,
     sharedHandles: new Map(),
     sharedLayoutRevision: 0,
     sharing: Promise.resolve(),
@@ -377,6 +382,16 @@ export function createVectorIndex(
     releaseVectorFiles: async () => {
       await withdrawWorkerCopies(state)
       state.store.closeFiles()
+    },
+    relocateVectorFiles: (rewrite: (path: string) => string) => {
+      state.store.relocateVectorFiles(rewrite)
+      for (const [docId, location] of state.pendingLocations) {
+        state.pendingLocations.set(docId, { ...location, path: rewrite(location.path) })
+      }
+    },
+    holdWorkerCopies: () => holdWorkerCopies(state),
+    resumeWorkerCopies: () => {
+      state.workerCopiesHeld = false
     },
   }
 }

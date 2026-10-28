@@ -20,8 +20,8 @@ describe('ErrorCodes', () => {
     }
   })
 
-  it('has exactly 96 error codes', () => {
-    expect(Object.keys(ErrorCodes)).toHaveLength(96)
+  it('has exactly 97 error codes', () => {
+    expect(Object.keys(ErrorCodes)).toHaveLength(97)
   })
 
   it('has unique values for every code', () => {

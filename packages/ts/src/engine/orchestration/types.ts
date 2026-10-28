@@ -49,6 +49,8 @@ export interface WorkerOrchestrator {
   copyIdleTimeoutMs(): number
   stopRequestThreads(): void
   desyncIndex(indexName: string): boolean
+  releaseIndexCopies(indexName: string): Promise<boolean>
+  endCopyRelease(indexName: string, reloads: boolean): Promise<void>
   resyncIndex(indexName: string, wasScaledOut: boolean): Promise<void>
   noteAccess(indexName: string): void
   workerCopies(): WorkerCopyReport[]
@@ -94,6 +96,11 @@ export interface CopyTransition {
   readonly done: Promise<void>
 }
 
+export interface CopyReleaseHold {
+  holders: number
+  reloads: boolean
+}
+
 export interface OrchestratorState {
   readonly config: NarsilConfig | undefined
   readonly executor: Executor & DirectExecutorExtensions
@@ -109,6 +116,7 @@ export interface OrchestratorState {
   readonly reportedIneligible: Set<string>
   readonly scaledOutIndexes: Set<string>
   readonly desyncedIndexes: Set<string>
+  readonly copyReleaseHolds: Map<string, CopyReleaseHold>
   readonly copyLoadBuffers: Map<string, WorkerAction[]>
   readonly copyTransitions: Map<string, CopyTransition>
   readonly droppedCopies: Map<string, string>
