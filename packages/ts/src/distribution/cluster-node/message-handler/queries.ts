@@ -3,6 +3,7 @@ import type { SortMode } from '../../../core/ordering'
 import { applyProjection, resolveProjection } from '../../../core/projection'
 import { oversampledShardSize } from '../../../search/oversample'
 import { normalizeSort, readSortValues, sortModesOf } from '../../../search/sorting'
+import { encodeDocumentReply } from '../../../serialization/document-encoding'
 import type { QueryResult } from '../../../types/results'
 import type { AnyDocument } from '../../../types/schema'
 import { validateFetchPayload, validateSearchPayload, validateStatsPayload } from '../../query/codec'
@@ -66,7 +67,7 @@ export async function handleSearch(
     type: QueryMessageTypes.SEARCH_RESULT,
     sourceId: deps.nodeId,
     requestId: message.requestId,
-    payload: encode(resultPayload),
+    payload: encodeDocumentReply(resultPayload),
   })
 }
 
@@ -127,7 +128,7 @@ export async function handleFetch(
     type: QueryMessageTypes.FETCH_RESULT,
     sourceId: deps.nodeId,
     requestId: message.requestId,
-    payload: encode(resultPayload),
+    payload: encodeDocumentReply(resultPayload),
   })
 }
 

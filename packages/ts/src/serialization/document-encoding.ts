@@ -1,6 +1,10 @@
-import { Encoder } from '@msgpack/msgpack'
+import { Encoder, encode } from '@msgpack/msgpack'
 import { ErrorCodes, NarsilError } from '../errors'
-import { DOCUMENT_ENCODER_RETAINED_BUFFER_BYTES, MAX_DOCUMENT_ENCODING_DEPTH } from './constants'
+import {
+  DOCUMENT_ENCODER_RETAINED_BUFFER_BYTES,
+  DOCUMENT_REPLY_ENVELOPE_DEPTH,
+  MAX_DOCUMENT_ENCODING_DEPTH,
+} from './constants'
 
 const INTEGER_ENCODING = { maxDepth: MAX_DOCUMENT_ENCODING_DEPTH }
 const FLOAT_ENCODING = { maxDepth: MAX_DOCUMENT_ENCODING_DEPTH, forceIntegerToFloat: true }
@@ -26,6 +30,10 @@ function holdsNegativeZero(value: unknown, depth: number): boolean {
     if (holdsNegativeZero(child, depth + 1)) return true
   }
   return false
+}
+
+export function encodeDocumentReply(payload: unknown): Uint8Array {
+  return encode(payload, { forceIntegerToFloat: holdsNegativeZero(payload, 1 - DOCUMENT_REPLY_ENVELOPE_DEPTH) })
 }
 
 export function encodeDocument(document: unknown): Uint8Array {
