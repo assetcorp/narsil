@@ -112,6 +112,7 @@ export type {
   HybridConfig,
   ListParams,
   QueryParams,
+  RerankConfig,
   SearchMode,
   SortField,
   SortSpec,

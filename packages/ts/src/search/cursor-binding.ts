@@ -161,6 +161,15 @@ function boundVectorOf(vector: QueryParams['vector']): Record<string, unknown> |
   return bound
 }
 
+function boundRerankOf(rerank: unknown): unknown {
+  if (typeof rerank !== 'object' || rerank === null || Array.isArray(rerank)) return rerank
+  const present: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(rerank)) {
+    if (value !== undefined) present[key] = value
+  }
+  return present
+}
+
 const FILTERS_SLOT = 2
 const BOUND_SLOT_COUNT = 16
 
@@ -180,7 +189,7 @@ function bindingOf(values: unknown[]): string {
  * cursor-binding section fixes the value order and the byte encoding.
  */
 export function queryBindingOf(params: QueryParams): string {
-  return bindingOf([
+  const values: unknown[] = [
     params.term,
     params.fields,
     params.filters,
@@ -197,7 +206,9 @@ export function queryBindingOf(params: QueryParams): string {
     params.hybrid,
     boundVectorOf(params.vector),
     params.scoring ?? 'local',
-  ])
+  ]
+  if (params.rerank !== undefined) values.push(boundRerankOf(params.rerank))
+  return bindingOf(values)
 }
 
 /**

@@ -20,6 +20,11 @@ import type { IndexConfig } from '../../types/schema'
 import type { QueryParams, SearchMode } from '../../types/search'
 import type { VectorScoredResult, VectorSearcher } from '../../vector/vector-index'
 
+export interface RerankRunner {
+  maxWindow: number
+  score(adapter: string, query: string, documents: string[]): Promise<number[]>
+}
+
 export interface QueryContext {
   manager: PartitionManager
   language: LanguageModule
@@ -38,6 +43,7 @@ export interface QueryContext {
   /** The vector fields a search runs against where they are not the manager's own indexes, as on a request thread. */
   vectorSearchers?: ReadonlyMap<string, VectorSearcher>
   patternWorkCap?: number
+  rerank?: RerankRunner
 }
 
 export interface SearchContext extends QueryContext {

@@ -7,7 +7,7 @@ import { createRebalancer, type Rebalancer } from '../partitioning/rebalancer'
 import { createPartitionRouter, type PartitionRouter } from '../partitioning/router'
 import type { createWriteAheadQueue, WAQEntry } from '../partitioning/write-ahead-queue'
 import { createPluginRegistry, type PluginRegistry } from '../plugins/registry'
-import { validateRerankAdapter } from '../rerank/registry'
+import { type RerankSettings, resolveRerankSettings, validateRerankAdapter } from '../rerank/registry'
 import { validateRegisteredAdapter } from '../schema/embedding-validator'
 import type { EmbeddingAdapter, RerankAdapter } from '../types/adapters'
 import type { NarsilConfig } from '../types/config'
@@ -65,6 +65,7 @@ export interface EngineCore {
   readonly indexRegistry: Map<string, IndexRegistryEntry>
   readonly embeddingAdapters: Map<string, EmbeddingAdapter>
   readonly rerankAdapters: Map<string, RerankAdapter>
+  readonly rerankSettings: RerankSettings
   readonly eventHandlers: Map<string, Set<EventHandler>>
   readonly shutdownState: { isShutdown: boolean }
   readonly abortController: AbortController
@@ -92,6 +93,7 @@ export async function createEngineCore(
   capacityScope: CapacityScope = 'index',
 ): Promise<EngineCore> {
   validateWorkerConfig(config?.workers, config?.lifecycle)
+  const rerankSettings = resolveRerankSettings(config)
   const eventHandlers = eventHandlersOf(config?.events)
   const vectorWorkerCount = splitWorkerBudget(resolveWorkerCount(config?.workers?.count)).vector
   const vectorCopyPolicy: VectorWorkerCopyPolicy = {
@@ -350,6 +352,7 @@ export async function createEngineCore(
     indexRegistry,
     embeddingAdapters,
     rerankAdapters,
+    rerankSettings,
     eventHandlers,
     shutdownState,
     abortController,

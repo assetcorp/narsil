@@ -37,6 +37,21 @@ export interface NarsilConfig {
    * `rerank` function.
    */
   rerankAdapters?: Record<string, RerankAdapter>
+  /**
+   * The engine waits this many milliseconds for a rerank adapter to score one
+   * query, and 30,000 by default. It then cancels the call through the
+   * adapter's abort signal and throws `RERANK_FAILED`. Set a whole number of
+   * at least 1; {@link createNarsil} throws `CONFIG_INVALID` for any other
+   * value.
+   */
+  rerankTimeout?: number
+  /**
+   * A query may rerank at most this many of its top hits, which caps the
+   * documents that one query sends to a model. Set a whole number from 1 to
+   * 1,000, or leave it out for 100; {@link createNarsil} throws
+   * `CONFIG_INVALID` for any other value.
+   */
+  maxRerankWindow?: number
   /** These settings recover the writes made since the last snapshot. */
   durability?: DurabilityConfig
   /** These settings control what the engine does when an index's stored analysis differs from its language module. */

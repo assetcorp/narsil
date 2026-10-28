@@ -2,7 +2,7 @@
   "name": "@delali/narsil-embeddings-transformers",
   "version": "0.2.0",
   "type": "module",
-  "description": "Transformers.js embedding adapter for Narsil search engine",
+  "description": "Transformers.js embedding and rerank adapters for Narsil search engine",
   "author": "Delali (https://sondelali.com)",
   "license": "Apache-2.0",
   "homepage": "https://narsil.sondelali.com",
@@ -44,6 +44,10 @@
     ".": {
       "import": "./dist/index.mjs",
       "types": "./dist/index.d.ts"
+    },
+    "./reranker": {
+      "import": "./dist/reranker.mjs",
+      "types": "./dist/reranker.d.ts"
     }
   },
   "files": [

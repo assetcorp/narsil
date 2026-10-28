@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { startIdleHeapCleanup } from '#platform/idle-heap-cleanup'
 import { ErrorCodes, NarsilError } from '../errors'
 import type { Narsil } from '../narsil'
-import { engineCoreOf } from '../narsil/internals'
+import { engineCoreOf, rerankWindowCapOf } from '../narsil/internals'
 import { detectRuntime } from '../runtime/detect'
 import {
   createSharedGateBuffer,
@@ -20,6 +20,7 @@ import {
   DEFAULT_MAX_IMPORT_BYTES,
   DEFAULT_MAX_IMPORT_ERRORS,
   DEFAULT_MAX_LINE_BYTES,
+  DEFAULT_MAX_RERANK_WINDOW,
   DEFAULT_MAX_RESTORE_BYTES,
   DEFAULT_MAX_RESULT_WINDOW,
   DEFAULT_MAX_TASK_PAGE_SIZE,
@@ -45,7 +46,7 @@ import { InMemoryTaskStore } from './task-store'
 import { TaskRegistry } from './tasks'
 import type { NarsilServer, ServerLimits, ServerOptions } from './types'
 
-function resolveLimits(limits: ServerLimits | undefined): ResolvedLimits {
+function resolveLimits(limits: ServerLimits | undefined, engineRerankWindow: number | undefined): ResolvedLimits {
   return {
     maxBodyBytes: limits?.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES,
     maxImportBytes: limits?.maxImportBytes ?? DEFAULT_MAX_IMPORT_BYTES,
@@ -54,6 +55,8 @@ function resolveLimits(limits: ServerLimits | undefined): ResolvedLimits {
     importBatchSize: limits?.importBatchSize ?? DEFAULT_IMPORT_BATCH_SIZE,
     maxConcurrentRequests: limits?.maxConcurrentRequests ?? DEFAULT_MAX_CONCURRENT_REQUESTS,
     maxResultWindow: limits?.maxResultWindow ?? DEFAULT_MAX_RESULT_WINDOW,
+    maxRerankWindow:
+      limits?.maxRerankWindow ?? Math.min(DEFAULT_MAX_RERANK_WINDOW, engineRerankWindow ?? DEFAULT_MAX_RERANK_WINDOW),
     maxFetchDocuments: limits?.maxFetchDocuments ?? DEFAULT_MAX_FETCH_DOCUMENTS,
     maxImportErrors: limits?.maxImportErrors ?? DEFAULT_MAX_IMPORT_ERRORS,
     maxTaskPageSize: limits?.maxTaskPageSize ?? DEFAULT_MAX_TASK_PAGE_SIZE,
@@ -155,7 +158,8 @@ class NarsilHttpServer implements NarsilServer {
 
   constructor(engine: Narsil, options: ServerOptions = {}) {
     assertServerEngine(engine)
-    assertServerLimits(options.limits)
+    const engineRerankWindow = rerankWindowCapOf(engine)
+    assertServerLimits(options.limits, engineRerankWindow)
     assertAllowRegex(options.allowRegex)
     this.host = options.host ?? '127.0.0.1'
     this.port = options.port ?? 9876
@@ -170,7 +174,7 @@ class NarsilHttpServer implements NarsilServer {
     engineCoreOf(engine)?.orchestrator.shareMainThread()
     const taskStore = options.taskStore ?? new InMemoryTaskStore()
     const instanceId = options.instanceId ?? randomUUID()
-    const limits = resolveLimits(options.limits)
+    const limits = resolveLimits(options.limits, engineRerankWindow)
     this.deps = {
       engine,
       tasks: new TaskRegistry(taskStore, instanceId, limits.maxConcurrentTasks),

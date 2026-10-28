@@ -41,6 +41,7 @@ function settings(): RequestThreadSettings {
       importBatchSize: 10,
       maxConcurrentRequests: 0,
       maxResultWindow: 100,
+      maxRerankWindow: 100,
       maxFetchDocuments: 100,
       maxImportErrors: 10,
       maxTaskPageSize: 10,
@@ -50,6 +51,7 @@ function settings(): RequestThreadSettings {
     authorizes: false,
     searchHooks: false,
     patternWorkCap: DEFAULT_PATTERN_WORK_CAP,
+    maxRerankWindow: 100,
     allowRegex: true,
   }
 }

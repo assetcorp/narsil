@@ -154,13 +154,10 @@ async function answerEmbed(core: EngineCore, request: EmbedQueryRequest): Promis
 
 async function answerRerank(core: EngineCore, request: RerankQueryRequest): Promise<RelayReply> {
   try {
-    const scores = await callRerankAdapter(
-      core.rerankAdapters,
-      request.adapter,
-      request.query,
-      request.documents,
-      core.abortController.signal,
-    )
+    const scores = await callRerankAdapter(core.rerankAdapters, request.adapter, request.query, request.documents, {
+      timeoutMs: core.rerankSettings.timeoutMs,
+      signal: core.abortController.signal,
+    })
     return { type: 'reranked', requestId: request.requestId, scores, error: null }
   } catch (err) {
     if (!isNarsilError(err)) console.warn('Reranking a query for a request thread failed:', err)
@@ -263,6 +260,7 @@ export async function startRequestThreads(options: RequestThreadHostOptions): Pr
               authorizes: authorize !== undefined,
               searchHooks,
               patternWorkCap: options.core.patternWorkCap,
+              maxRerankWindow: options.core.rerankSettings.maxWindow,
               allowRegex: options.allowRegex,
             },
           },

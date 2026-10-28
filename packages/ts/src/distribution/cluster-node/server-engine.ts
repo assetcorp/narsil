@@ -1,4 +1,5 @@
 import { ErrorCodes, NarsilError } from '../../errors'
+import { bindRerankWindowSource, rerankWindowCapOf } from '../../narsil/internals'
 import type { Narsil } from '../../types/engine'
 import type { AnyDocument, IndexConfig, InsertOptions, WriteOptions } from '../../types/schema'
 import type { ListParams, QueryParams, SuggestParams } from '../../types/search'
@@ -33,8 +34,10 @@ function rejectWait(options: WriteOptions | undefined): void {
  *
  * Writes, updates, searches, suggestions, listings, counts, index creation,
  * index removal, and document reads route through the cluster. Checkpointing,
- * memory statistics, index opens, index closes, engine events, and rerank adapter
- * registration reach this node's local engine, because each covers a per-node fact. Every other operation fails with
+ * memory statistics, index opens, index closes, engine events, and rerank
+ * adapter registration reach this node's local engine, because each covers a
+ * per-node fact, and this node reranks the searches that it receives with the
+ * adapters registered on it. Every other operation fails with
  * `CLUSTER_OPERATION_UNSUPPORTED`, which the HTTP server answers with status
  * 501, so a caller learns the operation is missing rather than reading a
  * wrong answer. That covers `getStats`, `getPartitionStats`, and
@@ -50,7 +53,7 @@ function rejectWait(options: WriteOptions | undefined): void {
  * @public
  */
 export function clusterNodeEngine(node: ClusterNode, options?: ClusterEngineOptions): Narsil {
-  return {
+  const engine: Narsil = {
     open(indexName: string): Promise<void> {
       return node.open(indexName)
     },
@@ -182,4 +185,6 @@ export function clusterNodeEngine(node: ClusterNode, options?: ClusterEngineOpti
     optimizeVectors: () => unsupported('optimizeVectors'),
     vectorMaintenanceStatus: () => unsupported('vectorMaintenanceStatus'),
   }
+  bindRerankWindowSource(engine, () => rerankWindowCapOf(node))
+  return engine
 }
