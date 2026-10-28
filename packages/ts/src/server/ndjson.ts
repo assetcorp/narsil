@@ -14,7 +14,7 @@ export class NdjsonLineTooLongError extends NarsilError {
 
 export interface NdjsonLine {
   lineNumber: number
-  text: string
+  bytes: Buffer
   bytesConsumed: number
 }
 
@@ -37,7 +37,7 @@ export function* iterateNdjson(buffer: Buffer, maxLineBytes: number): Generator<
     if (contentEnd > start && buffer[contentEnd - 1] === CARRIAGE_RETURN) contentEnd--
     if (contentEnd > start) {
       lineNumber++
-      yield { lineNumber, text: buffer.toString('utf8', start, contentEnd), bytesConsumed: Math.min(end + 1, length) }
+      yield { lineNumber, bytes: buffer.subarray(start, contentEnd), bytesConsumed: Math.min(end + 1, length) }
     }
     start = end + 1
   }

@@ -31,6 +31,7 @@ function settings(): RequestThreadSettings {
     gate: new SharedArrayBuffer(64),
     gateSlot: 1,
     maxConcurrentRequests: 0,
+    bodyBudget: new SharedArrayBuffer(64),
     touchIntervalMs: 1000,
     cors: null,
     limits: {
@@ -40,6 +41,7 @@ function settings(): RequestThreadSettings {
       maxLineBytes: 1024,
       importBatchSize: 10,
       maxConcurrentRequests: 0,
+      maxBodyBytesInFlight: Number.POSITIVE_INFINITY,
       maxResultWindow: 100,
       maxFetchDocuments: 100,
       maxImportErrors: 10,

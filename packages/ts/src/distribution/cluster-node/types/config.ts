@@ -69,19 +69,26 @@ export interface ClusterMemoryConfig {
   /**
    * The node counts as full once either memory figure passes this fraction of its limit. It must lie above
    * `resumeWritesBelow` and at most 1, and it is 0.9 where you name none.
+   *
+   * The node compares its heap with the smaller of this setting and 0.75. V8, the engine that runs Node.js, stops the
+   * process after four full collections in a row that each leave the old generation holding at least 0.8 of its limit,
+   * so a full node keeps its heap below that line. The node compares its resident memory with the setting as it is.
    */
   blockWritesAbove?: number
   /**
    * A full node counts as clear again once both memory figures fall below this fraction of their limits. It must lie
    * above 0 and below `blockWritesAbove`, and it is 0.8 where you name none.
+   *
+   * The node compares its heap with the smaller of this setting and 0.65, for the same V8 rule that caps the heap side
+   * of `blockWritesAbove` at 0.75. The node compares its resident memory with the setting as it is.
    */
   resumeWritesBelow?: number
   /**
    * The node holds at most this fraction of its heap limit in the documents of inserts and updates that it has
    * accepted and not yet finished, counting both the writes that clients send it and the writes that other nodes
    * forward to it as primary. It refuses a write whose documents would carry that total past the limit with
-   * `CLUSTER_WRITE_BLOCKED`, and the error's details include the reason `write_bytes_in_flight`. It never refuses a
-   * replicated entry or a remove. The fraction must lie above 0 and at most 1, and it is 0.02 where you name none,
+   * `CLUSTER_WRITE_BLOCKED`, and the error's details include the reason `write_bytes_in_flight`. It accepts a write
+   * of any size when no other insert or update is in progress, and it never refuses a replicated entry or a remove. The fraction must lie above 0 and at most 1, and it is 0.02 where you name none,
    * which is low because indexing a document can take many times the size of its text in heap. A value of 1 allows
    * writes in flight up to the whole heap limit.
    */

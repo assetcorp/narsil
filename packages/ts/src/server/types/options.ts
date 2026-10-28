@@ -89,6 +89,13 @@ export interface ServerLimits {
   importBatchSize?: number
   /** Maximum requests executing engine work at once, counted across every request thread; excess is shed with 429. Omit or 0 to disable. */
   maxConcurrentRequests?: number
+  /** The server holds request bodies up to this fraction of the memory that
+   * the host allows the process, counting them across every request thread
+   * from the first byte of a body until its request finishes. The server
+   * answers 429 to a body that can take the total past this fraction before it
+   * buffers any more of that body, unless no other body is in flight. The
+   * fraction is 0.05 by default, and 0 removes the bound. */
+  maxBodyBytesInFlightFraction?: number
   /** Ceiling for a search's `limit`, `offset`, and `group.maxPerGroup`, so one
    * request cannot ask for an unbounded result set. Excess → 400. Defaults to
    * 10000, matching the cluster query result window. */

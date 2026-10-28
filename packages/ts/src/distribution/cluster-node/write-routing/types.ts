@@ -5,6 +5,7 @@ import type { NodeTransport } from '../../transport/types'
 import type { CatchUpState } from '../catch-up/state'
 import type { NodeMemoryView } from '../memory/write-block'
 import type { WritePressure } from '../memory/write-pressure'
+import type { WriteProjection } from '../memory/write-projection'
 import type { PrimaryNumbering } from './numbering'
 import type { PartitionWriteQueues } from './partition-queue'
 
@@ -23,6 +24,7 @@ export interface WriteRoutingDeps {
   waitForActiveReplicas?: number
   memoryView?: NodeMemoryView
   writePressure?: WritePressure
+  writeProjection?: WriteProjection
 }
 
 export interface PrimaryAssignmentResolution {

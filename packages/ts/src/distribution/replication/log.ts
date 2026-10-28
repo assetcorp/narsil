@@ -14,6 +14,13 @@ function estimateEntrySize(entry: ReplicationLogEntry): number {
 
 const computeChecksum = computeEntryChecksum
 
+function ownedDocument(document: Uint8Array | null): Uint8Array | null {
+  if (document === null || (document.byteOffset === 0 && document.byteLength === document.buffer.byteLength)) {
+    return document
+  }
+  return document.slice()
+}
+
 export function createReplicationLog(
   partitionId: number,
   config?: Partial<ReplicationConfig & { startSeqNo: number; lastPrimaryTerm: number }>,
@@ -91,7 +98,8 @@ export function createReplicationLog(
     }
   }
 
-  function storeEntry(entry: ReplicationLogEntry): ReplicationLogEntry {
+  function storeEntry(appended: ReplicationLogEntry): ReplicationLogEntry {
+    const entry = { ...appended, document: ownedDocument(appended.document) }
     entries.push(entry)
     if (entry.seqNo >= localLogEnd) {
       localLogEnd = entry.seqNo
@@ -197,7 +205,7 @@ export function createReplicationLog(
 
       assertEntryFitsRetention(entry)
       nextSeqNo = entry.seqNo + 1
-      return storeEntry({ ...entry })
+      return storeEntry(entry)
     },
 
     getEntriesFrom(fromSeqNo: number): ReplicationLogEntry[] {

@@ -110,6 +110,8 @@ export interface ImportError {
   code: string
   /** This describes the failure, for a log or a person. */
   message: string
+  /** The server puts the facts that explain the failure here where it has any, such as the `reason` for a line that it refused to parse because parsing the line could fill the heap. */
+  details?: Record<string, unknown>
 }
 
 /**

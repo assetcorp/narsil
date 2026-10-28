@@ -9,6 +9,7 @@ export interface ResolvedLimits {
   maxLineBytes: number
   importBatchSize: number
   maxConcurrentRequests: number
+  maxBodyBytesInFlight: number
   maxResultWindow: number
   maxFetchDocuments: number
   maxImportErrors: number

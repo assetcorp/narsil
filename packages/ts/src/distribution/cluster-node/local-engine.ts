@@ -1,9 +1,11 @@
+import { resolveIndexAnalysis } from '../../analysis/registry'
 import { requireKnownConfig } from '../../engine/config-keys'
 import { createEngineCore, type EngineCore } from '../../engine/core'
 import { createEngineIndex } from '../../engine/index-lifecycle'
 import { startEngineCore } from '../../engine/lifecycle'
 import type { WriteAdmission } from '../../engine/mutations'
 import { resolveRunnableConfig } from '../../engine/startup-checks'
+import { getLanguage } from '../../languages/registry'
 import type { Narsil } from '../../narsil'
 import { createNarsilFromCore } from '../../narsil'
 import {
@@ -25,6 +27,7 @@ import type { ListParams, QueryParams, SuggestParams } from '../../types/search'
 import type { ReplicationLogEntry } from '../replication/types'
 import { createHeldPartitionRecord } from './held-partitions'
 import { applyLocalReplicationEntry } from './local-replication'
+import type { IndexWriteAnalysis } from './memory/document-bound'
 import { archiveReplicationPartition, type PartitionArchive, restoreReplicationPartition } from './partition-archive'
 
 export interface ClusterLocalEngine extends Narsil {
@@ -36,6 +39,7 @@ export interface ClusterLocalEngine extends Narsil {
   persistedPositionOf(indexName: string, partitionId: number): PartitionLogPosition
   numberEntriesWith(numbering: EntryNumbering): void
   admitWritesWith(admission: WriteAdmission): void
+  writeAnalysisOf(indexName: string): IndexWriteAnalysis | null
   restartLocalLog(indexName: string, partitionId: number, position: PartitionLogPosition): Promise<void>
   heldPartitionsOf(indexName: string): number[] | undefined
   recordHeldPartition(indexName: string, partitionId: number): Promise<void>
@@ -101,6 +105,7 @@ export async function createClusterLocalEngine(
     persistedPositionOf: (indexName: string, partitionId: number) => persistedPositionOf(core, indexName, partitionId),
     numberEntriesWith: (numbering: EntryNumbering) => core.durability?.manager.numberEntriesWith?.(numbering),
     admitWritesWith: (admission: WriteAdmission) => core.admitWritesWith(admission),
+    writeAnalysisOf: (indexName: string) => writeAnalysisOf(core, indexName),
     restartLocalLog: (indexName: string, partitionId: number, position: PartitionLogPosition) =>
       restartLocalLog(core, indexName, partitionId, position),
     heldPartitionsOf: (indexName: string) => heldPartitions.held(indexName),
@@ -139,6 +144,19 @@ export async function createClusterLocalEngine(
       }
     },
   })
+}
+
+function writeAnalysisOf(core: EngineCore, indexName: string): IndexWriteAnalysis | null {
+  const entry = core.indexRegistry.get(indexName)
+  if (entry === undefined) return null
+  const manager = core.executor.getManager(indexName)
+  const language = manager?.language ?? getLanguage(entry.config.language ?? 'english')
+  const customTokenizer = (manager?.analysis ?? resolveIndexAnalysis(entry.config)).customTokenizer
+  return {
+    schema: entry.config.schema,
+    language,
+    ...(customTokenizer === undefined ? {} : { customTokenizer }),
+  }
 }
 
 function persistedPositionOf(core: EngineCore, indexName: string, partitionId: number): PartitionLogPosition {
