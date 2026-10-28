@@ -143,10 +143,13 @@ A client mutation forwarded to the partition's primary. The primary turns it int
   operation:    'insert' or 'remove' or 'update'
   document:     bytes or absent               (the full MessagePack document, for insert and update)
   updateFields: Map<string, value> or absent  (the changed fields alone, for update)
+  indexUuid:    string or absent              (the identity of the index that the sender's allocation table names)
 }
 ```
 
 The primary handles each operation differently. An `insert` generates the embeddings when the index configures them and then writes an `INDEX` entry. An `update` reads the existing document, merges `updateFields`, generates any embeddings that changed, and writes an `INDEX` entry. An `update` whose `document` is present and whose `updateFields` is absent replaces the stored document whole. A `remove` writes a `DELETE` entry.
+
+A receiver that holds its copy of the partition under an `indexUuid` other than the one a request carries must refuse the request, because the name now belongs to another index: a forward with `PARTITION_NOT_PRIMARY`, a replication entry or batch with `INDEX_NOT_FOUND`, and a sync request with `SNAPSHOT_SYNC_INDEX_NOT_FOUND`. Where the request carries no `indexUuid`, the receiver skips this check.
 
 ### replication.forward_batch
 
@@ -161,6 +164,7 @@ Many client mutations forwarded in one message to a node that is primary for the
     document:     bytes or absent               (the full MessagePack document, for insert and update)
     updateFields: Map<string, value> or absent  (the changed fields alone, for update)
   }>
+  indexUuid:  string or absent   (the identity of the index that the sender's allocation table names)
 }
 ```
 
@@ -187,6 +191,7 @@ The node that forwarded the batch must pass each failed result's `errorCode`, `e
 ```text
 {
   entry: ReplicationLogEntry   (see replication.md)
+  indexUuid: string or absent   (the identity of the index that the sender's allocation table names)
 }
 ```
 
@@ -195,6 +200,7 @@ The node that forwarded the batch must pass each failed result's `errorCode`, `e
 ```text
 {
   entries: List<ReplicationLogEntry>   (see replication.md)
+  indexUuid: string or absent   (the identity of the index that the sender's allocation table names)
 }
 ```
 
@@ -218,6 +224,7 @@ The entries must belong to one partition of one index, share one `primaryTerm`, 
   partitionId:     uint32
   lastSeqNo:       uint64
   lastPrimaryTerm: uint64
+  indexUuid:       string or absent   (the identity of the index that the sender's allocation table names)
 }
 ```
 

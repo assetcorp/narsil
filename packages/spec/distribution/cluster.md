@@ -298,6 +298,7 @@ AllocationTable {
   replicationFactor: uint8    (replicas per partition, the primary excluded)
   assignments:       Map<uint32, PartitionAssignment>
   generation:        string or absent   (the index that serves this name after a partition count change)
+  indexUuid:         string or absent   (the identity of the index that this table allocates)
 }
 
 PartitionAssignment {
@@ -316,6 +317,10 @@ PartitionAssignment {
 ### version
 
 A counter that increases on every update. A node compares its cached version with the coordinator's to spot stale state, and it rejects an operation tagged with a version below its own.
+
+### indexUuid
+
+The `indexUuid` that the index metadata holds when the controller writes the table. The controller must copy it into every table it writes for the index, except the empty table that a drop writes, which carries the `indexUuid` of the table it replaces, because the drop clears the metadata first. A node that holds a table for a name and receives another for that name must take the received table where both carry an `indexUuid` and the two differ, whatever their versions, because the name now belongs to another index. Otherwise it must keep the table with the higher version. A table written by a release that predates the field carries none. A controller that reads a table whose `indexUuid` differs from the one the index metadata holds must not write that table back with any change; it must treat the index as having no table, so that it never gives one index's copies to another index of the same name.
 
 ### replicationFactor
 
@@ -790,7 +795,8 @@ Deleting an index reverses the creation flow, and the controller drives the tear
    request.
 
 4. The node that received the drop request answers it once
-   getAllocation returns no table for the index, its own copy is
+   getAllocation returns no table for the index, or a table whose
+   `indexUuid` differs from the dropped index's, its own copy is
    gone, and every registered data node answers
    cluster.partition_stores with no copy under the dropped
    indexUuid. When those three conditions do not all hold within
