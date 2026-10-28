@@ -86,7 +86,7 @@ rescored   = the depth nearest candidates that pass filterDocIds, scored by the 
 return the best k of rescored
 ```
 
-An implementation must accept an `oversample` that is a finite number of at least 1, and it must reject any other value with `CONFIG_INVALID`. It must ignore `oversample` on an index whose quantisation is `none`. When `oversample` is absent, an implementation must use its own `defaultDepth(k)`, which must be at least k. The recommended default is maximum(k, ceiling(a * k + b * sqrt(k))), where a and b depend on the quantisation and the dimensions:
+An implementation must accept an `oversample` that is a finite number of at least 1, and it must reject any other value with `CONFIG_INVALID`. It must ignore `oversample` on an index whose quantisation is `none`. When `oversample` is absent, an implementation must use its own `defaultDepth(k)`, which must be at least k. The recommended default is maximum(c * k, ceiling(a * k + b * sqrt(k))), where c is 3 for `osq1` and `osq2` and 1 for `osq4` and `osq8`, and a and b depend on the quantisation and the dimensions:
 
 | Quantisation | Below 768 dimensions | 768 to 1,023 dimensions | From 1,024 dimensions |
 | ------------ | -------------------- | ----------------------- | --------------------- |
