@@ -217,7 +217,7 @@ The memory that the node uses, which the [Memory Write Block](#memory-write-bloc
 
 - `processBytes` must be the resident memory of the whole process, because a node can keep vectors and saved segments outside the heap.
 - `processLimitBytes` must be the memory limit that a container sets on the process, or the host's total memory where no container sets one.
-- `heapBytes` must be the heap that the node's main thread uses, and `heapLimitBytes` the size to which that heap may grow.
+- `heapBytes` must be the heap that the node's main thread uses, and `heapLimitBytes` the size to which that heap may grow. Both figures must cover the same part of the heap. Where the runtime keeps new objects in a young generation that its collector empties on its own, both figures must leave that generation out. A node runs out of memory when the rest of its heap can't grow, so the garbage in the young generation never causes that failure.
 - `full` must hold the value that the [Memory Write Block](#memory-write-block) rules give it.
 
 ### partitionBytes
@@ -431,6 +431,10 @@ when full and processBytes < resumeFraction * processLimitBytes
 
 The block fraction is 0.9 and the resume fraction is 0.8 by default. An implementation must let each node set both, and it must accept only a resume fraction that is above 0 and below a block fraction of at most 1. A node should measure its memory at least once a second, because a node that measures it only on each heartbeat can run out of memory between two heartbeats.
 
+Some runtimes stop a process when its heap holds more than a fixed fraction of the heap limit and the process spends most of its time collecting garbage. V8 stops the process after four full collections in a row that each leave the old generation holding at least 0.8 of its limit while collection takes more than 60% of the time. A full node holds its heap near the block fraction until it clears `full`, so on such a runtime a node must compare `heapBytes` with a block fraction and a resume fraction that both stay below that fixed fraction, whatever its settings say. The node must leave room below the fixed fraction for the memory that it admits between two measurements. A node keeps the settings that it is given for `processBytes`, because the process limit carries no such rule. An implementation must document the heap fractions that it uses on each runtime.
+
+A node must also set `full` when it refuses an insert or an update because its bound on the memory that the write needs, added to its latest measurement, passes the block fraction of either limit. That bound covers the request that carries the write as well as the indexing. The rule applies only when the node collected garbage and measured again for that refusal, and only when either figure of the new measurement is at or above the resume fraction of its limit. Without it, a node that refuses every write that it receives can stay just below the block fraction, so the other nodes keep sending it writes. A node that holds little data measures below the resume fraction, so a single write that is larger than its free memory leaves its `full` value unchanged. The node clears `full` under the rule above.
+
 Six rules govern the block:
 
 - A node must refuse an insert or an update with `CLUSTER_WRITE_BLOCKED` while any node that the index's allocation table names as a primary or a replica reports `full`.
@@ -442,16 +446,38 @@ Six rules govern the block:
 
 The block lifts once no node that holds a copy of the index reports `full`.
 
+A node may still refuse a remove, a search, or a document read when the memory that reading the request takes, added to its latest measurement, would pass 0.95 of either limit, because the node would otherwise run out of memory while it reads the request. The node adds the bytes in use in a young generation to its heap figure for that check, as it does for an insert or an update. The node must refuse such a request with an error that tells the client to retry it.
+
 A node must also bound the bytes of the inserts and updates in progress on it, because a burst of writes can exhaust the node's memory between two of its measurements:
 
 ```text
-when inFlightBytes + requestBytes > inFlightFraction * heapLimitBytes:
+when inFlightBytes > 0 and inFlightBytes + requestBytes > inFlightFraction * heapLimitBytes:
   refuse the write with CLUSTER_WRITE_BLOCKED
 ```
 
+A node must accept a write that arrives while no other insert or update is in progress, whatever its `requestBytes`. A client retries a write after this refusal, so if an idle node refuses a write that is larger than the bound, the client will retry it forever. The memory rule below applies to that write as it does to every other.
+
 `requestBytes` is the node's estimate of the bytes in the documents of the write. That estimate must rise with the length of every string and binary value in those documents, including the fields of a partial update. `inFlightBytes` is the sum of `requestBytes` over every insert and update that is in progress on the node, from the moment that the node accepts it until it completes, whether a client sends it to the node or another node forwards it there. A node that receives a write from a client and holds the primary for it must count that write once. The in-flight fraction is 0.02 by default. An implementation must let each node set it to any value above 0 and at most 1. A node must leave removes and replicated entries out of `inFlightBytes` and accept them whatever the value of `inFlightBytes`.
 
-The details of a `CLUSTER_WRITE_BLOCKED` refusal must hold a `reason`, which is `node_memory_full` under the block and `write_bytes_in_flight` under the bound on writes in progress.
+A node must also refuse an insert or an update when the memory in use plus the memory that indexing can take would pass the block fraction of either limit. Indexing a document can take many times the document's own bytes, while the node's measurement shows only the memory in use before the write starts:
+
+```text
+when heapBytes + projectedBytes > blockFraction * heapLimitBytes
+  or processBytes + projectedBytes > blockFraction * processLimitBytes:
+  refuse the write with CLUSTER_WRITE_BLOCKED
+```
+
+`heapBytes` and `processBytes` come from the node's latest measurement. `projectedBytes` is the node's bound on the memory that indexing the next documents can take, added to the same bound for every other group of documents that the node is indexing or that it finished after that measurement. A node must keep counting finished documents until its next measurement, because the memory that they leave behind shows only in a measurement that the node takes after they finish.
+
+Where `heapBytes` leaves out a young generation, a node must add the bytes that are in use in that generation to `projectedBytes` when it compares the sum with `heapLimitBytes`. The young generation can hold every document that the node indexed since the collector last emptied it. When the collector next empties it, the collector moves the live part into the rest of the heap, so a measurement of the rest of the heap can miss all of those documents. The comparison with `processLimitBytes` leaves those bytes out, because `processBytes` already counts them.
+
+An implementation must compute the bound from each document without analysing its text, so that the check adds no work to indexing. The bound must never fall below the memory that indexing the document can take, for every language and tokeniser that the index uses, and it must hold for any document that a client can choose, because a client chooses what it sends. An implementation must therefore derive it from the most terms that one character can produce under each field's analysis, multiplied by the memory that its engine spends on one distinct term, and it must document both figures. Where an implementation has no such limit for a field, as with a custom tokeniser, it must count the terms that the field's tokeniser produces before it admits the document.
+
+A node must index a batch in groups whose bounds fit under the block fraction, and it must measure its memory before each group. When the node cannot fit even the next document of a batch under the block fraction, it must refuse that document and every later document of the batch, each with `CLUSTER_WRITE_BLOCKED` among the batch's failures, while it keeps every document that it has already indexed. A node refuses a batch whole under the block because it knows before the batch starts that it is full, while here it learns part of the way through the batch that its memory is running short. A node must refuse a document whose own bound passes the block fraction of its heap limit whatever memory it holds, because that document cannot fit even on an idle node.
+
+A node may collect garbage and measure again before it refuses a document, but it must limit how often it collects garbage for that purpose, because a client can otherwise force a collection with every write that it sends. A node must leave removes and replicated entries out of `projectedBytes` and accept them whatever its value.
+
+The details of a `CLUSTER_WRITE_BLOCKED` refusal must hold a `reason`, which is `node_memory_full` under the block, `write_bytes_in_flight` under the bound on writes in progress, `write_would_fill_memory` where the bound of a document would pass the block fraction, and `write_exceeds_memory` where a document cannot fit even on an idle node.
 
 ---
 
