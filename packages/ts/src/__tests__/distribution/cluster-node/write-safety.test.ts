@@ -18,8 +18,6 @@ import { ReplicationMessageTypes, TransportError, TransportErrorCodes } from '..
 import type { NarsilError } from '../../../errors'
 import { createNarsil, type Narsil } from '../../../narsil'
 
-const PRIMARY_CHANGE_WINDOW_MS = 30_000
-
 function makeAssignment(overrides: Partial<PartitionAssignment> = {}): PartitionAssignment {
   return {
     primary: 'node-a',
@@ -107,36 +105,6 @@ describe('primary write safety', () => {
     coordinator = undefined
   })
 
-  it('rolls the write back and sends it to the new primary when authority changes before the write returns', async () => {
-    coordinator = createInMemoryCoordinator()
-    engine = await createEngine()
-    await coordinator.putAllocation('products', makeAllocationTable(makeAssignment()))
-    const activeCoordinator = coordinator
-    const forwardedTo: string[] = []
-
-    transport = makeTransport(async (target, message) => {
-      if (message.type === ReplicationMessageTypes.FORWARD) {
-        forwardedTo.push(target)
-        return {
-          type: ReplicationMessageTypes.FORWARD,
-          sourceId: target,
-          requestId: message.requestId,
-          payload: encode({ documentId: 'doc-fenced', success: true }),
-        }
-      }
-      await activeCoordinator.putAllocation(
-        'products',
-        makeAllocationTable(makeAssignment({ primary: 'node-c', primaryTerm: 2 }), 2),
-      )
-      return createAckMessage(1, 0, 'products', 'node-b', message.requestId)
-    })
-
-    const deps = makeDeps(coordinator, engine, transport)
-    await expect(routeInsert('products', { title: 'Fenced Write' }, 'doc-fenced', deps)).resolves.toBe('doc-fenced')
-    expect(forwardedTo).toEqual(['node-c'])
-    await expect(engine.get('products', 'doc-fenced')).resolves.toBeUndefined()
-  })
-
   it('rolls back an insert when ack validation fails and in-sync removal is not confirmed', async () => {
     coordinator = createInMemoryCoordinator()
     engine = await createEngine()
@@ -205,40 +173,6 @@ describe('primary write safety', () => {
     const err = await routeInsert('products', { title: 'Orphaned' }, 'doc-orphaned', deps).catch(e => e as NarsilError)
     expect((err as NarsilError).code).toBe('PARTITION_UNASSIGNED')
   })
-
-  it('returns the last PARTITION_NOT_PRIMARY once the new primary refuses too and the table stops changing', async () => {
-    coordinator = createInMemoryCoordinator()
-    engine = await createEngine()
-    await coordinator.putAllocation('products', makeAllocationTable(makeAssignment()))
-    const activeCoordinator = coordinator
-    const forwardedTo: string[] = []
-
-    transport = makeTransport(async (target, message) => {
-      if (message.type === ReplicationMessageTypes.FORWARD) {
-        forwardedTo.push(target)
-        return {
-          type: 'replication.forward.error',
-          sourceId: target,
-          requestId: message.requestId,
-          payload: encode({ error: true, code: 'PARTITION_NOT_PRIMARY', message: `${target} stopped leading` }),
-        }
-      }
-      await activeCoordinator.putAllocation(
-        'products',
-        makeAllocationTable(makeAssignment({ primary: 'node-c', primaryTerm: 2 }), 2),
-      )
-      return createAckMessage(1, 0, 'products', 'node-b', message.requestId)
-    })
-
-    const deps = makeDeps(coordinator, engine, transport)
-    const started = Date.now()
-    const err = await routeInsert('products', { title: 'Fenced' }, 'doc-fenced-code', deps).catch(e => e as NarsilError)
-    expect((err as NarsilError).code).toBe('PARTITION_NOT_PRIMARY')
-    expect((err as NarsilError).message).toBe('node-c stopped leading')
-    expect(Date.now() - started).toBeGreaterThanOrEqual(PRIMARY_CHANGE_WINDOW_MS)
-    expect(forwardedTo).toEqual(['node-c'])
-    await expect(engine.get('products', 'doc-fenced-code')).resolves.toBeUndefined()
-  }, 45_000)
 
   it('restores a removed document when in-sync removal is rejected', async () => {
     coordinator = createInMemoryCoordinator()

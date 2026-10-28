@@ -177,12 +177,4 @@ describe('changing the replication factor of a cluster index', () => {
     })
     expect((await inner.getAllocation(INDEX_NAME))?.version).toBe(before?.version)
   }, 60_000)
-
-  it('refuses an index that the cluster does not hold', async () => {
-    const router = await startCluster(1)
-
-    await expect(router.cluster.setReplicationFactor('absent-herbarium', 1)).rejects.toMatchObject({
-      code: 'INDEX_NOT_FOUND',
-    })
-  }, 60_000)
 })

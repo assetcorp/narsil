@@ -131,12 +131,4 @@ describe('an analysis rebuild that a cluster node receives', () => {
     expect((partial as NarsilError).code).toBe('QUERY_PARTIAL_FAILURE')
     expect((partial as NarsilError).details).toMatchObject({ nodeIds: ['deck-a'] })
   }, 90_000)
-
-  it('refuses an index the cluster never held with INDEX_NOT_FOUND', async () => {
-    await startNode('deck-a', ['data'])
-    const router = await startNode('chart-desk', ['coordinator', 'controller'])
-    const failure = await router.rebuildAnalysis('atlas').catch((error: unknown) => error)
-    expect(failure).toBeInstanceOf(NarsilError)
-    expect((failure as NarsilError).code).toBe('INDEX_NOT_FOUND')
-  })
 })

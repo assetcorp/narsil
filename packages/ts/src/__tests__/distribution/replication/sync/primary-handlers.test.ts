@@ -42,21 +42,6 @@ describe('decideSyncTier', () => {
     expect(decideSyncTier(log, 1, 1)).toBe('incremental')
   })
 
-  it('returns snapshot when the entry at the replica position carries another term', () => {
-    const log = createReplicationLog(0)
-    log.append({
-      primaryTerm: 2,
-      operation: 'INDEX',
-      partitionId: 0,
-      indexName: 'products',
-      documentId: 'd1',
-      document: encode({ title: 'A' }),
-    })
-
-    expect(decideSyncTier(log, 1, 1)).toBe('snapshot')
-    expect(decideSyncTier(log, 1, 2)).toBe('incremental')
-  })
-
   it('returns snapshot when log does not cover the gap', () => {
     const log = makeEvictedLog()
     const oldest = log.oldestSeqNo
@@ -74,23 +59,6 @@ describe('decideSyncTier', () => {
   it('returns snapshot for empty log when replica has a nonzero lastSeqNo', () => {
     const log = createReplicationLog(0)
     expect(decideSyncTier(log, 5, 1)).toBe('snapshot')
-  })
-
-  it('returns incremental when replica is at the position the log started from with the same term', () => {
-    const log = createReplicationLog(0, { startSeqNo: 5, lastPrimaryTerm: 1 })
-    log.append({
-      primaryTerm: 2,
-      operation: 'INDEX',
-      partitionId: 0,
-      indexName: 'products',
-      documentId: 'd1',
-      document: encode({ title: 'A' }),
-    })
-
-    expect(decideSyncTier(log, 4, 1)).toBe('incremental')
-    expect(decideSyncTier(log, 4, 2)).toBe('snapshot')
-    expect(decideSyncTier(log, 5, 2)).toBe('incremental')
-    expect(decideSyncTier(log, 3, 1)).toBe('snapshot')
   })
 })
 

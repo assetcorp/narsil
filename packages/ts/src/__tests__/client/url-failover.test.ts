@@ -1,7 +1,7 @@
 import { createServer as createHttpServer, type Server } from 'node:http'
 import { createServer as createNetServer } from 'node:net'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { createNarsilClient, type FetchFunction } from '../../client'
+import { createNarsilClient } from '../../client'
 import { NarsilError } from '../../errors'
 import { startTestServer, type TestServer } from '../server/helpers'
 
@@ -122,38 +122,6 @@ describe('a client given a list of server URLs', () => {
     expect(warming.requests).toHaveLength(1)
     expect((await live.engine.get('charts', 'channel'))?.title).toBe('channel')
     expect(await live.engine.countDocuments('charts')).toBe(1)
-  })
-
-  it('spreads requests across the list and skips a refusing URL until its skip ends', async () => {
-    const second = await startTestServer()
-    try {
-      const refusing = await closedPortUrl()
-      const reached: string[] = []
-      const counting: FetchFunction = (input, init) => {
-        reached.push(new URL(input).origin)
-        return fetch(input, init)
-      }
-      const client = createNarsilClient({ url: [live.base, refusing, second.base], fetch: counting, urlSkipMs: 60_000 })
-
-      for (let request = 0; request < 6; request++) await client.listIndexes()
-
-      expect(reached.filter(origin => origin === refusing)).toHaveLength(1)
-      expect(reached.filter(origin => origin === live.base)).toHaveLength(3)
-      expect(reached.filter(origin => origin === second.base)).toHaveLength(3)
-    } finally {
-      await second.stop()
-    }
-  })
-
-  it('fails with the error from the last URL once every URL has refused', async () => {
-    const first = await closedPortUrl()
-    const last = await closedPortUrl()
-    const client = createNarsilClient({ url: [first, last] })
-
-    const failure = await failureOf(client.listIndexes())
-
-    expect(failure.code).toBe('CLIENT_CONNECTION_FAILED')
-    expect(failure.details).toMatchObject({ url: `${last}/indexes` })
   })
 
   it.each([

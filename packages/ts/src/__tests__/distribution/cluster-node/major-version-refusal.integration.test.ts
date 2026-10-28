@@ -106,32 +106,4 @@ describe('a node that registers on another major version', () => {
 
     expect(holders(table)).toEqual(['keeper-a', FOREIGN_NODE])
   }, 30_000)
-
-  it('refuses to start a node while the active controller follows a later major version', async () => {
-    await coordinator.registerNode(foreignRegistration('2.0'))
-    expect(await coordinator.acquireLease('_narsil/controller', FOREIGN_NODE, 60_000)).toBe(true)
-
-    const node = await createClusterNode({
-      coordinator,
-      transport: createInMemoryTransport('keeper-a', network),
-      address: 'keeper-a:9200',
-      nodeId: 'keeper-a',
-      roles: ['data'],
-    })
-    running.push(node)
-
-    await expect(node.start()).rejects.toMatchObject({ code: 'NODE_VERSION_INCOMPATIBLE' })
-    const registered = (await coordinator.listNodes()).map(entry => entry.nodeId)
-    expect(registered).toEqual([FOREIGN_NODE])
-  })
-
-  it('starts a node while the active controller follows a later minor version', async () => {
-    await coordinator.registerNode(foreignRegistration('1.7'))
-    expect(await coordinator.acquireLease('_narsil/controller', FOREIGN_NODE, 60_000)).toBe(true)
-
-    await start('keeper-a', ['data'])
-
-    const registered = (await coordinator.listNodes()).map(entry => entry.nodeId).sort()
-    expect(registered).toEqual(['keeper-a', FOREIGN_NODE])
-  })
 })

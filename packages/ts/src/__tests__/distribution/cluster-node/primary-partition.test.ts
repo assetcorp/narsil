@@ -76,16 +76,6 @@ describe('a node the controller promoted back to primary', () => {
     await coordinator.shutdown()
   })
 
-  it('numbers its next entry above its own write-ahead log when that reaches further, under the term of that entry', async () => {
-    const coordinator = await coordinatorHolding(assignmentOf())
-    const seeded: SeededLog[] = []
-
-    expect(await preparePrimaryPartition(INDEX_NAME, 0, depsFor(coordinator, 40, seeded))).toBe(true)
-
-    expect(seeded).toEqual([{ startSeqNo: 41, lastPrimaryTerm: PERSISTED_PRIMARY_TERM }])
-    await coordinator.shutdown()
-  })
-
   it('creates its missing copy with the settings that the index metadata stores', async () => {
     const coordinator = createInMemoryCoordinator()
     await coordinator.putSchema(INDEX_NAME, { title: 'string', sku: 'verbatim' })

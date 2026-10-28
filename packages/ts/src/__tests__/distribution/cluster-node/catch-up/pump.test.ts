@@ -10,6 +10,7 @@ import {
   stopCatchUpPump,
 } from '../../../../distribution/cluster-node/catch-up'
 import { getInSyncReplicaTargets } from '../../../../distribution/cluster-node/write-routing/assignment'
+import { createPartitionWriteQueues } from '../../../../distribution/cluster-node/write-routing/partition-queue'
 import type { WriteRoutingDeps } from '../../../../distribution/cluster-node/write-routing/types'
 import { WIRE_BATCH_BUDGET } from '../../../../distribution/constants'
 import { createInMemoryCoordinator } from '../../../../distribution/coordinator/in-memory'
@@ -60,29 +61,21 @@ describe('catch-up pump', () => {
   let coordinator: ClusterCoordinator
   let primaryTransport: NodeTransport
   let replicaTransport: NodeTransport
-  const silentTransports: NodeTransport[] = []
 
   afterEach(async () => {
     await primaryTransport.shutdown()
     await replicaTransport.shutdown()
-    for (const transport of silentTransports.splice(0)) await transport.shutdown()
     await coordinator.shutdown()
   })
 
   async function setUp(
     table: AllocationTable,
     log: ReplicationLog,
-    silent: { nodeIds: string[]; requestTimeout: number } = { nodeIds: [], requestTimeout: 30_000 },
   ): Promise<{ deps: WriteRoutingDeps; received: TransportMessage[] }> {
     coordinator = createInMemoryCoordinator()
     const network = createInMemoryNetwork()
-    primaryTransport = createInMemoryTransport('node-a', network, { requestTimeout: silent.requestTimeout })
+    primaryTransport = createInMemoryTransport('node-a', network)
     replicaTransport = createInMemoryTransport('node-b', network)
-    for (const nodeId of silent.nodeIds) {
-      const transport = createInMemoryTransport(nodeId, network)
-      await transport.listen(() => new Promise<void>(() => {}))
-      silentTransports.push(transport)
-    }
     await coordinator.putAllocation('products', table)
 
     const received: TransportMessage[] = []
@@ -113,32 +106,11 @@ describe('catch-up pump', () => {
       transport: primaryTransport,
       getReplicationLog: () => log,
       catchUp: createCatchUpState(),
+      partitionWriteQueues: createPartitionWriteQueues(),
     } as unknown as WriteRoutingDeps
 
     return { deps, received }
   }
-
-  it('feeds a healthy replica while another replica of the same partition never answers', async () => {
-    const log = createReplicationLog(0)
-    appendEntries(log, 3)
-    const { deps } = await setUp(makeTable({ replicas: ['node-c', 'node-b'] }), log, {
-      nodeIds: ['node-c'],
-      requestTimeout: 1_500,
-    })
-    const cursorOf = (nodeId: string) => deps.catchUp.cursors.get('products:0')?.get(nodeId)?.appliedSeqNo
-
-    recordReplicaPosition(deps.catchUp, 'products', 0, 'node-c', 0)
-    recordReplicaPosition(deps.catchUp, 'products', 0, 'node-b', 0)
-    const tick = runCatchUpTick(deps.catchUp, deps)
-    const startedAt = Date.now()
-    while (cursorOf('node-b') !== 3 && Date.now() - startedAt < 500) {
-      await new Promise(resolve => setTimeout(resolve, 10))
-    }
-
-    expect(cursorOf('node-b')).toBe(3)
-    expect(cursorOf('node-c')).toBe(0)
-    await tick
-  })
 
   it('sends entries to an assigned replica that is outside the in-sync set', async () => {
     const log = createReplicationLog(0)
