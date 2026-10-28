@@ -13,6 +13,7 @@ import type { AnalysisRebuildCoordinator } from './analysis-rebuild'
 import type { IndexRegistryEntry } from './core'
 import type { IndexStateCoordinator } from './index-state'
 import { reconstructSchemaFromMetadata } from './recovery-schema'
+import { lookupOfStoredSynonyms, prepareStoredSynonyms } from './synonym-sets'
 import { requireSurfaceFormsForPartialFields, validatePatternValueLimit } from './validation'
 import { getVectorFieldPaths } from './vector-fields'
 
@@ -75,7 +76,13 @@ export async function createIndexFromMetadata(
   const existing = deps.indexRegistry.get(metadata.indexName)
   if (existing !== undefined) {
     if (loadData && deps.executor.getManager(metadata.indexName) === undefined) {
-      deps.executor.createIndex(metadata.indexName, existing.config, existing.language)
+      deps.executor.createIndex(
+        metadata.indexName,
+        existing.config,
+        existing.language,
+        false,
+        lookupOfStoredSynonyms(existing.synonyms, existing.config, existing.language),
+      )
     }
     return
   }
@@ -89,10 +96,19 @@ export async function createIndexFromMetadata(
     throw recoveryFailure(metadata, err)
   }
   const embedding = resolveEmbeddingAdapter(deps, metadata, indexConfig.schema)
+  const prepared = prepareStoredSynonyms(
+    metadata.synonyms,
+    indexConfig,
+    language,
+    'The synonym set in the index metadata is invalid: ',
+  )
+  const synonyms = prepared?.encoded ?? null
 
   try {
     validateVectorStorage(indexConfig.vectorPromotion, deps.filesystemDurability)
-    if (loadData) deps.executor.createIndex(metadata.indexName, indexConfig, language)
+    if (loadData) {
+      deps.executor.createIndex(metadata.indexName, indexConfig, language, false, prepared?.lookup ?? null)
+    }
   } catch (err) {
     throw recoveryFailure(metadata, err)
   }
@@ -107,6 +123,7 @@ export async function createIndexFromMetadata(
     documentCount: metadata.documentCount ?? 0,
     partitionCount: metadata.partitionCount,
     analysisRevision: metadata.analysisRevision ?? null,
+    synonyms,
   })
   if (loadData) await deps.indexState().registerOpen(metadata.indexName)
   else deps.indexState().registerClosed(metadata.indexName)

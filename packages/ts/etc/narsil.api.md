@@ -390,6 +390,7 @@ export interface IndexConfig {
     stopWords?: StopWordOverride | string;
     strict?: boolean;
     surfaceForms?: boolean;
+    synonyms?: SynonymRule[];
     tokenizer?: CustomTokenizer | string;
     trackPositions?: boolean;
     vectorPromotion?: VectorIndexConfig;
@@ -528,7 +529,7 @@ export interface MemoryStats {
 }
 
 // @public
-export interface Narsil extends IndexLifecycleOperations, DocumentWriteOperations {
+export interface Narsil extends IndexLifecycleOperations, DocumentWriteOperations, SynonymOperations {
     checkpoint(indexName: string): Promise<void>;
     clear(indexName: string): Promise<void>;
     compactVectors(indexName: string, fieldName?: string): Promise<void>;
@@ -665,6 +666,12 @@ export interface NarsilPlugin {
     onIndexDrop?(ctx: IndexContext): void | Promise<void>;
     onPartitionSplit?(ctx: PartitionContext): void | Promise<void>;
     onWorkerPromote?(ctx: WorkerContext): void | Promise<void>;
+}
+
+// @public
+export interface OneWaySynonymRule {
+    synonyms: string[];
+    word: string;
 }
 
 // @public
@@ -806,6 +813,9 @@ export function registerPatternSearch(module: PatternSearch): void;
 export function registerStopWords(name: string, stopWords: StopWordOverride): void;
 
 // @public
+export function registerSynonyms(module: SynonymSearch): void;
+
+// @public
 export function registerTokenizer(name: string, tokenizer: CustomTokenizer): void;
 
 // @public
@@ -918,6 +928,20 @@ export interface SuggestResult {
 }
 
 // @public
+export interface SynonymOperations {
+    getSynonyms(indexName: string): Promise<SynonymRule[]>;
+    updateSynonyms(indexName: string, synonyms: SynonymRule[]): Promise<void>;
+}
+
+// @public
+export type SynonymRule = TwoWaySynonymRule | OneWaySynonymRule;
+
+// @public
+export interface SynonymSearch {
+    readonly name: 'synonyms';
+}
+
+// @public
 export type TermMatchPolicy = 'all' | 'any' | number;
 
 // @public
@@ -930,6 +954,11 @@ export interface TokenizerConfig {
     normalizeDiacritics?: boolean;
     splitPattern?: RegExp;
     stripPossessive?: boolean;
+}
+
+// @public
+export interface TwoWaySynonymRule {
+    words: string[];
 }
 
 // @public

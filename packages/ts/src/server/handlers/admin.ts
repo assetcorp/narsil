@@ -1,9 +1,10 @@
 import { createReadStream } from 'node:fs'
 import type { PartitionConfig } from '../../types/schema'
+import type { SynonymRule } from '../../types/synonyms'
 import { SNAPSHOT_ARCHIVE_CONTENT_TYPE } from '../constants'
 import type { HandlerDeps } from '../deps'
 import { ServerErrorCodes } from '../errors'
-import { parseJsonOptional, rejectInvalid, respondError, respondJson } from '../handler-utils'
+import { badRequest, parseJson, parseJsonOptional, rejectInvalid, respondError, respondJson } from '../handler-utils'
 import type { RouteContext } from '../request'
 import { sendError, sendStream } from '../response'
 import type { MemoryStatsResponse, RebalanceBody } from '../types'
@@ -62,6 +63,29 @@ export function createAdminHandlers(deps: HandlerDeps) {
     if (!body) return
     try {
       await engine.updatePartitionConfig(ctx.params[0], body)
+      respondJson(ctx, { ok: true })
+    } catch (err) {
+      respondError(ctx, err)
+    }
+  }
+
+  async function readSynonyms(ctx: RouteContext): Promise<void> {
+    try {
+      respondJson(ctx, { synonyms: await engine.getSynonyms(ctx.params[0]) })
+    } catch (err) {
+      respondError(ctx, err)
+    }
+  }
+
+  async function replaceSynonyms(ctx: RouteContext): Promise<void> {
+    const body = parseJson<unknown>(ctx)
+    if (body === undefined) return
+    if (body === null || typeof body !== 'object' || Array.isArray(body) || !Object.hasOwn(body, 'synonyms')) {
+      if (!ctx.abort.aborted) badRequest(ctx.res, 'Send the synonym set as { "synonyms": [ ...rules ] }')
+      return
+    }
+    try {
+      await engine.updateSynonyms(ctx.params[0], Reflect.get(body, 'synonyms') as SynonymRule[])
       respondJson(ctx, { ok: true })
     } catch (err) {
       respondError(ctx, err)
@@ -205,6 +229,8 @@ export function createAdminHandlers(deps: HandlerDeps) {
     vectorMaintenance,
     compact,
     partitionConfig,
+    readSynonyms,
+    replaceSynonyms,
     memory,
     optimize,
     rebalance,

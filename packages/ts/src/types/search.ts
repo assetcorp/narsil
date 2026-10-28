@@ -147,8 +147,8 @@ export interface QueryParams {
   partialWords?: boolean
   /**
    * With this set, the engine matches each query term only against an equal
-   * indexed term, so it turns off fuzzy matching, prefix completion, and
-   * partial-word matching. The engine still stems the query, because the
+   * indexed term, so it turns off fuzzy matching, prefix completion,
+   * partial-word matching, and synonyms. The engine still stems the query, because the
    * index stores stemmed terms, so a search for `running` matches a document
    * that contains `runs` through the stem that both words share.
    */
