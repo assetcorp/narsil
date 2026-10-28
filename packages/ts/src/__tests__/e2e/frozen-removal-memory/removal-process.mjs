@@ -10,15 +10,26 @@ const job = JSON.parse(await readFile(process.argv[2], 'utf8'))
 const { createNarsil } = await import(new URL('../../../../dist/index.mjs', import.meta.url).href)
 await import(job.bootstrapModule)
 
+const step = process.argv[3] ?? 'write-and-remove'
 const engineConfig = { durability: { directory: job.directory }, workers: { enabled: false } }
-const writer = await createNarsil(engineConfig)
-await writer.createIndex(job.indexName, job.indexConfig)
-for (let at = 0; at < job.documents.length; at += INSERT_CHUNK_DOCUMENTS) {
-  const outcome = await writer.insertBatch(job.indexName, job.documents.slice(at, at + INSERT_CHUNK_DOCUMENTS))
-  if (outcome.failed.length > 0) throw new Error(`insert failed: ${JSON.stringify(outcome.failed[0])}`)
+
+function withAppendix(document) {
+  if (job.appendixBytes === 0) return document
+  return { ...document, appendix: String(document.id).padEnd(job.appendixBytes, '.') }
 }
-await writer.checkpoint(job.indexName)
-await writer.shutdown()
+
+if (step !== 'remove') {
+  const writer = await createNarsil(engineConfig)
+  await writer.createIndex(job.indexName, job.indexConfig)
+  for (let at = 0; at < job.documents.length; at += INSERT_CHUNK_DOCUMENTS) {
+    const chunk = job.documents.slice(at, at + INSERT_CHUNK_DOCUMENTS).map(withAppendix)
+    const outcome = await writer.insertBatch(job.indexName, chunk)
+    if (outcome.failed.length > 0) throw new Error(`insert failed: ${JSON.stringify(outcome.failed[0])}`)
+  }
+  await writer.checkpoint(job.indexName)
+  await writer.shutdown()
+}
+if (step === 'write') process.exit(0)
 
 const engine = await createNarsil(engineConfig)
 const loadedBytes = (await engine.getStats(job.indexName)).estimatedMemoryBytes
@@ -58,7 +69,11 @@ async function writeAnswers(path) {
   try {
     await file.write('[')
     for (const [at, query] of job.queries.entries()) {
-      const result = await engine.query(job.indexName, { ...query, limit: job.resultLimit })
+      const result = await engine.query(job.indexName, {
+        ...query,
+        limit: job.resultLimit,
+        document: { include: [job.returnedField] },
+      })
       const answer = JSON.stringify(result.hits.map(hit => ({ id: hit.id, score: hit.score })))
       await file.write(at === 0 ? answer : `,${answer}`)
     }
@@ -68,7 +83,6 @@ async function writeAnswers(path) {
   }
 }
 
-await writeAnswers(`${job.resultPath}.served`)
 fillMemory()
 const filledResidentBytes = process.memoryUsage.rss()
 const filledHeapBytes = getHeapStatistics().used_heap_size

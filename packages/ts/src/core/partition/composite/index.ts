@@ -9,7 +9,7 @@ import type { ReadonlyStoredDocument } from '../../document-store'
 import type { ComparableSortValue } from '../../ordering'
 import { compareCodePoints } from '../../ordering'
 import type { PatternWorkMeter } from '../../pattern-index/types'
-import { cloneProjected, type ResolvedProjection } from '../../projection'
+import type { ResolvedProjection } from '../../projection'
 import { computeFacets, type FacetMatchSet } from '../facets'
 import type { PartitionFilterMatches } from '../filters'
 import type { FrozenSegment } from '../frozen'
@@ -31,6 +31,7 @@ import {
   survivorDocumentsOf,
   swapFrozenSegmentList,
 } from './compaction'
+import { compositeDocument, compositeFieldValues } from './documents'
 import {
   compositeFilterMatches,
   compositeFilters,
@@ -333,9 +334,11 @@ export function createCompositePartition(
     },
 
     get(docId: string, projection?: ResolvedProjection): AnyDocument | undefined {
-      const stored = frozenStored(docId)
-      if (stored !== undefined) return cloneProjected(stored.fields, projection)
-      return live.get(docId, projection)
+      return compositeDocument(frozen, live, docId, projection)
+    },
+
+    fieldValues(docId: string, fieldPaths: readonly string[]): unknown[] | undefined {
+      return compositeFieldValues(frozen, live, docId, fieldPaths)
     },
 
     getRef(docId: string): AnyDocument | undefined {

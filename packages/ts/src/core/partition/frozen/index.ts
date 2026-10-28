@@ -210,8 +210,7 @@ function assembleFrozenSegment(
         partialWords.afterRemoval(ordinal)
         removals.afterRemoval(ordinal, removedSpellings)
         docStore.releaseSortedDocIds()
-        segment.sortColumns = null
-        segment.scoreBuffer = null
+        segment.sortColumns?.forget(ordinal)
       }
       return added
     },

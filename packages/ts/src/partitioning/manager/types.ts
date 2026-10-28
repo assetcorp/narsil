@@ -50,6 +50,7 @@ export interface PartitionManager {
   ): void
   get(docId: string, projection?: ResolvedProjection): AnyDocument | undefined
   getRef(docId: string): AnyDocument | undefined
+  fieldValues(docId: string, fieldPaths: readonly string[]): unknown[] | undefined
   sortValues(
     docId: string,
     fields: readonly string[],
