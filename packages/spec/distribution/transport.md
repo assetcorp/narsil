@@ -456,6 +456,7 @@ HybridConfig {
   strategy: 'rrf' or 'linear' or absent   (default 'rrf')
   k:        uint32 or absent              (the RRF constant, default 60)
   alpha:    float32 or absent             (the linear weight, default 0.5)
+  depth:    uint32 or absent              (the results that each search fetches, default 100)
 }
 ```
 
