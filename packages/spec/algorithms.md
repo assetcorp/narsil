@@ -859,13 +859,13 @@ RerankParams {
   adapter: string             (the name of a registered rerank adapter)
   fields:  List<string>       (at least one text field)
   query:   string or absent   (absent takes term, then vector.text)
-  window:  uint32 or absent   (1 to maxRerankWindow, default the smaller of 100 and maxRerankWindow)
+  window:  uint32 or absent   (1 to maxRerankWindow, default the smallest of 100, maxRerankWindow, and on a hybrid query hybrid.depth)
 }
 ```
 
 Let `d` be the depth field of the request's cursor, or 0 for a request without a cursor.
 
-1. The engine must rank the query as it would without `rerank`, whether keyword, vector, or hybrid after fusion, to a depth of max(window + 1, min(d + offset + limit + 1, 10,000)), and it must place no pinned document at this step. It must raise `SEARCH_RESULT_WINDOW_EXCEEDED` where d + offset + limit exceeds 10,000. A hybrid query takes as its first stage the fused list at `hybrid.depth`, as [Hybrid Search](vector-index.md#hybrid-search) defines, so its `window` must not exceed that depth.
+1. The engine must rank the query as it would without `rerank`, whether keyword, vector, or hybrid after fusion, to a depth of max(window + 1, min(d + offset + limit + 1, 10,000)), and it must place no pinned document at this step. It must raise `SEARCH_RESULT_WINDOW_EXCEEDED` where d + offset + limit exceeds 10,000. A hybrid query takes as its first stage the fused list at `hybrid.depth`, as [Hybrid Search](vector-index.md#hybrid-search) defines, so the engine must raise `RERANK_CONFIG_INVALID` where the request sets a `window` above that depth. Where the request leaves `window` out, the engine must use the smallest of 100, `maxRerankWindow`, and that depth.
 2. It must pass the adapter the query text and, for each of the first `window` hits, the values of `fields` in field order, joined with a newline. Each member of a list field takes a line of its own, and a missing value or a value that is not a string adds nothing.
 3. It must order those hits by the adapter's score, highest first, with ties broken by document ID in [code point order](#code-point-order). Each of those hits then takes the adapter's score as its score.
 4. It must keep the hits past the window in their first-stage order after the reranked hits, and it must rescale their scores as below, so that no hit past the window outscores a reranked hit.
