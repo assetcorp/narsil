@@ -4,6 +4,7 @@ import { ErrorCodes, NarsilError } from '../../errors'
 import type { SegmentManifest } from '../../persistence/durability/segment/manifest'
 import { extractVectorFieldsFromSchema } from '../../schema/validator'
 import {
+  RESTORE_ESTIMATE_MARGIN,
   RESTORE_EXTERNAL_BYTES_PER_EARLIER_SNAPSHOT_BYTE,
   RESTORE_EXTERNAL_BYTES_PER_EARLIER_SNAPSHOT_VECTOR,
   RESTORE_EXTERNAL_BYTES_PER_EARLIER_SNAPSHOT_VECTOR_DIMENSION,
@@ -120,25 +121,36 @@ function inMegabytes(bytes: number): number {
   return Math.ceil(bytes / MEGABYTE_BYTES)
 }
 
-function refuse(indexName: string, budget: MemoryBudget, neededBytes: number, availableBytes: number): never {
+function refuse(
+  indexName: string,
+  replacesIndex: boolean,
+  budget: MemoryBudget,
+  neededBytes: number,
+  availableBytes: number,
+): never {
   const where = budget === 'heap' ? 'of JavaScript heap' : 'of process memory'
+  const outcome = replacesIndex
+    ? 'so the index keeps its earlier contents. Drop the index first to free the memory that it holds, or give the process more memory, then restore again'
+    : 'so the engine creates no index. Give the process more memory, then restore again'
   throw new NarsilError(
     ErrorCodes.RESTORE_MEMORY_EXCEEDED,
-    `The restore of index "${indexName}" needs about ${inMegabytes(neededBytes)} MB ${where}, and this process has ${inMegabytes(Math.max(0, availableBytes))} MB free, so the index keeps its earlier contents. Drop the index first to free the memory that it holds, or give the process more memory, then restore again`,
+    `The restore of index "${indexName}" needs about ${inMegabytes(neededBytes)} MB ${where}, and this process has ${inMegabytes(Math.max(0, availableBytes))} MB free, ${outcome}`,
     { indexName, budget, neededBytes, availableBytes },
   )
 }
 
-export function requireRestoreMemory(indexName: string, footprint: RestoreFootprint): void {
+export function requireRestoreMemory(indexName: string, footprint: RestoreFootprint, replacesIndex: boolean): void {
+  const scale = replacesIndex ? 1 : 1 / RESTORE_ESTIMATE_MARGIN
+  const heapBytes = footprint.heapBytes * scale
   const heap = readHeapStatistics()
   if (heap !== null) {
     const availableBytes = (heap.configuredLimitBytes ?? heap.limitBytes) - heap.usedBytes
-    if (footprint.heapBytes > availableBytes) refuse(indexName, 'heap', footprint.heapBytes, availableBytes)
+    if (heapBytes > availableBytes) refuse(indexName, replacesIndex, 'heap', heapBytes, availableBytes)
   }
   const resident = readResidentMemory()
   if (resident !== null) {
-    const neededBytes = footprint.heapBytes + footprint.externalBytes
+    const neededBytes = heapBytes + footprint.externalBytes * scale
     const availableBytes = resident.limitBytes - resident.residentBytes
-    if (neededBytes > availableBytes) refuse(indexName, 'process', neededBytes, availableBytes)
+    if (neededBytes > availableBytes) refuse(indexName, replacesIndex, 'process', neededBytes, availableBytes)
   }
 }

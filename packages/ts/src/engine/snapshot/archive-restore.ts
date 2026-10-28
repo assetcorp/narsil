@@ -71,9 +71,8 @@ async function stageArchive(indexName: string, reader: ByteReader, staging: Chec
     manifest: async (manifest, sourceName) => {
       if (staged.prepared === null) missingPart('configuration')
       requireSameSchema(staged.prepared, manifest)
-      if (deps.indexRegistry.has(indexName)) {
-        requireRestoreMemory(indexName, archiveFootprint(staged.prepared, manifest))
-      }
+      const footprint = archiveFootprint(staged.prepared, manifest)
+      requireRestoreMemory(indexName, footprint, deps.indexRegistry.has(indexName))
       staged.manifest = renamed(manifest, sourceName, indexName)
     },
     file: async (entryName, _ref, bytes) => {
