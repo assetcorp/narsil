@@ -2,7 +2,6 @@ import { expect } from 'vitest'
 import type { FilterExpression } from '../../../types/filters'
 import type { AnyDocument, IndexConfig } from '../../../types/schema'
 import type { QueryParams } from '../../../types/search'
-import { seededRandom } from '../../vector/native/fixtures'
 
 export const DIMENSION = 24
 export const K = 10
@@ -48,6 +47,14 @@ export const selectivities: Selectivity[] = [
   { share: '2%', filters: { fields: { shelf: { eq: 0 } } }, passes: shelf => shelf === 0 },
   { share: '30%', filters: { fields: { shelf: { lt: 15 } } }, passes: shelf => shelf < 15 },
 ]
+
+export function seededRandom(seed: number): () => number {
+  let state = seed >>> 0
+  return () => {
+    state = (Math.imul(state, 1664525) + 1013904223) >>> 0
+    return state / 4294967296
+  }
+}
 
 const random = seededRandom(20261028)
 const centres = Array.from({ length: CENTRES }, () => Array.from({ length: DIMENSION }, () => random() * 2 - 1))
