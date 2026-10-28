@@ -5,6 +5,12 @@
 ```ts
 
 // @public
+export interface AdapterRegistrationOperations {
+    registerEmbeddingAdapter(name: string, adapter: EmbeddingAdapter): void;
+    registerRerankAdapter(name: string, adapter: RerankAdapter): void;
+}
+
+// @public
 export interface AnalysisConfig {
     onStaleAnalysis?(index: StaleAnalysis, rebuild: () => Promise<void>): void | Promise<void>;
     rebuild?: 'auto' | 'manual';
@@ -182,6 +188,8 @@ export const ErrorCodes: {
     readonly EMBEDDING_DIMENSION_MISMATCH: "EMBEDDING_DIMENSION_MISMATCH";
     readonly EMBEDDING_NO_SOURCE: "EMBEDDING_NO_SOURCE";
     readonly EMBEDDING_CONFIG_INVALID: "EMBEDDING_CONFIG_INVALID";
+    readonly RERANK_FAILED: "RERANK_FAILED";
+    readonly RERANK_CONFIG_INVALID: "RERANK_CONFIG_INVALID";
     readonly DOC_MISSING_REQUIRED_FIELD: "DOC_MISSING_REQUIRED_FIELD";
     readonly CONFIG_INVALID: "CONFIG_INVALID";
     readonly QUERY_ROUTING_FAILED: "QUERY_ROUTING_FAILED";
@@ -372,6 +380,7 @@ export interface Hit<T = AnyDocument> {
 // @public
 export interface HybridConfig {
     alpha?: number;
+    depth?: number;
     k?: number;
     strategy?: 'rrf' | 'linear';
 }
@@ -527,7 +536,7 @@ export interface MemoryStats {
 }
 
 // @public
-export interface Narsil extends IndexLifecycleOperations, DocumentWriteOperations {
+export interface Narsil extends IndexLifecycleOperations, DocumentWriteOperations, AdapterRegistrationOperations {
     checkpoint(indexName: string): Promise<void>;
     clear(indexName: string): Promise<void>;
     compactVectors(indexName: string, fieldName?: string): Promise<void>;
@@ -551,7 +560,6 @@ export interface Narsil extends IndexLifecycleOperations, DocumentWriteOperation
     query<T = AnyDocument>(indexName: string, params: QueryParams): Promise<QueryResult<T>>;
     rebalance(indexName: string, targetPartitionCount: number): Promise<void>;
     rebuildAnalysis(indexName: string): Promise<void>;
-    registerEmbeddingAdapter(name: string, adapter: EmbeddingAdapter): void;
     restore(indexName: string, data: ByteSource): Promise<void>;
     shutdown(): Promise<void>;
     snapshot(indexName: string): Promise<ReadableStream<Uint8Array>>;
@@ -570,9 +578,12 @@ export interface NarsilConfig {
     idGenerator?: () => string;
     invalidation?: InvalidationAdapter;
     lifecycle?: IndexLifecycleConfig;
+    maxRerankWindow?: number;
     patternWorkCap?: number;
     persistence?: PersistenceAdapter;
     plugins?: NarsilPlugin[];
+    rerankAdapters?: Record<string, RerankAdapter>;
+    rerankTimeout?: number;
     workers?: WorkerConfig;
 }
 
@@ -770,6 +781,7 @@ export interface QueryParams {
     }>;
     prefix?: boolean;
     prefixLength?: number;
+    rerank?: RerankConfig;
     scoring?: ScoringMode;
     searchAfter?: string;
     sort?: SortSpec;
@@ -811,6 +823,20 @@ export function registerTokenizer(name: string, tokenizer: CustomTokenizer): voi
 export interface RemoveContext {
     docId: string;
     indexName: string;
+}
+
+// @public
+export interface RerankAdapter {
+    rerank(query: string, documents: string[], signal?: AbortSignal): Promise<number[]>;
+    shutdown?(): Promise<void>;
+}
+
+// @public
+export interface RerankConfig {
+    adapter: string;
+    fields: string[];
+    query?: string;
+    window?: number;
 }
 
 // @public
