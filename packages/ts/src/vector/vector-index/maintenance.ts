@@ -3,17 +3,16 @@ import { nativeStoreScratchBytes } from '../native/store'
 import {
   buildExclusively,
   buildGraphFromStore,
-  calibrateBeforeRebuild,
   promoteToGraph,
-  shuffledBuildDue,
+  shuffledRebuildDue,
   startShuffledRebuild,
 } from './build'
 import { insertIntoGraph } from './build-host'
+import { calibrateBeforeBuild, recalibrateWhenDrifted } from './calibration'
 import { ESTIMATED_MS_PER_TOMBSTONE, ESTIMATED_MS_PER_VECTOR_REBUILD } from './constants'
 import {
   adoptGraph,
   allLiveDocIds,
-  calibrateQuantizer,
   graphNeedsRebuild,
   liveSize,
   type MaintenanceStatus,
@@ -68,12 +67,15 @@ async function foldIntoGraph(state: VectorIndexState): Promise<void> {
   }
 
   const graph = state.hnsw
-  if (graph === null || rebuildNeeded || shuffledBuildDue(state, liveSize(state))) {
-    calibrateBeforeRebuild(state, graph)
-    await buildGraphFromStore(state)
-  } else {
-    await insertMissing(state, graph)
+  if (graph === null || rebuildNeeded || state.shuffledBuildCount === null) {
+    if (await calibrateBeforeBuild(state)) await buildGraphFromStore(state)
+    return
   }
+  if (await recalibrateWhenDrifted(state, liveSize(state))) {
+    await buildGraphFromStore(state)
+    return
+  }
+  await insertMissing(state, graph)
 }
 
 export function optimize(state: VectorIndexState): Promise<void> {
@@ -86,7 +88,7 @@ async function fillGraph(state: VectorIndexState): Promise<void> {
     if (liveSize(state) >= state.promotionThreshold) await promoteToGraph(state)
     return
   }
-  if (state.osq && !state.osq.isCalibrated()) calibrateQuantizer(state)
+  if (state.osq && !state.osq.isCalibrated() && !(await calibrateBeforeBuild(state))) return
   if (state.shuffledRebuild === null && graphNeedsRebuild(state)) {
     await buildGraphFromStore(state)
     return
@@ -105,7 +107,7 @@ export function maintenanceStatus(state: VectorIndexState): MaintenanceStatus {
   const tombstoned = state.tombstones.size + state.store.replacedVectorCount
   const tombstoneRatio = graphNodes > 0 ? tombstoned / graphNodes : 0
   const estimatedCompactMs = Math.round(tombstoned * ESTIMATED_MS_PER_TOMBSTONE * state.dimensionScale)
-  const rebuilds = state.hnsw === null || graphNeedsRebuild(state) || shuffledBuildDue(state, liveSize(state))
+  const rebuilds = state.hnsw === null || graphNeedsRebuild(state) || shuffledRebuildDue(state, liveSize(state))
   const optimizeVectorCount = rebuilds ? storeSize : state.buffer.size
   const estimatedOptimizeMs = Math.round(optimizeVectorCount * ESTIMATED_MS_PER_VECTOR_REBUILD * state.dimensionScale)
 

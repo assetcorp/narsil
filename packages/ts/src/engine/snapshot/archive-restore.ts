@@ -121,6 +121,7 @@ async function replaceWithStaged(
       await durable.checkpoint(indexName)
     }
     await deps.announceIndexCreated(indexName, prepared.config)
+    for (const vectorIndex of created.manager.getVectorIndexes().values()) vectorIndex.startShuffledRebuildWhenDue()
     return created
   } catch (error) {
     created.release()

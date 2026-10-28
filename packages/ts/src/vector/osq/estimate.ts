@@ -20,7 +20,6 @@ export function osqLevelProducts(a: Uint8Array, b: Uint8Array): number {
   return total
 }
 
-const LEVEL_BIT_MASK: Readonly<Record<1 | 2, number>> = { 1: 0xff, 2: 0x55 }
 const STAGED_QUERY_PLANES = 4
 
 export function osqNibbleProducts(
@@ -71,26 +70,6 @@ export function osqStagedQueryProducts(
     let bitsSet = 0
     for (let n = 0; n < codeBytes; n++) bitsSet += POPCOUNT[document[documentOffset + n] & staged[plane + n]]
     total += 2 ** p * bitsSet
-  }
-  return total
-}
-
-export function osqNarrowPairProducts(
-  a: Uint8Array,
-  aOffset: number,
-  b: Uint8Array,
-  bOffset: number,
-  bits: 1 | 2,
-  bytes: number,
-): number {
-  const mask = LEVEL_BIT_MASK[bits]
-  let total = 0
-  for (let j = 0; j < bits; j++) {
-    for (let l = 0; l < bits; l++) {
-      let bitsSet = 0
-      for (let n = 0; n < bytes; n++) bitsSet += POPCOUNT[(a[aOffset + n] >> j) & (b[bOffset + n] >> l) & mask]
-      total += 2 ** (j + l) * bitsSet
-    }
   }
   return total
 }

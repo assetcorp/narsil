@@ -36,6 +36,12 @@ interface SavedGraph {
   levels: Uint8Array
   neighbours: Uint8Array
   shuffledBuildCount?: number
+  calibratedMeanLength?: number
+}
+
+export interface SavedBuildHistory {
+  shuffledBuildCount: number | null
+  calibratedMeanLength: number | null
 }
 
 export interface GraphWalk {
@@ -223,11 +229,11 @@ export async function walkSavedGraph(
   return walk
 }
 
-export async function savedShuffledBuildCounts(
+export async function savedBuildHistories(
   snapshot: ReadableStream<Uint8Array>,
   indexName: string,
   fieldPath: string,
-): Promise<Array<number | null>> {
+): Promise<SavedBuildHistory[]> {
   const entries = archiveEntries(await bytesOf(snapshot))
   const manifestEntry = entries.get('manifest')
   if (manifestEntry === undefined) throw new Error('the archive holds no manifest')
@@ -236,6 +242,9 @@ export async function savedShuffledBuildCounts(
   if (field === undefined) throw new Error(`the manifest lists no vector field ${fieldPath}`)
   return field.graphParts.flatMap(partRef => {
     const payload = envelopePayload(entryOf(entries, indexName, partRef.key)) as { graphs: SavedGraph[] }
-    return payload.graphs.map(graph => graph.shuffledBuildCount ?? null)
+    return payload.graphs.map(graph => ({
+      shuffledBuildCount: graph.shuffledBuildCount ?? null,
+      calibratedMeanLength: graph.calibratedMeanLength ?? null,
+    }))
   })
 }

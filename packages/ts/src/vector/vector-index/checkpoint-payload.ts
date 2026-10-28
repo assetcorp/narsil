@@ -118,7 +118,12 @@ function decodeNumberedGraph(raw: unknown, minimumM: number): NumberedHnswGraph 
   const shuffledBuildCount = raw.shuffledBuildCount ?? null
   if (shuffledBuildCount === null) return graph
   if (!isIntegerUpTo(shuffledBuildCount, 0xffff_ffff)) invalid(name, 'shuffledBuildCount must be a uint32')
-  return { ...graph, shuffledBuildCount }
+  const calibratedMeanLength = raw.calibratedMeanLength ?? null
+  if (calibratedMeanLength === null) return { ...graph, shuffledBuildCount }
+  if (typeof calibratedMeanLength !== 'number' || !Number.isFinite(calibratedMeanLength) || calibratedMeanLength < 0) {
+    invalid(name, 'calibratedMeanLength must be a finite float64 of at least 0')
+  }
+  return { ...graph, shuffledBuildCount, calibratedMeanLength }
 }
 
 export function decodeVectorGraphPayload(raw: unknown): VectorGraphPayload {
@@ -154,7 +159,8 @@ function sameGraphHeader(a: NumberedHnswGraph, b: NumberedHnswGraph): boolean {
     a.m === b.m &&
     a.efConstruction === b.efConstruction &&
     a.metric === b.metric &&
-    a.shuffledBuildCount === b.shuffledBuildCount
+    a.shuffledBuildCount === b.shuffledBuildCount &&
+    a.calibratedMeanLength === b.calibratedMeanLength
   )
 }
 

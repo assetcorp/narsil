@@ -1,7 +1,7 @@
 import type { Narsil } from '../../narsil'
 import { waitFor } from '../server/helpers'
 import { snapshotWithBaseLists, snapshotWithoutShuffledBuildCount } from './saved-graph-edit'
-import { savedShuffledBuildCounts } from './saved-graph-walk'
+import { savedBuildHistories } from './saved-graph-walk'
 
 export const DIMENSION = 384
 export const PASSAGES_PER_FILE = 100
@@ -139,7 +139,32 @@ export async function insertFileByFile(engine: Narsil, index: string, passages: 
 }
 
 export async function savedCounts(engine: Narsil, index: string): Promise<Array<number | null>> {
-  return savedShuffledBuildCounts(await engine.snapshot(index), index, FIELD)
+  const histories = await savedBuildHistories(await engine.snapshot(index), index, FIELD)
+  return histories.map(history => history.shuffledBuildCount)
+}
+
+export async function savedMeanLengths(engine: Narsil, index: string): Promise<Array<number | null>> {
+  const histories = await savedBuildHistories(await engine.snapshot(index), index, FIELD)
+  return histories.map(history => history.calibratedMeanLength)
+}
+
+export function lengthOfTheMeanUnitVector(passages: Passage[]): number {
+  const sums = new Array<number>(DIMENSION).fill(0)
+  for (const passage of passages) {
+    const length = Math.hypot(...passage.embedding)
+    for (let d = 0; d < DIMENSION; d++) sums[d] += passage.embedding[d] / length
+  }
+  return Math.hypot(...sums) / passages.length
+}
+
+export function shuffledBySeed<T>(items: T[], seed: number): T[] {
+  const uniform = generatorOf(seed)
+  const shuffled = [...items]
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(uniform() * (i + 1))
+    ;[shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]]
+  }
+  return shuffled
 }
 
 export async function snapshotWithFarPairs(

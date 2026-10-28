@@ -10,6 +10,7 @@ import { readsFromDisk, type VectorPartFile } from './disk'
 import { bytesToVectors, type VectorIndexCodes } from './payload'
 import {
   adoptGraph,
+  adoptLoadedCalibration,
   emptyFieldBeforeRestore,
   recalibrateFromStore,
   releaseReplacedVectors,
@@ -70,6 +71,7 @@ function restoreGraph(
   payload: VectorGraphParts | null,
   ordinalOfNumber: Int32Array,
   tombstoned: ReadonlySet<number>,
+  calibrationLoaded: boolean,
 ): void {
   const first = payload?.graphs[0]?.parts[0]
   if (payload === null || first === undefined) {
@@ -87,6 +89,9 @@ function restoreGraph(
   for (const ordinal of tombstoned) graph.markTombstoneOrdinal(ordinal)
   adoptGraph(state, graph)
   state.shuffledBuildCount = first.shuffledBuildCount ?? null
+  if (calibrationLoaded && state.shuffledBuildCount !== null) {
+    adoptLoadedCalibration(state, state.shuffledBuildCount, first.calibratedMeanLength ?? null)
+  }
   for (const later of payload.graphs.slice(1)) insertNodesOfLaterGraph(state, graph, later, ordinalOfNumber)
   bufferEveryVectorOutsideTheGraph(state)
   if (state.buffer.size <= graph.size) return
@@ -200,7 +205,7 @@ export function beginCheckpointRestore(
       ordinalOfNumber.set(file.ordinals, number)
       number += file.ordinals.length
     }
-    restoreGraph(state, shape.graph, ordinalOfNumber, tombstoned)
+    restoreGraph(state, shape.graph, ordinalOfNumber, tombstoned, codesRestored)
 
     const current = signatureOf(state).calibration
     const codedUnder = codesRestored && current !== null ? current : CALIBRATION_NEVER_CURRENT

@@ -42,7 +42,6 @@ import {
   type HNSWGraphState,
   isTombstoned,
   maxConns,
-  nodeDistanceByOrd,
   nodeDistanceFunction,
   nodeExists,
   nodeMaxLayer,
@@ -103,14 +102,12 @@ function raiseEntry(state: HNSWGraphState, ord: number, level: number): void {
 }
 
 function placementDistance(state: HNSWGraphState, ord: number, vector: Float32Array): (candOrd: number) => number {
-  const metric = state.buildMetric
   const quantizer = state.quantizer
   if (quantizer !== undefined && buildsFromCodes(state)) {
     const prepared = quantizer.prepareQuery(vector)
     if (prepared !== null) return quantizer.preparedDistance(prepared)
   }
-  if (quantizer === undefined) return state.store.ordinalDistance(ord, metric)
-  return candOrd => nodeDistanceByOrd(state, ord, candOrd, metric)
+  return state.store.ordinalDistance(ord, state.buildMetric)
 }
 
 function selectNeighborsPerLayer(state: HNSWGraphState, ord: number, level: number): number {
