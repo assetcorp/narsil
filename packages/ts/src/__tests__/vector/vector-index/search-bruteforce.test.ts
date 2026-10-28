@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createVectorIndex, type VectorIndex } from '../../../vector/vector-index'
+import { filterSubsetsForDocIds } from '../filter-subsets'
 import { DIM, vectorFromValues } from './fixtures'
 
 describe('VectorIndex search (brute-force only, no HNSW)', () => {
@@ -91,7 +92,7 @@ describe('VectorIndex search (brute-force only, no HNSW)', () => {
     expect(results.some(r => r.docId === 'orthogonal')).toBe(false)
   })
 
-  it('search with filterDocIds restricts candidates', () => {
+  it('search with a filter restricts candidates', () => {
     index.insert('doc1', vectorFromValues(1, 0, 0, 0))
     index.insert('doc2', vectorFromValues(0, 1, 0, 0))
     index.insert('doc3', vectorFromValues(0, 0, 1, 0))
@@ -99,7 +100,7 @@ describe('VectorIndex search (brute-force only, no HNSW)', () => {
     const { results } = index.search(vectorFromValues(1, 0, 0, 0), 10, {
       metric: 'cosine',
       minSimilarity: 0,
-      filterDocIds: new Set(['doc1', 'doc3']),
+      filterSubsets: filterSubsetsForDocIds(['doc1', 'doc3']),
     })
 
     const docIds = results.map(r => r.docId)
@@ -107,13 +108,13 @@ describe('VectorIndex search (brute-force only, no HNSW)', () => {
     expect(docIds).not.toContain('doc2')
   })
 
-  it('search with empty filterDocIds returns empty', () => {
+  it('search with a filter that matches nothing returns empty', () => {
     index.insert('doc1', vectorFromValues(1, 0, 0, 0))
 
     const { results } = index.search(vectorFromValues(1, 0, 0, 0), 10, {
       metric: 'cosine',
       minSimilarity: 0,
-      filterDocIds: new Set<string>(),
+      filterSubsets: filterSubsetsForDocIds([]),
     })
 
     expect(results).toHaveLength(0)

@@ -21,6 +21,7 @@ export interface DocumentStoreReader {
   getExternalId(internalId: number): string | undefined
   allInternalIds(): IterableIterator<number>
   internalIdCapacity(): number
+  numberingGeneration(): number
   contentBytes(): number
   resolver(): InternalIdResolver
   fieldReader(fieldPath: string): (internalId: number) => unknown
@@ -170,6 +171,7 @@ export function createDocumentStore(): DocumentStore {
   const reverseMap: Array<string | undefined> = []
   const lengthColumns = new Map<string, Uint32Array>()
   let nextInternalId = 0
+  let numberingResets = 0
   let sortedIds: string[] | null = null
   let storedContentBytes = 0
 
@@ -212,6 +214,7 @@ export function createDocumentStore(): DocumentStore {
     forwardMap.clear()
     reverseMap.length = 0
     nextInternalId = 0
+    numberingResets++
     sortedIds = null
   }
 
@@ -338,6 +341,10 @@ export function createDocumentStore(): DocumentStore {
 
     internalIdCapacity(): number {
       return nextInternalId
+    },
+
+    numberingGeneration(): number {
+      return numberingResets
     },
 
     contentBytes(): number {

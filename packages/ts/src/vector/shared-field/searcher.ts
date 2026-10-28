@@ -1,6 +1,8 @@
 import { createBoundedMaxHeap } from '../../core/heap'
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { VectorMetric } from '../brute-force'
+import { MAX_RENUMBERED_SEARCH_ATTEMPTS } from '../constants'
+import { type OrdinalSpace, ordinalFilterForSubsets } from '../filter-ordinals'
 import { toDistance, toScore } from '../hnsw/shared'
 import { noteFallback } from '../native/backend'
 import { nativeScoresOf } from '../native/store'
@@ -19,6 +21,7 @@ import type {
   VectorSearchOptions,
   VectorSearchOutcome,
 } from '../vector-index/shared'
+import { STORE_ORDINAL_LAYOUT_GENERATION } from '../vector-store/handles'
 import type { SharedVectorStoreView } from '../vector-store/view'
 import { readStoreFlags } from './store-flags'
 import type { SharedVectorFieldView } from './view'
@@ -95,14 +98,22 @@ export function createSharedVectorSearcher(options: SharedVectorSearcherOptions)
   const { fieldName, view, holdsDocument } = options
   const flags = readStoreFlags(view.store)
 
-  function filterForDocIds(allowed: Set<string>): OrdinalFilter {
-    const filter = createOrdinalFilter(view.store.slots)
-    for (const docId of allowed) {
-      const ordinal = view.ordinalOf(docId)
-      if (ordinal === undefined || flags.isRemoved(ordinal)) continue
-      addToOrdinalFilter(filter, ordinal)
+  function ordinalLayoutGeneration(): number {
+    return Atomics.load(view.store.handles.header, STORE_ORDINAL_LAYOUT_GENERATION)
+  }
+
+  function ordinalSpace(): OrdinalSpace {
+    const store = view.store
+    const layoutGeneration = ordinalLayoutGeneration()
+    return {
+      fieldName,
+      layoutGeneration,
+      slots: store.slots,
+      header: store.handles.header,
+      ordinalOf: docId => view.ordinalOf(docId),
+      holdsCurrentOrdinal: ordinal => store.holdsOrdinal(ordinal) && store.partitionAt(ordinal) !== undefined,
+      isRemoved: ordinal => flags.isRemoved(ordinal),
     }
-    return filter
   }
 
   function filterForPartitions(allowed: ReadonlySet<number>): OrdinalFilter {
@@ -118,7 +129,9 @@ export function createSharedVectorSearcher(options: SharedVectorSearcherOptions)
   }
 
   function filterFor(searchOptions: VectorSearchOptions): OrdinalFilter | undefined {
-    if (searchOptions.filterDocIds !== undefined) return filterForDocIds(searchOptions.filterDocIds)
+    if (searchOptions.filterSubsets !== undefined) {
+      return ordinalFilterForSubsets(searchOptions.filterSubsets, ordinalSpace())
+    }
     if (searchOptions.filterPartitions !== undefined) return filterForPartitions(searchOptions.filterPartitions)
     return undefined
   }
@@ -134,6 +147,12 @@ export function createSharedVectorSearcher(options: SharedVectorSearcherOptions)
       candidates.docIds.push(docId)
     }
     return candidates
+  }
+
+  function answerOf(outcome: FieldOutcome): VectorSearchOutcome {
+    const results = outcome.results.filter(result => holdsDocument(result.docId))
+    const holdsEveryHit = outcome.resolvedEveryHit && results.length === outcome.results.length
+    return { results, matched: outcome.matched, matchedExact: outcome.matchedExact && holdsEveryHit }
   }
 
   function scanned(scan: ScannedResults): FieldOutcome {
@@ -209,21 +228,25 @@ export function createSharedVectorSearcher(options: SharedVectorSearcherOptions)
           { expected: view.handles.dimension, received: query.length },
         )
       }
-      const outcome = search(query, k, searchOptions, filterFor(searchOptions))
-      if (view.graphRetired) {
-        throw new NarsilError(
-          ErrorCodes.INDEX_NOT_FOUND,
-          `The main thread replaced the graph of vector field "${fieldName}" while this thread searched it`,
-          { fieldName },
-        )
+      for (let attempt = 1; ; attempt++) {
+        const layoutGeneration = ordinalLayoutGeneration()
+        const outcome = search(query, k, searchOptions, filterFor(searchOptions))
+        if (view.graphRetired) {
+          throw new NarsilError(
+            ErrorCodes.WORKER_BUSY,
+            `The main thread replaced the graph of vector field "${fieldName}" while this thread searched it`,
+            { fieldName },
+          )
+        }
+        if (ordinalLayoutGeneration() === layoutGeneration) return Promise.resolve(answerOf(outcome))
+        if (attempt >= MAX_RENUMBERED_SEARCH_ATTEMPTS) {
+          throw new NarsilError(
+            ErrorCodes.WORKER_BUSY,
+            `The main thread renumbered the vectors of field "${fieldName}" during each of ${attempt} searches on this thread`,
+            { fieldName, attempts: attempt },
+          )
+        }
       }
-      const results = outcome.results.filter(result => holdsDocument(result.docId))
-      const holdsEveryHit = outcome.resolvedEveryHit && results.length === outcome.results.length
-      return Promise.resolve({
-        results,
-        matched: outcome.matched,
-        matchedExact: outcome.matchedExact && holdsEveryHit,
-      })
     },
   }
 }

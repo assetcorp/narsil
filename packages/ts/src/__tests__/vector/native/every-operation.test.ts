@@ -5,6 +5,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import type { VectorQuantizationMode, VectorStorageMode } from '../../../types/schema'
 import { type NativeOperation, observeFallbacks, setNativeSearchCoreEnabled } from '../../../vector/native/backend'
 import type { VectorIndex } from '../../../vector/vector-index'
+import { filterSubsetsForDocIds } from '../filter-subsets'
 import {
   binaryBuilt,
   builtIndex,
@@ -26,9 +27,9 @@ async function performEveryOperation(index: VectorIndex, storage: VectorStorageM
   if (storage === 'disk') await moveVectorsToAFile(index, directory, 'generation-1')
   expect(searchAll(index, 'cosine', true).every(hits => hits.length === 10)).toBe(true)
 
-  const allowed = new Set([docIdOf(1), docIdOf(2), docIdOf(3)])
+  const filterSubsets = filterSubsetsForDocIds([docIdOf(1), docIdOf(2), docIdOf(3)])
   const [query] = clusteredVectors(1, 11)
-  expect(index.search(query, 3, { metric: 'cosine', minSimilarity: -1, filterDocIds: allowed }).results).toHaveLength(3)
+  expect(index.search(query, 3, { metric: 'cosine', minSimilarity: -1, filterSubsets }).results).toHaveLength(3)
 
   for (let position = 0; position < DOCUMENTS; position += 3) index.remove(docIdOf(position))
   index.compact()

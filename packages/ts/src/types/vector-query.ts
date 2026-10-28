@@ -40,20 +40,38 @@ export interface VectorQueryConfig {
    */
   metric?: 'cosine' | 'dotProduct' | 'euclidean'
   /**
-   * HNSW exploration factor for approximate search. Higher values raise
-   * recall at the cost of latency. Ignored while the field is still
-   * served by the brute-force backend. Defaults to the engine's built-in
-   * value when omitted.
+   * The engine keeps this many candidates as it walks the HNSW graph, so a
+   * higher value can find more of the true neighbours, although each query
+   * takes longer. The engine applies it only once the field holds a graph.
+   * The engine fetches k hits, where k is one more than the number of hits up
+   * to the end of the page, so k is `limit` plus 1 on a first page. When a
+   * query leaves `efSearch` unset, the engine keeps the larger of 50 and k
+   * plus a margin, where the margin is 50 below 768 dimensions, 75 from 768
+   * to 1,023 dimensions, and 0 at 1,024 dimensions and above. Under a
+   * filter, the engine counts only the candidates that pass the filter.
    */
   efSearch?: number
   /**
-   * How many times `limit` a quantized field re-scores against its
-   * full-precision vectors before it returns the best `limit`. A value below
-   * 1 or one that is not a finite number fails with `CONFIG_INVALID`. The
-   * engine ignores this on a field whose quantization is `none`. When a query
-   * omits it, the engine takes 3 for `osq1` and `osq2`, 2 for `osq8`, and 2
-   * for `osq4` at 1,024 dimensions and above, but 5 for `osq4` below 1,024,
-   * where a four-bit code ranks the true neighbours less reliably.
+   * The engine re-scores this many times k candidates in a quantized field
+   * against the full-precision vectors before it returns the best `limit`,
+   * where k is one more than the number of hits up to the end of the page, so
+   * k is `limit` plus 1 on a first page. For a value below 1, or for a value
+   * that is not a finite number, the engine throws a `NarsilError` with code
+   * `CONFIG_INVALID`. The engine ignores it on a field whose quantization is
+   * `none`. When a query leaves it unset, the engine sets the number of
+   * candidates that it re-scores from k and from the field's dimension. It
+   * rounds that number up, and it re-scores at least 3k candidates under
+   * `osq1` and `osq2`, and at least k under `osq4` and `osq8`. Below 768
+   * dimensions, it re-scores 3.23k + 55.9√k under `osq1` and 2.6k + 17√k under
+   * `osq2`. From 768 to 1,023 dimensions, it re-scores 2.2k + 27√k under
+   * `osq1` and k + 16√k under `osq2`. At 1,024 dimensions and above, it
+   * re-scores 3k under both. Under `osq4`, it re-scores 5k below 1,024
+   * dimensions and 2k from 1,024 dimensions, while under `osq8` it re-scores
+   * 2k at every dimension. Under a filter, the engine counts only the
+   * candidates that pass the filter. On vectors spread evenly across every
+   * dimension, a one-bit or two-bit code can find fewer than 95% of the true
+   * nearest neighbours at these defaults, so raise `oversample` on a query that
+   * needs more of them.
    */
   oversample?: number
 }

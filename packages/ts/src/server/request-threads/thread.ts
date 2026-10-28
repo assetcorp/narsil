@@ -1,3 +1,4 @@
+import { ErrorCodes, isNarsilError } from '../../errors'
 import type { QueryParams, SuggestParams } from '../../types/search'
 import type { DirectExecutorExtensions } from '../../workers/direct-executor'
 import { SERVER_CAPABILITIES } from '../capabilities'
@@ -48,6 +49,10 @@ interface SearchHandlerOptions {
   answer: (indexName: string, params: QueryParams) => Promise<unknown>
 }
 
+function mainThreadAnswersInstead(err: unknown): boolean {
+  return isNarsilError(err) && err.code === ErrorCodes.WORKER_BUSY
+}
+
 function searchHandler(options: SearchHandlerOptions): RouteHandler {
   const { fallback, limits, allowRegex, staysOnThread, answer } = options
   return async ctx => {
@@ -66,7 +71,7 @@ function searchHandler(options: SearchHandlerOptions): RouteHandler {
     try {
       respondJson(ctx, await answer(ctx.params[0], withServerRerankWindow(params, limits)))
     } catch (err) {
-      if (staysOnThread(ctx.params[0], params)) respondError(ctx, err)
+      if (staysOnThread(ctx.params[0], params) && !mainThreadAnswersInstead(err)) respondError(ctx, err)
       else await fallback(ctx)
     }
   }
