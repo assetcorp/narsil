@@ -17,6 +17,7 @@ import {
 
 const platformPackagesDirectory = join(packageDirectory, 'npm')
 const BINARY_NAME = 'narsil-core.node'
+const SSE2_ONLY_FLAG = '-DNARSIL_SSE2_ONLY'
 
 const TARGETS = {
   'darwin-arm64': { package: 'darwin-arm64', appleArchitecture: 'arm64' },
@@ -43,13 +44,14 @@ function compilerFor(target, useHostCompiler) {
   return { command: 'zig', prefix: ['cc', '-target', target.zigTriple], linkFlags: [] }
 }
 
-function commandFor(target, outputPath, useHostCompiler) {
+function commandFor(target, outputPath, { useHostCompiler, sse2Only }) {
   const { command, prefix, linkFlags } = compilerFor(target, useHostCompiler)
   const args = [
     ...prefix,
     ...linkFlags,
     ...LANGUAGE_FLAGS,
     ...CORE_FLAGS,
+    ...(sse2Only ? [SSE2_ONLY_FLAG] : []),
     ...(target.windows ? [] : POSITION_INDEPENDENT_FLAGS),
     ...NODE_API_FLAGS,
     ...(target.windows ? WINDOWS_NODE_API_FLAGS : []),
@@ -76,7 +78,10 @@ if (!target) {
 const outputDirectory = join(platformPackagesDirectory, target.package, target.libcDirectory ?? '')
 mkdirSync(outputDirectory, { recursive: true })
 const outputPath = join(outputDirectory, BINARY_NAME)
-const { command, args } = commandFor(target, outputPath, flags.includes('--host-compiler'))
+const { command, args } = commandFor(target, outputPath, {
+  useHostCompiler: flags.includes('--host-compiler'),
+  sse2Only: flags.includes('--sse2-only'),
+})
 
 try {
   execFileSync(command, args, { stdio: 'inherit' })
