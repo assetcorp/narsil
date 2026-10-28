@@ -9,6 +9,7 @@ import type { PersistenceAdapter } from '../types/adapters'
 import type { DurabilityConfig } from '../types/config'
 import type { IndexEmbeddingMetadata, IndexMetadata } from '../types/internal'
 import type { AnyDocument, PartitionConfig, ScoringMode, VectorIndexConfig } from '../types/schema'
+import type { SynonymRule } from '../types/synonyms'
 
 export type DurabilityTier =
   | { kind: 'wal'; config: DurabilityConfig }
@@ -69,6 +70,7 @@ export interface DurabilityIntegrationHooks {
         required?: string[]
         vectorPromotion?: VectorIndexConfig
         patternValueLimit?: number
+        synonyms?: SynonymRule[]
       }
     | undefined
   createIndexFromMetadata: IndexDurabilityHooks['createIndexFromMetadata']
@@ -149,6 +151,9 @@ export function metadataFromConfig(
   }
   if (config.indexUuid !== undefined) {
     metadata.indexUuid = config.indexUuid
+  }
+  if (config.synonyms !== undefined) {
+    metadata.synonyms = config.synonyms
   }
   if (config.heldPartitions !== undefined) {
     metadata.heldPartitions = config.heldPartitions

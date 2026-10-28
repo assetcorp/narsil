@@ -1,4 +1,5 @@
 import type { EmbeddingAdapter } from './adapters'
+import type { SynonymRule } from './synonyms'
 
 /**
  * A document as the engine stores it: any set of fields, with an optional `id`.
@@ -253,6 +254,17 @@ export interface IndexConfig {
    * `CONFIG_INVALID`.
    */
   patternValueLimit?: number
+  /**
+   * A search for any word in a rule of this set also matches the synonyms
+   * that the rule gives that word, and a document that holds a synonym scores
+   * as though it held the word itself. The engine analyses each word with the
+   * index's language, tokeniser, and stop words, so a word must analyse to
+   * exactly one token. {@link Narsil.createIndex} throws `CONFIG_INVALID` for
+   * a stop word, a phrase, a word that holds a control character, or a set
+   * beyond 100,000 rules, 500,000 words, or 4,194,304 bytes of words in UTF-8.
+   * {@link Narsil.updateSynonyms} replaces the set without a rebuild.
+   */
+  synonyms?: SynonymRule[]
 }
 
 /**

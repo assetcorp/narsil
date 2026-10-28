@@ -18,6 +18,7 @@ import type { NarsilConfig } from '../types/config'
 import type { IndexConfig } from '../types/schema'
 import type { EngineCore, IndexRegistryEntry } from './core'
 import { requireConfigurationWithinSizeLimit } from './snapshot/index-configuration'
+import { prepareConfiguredSynonyms, withoutSynonyms } from './synonym-sets'
 import {
   requireSurfaceFormsForPartialFields,
   validateBM25Params,
@@ -66,7 +67,8 @@ export async function createEngineIndex(
   }
   const schema = validateSchema(requestedConfig.schema)
   if (appliesCreationLimits) requireCreatableSchema(schema)
-  const indexConfig = schema === requestedConfig.schema ? requestedConfig : { ...requestedConfig, schema }
+  const configured = schema === requestedConfig.schema ? requestedConfig : { ...requestedConfig, schema }
+  const indexConfig = withoutSynonyms(configured)
   requirePatternSearchFor(schema)
   requirePartialWordSearchFor(schema)
   validatePatternValueLimit(indexConfig.patternValueLimit)
@@ -127,7 +129,8 @@ export async function createEngineIndex(
   }
   const language = getLanguage(indexConfig.language ?? 'english')
   if (appliesCreationLimits) requireConfigurationWithinSizeLimit(indexConfig, language)
-  core.executor.createIndex(name, indexConfig, language)
+  const synonyms = prepareConfiguredSynonyms(configured, language, appliesCreationLimits)
+  core.executor.createIndex(name, indexConfig, language, false, synonyms?.lookup ?? null)
   core.indexRegistry.set(name, {
     config: indexConfig,
     language,
@@ -139,6 +142,7 @@ export async function createEngineIndex(
     documentCount: 0,
     partitionCount: indexConfig.partitions?.maxPartitions ?? 1,
     analysisRevision: language.revision,
+    synonyms: synonyms?.encoded ?? null,
   })
   await core.indexState.registerOpen(name)
   if (core.durability) {

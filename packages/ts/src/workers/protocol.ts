@@ -32,7 +32,9 @@ export type WorkerAction =
       requestId: string
       analysisStale?: boolean
       copyLoad?: string
+      synonyms?: Uint8Array
     }
+  | { type: 'replaceSynonyms'; indexName: string; synonyms?: Uint8Array; requestId: string }
   | { type: 'copyLoaded'; indexName: string; copyLoad: string; requestId: string }
   | {
       type: 'loadVectorCopy'
@@ -129,6 +131,7 @@ const KNOWN_ACTION_TYPES: ReadonlyArray<WorkerAction['type']> = [
   'has',
   'count',
   'createIndex',
+  'replaceSynonyms',
   'copyLoaded',
   'loadVectorCopy',
   'dropVectorCopy',

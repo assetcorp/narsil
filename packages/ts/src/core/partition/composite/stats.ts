@@ -12,6 +12,7 @@ function collectCandidateTerms(subs: readonly PartitionReadState[], params: Inte
     const group = termGroupOf(termGroups, qt.token)
     if (group !== undefined) {
       for (const member of group.members) terms.add(member.token)
+      for (const synonym of group.synonyms ?? []) terms.add(synonym)
     }
     if (group === undefined && (exact || tolerance === 0)) {
       terms.add(qt.token)

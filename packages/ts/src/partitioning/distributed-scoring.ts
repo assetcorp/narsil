@@ -1,3 +1,5 @@
+import { expandQuerySynonyms } from '../core/synonyms/registry'
+import type { SynonymLookup } from '../core/synonyms/types'
 import { tokenize } from '../core/tokenizer'
 import type { InvalidationAdapter } from '../types/adapters'
 import type { GlobalStatistics } from '../types/internal'
@@ -8,6 +10,7 @@ import type { PartitionManager } from './manager'
 export interface QueryTermAnalysis {
   stopWords?: StopWordOverride
   customTokenizer?: CustomTokenizer
+  synonyms?: SynonymLookup | null
 }
 
 function analysedQueryTokens(term: string, language: LanguageModule, analysis: QueryTermAnalysis): Set<string> {
@@ -20,6 +23,12 @@ function analysedQueryTokens(term: string, language: LanguageModule, analysis: Q
   const unique = new Set<string>()
   for (const { token } of tokens) {
     unique.add(token)
+  }
+  const synonyms = expandQuerySynonyms(analysis.synonyms, unique)
+  if (synonyms !== undefined) {
+    for (const tokenSynonyms of synonyms.values()) {
+      for (const synonym of tokenSynonyms) unique.add(synonym)
+    }
   }
   return unique
 }
