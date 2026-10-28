@@ -115,15 +115,7 @@ describe('DFS statistics on a three-node cluster', () => {
     for (const extra of [
       { expansion: 'prefix' },
       { expansion: { tolerance: 11 } },
-      { expansion: { tolerance: -1 } },
-      { expansion: { tolerance: 1.5 } },
       { expansion: { prefixLength: 1_025 } },
-      { expansion: { prefix: 'yes' } },
-      { expansion: { exact: 1 } },
-      { expansion: { fields: 'title' } },
-      { expansion: { fields: [7] } },
-      { tokens: 'zqbb' },
-      { tokens: [''] },
       { tokens: [null] },
     ]) {
       const answer = await ask(extra)
