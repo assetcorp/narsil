@@ -3,6 +3,7 @@ import { ErrorCodes, NarsilError } from '../../errors'
 import { manifestKey } from './segment/layout'
 import { manifestFileRefs } from './segment/manifest'
 import { decodeSegmentManifest } from './segment/manifest-decode'
+import { sha256 } from './sha256'
 
 export const RESTORE_JOURNAL_PREFIX = '.swap-'
 export const RESTORE_STAGING_PREFIX = '.restore-'
@@ -22,15 +23,14 @@ export interface RestoreStorage {
   pathOf?(key: string): Promise<string>
 }
 
-async function digestOf(indexName: string): Promise<string> {
-  const digest = new Uint8Array(await globalThis.crypto.subtle.digest('SHA-256', new TextEncoder().encode(indexName)))
+function digestOf(indexName: string): string {
   let hex = ''
-  for (const byte of digest) hex += byte.toString(16).padStart(2, '0')
+  for (const byte of sha256(new TextEncoder().encode(indexName))) hex += byte.toString(16).padStart(2, '0')
   return hex
 }
 
-export async function journalKey(indexName: string): Promise<string> {
-  return `${RESTORE_JOURNAL_PREFIX}${await digestOf(indexName)}`
+export function journalKey(indexName: string): string {
+  return `${RESTORE_JOURNAL_PREFIX}${digestOf(indexName)}`
 }
 
 function randomSuffix(): string {
@@ -49,26 +49,26 @@ export function encodeJournal(indexName: string, stagingPrefix: string): Uint8Ar
   return new TextEncoder().encode(`${indexName}\n${stagingPrefix}`)
 }
 
+function isStagingPrefix(prefix: string): boolean {
+  return STAGING_PREFIX_PATTERN.test(prefix) && !prefix.includes('..')
+}
+
 function corruptJournal(key: string, reason: string): never {
   throw new NarsilError(ErrorCodes.PERSISTENCE_LOAD_FAILED, `The restore journal "${key}" ${reason}`, { key })
 }
 
 export type JournalReading = { kind: 'leftover' } | { kind: 'journal'; indexName: string; stagingPrefix: string }
 
-export async function readJournal(key: string, bytes: Uint8Array): Promise<JournalReading> {
+export function readJournal(key: string, bytes: Uint8Array): JournalReading {
   const text = new TextDecoder().decode(bytes)
   const lineEnd = text.indexOf('\n')
   const indexName = lineEnd === -1 ? text : text.slice(0, lineEnd)
-  if (key.slice(RESTORE_JOURNAL_PREFIX.length) !== (await digestOf(indexName))) return { kind: 'leftover' }
+  if (key.slice(RESTORE_JOURNAL_PREFIX.length) !== digestOf(indexName)) return { kind: 'leftover' }
   if (indexName.length > MAX_INDEX_NAME_LENGTH || !INDEX_NAME_PATTERN.test(indexName) || indexName.includes('..')) {
     corruptJournal(key, 'names an index that no index name can match')
   }
   const stagingPrefix = lineEnd === -1 ? '' : text.slice(lineEnd + 1)
-  if (
-    !STAGING_PREFIX_PATTERN.test(stagingPrefix) ||
-    stagingPrefix.includes('..') ||
-    stagingPrefix === `${LOCK_FILE_KEY}/`
-  ) {
+  if (!isStagingPrefix(stagingPrefix) || stagingPrefix === `${LOCK_FILE_KEY}/`) {
     corruptJournal(key, 'names no staging prefix that a restore writes')
   }
   return { kind: 'journal', indexName, stagingPrefix }
@@ -123,7 +123,7 @@ export async function finishJournal(
   for (const key of await storage.list(root)) {
     if (!listed.has(key.slice(root.length))) await storage.remove(key)
   }
-  await storage.remove(await journalKey(indexName))
+  await storage.remove(journalKey(indexName))
   return retiredPrefix
 }
 
@@ -136,7 +136,7 @@ export async function removePrefix(storage: RestoreStorage, prefix: string): Pro
 }
 
 export async function commitJournal(storage: RestoreStorage, indexName: string, stagingPrefix: string): Promise<void> {
-  await storage.writeJournal(await journalKey(indexName), encodeJournal(indexName, stagingPrefix))
+  await storage.writeJournal(journalKey(indexName), encodeJournal(indexName, stagingPrefix))
 }
 
 function isTopLevelJournal(key: string): boolean {
@@ -147,7 +147,7 @@ export async function removeStagingPrefixes(storage: RestoreStorage): Promise<vo
   const prefixes = new Set<string>()
   for (const key of await storage.list('.')) {
     const slash = key.indexOf('/')
-    if (slash !== -1) prefixes.add(key.slice(0, slash + 1))
+    if (slash !== -1 && isStagingPrefix(key.slice(0, slash + 1))) prefixes.add(key.slice(0, slash + 1))
   }
   for (const prefix of prefixes) await removePrefix(storage, prefix)
 }
@@ -157,7 +157,7 @@ export async function recoverRestoreJournals(storage: RestoreStorage): Promise<v
     if (!isTopLevelJournal(key)) continue
     const bytes = await storage.read(key)
     if (bytes === null) continue
-    const reading = await readJournal(key, bytes)
+    const reading = readJournal(key, bytes)
     if (reading.kind === 'leftover') {
       await storage.remove(key)
       continue

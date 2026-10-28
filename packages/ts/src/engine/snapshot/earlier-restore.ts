@@ -4,7 +4,7 @@ import type { PartitionManager } from '../../partitioning/manager'
 import { buildArchiveFromMemory } from '../../persistence/archive/from-memory'
 import { validateStagedCheckpoint } from '../../persistence/archive/validate'
 import type { RestoreStaging } from '../../persistence/durability/restore-staging'
-import { manifestFileRefs } from '../../persistence/durability/segment/manifest'
+import { manifestFileRefs, type SegmentManifest } from '../../persistence/durability/segment/manifest'
 import { raiseEarlierReleaseGraphSetting } from '../../schema/validator'
 import { unpackIndexSnapshotEnvelope } from '../../serialization/envelope'
 import { deserializePayloadV1 } from '../../serialization/payload-v1'
@@ -127,7 +127,7 @@ async function stageBuiltIndex(
   built: DetachedIndex,
   staging: RestoreStaging,
   deps: RestoreDeps,
-): Promise<RestoredIndex> {
+): Promise<SegmentManifest> {
   const entry = restoredRegistryEntry(prepared, built.manager, deps)
   const archive = await buildArchiveFromMemory({
     indexName,
@@ -144,7 +144,7 @@ async function stageBuiltIndex(
     archive.release()
   }
   await validateStagedCheckpoint(staging.store, archive.manifest)
-  return loadStagedIndex(indexName, { prepared, manifest: archive.manifest }, staging, staging.store, deps)
+  return archive.manifest
 }
 
 async function buildRestoredIndex(
@@ -155,16 +155,17 @@ async function buildRestoredIndex(
   deps: RestoreDeps,
 ): Promise<RestoredIndex> {
   const built = await prepareDetachedIndex(indexName, prepared, envelope.partitions?.length ?? 0, deps)
+  let manifest: SegmentManifest
   try {
     insertSnapshotDocuments(envelope, built.manager)
     if (staging === null) return { prepared, detached: built, staging: null, checkpoint: [] }
-    const restored = await stageBuiltIndex(indexName, prepared, built, staging, deps)
-    deps.executor.discardDetachedIndex(built)
-    return restored
+    manifest = await stageBuiltIndex(indexName, prepared, built, staging, deps)
   } catch (err) {
     deps.executor.discardDetachedIndex(built)
     throw err
   }
+  deps.executor.discardDetachedIndex(built)
+  return loadStagedIndex(indexName, { prepared, manifest }, staging, staging.store, deps)
 }
 
 export async function restoreEarlierSnapshot(indexName: string, data: Uint8Array, deps: RestoreDeps): Promise<void> {

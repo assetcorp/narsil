@@ -79,7 +79,7 @@ export function createRestoreStaging(
         await commitJournal(storage, indexName, stagingPrefix)
       } catch (error) {
         try {
-          await storage.remove(await journalKey(indexName))
+          await storage.remove(journalKey(indexName))
         } catch (removal) {
           committed = true
           options.onStorageLost?.(toError(removal))

@@ -1,18 +1,17 @@
-import { readMetadataEnvelope, writeMetadataEnvelope } from '../../serialization/envelope'
-import type { PersistenceAdapter } from '../../types/adapters'
-import { countCheckpointDocuments } from './checkpoint-count'
-import { recoverCheckpoint } from './checkpoint-recovery'
+import { readMetadataEnvelope, writeMetadataEnvelope } from '../../../serialization/envelope'
+import type { PersistenceAdapter } from '../../../types/adapters'
+import { countCheckpointDocuments } from '../checkpoint-count'
+import { recoverCheckpoint } from '../checkpoint-recovery'
 import {
   DEFAULT_CHECKPOINT_INTERVAL_MS,
   DEFAULT_CHECKPOINT_MUTATION_THRESHOLD,
   DEFAULT_COMPACTION_THRESHOLD,
-} from './constants'
-import type { PartitionCheckpoint } from './partition-checkpoint'
-import { snapshotCheckpointFor } from './recovery'
-import { journalKey, recoverRestoreJournals } from './restore-journal'
-import { adapterRestoreStorage, createRestoreStaging, type RestoreStaging } from './restore-staging'
-import { adapterCheckpointStore } from './segment/store'
-import { writeSnapshotOnlyCheckpoint } from './snapshot-only-checkpoint'
+} from '../constants'
+import type { PartitionCheckpoint } from '../partition-checkpoint'
+import { snapshotCheckpointFor } from '../recovery'
+import { journalKey, recoverRestoreJournals } from '../restore-journal'
+import { adapterRestoreStorage, createRestoreStaging, type RestoreStaging } from '../restore-staging'
+import { adapterCheckpointStore } from '../segment/store'
 import type {
   CheckpointPublisher,
   DurabilityConfig,
@@ -20,7 +19,9 @@ import type {
   IndexDurabilityHooks,
   MutationOutcome,
   MutationRecord,
-} from './types'
+} from '../types'
+import { writeSnapshotOnlyCheckpoint } from './checkpoint'
+import { createPendingRestores } from './restores'
 
 interface SnapshotIndexState {
   mutationsSinceCheckpoint: number
@@ -46,35 +47,12 @@ export function createSnapshotOnlyManager(
   const indexes = new Map<string, SnapshotIndexState>()
   const metadataWrites = new Map<string, Promise<void>>()
   const restoreStorage = adapterRestoreStorage(adapter)
-  const pendingRestores = new Map<string, () => Promise<void>>()
+  const restores = createPendingRestores(hooks.onFatalError)
   let checkpointTimer: ReturnType<typeof setInterval> | null = null
   let shuttingDown = false
 
-  function toError(error: unknown): Error {
-    return error instanceof Error ? error : new Error(String(error))
-  }
-
-  function finishRestoreLater(indexName: string, run: () => Promise<void>): Promise<void> {
-    let running: Promise<void> | null = null
-    const finish = (): Promise<void> => {
-      running ??= run().then(
-        () => {
-          if (pendingRestores.get(indexName) === finish) pendingRestores.delete(indexName)
-        },
-        error => {
-          running = null
-          throw error
-        },
-      )
-      return running
-    }
-    pendingRestores.set(indexName, finish)
-    void finish().catch(error => hooks.onFatalError(toError(error)))
-    return Promise.resolve()
-  }
-
-  async function settleRestore(indexName: string): Promise<void> {
-    await pendingRestores.get(indexName)?.()
+  function settleRestore(indexName: string): Promise<void> {
+    return restores.settle(indexName)
   }
 
   function getOrCreateIndexState(indexName: string): SnapshotIndexState {
@@ -277,6 +255,23 @@ export function createSnapshotOnlyManager(
     return appliedSeqNo
   }
 
+  async function drainIndex(indexName: string): Promise<void> {
+    const indexState = indexes.get(indexName)
+    if (indexState !== undefined) {
+      indexState.unloading = true
+      try {
+        await indexState.applyChain
+        if (indexState.checkpointInFlight !== null) await indexState.checkpointInFlight
+        await metadataWrites.get(indexName)
+      } catch (error) {
+        indexState.unloading = false
+        throw error
+      }
+    }
+    indexes.delete(indexName)
+    metadataWrites.delete(indexName)
+  }
+
   return {
     isActive(): boolean {
       return true
@@ -343,7 +338,7 @@ export function createSnapshotOnlyManager(
 
     stageRestore(indexName: string): RestoreStaging {
       return createRestoreStaging(restoreStorage, indexName, {
-        finish: run => finishRestoreLater(indexName, run),
+        finish: run => restores.finishLater(indexName, run),
         onStorageLost: hooks.onFatalError,
       })
     },
@@ -358,22 +353,9 @@ export function createSnapshotOnlyManager(
 
     async removeIndex(indexName: string): Promise<void> {
       await settleRestore(indexName).catch(() => undefined)
-      pendingRestores.delete(indexName)
-      await restoreStorage.remove(await journalKey(indexName))
-      const indexState = indexes.get(indexName)
-      if (indexState !== undefined) {
-        indexState.unloading = true
-        try {
-          await indexState.applyChain
-          if (indexState.checkpointInFlight !== null) await indexState.checkpointInFlight
-          await metadataWrites.get(indexName)
-        } catch (error) {
-          indexState.unloading = false
-          throw error
-        }
-      }
-      indexes.delete(indexName)
-      metadataWrites.delete(indexName)
+      restores.forget(indexName)
+      await restoreStorage.remove(journalKey(indexName))
+      await drainIndex(indexName)
       for (const key of await adapter.list(`${indexName}/`)) {
         await adapter.delete(key)
       }
@@ -381,20 +363,7 @@ export function createSnapshotOnlyManager(
 
     async unloadIndex(indexName: string): Promise<void> {
       await settleRestore(indexName)
-      const indexState = indexes.get(indexName)
-      if (indexState !== undefined) {
-        indexState.unloading = true
-        try {
-          await indexState.applyChain
-          if (indexState.checkpointInFlight !== null) await indexState.checkpointInFlight
-          await metadataWrites.get(indexName)
-        } catch (error) {
-          indexState.unloading = false
-          throw error
-        }
-      }
-      indexes.delete(indexName)
-      metadataWrites.delete(indexName)
+      await drainIndex(indexName)
     },
 
     async reloadIndex(indexName: string): Promise<void> {
@@ -410,7 +379,7 @@ export function createSnapshotOnlyManager(
         clearInterval(checkpointTimer)
         checkpointTimer = null
       }
-      for (const finish of [...pendingRestores.values()]) await finish().catch(() => undefined)
+      await restores.settleAll()
       for (const indexState of indexes.values()) {
         if (indexState.checkpointInFlight !== null) {
           await indexState.checkpointInFlight.catch(() => undefined)
