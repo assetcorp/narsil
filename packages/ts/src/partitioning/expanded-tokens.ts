@@ -6,8 +6,22 @@ import { tokenize } from '../core/tokenizer'
 import { DEFAULT_FUZZY_PREFIX_LENGTH } from '../search/constants'
 import { resolveTermGroups, type TermGroupAnalysis } from '../search/term-groups'
 import type { LanguageModule } from '../types/language'
+import type { SchemaDefinition } from '../types/schema'
 import type { QueryParams } from '../types/search'
-import type { QueryExpansion } from './distributed-scoring'
+
+export interface StatsExpansion {
+  tolerance?: number | null
+  prefixLength?: number | null
+  prefix?: boolean | null
+  partialWords?: boolean | null
+  exact?: boolean | null
+  fields?: string[] | null
+}
+
+export interface QueryExpansion {
+  options: StatsExpansion
+  schema: SchemaDefinition
+}
 
 type QueryToken = { token: string; position: number }
 
@@ -38,7 +52,7 @@ function readStatesOf(partition: PartitionIndex): PartitionReadState[] {
 
 function addPartitionTokens(
   tokens: Set<string>,
-  capped: Set<string>,
+  addedMembers: Set<string>,
   partition: PartitionIndex,
   term: string,
   analysed: AnalysedQuery,
@@ -70,7 +84,7 @@ function addPartitionTokens(
   const { termGroups } = resolveTermGroups(partition, params, language, schema, queryTokens, lastToken, analysis)
   for (const group of termGroups ?? []) {
     for (const member of group.members) {
-      if (member.token !== group.token) capped.add(member.token)
+      if (member.token !== group.token) addedMembers.add(member.token)
     }
   }
 }
@@ -88,10 +102,10 @@ export function addReachedTokens(
   if (!((options.tolerance ?? 0) > 0 || options.prefix === true || options.partialWords === true)) return []
   const analysed = queryTokensOf(term, language, analysis)
   if (analysed === null) return []
-  const capped = new Set<string>()
+  const addedMembers = new Set<string>()
   for (const partition of partitions) {
-    addPartitionTokens(tokens, capped, partition, term, analysed, expansion, language, analysis)
+    addPartitionTokens(tokens, addedMembers, partition, term, analysed, expansion, language, analysis)
   }
-  for (const token of capped) tokens.add(token)
-  return [...capped]
+  for (const token of addedMembers) tokens.add(token)
+  return [...addedMembers]
 }

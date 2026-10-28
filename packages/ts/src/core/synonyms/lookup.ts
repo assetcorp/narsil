@@ -12,7 +12,7 @@ const decoder = new TextDecoder()
 
 interface Interned {
   ids: Map<string, number>
-  names: string[]
+  tokens: string[]
 }
 
 function analyseWord(word: string, analysis: SynonymAnalysis, cache: Map<string, string | number>): string | number {
@@ -32,8 +32,8 @@ function analyseWord(word: string, analysis: SynonymAnalysis, cache: Map<string,
 function intern(interned: Interned, token: string): number {
   let id = interned.ids.get(token)
   if (id === undefined) {
-    id = interned.names.length
-    interned.names.push(token)
+    id = interned.tokens.length
+    interned.tokens.push(token)
     interned.ids.set(token, id)
   }
   return id
@@ -48,27 +48,27 @@ function targetWordsOf(rule: SynonymRule): readonly string[] {
 }
 
 function packedLookup(
-  names: readonly string[],
+  tokens: readonly string[],
   ruleStart: Uint32Array,
   ruleTokenIds: readonly number[],
   ruleSource: Int32Array,
 ): SynonymLookup {
-  const order = names.map((_, id) => id).sort((a, b) => compareCodePoints(names[a], names[b]))
-  const rank = new Uint32Array(names.length)
+  const order = tokens.map((_, id) => id).sort((a, b) => compareCodePoints(tokens[a], tokens[b]))
+  const rank = new Uint32Array(tokens.length)
   for (let position = 0; position < order.length; position++) rank[order[position]] = position
-  const { blob, offsets } = encodeStringBlob(order.map(id => names[id]))
+  const { blob, offsets } = encodeStringBlob(order.map(id => tokens[id]))
   const ruleTokens = Uint32Array.from(ruleTokenIds, id => rank[id])
   const sources = Int32Array.from(ruleSource, id => (id === NO_SOURCE ? NO_SOURCE : rank[id]))
   const ruleCount = sources.length
 
-  const tokenRuleStart = new Uint32Array(names.length + 1)
+  const tokenRuleStart = new Uint32Array(tokens.length + 1)
   for (let rule = 0; rule < ruleCount; rule++) {
     if (sources[rule] !== NO_SOURCE) tokenRuleStart[sources[rule] + 1]++
     else for (let i = ruleStart[rule]; i < ruleStart[rule + 1]; i++) tokenRuleStart[ruleTokens[i] + 1]++
   }
-  for (let token = 0; token < names.length; token++) tokenRuleStart[token + 1] += tokenRuleStart[token]
-  const tokenRules = new Uint32Array(tokenRuleStart[names.length])
-  const fill = tokenRuleStart.slice(0, names.length)
+  for (let token = 0; token < tokens.length; token++) tokenRuleStart[token + 1] += tokenRuleStart[token]
+  const tokenRules = new Uint32Array(tokenRuleStart[tokens.length])
+  const fill = tokenRuleStart.slice(0, tokens.length)
   for (let rule = 0; rule < ruleCount; rule++) {
     if (sources[rule] !== NO_SOURCE) tokenRules[fill[sources[rule]]++] = rule
     else for (let i = ruleStart[rule]; i < ruleStart[rule + 1]; i++) tokenRules[fill[ruleTokens[i]]++] = rule
@@ -125,7 +125,7 @@ function packedLookup(
   }
 
   const lookup: SynonymLookup = {
-    tokenCount: names.length,
+    tokenCount: tokens.length,
     bytes,
     expand: queryTokens => expandQuerySynonyms(lookup, queryTokens),
     synonymsOf(token: string): readonly string[] {
@@ -155,7 +155,7 @@ export function buildSynonymLookup(
   raise: RaiseSynonymProblem | null,
 ): SynonymLookup | null {
   const analysed = new Map<string, string | number>()
-  const interned: Interned = { ids: new Map(), names: [] }
+  const interned: Interned = { ids: new Map(), tokens: [] }
   const ruleStart = new Uint32Array(rules.length + 1)
   const ruleTokenIds: number[] = []
   const ruleSource = new Int32Array(rules.length).fill(NO_SOURCE)
@@ -193,5 +193,5 @@ export function buildSynonymLookup(
   }
 
   if (ruleTokenIds.length === 0) return null
-  return packedLookup(interned.names, ruleStart, ruleTokenIds, ruleSource)
+  return packedLookup(interned.tokens, ruleStart, ruleTokenIds, ruleSource)
 }
