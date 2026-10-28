@@ -3,9 +3,10 @@ import type { PartitionManager } from '../../partitioning/manager'
 import type { DurabilityConfig } from '../../types/config'
 import type { IndexMetadata } from '../../types/internal'
 import type { VectorIndex } from '../../vector/vector-index'
-import type { ArchiveCheckpoint, RestoreStaging } from './archive-checkpoint'
+import type { ArchiveCheckpoint } from './archive-checkpoint'
 import type { LayoutUpgradeEvent } from './earlier-layout/upgrade'
 import type { PartitionCheckpoint } from './partition-checkpoint'
+import type { RestoreStaging } from './restore-staging'
 
 export type { DurabilityConfig }
 

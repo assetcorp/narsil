@@ -5,6 +5,7 @@ import type { OsqBits } from '../osq/quantize'
 import { growBufferTo } from '../shared-buffers/growable'
 import { magnitude } from '../similarity'
 import { createVectorBlock, ensureBlockSlots, slotByteOffset } from './blocks'
+import { appendDocId } from './doc-ids'
 import {
   createSharedVectorStoreHandles,
   IN_MEMORY,
@@ -45,6 +46,40 @@ export function openHandles(dimension: number, codeBits: OsqBits | null, blockBy
 export function relayout(store: OpenStore): void {
   store.handles.layoutRevision += 1
   store.view.adoptHandles(store.handles)
+}
+
+export function claimSlot(store: OpenStore, docId: string, cold: boolean): number {
+  const ordinal = Atomics.load(store.handles.header, STORE_SLOTS)
+  ensureOrdinal(store, ordinal, cold)
+  store.diskFile[ordinal] = IN_MEMORY
+  appendDocId(store.handles, ordinal, docId)
+  return ordinal
+}
+
+export function publishOrdinal(store: OpenStore, ordinal: number): void {
+  Atomics.store(store.handles.header, STORE_SLOTS, ordinal + 1)
+  Atomics.store(store.present, ordinal, 1)
+}
+
+export function publishOnDisk(
+  store: OpenStore,
+  ordinal: number,
+  vectorMagnitude: number,
+  location: DiskLocation,
+): void {
+  store.magnitudes[ordinal] = vectorMagnitude
+  store.diskOffset[ordinal] = location.offset
+  store.diskFile[ordinal] = location.fileIndex
+  publishOrdinal(store, ordinal)
+}
+
+export function relocateFiles(store: OpenStore, rewrite: (path: string) => string): void {
+  const files = store.handles.vectorFiles
+  if (files.length === 0) return
+  for (let file = 0; file < files.length; file++) {
+    if (files[file].length > 0) files[file] = rewrite(files[file])
+  }
+  relayout(store)
 }
 
 function ensureCodeSlot(store: OpenStore, ordinal: number): void {

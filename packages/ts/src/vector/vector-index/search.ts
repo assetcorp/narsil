@@ -11,6 +11,7 @@ import { highScoreFirst, mergeResults } from './merge-results'
 import {
   allLiveDocIds,
   filterForOptions,
+  handOverBuildTurns,
   liveSize,
   type VectorIndexState,
   type VectorScoredResult,
@@ -159,6 +160,7 @@ export function search(
   k: number,
   options: VectorSearchOptions,
 ): VectorSearchOutcome {
+  handOverBuildTurns(state)
   return searchWithFilter(state, query, k, options, filterForOptions(state, options))
 }
 
