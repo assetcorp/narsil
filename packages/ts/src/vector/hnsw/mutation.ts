@@ -101,13 +101,17 @@ function raiseEntry(state: HNSWGraphState, ord: number, level: number): void {
   }
 }
 
-function placementDistance(state: HNSWGraphState, ord: number, vector: Float32Array): (candOrd: number) => number {
+function placementDistance(
+  state: HNSWGraphState,
+  vector: Float32Array,
+  fullPrecision: (candOrd: number) => number,
+): (candOrd: number) => number {
   const quantizer = state.quantizer
   if (quantizer !== undefined && buildsFromCodes(state)) {
     const prepared = quantizer.prepareQuery(vector)
     if (prepared !== null) return quantizer.preparedDistance(prepared)
   }
-  return state.store.ordinalDistance(ord, state.buildMetric)
+  return fullPrecision
 }
 
 function selectNeighborsPerLayer(state: HNSWGraphState, ord: number, level: number): number {
@@ -116,7 +120,9 @@ function selectNeighborsPerLayer(state: HNSWGraphState, ord: number, level: numb
   const candidates = workspace.traversal
   const entry = state.store.entryForOrdinal(ord)
   if (entry === undefined) return -1
-  const insertDistFn = placementDistance(state, ord, entry.vector)
+  const fullPrecision = state.store.ordinalDistance(ord, metric)
+  const insertDistFn = placementDistance(state, entry.vector, fullPrecision)
+  const rescores = insertDistFn !== fullPrecision
   const topLayer = topLayerOf(state)
   setSingleEntryPoint(workspace, entryPointOf(state))
 
@@ -130,6 +136,7 @@ function selectNeighborsPerLayer(state: HNSWGraphState, ord: number, level: numb
   const distance = nodeDistanceFunction(state, metric)
   for (let layer = linkTop; layer >= 0; layer--) {
     searchLayer(state, entry.vector, entry.magnitude, state.efCons, layer, metric, false, insertDistFn, candidates)
+    if (rescores) for (let i = 0; i < candidates.size; i++) candidates.distances[i] = fullPrecision(candidates.ords[i])
     selectNeighborsHeuristic(state, candidates, maxConns(state, layer), distance, selections[layer])
     if (candidates.size > 0) setEntryPointsFromList(workspace, candidates)
   }

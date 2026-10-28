@@ -1,6 +1,6 @@
 import { RECALIBRATION_CHUNK_VECTORS, RECALIBRATION_DRIFT_RATIO } from './constants'
 import { driftRatio, type LiveVectorMean, measureLiveVectors, nextDriftCheck } from './drift'
-import { type VectorIndexState, yieldBuildTurn } from './shared'
+import { liveOrdinals, type VectorIndexState, yieldBuildTurn } from './shared'
 import { noteWrite } from './worker-copies'
 
 function noteCalibration(state: VectorIndexState, live: LiveVectorMean): void {
@@ -37,7 +37,7 @@ export async function calibrateFromLiveVectors(state: VectorIndexState, live: Li
     if (!(await recodeEveryVector(state, live))) return false
     noteWrite(state)
   } else {
-    quantizer.restoreCentroid(live.centroid)
+    quantizer.calibrate(liveOrdinals(state))
   }
   noteCalibration(state, live)
   return true

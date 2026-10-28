@@ -104,7 +104,7 @@ const RESTORED_INDEX = 'earlier'
 const TEST_TIMEOUT_MS = 300_000
 const WRITTEN_DURING_REPAIR = 100
 const REMOVAL_STRIDE = 40
-const BACK_TO_BACK_SEARCH_LIMIT = 20_000
+const BACK_TO_BACK_SEARCH_MS = 120_000
 
 const roots = temporaryRoots()
 const engines: Narsil[] = []
@@ -217,11 +217,10 @@ describe('the repair of a graph from an earlier release while searches and write
       const repairing = (): boolean => engine.vectorMaintenanceStatus(RESTORED_INDEX).some(field => field.building)
       expect(repairing()).toBe(true)
 
-      let searches = 0
-      while (repairing() && searches < BACK_TO_BACK_SEARCH_LIMIT) {
+      const deadline = performance.now() + BACK_TO_BACK_SEARCH_MS
+      for (let searches = 0; repairing() && performance.now() < deadline; searches++) {
         const passage = passages[searches % passages.length]
         await vectorHits(engine, RESTORED_INDEX, passage.embedding, NARROW_LIMIT, NARROW_EF_SEARCH)
-        searches += 1
       }
 
       expect(repairing()).toBe(false)
