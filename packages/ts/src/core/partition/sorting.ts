@@ -1,4 +1,4 @@
-import { type ComparableSortValue, readSortField, type SortMode, toReducedSortValue } from '../ordering'
+import { type ComparableSortValue, type SortMode, toReducedSortValue } from '../ordering'
 import { createSortColumnSet, type SortColumnSet } from './sort-columns'
 import { selectTextRange, type TextRangeBounds } from './sort-columns/range'
 import { type SortedPageEntry, type SortPageRequest, selectSortedPage } from './sort-columns/select'
@@ -39,16 +39,19 @@ export function sortValuesOf(
 ): ComparableSortValue[] {
   const set = state.sortColumns
   const internalId = state.docStore.getInternalId(docId)
-  const stored = state.docStore.get(docId)
   const key: ComparableSortValue[] = new Array(fields.length)
 
   for (let i = 0; i < fields.length; i++) {
     const mode = modes[i] ?? 'min'
-    if (set !== null && internalId !== undefined && set.holds(fields[i], fieldTypes[i], mode)) {
+    if (internalId === undefined) {
+      key[i] = null
+      continue
+    }
+    if (set?.holds(fields[i], fieldTypes[i], mode)) {
       key[i] = set.column(fields[i], fieldTypes[i], mode).valueOf(internalId)
       continue
     }
-    key[i] = stored === undefined ? null : toReducedSortValue(readSortField(stored.fields, fields[i]), mode)
+    key[i] = toReducedSortValue(state.docStore.fieldReader(fields[i])(internalId), mode)
   }
 
   return key
