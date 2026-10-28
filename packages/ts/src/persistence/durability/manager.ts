@@ -1,7 +1,7 @@
 import { buildEntry } from '../../distribution/replication/entry-checksum'
 import type { ReplicationLogEntry } from '../../distribution/replication/types'
 import { writeMetadataEnvelope } from '../../serialization/envelope'
-import { createArchiveCheckpointAccess, removeAbandonedRestores } from './archive-checkpoint'
+import { createArchiveCheckpointAccess } from './archive-checkpoint'
 import { runDurableCheckpoint } from './checkpoint-run'
 import { terminateCheckpointWorker } from './checkpoint-worker-dispatch'
 import {
@@ -18,6 +18,7 @@ import { type PartitionBatchDeps, recordBatchesByPartition } from './mutation-ba
 import { createPartitionRegistry } from './partition-registry'
 import { recoverPersistedIndex } from './recover-index'
 import { listPersistedIndexes } from './recovery'
+import { recoverDirectoryRestores } from './restore-directory'
 import { SINGLE_NODE_PRIMARY_TERM } from './seq-owner'
 import type {
   DurabilityConfig,
@@ -264,13 +265,11 @@ export function createDurabilityManager(
   }
 
   return {
-    isActive(): boolean {
-      return true
-    },
+    isActive: () => true,
 
     async recover(metadataOnly = false): Promise<void> {
       await directoryWatch.claim()
-      await removeAbandonedRestores(directory)
+      await recoverDirectoryRestores(directory)
       const names = await listPersistedIndexes(directory)
       for (const indexName of names) {
         await recoverIndex(indexName, metadataOnly)
@@ -359,6 +358,7 @@ export function createDurabilityManager(
       checkpoint: name => checkpointIndex(name),
       registerPartition: (name, partitionId, startSeqNo, primaryTerm) =>
         getOrCreatePartition(name, partitionId, startSeqNo, primaryTerm),
+      markFatal,
     }),
 
     async shutdown(): Promise<void> {

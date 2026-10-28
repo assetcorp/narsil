@@ -53,6 +53,10 @@ export async function announceIndexCreated(core: EngineCore, name: string, confi
   await runLifecycleHook(core, 'onIndexCreate', { indexName: name, config })
 }
 
+export async function announceIndexDropped(core: EngineCore, name: string, config: IndexConfig): Promise<void> {
+  await runLifecycleHook(core, 'onIndexDrop', { indexName: name, config })
+}
+
 export async function createEngineIndex(
   core: EngineCore,
   config: NarsilConfig | undefined,

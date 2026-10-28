@@ -104,6 +104,7 @@ export interface VectorStore extends VectorBuildReader {
   release(): void
   /** Closes every vector file that this thread holds open or maps, which a read of a released vector opens again. */
   closeFiles(): void
+  relocateVectorFiles(rewrite: (path: string) => string): void
   /**
    * Reports the bytes this store's shared structures hold, read from each
    * structure as it stands. The bookkeeping each thread keeps on its own heap

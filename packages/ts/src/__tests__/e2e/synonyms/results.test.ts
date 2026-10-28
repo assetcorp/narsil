@@ -111,4 +111,24 @@ describe('a synonym set after the index leaves the server that built it', () => 
     await expectEveryProbe(searchOver(target.client), createOracle(documents, FIRST_RULES), 'restored')
     expect(await target.client.getSynonyms(INDEX)).toEqual(FIRST_RULES)
   }, 180_000)
+
+  it('takes the restored set when a snapshot replaces an index that holds another set, and keeps it across a restart', async () => {
+    directory = await mkdtemp(join(tmpdir(), 'narsil-synonyms-'))
+    const documents = garageCorpus(CORPUS_SIZE, 67)
+    const source = await started({ workers: NO_WORKERS })
+    await createGarageIndex(source, documents, FIRST_RULES)
+    const snapshot = await source.client.snapshot(INDEX)
+
+    const target = await startGarageServer({ workers: NO_WORKERS, durability: { directory } })
+    await createGarageIndex(target, garageCorpus(CORPUS_SIZE, 68, 'replaced'), SECOND_RULES)
+    const task = await target.client.restore(INDEX, snapshot)
+    expect((await target.client.waitForTask(task.id)).status).toBe('succeeded')
+    await expectEveryProbe(searchOver(target.client), createOracle(documents, FIRST_RULES), 'replaced')
+    expect(await target.client.getSynonyms(INDEX)).toEqual(FIRST_RULES)
+    await target.stop()
+
+    const reopened = await started({ workers: NO_WORKERS, durability: { directory } })
+    await expectEveryProbe(searchOver(reopened.client), createOracle(documents, FIRST_RULES), 'replaced and restarted')
+    expect(await reopened.client.getSynonyms(INDEX)).toEqual(FIRST_RULES)
+  }, 180_000)
 })
