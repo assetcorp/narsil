@@ -3,7 +3,11 @@ import { createClusterNode } from '../../../distribution/cluster-node'
 import type { ClusterNode } from '../../../distribution/cluster-node/types'
 import { createInMemoryCoordinator } from '../../../distribution/coordinator'
 import type { AllocationTable, ClusterCoordinator, NodeRegistration } from '../../../distribution/coordinator/types'
-import { createInMemoryNetwork, createInMemoryTransport, type InMemoryNetwork } from '../../../distribution/transport'
+import {
+  createInMemoryNetwork,
+  createInMemoryTransport,
+  type InMemoryNetwork,
+} from '../../../distribution/transport/in-memory'
 
 const INDEX_NAME = 'lanterns'
 const PARTITION_COUNT = 4

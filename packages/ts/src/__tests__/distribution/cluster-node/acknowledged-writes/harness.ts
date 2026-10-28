@@ -265,6 +265,13 @@ export async function waitUntil<T>(
   throw new Error(`Timed out after ${timeoutMs} ms waiting for ${description}${cause}`)
 }
 
+export async function publishedHeapLimitBytes(node: ClusterNode): Promise<number> {
+  const registration = (await node.cluster.listNodes()).find(entry => entry.nodeId === node.nodeId)
+  const heapLimitBytes = registration?.memory?.heapLimitBytes
+  if (heapLimitBytes === undefined) throw new Error(`${node.nodeId} publishes no heap limit`)
+  return heapLimitBytes
+}
+
 export function partitionAssignment(table: AllocationTable | null, partitionId = 0) {
   return table?.assignments.get(partitionId)
 }
