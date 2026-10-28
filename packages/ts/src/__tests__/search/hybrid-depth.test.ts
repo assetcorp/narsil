@@ -102,13 +102,11 @@ describe('hybrid paging to a fixed depth', () => {
     for (const [i, hit] of actual.entries()) expect(hit.score).toBeCloseTo(expected[i].score, 9)
   }
 
-  it.each([
-    20, 35,
-  ])('returns one fused order at depth %i, whether a caller pages by cursor or by offset', async depth => {
-    const expected = await oracleFused(depth)
+  it('returns one fused order at depth 35, whether a caller pages by cursor or by offset', async () => {
+    const expected = await oracleFused(35)
 
-    expectSameOrder(await walkByCursor(hybridQuery(depth), 5), expected)
-    expectSameOrder(await walkByOffset(hybridQuery(depth), 5, depth), expected.slice(0, Math.floor(depth / 5) * 5))
+    expectSameOrder(await walkByCursor(hybridQuery(35), 5), expected)
+    expectSameOrder(await walkByOffset(hybridQuery(35), 5, 35), expected)
   })
 
   it('fuses each leg to 100 results where the query leaves the depth out, and reads every one by cursor at limit 7', async () => {

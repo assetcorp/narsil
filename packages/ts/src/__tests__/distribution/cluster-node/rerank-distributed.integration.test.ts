@@ -1,21 +1,21 @@
 import { decode } from '@msgpack/msgpack'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { createClusterNode } from '../../../distribution/cluster-node'
-import type { ClusterNode } from '../../../distribution/cluster-node/types'
-import { createInMemoryCoordinator } from '../../../distribution/coordinator'
-import type { ClusterCoordinator } from '../../../distribution/coordinator/types'
+import { type ClusterCoordinator, type ClusterNode, createClusterNode, type NodeTransport } from '../../../distribution'
+import { createInMemoryCoordinator } from '../../../distribution/coordinator/in-memory'
 import {
   createInMemoryNetwork,
   createInMemoryTransport,
   type InMemoryNetwork,
-  QueryMessageTypes,
-} from '../../../distribution/transport'
-import type { NodeTransport, SearchPayload } from '../../../distribution/transport/types'
+} from '../../../distribution/transport/in-memory'
 import { ErrorCodes } from '../../../errors'
 import type { QueryParams } from '../../../types/search'
 import { type CorpusDocument, corpus, letterEmbedding, stored } from '../../rerank/corpus'
 import { oracleRerank, overlapScore, type RankedHit, recordingReranker, rerankTextOf } from '../../rerank/oracle'
 import { waitForSettledReplica } from './cluster-harness'
+
+interface SearchPayload {
+  params: Record<string, unknown>
+}
 
 const INDEX = 'library'
 const DATA_NODES = ['data-a', 'data-b']
@@ -26,7 +26,7 @@ function recordingTransport(nodeId: string, network: InMemoryNetwork, served: Se
     ...transport,
     listen(handler) {
       return transport.listen((message, respond) => {
-        if (message.type === QueryMessageTypes.SEARCH) served.push(decode(message.payload) as SearchPayload)
+        if (message.type === 'query.search') served.push(decode(message.payload) as SearchPayload)
         return handler(message, respond)
       })
     },
