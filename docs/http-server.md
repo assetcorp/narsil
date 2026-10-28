@@ -41,7 +41,8 @@ The full surface:
 | Method and path | Purpose |
 | --- | --- |
 | `GET /livez`, `GET /readyz`, `GET /health` | The probes answer without authentication. `/livez` answers 200 whenever the process can serve HTTP. `/readyz` and `/health` answer 503 until the engine is ready, and again once shutdown begins, so a load balancer that reads either one stops sending traffic through a shutdown. On a cluster node, both of them answer 503 until the node reports `SERVING`. See [Cluster routes](#cluster-routes). |
-| `GET /cluster`, `GET /indexes/{name}/cluster` | The endpoints report the cluster topology and one index's allocation, and a server fronting a single engine answers both with 501. See [Cluster routes](#cluster-routes). |
+| `GET /cluster`, `GET /indexes/{name}/cluster`, `PUT /indexes/{name}/replication-factor` | The endpoints report the cluster topology and one index's allocation, and they change an index's replication factor. A server fronting a single engine answers all three with 501. See [Cluster routes](#cluster-routes). |
+| `GET /cluster/health`, `GET /metrics` | The endpoints report a green, yellow, or red status for the cluster and each index, and the replication and coordinator figures in the Prometheus text format. Both take the server's authentication, and a server fronting a single engine answers both with 501. See [Cluster health](#cluster-health) and [Metrics](#metrics). |
 | `GET /version` | The endpoint reports the build identity stamped at startup. Its `vectorSearch` field names the path through which the answering thread searches vector graphs, `native` or `wasm`. See [Native search core](vector-search.md#native-search-core). |
 | `GET /capabilities` | The endpoint lists the optional routes this server serves, and it needs no key either. See [Tasks](#tasks). |
 | `GET /stats/memory` | The endpoint returns `getMemoryStats()` plus `requestThreads`, the number of worker threads that receive requests. See [Request threads](partitions-and-workers.md#request-threads). |
@@ -159,7 +160,7 @@ When an import of a document export finishes, its task record holds `result` wit
 
 ## Cluster routes
 
-A server that fronts a cluster node takes `node.cluster` as the `cluster` option, and three routes then report what that node knows. Without the option, `/readyz` reports the engine alone and the two cluster routes answer 501 `CLUSTER_OPERATION_UNSUPPORTED`.
+A server that fronts a cluster node takes `node.cluster` as the `cluster` option, and the routes in this section then report what that node knows. Without the option, `/readyz` reports the engine alone, and every other route in this section answers 501 `CLUSTER_OPERATION_UNSUPPORTED`.
 
 `GET /readyz` answers 200 only while the node reports `SERVING`, and 503 otherwise, so a load balancer can send traffic to a node once it serves every partition the controller gave it. The body names the node either way:
 
@@ -203,6 +204,37 @@ A server that fronts a cluster node takes `node.cluster` as the `cluster` option
   ]
 }
 ```
+
+`PUT /indexes/{name}/replication-factor` takes a body such as `{"replicationFactor": 2}` and changes how many replicas besides the primary each partition of the index keeps. The node sends the change to the controller, which stores the factor and writes an allocation table that carries it before the server answers 200 with the index name and the factor. A factor outside 0 to 255 answers 400 `CONFIG_INVALID`, and an index that the cluster doesn't hold answers 404 `INDEX_NOT_FOUND`.
+
+### Cluster health
+
+`GET /cluster/health` reports a status for the cluster and for each index, and it answers 200 whatever the status, so a monitor reads the status from the body:
+
+```json
+{
+  "status": "yellow",
+  "indexes": [
+    { "indexName": "movies", "status": "yellow", "partitionCount": 4, "replicationFactor": 2, "partitionsWithoutPrimary": 0, "underReplicatedPartitions": 1 }
+  ]
+}
+```
+
+An index is `green` when every partition is `ACTIVE` with a primary and `replicationFactor` in-sync replicas. It is `yellow` when every partition has a primary but some partition holds fewer in-sync replicas, and `red` when some partition has no primary, so the documents in that partition can be neither read nor written. A primary or a replica counts only while its node stays registered with the coordinator, so an index turns red as soon as the node that holds a primary leaves and no replica can take over. The cluster takes the worst status of its indexes, and a cluster that holds no index reports `green`.
+
+### Metrics
+
+`GET /metrics` answers in the Prometheus text format, with the content type `text/plain; version=0.0.4; charset=utf-8`, so a Prometheus server can scrape each node directly. A node reports these series:
+
+| Series | Labels | Reported by | Meaning |
+| --- | --- | --- | --- |
+| `narsil_replication_lag` | `index`, `partition`, `replica` | The partition's leader | The leader's last sequence number minus the highest sequence number that the replica acknowledged. |
+| `narsil_commit_point` | `index`, `partition` | The partition's leader | The highest sequence number that the leader has acknowledged to a client. |
+| `narsil_commit_point_floor` | `index`, `partition` | Every node | The floor on the commit point that the allocation table stores. The controller raises it only when it admits a replica, so it can trail `narsil_commit_point` by many writes. |
+| `narsil_in_sync_replicas` | `index`, `partition` | Every node | The replicas besides the primary that the allocation table holds in the in-sync set. |
+| `narsil_coordinator_request_seconds` | `operation` | Every node | A histogram of how long this node's calls to the coordinator took, such as `getAllocation`, with buckets from 1 ms to 10 s. |
+
+Scrape every node, because each one reports the lag and the commit point only for the partitions that it leads. An alert on `narsil_replication_lag` that stays above zero for a few scrapes catches a replica that has stopped applying entries.
 
 ## Listing documents
 

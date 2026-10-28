@@ -13,6 +13,8 @@ export interface ServerHandlers {
   clusterTopology: RouteHandler
   clusterAllocation: RouteHandler
   clusterReplicationFactor: RouteHandler
+  clusterHealth: RouteHandler
+  metrics: RouteHandler
   memory: RouteHandler
   listTasks: RouteHandler
   getTask: RouteHandler
@@ -77,6 +79,8 @@ export function serverRoutes(limits: ResolvedLimits): RouteSpec[] {
     { method: 'get', path: '/version', handler: 'version', options: probe },
     { method: 'get', path: '/capabilities', handler: 'capabilities', options: probe },
     { method: 'get', path: '/cluster', handler: 'clusterTopology', options: bare },
+    { method: 'get', path: '/cluster/health', handler: 'clusterHealth', options: bare },
+    { method: 'get', path: '/metrics', handler: 'metrics', options: bare },
     { method: 'get', path: '/stats/memory', handler: 'memory', options: bare },
     { method: 'get', path: '/tasks', handler: 'listTasks', options: bare },
     { method: 'get', path: '/tasks/:id', handler: 'getTask', options: named },

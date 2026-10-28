@@ -4,14 +4,12 @@ import { DEFAULT_NODE_LIFECYCLE_CONFIG } from '../cluster/constants'
 import type { ControllerNode } from '../cluster/controller/types'
 import { createDataNodeLifecycle } from '../cluster/node-lifecycle'
 import type { DataNodeHandle } from '../cluster/node-lifecycle/types'
-import { SPEC_VERSION } from '../cluster/version'
-import type { NodeRegistration, NodeRole } from '../coordinator/types'
+import type { NodeRole } from '../coordinator/types'
 import { openSnapshotSpoolDirectory } from '../replication/snapshot-spool'
 import type { ReplicationLog } from '../replication/types'
-import { createAllocationView } from './allocation-view'
 import { cleanupRemovedPartition } from './bootstrap-cleanup'
 import { clearBootstrapSyncIndex, createBootstrapSyncState, hasCompletedBootstrapSync } from './bootstrap-sync'
-import { createCatchUpState, startCatchUpPump, stopCatchUpPump } from './catch-up'
+import { startCatchUpPump, stopCatchUpPump } from './catch-up'
 import { createClusterNamespace } from './cluster-namespace'
 import { createNodeController } from './controller-role'
 import { decommissionNode } from './decommission'
@@ -19,31 +17,22 @@ import { createAllocationErrorForwarder, createErrorForwarder } from './error-fo
 import { type ClusterLocalEngine, createClusterLocalEngine } from './local-engine'
 import { orphanedIndexError, reconcileLocalIndexes } from './local-index-reconcile'
 import { seedReopenedPrimaryLogs } from './local-replication'
-import { createNodeMemoryReporting } from './memory/node-memory'
 import { findWriteBlock } from './memory/write-block'
 import { createDataNodeHandler } from './message-handler'
 import { resolveNodeId } from './node-identity'
-import { resolveNodeTargets as resolveTargetsForNode } from './node-messaging'
 import { createClusterNodeOperations } from './node-operations'
+import { createNodeWiring } from './node-wiring'
+import { createCoordinatorTiming, timeCoordinatorCalls } from './observability/coordinator-timing'
 import { createClusterOperationTracker } from './operation-tracker'
 import { createPartitionBootstrap } from './partition-bootstrap'
 import type { ClusterReadDeps } from './reads'
 import { requestReplicationFactor } from './replication-factor'
-import {
-  replicationLogKey as buildReplicationLogKey,
-  deleteIndexReplicationLogs,
-  getReplicationLog as readReplicationLog,
-  seedReplicationLog as writeSeededReplicationLog,
-} from './replication-logs'
+import { replicationLogKey as buildReplicationLogKey, deleteIndexReplicationLogs } from './replication-logs'
 import { routableAllocation } from './routable-allocation'
 import { createSnapshotSyncHandlerState, nodeSnapshotHeaderMetadata } from './snapshot-sync-handler'
 import { createMultiplexedControllerTransport, createNotReadyHandler } from './transport-listener'
 import type { ClusterNode, ClusterNodeConfig } from './types'
-import { DEFAULT_CAPACITY } from './types'
 import { validateClusterNodeConfig } from './validate-config'
-import type { WriteRoutingDeps } from './write-routing'
-import { createPrimaryNumbering } from './write-routing/numbering'
-import { createPartitionWriteQueues } from './write-routing/partition-queue'
 
 /**
  * Builds one node of a cluster, ready to join.
@@ -53,17 +42,18 @@ import { createPartitionWriteQueues } from './write-routing/partition-queue'
  * answering. A node whose roles include `controller` stands for election and
  * runs allocation for the whole cluster while it holds the lease.
  *
- * @param config - The coordinator, the transport, this node's address, and the
+ * @param callerConfig - The coordinator, the transport, this node's address, and the
  * settings for the engine it runs locally.
  * @returns The node, ready for {@link ClusterNode.start}.
  *
  * @public
  */
-export async function createClusterNode(config: ClusterNodeConfig): Promise<ClusterNode> {
-  validateClusterNodeConfig(config)
+export async function createClusterNode(callerConfig: ClusterNodeConfig): Promise<ClusterNode> {
+  validateClusterNodeConfig(callerConfig)
+  const coordinatorTiming = createCoordinatorTiming()
+  const config = { ...callerConfig, coordinator: timeCoordinatorCalls(callerConfig.coordinator, coordinatorTiming) }
 
   const roles: ReadonlyArray<NodeRole> = config.roles ?? ['data', 'coordinator', 'controller']
-  const capacity = config.capacity ?? DEFAULT_CAPACITY
 
   const bootstrapSyncState = createBootstrapSyncState()
   const snapshotSyncHandlerState = createSnapshotSyncHandlerState()
@@ -93,65 +83,23 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
     throw err
   })
 
-  function getReplicationLog(indexName: string, partitionId: number): ReplicationLog {
-    return readReplicationLog(replicationLogs, indexName, partitionId, config.replication, engine.persistedPositionOf)
-  }
-
-  function seedReplicationLog(indexName: string, partitionId: number, startSeqNo: number, lastPrimaryTerm = 0): void {
-    writeSeededReplicationLog(replicationLogs, indexName, partitionId, startSeqNo, lastPrimaryTerm, config.replication)
-  }
-
-  const allocationView = createAllocationView(config.coordinator)
-  const routingConfig: ClusterNodeConfig = { ...config, coordinator: allocationView.routing }
-
-  async function resolveNodeTargets(targetNodeId: string): Promise<string[]> {
-    return resolveTargetsForNode(routingConfig, targetNodeId)
-  }
+  const wiring = createNodeWiring({
+    config,
+    nodeId,
+    roles,
+    engine,
+    replicationLogs,
+    renewRegistration: () => lifecycle.renewRegistration(),
+  })
+  const { registration, allocationView, routingConfig, memoryReporting, writeDeps } = wiring
+  const { getReplicationLog, seedReplicationLog, resolveNodeTargets } = wiring
 
   const forwardOnError = createErrorForwarder(config.onError)
   const forwardAllocationError = createAllocationErrorForwarder(forwardOnError)
 
-  const registration: NodeRegistration = {
-    nodeId,
-    address: config.address,
-    roles: [...roles],
-    capacity,
-    startedAt: new Date().toISOString(),
-    version: SPEC_VERSION,
-  }
-
-  const memoryReporting = createNodeMemoryReporting({
-    registration,
-    engine,
-    coordinator: config.coordinator,
-    config: config.memory,
-    onFullChange: () => lifecycle.renewRegistration(),
-  })
-
   const hasDataRole = roles.includes('data')
   const hasControllerRole = roles.includes('controller')
   const controllerTransport = hasDataRole ? createMultiplexedControllerTransport(config.transport, nodeId) : null
-
-  const numbering = createPrimaryNumbering()
-  engine.numberEntriesWith(numbering.numberEntry)
-  engine.admitWritesWith(numbering.admit)
-  const writeDeps: WriteRoutingDeps = {
-    nodeId,
-    numbering,
-    coordinator: allocationView.routing,
-    refreshAllocation: allocationView.refresh,
-    engine,
-    transport: config.transport,
-    getReplicationLog,
-    resetReplicationLog: seedReplicationLog,
-    partitionWriteQueues: createPartitionWriteQueues(),
-    catchUp: createCatchUpState(),
-    resolveNodeTargets,
-    waitForActiveReplicas: config.replication?.waitForActiveReplicas,
-    memoryView: memoryReporting.view,
-    writePressure: memoryReporting.writePressure,
-    writeProjection: memoryReporting.writeProjection,
-  }
 
   const orphanedIndexes = new Set<string>()
   const heldPartitionWrites = new Set<Promise<void>>()
@@ -244,6 +192,13 @@ export async function createClusterNode(config: ClusterNodeConfig): Promise<Clus
     isServing: () => serving,
     trackOp,
     requestReplicationFactor: (indexName, factor) => requestReplicationFactor(config, nodeId, indexName, factor),
+    observability: {
+      nodeId,
+      coordinator: allocationView.routing,
+      catchUp: writeDeps.catchUp,
+      replicationLogOf: wiring.existingReplicationLog,
+      timing: coordinatorTiming,
+    },
   })
 
   const node: ClusterNode = {

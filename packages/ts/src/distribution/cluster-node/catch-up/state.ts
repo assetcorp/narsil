@@ -10,6 +10,7 @@ export interface CatchUpState {
   cursors: Map<string, Map<string, ReplicaCursor>>
   pendingAdmissions: Map<string, Set<string>>
   admittedReplicas: Map<string, Map<string, number>>
+  acknowledgedSeqNos: Map<string, Map<string, number>>
   inFlightBytes: number
   timer: ReturnType<typeof setInterval> | null
   activeTick: Promise<void> | null
@@ -41,6 +42,7 @@ export function createCatchUpState(): CatchUpState {
     cursors: new Map(),
     pendingAdmissions: new Map(),
     admittedReplicas: new Map(),
+    acknowledgedSeqNos: new Map(),
     inFlightBytes: 0,
     timer: null,
     activeTick: null,
@@ -83,6 +85,9 @@ export function recordReplicaPosition(
     existing.syncEpoch += 1
   }
   state.cursors.set(key, partition)
+  const acknowledged = state.acknowledgedSeqNos.get(key) ?? new Map<string, number>()
+  acknowledged.set(replicaNodeId, appliedSeqNo)
+  state.acknowledgedSeqNos.set(key, acknowledged)
 }
 
 /**

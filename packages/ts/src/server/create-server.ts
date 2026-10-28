@@ -37,6 +37,7 @@ import { createDocumentHandlers } from './handlers/documents'
 import { createHealthHandlers } from './handlers/health'
 import { createImportHandler } from './handlers/import'
 import { createIndexHandlers } from './handlers/indexes'
+import { createMetricsHandler } from './handlers/metrics'
 import { createSearchHandlers } from './handlers/search'
 import { createVersionHandler } from './handlers/version'
 import { assertAllowRegex, assertServerEngine, assertServerLimits } from './options-validation'
@@ -113,6 +114,8 @@ function mainThreadHandlers(deps: HandlerDeps): ServerHandlers {
     clusterTopology: cluster.topology,
     clusterAllocation: cluster.allocation,
     clusterReplicationFactor: cluster.replicationFactor,
+    clusterHealth: cluster.health,
+    metrics: createMetricsHandler(deps),
     memory: admin.memory,
     listTasks: admin.listTasks,
     getTask: admin.getTask,
