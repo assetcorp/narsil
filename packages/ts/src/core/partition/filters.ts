@@ -9,7 +9,7 @@ import { requirePatternSearch } from '../pattern-index/registry'
 import type { PatternOperator, PatternTolerance, PatternWorkMeter } from '../pattern-index/types'
 import type { TextRangeBounds } from './sort-columns/range'
 import { textRangeBitsetOf } from './sorting'
-import { getFieldValueByInternalId, getFlatSchema, type PartitionReadState } from './utils'
+import { getFlatSchema, type PartitionReadState } from './utils'
 import { keepsValueSize } from './value-sizes'
 
 function presentBitsetOf(
@@ -47,8 +47,15 @@ export function buildFilterContext(
   for (const { path: fieldPath, pattern } of schemaFieldsOf(schema)) {
     if (pattern) patternFields.add(fieldPath)
   }
-  const getFieldValue = (internalId: number, fieldPath: string): unknown =>
-    getFieldValueByInternalId(state.docStore, internalId, fieldPath)
+  const fieldReaders = new Map<string, (internalId: number) => unknown>()
+  const readerOf = (fieldPath: string): ((internalId: number) => unknown) => {
+    let read = fieldReaders.get(fieldPath)
+    if (read === undefined) {
+      read = state.docStore.fieldReader(fieldPath)
+      fieldReaders.set(fieldPath, read)
+    }
+    return read
+  }
 
   let cachedAllDocIdsBitset: Uint32Array | null = null
   const cachedPresentBitsets = new Map<string, Uint32Array>()
@@ -82,7 +89,7 @@ export function buildFilterContext(
         matches: into,
         meter,
         host: PATTERN_HOST,
-        valueOf: internalId => getFieldValue(internalId, fieldPath),
+        valueOf: readerOf(fieldPath),
       })
     },
     presentBitset: (fieldPath: string) => {

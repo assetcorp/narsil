@@ -123,7 +123,7 @@ function storageAnswers(): {
   const shared = freezeSegmentShared(payload, payloadDocuments)
   if (shared !== null)
     answers.push(['a segment shared with worker copies', frozenAnswer(createSharedFrozenSegment(shared))])
-  const merged = mergeFrozenSegments(batchSegments(current), null)
+  const merged = mergeFrozenSegments(batchSegments(current), null, null)
   if (merged !== null) answers.push(['batch segments merged into one', frozenAnswer(createSharedFrozenSegment(merged))])
   const states: Array<[string, PartitionReadState]> = [
     ['the live partition', partitionStateOf(live)],

@@ -22,7 +22,7 @@ export interface PartialWordReader {
 }
 
 export interface PartialWordTableReader extends PartialWordReader {
-  entryOf(spelling: string, token: string): number
+  entryOf(spelling: string): number
 }
 
 export interface PartialWordSlot {

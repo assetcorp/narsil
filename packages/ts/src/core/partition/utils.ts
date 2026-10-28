@@ -109,22 +109,6 @@ export function getFlatSchema(state: PartitionReadState, schema: SchemaDefinitio
   return state.flatSchemaCache
 }
 
-export function getFieldValueForDoc(docStore: DocumentStoreReader, docId: string, fieldPath: string): unknown {
-  const stored = docStore.get(docId)
-  if (!stored) return undefined
-  return getNestedValue(stored.fields as Record<string, unknown>, fieldPath)
-}
-
-export function getFieldValueByInternalId(
-  docStore: DocumentStoreReader,
-  internalId: number,
-  fieldPath: string,
-): unknown {
-  const externalId = docStore.getExternalId(internalId)
-  if (externalId === undefined) return undefined
-  return getFieldValueForDoc(docStore, externalId, fieldPath)
-}
-
 export function getAllDocIds(docStore: DocumentStoreReader): Set<string> {
   const ids = new Set<string>()
   for (const [id] of docStore.all()) {

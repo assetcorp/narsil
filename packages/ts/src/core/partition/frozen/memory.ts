@@ -20,5 +20,5 @@ export function frozenSegmentBytes(segment: FrozenSegment): number {
     bytes += entry.docIds.byteLength + entry.latitudes.byteLength + entry.longitudes.byteLength
   }
   for (const reader of segment.patternIndexes.values()) bytes += reader.bytes()
-  return bytes + segment.partialWords.bytes() + (segment.vectorOrdinalMaps?.bytes ?? 0)
+  return bytes + segment.partialWords.bytes() + segment.removalBytes() + (segment.vectorOrdinalMaps?.bytes ?? 0)
 }

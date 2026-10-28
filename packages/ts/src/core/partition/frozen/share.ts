@@ -1,4 +1,5 @@
 import { ErrorCodes, NarsilError } from '../../../errors'
+import type { SerializedSurfaceForms } from '../../../types/internal'
 import type { AnyDocument } from '../../../types/schema'
 import type { PartialWordAnalysis } from '../partial-words/spellings'
 import { encodeSegmentState } from '../segment-payload'
@@ -8,6 +9,7 @@ import { freezeSegmentShared, type SharedSegmentSnapshot } from './shared-snapsh
 export interface SharedFrozenSegment {
   snapshot: SharedSegmentSnapshot
   tombstonedDocIds: string[]
+  survivingSurfaceForms?: SerializedSurfaceForms
 }
 
 export function shareFrozenSegment(
@@ -15,7 +17,15 @@ export function shareFrozenSegment(
   analysis: PartialWordAnalysis | null,
 ): SharedFrozenSegment | null {
   if (segment.sharedSnapshot !== null) {
-    return { snapshot: segment.sharedSnapshot, tombstonedDocIds: segment.tombstonedDocIds() }
+    const tombstonedDocIds = segment.tombstonedDocIds()
+    if (tombstonedDocIds.length === 0 || !segment.removals.settled) {
+      return { snapshot: segment.sharedSnapshot, tombstonedDocIds }
+    }
+    return {
+      snapshot: segment.sharedSnapshot,
+      tombstonedDocIds,
+      survivingSurfaceForms: segment.surfaces.reader.serialize(),
+    }
   }
   const payload = encodeSegmentState(segment)
   const documents: AnyDocument[] = payload.docIds.map(docId => {

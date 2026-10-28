@@ -4,19 +4,9 @@ import type { AnyDocument } from '../types/schema'
 import type { GroupConfig } from '../types/search'
 import { DEFAULT_MAX_PER_GROUP } from './constants'
 
-function getNestedValue(obj: AnyDocument, path: string): unknown {
-  const segments = path.split('.')
-  let current: unknown = obj
-  for (const segment of segments) {
-    if (current === null || current === undefined || typeof current !== 'object') {
-      return undefined
-    }
-    if (!Object.hasOwn(current as Record<string, unknown>, segment)) {
-      return undefined
-    }
-    current = (current as Record<string, unknown>)[segment]
-  }
-  return current
+export interface GroupedDocuments {
+  fieldValues(docId: string, fieldPaths: readonly string[]): unknown[] | undefined
+  document(docId: string): AnyDocument | undefined
 }
 
 export function hitsKeptPerGroup(maxPerGroup: number | undefined): number {
@@ -27,7 +17,7 @@ export function hitsKeptPerGroup(maxPerGroup: number | undefined): number {
 export function applyGrouping<T = AnyDocument>(
   hits: Array<Hit<T>>,
   group: GroupConfig,
-  getDocument: (docId: string) => AnyDocument | undefined,
+  documents: GroupedDocuments,
 ): GroupResult[] {
   if (!group.fields || group.fields.length === 0) {
     return [{ values: {}, hits: hits as Array<Hit> }]
@@ -36,14 +26,14 @@ export function applyGrouping<T = AnyDocument>(
   const groupMap = new Map<string, { values: Record<string, unknown>; hits: Array<Hit<T>> }>()
 
   for (const hit of hits) {
-    const doc = getDocument(hit.id)
+    const stored = documents.fieldValues(hit.id, group.fields)
     const fieldValues: unknown[] = []
     const valuesRecord: Record<string, unknown> = {}
 
-    for (const field of group.fields) {
-      const value = doc ? getNestedValue(doc, field) : undefined
+    for (let at = 0; at < group.fields.length; at++) {
+      const value = stored?.[at]
       fieldValues.push(value)
-      valuesRecord[field] = value
+      valuesRecord[group.fields[at]] = value
     }
 
     const compositeKey = JSON.stringify(fieldValues)
@@ -67,7 +57,7 @@ export function applyGrouping<T = AnyDocument>(
     if (group.reduce) {
       const folded = foldGroupReducer(
         group.reduce,
-        everyHit.map(hit => ({ document: getDocument(hit.id), score: hit.score ?? 0 })),
+        everyHit.map(hit => ({ document: documents.document(hit.id), score: hit.score ?? 0 })),
       )
       if (folded.reducerError !== undefined) {
         result.reducerError = folded.reducerError

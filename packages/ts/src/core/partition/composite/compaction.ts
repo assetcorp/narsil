@@ -1,6 +1,7 @@
 import { ErrorCodes, NarsilError } from '../../../errors'
 import type { AnyDocument } from '../../../types/schema'
 import type { FrozenSegment } from '../frozen'
+import type { RemovedSpellings } from '../frozen/surface-slot'
 import type { PartitionIndex } from '../index'
 import type { PartitionReadState } from '../read-state'
 import type { SegmentPayload } from '../segment-payload'
@@ -57,17 +58,22 @@ export function swapFrozenSegmentList(
   frozen: FrozenSegment[],
   dropSegmentIds: readonly string[],
   replacement: FrozenSegment,
-): void {
+  removedSpellings?: ReadonlyMap<string, RemovedSpellings>,
+): Map<string, RemovedSpellings> {
   const dropSet = new Set(dropSegmentIds)
   const dropped = frozen.filter(segment => dropSet.has(segment.segmentId))
+  const applied = new Map<string, RemovedSpellings>()
   for (const segment of dropped) {
     for (const docId of segment.tombstonedDocIds()) {
       if (!replacement.hasDocument(docId)) continue
       if (dropped.some(other => other.hasDocument(docId))) continue
-      replacement.tombstoneDocument(docId)
+      const spellings = removedSpellings?.get(docId) ?? replacement.removedSpellingsOf(docId)
+      if (spellings !== undefined) applied.set(docId, spellings)
+      replacement.tombstoneDocument(docId, spellings)
     }
   }
   const kept = frozen.filter(segment => !dropSet.has(segment.segmentId))
   frozen.length = 0
   frozen.push(...kept, replacement)
+  return applied
 }
