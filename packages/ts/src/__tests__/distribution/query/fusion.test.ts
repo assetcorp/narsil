@@ -237,10 +237,9 @@ describe('minMaxNormalizeScoredEntries', () => {
 
 describe('resolveHybridFusion', () => {
   it('defaults to rank fusion with a constant of 60 and a weight of 0.5', () => {
-    const defaults = { strategy: 'rrf', k: 60, alpha: 0.5, depth: 100 }
-    expect(resolveHybridFusion(undefined)).toEqual(defaults)
-    expect(resolveHybridFusion(null)).toEqual(defaults)
-    expect(resolveHybridFusion({})).toEqual(defaults)
+    expect(resolveHybridFusion(undefined)).toEqual({ strategy: 'rrf', k: 60, alpha: 0.5 })
+    expect(resolveHybridFusion(null)).toEqual({ strategy: 'rrf', k: 60, alpha: 0.5 })
+    expect(resolveHybridFusion({})).toEqual({ strategy: 'rrf', k: 60, alpha: 0.5 })
   })
 
   it('passes through the two strategies the specification names', () => {

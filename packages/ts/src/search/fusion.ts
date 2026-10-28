@@ -2,7 +2,6 @@ import { compareCodePoints } from '../core/ordering'
 import { ErrorCodes, NarsilError } from '../errors'
 import type { ScoredDocument } from '../types/internal'
 import {
-  DEFAULT_HYBRID_DEPTH,
   DEFAULT_LINEAR_ALPHA,
   DEFAULT_RANK_CONSTANT,
   MAX_HYBRID_DEPTH,
@@ -31,7 +30,7 @@ export interface ResolvedHybridFusion {
   strategy: 'rrf' | 'linear'
   k: number
   alpha: number
-  depth: number
+  depth: number | undefined
 }
 
 function rankConstantOf(k: number | null | undefined): number {
@@ -58,8 +57,8 @@ function linearAlphaOf(alpha: number | null | undefined): number {
   return alpha
 }
 
-function hybridDepthOf(depth: number | null | undefined): number {
-  if (depth === undefined || depth === null) return DEFAULT_HYBRID_DEPTH
+function hybridDepthOf(depth: number | null | undefined): number | undefined {
+  if (depth === undefined || depth === null) return undefined
   if (!Number.isInteger(depth) || depth < MIN_HYBRID_DEPTH || depth > MAX_HYBRID_DEPTH) {
     throw new NarsilError(
       ErrorCodes.CONFIG_INVALID,

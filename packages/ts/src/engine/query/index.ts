@@ -100,9 +100,15 @@ export async function executeQuery<T = AnyDocument>(
       const depth = requireCursorDepth(params.searchAfter, sortSignature, context.cursorBinding)
       fanOutResult = await executeVectorSearch(params, context, limit, offset, depth)
     } else if (isHybridMode && hasGlobalVectorIndex) {
-      fusedFrom = requireCursorDepth(params.searchAfter, sortSignature, context.cursorBinding)
-      requireWithinHybridDepth(fusedFrom, offset, resolveHybridFusion(params.hybrid).depth)
-      fanOutResult = await executeHybridSearch(params, context)
+      const cursorDepth = requireCursorDepth(params.searchAfter, sortSignature, context.cursorBinding)
+      const hybridDepth = resolveHybridFusion(params.hybrid).depth
+      if (hybridDepth === undefined) {
+        fanOutResult = await executeHybridSearch(params, context, { limit, offset, cursorDepth })
+      } else {
+        requireWithinHybridDepth(cursorDepth, offset, hybridDepth)
+        fusedFrom = cursorDepth
+        fanOutResult = await executeHybridSearch(params, context, { depth: hybridDepth })
+      }
     } else {
       const scoring = scoringConfigFor(params, context)
       const workerResult = workerSearch
@@ -319,7 +325,12 @@ export async function executePreflight(request: QueryParams, callerContext: Quer
     totalMatched = result.totalMatched
     countExact = result.matchedExact !== false
   } else if (isHybridMode && hasGlobalVectorIndex) {
-    const result = await executeHybridSearch(params, context)
+    const hybridDepth = resolveHybridFusion(params.hybrid).depth
+    const reach =
+      hybridDepth === undefined
+        ? { limit: preflightLimit, offset: preflightOffset, cursorDepth: 0 }
+        : { depth: hybridDepth }
+    const result = await executeHybridSearch(params, context, reach)
     totalMatched = result.totalMatched
     countExact = result.matchedExact !== false
   } else if (countsWithoutScores(params)) {

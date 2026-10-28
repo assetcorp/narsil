@@ -1,5 +1,6 @@
 import { encode } from '@msgpack/msgpack'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { wireParamsToLocal } from '../../../../distribution/cluster-node/query-conversion'
 import type { AllocationTable } from '../../../../distribution/coordinator/types'
 import { decodePayload } from '../../../../distribution/query/codec'
 import { distributedQuery } from '../../../../distribution/query/routing'
@@ -13,6 +14,8 @@ import {
 } from '../../../../distribution/transport'
 import type { SearchPayload, StatsResultPayload } from '../../../../distribution/transport/types'
 import { NarsilError } from '../../../../errors'
+import { encodePageCursor } from '../../../../search/cursor'
+import { queryBindingOf } from '../../../../search/cursor-binding'
 import {
   makeAllocationTable,
   makeAssignment,
@@ -182,6 +185,47 @@ describe('distributed hybrid query - params, cursor, and DFS', () => {
     for (const payload of receivedPayloads) {
       expect(payload.params.filters).toEqual(filters)
     }
+  })
+
+  it('throws SEARCH_INVALID_CURSOR when searchAfter is used with hybrid', async () => {
+    setupDataNode(network, transports, 'node-a', (msg, respond) => {
+      if (msg.type === QueryMessageTypes.SEARCH) {
+        respond({
+          type: QueryMessageTypes.SEARCH_RESULT,
+          sourceId: 'node-a',
+          requestId: msg.requestId,
+          payload: encode(
+            makeSearchResultResponse([{ partitionId: 0, scored: [{ docId: 'doc-1', score: 5.0 }], totalHits: 1 }]),
+          ),
+        })
+      }
+    })
+
+    const table = makeAllocationTable([[0, makeAssignment({ primary: 'node-a' })]])
+    const cursor = encodePageCursor({
+      anchor: 'doc-1',
+      score: 5.0,
+      sortKey: null,
+      sortSignature: null,
+      binding: queryBindingOf(
+        wireParamsToLocal(makeQueryParams({ term: 'laptop', vector: makeVectorParams(), hybrid: makeHybridConfig() })),
+      ),
+    })
+
+    const error = await distributedQuery(
+      'products',
+      makeQueryParams({
+        term: 'laptop',
+        vector: makeVectorParams(),
+        hybrid: makeHybridConfig(),
+        searchAfter: cursor,
+      }),
+      makeDeps(table),
+    ).catch((e: unknown) => e)
+
+    expect(error).toBeInstanceOf(NarsilError)
+    expect((error as NarsilError).code).toBe('SEARCH_INVALID_CURSOR')
+    expect((error as NarsilError).message).toContain('Cursor pagination is not supported for hybrid queries')
   })
 
   it('rejects a hybrid query carrying a sort with SEARCH_INVALID_MODE', async () => {

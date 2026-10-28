@@ -106,6 +106,14 @@ export async function distributedQuery(
     )
   }
 
+  if (isHybrid && params.searchAfter !== null && (params.hybrid?.depth ?? null) === null) {
+    throw new NarsilError(
+      ErrorCodes.SEARCH_INVALID_CURSOR,
+      'Cursor pagination is not supported for hybrid queries without hybrid.depth, because fused ranks do not seek. Set hybrid.depth to page by cursor',
+      { indexName },
+    )
+  }
+
   if (isHybrid) {
     return executeHybridQuery(
       indexName,

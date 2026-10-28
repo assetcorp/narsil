@@ -116,6 +116,7 @@ async function vectorLeg(
   context: QueryContext,
   filterDocIds: Set<string> | undefined,
   k: number,
+  rescoreWindow: number | undefined,
 ): Promise<{ scored: ScoredDocument[]; holdsEveryMatch: boolean }> {
   const { manager } = context
   const vecIndex = resolveVectorIndex(context, vectorConfig.field)
@@ -129,7 +130,7 @@ async function vectorLeg(
     ...(filterPartitions !== undefined ? { filterPartitions } : {}),
     efSearch: vectorConfig.efSearch,
     oversample: oversampleOf(vectorConfig),
-    rescoreWindow: HYBRID_RESCORE_WINDOW,
+    ...(rescoreWindow !== undefined ? { rescoreWindow } : {}),
   })
   return {
     scored: vectorResultsToScored(outcome.results),
@@ -146,11 +147,27 @@ function countOfUnion(text: FanOutResult, vectorScored: ScoredDocument[]): numbe
   return Math.max(text.totalMatched, text.scored.length + vectorOnly)
 }
 
-export async function executeHybridSearch(params: QueryParams, context: SearchContext): Promise<FanOutResult> {
+export type HybridReach = { depth: number } | { limit: number; offset: number; cursorDepth: number }
+
+function hybridLegsOf(params: QueryParams, reach: HybridReach): { text: QueryParams; vectorK: number } {
+  if ('depth' in reach) {
+    const { vector: _vector, mode: _mode, hybrid: _hybrid, searchAfter: _after, pinned: _pinned, ...rest } = params
+    return { text: { ...rest, limit: reach.depth, offset: 0 }, vectorK: reach.depth }
+  }
+  const { vector: _vector, mode: _mode, hybrid: _hybrid, ...text } = params
+  return { text, vectorK: vectorFetchDepth(reach.limit, reach.offset, reach.cursorDepth) }
+}
+
+export async function executeHybridSearch(
+  params: QueryParams,
+  context: SearchContext,
+  reach: HybridReach,
+): Promise<FanOutResult> {
   const { manager, config } = context
-  const { vector: vectorConfig, mode: _mode, hybrid: _hybrid, searchAfter: _after, pinned: _pinned, ...rest } = params
+  const vectorConfig = params.vector
   const fusion = resolveHybridFusion(params.hybrid)
-  const textOnlyParams: QueryParams = { ...rest, limit: fusion.depth, offset: 0 }
+  const depth = 'depth' in reach ? reach.depth : undefined
+  const legs = hybridLegsOf(params, reach)
 
   let filterDocIds: Set<string> | undefined
   if (params.filters) {
@@ -161,7 +178,7 @@ export async function executeHybridSearch(params: QueryParams, context: SearchCo
   }
 
   if (!vectorConfig || !vectorConfig.value) {
-    const textOnly = await textLeg(textOnlyParams, context)
+    const textOnly = await textLeg(legs.text, context)
     return { scored: textOnly.scored, totalMatched: textOnly.totalMatched, facets: textOnly.facets }
   }
 
@@ -170,11 +187,12 @@ export async function executeHybridSearch(params: QueryParams, context: SearchCo
     new Float32Array(vectorConfig.value),
     context,
     filterDocIds,
-    fusion.depth,
+    legs.vectorK,
+    depth === undefined ? undefined : HYBRID_RESCORE_WINDOW,
   )
-  const [textFanOutResult, vectorOutcome] = await Promise.all([textLeg(textOnlyParams, context), vectorPending])
+  const [textFanOutResult, vectorOutcome] = await Promise.all([textLeg(legs.text, context), vectorPending])
   const vectorScored = vectorOutcome.scored
-  const textScored = textFanOutResult.scored.slice(0, fusion.depth)
+  const textScored = depth === undefined ? textFanOutResult.scored : textFanOutResult.scored.slice(0, depth)
 
   let fusedScored: ScoredDocument[]
   if (fusion.strategy === 'rrf') {
@@ -184,21 +202,26 @@ export async function executeHybridSearch(params: QueryParams, context: SearchCo
   }
 
   const textHoldsEveryMatch = textFanOutResult.scored.length === textFanOutResult.totalMatched
-  let totalMatched: number
-  let matchedExact = vectorOutcome.holdsEveryMatch && textHoldsEveryMatch
-  if (params.minScore !== undefined && params.minScore > 0) {
-    const threshold = params.minScore
-    fusedScored = fusedScored.filter(doc => doc.score >= threshold)
-    totalMatched = fusedScored.length
-    matchedExact = matchedExact && textScored.length === textFanOutResult.totalMatched
-  } else {
-    totalMatched = countOfUnion(textFanOutResult, vectorScored)
+  const threshold = params.minScore ?? 0
+  const filtersByScore = threshold > 0
+  if (filtersByScore) fusedScored = fusedScored.filter(doc => doc.score >= threshold)
+
+  if (depth === undefined) {
+    return {
+      scored: fusedScored,
+      totalMatched: fusedScored.length,
+      matchedExact: vectorOutcome.holdsEveryMatch && textHoldsEveryMatch,
+      facets: textFanOutResult.facets,
+    }
   }
 
   return {
-    scored: fusedScored.length > fusion.depth ? fusedScored.slice(0, fusion.depth) : fusedScored,
-    totalMatched,
-    matchedExact,
+    scored: fusedScored.length > depth ? fusedScored.slice(0, depth) : fusedScored,
+    totalMatched: filtersByScore ? fusedScored.length : countOfUnion(textFanOutResult, vectorScored),
+    matchedExact:
+      vectorOutcome.holdsEveryMatch &&
+      textHoldsEveryMatch &&
+      (!filtersByScore || textScored.length === textFanOutResult.totalMatched),
     facets: textFanOutResult.facets,
   }
 }
