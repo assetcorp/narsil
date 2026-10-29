@@ -1,13 +1,7 @@
-import { randomUUID } from 'node:crypto'
 import { setTimeout as sleep } from 'node:timers/promises'
-import { decode, encode } from '@msgpack/msgpack'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { type ClusterCoordinator, createEtcdCoordinator } from '../../../distribution/coordinator'
-import { createTcpTransport } from '../../../distribution/transport/tcp'
-import { generateTlsBundles, type TlsBundles } from '../../distribution/transport/tcp-tls/fixtures'
-import { ETCD_ROOT_PASSWORD, type EtcdMembers, startEtcdMembers } from './etcd-members'
-import { type Fleet, startFleet } from './fleet'
-import { createLedger, type LedgerDocument } from './oracle'
+import { type ClusterUnderTest, startClusterUnderTest } from './cluster-under-test'
+import { createLedger } from './oracle'
 import { type FaultState, SEARCH_TERM, send, startWorkload } from './workload'
 
 const SEED = Number(process.env.NARSIL_FAULT_SEED ?? Math.floor(Math.random() * 2 ** 31))
@@ -21,9 +15,6 @@ const SEARCHERS = 2
 const INDEX_NAME = 'ledger'
 const MIN_HOLD_MS = 3_000
 const MAX_HOLD_MS = 14_000
-const HEAL_TIMEOUT_MS = 120_000
-const HEAL_POLL_MS = 500
-const COPY_PAGE_LIMIT = 10_000
 const ETCD_OUTAGE_MEMBERS = [1, 2]
 const FAULT_KINDS = ['kill', 'pause', 'isolate', 'etcd-restart', 'etcd-outage'] as const
 
@@ -44,131 +35,32 @@ function seededRandom(seed: number): () => number {
 describe('a three-node cluster on three etcd members under seeded faults', () => {
   const random = seededRandom(SEED)
   const workloadRandom = seededRandom(SEED ^ WORKLOAD_STREAM_SALT)
-  const keyPrefix = `_narsil_faults_${randomUUID()}`
-  let bundles: TlsBundles | null = null
-  let etcd: EtcdMembers | null = null
-  let fleet: Fleet | null = null
-  let coordinator: ClusterCoordinator | null = null
-  let probe: ReturnType<typeof createTcpTransport> | null = null
+  let cluster: ClusterUnderTest | null = null
 
   beforeAll(async () => {
     console.log(`NARSIL_FAULT_SEED=${SEED}${PLAIN ? ' NARSIL_FAULT_PLAIN=1' : ''}`)
-    bundles = PLAIN ? null : await generateTlsBundles()
-    etcd = await startEtcdMembers(bundles)
-    fleet = await startFleet(NODE_COUNT, etcd, bundles, {
-      keyPrefix,
+    cluster = await startClusterUnderTest(NODE_COUNT, PLAIN, {
       partitionCount: PARTITION_COUNT,
       replicationFactor: REPLICATION_FACTOR,
       heartbeatTtlSeconds: 10,
       controllerLeaseTtlMs: 5_000,
       standbyRetryMs: 1_000,
       waitForServingMs: 30_000,
-      fixedNodeIds: PLAIN,
-    })
-    for (const node of fleet.nodes) await fleet.start(node.slot)
-    coordinator = await createEtcdCoordinator({
-      endpoints: [...etcd.endpoints],
-      keyPrefix,
-      ...(bundles === null
-        ? {}
-        : {
-            tls: { ca: bundles.serverBundle.ca, cert: bundles.clientBundle.cert, key: bundles.clientBundle.key },
-            auth: { username: 'root', password: ETCD_ROOT_PASSWORD },
-          }),
-    })
-    probe = createTcpTransport('fault-probe', {
-      host: '127.0.0.1',
-      port: 0,
-      ...(bundles === null
-        ? {}
-        : { tls: { ca: bundles.serverBundle.ca, cert: bundles.serverBundle.cert, key: bundles.serverBundle.key } }),
     })
   }, 240_000)
 
   afterAll(async () => {
-    if (fleet !== null) {
-      for (const node of fleet.nodes)
-        console.log(`--- slot ${node.slot} (${node.nodeId()})\n${node.output().slice(-400_000)}`)
-    }
-    await probe?.shutdown().catch(() => {})
-    await coordinator?.shutdown().catch(() => {})
-    await fleet?.remove()
-    await etcd?.remove()
+    await cluster?.close()
   }, 120_000)
 
-  async function healed(): Promise<boolean> {
-    if (fleet === null || coordinator === null) return false
-    if (!fleet.nodes.every(node => node.running())) return false
-    const running = new Set(fleet.nodes.map(node => node.nodeId()))
-    const table = await coordinator.getAllocation(INDEX_NAME).catch(() => null)
-    if (table === null || table.assignments.size !== PARTITION_COUNT) return false
-    return [...table.assignments.values()].every(
-      assignment =>
-        assignment.state === 'ACTIVE' &&
-        assignment.primary !== null &&
-        running.has(assignment.primary) &&
-        assignment.inSyncSet.length >= REPLICATION_FACTOR,
-    )
-  }
-
-  async function untilHealed(reason: string): Promise<void> {
-    const deadline = Date.now() + HEAL_TIMEOUT_MS
-    while (Date.now() < deadline) {
-      if (await healed()) return
-      await sleep(HEAL_POLL_MS)
-    }
-    const table = await coordinator?.getAllocation(INDEX_NAME).catch(() => null)
-    throw new Error(
-      `The cluster did not heal within ${HEAL_TIMEOUT_MS} ms ${reason}: ${JSON.stringify([...(table?.assignments ?? [])])}\n${await replicationMetrics()}`,
-    )
-  }
-
-  async function replicationMetrics(): Promise<string> {
-    const reports = await Promise.all(
-      (fleet?.nodes ?? []).map(async node => {
-        const reply = await send(node.base, 'GET', '/metrics', undefined, 5_000).catch((error: unknown) => ({
-          text: String(error),
-        }))
-        const lines = reply.text.split('\n').filter(line => line.startsWith('narsil_') && !line.includes('_seconds'))
-        return `slot ${node.slot} (${node.nodeId()}):\n${lines.join('\n')}`
-      }),
-    )
-    return reports.join('\n')
-  }
-
-  async function readCopy(nodeId: string, partitionId: number): Promise<Map<string, LedgerDocument>> {
-    const holder = fleet?.nodes.find(node => node.nodeId() === nodeId)
-    if (holder === undefined || probe === null) throw new Error(`No running node holds the id ${nodeId}`)
-    const response = await probe.send(holder.transportAddress, {
-      type: 'query.list',
-      sourceId: 'fault-probe',
-      requestId: `fault-probe-${randomUUID()}`,
-      payload: encode({
-        indexName: INDEX_NAME,
-        partitionIds: [partitionId],
-        cursor: null,
-        limit: COPY_PAGE_LIMIT,
-        filters: null,
-        sort: null,
-        fields: null,
-      }),
-    })
-    const payload = decode(response.payload) as {
-      entries?: Array<{ docId: string; document: { title?: unknown; version?: unknown } }>
-      hasMore?: boolean
-      message?: string
-    }
-    if (payload.entries === undefined) throw new Error(`${nodeId} answered ${response.type}: ${payload.message ?? ''}`)
-    if (payload.hasMore === true) throw new Error(`${nodeId} holds more than ${COPY_PAGE_LIMIT} documents`)
-    const copy = new Map<string, LedgerDocument>()
-    for (const entry of payload.entries) {
-      copy.set(entry.docId, { title: String(entry.document.title), version: Number(entry.document.version) })
-    }
-    return copy
+  function untilHealed(reason: string): Promise<void> {
+    if (cluster === null) throw new Error('The cluster never started')
+    return cluster.untilHealed(INDEX_NAME, PARTITION_COUNT, REPLICATION_FACTOR, reason)
   }
 
   async function injectFault(kind: FaultKind, slot: number, holdMs: number, faults: FaultState): Promise<void> {
-    if (fleet === null || etcd === null) return
+    if (cluster === null) return
+    const { fleet, etcd } = cluster
     if (kind === 'kill' || kind === 'pause' || kind === 'isolate') {
       faults.unavailable.add(slot)
       faults.startedOn[slot] = (faults.startedOn[slot] ?? 0) + 1
@@ -199,7 +91,8 @@ describe('a three-node cluster on three etcd members under seeded faults', () =>
   }
 
   it('keeps every acknowledged write, refuses nothing that it applied, and answers every search', async () => {
-    if (fleet === null || coordinator === null) throw new Error('The cluster never started')
+    if (cluster === null) throw new Error('The cluster never started')
+    const { fleet } = cluster
     const first = fleet.nodes[0]?.base ?? ''
     const created = await send(
       first,
@@ -242,32 +135,7 @@ describe('a three-node cluster on three etcd members under seeded faults', () =>
     }
     await untilHealed('once the writers stopped')
 
-    const table = await coordinator.getAllocation(INDEX_NAME)
-    const stored = new Map<string, LedgerDocument>()
-    const unequal: string[] = []
-    for (const [partitionId, assignment] of table?.assignments ?? []) {
-      const holders = [assignment.primary ?? '', ...assignment.inSyncSet]
-      const copies = await Promise.all(holders.map(holder => readCopy(holder, partitionId)))
-      const primaryCopy = copies[0] ?? new Map<string, LedgerDocument>()
-      for (let at = 1; at < copies.length; at++) {
-        const copy = copies[at] ?? new Map<string, LedgerDocument>()
-        const differing = [...new Set([...primaryCopy.keys(), ...copy.keys()])]
-          .filter(docId => JSON.stringify(primaryCopy.get(docId)) !== JSON.stringify(copy.get(docId)))
-          .sort()
-        if (differing.length > 0) {
-          const shown = differing
-            .slice(0, 5)
-            .map(
-              docId =>
-                `${docId} primary ${primaryCopy.get(docId)?.version ?? 'absent'} copy ${copy.get(docId)?.version ?? 'absent'}`,
-            )
-          unequal.push(
-            `partition ${partitionId}: ${holders[at]} differs from its primary ${holders[0]} on ${differing.length} of ${primaryCopy.size} documents: ${shown.join(', ')}`,
-          )
-        }
-      }
-      for (const [docId, document] of copies[0] ?? []) stored.set(docId, document)
-    }
+    const { stored, unequal } = await cluster.readStored(INDEX_NAME)
 
     const counts = ledger.counts()
     console.log(
