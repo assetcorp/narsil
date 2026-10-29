@@ -16,6 +16,7 @@ import {
   untilSettled,
   vectorHits,
 } from './passages-by-file'
+import { walkSavedGraph } from './saved-graph-walk'
 
 const poolUse = vi.hoisted(() => ({ holders: 0, sharedSearches: 0 }))
 
@@ -49,6 +50,7 @@ const WORKER_COUNT = 2
 const TEST_TIMEOUT_MS = 300_000
 const INDEX = 'passages'
 const RESTORED_INDEX = 'earlier'
+const EF_SEARCH_AFTER_A_PARALLEL_BUILD = 2_000
 
 describe('a worker copy of a graph that a load rebuilds', () => {
   let engine: Narsil | null = null
@@ -60,7 +62,7 @@ describe('a worker copy of a graph that a load rebuilds', () => {
   })
 
   it(
-    'answers every passage first from the rebuilt graph that the workers share',
+    'reaches every passage and answers each one first from the rebuilt graph that the workers share',
     async () => {
       const opened = await createNarsil({ workers: { count: WORKER_COUNT } })
       engine = opened
@@ -80,8 +82,17 @@ describe('a worker copy of a graph that a load rebuilds', () => {
         return poolUse.sharedSearches > answeredBeforeSettling
       }, SETTLE_TIMEOUT_MS)
 
+      const walk = await walkSavedGraph(await opened.snapshot(RESTORED_INDEX), RESTORED_INDEX, FIELD)
+      expect({ unplaced: walk.unplaced, unreached: walk.unreached }).toEqual({ unplaced: [], unreached: [] })
+
       const answeredBefore = poolUse.sharedSearches
-      const missed = await passagesNotFoundFirst(opened, RESTORED_INDEX, passages, NARROW_LIMIT, NARROW_EF_SEARCH)
+      const missed = await passagesNotFoundFirst(
+        opened,
+        RESTORED_INDEX,
+        passages,
+        NARROW_LIMIT,
+        EF_SEARCH_AFTER_A_PARALLEL_BUILD,
+      )
       expect(missed).toEqual([])
       expect(poolUse.sharedSearches - answeredBefore).toBe(SAVED_PASSAGES)
     },
