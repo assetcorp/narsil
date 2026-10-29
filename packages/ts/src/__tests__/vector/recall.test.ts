@@ -144,9 +144,9 @@ describe('HNSW built from OSQ codes, recall@10 on clustered vectors', () => {
     expect(avgRecall).toBeGreaterThanOrEqual(0.95)
   }, 300_000)
 
-  it('achieves >= 90% recall@10 with 5K widely spread vectors at 384 dims and 2-bit codes under the default search settings', () => {
+  it('achieves >= 95% recall@10 with 5K widely spread vectors at 384 dims and 2-bit codes under the default search settings', () => {
     const avgRecall = runRecallBenchmark(384, 2, 5000, 100, 10, undefined, undefined, WIDE_CLUSTERS)
-    expect(avgRecall).toBeGreaterThanOrEqual(0.9)
+    expect(avgRecall).toBeGreaterThanOrEqual(0.95)
   }, 300_000)
 
   it('achieves >= 95% recall@10 with 2K vectors at 128 dims and 8-bit codes', () => {
