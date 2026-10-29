@@ -185,6 +185,24 @@ export interface ClusterCoordinator {
    */
   registrationLease?(nodeId: string): RegistrationLease | null
   /**
+   * Renews a node's registration lease once and reports how much longer the
+   * coordinator holds the registration after that renewal.
+   *
+   * A primary calls this before it refuses a write because
+   * {@link ClusterCoordinator.registrationLease} reports too little time
+   * left, so that a node whose renewals ran late behind its own work keeps
+   * serving. The coordinator cannot renew a lease that has already expired,
+   * so an accepted renewal shows that the registration stayed held
+   * throughout. A coordinator that leaves this member out leaves the
+   * primary with the reading from `registrationLease` alone.
+   *
+   * @param nodeId - The node whose registration this process wrote.
+   * @returns The time left after the renewal and the lease lifetime it counts
+   * against, or `null` where this process holds no live registration for the
+   * node.
+   */
+  confirmRegistrationLease?(nodeId: string): Promise<RegistrationLease | null>
+  /**
    * Lists the nodes currently published.
    *
    * @returns One registration per live node.

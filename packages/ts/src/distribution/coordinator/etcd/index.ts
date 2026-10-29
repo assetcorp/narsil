@@ -12,7 +12,7 @@ import type {
 } from '../types'
 import { ETCD_MAX_RESPONSE_BYTES } from './constants'
 import { coordinatorKeys, extractSuffix } from './keys'
-import { leaseHeldFor } from './lease-validity'
+import { leaseHeldFor, recordLeaseRenewal } from './lease-validity'
 import { LeaseManager } from './leases'
 import { loadEtcd3Module } from './loader'
 import { watchPrefix } from './prefix-watch'
@@ -141,6 +141,17 @@ export async function createEtcdCoordinator(config?: Partial<EtcdCoordinatorConf
       if (isShutdown) return null
       const holder = leaseManager.holder(keys.node(nodeId))
       return holder === undefined ? null : leaseHeldFor(holder)
+    },
+
+    async confirmRegistrationLease(nodeId: string): Promise<RegistrationLease | null> {
+      if (isShutdown) return null
+      const holder = leaseManager.holder(keys.node(nodeId))
+      if (holder === undefined) return null
+      const sentAt = performance.now()
+      try {
+        recordLeaseRenewal(holder, sentAt, Number((await holder.keepaliveOnce()).TTL))
+      } catch (_) {}
+      return leaseHeldFor(holder)
     },
 
     async listNodes(): Promise<NodeRegistration[]> {

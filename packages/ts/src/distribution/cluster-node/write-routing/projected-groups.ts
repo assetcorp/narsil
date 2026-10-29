@@ -1,6 +1,8 @@
+import { yieldToEventLoop } from '../../../engine/orchestration/turn'
 import { ErrorCodes, NarsilError } from '../../../errors'
 import type { BatchResult } from '../../../types/results'
 import type { AnyDocument } from '../../../types/schema'
+import { WRITE_APPLY_YIELD_INTERVAL_MS } from '../constants'
 import { type ProjectedGroup, WRITE_WOULD_FILL_MEMORY_REASON } from '../memory/write-projection'
 import type { WriteRoutingDeps } from './types'
 
@@ -33,6 +35,15 @@ export interface ProjectedBatch<T> {
   apply: (item: T) => Promise<void>
 }
 
+function createTurnBudget(): () => Promise<void> {
+  let turnStartedAt = performance.now()
+  return async () => {
+    if (performance.now() - turnStartedAt < WRITE_APPLY_YIELD_INTERVAL_MS) return
+    await yieldToEventLoop()
+    turnStartedAt = performance.now()
+  }
+}
+
 export async function applyInProjectedGroups<T>(
   deps: WriteRoutingDeps,
   indexName: string,
@@ -40,8 +51,12 @@ export async function applyInProjectedGroups<T>(
 ): Promise<void> {
   const projection = deps.writeProjection
   const bound = projection?.boundOf(indexName) ?? null
+  const yieldIfDue = createTurnBudget()
   if (projection === undefined || bound === null) {
-    for (const item of batch.items) await batch.apply(item)
+    for (const item of batch.items) {
+      await batch.apply(item)
+      await yieldIfDue()
+    }
     return
   }
 
@@ -71,7 +86,10 @@ export async function applyInProjectedGroups<T>(
       return
     }
     try {
-      for (let index = start; index < start + group.count; index++) await batch.apply(bounded[index])
+      for (let index = start; index < start + group.count; index++) {
+        await batch.apply(bounded[index])
+        await yieldIfDue()
+      }
     } finally {
       group.release()
     }
