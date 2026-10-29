@@ -15,7 +15,6 @@ import {
   type HNSWGraphState,
   maxConns,
   nextVisitStamp,
-  nodeDistanceByOrd,
   nodeExists,
   nodeMaxLayer,
   randomLevel,
@@ -79,7 +78,7 @@ function referenceSearchLayer(
     if (state.visited[epOrd] === stamp) continue
     state.visited[epOrd] = stamp
     if (!nodeExists(state, epOrd)) continue
-    const distance = nodeDistanceByOrd(state, ord, epOrd, METRIC)
+    const distance = state.store.distanceByOrdinal(ord, epOrd, METRIC)
     if (distance === Number.POSITIVE_INFINITY) continue
     const pair = { ord: epOrd, distance }
     frontier.push(pair)
@@ -100,7 +99,7 @@ function referenceSearchLayer(
       if (state.visited[neighborOrd] === stamp) continue
       state.visited[neighborOrd] = stamp
       if (!nodeExists(state, neighborOrd)) continue
-      const distance = nodeDistanceByOrd(state, ord, neighborOrd, METRIC)
+      const distance = state.store.distanceByOrdinal(ord, neighborOrd, METRIC)
       if (distance === Number.POSITIVE_INFINITY) continue
       if (distance < furthest || found.size < ef) {
         const pair = { ord: neighborOrd, distance }
@@ -123,13 +122,16 @@ function referenceSelect(state: HNSWGraphState, candidates: Candidate[], cap: nu
     if (selected.length >= cap) break
     let accepted = true
     for (const kept of selected) {
-      if (candidate.distance >= nodeDistanceByOrd(state, candidate.ord, kept.ord, METRIC)) {
+      if (candidate.distance >= state.store.distanceByOrdinal(candidate.ord, kept.ord, METRIC)) {
         accepted = false
         break
       }
     }
     if (accepted) selected.push(candidate)
   }
+  if (selected.length * 2 >= cap) return selected
+  const farthestRejected = working.findLast(candidate => !selected.includes(candidate))
+  if (farthestRejected !== undefined) selected.push(farthestRejected)
   return selected
 }
 
@@ -143,7 +145,7 @@ function referencePrune(state: HNSWGraphState, ord: number, layer: number): void
   const held: Candidate[] = []
   for (let i = 1; i <= count; i++) {
     const connOrd = neighbors[base + i]
-    held.push({ ord: connOrd, distance: nodeDistanceByOrd(state, ord, connOrd, METRIC) })
+    held.push({ ord: connOrd, distance: state.store.distanceByOrdinal(ord, connOrd, METRIC) })
   }
   const kept = referenceSelect(state, held, cap).map(c => c.ord)
   replaceNeighbors(state.adjacency, ord, layer, kept, kept.length)

@@ -39,9 +39,9 @@ enum {
 };
 
 enum { RECORDS_STORE, RECORDS_METRIC, RECORDS_ORDINALS, RECORDS_COUNT, RECORDS_ARGUMENT_COUNT };
+enum { MEASURE_TOTALS = RECORDS_ARGUMENT_COUNT, MEASURE_ARGUMENT_COUNT };
 
-typedef narsil_status (*record_work)(narsil_workspace *workspace, const narsil_store *store,
-                                     const narsil_ordinals_request *request);
+#define MEASURE_TOTALS_PAST_DIMENSION 2
 
 static int hand_over_wakes(napi_env env, napi_value target, attached_graph *attached) {
   void *data = NULL;
@@ -161,29 +161,51 @@ napi_value connect_unreached(napi_env env, napi_callback_info info) {
   return status_of(env, status);
 }
 
-static napi_value work_on_records(napi_env env, napi_callback_info info, record_work work) {
+static const char *read_records_request(napi_env env, const napi_value *argv, narsil_ordinals_request *request) {
+  void *ordinals = NULL;
+  size_t ordinal_length = 0;
+  if (napi_get_value_uint32(env, argv[RECORDS_METRIC], &request->metric) != napi_ok ||
+      !typed_data(env, argv[RECORDS_ORDINALS], napi_int32_array, &ordinals, &ordinal_length) ||
+      napi_get_value_uint32(env, argv[RECORDS_COUNT], &request->count) != napi_ok) {
+    return "an argument to the call has the wrong type";
+  }
+  if (request->count > ordinal_length) { return "the ordinals are fewer than the count"; }
+  request->ordinals = ordinals;
+  return NULL;
+}
+
+napi_value quantise(napi_env env, napi_callback_info info) {
   napi_value argv[RECORDS_ARGUMENT_COUNT];
   attached_store *store =
       callback_arguments(env, info, RECORDS_ARGUMENT_COUNT, argv) ? store_of(env, argv[RECORDS_STORE]) : NULL;
   thread_state *state = thread_state_of(env);
   if (store == NULL || state == NULL) {
-    return throw_error(env, "the call takes an attached store and three arguments");
+    return throw_error(env, "quantise takes an attached store and three arguments");
   }
-  void *ordinals = NULL;
-  size_t ordinal_length = 0;
   narsil_ordinals_request request = {NARSIL_METRIC_COSINE, NULL, 0};
-  if (napi_get_value_uint32(env, argv[RECORDS_METRIC], &request.metric) != napi_ok ||
-      !typed_data(env, argv[RECORDS_ORDINALS], napi_int32_array, &ordinals, &ordinal_length) ||
-      napi_get_value_uint32(env, argv[RECORDS_COUNT], &request.count) != napi_ok) {
-    return throw_error(env, "an argument to the call has the wrong type");
-  }
-  if (request.count > ordinal_length) { return throw_error(env, "the ordinals are fewer than the count"); }
-  request.ordinals = ordinals;
-  narsil_status status = work(state->workspace, &store->store, &request);
+  const char *refusal = read_records_request(env, argv, &request);
+  if (refusal != NULL) { return throw_error(env, refusal); }
+  narsil_status status = narsil_quantise(state->workspace, &store->store, &request);
   report_workspace_memory(env, state);
   return status_of(env, status);
 }
 
-napi_value calibrate(napi_env env, napi_callback_info info) { return work_on_records(env, info, narsil_calibrate); }
-
-napi_value quantise(napi_env env, napi_callback_info info) { return work_on_records(env, info, narsil_quantise); }
+napi_value measure(napi_env env, napi_callback_info info) {
+  napi_value argv[MEASURE_ARGUMENT_COUNT];
+  attached_store *store =
+      callback_arguments(env, info, MEASURE_ARGUMENT_COUNT, argv) ? store_of(env, argv[RECORDS_STORE]) : NULL;
+  thread_state *state = thread_state_of(env);
+  if (store == NULL || state == NULL) { return throw_error(env, "measure takes an attached store and four arguments"); }
+  narsil_ordinals_request request = {NARSIL_METRIC_COSINE, NULL, 0};
+  const char *refusal = read_records_request(env, argv, &request);
+  if (refusal != NULL) { return throw_error(env, refusal); }
+  void *totals = NULL;
+  size_t total_length = 0;
+  if (!typed_data(env, argv[MEASURE_TOTALS], napi_float64_array, &totals, &total_length) ||
+      total_length < (size_t)store->store.dimension + MEASURE_TOTALS_PAST_DIMENSION) {
+    return throw_error(env, "measure takes a Float64Array with two more totals than the store has dimensions");
+  }
+  narsil_status status = narsil_measure(state->workspace, &store->store, &request, totals);
+  report_workspace_memory(env, state);
+  return status_of(env, status);
+}

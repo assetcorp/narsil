@@ -1,4 +1,4 @@
-export type NativeOperation = 'search' | 'score' | 'place' | 'remove' | 'compact' | 'connect' | 'calibrate' | 'quantise'
+export type NativeOperation = 'search' | 'score' | 'place' | 'remove' | 'compact' | 'connect' | 'measure' | 'quantise'
 
 let nativeSearchCoreEnabled = true
 let fallbackObserver: ((operation: NativeOperation) => void) | null = null

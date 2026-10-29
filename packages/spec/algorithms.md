@@ -243,6 +243,8 @@ selectNeighbours(node, candidates: List<node>, limit: uint32) -> List<node>
   return selected
 ```
 
+When the rule keeps fewer candidates than half the limit, also keep the farthest candidate that it rejected.
+
 At layer 0, an implementation must pass every list that `selectNeighbours` returns for a node `p` through `keepLastLinks`, so that a live node whose only incoming connection comes from `p` stays in the list of `p`.
 
 ```text
@@ -256,7 +258,7 @@ keepLastLinks(p, kept: List<node>, dropped: List<node>, limit: uint32) -> List<n
   return kept
 ```
 
-An implementation must leave every live node other than the entry point with at least one incoming connection at layer 0 once an insertion or a removal completes. Where the rules in this section leave such a node with none, as when `keepLastLinks` finds no node to replace or a removal takes away the last connection into a node, the implementation must run `connectUnreached` before the write completes. A load must read the graph as it was saved, and before the first insertion or removal after a load, an implementation must count the incoming connections of every node and run `connectUnreached` where a live node other than the entry point has none. An implementation must also run `connectUnreached` once before every write that takes nodes out of the graph completes, because the members of a group that only link to one another each keep an incoming connection, so no count reveals the group. At a removal, `nearby` holds the other neighbours of every node that the write takes out of the graph, and it is empty otherwise.
+An implementation must leave every live node other than the entry point with at least one incoming connection at layer 0 once an insertion or a removal completes. Where the rules in this section leave such a node with none, as when `keepLastLinks` finds no node to replace or a removal takes away the last connection into a node, the implementation must run `connectUnreached` before the write completes. A load must read the graph as it was saved, and before the first insertion or removal after a load, an implementation must count the incoming connections of every node and run `connectUnreached` where a live node other than the entry point has none. An implementation must also run `connectUnreached` once before every write that takes nodes out of the graph completes, because the members of a group that only link to one another each keep an incoming connection, so no count reveals the group. At a removal, `nearby` holds the other neighbours of every node that the write takes out of the graph, and it is empty otherwise. An implementation must also run `connectUnreached` once after every build pass that places nodes in a graph, such as a promotion, a rebuild, or a merge of buffered vectors, because the removals that a pass's back-links cause can leave such a group.
 
 ```text
 connectUnreached(nearby: List<node>)
@@ -599,7 +601,7 @@ A writer must compute CRC32 over the raw payload bytes, after compression when c
 
 ## FNV-1a Hash
 
-FNV-1a is the non-cryptographic hash that partition routing uses, where the partition is `hash(docId) modulo partitionCount`, and that [cursor binding](partitioning.md#cursor-binding) and [replica selection](distribution/query-routing.md#replica-selection) use.
+FNV-1a is the non-cryptographic hash that partition routing uses, where the partition is `hash(docId) modulo partitionCount`, and that [cursor binding](partitioning.md#cursor-binding), [replica selection](distribution/query-routing.md#replica-selection), and the [vector field key](envelope.md#storage-path-convention) use.
 
 ```text
 fnv1a(input: bytes) -> uint32
@@ -620,7 +622,7 @@ fnv1a(input: bytes) -> uint32
 
 The empty string returns the offset basis unchanged, because the loop has no byte to process.
 
-FNV-1a is deterministic, so the same input always gives the same output, and it spreads values evenly enough for routing. An implementation must use FNV-1a for hash-based routing, cursor binding, and replica selection alone, because it offers no cryptographic security.
+FNV-1a is deterministic, so the same input always gives the same output, and it spreads values evenly enough for routing. An implementation must use FNV-1a for hash-based routing, cursor binding, replica selection, and the vector field key alone, because it offers no cryptographic security.
 
 An implementation must hash a string as its UTF-8 bytes, because any other encoding would route one document ID to different partitions in different languages.
 

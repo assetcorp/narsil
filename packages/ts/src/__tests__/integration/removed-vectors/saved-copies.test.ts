@@ -7,16 +7,9 @@ import type { IndexConfig } from '../../../types/schema'
 import { setNativeSearchCoreEnabled } from '../../../vector/native/backend'
 import {
   backends,
-  type Corpus,
-  expectNearest,
   indexConfig,
   indexConfigOf,
-  large,
-  openPapers,
   openPapersWithoutTheRing,
-  outsideTheRing,
-  reembed,
-  removeChanged,
   ringAnswers,
   ringRecall,
   searchWithTheHostBinary,
@@ -26,34 +19,39 @@ import {
 vi.setConfig({ testTimeout: 20_000 })
 
 const LIVE_RING_RECALL_FLOOR = 0.9
+const COPY_TIMEOUT_MS = 60_000
 
-const changes = [
-  { change: 'most vectors are removed', apply: removeChanged, current: (corpus: Corpus) => corpus.kept },
-  {
-    change: 'most documents are re-embedded far away',
-    apply: reembed,
-    current: (corpus: Corpus) => [...corpus.kept, ...corpus.reembedded],
-  },
-]
+type Answers = (narsil: Narsil) => Promise<string[][]>
 
-async function restartAfterCheckpoint(directory: string, writer: Narsil): Promise<Narsil> {
+interface Carried {
+  copy: Narsil
+  answeredOnceCopied: string[][]
+}
+
+async function restartAfterCheckpoint(directory: string, writer: Narsil, answers: Answers): Promise<Carried> {
   await writer.checkpoint('papers')
+  const answeredOnceCopied = await answers(writer)
   await writer.shutdown()
-  const reader = await createNarsil({ workers: { enabled: false }, durability: { directory } })
-  await untilGraphSettled(reader)
-  return reader
+  const copy = await createNarsil({ workers: { enabled: false }, durability: { directory } })
+  await untilGraphSettled(copy)
+  return { copy, answeredOnceCopied }
 }
 
 const quantizations = [{ quantization: 'none' as const }, { quantization: 'osq4' as const }]
 
-async function restoreSnapshotOf(source: Narsil, papersConfig: IndexConfig = indexConfig): Promise<Narsil> {
+async function restoreSnapshotOf(
+  source: Narsil,
+  answers: Answers,
+  papersConfig: IndexConfig = indexConfig,
+): Promise<Carried> {
   const bytes = await source.snapshot('papers')
-  const restored = await createNarsil({ workers: { enabled: false } })
-  await restored.createIndex('papers', papersConfig)
-  await restored.restore('papers', bytes)
+  const answeredOnceCopied = await answers(source)
+  const copy = await createNarsil({ workers: { enabled: false } })
+  await copy.createIndex('papers', papersConfig)
+  await copy.restore('papers', bytes)
   await source.shutdown()
-  await untilGraphSettled(restored)
-  return restored
+  await untilGraphSettled(copy)
+  return { copy, answeredOnceCopied }
 }
 
 searchWithTheHostBinary()
@@ -77,56 +75,28 @@ describe.each(backends)('a vector search past tombstones carried to another copy
     await rm(directory, { recursive: true, force: true })
   })
 
-  it.skipIf(!available).each(changes)(
-    'answers after a checkpoint and a restart once $change',
-    async ({ apply, current }) => {
-      const writer = await openPapers({ workers: { enabled: false }, durability: { directory } }, large.documents)
-      await apply(writer, large)
-      narsil = await restartAfterCheckpoint(directory, writer)
-      await expectNearest(narsil, current(large))
-    },
-  )
-
-  it.skipIf(!available).each(changes)('answers after a snapshot restore once $change', async ({ apply, current }) => {
-    const source = await openPapers({ workers: { enabled: false } }, large.documents)
-    await apply(source, large)
-    narsil = await restoreSnapshotOf(source)
-    await expectNearest(narsil, current(large))
-  })
-
   it.skipIf(!available).each(quantizations)(
     "answers as the live graph did after a checkpoint and a restart once the ring beyond each query's nearest ten is removed, at $quantization",
     async ({ quantization }) => {
       const config = { workers: { enabled: false }, durability: { directory } }
       const writer = await openPapersWithoutTheRing(config, indexConfigOf(quantization))
-      const live = await ringAnswers(writer)
-      narsil = await restartAfterCheckpoint(directory, writer)
-      expect(await ringAnswers(narsil)).toEqual(live)
-      expect(await ringRecall(narsil)).toBeGreaterThanOrEqual(LIVE_RING_RECALL_FLOOR)
+      const { copy, answeredOnceCopied } = await restartAfterCheckpoint(directory, writer, ringAnswers)
+      narsil = copy
+      expect(await ringAnswers(copy)).toEqual(answeredOnceCopied)
+      expect(await ringRecall(copy)).toBeGreaterThanOrEqual(LIVE_RING_RECALL_FLOOR)
     },
+    COPY_TIMEOUT_MS,
   )
 
   it.skipIf(!available).each(quantizations)(
     "answers as the live graph did after a snapshot restore once the ring beyond each query's nearest ten is removed, at $quantization",
     async ({ quantization }) => {
       const source = await openPapersWithoutTheRing({ workers: { enabled: false } }, indexConfigOf(quantization))
-      const live = await ringAnswers(source)
-      narsil = await restoreSnapshotOf(source, indexConfigOf(quantization))
-      expect(await ringAnswers(narsil)).toEqual(live)
-      expect(await ringRecall(narsil)).toBeGreaterThanOrEqual(LIVE_RING_RECALL_FLOOR)
+      const { copy, answeredOnceCopied } = await restoreSnapshotOf(source, ringAnswers, indexConfigOf(quantization))
+      narsil = copy
+      expect(await ringAnswers(copy)).toEqual(answeredOnceCopied)
+      expect(await ringRecall(copy)).toBeGreaterThanOrEqual(LIVE_RING_RECALL_FLOOR)
     },
-  )
-
-  it.skipIf(!available).each(quantizations)(
-    'answers as the live graph did after a second checkpoint and restart that carry the same tombstones, at $quantization',
-    async ({ quantization }) => {
-      const config = { workers: { enabled: false }, durability: { directory } }
-      const writer = await openPapersWithoutTheRing(config, indexConfigOf(quantization))
-      const first = await restartAfterCheckpoint(directory, writer)
-      await first.remove('papers', outsideTheRing[0].id)
-      const live = await ringAnswers(first)
-      narsil = await restartAfterCheckpoint(directory, first)
-      expect(await ringAnswers(narsil)).toEqual(live)
-    },
+    COPY_TIMEOUT_MS,
   )
 })

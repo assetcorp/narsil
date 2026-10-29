@@ -62,11 +62,7 @@ function askDuringChangeOf(narsil: Narsil): AskDuringChange {
 
 async function untilSettled(narsil: Narsil): Promise<void> {
   const deadline = Date.now() + SETTLE_DEADLINE_MS
-  while (
-    narsil
-      .vectorMaintenanceStatus(INDEX)
-      .some(field => field.building || field.graphCount === 0 || field.bufferSize > 0)
-  ) {
+  while (narsil.vectorMaintenanceStatus(INDEX).some(field => field.building || field.graphCount === 0)) {
     if (Date.now() > deadline) throw new Error(`the graph of ${INDEX} was still building after 60 s`)
     await new Promise(resolve => setTimeout(resolve, 5))
   }

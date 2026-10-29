@@ -85,6 +85,6 @@ export interface NativeCore {
     threadSlot: number,
     wakes: Int32Array,
   ): number
-  calibrate(store: NativeStoreHandle, metric: number, ordinals: Int32Array, count: number): number
+  measure(store: NativeStoreHandle, metric: number, ordinals: Int32Array, count: number, totals: Float64Array): number
   quantise(store: NativeStoreHandle, metric: number, ordinals: Int32Array, count: number): number
 }

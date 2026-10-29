@@ -1,6 +1,9 @@
 import { ErrorCodes, NarsilError } from '../../errors'
 import { createHNSWIndex, type SerializedHNSWGraph } from '../hnsw'
 import { type OsqQuantizer, osqBitsOf } from '../osq'
+import { createOsqScratch, osqQuantize } from '../osq/quantize'
+import { writeRecord } from '../osq/record'
+import { NO_LIVE_VECTOR_AT_POSITION } from './dead-bits'
 import { bytesToVectors, type VectorIndexCodes, type VectorIndexPayload } from './payload'
 import { adoptGraph, emptyFieldBeforeRestore, recalibrateFromStore, type VectorIndexState } from './shared'
 
@@ -27,21 +30,40 @@ function sameCentroid(state: VectorIndexState, planned: readonly number[]): bool
   return true
 }
 
+function codesAgainstPlannedCentroid(
+  quantizer: OsqQuantizer,
+  slotStride: number,
+  centroid: number[],
+  vectors: Float32Array,
+  ordinals: Int32Array,
+): VectorIndexCodes {
+  const planned = Float32Array.from(centroid)
+  const dimension = planned.length
+  const scratch = createOsqScratch(dimension)
+  const records = new Uint8Array(ordinals.length * slotStride)
+  const trailer = new DataView(records.buffer, records.byteOffset, records.byteLength)
+  for (let i = 0; i < ordinals.length; i++) {
+    if (ordinals[i] === NO_LIVE_VECTOR_AT_POSITION) continue
+    const vector = vectors.subarray(i * dimension, (i + 1) * dimension)
+    const code = osqQuantize(vector, planned, quantizer.bits, quantizer.metric, scratch)
+    writeRecord(records, i * slotStride, code, quantizer.bits, trailer)
+  }
+  return { bits: quantizer.bits, centroid, records }
+}
+
 export function partCodes(
   state: VectorIndexState,
   docIds: readonly string[],
   centroid: number[] | null,
   tombstonedAt: ReadonlyMap<number, number>,
+  vectors: Float32Array,
+  ordinals: Int32Array,
 ): VectorIndexCodes | null {
   const quantizer = state.osq
   const layout = state.store.handles.codeLayout
   if (centroid === null || quantizer === null || layout === null) return null
   if (!sameCentroid(state, centroid)) {
-    throw new NarsilError(
-      ErrorCodes.PERSISTENCE_SAVE_FAILED,
-      `The vector field "${state.fieldName}" was recalibrated while a save was writing its vectors`,
-      { fieldName: state.fieldName },
-    )
+    return codesAgainstPlannedCentroid(quantizer, layout.slotStride, centroid, vectors, ordinals)
   }
   const records = new Uint8Array(docIds.length * layout.slotStride)
   for (let i = 0; i < docIds.length; i++) {

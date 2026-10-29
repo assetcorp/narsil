@@ -15,6 +15,7 @@
 #define OSQ_GRID_FOUR_BITS 2.514
 #define OSQ_GRID_EIGHT_BITS 3.922
 #define NARROW_CODE_QUERY_BITS 4
+#define NIBBLE_CODE_BITS 4U
 #define ROUND_HALF_UP 0.5
 
 typedef struct {
@@ -204,11 +205,20 @@ double quantised_level(double value, level_range range, uint32_t bits) {
   return level_of(value, range, steps_of(bits));
 }
 
+uint32_t placement_query_bits_of(uint32_t bits) {
+  return bits == NIBBLE_CODE_BITS ? BITS_PER_BYTE : query_bits_of(bits);
+}
+
 void prepare_code(narsil_workspace *workspace, const narsil_store *store, narsil_metric metric, const float *vector,
                   prepared_code *code) {
+  prepare_code_with_bits(workspace, store, metric, vector, query_bits_of(store->bits), code);
+}
+
+void prepare_code_with_bits(narsil_workspace *workspace, const narsil_store *store, narsil_metric metric,
+                            const float *vector, uint32_t query_bits, prepared_code *code) {
   quantised_vector quantised;
   *code = workspace->code;
-  code->bits = query_bits_of(store->bits);
+  code->bits = query_bits;
   quantise_vector(workspace, store, metric, vector, code->bits, &quantised);
   code->range = quantised.range;
   code->correction = quantised.correction;

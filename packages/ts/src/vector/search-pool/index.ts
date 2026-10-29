@@ -6,17 +6,28 @@ import {
   VECTOR_SEARCH_LOAD_TIMEOUT_MS,
   VECTOR_SEARCH_TIMEOUT_MS,
 } from '../constants'
-import { releaseLocksHeldBy } from '../hnsw/locks'
 import type { GraphSearchOptions } from '../hnsw/search'
 import type { GraphInsertOutcome, SharedVectorFieldHandles } from '../shared-field/types'
 import type { WorkerCopySnapshot } from '../worker-copy'
+import { VECTOR_POOL_DRAIN_TIMEOUT_MS } from './constants'
 import type {
   VectorInsertRequest,
   VectorOrdinalSearchRequest,
   VectorSearchRequest,
   VectorWorkerMessage,
 } from './messages'
-import { listen, listenForFailure, resolveWorkerEntryPoint, spawnWorker, type WorkerHandle } from './spawn'
+import {
+  createSlot,
+  forgetDroppedGraphs,
+  noteAnswered,
+  noteGraphOpened,
+  noteWorkStarted,
+  rejectPending,
+  releaseSlotLocks,
+  untilIdle,
+  type WorkerSlot,
+} from './slot'
+import { listen, listenForFailure, resolveWorkerEntryPoint, spawnWorker } from './spawn'
 
 export interface WorkerCopySearchResult {
   docId: string
@@ -53,20 +64,6 @@ export interface VectorSearchPool {
   shutdown(): Promise<void>
 }
 
-interface PendingRequest {
-  resolve(message: VectorWorkerMessage): void
-  reject(err: Error): void
-  timer: ReturnType<typeof setTimeout>
-}
-
-interface WorkerSlot {
-  worker: WorkerHandle
-  scratchSlot: number
-  pending: Map<string, PendingRequest>
-  alive: boolean
-  outstanding: number
-}
-
 export function searchPoolScratchSlot(index: number): number {
   return VECTOR_SCRATCH_SLOTS - 1 - index
 }
@@ -91,18 +88,13 @@ export async function createVectorSearchPool(requestedCount?: number): Promise<V
   for (let i = 0; i < count; i++) {
     const worker = await spawnWorker(entryPoint)
     if (worker === null) break
-    const slot: WorkerSlot = {
-      worker,
-      scratchSlot: searchPoolScratchSlot(i),
-      pending: new Map(),
-      alive: true,
-      outstanding: 0,
-    }
+    const slot = createSlot(worker, searchPoolScratchSlot(i))
 
     listen(worker, raw => {
       const message = raw as VectorWorkerMessage
       const key = message.requestId
       if (typeof key !== 'string') return
+      noteAnswered(slot, key, sharedFields)
       const waiting = slot.pending.get(key)
       if (!waiting) return
       slot.pending.delete(key)
@@ -112,14 +104,8 @@ export async function createVectorSearchPool(requestedCount?: number): Promise<V
 
     listenForFailure(worker, err => {
       slot.alive = false
-      for (const handles of sharedFields.values()) {
-        if (handles.graph !== null) releaseLocksHeldBy(handles.graph, slot.scratchSlot)
-      }
-      for (const [, waiting] of slot.pending) {
-        clearTimeout(waiting.timer)
-        waiting.reject(err)
-      }
-      slot.pending.clear()
+      releaseSlotLocks(slot)
+      rejectPending(slot, err)
     })
 
     slots.push(slot)
@@ -129,7 +115,13 @@ export async function createVectorSearchPool(requestedCount?: number): Promise<V
 
   let requestCounter = 0
 
-  function send(slot: WorkerSlot, key: string, message: unknown, timeoutMs: number): Promise<VectorWorkerMessage> {
+  function send(
+    slot: WorkerSlot,
+    key: string,
+    message: unknown,
+    timeoutMs: number,
+    handle?: string,
+  ): Promise<VectorWorkerMessage> {
     return new Promise<VectorWorkerMessage>((resolve, reject) => {
       if (!slot.alive) {
         reject(new Error('Vector search worker is not running'))
@@ -140,10 +132,12 @@ export async function createVectorSearchPool(requestedCount?: number): Promise<V
         reject(new Error(`Vector search worker did not answer within ${timeoutMs}ms`))
       }, timeoutMs)
       slot.pending.set(key, { resolve, reject, timer })
+      if (handle !== undefined) noteWorkStarted(slot, key, handle)
       try {
         slot.worker.postMessage(message)
       } catch (err) {
         slot.pending.delete(key)
+        noteAnswered(slot, key, sharedFields)
         clearTimeout(timer)
         reject(err instanceof Error ? err : new Error(String(err)))
       }
@@ -164,10 +158,10 @@ export async function createVectorSearchPool(requestedCount?: number): Promise<V
     return slot
   }
 
-  async function sendBusy(slot: WorkerSlot, request: { requestId: string }, timeoutMs: number) {
+  async function sendBusy(slot: WorkerSlot, request: { requestId: string; handle: string }, timeoutMs: number) {
     slot.outstanding += 1
     try {
-      return await send(slot, request.requestId, request, timeoutMs)
+      return await send(slot, request.requestId, request, timeoutMs, request.handle)
     } finally {
       slot.outstanding -= 1
     }
@@ -200,17 +194,20 @@ export async function createVectorSearchPool(requestedCount?: number): Promise<V
 
     async loadShared(handle: string, handles: SharedVectorFieldHandles): Promise<boolean> {
       sharedFields.set(handle, handles)
-      const loaded = await broadcast(
-        (slot, requestId) => ({ type: 'loadShared', requestId, handle, scratchSlot: slot.scratchSlot, handles }),
-        VECTOR_SEARCH_LOAD_TIMEOUT_MS,
-      )
-      if (!loaded) sharedFields.delete(handle)
-      return loaded
+      const loaded = await broadcast((slot, requestId) => {
+        noteGraphOpened(slot, handle, handles.graph)
+        return { type: 'loadShared', requestId, handle, scratchSlot: slot.scratchSlot, handles }
+      }, VECTOR_SEARCH_LOAD_TIMEOUT_MS)
+      if (loaded) return true
+      sharedFields.delete(handle)
+      for (const slot of slots) forgetDroppedGraphs(slot, sharedFields)
+      return false
     },
 
     async drop(handle: string): Promise<void> {
       sharedFields.delete(handle)
       await broadcast((_slot, requestId) => ({ type: 'drop', requestId, handle }), VECTOR_SEARCH_TIMEOUT_MS)
+      for (const slot of slots) forgetDroppedGraphs(slot, sharedFields)
     },
 
     async insertOrdinals(handle: string, ordinals: Int32Array): Promise<GraphInsertOutcome | null> {
@@ -291,18 +288,16 @@ export async function createVectorSearchPool(requestedCount?: number): Promise<V
     },
 
     async shutdown(): Promise<void> {
+      for (const slot of slots) slot.alive = false
+      await Promise.all(slots.map(slot => untilIdle(slot, VECTOR_POOL_DRAIN_TIMEOUT_MS)))
       for (const slot of slots) {
-        slot.alive = false
-        for (const [, waiting] of slot.pending) {
-          clearTimeout(waiting.timer)
-          waiting.reject(new Error('Vector search pool has shut down'))
-        }
-        slot.pending.clear()
         try {
           await slot.worker.terminate()
         } catch {
           slot.alive = false
         }
+        releaseSlotLocks(slot)
+        rejectPending(slot, new Error('Vector search pool has shut down'))
       }
     },
   }
@@ -311,21 +306,24 @@ export async function createVectorSearchPool(requestedCount?: number): Promise<V
 let sharedPool: Promise<VectorSearchPool | null> | null = null
 let poolHolders = 0
 let workersUnavailable = false
+let closingPool: Promise<void> = Promise.resolve()
 
 export function acquireVectorSearchPool(requestedCount?: number): Promise<VectorSearchPool | null> {
   poolHolders += 1
   if (workersUnavailable) return Promise.resolve(null)
   if (sharedPool === null) {
-    sharedPool = createVectorSearchPool(requestedCount).then(
-      pool => {
-        if (pool === null) workersUnavailable = true
-        return pool
-      },
-      () => {
-        workersUnavailable = true
-        return null
-      },
-    )
+    sharedPool = closingPool
+      .then(() => createVectorSearchPool(requestedCount))
+      .then(
+        pool => {
+          if (pool === null) workersUnavailable = true
+          return pool
+        },
+        () => {
+          workersUnavailable = true
+          return null
+        },
+      )
   }
   return sharedPool
 }
@@ -337,6 +335,10 @@ export async function releaseVectorSearchPool(): Promise<void> {
 
   const pending = sharedPool
   sharedPool = null
-  const pool = await pending
-  await pool?.shutdown()
+  const closing = closingPool.then(async () => {
+    const pool = await pending
+    await pool?.shutdown()
+  })
+  closingPool = closing.catch(() => undefined)
+  await closing
 }

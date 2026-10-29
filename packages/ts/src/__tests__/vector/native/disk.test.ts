@@ -71,10 +71,13 @@ describe.skipIf(!binaryBuilt)('the native search core over a field kept on disk'
     }
   }
 
-  it('places a vector beside neighbours whose vectors a file holds, as the WebAssembly search places it', async () => {
+  it.each([
+    'none',
+    'osq4',
+  ] satisfies VectorQuantizationMode[])('places a vector beside neighbours whose vectors a file holds, as the WebAssembly search places it, for %s', async quantization => {
     const graphs: unknown[] = []
     for (const native of [false, true]) {
-      const index = await builtIndex({ quantization: 'none', metric: 'cosine', native, storage: 'disk' })
+      const index = await builtIndex({ quantization, metric: 'cosine', native, storage: 'disk' })
       try {
         await moveVectorsToAFile(index, directory, `placement-${native}`)
         setNativeSearchCoreEnabled(native)

@@ -1,0 +1,1 @@
+export const VECTOR_POOL_DRAIN_TIMEOUT_MS = 10_000

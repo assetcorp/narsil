@@ -194,7 +194,11 @@ narsil_status narsil_place(narsil_workspace *workspace, const narsil_graph *grap
   const float *vector = stored_vector(store, request->ordinal, workspace->placed_vector);
   if (vector == NULL) { return NARSIL_INVALID_ARGUMENT; }
   context.thread_slot = request->thread_slot;
-  walk_with_query(&context, vector);
+  if (store->file_count == 0) {
+    walk_with_query(&context, vector);
+  } else {
+    walk_with_placement_query(&context, vector);
+  }
   if (!context.uses_codes) { context.query.magnitude = store->magnitudes[request->ordinal]; }
 
   if (request->graph_held_alone) {
