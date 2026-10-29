@@ -3,6 +3,7 @@ import { createNarsil, type Narsil } from '../../narsil'
 import { waitFor } from '../server/helpers'
 import {
   DIMENSION,
+  EF_SEARCH_FOR_EVERY_PASSAGE,
   exactCosineRanking,
   FIELD,
   insertFileByFile,
@@ -15,13 +16,13 @@ import {
   questionsNear,
   SETTLE_TIMEOUT_MS,
   snapshotFromAnEarlierRelease,
+  unreachedPassages,
   untilSettled,
   vectorHits,
   WIDE_EF_SEARCH,
   WIDE_LIMIT,
 } from './passages-by-file'
 import { snapshotWithMeanLength } from './saved-graph-edit'
-import { walkSavedGraph } from './saved-graph-walk'
 
 const ARRIVING_PASSAGES = 6_000
 const SAVED_PASSAGES = 2_000
@@ -30,13 +31,6 @@ const QUESTIONS = 40
 const RECALL_FLOOR = 0.95
 const ARRIVAL_TIMEOUT_MS = 600_000
 const INDEX = 'passages'
-const EF_SEARCH_FOR_EVERY_PASSAGE = 2_000
-
-async function expectEveryPassageReached(engine: Narsil, index: string): Promise<void> {
-  const walk = await walkSavedGraph(await engine.snapshot(index), index, FIELD)
-  expect({ unplaced: walk.unplaced, unreached: walk.unreached }).toEqual({ unplaced: [], unreached: [] })
-}
-
 describe('vector search over passages that arrive file by file', () => {
   let engine: Narsil
   const passages = passagesArrivingFileByFile(ARRIVING_PASSAGES)
@@ -57,7 +51,7 @@ describe('vector search over passages that arrive file by file', () => {
   it(
     'reaches every stored passage and returns each one first for its own vector at a narrow and a wide limit',
     async () => {
-      await expectEveryPassageReached(engine, INDEX)
+      expect(await unreachedPassages(engine, INDEX)).toEqual({ unplaced: [], unreached: [] })
       expect(await passagesNotFoundFirst(engine, INDEX, passages, NARROW_LIMIT, EF_SEARCH_FOR_EVERY_PASSAGE)).toEqual(
         [],
       )
@@ -117,14 +111,14 @@ describe('a saved graph that this release loads', { timeout: ARRIVAL_TIMEOUT_MS 
       SETTLE_TIMEOUT_MS,
     )
     await untilSettled(engine, 'earlier')
-    await expectEveryPassageReached(engine, 'earlier')
+    expect(await unreachedPassages(engine, 'earlier')).toEqual({ unplaced: [], unreached: [] })
     expect(await passagesNotFoundFirst(engine, 'earlier', passages, NARROW_LIMIT, EF_SEARCH_FOR_EVERY_PASSAGE)).toEqual(
       [],
     )
 
     const grown = passagesArrivingFileByFile(2 * SAVED_PASSAGES)
     await insertFileByFile(engine, 'earlier', grown.slice(SAVED_PASSAGES))
-    await expectEveryPassageReached(engine, 'earlier')
+    expect(await unreachedPassages(engine, 'earlier')).toEqual({ unplaced: [], unreached: [] })
     expect(await passagesNotFoundFirst(engine, 'earlier', grown, NARROW_LIMIT, EF_SEARCH_FOR_EVERY_PASSAGE)).toEqual([])
   })
 

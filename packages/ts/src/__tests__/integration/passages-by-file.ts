@@ -1,7 +1,7 @@
 import type { Narsil } from '../../narsil'
 import { waitFor } from '../server/helpers'
 import { snapshotWithBaseLists, snapshotWithoutShuffledBuildCount } from './saved-graph-edit'
-import { savedBuildHistories } from './saved-graph-walk'
+import { savedBuildHistories, walkSavedGraph } from './saved-graph-walk'
 
 export const DIMENSION = 384
 export const PASSAGES_PER_FILE = 100
@@ -9,6 +9,7 @@ export const NARROW_LIMIT = 10
 export const NARROW_EF_SEARCH = 500
 export const WIDE_LIMIT = 200
 export const WIDE_EF_SEARCH = 1_000
+export const EF_SEARCH_FOR_EVERY_PASSAGE = 2_000
 export const SETTLE_TIMEOUT_MS = 120_000
 export const FIELD = 'embedding'
 
@@ -171,4 +172,12 @@ export async function snapshotFromAnEarlierRelease(
 ): Promise<Uint8Array<ArrayBuffer>> {
   const damaged = await snapshotWithFarPairs(engine, index, count)
   return snapshotWithoutShuffledBuildCount(new Blob([damaged]).stream(), FIELD)
+}
+
+export async function unreachedPassages(
+  engine: Narsil,
+  index: string,
+): Promise<{ unplaced: string[]; unreached: string[] }> {
+  const walk = await walkSavedGraph(await engine.snapshot(index), index, FIELD)
+  return { unplaced: walk.unplaced, unreached: walk.unreached }
 }
