@@ -105,6 +105,7 @@ export interface ClusterNode {
     open(indexName: string): Promise<void>;
     preflight(indexName: string, params: QueryParams): Promise<PreflightResult>;
     query<T = AnyDocument>(indexName: string, params: QueryParams): Promise<QueryResult<T>>;
+    registerRerankAdapter(name: string, adapter: RerankAdapter): void;
     remove(indexName: string, docId: string): Promise<void>;
     removeBatch(indexName: string, docIds: string[]): Promise<BatchResult>;
     readonly roles: ReadonlyArray<NodeRole>;

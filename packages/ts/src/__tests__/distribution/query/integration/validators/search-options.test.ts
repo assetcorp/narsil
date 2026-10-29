@@ -10,6 +10,7 @@ import {
   MAX_PINNED_POSITION,
   MAX_TERMS_COUNT,
 } from '../../../../../distribution/query/constants'
+import type { WireHybridConfig } from '../../../../../distribution/transport/types'
 import { makeSearchPayload } from './fixtures'
 
 describe('validateSearchPayload params.facets', () => {
@@ -134,7 +135,14 @@ describe('validateSearchPayload params.mode', () => {
 })
 
 describe('validateSearchPayload params.vector metric and efSearch', () => {
-  const vector = { field: 'embedding', value: [0.1], text: null, similarity: null, oversample: null }
+  const vector = {
+    field: 'embedding',
+    value: [0.1],
+    text: null,
+    similarity: null,
+    oversample: null,
+    rescoreWindow: null,
+  }
 
   it('accepts an oversample of at least 1 and rejects one below it or beyond the ceiling', () => {
     expect(() =>
@@ -152,6 +160,23 @@ describe('validateSearchPayload params.vector metric and efSearch', () => {
         makeSearchPayload({ vector: { ...vector, metric: null, efSearch: null, oversample: MAX_OVERSAMPLE + 1 } }),
       ),
     ).toThrow(/oversample/)
+  })
+
+  it('refuses a rescore window above 10,000, reads an omitted one as absent, and refuses an omitted oversample', () => {
+    const withWindow = (rescoreWindow: unknown) =>
+      makeSearchPayload({ vector: { ...vector, metric: null, efSearch: null, rescoreWindow: rescoreWindow as number } })
+    expect(() => validateSearchPayload(withWindow(10_001))).toThrow(/rescoreWindow/)
+    const { rescoreWindow: _window, ...withoutWindow } = vector
+    const { oversample: _oversample, ...withoutOversample } = vector
+    const omitting = (members: Record<string, unknown>) =>
+      makeSearchPayload({
+        vector: { ...members, metric: null, efSearch: null } as unknown as typeof vector & {
+          metric: null
+          efSearch: null
+        },
+      })
+    expect(validateSearchPayload(omitting(withoutWindow)).params.vector?.rescoreWindow).toBeNull()
+    expect(() => validateSearchPayload(omitting(withoutOversample))).toThrow(/oversample/)
   })
 
   it('accepts a known metric and a sane efSearch', () => {
@@ -181,17 +206,27 @@ describe('validateSearchPayload params.vector metric and efSearch', () => {
 describe('validateSearchPayload params.hybrid with absent members', () => {
   it('accepts null members', () => {
     expect(() =>
-      validateSearchPayload(makeSearchPayload({ hybrid: { strategy: null, k: null, alpha: null } })),
+      validateSearchPayload(makeSearchPayload({ hybrid: { strategy: null, k: null, alpha: null, depth: null } })),
     ).not.toThrow()
   })
 
   it('still rejects an out-of-range present member', () => {
-    expect(() => validateSearchPayload(makeSearchPayload({ hybrid: { strategy: null, k: 0, alpha: null } }))).toThrow(
-      /hybrid.k/,
-    )
-    expect(() => validateSearchPayload(makeSearchPayload({ hybrid: { strategy: null, k: null, alpha: 2 } }))).toThrow(
-      /hybrid.alpha/,
-    )
+    expect(() =>
+      validateSearchPayload(makeSearchPayload({ hybrid: { strategy: null, k: 0, alpha: null, depth: null } })),
+    ).toThrow(/hybrid.k/)
+    expect(() =>
+      validateSearchPayload(makeSearchPayload({ hybrid: { strategy: null, k: null, alpha: 2, depth: null } })),
+    ).toThrow(/hybrid.alpha/)
+    expect(() =>
+      validateSearchPayload(makeSearchPayload({ hybrid: { strategy: null, k: null, alpha: null, depth: 10_001 } })),
+    ).toThrow(/hybrid.depth/)
+  })
+
+  it('reads an omitted depth as absent and refuses an omitted alpha', () => {
+    const withoutDepth = { strategy: null, k: null, alpha: null } as unknown as WireHybridConfig
+    expect(validateSearchPayload(makeSearchPayload({ hybrid: withoutDepth })).params.hybrid?.depth).toBeNull()
+    const withoutAlpha = { strategy: null, k: null, depth: null } as unknown as WireHybridConfig
+    expect(() => validateSearchPayload(makeSearchPayload({ hybrid: withoutAlpha }))).toThrow(/hybrid.alpha/)
   })
 })
 

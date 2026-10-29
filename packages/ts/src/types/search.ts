@@ -1,8 +1,10 @@
 import type { FilterExpression } from './filters'
+import type { RerankConfig } from './rerank'
 import type { AnyDocument, ScoringMode } from './schema'
 import type { HybridConfig, VectorQueryConfig } from './vector-query'
 
 export type { ListParams, SuggestParams } from './reads'
+export type { RerankConfig } from './rerank'
 export type { HybridConfig, VectorQueryConfig } from './vector-query'
 
 /**
@@ -201,6 +203,16 @@ export interface QueryParams {
   vector?: VectorQueryConfig
   /** These settings control how the keyword and vector rankings merge in `hybrid` mode. */
   hybrid?: HybridConfig
+  /**
+   * These settings reorder the top hits with a rerank adapter, such as a
+   * cross-encoder, after the keyword, vector, or hybrid ranking. The count
+   * matches the count of the same query without `rerank`, while the facets
+   * and the groups come from the first ranking. The engine throws
+   * `SEARCH_INVALID_MODE` for a query that also sets a sort, and
+   * `RERANK_FAILED` where the adapter fails or outlasts the engine's
+   * `rerankTimeout`.
+   */
+  rerank?: RerankConfig
   /**
    * Setting this returns relevance scores on a sorted query. A query that
    * names a sort ranks by sort values alone and computes no scores, so its

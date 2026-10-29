@@ -42,11 +42,12 @@ export function makeVectorParams(): WireVectorQueryParams {
     metric: null,
     efSearch: null,
     oversample: null,
+    rescoreWindow: null,
   }
 }
 
 export function makeHybridConfig(overrides: Partial<WireHybridConfig> = {}): WireHybridConfig {
-  return { strategy: 'rrf', k: 60, alpha: 0.5, ...overrides }
+  return { strategy: 'rrf', k: 60, alpha: 0.5, depth: null, ...overrides }
 }
 
 export function makeQueryParams(overrides: Partial<WireQueryParams> = {}): WireQueryParams {

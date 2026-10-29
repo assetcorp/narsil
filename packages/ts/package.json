@@ -157,6 +157,10 @@
       "import": "./dist/embeddings/openai.mjs",
       "types": "./dist/embeddings/openai.d.ts"
     },
+    "./rerankers/http": {
+      "import": "./dist/rerankers/http.mjs",
+      "types": "./dist/rerankers/http.d.ts"
+    },
     "./pattern": {
       "import": "./dist/pattern.mjs",
       "types": "./dist/pattern.d.ts"

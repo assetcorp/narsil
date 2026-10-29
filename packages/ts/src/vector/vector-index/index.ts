@@ -313,6 +313,7 @@ export function createVectorIndex(
       filter,
       efSearch: options.efSearch,
       oversample: options.oversample,
+      rescoreWindow: options.rescoreWindow,
     })
     if (confined && state.revision !== filterRevision) {
       filter = filterForOptions(state, options)

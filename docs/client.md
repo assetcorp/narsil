@@ -174,6 +174,8 @@ The client reads the answer once and keeps it, because a server cannot take on a
 
 `createIndex` takes whatever JSON can express of the engine's configuration. A custom tokeniser, a stop-word function, and an embedding adapter are all functions, so name a language and a server-registered adapter instead. The [HTTP server guide](http-server.md) covers the `embeddingAdapters` option a server registers those under.
 
+A query reranks over HTTP the same way, by the name of a rerank adapter that the server registered through its `rerankAdapters` option, so `client.query('movies', { term: 'matrix', rerank: { adapter: 'cohere', fields: ['title'] } })` returns the order that an embedded engine returns. See [Reranking](reranking.md).
+
 The client encodes every index name and document id it puts in a path, and the server decodes each segment, so the server finds the document that an id holding a slash, a space, or an accent names.
 
 The engine reads a vector as a number array or a `Float32Array`, in a document field and in a query alike, and JSON writes a `Float32Array` as an object keyed by index. The client converts one to the numbers it holds before it sends, so either form reaches the server as a vector.
