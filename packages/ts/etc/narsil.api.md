@@ -208,7 +208,10 @@ export const ErrorCodes: {
     readonly NODE_NOT_JOINED: "NODE_NOT_JOINED";
     readonly NODE_NOT_READY: "NODE_NOT_READY";
     readonly NODE_NOT_CONTROLLER: "NODE_NOT_CONTROLLER";
+    readonly NODE_VERSION_INCOMPATIBLE: "NODE_VERSION_INCOMPATIBLE";
     readonly COORDINATOR_DEPENDENCY_MISSING: "COORDINATOR_DEPENDENCY_MISSING";
+    readonly COORDINATOR_AUTH_FAILED: "COORDINATOR_AUTH_FAILED";
+    readonly COORDINATOR_UNAVAILABLE: "COORDINATOR_UNAVAILABLE";
     readonly TRANSPORT_DEPENDENCY_MISSING: "TRANSPORT_DEPENDENCY_MISSING";
     readonly REPLICATION_ENTRY_INVALID: "REPLICATION_ENTRY_INVALID";
     readonly REPLICATION_INSYNC_REMOVAL_FAILED: "REPLICATION_INSYNC_REMOVAL_FAILED";
@@ -351,6 +354,14 @@ export function hasStopWords(name: string): boolean;
 
 // @public
 export function hasTokenizer(name: string): boolean;
+
+// @public
+export interface HeldCheckpointReport {
+    documentBytesSinceCheckpoint: number;
+    indexName: string;
+    partitionIds: number[];
+    recordsSinceCheckpoint: number;
+}
 
 // @public
 export interface HighlightConfig {
@@ -524,6 +535,7 @@ export type MainCopyQueries = 'lone' | 'none';
 export interface MemoryStats {
     closedIndexCount: number;
     estimatedIndexBytes: number;
+    heldCheckpoints: HeldCheckpointReport[];
     openIndexCount: number;
     process: ProcessMemoryReport | null;
     reopenCount: number;
@@ -654,6 +666,7 @@ export type NarsilEventMap = {
         layout: 'manifest' | 'bundle';
         error?: Error;
     };
+    checkpointHeld: HeldCheckpointReport;
     durabilityError: {
         error: Error;
     };

@@ -32,7 +32,7 @@ export interface TransportConfig {
   connectTimeout: number
   /** An ordinary request and its reply may take this long. */
   requestTimeout: number
-  /** A replication entry may take this long to reach a replica and come back acknowledged. */
+  /** A replication entry, or a batch of them, may take this long to reach a replica and come back acknowledged. */
   replicationTimeout: number
   /** A node waits this long for each next chunk of a snapshot transfer, which moves a partition or an index between nodes, so that the node can receive a transfer of any size while the sender keeps sending. */
   snapshotTimeout: number
@@ -144,6 +144,7 @@ export const ReplicationMessageTypes = {
   INSYNC_ADD: 'replication.insync_add',
   INSYNC_REMOVE: 'replication.insync_remove',
   INSYNC_CONFIRM: 'replication.insync_confirm',
+  PRIMARY_RESIGN: 'replication.primary_resign',
 } as const
 
 export const QueryMessageTypes = {
@@ -168,6 +169,13 @@ export const ClusterMessageTypes = {
   PONG: 'cluster.pong',
   BOOTSTRAP_COMPLETE: 'cluster.bootstrap_complete',
   PARTITION_STORES: 'cluster.partition_stores',
+  REPLICATION_FACTOR: 'cluster.replication_factor',
+  REBUILD_ANALYSIS: 'cluster.rebuild_analysis',
+  REBALANCE: 'cluster.rebalance',
+  RESHARD_START: 'cluster.reshard_start',
+  RESHARD_FORWARD: 'cluster.reshard_forward',
+  RESHARD_CUTOVER: 'cluster.reshard_cutover',
+  RESHARD_PURGE: 'cluster.reshard_purge',
   INDEX_SETTINGS: 'cluster.index_settings',
 } as const
 
@@ -177,6 +185,7 @@ export interface ForwardPayload {
   operation: 'insert' | 'remove' | 'update'
   document: Uint8Array | null
   updateFields: Record<string, unknown> | null
+  indexUuid?: string
 }
 
 export interface ForwardBatchOperation {
@@ -189,6 +198,7 @@ export interface ForwardBatchOperation {
 export interface ForwardBatchPayload {
   indexName: string
   operations: ForwardBatchOperation[]
+  indexUuid?: string
 }
 
 export interface ForwardBatchOperationResult {
@@ -205,10 +215,12 @@ export interface ForwardBatchResultPayload {
 
 export interface EntryPayload {
   entry: ReplicationLogEntry
+  indexUuid?: string
 }
 
 export interface EntryBatchPayload {
   entries: ReplicationLogEntry[]
+  indexUuid?: string
 }
 
 export interface AckPayload {
@@ -222,6 +234,7 @@ export interface SyncRequestPayload {
   partitionId: number
   lastSeqNo: number
   lastPrimaryTerm: number
+  indexUuid?: string
 }
 
 export interface SyncEntriesPayload {
@@ -259,6 +272,7 @@ export interface SnapshotEndPayload {
 export interface SnapshotSyncRequestPayload {
   indexName: string
   partitionId?: number | null
+  indexUuid?: string
 }
 
 export interface InsyncRemovePayload {
@@ -281,6 +295,13 @@ export interface InsyncConfirmPayload {
   indexName: string
   partitionId: number
   accepted: boolean
+}
+
+export interface PrimaryResignPayload {
+  indexName: string
+  indexUuid: string
+  partitionId: number
+  primaryTerm: number
 }
 
 export type {
@@ -335,6 +356,11 @@ export interface BootstrapCompletePayload {
   primaryTerm: number
 }
 
+export interface ReplicationFactorPayload {
+  indexName: string
+  replicationFactor: number
+}
+
 export interface BootstrapCompleteResultPayload {
   indexName: string
   partitionId: number
@@ -343,6 +369,16 @@ export interface BootstrapCompleteResultPayload {
 
 export interface PartitionStoresPayload {
   indexName: string
+}
+
+export interface RebuildAnalysisPayload {
+  indexName: string
+  indexUuid: string
+}
+
+export interface RebuildAnalysisResultPayload {
+  indexName: string
+  rebuiltPartitions: number[]
 }
 
 export interface PartitionStoresResultPayload {

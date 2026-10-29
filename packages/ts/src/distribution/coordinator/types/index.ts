@@ -1,5 +1,5 @@
 import type { SchemaDefinition } from '../../../types/schema'
-import type { NodeEvent, NodeRegistration } from './node'
+import type { NodeEvent, NodeRegistration, RegistrationLease } from './node'
 
 export type {
   IndexPartitionBytes,
@@ -8,6 +8,7 @@ export type {
   NodeMemoryReport,
   NodeRegistration,
   NodeRole,
+  RegistrationLease,
 } from './node'
 
 /**
@@ -51,6 +52,12 @@ export interface PartitionAssignment {
   replicas: string[]
   /** These replicas are current enough to be promoted, which is the set a failover picks from. */
   inSyncSet: string[]
+  /**
+   * The controller is moving the copies on these nodes elsewhere, and each one stays in `replicas` and in `inSyncSet`
+   * until the copies outside this list reach the replication factor in sync. The field is absent while no move is
+   * under way.
+   */
+  removingReplicas?: string[]
   /** These nodes still hold a copy of a partition no node serves, and the field stays until the partition is `ACTIVE`. */
   lastHolders?: string[]
   /** This says where the partition stands in its move between nodes. */
@@ -77,6 +84,19 @@ export interface AllocationTable {
   replicationFactor: number
   /** These assignments are keyed by partition id. */
   assignments: Map<number, PartitionAssignment>
+  /**
+   * The name of the index that serves this index name since a partition count change finished. A table that carries
+   * it holds no assignments, and every read, write, and metadata lookup for this name goes to that index. The field
+   * is absent until the first change of the partition count.
+   */
+  generation?: string
+  /**
+   * The identity of the index that this table allocates, which the controller copies from the index metadata. When a
+   * node holds a table for a name and receives one with a different uuid, it takes the received table whatever the two
+   * versions are, because the name then refers to another index. The field is absent from a table that an earlier
+   * release wrote.
+   */
+  indexUuid?: string
 }
 
 /**
@@ -150,6 +170,39 @@ export interface ClusterCoordinator {
    */
   deregisterNode(nodeId: string): Promise<void>
   /**
+   * Reports how much longer the coordinator is certain to hold a node's
+   * registration, which is how long the node may keep acting as a primary.
+   *
+   * A primary refuses writes with `PARTITION_NOT_PRIMARY` once this time runs
+   * out, because the controller may then have promoted another copy. A
+   * coordinator that leaves this member out gets no such fence, so a primary
+   * that loses touch with it keeps answering writes until it reads a newer
+   * allocation table.
+   *
+   * @param nodeId - The node whose registration this process wrote.
+   * @returns The time left and the lease lifetime it counts against, or
+   * `null` where this process holds no live registration for the node.
+   */
+  registrationLease?(nodeId: string): RegistrationLease | null
+  /**
+   * Renews a node's registration lease once and reports how much longer the
+   * coordinator holds the registration after that renewal.
+   *
+   * A primary calls this before it refuses a write because
+   * {@link ClusterCoordinator.registrationLease} reports too little time
+   * left, so that a node whose renewals ran late behind its own work keeps
+   * serving. The coordinator cannot renew a lease that has already expired,
+   * so an accepted renewal shows that the registration stayed held
+   * throughout. A coordinator that leaves this member out leaves the
+   * primary with the reading from `registrationLease` alone.
+   *
+   * @param nodeId - The node whose registration this process wrote.
+   * @returns The time left after the renewal and the lease lifetime it counts
+   * against, or `null` where this process holds no live registration for the
+   * node.
+   */
+  confirmRegistrationLease?(nodeId: string): Promise<RegistrationLease | null>
+  /**
    * Lists the nodes currently published.
    *
    * @returns One registration per live node.
@@ -171,17 +224,34 @@ export interface ClusterCoordinator {
    */
   getAllocation(indexName: string): Promise<AllocationTable | null>
   /**
-   * Writes one index's allocation, optionally only while nobody else has
-   * changed it first.
+   * Writes one index's allocation without checking the stored version or the
+   * controller lease, which only a test or an operator's repair should do.
    *
    * @param indexName - The index to write.
    * @param table - The allocation to store.
-   * @param expectedVersion - The version the caller read, `null` to write only
-   * while no allocation exists, or omit it to write unconditionally.
-   * @returns True when the write went through, and false when the expected
-   * version no longer matched.
+   * @returns True once the write has gone through.
    */
-  putAllocation(indexName: string, table: AllocationTable, expectedVersion?: number | null): Promise<boolean>
+  putAllocation(indexName: string, table: AllocationTable): Promise<boolean>
+  /**
+   * Writes one index's allocation while the stored table still carries the
+   * version that the caller read and the writer still holds the controller
+   * lease, checking both in one atomic operation.
+   *
+   * @param indexName - The index to write.
+   * @param table - The allocation to store.
+   * @param expectedVersion - The version that the caller read, or `null` to
+   * write only while the index has no allocation yet.
+   * @param writerNodeId - The node that writes the table, which must hold the
+   * `_narsil/controller` lease when the write takes effect.
+   * @returns True when the write went through, and false when the stored
+   * version no longer matched or the writer did not hold the controller lease.
+   */
+  putAllocation(
+    indexName: string,
+    table: AllocationTable,
+    expectedVersion: number | null,
+    writerNodeId: string,
+  ): Promise<boolean>
   /**
    * Removes one index's allocation, which is the last step of dropping the
    * index. Deleting an allocation that does not exist does nothing.

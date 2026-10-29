@@ -102,7 +102,7 @@ describe('rebalance allocation', () => {
 
     for (const assignment of rebalancedTable.assignments.values()) {
       expect(assignment.primary).not.toBeNull()
-      expect(assignment.replicas).toHaveLength(1)
+      expect(assignment.replicas.filter(id => assignment.removingReplicas?.includes(id) !== true)).toHaveLength(1)
     }
   })
 
@@ -394,7 +394,8 @@ describe('rebalance allocation', () => {
     ]
     const rebalancedTable = allocate(withEmptyNode, currentTable, 'products', 3, 1, defaultConstraints).table
 
-    expect(rebalancedTable.assignments.get(1)?.replicas).toEqual(['node-c'])
+    expect(rebalancedTable.assignments.get(1)?.replicas).toEqual(['node-b', 'node-c'])
+    expect(rebalancedTable.assignments.get(1)?.removingReplicas).toEqual(['node-b'])
     expect(rebalancedTable.assignments.get(0)?.replicas).toEqual(['node-b'])
     expect(rebalancedTable.assignments.get(0)?.inSyncSet).toEqual(['node-b'])
   })

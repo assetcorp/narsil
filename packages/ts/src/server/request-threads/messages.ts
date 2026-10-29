@@ -15,6 +15,8 @@ export interface RequestThreadSettings {
   gateSlot: number
   /** The server accepts this many requests at once across every thread, or every request where zero. */
   maxConcurrentRequests: number
+  /** Every thread counts the bytes of the request bodies that it holds in this shared memory, in the same slot as its requests. */
+  bodyBudget: SharedArrayBuffer
   /** The thread tells the main thread it read an index at most this often, so the copies stay loaded under read load. */
   touchIntervalMs: number
   /** The cross-origin rules the thread writes on each response, or null where the server allows none. */

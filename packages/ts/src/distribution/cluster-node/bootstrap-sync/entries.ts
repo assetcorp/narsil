@@ -2,6 +2,7 @@ import { ErrorCodes, NarsilError } from '../../../errors'
 import { validateReplicationEntry } from '../../replication/replica'
 import type { ReplicationLog, ReplicationLogEntry } from '../../replication/types'
 import type { SyncEntriesPayload } from '../../transport/types'
+import { enqueuePartitionWrite } from '../write-routing/partition-queue'
 import type { ApplyEntriesResult, LiveBootstrapSyncDeps } from './types'
 
 export async function applySyncEntries(
@@ -22,28 +23,21 @@ export async function applySyncEntries(
   let entriesApplied = 0
 
   for (const payload of entriesPayloads) {
+    const run: ReplicationLogEntry[] = []
+    let entryError: NarsilError | null = null
     for (const entry of payload.entries) {
-      const entryError = validateSyncEntryForApply(entry, indexName, partitionId, expectedSeqNo, localPrimaryTerm, log)
-      if (entryError !== null) {
-        return { ok: false, error: entryError }
-      }
-      try {
-        await deps.applyReplicationEntry(entry)
-        log.appendCommitted(entry)
-      } catch (err) {
-        const cause = err instanceof Error ? err.message : String(err)
-        return {
-          ok: false,
-          error: new NarsilError(ErrorCodes.REPLICATION_ENTRY_INVALID, `failed to apply sync entry: ${cause}`, {
-            indexName,
-            partitionId,
-            seqNo: entry.seqNo,
-            cause,
-          }),
-        }
-      }
+      entryError = validateSyncEntryForApply(entry, indexName, partitionId, expectedSeqNo, localPrimaryTerm, log)
+      if (entryError !== null) break
+      run.push(entry)
       expectedSeqNo = entry.seqNo + 1
-      entriesApplied += 1
+    }
+    const outcome = await enqueuePartitionWrite(deps.partitionWriteQueues, indexName, partitionId, () =>
+      applySyncRunOnce(run, log, deps),
+    )
+    entriesApplied += outcome.processed
+    const error = outcome.error ?? entryError
+    if (error !== null) {
+      return { ok: false, error }
     }
   }
 
@@ -52,6 +46,76 @@ export async function applySyncEntries(
     entriesApplied,
     newSeqNo: expectedSeqNo - 1,
   }
+}
+
+interface SyncRunOutcome {
+  processed: number
+  error: NarsilError | null
+}
+
+async function applySyncRunOnce(
+  run: readonly ReplicationLogEntry[],
+  log: ReplicationLog,
+  deps: LiveBootstrapSyncDeps,
+): Promise<SyncRunOutcome> {
+  let processed = 0
+  let error: NarsilError | null = null
+  const pending: ReplicationLogEntry[] = []
+  let tailSeqNo = log.localLogEnd
+  for (const entry of run) {
+    const where = { indexName: entry.indexName, partitionId: entry.partitionId, seqNo: entry.seqNo }
+    const present = log.getEntry(entry.seqNo)
+    if (present !== undefined) {
+      if (present.checksum !== entry.checksum) {
+        error = new NarsilError(
+          ErrorCodes.REPLICATION_ENTRY_INVALID,
+          `Conflicting sync entry at sequence number ${entry.seqNo}`,
+          where,
+        )
+        break
+      }
+      processed += 1
+      continue
+    }
+    if (entry.seqNo !== tailSeqNo + 1) {
+      error = new NarsilError(
+        ErrorCodes.REPLICATION_ENTRY_INVALID,
+        `Out-of-order sync entry ${entry.seqNo}; the local log ends at ${tailSeqNo}`,
+        where,
+      )
+      break
+    }
+    pending.push(entry)
+    tailSeqNo = entry.seqNo
+  }
+  if (pending.length === 0) return { processed, error }
+
+  let applied: number
+  let applyError: unknown = null
+  try {
+    const outcome = await deps.applyReplicationEntries(pending)
+    applied = outcome.applied
+    applyError = outcome.error
+  } catch (err) {
+    applied = 0
+    applyError = err
+  }
+  for (let position = 0; position < applied; position++) log.appendCommitted(pending[position])
+  processed += applied
+  if (applied < pending.length) {
+    const failed = pending[applied]
+    const cause = applyError instanceof Error ? applyError.message : String(applyError)
+    return {
+      processed,
+      error: new NarsilError(ErrorCodes.REPLICATION_ENTRY_INVALID, `failed to apply sync entry: ${cause}`, {
+        indexName: failed.indexName,
+        partitionId: failed.partitionId,
+        seqNo: failed.seqNo,
+        cause,
+      }),
+    }
+  }
+  return { processed, error }
 }
 
 export function validateSyncEntryBatchTermination(entriesPayloads: SyncEntriesPayload[]): NarsilError | null {

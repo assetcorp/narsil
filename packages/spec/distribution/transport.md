@@ -72,7 +72,7 @@ A node whose handler fails a request must answer with a message whose `type` is 
 }
 ```
 
-When a primary refuses a forwarded mutation, the node that forwarded it must pass the primary's `code`, `message`, and `details` to the client.
+When a primary refuses a forwarded mutation, the node that forwarded it must pass the primary's `code`, `message`, and `details` to the client, except that it first retries a `PARTITION_NOT_PRIMARY` refusal for up to 30,000 ms. Where the refusal's details carry `heldIndexUuid`, the receiver still holds an earlier index of that name, so the forwarding node retries after a delay that starts at 50 ms and doubles up to 1,000 ms, and it reads the allocation table again before each attempt. Otherwise it retries once the allocation table names another primary or a higher `primaryTerm` for the partition. It passes the last refusal to the client when the window ends, and it retries each refused result of a batch in the same way. It retries a forward that the transport failed with `TRANSPORT_CONNECT_FAILED` or `TRANSPORT_PEER_UNAVAILABLE` within the same 30,000 ms and after the same delays, and it reads the allocation table again before each attempt, so that the forward reaches a primary that the controller promoted in the meantime. A retried insert that finds the document stored with the fields it sent succeeds, and so does a retried remove that finds the document absent, because the earlier attempt may have applied. It does not retry a forward that failed with `TRANSPORT_TIMEOUT`, because the primary may still apply it.
 
 ### Replication Messages
 
@@ -89,8 +89,9 @@ When a primary refuses a forwarded mutation, the node that forwarded it must pas
 | `replication.snapshot_chunk` | primary to replica | One streamed chunk of snapshot data |
 | `replication.snapshot_end` | primary to replica | Ends the snapshot transfer |
 | `replication.insync_add` | primary to controller | Asks to add a caught-up replica to the in-sync set |
-| `replication.insync_remove` | primary to controller | Asks to remove a replica from the in-sync set |
+| `replication.insync_remove` | primary or failed replica to controller | Asks to remove a replica from the in-sync set |
 | `replication.insync_confirm` | controller to primary | Confirms the in-sync set update |
+| `replication.primary_resign` | primary to controller | Gives up a partition whose copy failed |
 
 ### Query Messages
 
@@ -119,6 +120,13 @@ When a primary refuses a forwarded mutation, the node that forwarded it must pas
 | `cluster.pong` | any to any | Health check response |
 | `cluster.bootstrap_complete` | data node to controller | Reports that a partition finished bootstrapping |
 | `cluster.partition_stores` | controller or dropping node to data node | Asks which partitions of an index the node holds on disk |
+| `cluster.replication_factor` | any node to controller | Changes the replication factor of an index |
+| `cluster.rebuild_analysis` | any node to data node | Rebuilds the terms of every copy of an index that the node holds |
+| `cluster.rebalance` | any node to controller | Changes the partition count of an index |
+| `cluster.reshard_start` | controller to primary | Starts or resumes copying one partition into the new generation |
+| `cluster.reshard_forward` | primary to primary | Copies documents and removals into the new generation |
+| `cluster.reshard_cutover` | controller to primary | Blocks or lifts writes for the cutover |
+| `cluster.reshard_purge` | primary to primary | Removes one old partition's documents from the new generation |
 | `cluster.index_settings` | any node to data node | Asks a node to apply the synonym set that the coordinator holds for an index |
 
 ---
@@ -136,10 +144,13 @@ A client mutation forwarded to the partition's primary. The primary turns it int
   operation:    'insert' or 'remove' or 'update'
   document:     bytes or absent               (the full MessagePack document, for insert and update)
   updateFields: Map<string, value> or absent  (the changed fields alone, for update)
+  indexUuid:    string or absent              (the identity of the index that the sender's allocation table names)
 }
 ```
 
 The primary handles each operation differently. An `insert` generates the embeddings when the index configures them and then writes an `INDEX` entry. An `update` reads the existing document, merges `updateFields`, generates any embeddings that changed, and writes an `INDEX` entry. An `update` whose `document` is present and whose `updateFields` is absent replaces the stored document whole. A `remove` writes a `DELETE` entry.
+
+A receiver that holds its copy of the partition under an `indexUuid` other than the one a request carries must refuse the request, because the name now belongs to another index: a forward with `PARTITION_NOT_PRIMARY`, a replication entry or batch with `INDEX_NOT_FOUND`, and a sync request with `SNAPSHOT_SYNC_INDEX_NOT_FOUND`. Where the request carries no `indexUuid`, the receiver skips this check. A forward refusal of this kind must carry `heldIndexUuid`, the `indexUuid` of the copy that the receiver holds, in its details.
 
 ### replication.forward_batch
 
@@ -154,6 +165,7 @@ Many client mutations forwarded in one message to a node that is primary for the
     document:     bytes or absent               (the full MessagePack document, for insert and update)
     updateFields: Map<string, value> or absent  (the changed fields alone, for update)
   }>
+  indexUuid:  string or absent   (the identity of the index that the sender's allocation table names)
 }
 ```
 
@@ -180,6 +192,7 @@ The node that forwarded the batch must pass each failed result's `errorCode`, `e
 ```text
 {
   entry: ReplicationLogEntry   (see replication.md)
+  indexUuid: string or absent   (the identity of the index that the sender's allocation table names)
 }
 ```
 
@@ -188,6 +201,7 @@ The node that forwarded the batch must pass each failed result's `errorCode`, `e
 ```text
 {
   entries: List<ReplicationLogEntry>   (see replication.md)
+  indexUuid: string or absent   (the identity of the index that the sender's allocation table names)
 }
 ```
 
@@ -211,6 +225,7 @@ The entries must belong to one partition of one index, share one `primaryTerm`, 
   partitionId:     uint32
   lastSeqNo:       uint64
   lastPrimaryTerm: uint64
+  indexUuid:       string or absent   (the identity of the index that the sender's allocation table names)
 }
 ```
 
@@ -273,13 +288,14 @@ The primary sends this to the active controller once a replica's applied positio
 }
 ```
 
-The controller checks five things:
+The controller checks six things:
 
 - The message's `sourceId` is the assignment's primary, which stops a replica from admitting itself.
 - The node is an assigned replica of this partition.
 - The `primaryTerm` matches the assignment's current term.
 - The partition is in `ACTIVE`.
 - `appliedSeqNo` is at or above both the assignment's stored `commitPoint` and the request's `commitPoint`.
+- The replica's node is registered with the cluster coordinator, because the controller removes an unregistered node from the in-sync set on its next allocator run.
 
 The controller answers with `replication.insync_confirm`. It raises the assignment's `commitPoint` to the request's value whenever it accepts, and that value never moves backwards.
 
@@ -296,6 +312,8 @@ The primary sends this to the active controller, found through `getLeaseHolder('
 }
 ```
 
+A replica whose copy of the partition failed sends this request for itself, as [Copy Failure](replication.md#copy-failure) defines, with `replicaNodeId` set to its own `nodeId` and `primaryTerm` set to the term in the allocation table. The controller accepts a request whose `sourceId` is the assignment's primary or the `replicaNodeId`, and it refuses every other sender.
+
 ### replication.insync_confirm
 
 The controller sends this back to the primary once it has updated the in-sync set.
@@ -308,9 +326,24 @@ The controller sends this back to the primary once it has updated the in-sync se
 }
 ```
 
+### replication.primary_resign
+
+A primary whose copy of a partition failed sends this to the active controller, as [Copy Failure](replication.md#copy-failure) defines.
+
+```text
+{
+  indexName:   string
+  indexUuid:   string
+  partitionId: uint32
+  primaryTerm: uint64   (the term at which the sender leads the partition)
+}
+```
+
+The controller must refuse the request unless the message's `sourceId` is the assignment's primary, `primaryTerm` equals the assignment's term, and `indexUuid` equals the index that the coordinator holds. The controller then acts as [Failover](replication.md#failover) defines for a lost primary, and it writes the allocation table with a compare-and-set on the version that it read. It answers with `replication.insync_confirm`, whose `accepted` is false when it refused the request or its compare-and-set failed.
+
 ### cluster.bootstrap_complete
 
-A data node sends this to the controller once the sync protocol finishes for a partition in `INITIALISING`. The controller validates the request and moves the partition to `ACTIVE`.
+The primary of a partition in `INITIALISING` sends this to the controller once its copy is ready. The controller validates the request and moves the partition to `ACTIVE`. A replica sends none, because its primary admits it through `replication.insync_add` once the partition is `ACTIVE`.
 
 The node retries with exponential backoff when the controller is unreachable or rejects the request.
 
@@ -326,9 +359,9 @@ The node retries with exponential backoff when the controller is unreachable or 
 The controller checks four things:
 
 - The message's `sourceId` matches the `nodeId` in the payload, which blocks spoofing.
-- The node is assigned to this partition, as primary or as replica.
+- The node is the partition's primary, because the partition serves only once its primary holds a copy.
 - The `primaryTerm` matches the assignment's current term, which rejects a completion left over from an earlier term.
-- The partition is in `INITIALISING`. The controller returns `false` for an `ACTIVE` partition, because its primary admits the replica through `replication.insync_add` instead.
+- The partition is in `INITIALISING`. The controller returns `false` to a replica, and for an `ACTIVE` partition, because the primary admits each replica through `replication.insync_add`.
 
 The response is:
 
@@ -361,6 +394,150 @@ The response is:
 ```
 
 The node answers from the `held_partitions` field of its own index metadata, which [Index Metadata Payload](../envelope.md#index-metadata-payload) defines. A partition the node holds appears in the list even where that partition holds no document. A node that adopted no copy of the index answers with an absent `indexUuid` and an empty list.
+
+### cluster.replication_factor
+
+A node sends this to the active controller, which it finds with `getLeaseHolder`, to change the replication factor of an index.
+
+```text
+{
+  indexName:         string
+  replicationFactor: uint8
+}
+```
+
+The controller refuses the request with `NODE_NOT_CONTROLLER` where it holds no controller lease, with `CONFIG_INVALID` where the factor is not an integer from 0 to 255, and with `INDEX_NOT_FOUND` where the coordinator holds no metadata for the index. Otherwise it stores the factor in the index metadata with `compareAndSet`, writes the allocation table, and answers with the same payload. [Index Creation Flow](cluster.md#index-creation-flow) gives the rules for applying the new factor.
+
+### cluster.rebuild_analysis
+
+A node sends this to every node that holds a copy of an index, as [Index Creation Flow](cluster.md#index-creation-flow) describes for a rebuild.
+
+```text
+{
+  indexName: string
+  indexUuid: string   (the identity that the coordinator holds for the index)
+}
+```
+
+A node that holds no copy under that `indexUuid` answers with an empty list, so that it never rebuilds an index of the same name that a caller created again. Otherwise it answers once each rebuild finishes:
+
+```text
+{
+  indexName:         string
+  rebuiltPartitions: List<uint32>   (the copies that it rebuilt, leaving out each copy that was already current)
+}
+```
+
+### cluster.rebalance
+
+A node sends this to the active controller to start a [partition count change](cluster.md#partition-count-change).
+
+```text
+{
+  indexName:            string
+  targetPartitionCount: uint32
+}
+```
+
+The controller refuses the request with `NODE_NOT_CONTROLLER` where it holds no controller lease, with `INDEX_NOT_FOUND` where the coordinator holds no metadata for the index, with `CONFIG_INVALID` for a count that the creation flow would refuse or that equals the current count, and with `PARTITION_REBALANCING_BACKPRESSURE` while another change to the index runs. Otherwise it answers once it has written the record:
+
+```text
+{
+  indexName:        string
+  jobId:            string
+  targetGeneration: string
+}
+```
+
+### cluster.reshard_start
+
+The controller sends this to the primary of a partition of the current generation, at the start of the copy and again after it promotes a new primary.
+
+```text
+{
+  indexName:            string
+  jobId:                string
+  sourceGeneration:     string
+  targetGeneration:     string
+  partitionId:          uint32
+  sourcePartitionCount: uint32
+  targetPartitionCount: uint32
+}
+```
+
+A repeat with the same `jobId` and `partitionId` changes nothing while the copy for that partition runs. The primary answers:
+
+```text
+{
+  jobId:         string
+  partitionId:   uint32
+  snapshotSeqNo: uint64
+}
+```
+
+### cluster.reshard_forward
+
+A primary of the current generation sends this to a primary of the new generation.
+
+```text
+{
+  targetGeneration:  string
+  jobId:             string
+  sourcePartitionId: uint32
+  sourcePrimaryTerm: uint64
+  operations:        List<{
+    documentId: string
+    operation:  'replace' or 'remove'
+    document:   bytes or absent   (the encoded document, present for replace)
+  }>
+}
+```
+
+The receiving primary refuses the batch with `REPLICATION_TERM_MISMATCH` where `sourcePrimaryTerm` is lower than the highest that it has accepted for that `jobId` and `sourcePartitionId`. Otherwise it replicates each operation as an ordinary entry, and it answers with one result per operation, in the shape of the results of [replication.forward_batch](#replicationforward_batch).
+
+### cluster.reshard_cutover
+
+The controller sends this to the primary of each partition of the current generation.
+
+```text
+{
+  indexName:   string
+  jobId:       string
+  partitionId: uint32
+  action:      'block' or 'lift'
+}
+```
+
+The primary answers once every write that it accepted before a `block` has finished:
+
+```text
+{
+  jobId:       string
+  partitionId: uint32
+  lastSeqNo:   uint64
+}
+```
+
+### cluster.reshard_purge
+
+A primary of the current generation sends this to every primary of the new generation before it restarts its copy from a new snapshot.
+
+```text
+{
+  targetGeneration:     string
+  jobId:                string
+  sourcePartitionCount: uint32
+  sourcePartitionId:    uint32
+}
+```
+
+Each receiving primary removes every document that it holds whose ID routes to `sourcePartitionId` under `sourcePartitionCount`, and it answers:
+
+```text
+{
+  removed: uint32
+}
+```
 
 ### cluster.index_settings
 

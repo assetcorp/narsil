@@ -17,7 +17,7 @@ import {
 } from '../../query/codec'
 import { countIsExactFor, localParamsToWire } from '../query-conversion'
 import { routableAllocation } from '../routable-allocation'
-import { type ClusterReadDeps, sendReadRequest, strictScatterGroups } from './scatter'
+import { type ClusterReadDeps, gatherFromEveryPartition, sendReadRequest } from './scatter'
 
 /**
  * Works out how many completions one node must return so that merging the
@@ -53,21 +53,17 @@ export async function suggestCluster(
   }
 
   const nodeLimit = suggestNodeLimit(clientLimit)
-  const groups = strictScatterGroups(allocation, indexName)
-
-  const gathered = await Promise.all(
-    groups.map(async group => {
-      if (group.nodeId === deps.nodeId) {
-        const local = await deps.engine.suggestPartitions(indexName, { prefix, limit: nodeLimit }, group.partitionIds)
-        return { terms: local.terms, analysisStale: local.analysisStale === true }
-      }
-      const message = createSuggestMessage(
-        { indexName, partitionIds: group.partitionIds, prefix, limit: nodeLimit },
-        deps.nodeId,
-      )
-      return sendReadRequest(deps, group.nodeId, message, indexName, validateSuggestResultPayload)
-    }),
-  )
+  const gathered = await gatherFromEveryPartition(allocation, indexName, async group => {
+    if (group.nodeId === deps.nodeId) {
+      const local = await deps.engine.suggestPartitions(indexName, { prefix, limit: nodeLimit }, group.partitionIds)
+      return { terms: local.terms, analysisStale: local.analysisStale === true }
+    }
+    const message = createSuggestMessage(
+      { indexName, partitionIds: group.partitionIds, prefix, limit: nodeLimit },
+      deps.nodeId,
+    )
+    return sendReadRequest(deps, group.nodeId, message, indexName, validateSuggestResultPayload)
+  })
 
   const mergedFrequencies = new Map<string, number>()
   let analysisStale = false
@@ -105,21 +101,17 @@ export async function preflightCluster(
 
   const startTime = performance.now()
   const wireParams = localParamsToWire(params)
-  const groups = strictScatterGroups(allocation, indexName)
-
-  const gathered = await Promise.all(
-    groups.map(async group => {
-      if (group.nodeId === deps.nodeId) {
-        const local = await deps.engine.preflightPartitions(indexName, params, group.partitionIds)
-        return { count: local.count, analysisStale: local.analysisStale === true }
-      }
-      const message = createPreflightMessage(
-        { indexName, partitionIds: group.partitionIds, params: wireParams },
-        deps.nodeId,
-      )
-      return sendReadRequest(deps, group.nodeId, message, indexName, validatePreflightResultPayload)
-    }),
-  )
+  const gathered = await gatherFromEveryPartition(allocation, indexName, async group => {
+    if (group.nodeId === deps.nodeId) {
+      const local = await deps.engine.preflightPartitions(indexName, params, group.partitionIds)
+      return { count: local.count, analysisStale: local.analysisStale === true }
+    }
+    const message = createPreflightMessage(
+      { indexName, partitionIds: group.partitionIds, params: wireParams },
+      deps.nodeId,
+    )
+    return sendReadRequest(deps, group.nodeId, message, indexName, validatePreflightResultPayload)
+  })
 
   let count = 0
   let analysisStale = false

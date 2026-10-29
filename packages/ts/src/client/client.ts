@@ -9,8 +9,8 @@ import { createServerOperations, type ServerOperations } from './server-info'
 import { createTaskOperations, type TaskOperations } from './tasks'
 
 /**
- * This client reaches one Narsil server, and it runs every operation that
- * server serves.
+ * This client reaches one Narsil server, or any of a list of them, and it runs
+ * every operation that a server serves.
  *
  * Every method has the name the embedded engine uses, so a call written against
  * {@link Narsil} works here. HTTP forces two differences: every method takes
@@ -32,17 +32,19 @@ export interface NarsilClient
     ServerOperations {}
 
 /**
- * Builds a client for one Narsil server.
+ * Builds a client for one Narsil server, or for a list of them that it moves
+ * between as {@link NarsilClientOptions.url} describes.
  *
  * The client opens no connection, and it holds no state beyond the
- * capabilities it has read, so nothing needs closing. Keep one client for the
- * application's lifetime.
+ * capabilities it has read and the URLs it is skipping, so nothing needs
+ * closing. Keep one client for the application's lifetime.
  *
- * @param options - These set the server address, the credentials, and the
+ * @param options - These set the server addresses, the credentials, and the
  * defaults every request inherits.
  * @returns The client is ready to use.
- * @throws A `NarsilError` with `CONFIG_INVALID` when it cannot read the address
- * as a URL.
+ * @throws A `NarsilError` with `CONFIG_INVALID` when it cannot read an address
+ * as a URL, when the list of addresses is empty, or when a skip duration is
+ * not a whole number of milliseconds.
  *
  * @public
  */

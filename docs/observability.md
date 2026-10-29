@@ -51,6 +51,7 @@ A hook may be async, and the engine waits for every `before*` hook to finish bef
 | `heapPressure` | `{ indexName, heapUsed, heapLimit, estimatedMemoryBytes }` | The process heap crossed nine tenths of its limit during a write to the named index or a load of it. See [The Node heap limit](#the-node-heap-limit). |
 | `analysisRebuild` | `{ indexName, status, partitionsRebuilt, partitionCount, error? }` | A rebuild of an index's terms started, completed, or failed. See [Analysis revisions](language-support.md#analysis-revisions). |
 | `layoutUpgrade` | `{ indexName, status, layout, error? }` | The engine started, completed, or failed the rewrite of an index that you saved with release 0.3. `layout` is `manifest` where the earlier index is a segment manifest with its files, and `bundle` where it is a single snapshot bundle. See [Indexes from an earlier release](persistence-and-durability.md#indexes-from-an-earlier-release). |
+| `checkpointHeld` | `{ indexName, partitionIds, recordsSinceCheckpoint, documentBytesSinceCheckpoint }` | A partition of an index with a vector field failed, so the engine holds back every checkpoint of that index while its write-ahead log grows, and `getMemoryStats()` reports the same figures under `heldCheckpoints`. Restart the process so that recovery reloads the index from disk, and where that recovery fails, restore the index from a snapshot with `restore`, or drop it with `dropIndex` and create it again. |
 
 ```ts
 narsil.on('durabilityError', payload => {

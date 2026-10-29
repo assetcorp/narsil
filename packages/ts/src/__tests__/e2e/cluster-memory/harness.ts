@@ -2,11 +2,20 @@ import { type ChildProcess, spawn } from 'node:child_process'
 import { createServer } from 'node:net'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
+import { expect } from 'vitest'
 import type { ClusterMemoryConfig } from '../../../distribution/cluster-node/types'
+import type { ServerLimits } from '../../../server/types'
 
 const NODE_SCRIPT = fileURLToPath(new URL('./node-process.mjs', import.meta.url))
+const SERVER_REFUSAL_REASONS = ['parse_would_fill_memory', 'request_bytes_in_flight']
+const READ_BACK_DOCUMENTS = 1_000
+const READ_BACK_ATTEMPTS = 20
+const READ_BACK_RETRY_MS = 500
 const READY_TIMEOUT_MS = 60_000
 const STOP_TIMEOUT_MS = 15_000
+const PEAK_REPORT_TIMEOUT_MS = 5_000
+const PEAK_REPORT_POLL_MS = 20
+const PEAK_OLD_GENERATION_LINE = /PEAK_OLD_GENERATION (\d+)\n/
 
 export interface NodeProcess {
   nodeId: string
@@ -14,6 +23,7 @@ export interface NodeProcess {
   heapLimitBytes: number
   exited(): boolean
   output(): string
+  peakOldGenerationBytes(): Promise<number>
   stop(): Promise<void>
 }
 
@@ -43,14 +53,16 @@ export async function startNodeProcess(options: {
   keyPrefix: string
   heapMegabytes: number
   memory?: ClusterMemoryConfig
+  serverLimits?: ServerLimits
 }): Promise<NodeProcess> {
   const httpPort = await freePort()
   const transportPort = await freePort()
-  const { NARSIL_MEMORY_CONFIG: _inherited, ...parentEnv } = process.env
+  const { NARSIL_MEMORY_CONFIG: _inherited, NARSIL_SERVER_LIMITS: _inheritedLimits, ...parentEnv } = process.env
   const child: ChildProcess = spawn(process.execPath, [`--max-old-space-size=${options.heapMegabytes}`, NODE_SCRIPT], {
     env: {
       ...parentEnv,
       ...(options.memory === undefined ? {} : { NARSIL_MEMORY_CONFIG: JSON.stringify(options.memory) }),
+      ...(options.serverLimits === undefined ? {} : { NARSIL_SERVER_LIMITS: JSON.stringify(options.serverLimits) }),
       NODE_OPTIONS: '',
       NARSIL_NODE_ID: options.nodeId,
       NARSIL_HTTP_PORT: String(httpPort),
@@ -97,6 +109,17 @@ export async function startNodeProcess(options: {
     heapLimitBytes: options.heapMegabytes * 1024 * 1024,
     exited: () => hasExited,
     output: () => output,
+    async peakOldGenerationBytes() {
+      const reported = output.length
+      child.kill('SIGUSR2')
+      const deadline = Date.now() + PEAK_REPORT_TIMEOUT_MS
+      while (Date.now() < deadline && !hasExited) {
+        const match = PEAK_OLD_GENERATION_LINE.exec(output.slice(reported))
+        if (match !== null) return Number(match[1])
+        await sleep(PEAK_REPORT_POLL_MS)
+      }
+      throw new Error(`${options.nodeId} reported no old-generation peak: ${output.slice(-2_000)}`)
+    },
     async stop() {
       if (hasExited) return
       child.kill('SIGTERM')
@@ -128,6 +151,35 @@ export function errorOf(reply: HttpReply): { code: unknown; details: Record<stri
   return {
     code: code ?? null,
     details: details !== null && typeof details === 'object' ? (details as Record<string, unknown>) : {},
+  }
+}
+
+export function isServerMemoryRefusal(reply: HttpReply): boolean {
+  const refusal = errorOf(reply)
+  return (
+    reply.status === 429 &&
+    refusal.code === 'TOO_MANY_REQUESTS' &&
+    SERVER_REFUSAL_REASONS.includes(String(refusal.details.reason))
+  )
+}
+
+export async function expectEveryDocumentReadsBack(
+  base: string,
+  indexName: string,
+  kept: ReadonlyMap<string, object>,
+): Promise<void> {
+  const docIds = [...kept.keys()]
+  for (let start = 0; start < docIds.length; start += READ_BACK_DOCUMENTS) {
+    const slice = docIds.slice(start, start + READ_BACK_DOCUMENTS)
+    let reply = await request(base, 'POST', `/indexes/${indexName}/documents/_multi-get`, { docIds: slice })
+    for (let attempt = 1; attempt < READ_BACK_ATTEMPTS && isServerMemoryRefusal(reply); attempt++) {
+      await sleep(READ_BACK_RETRY_MS)
+      reply = await request(base, 'POST', `/indexes/${indexName}/documents/_multi-get`, { docIds: slice })
+    }
+    expect(reply.status, JSON.stringify(reply.body).slice(0, 500)).toBe(200)
+    const documents = (reply.body.documents ?? {}) as Record<string, unknown>
+    for (const docId of slice)
+      expect(documents[docId], `${docId} was acknowledged`).toMatchObject(kept.get(docId) ?? {})
   }
 }
 

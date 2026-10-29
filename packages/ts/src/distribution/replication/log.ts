@@ -14,6 +14,13 @@ function estimateEntrySize(entry: ReplicationLogEntry): number {
 
 const computeChecksum = computeEntryChecksum
 
+function ownedDocument(document: Uint8Array | null): Uint8Array | null {
+  if (document === null || (document.byteOffset === 0 && document.byteLength === document.buffer.byteLength)) {
+    return document
+  }
+  return document.slice()
+}
+
 export function createReplicationLog(
   partitionId: number,
   config?: Partial<ReplicationConfig & { startSeqNo: number; lastPrimaryTerm: number }>,
@@ -22,6 +29,8 @@ export function createReplicationLog(
   let nextSeqNo = config?.startSeqNo ?? 1
   let localLogEnd = nextSeqNo - 1
   let localLogEndPrimaryTerm = config?.lastPrimaryTerm ?? 0
+  let seedSeqNo = localLogEnd
+  let seedPrimaryTerm = localLogEndPrimaryTerm
   let commitPoint = nextSeqNo - 1
   let entries: ReplicationLogEntry[] = []
   let headIndex = 0
@@ -89,7 +98,8 @@ export function createReplicationLog(
     }
   }
 
-  function storeEntry(entry: ReplicationLogEntry): ReplicationLogEntry {
+  function storeEntry(appended: ReplicationLogEntry): ReplicationLogEntry {
+    const entry = { ...appended, document: ownedDocument(appended.document) }
     entries.push(entry)
     if (entry.seqNo >= localLogEnd) {
       localLogEnd = entry.seqNo
@@ -123,6 +133,7 @@ export function createReplicationLog(
   }
 
   return {
+    assertFits: assertEntryFitsRetention,
     append(partial) {
       assertEntryFitsRetention(partial)
       const seqNo = nextSeqNo
@@ -194,7 +205,7 @@ export function createReplicationLog(
 
       assertEntryFitsRetention(entry)
       nextSeqNo = entry.seqNo + 1
-      return storeEntry({ ...entry })
+      return storeEntry(entry)
     },
 
     getEntriesFrom(fromSeqNo: number): ReplicationLogEntry[] {
@@ -206,6 +217,14 @@ export function createReplicationLog(
 
     getEntry(seqNo: number): ReplicationLogEntry | undefined {
       return readEntry(seqNo)
+    },
+
+    termAt(seqNo: number): number | undefined {
+      const entry = readEntry(seqNo)
+      if (entry !== undefined) return entry.primaryTerm
+      if (seqNo === localLogEnd) return localLogEndPrimaryTerm
+      const nothingAfterTheSeedIsGone = liveCount() === 0 || entries[headIndex].seqNo === seedSeqNo + 1
+      return seqNo === seedSeqNo && nothingAfterTheSeedIsGone ? seedPrimaryTerm : undefined
     },
 
     verifyChecksum(entry: ReplicationLogEntry): boolean {
@@ -255,6 +274,8 @@ export function createReplicationLog(
       totalSizeBytes = 0
       localLogEnd = nextSeqNo - 1
       commitPoint = nextSeqNo - 1
+      seedSeqNo = localLogEnd
+      seedPrimaryTerm = localLogEndPrimaryTerm
     },
   }
 }

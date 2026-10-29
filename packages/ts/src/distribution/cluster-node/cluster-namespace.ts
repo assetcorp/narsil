@@ -2,6 +2,8 @@ import type { ControllerNode } from '../cluster/controller/types'
 import { CONTROLLER_LEASE_KEY } from '../cluster/controller/types'
 import type { DataNodeHandle } from '../cluster/node-lifecycle/types'
 import type { ClusterCoordinator, NodeRole } from '../coordinator/types'
+import { readClusterHealth } from './observability/health'
+import { type ClusterMetricsDeps, readClusterMetrics } from './observability/metrics'
 import type { ClusterNamespace, NodeReadiness } from './types'
 
 export interface ClusterNamespaceDeps {
@@ -13,6 +15,8 @@ export interface ClusterNamespaceDeps {
   isShutdown: () => boolean
   isServing: () => boolean
   trackOp: <T>(indexName: string | null, fn: () => Promise<T>) => Promise<T>
+  requestReplicationFactor: (indexName: string, replicationFactor: number) => Promise<void>
+  observability: ClusterMetricsDeps
 }
 
 function readinessOf(deps: ClusterNamespaceDeps): NodeReadiness {
@@ -45,7 +49,12 @@ function readinessOf(deps: ClusterNamespaceDeps): NodeReadiness {
 export function createClusterNamespace(deps: ClusterNamespaceDeps): ClusterNamespace {
   return {
     async getAllocation(indexName: string) {
-      return deps.trackOp(null, () => deps.coordinator.getAllocation(indexName))
+      return deps.trackOp(null, async () => {
+        const table = await deps.coordinator.getAllocation(indexName)
+        if (table?.generation === undefined) return table
+        const served = await deps.coordinator.getAllocation(table.generation)
+        return served === null ? null : { ...served, indexName }
+      })
     },
     getNodeInfo() {
       return { nodeId: deps.nodeId, roles: [...deps.roles], status: deps.lifecycle().status }
@@ -61,6 +70,15 @@ export function createClusterNamespace(deps: ClusterNamespaceDeps): ClusterNames
     },
     async getControllerNodeId() {
       return deps.trackOp(null, () => deps.coordinator.getLeaseHolder(CONTROLLER_LEASE_KEY))
+    },
+    async setReplicationFactor(indexName: string, replicationFactor: number) {
+      return deps.trackOp(null, () => deps.requestReplicationFactor(indexName, replicationFactor))
+    },
+    async getHealth() {
+      return deps.trackOp(null, () => readClusterHealth(deps.observability.coordinator))
+    },
+    async getMetrics() {
+      return deps.trackOp(null, () => readClusterMetrics(deps.observability))
     },
   }
 }

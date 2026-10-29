@@ -36,6 +36,7 @@ const EVENT_NAMES: Record<keyof NarsilEventMap, true> = {
   heapPressure: true,
   analysisRebuild: true,
   layoutUpgrade: true,
+  checkpointHeld: true,
   durabilityError: true,
   invalidationError: true,
 }

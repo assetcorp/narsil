@@ -1,5 +1,7 @@
 import { ErrorCodes, NarsilError } from '../../errors'
+import { bindIndexReads } from '../../narsil/index-reads'
 import { bindRerankWindowSource, rerankWindowCapOf } from '../../narsil/internals'
+import { bindEngineWriteBlock } from '../../narsil/write-blocks'
 import type { Narsil } from '../../types/engine'
 import type { AnyDocument, IndexConfig, InsertOptions, WriteOptions } from '../../types/schema'
 import type { ListParams, QueryParams, SuggestParams } from '../../types/search'
@@ -34,16 +36,18 @@ function rejectWait(options: WriteOptions | undefined): void {
  * serves a single engine.
  *
  * Writes, updates, searches, suggestions, listings, counts, index creation,
- * index removal, synonym sets, and document reads route through the cluster.
+ * index removal, analysis rebuilds, synonym sets, and document reads route through the cluster.
  * Checkpointing, memory statistics, index opens, index closes, engine events,
  * and rerank adapter registration reach this node's local engine, because
  * each covers a per-node fact. This node reranks the searches that it
  * receives with the adapters registered on it. Every other operation fails with
  * `CLUSTER_OPERATION_UNSUPPORTED`, which the HTTP server answers with status
  * 501, so a caller learns the operation is missing rather than reading a
- * wrong answer. That covers `getStats`, `getPartitionStats`, and
- * `listIndexes` as well, because {@link Narsil} declares them synchronous and
- * a cluster answer needs a round trip; call them on the
+ * wrong answer. The HTTP server answers the index list, the index figures,
+ * and the partition figures from the whole cluster. The adapter's own
+ * `getStats`, `getPartitionStats`, and `listIndexes` still fail with
+ * `CLUSTER_OPERATION_UNSUPPORTED`, because {@link Narsil} declares them
+ * synchronous and a cluster answer needs a round trip, so call them on the
  * {@link ClusterNode} itself, where they are asynchronous.
  *
  * @param node - The cluster node the adapter serves.
@@ -158,6 +162,10 @@ export function clusterNodeEngine(node: ClusterNode, options?: ClusterEngineOpti
       return node.checkpoint(indexName)
     },
 
+    async rebuildAnalysis(indexName: string): Promise<void> {
+      return node.rebuildAnalysis(indexName)
+    },
+
     async getMemoryStats() {
       return node.getMemoryStats()
     },
@@ -183,17 +191,22 @@ export function clusterNodeEngine(node: ClusterNode, options?: ClusterEngineOpti
     listIndexes: () => unsupported('listIndexes'),
     getStats: () => unsupported('getStats'),
     getPartitionStats: () => unsupported('getPartitionStats'),
-    rebuildAnalysis: () => unsupported('rebuildAnalysis'),
     snapshot: () => unsupported('snapshot'),
     restore: () => unsupported('restore'),
     exportDocuments: () => unsupported('exportDocuments'),
     importDocumentExport: () => unsupported('importDocumentExport'),
-    rebalance: () => unsupported('rebalance'),
+    rebalance: (indexName: string, targetPartitionCount: number) => node.rebalance(indexName, targetPartitionCount),
     updatePartitionConfig: () => unsupported('updatePartitionConfig'),
     compactVectors: () => unsupported('compactVectors'),
     optimizeVectors: () => unsupported('optimizeVectors'),
     vectorMaintenanceStatus: () => unsupported('vectorMaintenanceStatus'),
   }
+  bindEngineWriteBlock(engine, node)
+  bindIndexReads(engine, {
+    listIndexes: () => node.listIndexes(),
+    getStats: indexName => node.getStats(indexName),
+    getPartitionStats: indexName => node.getPartitionStats(indexName),
+  })
   bindRerankWindowSource(engine, () => rerankWindowCapOf(node))
   return engine
 }

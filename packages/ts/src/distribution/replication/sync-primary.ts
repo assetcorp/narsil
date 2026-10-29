@@ -1,18 +1,17 @@
 import type { SyncRequestPayload } from '../transport/types'
+import { optionalIndexUuid } from './codec'
 import type { ReplicationLog } from './types'
 
-export function decideSyncTier(log: ReplicationLog, replicaLastSeqNo: number): 'incremental' | 'snapshot' {
-  const oldest = log.oldestSeqNo
-  if (oldest === undefined) {
-    if (log.localLogEnd === 0) {
-      return replicaLastSeqNo === 0 ? 'incremental' : 'snapshot'
-    }
-    return replicaLastSeqNo >= log.localLogEnd ? 'incremental' : 'snapshot'
+export function decideSyncTier(
+  log: ReplicationLog,
+  replicaLastSeqNo: number,
+  replicaLastPrimaryTerm: number,
+): 'incremental' | 'snapshot' {
+  if (replicaLastSeqNo === 0) {
+    return log.localLogEnd === 0 || log.oldestSeqNo === 1 ? 'incremental' : 'snapshot'
   }
-  if (oldest <= replicaLastSeqNo + 1) {
-    return 'incremental'
-  }
-  return 'snapshot'
+  const primaryTerm = log.termAt(replicaLastSeqNo)
+  return primaryTerm !== undefined && primaryTerm === replicaLastPrimaryTerm ? 'incremental' : 'snapshot'
 }
 
 export function validateSyncRequest(decoded: unknown): SyncRequestPayload {
@@ -36,5 +35,6 @@ export function validateSyncRequest(decoded: unknown): SyncRequestPayload {
   ) {
     throw new Error('Invalid SyncRequestPayload: "lastPrimaryTerm" must be a non-negative integer')
   }
+  optionalIndexUuid(record.indexUuid, 'SyncRequestPayload')
   return record as unknown as SyncRequestPayload
 }

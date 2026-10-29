@@ -53,7 +53,7 @@ describe('the HTTP server serves a cluster node', () => {
     await coordinator.shutdown()
   })
 
-  it('creates, writes, updates, searches, reads, and administers through the cluster, and refuses the rest with 501', async () => {
+  it('creates, writes, updates, searches, reads, and administers through the cluster', async () => {
     const created = await postJson(base, '/indexes', {
       name: 'products',
       config: { schema: { title: 'string', price: 'number' } },
@@ -118,16 +118,6 @@ describe('the HTTP server serves a cluster node', () => {
 
     const removed = await del(base, '/indexes/products/documents/widget-1')
     expect(removed.status).toBe(200)
-
-    const refusals: Array<[string, Promise<{ status: number; body: unknown }>]> = [
-      ['list indexes', getJson(base, '/indexes')],
-      ['index stats', getJson(base, '/indexes/products/stats')],
-    ]
-    for (const [operation, request] of refusals) {
-      const refusal = await request
-      expect(refusal.status, operation).toBe(501)
-      expect((refusal.body as { error: { code: string } }).error.code, operation).toBe('CLUSTER_OPERATION_UNSUPPORTED')
-    }
 
     const importedAsync = await postRaw<{ id: string }>(
       base,

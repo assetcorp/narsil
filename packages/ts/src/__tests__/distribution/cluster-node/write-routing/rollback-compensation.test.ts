@@ -11,7 +11,11 @@ import {
 } from '../../../../distribution/cluster-node/write-routing/primary-writes'
 import type { WriteRoutingDeps } from '../../../../distribution/cluster-node/write-routing/types'
 import { createInMemoryCoordinator } from '../../../../distribution/coordinator'
-import type { ClusterCoordinator, PartitionAssignment } from '../../../../distribution/coordinator/types'
+import type {
+  ClusterCoordinator,
+  NodeRegistration,
+  PartitionAssignment,
+} from '../../../../distribution/coordinator/types'
 import { createReplicationLog } from '../../../../distribution/replication/log'
 import type { ReplicationLog, ReplicationLogEntry } from '../../../../distribution/replication/types'
 import type { NodeTransport } from '../../../../distribution/transport/types'
@@ -28,6 +32,15 @@ const ASSIGNMENT: PartitionAssignment = {
   primaryTerm: PRIMARY_TERM,
   commitPoint: 0,
   state: 'ACTIVE',
+}
+
+const NODE_A_REGISTRATION: NodeRegistration = {
+  nodeId: 'node-a',
+  address: 'node-a',
+  roles: ['data'],
+  capacity: { memoryBytes: 1_000_000_000, cpuCores: 1, diskBytes: null },
+  startedAt: '2026-01-01T00:00:00.000Z',
+  version: '0.3.0',
 }
 
 function unreachableTransport(): NodeTransport {
@@ -51,6 +64,7 @@ describe('a primary write rolled back after it reached the log', () => {
 
   beforeEach(async () => {
     coordinator = createInMemoryCoordinator()
+    await coordinator.registerNode(NODE_A_REGISTRATION)
     engine = await createClusterLocalEngine()
     await engine.createIndex(INDEX, { schema: { title: 'string' } })
     log = createReplicationLog(PARTITION_ID)
@@ -129,25 +143,6 @@ describe('a primary write rolled back after it reached the log', () => {
     expect(await replica.get(INDEX, 'doc-1')).toBeUndefined()
     expect(await engine.get(INDEX, 'doc-1')).toBeUndefined()
     await replica.shutdown()
-  })
-
-  it('appends no compensation once another node holds the term, because that node owns the log', async () => {
-    const soleCopy: PartitionAssignment = { ...ASSIGNMENT, replicas: [], inSyncSet: ['node-a'] }
-    await coordinator.putAllocation(INDEX, {
-      indexName: INDEX,
-      version: 2,
-      replicationFactor: 1,
-      assignments: new Map([
-        [PARTITION_ID, { ...soleCopy, primary: 'node-b', primaryTerm: PRIMARY_TERM + 1, inSyncSet: ['node-b'] }],
-      ]),
-    })
-
-    await expect(
-      applyPrimaryInsert(INDEX, { title: 'widget' }, 'doc-1', PARTITION_ID, soleCopy, deps),
-    ).rejects.toMatchObject({ code: 'PARTITION_NOT_PRIMARY' })
-
-    expect(log.getEntriesFrom(1).map(entry => entry.operation)).toEqual(['INDEX'])
-    expect(await engine.get(INDEX, 'doc-1')).toBeUndefined()
   })
 
   it('compensates every entry of a rolled-back batch, newest first', async () => {

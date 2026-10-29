@@ -7,7 +7,8 @@ import { requireWritableIndex } from '../memory/write-block'
 import { estimateDocumentsBytes, withAdmittedWrite } from '../memory/write-pressure'
 import { routableAllocation } from '../routable-allocation'
 import { requireAssignedPrimary, resolvePartitionId } from './assignment'
-import { type ForwardBatchItem, forwardBatchToRemote } from './forward-batch'
+import { type ForwardBatchItem, forwardBatchToRemote } from './forward-to-primary'
+import { retryEachPartition, settleAbsentRemovals, settleEqualInserts, settleNothing } from './primary-change'
 import { applyPrimaryInsertBatch, applyPrimaryRemoveBatch, applyPrimaryUpdateBatch } from './primary-writes'
 import type { WriteRoutingDeps } from './types'
 
@@ -114,6 +115,37 @@ async function routeAdmittedInsertBatch(
     doc,
     docId: typeof doc.id === 'string' && doc.id.length > 0 ? doc.id : generateId(),
   }))
+  const sentById = new Map(withIds.map(item => [item.docId, item.doc]))
+  return retryEachPartition(
+    deps,
+    indexName,
+    table,
+    withIds,
+    item => item.docId,
+    async pending => routeInsertItems(await requireRoutableTable(deps, indexName), indexName, pending, deps, options),
+    settleEqualInserts(deps, indexName, sentById),
+  )
+}
+
+async function requireRoutableTable(deps: WriteRoutingDeps, indexName: string): Promise<AllocationTable> {
+  const table = await routableAllocation(deps.coordinator, indexName)
+  if (table === null) {
+    throw new NarsilError(
+      ErrorCodes.QUERY_ROUTING_FAILED,
+      `Index '${indexName}' lost its cluster metadata while a batch waited for a new primary`,
+      { indexName },
+    )
+  }
+  return table
+}
+
+async function routeInsertItems(
+  table: AllocationTable,
+  indexName: string,
+  withIds: Array<{ doc: AnyDocument; docId: string }>,
+  deps: WriteRoutingDeps,
+  options?: InsertOptions,
+): Promise<BatchResult> {
   const routed = routeBatchItems(table, indexName, withIds, item => item.docId, deps.nodeId)
   const succeeded: string[] = []
   const failed = routed.failed
@@ -140,6 +172,7 @@ async function routeAdmittedInsertBatch(
       items.map((item): ForwardBatchItem => ({ documentId: item.docId, operation: 'insert', document: item.doc })),
       primaryNodeId,
       deps,
+      table.indexUuid,
     )
     succeeded.push(...result.succeeded)
     failed.push(...result.failed)
@@ -158,6 +191,23 @@ export async function routeRemoveBatch(
     return deps.engine.removeBatch(indexName, docIds)
   }
 
+  return retryEachPartition(
+    deps,
+    indexName,
+    table,
+    docIds,
+    docId => docId,
+    async pending => routeRemoveItems(await requireRoutableTable(deps, indexName), indexName, pending, deps),
+    settleAbsentRemovals,
+  )
+}
+
+async function routeRemoveItems(
+  table: AllocationTable,
+  indexName: string,
+  docIds: string[],
+  deps: WriteRoutingDeps,
+): Promise<BatchResult> {
   const routed = routeBatchItems(table, indexName, docIds, docId => docId, deps.nodeId)
   const succeeded: string[] = []
   const failed = routed.failed
@@ -178,6 +228,7 @@ export async function routeRemoveBatch(
       items.map((docId): ForwardBatchItem => ({ documentId: docId, operation: 'remove', document: null })),
       primaryNodeId,
       deps,
+      table.indexUuid,
     )
     succeeded.push(...result.succeeded)
     failed.push(...result.failed)
@@ -210,6 +261,23 @@ async function routeAdmittedUpdateBatch(
   }
   requireWritableIndex(table, deps.memoryView)
 
+  return retryEachPartition(
+    deps,
+    indexName,
+    table,
+    updates,
+    update => update.docId,
+    async pending => routeUpdateItems(await requireRoutableTable(deps, indexName), indexName, pending, deps),
+    settleNothing,
+  )
+}
+
+async function routeUpdateItems(
+  table: AllocationTable,
+  indexName: string,
+  updates: Array<{ docId: string; document: AnyDocument }>,
+  deps: WriteRoutingDeps,
+): Promise<BatchResult> {
   const routed = routeBatchItems(table, indexName, updates, update => update.docId, deps.nodeId)
   const succeeded: string[] = []
   const failed = routed.failed
@@ -238,6 +306,7 @@ async function routeAdmittedUpdateBatch(
       ),
       primaryNodeId,
       deps,
+      table.indexUuid,
     )
     succeeded.push(...result.succeeded)
     failed.push(...result.failed)

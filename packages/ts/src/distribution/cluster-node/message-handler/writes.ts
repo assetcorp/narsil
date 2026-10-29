@@ -1,6 +1,5 @@
 import { decode, encode } from '@msgpack/msgpack'
 import { ErrorCodes, NarsilError } from '../../../errors'
-import type { PartitionAssignment } from '../../coordinator/types'
 import {
   createAckMessage,
   createForwardBatchResultMessage,
@@ -9,10 +8,14 @@ import {
   validateForwardBatchPayload,
 } from '../../replication/codec'
 import { validateReplicationEntry } from '../../replication/replica'
-import type { ReplicationLogEntry } from '../../replication/types'
+import type { ReplicationLog, ReplicationLogEntry } from '../../replication/types'
 import type { ForwardPayload, RespondFn, TransportMessage } from '../../transport/types'
 import { ReplicationMessageTypes } from '../../transport/types'
+import { noteAcceptedPrimaryTerm, noteSupersedingPrimary } from '../led-term'
+import { holdsAnotherIndex } from '../request-identity'
 import { applyForwardedBatch, applyForwardedWrite } from '../write-routing'
+import { enqueuePartitionWrite } from '../write-routing/partition-queue'
+import { resolveValidatedAssignment } from './entry-authority'
 import type { DataNodeHandlerDeps } from './types'
 
 export async function handleForward(
@@ -22,6 +25,10 @@ export async function handleForward(
 ): Promise<void> {
   const decoded = decode(message.payload) as Record<string, unknown>
   const payload = validateForwardPayload(decoded)
+  const heldIndexUuid = deps.engine.indexUuidOf(payload.indexName)
+  if (typeof heldIndexUuid === 'string' && holdsAnotherIndex(heldIndexUuid, payload.indexUuid)) {
+    throw anotherIndexAsPrimary(payload.indexName, deps.nodeId, heldIndexUuid)
+  }
   const documentId = await applyForwardedWrite(payload, deps.writeDeps)
 
   await respond({
@@ -38,6 +45,19 @@ export async function handleForwardBatch(
   deps: DataNodeHandlerDeps,
 ): Promise<void> {
   const payload = validateForwardBatchPayload(decode(message.payload))
+  const heldIndexUuid = deps.engine.indexUuidOf(payload.indexName)
+  if (typeof heldIndexUuid === 'string' && holdsAnotherIndex(heldIndexUuid, payload.indexUuid)) {
+    const refusal = anotherIndexAsPrimary(payload.indexName, deps.nodeId, heldIndexUuid)
+    const results = payload.operations.map(operation => ({
+      documentId: operation.documentId,
+      success: false,
+      errorCode: refusal.code,
+      errorMessage: refusal.message,
+      errorDetails: refusal.details,
+    }))
+    await respond(createForwardBatchResultMessage({ results }, deps.nodeId, message.requestId))
+    return
+  }
   const results = await applyForwardedBatch(payload, deps.writeDeps)
   await respond(createForwardBatchResultMessage({ results }, deps.nodeId, message.requestId))
 }
@@ -49,9 +69,9 @@ export async function handleReplicationEntry(
 ): Promise<void> {
   const payload = validateEntryPayload(decode(message.payload))
   const { entry } = payload
+  refuseAnotherIndex(entry.indexName, payload.indexUuid, deps)
 
-  await resolveValidatedAssignment(entry, message.sourceId, deps)
-  await applyEntryToLog(entry, deps)
+  await applyEntriesFromPrimary([entry], message.sourceId, deps)
 
   await respond(createAckMessage(entry.seqNo, entry.partitionId, entry.indexName, deps.nodeId, message.requestId))
 }
@@ -62,118 +82,125 @@ export async function handleReplicationEntryBatch(
   deps: DataNodeHandlerDeps,
 ): Promise<void> {
   const payload = validateEntryBatchPayload(decode(message.payload))
-  const firstEntry = payload.entries[0]
   const lastEntry = payload.entries[payload.entries.length - 1]
+  refuseAnotherIndex(lastEntry.indexName, payload.indexUuid, deps)
 
-  await resolveValidatedAssignment(firstEntry, message.sourceId, deps)
-  for (const entry of payload.entries) {
-    await applyEntryToLog(entry, deps)
-  }
+  await applyEntriesFromPrimary(payload.entries, message.sourceId, deps)
 
   await respond(
     createAckMessage(lastEntry.seqNo, lastEntry.partitionId, lastEntry.indexName, deps.nodeId, message.requestId),
   )
 }
 
-async function resolveValidatedAssignment(
-  entry: ReplicationLogEntry,
-  sourceNodeId: string,
-  deps: DataNodeHandlerDeps,
-): Promise<PartitionAssignment> {
-  const table = await deps.coordinator.getAllocation(entry.indexName)
-  if (table === null) {
-    throw new NarsilError(
-      ErrorCodes.REPLICATION_ENTRY_INVALID,
-      `No allocation table is available for replication entry on index '${entry.indexName}'`,
-      { indexName: entry.indexName, partitionId: entry.partitionId },
-    )
-  }
-
-  const assignment = table.assignments.get(entry.partitionId)
-  if (assignment === undefined) {
-    throw new NarsilError(
-      ErrorCodes.REPLICATION_ENTRY_INVALID,
-      `No assignment exists for replication entry partition ${entry.partitionId} of index '${entry.indexName}'`,
-      { indexName: entry.indexName, partitionId: entry.partitionId },
-    )
-  }
-
-  if (assignment.primary !== sourceNodeId) {
-    throw new NarsilError(
-      ErrorCodes.REPLICATION_ENTRY_INVALID,
-      `Replication entry for index '${entry.indexName}' partition ${entry.partitionId} came from a non-primary node`,
-      {
-        indexName: entry.indexName,
-        partitionId: entry.partitionId,
-        sourceNodeId,
-        primaryNodeId: assignment.primary,
-      },
-    )
-  }
-
-  if (entry.primaryTerm > assignment.primaryTerm) {
-    throw new NarsilError(
-      ErrorCodes.REPLICATION_TERM_MISMATCH,
-      `Replication entry term ${entry.primaryTerm} is newer than allocation term ${assignment.primaryTerm}`,
-      { indexName: entry.indexName, partitionId: entry.partitionId },
-    )
-  }
-
-  if (!assignment.replicas.includes(deps.nodeId)) {
-    throw new NarsilError(
-      ErrorCodes.REPLICATION_ENTRY_INVALID,
-      `Node '${deps.nodeId}' is not an assigned replica for index '${entry.indexName}' partition ${entry.partitionId}`,
-      { indexName: entry.indexName, partitionId: entry.partitionId, nodeId: deps.nodeId },
-    )
-  }
-
-  return assignment
+function anotherIndexAsPrimary(indexName: string, nodeId: string, heldIndexUuid: string): NarsilError {
+  return new NarsilError(
+    ErrorCodes.PARTITION_NOT_PRIMARY,
+    `Node '${nodeId}' holds another index named '${indexName}', so it leads no partition of the index the sender routes to`,
+    { indexName, localNodeId: nodeId, heldIndexUuid },
+  )
 }
 
-async function applyEntryToLog(entry: ReplicationLogEntry, deps: DataNodeHandlerDeps): Promise<void> {
-  let log = deps.writeDeps.getReplicationLog(entry.indexName, entry.partitionId)
-  const existing = log.getEntry(entry.seqNo)
-  if (existing !== undefined) {
-    if (existing.checksum !== entry.checksum) {
+function refuseAnotherIndex(indexName: string, indexUuid: string | undefined, deps: DataNodeHandlerDeps): void {
+  if (!holdsAnotherIndex(deps.engine.indexUuidOf(indexName), indexUuid)) return
+  throw new NarsilError(
+    ErrorCodes.INDEX_NOT_FOUND,
+    `Node '${deps.nodeId}' holds no copy of the index '${indexName}' that the primary replicates, only an earlier index of that name`,
+    { indexName, localNodeId: deps.nodeId },
+  )
+}
+
+async function applyEntriesFromPrimary(
+  entries: readonly ReplicationLogEntry[],
+  sourceNodeId: string,
+  deps: DataNodeHandlerDeps,
+): Promise<void> {
+  const first = entries[0]
+  if (first === undefined) return
+  const assignment = await resolveValidatedAssignment(first, sourceNodeId, deps)
+  noteSupersedingPrimary(
+    deps.writeDeps.getReplicationLog(first.indexName, first.partitionId),
+    first.indexName,
+    first.partitionId,
+    sourceNodeId,
+    assignment.primaryTerm,
+  )
+  await enqueuePartitionWrite(deps.writeDeps.partitionWriteQueues, first.indexName, first.partitionId, async () => {
+    const current = await resolveValidatedAssignment(first, sourceNodeId, deps)
+    noteAcceptedPrimaryTerm(deps.writeDeps.getReplicationLog(first.indexName, first.partitionId), current.primaryTerm)
+    await applyEntriesInLogOrder(first, entries, deps)
+  })
+}
+
+async function applyEntriesInLogOrder(
+  first: ReplicationLogEntry,
+  entries: readonly ReplicationLogEntry[],
+  deps: DataNodeHandlerDeps,
+): Promise<void> {
+  let log = deps.writeDeps.getReplicationLog(first.indexName, first.partitionId)
+  let tailSeqNo = log.localLogEnd
+  let tailPrimaryTerm = log.localLogEndPrimaryTerm
+  const run: ReplicationLogEntry[] = []
+  for (const entry of entries) {
+    const existing = log.getEntry(entry.seqNo)
+    if (existing !== undefined) {
+      if (existing.checksum !== entry.checksum) {
+        await applyRun(run, log, deps)
+        throw new NarsilError(
+          ErrorCodes.REPLICATION_ENTRY_INVALID,
+          `Conflicting replication entry at sequence number ${entry.seqNo}`,
+          { indexName: entry.indexName, partitionId: entry.partitionId, seqNo: entry.seqNo },
+        )
+      }
+      continue
+    }
+
+    const expectedSeqNo = tailSeqNo + 1
+    if (entry.seqNo !== expectedSeqNo) {
+      const canSeedFromCompletedBootstrap =
+        run.length === 0 &&
+        log.entryCount === 0 &&
+        entry.seqNo > expectedSeqNo &&
+        deps.isBootstrapSynced?.(entry.indexName, entry.partitionId) === true
+
+      if (!canSeedFromCompletedBootstrap) {
+        await applyRun(run, log, deps)
+        throw new NarsilError(
+          ErrorCodes.REPLICATION_ENTRY_INVALID,
+          `Out-of-order replication entry ${entry.seqNo}; expected ${expectedSeqNo}`,
+          { indexName: entry.indexName, partitionId: entry.partitionId, seqNo: entry.seqNo, expectedSeqNo },
+        )
+      }
+
+      deps.writeDeps.resetReplicationLog(entry.indexName, entry.partitionId, entry.seqNo, entry.primaryTerm)
+      log = deps.writeDeps.getReplicationLog(entry.indexName, entry.partitionId)
+      tailPrimaryTerm = log.localLogEndPrimaryTerm
+    }
+
+    const validation = validateReplicationEntry(entry, tailPrimaryTerm, log)
+    if (!validation.valid) {
+      await applyRun(run, log, deps)
       throw new NarsilError(
-        ErrorCodes.REPLICATION_ENTRY_INVALID,
-        `Conflicting replication entry at sequence number ${entry.seqNo}`,
+        validation.error ?? ErrorCodes.REPLICATION_ENTRY_INVALID,
+        `Invalid replication entry ${entry.seqNo}`,
         { indexName: entry.indexName, partitionId: entry.partitionId, seqNo: entry.seqNo },
       )
     }
-    return
+    run.push(entry)
+    tailSeqNo = entry.seqNo
+    tailPrimaryTerm = entry.primaryTerm
   }
+  await applyRun(run, log, deps)
+}
 
-  const expectedSeqNo = (log.newestSeqNo ?? 0) + 1
-  if (entry.seqNo !== expectedSeqNo) {
-    const canSeedFromCompletedBootstrap =
-      log.entryCount === 0 &&
-      entry.seqNo > expectedSeqNo &&
-      deps.isBootstrapSynced?.(entry.indexName, entry.partitionId) === true
-
-    if (!canSeedFromCompletedBootstrap) {
-      throw new NarsilError(
-        ErrorCodes.REPLICATION_ENTRY_INVALID,
-        `Out-of-order replication entry ${entry.seqNo}; expected ${expectedSeqNo}`,
-        { indexName: entry.indexName, partitionId: entry.partitionId, seqNo: entry.seqNo, expectedSeqNo },
-      )
-    }
-
-    deps.writeDeps.resetReplicationLog(entry.indexName, entry.partitionId, entry.seqNo, entry.primaryTerm)
-    log = deps.writeDeps.getReplicationLog(entry.indexName, entry.partitionId)
-  }
-
-  const validation = validateReplicationEntry(entry, log.localLogEndPrimaryTerm, log)
-  if (!validation.valid) {
-    throw new NarsilError(
-      validation.error ?? ErrorCodes.REPLICATION_ENTRY_INVALID,
-      `Invalid replication entry ${entry.seqNo}`,
-      { indexName: entry.indexName, partitionId: entry.partitionId, seqNo: entry.seqNo },
-    )
-  }
-
-  await deps.engine.applyReplicationEntry(entry)
-  log.appendCommitted(entry)
+async function applyRun(
+  run: readonly ReplicationLogEntry[],
+  log: ReplicationLog,
+  deps: DataNodeHandlerDeps,
+): Promise<void> {
+  if (run.length === 0) return
+  const { applied, error } = await deps.engine.applyReplicationEntries(run)
+  for (let position = 0; position < applied; position++) log.appendCommitted(run[position])
+  if (applied < run.length) throw error
 }
 
 export function validateForwardPayload(decoded: unknown): ForwardPayload {
@@ -192,6 +219,10 @@ export function validateForwardPayload(decoded: unknown): ForwardPayload {
       ErrorCodes.CONFIG_INVALID,
       'Invalid ForwardPayload: "operation" must be "insert", "remove", or "update"',
     )
+  }
+  const indexUuid = record.indexUuid
+  if (indexUuid !== undefined && indexUuid !== null && (typeof indexUuid !== 'string' || indexUuid.length === 0)) {
+    throw new NarsilError(ErrorCodes.CONFIG_INVALID, 'Invalid ForwardPayload: "indexUuid" must be a non-empty string')
   }
   return decoded as unknown as ForwardPayload
 }

@@ -1,15 +1,27 @@
+import type { PartitionAssignment } from '../../coordinator/types'
+import type { CatchUpFeed } from './feed'
+
 export interface ReplicaCursor {
   appliedSeqNo: number
-  sending: boolean
+  busy: boolean
   syncEpoch: number
+  feed: CatchUpFeed | null
+}
+
+export interface AdmittedReplica {
+  primaryTerm: number
+  tableVersion: number | null
 }
 
 export interface CatchUpState {
   cursors: Map<string, Map<string, ReplicaCursor>>
   pendingAdmissions: Map<string, Set<string>>
+  admittedReplicas: Map<string, Map<string, AdmittedReplica>>
+  acknowledgedSeqNos: Map<string, Map<string, number>>
   inFlightBytes: number
   timer: ReturnType<typeof setInterval> | null
   activeTick: Promise<void> | null
+  replicaWork: Set<Promise<void>>
   stopped: boolean
 }
 
@@ -36,9 +48,12 @@ export function createCatchUpState(): CatchUpState {
   return {
     cursors: new Map(),
     pendingAdmissions: new Map(),
+    admittedReplicas: new Map(),
+    acknowledgedSeqNos: new Map(),
     inFlightBytes: 0,
     timer: null,
     activeTick: null,
+    replicaWork: new Set(),
     stopped: false,
   }
 }
@@ -50,7 +65,9 @@ export function createCatchUpState(): CatchUpState {
  * replica that reports a position behind the recorded one has lost data and started a new sync session, so the
  * cursor drops to the reported position and the sync epoch rises. Raising the epoch makes the pump discard an
  * acknowledgement still in flight from the session before, because that acknowledgement would otherwise move the
- * cursor back to a position the replica no longer holds.
+ * cursor back to a position the replica no longer holds. A report that arrives while the pump is feeding the replica
+ * comes from a new sync session whatever position it carries, so the cursor takes that position, the epoch rises, and
+ * the feed in flight is cancelled, which lets the next tick feed or propose the replica from where it now stands.
  *
  * @param state - The catch-up state that holds the cursors.
  * @param indexName - The index the partition is part of.
@@ -69,7 +86,11 @@ export function recordReplicaPosition(
   const partition = state.cursors.get(key) ?? new Map<string, ReplicaCursor>()
   const existing = partition.get(replicaNodeId)
   if (existing === undefined) {
-    partition.set(replicaNodeId, { appliedSeqNo, sending: false, syncEpoch: 0 })
+    partition.set(replicaNodeId, { appliedSeqNo, busy: false, syncEpoch: 0, feed: null })
+  } else if (existing.feed !== null) {
+    existing.feed.cancel()
+    existing.appliedSeqNo = appliedSeqNo
+    existing.syncEpoch += 1
   } else if (appliedSeqNo > existing.appliedSeqNo) {
     existing.appliedSeqNo = appliedSeqNo
   } else if (appliedSeqNo < existing.appliedSeqNo) {
@@ -77,6 +98,9 @@ export function recordReplicaPosition(
     existing.syncEpoch += 1
   }
   state.cursors.set(key, partition)
+  const acknowledged = state.acknowledgedSeqNos.get(key) ?? new Map<string, number>()
+  acknowledged.set(replicaNodeId, appliedSeqNo)
+  state.acknowledgedSeqNos.set(key, acknowledged)
 }
 
 /**
@@ -84,7 +108,8 @@ export function recordReplicaPosition(
  * in flight.
  *
  * The pump calls this once a replica joins the in-sync set, leaves the assignment, or falls behind the retained
- * log, because none of those replicas need feeding from the cursor any longer.
+ * log, because none of those replicas need feeding from the cursor any longer, and it cancels any feed still in
+ * flight to that replica.
  *
  * @param state - The catch-up state that holds the cursors.
  * @param indexName - The index the partition is part of.
@@ -100,6 +125,7 @@ export function forgetReplica(
   const key = partitionKey(indexName, partitionId)
   const partition = state.cursors.get(key)
   if (partition !== undefined) {
+    partition.get(replicaNodeId)?.feed?.cancel()
     partition.delete(replicaNodeId)
     if (partition.size === 0) {
       state.cursors.delete(key)
@@ -122,6 +148,67 @@ export function forgetReplica(
 export function getPendingAdmissions(state: CatchUpState, indexName: string, partitionId: number): string[] {
   const pending = state.pendingAdmissions.get(partitionKey(indexName, partitionId))
   return pending === undefined ? [] : [...pending]
+}
+
+export function recordAdmittedReplica(
+  state: CatchUpState,
+  indexName: string,
+  partitionId: number,
+  replicaNodeId: string,
+  primaryTerm: number,
+  tableVersion: number | null,
+): void {
+  const key = partitionKey(indexName, partitionId)
+  const admitted = state.admittedReplicas.get(key) ?? new Map<string, AdmittedReplica>()
+  admitted.set(replicaNodeId, { primaryTerm, tableVersion })
+  state.admittedReplicas.set(key, admitted)
+}
+
+export function forgetAdmittedReplica(
+  state: CatchUpState,
+  indexName: string,
+  partitionId: number,
+  replicaNodeId: string,
+): void {
+  const key = partitionKey(indexName, partitionId)
+  const admitted = state.admittedReplicas.get(key)
+  if (admitted === undefined) return
+  admitted.delete(replicaNodeId)
+  if (admitted.size === 0) state.admittedReplicas.delete(key)
+}
+
+export function admittedBeyondTable(
+  state: CatchUpState,
+  indexName: string,
+  partitionId: number,
+  assignment: PartitionAssignment,
+  tableVersion?: number,
+): string[] {
+  const admitted = state.admittedReplicas.get(partitionKey(indexName, partitionId))
+  if (admitted === undefined) return []
+  const beyond: string[] = []
+  for (const [replicaNodeId, record] of [...admitted]) {
+    const settled = assignment.inSyncSet.includes(replicaNodeId) || !assignment.replicas.includes(replicaNodeId)
+    const superseded = record.tableVersion !== null && tableVersion !== undefined && tableVersion >= record.tableVersion
+    if (settled || superseded || record.primaryTerm !== assignment.primaryTerm) {
+      forgetAdmittedReplica(state, indexName, partitionId, replicaNodeId)
+      continue
+    }
+    beyond.push(replicaNodeId)
+  }
+  return beyond
+}
+
+export function inSyncTargetsOf(
+  state: CatchUpState,
+  indexName: string,
+  partitionId: number,
+  assignment: PartitionAssignment,
+): string[] {
+  return [
+    ...getPendingAdmissions(state, indexName, partitionId),
+    ...admittedBeyondTable(state, indexName, partitionId, assignment),
+  ]
 }
 
 /**

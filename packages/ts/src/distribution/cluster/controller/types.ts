@@ -7,12 +7,13 @@ export interface ControllerConfig {
   transport: NodeTransport
   leaseTtlMs: number
   standbyRetryMs: number
+  nodeLeftDelayMs: number
   knownIndexNames: string[]
   onError?: (indexName: string, error: unknown) => void
   onElectionError?: (error: unknown) => void
 }
 
-export const CONTROLLER_LEASE_KEY = '_narsil/controller'
+export { CONTROLLER_LEASE_KEY } from '../../coordinator/constants'
 
 export interface ControllerNode {
   readonly isActive: boolean

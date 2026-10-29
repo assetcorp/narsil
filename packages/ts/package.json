@@ -91,7 +91,9 @@
   },
   "scripts": {
     "build": "rm -rf dist && tsup && node scripts/check-browser-bundle.mjs && tsx scripts/api-surface.ts",
-    "test": "vitest run --exclude='**/vector/recall.test.ts' --exclude='**/frozen-removal-memory/container-removes.test.ts'",
+    "test": "vitest run --exclude='**/vector/recall.test.ts' --exclude='**/e2e/cluster-memory/**' --exclude='**/e2e/cluster-faults/**' --exclude='**/frozen-removal-memory/container-removes.test.ts'",
+    "test:cluster": "vitest run src/__tests__/e2e/cluster-memory --no-file-parallelism",
+    "test:faults": "vitest run src/__tests__/e2e/cluster-faults --no-file-parallelism",
     "test:etcd": "vitest run src/__tests__/distribution/coordinator/etcd-integration/*.test.ts",
     "test:container-memory": "vitest run src/__tests__/e2e/frozen-removal-memory/container-removes.test.ts",
     "test:watch": "vitest",

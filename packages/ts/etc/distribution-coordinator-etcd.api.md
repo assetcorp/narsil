@@ -8,11 +8,26 @@
 export function createEtcdCoordinator(config?: Partial<EtcdCoordinatorConfig>): Promise<ClusterCoordinator>;
 
 // @public
+export interface EtcdAuthConfig {
+    password: string;
+    username: string;
+}
+
+// @public
 export interface EtcdCoordinatorConfig {
+    auth?: EtcdAuthConfig;
     endpoints: string[];
     keyPrefix: string;
     maxRequestBytes: number;
     nodeHeartbeatTtlSeconds: number;
+    tls?: EtcdTlsConfig;
+}
+
+// @public
+export interface EtcdTlsConfig {
+    ca: Buffer | string;
+    cert?: Buffer | string;
+    key?: Buffer | string;
 }
 
 // @public

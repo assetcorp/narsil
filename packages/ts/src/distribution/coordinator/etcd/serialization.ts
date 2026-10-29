@@ -8,6 +8,8 @@ interface SerializableAllocationTable {
   version: number
   replicationFactor: number
   assignments: Array<[number, PartitionAssignment]>
+  generation?: string
+  indexUuid?: string
 }
 
 export function serializeAllocationTable(table: AllocationTable): Uint8Array {
@@ -17,6 +19,8 @@ export function serializeAllocationTable(table: AllocationTable): Uint8Array {
     replicationFactor: table.replicationFactor,
     assignments: Array.from(table.assignments.entries()),
   }
+  if (table.generation !== undefined) serializable.generation = table.generation
+  if (table.indexUuid !== undefined) serializable.indexUuid = table.indexUuid
   return new Uint8Array(encode(serializable))
 }
 
@@ -31,12 +35,15 @@ export function deserializeAllocationTable(data: Buffer): AllocationTable {
   if (!Array.isArray(raw.assignments)) {
     throw new NarsilError(ErrorCodes.CONFIG_INVALID, 'AllocationTable missing or invalid assignments field')
   }
-  return {
+  const table: AllocationTable = {
     indexName: raw.indexName,
     version: raw.version,
     replicationFactor: typeof raw.replicationFactor === 'number' ? raw.replicationFactor : 0,
     assignments: normaliseAssignments(raw.assignments),
   }
+  if (typeof raw.generation === 'string' && raw.generation.length > 0) table.generation = raw.generation
+  if (typeof raw.indexUuid === 'string' && raw.indexUuid.length > 0) table.indexUuid = raw.indexUuid
+  return table
 }
 
 function stringsOf(value: unknown): string[] {
@@ -76,6 +83,12 @@ function normaliseAssignments(entries: unknown[]): Map<number, PartitionAssignme
       normalised.lastHolders = lastHolders
     } else {
       delete normalised.lastHolders
+    }
+    const removingReplicas = stringsOf(candidate.removingReplicas)
+    if (removingReplicas.length > 0) {
+      normalised.removingReplicas = removingReplicas
+    } else {
+      delete normalised.removingReplicas
     }
     assignments.set(partitionId, normalised)
   }

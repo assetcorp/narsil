@@ -12,6 +12,7 @@ export interface AllocationWatcherState {
   restartWaiters: Map<ReturnType<typeof setTimeout>, () => void>
   retainedPartitions: Set<string>
   indexesSeededFromRecord: Set<string>
+  indexUuids: Map<string, string>
   stopped: boolean
 }
 
@@ -44,6 +45,7 @@ export function createAllocationWatcherState(): AllocationWatcherState {
     restartWaiters: new Map(),
     retainedPartitions: new Set(),
     indexesSeededFromRecord: new Set(),
+    indexUuids: new Map(),
     stopped: false,
   }
 }

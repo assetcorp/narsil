@@ -28,6 +28,14 @@ export function readLocalLogState(indexName: string, partitionId: number, deps: 
   return { lastSeqNo, lastPrimaryTerm: newestEntry?.primaryTerm ?? lastPrimaryTerm }
 }
 
+async function withRoutedIndexUuid(
+  payload: SyncRequestPayload,
+  deps: LiveBootstrapSyncDeps,
+): Promise<SyncRequestPayload> {
+  const indexUuid = (await deps.coordinator.getAllocation(payload.indexName))?.indexUuid
+  return indexUuid === undefined ? payload : { ...payload, indexUuid }
+}
+
 async function reportSyncedPosition(
   indexName: string,
   partitionId: number,
@@ -56,7 +64,7 @@ async function reportSyncedPosition(
     type: ReplicationMessageTypes.SYNC_REQUEST,
     sourceId: deps.sourceNodeId,
     requestId: generateId(),
-    payload: encode(payload),
+    payload: encode(await withRoutedIndexUuid(payload, deps)),
   }
 
   try {
@@ -207,7 +215,7 @@ async function syncFrameStateFromTarget(
     type: ReplicationMessageTypes.SYNC_REQUEST,
     sourceId: deps.sourceNodeId,
     requestId: generateId(),
-    payload: encode(requestPayload),
+    payload: encode(await withRoutedIndexUuid(requestPayload, deps)),
   }
 
   const remainingMs = deadline - Date.now()

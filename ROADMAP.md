@@ -9,10 +9,9 @@ The maintainers update this roadmap of planned work as the work proceeds. The ro
 - **Embedded engine.** The engine answers full-text, vector, hybrid, and geographic searches inside your application process, in Node.js, Bun, Deno, or the browser.
 - **Single-node server.** A server serves the same engine through a REST API, along with a write-ahead log, bulk NDJSON import, and snapshots that you can restore.
 - **The `.nrsl` format.** The engine saves and transfers every index in one binary format, so any runtime can load a file that another runtime writes.
+- **Cluster mode.** Under `@delali/narsil/distribution`, the engine can operate across several nodes, with node roles, replication, and query routing between nodes that connect over an in-process transport, TCP with mutual TLS, or gRPC. Each replica writes every entry to its write-ahead log before it acknowledges the entry, and a search that fails on one copy of a partition goes to the next copy, so the cluster keeps every write that it acknowledges and keeps answering while one in-sync copy of each partition is alive.
 
 ## In progress
-
-- **Cluster mode.** Under `@delali/narsil/distribution`, the engine can operate across several nodes, with node roles, replication, and query routing between nodes that connect over an in-process transport, TCP with mutual TLS, or gRPC. Cluster mode is experimental, so the maintainers can change its APIs without notice. Next, the maintainers will fuse the write-ahead log with replication and prove failover and recovery under load. Cluster mode is the maintainers' main focus.
 - **Pattern search.** A pattern field is a `verbatim` field or a `string` field with the `pattern` option. With pattern search, the engine tests the whole stored value of such a field against literal text, a wildcard pattern, or a regular expression, then keeps or drops each document by that test alone, without scoring it. The engine matches each pattern in its own syntax, without backtracking and within a cap on its work. When a pattern needs a feature outside that syntax, the engine raises an error. The specification, the documentation, and the TypeScript code for pattern search are on the main branch, although no published release includes them yet.
 
 ## Planned

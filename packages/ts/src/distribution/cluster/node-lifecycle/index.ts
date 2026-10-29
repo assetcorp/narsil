@@ -5,6 +5,7 @@ import {
   type RegistrationHeartbeatState,
   renewRegistrationNow,
   stopRegistrationHeartbeat,
+  writeRegistrationInTurn,
 } from './heartbeat'
 import { joinCluster, leaveCluster } from './join'
 import type { DataNodeHandle, DataNodeLifecycleStatus, NodeLifecycleConfig } from './types'
@@ -14,8 +15,11 @@ import type { DataNodeHandle, DataNodeLifecycleStatus, NodeLifecycleConfig } fro
  *
  * The handle reports its own status, and it runs one lifecycle operation at a time, so a `leave` called while a
  * `join` is still running waits for that join rather than interleaving with it. A node that has shut down cannot
- * rejoin through the same handle. `renewRegistration` writes the registration at once, outside that queue, and does
- * nothing while the node is outside the cluster.
+ * rejoin through the same handle. A `shutdown` called while a `join` still waits for an earlier registration under
+ * this node's id to lapse ends that wait, and the join then fails with `NODE_NOT_JOINED`. `renewRegistration` writes
+ * the registration at once, outside that queue, and does nothing while the node is outside the cluster.
+ * `writeRegistration` writes it after the heartbeat renewal in flight, so that no older renewal lands after it, and
+ * it fails with `NODE_NOT_JOINED` while the node is outside the cluster.
  *
  * @param config - The lifecycle configuration, which names the coordinator, the transport, this node's
  *   registration, and the retry limits every bootstrap follows.
@@ -27,6 +31,7 @@ export function createDataNodeLifecycle(config: NodeLifecycleConfig): DataNodeHa
   let watcherState: AllocationWatcherState = createAllocationWatcherState()
   const heartbeatState: RegistrationHeartbeatState = createRegistrationHeartbeatState()
   let operationLock: Promise<void> = Promise.resolve()
+  let pendingJoin: AbortController | null = null
 
   function withLock<T>(fn: () => Promise<T>): Promise<T> {
     const prev = operationLock
@@ -81,6 +86,8 @@ export function createDataNodeLifecycle(config: NodeLifecycleConfig): DataNodeHa
         }
 
         status = 'joining'
+        const joining = new AbortController()
+        pendingJoin = joining
 
         try {
           await joinCluster(
@@ -93,6 +100,7 @@ export function createDataNodeLifecycle(config: NodeLifecycleConfig): DataNodeHa
             },
             watcherState,
             heartbeatState,
+            joining.signal,
           )
           status = 'active'
         } catch (error) {
@@ -100,6 +108,8 @@ export function createDataNodeLifecycle(config: NodeLifecycleConfig): DataNodeHa
           registered = false
           status = 'stopped'
           throw error
+        } finally {
+          if (pendingJoin === joining) pendingJoin = null
         }
       })
     },
@@ -108,6 +118,17 @@ export function createDataNodeLifecycle(config: NodeLifecycleConfig): DataNodeHa
       if (status === 'active' || status === 'joining') {
         renewRegistrationNow(heartbeatState, config)
       }
+    },
+
+    async writeRegistration(): Promise<void> {
+      if (status !== 'active') {
+        throw new NarsilError(
+          ErrorCodes.NODE_NOT_JOINED,
+          `Node '${config.registration.nodeId}' is outside the cluster, so it cannot publish its registration`,
+          { nodeId: config.registration.nodeId, currentStatus: status },
+        )
+      }
+      await writeRegistrationInTurn(heartbeatState, config)
     },
 
     leave(): Promise<void> {
@@ -131,6 +152,7 @@ export function createDataNodeLifecycle(config: NodeLifecycleConfig): DataNodeHa
     },
 
     shutdown(): Promise<void> {
+      pendingJoin?.abort()
       return withLock(async () => {
         if (status === 'shutdown') {
           return

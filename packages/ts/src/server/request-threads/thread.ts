@@ -1,6 +1,7 @@
 import { ErrorCodes, isNarsilError } from '../../errors'
 import type { QueryParams, SuggestParams } from '../../types/search'
 import type { DirectExecutorExtensions } from '../../workers/direct-executor'
+import { createSharedBodyBudget } from '../body-budget'
 import { SERVER_CAPABILITIES } from '../capabilities'
 import { createSharedRequestGate } from '../concurrency-gate'
 import { corsHeaderReader } from '../cors'
@@ -170,6 +171,7 @@ export async function serveRequests(
   const run = createRouteRunner({
     authorize: settings.authorizes ? context => relay.authorize(context) : undefined,
     gate: createSharedRequestGate(settings.gate, settings.maxConcurrentRequests, settings.gateSlot),
+    bodyBudget: createSharedBodyBudget(settings.bodyBudget, settings.limits.maxBodyBytesInFlight, settings.gateSlot),
     corsHeaders: settings.cors ? corsHeaderReader(settings.cors) : undefined,
     track: departure.track,
   })

@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   type ForwardBatchItem,
   forwardBatchToRemote,
-} from '../../../../distribution/cluster-node/write-routing/forward-batch'
+} from '../../../../distribution/cluster-node/write-routing/forward-to-primary'
 import type { WriteRoutingDeps } from '../../../../distribution/cluster-node/write-routing/types'
 import {
   createForwardBatchResultMessage,

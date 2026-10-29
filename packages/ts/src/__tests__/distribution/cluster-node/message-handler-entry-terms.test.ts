@@ -4,6 +4,7 @@ import { createCatchUpState } from '../../../distribution/cluster-node/catch-up'
 import type { ClusterLocalEngine } from '../../../distribution/cluster-node/local-engine'
 import { createDataNodeHandler, type DataNodeHandlerDeps } from '../../../distribution/cluster-node/message-handler'
 import { createSnapshotSyncHandlerState } from '../../../distribution/cluster-node/snapshot-sync-handler'
+import { createPartitionWriteQueues } from '../../../distribution/cluster-node/write-routing/partition-queue'
 import type { ClusterCoordinator, PartitionAssignment } from '../../../distribution/coordinator/types'
 import { createReplicationLog } from '../../../distribution/replication/log'
 import type { ReplicationLog, ReplicationLogEntry } from '../../../distribution/replication/types'
@@ -37,12 +38,15 @@ function makeHandler(assignment: PartitionAssignment, replicaLog: ReplicationLog
     nodeId: 'replica-node',
     coordinator: makeCoordinator(assignment),
     engine: {
-      applyReplicationEntry: async (entry: ReplicationLogEntry) => {
-        applied.push(entry)
+      indexUuidOf: () => null,
+      applyReplicationEntries: async (entries: readonly ReplicationLogEntry[]) => {
+        applied.push(...entries)
+        return { applied: entries.length, error: null }
       },
     } as unknown as ClusterLocalEngine,
     writeDeps: {
       getReplicationLog: () => replicaLog,
+      partitionWriteQueues: createPartitionWriteQueues(),
       catchUp: createCatchUpState(),
     } as unknown as DataNodeHandlerDeps['writeDeps'],
     snapshotSyncState: createSnapshotSyncHandlerState(),

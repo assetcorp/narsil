@@ -1,8 +1,9 @@
-import type { Etcd3 as Etcd3Client, IKeyValue, Watcher } from 'etcd3'
+import type { Etcd3 as Etcd3Client, IKeyValue } from 'etcd3'
 import { compareCodePoints } from '../../../core/ordering'
 import type { SchemaDefinition } from '../../../types/schema'
 import type { ClusterCoordinator, SchemaEvent } from '../types'
 import { type CoordinatorKeys, extractSuffix } from './keys'
+import type { PrefixWatchHandlers } from './prefix-watch'
 import type { EtcdWriteGuard } from './request-size'
 import { deserializeSchema, serializeSchema } from './serialization'
 
@@ -11,8 +12,7 @@ export interface StoredValueContext {
   keys: CoordinatorKeys
   guard: EtcdWriteGuard
   assertNotShutdown(): void
-  addWatcher(watcher: Watcher): void
-  removeWatcher(watcher: Watcher): void
+  watchPrefix(prefix: string, handlers: PrefixWatchHandlers): Promise<() => void>
 }
 
 export type StoredValueMethods = Pick<
@@ -21,7 +21,7 @@ export type StoredValueMethods = Pick<
 >
 
 export function storedValueMethods(context: StoredValueContext): StoredValueMethods {
-  const { client, keys, guard, assertNotShutdown, addWatcher, removeWatcher } = context
+  const { client, keys, guard, assertNotShutdown, watchPrefix } = context
   return {
     async get(key: string): Promise<Uint8Array | null> {
       assertNotShutdown()
@@ -90,25 +90,17 @@ export function storedValueMethods(context: StoredValueContext): StoredValueMeth
     async watchSchemas(handler: (event: SchemaEvent) => void): Promise<() => void> {
       assertNotShutdown()
       const prefix = keys.schemaPrefix()
-      const watcher = await client.watch().prefix(prefix).create()
-      addWatcher(watcher)
-
-      watcher.on('put', (kv: IKeyValue) => {
-        try {
-          const schema = deserializeSchema(kv.value)
-          const fullKey = kv.key.toString()
-          const indexName = extractSuffix(fullKey, prefix)
-          handler({ type: 'schema_created', indexName, schema })
-        } catch (_) {}
+      return watchPrefix(prefix, {
+        put(kv: IKeyValue) {
+          try {
+            const schema = deserializeSchema(kv.value)
+            handler({ type: 'schema_created', indexName: extractSuffix(kv.key.toString(), prefix), schema })
+          } catch (_) {}
+        },
+        delete(fullKey: string) {
+          handler({ type: 'schema_dropped', indexName: extractSuffix(fullKey, prefix), schema: null })
+        },
       })
-
-      watcher.on('delete', (kv: IKeyValue) => {
-        const fullKey = kv.key.toString()
-        const indexName = extractSuffix(fullKey, prefix)
-        handler({ type: 'schema_dropped', indexName, schema: null })
-      })
-
-      return () => removeWatcher(watcher)
     },
   }
 }

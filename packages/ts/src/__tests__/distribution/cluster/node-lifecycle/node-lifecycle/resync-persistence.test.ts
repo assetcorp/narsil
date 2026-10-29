@@ -151,11 +151,7 @@ describe('replica resync while the assignment stands', () => {
     if (assignment === undefined) throw new Error('assignment missing')
     const assignments = new Map<number, PartitionAssignment>()
     assignments.set(0, { ...assignment, inSyncSet: ['primary-node', 'data-1'] })
-    await coordinator.putAllocation(
-      'products',
-      makeAllocationTable('products', assignments, table.version + 1),
-      table.version,
-    )
+    await coordinator.putAllocation('products', makeAllocationTable('products', assignments, table.version + 1))
 
     await advance(RETRY_CYCLE_MS)
     const settled = attempts.mock.calls.length

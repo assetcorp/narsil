@@ -47,6 +47,7 @@ describe('recovering a partition no node serves', () => {
 
   beforeEach(async () => {
     coordinator = createInMemoryCoordinator()
+    await coordinator.acquireLease('_narsil/controller', 'controller', 30_000)
     network = createInMemoryNetwork()
     controllerTransport = createInMemoryTransport('controller', network)
     await putIndexMetadata(coordinator, {
@@ -186,6 +187,7 @@ describe('protecting the record of a partition no node serves', () => {
 
   beforeEach(async () => {
     coordinator = createInMemoryCoordinator()
+    await coordinator.acquireLease('_narsil/controller', 'controller', 30_000)
   })
 
   afterEach(async () => {
@@ -198,6 +200,7 @@ describe('protecting the record of a partition no node serves', () => {
     const answer = await handleInsyncRemoval(
       { indexName: INDEX_NAME, partitionId: 0, replicaNodeId: 'node-b', primaryTerm: 4 },
       coordinator,
+      'controller',
     )
 
     expect(answer.accepted).toBe(false)
@@ -218,6 +221,7 @@ describe('protecting the record of a partition no node serves', () => {
     const answer = await handleInsyncRemoval(
       { indexName: INDEX_NAME, partitionId: 0, replicaNodeId: 'node-b', primaryTerm: 4 },
       coordinator,
+      'controller',
     )
 
     expect(answer.accepted).toBe(true)
@@ -233,6 +237,7 @@ describe('recording why a partition stays unserved', () => {
 
   beforeEach(async () => {
     coordinator = createInMemoryCoordinator()
+    await coordinator.acquireLease('_narsil/controller', 'controller', 30_000)
     network = createInMemoryNetwork()
     controllerTransport = createInMemoryTransport('controller', network)
     await putIndexMetadata(coordinator, {

@@ -1,6 +1,7 @@
 import { decode } from '@msgpack/msgpack'
 import { ErrorCodes, NarsilError } from '../../../errors'
 import type { AllocationTable } from '../../coordinator/types'
+import { nodeRejectionOf, sendToEveryPartition } from '../../query/failover'
 import { randomSelector, selectReplicasForQuery } from '../../query/selection'
 import type { TransportMessage } from '../../transport/types'
 import type { ClusterLocalEngine } from '../local-engine'
@@ -19,19 +20,11 @@ export interface ScatterGroup {
   partitionIds: number[]
 }
 
-/**
- * Groups every partition of an index under the node that will read it, and refuses outright where one partition has
- * no active copy.
- *
- * An exact read, such as a count, must cover every partition or report nothing, so this throws rather than returning
- * a group set that would leave a partition unread.
- *
- * @param allocation - The allocation table naming the copy of each partition.
- * @param indexName - The index being read, which names the error.
- * @returns One group for each node, each naming the partitions that node will read.
- * @throws A {@link NarsilError} carrying `QUERY_NO_ACTIVE_REPLICA` where any partition has no active copy.
- */
-export function strictScatterGroups(allocation: AllocationTable, indexName: string): ScatterGroup[] {
+export async function gatherFromEveryPartition<T>(
+  allocation: AllocationTable,
+  indexName: string,
+  read: (group: ScatterGroup) => Promise<T>,
+): Promise<T[]> {
   const routing = selectReplicasForQuery(allocation, randomSelector)
   if (routing.unavailablePartitions.length > 0) {
     throw new NarsilError(
@@ -40,7 +33,8 @@ export function strictScatterGroups(allocation: AllocationTable, indexName: stri
       { indexName, partitionIds: [...routing.unavailablePartitions].sort((a, b) => a - b) },
     )
   }
-  return Array.from(routing.nodeToPartitions.entries(), ([nodeId, partitionIds]) => ({ nodeId, partitionIds }))
+  const answered = await sendToEveryPartition(routing, (nodeId, partitionIds) => read({ nodeId, partitionIds }))
+  return answered.map(answer => answer.result)
 }
 
 /**
@@ -71,12 +65,16 @@ export async function sendReadRequest<T>(
   })
   const decoded = decode(response.payload) as Record<string, unknown>
   if (response.type.endsWith('.error') || response.type === 'error' || decoded.error === true) {
-    throw new NarsilError(
-      typeof decoded.code === 'string' ? decoded.code : ErrorCodes.QUERY_ROUTING_FAILED,
-      typeof decoded.message === 'string'
-        ? decoded.message
-        : `Node '${targetNodeId}' rejected a read request for index '${indexName}'`,
-      { indexName, targetNodeId },
+    const details = { indexName, targetNodeId }
+    throw (
+      nodeRejectionOf(decoded.code, decoded.message, details) ??
+      new NarsilError(
+        typeof decoded.code === 'string' ? decoded.code : ErrorCodes.QUERY_ROUTING_FAILED,
+        typeof decoded.message === 'string'
+          ? decoded.message
+          : `Node '${targetNodeId}' rejected a read request for index '${indexName}'`,
+        details,
+      )
     )
   }
   return validate(decoded)

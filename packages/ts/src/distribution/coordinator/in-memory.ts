@@ -1,6 +1,6 @@
 import { compareCodePoints } from '../../core/ordering'
 import type { SchemaDefinition } from '../../types/schema'
-import { NODE_HEARTBEAT_TTL_MS } from './constants'
+import { CONTROLLER_LEASE_KEY, NODE_HEARTBEAT_TTL_MS } from './constants'
 import type {
   AllocationEvent,
   AllocationTable,
@@ -8,6 +8,7 @@ import type {
   NodeEvent,
   NodeRegistration,
   PartitionState,
+  RegistrationLease,
   SchemaEvent,
 } from './types'
 
@@ -47,6 +48,7 @@ export function createInMemoryCoordinator(): ClusterCoordinator {
   const allocations = new Map<string, AllocationTable>()
   const partitionStates = new Map<string, Map<number, PartitionState>>()
   const leases = new Map<string, LeaseEntry>()
+  const registrationsHeldUntil = new Map<string, number>()
   const schemas = new Map<string, SchemaDefinition>()
   const kvStore = new Map<string, Uint8Array>()
 
@@ -100,6 +102,7 @@ export function createInMemoryCoordinator(): ClusterCoordinator {
       if (key.startsWith(NODE_HEARTBEAT_PREFIX)) {
         const expiredNodeId = key.slice(NODE_HEARTBEAT_PREFIX.length)
         nodes.delete(expiredNodeId)
+        registrationsHeldUntil.delete(expiredNodeId)
         emitNodeEvent({ type: 'node_left', nodeId: expiredNodeId, registration: null })
       }
     }, ttlMs)
@@ -116,8 +119,10 @@ export function createInMemoryCoordinator(): ClusterCoordinator {
   const coordinator: ClusterCoordinator = {
     async registerNode(registration: NodeRegistration): Promise<void> {
       assertNotShutdown()
+      const renewedAt = performance.now()
       const previous = nodes.get(registration.nodeId)
       nodes.set(registration.nodeId, registration)
+      registrationsHeldUntil.set(registration.nodeId, renewedAt + NODE_HEARTBEAT_TTL_MS)
 
       const heartbeatKey = `${NODE_HEARTBEAT_PREFIX}${registration.nodeId}`
       clearLeaseEntry(heartbeatKey)
@@ -138,12 +143,19 @@ export function createInMemoryCoordinator(): ClusterCoordinator {
     async deregisterNode(nodeId: string): Promise<void> {
       assertNotShutdown()
       const existed = nodes.delete(nodeId)
+      registrationsHeldUntil.delete(nodeId)
       const heartbeatKey = `${NODE_HEARTBEAT_PREFIX}${nodeId}`
       clearLeaseEntry(heartbeatKey)
 
       if (existed) {
         emitNodeEvent({ type: 'node_left', nodeId, registration: null })
       }
+    },
+
+    registrationLease(nodeId: string): RegistrationLease | null {
+      const heldUntil = registrationsHeldUntil.get(nodeId)
+      if (isShutdown || heldUntil === undefined) return null
+      return { remainingMs: heldUntil - performance.now(), ttlMs: NODE_HEARTBEAT_TTL_MS }
     },
 
     async listNodes(): Promise<NodeRegistration[]> {
@@ -164,10 +176,18 @@ export function createInMemoryCoordinator(): ClusterCoordinator {
       return allocations.get(indexName) ?? null
     },
 
-    async putAllocation(indexName: string, table: AllocationTable, expectedVersion?: number | null): Promise<boolean> {
+    async putAllocation(
+      indexName: string,
+      table: AllocationTable,
+      expectedVersion?: number | null,
+      writerNodeId?: string,
+    ): Promise<boolean> {
       assertNotShutdown()
 
       if (expectedVersion !== undefined) {
+        if (!isLeaseValid(CONTROLLER_LEASE_KEY) || leases.get(CONTROLLER_LEASE_KEY)?.nodeId !== writerNodeId) {
+          return false
+        }
         const current = allocations.get(indexName)
         if (expectedVersion === null) {
           if (current !== undefined) {
@@ -347,6 +367,7 @@ export function createInMemoryCoordinator(): ClusterCoordinator {
         clearTimeout(entry.timer)
       }
       leases.clear()
+      registrationsHeldUntil.clear()
       nodes.clear()
       allocations.clear()
       partitionStates.clear()

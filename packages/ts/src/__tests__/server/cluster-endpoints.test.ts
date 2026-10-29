@@ -8,7 +8,7 @@ import { createInMemoryNetwork, createInMemoryTransport } from '../../distributi
 import type { NodeTransport } from '../../distribution/transport/types'
 import type { NarsilServer } from '../../server'
 import { createServer } from '../../server'
-import { getJson, postJson, startTestServer } from './helpers'
+import { getJson, postJson, putJson, startTestServer } from './helpers'
 
 const INDEX_NAME = 'products'
 const PARTITION_COUNT = 2
@@ -146,6 +146,31 @@ describe('the cluster endpoints of a server serving a cluster node', () => {
     }
   })
 
+  it('changes the replication factor at PUT /indexes/:name/replication-factor and refuses a hostile body', async () => {
+    await node.start()
+    const created = await postJson(base, '/indexes', { name: INDEX_NAME, config: { schema: { title: 'string' } } })
+    expect(created.status).toBe(201)
+    const path = `/indexes/${INDEX_NAME}/replication-factor`
+
+    const changed = await putJson(base, path, { replicationFactor: 1 })
+    expect(changed.status).toBe(200)
+    expect(changed.body).toEqual({ indexName: INDEX_NAME, replicationFactor: 1 })
+    expect((await coordinator.getAllocation(INDEX_NAME))?.replicationFactor).toBe(1)
+
+    const refusals: Array<[unknown, number]> = [
+      [{ replicationFactor: 'two' }, 400],
+      [{ replicationFactor: 2.5 }, 400],
+      [{ replicationFactor: 300 }, 400],
+      [[1], 400],
+      [null, 400],
+    ]
+    for (const [body, expected] of refusals) {
+      expect((await putJson(base, path, body)).status).toBe(expected)
+    }
+    expect((await putJson(base, '/indexes/absent/replication-factor', { replicationFactor: 1 })).status).toBe(404)
+    expect((await coordinator.getAllocation(INDEX_NAME))?.replicationFactor).toBe(1)
+  })
+
   it('refuses an index name the cluster would never accept with 400', async () => {
     await node.start()
 
@@ -166,6 +191,11 @@ describe('the cluster endpoints of a server serving a single engine', () => {
       const allocation = await getJson<{ error: { code: string } }>(single.base, '/indexes/products/cluster')
       expect(allocation.status).toBe(501)
       expect(allocation.body.error.code).toBe('CLUSTER_OPERATION_UNSUPPORTED')
+
+      const factor = await putJson<{ error: { code: string } }>(single.base, '/indexes/products/replication-factor', {
+        replicationFactor: 1,
+      })
+      expect(factor.status).toBe(501)
 
       const ready = await getJson<{ status: string; cluster?: unknown }>(single.base, '/readyz')
       expect(ready.status).toBe(200)

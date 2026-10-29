@@ -5,7 +5,13 @@ import type { InsyncAddPayload } from '../../transport/types'
 import { ADMISSION_TIMEOUT_MS } from '../constants'
 import { resolveNodeTargets } from '../write-routing/assignment'
 import type { WriteRoutingDeps } from '../write-routing/types'
-import { type CatchUpState, clearPendingAdmission, markPendingAdmission, type ReplicaCursor } from './state'
+import {
+  type CatchUpState,
+  clearPendingAdmission,
+  markPendingAdmission,
+  type ReplicaCursor,
+  recordAdmittedReplica,
+} from './state'
 
 async function sendToController(
   payload: InsyncAddPayload,
@@ -20,6 +26,15 @@ async function sendToController(
     } catch (_) {}
   }
   return false
+}
+
+async function versionAfterAdmission(deps: WriteRoutingDeps, indexName: string): Promise<number | null> {
+  if (deps.readLiveAllocation === undefined) return null
+  try {
+    return (await deps.readLiveAllocation(indexName))?.version ?? null
+  } catch (_) {
+    return null
+  }
 }
 
 function withTimeout<T>(work: Promise<T>, timeoutMs: number, fallback: T): Promise<T> {
@@ -89,15 +104,36 @@ export async function proposeAdmission(
   replicaNodeId: string,
   cursor: ReplicaCursor,
 ): Promise<void> {
+  if (claimAdmission(state, deps, indexName, partitionId, replicaNodeId, cursor)) {
+    await requestClaimedAdmission(state, deps, indexName, partitionId, assignment, replicaNodeId, cursor)
+  }
+}
+
+export function claimAdmission(
+  state: CatchUpState,
+  deps: WriteRoutingDeps,
+  indexName: string,
+  partitionId: number,
+  replicaNodeId: string,
+  cursor: ReplicaCursor,
+): boolean {
   const log = deps.getReplicationLog(indexName, partitionId)
   if (cursor.appliedSeqNo < log.commitPoint) {
-    return
+    return false
   }
+  return markPendingAdmission(state, indexName, partitionId, replicaNodeId)
+}
 
-  if (!markPendingAdmission(state, indexName, partitionId, replicaNodeId)) {
-    return
-  }
-
+export async function requestClaimedAdmission(
+  state: CatchUpState,
+  deps: WriteRoutingDeps,
+  indexName: string,
+  partitionId: number,
+  assignment: PartitionAssignment,
+  replicaNodeId: string,
+  cursor: ReplicaCursor,
+): Promise<void> {
+  const log = deps.getReplicationLog(indexName, partitionId)
   const proposedEpoch = cursor.syncEpoch
   try {
     const controllerNodeId = await deps.coordinator.getLeaseHolder(CONTROLLER_LEASE_KEY)
@@ -117,6 +153,15 @@ export async function proposeAdmission(
     const accepted = await withTimeout(sendToController(payload, controllerNodeId, deps), ADMISSION_TIMEOUT_MS, false)
     if (accepted && cursor.syncEpoch !== proposedEpoch) {
       await withTimeout(withdrawAdmission(payload, controllerNodeId, deps), ADMISSION_TIMEOUT_MS, undefined)
+    } else if (accepted) {
+      recordAdmittedReplica(
+        state,
+        indexName,
+        partitionId,
+        replicaNodeId,
+        assignment.primaryTerm,
+        await versionAfterAdmission(deps, indexName),
+      )
     }
   } finally {
     clearPendingAdmission(state, indexName, partitionId, replicaNodeId)

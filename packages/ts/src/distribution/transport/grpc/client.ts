@@ -1,5 +1,6 @@
 import type { CallOptions, ChannelCredentials, Client, Metadata } from '@grpc/grpc-js'
 import { MAX_MESSAGE_SIZE_BYTES } from '../constants'
+import { replyDeadlineMs } from '../reply-deadline'
 import { decodeTransportMessage, encodeTransportMessage } from '../tcp/framing'
 import { TransportError, TransportErrorCodes, type TransportMessage } from '../types'
 import type { GrpcModule } from './loader'
@@ -28,7 +29,13 @@ export class GrpcClientPool {
   async send(target: string, message: TransportMessage): Promise<TransportMessage> {
     const messageBytes = this.encodeChecked(target, message)
     const client = await this.getClient(target)
-    const responseBytes = await this.unaryCall(client, target, message.requestId, messageBytes)
+    const responseBytes = await this.unaryCall(
+      client,
+      target,
+      message.requestId,
+      messageBytes,
+      replyDeadlineMs(message.type, this.config),
+    )
 
     try {
       return decodeTransportMessage(responseBytes)
@@ -249,7 +256,13 @@ export class GrpcClientPool {
     return { deadline: Date.now() + timeoutMs }
   }
 
-  private unaryCall(client: Client, target: string, requestId: string, messageBytes: Uint8Array): Promise<Uint8Array> {
+  private unaryCall(
+    client: Client,
+    target: string,
+    requestId: string,
+    messageBytes: Uint8Array,
+    timeoutMs: number,
+  ): Promise<Uint8Array> {
     return new Promise<Uint8Array>((resolve, reject) => {
       client.makeUnaryRequest(
         sendMethod.path,
@@ -257,7 +270,7 @@ export class GrpcClientPool {
         sendMethod.responseDeserialize,
         messageBytes,
         this.metadata(),
-        this.callOptions(this.config.requestTimeout),
+        this.callOptions(timeoutMs),
         (err, response) => {
           if (err !== null) {
             reject(this.mapCallError(target, requestId, err))

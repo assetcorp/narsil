@@ -10,6 +10,7 @@ import { ErrorCodes } from '../../../errors'
 const INDEX_NAME = 'shop'
 const NODE_ID = 'node-a'
 const COMMIT_POINT = 17
+const PERSISTED_PRIMARY_TERM = 4
 
 interface SeededLog {
   startSeqNo: number
@@ -49,7 +50,7 @@ function depsFor(
   const engine = {
     listIndexes: () => [{ name: INDEX_NAME }],
     getStats: () => ({ schema: { title: 'string' } }),
-    highestPersistedSeqNoOf: () => persistedSeqNo,
+    persistedPositionOf: () => ({ seqNo: persistedSeqNo, primaryTerm: PERSISTED_PRIMARY_TERM }),
   } as unknown as ClusterLocalEngine
   return {
     engine,
@@ -72,16 +73,6 @@ describe('a node the controller promoted back to primary', () => {
     expect(await preparePrimaryPartition(INDEX_NAME, 0, depsFor(coordinator, 0, seeded))).toBe(true)
 
     expect(seeded).toEqual([{ startSeqNo: COMMIT_POINT + 1, lastPrimaryTerm: 5 }])
-    await coordinator.shutdown()
-  })
-
-  it('numbers its next entry above its own write-ahead log when that reaches further', async () => {
-    const coordinator = await coordinatorHolding(assignmentOf())
-    const seeded: SeededLog[] = []
-
-    expect(await preparePrimaryPartition(INDEX_NAME, 0, depsFor(coordinator, 40, seeded))).toBe(true)
-
-    expect(seeded).toEqual([{ startSeqNo: 41, lastPrimaryTerm: 5 }])
     await coordinator.shutdown()
   })
 

@@ -30,11 +30,20 @@ class FakeLease {
     return Promise.resolve()
   }
 
-  async keepaliveOnce(): Promise<void> {
+  on(_event: string, _listener: () => void): this {
+    return this
+  }
+
+  once(_event: string, _listener: () => void): this {
+    return this
+  }
+
+  async keepaliveOnce(): Promise<{ TTL: string }> {
     if (this.revoked) {
       throw new Error(`lease ${this.id} has been revoked`)
     }
     this.keepaliveCount++
+    return { TTL: '30' }
   }
 
   put(key: string): { value: (data: Buffer) => { exec: () => Promise<void> } } {
@@ -95,7 +104,10 @@ describe('writeNodeRegistration', () => {
     const { client, store, leases } = makeClient()
     const leaseManager = new LeaseManager()
 
-    await writeNodeRegistration({ client, leaseManager, guard, key, ttlSeconds: 15 }, makeRegistration())
+    await writeNodeRegistration(
+      { client, leaseManager, guard, key, ttlSeconds: 15, isShutdown: () => false },
+      makeRegistration(),
+    )
 
     expect(store.has(key)).toBe(true)
     expect(leases).toHaveLength(1)
@@ -107,9 +119,18 @@ describe('writeNodeRegistration', () => {
     const leaseManager = new LeaseManager()
     const registration = makeRegistration()
 
-    await writeNodeRegistration({ client, leaseManager, guard, key, ttlSeconds: 15 }, registration)
-    await writeNodeRegistration({ client, leaseManager, guard, key, ttlSeconds: 15 }, registration)
-    await writeNodeRegistration({ client, leaseManager, guard, key, ttlSeconds: 15 }, registration)
+    await writeNodeRegistration(
+      { client, leaseManager, guard, key, ttlSeconds: 15, isShutdown: () => false },
+      registration,
+    )
+    await writeNodeRegistration(
+      { client, leaseManager, guard, key, ttlSeconds: 15, isShutdown: () => false },
+      registration,
+    )
+    await writeNodeRegistration(
+      { client, leaseManager, guard, key, ttlSeconds: 15, isShutdown: () => false },
+      registration,
+    )
 
     expect(leases).toHaveLength(1)
     expect(leases[0].keepaliveCount).toBe(2)
@@ -120,9 +141,12 @@ describe('writeNodeRegistration', () => {
     const { client, leases } = makeClient()
     const leaseManager = new LeaseManager()
 
-    await writeNodeRegistration({ client, leaseManager, guard, key, ttlSeconds: 15 }, makeRegistration())
     await writeNodeRegistration(
-      { client, leaseManager, guard, key, ttlSeconds: 15 },
+      { client, leaseManager, guard, key, ttlSeconds: 15, isShutdown: () => false },
+      makeRegistration(),
+    )
+    await writeNodeRegistration(
+      { client, leaseManager, guard, key, ttlSeconds: 15, isShutdown: () => false },
       makeRegistration({ address: 'data-1.cluster.local:9300' }),
     )
 
@@ -143,8 +167,14 @@ describe('writeNodeRegistration', () => {
     const leaseManager = new LeaseManager()
     const registration = makeRegistration()
 
-    const first = writeNodeRegistration({ client, leaseManager, guard, key, ttlSeconds: 15 }, registration)
-    const second = writeNodeRegistration({ client, leaseManager, guard, key, ttlSeconds: 15 }, registration)
+    const first = writeNodeRegistration(
+      { client, leaseManager, guard, key, ttlSeconds: 15, isShutdown: () => false },
+      registration,
+    )
+    const second = writeNodeRegistration(
+      { client, leaseManager, guard, key, ttlSeconds: 15, isShutdown: () => false },
+      registration,
+    )
     releaseFirstResponse()
     await Promise.all([first, second])
 
@@ -158,9 +188,15 @@ describe('writeNodeRegistration', () => {
     const leaseManager = new LeaseManager()
     const registration = makeRegistration()
 
-    await writeNodeRegistration({ client, leaseManager, guard, key, ttlSeconds: 15 }, registration)
+    await writeNodeRegistration(
+      { client, leaseManager, guard, key, ttlSeconds: 15, isShutdown: () => false },
+      registration,
+    )
     leases[0].revoked = true
-    await writeNodeRegistration({ client, leaseManager, guard, key, ttlSeconds: 15 }, registration)
+    await writeNodeRegistration(
+      { client, leaseManager, guard, key, ttlSeconds: 15, isShutdown: () => false },
+      registration,
+    )
 
     expect(leases).toHaveLength(2)
     expect(store.get(key)?.lease).toBe(leases[1])

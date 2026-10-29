@@ -1,6 +1,8 @@
 import type { RespondFn, TransportMessage } from '../../transport/types'
 import { ClusterMessageTypes, QueryMessageTypes, ReplicationMessageTypes } from '../../transport/types'
 import { encodeErrorReplyFrom } from '../error-reply'
+import { handleRebuildAnalysis } from '../rebuild-analysis'
+import { handleReshardCutover, handleReshardForward, handleReshardPurge, handleReshardStart } from '../reshard/handlers'
 import { handleSnapshotSyncRequest } from '../snapshot-sync-handler'
 import { handleIndexSettings } from './index-settings'
 import { handlePartitionStores } from './partition-stores'
@@ -24,6 +26,7 @@ export function createDataNodeHandler(deps: DataNodeHandlerDeps): TransportHandl
         state: deps.snapshotSyncState,
         resolveHeaderMetadata: deps.resolveHeaderMetadata,
         spoolDirectory: deps.snapshotSpoolDirectory,
+        indexUuidOf: indexName => deps.engine.indexUuidOf(indexName),
       })
       return
     }
@@ -68,6 +71,21 @@ export function createDataNodeHandler(deps: DataNodeHandlerDeps): TransportHandl
           return
         case ClusterMessageTypes.PARTITION_STORES:
           await handlePartitionStores(message, respond, deps)
+          return
+        case ClusterMessageTypes.REBUILD_ANALYSIS:
+          await handleRebuildAnalysis(message, respond, deps)
+          return
+        case ClusterMessageTypes.RESHARD_START:
+          await handleReshardStart(message, respond, deps)
+          return
+        case ClusterMessageTypes.RESHARD_FORWARD:
+          await handleReshardForward(message, respond, deps)
+          return
+        case ClusterMessageTypes.RESHARD_CUTOVER:
+          await handleReshardCutover(message, respond, deps)
+          return
+        case ClusterMessageTypes.RESHARD_PURGE:
+          await handleReshardPurge(message, respond, deps)
           return
         case ClusterMessageTypes.INDEX_SETTINGS:
           await handleIndexSettings(message, respond, deps)

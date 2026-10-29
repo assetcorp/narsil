@@ -106,6 +106,14 @@ export function validateSnapshotSyncRequestPayload(decoded: unknown): SnapshotSy
       'Invalid SnapshotSyncRequestPayload: "indexName" contains invalid characters',
     )
   }
+  const indexUuid = record.indexUuid
+  if (indexUuid !== undefined && indexUuid !== null && (typeof indexUuid !== 'string' || indexUuid.length === 0)) {
+    throw new NarsilError(
+      ErrorCodes.SNAPSHOT_SYNC_REQUEST_INVALID,
+      'Invalid SnapshotSyncRequestPayload: "indexUuid" must be a non-empty string when provided',
+    )
+  }
+  const identity = typeof indexUuid === 'string' ? { indexUuid } : {}
   const partitionId = record.partitionId
   if (partitionId !== undefined && partitionId !== null) {
     if (typeof partitionId !== 'number' || !Number.isInteger(partitionId) || partitionId < 0) {
@@ -114,7 +122,7 @@ export function validateSnapshotSyncRequestPayload(decoded: unknown): SnapshotSy
         'Invalid SnapshotSyncRequestPayload: "partitionId" must be a non-negative integer when provided',
       )
     }
-    return { indexName, partitionId }
+    return { indexName, partitionId, ...identity }
   }
-  return { indexName, partitionId: null }
+  return { indexName, partitionId: null, ...identity }
 }

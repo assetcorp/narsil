@@ -1,7 +1,7 @@
 import { ErrorCodes, NarsilError } from '../errors'
 import { MAX_RERANK_WINDOW } from '../rerank/constants'
 import type { Narsil } from '../types/engine'
-import { MIN_COUNTED_SERVER_LIMIT, MIN_UNBOUNDED_SERVER_LIMIT } from './constants'
+import { MAX_BODY_BYTES_IN_FLIGHT_FRACTION, MIN_COUNTED_SERVER_LIMIT, MIN_UNBOUNDED_SERVER_LIMIT } from './constants'
 import type { ServerLimits } from './types'
 
 const ENGINE_METHOD_SAMPLE = ['createIndex', 'listIndexes', 'insert', 'query', 'get', 'shutdown'] as const
@@ -53,6 +53,16 @@ function assertLimit(field: string, value: number | undefined, minimum: number):
   )
 }
 
+function assertFraction(field: string, value: number | undefined): void {
+  if (value === undefined) return
+  if (Number.isFinite(value) && value >= 0 && value <= MAX_BODY_BYTES_IN_FLIGHT_FRACTION) return
+  throw new NarsilError(
+    ErrorCodes.CONFIG_INVALID,
+    `limits.${field} must be a fraction from 0 to ${MAX_BODY_BYTES_IN_FLIGHT_FRACTION}; however, this configuration sets it to ${String(value)}`,
+    { field, value, maximum: MAX_BODY_BYTES_IN_FLIGHT_FRACTION },
+  )
+}
+
 function assertRerankWindowCap(value: number | undefined, engineCap: number | undefined): void {
   if (value === undefined) return
   const cap = Math.min(MAX_RERANK_WINDOW, engineCap ?? MAX_RERANK_WINDOW)
@@ -68,6 +78,7 @@ export function assertServerLimits(limits: ServerLimits | undefined, engineReran
   if (limits === undefined) return
   for (const field of LIMITS_UNBOUNDED_AT_ZERO) assertLimit(field, limits[field], MIN_UNBOUNDED_SERVER_LIMIT)
   for (const field of COUNTED_LIMITS) assertLimit(field, limits[field], MIN_COUNTED_SERVER_LIMIT)
+  assertFraction('maxBodyBytesInFlightFraction', limits.maxBodyBytesInFlightFraction)
   assertRerankWindowCap(limits.maxRerankWindow, engineRerankWindow)
 }
 

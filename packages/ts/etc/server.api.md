@@ -114,7 +114,10 @@ export const ErrorCodes: {
     readonly NODE_NOT_JOINED: "NODE_NOT_JOINED";
     readonly NODE_NOT_READY: "NODE_NOT_READY";
     readonly NODE_NOT_CONTROLLER: "NODE_NOT_CONTROLLER";
+    readonly NODE_VERSION_INCOMPATIBLE: "NODE_VERSION_INCOMPATIBLE";
     readonly COORDINATOR_DEPENDENCY_MISSING: "COORDINATOR_DEPENDENCY_MISSING";
+    readonly COORDINATOR_AUTH_FAILED: "COORDINATOR_AUTH_FAILED";
+    readonly COORDINATOR_UNAVAILABLE: "COORDINATOR_UNAVAILABLE";
     readonly TRANSPORT_DEPENDENCY_MISSING: "TRANSPORT_DEPENDENCY_MISSING";
     readonly REPLICATION_ENTRY_INVALID: "REPLICATION_ENTRY_INVALID";
     readonly REPLICATION_INSYNC_REMOVAL_FAILED: "REPLICATION_INSYNC_REMOVAL_FAILED";
@@ -194,6 +197,7 @@ export function httpStatusForNarsilError(code: string): number;
 // @public
 export interface ImportError {
     code: string;
+    details?: Record<string, unknown>;
     docId?: string;
     line?: number;
     message: string;
@@ -293,6 +297,7 @@ export const ServerErrorCodes: {
 export interface ServerLimits {
     importBatchSize?: number;
     maxBodyBytes?: number;
+    maxBodyBytesInFlightFraction?: number;
     maxConcurrentRequests?: number;
     maxConcurrentTasks?: number;
     maxFetchDocuments?: number;

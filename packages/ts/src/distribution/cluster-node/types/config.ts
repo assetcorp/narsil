@@ -9,6 +9,7 @@ import type {
 } from '../../coordinator/types'
 import type { ReplicationConfig } from '../../replication/types'
 import type { NodeTransport } from '../../transport/types'
+import type { ClusterHealth, ClusterMetrics } from './observability'
 
 /**
  * Everything {@link createClusterNode} needs to join a node to a cluster.
@@ -28,7 +29,13 @@ export interface ClusterNodeConfig {
   address: string
   /** This node holds these roles in the cluster, and holds data alone by default. */
   roles?: NodeRole[]
-  /** This identifies the node across the cluster. The package generates an id by default, which a restart changes. */
+  /**
+   * This identifies the node across the cluster. Where you leave it out, a node
+   * with a durability directory generates an id once, stores it in that
+   * directory, and reuses it on every later start, so that the controller
+   * recognises the copies that the node holds after a restart. A node without a
+   * durability directory takes a new id on every start.
+   */
   nodeId?: string
   /** This node offers this much capacity, which the allocator weighs. It offers {@link DEFAULT_CAPACITY} by default. */
   capacity?: NodeCapacity
@@ -69,19 +76,26 @@ export interface ClusterMemoryConfig {
   /**
    * The node counts as full once either memory figure passes this fraction of its limit. It must lie above
    * `resumeWritesBelow` and at most 1, and it is 0.9 where you name none.
+   *
+   * The node compares its heap with the smaller of this setting and 0.75. V8, the engine that runs Node.js, stops the
+   * process after four full collections in a row that each leave the old generation holding at least 0.8 of its limit,
+   * so a full node keeps its heap below that line. The node compares its resident memory with the setting as it is.
    */
   blockWritesAbove?: number
   /**
    * A full node counts as clear again once both memory figures fall below this fraction of their limits. It must lie
    * above 0 and below `blockWritesAbove`, and it is 0.8 where you name none.
+   *
+   * The node compares its heap with the smaller of this setting and 0.65, for the same V8 rule that caps the heap side
+   * of `blockWritesAbove` at 0.75. The node compares its resident memory with the setting as it is.
    */
   resumeWritesBelow?: number
   /**
    * The node holds at most this fraction of its heap limit in the documents of inserts and updates that it has
    * accepted and not yet finished, counting both the writes that clients send it and the writes that other nodes
    * forward to it as primary. It refuses a write whose documents would carry that total past the limit with
-   * `CLUSTER_WRITE_BLOCKED`, and the error's details include the reason `write_bytes_in_flight`. It never refuses a
-   * replicated entry or a remove. The fraction must lie above 0 and at most 1, and it is 0.02 where you name none,
+   * `CLUSTER_WRITE_BLOCKED`, and the error's details include the reason `write_bytes_in_flight`. It accepts a write
+   * of any size when no other insert or update is in progress, and it never refuses a replicated entry or a remove. The fraction must lie above 0 and at most 1, and it is 0.02 where you name none,
    * which is low because indexing a document can take many times the size of its text in heap. A value of 1 allows
    * writes in flight up to the whole heap limit.
    */
@@ -113,6 +127,16 @@ export interface ClusterControllerConfig {
    * attempt. It is 5000 milliseconds where you name none.
    */
   standbyRetryMs?: number
+  /**
+   * The controller waits this many milliseconds after a data node leaves
+   * before it moves that node's replicas to other nodes, which is 60000
+   * milliseconds where you set none. It promotes a replica at once for every
+   * partition that the node led, and a node that registers again under the
+   * same node id within this time keeps its replicas and catches up on the
+   * writes that it missed. Set 0 to move the replicas as soon as the node
+   * leaves.
+   */
+  nodeLeftDelayMs?: number
 }
 
 /**
@@ -130,11 +154,17 @@ export interface ClusterQueryConfig {
   /**
    * Set this true and a search returns the hits the reachable nodes gave,
    * counting the rest in {@link QueryResult.coverage}, which is what a node
-   * does by default. Set it false and one partition that times out, errors, or
-   * has no active copy fails the whole search with `QUERY_PARTIAL_FAILURE`.
+   * does by default. Set it false, and a partition that times out or errors on
+   * every copy, or that has no active copy, fails the whole search with
+   * `QUERY_PARTIAL_FAILURE`.
    */
   allowPartialResults?: boolean
-  /** A search waits this many milliseconds for each node before it counts that node's partitions as timed out, which is 5000 milliseconds where you name none. */
+  /**
+   * A search waits this many milliseconds for each copy that it asks, and it
+   * asks the next in-sync copy of a partition once that wait runs out. The
+   * search counts the partition as timed out only when every copy has timed
+   * out, and the wait is 5000 milliseconds where you set none.
+   */
   partitionTimeout?: number
 }
 
@@ -146,7 +176,10 @@ export interface ClusterQueryConfig {
 export interface CreateIndexOptions {
   /** The cluster splits the index into this many partitions, and into {@link DEFAULT_PARTITION_COUNT} by default. */
   partitionCount?: number
-  /** The cluster keeps this many copies of each partition, and {@link DEFAULT_REPLICATION_FACTOR} by default. */
+  /**
+   * The cluster keeps this many replicas of each partition besides its primary, and
+   * {@link DEFAULT_REPLICATION_FACTOR} by default.
+   */
   replicationFactor?: number
   /**
    * The creation returns once every partition is in service or once this many milliseconds have passed, which is
@@ -179,6 +212,9 @@ export type NodeReadiness = 'STARTING' | 'JOINING' | 'SERVING' | 'LEAVING'
 export interface ClusterNamespace {
   /**
    * Reads how one index is spread across the cluster.
+   *
+   * After a change of the partition count, this returns the table of the layout that serves the index, carrying the
+   * index name that you passed.
    *
    * @param indexName - The index to describe.
    * @returns Its allocation, or `null` when the index has none yet.
@@ -216,6 +252,35 @@ export interface ClusterNamespace {
    * @returns Its id, or `null` while no node holds the lease.
    */
   getControllerNodeId(): Promise<string | null>
+  /**
+   * Changes how many replicas besides its primary each partition of an index keeps.
+   *
+   * The node sends the change to the active controller, which stores the factor in the index metadata and writes an
+   * allocation table that carries it before this call returns. A higher factor adds replicas, and each new copy
+   * catches up from its primary. A lower factor removes the surplus replicas, lagging ones first, and never the
+   * primary.
+   *
+   * @param indexName - The index to change.
+   * @param replicationFactor - The number of replicas besides the primary, an integer from 0 to 255.
+   * @returns A promise that settles once the controller has stored the factor and written the table.
+   * @throws A `NarsilError` with `CONFIG_INVALID` for a factor outside that range, with `INDEX_NOT_FOUND` where the
+   * cluster holds no index of that name, and with `NODE_NOT_CONTROLLER` while no node holds the controller lease.
+   */
+  setReplicationFactor(indexName: string, replicationFactor: number): Promise<void>
+  /**
+   * Reports how well the cluster holds each index, from the allocation tables in the coordinator.
+   *
+   * @returns The status of each index and the worst of them as the status of the cluster.
+   */
+  getHealth(): Promise<ClusterHealth>
+  /**
+   * Reports the replication lag and the live commit point of each partition that this node leads, the stored commit
+   * point floor and in-sync replica count of every partition in the cluster, and the timing of this node's
+   * coordinator calls.
+   *
+   * @returns The figures as they stand when the call reads them.
+   */
+  getMetrics(): Promise<ClusterMetrics>
 }
 
 /**

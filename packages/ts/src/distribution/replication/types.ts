@@ -32,9 +32,11 @@ export interface ReplicationConfig {
 
 export interface ReplicationLog {
   append(entry: Omit<ReplicationLogEntry, 'seqNo' | 'checksum'>): ReplicationLogEntry
+  assertFits(entry: Pick<ReplicationLogEntry, 'indexName' | 'documentId' | 'document'>): void
   appendCommitted(entry: ReplicationLogEntry): ReplicationLogEntry
   getEntriesFrom(fromSeqNo: number): ReplicationLogEntry[]
   getEntry(seqNo: number): ReplicationLogEntry | undefined
+  termAt(seqNo: number): number | undefined
   verifyChecksum(entry: ReplicationLogEntry): boolean
   readonly localLogEnd: number
   readonly localLogEndPrimaryTerm: number

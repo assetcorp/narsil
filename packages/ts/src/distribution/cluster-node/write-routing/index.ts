@@ -29,6 +29,7 @@ import type { CreateIndexOptions } from '../types'
 import { DEFAULT_PARTITION_COUNT, DEFAULT_REPLICATION_FACTOR } from '../types'
 import { resolvePrimaryAssignment } from './assignment'
 import { forwardInsertToRemote, forwardRemoveToRemote, forwardUpdateToRemote } from './forwarding'
+import { retryOnPrimaryChange, settleAbsentRemovals, settleEqualInserts, settleNothing } from './primary-change'
 import { applyPrimaryInsert, applyPrimaryRemove, applyPrimaryUpdate } from './primary-writes'
 import type { WriteRoutingDeps } from './types'
 
@@ -253,6 +254,23 @@ async function routeAdmittedInsert(
   options?: InsertOptions,
 ): Promise<string> {
   const resolvedDocId = docId ?? providedDocId(document) ?? generateId()
+  return retryOnPrimaryChange(
+    deps,
+    indexName,
+    resolvedDocId,
+    () => insertOnce(indexName, document, resolvedDocId, deps, options),
+    settleEqualInserts(deps, indexName, new Map([[resolvedDocId, document]])),
+    () => resolvedDocId,
+  )
+}
+
+async function insertOnce(
+  indexName: string,
+  document: AnyDocument,
+  resolvedDocId: string,
+  deps: WriteRoutingDeps,
+  options?: InsertOptions,
+): Promise<string> {
   const resolution = await resolvePrimaryAssignment(indexName, resolvedDocId, deps, false)
 
   if (resolution === null) {
@@ -273,10 +291,21 @@ async function routeAdmittedInsert(
     )
   }
 
-  return forwardInsertToRemote(indexName, document, resolvedDocId, primaryNodeId, deps)
+  return forwardInsertToRemote(indexName, document, resolvedDocId, primaryNodeId, deps, resolution.table.indexUuid)
 }
 
-export async function routeRemove(indexName: string, docId: string, deps: WriteRoutingDeps): Promise<void> {
+export function routeRemove(indexName: string, docId: string, deps: WriteRoutingDeps): Promise<void> {
+  return retryOnPrimaryChange(
+    deps,
+    indexName,
+    docId,
+    () => removeOnce(indexName, docId, deps),
+    settleAbsentRemovals,
+    () => undefined,
+  )
+}
+
+async function removeOnce(indexName: string, docId: string, deps: WriteRoutingDeps): Promise<void> {
   const resolution = await resolvePrimaryAssignment(indexName, docId, deps, false)
 
   if (resolution === null) {
@@ -288,7 +317,7 @@ export async function routeRemove(indexName: string, docId: string, deps: WriteR
     return applyPrimaryRemove(indexName, docId, resolution.partitionId, resolution.assignment, deps)
   }
 
-  return forwardRemoveToRemote(indexName, docId, primaryNodeId, deps)
+  return forwardRemoveToRemote(indexName, docId, primaryNodeId, deps, resolution.table.indexUuid)
 }
 
 export function routeUpdate(
@@ -301,7 +330,15 @@ export function routeUpdate(
     deps.writePressure,
     indexName,
     () => estimateDocumentBytes(document),
-    () => routeAdmittedUpdate(indexName, docId, document, deps),
+    () =>
+      retryOnPrimaryChange(
+        deps,
+        indexName,
+        docId,
+        () => routeAdmittedUpdate(indexName, docId, document, deps),
+        settleNothing,
+        () => undefined,
+      ),
   )
 }
 
@@ -323,5 +360,5 @@ async function routeAdmittedUpdate(
     return applyPrimaryUpdate(indexName, docId, document, resolution.partitionId, resolution.assignment, deps)
   }
 
-  return forwardUpdateToRemote(indexName, document, docId, primaryNodeId, deps)
+  return forwardUpdateToRemote(indexName, document, docId, primaryNodeId, deps, resolution.table.indexUuid)
 }
