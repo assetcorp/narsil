@@ -84,7 +84,26 @@ describe('controller in-sync message guards', () => {
     }
   }
 
-  it('answers a removal request whose sender does not lead the partition', async () => {
+  it('refuses a removal request from a node that neither leads the partition nor is the replica it removes', async () => {
+    await seedAllocation()
+    await coordinator.registerNode(makeNode('data-3'))
+    await createDefaultController().start()
+
+    const response = await primaryTransport.send(
+      'controller-node',
+      makeRemoveRequest({ indexName: 'products', partitionId: 0, replicaNodeId: 'data-2', primaryTerm: 1 }, 'data-3'),
+    )
+
+    const confirm = decode(response.payload) as InsyncConfirmPayload
+    expect(confirm.accepted).toBe(false)
+    expect(confirm.indexName).toBe('products')
+    expect(confirm.partitionId).toBe(0)
+
+    const stored = await coordinator.getAllocation('products')
+    expect(stored?.assignments.get(0)?.inSyncSet).toEqual(['data-2'])
+  })
+
+  it('accepts a removal request from the assigned replica that removes itself', async () => {
     await seedAllocation()
     await createDefaultController().start()
 
@@ -94,9 +113,10 @@ describe('controller in-sync message guards', () => {
     )
 
     const confirm = decode(response.payload) as InsyncConfirmPayload
-    expect(confirm.accepted).toBe(false)
-    expect(confirm.indexName).toBe('products')
-    expect(confirm.partitionId).toBe(0)
+    expect(confirm.accepted).toBe(true)
+
+    const stored = await coordinator.getAllocation('products')
+    expect(stored?.assignments.get(0)?.inSyncSet).toEqual([])
   })
 
   it('answers a removal request whose payload fails validation', async () => {
