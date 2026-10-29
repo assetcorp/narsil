@@ -1,5 +1,5 @@
 import { decode, encode } from '@msgpack/msgpack'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { CONTROLLER_LEASE_KEY } from '../../../distribution/cluster/controller/types'
 import {
   createCatchUpState,
@@ -14,7 +14,12 @@ import { createAckMessage, createInsyncConfirmMessage } from '../../../distribut
 import { createReplicationLog } from '../../../distribution/replication/log'
 import type { ReplicationLog } from '../../../distribution/replication/types'
 import type { InsyncRemovePayload, NodeTransport, TransportMessage } from '../../../distribution/transport/types'
-import { ReplicationMessageTypes, TransportError, TransportErrorCodes } from '../../../distribution/transport/types'
+import {
+  DEFAULT_TRANSPORT_CONFIG,
+  ReplicationMessageTypes,
+  TransportError,
+  TransportErrorCodes,
+} from '../../../distribution/transport/types'
 import type { NarsilError } from '../../../errors'
 import { createNarsil, type Narsil } from '../../../narsil'
 
@@ -52,8 +57,12 @@ async function createRegisteredCoordinator(): Promise<ClusterCoordinator> {
   return created
 }
 
+const REPLICATION_TIMEOUT_MS = 200
+let stopped = false
+
 function makeTransport(send: NodeTransport['send']): NodeTransport {
   return {
+    timeouts: { ...DEFAULT_TRANSPORT_CONFIG, replicationTimeout: REPLICATION_TIMEOUT_MS },
     send,
     async stream(_target: string, _message: TransportMessage, _handler: (chunk: Uint8Array) => void) {},
     async listen() {
@@ -100,6 +109,7 @@ function makeDeps(coordinator: ClusterCoordinator, engine: Narsil, transport: No
     transport,
     partitionWriteQueues: createPartitionWriteQueues(),
     catchUp: createCatchUpState(),
+    stopped: () => stopped,
     ...createLogAccessors(),
   }
 }
@@ -109,7 +119,12 @@ describe('primary write safety', () => {
   let engine: Narsil | undefined
   let transport: NodeTransport | undefined
 
+  beforeEach(() => {
+    stopped = false
+  })
+
   afterEach(async () => {
+    stopped = true
     await transport?.shutdown()
     await engine?.shutdown()
     await coordinator?.shutdown()
@@ -131,9 +146,10 @@ describe('primary write safety', () => {
     }))
 
     const deps = makeDeps(coordinator, engine, transport)
-    await expect(routeInsert('products', { title: 'Malformed Ack' }, 'doc-malformed-ack', deps)).rejects.toThrow(
-      'no active controller lease holder',
-    )
+    await expect(routeInsert('products', { title: 'Malformed Ack' }, 'doc-malformed-ack', deps)).rejects.toMatchObject({
+      code: 'REPLICATION_OUTCOME_UNKNOWN',
+      details: { reason: 'rollback_open' },
+    })
     await expect(engine.get('products', 'doc-malformed-ack')).resolves.toBeUndefined()
   })
 
@@ -207,7 +223,10 @@ describe('primary write safety', () => {
     })
 
     const deps = makeDeps(coordinator, engine, transport)
-    await expect(routeRemove('products', 'doc-restore', deps)).rejects.toThrow('Controller rejected in-sync removal')
+    await expect(routeRemove('products', 'doc-restore', deps)).rejects.toMatchObject({
+      code: 'REPLICATION_OUTCOME_UNKNOWN',
+      details: { reason: 'rollback_open' },
+    })
     await expect(engine.get('products', 'doc-restore')).resolves.toMatchObject({ title: 'Original Document' })
   })
 })
@@ -217,7 +236,12 @@ describe('pending admission during a primary write', () => {
   let engine: Narsil | undefined
   let transport: NodeTransport | undefined
 
+  beforeEach(() => {
+    stopped = false
+  })
+
   afterEach(async () => {
+    stopped = true
     await transport?.shutdown()
     await engine?.shutdown()
     await coordinator?.shutdown()

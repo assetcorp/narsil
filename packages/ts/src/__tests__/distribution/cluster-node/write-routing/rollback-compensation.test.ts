@@ -18,12 +18,13 @@ import type {
 } from '../../../../distribution/coordinator/types'
 import { createReplicationLog } from '../../../../distribution/replication/log'
 import type { ReplicationLog, ReplicationLogEntry } from '../../../../distribution/replication/types'
-import type { NodeTransport } from '../../../../distribution/transport/types'
+import { DEFAULT_TRANSPORT_CONFIG, type NodeTransport } from '../../../../distribution/transport/types'
 import type { AnyDocument } from '../../../../types/schema'
 
 const INDEX = 'products'
 const PARTITION_ID = 0
 const PRIMARY_TERM = 3
+const REPLICATION_TIMEOUT_MS = 200
 
 const ASSIGNMENT: PartitionAssignment = {
   primary: 'node-a',
@@ -45,6 +46,7 @@ const NODE_A_REGISTRATION: NodeRegistration = {
 
 function unreachableTransport(): NodeTransport {
   return {
+    timeouts: { ...DEFAULT_TRANSPORT_CONFIG, replicationTimeout: REPLICATION_TIMEOUT_MS },
     send: () => Promise.reject(new Error('node-b is unreachable')),
     stream: () => Promise.reject(new Error('node-b is unreachable')),
     listen: () => Promise.resolve(() => {}),
@@ -61,8 +63,10 @@ describe('a primary write rolled back after it reached the log', () => {
   let engine: ClusterLocalEngine
   let log: ReplicationLog
   let deps: WriteRoutingDeps
+  let stopped: boolean
 
   beforeEach(async () => {
+    stopped = false
     coordinator = createInMemoryCoordinator()
     await coordinator.registerNode(NODE_A_REGISTRATION)
     engine = await createClusterLocalEngine()
@@ -83,10 +87,12 @@ describe('a primary write rolled back after it reached the log', () => {
       resetReplicationLog: () => {},
       partitionWriteQueues: createPartitionWriteQueues(),
       catchUp: createCatchUpState(),
+      stopped: () => stopped,
     }
   })
 
   afterEach(async () => {
+    stopped = true
     await engine.shutdown()
     await coordinator.shutdown()
   })
