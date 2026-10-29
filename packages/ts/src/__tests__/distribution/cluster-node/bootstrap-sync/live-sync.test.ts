@@ -67,11 +67,12 @@ describe('runBootstrapSync - live sync protocol alignment', () => {
         resetCalls.push({ startSeqNo, lastPrimaryTerm })
         replicaLog = createReplicationLog(partitionId, { startSeqNo, lastPrimaryTerm })
       },
-      applyReplicationEntry: async entry => {
+      applyReplicationEntries: async entries => {
         if (overrides.applyRejects !== undefined) {
           throw overrides.applyRejects
         }
-        appliedEntries.push(entry)
+        appliedEntries.push(...entries)
+        return { applied: entries.length, error: null }
       },
       restoreReplicationPartition: async (indexName, partitionId, source, _schema, partitionCount) => {
         const bytes = source instanceof Uint8Array ? source : await bytesOf(source)

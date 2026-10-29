@@ -1,18 +1,18 @@
 import { decode } from '@msgpack/msgpack'
-import { ErrorCodes, NarsilError, type NarsilErrorCode } from '../../../errors'
+import { ErrorCodes, NarsilError } from '../../../errors'
 import type { BatchResult } from '../../../types/results'
 import type { AnyDocument, InsertOptions } from '../../../types/schema'
 import type { PartitionAssignment } from '../../coordinator/types'
-import type { ReplicationLogEntry } from '../../replication/types'
 import type { ForwardPayload } from '../../transport/types'
 import { requireWritableIndex } from '../memory/write-block'
 import { estimateForwardedBytes, withAdmittedWrite } from '../memory/write-pressure'
 import { assertSufficientActiveReplicas, resolvePrimaryAssignment } from './assignment'
+import { type AppendedWrite, asWriteError, createGroupCommit, replicateAppendedWrites } from './batch-commit'
 import { rollbackPrimaryInsert, rollbackPrimaryRemove, rollbackPrimaryUpdate } from './failures'
 import { inLeadingPartitionQueue } from './leading-queue'
 import { appendDeletion, appendStoredCopy, numberedWrite, type PrimaryWriteScope } from './numbered-write'
 import { applyInProjectedGroups, projectOne } from './projected-groups'
-import { chunkReplicationEntries, replicateEntry, replicateEntryBatch } from './replication'
+import { replicateEntry } from './replication'
 import type { WriteRoutingDeps } from './types'
 
 export async function applyPrimaryInsert(
@@ -100,16 +100,6 @@ export async function applyPrimaryUpdate(
   })
 }
 
-interface AppendedWrite {
-  docId: string
-  entry: ReplicationLogEntry
-  previousDocument?: AnyDocument
-}
-
-function asWriteError(err: unknown, fallbackCode: NarsilErrorCode, docId: string): NarsilError {
-  return err instanceof NarsilError ? err : new NarsilError(fallbackCode, String(err), { docId })
-}
-
 export async function applyPrimaryInsertBatch(
   indexName: string,
   items: Array<{ doc: AnyDocument; docId: string }>,
@@ -125,17 +115,21 @@ export async function applyPrimaryInsertBatch(
     queued,
     async scope => {
       const appended: AppendedWrite[] = []
+      const groupCommit = createGroupCommit(scope, appended, failed)
       await applyInProjectedGroups(deps, indexName, {
         items,
         documentOf: item => item.doc,
         docIdOf: item => item.docId,
         failed,
+        afterGroup: groupCommit.afterGroup,
         apply: async item => {
+          if (groupCommit.refuse(item.docId)) return
           try {
             const inserted = await numberedWrite(
               scope,
               () => deps.engine.insert(indexName, item.doc, item.docId, options),
               (insertedDocId, admitted) => appendStoredCopy(scope, insertedDocId, admitted),
+              true,
             )
             appended.push({ docId: inserted.value, entry: inserted.entry })
           } catch (err) {
@@ -170,18 +164,22 @@ export async function applyPrimaryUpdateBatch(
     queued,
     async scope => {
       const appended: AppendedWrite[] = []
+      const groupCommit = createGroupCommit(scope, appended, failed)
       await applyInProjectedGroups(deps, indexName, {
         items: updates,
         documentOf: update => update.document,
         docIdOf: update => update.docId,
         failed,
+        afterGroup: groupCommit.afterGroup,
         apply: async update => {
+          if (groupCommit.refuse(update.docId)) return
           try {
             const previousDocument = await deps.engine.get(indexName, update.docId)
             const updated = await numberedWrite(
               scope,
               () => deps.engine.update(indexName, update.docId, update.document),
               (_, admitted) => appendStoredCopy(scope, update.docId, admitted),
+              true,
             )
             appended.push({ docId: update.docId, entry: updated.entry, previousDocument })
           } catch (err) {
@@ -219,6 +217,7 @@ export async function applyPrimaryRemoveBatch(
     queued,
     async scope => {
       const appended: AppendedWrite[] = []
+      const groupCommit = createGroupCommit(scope, appended, failed)
       for (const docId of docIds) {
         try {
           const previousDocument = await deps.engine.get(indexName, docId)
@@ -226,12 +225,14 @@ export async function applyPrimaryRemoveBatch(
             scope,
             () => deps.engine.remove(indexName, docId),
             () => appendDeletion(scope, docId),
+            true,
           )
           appended.push({ docId, entry: removed.entry, previousDocument })
         } catch (err) {
           failed.push({ docId, error: asWriteError(err, ErrorCodes.QUERY_ROUTING_FAILED, docId) })
         }
       }
+      await groupCommit.afterGroup()
       return replicateAppendedWrites(
         scope,
         appended,
@@ -243,49 +244,6 @@ export async function applyPrimaryRemoveBatch(
     failed,
   )
   return { succeeded, failed }
-}
-
-async function replicateAppendedWrites(
-  scope: PrimaryWriteScope,
-  appended: AppendedWrite[],
-  failed: BatchResult['failed'],
-  rollback: (write: AppendedWrite, error: unknown) => Promise<never>,
-  deps: WriteRoutingDeps,
-): Promise<string[]> {
-  const succeeded: string[] = []
-  const chunks = chunkReplicationEntries(appended)
-  const abandoned: AppendedWrite[] = []
-  let abortError: unknown
-
-  for (const chunk of chunks) {
-    if (abortError === undefined) {
-      try {
-        await replicateEntryBatch(
-          chunk.map(item => item.entry),
-          scope.assignment,
-          deps,
-          scope.indexUuid,
-        )
-        succeeded.push(...chunk.map(item => item.docId))
-        continue
-      } catch (error) {
-        abortError = error
-      }
-    }
-
-    abandoned.push(...chunk)
-  }
-
-  for (let index = abandoned.length - 1; index >= 0; index--) {
-    const item = abandoned[index]
-    try {
-      await rollback(item, abortError)
-    } catch (err) {
-      failed.push({ docId: item.docId, error: asWriteError(err, ErrorCodes.DOC_VALIDATION_FAILED, item.docId) })
-    }
-  }
-
-  return succeeded
 }
 
 export function applyForwardedWrite(payload: ForwardPayload, deps: WriteRoutingDeps): Promise<string> {

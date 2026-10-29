@@ -16,7 +16,7 @@ import { chunkReplicationEntries, replicateEntryBatch } from '../write-routing/r
 import { leadingAssignment } from './leadership'
 import { jobKey } from './state'
 
-export type ReshardTargetEngine = Pick<ClusterLocalEngine, 'applyReplicationEntry' | 'listPartitions'>
+export type ReshardTargetEngine = Pick<ClusterLocalEngine, 'applyReplicationEntries' | 'listPartitions'>
 
 interface QueuedOperation {
   operation: ReshardForwardOperation
@@ -52,25 +52,37 @@ async function applyInPartition(
       const log = deps.getReplicationLog(indexName, partitionId)
       noteLedTerm(log, assignment.primaryTerm)
       const applied: Array<{ entry: ReplicationLogEntry }> = []
-      for (const { operation, position } of queued) {
-        try {
-          const entry = buildEntry({
-            seqNo: log.localLogEnd + 1,
-            primaryTerm: assignment.primaryTerm,
-            operation: operation.operation === 'replace' ? 'INDEX' : 'DELETE',
-            partitionId,
-            indexName,
-            documentId: operation.documentId,
-            document: operation.operation === 'replace' ? (operation.document ?? null) : null,
-          })
-          log.assertFits(entry)
-          await engine.applyReplicationEntry(entry)
+      let remaining = queued
+      while (remaining.length > 0) {
+        const run: Array<{ queued: QueuedOperation; entry: ReplicationLogEntry }> = []
+        for (const item of remaining) {
+          try {
+            const entry = buildEntry({
+              seqNo: log.localLogEnd + run.length + 1,
+              primaryTerm: assignment.primaryTerm,
+              operation: item.operation.operation === 'replace' ? 'INDEX' : 'DELETE',
+              partitionId,
+              indexName,
+              documentId: item.operation.documentId,
+              document: item.operation.operation === 'replace' ? (item.operation.document ?? null) : null,
+            })
+            log.assertFits(entry)
+            run.push({ queued: item, entry })
+          } catch (error) {
+            results[item.position] = failed(item.operation.documentId, error)
+          }
+        }
+        const outcome = await engine.applyReplicationEntries(run.map(item => item.entry))
+        for (const { queued: item, entry } of run.slice(0, outcome.applied)) {
           log.appendCommitted(entry)
           applied.push({ entry })
-          results[position] = succeeded(operation.documentId)
-        } catch (error) {
-          results[position] = failed(operation.documentId, error)
+          results[item.position] = succeeded(item.operation.documentId)
         }
+        const stopped = run[outcome.applied]
+        if (stopped !== undefined) {
+          results[stopped.queued.position] = failed(stopped.queued.operation.documentId, outcome.error)
+        }
+        remaining = run.slice(outcome.applied + 1).map(item => item.queued)
       }
       const indexUuid = (await deps.coordinator.getAllocation(indexName))?.indexUuid
       for (const chunk of chunkReplicationEntries(applied)) {

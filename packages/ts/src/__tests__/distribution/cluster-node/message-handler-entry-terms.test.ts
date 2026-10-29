@@ -39,8 +39,9 @@ function makeHandler(assignment: PartitionAssignment, replicaLog: ReplicationLog
     coordinator: makeCoordinator(assignment),
     engine: {
       indexUuidOf: () => null,
-      applyReplicationEntry: async (entry: ReplicationLogEntry) => {
-        applied.push(entry)
+      applyReplicationEntries: async (entries: readonly ReplicationLogEntry[]) => {
+        applied.push(...entries)
+        return { applied: entries.length, error: null }
       },
     } as unknown as ClusterLocalEngine,
     writeDeps: {

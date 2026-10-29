@@ -9,6 +9,7 @@ interface OpenScope {
   primaryTerm: number
   entries: ReplicationLogEntry[]
   admitted: Map<string, Uint8Array | null>
+  deferCommit: boolean
 }
 
 export interface NumberedWrites {
@@ -20,7 +21,14 @@ export interface NumberedWrites {
 export interface PrimaryNumbering {
   admit(indexName: string, partitionId: number, documentId: string, document: AnyDocument | null): void
   numberEntry(record: MutationRecord): ReplicationLogEntry | null
-  open(indexName: string, partitionId: number, log: () => ReplicationLog, primaryTerm: number): NumberedWrites
+  defersCommit(record: MutationRecord): boolean
+  open(
+    indexName: string,
+    partitionId: number,
+    log: () => ReplicationLog,
+    primaryTerm: number,
+    deferCommit?: boolean,
+  ): NumberedWrites
 }
 
 export function createPrimaryNumbering(): PrimaryNumbering {
@@ -50,9 +58,13 @@ export function createPrimaryNumbering(): PrimaryNumbering {
       return entry
     },
 
-    open(indexName, partitionId, log, primaryTerm) {
+    defersCommit(record) {
+      return scopes.get(replicationLogKey(record.indexName, record.partitionId))?.deferCommit === true
+    },
+
+    open(indexName, partitionId, log, primaryTerm, deferCommit = false) {
       const key = replicationLogKey(indexName, partitionId)
-      const scope: OpenScope = { log, primaryTerm, entries: [], admitted: new Map() }
+      const scope: OpenScope = { log, primaryTerm, entries: [], admitted: new Map(), deferCommit }
       scopes.set(key, scope)
       return {
         entries: scope.entries,

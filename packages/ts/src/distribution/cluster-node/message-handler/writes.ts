@@ -8,7 +8,7 @@ import {
   validateForwardBatchPayload,
 } from '../../replication/codec'
 import { validateReplicationEntry } from '../../replication/replica'
-import type { ReplicationLogEntry } from '../../replication/types'
+import type { ReplicationLog, ReplicationLogEntry } from '../../replication/types'
 import type { ForwardPayload, RespondFn, TransportMessage } from '../../transport/types'
 import { ReplicationMessageTypes } from '../../transport/types'
 import { noteAcceptedPrimaryTerm, noteSupersedingPrimary } from '../led-term'
@@ -127,56 +127,80 @@ async function applyEntriesFromPrimary(
   await enqueuePartitionWrite(deps.writeDeps.partitionWriteQueues, first.indexName, first.partitionId, async () => {
     const current = await resolveValidatedAssignment(first, sourceNodeId, deps)
     noteAcceptedPrimaryTerm(deps.writeDeps.getReplicationLog(first.indexName, first.partitionId), current.primaryTerm)
-    for (const entry of entries) {
-      await applyEntryInLogOrder(entry, deps)
-    }
+    await applyEntriesInLogOrder(first, entries, deps)
   })
 }
 
-async function applyEntryInLogOrder(entry: ReplicationLogEntry, deps: DataNodeHandlerDeps): Promise<void> {
-  let log = deps.writeDeps.getReplicationLog(entry.indexName, entry.partitionId)
-  const existing = log.getEntry(entry.seqNo)
-  if (existing !== undefined) {
-    if (existing.checksum !== entry.checksum) {
+async function applyEntriesInLogOrder(
+  first: ReplicationLogEntry,
+  entries: readonly ReplicationLogEntry[],
+  deps: DataNodeHandlerDeps,
+): Promise<void> {
+  let log = deps.writeDeps.getReplicationLog(first.indexName, first.partitionId)
+  let tailSeqNo = log.localLogEnd
+  let tailPrimaryTerm = log.localLogEndPrimaryTerm
+  const run: ReplicationLogEntry[] = []
+  for (const entry of entries) {
+    const existing = log.getEntry(entry.seqNo)
+    if (existing !== undefined) {
+      if (existing.checksum !== entry.checksum) {
+        await applyRun(run, log, deps)
+        throw new NarsilError(
+          ErrorCodes.REPLICATION_ENTRY_INVALID,
+          `Conflicting replication entry at sequence number ${entry.seqNo}`,
+          { indexName: entry.indexName, partitionId: entry.partitionId, seqNo: entry.seqNo },
+        )
+      }
+      continue
+    }
+
+    const expectedSeqNo = tailSeqNo + 1
+    if (entry.seqNo !== expectedSeqNo) {
+      const canSeedFromCompletedBootstrap =
+        run.length === 0 &&
+        log.entryCount === 0 &&
+        entry.seqNo > expectedSeqNo &&
+        deps.isBootstrapSynced?.(entry.indexName, entry.partitionId) === true
+
+      if (!canSeedFromCompletedBootstrap) {
+        await applyRun(run, log, deps)
+        throw new NarsilError(
+          ErrorCodes.REPLICATION_ENTRY_INVALID,
+          `Out-of-order replication entry ${entry.seqNo}; expected ${expectedSeqNo}`,
+          { indexName: entry.indexName, partitionId: entry.partitionId, seqNo: entry.seqNo, expectedSeqNo },
+        )
+      }
+
+      deps.writeDeps.resetReplicationLog(entry.indexName, entry.partitionId, entry.seqNo, entry.primaryTerm)
+      log = deps.writeDeps.getReplicationLog(entry.indexName, entry.partitionId)
+      tailPrimaryTerm = log.localLogEndPrimaryTerm
+    }
+
+    const validation = validateReplicationEntry(entry, tailPrimaryTerm, log)
+    if (!validation.valid) {
+      await applyRun(run, log, deps)
       throw new NarsilError(
-        ErrorCodes.REPLICATION_ENTRY_INVALID,
-        `Conflicting replication entry at sequence number ${entry.seqNo}`,
+        validation.error ?? ErrorCodes.REPLICATION_ENTRY_INVALID,
+        `Invalid replication entry ${entry.seqNo}`,
         { indexName: entry.indexName, partitionId: entry.partitionId, seqNo: entry.seqNo },
       )
     }
-    return
+    run.push(entry)
+    tailSeqNo = entry.seqNo
+    tailPrimaryTerm = entry.primaryTerm
   }
+  await applyRun(run, log, deps)
+}
 
-  const expectedSeqNo = log.localLogEnd + 1
-  if (entry.seqNo !== expectedSeqNo) {
-    const canSeedFromCompletedBootstrap =
-      log.entryCount === 0 &&
-      entry.seqNo > expectedSeqNo &&
-      deps.isBootstrapSynced?.(entry.indexName, entry.partitionId) === true
-
-    if (!canSeedFromCompletedBootstrap) {
-      throw new NarsilError(
-        ErrorCodes.REPLICATION_ENTRY_INVALID,
-        `Out-of-order replication entry ${entry.seqNo}; expected ${expectedSeqNo}`,
-        { indexName: entry.indexName, partitionId: entry.partitionId, seqNo: entry.seqNo, expectedSeqNo },
-      )
-    }
-
-    deps.writeDeps.resetReplicationLog(entry.indexName, entry.partitionId, entry.seqNo, entry.primaryTerm)
-    log = deps.writeDeps.getReplicationLog(entry.indexName, entry.partitionId)
-  }
-
-  const validation = validateReplicationEntry(entry, log.localLogEndPrimaryTerm, log)
-  if (!validation.valid) {
-    throw new NarsilError(
-      validation.error ?? ErrorCodes.REPLICATION_ENTRY_INVALID,
-      `Invalid replication entry ${entry.seqNo}`,
-      { indexName: entry.indexName, partitionId: entry.partitionId, seqNo: entry.seqNo },
-    )
-  }
-
-  await deps.engine.applyReplicationEntry(entry)
-  log.appendCommitted(entry)
+async function applyRun(
+  run: readonly ReplicationLogEntry[],
+  log: ReplicationLog,
+  deps: DataNodeHandlerDeps,
+): Promise<void> {
+  if (run.length === 0) return
+  const { applied, error } = await deps.engine.applyReplicationEntries(run)
+  for (let position = 0; position < applied; position++) log.appendCommitted(run[position])
+  if (applied < run.length) throw error
 }
 
 export function validateForwardPayload(decoded: unknown): ForwardPayload {

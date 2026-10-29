@@ -24,12 +24,14 @@ export async function numberedWrite<T>(
   scope: PrimaryWriteScope,
   write: () => Promise<T>,
   appendOutsideTheLog: (value: T, admitted: AdmittedDocuments) => Promise<ReplicationLogEntry>,
+  deferCommit = false,
 ): Promise<NumberedWrite<T>> {
   const writes = scope.deps.numbering?.open(
     scope.indexName,
     scope.partitionId,
     () => scope.deps.getReplicationLog(scope.indexName, scope.partitionId),
     scope.assignment.primaryTerm,
+    deferCommit && scope.deps.commitPartitionLog !== undefined,
   )
   let value: T
   try {

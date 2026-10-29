@@ -9,6 +9,7 @@ export interface PartitionBatchDeps {
   markFatal(error: Error): void
   buildEntry(record: MutationRecord, seqNo: number): ReplicationLogEntry
   numberEntry(record: MutationRecord): ReplicationLogEntry | null
+  defersCommit(record: MutationRecord): boolean
 }
 
 function toError(err: unknown): Error {
@@ -79,6 +80,7 @@ export async function recordPartitionBatch(
 ): Promise<MutationOutcome[]> {
   const outcomes: MutationOutcome[] = new Array(records.length)
   let appendedCount = 0
+  let commitsHere = false
 
   const appended = partition.appendChain.then(async () => {
     const fatal = deps.fatalError()
@@ -121,6 +123,7 @@ export async function recordPartitionBatch(
           entries.push(numbered)
         }
         outcomes[i] = { ok: true, seqNo: lastSeqNo }
+        if (!deps.defersCommit(records[i])) commitsHere = true
       }
       if (entries.length > 0) await partition.walWriter.appendAll(entries)
     } catch (err) {
@@ -133,7 +136,7 @@ export async function recordPartitionBatch(
 
   try {
     await appended
-    if (deps.syncEachBatch && appendedCount > 0) {
+    if (deps.syncEachBatch && appendedCount > 0 && commitsHere) {
       try {
         await partition.walWriter.commit()
       } catch (err) {
@@ -144,4 +147,15 @@ export async function recordPartitionBatch(
     failUnlessAlreadyFailed(outcomes, records.length, toError(err))
   }
   return outcomes
+}
+
+export async function commitAppended(partition: PartitionState, deps: PartitionBatchDeps): Promise<void> {
+  await partition.appendChain
+  const failed = partition.failed ?? deps.fatalError()
+  if (failed !== null) throw failed
+  try {
+    await partition.walWriter.commit()
+  } catch (err) {
+    throw failPartition(partition, deps, err)
+  }
 }

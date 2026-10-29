@@ -14,13 +14,14 @@ import {
 import { createDirectoryWatch, unrefInterval } from './directory-watch'
 import { createDurableDirectory, type DurableDirectory } from './durable-filesystem'
 import { drainIndexStateForUnload, type IndexState } from './manager-state'
-import { type PartitionBatchDeps, recordBatchesByPartition } from './mutation-batch'
+import { commitAppended, type PartitionBatchDeps, recordBatchesByPartition } from './mutation-batch'
 import { createPartitionRegistry } from './partition-registry'
 import { recoverPersistedIndex } from './recover-index'
 import { listPersistedIndexes } from './recovery'
 import { recoverDirectoryRestores } from './restore-directory'
 import { SINGLE_NODE_PRIMARY_TERM } from './seq-owner'
 import type {
+  CommitDeferral,
   DurabilityConfig,
   DurabilityManager,
   EntryNumbering,
@@ -57,6 +58,7 @@ export function createDurabilityManager(
   const getOrCreateIndexState = registry.indexState
   const getOrCreatePartition = registry.partition
   let entryNumbering: EntryNumbering | null = null
+  let commitDeferral: CommitDeferral | null = null
   const metadataWrites = new Map<string, Promise<void>>()
   let checkpointTimer: ReturnType<typeof setInterval> | null = null
   let asyncFlushTimer: ReturnType<typeof setInterval> | null = null
@@ -204,6 +206,7 @@ export function createDurabilityManager(
     markFatal,
     buildEntry: buildMutationEntry,
     numberEntry: record => record.replicated ?? (entryNumbering === null ? null : entryNumbering(record)),
+    defersCommit: record => commitDeferral?.(record) === true,
   }
 
   async function recordMutations(records: readonly MutationRecord[]): Promise<MutationOutcome[]> {
@@ -289,8 +292,17 @@ export function createDurabilityManager(
 
     partitionRegistry: registry,
 
-    numberEntriesWith(numbering: EntryNumbering): void {
+    numberEntriesWith(numbering: EntryNumbering, defersCommit?: CommitDeferral): void {
       entryNumbering = numbering
+      commitDeferral = defersCommit ?? null
+    },
+
+    async commitPartition(indexName: string, partitionId: number): Promise<void> {
+      const partition = indexes.get(indexName)?.partitions.get(partitionId)
+      if (mode !== 'sync' || partition === undefined) return
+      await commitAppended(partition, partitionBatchDeps)
+      await directoryWatch.verify()
+      if (fatalError !== null) throw fatalError
     },
 
     async recordMutation(record: MutationRecord): Promise<number> {

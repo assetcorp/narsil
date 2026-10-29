@@ -23,6 +23,7 @@ export interface WriteRoutingDeps {
   resetReplicationLog: (indexName: string, partitionId: number, startSeqNo: number, lastPrimaryTerm?: number) => void
   partitionWriteQueues: PartitionWriteQueues
   numbering?: PrimaryNumbering
+  commitPartitionLog?: (indexName: string, partitionId: number) => Promise<void>
   catchUp: CatchUpState
   resolveNodeTargets?: (nodeId: string) => Promise<string[]>
   waitForActiveReplicas?: number
