@@ -88,6 +88,7 @@ interface BatchOutcome {
   status: number | null
   body: Record<string, unknown>
   documents: Furniture[]
+  payloadBytes: number
 }
 
 async function sendBatch(base: string, documents: Furniture[], payload: string): Promise<BatchOutcome> {
@@ -100,9 +101,9 @@ async function sendBatch(base: string, documents: Furniture[], payload: string):
     const text = await response.text()
     const parsed: unknown = text.length > 0 ? JSON.parse(text) : {}
     const body = parsed !== null && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : {}
-    return { status: response.status, body, documents }
+    return { status: response.status, body, documents, payloadBytes: payload.length }
   } catch {
-    return { status: null, body: {}, documents }
+    return { status: null, body: {}, documents, payloadBytes: payload.length }
   }
 }
 
@@ -273,8 +274,9 @@ describe('a cluster node on etcd bounds the bytes of inserts and updates in flig
     let projectionRefusals = 0
     let fullRefusals = 0
     let sentBytes = 0
+    let admittedBytes = 0
     let bursts = 0
-    while (projectionRefusals === 0 && fullRefusals === 0 && sentBytes < sendBudgetBytes) {
+    while (projectionRefusals === 0 && fullRefusals === 0 && admittedBytes < sendBudgetBytes) {
       const { outcomes, sourceBytes } = await fireConcurrentBatches(
         unbounded,
         bursts * CONCURRENT_BATCHES * BATCH_DOCUMENTS,
@@ -287,12 +289,14 @@ describe('a cluster node on etcd bounds the bytes of inserts and updates in flig
         expect([200, 429], JSON.stringify(outcome.body).slice(0, 500)).toContain(outcome.status)
         if (outcome.status === 429) {
           if (isServerMemoryRefusal({ status: 429, body: outcome.body })) continue
+          admittedBytes += outcome.payloadBytes
           const refusal = errorOf({ status: 429, body: outcome.body })
           expect(refusal.code, JSON.stringify(refusal)).toBe('CLUSTER_WRITE_BLOCKED')
           expect(refusal.details.reason).toBe('node_memory_full')
           fullRefusals++
           continue
         }
+        admittedBytes += outcome.payloadBytes
         const failed = outcome.body.failed as BatchFailure[]
         for (const failure of failed) {
           expect(failure.error.code).toBe('CLUSTER_WRITE_BLOCKED')
@@ -312,13 +316,14 @@ describe('a cluster node on etcd bounds the bytes of inserts and updates in flig
     const peakFraction = peakOldGenerationBytes / unbounded.heapLimitBytes
     const tally = [...replies].map(([status, count]) => `${count} × ${status}`).join(', ')
     console.log(
-      `unbounded node: ${tally} over ${bursts} bursts and ${megabytes(sentBytes)} sent, ${projectionRefusals} ` +
+      `unbounded node: ${tally} over ${bursts} bursts, ${megabytes(sentBytes)} sent and ${megabytes(admittedBytes)} ` +
+        `read past the server's body budget, ${projectionRefusals} ` +
         `documents refused with write_would_fill_memory, ${fullRefusals} batches with node_memory_full, the old ` +
         `generation peaked at ${peakFraction.toFixed(3)} of its limit`,
     )
     expect(
       projectionRefusals + fullRefusals,
-      `the node refused nothing after ${megabytes(sentBytes)} of documents, ${SEND_BUDGET_HEAP_LIMITS} times its heap limit`,
+      `the node refused nothing after taking in ${megabytes(admittedBytes)} of documents, ${SEND_BUDGET_HEAP_LIMITS} times its heap limit`,
     ).toBeGreaterThan(0)
     expect(peakFraction).toBeGreaterThan(CAPPED_HEAP_BLOCK_FRACTION - PEAK_NEAR_CAPPED_BLOCK_FRACTION)
     expect(peakFraction).toBeLessThan(V8_INEFFECTIVE_MARK_COMPACT_FRACTION)
