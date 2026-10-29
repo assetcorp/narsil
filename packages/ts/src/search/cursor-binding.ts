@@ -1,4 +1,4 @@
-import { FNV_OFFSET_BASIS, FNV_PRIME, fnv1aContinue } from '../core/hash'
+import { FNV_OFFSET_BASIS, fnv1aContinue, fnv1aContinueTaggedNumbers } from '../core/hash'
 import { compareCodePoints } from '../core/ordering'
 import type { FilterExpression } from '../types/filters'
 import type { QueryParams } from '../types/search'
@@ -23,35 +23,9 @@ interface BindingStream {
   hash: number
 }
 
-const scratchNumber = new Float64Array(1)
-const scratchBytes = new Uint8Array(scratchNumber.buffer)
-const HOST_IS_LITTLE_ENDIAN = new Uint8Array(new Uint16Array([1]).buffer)[0] === 1
-
 function flush(stream: BindingStream): void {
   stream.hash = fnv1aContinue(stream.hash, stream.bytes, stream.length)
   stream.length = 0
-}
-
-function hashTaggedNumbers(start: number, members: ArrayLike<number>): number {
-  let hash = start
-  const b = scratchBytes
-  for (let i = 0; i < members.length; i++) {
-    scratchNumber[0] = Math.fround(members[i])
-    hash = Math.imul(hash ^ NUMBER_TAG, FNV_PRIME)
-    if (HOST_IS_LITTLE_ENDIAN) {
-      hash = Math.imul(hash ^ b[7], FNV_PRIME)
-      hash = Math.imul(hash ^ b[6], FNV_PRIME)
-      hash = Math.imul(hash ^ b[5], FNV_PRIME)
-      hash = Math.imul(hash ^ b[4], FNV_PRIME)
-      hash = Math.imul(hash ^ b[3], FNV_PRIME)
-      hash = Math.imul(hash ^ b[2], FNV_PRIME)
-      hash = Math.imul(hash ^ b[1], FNV_PRIME)
-      hash = Math.imul(hash ^ b[0], FNV_PRIME)
-    } else {
-      for (let at = 0; at < 8; at++) hash = Math.imul(hash ^ b[at], FNV_PRIME)
-    }
-  }
-  return hash
 }
 
 function ensureCapacity(stream: BindingStream, extra: number): void {
@@ -119,7 +93,7 @@ function writeNumberList(stream: BindingStream, list: NumberList): void {
   writeByte(stream, LIST_TAG)
   writeUint32(stream, list.members.length)
   flush(stream)
-  stream.hash = hashTaggedNumbers(stream.hash, list.members)
+  stream.hash = fnv1aContinueTaggedNumbers(stream.hash, NUMBER_TAG, list.members)
 }
 
 function writeValue(stream: BindingStream, value: unknown): void {
