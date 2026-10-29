@@ -16,7 +16,7 @@
     "test": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "pnpm vitest run --exclude='**/vector/recall.test.ts' --exclude='**/e2e/cluster-memory/**' --exclude='**/frozen-removal-memory/container-removes.test.ts'",
+        "command": "pnpm vitest run --exclude='**/vector/recall.test.ts' --exclude='**/e2e/cluster-memory/**' --exclude='**/e2e/cluster-faults/**' --exclude='**/frozen-removal-memory/container-removes.test.ts'",
         "cwd": "packages/ts"
       }
     },
@@ -24,6 +24,13 @@
       "executor": "nx:run-commands",
       "options": {
         "command": "pnpm run test:cluster",
+        "cwd": "packages/ts"
+      }
+    },
+    "test:faults": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "pnpm run test:faults",
         "cwd": "packages/ts"
       }
     },
