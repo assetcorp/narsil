@@ -97,7 +97,7 @@ describe('DataNodeLifecycle leave, shutdown, retry, and edge cases', () => {
       await coordinator.registerNode(makeNode('primary-node'))
 
       const assignments = new Map<number, PartitionAssignment>()
-      assignments.set(0, makeAssignment({ primary: 'primary-node', replicas: ['data-1'] }))
+      assignments.set(0, makeAssignment({ primary: 'data-1', replicas: ['primary-node'] }))
       await coordinator.putAllocation('products', makeAllocationTable('products', assignments))
 
       createLifecycle({

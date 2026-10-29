@@ -94,12 +94,12 @@ export async function rejectBootstrapComplete(
 }
 
 /**
- * Moves a partition to `ACTIVE` on the report of a node that finished its bootstrap, and answers that node.
+ * Moves a partition to `ACTIVE` on its primary's report that its copy is ready, and answers the reporting node.
  *
- * The controller rejects the report unless the sender's own id matches the `nodeId` in the payload, the node is
- * assigned to the partition, the term matches the assignment's term, and the partition is still `INITIALISING`. An
- * accepted report moves the state alone, and the primary admits the node to the in-sync set through the catch-up
- * feed.
+ * The controller rejects the report unless the sender's own id matches the `nodeId` in the payload, the node is the
+ * partition's primary, the term matches the assignment's term, and the partition is still `INITIALISING`. A report
+ * from a replica, which a node of an earlier release still sends, gets `false`, because the partition serves only once
+ * its primary holds a copy, and the primary admits each replica to the in-sync set through the catch-up feed.
  *
  * @param message - The report the node sent.
  * @param respond - The function that returns the result to the reporting node.
@@ -173,7 +173,7 @@ async function processBootstrapComplete(
       return false
     }
 
-    if (assignment.primary !== payload.nodeId && !assignment.replicas.includes(payload.nodeId)) {
+    if (assignment.primary !== payload.nodeId) {
       return false
     }
 
