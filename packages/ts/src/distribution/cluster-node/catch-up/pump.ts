@@ -8,7 +8,14 @@ import { CATCH_UP_FEED_WINDOW_MS, CATCH_UP_TICK_MS, MAX_CATCH_UP_IN_FLIGHT_BYTES
 import { enqueuePartitionWrite } from '../write-routing/partition-queue'
 import type { WriteRoutingDeps } from '../write-routing/types'
 import { claimAdmission, proposeAdmission, requestClaimedAdmission } from './admission'
-import { admittedBeyondTable, type CatchUpState, forgetReplica, type ReplicaCursor } from './state'
+import { type CatchUpFeed, createCatchUpFeed, feedIsStale, type RegisteredNodes, untilCancelled } from './feed'
+import {
+  admittedBeyondTable,
+  type CatchUpState,
+  clearPendingAdmission,
+  forgetReplica,
+  type ReplicaCursor,
+} from './state'
 
 function entryBytes(entry: ReplicationLogEntry): number {
   return (
@@ -58,14 +65,20 @@ async function pumpReplica(
   assignment: PartitionAssignment,
   replicaNodeId: string,
   cursor: ReplicaCursor,
+  replicaStartedAt: string | undefined,
 ): Promise<void> {
   if (cursor.busy) {
     return
   }
   cursor.busy = true
+  const feed = createCatchUpFeed(assignment, replicaStartedAt)
+  cursor.feed = feed
   try {
-    await feedReplica(state, deps, indexName, partitionId, assignment, replicaNodeId, cursor)
+    await feedReplica(state, deps, indexName, partitionId, assignment, replicaNodeId, cursor, feed)
   } finally {
+    if (cursor.feed === feed) {
+      cursor.feed = null
+    }
     cursor.busy = false
   }
 }
@@ -78,19 +91,21 @@ async function feedReplica(
   assignment: PartitionAssignment,
   replicaNodeId: string,
   cursor: ReplicaCursor,
+  feed: CatchUpFeed,
 ): Promise<void> {
   const log = deps.getReplicationLog(indexName, partitionId)
   const deadline = Date.now() + CATCH_UP_FEED_WINDOW_MS
   let answeredThisFeed = false
 
-  while (!state.stopped) {
+  while (!state.stopped && !feed.cancelled) {
     if (replicaHasFallenOutOfRetention(log, cursor)) {
       forgetReplica(state, indexName, partitionId, replicaNodeId)
       return
     }
 
     if (cursor.appliedSeqNo >= log.localLogEnd) {
-      await proposeAdmission(state, deps, indexName, partitionId, assignment, replicaNodeId, cursor)
+      const proposal = proposeAdmission(state, deps, indexName, partitionId, assignment, replicaNodeId, cursor)
+      await untilCancelled(feed, proposal, undefined)
       return
     }
 
@@ -104,10 +119,10 @@ async function feedReplica(
       return
     }
     if (answeredThisFeed && batch.length === missing.length) {
-      await closeGapInPartitionQueue(state, deps, indexName, partitionId, assignment, replicaNodeId, cursor)
+      await closeGapInPartitionQueue(state, deps, indexName, partitionId, assignment, replicaNodeId, cursor, feed)
       return
     }
-    if (!(await sendBatch(state, deps, batch, replicaNodeId, cursor))) {
+    if (!(await sendBatch(state, deps, batch, replicaNodeId, cursor, feed))) {
       return
     }
     answeredThisFeed = true
@@ -122,19 +137,32 @@ async function closeGapInPartitionQueue(
   assignment: PartitionAssignment,
   replicaNodeId: string,
   cursor: ReplicaCursor,
+  feed: CatchUpFeed,
 ): Promise<void> {
-  const claimed = await enqueuePartitionWrite(deps.partitionWriteQueues, indexName, partitionId, async () => {
+  const queued = enqueuePartitionWrite(deps.partitionWriteQueues, indexName, partitionId, async () => {
     const log = deps.getReplicationLog(indexName, partitionId)
     while (cursor.appliedSeqNo < log.localLogEnd) {
       const batch = nextWireBatch(state, log.getEntriesFrom(cursor.appliedSeqNo + 1))
-      if (state.stopped || batch.length === 0 || !(await sendBatch(state, deps, batch, replicaNodeId, cursor))) {
+      if (state.stopped || feed.cancelled || batch.length === 0) {
+        return false
+      }
+      if (!(await sendBatch(state, deps, batch, replicaNodeId, cursor, feed))) {
         return false
       }
     }
-    return claimAdmission(state, deps, indexName, partitionId, replicaNodeId, cursor)
+    return !feed.cancelled && claimAdmission(state, deps, indexName, partitionId, replicaNodeId, cursor)
   })
+  const claimed = await untilCancelled(feed, queued, false)
   if (claimed) {
-    await requestClaimedAdmission(state, deps, indexName, partitionId, assignment, replicaNodeId, cursor)
+    const request = requestClaimedAdmission(state, deps, indexName, partitionId, assignment, replicaNodeId, cursor)
+    await untilCancelled(feed, request, undefined)
+  } else if (feed.cancelled) {
+    queued.then(
+      claimedLate => {
+        if (claimedLate) clearPendingAdmission(state, indexName, partitionId, replicaNodeId)
+      },
+      () => {},
+    )
   }
 }
 
@@ -144,13 +172,17 @@ async function sendBatch(
   batch: ReplicationLogEntry[],
   replicaNodeId: string,
   cursor: ReplicaCursor,
+  feed: CatchUpFeed,
 ): Promise<boolean> {
   const reservedBytes = batchBytes(batch)
   const sendingEpoch = cursor.syncEpoch
   state.inFlightBytes += reservedBytes
-  try {
+  const delivery = (async () => {
     const indexName = batch[0]?.indexName
     const table = indexName === undefined ? null : await deps.coordinator.getAllocation(indexName)
+    if (feed.cancelled) {
+      return false
+    }
     const result = await replicateBatchToReplicas(
       batch,
       [replicaNodeId],
@@ -159,13 +191,30 @@ async function sendBatch(
       deps.resolveNodeTargets,
       table?.indexUuid,
     )
-    if (!result.acknowledged.includes(replicaNodeId) || cursor.syncEpoch !== sendingEpoch) {
-      return false
-    }
-    cursor.appliedSeqNo = batch[batch.length - 1].seqNo
-    return true
-  } finally {
+    return result.acknowledged.includes(replicaNodeId)
+  })().finally(() => {
     state.inFlightBytes -= reservedBytes
+  })
+  const acknowledged = await untilCancelled(feed, delivery, false)
+  if (!acknowledged || feed.cancelled || cursor.syncEpoch !== sendingEpoch) {
+    return false
+  }
+  cursor.appliedSeqNo = batch[batch.length - 1].seqNo
+  return true
+}
+
+function cancelFeeds(replicas: Map<string, ReplicaCursor>): void {
+  for (const cursor of replicas.values()) {
+    cursor.feed?.cancel()
+  }
+}
+
+async function registeredNodes(deps: WriteRoutingDeps): Promise<RegisteredNodes> {
+  try {
+    const nodes = await deps.coordinator.listNodes()
+    return new Map(nodes.map(node => [node.nodeId, node.startedAt]))
+  } catch (_) {
+    return null
   }
 }
 
@@ -175,6 +224,7 @@ async function pumpPartition(
   key: string,
   replicas: Map<string, ReplicaCursor>,
   started: Promise<void>[],
+  registered: RegisteredNodes,
 ): Promise<void> {
   const separator = key.lastIndexOf(':')
   const indexName = key.slice(0, separator)
@@ -183,6 +233,7 @@ async function pumpPartition(
   const table = await deps.coordinator.getAllocation(indexName)
   const assignment = table?.assignments.get(partitionId)
   if (assignment === undefined || assignment.primary !== deps.nodeId) {
+    cancelFeeds(replicas)
     state.cursors.delete(key)
     state.pendingAdmissions.delete(key)
     return
@@ -200,9 +251,22 @@ async function pumpPartition(
       continue
     }
     if (cursor.busy) {
+      if (cursor.feed !== null && feedIsStale(cursor.feed, assignment, registered, replicaNodeId)) {
+        cursor.feed.cancel()
+      }
       continue
     }
-    const work: Promise<void> = pumpReplica(state, deps, indexName, partitionId, assignment, replicaNodeId, cursor)
+    const replicaStartedAt = registered?.get(replicaNodeId)
+    const work: Promise<void> = pumpReplica(
+      state,
+      deps,
+      indexName,
+      partitionId,
+      assignment,
+      replicaNodeId,
+      cursor,
+      replicaStartedAt,
+    )
       .catch(() => {})
       .finally(() => {
         state.replicaWork.delete(work)
@@ -220,8 +284,11 @@ async function pumpPartition(
  * fit in one batch, the primary sends them from inside the partition's write queue and marks the admission pending before the queue lets the next write in, so every
  * later write reaches the replica in order and a steady stream of writes cannot keep it out of the in-sync set. It
  * forgets a replica once that replica has fallen behind the retained log and needs a fresh snapshot instead. The pump feeds every replica on its own, so a replica that fails or is slow to answer
- * holds up only its own feed, and the next tick skips a replica whose last batch or proposal is still in flight. A
- * tick that is already reading the allocation returns that same tick in place of starting a second one.
+ * holds up only its own feed, and the next tick skips a replica whose last batch or proposal is still in flight. Each
+ * batch waits no longer than the transport's `replicationTimeout`. A tick cancels a feed in flight once its replica has
+ * left the cluster or restarted, or once the partition's primary term or in-sync set has changed since the feed began,
+ * so the tick after that feeds or proposes the replica afresh. A tick that is already reading the allocation returns
+ * that same tick in place of starting a second one.
  *
  * @param state - The catch-up state that holds the cursors and the in-flight byte total.
  * @param deps - The write routing dependencies, which give the pump the log, the transport, and the coordinator.
@@ -234,12 +301,13 @@ export function runCatchUpTick(state: CatchUpState, deps: WriteRoutingDeps): Pro
 
   const started: Promise<void>[] = []
   const tick = (async () => {
+    const registered = await registeredNodes(deps)
     for (const [key, replicas] of [...state.cursors]) {
       if (state.stopped) {
         return
       }
       try {
-        await pumpPartition(state, deps, key, replicas, started)
+        await pumpPartition(state, deps, key, replicas, started, registered)
       } catch (_) {}
     }
   })().finally(() => {
@@ -272,8 +340,11 @@ export function startCatchUpPump(state: CatchUpState, deps: WriteRoutingDeps): v
 }
 
 /**
- * Stops the pump and waits for the tick already running and for every feed still in flight, so that no send
- * outlives the node that started it.
+ * Stops the pump, cancels every feed still in flight, and waits for the tick already running and for each feed to
+ * return.
+ *
+ * A cancelled feed returns without waiting for the reply it was awaiting, so a replica that has stopped answering
+ * cannot hold up shutdown.
  *
  * @param state - The catch-up state to stop.
  * @returns A promise that settles once no tick and no feed is running.
@@ -283,6 +354,9 @@ export async function stopCatchUpPump(state: CatchUpState): Promise<void> {
   if (state.timer !== null) {
     clearInterval(state.timer)
     state.timer = null
+  }
+  for (const replicas of state.cursors.values()) {
+    cancelFeeds(replicas)
   }
   if (state.activeTick !== null) {
     await state.activeTick

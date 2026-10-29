@@ -1,6 +1,6 @@
 import { decode } from '@msgpack/msgpack'
 import type { NodeTransport, TransportMessage } from '../transport/types'
-import { ReplicationMessageTypes, TransportError } from '../transport/types'
+import { ReplicationMessageTypes, TransportError, TransportErrorCodes } from '../transport/types'
 import { createEntryBatchMessage, createEntryMessage, validateAckPayload } from './codec'
 import type { ReplicateResult, ReplicationLogEntry } from './types'
 
@@ -93,6 +93,9 @@ async function sendToReplica(
     try {
       return await transport.send(target, message)
     } catch (error) {
+      if (error instanceof TransportError && error.code === TransportErrorCodes.TIMEOUT) {
+        throw error
+      }
       lastError = error
     }
   }
