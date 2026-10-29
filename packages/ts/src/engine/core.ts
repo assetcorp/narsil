@@ -7,8 +7,11 @@ import { createRebalancer, type Rebalancer } from '../partitioning/rebalancer'
 import { createPartitionRouter, type PartitionRouter } from '../partitioning/router'
 import type { createWriteAheadQueue, WAQEntry } from '../partitioning/write-ahead-queue'
 import { createPluginRegistry, type PluginRegistry } from '../plugins/registry'
+import { DEFAULT_MAX_RERANK_WINDOW, DEFAULT_RERANK_TIMEOUT_MS } from '../rerank/constants'
+import { validateRerankAdapter } from '../rerank/registry'
+import type { RerankSettings } from '../rerank/settings'
 import { validateRegisteredAdapter } from '../schema/embedding-validator'
-import type { EmbeddingAdapter } from '../types/adapters'
+import type { EmbeddingAdapter, RerankAdapter } from '../types/adapters'
 import type { NarsilConfig } from '../types/config'
 import type { IndexMetadata } from '../types/internal'
 import type { LanguageModule } from '../types/language'
@@ -64,6 +67,8 @@ export interface EngineCore {
   readonly idGenerator: () => string
   readonly indexRegistry: Map<string, IndexRegistryEntry>
   readonly embeddingAdapters: Map<string, EmbeddingAdapter>
+  readonly rerankAdapters: Map<string, RerankAdapter>
+  readonly rerankSettings: RerankSettings
   readonly eventHandlers: Map<string, Set<EventHandler>>
   readonly shutdownState: { isShutdown: boolean }
   readonly abortController: AbortController
@@ -91,6 +96,10 @@ export async function createEngineCore(
   capacityScope: CapacityScope = 'index',
 ): Promise<EngineCore> {
   validateWorkerConfig(config?.workers, config?.lifecycle)
+  const rerankSettings: RerankSettings =
+    config?.rerankTimeout === undefined && config?.maxRerankWindow === undefined
+      ? { timeoutMs: DEFAULT_RERANK_TIMEOUT_MS, maxWindow: DEFAULT_MAX_RERANK_WINDOW }
+      : (await import('../rerank/runtime')).resolveRerankSettings(config)
   const eventHandlers = eventHandlersOf(config?.events)
   const vectorWorkerCount = splitWorkerBudget(resolveWorkerCount(config?.workers?.count)).vector
   const vectorCopyPolicy: VectorWorkerCopyPolicy = {
@@ -121,6 +130,11 @@ export async function createEngineCore(
       validateRegisteredAdapter(name, adapter)
       embeddingAdapters.set(name, adapter)
     }
+  }
+  const rerankAdapters = new Map<string, RerankAdapter>()
+  for (const [name, adapter] of Object.entries(config?.rerankAdapters ?? {})) {
+    validateRerankAdapter(name, adapter)
+    rerankAdapters.set(name, adapter)
   }
   const shutdownState = { isShutdown: false }
   const abortController = new AbortController()
@@ -343,6 +357,8 @@ export async function createEngineCore(
     idGenerator,
     indexRegistry,
     embeddingAdapters,
+    rerankAdapters,
+    rerankSettings,
     eventHandlers,
     shutdownState,
     abortController,

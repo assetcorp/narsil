@@ -1,7 +1,7 @@
 import type { ComparableSortValue } from '../../core/ordering'
 import { projectionKeepsField, resolveProjection } from '../../core/projection'
 import { ErrorCodes, NarsilError } from '../../errors'
-import { type FanOutResult, fanOutQuery } from '../../partitioning/fan-out'
+import { fanOutQuery } from '../../partitioning/fan-out'
 import { countsWithoutScores, fanOutMatchCount } from '../../partitioning/match-count'
 import { flattenSchema } from '../../schema/validator'
 import { decodePageCursor, requireMatchingCursor, sortSignatureOf } from '../../search/cursor'
@@ -14,12 +14,15 @@ import type { AnyDocument } from '../../types/schema'
 import type { QueryParams } from '../../types/search'
 import { clampLimit, clampOffset, now } from '../validation'
 import { applyHighlights } from './highlight'
+import type { PagedFanOutResult } from './hybrid-depth'
+import { runtimeHost } from './runtime-host'
 import {
   broadcastStatsForWorker,
   coverageFor,
   type QueryContext,
   requireKnownMode,
   requireVectorSearchable,
+  type SearchContext,
   scoringConfigFor,
   searchOptionsFor,
   validQueryParams,
@@ -38,10 +41,30 @@ function requireCursorDepth(cursor: string | undefined, signature: string | null
   return decoded.depth ?? 0
 }
 
-export async function executeQuery<T = AnyDocument>(
+function hybridSearchOf(
+  params: QueryParams,
+  context: SearchContext,
+  limit: number,
+  offset: number,
+  cursorDepth?: number,
+): Promise<PagedFanOutResult> {
+  if ((params.hybrid?.depth ?? null) === null) return executeHybridSearch(params, context, limit, offset, cursorDepth)
+  return import('../../rerank/runtime').then(runtime =>
+    runtime.searchFixedDepthHybrid(params, context, { cursorDepth: cursorDepth ?? 0, offset, limit }, runtimeHost),
+  )
+}
+
+export function executeQuery<T = AnyDocument>(
   request: QueryParams,
   callerContext: QueryContext,
 ): Promise<QueryResult<T>> {
+  if (request.rerank === undefined) return runQuery<T>(request, callerContext)
+  return import('../../rerank/runtime').then(runtime =>
+    runtime.executeRerankedQuery<T>(request, callerContext, executeQuery<T>, runtimeHost),
+  )
+}
+
+async function runQuery<T>(request: QueryParams, callerContext: QueryContext): Promise<QueryResult<T>> {
   const context = withPatternWork(callerContext)
   const { manager, language, config, workerSearch, indexName } = context
   const startTime = now()
@@ -87,14 +110,14 @@ export async function executeQuery<T = AnyDocument>(
     const hasGlobalVectorIndex =
       requestedVectorField !== undefined && vectorSearchersOf(context).has(requestedVectorField)
 
-    let fanOutResult: FanOutResult
+    let fanOutResult: PagedFanOutResult
 
     if (isVectorOnly && hasGlobalVectorIndex) {
       const depth = requireCursorDepth(params.searchAfter, sortSignature, context.cursorBinding)
       fanOutResult = await executeVectorSearch(params, context, limit, offset, depth)
     } else if (isHybridMode && hasGlobalVectorIndex) {
       const depth = requireCursorDepth(params.searchAfter, sortSignature, context.cursorBinding)
-      fanOutResult = await executeHybridSearch(params, context, limit, offset, depth)
+      fanOutResult = await hybridSearchOf(params, context, limit, offset, depth)
     } else {
       const scoring = scoringConfigFor(params, context)
       const workerResult = workerSearch
@@ -201,7 +224,7 @@ export async function executeQuery<T = AnyDocument>(
       params.pinned !== undefined && params.searchAfter === undefined
         ? new Set(params.pinned.map(entry => entry.docId))
         : undefined
-    const paged = applyPagination(
+    const paged = (fanOutResult.paginate ?? applyPagination)(
       hits,
       limit,
       offset,
@@ -296,7 +319,7 @@ export async function executePreflight(request: QueryParams, callerContext: Quer
     totalMatched = result.totalMatched
     countExact = result.matchedExact !== false
   } else if (isHybridMode && hasGlobalVectorIndex) {
-    const result = await executeHybridSearch(params, context, preflightLimit, preflightOffset)
+    const result = await hybridSearchOf(params, context, preflightLimit, preflightOffset)
     totalMatched = result.totalMatched
     countExact = result.matchedExact !== false
   } else if (countsWithoutScores(params)) {

@@ -1,4 +1,8 @@
-import { resolveProjection } from '../../../core/projection'
+import { getNestedValue } from '../../../core/partition/utils'
+import { applyProjection, resolveProjection } from '../../../core/projection'
+import { runtimeHost } from '../../../engine/query/runtime-host'
+import { engineCoreOf } from '../../../narsil/internals'
+import { queryBindingOf } from '../../../search/cursor-binding'
 import type { QueryResult } from '../../../types/results'
 import type { AnyDocument } from '../../../types/schema'
 import type { QueryParams } from '../../../types/search'
@@ -10,12 +14,21 @@ import { routableAllocation } from '../routable-allocation'
 import type { ClusterQueryConfig } from '../types'
 import { assembleDistributedGroups } from './groups'
 import { countStoredPinsFromOutside, dropUnstoredPinnedEntries, readPinPresence } from './pinned'
+import type { ClusterRerankHost } from './rerank'
 import type { ClusterReadDeps } from './scatter'
 
 export { countCluster, partitionStatsCluster, statsCluster } from './counts'
 export { listCluster } from './list'
 export type { ClusterReadDeps } from './scatter'
 export { preflightCluster, suggestCluster } from './terms'
+
+const clusterRerankHost: ClusterRerankHost = {
+  ...runtimeHost,
+  engineCoreOf,
+  queryBindingOf,
+  getNestedValue,
+  applyProjection,
+}
 
 /**
  * Reads a set of documents by id from wherever the cluster holds them, and returns the ones it found.
@@ -76,6 +89,17 @@ export async function queryCluster<T = AnyDocument>(
   const allocation = await routableAllocation(deps.config.coordinator, indexName)
   if (allocation === null) {
     return deps.engine.query<T>(indexName, params)
+  }
+  if (params.rerank !== undefined) {
+    const { rerankClusterQuery } = await import('./rerank')
+    return rerankClusterQuery<T>(
+      deps,
+      indexName,
+      params,
+      firstStage => queryCluster<T>(deps, indexName, firstStage),
+      docIds => readDistributedDocuments(deps.config, deps.nodeId, deps.engine, indexName, docIds, allocation),
+      clusterRerankHost,
+    )
   }
   const wireParams = localParamsToWire(params)
   const queryDeps = {

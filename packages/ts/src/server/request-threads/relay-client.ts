@@ -11,6 +11,7 @@ export interface RelayClient {
   authorize(context: RequestContext): Promise<Authorization>
   request(route: RelayedRoute, ctx: RouteContext): Promise<void>
   embed(indexName: string, vector: VectorQueryConfig): Promise<number[]>
+  rerank(adapter: string, query: string, documents: string[]): Promise<number[]>
   touch(indexName: string): void
   announceDeparture(): void
   close(): void
@@ -19,7 +20,10 @@ export interface RelayClient {
 function isRelayReply(message: unknown): message is RelayReply {
   if (typeof message !== 'object' || message === null) return false
   const { type, requestId } = message as { type?: unknown; requestId?: unknown }
-  return typeof requestId === 'number' && (type === 'response' || type === 'authorized' || type === 'embedded')
+  return (
+    typeof requestId === 'number' &&
+    (type === 'response' || type === 'authorized' || type === 'embedded' || type === 'reranked')
+  )
 }
 
 function isStreamPart(message: unknown): message is RelayedStreamPart {
@@ -70,9 +74,8 @@ function writeStreamPart(port: MessagePort, writer: StreamWriter, part: RelayedS
   })
 }
 
-function errorOf(reply: EmbeddedReply): NarsilError {
-  const error = reply.error ?? { code: ErrorCodes.EMBEDDING_FAILED, message: 'The main thread returned no vector' }
-  return new NarsilError(error.code as never, error.message, error.details)
+function relayedErrorOf(error: EmbeddedReply['error'], fallback: NarsilError): NarsilError {
+  return error === null ? fallback : new NarsilError(error.code as never, error.message, error.details)
 }
 
 function portClosedError(): NarsilError {
@@ -198,12 +201,19 @@ export function createRelayClient(port: MessagePort, touchIntervalMs: number): R
     },
     async embed(indexName, vector) {
       const reply = await send(requestId => ({ type: 'embed', requestId, indexName, vector }))
-      if (reply.type !== 'embedded' || reply.value === null) {
-        throw reply.type === 'embedded'
-          ? errorOf(reply)
-          : new NarsilError(ErrorCodes.EMBEDDING_FAILED, 'The main thread returned no vector')
-      }
-      return reply.value
+      if (reply.type === 'embedded' && reply.value !== null) return reply.value
+      throw relayedErrorOf(
+        reply.type === 'embedded' ? reply.error : null,
+        new NarsilError(ErrorCodes.EMBEDDING_FAILED, 'The main thread returned no vector'),
+      )
+    },
+    async rerank(adapter, query, documents) {
+      const reply = await send(requestId => ({ type: 'rerank', requestId, adapter, query, documents }))
+      if (reply.type === 'reranked' && reply.scores !== null) return reply.scores
+      throw relayedErrorOf(
+        reply.type === 'reranked' ? reply.error : null,
+        new NarsilError(ErrorCodes.RERANK_FAILED, 'The main thread returned no scores'),
+      )
     },
     touch(indexName) {
       if (closed) return

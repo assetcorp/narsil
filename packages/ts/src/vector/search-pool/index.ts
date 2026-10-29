@@ -73,11 +73,12 @@ export function searchPoolScratchSlot(index: number): number {
 
 function graphSearchOptionsOf(
   options: GraphSearchOptions,
-): Pick<GraphSearchOptions, 'filter' | 'efSearch' | 'oversample'> {
+): Pick<GraphSearchOptions, 'filter' | 'efSearch' | 'oversample' | 'rescoreWindow'> {
   return {
     ...(options.filter !== undefined ? { filter: options.filter } : {}),
     ...(options.efSearch !== undefined ? { efSearch: options.efSearch } : {}),
     ...(options.oversample !== undefined ? { oversample: options.oversample } : {}),
+    ...(options.rescoreWindow !== undefined ? { rescoreWindow: options.rescoreWindow } : {}),
   }
 }
 

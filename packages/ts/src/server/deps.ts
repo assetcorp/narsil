@@ -10,6 +10,7 @@ export interface ResolvedLimits {
   importBatchSize: number
   maxConcurrentRequests: number
   maxResultWindow: number
+  maxRerankWindow: number
   maxFetchDocuments: number
   maxImportErrors: number
   maxTaskPageSize: number

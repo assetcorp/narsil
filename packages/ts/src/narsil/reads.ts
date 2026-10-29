@@ -15,6 +15,7 @@ import type { ListParams, QueryParams, SuggestParams } from '../types/search'
 export interface ScopedReadOptions {
   partitionIds?: number[]
   globalStats?: GlobalStatistics
+  rescoreWindow?: number
 }
 
 async function enterRead(core: EngineCore, indexName: string): Promise<void> {
@@ -70,8 +71,9 @@ export async function runEngineQuery<T = AnyDocument>(
     const scoped = scopedParams(params, options)
     await core.pluginRegistry.runHook('beforeSearch', { indexName, params: scoped })
 
+    const rerank = scoped.rerank === undefined ? undefined : await import('../rerank/runtime')
     const resolvedParams = await resolveVectorText(
-      scoped,
+      rerank === undefined ? scoped : rerank.withRerankQueryText(scoped),
       entry.embeddingAdapter,
       core.abortController.signal,
       entry.embeddingAdapterName,
@@ -89,8 +91,10 @@ export async function runEngineQuery<T = AnyDocument>(
       indexName,
       broadcastStats: broadcastStatsFor(core, options),
       partitionIds: options?.partitionIds,
+      rescoreWindow: options?.rescoreWindow,
       cursorBinding: queryBindingOf(params),
       patternWorkCap: core.patternWorkCap,
+      rerank: rerank?.rerankRunnerFor(core),
     }
     const { result, analysisStale } = await readUnderOneAnalysis(core, indexName, () =>
       executeQuery<T>(resolvedParams, context),

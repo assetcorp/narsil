@@ -7,7 +7,7 @@ const WIDEST_STORED_VECTOR = 65_535
 function makeSearchPayload(vector: WireVectorQueryParams | unknown | null): Record<string, unknown> {
   const filled =
     vector !== null && typeof vector === 'object' && !Array.isArray(vector)
-      ? { metric: null, efSearch: null, oversample: null, ...(vector as Record<string, unknown>) }
+      ? { metric: null, efSearch: null, oversample: null, rescoreWindow: null, ...(vector as Record<string, unknown>) }
       : vector
   return {
     indexName: 'products',

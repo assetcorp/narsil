@@ -1,4 +1,4 @@
-import type { ByteSource } from '../../types/engine'
+import type { ByteSource } from '../../types/byte-source'
 
 export type { ByteSource }
 

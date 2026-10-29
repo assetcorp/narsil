@@ -192,6 +192,35 @@ Returns an object conforming to Narsil's `EmbeddingAdapter` interface.
 | `dimensions` | `readonly number` | The configured output dimensionality. |
 | `shutdown` | `() => Promise<void>` | Release the model pipeline and free resources. |
 
+## Reranking
+
+`@delali/narsil-embeddings-transformers/reranker` holds a rerank adapter that scores each query and document pair with a cross-encoder, which Narsil uses to reorder the top hits of a query. It loads `Xenova/ms-marco-MiniLM-L-6-v2` on its first call unless you give another model.
+
+```ts
+import { createNarsil } from '@delali/narsil'
+import { createTransformersReranker } from '@delali/narsil-embeddings-transformers/reranker'
+
+const narsil = await createNarsil({ rerankAdapters: { minilm: createTransformersReranker() } })
+
+const results = await narsil.query('articles', {
+  term: 'how do search engines scale',
+  rerank: { adapter: 'minilm', fields: ['title', 'body'] },
+})
+```
+
+| Option | Type | Default | Description |
+| ------ | ---- | ------- | ----------- |
+| `model` | `string` | `'Xenova/ms-marco-MiniLM-L-6-v2'` | The cross-encoder, which must give one relevance logit for each pair. |
+| `dtype` | `string` | `'fp32'` | The weight precision that the model loads. |
+| `device` | `'wasm' \| 'webgpu' \| 'cpu'` | auto-detect | The runtime that scores the pairs. |
+| `activation` | `'sigmoid' \| 'none'` | `'sigmoid'` | `sigmoid` gives a score from 0 to 1, and `none` returns the logit. |
+| `batchSize` | `number` | `32` | How many pairs the adapter scores in one model call. |
+| `maxLength` | `number` | the model's limit | The longest pair, in tokens, before the tokenizer cuts the document. |
+| `progress` | `(data: unknown) => void` | - | Receives the model download progress. |
+| `modelOptions` | `Record<string, unknown>` | - | Extra options for the Transformers.js model loader. |
+
+See the [reranking guide](https://github.com/assetcorp/narsil/blob/main/docs/reranking.md) for the query option and the engine settings.
+
 ## License
 
 Apache-2.0

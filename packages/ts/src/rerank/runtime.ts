@@ -1,0 +1,6 @@
+export { searchFixedDepthHybrid } from '../engine/query/hybrid-depth'
+export { executeRerankedQuery } from '../engine/query/rerank'
+export { rerankOnHost } from './call'
+export { withRerankQueryText } from './query-text'
+export { rerankRunnerFor } from './runner'
+export { resolveRerankSettings, shutdownRerankAdapters } from './settings'

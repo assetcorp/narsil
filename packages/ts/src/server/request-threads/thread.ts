@@ -12,7 +12,7 @@ import { refuseRegex } from '../regex-policy'
 import { createRouteRunner, type RouteContext, type RouteHandler } from '../request'
 import { registerServerRoutes, type ServerHandlers, serverRoutes } from '../routes'
 import { loadUWebSockets } from '../runtime'
-import { validateQuery, validateSuggest } from '../validation'
+import { type QueryLimits, validateQuery, validateSuggest, withServerRerankWindow } from '../validation'
 import { type ChildApp, childAppOf } from './acceptor'
 import type { RelayedRoute, RequestThreadSettings, ServeRequestsResult, ThreadOnlyRoute } from './messages'
 import { createThreadReadEngine, type ThreadReadEngine } from './read-engine'
@@ -43,7 +43,7 @@ function onWholeDocuments(local: ThreadReadEngine, handler: RouteHandler, fallba
 
 interface SearchHandlerOptions {
   fallback: RouteHandler
-  maxResultWindow: number
+  limits: QueryLimits
   allowRegex: boolean
   staysOnThread: (indexName: string, params: QueryParams) => boolean
   answer: (indexName: string, params: QueryParams) => Promise<unknown>
@@ -54,11 +54,11 @@ function mainThreadAnswersInstead(err: unknown): boolean {
 }
 
 function searchHandler(options: SearchHandlerOptions): RouteHandler {
-  const { fallback, maxResultWindow, allowRegex, staysOnThread, answer } = options
+  const { fallback, limits, allowRegex, staysOnThread, answer } = options
   return async ctx => {
     const params = parseJson<QueryParams>(ctx)
     if (!params) return
-    const failure = validateQuery(params, maxResultWindow)
+    const failure = validateQuery(params, limits)
     if (failure) {
       rejectInvalid(ctx, failure)
       return
@@ -69,7 +69,7 @@ function searchHandler(options: SearchHandlerOptions): RouteHandler {
       return
     }
     try {
-      respondJson(ctx, await answer(ctx.params[0], params))
+      respondJson(ctx, await answer(ctx.params[0], withServerRerankWindow(params, limits)))
     } catch (err) {
       if (staysOnThread(ctx.params[0], params) && !mainThreadAnswersInstead(err)) respondError(ctx, err)
       else await fallback(ctx)
@@ -116,7 +116,6 @@ function threadHandlers(local: ThreadReadEngine, relay: RelayClient, settings: R
   const { allowRegex } = settings
   const reads = createDocumentReadHandlers({ engine: local, limits: settings.limits, allowRegex })
   const forwarded = relayedHandlers(relay, settings.limits)
-  const { maxResultWindow } = settings.limits
   return {
     ...forwarded,
     livez: (ctx: RouteContext) => respondJson(ctx, { status: 'ok' }),
@@ -124,14 +123,14 @@ function threadHandlers(local: ThreadReadEngine, relay: RelayClient, settings: R
     capabilities: (ctx: RouteContext) => respondJson(ctx, { capabilities: [...SERVER_CAPABILITIES] }),
     search: searchHandler({
       fallback: forwarded.search,
-      maxResultWindow,
+      limits: settings.limits,
       allowRegex,
       staysOnThread: (name, params) => local.canAnswer(name, params),
       answer: (name, params) => local.query(name, params),
     }),
     preflight: searchHandler({
       fallback: forwarded.preflight,
-      maxResultWindow,
+      limits: settings.limits,
       allowRegex,
       staysOnThread: (name, params) => local.canCount(name, params),
       answer: (name, params) => local.preflight(name, params),
@@ -166,6 +165,7 @@ export async function serveRequests(
     relay,
     searchHooks: settings.searchHooks,
     patternWorkCap: settings.patternWorkCap,
+    maxRerankWindow: settings.maxRerankWindow,
   })
   const run = createRouteRunner({
     authorize: settings.authorizes ? context => relay.authorize(context) : undefined,

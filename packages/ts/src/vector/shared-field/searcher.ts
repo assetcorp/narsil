@@ -165,7 +165,7 @@ export function createSharedVectorSearcher(options: SharedVectorSearcherOptions)
     searchOptions: VectorSearchOptions,
     filter: OrdinalFilter | undefined,
   ): FieldOutcome {
-    const { metric, minSimilarity, efSearch, oversample } = searchOptions
+    const { metric, minSimilarity, efSearch, oversample, rescoreWindow } = searchOptions
     const empty: FieldOutcome = { results: [], matched: 0, matchedExact: true, resolvedEveryHit: true }
     const liveDocuments = flags.liveDocuments()
     if (liveDocuments <= 0) return empty
@@ -196,7 +196,12 @@ export function createSharedVectorSearcher(options: SharedVectorSearcherOptions)
 
     let resolvedEveryHit = true
     const graphResults: VectorScoredResult[] = []
-    for (const hit of view.searchOrdinals(query, k, metric, minSimilarity, { filter, efSearch, oversample })) {
+    for (const hit of view.searchOrdinals(query, k, metric, minSimilarity, {
+      filter,
+      efSearch,
+      oversample,
+      rescoreWindow,
+    })) {
       const docId = view.docIdOf(hit.ord)
       if (docId === undefined) {
         resolvedEveryHit = false

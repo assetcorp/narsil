@@ -473,16 +473,20 @@ VectorQueryParams {
   metric:     'cosine' or 'dotProduct' or 'euclidean' or absent   (default 'cosine')
   efSearch:   uint32 or absent    (HNSW exploration factor; absent uses the engine default)
   oversample: float32 or absent   (re-score depth multiplier; absent uses the engine default)
+  rescoreWindow: uint32 or absent   (the hybrid re-score window, which a coordinator sets on the vector fan-out of a hybrid query that sets depth; absent re-scores as oversample defines)
 }
 
 HybridConfig {
   strategy: 'rrf' or 'linear' or absent   (default 'rrf')
   k:        uint32 or absent              (the RRF constant, default 60)
   alpha:    float32 or absent             (the linear weight, default 0.5)
+  depth:    uint32 or absent              (the results that each search fetches; absent fetches by page)
 }
 ```
 
-A sender writes every member, encoding an absent value as nil, and a reader restores nil as omitted, so a request and its wire round trip carry one [cursor binding](../partitioning.md#cursor-binding) and a reader rejects a payload whose member is missing.
+A reader must reject with `CONFIG_INVALID` a `rescoreWindow` that is not a whole number from 1 to 10,000.
+
+A sender writes every member, encoding an absent value as nil, and a reader restores nil as omitted, so a request and its wire round trip carry one [cursor binding](../partitioning.md#cursor-binding) and a reader rejects a payload whose member is missing. A reader must restore as absent a member that a later revision of this document added to the end of a structure, where the payload omits it, so that a node accepts a request from a node one release older; it must still reject a payload that omits any other member.
 
 The enclosing `QueryParams.limit` sets the top-k count for vector search, so `VectorQueryParams` carries no limit of its own and there is one source of truth.
 
