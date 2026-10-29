@@ -19,11 +19,6 @@ export interface IndexState {
   stalledWrites: Array<() => void>
 }
 
-export function holdsFailedPartition(indexState: IndexState): boolean {
-  for (const partition of indexState.partitions.values()) if (partition.failed !== null) return true
-  return false
-}
-
 export function closePartitionWriter(partition: PartitionState): Promise<void> {
   return partition.failed === null ? partition.walWriter.close() : partition.walWriter.abandon()
 }

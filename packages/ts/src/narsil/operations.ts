@@ -301,6 +301,7 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
         closedIndexCount: lifecycleCounts.closed,
         reopenCount: lifecycleCounts.reopens,
         workerCopies: orchestrator.workerCopies(),
+        heldCheckpoints: durability?.manager.heldCheckpoints?.() ?? [],
         workers,
       }
     },

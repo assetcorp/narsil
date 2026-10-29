@@ -2,6 +2,7 @@ import { ErrorCodes, NarsilError } from '../../errors'
 import { writeMetadataEnvelope } from '../../serialization/envelope'
 import { reclaimWalBeyondCount, truncateCoveredSegments } from './checkpoint'
 import {
+  aTargetFailed,
   captureCheckpoint,
   makeEveryAppliedMutationDurable,
   wholePartitionsWhereMostChanged,
@@ -11,6 +12,7 @@ import { checkpointWorkerIsUsable } from './checkpoint-worker-dispatch'
 import { writeIndexCheckpointSegments } from './checkpoint-write'
 import type { DurableDirectory } from './durable-filesystem'
 import type { IndexState } from './manager-state'
+import type { PartitionFailure } from './mutation-batch'
 import type { PartitionCheckpoint } from './partition-checkpoint'
 import { snapshotCheckpointFor } from './recovery'
 import { readCurrentManifest } from './segment/load'
@@ -33,6 +35,7 @@ interface DurableCheckpointInput {
   holdsCheckpointFiles(): boolean
   queueMetadataWrite(indexName: string, write: () => Promise<void>): Promise<void>
   markFatal(error: Error): void
+  failPartition: PartitionFailure
 }
 
 async function bothOrTheFirstFailure<A, B>(first: Promise<A>, second: Promise<B>): Promise<[A, B]> {
@@ -107,7 +110,8 @@ async function writeOneBoundedCheckpoint(input: DurableCheckpointInput): Promise
     priorManifest?.vectors ?? [],
   )
   const { targets, documentCount } = capture
-  await makeEveryAppliedMutationDurable(input.indexState, input.markFatal)
+  await makeEveryAppliedMutationDurable(input.indexState, input.failPartition)
+  if (aTargetFailed(input.indexState, targets)) return 0
   const [liveVectors, segments] = await bothOrTheFirstFailure(
     writeCapturedVectors(store, input.indexName, capture, priorManifest, input.fromMemory),
     writeIndexCheckpointSegments({
@@ -121,7 +125,8 @@ async function writeOneBoundedCheckpoint(input: DurableCheckpointInput): Promise
       capturedPartitions: capture.wholePartitions.captured,
     }),
   )
-  await makeEveryAppliedMutationDurable(input.indexState, input.markFatal)
+  await makeEveryAppliedMutationDurable(input.indexState, input.failPartition)
+  if (aTargetFailed(input.indexState, targets)) return 0
 
   const written = await commitCheckpointManifest(store, metadata, segments, liveVectors.vectors)
   recordWrittenVectors(vectorIndexes, liveVectors.written)
@@ -156,6 +161,7 @@ async function writeOneBoundedCheckpoint(input: DurableCheckpointInput): Promise
 function recordsBeyond(indexState: IndexState, targets: PartitionCheckpoint[]): number {
   let records = 0
   for (const [partitionId, partition] of indexState.partitions) {
+    if (partition.failed !== null) continue
     records += Math.max(0, partition.appliedSeqNo - snapshotCheckpointFor(targets, partitionId))
   }
   return records

@@ -356,6 +356,14 @@ export function hasStopWords(name: string): boolean;
 export function hasTokenizer(name: string): boolean;
 
 // @public
+export interface HeldCheckpointReport {
+    documentBytesSinceCheckpoint: number;
+    indexName: string;
+    partitionIds: number[];
+    recordsSinceCheckpoint: number;
+}
+
+// @public
 export interface HighlightConfig {
     fields: string[];
     maxSnippetLength?: number;
@@ -527,6 +535,7 @@ export type MainCopyQueries = 'lone' | 'none';
 export interface MemoryStats {
     closedIndexCount: number;
     estimatedIndexBytes: number;
+    heldCheckpoints: HeldCheckpointReport[];
     openIndexCount: number;
     process: ProcessMemoryReport | null;
     reopenCount: number;
@@ -657,6 +666,7 @@ export type NarsilEventMap = {
         layout: 'manifest' | 'bundle';
         error?: Error;
     };
+    checkpointHeld: HeldCheckpointReport;
     durabilityError: {
         error: Error;
     };
