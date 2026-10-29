@@ -2,6 +2,7 @@ import { ErrorCodes, NarsilError } from '../../../errors'
 import type { BatchResult } from '../../../types/results'
 import type { AllocationTable } from '../../coordinator/types'
 import { REGISTRATION_LEASE_DRIFT_SHARE } from '../constants'
+import { noteLedTerm } from '../led-term'
 import { assertReshardOpen } from '../reshard/block'
 import type { PrimaryWriteScope } from './numbered-write'
 import { enqueuePartitionWrite } from './partition-queue'
@@ -66,6 +67,7 @@ async function currentScope(scope: PrimaryWriteScope): Promise<PrimaryWriteScope
     )
   }
   await assertReshardOpen(deps.reshard, deps.coordinator, indexName, partitionId, assignment.primaryTerm)
+  noteLedTerm(deps.getReplicationLog(indexName, partitionId), assignment.primaryTerm)
   return { ...scope, assignment }
 }
 

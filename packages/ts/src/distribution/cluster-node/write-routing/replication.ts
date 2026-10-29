@@ -15,6 +15,7 @@ import {
   forgetAdmittedReplica,
   getPendingAdmissions,
 } from '../catch-up/state'
+import { untilSuperseded } from '../led-term'
 import { sendThroughTargets } from '../transport-failure'
 import { getInSyncReplicaTargets, resolveNodeTargets } from './assignment'
 import type { WriteRoutingDeps } from './types'
@@ -152,7 +153,11 @@ export async function replicateEntry(
   const admitted = admittedBeyondTable(deps.catchUp, entry.indexName, entry.partitionId, assignment)
   const pending = getPendingAdmissions(deps.catchUp, entry.indexName, entry.partitionId)
   const replicaTargets = getInSyncReplicaTargets(assignment, deps.nodeId, [...pending, ...admitted])
-  const result = await replicateToReplicas(entry, replicaTargets, deps.transport, deps.nodeId, deps.resolveNodeTargets)
+  const result = await untilSuperseded(
+    deps.getReplicationLog(entry.indexName, entry.partitionId),
+    entry,
+    replicateToReplicas(entry, replicaTargets, deps.transport, deps.nodeId, deps.resolveNodeTargets),
+  )
   recordAcknowledgements(deps.catchUp, entry.indexName, entry.partitionId, result.acknowledged, entry.seqNo)
   const inSyncFailures = cancelAdmissionsForFailures(entry, result.failed, assignment, admitted, deps)
   await removeFailedReplicasFromInsync(entry, inSyncFailures, deps)
@@ -190,12 +195,10 @@ export async function replicateEntryBatch(
   const admitted = admittedBeyondTable(deps.catchUp, lastEntry.indexName, lastEntry.partitionId, assignment)
   const pending = getPendingAdmissions(deps.catchUp, lastEntry.indexName, lastEntry.partitionId)
   const replicaTargets = getInSyncReplicaTargets(assignment, deps.nodeId, [...pending, ...admitted])
-  const result = await replicateBatchToReplicas(
-    entries,
-    replicaTargets,
-    deps.transport,
-    deps.nodeId,
-    deps.resolveNodeTargets,
+  const result = await untilSuperseded(
+    deps.getReplicationLog(lastEntry.indexName, lastEntry.partitionId),
+    lastEntry,
+    replicateBatchToReplicas(entries, replicaTargets, deps.transport, deps.nodeId, deps.resolveNodeTargets),
   )
   recordAcknowledgements(deps.catchUp, lastEntry.indexName, lastEntry.partitionId, result.acknowledged, lastEntry.seqNo)
   const inSyncFailures = cancelAdmissionsForFailures(lastEntry, result.failed, assignment, admitted, deps)

@@ -2,7 +2,7 @@ import { ErrorCodes, NarsilError } from '../../../errors'
 import { validateReplicationEntry } from '../../replication/replica'
 import type { ReplicationLog, ReplicationLogEntry } from '../../replication/types'
 import type { SyncEntriesPayload } from '../../transport/types'
-import { inReplicaLogOrder } from '../replica-apply-order'
+import { enqueuePartitionWrite } from '../write-routing/partition-queue'
 import type { ApplyEntriesResult, LiveBootstrapSyncDeps } from './types'
 
 export async function applySyncEntries(
@@ -28,7 +28,9 @@ export async function applySyncEntries(
       if (entryError !== null) {
         return { ok: false, error: entryError }
       }
-      const applyError = await inReplicaLogOrder(log, () => applySyncEntryOnce(entry, log, deps))
+      const applyError = await enqueuePartitionWrite(deps.partitionWriteQueues, indexName, partitionId, () =>
+        applySyncEntryOnce(entry, log, deps),
+      )
       if (applyError !== null) {
         return { ok: false, error: applyError }
       }

@@ -11,8 +11,9 @@ import { validateReplicationEntry } from '../../replication/replica'
 import type { ReplicationLogEntry } from '../../replication/types'
 import type { ForwardPayload, RespondFn, TransportMessage } from '../../transport/types'
 import { ReplicationMessageTypes } from '../../transport/types'
-import { inReplicaLogOrder } from '../replica-apply-order'
+import { noteAcceptedPrimaryTerm, noteSupersedingPrimary } from '../led-term'
 import { applyForwardedBatch, applyForwardedWrite } from '../write-routing'
+import { enqueuePartitionWrite } from '../write-routing/partition-queue'
 import { resolveValidatedAssignment } from './entry-authority'
 import type { DataNodeHandlerDeps } from './types'
 
@@ -51,8 +52,7 @@ export async function handleReplicationEntry(
   const payload = validateEntryPayload(decode(message.payload))
   const { entry } = payload
 
-  await resolveValidatedAssignment(entry, message.sourceId, deps)
-  await applyEntryToLog(entry, deps)
+  await applyEntriesFromPrimary([entry], message.sourceId, deps)
 
   await respond(createAckMessage(entry.seqNo, entry.partitionId, entry.indexName, deps.nodeId, message.requestId))
 }
@@ -63,22 +63,37 @@ export async function handleReplicationEntryBatch(
   deps: DataNodeHandlerDeps,
 ): Promise<void> {
   const payload = validateEntryBatchPayload(decode(message.payload))
-  const firstEntry = payload.entries[0]
   const lastEntry = payload.entries[payload.entries.length - 1]
 
-  await resolveValidatedAssignment(firstEntry, message.sourceId, deps)
-  for (const entry of payload.entries) {
-    await applyEntryToLog(entry, deps)
-  }
+  await applyEntriesFromPrimary(payload.entries, message.sourceId, deps)
 
   await respond(
     createAckMessage(lastEntry.seqNo, lastEntry.partitionId, lastEntry.indexName, deps.nodeId, message.requestId),
   )
 }
 
-function applyEntryToLog(entry: ReplicationLogEntry, deps: DataNodeHandlerDeps): Promise<void> {
-  const log = deps.writeDeps.getReplicationLog(entry.indexName, entry.partitionId)
-  return inReplicaLogOrder(log, () => applyEntryInLogOrder(entry, deps))
+async function applyEntriesFromPrimary(
+  entries: readonly ReplicationLogEntry[],
+  sourceNodeId: string,
+  deps: DataNodeHandlerDeps,
+): Promise<void> {
+  const first = entries[0]
+  if (first === undefined) return
+  const assignment = await resolveValidatedAssignment(first, sourceNodeId, deps)
+  noteSupersedingPrimary(
+    deps.writeDeps.getReplicationLog(first.indexName, first.partitionId),
+    first.indexName,
+    first.partitionId,
+    sourceNodeId,
+    assignment.primaryTerm,
+  )
+  await enqueuePartitionWrite(deps.writeDeps.partitionWriteQueues, first.indexName, first.partitionId, async () => {
+    const current = await resolveValidatedAssignment(first, sourceNodeId, deps)
+    noteAcceptedPrimaryTerm(deps.writeDeps.getReplicationLog(first.indexName, first.partitionId), current.primaryTerm)
+    for (const entry of entries) {
+      await applyEntryInLogOrder(entry, deps)
+    }
+  })
 }
 
 async function applyEntryInLogOrder(entry: ReplicationLogEntry, deps: DataNodeHandlerDeps): Promise<void> {

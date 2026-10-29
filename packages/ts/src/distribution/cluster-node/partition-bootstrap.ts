@@ -5,6 +5,7 @@ import { type BootstrapSyncDeps, type BootstrapSyncState, runBootstrapSync } fro
 import type { ClusterLocalEngine } from './local-engine'
 import { adoptClusterIdentity, dropSupersededCopy } from './local-index-reconcile'
 import { type PrimaryPartitionDeps, preparePrimaryPartition } from './primary-partition'
+import type { PartitionWriteQueues } from './write-routing/partition-queue'
 
 export interface PartitionBootstrapDeps {
   nodeId: string
@@ -15,6 +16,7 @@ export interface PartitionBootstrapDeps {
   resolveNodeTargets: (nodeId: string) => Promise<string[]>
   getReplicationLog: (indexName: string, partitionId: number) => ReplicationLog
   seedReplicationLog: (indexName: string, partitionId: number, startSeqNo: number, lastPrimaryTerm?: number) => void
+  partitionWriteQueues: PartitionWriteQueues
   onError: (error: unknown) => void
   snapshotSpoolDirectory: string
 }
@@ -29,6 +31,7 @@ export function createPartitionBootstrap(
     transport: deps.transport,
     sourceNodeId: nodeId,
     resolveNodeTargets: deps.resolveNodeTargets,
+    partitionWriteQueues: deps.partitionWriteQueues,
     getReplicationLog: deps.getReplicationLog,
     resetReplicationLog: deps.seedReplicationLog,
     applyReplicationEntry: engine.applyReplicationEntry,
