@@ -35,6 +35,8 @@ export interface HNSWWorkspace {
   linkSelections: DistanceList[]
   /** The neighbours of the node whose list is over its cap. */
   pruneCandidates: DistanceList
+  /** The neighbours that node keeps. */
+  pruneSelection: DistanceList
   /** The candidates offered to a node whose neighbour was removed. */
   repairCandidates: DistanceList
   /** The neighbours that node takes instead. */
@@ -60,6 +62,7 @@ export function createHNSWWorkspace(): HNSWWorkspace {
     working: createList(INITIAL_LIST_CAPACITY),
     linkSelections: [],
     pruneCandidates: createList(INITIAL_LIST_CAPACITY),
+    pruneSelection: createList(INITIAL_LIST_CAPACITY),
     repairCandidates: createList(INITIAL_LIST_CAPACITY),
     repairSelection: createList(INITIAL_LIST_CAPACITY),
     droppedLinks: createList(INITIAL_LIST_CAPACITY),

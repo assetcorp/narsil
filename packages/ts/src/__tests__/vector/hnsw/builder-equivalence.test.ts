@@ -147,35 +147,8 @@ function referencePrune(state: HNSWGraphState, ord: number, layer: number): void
     const connOrd = neighbors[base + i]
     held.push({ ord: connOrd, distance: state.store.distanceByOrdinal(ord, connOrd, METRIC) })
   }
-  held.sort((a, b) => a.distance - b.distance)
-  while (held.length > cap) held.splice(referenceLinkToRemove(state, held, layer), 1)
-  const kept = held.map(c => c.ord)
+  const kept = referenceSelect(state, held, cap).map(c => c.ord)
   replaceNeighbors(state.adjacency, ord, layer, kept, kept.length)
-}
-
-function referenceIncoming(state: HNSWGraphState, target: number): number {
-  let incoming = 0
-  for (let ord = 0; ord < VECTOR_COUNT; ord++) {
-    if (!nodeExists(state, ord)) continue
-    const base = layerBase(state.adjacency, ord, 0)
-    if (base === -1) continue
-    const neighbors = layerArray(state.adjacency, 0)
-    for (let i = 1; i <= neighbors[base]; i++) if (neighbors[base + i] === target) incoming += 1
-  }
-  return incoming
-}
-
-function referenceLinkToRemove(state: HNSWGraphState, held: Candidate[], layer: number): number {
-  const protectedAt = (at: number): boolean => layer === 0 && referenceIncoming(state, held[at].ord) <= 1
-  for (let at = held.length - 1; at > 0; at--) {
-    if (protectedAt(at)) continue
-    const nearerACloser = held
-      .slice(0, at)
-      .some(closer => state.store.distanceByOrdinal(held[at].ord, closer.ord, METRIC) < held[at].distance)
-    if (nearerACloser) return at
-  }
-  for (let at = held.length - 1; at > 0; at--) if (!protectedAt(at)) return at
-  return held.length - 1
 }
 
 function setEntry(state: HNSWGraphState, ord: number, level: number): void {

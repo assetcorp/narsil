@@ -13,6 +13,7 @@ function workspaceBytes(workspace: HNSWWorkspace): number {
     listBytes(workspace.traversal) +
     listBytes(workspace.working) +
     listBytes(workspace.pruneCandidates) +
+    listBytes(workspace.pruneSelection) +
     listBytes(workspace.repairCandidates) +
     listBytes(workspace.repairSelection) +
     workspace.entryPoints.byteLength

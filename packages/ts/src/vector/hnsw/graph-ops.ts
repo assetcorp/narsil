@@ -1,16 +1,8 @@
 import type { VectorMetric } from '../brute-force'
 import { type OrdinalFilter, ordinalFilterHas } from '../ordinal-filter'
-import {
-  incomingCount,
-  layerArray,
-  layerBase,
-  noteUnlinked,
-  readNeighbors,
-  releaseUnlessLast,
-  writeNeighbors,
-} from './adjacency'
+import { layerArray, layerBase, noteUnlinked, readNeighbors, writeNeighbors } from './adjacency'
 import { FARTHEST_REJECTED_LINKS_KEPT } from './constants'
-import { isLive, noteNodeLeftUnlinked } from './last-links'
+import { writeKeepingLastLinks } from './last-links'
 import { beginNodeRead, nodeReadHeld } from './locks'
 import {
   ensureVisited,
@@ -198,67 +190,15 @@ export function pruneConnections(
     candidates.size += 1
   }
 
-  sortListByDistance(candidates)
-  while (candidates.size > mc) removeOneLink(state, candidates, layer, distance)
-  writeNeighbors(adjacency, ord, layer, candidates.ords, candidates.size)
-}
-
-function holdsItsLastLink(state: HNSWGraphState, layer: number, ord: number): boolean {
-  return layer === 0 && isLive(state, ord) && incomingCount(state.adjacency, ord) <= 1
-}
-
-function liesNearerACloserLink(
-  sorted: DistanceList,
-  at: number,
-  distance: (aOrd: number, bOrd: number) => number,
-): boolean {
-  const ord = sorted.ords[at]
-  for (let closer = 0; closer < at; closer++) {
-    if (distance(ord, sorted.ords[closer]) < sorted.distances[at]) return true
-  }
-  return false
-}
-
-function releaseLink(state: HNSWGraphState, layer: number, ord: number): boolean {
-  if (layer > 0) return true
-  if (!isLive(state, ord)) {
-    noteUnlinked(state.adjacency, ord)
-    return true
-  }
-  return releaseUnlessLast(state.adjacency, ord)
-}
-
-function linkToRemove(
-  state: HNSWGraphState,
-  sorted: DistanceList,
-  layer: number,
-  distance: (aOrd: number, bOrd: number) => number,
-): number {
-  for (let at = sorted.size - 1; at > 0; at--) {
-    if (holdsItsLastLink(state, layer, sorted.ords[at])) continue
-    if (!liesNearerACloserLink(sorted, at, distance)) continue
-    if (releaseLink(state, layer, sorted.ords[at])) return at
-  }
-  for (let at = sorted.size - 1; at > 0; at--) {
-    if (holdsItsLastLink(state, layer, sorted.ords[at])) continue
-    if (releaseLink(state, layer, sorted.ords[at])) return at
-  }
-  const farthest = sorted.size - 1
+  const kept = state.workspace.pruneSelection
+  selectNeighborsHeuristic(state, candidates, mc, distance, kept)
   if (layer === 0) {
-    noteUnlinked(state.adjacency, sorted.ords[farthest])
-    noteNodeLeftUnlinked(state)
+    writeKeepingLastLinks(state, ord, state.workspace.working, kept, everyCandidateWasHeld)
+    return
   }
-  return farthest
+  writeNeighbors(adjacency, ord, layer, kept.ords, kept.size)
 }
 
-function removeOneLink(
-  state: HNSWGraphState,
-  sorted: DistanceList,
-  layer: number,
-  distance: (aOrd: number, bOrd: number) => number,
-): void {
-  const removed = linkToRemove(state, sorted, layer, distance)
-  sorted.ords.copyWithin(removed, removed + 1, sorted.size)
-  sorted.distances.copyWithin(removed, removed + 1, sorted.size)
-  sorted.size -= 1
+function everyCandidateWasHeld(): boolean {
+  return true
 }
