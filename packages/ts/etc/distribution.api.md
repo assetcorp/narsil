@@ -22,6 +22,7 @@ export interface AllocationTable {
     assignments: Map<number, PartitionAssignment>;
     generation?: string;
     indexName: string;
+    indexUuid?: string;
     replicationFactor: number;
     version: number;
 }
@@ -53,6 +54,7 @@ export interface ClusterCoordinator {
     putPartitionState(indexName: string, partitionId: number, state: PartitionState): Promise<void>;
     putSchema(indexName: string, schema: SchemaDefinition): Promise<void>;
     registerNode(registration: NodeRegistration): Promise<void>;
+    registrationLease?(nodeId: string): RegistrationLease | null;
     releaseLease(key: string): Promise<void>;
     renewLease(key: string, nodeId: string, ttlMs: number): Promise<boolean>;
     shutdown(): Promise<void>;
@@ -308,6 +310,12 @@ export interface PartitionReplicationFigure {
 
 // @public
 export type PartitionState = 'UNASSIGNED' | 'INITIALISING' | 'ACTIVE' | 'MIGRATING' | 'DECOMMISSIONING';
+
+// @public
+export interface RegistrationLease {
+    remainingMs: number;
+    ttlMs: number;
+}
 
 // @public
 export interface ReplicaLagFigure {
