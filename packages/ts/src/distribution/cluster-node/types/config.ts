@@ -27,7 +27,7 @@ export interface ClusterNodeConfig {
   transport: NodeTransport
   /** Peers reach this node at this address, as the transport writes it. */
   address: string
-  /** This node holds these roles in the cluster, and holds data alone by default. */
+  /** This node holds these roles in the cluster, and holds all three, `data`, `coordinator`, and `controller`, by default. */
   roles?: NodeRole[]
   /**
    * This identifies the node across the cluster. Where you leave it out, a node
