@@ -101,6 +101,20 @@ export interface NodeRegistration {
 }
 
 /**
+ * How long the coordinator is certain to keep holding a node's registration,
+ * measured from the moment the node sent the last renewal that the
+ * coordinator accepted.
+ *
+ * @public
+ */
+export interface RegistrationLease {
+  /** The registration stays held for at least this many more milliseconds, and the figure falls below zero once that time has passed. */
+  remainingMs: number
+  /** The coordinator granted the lease for this many milliseconds, which is the lifetime that `remainingMs` counts down from. */
+  ttlMs: number
+}
+
+/**
  * Tells watchers that a node joined or left.
  *
  * @public

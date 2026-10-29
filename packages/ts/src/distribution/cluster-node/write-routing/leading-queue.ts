@@ -1,14 +1,22 @@
 import { ErrorCodes, NarsilError } from '../../../errors'
 import type { BatchResult } from '../../../types/results'
 import type { AllocationTable } from '../../coordinator/types'
+import { REGISTRATION_LEASE_DRIFT_SHARE } from '../constants'
 import { assertReshardOpen } from '../reshard/block'
 import type { PrimaryWriteScope } from './numbered-write'
 import { enqueuePartitionWrite } from './partition-queue'
+import type { WriteRoutingDeps } from './types'
 
 const REFUSALS_FROM_LOCAL_COPY: ReadonlySet<string> = new Set([ErrorCodes.DOC_NOT_FOUND, ErrorCodes.DOC_ALREADY_EXISTS])
 
 function refusedFromLocalCopy(error: unknown): boolean {
   return error instanceof NarsilError && REFUSALS_FROM_LOCAL_COPY.has(error.code)
+}
+
+function registrationLeaseLapsed(deps: WriteRoutingDeps): boolean {
+  const lease = deps.coordinator.registrationLease?.(deps.nodeId)
+  if (lease === undefined) return false
+  return lease === null || lease.remainingMs <= lease.ttlMs * REGISTRATION_LEASE_DRIFT_SHARE
 }
 
 async function leadershipMoved(scope: PrimaryWriteScope): Promise<boolean> {
@@ -48,7 +56,7 @@ async function currentScope(scope: PrimaryWriteScope): Promise<PrimaryWriteScope
   const { indexName, partitionId, deps } = scope
   const table = await deps.coordinator.getAllocation(indexName)
   const assignment = table?.assignments.get(partitionId)
-  if (assignment === undefined || assignment.primary !== deps.nodeId) {
+  if (assignment === undefined || assignment.primary !== deps.nodeId || registrationLeaseLapsed(deps)) {
     throw new NarsilError(
       ErrorCodes.PARTITION_NOT_PRIMARY,
       `Node '${deps.nodeId}' stopped leading partition ${partitionId} of index '${indexName}' while the write waited`,
@@ -80,6 +88,7 @@ export async function inLeadingPartitionQueue<T>(
     if (refusedFromLocalCopy(error) && (await leadershipMoved(current))) throw notPrimary(current)
     throw error
   }
+  if (registrationLeaseLapsed(current.deps)) throw notPrimary(current)
   if (failed !== undefined) await confirmBatchRefusals(current, failed)
   return result
 }

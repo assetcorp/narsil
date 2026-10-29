@@ -30,15 +30,20 @@ class FakeLease {
     return Promise.resolve()
   }
 
+  on(_event: string, _listener: () => void): this {
+    return this
+  }
+
   once(_event: string, _listener: () => void): this {
     return this
   }
 
-  async keepaliveOnce(): Promise<void> {
+  async keepaliveOnce(): Promise<{ TTL: string }> {
     if (this.revoked) {
       throw new Error(`lease ${this.id} has been revoked`)
     }
     this.keepaliveCount++
+    return { TTL: '30' }
   }
 
   put(key: string): { value: (data: Buffer) => { exec: () => Promise<void> } } {
