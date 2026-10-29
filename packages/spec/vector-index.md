@@ -491,8 +491,11 @@ HeldLocks {
   word 1: the value that the thread stores in that lock word when it takes the lock
   word 2: 1 while graphLock counts the thread
   word 4: 1 while writersWaiting counts the thread
+  word 5: 1 while the thread holds entryLock
 }
 ```
+
+When a thread dies, the implementation must release every lock that the thread's words record. It must unlock the node in word 0 while that node's lock word still holds the value in word 1, lower `graphLock` by 1 where word 2 holds 1, lower `writersWaiting` by 1 where word 4 holds 1, and store 0 in `entryLock` where word 5 holds 1.
 
 ---
 
