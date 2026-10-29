@@ -19,6 +19,15 @@ export interface IndexState {
   stalledWrites: Array<() => void>
 }
 
+export function holdsFailedPartition(indexState: IndexState): boolean {
+  for (const partition of indexState.partitions.values()) if (partition.failed !== null) return true
+  return false
+}
+
+export function closePartitionWriter(partition: PartitionState): Promise<void> {
+  return partition.failed === null ? partition.walWriter.close() : partition.walWriter.abandon()
+}
+
 /**
  * Drains an index's durable work so its memory can be released.
  *
@@ -41,7 +50,7 @@ export async function drainIndexStateForUnload(
     if (indexState.checkpointInFlight !== null) await indexState.checkpointInFlight
     await pendingMetadataWrite
     for (const partition of indexState.partitions.values()) {
-      await closeWalWriter(partition.walWriter.close())
+      await closeWalWriter(closePartitionWriter(partition))
     }
   } catch (error) {
     indexState.unloading = false

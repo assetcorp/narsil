@@ -55,6 +55,19 @@ async function leadershipUnconfirmed(scope: PrimaryWriteScope): Promise<boolean>
   return assignment.primary !== deps.nodeId || assignment.primaryTerm > scope.assignment.primaryTerm
 }
 
+function copyFailedIn(scope: PrimaryWriteScope): boolean {
+  return scope.deps.copyFailed?.(scope.indexName, scope.partitionId) === true
+}
+
+function refuseFromFailedCopy(scope: PrimaryWriteScope, failed: BatchResult['failed']): void {
+  for (let index = 0; index < failed.length; index++) {
+    const failure = failed[index]
+    if (failure?.error.code.startsWith('PERSISTENCE_') === true) {
+      failed[index] = { docId: failure.docId, error: notPrimary(scope) }
+    }
+  }
+}
+
 function notPrimary(scope: PrimaryWriteScope): NarsilError {
   return new NarsilError(
     ErrorCodes.PARTITION_NOT_PRIMARY,
@@ -78,7 +91,13 @@ async function currentScope(scope: PrimaryWriteScope): Promise<PrimaryWriteScope
   const { indexName, partitionId, deps } = scope
   const table = await deps.coordinator.getAllocation(indexName)
   const assignment = table?.assignments.get(partitionId)
-  if (assignment === undefined || assignment.primary !== deps.nodeId || (await registrationLeaseLapsed(deps))) {
+  const copyFailed = deps.copyFailed?.(indexName, partitionId) === true
+  if (
+    assignment === undefined ||
+    assignment.primary !== deps.nodeId ||
+    copyFailed ||
+    (await registrationLeaseLapsed(deps))
+  ) {
     throw new NarsilError(
       ErrorCodes.PARTITION_NOT_PRIMARY,
       `Node '${deps.nodeId}' stopped leading partition ${partitionId} of index '${indexName}' while the write waited`,
@@ -108,10 +127,12 @@ export async function inLeadingPartitionQueue<T>(
       },
     )
   } catch (error) {
+    if (copyFailedIn(current)) throw notPrimary(current)
     if (refusedFromLocalCopy(error) && (await leadershipUnconfirmed(current))) throw notPrimary(current)
     throw error
   }
   if (await registrationLeaseLapsed(current.deps)) throw notPrimary(current)
+  if (failed !== undefined && copyFailedIn(current)) refuseFromFailedCopy(current, failed)
   if (failed !== undefined) await confirmBatchRefusals(current, failed)
   return result
 }

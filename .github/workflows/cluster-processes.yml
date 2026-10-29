@@ -29,6 +29,7 @@ jobs:
   cluster-process-tests:
     name: Cluster Node Process Tests
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     services:
       etcd:
         image: gcr.io/etcd-development/etcd:v3.6.0

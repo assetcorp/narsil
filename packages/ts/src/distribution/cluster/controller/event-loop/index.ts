@@ -3,6 +3,7 @@ import type { NodeTransport, RespondFn, TransportMessage } from '../../../transp
 import { ClusterMessageTypes, ReplicationMessageTypes } from '../../../transport/types'
 import { handleSchemaEvent, scheduleDebouncedAllocation } from './allocation'
 import { handleInsyncAddMessage, handleInsyncRemoveMessage, handleQueuedBootstrapComplete } from './insync-messages'
+import { handlePrimaryResignMessage } from './primary-resign'
 import { handleRebalanceMessage, resumeRebalance, resumeRebalances } from './rebalance/request'
 import { handleReplicationFactorMessage } from './replication-factor'
 import { changesTopology, clearEventLoopWatchers, type EventLoopState, inSchemaQueue } from './state'
@@ -72,6 +73,8 @@ export async function startEventLoop(
       }
       if (message.type === ReplicationMessageTypes.INSYNC_REMOVE) {
         handleInsyncRemoveMessage(state, message, respond, coordinator, nodeId, isActive)
+      } else if (message.type === ReplicationMessageTypes.PRIMARY_RESIGN) {
+        handlePrimaryResignMessage(state, message, respond, coordinator, nodeId, isActive, onError)
       } else if (message.type === ReplicationMessageTypes.INSYNC_ADD) {
         handleInsyncAddMessage(state, message, respond, coordinator, nodeId, isActive, onError)
       } else if (message.type === ClusterMessageTypes.BOOTSTRAP_COMPLETE) {

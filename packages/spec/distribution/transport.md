@@ -89,8 +89,9 @@ When a primary refuses a forwarded mutation, the node that forwarded it must pas
 | `replication.snapshot_chunk` | primary to replica | One streamed chunk of snapshot data |
 | `replication.snapshot_end` | primary to replica | Ends the snapshot transfer |
 | `replication.insync_add` | primary to controller | Asks to add a caught-up replica to the in-sync set |
-| `replication.insync_remove` | primary to controller | Asks to remove a replica from the in-sync set |
+| `replication.insync_remove` | primary or failed replica to controller | Asks to remove a replica from the in-sync set |
 | `replication.insync_confirm` | controller to primary | Confirms the in-sync set update |
+| `replication.primary_resign` | primary to controller | Gives up a partition whose copy failed |
 
 ### Query Messages
 
@@ -311,6 +312,8 @@ The primary sends this to the active controller, found through `getLeaseHolder('
 }
 ```
 
+A replica whose copy of the partition failed sends this request for itself, as [Copy Failure](replication.md#copy-failure) defines, with `replicaNodeId` set to its own `nodeId` and `primaryTerm` set to the term in the allocation table. The controller accepts a request whose `sourceId` is the assignment's primary or the `replicaNodeId`, and it refuses every other sender.
+
 ### replication.insync_confirm
 
 The controller sends this back to the primary once it has updated the in-sync set.
@@ -322,6 +325,21 @@ The controller sends this back to the primary once it has updated the in-sync se
   accepted:    boolean   (false when the primaryTerm was stale)
 }
 ```
+
+### replication.primary_resign
+
+A primary whose copy of a partition failed sends this to the active controller, as [Copy Failure](replication.md#copy-failure) defines.
+
+```text
+{
+  indexName:   string
+  indexUuid:   string
+  partitionId: uint32
+  primaryTerm: uint64   (the term at which the sender leads the partition)
+}
+```
+
+The controller must refuse the request unless the message's `sourceId` is the assignment's primary, `primaryTerm` equals the assignment's term, and `indexUuid` equals the index that the coordinator holds. The controller then acts as [Failover](replication.md#failover) defines for a lost primary, and it writes the allocation table with a compare-and-set on the version that it read. It answers with `replication.insync_confirm`, whose `accepted` is false when it refused the request or its compare-and-set failed.
 
 ### cluster.bootstrap_complete
 

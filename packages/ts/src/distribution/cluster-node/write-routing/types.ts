@@ -31,6 +31,8 @@ export interface WriteRoutingDeps {
   writePressure?: WritePressure
   writeProjection?: WriteProjection
   reshard?: ReshardState
+  copyFailed?: (indexName: string, partitionId: number) => boolean
+  copyUnlisted?: (indexName: string, partitionId: number) => boolean
 }
 
 export interface PrimaryAssignmentResolution {

@@ -7,7 +7,7 @@ import type { VectorIndex } from '../../vector/vector-index'
 import type { DurableDirectory } from './durable-filesystem'
 import { checkpointLastSeqNo, type PartitionCheckpoint } from './partition-checkpoint'
 import { SEGMENT_HEADER_SIZE } from './wal-framing'
-import { durableRecordMissing, readWalSegments, type SegmentRef } from './wal-segments'
+import { durableRecordMissing, readWalSegments, type SegmentRef, type WalReadResult } from './wal-segments'
 
 export interface RecoveredIndex {
   metadata: IndexMetadata
@@ -97,7 +97,43 @@ export async function replayWalUpTo(
   if (read === null) {
     return { highestSeqNo: fromSeqNoExclusive, highestPrimaryTerm: 0 }
   }
+  return replayDurableEntries(read, indexName, partitionId, fromSeqNoExclusive, upToSeqNoInclusive, deps)
+}
 
+export async function replaySyncedWal(
+  directory: DurableDirectory,
+  indexName: string,
+  partitionId: number,
+  fromSeqNoExclusive: number,
+  deps: ReplayDeps,
+): Promise<{ highestSeqNo: number; highestPrimaryTerm: number }> {
+  const read = await readWalSegments(directory, indexName, partitionId)
+  if (read === null) {
+    return { highestSeqNo: fromSeqNoExclusive, highestPrimaryTerm: 0 }
+  }
+  const replayed = replayDurableEntries(
+    read,
+    indexName,
+    partitionId,
+    fromSeqNoExclusive,
+    Number.POSITIVE_INFINITY,
+    deps,
+  )
+  await deleteOrphanSegments(directory, read.segments, read.marker.state.activeSegmentSeqNo)
+  if (read.activeTail !== null) {
+    await truncateSegmentTail(directory, read.activeTail.key, read.marker.state.durableByteLength)
+  }
+  return replayed
+}
+
+function replayDurableEntries(
+  read: WalReadResult,
+  indexName: string,
+  partitionId: number,
+  fromSeqNoExclusive: number,
+  upToSeqNoInclusive: number,
+  deps: ReplayDeps,
+): { highestSeqNo: number; highestPrimaryTerm: number } {
   if (Math.max(fromSeqNoExclusive, read.highestReadFromWal) < read.marker.state.highestDurableSeqNo) {
     throw durableRecordMissing(indexName, partitionId, read.highestReadFromWal, read.marker)
   }

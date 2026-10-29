@@ -7,6 +7,7 @@ export interface PartitionBatchDeps {
   syncEachBatch: boolean
   fatalError(): Error | null
   markFatal(error: Error): void
+  failsPartitionAlone(indexName: string, partitionId: number, error: Error): boolean
   buildEntry(record: MutationRecord, seqNo: number): ReplicationLogEntry
   numberEntry(record: MutationRecord): ReplicationLogEntry | null
   defersCommit(record: MutationRecord): boolean
@@ -34,10 +35,21 @@ function failUnlessAlreadyFailed(outcomes: MutationOutcome[], count: number, err
   }
 }
 
-function failPartition(partition: PartitionState, deps: PartitionBatchDeps, err: unknown): Error {
+export interface PartitionAddress {
+  indexName: string
+  partitionId: number
+}
+
+export function failPartition(
+  partition: PartitionState,
+  address: PartitionAddress,
+  deps: Pick<PartitionBatchDeps, 'markFatal' | 'failsPartitionAlone'>,
+  err: unknown,
+): Error {
   const error = toError(err)
+  if (partition.failed !== null) return partition.failed
   partition.failed = error
-  deps.markFatal(error)
+  if (!deps.failsPartitionAlone(address.indexName, address.partitionId, error)) deps.markFatal(error)
   return error
 }
 
@@ -127,7 +139,7 @@ export async function recordPartitionBatch(
       }
       if (entries.length > 0) await partition.walWriter.appendAll(entries)
     } catch (err) {
-      throw failPartition(partition, deps, err)
+      throw failPartition(partition, records[0], deps, err)
     }
     partition.appliedSeqNo = lastSeqNo
     appendedCount = entries.length
@@ -140,7 +152,7 @@ export async function recordPartitionBatch(
       try {
         await partition.walWriter.commit()
       } catch (err) {
-        throw failPartition(partition, deps, err)
+        throw failPartition(partition, records[0], deps, err)
       }
     }
   } catch (err) {
@@ -149,13 +161,17 @@ export async function recordPartitionBatch(
   return outcomes
 }
 
-export async function commitAppended(partition: PartitionState, deps: PartitionBatchDeps): Promise<void> {
+export async function commitAppended(
+  partition: PartitionState,
+  address: PartitionAddress,
+  deps: PartitionBatchDeps,
+): Promise<void> {
   await partition.appendChain
   const failed = partition.failed ?? deps.fatalError()
   if (failed !== null) throw failed
   try {
     await partition.walWriter.commit()
   } catch (err) {
-    throw failPartition(partition, deps, err)
+    throw failPartition(partition, address, deps, err)
   }
 }

@@ -144,6 +144,7 @@ export const ReplicationMessageTypes = {
   INSYNC_ADD: 'replication.insync_add',
   INSYNC_REMOVE: 'replication.insync_remove',
   INSYNC_CONFIRM: 'replication.insync_confirm',
+  PRIMARY_RESIGN: 'replication.primary_resign',
 } as const
 
 export const QueryMessageTypes = {
@@ -294,6 +295,13 @@ export interface InsyncConfirmPayload {
   indexName: string
   partitionId: number
   accepted: boolean
+}
+
+export interface PrimaryResignPayload {
+  indexName: string
+  indexUuid: string
+  partitionId: number
+  primaryTerm: number
 }
 
 export type {

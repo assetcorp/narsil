@@ -11,6 +11,7 @@ import type {
   InsyncAddPayload,
   InsyncConfirmPayload,
   InsyncRemovePayload,
+  PrimaryResignPayload,
   TransportMessage,
 } from '../transport/types'
 import { ReplicationMessageTypes } from '../transport/types'
@@ -109,6 +110,15 @@ export function createInsyncAddMessage(payload: InsyncAddPayload, sourceId: stri
 export function createInsyncRemoveMessage(payload: InsyncRemovePayload, sourceId: string): TransportMessage {
   return {
     type: ReplicationMessageTypes.INSYNC_REMOVE,
+    sourceId,
+    requestId: generateId(),
+    payload: encode(payload),
+  }
+}
+
+export function createPrimaryResignMessage(payload: PrimaryResignPayload, sourceId: string): TransportMessage {
+  return {
+    type: ReplicationMessageTypes.PRIMARY_RESIGN,
     sourceId,
     requestId: generateId(),
     payload: encode(payload),
