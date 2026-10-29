@@ -1,3 +1,4 @@
+import { replyDeadlineMs } from '../reply-deadline'
 import {
   DEFAULT_TRANSPORT_CONFIG,
   type ListenHandler,
@@ -106,6 +107,7 @@ export function createSimulatedTransport(
       assertNotShutdown()
       const requestFrame = encodeMessageFrame(message)
       lookupPeer(target)
+      const timeoutMs = replyDeadlineMs(message.type, resolvedConfig)
 
       return new Promise<TransportMessage>((resolve, reject) => {
         let settled = false
@@ -115,12 +117,12 @@ export function createSimulatedTransport(
             reject(
               new TransportError(
                 TransportErrorCodes.TIMEOUT,
-                `Request to node '${target}' timed out after ${resolvedConfig.requestTimeout}ms`,
-                { target, requestId: message.requestId, timeoutMs: resolvedConfig.requestTimeout },
+                `Request to node '${target}' timed out after ${timeoutMs}ms`,
+                { target, requestId: message.requestId, timeoutMs },
               ),
             )
           }
-        }, resolvedConfig.requestTimeout)
+        }, timeoutMs)
 
         const settle = (action: () => void): void => {
           if (settled) {

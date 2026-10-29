@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { captureCheckpoint, makeEveryAppliedMutationDurable } from '../../../persistence/durability/checkpoint-capture'
+import {
+  aTargetFailed,
+  captureCheckpoint,
+  makeEveryAppliedMutationDurable,
+} from '../../../persistence/durability/checkpoint-capture'
 import type { IndexState, PartitionState } from '../../../persistence/durability/manager-state'
+import { partitionFailureFor } from '../../../persistence/durability/mutation-batch'
 import type { VectorIndex } from '../../../vector/vector-index'
 
 interface Gate {
@@ -24,6 +29,10 @@ function partitionState(commit: () => Promise<void> = async () => undefined): Pa
     appliedSeqNo: 0,
     failed: null,
   }
+}
+
+function failingAlone(alone: boolean, fatal: Error[]) {
+  return { markFatal: (error: Error) => fatal.push(error), failsPartitionAlone: () => alone }
 }
 
 function indexStateOf(partition: PartitionState): IndexState {
@@ -95,22 +104,36 @@ describe('making every applied mutation durable before the manifest is written',
   it('stops the checkpoint where a partition failed to append a mutation', async () => {
     const partition = partitionState()
     partition.failed = new Error('the append failed')
+    const indexState = indexStateOf(partition)
 
-    await expect(makeEveryAppliedMutationDurable(indexStateOf(partition), () => undefined)).rejects.toThrow(
-      'the append failed',
-    )
+    await makeEveryAppliedMutationDurable(indexState, partitionFailureFor('docks', failingAlone(false, [])))
+    expect(aTargetFailed(indexState, [{ partitionId: 0, lastSeqNo: 1, primaryTerm: 1 }])).toBe(true)
   })
 
-  it('marks the log fatal where the sync fails', async () => {
+  it('marks the log fatal where the sync fails on a node that keeps no partition failure apart', async () => {
+    const partition = partitionState(async () => {
+      throw new Error('the sync failed')
+    })
+    const fatal: Error[] = []
+    const indexState = indexStateOf(partition)
+
+    await makeEveryAppliedMutationDurable(indexState, partitionFailureFor('docks', failingAlone(false, fatal)))
+    expect(fatal.map(error => error.message)).toEqual(['the sync failed'])
+    expect(partition.failed?.message).toBe('the sync failed')
+    expect(aTargetFailed(indexState, [{ partitionId: 0, lastSeqNo: 1, primaryTerm: 1 }])).toBe(true)
+  })
+
+  it('fails only that partition where the sync fails on a node that keeps partition failures apart', async () => {
     const partition = partitionState(async () => {
       throw new Error('the sync failed')
     })
     const fatal: Error[] = []
 
-    await expect(makeEveryAppliedMutationDurable(indexStateOf(partition), error => fatal.push(error))).rejects.toThrow(
-      'the sync failed',
+    await makeEveryAppliedMutationDurable(
+      indexStateOf(partition),
+      partitionFailureFor('docks', failingAlone(true, fatal)),
     )
-    expect(fatal.map(error => error.message)).toEqual(['the sync failed'])
+    expect(fatal).toEqual([])
     expect(partition.failed?.message).toBe('the sync failed')
   })
 })

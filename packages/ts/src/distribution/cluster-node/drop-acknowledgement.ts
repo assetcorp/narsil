@@ -3,7 +3,7 @@ import { generateId } from '../../core/id-generator'
 import { ErrorCodes, NarsilError } from '../../errors'
 import { getIndexMetadata } from '../cluster/index-metadata'
 import { createPartitionStoresMessage, validatePartitionStoresResultPayload } from '../cluster/partition-stores'
-import type { ClusterCoordinator } from '../coordinator/types'
+import type { AllocationTable, ClusterCoordinator } from '../coordinator/types'
 import { DROP_ACKNOWLEDGE_POLL_INTERVAL_MS, MAX_DROP_ACKNOWLEDGE_WAIT_MS } from './constants'
 import type { ClusterLocalEngine } from './local-engine'
 import { resolveNodeTargets } from './node-messaging'
@@ -67,6 +67,11 @@ async function nodesHoldingCopies(
   return ordered.filter((_, at) => holding[at])
 }
 
+function tableOfDroppedIndex(table: AllocationTable | null, droppedUuid: string | null): boolean {
+  if (table === null) return false
+  return droppedUuid === null || table.indexUuid === undefined || table.indexUuid === droppedUuid
+}
+
 export async function awaitDropAcknowledgement(
   deps: DropAcknowledgementDeps,
   indexName: string,
@@ -74,7 +79,7 @@ export async function awaitDropAcknowledgement(
 ): Promise<void> {
   const deadline = Date.now() + MAX_DROP_ACKNOWLEDGE_WAIT_MS
   for (;;) {
-    const tableRemains = (await deps.coordinator.getAllocation(indexName)) !== null
+    const tableRemains = tableOfDroppedIndex(await deps.coordinator.getAllocation(indexName), droppedUuid)
     const holders = await nodesHoldingCopies(deps, indexName, droppedUuid)
     if (!tableRemains && holders.length === 0) return
     if (Date.now() >= deadline) {

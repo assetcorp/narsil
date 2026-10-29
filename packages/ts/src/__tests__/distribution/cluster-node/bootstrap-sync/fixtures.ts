@@ -1,6 +1,7 @@
 import { encode } from '@msgpack/msgpack'
 import { vi } from 'vitest'
 import type { BootstrapSyncDeps } from '../../../../distribution/cluster-node/bootstrap-sync'
+import { createPartitionWriteQueues } from '../../../../distribution/cluster-node/write-routing/partition-queue'
 import type { ClusterCoordinator } from '../../../../distribution/coordinator/types'
 import { SNAPSHOT_CHUNK_SIZE } from '../../../../distribution/replication/constants'
 import {
@@ -269,6 +270,7 @@ export function makeDeps(
     transport,
     sourceNodeId: 'replica-node',
     resolveNodeTargets: async nodeId => [nodeId],
+    partitionWriteQueues: createPartitionWriteQueues(),
     ...overrides,
   }
 }

@@ -1,10 +1,12 @@
 import type { TemplatedApp, us_listen_socket, us_socket } from 'uWebSockets.js'
 import { randomUUID } from 'node:crypto'
 import { startIdleHeapCleanup } from '#platform/idle-heap-cleanup'
+import { readMemoryFigures } from '../distribution/cluster-node/memory/measure'
 import { ErrorCodes, NarsilError } from '../errors'
 import type { Narsil } from '../narsil'
 import { engineCoreOf, rerankWindowCapOf } from '../narsil/internals'
 import { detectRuntime } from '../runtime/detect'
+import { createBodyBudgetBuffer, createSharedBodyBudget } from './body-budget'
 import {
   createSharedGateBuffer,
   createSharedRequestGate,
@@ -14,6 +16,7 @@ import {
 import {
   DEFAULT_IMPORT_BATCH_SIZE,
   DEFAULT_MAX_BODY_BYTES,
+  DEFAULT_MAX_BODY_BYTES_IN_FLIGHT_FRACTION,
   DEFAULT_MAX_CONCURRENT_REQUESTS,
   DEFAULT_MAX_CONCURRENT_TASKS,
   DEFAULT_MAX_FETCH_DOCUMENTS,
@@ -35,6 +38,7 @@ import { createDocumentHandlers } from './handlers/documents'
 import { createHealthHandlers } from './handlers/health'
 import { createImportHandler } from './handlers/import'
 import { createIndexHandlers } from './handlers/indexes'
+import { createMetricsHandler } from './handlers/metrics'
 import { createSearchHandlers } from './handlers/search'
 import { createVersionHandler } from './handlers/version'
 import { assertAllowRegex, assertServerEngine, assertServerLimits } from './options-validation'
@@ -46,8 +50,17 @@ import { InMemoryTaskStore } from './task-store'
 import { TaskRegistry } from './tasks'
 import type { NarsilServer, ServerLimits, ServerOptions } from './types'
 
+function bodyBytesInFlightOf(fraction: number): number {
+  const processLimitBytes = readMemoryFigures()?.processLimitBytes
+  if (fraction === 0 || processLimitBytes === undefined) return Number.POSITIVE_INFINITY
+  return Math.floor(fraction * processLimitBytes)
+}
+
 function resolveLimits(limits: ServerLimits | undefined, engineRerankWindow: number | undefined): ResolvedLimits {
   return {
+    maxBodyBytesInFlight: bodyBytesInFlightOf(
+      limits?.maxBodyBytesInFlightFraction ?? DEFAULT_MAX_BODY_BYTES_IN_FLIGHT_FRACTION,
+    ),
     maxBodyBytes: limits?.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES,
     maxImportBytes: limits?.maxImportBytes ?? DEFAULT_MAX_IMPORT_BYTES,
     maxRestoreBytes: limits?.maxRestoreBytes ?? DEFAULT_MAX_RESTORE_BYTES,
@@ -103,6 +116,9 @@ function mainThreadHandlers(deps: HandlerDeps): ServerHandlers {
     capabilities: capabilities.report,
     clusterTopology: cluster.topology,
     clusterAllocation: cluster.allocation,
+    clusterReplicationFactor: cluster.replicationFactor,
+    clusterHealth: cluster.health,
+    metrics: createMetricsHandler(deps),
     memory: admin.memory,
     listTasks: admin.listTasks,
     getTask: admin.getTask,
@@ -245,11 +261,13 @@ class NarsilHttpServer implements NarsilServer {
     const core = engineCoreOf(this.engine)
     const threadCount = core === undefined ? 0 : core.orchestrator.requestThreadCount()
     const gate = createSharedGateBuffer(gateSlotOfWorker(threadCount))
+    const bodyBudget = createBodyBudgetBuffer(gateSlotOfWorker(threadCount))
     const { limits, build, allowRegex } = this.deps
     const handlers = mainThreadHandlers(this.deps)
     const run = createRouteRunner({
       authorize,
       gate: createSharedRequestGate(gate, limits.maxConcurrentRequests, MAIN_THREAD_GATE_SLOT),
+      bodyBudget: createSharedBodyBudget(bodyBudget, limits.maxBodyBytesInFlight, MAIN_THREAD_GATE_SLOT),
       corsHeaders: cors ? corsHeaderReader(cors) : undefined,
     })
 
@@ -263,6 +281,7 @@ class NarsilHttpServer implements NarsilServer {
         handlers,
         authorize,
         gate,
+        bodyBudget,
         limits,
         allowRegex,
         build,

@@ -176,7 +176,7 @@ describe('a replica that copies one partition while the primary keeps writing', 
       resetReplicationLog: (_indexName, partitionId, startSeqNo, lastPrimaryTerm) => {
         log = createReplicationLog(partitionId, { startSeqNo, lastPrimaryTerm })
       },
-      applyReplicationEntry: async () => undefined,
+      applyReplicationEntries: async entries => ({ applied: entries.length, error: null }),
       restoreReplicationPartition: async (_indexName, _partitionId, source) => {
         restored.push(source instanceof Uint8Array ? source : await bytesOf(source))
         engine.setHasIndex(true)

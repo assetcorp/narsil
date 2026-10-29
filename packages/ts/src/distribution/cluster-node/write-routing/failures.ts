@@ -1,15 +1,8 @@
 import { describeError, ErrorCodes, NarsilError } from '../../../errors'
 import type { AnyDocument } from '../../../types/schema'
-import type { PartitionAssignment } from '../../coordinator/types'
-import { appendDeleteReplicationEntry, appendIndexReplicationEntry } from './replication'
-import type { WriteRoutingDeps } from './types'
+import { appendDeletion, appendStoredCopy, numberedWrite, type PrimaryWriteScope } from './numbered-write'
 
-export interface PrimaryWriteScope {
-  indexName: string
-  partitionId: number
-  assignment: PartitionAssignment
-  deps: WriteRoutingDeps
-}
+export type { PrimaryWriteScope }
 
 export function throwWriteFailure(error: unknown): never {
   if (error instanceof Error) {
@@ -39,46 +32,22 @@ export function createRollbackFailure(
   )
 }
 
-function lostPrimaryAuthority(originalError: unknown): boolean {
-  return originalError instanceof NarsilError && originalError.code === ErrorCodes.PARTITION_NOT_PRIMARY
-}
-
-function compensate(
-  operation: 'insert' | 'remove' | 'update',
-  scope: PrimaryWriteScope,
-  documentId: string,
-  restored: AnyDocument | undefined,
-  originalError: unknown,
-): void {
-  if (lostPrimaryAuthority(originalError)) {
-    return
-  }
-
-  try {
-    if (restored === undefined) {
-      appendDeleteReplicationEntry(scope.indexName, scope.partitionId, scope.assignment, documentId, scope.deps)
-      return
-    }
-    appendIndexReplicationEntry(scope.indexName, scope.partitionId, scope.assignment, documentId, restored, scope.deps)
-  } catch (appendError) {
-    throw createRollbackFailure(operation, scope, documentId, originalError, appendError)
-  }
-}
-
 export async function rollbackPrimaryInsert(
   scope: PrimaryWriteScope,
   documentId: string,
   originalError: unknown,
 ): Promise<never> {
   try {
-    await scope.deps.engine.remove(scope.indexName, documentId)
+    await numberedWrite(
+      scope,
+      () => scope.deps.engine.remove(scope.indexName, documentId),
+      () => appendDeletion(scope, documentId),
+    )
   } catch (rollbackError) {
     if (!(rollbackError instanceof NarsilError && rollbackError.code === ErrorCodes.DOC_NOT_FOUND)) {
       throw createRollbackFailure('insert', scope, documentId, originalError, rollbackError)
     }
   }
-
-  compensate('insert', scope, documentId, undefined, originalError)
   throwWriteFailure(originalError)
 }
 
@@ -99,12 +68,14 @@ export async function rollbackPrimaryUpdate(
   }
 
   try {
-    await scope.deps.engine.update(scope.indexName, documentId, previousDocument)
+    await numberedWrite(
+      scope,
+      () => scope.deps.engine.update(scope.indexName, documentId, previousDocument),
+      (_, admitted) => appendStoredCopy(scope, documentId, admitted),
+    )
   } catch (rollbackError) {
     throw createRollbackFailure('update', scope, documentId, originalError, rollbackError)
   }
-
-  compensate('update', scope, documentId, previousDocument, originalError)
   throwWriteFailure(originalError)
 }
 
@@ -125,11 +96,13 @@ export async function rollbackPrimaryRemove(
   }
 
   try {
-    await scope.deps.engine.insert(scope.indexName, previousDocument, documentId)
+    await numberedWrite(
+      scope,
+      () => scope.deps.engine.insert(scope.indexName, previousDocument, documentId),
+      (_, admitted) => appendStoredCopy(scope, documentId, admitted),
+    )
   } catch (rollbackError) {
     throw createRollbackFailure('remove', scope, documentId, originalError, rollbackError)
   }
-
-  compensate('remove', scope, documentId, previousDocument, originalError)
   throwWriteFailure(originalError)
 }

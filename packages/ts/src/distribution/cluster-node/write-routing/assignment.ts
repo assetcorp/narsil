@@ -1,6 +1,6 @@
 import { fnv1a } from '../../../core/hash'
 import { ErrorCodes, NarsilError } from '../../../errors'
-import type { PartitionAssignment } from '../../coordinator/types'
+import type { AllocationTable, PartitionAssignment } from '../../coordinator/types'
 import { routableAllocation } from '../routable-allocation'
 import type { PrimaryAssignmentResolution, WriteRoutingDeps } from './types'
 
@@ -32,13 +32,23 @@ export function requireAssignedPrimary(
   return assignment as PartitionAssignment & { primary: string }
 }
 
+function leadsPartitionOf(table: AllocationTable | null, docId: string, nodeId: string): boolean {
+  if (table === null) return false
+  const assignment = table.assignments.get(resolvePartitionId(docId, table.assignments.size))
+  return assignment?.primary === nodeId
+}
+
 export async function resolvePrimaryAssignment(
   indexName: string,
   docId: string,
   deps: WriteRoutingDeps,
   requireLocalPrimary: boolean,
 ): Promise<PrimaryAssignmentResolution | null> {
-  const table = await routableAllocation(deps.coordinator, indexName)
+  let table = await routableAllocation(deps.coordinator, indexName)
+  if (requireLocalPrimary && deps.refreshAllocation !== undefined && !leadsPartitionOf(table, docId, deps.nodeId)) {
+    const live = await deps.refreshAllocation(indexName)
+    if (live !== null && live.assignments.size > 0) table = live
+  }
 
   if (table === null) {
     if (requireLocalPrimary) {

@@ -28,6 +28,7 @@ function stubClusterNode(): ClusterNode {
     })),
     getPartitionStats: vi.fn(async () => []),
     checkpoint: vi.fn(async () => undefined),
+    rebuildAnalysis: vi.fn(async () => undefined),
     getMemoryStats: vi.fn(async () => ({ process: null, estimatedIndexBytes: 0, workers: [] })),
     on: vi.fn(),
     off: vi.fn(),
@@ -73,6 +74,7 @@ describe('clusterNodeEngine', () => {
     await engine.suggest('products', { prefix: 'a' })
     await engine.preflight('products', { term: 'a' })
     await engine.checkpoint('products')
+    await engine.rebuildAnalysis('products')
     await engine.getMemoryStats()
     const listener = (): void => undefined
     engine.on('durabilityError', listener)
@@ -92,6 +94,7 @@ describe('clusterNodeEngine', () => {
     expect(node.suggest).toHaveBeenCalledWith('products', { prefix: 'a' })
     expect(node.preflight).toHaveBeenCalledWith('products', { term: 'a' })
     expect(node.checkpoint).toHaveBeenCalledWith('products')
+    expect(node.rebuildAnalysis).toHaveBeenCalledWith('products')
     expect(node.getMemoryStats).toHaveBeenCalled()
     expect(node.on).toHaveBeenCalledWith('durabilityError', listener)
     expect(node.off).toHaveBeenCalledWith('durabilityError', listener)
@@ -116,10 +119,8 @@ describe('clusterNodeEngine', () => {
       () => engine.listIndexes(),
       () => engine.getStats('products'),
       () => engine.getPartitionStats('products'),
-      () => engine.rebuildAnalysis('products'),
       () => engine.snapshot('products'),
       () => engine.restore('products', new Uint8Array()),
-      () => engine.rebalance('products', 2),
       () => engine.updatePartitionConfig('products', {}),
       () => engine.compactVectors('products'),
       () => engine.optimizeVectors('products'),

@@ -1,24 +1,30 @@
 import { collectAndReturnPages } from '#platform/idle-heap-cleanup'
+import {
+  collectGarbageBeforeRefusal,
+  collectYoungGenerationBeforeRefusal,
+  onRefusalAfterCollection,
+} from '../../../runtime/thread-heap'
 import type { ClusterCoordinator, IndexPartitionBytes, NodeRegistration } from '../../coordinator/types'
 import {
-  DEFAULT_BLOCK_WRITES_ABOVE,
   DEFAULT_IN_FLIGHT_WRITE_FRACTION,
-  DEFAULT_RESUME_WRITES_BELOW,
   FULL_MEMORY_COLLECTION_INTERVAL_MS,
   MEMORY_SAMPLE_INTERVAL_MS,
   WRITE_MEMORY_SAMPLE_MAX_AGE_MS,
 } from '../constants'
 import type { ClusterLocalEngine } from '../local-engine'
 import type { ClusterMemoryConfig } from '../types'
-import { readMemoryFigures } from './measure'
+import { memoryFractionsOf } from './fractions'
+import { readMemoryFigures, readRecentMemoryFigures } from './measure'
 import { createMemoryMonitor } from './monitor'
 import { collectPartitionBytes } from './partition-bytes'
 import { createNodeMemoryView, type NodeMemoryView } from './write-block'
 import { createWritePressure, type WritePressure } from './write-pressure'
+import { createWriteProjection, type WriteProjection } from './write-projection'
 
 export interface NodeMemoryReporting {
   view: NodeMemoryView
   writePressure: WritePressure
+  writeProjection: WriteProjection
   currentRegistration(): NodeRegistration
   start(): Promise<void>
   stop(): void
@@ -41,13 +47,15 @@ function partitionBytesOf(engine: ClusterLocalEngine): IndexPartitionBytes[] {
 }
 
 export function createNodeMemoryReporting(options: NodeMemoryReportingOptions): NodeMemoryReporting {
+  const fractions = memoryFractionsOf(options.config)
   const monitor = createMemoryMonitor({
-    blockWritesAbove: options.config?.blockWritesAbove ?? DEFAULT_BLOCK_WRITES_ABOVE,
-    resumeWritesBelow: options.config?.resumeWritesBelow ?? DEFAULT_RESUME_WRITES_BELOW,
+    fractions,
     intervalMs: MEMORY_SAMPLE_INTERVAL_MS,
     collectionIntervalMs: FULL_MEMORY_COLLECTION_INTERVAL_MS,
     read: readMemoryFigures,
     collectGarbage: collectAndReturnPages,
+    collectGarbageBeforeRefusal,
+    collectYoungGenerationBeforeRefusal,
     onFullChange: options.onFullChange,
   })
 
@@ -55,6 +63,16 @@ export function createNodeMemoryReporting(options: NodeMemoryReportingOptions): 
     coordinator: options.coordinator,
     localNodeId: options.registration.nodeId,
     localIsFull: monitor.isFull,
+  })
+
+  const writeProjection = createWriteProjection({
+    nodeId: options.registration.nodeId,
+    fractions,
+    measure: readRecentMemoryFigures,
+    measureWithoutGarbage: () => monitor.measureWithoutGarbage(),
+    collections: () => monitor.collections(),
+    refusedAfterCollection: figures => monitor.refusedAfterCollection(figures),
+    analysisOf: indexName => options.engine.writeAnalysisOf(indexName),
   })
 
   const heapLimitBytes = readMemoryFigures()?.heapLimitBytes ?? Number.POSITIVE_INFINITY
@@ -66,14 +84,20 @@ export function createNodeMemoryReporting(options: NodeMemoryReportingOptions): 
     beforeAdmit: () => monitor.sampleIfOlderThan(WRITE_MEMORY_SAMPLE_MAX_AGE_MS),
   })
 
+  let stopHearingRefusals: (() => void) | null = null
+
   return {
     view,
     writePressure,
+    writeProjection,
     async start() {
       monitor.start()
+      stopHearingRefusals ??= onRefusalAfterCollection(figures => monitor.refusedAfterCollection(figures))
       await view.start()
     },
     stop() {
+      stopHearingRefusals?.()
+      stopHearingRefusals = null
       monitor.stop()
       view.stop()
     },

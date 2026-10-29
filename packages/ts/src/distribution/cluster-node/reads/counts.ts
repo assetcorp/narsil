@@ -3,7 +3,7 @@ import type { IndexStats, PartitionStatsResult } from '../../../types/results'
 import type { AllocationTable } from '../../coordinator/types'
 import { createCountMessage, validateCountResultPayload } from '../../query/codec'
 import { routableAllocation } from '../routable-allocation'
-import { type ClusterReadDeps, sendReadRequest, strictScatterGroups } from './scatter'
+import { type ClusterReadDeps, gatherFromEveryPartition, sendReadRequest } from './scatter'
 
 interface GatheredCounts {
   countsByPartition: Map<number, { documentCount: number; estimatedMemoryBytes: number }>
@@ -15,27 +15,24 @@ async function gatherPartitionCounts(
   indexName: string,
   allocation: AllocationTable,
 ): Promise<GatheredCounts> {
-  const groups = strictScatterGroups(allocation, indexName)
   const countsByPartition = new Map<number, { documentCount: number; estimatedMemoryBytes: number }>()
   let language = ''
 
-  const gathered = await Promise.all(
-    groups.map(async group => {
-      if (group.nodeId === deps.nodeId) {
-        const requested = new Set(group.partitionIds)
-        const partitions = (await deps.engine.partitionStatsForRead(indexName))
-          .filter(partition => requested.has(partition.partitionId))
-          .map(partition => ({
-            partitionId: partition.partitionId,
-            documentCount: partition.documentCount,
-            estimatedMemoryBytes: partition.estimatedMemoryBytes,
-          }))
-        return { partitions, language: deps.engine.getStats(indexName).language }
-      }
-      const message = createCountMessage({ indexName, partitionIds: group.partitionIds }, deps.nodeId)
-      return sendReadRequest(deps, group.nodeId, message, indexName, validateCountResultPayload)
-    }),
-  )
+  const gathered = await gatherFromEveryPartition(allocation, indexName, async group => {
+    if (group.nodeId === deps.nodeId) {
+      const requested = new Set(group.partitionIds)
+      const partitions = (await deps.engine.partitionStatsForRead(indexName))
+        .filter(partition => requested.has(partition.partitionId))
+        .map(partition => ({
+          partitionId: partition.partitionId,
+          documentCount: partition.documentCount,
+          estimatedMemoryBytes: partition.estimatedMemoryBytes,
+        }))
+      return { partitions, language: deps.engine.getStats(indexName).language }
+    }
+    const message = createCountMessage({ indexName, partitionIds: group.partitionIds }, deps.nodeId)
+    return sendReadRequest(deps, group.nodeId, message, indexName, validateCountResultPayload)
+  })
 
   for (const result of gathered) {
     if (language.length === 0) {

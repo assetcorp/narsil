@@ -49,4 +49,8 @@ describe('the controller settings a cluster node accepts', () => {
   it.each([0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY])('refuses a standbyRetryMs of %p', standbyRetryMs => {
     expect(codeOf({ standbyRetryMs })).toBe(ErrorCodes.CONFIG_INVALID)
   })
+
+  it.each([-1, 2_147_483_648])('refuses a nodeLeftDelayMs of %p, which no timer can hold', nodeLeftDelayMs => {
+    expect(codeOf({ nodeLeftDelayMs })).toBe(ErrorCodes.CONFIG_INVALID)
+  })
 })

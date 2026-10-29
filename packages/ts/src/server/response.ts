@@ -95,6 +95,10 @@ export function sendError(
   })
 }
 
+export function sendText(res: ResponseSink, text: string, contentType: string, abort: ResponseAbort): void {
+  streamBody(res, abort, Buffer.from(text, 'utf8'), 200, [['Content-Type', contentType]])
+}
+
 export function sendBinary(res: ResponseSink, data: Uint8Array, abort: ResponseAbort, status = 200): void {
   streamBody(res, abort, data, status, [['Content-Type', 'application/octet-stream']])
 }

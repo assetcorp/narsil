@@ -1,12 +1,14 @@
 import { providedDocId } from '../../engine/mutations/insert-admission'
 import { NarsilError } from '../../errors'
 import type { Narsil } from '../../narsil'
+import { writeBlockLookupOf } from '../../narsil/write-blocks'
 import type { AnyDocument } from '../../types/schema'
 import { IMPORT_FLUSHES_IN_FLIGHT } from '../constants'
 import type { HandlerDeps } from '../deps'
 import { ServerErrorCodes, serializeNarsilError } from '../errors'
 import { respondError, respondJson } from '../handler-utils'
 import { iterateNdjson } from '../ndjson'
+import { parseRefusalOf } from '../parse-heap'
 import type { RouteContext } from '../request'
 import { sendError } from '../response'
 import type { ImportError, ImportResult, TaskProgress } from '../types'
@@ -55,6 +57,7 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 export async function runImport(engine: Narsil, options: ImportRunOptions): Promise<ImportResult> {
   const { indexName, body, maxLineBytes, batchSize, maxErrors, signal, onProgress } = options
   const bytesTotal = body.length
+  const writeBlock = writeBlockLookupOf(engine)
   const errors: ImportError[] = []
   let indexed = 0
   let failed = 0
@@ -74,7 +77,12 @@ export async function runImport(engine: Narsil, options: ImportRunOptions): Prom
         failure.error instanceof NarsilError
           ? serializeNarsilError(failure.error)
           : { code: ServerErrorCodes.INTERNAL_ERROR, message: String(failure.error) }
-      recordFailure({ docId: failure.docId, code: serialized.code, message: serialized.message })
+      recordFailure({
+        docId: failure.docId,
+        code: serialized.code,
+        message: serialized.message,
+        ...(serialized.details === undefined ? {} : { details: serialized.details }),
+      })
     }
   }
 
@@ -107,9 +115,20 @@ export async function runImport(engine: Narsil, options: ImportRunOptions): Prom
   try {
     for (const line of iterateNdjson(body, maxLineBytes)) {
       bytesProcessed = line.bytesConsumed
+      const refusal = parseRefusalOf(line.bytes)
+      if (refusal !== null) {
+        const block =
+          refusal.status === 429 && writeBlock !== undefined ? await writeBlock(indexName).catch(() => null) : null
+        recordFailure(
+          block === null
+            ? { line: line.lineNumber, code: refusal.code, message: refusal.message, details: refusal.details }
+            : { line: line.lineNumber, ...serializeNarsilError(block) },
+        )
+        continue
+      }
       let parsed: unknown
       try {
-        parsed = JSON.parse(line.text)
+        parsed = JSON.parse(line.bytes.toString('utf8'))
       } catch {
         recordFailure({ line: line.lineNumber, code: ServerErrorCodes.INVALID_JSON, message: 'Line is not valid JSON' })
         continue

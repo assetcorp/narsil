@@ -12,6 +12,9 @@ export interface ServerHandlers {
   capabilities: RouteHandler
   clusterTopology: RouteHandler
   clusterAllocation: RouteHandler
+  clusterReplicationFactor: RouteHandler
+  clusterHealth: RouteHandler
+  metrics: RouteHandler
   memory: RouteHandler
   listTasks: RouteHandler
   getTask: RouteHandler
@@ -78,6 +81,8 @@ export function serverRoutes(limits: ResolvedLimits): RouteSpec[] {
     { method: 'get', path: '/version', handler: 'version', options: probe },
     { method: 'get', path: '/capabilities', handler: 'capabilities', options: probe },
     { method: 'get', path: '/cluster', handler: 'clusterTopology', options: bare },
+    { method: 'get', path: '/cluster/health', handler: 'clusterHealth', options: bare },
+    { method: 'get', path: '/metrics', handler: 'metrics', options: bare },
     { method: 'get', path: '/stats/memory', handler: 'memory', options: bare },
     { method: 'get', path: '/tasks', handler: 'listTasks', options: bare },
     { method: 'get', path: '/tasks/:id', handler: 'getTask', options: named },
@@ -88,6 +93,12 @@ export function serverRoutes(limits: ResolvedLimits): RouteSpec[] {
     { method: 'get', path: '/indexes/:name/stats', handler: 'indexStats', options: named },
     { method: 'get', path: '/indexes/:name/partitions', handler: 'indexPartitions', options: named },
     { method: 'get', path: '/indexes/:name/cluster', handler: 'clusterAllocation', options: named },
+    {
+      method: 'put',
+      path: '/indexes/:name/replication-factor',
+      handler: 'clusterReplicationFactor',
+      options: namedBody,
+    },
     { method: 'post', path: '/indexes/:name/_clear', handler: 'clearIndex', options: named },
     { method: 'post', path: '/indexes/:name/_open', handler: 'openIndex', options: named },
     { method: 'post', path: '/indexes/:name/_close', handler: 'closeIndex', options: named },

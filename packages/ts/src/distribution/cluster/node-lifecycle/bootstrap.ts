@@ -127,12 +127,13 @@ async function partitionAwaitsBootstrapReport(
 }
 
 /**
- * Brings one partition into sync on this node and tells the controller once it is ready.
+ * Brings one partition into sync on this node, and tells the controller once the partition's primary holds its copy.
  *
- * The node retries the sync protocol with exponential backoff, and it then reports completion, retrying that report
- * on the same schedule. It rereads the partition before and between reports, because a controller that committed
- * the transition and lost the response would otherwise reject every retry, and the node would report a failure for
- * a partition the cluster already treats as active.
+ * The node retries the sync protocol with exponential backoff. A primary then reports completion, retrying that report
+ * on the same schedule, and a replica reports nothing, because its primary admits it to the in-sync set once the
+ * partition is `ACTIVE`. The primary rereads the partition before and between reports, because a controller that
+ * committed the transition and lost the response would otherwise reject every retry, and the primary would report a
+ * failure for a partition the cluster already treats as active.
  *
  * @param state - The bootstrap state, which names the partition and records whether a caller has abandoned it.
  * @param coordinator - The cluster coordinator that holds the allocation table and the controller lease.
@@ -143,7 +144,8 @@ async function partitionAwaitsBootstrapReport(
  * @param bootstrapMaxRetries - How many further attempts follow the first one.
  * @param onBootstrapPartition - Runs the sync protocol, and reports whether the partition is now in sync.
  * @param onError - Called with a coded error whenever a sync attempt or the whole report sequence fails.
- * @returns True once the partition is in sync and the allocation table records it, and false otherwise.
+ * @returns True once the partition is in sync, and for a primary once the allocation table records it, and false
+ * otherwise.
  */
 export async function bootstrapPartition(
   state: PartitionBootstrapState,
@@ -167,7 +169,7 @@ export async function bootstrapPartition(
     }
 
     if (synced) {
-      if (!(await partitionAwaitsBootstrapReport(state, coordinator))) {
+      if (state.primaryNodeId !== nodeId || !(await partitionAwaitsBootstrapReport(state, coordinator))) {
         return true
       }
 

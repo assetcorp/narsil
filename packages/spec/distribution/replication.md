@@ -221,11 +221,16 @@ The fallback runs when the primary's log no longer holds what the replica needs,
 The replica reports its state and the primary decides:
 
 ```text
-if primaryLog.oldestSeqNo <= replica.lastSeqNo + 1:
+when replica.lastSeqNo = 0 and primaryLog has discarded no entry:
   use tier 1, incremental
-else:
+when primaryLog holds an entry at replica.lastSeqNo
+     and that entry's primaryTerm equals replica.lastPrimaryTerm:
+  use tier 1, incremental
+otherwise:
   use tier 2, full snapshot
 ```
+
+A replica must report in `lastPrimaryTerm` the `primaryTerm` of the entry at its `lastSeqNo`, and the `primaryTerm` of a `ReplicationSnapshotHeader` must hold the `primaryTerm` of the entry at the header's `lastSeqNo`, so that a replica whose log took another history from that point receives a snapshot.
 
 ### Partition State During Recovery
 
@@ -273,6 +278,14 @@ The write reaches the client only after the controller confirms the in-sync set 
 
 The in-sync set is stored in the cluster coordinator as the `inSyncSet` field of a partition assignment; see [Allocation Table](cluster.md#allocation-table). The controller updates it atomically with a compare-and-set on the allocation table.
 
+### Copy Failure
+
+A node must fail its copy of a partition when the copy cannot apply an entry, including an entry whose `seqNo` does not follow the copy's last `seqNo`, and when it cannot write the partition's write-ahead log. Failing a copy affects that partition alone, and the node's other partitions keep serving.
+
+A node whose failed copy is a replica must ask the controller to remove the copy from the in-sync set, as the [Removal Flow](#removal-flow) defines. It must then delete its index, its write-ahead log and its replication log for the partition, and bootstrap the partition as an empty copy, as [Sync Protocol](#sync-protocol) defines. An empty copy sends `lastSeqNo` 0 and `lastPrimaryTerm` 0 in its `replication.sync_request`.
+
+A node whose failed copy is the primary must refuse every write for the partition with `PARTITION_NOT_PRIMARY` and ask the controller to fail the partition over. The controller must then act as [Failover](#failover) defines for a lost primary: it promotes an in-sync replica, or it follows [No Eligible Replica](#no-eligible-replica) where none remains. Once the node holds a replica of the partition, it follows the rule for a failed replica.
+
 ### Catch-Up Feed
 
 A primary must send every assigned replica outside the in-sync set the entries that replica lacks, because a replica that receives nothing between writes never reaches the commit point.
@@ -292,6 +305,8 @@ A replica whose recorded position falls below the oldest entry the primary retai
 ## Write Durability
 
 Every write replicates to every in-sync replica before it is acknowledged, and that is not configurable. The primary sends each entry to every replica in the in-sync set, and to every replica whose admission it has asked the controller to confirm, and it must wait for all of them. Every other assigned replica receives that entry through the [Catch-Up Feed](#catch-up-feed) instead, so no assigned replica misses an entry and no lagging replica holds a write up. The primary raises the partition's commit point to the entry's `seqNo` once it acknowledges the write.
+
+A replica must append each entry that it receives to its write-ahead log and make the entry durable under its [durability mode](../durability.md#durability-modes) before it acknowledges the entry.
 
 A primary may group contiguous entries for one partition into a single `replication.entry_batch` message, and the replica's one acknowledgement of the batch's last entry then covers every entry in it. A primary must send each partition's entries in sequence-number order, whichever message carries them.
 
@@ -325,9 +340,10 @@ When a partition's primary fails, the controller promotes a replica.
    failed node was primary for.
 4. For each affected partition:
    a. The controller picks a new primary from the in-sync set.
-   b. It prefers, in order, a candidate that has reported no
-      storage errors, then a candidate that previously held the
-      primary role, and breaks any remaining tie arbitrarily.
+   b. It prefers, in order, a candidate outside removingReplicas,
+      then a candidate that has reported no storage errors, then a
+      candidate that previously held the primary role, and breaks
+      any remaining tie arbitrarily.
       Sequence numbers play no part, because in-sync membership
       already proves every candidate holds every acknowledged
       operation.
@@ -343,7 +359,7 @@ When a partition's primary fails, the controller promotes a replica.
 
 ### No Eligible Replica
 
-An empty in-sync set at the moment the primary fails, because every replica had already been removed, moves the partition to `UNASSIGNED`. It then serves neither reads nor writes until a node holding persisted data for that partition rejoins and the controller makes it primary, or the data is rebuilt from the system of record.
+An empty in-sync set at the moment the primary fails, because every replica had already been removed, moves the partition to `UNASSIGNED`. It then serves neither reads nor writes until a node holding persisted data for that partition rejoins and the controller makes it primary, or the data is rebuilt from the system of record. A primary that gave the partition up through [Copy Failure](#copy-failure) as its last copy must reload the partition from its own checkpoint and write-ahead log before it lists the partition in `cluster.partition_stores`, and where that reload fails, it must leave the partition out of the answer and report a typed error giving the index and the partition, so that the partition stays `UNASSIGNED`.
 
 The controller records the partition's last holders as it moves the partition so that it can recognise a returning node as one of them:
 
@@ -373,6 +389,8 @@ The controller records the partition's last holders as it moves the partition so
 
 The controller promotes only a node that lastHolders names, because a copy the list omits can be missing acknowledged writes. It records why the partition stays `UNASSIGNED` in [unassignedReason](cluster.md#unassignedreason) each time it asks, so an operator can tell whether the partition is waiting for a node to return or no node can restore it. The cluster keeps no copy of the partition when none of those nodes returns, so set `replicationFactor` high enough that the case stays unlikely in production.
 
+A partition whose primary fails while the partition is in `INITIALISING` and `lastHolders` is absent has never reached `ACTIVE`, so it holds no acknowledged write. The controller records no `lastHolders` for it. It raises the `primaryTerm` and gives the primary to another eligible node as an empty copy in `INITIALISING`, as at index creation.
+
 ### Fencing a Stale Primary
 
 The `primaryTerm` keeps a primary that lost its lease from corrupting a partition:
@@ -380,6 +398,7 @@ The `primaryTerm` keeps a primary that lost its lease from corrupting a partitio
 - A primary cut off from the network cannot renew its lease, and the controller promotes a new primary with a higher `primaryTerm`.
 - The old primary that comes back and tries to replicate entries is rejected by the replicas, because its `primaryTerm` is stale.
 - The old primary then reads the higher `primaryTerm` from the allocation table, demotes itself, and syncs from the new primary.
+- A primary must refuse every write with `PARTITION_NOT_PRIMARY` once its node lease TTL, less a margin for clock drift, has passed since it sent the last lease renewal that the cluster coordinator accepted, because the controller may already have promoted another copy, and no replica sees a write that the primary refuses from its own copy.
 
 ---
 
@@ -414,7 +433,7 @@ Only a primary needs access to the embedding adapter, so a replica runs with no 
 | `REPLICATION_SYNC_FAILED` | The sync protocol, incremental or snapshot, failed to finish. |
 | `REPLICATION_ROLLBACK_FAILED` | A primary-local mutation failed before acknowledgement and the rollback failed too. |
 | `REPLICATION_ENTRY_INVALID` | A received entry is malformed, out of order, or not addressed to the receiving replica. |
-| `REPLICATION_INSYNC_REMOVAL_FAILED` | The primary could not remove a failed replica from the in-sync set, because no controller was reachable or the controller rejected the request. |
+| `REPLICATION_INSYNC_REMOVAL_FAILED` | The primary could not remove a failed replica from the in-sync set while it still held its term, because no controller was reachable or the controller rejected the request. A primary whose term has moved reports `PARTITION_NOT_PRIMARY` instead. |
 | `PARTITION_NOT_PRIMARY` | A write reached a node that is not the primary for the target partition. |
 | `PARTITION_UNASSIGNED` | The target partition has no primary, because every copy was lost. |
 | `INSUFFICIENT_REPLICAS` | The `waitForActiveReplicas` check failed. |

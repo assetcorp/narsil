@@ -126,9 +126,9 @@ describe('replicateToReplicas', () => {
 
   it('marks a timed-out replica as failed while others succeed', async () => {
     const network = createInMemoryNetwork()
-    const primaryTransport = createInMemoryTransport('primary', network, { requestTimeout: 100 })
-    const replicaA = createInMemoryTransport('replica-a', network, { requestTimeout: 100 })
-    const replicaB = createInMemoryTransport('replica-b', network, { requestTimeout: 100 })
+    const primaryTransport = createInMemoryTransport('primary', network, { replicationTimeout: 100 })
+    const replicaA = createInMemoryTransport('replica-a', network, { replicationTimeout: 100 })
+    const replicaB = createInMemoryTransport('replica-b', network, { replicationTimeout: 100 })
 
     await replicaA.listen((message: TransportMessage, respond) => {
       if (message.type === ReplicationMessageTypes.ENTRY) {

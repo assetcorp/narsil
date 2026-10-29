@@ -1,18 +1,19 @@
 import { describe, expect, it, vi } from 'vitest'
 import { cleanupRemovedPartition } from '../../../distribution/cluster-node/bootstrap-cleanup'
+import type { ClusterLocalEngine } from '../../../distribution/cluster-node/local-engine'
 import type { AllocationTable, ClusterCoordinator, PartitionAssignment } from '../../../distribution/coordinator/types'
-import type { Narsil } from '../../../narsil'
 
-function makeEngine(hasIndex: boolean): { engine: Narsil; drops: string[] } {
+function makeEngine(hasIndex: boolean): { engine: ClusterLocalEngine; drops: string[] } {
   const drops: string[] = []
   let present = hasIndex
   const engine = {
     listIndexes: () => (present ? [{ name: 'products' }] : []),
+    indexUuidOf: () => undefined,
     dropIndex: async (name: string) => {
       present = false
       drops.push(name)
     },
-  } as unknown as Narsil
+  } as unknown as ClusterLocalEngine
   return { engine, drops }
 }
 
@@ -40,7 +41,12 @@ describe('cleanupRemovedPartition (L-D)', () => {
     })
     const coordinator = makeCoordinator(makeAllocation(assignments))
 
-    await cleanupRemovedPartition('products', 0, { engine, coordinator, nodeId: 'this-node' })
+    await cleanupRemovedPartition('products', 0, {
+      engine,
+      coordinator,
+      nodeId: 'this-node',
+      removedIndexUuid: undefined,
+    })
 
     expect(drops).toEqual(['products'])
   })
@@ -67,7 +73,12 @@ describe('cleanupRemovedPartition (L-D)', () => {
     })
     const coordinator = makeCoordinator(makeAllocation(assignments))
 
-    await cleanupRemovedPartition('products', 0, { engine, coordinator, nodeId: 'this-node' })
+    await cleanupRemovedPartition('products', 0, {
+      engine,
+      coordinator,
+      nodeId: 'this-node',
+      removedIndexUuid: undefined,
+    })
 
     expect(drops).toEqual([])
   })
@@ -94,7 +105,12 @@ describe('cleanupRemovedPartition (L-D)', () => {
     })
     const coordinator = makeCoordinator(makeAllocation(assignments))
 
-    await cleanupRemovedPartition('products', 0, { engine, coordinator, nodeId: 'this-node' })
+    await cleanupRemovedPartition('products', 0, {
+      engine,
+      coordinator,
+      nodeId: 'this-node',
+      removedIndexUuid: undefined,
+    })
 
     expect(drops).toEqual([])
   })
@@ -120,7 +136,12 @@ describe('cleanupRemovedPartition (L-D)', () => {
     })
     const coordinator = makeCoordinator(makeAllocation(assignments))
 
-    await cleanupRemovedPartition('products', 0, { engine, coordinator, nodeId: 'this-node' })
+    await cleanupRemovedPartition('products', 0, {
+      engine,
+      coordinator,
+      nodeId: 'this-node',
+      removedIndexUuid: undefined,
+    })
 
     expect(drops).toEqual([])
   })
@@ -129,7 +150,12 @@ describe('cleanupRemovedPartition (L-D)', () => {
     const { engine, drops } = makeEngine(false)
     const coordinator = makeCoordinator(null)
 
-    await cleanupRemovedPartition('products', 0, { engine, coordinator, nodeId: 'this-node' })
+    await cleanupRemovedPartition('products', 0, {
+      engine,
+      coordinator,
+      nodeId: 'this-node',
+      removedIndexUuid: undefined,
+    })
 
     expect(drops).toEqual([])
   })
@@ -140,7 +166,12 @@ describe('cleanupRemovedPartition (L-D)', () => {
       getAllocation: vi.fn().mockRejectedValue(new Error('coordinator down')),
     } as unknown as ClusterCoordinator
 
-    await cleanupRemovedPartition('products', 0, { engine, coordinator, nodeId: 'this-node' })
+    await cleanupRemovedPartition('products', 0, {
+      engine,
+      coordinator,
+      nodeId: 'this-node',
+      removedIndexUuid: undefined,
+    })
 
     expect(drops).toEqual([])
   })
@@ -149,7 +180,12 @@ describe('cleanupRemovedPartition (L-D)', () => {
     const { engine, drops } = makeEngine(true)
     const coordinator = makeCoordinator(null)
 
-    await cleanupRemovedPartition('products', 0, { engine, coordinator, nodeId: 'this-node' })
+    await cleanupRemovedPartition('products', 0, {
+      engine,
+      coordinator,
+      nodeId: 'this-node',
+      removedIndexUuid: undefined,
+    })
 
     expect(drops).toEqual(['products'])
   })
@@ -157,14 +193,21 @@ describe('cleanupRemovedPartition (L-D)', () => {
   it('reports errors via onError when dropIndex throws', async () => {
     const engine = {
       listIndexes: () => [{ name: 'products' }],
+      indexUuidOf: () => undefined,
       dropIndex: async () => {
         throw new Error('drop failed')
       },
-    } as unknown as Narsil
+    } as unknown as ClusterLocalEngine
     const coordinator = makeCoordinator(null)
     const onError = vi.fn()
 
-    await cleanupRemovedPartition('products', 0, { engine, coordinator, nodeId: 'this-node', onError })
+    await cleanupRemovedPartition('products', 0, {
+      engine,
+      coordinator,
+      nodeId: 'this-node',
+      removedIndexUuid: undefined,
+      onError,
+    })
 
     expect(onError).toHaveBeenCalled()
   })

@@ -1,5 +1,7 @@
-import type { Etcd3 } from 'etcd3'
+import type { Etcd3, Lease } from 'etcd3'
 import type { NodeRegistration } from '../types'
+import { RECONNECT_FIRST_DELAY_MS, RECONNECT_LONGEST_DELAY_MS } from './constants'
+import { followLeaseRenewals, recordLeaseRenewal } from './lease-validity'
 import type { LeaseManager } from './leases'
 import type { EtcdWriteGuard } from './request-size'
 import { serializeNodeRegistration } from './serialization'
@@ -10,6 +12,7 @@ export interface RegistrationWriteContext {
   guard: EtcdWriteGuard
   key: string
   ttlSeconds: number
+  isShutdown(): boolean
 }
 
 /**
@@ -17,8 +20,10 @@ export interface RegistrationWriteContext {
  *
  * A node calls this to join the cluster and again on every heartbeat. A heartbeat whose registration matches the one
  * the lease already holds renews the lease alone, because rewriting an unchanged key would make every watcher report
- * a node that never left. A renewal that fails makes the node write the registration again under a fresh lease. Two
- * calls that name one key run one at a time, so that they never grant separate leases and revoke each other's.
+ * a node that never left. A renewal that fails makes the node write the registration again under a fresh lease. When
+ * etcd reports the lease lost between renewals, the coordinator writes the last registration again under a fresh lease
+ * and retries until etcd accepts it. Two calls that name one key run one at a time, so that they never grant separate
+ * leases and revoke each other's.
  *
  * @param context - The etcd client, the lease manager, the request size limit, the registration key, and the lease
  * lifetime in seconds.
@@ -41,7 +46,9 @@ async function writeUnderLease(context: RegistrationWriteContext, registration: 
 
   if (tracked !== undefined) {
     try {
-      await tracked.lease.keepaliveOnce()
+      const sentAt = performance.now()
+      const renewal = await tracked.lease.keepaliveOnce()
+      recordLeaseRenewal(tracked.lease, sentAt, Number(renewal.TTL))
       if (context.leaseManager.holdsPayload(context.key, payload)) {
         return
       }
@@ -53,8 +60,7 @@ async function writeUnderLease(context: RegistrationWriteContext, registration: 
     }
   }
 
-  const lease = context.client.lease(context.ttlSeconds)
-  await lease.grant()
+  const lease = await grantFollowedLease(context)
   try {
     await context.guard.send(write, () => lease.put(context.key).value(data).exec())
   } catch (error) {
@@ -63,8 +69,55 @@ async function writeUnderLease(context: RegistrationWriteContext, registration: 
   }
 
   const existing = context.leaseManager.get(context.key)
-  if (existing !== undefined) {
+  context.leaseManager.track(context.key, lease, registration.nodeId, payload)
+  registerAgainOnLoss(context, lease, registration.nodeId)
+  if (existing !== undefined && existing.lease !== lease) {
     await existing.lease.revoke().catch(() => {})
   }
-  context.leaseManager.track(context.key, lease, registration.nodeId, payload)
+}
+
+async function grantFollowedLease(context: RegistrationWriteContext): Promise<Lease> {
+  const sentAt = performance.now()
+  const lease = context.client.lease(context.ttlSeconds)
+  followLeaseRenewals(lease)
+  await lease.grant()
+  recordLeaseRenewal(lease, sentAt, context.ttlSeconds)
+  return lease
+}
+
+function registerAgainOnLoss(context: RegistrationWriteContext, lease: Lease, nodeId: string): void {
+  lease.once('lost', () => {
+    void restoreLostRegistration(context, lease, nodeId, RECONNECT_FIRST_DELAY_MS)
+  })
+}
+
+async function restoreLostRegistration(
+  context: RegistrationWriteContext,
+  lost: Lease,
+  nodeId: string,
+  retryDelayMs: number,
+): Promise<void> {
+  const settled = await context.leaseManager.runExclusively(context.key, async () => {
+    const tracked = context.leaseManager.get(context.key)
+    if (context.isShutdown() || tracked === undefined || tracked.lease !== lost || tracked.payload === null) {
+      return true
+    }
+    let lease: Lease | null = null
+    try {
+      lease = await grantFollowedLease(context)
+      await lease.put(context.key).value(Buffer.from(tracked.payload)).exec()
+    } catch (_) {
+      await lease?.revoke().catch(() => {})
+      return false
+    }
+    context.leaseManager.track(context.key, lease, nodeId, tracked.payload)
+    registerAgainOnLoss(context, lease, nodeId)
+    return true
+  })
+  if (settled) return
+
+  const timer = setTimeout(() => {
+    void restoreLostRegistration(context, lost, nodeId, Math.min(retryDelayMs * 2, RECONNECT_LONGEST_DELAY_MS))
+  }, retryDelayMs)
+  timer.unref?.()
 }

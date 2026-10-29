@@ -158,21 +158,13 @@ async function executeSingleFanOut(
 ): Promise<DistributedQueryResult> {
   let globalStats: GlobalStatistics | null = null
   if (params.scoring === 'dfs') {
-    globalStats = await collectDistributedStats(indexName, params, routing.nodeToPartitions, deps, config)
+    globalStats = await collectDistributedStats(indexName, params, routing, deps, config)
   }
 
   const depth = limit + offset
   const searchParams: WireQueryParams = { ...params, limit: depth, offset: 0 }
 
-  const outcomes = await fanOutSearch(
-    indexName,
-    searchParams,
-    globalStats,
-    facetShardSize,
-    routing.nodeToPartitions,
-    deps,
-    config,
-  )
+  const outcomes = await fanOutSearch(indexName, searchParams, globalStats, facetShardSize, routing, deps, config)
 
   const sortFields = params.sort !== null && params.sort.length > 0 ? params.sort : null
   if (sortFields !== null) {

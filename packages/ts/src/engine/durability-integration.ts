@@ -50,6 +50,7 @@ export interface DurabilityIntegrationHooks {
   createIndexFromMetadata: IndexDurabilityHooks['createIndexFromMetadata']
   recordCheckpoint: IndexDurabilityHooks['recordCheckpoint']
   onLayoutUpgrade?: IndexDurabilityHooks['onLayoutUpgrade']
+  onCheckpointHeld?: IndexDurabilityHooks['onCheckpointHeld']
   onFatalError: IndexDurabilityHooks['onFatalError']
   checkpointPublisher?: CheckpointPublisher
 }
@@ -78,6 +79,7 @@ export function createDurabilityIntegration(
     createIndexFromMetadata: hooks.createIndexFromMetadata,
     recordCheckpoint: hooks.recordCheckpoint,
     onLayoutUpgrade: hooks.onLayoutUpgrade,
+    onCheckpointHeld: hooks.onCheckpointHeld,
     onFatalError: hooks.onFatalError,
   }
 

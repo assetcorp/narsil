@@ -9,6 +9,7 @@ import type {
 } from '../../transport/types'
 import { ClusterMessageTypes } from '../../transport/types'
 import { BOOTSTRAP_CAS_ATTEMPTS } from '../constants'
+import { rewriteForCurrentIndex } from '../table-identity'
 
 /**
  * Reads a bootstrap completion report out of a decoded payload, and reports a malformed one as `null`.
@@ -93,12 +94,12 @@ export async function rejectBootstrapComplete(
 }
 
 /**
- * Moves a partition to `ACTIVE` on the report of a node that finished its bootstrap, and answers that node.
+ * Moves a partition to `ACTIVE` on its primary's report that its copy is ready, and answers the reporting node.
  *
- * The controller rejects the report unless the sender's own id matches the `nodeId` in the payload, the node is
- * assigned to the partition, the term matches the assignment's term, and the partition is still `INITIALISING`. An
- * accepted report moves the state alone, and the primary admits the node to the in-sync set through the catch-up
- * feed.
+ * The controller rejects the report unless the sender's own id matches the `nodeId` in the payload, the node is the
+ * partition's primary, the term matches the assignment's term, and the partition is still `INITIALISING`. A report
+ * from a replica, which a node of an earlier release still sends, gets `false`, because the partition serves only once
+ * its primary holds a copy, and the primary admits each replica to the in-sync set through the catch-up feed.
  *
  * @param message - The report the node sent.
  * @param respond - The function that returns the result to the reporting node.
@@ -133,7 +134,7 @@ export async function handleBootstrapCompleteMessage(
 
   let accepted: boolean
   try {
-    accepted = await processBootstrapComplete(payload, coordinator)
+    accepted = await processBootstrapComplete(payload, coordinator, controllerNodeId)
   } catch (_) {
     await sendRejection(respond, controllerNodeId, message.requestId, payload.indexName, payload.partitionId)
     return
@@ -155,6 +156,7 @@ export async function handleBootstrapCompleteMessage(
 async function processBootstrapComplete(
   payload: BootstrapCompletePayload,
   coordinator: ClusterCoordinator,
+  controllerNodeId: string,
 ): Promise<boolean> {
   for (let attempt = 0; attempt < BOOTSTRAP_CAS_ATTEMPTS; attempt++) {
     const table = await coordinator.getAllocation(payload.indexName)
@@ -171,7 +173,7 @@ async function processBootstrapComplete(
       return false
     }
 
-    if (assignment.primary !== payload.nodeId && !assignment.replicas.includes(payload.nodeId)) {
+    if (assignment.primary !== payload.nodeId) {
       return false
     }
 
@@ -184,11 +186,15 @@ async function processBootstrapComplete(
     const updatedAssignments = new Map(table.assignments)
     updatedAssignments.set(payload.partitionId, served)
 
-    const written = await coordinator.putAllocation(
-      payload.indexName,
-      { ...table, version: table.version + 1, assignments: updatedAssignments },
-      table.version,
-    )
+    const rewritten = await rewriteForCurrentIndex(coordinator, {
+      ...table,
+      version: table.version + 1,
+      assignments: updatedAssignments,
+    })
+    if (rewritten === null) {
+      return false
+    }
+    const written = await coordinator.putAllocation(payload.indexName, rewritten, table.version, controllerNodeId)
     if (written) {
       return true
     }

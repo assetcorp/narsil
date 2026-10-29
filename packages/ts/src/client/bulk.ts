@@ -236,6 +236,7 @@ export function createBulkOperations(transport: Transport): BulkOperations {
         path,
         body: encodeJson({ docIds }),
         contentType: 'application/json',
+        repeatable: true,
         options,
       })
       const documents = readObject<Record<string, AnyDocument>>(payload, 'documents', path)
@@ -248,6 +249,7 @@ export function createBulkOperations(transport: Transport): BulkOperations {
         path,
         body: encodeJson(params ?? {}),
         contentType: 'application/json',
+        repeatable: true,
         options,
       })
       return readBody<ListResult<T>>(payload, path)

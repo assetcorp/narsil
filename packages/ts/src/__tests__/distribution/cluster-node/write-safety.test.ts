@@ -39,6 +39,19 @@ function makeAllocationTable(assignment: PartitionAssignment, version = 1): Allo
   }
 }
 
+async function createRegisteredCoordinator(): Promise<ClusterCoordinator> {
+  const created = createInMemoryCoordinator()
+  await created.registerNode({
+    nodeId: 'node-a',
+    address: 'node-a',
+    roles: ['data'],
+    capacity: { memoryBytes: 1_000_000_000, cpuCores: 1, diskBytes: null },
+    startedAt: '2026-01-01T00:00:00.000Z',
+    version: '0.3.0',
+  })
+  return created
+}
+
 function makeTransport(send: NodeTransport['send']): NodeTransport {
   return {
     send,
@@ -105,29 +118,8 @@ describe('primary write safety', () => {
     coordinator = undefined
   })
 
-  it('rejects acknowledgement when primary authority changes before the write returns', async () => {
-    coordinator = createInMemoryCoordinator()
-    engine = await createEngine()
-    await coordinator.putAllocation('products', makeAllocationTable(makeAssignment()))
-    const activeCoordinator = coordinator
-
-    transport = makeTransport(async (_target, message) => {
-      await activeCoordinator.putAllocation(
-        'products',
-        makeAllocationTable(makeAssignment({ primary: 'node-c', primaryTerm: 2 }), 2),
-      )
-      return createAckMessage(1, 0, 'products', 'node-b', message.requestId)
-    })
-
-    const deps = makeDeps(coordinator, engine, transport)
-    await expect(routeInsert('products', { title: 'Fenced Write' }, 'doc-fenced', deps)).rejects.toThrow(
-      'Primary authority changed before acknowledging write',
-    )
-    await expect(engine.get('products', 'doc-fenced')).resolves.toBeUndefined()
-  })
-
   it('rolls back an insert when ack validation fails and in-sync removal is not confirmed', async () => {
-    coordinator = createInMemoryCoordinator()
+    coordinator = await createRegisteredCoordinator()
     engine = await createEngine()
     await coordinator.putAllocation('products', makeAllocationTable(makeAssignment()))
 
@@ -146,7 +138,7 @@ describe('primary write safety', () => {
   })
 
   it('rejects the write with INSUFFICIENT_REPLICAS before applying it locally', async () => {
-    coordinator = createInMemoryCoordinator()
+    coordinator = await createRegisteredCoordinator()
     engine = await createEngine()
     await coordinator.putAllocation('products', makeAllocationTable(makeAssignment({ inSyncSet: [] })))
 
@@ -163,7 +155,7 @@ describe('primary write safety', () => {
   })
 
   it('accepts the write when enough in-sync copies satisfy waitForActiveReplicas', async () => {
-    coordinator = createInMemoryCoordinator()
+    coordinator = await createRegisteredCoordinator()
     engine = await createEngine()
     await coordinator.putAllocation('products', makeAllocationTable(makeAssignment()))
 
@@ -179,7 +171,7 @@ describe('primary write safety', () => {
   })
 
   it('rejects the write with PARTITION_UNASSIGNED when the partition has no primary', async () => {
-    coordinator = createInMemoryCoordinator()
+    coordinator = await createRegisteredCoordinator()
     engine = await createEngine()
     await coordinator.putAllocation(
       'products',
@@ -195,27 +187,8 @@ describe('primary write safety', () => {
     expect((err as NarsilError).code).toBe('PARTITION_UNASSIGNED')
   })
 
-  it('reports PARTITION_NOT_PRIMARY when primary authority changes before acknowledgement', async () => {
-    coordinator = createInMemoryCoordinator()
-    engine = await createEngine()
-    await coordinator.putAllocation('products', makeAllocationTable(makeAssignment()))
-    const activeCoordinator = coordinator
-
-    transport = makeTransport(async (_target, message) => {
-      await activeCoordinator.putAllocation(
-        'products',
-        makeAllocationTable(makeAssignment({ primary: 'node-c', primaryTerm: 2 }), 2),
-      )
-      return createAckMessage(1, 0, 'products', 'node-b', message.requestId)
-    })
-
-    const deps = makeDeps(coordinator, engine, transport)
-    const err = await routeInsert('products', { title: 'Fenced' }, 'doc-fenced-code', deps).catch(e => e as NarsilError)
-    expect((err as NarsilError).code).toBe('PARTITION_NOT_PRIMARY')
-  })
-
   it('restores a removed document when in-sync removal is rejected', async () => {
-    coordinator = createInMemoryCoordinator()
+    coordinator = await createRegisteredCoordinator()
     engine = await createEngine()
     await coordinator.putAllocation('products', makeAllocationTable(makeAssignment()))
     await coordinator.acquireLease(CONTROLLER_LEASE_KEY, 'controller', 15_000)
@@ -254,7 +227,7 @@ describe('pending admission during a primary write', () => {
   })
 
   it('cancels the admission and acknowledges when a catching-up replica fails the write', async () => {
-    coordinator = createInMemoryCoordinator()
+    coordinator = await createRegisteredCoordinator()
     engine = await createEngine()
     await coordinator.putAllocation(
       'products',
@@ -288,7 +261,7 @@ describe('pending admission during a primary write', () => {
   })
 
   it('still removes a failed in-sync replica through the controller', async () => {
-    coordinator = createInMemoryCoordinator()
+    coordinator = await createRegisteredCoordinator()
     engine = await createEngine()
     await coordinator.putAllocation('products', makeAllocationTable(makeAssignment()))
     await coordinator.acquireLease(CONTROLLER_LEASE_KEY, 'controller', 15_000)

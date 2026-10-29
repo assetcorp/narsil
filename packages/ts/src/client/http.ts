@@ -1,5 +1,12 @@
 import { ClientErrorCodes, describeError, ErrorCodes, NarsilError } from '../errors'
 import { DEFAULT_REQUEST_TIMEOUT_MS } from './constants'
+import {
+  answersUnavailable,
+  createUrlPool,
+  failedBeforeSending,
+  movesOnAfterAnswer,
+  movesOnAfterFailure,
+} from './failover'
 import type { FetchFunction, NarsilClientOptions, RequestOptions } from './options'
 
 /** This describes one exchange, which a client method fills in and the
@@ -11,7 +18,22 @@ export interface RequestSpec {
   body?: string | Uint8Array | ReadableStream<Uint8Array>
   contentType?: string
   defaultTimeoutMs?: number
+  repeatable?: boolean
   options?: RequestOptions
+}
+
+interface Answer {
+  kind: 'answer'
+  status: number
+  text: string
+  stream: ReadableStream<Uint8Array> | null
+  url: string
+}
+
+interface Failure {
+  kind: 'failure'
+  error: NarsilError
+  sentNothing: boolean
 }
 
 /** This sends the request every client method builds, and it turns each
@@ -138,6 +160,62 @@ function normaliseBase(url: string): string {
   return trimmed.replace(/\/+$/, '')
 }
 
+function normaliseBases(url: string | readonly string[]): string[] {
+  if (typeof url === 'string') return [normaliseBase(url)]
+  if (!Array.isArray(url) || url.length === 0) {
+    throw new NarsilError(ErrorCodes.CONFIG_INVALID, 'The client needs a server address, and "url" lists none')
+  }
+  return url.map(entry => {
+    if (typeof entry !== 'string') {
+      throw new NarsilError(ErrorCodes.CONFIG_INVALID, 'Every server address in "url" must be a string')
+    }
+    return normaliseBase(entry)
+  })
+}
+
+function translateFailure(
+  err: unknown,
+  url: string,
+  timeoutMs: number,
+  expired: boolean,
+  caller: AbortSignal | undefined,
+): NarsilError {
+  if (err instanceof ResponseTooLargeError) {
+    return invalidResponse(`The server at ${url} answered more than this client reads: ${err.message}`, {
+      url,
+      maxResponseBytes: err.limitBytes,
+    })
+  }
+  if (expired) {
+    return new NarsilError(
+      ClientErrorCodes.CLIENT_REQUEST_TIMEOUT,
+      `The server at ${url} did not answer within ${timeoutMs} ms`,
+      { url, timeoutMs },
+    )
+  }
+  if (caller?.aborted === true) {
+    return new NarsilError(ClientErrorCodes.CLIENT_REQUEST_ABORTED, `The caller cancelled the request to ${url}`, {
+      url,
+    })
+  }
+  return new NarsilError(
+    ClientErrorCodes.CLIENT_CONNECTION_FAILED,
+    `The client could not reach ${url}: ${describeError(err)}`,
+    { url },
+  )
+}
+
+function envelopeCodeOf(text: string): string | undefined {
+  try {
+    const payload: unknown = JSON.parse(text)
+    return isRecord(payload) && isRecord(payload.error) && typeof payload.error.code === 'string'
+      ? payload.error.code
+      : undefined
+  } catch {
+    return undefined
+  }
+}
+
 function withQuery(path: string, query: RequestSpec['query']): string {
   if (query === undefined) return path
   const params = new URLSearchParams()
@@ -158,7 +236,7 @@ function withQuery(path: string, query: RequestSpec['query']): string {
  * @returns This is the transport each group of operations sends through.
  */
 export function createTransport(options: NarsilClientOptions): Transport {
-  const base = normaliseBase(options.url)
+  const pool = createUrlPool(normaliseBases(options.url), options)
   const send: FetchFunction = options.fetch ?? ((input, init) => fetch(input, init))
   const baseHeaders: Record<string, string> = { ...options.headers }
   if (options.apiKey !== undefined && options.apiKey.length > 0) {
@@ -178,15 +256,33 @@ export function createTransport(options: NarsilClientOptions): Transport {
     return options.maxResponseBytes ?? 0
   }
 
-  async function exchange(
-    spec: RequestSpec,
-    keepsStream = false,
-  ): Promise<{
-    status: number
-    text: string
-    stream: ReadableStream<Uint8Array> | null
-    url: string
-  }> {
+  async function exchange(spec: RequestSpec, keepsStream = false): Promise<Answer> {
+    const repeatable = spec.repeatable === true || spec.method === 'GET'
+    const replayable = !(spec.body instanceof ReadableStream)
+    let last: Answer | Failure | null = null
+    for (const entry of pool.order(Date.now())) {
+      pool.took(entry)
+      const attempt = await exchangeOnce(entry.base, spec, keepsStream)
+      if (attempt.kind === 'answer') {
+        const unavailable = answersUnavailable(attempt.status)
+        const code = unavailable ? envelopeCodeOf(attempt.text) : undefined
+        if (!replayable || !movesOnAfterAnswer(attempt.status, code, repeatable)) {
+          if (!unavailable) pool.answered(entry)
+          return attempt
+        }
+      } else {
+        if (attempt.error.code === ClientErrorCodes.CLIENT_CONNECTION_FAILED) pool.refused(entry, Date.now())
+        if (!replayable || !movesOnAfterFailure(attempt.error, attempt.sentNothing, repeatable)) throw attempt.error
+      }
+      last = attempt
+    }
+    if (last === null || last.kind === 'failure') {
+      throw last?.error ?? new NarsilError(ErrorCodes.CONFIG_INVALID, 'The client holds no server address')
+    }
+    return last
+  }
+
+  async function exchangeOnce(base: string, spec: RequestSpec, keepsStream: boolean): Promise<Answer | Failure> {
     const url = `${base}${withQuery(spec.path, spec.query)}`
     const headers: Record<string, string> = { ...baseHeaders, ...spec.options?.headers }
     if (spec.contentType !== undefined) headers['content-type'] = spec.contentType
@@ -204,34 +300,14 @@ export function createTransport(options: NarsilClientOptions): Transport {
         const stream = response.body.pipeThrough(
           new TransformStream<Uint8Array, Uint8Array>({ flush: () => deadline.release() }),
         )
-        return { status: response.status, url, text: '', stream }
+        return { kind: 'answer', status: response.status, url, text: '', stream }
       }
       const text = await readAnswer(response, resolveResponseCeiling(spec))
-      return { status: response.status, url, stream: null, text }
+      return { kind: 'answer', status: response.status, url, stream: null, text }
     } catch (err) {
-      if (err instanceof ResponseTooLargeError) {
-        throw invalidResponse(`The server at ${url} answered more than this client reads: ${err.message}`, {
-          url,
-          maxResponseBytes: err.limitBytes,
-        })
-      }
-      if (deadline.expired()) {
-        throw new NarsilError(
-          ClientErrorCodes.CLIENT_REQUEST_TIMEOUT,
-          `The server at ${url} did not answer within ${timeoutMs} ms`,
-          { url, timeoutMs },
-        )
-      }
-      if (spec.options?.signal?.aborted === true) {
-        throw new NarsilError(ClientErrorCodes.CLIENT_REQUEST_ABORTED, `The caller cancelled the request to ${url}`, {
-          url,
-        })
-      }
-      throw new NarsilError(
-        ClientErrorCodes.CLIENT_CONNECTION_FAILED,
-        `The client could not reach ${url}: ${describeError(err)}`,
-        { url },
-      )
+      const error = translateFailure(err, url, timeoutMs, deadline.expired(), spec.options?.signal)
+      const sentNothing = error.code === ClientErrorCodes.CLIENT_CONNECTION_FAILED && failedBeforeSending(err)
+      return { kind: 'failure', error, sentNothing }
     } finally {
       if (!handedOver) deadline.release()
     }

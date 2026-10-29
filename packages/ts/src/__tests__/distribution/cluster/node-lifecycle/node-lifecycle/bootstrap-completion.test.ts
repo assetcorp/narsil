@@ -56,6 +56,7 @@ describe('DataNodeLifecycle bootstrap completion reporting and validation', () =
       transport: controllerTransport,
       leaseTtlMs: 15_000,
       standbyRetryMs: 5_000,
+      nodeLeftDelayMs: 0,
       knownIndexNames,
     })
     return controller.start()
@@ -80,15 +81,14 @@ describe('DataNodeLifecycle bootstrap completion reporting and validation', () =
 
   describe('bootstrap completion reporting to controller', () => {
     it('controller transitions INITIALISING to ACTIVE on bootstrap_complete', async () => {
-      await coordinator.registerNode(makeNode('data-1'))
       await coordinator.registerNode(makeNode('primary-node'))
 
       const assignments = new Map<number, PartitionAssignment>()
       assignments.set(
         0,
         makeAssignment({
-          primary: 'primary-node',
-          replicas: ['data-1'],
+          primary: 'data-1',
+          replicas: ['primary-node'],
           state: 'INITIALISING',
         }),
       )
@@ -108,26 +108,20 @@ describe('DataNodeLifecycle bootstrap completion reporting and validation', () =
       await flushPromises()
       await flushPromises()
 
-      const table = await coordinator.getAllocation('products')
-      if (table !== null) {
-        const assignment = table.assignments.get(0)
-        if (assignment !== undefined && assignment.state === 'ACTIVE') {
-          expect(assignment.state).toBe('ACTIVE')
-          expect(assignment.inSyncSet).not.toContain('data-1')
-        }
-      }
+      const assignment = (await coordinator.getAllocation('products'))?.assignments.get(0)
+      expect(assignment?.state).toBe('ACTIVE')
+      expect(assignment?.inSyncSet).not.toContain('data-1')
     })
 
     it('does not report bootstrap_complete when partition sync returns false', async () => {
-      await coordinator.registerNode(makeNode('data-1'))
       await coordinator.registerNode(makeNode('primary-node'))
 
       const assignments = new Map<number, PartitionAssignment>()
       assignments.set(
         0,
         makeAssignment({
-          primary: 'primary-node',
-          replicas: ['data-1'],
+          primary: 'data-1',
+          replicas: ['primary-node'],
           state: 'INITIALISING',
         }),
       )
@@ -184,8 +178,8 @@ describe('DataNodeLifecycle bootstrap completion reporting and validation', () =
       assignments.set(
         0,
         makeAssignment({
-          primary: 'primary-node',
-          replicas: ['data-1'],
+          primary: 'data-1',
+          replicas: ['primary-node'],
           state: 'INITIALISING',
         }),
       )
@@ -237,9 +231,12 @@ describe('bootstrapPartition reporting scope', () => {
     await coordinator.shutdown()
   })
 
-  async function runBootstrap(state: 'ACTIVE' | 'INITIALISING'): Promise<{ reported: boolean; result: boolean }> {
+  async function runBootstrap(
+    state: 'ACTIVE' | 'INITIALISING',
+    syncSource = 'data-1',
+  ): Promise<{ reported: boolean; result: boolean }> {
     const assignments = new Map<number, PartitionAssignment>([
-      [0, makeAssignment({ primary: 'data-0', replicas: ['data-1'], inSyncSet: [], state, primaryTerm: 1 })],
+      [0, makeAssignment({ primary: 'data-1', replicas: ['data-0'], inSyncSet: [], state, primaryTerm: 1 })],
     ])
     await coordinator.putAllocation('products', makeAllocationTable('products', assignments))
     await coordinator.acquireLease('_narsil/controller', 'controller-node', 15_000)
@@ -258,7 +255,7 @@ describe('bootstrapPartition reporting scope', () => {
       }
     })
 
-    const bootstrapState = createBootstrapState('products', 0, 'data-0')
+    const bootstrapState = createBootstrapState('products', 0, syncSource)
     const result = await bootstrapPartition(
       bootstrapState,
       coordinator,
@@ -278,8 +275,8 @@ describe('bootstrapPartition reporting scope', () => {
       [
         0,
         makeAssignment({
-          primary: 'data-0',
-          replicas: ['data-1'],
+          primary: 'data-1',
+          replicas: ['data-0'],
           inSyncSet: [],
           state: 'INITIALISING',
           primaryTerm: 1,
@@ -298,9 +295,9 @@ describe('bootstrapPartition reporting scope', () => {
           [
             0,
             makeAssignment({
-              primary: 'data-0',
-              replicas: ['data-1'],
-              inSyncSet: ['data-0', 'data-1'],
+              primary: 'data-1',
+              replicas: ['data-0'],
+              inSyncSet: ['data-0'],
               state: 'ACTIVE',
               primaryTerm: 1,
             }),
@@ -311,6 +308,7 @@ describe('bootstrapPartition reporting scope', () => {
           'products',
           makeAllocationTable('products', activated, (stored?.version ?? 1) + 1),
           stored?.version ?? null,
+          'controller-node',
         )
         await respond({
           type: ClusterMessageTypes.BOOTSTRAP_COMPLETE,
@@ -321,7 +319,7 @@ describe('bootstrapPartition reporting scope', () => {
       }
     })
 
-    const bootstrapState = createBootstrapState('products', 0, 'data-0')
+    const bootstrapState = createBootstrapState('products', 0, 'data-1')
     const result = await bootstrapPartition(
       bootstrapState,
       coordinator,
@@ -340,6 +338,12 @@ describe('bootstrapPartition reporting scope', () => {
   it('reports completion for a partition still INITIALISING', async () => {
     const { reported, result } = await runBootstrap('INITIALISING')
     expect(reported).toBe(true)
+    expect(result).toBe(true)
+  })
+
+  it('sends no report from a replica of a partition still INITIALISING, which its primary admits later', async () => {
+    const { reported, result } = await runBootstrap('INITIALISING', 'data-0')
+    expect(reported).toBe(false)
     expect(result).toBe(true)
   })
 
@@ -374,8 +378,8 @@ describe('bootstrapPartition when the partition state cannot be read', () => {
       [
         0,
         makeAssignment({
-          primary: 'data-0',
-          replicas: ['data-1'],
+          primary: 'data-1',
+          replicas: ['data-0'],
           inSyncSet: [],
           state: 'INITIALISING',
           primaryTerm: 1,
@@ -410,7 +414,7 @@ describe('bootstrapPartition when the partition state cannot be read', () => {
     }
 
     const result = await bootstrapPartition(
-      createBootstrapState('products', 0, 'data-0'),
+      createBootstrapState('products', 0, 'data-1'),
       coordinator,
       nodeTransport,
       'data-1',

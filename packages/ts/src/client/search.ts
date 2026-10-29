@@ -72,6 +72,7 @@ export function createSearchOperations(transport: Transport): SearchOperations {
       path,
       body: encodeJson(params),
       contentType: 'application/json',
+      repeatable: true,
       options,
     })
     return readBody<T>(payload, path)

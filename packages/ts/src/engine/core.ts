@@ -241,6 +241,9 @@ export async function createEngineCore(
           emitLayoutUpgrade(event) {
             emitEngineEvent(eventHandlers, 'layoutUpgrade', event)
           },
+          emitCheckpointHeld(report) {
+            emitEngineEvent(eventHandlers, 'checkpointHeld', report)
+          },
           publishCheckpointedPartitions: (indexName, partitions) =>
             invalidation?.publishPartitions(indexName, partitions) ?? Promise.resolve(),
           recordCheckpoint(indexName, documentCount, partitionCount) {

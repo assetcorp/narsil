@@ -151,7 +151,7 @@ describe('cluster-node index lifecycle', () => {
       nodeId: 'node-a',
       engine: {
         heldPartitionsOf: () => [0],
-        highestPersistedSeqNoOf: () => 9,
+        persistedPositionOf: () => ({ seqNo: 9, primaryTerm: 3 }),
       },
       coordinator,
       replicationLogs: logs,

@@ -33,6 +33,7 @@ export async function forwardInsertToRemote(
   docId: string,
   primaryNodeId: string,
   deps: WriteRoutingDeps,
+  indexUuid?: string,
 ): Promise<string> {
   const payload: ForwardPayload = {
     indexName,
@@ -41,6 +42,7 @@ export async function forwardInsertToRemote(
     document: encodeDocument(document),
     updateFields: null,
   }
+  if (indexUuid !== undefined) payload.indexUuid = indexUuid
   const message = createForwardMessage(payload, deps.nodeId)
   const response = await sendToNode(primaryNodeId, message, deps)
   const decoded = assertForwardResponse(response, indexName, primaryNodeId)
@@ -60,6 +62,7 @@ export async function forwardUpdateToRemote(
   docId: string,
   primaryNodeId: string,
   deps: WriteRoutingDeps,
+  indexUuid?: string,
 ): Promise<void> {
   const payload: ForwardPayload = {
     indexName,
@@ -68,6 +71,7 @@ export async function forwardUpdateToRemote(
     document: encodeDocument(document),
     updateFields: null,
   }
+  if (indexUuid !== undefined) payload.indexUuid = indexUuid
   const message = createForwardMessage(payload, deps.nodeId)
   const response = await sendToNode(primaryNodeId, message, deps)
   assertForwardResponse(response, indexName, primaryNodeId)
@@ -78,6 +82,7 @@ export async function forwardRemoveToRemote(
   docId: string,
   primaryNodeId: string,
   deps: WriteRoutingDeps,
+  indexUuid?: string,
 ): Promise<void> {
   const payload: ForwardPayload = {
     indexName,
@@ -86,6 +91,7 @@ export async function forwardRemoveToRemote(
     document: null,
     updateFields: null,
   }
+  if (indexUuid !== undefined) payload.indexUuid = indexUuid
   const message = createForwardMessage(payload, deps.nodeId)
   const response = await sendToNode(primaryNodeId, message, deps)
   assertForwardResponse(response, indexName, primaryNodeId)

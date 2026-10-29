@@ -4,7 +4,9 @@ import { runInNewContext } from 'node:vm'
 import { IDLE_HEAP_CLEANUP_CHECK_MS } from './constants'
 import { createIdleHeapCleaner, type ThreadHeap } from './idle-heap-cleaner'
 
-type CollectGarbage = (options: { type: 'major'; execution: 'sync'; flavor: 'last-resort' }) => void
+type CollectGarbage = (
+  options: { type: 'major'; execution: 'sync'; flavor: 'last-resort' } | { type: 'minor'; execution: 'sync' },
+) => void
 
 let collectorOfThisThread: CollectGarbage | null = null
 
@@ -27,6 +29,17 @@ export function collectAndReturnPages(): boolean {
   if (collect === null) return false
   try {
     collect({ type: 'major', execution: 'sync', flavor: 'last-resort' })
+    return true
+  } catch {
+    return false
+  }
+}
+
+export function collectYoungGeneration(): boolean {
+  const collect = acquireCollector()
+  if (collect === null) return false
+  try {
+    collect({ type: 'minor', execution: 'sync' })
     return true
   } catch {
     return false

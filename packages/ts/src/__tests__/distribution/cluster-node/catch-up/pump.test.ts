@@ -10,6 +10,7 @@ import {
   stopCatchUpPump,
 } from '../../../../distribution/cluster-node/catch-up'
 import { getInSyncReplicaTargets } from '../../../../distribution/cluster-node/write-routing/assignment'
+import { createPartitionWriteQueues } from '../../../../distribution/cluster-node/write-routing/partition-queue'
 import type { WriteRoutingDeps } from '../../../../distribution/cluster-node/write-routing/types'
 import { WIRE_BATCH_BUDGET } from '../../../../distribution/constants'
 import { createInMemoryCoordinator } from '../../../../distribution/coordinator/in-memory'
@@ -105,6 +106,7 @@ describe('catch-up pump', () => {
       transport: primaryTransport,
       getReplicationLog: () => log,
       catchUp: createCatchUpState(),
+      partitionWriteQueues: createPartitionWriteQueues(),
     } as unknown as WriteRoutingDeps
 
     return { deps, received }

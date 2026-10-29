@@ -1,9 +1,12 @@
 import type { HttpRequest, HttpResponse } from 'uWebSockets.js'
+import type { BodyBudget, BodyBudgetRefusal, BodyHold } from './body-budget'
 import type { RequestGate } from './concurrency-gate'
 import { ServerErrorCodes } from './errors'
 import { type ResponseSink, sendError } from './response'
 import { type SpooledBody, spoolBody } from './spool'
 import type { OnRequestHook, RequestContext, RequestDenial } from './types'
+
+const REQUEST_BYTES_IN_FLIGHT_REASON = 'request_bytes_in_flight'
 
 export interface ResponseAbort {
   readonly aborted: boolean
@@ -51,12 +54,26 @@ function bodyOfExactly(body: Buffer, filled: number): Buffer {
   return exact
 }
 
+function refuseBodyBytes(res: ResponseSink, refusal: BodyBudgetRefusal): void {
+  sendError(
+    res,
+    429,
+    ServerErrorCodes.TOO_MANY_REQUESTS,
+    `The server is holding ${refusal.inFlightBytes} bytes of other request bodies, and this body's ${refusal.requestBytes} bytes would take the total past its limit of ${refusal.limitBytes} bytes. Retry once the requests in progress finish.`,
+    { reason: REQUEST_BYTES_IN_FLIGHT_REASON, ...refusal },
+  )
+}
+
 /** Buffers the request body, enforcing a byte ceiling. Exceeding the cap sends
- * 413 and rejects, so a single oversized body cannot grow unbounded in memory. */
+ * 413 and rejects, so a single oversized body cannot grow unbounded in memory.
+ * The server counts every byte against `hold` before it buffers the byte, and
+ * it answers 429 where a body can take the bytes of all the bodies in flight
+ * past their limit. */
 export function readBody(
   res: ResponseSink,
   maxBytes: number,
   abort: ResponseAbort,
+  hold: BodyHold,
   declaredBytes: number | null = null,
 ): Promise<Buffer> {
   return new Promise((resolve, reject) => {
@@ -69,6 +86,12 @@ export function readBody(
     let filled = 0
     let body: Buffer | null = null
     const reserved = declaredBytes !== null && declaredBytes <= maxBytes ? declaredBytes : 0
+    const refusal = hold.grow(reserved)
+    if (refusal !== null) {
+      refuseBodyBytes(res, refusal)
+      reject(new Error('request bytes in flight'))
+      return
+    }
     abort.onAbort(() => {
       if (done) return
       done = true
@@ -83,6 +106,13 @@ export function readBody(
           sendError(res, 413, ServerErrorCodes.PAYLOAD_TOO_LARGE, 'Request body exceeds the configured size limit')
         }
         reject(new Error('payload too large'))
+        return
+      }
+      const chunkRefusal = total > hold.bytes ? hold.grow(total - hold.bytes) : null
+      if (chunkRefusal !== null) {
+        done = true
+        if (!abort.aborted) refuseBodyBytes(res, chunkRefusal)
+        reject(new Error('request bytes in flight'))
         return
       }
       const arrived = new Uint8Array(chunk)
@@ -138,6 +168,7 @@ export type Authorization = { allowed: true } | { allowed: false; denial: Reques
 export interface RunnerDeps {
   authorize?: Authorizer
   gate: RequestGate
+  bodyBudget: BodyBudget
   corsHeaders?: (req: HttpRequest) => Array<[string, string]>
   track?: (res: ResponseSink, abort: ResponseAbort) => () => void
 }
@@ -236,7 +267,7 @@ function sendDenial(res: ResponseSink, authorization: Authorization): void {
  * sheds load past the concurrency cap, and turns any thrown value into a 500.
  */
 export function createRouteRunner(deps: RunnerDeps) {
-  const { authorize, gate, corsHeaders, track } = deps
+  const { authorize, gate, bodyBudget, corsHeaders, track } = deps
 
   return (handler: RouteHandler, opts: RouteOptions) => {
     const paramCount = opts.paramCount ?? 0
@@ -286,8 +317,9 @@ export function createRouteRunner(deps: RunnerDeps) {
         return
       }
       const release = track?.(res, abort)
+      const bodyHold = bodyBudget.hold()
       const bodyPromise = needsBody
-        ? readBody(res, opts.maxBytes, abort, declaredBytes)
+        ? readBody(res, opts.maxBytes, abort, bodyHold, declaredBytes)
         : Promise.resolve<Buffer | null>(null)
       const hookPromise: Promise<Authorization> =
         hookContext !== null && authorize !== undefined ? authorize(hookContext) : Promise.resolve({ allowed: true })
@@ -333,6 +365,7 @@ export function createRouteRunner(deps: RunnerDeps) {
           }
         })
         .catch(() => {})
+        .finally(() => bodyHold.releaseAll())
       if (release !== undefined) void running.then(release)
     }
   }

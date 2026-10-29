@@ -21,10 +21,20 @@ function payloadsMatch(left: Uint8Array | null, right: Uint8Array): boolean {
 
 export class LeaseManager {
   private leases = new Map<string, ManagedLease>()
+  private holders = new Map<string, Lease>()
   private keyLocks = new Map<string, Promise<void>>()
 
   track(key: string, lease: Lease, nodeId: string, payload: Uint8Array | null = null): void {
     this.leases.set(key, { lease, nodeId, key, payload })
+    this.holders.set(key, lease)
+  }
+
+  holder(key: string): Lease | undefined {
+    return this.holders.get(key)
+  }
+
+  forgetHolder(key: string): void {
+    this.holders.delete(key)
   }
 
   get(key: string): ManagedLease | undefined {
@@ -74,6 +84,7 @@ export class LeaseManager {
       revokePromises.push(entry.lease.revoke().catch(() => {}))
     }
     this.leases.clear()
+    this.holders.clear()
     await Promise.all(revokePromises)
   }
 

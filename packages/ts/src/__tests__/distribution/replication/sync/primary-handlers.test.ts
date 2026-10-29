@@ -38,8 +38,8 @@ describe('decideSyncTier', () => {
       document: encode({ title: 'B' }),
     })
 
-    expect(decideSyncTier(log, 0)).toBe('incremental')
-    expect(decideSyncTier(log, 1)).toBe('incremental')
+    expect(decideSyncTier(log, 0, 0)).toBe('incremental')
+    expect(decideSyncTier(log, 1, 1)).toBe('incremental')
   })
 
   it('returns snapshot when log does not cover the gap', () => {
@@ -47,32 +47,18 @@ describe('decideSyncTier', () => {
     const oldest = log.oldestSeqNo
     expect(oldest).toBeDefined()
     expect(oldest).toBeGreaterThan(1)
-    expect(decideSyncTier(log, 0)).toBe('snapshot')
+    expect(decideSyncTier(log, 0, 0)).toBe('snapshot')
+    expect(decideSyncTier(log, (oldest ?? 2) - 1, 1)).toBe('snapshot')
   })
 
   it('returns incremental for empty log when replica is at seqNo 0', () => {
     const log = createReplicationLog(0)
-    expect(decideSyncTier(log, 0)).toBe('incremental')
+    expect(decideSyncTier(log, 0, 0)).toBe('incremental')
   })
 
   it('returns snapshot for empty log when replica has a nonzero lastSeqNo', () => {
     const log = createReplicationLog(0)
-    expect(decideSyncTier(log, 5)).toBe('snapshot')
-  })
-
-  it('returns incremental when replica is at the exact boundary', () => {
-    const log = createReplicationLog(0, { startSeqNo: 5 })
-    log.append({
-      primaryTerm: 1,
-      operation: 'INDEX',
-      partitionId: 0,
-      indexName: 'products',
-      documentId: 'd1',
-      document: encode({ title: 'A' }),
-    })
-
-    expect(decideSyncTier(log, 4)).toBe('incremental')
-    expect(decideSyncTier(log, 5)).toBe('incremental')
+    expect(decideSyncTier(log, 5, 1)).toBe('snapshot')
   })
 })
 

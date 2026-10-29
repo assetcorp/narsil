@@ -1,3 +1,5 @@
+import type { HeldCheckpointReport } from './memory'
+
 /**
  * This map lists every event that the engine emits, with the payload of each
  * one.
@@ -169,6 +171,11 @@ export type NarsilEventMap = {
      * status includes. */
     error?: Error
   }
+  /** The engine stopped taking checkpoints of an index with a vector field,
+   * because one of its partitions failed and each vector file mixes every
+   * partition's vectors. The write-ahead log of the index grows until the
+   * partition recovers; {@link MemoryStats.heldCheckpoints} reports how far. */
+  checkpointHeld: HeldCheckpointReport
   /** A write to the write-ahead log or a checkpoint failed, so the writes since
    * the last checkpoint are at risk. */
   durabilityError: {

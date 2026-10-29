@@ -1,8 +1,9 @@
 import { validateIndexName } from '../../distribution/cluster/index-metadata'
 import type { ClusterNamespace } from '../../distribution/cluster-node/types'
+import { isRecord } from '../../distribution/payload-guards'
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { HandlerDeps } from '../deps'
-import { badRequest, respondError, respondJson } from '../handler-utils'
+import { badRequest, parseJson, respondError, respondJson } from '../handler-utils'
 import type { RouteContext } from '../request'
 
 interface PartitionReport {
@@ -53,12 +54,15 @@ function malformedIndexName(indexName: string): string | null {
  *
  * `/cluster` names every registered node, the node holding the controller
  * lease, and this node's own readiness, while `/indexes/:name/cluster` reports
- * the allocation of one index partition by partition. A server fronting a
- * single engine answers both with `CLUSTER_OPERATION_UNSUPPORTED`, which
- * reaches the caller as status 501.
+ * the allocation of one index partition by partition, and
+ * `PUT /indexes/:name/replication-factor` changes how many replicas each
+ * partition keeps, and `/cluster/health` reports a green, yellow, or red status
+ * for the cluster and each index with status 200 whatever the status. A server
+ * fronting a single engine answers all four with
+ * `CLUSTER_OPERATION_UNSUPPORTED`, which reaches the caller as status 501.
  *
  * @param deps - The handler dependencies, whose `cluster` field carries the node's cluster-facing side.
- * @returns The `topology` and `allocation` route handlers.
+ * @returns The `topology`, `allocation`, `replicationFactor`, and `health` route handlers.
  */
 export function createClusterHandlers(deps: HandlerDeps) {
   async function topology(ctx: RouteContext): Promise<void> {
@@ -118,5 +122,36 @@ export function createClusterHandlers(deps: HandlerDeps) {
     }
   }
 
-  return { topology, allocation }
+  async function replicationFactor(ctx: RouteContext): Promise<void> {
+    try {
+      const cluster = requireCluster(deps)
+      const indexName = ctx.params[0] ?? ''
+      const malformed = malformedIndexName(indexName)
+      if (malformed !== null) {
+        badRequest(ctx.res, malformed, { indexName })
+        return
+      }
+      const body = parseJson<unknown>(ctx)
+      if (body === undefined) return
+      const factor = isRecord(body) ? body.replicationFactor : undefined
+      if (typeof factor !== 'number') {
+        badRequest(ctx.res, 'The body must carry a numeric replicationFactor', { indexName })
+        return
+      }
+      await cluster.setReplicationFactor(indexName, factor)
+      respondJson(ctx, { indexName, replicationFactor: factor })
+    } catch (err) {
+      respondError(ctx, err)
+    }
+  }
+
+  async function health(ctx: RouteContext): Promise<void> {
+    try {
+      respondJson(ctx, await requireCluster(deps).getHealth())
+    } catch (err) {
+      respondError(ctx, err)
+    }
+  }
+
+  return { topology, allocation, replicationFactor, health }
 }

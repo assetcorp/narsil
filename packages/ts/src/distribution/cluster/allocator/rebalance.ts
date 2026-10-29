@@ -1,7 +1,15 @@
-import { compareCodePoints } from '../../../core/ordering'
 import { REBALANCE_THRESHOLD } from '../constants'
-import { lastHoldersOf } from '../last-holders'
 import { capacityShares, rebalanceLeadership } from './leadership'
+import { handleLostNodes } from './lost-nodes'
+import {
+  handOverDrainingLeads,
+  moveDrainingReplicas,
+  type PlacementContext,
+  placeReplica,
+  replicasOutsideMove,
+  settleMoves,
+} from './moves'
+import { trimSurplusReplicas } from './surplus-replicas'
 import type {
   AllocationConstraints,
   AllocationResult,
@@ -12,7 +20,7 @@ import type {
   NodeWeight,
   PartitionAssignment,
 } from './types'
-import { computeNodeWeights, countNodeAssignments, countPrimaryAssignments, findBestNode } from './weight'
+import { computeNodeWeights, countNodeAssignments, findBestNode } from './weight'
 
 function cloneAssignments(assignments: Map<number, PartitionAssignment>): Map<number, PartitionAssignment> {
   const cloned = new Map<number, PartitionAssignment>()
@@ -24,6 +32,7 @@ function cloneAssignments(assignments: Map<number, PartitionAssignment>): Map<nu
       commitPoint: assignment.commitPoint,
       state: assignment.state,
       primaryTerm: assignment.primaryTerm,
+      ...(assignment.removingReplicas !== undefined ? { removingReplicas: [...assignment.removingReplicas] } : {}),
       ...(assignment.lastHolders !== undefined ? { lastHolders: [...assignment.lastHolders] } : {}),
       ...(assignment.unassignedReason !== undefined ? { unassignedReason: assignment.unassignedReason } : {}),
     })
@@ -31,128 +40,18 @@ function cloneAssignments(assignments: Map<number, PartitionAssignment>): Map<nu
   return cloned
 }
 
-function markUnassigned(assignment: PartitionAssignment, lastPrimary: string | null, lastInSyncSet: string[]): void {
-  const holders = new Set<string>(lastHoldersOf(assignment))
-  for (const nodeId of lastInSyncSet) {
-    holders.add(nodeId)
-  }
-  if (lastPrimary !== null) {
-    holders.add(lastPrimary)
-  }
-  assignment.primary = null
-  assignment.replicas = []
-  assignment.inSyncSet = []
-  assignment.lastHolders = [...holders].sort(compareCodePoints)
-  assignment.state = 'UNASSIGNED'
-}
-
-function primaryLoadOf(nodeId: string, primaryCounts: Map<string, number>, shares: Map<string, number>): number {
-  const share = shares.get(nodeId)
-  return (primaryCounts.get(nodeId) ?? 0) / (share === undefined || share <= 0 ? 1 : share)
-}
-
-function leastLoadedCandidate(
-  candidates: string[],
-  primaryCounts: Map<string, number>,
-  shares: Map<string, number>,
-): string | undefined {
-  let best: string | undefined
-  for (const candidate of candidates) {
-    if (best === undefined) {
-      best = candidate
-      continue
-    }
-    const bestLoad = primaryLoadOf(best, primaryCounts, shares)
-    const candidateLoad = primaryLoadOf(candidate, primaryCounts, shares)
-    if (candidateLoad < bestLoad || (candidateLoad === bestLoad && candidate < best)) {
-      best = candidate
-    }
-  }
-  return best
-}
-
-function handleLostNodes(
-  assignments: Map<number, PartitionAssignment>,
-  activeNodeIds: Set<string>,
-  shares: Map<string, number>,
-): void {
-  const primaryCounts = countPrimaryAssignments(assignments)
-
-  for (const assignment of assignments.values()) {
-    if (assignment.state === 'UNASSIGNED') {
-      continue
-    }
-
-    const lastPrimary = assignment.primary
-    const lastInSyncSet = [...assignment.inSyncSet]
-    const primaryWasLost = lastPrimary !== null && !activeNodeIds.has(lastPrimary)
-
-    if (primaryWasLost) {
-      assignment.primary = null
-    }
-
-    assignment.replicas = assignment.replicas.filter(id => activeNodeIds.has(id))
-    assignment.inSyncSet = assignment.inSyncSet.filter(id => activeNodeIds.has(id))
-
-    if (!primaryWasLost) {
-      if (assignment.primary === null) {
-        markUnassigned(assignment, lastPrimary, lastInSyncSet)
-      }
-      continue
-    }
-
-    const inSyncCandidates = assignment.replicas.filter(id => assignment.inSyncSet.includes(id))
-
-    if (inSyncCandidates.length === 0) {
-      markUnassigned(assignment, lastPrimary, lastInSyncSet)
-      continue
-    }
-
-    const promoted = leastLoadedCandidate(inSyncCandidates, primaryCounts, shares)
-
-    if (promoted === undefined) {
-      markUnassigned(assignment, lastPrimary, lastInSyncSet)
-      continue
-    }
-
-    primaryCounts.set(promoted, (primaryCounts.get(promoted) ?? 0) + 1)
-    assignment.primary = promoted
-    assignment.replicas = assignment.replicas.filter(id => id !== promoted)
-    assignment.inSyncSet = assignment.inSyncSet.filter(id => id !== promoted)
-    assignment.primaryTerm += 1
-  }
-}
-
 function fillReplicaSlots(
   assignments: Map<number, PartitionAssignment>,
-  sortedNodes: NodeRegistration[],
-  nodeMap: Map<string, NodeRegistration>,
+  placement: PlacementContext,
   replicationFactor: number,
-  constraints: AllocationConstraints,
-  deciders: Decider[],
 ): void {
-  const candidateNodeIds = sortedNodes.map(n => n.nodeId)
-
   for (const [partitionId, assignment] of assignments) {
     if (assignment.primary === null) {
       continue
     }
 
-    while (assignment.replicas.length < replicationFactor) {
-      const nodeAssignmentCounts = countNodeAssignments(assignments)
-      const weights = computeNodeWeights(sortedNodes, assignments)
-
-      const replicaContext: Omit<DeciderContext, 'candidateNodeId'> = {
-        partitionId,
-        role: 'replica',
-        currentAssignment: assignment,
-        allAssignments: assignments,
-        nodeAssignmentCounts,
-        nodes: nodeMap,
-        constraints,
-      }
-
-      const replicaNodeId = findBestNode(candidateNodeIds, weights, deciders, replicaContext)
+    while (replicasOutsideMove(assignment).length < replicationFactor) {
+      const replicaNodeId = placeReplica(assignments, partitionId, assignment, placement)
 
       if (replicaNodeId === null) {
         break
@@ -250,16 +149,12 @@ function moveOneReplica(
   laggingOnly: boolean,
 ): boolean {
   for (const [partitionId, assignment] of assignments) {
-    const replicaIndex = assignment.replicas.indexOf(move.fromNodeId)
-    if (replicaIndex < 0) {
+    if (assignment.removingReplicas !== undefined || !assignment.replicas.includes(move.fromNodeId)) {
       continue
     }
     if (laggingOnly && assignment.inSyncSet.includes(move.fromNodeId)) {
       continue
     }
-
-    const removedReplica = assignment.replicas[replicaIndex]
-    assignment.replicas.splice(replicaIndex, 1)
 
     const moveContext: Omit<DeciderContext, 'candidateNodeId'> = {
       partitionId,
@@ -273,11 +168,11 @@ function moveOneReplica(
 
     const target = findBestNode([move.toNodeId], move.weights, move.deciders, moveContext)
     if (target === null) {
-      assignment.replicas.splice(replicaIndex, 0, removedReplica)
       continue
     }
 
     assignment.replicas.push(target)
+    assignment.removingReplicas = [move.fromNodeId]
     return true
   }
 
@@ -305,6 +200,12 @@ function pruneInSyncSets(assignments: Map<number, PartitionAssignment>): void {
       assignment.inSyncSet = assignment.inSyncSet.filter(nodeId => assignment.replicas.includes(nodeId))
     }
   }
+  for (const assignment of assignments.values()) {
+    const removing = assignment.removingReplicas?.filter(nodeId => assignment.replicas.includes(nodeId))
+    if (removing === undefined) continue
+    if (removing.length > 0) assignment.removingReplicas = removing
+    else delete assignment.removingReplicas
+  }
 }
 
 /**
@@ -315,20 +216,36 @@ function pruneInSyncSets(assignments: Map<number, PartitionAssignment>): void {
  * the load out across the nodes, and spreads leadership away from the busiest ones. A partition whose primary fails
  * while no in-sync replica survives moves to `UNASSIGNED`, and its `lastHolders` then records the nodes that still
  * hold the data, so that the controller can recognise one of them when it registers again. A partition that reaches
- * `ACTIVE` loses that record, because a node serves it again.
+ * `ACTIVE` loses that record, because a node serves it again. A node that left the cluster a short time ago keeps
+ * its replica slots, outside the in-sync set, so that it can catch up on them when it registers again; the allocator
+ * counts those slots as filled, and it moves them once the node drops out of `retainedNodeIds`.
+ *
+ * The table takes `replicationFactor` from the index metadata, so that a factor stored there reaches the table on the
+ * next run. A partition holding more replicas than that factor loses the surplus, draining and lagging replicas first
+ * and then the copy on the busiest node, and it keeps its primary.
+ *
+ * A move adds the new copy before it drops the old one. The allocator adds the target to `replicas` and names the
+ * source in `removingReplicas`, and a later run drops the source once the replicas outside that list reach the
+ * factor in sync, or cancels the move where the target left. A partition starts no second move while one is under
+ * way. A node whose registration sets `draining` takes no new copy, hands each partition it leads to an in-sync
+ * replica elsewhere under a higher term, and loses each replica it holds through the same kind of move.
  *
  * @param nodes - The data nodes registered with the cluster coordinator.
  * @param currentTable - The allocation table the coordinator holds today.
+ * @param replicationFactor - The number of replicas besides the primary that the index metadata asks for.
  * @param constraints - The placement rules that every assignment must satisfy.
  * @param deciders - The chain that admits or refuses each candidate node.
+ * @param retainedNodeIds - The nodes that left the cluster too recently for the allocator to move their replicas.
  * @returns The new table, whose version is one above the current one, alongside a warning for each partition holding
  * fewer replicas than the index asked for.
  */
 export function rebalanceAllocate(
   nodes: NodeRegistration[],
   currentTable: AllocationTable,
+  replicationFactor: number,
   constraints: AllocationConstraints,
   deciders: Decider[],
+  retainedNodeIds: ReadonlySet<string> = new Set(),
 ): AllocationResult {
   const sortedNodes = [...nodes].sort((a, b) => {
     if (a.nodeId < b.nodeId) return -1
@@ -343,28 +260,47 @@ export function rebalanceAllocate(
     nodeMap.set(node.nodeId, node)
   }
 
+  const drainingNodeIds = new Set(sortedNodes.filter(node => node.draining === true).map(node => node.nodeId))
+  const placement: PlacementContext = {
+    placementNodes: sortedNodes.filter(node => !drainingNodeIds.has(node.nodeId)),
+    nodeMap,
+    constraints,
+    deciders,
+    drainingNodeIds,
+  }
+
   const assignments = cloneAssignments(currentTable.assignments)
   const shares = capacityShares(sortedNodes)
 
-  handleLostNodes(assignments, activeNodeIds, shares)
+  handleLostNodes(assignments, activeNodeIds, retainedNodeIds, shares, drainingNodeIds)
 
-  fillReplicaSlots(assignments, sortedNodes, nodeMap, currentTable.replicationFactor, constraints, deciders)
+  settleMoves(assignments, replicationFactor)
 
-  rebalanceForBalance(assignments, sortedNodes, nodeMap, constraints, deciders, shares)
+  handOverDrainingLeads(assignments, placement, shares)
 
-  rebalanceLeadership(assignments, shares)
+  trimSurplusReplicas(assignments, sortedNodes, replicationFactor, drainingNodeIds)
+
+  fillReplicaSlots(assignments, placement, replicationFactor)
+
+  moveDrainingReplicas(assignments, placement, replicationFactor)
+
+  settleMoves(assignments, replicationFactor)
+
+  rebalanceForBalance(assignments, placement.placementNodes, nodeMap, constraints, deciders, shares)
+
+  rebalanceLeadership(assignments, shares, drainingNodeIds)
 
   pruneInSyncSets(assignments)
 
   clearRecoveryStateOnServedPartitions(assignments)
 
-  const warnings = collectReplicationWarnings(assignments, currentTable.replicationFactor)
+  const warnings = collectReplicationWarnings(assignments, replicationFactor)
 
   return {
     table: {
       indexName: currentTable.indexName,
       version: currentTable.version + 1,
-      replicationFactor: currentTable.replicationFactor,
+      replicationFactor,
       assignments,
     },
     warnings,
@@ -377,9 +313,10 @@ function collectReplicationWarnings(
 ): string[] {
   const warnings: string[] = []
   for (const [partitionId, assignment] of assignments) {
-    if (assignment.replicas.length < replicationFactor) {
+    const replicaCount = replicasOutsideMove(assignment).length
+    if (replicaCount < replicationFactor) {
       warnings.push(
-        `Partition ${partitionId} has ${assignment.replicas.length} replica(s) instead of requested ${replicationFactor} (insufficient nodes)`,
+        `Partition ${partitionId} has ${replicaCount} replica(s) instead of requested ${replicationFactor} (insufficient nodes)`,
       )
     }
   }

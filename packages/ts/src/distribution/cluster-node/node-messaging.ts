@@ -5,7 +5,8 @@ import type { AnyDocument } from '../../types/schema'
 import type { AllocationTable } from '../coordinator/types'
 import { createFetchMessage, validateFetchResultPayload } from '../query/codec'
 import { MAX_FETCH_DOCUMENT_IDS } from '../query/constants'
-import { selectReplica } from '../query/selection'
+import { sendToEveryPartition } from '../query/failover'
+import { copiesInSelectionOrder, type PartitionRouting, randomSelector } from '../query/selection'
 import type { DistributedQueryResult } from '../query/types'
 import type { FetchDocumentId, TransportMessage } from '../transport/types'
 import type { ClusterLocalEngine } from './local-engine'
@@ -15,13 +16,12 @@ import { restoreVectorValues } from './vector-bytes'
 import { resolvePartitionId } from './write-routing'
 
 export async function resolveNodeTargets(config: ClusterNodeConfig, targetNodeId: string): Promise<string[]> {
-  const targets = [targetNodeId]
   const nodes = await config.coordinator.listNodes()
   const registration = nodes.find(node => node.nodeId === targetNodeId)
-  if (registration !== undefined && registration.address.length > 0 && registration.address !== targetNodeId) {
-    targets.push(registration.address)
+  if (registration === undefined || registration.address.length === 0 || registration.address === targetNodeId) {
+    return [targetNodeId]
   }
-  return targets
+  return [registration.address, targetNodeId]
 }
 
 export async function sendToNode(
@@ -42,6 +42,88 @@ function fetchFieldsFor(projection: ResolvedProjection): string[] | null {
   return projection.include.map(path => path.join('.'))
 }
 
+interface DocumentRouting {
+  routing: PartitionRouting
+  idsByPartition: Map<number, string[]>
+}
+
+function routeDocumentIds(docIds: Iterable<string>, allocation: AllocationTable): DocumentRouting {
+  const partitionCount = allocation.assignments.size
+  const routing: PartitionRouting = {
+    nodeToPartitions: new Map(),
+    copiesByPartition: new Map(),
+    unavailablePartitions: [],
+  }
+  const idsByPartition = new Map<number, string[]>()
+
+  for (const docId of new Set(docIds)) {
+    const partitionId = resolvePartitionId(docId, partitionCount)
+    const known = idsByPartition.get(partitionId)
+    if (known !== undefined) {
+      known.push(docId)
+      continue
+    }
+    const assignment = allocation.assignments.get(partitionId)
+    const copies = assignment === undefined ? [] : copiesInSelectionOrder(assignment, randomSelector, partitionId)
+    const firstCopy = copies[0]
+    if (firstCopy === undefined) {
+      if (!routing.unavailablePartitions.includes(partitionId)) routing.unavailablePartitions.push(partitionId)
+      continue
+    }
+    idsByPartition.set(partitionId, [docId])
+    routing.copiesByPartition.set(partitionId, copies)
+    const group = routing.nodeToPartitions.get(firstCopy)
+    if (group === undefined) routing.nodeToPartitions.set(firstCopy, [partitionId])
+    else group.push(partitionId)
+  }
+
+  return { routing, idsByPartition }
+}
+
+async function readFromCopies(
+  config: ClusterNodeConfig,
+  nodeId: string,
+  engine: ClusterLocalEngine,
+  indexName: string,
+  documentRouting: DocumentRouting,
+  fields: string[] | null,
+): Promise<Map<string, AnyDocument>> {
+  const documents = new Map<string, AnyDocument>()
+
+  await sendToEveryPartition(documentRouting.routing, async (targetNodeId, partitionIds) => {
+    const documentIds: FetchDocumentId[] = partitionIds.flatMap(partitionId =>
+      (documentRouting.idsByPartition.get(partitionId) ?? []).map(docId => ({ docId, partitionId })),
+    )
+    const found = new Map<string, AnyDocument>()
+
+    if (targetNodeId === nodeId) {
+      const local = await engine.getMultiple(
+        indexName,
+        documentIds.map(ref => ref.docId),
+      )
+      for (const [docId, document] of local) found.set(docId, document)
+    } else {
+      for (let start = 0; start < documentIds.length; start += MAX_FETCH_DOCUMENT_IDS) {
+        const chunk = documentIds.slice(start, start + MAX_FETCH_DOCUMENT_IDS)
+        const fetchMessage = createFetchMessage({ indexName, documentIds: chunk, fields, highlight: null }, nodeId)
+        const response = await sendToNode(config, targetNodeId, fetchMessage, {
+          message: `Node '${targetNodeId}' did not answer a document fetch for index '${indexName}'`,
+          details: { indexName },
+        })
+        const payload = validateFetchResultPayload(decode(response.payload))
+        for (const fetched of payload.documents) {
+          found.set(fetched.docId, restoreVectorValues(fetched.document) as AnyDocument)
+        }
+      }
+    }
+
+    for (const [docId, document] of found) documents.set(docId, document)
+    return found
+  })
+
+  return documents
+}
+
 export async function fetchDistributedDocuments<T>(
   config: ClusterNodeConfig,
   nodeId: string,
@@ -54,61 +136,14 @@ export async function fetchDistributedDocuments<T>(
   const documents = new Map<string, T>()
   if (projection.kind === 'none') return documents
 
-  const partitionCount = allocation.assignments.size
-  const nodeToDocumentIds = new Map<string, FetchDocumentId[]>()
-
-  for (const entry of result.scored) {
-    const partitionId = resolvePartitionId(entry.docId, partitionCount)
-    const assignment = allocation.assignments.get(partitionId)
-    if (assignment === undefined) {
-      continue
-    }
-    const selectedNodeId = selectReplica(assignment, undefined, partitionId)
-    if (selectedNodeId === null) {
-      continue
-    }
-    let documentIds = nodeToDocumentIds.get(selectedNodeId)
-    if (documentIds === undefined) {
-      documentIds = []
-      nodeToDocumentIds.set(selectedNodeId, documentIds)
-    }
-    documentIds.push({ docId: entry.docId, partitionId })
+  const documentRouting = routeDocumentIds(
+    result.scored.map(entry => entry.docId),
+    allocation,
+  )
+  const found = await readFromCopies(config, nodeId, engine, indexName, documentRouting, fetchFieldsFor(projection))
+  for (const [docId, document] of found) {
+    documents.set(docId, applyProjection(document, projection) as T)
   }
-
-  const fields = fetchFieldsFor(projection)
-  for (const [targetNodeId, documentIds] of nodeToDocumentIds) {
-    if (targetNodeId === nodeId) {
-      const local = await engine.getMultiple(
-        indexName,
-        documentIds.map(ref => ref.docId),
-      )
-      for (const [docId, document] of local) {
-        documents.set(docId, applyProjection(document, projection) as T)
-      }
-      continue
-    }
-
-    const fetchMessage = createFetchMessage(
-      {
-        indexName,
-        documentIds,
-        fields,
-        highlight: null,
-      },
-      nodeId,
-    )
-    const response = await sendToNode(config, targetNodeId, fetchMessage, {
-      message: `Node '${targetNodeId}' did not answer a document fetch for index '${indexName}'`,
-      details: { indexName },
-    })
-    const decoded = decode(response.payload)
-    const payload = validateFetchResultPayload(decoded)
-    for (const fetched of payload.documents) {
-      const document = restoreVectorValues(fetched.document) as AnyDocument
-      documents.set(fetched.docId, applyProjection(document, projection) as T)
-    }
-  }
-
   return documents
 }
 
@@ -120,27 +155,10 @@ export async function readDistributedDocuments(
   docIds: readonly string[],
   allocation: AllocationTable,
 ): Promise<Map<string, AnyDocument>> {
-  const partitionCount = allocation.assignments.size
-  const nodeToDocumentIds = new Map<string, FetchDocumentId[]>()
-  const unreachablePartitions = new Set<number>()
+  const documentRouting = routeDocumentIds(docIds, allocation)
+  const unreachablePartitions = documentRouting.routing.unavailablePartitions
 
-  for (const docId of new Set(docIds)) {
-    const partitionId = resolvePartitionId(docId, partitionCount)
-    const assignment = allocation.assignments.get(partitionId)
-    const selectedNodeId = assignment === undefined ? null : selectReplica(assignment, undefined, partitionId)
-    if (selectedNodeId === null) {
-      unreachablePartitions.add(partitionId)
-      continue
-    }
-    let documentIds = nodeToDocumentIds.get(selectedNodeId)
-    if (documentIds === undefined) {
-      documentIds = []
-      nodeToDocumentIds.set(selectedNodeId, documentIds)
-    }
-    documentIds.push({ docId, partitionId })
-  }
-
-  if (unreachablePartitions.size > 0) {
+  if (unreachablePartitions.length > 0) {
     throw new NarsilError(
       ErrorCodes.QUERY_NO_ACTIVE_REPLICA,
       `No active replica serves one or more partitions of index '${indexName}'`,
@@ -148,32 +166,5 @@ export async function readDistributedDocuments(
     )
   }
 
-  const documents = new Map<string, AnyDocument>()
-  for (const [targetNodeId, documentIds] of nodeToDocumentIds) {
-    if (targetNodeId === nodeId) {
-      const local = await engine.getMultiple(
-        indexName,
-        documentIds.map(ref => ref.docId),
-      )
-      for (const [docId, document] of local) {
-        documents.set(docId, document)
-      }
-      continue
-    }
-
-    for (let start = 0; start < documentIds.length; start += MAX_FETCH_DOCUMENT_IDS) {
-      const chunk = documentIds.slice(start, start + MAX_FETCH_DOCUMENT_IDS)
-      const fetchMessage = createFetchMessage({ indexName, documentIds: chunk, fields: null, highlight: null }, nodeId)
-      const response = await sendToNode(config, targetNodeId, fetchMessage, {
-        message: `Node '${targetNodeId}' did not answer a document fetch for index '${indexName}'`,
-        details: { indexName },
-      })
-      const payload = validateFetchResultPayload(decode(response.payload))
-      for (const fetched of payload.documents) {
-        documents.set(fetched.docId, restoreVectorValues(fetched.document) as AnyDocument)
-      }
-    }
-  }
-
-  return documents
+  return readFromCopies(config, nodeId, engine, indexName, documentRouting, null)
 }

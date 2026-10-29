@@ -1,7 +1,8 @@
 import { decode, encode } from '@msgpack/msgpack'
 import { afterEach, describe, expect, it } from 'vitest'
 import { createClusterNode } from '../../../distribution/cluster-node'
-import type { ClusterMemoryConfig, ClusterNode } from '../../../distribution/cluster-node/types'
+import { readMemoryFigures } from '../../../distribution/cluster-node/memory/measure'
+import type { ClusterNode } from '../../../distribution/cluster-node/types'
 import { createInMemoryCoordinator } from '../../../distribution/coordinator'
 import type { ClusterCoordinator } from '../../../distribution/coordinator/types'
 import { createForwardBatchMessage, createForwardMessage } from '../../../distribution/replication/codec'
@@ -12,8 +13,8 @@ import { ErrorCodes, NarsilError } from '../../../errors'
 import { encodeDocument } from '../../../serialization/document-encoding'
 
 const SCHEMA = { title: 'string', price: 'number' } as const
-const TINY_IN_FLIGHT: ClusterMemoryConfig = { inFlightWriteFraction: 0.000_001 }
-const LARGE_TITLE_CHARACTERS = 200_000
+const HEAP_LIMIT_BYTES_PER_OVERSIZED_CHARACTER = 1_000
+const OVERSIZED_WORD = 'ledger '
 
 interface RealNode {
   node: ClusterNode
@@ -34,7 +35,10 @@ afterEach(async () => {
 })
 
 function largeTable(serial: number): { title: string; price: number } {
-  return { title: `oak table ${serial} ${'w'.repeat(LARGE_TITLE_CHARACTERS)}`, price: serial }
+  const heapLimitBytes = readMemoryFigures()?.heapLimitBytes
+  if (heapLimitBytes === undefined) throw new Error('this process reports no heap limit')
+  const words = Math.ceil(heapLimitBytes / HEAP_LIMIT_BYTES_PER_OVERSIZED_CHARACTER / OVERSIZED_WORD.length)
+  return { title: `oak table ${serial} ${OVERSIZED_WORD.repeat(words)}`, price: serial }
 }
 
 function withoutErrorDetails(payload: Uint8Array): Uint8Array {
@@ -84,7 +88,6 @@ async function startPair(primaryTransport: (base: NodeTransport) => NodeTranspor
     nodeId: 'node-a',
     roles: ['data'],
     engine: { workers: { enabled: false } },
-    memory: TINY_IN_FLIGHT,
   })
   started.push({ node: primary, transport: primaryBase })
   await primary.start()
@@ -120,7 +123,7 @@ describe('a forwarded write keeps working between nodes that do and do not carry
 
     const single = await failureOf(entry.insert('catalogue', largeTable(1), 'table-1'))
     expect(single?.code).toBe(ErrorCodes.CLUSTER_WRITE_BLOCKED)
-    expect(single?.message).toContain("Node 'node-a' refuses this write")
+    expect(single?.message).toContain("Node 'node-a' refuses this document")
     expect(single?.details).toEqual({ indexName: 'catalogue', primaryNodeId: 'node-a' })
 
     const batch = await entry.insertBatch('catalogue', [
@@ -161,7 +164,7 @@ describe('a forwarded write keeps working between nodes that do and do not carry
     expect(single.error).toBe(true)
     expect(single.code).toBe(ErrorCodes.CLUSTER_WRITE_BLOCKED)
     expect(typeof single.message).toBe('string')
-    expect(single.details).toMatchObject({ reason: 'write_bytes_in_flight', nodeId: 'node-a' })
+    expect(single.details).toMatchObject({ reason: 'write_exceeds_memory', nodeId: 'node-a' })
 
     const batch = decode(
       (
@@ -190,6 +193,6 @@ describe('a forwarded write keeps working between nodes that do and do not carry
       ['table-3', false, ErrorCodes.DOC_NOT_FOUND],
     ])
     expect(typeof batch.results[0].errorMessage).toBe('string')
-    expect(batch.results[0].errorDetails).toMatchObject({ reason: 'write_bytes_in_flight', nodeId: 'node-a' })
+    expect(batch.results[0].errorDetails).toMatchObject({ reason: 'write_exceeds_memory', nodeId: 'node-a' })
   }, 60_000)
 })

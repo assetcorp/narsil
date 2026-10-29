@@ -1,6 +1,6 @@
 # The multi-node cluster
 
-The cluster under `@delali/narsil/distribution` spreads each index's partitions across nodes, replicates each partition, and routes writes to its primary. It is experimental, and its API can change without notice, so confirm with the user before you build on it. A single server with durability, from [server.md](server.md) and [storage.md](storage.md), needs no coordinator and no certificates.
+The cluster under `@delali/narsil/distribution` spreads each index's partitions across nodes, replicates each partition, and routes writes to its primary. A single server with durability, from [server.md](server.md) and [storage.md](storage.md), needs no coordinator and no certificates.
 
 1. Take every option from the installed types for `@delali/narsil/distribution`, `/distribution/coordinator/etcd`, `/distribution/transport/tcp`, and `/distribution/transport/grpc`, because the versioned documentation has no cluster page.
 2. Install `etcd3`, and give every node a coordinator from `await createEtcdCoordinator({ endpoints, keyPrefix })`, pointed at the same etcd cluster, because etcd holds the cluster's shared state across hosts and restarts. Pass `maxRequestBytes` with the same value as the etcd `--max-request-bytes` setting wherever an etcd cluster uses a limit other than its 1.5 MiB default, because the coordinator raises `CONFIG_INVALID` for any write larger than that setting.

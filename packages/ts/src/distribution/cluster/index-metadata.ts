@@ -6,6 +6,7 @@ import type { IndexConfig, SchemaDefinition } from '../../types/schema'
 import type { SynonymRule } from '../../types/synonyms'
 import { MAX_PARTITION_COUNT, MAX_REPLICATION_FACTOR } from '../constants'
 import type { AllocationConstraints, ClusterCoordinator } from '../coordinator/types'
+import { REPLICATION_FACTOR_CAS_ATTEMPTS } from './constants'
 import {
   decodeIndexSettings,
   type IndexSettings,
@@ -182,6 +183,23 @@ export async function putIndexMetadata(coordinator: ClusterCoordinator, metadata
   return coordinator.compareAndSet(key, current, bytes)
 }
 
+export async function putGenerationMetadata(
+  coordinator: ClusterCoordinator,
+  sourceName: string,
+  generation: { indexName: string; indexUuid: string; partitionCount: number },
+): Promise<boolean> {
+  const sourceBytes = await coordinator.get(indexConfigKey(sourceName))
+  if (sourceBytes === null || sourceBytes.byteLength === 0) return false
+  const decoded = decode(sourceBytes)
+  validateDecodedMetadata(decoded, sourceName)
+  if (!isRecord(decoded)) return false
+  const key = indexConfigKey(generation.indexName)
+  const current = await coordinator.get(key)
+  if (current !== null && current.byteLength > 0) return true
+  const bytes = new Uint8Array(encode({ ...decoded, ...generation }, { ignoreUndefined: true }))
+  return coordinator.compareAndSet(key, current, bytes)
+}
+
 async function readStoredMetadata(
   coordinator: ClusterCoordinator,
   indexName: string,
@@ -219,6 +237,35 @@ export function metadataWithSynonymSet(snapshot: IndexMetadataSnapshot, ref: Syn
     : { language: snapshot.settings?.language ?? getLanguage('english').name }
   const nextSettings = ref === null ? settings : { ...settings, synonyms: ref }
   return new Uint8Array(encode({ ...fields, settings: nextSettings }, { ignoreUndefined: true }))
+}
+
+export async function putIndexReplicationFactor(
+  coordinator: ClusterCoordinator,
+  indexName: string,
+  replicationFactor: number,
+): Promise<IndexMetadataRecord | null> {
+  validateIndexName(indexName)
+  const key = indexConfigKey(indexName)
+  for (let attempt = 0; attempt < REPLICATION_FACTOR_CAS_ATTEMPTS; attempt++) {
+    const raw = await coordinator.get(key)
+    if (raw === null || raw.byteLength === 0) {
+      return null
+    }
+    const decoded = decode(raw)
+    const record = validateDecodedMetadata(decoded, indexName)
+    if (record.replicationFactor === replicationFactor) {
+      return record
+    }
+    const updated = encode(isRecord(decoded) ? { ...decoded, replicationFactor } : decoded, { ignoreUndefined: true })
+    if (await coordinator.compareAndSet(key, raw, new Uint8Array(updated))) {
+      return { ...record, replicationFactor }
+    }
+  }
+  throw new NarsilError(
+    ErrorCodes.ALLOCATION_FAILED,
+    `The replication factor of index '${indexName}' lost ${REPLICATION_FACTOR_CAS_ATTEMPTS} compare-and-set attempts`,
+    { indexName, attempts: REPLICATION_FACTOR_CAS_ATTEMPTS },
+  )
 }
 
 export async function getIndexMetadata(

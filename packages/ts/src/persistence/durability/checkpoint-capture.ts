@@ -5,6 +5,7 @@ import {
   WHOLE_PARTITION_MIN_CHANGED_SHARE,
 } from './constants'
 import type { IndexState, PartitionState } from './manager-state'
+import type { PartitionFailure } from './mutation-batch'
 import type { PartitionCheckpoint } from './partition-checkpoint'
 import { snapshotCheckpointFor } from './recovery'
 import {
@@ -70,19 +71,21 @@ function whileNoMutationApplies<T>(partitions: readonly PartitionState[], captur
 
 export async function makeEveryAppliedMutationDurable(
   indexState: IndexState,
-  markFatal: (error: Error) => void,
+  failPartition: PartitionFailure,
 ): Promise<void> {
-  for (const partition of [...indexState.partitions.values()]) {
+  for (const [partitionId, partition] of [...indexState.partitions]) {
     await partition.appendChain
-    if (partition.failed !== null) throw partition.failed
+    if (partition.failed !== null) continue
     try {
       await partition.walWriter.commit()
     } catch (error) {
-      partition.failed = error instanceof Error ? error : new Error(String(error))
-      markFatal(partition.failed)
-      throw partition.failed
+      failPartition(partitionId, partition, error)
     }
   }
+}
+
+export function aTargetFailed(indexState: IndexState, targets: readonly PartitionCheckpoint[]): boolean {
+  return targets.some(target => (indexState.partitions.get(target.partitionId)?.failed ?? null) !== null)
 }
 
 export type SerialisablePartitions = CapturablePartitions
@@ -151,6 +154,7 @@ export async function captureCheckpoint(
     let recordsLeftInLog = 0
     for (let partitionId = 0; partitionId < manager.partitionCount; partitionId += 1) {
       const partition = indexState.partitions.get(partitionId)
+      if (partition !== undefined && partition.failed !== null) continue
       const appliedSeqNo = partition?.appliedSeqNo ?? 0
       const lastSeqNo =
         priorCheckpointThatLimitsTheRecords === undefined

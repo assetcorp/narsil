@@ -53,7 +53,7 @@ export type {
 } from './types/filters'
 export type { LanguageModule, TokenizerConfig } from './types/language'
 export type { IndexLifecycleOperations } from './types/lifecycle'
-export type { MemoryStats, ProcessMemoryReport, WorkerCopyReport } from './types/memory'
+export type { HeldCheckpointReport, MemoryStats, ProcessMemoryReport, WorkerCopyReport } from './types/memory'
 export type { PartialWordSearch } from './types/partial-words'
 export type { PatternSearch } from './types/pattern'
 export type {

@@ -14,20 +14,30 @@ import {
 } from './constants'
 import { createDirectoryWatch, unrefInterval } from './directory-watch'
 import { createDurableDirectory, type DurableDirectory } from './durable-filesystem'
-import { drainIndexStateForUnload, type IndexState, type PartitionState } from './manager-state'
-import { type PartitionBatchDeps, recordBatchesByPartition } from './mutation-batch'
+import { createHeldCheckpoints } from './held-checkpoints'
+import { closePartitionWriter, drainIndexStateForUnload, type IndexState } from './manager-state'
+import {
+  commitAppended,
+  commitEveryPartition,
+  type PartitionBatchDeps,
+  partitionFailureFor,
+  recordBatchesByPartition,
+} from './mutation-batch'
+import { createPartitionFailureRouting } from './partition-failure'
+import { createPartitionRegistry } from './partition-registry'
 import { recoverPersistedIndex } from './recover-index'
 import { listPersistedIndexes } from './recovery'
 import { recoverDirectoryRestores } from './restore-directory'
-import { createSeqOwner, SINGLE_NODE_PRIMARY_TERM } from './seq-owner'
+import { SINGLE_NODE_PRIMARY_TERM } from './seq-owner'
 import type {
+  CommitDeferral,
   DurabilityConfig,
   DurabilityManager,
+  EntryNumbering,
   IndexDurabilityHooks,
   MutationOutcome,
   MutationRecord,
 } from './types'
-import { createWalWriter } from './wal-writer'
 import { checkpointIsDue, releaseStalledWrites, stallWhileCheckpointsFallBehind } from './write-stall'
 
 /**
@@ -52,7 +62,14 @@ export function createDurabilityManager(
   const mode = config.mode ?? 'sync'
   const flushIntervalMs = config.flushIntervalMs ?? DEFAULT_ASYNC_FLUSH_INTERVAL_MS
 
-  const indexes = new Map<string, IndexState>()
+  const registry = createPartitionRegistry(directory, segmentMaxBytes)
+  const indexes = registry.indexes
+  const getOrCreateIndexState = registry.indexState
+  const getOrCreatePartition = registry.partition
+  let entryNumbering: EntryNumbering | null = null
+  let commitDeferral: CommitDeferral | null = null
+  const partitionFailures = createPartitionFailureRouting()
+  const heldCheckpoints = createHeldCheckpoints(hooks)
   const metadataWrites = new Map<string, Promise<void>>()
   let checkpointTimer: ReturnType<typeof setInterval> | null = null
   let asyncFlushTimer: ReturnType<typeof setInterval> | null = null
@@ -89,38 +106,6 @@ export function createDurabilityManager(
     }
   }
 
-  function getOrCreateIndexState(indexName: string): IndexState {
-    let state = indexes.get(indexName)
-    if (state === undefined) {
-      state = {
-        partitions: new Map(),
-        mutationsSinceCheckpoint: 0,
-        documentBytesSinceCheckpoint: 0,
-        checkpointInFlight: null,
-        unloading: false,
-        stalledWrites: [],
-      }
-      indexes.set(indexName, state)
-    }
-    return state
-  }
-
-  function getOrCreatePartition(indexName: string, partitionId: number, startSeqNo: number): PartitionState {
-    const indexState = getOrCreateIndexState(indexName)
-    let partition = indexState.partitions.get(partitionId)
-    if (partition === undefined) {
-      partition = {
-        walWriter: createWalWriter(directory, { indexName, partitionId, segmentMaxBytes }),
-        seqOwner: createSeqOwner(startSeqNo),
-        appendChain: Promise.resolve(),
-        appliedSeqNo: startSeqNo,
-        failed: null,
-      }
-      indexState.partitions.set(partitionId, partition)
-    }
-    return partition
-  }
-
   function queueMetadataWrite(indexName: string, write: () => Promise<void>): Promise<void> {
     const previous = metadataWrites.get(indexName) ?? Promise.resolve()
     const queued = previous.then(write)
@@ -145,23 +130,8 @@ export function createDurabilityManager(
     asyncFlushTimer = unrefInterval(() => void flushAllPartitions(), flushIntervalMs)
   }
 
-  async function flushAllPartitions(): Promise<void> {
-    if (fatalError !== null) {
-      return
-    }
-    for (const indexState of indexes.values()) {
-      for (const partition of indexState.partitions.values()) {
-        if (partition.failed !== null || fatalError !== null) {
-          continue
-        }
-        try {
-          await partition.walWriter.commit()
-        } catch (err) {
-          partition.failed = toError(err)
-          markFatal(partition.failed)
-        }
-      }
-    }
+  function flushAllPartitions(): Promise<void> {
+    return commitEveryPartition(indexes, partitionBatchDeps)
   }
 
   async function runScheduledCheckpoints(): Promise<void> {
@@ -191,13 +161,18 @@ export function createDurabilityManager(
 
   async function checkpointIndex(indexName: string, fromMemory = false, afterInFlight = fromMemory): Promise<void> {
     const indexState = indexes.get(indexName)
-    if (indexState === undefined || indexState.unloading) return
+    if (indexState === undefined || indexState.unloading || heldCheckpoints.holds(indexName, indexState)) return
     return checkpointInTurn(indexState, {
       joinsInFlight: !afterInFlight,
       mayStart: () => !indexState.unloading && !shuttingDown,
       perform: () => performCheckpoint(indexName, indexState, fromMemory),
       afterSettling: () => releaseStalledWrites(indexState),
     })
+  }
+
+  async function requestedCheckpoint(indexName: string, fromMemory = false): Promise<void> {
+    heldCheckpoints.refuse(indexName, indexes.get(indexName))
+    return checkpointIndex(indexName, fromMemory)
   }
 
   async function performCheckpoint(indexName: string, indexState: IndexState, fromMemory = false): Promise<void> {
@@ -216,6 +191,7 @@ export function createDurabilityManager(
       holdsCheckpointFiles: () => heldCheckpointFiles.has(indexName),
       queueMetadataWrite,
       markFatal,
+      failPartition: partitionFailureFor(indexName, partitionBatchDeps),
     })
   }
 
@@ -223,7 +199,10 @@ export function createDurabilityManager(
     syncEachBatch: mode === 'sync',
     fatalError: () => fatalError,
     markFatal,
+    failsPartitionAlone: partitionFailures.failsAlone,
     buildEntry: buildMutationEntry,
+    numberEntry: record => record.replicated ?? (entryNumbering === null ? null : entryNumbering(record)),
+    defersCommit: record => commitDeferral?.(record) === true,
   }
 
   async function recordMutations(records: readonly MutationRecord[]): Promise<MutationOutcome[]> {
@@ -271,8 +250,8 @@ export function createDurabilityManager(
     directory,
     hooks,
     compactionThreshold,
-    registerPartition: (name: string, partitionId: number, startSeqNo: number) => {
-      getOrCreatePartition(name, partitionId, startSeqNo)
+    registerPartition: (name: string, partitionId: number, startSeqNo: number, primaryTerm: number) => {
+      getOrCreatePartition(name, partitionId, startSeqNo, primaryTerm)
     },
     holdsCheckpointFiles: (name: string) => heldCheckpointFiles.has(name),
     queueMetadataWrite,
@@ -306,6 +285,24 @@ export function createDurabilityManager(
       return indexes.get(indexName)?.partitions.get(partitionId)?.appliedSeqNo ?? 0
     },
 
+    partitionRegistry: registry,
+
+    numberEntriesWith(numbering: EntryNumbering, defersCommit?: CommitDeferral): void {
+      entryNumbering = numbering
+      commitDeferral = defersCommit ?? null
+    },
+
+    isolatePartitionFailures: partitionFailures.isolate,
+    heldCheckpoints: () => heldCheckpoints.report(indexes),
+
+    async commitPartition(indexName: string, partitionId: number): Promise<void> {
+      const partition = indexes.get(indexName)?.partitions.get(partitionId)
+      if (mode !== 'sync' || partition === undefined) return
+      await commitAppended(partition, { indexName, partitionId }, partitionBatchDeps)
+      await directoryWatch.verify()
+      if (fatalError !== null) throw fatalError
+    },
+
     async recordMutation(record: MutationRecord): Promise<number> {
       const [outcome] = await recordMutations([record])
       if (!outcome.ok) {
@@ -329,11 +326,11 @@ export function createDurabilityManager(
     },
 
     checkpoint(indexName: string): Promise<void> {
-      return checkpointIndex(indexName)
+      return requestedCheckpoint(indexName)
     },
 
     checkpointFromMemory(indexName: string): Promise<void> {
-      return checkpointIndex(indexName, true)
+      return requestedCheckpoint(indexName, true)
     },
 
     async checkpointAfterInFlight(indexName: string): Promise<void> {
@@ -373,8 +370,9 @@ export function createDurabilityManager(
     ...createArchiveCheckpointAccess({
       directory,
       held: heldCheckpointFiles,
-      checkpoint: name => checkpointIndex(name),
-      registerPartition: (name, partitionId, startSeqNo) => getOrCreatePartition(name, partitionId, startSeqNo),
+      checkpoint: name => requestedCheckpoint(name),
+      registerPartition: (name, partitionId, startSeqNo, primaryTerm) =>
+        getOrCreatePartition(name, partitionId, startSeqNo, primaryTerm),
       markFatal,
     }),
 
@@ -386,7 +384,7 @@ export function createDurabilityManager(
           await indexState.checkpointInFlight.catch(() => undefined)
         }
         for (const partition of indexState.partitions.values()) {
-          await closeWriterReportingFailure(partition.walWriter.close())
+          await closeWriterReportingFailure(closePartitionWriter(partition))
         }
       }
       indexes.clear()

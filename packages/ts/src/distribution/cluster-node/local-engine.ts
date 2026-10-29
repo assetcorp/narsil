@@ -1,9 +1,11 @@
+import { resolveIndexAnalysis } from '../../analysis/registry'
 import { synonymModule } from '../../core/synonyms/registry'
 import { requireKnownConfig } from '../../engine/config-keys'
 import { createEngineCore, type EngineCore } from '../../engine/core'
 import { createEngineIndex } from '../../engine/index-lifecycle'
 import { startEngineCore } from '../../engine/lifecycle'
 import { resolveRunnableConfig } from '../../engine/startup-checks'
+import { getLanguage } from '../../languages/registry'
 import type { Narsil } from '../../narsil'
 import { createNarsilFromCore } from '../../narsil'
 import {
@@ -15,6 +17,13 @@ import {
   runEngineQueryStats,
   runEngineSuggest,
 } from '../../narsil/reads'
+import { persistedPosition, restartPartitionLog } from '../../persistence/durability/partition-log'
+import type {
+  CommitDeferral,
+  EntryNumbering,
+  PartitionFailureHandler,
+  PartitionLogPosition,
+} from '../../persistence/durability/types'
 import type { ByteSource } from '../../types/byte-source'
 import type { NarsilConfig } from '../../types/config'
 import type { GlobalStatistics } from '../../types/internal'
@@ -23,9 +32,16 @@ import type { AnyDocument, IndexConfig } from '../../types/schema'
 import type { ListParams, QueryParams, SuggestParams } from '../../types/search'
 import type { SynonymRule } from '../../types/synonyms'
 import type { ReplicationLogEntry } from '../replication/types'
+import { emptyPartitionCopy, reloadPartitionCopy } from './copy-reset'
 import { createHeldPartitionRecord } from './held-partitions'
-import { applyLocalReplicationEntry } from './local-replication'
+import {
+  type AppliedReplicationEntries,
+  applyLocalReplicationEntries,
+  applyLocalReplicationEntry,
+} from './local-replication'
+import type { IndexWriteAnalysis } from './memory/document-bound'
 import { archiveReplicationPartition, type PartitionArchive, restoreReplicationPartition } from './partition-archive'
+import { createAdmittingRecorder, type WriteAdmission } from './write-admission'
 
 export interface ClusterLocalEngine extends Narsil {
   createIndexWithUuid(name: string, config: IndexConfig, indexUuid?: string): Promise<void>
@@ -34,10 +50,20 @@ export interface ClusterLocalEngine extends Narsil {
   stampIndexUuid(indexName: string, indexUuid: string): Promise<void>
   applyStoredSynonyms(indexName: string, load: () => Promise<readonly SynonymRule[] | null>): Promise<boolean>
   highestPersistedSeqNoOf(indexName: string, partitionId: number): number
+  persistedPositionOf(indexName: string, partitionId: number): PartitionLogPosition
+  numberEntriesWith(numbering: EntryNumbering, defersCommit?: CommitDeferral): void
+  commitPartitionLog(indexName: string, partitionId: number): Promise<void>
+  admitWritesWith(admission: WriteAdmission): void
+  writeAnalysisOf(indexName: string): IndexWriteAnalysis | null
+  restartLocalLog(indexName: string, partitionId: number, position: PartitionLogPosition): Promise<void>
+  isolateCopyFailures(onFailed: PartitionFailureHandler): void
+  emptyPartitionCopy(indexName: string, partitionId: number): Promise<void>
+  reloadPartitionCopy(indexName: string, partitionId: number): Promise<void>
   heldPartitionsOf(indexName: string): number[] | undefined
   recordHeldPartition(indexName: string, partitionId: number): Promise<void>
   forgetHeldPartition(indexName: string, partitionId: number): Promise<void>
   applyReplicationEntry(entry: ReplicationLogEntry): Promise<void>
+  applyReplicationEntries(entries: readonly ReplicationLogEntry[]): Promise<AppliedReplicationEntries>
   archiveReplicationPartition(
     indexName: string,
     partitionId: number,
@@ -103,10 +129,27 @@ export async function createClusterLocalEngine(
       synonymModule().applyLoaded(core, indexName, load),
     highestPersistedSeqNoOf: (indexName: string, partitionId: number) =>
       core.durability?.manager.highestPersistedSeqNo(indexName, partitionId) ?? 0,
+    persistedPositionOf: (indexName: string, partitionId: number) => persistedPositionOf(core, indexName, partitionId),
+    numberEntriesWith: (numbering: EntryNumbering, defersCommit?: CommitDeferral) =>
+      core.durability?.manager.numberEntriesWith?.(numbering, defersCommit),
+    commitPartitionLog: async (indexName: string, partitionId: number) => {
+      await core.durability?.manager.commitPartition?.(indexName, partitionId)
+    },
+    admitWritesWith: (admission: WriteAdmission) => {
+      core.mutationCtx.durability = createAdmittingRecorder(core, admission, core.mutationCtx.durability)
+    },
+    writeAnalysisOf: (indexName: string) => writeAnalysisOf(core, indexName),
+    restartLocalLog: (indexName: string, partitionId: number, position: PartitionLogPosition) =>
+      restartLocalLog(core, indexName, partitionId, position),
+    isolateCopyFailures: (onFailed: PartitionFailureHandler) =>
+      core.durability?.manager.isolatePartitionFailures?.(onFailed),
+    emptyPartitionCopy: (indexName: string, partitionId: number) => emptyPartitionCopy(core, indexName, partitionId),
+    reloadPartitionCopy: (indexName: string, partitionId: number) => reloadPartitionCopy(core, indexName, partitionId),
     heldPartitionsOf: (indexName: string) => heldPartitions.held(indexName),
     recordHeldPartition: (indexName: string, partitionId: number) => heldPartitions.record(indexName, partitionId),
     forgetHeldPartition: (indexName: string, partitionId: number) => heldPartitions.forget(indexName, partitionId),
     applyReplicationEntry: (entry: ReplicationLogEntry) => applyLocalReplicationEntry(core, entry),
+    applyReplicationEntries: (entries: readonly ReplicationLogEntry[]) => applyLocalReplicationEntries(core, entries),
     archiveReplicationPartition: (indexName: string, partitionId: number, lastSeqNo: () => number) =>
       archiveReplicationPartition(core, indexName, partitionId, lastSeqNo),
     restoreReplicationPartition: (
@@ -140,6 +183,41 @@ export async function createClusterLocalEngine(
       }
     },
   })
+}
+
+function writeAnalysisOf(core: EngineCore, indexName: string): IndexWriteAnalysis | null {
+  const entry = core.indexRegistry.get(indexName)
+  if (entry === undefined) return null
+  const manager = core.executor.getManager(indexName)
+  const language = manager?.language ?? getLanguage(entry.config.language ?? 'english')
+  const customTokenizer = (manager?.analysis ?? resolveIndexAnalysis(entry.config)).customTokenizer
+  return {
+    schema: entry.config.schema,
+    language,
+    ...(customTokenizer === undefined ? {} : { customTokenizer }),
+  }
+}
+
+function persistedPositionOf(core: EngineCore, indexName: string, partitionId: number): PartitionLogPosition {
+  const durable = core.durability?.manager
+  if (durable === undefined) return { seqNo: 0, primaryTerm: 0 }
+  return persistedPosition(durable, indexName, partitionId)
+}
+
+async function restartLocalLog(
+  core: EngineCore,
+  indexName: string,
+  partitionId: number,
+  position: PartitionLogPosition,
+): Promise<void> {
+  const durable = core.durability?.manager
+  if (durable === undefined) return
+  const release = await core.indexState.acquire(indexName, false)
+  try {
+    await restartPartitionLog(durable, indexName, partitionId, position)
+  } finally {
+    release()
+  }
 }
 
 async function stampIndexUuid(core: EngineCore, indexName: string, indexUuid: string): Promise<void> {

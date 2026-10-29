@@ -1,13 +1,15 @@
 import type { NodeMemoryReport } from '../../coordinator/types'
+import type { MemoryFractions } from './fractions'
 import type { MemoryFigures } from './measure'
 
 export interface MemoryMonitorOptions {
-  blockWritesAbove: number
-  resumeWritesBelow: number
+  fractions: MemoryFractions
   intervalMs: number
   collectionIntervalMs: number
   read: () => MemoryFigures | null
   collectGarbage: () => boolean
+  collectGarbageBeforeRefusal: () => boolean
+  collectYoungGenerationBeforeRefusal: () => boolean
   onFullChange: (full: boolean) => void
 }
 
@@ -16,6 +18,9 @@ export interface MemoryMonitor {
   isFull(): boolean
   sample(): void
   sampleIfOlderThan(maxAgeMs: number): void
+  measureWithoutGarbage(): MemoryFigures | null
+  refusedAfterCollection(figures: MemoryFigures): void
+  collections(): number
   start(): void
   stop(): void
 }
@@ -24,13 +29,29 @@ function fractionOf(usedBytes: number, limitBytes: number): number {
   return limitBytes > 0 ? usedBytes / limitBytes : 0
 }
 
-function nextFullState(wasFull: boolean, figures: MemoryFigures, options: MemoryMonitorOptions): boolean {
-  const processFraction = fractionOf(figures.processBytes, figures.processLimitBytes)
-  const heapFraction = fractionOf(figures.heapBytes, figures.heapLimitBytes)
-  if (!wasFull) {
-    return processFraction > options.blockWritesAbove || heapFraction > options.blockWritesAbove
+function reportOf(figures: MemoryFigures, full: boolean): NodeMemoryReport {
+  return {
+    processBytes: figures.processBytes,
+    processLimitBytes: figures.processLimitBytes,
+    heapBytes: figures.heapBytes,
+    heapLimitBytes: figures.heapLimitBytes,
+    full,
   }
-  return processFraction >= options.resumeWritesBelow || heapFraction >= options.resumeWritesBelow
+}
+
+function atOrAboveResume(figures: MemoryFigures, fractions: MemoryFractions): boolean {
+  return (
+    fractionOf(figures.processBytes, figures.processLimitBytes) >= fractions.processResume ||
+    fractionOf(figures.heapBytes, figures.heapLimitBytes) >= fractions.heapResume
+  )
+}
+
+function nextFullState(wasFull: boolean, figures: MemoryFigures, fractions: MemoryFractions): boolean {
+  if (wasFull) return atOrAboveResume(figures, fractions)
+  return (
+    fractionOf(figures.processBytes, figures.processLimitBytes) > fractions.processBlock ||
+    fractionOf(figures.heapBytes, figures.heapLimitBytes) > fractions.heapBlock
+  )
 }
 
 export function createMemoryMonitor(options: MemoryMonitorOptions): MemoryMonitor {
@@ -38,6 +59,16 @@ export function createMemoryMonitor(options: MemoryMonitorOptions): MemoryMonito
   let timer: ReturnType<typeof setInterval> | null = null
   let lastCollectionAt = Number.NEGATIVE_INFINITY
   let lastSampleAt = Number.NEGATIVE_INFINITY
+  let collectionCount = 0
+  let latestMeasured: MemoryFigures | null = null
+
+  function figuresWithoutGarbageBeforeRefusal(figures: MemoryFigures): MemoryFigures {
+    if (!options.collectGarbageBeforeRefusal()) {
+      return options.collectYoungGenerationBeforeRefusal() ? (options.read() ?? figures) : figures
+    }
+    collectionCount++
+    return options.read() ?? figures
+  }
 
   function figuresWithoutGarbage(figures: MemoryFigures): MemoryFigures {
     const now = Date.now()
@@ -48,31 +79,56 @@ export function createMemoryMonitor(options: MemoryMonitorOptions): MemoryMonito
     if (!options.collectGarbage()) {
       return figures
     }
+    collectionCount++
     return options.read() ?? figures
+  }
+
+  function record(figures: MemoryFigures): void {
+    const wasFull = latest?.full ?? false
+    let full = nextFullState(wasFull, figures, options.fractions)
+    let settled = figures
+    if (full) {
+      settled = figuresWithoutGarbage(figures)
+      full = nextFullState(wasFull, settled, options.fractions)
+    }
+    latestMeasured = settled
+    latest = reportOf(settled, full)
+    if (full !== wasFull) {
+      options.onFullChange(full)
+    }
   }
 
   function sample(): void {
     lastSampleAt = Date.now()
-    let figures = options.read()
-    if (figures === null) {
-      return
+    const figures = options.read()
+    if (figures !== null) {
+      record(figures)
     }
-    const wasFull = latest?.full ?? false
-    let full = nextFullState(wasFull, figures, options)
-    if (full) {
-      figures = figuresWithoutGarbage(figures)
-      full = nextFullState(wasFull, figures, options)
-    }
-    latest = { ...figures, full }
-    if (full !== wasFull) {
-      options.onFullChange(full)
-    }
+  }
+
+  function latestFigures(): MemoryFigures | null {
+    return latestMeasured
   }
 
   return {
     report: () => latest,
     isFull: () => latest?.full ?? false,
     sample,
+    measureWithoutGarbage() {
+      lastSampleAt = Date.now()
+      const figures = options.read()
+      if (figures === null) return latestFigures()
+      record(figuresWithoutGarbageBeforeRefusal(figures))
+      return latestFigures()
+    },
+    refusedAfterCollection(figures) {
+      if (latest?.full === true) return
+      if (!atOrAboveResume(figures, options.fractions)) return
+      latestMeasured = { ...figures }
+      latest = reportOf(figures, true)
+      options.onFullChange(true)
+    },
+    collections: () => collectionCount,
     sampleIfOlderThan(maxAgeMs) {
       if (timer !== null && Date.now() - lastSampleAt >= maxAgeMs) {
         sample()

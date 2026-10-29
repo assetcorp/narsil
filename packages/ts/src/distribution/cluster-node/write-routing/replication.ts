@@ -8,7 +8,14 @@ import type { PartitionAssignment } from '../../coordinator/types'
 import { requestInsyncRemoval } from '../../replication/insync'
 import { replicateBatchToReplicas, replicateToReplicas } from '../../replication/primary'
 import type { ReplicationLogEntry } from '../../replication/types'
-import { clearPendingAdmission, getPendingAdmissions } from '../catch-up/state'
+import { recordAcknowledgements } from '../catch-up/acknowledgements'
+import {
+  admittedBeyondTable,
+  clearPendingAdmission,
+  forgetAdmittedReplica,
+  getPendingAdmissions,
+} from '../catch-up/state'
+import { untilSuperseded } from '../led-term'
 import { sendThroughTargets } from '../transport-failure'
 import { getInSyncReplicaTargets, resolveNodeTargets } from './assignment'
 import type { WriteRoutingDeps } from './types'
@@ -85,6 +92,8 @@ export async function removeFailedReplicasFromInsync(
 
   const controllerNodeId = await deps.coordinator.getLeaseHolder(CONTROLLER_LEASE_KEY)
   if (controllerNodeId === null) {
+    await deps.refreshAllocation?.(entry.indexName)
+    await assertPrimaryWriteAuthority(entry, deps)
     throw new NarsilError(
       ErrorCodes.REPLICATION_INSYNC_REMOVAL_FAILED,
       `Failed to remove replicas from in-sync set for index '${entry.indexName}': no active controller lease holder`,
@@ -103,12 +112,15 @@ export async function removeFailedReplicasFromInsync(
     )
 
     if (!accepted) {
+      await deps.refreshAllocation?.(entry.indexName)
+      await assertPrimaryWriteAuthority(entry, deps)
       throw new NarsilError(
         ErrorCodes.REPLICATION_INSYNC_REMOVAL_FAILED,
         `Controller rejected in-sync removal for replica '${replicaNodeId}' of index '${entry.indexName}' partition ${entry.partitionId}`,
         { indexName: entry.indexName, partitionId: entry.partitionId, replicaNodeId },
       )
     }
+    forgetAdmittedReplica(deps.catchUp, entry.indexName, entry.partitionId, replicaNodeId)
   }
 }
 
@@ -137,11 +149,18 @@ export async function replicateEntry(
   entry: ReplicationLogEntry,
   assignment: PartitionAssignment,
   deps: WriteRoutingDeps,
+  indexUuid?: string,
 ): Promise<void> {
+  const admitted = admittedBeyondTable(deps.catchUp, entry.indexName, entry.partitionId, assignment)
   const pending = getPendingAdmissions(deps.catchUp, entry.indexName, entry.partitionId)
-  const replicaTargets = getInSyncReplicaTargets(assignment, deps.nodeId, pending)
-  const result = await replicateToReplicas(entry, replicaTargets, deps.transport, deps.nodeId, deps.resolveNodeTargets)
-  const inSyncFailures = cancelAdmissionsForFailures(entry, result.failed, assignment, deps)
+  const replicaTargets = getInSyncReplicaTargets(assignment, deps.nodeId, [...pending, ...admitted])
+  const result = await untilSuperseded(
+    deps.getReplicationLog(entry.indexName, entry.partitionId),
+    entry,
+    replicateToReplicas(entry, replicaTargets, deps.transport, deps.nodeId, deps.resolveNodeTargets, indexUuid),
+  )
+  recordAcknowledgements(deps.catchUp, entry.indexName, entry.partitionId, result.acknowledged, entry.seqNo)
+  const inSyncFailures = cancelAdmissionsForFailures(entry, result.failed, assignment, admitted, deps)
   await removeFailedReplicasFromInsync(entry, inSyncFailures, deps)
   await assertPrimaryWriteAuthority(entry, deps)
   deps.getReplicationLog(entry.indexName, entry.partitionId).advanceCommitPoint(entry.seqNo)
@@ -151,11 +170,12 @@ function cancelAdmissionsForFailures(
   entry: ReplicationLogEntry,
   failedReplicas: string[],
   assignment: PartitionAssignment,
+  admitted: string[],
   deps: WriteRoutingDeps,
 ): string[] {
   const inSyncFailures: string[] = []
   for (const replicaNodeId of failedReplicas) {
-    if (assignment.inSyncSet.includes(replicaNodeId)) {
+    if (assignment.inSyncSet.includes(replicaNodeId) || admitted.includes(replicaNodeId)) {
       inSyncFailures.push(replicaNodeId)
       continue
     }
@@ -168,21 +188,22 @@ export async function replicateEntryBatch(
   entries: ReplicationLogEntry[],
   assignment: PartitionAssignment,
   deps: WriteRoutingDeps,
+  indexUuid?: string,
 ): Promise<void> {
   if (entries.length === 0) {
     return
   }
   const lastEntry = entries[entries.length - 1]
+  const admitted = admittedBeyondTable(deps.catchUp, lastEntry.indexName, lastEntry.partitionId, assignment)
   const pending = getPendingAdmissions(deps.catchUp, lastEntry.indexName, lastEntry.partitionId)
-  const replicaTargets = getInSyncReplicaTargets(assignment, deps.nodeId, pending)
-  const result = await replicateBatchToReplicas(
-    entries,
-    replicaTargets,
-    deps.transport,
-    deps.nodeId,
-    deps.resolveNodeTargets,
+  const replicaTargets = getInSyncReplicaTargets(assignment, deps.nodeId, [...pending, ...admitted])
+  const result = await untilSuperseded(
+    deps.getReplicationLog(lastEntry.indexName, lastEntry.partitionId),
+    lastEntry,
+    replicateBatchToReplicas(entries, replicaTargets, deps.transport, deps.nodeId, deps.resolveNodeTargets, indexUuid),
   )
-  const inSyncFailures = cancelAdmissionsForFailures(lastEntry, result.failed, assignment, deps)
+  recordAcknowledgements(deps.catchUp, lastEntry.indexName, lastEntry.partitionId, result.acknowledged, lastEntry.seqNo)
+  const inSyncFailures = cancelAdmissionsForFailures(lastEntry, result.failed, assignment, admitted, deps)
   await removeFailedReplicasFromInsync(lastEntry, inSyncFailures, deps)
   await assertPrimaryWriteAuthority(lastEntry, deps)
   deps.getReplicationLog(lastEntry.indexName, lastEntry.partitionId).advanceCommitPoint(lastEntry.seqNo)

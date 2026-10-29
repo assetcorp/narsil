@@ -172,12 +172,14 @@ describe('EtcdCoordinator unit tests', () => {
       const assignment = table.assignments.get(0)
       if (assignment === undefined) throw new Error('expected partition 0')
       assignment.commitPoint = 42
+      table.indexUuid = 'idx-0192f0c4'
 
       const restored = deserializeAllocationTable(Buffer.from(serializeAllocationTable(table)))
       expect(restored.assignments.get(0)?.commitPoint).toBe(42)
+      expect(restored.indexUuid).toBe('idx-0192f0c4')
     })
 
-    it('reads a table written without a commit point as zero', () => {
+    it('reads a table from an earlier release with a zero commit point and no index uuid', () => {
       const legacy = {
         indexName: 'products',
         version: 1,
@@ -187,6 +189,7 @@ describe('EtcdCoordinator unit tests', () => {
 
       const restored = deserializeAllocationTable(Buffer.from(new Uint8Array(encode(legacy))))
       expect(restored.assignments.get(0)?.commitPoint).toBe(0)
+      expect(restored.indexUuid).toBeUndefined()
     })
 
     it('reads every commit point outside the safe integer range as zero', () => {

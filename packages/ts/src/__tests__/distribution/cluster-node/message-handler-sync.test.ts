@@ -68,6 +68,7 @@ describe('createDataNodeHandler sync_request routing', () => {
     const handler = createDataNodeHandler({
       nodeId: 'primary-node',
       engine: {
+        indexUuidOf: () => null,
         listIndexes: () => [{ name: 'products', state: 'open' }],
         acquireIndexForReplication: async () => () => {},
       } as unknown as ClusterLocalEngine,
@@ -110,6 +111,7 @@ describe('createDataNodeHandler sync_request routing', () => {
     const handler = createDataNodeHandler({
       nodeId: 'primary-node',
       engine: {
+        indexUuidOf: () => null,
         listIndexes: () => [{ name: 'products', state: 'closed' }],
         open,
         acquireIndexForReplication,
@@ -137,7 +139,7 @@ describe('createDataNodeHandler sync_request routing', () => {
   it('refuses a sync for an index the primary holds no copy of yet', async () => {
     const handler = createDataNodeHandler({
       nodeId: 'primary-node',
-      engine: { listIndexes: () => [] } as unknown as ClusterLocalEngine,
+      engine: { listIndexes: () => [], indexUuidOf: () => null } as unknown as ClusterLocalEngine,
       coordinator: makeCoordinator(makeAssignment()),
       writeDeps: {
         getReplicationLog: () => createReplicationLog(0),
@@ -182,6 +184,7 @@ describe('createDataNodeHandler sync_request routing', () => {
       }))
     const spoolDirectory = await mkdtemp(join(tmpdir(), 'narsil-sync-spool-'))
     const engine = {
+      indexUuidOf: () => null,
       listIndexes: () => [{ name: 'products', state: 'open' }],
       acquireIndexForReplication: async () => () => {},
       snapshot,

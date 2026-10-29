@@ -1,4 +1,5 @@
 import { createReadStream } from 'node:fs'
+import { indexReadsOf } from '../../narsil/index-reads'
 import type { PartitionConfig } from '../../types/schema'
 import type { SynonymRule } from '../../types/synonyms'
 import { SNAPSHOT_ARCHIVE_CONTENT_TYPE } from '../constants'
@@ -102,8 +103,8 @@ export function createAdminHandlers(deps: HandlerDeps) {
     }
   }
 
-  function requireIndexExists(name: string): void {
-    engine.getStats(name)
+  async function requireIndexExists(name: string): Promise<void> {
+    await indexReadsOf(engine).getStats(name)
   }
 
   async function optimize(ctx: RouteContext): Promise<void> {
@@ -111,7 +112,7 @@ export function createAdminHandlers(deps: HandlerDeps) {
     if (!body) return
     const name = ctx.params[0]
     try {
-      requireIndexExists(name)
+      await requireIndexExists(name)
     } catch (err) {
       respondError(ctx, err)
       return
@@ -123,7 +124,7 @@ export function createAdminHandlers(deps: HandlerDeps) {
   async function rebuildAnalysis(ctx: RouteContext): Promise<void> {
     const name = ctx.params[0]
     try {
-      requireIndexExists(name)
+      await requireIndexExists(name)
     } catch (err) {
       respondError(ctx, err)
       return
@@ -143,7 +144,7 @@ export function createAdminHandlers(deps: HandlerDeps) {
     const target = body.targetPartitionCount as number
     const name = ctx.params[0]
     try {
-      requireIndexExists(name)
+      await requireIndexExists(name)
     } catch (err) {
       respondError(ctx, err)
       return

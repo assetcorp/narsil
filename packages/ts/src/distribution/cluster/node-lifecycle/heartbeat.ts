@@ -82,6 +82,12 @@ export function renewRegistrationNow(state: RegistrationHeartbeatState, config: 
   queueRegistrationWrite(state, config)
 }
 
+export function writeRegistrationInTurn(state: RegistrationHeartbeatState, config: NodeLifecycleConfig): Promise<void> {
+  const written = state.inFlight.then(() => writeRegistration(config))
+  state.inFlight = written.catch(() => {})
+  return written
+}
+
 /**
  * Stops renewing a node's registration and waits for the renewal already in flight.
  *

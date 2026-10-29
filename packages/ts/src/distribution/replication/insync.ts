@@ -1,4 +1,5 @@
 import { decode } from '@msgpack/msgpack'
+import { rewriteForCurrentIndex } from '../cluster/table-identity'
 import type { ClusterCoordinator, PartitionAssignment } from '../coordinator/types'
 import type { InsyncAddPayload, InsyncConfirmPayload, InsyncRemovePayload, NodeTransport } from '../transport/types'
 import { createInsyncAddMessage, createInsyncRemoveMessage, validateInsyncConfirmPayload } from './codec'
@@ -15,6 +16,7 @@ const ACCEPT: AssignmentDecision = { outcome: 'accept' }
 async function updateInsyncSet(
   request: { indexName: string; partitionId: number; primaryTerm: number },
   coordinator: ClusterCoordinator,
+  controllerNodeId: string,
   decide: (assignment: PartitionAssignment) => AssignmentDecision,
 ): Promise<InsyncConfirmPayload> {
   const refused: InsyncConfirmPayload = {
@@ -49,11 +51,15 @@ async function updateInsyncSet(
     const updatedAssignments = new Map(table.assignments)
     updatedAssignments.set(request.partitionId, decision.assignment)
 
-    const written = await coordinator.putAllocation(
-      request.indexName,
-      { ...table, version: table.version + 1, assignments: updatedAssignments },
-      table.version,
-    )
+    const rewritten = await rewriteForCurrentIndex(coordinator, {
+      ...table,
+      version: table.version + 1,
+      assignments: updatedAssignments,
+    })
+    if (rewritten === null) {
+      return refused
+    }
+    const written = await coordinator.putAllocation(request.indexName, rewritten, table.version, controllerNodeId)
     if (written) {
       return { ...refused, accepted: true }
     }
@@ -113,13 +119,16 @@ export async function requestInsyncRemoval(
  *
  * @param payload - The removal request the primary sent.
  * @param coordinator - The cluster coordinator that stores the allocation table.
+ * @param controllerNodeId - The controller's own node id, which must hold the controller lease for the write to
+ *   take effect.
  * @returns The confirmation payload, whose `accepted` field reports whether the in-sync set now excludes the replica.
  */
 export function handleInsyncRemoval(
   payload: InsyncRemovePayload,
   coordinator: ClusterCoordinator,
+  controllerNodeId: string,
 ): Promise<InsyncConfirmPayload> {
-  return updateInsyncSet(payload, coordinator, assignment => {
+  return updateInsyncSet(payload, coordinator, controllerNodeId, assignment => {
     if (assignment.state === 'UNASSIGNED') {
       return REFUSE
     }
@@ -168,19 +177,28 @@ export async function requestInsyncAdmission(
  * controller sends back.
  *
  * The controller refuses the request unless the assignment's term matches, the partition is `ACTIVE`, the node is an
- * assigned replica, and the replica's applied position has reached both the stored commit point and the primary's
- * own. It raises the stored commit point to the request's value whenever it accepts, and that value never moves
- * backwards, so a repeated request from a replica that is already in the set still moves the floor forward.
+ * assigned replica whose registration the cluster coordinator holds, and the replica's applied position has reached
+ * both the stored commit point and the primary's own. A node whose registration has lapsed stays out, because the
+ * allocator would remove it again on its next run. The controller raises the stored commit point to the request's
+ * value whenever it accepts, and that value never moves backwards, so a repeated request from a replica that is
+ * already in the set still moves the floor forward.
  *
  * @param payload - The admission request the primary sent.
  * @param coordinator - The cluster coordinator that stores the allocation table.
+ * @param controllerNodeId - The controller's own node id, which must hold the controller lease for the write to
+ *   take effect.
  * @returns The confirmation payload, whose `accepted` field reports whether the in-sync set now holds the replica.
  */
-export function handleInsyncAdmission(
+export async function handleInsyncAdmission(
   payload: InsyncAddPayload,
   coordinator: ClusterCoordinator,
+  controllerNodeId: string,
 ): Promise<InsyncConfirmPayload> {
-  return updateInsyncSet(payload, coordinator, assignment => {
+  const registered = await coordinator.listNodes()
+  if (!registered.some(node => node.nodeId === payload.replicaNodeId)) {
+    return { indexName: payload.indexName, partitionId: payload.partitionId, accepted: false }
+  }
+  return updateInsyncSet(payload, coordinator, controllerNodeId, assignment => {
     if (assignment.state !== 'ACTIVE') {
       return REFUSE
     }

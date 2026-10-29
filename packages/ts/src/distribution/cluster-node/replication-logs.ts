@@ -1,5 +1,7 @@
+import type { PartitionLogPosition } from '../../persistence/durability/types'
 import { createReplicationLog } from '../replication/log'
 import type { ReplicationConfig, ReplicationLog } from '../replication/types'
+import { carryKnownTerms, noteAcceptedPrimaryTerm } from './led-term'
 
 export function replicationLogKey(indexName: string, partitionId: number): string {
   return `${indexName}:${partitionId}`
@@ -10,11 +12,18 @@ export function getReplicationLog(
   indexName: string,
   partitionId: number,
   replicationConfig?: Partial<ReplicationConfig>,
+  persistedPosition?: (indexName: string, partitionId: number) => PartitionLogPosition,
 ): ReplicationLog {
   const key = replicationLogKey(indexName, partitionId)
   let log = replicationLogs.get(key)
   if (log === undefined) {
-    log = createReplicationLog(partitionId, { logRetentionBytes: replicationConfig?.logRetentionBytes })
+    const persisted = persistedPosition?.(indexName, partitionId) ?? { seqNo: 0, primaryTerm: 0 }
+    log = createReplicationLog(partitionId, {
+      logRetentionBytes: replicationConfig?.logRetentionBytes,
+      startSeqNo: persisted.seqNo + 1,
+      lastPrimaryTerm: persisted.primaryTerm,
+    })
+    noteAcceptedPrimaryTerm(log, persisted.primaryTerm)
     replicationLogs.set(key, log)
   }
   return log
@@ -28,14 +37,15 @@ export function seedReplicationLog(
   lastPrimaryTerm = 0,
   replicationConfig?: Partial<ReplicationConfig>,
 ): void {
-  replicationLogs.set(
-    replicationLogKey(indexName, partitionId),
-    createReplicationLog(partitionId, {
-      startSeqNo,
-      lastPrimaryTerm,
-      logRetentionBytes: replicationConfig?.logRetentionBytes,
-    }),
-  )
+  const key = replicationLogKey(indexName, partitionId)
+  const seeded = createReplicationLog(partitionId, {
+    startSeqNo,
+    lastPrimaryTerm,
+    logRetentionBytes: replicationConfig?.logRetentionBytes,
+  })
+  carryKnownTerms(replicationLogs.get(key), seeded)
+  noteAcceptedPrimaryTerm(seeded, lastPrimaryTerm)
+  replicationLogs.set(key, seeded)
 }
 
 /**

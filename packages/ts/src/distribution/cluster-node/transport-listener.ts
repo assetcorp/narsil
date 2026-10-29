@@ -18,7 +18,10 @@ export interface MultiplexedControllerTransport {
 const CONTROLLER_MESSAGE_TYPES = new Set<string>([
   ReplicationMessageTypes.INSYNC_ADD,
   ReplicationMessageTypes.INSYNC_REMOVE,
+  ReplicationMessageTypes.PRIMARY_RESIGN,
   ClusterMessageTypes.BOOTSTRAP_COMPLETE,
+  ClusterMessageTypes.REPLICATION_FACTOR,
+  ClusterMessageTypes.REBALANCE,
 ])
 
 function refuseMessage(

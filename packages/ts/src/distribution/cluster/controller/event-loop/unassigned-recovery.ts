@@ -13,6 +13,7 @@ import { PARTITION_STORES_TIMEOUT_MS, RECOVERY_CAS_ATTEMPTS } from '../../consta
 import { getIndexMetadata } from '../../index-metadata'
 import { lastHoldersOf } from '../../last-holders'
 import { createPartitionStoresMessage, validatePartitionStoresResultPayload } from '../../partition-stores'
+import { rewriteForCurrentIndex } from '../../table-identity'
 
 interface RecoveryDeps {
   coordinator: ClusterCoordinator
@@ -225,11 +226,11 @@ async function writeRecoveryOutcome(
       return false
     }
 
-    const written = await deps.coordinator.putAllocation(
-      indexName,
-      { ...table, version: table.version + 1, assignments },
-      table.version,
-    )
+    const next = await rewriteForCurrentIndex(deps.coordinator, { ...table, version: table.version + 1, assignments })
+    if (next === null) {
+      return false
+    }
+    const written = await deps.coordinator.putAllocation(indexName, next, table.version, deps.controllerNodeId)
     if (written) {
       return anyPromoted
     }

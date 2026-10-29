@@ -97,7 +97,7 @@ describe('DataNodeLifecycle leave, shutdown, retry, and edge cases', () => {
       await coordinator.registerNode(makeNode('primary-node'))
 
       const assignments = new Map<number, PartitionAssignment>()
-      assignments.set(0, makeAssignment({ primary: 'primary-node', replicas: ['data-1'] }))
+      assignments.set(0, makeAssignment({ primary: 'data-1', replicas: ['primary-node'] }))
       await coordinator.putAllocation('products', makeAllocationTable('products', assignments))
 
       createLifecycle({
@@ -206,7 +206,6 @@ describe('DataNodeLifecycle leave, shutdown, retry, and edge cases', () => {
 
     it('does not bootstrap when node is primary for the partition', async () => {
       const bootstrapFn = vi.fn().mockResolvedValue(true)
-      await coordinator.registerNode(makeNode('data-1'))
 
       const assignments = new Map<number, PartitionAssignment>()
       assignments.set(

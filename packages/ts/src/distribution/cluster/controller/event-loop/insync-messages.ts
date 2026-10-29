@@ -69,7 +69,7 @@ export function validateInsyncAddPayload(decoded: unknown): InsyncAddPayload | n
   return { ...base, appliedSeqNo: decoded.appliedSeqNo, commitPoint: decoded.commitPoint }
 }
 
-function decodeMessage(message: TransportMessage): unknown | null {
+export function decodeMessage(message: TransportMessage): unknown | null {
   try {
     return decode(message.payload)
   } catch (_) {
@@ -77,7 +77,7 @@ function decodeMessage(message: TransportMessage): unknown | null {
   }
 }
 
-function describeRequest(decoded: unknown): { indexName: string; partitionId: number } {
+export function describeRequest(decoded: unknown): { indexName: string; partitionId: number } {
   if (!isRecord(decoded)) {
     return { indexName: '', partitionId: UNKNOWN_PARTITION_ID }
   }
@@ -101,11 +101,23 @@ async function assertSenderLeadsPartition(
   return assignment.primary === sourceId
 }
 
-function enqueue(state: EventLoopState, task: () => Promise<void>): void {
+async function assertSenderMayRemove(
+  coordinator: ClusterCoordinator,
+  payload: InsyncRemovePayload,
+  sourceId: string,
+): Promise<boolean> {
+  const table = await coordinator.getAllocation(payload.indexName)
+  const assignment = table?.assignments.get(payload.partitionId)
+  if (assignment === undefined) return false
+  if (assignment.primary === sourceId) return true
+  return sourceId === payload.replicaNodeId && assignment.replicas.includes(sourceId)
+}
+
+export function enqueue(state: EventLoopState, task: () => Promise<void>): void {
   state.insyncQueue = state.insyncQueue.then(task).catch(() => {})
 }
 
-async function respondRefusal(
+export async function respondRefusal(
   respond: RespondFn,
   request: { indexName: string; partitionId: number },
   nodeId: string,
@@ -122,16 +134,17 @@ async function respondRefusal(
 }
 
 /**
- * Answers a primary that asked the controller to drop a replica from a partition's in-sync set.
+ * Answers a primary that asked the controller to drop a replica from a partition's in-sync set, or a replica whose
+ * copy failed and that asked to drop itself.
  *
  * The controller queues the work behind every other in-sync change, so that two changes to one allocation table
- * never race. It refuses the request, rather than leaving the primary waiting for a transport timeout, when the
- * payload fails validation, when the sender does not lead the partition, or when this node has lost leadership
- * while the work waited in the queue.
+ * never race. It refuses the request, rather than leaving the sender waiting for a transport timeout, when the
+ * payload fails validation, when the sender is neither the partition's primary nor the assigned replica that the
+ * request removes, or when this node has lost leadership while the work waited in the queue.
  *
  * @param state - The event loop state that holds the in-sync queue.
- * @param message - The request the primary sent.
- * @param respond - The function that returns the confirmation to the primary.
+ * @param message - The request the primary or the failed replica sent.
+ * @param respond - The function that returns the confirmation to the sender.
  * @param coordinator - The cluster coordinator that stores the allocation table.
  * @param nodeId - The controller's own node id, which names the sender of the confirmation.
  * @param isActive - Reports whether this node still holds the controller lease.
@@ -152,17 +165,12 @@ export function handleInsyncRemoveMessage(
   }
 
   enqueue(state, async () => {
-    const leadsPartition = await assertSenderLeadsPartition(
-      coordinator,
-      payload.indexName,
-      payload.partitionId,
-      message.sourceId,
-    )
-    if (!leadsPartition || !isActive()) {
+    const mayRemove = await assertSenderMayRemove(coordinator, payload, message.sourceId)
+    if (!mayRemove || !isActive()) {
       await respondRefusal(respond, payload, nodeId, message.requestId)
       return
     }
-    const confirmPayload = await handleInsyncRemoval(payload, coordinator)
+    const confirmPayload = await handleInsyncRemoval(payload, coordinator, nodeId)
     await respond(createInsyncConfirmMessage(confirmPayload, nodeId, message.requestId))
   })
 }
@@ -210,7 +218,7 @@ export function handleInsyncAddMessage(
       await respondRefusal(respond, payload, nodeId, message.requestId)
       return
     }
-    const confirmPayload = await handleInsyncAdmission(payload, coordinator)
+    const confirmPayload = await handleInsyncAdmission(payload, coordinator, nodeId)
     await respond(createInsyncConfirmMessage(confirmPayload, nodeId, message.requestId))
 
     if (confirmPayload.accepted && isActive()) {

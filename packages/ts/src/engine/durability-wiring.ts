@@ -1,6 +1,7 @@
 import type { PartitionManager } from '../partitioning/manager'
 import type { LayoutUpgradeEvent } from '../persistence/durability/earlier-layout/upgrade'
 import type { IndexMetadata } from '../types/internal'
+import type { HeldCheckpointReport } from '../types/memory'
 import type { IndexRegistryEntry } from './core'
 import { createDurabilityIntegration, type DurabilityIntegration, type DurabilityTier } from './durability-integration'
 import { metadataConfigOf } from './durability-metadata'
@@ -11,6 +12,7 @@ interface DurabilityWiring {
   createIndexFromMetadata: (metadata: IndexMetadata, loadData: boolean) => Promise<void>
   emitFatalError: (error: Error) => void
   emitLayoutUpgrade: (event: LayoutUpgradeEvent) => void
+  emitCheckpointHeld: (report: HeldCheckpointReport) => void
   publishCheckpointedPartitions: (indexName: string, partitions: number[]) => Promise<void>
   recordCheckpoint: (indexName: string, documentCount: number, partitionCount: number) => void
 }
@@ -29,6 +31,7 @@ export function createDurabilityFromTier(tier: DurabilityTier, wiring: Durabilit
     createIndexFromMetadata: wiring.createIndexFromMetadata,
     recordCheckpoint: wiring.recordCheckpoint,
     onLayoutUpgrade: wiring.emitLayoutUpgrade,
+    onCheckpointHeld: wiring.emitCheckpointHeld,
     onFatalError: wiring.emitFatalError,
   })
 }

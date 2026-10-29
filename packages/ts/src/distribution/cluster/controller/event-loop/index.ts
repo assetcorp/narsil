@@ -3,7 +3,10 @@ import type { NodeTransport, RespondFn, TransportMessage } from '../../../transp
 import { ClusterMessageTypes, ReplicationMessageTypes } from '../../../transport/types'
 import { handleSchemaEvent, scheduleDebouncedAllocation } from './allocation'
 import { handleInsyncAddMessage, handleInsyncRemoveMessage, handleQueuedBootstrapComplete } from './insync-messages'
-import { changesTopology, clearEventLoopWatchers, type EventLoopState } from './state'
+import { handlePrimaryResignMessage } from './primary-resign'
+import { handleRebalanceMessage, resumeRebalance, resumeRebalances } from './rebalance/request'
+import { handleReplicationFactorMessage } from './replication-factor'
+import { changesTopology, clearEventLoopWatchers, type EventLoopState, inSchemaQueue } from './state'
 
 export { clearEventLoopWatchers, createEventLoopState, type EventLoopState } from './state'
 
@@ -11,8 +14,9 @@ export { clearEventLoopWatchers, createEventLoopState, type EventLoopState } fro
  * Starts the work an active controller does, which is to watch the cluster for change and to answer the messages a
  * primary sends it.
  *
- * The controller registers a watcher on node registrations and another on schemas, listens for in-sync and bootstrap
- * messages, and runs the allocator once for every index it starts with. A registration that changes only its memory
+ * The controller registers a watcher on node registrations and another on schemas, listens for in-sync, bootstrap,
+ * replication factor, and partition count change messages, runs the allocator once for every index it starts with,
+ * and resumes every partition count change that a previous controller left in its record. A registration that changes only its memory
  * figures or its partition sizes starts no allocation run, because every node writes those again on each heartbeat. A failure at any of those steps drops the watchers this call had
  * already registered, before the error reaches the caller, so that a controller which failed to start leaves
  * nothing running behind it.
@@ -45,19 +49,32 @@ export async function startEventLoop(
     })
 
     state.unwatchSchemas = await coordinator.watchSchemas((event: SchemaEvent) => {
-      handleSchemaEvent(event, coordinator, state, isActive, onError).catch(error => {
+      inSchemaQueue(state, event.indexName, () =>
+        handleSchemaEvent(event, coordinator, state, isActive, onError),
+      ).catch(error => {
         if (onError !== undefined) {
           onError(event.indexName, error)
         }
       })
+      void resumeRebalance({ state, coordinator, nodeId, isActive, onError }, event.indexName)
     })
 
     state.unwatchTransport = await transport.listen((message: TransportMessage, respond: RespondFn) => {
+      if (message.type === ClusterMessageTypes.REPLICATION_FACTOR) {
+        handleReplicationFactorMessage(state, message, respond, coordinator, nodeId, isActive, onError)
+        return
+      }
+      if (message.type === ClusterMessageTypes.REBALANCE) {
+        handleRebalanceMessage({ state, coordinator, nodeId, isActive, onError }, message, respond)
+        return
+      }
       if (!isActive()) {
         return
       }
       if (message.type === ReplicationMessageTypes.INSYNC_REMOVE) {
         handleInsyncRemoveMessage(state, message, respond, coordinator, nodeId, isActive)
+      } else if (message.type === ReplicationMessageTypes.PRIMARY_RESIGN) {
+        handlePrimaryResignMessage(state, message, respond, coordinator, nodeId, isActive, onError)
       } else if (message.type === ReplicationMessageTypes.INSYNC_ADD) {
         handleInsyncAddMessage(state, message, respond, coordinator, nodeId, isActive, onError)
       } else if (message.type === ClusterMessageTypes.BOOTSTRAP_COMPLETE) {
@@ -70,4 +87,5 @@ export async function startEventLoop(
   }
 
   scheduleDebouncedAllocation(state, coordinator, isActive, onError)
+  resumeRebalances({ state, coordinator, nodeId, isActive, onError }).catch(error => onError?.('', error))
 }

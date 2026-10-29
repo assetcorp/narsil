@@ -1,11 +1,14 @@
 import type { NarsilError } from '../../../errors'
 import type { Narsil } from '../../../narsil'
+import type { PartitionLogPosition } from '../../../persistence/durability/types'
 import type { IndexConfig } from '../../../types/schema'
 import type { ClusterCoordinator } from '../../coordinator/types'
 import type { createSnapshotStreamState } from '../../replication/snapshot-stream-assembler'
 import type { ReplicationLog, ReplicationLogEntry } from '../../replication/types'
 import type { NodeTransport, ReplicationSnapshotHeader, SyncEntriesPayload } from '../../transport/types'
 import type { ABORT_SENTINEL } from '../bootstrap-restore'
+import type { AppliedReplicationEntries } from '../local-replication'
+import type { PartitionWriteQueues } from '../write-routing/partition-queue'
 
 export interface BootstrapEntry {
   indexName: string
@@ -29,11 +32,13 @@ export interface BootstrapSyncDeps {
   transport: NodeTransport
   sourceNodeId: string
   resolveNodeTargets: (nodeId: string) => Promise<string[]>
+  partitionWriteQueues: PartitionWriteQueues
   onError?: (error: unknown) => void
   onSnapshotApplied?: (indexName: string, partitionId: number, header: ReplicationSnapshotHeader) => void
   getReplicationLog?: (indexName: string, partitionId: number) => ReplicationLog
   resetReplicationLog?: (indexName: string, partitionId: number, startSeqNo: number, lastPrimaryTerm?: number) => void
-  applyReplicationEntry?: (entry: ReplicationLogEntry) => Promise<void>
+  applyReplicationEntries?: (entries: readonly ReplicationLogEntry[]) => Promise<AppliedReplicationEntries>
+  restartLocalLog?: (indexName: string, partitionId: number, position: PartitionLogPosition) => Promise<void>
   restoreReplicationPartition?: (
     indexName: string,
     partitionId: number,
@@ -48,7 +53,7 @@ export interface BootstrapSyncDeps {
 export interface LiveBootstrapSyncDeps extends BootstrapSyncDeps {
   getReplicationLog: (indexName: string, partitionId: number) => ReplicationLog
   resetReplicationLog: (indexName: string, partitionId: number, startSeqNo: number, lastPrimaryTerm?: number) => void
-  applyReplicationEntry: (entry: ReplicationLogEntry) => Promise<void>
+  applyReplicationEntries: (entries: readonly ReplicationLogEntry[]) => Promise<AppliedReplicationEntries>
   restoreReplicationPartition: (
     indexName: string,
     partitionId: number,

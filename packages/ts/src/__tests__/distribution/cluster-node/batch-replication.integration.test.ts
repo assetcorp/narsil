@@ -38,9 +38,10 @@ function docIdsForPartition(partitionId: number, partitionCount: number, count: 
 
 function recordingTransport(inner: NodeTransport, recordedTypes: string[]): NodeTransport {
   return {
-    send: (target: string, message: TransportMessage) => {
+    send: async (target: string, message: TransportMessage) => {
+      const response = await inner.send(target, message)
       recordedTypes.push(message.type)
-      return inner.send(target, message)
+      return response
     },
     stream: (target: string, message: TransportMessage, handler: (chunk: Uint8Array) => void) =>
       inner.stream(target, message, handler),

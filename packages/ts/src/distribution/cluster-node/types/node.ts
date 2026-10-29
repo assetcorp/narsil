@@ -3,6 +3,7 @@ import type { NarsilEventMap } from '../../../types/events'
 import type { MemoryStats } from '../../../types/memory'
 import type {
   BatchResult,
+  IndexInfo,
   IndexStats,
   ListResult,
   PartitionStatsResult,
@@ -218,6 +219,48 @@ export interface ClusterNode {
    */
   preflight(indexName: string, params: QueryParams): Promise<PreflightResult>
   /**
+   * Lists every index that the cluster holds a schema for, with its document count summed over every partition, its
+   * partition count, and its language.
+   *
+   * The state, the reopen count, and the stale analysis flag describe this node's own copy, so an index that this node
+   * holds no copy of reports `open` and 0 reopens. An index that a caller drops while the listing runs drops out of it.
+   *
+   * @returns One entry per index, in the order the coordinator lists the schemas.
+   * @throws A `NarsilError` with `QUERY_PARTIAL_FAILURE` where no copy of some partition answers its count.
+   */
+  listIndexes(): Promise<IndexInfo[]>
+  /**
+   * Rebuilds the terms of an index on every node that holds a copy, and resolves once every one of those nodes has
+   * finished.
+   *
+   * Each node rebuilds its own copies from their documents, so a primary and its replicas reach the same terms without
+   * sending entries, and a node skips a copy whose analysis is already current. A node that answers late keeps its
+   * rebuild running, and this call waits for it for as long as the node stays registered.
+   *
+   * @param indexName - The index whose terms are rebuilt.
+   * @throws A `NarsilError` with `INDEX_NOT_FOUND` where the cluster holds no such index, and with
+   *   `QUERY_PARTIAL_FAILURE`, naming each node in `details.nodeIds`, where a node fails, cannot be reached, or leaves
+   *   the cluster before it answers.
+   */
+  rebuildAnalysis(indexName: string): Promise<void>
+  /**
+   * Moves an index onto a new number of partitions, and resolves once every read and write of the index goes to the new
+   * layout.
+   *
+   * The controller copies every document into a hidden index that has the new partition count while the current
+   * layout keeps serving reads and writes. Once the copy has caught up, writes to the index wait for a cutover of a few
+   * seconds at most, failing with `PARTITION_REBALANCING_BACKPRESSURE` until it finishes, and the index name moves onto
+   * the new layout in a single allocation write.
+   *
+   * @param indexName - The index whose partition count changes.
+   * @param targetPartitionCount - The number of partitions that the index ends up with.
+   * @throws A `NarsilError` with `INDEX_NOT_FOUND` where the cluster holds no such index, with `CONFIG_INVALID` for a
+   *   count outside the allowed range or equal to the current one, with `PARTITION_REBALANCING_BACKPRESSURE` while
+   *   another change to the same index runs, with `NODE_NOT_CONTROLLER` where no node holds the controller lease, and
+   *   with `ALLOCATION_FAILED` where the controller aborts the change.
+   */
+  rebalance(indexName: string, targetPartitionCount: number): Promise<void>
+  /**
    * Describes one index across the cluster: its document count and memory
    * estimate summed over every partition, its partition count, its language,
    * and its schema.
@@ -328,8 +371,35 @@ export interface ClusterNode {
   /** This reaches the cluster-facing side of the node. */
   cluster: ClusterNamespace
 
-  /** Joins the cluster: the node registers, takes on its allocated partitions, and starts serving. */
+  /**
+   * Joins the cluster: the node registers, takes on its allocated partitions, and starts serving.
+   *
+   * The start fails with `NODE_VERSION_INCOMPATIBLE` where the active controller follows a specification version
+   * with another major version, because nodes on different major versions cannot share a cluster. A node that finds
+   * no active controller joins, and a later controller on another major version gives it no partition.
+   */
   start(): Promise<void>
-  /** Leaves the cluster: the node hands its partitions on, deregisters, and closes the engine it ran. */
+  /**
+   * Leaves the cluster for good: the controller moves every copy that the node holds to other nodes, and the node then
+   * deregisters and shuts down.
+   *
+   * The node publishes its registration with `draining` set, so the controller places nothing new on it, hands each
+   * partition that it leads to an in-sync replica elsewhere, and moves each of its replicas by adding the new copy
+   * before it drops this one. The call returns once no allocation table names the node and {@link ClusterNode.shutdown}
+   * has finished. The drain waits for as long as the cluster has no other node that can take a copy, so pass `signal`
+   * to give up. An abort rejects with the signal's reason and publishes the registration without `draining`, which
+   * stops the drain and leaves the node in the cluster.
+   *
+   * @param options - Holds `signal`, which ends the wait and keeps the node in the cluster.
+   * @returns A promise that settles once the node has left the cluster and shut down.
+   */
+  decommission(options?: { signal?: AbortSignal }): Promise<void>
+  /**
+   * Leaves the cluster at once: the node deregisters and closes the engine it ran.
+   *
+   * The controller treats the node as failed, so it promotes a replica for each partition that the node led and waits
+   * `nodeLeftDelayMs` before it moves the node's replicas, which lets a node that restarts in place take them back.
+   * Call {@link ClusterNode.decommission} to move the copies off the node first.
+   */
   shutdown(): Promise<void>
 }

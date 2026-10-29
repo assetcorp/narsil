@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { Etcd3 } from 'etcd3'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import type { AllocationEvent, ClusterCoordinator, SchemaEvent } from '../../../../distribution/coordinator'
 import { createEtcdCoordinator } from '../../../../distribution/coordinator'
@@ -13,6 +14,8 @@ import {
   testSchema,
   waitForEtcdReady,
 } from './fixtures'
+
+const CONTROLLER_LEASE = '_narsil/controller'
 
 describe('EtcdCoordinator integration - CAS and allocations', () => {
   let container: EtcdContainerHandle | null = null
@@ -97,8 +100,9 @@ describe('EtcdCoordinator integration - CAS and allocations', () => {
     const stopSchemaWatch = await coordinator.watchSchemas(event => schemaEvents.push(event))
 
     try {
+      expect(await coordinator.acquireLease(CONTROLLER_LEASE, 'controller-a', 30_000)).toBe(true)
       const initialTable = makeAllocationTable('products')
-      const created = await coordinator.putAllocation('products', initialTable, null)
+      const created = await coordinator.putAllocation('products', initialTable, null, 'controller-a')
       expect(created).toBe(true)
 
       await eventually(
@@ -114,10 +118,10 @@ describe('EtcdCoordinator integration - CAS and allocations', () => {
       const updatedTable = makeAllocationTable('products')
       updatedTable.version = 2
 
-      const staleUpdate = await coordinator.putAllocation('products', updatedTable, 99)
+      const staleUpdate = await coordinator.putAllocation('products', updatedTable, 99, 'controller-a')
       expect(staleUpdate).toBe(false)
 
-      const versionedUpdate = await coordinator.putAllocation('products', updatedTable, 1)
+      const versionedUpdate = await coordinator.putAllocation('products', updatedTable, 1, 'controller-a')
       expect(versionedUpdate).toBe(true)
 
       await eventually(
@@ -172,6 +176,39 @@ describe('EtcdCoordinator integration - CAS and allocations', () => {
     } finally {
       stopAllocationWatch()
       stopSchemaWatch()
+    }
+  }, 20_000)
+
+  it('refuses a table from a controller whose lease etcd dropped once its successor holds the lease', async () => {
+    if (container === null) {
+      throw new Error('Etcd integration container is not available')
+    }
+    const keyPrefix = `_narsil_etcd_fencing_${randomUUID()}`
+    const first = await createEtcdCoordinator({ endpoints: [container.endpoint], keyPrefix })
+    const successor = await createEtcdCoordinator({ endpoints: [container.endpoint], keyPrefix })
+    const raw = new Etcd3({ hosts: [container.endpoint] })
+
+    try {
+      expect(await first.acquireLease(CONTROLLER_LEASE, 'controller-a', 30_000)).toBe(true)
+      const table = makeAllocationTable('orchards')
+      expect(await first.putAllocation('orchards', table, null, 'controller-a')).toBe(true)
+      expect(await first.putAllocation('pears', makeAllocationTable('pears'), null, 'controller-b')).toBe(false)
+
+      await raw.delete().key(`${keyPrefix}/lease/${CONTROLLER_LEASE}`).exec()
+      expect(await successor.acquireLease(CONTROLLER_LEASE, 'controller-b', 30_000)).toBe(true)
+
+      const fromFirst = { ...table, version: 2, replicationFactor: 2 }
+      expect(await first.putAllocation('orchards', fromFirst, 1, 'controller-a')).toBe(false)
+      expect(await first.putAllocation('apples', makeAllocationTable('apples'), null, 'controller-a')).toBe(false)
+      expect((await successor.getAllocation('orchards'))?.version).toBe(1)
+      expect(await successor.getAllocation('apples')).toBeNull()
+
+      expect(await successor.putAllocation('orchards', { ...table, version: 2 }, 1, 'controller-b')).toBe(true)
+      expect((await first.getAllocation('orchards'))?.version).toBe(2)
+    } finally {
+      raw.close()
+      await first.shutdown()
+      await successor.shutdown()
     }
   }, 20_000)
 })

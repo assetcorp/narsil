@@ -4,11 +4,13 @@ import type { QueryParams } from '../../types/search'
 import type { ClusterCoordinator } from '../coordinator/types'
 import { clearCluster } from './clear'
 import { awaitDropAcknowledgement, awaitTornDownCopy } from './drop-acknowledgement'
+import { refuseHiddenGeneration } from './generation-routing'
 import type { ClusterLocalEngine } from './local-engine'
 import {
   type ClusterReadDeps,
   countCluster,
   listCluster,
+  listIndexesCluster,
   partitionStatsCluster,
   preflightCluster,
   queryCluster,
@@ -16,11 +18,14 @@ import {
   statsCluster,
   suggestCluster,
 } from './reads'
+import { rebuildClusterAnalysis } from './rebuild-analysis'
+import { dropServedIndex } from './reshard/drop'
+import type { RebalanceJob } from './reshard/request'
 import { readClusterSynonyms, replaceClusterSynonyms } from './synonym-sets'
+
 import type { ClusterNode, CreateIndexOptions } from './types'
 import {
   routeCreateIndex,
-  routeDropIndex,
   routeInsert,
   routeInsertBatch,
   routeRemove,
@@ -47,6 +52,9 @@ export type ClusterNodeOperations = Pick<
   | 'listDocuments'
   | 'suggest'
   | 'preflight'
+  | 'listIndexes'
+  | 'rebuildAnalysis'
+  | 'rebalance'
   | 'getStats'
   | 'getPartitionStats'
   | 'checkpoint'
@@ -62,6 +70,9 @@ export type ClusterNodeOperations = Pick<
 export interface ClusterNodeOperationDeps {
   trackOp: <T>(indexName: string | null, fn: () => Promise<T>) => Promise<T>
   transitionIndex: <T>(indexName: string, fn: () => Promise<T>) => Promise<T>
+  servingName: (indexName: string) => Promise<string>
+  requestRebalance: (indexName: string, targetPartitionCount: number) => Promise<RebalanceJob>
+  waitForRebalance: (indexName: string, job: RebalanceJob) => Promise<void>
   readDeps: ClusterReadDeps
   writeDeps: WriteRoutingDeps
   engine: ClusterLocalEngine
@@ -73,8 +84,13 @@ export interface ClusterNodeOperationDeps {
 export function createClusterNodeOperations(deps: ClusterNodeOperationDeps): ClusterNodeOperations {
   const { trackOp, readDeps, writeDeps, engine, coordinator } = deps
 
+  function served<T>(indexName: string, fn: (servingName: string) => Promise<T>): Promise<T> {
+    return trackOp(indexName, async () => fn(await deps.servingName(indexName)))
+  }
+
   return {
     async createIndex(name, indexConfig, options?: CreateIndexOptions) {
+      refuseHiddenGeneration(name)
       return trackOp(name, async () => {
         if (!deps.isOrphaned(name)) await awaitTornDownCopy(engine, coordinator, name)
         await routeCreateIndex(name, indexConfig, options, coordinator, engine)
@@ -82,32 +98,33 @@ export function createClusterNodeOperations(deps: ClusterNodeOperationDeps): Clu
     },
 
     async insert(indexName, document, docId?, options?) {
-      return trackOp(indexName, () => routeInsert(indexName, document, docId, writeDeps, options))
+      return served(indexName, name => routeInsert(name, document, docId, writeDeps, options))
     },
 
     async insertBatch(indexName, documents, options?) {
-      return trackOp(indexName, () => routeInsertBatch(indexName, documents, writeDeps, options))
+      return served(indexName, name => routeInsertBatch(name, documents, writeDeps, options))
     },
 
     async remove(indexName, docId) {
-      return trackOp(indexName, () => routeRemove(indexName, docId, writeDeps))
+      return served(indexName, name => routeRemove(name, docId, writeDeps))
     },
 
     async removeBatch(indexName, docIds) {
-      return trackOp(indexName, () => routeRemoveBatch(indexName, docIds, writeDeps))
+      return served(indexName, name => routeRemoveBatch(name, docIds, writeDeps))
     },
 
     async update(indexName, docId, document) {
-      return trackOp(indexName, () => routeUpdate(indexName, docId, document, writeDeps))
+      return served(indexName, name => routeUpdate(name, docId, document, writeDeps))
     },
 
     async updateBatch(indexName, updates) {
-      return trackOp(indexName, () => routeUpdateBatch(indexName, updates, writeDeps))
+      return served(indexName, name => routeUpdateBatch(name, updates, writeDeps))
     },
 
     async dropIndex(name) {
+      refuseHiddenGeneration(name)
       return deps.transitionIndex(name, async () => {
-        const dropped = await routeDropIndex(name, coordinator, engine)
+        const dropped = await dropServedIndex(name, coordinator, engine)
         deps.forgetIndex(name)
         if (dropped !== null) {
           const acknowledgement = { config: readDeps.config, nodeId: readDeps.nodeId, engine, coordinator }
@@ -131,35 +148,50 @@ export function createClusterNodeOperations(deps: ClusterNodeOperationDeps): Clu
     },
 
     async clear(indexName) {
-      return trackOp(indexName, () => clearCluster(readDeps, writeDeps, indexName))
+      return served(indexName, name => clearCluster(readDeps, writeDeps, name))
     },
 
     async countDocuments(indexName) {
-      return trackOp(indexName, () => countCluster(readDeps, indexName))
+      return served(indexName, name => countCluster(readDeps, name))
     },
 
     async listDocuments(indexName, params?) {
-      return trackOp(indexName, () => listCluster(readDeps, indexName, params ?? {}))
+      return served(indexName, name => listCluster(readDeps, name, params ?? {}))
     },
 
     async suggest(indexName, params) {
-      return trackOp(indexName, () => suggestCluster(readDeps, indexName, params))
+      return served(indexName, name => suggestCluster(readDeps, name, params))
     },
 
     async preflight(indexName, params) {
-      return trackOp(indexName, () => preflightCluster(readDeps, indexName, params))
+      return served(indexName, name => preflightCluster(readDeps, name, params))
+    },
+
+    async rebuildAnalysis(indexName) {
+      return served(indexName, name =>
+        rebuildClusterAnalysis({ nodeId: readDeps.nodeId, config: readDeps.config, engine }, name),
+      )
+    },
+
+    async rebalance(indexName, targetPartitionCount) {
+      const job = await trackOp(indexName, () => deps.requestRebalance(indexName, targetPartitionCount))
+      return trackOp(null, () => deps.waitForRebalance(indexName, job))
+    },
+
+    async listIndexes() {
+      return trackOp(null, () => listIndexesCluster(readDeps))
     },
 
     async getStats(indexName) {
-      return trackOp(indexName, () => statsCluster(readDeps, indexName))
+      return served(indexName, name => statsCluster(readDeps, name))
     },
 
     async getPartitionStats(indexName) {
-      return trackOp(indexName, () => partitionStatsCluster(readDeps, indexName))
+      return served(indexName, name => partitionStatsCluster(readDeps, name))
     },
 
     async checkpoint(indexName) {
-      return trackOp(indexName, () => engine.checkpoint(indexName))
+      return served(indexName, name => engine.checkpoint(name))
     },
 
     async getMemoryStats() {
@@ -175,19 +207,19 @@ export function createClusterNodeOperations(deps: ClusterNodeOperationDeps): Clu
     },
 
     async query<T = AnyDocument>(indexName: string, params: QueryParams): Promise<QueryResult<T>> {
-      return trackOp(indexName, () => queryCluster<T>(readDeps, indexName, params))
+      return served(indexName, name => queryCluster<T>(readDeps, name, params))
     },
 
     async get(indexName, docId) {
-      return trackOp(indexName, async () => (await readClusterDocuments(readDeps, indexName, [docId])).get(docId))
+      return served(indexName, async name => (await readClusterDocuments(readDeps, name, [docId])).get(docId))
     },
 
     async getMultiple(indexName, docIds) {
-      return trackOp(indexName, () => readClusterDocuments(readDeps, indexName, docIds))
+      return served(indexName, name => readClusterDocuments(readDeps, name, docIds))
     },
 
     async has(indexName, docId) {
-      return trackOp(indexName, async () => (await readClusterDocuments(readDeps, indexName, [docId])).has(docId))
+      return served(indexName, async name => (await readClusterDocuments(readDeps, name, [docId])).has(docId))
     },
   }
 }

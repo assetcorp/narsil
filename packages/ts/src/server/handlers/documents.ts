@@ -1,5 +1,14 @@
+import { writeBlockLookupOf } from '../../narsil/write-blocks'
+import { isRemoveOnlyBatch } from '../batch-scan'
 import type { HandlerDeps } from '../deps'
-import { parseJson, rejectInvalid, respondError, respondJson, serializeBatchResult } from '../handler-utils'
+import {
+  parseJson,
+  parseWriteJson,
+  rejectInvalid,
+  respondError,
+  respondJson,
+  serializeBatchResult,
+} from '../handler-utils'
 import type { RouteContext } from '../request'
 import type { BatchBody, DocumentBody, InsertBody } from '../types'
 import { validateBatch, validateDocumentBody } from '../validation'
@@ -7,10 +16,11 @@ import { createDocumentReadHandlers } from './document-reads'
 
 export function createDocumentHandlers(deps: HandlerDeps) {
   const { engine } = deps
+  const writeBlock = writeBlockLookupOf(engine)
   const reads = createDocumentReadHandlers(deps)
 
   async function insert(ctx: RouteContext): Promise<void> {
-    const body = parseJson<InsertBody>(ctx)
+    const body = await parseWriteJson<InsertBody>(ctx, writeBlock)
     if (!body) return
     const failure = validateDocumentBody(body)
     if (failure) {
@@ -26,7 +36,7 @@ export function createDocumentHandlers(deps: HandlerDeps) {
   }
 
   async function put(ctx: RouteContext): Promise<void> {
-    const body = parseJson<DocumentBody>(ctx)
+    const body = await parseWriteJson<DocumentBody>(ctx, writeBlock)
     if (!body) return
     const failure = validateDocumentBody(body)
     if (failure) {
@@ -48,7 +58,7 @@ export function createDocumentHandlers(deps: HandlerDeps) {
   }
 
   async function patch(ctx: RouteContext): Promise<void> {
-    const body = parseJson<DocumentBody>(ctx)
+    const body = await parseWriteJson<DocumentBody>(ctx, writeBlock)
     if (!body) return
     const failure = validateDocumentBody(body)
     if (failure) {
@@ -82,7 +92,7 @@ export function createDocumentHandlers(deps: HandlerDeps) {
   }
 
   async function batch(ctx: RouteContext): Promise<void> {
-    const body = parseJson<BatchBody>(ctx)
+    const body = parseJson<BatchBody>(ctx, ctx.rawBody && isRemoveOnlyBatch(ctx.rawBody) ? 'read' : 'write')
     if (!body) return
     const failure = validateBatch(body)
     if (failure) {

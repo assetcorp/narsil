@@ -146,6 +146,7 @@ The selection contract holds whichever strategy runs:
 
 - The coordinator must select only the primary or an in-sync replica of a partition whose state is `ACTIVE`; see [In-Sync Replica Tracking](replication.md#in-sync-replica-tracking).
 - Replicas in `INITIALISING` or `DECOMMISSIONING` are never selected.
+- When the selected copy of a partition answers with an error, times out, or cannot be reached, the coordinator must send the request to the next eligible copy in selection order, and it must count the partition as failed or timed out only once every eligible copy has failed or timed out.
 - With no `ACTIVE` replica for a partition, the coordinator either fails the query or returns partial results; see [Partial Results](#partial-results).
 
 ---
