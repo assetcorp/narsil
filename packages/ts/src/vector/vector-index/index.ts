@@ -177,6 +177,8 @@ export function createVectorIndex(
     compactedNodeCount: 0,
     building: false,
     buildScheduled: false,
+    buildTimer: null,
+    buildRetryDelayMs: 0,
     buildTurnWaiters: new Map(),
     pendingBuild: null,
     disposed: false,

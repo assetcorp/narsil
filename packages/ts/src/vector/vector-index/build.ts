@@ -3,6 +3,7 @@ import { createHNSWIndex, type HNSWIndex } from '../hnsw'
 import { shuffleInPlace } from '../hnsw/insertion-order'
 import { insertIntoGraph } from './build-host'
 import { calibrateBeforeBuild, recalibrateWhenDrifted } from './calibration'
+import { BUILD_RETRY_FIRST_DELAY_MS, BUILD_RETRY_MAX_DELAY_MS } from './constants'
 import { releasePendingLocations } from './disk'
 import { adoptGraph, allLiveDocIds, liveSize, type VectorIndexState, yieldBuildTurn } from './shared'
 import { dropSharedGraph, invalidateWorkerCopies, noteWrite, scheduleWorkerCopyLoad } from './worker-copies'
@@ -140,6 +141,7 @@ export function triggerBuild(state: VectorIndexState): void {
   const bufferSnapshot = new Set(state.buffer)
   const existingGraph = state.hnsw
   let settled = false
+  let timedOut = false
 
   const buildPromise = (async () => {
     try {
@@ -150,24 +152,69 @@ export function triggerBuild(state: VectorIndexState): void {
       }
       await promoteToGraph(state)
     } catch (error) {
-      if (!isNarsilError(error) || error.code !== ErrorCodes.WORKER_TIMEOUT) throw error
-      console.warn(
-        `Building the graph of "${state.indexName}/${state.fieldName}" waited too long for another thread, so it tries again with the next write:`,
-        error.message,
-      )
+      if (!timedOutOnAnotherThread(state, error)) throw error
+      timedOut = true
     } finally {
       settled = true
       state.building = false
       state.pendingBuild = null
-      if (state.buffer.size > 0) {
-        scheduleBuild(state)
+      if (timedOut) {
+        retryAfterBackoff(state)
       } else {
-        scheduleWorkerCopyLoad(state)
+        state.buildRetryDelayMs = 0
+        if (state.buffer.size > 0) scheduleBuild(state)
+        else scheduleWorkerCopyLoad(state)
       }
     }
   })()
 
   if (!settled) state.pendingBuild = buildPromise
+}
+
+function timedOutOnAnotherThread(state: VectorIndexState, error: unknown): boolean {
+  if (!isNarsilError(error) || error.code !== ErrorCodes.WORKER_TIMEOUT) return false
+  console.warn(
+    `Building the graph of "${state.indexName}/${state.fieldName}" waited too long for another thread, so it tries again shortly:`,
+    error.message,
+  )
+  return true
+}
+
+function armBuildTimer(state: VectorIndexState, delayMs: number, run: () => void): void {
+  if (state.disposed || state.buildTimer !== null) return
+  const timer = setTimeout(() => {
+    state.buildTimer = null
+    if (!state.disposed) run()
+  }, delayMs)
+  timer.unref?.()
+  state.buildTimer = timer
+}
+
+function retryAfterBackoff(state: VectorIndexState): void {
+  const delayMs = Math.min(BUILD_RETRY_MAX_DELAY_MS, Math.max(BUILD_RETRY_FIRST_DELAY_MS, state.buildRetryDelayMs * 2))
+  state.buildRetryDelayMs = delayMs
+  if (state.buildTimer !== null) clearTimeout(state.buildTimer)
+  state.buildTimer = null
+  armBuildTimer(state, delayMs, () => {
+    const graph = state.hnsw
+    if (state.building) {
+      retryAfterBackoff(state)
+      return
+    }
+    if (state.buffer.size > 0 || graph === null) {
+      triggerBuild(state)
+      return
+    }
+    try {
+      graph.connectUnreached()
+      noteWrite(state)
+      state.buildRetryDelayMs = 0
+      scheduleWorkerCopyLoad(state)
+    } catch (error) {
+      if (timedOutOnAnotherThread(state, error)) retryAfterBackoff(state)
+      else console.warn(`Connecting the graph of "${state.indexName}/${state.fieldName}" failed:`, error)
+    }
+  })
 }
 
 function buildDue(state: VectorIndexState): boolean {
@@ -210,6 +257,8 @@ function releaseHeldMemory(state: VectorIndexState): void {
 
 export function disposeIndex(state: VectorIndexState): void {
   state.disposed = true
+  if (state.buildTimer !== null) clearTimeout(state.buildTimer)
+  state.buildTimer = null
   invalidateWorkerCopies(state)
   const release = (): void => releaseHeldMemory(state)
   if (state.pendingBuild !== null || state.shuffledRebuild !== null) {

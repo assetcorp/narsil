@@ -122,6 +122,8 @@ export interface VectorIndexState {
   compactedNodeCount: number
   building: boolean
   buildScheduled: boolean
+  buildTimer: ReturnType<typeof setTimeout> | null
+  buildRetryDelayMs: number
   readonly buildTurnWaiters: Map<() => void, number>
   pendingBuild: Promise<void> | null
   disposed: boolean
