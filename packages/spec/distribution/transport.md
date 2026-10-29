@@ -287,13 +287,14 @@ The primary sends this to the active controller once a replica's applied positio
 }
 ```
 
-The controller checks five things:
+The controller checks six things:
 
 - The message's `sourceId` is the assignment's primary, which stops a replica from admitting itself.
 - The node is an assigned replica of this partition.
 - The `primaryTerm` matches the assignment's current term.
 - The partition is in `ACTIVE`.
 - `appliedSeqNo` is at or above both the assignment's stored `commitPoint` and the request's `commitPoint`.
+- The replica's node is registered with the cluster coordinator, because the controller removes an unregistered node from the in-sync set on its next allocator run.
 
 The controller answers with `replication.insync_confirm`. It raises the assignment's `commitPoint` to the request's value whenever it accepts, and that value never moves backwards.
 
