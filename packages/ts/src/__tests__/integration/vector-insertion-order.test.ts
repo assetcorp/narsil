@@ -21,6 +21,7 @@ import {
   WIDE_LIMIT,
 } from './passages-by-file'
 import { snapshotWithMeanLength } from './saved-graph-edit'
+import { walkSavedGraph } from './saved-graph-walk'
 
 const ARRIVING_PASSAGES = 6_000
 const SAVED_PASSAGES = 2_000
@@ -29,6 +30,12 @@ const QUESTIONS = 40
 const RECALL_FLOOR = 0.95
 const ARRIVAL_TIMEOUT_MS = 600_000
 const INDEX = 'passages'
+const EF_SEARCH_FOR_EVERY_PASSAGE = 2_000
+
+async function expectEveryPassageReached(engine: Narsil, index: string): Promise<void> {
+  const walk = await walkSavedGraph(await engine.snapshot(index), index, FIELD)
+  expect({ unplaced: walk.unplaced, unreached: walk.unreached }).toEqual({ unplaced: [], unreached: [] })
+}
 
 describe('vector search over passages that arrive file by file', () => {
   let engine: Narsil
@@ -48,10 +55,13 @@ describe('vector search over passages that arrive file by file', () => {
   })
 
   it(
-    'returns every stored passage first for its own vector at a narrow and a wide limit',
+    'reaches every stored passage and returns each one first for its own vector at a narrow and a wide limit',
     async () => {
-      expect(await passagesNotFoundFirst(engine, INDEX, passages, NARROW_LIMIT, NARROW_EF_SEARCH)).toEqual([])
-      expect(await passagesNotFoundFirst(engine, INDEX, passages, WIDE_LIMIT, WIDE_EF_SEARCH)).toEqual([])
+      await expectEveryPassageReached(engine, INDEX)
+      expect(await passagesNotFoundFirst(engine, INDEX, passages, NARROW_LIMIT, EF_SEARCH_FOR_EVERY_PASSAGE)).toEqual(
+        [],
+      )
+      expect(await passagesNotFoundFirst(engine, INDEX, passages, WIDE_LIMIT, EF_SEARCH_FOR_EVERY_PASSAGE)).toEqual([])
     },
     ARRIVAL_TIMEOUT_MS,
   )
@@ -98,19 +108,24 @@ describe('a saved graph that this release loads', { timeout: ARRIVAL_TIMEOUT_MS 
     await engine.shutdown()
   })
 
-  it('finds every stored passage first after a load from an earlier release and after files arrive past a doubling', async () => {
+  it('reaches and finds every stored passage first after a load from an earlier release and after files arrive past a doubling', async () => {
     await engine.restore('earlier', await snapshotFromAnEarlierRelease(engine, INDEX, SAVED_PASSAGES))
     const probe = passages.slice(0, PROBE_PASSAGES)
     await waitFor(
-      async () => (await passagesNotFoundFirst(engine, 'earlier', probe, NARROW_LIMIT, NARROW_EF_SEARCH)).length === 0,
+      async () =>
+        (await passagesNotFoundFirst(engine, 'earlier', probe, NARROW_LIMIT, EF_SEARCH_FOR_EVERY_PASSAGE)).length === 0,
       SETTLE_TIMEOUT_MS,
     )
     await untilSettled(engine, 'earlier')
-    expect(await passagesNotFoundFirst(engine, 'earlier', passages, NARROW_LIMIT, NARROW_EF_SEARCH)).toEqual([])
+    await expectEveryPassageReached(engine, 'earlier')
+    expect(await passagesNotFoundFirst(engine, 'earlier', passages, NARROW_LIMIT, EF_SEARCH_FOR_EVERY_PASSAGE)).toEqual(
+      [],
+    )
 
     const grown = passagesArrivingFileByFile(2 * SAVED_PASSAGES)
     await insertFileByFile(engine, 'earlier', grown.slice(SAVED_PASSAGES))
-    expect(await passagesNotFoundFirst(engine, 'earlier', grown, NARROW_LIMIT, NARROW_EF_SEARCH)).toEqual([])
+    await expectEveryPassageReached(engine, 'earlier')
+    expect(await passagesNotFoundFirst(engine, 'earlier', grown, NARROW_LIMIT, EF_SEARCH_FOR_EVERY_PASSAGE)).toEqual([])
   })
 
   it.each([
