@@ -4,9 +4,9 @@ import type { VectorMetric } from '../brute-force'
 import type { OsqQuantizer } from '../osq/types'
 import type { VectorStore } from '../vector-store'
 import { adjacencySlots, graphBytes, hasNode } from './adjacency'
+import { connectAfterBuild } from './connect-unreached'
 import { COMPACTION_ABSOLUTE_THRESHOLD, COMPACTION_TOMBSTONE_RATIO } from './constants'
 import { createSharedGraphHandles, GRAPH_RETIRED, type SharedGraphHandles } from './handles'
-import { connectAfterBuild } from './connect-unreached'
 import { lockGraphExclusive, unlockGraphExclusive } from './locks'
 import {
   compactTombstones as compactTombstonesOp,
