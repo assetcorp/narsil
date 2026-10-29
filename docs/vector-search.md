@@ -37,11 +37,48 @@ const results = await narsil.query('docs', {
 })
 ```
 
-In the `vector` parameter, pass either a raw `value` array or a `text` string for the engine to embed. For a query with both, the engine throws a `NarsilError` with code `EMBEDDING_CONFIG_INVALID`. Set `metric` to `'cosine'`, which is the default, or to `'dotProduct'` or `'euclidean'`. Set `similarity` to give the scores a floor. The engine drops every hit below that floor before it applies `limit`, so a page can hold fewer than `limit` hits. For `euclidean`, the engine compares the floor with the similarity `1 / (1 + distance)`. When you raise `efSearch`, the HNSW search can find more of the true neighbours, although each query takes longer. The engine applies `efSearch` only once the field holds a graph. For a `value` whose length differs from the field's declared dimension, the engine throws a `NarsilError` with code `VECTOR_DIMENSION_MISMATCH`.
+In the `vector` parameter, pass either a raw `value` array or a `text` string for the engine to embed. For a query with both, the engine throws a `NarsilError` with code `EMBEDDING_CONFIG_INVALID`. Set `metric` to `'cosine'`, which is the default, or to `'dotProduct'` or `'euclidean'`. Set `similarity` to give the scores a floor. The engine drops every hit below that floor before it applies `limit`, so a page can hold fewer than `limit` hits. For `euclidean`, the engine compares the floor with the similarity `1 / (1 + distance)`. When you raise `efSearch`, the HNSW search can find more of the true neighbours, although each query takes longer. The engine applies `efSearch` only once the field holds a graph. The engine fetches k hits, where k is one more than the number of hits up to the end of the page, so k is `limit` plus 1 on a first page. When you leave `efSearch` unset, the engine sizes it from k and the field's dimension. It keeps the larger of 50 and k plus a margin, where the margin is 50 below 768 dimensions, 75 from 768 to 1,023 dimensions, and 0 at 1,024 dimensions and above. For a `value` whose length differs from the field's declared dimension, the engine throws a `NarsilError` with code `VECTOR_DIMENSION_MISMATCH`.
 
 Set `quantization` to choose how the engine codes each vector once the field holds a graph. In every `osq` mode, the engine applies optimised scalar quantization, which means that it centres each vector on the field's centroid and then fits an interval to that vector alone. The digit in the mode name is the number of bits in each dimension's code, so the engine stores a byte per dimension under `osq8`, and four, two, and one bit under `osq4`, `osq2`, and `osq1`. The engine places each new vector in the graph by scoring it against the codes of its neighbours. When the engine searches, it ranks the candidates by their codes before it re-scores the nearest of them against the full-precision vectors. When you leave `quantization` unset, the engine uses `osq4` at 384 dimensions and above, and `osq8` below 384. Under `none`, the engine stores no code and ranks by the vectors alone.
 
-Set `oversample` to choose how many times `limit` the engine re-scores in a quantized field before it returns the best `limit`. The default is 3 for `osq1` and `osq2`, and 2 for `osq8`. For `osq4`, the default is 2 at 1,024 dimensions and above, but 5 below 1,024, because the engine ranks the true neighbours less reliably by a four-bit code in fewer dimensions. For a value below 1, the engine throws a `NarsilError` with code `CONFIG_INVALID`.
+Set `oversample` to choose how many times k the engine re-scores in a quantized field before it returns the best `limit`. For a value below 1, the engine throws a `NarsilError` with code `CONFIG_INVALID`. When you leave `oversample` unset, the engine sets the number of candidates that it re-scores from k and from the field's dimension. It rounds that number up, and it re-scores at least 3k candidates under `osq1` and `osq2`, and at least k under `osq4` and `osq8`:
+
+| Quantization | Below 768 dimensions | 768 to 1,023 dimensions | 1,024 dimensions and above |
+| ------------ | -------------------- | ----------------------- | -------------------------- |
+| `osq1`       | 3.23k + 55.9√k       | 2.2k + 27√k             | 3k                         |
+| `osq2`       | 2.6k + 22.5√k        | k + 16√k                | 3k                         |
+| `osq4`       | 5k                   | 5k                      | 2k                         |
+| `osq8`       | 2k                   | 2k                      | 2k                         |
+
+The engine ranks the true neighbours less reliably by a one-bit or two-bit code in fewer dimensions, so it re-scores more candidates there. When the engine ranks by a code, the number of places by which a true neighbour slips usually grows more slowly than k, so the engine re-scores the most candidates in proportion to k when k is small. Under `osq1` at 384 dimensions, the engine re-scores 86 candidates on a first page with a `limit` of 1, 221 with a `limit` of 10, and 5,002 with a `limit` of 1,000.
+
+Under `osq1` and `osq2`, these defaults find at least 95% of the true nearest neighbours on six sets of real text embeddings at a `limit` of 1, 2, 5, 10, 20, 50, 100, 200, 500, and 1,000, except at the smallest limits on one set. That set holds 50,000 MiniLM embeddings at 384 dimensions, and its rows come first in the table below. On vectors spread evenly across every dimension, a one-bit or two-bit code ranks the neighbours less well, so recall can fall below 95% at more limits. The other rows come from vectors drawn from 40 Gaussian clusters with wide noise in every dimension, with 5,000 of them at 384 dimensions and 3,200 at 768. In every row, the defaults find fewer than 95% of the true neighbours:
+
+| Vectors               | Quantization | `limit` | Recall |
+| --------------------- | ------------ | ------- | ------ |
+| 50,000 MiniLM at 384  | `osq1`       | 1       | 0.909  |
+| 50,000 MiniLM at 384  | `osq1`       | 2       | 0.918  |
+| 50,000 MiniLM at 384  | `osq1`       | 5       | 0.937  |
+| 50,000 MiniLM at 384  | `osq2`       | 1       | 0.937  |
+| 50,000 MiniLM at 384  | `osq2`       | 2       | 0.938  |
+| 50,000 MiniLM at 384  | `osq2`       | 5       | 0.949  |
+| 5,000 Gaussian at 384 | `osq1`       | 1       | 0.836  |
+| 5,000 Gaussian at 384 | `osq1`       | 2       | 0.904  |
+| 5,000 Gaussian at 384 | `osq2`       | 1       | 0.777  |
+| 5,000 Gaussian at 384 | `osq2`       | 2       | 0.813  |
+| 5,000 Gaussian at 384 | `osq2`       | 5       | 0.893  |
+| 3,200 Gaussian at 768 | `osq1`       | 5       | 0.927  |
+| 3,200 Gaussian at 768 | `osq1`       | 10      | 0.933  |
+| 3,200 Gaussian at 768 | `osq1`       | 200     | 0.899  |
+| 3,200 Gaussian at 768 | `osq1`       | 500     | 0.929  |
+| 3,200 Gaussian at 768 | `osq2`       | 1       | 0.833  |
+| 3,200 Gaussian at 768 | `osq2`       | 2       | 0.833  |
+| 3,200 Gaussian at 768 | `osq2`       | 5       | 0.893  |
+| 3,200 Gaussian at 768 | `osq2`       | 200     | 0.948  |
+
+When a search needs more of its true neighbours, raise `oversample` on the query.
+
+When the engine searches a graph under a filter, it walks through the documents that fail the filter but collects only the documents that pass it, so `efSearch` and the re-scoring depth both count only the documents that pass the filter.
 
 Set `storage` to choose where the engine keeps the field's full-precision vectors. Under `memory`, the engine holds them in memory. Under `disk`, the engine keeps the field's codes and graph in memory, while it loads a full-precision vector from the field's checkpoint file whenever it re-scores a candidate or returns a vector from a document read. The engine holds every vector of the field in memory until it builds the field's first graph, because it scans every vector when it searches a field below the promotion threshold. Once the field holds a graph, the engine loads from the checkpoint file each vector that the file holds, while it keeps each other vector in memory until it writes that vector at the next checkpoint. At each checkpoint, the engine writes the vectors that arrived since the last one into new files, with their codes, and it writes the graph, so after a restart it loads them and builds nothing. The engine frees the memory a whole block at a time, once the field holds a graph and a file holds every vector in that block. A process that has written since its last checkpoint therefore still holds its part-filled blocks, while a fresh load allocates only for what the files hold. An engine with filesystem durability uses `disk` when you leave `storage` unset, while every other engine uses `memory`. For `disk` on an engine without filesystem durability, the engine throws a `NarsilError` with code `CONFIG_INVALID`.
 

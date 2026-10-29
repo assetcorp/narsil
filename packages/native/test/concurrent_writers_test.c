@@ -61,7 +61,7 @@ static void *search_beside_the_placers(void *argument) {
   for (int search = 0; search < SEARCHES_PER_READER && work->status == NARSIL_OK; search++) {
     const float *query = work->fixture->vectors + ((size_t)(search % NODES) * fixture_vector_stride_floats());
     narsil_candidates found = {ordinals, distances, CANDIDATES, 0};
-    narsil_search_request request = {query, NARSIL_METRIC_EUCLIDEAN, CANDIDATES, work->thread_slot};
+    narsil_search_request request = {query, NARSIL_METRIC_EUCLIDEAN, CANDIDATES, work->thread_slot, {NULL, 0}};
     work->status = narsil_search(workspace, &work->fixture->graph, &work->fixture->store, &request, &found);
     for (uint32_t i = 0; i < found.count; i++) {
       if (found.ordinals[i] < 0 || found.ordinals[i] >= NODES) { work->status = NARSIL_INVALID_ARGUMENT; }
@@ -108,7 +108,7 @@ static void check_the_graph_answers(test_fixture *fixture) {
     live += 1;
     const float *query = fixture->vectors + ((size_t)node * fixture_vector_stride_floats());
     narsil_candidates found = {ordinals, distances, CANDIDATES, 0};
-    narsil_search_request request = {query, NARSIL_METRIC_EUCLIDEAN, CANDIDATES, 0};
+    narsil_search_request request = {query, NARSIL_METRIC_EUCLIDEAN, CANDIDATES, 0, {NULL, 0}};
     if (narsil_search(workspace, &fixture->graph, &fixture->store, &request, &found) != NARSIL_OK) { continue; }
     found_itself += found.count > 0 && found.ordinals[0] == node;
   }
