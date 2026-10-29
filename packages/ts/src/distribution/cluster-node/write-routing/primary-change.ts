@@ -5,11 +5,13 @@ import { getClusterIndexConfig } from '../../cluster/index-metadata'
 import { pause } from '../../cluster/rebalance/pause'
 import type { AllocationTable } from '../../coordinator/types'
 import {
-  HELD_INDEX_RETRY_DELAY_CAP_MS,
-  HELD_INDEX_RETRY_INITIAL_DELAY_MS,
+  FORWARD_RETRY_DELAY_CAP_MS,
+  FORWARD_RETRY_INITIAL_DELAY_MS,
+  PARTITION_WRITE_CONCURRENCY,
   PRIMARY_CHANGE_POLL_INTERVAL_MS,
   PRIMARY_CHANGE_RETRY_WINDOW_MS,
 } from '../constants'
+import { forwardUndelivered } from '../transport-failure'
 import { resolvePartitionId } from './assignment'
 import { storedCopyMatchesSent } from './sent-fields'
 import type { WriteRoutingDeps } from './types'
@@ -44,6 +46,10 @@ function refusedForAnotherIndex(error: unknown): boolean {
   )
 }
 
+function retriedAfterDelay(error: unknown): boolean {
+  return refusedForAnotherIndex(error) || forwardUndelivered(error)
+}
+
 function hasCode(error: unknown, code: string): boolean {
   return error instanceof NarsilError && error.code === code
 }
@@ -73,7 +79,7 @@ async function liveTable(deps: WriteRoutingDeps, indexName: string): Promise<All
     : deps.coordinator.getAllocation(indexName)
 }
 
-async function awaitIndexCaughtUp(
+async function pauseAndRereadTable(
   deps: WriteRoutingDeps,
   indexName: string,
   delayMs: number,
@@ -87,8 +93,8 @@ async function awaitIndexCaughtUp(
   return true
 }
 
-function nextHeldIndexDelay(delayMs: number): number {
-  return Math.min(delayMs * 2, HELD_INDEX_RETRY_DELAY_CAP_MS)
+function nextRetryDelay(delayMs: number): number {
+  return Math.min(delayMs * 2, FORWARD_RETRY_DELAY_CAP_MS)
 }
 
 async function awaitNewPrimary(
@@ -120,7 +126,7 @@ export async function retryOnPrimaryChange<T>(
   settledValue: () => T,
 ): Promise<T> {
   const deadline = Date.now() + PRIMARY_CHANGE_RETRY_WINDOW_MS
-  let heldIndexDelayMs = HELD_INDEX_RETRY_INITIAL_DELAY_MS
+  let retryDelayMs = FORWARD_RETRY_INITIAL_DELAY_MS
   let retried = false
   for (;;) {
     const refusing = primaryFor(await deps.coordinator.getAllocation(indexName), docId)
@@ -128,11 +134,11 @@ export async function retryOnPrimaryChange<T>(
       return await attempt()
     } catch (error) {
       if (retried && (await settleRetried([{ docId, error }])).has(docId)) return settledValue()
-      if (!refusedByPrimaryChange(error) || refusing === null) throw error
+      if (!(refusedByPrimaryChange(error) || forwardUndelivered(error)) || refusing === null) throw error
       let retryable: boolean
-      if (refusedForAnotherIndex(error)) {
-        retryable = await awaitIndexCaughtUp(deps, indexName, heldIndexDelayMs, deadline)
-        heldIndexDelayMs = nextHeldIndexDelay(heldIndexDelayMs)
+      if (retriedAfterDelay(error)) {
+        retryable = await pauseAndRereadTable(deps, indexName, retryDelayMs, deadline)
+        retryDelayMs = nextRetryDelay(retryDelayMs)
       } else {
         retryable = await awaitNewPrimary(deps, indexName, [refusing], deadline)
       }
@@ -142,19 +148,19 @@ export async function retryOnPrimaryChange<T>(
   }
 }
 
-export async function retryBatchOnPrimaryChange<T>(
+async function retryBatchOnPrimaryChange<T>(
   deps: WriteRoutingDeps,
   indexName: string,
   items: readonly T[],
   docIdOf: (item: T) => string,
   attempt: (items: T[]) => Promise<BatchResult>,
   settleRetried: SettleRetried,
+  deadline: number,
 ): Promise<BatchResult> {
-  const deadline = Date.now() + PRIMARY_CHANGE_RETRY_WINDOW_MS
   const succeeded: string[] = []
   const failed: BatchResult['failed'] = []
   let pending = [...items]
-  let heldIndexDelayMs = HELD_INDEX_RETRY_INITIAL_DELAY_MS
+  let retryDelayMs = FORWARD_RETRY_INITIAL_DELAY_MS
   let retried = false
   while (pending.length > 0) {
     const table = await deps.coordinator.getAllocation(indexName)
@@ -170,7 +176,11 @@ export async function retryBatchOnPrimaryChange<T>(
       }
       const item = pendingById.get(failure.docId)
       const refusing = primaryFor(table, failure.docId)
-      if (item === undefined || refusing === null || !refusedByPrimaryChange(failure.error)) {
+      if (
+        item === undefined ||
+        refusing === null ||
+        !(refusedByPrimaryChange(failure.error) || forwardUndelivered(failure.error))
+      ) {
         failed.push(failure)
         continue
       }
@@ -178,9 +188,9 @@ export async function retryBatchOnPrimaryChange<T>(
     }
     if (refused.length === 0) break
     let retryable: boolean
-    if (refused.some(entry => refusedForAnotherIndex(entry.failure.error))) {
-      retryable = await awaitIndexCaughtUp(deps, indexName, heldIndexDelayMs, deadline)
-      heldIndexDelayMs = nextHeldIndexDelay(heldIndexDelayMs)
+    if (refused.some(entry => retriedAfterDelay(entry.failure.error))) {
+      retryable = await pauseAndRereadTable(deps, indexName, retryDelayMs, deadline)
+      retryDelayMs = nextRetryDelay(retryDelayMs)
     } else {
       retryable = await awaitNewPrimary(
         deps,
@@ -197,6 +207,63 @@ export async function retryBatchOnPrimaryChange<T>(
     retried = true
   }
   return { succeeded, failed }
+}
+
+function groupByPartition<T>(table: AllocationTable, items: readonly T[], docIdOf: (item: T) => string): T[][] {
+  const partitionCount = table.assignments.size
+  const groups = new Map<number, T[]>()
+  for (const item of items) {
+    const partitionId = partitionCount === 0 ? 0 : resolvePartitionId(docIdOf(item), partitionCount)
+    const group = groups.get(partitionId)
+    if (group === undefined) groups.set(partitionId, [item])
+    else group.push(item)
+  }
+  return [...groups.entries()].sort(([left], [right]) => left - right).map(([, group]) => group)
+}
+
+async function settleEachBounded<T, R>(
+  inputs: readonly T[],
+  limit: number,
+  run: (input: T) => Promise<R>,
+): Promise<PromiseSettledResult<R>[]> {
+  const outcomes: PromiseSettledResult<R>[] = []
+  const queue = [...inputs.entries()]
+  async function work(): Promise<void> {
+    for (let next = queue.shift(); next !== undefined; next = queue.shift()) {
+      const [at, input] = next
+      try {
+        outcomes[at] = { status: 'fulfilled', value: await run(input) }
+      } catch (reason) {
+        outcomes[at] = { status: 'rejected', reason }
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, inputs.length) }, work))
+  return outcomes
+}
+
+export async function retryEachPartition<T>(
+  deps: WriteRoutingDeps,
+  indexName: string,
+  table: AllocationTable,
+  items: readonly T[],
+  docIdOf: (item: T) => string,
+  attempt: (items: T[]) => Promise<BatchResult>,
+  settleRetried: SettleRetried,
+): Promise<BatchResult> {
+  const deadline = Date.now() + PRIMARY_CHANGE_RETRY_WINDOW_MS
+  const outcomes = await settleEachBounded(
+    groupByPartition(table, items, docIdOf),
+    PARTITION_WRITE_CONCURRENCY,
+    group => retryBatchOnPrimaryChange(deps, indexName, group, docIdOf, attempt, settleRetried, deadline),
+  )
+  const merged: BatchResult = { succeeded: [], failed: [] }
+  for (const outcome of outcomes) {
+    if (outcome.status === 'rejected') throw outcome.reason
+    merged.succeeded.push(...outcome.value.succeeded)
+    merged.failed.push(...outcome.value.failed)
+  }
+  return merged
 }
 
 export const settleNothing: SettleRetried = async () => new Set()

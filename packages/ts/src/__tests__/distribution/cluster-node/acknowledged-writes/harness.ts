@@ -30,12 +30,16 @@ export interface HeldMessages {
 
 export interface FaultyTransport extends NodeTransport {
   dropWhen(rule: MessageRule): () => void
+  loseReplyWhen(rule: MessageRule): () => void
+  failSlowlyWhen(rule: MessageRule, delayMs: number): () => void
   holdWhen(rule: MessageRule): HeldMessages
   dropped(): TransportMessage[]
 }
 
 export function faultyTransport(inner: NodeTransport, nodeId: string): FaultyTransport {
   const rules = new Set<MessageRule>()
+  const lostReplies = new Set<MessageRule>()
+  const slowFailures = new Map<MessageRule, number>()
   const holds = new Set<{ rule: MessageRule; gate: Promise<void>; held: number }>()
   const droppedMessages: TransportMessage[] = []
 
@@ -61,7 +65,19 @@ export function faultyTransport(inner: NodeTransport, nodeId: string): FaultyTra
     async send(target, message) {
       await waitForRelease(target, message)
       refuse(target, message)
-      return inner.send(target, message)
+      for (const [rule, delayMs] of slowFailures) {
+        if (rule(target, message)) {
+          await new Promise(resolve => setTimeout(resolve, delayMs))
+          throw new TransportError('TRANSPORT_CONNECT_FAILED', `${nodeId} gave up connecting to ${target}`, { target })
+        }
+      }
+      const response = await inner.send(target, message)
+      for (const rule of lostReplies) {
+        if (rule(target, message)) {
+          throw new TransportError('TRANSPORT_PEER_UNAVAILABLE', `${nodeId} lost the reply from ${target}`, { target })
+        }
+      }
+      return response
     },
     async stream(target, message, handler) {
       await waitForRelease(target, message)
@@ -77,6 +93,14 @@ export function faultyTransport(inner: NodeTransport, nodeId: string): FaultyTra
     dropWhen(rule) {
       rules.add(rule)
       return () => rules.delete(rule)
+    },
+    loseReplyWhen(rule) {
+      lostReplies.add(rule)
+      return () => lostReplies.delete(rule)
+    },
+    failSlowlyWhen(rule, delayMs) {
+      slowFailures.set(rule, delayMs)
+      return () => slowFailures.delete(rule)
     },
     holdWhen(rule) {
       let open: () => void = () => undefined

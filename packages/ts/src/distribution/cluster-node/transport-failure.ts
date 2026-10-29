@@ -43,3 +43,16 @@ export async function sendThroughTargets<T>(
   }
   throw lastError instanceof Error ? lastError : new Error(String(lastError))
 }
+
+const UNDELIVERED_CODES: ReadonlySet<unknown> = new Set([
+  TransportErrorCodes.CONNECT_FAILED,
+  TransportErrorCodes.PEER_UNAVAILABLE,
+])
+
+export function forwardUndelivered(error: unknown): boolean {
+  return (
+    error instanceof NarsilError &&
+    UNDELIVERED_CODES.has(error.details.transportCode) &&
+    typeof error.details.targetNodeId === 'string'
+  )
+}
