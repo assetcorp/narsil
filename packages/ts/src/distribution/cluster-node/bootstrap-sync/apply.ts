@@ -2,10 +2,11 @@ import { ErrorCodes, NarsilError } from '../../../errors'
 import type { Narsil } from '../../../narsil'
 import type { IndexConfig, SchemaDefinition } from '../../../types/schema'
 import { withPartitionCount } from '../../cluster/index-settings'
-import { finalizeSnapshotStream } from '../../replication/snapshot-stream-assembler'
+import { finalizeSnapshotStream, type SnapshotStreamSuccess } from '../../replication/snapshot-stream-assembler'
 import type { SyncEntriesPayload } from '../../transport/types'
 import { withDeadline } from '../bootstrap-fetch'
 import { validateRestoredSchema } from '../bootstrap-restore'
+import { enqueuePartitionWrite } from '../write-routing/partition-queue'
 import { applySyncEntries } from './entries'
 import { streamFailureToError } from './frames'
 import { entryKey } from './state'
@@ -71,45 +72,23 @@ export async function applyLiveSnapshotSync(
     return { ok: false, error: streamFailureToError({ ...finalized, details: { ...finalized.details, target } }) }
   }
 
-  let restoreError: NarsilError | null
-  try {
-    restoreError = await restoreLiveSnapshotPartition(
+  const restoreError = await enqueuePartitionWrite(deps.partitionWriteQueues, indexName, partitionId, () =>
+    restartFromSnapshot(
       state,
       entry,
       indexName,
       partitionId,
       target,
-      finalized.snapshot.read(),
+      finalized,
       coordinatorConfig,
       partitionCount,
       deadline,
       deps,
-    )
-  } finally {
-    await finalized.snapshot.discard()
-  }
+    ),
+  )
   if (restoreError !== null) {
     return { ok: false, error: restoreError }
   }
-
-  try {
-    await deps.restartLocalLog?.(indexName, partitionId, {
-      seqNo: finalized.header.lastSeqNo,
-      primaryTerm: finalized.header.primaryTerm,
-    })
-  } catch (err) {
-    const cause = err instanceof Error ? err.message : String(err)
-    return {
-      ok: false,
-      error: new NarsilError(ErrorCodes.SNAPSHOT_SYNC_RESTORE_FAILED, `local log restart failed: ${cause}`, {
-        indexName,
-        partitionId,
-        primaryNodeId: target,
-        cause,
-      }),
-    }
-  }
-  deps.resetReplicationLog(indexName, partitionId, finalized.header.lastSeqNo + 1, finalized.header.primaryTerm)
   const applyResult = await applySyncEntries(
     indexName,
     partitionId,
@@ -129,6 +108,55 @@ export async function applyLiveSnapshotSync(
     newSeqNo: applyResult.newSeqNo,
     snapshotHeader: finalized.header,
   }
+}
+
+async function restartFromSnapshot(
+  state: BootstrapSyncState,
+  entry: BootstrapEntry,
+  indexName: string,
+  partitionId: number,
+  target: string,
+  finalized: SnapshotStreamSuccess,
+  coordinatorConfig: IndexConfig,
+  partitionCount: number,
+  deadline: number,
+  deps: LiveBootstrapSyncDeps,
+): Promise<NarsilError | null> {
+  let restoreError: NarsilError | null
+  try {
+    restoreError = await restoreLiveSnapshotPartition(
+      state,
+      entry,
+      indexName,
+      partitionId,
+      target,
+      finalized.snapshot.read(),
+      coordinatorConfig,
+      partitionCount,
+      deadline,
+      deps,
+    )
+  } finally {
+    await finalized.snapshot.discard()
+  }
+  if (restoreError !== null) return restoreError
+
+  try {
+    await deps.restartLocalLog?.(indexName, partitionId, {
+      seqNo: finalized.header.lastSeqNo,
+      primaryTerm: finalized.header.primaryTerm,
+    })
+  } catch (err) {
+    const cause = err instanceof Error ? err.message : String(err)
+    return new NarsilError(ErrorCodes.SNAPSHOT_SYNC_RESTORE_FAILED, `local log restart failed: ${cause}`, {
+      indexName,
+      partitionId,
+      primaryNodeId: target,
+      cause,
+    })
+  }
+  deps.resetReplicationLog(indexName, partitionId, finalized.header.lastSeqNo + 1, finalized.header.primaryTerm)
+  return null
 }
 
 export async function restoreLiveSnapshotPartition(

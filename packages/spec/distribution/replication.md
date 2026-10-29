@@ -278,6 +278,14 @@ The write reaches the client only after the controller confirms the in-sync set 
 
 The in-sync set is stored in the cluster coordinator as the `inSyncSet` field of a partition assignment; see [Allocation Table](cluster.md#allocation-table). The controller updates it atomically with a compare-and-set on the allocation table.
 
+### Copy Failure
+
+A node must fail its copy of a partition when the copy cannot apply an entry, including an entry whose `seqNo` does not follow the copy's last `seqNo`, and when it cannot write the partition's write-ahead log. Failing a copy affects that partition alone, and the node's other partitions keep serving.
+
+A node whose failed copy is a replica must ask the controller to remove the copy from the in-sync set, as the [Removal Flow](#removal-flow) defines. It must then delete its index, its write-ahead log and its replication log for the partition, and bootstrap the partition as an empty copy, as [Sync Protocol](#sync-protocol) defines. An empty copy sends `lastSeqNo` 0 and `lastPrimaryTerm` 0 in its `replication.sync_request`.
+
+A node whose failed copy is the primary must refuse every write for the partition with `PARTITION_NOT_PRIMARY` and ask the controller to fail the partition over. The controller must then act as [Failover](#failover) defines for a lost primary: it promotes an in-sync replica, or it follows [No Eligible Replica](#no-eligible-replica) where none remains. Once the node holds a replica of the partition, it follows the rule for a failed replica.
+
 ### Catch-Up Feed
 
 A primary must send every assigned replica outside the in-sync set the entries that replica lacks, because a replica that receives nothing between writes never reaches the commit point.
@@ -351,7 +359,7 @@ When a partition's primary fails, the controller promotes a replica.
 
 ### No Eligible Replica
 
-An empty in-sync set at the moment the primary fails, because every replica had already been removed, moves the partition to `UNASSIGNED`. It then serves neither reads nor writes until a node holding persisted data for that partition rejoins and the controller makes it primary, or the data is rebuilt from the system of record.
+An empty in-sync set at the moment the primary fails, because every replica had already been removed, moves the partition to `UNASSIGNED`. It then serves neither reads nor writes until a node holding persisted data for that partition rejoins and the controller makes it primary, or the data is rebuilt from the system of record. A primary that gave the partition up through [Copy Failure](#copy-failure) as its last copy must reload the partition from its own checkpoint and write-ahead log before it lists the partition in `cluster.partition_stores`, and where that reload fails, it must leave the partition out of the answer and report a typed error giving the index and the partition, so that the partition stays `UNASSIGNED`.
 
 The controller records the partition's last holders as it moves the partition so that it can recognise a returning node as one of them:
 

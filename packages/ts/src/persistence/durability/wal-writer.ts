@@ -22,6 +22,7 @@ export interface WalWriter {
   commit(): Promise<void>
   rollToNewSegment(startSeqNo: number): Promise<void>
   close(): Promise<void>
+  abandon(): Promise<void>
   readonly activeSegmentKey: string | null
 }
 
@@ -257,6 +258,16 @@ export function createWalWriter(directory: DurableDirectory, config: WalWriterCo
           markerWriter = null
         }
         activeKey = null
+      })
+    },
+
+    async abandon(): Promise<void> {
+      await withDurabilityLock(async () => {
+        const closing = [handle?.close(), markerWriter?.close()]
+        handle = null
+        markerWriter = null
+        activeKey = null
+        await Promise.allSettled(closing)
       })
     },
 

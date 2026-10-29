@@ -38,6 +38,8 @@ export type EntryNumbering = (record: MutationRecord) => ReplicationLogEntry | n
 
 export type CommitDeferral = (record: MutationRecord) => boolean
 
+export type PartitionFailureHandler = (indexName: string, partitionId: number, error: Error) => void
+
 export interface PartitionLogPosition {
   seqNo: number
   primaryTerm: number
@@ -55,6 +57,7 @@ export interface DurabilityManager {
   readonly partitionRegistry?: PartitionRegistry
   numberEntriesWith?(numbering: EntryNumbering, defersCommit?: CommitDeferral): void
   commitPartition?(indexName: string, partitionId: number): Promise<void>
+  isolatePartitionFailures?(onFailed: PartitionFailureHandler): void
   /** Writes the index metadata. Each index takes its writes in turn, so a caller that built its metadata earlier
    * never renames over a later one. */
   persistMetadata(indexName: string): Promise<void>

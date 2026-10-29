@@ -13,6 +13,7 @@ import { clearBootstrapSyncIndex, createBootstrapSyncState, hasCompletedBootstra
 import { startCatchUpPump, stopCatchUpPump } from './catch-up'
 import { createClusterNamespace } from './cluster-namespace'
 import { createNodeController } from './controller-role'
+import { createCopyFailures } from './copy-failure'
 import { decommissionNode } from './decommission'
 import { createAllocationErrorForwarder, createErrorForwarder } from './error-forwarding'
 import { servingNameOf } from './generation-routing'
@@ -126,6 +127,20 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
   let serving = false
   let isShutdown = false
 
+  const copyFailures = createCopyFailures({
+    engine,
+    writeDeps,
+    forgetPartitionLog: (indexName, partitionId) => {
+      clearBootstrapSyncIndex(bootstrapSyncState, indexName, partitionId)
+      replicationLogs.delete(buildReplicationLogKey(indexName, partitionId))
+    },
+    isShutdown: () => isShutdown,
+    onError: forwardOnError,
+  })
+  writeDeps.copyFailed = copyFailures.isFailed
+  writeDeps.copyUnlisted = copyFailures.isUnlisted
+  engine.isolateCopyFailures(copyFailures.record)
+
   const bootstrapPartition = createPartitionBootstrap({
     nodeId,
     engine,
@@ -151,7 +166,9 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
     bootstrapMaxRetries: DEFAULT_NODE_LIFECYCLE_CONFIG.bootstrapMaxRetries,
     allocationDebounceMs: DEFAULT_NODE_LIFECYCLE_CONFIG.allocationDebounceMs,
     nodeHeartbeatIntervalMs: DEFAULT_NODE_LIFECYCLE_CONFIG.nodeHeartbeatIntervalMs,
-    onBootstrapPartition: bootstrapPartition,
+    onBootstrapPartition: async (indexName, partitionId, primaryNodeId) =>
+      (await copyFailures.awaitReset(indexName, partitionId)) &&
+      bootstrapPartition(indexName, partitionId, primaryNodeId),
     onHoldPartition: (indexName: string, partitionId: number) => {
       trackHeldPartitionWrite(engine.recordHeldPartition(indexName, partitionId))
     },

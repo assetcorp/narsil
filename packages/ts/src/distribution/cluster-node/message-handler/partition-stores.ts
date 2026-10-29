@@ -23,7 +23,10 @@ function describeLocalCopy(deps: DataNodeHandlerDeps, indexName: string): Partit
   if (indexUuid === null || indexUuid === undefined) {
     return absent
   }
-  return { indexName, indexUuid, partitionIds: heldPartitionIdsOf(deps.engine, indexName) }
+  const partitionIds = heldPartitionIdsOf(deps.engine, indexName).filter(
+    partitionId => deps.writeDeps.copyUnlisted?.(indexName, partitionId) !== true,
+  )
+  return { indexName, indexUuid, partitionIds }
 }
 
 /**
@@ -32,7 +35,8 @@ function describeLocalCopy(deps: DataNodeHandlerDeps, indexName: string): Partit
  * The controller asks this so that it can give a partition no node currently serves back to a node that still holds
  * the data. A node that keeps no copy of the index answers with a null identity and an empty list. A node names both
  * the partitions its copy recorded when it took them on and the partitions its copy holds a document for, so an
- * empty partition it was given counts as held and a copy written before that record existed stays recoverable.
+ * empty partition it was given counts as held and a copy written before that record existed stays recoverable. It
+ * leaves out a partition whose copy failed until that copy reloads cleanly from this node's checkpoint and log.
  *
  * @param message - The request the controller sent.
  * @param respond - The function that returns the answer to the controller.

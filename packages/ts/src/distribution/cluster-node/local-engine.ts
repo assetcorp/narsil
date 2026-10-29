@@ -18,7 +18,12 @@ import {
   runEngineSuggest,
 } from '../../narsil/reads'
 import { persistedPosition, restartPartitionLog } from '../../persistence/durability/partition-log'
-import type { CommitDeferral, EntryNumbering, PartitionLogPosition } from '../../persistence/durability/types'
+import type {
+  CommitDeferral,
+  EntryNumbering,
+  PartitionFailureHandler,
+  PartitionLogPosition,
+} from '../../persistence/durability/types'
 import type { ByteSource } from '../../types/byte-source'
 import type { NarsilConfig } from '../../types/config'
 import type { GlobalStatistics } from '../../types/internal'
@@ -27,6 +32,7 @@ import type { AnyDocument, IndexConfig } from '../../types/schema'
 import type { ListParams, QueryParams, SuggestParams } from '../../types/search'
 import type { SynonymRule } from '../../types/synonyms'
 import type { ReplicationLogEntry } from '../replication/types'
+import { emptyPartitionCopy, reloadPartitionCopy } from './copy-reset'
 import { createHeldPartitionRecord } from './held-partitions'
 import {
   type AppliedReplicationEntries,
@@ -50,6 +56,9 @@ export interface ClusterLocalEngine extends Narsil {
   admitWritesWith(admission: WriteAdmission): void
   writeAnalysisOf(indexName: string): IndexWriteAnalysis | null
   restartLocalLog(indexName: string, partitionId: number, position: PartitionLogPosition): Promise<void>
+  isolateCopyFailures(onFailed: PartitionFailureHandler): void
+  emptyPartitionCopy(indexName: string, partitionId: number): Promise<void>
+  reloadPartitionCopy(indexName: string, partitionId: number): Promise<void>
   heldPartitionsOf(indexName: string): number[] | undefined
   recordHeldPartition(indexName: string, partitionId: number): Promise<void>
   forgetHeldPartition(indexName: string, partitionId: number): Promise<void>
@@ -132,6 +141,10 @@ export async function createClusterLocalEngine(
     writeAnalysisOf: (indexName: string) => writeAnalysisOf(core, indexName),
     restartLocalLog: (indexName: string, partitionId: number, position: PartitionLogPosition) =>
       restartLocalLog(core, indexName, partitionId, position),
+    isolateCopyFailures: (onFailed: PartitionFailureHandler) =>
+      core.durability?.manager.isolatePartitionFailures?.(onFailed),
+    emptyPartitionCopy: (indexName: string, partitionId: number) => emptyPartitionCopy(core, indexName, partitionId),
+    reloadPartitionCopy: (indexName: string, partitionId: number) => reloadPartitionCopy(core, indexName, partitionId),
     heldPartitionsOf: (indexName: string) => heldPartitions.held(indexName),
     recordHeldPartition: (indexName: string, partitionId: number) => heldPartitions.record(indexName, partitionId),
     forgetHeldPartition: (indexName: string, partitionId: number) => heldPartitions.forget(indexName, partitionId),
