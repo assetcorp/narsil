@@ -10,6 +10,7 @@ import {
 import { createInMemoryNetwork, createInMemoryTransport } from '../../../distribution/transport/in-memory'
 import type { InsyncAddPayload, InsyncRemovePayload, NodeTransport } from '../../../distribution/transport/types'
 import { ReplicationMessageTypes } from '../../../distribution/transport/types'
+import { makeNode } from '../cluster/controller/controller/fixtures'
 
 const CONTROLLER = 'controller'
 
@@ -207,6 +208,7 @@ describe('handleInsyncAdmission', () => {
   ): Promise<{ accepted: boolean; inSyncSet: string[]; commitPoint: number; version: number }> {
     coordinator = await controllerCoordinator()
     await coordinator.putAllocation('products', table)
+    await coordinator.registerNode(makeNode(payload.replicaNodeId ?? 'node-d'))
     const confirm = await handleInsyncAdmission(
       {
         indexName: 'products',
