@@ -296,19 +296,28 @@ HNSW search is approximate, so each node returns its best local candidates and t
 
 ### Distributed Hybrid Search
 
-A request routes as hybrid when it carries a vector and either a term or `mode: 'hybrid'`; an absent `hybrid` config fuses with RRF and its defaults. A hybrid request carrying a cursor is rejected with `SEARCH_INVALID_CURSOR`, because fused ranks do not seek.
+A request routes as hybrid when it carries a vector and either a term or `mode: 'hybrid'`; an absent `hybrid` config fuses with RRF and its defaults. A hybrid request that leaves `hybrid.depth` out, carries no `rerank`, and carries a cursor is rejected with `SEARCH_INVALID_CURSOR`, because fused ranks do not seek. A reranked request pages by the cursor that [Reranking](../algorithms.md#reranking) defines, because its coordinator ranks the first stage without the cursor. A hybrid request that sets `hybrid.depth` may carry a cursor, because the coordinator finds each page by its position d + offset in the fused list, as [Hybrid Search](../vector-index.md#hybrid-search) defines.
 
 A hybrid query runs two separate fan-outs so that the coordinator fuses two globally merged lists. Fusing on each node instead degrades as the partition count grows, because a node fuses only what its own partitions matched.
 
 ```text
 1. The coordinator sends two search requests to each data node
-   in parallel:
+   in parallel. Where the request leaves hybrid.depth out, each
+   carries a limit of offset + limit and offset 0:
      a text-only request carrying term, filters, sort, and
        limit, with the vector, hybrid, and mode fields absent
      a vector-only request carrying the vector, with the term,
        hybrid, and mode fields absent
+   Where the request sets hybrid.depth, each carries a limit of
+   depth and offset 0:
+     a text-only request carrying term and filters, with the
+       vector, hybrid, mode, and searchAfter fields absent
+     a vector-only request carrying the vector, with
+       rescoreWindow set to the hybrid re-score window, and the
+       term, hybrid, mode, and searchAfter fields absent
 2. Each data node runs each request against its local
-   partitions and returns one result set per request.
+   partitions, passes the vector request's rescoreWindow to its
+   vector index, and returns one result set per request.
 3. The coordinator merges every text result into one ranked list.
 4. The coordinator merges every vector result into one ranked list.
 5. The coordinator fuses those two lists with the configured
@@ -317,9 +326,17 @@ A hybrid query runs two separate fan-outs so that the coordinator fuses two glob
      linear combination, a weighted sum of normalised scores,
        where normalisation uses the score range of the whole
        merged list rather than any single node's range
-6. The coordinator takes the global top-k from the fused list.
-7. The fetch phase runs for those top-k documents.
+6. Where the request leaves hybrid.depth out, the coordinator
+   takes the global top offset + limit from the fused list and
+   pages from the offset. Where the request sets hybrid.depth,
+   it keeps the top depth of the fused list and takes the page
+   from position d + offset.
+7. The fetch phase runs for the documents of that page.
 ```
+
+### Distributed Reranking
+
+The coordinator that receives a query carrying `rerank` must rerank it with its own registered adapter, as [Reranking](../algorithms.md#reranking) defines. It must send the data nodes the query without `rerank`, `pinned`, or `searchAfter`, with offset 0 and a limit equal to the depth from step 1 of that section. It then merges and fuses their results as it does without `rerank`, and it fetches the reranked fields of the window's documents so that it can rerank them. Last, it places the pinned documents, slices the page from position d + offset, and fetches the page's documents. The data nodes count, facet, and group the first-stage request as they do without `rerank`, so they need no rerank adapter, and `QueryParams` carries no rerank member.
 
 ---
 

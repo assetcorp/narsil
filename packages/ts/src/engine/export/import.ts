@@ -1,6 +1,7 @@
 import { ErrorCodes, NarsilError, type NarsilErrorCode } from '../../errors'
 import { flattenSchema } from '../../schema/validator'
-import type { ByteSource, Narsil } from '../../types/engine'
+import type { ByteSource } from '../../types/byte-source'
+import type { Narsil } from '../../types/engine'
 import type { DocumentImportResult } from '../../types/results'
 import type { AnyDocument, IndexConfig, SchemaDefinition } from '../../types/schema'
 import { IMPORT_BATCH_DOCUMENTS, MAX_EXPORT_LINE_BYTES, MAX_IMPORT_REFUSALS_REPORTED } from '../constants'

@@ -1,4 +1,4 @@
-import { fnv1aBytes } from '../core/hash'
+import { FNV_OFFSET_BASIS, fnv1aContinue, fnv1aContinueTaggedNumbers } from '../core/hash'
 import { compareCodePoints } from '../core/ordering'
 import type { FilterExpression } from '../types/filters'
 import type { QueryParams } from '../types/search'
@@ -20,6 +20,12 @@ const encoder = new TextEncoder()
 interface BindingStream {
   bytes: Uint8Array
   length: number
+  hash: number
+}
+
+function flush(stream: BindingStream): void {
+  stream.hash = fnv1aContinue(stream.hash, stream.bytes, stream.length)
+  stream.length = 0
 }
 
 function ensureCapacity(stream: BindingStream, extra: number): void {
@@ -83,24 +89,11 @@ class NumberList {
   constructor(readonly members: ArrayLike<number>) {}
 }
 
-const NUMBER_MEMBER_BYTES = 9
-const LIST_HEADER_BYTES = 5
-
 function writeNumberList(stream: BindingStream, list: NumberList): void {
-  const count = list.members.length
-  ensureCapacity(stream, LIST_HEADER_BYTES + count * NUMBER_MEMBER_BYTES)
-  const bytes = stream.bytes
-  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
-  let at = stream.length
-  bytes[at] = LIST_TAG
-  view.setUint32(at + 1, count, false)
-  at += LIST_HEADER_BYTES
-  for (let i = 0; i < count; i++) {
-    bytes[at] = NUMBER_TAG
-    view.setFloat64(at + 1, Math.fround(list.members[i]), false)
-    at += NUMBER_MEMBER_BYTES
-  }
-  stream.length = at
+  writeByte(stream, LIST_TAG)
+  writeUint32(stream, list.members.length)
+  flush(stream)
+  stream.hash = fnv1aContinueTaggedNumbers(stream.hash, NUMBER_TAG, list.members)
 }
 
 function writeValue(stream: BindingStream, value: unknown): void {
@@ -161,15 +154,25 @@ function boundVectorOf(vector: QueryParams['vector']): Record<string, unknown> |
   return bound
 }
 
+function boundRerankOf(rerank: unknown): unknown {
+  if (typeof rerank !== 'object' || rerank === null || Array.isArray(rerank)) return rerank
+  const present: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(rerank)) {
+    if (value !== undefined) present[key] = value
+  }
+  return present
+}
+
 const FILTERS_SLOT = 2
 const BOUND_SLOT_COUNT = 16
 
 function bindingOf(values: unknown[]): string {
-  const stream: BindingStream = { bytes: new Uint8Array(256), length: 0 }
+  const stream: BindingStream = { bytes: new Uint8Array(256), length: 0, hash: FNV_OFFSET_BASIS }
   for (const value of values) {
     writeValue(stream, value)
   }
-  return fnv1aBytes(stream.bytes.subarray(0, stream.length)).toString(16).padStart(8, '0')
+  flush(stream)
+  return (stream.hash >>> 0).toString(16).padStart(8, '0')
 }
 
 /**
@@ -180,7 +183,7 @@ function bindingOf(values: unknown[]): string {
  * cursor-binding section fixes the value order and the byte encoding.
  */
 export function queryBindingOf(params: QueryParams): string {
-  return bindingOf([
+  const values: unknown[] = [
     params.term,
     params.fields,
     params.filters,
@@ -197,7 +200,9 @@ export function queryBindingOf(params: QueryParams): string {
     params.hybrid,
     boundVectorOf(params.vector),
     params.scoring ?? 'local',
-  ])
+  ]
+  if (params.rerank !== undefined) values.push(boundRerankOf(params.rerank))
+  return bindingOf(values)
 }
 
 /**

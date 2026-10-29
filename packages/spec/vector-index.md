@@ -43,6 +43,7 @@ SearchOptions {
   filterDocIds:  Set<string> or absent
   efSearch:      uint16 or absent
   oversample:    float32 or absent
+  rescoreWindow: uint32 or absent
 }
 
 ScoredResult {
@@ -74,19 +75,21 @@ MaintenanceStatus {
 
 See [Filtered Search](#filtered-search) for what `filterDocIds` does, and [algorithms.md](algorithms.md) for the metric definitions.
 
-`efSearch` sets the HNSW exploration factor. When `efSearch` is absent, an implementation must use its own default. The recommended default is maximum(50, k + margin), where the margin is 50 below 768 dimensions, 75 from 768 to 1,023 dimensions, and 0 from 1,024 dimensions. A higher value raises recall and lengthens the search.
+`efSearch` sets the HNSW exploration factor. When `efSearch` is absent, an implementation must use its own default. The recommended default is maximum(50, w + margin), where w is the search's `rescoreWindow` where it sets one and k otherwise, and the margin is 50 below 768 dimensions, 75 from 768 to 1,023 dimensions, and 0 from 1,024 dimensions. A higher value raises recall and lengthens the search.
 
 `oversample` sets how deep a [quantised](#quantisation) index re-scores against full-precision vectors:
 
 ```text
-depth      = ceiling(k * oversample) where oversample is present
-             defaultDepth(k) where oversample is absent
+window     = rescoreWindow where the search sets it, and k otherwise
+depth      = ceiling(window * oversample) where oversample is present
+             defaultDepth(window) where oversample is absent
 candidates = traverse the graph by estimated distance with ef = maximum(efSearch, depth)
 rescored   = the depth nearest candidates that pass filterDocIds, scored by the metric on full-precision vectors
-return the best k of rescored
+return the best k of rescored, where the search sets no rescoreWindow or sets minSimilarity
+return the best k of rescored and the remaining candidates otherwise
 ```
 
-An implementation must accept an `oversample` that is a finite number of at least 1, and it must reject any other value with `CONFIG_INVALID`. It must ignore `oversample` on an index whose quantisation is `none`. When `oversample` is absent, an implementation must use its own `defaultDepth(k)`, which must be at least k. The recommended default is maximum(c * k, ceiling(a * k + b * sqrt(k))), where c is 3 for `osq1` and `osq2` and 1 for `osq4` and `osq8`, and a and b depend on the quantisation and the dimensions:
+An implementation must accept an `oversample` that is a finite number of at least 1, and it must reject any other value with `CONFIG_INVALID`. It must ignore `oversample` on an index whose quantisation is `none`. When `oversample` is absent, an implementation must use its own `defaultDepth(n)`, which must be at least n. The recommended default is maximum(c * n, ceiling(a * n + b * sqrt(n))), where c is 3 for `osq1` and `osq2` and 1 for `osq4` and `osq8`, and a and b depend on the quantisation and the dimensions:
 
 | Quantisation | Below 768 dimensions | 768 to 1,023 dimensions | From 1,024 dimensions |
 | ------------ | -------------------- | ----------------------- | --------------------- |
@@ -94,6 +97,8 @@ An implementation must accept an `oversample` that is a finite number of at leas
 | `osq2`       | a = 2.6, b = 22.5    | a = 1, b = 16           | a = 3, b = 0          |
 | `osq4`       | a = 5, b = 0         | a = 5, b = 0            | a = 2, b = 0          |
 | `osq8`       | a = 2, b = 0         | a = 2, b = 0            | a = 2, b = 0          |
+
+`rescoreWindow` sizes the walk and the re-scoring of a search by a fixed window, so that the cost does not grow with `k`. A search that sets it returns up to `k` results from the candidates that the walk finds, so it can return fewer than `k`. Each candidate beyond the re-scored ones keeps the score that the implementation estimates from its code. Where the search also sets `minSimilarity`, it must return the re-scored candidates alone, each compared with `minSimilarity` at full precision, so that no estimate admits a vector below the floor. On an index whose quantisation is `none`, the walk uses ef = maximum(efSearch, rescoreWindow), and every candidate carries its full-precision score. An implementation must accept a `rescoreWindow` that is a whole number from 1 to 10,000.
 
 ### getVector(docId)
 
@@ -181,7 +186,13 @@ Fusion defines the order of hybrid results, which a sort would replace, so a hyb
    vector index.
 ```
 
-An implementation must pass `d + offset + limit + 1` as the `k` of step 2, capped at the [result window](partitioning.md#deep-pagination), where `d` is the depth field of the [searchAfter cursor](partitioning.md#searchafter-cursor), and 0 where the request sets no cursor. At that depth an implementation fills the page and has one result left over wherever another page follows. It fetches more vectors at a greater depth, so the fused order can change from one page to the next. A caller who needs a stable ranking at depth should page a text search or a vector search.
+`d` is the depth field of the [searchAfter cursor](partitioning.md#searchafter-cursor), and 0 where the request sets no cursor.
+
+Where the query leaves `hybrid.depth` out, an implementation must pass `d + offset + limit + 1` as the `k` of step 2, capped at the [result window](partitioning.md#deep-pagination). At that depth an implementation fills the page and has one result left over wherever another page follows. It fetches more vectors at a greater depth, so the fused order can change from one page to the next. A caller who needs a stable ranking at depth should set `hybrid.depth`.
+
+Where the query sets `hybrid.depth`, an implementation must collect the top `depth` results in steps 1 and 2, pass the hybrid re-score window as the `rescoreWindow` of step 2, and keep the top `depth` of the fused list in step 3. It must fetch the same `depth` from both searches on every page of a request, so that every page fuses the same two lists and no page repeats or skips a document. It must return the hits from position d + offset up to `depth`, so the last page can hold fewer than `limit` hits, and it must raise `SEARCH_RESULT_WINDOW_EXCEEDED` where d + offset reaches `depth`, stating in the error message that the caller can raise `hybrid.depth`. Where more hits follow the page, the result must carry a cursor whose `d` counts the fused list up to and including the last hit on the page that is not a pinned placement.
+
+The hybrid re-score window is a fixed number, and the recommended value is 10. An implementation must keep it independent of `limit`, `offset`, and the cursor, so that every page walks the graph the same way, re-scores the same candidates, and fuses the same vector list. RRF reads the estimated scores of the remaining candidates only as ranks, and linear fusion normalises them alongside the re-scored scores, since both lie on the metric's scale.
 
 ### Fusion Strategies
 
@@ -192,12 +203,13 @@ hybrid {
   strategy: 'rrf' or 'linear'
   k:        uint32    (the RRF constant, default 60, used by rrf alone)
   alpha:    float32   (a weight from 0 to 1, default 0.5, used by linear alone)
+  depth:    uint32 or absent   (the results that each search fetches, from 1 to 10,000; absent fetches by page, as Hybrid Search defines)
 }
 ```
 
 The default strategy is `rrf`.
 
-An implementation must reject with `CONFIG_INVALID` a `strategy` other than those two, a `k` that is not a whole number of at least 1, and an `alpha` outside 0 to 1.
+An implementation must reject with `CONFIG_INVALID` a `strategy` other than those two, a `k` that is not a whole number of at least 1, an `alpha` outside 0 to 1, and a `depth` that is not a whole number from 1 to 10,000.
 
 #### Reciprocal Rank Fusion
 

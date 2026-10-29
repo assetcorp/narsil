@@ -6,6 +6,7 @@ import type { EngineCore } from '../../engine/core'
 import type { RequestThreadListener } from '../../engine/orchestration'
 import { resolveVectorText } from '../../engine/resolve-vector-text'
 import { isNarsilError } from '../../errors'
+import { rerankOnHost } from '../../rerank/call'
 import type { Executor } from '../../workers/executor'
 import { clearGateSlot, gateSlotOfWorker } from '../concurrency-gate'
 import { INDEX_TOUCH_INTERVALS_PER_IDLE_TIMEOUT, MAX_INDEX_TOUCH_INTERVAL_MS } from '../constants'
@@ -25,6 +26,7 @@ import type {
   RelayedRequest,
   RelayReply,
   RelayRequest,
+  RerankQueryRequest,
   ServeRequestsResult,
 } from './messages'
 
@@ -53,7 +55,14 @@ interface ServingThread {
   departure: Int32Array<SharedArrayBuffer>
 }
 
-const RELAYED_TYPES: ReadonlySet<string> = new Set(['request', 'authorize', 'embed', 'stream-credit', 'stream-cancel'])
+const RELAYED_TYPES: ReadonlySet<string> = new Set([
+  'request',
+  'authorize',
+  'embed',
+  'rerank',
+  'stream-credit',
+  'stream-cancel',
+])
 
 function isRelayRequest(message: unknown): message is RelayRequest {
   if (typeof message !== 'object' || message === null) return false
@@ -143,6 +152,16 @@ async function answerEmbed(core: EngineCore, request: EmbedQueryRequest): Promis
   }
 }
 
+async function answerRerank(core: EngineCore, request: RerankQueryRequest): Promise<RelayReply> {
+  try {
+    const scores = await rerankOnHost(core, request.adapter, request.query, request.documents)
+    return { type: 'reranked', requestId: request.requestId, scores, error: null }
+  } catch (err) {
+    if (!isNarsilError(err)) console.warn('Reranking a query for a request thread failed:', err)
+    return { type: 'reranked', requestId: request.requestId, scores: null, error: toHttpError(err).body }
+  }
+}
+
 function touchIntervalFor(copyIdleTimeoutMs: number): number {
   return Math.min(MAX_INDEX_TOUCH_INTERVAL_MS, Math.floor(copyIdleTimeoutMs / INDEX_TOUCH_INTERVALS_PER_IDLE_TIMEOUT))
 }
@@ -192,7 +211,9 @@ export async function startRequestThreads(options: RequestThreadHostOptions): Pr
           ? answerRequest(handlers, message, port, streams)
           : message.type === 'authorize'
             ? answerAuthorize(authorize, message)
-            : answerEmbed(core, message)
+            : message.type === 'embed'
+              ? answerEmbed(core, message)
+              : answerRerank(core, message)
       void reply.then(answer => {
         if (answer !== null) port.postMessage(answer)
       })
@@ -236,6 +257,7 @@ export async function startRequestThreads(options: RequestThreadHostOptions): Pr
               authorizes: authorize !== undefined,
               searchHooks,
               patternWorkCap: options.core.patternWorkCap,
+              maxRerankWindow: options.core.rerankSettings.maxWindow,
               allowRegex: options.allowRegex,
             },
           },

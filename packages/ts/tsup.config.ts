@@ -31,6 +31,7 @@ const nodeEntry: Record<string, string> = {
   'vector/search-worker': 'src/vector/search-worker.ts',
   'persistence/durability/checkpoint-worker': 'src/persistence/durability/checkpoint-worker.ts',
   'embeddings/openai': 'src/embeddings/openai.ts',
+  'rerankers/http': 'src/rerankers/http.ts',
   pattern: 'src/pattern/index.ts',
   'partial-words': 'src/partial-words/index.ts',
   synonyms: 'src/synonyms/index.ts',
