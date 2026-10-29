@@ -1,5 +1,5 @@
 import type { SchemaDefinition } from '../../../types/schema'
-import type { NodeEvent, NodeRegistration } from './node'
+import type { NodeEvent, NodeRegistration, RegistrationLease } from './node'
 
 export type {
   IndexPartitionBytes,
@@ -8,6 +8,7 @@ export type {
   NodeMemoryReport,
   NodeRegistration,
   NodeRole,
+  RegistrationLease,
 } from './node'
 
 /**
@@ -161,6 +162,21 @@ export interface ClusterCoordinator {
    * @param nodeId - The node to remove.
    */
   deregisterNode(nodeId: string): Promise<void>
+  /**
+   * Reports how much longer the coordinator is certain to hold a node's
+   * registration, which is how long the node may keep acting as a primary.
+   *
+   * A primary refuses writes with `PARTITION_NOT_PRIMARY` once this time runs
+   * out, because the controller may then have promoted another copy. A
+   * coordinator that leaves this member out gets no such fence, so a primary
+   * that loses touch with it keeps answering writes until it reads a newer
+   * allocation table.
+   *
+   * @param nodeId - The node whose registration this process wrote.
+   * @returns The time left and the lease lifetime it counts against, or
+   * `null` where this process holds no live registration for the node.
+   */
+  registrationLease?(nodeId: string): RegistrationLease | null
   /**
    * Lists the nodes currently published.
    *

@@ -40,6 +40,7 @@ export type {
   NodeRole,
   PartitionAssignment,
   PartitionState,
+  RegistrationLease,
   SchemaEvent,
   UnassignedReason,
 } from './coordinator'

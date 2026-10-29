@@ -8,9 +8,11 @@ import type {
   NodeEvent,
   NodeRegistration,
   PartitionState,
+  RegistrationLease,
 } from '../types'
 import { ETCD_MAX_RESPONSE_BYTES } from './constants'
 import { coordinatorKeys, extractSuffix } from './keys'
+import { leaseHeldFor } from './lease-validity'
 import { LeaseManager } from './leases'
 import { loadEtcd3Module } from './loader'
 import { watchPrefix } from './prefix-watch'
@@ -128,10 +130,17 @@ export async function createEtcdCoordinator(config?: Partial<EtcdCoordinatorConf
       validateNodeId(nodeId)
       const key = keys.node(nodeId)
       const entry = leaseManager.remove(key)
+      leaseManager.forgetHolder(key)
       if (entry !== undefined) {
         await entry.lease.revoke().catch(() => {})
       }
       await client.delete().key(key).exec()
+    },
+
+    registrationLease(nodeId: string): RegistrationLease | null {
+      if (isShutdown) return null
+      const holder = leaseManager.holder(keys.node(nodeId))
+      return holder === undefined ? null : leaseHeldFor(holder)
     },
 
     async listNodes(): Promise<NodeRegistration[]> {
