@@ -7,8 +7,8 @@ import { requireWritableIndex } from '../memory/write-block'
 import { estimateDocumentsBytes, withAdmittedWrite } from '../memory/write-pressure'
 import { routableAllocation } from '../routable-allocation'
 import { requireAssignedPrimary, resolvePartitionId } from './assignment'
-import { type ForwardBatchItem, forwardBatchToRemote } from './forward-batch'
-import { retryBatchOnPrimaryChange, settleAbsentRemovals, settleEqualInserts, settleNothing } from './primary-change'
+import { type ForwardBatchItem, forwardBatchToRemote } from './forward-to-primary'
+import { retryEachPartition, settleAbsentRemovals, settleEqualInserts, settleNothing } from './primary-change'
 import { applyPrimaryInsertBatch, applyPrimaryRemoveBatch, applyPrimaryUpdateBatch } from './primary-writes'
 import type { WriteRoutingDeps } from './types'
 
@@ -116,9 +116,10 @@ async function routeAdmittedInsertBatch(
     docId: typeof doc.id === 'string' && doc.id.length > 0 ? doc.id : generateId(),
   }))
   const sentById = new Map(withIds.map(item => [item.docId, item.doc]))
-  return retryBatchOnPrimaryChange(
+  return retryEachPartition(
     deps,
     indexName,
+    table,
     withIds,
     item => item.docId,
     async pending => routeInsertItems(await requireRoutableTable(deps, indexName), indexName, pending, deps, options),
@@ -190,9 +191,10 @@ export async function routeRemoveBatch(
     return deps.engine.removeBatch(indexName, docIds)
   }
 
-  return retryBatchOnPrimaryChange(
+  return retryEachPartition(
     deps,
     indexName,
+    table,
     docIds,
     docId => docId,
     async pending => routeRemoveItems(await requireRoutableTable(deps, indexName), indexName, pending, deps),
@@ -259,9 +261,10 @@ async function routeAdmittedUpdateBatch(
   }
   requireWritableIndex(table, deps.memoryView)
 
-  return retryBatchOnPrimaryChange(
+  return retryEachPartition(
     deps,
     indexName,
+    table,
     updates,
     update => update.docId,
     async pending => routeUpdateItems(await requireRoutableTable(deps, indexName), indexName, pending, deps),

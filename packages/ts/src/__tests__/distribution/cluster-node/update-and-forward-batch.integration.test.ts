@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createClusterNode } from '../../../distribution/cluster-node'
 import type { ClusterNode } from '../../../distribution/cluster-node/types'
+import { resolvePartitionId } from '../../../distribution/cluster-node/write-routing'
 import { createInMemoryCoordinator } from '../../../distribution/coordinator'
 import type { ClusterCoordinator } from '../../../distribution/coordinator/types'
 import type { InMemoryNetwork } from '../../../distribution/transport'
@@ -10,6 +11,21 @@ import { ReplicationMessageTypes } from '../../../distribution/transport/types'
 
 const POLL_INTERVAL_MS = 25
 const POLL_BUDGET_MS = 15_000
+const PARTITION_COUNT = 4
+
+function idsInEveryPartition(prefix: string, perPartition: number): string[] {
+  const ids: string[] = []
+  for (let partitionId = 0; partitionId < PARTITION_COUNT; partitionId += 1) {
+    let found = 0
+    for (let candidate = 0; found < perPartition; candidate += 1) {
+      const id = `${prefix}-${partitionId}-${candidate}`
+      if (resolvePartitionId(id, PARTITION_COUNT) !== partitionId) continue
+      ids.push(id)
+      found += 1
+    }
+  }
+  return ids
+}
 
 async function pollUntil(predicate: () => Promise<boolean> | boolean): Promise<boolean> {
   const start = Date.now()
@@ -22,9 +38,10 @@ async function pollUntil(predicate: () => Promise<boolean> | boolean): Promise<b
 
 function recordingTransport(inner: NodeTransport, recordedTypes: string[]): NodeTransport {
   return {
-    send: (target: string, message: TransportMessage) => {
+    send: async (target: string, message: TransportMessage) => {
+      const response = await inner.send(target, message)
       recordedTypes.push(message.type)
-      return inner.send(target, message)
+      return response
     },
     stream: (target: string, message: TransportMessage, handler: (chunk: Uint8Array) => void) =>
       inner.stream(target, message, handler),
@@ -177,7 +194,7 @@ describe('cluster-node batch forwarding to a remote primary', () => {
     await router.createIndex(
       'products',
       { schema: { title: 'string', price: 'number' } },
-      { partitionCount: 4, replicationFactor: 0 },
+      { partitionCount: PARTITION_COUNT, replicationFactor: 0 },
     )
 
     const active = await pollUntil(async () => {
@@ -205,10 +222,10 @@ describe('cluster-node batch forwarding to a remote primary', () => {
     await coordinator.shutdown()
   })
 
-  it('forwards an insert batch as one message and a single insert as a plain forward', async () => {
+  it('forwards an insert batch as one message per partition and a single insert as a plain forward', async () => {
     if (router === undefined || dataNode === undefined) throw new Error('nodes are missing')
 
-    const docIds = Array.from({ length: 10 }, (_, index) => `chair-${index}`)
+    const docIds = idsInEveryPartition('chair', 3)
     recordedTypes.length = 0
     const inserted = await router.insertBatch(
       'products',
@@ -216,7 +233,7 @@ describe('cluster-node batch forwarding to a remote primary', () => {
     )
     expect(inserted.failed).toEqual([])
     expect(inserted.succeeded).toHaveLength(docIds.length)
-    expect(recordedTypes.filter(type => type === ReplicationMessageTypes.FORWARD_BATCH)).toHaveLength(1)
+    expect(recordedTypes.filter(type => type === ReplicationMessageTypes.FORWARD_BATCH)).toHaveLength(PARTITION_COUNT)
     expect(recordedTypes.filter(type => type === ReplicationMessageTypes.FORWARD)).toHaveLength(0)
 
     recordedTypes.length = 0
@@ -228,10 +245,10 @@ describe('cluster-node batch forwarding to a remote primary', () => {
     expect(visible.count).toBe(docIds.length + 1)
   }, 30_000)
 
-  it('forwards updates and removals in batches and applies them on the primary', async () => {
+  it('forwards updates and removals as one batch per partition and applies them on the primary', async () => {
     if (router === undefined || dataNode === undefined) throw new Error('nodes are missing')
 
-    const docIds = Array.from({ length: 8 }, (_, index) => `stool-${index}`)
+    const docIds = idsInEveryPartition('stool', 2)
     const inserted = await router.insertBatch(
       'products',
       docIds.map(id => ({ id, title: `Seeded Stool ${id}`, price: 10 })),
@@ -245,7 +262,7 @@ describe('cluster-node batch forwarding to a remote primary', () => {
     )
     expect(updated.failed).toEqual([])
     expect(updated.succeeded).toHaveLength(docIds.length)
-    expect(recordedTypes.filter(type => type === ReplicationMessageTypes.FORWARD_BATCH)).toHaveLength(1)
+    expect(recordedTypes.filter(type => type === ReplicationMessageTypes.FORWARD_BATCH)).toHaveLength(PARTITION_COUNT)
     expect(recordedTypes.filter(type => type === ReplicationMessageTypes.FORWARD)).toHaveLength(0)
 
     const refreshed = await router.query('products', { term: 'Refreshed', limit: 20 })
@@ -255,7 +272,7 @@ describe('cluster-node batch forwarding to a remote primary', () => {
     const removed = await router.removeBatch('products', docIds)
     expect(removed.failed).toEqual([])
     expect(removed.succeeded).toHaveLength(docIds.length)
-    expect(recordedTypes.filter(type => type === ReplicationMessageTypes.FORWARD_BATCH)).toHaveLength(1)
+    expect(recordedTypes.filter(type => type === ReplicationMessageTypes.FORWARD_BATCH)).toHaveLength(PARTITION_COUNT)
     expect(recordedTypes.filter(type => type === ReplicationMessageTypes.FORWARD)).toHaveLength(0)
 
     const emptied = await router.query('products', { term: 'Stool', limit: 20 })
