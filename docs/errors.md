@@ -26,7 +26,7 @@ The codes in this table are the ones that callers handle most often:
 | `VECTOR_DIMENSION_MISMATCH` | A vector's length differs from the field's declared dimension. |
 | `EMBEDDING_FAILED` / `EMBEDDING_CONFIG_INVALID` | An adapter call fails, or the embedding configuration is contradictory. |
 | `PARTITION_CAPACITY_EXCEEDED` / `PARTITION_REBALANCING_BACKPRESSURE` | An insert passes the capacity cap, or a config change collides with a running reshape. |
-| `RESTORE_MEMORY_EXCEEDED` | A `restore` over an existing index would need more JavaScript heap or more process memory than the process has free while it holds both copies, so the engine keeps the existing index. The HTTP server answers this error with status 507. See [Snapshots and restore](persistence-and-durability.md#snapshots-and-restore). |
+| `RESTORE_MEMORY_EXCEEDED` | A `restore` would need more JavaScript heap or more process memory than the process has free, so the engine keeps any existing index and creates no new one. The HTTP server answers this error with status 507. See [Snapshots and restore](persistence-and-durability.md#snapshots-and-restore). |
 | `INDEX_REOPEN_CAPACITY_EXHAUSTED` | The number of callers waiting for one index to reopen goes over `lifecycle.maxReopenWaiters`. See [Index lifecycle](persistence-and-durability.md#index-lifecycle). |
 | `INSTANCE_SHUT_DOWN` | A caller uses an instance after its `shutdown()`, and the HTTP server returns status 503 for that call. |
 | `LANGUAGE_NOT_SUPPORTED` | An index config names a language module that the caller never imports. |

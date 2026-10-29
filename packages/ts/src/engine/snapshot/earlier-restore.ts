@@ -79,7 +79,7 @@ function vectorsOfSnapshot(envelope: SnapshotEnvelope): VectorsByDocument {
   return byDocument
 }
 
-function footprintOf(envelope: SnapshotEnvelope, prepared: PreparedIndex): RestoreFootprint {
+function footprintOf(envelope: SnapshotEnvelope, prepared: PreparedIndex, replacesIndex: boolean): RestoreFootprint {
   let partitionBytes = 0
   for (const payload of envelope.partitions ?? []) partitionBytes += payload.byteLength
   const vectorCounts = new Map<string, number>()
@@ -88,7 +88,7 @@ function footprintOf(envelope: SnapshotEnvelope, prepared: PreparedIndex): Resto
     for (const part of decodeVectorIndexParts(rawParts)) count += part.docIds.length
     vectorCounts.set(fieldPath, count)
   }
-  return earlierSnapshotFootprint(prepared, partitionBytes, vectorCounts)
+  return earlierSnapshotFootprint(prepared, partitionBytes, vectorCounts, replacesIndex)
 }
 
 function documentsOfPartition(envelope: SnapshotEnvelope, payload: Uint8Array): SerializablePartition['documents'] {
@@ -171,7 +171,8 @@ async function buildRestoredIndex(
 export async function restoreEarlierSnapshot(indexName: string, data: Uint8Array, deps: RestoreDeps): Promise<void> {
   const envelope = await decodeEarlierSnapshot(data)
   const prepared = prepareRestoredIndex(envelope, deps)
-  if (deps.indexRegistry.has(indexName)) requireRestoreMemory(indexName, footprintOf(envelope, prepared))
+  const replacesIndex = deps.indexRegistry.has(indexName)
+  requireRestoreMemory(indexName, footprintOf(envelope, prepared, replacesIndex), replacesIndex)
   const analysedNow = { ...prepared, storedRevision: prepared.language.revision }
   const staging = deps.durability?.manager.stageRestore?.(indexName) ?? null
   try {
