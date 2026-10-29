@@ -246,6 +246,7 @@ export interface VectorOrdinalSearchRequest {
     oversample?: number;
     query: Float32Array;
     requestId: string;
+    rescoreWindow?: number;
     type: 'searchOrdinals';
 }
 
@@ -272,6 +273,7 @@ export interface VectorSearchRequest {
     oversample?: number;
     query: Float32Array;
     requestId: string;
+    rescoreWindow?: number;
     type: 'search';
 }
 

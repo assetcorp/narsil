@@ -18,16 +18,18 @@ The engine starts the vector ranking first and computes the BM25 ranking while t
 
 The engine orders hybrid results by fusion, so it throws `SEARCH_INVALID_MODE` for a hybrid query that also sets a `sort`.
 
-For a hybrid query, `count` holds the length of the fused list. `countExact` is true only where each of the two rankings contains every matching document. The BM25 ranking contains every match, while the vector ranking contains only the candidates that the engine fetches for it, so for a field that holds a graph the engine reports a number at or below the true total.
+On one engine, `count` for a hybrid query holds the length of the fused list where you leave `hybrid.depth` out. Where you set it, `count` holds the keyword matches plus the vector results that match no keyword, unless a `minScore` trims the fused list, in which case it holds the length of that list. On a cluster, `count` holds the keyword matches alone. `countExact` is true only where each of the two rankings contains every matching document. The vector ranking contains only the candidates that the engine fetches for it, so for a field that holds a graph the engine reports a number at or below the true total.
 
-Because the engine fuses the two rankings by position and fetches a deeper vector ranking for each page, the fused order can change from one page to the next. Where you need the same order across a long run of pages, page a keyword search or a vector search.
+Where you leave `hybrid.depth` out, the engine fetches a deeper vector ranking for each page, which means that the fused order can change from one page to the next. A cluster refuses a cursor on such a query with `SEARCH_INVALID_CURSOR`, so set `hybrid.depth` where you need the same order across a run of pages.
+
+Where you set `hybrid.depth`, each of the two searches fetches that many results, and the engine pages through the top `depth` of the fused list. Every page of one query therefore comes from the same fused order, whether you page with `offset` or with the cursor that each result carries. The last page stops at `depth`, so it can hold fewer than `limit` hits, and a page that starts at `depth` or beyond raises `SEARCH_RESULT_WINDOW_EXCEEDED`. A larger `depth`, up to 10,000, lets you page further, although each search then fetches more results for every page.
 
 Set `strategy` to one of two values:
 
 - Under `'rrf'`, the default, the engine applies reciprocal rank fusion, which combines the two rankings by position alone. `k` reduces the weight of the lower ranks, and it is 60 by default.
 - Under `'linear'`, the engine normalises both sets of scores to [0, 1] and blends them as `alpha * vector + (1 - alpha) * text`. `alpha` sets the weight of the vector side, and it is 0.5 by default.
 
-The engine validates all three values before it searches. It throws a `NarsilError` with code `CONFIG_INVALID` for any `strategy` other than those two, for a `k` that is not a whole number of at least 1, and for an `alpha` outside 0 to 1.
+The engine validates all four values before it searches. It throws a `NarsilError` with code `CONFIG_INVALID` for any `strategy` other than those two, for a `k` that is not a whole number of at least 1, for an `alpha` outside 0 to 1, and for a `depth` that is not a whole number from 1 to 10,000.
 
 ```ts
 const weighted = await narsil.query('docs', {

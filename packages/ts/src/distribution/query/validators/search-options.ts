@@ -1,4 +1,5 @@
 import { MAX_DOC_ID_LENGTH } from '../../../engine/constants'
+import { MAX_HYBRID_DEPTH, MIN_HYBRID_DEPTH } from '../../../search/constants'
 import {
   MAX_EF_SEARCH,
   MAX_FACET_RANGES,
@@ -36,6 +37,7 @@ export function validateHybridParams(value: unknown): void {
   if (!isRecord(value)) {
     throwInvalid(CONFIG_INVALID, 'Invalid SearchPayload: "params.hybrid" must be an object')
   }
+  if (!Object.hasOwn(value, 'depth')) value.depth = null
   if (
     value.strategy !== null &&
     !ALLOWED_HYBRID_STRATEGIES.includes(value.strategy as (typeof ALLOWED_HYBRID_STRATEGIES)[number])
@@ -55,6 +57,15 @@ export function validateHybridParams(value: unknown): void {
     throwInvalid(
       CONFIG_INVALID,
       'Invalid SearchPayload: "params.hybrid.alpha" must be a finite number in [0, 1], or null',
+    )
+  }
+  if (
+    value.depth !== null &&
+    (!isInteger(value.depth) || value.depth < MIN_HYBRID_DEPTH || value.depth > MAX_HYBRID_DEPTH)
+  ) {
+    throwInvalid(
+      CONFIG_INVALID,
+      `Invalid SearchPayload: "params.hybrid.depth" must be an integer between ${MIN_HYBRID_DEPTH} and ${MAX_HYBRID_DEPTH}, or null`,
     )
   }
 }
@@ -222,6 +233,15 @@ export function validateEfSearchParam(value: unknown): void {
     throwInvalid(
       CONFIG_INVALID,
       `Invalid SearchPayload: "params.vector.efSearch" must be an integer between 1 and ${MAX_EF_SEARCH}`,
+    )
+  }
+}
+
+export function validateRescoreWindowParam(value: unknown): void {
+  if (!isInteger(value) || value < MIN_HYBRID_DEPTH || value > MAX_HYBRID_DEPTH) {
+    throwInvalid(
+      CONFIG_INVALID,
+      `Invalid SearchPayload: "params.vector.rescoreWindow" must be an integer between ${MIN_HYBRID_DEPTH} and ${MAX_HYBRID_DEPTH}, or null`,
     )
   }
 }

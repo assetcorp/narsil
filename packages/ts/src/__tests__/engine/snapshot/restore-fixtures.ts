@@ -3,8 +3,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createNarsil, type Narsil } from '../../../narsil'
 import { createFilesystemPersistence } from '../../../persistence/filesystem'
+import type { ByteSource } from '../../../types/byte-source'
 import type { NarsilConfig } from '../../../types/config'
-import type { ByteSource } from '../../../types/engine'
 import type { AnyDocument } from '../../../types/schema'
 
 export const SCHEMA = { body: 'string', group: 'enum', embedding: 'vector[8]' } as const

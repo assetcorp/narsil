@@ -17,6 +17,7 @@ import type { ListParams } from '../../../types/search'
 import { createListMessage, validateListResultPayload } from '../../query/codec'
 import type { ListEntryWire, ListPayload, SortField } from '../../transport/types'
 import { routableAllocation } from '../routable-allocation'
+import { restoreVectorValues } from '../vector-bytes'
 import { type ClusterReadDeps, gatherFromEveryPartition, sendReadRequest } from './scatter'
 
 function clampListLimit(limit: number | undefined): number {
@@ -163,7 +164,9 @@ export async function listCluster<T = AnyDocument>(
 
   const documents: Array<ListedDocument<T>> = page.map(item => ({
     id: item.entry.docId,
-    document: (projection.kind === 'none' ? {} : applyProjection(item.entry.document as AnyDocument, projection)) as T,
+    document: (projection.kind === 'none'
+      ? {}
+      : applyProjection(restoreVectorValues(item.entry.document) as AnyDocument, projection)) as T,
   }))
 
   return { documents, cursor, total, elapsed: now() - startTime }

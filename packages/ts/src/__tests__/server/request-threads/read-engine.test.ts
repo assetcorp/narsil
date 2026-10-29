@@ -20,6 +20,7 @@ function threadWithoutHeldVectors() {
     executor,
     relay: {} as RelayClient,
     searchHooks: false,
+    maxRerankWindow: 100,
     patternWorkCap: DEFAULT_PATTERN_WORK_CAP,
   })
 }

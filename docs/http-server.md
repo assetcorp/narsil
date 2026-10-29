@@ -26,8 +26,9 @@ await server.listen()
 
 - `cors` sets which cross-origin requests the server accepts.
 - `onRequest` is a hook for authentication, which the main thread runs once per request on behalf of every request thread.
-- `limits` sets the caps on body size, concurrency, the result window, and fetch counts, where `maxConcurrentRequests` counts the requests in flight on every thread together.
+- `limits` sets the caps on body size, concurrency, the result window, the rerank window, and fetch counts, where `maxConcurrentRequests` counts the requests in flight on every thread together. `limits.maxRerankWindow` caps the `rerank.window` of a search, so that one remote request sends at most that many documents to a model. It defaults to 100, or to the engine's `maxRerankWindow` where that is lower, and the server answers a larger window with 400 `INVALID_REQUEST`. `createServer` throws `CONFIG_INVALID` for a value outside 1 to the engine's `maxRerankWindow`.
 - `embeddingAdapters` holds the adapters that JSON index configs refer to by name.
+- `rerankAdapters` holds the rerank adapters that a search's `rerank.adapter` refers to by name. The request threads send each model call to the main thread, which holds them. See [Reranking](reranking.md#over-http-and-in-a-cluster).
 - `taskStore` keeps the status of long-running tasks across restarts.
 - `instanceId` lets the server mark its own unfinished tasks as failed after a restart.
 - `allowInsecure` lets the server bind a trusted private network address without an `onRequest` hook.
@@ -259,7 +260,7 @@ curl -X POST localhost:9876/indexes/movies/documents/_list \
 
 Send the cursor back on the next request, and stop once it comes back null. The cursor holds no server state, so nothing expires when a client stops paging. A client that saved a cursor can resume against a server that has restarted since.
 
-The server bounds `limit` by `limits.maxFetchDocuments`, which defaults to 10,000, and answers 400 `INVALID_REQUEST` for a larger value. It answers a body naming more than eight `sort` fields the same way. A search whose `offset` plus `limit` passes the 10,000-result window answers 400 `SEARCH_RESULT_WINDOW_EXCEEDED`, which names the cursor as the way to page further. For a cursor it never issued, or one sent back under a changed query or a different `sort`, it answers 400 `SEARCH_INVALID_CURSOR`.
+The server bounds `limit` by `limits.maxFetchDocuments`, which defaults to 10,000, and answers 400 `INVALID_REQUEST` for a larger value. It answers a body naming more than eight `sort` fields the same way. A search whose `offset` plus `limit` passes the 10,000-result window answers 400 `SEARCH_RESULT_WINDOW_EXCEEDED`, which names the cursor as the way to page further. A hybrid search whose page starts at the `hybrid.depth` that it sets answers the same status and code, and the message tells the caller to raise `hybrid.depth`. For a cursor it never issued, or one sent back under a changed query or a different `sort`, it answers 400 `SEARCH_INVALID_CURSOR`.
 
 A document id crosses the wire percent-encoded, and the server decodes every path segment, so it finds the document that an id holding a slash, a space, or an accent names. An index name never needs the encoding, because the engine accepts alphanumerics, dots, hyphens, and underscores alone. A segment holding an escape the server cannot decode answers 400 `INVALID_REQUEST`.
 

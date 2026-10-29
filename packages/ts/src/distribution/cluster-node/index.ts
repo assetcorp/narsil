@@ -1,4 +1,5 @@
 import { ErrorCodes, NarsilError } from '../../errors'
+import { bindRerankWindowSource, rerankWindowCapOf } from '../../narsil/internals'
 import { bindWriteBlockLookup } from '../../narsil/write-blocks'
 import { DEFAULT_NODE_LIFECYCLE_CONFIG } from '../cluster/constants'
 import type { ControllerNode } from '../cluster/controller/types'
@@ -225,6 +226,7 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
 
     open: (indexName: string) => trackOp(indexName, async () => engine.open(await servingName(indexName))),
     close: (indexName: string) => transitionIndex(indexName, async () => engine.close(await servingName(indexName))),
+    registerRerankAdapter: (name, adapter) => engine.registerRerankAdapter(name, adapter),
 
     ...createClusterNodeOperations({
       trackOp,
@@ -342,6 +344,7 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
     const table = await routableAllocation(writeDeps.coordinator, indexName).catch(() => null)
     return table === null ? null : findWriteBlock(table, memoryReporting.view)
   })
+  bindRerankWindowSource(node, () => rerankWindowCapOf(engine))
   return node
 
   function resolveSnapshotHeaderMetadata(indexName: string, partitionId: number | null) {

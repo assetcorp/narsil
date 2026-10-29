@@ -1,13 +1,7 @@
 import { ErrorCodes, NarsilError } from '../errors'
+import { buildSignal, postJsonWithRetry, resolveApiKey } from '../http-retry'
 import type { EmbeddingAdapter } from '../types/adapters'
-import {
-  BASE_BACKOFF_MS,
-  DEFAULT_REQUEST_TIMEOUT_MS,
-  MAX_BACKOFF_MS,
-  MAX_INPUTS_PER_REQUEST,
-  MAX_JITTER_MS,
-  RETRYABLE_STATUS_CODES,
-} from './constants'
+import { DEFAULT_REQUEST_TIMEOUT_MS, MAX_INPUTS_PER_REQUEST } from './constants'
 
 /**
  * How {@link createOpenAIEmbedding} reaches an embeddings endpoint.
@@ -32,72 +26,6 @@ export interface OpenAIEmbeddingConfig {
 interface OpenAIEmbeddingItem {
   index: number
   embedding: number[]
-}
-
-interface OpenAIErrorBody {
-  error?: {
-    type?: string
-    message?: string
-  }
-}
-
-function isRetryableStatus(status: number): boolean {
-  return RETRYABLE_STATUS_CODES.has(status)
-}
-
-function computeBackoffMs(attempt: number, retryAfterSeconds: number | null): number {
-  if (retryAfterSeconds !== null && retryAfterSeconds > 0) {
-    return Math.min(retryAfterSeconds * 1_000, MAX_BACKOFF_MS)
-  }
-  const exponential = Math.min(BASE_BACKOFF_MS * 2 ** attempt, MAX_BACKOFF_MS)
-  const jitter = Math.random() * MAX_JITTER_MS
-  return exponential + jitter
-}
-
-function parseRetryAfterHeader(headers: Headers): number | null {
-  const raw = headers.get('retry-after')
-  if (raw === null) return null
-  const seconds = Number(raw)
-  if (Number.isFinite(seconds) && seconds > 0) return seconds
-  return null
-}
-
-async function resolveApiKey(apiKey: string | (() => string | Promise<string>)): Promise<string> {
-  const resolved = typeof apiKey === 'function' ? await apiKey() : apiKey
-  if (typeof resolved !== 'string' || resolved.trim().length === 0) {
-    throw new NarsilError(
-      ErrorCodes.EMBEDDING_CONFIG_INVALID,
-      'OpenAI embedding adapter apiKey resolved to an empty or non-string value',
-    )
-  }
-  return resolved
-}
-
-function buildSignal(callerSignal: AbortSignal | undefined, timeoutMs: number): AbortSignal {
-  const timeoutSignal = AbortSignal.timeout(timeoutMs)
-  if (callerSignal === undefined) return timeoutSignal
-  return AbortSignal.any([callerSignal, timeoutSignal])
-}
-
-async function sleep(ms: number, signal?: AbortSignal): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if (signal?.aborted) {
-      reject(signal.reason as Error)
-      return
-    }
-
-    const onAbort = () => {
-      clearTimeout(timer)
-      reject(signal?.reason as Error)
-    }
-
-    const timer = setTimeout(() => {
-      signal?.removeEventListener('abort', onAbort)
-      resolve()
-    }, ms)
-
-    signal?.addEventListener('abort', onAbort, { once: true })
-  })
 }
 
 function parseEmbeddingItems(data: unknown): OpenAIEmbeddingItem[] {
@@ -127,94 +55,6 @@ function parseEmbeddingItems(data: unknown): OpenAIEmbeddingItem[] {
   return items
 }
 
-async function parseErrorBody(response: Response): Promise<{ type: string; message: string }> {
-  try {
-    const body = (await response.json()) as OpenAIErrorBody
-    const errorType = body?.error?.type ?? 'unknown'
-    const errorMessage = body?.error?.message ?? `HTTP ${response.status}`
-    return { type: errorType, message: errorMessage }
-  } catch {
-    return { type: 'unknown', message: `HTTP ${response.status}` }
-  }
-}
-
-async function executeWithRetry(
-  url: string,
-  requestBody: string,
-  apiKey: string,
-  maxRetries: number,
-  signal: AbortSignal,
-): Promise<Record<string, unknown>> {
-  let lastError: Error | null = null
-
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    let response: Response
-    try {
-      response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: requestBody,
-        signal,
-      })
-    } catch (err: unknown) {
-      if (err instanceof DOMException || (err instanceof Error && err.name === 'AbortError')) {
-        throw err
-      }
-      lastError = err instanceof Error ? err : new Error(String(err))
-      if (attempt < maxRetries) {
-        await sleep(computeBackoffMs(attempt, null), signal)
-        continue
-      }
-      throw new NarsilError(
-        ErrorCodes.EMBEDDING_FAILED,
-        `OpenAI request failed after ${maxRetries + 1} attempts: network error`,
-        {
-          cause: lastError.message,
-        },
-      )
-    }
-
-    if (response.ok) {
-      let parsed: unknown
-      try {
-        parsed = await response.json()
-      } catch {
-        lastError = new Error('invalid JSON in a 2xx response body')
-        if (attempt < maxRetries) {
-          await sleep(computeBackoffMs(attempt, null), signal)
-          continue
-        }
-        throw new NarsilError(ErrorCodes.EMBEDDING_FAILED, 'OpenAI returned invalid JSON in response body')
-      }
-      if (parsed === null || typeof parsed !== 'object') {
-        throw new NarsilError(ErrorCodes.EMBEDDING_FAILED, 'OpenAI returned non-object JSON response')
-      }
-      return parsed as Record<string, unknown>
-    }
-
-    const retryAfter = parseRetryAfterHeader(response.headers)
-    const errorInfo = await parseErrorBody(response)
-
-    if (!isRetryableStatus(response.status) || attempt >= maxRetries) {
-      throw new NarsilError(
-        ErrorCodes.EMBEDDING_FAILED,
-        `OpenAI API error (${response.status}): [${errorInfo.type}] ${errorInfo.message}`,
-        { status: response.status, errorType: errorInfo.type },
-      )
-    }
-
-    lastError = new Error(`HTTP ${response.status}: ${errorInfo.type}`)
-    await sleep(computeBackoffMs(attempt, retryAfter), signal)
-  }
-
-  throw new NarsilError(ErrorCodes.EMBEDDING_FAILED, 'OpenAI request failed: exhausted all retries', {
-    cause: lastError?.message,
-  })
-}
-
 /**
  * Builds an embedding adapter that calls an OpenAI-compatible embeddings
  * endpoint, so an index embeds documents as they arrive and embeds a query as
@@ -225,7 +65,7 @@ async function executeWithRetry(
  *
  * @param config - Endpoint, credentials, model, and vector length.
  * @returns An adapter you pass as `embedding`, or register by name with
- * {@link Narsil.registerEmbeddingAdapter}.
+ * {@link AdapterRegistrationOperations.registerEmbeddingAdapter}.
  * @throws A `NarsilError` with `EMBEDDING_CONFIG_INVALID` when the base URL,
  * the model, or the dimension count is missing or out of range.
  *
@@ -278,10 +118,18 @@ export function createOpenAIEmbedding(config: OpenAIEmbeddingConfig): EmbeddingA
     },
 
     async embed(input: string, _purpose: 'document' | 'query', signal?: AbortSignal): Promise<Float32Array> {
-      const apiKey = await resolveApiKey(config.apiKey)
+      const apiKey = await resolveApiKey(config.apiKey, 'OpenAI embedding adapter', ErrorCodes.EMBEDDING_CONFIG_INVALID)
       const body = JSON.stringify({ input: [input], model, dimensions: dimensionCount })
       const combinedSignal = buildSignal(signal, timeoutMs)
-      const result = await executeWithRetry(url, body, apiKey, maxRetries, combinedSignal)
+      const result = await postJsonWithRetry({
+        url,
+        body,
+        apiKey,
+        maxRetries,
+        signal: combinedSignal,
+        service: 'OpenAI',
+        failureCode: ErrorCodes.EMBEDDING_FAILED,
+      })
 
       const items = parseEmbeddingItems(result.data)
       if (items.length === 0) {
@@ -297,12 +145,20 @@ export function createOpenAIEmbedding(config: OpenAIEmbeddingConfig): EmbeddingA
     async embedBatch(inputs: string[], _purpose: 'document' | 'query', signal?: AbortSignal): Promise<Float32Array[]> {
       if (inputs.length === 0) return []
 
-      const apiKey = await resolveApiKey(config.apiKey)
+      const apiKey = await resolveApiKey(config.apiKey, 'OpenAI embedding adapter', ErrorCodes.EMBEDDING_CONFIG_INVALID)
       const combinedSignal = buildSignal(signal, timeoutMs)
 
       const executeChunk = async (chunk: string[]): Promise<Float32Array[]> => {
         const body = JSON.stringify({ input: chunk, model, dimensions: dimensionCount })
-        const result = await executeWithRetry(url, body, apiKey, maxRetries, combinedSignal)
+        const result = await postJsonWithRetry({
+          url,
+          body,
+          apiKey,
+          maxRetries,
+          signal: combinedSignal,
+          service: 'OpenAI',
+          failureCode: ErrorCodes.EMBEDDING_FAILED,
+        })
 
         const items = parseEmbeddingItems(result.data)
         if (items.length !== chunk.length) {
