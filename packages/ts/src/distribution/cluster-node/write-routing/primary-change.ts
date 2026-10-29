@@ -4,7 +4,12 @@ import type { AnyDocument } from '../../../types/schema'
 import { getClusterIndexConfig } from '../../cluster/index-metadata'
 import { pause } from '../../cluster/rebalance/pause'
 import type { AllocationTable } from '../../coordinator/types'
-import { PRIMARY_CHANGE_POLL_INTERVAL_MS, PRIMARY_CHANGE_RETRY_WINDOW_MS } from '../constants'
+import {
+  HELD_INDEX_RETRY_DELAY_CAP_MS,
+  HELD_INDEX_RETRY_INITIAL_DELAY_MS,
+  PRIMARY_CHANGE_POLL_INTERVAL_MS,
+  PRIMARY_CHANGE_RETRY_WINDOW_MS,
+} from '../constants'
 import { resolvePartitionId } from './assignment'
 import { storedCopyMatchesSent } from './sent-fields'
 import type { WriteRoutingDeps } from './types'
@@ -31,6 +36,12 @@ interface RefusedItem<T> {
 
 function refusedByPrimaryChange(error: unknown): boolean {
   return error instanceof NarsilError && error.code === ErrorCodes.PARTITION_NOT_PRIMARY
+}
+
+function refusedForAnotherIndex(error: unknown): boolean {
+  return (
+    refusedByPrimaryChange(error) && error instanceof NarsilError && typeof error.details.heldIndexUuid === 'string'
+  )
 }
 
 function hasCode(error: unknown, code: string): boolean {
@@ -62,6 +73,24 @@ async function liveTable(deps: WriteRoutingDeps, indexName: string): Promise<All
     : deps.coordinator.getAllocation(indexName)
 }
 
+async function awaitIndexCaughtUp(
+  deps: WriteRoutingDeps,
+  indexName: string,
+  delayMs: number,
+  deadline: number,
+): Promise<boolean> {
+  if (Date.now() >= deadline) return false
+  await pause(Math.min(delayMs, deadline - Date.now()))
+  try {
+    if ((await liveTable(deps, indexName)) === null) return false
+  } catch (_) {}
+  return true
+}
+
+function nextHeldIndexDelay(delayMs: number): number {
+  return Math.min(delayMs * 2, HELD_INDEX_RETRY_DELAY_CAP_MS)
+}
+
 async function awaitNewPrimary(
   deps: WriteRoutingDeps,
   indexName: string,
@@ -91,6 +120,7 @@ export async function retryOnPrimaryChange<T>(
   settledValue: () => T,
 ): Promise<T> {
   const deadline = Date.now() + PRIMARY_CHANGE_RETRY_WINDOW_MS
+  let heldIndexDelayMs = HELD_INDEX_RETRY_INITIAL_DELAY_MS
   let retried = false
   for (;;) {
     const refusing = primaryFor(await deps.coordinator.getAllocation(indexName), docId)
@@ -99,7 +129,14 @@ export async function retryOnPrimaryChange<T>(
     } catch (error) {
       if (retried && (await settleRetried([{ docId, error }])).has(docId)) return settledValue()
       if (!refusedByPrimaryChange(error) || refusing === null) throw error
-      if (!(await awaitNewPrimary(deps, indexName, [refusing], deadline))) throw error
+      let retryable: boolean
+      if (refusedForAnotherIndex(error)) {
+        retryable = await awaitIndexCaughtUp(deps, indexName, heldIndexDelayMs, deadline)
+        heldIndexDelayMs = nextHeldIndexDelay(heldIndexDelayMs)
+      } else {
+        retryable = await awaitNewPrimary(deps, indexName, [refusing], deadline)
+      }
+      if (!retryable) throw error
       retried = true
     }
   }
@@ -117,6 +154,7 @@ export async function retryBatchOnPrimaryChange<T>(
   const succeeded: string[] = []
   const failed: BatchResult['failed'] = []
   let pending = [...items]
+  let heldIndexDelayMs = HELD_INDEX_RETRY_INITIAL_DELAY_MS
   let retried = false
   while (pending.length > 0) {
     const table = await deps.coordinator.getAllocation(indexName)
@@ -139,14 +177,19 @@ export async function retryBatchOnPrimaryChange<T>(
       refused.push({ item, failure, refusing })
     }
     if (refused.length === 0) break
-    if (
-      !(await awaitNewPrimary(
+    let retryable: boolean
+    if (refused.some(entry => refusedForAnotherIndex(entry.failure.error))) {
+      retryable = await awaitIndexCaughtUp(deps, indexName, heldIndexDelayMs, deadline)
+      heldIndexDelayMs = nextHeldIndexDelay(heldIndexDelayMs)
+    } else {
+      retryable = await awaitNewPrimary(
         deps,
         indexName,
         refused.map(entry => entry.refusing),
         deadline,
-      ))
-    ) {
+      )
+    }
+    if (!retryable) {
       failed.push(...refused.map(entry => entry.failure))
       break
     }
