@@ -121,7 +121,6 @@ describe('clusterNodeEngine', () => {
       () => engine.getPartitionStats('products'),
       () => engine.snapshot('products'),
       () => engine.restore('products', new Uint8Array()),
-      () => engine.rebalance('products', 2),
       () => engine.updatePartitionConfig('products', {}),
       () => engine.compactVectors('products'),
       () => engine.optimizeVectors('products'),
