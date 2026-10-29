@@ -18,6 +18,7 @@ const built = await readdir(new URL('../../../../dist/', import.meta.url)).then(
 )
 
 const LIVE = 'live'
+const FRESH = 'fresh'
 const SOURCE = 'source'
 const SERVER_HEAP_MEGABYTES = 64
 const HEAP_REFUSAL_FILES = 2
@@ -223,6 +224,25 @@ async function expectOldIndexServing(client: NarsilClient): Promise<void> {
   expect(await client.get(LIVE, 'old-3')).toMatchObject({ body: 'the lantern by quay 3' })
 }
 
+interface OversizedRestore {
+  archive: Uint8Array
+  directory: string
+  server: ServerProcess
+  client: NarsilClient
+  forgedCodeBytes: number
+}
+
+async function oversizedRestore(): Promise<OversizedRestore> {
+  const vectorBytesAtLeast = FORGED_VECTORS_PER_FILE * FORGED_DIMENSION * OSQ4_CODE_BYTES_PER_DIMENSION
+  const fileCount = Math.ceil((2 * totalmem()) / vectorBytesAtLeast)
+  const archive = await forgedVectorArchive(fileCount)
+  const heapMegabytes = Math.ceil((HEAP_HEADROOM_PER_CODE_BYTE * fileCount * vectorBytesAtLeast) / MEGABYTE_BYTES)
+  const directory = await newDirectory(roots)
+  const server = await startServerProcess(directory, heapMegabytes)
+  const client = await liveIndexOn(server)
+  return { archive, directory, server, client, forgedCodeBytes: fileCount * vectorBytesAtLeast }
+}
+
 describe.skipIf(!built)('a restore that the server has no memory for', () => {
   it('refuses an archive that needs more heap than the server allows, and keeps the old index', async () => {
     const archive = await forgedVectorArchive(HEAP_REFUSAL_FILES)
@@ -242,12 +262,7 @@ describe.skipIf(!built)('a restore that the server has no memory for', () => {
   }, 120_000)
 
   it('refuses an archive whose manifest lists more vectors than the machine holds, before it reads a file', async () => {
-    const vectorBytesAtLeast = FORGED_VECTORS_PER_FILE * FORGED_DIMENSION * OSQ4_CODE_BYTES_PER_DIMENSION
-    const fileCount = Math.ceil((2 * totalmem()) / vectorBytesAtLeast)
-    const archive = await forgedVectorArchive(fileCount)
-    const heapMegabytes = Math.ceil((HEAP_HEADROOM_PER_CODE_BYTE * fileCount * vectorBytesAtLeast) / MEGABYTE_BYTES)
-    const server = await startServerProcess(await newDirectory(roots), heapMegabytes)
-    const client = await liveIndexOn(server)
+    const { archive, server, client, forgedCodeBytes } = await oversizedRestore()
 
     const task = await client.waitForTask((await client.restore(LIVE, archive)).id)
 
@@ -256,8 +271,25 @@ describe.skipIf(!built)('a restore that the server has no memory for', () => {
       error: { code: 'RESTORE_MEMORY_EXCEEDED', details: { indexName: LIVE, budget: 'process' } },
     })
     expect(httpStatusForNarsilError(task.error?.code ?? '')).toBe(507)
-    expect(task.error?.details?.neededBytes).toBeGreaterThan(fileCount * vectorBytesAtLeast)
+    expect(task.error?.details?.neededBytes).toBeGreaterThan(forgedCodeBytes)
     expect(server.exited()).toBe(false)
+    await expectOldIndexServing(client)
+  }, 120_000)
+
+  it('refuses an archive into a new index whose manifest lists more vectors than the machine holds, and creates no index', async () => {
+    const { archive, directory, server, client, forgedCodeBytes } = await oversizedRestore()
+
+    const task = await client.waitForTask((await client.restore(FRESH, archive)).id)
+
+    expect(task).toMatchObject({
+      status: 'failed',
+      error: { code: 'RESTORE_MEMORY_EXCEEDED', details: { indexName: FRESH, budget: 'process' } },
+    })
+    expect(httpStatusForNarsilError(task.error?.code ?? '')).toBe(507)
+    expect(task.error?.details?.neededBytes).toBeGreaterThan(forgedCodeBytes)
+    expect(server.exited()).toBe(false)
+    expect((await client.listIndexes()).map(index => index.name)).toEqual([LIVE])
+    expect((await readdir(directory, { recursive: true })).filter(path => path.includes(FRESH))).toEqual([])
     await expectOldIndexServing(client)
   }, 120_000)
 })
