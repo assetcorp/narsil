@@ -7,6 +7,7 @@ import type { createSnapshotStreamState } from '../../replication/snapshot-strea
 import type { ReplicationLog, ReplicationLogEntry } from '../../replication/types'
 import type { NodeTransport, ReplicationSnapshotHeader, SyncEntriesPayload } from '../../transport/types'
 import type { ABORT_SENTINEL } from '../bootstrap-restore'
+import type { PartitionWriteQueues } from '../write-routing/partition-queue'
 
 export interface BootstrapEntry {
   indexName: string
@@ -30,6 +31,7 @@ export interface BootstrapSyncDeps {
   transport: NodeTransport
   sourceNodeId: string
   resolveNodeTargets: (nodeId: string) => Promise<string[]>
+  partitionWriteQueues: PartitionWriteQueues
   onError?: (error: unknown) => void
   onSnapshotApplied?: (indexName: string, partitionId: number, header: ReplicationSnapshotHeader) => void
   getReplicationLog?: (indexName: string, partitionId: number) => ReplicationLog

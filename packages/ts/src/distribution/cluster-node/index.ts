@@ -134,6 +134,7 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
     resolveNodeTargets,
     getReplicationLog,
     seedReplicationLog,
+    partitionWriteQueues: writeDeps.partitionWriteQueues,
     onError: forwardOnError,
     snapshotSpoolDirectory: snapshotSpool.path,
   })

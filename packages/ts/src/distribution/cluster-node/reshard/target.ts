@@ -8,6 +8,7 @@ import type {
   ReshardPurgePayload,
 } from '../../transport/reshard-payloads'
 import type { ForwardBatchOperationResult } from '../../transport/types'
+import { noteLedTerm } from '../led-term'
 import type { ClusterLocalEngine } from '../local-engine'
 import { resolvePartitionId, type WriteRoutingDeps } from '../write-routing'
 import { enqueuePartitionWrite } from '../write-routing/partition-queue'
@@ -49,6 +50,7 @@ async function applyInPartition(
     await enqueuePartitionWrite(deps.partitionWriteQueues, indexName, partitionId, async () => {
       const assignment = await leadingAssignment(deps, indexName, partitionId)
       const log = deps.getReplicationLog(indexName, partitionId)
+      noteLedTerm(log, assignment.primaryTerm)
       const applied: Array<{ entry: ReplicationLogEntry }> = []
       for (const { operation, position } of queued) {
         try {

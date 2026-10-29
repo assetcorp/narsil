@@ -1,6 +1,7 @@
 import type { PartitionLogPosition } from '../../persistence/durability/types'
 import { createReplicationLog } from '../replication/log'
 import type { ReplicationConfig, ReplicationLog } from '../replication/types'
+import { carryKnownTerms, noteAcceptedPrimaryTerm } from './led-term'
 
 export function replicationLogKey(indexName: string, partitionId: number): string {
   return `${indexName}:${partitionId}`
@@ -22,6 +23,7 @@ export function getReplicationLog(
       startSeqNo: persisted.seqNo + 1,
       lastPrimaryTerm: persisted.primaryTerm,
     })
+    noteAcceptedPrimaryTerm(log, persisted.primaryTerm)
     replicationLogs.set(key, log)
   }
   return log
@@ -35,14 +37,15 @@ export function seedReplicationLog(
   lastPrimaryTerm = 0,
   replicationConfig?: Partial<ReplicationConfig>,
 ): void {
-  replicationLogs.set(
-    replicationLogKey(indexName, partitionId),
-    createReplicationLog(partitionId, {
-      startSeqNo,
-      lastPrimaryTerm,
-      logRetentionBytes: replicationConfig?.logRetentionBytes,
-    }),
-  )
+  const key = replicationLogKey(indexName, partitionId)
+  const seeded = createReplicationLog(partitionId, {
+    startSeqNo,
+    lastPrimaryTerm,
+    logRetentionBytes: replicationConfig?.logRetentionBytes,
+  })
+  carryKnownTerms(replicationLogs.get(key), seeded)
+  noteAcceptedPrimaryTerm(seeded, lastPrimaryTerm)
+  replicationLogs.set(key, seeded)
 }
 
 /**

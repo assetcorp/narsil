@@ -1,6 +1,7 @@
 import { ErrorCodes, NarsilError } from '../../../errors'
 import type { AllocationTable, PartitionAssignment } from '../../coordinator/types'
-import type { ReplicationLogEntry } from '../../replication/types'
+import type { ReplicationLog, ReplicationLogEntry } from '../../replication/types'
+import { termRefusingSender } from '../led-term'
 import type { DataNodeHandlerDeps } from './types'
 
 function entryRefusal(
@@ -8,6 +9,7 @@ function entryRefusal(
   entry: ReplicationLogEntry,
   sourceNodeId: string,
   localNodeId: string,
+  log: ReplicationLog,
 ): NarsilError | PartitionAssignment {
   const where = { indexName: entry.indexName, partitionId: entry.partitionId }
   if (table === null) {
@@ -35,6 +37,15 @@ function entryRefusal(
     )
   }
 
+  const knownTerm = termRefusingSender(log, assignment.primaryTerm)
+  if (knownTerm !== null) {
+    return new NarsilError(
+      ErrorCodes.REPLICATION_TERM_MISMATCH,
+      `Replication entry for index '${entry.indexName}' partition ${entry.partitionId} came from a primary at term ${assignment.primaryTerm}, below the term ${knownTerm} this node already knows`,
+      { ...where, sourceNodeId, primaryTerm: assignment.primaryTerm, knownTerm },
+    )
+  }
+
   if (entry.primaryTerm > assignment.primaryTerm) {
     return new NarsilError(
       ErrorCodes.REPLICATION_TERM_MISMATCH,
@@ -59,15 +70,17 @@ export async function resolveValidatedAssignment(
   sourceNodeId: string,
   deps: DataNodeHandlerDeps,
 ): Promise<PartitionAssignment> {
+  const log = deps.writeDeps.getReplicationLog(entry.indexName, entry.partitionId)
+  const refusal = (table: AllocationTable | null) => entryRefusal(table, entry, sourceNodeId, deps.nodeId, log)
   if (deps.allocations === undefined) {
-    const live = entryRefusal(await deps.coordinator.getAllocation(entry.indexName), entry, sourceNodeId, deps.nodeId)
+    const live = refusal(await deps.coordinator.getAllocation(entry.indexName))
     if (live instanceof NarsilError) throw live
     return live
   }
 
-  const cached = entryRefusal(await deps.allocations.read(entry.indexName), entry, sourceNodeId, deps.nodeId)
+  const cached = refusal(await deps.allocations.read(entry.indexName))
   if (!(cached instanceof NarsilError)) return cached
-  const live = entryRefusal(await deps.allocations.refresh(entry.indexName), entry, sourceNodeId, deps.nodeId)
+  const live = refusal(await deps.allocations.refresh(entry.indexName))
   if (live instanceof NarsilError) throw live
   return live
 }
