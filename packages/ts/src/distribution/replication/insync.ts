@@ -177,9 +177,11 @@ export async function requestInsyncAdmission(
  * controller sends back.
  *
  * The controller refuses the request unless the assignment's term matches, the partition is `ACTIVE`, the node is an
- * assigned replica, and the replica's applied position has reached both the stored commit point and the primary's
- * own. It raises the stored commit point to the request's value whenever it accepts, and that value never moves
- * backwards, so a repeated request from a replica that is already in the set still moves the floor forward.
+ * assigned replica whose registration the cluster coordinator holds, and the replica's applied position has reached
+ * both the stored commit point and the primary's own. A node whose registration has lapsed stays out, because the
+ * allocator would remove it again on its next run. The controller raises the stored commit point to the request's
+ * value whenever it accepts, and that value never moves backwards, so a repeated request from a replica that is
+ * already in the set still moves the floor forward.
  *
  * @param payload - The admission request the primary sent.
  * @param coordinator - The cluster coordinator that stores the allocation table.
@@ -187,11 +189,15 @@ export async function requestInsyncAdmission(
  *   take effect.
  * @returns The confirmation payload, whose `accepted` field reports whether the in-sync set now holds the replica.
  */
-export function handleInsyncAdmission(
+export async function handleInsyncAdmission(
   payload: InsyncAddPayload,
   coordinator: ClusterCoordinator,
   controllerNodeId: string,
 ): Promise<InsyncConfirmPayload> {
+  const registered = await coordinator.listNodes()
+  if (!registered.some(node => node.nodeId === payload.replicaNodeId)) {
+    return { indexName: payload.indexName, partitionId: payload.partitionId, accepted: false }
+  }
   return updateInsyncSet(payload, coordinator, controllerNodeId, assignment => {
     if (assignment.state !== 'ACTIVE') {
       return REFUSE
