@@ -10,7 +10,7 @@ import type {
   PartitionState,
   RegistrationLease,
 } from '../types'
-import { ETCD_MAX_RESPONSE_BYTES } from './constants'
+import { ETCD_CALL_TIMEOUT_MS, ETCD_MAX_RESPONSE_BYTES } from './constants'
 import { coordinatorKeys, extractSuffix } from './keys'
 import { leaseHeldFor, recordLeaseRenewal } from './lease-validity'
 import { LeaseManager } from './leases'
@@ -70,6 +70,7 @@ export async function createEtcdCoordinator(config?: Partial<EtcdCoordinatorConf
   const client: Etcd3Client = new etcd3Module.Etcd3({
     hosts: resolvedConfig.endpoints,
     grpcOptions: { 'grpc.max_receive_message_length': ETCD_MAX_RESPONSE_BYTES },
+    defaultCallOptions: context => (context.isStream ? {} : { deadline: Date.now() + ETCD_CALL_TIMEOUT_MS }),
     ...securityOptions,
   })
   const keys = coordinatorKeys(resolvedConfig)

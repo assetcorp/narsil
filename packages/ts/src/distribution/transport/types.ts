@@ -84,6 +84,17 @@ export interface NodeTransport {
   listen(handler: ListenHandler): Promise<() => void>
   /** Closes every connection and releases the port or registration it held. */
   shutdown(): Promise<void>
+  /**
+   * The timeouts that this transport enforces on each kind of exchange.
+   *
+   * A node bounds an in-sync removal, and each try to complete a rollback, by
+   * the `replicationTimeout` given here, so that both end within the wait that
+   * the transport allows a replication entry. A node whose transport leaves
+   * this absent uses the defaults, which allow 5,000 ms to connect, 30,000 ms
+   * for a request, 10,000 ms for a replication entry, and 300,000 ms for each
+   * snapshot chunk.
+   */
+  readonly timeouts?: TransportConfig
 }
 
 /**
@@ -305,6 +316,19 @@ export interface PrimaryResignPayload {
 }
 
 export type {
+  BootstrapCompletePayload,
+  BootstrapCompleteResultPayload,
+  IndexSettingsPayload,
+  IndexSettingsResultPayload,
+  PartitionStoresPayload,
+  PartitionStoresResultPayload,
+  PingPayload,
+  PongPayload,
+  RebuildAnalysisPayload,
+  RebuildAnalysisResultPayload,
+  ReplicationFactorPayload,
+} from './cluster-payloads'
+export type {
   CountPayload,
   CountResultPayload,
   FacetBucket,
@@ -339,60 +363,3 @@ export type {
   WireQueryParams,
   WireVectorQueryParams,
 } from './query-payloads'
-
-export interface PingPayload {
-  timestamp: number
-}
-
-export interface PongPayload {
-  timestamp: number
-  respondedAt: number
-}
-
-export interface BootstrapCompletePayload {
-  indexName: string
-  partitionId: number
-  nodeId: string
-  primaryTerm: number
-}
-
-export interface ReplicationFactorPayload {
-  indexName: string
-  replicationFactor: number
-}
-
-export interface BootstrapCompleteResultPayload {
-  indexName: string
-  partitionId: number
-  accepted: boolean
-}
-
-export interface PartitionStoresPayload {
-  indexName: string
-}
-
-export interface RebuildAnalysisPayload {
-  indexName: string
-  indexUuid: string
-}
-
-export interface RebuildAnalysisResultPayload {
-  indexName: string
-  rebuiltPartitions: number[]
-}
-
-export interface PartitionStoresResultPayload {
-  indexName: string
-  indexUuid: string | null
-  partitionIds: number[]
-}
-
-export interface IndexSettingsPayload {
-  indexName: string
-  indexUuid: string
-}
-
-export interface IndexSettingsResultPayload {
-  indexName: string
-  applied: boolean
-}

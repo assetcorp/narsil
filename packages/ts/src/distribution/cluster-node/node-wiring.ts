@@ -6,7 +6,11 @@ import { type AllocationView, createAllocationView } from './allocation-view'
 import { createCatchUpState } from './catch-up'
 import type { ClusterLocalEngine } from './local-engine'
 import { createNodeMemoryReporting } from './memory/node-memory'
-import { readDistributedDocuments, resolveNodeTargets as resolveTargetsForNode } from './node-messaging'
+import {
+  readDistributedDocuments,
+  resolveRegisteredTargets,
+  resolveNodeTargets as resolveTargetsForNode,
+} from './node-messaging'
 import {
   getReplicationLog as readReplicationLog,
   replicationLogKey,
@@ -29,6 +33,7 @@ export interface NodeWiring {
   seedReplicationLog: (indexName: string, partitionId: number, startSeqNo: number, lastPrimaryTerm?: number) => void
   existingReplicationLog: (indexName: string, partitionId: number) => ReplicationLog | undefined
   resolveNodeTargets: (targetNodeId: string) => Promise<string[]>
+  resolveRegisteredNodeTargets: (targetNodeId: string) => Promise<string[]>
 }
 
 export function createNodeWiring(input: {
@@ -124,5 +129,6 @@ export function createNodeWiring(input: {
     seedReplicationLog,
     existingReplicationLog: (indexName, partitionId) => replicationLogs.get(replicationLogKey(indexName, partitionId)),
     resolveNodeTargets,
+    resolveRegisteredNodeTargets: targetNodeId => resolveRegisteredTargets(routingConfig, targetNodeId),
   }
 }

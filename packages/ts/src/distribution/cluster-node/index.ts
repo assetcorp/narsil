@@ -139,6 +139,7 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
   })
   writeDeps.copyFailed = copyFailures.isFailed
   writeDeps.copyUnlisted = copyFailures.isUnlisted
+  writeDeps.stopped = () => isShutdown
   engine.isolateCopyFailures(copyFailures.record)
 
   const bootstrapPartition = createPartitionBootstrap({
@@ -147,7 +148,7 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
     coordinator: config.coordinator,
     transport: config.transport,
     state: bootstrapSyncState,
-    resolveNodeTargets,
+    resolveNodeTargets: wiring.resolveRegisteredNodeTargets,
     getReplicationLog,
     seedReplicationLog,
     partitionWriteQueues: writeDeps.partitionWriteQueues,

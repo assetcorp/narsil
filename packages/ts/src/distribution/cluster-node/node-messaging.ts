@@ -16,11 +16,15 @@ import { restoreVectorValues } from './vector-bytes'
 import { resolvePartitionId } from './write-routing'
 
 export async function resolveNodeTargets(config: ClusterNodeConfig, targetNodeId: string): Promise<string[]> {
+  const targets = await resolveRegisteredTargets(config, targetNodeId)
+  return targets.length > 0 ? targets : [targetNodeId]
+}
+
+export async function resolveRegisteredTargets(config: ClusterNodeConfig, targetNodeId: string): Promise<string[]> {
   const nodes = await config.coordinator.listNodes()
   const registration = nodes.find(node => node.nodeId === targetNodeId)
-  if (registration === undefined || registration.address.length === 0 || registration.address === targetNodeId) {
-    return [targetNodeId]
-  }
+  if (registration === undefined) return []
+  if (registration.address.length === 0 || registration.address === targetNodeId) return [targetNodeId]
   return [registration.address, targetNodeId]
 }
 

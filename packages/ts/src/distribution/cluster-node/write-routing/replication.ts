@@ -18,6 +18,7 @@ import {
 import { untilSuperseded } from '../led-term'
 import { sendThroughTargets } from '../transport-failure'
 import { getInSyncReplicaTargets, resolveNodeTargets } from './assignment'
+import { replicationTimeoutOf, withinDeadline } from './deadline'
 import type { WriteRoutingDeps } from './types'
 
 export async function assertPrimaryWriteAuthority(entry: ReplicationLogEntry, deps: WriteRoutingDeps): Promise<void> {
@@ -89,7 +90,24 @@ export async function removeFailedReplicasFromInsync(
   if (failedReplicas.length === 0) {
     return
   }
+  const timeoutMs = replicationTimeoutOf(deps)
+  await withinDeadline(
+    removeEachFailedReplica(entry, failedReplicas, deps),
+    timeoutMs,
+    () =>
+      new NarsilError(
+        ErrorCodes.REPLICATION_INSYNC_REMOVAL_FAILED,
+        `Removing failed replicas from the in-sync set of index '${entry.indexName}' partition ${entry.partitionId} did not finish within ${timeoutMs}ms`,
+        { indexName: entry.indexName, partitionId: entry.partitionId, failedReplicas, timeoutMs },
+      ),
+  )
+}
 
+async function removeEachFailedReplica(
+  entry: ReplicationLogEntry,
+  failedReplicas: string[],
+  deps: WriteRoutingDeps,
+): Promise<void> {
   const controllerNodeId = await deps.coordinator.getLeaseHolder(CONTROLLER_LEASE_KEY)
   if (controllerNodeId === null) {
     await deps.refreshAllocation?.(entry.indexName)
