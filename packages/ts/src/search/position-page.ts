@@ -20,7 +20,7 @@ function lastOrganic<T extends PositionedHit>(page: T[], pinnedIds: ReadonlySet<
   return undefined
 }
 
-function positionOf<T extends PositionedHit>(organic: T[], id: string): number {
+function positionOf(organic: readonly { id: string }[], id: string): number {
   for (let i = 0; i < organic.length; i++) {
     if (organic[i].id === id) return i
   }
@@ -29,7 +29,7 @@ function positionOf<T extends PositionedHit>(organic: T[], id: string): number {
 
 export function pageByPosition<T extends PositionedHit>(
   placed: T[],
-  organic: T[],
+  organic: readonly { id: string }[],
   { start, limit, pinnedIds, binding, encodeCursor }: PositionedPage,
 ): { page: T[]; cursor?: string } {
   if (limit <= 0) return { page: [] }

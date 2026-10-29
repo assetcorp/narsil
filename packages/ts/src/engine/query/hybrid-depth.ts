@@ -2,7 +2,8 @@ import type { FanOutResult } from '../../partitioning/fan-out'
 import type { RuntimeHost } from '../../rerank/host'
 import { HYBRID_RESCORE_WINDOW } from '../../search/constants'
 import { fixedHybridDepthOf, requireWithinHybridDepth } from '../../search/hybrid-depth'
-import { type PositionedHit, pageByPosition } from '../../search/position-page'
+import type { applyPagination } from '../../search/pagination'
+import { pageByPosition } from '../../search/position-page'
 import type { ScoredDocument } from '../../types/internal'
 import type { QueryParams } from '../../types/search'
 import type { SearchContext } from './shared'
@@ -13,13 +14,8 @@ export interface FixedDepthWindow {
   limit: number
 }
 
-export interface FixedDepthHybrid {
-  result: FanOutResult
-  page<T extends PositionedHit>(
-    placed: T[],
-    organic: T[],
-    pinnedIds: ReadonlySet<string> | undefined,
-  ): { page: T[]; cursor?: string }
+export interface PagedFanOutResult extends FanOutResult {
+  paginate?: typeof applyPagination
 }
 
 function countOfUnion(text: FanOutResult, vectorScored: ScoredDocument[]): number {
@@ -92,18 +88,22 @@ export async function searchFixedDepthHybrid(
   context: SearchContext,
   { cursorDepth, offset, limit }: FixedDepthWindow,
   host: RuntimeHost,
-): Promise<FixedDepthHybrid> {
+): Promise<PagedFanOutResult> {
   const depth = fixedHybridDepthOf(params.hybrid) ?? 0
   requireWithinHybridDepth(cursorDepth, offset, depth)
-  return {
-    result: await fusedAtDepth(params, context, depth, host),
-    page: (placed, organic, pinnedIds) =>
-      pageByPosition(placed, organic, {
-        start: cursorDepth + offset,
-        limit,
-        pinnedIds,
-        binding: context.cursorBinding,
-        encodeCursor: host.encodePageCursor,
-      }),
+  const result = await fusedAtDepth(params, context, depth, host)
+  const placesPins = context.partitionIds === undefined
+  const paginate: typeof applyPagination = (placed, _limit, _offset, _binding, _cursor, _sort, pinnedIds) => {
+    const pins = placesPins ? pinnedIds : undefined
+    const organic = pins === undefined ? placed : result.scored.map(doc => ({ id: doc.docId }))
+    const { page, cursor } = pageByPosition(placed, organic, {
+      start: cursorDepth + offset,
+      limit,
+      pinnedIds: pins,
+      binding: context.cursorBinding,
+      encodeCursor: host.encodePageCursor,
+    })
+    return { paginated: page, nextCursor: cursor }
   }
+  return { ...result, paginate }
 }

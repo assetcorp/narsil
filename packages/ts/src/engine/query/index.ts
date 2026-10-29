@@ -1,7 +1,7 @@
 import type { ComparableSortValue } from '../../core/ordering'
 import { projectionKeepsField, resolveProjection } from '../../core/projection'
 import { ErrorCodes, NarsilError } from '../../errors'
-import { type FanOutResult, fanOutQuery } from '../../partitioning/fan-out'
+import { fanOutQuery } from '../../partitioning/fan-out'
 import { countsWithoutScores, fanOutMatchCount } from '../../partitioning/match-count'
 import { flattenSchema } from '../../schema/validator'
 import { decodePageCursor, requireMatchingCursor, sortSignatureOf } from '../../search/cursor'
@@ -14,7 +14,7 @@ import type { AnyDocument } from '../../types/schema'
 import type { QueryParams } from '../../types/search'
 import { clampLimit, clampOffset, now } from '../validation'
 import { applyHighlights } from './highlight'
-import type { FixedDepthHybrid, searchFixedDepthHybrid } from './hybrid-depth'
+import type { PagedFanOutResult } from './hybrid-depth'
 import { runtimeHost } from './runtime-host'
 import {
   broadcastStatsForWorker,
@@ -22,6 +22,7 @@ import {
   type QueryContext,
   requireKnownMode,
   requireVectorSearchable,
+  type SearchContext,
   scoringConfigFor,
   searchOptionsFor,
   validQueryParams,
@@ -40,25 +41,30 @@ function requireCursorDepth(cursor: string | undefined, signature: string | null
   return decoded.depth ?? 0
 }
 
-export async function executeQuery<T = AnyDocument>(
-  request: QueryParams,
-  callerContext: QueryContext,
-): Promise<QueryResult<T>> {
-  if (request.rerank === undefined && (request.hybrid?.depth ?? null) === null) {
-    return runQuery<T>(request, callerContext, undefined)
-  }
-  const runtime = await import('../../rerank/runtime')
-  if (request.rerank !== undefined) {
-    return runtime.executeRerankedQuery<T>(request, callerContext, executeQuery<T>, runtimeHost)
-  }
-  return runQuery<T>(request, callerContext, runtime.searchFixedDepthHybrid)
+function hybridSearchOf(
+  params: QueryParams,
+  context: SearchContext,
+  limit: number,
+  offset: number,
+  cursorDepth?: number,
+): Promise<PagedFanOutResult> {
+  if ((params.hybrid?.depth ?? null) === null) return executeHybridSearch(params, context, limit, offset, cursorDepth)
+  return import('../../rerank/runtime').then(runtime =>
+    runtime.searchFixedDepthHybrid(params, context, { cursorDepth: cursorDepth ?? 0, offset, limit }, runtimeHost),
+  )
 }
 
-async function runQuery<T>(
+export function executeQuery<T = AnyDocument>(
   request: QueryParams,
   callerContext: QueryContext,
-  searchFixedDepth: typeof searchFixedDepthHybrid | undefined,
 ): Promise<QueryResult<T>> {
+  if (request.rerank === undefined) return runQuery<T>(request, callerContext)
+  return import('../../rerank/runtime').then(runtime =>
+    runtime.executeRerankedQuery<T>(request, callerContext, executeQuery<T>, runtimeHost),
+  )
+}
+
+async function runQuery<T>(request: QueryParams, callerContext: QueryContext): Promise<QueryResult<T>> {
   const context = withPatternWork(callerContext)
   const { manager, language, config, workerSearch, indexName } = context
   const startTime = now()
@@ -104,21 +110,14 @@ async function runQuery<T>(
     const hasGlobalVectorIndex =
       requestedVectorField !== undefined && vectorSearchersOf(context).has(requestedVectorField)
 
-    let fanOutResult: FanOutResult
-    let pageFixedDepth: FixedDepthHybrid['page'] | undefined
+    let fanOutResult: PagedFanOutResult
 
     if (isVectorOnly && hasGlobalVectorIndex) {
       const depth = requireCursorDepth(params.searchAfter, sortSignature, context.cursorBinding)
       fanOutResult = await executeVectorSearch(params, context, limit, offset, depth)
     } else if (isHybridMode && hasGlobalVectorIndex) {
       const depth = requireCursorDepth(params.searchAfter, sortSignature, context.cursorBinding)
-      if (searchFixedDepth === undefined) {
-        fanOutResult = await executeHybridSearch(params, context, limit, offset, depth)
-      } else {
-        const fixed = await searchFixedDepth(params, context, { cursorDepth: depth, offset, limit }, runtimeHost)
-        fanOutResult = fixed.result
-        pageFixedDepth = fixed.page
-      }
+      fanOutResult = await hybridSearchOf(params, context, limit, offset, depth)
     } else {
       const scoring = scoringConfigFor(params, context)
       const workerResult = workerSearch
@@ -201,7 +200,6 @@ async function runQuery<T>(
       })
     }
 
-    const organic = hits
     let pinsFromOutside = 0
     if (params.pinned && params.searchAfter === undefined && context.partitionIds === undefined) {
       const placement = placePinned(hits, params.pinned, (docId: string) => {
@@ -226,23 +224,17 @@ async function runQuery<T>(
       params.pinned !== undefined && params.searchAfter === undefined
         ? new Set(params.pinned.map(entry => entry.docId))
         : undefined
-    if (pageFixedDepth === undefined) {
-      const paged = applyPagination(
-        hits,
-        limit,
-        offset,
-        context.cursorBinding,
-        params.searchAfter,
-        sortContext,
-        pinnedIds,
-      )
-      paginated = paged.paginated
-      nextCursor = paged.nextCursor
-    } else {
-      const paged = pageFixedDepth(hits, organic, context.partitionIds === undefined ? pinnedIds : undefined)
-      paginated = paged.page
-      nextCursor = paged.cursor
-    }
+    const paged = (fanOutResult.paginate ?? applyPagination)(
+      hits,
+      limit,
+      offset,
+      context.cursorBinding,
+      params.searchAfter,
+      sortContext,
+      pinnedIds,
+    )
+    paginated = paged.paginated
+    nextCursor = paged.nextCursor
     const holdsEveryMatch =
       fanOutResult.matchedExact !== false && fanOutResult.scored.length === fanOutResult.totalMatched
     count = fanOutResult.totalMatched + (holdsEveryMatch ? pinsFromOutside : 0)
@@ -327,14 +319,7 @@ export async function executePreflight(request: QueryParams, callerContext: Quer
     totalMatched = result.totalMatched
     countExact = result.matchedExact !== false
   } else if (isHybridMode && hasGlobalVectorIndex) {
-    let result: FanOutResult
-    if ((params.hybrid?.depth ?? null) === null) {
-      result = await executeHybridSearch(params, context, preflightLimit, preflightOffset)
-    } else {
-      const { searchFixedDepthHybrid } = await import('../../rerank/runtime')
-      const window = { cursorDepth: 0, offset: 0, limit: 0 }
-      result = (await searchFixedDepthHybrid(params, context, window, runtimeHost)).result
-    }
+    const result = await hybridSearchOf(params, context, preflightLimit, preflightOffset)
     totalMatched = result.totalMatched
     countExact = result.matchedExact !== false
   } else if (countsWithoutScores(params)) {
