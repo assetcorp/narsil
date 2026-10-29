@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { ensureLocalIndexForIncremental } from '../../../../distribution/cluster-node/bootstrap-sync/apply'
-import type { LiveBootstrapSyncDeps } from '../../../../distribution/cluster-node/bootstrap-sync/types'
+import type { BootstrapSyncDeps } from '../../../../distribution/cluster-node/bootstrap-sync/types'
 import { createClusterLocalEngine } from '../../../../distribution/cluster-node/local-engine'
 import { ErrorCodes } from '../../../../errors'
 import type { EmbeddingAdapter } from '../../../../types/adapters'
@@ -8,7 +8,7 @@ import type { EmbeddingAdapter } from '../../../../types/adapters'
 describe('a replica that bootstraps a partition from replication log entries', () => {
   it('creates its missing copy with the settings that the coordinator stores', async () => {
     const engine = await createClusterLocalEngine({ workers: { enabled: false } })
-    const deps = { engine } as unknown as LiveBootstrapSyncDeps
+    const deps = { engine } as unknown as BootstrapSyncDeps
 
     try {
       const result = await ensureLocalIndexForIncremental(
@@ -35,7 +35,7 @@ describe('a replica that bootstraps a partition from replication log entries', (
 
   it('creates its copy without the embedding adapter and binds the adapter once a caller registers it', async () => {
     const engine = await createClusterLocalEngine({ workers: { enabled: false } })
-    const deps = { engine } as unknown as LiveBootstrapSyncDeps
+    const deps = { engine } as unknown as BootstrapSyncDeps
     const embedder: EmbeddingAdapter = { dimensions: 3, embed: async () => new Float32Array([0.6, 0.8, 0]) }
 
     try {

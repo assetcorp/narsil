@@ -29,7 +29,6 @@ export type {
   SnapshotChunkPayload,
   SnapshotEndPayload,
   SnapshotStartPayload,
-  SnapshotSyncRequestPayload,
   SortField,
   StatsExpansionPayload,
   StatsPayload,

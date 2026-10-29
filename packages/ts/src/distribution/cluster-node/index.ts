@@ -34,7 +34,7 @@ import { replicationLogKey as buildReplicationLogKey, deleteIndexReplicationLogs
 import { requestRebalance, waitForSwap } from './reshard/request'
 import { createReshardState, forgetReshardIndex, forgetReshardPartition, stopEveryReshardJob } from './reshard/state'
 import { routableAllocation } from './routable-allocation'
-import { createSnapshotSyncHandlerState, nodeSnapshotHeaderMetadata } from './snapshot-sync-handler'
+import { createSnapshotSyncHandlerState } from './snapshot-sync-handler'
 import { createMultiplexedControllerTransport, createNotReadyHandler } from './transport-listener'
 import type { ClusterNode, ClusterNodeConfig } from './types'
 import { validateClusterNodeConfig } from './validate-config'
@@ -303,7 +303,6 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
           writeDeps,
           snapshotSyncState: snapshotSyncHandlerState,
           snapshotSpoolDirectory: snapshotSpool.path,
-          resolveHeaderMetadata: resolveSnapshotHeaderMetadata,
           isBootstrapSynced: (indexName: string, partitionId: number) =>
             hasCompletedBootstrapSync(bootstrapSyncState, indexName, partitionId),
           onError: forwardOnError,
@@ -364,14 +363,6 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
   })
   bindRerankWindowSource(node, () => rerankWindowCapOf(engine))
   return node
-
-  function resolveSnapshotHeaderMetadata(indexName: string, partitionId: number | null) {
-    return nodeSnapshotHeaderMetadata(
-      { coordinator: config.coordinator, engine, getReplicationLog },
-      indexName,
-      partitionId,
-    )
-  }
 }
 
 export type {

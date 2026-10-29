@@ -1,5 +1,5 @@
 import { ABORT_SENTINEL } from '../bootstrap-restore'
-import type { BootstrapEntry, BootstrapSyncDeps, BootstrapSyncState, LiveBootstrapSyncDeps } from './types'
+import type { BootstrapEntry, BootstrapSyncState } from './types'
 
 export function createBootstrapSyncState(): BootstrapSyncState {
   return {
@@ -11,15 +11,6 @@ export function createBootstrapSyncState(): BootstrapSyncState {
 
 export function entryKey(indexName: string, partitionId: number): string {
   return `${indexName}:${partitionId}`
-}
-
-export function hasLiveBootstrapSyncDeps(deps: BootstrapSyncDeps): deps is LiveBootstrapSyncDeps {
-  return (
-    deps.getReplicationLog !== undefined &&
-    deps.resetReplicationLog !== undefined &&
-    deps.applyReplicationEntries !== undefined &&
-    deps.restoreReplicationPartition !== undefined
-  )
 }
 
 export function clearBootstrapSyncIndex(state: BootstrapSyncState, indexName: string, partitionId: number): void {
