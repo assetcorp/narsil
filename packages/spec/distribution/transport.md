@@ -325,7 +325,7 @@ The controller sends this back to the primary once it has updated the in-sync se
 
 ### cluster.bootstrap_complete
 
-A data node sends this to the controller once the sync protocol finishes for a partition in `INITIALISING`. The controller validates the request and moves the partition to `ACTIVE`.
+The primary of a partition in `INITIALISING` sends this to the controller once its copy is ready. The controller validates the request and moves the partition to `ACTIVE`. A replica sends none, because its primary admits it through `replication.insync_add` once the partition is `ACTIVE`.
 
 The node retries with exponential backoff when the controller is unreachable or rejects the request.
 
@@ -341,9 +341,9 @@ The node retries with exponential backoff when the controller is unreachable or 
 The controller checks four things:
 
 - The message's `sourceId` matches the `nodeId` in the payload, which blocks spoofing.
-- The node is assigned to this partition, as primary or as replica.
+- The node is the partition's primary, because the partition serves only once its primary holds a copy.
 - The `primaryTerm` matches the assignment's current term, which rejects a completion left over from an earlier term.
-- The partition is in `INITIALISING`. The controller returns `false` for an `ACTIVE` partition, because its primary admits the replica through `replication.insync_add` instead.
+- The partition is in `INITIALISING`. The controller returns `false` to a replica, and for an `ACTIVE` partition, because the primary admits each replica through `replication.insync_add`.
 
 The response is:
 
