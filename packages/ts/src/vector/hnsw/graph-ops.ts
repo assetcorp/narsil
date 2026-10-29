@@ -1,6 +1,7 @@
 import type { VectorMetric } from '../brute-force'
 import { type OrdinalFilter, ordinalFilterHas } from '../ordinal-filter'
 import { layerArray, layerBase, noteUnlinked, readNeighbors, writeNeighbors } from './adjacency'
+import { FARTHEST_REJECTED_LINKS_KEPT } from './constants'
 import { writeKeepingLastLinks } from './last-links'
 import { beginNodeRead, nodeReadHeld } from './locks'
 import {
@@ -138,6 +139,25 @@ export function selectNeighborsHeuristic(
     selected.ords[selected.size] = candidateOrd
     selected.distances[selected.size] = candidateDistance
     selected.size += 1
+  }
+  keepFarthestRejected(working, maxConnections, selected)
+}
+
+function holdsOrd(list: DistanceList, ord: number): boolean {
+  for (let i = 0; i < list.size; i++) if (list.ords[i] === ord) return true
+  return false
+}
+
+function keepFarthestRejected(sorted: DistanceList, maxConnections: number, selected: DistanceList): void {
+  if (selected.size * 2 >= maxConnections) return
+  let kept = 0
+  for (let i = sorted.size - 1; i >= 0 && kept < FARTHEST_REJECTED_LINKS_KEPT; i--) {
+    if (selected.size >= maxConnections) return
+    if (holdsOrd(selected, sorted.ords[i])) continue
+    selected.ords[selected.size] = sorted.ords[i]
+    selected.distances[selected.size] = sorted.distances[i]
+    selected.size += 1
+    kept += 1
   }
 }
 

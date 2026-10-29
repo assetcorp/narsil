@@ -84,6 +84,7 @@ function createMockVectorIndex(dimension: number): VectorIndex {
     }),
     recordCheckpoint: vi.fn(),
     restoreCheckpoint: vi.fn(() => ({ addFile: vi.fn(), finish: vi.fn() })),
+    startShuffledRebuildWhenDue: vi.fn(),
     vectorFilesInUse: vi.fn(() => []),
     deserialize: vi.fn(),
     adoptDiskLayout: vi.fn(async () => {}),

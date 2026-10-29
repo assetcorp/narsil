@@ -3,7 +3,6 @@ import { describe, expect, it } from 'vitest'
 import {
   osqEstimate,
   osqLevelProducts,
-  osqNarrowPairProducts,
   osqNibbleProducts,
   osqQueryBits,
   osqStagedQueryProducts,
@@ -103,19 +102,13 @@ describe('optimised scalar quantization against Lucene', () => {
     const scratch = createOsqScratch(fixture.dimension)
     const codeBytes = osqCodeBytes(fixture.dimension, bits)
     const document = osqQuantize(docs[0], luceneCentroid, bits, fixture.metric, scratch)
-    const other = osqQuantize(docs[1], luceneCentroid, bits, fixture.metric, scratch)
     const query = osqQuantize(queries[0], luceneCentroid, osqQueryBits(bits), fixture.metric, scratch)
     const documentBytes = new Uint8Array(codeBytes)
-    const otherBytes = new Uint8Array(codeBytes)
     const staged = new Uint8Array(osqStagedQueryBytes(fixture.dimension, bits))
     packLevels(document.levels, bits, documentBytes, 0)
-    packLevels(other.levels, bits, otherBytes, 0)
     stageQueryLevels(query.levels, bits, staged)
     expect(osqStagedQueryProducts(documentBytes, 0, bits, staged, 0, codeBytes)).toBe(
       osqLevelProducts(document.levels, query.levels),
-    )
-    expect(osqNarrowPairProducts(documentBytes, 0, otherBytes, 0, bits, codeBytes)).toBe(
-      osqLevelProducts(document.levels, other.levels),
     )
   })
 

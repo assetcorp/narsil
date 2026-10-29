@@ -57,6 +57,10 @@ export function createOsqQuantizer(
       if (ordinals.length > 0) requireShared().calibrateFrom(ordinals)
     },
 
+    measure(ordinals, sums) {
+      if (ordinals.length > 0) requireShared().measureInto(ordinals, sums)
+    },
+
     quantize(docId) {
       const ordinal = ordinalOf(docId)
       const view = requireShared()
@@ -119,6 +123,20 @@ export function createOsqQuantizer(
       view.writeCodesOf(ordinals)
     },
 
+    beginRecoding(centroid) {
+      requireShared().beginRecoding(centroid)
+    },
+
+    recode(ordinal) {
+      shared()?.recode(ordinal)
+    },
+
+    finishRecoding: () => shared()?.finishRecoding() ?? false,
+
+    abandonRecoding() {
+      shared()?.abandonRecoding()
+    },
+
     prepareQuery: query => shared()?.prepareQuery(query) ?? null,
 
     distanceFromPreparedByOrdinal: (prepared, ordinal) =>
@@ -136,7 +154,7 @@ export function createOsqQuantizer(
       return view.pairDistance()
     },
 
-    distanceBetweenOrdinals: (ordA, ordB) => shared()?.distanceBetweenOrdinals(ordA, ordB) ?? Number.POSITIVE_INFINITY,
+    placementDistance: vector => shared()?.placementDistance(vector) ?? null,
 
     clear() {
       const view = shared()

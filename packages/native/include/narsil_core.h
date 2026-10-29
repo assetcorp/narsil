@@ -8,7 +8,7 @@
 extern "C" {
 #endif
 
-#define NARSIL_CORE_ABI_VERSION 4
+#define NARSIL_CORE_ABI_VERSION 5
 
 #define NARSIL_GRAPH_HEADER_WORDS 160
 #define NARSIL_STORE_HEADER_WORDS 16
@@ -193,11 +193,11 @@ narsil_status narsil_compact(narsil_workspace *workspace, const narsil_graph *gr
 narsil_status narsil_connect_unreached(narsil_workspace *workspace, const narsil_graph *graph,
                                        const narsil_store *store, const narsil_connect_request *request);
 
-narsil_status narsil_calibrate(narsil_workspace *workspace, const narsil_store *store,
-                               const narsil_ordinals_request *request);
-
 narsil_status narsil_quantise(narsil_workspace *workspace, const narsil_store *store,
                               const narsil_ordinals_request *request);
+
+narsil_status narsil_measure(narsil_workspace *workspace, const narsil_store *store,
+                             const narsil_ordinals_request *request, double *totals);
 
 #ifdef __cplusplus
 }

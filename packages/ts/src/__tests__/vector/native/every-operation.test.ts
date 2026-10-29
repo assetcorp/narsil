@@ -86,9 +86,9 @@ describe.skipIf(!binaryBuilt)('a process that loads the native search core', () 
       index.remove(docIdOf(0))
       index.compact()
       expect([...performed].sort()).toEqual([
-        'calibrate',
         'compact',
         'connect',
+        'measure',
         'place',
         'quantise',
         'remove',

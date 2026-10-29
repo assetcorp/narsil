@@ -109,12 +109,11 @@ function indexConfigOf(quantization: VectorQuantizationMode): IndexConfig {
 
 async function untilGraphSettled(narsil: Narsil): Promise<void> {
   const deadline = Date.now() + SETTLE_DEADLINE_MS
-  while (
-    narsil
-      .vectorMaintenanceStatus('papers')
-      .some(field => field.building || field.graphCount === 0 || field.bufferSize > 0)
-  ) {
-    if (Date.now() > deadline) throw new Error('the graph of papers was still building after 60 s')
+  while (narsil.vectorMaintenanceStatus('papers').some(field => field.building || field.graphCount === 0)) {
+    if (Date.now() > deadline) {
+      const status = JSON.stringify(narsil.vectorMaintenanceStatus('papers'))
+      throw new Error(`the graph of papers was still building after 60 s: ${status}`)
+    }
     await new Promise(resolve => setTimeout(resolve, 5))
   }
 }

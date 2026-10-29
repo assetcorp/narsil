@@ -18,6 +18,7 @@ import {
 } from './adjacency'
 import {
   baseNeighboursOfRemoved,
+  connectAfterBuild,
   connectAfterPlacement,
   connectAfterRemoval,
   countIncomingBeforeWriting,
@@ -32,6 +33,7 @@ import {
   GRAPH_TOP_LAYER,
   publishGraphCapacity,
 } from './handles'
+import { shuffleInPlace } from './insertion-order'
 import { isLive, noteNodeLeftUnlinked, writeKeepingLastLinks } from './last-links'
 import { lockEntry, lockGraphShared, lockNodeWrite, unlockEntry, unlockGraphShared, unlockNodeWrite } from './locks'
 import {
@@ -41,7 +43,6 @@ import {
   type HNSWGraphState,
   isTombstoned,
   maxConns,
-  nodeDistanceByOrd,
   nodeDistanceFunction,
   nodeExists,
   nodeMaxLayer,
@@ -101,15 +102,16 @@ function raiseEntry(state: HNSWGraphState, ord: number, level: number): void {
   }
 }
 
-function placementDistance(state: HNSWGraphState, ord: number, vector: Float32Array): (candOrd: number) => number {
-  const metric = state.buildMetric
+function placementDistance(
+  state: HNSWGraphState,
+  vector: Float32Array,
+  fullPrecision: (candOrd: number) => number,
+): (candOrd: number) => number {
   const quantizer = state.quantizer
-  if (quantizer !== undefined && buildsFromCodes(state)) {
-    const prepared = quantizer.prepareQuery(vector)
-    if (prepared !== null) return quantizer.preparedDistance(prepared)
-  }
-  if (quantizer === undefined) return state.store.ordinalDistance(ord, metric)
-  return candOrd => nodeDistanceByOrd(state, ord, candOrd, metric)
+  if (quantizer === undefined || !buildsFromCodes(state)) return fullPrecision
+  if (state.store.handles.vectorFiles.length > 0) return quantizer.placementDistance(vector) ?? fullPrecision
+  const prepared = quantizer.prepareQuery(vector)
+  return prepared === null ? fullPrecision : quantizer.preparedDistance(prepared)
 }
 
 function selectNeighborsPerLayer(state: HNSWGraphState, ord: number, level: number): number {
@@ -118,7 +120,8 @@ function selectNeighborsPerLayer(state: HNSWGraphState, ord: number, level: numb
   const candidates = workspace.traversal
   const entry = state.store.entryForOrdinal(ord)
   if (entry === undefined) return -1
-  const insertDistFn = placementDistance(state, ord, entry.vector)
+  const fullPrecision = state.store.ordinalDistance(ord, metric)
+  const insertDistFn = placementDistance(state, entry.vector, fullPrecision)
   const topLayer = topLayerOf(state)
   setSingleEntryPoint(workspace, entryPointOf(state))
 
@@ -365,8 +368,9 @@ export function rebuild(state: HNSWGraphState): void {
 
   resetGraph(state)
 
-  for (const ord of liveOrds) {
+  for (const ord of shuffleInPlace(liveOrds)) {
     if (!state.store.holdsOrdinal(ord)) continue
     insertNode(state, ord, true)
   }
+  connectAfterBuild(state)
 }

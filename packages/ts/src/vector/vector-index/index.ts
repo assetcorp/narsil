@@ -4,7 +4,7 @@ import { DISK_STORAGE_BLOCK_BYTES } from '../constants'
 import type { HNSWConfig } from '../hnsw'
 import { createOsqQuantizer, osqBitsOf } from '../osq'
 import { createVectorStore } from '../vector-store'
-import { scheduleBuild as scheduleBuildOp } from './build'
+import { awaitBuilds, disposeIndex, scheduleBuild as scheduleBuildOp, startShuffledRebuild } from './build'
 import {
   planCheckpoint as planCheckpointOp,
   recordCheckpoint as recordCheckpointOp,
@@ -28,8 +28,10 @@ import { fetchedOutcome, search as searchOp, searchWithFilter, withBufferedVecto
 import {
   assignStorePartitions,
   filterForOptions,
+  handOverBuildTurns,
   liveSize,
   type MaintenanceStatus,
+  noBuildHistory,
   threadsHoldCurrentLayout,
   VECTOR_WORKER_COPIES_ALLOWED,
   type VectorIndexState,
@@ -85,12 +87,13 @@ export interface VectorIndex {
   estimateMemoryBytes(): number
   /** Reads the field back from the parts of an earlier snapshot, whose parts can place the sequences of several partitions end to end, and keeps every vector in memory. */
   deserialize(parts: VectorIndexPayload[]): void
-  /** Fixes what a checkpoint writes for the field now: the vector files that it keeps with their dead vectors, the vectors that go into new files, and the graph with every vector numbered by that file list. The plan reads one new file at a time, so that a checkpoint holds one file in memory while it writes a field of any size. A file read after a recalibration throws, because its codes would disagree with the centroid of the files before it. */
+  /** Fixes what a checkpoint writes for the field now: the vector files that it keeps with their dead vectors, the vectors that go into new files, and the graph with every vector numbered by that file list. The plan reads one new file at a time, so that a checkpoint holds one file in memory while it writes a field of any size. */
   planCheckpoint(listedKeys: readonly string[] | null, rewritesGraph?: boolean): VectorCheckpointPlan
   /** Records the files of a checkpoint whose manifest is durable, so that the next plan writes the vectors that arrive after it and no others. */
   recordCheckpoint(plan: VectorCheckpointPlan, written: readonly WrittenVectorFile[]): void
   /** Empties the field and returns a reader that takes a checkpoint's vector files one at a time, in manifest order, after the graph that `shape` carries. A field kept on disk reads its vectors from the files where the checkpoint holds a graph or enough vectors for one, and a dead vector that the graph holds a node for comes back as a tombstone. */
   restoreCheckpoint(shape: CheckpointRestoreShape): VectorCheckpointRestore
+  startShuffledRebuildWhenDue(): void
   /** Lists the paths of the vector files that the field still reads vectors from. */
   vectorFilesInUse(): string[]
   /** Points the vectors a checkpoint wrote at their places in its file and frees the blocks they emptied, or keeps those places while the field holds no graph. It resolves once every thread holding the field has taken the new layout. */
@@ -122,6 +125,7 @@ export function createVectorIndex(
   workerCopies: VectorWorkerCopyPolicy = VECTOR_WORKER_COPIES_ALLOWED,
   indexName = '',
   storage: VectorStorageMode = 'memory',
+  onLoadedGraphRepaired: () => void = () => undefined,
 ): VectorIndex {
   if (!Number.isInteger(dimension) || dimension <= 0) {
     throw new NarsilError(
@@ -168,9 +172,14 @@ export function createVectorIndex(
     osq: codeBits === null ? null : createOsqQuantizer(dimension, codeBits, metric, store),
     hnsw: null,
     freshGraph: null,
+    ...noBuildHistory(),
+    onLoadedGraphRepaired,
     compactedNodeCount: 0,
     building: false,
     buildScheduled: false,
+    buildTimer: null,
+    buildRetryDelayMs: 0,
+    buildTurnWaiters: new Map(),
     pendingBuild: null,
     disposed: false,
     revision: 0,
@@ -214,6 +223,7 @@ export function createVectorIndex(
 
   function insert(docId: string, vector: Float32Array, partitionId?: number): void {
     validateDimension(vector)
+    handOverBuildTurns(state)
     const previous = state.store.getOrdinal(docId)
     if (previous !== undefined && holdsThisVectorAlready(docId, previous, vector)) {
       if (partitionId !== undefined && state.store.partitionOfOrdinal(previous) !== partitionId) {
@@ -239,6 +249,7 @@ export function createVectorIndex(
   }
 
   function remove(docId: string): void {
+    handOverBuildTurns(state)
     if (!state.store.has(docId)) return
     noteWrite(state)
     state.tombstones.add(docId)
@@ -260,40 +271,12 @@ export function createVectorIndex(
     return state.store.has(docId) && !state.tombstones.has(docId)
   }
 
-  async function awaitPendingBuild(): Promise<void> {
-    while (state.pendingBuild) {
-      await state.pendingBuild
-    }
-  }
-
-  function releaseHeldMemory(): void {
-    state.hnsw = null
-    state.freshGraph = null
-    state.osq = null
-    state.tombstones.clear()
-    state.buffer.clear()
-    state.pendingLocations.clear()
-    state.savedFiles = []
-    state.savedSignature = null
-    state.store.release()
-  }
-
-  function dispose(): void {
-    state.disposed = true
-    invalidateWorkerCopies(state)
-    const pending = state.pendingBuild
-    if (pending !== null) {
-      void pending.then(releaseHeldMemory, releaseHeldMemory)
-      return
-    }
-    releaseHeldMemory()
-  }
-
   async function searchParallel(
     query: Float32Array,
     k: number,
     options: VectorSearchOptions,
   ): Promise<VectorSearchOutcome> {
+    handOverBuildTurns(state)
     const confined = options.filterSubsets !== undefined || options.filterPartitions !== undefined
     let filter = filterForOptions(state, options)
     if (filter !== undefined) {
@@ -346,9 +329,9 @@ export function createVectorIndex(
     partitionsKnown: () => state.store.partitionsKnown,
     assignPartitions: (resolve: (docId: string) => number | undefined) => assignStorePartitions(state, resolve),
     scheduleBuild: () => scheduleBuildOp(state),
-    awaitPendingBuild,
+    awaitPendingBuild: () => awaitBuilds(state),
     completeGraph: () => completeGraphOp(state),
-    dispose,
+    dispose: () => disposeIndex(state),
     search: (query: Float32Array, k: number, options: VectorSearchOptions) => searchOp(state, query, k, options),
     searchParallel,
     refreshWorkerCopies: () => refreshWorkerCopies(state),
@@ -376,6 +359,7 @@ export function createVectorIndex(
       invalidateWorkerCopies(state)
       return beginCheckpointRestore(state, shape)
     },
+    startShuffledRebuildWhenDue: () => startShuffledRebuild(state),
     vectorFilesInUse: () =>
       state.store.dimension === 0 ? [] : state.store.handles.vectorFiles.filter(path => path !== ''),
     adoptDiskLayout: (layout: VectorFileLayout) => adoptDiskLayoutOp(state, layout),

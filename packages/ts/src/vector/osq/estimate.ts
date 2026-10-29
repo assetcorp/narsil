@@ -1,5 +1,5 @@
 import type { VectorMetric } from '../brute-force'
-import { OSQ_QUERY_BITS, OSQ_STEPS } from './constants'
+import { OSQ_PLACEMENT_QUERY_BITS, OSQ_QUERY_BITS, OSQ_STEPS } from './constants'
 import type { OsqBits } from './quantize'
 import type { OsqTrailer } from './record'
 
@@ -22,6 +22,40 @@ export function osqLevelProducts(a: Uint8Array, b: Uint8Array): number {
 
 const LEVEL_BIT_MASK: Readonly<Record<1 | 2, number>> = { 1: 0xff, 2: 0x55 }
 const STAGED_QUERY_PLANES = 4
+
+export function osqNibblesByByteLevels(
+  document: Uint8Array,
+  documentOffset: number,
+  levels: Uint8Array,
+  bytes: number,
+): number {
+  let total = 0
+  for (let n = 0; n < bytes; n++) {
+    const packed = document[documentOffset + n]
+    total += (packed & 15) * levels[2 * n] + (packed >> 4) * levels[2 * n + 1]
+  }
+  return total
+}
+
+export function osqNarrowPairProducts(
+  a: Uint8Array,
+  aOffset: number,
+  b: Uint8Array,
+  bOffset: number,
+  bits: 1 | 2,
+  bytes: number,
+): number {
+  const mask = LEVEL_BIT_MASK[bits]
+  let total = 0
+  for (let j = 0; j < bits; j++) {
+    for (let l = 0; l < bits; l++) {
+      let bitsSet = 0
+      for (let n = 0; n < bytes; n++) bitsSet += POPCOUNT[(a[aOffset + n] >> j) & (b[bOffset + n] >> l) & mask]
+      total += 2 ** (j + l) * bitsSet
+    }
+  }
+  return total
+}
 
 export function osqNibbleProducts(
   a: Uint8Array,
@@ -75,26 +109,6 @@ export function osqStagedQueryProducts(
   return total
 }
 
-export function osqNarrowPairProducts(
-  a: Uint8Array,
-  aOffset: number,
-  b: Uint8Array,
-  bOffset: number,
-  bits: 1 | 2,
-  bytes: number,
-): number {
-  const mask = LEVEL_BIT_MASK[bits]
-  let total = 0
-  for (let j = 0; j < bits; j++) {
-    for (let l = 0; l < bits; l++) {
-      let bitsSet = 0
-      for (let n = 0; n < bytes; n++) bitsSet += POPCOUNT[(a[aOffset + n] >> j) & (b[bOffset + n] >> l) & mask]
-      total += 2 ** (j + l) * bitsSet
-    }
-  }
-  return total
-}
-
 export function osqByteLevelProducts(
   document: Uint8Array,
   documentOffset: number,
@@ -143,4 +157,8 @@ export function osqDistance(estimate: number, metric: VectorMetric): number {
 
 export function osqQueryBits(bits: OsqBits): OsqBits {
   return OSQ_QUERY_BITS[bits]
+}
+
+export function osqPlacementQueryBits(bits: OsqBits): OsqBits {
+  return OSQ_PLACEMENT_QUERY_BITS[bits]
 }

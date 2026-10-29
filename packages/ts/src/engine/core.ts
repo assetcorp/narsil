@@ -115,6 +115,7 @@ export async function createEngineCore(
   const executor: Executor & DirectExecutorExtensions & IndexReplacement = createDirectExecutor({
     vectorWorkerCopies: vectorCopyPolicy,
     vectorStorage: filesystemDurability ? 'disk' : 'memory',
+    onVectorGraphRepaired: indexName => void durability?.manager.checkpointAfterInFlight(indexName),
   })
 
   const pluginRegistry: PluginRegistry = createPluginRegistry()

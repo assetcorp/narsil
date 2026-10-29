@@ -1,16 +1,21 @@
 import type { HNSWIndex } from '../hnsw'
 import { nativeStoreScratchBytes } from '../native/store'
-import { buildGraphFromStore, promoteToGraph, scheduleBuild } from './build'
+import {
+  buildExclusively,
+  buildGraphFromStore,
+  promoteToGraph,
+  shuffledRebuildDue,
+  startShuffledRebuild,
+} from './build'
 import { insertIntoGraph } from './build-host'
+import { calibrateBeforeBuild, recalibrateWhenDrifted } from './calibration'
 import { ESTIMATED_MS_PER_TOMBSTONE, ESTIMATED_MS_PER_VECTOR_REBUILD } from './constants'
 import {
   adoptGraph,
   allLiveDocIds,
-  calibrateQuantizer,
   graphNeedsRebuild,
   liveSize,
   type MaintenanceStatus,
-  recalibrateFromStore,
   releaseReplacedVectors,
   type VectorIndexState,
 } from './shared'
@@ -37,19 +42,12 @@ export function compact(state: VectorIndexState): void {
   state.tombstones.clear()
 }
 
-function recalibrateWhileNoThreadSearches(state: VectorIndexState, graph: HNSWIndex | null): void {
-  if (graph === null) {
-    recalibrateFromStore(state)
-    return
-  }
-  graph.exclusively(() => recalibrateFromStore(state))
-}
-
 async function insertMissing(state: VectorIndexState, graph: HNSWIndex): Promise<void> {
   const missingOrReplaced = (docId: string) => !graph.has(docId) || state.buffer.has(docId)
   const heldWhenTheCallStarted = [...allLiveDocIds(state)]
   const stillLiveAndUnplaced = (docId: string) => !state.tombstones.has(docId) && missingOrReplaced(docId)
   await insertIntoGraph(state, graph, heldWhenTheCallStarted, stillLiveAndUnplaced)
+  startShuffledRebuild(state)
 }
 
 async function foldIntoGraph(state: VectorIndexState): Promise<void> {
@@ -69,34 +67,15 @@ async function foldIntoGraph(state: VectorIndexState): Promise<void> {
   }
 
   const graph = state.hnsw
-  if (graph === null || rebuildNeeded) {
-    if (state.osq?.isCalibrated()) recalibrateWhileNoThreadSearches(state, graph)
-    else calibrateQuantizer(state)
+  if (graph === null || rebuildNeeded || state.shuffledBuildCount === null) {
+    if (await calibrateBeforeBuild(state)) await buildGraphFromStore(state)
+    return
+  }
+  if (await recalibrateWhenDrifted(state, liveSize(state))) {
     await buildGraphFromStore(state)
-  } else {
-    await insertMissing(state, graph)
+    return
   }
-}
-
-async function buildExclusively(state: VectorIndexState, work: () => Promise<void>): Promise<void> {
-  while (state.pendingBuild) {
-    await state.pendingBuild
-  }
-  if (state.disposed) return
-
-  state.building = true
-  const run = work()
-  state.pendingBuild = run
-
-  try {
-    await run
-  } finally {
-    state.building = false
-    state.pendingBuild = null
-    if (state.buffer.size > 0) {
-      scheduleBuild(state)
-    }
-  }
+  await insertMissing(state, graph)
 }
 
 export function optimize(state: VectorIndexState): Promise<void> {
@@ -109,8 +88,8 @@ async function fillGraph(state: VectorIndexState): Promise<void> {
     if (liveSize(state) >= state.promotionThreshold) await promoteToGraph(state)
     return
   }
-  if (state.osq && !state.osq.isCalibrated()) calibrateQuantizer(state)
-  if (graphNeedsRebuild(state)) {
+  if (state.osq && !state.osq.isCalibrated() && !(await calibrateBeforeBuild(state))) return
+  if (state.shuffledRebuild === null && graphNeedsRebuild(state)) {
     await buildGraphFromStore(state)
     return
   }
@@ -118,7 +97,7 @@ async function fillGraph(state: VectorIndexState): Promise<void> {
 }
 
 export function completeGraph(state: VectorIndexState): Promise<void> {
-  return buildExclusively(state, () => fillGraph(state))
+  return buildExclusively(state, () => fillGraph(state), false)
 }
 
 export function maintenanceStatus(state: VectorIndexState): MaintenanceStatus {
@@ -128,14 +107,15 @@ export function maintenanceStatus(state: VectorIndexState): MaintenanceStatus {
   const tombstoned = state.tombstones.size + state.store.replacedVectorCount
   const tombstoneRatio = graphNodes > 0 ? tombstoned / graphNodes : 0
   const estimatedCompactMs = Math.round(tombstoned * ESTIMATED_MS_PER_TOMBSTONE * state.dimensionScale)
-  const optimizeVectorCount = state.hnsw === null || graphNeedsRebuild(state) ? storeSize : state.buffer.size
+  const rebuilds = state.hnsw === null || graphNeedsRebuild(state) || shuffledRebuildDue(state, liveSize(state))
+  const optimizeVectorCount = rebuilds ? storeSize : state.buffer.size
   const estimatedOptimizeMs = Math.round(optimizeVectorCount * ESTIMATED_MS_PER_VECTOR_REBUILD * state.dimensionScale)
 
   return {
     tombstoneRatio,
     graphCount,
     bufferSize: state.buffer.size,
-    building: state.building || state.buildScheduled,
+    building: state.building || state.buildScheduled || state.buildTimer !== null || state.shuffledRebuild !== null,
     estimatedCompactMs,
     estimatedOptimizeMs,
   }
@@ -147,5 +127,6 @@ function flatScanScratchBytes(state: VectorIndexState): number {
 
 export function estimateMemoryBytes(state: VectorIndexState): number {
   if (state.hnsw === null) return state.store.memoryBytes() + flatScanScratchBytes(state)
-  return state.store.memoryBytes() + state.hnsw.graphBytes + state.hnsw.searchScratchBytes
+  const freshGraphBytes = state.freshGraph?.graphBytes ?? 0
+  return state.store.memoryBytes() + state.hnsw.graphBytes + state.hnsw.searchScratchBytes + freshGraphBytes
 }
