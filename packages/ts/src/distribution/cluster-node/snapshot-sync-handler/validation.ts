@@ -1,12 +1,4 @@
-import { decode } from '@msgpack/msgpack'
-import { INDEX_NAME_PATTERN, MAX_INDEX_NAME_LENGTH } from '../../../engine/constants'
-import { ErrorCodes, NarsilError } from '../../../errors'
-import type { SnapshotSyncRequestPayload, TransportMessage } from '../../transport/types'
 import { MAX_SOURCE_ID_LENGTH } from '../constants'
-import { transportableDetails } from '../error-reply'
-import { respondError, type SingleResponseSink } from '../snapshot-stream-writer'
-
-import type { SnapshotSyncHandlerDeps } from './types'
 
 /**
  * Control characters in a sourceId would collide with our per-source slot key
@@ -35,31 +27,6 @@ export function containsControlCharacter(value: string): boolean {
   return false
 }
 
-export const REQUEST_DECODE_OPTIONS = {
-  maxMapLength: 16,
-  maxArrayLength: 16,
-  maxStrLength: MAX_INDEX_NAME_LENGTH,
-  maxBinLength: 0,
-  maxExtLength: 0,
-  keyDecoder: null,
-} as const
-
-export async function decodeRequest(
-  message: TransportMessage,
-  sink: SingleResponseSink,
-  deps: SnapshotSyncHandlerDeps,
-): Promise<SnapshotSyncRequestPayload | null> {
-  try {
-    const decoded = decode(message.payload, REQUEST_DECODE_OPTIONS) as unknown
-    return validateSnapshotSyncRequestPayload(decoded)
-  } catch (err) {
-    const code = err instanceof NarsilError ? err.code : ErrorCodes.SNAPSHOT_SYNC_REQUEST_INVALID
-    const errMessage = err instanceof Error ? err.message : String(err)
-    await respondError(sink, deps.nodeId, message.requestId, code, errMessage, transportableDetails(err))
-    return null
-  }
-}
-
 export function validateSourceId(sourceId: unknown): string | null {
   if (typeof sourceId !== 'string' || sourceId.length === 0) {
     return 'request sourceId is missing'
@@ -71,58 +38,4 @@ export function validateSourceId(sourceId: unknown): string | null {
     return 'request sourceId contains control characters'
   }
   return null
-}
-
-/**
- * Forward-compatible validator: unknown top-level fields are tolerated so
- * future protocol versions can add optional hints without breaking older peers.
- * All required fields are validated strictly.
- */
-export function validateSnapshotSyncRequestPayload(decoded: unknown): SnapshotSyncRequestPayload {
-  if (decoded === null || typeof decoded !== 'object' || Array.isArray(decoded)) {
-    throw new NarsilError(
-      ErrorCodes.SNAPSHOT_SYNC_REQUEST_INVALID,
-      'Invalid SnapshotSyncRequestPayload: expected an object',
-    )
-  }
-  const record = decoded as Record<string, unknown>
-  const indexName = record.indexName
-  if (typeof indexName !== 'string' || indexName.length === 0) {
-    throw new NarsilError(
-      ErrorCodes.SNAPSHOT_SYNC_REQUEST_INVALID,
-      'Invalid SnapshotSyncRequestPayload: "indexName" must be a non-empty string',
-    )
-  }
-  if (indexName.length > MAX_INDEX_NAME_LENGTH) {
-    throw new NarsilError(
-      ErrorCodes.SNAPSHOT_SYNC_REQUEST_INVALID,
-      `Invalid SnapshotSyncRequestPayload: "indexName" must be at most ${MAX_INDEX_NAME_LENGTH} characters`,
-      { length: indexName.length, limit: MAX_INDEX_NAME_LENGTH },
-    )
-  }
-  if (!INDEX_NAME_PATTERN.test(indexName) || indexName.includes('..')) {
-    throw new NarsilError(
-      ErrorCodes.SNAPSHOT_SYNC_REQUEST_INVALID,
-      'Invalid SnapshotSyncRequestPayload: "indexName" contains invalid characters',
-    )
-  }
-  const indexUuid = record.indexUuid
-  if (indexUuid !== undefined && indexUuid !== null && (typeof indexUuid !== 'string' || indexUuid.length === 0)) {
-    throw new NarsilError(
-      ErrorCodes.SNAPSHOT_SYNC_REQUEST_INVALID,
-      'Invalid SnapshotSyncRequestPayload: "indexUuid" must be a non-empty string when provided',
-    )
-  }
-  const identity = typeof indexUuid === 'string' ? { indexUuid } : {}
-  const partitionId = record.partitionId
-  if (partitionId !== undefined && partitionId !== null) {
-    if (typeof partitionId !== 'number' || !Number.isInteger(partitionId) || partitionId < 0) {
-      throw new NarsilError(
-        ErrorCodes.SNAPSHOT_SYNC_REQUEST_INVALID,
-        'Invalid SnapshotSyncRequestPayload: "partitionId" must be a non-negative integer when provided',
-      )
-    }
-    return { indexName, partitionId, ...identity }
-  }
-  return { indexName, partitionId: null, ...identity }
 }

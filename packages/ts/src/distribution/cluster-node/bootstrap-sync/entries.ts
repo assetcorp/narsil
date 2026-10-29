@@ -3,7 +3,7 @@ import { validateReplicationEntry } from '../../replication/replica'
 import type { ReplicationLog, ReplicationLogEntry } from '../../replication/types'
 import type { SyncEntriesPayload } from '../../transport/types'
 import { enqueuePartitionWrite } from '../write-routing/partition-queue'
-import type { ApplyEntriesResult, LiveBootstrapSyncDeps } from './types'
+import type { ApplyEntriesResult, BootstrapSyncDeps } from './types'
 
 export async function applySyncEntries(
   indexName: string,
@@ -11,7 +11,7 @@ export async function applySyncEntries(
   entriesPayloads: SyncEntriesPayload[],
   expectedFirstSeqNo: number,
   localPrimaryTerm: number,
-  deps: LiveBootstrapSyncDeps,
+  deps: BootstrapSyncDeps,
 ): Promise<ApplyEntriesResult> {
   const terminalError = validateSyncEntryBatchTermination(entriesPayloads)
   if (terminalError !== null) {
@@ -56,7 +56,7 @@ interface SyncRunOutcome {
 async function applySyncRunOnce(
   run: readonly ReplicationLogEntry[],
   log: ReplicationLog,
-  deps: LiveBootstrapSyncDeps,
+  deps: BootstrapSyncDeps,
 ): Promise<SyncRunOutcome> {
   let processed = 0
   let error: NarsilError | null = null
