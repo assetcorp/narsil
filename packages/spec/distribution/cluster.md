@@ -352,6 +352,8 @@ A move leaves the partition in `ACTIVE`, because the state covers every copy of 
 
 The nodes named here still hold a copy of a partition no node serves, and a served partition leaves the field absent. The controller writes the failed primary and the replicas that were in sync with it into this field as it moves the partition to `UNASSIGNED`, because those nodes hold every write the cluster acknowledged for the partition. A promotion leaves the field as it stands, so that a promoted node that fails before the partition reaches `ACTIVE` leaves the other holders on record. The controller adds the failed primary to the field on each further failure, and it clears the field as it moves the partition to `ACTIVE`. A node this field names must keep its copy until the controller clears the field, and [No Eligible Replica](replication.md#no-eligible-replica) governs how the controller gives the partition back to one of them.
 
+A partition that fails before it first reaches `ACTIVE` gets no `lastHolders`, as [No Eligible Replica](replication.md#no-eligible-replica) describes.
+
 ### unassignedReason
 
 The controller writes this field whenever a partition stays `UNASSIGNED` after it asks the partition's last holders for a copy. It writes one of four values:

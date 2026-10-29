@@ -381,6 +381,8 @@ The controller records the partition's last holders as it moves the partition so
 
 The controller promotes only a node that lastHolders names, because a copy the list omits can be missing acknowledged writes. It records why the partition stays `UNASSIGNED` in [unassignedReason](cluster.md#unassignedreason) each time it asks, so an operator can tell whether the partition is waiting for a node to return or no node can restore it. The cluster keeps no copy of the partition when none of those nodes returns, so set `replicationFactor` high enough that the case stays unlikely in production.
 
+A partition whose primary fails while the partition is in `INITIALISING` and `lastHolders` is absent has never reached `ACTIVE`, so it holds no acknowledged write. The controller records no `lastHolders` for it. It raises the `primaryTerm` and gives the primary to another eligible node as an empty copy in `INITIALISING`, as at index creation.
+
 ### Fencing a Stale Primary
 
 The `primaryTerm` keeps a primary that lost its lease from corrupting a partition:
