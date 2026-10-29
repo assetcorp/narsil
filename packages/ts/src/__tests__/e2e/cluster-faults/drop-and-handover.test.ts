@@ -1,7 +1,7 @@
 import { setTimeout as sleep } from 'node:timers/promises'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { type ClusterUnderTest, clock, startClusterUnderTest } from './cluster-under-test'
-import { createLedger, type Ledger, type LedgerDocument, REFUSED_BEFORE_APPLY } from './oracle'
+import { createLedger, type Ledger, type LedgerDocument, REFUSED_FOR_CERTAIN } from './oracle'
 import { type FaultState, type Reply, SEARCH_TERM, send, startWorkload } from './workload'
 
 const PLAIN = process.env.NARSIL_FAULT_PLAIN === '1'
@@ -51,7 +51,7 @@ function settleBatch(
   for (const failure of body.failed) {
     tally(failure.error.code)
     const next = intended.get(failure.docId) ?? null
-    if (REFUSED_BEFORE_APPLY.has(failure.error.code)) ledger.record(failure.docId, next, 'refused')
+    if (REFUSED_FOR_CERTAIN.has(failure.error.code)) ledger.record(failure.docId, next, 'refused')
     else if (failure.error.code === 'DOC_ALREADY_EXISTS' || failure.error.code === 'DOC_NOT_FOUND') {
       ledger.contradict(`${failure.docId}: the batch answered ${failure.error.code}`)
       ledger.record(failure.docId, next, 'refused')
@@ -167,7 +167,7 @@ describe('a node cut from etcd while its index is dropped and created again', ()
           ).catch(() => null)
           if (
             reply?.status === 201 ||
-            (reply?.code !== undefined && reply.code !== null && !REFUSED_BEFORE_APPLY.has(reply.code))
+            (reply?.code !== undefined && reply.code !== null && !REFUSED_FOR_CERTAIN.has(reply.code))
           )
             break
           await sleep(PROBE_PAUSE_MS)
