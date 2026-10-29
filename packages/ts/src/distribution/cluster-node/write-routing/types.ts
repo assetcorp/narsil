@@ -15,6 +15,7 @@ export interface WriteRoutingDeps {
   nodeId: string
   coordinator: ClusterCoordinator
   refreshAllocation?: (indexName: string) => Promise<AllocationTable | null>
+  readLiveAllocation?: (indexName: string) => Promise<AllocationTable | null>
   readPrimaryCopies?: (indexName: string, docIds: readonly string[]) => Promise<Map<string, AnyDocument>>
   engine: Narsil
   transport: NodeTransport

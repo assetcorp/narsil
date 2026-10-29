@@ -19,17 +19,19 @@ function registrationLeaseLapsed(deps: WriteRoutingDeps): boolean {
   return lease === null || lease.remainingMs <= lease.ttlMs * REGISTRATION_LEASE_DRIFT_SHARE
 }
 
-async function leadershipMoved(scope: PrimaryWriteScope): Promise<boolean> {
+async function leadershipUnconfirmed(scope: PrimaryWriteScope): Promise<boolean> {
   const { deps, indexName, partitionId } = scope
-  if (deps.refreshAllocation === undefined) return false
   let live: AllocationTable | null
   try {
-    live = await deps.refreshAllocation(indexName)
+    live =
+      deps.readLiveAllocation !== undefined
+        ? await deps.readLiveAllocation(indexName)
+        : await deps.coordinator.getAllocation(indexName)
   } catch (_) {
-    return false
+    return true
   }
   const assignment = live?.assignments.get(partitionId)
-  if (assignment === undefined || assignment.primary === null) return false
+  if (assignment === undefined) return true
   return assignment.primary !== deps.nodeId || assignment.primaryTerm > scope.assignment.primaryTerm
 }
 
@@ -43,7 +45,7 @@ function notPrimary(scope: PrimaryWriteScope): NarsilError {
 
 async function confirmBatchRefusals(scope: PrimaryWriteScope, failed: BatchResult['failed']): Promise<void> {
   if (!failed.some(failure => refusedFromLocalCopy(failure.error))) return
-  if (!(await leadershipMoved(scope))) return
+  if (!(await leadershipUnconfirmed(scope))) return
   for (let index = 0; index < failed.length; index++) {
     const failure = failed[index]
     if (failure !== undefined && refusedFromLocalCopy(failure.error)) {
@@ -85,7 +87,7 @@ export async function inLeadingPartitionQueue<T>(
       },
     )
   } catch (error) {
-    if (refusedFromLocalCopy(error) && (await leadershipMoved(current))) throw notPrimary(current)
+    if (refusedFromLocalCopy(error) && (await leadershipUnconfirmed(current))) throw notPrimary(current)
     throw error
   }
   if (registrationLeaseLapsed(current.deps)) throw notPrimary(current)

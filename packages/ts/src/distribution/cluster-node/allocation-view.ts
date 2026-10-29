@@ -4,6 +4,7 @@ export interface AllocationView {
   readonly routing: ClusterCoordinator
   read(indexName: string): Promise<AllocationTable | null>
   refresh(indexName: string): Promise<AllocationTable | null>
+  readLive(indexName: string): Promise<AllocationTable | null>
   start(): Promise<void>
   stop(): void
 }
@@ -25,20 +26,23 @@ export function createAllocationView(coordinator: ClusterCoordinator): Allocatio
     return table
   }
 
-  async function refresh(indexName: string): Promise<AllocationTable | null> {
-    let live: AllocationTable | null
-    try {
-      live = await coordinator.getAllocation(indexName)
-    } catch (error) {
-      const held = tables.get(indexName)
-      if (held !== undefined) return held
-      throw error
-    }
+  async function readLive(indexName: string): Promise<AllocationTable | null> {
+    const live = await coordinator.getAllocation(indexName)
     if (live === null) {
       tables.delete(indexName)
       return null
     }
     return rememberLive(live)
+  }
+
+  async function refresh(indexName: string): Promise<AllocationTable | null> {
+    try {
+      return await readLive(indexName)
+    } catch (error) {
+      const held = tables.get(indexName)
+      if (held !== undefined) return held
+      throw error
+    }
   }
 
   async function read(indexName: string): Promise<AllocationTable | null> {
@@ -66,6 +70,7 @@ export function createAllocationView(coordinator: ClusterCoordinator): Allocatio
     routing,
     read,
     refresh,
+    readLive,
     async start() {
       if (watching) return
       unwatchers.push(

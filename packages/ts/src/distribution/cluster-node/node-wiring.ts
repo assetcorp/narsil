@@ -97,6 +97,7 @@ export function createNodeWiring(input: {
     numbering,
     coordinator: allocationView.routing,
     refreshAllocation: allocationView.refresh,
+    readLiveAllocation: allocationView.readLive,
     readPrimaryCopies,
     engine,
     transport: config.transport,
