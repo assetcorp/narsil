@@ -37,46 +37,10 @@ export interface DurabilityRecorder {
   recordRemove(indexName: string, docId: string, apply: ApplyMutation): Promise<DurableWriteToken>
 }
 
-export type WriteAdmission = (
-  indexName: string,
-  partitionId: number,
-  docId: string,
-  document: AnyDocument | null,
-) => void
-
-export interface RecordedMutation {
-  docId: string
-  document: AnyDocument | null
-}
-
-export interface ChunkFailure {
-  error: unknown
-  refused?: true
-}
-
-export type RecordChunk = (
-  ctx: MutationContext,
-  indexName: string,
-  mutations: readonly RecordedMutation[],
-  applies: readonly (() => Promise<void>)[],
-) => Promise<(ChunkFailure | null)[]>
-
-export interface EngineWriteAdmission {
-  admit(indexName: string, docId: string, document: AnyDocument | null): void
-  recordChunk(
-    ctx: MutationContext,
-    indexName: string,
-    mutations: readonly RecordedMutation[],
-    applies: readonly (() => Promise<void>)[],
-    recordAdmitted: RecordChunk,
-  ): Promise<(ChunkFailure | null)[]>
-}
-
 export interface MutationContext {
   executor: Executor & DirectExecutorExtensions
   pluginRegistry: PluginRegistry
   durability: DurabilityRecorder | null
-  writeAdmission: EngineWriteAdmission | null
   orchestrator: WorkerOrchestrator
   idGenerator: () => string
   abortController: AbortController

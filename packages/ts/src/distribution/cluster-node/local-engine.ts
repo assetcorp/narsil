@@ -4,7 +4,6 @@ import { requireKnownConfig } from '../../engine/config-keys'
 import { createEngineCore, type EngineCore } from '../../engine/core'
 import { createEngineIndex } from '../../engine/index-lifecycle'
 import { startEngineCore } from '../../engine/lifecycle'
-import type { WriteAdmission } from '../../engine/mutations'
 import { resolveRunnableConfig } from '../../engine/startup-checks'
 import { getLanguage } from '../../languages/registry'
 import type { Narsil } from '../../narsil'
@@ -32,7 +31,7 @@ import { createHeldPartitionRecord } from './held-partitions'
 import { applyLocalReplicationEntry } from './local-replication'
 import type { IndexWriteAnalysis } from './memory/document-bound'
 import { archiveReplicationPartition, type PartitionArchive, restoreReplicationPartition } from './partition-archive'
-import { createEngineWriteAdmission } from './write-admission'
+import { createAdmittingRecorder, type WriteAdmission } from './write-admission'
 
 export interface ClusterLocalEngine extends Narsil {
   createIndexWithUuid(name: string, config: IndexConfig, indexUuid?: string): Promise<void>
@@ -117,7 +116,7 @@ export async function createClusterLocalEngine(
     persistedPositionOf: (indexName: string, partitionId: number) => persistedPositionOf(core, indexName, partitionId),
     numberEntriesWith: (numbering: EntryNumbering) => core.durability?.manager.numberEntriesWith?.(numbering),
     admitWritesWith: (admission: WriteAdmission) => {
-      core.mutationCtx.writeAdmission = createEngineWriteAdmission(core, admission)
+      core.mutationCtx.durability = createAdmittingRecorder(core, admission, core.mutationCtx.durability)
     },
     writeAnalysisOf: (indexName: string) => writeAnalysisOf(core, indexName),
     restartLocalLog: (indexName: string, partitionId: number, position: PartitionLogPosition) =>

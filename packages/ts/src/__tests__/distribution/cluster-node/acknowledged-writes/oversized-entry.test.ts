@@ -105,3 +105,53 @@ describe('a write whose log entry is larger than the log retention limit', () =>
     }, 60_000)
   }
 })
+
+describe('a batch remove whose entry outgrows a log retention limit lowered at restart', () => {
+  let cluster: TestCluster
+
+  afterEach(async () => {
+    await cluster.dispose()
+  })
+
+  it('refuses that remove, keeps the document on every copy, and removes the rest of the batch', async () => {
+    const longId = `account-${'x'.repeat(500)}`
+    cluster = await createTestCluster()
+    await cluster.start('controller', { roles: ['controller', 'coordinator'], durable: false })
+    for (const nodeId of ['node-a', 'node-b']) {
+      await cluster.start(nodeId, { replication: { logRetentionBytes: LOG_RETENTION_BYTES } })
+    }
+    await cluster.node('controller').createIndex(INDEX, { schema: SCHEMA }, { partitionCount: 1, replicationFactor: 1 })
+    const settled = await waitUntil('the partition to hold one replica in sync', async () => {
+      const current = partitionAssignment(await cluster.coordinator.getAllocation(INDEX))
+      return current?.state === 'ACTIVE' && current.inSyncSet.length === 1 ? current : null
+    })
+
+    const expected = new Map<string, Record<string, unknown>>()
+    for (const docId of ['account-1', 'account-2', longId]) {
+      const document = { title: `opening ${docId.slice(0, 12)}`, amount: 0 }
+      await cluster.node(settled.primary ?? '').insert(INDEX, document, docId)
+      expected.set(docId, document)
+    }
+    await waitForCopies(cluster.coordinator, settled.primary, settled.inSyncSet)
+
+    for (const nodeId of ['node-a', 'node-b']) await cluster.stop(nodeId)
+    for (const nodeId of ['node-a', 'node-b']) await cluster.start(nodeId, { replication: { logRetentionBytes: 300 } })
+    const restarted = await waitUntil('the partition to lead with one replica in sync again', async () => {
+      const current = partitionAssignment(await cluster.coordinator.getAllocation(INDEX))
+      return current?.state === 'ACTIVE' && current.primary !== null && current.inSyncSet.length === 1 ? current : null
+    })
+    const primary = restarted.primary ?? ''
+    const replica = restarted.inSyncSet[0] ?? ''
+
+    const removed = await cluster.node(primary).removeBatch(INDEX, [longId, 'account-1'])
+    expect(removed.succeeded).toEqual(['account-1'])
+    expect(removed.failed.map(failure => [failure.docId, (failure.error as { code?: unknown }).code])).toEqual([
+      [longId, 'REPLICATION_LOG_FULL'],
+    ])
+    expected.delete('account-1')
+
+    await waitForCopies(cluster.coordinator, primary, [replica])
+    expect(Object.fromEntries(await readCopy(cluster.probe, primary))).toEqual(Object.fromEntries(expected))
+    expect(Object.fromEntries(await readCopy(cluster.probe, replica))).toEqual(Object.fromEntries(expected))
+  }, 60_000)
+})

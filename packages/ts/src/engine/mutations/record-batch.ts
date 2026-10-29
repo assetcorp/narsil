@@ -1,6 +1,14 @@
-import type { ChunkFailure, MutationContext, RecordedMutation } from './context'
+import type { AnyDocument } from '../../types/schema'
+import type { MutationContext } from './context'
 
-export type { ChunkFailure, RecordedMutation } from './context'
+export interface ChunkFailure {
+  error: unknown
+}
+
+export interface RecordedMutation {
+  docId: string
+  document: AnyDocument | null
+}
 
 export async function recordChunk(
   ctx: MutationContext,
@@ -9,8 +17,6 @@ export async function recordChunk(
   applies: readonly (() => Promise<void>)[],
 ): Promise<(ChunkFailure | null)[]> {
   if (mutations.length === 0) return []
-  if (ctx.writeAdmission !== null)
-    return ctx.writeAdmission.recordChunk(ctx, indexName, mutations, applies, recordChunk)
   if (ctx.durability) {
     const outcomes = await ctx.durability.recordMutationBatch(
       indexName,
