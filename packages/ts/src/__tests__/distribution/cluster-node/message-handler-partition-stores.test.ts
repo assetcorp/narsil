@@ -1,9 +1,16 @@
 import { decode, encode } from '@msgpack/msgpack'
 import { describe, expect, it } from 'vitest'
+import { createCatchUpState } from '../../../distribution/cluster-node/catch-up/state'
 import type { ClusterLocalEngine } from '../../../distribution/cluster-node/local-engine'
 import { createClusterLocalEngine } from '../../../distribution/cluster-node/local-engine'
 import { handlePartitionStores } from '../../../distribution/cluster-node/message-handler/partition-stores'
 import type { DataNodeHandlerDeps } from '../../../distribution/cluster-node/message-handler/types'
+import { createSnapshotSyncHandlerState } from '../../../distribution/cluster-node/snapshot-sync-handler'
+import { createPartitionWriteQueues } from '../../../distribution/cluster-node/write-routing/partition-queue'
+import { createInMemoryCoordinator } from '../../../distribution/coordinator'
+import { createReplicationLog } from '../../../distribution/replication'
+import type { ReplicationLog } from '../../../distribution/replication/types'
+import { createInMemoryNetwork, createInMemoryTransport } from '../../../distribution/transport'
 import type { PartitionStoresResultPayload, TransportMessage } from '../../../distribution/transport/types'
 import { ClusterMessageTypes } from '../../../distribution/transport/types'
 
@@ -18,16 +25,51 @@ function askAbout(indexName: string): TransportMessage {
   }
 }
 
-async function answerFor(engine: ClusterLocalEngine, message: TransportMessage): Promise<PartitionStoresResultPayload> {
-  const deps = { nodeId: 'node-a', engine } as DataNodeHandlerDeps
-  let answer: PartitionStoresResultPayload | null = null
-  await handlePartitionStores(
-    message,
-    async response => {
-      answer = decode(response.payload) as PartitionStoresResultPayload
+async function answerFor(
+  engine: ClusterLocalEngine,
+  message: TransportMessage,
+  copyUnlisted?: (indexName: string, partitionId: number) => boolean,
+): Promise<PartitionStoresResultPayload> {
+  const coordinator = createInMemoryCoordinator()
+  const transport = createInMemoryTransport('node-a', createInMemoryNetwork())
+  const logs = new Map<string, ReplicationLog>()
+  const deps: DataNodeHandlerDeps = {
+    nodeId: 'node-a',
+    engine,
+    coordinator,
+    writeDeps: {
+      nodeId: 'node-a',
+      coordinator,
+      engine,
+      transport,
+      getReplicationLog: (indexName, partitionId) => {
+        const key = `${indexName}:${partitionId}`
+        const log = logs.get(key) ?? createReplicationLog(partitionId)
+        logs.set(key, log)
+        return log
+      },
+      resetReplicationLog: (indexName, partitionId, startSeqNo, lastPrimaryTerm) => {
+        logs.set(`${indexName}:${partitionId}`, createReplicationLog(partitionId, { startSeqNo, lastPrimaryTerm }))
+      },
+      partitionWriteQueues: createPartitionWriteQueues(),
+      catchUp: createCatchUpState(),
+      ...(copyUnlisted === undefined ? {} : { copyUnlisted }),
     },
-    deps,
-  )
+    snapshotSyncState: createSnapshotSyncHandlerState(),
+  }
+  let answer: PartitionStoresResultPayload | null = null
+  try {
+    await handlePartitionStores(
+      message,
+      async response => {
+        answer = decode(response.payload) as PartitionStoresResultPayload
+      },
+      deps,
+    )
+  } finally {
+    await transport.shutdown()
+    await coordinator.shutdown()
+  }
   if (answer === null) {
     throw new Error('the handler sent no answer')
   }
@@ -122,6 +164,38 @@ describe('a data node answering which partitions its copy holds', () => {
       const answer = await answerFor(engine, askAbout('products'))
 
       expect(answer.partitionIds).toEqual(holding)
+    } finally {
+      await engine.shutdown()
+    }
+  })
+
+  it('leaves out a partition whose copy failed and has not reloaded, while it names every other one', async () => {
+    const engine = await createClusterLocalEngine()
+    try {
+      await engine.createIndexWithUuid(
+        'products',
+        { schema: { title: 'string' }, partitions: { maxPartitions: 4 } },
+        INDEX_UUID,
+      )
+      await engine.insertBatch(
+        'products',
+        Array.from({ length: 40 }, (_, index) => ({ title: `bench plane ${index}` })),
+      )
+      const holding = engine
+        .getPartitionStats('products')
+        .filter(partition => partition.documentCount > 0)
+        .map(partition => partition.partitionId)
+      expect(holding.length).toBeGreaterThan(1)
+      const failed = holding[0]
+
+      const answer = await answerFor(
+        engine,
+        askAbout('products'),
+        (indexName, partitionId) => indexName === 'products' && partitionId === failed,
+      )
+
+      expect(answer.indexUuid).toBe(INDEX_UUID)
+      expect(answer.partitionIds).toEqual(holding.filter(partitionId => partitionId !== failed))
     } finally {
       await engine.shutdown()
     }
