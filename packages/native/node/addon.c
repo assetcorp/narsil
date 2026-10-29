@@ -203,7 +203,7 @@ static napi_value initialise(napi_env env, napi_value exports) {
       {"remove", NULL, remove_node, NULL, NULL, NULL, napi_default_method, NULL},
       {"compact", NULL, compact, NULL, NULL, NULL, napi_default_method, NULL},
       {"connectUnreached", NULL, connect_unreached, NULL, NULL, NULL, napi_default_method, NULL},
-      {"calibrate", NULL, calibrate, NULL, NULL, NULL, napi_default_method, NULL},
+      {"measure", NULL, measure, NULL, NULL, NULL, napi_default_method, NULL},
       {"quantise", NULL, quantise, NULL, NULL, NULL, napi_default_method, NULL},
       {"workspaceBytes", NULL, workspace_bytes, NULL, NULL, NULL, napi_default_method, NULL},
   };

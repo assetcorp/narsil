@@ -155,22 +155,22 @@ describe.skipIf(!binaryBuilt)('graph writes through the native search core', () 
     expect(core).not.toBeNull()
     if (core === null) return
     const index = await builtIndex({ quantization: 'osq8', metric: 'euclidean', native: true })
-    const calibrations = vi.spyOn(core, 'calibrate')
+    const measurements = vi.spyOn(core, 'measure')
     try {
       const centroidBefore = fieldView(index).codes?.centroid
       for (let position = 0; position < DOCUMENTS; position += 2) index.remove(docIdOf(position))
       index.compact()
-      expect(calibrations).toHaveBeenCalledTimes(0)
+      expect(measurements).toHaveBeenCalledTimes(0)
       expect(fieldView(index).codes?.centroid).toEqual(centroidBefore)
 
       for (let position = 1; position < DOCUMENTS / 2; position += 2) index.remove(docIdOf(position))
       await index.optimize()
       await settleBuild(index)
-      expect(calibrations).toHaveBeenCalledTimes(0)
+      expect(measurements).toHaveBeenCalled()
       expect(fieldView(index).codes?.centroid).not.toEqual(centroidBefore)
       expect(searchAll(index, 'euclidean', true).every(hits => hits.length === 10)).toBe(true)
     } finally {
-      calibrations.mockRestore()
+      measurements.mockRestore()
       index.dispose()
     }
   })

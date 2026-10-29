@@ -1,6 +1,6 @@
 import type { VectorMetric } from '../brute-force'
 import { noteFallback } from '../native/backend'
-import { nativeCalibrate, nativeQuantise } from '../native/store'
+import { nativeMeasure, nativeQuantise } from '../native/store'
 import { fixedView } from '../shared-buffers/growable'
 import { NOTHING_STAGED, type OpenVectorBlock, QUERY_STAGED, slotByteOffset } from '../vector-store/blocks'
 import type { VectorCodeBlockLayout } from '../vector-store/code-blocks'
@@ -8,7 +8,15 @@ import { STORE_CALIBRATED, STORE_CALIBRATION_GENERATION, STORE_CODE_COUNT } from
 import type { SharedVectorStoreView } from '../vector-store/view'
 import { osqDistance, osqEstimate, osqNibblesByByteLevels, osqPlacementQueryBits } from './estimate'
 import { scalarPairProducts, scalarQueryProducts, simdPairProducts, simdQueryProducts } from './products'
-import { createOsqScratch, type OsqBits, osqCentroid, osqQuantize } from './quantize'
+import {
+  addToCentroidSums,
+  type CentroidSums,
+  centroidOfCentroidSums,
+  createCentroidSums,
+  createOsqScratch,
+  type OsqBits,
+  osqQuantize,
+} from './quantize'
 import { type CodeRecoding, createCodeRecoding } from './recoding'
 import { type OsqTrailer, readTrailer, stageQueryLevels, writeRecord } from './record'
 import type { OsqQuery, QuantizerSearchReader } from './types'
@@ -23,6 +31,8 @@ export interface SharedQuantizerView extends QuantizerSearchReader {
   writeCodes(ordinal: number): void
   /** Quantizes the stored vector of every given ordinal and writes its record. */
   writeCodesOf(ordinals: Int32Array): void
+  /** Adds the stored vectors of the given ordinals to the running sums, reading each vector once. */
+  measureInto(ordinals: Int32Array, sums: CentroidSums): void
   /** Takes the centroid from the stored vectors of the given ordinals, and reports false where the store holds none of them. */
   calibrateFrom(ordinals: Int32Array): boolean
   /** Copies a record written elsewhere into the ordinal's slot. */
@@ -103,6 +113,12 @@ export function openSharedQuantizer(
     store.handles.centroid.set(centroid)
     Atomics.add(store.handles.header, STORE_CALIBRATION_GENERATION, 1)
     Atomics.store(store.handles.header, STORE_CALIBRATED, 1)
+  }
+
+  function measureInto(ordinals: Int32Array, sums: CentroidSums): void {
+    if (nativeMeasure(store.handles, metric, ordinals, sums.totals)) return
+    noteFallback('measure')
+    for (const vector of storedVectors(ordinals)) addToCentroidSums(sums, vector)
   }
 
   function* storedVectors(ordinals: Int32Array): Iterable<Float32Array> {
@@ -290,10 +306,12 @@ export function openSharedQuantizer(
 
     writeCodesOf,
 
+    measureInto,
+
     calibrateFrom(ordinals) {
-      if (nativeCalibrate(store.handles, metric, ordinals)) return isCalibrated()
-      noteFallback('calibrate')
-      const centroid = osqCentroid(storedVectors(ordinals), dimension, metric)
+      const sums = createCentroidSums(dimension, metric)
+      measureInto(ordinals, sums)
+      const centroid = centroidOfCentroidSums(sums)
       if (centroid === null) return false
       writeCentroid(centroid)
       return true

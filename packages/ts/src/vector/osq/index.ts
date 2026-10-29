@@ -57,6 +57,10 @@ export function createOsqQuantizer(
       if (ordinals.length > 0) requireShared().calibrateFrom(ordinals)
     },
 
+    measure(ordinals, sums) {
+      if (ordinals.length > 0) requireShared().measureInto(ordinals, sums)
+    },
+
     quantize(docId) {
       const ordinal = ordinalOf(docId)
       const view = requireShared()

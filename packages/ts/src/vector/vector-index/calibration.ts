@@ -1,6 +1,6 @@
 import { RECALIBRATION_CHUNK_VECTORS, RECALIBRATION_DRIFT_RATIO } from './constants'
 import { driftRatio, type LiveVectorMean, measureLiveVectors, nextDriftCheck } from './drift'
-import { liveOrdinals, type VectorIndexState, yieldBuildTurn } from './shared'
+import { type VectorIndexState, yieldBuildTurn } from './shared'
 import { noteWrite } from './worker-copies'
 
 function noteCalibration(state: VectorIndexState, live: LiveVectorMean): void {
@@ -37,7 +37,7 @@ export async function calibrateFromLiveVectors(state: VectorIndexState, live: Li
     if (!(await recodeEveryVector(state, live))) return false
     noteWrite(state)
   } else {
-    quantizer.calibrate(liveOrdinals(state))
+    quantizer.restoreCentroid(live.centroid)
   }
   noteCalibration(state, live)
   return true
@@ -45,13 +45,13 @@ export async function calibrateFromLiveVectors(state: VectorIndexState, live: Li
 
 export async function calibrateBeforeBuild(state: VectorIndexState): Promise<boolean> {
   if (state.osq === null) return true
-  const live = await measureLiveVectors(state)
+  const live = await measureLiveVectors(state, state.osq)
   return live !== null && (await calibrateFromLiveVectors(state, live))
 }
 
 export async function recalibrateWhenDrifted(state: VectorIndexState, held: number): Promise<boolean> {
   if (state.osq === null || held < state.nextDriftCheckAt) return false
-  const live = await measureLiveVectors(state)
+  const live = await measureLiveVectors(state, state.osq)
   const calibrated = state.osq?.centroid ?? null
   const calibratedCount = state.calibratedCount
   if (live === null) return false

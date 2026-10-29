@@ -198,9 +198,8 @@ export function nativeScoresOf(
 
 function workOnRecords(
   handles: SharedVectorStoreHandles,
-  metric: VectorMetric,
   ordinals: Int32Array,
-  work: 'calibrate' | 'quantise',
+  work: (store: NativeStore) => number,
 ): boolean {
   if (ordinals.length === 0) return true
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -208,7 +207,7 @@ function workOnRecords(
     if (store === null) return false
     let status: number
     try {
-      status = store.core[work](store.handle, nativeMetricCode(metric), ordinals, ordinals.length)
+      status = work(store)
     } catch (error) {
       stopUsingTheNativeSearchCore(error)
       return false
@@ -220,15 +219,20 @@ function workOnRecords(
   return false
 }
 
-export function nativeCalibrate(
+export function nativeMeasure(
   handles: SharedVectorStoreHandles,
   metric: VectorMetric,
   ordinals: Int32Array,
+  totals: Float64Array,
 ): boolean {
-  return workOnRecords(handles, metric, ordinals, 'calibrate')
+  return workOnRecords(handles, ordinals, store =>
+    store.core.measure(store.handle, nativeMetricCode(metric), ordinals, ordinals.length, totals),
+  )
 }
 
 export function nativeQuantise(handles: SharedVectorStoreHandles, metric: VectorMetric, ordinals: Int32Array): boolean {
   if (Atomics.load(handles.header, STORE_CALIBRATED) !== 1) return false
-  return workOnRecords(handles, metric, ordinals, 'quantise')
+  return workOnRecords(handles, ordinals, store =>
+    store.core.quantise(store.handle, nativeMetricCode(metric), ordinals, ordinals.length),
+  )
 }
