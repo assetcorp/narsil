@@ -30,7 +30,6 @@ const HEAP_SAMPLE_INTERVAL_MS = 50
 const PROPAGATION_TIMEOUT_MS = 20_000
 const SEND_BUDGET_HEAP_LIMITS = 3
 const CAPPED_HEAP_BLOCK_FRACTION = 0.75
-const PEAK_NEAR_CAPPED_BLOCK_FRACTION = 0.05
 const V8_INEFFECTIVE_MARK_COMPACT_FRACTION = 0.8
 const MEMORY_BLOCK_SWITCHED_OFF: ClusterMemoryConfig = { blockWritesAbove: 1, resumeWritesBelow: 0.99 }
 const IN_FLIGHT_BOUND_SWITCHED_OFF: ClusterMemoryConfig = { ...MEMORY_BLOCK_SWITCHED_OFF, inFlightWriteFraction: 1 }
@@ -266,12 +265,13 @@ describe('a cluster node on etcd bounds the bytes of inserts and updates in flig
     expect(bounded.exited(), bounded.output()).toBe(false)
   }, 300_000)
 
-  it('reaches the capped heap block under the same burst once the in-flight bound covers the whole heap', async () => {
+  it('refuses at the capped heap block under the same burst once the in-flight bound covers the whole heap', async () => {
     const unbounded = await startSingleNode(IN_FLIGHT_BOUND_SWITCHED_OFF)
     const sendBudgetBytes = unbounded.heapLimitBytes * SEND_BUDGET_HEAP_LIMITS
     const replies = new Map<string, number>()
     const oracle = new Map<string, Furniture>()
     let projectionRefusals = 0
+    const projectionDetails: Array<Record<string, unknown>> = []
     let fullRefusals = 0
     let sentBytes = 0
     let admittedBytes = 0
@@ -303,6 +303,12 @@ describe('a cluster node on etcd bounds the bytes of inserts and updates in flig
           expect(failure.error.details?.reason).toBe('write_would_fill_memory')
         }
         projectionRefusals += failed.length
+        const failedIds = new Set(failed.map(failure => failure.docId))
+        for (const failure of failed) {
+          const details = failure.error.details ?? {}
+          if (details.refusedDocId === undefined) projectionDetails.push(details)
+          else expect(failedIds, JSON.stringify(details)).toContain(details.refusedDocId)
+        }
         const byId = new Map(outcome.documents.map(document => [document.id, document]))
         for (const docId of outcome.body.succeeded as string[]) {
           const document = byId.get(docId)
@@ -325,7 +331,17 @@ describe('a cluster node on etcd bounds the bytes of inserts and updates in flig
       projectionRefusals + fullRefusals,
       `the node refused nothing after taking in ${megabytes(admittedBytes)} of documents, ${SEND_BUDGET_HEAP_LIMITS} times its heap limit`,
     ).toBeGreaterThan(0)
-    expect(peakFraction).toBeGreaterThan(CAPPED_HEAP_BLOCK_FRACTION - PEAK_NEAR_CAPPED_BLOCK_FRACTION)
+    const cappedBlockBytes = Math.floor(CAPPED_HEAP_BLOCK_FRACTION * unbounded.heapLimitBytes)
+    if (projectionRefusals > 0) expect(projectionDetails.length).toBeGreaterThan(0)
+    for (const details of projectionDetails) {
+      expect(details.blockBytes, JSON.stringify(details)).toBe(cappedBlockBytes)
+      const committedBytes =
+        Number(details.heapBytes) +
+        Number(details.youngHeapBytes) +
+        Number(details.projectedBytes) +
+        Number(details.documentBytes)
+      expect(committedBytes, JSON.stringify(details)).toBeGreaterThan(cappedBlockBytes)
+    }
     expect(peakFraction).toBeLessThan(V8_INEFFECTIVE_MARK_COMPACT_FRACTION)
     await expectEveryDocumentReadsBack(unbounded.base, INDEX_NAME, oracle)
     expect(unbounded.exited(), unbounded.output()).toBe(false)
