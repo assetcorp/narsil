@@ -35,7 +35,7 @@ export async function applyPrimaryInsert(
         (insertedDocId, admitted) => appendStoredCopy(scope, insertedDocId, admitted),
       )
       try {
-        await replicateEntry(inserted.entry, scope.assignment, deps)
+        await replicateEntry(inserted.entry, scope.assignment, deps, scope.indexUuid)
       } catch (error) {
         await rollbackPrimaryInsert(scope, inserted.value, error)
       }
@@ -63,7 +63,7 @@ export async function applyPrimaryRemove(
       () => appendDeletion(scope, docId),
     )
     try {
-      await replicateEntry(removed.entry, scope.assignment, deps)
+      await replicateEntry(removed.entry, scope.assignment, deps, scope.indexUuid)
     } catch (error) {
       await rollbackPrimaryRemove(scope, docId, previousDocument, error)
     }
@@ -90,7 +90,7 @@ export async function applyPrimaryUpdate(
         (_, admitted) => appendStoredCopy(scope, docId, admitted),
       )
       try {
-        await replicateEntry(updated.entry, scope.assignment, deps)
+        await replicateEntry(updated.entry, scope.assignment, deps, scope.indexUuid)
       } catch (error) {
         await rollbackPrimaryUpdate(scope, docId, previousDocument, error)
       }
@@ -144,7 +144,7 @@ export async function applyPrimaryInsertBatch(
         },
       })
       return replicateAppendedWrites(
-        scope.assignment,
+        scope,
         appended,
         failed,
         (write, error) => rollbackPrimaryInsert(scope, write.docId, error),
@@ -193,7 +193,7 @@ export async function applyPrimaryUpdateBatch(
         },
       })
       return replicateAppendedWrites(
-        scope.assignment,
+        scope,
         appended,
         failed,
         (write, error) => rollbackPrimaryUpdate(scope, write.docId, write.previousDocument, error),
@@ -233,7 +233,7 @@ export async function applyPrimaryRemoveBatch(
         }
       }
       return replicateAppendedWrites(
-        scope.assignment,
+        scope,
         appended,
         failed,
         (write, error) => rollbackPrimaryRemove(scope, write.docId, write.previousDocument, error),
@@ -246,7 +246,7 @@ export async function applyPrimaryRemoveBatch(
 }
 
 async function replicateAppendedWrites(
-  assignment: PartitionAssignment,
+  scope: PrimaryWriteScope,
   appended: AppendedWrite[],
   failed: BatchResult['failed'],
   rollback: (write: AppendedWrite, error: unknown) => Promise<never>,
@@ -262,8 +262,9 @@ async function replicateAppendedWrites(
       try {
         await replicateEntryBatch(
           chunk.map(item => item.entry),
-          assignment,
+          scope.assignment,
           deps,
+          scope.indexUuid,
         )
         succeeded.push(...chunk.map(item => item.docId))
         continue

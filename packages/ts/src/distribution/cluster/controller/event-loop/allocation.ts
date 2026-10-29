@@ -1,17 +1,13 @@
 import { ErrorCodes, NarsilError } from '../../../../errors'
 import type { AllocationTable, ClusterCoordinator, NodeRegistration, SchemaEvent } from '../../../coordinator/types'
 import { allocate } from '../../allocator/index'
-import {
-  ALLOCATION_CAS_ATTEMPTS,
-  ALLOCATION_RETRY_DELAY_MS,
-  TEARDOWN_CAS_ATTEMPTS,
-  TEARDOWN_RETRY_DELAY_MS,
-  TEARDOWN_RETRY_ROUNDS,
-} from '../../constants'
+import { ALLOCATION_CAS_ATTEMPTS, ALLOCATION_RETRY_DELAY_MS } from '../../constants'
 import { getIndexMetadata } from '../../index-metadata'
+import { belongsToAnotherIndex, stampedWith } from '../../table-identity'
 import { sharesMajorVersion } from '../../version'
 import { finishDepartureRun, retainedNodesFor, startDepartureRun } from './departures'
 import type { EventLoopState } from './state'
+import { tearDownAllocation } from './teardown'
 import { recoverUnassignedPartitions } from './unassigned-recovery'
 
 function holdsDataNode(nodes: NodeRegistration[]): boolean {
@@ -40,13 +36,18 @@ async function runAllocatorForIndex(
     return
   }
 
-  const currentTable = await coordinator.getAllocation(indexName)
-  if (currentTable?.generation !== undefined || !isActive()) {
+  const storedTable = await coordinator.getAllocation(indexName)
+  if (!isActive()) {
     return
   }
 
   const metadata = await getIndexMetadata(coordinator, indexName)
   if (metadata === null || !isActive()) {
+    return
+  }
+  const currentTable =
+    storedTable !== null && belongsToAnotherIndex(storedTable, metadata.indexUuid) ? null : storedTable
+  if (currentTable?.generation !== undefined) {
     return
   }
   if (currentTable === null && ((await coordinator.getSchema(indexName)) === null || !isActive())) {
@@ -67,7 +68,8 @@ async function runAllocatorForIndex(
     return
   }
 
-  if (await coordinator.putAllocation(indexName, result.table, currentTable?.version ?? null, writerNodeId)) {
+  const table = stampedWith(result.table, metadata.indexUuid)
+  if (await coordinator.putAllocation(indexName, table, storedTable?.version ?? null, writerNodeId)) {
     return
   }
 
@@ -244,7 +246,10 @@ async function handleSchemaCreated(
     return
   }
 
-  const currentTable = storedTable !== null && storedTable.assignments.size === 0 ? null : storedTable
+  const currentTable =
+    storedTable === null || storedTable.assignments.size === 0 || belongsToAnotherIndex(storedTable, metadata.indexUuid)
+      ? null
+      : storedTable
 
   const result = allocate(
     nodes,
@@ -260,93 +265,18 @@ async function handleSchemaCreated(
   }
 
   const expectedVersion = storedTable !== null ? storedTable.version : null
-  if (await coordinator.putAllocation(indexName, result.table, expectedVersion, writerNodeId)) {
+  if (
+    await coordinator.putAllocation(
+      indexName,
+      stampedWith(result.table, metadata.indexUuid),
+      expectedVersion,
+      writerNodeId,
+    )
+  ) {
     return
   }
 
   await runAllocatorForIndex(coordinator, writerNodeId, indexName, nodes, isActive)
-}
-
-function scheduleTeardownRetry(
-  indexName: string,
-  coordinator: ClusterCoordinator,
-  state: EventLoopState,
-  isActive: () => boolean,
-  round: number,
-  onError?: (indexName: string, error: unknown) => void,
-): void {
-  const existing = state.teardownTimers.get(indexName)
-  if (existing !== undefined) {
-    clearTimeout(existing)
-  }
-
-  const timer = setTimeout(() => {
-    state.teardownTimers.delete(indexName)
-    tearDownAllocation(indexName, coordinator, state, isActive, round, onError).catch(error => {
-      if (onError !== undefined) {
-        onError(indexName, error)
-      }
-    })
-  }, TEARDOWN_RETRY_DELAY_MS)
-  timer.unref?.()
-  state.teardownTimers.set(indexName, timer)
-}
-
-async function tearDownAllocation(
-  indexName: string,
-  coordinator: ClusterCoordinator,
-  state: EventLoopState,
-  isActive: () => boolean,
-  round: number,
-  onError?: (indexName: string, error: unknown) => void,
-): Promise<void> {
-  const writerNodeId = state.controllerNodeId
-  if (writerNodeId === null) {
-    return
-  }
-  for (let attempt = 0; attempt < TEARDOWN_CAS_ATTEMPTS; attempt++) {
-    if (!isActive()) {
-      return
-    }
-
-    const currentTable = await coordinator.getAllocation(indexName)
-    if (currentTable === null) {
-      return
-    }
-    if (!isActive()) {
-      return
-    }
-
-    if (currentTable.assignments.size > 0) {
-      const emptyTable: AllocationTable = {
-        indexName,
-        version: currentTable.version + 1,
-        replicationFactor: currentTable.replicationFactor,
-        assignments: new Map(),
-      }
-      const written = await coordinator.putAllocation(indexName, emptyTable, currentTable.version, writerNodeId)
-      if (!written) {
-        continue
-      }
-      if (!isActive()) {
-        return
-      }
-    }
-
-    await coordinator.deleteAllocation(indexName)
-    return
-  }
-
-  if (round + 1 < TEARDOWN_RETRY_ROUNDS && isActive()) {
-    scheduleTeardownRetry(indexName, coordinator, state, isActive, round + 1, onError)
-    return
-  }
-
-  throw new NarsilError(
-    ErrorCodes.ALLOCATION_FAILED,
-    `Teardown of the allocation for dropped index '${indexName}' lost every compare-and-set attempt`,
-    { indexName, attempts: TEARDOWN_CAS_ATTEMPTS * TEARDOWN_RETRY_ROUNDS },
-  )
 }
 
 /**

@@ -5,6 +5,7 @@ import { decideSyncTier, validateSyncRequest } from '../../replication/sync-prim
 import type { RespondFn, SyncEntriesPayload, TransportMessage } from '../../transport/types'
 import { ReplicationMessageTypes } from '../../transport/types'
 import { recordReplicaPosition } from '../catch-up/state'
+import { holdsAnotherIndex } from '../request-identity'
 import { authorizeSnapshotRequest } from '../snapshot-auth'
 import { createSingleResponseSink } from '../snapshot-stream-writer'
 import { streamValidatedSnapshotRequest } from '../snapshot-sync-handler'
@@ -76,6 +77,13 @@ export async function handleSyncRequestMessage(
     throw new NarsilError(
       ErrorCodes.SNAPSHOT_SYNC_INDEX_NOT_FOUND,
       `Node '${deps.nodeId}' holds no copy of index '${request.indexName}' yet, so it cannot serve a sync for partition ${request.partitionId}`,
+      { indexName: request.indexName, partitionId: request.partitionId, primaryNodeId: deps.nodeId },
+    )
+  }
+  if (holdsAnotherIndex(deps.engine.indexUuidOf(request.indexName), request.indexUuid)) {
+    throw new NarsilError(
+      ErrorCodes.SNAPSHOT_SYNC_INDEX_NOT_FOUND,
+      `Node '${deps.nodeId}' holds a copy of an earlier index named '${request.indexName}', so it cannot serve a sync for partition ${request.partitionId}`,
       { indexName: request.indexName, partitionId: request.partitionId, primaryNodeId: deps.nodeId },
     )
   }

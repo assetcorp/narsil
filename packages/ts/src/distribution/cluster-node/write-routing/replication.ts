@@ -149,6 +149,7 @@ export async function replicateEntry(
   entry: ReplicationLogEntry,
   assignment: PartitionAssignment,
   deps: WriteRoutingDeps,
+  indexUuid?: string,
 ): Promise<void> {
   const admitted = admittedBeyondTable(deps.catchUp, entry.indexName, entry.partitionId, assignment)
   const pending = getPendingAdmissions(deps.catchUp, entry.indexName, entry.partitionId)
@@ -156,7 +157,7 @@ export async function replicateEntry(
   const result = await untilSuperseded(
     deps.getReplicationLog(entry.indexName, entry.partitionId),
     entry,
-    replicateToReplicas(entry, replicaTargets, deps.transport, deps.nodeId, deps.resolveNodeTargets),
+    replicateToReplicas(entry, replicaTargets, deps.transport, deps.nodeId, deps.resolveNodeTargets, indexUuid),
   )
   recordAcknowledgements(deps.catchUp, entry.indexName, entry.partitionId, result.acknowledged, entry.seqNo)
   const inSyncFailures = cancelAdmissionsForFailures(entry, result.failed, assignment, admitted, deps)
@@ -187,6 +188,7 @@ export async function replicateEntryBatch(
   entries: ReplicationLogEntry[],
   assignment: PartitionAssignment,
   deps: WriteRoutingDeps,
+  indexUuid?: string,
 ): Promise<void> {
   if (entries.length === 0) {
     return
@@ -198,7 +200,7 @@ export async function replicateEntryBatch(
   const result = await untilSuperseded(
     deps.getReplicationLog(lastEntry.indexName, lastEntry.partitionId),
     lastEntry,
-    replicateBatchToReplicas(entries, replicaTargets, deps.transport, deps.nodeId, deps.resolveNodeTargets),
+    replicateBatchToReplicas(entries, replicaTargets, deps.transport, deps.nodeId, deps.resolveNodeTargets, indexUuid),
   )
   recordAcknowledgements(deps.catchUp, lastEntry.indexName, lastEntry.partitionId, result.acknowledged, lastEntry.seqNo)
   const inSyncFailures = cancelAdmissionsForFailures(lastEntry, result.failed, assignment, admitted, deps)

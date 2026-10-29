@@ -149,12 +149,15 @@ async function sendBatch(
   const sendingEpoch = cursor.syncEpoch
   state.inFlightBytes += reservedBytes
   try {
+    const indexName = batch[0]?.indexName
+    const table = indexName === undefined ? null : await deps.coordinator.getAllocation(indexName)
     const result = await replicateBatchToReplicas(
       batch,
       [replicaNodeId],
       deps.transport,
       deps.nodeId,
       deps.resolveNodeTargets,
+      table?.indexUuid,
     )
     if (!result.acknowledged.includes(replicaNodeId) || cursor.syncEpoch !== sendingEpoch) {
       return false

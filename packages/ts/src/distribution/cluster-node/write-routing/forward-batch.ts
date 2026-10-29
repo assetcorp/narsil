@@ -54,6 +54,7 @@ async function forwardSingleItem(
   item: ForwardBatchItem,
   primaryNodeId: string,
   deps: WriteRoutingDeps,
+  indexUuid: string | undefined,
 ): Promise<string> {
   if (item.operation === 'insert') {
     if (item.document === null) {
@@ -61,7 +62,7 @@ async function forwardSingleItem(
         documentId: item.documentId,
       })
     }
-    return forwardInsertToRemote(indexName, item.document, item.documentId, primaryNodeId, deps)
+    return forwardInsertToRemote(indexName, item.document, item.documentId, primaryNodeId, deps, indexUuid)
   }
   if (item.operation === 'update') {
     if (item.document === null) {
@@ -69,10 +70,10 @@ async function forwardSingleItem(
         documentId: item.documentId,
       })
     }
-    await forwardUpdateToRemote(indexName, item.document, item.documentId, primaryNodeId, deps)
+    await forwardUpdateToRemote(indexName, item.document, item.documentId, primaryNodeId, deps, indexUuid)
     return item.documentId
   }
-  await forwardRemoveToRemote(indexName, item.documentId, primaryNodeId, deps)
+  await forwardRemoveToRemote(indexName, item.documentId, primaryNodeId, deps, indexUuid)
   return item.documentId
 }
 
@@ -81,6 +82,7 @@ export async function forwardBatchToRemote(
   items: ForwardBatchItem[],
   primaryNodeId: string,
   deps: WriteRoutingDeps,
+  indexUuid?: string,
 ): Promise<BatchResult> {
   const succeeded: string[] = []
   const failed: BatchResult['failed'] = []
@@ -91,7 +93,7 @@ export async function forwardBatchToRemote(
 
   if (items.length === 1) {
     try {
-      succeeded.push(await forwardSingleItem(indexName, items[0], primaryNodeId, deps))
+      succeeded.push(await forwardSingleItem(indexName, items[0], primaryNodeId, deps, indexUuid))
     } catch (err) {
       failed.push({ docId: items[0].documentId, error: toForwardError(err, items[0].documentId) })
     }
@@ -101,7 +103,8 @@ export async function forwardBatchToRemote(
   const chunks = chunkWireOperations(items.map(toWireOperation))
   for (const chunk of chunks) {
     try {
-      const payload: ForwardBatchPayload = { indexName, operations: chunk }
+      const payload: ForwardBatchPayload =
+        indexUuid === undefined ? { indexName, operations: chunk } : { indexName, operations: chunk, indexUuid }
       const message = createForwardBatchMessage(payload, deps.nodeId)
       const response = await sendToNode(primaryNodeId, message, deps)
       const decoded = assertForwardResponse(response, indexName, primaryNodeId)

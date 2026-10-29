@@ -155,10 +155,12 @@ export async function executeBootstrapSync(
     return false
   }
 
+  const indexUuid = (await deps.coordinator.getAllocation(indexName))?.indexUuid
   const fetchDeps = {
     transport: deps.transport,
     sourceNodeId: deps.sourceNodeId,
     spoolDirectory: deps.snapshotSpoolDirectory,
+    ...(indexUuid === undefined ? {} : { indexUuid }),
   }
   const fetchResult = await fetchSnapshotFromAnyTarget(
     indexName,

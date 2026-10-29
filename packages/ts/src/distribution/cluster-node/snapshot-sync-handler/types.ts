@@ -23,6 +23,7 @@ export interface SnapshotSyncHandlerDeps {
   state: SnapshotSyncHandlerState
   resolveHeaderMetadata?: SnapshotHeaderMetadataProvider
   spoolDirectory?: string
+  indexUuidOf?: (indexName: string) => string | null | undefined
 }
 
 export interface SnapshotSyncStreamOptions {

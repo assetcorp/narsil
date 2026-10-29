@@ -68,7 +68,7 @@ async function currentScope(scope: PrimaryWriteScope): Promise<PrimaryWriteScope
   }
   await assertReshardOpen(deps.reshard, deps.coordinator, indexName, partitionId, assignment.primaryTerm)
   noteLedTerm(deps.getReplicationLog(indexName, partitionId), assignment.primaryTerm)
-  return { ...scope, assignment }
+  return { ...scope, assignment, indexUuid: table?.indexUuid }
 }
 
 export async function inLeadingPartitionQueue<T>(

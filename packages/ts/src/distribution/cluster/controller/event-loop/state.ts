@@ -10,6 +10,7 @@ export interface EventLoopState {
   knownIndexes: Set<string>
   debounceTimer: ReturnType<typeof setTimeout> | null
   teardownTimers: Map<string, ReturnType<typeof setTimeout>>
+  schemaQueues: Map<string, Promise<void>>
   insyncQueue: Promise<void>
   transport: NodeTransport | null
   controllerNodeId: string | null
@@ -43,6 +44,7 @@ export function createEventLoopState(
     knownIndexes: new Set(initialIndexNames),
     debounceTimer: null,
     teardownTimers: new Map(),
+    schemaQueues: new Map(),
     insyncQueue: Promise.resolve(),
     transport: null,
     controllerNodeId: null,
@@ -89,6 +91,19 @@ export function clearEventLoopWatchers(state: EventLoopState): void {
   state.departedAt.clear()
   state.rebalanceDrivers.clear()
   state.rebalanceEpoch += 1
+}
+
+export function inSchemaQueue(state: EventLoopState, indexName: string, task: () => Promise<void>): Promise<void> {
+  const queued = (state.schemaQueues.get(indexName) ?? Promise.resolve()).then(task)
+  const settled = queued.then(
+    () => undefined,
+    () => undefined,
+  )
+  state.schemaQueues.set(indexName, settled)
+  void settled.then(() => {
+    if (state.schemaQueues.get(indexName) === settled) state.schemaQueues.delete(indexName)
+  })
+  return queued
 }
 
 function placementOf(registration: NodeRegistration): string {

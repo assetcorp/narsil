@@ -8,6 +8,7 @@ import {
   readRebalanceRecord,
   updateRebalanceRecord,
 } from '../../../rebalance/records'
+import { rewriteForCurrentIndex } from '../../../table-identity'
 import {
   ensureCopyStarted,
   liftEveryBlock,
@@ -111,7 +112,10 @@ async function swapIndexName(
     assignments: new Map(),
     generation: record.targetGeneration,
   }
-  return ctx.coordinator.putAllocation(indexName, pointer, nameTable.version, ctx.nodeId)
+  if (nameTable.indexUuid !== undefined) pointer.indexUuid = nameTable.indexUuid
+  const rewritten = await rewriteForCurrentIndex(ctx.coordinator, pointer)
+  if (rewritten === null) return false
+  return ctx.coordinator.putAllocation(indexName, rewritten, nameTable.version, ctx.nodeId)
 }
 
 export async function attemptCutover(

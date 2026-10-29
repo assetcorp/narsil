@@ -19,9 +19,13 @@ export function createAllocationView(coordinator: ClusterCoordinator): Allocatio
     return table.assignments.size === 0 && table.generation === undefined
   }
 
+  function anotherIndex(held: AllocationTable, table: AllocationTable): boolean {
+    return held.indexUuid !== undefined && table.indexUuid !== undefined && held.indexUuid !== table.indexUuid
+  }
+
   function holdNewest(indexName: string, table: AllocationTable): AllocationTable {
     const held = tables.get(indexName)
-    if (held !== undefined && held.version > table.version && !tornDown(held)) return held
+    if (held !== undefined && held.version > table.version && !tornDown(held) && !anotherIndex(held, table)) return held
     tables.set(indexName, table)
     return table
   }

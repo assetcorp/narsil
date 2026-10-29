@@ -26,6 +26,7 @@ export function createDataNodeHandler(deps: DataNodeHandlerDeps): TransportHandl
         state: deps.snapshotSyncState,
         resolveHeaderMetadata: deps.resolveHeaderMetadata,
         spoolDirectory: deps.snapshotSpoolDirectory,
+        indexUuidOf: indexName => deps.engine.indexUuidOf(indexName),
       })
       return
     }

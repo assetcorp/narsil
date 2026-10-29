@@ -9,6 +9,7 @@ import type {
 } from '../../transport/types'
 import { ClusterMessageTypes } from '../../transport/types'
 import { BOOTSTRAP_CAS_ATTEMPTS } from '../constants'
+import { rewriteForCurrentIndex } from '../table-identity'
 
 /**
  * Reads a bootstrap completion report out of a decoded payload, and reports a malformed one as `null`.
@@ -185,12 +186,15 @@ async function processBootstrapComplete(
     const updatedAssignments = new Map(table.assignments)
     updatedAssignments.set(payload.partitionId, served)
 
-    const written = await coordinator.putAllocation(
-      payload.indexName,
-      { ...table, version: table.version + 1, assignments: updatedAssignments },
-      table.version,
-      controllerNodeId,
-    )
+    const rewritten = await rewriteForCurrentIndex(coordinator, {
+      ...table,
+      version: table.version + 1,
+      assignments: updatedAssignments,
+    })
+    if (rewritten === null) {
+      return false
+    }
+    const written = await coordinator.putAllocation(payload.indexName, rewritten, table.version, controllerNodeId)
     if (written) {
       return true
     }

@@ -171,6 +171,7 @@ async function routeInsertItems(
       items.map((item): ForwardBatchItem => ({ documentId: item.docId, operation: 'insert', document: item.doc })),
       primaryNodeId,
       deps,
+      table.indexUuid,
     )
     succeeded.push(...result.succeeded)
     failed.push(...result.failed)
@@ -225,6 +226,7 @@ async function routeRemoveItems(
       items.map((docId): ForwardBatchItem => ({ documentId: docId, operation: 'remove', document: null })),
       primaryNodeId,
       deps,
+      table.indexUuid,
     )
     succeeded.push(...result.succeeded)
     failed.push(...result.failed)
@@ -301,6 +303,7 @@ async function routeUpdateItems(
       ),
       primaryNodeId,
       deps,
+      table.indexUuid,
     )
     succeeded.push(...result.succeeded)
     failed.push(...result.failed)

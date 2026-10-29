@@ -10,8 +10,9 @@ export async function replicateToReplicas(
   transport: NodeTransport,
   sourceNodeId: string,
   resolveNodeTargets?: (nodeId: string) => Promise<string[]>,
+  indexUuid?: string,
 ): Promise<ReplicateResult> {
-  const message = createEntryMessage(entry, sourceNodeId)
+  const message = createEntryMessage(entry, sourceNodeId, indexUuid)
   return sendAndCollectAcks(message, entry, inSyncReplicas, transport, resolveNodeTargets)
 }
 
@@ -21,15 +22,16 @@ export async function replicateBatchToReplicas(
   transport: NodeTransport,
   sourceNodeId: string,
   resolveNodeTargets?: (nodeId: string) => Promise<string[]>,
+  indexUuid?: string,
 ): Promise<ReplicateResult> {
   if (entries.length === 0) {
     return { acknowledged: [], failed: [] }
   }
   if (entries.length === 1) {
-    return replicateToReplicas(entries[0], inSyncReplicas, transport, sourceNodeId, resolveNodeTargets)
+    return replicateToReplicas(entries[0], inSyncReplicas, transport, sourceNodeId, resolveNodeTargets, indexUuid)
   }
 
-  const message = createEntryBatchMessage(entries, sourceNodeId)
+  const message = createEntryBatchMessage(entries, sourceNodeId, indexUuid)
   const lastEntry = entries[entries.length - 1]
   return sendAndCollectAcks(message, lastEntry, inSyncReplicas, transport, resolveNodeTargets)
 }

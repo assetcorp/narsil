@@ -5,7 +5,7 @@ import { handleSchemaEvent, scheduleDebouncedAllocation } from './allocation'
 import { handleInsyncAddMessage, handleInsyncRemoveMessage, handleQueuedBootstrapComplete } from './insync-messages'
 import { handleRebalanceMessage, resumeRebalance, resumeRebalances } from './rebalance/request'
 import { handleReplicationFactorMessage } from './replication-factor'
-import { changesTopology, clearEventLoopWatchers, type EventLoopState } from './state'
+import { changesTopology, clearEventLoopWatchers, type EventLoopState, inSchemaQueue } from './state'
 
 export { clearEventLoopWatchers, createEventLoopState, type EventLoopState } from './state'
 
@@ -48,7 +48,9 @@ export async function startEventLoop(
     })
 
     state.unwatchSchemas = await coordinator.watchSchemas((event: SchemaEvent) => {
-      handleSchemaEvent(event, coordinator, state, isActive, onError).catch(error => {
+      inSchemaQueue(state, event.indexName, () =>
+        handleSchemaEvent(event, coordinator, state, isActive, onError),
+      ).catch(error => {
         if (onError !== undefined) {
           onError(event.indexName, error)
         }

@@ -80,7 +80,7 @@ export async function adoptClusterIdentity(
   coordinator: ClusterCoordinator,
   indexName: string,
 ): Promise<void> {
-  if (engine.indexUuidOf(indexName) !== null) {
+  if (typeof engine.indexUuidOf(indexName) === 'string') {
     return
   }
   const metadata = await getIndexMetadata(coordinator, indexName)
