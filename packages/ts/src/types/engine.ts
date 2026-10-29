@@ -1,4 +1,5 @@
-import type { EmbeddingAdapter } from './adapters'
+import type { AdapterRegistrationOperations } from './adapter-registration'
+import type { ByteSource } from './byte-source'
 import type { NarsilEventMap } from './events'
 import type { IndexLifecycleOperations } from './lifecycle'
 import type { MemoryStats } from './memory'
@@ -19,25 +20,22 @@ import type { SynonymOperations } from './synonym-operations'
 import type { DocumentWriteOperations } from './writes'
 
 /**
- * The bytes that {@link Narsil.restore} and {@link Narsil.importDocumentExport}
- * accept, as one array, a stream of chunks, or an async iterable of chunks,
- * such as a Node.js file stream.
- *
- * @public
- */
-export type ByteSource = Uint8Array | ReadableStream<Uint8Array> | AsyncIterable<Uint8Array>
-
-/**
  * The search engine, and everything you do with it.
  *
  * One instance holds every index you create, so an application usually keeps a
  * single engine for its lifetime and reaches each index by name. Build one
- * with {@link createNarsil}. Its write, open and close, and synonym methods come from
- * {@link DocumentWriteOperations}, {@link IndexLifecycleOperations}, and {@link SynonymOperations}.
+ * with {@link createNarsil}. Its write, open and close, synonym, and adapter
+ * registration methods come from {@link DocumentWriteOperations},
+ * {@link IndexLifecycleOperations}, {@link SynonymOperations}, and
+ * {@link AdapterRegistrationOperations}.
  *
  * @public
  */
-export interface Narsil extends IndexLifecycleOperations, DocumentWriteOperations, SynonymOperations {
+export interface Narsil
+  extends IndexLifecycleOperations,
+    DocumentWriteOperations,
+    SynonymOperations,
+    AdapterRegistrationOperations {
   /**
    * Creates an index you can insert documents into and query.
    *
@@ -50,9 +48,6 @@ export interface Narsil extends IndexLifecycleOperations, DocumentWriteOperation
    * and scoring settings.
    */
   createIndex(name: string, config: IndexConfig): Promise<void>
-  /** Registers an adapter under a name that index configs can reference and
-   * durability metadata can persist; re-registering rebinds referencing indexes. */
-  registerEmbeddingAdapter(name: string, adapter: EmbeddingAdapter): void
   /**
    * Removes an index and everything it holds, including whatever persistence
    * wrote for it. The documents do not come back.

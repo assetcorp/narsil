@@ -1,3 +1,4 @@
+import type { RerankAdapter } from '../../../types/adapters'
 import type { NarsilEventMap } from '../../../types/events'
 import type { MemoryStats } from '../../../types/memory'
 import type {
@@ -291,6 +292,16 @@ export interface ClusterNode {
    * @returns Process heap figures and this node's engine estimate.
    */
   getMemoryStats(): Promise<MemoryStats>
+  /**
+   * Registers a rerank adapter on this node under a name that a query gives
+   * in `rerank.adapter`. The node that receives a reranked query scores it
+   * with its own adapter, so register the adapter on every node that takes
+   * queries from clients. A data node needs none.
+   *
+   * @param name - The name that a query gives in `rerank.adapter`.
+   * @param adapter - The adapter that scores the top hits of a query.
+   */
+  registerRerankAdapter(name: string, adapter: RerankAdapter): void
   /**
    * Starts delivering one kind of engine event from this node's local engine
    * to your listener.

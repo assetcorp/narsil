@@ -1,5 +1,5 @@
 import type { ClusterNamespace } from '../../distribution/cluster-node/types'
-import type { EmbeddingAdapter } from '../../types/adapters'
+import type { EmbeddingAdapter, RerankAdapter } from '../../types/adapters'
 import type { TaskStore } from './tasks'
 
 /**
@@ -100,6 +100,15 @@ export interface ServerLimits {
    * request cannot ask for an unbounded result set. Excess → 400. Defaults to
    * 10000, matching the cluster query result window. */
   maxResultWindow?: number
+  /**
+   * The server answers 400 for a search whose `rerank.window` is above this
+   * number, so that one remote request can send at most this many documents
+   * to a rerank model. A search that leaves `rerank.window` out reranks at
+   * most this many hits. Set it from 1 to the engine's `maxRerankWindow`,
+   * which the server checks when it starts. It defaults to 100, or to the
+   * engine's `maxRerankWindow` where that is lower.
+   */
+  maxRerankWindow?: number
   /** Ceiling for the number of document ids in one multi-get request, so one
    * request cannot pull an unbounded number of documents. Excess → 400.
    * Defaults to 10000. */
@@ -148,6 +157,13 @@ export interface ServerOptions {
    * needs query-time or ingest-time embedding names a server-registered adapter.
    */
   embeddingAdapters?: Record<string, EmbeddingAdapter>
+  /**
+   * The server registers these rerank adapters on its engine under their
+   * keys, so that a JSON query can give a key in `rerank.adapter`. A rerank
+   * adapter is an object with methods, which JSON cannot carry, so a query
+   * reaches it by its key.
+   */
+  rerankAdapters?: Record<string, RerankAdapter>
   /** These ceilings apply before the server hands any work to the engine. */
   limits?: ServerLimits
   /**

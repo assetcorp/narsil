@@ -137,6 +137,7 @@ export interface ClusterNode {
     query<T = AnyDocument>(indexName: string, params: QueryParams): Promise<QueryResult<T>>;
     rebalance(indexName: string, targetPartitionCount: number): Promise<void>;
     rebuildAnalysis(indexName: string): Promise<void>;
+    registerRerankAdapter(name: string, adapter: RerankAdapter): void;
     remove(indexName: string, docId: string): Promise<void>;
     removeBatch(indexName: string, docIds: string[]): Promise<BatchResult>;
     readonly roles: ReadonlyArray<NodeRole>;

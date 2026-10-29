@@ -1,6 +1,6 @@
 import type { EngineCore } from '../engine/core'
 import type { RestoreDeps } from '../engine/snapshot'
-import type { ByteSource } from '../types/engine'
+import type { ByteSource } from '../types/byte-source'
 
 export type RestoreHost = Pick<
   RestoreDeps,

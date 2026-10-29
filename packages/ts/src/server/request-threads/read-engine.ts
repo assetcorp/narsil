@@ -1,9 +1,11 @@
 import { projectionKeepsField, resolveProjection } from '../../core/projection'
 import { executeListDocuments } from '../../engine/list-documents'
 import { executePreflight, executeQuery } from '../../engine/query'
+import type { RerankRunner } from '../../engine/query/shared'
 import { executeSuggest } from '../../engine/suggest'
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { PartitionManager } from '../../partitioning/manager'
+import { withRerankQueryText } from '../../rerank/query-text'
 import { extractVectorFieldsFromSchema } from '../../schema/validator'
 import { queryBindingOf } from '../../search/cursor-binding'
 import type { ListResult, PreflightResult, QueryResult, SuggestResult } from '../../types/results'
@@ -30,10 +32,11 @@ export interface ThreadReadEngineOptions {
   /** A plugin observes searches on the main thread when this reads true, so every search goes to the main thread. */
   searchHooks: boolean
   patternWorkCap: number
+  maxRerankWindow: number
 }
 
 export function createThreadReadEngine(options: ThreadReadEngineOptions): ThreadReadEngine {
-  const { executor, relay, searchHooks, patternWorkCap } = options
+  const { executor, relay, searchHooks, patternWorkCap, maxRerankWindow } = options
 
   function vectorFieldsOf(context: IndexQueryContext): string[] {
     return [...extractVectorFieldsFromSchema(context.config.schema).keys()]
@@ -85,7 +88,16 @@ export function createThreadReadEngine(options: ThreadReadEngineOptions): Thread
     return { context, manager: managerOf(indexName, context) }
   }
 
-  async function resolvedParams(indexName: string, params: QueryParams): Promise<QueryParams> {
+  function rerankRunnerFor(params: QueryParams): RerankRunner | undefined {
+    if (params.rerank === undefined) return undefined
+    return {
+      maxWindow: maxRerankWindow,
+      score: (adapter, query, documents) => relay.rerank(adapter, query, documents),
+    }
+  }
+
+  async function resolvedParams(indexName: string, request: QueryParams): Promise<QueryParams> {
+    const params = withRerankQueryText(request)
     if (params.vector?.text === undefined) return params
     const value = await relay.embed(indexName, params.vector)
     const { text: _text, ...vector } = params.vector
@@ -124,6 +136,7 @@ export function createThreadReadEngine(options: ThreadReadEngineOptions): Thread
         cursorBinding: queryBindingOf(params),
         vectorSearchers: context.vectorSearchers,
         patternWorkCap,
+        rerank: rerankRunnerFor(params),
       })
       if (context.analysisStale) result.analysisStale = true
       return result

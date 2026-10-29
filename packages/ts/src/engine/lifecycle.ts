@@ -52,6 +52,10 @@ export async function shutdownEngine(core: EngineCore): Promise<void> {
     } catch {}
   }
 
+  if (core.rerankAdapters.size > 0) {
+    await (await import('../rerank/runtime')).shutdownRerankAdapters(core.rerankAdapters)
+  }
+
   await orchestrator.shutdown()
   await executor.shutdown()
   eventHandlers.clear()

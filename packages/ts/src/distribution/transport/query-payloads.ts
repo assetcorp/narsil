@@ -30,12 +30,14 @@ export interface WireVectorQueryParams {
   metric: 'cosine' | 'dotProduct' | 'euclidean' | null
   efSearch: number | null
   oversample: number | null
+  rescoreWindow: number | null
 }
 
 export interface WireHybridConfig {
   strategy: 'rrf' | 'linear' | null
   k: number | null
   alpha: number | null
+  depth: number | null
 }
 
 export interface WireFacetRange {

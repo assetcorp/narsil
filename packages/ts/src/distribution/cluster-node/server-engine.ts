@@ -1,5 +1,6 @@
 import { ErrorCodes, NarsilError } from '../../errors'
 import { bindIndexReads } from '../../narsil/index-reads'
+import { bindRerankWindowSource, rerankWindowCapOf } from '../../narsil/internals'
 import { bindEngineWriteBlock } from '../../narsil/write-blocks'
 import type { Narsil } from '../../types/engine'
 import type { AnyDocument, IndexConfig, InsertOptions, WriteOptions } from '../../types/schema'
@@ -35,9 +36,11 @@ function rejectWait(options: WriteOptions | undefined): void {
  * serves a single engine.
  *
  * Writes, updates, searches, suggestions, listings, counts, index creation,
- * index removal, analysis rebuilds, synonym sets, and document reads route through the cluster. Checkpointing,
- * memory statistics, index opens, index closes, and engine events reach this
- * node's local engine, because each covers a per-node fact. Every other operation fails with
+ * index removal, analysis rebuilds, synonym sets, and document reads route through the cluster.
+ * Checkpointing, memory statistics, index opens, index closes, engine events,
+ * and rerank adapter registration reach this node's local engine, because
+ * each covers a per-node fact. This node reranks the searches that it
+ * receives with the adapters registered on it. Every other operation fails with
  * `CLUSTER_OPERATION_UNSUPPORTED`, which the HTTP server answers with status
  * 501, so a caller learns the operation is missing rather than reading a
  * wrong answer. The HTTP server answers the index list, the index figures,
@@ -171,6 +174,10 @@ export function clusterNodeEngine(node: ClusterNode, options?: ClusterEngineOpti
       node.on(event, handler)
     },
 
+    registerRerankAdapter(name, adapter) {
+      node.registerRerankAdapter(name, adapter)
+    },
+
     off(event, handler) {
       node.off(event, handler)
     },
@@ -200,5 +207,6 @@ export function clusterNodeEngine(node: ClusterNode, options?: ClusterEngineOpti
     getStats: indexName => node.getStats(indexName),
     getPartitionStats: indexName => node.getPartitionStats(indexName),
   })
+  bindRerankWindowSource(engine, () => rerankWindowCapOf(node))
   return engine
 }

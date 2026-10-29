@@ -12,6 +12,7 @@ import type { FetchDocumentId, TransportMessage } from '../transport/types'
 import type { ClusterLocalEngine } from './local-engine'
 import { type SendFailureContext, sendThroughTargets } from './transport-failure'
 import type { ClusterNodeConfig } from './types'
+import { restoreVectorValues } from './vector-bytes'
 import { resolvePartitionId } from './write-routing'
 
 export async function resolveNodeTargets(config: ClusterNodeConfig, targetNodeId: string): Promise<string[]> {
@@ -110,7 +111,9 @@ async function readFromCopies(
           details: { indexName },
         })
         const payload = validateFetchResultPayload(decode(response.payload))
-        for (const fetched of payload.documents) found.set(fetched.docId, fetched.document as AnyDocument)
+        for (const fetched of payload.documents) {
+          found.set(fetched.docId, restoreVectorValues(fetched.document) as AnyDocument)
+        }
       }
     }
 

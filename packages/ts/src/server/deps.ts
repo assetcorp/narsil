@@ -11,6 +11,7 @@ export interface ResolvedLimits {
   maxConcurrentRequests: number
   maxBodyBytesInFlight: number
   maxResultWindow: number
+  maxRerankWindow: number
   maxFetchDocuments: number
   maxImportErrors: number
   maxTaskPageSize: number

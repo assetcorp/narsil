@@ -34,6 +34,7 @@ export interface VectorSearchOptions {
   efSearch?: number
   /** A quantized index re-scores this many times the requested count against full precision. */
   oversample?: number
+  rescoreWindow?: number
 }
 
 export interface VectorSearcher {

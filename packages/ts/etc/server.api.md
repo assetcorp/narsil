@@ -95,6 +95,8 @@ export const ErrorCodes: {
     readonly EMBEDDING_DIMENSION_MISMATCH: "EMBEDDING_DIMENSION_MISMATCH";
     readonly EMBEDDING_NO_SOURCE: "EMBEDDING_NO_SOURCE";
     readonly EMBEDDING_CONFIG_INVALID: "EMBEDDING_CONFIG_INVALID";
+    readonly RERANK_FAILED: "RERANK_FAILED";
+    readonly RERANK_CONFIG_INVALID: "RERANK_CONFIG_INVALID";
     readonly DOC_MISSING_REQUIRED_FIELD: "DOC_MISSING_REQUIRED_FIELD";
     readonly CONFIG_INVALID: "CONFIG_INVALID";
     readonly QUERY_ROUTING_FAILED: "QUERY_ROUTING_FAILED";
@@ -302,6 +304,7 @@ export interface ServerLimits {
     maxImportBytes?: number;
     maxImportErrors?: number;
     maxLineBytes?: number;
+    maxRerankWindow?: number;
     maxRestoreBytes?: number;
     maxResultWindow?: number;
     maxTaskPageSize?: number;
@@ -324,6 +327,7 @@ export interface ServerOptions {
     limits?: ServerLimits;
     onRequest?: OnRequestHook;
     port?: number;
+    rerankAdapters?: Record<string, RerankAdapter>;
     taskStore?: TaskStore;
 }
 

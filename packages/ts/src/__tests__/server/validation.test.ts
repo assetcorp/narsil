@@ -12,38 +12,39 @@ import {
 import type { QueryParams } from '../../types/search'
 
 const WINDOW = 100
+const LIMITS = { maxResultWindow: WINDOW, maxRerankWindow: 100 }
 const FETCH = 50
 
 describe('validateQuery bounds every result-amplifying field', () => {
   it('accepts a query within the window', () => {
     const params: QueryParams = { term: 'x', limit: 100, offset: 100 }
-    expect(validateQuery(params, WINDOW)).toBeNull()
+    expect(validateQuery(params, LIMITS)).toBeNull()
   })
 
   it('rejects limit above the window', () => {
-    const failure = validateQuery({ limit: 101 }, WINDOW)
+    const failure = validateQuery({ limit: 101 }, LIMITS)
     expect(failure?.details).toMatchObject({ value: 101, limit: WINDOW })
   })
 
   it('rejects offset above the window', () => {
-    expect(validateQuery({ offset: 101 }, WINDOW)).not.toBeNull()
+    expect(validateQuery({ offset: 101 }, LIMITS)).not.toBeNull()
   })
 
   it('rejects group.maxPerGroup above the window', () => {
-    expect(validateQuery({ group: { fields: ['a'], maxPerGroup: 101 } }, WINDOW)).not.toBeNull()
+    expect(validateQuery({ group: { fields: ['a'], maxPerGroup: 101 } }, LIMITS)).not.toBeNull()
   })
 
   it('rejects a facet limit above the window', () => {
-    expect(validateQuery({ facets: { author: { limit: 101 } } }, WINDOW)).not.toBeNull()
+    expect(validateQuery({ facets: { author: { limit: 101 } } }, LIMITS)).not.toBeNull()
   })
 
   it('rejects a custom group reducer', () => {
     const group = { fields: ['a'], reduce: { reducer: () => 0, initialValue: () => 0 } }
-    expect(validateQuery({ group } as unknown as QueryParams, WINDOW)).not.toBeNull()
+    expect(validateQuery({ group } as unknown as QueryParams, LIMITS)).not.toBeNull()
   })
 
   it('ignores non-numeric field values and defers to the engine', () => {
-    expect(validateQuery({ limit: undefined, offset: undefined }, WINDOW)).toBeNull()
+    expect(validateQuery({ limit: undefined, offset: undefined }, LIMITS)).toBeNull()
   })
 })
 
