@@ -28,6 +28,7 @@ jobs:
   build:
     name: Build ${{ matrix.target }}
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
@@ -99,6 +100,7 @@ jobs:
   lint:
     name: Check the C code with clang-tidy and clang-format
     runs-on: macos-15
+    timeout-minutes: 10
 
     steps:
       - name: Checkout
@@ -122,6 +124,7 @@ jobs:
   sanitised:
     name: Test the core in C under the sanitisers on ${{ matrix.label }}
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
@@ -148,6 +151,7 @@ jobs:
     name: Compare the core with the WebAssembly search on ${{ matrix.label }}
     needs: build
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -217,6 +221,7 @@ jobs:
     name: Compare the core with the WebAssembly search on ${{ matrix.target }}
     needs: build
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
