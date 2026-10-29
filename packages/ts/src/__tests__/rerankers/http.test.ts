@@ -42,14 +42,22 @@ describe('the HTTP rerank adapter against a live rerank endpoint', () => {
     received = []
     responders = []
     server = createServer((req: IncomingMessage, res: ServerResponse) => {
+      if (req.method !== 'POST' || req.url !== '/v2/rerank') {
+        req.resume()
+        reply(res, 404, { message: 'not found' })
+        return
+      }
       const chunks: Buffer[] = []
       req.on('data', chunk => chunks.push(chunk))
       req.on('end', () => {
-        const entry: Received = {
-          url: req.url ?? '',
-          authorization: req.headers.authorization,
-          body: JSON.parse(Buffer.concat(chunks).toString('utf8')),
+        let body: Received['body']
+        try {
+          body = JSON.parse(Buffer.concat(chunks).toString('utf8'))
+        } catch {
+          reply(res, 400, { message: 'request body is not JSON' })
+          return
         }
+        const entry: Received = { url: req.url ?? '', authorization: req.headers.authorization, body }
         received.push(entry)
         const respond = responders.shift() ?? ((r, out) => reply(out, 200, { results: scoreByLength(r) }))
         respond(entry, res)
