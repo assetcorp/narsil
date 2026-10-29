@@ -287,6 +287,7 @@ export interface NodeTransport {
     send(target: string, message: TransportMessage): Promise<TransportMessage>;
     shutdown(): Promise<void>;
     stream(target: string, message: TransportMessage, handler: (chunk: Uint8Array) => void): Promise<void>;
+    readonly timeouts?: TransportConfig;
 }
 
 // @public

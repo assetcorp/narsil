@@ -32,11 +32,11 @@ export function createRollbackFailure(
   )
 }
 
-export async function rollbackPrimaryInsert(
+export async function compensateInsert(
   scope: PrimaryWriteScope,
   documentId: string,
   originalError: unknown,
-): Promise<never> {
+): Promise<void> {
   try {
     await numberedWrite(
       scope,
@@ -48,15 +48,14 @@ export async function rollbackPrimaryInsert(
       throw createRollbackFailure('insert', scope, documentId, originalError, rollbackError)
     }
   }
-  throwWriteFailure(originalError)
 }
 
-export async function rollbackPrimaryUpdate(
+export async function compensateUpdate(
   scope: PrimaryWriteScope,
   documentId: string,
   previousDocument: AnyDocument | undefined,
   originalError: unknown,
-): Promise<never> {
+): Promise<void> {
   if (previousDocument === undefined) {
     throw createRollbackFailure(
       'update',
@@ -76,15 +75,14 @@ export async function rollbackPrimaryUpdate(
   } catch (rollbackError) {
     throw createRollbackFailure('update', scope, documentId, originalError, rollbackError)
   }
-  throwWriteFailure(originalError)
 }
 
-export async function rollbackPrimaryRemove(
+export async function compensateRemove(
   scope: PrimaryWriteScope,
   documentId: string,
   previousDocument: AnyDocument | undefined,
   originalError: unknown,
-): Promise<never> {
+): Promise<void> {
   if (previousDocument === undefined) {
     throw createRollbackFailure(
       'remove',
@@ -104,5 +102,4 @@ export async function rollbackPrimaryRemove(
   } catch (rollbackError) {
     throw createRollbackFailure('remove', scope, documentId, originalError, rollbackError)
   }
-  throwWriteFailure(originalError)
 }

@@ -2,6 +2,7 @@ import { ErrorCodes, NarsilError } from '../../../errors'
 import type { AnyDocument } from '../../../types/schema'
 import type { PartitionAssignment } from '../../coordinator/types'
 import type { ReplicationLogEntry } from '../../replication/types'
+import type { HoldPartitionQueue } from './partition-queue'
 import { appendDeleteReplicationEntry, appendIndexReplicationEntry } from './replication'
 import type { WriteRoutingDeps } from './types'
 
@@ -11,6 +12,7 @@ export interface PrimaryWriteScope {
   assignment: PartitionAssignment
   deps: WriteRoutingDeps
   indexUuid?: string
+  holdQueue?: HoldPartitionQueue
 }
 
 export interface NumberedWrite<T> {
