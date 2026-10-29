@@ -1,7 +1,7 @@
 import { ErrorCodes, NarsilError } from '../../../errors'
 import type { BatchResult } from '../../../types/results'
-import type { AllocationTable } from '../../coordinator/types'
-import { REGISTRATION_LEASE_DRIFT_SHARE } from '../constants'
+import type { AllocationTable, RegistrationLease } from '../../coordinator/types'
+import { REGISTRATION_LEASE_CONFIRM_TIMEOUT_MS, REGISTRATION_LEASE_DRIFT_SHARE } from '../constants'
 import { noteLedTerm } from '../led-term'
 import { assertReshardOpen } from '../reshard/block'
 import type { PrimaryWriteScope } from './numbered-write'
@@ -14,10 +14,29 @@ function refusedFromLocalCopy(error: unknown): boolean {
   return error instanceof NarsilError && REFUSALS_FROM_LOCAL_COPY.has(error.code)
 }
 
-function registrationLeaseLapsed(deps: WriteRoutingDeps): boolean {
-  const lease = deps.coordinator.registrationLease?.(deps.nodeId)
-  if (lease === undefined) return false
+function leaseLapsed(lease: RegistrationLease | null): boolean {
   return lease === null || lease.remainingMs <= lease.ttlMs * REGISTRATION_LEASE_DRIFT_SHARE
+}
+
+async function confirmedWithin(deps: WriteRoutingDeps): Promise<RegistrationLease | null | undefined> {
+  const confirming = deps.coordinator.confirmRegistrationLease?.(deps.nodeId)
+  if (confirming === undefined) return undefined
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timedOut = new Promise<null>(resolve => {
+    timer = setTimeout(() => resolve(null), REGISTRATION_LEASE_CONFIRM_TIMEOUT_MS)
+  })
+  try {
+    return await Promise.race([confirming.catch(() => null), timedOut])
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+async function registrationLeaseLapsed(deps: WriteRoutingDeps): Promise<boolean> {
+  const lease = deps.coordinator.registrationLease?.(deps.nodeId)
+  if (lease === undefined || !leaseLapsed(lease)) return false
+  const confirmed = await confirmedWithin(deps)
+  return confirmed === undefined || leaseLapsed(confirmed)
 }
 
 async function leadershipUnconfirmed(scope: PrimaryWriteScope): Promise<boolean> {
@@ -59,7 +78,7 @@ async function currentScope(scope: PrimaryWriteScope): Promise<PrimaryWriteScope
   const { indexName, partitionId, deps } = scope
   const table = await deps.coordinator.getAllocation(indexName)
   const assignment = table?.assignments.get(partitionId)
-  if (assignment === undefined || assignment.primary !== deps.nodeId || registrationLeaseLapsed(deps)) {
+  if (assignment === undefined || assignment.primary !== deps.nodeId || (await registrationLeaseLapsed(deps))) {
     throw new NarsilError(
       ErrorCodes.PARTITION_NOT_PRIMARY,
       `Node '${deps.nodeId}' stopped leading partition ${partitionId} of index '${indexName}' while the write waited`,
@@ -92,7 +111,7 @@ export async function inLeadingPartitionQueue<T>(
     if (refusedFromLocalCopy(error) && (await leadershipUnconfirmed(current))) throw notPrimary(current)
     throw error
   }
-  if (registrationLeaseLapsed(current.deps)) throw notPrimary(current)
+  if (await registrationLeaseLapsed(current.deps)) throw notPrimary(current)
   if (failed !== undefined) await confirmBatchRefusals(current, failed)
   return result
 }

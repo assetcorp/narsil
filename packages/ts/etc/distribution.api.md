@@ -38,6 +38,7 @@ export interface ClusterControllerConfig {
 export interface ClusterCoordinator {
     acquireLease(key: string, nodeId: string, ttlMs: number): Promise<boolean>;
     compareAndSet(key: string, expected: Uint8Array | null, value: Uint8Array): Promise<boolean>;
+    confirmRegistrationLease?(nodeId: string): Promise<RegistrationLease | null>;
     delete(key: string): Promise<void>;
     deleteAllocation(indexName: string): Promise<void>;
     deregisterNode(nodeId: string): Promise<void>;
