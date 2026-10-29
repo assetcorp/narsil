@@ -40,7 +40,7 @@ static void search_one_width(narsil_workspace *workspace, uint32_t bits, const f
   double distances[CANDIDATES];
   for (uint32_t metric = 0; metric < METRIC_COUNT; metric++) {
     narsil_candidates found = {ordinals, distances, CANDIDATES, 0};
-    narsil_search_request request = {query, metric, CANDIDATES, SEARCH_THREAD_SLOT};
+    narsil_search_request request = {query, metric, CANDIDATES, SEARCH_THREAD_SLOT, {NULL, 0}};
     check(narsil_search(workspace, &fixture->graph, &fixture->store, &request, &found) == NARSIL_OK,
           "search returns NARSIL_OK");
     check(found.count == CANDIDATES, "search fills the candidate count");
@@ -93,7 +93,7 @@ static void survive_corrupt_lists(narsil_workspace *workspace) {
   float query[DIMENSION];
   for (int i = 0; i < DIMENSION; i++) { query[i] = random_unit(); }
   narsil_candidates found = {ordinals, distances, CANDIDATES, 0};
-  narsil_search_request request = {query, NARSIL_METRIC_COSINE, CANDIDATES, 0};
+  narsil_search_request request = {query, NARSIL_METRIC_COSINE, CANDIDATES, 0, {NULL, 0}};
   check(narsil_search(workspace, &fixture->graph, &fixture->store, &request, &found) == NARSIL_OK,
         "search returns NARSIL_OK over corrupt lists");
   check_sorted(&found, "search over corrupt lists returns ordinals inside the graph");
@@ -120,7 +120,7 @@ static void refuse_bad_arguments(narsil_workspace *workspace) {
   double distances[CANDIDATES] = {0};
   float query[DIMENSION] = {0};
   narsil_candidates found = {ordinals, distances, 4, 0};
-  narsil_search_request request = {query, NARSIL_METRIC_COSINE, CANDIDATES, 0};
+  narsil_search_request request = {query, NARSIL_METRIC_COSINE, CANDIDATES, 0, {NULL, 0}};
   check(narsil_search(workspace, &fixture->graph, &fixture->store, &request, &found) == NARSIL_INVALID_ARGUMENT,
         "search returns NARSIL_INVALID_ARGUMENT for a short result list");
   check(fixture->graph_header[NARSIL_GRAPH_WORD_LOCK] == 0, "the graph lock word is 0 after a refused search");

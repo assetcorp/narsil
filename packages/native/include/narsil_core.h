@@ -8,7 +8,7 @@
 extern "C" {
 #endif
 
-#define NARSIL_CORE_ABI_VERSION 3
+#define NARSIL_CORE_ABI_VERSION 4
 
 #define NARSIL_GRAPH_HEADER_WORDS 160
 #define NARSIL_STORE_HEADER_WORDS 16
@@ -116,10 +116,16 @@ typedef struct {
 } narsil_candidates;
 
 typedef struct {
+  const uint8_t *bits;
+  uint32_t bytes;
+} narsil_ordinal_set;
+
+typedef struct {
   const float *query;
   uint32_t metric;
   uint32_t candidate_count;
   uint32_t thread_slot;
+  narsil_ordinal_set accepted;
 } narsil_search_request;
 
 typedef struct {

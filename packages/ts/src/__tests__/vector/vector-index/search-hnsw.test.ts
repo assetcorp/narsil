@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createVectorIndex, type VectorIndex } from '../../../vector/vector-index'
+import { filterSubsetsForDocIds } from '../filter-subsets'
 import { DIM, normalizedVector, vectorFromValues } from './fixtures'
 
 describe('VectorIndex search with HNSW (after build)', () => {
@@ -89,11 +90,10 @@ describe('VectorIndex search with HNSW (after build)', () => {
     try {
       await insertAndBuild(filteredIndex, 10)
 
-      const filterIds = new Set(['doc0'])
       const { results } = filteredIndex.search(normalizedVector(DIM, 45), 5, {
         metric: 'cosine',
         minSimilarity: 0,
-        filterDocIds: filterIds,
+        filterSubsets: filterSubsetsForDocIds(['doc0']),
       })
 
       expect(results.length).toBeLessThanOrEqual(1)
