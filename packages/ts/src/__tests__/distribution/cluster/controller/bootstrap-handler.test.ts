@@ -37,7 +37,7 @@ describe('handleBootstrapCompleteMessage', () => {
     await coordinator.shutdown()
   })
 
-  async function report(table: AllocationTable, nodeId = 'node-b'): Promise<BootstrapCompleteResultPayload> {
+  async function report(table: AllocationTable, nodeId = 'node-a'): Promise<BootstrapCompleteResultPayload> {
     coordinator = createInMemoryCoordinator()
     await coordinator.acquireLease('_narsil/controller', 'controller', 30_000)
     await coordinator.putAllocation('products', table)
@@ -71,13 +71,13 @@ describe('handleBootstrapCompleteMessage', () => {
     expect(stored?.assignments.get(0)?.lastHolders).toBeUndefined()
   })
 
-  it('moves an INITIALISING partition to ACTIVE without admitting the reporting replica', async () => {
-    const result = await report(makeTable('INITIALISING'))
-    expect(result.accepted).toBe(true)
+  it("refuses a replica's report, which a node of an earlier release still sends, and leaves the partition INITIALISING", async () => {
+    const result = await report(makeTable('INITIALISING'), 'node-b')
+    expect(result.accepted).toBe(false)
 
     const stored = await coordinator.getAllocation('products')
-    expect(stored?.assignments.get(0)?.state).toBe('ACTIVE')
-    expect(stored?.assignments.get(0)?.inSyncSet).toEqual([])
+    expect(stored?.assignments.get(0)?.state).toBe('INITIALISING')
+    expect(stored?.version).toBe(1)
   })
 
   it('leaves an in-sync set the catch-up feed already filled untouched', async () => {
