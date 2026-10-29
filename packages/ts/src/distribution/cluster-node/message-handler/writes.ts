@@ -25,8 +25,9 @@ export async function handleForward(
 ): Promise<void> {
   const decoded = decode(message.payload) as Record<string, unknown>
   const payload = validateForwardPayload(decoded)
-  if (holdsAnotherIndex(deps.engine.indexUuidOf(payload.indexName), payload.indexUuid)) {
-    throw anotherIndexAsPrimary(payload.indexName, deps.nodeId)
+  const heldIndexUuid = deps.engine.indexUuidOf(payload.indexName)
+  if (typeof heldIndexUuid === 'string' && holdsAnotherIndex(heldIndexUuid, payload.indexUuid)) {
+    throw anotherIndexAsPrimary(payload.indexName, deps.nodeId, heldIndexUuid)
   }
   const documentId = await applyForwardedWrite(payload, deps.writeDeps)
 
@@ -44,8 +45,9 @@ export async function handleForwardBatch(
   deps: DataNodeHandlerDeps,
 ): Promise<void> {
   const payload = validateForwardBatchPayload(decode(message.payload))
-  if (holdsAnotherIndex(deps.engine.indexUuidOf(payload.indexName), payload.indexUuid)) {
-    const refusal = anotherIndexAsPrimary(payload.indexName, deps.nodeId)
+  const heldIndexUuid = deps.engine.indexUuidOf(payload.indexName)
+  if (typeof heldIndexUuid === 'string' && holdsAnotherIndex(heldIndexUuid, payload.indexUuid)) {
+    const refusal = anotherIndexAsPrimary(payload.indexName, deps.nodeId, heldIndexUuid)
     const results = payload.operations.map(operation => ({
       documentId: operation.documentId,
       success: false,
@@ -90,11 +92,11 @@ export async function handleReplicationEntryBatch(
   )
 }
 
-function anotherIndexAsPrimary(indexName: string, nodeId: string): NarsilError {
+function anotherIndexAsPrimary(indexName: string, nodeId: string, heldIndexUuid: string): NarsilError {
   return new NarsilError(
     ErrorCodes.PARTITION_NOT_PRIMARY,
     `Node '${nodeId}' holds another index named '${indexName}', so it leads no partition of the index the sender routes to`,
-    { indexName, localNodeId: nodeId },
+    { indexName, localNodeId: nodeId, heldIndexUuid },
   )
 }
 
