@@ -63,31 +63,27 @@ export function resolveHybridFusion(hybrid: HybridFusionSettings | null | undefi
 
 export function reciprocalRankFusion(lists: ScoredDocument[][], options: RRFOptions): ScoredDocument[] {
   const k = options.k
-  const scores = new Map<string, number>()
-  const docData = new Map<string, ScoredDocument>()
+  const positions = new Map<string, number>()
+  const result: ScoredDocument[] = []
 
   for (const list of lists) {
     for (let rank = 0; rank < list.length; rank++) {
       const doc = list[rank]
       const rrfContribution = 1 / (k + rank + 1)
-      scores.set(doc.docId, (scores.get(doc.docId) ?? 0) + rrfContribution)
-      if (!docData.has(doc.docId)) {
-        docData.set(doc.docId, doc)
+      const position = positions.get(doc.docId)
+      if (position === undefined) {
+        positions.set(doc.docId, result.length)
+        result.push({
+          docId: doc.docId,
+          score: rrfContribution,
+          termFrequencies: doc.termFrequencies,
+          fieldLengths: doc.fieldLengths,
+          idf: doc.idf,
+        })
+      } else {
+        result[position].score += rrfContribution
       }
     }
-  }
-
-  const result: ScoredDocument[] = []
-  for (const [docId, score] of scores) {
-    const original = docData.get(docId)
-    if (!original) continue
-    result.push({
-      docId,
-      score,
-      termFrequencies: original.termFrequencies,
-      fieldLengths: original.fieldLengths,
-      idf: original.idf,
-    })
   }
 
   result.sort((a, b) => b.score - a.score || compareCodePoints(a.docId, b.docId))

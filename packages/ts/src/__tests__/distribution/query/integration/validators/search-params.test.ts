@@ -202,7 +202,7 @@ describe('validateSearchPayload params.sort', () => {
       validateSearchPayload(
         makeSearchPayload({
           sort: [{ field: 'title', direction: 'asc' }],
-          hybrid: { strategy: 'rrf', k: 60, alpha: 0.5 },
+          hybrid: { strategy: 'rrf', k: 60, alpha: 0.5, depth: null },
         }),
       ),
     ).toThrow(/hybrid query cannot carry a sort/)
@@ -222,6 +222,7 @@ describe('validateSearchPayload params.sort', () => {
             metric: null,
             efSearch: null,
             oversample: null,
+            rescoreWindow: null,
           },
         }),
       ),
@@ -324,7 +325,7 @@ describe('validateSearchPayload params.hybrid', () => {
   it('rejects hybrid that is not an object', () => {
     expect(() =>
       validateSearchPayload(
-        makeSearchPayload({ hybrid: 'oops' as unknown as { strategy: 'rrf'; k: number; alpha: number } }),
+        makeSearchPayload({ hybrid: 'oops' as unknown as { strategy: 'rrf'; k: number; alpha: number; depth: null } }),
       ),
     ).toThrow(/hybrid/)
   })
@@ -332,38 +333,40 @@ describe('validateSearchPayload params.hybrid', () => {
   it('rejects unknown strategy', () => {
     expect(() =>
       validateSearchPayload(
-        makeSearchPayload({ hybrid: { strategy: 'other' as unknown as 'rrf', k: 60, alpha: 0.5 } }),
+        makeSearchPayload({ hybrid: { strategy: 'other' as unknown as 'rrf', k: 60, alpha: 0.5, depth: null } }),
       ),
     ).toThrow(/strategy/)
   })
 
   it('rejects non-integer k', () => {
-    expect(() => validateSearchPayload(makeSearchPayload({ hybrid: { strategy: 'rrf', k: 1.5, alpha: 0.5 } }))).toThrow(
-      /hybrid\.k/,
-    )
+    expect(() =>
+      validateSearchPayload(makeSearchPayload({ hybrid: { strategy: 'rrf', k: 1.5, alpha: 0.5, depth: null } })),
+    ).toThrow(/hybrid\.k/)
   })
 
   it('rejects k beyond MAX_HYBRID_K', () => {
     expect(() =>
-      validateSearchPayload(makeSearchPayload({ hybrid: { strategy: 'rrf', k: MAX_HYBRID_K + 1, alpha: 0.5 } })),
+      validateSearchPayload(
+        makeSearchPayload({ hybrid: { strategy: 'rrf', k: MAX_HYBRID_K + 1, alpha: 0.5, depth: null } }),
+      ),
     ).toThrow(/hybrid\.k/)
   })
 
   it('rejects alpha out of [0, 1]', () => {
-    expect(() => validateSearchPayload(makeSearchPayload({ hybrid: { strategy: 'rrf', k: 60, alpha: 1.5 } }))).toThrow(
-      /alpha/,
-    )
+    expect(() =>
+      validateSearchPayload(makeSearchPayload({ hybrid: { strategy: 'rrf', k: 60, alpha: 1.5, depth: null } })),
+    ).toThrow(/alpha/)
   })
 
   it('rejects alpha that is NaN', () => {
     expect(() =>
-      validateSearchPayload(makeSearchPayload({ hybrid: { strategy: 'rrf', k: 60, alpha: Number.NaN } })),
+      validateSearchPayload(makeSearchPayload({ hybrid: { strategy: 'rrf', k: 60, alpha: Number.NaN, depth: null } })),
     ).toThrow(/alpha/)
   })
 
   it('accepts a well-formed hybrid config', () => {
     expect(() =>
-      validateSearchPayload(makeSearchPayload({ hybrid: { strategy: 'rrf', k: 60, alpha: 0.5 } })),
+      validateSearchPayload(makeSearchPayload({ hybrid: { strategy: 'rrf', k: 60, alpha: 0.5, depth: 100 } })),
     ).not.toThrow()
   })
 })

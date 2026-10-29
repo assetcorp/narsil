@@ -125,6 +125,8 @@ A query that a data node refuses, such as one with a malformed filter, fails wit
 
 The cluster answers from the partitions that reply, while the result's `coverage` counts the rest as `totalPartitions`, `queriedPartitions`, `timedOutPartitions`, and `failedPartitions`. Read those figures wherever a degraded answer would mislead a caller, because a lost partition lowers `count` and keeps its documents out of the ranking. An embedded engine fills the same field, counting as read every partition that it holds, so you read the result the same way whether it comes from an engine or from a cluster. While no partition is `ACTIVE` yet, which is the state an index passes through while the controller allocates it, the cluster reads nothing and counts every partition as failed, so the coverage tells you why the answer is empty.
 
+A query that carries `rerank` reranks on the coordinator that receives it. That node sends the data nodes the query without `rerank`, merges their rankings, reads the reranked fields of the top hits, and asks its own rerank adapter for scores. Register the adapter with `registerRerankAdapter` on every node that takes queries from clients, because the data nodes need none. See [Reranking](reranking.md#over-http-and-in-a-cluster).
+
 Set `query` on a node's configuration to change how it treats a partition that it cannot reach. `allowPartialResults` is true by default. With `allowPartialResults: false`, the cluster fails the whole search with `QUERY_PARTIAL_FAILURE` as soon as one partition times out, errors, or holds no active copy. When one node stops a search with `SEARCH_WORK_CAP_EXCEEDED`, the cluster fails the whole search with that error, whatever value `allowPartialResults` holds, because the results of the other nodes would leave out every match that the stopped node had yet to find. `partitionTimeout` sets how many milliseconds the coordinator waits for each node, and it defaults to 5000.
 
 ```ts
@@ -159,7 +161,7 @@ A node opens its replication listener before it registers, so a peer that reache
 
 ## Node-local operations
 
-`checkpoint`, `open`, `close`, `getMemoryStats`, `on`, and `off` reach the local engine of the node that you call them on, because durability, index memory, process memory, and engine events are per-node facts. Ask each node for its own. When you call `close`, the node releases only its own copy of the index, which it reopens when it receives a routed read or write. See [Index lifecycle](persistence-and-durability.md#index-lifecycle).
+`checkpoint`, `open`, `close`, `getMemoryStats`, `on`, `off`, and `registerRerankAdapter` reach the local engine of the node that you call them on, because durability, index memory, process memory, engine events, and rerank adapters are per-node facts. Ask each node for its own. When you call `close`, the node releases only its own copy of the index, which it reopens when it receives a routed read or write. See [Index lifecycle](persistence-and-durability.md#index-lifecycle).
 
 ## What a cluster node refuses
 

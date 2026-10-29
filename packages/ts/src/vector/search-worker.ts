@@ -117,6 +117,7 @@ function handleSearch(request: VectorSearchRequest): VectorSearchResponse {
     filter: request.filter,
     efSearch: request.efSearch,
     oversample: request.oversample,
+    rescoreWindow: request.rescoreWindow,
   })
 
   const docIds: string[] = []
@@ -142,6 +143,7 @@ function handleSearchOrdinals(request: VectorOrdinalSearchRequest): VectorOrdina
     filter: request.filter,
     efSearch: request.efSearch,
     oversample: request.oversample,
+    rescoreWindow: request.rescoreWindow,
   })
 
   const ordinals = new Uint32Array(hits.length)

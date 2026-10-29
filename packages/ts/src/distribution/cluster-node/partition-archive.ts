@@ -16,7 +16,7 @@ import type { SegmentManifest } from '../../persistence/durability/segment/manif
 import type { CheckpointStore } from '../../persistence/durability/segment/store'
 import { readListedFile } from '../../persistence/durability/segment/store'
 import { openChecksummedEnvelope } from '../../serialization/envelope-file'
-import type { ByteSource } from '../../types/engine'
+import type { ByteSource } from '../../types/byte-source'
 import type { IndexConfig } from '../../types/schema'
 import { decodeVectorFilePayload } from '../../vector/vector-index/checkpoint-payload'
 import { isDead } from '../../vector/vector-index/dead-bits'

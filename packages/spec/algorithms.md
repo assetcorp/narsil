@@ -889,6 +889,43 @@ Three properties follow:
 
 ---
 
+## Reranking
+
+Reranking reorders the top results of a search with a [RerankAdapter](adapters.md#rerankadapter) after retrieval, so it leaves analysis, scoring, and fusion unchanged.
+
+```text
+RerankParams {
+  adapter: string             (the name of a registered rerank adapter)
+  fields:  List<string>       (at least one text field)
+  query:   string or absent   (absent takes term, then vector.text)
+  window:  uint32 or absent   (1 to maxRerankWindow, default the smallest of 100, maxRerankWindow, and hybrid.depth where a hybrid query sets it)
+}
+```
+
+Let `d` be the depth field of the request's cursor, or 0 for a request without a cursor.
+
+1. The engine must rank the query as it would without `rerank`, whether keyword, vector, or hybrid after fusion, to a depth of max(window + 1, min(d + offset + limit + 1, 10,000)), and it must place no pinned document at this step. It must raise `SEARCH_RESULT_WINDOW_EXCEEDED` where d + offset + limit exceeds 10,000. A hybrid query that sets `hybrid.depth` takes as its first stage the fused list at that depth, as [Hybrid Search](vector-index.md#hybrid-search) defines, so the engine must raise `RERANK_CONFIG_INVALID` where the request sets a `window` above that depth. Where the request leaves `window` out, the engine must use the smallest of 100, `maxRerankWindow`, and that depth. A hybrid query that leaves `hybrid.depth` out ranks its first stage to the depth above, as a keyword or vector query does.
+2. It must pass the adapter the query text and, for each of the first `window` hits, the values of `fields` in field order, joined with a newline. Each member of a list field takes a line of its own, and a missing value or a value that is not a string adds nothing.
+3. It must order those hits by the adapter's score, highest first, with ties broken by document ID in [code point order](#code-point-order). Each of those hits then takes the adapter's score as its score.
+4. It must keep the hits past the window in their first-stage order after the reranked hits, and it must rescale their scores as below, so that no hit past the window outscores a reranked hit.
+5. Where the request carries no cursor, it must then place the pinned documents. The page holds up to `limit` hits from position d + offset.
+
+```text
+initialLow, initialHigh = the lowest and highest first-stage scores in the window
+finalLow, finalHigh     = the lowest and highest adapter scores in the window
+when initialLow > finalLow:
+  scale = max(finalHigh - finalLow, 1) / max(initialHigh - initialLow, 1)
+  for each hit past the window:
+    score = score * scale + finalLow - initialLow * scale
+```
+
+- `facets` and `groups` must be those of the first-stage request at that depth, while `count` and `countExact` must be those of the same query without `rerank`.
+- A query that sets both `rerank` and a sort must raise `SEARCH_INVALID_MODE`, because each of them sets the order of the hits.
+- Where more hits follow the page, the result must carry a cursor whose `d` counts the hits of the reranked order up to and including the last hit on the page that is not a pinned placement. The engine must find the start of a reranked page by its position from `d`, because a rescaled hit past the window can share the lowest reranked score.
+- The engine must call no adapter where the window or the page holds no hit.
+
+---
+
 ## Optimised Scalar Quantisation (OSQ)
 
 OSQ quantises each vector against a centroid, over an interval that it fits to that vector. A document code holds 8, 4, 2, or 1 bits per dimension for `osq8`, `osq4`, `osq2`, or `osq1`, and a query code holds `QUERY_BITS[bits]` bits per dimension.

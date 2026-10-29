@@ -180,7 +180,7 @@ export function searchWithFilter(
   }
 
   const currentLiveSize = liveSize(state)
-  const { metric, minSimilarity, efSearch, oversample } = options
+  const { metric, minSimilarity, efSearch, oversample, rescoreWindow } = options
 
   if (currentLiveSize === 0) return { results: [], matched: 0, matchedExact: true }
   if (filter && filter.count === 0) return { results: [], matched: 0, matchedExact: true }
@@ -205,7 +205,7 @@ export function searchWithFilter(
   }
 
   const hnswResults = state.hnsw
-    .search(query, k, metric, minSimilarity, { filter, efSearch, oversample })
+    .search(query, k, metric, minSimilarity, { filter, efSearch, oversample, rescoreWindow })
     .map(r => ({ docId: r.docId, score: r.score }))
 
   return fetchedOutcome(

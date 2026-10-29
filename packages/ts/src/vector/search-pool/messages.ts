@@ -98,6 +98,8 @@ export interface VectorSearchRequest {
   efSearch?: number
   /** The worker re-scores this many times the requested count against full precision, or its own default when absent. */
   oversample?: number
+  /** When present, the worker re-scores only this many times the oversample of the nearest candidates against full precision and keeps the estimated score of the rest, or returns the re-scored candidates alone under a similarity floor. */
+  rescoreWindow?: number
 }
 
 /**
@@ -127,6 +129,8 @@ export interface VectorOrdinalSearchRequest {
   efSearch?: number
   /** The worker re-scores this many times the requested count against full precision, or its own default when absent. */
   oversample?: number
+  /** When present, the worker re-scores only this many times the oversample of the nearest candidates against full precision and keeps the estimated score of the rest, or returns the re-scored candidates alone under a similarity floor. */
+  rescoreWindow?: number
 }
 
 /**

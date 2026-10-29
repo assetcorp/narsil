@@ -44,12 +44,12 @@ export function vectorFetchDepth(limit: number, offset: number, cursorDepth: num
   return Math.min(reach + 1, RESULT_WINDOW)
 }
 
-interface FilteredSearch {
+export interface FilteredSearch {
   readonly first: FilterSubset[]
   readonly collectAgain: () => FilterSubset[]
 }
 
-function filteredSearchOf(params: QueryParams, context: SearchContext): FilteredSearch | undefined {
+export function filteredSearchOf(params: QueryParams, context: SearchContext): FilteredSearch | undefined {
   const filters = params.filters
   if (!filters) return undefined
   const { manager, config, partitionIds, patternWork } = context
@@ -64,12 +64,14 @@ function searchField(
   k: number,
   context: QueryContext,
   filtered: FilteredSearch | undefined,
+  rescoreWindow: number | undefined,
 ): Promise<VectorSearchOutcome> {
   const options: VectorSearchOptions = {
     metric: vectorConfig.metric ?? 'cosine',
     minSimilarity: vectorConfig.similarity ?? -Infinity,
     efSearch: vectorConfig.efSearch,
     oversample: oversampleOf(vectorConfig),
+    ...(rescoreWindow !== undefined ? { rescoreWindow } : {}),
   }
   if (filtered !== undefined) {
     return searchCurrentSubsets(vecIndex.fieldName, filtered.first, filtered.collectAgain, filterSubsets =>
@@ -108,13 +110,13 @@ export async function executeVectorSearch(
 
   const queryVec = new Float32Array(vectorConfig.value)
   const k = vectorFetchDepth(limit, offset, cursorDepth)
-  const outcome = await searchField(vecIndex, vectorConfig, queryVec, k, context, filtered)
+  const outcome = await searchField(vecIndex, vectorConfig, queryVec, k, context, filtered, context.rescoreWindow)
 
   const scored = vectorResultsToScored(outcome.results)
   return { scored, totalMatched: outcome.matched, matchedExact: outcome.matchedExact }
 }
 
-async function textLeg(textOnlyParams: QueryParams, context: SearchContext): Promise<FanOutResult> {
+export async function textLeg(textOnlyParams: QueryParams, context: SearchContext): Promise<FanOutResult> {
   const { manager, language, config, workerSearch, indexName } = context
   const scoring = scoringConfigFor(textOnlyParams, context)
   if (workerSearch) {
@@ -137,16 +139,17 @@ async function textLeg(textOnlyParams: QueryParams, context: SearchContext): Pro
   )
 }
 
-async function vectorLeg(
+export async function vectorLeg(
   vectorConfig: VectorQueryConfig,
   queryVector: Float32Array,
   context: QueryContext,
   filtered: FilteredSearch | undefined,
   k: number,
+  rescoreWindow?: number,
 ): Promise<{ scored: ScoredDocument[]; holdsEveryMatch: boolean }> {
   const vecIndex = resolveVectorIndex(context, vectorConfig.field)
   if (!vecIndex) return { scored: [], holdsEveryMatch: true }
-  const outcome = await searchField(vecIndex, vectorConfig, queryVector, k, context, filtered)
+  const outcome = await searchField(vecIndex, vectorConfig, queryVector, k, context, filtered, rescoreWindow)
   return {
     scored: vectorResultsToScored(outcome.results),
     holdsEveryMatch: outcome.matchedExact && outcome.results.length === outcome.matched,

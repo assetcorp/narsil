@@ -35,6 +35,7 @@ export interface GraphSearchOptions {
   filter?: OrdinalFilter
   efSearch?: number
   oversample?: number
+  rescoreWindow?: number
 }
 
 interface Traversal {
@@ -55,14 +56,15 @@ function traverse(
   const calibrated = activeQuantizer(state)
   const quantizer = calibrated === undefined || calibrated.size === 0 ? undefined : calibrated
   const useQuantized = quantizer !== undefined
-  let depth = k
+  const window = options.rescoreWindow ?? k
+  let depth = window
   if (quantizer !== undefined) {
     depth =
       options.oversample === undefined
-        ? defaultRescoreDepth(quantizer.bits, state.dimension, k)
-        : Math.ceil(k * options.oversample)
+        ? defaultRescoreDepth(quantizer.bits, state.dimension, window)
+        : Math.ceil(window * options.oversample)
   }
-  const ef = Math.max(options.efSearch ?? defaultEfSearch(state.dimension, k), depth)
+  const ef = Math.max(options.efSearch ?? defaultEfSearch(state.dimension, window), depth)
   const filter = options.filter
 
   const workspace = state.workspace
@@ -173,56 +175,65 @@ function collectHits(
     return []
   }
 
-  const { candidates, depth, arenaQuery, qMag, native } = traverse(state, query, k, searchMetric, options)
-
-  if (depth > 0) {
-    if (native === null) {
-      return rescoreWithFullPrecision(
-        state,
-        candidates,
-        query,
-        qMag,
-        arenaQuery,
-        depth,
-        searchMetric,
-        minSimilarity,
-        options.filter,
-      )
-    }
-    const rescored = nativeRescoredHits(
-      native.store,
-      candidates,
-      query,
-      depth,
-      searchMetric,
-      minSimilarity,
-      options.filter,
-    )
-    if (rescored !== null) return rescored
-    const arena = state.store.prepareQueryArena(query)
-    return rescoreWithFullPrecision(
-      state,
-      candidates,
-      query,
-      arena ? arena.magnitude : magnitude(query),
-      arena,
-      depth,
-      searchMetric,
-      minSimilarity,
-      options.filter,
-    )
-  }
-
-  const hits: OrdinalHit[] = []
+  const traversal = traverse(state, query, k, searchMetric, options)
+  const { candidates } = traversal
   const filter = options.filter
+  if (traversal.depth === 0) return estimatedHits(candidates, 0, searchMetric, minSimilarity, filter)
+
+  const rescored = rescoredHits(state, traversal, query, traversal.depth, searchMetric, minSimilarity, filter)
+  if (options.rescoreWindow === undefined || minSimilarity !== Number.NEGATIVE_INFINITY) return rescored
+  const rest = endOfRescored(candidates, traversal.depth, filter)
+  return rescored.concat(estimatedHits(candidates, rest, searchMetric, minSimilarity, filter))
+}
+
+function endOfRescored(candidates: DistanceList, depth: number, filter: OrdinalFilter | undefined): number {
+  if (filter === undefined) return Math.min(depth, candidates.size)
+  let taken = 0
   for (let i = 0; i < candidates.size; i++) {
+    if (!ordinalFilterHas(filter, candidates.ords[i])) continue
+    taken += 1
+    if (taken === depth) return i + 1
+  }
+  return candidates.size
+}
+
+function estimatedHits(
+  candidates: DistanceList,
+  from: number,
+  metric: VectorMetric,
+  minSimilarity: number,
+  filter: OrdinalFilter | undefined,
+): OrdinalHit[] {
+  const hits: OrdinalHit[] = []
+  for (let i = from; i < candidates.size; i++) {
     const ord = candidates.ords[i]
     if (filter && !ordinalFilterHas(filter, ord)) continue
-    const score = toScore(candidates.distances[i], searchMetric)
+    const score = toScore(candidates.distances[i], metric)
     if (score < minSimilarity) continue
     hits.push({ ord, score })
   }
   return hits
+}
+
+function rescoredHits(
+  state: HNSWSearchState,
+  traversal: Traversal,
+  query: Float32Array,
+  depth: number,
+  metric: VectorMetric,
+  minSimilarity: number,
+  filter: OrdinalFilter | undefined,
+): OrdinalHit[] {
+  const { candidates, native } = traversal
+  if (native !== null) {
+    const rescored = nativeRescoredHits(native.store, candidates, query, depth, metric, minSimilarity, filter)
+    if (rescored !== null) return rescored
+    const arena = state.store.prepareQueryArena(query)
+    const qMag = arena ? arena.magnitude : magnitude(query)
+    return rescoreWithFullPrecision(state, candidates, query, qMag, arena, depth, metric, minSimilarity, filter)
+  }
+  const { qMag, arenaQuery } = traversal
+  return rescoreWithFullPrecision(state, candidates, query, qMag, arenaQuery, depth, metric, minSimilarity, filter)
 }
 
 function rescoreWithFullPrecision(
