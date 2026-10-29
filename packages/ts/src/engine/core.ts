@@ -303,7 +303,6 @@ export async function createEngineCore(
     executor,
     pluginRegistry,
     durability,
-    writeAdmission: null,
     orchestrator,
     idGenerator,
     abortController,

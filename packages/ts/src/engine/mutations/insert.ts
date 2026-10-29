@@ -97,7 +97,6 @@ export async function insertDocument(
     }
   }
 
-  ctx.writeAdmission?.admit(indexName, resolvedDocId, document)
   if (ctx.durability) {
     try {
       await ctx.durability.recordInsertOrUpdate(indexName, resolvedDocId, document, applyInsert)
