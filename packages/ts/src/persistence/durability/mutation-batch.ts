@@ -1,6 +1,6 @@
 import type { ReplicationLogEntry } from '../../distribution/replication/types'
 import { ErrorCodes, NarsilError } from '../../errors'
-import type { PartitionState } from './manager-state'
+import type { IndexState, PartitionState } from './manager-state'
 import type { MutationOutcome, MutationRecord } from './types'
 
 export interface PartitionBatchDeps {
@@ -51,6 +51,31 @@ export function failPartition(
   partition.failed = error
   if (!deps.failsPartitionAlone(address.indexName, address.partitionId, error)) deps.markFatal(error)
   return error
+}
+
+export async function commitEveryPartition(
+  indexes: ReadonlyMap<string, IndexState>,
+  deps: PartitionBatchDeps,
+): Promise<void> {
+  for (const [indexName, indexState] of indexes) {
+    for (const [partitionId, partition] of indexState.partitions) {
+      if (partition.failed !== null || deps.fatalError() !== null) continue
+      try {
+        await partition.walWriter.commit()
+      } catch (err) {
+        failPartition(partition, { indexName, partitionId }, deps, err)
+      }
+    }
+  }
+}
+
+export type PartitionFailure = (partitionId: number, partition: PartitionState, error: unknown) => Error
+
+export function partitionFailureFor(
+  indexName: string,
+  deps: Pick<PartitionBatchDeps, 'markFatal' | 'failsPartitionAlone'>,
+): PartitionFailure {
+  return (partitionId, partition, error) => failPartition(partition, { indexName, partitionId }, deps, error)
 }
 
 export async function recordBatchesByPartition(

@@ -73,6 +73,7 @@ describe('a node whose copy of one partition fails', () => {
   const syncRequests: { nodeId: string; lastSeqNo: number; lastPrimaryTerm: number }[] = []
   let router: ClusterNode
   let serial = 0
+  let checkpointMutationThreshold: number | undefined
 
   function recordingTransport(nodeId: string): NodeTransport {
     const inner = createInMemoryTransport(nodeId, network)
@@ -95,7 +96,10 @@ describe('a node whose copy of one partition fails', () => {
       address: `${nodeId}:9200`,
       nodeId,
       roles: ['data'],
-      engine: { workers: { enabled: false }, durability: { directory: join(root, nodeId) } },
+      engine: {
+        workers: { enabled: false },
+        durability: { directory: join(root, nodeId), checkpointMutationThreshold },
+      },
       onError: error => reported.push(error),
     })
     running.set(nodeId, node)
@@ -189,6 +193,7 @@ describe('a node whose copy of one partition fails', () => {
     disk.failSyncUnder = null
     disk.failReadsUnder = null
     disk.syncFailures = 0
+    checkpointMutationThreshold = undefined
     reported.length = 0
     syncRequests.length = 0
   })
@@ -285,6 +290,7 @@ describe('a node whose copy of one partition fails', () => {
   }, 120_000)
 
   it('leaves the partition unassigned and reports it when the last copy cannot replay its log', async () => {
+    checkpointMutationThreshold = 4
     await startCluster(['quay-a'], 0)
     const acknowledged = new Map<string, string>()
     expect(await insertAcknowledged([...berthsIn(0, 15, 'tug'), ...berthsIn(1, 15, 'tug')], acknowledged)).toEqual([])
@@ -315,5 +321,17 @@ describe('a node whose copy of one partition fails', () => {
 
     expect((await partitionZero).sort()).toEqual(refused.map(berth => berth.id).sort())
     expect(partition((await coordinator.getAllocation(INDEX_NAME)) as AllocationTable, 0).state).toBe('UNASSIGNED')
+
+    await stopNode('quay-a')
+    disk.failSyncUnder = null
+    disk.failReadsUnder = null
+    await startDataNode('quay-a')
+    await waitForAllocation(servedWith(0))
+    const read = await router.getMultiple(INDEX_NAME, [...acknowledged.keys()])
+    expect(new Map([...read].map(([id, document]) => [id, String(document.vessel)]))).toEqual(acknowledged)
+    const unacknowledged = new Set(refused.map(berth => berth.id))
+    const answer = await router.query(INDEX_NAME, { term: 'tug', limit: 1_000 })
+    const hits = answer.hits.map(hit => hit.id).filter(id => !unacknowledged.has(id))
+    expect(hits.sort()).toEqual([...acknowledged.keys()].sort())
   }, 120_000)
 })

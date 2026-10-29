@@ -2,6 +2,7 @@ import type { ReplicationLogEntry, ReplicationOperation } from '../../distributi
 import type { PartitionManager } from '../../partitioning/manager'
 import type { DurabilityConfig } from '../../types/config'
 import type { IndexMetadata } from '../../types/internal'
+import type { HeldCheckpointReport } from '../../types/memory'
 import type { VectorIndex } from '../../vector/vector-index'
 import type { ArchiveCheckpoint } from './archive-checkpoint'
 import type { LayoutUpgradeEvent } from './earlier-layout/upgrade'
@@ -19,6 +20,7 @@ export interface IndexDurabilityHooks {
   createIndexFromMetadata(metadata: IndexMetadata, loadData: boolean): Promise<void>
   recordCheckpoint?(indexName: string, documentCount: number, partitionCount: number): void
   onLayoutUpgrade?(event: LayoutUpgradeEvent): void
+  onCheckpointHeld?(report: HeldCheckpointReport): void
   onFatalError(error: Error): void
 }
 
@@ -58,6 +60,7 @@ export interface DurabilityManager {
   numberEntriesWith?(numbering: EntryNumbering, defersCommit?: CommitDeferral): void
   commitPartition?(indexName: string, partitionId: number): Promise<void>
   isolatePartitionFailures?(onFailed: PartitionFailureHandler): void
+  heldCheckpoints?(): HeldCheckpointReport[]
   /** Writes the index metadata. Each index takes its writes in turn, so a caller that built its metadata earlier
    * never renames over a later one. */
   persistMetadata(indexName: string): Promise<void>

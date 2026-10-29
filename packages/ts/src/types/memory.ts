@@ -40,6 +40,27 @@ export interface WorkerCopyReport {
 }
 
 /**
+ * An index whose checkpoints wait until a failed partition recovers, as
+ * {@link Narsil.getMemoryStats} reports it. The engine holds these
+ * checkpoints only for an index with a vector field, because each vector file
+ * mixes every partition's vectors, so a checkpoint would save the failed
+ * partition's vectors from memory. The write-ahead log of the index grows
+ * until the partition recovers or you restore the index from a snapshot.
+ *
+ * @public
+ */
+export interface HeldCheckpointReport {
+  /** This is the index whose checkpoints wait. */
+  indexName: string
+  /** These are the partitions of that index whose copy failed. */
+  partitionIds: number[]
+  /** This many write-ahead log records of the index wait for a checkpoint. */
+  recordsSinceCheckpoint: number
+  /** The documents in those records hold about this many bytes. */
+  documentBytesSinceCheckpoint: number
+}
+
+/**
  * What {@link Narsil.getMemoryStats} returns, which is what you size a host
  * from.
  *
@@ -68,6 +89,8 @@ export interface MemoryStats {
   reopenCount: number
   /** One entry per index, saying whether it holds worker copies now and how many times it has reloaded them. */
   workerCopies: WorkerCopyReport[]
+  /** One entry per index whose checkpoints wait until a failed partition recovers. */
+  heldCheckpoints: HeldCheckpointReport[]
   /**
    * Per-worker V8 heap usage once the engine has started its worker pool.
    * Empty while no worker is running.
