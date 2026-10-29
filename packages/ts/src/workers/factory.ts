@@ -4,6 +4,7 @@ import { missingWorkerEntry, resolveWorkerEntry } from './entry-point'
 import type { Executor } from './executor'
 import type { WorkerFactory } from './pool'
 import { workerResourceLimits } from './resource-limits'
+import { noteThreadSlotLive, threadSlotOfWorker } from './thread-slot'
 import { createWorkerExecutor, type WorkerLike } from './worker-executor'
 
 declare const Worker: {
@@ -36,6 +37,7 @@ export async function createWorkerFactory(entryPoint?: string): Promise<WorkerFa
     const workerThreadsModule = await import('node:worker_threads')
 
     return function nodeFactory(workerId: number, onDeath?: (error: Error) => void, onGone?: () => void): Executor {
+      noteThreadSlotLive(threadSlotOfWorker(workerId))
       const instance = new workerThreadsModule.Worker(new URL(resolvedEntry), {
         resourceLimits: workerResourceLimits(),
         workerData: { workerId },

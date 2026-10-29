@@ -1,3 +1,4 @@
+import { ErrorCodes, isNarsilError } from '../../errors'
 import { createHNSWIndex, type HNSWIndex } from '../hnsw'
 import { shuffleInPlace } from '../hnsw/insertion-order'
 import { insertIntoGraph } from './build-host'
@@ -148,6 +149,12 @@ export function triggerBuild(state: VectorIndexState): void {
         return
       }
       await promoteToGraph(state)
+    } catch (error) {
+      if (!isNarsilError(error) || error.code !== ErrorCodes.WORKER_TIMEOUT) throw error
+      console.warn(
+        `Building the graph of "${state.indexName}/${state.fieldName}" waited too long for another thread, so it tries again with the next write:`,
+        error.message,
+      )
     } finally {
       settled = true
       state.building = false
