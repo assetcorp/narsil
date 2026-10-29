@@ -148,13 +148,14 @@ narsil_status begin_walk(walk_context *context, narsil_workspace *workspace, con
   context->metric = (narsil_metric)metric;
   context->fence = &workspace->fence;
   int holds_codes = store->bits != 0 && store->records_per_block > 0;
-  context->pairs_use_codes = holds_codes && load_word(store->header, NARSIL_STORE_WORD_CALIBRATED) == 1;
-  context->uses_codes = context->pairs_use_codes && load_word(store->header, NARSIL_STORE_WORD_CODE_COUNT) > 0;
+  int calibrated = holds_codes && load_word(store->header, NARSIL_STORE_WORD_CALIBRATED) == 1;
+  context->pairs_use_codes = calibrated;
+  context->uses_codes = calibrated && load_word(store->header, NARSIL_STORE_WORD_CODE_COUNT) > 0;
   if (holds_codes) {
     context->code_bytes = code_bytes_of(store->dimension, store->bits);
     context->record_bytes = context->code_bytes + NARSIL_OSQ_TRAILER_BYTES;
   }
-  if (context->pairs_use_codes) { context->centroid_dot = centroid_dot_of(store); }
+  if (context->uses_codes || context->pairs_use_codes) { context->centroid_dot = centroid_dot_of(store); }
   return workspace_reserve_dimension(workspace, store->dimension);
 }
 
@@ -165,6 +166,17 @@ void walk_with_query(walk_context *context, const float *vector) {
     return;
   }
   context->query.magnitude = (double)kernel_magnitude(vector, context->store->dimension);
+}
+
+void walk_with_placement_query(walk_context *context, const float *vector) {
+  if (!context->uses_codes) {
+    walk_with_query(context, vector);
+    return;
+  }
+  context->query.values = vector;
+  const narsil_store *store = context->store;
+  prepare_code_with_bits(context->workspace, store, context->metric, vector, placement_query_bits_of(store->bits),
+                         &context->code);
 }
 
 narsil_status read_graph_extent(walk_context *context) {

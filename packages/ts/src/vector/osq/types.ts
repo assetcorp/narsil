@@ -1,5 +1,5 @@
 import type { VectorMetric } from '../brute-force'
-import type { OsqBits } from './quantize'
+import type { CentroidSums, OsqBits } from './quantize'
 import type { OsqTrailer } from './record'
 
 export interface OsqQuery extends OsqTrailer {
@@ -14,13 +14,15 @@ export interface QuantizerSearchReader {
   prepareQuery(query: Float32Array): OsqQuery | null
   distanceFromPreparedByOrdinal(prepared: OsqQuery, ordinal: number): number
   preparedDistance(prepared: OsqQuery): (ordinal: number) => number
-  pairDistance(): (ordA: number, ordB: number) => number
-  distanceBetweenOrdinals(ordA: number, ordB: number): number
 }
 
 export interface QuantizerBuildReader extends QuantizerSearchReader {
   /** Quantizes the stored vector of an ordinal and writes its record. */
   writeCodes(ordinal: number): void
+  /** Estimates the distance between two ordinals from their records. */
+  pairDistance(): (ordA: number, ordB: number) => number
+  /** Estimates the distance from a vector being placed to each ordinal's record, or returns null before calibration. */
+  placementDistance(vector: Float32Array): ((ordinal: number) => number) | null
 }
 
 export interface OsqQuantizer extends QuantizerBuildReader {
@@ -29,6 +31,8 @@ export interface OsqQuantizer extends QuantizerBuildReader {
   readonly centroid: Float32Array | null
   /** Computes the centroid from the stored vectors of the given ordinals and marks the field calibrated. */
   calibrate(ordinals: Int32Array): void
+  /** Adds the stored vectors of the given ordinals to the running sums, reading each vector once. */
+  measure(ordinals: Int32Array, sums: CentroidSums): void
   /** Quantizes a document's stored vector and writes its record, after calibrating from that vector where the field holds no centroid. */
   quantize(docId: string): void
   remove(docId: string): void
@@ -47,5 +51,9 @@ export interface OsqQuantizer extends QuantizerBuildReader {
   restoreCentroid(centroid: Float32Array): void
   /** Calibrates again over the stored vectors of the given ordinals and rewrites the record of each. */
   recalibrate(ordinals: Int32Array): void
+  beginRecoding(centroid: Float32Array): void
+  recode(ordinal: number): void
+  finishRecoding(): boolean
+  abandonRecoding(): void
   clear(): void
 }

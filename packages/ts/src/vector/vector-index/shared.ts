@@ -9,7 +9,7 @@ import type { GraphInsertOutcome, SharedVectorFieldHandles } from '../shared-fie
 import type { VectorStore } from '../vector-store'
 import { STORE_ORDINAL_LAYOUT_GENERATION } from '../vector-store/handles'
 import type { FieldSignature, SavedVectorFile } from './checkpoint-plan'
-import { REBUILD_REMOVED_RATIO } from './constants'
+import { BUILD_TURN_HANDOVER_AFTER_MS, DRIFT_CHECK_GROWTH_FACTOR, REBUILD_REMOVED_RATIO } from './constants'
 import type { PendingVectorLocation } from './disk'
 
 export type { VectorIndexPayload } from './payload'
@@ -113,9 +113,18 @@ export interface VectorIndexState {
   hnsw: HNSWIndex | null
   /** The graph a build is filling from the store, which a replacement retires its old ordinal in. */
   freshGraph: HNSWIndex | null
+  shuffledBuildCount: number | null
+  calibratedCount: number | null
+  calibratedMeanLength: number | null
+  nextDriftCheckAt: number
+  shuffledRebuild: Promise<void> | null
+  readonly onLoadedGraphRepaired: () => void
   compactedNodeCount: number
   building: boolean
   buildScheduled: boolean
+  buildTimer: ReturnType<typeof setTimeout> | null
+  buildRetryDelayMs: number
+  readonly buildTurnWaiters: Map<() => void, number>
   pendingBuild: Promise<void> | null
   disposed: boolean
   revision: number
@@ -163,6 +172,7 @@ export function emptyFieldBeforeRestore(state: VectorIndexState): void {
   state.pendingLocations.clear()
   adoptGraph(state, null)
   state.osq?.clear()
+  forgetCalibration(state)
   state.savedFiles = []
   state.savedSignature = null
 }
@@ -177,6 +187,7 @@ export function adoptGraph(state: VectorIndexState, graph: HNSWIndex | null): vo
     state.hnsw.clear()
   }
   state.hnsw = graph
+  state.shuffledBuildCount = null
   state.compactedNodeCount = 0
 
   if (graph === null) return
@@ -196,8 +207,37 @@ export function graphNeedsRebuild(state: VectorIndexState): boolean {
   return removed / held > REBUILD_REMOVED_RATIO
 }
 
-export function yieldToEventLoop(): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, 0))
+export function yieldBuildTurn(state: VectorIndexState): Promise<void> {
+  return new Promise(resolve => {
+    const takeTurn = (): void => {
+      clearTimeout(timer)
+      state.buildTurnWaiters.delete(takeTurn)
+      resolve()
+    }
+    const timer = setTimeout(takeTurn, 0)
+    state.buildTurnWaiters.set(takeTurn, performance.now())
+  })
+}
+
+export function noBuildHistory(): Pick<
+  VectorIndexState,
+  'shuffledBuildCount' | 'calibratedCount' | 'calibratedMeanLength' | 'nextDriftCheckAt' | 'shuffledRebuild'
+> {
+  return {
+    shuffledBuildCount: null,
+    calibratedCount: null,
+    calibratedMeanLength: null,
+    nextDriftCheckAt: Number.POSITIVE_INFINITY,
+    shuffledRebuild: null,
+  }
+}
+
+export function handOverBuildTurns(state: VectorIndexState): void {
+  if (state.buildTurnWaiters.size === 0) return
+  const [longestWaitingSince] = state.buildTurnWaiters.values()
+  if (longestWaitingSince === undefined || performance.now() - longestWaitingSince < BUILD_TURN_HANDOVER_AFTER_MS)
+    return
+  for (const takeTurn of [...state.buildTurnWaiters.keys()]) takeTurn()
 }
 
 export function* allLiveDocIds(state: VectorIndexState): Iterable<string> {
@@ -246,7 +286,7 @@ export function filterForOptions(
   return undefined
 }
 
-function liveOrdinals(state: VectorIndexState): Int32Array {
+export function liveOrdinals(state: VectorIndexState): Int32Array {
   const ordinals: number[] = []
   for (let ordinal = 0; ordinal < state.store.slots; ordinal++) {
     const docId = state.store.docIdForOrdinal(ordinal)
@@ -255,14 +295,30 @@ function liveOrdinals(state: VectorIndexState): Int32Array {
   return Int32Array.from(ordinals)
 }
 
-export function calibrateQuantizer(state: VectorIndexState): void {
-  if (state.osq === null || state.store.size === 0) return
-  state.osq.calibrate(liveOrdinals(state))
+export function forgetCalibration(state: VectorIndexState): void {
+  state.calibratedCount = null
+  state.calibratedMeanLength = null
+  state.nextDriftCheckAt = Number.POSITIVE_INFINITY
+}
+
+export function adoptLoadedCalibration(
+  state: VectorIndexState,
+  calibratedCount: number,
+  calibratedMeanLength: number | null,
+): void {
+  if (state.osq === null || !state.osq.isCalibrated()) return
+  state.calibratedCount = calibratedCount
+  state.calibratedMeanLength = calibratedMeanLength
+  state.nextDriftCheckAt = Math.max(1, calibratedCount) * DRIFT_CHECK_GROWTH_FACTOR
 }
 
 export function recalibrateFromStore(state: VectorIndexState): void {
   if (state.osq === null) return
-  state.osq.recalibrate(liveOrdinals(state))
+  const ordinals = liveOrdinals(state)
+  state.osq.recalibrate(ordinals)
+  state.calibratedCount = ordinals.length
+  state.calibratedMeanLength = null
+  state.nextDriftCheckAt = Math.max(1, ordinals.length) * DRIFT_CHECK_GROWTH_FACTOR
 }
 
 export function fieldHandlesOf(

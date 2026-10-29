@@ -184,6 +184,11 @@ export function connectAfterRemoval(state: HNSWGraphState, nearby: Int32Array): 
   Atomics.store(state.header, GRAPH_UNLINKED_NODES, 0)
 }
 
+export function connectAfterBuild(state: HNSWGraphState): void {
+  connectThroughEitherCore(state, new Int32Array(0))
+  Atomics.store(state.header, GRAPH_UNLINKED_NODES, 0)
+}
+
 export function connectAfterPlacement(state: HNSWGraphState, holdsGraphLock: boolean): void {
   if (Atomics.load(state.header, GRAPH_UNLINKED_NODES) === 0) return
   if (!holdsGraphLock) lockGraphExclusive(state.locks)
