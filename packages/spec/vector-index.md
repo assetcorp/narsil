@@ -341,7 +341,7 @@ NativeSearchCore {
   place(graph, store, ordinal: int32, topLayer: int32, metric, threadSlot: uint32) -> 'placed' or 'needsRoom'
   remove(graph, ordinal: int32, threadSlot: uint32) -> nothing
   compact(graph, store, metric, threadSlot: uint32) -> nothing
-  calibrate(store, metric, ordinals: List<int32>) -> nothing
+  measure(store, metric, ordinals: List<int32>, totals: List<float64>) -> nothing
   quantise(store, metric, ordinals: List<int32>) -> nothing
 }
 
@@ -363,7 +363,7 @@ Before an implementation calls `place`, it must store the vector of `ordinal`, c
 
 `compact` must take every tombstoned node out of the graph, as [Removal](algorithms.md#removal) defines, and lower `nodeCount` and `tombstoneCount` by 1 for each node. An implementation must hold the graph alone, as [Locks](#locks) defines, while it calls `compact`, and `compact` must change the graph only while `graphLock` holds -1.
 
-`calibrate` must store the centroid of the vectors of `ordinals` in `centroid`, as [Centroid](algorithms.md#centroid) defines. It must then raise `calibrationGeneration` by 1 and store 1 in `calibrated`.
+`measure` must add the vector of each ordinal that the store holds to `totals`, which holds `dimension + 2` entries, and it must leave the store unchanged. Under the cosine metric it must add the vector after `unitNormalise`, as [Centroid](algorithms.md#centroid) defines, and under any other metric the vector itself. It must add each component to the matching entry among the first `dimension` entries, the sum of the squared components to entry `dimension`, and 1 to entry `dimension + 1`, and it must accumulate every entry in float64. To calibrate, an implementation must call `measure` over the vectors of the calibration and store the centroid of the totals in `centroid`, as [Centroid](algorithms.md#centroid) defines. It must then raise `calibrationGeneration` by 1 and store 1 in `calibrated`. An implementation that finds 0 in entry `dimension + 1` must skip calibration and leave `centroid`, `calibrationGeneration`, and `calibrated` unchanged.
 
 `quantise` must write the `OSQRecord` of each ordinal from its full-precision vector, as [Quantisation](algorithms.md#quantisation) defines. It must raise `codeCount` by 1 where the `codePresent` entry of that ordinal holds 0, and then store 1 in that entry.
 
