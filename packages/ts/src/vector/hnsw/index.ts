@@ -6,6 +6,7 @@ import type { VectorStore } from '../vector-store'
 import { adjacencySlots, graphBytes, hasNode } from './adjacency'
 import { COMPACTION_ABSOLUTE_THRESHOLD, COMPACTION_TOMBSTONE_RATIO } from './constants'
 import { createSharedGraphHandles, GRAPH_RETIRED, type SharedGraphHandles } from './handles'
+import { connectAfterBuild } from './connect-unreached'
 import { lockGraphExclusive, unlockGraphExclusive } from './locks'
 import {
   compactTombstones as compactTombstonesOp,
@@ -81,6 +82,7 @@ export interface HNSWIndex {
   entries(): IterableIterator<[string, VectorEntry]>
   compactionNeeded(): boolean
   compactTombstones(): void
+  connectUnreached(): void
   rebuild(): void
   /** Performs an operation that rewrites the graph in place while every other thread waits. */
   exclusively<T>(operation: () => T): T
@@ -235,6 +237,7 @@ export function createHNSWIndex(
     entries: entriesIterator,
     compactionNeeded,
     compactTombstones: () => exclusively(() => compactTombstonesOp(state)),
+    connectUnreached: () => exclusively(() => connectAfterBuild(state)),
     rebuild: () => exclusively(() => rebuildOp(state)),
     exclusively,
     deserialize: (data: SerializedHNSWGraph) => exclusively(() => deserializeGraph(state, store, data)),

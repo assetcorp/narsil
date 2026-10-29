@@ -18,6 +18,7 @@ import {
 } from './adjacency'
 import {
   baseNeighboursOfRemoved,
+  connectAfterBuild,
   connectAfterPlacement,
   connectAfterRemoval,
   countIncomingBeforeWriting,
@@ -371,4 +372,5 @@ export function rebuild(state: HNSWGraphState): void {
     if (!state.store.holdsOrdinal(ord)) continue
     insertNode(state, ord, true)
   }
+  connectAfterBuild(state)
 }
