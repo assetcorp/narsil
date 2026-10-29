@@ -15,13 +15,12 @@ import type { ClusterNodeConfig } from './types'
 import { resolvePartitionId } from './write-routing'
 
 export async function resolveNodeTargets(config: ClusterNodeConfig, targetNodeId: string): Promise<string[]> {
-  const targets = [targetNodeId]
   const nodes = await config.coordinator.listNodes()
   const registration = nodes.find(node => node.nodeId === targetNodeId)
-  if (registration !== undefined && registration.address.length > 0 && registration.address !== targetNodeId) {
-    targets.push(registration.address)
+  if (registration === undefined || registration.address.length === 0 || registration.address === targetNodeId) {
+    return [targetNodeId]
   }
-  return targets
+  return [registration.address, targetNodeId]
 }
 
 export async function sendToNode(
