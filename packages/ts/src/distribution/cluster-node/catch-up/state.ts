@@ -6,10 +6,15 @@ export interface ReplicaCursor {
   syncEpoch: number
 }
 
+export interface AdmittedReplica {
+  primaryTerm: number
+  tableVersion: number | null
+}
+
 export interface CatchUpState {
   cursors: Map<string, Map<string, ReplicaCursor>>
   pendingAdmissions: Map<string, Set<string>>
-  admittedReplicas: Map<string, Map<string, number>>
+  admittedReplicas: Map<string, Map<string, AdmittedReplica>>
   acknowledgedSeqNos: Map<string, Map<string, number>>
   inFlightBytes: number
   timer: ReturnType<typeof setInterval> | null
@@ -141,10 +146,11 @@ export function recordAdmittedReplica(
   partitionId: number,
   replicaNodeId: string,
   primaryTerm: number,
+  tableVersion: number | null,
 ): void {
   const key = partitionKey(indexName, partitionId)
-  const admitted = state.admittedReplicas.get(key) ?? new Map<string, number>()
-  admitted.set(replicaNodeId, primaryTerm)
+  const admitted = state.admittedReplicas.get(key) ?? new Map<string, AdmittedReplica>()
+  admitted.set(replicaNodeId, { primaryTerm, tableVersion })
   state.admittedReplicas.set(key, admitted)
 }
 
@@ -166,13 +172,15 @@ export function admittedBeyondTable(
   indexName: string,
   partitionId: number,
   assignment: PartitionAssignment,
+  tableVersion?: number,
 ): string[] {
   const admitted = state.admittedReplicas.get(partitionKey(indexName, partitionId))
   if (admitted === undefined) return []
   const beyond: string[] = []
-  for (const [replicaNodeId, primaryTerm] of [...admitted]) {
+  for (const [replicaNodeId, record] of [...admitted]) {
     const settled = assignment.inSyncSet.includes(replicaNodeId) || !assignment.replicas.includes(replicaNodeId)
-    if (settled || primaryTerm !== assignment.primaryTerm) {
+    const superseded = record.tableVersion !== null && tableVersion !== undefined && tableVersion >= record.tableVersion
+    if (settled || superseded || record.primaryTerm !== assignment.primaryTerm) {
       forgetAdmittedReplica(state, indexName, partitionId, replicaNodeId)
       continue
     }

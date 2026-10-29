@@ -192,7 +192,9 @@ async function pumpPartition(
     if (state.stopped) {
       return
     }
-    const admitted = admittedBeyondTable(state, indexName, partitionId, assignment).includes(replicaNodeId)
+    const admitted = admittedBeyondTable(state, indexName, partitionId, assignment, table?.version).includes(
+      replicaNodeId,
+    )
     if (!assignment.replicas.includes(replicaNodeId) || assignment.inSyncSet.includes(replicaNodeId) || admitted) {
       forgetReplica(state, indexName, partitionId, replicaNodeId)
       continue

@@ -28,6 +28,15 @@ async function sendToController(
   return false
 }
 
+async function versionAfterAdmission(deps: WriteRoutingDeps, indexName: string): Promise<number | null> {
+  if (deps.readLiveAllocation === undefined) return null
+  try {
+    return (await deps.readLiveAllocation(indexName))?.version ?? null
+  } catch (_) {
+    return null
+  }
+}
+
 function withTimeout<T>(work: Promise<T>, timeoutMs: number, fallback: T): Promise<T> {
   return new Promise<T>(resolve => {
     const timer = setTimeout(() => resolve(fallback), timeoutMs)
@@ -145,7 +154,14 @@ export async function requestClaimedAdmission(
     if (accepted && cursor.syncEpoch !== proposedEpoch) {
       await withTimeout(withdrawAdmission(payload, controllerNodeId, deps), ADMISSION_TIMEOUT_MS, undefined)
     } else if (accepted) {
-      recordAdmittedReplica(state, indexName, partitionId, replicaNodeId, assignment.primaryTerm)
+      recordAdmittedReplica(
+        state,
+        indexName,
+        partitionId,
+        replicaNodeId,
+        assignment.primaryTerm,
+        await versionAfterAdmission(deps, indexName),
+      )
     }
   } finally {
     clearPendingAdmission(state, indexName, partitionId, replicaNodeId)
