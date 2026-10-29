@@ -72,7 +72,7 @@ A node whose handler fails a request must answer with a message whose `type` is 
 }
 ```
 
-When a primary refuses a forwarded mutation, the node that forwarded it must pass the primary's `code`, `message`, and `details` to the client.
+When a primary refuses a forwarded mutation, the node that forwarded it must pass the primary's `code`, `message`, and `details` to the client, except that it first retries a `PARTITION_NOT_PRIMARY` refusal for up to 30,000 ms. Where the refusal's details carry `heldIndexUuid`, the receiver still holds an earlier index of that name, so the forwarding node retries after a delay that starts at 50 ms and doubles up to 1,000 ms, and it reads the allocation table again before each attempt. Otherwise it retries once the allocation table names another primary or a higher `primaryTerm` for the partition. It passes the last refusal to the client when the window ends, and it retries each refused result of a batch in the same way.
 
 ### Replication Messages
 
@@ -149,7 +149,7 @@ A client mutation forwarded to the partition's primary. The primary turns it int
 
 The primary handles each operation differently. An `insert` generates the embeddings when the index configures them and then writes an `INDEX` entry. An `update` reads the existing document, merges `updateFields`, generates any embeddings that changed, and writes an `INDEX` entry. An `update` whose `document` is present and whose `updateFields` is absent replaces the stored document whole. A `remove` writes a `DELETE` entry.
 
-A receiver that holds its copy of the partition under an `indexUuid` other than the one a request carries must refuse the request, because the name now belongs to another index: a forward with `PARTITION_NOT_PRIMARY`, a replication entry or batch with `INDEX_NOT_FOUND`, and a sync request with `SNAPSHOT_SYNC_INDEX_NOT_FOUND`. Where the request carries no `indexUuid`, the receiver skips this check.
+A receiver that holds its copy of the partition under an `indexUuid` other than the one a request carries must refuse the request, because the name now belongs to another index: a forward with `PARTITION_NOT_PRIMARY`, a replication entry or batch with `INDEX_NOT_FOUND`, and a sync request with `SNAPSHOT_SYNC_INDEX_NOT_FOUND`. Where the request carries no `indexUuid`, the receiver skips this check. A forward refusal of this kind must carry `heldIndexUuid`, the `indexUuid` of the copy that the receiver holds, in its details.
 
 ### replication.forward_batch
 
