@@ -108,7 +108,9 @@ function placementDistance(
 ): (candOrd: number) => number {
   const quantizer = state.quantizer
   if (quantizer === undefined || !buildsFromCodes(state)) return fullPrecision
-  return quantizer.placementDistance(vector) ?? fullPrecision
+  if (state.store.handles.vectorFiles.length > 0) return quantizer.placementDistance(vector) ?? fullPrecision
+  const prepared = quantizer.prepareQuery(vector)
+  return prepared === null ? fullPrecision : quantizer.preparedDistance(prepared)
 }
 
 function selectNeighborsPerLayer(state: HNSWGraphState, ord: number, level: number): number {
