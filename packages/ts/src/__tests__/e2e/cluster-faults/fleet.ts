@@ -55,6 +55,8 @@ export interface Fleet {
   resume(slot: number): void
   isolate(slot: number): void
   reconnect(slot: number): void
+  cutCoordinator(slot: number): void
+  healCoordinator(slot: number): void
   stopAll(): Promise<void>
   remove(): Promise<void>
 }
@@ -207,6 +209,12 @@ export async function startFleet(
       const entry = slotAt(slot)
       entry.transportProxy.heal()
       for (const proxy of entry.etcdProxies) proxy.heal()
+    },
+    cutCoordinator(slot) {
+      for (const proxy of slotAt(slot).etcdProxies) proxy.cut()
+    },
+    healCoordinator(slot) {
+      for (const proxy of slotAt(slot).etcdProxies) proxy.heal()
     },
     async stopAll() {
       for (const entry of slots) await stopOne(entry)
