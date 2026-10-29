@@ -60,6 +60,34 @@ function promotionCandidate(
   )
 }
 
+function neverReachedActive(assignment: PartitionAssignment): boolean {
+  return assignment.state === 'INITIALISING' && lastHoldersOf(assignment).length === 0
+}
+
+function restartAsEmptyCopy(
+  assignment: PartitionAssignment,
+  activeNodeIds: Set<string>,
+  drainingNodeIds: ReadonlySet<string>,
+  primaryCounts: Map<string, number>,
+  shares: Map<string, number>,
+): void {
+  const placeable = (id: string) => activeNodeIds.has(id) && !drainingNodeIds.has(id)
+  const others = [...activeNodeIds]
+    .filter(id => placeable(id) && !assignment.replicas.includes(id))
+    .sort(compareCodePoints)
+  const chosen =
+    leastLoadedCandidate(assignment.replicas.filter(placeable), primaryCounts, shares) ??
+    leastLoadedCandidate(others, primaryCounts, shares)
+  if (chosen === undefined) return
+  primaryCounts.set(chosen, (primaryCounts.get(chosen) ?? 0) + 1)
+  assignment.primary = chosen
+  assignment.replicas = assignment.replicas.filter(id => id !== chosen && activeNodeIds.has(id))
+  assignment.inSyncSet = []
+  assignment.primaryTerm += 1
+  delete assignment.lastHolders
+  delete assignment.removingReplicas
+}
+
 function keepRemovingReplicasHeld(assignment: PartitionAssignment): void {
   const removing = assignment.removingReplicas?.filter(id => assignment.replicas.includes(id)) ?? []
   if (removing.length > 0) {
@@ -86,6 +114,11 @@ export function handleLostNodes(
     const lastPrimary = assignment.primary
     const lastInSyncSet = [...assignment.inSyncSet]
     const primaryWasLost = lastPrimary !== null && !activeNodeIds.has(lastPrimary)
+
+    if (primaryWasLost && neverReachedActive(assignment)) {
+      restartAsEmptyCopy(assignment, activeNodeIds, drainingNodeIds, primaryCounts, shares)
+      continue
+    }
 
     if (primaryWasLost) {
       assignment.primary = null
