@@ -40,7 +40,7 @@ export async function rollbackRemovedDocument(
   restoreDoc: AnyDocument | undefined,
   originalError: unknown,
 ): Promise<void> {
-  if (restoreDoc === undefined) {
+  if (restoreDoc === undefined || ctx.requireManager(indexName).has(docId)) {
     return
   }
   try {
