@@ -142,6 +142,53 @@ uint32_t select_neighbours(const walk_context *context, scored_list *candidates,
   return keep_farthest_rejected(candidates, limit, selected, count);
 }
 
+static int holds_its_last_link(const walk_context *context, int32_t layer, int32_t ordinal) {
+  return layer == 0 && is_live(context, ordinal) && incoming_count(context, ordinal) <= 1;
+}
+
+static int lies_nearer_a_closer_link(const walk_context *context, const scored_list *sorted, uint32_t slot) {
+  int32_t ordinal = sorted->ordinals[slot];
+  for (uint32_t closer = 0; closer < slot; closer++) {
+    if (pair_distance(context, ordinal, sorted->ordinals[closer]) < sorted->distances[slot]) { return 1; }
+  }
+  return 0;
+}
+
+static int release_layer_zero_link(const walk_context *context, int32_t ordinal) {
+  if (!is_live(context, ordinal)) {
+    note_unlinked(context, ordinal);
+    return 1;
+  }
+  return release_unless_last(context, ordinal);
+}
+
+static uint32_t link_to_remove(const walk_context *context, const scored_list *sorted, int32_t layer) {
+  for (uint32_t slot = sorted->count - 1; slot > 0; slot--) {
+    if (holds_its_last_link(context, layer, sorted->ordinals[slot])) { continue; }
+    if (!lies_nearer_a_closer_link(context, sorted, slot)) { continue; }
+    if (layer > 0 || release_layer_zero_link(context, sorted->ordinals[slot])) { return slot; }
+  }
+  for (uint32_t slot = sorted->count - 1; slot > 0; slot--) {
+    if (holds_its_last_link(context, layer, sorted->ordinals[slot])) { continue; }
+    if (layer > 0 || release_layer_zero_link(context, sorted->ordinals[slot])) { return slot; }
+  }
+  uint32_t farthest = sorted->count - 1;
+  if (layer == 0) {
+    note_unlinked(context, sorted->ordinals[farthest]);
+    note_node_left_unlinked(context);
+  }
+  return farthest;
+}
+
+static void remove_one_link(const walk_context *context, scored_list *sorted, int32_t layer) {
+  uint32_t removed = link_to_remove(context, sorted, layer);
+  for (uint32_t slot = removed; slot + 1 < sorted->count; slot++) {
+    sorted->ordinals[slot] = sorted->ordinals[slot + 1];
+    sorted->distances[slot] = sorted->distances[slot + 1];
+  }
+  sorted->count -= 1;
+}
+
 void list_prune(const walk_context *context, node_layer position) {
   uint32_t capacity = 0;
   int32_t *list = list_at(context, position, &capacity);
@@ -162,14 +209,9 @@ void list_prune(const walk_context *context, node_layer position) {
     candidates->distances[candidates->count] = distance;
     candidates->count += 1;
   }
-  uint32_t kept = select_neighbours(context, candidates, limit, context->workspace->kept);
-  if (position.layer == 0) {
-    held_links every_candidate = {NULL, 0, 1};
-    (void)write_keeping_last_links(context, position.ordinal, candidates, context->workspace->kept, kept,
-                                   every_candidate);
-    return;
-  }
-  list_replace(context, position, context->workspace->kept, kept);
+  list_sort_nearest_first(candidates);
+  while (candidates->count > limit) { remove_one_link(context, candidates, position.layer); }
+  list_replace(context, position, candidates->ordinals, candidates->count);
 }
 
 int32_t highest_node(const walk_context *context, int include_tombstoned) {
