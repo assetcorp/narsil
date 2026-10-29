@@ -50,6 +50,10 @@ function makeAllocationTable(
   }
 }
 
+async function nextVersion(coordinator: ClusterCoordinator, indexName: string): Promise<number> {
+  return ((await coordinator.getAllocation(indexName))?.version ?? 0) + 1
+}
+
 function docIdForPartition(partitionId: number, partitionCount: number, prefix = 'doc'): string {
   for (let i = 0; i < 10_000; i += 1) {
     const candidate = `${prefix}-${partitionId}-${i}`
@@ -174,7 +178,10 @@ describe('cluster-node live replication', () => {
     for (let i = 0; i < 5; i += 1) {
       primaryOnlyAssignments.set(i, makeAssignment({ primary: 'node-a', state: 'ACTIVE' }))
     }
-    await coordinator.putAllocation('products', makeAllocationTable('products', primaryOnlyAssignments))
+    await coordinator.putAllocation(
+      'products',
+      makeAllocationTable('products', primaryOnlyAssignments, await nextVersion(coordinator, 'products')),
+    )
 
     const initialAllocation = await coordinator.getAllocation('products')
     if (initialAllocation === null) {
@@ -207,11 +214,14 @@ describe('cluster-node live replication', () => {
           primary: 'node-a',
           replicas: ['node-b'],
           inSyncSet: [],
-          state: 'INITIALISING',
+          state: 'ACTIVE',
         }),
       )
     }
-    await coordinator.putAllocation('products', makeAllocationTable('products', replicaAssignments, 2))
+    await coordinator.putAllocation(
+      'products',
+      makeAllocationTable('products', replicaAssignments, await nextVersion(coordinator, 'products')),
+    )
 
     const metadataCheck = await fetchSnapshotFromAnyTarget(
       'products',
