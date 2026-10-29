@@ -1,13 +1,15 @@
 import type { VectorMetric } from '../brute-force'
+import type { OsqQuantizer } from '../osq'
 import {
-  addToCentroidSums,
   type CentroidSums,
   centroidOfCentroidSums,
+  countOfCentroidSums,
   createCentroidSums,
   meanOfCentroidSums,
+  squaredLengthsOfCentroidSums,
 } from '../osq/quantize'
 import { DRIFT_CHECK_GROWTH_FACTOR, RECALIBRATION_CHUNK_VECTORS } from './constants'
-import { type VectorIndexState, yieldBuildTurn } from './shared'
+import { liveOrdinals, type VectorIndexState, yieldBuildTurn } from './shared'
 
 export interface LiveVectorMean {
   readonly centroid: Float32Array
@@ -21,27 +23,28 @@ function liveVectorMeanOf(sums: CentroidSums): LiveVectorMean | null {
   const centroid = centroidOfCentroidSums(sums)
   if (centroid === null) return null
   const mean = meanOfCentroidSums(sums)
+  const count = countOfCentroidSums(sums)
   let meanSquares = 0
   for (let i = 0; i < mean.length; i++) meanSquares += mean[i] * mean[i]
   return {
     centroid,
     mean,
     meanLength: Math.sqrt(meanSquares),
-    count: sums.count,
-    spread: Math.sqrt(Math.max(0, sums.squaredLengths / sums.count - meanSquares)),
+    count,
+    spread: Math.sqrt(Math.max(0, squaredLengthsOfCentroidSums(sums) / count - meanSquares)),
   }
 }
 
-export async function measureLiveVectors(state: VectorIndexState): Promise<LiveVectorMean | null> {
+export async function measureLiveVectors(
+  state: VectorIndexState,
+  quantizer: OsqQuantizer,
+): Promise<LiveVectorMean | null> {
   const sums = createCentroidSums(state.dimension, state.metric)
-  for (let ordinal = 0; ordinal < state.store.slots; ordinal++) {
-    if (state.disposed) return null
-    const docId = state.store.docIdForOrdinal(ordinal)
-    if (docId === undefined || state.tombstones.has(docId)) continue
-    const entry = state.store.entryForOrdinal(ordinal)
-    if (entry === undefined) continue
-    addToCentroidSums(sums, entry.vector)
-    if (sums.count % RECALIBRATION_CHUNK_VECTORS === 0) await yieldBuildTurn(state)
+  const ordinals = liveOrdinals(state)
+  for (let start = 0; start < ordinals.length; start += RECALIBRATION_CHUNK_VECTORS) {
+    if (start > 0) await yieldBuildTurn(state)
+    if (state.disposed || state.osq !== quantizer) return null
+    quantizer.measure(ordinals.subarray(start, start + RECALIBRATION_CHUNK_VECTORS), sums)
   }
   return liveVectorMeanOf(sums)
 }

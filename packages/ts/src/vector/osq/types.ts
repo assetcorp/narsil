@@ -1,5 +1,5 @@
 import type { VectorMetric } from '../brute-force'
-import type { OsqBits } from './quantize'
+import type { CentroidSums, OsqBits } from './quantize'
 import type { OsqTrailer } from './record'
 
 export interface OsqQuery extends OsqTrailer {
@@ -31,6 +31,8 @@ export interface OsqQuantizer extends QuantizerBuildReader {
   readonly centroid: Float32Array | null
   /** Computes the centroid from the stored vectors of the given ordinals and marks the field calibrated. */
   calibrate(ordinals: Int32Array): void
+  /** Adds the stored vectors of the given ordinals to the running sums, reading each vector once. */
+  measure(ordinals: Int32Array, sums: CentroidSums): void
   /** Quantizes a document's stored vector and writes its record, after calibrating from that vector where the field holds no centroid. */
   quantize(docId: string): void
   remove(docId: string): void
