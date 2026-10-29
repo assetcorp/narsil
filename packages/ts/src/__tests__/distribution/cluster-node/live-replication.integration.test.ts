@@ -271,7 +271,11 @@ describe('cluster-node live replication', () => {
         }),
       )
     }
-    await coordinator.putAllocation('products', makeAllocationTable('products', assignments))
+    const stored = await coordinator.getAllocation('products')
+    await coordinator.putAllocation('products', {
+      ...makeAllocationTable('products', assignments, (stored?.version ?? 0) + 1),
+      ...(stored?.indexUuid !== undefined ? { indexUuid: stored.indexUuid } : {}),
+    })
 
     const docId = docIdForPartition(0, assignments.size)
     await nodeA.insert('products', { title: 'Replica Failure Survivable' }, docId)
