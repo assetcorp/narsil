@@ -388,6 +388,7 @@ The `primaryTerm` keeps a primary that lost its lease from corrupting a partitio
 - A primary cut off from the network cannot renew its lease, and the controller promotes a new primary with a higher `primaryTerm`.
 - The old primary that comes back and tries to replicate entries is rejected by the replicas, because its `primaryTerm` is stale.
 - The old primary then reads the higher `primaryTerm` from the allocation table, demotes itself, and syncs from the new primary.
+- A primary must refuse every write with `PARTITION_NOT_PRIMARY` once its node lease TTL, less a margin for clock drift, has passed since it sent the last lease renewal that the cluster coordinator accepted, because the controller may already have promoted another copy, and no replica sees a write that the primary refuses from its own copy.
 
 ---
 
