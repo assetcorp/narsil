@@ -70,18 +70,12 @@ export function createDirectExecutor(
     const vectorFields = extractVectorFieldsFromSchema(config.schema)
     if (vectorFields.size === 0) return vectorIndexes
     const { createVectorIndex } = requireLoadedVectorCode()
+    const promotion = config.vectorPromotion
+    const storage = promotion?.storage ?? vectorStorage
+    const repaired = (): void => options?.onVectorGraphRepaired?.(indexName)
     for (const [fieldPath, dim] of vectorFields) {
-      vectorIndexes.set(
-        fieldPath,
-        createVectorIndex(
-          fieldPath,
-          dim,
-          config.vectorPromotion,
-          copies,
-          indexName,
-          config.vectorPromotion?.storage ?? vectorStorage,
-        ),
-      )
+      const index = createVectorIndex(fieldPath, dim, promotion, copies, indexName, storage, repaired)
+      vectorIndexes.set(fieldPath, index)
     }
     return vectorIndexes
   }

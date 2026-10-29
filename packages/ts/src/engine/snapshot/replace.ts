@@ -192,4 +192,7 @@ export async function installRestoredIndex(indexName: string, restored: Restored
   }
   if (replaced !== undefined) await deps.announceIndexDropped(indexName, replaced.config)
   await deps.announceIndexCreated(indexName, restored.prepared.config)
+  for (const vectorIndex of restored.detached.manager.getVectorIndexes().values()) {
+    vectorIndex.startShuffledRebuildWhenDue()
+  }
 }

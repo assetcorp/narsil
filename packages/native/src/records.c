@@ -2,7 +2,6 @@
 
 #include "../include/narsil_core.h"
 
-#include <math.h>
 #include <stdatomic.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -21,46 +20,31 @@ static narsil_status begin_record_work(narsil_workspace *workspace, const narsil
   return workspace_reserve_dimension(workspace, store->dimension);
 }
 
-static uint32_t sum_vectors(narsil_workspace *workspace, const narsil_store *store,
-                            const narsil_ordinals_request *request, double *sums) {
-  uint32_t summed = 0;
+narsil_status narsil_measure(narsil_workspace *workspace, const narsil_store *store,
+                             const narsil_ordinals_request *request, double *totals) {
+  if (totals == NULL) { return NARSIL_INVALID_ARGUMENT; }
+  narsil_status status = begin_record_work(workspace, store, request);
+  if (status != NARSIL_OK) { return status; }
+  double squared_lengths = totals[store->dimension];
   for (uint32_t i = 0; i < request->count; i++) {
     const float *vector = stored_vector(store, request->ordinals[i], workspace->stored_vector);
     if (vector == NULL) { continue; }
     if (request->metric == NARSIL_METRIC_COSINE) {
       normalise_into(workspace->normalised, vector, store->dimension);
-      for (uint32_t axis = 0; axis < store->dimension; axis++) { sums[axis] += workspace->normalised[axis]; }
+      for (uint32_t axis = 0; axis < store->dimension; axis++) {
+        totals[axis] += workspace->normalised[axis];
+        squared_lengths += workspace->normalised[axis] * workspace->normalised[axis];
+      }
     } else {
-      for (uint32_t axis = 0; axis < store->dimension; axis++) { sums[axis] += (double)vector[axis]; }
+      for (uint32_t axis = 0; axis < store->dimension; axis++) {
+        double value = (double)vector[axis];
+        totals[axis] += value;
+        squared_lengths += value * value;
+      }
     }
-    summed += 1;
+    totals[store->dimension + 1] += 1;
   }
-  return summed;
-}
-
-static void store_centroid(const narsil_store *store, uint32_t metric, double *sums, uint32_t summed) {
-  double squares = 0;
-  for (uint32_t axis = 0; axis < store->dimension; axis++) {
-    sums[axis] /= summed;
-    squares += sums[axis] * sums[axis];
-  }
-  double length = metric == NARSIL_METRIC_COSINE ? sqrt(squares) : 0;
-  for (uint32_t axis = 0; axis < store->dimension; axis++) {
-    store->centroid[axis] = (float)(length == 0 ? sums[axis] : sums[axis] / length);
-  }
-}
-
-narsil_status narsil_calibrate(narsil_workspace *workspace, const narsil_store *store,
-                               const narsil_ordinals_request *request) {
-  narsil_status status = begin_record_work(workspace, store, request);
-  if (status != NARSIL_OK) { return status; }
-  double *sums = workspace->centred;
-  memset(sums, 0, (size_t)store->dimension * sizeof *sums);
-  uint32_t summed = sum_vectors(workspace, store, request, sums);
-  if (summed == 0) { return NARSIL_OK; }
-  store_centroid(store, request->metric, sums, summed);
-  atomic_fetch_add(atomic_word(store->header, NARSIL_STORE_WORD_CALIBRATION_GENERATION), 1);
-  atomic_store(atomic_word(store->header, NARSIL_STORE_WORD_CALIBRATED), 1);
+  totals[store->dimension] = squared_lengths;
   return NARSIL_OK;
 }
 

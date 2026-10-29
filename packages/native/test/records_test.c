@@ -11,7 +11,8 @@
 #define TRAILER_LOWER_OFFSET 0
 #define TRAILER_UPPER_OFFSET 4
 #define TRAILER_SUM_OFFSET 12
-#define CENTROID_TOLERANCE 1e-5
+#define TOTAL_TOLERANCE 1e-6
+#define MEASURE_TOTALS_PAST_DIMENSION 2
 #define EIGHT_BIT_MEAN_ERROR_CEILING 0.02
 #define NEAREST_IS_ITSELF_FLOOR ((NODES * 8) / 10)
 
@@ -65,16 +66,37 @@ static void check_one_record(const test_fixture *fixture, uint32_t bits, int32_t
   }
 }
 
-static void check_the_centroid(const test_fixture *fixture) {
+static void check_the_totals(const test_fixture *fixture, const double *totals) {
+  double squares = 0;
   for (uint32_t axis = 0; axis < DIMENSION; axis++) {
-    double mean = 0;
+    double sum = 0;
     for (int32_t node = 0; node < NODES; node++) {
-      mean += (double)fixture->vectors[((size_t)node * fixture_vector_stride_floats()) + axis];
+      double value = (double)fixture->vectors[((size_t)node * fixture_vector_stride_floats()) + axis];
+      sum += value;
+      squares += value * value;
     }
-    mean /= NODES;
-    check(fabs(mean - (double)fixture->centroid[axis]) < CENTROID_TOLERANCE,
-          "calibrate stores the mean of the vectors");
+    check(fabs(sum - totals[axis]) < TOTAL_TOLERANCE, "measure adds up each axis of the vectors");
   }
+  check(fabs(squares - totals[DIMENSION]) < TOTAL_TOLERANCE, "measure adds up the squared lengths of the vectors");
+  check(totals[DIMENSION + 1] == NODES, "measure counts each vector it reads");
+}
+
+static void calibrate_from_totals(test_fixture *fixture, const double *totals) {
+  for (uint32_t axis = 0; axis < DIMENSION; axis++) {
+    fixture->centroid[axis] = (float)(totals[axis] / totals[DIMENSION + 1]);
+  }
+  fixture->store_header[NARSIL_STORE_WORD_CALIBRATION_GENERATION] += 1;
+  fixture->store_header[NARSIL_STORE_WORD_CALIBRATED] = 1;
+}
+
+static void measure_twice_into_one_total(narsil_workspace *workspace, test_fixture *fixture) {
+  double halves[DIMENSION + MEASURE_TOTALS_PAST_DIMENSION] = {0};
+  narsil_ordinals_request first = {NARSIL_METRIC_EUCLIDEAN, every_ordinal, NODES / 2};
+  narsil_ordinals_request rest = {NARSIL_METRIC_EUCLIDEAN, every_ordinal + (NODES / 2), NODES - (NODES / 2)};
+  check(narsil_measure(workspace, &fixture->store, &first, halves) == NARSIL_OK &&
+            narsil_measure(workspace, &fixture->store, &rest, halves) == NARSIL_OK,
+        "measure returns NARSIL_OK for each part of the ordinals");
+  check_the_totals(fixture, halves);
 }
 
 static int nearest_is_itself(narsil_workspace *workspace, test_fixture *fixture, int32_t node) {
@@ -110,11 +132,14 @@ static void write_records_of_one_width(narsil_workspace *workspace, uint32_t bit
   narsil_ordinals_request request = {NARSIL_METRIC_EUCLIDEAN, every_ordinal, NODES};
   check(narsil_quantise(workspace, &fixture->store, &request) == NARSIL_INVALID_ARGUMENT,
         "quantise refuses a store that holds no calibration");
-  check(narsil_calibrate(workspace, &fixture->store, &request) == NARSIL_OK, "calibrate returns NARSIL_OK");
-  check(fixture->store_header[NARSIL_STORE_WORD_CALIBRATED] == 1, "calibrate stores 1 in calibrated");
-  check(fixture->store_header[NARSIL_STORE_WORD_CALIBRATION_GENERATION] == 1,
-        "calibrate raises calibrationGeneration by 1");
-  check_the_centroid(fixture);
+  double totals[DIMENSION + MEASURE_TOTALS_PAST_DIMENSION] = {0};
+  check(narsil_measure(workspace, &fixture->store, &request, totals) == NARSIL_OK, "measure returns NARSIL_OK");
+  check(fixture->store_header[NARSIL_STORE_WORD_CALIBRATED] == 0, "measure leaves the store uncalibrated");
+  check_the_totals(fixture, totals);
+  measure_twice_into_one_total(workspace, fixture);
+  check(narsil_measure(workspace, &fixture->store, &request, NULL) == NARSIL_INVALID_ARGUMENT,
+        "measure refuses a call without totals");
+  calibrate_from_totals(fixture, totals);
 
   check(narsil_quantise(workspace, &fixture->store, &request) == NARSIL_OK, "quantise returns NARSIL_OK");
   check(narsil_quantise(workspace, &fixture->store, &request) == NARSIL_OK, "quantise rewrites a record");
@@ -132,8 +157,9 @@ static void refuse_a_store_without_codes(narsil_workspace *workspace) {
   check(fixture != NULL, "the fixture has its memory");
   if (fixture == NULL) { return; }
   narsil_ordinals_request request = {NARSIL_METRIC_COSINE, every_ordinal, NODES};
-  check(narsil_calibrate(workspace, &fixture->store, &request) == NARSIL_INVALID_ARGUMENT,
-        "calibrate refuses a store that keeps no codes");
+  double totals[DIMENSION + MEASURE_TOTALS_PAST_DIMENSION] = {0};
+  check(narsil_measure(workspace, &fixture->store, &request, totals) == NARSIL_INVALID_ARGUMENT,
+        "measure refuses a store that keeps no codes");
   release_fixture(fixture);
 }
 

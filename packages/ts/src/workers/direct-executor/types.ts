@@ -70,4 +70,5 @@ export interface DirectExecutorOptions {
   threadSlot?: number
   /** A vector field whose configuration names no storage keeps its full-precision vectors here. */
   vectorStorage?: VectorStorageMode
+  onVectorGraphRepaired?: (indexName: string) => void
 }

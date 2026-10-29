@@ -110,7 +110,7 @@ An implementation must accept an `oversample` that is a finite number of at leas
 
 ### optimize()
 
-`optimize` restructures the index for faster search. A segment-based implementation merges several graphs into fewer, larger ones, while a single-graph implementation folds its buffered vectors into the graph. A single-graph implementation must rebuild the graph once callers remove more than a fifth of its vectors. A quantised index must recalibrate its quantiser whenever `optimize` rebuilds or merges a graph, because the centroid of the merged vectors can differ from the centroid of each part.
+`optimize` restructures the index for faster search. A segment-based implementation merges several graphs into fewer, larger ones, while a single-graph implementation folds its buffered vectors into the graph. A single-graph implementation must rebuild the graph once callers remove more than a fifth of its vectors. A quantised index must recalibrate its quantiser whenever `optimize` rebuilds or merges a graph, because the centroid of the merged vectors can differ from the centroid of each part. It must also recalibrate before every shuffled rebuild that [Insertion Order](#insertion-order) requires.
 
 A caller should expect latency proportional to the total vector count. An implementation must release the processor during the operation, so a single-threaded runtime must yield between chunks and a runtime with threads may do the work in the background.
 
@@ -296,7 +296,7 @@ VectorIndexConfig {
 
 An `osq8`, `osq4`, `osq2`, or `osq1` index stores eight, four, two, or one bits per dimension, as [Optimised Scalar Quantisation (OSQ)](algorithms.md#optimised-scalar-quantisation-osq) defines. An index whose `quantization` is `none` stores no code. When `quantization` is absent, an implementation must use `osq4` at 384 dimensions and above and `osq8` below 384.
 
-A quantised index calibrates its quantiser once its vector count reaches the HNSW promotion threshold, and it calibrates again when `optimize` rebuilds or merges a graph. A quantised index places a new vector in the graph by scoring it as a query against the codes of its neighbours.
+A quantised index calibrates its quantiser once its vector count reaches the HNSW promotion threshold. It calibrates again whenever `optimize` rebuilds or merges a graph, and before every shuffled rebuild that [Insertion Order](#insertion-order) requires. Once its quantiser is calibrated, a graph must place, remove, and repair with codes, whether its vectors sit in memory or in a file. It must score each candidate for a new vector against the codes by quantising the new vector: to the field's query width where its vectors sit in memory, and, where a file holds them, to 8-bit levels for a 4-bit code and to the field's query width for any other code. It must treat a candidate that holds no code as farther than every candidate that holds one. It must score every pair that `selectNeighbours`, `keepLastLinks`, a removal, and `connectUnreached` compare as one code against another, and it takes a pair's distance from the full-precision vectors only where one of the two vectors holds no code.
 
 ---
 
@@ -353,7 +353,7 @@ NativeSearchCore {
   place(graph, store, ordinal: int32, topLayer: int32, metric, threadSlot: uint32) -> 'placed' or 'needsRoom'
   remove(graph, ordinal: int32, threadSlot: uint32) -> nothing
   compact(graph, store, metric, threadSlot: uint32) -> nothing
-  calibrate(store, metric, ordinals: List<int32>) -> nothing
+  measure(store, metric, ordinals: List<int32>, totals: List<float64>) -> nothing
   quantise(store, metric, ordinals: List<int32>) -> nothing
 }
 
@@ -375,7 +375,7 @@ Before an implementation calls `place`, it must store the vector of `ordinal`, c
 
 `compact` must take every tombstoned node out of the graph, as [Removal](algorithms.md#removal) defines, and lower `nodeCount` and `tombstoneCount` by 1 for each node. An implementation must hold the graph alone, as [Locks](#locks) defines, while it calls `compact`, and `compact` must change the graph only while `graphLock` holds -1.
 
-`calibrate` must store the centroid of the vectors of `ordinals` in `centroid`, as [Centroid](algorithms.md#centroid) defines. It must then raise `calibrationGeneration` by 1 and store 1 in `calibrated`.
+`measure` must add the vector of each ordinal that the store holds to `totals`, which holds `dimension + 2` entries, and it must leave the store unchanged. Under the cosine metric it must add the vector after `unitNormalise`, as [Centroid](algorithms.md#centroid) defines, and under any other metric the vector itself. It must add each component to the matching entry among the first `dimension` entries, the sum of the squared components to entry `dimension`, and 1 to entry `dimension + 1`, and it must accumulate every entry in float64. To calibrate, an implementation must call `measure` over the vectors of the calibration and store the centroid of the totals in `centroid`, as [Centroid](algorithms.md#centroid) defines. It must then raise `calibrationGeneration` by 1 and store 1 in `calibrated`. An implementation that finds 0 in entry `dimension + 1` must skip calibration and leave `centroid`, `calibrationGeneration`, and `calibrated` unchanged.
 
 `quantise` must write the `OSQRecord` of each ordinal from its full-precision vector, as [Quantisation](algorithms.md#quantisation) defines. It must raise `codeCount` by 1 where the `codePresent` entry of that ordinal holds 0, and then store 1 in that entry.
 
@@ -549,6 +549,26 @@ After promotion, an implementation must add each new vector to the graph in one 
 
 Incremental insertion loses throughput as the index grows, because every insert walks the graph. Buffered and segment-based insertion keep insert throughput steady, and each search does more work in exchange.
 
+### Insertion Order
+
+An application can insert its vectors in groups of close neighbours, such as the passages of one file followed by the passages of the next. When a builder places vectors in that order, it can link most of them only to vectors from their own group, so a search can miss a vector that a brute-force scan ranks first.
+
+An implementation must therefore insert the vectors in a shuffled order whenever it builds a graph from every vector, which includes promotion and every rebuild that `optimize` performs. After that build, the implementation adds each new vector in the order that it arrives, through one of the ways in [Post-Promotion Insertion](#post-promotion-insertion). A quantised index must measure the drift of its vectors, as [Calibration Drift](#calibration-drift) defines, each time the vectors that remain after removals reach twice the count of its last calibration, and again at each further doubling. When the drift passes 2.5, the implementation must recalibrate its quantiser and rebuild the graph in a shuffled order.
+
+A quantised index must recalibrate its quantiser from every vector before each of those rebuilds, because at promotion it calibrated from the vectors that had arrived by then, and those can come from a few groups. The implementation must keep every search available while it rebuilds, as the [Promotion Contract](#promotion-contract) requires during promotion.
+
+#### Calibration Drift
+
+```
+drift = distance(mean(live), mean(calibration)) / spread(live) / sqrt(1 / count(calibration) - 1 / count(live))
+```
+
+`live` is the set of vectors that remain after removals, and `calibration` is the set that the quantiser last calibrated from. Under cosine, `mean` is the plain mean of the unit vectors, and under any other metric it is the plain mean of the vectors. `spread` is the root-mean-square distance of those vectors from `mean(live)`. Under a random arrival order the drift stays close to 1, because `spread(live) * sqrt(1 / count(calibration) - 1 / count(live))` is the distance that the means of two nested random samples of those sizes keep from each other on average.
+
+Under cosine, an implementation takes `mean(calibration)` as the stored centroid multiplied by `calibratedMeanLength`, and under any other metric as the stored centroid. Where `calibratedMeanLength` is absent, it multiplies the centroid by the length of `mean(live)`, which compares directions alone. A reader takes `shuffledBuildCount` as `count(calibration)`.
+
+An implementation must keep every search and every write available while it recalibrates. It must compute each new code against the new centroid in a copy that no search reads, compute a new code in that copy for each vector that arrives meanwhile, and hold the graph exclusively only while it puts the new codes and the new centroid in place.
+
 ---
 
 ## Serialisation
@@ -571,7 +591,7 @@ Every implementation must read a vector graph payload that holds any number of g
 
 ### Deserialisation Strategy
 
-An implementation may choose what it does with the graphs that it loads. It may search each graph independently and merge the results, merge every graph into one on load, or keep the large graphs separate while it merges the small ones. The recall floors in [Cross-Implementation Result Equivalence](#cross-implementation-result-equivalence) apply whichever strategy an implementation chooses.
+An implementation may choose what it does with the graphs that it loads. It may search each graph independently and merge the results, merge every graph into one on load, or keep the large graphs separate while it merges the small ones. When an implementation loads a graph that has no `shuffledBuildCount`, as [Vector Graph Payload](envelope.md#vector-graph-payload) defines, it must rebuild that graph once in a shuffled order, recalibrating first where the index is quantised, while every search stays available. It must write the field at the first save after that rebuild. The recall floors in [Cross-Implementation Result Equivalence](#cross-implementation-result-equivalence) apply whichever strategy an implementation chooses.
 
 ---
 

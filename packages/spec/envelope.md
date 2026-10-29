@@ -309,21 +309,27 @@ A version 2 vector graph payload is a MessagePack map:
 }
 
 NumberedHnswGraph {
-  entryPoint:     uint32 or nil   (the number of the vector where every search starts)
-  maxLayer:       uint8
-  m:              uint16
-  efConstruction: uint16
-  metric:         string
-  levels:         bytes           (one uint8 per vector that the part covers)
-  neighbours:     bytes           (uint32 values, little-endian)
+  entryPoint:         uint32 or nil   (the number of the vector where every search starts)
+  maxLayer:           uint8
+  m:                  uint16
+  efConstruction:     uint16
+  metric:             string
+  levels:             bytes           (one uint8 per vector that the part covers)
+  neighbours:         bytes           (uint32 values, little-endian)
+  shuffledBuildCount: uint32          (optional; the vector count at the last shuffled build)
+  calibratedMeanLength: float64       (optional; the length of the plain mean that the last calibration took)
 }
 ```
 
-Every part of a field must list the same graphs in the same order, with the same `entryPoint`, `maxLayer`, `m`, `efConstruction`, and `metric` for each graph. In every part but the last, each graph must hold 16,384 bytes of `levels`, and in the last part each graph must hold from 1 to 16,384 bytes. A field that holds a graph must have at least one part. A writer must give each vector a node in at most one graph. A reader must reject parts that break any of these rules with `PERSISTENCE_LOAD_FAILED`.
+Every part of a field must list the same graphs in the same order, with the same `entryPoint`, `maxLayer`, `m`, `efConstruction`, `metric`, `shuffledBuildCount`, and `calibratedMeanLength` for each graph. In every part but the last, each graph must hold 16,384 bytes of `levels`, and in the last part each graph must hold from 1 to 16,384 bytes. A field that holds a graph must have at least one part. A writer must give each vector a node in at most one graph. A reader must reject parts that break any of these rules with `PERSISTENCE_LOAD_FAILED`.
 
 Byte `i` of `levels` in part `p` describes vector `p * 16384 + i`, and it must hold 0 where the graph has no node for that vector and the node's top layer plus 1 otherwise. A vector whose number lies beyond the last part has no node.
 
 `neighbours` must hold the nodes of the part in number order. For each node it must hold one list per layer, from layer 0 to the node's top layer, and each list is a count followed by that many vector numbers, any of which may lie in another part.
+
+`shuffledBuildCount` is the number of vectors that the graph held when the implementation last built it from every vector in a shuffled order, as [Insertion Order](vector-index.md#insertion-order) requires. A writer must write the field only for a graph that it has built in that way. When a reader finds no `shuffledBuildCount` on a graph, it must treat the graph as one that an earlier release built in the order that its vectors arrived.
+
+`calibratedMeanLength` is the length of the plain mean of the unit vectors that the quantiser of a quantised cosine field last calibrated from, as [Calibration Drift](vector-index.md#calibration-drift) defines. A writer must write it only beside `shuffledBuildCount`, and only for a quantised cosine field. A reader must reject a value that is negative or not finite with `PERSISTENCE_LOAD_FAILED`.
 
 At the largest `m` of 512 and the highest top layer of 32 that [HNSW](algorithms.md#hnsw-hierarchical-navigable-small-world) allows, the lists of one node fill at most 69,765 bytes, so a part of 16,384 vectors holds at most about 1.14 GB and stays inside the [file size](#file-size) limit.
 
@@ -478,10 +484,12 @@ A persistence adapter addresses stored bytes by string key:
 | `<indexName>/meta` | Index metadata |
 | `<indexName>/manifest` | Checkpoint segment manifest |
 | `<indexName>/segments/<partitionId>/s<segmentId>` | One checkpoint segment, id zero-padded to 16 digits |
-| `<indexName>/segments/vec-<fieldPath>-f<fileId>` | One vector file of one vector field for the whole index, file id zero-padded to 16 digits |
-| `<indexName>/segments/vec-<fieldPath>-graph-g<generation>-p<part>` | One graph part of one vector field for the whole index at one generation, part number zero-padded to 16 digits |
+| `<indexName>/segments/vec-<fieldKey>-f<fileId>` | One vector file of one vector field for the whole index, file id zero-padded to 16 digits |
+| `<indexName>/segments/vec-<fieldKey>-graph-g<generation>-p<part>` | One graph part of one vector field for the whole index at one generation, part number zero-padded to 16 digits |
 | `<indexName>/wal/<partitionId>/<startSeqNo>` | Write-ahead log segment, start sequence number zero-padded to 16 digits |
 | `<indexName>/wal/<partitionId>/commit` | Write-ahead log commit marker |
+
+The `<fieldKey>` of a vector field is its path with every `.` replaced by `_`, then a `-`, then the [FNV-1a](algorithms.md#fnv-1a-hash) hash of the path's UTF-8 bytes written in base 36 with lowercase letters, so the field `meta.embedding` takes the key `meta_embedding-` followed by that hash. The hash keeps two paths apart when they differ only in a `.` and a `_`, such as `a.b` and `a_b`. A field path may hold only the letters A to Z and a to z, the digits 0 to 9, `_`, and `.`, and the engine must fail a save with `PERSISTENCE_SAVE_FAILED` for any other path.
 
 A filesystem adapter maps each key to a file path, so an index named `products` produces `data/products/meta`, `data/products/manifest`, and `data/products/segments/0/s0000000000000003`. The segmented keys are defined in [Segmented Checkpoint](durability.md#segmented-checkpoint).
 

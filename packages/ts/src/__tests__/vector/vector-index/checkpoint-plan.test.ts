@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createVectorIndex, type VectorFilePayload, type VectorIndex } from '../../../vector/vector-index'
 import { assembleGraphParts, type VectorGraphParts } from '../../../vector/vector-index/checkpoint-payload'
 import { bytesToVectors } from '../../../vector/vector-index/payload'
-import { DIM, normalizedVector } from './fixtures'
+import { DIM, normalizedVector, vectorFromValues } from './fixtures'
 
 interface ListedFile {
   id: number
@@ -304,17 +304,23 @@ describe('the codes a checkpoint plans for a quantised field', () => {
     coded.dispose()
   })
 
-  it('refuses to read a file once the field has been recalibrated since the plan', async () => {
+  it('codes a file against the centroid of its plan once the field has been recalibrated since the plan', async () => {
     const coded = createVectorIndex('embedding', DIM, { threshold: 5, quantization: 'osq8' }, { enabled: false })
     for (let i = 0; i < 12; i++) coded.insert(`doc${i}`, normalizedVector(DIM, i + 1))
     await buildGraph(coded)
     const plan = coded.planCheckpoint(null)
-    for (let i = 0; i < 9; i++) coded.remove(`doc${i}`)
-    for (let i = 12; i < 40; i++) coded.insert(`doc${i}`, normalizedVector(DIM, 3 * i + 5))
+    const beforeRecalibration = plan.readNewFile(0).payload
+    for (let i = 12; i < 40; i++)
+      coded.insert(`doc${i}`, vectorFromValues(1, 0.01 * (i % 5), 0.01 * (i % 3), 0.01 * (i % 7)))
 
     await coded.optimize()
 
-    expect(() => plan.readNewFile(0)).toThrow(/recalibrated/)
+    const afterRecalibration = plan.readNewFile(0).payload
+    const recalibrated = coded.planCheckpoint(null).readNewFile(0).payload
+    expect(recalibrated.codes?.centroid).not.toEqual(beforeRecalibration.codes?.centroid)
+    expect(afterRecalibration.docIds).toEqual(beforeRecalibration.docIds)
+    expect(afterRecalibration.codes?.centroid).toEqual(beforeRecalibration.codes?.centroid)
+    expect(afterRecalibration.codes?.records.length).toBe(beforeRecalibration.codes?.records.length)
     coded.dispose()
   })
 })

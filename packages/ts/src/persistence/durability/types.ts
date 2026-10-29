@@ -49,6 +49,7 @@ export interface DurabilityManager {
   /** Writes each partition as it stands in memory, so a checkpoint that
    * rebuilt its terms replaces what earlier segments hold. */
   checkpointFromMemory?(indexName: string): Promise<void>
+  checkpointAfterInFlight(indexName: string): Promise<void>
   checkpointAll(): Promise<void>
   openArchiveCheckpoint?(indexName: string): Promise<ArchiveCheckpoint>
   stageRestore?(indexName: string): RestoreStaging

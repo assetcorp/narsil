@@ -204,6 +204,19 @@ jobs:
           NARSIL_REQUIRE_NATIVE_CORE: '1'
         run: pnpm vitest run src/__tests__/vector/native
 
+      - name: Build the core without its AVX2 kernel
+        if: matrix.label == 'linux-x64'
+        working-directory: packages/native
+        run: node build.mjs linux-x64 --host-compiler --sse2-only
+
+      - name: Compare the core without its AVX2 kernel with the WebAssembly search
+        if: matrix.label == 'linux-x64'
+        working-directory: packages/ts
+        env:
+          NARSIL_NATIVE_CORE_PATH: ${{ github.workspace }}/${{ matrix.output }}/narsil-core.node
+          NARSIL_REQUIRE_NATIVE_CORE: '1'
+        run: pnpm vitest run src/__tests__/vector/native
+
   identity-musl:
     name: Compare the core with the WebAssembly search on ${{ matrix.target }}
     needs: build

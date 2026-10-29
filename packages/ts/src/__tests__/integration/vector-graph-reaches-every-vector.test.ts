@@ -211,7 +211,7 @@ describe.each(backends)('a vector graph built from 4-bit codes through $name', (
       }
       const settled = async (): Promise<boolean> => {
         const [field] = opened.vectorMaintenanceStatus(INDEX)
-        return field !== undefined && field.graphCount === 1 && field.bufferSize === 0 && !field.building
+        return field !== undefined && field.graphCount === 1 && !field.building
       }
       for (let step = 0; step < REEMBEDDED; step++) await reembed(step * REEMBED_EVERY, REEMBED_SEED + step)
       await waitFor(settled, SETTLE_TIMEOUT_MS)

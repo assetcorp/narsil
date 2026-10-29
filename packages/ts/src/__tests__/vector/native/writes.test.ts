@@ -155,27 +155,27 @@ describe.skipIf(!binaryBuilt)('graph writes through the native search core', () 
     expect(core).not.toBeNull()
     if (core === null) return
     const index = await builtIndex({ quantization: 'osq8', metric: 'euclidean', native: true })
-    const calibrations = vi.spyOn(core, 'calibrate')
+    const measurements = vi.spyOn(core, 'measure')
     try {
       const centroidBefore = fieldView(index).codes?.centroid
       for (let position = 0; position < DOCUMENTS; position += 2) index.remove(docIdOf(position))
       index.compact()
-      expect(calibrations).toHaveBeenCalledTimes(0)
+      expect(measurements).toHaveBeenCalledTimes(0)
       expect(fieldView(index).codes?.centroid).toEqual(centroidBefore)
 
       for (let position = 1; position < DOCUMENTS / 2; position += 2) index.remove(docIdOf(position))
       await index.optimize()
       await settleBuild(index)
-      expect(calibrations.mock.results.map(result => result.value)).toEqual([0])
+      expect(measurements).toHaveBeenCalled()
       expect(fieldView(index).codes?.centroid).not.toEqual(centroidBefore)
       expect(searchAll(index, 'euclidean', true).every(hits => hits.length === 10)).toBe(true)
     } finally {
-      calibrations.mockRestore()
+      measurements.mockRestore()
       index.dispose()
     }
   })
 
-  it('holds the graph alone while optimize writes the centroid and the codes again', async () => {
+  it('searches through the core while optimize writes the codes again, and the core reads the codes it puts in place', async () => {
     const core = loadNativeCore()
     expect(core).not.toBeNull()
     if (core === null) return
@@ -183,25 +183,26 @@ describe.skipIf(!binaryBuilt)('graph writes through the native search core', () 
     const index = await builtIndex({ quantization: 'osq4', metric: 'cosine', native: true })
     const graphHeader = attachments.mock.calls[0]?.[0].graphHeader
     attachments.mockRestore()
-    const graphLockAtEachWrite: number[] = []
-    const calibrate = core.calibrate.bind(core)
-    const quantise = core.quantise.bind(core)
-    const calibrations = vi.spyOn(core, 'calibrate').mockImplementation((...args) => {
-      graphLockAtEachWrite.push(graphHeader === undefined ? 0 : Atomics.load(graphHeader, GRAPH_LOCK))
-      return calibrate(...args)
-    })
-    const firstRewrite = vi.spyOn(core, 'quantise').mockImplementationOnce((...args) => {
-      graphLockAtEachWrite.push(graphHeader === undefined ? 0 : Atomics.load(graphHeader, GRAPH_LOCK))
-      return quantise(...args)
-    })
+    const graphLockAtEachSearch: number[] = []
     try {
+      const centroidBefore = fieldView(index).codes?.centroid
       for (let position = 0; position < DOCUMENTS; position += 2) index.remove(docIdOf(position))
-      await index.optimize()
+      let optimized = false
+      const optimizing = index.optimize().then(() => {
+        optimized = true
+      })
+      while (!optimized) {
+        graphLockAtEachSearch.push(graphHeader === undefined ? HELD_ALONE : Atomics.load(graphHeader, GRAPH_LOCK))
+        expect(searchAll(index, 'cosine', true).every(hits => hits.length === 10)).toBe(true)
+        await new Promise(resolve => setTimeout(resolve, 0))
+      }
+      await optimizing
       await settleBuild(index)
-      expect(graphLockAtEachWrite).toEqual([HELD_ALONE, HELD_ALONE])
+      expect(graphLockAtEachSearch.length).toBeGreaterThan(1)
+      expect(graphLockAtEachSearch).not.toContain(HELD_ALONE)
+      expect(fieldView(index).codes?.centroid).not.toEqual(centroidBefore)
+      expect(searchAll(index, 'cosine', true)).toEqual(searchAll(index, 'cosine', false))
     } finally {
-      calibrations.mockRestore()
-      firstRewrite.mockRestore()
       index.dispose()
     }
   })

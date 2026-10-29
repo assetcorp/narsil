@@ -46,37 +46,82 @@ function unitNormaliseInto(target: Float64Array, vector: Float32Array): void {
   for (let i = 0; i < vector.length; i++) target[i] = vector[i] / length
 }
 
+const CENTROID_TOTALS_PAST_DIMENSION = 2
+
+export interface CentroidSums {
+  readonly metric: VectorMetric
+  readonly dimension: number
+  readonly totals: Float64Array
+  readonly scratch: Float64Array
+}
+
+export function createCentroidSums(dimension: number, metric: VectorMetric): CentroidSums {
+  return {
+    metric,
+    dimension,
+    totals: new Float64Array(dimension + CENTROID_TOTALS_PAST_DIMENSION),
+    scratch: new Float64Array(dimension),
+  }
+}
+
+export function countOfCentroidSums(target: CentroidSums): number {
+  return target.totals[target.dimension + 1]
+}
+
+export function squaredLengthsOfCentroidSums(target: CentroidSums): number {
+  return target.totals[target.dimension]
+}
+
+export function addToCentroidSums(target: CentroidSums, vector: Float32Array): void {
+  const { totals, scratch, dimension } = target
+  let squares = totals[dimension]
+  if (target.metric === 'cosine') {
+    unitNormaliseInto(scratch, vector)
+    for (let i = 0; i < dimension; i++) {
+      totals[i] += scratch[i]
+      squares += scratch[i] * scratch[i]
+    }
+  } else {
+    for (let i = 0; i < dimension; i++) {
+      totals[i] += vector[i]
+      squares += vector[i] * vector[i]
+    }
+  }
+  totals[dimension] = squares
+  totals[dimension + 1] += 1
+}
+
+export function meanOfCentroidSums(target: CentroidSums): Float64Array {
+  const count = countOfCentroidSums(target)
+  const mean = new Float64Array(target.dimension)
+  for (let i = 0; i < mean.length; i++) mean[i] = target.totals[i] / count
+  return mean
+}
+
+export function centroidOfCentroidSums(target: CentroidSums): Float32Array | null {
+  if (countOfCentroidSums(target) === 0) return null
+  const dimension = target.dimension
+  const mean = meanOfCentroidSums(target)
+  const centroid = new Float32Array(dimension)
+  if (target.metric === 'cosine') {
+    let squares = 0
+    for (let i = 0; i < dimension; i++) squares += mean[i] * mean[i]
+    const length = Math.sqrt(squares)
+    for (let i = 0; i < dimension; i++) centroid[i] = length === 0 ? mean[i] : mean[i] / length
+    return centroid
+  }
+  for (let i = 0; i < dimension; i++) centroid[i] = mean[i]
+  return centroid
+}
+
 export function osqCentroid(
   vectors: Iterable<Float32Array>,
   dimension: number,
   metric: VectorMetric,
 ): Float32Array | null {
-  const sums = new Float64Array(dimension)
-  const scratch = new Float64Array(dimension)
-  let count = 0
-  for (const vector of vectors) {
-    if (metric === 'cosine') {
-      unitNormaliseInto(scratch, vector)
-      for (let i = 0; i < dimension; i++) sums[i] += scratch[i]
-    } else {
-      for (let i = 0; i < dimension; i++) sums[i] += vector[i]
-    }
-    count += 1
-  }
-  if (count === 0) return null
-  const centroid = new Float32Array(dimension)
-  if (metric === 'cosine') {
-    let squares = 0
-    for (let i = 0; i < dimension; i++) {
-      sums[i] /= count
-      squares += sums[i] * sums[i]
-    }
-    const length = Math.sqrt(squares)
-    for (let i = 0; i < dimension; i++) centroid[i] = length === 0 ? sums[i] : sums[i] / length
-    return centroid
-  }
-  for (let i = 0; i < dimension; i++) centroid[i] = sums[i] / count
-  return centroid
+  const sums = createCentroidSums(dimension, metric)
+  for (const vector of vectors) addToCentroidSums(sums, vector)
+  return centroidOfCentroidSums(sums)
 }
 
 function level(value: number, lower: number, upper: number, steps: number): number {

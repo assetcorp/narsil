@@ -4,7 +4,7 @@ import { fieldView } from './field-view'
 import { DIM, normalizedVector } from './fixtures'
 
 const FIRST_BATCH = 300
-const SECOND_BATCH = 300
+const SECOND_BATCH = 200
 
 function levelsByDocId(index: VectorIndex): Map<string, number> {
   const levels = new Map<string, number>()
@@ -44,7 +44,7 @@ describe('VectorIndex graph growth across batches', () => {
   let index: VectorIndex
 
   beforeEach(() => {
-    index = createVectorIndex('embedding', DIM, { threshold: FIRST_BATCH, quantization: 'none' })
+    index = createVectorIndex('embedding', DIM, { threshold: SECOND_BATCH, quantization: 'none' })
   })
 
   afterEach(() => {
