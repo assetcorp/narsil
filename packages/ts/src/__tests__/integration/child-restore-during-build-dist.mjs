@@ -9,11 +9,7 @@ function sleep(ms) {
 
 async function untilSettled(narsil, index) {
   const deadline = Date.now() + SETTLE_DEADLINE_MS
-  while (
-    narsil
-      .vectorMaintenanceStatus(index)
-      .some(field => field.building || field.graphCount === 0 || field.bufferSize > 0)
-  ) {
+  while (narsil.vectorMaintenanceStatus(index).some(field => field.building || field.graphCount === 0)) {
     if (Date.now() > deadline) throw new Error(`the graph of ${index} was still building after 60 s`)
     await sleep(5)
   }
