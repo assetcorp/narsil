@@ -33,6 +33,7 @@ export interface ProjectedBatch<T> {
   docIdOf: (item: T) => string
   failed: BatchResult['failed']
   apply: (item: T) => Promise<void>
+  afterGroup?: () => Promise<void>
 }
 
 function createTurnBudget(): () => Promise<void> {
@@ -57,6 +58,7 @@ export async function applyInProjectedGroups<T>(
       await batch.apply(item)
       await yieldIfDue()
     }
+    await batch.afterGroup?.()
     return
   }
 
@@ -90,6 +92,7 @@ export async function applyInProjectedGroups<T>(
         await batch.apply(bounded[index])
         await yieldIfDue()
       }
+      await batch.afterGroup?.()
     } finally {
       group.release()
     }

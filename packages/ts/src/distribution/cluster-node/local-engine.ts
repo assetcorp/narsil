@@ -18,7 +18,7 @@ import {
   runEngineSuggest,
 } from '../../narsil/reads'
 import { persistedPosition, restartPartitionLog } from '../../persistence/durability/partition-log'
-import type { EntryNumbering, PartitionLogPosition } from '../../persistence/durability/types'
+import type { CommitDeferral, EntryNumbering, PartitionLogPosition } from '../../persistence/durability/types'
 import type { ByteSource } from '../../types/byte-source'
 import type { NarsilConfig } from '../../types/config'
 import type { GlobalStatistics } from '../../types/internal'
@@ -28,7 +28,11 @@ import type { ListParams, QueryParams, SuggestParams } from '../../types/search'
 import type { SynonymRule } from '../../types/synonyms'
 import type { ReplicationLogEntry } from '../replication/types'
 import { createHeldPartitionRecord } from './held-partitions'
-import { applyLocalReplicationEntry } from './local-replication'
+import {
+  type AppliedReplicationEntries,
+  applyLocalReplicationEntries,
+  applyLocalReplicationEntry,
+} from './local-replication'
 import type { IndexWriteAnalysis } from './memory/document-bound'
 import { archiveReplicationPartition, type PartitionArchive, restoreReplicationPartition } from './partition-archive'
 import { createAdmittingRecorder, type WriteAdmission } from './write-admission'
@@ -41,7 +45,8 @@ export interface ClusterLocalEngine extends Narsil {
   applyStoredSynonyms(indexName: string, load: () => Promise<readonly SynonymRule[] | null>): Promise<boolean>
   highestPersistedSeqNoOf(indexName: string, partitionId: number): number
   persistedPositionOf(indexName: string, partitionId: number): PartitionLogPosition
-  numberEntriesWith(numbering: EntryNumbering): void
+  numberEntriesWith(numbering: EntryNumbering, defersCommit?: CommitDeferral): void
+  commitPartitionLog(indexName: string, partitionId: number): Promise<void>
   admitWritesWith(admission: WriteAdmission): void
   writeAnalysisOf(indexName: string): IndexWriteAnalysis | null
   restartLocalLog(indexName: string, partitionId: number, position: PartitionLogPosition): Promise<void>
@@ -49,6 +54,7 @@ export interface ClusterLocalEngine extends Narsil {
   recordHeldPartition(indexName: string, partitionId: number): Promise<void>
   forgetHeldPartition(indexName: string, partitionId: number): Promise<void>
   applyReplicationEntry(entry: ReplicationLogEntry): Promise<void>
+  applyReplicationEntries(entries: readonly ReplicationLogEntry[]): Promise<AppliedReplicationEntries>
   archiveReplicationPartition(
     indexName: string,
     partitionId: number,
@@ -115,7 +121,11 @@ export async function createClusterLocalEngine(
     highestPersistedSeqNoOf: (indexName: string, partitionId: number) =>
       core.durability?.manager.highestPersistedSeqNo(indexName, partitionId) ?? 0,
     persistedPositionOf: (indexName: string, partitionId: number) => persistedPositionOf(core, indexName, partitionId),
-    numberEntriesWith: (numbering: EntryNumbering) => core.durability?.manager.numberEntriesWith?.(numbering),
+    numberEntriesWith: (numbering: EntryNumbering, defersCommit?: CommitDeferral) =>
+      core.durability?.manager.numberEntriesWith?.(numbering, defersCommit),
+    commitPartitionLog: async (indexName: string, partitionId: number) => {
+      await core.durability?.manager.commitPartition?.(indexName, partitionId)
+    },
     admitWritesWith: (admission: WriteAdmission) => {
       core.mutationCtx.durability = createAdmittingRecorder(core, admission, core.mutationCtx.durability)
     },
@@ -126,6 +136,7 @@ export async function createClusterLocalEngine(
     recordHeldPartition: (indexName: string, partitionId: number) => heldPartitions.record(indexName, partitionId),
     forgetHeldPartition: (indexName: string, partitionId: number) => heldPartitions.forget(indexName, partitionId),
     applyReplicationEntry: (entry: ReplicationLogEntry) => applyLocalReplicationEntry(core, entry),
+    applyReplicationEntries: (entries: readonly ReplicationLogEntry[]) => applyLocalReplicationEntries(core, entries),
     archiveReplicationPartition: (indexName: string, partitionId: number, lastSeqNo: () => number) =>
       archiveReplicationPartition(core, indexName, partitionId, lastSeqNo),
     restoreReplicationPartition: (

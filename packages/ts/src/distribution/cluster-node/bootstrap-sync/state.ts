@@ -17,7 +17,7 @@ export function hasLiveBootstrapSyncDeps(deps: BootstrapSyncDeps): deps is LiveB
   return (
     deps.getReplicationLog !== undefined &&
     deps.resetReplicationLog !== undefined &&
-    deps.applyReplicationEntry !== undefined &&
+    deps.applyReplicationEntries !== undefined &&
     deps.restoreReplicationPartition !== undefined
   )
 }

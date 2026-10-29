@@ -34,7 +34,7 @@ export function createPartitionBootstrap(
     partitionWriteQueues: deps.partitionWriteQueues,
     getReplicationLog: deps.getReplicationLog,
     resetReplicationLog: deps.seedReplicationLog,
-    applyReplicationEntry: engine.applyReplicationEntry,
+    applyReplicationEntries: engine.applyReplicationEntries,
     restartLocalLog: engine.restartLocalLog,
     restoreReplicationPartition: engine.restoreReplicationPartition,
     onError: deps.onError,

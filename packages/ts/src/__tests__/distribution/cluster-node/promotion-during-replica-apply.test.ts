@@ -156,10 +156,10 @@ describe('a replica promoted while it applies an entry from the old primary', ()
       coordinator,
       engine: {
         ...engine,
-        applyReplicationEntry: async (entry: ReplicationLogEntry) => {
+        applyReplicationEntries: async (entries: readonly ReplicationLogEntry[]) => {
           applyStarted()
           await held
-          await engine.applyReplicationEntry(entry)
+          return engine.applyReplicationEntries(entries)
         },
       },
       writeDeps,

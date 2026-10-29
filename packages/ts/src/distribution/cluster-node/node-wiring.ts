@@ -90,11 +90,12 @@ export function createNodeWiring(input: {
   })
 
   const numbering = createPrimaryNumbering()
-  engine.numberEntriesWith(numbering.numberEntry)
+  engine.numberEntriesWith(numbering.numberEntry, numbering.defersCommit)
   engine.admitWritesWith(numbering.admit)
   const writeDeps: WriteRoutingDeps = {
     nodeId,
     numbering,
+    commitPartitionLog: engine.commitPartitionLog,
     coordinator: allocationView.routing,
     refreshAllocation: allocationView.refresh,
     readLiveAllocation: allocationView.readLive,

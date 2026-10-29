@@ -7,6 +7,7 @@ import type { createSnapshotStreamState } from '../../replication/snapshot-strea
 import type { ReplicationLog, ReplicationLogEntry } from '../../replication/types'
 import type { NodeTransport, ReplicationSnapshotHeader, SyncEntriesPayload } from '../../transport/types'
 import type { ABORT_SENTINEL } from '../bootstrap-restore'
+import type { AppliedReplicationEntries } from '../local-replication'
 import type { PartitionWriteQueues } from '../write-routing/partition-queue'
 
 export interface BootstrapEntry {
@@ -36,7 +37,7 @@ export interface BootstrapSyncDeps {
   onSnapshotApplied?: (indexName: string, partitionId: number, header: ReplicationSnapshotHeader) => void
   getReplicationLog?: (indexName: string, partitionId: number) => ReplicationLog
   resetReplicationLog?: (indexName: string, partitionId: number, startSeqNo: number, lastPrimaryTerm?: number) => void
-  applyReplicationEntry?: (entry: ReplicationLogEntry) => Promise<void>
+  applyReplicationEntries?: (entries: readonly ReplicationLogEntry[]) => Promise<AppliedReplicationEntries>
   restartLocalLog?: (indexName: string, partitionId: number, position: PartitionLogPosition) => Promise<void>
   restoreReplicationPartition?: (
     indexName: string,
@@ -52,7 +53,7 @@ export interface BootstrapSyncDeps {
 export interface LiveBootstrapSyncDeps extends BootstrapSyncDeps {
   getReplicationLog: (indexName: string, partitionId: number) => ReplicationLog
   resetReplicationLog: (indexName: string, partitionId: number, startSeqNo: number, lastPrimaryTerm?: number) => void
-  applyReplicationEntry: (entry: ReplicationLogEntry) => Promise<void>
+  applyReplicationEntries: (entries: readonly ReplicationLogEntry[]) => Promise<AppliedReplicationEntries>
   restoreReplicationPartition: (
     indexName: string,
     partitionId: number,
