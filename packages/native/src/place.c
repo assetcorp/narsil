@@ -67,24 +67,24 @@ static void retire_unlinked_node(const narsil_graph *graph, int32_t ordinal) {
 static int claim_entry_if_empty(const walk_context *context, const narsil_place_request *request) {
   int32_t *header = context->graph->header;
   if (load_word(header, NARSIL_GRAPH_WORD_ENTRY_POINT) != NO_ENTRY_POINT) { return 0; }
-  entry_lock(context->graph);
+  entry_lock(context);
   int claimed = load_word(header, NARSIL_GRAPH_WORD_ENTRY_POINT) == NO_ENTRY_POINT;
   if (claimed) {
     atomic_store(atomic_word(header, NARSIL_GRAPH_WORD_ENTRY_POINT), request->ordinal);
     atomic_store(atomic_word(header, NARSIL_GRAPH_WORD_TOP_LAYER), request->top_layer);
   }
-  entry_unlock(context->graph);
+  entry_unlock(context);
   return claimed;
 }
 
 static void raise_entry(const walk_context *context, const narsil_place_request *request) {
   int32_t *header = context->graph->header;
-  entry_lock(context->graph);
+  entry_lock(context);
   if (request->top_layer > load_word(header, NARSIL_GRAPH_WORD_TOP_LAYER)) {
     atomic_store(atomic_word(header, NARSIL_GRAPH_WORD_ENTRY_POINT), request->ordinal);
     atomic_store(atomic_word(header, NARSIL_GRAPH_WORD_TOP_LAYER), request->top_layer);
   }
-  entry_unlock(context->graph);
+  entry_unlock(context);
 }
 
 static int32_t *selection_of(const narsil_workspace *workspace, int32_t layer) {

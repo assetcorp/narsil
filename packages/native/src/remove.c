@@ -144,14 +144,14 @@ static void unlink_layer(const walk_context *context, node_layer layer_of_the_re
 
 static void move_entry_after_removal(const walk_context *context, int32_t removed) {
   if (load_word(context->graph->header, NARSIL_GRAPH_WORD_ENTRY_POINT) != removed) { return; }
-  entry_lock(context->graph);
+  entry_lock(context);
   int32_t next = NO_NODE;
   if (load_word(context->graph->header, NARSIL_GRAPH_WORD_NODE_COUNT) > 0) {
     next = highest_node(context, 0);
     if (next == NO_NODE) { next = highest_node(context, 1); }
   }
   store_entry_point(context, next);
-  entry_unlock(context->graph);
+  entry_unlock(context);
 }
 
 static void take_node_out(const walk_context *context, int32_t ordinal) {
