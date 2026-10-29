@@ -32,7 +32,7 @@ export interface TransportConfig {
   connectTimeout: number
   /** An ordinary request and its reply may take this long. */
   requestTimeout: number
-  /** A replication entry may take this long to reach a replica and come back acknowledged. */
+  /** A replication entry, or a batch of them, may take this long to reach a replica and come back acknowledged. */
   replicationTimeout: number
   /** A node waits this long for each next chunk of a snapshot transfer, which moves a partition or an index between nodes, so that the node can receive a transfer of any size while the sender keeps sending. */
   snapshotTimeout: number

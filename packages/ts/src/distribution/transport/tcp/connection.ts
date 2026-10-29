@@ -1,6 +1,7 @@
 import { connect, type Socket } from 'node:net'
 import { connect as tlsConnect } from 'node:tls'
 import { MAX_MESSAGE_SIZE_BYTES } from '../constants'
+import { replyDeadlineMs } from '../reply-deadline'
 import { TransportError, TransportErrorCodes, type TransportMessage } from '../types'
 import { decodeTransportMessage, encodeFrame, encodeTransportMessage, FrameParser, type WireFrame } from './framing'
 import { parseAddress } from './parse-address'
@@ -61,22 +62,19 @@ export class TcpConnectionPool {
     const socket = await this.getOrCreateConnection(target)
     const frame = encodeFrame(FRAME_TYPE_REQUEST, message.requestId, messageBytes)
     const pendingKey = `${target}:${message.requestId}`
+    const timeoutMs = replyDeadlineMs(message.type, this.config)
 
     return new Promise<TransportMessage>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pendingRequests.delete(pendingKey)
         reject(
-          new TransportError(
-            TransportErrorCodes.TIMEOUT,
-            `Request to '${target}' timed out after ${this.config.requestTimeout}ms`,
-            {
-              target,
-              requestId: message.requestId,
-              timeoutMs: this.config.requestTimeout,
-            },
-          ),
+          new TransportError(TransportErrorCodes.TIMEOUT, `Request to '${target}' timed out after ${timeoutMs}ms`, {
+            target,
+            requestId: message.requestId,
+            timeoutMs,
+          }),
         )
-      }, this.config.requestTimeout)
+      }, timeoutMs)
 
       this.pendingRequests.set(pendingKey, { target, resolve, reject, timer })
 

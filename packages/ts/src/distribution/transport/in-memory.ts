@@ -1,4 +1,5 @@
 import { MAX_MESSAGE_SIZE_BYTES } from './constants'
+import { replyDeadlineMs } from './reply-deadline'
 import {
   DEFAULT_TRANSPORT_CONFIG,
   type ListenHandler,
@@ -237,7 +238,7 @@ export function createInMemoryTransport(
         )
       }
       const peer = lookupPeer(target)
-
+      const timeoutMs = replyDeadlineMs(message.type, resolvedConfig)
       return new Promise<TransportMessage>((resolve, reject) => {
         let settled = false
         const timeoutId = setTimeout(() => {
@@ -246,12 +247,12 @@ export function createInMemoryTransport(
             reject(
               new TransportError(
                 TransportErrorCodes.TIMEOUT,
-                `Request to node '${target}' timed out after ${resolvedConfig.requestTimeout}ms`,
-                { target, requestId: message.requestId, timeoutMs: resolvedConfig.requestTimeout },
+                `Request to node '${target}' timed out after ${timeoutMs}ms`,
+                { target, requestId: message.requestId, timeoutMs },
               ),
             )
           }
-        }, resolvedConfig.requestTimeout)
+        }, timeoutMs)
 
         try {
           peer.deliverMessage(message, async (response: TransportMessage): Promise<void> => {
