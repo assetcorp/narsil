@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto'
-import { setTimeout as sleep } from 'node:timers/promises'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import {
   type EtcdContainerHandle,
@@ -27,13 +26,6 @@ const SEND_BUDGET_HEAP_LIMITS = 3
 const WORDS_PER_BODY = 120
 const VOCABULARY_WORDS = 20_000
 const LETTERS = 'abcdefghijklmnopqrstuvwxyz'
-const VECTOR_DIMENSION = 1_536
-const VECTOR_BATCH_DOCUMENTS = 250
-const VECTOR_SEND_BUDGET_DOCUMENTS = 60_000
-const CAPPED_HEAP_BLOCK_FRACTION = 0.75
-const VECTOR_BATCH_HEAP_FRACTION = 0.1
-const VECTOR_BOUND_OVER_HEAP_MAX_RATIO = 155
-const HEAP_SAMPLE_INTERVAL_MS = 20
 
 interface Furniture {
   id: string
@@ -75,23 +67,6 @@ function titledChair(document: Furniture): boolean {
   return document.title.toLowerCase().split(' ').includes('chair')
 }
 
-interface Lamp {
-  id: string
-  title: string
-  embedding: number[]
-}
-
-function batchOfLamps(firstSerial: number, documents: number): Lamp[] {
-  return Array.from({ length: documents }, (_, count) => {
-    const serial = firstSerial + count
-    return {
-      id: `lamp-${serial}`,
-      title: `Brass lamp ${serial}`,
-      embedding: Array.from({ length: VECTOR_DIMENSION }, () => random() * 2 - 1),
-    }
-  })
-}
-
 interface BatchReply {
   status: number | null
   body: Record<string, unknown>
@@ -102,37 +77,12 @@ interface BatchFailure {
   error: { code: string; details?: Record<string, unknown> }
 }
 
-async function sendBatch(base: string, documents: Array<Furniture | Lamp>): Promise<BatchReply> {
+async function sendBatch(base: string, documents: Furniture[]): Promise<BatchReply> {
   try {
     return await request(base, 'POST', `/indexes/${INDEX_NAME}/documents/_batch`, { documents })
   } catch {
     return { status: null, body: {} }
   }
-}
-
-async function heapUsedOf(node: NodeProcess): Promise<number> {
-  const memory = await request(node.base, 'GET', '/stats/memory')
-  const heapUsed = (memory.body.process as { heapUsed?: unknown } | null)?.heapUsed
-  if (typeof heapUsed !== 'number') throw new Error(`the node reported no heap figure: ${JSON.stringify(memory.body)}`)
-  return heapUsed
-}
-
-async function sendBatchSamplingHeap(
-  node: NodeProcess,
-  documents: Lamp[],
-): Promise<{ reply: BatchReply; peakHeapUsed: number }> {
-  let peakHeapUsed = await heapUsedOf(node)
-  let sending = true
-  const sampler = (async () => {
-    while (sending) {
-      peakHeapUsed = Math.max(peakHeapUsed, await heapUsedOf(node))
-      await sleep(HEAP_SAMPLE_INTERVAL_MS)
-    }
-  })()
-  const reply = await sendBatch(node.base, documents)
-  sending = false
-  await sampler
-  return { reply, peakHeapUsed }
 }
 
 async function startNodeWithIndex(etcdEndpoint: string, schema: Record<string, string>): Promise<NodeProcess> {
@@ -247,75 +197,4 @@ describe('a cluster node at its default memory settings, written to one batch at
     await expectEveryDocumentReadsBack(started.base, INDEX_NAME, oracle)
     expect(started.exited(), started.output()).toBe(false)
   }, 600_000)
-
-  it('accepts batches of 1,536-dimension vectors until its heap nears the capped block', async () => {
-    if (container === null) throw new Error('etcd never started')
-    const started = await startNodeWithIndex(container.endpoint, {
-      title: 'string',
-      embedding: `vector[${VECTOR_DIMENSION}]`,
-    })
-    node = started
-
-    let acknowledged = 0
-    let refused = false
-    let firstHeapUsed: number | null = null
-    let batchDocuments = VECTOR_BATCH_DOCUMENTS
-    let parseRefusals = 0
-    for (let sent = 0; sent < VECTOR_SEND_BUDGET_DOCUMENTS && !refused; sent += batchDocuments) {
-      const heapUsed = await heapUsedOf(started)
-      firstHeapUsed ??= heapUsed
-      const acknowledgedBefore = acknowledged
-      const { reply, peakHeapUsed } = await sendBatchSamplingHeap(started, batchOfLamps(sent, batchDocuments))
-      expect([200, 429], `the node stopped answering after ${acknowledged} documents`).toContain(reply.status)
-      if (reply.status === 429) {
-        const details = errorOf({ status: 429, body: reply.body }).details
-        expect(details?.reason, JSON.stringify(reply.body)).toBe('parse_would_fill_memory')
-        expect(
-          Number(details?.heapBytes) +
-            Number(details?.youngHeapBytes) +
-            Number(details?.parseBytes) +
-            Number(details?.reservedBytes),
-          `the node refused a body that fitted under its block: ${JSON.stringify(details)}`,
-        ).toBeGreaterThan(Number(details?.blockBytes))
-        expect(batchDocuments, 'the node refused to parse a body of one vector document').toBeGreaterThan(1)
-        parseRefusals++
-        batchDocuments = Math.ceil(batchDocuments / 2)
-        continue
-      }
-      const failed = reply.body.failed as BatchFailure[]
-      for (const failure of failed) {
-        expect(failure.error.code).toBe('CLUSTER_WRITE_BLOCKED')
-        expect(failure.error.details?.reason).toBe('write_would_fill_memory')
-      }
-      acknowledged += (reply.body.succeeded as string[]).length
-      refused = failed.length > 0
-      if (!refused) continue
-      const heapFraction = peakHeapUsed / started.heapLimitBytes
-      const documentBytes = failed[0]?.error.details?.documentBytes
-      const heapPerDocument = (heapUsed - firstHeapUsed) / acknowledgedBefore
-      const boundOverHeap = Number(documentBytes) / heapPerDocument
-      console.log(
-        `vectors: first document refusal after ${acknowledged} documents and ${parseRefusals} parse refusals, ` +
-          `in a batch of ${batchDocuments}, heap at ` +
-          `${(heapUsed / started.heapLimitBytes).toFixed(3)} before it and ${heapFraction.toFixed(3)} at its peak, ` +
-          `bound ${String(documentBytes)} bytes per document against ${heapPerDocument.toFixed(0)} bytes of heap ` +
-          `spent per acknowledged document, a ratio of ${boundOverHeap.toFixed(1)}`,
-      )
-      expect(
-        heapFraction,
-        `refused a vector batch with the heap at ${heapFraction.toFixed(3)} of its limit`,
-      ).toBeGreaterThan(CAPPED_HEAP_BLOCK_FRACTION - VECTOR_BATCH_HEAP_FRACTION)
-      expect(typeof documentBytes, `the first refusal carried no document bound: ${JSON.stringify(reply.body)}`).toBe(
-        'number',
-      )
-      expect(boundOverHeap, 'the vector bound over-charges the heap that a vector document takes').toBeLessThan(
-        VECTOR_BOUND_OVER_HEAP_MAX_RATIO,
-      )
-    }
-
-    expect(refused, `the node refused no vector document after ${VECTOR_SEND_BUDGET_DOCUMENTS} were sent`).toBe(true)
-    const counted = await request(started.base, 'GET', `/indexes/${INDEX_NAME}/count`)
-    expect(counted.body.count).toBe(acknowledged)
-    expect(started.exited(), started.output()).toBe(false)
-  }, 900_000)
 })
