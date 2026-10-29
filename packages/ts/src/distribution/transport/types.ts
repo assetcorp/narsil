@@ -184,6 +184,7 @@ export interface ForwardPayload {
   operation: 'insert' | 'remove' | 'update'
   document: Uint8Array | null
   updateFields: Record<string, unknown> | null
+  indexUuid?: string
 }
 
 export interface ForwardBatchOperation {
@@ -196,6 +197,7 @@ export interface ForwardBatchOperation {
 export interface ForwardBatchPayload {
   indexName: string
   operations: ForwardBatchOperation[]
+  indexUuid?: string
 }
 
 export interface ForwardBatchOperationResult {
@@ -212,10 +214,12 @@ export interface ForwardBatchResultPayload {
 
 export interface EntryPayload {
   entry: ReplicationLogEntry
+  indexUuid?: string
 }
 
 export interface EntryBatchPayload {
   entries: ReplicationLogEntry[]
+  indexUuid?: string
 }
 
 export interface AckPayload {
@@ -229,6 +233,7 @@ export interface SyncRequestPayload {
   partitionId: number
   lastSeqNo: number
   lastPrimaryTerm: number
+  indexUuid?: string
 }
 
 export interface SyncEntriesPayload {
@@ -266,6 +271,7 @@ export interface SnapshotEndPayload {
 export interface SnapshotSyncRequestPayload {
   indexName: string
   partitionId?: number | null
+  indexUuid?: string
 }
 
 export interface InsyncRemovePayload {

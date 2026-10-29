@@ -10,6 +10,7 @@ export interface PrimaryWriteScope {
   partitionId: number
   assignment: PartitionAssignment
   deps: WriteRoutingDeps
+  indexUuid?: string
 }
 
 export interface NumberedWrite<T> {

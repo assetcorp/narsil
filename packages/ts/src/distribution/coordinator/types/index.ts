@@ -90,6 +90,13 @@ export interface AllocationTable {
    * is absent until the first change of the partition count.
    */
   generation?: string
+  /**
+   * The identity of the index that this table allocates, which the controller copies from the index metadata. When a
+   * node holds a table for a name and receives one with a different uuid, it takes the received table whatever the two
+   * versions are, because the name then refers to another index. The field is absent from a table that an earlier
+   * release wrote.
+   */
+  indexUuid?: string
 }
 
 /**

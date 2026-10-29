@@ -219,6 +219,7 @@ describe('runBootstrapSync - happy path and state', () => {
     const coord: ClusterCoordinator = {
       getSchema: getSchemaSpy,
       get: vi.fn().mockResolvedValue(null),
+      getAllocation: vi.fn().mockResolvedValue(null),
     } as unknown as ClusterCoordinator
 
     const { chunks } = makeScriptedSnapshot('products', 1024)

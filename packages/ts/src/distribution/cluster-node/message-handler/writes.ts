@@ -12,6 +12,7 @@ import type { ReplicationLogEntry } from '../../replication/types'
 import type { ForwardPayload, RespondFn, TransportMessage } from '../../transport/types'
 import { ReplicationMessageTypes } from '../../transport/types'
 import { noteAcceptedPrimaryTerm, noteSupersedingPrimary } from '../led-term'
+import { holdsAnotherIndex } from '../request-identity'
 import { applyForwardedBatch, applyForwardedWrite } from '../write-routing'
 import { enqueuePartitionWrite } from '../write-routing/partition-queue'
 import { resolveValidatedAssignment } from './entry-authority'
@@ -24,6 +25,9 @@ export async function handleForward(
 ): Promise<void> {
   const decoded = decode(message.payload) as Record<string, unknown>
   const payload = validateForwardPayload(decoded)
+  if (holdsAnotherIndex(deps.engine.indexUuidOf(payload.indexName), payload.indexUuid)) {
+    throw anotherIndexAsPrimary(payload.indexName, deps.nodeId)
+  }
   const documentId = await applyForwardedWrite(payload, deps.writeDeps)
 
   await respond({
@@ -40,6 +44,18 @@ export async function handleForwardBatch(
   deps: DataNodeHandlerDeps,
 ): Promise<void> {
   const payload = validateForwardBatchPayload(decode(message.payload))
+  if (holdsAnotherIndex(deps.engine.indexUuidOf(payload.indexName), payload.indexUuid)) {
+    const refusal = anotherIndexAsPrimary(payload.indexName, deps.nodeId)
+    const results = payload.operations.map(operation => ({
+      documentId: operation.documentId,
+      success: false,
+      errorCode: refusal.code,
+      errorMessage: refusal.message,
+      errorDetails: refusal.details,
+    }))
+    await respond(createForwardBatchResultMessage({ results }, deps.nodeId, message.requestId))
+    return
+  }
   const results = await applyForwardedBatch(payload, deps.writeDeps)
   await respond(createForwardBatchResultMessage({ results }, deps.nodeId, message.requestId))
 }
@@ -51,6 +67,7 @@ export async function handleReplicationEntry(
 ): Promise<void> {
   const payload = validateEntryPayload(decode(message.payload))
   const { entry } = payload
+  refuseAnotherIndex(entry.indexName, payload.indexUuid, deps)
 
   await applyEntriesFromPrimary([entry], message.sourceId, deps)
 
@@ -64,11 +81,29 @@ export async function handleReplicationEntryBatch(
 ): Promise<void> {
   const payload = validateEntryBatchPayload(decode(message.payload))
   const lastEntry = payload.entries[payload.entries.length - 1]
+  refuseAnotherIndex(lastEntry.indexName, payload.indexUuid, deps)
 
   await applyEntriesFromPrimary(payload.entries, message.sourceId, deps)
 
   await respond(
     createAckMessage(lastEntry.seqNo, lastEntry.partitionId, lastEntry.indexName, deps.nodeId, message.requestId),
+  )
+}
+
+function anotherIndexAsPrimary(indexName: string, nodeId: string): NarsilError {
+  return new NarsilError(
+    ErrorCodes.PARTITION_NOT_PRIMARY,
+    `Node '${nodeId}' holds another index named '${indexName}', so it leads no partition of the index the sender routes to`,
+    { indexName, localNodeId: nodeId },
+  )
+}
+
+function refuseAnotherIndex(indexName: string, indexUuid: string | undefined, deps: DataNodeHandlerDeps): void {
+  if (!holdsAnotherIndex(deps.engine.indexUuidOf(indexName), indexUuid)) return
+  throw new NarsilError(
+    ErrorCodes.INDEX_NOT_FOUND,
+    `Node '${deps.nodeId}' holds no copy of the index '${indexName}' that the primary replicates, only an earlier index of that name`,
+    { indexName, localNodeId: deps.nodeId },
   )
 }
 
@@ -158,6 +193,10 @@ export function validateForwardPayload(decoded: unknown): ForwardPayload {
       ErrorCodes.CONFIG_INVALID,
       'Invalid ForwardPayload: "operation" must be "insert", "remove", or "update"',
     )
+  }
+  const indexUuid = record.indexUuid
+  if (indexUuid !== undefined && indexUuid !== null && (typeof indexUuid !== 'string' || indexUuid.length === 0)) {
+    throw new NarsilError(ErrorCodes.CONFIG_INVALID, 'Invalid ForwardPayload: "indexUuid" must be a non-empty string')
   }
   return decoded as unknown as ForwardPayload
 }

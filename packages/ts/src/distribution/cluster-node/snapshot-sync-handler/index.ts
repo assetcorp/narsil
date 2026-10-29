@@ -7,6 +7,7 @@ import {
   MAX_SNAPSHOT_SYNC_REQUEST_BYTES,
 } from '../constants'
 import { transportableDetails } from '../error-reply'
+import { holdsAnotherIndex } from '../request-identity'
 import { authorizeSnapshotRequest } from '../snapshot-auth'
 import { createSnapshotCacheState } from '../snapshot-cache'
 import { createSingleResponseSink, respondError, type SingleResponseSink } from '../snapshot-stream-writer'
@@ -92,7 +93,7 @@ export async function streamValidatedSnapshotRequest(
   }
 
   const existingIndex = deps.engine.listIndexes().find(idx => idx.name === request.indexName)
-  if (existingIndex === undefined) {
+  if (existingIndex === undefined || holdsAnotherIndex(deps.indexUuidOf?.(request.indexName), request.indexUuid)) {
     await respondError(
       sink,
       deps.nodeId,

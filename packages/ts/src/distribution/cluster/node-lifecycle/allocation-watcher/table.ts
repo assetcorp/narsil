@@ -13,6 +13,7 @@ export function processAllocationChange(
   if (state.stopped) {
     return
   }
+  releaseEarlierIndex(state, config, table)
 
   const nodeId = config.registration.nodeId
   const currentKeys = new Set<string>()
@@ -55,6 +56,24 @@ export function processAllocationChange(
 
   removeDroppedPartitions(state, config, table, currentKeys)
   releaseSupersededCopies(state, config, table, currentKeys)
+}
+
+function releaseEarlierIndex(state: AllocationWatcherState, config: NodeLifecycleConfig, table: AllocationTable): void {
+  if (table.indexUuid === undefined) {
+    return
+  }
+  const known = state.indexUuids.get(table.indexName)
+  state.indexUuids.set(table.indexName, table.indexUuid)
+  if (known === undefined || known === table.indexUuid) {
+    return
+  }
+  processAllocationChange(state, config, {
+    indexName: table.indexName,
+    version: table.version,
+    replicationFactor: table.replicationFactor,
+    assignments: new Map(),
+  })
+  config.onIndexTornDown?.(table.indexName)
 }
 
 /**

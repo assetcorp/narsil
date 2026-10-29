@@ -68,6 +68,7 @@ export interface FetchFromTargetsDeps {
   transport: NodeTransport
   sourceNodeId: string
   spoolDirectory?: string
+  indexUuid?: string
 }
 
 export async function fetchSnapshotFromAnyTarget(
@@ -222,7 +223,8 @@ async function fetchSnapshotFromTarget(
   deadline: number,
   deps: FetchFromTargetsDeps,
 ): Promise<SnapshotStreamResult> {
-  const requestPayload: SnapshotSyncRequestPayload = { indexName, partitionId }
+  const requestPayload: SnapshotSyncRequestPayload =
+    deps.indexUuid === undefined ? { indexName, partitionId } : { indexName, partitionId, indexUuid: deps.indexUuid }
   const request: TransportMessage = {
     type: ReplicationMessageTypes.SNAPSHOT_SYNC_REQUEST,
     sourceId: deps.sourceNodeId,

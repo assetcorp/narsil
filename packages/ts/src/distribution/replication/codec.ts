@@ -16,8 +16,8 @@ import type {
 import { ReplicationMessageTypes } from '../transport/types'
 import type { ReplicationLogEntry } from './types'
 
-export function createEntryMessage(entry: ReplicationLogEntry, sourceId: string): TransportMessage {
-  const payload: EntryPayload = { entry }
+export function createEntryMessage(entry: ReplicationLogEntry, sourceId: string, indexUuid?: string): TransportMessage {
+  const payload: EntryPayload = indexUuid === undefined ? { entry } : { entry, indexUuid }
   return {
     type: ReplicationMessageTypes.ENTRY,
     sourceId,
@@ -26,8 +26,12 @@ export function createEntryMessage(entry: ReplicationLogEntry, sourceId: string)
   }
 }
 
-export function createEntryBatchMessage(entries: ReplicationLogEntry[], sourceId: string): TransportMessage {
-  const payload: EntryBatchPayload = { entries }
+export function createEntryBatchMessage(
+  entries: ReplicationLogEntry[],
+  sourceId: string,
+  indexUuid?: string,
+): TransportMessage {
+  const payload: EntryBatchPayload = indexUuid === undefined ? { entries } : { entries, indexUuid }
   return {
     type: ReplicationMessageTypes.ENTRY_BATCH,
     sourceId,
@@ -132,6 +136,16 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
 }
 
+export function optionalIndexUuid(value: unknown, payloadName: string): string | undefined {
+  if (value === undefined || value === null) {
+    return undefined
+  }
+  if (typeof value !== 'string' || value.length === 0) {
+    throw new Error(`Invalid ${payloadName}: "indexUuid" must be a non-empty string or absent`)
+  }
+  return value
+}
+
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   if (!isRecord(value)) {
     return false
@@ -169,6 +183,7 @@ export function validateEntryPayload(decoded: unknown): EntryPayload {
   if (typeof entry.checksum !== 'number') {
     throw new Error('Invalid EntryPayload: "entry.checksum" must be a number')
   }
+  optionalIndexUuid(decoded.indexUuid, 'EntryPayload')
   return decoded as unknown as EntryPayload
 }
 
@@ -196,7 +211,8 @@ export function validateEntryBatchPayload(decoded: unknown): EntryBatchPayload {
     }
   }
 
-  return { entries: validated }
+  const indexUuid = optionalIndexUuid(decoded.indexUuid, 'EntryBatchPayload')
+  return indexUuid === undefined ? { entries: validated } : { entries: validated, indexUuid }
 }
 
 export function validateForwardBatchPayload(decoded: unknown): ForwardBatchPayload {
@@ -240,6 +256,7 @@ export function validateForwardBatchPayload(decoded: unknown): ForwardBatchPaylo
       throw new Error(`Invalid ForwardBatchPayload: "operations[${index}]" requires a document or updateFields`)
     }
   }
+  optionalIndexUuid(decoded.indexUuid, 'ForwardBatchPayload')
   return decoded as unknown as ForwardBatchPayload
 }
 

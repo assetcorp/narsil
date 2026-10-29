@@ -1,4 +1,5 @@
 import { decode } from '@msgpack/msgpack'
+import { rewriteForCurrentIndex } from '../cluster/table-identity'
 import type { ClusterCoordinator, PartitionAssignment } from '../coordinator/types'
 import type { InsyncAddPayload, InsyncConfirmPayload, InsyncRemovePayload, NodeTransport } from '../transport/types'
 import { createInsyncAddMessage, createInsyncRemoveMessage, validateInsyncConfirmPayload } from './codec'
@@ -50,12 +51,15 @@ async function updateInsyncSet(
     const updatedAssignments = new Map(table.assignments)
     updatedAssignments.set(request.partitionId, decision.assignment)
 
-    const written = await coordinator.putAllocation(
-      request.indexName,
-      { ...table, version: table.version + 1, assignments: updatedAssignments },
-      table.version,
-      controllerNodeId,
-    )
+    const rewritten = await rewriteForCurrentIndex(coordinator, {
+      ...table,
+      version: table.version + 1,
+      assignments: updatedAssignments,
+    })
+    if (rewritten === null) {
+      return refused
+    }
+    const written = await coordinator.putAllocation(request.indexName, rewritten, table.version, controllerNodeId)
     if (written) {
       return { ...refused, accepted: true }
     }

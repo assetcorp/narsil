@@ -1,4 +1,5 @@
 import type { SyncRequestPayload } from '../transport/types'
+import { optionalIndexUuid } from './codec'
 import type { ReplicationLog } from './types'
 
 export function decideSyncTier(
@@ -34,5 +35,6 @@ export function validateSyncRequest(decoded: unknown): SyncRequestPayload {
   ) {
     throw new Error('Invalid SyncRequestPayload: "lastPrimaryTerm" must be a non-negative integer')
   }
+  optionalIndexUuid(record.indexUuid, 'SyncRequestPayload')
   return record as unknown as SyncRequestPayload
 }

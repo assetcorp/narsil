@@ -38,6 +38,7 @@ function makeHandler(assignment: PartitionAssignment, replicaLog: ReplicationLog
     nodeId: 'replica-node',
     coordinator: makeCoordinator(assignment),
     engine: {
+      indexUuidOf: () => null,
       applyReplicationEntry: async (entry: ReplicationLogEntry) => {
         applied.push(entry)
       },

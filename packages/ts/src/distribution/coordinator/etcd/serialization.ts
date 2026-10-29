@@ -9,6 +9,7 @@ interface SerializableAllocationTable {
   replicationFactor: number
   assignments: Array<[number, PartitionAssignment]>
   generation?: string
+  indexUuid?: string
 }
 
 export function serializeAllocationTable(table: AllocationTable): Uint8Array {
@@ -19,6 +20,7 @@ export function serializeAllocationTable(table: AllocationTable): Uint8Array {
     assignments: Array.from(table.assignments.entries()),
   }
   if (table.generation !== undefined) serializable.generation = table.generation
+  if (table.indexUuid !== undefined) serializable.indexUuid = table.indexUuid
   return new Uint8Array(encode(serializable))
 }
 
@@ -40,6 +42,7 @@ export function deserializeAllocationTable(data: Buffer): AllocationTable {
     assignments: normaliseAssignments(raw.assignments),
   }
   if (typeof raw.generation === 'string' && raw.generation.length > 0) table.generation = raw.generation
+  if (typeof raw.indexUuid === 'string' && raw.indexUuid.length > 0) table.indexUuid = raw.indexUuid
   return table
 }
 

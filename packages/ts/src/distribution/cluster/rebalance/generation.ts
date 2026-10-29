@@ -39,6 +39,7 @@ async function emptyAllocation(coordinator: ClusterCoordinator, writerNodeId: st
       replicationFactor: table.replicationFactor,
       assignments: new Map(),
     }
+    if (table.indexUuid !== undefined) empty.indexUuid = table.indexUuid
     if (await coordinator.putAllocation(indexName, empty, table.version, writerNodeId)) return
   }
   throw new NarsilError(

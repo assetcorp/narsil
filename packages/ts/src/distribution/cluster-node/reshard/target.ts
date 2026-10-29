@@ -72,11 +72,13 @@ async function applyInPartition(
           results[position] = failed(operation.documentId, error)
         }
       }
+      const indexUuid = (await deps.coordinator.getAllocation(indexName))?.indexUuid
       for (const chunk of chunkReplicationEntries(applied)) {
         await replicateEntryBatch(
           chunk.map(item => item.entry),
           assignment,
           deps,
+          indexUuid,
         )
       }
     })
