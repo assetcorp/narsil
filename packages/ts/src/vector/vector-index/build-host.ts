@@ -81,7 +81,10 @@ export async function insertIntoGraph(
   }
   await flush()
   await Promise.all(pending)
-  return !state.disposed
+  if (state.disposed) return false
+  graph.connectUnreached()
+  noteWrite(state)
+  return true
 }
 
 async function placeChunk(
@@ -147,6 +150,10 @@ async function insertLocally(
       await yieldBuildTurn(state)
     }
   }
-  if (count > 0) noteWrite(state)
-  return !state.disposed
+  if (state.disposed) return false
+  if (count > 0) {
+    graph.connectUnreached()
+    noteWrite(state)
+  }
+  return true
 }
