@@ -18,7 +18,7 @@ static int lists_fit_the_workspace(const narsil_graph *graph) {
 int graph_is_complete(const narsil_graph *graph) {
   return graph->header != NULL && graph->node_levels != NULL && graph->level0 != NULL && graph->upper_base != NULL &&
          graph->upper != NULL && graph->locks != NULL && graph->tombstones != NULL && graph->incoming != NULL &&
-         graph->held_locks != NULL;
+         graph->nearest_link_due != NULL && graph->held_locks != NULL;
 }
 
 static void begin_visit_round(narsil_workspace *workspace) {
