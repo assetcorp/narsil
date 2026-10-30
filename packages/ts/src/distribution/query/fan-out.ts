@@ -178,8 +178,11 @@ export async function fanOutSearch(
     )
   })
 
+  const memoryRefusal = outcomes.find(outcome => isMemoryRefusal(outcome.error))
+  const everyPartitionFailed = outcomes.every(outcome => outcome.status !== 'success')
   const rejection =
-    outcomes.find(outcome => isNodeRejection(outcome.error)) ?? outcomes.find(outcome => isMemoryRefusal(outcome.error))
+    outcomes.find(outcome => isNodeRejection(outcome.error)) ??
+    (!config.allowPartialResults || everyPartitionFailed ? memoryRefusal : undefined)
   if (rejection !== undefined) {
     releaseSearchContexts(indexName, openedContextsOf(outcomes), deps)
     throw rejection.error

@@ -14,6 +14,7 @@ import { type FetchRecord, tapTransport, type WireTap } from './search-context-w
 const INDEX = 'catalogue'
 const DATA_NODES = ['data-a', 'data-b']
 const RELEASE_WAIT_MS = 5_000
+const PARTITION_COUNT = 4
 
 type Item = {
   id: string
@@ -98,7 +99,7 @@ describe('a cluster search that reads its hits from the nodes that ranked them',
     await router.createIndex(
       INDEX,
       { schema: { title: 'string', rank: 'number', note: 'string' } },
-      { partitionCount: 4, replicationFactor: 1 },
+      { partitionCount: PARTITION_COUNT, replicationFactor: 1 },
     )
     for (const nodeId of DATA_NODES) await waitForSettledReplica(coordinator, INDEX, nodeId)
     const stored = items(total)
@@ -343,17 +344,55 @@ describe('a cluster search that reads its hits from the nodes that ranked them',
     expect(result.hits.map(hit => hit.id)).toEqual(items(40).map(item => item.id))
   })
 
-  it('refuses the whole search with TOO_MANY_REQUESTS when every copy refuses for memory, even with partial results allowed', async () => {
-    await startCluster(40)
-    tap.rewriteSearchResult = answer => refuseForMemory(answer)
+  function partitionOf(docId: string): number {
+    let hash = 0x811c9dc5
+    for (const byte of new TextEncoder().encode(docId)) hash = Math.imul(hash ^ byte, 0x01000193)
+    return (hash >>> 0) % PARTITION_COUNT
+  }
 
+  async function expectSearchRefusedForMemory(): Promise<void> {
     const outcome = await router.query(INDEX, { term: 'widget', limit: 40 }).then(
       result => result,
       (error: unknown) => error,
     )
-
     if (!isNarsilError(outcome)) throw new Error(`the search answered ${JSON.stringify(outcome).slice(0, 200)}`)
     expect(outcome.code).toBe('TOO_MANY_REQUESTS')
     expect(outcome.details.reason).toBe('response_would_fill_memory')
+  }
+
+  it('marks a partition that every copy refuses for memory as failed in a partial answer', async () => {
+    const stored = await startCluster(40)
+    const refused = new Set<number>()
+    tap.rewriteSearchResult = (answer, _target, request) => {
+      const partitionIds = request.partitionIds as number[]
+      if (!partitionIds.includes(0)) return
+      for (const partitionId of partitionIds) refused.add(partitionId)
+      refuseForMemory(answer)
+    }
+
+    const result = await router.query(INDEX, { term: 'widget', sort: { rank: 'asc' }, limit: 40 })
+
+    const answering = stored.filter(item => !refused.has(partitionOf(item.id)))
+    expect(refused.size).toBeLessThan(PARTITION_COUNT)
+    expect(result.coverage?.failedPartitions).toBe(refused.size)
+    expect(result.countExact).toBe(false)
+    expect(result.count).toBe(answering.length)
+    expect(result.hits.map(hit => hit.id)).toEqual(answering.map(item => item.id))
+  })
+
+  it('refuses the whole search with TOO_MANY_REQUESTS when no partition answers', async () => {
+    await startCluster(40)
+    tap.rewriteSearchResult = answer => refuseForMemory(answer)
+
+    await expectSearchRefusedForMemory()
+  })
+
+  it('refuses the whole search with TOO_MANY_REQUESTS when one partition is refused and partial results are off', async () => {
+    await startCluster(40, false)
+    tap.rewriteSearchResult = (answer, _target, request) => {
+      if ((request.partitionIds as number[]).includes(0)) refuseForMemory(answer)
+    }
+
+    await expectSearchRefusedForMemory()
   })
 })
