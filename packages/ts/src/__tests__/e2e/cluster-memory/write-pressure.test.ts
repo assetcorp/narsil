@@ -101,8 +101,10 @@ async function sendBatch(base: string, documents: Furniture[], payload: string):
     const parsed: unknown = text.length > 0 ? JSON.parse(text) : {}
     const body = parsed !== null && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : {}
     return { status: response.status, body, documents, payloadBytes: payload.length }
-  } catch {
-    return { status: null, body: {}, documents, payloadBytes: payload.length }
+  } catch (error) {
+    const cause = error instanceof Error && error.cause instanceof Error ? error.cause : null
+    const failure = { fetchError: String(error), cause: cause === null ? null : `${cause.name}: ${cause.message}` }
+    return { status: null, body: failure, documents, payloadBytes: payload.length }
   }
 }
 
