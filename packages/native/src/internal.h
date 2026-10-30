@@ -195,8 +195,8 @@ void graph_lock_shared(const narsil_graph *graph, uint32_t thread_slot);
 void graph_unlock_shared(const narsil_graph *graph, uint32_t thread_slot);
 void node_lock(const walk_context *context, int32_t ordinal);
 void node_unlock(const walk_context *context, int32_t ordinal);
-void entry_lock(const narsil_graph *graph);
-void entry_unlock(const narsil_graph *graph);
+void entry_lock(const walk_context *context);
+void entry_unlock(const walk_context *context);
 uint32_t read_neighbours(const walk_context *context, node_layer position, int32_t *out);
 
 int32_t node_top_layer(const walk_context *context, int32_t ordinal);

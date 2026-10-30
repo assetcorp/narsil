@@ -1,7 +1,7 @@
 import { ErrorCodes, NarsilError } from '../../errors'
 import { threadSlotGone } from '../../workers/thread-slot'
 import {
-  GRAPH_EXCLUSIVE_WAIT_DEADLINE_MS,
+  GRAPH_LOCK_WAIT_DEADLINE_MS,
   GRAPH_LOCK_WAIT_SLICE_MS,
   LOCK_SPIN_ITERATIONS,
   LOCK_WAIT_SLICE_MS,
@@ -11,6 +11,7 @@ import {
   GRAPH_ENTRY_LOCK,
   GRAPH_LOCK,
   GRAPH_WRITERS_WAITING,
+  HELD_ENTRY,
   HELD_FENCE,
   HELD_GRAPH,
   HELD_GRAPH_WAITING,
@@ -62,34 +63,18 @@ function heldIndex(locks: GraphLocks, kind: number): number {
   return locks.threadSlot * HELD_WORDS_PER_THREAD + kind
 }
 
-function acquireExclusive(words: Int32Array, index: number): void {
-  let spins = 0
-  for (;;) {
-    const seen = Atomics.compareExchange(words, index, FREE, EXCLUSIVE)
-    if (seen === FREE) return
-    if (spins < LOCK_SPIN_ITERATIONS) {
-      spins += 1
-      continue
-    }
-    waitOn(words, index, seen, GRAPH_LOCK_WAIT_SLICE_MS)
-  }
-}
+type WaitedLock = 'graph' | 'graphAlone' | 'node' | 'entry'
 
-function acquireExclusiveWithin(words: Int32Array, index: number, deadlineMs: number): boolean {
-  let spins = 0
-  let deadline = Number.NaN
-  for (;;) {
-    const seen = Atomics.compareExchange(words, index, FREE, EXCLUSIVE)
-    if (seen === FREE) return true
-    if (spins < LOCK_SPIN_ITERATIONS) {
-      spins += 1
-      continue
-    }
-    const now = performance.now()
-    if (Number.isNaN(deadline)) deadline = now + deadlineMs
-    else if (now >= deadline) return false
-    waitOn(words, index, seen, GRAPH_LOCK_WAIT_SLICE_MS)
-  }
+function waitedSince(locks: GraphLocks, startedAt: number, lock: WaitedLock): number {
+  const now = performance.now()
+  if (Number.isNaN(startedAt)) return now
+  if (now - startedAt < GRAPH_LOCK_WAIT_DEADLINE_MS) return startedAt
+  if (releaseGoneThreads(locks) > 0) return now
+  throw new NarsilError(
+    ErrorCodes.WORKER_TIMEOUT,
+    `Another thread held a lock on the vector graph for ${GRAPH_LOCK_WAIT_DEADLINE_MS} ms, so this thread stopped waiting for it`,
+    { waitedMs: GRAPH_LOCK_WAIT_DEADLINE_MS, threadSlot: locks.threadSlot, lock },
+  )
 }
 
 function releaseExclusive(words: Int32Array, index: number): void {
@@ -103,9 +88,23 @@ const VERSION_STEP = 4
 
 export function beginNodeRead(locks: GraphLocks, ord: number): number {
   const words = locks.words(ord)
+  const seen = Atomics.load(words, ord)
+  if ((seen & WRITE_HELD) === 0) return seen
+  return waitForNodeRead(locks, words, ord)
+}
+
+function waitForNodeRead(locks: GraphLocks, words: Int32Array, ord: number): number {
+  let spins = 0
+  let startedAt = Number.NaN
   for (;;) {
     const seen = Atomics.load(words, ord)
     if ((seen & WRITE_HELD) === 0) return seen
+    if (spins < LOCK_SPIN_ITERATIONS) {
+      spins += 1
+      continue
+    }
+    spins = 0
+    startedAt = waitedSince(locks, startedAt, 'node')
   }
 }
 
@@ -117,6 +116,7 @@ export function nodeReadHeld(locks: GraphLocks, ord: number, version: number): b
 export function lockNodeWrite(locks: GraphLocks, ord: number): void {
   const words = locks.words(ord)
   let spins = 0
+  let startedAt = Number.NaN
   for (;;) {
     const seen = Atomics.load(words, ord)
     if ((seen & WRITE_HELD) === 0) {
@@ -132,6 +132,7 @@ export function lockNodeWrite(locks: GraphLocks, ord: number): void {
       spins += 1
       continue
     }
+    startedAt = waitedSince(locks, startedAt, 'node')
     const waiting = seen | WRITER_WAITING
     if (waiting === seen || Atomics.compareExchange(words, ord, seen, waiting) === seen) {
       waitOn(words, ord, waiting)
@@ -153,6 +154,7 @@ export function unlockNodeWrite(locks: GraphLocks, ord: number): void {
 export function lockGraphShared(locks: GraphLocks): void {
   const { header } = locks
   let spins = 0
+  let startedAt = Number.NaN
   for (;;) {
     const seen = Atomics.load(header, GRAPH_LOCK)
     if (seen >= FREE && Atomics.load(header, GRAPH_WRITERS_WAITING) === 0) {
@@ -166,6 +168,7 @@ export function lockGraphShared(locks: GraphLocks): void {
       spins += 1
       continue
     }
+    startedAt = waitedSince(locks, startedAt, 'graph')
     waitOn(header, GRAPH_LOCK, seen, GRAPH_LOCK_WAIT_SLICE_MS)
   }
 }
@@ -177,17 +180,22 @@ export function unlockGraphShared(locks: GraphLocks): void {
 }
 
 export function lockGraphExclusive(locks: GraphLocks): void {
+  const { header } = locks
   Atomics.store(locks.held, heldIndex(locks, HELD_GRAPH_WAITING), 1)
-  Atomics.add(locks.header, GRAPH_WRITERS_WAITING, 1)
+  Atomics.add(header, GRAPH_WRITERS_WAITING, 1)
   try {
-    if (acquireExclusiveWithin(locks.header, GRAPH_LOCK, GRAPH_EXCLUSIVE_WAIT_DEADLINE_MS)) return
-    const released = releaseGoneThreads(locks)
-    if (released > 0 && acquireExclusiveWithin(locks.header, GRAPH_LOCK, GRAPH_EXCLUSIVE_WAIT_DEADLINE_MS)) return
-    throw new NarsilError(
-      ErrorCodes.WORKER_TIMEOUT,
-      `Another thread held the vector graph for ${GRAPH_EXCLUSIVE_WAIT_DEADLINE_MS} ms, so this change to the graph gave up`,
-      { waitedMs: GRAPH_EXCLUSIVE_WAIT_DEADLINE_MS, threadSlot: locks.threadSlot },
-    )
+    let spins = 0
+    let startedAt = Number.NaN
+    for (;;) {
+      const seen = Atomics.compareExchange(header, GRAPH_LOCK, FREE, EXCLUSIVE)
+      if (seen === FREE) return
+      if (spins < LOCK_SPIN_ITERATIONS) {
+        spins += 1
+        continue
+      }
+      startedAt = waitedSince(locks, startedAt, 'graphAlone')
+      waitOn(header, GRAPH_LOCK, seen, GRAPH_LOCK_WAIT_SLICE_MS)
+    }
   } finally {
     Atomics.sub(locks.header, GRAPH_WRITERS_WAITING, 1)
     Atomics.store(locks.held, heldIndex(locks, HELD_GRAPH_WAITING), 0)
@@ -199,10 +207,26 @@ export function unlockGraphExclusive(locks: GraphLocks): void {
 }
 
 export function lockEntry(locks: GraphLocks): void {
-  acquireExclusive(locks.header, GRAPH_ENTRY_LOCK)
+  const { header } = locks
+  let spins = 0
+  let startedAt = Number.NaN
+  for (;;) {
+    const seen = Atomics.compareExchange(header, GRAPH_ENTRY_LOCK, FREE, EXCLUSIVE)
+    if (seen === FREE) {
+      Atomics.store(locks.held, heldIndex(locks, HELD_ENTRY), 1)
+      return
+    }
+    if (spins < LOCK_SPIN_ITERATIONS) {
+      spins += 1
+      continue
+    }
+    startedAt = waitedSince(locks, startedAt, 'entry')
+    waitOn(header, GRAPH_ENTRY_LOCK, seen, GRAPH_LOCK_WAIT_SLICE_MS)
+  }
 }
 
 export function unlockEntry(locks: GraphLocks): void {
+  Atomics.store(locks.held, heldIndex(locks, HELD_ENTRY), 0)
   releaseExclusive(locks.header, GRAPH_ENTRY_LOCK)
 }
 
@@ -215,7 +239,8 @@ function releaseGoneThreads(locks: GraphLocks): number {
     const writeOrd = Atomics.load(locks.held, base + HELD_WRITE) - 1
     const holdsGraph = Atomics.load(locks.held, base + HELD_GRAPH) === 1
     const waitsForGraph = Atomics.load(locks.held, base + HELD_GRAPH_WAITING) === 1
-    if (!holdsGraph && !waitsForGraph && writeOrd < 0) continue
+    const holdsEntry = Atomics.load(locks.held, base + HELD_ENTRY) === 1
+    if (!holdsGraph && !waitsForGraph && !holdsEntry && writeOrd < 0) continue
     releaseSlot(locks.header, locks.held, writeOrd >= 0 ? locks.words(writeOrd) : null, slot)
     released += 1
   }
@@ -231,6 +256,7 @@ function releaseSlot(header: Int32Array, held: Int32Array, words: Int32Array | n
   if (Atomics.exchange(held, base + HELD_GRAPH_WAITING, 0) === 1) {
     Atomics.sub(header, GRAPH_WRITERS_WAITING, 1)
   }
+  if (Atomics.exchange(held, base + HELD_ENTRY, 0) === 1) releaseExclusive(header, GRAPH_ENTRY_LOCK)
   const writeOrd = Atomics.exchange(held, base + HELD_WRITE, 0) - 1
   const writeVersion = Atomics.load(held, base + HELD_WRITE_VERSION)
   if (words !== null && writeOrd >= 0 && writeOrd < words.length) {
