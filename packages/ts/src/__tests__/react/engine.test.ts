@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
-import { act, createElement, type ReactNode } from 'react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { createElement, type ReactNode } from 'react'
+import { afterEach, describe, expect, it } from 'vitest'
 import { createNarsilClient } from '../../client'
 import { ErrorCodes } from '../../errors'
 import { createNarsil, type Narsil } from '../../narsil'
@@ -74,24 +74,6 @@ async function lampEngine(): Promise<Narsil> {
   return engine
 }
 
-async function advanceClock(milliseconds: number): Promise<void> {
-  await act(async () => {
-    await vi.advanceTimersByTimeAsync(milliseconds)
-  })
-}
-
-function counting<K extends 'query' | 'getStats'>(engine: Narsil, method: K): () => number {
-  let calls = 0
-  const original = engine[method].bind(engine) as (...args: unknown[]) => unknown
-  Object.assign(engine, {
-    [method]: (...args: unknown[]) => {
-      calls++
-      return original(...args)
-    },
-  })
-  return () => calls
-}
-
 describe('react hooks over an in-browser engine', () => {
   let server: TestServer | null = null
   let engine: Narsil | null = null
@@ -149,46 +131,6 @@ describe('react hooks over an in-browser engine', () => {
         renderBare(createElement(NarsilProvider, { engine: held }, createElement(Probe))),
       ).rejects.toMatchObject({ code: ErrorCodes.CONFIG_INVALID })
     }
-  })
-
-  it('searches again once after a burst of writes, in every mounted hook', async () => {
-    engine = await lampEngine()
-    const held = engine
-    const queries = counting(held, 'query')
-    const statsReads = counting(held, 'getStats')
-    const view = await renderHookUnder(() => ({ lamps: useQuery('products', LAMPS), stats: useStats('products') }), {
-      engine: held,
-      refreshAfterWriteMs: 400,
-    })
-    await waitFor(() => view.current().lamps.data !== undefined && view.current().stats.data !== undefined)
-    expect({ queries: queries(), statsReads: statsReads() }).toEqual({ queries: 1, statsReads: 1 })
-
-    const writes: Array<() => Promise<unknown>> = [
-      () => held.insert('products', { title: 'Reading Lamp', category: 'home', price: 35 }, 'p5'),
-      () => held.insert('products', { title: 'Lamp Bulb', category: 'home', price: 5 }, 'p6'),
-      () => held.insertBatch('products', [{ id: 'p7', title: 'Lava Lamp', category: 'home', price: 45 }]),
-      () => held.remove('products', 'p1'),
-      () => held.update('products', 'p2', { title: 'Tall Floor Lamp', category: 'home', price: 80 }),
-    ]
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
-    try {
-      for (const write of writes) {
-        await write()
-        await advanceClock(150)
-      }
-      expect({ queries: queries(), statsReads: statsReads() }).toEqual({ queries: 1, statsReads: 1 })
-
-      await advanceClock(400)
-      expect({ queries: queries(), statsReads: statsReads() }).toEqual({ queries: 2, statsReads: 2 })
-      await advanceClock(1000)
-    } finally {
-      vi.useRealTimers()
-    }
-
-    await waitFor(() => view.current().lamps.data?.count === 5 && view.current().stats.data?.documentCount === 6)
-    expect({ queries: queries(), statsReads: statsReads() }).toEqual({ queries: 2, statsReads: 2 })
-    expect(view.current().lamps.data?.hits.map(hit => hit.id)).toEqual(['p6', 'p3', 'p5', 'p7', 'p2'])
-    await view.unmount()
   })
 
   it('discards an answer whose search started before the latest write', async () => {

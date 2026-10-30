@@ -1,31 +1,32 @@
 import { describe, expect, it } from 'vitest'
-import { createHNSWIndex } from '../../vector/hnsw'
-import { createOsqQuantizer, type OsqBits } from '../../vector/osq'
-import { createVectorStore } from '../../vector/vector-store'
-import { createExactSearch } from './exact-search'
+import { createNarsil } from '../../narsil'
+import type { VectorQuantizationMode } from '../../types/schema'
 
-const CLUSTER_CENTRES = 64
-const CLUSTER_SPREAD = 0.35
-const WIDE_CLUSTER_CENTRES = 40
-const WIDE_CLUSTER_SPREAD = 0.6
+const RECALL_FLOOR = 0.95
+const K = 10
+const QUERIES = 100
+const PROMOTION_THRESHOLD = 100
+const SETTLE_DEADLINE_MS = 240_000
+const TEST_TIMEOUT_MS = 300_000
+const INSERT_BATCH_DOCUMENTS = 500
 
 interface Clusters {
   centres: number
   spread: number
 }
 
-const TIGHT_CLUSTERS: Clusters = { centres: CLUSTER_CENTRES, spread: CLUSTER_SPREAD }
-const WIDE_CLUSTERS: Clusters = { centres: WIDE_CLUSTER_CENTRES, spread: WIDE_CLUSTER_SPREAD }
+const TIGHT_CLUSTERS: Clusters = { centres: 64, spread: 0.35 }
+const WIDE_CLUSTERS: Clusters = { centres: 40, spread: 0.6 }
 
-function pseudoRandom(seed: number): () => number {
+function seededRandom(seed: number): () => number {
   let state = seed >>> 0
   return () => {
-    state = (state * 1664525 + 1013904223) >>> 0
+    state = (Math.imul(state, 1664525) + 1013904223) >>> 0
     return state / 4294967296
   }
 }
 
-function gaussianPair(random: () => number): [number, number] {
+function gaussian(random: () => number): number {
   let u = 0
   let v = 0
   let s = 0
@@ -34,123 +35,128 @@ function gaussianPair(random: () => number): [number, number] {
     v = random() * 2 - 1
     s = u * u + v * v
   } while (s === 0 || s >= 1)
-  const factor = Math.sqrt((-2 * Math.log(s)) / s)
-  return [u * factor, v * factor]
+  return u * Math.sqrt((-2 * Math.log(s)) / s)
 }
 
-function gaussianVector(dim: number, random: () => number): Float32Array {
-  const v = new Float32Array(dim)
-  for (let i = 0; i < dim; i += 2) {
-    const [a, b] = gaussianPair(random)
-    v[i] = a
-    if (i + 1 < dim) v[i + 1] = b
-  }
-  return v
+function unitLength(vector: number[]): number[] {
+  const length = Math.hypot(...vector)
+  return vector.map(value => Math.fround(value / length))
 }
 
-function unitNormalise(v: Float32Array): Float32Array {
-  let sumSq = 0
-  for (let i = 0; i < v.length; i++) sumSq += v[i] * v[i]
-  const mag = Math.sqrt(sumSq)
-  if (mag === 0) return v
-  for (let i = 0; i < v.length; i++) v[i] /= mag
-  return v
-}
-
-function clusteredVectors(dim: number, count: number, random: () => number, clusters: Clusters): Float32Array[] {
-  const centres = Array.from({ length: clusters.centres }, () => gaussianVector(dim, random))
-  const vectors: Float32Array[] = []
-  for (let n = 0; n < count; n++) {
+function clusteredVectors(dimension: number, count: number, clusters: Clusters, seed: number): number[][] {
+  const random = seededRandom(seed)
+  const centres = Array.from({ length: clusters.centres }, () =>
+    Array.from({ length: dimension }, () => gaussian(random)),
+  )
+  return Array.from({ length: count }, () => {
     const centre = centres[Math.floor(random() * clusters.centres)]
-    const noise = gaussianVector(dim, random)
-    const v = new Float32Array(dim)
-    for (let i = 0; i < dim; i++) v[i] = centre[i] + clusters.spread * noise[i]
-    vectors.push(unitNormalise(v))
-  }
-  return vectors
+    return unitLength(centre.map(value => value + clusters.spread * gaussian(random)))
+  })
 }
 
-function computeRecallAtK(
-  hnswResults: Array<{ docId: string }>,
-  bruteForceResults: Array<{ docId: string }>,
-  k: number,
-): number {
-  const hnswTopK = new Set(hnswResults.slice(0, k).map(r => r.docId))
-  const bfTopK = new Set(bruteForceResults.slice(0, k).map(r => r.docId))
-  let matches = 0
-  for (const docId of bfTopK) {
-    if (hnswTopK.has(docId)) matches++
-  }
-  return bfTopK.size > 0 ? matches / bfTopK.size : 1
+function exactNearest(query: number[], corpus: number[][]): Set<string> {
+  const scored = corpus.map((vector, position) => {
+    let dot = 0
+    for (let i = 0; i < vector.length; i++) dot += vector[i] * query[i]
+    return { id: `doc-${position}`, dot }
+  })
+  scored.sort((left, right) => right.dot - left.dot)
+  return new Set(scored.slice(0, K).map(entry => entry.id))
 }
 
-function runRecallBenchmark(
-  dim: number,
-  bits: OsqBits,
-  vectorCount: number,
-  queryCount: number,
-  k: number,
-  efSearch: number | undefined,
-  oversample?: number,
-  clusters: Clusters = TIGHT_CLUSTERS,
-): number {
-  const random = pseudoRandom(20260913 + dim + bits)
-  const store = createVectorStore({ dimension: dim, codeBits: bits })
-  const quantizer = createOsqQuantizer(dim, bits, 'cosine', store)
-  const corpus = clusteredVectors(dim, vectorCount + queryCount, random, clusters)
-  const docIds: string[] = []
+async function recallOf(
+  dimension: number,
+  quantization: VectorQuantizationMode,
+  documents: number,
+  clusters: Clusters,
+  search: { efSearch?: number; oversample?: number },
+): Promise<number> {
+  const all = clusteredVectors(dimension, documents + QUERIES, clusters, 20260913 + dimension)
+  const corpus = all.slice(0, documents)
+  const queries = all.slice(documents)
+  const narsil = await createNarsil({ workers: { enabled: false } })
+  try {
+    await narsil.createIndex('articles', {
+      schema: { embedding: `vector[${dimension}]` },
+      vectorPromotion: { threshold: PROMOTION_THRESHOLD, quantization, hnswConfig: { m: 16, efConstruction: 200 } },
+    })
+    for (let start = 0; start < corpus.length; start += INSERT_BATCH_DOCUMENTS) {
+      const batch = corpus.slice(start, start + INSERT_BATCH_DOCUMENTS)
+      const result = await narsil.insertBatch(
+        'articles',
+        batch.map((embedding, offset) => ({ id: `doc-${start + offset}`, embedding })),
+      )
+      expect(result.failed).toEqual([])
+    }
+    const deadline = Date.now() + SETTLE_DEADLINE_MS
+    while (
+      narsil
+        .vectorMaintenanceStatus('articles')
+        .some(field => field.building || field.graphCount === 0 || field.bufferSize > 0)
+    ) {
+      if (Date.now() > deadline) throw new Error('the graph was still building at the deadline')
+      await new Promise(resolve => setTimeout(resolve, 20))
+    }
 
-  for (let i = 0; i < vectorCount; i++) {
-    const docId = `doc${i}`
-    docIds.push(docId)
-    store.insert(docId, corpus[i])
+    let found = 0
+    for (const query of queries) {
+      const result = await narsil.query('articles', {
+        mode: 'vector',
+        limit: K,
+        vector: { field: 'embedding', value: query, ...search },
+      })
+      const truth = exactNearest(query, corpus)
+      found += result.hits.filter(hit => truth.has(hit.id)).length
+    }
+    return found / (K * QUERIES)
+  } finally {
+    await narsil.shutdown()
   }
-
-  quantizer.calibrate(Int32Array.from({ length: vectorCount }, (_, ordinal) => ordinal))
-
-  const hnsw = createHNSWIndex(dim, store, { m: 16, efConstruction: 200, metric: 'cosine' }, quantizer)
-  for (const docId of docIds) {
-    hnsw.insertNode(docId)
-  }
-
-  const bruteForce = createExactSearch(dim, store)
-
-  let totalRecall = 0
-  for (let q = 0; q < queryCount; q++) {
-    const query = corpus[vectorCount + q]
-    const bfResults = bruteForce.search(query, k, 'cosine', 0)
-    const hnswResults = hnsw.search(query, k, 'cosine', 0, { efSearch, oversample })
-
-    const recall = computeRecallAtK(hnswResults, bfResults, k)
-    totalRecall += recall
-  }
-
-  return totalRecall / queryCount
 }
 
-describe('HNSW built from OSQ codes, recall@10 on clustered vectors', () => {
-  it('achieves >= 95% recall@10 with 2K vectors at 1536 dims and 1-bit codes', () => {
-    const avgRecall = runRecallBenchmark(1536, 1, 2000, 100, 10, 128)
-    expect(avgRecall).toBeGreaterThanOrEqual(0.95)
-  }, 300_000)
+describe('a vector search through the public API, measured against an exact search', () => {
+  it(
+    'finds at least 95% of the 10 nearest in 2,000 documents at 1,536 dimensions under osq1',
+    async () => {
+      const recall = await recallOf(1536, 'osq1', 2_000, TIGHT_CLUSTERS, { efSearch: 128 })
+      expect(recall).toBeGreaterThanOrEqual(RECALL_FLOOR)
+    },
+    TEST_TIMEOUT_MS,
+  )
 
-  it('achieves >= 95% recall@10 with 2K vectors at 384 dims and 4-bit codes re-scored three deep', () => {
-    const avgRecall = runRecallBenchmark(384, 4, 2000, 100, 10, 128, 3)
-    expect(avgRecall).toBeGreaterThanOrEqual(0.95)
-  }, 300_000)
+  it(
+    'finds at least 95% of the 10 nearest in 2,000 documents at 384 dimensions under osq4',
+    async () => {
+      const recall = await recallOf(384, 'osq4', 2_000, TIGHT_CLUSTERS, { efSearch: 128, oversample: 3 })
+      expect(recall).toBeGreaterThanOrEqual(RECALL_FLOOR)
+    },
+    TEST_TIMEOUT_MS,
+  )
 
-  it('achieves >= 95% recall@10 with 5K widely spread vectors at 384 dims and 1-bit codes under the default search settings', () => {
-    const avgRecall = runRecallBenchmark(384, 1, 5000, 100, 10, undefined, undefined, WIDE_CLUSTERS)
-    expect(avgRecall).toBeGreaterThanOrEqual(0.95)
-  }, 300_000)
+  it(
+    'finds at least 95% of the 10 nearest in 5,000 spread documents under osq1 at the default settings',
+    async () => {
+      const recall = await recallOf(384, 'osq1', 5_000, WIDE_CLUSTERS, {})
+      expect(recall).toBeGreaterThanOrEqual(RECALL_FLOOR)
+    },
+    TEST_TIMEOUT_MS,
+  )
 
-  it('achieves >= 95% recall@10 with 5K widely spread vectors at 384 dims and 2-bit codes under the default search settings', () => {
-    const avgRecall = runRecallBenchmark(384, 2, 5000, 100, 10, undefined, undefined, WIDE_CLUSTERS)
-    expect(avgRecall).toBeGreaterThanOrEqual(0.95)
-  }, 300_000)
+  it(
+    'finds at least 95% of the 10 nearest in 5,000 spread documents under osq2 at the default settings',
+    async () => {
+      const recall = await recallOf(384, 'osq2', 5_000, WIDE_CLUSTERS, {})
+      expect(recall).toBeGreaterThanOrEqual(RECALL_FLOOR)
+    },
+    TEST_TIMEOUT_MS,
+  )
 
-  it('achieves >= 95% recall@10 with 2K vectors at 128 dims and 8-bit codes', () => {
-    const avgRecall = runRecallBenchmark(128, 8, 2000, 100, 10, 128)
-    expect(avgRecall).toBeGreaterThanOrEqual(0.95)
-  }, 300_000)
+  it(
+    'finds at least 95% of the 10 nearest in 2,000 documents at 128 dimensions under osq8',
+    async () => {
+      const recall = await recallOf(128, 'osq8', 2_000, TIGHT_CLUSTERS, { efSearch: 128 })
+      expect(recall).toBeGreaterThanOrEqual(RECALL_FLOOR)
+    },
+    TEST_TIMEOUT_MS,
+  )
 })

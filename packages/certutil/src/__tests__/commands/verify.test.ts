@@ -1,207 +1,200 @@
-import { randomBytes } from 'node:crypto'
-import { rm, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { X509Certificate } from 'node:crypto'
+import { writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { runVerifyAction } from '../../commands/verify'
-import { generateCaCertificate } from '../../crypto/ca'
-import { generateNodeCertificate } from '../../crypto/certificate'
-import { ensureDirectory } from '../../output/writer'
+import forge from 'node-forge'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import {
+  type Authority,
+  createAuthority,
+  createWorkspace,
+  expectNoPrivateKeyInOutput,
+  issueNodeCertificate,
+  type NodeIdentity,
+  parseEnvelope,
+  removeWorkspace,
+  runCli,
+} from '../support/cli'
 
-function tempDir(): string {
-  return join(tmpdir(), `certutil-verify-cmd-test-${randomBytes(8).toString('hex')}`)
+const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000
+
+interface VerifyData {
+  certKeyMatch: boolean | null
+  chainValid: boolean | null
+  notExpired: boolean
+  keyUsageCorrect: boolean
+  mtlsReady: boolean
+  errors: string[]
 }
 
-const ca = generateCaCertificate({ name: 'Verify Test CA', days: 3650, keySize: 2048 })
-const otherCa = generateCaCertificate({ name: 'Other CA', days: 3650, keySize: 2048 })
+function buildExpiredCertificatePem(authority: Authority): string {
+  const certificate = forge.pki.createCertificate()
+  certificate.publicKey = forge.pki.rsa.generateKeyPair({ bits: 2048, e: 0x10001 }).publicKey
+  certificate.serialNumber = '01'
+  certificate.validity.notBefore = new Date(Date.now() - 2 * MILLISECONDS_PER_DAY)
+  certificate.validity.notAfter = new Date(Date.now() - MILLISECONDS_PER_DAY)
+  certificate.setSubject([{ name: 'commonName', value: 'expired-node' }])
+  certificate.setIssuer(forge.pki.certificateFromPem(authority.certPem).subject.attributes)
+  certificate.setExtensions([
+    { name: 'keyUsage', digitalSignature: true, keyEncipherment: true },
+    { name: 'extKeyUsage', serverAuth: true, clientAuth: true },
+  ])
+  certificate.sign(forge.pki.privateKeyFromPem(authority.keyPem), forge.md.sha256.create())
+  return forge.pki.certificateToPem(certificate)
+}
 
-const nodeCert = generateNodeCertificate({
-  caCertPem: ca.certPem,
-  caKeyPem: ca.keyPem,
-  cn: 'verify-node',
-  ipSans: ['10.0.0.1'],
-  dnsSans: ['verify-node.cluster.local'],
-  days: 365,
-  keySize: 2048,
-})
+function tamperWithSignature(pem: string): string {
+  const der = Buffer.from(new X509Certificate(pem).raw)
+  const lastIndex = der.length - 1
+  der.writeUInt8(der.readUInt8(lastIndex) ^ 0xff, lastIndex)
+  return `-----BEGIN CERTIFICATE-----\n${der.toString('base64')}\n-----END CERTIFICATE-----\n`
+}
 
-describe('verify command', () => {
-  let dir: string
-  let originalExitCode: string | number | null | undefined
-  let stderrChunks: string[]
-  let stdoutChunks: string[]
-  let stderrSpy: ReturnType<typeof vi.spyOn>
-  let stdoutSpy: ReturnType<typeof vi.spyOn>
+describe('narsil-certutil verify', () => {
+  let root: string
+  let authority: Authority
+  let node: NodeIdentity
+  let otherNode: NodeIdentity
 
-  beforeEach(async () => {
-    dir = tempDir()
-    await ensureDirectory(dir)
-    await writeFile(join(dir, 'ca.crt'), ca.certPem)
-    await writeFile(join(dir, 'other-ca.crt'), otherCa.certPem)
-    await writeFile(join(dir, 'node.crt'), nodeCert.certPem)
-    await writeFile(join(dir, 'node.key'), nodeCert.keyPem)
-    originalExitCode = process.exitCode
-    stderrChunks = []
-    stdoutChunks = []
-    stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk: string | Uint8Array) => {
-      stderrChunks.push(String(chunk))
-      return true
-    })
-    stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation((chunk: string | Uint8Array) => {
-      stdoutChunks.push(String(chunk))
-      return true
+  beforeAll(async () => {
+    root = await createWorkspace()
+    const pkiDir = await createWorkspace(root)
+    authority = await createAuthority(pkiDir, 'Verify Test CA')
+    node = await issueNodeCertificate(authority, pkiDir, 'verify-node', ['--ip', '10.0.0.1'])
+    otherNode = await issueNodeCertificate(authority, pkiDir, 'other-node')
+  })
+
+  afterAll(async () => {
+    await removeWorkspace(root)
+  })
+
+  async function verifyJson(args: string[]): Promise<{ code: number; data: VerifyData | null }> {
+    const result = await runCli(['verify', ...args, '--output', 'json'])
+    expectNoPrivateKeyInOutput(result)
+    return { code: result.code, data: parseEnvelope<VerifyData>(result.stdout).data }
+  }
+
+  it('passes a matching certificate, key, and CA with exit code 0', async () => {
+    const { code, data } = await verifyJson([
+      '--cert',
+      node.certPath,
+      '--key',
+      node.keyPath,
+      '--ca-cert',
+      authority.certPath,
+    ])
+
+    expect(code).toBe(0)
+    expect(data).toEqual({
+      certKeyMatch: true,
+      chainValid: true,
+      notExpired: true,
+      keyUsageCorrect: true,
+      mtlsReady: true,
+      errors: [],
     })
   })
 
-  afterEach(async () => {
-    process.exitCode = originalExitCode
-    stderrSpy.mockRestore()
-    stdoutSpy.mockRestore()
-    await rm(dir, { recursive: true, force: true })
+  it('prints a readable pass and FAIL report in text mode', async () => {
+    const passed = await runCli(['verify', '--cert', node.certPath, '--key', node.keyPath])
+    const failed = await runCli(['verify', '--cert', node.certPath, '--key', otherNode.keyPath])
+
+    expect(passed.code).toBe(0)
+    expect(passed.stdout).toContain('pass  Certificate matches private key')
+    expect(failed.code).toBe(1)
+    expect(failed.stdout).toContain('FAIL  Certificate does NOT match private key')
   })
 
-  it('verifies a valid cert+key pair matches', async () => {
-    await runVerifyAction({
-      cert: join(dir, 'node.crt'),
-      key: join(dir, 'node.key'),
-      output: 'text',
-    })
+  it('fails with exit code 1 when the key belongs to another certificate', async () => {
+    const { code, data } = await verifyJson(['--cert', node.certPath, '--key', otherNode.keyPath])
 
-    const stdout = stdoutChunks.join('')
-    expect(stdout).toContain('pass')
-    expect(stdout).toContain('Certificate matches private key')
+    expect(node.certificate.checkPrivateKey(otherNode.privateKey)).toBe(false)
+    expect(code).toBe(1)
+    expect(data?.certKeyMatch).toBe(false)
+    expect(data?.errors).toContain('Certificate does not match private key')
   })
 
-  it('detects a cert+wrong-key mismatch', async () => {
-    const wrongKey = generateNodeCertificate({
-      caCertPem: ca.certPem,
-      caKeyPem: ca.keyPem,
-      cn: 'other-node',
-      ipSans: [],
-      dnsSans: [],
-      days: 365,
-      keySize: 2048,
-    })
-    await writeFile(join(dir, 'wrong.key'), wrongKey.keyPem)
+  it('fails a certificate from a different CA that has the same name as the trusted CA', async () => {
+    const impostorDir = await createWorkspace(root)
+    const impostor = await createAuthority(impostorDir, 'Verify Test CA')
+    const forged = await issueNodeCertificate(impostor, impostorDir, 'verify-node')
 
-    await runVerifyAction({
-      cert: join(dir, 'node.crt'),
-      key: join(dir, 'wrong.key'),
-      output: 'text',
-    })
+    const { code, data } = await verifyJson(['--cert', forged.certPath, '--ca-cert', authority.certPath])
 
-    expect(process.exitCode).toBe(1)
-    const stdout = stdoutChunks.join('')
-    expect(stdout).toContain('FAIL')
-    expect(stdout).toContain('does NOT match')
+    expect(forged.certificate.verify(authority.certificate.publicKey)).toBe(false)
+    expect(code).toBe(1)
+    expect(data?.chainValid).toBe(false)
   })
 
-  it('validates the certificate chain against the correct CA', async () => {
-    await runVerifyAction({
-      cert: join(dir, 'node.crt'),
-      caCert: join(dir, 'ca.crt'),
-      output: 'text',
-    })
+  it('fails a certificate whose signature bytes were altered', async () => {
+    const tamperedPath = join(await createWorkspace(root), 'tampered.crt')
+    const tampered = tamperWithSignature(node.certPem)
+    await writeFile(tamperedPath, tampered)
 
-    const stdout = stdoutChunks.join('')
-    expect(stdout).toContain('pass')
-    expect(stdout).toContain('validates against CA')
+    const { code, data } = await verifyJson(['--cert', tamperedPath, '--ca-cert', authority.certPath])
+
+    expect(new X509Certificate(tampered).verify(authority.certificate.publicKey)).toBe(false)
+    expect(code).toBe(1)
+    expect(data?.chainValid).toBe(false)
   })
 
-  it('detects chain failure against the wrong CA', async () => {
-    await runVerifyAction({
-      cert: join(dir, 'node.crt'),
-      caCert: join(dir, 'other-ca.crt'),
-      output: 'text',
-    })
+  it('fails an expired certificate even when its chain is valid', async () => {
+    const expiredPath = join(await createWorkspace(root), 'expired.crt')
+    const expired = buildExpiredCertificatePem(authority)
+    await writeFile(expiredPath, expired)
 
-    expect(process.exitCode).toBe(1)
-    const stdout = stdoutChunks.join('')
-    expect(stdout).toContain('FAIL')
-    expect(stdout).toContain('does NOT validate')
+    const { code, data } = await verifyJson(['--cert', expiredPath, '--ca-cert', authority.certPath])
+
+    expect(Date.parse(new X509Certificate(expired).validTo)).toBeLessThan(Date.now())
+    expect(code).toBe(1)
+    expect(data?.notExpired).toBe(false)
+    expect(data?.chainValid).toBe(true)
+    expect(data?.errors).toContain('Certificate is expired')
   })
 
-  it('confirms the node cert has correct key usage for mTLS', async () => {
-    await runVerifyAction({
-      cert: join(dir, 'node.crt'),
-      output: 'text',
-    })
+  it('fails a CA certificate presented as a node certificate because it lacks mTLS usage', async () => {
+    const { code, data } = await verifyJson(['--cert', authority.certPath])
 
-    const stdout = stdoutChunks.join('')
-    expect(stdout).toContain('pass')
-    expect(stdout).toContain('digitalSignature')
-    expect(stdout).toContain('keyEncipherment')
-    expect(stdout).toContain('mTLS')
-    expect(stdout).toContain('serverAuth')
-    expect(stdout).toContain('clientAuth')
+    expect(code).toBe(1)
+    expect(data?.mtlsReady).toBe(false)
+    expect(data?.keyUsageCorrect).toBe(false)
   })
 
-  it('detects missing mTLS readiness on a CA cert (no extKeyUsage)', async () => {
-    await runVerifyAction({
-      cert: join(dir, 'ca.crt'),
-      output: 'text',
-    })
+  it('refuses corrupted, truncated, empty, and absent inputs with exit code 1', async () => {
+    const dir = await createWorkspace(root)
+    const corruptPath = join(dir, 'corrupt.pem')
+    const truncatedPath = join(dir, 'truncated.pem')
+    const emptyPath = join(dir, 'empty.pem')
+    const absentPath = join(dir, 'absent.pem')
+    await writeFile(corruptPath, '-----BEGIN CERTIFICATE-----\nDEFINITELYNOTVALID\n-----END CERTIFICATE-----\n')
+    await writeFile(truncatedPath, node.certPem.slice(0, Math.floor(node.certPem.length / 2)))
+    await writeFile(emptyPath, '')
 
-    expect(process.exitCode).toBe(1)
-    const stdout = stdoutChunks.join('')
-    expect(stdout).toContain('FAIL')
-    expect(stdout).toContain('NOT ready for Narsil mTLS')
+    const invocations = [corruptPath, truncatedPath, emptyPath, absentPath].flatMap(path => [
+      ['--cert', path],
+      ['--cert', node.certPath, '--key', path],
+      ['--cert', node.certPath, '--ca-cert', path],
+    ])
+
+    for (const args of invocations) {
+      const result = await runCli(['verify', ...args])
+
+      expect(result.code, args.join(' ')).toBe(1)
+      expect(result.stdout, args.join(' ')).toBe('')
+      expect(result.stderr, args.join(' ')).toContain('Error:')
+      expect(result.stderr, args.join(' ')).not.toContain('    at ')
+    }
   })
 
-  it('outputs JSON envelope in json mode', async () => {
-    await runVerifyAction({
-      cert: join(dir, 'node.crt'),
-      key: join(dir, 'node.key'),
-      caCert: join(dir, 'ca.crt'),
-      output: 'json',
-    })
+  it('reports malformed input as a parsable JSON error envelope on stderr', async () => {
+    const corruptPath = join(await createWorkspace(root), 'corrupt.pem')
+    await writeFile(corruptPath, '-----BEGIN CERTIFICATE-----\nDEFINITELYNOTVALID\n-----END CERTIFICATE-----\n')
 
-    const stdout = stdoutChunks.join('')
-    const envelope = JSON.parse(stdout)
-    expect(envelope.status).toBe('success')
-    expect(envelope.data.certKeyMatch).toBe(true)
-    expect(envelope.data.chainValid).toBe(true)
-    expect(envelope.data.notExpired).toBe(true)
-    expect(envelope.data.keyUsageCorrect).toBe(true)
-    expect(envelope.data.mtlsReady).toBe(true)
-    expect(envelope.data.errors).toHaveLength(0)
-  })
+    const result = await runCli(['verify', '--cert', corruptPath, '--output', 'json'])
 
-  it('reports all failures in JSON mode', async () => {
-    const wrongKey = generateNodeCertificate({
-      caCertPem: ca.certPem,
-      caKeyPem: ca.keyPem,
-      cn: 'fail-node',
-      ipSans: [],
-      dnsSans: [],
-      days: 365,
-      keySize: 2048,
-    })
-    await writeFile(join(dir, 'wrong2.key'), wrongKey.keyPem)
-
-    await runVerifyAction({
-      cert: join(dir, 'node.crt'),
-      key: join(dir, 'wrong2.key'),
-      caCert: join(dir, 'other-ca.crt'),
-      output: 'json',
-    })
-
-    const stdout = stdoutChunks.join('')
-    const envelope = JSON.parse(stdout)
-    expect(envelope.data.certKeyMatch).toBe(false)
-    expect(envelope.data.chainValid).toBe(false)
-    expect(envelope.data.errors.length).toBeGreaterThanOrEqual(2)
-  })
-
-  it('runs full verification with all checks passing', async () => {
-    await runVerifyAction({
-      cert: join(dir, 'node.crt'),
-      key: join(dir, 'node.key'),
-      caCert: join(dir, 'ca.crt'),
-      output: 'text',
-    })
-
-    expect(process.exitCode).not.toBe(1)
-    const stdout = stdoutChunks.join('')
-    expect(stdout).not.toContain('FAIL')
+    expect(result.code).toBe(1)
+    expect(result.stdout).toBe('')
+    const envelope = parseEnvelope<null>(result.stderr)
+    expect(envelope.status).toBe('error')
+    expect(envelope.error?.code).toBe('GENERAL_ERROR')
   })
 })

@@ -1,203 +1,176 @@
-import { randomBytes } from 'node:crypto'
-import { readFile, rm } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { X509Certificate } from 'node:crypto'
+import { readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { runCaAction } from '../../commands/ca'
-import { fileExists } from '../../output/writer'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import {
+  commonName,
+  createAuthority,
+  createWorkspace,
+  daysUntilExpiry,
+  expectNoPrivateKeyInOutput,
+  expectRefusal,
+  listFiles,
+  loadIdentity,
+  modulusBits,
+  parseEnvelope,
+  removeWorkspace,
+  runCli,
+} from '../support/cli'
 
-function tempDir(): string {
-  return join(tmpdir(), `certutil-ca-cmd-test-${randomBytes(8).toString('hex')}`)
-}
+describe('narsil-certutil ca', () => {
+  let root: string
 
-describe('ca command', () => {
-  let dir: string
-  let originalExitCode: string | number | null | undefined
-  let stderrChunks: string[]
-  let stdoutChunks: string[]
-  let stderrSpy: ReturnType<typeof vi.spyOn>
-  let stdoutSpy: ReturnType<typeof vi.spyOn>
-
-  beforeEach(() => {
-    dir = tempDir()
-    originalExitCode = process.exitCode
-    stderrChunks = []
-    stdoutChunks = []
-    stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk: string | Uint8Array) => {
-      stderrChunks.push(String(chunk))
-      return true
-    })
-    stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation((chunk: string | Uint8Array) => {
-      stdoutChunks.push(String(chunk))
-      return true
-    })
+  beforeAll(async () => {
+    root = await createWorkspace()
   })
 
-  afterEach(async () => {
-    process.exitCode = originalExitCode
-    stderrSpy.mockRestore()
-    stdoutSpy.mockRestore()
-    await rm(dir, { recursive: true, force: true })
+  afterAll(async () => {
+    await removeWorkspace(root)
   })
 
-  it('generates CA cert and key files in the output directory', async () => {
-    await runCaAction({
-      name: 'Test CA',
-      days: '365',
-      keySize: '2048',
-      outDir: dir,
-      output: 'text',
-      force: false,
-      dryRun: false,
-    })
+  it('creates a ten-year, 4096-bit, self-signed CA in a new nested directory by default', async () => {
+    const outDir = join(await createWorkspace(root), 'nested', 'certs')
 
-    expect(await fileExists(join(dir, 'ca.crt'))).toBe(true)
-    expect(await fileExists(join(dir, 'ca.key'))).toBe(true)
+    const result = await runCli(['ca', '--name', 'Narsil CA', '--out-dir', outDir])
 
-    const certContent = await readFile(join(dir, 'ca.crt'), 'utf-8')
-    expect(certContent).toContain('BEGIN CERTIFICATE')
-
-    const keyContent = await readFile(join(dir, 'ca.key'), 'utf-8')
-    expect(keyContent).toContain('BEGIN RSA PRIVATE KEY')
+    expect(result.code).toBe(0)
+    expectNoPrivateKeyInOutput(result)
+    const { certificate, privateKey } = await loadIdentity(join(outDir, 'ca.crt'), join(outDir, 'ca.key'))
+    expect(commonName(certificate.subject)).toBe('Narsil CA')
+    expect(certificate.issuer).toBe(certificate.subject)
+    expect(certificate.ca).toBe(true)
+    expect(certificate.verify(certificate.publicKey)).toBe(true)
+    expect(certificate.checkPrivateKey(privateKey)).toBe(true)
+    expect(modulusBits(privateKey)).toBe(4096)
+    expect(daysUntilExpiry(certificate)).toBe(3650)
   })
 
-  it('outputs generation info to stderr in text mode', async () => {
-    await runCaAction({
-      name: 'Test CA',
-      days: '365',
-      keySize: '2048',
-      outDir: dir,
-      output: 'text',
-      force: false,
-      dryRun: false,
-    })
+  it('reports the fingerprint and both files in a parsable JSON envelope', async () => {
+    const outDir = await createWorkspace(root)
 
-    const stderr = stderrChunks.join('')
-    expect(stderr).toContain('Created files:')
-    expect(stderr).toContain('ca.crt')
-    expect(stderr).toContain('ca.key')
-    expect(stderr).toContain('Fingerprint:')
-  })
+    const result = await runCli([
+      'ca',
+      '--name',
+      'JSON CA',
+      '--key-size',
+      '2048',
+      '--days',
+      '30',
+      '--out-dir',
+      outDir,
+      '--output',
+      'json',
+    ])
 
-  it('outputs JSON envelope to stdout in json mode', async () => {
-    await runCaAction({
-      name: 'Test CA',
-      days: '365',
-      keySize: '2048',
-      outDir: dir,
-      output: 'json',
-      force: false,
-      dryRun: false,
-    })
-
-    const stdout = stdoutChunks.join('')
-    const envelope = JSON.parse(stdout)
+    expect(result.code).toBe(0)
+    expectNoPrivateKeyInOutput(result)
+    const envelope = parseEnvelope<{ files: Array<{ path: string; type: string }>; fingerprint: string }>(result.stdout)
+    const certificate = new X509Certificate(await readFile(join(outDir, 'ca.crt')))
     expect(envelope.status).toBe('success')
-    expect(envelope.data.files).toHaveLength(2)
-    expect(envelope.data.fingerprint).toBeTruthy()
-    expect(envelope.data.expiresAt).toBeTruthy()
-    expect(envelope.metadata.duration_ms).toBeGreaterThanOrEqual(0)
+    expect(envelope.data?.fingerprint).toBe(certificate.fingerprint256)
+    expect(envelope.data?.files).toEqual([
+      { path: join(outDir, 'ca.crt'), type: 'certificate' },
+      { path: join(outDir, 'ca.key'), type: 'key' },
+    ])
+    expect(daysUntilExpiry(certificate)).toBe(30)
   })
 
-  it('does not write files in dry-run mode', async () => {
-    await runCaAction({
-      name: 'Dry Run CA',
-      days: '3650',
-      keySize: '2048',
-      outDir: dir,
-      output: 'text',
-      force: false,
-      dryRun: true,
-    })
+  it('leaves an existing CA untouched without --force and replaces it with --force', async () => {
+    const outDir = await createWorkspace(root)
+    const original = await createAuthority(outDir, 'Original CA')
 
-    expect(await fileExists(join(dir, 'ca.crt'))).toBe(false)
-    expect(await fileExists(join(dir, 'ca.key'))).toBe(false)
+    const refused = await runCli(['ca', '--name', 'Replacement CA', '--key-size', '2048', '--out-dir', outDir])
 
-    const stderr = stderrChunks.join('')
-    expect(stderr).toContain('Dry run')
-    expect(stderr).toContain('Would create')
+    expectRefusal(refused, 1, /File already exists.*--force/)
+    expect(await readFile(original.certPath, 'utf-8')).toBe(original.certPem)
+    expect(await readFile(original.keyPath, 'utf-8')).toBe(original.keyPem)
+
+    const forced = await runCli([
+      'ca',
+      '--name',
+      'Replacement CA',
+      '--key-size',
+      '2048',
+      '--out-dir',
+      outDir,
+      '--force',
+    ])
+
+    expect(forced.code).toBe(0)
+    const replacement = await loadIdentity(original.certPath, original.keyPath)
+    expect(commonName(replacement.certificate.subject)).toBe('Replacement CA')
+    expect(replacement.certificate.checkPrivateKey(replacement.privateKey)).toBe(true)
   })
 
-  it('rejects invalid --days value and sets BAD_ARGUMENTS exit code', async () => {
-    await runCaAction({
-      name: 'Bad CA',
-      days: 'abc',
-      keySize: '2048',
-      outDir: dir,
-      output: 'text',
-      force: false,
-      dryRun: false,
-    })
+  it('creates neither files nor directories in a dry run', async () => {
+    const outDir = join(await createWorkspace(root), 'never-created')
 
-    expect(process.exitCode).toBe(2)
-    const stderr = stderrChunks.join('')
-    expect(stderr).toContain('Invalid --days')
+    const result = await runCli(['ca', '--name', 'Dry CA', '--key-size', '2048', '--out-dir', outDir, '--dry-run'])
+
+    expect(result.code).toBe(0)
+    expect(result.stderr).toContain(join(outDir, 'ca.key'))
+    expect(await listFiles(outDir)).toEqual([])
   })
 
-  it('rejects invalid --key-size value', async () => {
-    await runCaAction({
-      name: 'Bad CA',
-      days: '365',
-      keySize: '1024',
-      outDir: dir,
-      output: 'text',
-      force: false,
-      dryRun: false,
-    })
+  it.each([
+    ['--days', '0', /Invalid --days/],
+    ['--days', '-5', /Invalid --days/],
+    ['--days', 'forever', /Invalid --days/],
+    ['--key-size', '1024', /Invalid --key-size/],
+    ['--key-size', 'large', /Invalid --key-size/],
+  ])('refuses %s %s with exit code 2 and writes nothing', async (flag, value, message) => {
+    const outDir = await createWorkspace(root)
 
-    expect(process.exitCode).toBe(2)
-    const stderr = stderrChunks.join('')
-    expect(stderr).toContain('Invalid --key-size')
+    const text = await runCli(['ca', '--name', 'Bad CA', '--out-dir', outDir, flag, value])
+    const json = await runCli(['ca', '--name', 'Bad CA', '--out-dir', outDir, flag, value, '--output', 'json'])
+
+    expectRefusal(text, 2, message)
+    expect(json.code).toBe(2)
+    expect(json.stdout).toBe('')
+    const envelope = parseEnvelope<null>(json.stderr)
+    expect(envelope.status).toBe('error')
+    expect(envelope.error?.code).toBe('BAD_ARGUMENTS')
+    expect(await listFiles(outDir)).toEqual([])
   })
 
-  it('fails when files exist and --force is false', async () => {
-    await runCaAction({
-      name: 'First CA',
-      days: '365',
-      keySize: '2048',
-      outDir: dir,
-      output: 'text',
-      force: false,
-      dryRun: false,
-    })
+  it('refuses a missing --name', async () => {
+    const outDir = await createWorkspace(root)
 
-    stderrChunks = []
-    await runCaAction({
-      name: 'Second CA',
-      days: '365',
-      keySize: '2048',
-      outDir: dir,
-      output: 'text',
-      force: false,
-      dryRun: false,
-    })
+    const result = await runCli(['ca', '--out-dir', outDir])
 
-    expect(process.exitCode).toBe(1)
-    const stderr = stderrChunks.join('')
-    expect(stderr).toContain('File already exists')
+    expectRefusal(result, 1, /--name/)
+    expect(await listFiles(outDir)).toEqual([])
   })
 
-  it('overwrites files when --force is true', async () => {
-    await runCaAction({
-      name: 'First CA',
-      days: '365',
-      keySize: '2048',
-      outDir: dir,
-      output: 'text',
-      force: false,
-      dryRun: false,
-    })
+  it('refuses an output directory underneath a regular file', async () => {
+    const outDir = await createWorkspace(root)
+    await writeFile(join(outDir, 'occupied'), 'a regular file')
 
-    await runCaAction({
-      name: 'Second CA',
-      days: '365',
-      keySize: '2048',
-      outDir: dir,
-      output: 'text',
-      force: true,
-      dryRun: false,
-    })
+    const result = await runCli([
+      'ca',
+      '--name',
+      'CA',
+      '--key-size',
+      '2048',
+      '--out-dir',
+      join(outDir, 'occupied', 'certs'),
+    ])
 
-    const certContent = await readFile(join(dir, 'ca.crt'), 'utf-8')
-    expect(certContent).toContain('BEGIN CERTIFICATE')
+    expectRefusal(result, 1, /ENOTDIR/)
+    expectNoPrivateKeyInOutput(result)
+  })
+
+  it('takes the output directory from NARSIL_CERT_OUT_DIR, and a flag overrides it', async () => {
+    const fromEnvironment = await createWorkspace(root)
+    const fromFlag = await createWorkspace(root)
+    const env = { NARSIL_CERT_OUT_DIR: fromEnvironment }
+
+    const first = await runCli(['ca', '--name', 'Env CA', '--key-size', '2048'], { env })
+    const second = await runCli(['ca', '--name', 'Flag CA', '--key-size', '2048', '--out-dir', fromFlag], { env })
+
+    expect(first.code).toBe(0)
+    expect(second.code).toBe(0)
+    expect(await listFiles(fromEnvironment)).toEqual(['ca.crt', 'ca.key'])
+    expect(await listFiles(fromFlag)).toEqual(['ca.crt', 'ca.key'])
   })
 })

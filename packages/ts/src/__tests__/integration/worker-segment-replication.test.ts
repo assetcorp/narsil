@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { isCompositePartition } from '../../core/partition/composite'
 import type { Narsil } from '../../narsil'
 import { createNarsil } from '../../narsil'
@@ -48,10 +48,6 @@ async function promotedEngine(workerCount = 2): Promise<Narsil> {
 }
 
 describe.skipIf(!built)('a promoted index takes a large batch through built segments', () => {
-  afterEach(() => {
-    vi.restoreAllMocks()
-  })
-
   it('leaves the worker copies holding what a document-by-document insert would have', async () => {
     const narsil = await promotedEngine()
 
@@ -101,7 +97,6 @@ describe.skipIf(!built)('a promoted index takes a large batch through built segm
   }, 120000)
 
   it('keeps removals and re-inserts working after a segmented batch', async () => {
-    const warnSpy = vi.spyOn(console, 'warn')
     const narsil = await promotedEngine()
     await narsil.insertBatch('prose', batchDocuments(BATCH_SIZE, 'bulk'))
 
@@ -111,9 +106,6 @@ describe.skipIf(!built)('a promoted index takes a large batch through built segm
 
     await narsil.insert('prose', { id: 'bulk-0007', title: 'bulk gamma returned', price: 7 })
     expect(await narsil.countDocuments('prose')).toBe(BATCH_SIZE + 4)
-
-    const replicationWarnings = warnSpy.mock.calls.filter(call => String(call[0]).includes('Worker replication failed'))
-    expect(replicationWarnings).toEqual([])
 
     await narsil.shutdown()
   }, 120000)

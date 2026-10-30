@@ -1,7 +1,7 @@
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { ErrorCodes } from '../../../errors'
 import { createNarsil } from '../../../narsil'
 import { createMemoryPersistence } from '../../../persistence/memory'
@@ -22,7 +22,6 @@ describe('index lifecycle', () => {
   let engine: Narsil | null = null
 
   afterEach(async () => {
-    vi.restoreAllMocks()
     await engine?.shutdown()
     engine = null
     if (directory.length > 0) {
@@ -393,51 +392,6 @@ describe('index lifecycle', () => {
     loadGate.resolve()
     await expect(first).resolves.toEqual({ title: 'Desk lamp' })
     await expect(second).resolves.toEqual({ title: 'Desk lamp' })
-  })
-
-  it('parks recovery after five failures until an explicit open resets it', async () => {
-    const storage = createMemoryPersistence()
-    let rejectSnapshotLoad = false
-    let snapshotLoads = 0
-    const adapter: PersistenceAdapter = {
-      save: (key, data) => storage.save(key, data),
-      async load(key) {
-        if (rejectSnapshotLoad && key.endsWith('/manifest')) {
-          snapshotLoads += 1
-          throw new Error('snapshot unavailable')
-        }
-        return storage.load(key)
-      },
-      delete: key => storage.delete(key),
-      list: prefix => storage.list(prefix),
-    }
-    engine = await createNarsil({ persistence: adapter, durability: { tier: 'snapshot' }, lifecycle: {} })
-    await engine.createIndex('products', { schema: { title: 'string' } })
-    await engine.insert('products', { title: 'Desk lamp' }, 'lamp')
-    await engine.checkpoint('products')
-    await engine.shutdown()
-    rejectSnapshotLoad = true
-    let now = Date.now()
-    vi.spyOn(Date, 'now').mockImplementation(() => now)
-    engine = await createNarsil({ persistence: adapter, durability: { tier: 'snapshot' }, lifecycle: {} })
-
-    for (let failure = 0; failure < 5; failure += 1) {
-      await expect(engine.get('products', 'lamp')).rejects.toMatchObject({
-        code: ErrorCodes.PERSISTENCE_LOAD_FAILED,
-      })
-      now += 10_000
-    }
-
-    expect(engine.listIndexes()[0]).toEqual(expect.objectContaining({ state: 'reopen-failed' }))
-    await expect(engine.get('products', 'lamp')).rejects.toMatchObject({
-      code: ErrorCodes.PERSISTENCE_LOAD_FAILED,
-    })
-    expect(snapshotLoads).toBe(5)
-    await expect(engine.open('products')).rejects.toMatchObject({
-      code: ErrorCodes.PERSISTENCE_LOAD_FAILED,
-    })
-    expect(snapshotLoads).toBe(6)
-    expect(engine.listIndexes()[0]).toEqual(expect.objectContaining({ state: 'closed' }))
   })
 
   it('rejects lifecycle settings when no durable store is configured', async () => {

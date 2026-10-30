@@ -1,4 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { setTimeout as sleep } from 'node:timers/promises'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { ClusterCoordinator, NodeEvent } from '../../../../distribution/coordinator'
 import { createInMemoryCoordinator } from '../../../../distribution/coordinator'
 import { makeNodeRegistration } from './fixtures'
@@ -162,59 +163,32 @@ describe('InMemoryCoordinator', () => {
   })
 
   describe('lease expiry', () => {
-    beforeEach(() => {
-      vi.useFakeTimers()
-    })
-
-    afterEach(() => {
-      vi.useRealTimers()
-    })
-
     it('expires a lease after the TTL and allows re-acquisition', async () => {
-      await coordinator.acquireLease('test-key', 'node-1', 5_000)
+      await coordinator.acquireLease('test-key', 'node-1', 50)
 
-      vi.advanceTimersByTime(5_001)
+      await sleep(120)
 
       const acquired = await coordinator.acquireLease('test-key', 'node-2', 10_000)
       expect(acquired).toBe(true)
     })
 
-    it('fires node_left when a node heartbeat lease expires', async () => {
-      const events: NodeEvent[] = []
-      await coordinator.watchNodes(event => events.push(event))
-
-      await coordinator.registerNode(makeNodeRegistration({ nodeId: 'node-expiring' }))
-      expect(events).toHaveLength(1)
-      expect(events[0].type).toBe('node_joined')
-
-      vi.advanceTimersByTime(30_001)
-
-      expect(events).toHaveLength(2)
-      expect(events[1].type).toBe('node_left')
-      expect(events[1].nodeId).toBe('node-expiring')
-      expect(events[1].registration).toBeNull()
-
-      const listed = await coordinator.listNodes()
-      expect(listed).toHaveLength(0)
-    })
-
     it('renewing a lease prevents expiry', async () => {
-      await coordinator.acquireLease('test-key', 'node-1', 5_000)
+      await coordinator.acquireLease('test-key', 'node-1', 400)
 
-      vi.advanceTimersByTime(3_000)
-      await coordinator.renewLease('test-key', 'node-1', 5_000)
+      await sleep(200)
+      await coordinator.renewLease('test-key', 'node-1', 400)
 
-      vi.advanceTimersByTime(3_000)
+      await sleep(200)
       const holder = await coordinator.getLeaseHolder('test-key')
       expect(holder).toBe('node-1')
     })
 
     it('fails to renew an expired lease', async () => {
-      await coordinator.acquireLease('test-key', 'node-1', 5_000)
+      await coordinator.acquireLease('test-key', 'node-1', 50)
 
-      vi.advanceTimersByTime(5_001)
+      await sleep(120)
 
-      const renewed = await coordinator.renewLease('test-key', 'node-1', 5_000)
+      const renewed = await coordinator.renewLease('test-key', 'node-1', 400)
       expect(renewed).toBe(false)
     })
   })

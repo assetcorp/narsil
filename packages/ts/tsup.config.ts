@@ -54,7 +54,7 @@ const shared: Options = {
   outExtension: () => ({ js: '.mjs' }),
 }
 
-export default defineConfig([
+const codeBuilds: Options[] = [
   {
     ...shared,
     entry: nodeEntry,
@@ -82,12 +82,15 @@ export default defineConfig([
     splitting: false,
     external: NODE_EXTERNAL,
   },
-  {
-    ...shared,
-    entry: { ...nodeEntry, ...browserEntry },
-    platform: 'neutral',
-    dts: { only: true },
-    splitting: true,
-    external: [...NODE_EXTERNAL, ...OPTIONAL_PEERS],
-  },
-])
+]
+
+const typeBuild: Options = {
+  ...shared,
+  entry: { ...nodeEntry, ...browserEntry },
+  platform: 'neutral',
+  dts: { only: true },
+  splitting: true,
+  external: [...NODE_EXTERNAL, ...OPTIONAL_PEERS],
+}
+
+export default defineConfig(process.env.NARSIL_BUILD_CODE_ONLY === '1' ? codeBuilds : [...codeBuilds, typeBuild])

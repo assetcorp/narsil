@@ -1,327 +1,274 @@
-import { randomBytes } from 'node:crypto'
-import { readFile, rm, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { createPrivateKey, X509Certificate } from 'node:crypto'
+import { readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import forge from 'node-forge'
-import { stringify as yamlStringify } from 'yaml'
-import { runCertAction } from '../../commands/cert'
-import { generateCaCertificate } from '../../crypto/ca'
-import { publicKeysMatch } from '../../crypto/keys'
-import { pemToCertificate, pemToPrivateKey } from '../../crypto/pem'
-import { ensureDirectory, fileExists } from '../../output/writer'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import {
+  type Authority,
+  commonName,
+  createAuthority,
+  createWorkspace,
+  daysUntilExpiry,
+  expectNoPrivateKeyInOutput,
+  expectRefusal,
+  issueNodeCertificate,
+  listFiles,
+  loadIdentity,
+  modulusBits,
+  parseEnvelope,
+  removeWorkspace,
+  runCli,
+  subjectAlternativeNames,
+} from '../support/cli'
 
-function tempDir(): string {
-  return join(tmpdir(), `certutil-cert-cmd-test-${randomBytes(8).toString('hex')}`)
-}
+const SERVER_AUTH_OID = '1.3.6.1.5.5.7.3.1'
+const CLIENT_AUTH_OID = '1.3.6.1.5.5.7.3.2'
 
-const ca = generateCaCertificate({ name: 'Test Cmd CA', days: 3650, keySize: 2048 })
+describe('narsil-certutil cert', () => {
+  let root: string
+  let authority: Authority
 
-describe('cert command', () => {
-  let dir: string
-  let originalExitCode: string | number | null | undefined
-  let stderrChunks: string[]
-  let stdoutChunks: string[]
-  let stderrSpy: ReturnType<typeof vi.spyOn>
-  let stdoutSpy: ReturnType<typeof vi.spyOn>
-
-  beforeEach(async () => {
-    dir = tempDir()
-    await ensureDirectory(dir)
-    await writeFile(join(dir, 'ca.crt'), ca.certPem)
-    await writeFile(join(dir, 'ca.key'), ca.keyPem)
-    originalExitCode = process.exitCode
-    stderrChunks = []
-    stdoutChunks = []
-    stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk: string | Uint8Array) => {
-      stderrChunks.push(String(chunk))
-      return true
-    })
-    stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation((chunk: string | Uint8Array) => {
-      stdoutChunks.push(String(chunk))
-      return true
-    })
+  beforeAll(async () => {
+    root = await createWorkspace()
+    authority = await createAuthority(await createWorkspace(root), 'Cert Test CA')
   })
 
-  afterEach(async () => {
-    process.exitCode = originalExitCode
-    stderrSpy.mockRestore()
-    stdoutSpy.mockRestore()
-    await rm(dir, { recursive: true, force: true })
+  afterAll(async () => {
+    await removeWorkspace(root)
   })
 
-  it('generates a node certificate signed by the CA', async () => {
-    const outDir = join(dir, 'out')
-    await runCertAction({
-      cn: 'narsil-node-1',
-      caCert: join(dir, 'ca.crt'),
-      caKey: join(dir, 'ca.key'),
-      ip: ['10.0.0.1'],
-      dns: ['node1.cluster.local'],
-      days: '365',
-      keySize: '2048',
-      outDir,
-      output: 'text',
-      force: false,
-      dryRun: false,
-    })
+  function certArgs(cn: string, outDir: string): string[] {
+    return ['cert', '--cn', cn, '--ca-cert', authority.certPath, '--ca-key', authority.keyPath, '--out-dir', outDir]
+  }
 
-    expect(await fileExists(join(outDir, 'narsil-node-1.crt'))).toBe(true)
-    expect(await fileExists(join(outDir, 'narsil-node-1.key'))).toBe(true)
+  it('issues a leaf certificate that chains to the CA and carries the requested names and validity', async () => {
+    const outDir = await createWorkspace(root)
 
-    const certContent = await readFile(join(outDir, 'narsil-node-1.crt'), 'utf-8')
-    expect(certContent).toContain('BEGIN CERTIFICATE')
+    const { certificate, privateKey } = await issueNodeCertificate(authority, outDir, 'node1', [
+      '--ip',
+      '10.0.0.1',
+      '192.168.1.100',
+      '--dns',
+      'node1.cluster.local',
+      'node1.internal',
+      '--days',
+      '30',
+    ])
 
-    const stderr = stderrChunks.join('')
-    expect(stderr).toContain('Created files:')
-    expect(stderr).toContain('Fingerprint:')
+    expect(commonName(certificate.subject)).toBe('node1')
+    expect(commonName(certificate.issuer)).toBe('Cert Test CA')
+    expect(certificate.checkIssued(authority.certificate)).toBe(true)
+    expect(certificate.verify(authority.certificate.publicKey)).toBe(true)
+    expect(certificate.checkPrivateKey(privateKey)).toBe(true)
+    expect(certificate.ca).toBe(false)
+    expect(certificate.keyUsage).toEqual(expect.arrayContaining([SERVER_AUTH_OID, CLIENT_AUTH_OID]))
+    expect(subjectAlternativeNames(certificate)).toEqual([
+      'DNS:node1.cluster.local',
+      'DNS:node1.internal',
+      'IP Address:10.0.0.1',
+      'IP Address:192.168.1.100',
+    ])
+    expect(certificate.checkIP('10.0.0.1')).toBe('10.0.0.1')
+    expect(certificate.checkHost('node1.internal')).toBe('node1.internal')
+    expect(certificate.checkHost('node2.internal')).toBeUndefined()
+    expect(daysUntilExpiry(certificate)).toBe(30)
+    expect(modulusBits(privateKey)).toBe(2048)
   })
 
-  it('outputs JSON envelope in json mode', async () => {
-    const outDir = join(dir, 'out-json')
-    await runCertAction({
-      cn: 'json-node',
-      caCert: join(dir, 'ca.crt'),
-      caKey: join(dir, 'ca.key'),
-      days: '365',
-      keySize: '2048',
-      outDir,
-      output: 'json',
-      force: false,
-      dryRun: false,
-    })
+  it('accepts an IPv6 address as a subject alternative name', async () => {
+    const { certificate } = await issueNodeCertificate(authority, await createWorkspace(root), 'node6', ['--ip', '::1'])
 
-    const stdout = stdoutChunks.join('')
-    const envelope = JSON.parse(stdout)
+    expect(certificate.checkIP('::1')).toBe('::1')
+  })
+
+  it('gives every certificate its own key and serial number, even for one common name', async () => {
+    const first = await issueNodeCertificate(authority, await createWorkspace(root), 'same-name')
+    const second = await issueNodeCertificate(authority, await createWorkspace(root), 'same-name')
+
+    expect(first.certificate.serialNumber).not.toBe(second.certificate.serialNumber)
+    expect(first.certificate.fingerprint256).not.toBe(second.certificate.fingerprint256)
+    expect(first.certificate.checkPrivateKey(second.privateKey)).toBe(false)
+  })
+
+  it('reports the fingerprint in a parsable JSON envelope and keeps the private key out of it', async () => {
+    const outDir = await createWorkspace(root)
+
+    const result = await runCli([...certArgs('json-node', outDir), '--output', 'json'])
+
+    expect(result.code).toBe(0)
+    expectNoPrivateKeyInOutput(result)
+    const envelope = parseEnvelope<{ fingerprint: string; expiresAt: string }>(result.stdout)
+    const certificate = new X509Certificate(await readFile(join(outDir, 'json-node.crt')))
     expect(envelope.status).toBe('success')
-    expect(envelope.data.files).toHaveLength(2)
-    expect(envelope.data.fingerprint).toBeTruthy()
+    expect(envelope.data?.fingerprint).toBe(certificate.fingerprint256)
+    expect(Date.parse(envelope.data?.expiresAt ?? '')).toBe(Date.parse(certificate.validTo))
   })
 
-  it('runs batch mode with a cluster config YAML file', async () => {
-    const outDir = join(dir, 'batch-out')
-    const configPath = join(dir, 'cluster.yaml')
+  it('reads the CA paths from the environment and writes to the working directory by default', async () => {
+    const cwd = await createWorkspace(root)
 
-    const config = {
-      nodes: [
-        { cn: 'batch-node-01', ip: ['10.0.0.1'], dns: ['node01.local'] },
-        { cn: 'batch-node-02', ip: ['10.0.0.2'] },
-      ],
-      defaults: { days: 365, keySize: 2048 },
+    const result = await runCli(['cert', '--cn', 'env-node'], {
+      cwd,
+      env: { NARSIL_CA_CERT: authority.certPath, NARSIL_CA_KEY: authority.keyPath },
+    })
+
+    expect(result.code).toBe(0)
+    expect(await listFiles(cwd)).toEqual(['env-node.crt', 'env-node.key'])
+  })
+
+  it('signs with a CA key in PKCS#8 form', async () => {
+    const outDir = await createWorkspace(root)
+    const pkcs8Path = join(outDir, 'ca-pkcs8.key')
+    const pkcs8 = createPrivateKey(authority.keyPem).export({ type: 'pkcs8', format: 'pem' })
+    await writeFile(pkcs8Path, pkcs8)
+
+    const result = await runCli([
+      'cert',
+      '--cn',
+      'pkcs8-node',
+      '--ca-cert',
+      authority.certPath,
+      '--ca-key',
+      pkcs8Path,
+      '--out-dir',
+      outDir,
+    ])
+
+    expect(result.code).toBe(0)
+    const certificate = new X509Certificate(await readFile(join(outDir, 'pkcs8-node.crt')))
+    expect(certificate.verify(authority.certificate.publicKey)).toBe(true)
+  })
+
+  it('leaves an existing certificate untouched without --force and replaces it with --force', async () => {
+    const outDir = await createWorkspace(root)
+    const original = await issueNodeCertificate(authority, outDir, 'node1')
+
+    const refused = await runCli(certArgs('node1', outDir))
+
+    expectRefusal(refused, 1, /File already exists.*--force/)
+    expect(await readFile(original.certPath, 'utf-8')).toBe(original.certPem)
+    expect(await readFile(original.keyPath, 'utf-8')).toBe(original.keyPem)
+
+    const forced = await runCli([...certArgs('node1', outDir), '--force'])
+
+    expect(forced.code).toBe(0)
+    const replacement = await loadIdentity(original.certPath, original.keyPath)
+    expect(replacement.certificate.fingerprint256).not.toBe(original.certificate.fingerprint256)
+    expect(replacement.certificate.checkPrivateKey(replacement.privateKey)).toBe(true)
+  })
+
+  it('writes nothing in a dry run', async () => {
+    const outDir = join(await createWorkspace(root), 'never-created')
+
+    const result = await runCli([...certArgs('dry-node', outDir), '--dry-run'])
+
+    expect(result.code).toBe(0)
+    expect(result.stderr).toContain(join(outDir, 'dry-node.key'))
+    expect(await listFiles(outDir)).toEqual([])
+  })
+
+  it.each([
+    ['--days', '0', 2, /Invalid --days/],
+    ['--days', 'soon', 2, /Invalid --days/],
+    ['--key-size', '512', 2, /Invalid --key-size/],
+    ['--ip', 'not-an-ip', 1, /not a valid IPv4 or IPv6/],
+  ])('refuses %s %s and writes nothing', async (flag, value, code, message) => {
+    const outDir = await createWorkspace(root)
+
+    const result = await runCli([...certArgs('bad-node', outDir), flag, value])
+
+    expectRefusal(result, code, message)
+    expect(await listFiles(outDir)).toEqual([])
+  })
+
+  it('refuses a request with neither --cn nor --nodes', async () => {
+    const result = await runCli(['cert', '--ca-cert', authority.certPath, '--ca-key', authority.keyPath])
+
+    expectRefusal(result, 2, /--cn or --nodes/)
+  })
+
+  it('refuses a request without CA paths', async () => {
+    const result = await runCli(['cert', '--cn', 'no-ca-node'])
+
+    expectRefusal(result, 1, /--ca-cert/)
+  })
+
+  it('refuses a CA file that does not exist', async () => {
+    const outDir = await createWorkspace(root)
+
+    const result = await runCli([
+      'cert',
+      '--cn',
+      'node',
+      '--ca-cert',
+      join(outDir, 'absent.crt'),
+      '--ca-key',
+      authority.keyPath,
+      '--out-dir',
+      outDir,
+    ])
+
+    expectRefusal(result, 1, /File not found for --ca-cert/)
+    expect(await listFiles(outDir)).toEqual([])
+  })
+
+  it('refuses unusable CA keys and leaves no certificate behind', async () => {
+    const outDir = await createWorkspace(root)
+    const encrypted = createPrivateKey(authority.keyPem).export({
+      type: 'pkcs8',
+      format: 'pem',
+      cipher: 'aes-256-cbc',
+      passphrase: 'operator-passphrase',
+    })
+    const unusableKeys: Array<[string, string | Buffer, RegExp]> = [
+      ['garbage.key', '-----BEGIN RSA PRIVATE KEY-----\nGARBAGE\n-----END RSA PRIVATE KEY-----\n', /./],
+      ['certificate-as-key.key', authority.certPem, /PEM header type/],
+      ['encrypted.key', encrypted, /PEM header type/],
+      ['empty.key', '', /./],
+    ]
+
+    for (const [name, content, message] of unusableKeys) {
+      const keyPath = join(outDir, name)
+      await writeFile(keyPath, content)
+      const nodeDir = join(outDir, `out-${name}`)
+
+      const result = await runCli([
+        'cert',
+        '--cn',
+        'node',
+        '--ca-cert',
+        authority.certPath,
+        '--ca-key',
+        keyPath,
+        '--out-dir',
+        nodeDir,
+      ])
+
+      expectRefusal(result, 1, message)
+      expectNoPrivateKeyInOutput(result)
+      expect(await listFiles(nodeDir)).toEqual([])
     }
-    await writeFile(configPath, yamlStringify(config))
-
-    await runCertAction({
-      caCert: join(dir, 'ca.crt'),
-      caKey: join(dir, 'ca.key'),
-      days: '365',
-      keySize: '2048',
-      outDir,
-      output: 'text',
-      force: false,
-      dryRun: false,
-      nodes: configPath,
-    })
-
-    expect(await fileExists(join(outDir, 'batch-node-01', 'batch-node-01.crt'))).toBe(true)
-    expect(await fileExists(join(outDir, 'batch-node-01', 'batch-node-01.key'))).toBe(true)
-    expect(await fileExists(join(outDir, 'batch-node-02', 'batch-node-02.crt'))).toBe(true)
-    expect(await fileExists(join(outDir, 'batch-node-02', 'batch-node-02.key'))).toBe(true)
   })
 
-  it('errors when neither --cn nor --nodes is provided', async () => {
-    await runCertAction({
-      caCert: join(dir, 'ca.crt'),
-      caKey: join(dir, 'ca.key'),
-      days: '365',
-      keySize: '2048',
-      outDir: dir,
-      output: 'text',
-      force: false,
-      dryRun: false,
-    })
+  it('refuses a corrupted CA certificate', async () => {
+    const outDir = await createWorkspace(root)
+    const corruptPath = join(outDir, 'corrupt.crt')
+    await writeFile(corruptPath, '-----BEGIN CERTIFICATE-----\nDEFINITELYNOTVALID\n-----END CERTIFICATE-----\n')
+    const nodeDir = join(outDir, 'out')
 
-    expect(process.exitCode).toBe(2)
-    const stderr = stderrChunks.join('')
-    expect(stderr).toContain('Provide either --cn or --nodes')
-  })
+    const result = await runCli([
+      'cert',
+      '--cn',
+      'node',
+      '--ca-cert',
+      corruptPath,
+      '--ca-key',
+      authority.keyPath,
+      '--out-dir',
+      nodeDir,
+    ])
 
-  it('errors when CA cert file does not exist', async () => {
-    await runCertAction({
-      cn: 'bad-node',
-      caCert: join(dir, 'nonexistent-ca.crt'),
-      caKey: join(dir, 'ca.key'),
-      days: '365',
-      keySize: '2048',
-      outDir: dir,
-      output: 'text',
-      force: false,
-      dryRun: false,
-    })
-
-    expect(process.exitCode).toBe(1)
-    const stderr = stderrChunks.join('')
-    expect(stderr).toContain('File not found')
-  })
-
-  it('does not write files in dry-run mode', async () => {
-    const outDir = join(dir, 'dry-out')
-    await runCertAction({
-      cn: 'dry-node',
-      caCert: join(dir, 'ca.crt'),
-      caKey: join(dir, 'ca.key'),
-      days: '365',
-      keySize: '2048',
-      outDir,
-      output: 'text',
-      force: false,
-      dryRun: true,
-    })
-
-    expect(await fileExists(join(outDir, 'dry-node.crt'))).toBe(false)
-    const stderr = stderrChunks.join('')
-    expect(stderr).toContain('Dry run')
-  })
-
-  it('does not write files in batch dry-run mode', async () => {
-    const outDir = join(dir, 'batch-dry')
-    const configPath = join(dir, 'cluster-dry.yaml')
-
-    const config = {
-      nodes: [{ cn: 'dry-batch-node' }],
-    }
-    await writeFile(configPath, yamlStringify(config))
-
-    await runCertAction({
-      caCert: join(dir, 'ca.crt'),
-      caKey: join(dir, 'ca.key'),
-      days: '365',
-      keySize: '2048',
-      outDir,
-      output: 'text',
-      force: false,
-      dryRun: true,
-      nodes: configPath,
-    })
-
-    expect(await fileExists(join(outDir, 'dry-batch-node', 'dry-batch-node.crt'))).toBe(false)
-    const stderr = stderrChunks.join('')
-    expect(stderr).toContain('Dry run')
-    expect(stderr).toContain('Would create')
-  })
-
-  it('generated cert validates against the CA chain', async () => {
-    const outDir = join(dir, 'chain-verify')
-    await runCertAction({
-      cn: 'chain-node',
-      caCert: join(dir, 'ca.crt'),
-      caKey: join(dir, 'ca.key'),
-      ip: ['10.0.0.1'],
-      dns: ['chain.cluster.local'],
-      days: '365',
-      keySize: '2048',
-      outDir,
-      output: 'text',
-      force: false,
-      dryRun: false,
-    })
-
-    const certPem = await readFile(join(outDir, 'chain-node.crt'), 'utf-8')
-    const nodeCert = pemToCertificate(certPem)
-    const caCert = pemToCertificate(ca.certPem)
-    const caStore = forge.pki.createCaStore([caCert])
-
-    expect(() => forge.pki.verifyCertificateChain(caStore, [nodeCert])).not.toThrow()
-  })
-
-  it('generated cert has the requested SANs', async () => {
-    const outDir = join(dir, 'san-verify')
-    await runCertAction({
-      cn: 'san-node',
-      caCert: join(dir, 'ca.crt'),
-      caKey: join(dir, 'ca.key'),
-      ip: ['10.0.0.1', '192.168.1.100'],
-      dns: ['node.cluster.local', 'node.internal'],
-      days: '365',
-      keySize: '2048',
-      outDir,
-      output: 'text',
-      force: false,
-      dryRun: false,
-    })
-
-    const certPem = await readFile(join(outDir, 'san-node.crt'), 'utf-8')
-    const cert = pemToCertificate(certPem)
-    const sanExt = cert.getExtension('subjectAltName') as {
-      altNames?: Array<{ type: number; value?: string; ip?: string }>
-    } | null
-
-    expect(sanExt).not.toBeNull()
-    const altNames = sanExt?.altNames ?? []
-    const ipSans = altNames.filter(a => a.type === 7).map(a => a.ip ?? '')
-    const dnsSans = altNames.filter(a => a.type === 2).map(a => a.value ?? '')
-
-    expect(ipSans).toContain('10.0.0.1')
-    expect(ipSans).toContain('192.168.1.100')
-    expect(dnsSans).toContain('node.cluster.local')
-    expect(dnsSans).toContain('node.internal')
-  })
-
-  it('generated cert has mTLS extensions for Narsil', async () => {
-    const outDir = join(dir, 'mtls-verify')
-    await runCertAction({
-      cn: 'mtls-node',
-      caCert: join(dir, 'ca.crt'),
-      caKey: join(dir, 'ca.key'),
-      ip: ['10.0.0.1'],
-      days: '365',
-      keySize: '2048',
-      outDir,
-      output: 'text',
-      force: false,
-      dryRun: false,
-    })
-
-    const certPem = await readFile(join(outDir, 'mtls-node.crt'), 'utf-8')
-    const cert = pemToCertificate(certPem)
-
-    const eku = cert.getExtension('extKeyUsage') as {
-      serverAuth?: boolean
-      clientAuth?: boolean
-    } | null
-    expect(eku?.serverAuth).toBe(true)
-    expect(eku?.clientAuth).toBe(true)
-
-    const ku = cert.getExtension('keyUsage') as {
-      digitalSignature?: boolean
-      keyEncipherment?: boolean
-    } | null
-    expect(ku?.digitalSignature).toBe(true)
-    expect(ku?.keyEncipherment).toBe(true)
-
-    const bc = cert.getExtension('basicConstraints') as { cA?: boolean } | null
-    expect(bc?.cA).toBe(false)
-  })
-
-  it('generated cert key matches the generated private key', async () => {
-    const outDir = join(dir, 'key-match')
-    await runCertAction({
-      cn: 'keymatch-node',
-      caCert: join(dir, 'ca.crt'),
-      caKey: join(dir, 'ca.key'),
-      ip: ['10.0.0.1'],
-      days: '365',
-      keySize: '2048',
-      outDir,
-      output: 'text',
-      force: false,
-      dryRun: false,
-    })
-
-    const certPem = await readFile(join(outDir, 'keymatch-node.crt'), 'utf-8')
-    const keyPem = await readFile(join(outDir, 'keymatch-node.key'), 'utf-8')
-    const cert = pemToCertificate(certPem)
-    const key = pemToPrivateKey(keyPem)
-
-    expect(publicKeysMatch(cert, key)).toBe(true)
+    expect(result.code).toBe(1)
+    expect(result.stderr).toContain('Error:')
+    expect(await listFiles(nodeDir)).toEqual([])
   })
 })
