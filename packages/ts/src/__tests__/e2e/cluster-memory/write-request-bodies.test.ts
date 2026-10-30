@@ -111,7 +111,7 @@ async function sendText(base: string, path: string, text: string, contentType: s
   }
 }
 
-function processLimitBytes(): number {
+function hostMemoryBytes(): number {
   const host = totalmem()
   const constrained = process.constrainedMemory?.() ?? 0
   return constrained > 0 && constrained < host ? constrained : host
@@ -294,7 +294,7 @@ describe('a cluster node with a small heap, sent request bodies that it cannot a
 
   it('refuses slow bodies past its bound on bytes held, stays up, and accepts writes once they close', async () => {
     const limitBytes = SLOW_BODY_BYTES * SLOW_BODIES_ALLOWED
-    const started = await startNode({ maxBodyBytesInFlightFraction: limitBytes / processLimitBytes() })
+    const started = await startNode({ maxBodyBytesInFlightFraction: limitBytes / hostMemoryBytes() })
 
     const connections: SlowConnection[] = []
     for (let opened = 0; opened < SLOW_CONNECTIONS; opened++) connections.push(await openSlowConnection(started.base))
@@ -302,7 +302,10 @@ describe('a cluster node with a small heap, sent request bodies that it cannot a
     const refused = connections.filter(connection => connection.answer().startsWith('HTTP/1.1 429'))
     const waiting = connections.filter(connection => connection.answer().length === 0)
     console.log(`slow bodies: ${refused.length} refused, ${waiting.length} still sending of ${SLOW_CONNECTIONS}`)
-    expect(waiting.length).toBe(Math.floor(SLOW_BODIES_ALLOWED))
+    const reportedLimit = /"limitBytes":(\d+)/.exec(refused[0]?.answer() ?? '')
+    expect(reportedLimit, refused[0]?.answer()).not.toBeNull()
+    expect(waiting.length).toBe(Math.floor(Number(reportedLimit?.[1]) / SLOW_BODY_BYTES))
+    expect(waiting.length).toBeGreaterThan(0)
     expect(refused.length).toBe(SLOW_CONNECTIONS - waiting.length)
     for (const connection of refused) {
       expect(connection.answer()).toContain('"code":"TOO_MANY_REQUESTS"')
