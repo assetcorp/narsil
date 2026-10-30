@@ -1,7 +1,7 @@
 import { setTimeout as sleep } from 'node:timers/promises'
 import { afterEach, describe, expect, it } from 'vitest'
 import { DEFAULT_CAPACITY } from '../../../../distribution'
-import type { PartitionAssignment } from '../../../../distribution/coordinator/types'
+import type { AllocationTable, PartitionAssignment } from '../../../../distribution/coordinator/types'
 import { DEFAULT_TRANSPORT_CONFIG } from '../../../../distribution/transport/types'
 import {
   createTestCluster,
@@ -19,7 +19,6 @@ import {
 const SETTLED_WRITES = 5
 const LARGE_NODE_MEMORY_MULTIPLE = 40
 const REJOIN_TIMEOUT_MS = 30_000
-const POLL_INTERVAL_MS = 10
 const WRITES_AFTER_SWAP_MS = 1_000
 const REPLICATION_TIMEOUT_MS = DEFAULT_TRANSPORT_CONFIG.replicationTimeout
 const WRITE_MARGIN_MS = 2_000
@@ -29,7 +28,7 @@ type Ledger = Map<string, Record<string, unknown>>
 
 interface InSyncWatch {
   leftAt(): number | null
-  stop(): Promise<void>
+  stop(): void
 }
 
 function fields(label: string, amount: number): Record<string, unknown> {
@@ -41,7 +40,7 @@ describe('a new primary that starts its term on every in-sync copy', () => {
   const watches: InSyncWatch[] = []
 
   afterEach(async () => {
-    for (const watch of watches.splice(0)) await watch.stop()
+    for (const watch of watches.splice(0)) watch.stop()
     await cluster?.dispose()
     cluster = undefined
   })
@@ -64,30 +63,24 @@ describe('a new primary that starts its term on every in-sync copy', () => {
     return { running, settled, ledger }
   }
 
-  function watchInSync(running: TestCluster, nodeId: string): InSyncWatch {
+  async function watchInSync(running: TestCluster, nodeId: string): Promise<InSyncWatch> {
     let leftAt: number | null = null
-    let stopped = false
-    const loop = (async () => {
-      while (!stopped) {
-        const current = partitionAssignment(await running.coordinator.getAllocation(INDEX))
-        if (
-          leftAt === null &&
-          current !== undefined &&
-          current.primary !== nodeId &&
-          !current.inSyncSet.includes(nodeId)
-        ) {
-          leftAt = Date.now()
-        }
-        await sleep(POLL_INTERVAL_MS)
+    const note = (table: AllocationTable | null) => {
+      const current = partitionAssignment(table)
+      if (
+        leftAt === null &&
+        current !== undefined &&
+        current.primary !== nodeId &&
+        !current.inSyncSet.includes(nodeId)
+      ) {
+        leftAt = Date.now()
       }
-    })()
-    const watch = {
-      leftAt: () => leftAt,
-      stop: async () => {
-        stopped = true
-        await loop
-      },
     }
+    const unwatch = await running.coordinator.watchAllocation(event => {
+      if (event.indexName === INDEX) note(event.table)
+    })
+    note(await running.coordinator.getAllocation(INDEX))
+    const watch = { leftAt: () => leftAt, stop: unwatch }
     watches.push(watch)
     return watch
   }
@@ -133,7 +126,7 @@ describe('a new primary that starts its term on every in-sync copy', () => {
   it('keeps a matching old primary in sync across a swap, and holds no write past the replication timeout', async () => {
     const { running, settled, ledger } = await startLedger()
     const oldPrimary = settled.primary ?? ''
-    const oldPrimaryWatch = watchInSync(running, oldPrimary)
+    const oldPrimaryWatch = await watchInSync(running, oldPrimary)
     let writing = true
     let slowestMs = 0
     const writer = (async () => {
@@ -164,7 +157,7 @@ describe('a new primary that starts its term on every in-sync copy', () => {
     const removal = transport.holdWhen(ofType('replication.insync_remove'))
     const stranded = outcomeOf(running.node(oldPrimary).insert(INDEX, fields('stranded', 999), 'stranded'))
     await waitUntil('the stranded write to wait on its removal request', () => removal.count() > 0)
-    const oldPrimaryWatch = watchInSync(running, oldPrimary)
+    const oldPrimaryWatch = await watchInSync(running, oldPrimary)
 
     const handover = await swapLeadership(running, settled)
     removal.release()
@@ -225,7 +218,7 @@ describe('a new primary that starts its term on every in-sync copy', () => {
     )
     expect((await readCopy(running.probe, behind)).has('stranded')).toBe(false)
     ledger.set('stranded', fields('stranded', 999))
-    const behindWatch = watchInSync(running, behind)
+    const behindWatch = await watchInSync(running, behind)
     const syncsBefore = running.transport(behind).syncTiers().length
 
     await failOver(running, settled, () => withheld.release())
@@ -247,7 +240,7 @@ describe('a new primary that starts its term on every in-sync copy', () => {
     await waitUntil('the copy ahead to hold the stranded write', async () =>
       (await readCopy(running.probe, ahead)).has('stranded'),
     )
-    const aheadWatch = watchInSync(running, ahead)
+    const aheadWatch = await watchInSync(running, ahead)
 
     const handover = await failOver(running, settled, () => withheld.release())
     const leftAt = await waitUntil('the copy ahead to leave the in-sync set', () => aheadWatch.leftAt())
@@ -264,7 +257,7 @@ describe('a new primary that starts its term on every in-sync copy', () => {
     const lateEntries = transport.holdWhen(entryForDocument('late'))
     const late = outcomeOf(running.node(oldPrimary).insert(INDEX, fields('late', 2), 'late'))
     await waitUntil('the late write to wait on both replicas', () => lateEntries.count() >= settled.inSyncSet.length)
-    const oldPrimaryWatch = watchInSync(running, oldPrimary)
+    const oldPrimaryWatch = await watchInSync(running, oldPrimary)
 
     await swapLeadership(running, settled)
     await waitUntil('the old primary to leave the in-sync set', () => oldPrimaryWatch.leftAt())
@@ -280,7 +273,7 @@ describe('a new primary that starts its term on every in-sync copy', () => {
     const { running, settled, ledger } = await startLedger()
     const older = otherCopyOf(settled)
     running.transport(older).ignoreWhen(ofType('replication.term_start'))
-    const olderWatch = watchInSync(running, older)
+    const olderWatch = await watchInSync(running, older)
     const syncsBefore = running.transport(older).syncTiers().length
 
     const handover = await failOver(running, settled)
