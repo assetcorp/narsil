@@ -361,5 +361,11 @@ export function validateSearchPayload(decoded: unknown): SearchPayload {
     }
   }
 
+  if (decoded.keepAliveMs !== null && decoded.keepAliveMs !== undefined) {
+    if (!Number.isInteger(decoded.keepAliveMs) || (decoded.keepAliveMs as number) <= 0) {
+      throwInvalid(CONFIG_INVALID, 'Invalid SearchPayload: "keepAliveMs" must be a positive integer, or null')
+    }
+  }
+
   return decoded as unknown as SearchPayload
 }
