@@ -6,3 +6,12 @@ export function replyDeadlineMs(messageType: string, config: TransportConfig): n
   }
   return config.requestTimeout
 }
+
+export function timeoutsOf(config: TransportConfig): TransportConfig {
+  return {
+    connectTimeout: config.connectTimeout,
+    requestTimeout: config.requestTimeout,
+    replicationTimeout: config.replicationTimeout,
+    snapshotTimeout: config.snapshotTimeout,
+  }
+}

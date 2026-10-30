@@ -8,11 +8,12 @@ import { requireWritableIndex } from '../memory/write-block'
 import { estimateForwardedBytes, withAdmittedWrite } from '../memory/write-pressure'
 import { assertSufficientActiveReplicas, resolvePrimaryAssignment } from './assignment'
 import { type AppendedWrite, asWriteError, createGroupCommit, replicateAppendedWrites } from './batch-commit'
-import { rollbackPrimaryInsert, rollbackPrimaryRemove, rollbackPrimaryUpdate } from './failures'
+import { compensateInsert, compensateRemove, compensateUpdate, throwWriteFailure } from './failures'
 import { inLeadingPartitionQueue } from './leading-queue'
 import { appendDeletion, appendStoredCopy, numberedWrite, type PrimaryWriteScope } from './numbered-write'
 import { applyInProjectedGroups, projectOne } from './projected-groups'
 import { replicateEntry } from './replication'
+import { settleRollback } from './rollback'
 import type { WriteRoutingDeps } from './types'
 
 export async function applyPrimaryInsert(
@@ -37,7 +38,9 @@ export async function applyPrimaryInsert(
       try {
         await replicateEntry(inserted.entry, scope.assignment, deps, scope.indexUuid)
       } catch (error) {
-        await rollbackPrimaryInsert(scope, inserted.value, error)
+        const failedAt = Date.now()
+        await compensateInsert(scope, inserted.value, error)
+        throwWriteFailure(await settleRollback(scope, inserted.entry.seqNo, error, failedAt))
       }
       return inserted.value
     } finally {
@@ -65,7 +68,9 @@ export async function applyPrimaryRemove(
     try {
       await replicateEntry(removed.entry, scope.assignment, deps, scope.indexUuid)
     } catch (error) {
-      await rollbackPrimaryRemove(scope, docId, previousDocument, error)
+      const failedAt = Date.now()
+      await compensateRemove(scope, docId, previousDocument, error)
+      throwWriteFailure(await settleRollback(scope, removed.entry.seqNo, error, failedAt))
     }
   })
 }
@@ -92,7 +97,9 @@ export async function applyPrimaryUpdate(
       try {
         await replicateEntry(updated.entry, scope.assignment, deps, scope.indexUuid)
       } catch (error) {
-        await rollbackPrimaryUpdate(scope, docId, previousDocument, error)
+        const failedAt = Date.now()
+        await compensateUpdate(scope, docId, previousDocument, error)
+        throwWriteFailure(await settleRollback(scope, updated.entry.seqNo, error, failedAt))
       }
     } finally {
       projected.release()
@@ -141,7 +148,7 @@ export async function applyPrimaryInsertBatch(
         scope,
         appended,
         failed,
-        (write, error) => rollbackPrimaryInsert(scope, write.docId, error),
+        (write, error) => compensateInsert(scope, write.docId, error),
         deps,
       )
     },
@@ -194,7 +201,7 @@ export async function applyPrimaryUpdateBatch(
         scope,
         appended,
         failed,
-        (write, error) => rollbackPrimaryUpdate(scope, write.docId, write.previousDocument, error),
+        (write, error) => compensateUpdate(scope, write.docId, write.previousDocument, error),
         deps,
       )
     },
@@ -237,7 +244,7 @@ export async function applyPrimaryRemoveBatch(
         scope,
         appended,
         failed,
-        (write, error) => rollbackPrimaryRemove(scope, write.docId, write.previousDocument, error),
+        (write, error) => compensateRemove(scope, write.docId, write.previousDocument, error),
         deps,
       )
     },

@@ -77,6 +77,8 @@ export function createMultiplexedControllerTransport(
   let controllerHandler: TransportHandler | null = null
 
   const transport: NodeTransport = {
+    timeouts: baseTransport.timeouts,
+
     send(target: string, message: TransportMessage) {
       return baseTransport.send(target, message)
     },

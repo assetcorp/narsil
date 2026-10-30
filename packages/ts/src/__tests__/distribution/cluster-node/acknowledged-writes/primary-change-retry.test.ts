@@ -84,7 +84,7 @@ describe('a write in flight while its partition changes primary', () => {
     cluster = undefined
   })
 
-  it('reaches the new primary, so that every document of a remove batch and an insert batch is acknowledged', async () => {
+  it('answers outcome unknown for a remove batch and reaches the new primary with an insert batch', async () => {
     const started = await startHandoverCluster()
     cluster = started.cluster
     const router = cluster.node(ROUTER)
@@ -105,11 +105,11 @@ describe('a write in flight while its partition changes primary', () => {
 
     const removed = await removal
     const inserted = await insertion
-    expect(removed.failed).toEqual([])
-    expect([...removed.succeeded].sort()).toEqual([...removedIds].sort())
+    expect(removed.succeeded).toEqual([])
+    expect(removed.failed.map(failure => failure.docId).sort()).toEqual([...removedIds].sort())
+    for (const failure of removed.failed) expect(failure.error.code).toBe('REPLICATION_OUTCOME_UNKNOWN')
     expect(inserted.failed).toEqual([])
     expect([...inserted.succeeded].sort()).toEqual(fresh.map(document => document.id).sort())
-    for (const id of removedIds) ledger.delete(id)
     for (const { id, ...fields } of fresh) ledger.set(id, fields)
 
     await expectEveryCopyHolds(cluster, ledger)
@@ -148,4 +148,28 @@ describe('a write in flight while its partition changes primary', () => {
     expect(await write).toEqual({ state: 'refused', code: 'DOC_ALREADY_EXISTS' })
     await expectEveryCopyHolds(cluster, new Map([['transfer-2', entry('second client', 2)]]))
   }, 90_000)
+
+  for (const operation of ['update', 'remove'] as const) {
+    it(`answers outcome unknown for an ${operation} whose term ended, and keeps another client's newer write`, async () => {
+      const started = await startHandoverCluster()
+      cluster = started.cluster
+      const router = cluster.node(ROUTER)
+      await router.insert(INDEX, entry('opening', 1), 'transfer-3')
+      await expectEveryCopyHolds(cluster, new Map([['transfer-3', entry('opening', 1)]]))
+      const held = cluster.transport(started.settled.primary ?? '').holdWhen(entryForDocument('transfer-3'))
+      const write = outcomeOf(
+        operation === 'update'
+          ? router.update(INDEX, 'transfer-3', entry('first client', 2))
+          : router.remove(INDEX, 'transfer-3'),
+      )
+      await waitUntil('the entry to stall on its way to both replicas', () => held.count() === 2)
+
+      const newPrimary = await handOverLeadership(cluster, started.settled)
+      await cluster.node(newPrimary).update(INDEX, 'transfer-3', entry('second client', 3))
+      held.release()
+
+      expect(await write).toEqual({ state: 'refused', code: 'REPLICATION_OUTCOME_UNKNOWN' })
+      await expectEveryCopyHolds(cluster, new Map([['transfer-3', entry('second client', 3)]]))
+    }, 90_000)
+  }
 })

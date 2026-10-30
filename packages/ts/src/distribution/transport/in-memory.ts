@@ -1,5 +1,5 @@
 import { MAX_MESSAGE_SIZE_BYTES } from './constants'
-import { replyDeadlineMs } from './reply-deadline'
+import { replyDeadlineMs, timeoutsOf } from './reply-deadline'
 import {
   DEFAULT_TRANSPORT_CONFIG,
   type ListenHandler,
@@ -176,6 +176,8 @@ export function createInMemoryTransport(
   }
 
   const internal: InMemoryTransportInternal = {
+    timeouts: timeoutsOf(resolvedConfig),
+
     deliverMessage(message: TransportMessage, respond: RespondFn): void {
       if (listenHandler === undefined) {
         return

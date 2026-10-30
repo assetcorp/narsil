@@ -13,6 +13,7 @@ import {
 } from '../constants'
 import { forwardUndelivered } from '../transport-failure'
 import { resolvePartitionId } from './assignment'
+import { abandonedWithTerm } from './rollback'
 import { storedCopyMatchesSent } from './sent-fields'
 import type { WriteRoutingDeps } from './types'
 
@@ -36,8 +37,9 @@ interface RefusedItem<T> {
   refusing: RefusingPrimary
 }
 
-function refusedByPrimaryChange(error: unknown): boolean {
-  return error instanceof NarsilError && error.code === ErrorCodes.PARTITION_NOT_PRIMARY
+function refusedByPrimaryChange(error: unknown, retriesEndedTerm = false): boolean {
+  if (error instanceof NarsilError && error.code === ErrorCodes.PARTITION_NOT_PRIMARY) return true
+  return retriesEndedTerm && abandonedWithTerm(error)
 }
 
 function refusedForAnotherIndex(error: unknown): boolean {
@@ -124,6 +126,7 @@ export async function retryOnPrimaryChange<T>(
   attempt: () => Promise<T>,
   settleRetried: SettleRetried,
   settledValue: () => T,
+  retriesEndedTerm = false,
 ): Promise<T> {
   const deadline = Date.now() + PRIMARY_CHANGE_RETRY_WINDOW_MS
   let retryDelayMs = FORWARD_RETRY_INITIAL_DELAY_MS
@@ -134,7 +137,9 @@ export async function retryOnPrimaryChange<T>(
       return await attempt()
     } catch (error) {
       if (retried && (await settleRetried([{ docId, error }])).has(docId)) return settledValue()
-      if (!(refusedByPrimaryChange(error) || forwardUndelivered(error)) || refusing === null) throw error
+      if (!(refusedByPrimaryChange(error, retriesEndedTerm) || forwardUndelivered(error)) || refusing === null) {
+        throw error
+      }
       let retryable: boolean
       if (retriedAfterDelay(error)) {
         retryable = await pauseAndRereadTable(deps, indexName, retryDelayMs, deadline)
@@ -156,6 +161,7 @@ async function retryBatchOnPrimaryChange<T>(
   attempt: (items: T[]) => Promise<BatchResult>,
   settleRetried: SettleRetried,
   deadline: number,
+  retriesEndedTerm: boolean,
 ): Promise<BatchResult> {
   const succeeded: string[] = []
   const failed: BatchResult['failed'] = []
@@ -179,7 +185,7 @@ async function retryBatchOnPrimaryChange<T>(
       if (
         item === undefined ||
         refusing === null ||
-        !(refusedByPrimaryChange(failure.error) || forwardUndelivered(failure.error))
+        !(refusedByPrimaryChange(failure.error, retriesEndedTerm) || forwardUndelivered(failure.error))
       ) {
         failed.push(failure)
         continue
@@ -250,12 +256,14 @@ export async function retryEachPartition<T>(
   docIdOf: (item: T) => string,
   attempt: (items: T[]) => Promise<BatchResult>,
   settleRetried: SettleRetried,
+  retriesEndedTerm = false,
 ): Promise<BatchResult> {
   const deadline = Date.now() + PRIMARY_CHANGE_RETRY_WINDOW_MS
   const outcomes = await settleEachBounded(
     groupByPartition(table, items, docIdOf),
     PARTITION_WRITE_CONCURRENCY,
-    group => retryBatchOnPrimaryChange(deps, indexName, group, docIdOf, attempt, settleRetried, deadline),
+    group =>
+      retryBatchOnPrimaryChange(deps, indexName, group, docIdOf, attempt, settleRetried, deadline, retriesEndedTerm),
   )
   const merged: BatchResult = { succeeded: [], failed: [] }
   for (const outcome of outcomes) {

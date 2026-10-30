@@ -4,6 +4,7 @@ import type { BootstrapSyncDeps } from '../../../../distribution/cluster-node/bo
 import { createPartitionWriteQueues } from '../../../../distribution/cluster-node/write-routing/partition-queue'
 import type { ClusterCoordinator } from '../../../../distribution/coordinator/types'
 import { SNAPSHOT_CHUNK_SIZE } from '../../../../distribution/replication/constants'
+import { createReplicationLog } from '../../../../distribution/replication/log'
 import {
   type NodeTransport,
   type ReplicationSnapshotHeader,
@@ -156,8 +157,13 @@ export function buildSnapshotChunkBytes(
   return encode(payload)
 }
 
-export function buildSnapshotEndBytes(indexName: string, totalBytes: number, checksum: number): Uint8Array {
-  const payload: SnapshotEndPayload = { partitionId: 0, indexName, totalBytes, checksum }
+export function buildSnapshotEndBytes(
+  indexName: string,
+  totalBytes: number,
+  checksum: number,
+  partitionId = 0,
+): Uint8Array {
+  const payload: SnapshotEndPayload = { partitionId, indexName, totalBytes, checksum }
   return encode(payload)
 }
 
@@ -168,6 +174,7 @@ export function buildErrorEnvelopeBytes(code: string, message: string): Uint8Arr
 export function makeScriptedSnapshot(
   indexName: string,
   totalBytes: number,
+  partitionId = 0,
 ): {
   chunks: ScriptedChunk[]
   bytes: Uint8Array
@@ -179,14 +186,14 @@ export function makeScriptedSnapshot(
   }
   const checksum = crc32(bytes)
   const chunks: ScriptedChunk[] = []
-  chunks.push(buildSnapshotStartBytes(indexName, totalBytes, checksum))
+  chunks.push(buildSnapshotStartBytes(indexName, totalBytes, checksum, { partitionId }))
   let offset = 0
   while (offset < totalBytes) {
     const end = Math.min(offset + SNAPSHOT_CHUNK_SIZE, totalBytes)
-    chunks.push(buildSnapshotChunkBytes(indexName, offset, bytes.subarray(offset, end)))
+    chunks.push(buildSnapshotChunkBytes(indexName, offset, bytes.subarray(offset, end), partitionId))
     offset = end
   }
-  chunks.push(buildSnapshotEndBytes(indexName, totalBytes, checksum))
+  chunks.push(buildSnapshotEndBytes(indexName, totalBytes, checksum, partitionId))
   return { chunks, bytes, checksum }
 }
 
@@ -264,6 +271,7 @@ export function makeDeps(
   transport: NodeTransport,
   overrides: Partial<BootstrapSyncDeps> = {},
 ): BootstrapSyncDeps {
+  let replicationLog = createReplicationLog(0)
   return {
     engine,
     coordinator,
@@ -271,6 +279,12 @@ export function makeDeps(
     sourceNodeId: 'replica-node',
     resolveNodeTargets: async nodeId => [nodeId],
     partitionWriteQueues: createPartitionWriteQueues(),
+    getReplicationLog: () => replicationLog,
+    resetReplicationLog: (_indexName, partitionId, startSeqNo, lastPrimaryTerm) => {
+      replicationLog = createReplicationLog(partitionId, { startSeqNo, lastPrimaryTerm })
+    },
+    applyReplicationEntries: async entries => ({ applied: entries.length, error: null }),
+    restoreReplicationPartition: (indexName, _partitionId, source) => engine.restore(indexName, source),
     ...overrides,
   }
 }

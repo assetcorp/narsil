@@ -1,6 +1,6 @@
 import { setTimeout as sleep } from 'node:timers/promises'
 import type { Fleet } from './fleet'
-import { type Ledger, type LedgerDocument, REFUSED_BEFORE_APPLY } from './oracle'
+import { type Ledger, type LedgerDocument, REFUSED_FOR_CERTAIN } from './oracle'
 
 const WRITE_TIMEOUT_MS = 20_000
 const SEARCH_TIMEOUT_MS = 30_000
@@ -88,7 +88,7 @@ function settle(
     ledger.record(docId, next, 'unanswered')
     return
   }
-  if (REFUSED_BEFORE_APPLY.has(reply.code)) {
+  if (REFUSED_FOR_CERTAIN.has(reply.code)) {
     ledger.record(docId, next, 'refused')
     return
   }

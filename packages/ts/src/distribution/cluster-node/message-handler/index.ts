@@ -3,7 +3,6 @@ import { ClusterMessageTypes, QueryMessageTypes, ReplicationMessageTypes } from 
 import { encodeErrorReplyFrom } from '../error-reply'
 import { handleRebuildAnalysis } from '../rebuild-analysis'
 import { handleReshardCutover, handleReshardForward, handleReshardPurge, handleReshardStart } from '../reshard/handlers'
-import { handleSnapshotSyncRequest } from '../snapshot-sync-handler'
 import { handleIndexSettings } from './index-settings'
 import { handlePartitionStores } from './partition-stores'
 import { handleFetch, handleSearch, handleStats } from './queries'
@@ -18,19 +17,6 @@ export { validateForwardPayload } from './writes'
 
 export function createDataNodeHandler(deps: DataNodeHandlerDeps): TransportHandler {
   return async (message: TransportMessage, respond: RespondFn): Promise<void> => {
-    if (message.type === ReplicationMessageTypes.SNAPSHOT_SYNC_REQUEST) {
-      await handleSnapshotSyncRequest(message, respond, {
-        nodeId: deps.nodeId,
-        engine: deps.engine,
-        coordinator: deps.coordinator,
-        state: deps.snapshotSyncState,
-        resolveHeaderMetadata: deps.resolveHeaderMetadata,
-        spoolDirectory: deps.snapshotSpoolDirectory,
-        indexUuidOf: indexName => deps.engine.indexUuidOf(indexName),
-      })
-      return
-    }
-
     try {
       switch (message.type) {
         case ReplicationMessageTypes.SYNC_REQUEST:

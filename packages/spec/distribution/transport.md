@@ -16,6 +16,7 @@ NodeTransport {
   async stream(target: string, message: TransportMessage, handler: (chunk: bytes) -> nothing) -> nothing
   async listen(handler: (message: TransportMessage, respond: async (TransportMessage) -> nothing) -> nothing) -> (() -> nothing)
   async shutdown() -> nothing
+  timeouts: TransportConfig or absent
 }
 ```
 
@@ -45,6 +46,12 @@ NodeTransport {
 
 - Closes every connection and stops listening.
 - It must be idempotent.
+
+### timeouts
+
+- It reports the [Transport Timeouts](#transport-timeouts) that this transport enforces.
+- A node bounds an in-sync removal and each try to complete a rollback with its `replicationTimeout`, so that both end within the wait that the transport gives a replication entry.
+- A node whose transport leaves `timeouts` absent uses the defaults that [Transport Timeouts](#transport-timeouts) lists.
 
 ---
 

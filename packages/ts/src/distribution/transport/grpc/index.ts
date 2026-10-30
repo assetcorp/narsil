@@ -1,3 +1,4 @@
+import { timeoutsOf } from '../reply-deadline'
 import type { ListenHandler } from '../types'
 import { type NodeTransport, TransportError, TransportErrorCodes, type TransportMessage } from '../types'
 import { GrpcClientPool } from './client'
@@ -56,6 +57,8 @@ export async function createGrpcTransport(
   }
 
   return {
+    timeouts: timeoutsOf(resolvedConfig),
+
     getPort(): number {
       return server.getPort()
     },

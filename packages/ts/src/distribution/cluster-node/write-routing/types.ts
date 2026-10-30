@@ -33,6 +33,7 @@ export interface WriteRoutingDeps {
   reshard?: ReshardState
   copyFailed?: (indexName: string, partitionId: number) => boolean
   copyUnlisted?: (indexName: string, partitionId: number) => boolean
+  stopped?: () => boolean
 }
 
 export interface PrimaryAssignmentResolution {

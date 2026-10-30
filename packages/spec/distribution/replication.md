@@ -67,6 +67,14 @@ A primary rolling back a batch must compensate every entry it appended for that 
 
 When the rollback itself fails, which covers a failed local restore and a failed compensating append alike, the primary must still refuse to acknowledge the write. It reports `REPLICATION_ROLLBACK_FAILED` with enough context to identify both the original write failure and the rollback failure. An implementation may then mark the local partition unhealthy or take it out of service; the partition must not carry on serving reads that could expose the unacknowledged mutation.
 
+A compensating entry is an ordinary replicated entry. Before a primary treats a rollback as complete, every replica in the in-sync set must either acknowledge the compensating entry or leave the set through the controller's compare-and-set on the allocation table, as the [Removal Flow](#removal-flow) defines. The primary sends each in-sync replica the failed write's entries together with their compensating entries, in log order, so that a replica that never received a failed entry applies both and ends up holding what the primary holds.
+
+A primary answers the client with a definite refusal only once the rollback is complete. Where the rollback is still incomplete when `replicationTimeout` has passed since the write failed, the primary answers `REPLICATION_OUTCOME_UNKNOWN`, because a replica can still hold the failed write. A primary that abandons the compensating entry because its term is no longer current answers `REPLICATION_OUTCOME_UNKNOWN` too, because the new primary may hold the entry.
+
+While a rollback is incomplete, the partition takes no new writes. The primary keeps the partition's write queue held, and it retries the rollback with backoff, giving each try at most `replicationTimeout`, so that no later write is ordered after an entry whose outcome is still open. Writes to other partitions carry on.
+
+A client that receives `REPLICATION_OUTCOME_UNKNOWN` cannot tell whether the write took effect, so it should read the document before it retries. A node that forwarded the write must not retry it on the client's behalf, except where the primary abandoned the write because its term ended; the node may then send it to the new primary and settle the outcome against the copy that the new primary holds.
+
 ### Read Path
 
 Any node holding a replica of the requested partition can serve reads. The coordinator picks one replica per partition for each query; see [Replica Selection](query-routing.md#replica-selection).
@@ -432,6 +440,7 @@ Only a primary needs access to the embedding adapter, so a replica runs with no 
 | `REPLICATION_TERM_MISMATCH` | A replica received an entry carrying a stale primaryTerm. |
 | `REPLICATION_SYNC_FAILED` | The sync protocol, incremental or snapshot, failed to finish. |
 | `REPLICATION_ROLLBACK_FAILED` | A primary-local mutation failed before acknowledgement and the rollback failed too. |
+| `REPLICATION_OUTCOME_UNKNOWN` | A write failed after the primary applied it, and the primary could not confirm within `replicationTimeout` that every in-sync copy dropped it, so the write may or may not have taken effect. Its details carry `reason`, which is `term_ended` where the primary abandoned the write because its term ended, `rollback_open` where the rollback was still incomplete, and `lease_lapsed` where the primary's registration lease lapsed before it acknowledged a write that it had applied. |
 | `REPLICATION_ENTRY_INVALID` | A received entry is malformed, out of order, or not addressed to the receiving replica. |
 | `REPLICATION_INSYNC_REMOVAL_FAILED` | The primary could not remove a failed replica from the in-sync set while it still held its term, because no controller was reachable or the controller rejected the request. A primary whose term has moved reports `PARTITION_NOT_PRIMARY` instead. |
 | `PARTITION_NOT_PRIMARY` | A write reached a node that is not the primary for the target partition. |
