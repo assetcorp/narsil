@@ -56,6 +56,7 @@ function readHeap(): ThreadHeap | null {
 }
 
 export function startIdleHeapCleanup(): () => void {
+  acquireCollector()
   if (typeof performance.eventLoopUtilization !== 'function') return () => undefined
   let lastReading: EventLoopUtilization = performance.eventLoopUtilization()
   const cleaner = createIdleHeapCleaner({

@@ -707,6 +707,7 @@ HighlightConfig {
   params:         QueryParams
   globalStats:    GlobalStatistics or absent   (present under DFS scoring)
   facetShardSize: uint32 or absent             (the oversampled bucket count the coordinator set)
+  keepAliveMs:    uint32 or absent             (present when the coordinator will fetch from a search context)
 }
 ```
 
@@ -722,6 +723,7 @@ HighlightConfig {
   facets: Map<string, List<FacetBucket>> or absent
   facetErrorBounds: Map<string, uint32> or absent
   groups: List<GroupEntry> or absent   (present when the query carries `group`)
+  contextId: string or absent          (present when the node opened a search context)
 }
 
 ScoredEntry {
@@ -760,8 +762,12 @@ A response carries at most 65,536 groups, so a query whose matches group more fi
   }>
   fields:      List<string> or absent   (field projection; absent means every field)
   highlight:   HighlightConfig or absent
+  contextId:   string or absent         (the search context to read; absent means the current documents)
+  releaseContext: bool or absent        (whether the node frees the context after this read; absent means true)
 }
 ```
+
+A node that receives `contextId` must read every named document from that [search context](query-routing.md#search-contexts), ignore each `partitionId`, and answer `SEARCH_CONTEXT_MISSING` where it holds no such context and the request names at least one document. `contextId` holds at most 64 characters, and `keepAliveMs` is a positive integer of milliseconds.
 
 ### query.fetch_result
 

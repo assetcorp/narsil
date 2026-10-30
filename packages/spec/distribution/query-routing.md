@@ -22,6 +22,8 @@ A distributed query runs in two phases so that the cluster moves as few bytes as
      the query parameters (term, filters, sort, limit)
      the partition IDs to search on that node
      the global statistics, under DFS scoring
+     the keep-alive of a search context, when the coordinator
+     will fetch documents in phase 2
 5. Each data node runs the query against the named local
    partitions, fanning out across them and merging the
    results exactly as a single instance does.
@@ -29,6 +31,7 @@ A distributed query runs in two phases so that the cluster moves as few bytes as
      the scored entries (docId, score, sort values)
      the facet counts, when facets were requested
      the hit count for each partition
+     the ID of its search context, when it opened one
 7. The coordinator merges every returned list with the K-way
    merge, which uses a heap above four sources and a
    sequential merge at four or fewer. The merge orders by
@@ -41,24 +44,50 @@ A distributed query runs in two phases so that the cluster moves as few bytes as
 ### Phase 2: Fetch
 
 ```text
-1. The coordinator works out which node holds each of the
-   top-k documents, by routing the docId to its partition
-   with fnv1a(docId) modulo partitionCount and then reading
-   the allocation table.
-2. It sends a fetch request to each of those nodes, naming
-   the document IDs it wants.
-3. Each data node reads the full documents from its local
-   document store and vector indexes.
-4. The coordinator assembles the response:
+1. The coordinator groups the top-k documents by the node
+   that ranked them, using the search context that each node
+   returned in phase 1.
+2. It sends each of those nodes a fetch request that carries
+   the context ID and the document IDs the node ranked, in
+   groups of at most 256 IDs. It sends each group once the
+   node has answered the group before it, and it sets
+   releaseContext to true on the last group alone.
+3. Each data node reads the documents from that search
+   context, so that every document comes back as it stood
+   when the node ranked it.
+4. For a document that no context covers, the coordinator
+   routes the docId to its partition with fnv1a(docId) modulo
+   partitionCount, reads the allocation table, and fetches
+   the current document from one copy of that partition.
+5. The coordinator assembles the response:
      the full document bodies
      highlighting, when requested
      the facets merged in phase 1
      the total hit count, summed across partitions
      the coverage metadata
-5. The coordinator returns the response to the client.
+6. The coordinator returns the response to the client.
 ```
 
 A data node returns the hit count of its own partitions alone, so the coordinator derives `countExact` from the request and the coverage. It must set `countExact` false where any partition times out or returns an error, or where it queries fewer partitions than the index holds, because a count without the matches of some partition is a floor under the total. It must otherwise apply the rule in [Deep Pagination](../partitioning.md#deep-pagination) to the request. Every node applies that rule to the same request, so the sum of the nodes' counts is exact wherever that rule sets `countExact` true.
+
+### Search Contexts
+
+A search context holds the documents that a data node ranked in phase 1, so that phase 2 returns those documents even after a write changes or removes one of them between the two phases. A data node opens a context only when the search request carries `keepAliveMs` and the node ranked at least one document, and it then returns the context's ID as `contextId`. The node must copy each ranked document's stored fields and vectors under the same read lock that ranked them. Where holding those copies would take the node past 0.95 of its memory limit, the node must refuse the search with the `response_would_fill_memory` refusal that [Cluster](cluster.md) defines.
+
+The coordinator sets `keepAliveMs` to the longest time that it can wait between a node's phase 1 answer and its last fetch from that node. That figure is `partitionTimeout` multiplied by the largest number of copies of any partition, plus twice the transport `requestTimeout`, with 60,000 ms as the floor and 86,400,000 ms as the ceiling. A data node must clamp a larger `keepAliveMs` to 86,400,000 ms, and it must restart the keep-alive each time a fetch reads the context.
+
+A data node frees a context in four cases:
+
+- A fetch reads it with `releaseContext` true or absent.
+- The keep-alive passes with no fetch reading it.
+- The coordinating node that opened it leaves the cluster, which the node learns from the `node_left` event.
+- The data node shuts down.
+
+The coordinator must free every context that it opened. Where a context covers none of the documents that the coordinator fetches, the coordinator sends that node a fetch with no document IDs and `releaseContext` true, and it sends that fetch without waiting for an answer, so that freeing the context adds no time to the response. The coordinator sends the same fetch to every node that returned a context when the query fails or the coordinator abandons it, and to a node whose phase 1 answer arrives after `partitionTimeout`.
+
+A data node that holds no context with the requested ID must answer `SEARCH_CONTEXT_MISSING`, unless the fetch names no document IDs, which the node answers with no documents. The coordinator that receives `SEARCH_CONTEXT_MISSING`, or that cannot reach the node holding a context, must run the whole query once more from phase 1. Where that second run loses a context as well, the coordinator must raise `SEARCH_CONTEXT_MISSING` to the client, which can retry the query.
+
+The coordinator reads the members of each group, the reranked fields of a [reranked query](#distributed-reranking), and the documents of the page from the same contexts, so a single query reads every document as its node ranked it. A pinned document placed from outside the ranked results has no context, so the coordinator fetches its current version. A data node that predates search contexts ignores `keepAliveMs` and returns no `contextId`, so the coordinator fetches the current version of the documents that node ranked. A coordinator that predates search contexts sends no `keepAliveMs`, so no data node opens a context for its queries.
 
 ### Single-Partition Queries
 
@@ -180,6 +209,8 @@ QueryConfig {
 With `allowPartialResults` set to true, the coordinator waits up to `partitionTimeout` for each data node, drops the partitions that time out or fail, and returns the coverage metadata so that the client can spot a degraded answer. BM25 scores lose accuracy in that case, because the statistics of the missing partitions are missing too.
 
 With `allowPartialResults` set to false, any partition failure or timeout fails the whole query with `QUERY_PARTIAL_FAILURE`.
+
+A coordinator that receives `TOO_MANY_REQUESTS` from a data node must ask the next copy of those partitions. When every copy of a partition refuses with that code, the coordinator must count that partition in `coverage.failedPartitions`, as it counts a partition whose copies all fail, so that with `allowPartialResults` set to true the answer marks the partition as missing. The coordinator must fail the whole query with the refusal, its `details.reason` included, when no partition answered or when `allowPartialResults` is false, in place of `QUERY_PARTIAL_FAILURE`, because a node that refused for lack of memory gives no evidence that its partitions hold no matches and the client can retry the same query.
 
 Whatever `allowPartialResults` holds, a coordinator must fail the whole query with `SEARCH_WORK_CAP_EXCEEDED` when a data node raises that code, because a partial answer can leave out documents that the node never checked, as [Limits and Matching](../algorithms.md#limits-and-matching) describes.
 
@@ -349,3 +380,4 @@ The coordinator that receives a query carrying `rerank` must rerank it with its 
 | `QUERY_NODE_TIMEOUT` | A data node did not answer within `partitionTimeout`. |
 | `QUERY_ROUTING_FAILED` | The allocation table holds no entry for the target index. |
 | `QUERY_NO_ACTIVE_REPLICA` | One or more partitions have no `ACTIVE` replica. |
+| `SEARCH_CONTEXT_MISSING` | A data node no longer held the search context of a query, or the coordinator could not reach it, in the first run of the query and again in its one rerun. |

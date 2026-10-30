@@ -12,7 +12,7 @@ import { estimateDocumentBytes } from './write-pressure'
 const RESPONSE_WOULD_FILL_MEMORY_REASON = 'response_would_fill_memory'
 
 function heapRoomIn(figures: MemoryFigures): number {
-  return ANSWER_MEMORY_BLOCK_FRACTION * figures.heapLimitBytes - figures.heapBytes - figures.youngHeapBytes
+  return ANSWER_MEMORY_BLOCK_FRACTION * figures.heapLimitBytes - figures.heapCommittedBytes - figures.youngHeapBytes
 }
 
 function processRoomIn(figures: MemoryFigures): number {
@@ -28,7 +28,7 @@ function refusal(answerBytes: number, figures: MemoryFigures, collectedGarbage: 
   const blockBytes = Math.floor(
     ANSWER_MEMORY_BLOCK_FRACTION * (heapBound ? figures.heapLimitBytes : figures.processLimitBytes),
   )
-  const usedBytes = heapBound ? figures.heapBytes + figures.youngHeapBytes : figures.processBytes
+  const usedBytes = heapBound ? figures.heapCommittedBytes + figures.youngHeapBytes : figures.processBytes
   return new NarsilError(
     ServerErrorCodes.TOO_MANY_REQUESTS,
     `Building the next ${answerBytes} bytes of this answer would take the ${usedBytes} bytes already in use past the limit of ${blockBytes} bytes. Retry once the requests in progress finish, or ask for fewer documents.`,
@@ -36,6 +36,7 @@ function refusal(answerBytes: number, figures: MemoryFigures, collectedGarbage: 
       reason: RESPONSE_WOULD_FILL_MEMORY_REASON,
       answerBytes,
       heapBytes: figures.heapBytes,
+      heapCommittedBytes: figures.heapCommittedBytes,
       youngHeapBytes: figures.youngHeapBytes,
       processBytes: figures.processBytes,
       reservedBytes: reservedHeapBytes(),

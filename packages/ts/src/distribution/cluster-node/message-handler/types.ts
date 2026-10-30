@@ -2,6 +2,7 @@ import type { ClusterCoordinator } from '../../coordinator/types'
 import type { RespondFn, TransportMessage } from '../../transport/types'
 import type { AllocationView } from '../allocation-view'
 import type { ClusterLocalEngine } from '../local-engine'
+import type { SearchContextRegistry } from '../search-contexts'
 import type { SnapshotSyncHandlerState } from '../snapshot-sync-handler'
 import type { WriteRoutingDeps } from '../write-routing'
 export type TransportHandler = (message: TransportMessage, respond: RespondFn) => void | Promise<void>
@@ -13,6 +14,7 @@ export interface DataNodeHandlerDeps {
   allocations?: Pick<AllocationView, 'read' | 'refresh'>
   writeDeps: WriteRoutingDeps
   snapshotSyncState: SnapshotSyncHandlerState
+  searchContexts?: SearchContextRegistry
   snapshotSpoolDirectory?: string
   isBootstrapSynced?: (indexName: string, partitionId: number) => boolean
   onError?: (error: unknown) => void

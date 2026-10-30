@@ -1,17 +1,20 @@
 import type { QueryCoverage } from '../../types/results'
 import type { AllocationTable } from '../coordinator/types'
 import type { FacetBucket, NodeTransport, ScoredEntry, WireGroupEntry } from '../transport/types'
+import type { SearchContextSet } from './search-contexts'
 
 export interface DistributedQueryConfig {
   allowPartialResults: boolean
   partitionTimeout: number
   defaultFacetSize: number
+  searchContexts: boolean
 }
 
 export const DEFAULT_QUERY_CONFIG: DistributedQueryConfig = {
   allowPartialResults: true,
   partitionTimeout: 5_000,
   defaultFacetSize: 10,
+  searchContexts: false,
 }
 
 export interface DistributedQueryResult {
@@ -30,6 +33,7 @@ export interface DistributedQueryResult {
   coverage: QueryCoverage
   pinnedFromOutside?: string[]
   mergeHeldEveryMatch?: boolean
+  contexts?: SearchContextSet
 }
 
 export interface QueryRoutingDeps {
