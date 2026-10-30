@@ -9,6 +9,7 @@ import { loadSegmentedCheckpoint, readSegmentManifest, reclaimUnlistedKeys } fro
 import { manifestReferencedKeys } from './segment/manifest'
 import type { DecodedManifest } from './segment/manifest-decode'
 import type { CheckpointStore } from './segment/store'
+import type { WriteRecordKeeper } from './types'
 
 export interface CheckpointRecoveryDeps {
   store: CheckpointStore
@@ -21,6 +22,7 @@ export interface CheckpointRecoveryDeps {
   keepsUnlistedFiles: boolean
   replay(checkpoint: PartitionCheckpoint[]): Promise<PartitionCheckpoint[]>
   onLayoutUpgrade?(event: LayoutUpgradeEvent): void
+  writeRecords?: WriteRecordKeeper | null
 }
 
 export interface RecoveredCheckpoint {
@@ -56,6 +58,7 @@ export async function recoverCheckpoint(deps: CheckpointRecoveryDeps): Promise<R
   const checkpoint = await loadSegmentedCheckpoint(deps.store, deps.indexName, decoded.manifest, {
     manager: deps.manager,
     vectorIndexes: deps.vectorIndexes,
+    writeRecords: deps.writeRecords ?? null,
   })
   return { checkpoint: await deps.replay(checkpoint), upgradedDocumentCount: null }
 }

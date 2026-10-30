@@ -43,8 +43,10 @@ import type { IndexWriteAnalysis } from './memory/document-bound'
 import { archiveReplicationPartition, type PartitionArchive, restoreReplicationPartition } from './partition-archive'
 import { type DocumentSnapshot, snapshotRankedDocuments } from './search-contexts/snapshots'
 import { createAdmittingRecorder, type WriteAdmission } from './write-admission'
+import { type ClusterWriteRecords, createClusterWriteRecords } from './write-records/keeper'
 
 export interface ClusterLocalEngine extends Narsil {
+  readonly writeRecords: ClusterWriteRecords
   createIndexWithUuid(name: string, config: IndexConfig, indexUuid?: string): Promise<void>
   acquireIndexForReplication(indexName: string): Promise<() => void>
   indexUuidOf(indexName: string): string | null | undefined
@@ -113,17 +115,47 @@ export async function createClusterLocalEngine(
 ): Promise<ClusterLocalEngine> {
   requireKnownConfig(config)
   const runnableConfig = await resolveRunnableConfig(config)
-  const core = await createEngineCore(runnableConfig, hooks, 'partition')
+  const writeRecords = createClusterWriteRecords()
+  const core = await createEngineCore(
+    runnableConfig,
+    {
+      ...hooks,
+      onIndexClose: indexName => {
+        writeRecords.dropIndex(indexName)
+        return hooks?.onIndexClose?.(indexName)
+      },
+    },
+    'partition',
+  )
+  core.durability?.manager.keepWriteRecordsWith?.(writeRecords)
   await startEngineCore(core, runnableConfig)
   core.orchestrator.shareMainThread()
   const engine = createNarsilFromCore(core, runnableConfig)
   const heldPartitions = createHeldPartitionRecord(core)
+  const dropIndex = engine.dropIndex.bind(engine)
+  const restore = engine.restore.bind(engine)
 
   return Object.assign(engine, {
-    createIndex: (name: string, indexConfig: IndexConfig) =>
-      createEngineIndex(core, runnableConfig, name, indexConfig, { adapterBinding: 'deferred' }),
-    createIndexWithUuid: (name: string, indexConfig: IndexConfig, indexUuid?: string) =>
-      createEngineIndex(core, runnableConfig, name, indexConfig, { indexUuid }),
+    writeRecords,
+    createIndex: async (name: string, indexConfig: IndexConfig) => {
+      await createEngineIndex(core, runnableConfig, name, indexConfig, { adapterBinding: 'deferred' })
+      writeRecords.dropIndex(name)
+    },
+    createIndexWithUuid: async (name: string, indexConfig: IndexConfig, indexUuid?: string) => {
+      await createEngineIndex(core, runnableConfig, name, indexConfig, { indexUuid })
+      writeRecords.dropIndex(name)
+    },
+    dropIndex: async (name: string) => {
+      await dropIndex(name)
+      writeRecords.dropIndex(name)
+    },
+    restore: async (name: string, data: ByteSource) => {
+      try {
+        await restore(name, data)
+      } finally {
+        writeRecords.dropIndex(name)
+      }
+    },
     acquireIndexForReplication: (indexName: string) => core.indexState.acquire(indexName, false),
     indexUuidOf: (indexName: string) => core.indexRegistry.get(indexName)?.indexUuid,
     stampIndexUuid: (indexName: string, indexUuid: string) => stampIndexUuid(core, indexName, indexUuid),
@@ -145,22 +177,30 @@ export async function createClusterLocalEngine(
       restartLocalLog(core, indexName, partitionId, position),
     isolateCopyFailures: (onFailed: PartitionFailureHandler) =>
       core.durability?.manager.isolatePartitionFailures?.(onFailed),
-    emptyPartitionCopy: (indexName: string, partitionId: number) => emptyPartitionCopy(core, indexName, partitionId),
-    reloadPartitionCopy: (indexName: string, partitionId: number) => reloadPartitionCopy(core, indexName, partitionId),
+    emptyPartitionCopy: (indexName: string, partitionId: number) =>
+      emptyPartitionCopy(core, indexName, partitionId, writeRecords),
+    reloadPartitionCopy: (indexName: string, partitionId: number) =>
+      reloadPartitionCopy(core, indexName, partitionId, writeRecords),
     heldPartitionsOf: (indexName: string) => heldPartitions.held(indexName),
     recordHeldPartition: (indexName: string, partitionId: number) => heldPartitions.record(indexName, partitionId),
     forgetHeldPartition: (indexName: string, partitionId: number) => heldPartitions.forget(indexName, partitionId),
-    applyReplicationEntry: (entry: ReplicationLogEntry) => applyLocalReplicationEntry(core, entry),
-    applyReplicationEntries: (entries: readonly ReplicationLogEntry[]) => applyLocalReplicationEntries(core, entries),
+    applyReplicationEntry: (entry: ReplicationLogEntry) => applyLocalReplicationEntry(core, entry, writeRecords),
+    applyReplicationEntries: (entries: readonly ReplicationLogEntry[]) =>
+      applyLocalReplicationEntries(core, entries, writeRecords),
     archiveReplicationPartition: (indexName: string, partitionId: number, lastSeqNo: () => number) =>
-      archiveReplicationPartition(core, indexName, partitionId, lastSeqNo),
+      archiveReplicationPartition(core, indexName, partitionId, lastSeqNo, writeRecords),
     restoreReplicationPartition: (
       indexName: string,
       partitionId: number,
       source: ByteSource,
       indexConfig: IndexConfig,
       partitionCount: number,
-    ) => restoreReplicationPartition(core, engine, indexName, partitionId, source, indexConfig, partitionCount),
+    ) =>
+      restoreReplicationPartition(core, engine, indexName, partitionId, source, {
+        config: indexConfig,
+        partitionCount,
+        writeRecords,
+      }),
     queryPartitions: <T = AnyDocument>(
       indexName: string,
       params: QueryParams,

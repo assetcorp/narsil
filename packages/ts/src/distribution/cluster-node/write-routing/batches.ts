@@ -3,12 +3,14 @@ import { ErrorCodes, NarsilError } from '../../../errors'
 import type { BatchResult } from '../../../types/results'
 import type { AnyDocument, InsertOptions } from '../../../types/schema'
 import type { AllocationTable, PartitionAssignment } from '../../coordinator/types'
+import type { WriteCondition } from '../../transport/types'
 import { requireWritableIndex } from '../memory/write-block'
 import { estimateDocumentsBytes, withAdmittedWrite } from '../memory/write-pressure'
 import { routableAllocation } from '../routable-allocation'
 import { requireAssignedPrimary, resolvePartitionId } from './assignment'
 import { type ForwardBatchItem, forwardBatchToRemote } from './forward-to-primary'
-import { retryEachPartition, settleAbsentRemovals, settleEqualInserts, settleNothing } from './primary-change'
+import { writeLocalOnly } from './numbered-write'
+import { retryEachPartition, settleEqualInserts, settleNothing } from './primary-change'
 import { applyPrimaryInsertBatch, applyPrimaryRemoveBatch, applyPrimaryUpdateBatch } from './primary-writes'
 import type { WriteRoutingDeps } from './types'
 
@@ -107,7 +109,7 @@ async function routeAdmittedInsertBatch(
 ): Promise<BatchResult> {
   const table = await routableAllocation(deps.coordinator, indexName)
   if (table === null) {
-    return deps.engine.insertBatch(indexName, documents, options)
+    return writeLocalOnly(deps, indexName, () => deps.engine.insertBatch(indexName, documents, options))
   }
   requireWritableIndex(table, deps.memoryView)
 
@@ -189,7 +191,7 @@ export async function routeRemoveBatch(
 ): Promise<BatchResult> {
   const table = await routableAllocation(deps.coordinator, indexName)
   if (table === null) {
-    return deps.engine.removeBatch(indexName, docIds)
+    return writeLocalOnly(deps, indexName, () => deps.engine.removeBatch(indexName, docIds))
   }
 
   return retryEachPartition(
@@ -198,8 +200,9 @@ export async function routeRemoveBatch(
     table,
     docIds,
     docId => docId,
-    async pending => routeRemoveItems(await requireRoutableTable(deps, indexName), indexName, pending, deps),
-    settleAbsentRemovals,
+    async (pending, conditions) =>
+      routeRemoveItems(await requireRoutableTable(deps, indexName), indexName, pending, deps, conditions),
+    settleNothing,
   )
 }
 
@@ -208,6 +211,7 @@ async function routeRemoveItems(
   indexName: string,
   docIds: string[],
   deps: WriteRoutingDeps,
+  conditions: ReadonlyMap<string, WriteCondition>,
 ): Promise<BatchResult> {
   const routed = routeBatchItems(table, indexName, docIds, docId => docId, deps.nodeId)
   const succeeded: string[] = []
@@ -215,7 +219,14 @@ async function routeRemoveItems(
 
   for (const [partitionId, group] of routed.localGroups) {
     try {
-      const result = await applyPrimaryRemoveBatch(indexName, group.items, partitionId, group.assignment, deps)
+      const result = await applyPrimaryRemoveBatch(
+        indexName,
+        group.items,
+        partitionId,
+        group.assignment,
+        deps,
+        conditions,
+      )
       succeeded.push(...result.succeeded)
       failed.push(...result.failed)
     } catch (err) {
@@ -226,7 +237,14 @@ async function routeRemoveItems(
   for (const [primaryNodeId, items] of routed.remoteGroups) {
     const result = await forwardBatchToRemote(
       indexName,
-      items.map((docId): ForwardBatchItem => ({ documentId: docId, operation: 'remove', document: null })),
+      items.map(
+        (docId): ForwardBatchItem => ({
+          documentId: docId,
+          operation: 'remove',
+          document: null,
+          condition: conditions.get(docId),
+        }),
+      ),
       primaryNodeId,
       deps,
       table.indexUuid,
@@ -258,7 +276,7 @@ async function routeAdmittedUpdateBatch(
 ): Promise<BatchResult> {
   const table = await routableAllocation(deps.coordinator, indexName)
   if (table === null) {
-    return deps.engine.updateBatch(indexName, updates)
+    return writeLocalOnly(deps, indexName, () => deps.engine.updateBatch(indexName, updates))
   }
   requireWritableIndex(table, deps.memoryView)
 
@@ -268,7 +286,8 @@ async function routeAdmittedUpdateBatch(
     table,
     updates,
     update => update.docId,
-    async pending => routeUpdateItems(await requireRoutableTable(deps, indexName), indexName, pending, deps),
+    async (pending, conditions) =>
+      routeUpdateItems(await requireRoutableTable(deps, indexName), indexName, pending, deps, conditions),
     settleNothing,
   )
 }
@@ -278,6 +297,7 @@ async function routeUpdateItems(
   indexName: string,
   updates: Array<{ docId: string; document: AnyDocument }>,
   deps: WriteRoutingDeps,
+  conditions: ReadonlyMap<string, WriteCondition>,
 ): Promise<BatchResult> {
   const routed = routeBatchItems(table, indexName, updates, update => update.docId, deps.nodeId)
   const succeeded: string[] = []
@@ -285,7 +305,13 @@ async function routeUpdateItems(
 
   for (const [partitionId, group] of routed.localGroups) {
     try {
-      const result = await applyPrimaryUpdateBatch(indexName, group.items, partitionId, group.assignment, deps)
+      const result = await applyPrimaryUpdateBatch(
+        indexName,
+        group.items.map(item => ({ ...item, condition: conditions.get(item.docId) })),
+        partitionId,
+        group.assignment,
+        deps,
+      )
       succeeded.push(...result.succeeded)
       failed.push(...result.failed)
     } catch (err) {
@@ -303,7 +329,12 @@ async function routeUpdateItems(
     const result = await forwardBatchToRemote(
       indexName,
       items.map(
-        (update): ForwardBatchItem => ({ documentId: update.docId, operation: 'update', document: update.document }),
+        (update): ForwardBatchItem => ({
+          documentId: update.docId,
+          operation: 'update',
+          document: update.document,
+          condition: conditions.get(update.docId),
+        }),
       ),
       primaryNodeId,
       deps,

@@ -5,6 +5,7 @@ import {
   INDEX,
   ofType,
   onceFor,
+  outcomeOf,
   partitionAssignment,
   readCopy,
   SCHEMA,
@@ -72,7 +73,7 @@ describe('a forward that the transport fails to deliver to its primary', () => {
     cluster = undefined
   })
 
-  it('reaches the replica promoted after its primary stops, for an insert, an update and a remove batch', async () => {
+  it('reaches the replica promoted after its primary stops, for an insert, an update and a remove, one by one and in batches', async () => {
     const started = await startCluster()
     cluster = started.cluster
     const { ledger } = started
@@ -85,15 +86,27 @@ describe('a forward that the transport fails to deliver to its primary', () => {
     }))
     const removedIds = Array.from({ length: BATCH }, (_, i) => `seeded-${BATCH + i}`)
 
-    const held = cluster.transport(ROUTER).holdWhen(ofType('replication.forward_batch', primary))
+    const routerTransport = cluster.transport(ROUTER)
+    const toPrimary = (target: string, message: { type: string }) =>
+      target === primary && message.type.startsWith('replication.forward')
+    const held = routerTransport.holdWhen(toPrimary)
     const inserted = router.insertBatch(INDEX, fresh)
     const updated = router.updateBatch(INDEX, updates)
     const removed = router.removeBatch(INDEX, removedIds)
-    await waitUntil('all three batches to wait on their way to the primary', () => held.count() === 3)
+    const updatedOne = router.update(INDEX, 'seeded-15', entry('single update', 300))
+    const removedOne = router.remove(INDEX, 'seeded-16')
+    await waitUntil('all five writes to wait on their way to the primary', () => held.count() === 5)
     await cluster.stop(primary)
     held.release()
 
+    await updatedOne
+    await removedOne
+    ledger.set('seeded-15', entry('single update', 300))
+    ledger.delete('seeded-16')
     const results = { inserted: await inserted, updated: await updated, removed: await removed }
+    const failures = routerTransport.failuresOf(toPrimary)
+    expect(failures.length).toBeGreaterThanOrEqual(5)
+    expect(new Set(failures)).toEqual(new Set(['TRANSPORT_CONNECT_FAILED']))
     expect(results.inserted.failed).toEqual([])
     expect(results.updated.failed).toEqual([])
     expect(results.removed.failed).toEqual([])
@@ -135,11 +148,7 @@ describe('a forward that the transport fails to deliver to its primary', () => {
     await expectEveryCopyHolds(cluster, ledger)
   }, 90_000)
 
-  it.each([
-    'insert',
-    'update',
-    'remove',
-  ] as const)('acknowledges each %s once when the reply is lost after the primary applied it', async action => {
+  it('acknowledges each insert once when the reply is lost after the primary applied it', async () => {
     const started = await startCluster()
     cluster = started.cluster
     const { ledger } = started
@@ -149,29 +158,90 @@ describe('a forward that the transport fails to deliver to its primary', () => {
     transport.loseReplyWhen(onceFor(ofType('replication.forward_batch', primary)))
     transport.loseReplyWhen(onceFor(ofType('replication.forward', primary)))
 
-    if (action === 'insert') {
-      const batch = Array.from({ length: BATCH }, (_, i) => ({ id: `fresh-${i}`, ...entry(`f${i}`, 100 + i) }))
-      const result = await router.insertBatch(INDEX, batch)
-      expect(result.failed).toEqual([])
-      expect(await router.insert(INDEX, entry('single', 7), 'fresh-single')).toBe('fresh-single')
-      for (const { id, ...fields } of batch) ledger.set(id, fields)
-      ledger.set('fresh-single', entry('single', 7))
-    } else if (action === 'update') {
-      const updates = Array.from({ length: BATCH }, (_, i) => ({
-        docId: `seeded-${i}`,
-        document: entry(`u${i}`, 200 + i),
-      }))
-      expect((await router.updateBatch(INDEX, updates)).failed).toEqual([])
-      await router.update(INDEX, 'seeded-10', entry('single update', 9))
+    const batch = Array.from({ length: BATCH }, (_, i) => ({ id: `fresh-${i}`, ...entry(`f${i}`, 100 + i) }))
+    const result = await router.insertBatch(INDEX, batch)
+    expect(result.failed).toEqual([])
+    expect(await router.insert(INDEX, entry('single', 7), 'fresh-single')).toBe('fresh-single')
+    for (const { id, ...fields } of batch) ledger.set(id, fields)
+    ledger.set('fresh-single', entry('single', 7))
+
+    await expectEveryCopyHolds(cluster, ledger)
+  }, 90_000)
+
+  it.each([
+    'update',
+    'remove',
+  ] as const)('answers each %s whose reply is lost after the primary applied it with an unknown outcome, never a second apply', async action => {
+    const started = await startCluster()
+    cluster = started.cluster
+    const { ledger } = started
+    const router = cluster.node(ROUTER)
+    const primary = started.settled.primary ?? ''
+    const transport = cluster.transport(ROUTER)
+    transport.loseReplyWhen(onceFor(ofType('replication.forward_batch', primary)))
+    transport.loseReplyWhen(onceFor(ofType('replication.forward', primary)))
+    const batchIds = Array.from({ length: BATCH }, (_, i) => `seeded-${i}`)
+
+    let result: Awaited<ReturnType<typeof router.removeBatch>>
+    let single: Promise<unknown>
+    if (action === 'update') {
+      const updates = batchIds.map((docId, i) => ({ docId, document: entry(`u${i}`, 200 + i) }))
+      result = await router.updateBatch(INDEX, updates)
+      single = router.update(INDEX, 'seeded-10', entry('single update', 9))
       for (const { docId, document } of updates) ledger.set(docId, document)
       ledger.set('seeded-10', entry('single update', 9))
     } else {
-      const removedIds = Array.from({ length: BATCH }, (_, i) => `seeded-${i}`)
-      expect((await router.removeBatch(INDEX, removedIds)).failed).toEqual([])
-      await router.remove(INDEX, 'seeded-10')
-      for (const docId of [...removedIds, 'seeded-10']) ledger.delete(docId)
+      result = await router.removeBatch(INDEX, batchIds)
+      single = router.remove(INDEX, 'seeded-10')
+      for (const docId of [...batchIds, 'seeded-10']) ledger.delete(docId)
     }
 
+    expect(result.succeeded).toEqual([])
+    expect(result.failed.map(failure => [failure.docId, failure.error.code, failure.error.details.reason])).toEqual(
+      batchIds.map(docId => [docId, 'REPLICATION_OUTCOME_UNKNOWN', 'forward_interrupted']),
+    )
+    await expect(single).rejects.toMatchObject({
+      code: 'REPLICATION_OUTCOME_UNKNOWN',
+      details: { reason: 'forward_interrupted' },
+    })
     await expectEveryCopyHolds(cluster, ledger)
+  }, 90_000)
+
+  it('answers an update whose reply was lost, and whose primary restarts unready, with its outcome and never a refusal', async () => {
+    const started = await startCluster()
+    cluster = started.cluster
+    const running = cluster
+    const { ledger } = started
+    const router = running.node(ROUTER)
+    const primary = started.settled.primary ?? ''
+    const transport = running.transport(ROUTER)
+    const toPrimary = ofType('replication.forward', primary)
+    transport.loseReplyWhen(onceFor(toPrimary))
+    let forwards = 0
+    const resend = transport.holdWhen((target, message) => {
+      if (!toPrimary(target, message)) return false
+      forwards += 1
+      return forwards > 1
+    })
+
+    let answered = false
+    const update = outcomeOf(router.update(INDEX, 'seeded-0', entry('lost reply', 300))).finally(() => {
+      answered = true
+    })
+    await waitUntil('the router to answer or to send the update again', () => answered || resend.count() > 0)
+    if (!answered) {
+      running.coordinator.refuseRegistrationOf(primary)
+      await running.stop(primary)
+      await expect(running.start(primary, { durable: false })).rejects.toThrow()
+      resend.release()
+    }
+
+    const outcome = await update
+    expect(outcome.state === 'acknowledged' ? outcome.state : outcome.code).toMatch(
+      /^(acknowledged|REPLICATION_OUTCOME_UNKNOWN)$/,
+    )
+    ledger.set('seeded-0', entry('lost reply', 300))
+    await expectEveryCopyHolds(running, ledger)
+    await running.transport(primary).shutdown()
   }, 90_000)
 })

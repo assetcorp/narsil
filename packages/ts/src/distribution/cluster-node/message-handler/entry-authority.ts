@@ -4,9 +4,11 @@ import type { ReplicationLog, ReplicationLogEntry } from '../../replication/type
 import { termRefusingSender } from '../led-term'
 import type { DataNodeHandlerDeps } from './types'
 
+export type EntryScope = Pick<ReplicationLogEntry, 'indexName' | 'partitionId' | 'primaryTerm'>
+
 function entryRefusal(
   table: AllocationTable | null,
-  entry: ReplicationLogEntry,
+  entry: EntryScope,
   sourceNodeId: string,
   localNodeId: string,
   log: ReplicationLog,
@@ -66,7 +68,7 @@ function entryRefusal(
 }
 
 export async function resolveValidatedAssignment(
-  entry: ReplicationLogEntry,
+  entry: EntryScope,
   sourceNodeId: string,
   deps: DataNodeHandlerDeps,
 ): Promise<PartitionAssignment> {

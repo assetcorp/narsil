@@ -1,5 +1,6 @@
 import { encode } from '@msgpack/msgpack'
 import { NarsilError } from '../../errors'
+import type { AbandonedWrite } from '../transport/types'
 
 export function transportableDetails(error: unknown): Record<string, unknown> | undefined {
   if (!(error instanceof NarsilError)) {
@@ -17,22 +18,30 @@ export function encodeErrorReply(
   code: string,
   message: string,
   details: Record<string, unknown> | undefined,
+  abandonedWrite?: AbandonedWrite,
 ): Uint8Array {
+  const reply =
+    abandonedWrite === undefined ? { error: true, code, message } : { error: true, code, message, abandonedWrite }
   if (details !== undefined) {
     try {
-      return encode({ error: true, code, message, details })
+      return encode({ ...reply, details })
     } catch {
-      return encode({ error: true, code, message })
+      return encode(reply)
     }
   }
-  return encode({ error: true, code, message })
+  return encode(reply)
 }
 
-export function encodeErrorReplyFrom(error: unknown, fallbackCode: string): Uint8Array {
+export function encodeErrorReplyFrom(
+  error: unknown,
+  fallbackCode: string,
+  abandonedWrite?: AbandonedWrite,
+): Uint8Array {
   return encodeErrorReply(
     error instanceof NarsilError ? error.code : fallbackCode,
     error instanceof Error ? error.message : String(error),
     error instanceof NarsilError ? error.details : undefined,
+    abandonedWrite,
   )
 }
 

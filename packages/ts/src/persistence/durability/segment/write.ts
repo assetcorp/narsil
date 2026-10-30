@@ -45,6 +45,7 @@ export interface CheckpointSegmentsInput {
   prior: PriorCheckpoint | null
   wholePartitions?: readonly PartitionContents[]
   capturedPartitions?: readonly CapturedWholePartition[]
+  keepsWriteRecords?: boolean
 }
 
 export interface CheckpointSegmentsWritten {
@@ -134,6 +135,7 @@ async function writeWholePartition(
     textAnalysis: context.textAnalysis,
     selections: whole.selections,
     tombstones: [],
+    ...(whole.writeRecords === undefined ? {} : { writeRecords: whole.writeRecords }),
   })
   return { partitionId, nextSegmentId: written.nextSegmentId, segments: written.segments }
 }
@@ -150,6 +152,7 @@ async function writeLoggedChanges(
     language: getLanguage(context.config.language ?? 'english'),
     vectorFieldPaths: context.vectorFieldPaths,
     entries,
+    keepsWriteRecords: context.input.keepsWriteRecords === true,
   })
   let segments = priorPartition ? [...priorPartition.segments] : []
   let nextSegmentId = priorPartition?.nextSegmentId ?? 0
@@ -164,6 +167,7 @@ async function writeLoggedChanges(
       textAnalysis: context.textAnalysis,
       selections: built.selections,
       tombstones: built.tombstones,
+      ...(built.writeRecords === undefined ? {} : { writeRecords: built.writeRecords }),
     })
     segments.push(...written.segments)
     nextSegmentId = written.nextSegmentId

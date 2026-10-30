@@ -12,6 +12,7 @@ export interface CheckpointWorkerRequest {
   compactionThreshold: number
   prior: PriorCheckpoint | null
   capturedPartitions?: CapturedWholePartition[]
+  keepsWriteRecords?: boolean
 }
 
 export interface CheckpointWorkerSuccess {
@@ -54,6 +55,7 @@ async function handleRequest(raw: unknown): Promise<CheckpointWorkerSuccess> {
     request.compactionThreshold,
     request.prior ?? null,
     request.capturedPartitions,
+    request.keepsWriteRecords === true,
   )
   return { type: 'success', segments }
 }

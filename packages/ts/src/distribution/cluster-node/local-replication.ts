@@ -6,6 +6,7 @@ import { applyDeleteEntry, applyIndexEntry } from '../replication/replica'
 import type { ReplicationConfig, ReplicationLog, ReplicationLogEntry } from '../replication/types'
 import type { ClusterLocalEngine } from './local-engine'
 import { seedReplicationLog } from './replication-logs'
+import type { ClusterWriteRecords } from './write-records/keeper'
 
 interface ReopenReplicationInput {
   indexName: string
@@ -57,9 +58,14 @@ export interface AppliedReplicationEntries {
  *
  * @param core - The local engine services.
  * @param entry - The replicated write to apply.
+ * @param writeRecords - The cluster's per-document write records, updated with the write.
  */
-export async function applyLocalReplicationEntry(core: EngineCore, entry: ReplicationLogEntry): Promise<void> {
-  const { applied, error } = await applyLocalReplicationEntries(core, [entry])
+export async function applyLocalReplicationEntry(
+  core: EngineCore,
+  entry: ReplicationLogEntry,
+  writeRecords: ClusterWriteRecords,
+): Promise<void> {
+  const { applied, error } = await applyLocalReplicationEntries(core, [entry], writeRecords)
   if (applied === 0) throw error
 }
 
@@ -69,11 +75,13 @@ export async function applyLocalReplicationEntry(core: EngineCore, entry: Replic
  *
  * @param core - The local engine services.
  * @param entries - Replicated writes for one index, in log order.
+ * @param writeRecords - The cluster's per-document write records, updated with each write as it applies.
  * @returns How many leading writes are applied and durable, and the error that stopped the run, if any.
  */
 export async function applyLocalReplicationEntries(
   core: EngineCore,
   entries: readonly ReplicationLogEntry[],
+  writeRecords: ClusterWriteRecords,
 ): Promise<AppliedReplicationEntries> {
   const first = entries[0]
   if (first === undefined) return { applied: 0, error: null }
@@ -95,6 +103,7 @@ export async function applyLocalReplicationEntries(
           removedSpellings[position] = manager.removedSpellingsOf(entry.documentId)
           applyDeleteEntry(entry, manager, vecIndexes, removedSpellings[position])
         }
+        writeRecords.applied(entry)
       } catch (err) {
         stopped = err
         throw err

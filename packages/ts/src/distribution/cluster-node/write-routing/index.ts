@@ -20,6 +20,7 @@ import { indexSettingsOf, withPartitionCount } from '../../cluster/index-setting
 import { deleteSynonymSet, type SynonymSetRef, storeSynonymSet } from '../../cluster/synonym-set'
 import { MAX_PARTITION_COUNT, MAX_REPLICATION_FACTOR } from '../../constants'
 import type { AllocationConstraints, ClusterCoordinator } from '../../coordinator/types'
+import type { WriteCondition } from '../../transport/types'
 import { waitForServingAllocation } from '../allocation-wait'
 import { DEFAULT_CREATE_INDEX_WAIT_MS } from '../constants'
 import { localIndexIsGone } from '../local-index-gone'
@@ -29,7 +30,8 @@ import type { CreateIndexOptions } from '../types'
 import { DEFAULT_PARTITION_COUNT, DEFAULT_REPLICATION_FACTOR } from '../types'
 import { resolvePrimaryAssignment } from './assignment'
 import { forwardInsertToRemote, forwardRemoveToRemote, forwardUpdateToRemote } from './forwarding'
-import { retryOnPrimaryChange, settleAbsentRemovals, settleEqualInserts, settleNothing } from './primary-change'
+import { writeLocalOnly } from './numbered-write'
+import { retryOnPrimaryChange, settleEqualInserts, settleNothing } from './primary-change'
 import { applyPrimaryInsert, applyPrimaryRemove, applyPrimaryUpdate } from './primary-writes'
 import type { WriteRoutingDeps } from './types'
 
@@ -275,7 +277,7 @@ async function insertOnce(
   const resolution = await resolvePrimaryAssignment(indexName, resolvedDocId, deps, false)
 
   if (resolution === null) {
-    return deps.engine.insert(indexName, document, resolvedDocId, options)
+    return writeLocalOnly(deps, indexName, () => deps.engine.insert(indexName, document, resolvedDocId, options))
   }
 
   requireWritableIndex(resolution.table, deps.memoryView)
@@ -300,25 +302,30 @@ export function routeRemove(indexName: string, docId: string, deps: WriteRouting
     deps,
     indexName,
     docId,
-    () => removeOnce(indexName, docId, deps),
-    settleAbsentRemovals,
+    condition => removeOnce(indexName, docId, deps, condition),
+    settleNothing,
     () => undefined,
   )
 }
 
-async function removeOnce(indexName: string, docId: string, deps: WriteRoutingDeps): Promise<void> {
+async function removeOnce(
+  indexName: string,
+  docId: string,
+  deps: WriteRoutingDeps,
+  condition: WriteCondition | undefined,
+): Promise<void> {
   const resolution = await resolvePrimaryAssignment(indexName, docId, deps, false)
 
   if (resolution === null) {
-    return deps.engine.remove(indexName, docId)
+    return writeLocalOnly(deps, indexName, () => deps.engine.remove(indexName, docId))
   }
 
   const primaryNodeId = resolution.assignment.primary
   if (primaryNodeId === deps.nodeId) {
-    return applyPrimaryRemove(indexName, docId, resolution.partitionId, resolution.assignment, deps)
+    return applyPrimaryRemove(indexName, docId, resolution.partitionId, resolution.assignment, deps, condition)
   }
 
-  return forwardRemoveToRemote(indexName, docId, primaryNodeId, deps, resolution.table.indexUuid)
+  return forwardRemoveToRemote(indexName, docId, primaryNodeId, deps, resolution.table.indexUuid, condition)
 }
 
 export function routeUpdate(
@@ -336,7 +343,7 @@ export function routeUpdate(
         deps,
         indexName,
         docId,
-        () => routeAdmittedUpdate(indexName, docId, document, deps),
+        condition => routeAdmittedUpdate(indexName, docId, document, deps, condition),
         settleNothing,
         () => undefined,
       ),
@@ -348,18 +355,27 @@ async function routeAdmittedUpdate(
   docId: string,
   document: AnyDocument,
   deps: WriteRoutingDeps,
+  condition: WriteCondition | undefined,
 ): Promise<void> {
   const resolution = await resolvePrimaryAssignment(indexName, docId, deps, false)
 
   if (resolution === null) {
-    return deps.engine.update(indexName, docId, document)
+    return writeLocalOnly(deps, indexName, () => deps.engine.update(indexName, docId, document))
   }
 
   requireWritableIndex(resolution.table, deps.memoryView)
   const primaryNodeId = resolution.assignment.primary
   if (primaryNodeId === deps.nodeId) {
-    return applyPrimaryUpdate(indexName, docId, document, resolution.partitionId, resolution.assignment, deps)
+    return applyPrimaryUpdate(
+      indexName,
+      docId,
+      document,
+      resolution.partitionId,
+      resolution.assignment,
+      deps,
+      condition,
+    )
   }
 
-  return forwardUpdateToRemote(indexName, document, docId, primaryNodeId, deps, resolution.table.indexUuid)
+  return forwardUpdateToRemote(indexName, document, docId, primaryNodeId, deps, resolution.table.indexUuid, condition)
 }

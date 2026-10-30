@@ -81,7 +81,7 @@ describe('InMemoryTransport', () => {
       expect(response.requestId).toBe('req-correlation-test')
     })
 
-    it('throws TRANSPORT_PEER_UNAVAILABLE for unregistered target', async () => {
+    it('throws TRANSPORT_CONNECT_FAILED for unregistered target', async () => {
       const request = makeMessage()
 
       await expect(transportA.send('node-unknown', request)).rejects.toThrow(TransportError)
@@ -90,7 +90,7 @@ describe('InMemoryTransport', () => {
       } catch (error) {
         expect(error).toBeInstanceOf(TransportError)
         const transportErr = error as TransportError
-        expect(transportErr.code).toBe(TransportErrorCodes.PEER_UNAVAILABLE)
+        expect(transportErr.code).toBe(TransportErrorCodes.CONNECT_FAILED)
         expect(transportErr.details.target).toBe('node-unknown')
       }
     })
@@ -121,7 +121,7 @@ describe('InMemoryTransport', () => {
       expect(response.payload).toEqual(payload)
     })
 
-    it('throws TRANSPORT_PEER_UNAVAILABLE when sending from a shut-down transport', async () => {
+    it('throws TRANSPORT_CONNECT_FAILED when sending from a shut-down transport', async () => {
       await transportA.shutdown()
 
       await expect(transportA.send('node-b', makeMessage())).rejects.toThrow(TransportError)
@@ -129,7 +129,7 @@ describe('InMemoryTransport', () => {
         await transportA.send('node-b', makeMessage())
       } catch (error) {
         const transportErr = error as TransportError
-        expect(transportErr.code).toBe(TransportErrorCodes.PEER_UNAVAILABLE)
+        expect(transportErr.code).toBe(TransportErrorCodes.CONNECT_FAILED)
       }
     })
   })
@@ -204,18 +204,18 @@ describe('InMemoryTransport', () => {
       expect(received[2]).toEqual(chunk3)
     })
 
-    it('throws TRANSPORT_PEER_UNAVAILABLE for unregistered target', async () => {
+    it('throws TRANSPORT_CONNECT_FAILED for unregistered target', async () => {
       await expect(transportA.stream('node-unknown', makeMessage(), () => {})).rejects.toThrow(TransportError)
 
       try {
         await transportA.stream('node-unknown', makeMessage(), () => {})
       } catch (error) {
         const transportErr = error as TransportError
-        expect(transportErr.code).toBe(TransportErrorCodes.PEER_UNAVAILABLE)
+        expect(transportErr.code).toBe(TransportErrorCodes.CONNECT_FAILED)
       }
     })
 
-    it('throws TRANSPORT_PEER_UNAVAILABLE when streaming from a shut-down transport', async () => {
+    it('throws TRANSPORT_CONNECT_FAILED when streaming from a shut-down transport', async () => {
       await transportA.shutdown()
 
       await expect(transportA.stream('node-b', makeMessage(), () => {})).rejects.toThrow(TransportError)
@@ -332,7 +332,7 @@ describe('InMemoryTransport', () => {
         await transportA.send('node-b', makeMessage())
       } catch (error) {
         const transportErr = error as TransportError
-        expect(transportErr.code).toBe(TransportErrorCodes.PEER_UNAVAILABLE)
+        expect(transportErr.code).toBe(TransportErrorCodes.CONNECT_FAILED)
       }
     })
 

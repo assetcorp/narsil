@@ -145,6 +145,8 @@ export const ReplicationMessageTypes = {
   FORWARD_BATCH: 'replication.forward_batch',
   ENTRY: 'replication.entry',
   ENTRY_BATCH: 'replication.entry_batch',
+  TERM_START: 'replication.term_start',
+  TERM_START_ACK: 'replication.term_start_ack',
   ACK: 'replication.ack',
   SYNC_REQUEST: 'replication.sync_request',
   SYNC_ENTRIES: 'replication.sync_entries',
@@ -189,7 +191,23 @@ export const ClusterMessageTypes = {
   INDEX_SETTINGS: 'cluster.index_settings',
 } as const
 
-export interface ForwardPayload {
+export interface WriteCondition {
+  ifSeqNo: number
+  ifPrimaryTerm: number
+  abandonedSeqNo: number
+  abandonedPrimaryTerm: number
+  compensationSeqNo: number
+}
+
+export interface AbandonedWrite {
+  seqNo: number
+  primaryTerm: number
+  compensationSeqNo: number
+  previousSeqNo: number
+  previousPrimaryTerm: number
+}
+
+export interface ForwardPayload extends Partial<WriteCondition> {
   indexName: string
   documentId: string
   operation: 'insert' | 'remove' | 'update'
@@ -198,7 +216,7 @@ export interface ForwardPayload {
   indexUuid?: string
 }
 
-export interface ForwardBatchOperation {
+export interface ForwardBatchOperation extends Partial<WriteCondition> {
   documentId: string
   operation: 'insert' | 'remove' | 'update'
   document: Uint8Array | null
@@ -217,6 +235,7 @@ export interface ForwardBatchOperationResult {
   errorCode: string | null
   errorMessage: string | null
   errorDetails?: Record<string, unknown> | null
+  abandonedWrite?: AbandonedWrite
 }
 
 export interface ForwardBatchResultPayload {
@@ -226,11 +245,13 @@ export interface ForwardBatchResultPayload {
 export interface EntryPayload {
   entry: ReplicationLogEntry
   indexUuid?: string
+  previousPrimaryTerm?: number
 }
 
 export interface EntryBatchPayload {
   entries: ReplicationLogEntry[]
   indexUuid?: string
+  previousPrimaryTerm?: number
 }
 
 export interface AckPayload {
