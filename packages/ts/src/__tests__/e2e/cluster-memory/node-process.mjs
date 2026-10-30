@@ -1,4 +1,5 @@
-import { getHeapSpaceStatistics } from 'node:v8'
+import { getHeapSpaceStatistics, setFlagsFromString } from 'node:v8'
+import { runInNewContext } from 'node:vm'
 import { createEtcdCoordinator } from '../../../../dist/distribution/coordinator/etcd.mjs'
 import { createTcpTransport } from '../../../../dist/distribution/transport/tcp.mjs'
 import { clusterNodeEngine, createClusterNode } from '../../../../dist/distribution.mjs'
@@ -7,6 +8,7 @@ import { chinese } from '../../../../dist/languages/chinese.mjs'
 import { createServer } from '../../../../dist/server.mjs'
 
 const SHINGLE_LENGTH = 3
+const BALLAST_HEADER = 'x-narsil-test-ballast'
 const OLD_GENERATION_SAMPLE_INTERVAL_MS = 20
 const YOUNG_GENERATION_SPACES = new Set(['new_space', 'new_large_object_space'])
 
@@ -34,6 +36,25 @@ registerTokenizer('three-character-shingles', {
     return tokens
   },
 })
+
+setFlagsFromString('--expose-gc')
+const collectGarbage = runInNewContext('gc')
+setFlagsFromString('--no-expose-gc')
+
+const ballast = []
+function holdBallast(ctx) {
+  const action = ctx.headers[BALLAST_HEADER]
+  if (action === undefined) return undefined
+  if (action === 'release') {
+    ballast.length = 0
+    collectGarbage()
+  } else {
+    collectGarbage()
+    const missingBytes = Math.floor(Number(action) * process.constrainedMemory() - process.memoryUsage.rss())
+    if (missingBytes > 0) ballast.push(Buffer.alloc(missingBytes, 1))
+  }
+  return { status: 409, code: 'BALLAST', message: String(process.memoryUsage.rss()) }
+}
 
 function requireEnv(name) {
   const value = process.env[name]
@@ -77,6 +98,7 @@ const server = createServer(
     port: httpPort,
     allowInsecure: httpHost !== '127.0.0.1',
     cluster: node.cluster,
+    onRequest: holdBallast,
     limits: serverLimits === undefined ? undefined : JSON.parse(serverLimits),
   },
 )
