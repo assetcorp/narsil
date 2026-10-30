@@ -68,8 +68,8 @@ jobs:
       - name: Test (certutil)
         run: pnpm nx run narsil-certutil:test
 
-  pull-request-tests:
-    name: Pull request tests
+  presubmit-tests:
+    name: Presubmit tests
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -107,8 +107,8 @@ jobs:
       - name: Build the code that worker tests load
         run: pnpm nx run narsil-ts:build:code
 
-      - name: Test the files outside the after-merge list
-        run: pnpm nx run narsil-ts:test:pull-request
+      - name: Test the files outside the postsubmit list
+        run: pnpm nx run narsil-ts:test:presubmit
 
       - name: Test (etcd integration)
         env:
@@ -155,7 +155,7 @@ jobs:
         run: pnpm nx run narsil-ts:build:code
 
       - name: Test
-        run: pnpm nx run narsil-ts:test
+        run: pnpm nx run narsil-ts:test:postsubmit
 
       - name: Test (etcd integration)
         env:
@@ -169,6 +169,9 @@ jobs:
         env:
           NARSIL_ETCD_ENDPOINT: http://127.0.0.1:2379
         run: pnpm nx run narsil-ts:test:cluster
+
+      - name: Check that every postsubmit file needs its place on the list
+        run: pnpm nx run narsil-ts:test:postsubmit-times
 
   benchmarks-harness-tests:
     name: Benchmark harness tests

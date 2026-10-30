@@ -28,10 +28,24 @@
         "cwd": "packages/ts"
       }
     },
-    "test:pull-request": {
+    "test:presubmit": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "pnpm run test:pull-request",
+        "command": "pnpm run test:presubmit",
+        "cwd": "packages/ts"
+      }
+    },
+    "test:postsubmit": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "pnpm run test:postsubmit",
+        "cwd": "packages/ts"
+      }
+    },
+    "test:postsubmit-times": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "pnpm run test:postsubmit-times",
         "cwd": "packages/ts"
       }
     },
