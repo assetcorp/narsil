@@ -33,6 +33,10 @@ export function noteAcceptedPrimaryTerm(log: ReplicationLog, primaryTerm: number
   if (primaryTerm > terms.accepted) terms.accepted = primaryTerm
 }
 
+export function acceptedTermOf(log: ReplicationLog): number {
+  return knownTerms.get(log)?.accepted ?? 0
+}
+
 export function carryKnownTerms(from: ReplicationLog | undefined, to: ReplicationLog): void {
   const terms = from === undefined ? undefined : knownTerms.get(from)
   if (terms !== undefined) knownTerms.set(to, { ...terms })

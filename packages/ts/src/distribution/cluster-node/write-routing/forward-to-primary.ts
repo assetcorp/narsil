@@ -6,7 +6,7 @@ import { chunkByBudget } from '../../chunking'
 import { WIRE_BATCH_BUDGET } from '../../constants'
 import { createForwardBatchMessage, validateForwardBatchResultPayload } from '../../replication/codec'
 import type { ForwardBatchOperation, ForwardBatchPayload, WriteCondition } from '../../transport/types'
-import { forwardUndelivered } from '../transport-failure'
+import { forwardInterrupted, forwardUnsent, unsentAfter } from '../transport-failure'
 import { abandonedWriteFrom, conditionFields, withAbandonedWrite } from './abandoned-write'
 import {
   assertForwardResponse,
@@ -152,7 +152,7 @@ export async function forwardBatchToRemote(
         })
       }
     } catch (err) {
-      if (forwardUndelivered(err)) undelivered = err
+      if (err instanceof NarsilError && (forwardUnsent(err) || forwardInterrupted(err))) undelivered = unsentAfter(err)
       for (const operation of chunk) {
         failed.push({ docId: operation.documentId, error: toForwardError(err, operation.documentId) })
       }

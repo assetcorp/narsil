@@ -160,7 +160,7 @@ export function createInMemoryTransport(
   function assertNotShutdown(): void {
     if (isShutdown) {
       throw new TransportError(
-        TransportErrorCodes.PEER_UNAVAILABLE,
+        TransportErrorCodes.CONNECT_FAILED,
         `Transport for node '${nodeId}' has been shut down`,
         { nodeId },
       )
@@ -170,7 +170,7 @@ export function createInMemoryTransport(
   function lookupPeer(target: string): InMemoryTransportInternal {
     const peer = network.getTransport(target)
     if (peer === undefined) {
-      throw new TransportError(TransportErrorCodes.PEER_UNAVAILABLE, `Node '${target}' is not reachable`, { target })
+      throw new TransportError(TransportErrorCodes.CONNECT_FAILED, `Node '${target}' is not reachable`, { target })
     }
     return peer
   }

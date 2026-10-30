@@ -31,7 +31,7 @@ import { DEFAULT_PARTITION_COUNT, DEFAULT_REPLICATION_FACTOR } from '../types'
 import { resolvePrimaryAssignment } from './assignment'
 import { forwardInsertToRemote, forwardRemoveToRemote, forwardUpdateToRemote } from './forwarding'
 import { writeLocalOnly } from './numbered-write'
-import { retryOnPrimaryChange, settleAbsentRemovals, settleEqualInserts, settleNothing } from './primary-change'
+import { retryOnPrimaryChange, settleEqualInserts, settleNothing } from './primary-change'
 import { applyPrimaryInsert, applyPrimaryRemove, applyPrimaryUpdate } from './primary-writes'
 import type { WriteRoutingDeps } from './types'
 
@@ -303,7 +303,7 @@ export function routeRemove(indexName: string, docId: string, deps: WriteRouting
     indexName,
     docId,
     condition => removeOnce(indexName, docId, deps, condition),
-    settleAbsentRemovals,
+    settleNothing,
     () => undefined,
   )
 }

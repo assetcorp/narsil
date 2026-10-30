@@ -218,7 +218,7 @@ describe('GrpcTransport', () => {
       await transportA.shutdown()
 
       await expect(transportA.send(target, makeMessage())).rejects.toMatchObject({
-        code: TransportErrorCodes.PEER_UNAVAILABLE,
+        code: TransportErrorCodes.CONNECT_FAILED,
       })
     })
   })
