@@ -9,33 +9,18 @@ on:
 permissions:
   contents: read
 
+env:
+  SEGMENT_DOWNLOAD_TIMEOUT_MINS: 2
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   check:
-    name: Check (Node ${{ matrix.node-version }})
+    name: Check
     runs-on: ubuntu-latest
-    timeout-minutes: 45
-    services:
-      etcd:
-        image: gcr.io/etcd-development/etcd:v3.6.0
-        entrypoint: /usr/local/bin/etcd
-        command: >-
-          --name node1
-          --data-dir /etcd-data
-          --listen-client-urls http://0.0.0.0:2379
-          --advertise-client-urls http://127.0.0.1:2379
-          --listen-peer-urls http://0.0.0.0:2380
-          --initial-advertise-peer-urls http://127.0.0.1:2380
-          --initial-cluster node1=http://127.0.0.1:2380
-        ports:
-          - 2379:2379
-    strategy:
-      fail-fast: false
-      matrix:
-        node-version: [22, 24]
+    timeout-minutes: 10
 
     steps:
       - name: Checkout
@@ -44,10 +29,10 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
 
-      - name: Setup Node.js ${{ matrix.node-version }}
+      - name: Setup Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: ${{ matrix.node-version }}
+          node-version: 22
           cache: pnpm
 
       - name: Install dependencies
@@ -80,11 +65,97 @@ jobs:
       - name: Build (certutil)
         run: pnpm nx run narsil-certutil:build
 
-      - name: Test
-        run: pnpm nx run narsil-ts:test
-
       - name: Test (certutil)
         run: pnpm nx run narsil-certutil:test
+
+  presubmit-tests:
+    name: Presubmit tests
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      etcd:
+        image: gcr.io/etcd-development/etcd:v3.6.0
+        entrypoint: /usr/local/bin/etcd
+        command: >-
+          --name node1
+          --data-dir /etcd-data
+          --listen-client-urls http://0.0.0.0:2379
+          --advertise-client-urls http://127.0.0.1:2379
+          --listen-peer-urls http://0.0.0.0:2380
+          --initial-advertise-peer-urls http://127.0.0.1:2380
+          --initial-cluster node1=http://127.0.0.1:2380
+        ports:
+          - 2379:2379
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build the code that worker tests load
+        run: pnpm nx run narsil-ts:build:code
+
+      - name: Test the files outside the postsubmit list
+        run: pnpm nx run narsil-ts:test:presubmit
+
+      - name: Test (etcd integration)
+        env:
+          NARSIL_ETCD_ENDPOINT: http://127.0.0.1:2379
+        run: pnpm nx run narsil-ts:test:etcd
+
+  full-suite:
+    name: Full suite
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    services:
+      etcd:
+        image: gcr.io/etcd-development/etcd:v3.6.0
+        entrypoint: /usr/local/bin/etcd
+        command: >-
+          --name node1
+          --data-dir /etcd-data
+          --listen-client-urls http://0.0.0.0:2379
+          --advertise-client-urls http://127.0.0.1:2379
+          --listen-peer-urls http://0.0.0.0:2380
+          --initial-advertise-peer-urls http://127.0.0.1:2380
+          --initial-cluster node1=http://127.0.0.1:2380
+        ports:
+          - 2379:2379
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build the code that worker tests load
+        run: pnpm nx run narsil-ts:build:code
+
+      - name: Test
+        run: pnpm nx run narsil-ts:test:postsubmit
 
       - name: Test (etcd integration)
         env:
@@ -95,10 +166,12 @@ jobs:
         run: pnpm nx run narsil-ts:test:container-memory
 
       - name: Test (cluster node processes on etcd)
-        if: matrix.node-version == 22
         env:
           NARSIL_ETCD_ENDPOINT: http://127.0.0.1:2379
         run: pnpm nx run narsil-ts:test:cluster
+
+      - name: Check that every postsubmit file needs its place on the list
+        run: pnpm nx run narsil-ts:test:postsubmit-times
 
   benchmarks-harness-tests:
     name: Benchmark harness tests

@@ -2,12 +2,13 @@ import forge from 'node-forge'
 import type { CertOptions } from '../types'
 import { buildNodeExtensions } from './extensions'
 import { computeFingerprint } from './fingerprint'
-import { generateKeyPair } from './keys'
+import { generateKeyPair, publicKeysMatch } from './keys'
 import { certificateToPem, pemToCertificate, pemToPrivateKey, privateKeyToPem } from './pem'
+import { randomSerialNumber } from './serial'
 
-function randomSerialNumber(): string {
-  const bytes = forge.random.getBytesSync(16)
-  return forge.util.bytesToHex(bytes)
+export function isCertificateAuthority(certificate: forge.pki.Certificate): boolean {
+  const constraints = certificate.getExtension('basicConstraints') as { cA?: boolean } | null
+  return constraints?.cA === true
 }
 
 export function generateNodeCertificate(options: CertOptions): {
@@ -23,6 +24,12 @@ export function generateNodeCertificate(options: CertOptions): {
 
   const caCert = pemToCertificate(caCertPem)
   const caKey = pemToPrivateKey(caKeyPem)
+  if (!isCertificateAuthority(caCert)) {
+    throw new Error('The certificate given as --ca-cert is not a certificate authority.')
+  }
+  if (!publicKeysMatch(caCert, caKey)) {
+    throw new Error('The key given as --ca-key does not belong to the certificate given as --ca-cert.')
+  }
   const keyPair = generateKeyPair(keySize)
 
   const cert = forge.pki.createCertificate()

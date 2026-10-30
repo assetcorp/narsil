@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { ErrorCodes, NarsilError } from '../../errors'
 import { createNarsil, type Narsil } from '../../narsil'
 import type { NarsilPlugin } from '../../types/plugins'
@@ -129,8 +129,6 @@ describe('Narsil lifecycle and plugin hooks', () => {
     })
 
     it('does not abort insert when afterInsert throws', async () => {
-      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-
       const plugin: NarsilPlugin = {
         name: 'failing-after-plugin',
         afterInsert() {
@@ -150,8 +148,6 @@ describe('Narsil lifecycle and plugin hooks', () => {
       expect(docId).toBeTruthy()
       const count = await narsil.countDocuments('products')
       expect(count).toBe(1)
-
-      warnSpy.mockRestore()
     })
   })
 

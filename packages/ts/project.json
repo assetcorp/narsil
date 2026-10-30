@@ -13,10 +13,39 @@
         "cwd": "packages/ts"
       }
     },
+    "build:code": {
+      "executor": "nx:run-commands",
+      "dependsOn": ["^build"],
+      "options": {
+        "command": "pnpm run build:code",
+        "cwd": "packages/ts"
+      }
+    },
     "test": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "pnpm vitest run --exclude='**/vector/recall.test.ts' --exclude='**/e2e/cluster-memory/**' --exclude='**/e2e/cluster-faults/**' --exclude='**/frozen-removal-memory/container-removes.test.ts'",
+        "command": "pnpm run test",
+        "cwd": "packages/ts"
+      }
+    },
+    "test:presubmit": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "pnpm run test:presubmit",
+        "cwd": "packages/ts"
+      }
+    },
+    "test:postsubmit": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "pnpm run test:postsubmit",
+        "cwd": "packages/ts"
+      }
+    },
+    "test:postsubmit-times": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "pnpm run test:postsubmit-times",
         "cwd": "packages/ts"
       }
     },

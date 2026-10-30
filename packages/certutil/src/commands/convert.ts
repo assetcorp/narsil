@@ -1,9 +1,9 @@
-import { readFile, writeFile } from 'node:fs/promises'
+import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Command } from 'commander'
 import { pemToPkcs12, pkcs12ToPem } from '../crypto/pkcs12'
 import { formatError, formatSuccess } from '../output/formatter'
-import { ensureDirectory, fileExists, writeOutputFile } from '../output/writer'
+import { writeOutputFile, writePrivateFile } from '../output/writer'
 import { type ConvertResult, ExitCode } from '../types'
 
 export function registerConvertCommand(program: Command): void {
@@ -76,13 +76,21 @@ export async function runConvertAction(opts: ConvertActionOptions): Promise<void
       return
     }
 
-    let result: ConvertResult
-
-    if (opts.to === 'p12') {
-      result = await convertToPkcs12(opts, startTime, json)
-    } else {
-      result = await convertToPem(opts, startTime, json)
+    const missingInput =
+      opts.to === 'p12'
+        ? opts.cert === undefined || opts.key === undefined
+          ? 'Converting to p12 requires --cert and --key'
+          : null
+        : opts.p12 === undefined
+          ? 'Converting to PEM requires --p12'
+          : null
+    if (missingInput !== null) {
+      process.stderr.write(`${formatError('BAD_ARGUMENTS', missingInput, undefined, startTime, json)}\n`)
+      process.exitCode = ExitCode.BAD_ARGUMENTS
+      return
     }
+
+    const result = opts.to === 'p12' ? await convertToPkcs12(opts) : await convertToPem(opts)
 
     if (json) {
       process.stdout.write(`${formatSuccess(result, startTime, true)}\n`)
@@ -99,47 +107,22 @@ export async function runConvertAction(opts: ConvertActionOptions): Promise<void
   }
 }
 
-async function convertToPkcs12(opts: ConvertActionOptions, startTime: number, json: boolean): Promise<ConvertResult> {
-  if (opts.cert === undefined || opts.key === undefined) {
-    process.stderr.write(
-      `${formatError('BAD_ARGUMENTS', 'Converting to p12 requires --cert and --key', undefined, startTime, json)}\n`,
-    )
-    process.exitCode = ExitCode.BAD_ARGUMENTS
-    throw new Error('Converting to p12 requires --cert and --key')
-  }
-
-  const certPem = await readFile(opts.cert, 'utf-8')
-  const keyPem = await readFile(opts.key, 'utf-8')
+async function convertToPkcs12(opts: ConvertActionOptions): Promise<ConvertResult> {
+  const certPem = await readFile(opts.cert as string, 'utf-8')
+  const keyPem = await readFile(opts.key as string, 'utf-8')
   const caCertPem = opts.caCert !== undefined ? await readFile(opts.caCert, 'utf-8') : undefined
 
   const password = opts.p12Password as string
   const p12Bytes = pemToPkcs12(certPem, keyPem, password, caCertPem)
 
   const outPath = join(opts.outDir, 'certificate.p12')
-  await ensureDirectory(opts.outDir)
-
-  if (!opts.force) {
-    const exists = await fileExists(outPath)
-    if (exists) {
-      throw new Error(`File already exists: ${outPath}. Use --force to overwrite.`)
-    }
-  }
-
-  await writeFile(outPath, p12Bytes)
+  await writePrivateFile(outPath, p12Bytes, opts.force)
 
   return { format: 'p12', files: [outPath] }
 }
 
-async function convertToPem(opts: ConvertActionOptions, startTime: number, json: boolean): Promise<ConvertResult> {
-  if (opts.p12 === undefined) {
-    process.stderr.write(
-      `${formatError('BAD_ARGUMENTS', 'Converting to PEM requires --p12', undefined, startTime, json)}\n`,
-    )
-    process.exitCode = ExitCode.BAD_ARGUMENTS
-    throw new Error('Converting to PEM requires --p12')
-  }
-
-  const p12Bytes = new Uint8Array(await readFile(opts.p12))
+async function convertToPem(opts: ConvertActionOptions): Promise<ConvertResult> {
+  const p12Bytes = new Uint8Array(await readFile(opts.p12 as string))
   const password = opts.p12Password as string
   const result = pkcs12ToPem(p12Bytes, password)
 
@@ -150,7 +133,7 @@ async function convertToPem(opts: ConvertActionOptions, startTime: number, json:
   files.push(certPath)
 
   const keyPath = join(opts.outDir, 'key.pem')
-  await writeOutputFile(keyPath, result.keyPem, opts.force)
+  await writePrivateFile(keyPath, result.keyPem, opts.force)
   files.push(keyPath)
 
   for (let i = 0; i < result.caCertPems.length; i++) {

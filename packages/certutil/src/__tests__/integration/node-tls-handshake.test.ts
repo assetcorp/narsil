@@ -1,230 +1,95 @@
+import { join } from 'node:path'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import {
-  createServer as createTlsServer,
-  type TLSSocket,
-  type Server as TlsServer,
-  connect as tlsConnect,
-} from 'node:tls'
-import { describe, expect, it } from 'vitest'
-import { generateCaCertificate } from '../../crypto/ca'
-import { generateNodeCertificate } from '../../crypto/certificate'
+  type Authority,
+  createAuthority,
+  createWorkspace,
+  issueNodeCertificate,
+  type NodeIdentity,
+  removeWorkspace,
+} from '../support/cli'
+import { performMutualTlsHandshake, type TlsIdentity } from '../support/tls'
 
-interface HandshakeResult {
-  clientAuthorized: boolean
-  clientPeerCn?: string
-  echoedPayload: string
-  serverAuthorized: boolean
-  serverPeerCn?: string
+const UNTRUSTED_PEER_ERROR = /rsa routines|signature|certificate|unknown ca|alert|ECONNRESET|EPIPE|closed before/i
+
+function identityFor(authority: Authority, node: NodeIdentity): TlsIdentity {
+  return { ca: authority.certPem, cert: node.certPem, key: node.keyPem }
 }
 
-async function listen(server: TlsServer): Promise<number> {
-  return await new Promise<number>((resolve, reject) => {
-    function handleError(error: Error): void {
-      server.off('listening', handleListening)
-      reject(error)
-    }
+describe('certificates from the CLI in real Node TLS', () => {
+  let root: string
+  let authority: Authority
+  let server: NodeIdentity
+  let client: NodeIdentity
+  let otherAuthority: Authority
+  let foreignClient: NodeIdentity
 
-    function handleListening(): void {
-      server.off('error', handleError)
-      const address = server.address()
-      if (address === null || typeof address === 'string') {
-        reject(new Error('TLS server did not bind to a TCP port'))
-        return
-      }
-      resolve(address.port)
-    }
-
-    server.once('error', handleError)
-    server.once('listening', handleListening)
-    server.listen(0, '127.0.0.1')
-  })
-}
-
-async function closeServer(server: TlsServer | null): Promise<void> {
-  if (server === null || !server.listening) {
-    return
-  }
-
-  await new Promise<void>(resolve => {
-    server.close(() => resolve())
-  })
-}
-
-async function closeSocket(socket: TLSSocket | null): Promise<void> {
-  if (socket === null || socket.destroyed) {
-    return
-  }
-
-  await new Promise<void>(resolve => {
-    function handleClose(): void {
-      resolve()
-    }
-
-    socket.once('close', handleClose)
-    socket.end()
-  })
-}
-
-async function performMutualTlsHandshake(): Promise<HandshakeResult> {
-  const ca = generateCaCertificate({ name: 'Node TLS E2E CA', days: 3650, keySize: 2048 })
-  const serverIdentity = generateNodeCertificate({
-    caCertPem: ca.certPem,
-    caKeyPem: ca.keyPem,
-    cn: 'node-tls-server',
-    ipSans: ['127.0.0.1'],
-    dnsSans: ['localhost'],
-    days: 365,
-    keySize: 2048,
-  })
-  const clientIdentity = generateNodeCertificate({
-    caCertPem: ca.certPem,
-    caKeyPem: ca.keyPem,
-    cn: 'node-tls-client',
-    ipSans: [],
-    dnsSans: ['node-tls-client.local'],
-    days: 365,
-    keySize: 2048,
+  beforeAll(async () => {
+    root = await createWorkspace()
+    authority = await createAuthority(join(root, 'trusted'), 'Node TLS E2E CA')
+    server = await issueNodeCertificate(authority, join(root, 'trusted'), 'node-tls-server', [
+      '--ip',
+      '127.0.0.1',
+      '--dns',
+      'localhost',
+    ])
+    client = await issueNodeCertificate(authority, join(root, 'trusted'), 'node-tls-client', [
+      '--dns',
+      'node-tls-client.local',
+    ])
+    otherAuthority = await createAuthority(join(root, 'foreign'), 'Node TLS E2E CA')
+    foreignClient = await issueNodeCertificate(otherAuthority, join(root, 'foreign'), 'node-tls-client', [
+      '--dns',
+      'node-tls-client.local',
+    ])
   })
 
-  let clientSocket: TLSSocket | null = null
-  let server: TlsServer | null = null
+  afterAll(async () => {
+    await removeWorkspace(root)
+  })
 
-  try {
-    let clientAuthorized = false
-    let clientPeerCn: string | undefined
-    let failHandshake: ((error: Error) => void) | null = null
-    let serverAuthorized = false
-    let serverPeerCn: string | undefined
-
-    function handleServerData(this: TLSSocket, data: string | Buffer): void {
-      const payload = typeof data === 'string' ? data : data.toString('utf8')
-      if (payload !== 'client-hello') {
-        failHandshake?.(new Error(`Unexpected client payload during TLS smoke test: ${payload}`))
-        return
-      }
-      this.end('server-ack')
-    }
-
-    function handleSecureConnection(socket: TLSSocket): void {
-      socket.setEncoding('utf8')
-      serverAuthorized = socket.authorized
-      const peer = socket.getPeerCertificate()
-      serverPeerCn = typeof peer.subject?.CN === 'string' ? peer.subject.CN : undefined
-
-      if (!socket.authorized) {
-        failHandshake?.(
-          new Error(`Server rejected the certutil-generated client certificate: ${socket.authorizationError}`),
-        )
-        return
-      }
-
-      socket.once('data', handleServerData)
-      socket.once('error', error => failHandshake?.(error))
-    }
-
-    server = createTlsServer(
-      {
-        ca: ca.certPem,
-        cert: serverIdentity.certPem,
-        key: serverIdentity.keyPem,
-        rejectUnauthorized: true,
-        requestCert: true,
-      },
-      handleSecureConnection,
-    )
-
-    const port = await listen(server)
-
-    return await new Promise<HandshakeResult>((resolve, reject) => {
-      let settled = false
-
-      function resolveOnce(result: HandshakeResult): void {
-        if (settled) {
-          return
-        }
-        settled = true
-        clearTimeout(timeout)
-        resolve(result)
-      }
-
-      function rejectOnce(error: Error): void {
-        if (settled) {
-          return
-        }
-        settled = true
-        clearTimeout(timeout)
-        reject(error)
-      }
-
-      function handleTlsClientError(error: Error): void {
-        rejectOnce(error)
-      }
-
-      function handleClientSecureConnect(): void {
-        if (clientSocket === null) {
-          rejectOnce(new Error('Client TLS socket was not created'))
-          return
-        }
-
-        clientAuthorized = clientSocket.authorized
-        const peer = clientSocket.getPeerCertificate()
-        clientPeerCn = typeof peer.subject?.CN === 'string' ? peer.subject.CN : undefined
-
-        if (!clientSocket.authorized) {
-          rejectOnce(
-            new Error(`Client rejected the certutil-generated server certificate: ${clientSocket.authorizationError}`),
-          )
-          return
-        }
-
-        clientSocket.write('client-hello')
-      }
-
-      function handleClientData(data: string | Buffer): void {
-        const payload = typeof data === 'string' ? data : data.toString('utf8')
-        resolveOnce({
-          clientAuthorized,
-          clientPeerCn,
-          echoedPayload: payload,
-          serverAuthorized,
-          serverPeerCn,
-        })
-      }
-
-      const timeout = setTimeout(() => {
-        rejectOnce(new Error('Timed out waiting for a certutil-generated Node TLS handshake'))
-      }, 5_000)
-
-      failHandshake = rejectOnce
-      server?.once('tlsClientError', handleTlsClientError)
-
-      clientSocket = tlsConnect({
-        ca: ca.certPem,
-        cert: clientIdentity.certPem,
-        host: '127.0.0.1',
-        key: clientIdentity.keyPem,
-        port,
-        rejectUnauthorized: true,
-        servername: 'localhost',
-      })
-      clientSocket.setEncoding('utf8')
-      clientSocket.once('error', rejectOnce)
-      clientSocket.once('secureConnect', handleClientSecureConnect)
-      clientSocket.once('data', handleClientData)
+  it.each([
+    ['an IP address', undefined],
+    ['a DNS name', 'localhost'],
+  ])('complete a mutual TLS handshake addressed by %s and exchange application data', async (_label, servername) => {
+    const result = await performMutualTlsHandshake({
+      server: identityFor(authority, server),
+      client: identityFor(authority, client),
+      servername,
     })
-  } finally {
-    await closeSocket(clientSocket)
-    await closeServer(server)
-  }
-}
-
-describe('certutil-generated certificates in Node TLS integration', () => {
-  it('complete a real mutual TLS handshake and exchange application data', async () => {
-    const result = await performMutualTlsHandshake()
 
     expect(result.clientAuthorized).toBe(true)
     expect(result.serverAuthorized).toBe(true)
     expect(result.clientPeerCn).toBe('node-tls-server')
     expect(result.serverPeerCn).toBe('node-tls-client')
     expect(result.echoedPayload).toBe('server-ack')
+  })
+
+  it('are refused by a client when the server name is absent from the certificate', async () => {
+    await expect(
+      performMutualTlsHandshake({
+        server: identityFor(authority, server),
+        client: identityFor(authority, client),
+        servername: 'other-node.cluster.local',
+      }),
+    ).rejects.toThrow(/does not match certificate's altnames/)
+  })
+
+  it('are refused by a server when the client holds a certificate from another CA with the same name', async () => {
+    await expect(
+      performMutualTlsHandshake({
+        server: identityFor(authority, server),
+        client: { ca: authority.certPem, cert: foreignClient.certPem, key: foreignClient.keyPem },
+      }),
+    ).rejects.toThrow(UNTRUSTED_PEER_ERROR)
+  })
+
+  it('are refused by a client that trusts only another CA', async () => {
+    await expect(
+      performMutualTlsHandshake({
+        server: identityFor(authority, server),
+        client: { ca: otherAuthority.certPem, cert: client.certPem, key: client.keyPem },
+      }),
+    ).rejects.toThrow(UNTRUSTED_PEER_ERROR)
   })
 })
