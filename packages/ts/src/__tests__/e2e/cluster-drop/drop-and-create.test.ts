@@ -1,12 +1,20 @@
 import { afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { ErrorCodes, NarsilError } from '../../../errors'
 import type { SynonymRule } from '../../../types/synonyms'
-import { dfsSearchOver, type GarageCluster } from '../synonyms/cluster-harness'
-import { FIRST_RULES, INDEX, registerGarageLanguage, SECOND_RULES } from '../synonyms/corpus'
+import { dfsSearchOver, type GarageCluster, PARTITION_COUNT, startGarageCluster } from '../synonyms/cluster-harness'
+import {
+  FIRST_RULES,
+  garageCorpus,
+  INDEX,
+  LANGUAGE_NAME,
+  registerGarageLanguage,
+  SCHEMA,
+  SECOND_RULES,
+} from '../synonyms/corpus'
 import { expectEveryProbe } from '../synonyms/harness'
 import { createOracle } from '../synonyms/oracle'
-import { clusterWithRouter, createAndFill } from './harness'
 
+const DATA_NODES = ['node-a', 'node-b', 'node-c']
 const DROP_WAIT_MS = 30_000
 
 const clusters: GarageCluster[] = []
@@ -19,10 +27,35 @@ afterEach(async () => {
   for (const cluster of clusters.splice(0)) await cluster.shutdown()
 })
 
+async function clusterWithRouter(): Promise<GarageCluster> {
+  const cluster = await startGarageCluster(DATA_NODES)
+  clusters.push(cluster)
+  await cluster.startNode('router', ['coordinator'])
+  return cluster
+}
+
+async function createAndFill(
+  cluster: GarageCluster,
+  nodeId: string,
+  seed: number,
+  synonyms: SynonymRule[],
+): Promise<ReturnType<typeof garageCorpus>> {
+  const documents = garageCorpus(300, seed, `gen${seed}-`)
+  await cluster
+    .node(nodeId)
+    .createIndex(
+      INDEX,
+      { schema: SCHEMA, language: LANGUAGE_NAME, synonyms },
+      { partitionCount: PARTITION_COUNT, replicationFactor: 0 },
+    )
+  const inserted = await cluster.node(nodeId).insertBatch(INDEX, documents)
+  expect(inserted.failed).toEqual([])
+  return documents
+}
+
 describe('an index dropped and created again under the same name', () => {
   it('creates straight after each acknowledged drop, from any node, and serves only the new documents', async () => {
     const cluster = await clusterWithRouter()
-    clusters.push(cluster)
     const cycles: Array<{ creator: string; dropper: string; synonyms: SynonymRule[] }> = [
       { creator: 'router', dropper: 'node-b', synonyms: FIRST_RULES },
       { creator: 'node-c', dropper: 'router', synonyms: [] },
@@ -45,7 +78,6 @@ describe('an index dropped and created again under the same name', () => {
 
   it('answers QUERY_NODE_TIMEOUT while a holder stays unreachable, and a retried drop completes once it confirms', async () => {
     const cluster = await clusterWithRouter()
-    clusters.push(cluster)
     await createAndFill(cluster, 'node-a', 300, FIRST_RULES)
     const unreachable = cluster.network.getTransport('node-c')
     if (unreachable === undefined) throw new Error('node-c has no transport')

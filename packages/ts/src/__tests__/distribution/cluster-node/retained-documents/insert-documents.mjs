@@ -6,10 +6,10 @@ import {
 } from '../../../../../dist/distribution/transport/in-memory.mjs'
 import { createClusterNode } from '../../../../../dist/distribution.mjs'
 
-const [singleInserts, batchCount, retention] = process.argv.slice(2)
+const [retention] = process.argv.slice(2)
 const replication = retention === undefined ? undefined : { logRetentionBytes: Number(retention) }
-const SINGLE_INSERTS = Number(singleInserts)
-const BATCHES = Number(batchCount)
+const SINGLE_INSERTS = 2_000
+const BATCHES = 16
 const BATCH_SIZE = 500
 const SETTLE_ROUNDS = 4
 const SETTLE_PAUSE_MS = 50
