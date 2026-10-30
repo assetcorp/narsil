@@ -2,6 +2,7 @@ import { ErrorCodes, NarsilError } from '../../../errors'
 import type { AnyDocument } from '../../../types/schema'
 import type { PartitionAssignment } from '../../coordinator/types'
 import type { ReplicationLogEntry } from '../../replication/types'
+import { acceptedTermOf } from '../led-term'
 import type { HoldPartitionQueue } from './partition-queue'
 import { appendDeleteReplicationEntry, appendIndexReplicationEntry } from './replication'
 import type { WriteRoutingDeps } from './types'
@@ -28,6 +29,7 @@ export async function numberedWrite<T>(
   appendOutsideTheLog: (value: T, admitted: AdmittedDocuments) => Promise<ReplicationLogEntry>,
   deferCommit = false,
 ): Promise<NumberedWrite<T>> {
+  refuseEndedTerm(scope)
   const writes = scope.deps.numbering?.open(
     scope.indexName,
     scope.partitionId,
@@ -44,7 +46,37 @@ export async function numberedWrite<T>(
   const recorded = writes?.entries.at(-1)
   if (recorded !== undefined) return { value, entry: recorded }
   const admitted: AdmittedDocuments = documentId => writes?.admittedDocument(documentId)
-  return { value, entry: await appendOutsideTheLog(value, admitted) }
+  const entry = await appendOutsideTheLog(value, admitted)
+  scope.deps.writeRecords?.applied(entry)
+  return { value, entry }
+}
+
+function refuseEndedTerm(scope: PrimaryWriteScope): void {
+  const accepted = acceptedTermOf(scope.deps.getReplicationLog(scope.indexName, scope.partitionId))
+  if (accepted <= scope.assignment.primaryTerm) return
+  throw new NarsilError(
+    ErrorCodes.PARTITION_NOT_PRIMARY,
+    `Node '${scope.deps.nodeId}' has accepted term ${accepted} for partition ${scope.partitionId} of index '${scope.indexName}', so it appends nothing under term ${scope.assignment.primaryTerm}`,
+    {
+      indexName: scope.indexName,
+      partitionId: scope.partitionId,
+      localNodeId: scope.deps.nodeId,
+      expectedPrimaryTerm: scope.assignment.primaryTerm,
+      currentPrimaryTerm: accepted,
+    },
+  )
+}
+
+export async function writeLocalOnly<T>(
+  deps: WriteRoutingDeps,
+  indexName: string,
+  write: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await write()
+  } finally {
+    deps.writeRecords?.dropIndex(indexName)
+  }
 }
 
 export async function storedCopyOf(scope: PrimaryWriteScope, documentId: string): Promise<AnyDocument> {

@@ -35,6 +35,7 @@ async function segmentOf(entries: ReplicationLogEntry[]): Promise<MergedSegmentC
     language: getLanguage('english'),
     vectorFieldPaths: new Set(['embedding']),
     entries: inOrder(entries),
+    keepsWriteRecords: false,
   })
   return built === null ? undefined : mergeSegmentContents(built.selections)
 }

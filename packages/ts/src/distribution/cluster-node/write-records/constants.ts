@@ -1,0 +1,1 @@
+export const INITIAL_WRITE_RECORD_SLOTS = 64

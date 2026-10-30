@@ -12,6 +12,7 @@ import { type CheckpointStore, directoryCheckpointStore } from '../../persistenc
 import { readVectorFile } from '../../persistence/durability/segment/vector-load'
 import { isDead } from '../../vector/vector-index/dead-bits'
 import { bytesToVectors } from '../../vector/vector-index/payload'
+import type { ClusterWriteRecords } from './write-records/keeper'
 
 function clearPartition(manager: PartitionManager, partitionId: number): void {
   const held = [...manager.getPartition(partitionId).docIds()]
@@ -35,9 +36,17 @@ async function withPartitionHeld(core: EngineCore, indexName: string, work: () =
   }
 }
 
-export async function emptyPartitionCopy(core: EngineCore, indexName: string, partitionId: number): Promise<void> {
+export async function emptyPartitionCopy(
+  core: EngineCore,
+  indexName: string,
+  partitionId: number,
+  writeRecords: ClusterWriteRecords,
+): Promise<void> {
   if (!core.indexRegistry.has(indexName)) return
-  await withPartitionHeld(core, indexName, async () => clearPartition(core.requireManager(indexName), partitionId))
+  await withPartitionHeld(core, indexName, async () => {
+    clearPartition(core.requireManager(indexName), partitionId)
+    writeRecords.resetPartition(indexName, partitionId)
+  })
   const durable = core.durability?.manager
   if (durable !== undefined) await restartPartitionLog(durable, indexName, partitionId, { seqNo: 0, primaryTerm: 0 })
 }
@@ -68,7 +77,12 @@ async function loadPartitionVectors(
   }
 }
 
-export async function reloadPartitionCopy(core: EngineCore, indexName: string, partitionId: number): Promise<void> {
+export async function reloadPartitionCopy(
+  core: EngineCore,
+  indexName: string,
+  partitionId: number,
+  writeRecords: ClusterWriteRecords,
+): Promise<void> {
   const durable = core.durability?.manager
   const registry = durable?.partitionRegistry
   if (durable === undefined || registry === undefined) {
@@ -81,6 +95,7 @@ export async function reloadPartitionCopy(core: EngineCore, indexName: string, p
   await withPartitionHeld(core, indexName, async () => {
     const manager = core.requireManager(indexName)
     clearPartition(manager, partitionId)
+    writeRecords.resetPartition(indexName, partitionId)
     const store = directoryCheckpointStore(registry.directory)
     const decoded = await readSegmentManifest(store, indexName)
     if (decoded !== null && decoded.kind !== 'current') {
@@ -93,10 +108,19 @@ export async function reloadPartitionCopy(core: EngineCore, indexName: string, p
     const manifest = decoded?.manifest ?? null
     const listed = manifest?.partitions.find(entry => entry.partitionId === partitionId)
     if (manifest !== null && listed !== undefined) {
-      await loadPartitionSegments(store, listed, manager, { schema: manifest.schema, decodesEveryDocument: true })
+      await loadPartitionSegments(store, listed, manager, {
+        schema: manifest.schema,
+        decodesEveryDocument: true,
+        writeRecords,
+      })
       await loadPartitionVectors(store, manifest, manager, partitionId)
     }
     const checkpoint = manifest?.checkpoint ?? []
+    writeRecords.loadTermHistory(
+      indexName,
+      partitionId,
+      checkpoint.find(entry => entry.partitionId === partitionId),
+    )
     await reopenPartitionLogAfterReplay(durable, indexName, partitionId, async () => {
       const replayed = await replaySyncedWal(
         registry.directory,
@@ -107,6 +131,7 @@ export async function reloadPartitionCopy(core: EngineCore, indexName: string, p
           manager,
           vectorFieldPaths: core.indexRegistry.get(indexName)?.vectorFieldPaths ?? new Set<string>(),
           vectorIndexes: manager.getVectorIndexes(),
+          writeRecords,
         },
       )
       return {

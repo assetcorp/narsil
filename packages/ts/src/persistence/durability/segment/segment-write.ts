@@ -1,3 +1,4 @@
+import type { FrozenSegment } from '../../../core/partition/frozen'
 import { mergeSegmentContents, type SegmentSelection, selectionKeeps } from '../../../core/partition/frozen/merge'
 import { segmentArraysOf } from '../../../core/partition/frozen/shared-snapshot'
 import type { TextAnalysis } from '../../../core/partition/frozen/surface-slot'
@@ -11,6 +12,7 @@ import { encodeKeywordSegment } from '../../../serialization/keyword-segment/enc
 import {
   KEYWORD_SEGMENT_ENVELOPE_VERSION,
   type KeywordSegmentContents,
+  type SegmentWriteRecords,
 } from '../../../serialization/keyword-segment/types'
 import { segmentKey } from './layout'
 import { MAX_SEGMENTS_PER_PARTITION, type SegmentRef } from './manifest'
@@ -28,6 +30,7 @@ export interface SegmentWriteRequest {
   selections: readonly SegmentSelection[]
   tombstones: readonly string[]
   mergesIntoOneFile?: boolean
+  writeRecords?: ReadonlyMap<FrozenSegment, SegmentWriteRecords>
 }
 
 export interface SegmentsWritten {
@@ -65,6 +68,38 @@ function emptyPayload(): SegmentPayload {
 function noSpellingsOf(analysis: PartialWordAnalysis | null): PartialSpellings | null {
   if (analysis === null || analysis.fields.length === 0) return null
   return { fields: [...analysis.fields], tokens: [], spellings: [], counts: [] }
+}
+
+function writeRecordsOfGroup(
+  group: SegmentFileGroup | null,
+  records: ReadonlyMap<FrozenSegment, SegmentWriteRecords>,
+  count: number,
+): SegmentWriteRecords {
+  const seqNos = new Float64Array(count)
+  const primaryTerms = new Float64Array(count)
+  let at = 0
+  for (const selection of group?.selections ?? []) {
+    const source = records.get(selection.segment)
+    for (let ordinal = 0; ordinal < selection.segment.arrays.documentCount; ordinal++) {
+      if (!selectionKeeps(selection, ordinal)) continue
+      if (source !== undefined) {
+        seqNos[at] = source.seqNos[ordinal]
+        primaryTerms[at] = source.primaryTerms[ordinal]
+      }
+      at += 1
+    }
+  }
+  return { seqNos, primaryTerms }
+}
+
+function withWriteRecords(
+  contents: KeywordSegmentContents,
+  group: SegmentFileGroup | null,
+  request: SegmentWriteRequest,
+): KeywordSegmentContents {
+  if (request.writeRecords === undefined) return contents
+  const writeRecords = writeRecordsOfGroup(group, request.writeRecords, contents.arrays.documentCount)
+  return { ...contents, writeRecords }
 }
 
 function contentsOfGroup(
@@ -108,7 +143,7 @@ function requireRoomForAnotherSegment(state: WriteState): void {
 async function writeGroup(state: WriteState, group: SegmentFileGroup | null): Promise<void> {
   const { request } = state
   const tombstones = state.tombstonesWritten ? [] : [...request.tombstones]
-  const contents = contentsOfGroup(group, request, tombstones)
+  const contents = withWriteRecords(contentsOfGroup(group, request, tombstones), group, request)
   const encoded = encodeKeywordSegment(contents)
   if (HEADER_SIZE + encoded.byteLength > MAX_FILE_BYTES && group !== null && group.documentCount > 1) {
     const [first, second] = halvesOf(group)

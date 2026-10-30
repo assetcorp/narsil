@@ -1,5 +1,6 @@
 import { describeError, ErrorCodes, NarsilError } from '../../../errors'
 import type { AnyDocument } from '../../../types/schema'
+import type { ReplicationLogEntry } from '../../replication/types'
 import { appendDeletion, appendStoredCopy, numberedWrite, type PrimaryWriteScope } from './numbered-write'
 
 export type { PrimaryWriteScope }
@@ -36,17 +37,19 @@ export async function compensateInsert(
   scope: PrimaryWriteScope,
   documentId: string,
   originalError: unknown,
-): Promise<void> {
+): Promise<ReplicationLogEntry | undefined> {
   try {
-    await numberedWrite(
+    const removed = await numberedWrite(
       scope,
       () => scope.deps.engine.remove(scope.indexName, documentId),
       () => appendDeletion(scope, documentId),
     )
+    return removed.entry
   } catch (rollbackError) {
     if (!(rollbackError instanceof NarsilError && rollbackError.code === ErrorCodes.DOC_NOT_FOUND)) {
       throw createRollbackFailure('insert', scope, documentId, originalError, rollbackError)
     }
+    return undefined
   }
 }
 
@@ -55,7 +58,7 @@ export async function compensateUpdate(
   documentId: string,
   previousDocument: AnyDocument | undefined,
   originalError: unknown,
-): Promise<void> {
+): Promise<ReplicationLogEntry> {
   if (previousDocument === undefined) {
     throw createRollbackFailure(
       'update',
@@ -67,11 +70,12 @@ export async function compensateUpdate(
   }
 
   try {
-    await numberedWrite(
+    const restored = await numberedWrite(
       scope,
       () => scope.deps.engine.update(scope.indexName, documentId, previousDocument),
       (_, admitted) => appendStoredCopy(scope, documentId, admitted),
     )
+    return restored.entry
   } catch (rollbackError) {
     throw createRollbackFailure('update', scope, documentId, originalError, rollbackError)
   }
@@ -82,7 +86,7 @@ export async function compensateRemove(
   documentId: string,
   previousDocument: AnyDocument | undefined,
   originalError: unknown,
-): Promise<void> {
+): Promise<ReplicationLogEntry> {
   if (previousDocument === undefined) {
     throw createRollbackFailure(
       'remove',
@@ -94,11 +98,12 @@ export async function compensateRemove(
   }
 
   try {
-    await numberedWrite(
+    const restored = await numberedWrite(
       scope,
       () => scope.deps.engine.insert(scope.indexName, previousDocument, documentId),
       (_, admitted) => appendStoredCopy(scope, documentId, admitted),
     )
+    return restored.entry
   } catch (rollbackError) {
     throw createRollbackFailure('remove', scope, documentId, originalError, rollbackError)
   }

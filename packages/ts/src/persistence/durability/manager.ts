@@ -293,6 +293,9 @@ export function createDurabilityManager(
     },
 
     isolatePartitionFailures: partitionFailures.isolate,
+    keepWriteRecordsWith(keeper) {
+      hooks.writeRecords = keeper
+    },
     heldCheckpoints: () => heldCheckpoints.report(indexes),
 
     async commitPartition(indexName: string, partitionId: number): Promise<void> {
@@ -345,6 +348,7 @@ export function createDurabilityManager(
     },
 
     async removeIndex(indexName: string): Promise<void> {
+      hooks.writeRecords?.dropIndex(indexName)
       const indexState = indexes.get(indexName)
       if (indexState !== undefined) {
         await drainIndexStateForUnload(indexState, metadataWrites.get(indexName), closeWriterReportingFailure)

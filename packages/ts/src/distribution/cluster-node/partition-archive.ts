@@ -23,6 +23,7 @@ import { isDead } from '../../vector/vector-index/dead-bits'
 import { bytesToVectors } from '../../vector/vector-index/payload'
 import { MAX_PARTITION_COUNT } from '../constants'
 import { ensureReplicationIndex, flattenSchema, requireSameFlatSchema } from './replication-index'
+import type { ClusterWriteRecords } from './write-records/keeper'
 
 const VECTOR_FILE_ENVELOPE_VERSION = 2
 
@@ -36,6 +37,7 @@ export async function archiveReplicationPartition(
   indexName: string,
   partitionId: number,
   lastSeqNo: () => number,
+  writeRecords: ClusterWriteRecords,
 ): Promise<PartitionArchive> {
   core.guardShutdown()
   const release = await core.indexState.acquire(indexName, false)
@@ -54,11 +56,18 @@ export async function archiveReplicationPartition(
         return captured
       },
       partitionId,
+      writeRecords,
     })
     return { stream: archiveStream({ ...checkpoint, config, sourceIndexName: indexName }), lastSeqNo: captured }
   } finally {
     release()
   }
+}
+
+export interface PartitionRestoreTarget {
+  config: IndexConfig
+  partitionCount: number
+  writeRecords: ClusterWriteRecords
 }
 
 function restoreFailed(message: string, details: Record<string, unknown>): never {
@@ -141,6 +150,7 @@ async function replacePartition(
   manager: PartitionManager,
   partitionId: number,
   archive: ReceivedArchive,
+  writeRecords: ClusterWriteRecords,
 ): Promise<void> {
   const vectorIndexes = manager.getVectorIndexes()
   const held = [...manager.getPartition(partitionId).docIds()]
@@ -148,13 +158,20 @@ async function replacePartition(
     for (const docId of held) if (vectorIndex.has(docId)) vectorIndex.remove(docId)
   }
   manager.deserializePartition(partitionId, emptySerializablePartition(manager, partitionId))
+  writeRecords.resetPartition(manager.indexName, partitionId)
   const entry = archive.manifest.partitions[0]
   if (entry !== undefined) {
     await loadPartitionSegments(archive.store, entry, manager, {
       schema: archive.manifest.schema,
       decodesEveryDocument: true,
+      writeRecords,
     })
   }
+  writeRecords.loadTermHistory(
+    manager.indexName,
+    partitionId,
+    archive.manifest.checkpoint.find(checkpoint => checkpoint.partitionId === partitionId),
+  )
   for (const field of archive.manifest.vectors) {
     const vectorIndex = vectorIndexes.get(field.fieldPath)
     if (vectorIndex === undefined) continue
@@ -197,9 +214,9 @@ export async function restoreReplicationPartition(
   indexName: string,
   partitionId: number,
   source: ByteSource,
-  indexConfig: IndexConfig,
-  partitionCount: number,
+  target: PartitionRestoreTarget,
 ): Promise<void> {
+  const { config: indexConfig, partitionCount, writeRecords } = target
   core.guardShutdown()
   requireRestoreTarget(indexName, partitionId, partitionCount)
   const archive = await receiveArchive(indexName, partitionId, source, flattenSchema(indexConfig.schema))
@@ -226,7 +243,7 @@ export async function restoreReplicationPartition(
     }
     const wasScaledOut = core.orchestrator.desyncIndex(indexName)
     try {
-      await replacePartition(core.requireManager(indexName), partitionId, archive)
+      await replacePartition(core.requireManager(indexName), partitionId, archive, writeRecords)
       recordReceivedAnalysis(core, indexName, archive.analysisRevision)
     } finally {
       await core.orchestrator.resyncIndex(indexName, wasScaledOut)
