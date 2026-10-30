@@ -1,19 +1,22 @@
 import { getNestedValue } from '../../../core/partition/utils'
-import { applyProjection, resolveProjection } from '../../../core/projection'
+import { applyProjection, type ResolvedProjection, resolveProjection } from '../../../core/projection'
 import { runtimeHost } from '../../../engine/query/runtime-host'
+import { ErrorCodes, NarsilError } from '../../../errors'
 import { engineCoreOf } from '../../../narsil/internals'
 import { queryBindingOf } from '../../../search/cursor-binding'
 import type { QueryResult } from '../../../types/results'
 import type { AnyDocument } from '../../../types/schema'
 import type { QueryParams } from '../../../types/search'
+import type { AllocationTable } from '../../coordinator/types'
 import { distributedQuery } from '../../query/routing'
 import type { DistributedQueryConfig } from '../../query/types'
-import { fetchDistributedDocuments, readDistributedDocuments } from '../node-messaging'
+import { readDistributedDocuments } from '../node-messaging'
 import { distributedCountIsExact, distributedResultToLocal, localParamsToWire } from '../query-conversion'
 import { routableAllocation } from '../routable-allocation'
 import type { ClusterQueryConfig } from '../types'
 import { assembleDistributedGroups } from './groups'
 import { countStoredPinsFromOutside, dropUnstoredPinnedEntries, readPinPresence } from './pinned'
+import { createRankedDocumentReader, type RankedDocumentReader } from './ranked-documents'
 import type { ClusterRerankHost } from './rerank'
 import type { ClusterReadDeps } from './scatter'
 
@@ -54,18 +57,46 @@ export async function readClusterDocuments(
   return readDistributedDocuments(deps.config, deps.nodeId, deps.engine, indexName, docIds, allocation)
 }
 
-function routingConfig(query: ClusterQueryConfig | undefined): Partial<DistributedQueryConfig> | undefined {
-  if (query === undefined) {
-    return undefined
-  }
-  const config: Partial<DistributedQueryConfig> = {}
-  if (query.allowPartialResults !== undefined) {
+function routingConfig(
+  query: ClusterQueryConfig | undefined,
+  searchContexts: boolean,
+): Partial<DistributedQueryConfig> {
+  const config: Partial<DistributedQueryConfig> = { searchContexts }
+  if (query?.allowPartialResults !== undefined) {
     config.allowPartialResults = query.allowPartialResults
   }
-  if (query.partitionTimeout !== undefined) {
+  if (query?.partitionTimeout !== undefined) {
     config.partitionTimeout = query.partitionTimeout
   }
   return config
+}
+
+function fetchFieldsFor(projection: ResolvedProjection): string[] | null {
+  if (projection.kind !== 'fields' || projection.include === null) return null
+  return projection.include.map(path => path.join('.'))
+}
+
+async function rerunOnLostContext<T>(run: () => Promise<T>): Promise<T> {
+  try {
+    return await run()
+  } catch (error) {
+    if (!(error instanceof NarsilError) || error.code !== ErrorCodes.SEARCH_CONTEXT_MISSING) throw error
+    return run()
+  }
+}
+
+async function withRankedReader<T>(
+  deps: ClusterReadDeps,
+  indexName: string,
+  allocation: AllocationTable,
+  run: (reader: RankedDocumentReader) => Promise<T>,
+): Promise<T> {
+  const reader = createRankedDocumentReader(deps, indexName, allocation)
+  try {
+    return await run(reader)
+  } finally {
+    reader.release()
+  }
 }
 
 /**
@@ -92,17 +123,37 @@ export async function queryCluster<T = AnyDocument>(
   if (allocation === null) {
     return deps.engine.query<T>(indexName, params)
   }
-  if (params.rerank !== undefined) {
+  return rerunOnLostContext(async () => {
+    if (params.rerank === undefined) {
+      return withRankedReader(deps, indexName, allocation, reader =>
+        searchCluster<T>(deps, indexName, params, allocation, reader, false),
+      )
+    }
     const { rerankClusterQuery } = await import('./rerank')
-    return rerankClusterQuery<T>(
-      deps,
-      indexName,
-      params,
-      firstStage => queryCluster<T>(deps, indexName, firstStage),
-      docIds => readDistributedDocuments(deps.config, deps.nodeId, deps.engine, indexName, docIds, allocation),
-      clusterRerankHost,
+    return withRankedReader(deps, indexName, allocation, reader =>
+      rerankClusterQuery<T>(
+        deps,
+        indexName,
+        params,
+        firstStage => searchCluster<T>(deps, indexName, firstStage, allocation, reader, true),
+        (docIds, last) => reader.read(docIds, { last, fields: null, requireEveryPartition: true }),
+        clusterRerankHost,
+      ),
     )
-  }
+  })
+}
+
+async function searchCluster<T>(
+  deps: ClusterReadDeps,
+  indexName: string,
+  params: QueryParams,
+  allocation: AllocationTable,
+  reader: RankedDocumentReader,
+  readsLater: boolean,
+): Promise<QueryResult<T>> {
+  const projection = resolveProjection(params.document)
+  const groupsRead = params.group !== undefined && (params.group.reduce !== undefined || projection.kind !== 'none')
+  const readsDocuments = readsLater || projection.kind !== 'none' || groupsRead
   const wireParams = localParamsToWire(params)
   const queryDeps = {
     transport: deps.config.transport,
@@ -110,17 +161,21 @@ export async function queryCluster<T = AnyDocument>(
     getAllocation: (idx: string) => deps.config.coordinator.getAllocation(idx),
     resolveNodeTargets: deps.resolveNodeTargets,
   }
-  const distributed = await distributedQuery(indexName, wireParams, queryDeps, routingConfig(deps.config.query))
-  const projection = resolveProjection(params.document)
-  const documents = await fetchDistributedDocuments<T>(
-    deps.config,
-    deps.nodeId,
-    deps.engine,
+  const distributed = await distributedQuery(
     indexName,
-    distributed,
-    allocation,
-    projection,
+    wireParams,
+    queryDeps,
+    routingConfig(deps.config.query, readsDocuments),
   )
+  reader.adopt(distributed.contexts)
+  const documents = new Map<string, T>()
+  if (projection.kind !== 'none') {
+    const found = await reader.read(
+      distributed.scored.map(entry => entry.docId),
+      { last: !groupsRead && !readsLater, fields: fetchFieldsFor(projection), requireEveryPartition: false },
+    )
+    for (const [docId, document] of found) documents.set(docId, applyProjection(document, projection) as T)
+  }
   const pinPresence = await readPinPresence(deps, indexName, params, allocation)
   const scored = dropUnstoredPinnedEntries(distributed, pinPresence)
   const pins = countStoredPinsFromOutside(distributed, pinPresence)
@@ -137,7 +192,9 @@ export async function queryCluster<T = AnyDocument>(
     documents,
     params.facets,
   )
-  const groups = await assembleDistributedGroups(deps, indexName, params, distributed, allocation, projection)
+  const groups = await assembleDistributedGroups(params, distributed, projection, (docIds, last) =>
+    reader.read(docIds, { last: last && !readsLater, fields: null, requireEveryPartition: true }),
+  )
   if (groups !== undefined) {
     result.groups = groups
   }

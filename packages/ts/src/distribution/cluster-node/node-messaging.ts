@@ -1,12 +1,10 @@
 import { decode } from '@msgpack/msgpack'
-import { applyProjection, type ResolvedProjection } from '../../core/projection'
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { AnyDocument } from '../../types/schema'
 import type { AllocationTable } from '../coordinator/types'
 import { createFetchMessage, validateFetchResultPayload } from '../query/codec'
 import { markNodeRejection, nodeRejectionOf, sendToEveryPartition } from '../query/failover'
 import { copiesInSelectionOrder, type PartitionRouting, randomSelector } from '../query/selection'
-import type { DistributedQueryResult } from '../query/types'
 import type { FetchDocumentId, TransportMessage } from '../transport/types'
 import { ANSWER_DECODE_HEAP_BYTES_PER_PAYLOAD_BYTE, FETCH_GROUP_DOCUMENT_IDS } from './constants'
 import { remoteErrorDetails } from './error-reply'
@@ -41,11 +39,6 @@ export async function sendToNode(
     message: failure?.message ?? `Node '${targetNodeId}' did not answer a cluster request`,
     details: { targetNodeId, ...failure?.details },
   })
-}
-
-function fetchFieldsFor(projection: ResolvedProjection): string[] | null {
-  if (projection.kind !== 'fields' || projection.include === null) return null
-  return projection.include.map(path => path.join('.'))
 }
 
 interface DocumentRouting {
@@ -158,27 +151,28 @@ async function readFromCopies(
   return documents
 }
 
-export async function fetchDistributedDocuments<T>(
+export async function readDocumentsFromCopies(
   config: ClusterNodeConfig,
   nodeId: string,
   engine: ClusterLocalEngine,
   indexName: string,
-  result: DistributedQueryResult,
+  docIds: readonly string[],
   allocation: AllocationTable,
-  projection: ResolvedProjection,
-): Promise<Map<string, T>> {
-  const documents = new Map<string, T>()
-  if (projection.kind === 'none') return documents
+  fields: string[] | null,
+  requireEveryPartition: boolean,
+): Promise<Map<string, AnyDocument>> {
+  const documentRouting = routeDocumentIds(docIds, allocation)
+  const unreachablePartitions = documentRouting.routing.unavailablePartitions
 
-  const documentRouting = routeDocumentIds(
-    result.scored.map(entry => entry.docId),
-    allocation,
-  )
-  const found = await readFromCopies(config, nodeId, engine, indexName, documentRouting, fetchFieldsFor(projection))
-  for (const [docId, document] of found) {
-    documents.set(docId, applyProjection(document, projection) as T)
+  if (requireEveryPartition && unreachablePartitions.length > 0) {
+    throw new NarsilError(
+      ErrorCodes.QUERY_NO_ACTIVE_REPLICA,
+      `No active replica serves one or more partitions of index '${indexName}'`,
+      { indexName, partitionIds: [...unreachablePartitions].sort((a, b) => a - b) },
+    )
   }
-  return documents
+
+  return readFromCopies(config, nodeId, engine, indexName, documentRouting, fields)
 }
 
 export async function readDistributedDocuments(
@@ -189,16 +183,5 @@ export async function readDistributedDocuments(
   docIds: readonly string[],
   allocation: AllocationTable,
 ): Promise<Map<string, AnyDocument>> {
-  const documentRouting = routeDocumentIds(docIds, allocation)
-  const unreachablePartitions = documentRouting.routing.unavailablePartitions
-
-  if (unreachablePartitions.length > 0) {
-    throw new NarsilError(
-      ErrorCodes.QUERY_NO_ACTIVE_REPLICA,
-      `No active replica serves one or more partitions of index '${indexName}'`,
-      { indexName, partitionIds: [...unreachablePartitions].sort((a, b) => a - b) },
-    )
-  }
-
-  return readFromCopies(config, nodeId, engine, indexName, documentRouting, null)
+  return readDocumentsFromCopies(config, nodeId, engine, indexName, docIds, allocation, null, true)
 }

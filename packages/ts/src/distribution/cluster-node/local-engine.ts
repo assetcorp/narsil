@@ -41,6 +41,7 @@ import {
 } from './local-replication'
 import type { IndexWriteAnalysis } from './memory/document-bound'
 import { archiveReplicationPartition, type PartitionArchive, restoreReplicationPartition } from './partition-archive'
+import { type DocumentSnapshot, snapshotRankedDocuments } from './search-contexts/snapshots'
 import { createAdmittingRecorder, type WriteAdmission } from './write-admission'
 import { type ClusterWriteRecords, createClusterWriteRecords } from './write-records/keeper'
 
@@ -84,6 +85,7 @@ export interface ClusterLocalEngine extends Narsil {
     partitionIds: number[],
     globalStats?: GlobalStatistics,
     rescoreWindow?: number,
+    snapshots?: Map<string, DocumentSnapshot>,
   ): Promise<QueryResult<T>>
   preflightPartitions(indexName: string, params: QueryParams, partitionIds: number[]): Promise<PreflightResult>
   suggestPartitions(indexName: string, params: SuggestParams, partitionIds: number[]): Promise<SuggestResult>
@@ -205,7 +207,17 @@ export async function createClusterLocalEngine(
       partitionIds: number[],
       globalStats?: GlobalStatistics,
       rescoreWindow?: number,
-    ) => runEngineQuery<T>(core, indexName, params, { partitionIds, globalStats, rescoreWindow }),
+      snapshots?: Map<string, DocumentSnapshot>,
+    ) =>
+      runEngineQuery<T>(core, indexName, params, {
+        partitionIds,
+        globalStats,
+        rescoreWindow,
+        onRanked:
+          snapshots === undefined
+            ? undefined
+            : (manager, result) => snapshotRankedDocuments(manager, result, snapshots),
+      }),
     preflightPartitions: (indexName: string, params: QueryParams, partitionIds: number[]) =>
       runEnginePreflight(core, indexName, params, { partitionIds }),
     suggestPartitions: (indexName: string, params: SuggestParams, partitionIds: number[]) =>
