@@ -49,6 +49,7 @@ export function getVectorMaintenanceStatus(manager: PartitionManager): VectorMai
       graphCount: status.graphCount,
       bufferSize: status.bufferSize,
       building: status.building,
+      waitingForMemory: status.waitingForMemory,
       estimatedCompactMs: status.estimatedCompactMs,
       estimatedOptimizeMs: status.estimatedOptimizeMs,
     })

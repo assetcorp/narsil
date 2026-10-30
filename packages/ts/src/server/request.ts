@@ -1,12 +1,12 @@
 import type { HttpRequest, HttpResponse } from 'uWebSockets.js'
-import type { BodyBudget, BodyBudgetRefusal, BodyHold } from './body-budget'
+import type { BodyBudget } from './body-budget'
 import type { RequestGate } from './concurrency-gate'
 import { ServerErrorCodes } from './errors'
+import type { ParseRefusal } from './parse-heap'
+import { type BodyKindOf, RefusedBody, readBody } from './read-body'
 import { type ResponseSink, sendError } from './response'
 import { type SpooledBody, spoolBody } from './spool'
 import type { OnRequestHook, RequestContext, RequestDenial } from './types'
-
-const REQUEST_BYTES_IN_FLIGHT_REASON = 'request_bytes_in_flight'
 
 export interface ResponseAbort {
   readonly aborted: boolean
@@ -40,100 +40,14 @@ function declaredBodyBytes(header: string): number | null {
   return /^\d{1,15}$/.test(header) ? Number(header) : null
 }
 
-function bodyWithRoomFor(body: Buffer, filled: number, needed: number, maxBytes: number): Buffer {
-  if (needed <= body.length) return body
-  const grown = Buffer.allocUnsafeSlow(Math.min(maxBytes, Math.max(needed, body.length * 2)))
-  grown.set(body.subarray(0, filled))
-  return grown
-}
-
-function bodyOfExactly(body: Buffer, filled: number): Buffer {
-  if (filled === body.length) return body
-  const exact = Buffer.allocUnsafeSlow(filled)
-  exact.set(body.subarray(0, filled))
-  return exact
-}
-
-function refuseBodyBytes(res: ResponseSink, refusal: BodyBudgetRefusal): void {
-  sendError(
-    res,
-    429,
-    ServerErrorCodes.TOO_MANY_REQUESTS,
-    `The server is holding ${refusal.inFlightBytes} bytes of other request bodies, and this body's ${refusal.requestBytes} bytes would take the total past its limit of ${refusal.limitBytes} bytes. Retry once the requests in progress finish.`,
-    { reason: REQUEST_BYTES_IN_FLIGHT_REASON, ...refusal },
-  )
-}
-
-/** Buffers the request body, enforcing a byte ceiling. Exceeding the cap sends
- * 413 and rejects, so a single oversized body cannot grow unbounded in memory.
- * The server counts every byte against `hold` before it buffers the byte, and
- * it answers 429 where a body can take the bytes of all the bodies in flight
- * past their limit. */
-export function readBody(
-  res: ResponseSink,
-  maxBytes: number,
-  abort: ResponseAbort,
-  hold: BodyHold,
-  declaredBytes: number | null = null,
-): Promise<Buffer> {
-  return new Promise((resolve, reject) => {
-    if (abort.aborted) {
-      reject(new Error('aborted'))
-      return
-    }
-    let done = false
-    let total = 0
-    let filled = 0
-    let body: Buffer | null = null
-    const reserved = declaredBytes !== null && declaredBytes <= maxBytes ? declaredBytes : 0
-    const refusal = hold.grow(reserved)
-    if (refusal !== null) {
-      refuseBodyBytes(res, refusal)
-      reject(new Error('request bytes in flight'))
-      return
-    }
-    abort.onAbort(() => {
-      if (done) return
-      done = true
-      reject(new Error('aborted'))
-    })
-    res.onData((chunk, isLast) => {
-      if (done || abort.aborted) return
-      total += chunk.byteLength
-      if (total > maxBytes) {
-        done = true
-        if (!abort.aborted) {
-          sendError(res, 413, ServerErrorCodes.PAYLOAD_TOO_LARGE, 'Request body exceeds the configured size limit')
-        }
-        reject(new Error('payload too large'))
-        return
-      }
-      const chunkRefusal = total > hold.bytes ? hold.grow(total - hold.bytes) : null
-      if (chunkRefusal !== null) {
-        done = true
-        if (!abort.aborted) refuseBodyBytes(res, chunkRefusal)
-        reject(new Error('request bytes in flight'))
-        return
-      }
-      const arrived = new Uint8Array(chunk)
-      const firstSize = isLast ? arrived.length : Math.max(reserved, arrived.length)
-      body = bodyWithRoomFor(body ?? Buffer.allocUnsafeSlow(firstSize), filled, total, maxBytes)
-      body.set(arrived, filled)
-      filled = total
-      if (isLast) {
-        done = true
-        resolve(bodyOfExactly(body, filled))
-      }
-    })
-  })
-}
-
 export interface RouteContext {
   res: ResponseSink
   params: string[]
   query: URLSearchParams
   contentType: string
   rawBody: Buffer | null
+  /** The memory check refused the body before the server read all of it, so the handler answers with this. */
+  bodyRefusal: ParseRefusal | null
   spooledBody: SpooledBody | null
   abort: ResponseAbort
   /** The request's method, path, headers, and peer address, captured where an admission hook runs. */
@@ -146,6 +60,8 @@ export interface RouteOptions {
   paramCount?: number
   needsBody?: boolean
   spoolsBody?: boolean
+  /** Tells the memory check which line a body parses against, from its first bytes, or null until they show it. */
+  bodyKind?: BodyKindOf
   maxBytes: number
   /** Skips the auth hook and the concurrency gate. Used for liveness and
    * readiness probes, which must answer regardless of auth or load. */
@@ -318,8 +234,13 @@ export function createRouteRunner(deps: RunnerDeps) {
       }
       const release = track?.(res, abort)
       const bodyHold = bodyBudget.hold()
+      let bodyRefusal: ParseRefusal | null = null
       const bodyPromise = needsBody
-        ? readBody(res, opts.maxBytes, abort, bodyHold, declaredBytes)
+        ? readBody(res, opts.maxBytes, abort, bodyHold, declaredBytes, opts.bodyKind ?? null).catch((err: unknown) => {
+            if (!(err instanceof RefusedBody)) throw err
+            bodyRefusal = err.refusal
+            return null
+          })
         : Promise.resolve<Buffer | null>(null)
       const hookPromise: Promise<Authorization> =
         hookContext !== null && authorize !== undefined ? authorize(hookContext) : Promise.resolve({ allowed: true })
@@ -354,7 +275,7 @@ export function createRouteRunner(deps: RunnerDeps) {
             return
           }
           try {
-            await handler({ res, params, query, contentType, rawBody, spooledBody, abort, hookContext })
+            await handler({ res, params, query, contentType, rawBody, bodyRefusal, spooledBody, abort, hookContext })
           } catch (err) {
             if (!abort.aborted) {
               sendError(res, 500, ServerErrorCodes.INTERNAL_ERROR, 'An unexpected error occurred')

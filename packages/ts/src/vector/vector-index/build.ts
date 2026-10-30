@@ -3,8 +3,9 @@ import { createHNSWIndex, type HNSWIndex } from '../hnsw'
 import { shuffleInPlace } from '../hnsw/insertion-order'
 import { insertIntoGraph } from './build-host'
 import { calibrateBeforeBuild, recalibrateWhenDrifted } from './calibration'
-import { BUILD_RETRY_FIRST_DELAY_MS, BUILD_RETRY_MAX_DELAY_MS } from './constants'
+import { BUILD_RETRY_FIRST_DELAY_MS, BUILD_RETRY_MAX_DELAY_MS, SHUFFLED_REBUILD_MEMORY_RETRY_MS } from './constants'
 import { releasePendingLocations } from './disk'
+import { admitShuffledRebuild, releaseMemoryCharges, releaseRebuildCharge, stopWaitingForMemory } from './memory-charge'
 import { adoptGraph, allLiveDocIds, liveSize, type VectorIndexState, yieldBuildTurn } from './shared'
 import { dropSharedGraph, invalidateWorkerCopies, noteWrite, scheduleWorkerCopyLoad } from './worker-copies'
 
@@ -102,8 +103,26 @@ async function rebuildInShuffledOrder(state: VectorIndexState): Promise<void> {
   if (adopted && replacing.loadedWithoutCount) state.onLoadedGraphRepaired()
 }
 
+function retryWhenMemoryAllows(state: VectorIndexState): void {
+  if (state.rebuildWaitTimer !== null || state.disposed) return
+  const timer = setTimeout(() => {
+    state.rebuildWaitTimer = null
+    startShuffledRebuild(state)
+  }, SHUFFLED_REBUILD_MEMORY_RETRY_MS)
+  timer.unref?.()
+  state.rebuildWaitTimer = timer
+}
+
 export function startShuffledRebuild(state: VectorIndexState): void {
-  if (state.shuffledRebuild !== null || state.disposed || !shuffledRebuildDue(state)) return
+  if (state.shuffledRebuild !== null || state.disposed) return
+  if (!shuffledRebuildDue(state)) {
+    stopWaitingForMemory(state)
+    return
+  }
+  if (!admitShuffledRebuild(state)) {
+    retryWhenMemoryAllows(state)
+    return
+  }
   state.shuffledRebuild = rebuildInShuffledOrder(state)
     .catch((error: unknown) => {
       console.warn(
@@ -113,6 +132,7 @@ export function startShuffledRebuild(state: VectorIndexState): void {
     })
     .finally(() => {
       state.shuffledRebuild = null
+      releaseRebuildCharge(state)
       scheduleBuild(state)
       scheduleWorkerCopyLoad(state)
     })
@@ -253,10 +273,13 @@ function releaseHeldMemory(state: VectorIndexState): void {
   state.savedFiles = []
   state.savedSignature = null
   state.store.release()
+  releaseMemoryCharges(state)
 }
 
 export function disposeIndex(state: VectorIndexState): void {
   state.disposed = true
+  if (state.rebuildWaitTimer !== null) clearTimeout(state.rebuildWaitTimer)
+  state.rebuildWaitTimer = null
   if (state.buildTimer !== null) clearTimeout(state.buildTimer)
   state.buildTimer = null
   invalidateWorkerCopies(state)

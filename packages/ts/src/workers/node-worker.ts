@@ -1,3 +1,4 @@
+import { countEngineThread } from '../runtime/engine-threads'
 import type { WorkerResourceLimits } from './resource-limits'
 
 export interface NodeWorkerHandle {
@@ -14,7 +15,9 @@ export async function spawnNodeWorker(
 ): Promise<NodeWorkerHandle | null> {
   try {
     const workerThreads = await import('node:worker_threads')
-    return new workerThreads.Worker(entryPoint, { resourceLimits }) as unknown as NodeWorkerHandle
+    const worker = new workerThreads.Worker(entryPoint, { resourceLimits })
+    countEngineThread(worker, resourceLimits?.maxYoungGenerationSizeMb)
+    return worker as unknown as NodeWorkerHandle
   } catch {
     return null
   }

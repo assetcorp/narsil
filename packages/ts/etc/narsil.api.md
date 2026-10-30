@@ -1033,6 +1033,7 @@ export interface VectorMaintenanceResult {
     fieldName: string;
     graphCount: number;
     tombstoneRatio: number;
+    waitingForMemory: boolean;
 }
 
 // @public

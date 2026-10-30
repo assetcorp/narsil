@@ -116,6 +116,7 @@ export function maintenanceStatus(state: VectorIndexState): MaintenanceStatus {
     graphCount,
     bufferSize: state.buffer.size,
     building: state.building || state.buildScheduled || state.buildTimer !== null || state.shuffledRebuild !== null,
+    waitingForMemory: state.waitingForMemory,
     estimatedCompactMs,
     estimatedOptimizeMs,
   }

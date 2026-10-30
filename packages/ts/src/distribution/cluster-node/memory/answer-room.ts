@@ -1,7 +1,7 @@
 import { NarsilError, ServerErrorCodes } from '../../../errors'
 import {
   admitHeapBytes,
-  collectGarbageBeforeRefusal,
+  collectGarbageBeforeAnswerRefusal,
   collectYoungGenerationBeforeRefusal,
   reservedHeapBytes,
 } from '../../../runtime/thread-heap'
@@ -56,7 +56,7 @@ export function answerRefusalOf(answerBytes: number): NarsilError | null {
   if (recent === null || answerBytes <= roomIn(recent)) return admitted(answerBytes)
   const figures = readMemoryFigures() ?? recent
   if (answerBytes <= roomIn(figures)) return admitted(answerBytes)
-  const collectedGarbage = collectGarbageBeforeRefusal()
+  const collectedGarbage = collectGarbageBeforeAnswerRefusal()
   const collectedYoung = !collectedGarbage && collectYoungGenerationBeforeRefusal()
   const settled = collectedGarbage || collectedYoung ? (readMemoryFigures() ?? figures) : figures
   if (answerBytes <= roomIn(settled)) return admitted(answerBytes)

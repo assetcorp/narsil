@@ -16,7 +16,9 @@ vi.mock('../../runtime/detect', () => ({
 }))
 
 vi.mock('node:worker_threads', () => {
-  const WorkerMock = vi.fn()
+  const WorkerMock = vi.fn(function WorkerMock() {
+    return { once: vi.fn() }
+  })
   return { Worker: WorkerMock }
 })
 

@@ -2,6 +2,7 @@ import type { MessagePort } from 'node:worker_threads'
 import type { VectorQueryConfig } from '../../types/search'
 import type { ResolvedCors } from '../cors'
 import type { ResolvedBuild, ResolvedLimits } from '../deps'
+import type { ParseRefusal } from '../parse-heap'
 import type { ServerHandlers } from '../routes'
 import type { RequestContext, RequestDenial } from '../types'
 
@@ -48,6 +49,7 @@ export interface RelayedRequest {
   query: string
   contentType: string
   rawBody: Uint8Array | null
+  bodyRefusal: ParseRefusal | null
   spooledBody: { path: string; bytes: number } | null
   hookContext: RequestContext | null
 }

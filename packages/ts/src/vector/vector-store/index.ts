@@ -20,6 +20,7 @@ import {
   ensureOrdinal,
   fileHoldsSameBytes,
   forgetUnreferencedFiles,
+  growthBytesFor,
   type OpenStore,
   openHandles,
   partitionFilterOf,
@@ -376,6 +377,10 @@ export function createVectorStore(options?: VectorStoreOptions): VectorStore {
 
     memoryBytes(): number {
       return open === null ? 0 : sharedVectorStoreBytes(open.handles)
+    },
+
+    growthBytesFor(vectors: number): number {
+      return open === null ? 0 : growthBytesFor(open, vectors)
     },
   }
 }
