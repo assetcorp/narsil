@@ -11,7 +11,7 @@ import {
   stopEtcdContainer,
   waitForEtcdReady,
 } from '../../distribution/coordinator/etcd-integration/fixtures'
-import { type ContainerNode, startContainerNode, writeMeminfo } from './container-node'
+import { type ContainerNode, SEMI_SPACE_MEGABYTES, startContainerNode, writeMeminfo } from './container-node'
 import { errorOf, expectEveryDocumentReadsBack, isServerMemoryRefusal, request, waitFor } from './harness'
 
 const MEGABYTE_BYTES = 1024 * 1024
@@ -26,8 +26,12 @@ const SEND_BUDGET_DOCUMENTS = 40_000
 const BATCHES_AFTER_REFUSAL = 20
 const PROBE_EVERY_DOCUMENTS = 2_000
 const READ_BACK_DOCUMENTS = 100
+const READ_BACK_ATTEMPTS = 1
 const MAX_HEAP_FRACTION_AT_REFUSAL = 0.5
-const MIN_RESIDENT_FRACTION_AT_REFUSAL = 0.75
+const WRITE_LINE_FRACTION = 0.9
+const YOUNG_GENERATION_SEMI_SPACES = 3
+const PARSE_BYTES_PER_BODY_BYTE = 3
+const ALLOCATOR_SLACK_FRACTION = 0.01
 const MIN_SPENT_FRACTION_OF_SHARE_AT_REFUSAL = 0.5
 const PROPAGATION_TIMEOUT_MS = 30_000
 
@@ -43,6 +47,7 @@ interface FeedOutcome {
   firstRefusal: Record<string, unknown> | null
   heapUsedAtRefusal: number | null
   residentAtRefusal: number | null
+  largestBodyBytes: number
 }
 
 function createRandom(seed: number): () => number {
@@ -105,13 +110,16 @@ async function feedUntilRefused(node: ContainerNode): Promise<FeedOutcome> {
     firstRefusal: null,
     heapUsedAtRefusal: null,
     residentAtRefusal: null,
+    largestBodyBytes: 0,
   }
   let batchesAfterRefusal = 0
   for (let sent = 0; sent < SEND_BUDGET_DOCUMENTS && batchesAfterRefusal < BATCHES_AFTER_REFUSAL; ) {
     const lamps = lampsFrom(sent, BATCH_DOCUMENTS, random)
     sent += BATCH_DOCUMENTS
     if (outcome.firstRefusal !== null) batchesAfterRefusal++
-    const reply = await request(node.base, 'POST', `/indexes/${INDEX_NAME}/documents/_batch`, { documents: lamps })
+    const body = { documents: lamps }
+    outcome.largestBodyBytes = Math.max(outcome.largestBodyBytes, Buffer.byteLength(JSON.stringify(body)))
+    const reply = await request(node.base, 'POST', `/indexes/${INDEX_NAME}/documents/_batch`, body)
     if (reply.status === 429) {
       if (!isServerMemoryRefusal(reply)) {
         expect(errorOf(reply).code, JSON.stringify(reply.body).slice(0, 500)).toBe('CLUSTER_WRITE_BLOCKED')
@@ -134,10 +142,18 @@ async function feedUntilRefused(node: ContainerNode): Promise<FeedOutcome> {
   return outcome
 }
 
+function leastResidentAtRefusal(limitBytes: number, largestBodyBytes: number): number {
+  return (
+    (WRITE_LINE_FRACTION - ALLOCATOR_SLACK_FRACTION) * limitBytes -
+    YOUNG_GENERATION_SEMI_SPACES * SEMI_SPACE_MEGABYTES * MEGABYTE_BYTES -
+    PARSE_BYTES_PER_BODY_BYTE * largestBodyBytes
+  )
+}
+
 async function expectKeptLampsServed(node: ContainerNode, outcome: FeedOutcome): Promise<void> {
   const counted = await request(node.base, 'GET', `/indexes/${INDEX_NAME}/count`)
   expect(counted.body.count).toBe(outcome.kept.size)
-  await expectEveryDocumentReadsBack(node.base, INDEX_NAME, outcome.kept, READ_BACK_DOCUMENTS)
+  await expectEveryDocumentReadsBack(node.base, INDEX_NAME, outcome.kept, READ_BACK_DOCUMENTS, READ_BACK_ATTEMPTS)
   expect(outcome.probes.size).toBeGreaterThan(0)
   for (const [docId, embedding] of outcome.probes) {
     const reply = await request(node.base, 'POST', `/indexes/${INDEX_NAME}/search`, {
@@ -196,7 +212,9 @@ describe('a cluster node whose vectors fill memory outside its heap', () => {
     expect(node.exited(), node.output().slice(-3_000)).toBe(false)
     expect(await node.oomKilled()).toBe(false)
     expect(Number(outcome.heapUsedAtRefusal)).toBeLessThan(MAX_HEAP_FRACTION_AT_REFUSAL * node.heapLimitBytes)
-    expect(Number(outcome.residentAtRefusal)).toBeGreaterThan(MIN_RESIDENT_FRACTION_AT_REFUSAL * containerBytes)
+    expect(Number(outcome.residentAtRefusal)).toBeGreaterThan(
+      leastResidentAtRefusal(containerBytes, outcome.largestBodyBytes),
+    )
     await expectKeptLampsServed(node, outcome)
   }, 300_000)
 

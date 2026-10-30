@@ -41,15 +41,15 @@ function reportOf(figures: MemoryFigures, full: boolean): NodeMemoryReport {
 
 function atOrAboveResume(figures: MemoryFigures, fractions: MemoryFractions): boolean {
   return (
-    fractionOf(figures.processBytes, figures.processLimitBytes) >= fractions.processResume ||
-    fractionOf(figures.heapBytes, figures.heapLimitBytes) >= fractions.heapResume
+    fractionOf(figures.processBytes + figures.youngReserveBytes, figures.processLimitBytes) >=
+      fractions.processResume || fractionOf(figures.heapBytes, figures.heapLimitBytes) >= fractions.heapResume
   )
 }
 
 function nextFullState(wasFull: boolean, figures: MemoryFigures, fractions: MemoryFractions): boolean {
   if (wasFull) return atOrAboveResume(figures, fractions)
   return (
-    fractionOf(figures.processBytes, figures.processLimitBytes) > fractions.processBlock ||
+    fractionOf(figures.processBytes + figures.youngReserveBytes, figures.processLimitBytes) > fractions.processBlock ||
     fractionOf(figures.heapBytes, figures.heapLimitBytes) > fractions.heapBlock
   )
 }

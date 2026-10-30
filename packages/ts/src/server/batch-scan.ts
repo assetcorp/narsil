@@ -1,4 +1,5 @@
-import { closingQuoteOf } from './parse-heap'
+import { BATCH_KIND_SCAN_BYTES } from './constants'
+import { closingQuoteOf, type ParsedBodyKind } from './parse-heap'
 
 const QUOTE = 0x22
 const BACKSLASH = 0x5c
@@ -57,4 +58,39 @@ export function isRemoveOnlyBatch(raw: Uint8Array): boolean {
     }
   }
   return action === REMOVE_ACTION
+}
+
+export function batchBodyKindOf(prefix: Uint8Array): ParsedBodyKind | null {
+  const scanned = prefix.length > BATCH_KIND_SCAN_BYTES ? prefix.subarray(0, BATCH_KIND_SCAN_BYTES) : prefix
+  const start = nextByteAt(scanned, 0)
+  if (start >= scanned.length) return prefix.length > BATCH_KIND_SCAN_BYTES ? 'read' : null
+  if (scanned[start] !== OPEN_OBJECT) return 'write'
+  let depth = 0
+  for (let at = start; at < scanned.length; at++) {
+    const byte = scanned[at]
+    if (byte === OPEN_OBJECT || byte === OPEN_ARRAY) depth++
+    else if (byte === CLOSE_OBJECT || byte === CLOSE_ARRAY) depth--
+    else if (byte === QUOTE) {
+      const close = closingQuoteOf(scanned, at + 1)
+      if (close >= scanned.length) break
+      const afterString = nextByteAt(scanned, close + 1)
+      if (afterString >= scanned.length) break
+      if (depth === 1 && scanned[afterString] === COLON) {
+        const key = plainStringOf(scanned, at, close)
+        if (key === null || !REMOVE_BATCH_KEYS.has(key)) return 'write'
+        if (key === 'action') {
+          const value = nextByteAt(scanned, afterString + 1)
+          if (value >= scanned.length) break
+          if (scanned[value] !== QUOTE) return 'write'
+          const valueClose = closingQuoteOf(scanned, value + 1)
+          if (valueClose >= scanned.length) break
+          return plainStringOf(scanned, value, valueClose) === REMOVE_ACTION ? 'read' : 'write'
+        }
+        at = afterString
+        continue
+      }
+      at = close
+    }
+  }
+  return prefix.length > BATCH_KIND_SCAN_BYTES ? 'read' : null
 }

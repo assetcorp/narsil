@@ -1,5 +1,6 @@
 import { ErrorCodes, NarsilError } from '../errors'
 import { detectRuntime } from '../runtime/detect'
+import { countEngineThread } from '../runtime/engine-threads'
 import { missingWorkerEntry, resolveWorkerEntry } from './entry-point'
 import type { Executor } from './executor'
 import type { WorkerFactory } from './pool'
@@ -42,6 +43,7 @@ export async function createWorkerFactory(entryPoint?: string): Promise<WorkerFa
         resourceLimits: workerResourceLimits(),
         workerData: { workerId },
       })
+      countEngineThread(instance, workerResourceLimits().maxYoungGenerationSizeMb)
       return createWorkerExecutor(instance as unknown as WorkerLike, { onDeath, onGone })
     }
   }

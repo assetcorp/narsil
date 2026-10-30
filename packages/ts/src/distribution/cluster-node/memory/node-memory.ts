@@ -1,8 +1,10 @@
 import { collectAndReturnPages } from '#platform/idle-heap-cleanup'
+import { addBackgroundAdmission } from '../../../runtime/background-memory'
 import {
   collectGarbageBeforeRefusal,
   collectYoungGenerationBeforeRefusal,
   onRefusalAfterCollection,
+  reservedHeapBytes,
 } from '../../../runtime/thread-heap'
 import type { ClusterCoordinator, IndexPartitionBytes, NodeRegistration } from '../../coordinator/types'
 import {
@@ -73,6 +75,7 @@ export function createNodeMemoryReporting(options: NodeMemoryReportingOptions): 
     collections: () => monitor.collections(),
     refusedAfterCollection: figures => monitor.refusedAfterCollection(figures),
     analysisOf: indexName => options.engine.writeAnalysisOf(indexName),
+    vectorGrowthBytesOf: (indexName, documents) => options.engine.vectorGrowthBytesOf(indexName, documents),
   })
 
   const heapLimitBytes = readMemoryFigures()?.heapLimitBytes ?? Number.POSITIVE_INFINITY
@@ -85,6 +88,19 @@ export function createNodeMemoryReporting(options: NodeMemoryReportingOptions): 
   })
 
   let stopHearingRefusals: (() => void) | null = null
+  let stopAdmitting: (() => void) | null = null
+
+  function admitsBackgroundBytes(bytes: number): boolean {
+    const figures = readRecentMemoryFigures()
+    if (figures === null) return true
+    return (
+      bytes <=
+      fractions.processBlock * figures.processLimitBytes -
+        figures.processBytes -
+        figures.youngReserveBytes -
+        reservedHeapBytes()
+    )
+  }
 
   return {
     view,
@@ -93,11 +109,14 @@ export function createNodeMemoryReporting(options: NodeMemoryReportingOptions): 
     async start() {
       monitor.start()
       stopHearingRefusals ??= onRefusalAfterCollection(figures => monitor.refusedAfterCollection(figures))
+      stopAdmitting ??= addBackgroundAdmission(admitsBackgroundBytes)
       await view.start()
     },
     stop() {
       stopHearingRefusals?.()
       stopHearingRefusals = null
+      stopAdmitting?.()
+      stopAdmitting = null
       monitor.stop()
       view.stop()
     },

@@ -91,6 +91,7 @@ export interface ClusterMetrics {
     coordinatorRequests: CoordinatorRequestFigure[];
     partitions: PartitionReplicationFigure[];
     replicationLag: ReplicaLagFigure[];
+    vectorRebuildsWaitingForMemory: VectorRebuildWaitFigure[];
 }
 
 // @public
@@ -362,6 +363,12 @@ export interface TransportMessage {
 
 // @public
 export type UnassignedReason = 'HOLDER_OFFLINE' | 'HOLDER_UNREACHABLE' | 'HOLDER_IDENTITY_MISMATCH' | 'HOLDER_WITHOUT_DATA';
+
+// @public
+export interface VectorRebuildWaitFigure {
+    fieldName: string;
+    indexName: string;
+}
 
 // (No @packageDocumentation comment for this package)
 

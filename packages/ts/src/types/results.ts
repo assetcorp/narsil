@@ -331,6 +331,11 @@ export interface VectorMaintenanceResult {
   bufferSize: number
   /** This stays true while a graph build runs. */
   building: boolean
+  /**
+   * This turns true while a rebuild that keeps recall up waits for the node to have
+   * room for a second graph beside the one it serves, and false once it starts.
+   */
+  waitingForMemory: boolean
   /** {@link Narsil.compactVectors} would take about this many milliseconds. */
   estimatedCompactMs: number
   /** {@link Narsil.optimizeVectors} would take about this many milliseconds. */
