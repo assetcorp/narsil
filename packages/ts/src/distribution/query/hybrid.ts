@@ -82,7 +82,7 @@ function pageFixedDepth(
     start,
     limit: page.limit,
     pinnedIds: placedIds,
-    binding: page.binding,
+    binding: () => page.binding,
     encodeCursor: encodePageCursor,
   })
   return { page: paged.page.map(hit => hit.entry), cursor: paged.cursor ?? null }

@@ -7,7 +7,7 @@ import { ErrorCodes, NarsilError } from '../../errors'
 import type { PartitionManager } from '../../partitioning/manager'
 import { withRerankQueryText } from '../../rerank/query-text'
 import { extractVectorFieldsFromSchema } from '../../schema/validator'
-import { queryBindingOf } from '../../search/cursor-binding'
+import { lazyQueryBinding } from '../../search/cursor-binding'
 import type { ListResult, PreflightResult, QueryResult, SuggestResult } from '../../types/results'
 import type { AnyDocument } from '../../types/schema'
 import type { ListParams, QueryParams, SuggestParams } from '../../types/search'
@@ -134,15 +134,16 @@ export function createThreadReadEngine(options: ThreadReadEngineOptions): Thread
   ): Promise<QueryResult<T>> {
     const resolved = await resolvedParams(indexName, params)
     const context = requireAnswerable(indexName, answerableContext(indexName, params))
+    const clock = moveAfter === undefined ? undefined : moveClock(moveAfter)
     const result = await executeQuery<T>(resolved, {
       manager: managerOf(indexName, context),
       language: context.language,
       config: context.config,
       indexName,
-      cursorBinding: queryBindingOf(params),
+      cursorBinding: lazyQueryBinding(params, clock),
       vectorSearchers: context.vectorSearchers,
       patternWorkCap,
-      clock: moveAfter === undefined ? undefined : moveClock(moveAfter),
+      clock,
       rerank: rerankRunnerFor(params),
     })
     if (context.analysisStale) result.analysisStale = true
@@ -156,15 +157,16 @@ export function createThreadReadEngine(options: ThreadReadEngineOptions): Thread
   ): Promise<PreflightResult> {
     const resolved = await resolvedParams(indexName, params)
     const context = requireAnswerable(indexName, searchableContext(indexName, params))
+    const clock = moveAfter === undefined ? undefined : moveClock(moveAfter)
     const result = await executePreflight(resolved, {
       manager: context.manager,
       language: context.language,
       config: context.config,
       indexName,
-      cursorBinding: queryBindingOf(params),
+      cursorBinding: lazyQueryBinding(params, clock),
       vectorSearchers: context.vectorSearchers,
       patternWorkCap,
-      clock: moveAfter === undefined ? undefined : moveClock(moveAfter),
+      clock,
     })
     if (context.analysisStale) result.analysisStale = true
     return result

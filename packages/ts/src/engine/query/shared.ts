@@ -9,6 +9,7 @@ import type { FanOutConfig, FanOutResult } from '../../partitioning/fan-out'
 import type { PartitionManager } from '../../partitioning/manager'
 import { partitionsIn } from '../../partitioning/partition-selection'
 import { flattenSchema } from '../../schema/validator'
+import type { CursorBinding } from '../../search/cursor-binding'
 import type { FulltextSearchOptions } from '../../search/fulltext'
 import { requireUsableQueryFields } from '../../search/query-fields'
 import { requireSortableFields } from '../../search/sorting'
@@ -41,7 +42,7 @@ export interface QueryContext {
   broadcastStats?: (indexName: string) => GlobalStatistics | undefined
   partitionIds?: number[]
   rescoreWindow?: number
-  cursorBinding: string
+  cursorBinding: CursorBinding
   /** The vector fields a search runs against where they are not the manager's own indexes, as on a request thread. */
   vectorSearchers?: ReadonlyMap<string, VectorSearcher>
   patternWorkCap?: number

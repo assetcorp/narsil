@@ -55,7 +55,7 @@ export function executeSortedQueryPage<T = AnyDocument>(
   let anchorId: string | null = null
   if (params.searchAfter !== undefined) {
     const decoded = decodePageCursor(params.searchAfter)
-    requireMatchingCursor(decoded, params.searchAfter, sortSignature, true, context.cursorBinding)
+    requireMatchingCursor(decoded, params.searchAfter, sortSignature, true, context.cursorBinding())
     anchorKey = decoded.sortKey
     anchorId = decoded.anchor
   }
@@ -122,7 +122,7 @@ export function executeSortedQueryPage<T = AnyDocument>(
       score: null,
       sortKey: last.key,
       sortSignature,
-      binding: context.cursorBinding,
+      binding: context.cursorBinding(),
     })
   }
 
