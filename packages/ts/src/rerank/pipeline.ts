@@ -2,6 +2,7 @@ import type { ResolvedProjection } from '../core/projection'
 import { DEFAULT_LIMIT, DEFAULT_OFFSET } from '../engine/constants'
 import { ErrorCodes, NarsilError } from '../errors'
 import { RESULT_WINDOW } from '../search/constants'
+import type { CursorBinding } from '../search/cursor-binding'
 import { fixedHybridDepthOf, requireWithinHybridDepth } from '../search/hybrid-depth'
 import { pageByPosition } from '../search/position-page'
 import type { GroupResult, Hit, QueryResult } from '../types/results'
@@ -14,7 +15,7 @@ export interface RerankedQueryIo<T> {
   host: RuntimeHost
   schema: SchemaDefinition
   maxWindow: number
-  binding: string
+  binding: CursorBinding
   clampsPins: boolean
   fusesRankings(request: QueryParams): boolean
   firstStage(params: QueryParams): Promise<QueryResult<T>>
@@ -25,9 +26,9 @@ export interface RerankedQueryIo<T> {
   highlight?(page: Array<Hit<T>>, projection: ResolvedProjection): void
 }
 
-function rerankCursorDepth(cursor: string, binding: string, host: RuntimeHost): number {
+function rerankCursorDepth(cursor: string, binding: CursorBinding, host: RuntimeHost): number {
   const decoded = host.decodePageCursor(cursor)
-  host.requireMatchingCursor(decoded, cursor, null, true, binding)
+  host.requireMatchingCursor(decoded, cursor, null, true, binding())
   return decoded.depth ?? 0
 }
 

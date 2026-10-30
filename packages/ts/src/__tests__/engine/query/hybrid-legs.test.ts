@@ -66,7 +66,7 @@ describe('hybrid query legs', () => {
       language: entry.language,
       config: entry.config,
       indexName: INDEX_NAME,
-      cursorBinding: '',
+      cursorBinding: () => '',
       workerSearch: async () => {
         vectorInFlightDuringText = vectorStarted && !vectorFinished
         releaseVector()
