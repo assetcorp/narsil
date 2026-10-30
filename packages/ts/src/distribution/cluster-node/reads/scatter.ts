@@ -1,11 +1,11 @@
 import { decode } from '@msgpack/msgpack'
 import { ErrorCodes, NarsilError } from '../../../errors'
 import type { AllocationTable } from '../../coordinator/types'
-import { nodeRejectionOf, sendToEveryPartition } from '../../query/failover'
+import { sendToEveryPartition } from '../../query/failover'
 import { randomSelector, selectReplicasForQuery } from '../../query/selection'
 import type { TransportMessage } from '../../transport/types'
 import type { ClusterLocalEngine } from '../local-engine'
-import { sendToNode } from '../node-messaging'
+import { readRejectionOf, refuseDecodeWithoutRoom, sendToNode } from '../node-messaging'
 import type { ClusterNodeConfig } from '../types'
 
 export interface ClusterReadDeps {
@@ -49,8 +49,11 @@ export async function gatherFromEveryPartition<T>(
  * @param message - The request to send.
  * @param indexName - The index being read, which names the error.
  * @param validate - Reads the answer out of the decoded payload.
+ * @param boundDecode - Refuses the answer before decoding it where decoding it would leave this node without room in
+ * memory, for an answer that can hold many documents.
  * @returns The validated answer.
- * @throws A {@link NarsilError} where the node could not be reached, timed out, or refused the request.
+ * @throws A {@link NarsilError} where the node could not be reached, timed out, or refused the request, or where this
+ * node has no room in memory to decode the answer.
  */
 export async function sendReadRequest<T>(
   deps: ClusterReadDeps,
@@ -58,24 +61,16 @@ export async function sendReadRequest<T>(
   message: TransportMessage,
   indexName: string,
   validate: (decoded: unknown) => T,
+  boundDecode = false,
 ): Promise<T> {
   const response = await sendToNode(deps.config, targetNodeId, message, {
     message: `Node '${targetNodeId}' did not answer a read request for index '${indexName}'`,
     details: { indexName },
   })
+  if (boundDecode) refuseDecodeWithoutRoom(response.payload)
   const decoded = decode(response.payload) as Record<string, unknown>
   if (response.type.endsWith('.error') || response.type === 'error' || decoded.error === true) {
-    const details = { indexName, targetNodeId }
-    throw (
-      nodeRejectionOf(decoded.code, decoded.message, details) ??
-      new NarsilError(
-        typeof decoded.code === 'string' ? decoded.code : ErrorCodes.QUERY_ROUTING_FAILED,
-        typeof decoded.message === 'string'
-          ? decoded.message
-          : `Node '${targetNodeId}' rejected a read request for index '${indexName}'`,
-        details,
-      )
-    )
+    throw readRejectionOf(decoded, targetNodeId, indexName)
   }
   return validate(decoded)
 }
