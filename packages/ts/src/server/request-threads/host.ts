@@ -10,7 +10,11 @@ import { rerankOnHost } from '../../rerank/call'
 import type { Executor } from '../../workers/executor'
 import { clearBodyBudgetSlot } from '../body-budget'
 import { clearGateSlot, gateSlotOfWorker } from '../concurrency-gate'
-import { INDEX_TOUCH_INTERVALS_PER_IDLE_TIMEOUT, MAX_INDEX_TOUCH_INTERVAL_MS } from '../constants'
+import {
+  INDEX_TOUCH_INTERVALS_PER_IDLE_TIMEOUT,
+  MAX_INDEX_TOUCH_INTERVAL_MS,
+  REQUEST_THREAD_CLOSE_AT_EXIT_MS,
+} from '../constants'
 import type { ResolvedCors } from '../cors'
 import type { ResolvedBuild, ResolvedLimits } from '../deps'
 import { ServerErrorCodes, toHttpError } from '../errors'
@@ -20,6 +24,7 @@ import type { ServerHandlers } from '../routes'
 import type { SpooledBody } from '../spool'
 import { type AcceptorApp, acceptorOf } from './acceptor'
 import { type CapturingResponse, createCapturingResponse, toRelayedResponse } from './captured-response'
+import { closeEveryThreadAtExit, createCloseAtExitWords } from './close-at-exit'
 import { confirmDeparture, createDepartureWord, departureConfirmed } from './departure'
 import type {
   AuthorizeRequest,
@@ -55,6 +60,7 @@ interface ServingThread {
   port: MessagePort
   executor: Executor
   departure: Int32Array<SharedArrayBuffer>
+  closeAtExit: Int32Array<SharedArrayBuffer>
 }
 
 const RELAYED_TYPES: ReadonlySet<string> = new Set([
@@ -176,9 +182,15 @@ export async function startRequestThreads(options: RequestThreadHostOptions): Pr
   const searchHooks = core.pluginRegistry.hasHooks('beforeSearch') || core.pluginRegistry.hasHooks('afterSearch')
   const touchIntervalMs = touchIntervalFor(core.orchestrator.copyIdleTimeoutMs())
   const threads = new Map<number, ServingThread>()
+  const closeAtExit = new Set<Int32Array<SharedArrayBuffer>>()
   let stopped = false
 
+  function closeThreadsAtExit(): void {
+    closeEveryThreadAtExit(closeAtExit, REQUEST_THREAD_CLOSE_AT_EXIT_MS)
+  }
+
   function releaseDescriptor(thread: ServingThread): void {
+    closeAtExit.delete(thread.closeAtExit)
     if (thread.descriptor !== null) {
       try {
         acceptor.removeChildAppDescriptor(thread.descriptor)
@@ -239,8 +251,10 @@ export async function startRequestThreads(options: RequestThreadHostOptions): Pr
         port: channel.port2,
         executor,
         departure: createDepartureWord(),
+        closeAtExit: createCloseAtExitWords(),
       }
       relayFrom(thread)
+      closeAtExit.add(thread.closeAtExit)
       let result: ServeRequestsResult
       try {
         result = await executor.execute<ServeRequestsResult>(
@@ -250,6 +264,7 @@ export async function startRequestThreads(options: RequestThreadHostOptions): Pr
             settings: {
               port: channel.port1,
               departure: thread.departure.buffer,
+              closeAtExit: thread.closeAtExit.buffer,
               gate: options.gate,
               gateSlot: gateSlotOfWorker(workerId),
               maxConcurrentRequests: options.limits.maxConcurrentRequests,
@@ -268,6 +283,7 @@ export async function startRequestThreads(options: RequestThreadHostOptions): Pr
           [channel.port1],
         )
       } catch (err) {
+        closeAtExit.delete(thread.closeAtExit)
         channel.port2.close()
         console.warn(`Worker ${workerId} could not start taking requests:`, err)
         return
@@ -291,6 +307,7 @@ export async function startRequestThreads(options: RequestThreadHostOptions): Pr
     },
   }
 
+  process.on('exit', closeThreadsAtExit)
   await core.orchestrator.serveRequestsOnWorkers(listener)
   return {
     get threadCount() {
@@ -298,6 +315,7 @@ export async function startRequestThreads(options: RequestThreadHostOptions): Pr
     },
     async stop(): Promise<void> {
       stopped = true
+      process.off('exit', closeThreadsAtExit)
       core.orchestrator.stopRequestThreads()
       const stopping = [...threads.entries()].map(([workerId, thread]) => {
         threads.delete(workerId)

@@ -95,6 +95,7 @@ export interface SharedGraphHandles {
     incoming: GrowableBuffer;
     level0: GrowableBuffer;
     locks: GrowableBuffer;
+    nearestLinkDue: GrowableBuffer;
     nodeLevels: GrowableBuffer;
     tombstones: GrowableBuffer;
     upper: GrowableBuffer;
