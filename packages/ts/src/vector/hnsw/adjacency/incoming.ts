@@ -12,6 +12,7 @@ export function noteLinked(adj: Adjacency, ord: number): void {
 
 export function noteUnlinked(adj: Adjacency, ord: number): number {
   if (ord < 0 || !reachNode(adj, ord)) return 0
+  Atomics.store(adj.nearestLinkDue, ord, 1)
   for (;;) {
     const seen = Atomics.load(adj.incoming, ord)
     if (seen <= 0) return 0
@@ -24,7 +25,9 @@ export function releaseUnlessLast(adj: Adjacency, ord: number): boolean {
   for (;;) {
     const seen = Atomics.load(adj.incoming, ord)
     if (seen <= 1) return false
-    if (Atomics.compareExchange(adj.incoming, ord, seen, seen - 1) === seen) return true
+    if (Atomics.compareExchange(adj.incoming, ord, seen, seen - 1) !== seen) continue
+    Atomics.store(adj.nearestLinkDue, ord, 1)
+    return true
   }
 }
 
