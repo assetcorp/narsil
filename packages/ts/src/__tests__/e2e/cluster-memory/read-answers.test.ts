@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { setTimeout as sleep } from 'node:timers/promises'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { createNarsilClient, isNarsilError, type NarsilClient } from '../../../client'
 import {
@@ -26,7 +27,9 @@ const MEMORY_REFUSAL_REASONS = ['response_would_fill_memory', 'parse_would_fill_
 const NOTES_INDEX = 'notes'
 const SMALL_NOTES = 64
 const LARGE_NOTE_CHARACTERS = 4 * 1024 * 1024
-const BALLAST_RESIDENT_FRACTION = 0.945
+const BALLAST_HEAP_FRACTION = 0.89
+const BALLAST_HOLD_BEFORE_READ_MS = 1_000
+const CUT_LOG_TIMEOUT_MS = 5_000
 const RECOVERY_TIMEOUT_MS = 30_000
 
 interface ReadOutcomes {
@@ -246,7 +249,8 @@ describe('a cluster node in a container that answers reads larger than its free 
     expect(inserted.body.succeeded).toEqual([largeNote.id])
     const docIds = [...notes.map(note => note.id), largeNote.id]
 
-    await holdBallast(started, String(BALLAST_RESIDENT_FRACTION))
+    await holdBallast(started, String(BALLAST_HEAP_FRACTION))
+    await sleep(BALLAST_HOLD_BEFORE_READ_MS)
     const client = createNarsilClient({ url: started.base, timeoutMs: REQUEST_TIMEOUT_MS })
     const outcome = await client.getMultiple(NOTES_INDEX, docIds).then(
       found => found.size,
@@ -255,7 +259,9 @@ describe('a cluster node in a container that answers reads larger than its free 
     expect(isNarsilError(outcome), `the read ended with ${String(outcome)}`).toBe(true)
     if (!isNarsilError(outcome)) return
     expect(outcome.code, outcome.message).toBe('CLIENT_CONNECTION_FAILED')
-    expect(started.output(), outcome.message).toContain('closed the connection part way through its answer')
+    await waitFor('the node to log the cut answer', CUT_LOG_TIMEOUT_MS, async () =>
+      started.output().includes('closed the connection part way through its answer'),
+    )
 
     await holdBallast(started, 'release')
     const outcomes: ReadOutcomes = { answered: 0, refused: [], cut: 0 }
