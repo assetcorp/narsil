@@ -217,6 +217,12 @@ PartitionCheckpoint {
   partitionId: uint32
   lastSeqNo:   uint64   (the highest seqNo that the checkpoint holds)
   primaryTerm: uint64
+  termHistory: List<TermStart> or absent   (a cluster partition copy's term history, in ascending order)
+}
+
+TermStart {
+  primaryTerm: uint64
+  firstSeqNo:  uint64   (the first seqNo that the copy holds under primaryTerm)
 }
 
 PartitionManifestEntry {
@@ -259,6 +265,8 @@ FileRef {
 ```
 
 `checkpoint` records, for each partition, the highest `seqNo` that the checkpoint holds, so recovery must replay each partition's log from its `lastSeqNo + 1`.
+
+`termHistory` records the [term history](distribution/replication.md#term-history) of a cluster partition copy up to `lastSeqNo`, and recovery extends it with the terms of the records that it replays. A writer must leave `termHistory` out for a standalone index. A reader must raise `PERSISTENCE_LOAD_FAILED` where the terms or the first seqNos of `termHistory` fail to ascend strictly, or where a first seqNo lies above `lastSeqNo`. A reader that finds no `termHistory` for a cluster partition copy starts the copy's history from the records that it replays, so that the history covers no `seqNo` at or below `lastSeqNo`.
 
 A reader must raise `PERSISTENCE_LOAD_FAILED` for a listed key that differs from the key that [Storage Path Convention](envelope.md#storage-path-convention) builds for the entry, where a graph part's number is its position in `graphParts`. A reader must compare a file's length with `bytes` before it reads the file, and it must raise the same error for a file whose length or header checksum differs from the manifest, so that it loads no file other than the one that the checkpoint wrote.
 
@@ -399,7 +407,7 @@ A writer must write each entry as a regular file. Where the ustar `name` and `pr
 
 A node with write-ahead log durability must take a checkpoint before it writes the archive of an index, and the archive must hold that checkpoint. The node must keep every file of that checkpoint until it finishes writing the archive or the caller abandons the archive, even after a later checkpoint stops listing those files. A node without write-ahead log durability, and a node that writes the archive of one partition, must build the archive's files from the index in memory while it applies no mutation to the content that the archive holds.
 
-The archive of one partition must hold a manifest that lists that partition alone and no graph part, and vector files that hold the vectors of that partition's documents alone.
+The archive of one partition must hold a manifest that lists that partition alone and no graph part, and vector files that hold the vectors of that partition's documents alone. Where a cluster partition copy writes the archive for a sync, the manifest must carry the copy's `termHistory`, and the segments must carry each document's write record, so that the replica that applies the archive can decide a [retry after an ended term](distribution/replication.md#retry-after-an-ended-term) once it becomes the primary.
 
 A node that restores an archive into durable storage must write every other file before it writes the manifest, so that a crash during the restore leaves no manifest that lists a missing file. It must number the first write to each partition after the restore one above the `lastSeqNo` that the manifest records for that partition, because recovery replays only the log records above that number. Every node that restores an archive must decode every document before it serves the index, as the [keyword segment payload](envelope.md#keyword-segment-payload) requires. A replica that applies the archive of a partition must replace its copy of that partition with the archive's segments, must remove from each vector field the vectors of the documents that its copy held, and must insert every vector that the archive holds.
 

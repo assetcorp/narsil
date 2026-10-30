@@ -73,7 +73,21 @@ A primary answers the client with a definite refusal only once the rollback is c
 
 While a rollback is incomplete, the partition takes no new writes. The primary keeps the partition's write queue held, and it retries the rollback with backoff, giving each try at most `replicationTimeout`, so that no later write is ordered after an entry whose outcome is still open. Writes to other partitions carry on.
 
-A client that receives `REPLICATION_OUTCOME_UNKNOWN` cannot tell whether the write took effect, so it should read the document before it retries. A node that forwarded the write must not retry it on the client's behalf, except where the primary abandoned the write because its term ended; the node may then send it to the new primary and settle the outcome against the copy that the new primary holds.
+A client that receives `REPLICATION_OUTCOME_UNKNOWN` cannot tell whether the write took effect, so it should read the document before it retries. A node that forwarded the write must not retry it on the client's behalf, except where the primary abandoned the write because its term ended. The node may then send an insert to the new primary and settle the outcome against the copy that the new primary holds, and it may send an update or a remove again as [Retry After an Ended Term](#retry-after-an-ended-term) defines.
+
+### Retry After an Ended Term
+
+A primary that answers `REPLICATION_OUTCOME_UNKNOWN` with the reason `term_ended` for an update or a remove must tell the node that forwarded the write which entries it appended, through the `abandonedWrite` of its reply; see [transport.md](transport.md#replicationforward). The failed entry E is the entry whose `seqNo` and `primaryTerm` `abandonedWrite` carries, and its compensating entry C is the entry whose `seqNo` `compensationSeqNo` carries. C shares E's `primaryTerm`. `previousSeqNo` and `previousPrimaryTerm` give the document's [write record](#document-write-record) from before E. The primary must leave `abandonedWrite` out where the document held no write record before E.
+
+Once the allocation table names a newer primary for the partition, the forwarding node may send the update or the remove to that primary again, carrying the numbers from `abandonedWrite` as its condition. The new primary decides the resend inside the partition's write queue, so that no other write to the partition comes between its check and its apply:
+
+1. Where it holds E but not C, it acknowledges the write without applying it again, because its copy holds the write.
+2. Where it holds both E and C and the document's write record equals C, or holds neither and the record equals the previous record, it applies the write, because no other write has touched the document since the old primary's attempt.
+3. Otherwise it refuses with `REPLICATION_WRITE_CONFLICT`, because another write has touched the document since that attempt.
+
+A copy holds the entry numbered `s` under term `t` where `s` is at or below the highest `seqNo` that the copy holds and its [term history](#term-history) gives term `t` for `s`. The new primary decides from its term history and from that highest `seqNo` alone, and it never scans its log, because a log that a restart reopened retains no entry below its persisted position. Holding C implies holding E, because C follows E in the same term. Where the term history no longer covers E's `seqNo`, or where the document holds no write record, the new primary answers `REPLICATION_OUTCOME_UNKNOWN`.
+
+A forwarding node uses `abandonedWrite` for this resend alone, and it must never pass `abandonedWrite` to the client. Where a reply carries no `abandonedWrite`, the forwarding node passes `REPLICATION_OUTCOME_UNKNOWN` to the client.
 
 ### Read Path
 
@@ -141,6 +155,20 @@ and computes CRC32 with the IEEE polynomial over the resulting bytes. The positi
 This logical checksum differs from the write-ahead log frame checksum in [Record Frame](../durability.md#record-frame). The frame checksum covers the framed payload bytes on disk, and this one covers the seven content fields and travels with the entry between nodes.
 
 Adding, removing, or reordering a content field changes these bytes and the checksum, so it is a breaking format change that must raise the log framing version instead of altering the layout in place. A replica verifies the checksum before it applies an entry, and recovery recomputes it while reading a segment. A mismatch means corruption and must be reported as an error; recovery raises `PERSISTENCE_WAL_CORRUPT`.
+
+### Document Write Record
+
+Every copy of a cluster partition, the primary and each replica alike, keeps for each document that it holds the `seqNo` and `primaryTerm` of the entry that last wrote the document, which is the document's write record. A copy sets the record whenever it applies an `INDEX` entry, whether it appended the entry as the primary, received it as a replica, applied it during a [sync](#sync-protocol), or replayed it from its write-ahead log, and it drops the record together with the document when it applies a `DELETE` entry. A copy that loads a [keyword segment](../envelope.md#keyword-segment-payload), from its own checkpoint or from a snapshot that a sync sends, takes each document's record from that segment, and a document that the segment stores with no record holds none until an entry writes it again.
+
+A standalone index, which runs outside a cluster, keeps no write record, and it writes none to the segments that it saves.
+
+### Term History
+
+Every copy of a cluster partition keeps a term history, which lists, for each primary term under which the copy holds entries, that term together with the first `seqNo` that the copy holds under it, in ascending order. The history gives the entry numbered `s` the term of the last listed term whose first `seqNo` is at or below `s`.
+
+A copy appends to its history when it applies an entry of a term above the last listed term. A copy that discards its entries above `s`, as a replica does when it resyncs with a new primary, must drop every listed term whose first `seqNo` is above `s`. A copy that restores a snapshot replaces its history with the history that the snapshot carries. The [manifest](../durability.md#manifest) persists the history, and recovery extends it from the records that it replays.
+
+A copy may drop a listed term once the term after it starts at or below both the oldest `seqNo` that its replication log retains and the `lastSeqNo` of its checkpoint, so that the history stays as long as the failovers that the retained log and the checkpoint span. The history then covers no `seqNo` below the first listed term's first `seqNo`, and a [retry after an ended term](#retry-after-an-ended-term) that asks about such an entry receives `REPLICATION_OUTCOME_UNKNOWN`.
 
 ---
 
@@ -441,6 +469,7 @@ Only a primary needs access to the embedding adapter, so a replica runs with no 
 | `REPLICATION_SYNC_FAILED` | The sync protocol, incremental or snapshot, failed to finish. |
 | `REPLICATION_ROLLBACK_FAILED` | A primary-local mutation failed before acknowledgement and the rollback failed too. |
 | `REPLICATION_OUTCOME_UNKNOWN` | A write failed after the primary applied it, and the primary could not confirm within `replicationTimeout` that every in-sync copy dropped it, so the write may or may not have taken effect. Its details carry `reason`, which is `term_ended` where the primary abandoned the write because its term ended, `rollback_open` where the rollback was still incomplete, and `lease_lapsed` where the primary's registration lease lapsed before it acknowledged a write that it had applied. |
+| `REPLICATION_WRITE_CONFLICT` | A new primary refused an update or a remove that a node sent again after the earlier primary's term ended, because another write touched the document after the earlier primary's attempt, as [Retry After an Ended Term](#retry-after-an-ended-term) defines. The write did not take effect. |
 | `REPLICATION_ENTRY_INVALID` | A received entry is malformed, out of order, or not addressed to the receiving replica. |
 | `REPLICATION_INSYNC_REMOVAL_FAILED` | The primary could not remove a failed replica from the in-sync set while it still held its term, because no controller was reachable or the controller rejected the request. A primary whose term has moved reports `PARTITION_NOT_PRIMARY` instead. |
 | `PARTITION_NOT_PRIMARY` | A write reached a node that is not the primary for the target partition. |

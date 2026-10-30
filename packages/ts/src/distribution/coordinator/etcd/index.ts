@@ -10,7 +10,13 @@ import type {
   PartitionState,
   RegistrationLease,
 } from '../types'
-import { ETCD_CALL_TIMEOUT_MS, ETCD_MAX_RESPONSE_BYTES } from './constants'
+import {
+  ETCD_CALL_TIMEOUT_MS,
+  ETCD_KEEPALIVE_TIME_MS,
+  ETCD_KEEPALIVE_TIMEOUT_MS,
+  ETCD_MAX_RESPONSE_BYTES,
+} from './constants'
+import { createEndpointBreaker } from './endpoint-breaker'
 import { coordinatorKeys, extractSuffix } from './keys'
 import { leaseHeldFor, recordLeaseRenewal } from './lease-validity'
 import { LeaseManager } from './leases'
@@ -24,6 +30,7 @@ import { probeEtcd } from './start-probe'
 import { storedValueMethods } from './stored-values'
 import { DEFAULT_ETCD_CONFIG, type EtcdCoordinatorConfig } from './types'
 import { validateNodeId, validatePartitionState } from './validation'
+import { createReplaceableWatchClient } from './watch-client'
 
 export type { EtcdAuthConfig, EtcdCoordinatorConfig, EtcdTlsConfig } from './types'
 export { validateNodeId } from './validation'
@@ -67,12 +74,19 @@ export async function createEtcdCoordinator(config?: Partial<EtcdCoordinatorConf
   requireEtcdMaxRequestBytes(resolvedConfig.maxRequestBytes)
   const securityOptions = etcdSecurityOptions(resolvedConfig)
   const etcd3Module = await loadEtcd3Module()
-  const client: Etcd3Client = new etcd3Module.Etcd3({
-    hosts: resolvedConfig.endpoints,
-    grpcOptions: { 'grpc.max_receive_message_length': ETCD_MAX_RESPONSE_BYTES },
-    defaultCallOptions: context => (context.isStream ? {} : { deadline: Date.now() + ETCD_CALL_TIMEOUT_MS }),
-    ...securityOptions,
-  })
+  const openClient = (): Etcd3Client =>
+    new etcd3Module.Etcd3({
+      hosts: resolvedConfig.endpoints,
+      grpcOptions: {
+        'grpc.max_receive_message_length': ETCD_MAX_RESPONSE_BYTES,
+        'grpc.keepalive_time_ms': ETCD_KEEPALIVE_TIME_MS,
+        'grpc.keepalive_timeout_ms': ETCD_KEEPALIVE_TIMEOUT_MS,
+      },
+      defaultCallOptions: context => (context.isStream ? {} : { deadline: Date.now() + ETCD_CALL_TIMEOUT_MS }),
+      faultHandling: { host: endpoint => createEndpointBreaker(endpoint, etcd3Module.isRecoverableError) },
+      ...securityOptions,
+    })
+  const client = openClient()
   const keys = coordinatorKeys(resolvedConfig)
   try {
     await probeEtcd(client, etcd3Module, keys.nodePrefix(), resolvedConfig.endpoints)
@@ -106,7 +120,8 @@ export async function createEtcdCoordinator(config?: Partial<EtcdCoordinatorConf
     watchers.delete(watcher)
   }
 
-  const watchContext = { client, addWatcher, removeWatcher, isShutdown: () => isShutdown }
+  const watchClient = createReplaceableWatchClient(openClient)
+  const watchContext = { client, watchClient, addWatcher, removeWatcher, isShutdown: () => isShutdown }
 
   const coordinator: ClusterCoordinator = {
     async registerNode(registration: NodeRegistration): Promise<void> {
@@ -368,6 +383,7 @@ export async function createEtcdCoordinator(config?: Partial<EtcdCoordinatorConf
 
       await leaseManager.revokeAll()
 
+      watchClient.close()
       client.close()
     },
   }

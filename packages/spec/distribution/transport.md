@@ -76,10 +76,13 @@ A node whose handler fails a request must answer with a message whose `type` is 
   code:    string                        (the NarsilError code)
   message: string
   details: Map<string, value> or absent  (the NarsilError details)
+  abandonedWrite: AbandonedWrite or absent   (on a replication.forward refusal alone; see replication.forward)
 }
 ```
 
-When a primary refuses a forwarded mutation, the node that forwarded it must pass the primary's `code`, `message`, and `details` to the client, except that it first retries a `PARTITION_NOT_PRIMARY` refusal for up to 30,000 ms. Where the refusal's details carry `heldIndexUuid`, the receiver still holds an earlier index of that name, so the forwarding node retries after a delay that starts at 50 ms and doubles up to 1,000 ms, and it reads the allocation table again before each attempt. Otherwise it retries once the allocation table names another primary or a higher `primaryTerm` for the partition. It passes the last refusal to the client when the window ends, and it retries each refused result of a batch in the same way. It retries a forward that the transport failed with `TRANSPORT_CONNECT_FAILED` or `TRANSPORT_PEER_UNAVAILABLE` within the same 30,000 ms and after the same delays, and it reads the allocation table again before each attempt, so that the forward reaches a primary that the controller promoted in the meantime. A retried insert that finds the document stored with the fields it sent succeeds, and so does a retried remove that finds the document absent, because the earlier attempt may have applied. It does not retry a forward that failed with `TRANSPORT_TIMEOUT`, because the primary may still apply it.
+A primary sets `abandonedWrite` on a `replication.forward.error` where `code` is `REPLICATION_OUTCOME_UNKNOWN` with the reason `term_ended` for an update or a remove whose document held a write record. The forwarding node uses `abandonedWrite` to send the write again with its condition fields, as [Retry After an Ended Term](replication.md#retry-after-an-ended-term) defines, and it must never pass `abandonedWrite` to the client.
+
+When a primary refuses a forwarded mutation, the node that forwarded it must pass the primary's `code`, `message`, and `details` to the client, except that it first retries a `PARTITION_NOT_PRIMARY` refusal for up to 30,000 ms. Where the refusal's details carry `heldIndexUuid`, the receiver still holds an earlier index of that name, so the forwarding node retries after a delay that starts at 50 ms and doubles up to 1,000 ms, and it reads the allocation table again before each attempt. Otherwise it retries once the allocation table names another primary or a higher `primaryTerm` for the partition. It passes the last refusal to the client when the window ends, and it retries each refused result of a batch in the same way. It retries a forward that the transport failed with `TRANSPORT_CONNECT_FAILED` or `TRANSPORT_PEER_UNAVAILABLE` within the same 30,000 ms and after the same delays, and it reads the allocation table again before each attempt, so that the forward reaches a primary that the controller promoted in the meantime. A retried insert that finds the document stored with the fields it sent succeeds, and so does a retried remove that finds the document absent, because the earlier attempt may have applied. It does not retry a forward that failed with `TRANSPORT_TIMEOUT`, because the primary may still apply it. It retries a `REPLICATION_OUTCOME_UNKNOWN` refusal whose reason is `term_ended` within the same 30,000 ms, once the allocation table names another primary or a higher `primaryTerm` for the partition: an insert as above, and an update or a remove with the condition fields of [replication.forward](#replicationforward) where the refusal carries `abandonedWrite`. It passes any other `REPLICATION_OUTCOME_UNKNOWN` refusal to the client.
 
 ### Replication Messages
 
@@ -152,8 +155,23 @@ A client mutation forwarded to the partition's primary. The primary turns it int
   document:     bytes or absent               (the full MessagePack document, for insert and update)
   updateFields: Map<string, value> or absent  (the changed fields alone, for update)
   indexUuid:    string or absent              (the identity of the index that the sender's allocation table names)
+  ifSeqNo:              uint64 or absent   (the write record that the document must hold, with ifPrimaryTerm)
+  ifPrimaryTerm:        uint64 or absent
+  abandonedSeqNo:       uint64 or absent   (the failed entry that the earlier primary appended)
+  abandonedPrimaryTerm: uint64 or absent   (the term of that entry and of its compensating entry)
+  compensationSeqNo:    uint64 or absent   (the compensating entry that the earlier primary appended)
+}
+
+AbandonedWrite {
+  seqNo:               uint64   (the failed entry)
+  primaryTerm:         uint64   (the term of the failed entry and of its compensating entry)
+  compensationSeqNo:   uint64   (the compensating entry)
+  previousSeqNo:       uint64   (the document's write record from before the failed entry)
+  previousPrimaryTerm: uint64
 }
 ```
+
+The five condition fields, `ifSeqNo`, `ifPrimaryTerm`, `abandonedSeqNo`, `abandonedPrimaryTerm`, and `compensationSeqNo`, travel together or not at all. A sender sets them only on an `update` or a `remove` that it sends again as [Retry After an Ended Term](replication.md#retry-after-an-ended-term) defines, taking `ifSeqNo` and `ifPrimaryTerm` from the `previousSeqNo` and `previousPrimaryTerm` of the `AbandonedWrite` that the earlier primary answered, and the other three from its `seqNo`, `primaryTerm`, and `compensationSeqNo`. A primary that receives them decides the write under the rules of that section. A primary must refuse with `REPLICATION_ENTRY_INVALID` a forward that carries some of the five fields but not all of them, and one that carries them on an `insert`.
 
 The primary handles each operation differently. An `insert` generates the embeddings when the index configures them and then writes an `INDEX` entry. An `update` reads the existing document, merges `updateFields`, generates any embeddings that changed, and writes an `INDEX` entry. An `update` whose `document` is present and whose `updateFields` is absent replaces the stored document whole. A `remove` writes a `DELETE` entry.
 
@@ -167,10 +185,15 @@ Many client mutations forwarded in one message to a node that is primary for the
 {
   indexName:  string
   operations: List<{
-    documentId:   string
-    operation:    'insert' or 'remove' or 'update'
-    document:     bytes or absent               (the full MessagePack document, for insert and update)
-    updateFields: Map<string, value> or absent  (the changed fields alone, for update)
+    documentId:           string
+    operation:            'insert' or 'remove' or 'update'
+    document:             bytes or absent               (the full MessagePack document, for insert and update)
+    updateFields:         Map<string, value> or absent  (the changed fields alone, for update)
+    ifSeqNo:              uint64 or absent              (the condition fields of replication.forward)
+    ifPrimaryTerm:        uint64 or absent
+    abandonedSeqNo:       uint64 or absent
+    abandonedPrimaryTerm: uint64 or absent
+    compensationSeqNo:    uint64 or absent
   }>
   indexUuid:  string or absent   (the identity of the index that the sender's allocation table names)
 }
@@ -188,11 +211,12 @@ The response carries one result per operation, in operation order:
     errorCode:    string or absent   (the NarsilError code, present when success is false)
     errorMessage: string or absent   (present when success is false)
     errorDetails: Map<string, value> or absent   (the NarsilError details, when success is false)
+    abandonedWrite: AbandonedWrite or absent     (see replication.forward)
   }>
 }
 ```
 
-The node that forwarded the batch must pass each failed result's `errorCode`, `errorMessage`, and `errorDetails` to the client.
+The node that forwarded the batch must pass each failed result's `errorCode`, `errorMessage`, and `errorDetails` to the client. A result carries `abandonedWrite` where its `errorCode` is `REPLICATION_OUTCOME_UNKNOWN` with the reason `term_ended` for an update or a remove whose document held a write record. The forwarding node uses `abandonedWrite` to send that operation again with its condition fields, as [Retry After an Ended Term](replication.md#retry-after-an-ended-term) defines, and it must never pass `abandonedWrite` to the client.
 
 ### replication.entry
 

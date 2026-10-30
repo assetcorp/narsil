@@ -2,7 +2,7 @@ import { createSharedFrozenSegment, type FrozenSegment, shareSegmentArrays } fro
 import type { TextAnalysis } from '../../../core/partition/frozen/surface-slot'
 import type { PartialWordAnalysis } from '../../../core/partition/partial-words/spellings'
 import { MAX_FILE_BYTES } from '../../../serialization/constants'
-import type { KeywordSegmentContents } from '../../../serialization/keyword-segment/types'
+import type { KeywordSegmentContents, SegmentWriteRecords } from '../../../serialization/keyword-segment/types'
 import { COMPACTION_LARGEST_MERGED_DOCUMENT_COUNT, SEGMENT_FILE_FRAMING_SLACK_BYTES } from '../constants'
 import type { SegmentRef } from './manifest'
 import { readSegmentFile } from './segment-file'
@@ -79,6 +79,19 @@ function applyTimeOrder(frozen: readonly FrozenSegment[], contents: readonly Key
   }
 }
 
+function writeRecordsOf(
+  frozen: readonly FrozenSegment[],
+  contents: readonly KeywordSegmentContents[],
+): Map<FrozenSegment, SegmentWriteRecords> | undefined {
+  if (contents.every(segment => segment.writeRecords === undefined)) return undefined
+  const records = new Map<FrozenSegment, SegmentWriteRecords>()
+  for (let at = 0; at < frozen.length; at++) {
+    const held = contents[at].writeRecords
+    if (held !== undefined) records.set(frozen[at], held)
+  }
+  return records
+}
+
 function retainedTombstones(frozen: readonly FrozenSegment[], contents: readonly KeywordSegmentContents[]): string[] {
   const retained = new Set<string>()
   for (const segment of contents) {
@@ -103,6 +116,7 @@ export async function compactPartitionSegments(input: CompactionInput): Promise<
   for (const ref of windowRefs) contents.push(await readSegmentFile(input.store, ref))
   const frozen = contents.map(frozenOf)
   applyTimeOrder(frozen, contents)
+  const writeRecords = writeRecordsOf(frozen, contents)
 
   const written = await writeSegmentsOf({
     store: input.store,
@@ -115,6 +129,7 @@ export async function compactPartitionSegments(input: CompactionInput): Promise<
     selections: frozen.map(segment => ({ segment })),
     tombstones: retainedTombstones(frozen, contents),
     mergesIntoOneFile: true,
+    ...(writeRecords === undefined ? {} : { writeRecords }),
   })
   return {
     segments: [

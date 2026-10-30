@@ -6,8 +6,14 @@ export const MAX_SEGMENT_FIELD_NAMES = 65_536
 
 export type KeywordSegmentArrays = SegmentArraysData
 
+export interface SegmentWriteRecords {
+  seqNos: Float64Array
+  primaryTerms: Float64Array
+}
+
 export interface KeywordSegmentContents {
   schema: Record<string, string>
   tombstones: string[]
   arrays: KeywordSegmentArrays
+  writeRecords?: SegmentWriteRecords
 }
