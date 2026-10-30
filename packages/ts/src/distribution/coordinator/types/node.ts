@@ -33,7 +33,12 @@ export interface NodeCapacity {
 export interface NodeMemoryReport {
   /** The whole process holds this many bytes of resident memory, including vectors and segments kept outside the heap. */
   processBytes: number
-  /** The process may hold this many bytes, which is the container's memory limit or else the host's total memory. */
+  /**
+   * The process may hold this many bytes. Where a container sets a memory limit, this figure is that limit. Without one,
+   * a node on Linux reports its own resident memory plus the memory that the host reports as available, up to the
+   * host's total memory, so the figure falls whenever other processes on the host take memory. A node on any other
+   * system reports the host's total memory.
+   */
   processLimitBytes: number
   /**
    * The main thread's old generation uses this many bytes. The old generation is the V8 heap without the young
