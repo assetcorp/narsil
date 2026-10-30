@@ -2,6 +2,7 @@ import { littleEndianBytes } from './little-endian'
 import { MessagePackChunks } from './msgpack-chunks'
 import { postingsInTokenOrder } from './token-order'
 import { KEYWORD_SEGMENT_PAYLOAD_VERSION, type KeywordSegmentArrays, type KeywordSegmentContents } from './types'
+import { uint64Bytes } from './write-records'
 
 const TOP_LEVEL_ENTRIES = 28
 
@@ -93,7 +94,8 @@ export function encodeKeywordSegment(contents: KeywordSegmentContents): MessageP
   const { arrays } = contents
   const postings = postingsInTokenOrder(arrays)
   const out = new MessagePackChunks()
-  out.map(TOP_LEVEL_ENTRIES)
+  const { writeRecords } = contents
+  out.map(writeRecords === undefined ? TOP_LEVEL_ENTRIES : TOP_LEVEL_ENTRIES + 2)
   out.key('v').value(KEYWORD_SEGMENT_PAYLOAD_VERSION)
   out.key('schema').value(contents.schema)
   out.key('tombstones').value(contents.tombstones)
@@ -133,5 +135,9 @@ export function encodeKeywordSegment(contents: KeywordSegmentContents): MessageP
   writeSurfaceForms(out, arrays)
   out.key('partialWords')
   writePartialWords(out, arrays)
+  if (writeRecords !== undefined) {
+    out.key('seqNos').binary(uint64Bytes(writeRecords.seqNos))
+    out.key('primaryTerms').binary(uint64Bytes(writeRecords.primaryTerms))
+  }
   return out
 }

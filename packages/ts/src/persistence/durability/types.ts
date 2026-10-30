@@ -1,16 +1,32 @@
+import type { FrozenSegment } from '../../core/partition/frozen'
 import type { ReplicationLogEntry, ReplicationOperation } from '../../distribution/replication/types'
 import type { PartitionManager } from '../../partitioning/manager'
+import type { KeywordSegmentContents, SegmentWriteRecords } from '../../serialization/keyword-segment/types'
 import type { DurabilityConfig } from '../../types/config'
 import type { IndexMetadata } from '../../types/internal'
 import type { HeldCheckpointReport } from '../../types/memory'
 import type { VectorIndex } from '../../vector/vector-index'
 import type { ArchiveCheckpoint } from './archive-checkpoint'
 import type { LayoutUpgradeEvent } from './earlier-layout/upgrade'
-import type { PartitionCheckpoint } from './partition-checkpoint'
+import type { PartitionCheckpoint, TermStart } from './partition-checkpoint'
 import type { PartitionRegistry } from './partition-registry'
 import type { RestoreStaging } from './restore-staging'
 
-export type { DurabilityConfig }
+export type { DurabilityConfig, TermStart }
+
+export interface WriteRecordKeeper {
+  resetPartition(indexName: string, partitionId: number): void
+  loadSegment(indexName: string, partitionId: number, segment: FrozenSegment, contents: KeywordSegmentContents): void
+  replayed(entry: ReplicationLogEntry): void
+  captureSegments(
+    indexName: string,
+    partitionId: number,
+    segments: readonly FrozenSegment[],
+  ): Map<FrozenSegment, SegmentWriteRecords>
+  termHistoryOf(indexName: string, partitionId: number, lastSeqNo: number): TermStart[]
+  loadTermHistory(indexName: string, partitionId: number, checkpoint: PartitionCheckpoint | undefined): void
+  dropIndex(indexName: string): void
+}
 
 export interface IndexDurabilityHooks {
   getManager(indexName: string): PartitionManager | undefined
@@ -22,6 +38,7 @@ export interface IndexDurabilityHooks {
   onLayoutUpgrade?(event: LayoutUpgradeEvent): void
   onCheckpointHeld?(report: HeldCheckpointReport): void
   onFatalError(error: Error): void
+  writeRecords?: WriteRecordKeeper
 }
 
 export interface MutationRecord {
@@ -60,6 +77,7 @@ export interface DurabilityManager {
   numberEntriesWith?(numbering: EntryNumbering, defersCommit?: CommitDeferral): void
   commitPartition?(indexName: string, partitionId: number): Promise<void>
   isolatePartitionFailures?(onFailed: PartitionFailureHandler): void
+  keepWriteRecordsWith?(keeper: WriteRecordKeeper): void
   heldCheckpoints?(): HeldCheckpointReport[]
   /** Writes the index metadata. Each index takes its writes in turn, so a caller that built its metadata earlier
    * never renames over a later one. */

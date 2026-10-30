@@ -6,7 +6,7 @@ import {
 } from './constants'
 import type { IndexState, PartitionState } from './manager-state'
 import type { PartitionFailure } from './mutation-batch'
-import type { PartitionCheckpoint } from './partition-checkpoint'
+import type { PartitionCheckpoint, TermStart } from './partition-checkpoint'
 import { snapshotCheckpointFor } from './recovery'
 import {
   type CapturablePartitions,
@@ -14,6 +14,7 @@ import {
   captureWholePartition,
   type PartitionContents,
   partitionContentsOf,
+  type WriteRecordCapture,
 } from './segment/captured-partition'
 import type { SegmentManifest, VectorFieldRef } from './segment/manifest'
 import type { CheckpointStore } from './segment/store'
@@ -106,13 +107,14 @@ export interface WholePartitionRules {
   priorPartitionIds: readonly number[]
   everyPartition: boolean
   aWorkerCanSerialise: boolean
+  captureRecords?: (partitionId: number) => WriteRecordCapture
 }
 
 export function wholePartitionsWhereMostChanged(
   manager: SerialisablePartitions,
   rules: WholePartitionRules,
 ): WholePartitionsOf {
-  const { priorCheckpoint, priorPartitionIds, everyPartition, aWorkerCanSerialise } = rules
+  const { priorCheckpoint, priorPartitionIds, everyPartition, aWorkerCanSerialise, captureRecords } = rules
   return targets => {
     const whole: WholePartitions = { contents: [], captured: [] }
     const changed = targets.filter(
@@ -128,11 +130,12 @@ export function wholePartitionsWhereMostChanged(
     const logMatchesMemory = targets.length === 1 && priorPartitionIds.every(partitionId => partitionId === 0)
     if (!everyPartition && !(mostOfEachChanged && logMatchesMemory)) return whole
     for (const { partitionId } of changed) {
-      const captured = aWorkerCanSerialise ? captureWholePartition(manager, partitionId) : null
+      const capture = captureRecords?.(partitionId)
+      const captured = aWorkerCanSerialise ? captureWholePartition(manager, partitionId, capture) : null
       if (captured !== null) {
         whole.captured.push(captured)
       } else if (everyPartition || !aWorkerCanSerialise) {
-        whole.contents.push(partitionContentsOf(manager, partitionId))
+        whole.contents.push(partitionContentsOf(manager, partitionId, capture))
       }
     }
     return whole
@@ -146,6 +149,7 @@ export async function captureCheckpoint(
   wholePartitionsOf: WholePartitionsOf = noWholePartitions,
   priorCheckpointThatLimitsTheRecords?: PartitionCheckpoint[],
   listedVectorFields: readonly VectorFieldRef[] = [],
+  termHistoryOf?: (partitionId: number, lastSeqNo: number) => TermStart[],
 ): Promise<CheckpointCapture> {
   for (const vectorIndex of vectorIndexes.values()) await vectorIndex.completeGraph()
   return whileNoMutationApplies([...indexState.partitions.values()], () => {
@@ -164,11 +168,13 @@ export async function captureCheckpoint(
               snapshotCheckpointFor(priorCheckpointThatLimitsTheRecords, partitionId) + LOG_RECORDS_PER_CHECKPOINT,
             )
       recordsLeftInLog += appliedSeqNo - lastSeqNo
-      targets.push({
+      const target: PartitionCheckpoint = {
         partitionId,
         lastSeqNo,
         primaryTerm: partition?.seqOwner.primaryTerm ?? SINGLE_NODE_PRIMARY_TERM,
-      })
+      }
+      if (termHistoryOf !== undefined) target.termHistory = termHistoryOf(partitionId, lastSeqNo)
+      targets.push(target)
     }
     const vectorPlans = new Map<string, VectorCheckpointPlan>()
     for (const [fieldPath, vectorIndex] of vectorIndexes) {

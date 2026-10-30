@@ -15,6 +15,7 @@ import { decodeSegmentManifest } from '../durability/segment/manifest-decode'
 import { writeLiveVectors } from '../durability/segment/vector-write'
 import { commitCheckpointManifest, writeCheckpointSegments } from '../durability/segment/write'
 import { SINGLE_NODE_PRIMARY_TERM } from '../durability/seq-owner'
+import type { WriteRecordKeeper } from '../durability/types'
 import { memoryCheckpointStore } from './memory-store'
 
 export interface MemoryArchiveInput {
@@ -24,6 +25,7 @@ export interface MemoryArchiveInput {
   vectorIndexes: Map<string, VectorIndex>
   appliedSeqNo(partitionId: number): number
   partitionId: number | null
+  writeRecords?: WriteRecordKeeper | null
 }
 
 function frozenPlan(plan: VectorCheckpointPlan): VectorCheckpointPlan {
@@ -79,12 +81,24 @@ function capture(input: MemoryArchiveInput): CapturedArchive {
     input.partitionId === null
       ? Array.from({ length: input.manager.partitionCount }, (_, partitionId) => partitionId)
       : [input.partitionId]
-  const targets: PartitionCheckpoint[] = partitionIds.map(partitionId => ({
-    partitionId,
-    lastSeqNo: input.appliedSeqNo(partitionId),
-    primaryTerm: SINGLE_NODE_PRIMARY_TERM,
-  }))
-  const contents = partitionIds.map(partitionId => partitionContentsOf(input.manager, partitionId))
+  const { indexName } = input
+  const writeRecords = input.writeRecords ?? null
+  const targets: PartitionCheckpoint[] = partitionIds.map(partitionId => {
+    const target: PartitionCheckpoint = {
+      partitionId,
+      lastSeqNo: input.appliedSeqNo(partitionId),
+      primaryTerm: SINGLE_NODE_PRIMARY_TERM,
+    }
+    if (writeRecords !== null) target.termHistory = writeRecords.termHistoryOf(indexName, partitionId, target.lastSeqNo)
+    return target
+  })
+  const contents = partitionIds.map(partitionId =>
+    partitionContentsOf(
+      input.manager,
+      partitionId,
+      writeRecords === null ? undefined : segments => writeRecords.captureSegments(indexName, partitionId, segments),
+    ),
+  )
   const plans = new Map<string, VectorCheckpointPlan>()
   const partitionDocIds =
     input.partitionId === null ? null : [...input.manager.getPartition(input.partitionId).docIds()]
@@ -112,6 +126,7 @@ export async function buildArchiveFromMemory(input: MemoryArchiveInput): Promise
     compactionThreshold: DEFAULT_COMPACTION_THRESHOLD,
     prior: null,
     wholePartitions: captured.contents,
+    keepsWriteRecords: input.writeRecords != null,
   })
   const vectors = await writeLiveVectors({ store, indexName: input.indexName, plans: captured.plans, priorVectors: [] })
   const refs: VectorFieldRef[] = vectors.refs

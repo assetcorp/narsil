@@ -31,7 +31,7 @@ export interface PrimaryNumbering {
   ): NumberedWrites
 }
 
-export function createPrimaryNumbering(): PrimaryNumbering {
+export function createPrimaryNumbering(onNumbered?: (entry: ReplicationLogEntry) => void): PrimaryNumbering {
   const scopes = new Map<string, OpenScope>()
 
   return {
@@ -55,6 +55,7 @@ export function createPrimaryNumbering(): PrimaryNumbering {
         document: record.document,
       })
       scope.entries.push(entry)
+      onNumbered?.(entry)
       return entry
     },
 

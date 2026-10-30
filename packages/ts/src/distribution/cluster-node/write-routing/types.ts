@@ -8,6 +8,7 @@ import type { NodeMemoryView } from '../memory/write-block'
 import type { WritePressure } from '../memory/write-pressure'
 import type { WriteProjection } from '../memory/write-projection'
 import type { ReshardState } from '../reshard/state'
+import type { ClusterWriteRecords } from '../write-records/keeper'
 import type { PrimaryNumbering } from './numbering'
 import type { PartitionWriteQueues } from './partition-queue'
 
@@ -23,6 +24,7 @@ export interface WriteRoutingDeps {
   resetReplicationLog: (indexName: string, partitionId: number, startSeqNo: number, lastPrimaryTerm?: number) => void
   partitionWriteQueues: PartitionWriteQueues
   numbering?: PrimaryNumbering
+  writeRecords?: ClusterWriteRecords
   commitPartitionLog?: (indexName: string, partitionId: number) => Promise<void>
   catchUp: CatchUpState
   resolveNodeTargets?: (nodeId: string) => Promise<string[]>
