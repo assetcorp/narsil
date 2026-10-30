@@ -27,16 +27,21 @@ export function sharedHandleOf(state: VectorIndexState, graph: HNSWIndex | null)
 }
 
 async function dropHandle(state: VectorIndexState, handle: string): Promise<void> {
-  const host = state.workerCopies.host
-  if (host !== undefined) {
-    await host.drop(state.indexName, state.fieldName, handle).catch(() => undefined)
-    return
-  }
   const pool = state.workerCopyPool
   if (pool !== null) {
     await pool.drop(handle).catch(() => undefined)
-    await releaseVectorSearchPool().catch(() => undefined)
+    return
   }
+  const host = state.workerCopies.host
+  if (host !== undefined) await host.drop(state.indexName, state.fieldName, handle).catch(() => undefined)
+}
+
+function letGoOfUnusedPool(state: VectorIndexState): Promise<void> {
+  if (state.workerCopyPool === null || state.sharedHandles.size > 0 || state.workerCopyHandle !== null) {
+    return Promise.resolve()
+  }
+  state.workerCopyPool = null
+  return releaseVectorSearchPool().catch(() => undefined)
 }
 
 export function dropSharedGraph(state: VectorIndexState, graph: HNSWIndex | null): void {
@@ -61,9 +66,7 @@ export function invalidateWorkerCopies(state: VectorIndexState): void {
     state.workerCopyMode = null
     void dropHandle(state, handle)
   }
-  if (state.workerCopies.host === undefined && state.workerCopyPool !== null && state.sharedHandles.size === 0) {
-    state.workerCopyPool = null
-  }
+  void letGoOfUnusedPool(state)
 }
 
 export async function withdrawWorkerCopies(state: VectorIndexState): Promise<void> {
@@ -76,7 +79,7 @@ export async function withdrawWorkerCopies(state: VectorIndexState): Promise<voi
   state.workerCopyRevision = -1
   state.workerCopyMode = null
   await Promise.all([...handles].map(handle => dropHandle(state, handle)))
-  if (state.workerCopies.host === undefined && state.sharedHandles.size === 0) state.workerCopyPool = null
+  await letGoOfUnusedPool(state)
 }
 
 export async function holdWorkerCopies(state: VectorIndexState): Promise<void> {

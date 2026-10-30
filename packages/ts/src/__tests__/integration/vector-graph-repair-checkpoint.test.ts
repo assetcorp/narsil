@@ -85,7 +85,6 @@ import { temporaryRoots } from '../e2e/portability/harness'
 import { waitFor } from '../server/helpers'
 import {
   DIMENSION,
-  EF_SEARCH_FOR_EVERY_PASSAGE,
   FIELD,
   insertFileByFile,
   NARROW_EF_SEARCH,
@@ -201,9 +200,9 @@ describe('the checkpoint that follows the repair of a graph from an earlier rele
         )
         expect(await savedShuffledBuildCount(directory, RESTORED_INDEX)).toBe(SAVED_PASSAGES)
         expect(await unreachedPassages(reopened, RESTORED_INDEX)).toEqual({ unplaced: [], unreached: [] })
-        expect(
-          await passagesNotFoundFirst(reopened, RESTORED_INDEX, passages, NARROW_LIMIT, EF_SEARCH_FOR_EVERY_PASSAGE),
-        ).toEqual([])
+        expect(await passagesNotFoundFirst(reopened, RESTORED_INDEX, passages, NARROW_LIMIT, NARROW_EF_SEARCH)).toEqual(
+          [],
+        )
       },
       TEST_TIMEOUT_MS,
     )
@@ -228,9 +227,7 @@ describe('the repair of a graph from an earlier release while searches and write
 
       expect(repairing()).toBe(false)
       expect(await unreachedPassages(engine, RESTORED_INDEX)).toEqual({ unplaced: [], unreached: [] })
-      expect(
-        await passagesNotFoundFirst(engine, RESTORED_INDEX, passages, NARROW_LIMIT, EF_SEARCH_FOR_EVERY_PASSAGE),
-      ).toEqual([])
+      expect(await passagesNotFoundFirst(engine, RESTORED_INDEX, passages, NARROW_LIMIT, NARROW_EF_SEARCH)).toEqual([])
     },
     TEST_TIMEOUT_MS,
   )
@@ -263,9 +260,7 @@ describe('the repair of a graph from an earlier release while searches and write
       expect(await engine.countDocuments(RESTORED_INDEX)).toBe(remaining.length)
       expect(await savedShuffledBuildCount(directory, RESTORED_INDEX)).toBe(SAVED_PASSAGES - removed.length)
       expect(await unreachedPassages(engine, RESTORED_INDEX)).toEqual({ unplaced: [], unreached: [] })
-      expect(
-        await passagesNotFoundFirst(engine, RESTORED_INDEX, remaining, NARROW_LIMIT, EF_SEARCH_FOR_EVERY_PASSAGE),
-      ).toEqual([])
+      expect(await passagesNotFoundFirst(engine, RESTORED_INDEX, remaining, NARROW_LIMIT, NARROW_EF_SEARCH)).toEqual([])
       const removedIds = new Set(removed.map(passage => passage.id))
       for (const passage of removed) {
         const hits = await vectorHits(engine, RESTORED_INDEX, passage.embedding, NARROW_LIMIT, NARROW_EF_SEARCH)

@@ -58,12 +58,14 @@ function insertNodesOfLaterGraph(
   ordinals: Int32Array,
 ): void {
   for (const part of later.parts) requireWholeNeighbourLists(part)
+  let placed = 0
   for (let number = 0; number < ordinals.length; number++) {
     const ordinal = ordinals[number]
     if (ordinal === NO_LIVE_VECTOR_AT_POSITION || topLayerInParts(later, number) < 0) continue
     const docId = state.store.docIdForOrdinal(ordinal)
-    if (docId !== undefined && !graph.has(docId)) graph.insertOrdinal(ordinal)
+    if (docId !== undefined && !graph.has(docId) && graph.insertOrdinal(ordinal)) placed += 1
   }
+  if (placed > 0) graph.connectUnreached()
 }
 
 function restoreGraph(

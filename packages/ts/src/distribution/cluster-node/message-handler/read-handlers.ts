@@ -13,6 +13,7 @@ import {
   validateSuggestPayload,
 } from '../../query/codec'
 import type { ListEntryWire, RespondFn, TransportMessage } from '../../transport/types'
+import { refuseEncodeWithoutRoom } from '../memory/answer-room'
 import { wireParamsToLocal } from '../query-conversion'
 import type { DataNodeHandlerDeps } from './types'
 
@@ -64,6 +65,7 @@ export async function handleList(
         : readSortValues(listed.document as AnyDocument | undefined, sortFields, sortModes).map(toWireSortValue),
   }))
 
+  refuseEncodeWithoutRoom(entries.map(entry => entry.document))
   await respond(
     createListResultMessage(
       { entries, total: result.total, hasMore: result.cursor !== null },

@@ -38,6 +38,11 @@ export function nodeRejectionOf(
   return rejection
 }
 
+export function markNodeRejection(error: NarsilError): NarsilError {
+  nodeRejections.add(error)
+  return error
+}
+
 export function isNodeRejection(error: unknown): boolean {
   return error instanceof NarsilError && nodeRejections.has(error)
 }
