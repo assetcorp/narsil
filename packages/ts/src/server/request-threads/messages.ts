@@ -37,6 +37,7 @@ export interface RequestThreadSettings {
   allowRegex: boolean
   /** Every request thread counts here the searches it has handed to the long-query thread and that have not yet answered. */
   longQueriesInFlight: SharedArrayBuffer
+  longQueryPort: MessagePort | null
 }
 
 export interface LongQueryThreadSettings {

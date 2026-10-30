@@ -186,7 +186,12 @@ export async function serveRequests(
   if (child === null) throw new Error('This uWebSockets.js build offers no child apps')
 
   const relay = createRelayClient(settings.port, settings.touchIntervalMs)
-  const longQueries = routeLongQueries(settings.port, settings.longQueriesInFlight, settings.touchIntervalMs)
+  const longQueries = routeLongQueries(
+    settings.port,
+    settings.longQueriesInFlight,
+    settings.touchIntervalMs,
+    settings.longQueryPort,
+  )
   const departure = watchForDeparture({
     relay,
     departure: new Int32Array(settings.departure),

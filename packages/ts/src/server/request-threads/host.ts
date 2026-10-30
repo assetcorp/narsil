@@ -272,6 +272,9 @@ export async function startRequestThreads(options: RequestThreadHostOptions): Pr
       }
       relayFrom(thread)
       closeAtExit.add(thread.closeAtExit)
+      const longQueries = longQueryThread
+      const longQueryChannel = longQueries === null ? null : new MessageChannel()
+      const transfer = longQueryChannel === null ? [channel.port1] : [channel.port1, longQueryChannel.port1]
       let result: ServeRequestsResult
       try {
         result = await executor.execute<ServeRequestsResult>(
@@ -296,24 +299,34 @@ export async function startRequestThreads(options: RequestThreadHostOptions): Pr
               maxRerankWindow: options.core.rerankSettings.maxWindow,
               allowRegex: options.allowRegex,
               longQueriesInFlight,
+              longQueryPort: longQueryChannel?.port1 ?? null,
             },
           },
-          [channel.port1],
+          transfer,
         )
       } catch (err) {
         closeAtExit.delete(thread.closeAtExit)
         channel.port2.close()
+        longQueryChannel?.port2.close()
         console.warn(`Worker ${workerId} could not start taking requests:`, err)
         return
       }
       thread.descriptor = result.descriptor
       if (stopped || departureConfirmed(thread.departure)) {
+        longQueryChannel?.port2.close()
         await stopThread(workerId, thread)
         return
       }
+      if (longQueryChannel !== null && longQueries !== null && longQueryThread === longQueries) {
+        longQueries.port.postMessage({ type: 'long-query-port', port: longQueryChannel.port2 }, [
+          longQueryChannel.port2,
+        ])
+      } else {
+        longQueryChannel?.port2.close()
+        connectToLongQueries(thread)
+      }
       acceptor.addChildAppDescriptor(result.descriptor)
       threads.set(workerId, thread)
-      connectToLongQueries(thread)
     },
     onWorkerGone(workerId: number): void {
       if (longQueryThread?.workerId === workerId) {
