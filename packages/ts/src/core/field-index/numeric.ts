@@ -1,5 +1,6 @@
 import type { NumericIndexEntry } from '../../types/internal'
 import { bitsetHas, bitsetSet, createBitSet } from '../bitset'
+import { PENDING_REMOVAL_MERGE_DIVISOR, PENDING_REMOVAL_MERGE_FLOOR } from '../constants'
 
 function lowerBound(entries: NumericIndexEntry[], value: number): number {
   let lo = 0
@@ -68,32 +69,152 @@ export interface NumericFieldIndex extends NumericFieldIndexReader {
   deserialize(data: NumericIndexEntry[]): void
 }
 
+interface PendingRemovals {
+  value: number
+  limits: number[]
+  next: number
+}
+
+function removalsFor(byDocument: Map<number, PendingRemovals[]>, docId: number, value: number) {
+  const keys = byDocument.get(docId)
+  if (keys === undefined) return undefined
+  for (const key of keys) {
+    if (key.value === value) return key
+  }
+  return undefined
+}
+
+function groupRemovals(docIds: number[], values: number[], limits: number[]): Map<number, PendingRemovals[]> {
+  const byDocument = new Map<number, PendingRemovals[]>()
+  for (let at = 0; at < docIds.length; at++) {
+    const existing = removalsFor(byDocument, docIds[at], values[at])
+    if (existing !== undefined) {
+      existing.limits.push(limits[at])
+      continue
+    }
+    const key: PendingRemovals = { value: values[at], limits: [limits[at]], next: 0 }
+    const keys = byDocument.get(docIds[at])
+    if (keys === undefined) byDocument.set(docIds[at], [key])
+    else keys.push(key)
+  }
+  return byDocument
+}
+
+function markedDocuments(docIds: number[]): Uint8Array {
+  let highest = 0
+  for (const docId of docIds) if (docId > highest) highest = docId
+  const marked = new Uint8Array(highest + 1)
+  for (const docId of docIds) marked[docId] = 1
+  return marked
+}
+
+function removeFromSorted(
+  entries: NumericIndexEntry[],
+  from: number,
+  marked: Uint8Array,
+  byDocument: Map<number, PendingRemovals[]>,
+): void {
+  let write = from
+  for (let read = from; read < entries.length; read++) {
+    const entry = entries[read]
+    if (entry.docId < marked.length && marked[entry.docId] === 1) {
+      const key = removalsFor(byDocument, entry.docId, entry.value)
+      if (key !== undefined && key.next < key.limits.length) {
+        key.next++
+        continue
+      }
+    }
+    entries[write++] = entry
+  }
+  entries.length = write
+}
+
+function removeFromPending(
+  pending: NumericIndexEntry[],
+  marked: Uint8Array,
+  byDocument: Map<number, PendingRemovals[]>,
+): void {
+  let write = 0
+  for (let read = 0; read < pending.length; read++) {
+    const entry = pending[read]
+    if (entry.docId < marked.length && marked[entry.docId] === 1) {
+      const key = removalsFor(byDocument, entry.docId, entry.value)
+      if (key !== undefined) {
+        while (key.next < key.limits.length && key.limits[key.next] <= read) key.next++
+        if (key.next < key.limits.length) {
+          key.next++
+          continue
+        }
+      }
+    }
+    pending[write++] = entry
+  }
+  pending.length = write
+}
+
+function mergeSortedPending(entries: NumericIndexEntry[], pending: NumericIndexEntry[]): void {
+  pending.sort((a, b) => a.value - b.value)
+  const mainLength = entries.length
+  for (const entry of pending) entries.push(entry)
+  let left = mainLength - 1
+  let right = pending.length - 1
+  let write = entries.length - 1
+  while (right >= 0) {
+    if (left >= 0 && entries[left].value > pending[right].value) entries[write--] = entries[left--]
+    else entries[write--] = pending[right--]
+  }
+}
+
 export function createNumericIndex(): NumericFieldIndex {
   let entries: NumericIndexEntry[] = []
-  let sorted = true
+  let pending: NumericIndexEntry[] = []
+  const removedDocIds: number[] = []
+  const removedValues: number[] = []
+  const removedLimits: number[] = []
+
+  function applyRemovals(): void {
+    const byDocument = groupRemovals(removedDocIds, removedValues, removedLimits)
+    const marked = markedDocuments(removedDocIds)
+    let lowest = removedValues[0]
+    for (const value of removedValues) if (value < lowest) lowest = value
+    removeFromSorted(entries, lowerBound(entries, lowest), marked, byDocument)
+    if (pending.length > 0) removeFromPending(pending, marked, byDocument)
+    removedDocIds.length = 0
+    removedValues.length = 0
+    removedLimits.length = 0
+  }
 
   function ensureSorted(): void {
-    if (!sorted) {
-      entries.sort((a, b) => a.value - b.value)
-      sorted = true
+    if (removedDocIds.length > 0) applyRemovals()
+    if (pending.length === 0) return
+    if (entries.length === 0) {
+      pending.sort((a, b) => a.value - b.value)
+      entries = pending
+    } else {
+      mergeSortedPending(entries, pending)
     }
+    pending = []
+  }
+
+  function discardPending(): void {
+    pending = []
+    removedDocIds.length = 0
+    removedValues.length = 0
+    removedLimits.length = 0
   }
 
   return {
     insert(internalId: number, value: number): void {
-      entries.push({ value, docId: internalId })
-      sorted = false
+      pending.push({ value, docId: internalId })
     },
 
     remove(internalId: number, value: number): void {
-      ensureSorted()
-      const start = lowerBound(entries, value)
-      const end = upperBound(entries, value)
-      for (let i = start; i < end; i++) {
-        if (entries[i].docId === internalId) {
-          entries.splice(i, 1)
-          return
-        }
+      removedDocIds.push(internalId)
+      removedValues.push(value)
+      removedLimits.push(pending.length)
+      const held = entries.length + pending.length
+      if (removedDocIds.length >= Math.max(PENDING_REMOVAL_MERGE_FLOOR, held / PENDING_REMOVAL_MERGE_DIVISOR)) {
+        ensureSorted()
       }
     },
 
@@ -138,6 +259,7 @@ export function createNumericIndex(): NumericFieldIndex {
     },
 
     getAllDocIds(): Set<number> {
+      ensureSorted()
       return collectDocIds(entries, 0, entries.length)
     },
 
@@ -172,10 +294,12 @@ export function createNumericIndex(): NumericFieldIndex {
     },
 
     getAllDocIdsBitset(capacity: number): Uint32Array {
+      ensureSorted()
       return collectDocIdsBitset(entries, 0, entries.length, capacity)
     },
 
     count(): number {
+      ensureSorted()
       return entries.length
     },
 
@@ -216,7 +340,7 @@ export function createNumericIndex(): NumericFieldIndex {
 
     clear(): void {
       entries = []
-      sorted = true
+      discardPending()
     },
 
     serialize(): NumericIndexEntry[] {
@@ -226,7 +350,7 @@ export function createNumericIndex(): NumericFieldIndex {
 
     deserialize(data: NumericIndexEntry[]): void {
       entries = data.slice()
-      sorted = true
+      discardPending()
     },
   }
 }
