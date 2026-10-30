@@ -1,5 +1,5 @@
 import { decode } from '@msgpack/msgpack'
-import { ErrorCodes, NarsilError } from '../../errors'
+import { ErrorCodes, NarsilError, ServerErrorCodes } from '../../errors'
 import { mergePartitionStats } from '../../partitioning/distributed-scoring'
 import type { QueryCoverage } from '../../types/results'
 import type {
@@ -31,9 +31,20 @@ export interface NodeQueryOutcome {
 }
 
 function queryRejectionOf(response: TransportMessage, decoded: unknown): NarsilError | null {
-  const body = decoded as { error?: unknown; code?: unknown; message?: unknown } | null
+  const body = decoded as { error?: unknown; code?: unknown; message?: unknown; details?: unknown } | null
   if (!response.type.endsWith('.error') && body?.error !== true) return null
-  return nodeRejectionOf(body?.code, body?.message)
+  if (body?.code !== ServerErrorCodes.TOO_MANY_REQUESTS) return nodeRejectionOf(body?.code, body?.message)
+  const details =
+    typeof body.details === 'object' && body.details !== null ? { ...(body.details as Record<string, unknown>) } : {}
+  return new NarsilError(
+    ServerErrorCodes.TOO_MANY_REQUESTS,
+    typeof body.message === 'string' ? body.message : 'A node had no room in memory to answer its part of the search',
+    details,
+  )
+}
+
+function isMemoryRefusal(error: unknown): boolean {
+  return error instanceof NarsilError && error.code === ServerErrorCodes.TOO_MANY_REQUESTS
 }
 
 interface NodeStats {
@@ -167,7 +178,8 @@ export async function fanOutSearch(
     )
   })
 
-  const rejection = outcomes.find(outcome => isNodeRejection(outcome.error))
+  const rejection =
+    outcomes.find(outcome => isNodeRejection(outcome.error)) ?? outcomes.find(outcome => isMemoryRefusal(outcome.error))
   if (rejection !== undefined) {
     releaseSearchContexts(indexName, openedContextsOf(outcomes), deps)
     throw rejection.error

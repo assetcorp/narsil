@@ -19,6 +19,7 @@ export interface OldGenerationStatistics {
   usedBytes: number
   limitBytes: number
   youngUsedBytes: number
+  committedBytes: number
 }
 
 function flagEntries(): string[] {
@@ -90,6 +91,7 @@ function heapSizeLimitBytes(): number {
 export function readOldGenerationStatistics(): OldGenerationStatistics | null {
   try {
     let usedBytes = 0
+    let committedBytes = 0
     let youngCapacityBytes = 0
     let youngUsedBytes = 0
     for (const space of getHeapSpaceStatistics()) {
@@ -98,12 +100,18 @@ export function readOldGenerationStatistics(): OldGenerationStatistics | null {
         youngUsedBytes += space.space_used_size
       } else {
         usedBytes += space.space_used_size
+        committedBytes += space.space_size
       }
     }
     const limitBytes =
       configuredLimitBytes() ?? heapSizeLimitBytes() - (configuredYoungGenerationBytes() ?? youngCapacityBytes)
     if (!Number.isFinite(usedBytes) || !Number.isFinite(limitBytes) || limitBytes <= 0) return null
-    return { usedBytes, limitBytes, youngUsedBytes: Number.isFinite(youngUsedBytes) ? youngUsedBytes : 0 }
+    return {
+      usedBytes,
+      limitBytes,
+      youngUsedBytes: Number.isFinite(youngUsedBytes) ? youngUsedBytes : 0,
+      committedBytes: Number.isFinite(committedBytes) ? committedBytes : usedBytes,
+    }
   } catch {
     return null
   }

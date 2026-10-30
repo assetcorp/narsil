@@ -210,6 +210,8 @@ With `allowPartialResults` set to true, the coordinator waits up to `partitionTi
 
 With `allowPartialResults` set to false, any partition failure or timeout fails the whole query with `QUERY_PARTIAL_FAILURE`.
 
+Whatever `allowPartialResults` holds, a coordinator that receives `TOO_MANY_REQUESTS` from a data node must ask the next copy of those partitions, and when every copy refuses with that code, the coordinator must fail the whole query with the last refusal, its `details.reason` included, because a node that refused for lack of memory gives no evidence that its partitions hold no matches.
+
 Whatever `allowPartialResults` holds, a coordinator must fail the whole query with `SEARCH_WORK_CAP_EXCEEDED` when a data node raises that code, because a partial answer can leave out documents that the node never checked, as [Limits and Matching](../algorithms.md#limits-and-matching) describes.
 
 ---
