@@ -1,4 +1,5 @@
 import { MAX_MESSAGE_SIZE_BYTES } from '../constants'
+import { timeoutsOf } from '../reply-deadline'
 import {
   type ListenHandler,
   type NodeTransport,
@@ -54,6 +55,8 @@ export function createTcpTransport(
   }
 
   return {
+    timeouts: timeoutsOf(resolvedConfig),
+
     getPort(): number {
       return server.getPort()
     },

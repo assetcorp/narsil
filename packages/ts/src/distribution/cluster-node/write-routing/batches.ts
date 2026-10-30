@@ -124,6 +124,7 @@ async function routeAdmittedInsertBatch(
     item => item.docId,
     async pending => routeInsertItems(await requireRoutableTable(deps, indexName), indexName, pending, deps, options),
     settleEqualInserts(deps, indexName, sentById),
+    true,
   )
 }
 

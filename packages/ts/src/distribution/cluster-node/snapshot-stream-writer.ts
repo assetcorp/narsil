@@ -15,8 +15,6 @@ import { SNAPSHOT_CHUNK_YIELD_INTERVAL_MS } from './constants'
 import { encodeErrorReply } from './error-reply'
 import type { SnapshotBuildResult } from './snapshot-cache'
 
-export const SNAPSHOT_SYNC_ERROR_TYPE = `${ReplicationMessageTypes.SNAPSHOT_SYNC_REQUEST}.error`
-
 export interface SnapshotHeaderMetadata {
   partitionId: number
   primaryTerm: number
@@ -26,10 +24,6 @@ export interface SnapshotHeaderMetadata {
 export interface SingleResponseSink {
   (response: TransportMessage): Promise<void>
   closed: boolean
-}
-
-export interface StreamSnapshotOptions {
-  closeOnEnd?: boolean
 }
 
 export function createSingleResponseSink(respond: RespondFn): SingleResponseSink {
@@ -50,7 +44,6 @@ export async function streamSnapshotToReplica(
   indexName: string,
   build: SnapshotBuildResult,
   metadata: SnapshotHeaderMetadata,
-  options: StreamSnapshotOptions = {},
 ): Promise<void> {
   const totalBytes = build.totalBytes
   const checksum = build.checksum
@@ -103,9 +96,6 @@ export async function streamSnapshotToReplica(
   const endBytes = encode(endPayload)
   assertMessageWithinLimit(endBytes, 'SNAPSHOT_END')
   await respondMessage(sink, ReplicationMessageTypes.SNAPSHOT_END, nodeId, requestId, endBytes)
-  if (options.closeOnEnd !== false) {
-    sink.closed = true
-  }
 }
 
 function now(): number {
@@ -147,15 +137,15 @@ function assertMessageWithinLimit(bytes: Uint8Array, label: string): void {
 export async function respondError(
   sink: SingleResponseSink,
   sourceId: string,
-  requestId: string,
+  request: TransportMessage,
   code: ErrorCode | string,
   message: string,
   details?: Record<string, unknown>,
 ): Promise<void> {
   const response: TransportMessage = {
-    type: SNAPSHOT_SYNC_ERROR_TYPE,
+    type: `${request.type}.error`,
     sourceId,
-    requestId,
+    requestId: request.requestId,
     payload: encodeErrorReply(code, message, details),
   }
   await sink(response)
