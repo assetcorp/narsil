@@ -1,12 +1,14 @@
 import { ErrorCodes, NarsilError } from '../../../errors'
 import type { BatchResult } from '../../../types/results'
-import type { AllocationTable, RegistrationLease } from '../../coordinator/types'
+import type { AllocationTable, PartitionAssignment, RegistrationLease } from '../../coordinator/types'
+import { partitionKey } from '../catch-up/state'
 import { REGISTRATION_LEASE_CONFIRM_TIMEOUT_MS, REGISTRATION_LEASE_DRIFT_SHARE } from '../constants'
 import { noteLedTerm } from '../led-term'
 import { assertReshardOpen } from '../reshard/block'
 import type { PrimaryWriteScope } from './numbered-write'
 import { enqueuePartitionWrite } from './partition-queue'
 import { isOutcomeUnknown, outcomeUnknown } from './rollback'
+import { startTermInQueue } from './term-start'
 import type { WriteRoutingDeps } from './types'
 
 const REFUSALS_FROM_LOCAL_COPY: ReadonlySet<string> = new Set([ErrorCodes.DOC_NOT_FOUND, ErrorCodes.DOC_ALREADY_EXISTS])
@@ -129,6 +131,7 @@ export async function inLeadingPartitionQueue<T>(
       scope.partitionId,
       async hold => {
         current = { ...(await currentScope(scope)), holdQueue: hold }
+        if (await startTermInQueue(current)) current = { ...(await currentScope(scope)), holdQueue: hold }
         logEndBefore = logEndOf(current)
         return task(current)
       },
@@ -152,4 +155,14 @@ export async function inLeadingPartitionQueue<T>(
   if (failed !== undefined && copyFailedIn(current)) refuseFromFailedCopy(current, failed)
   if (failed !== undefined) await confirmBatchRefusals(current, failed)
   return result
+}
+
+export function startLeadingTerm(
+  deps: WriteRoutingDeps,
+  indexName: string,
+  partitionId: number,
+  assignment: PartitionAssignment,
+): void {
+  if ((deps.catchUp.startedTerms.get(partitionKey(indexName, partitionId)) ?? 0) >= assignment.primaryTerm) return
+  inLeadingPartitionQueue({ indexName, partitionId, assignment, deps }, async () => undefined).catch(() => undefined)
 }

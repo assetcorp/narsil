@@ -52,6 +52,10 @@ export function processAllocationChange(
     if (config.onHoldPartition !== undefined && alreadyHoldsData(assignment, nodeId)) {
       config.onHoldPartition(table.indexName, partitionId)
     }
+
+    if (isPrimary && assignment.state === 'ACTIVE') {
+      config.onLeadingTerm?.(table.indexName, partitionId, assignment)
+    }
   }
 
   removeDroppedPartitions(state, config, table, currentKeys)

@@ -6,6 +6,7 @@ import type { IndexMetadata } from '../../types/internal'
 import type { VectorIndex } from '../../vector/vector-index'
 import type { DurableDirectory } from './durable-filesystem'
 import { checkpointLastSeqNo, type PartitionCheckpoint } from './partition-checkpoint'
+import type { WriteRecordKeeper } from './types'
 import { SEGMENT_HEADER_SIZE } from './wal-framing'
 import { durableRecordMissing, readWalSegments, type SegmentRef, type WalReadResult } from './wal-segments'
 
@@ -19,6 +20,7 @@ export interface ReplayDeps {
   manager: PartitionManager
   vectorFieldPaths: Set<string>
   vectorIndexes: Map<string, VectorIndex>
+  writeRecords?: WriteRecordKeeper | null
 }
 
 export async function listPersistedIndexes(directory: DurableDirectory): Promise<string[]> {
@@ -181,6 +183,7 @@ async function truncateSegmentTail(directory: DurableDirectory, key: string, dur
 }
 
 function applyEntry(entry: ReplicationLogEntry, deps: ReplayDeps): void {
+  deps.writeRecords?.replayed(entry)
   if (entry.operation === 'DELETE') {
     applyDeleteEntry(entry, deps.manager, deps.vectorIndexes)
     return

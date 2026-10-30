@@ -64,6 +64,11 @@ export function encodeSegmentManifest(manifest: SegmentManifest): Promise<Packed
       partitionId: c.partitionId,
       lastSeqNo: c.lastSeqNo,
       primaryTerm: c.primaryTerm,
+      ...(c.termHistory === undefined
+        ? {}
+        : {
+            termHistory: c.termHistory.map(start => ({ primaryTerm: start.primaryTerm, firstSeqNo: start.firstSeqNo })),
+          }),
     })),
     partitions: manifest.partitions.map(p => ({
       partitionId: p.partitionId,

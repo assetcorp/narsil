@@ -18,6 +18,8 @@ export interface CatchUpState {
   pendingAdmissions: Map<string, Set<string>>
   admittedReplicas: Map<string, Map<string, AdmittedReplica>>
   acknowledgedSeqNos: Map<string, Map<string, number>>
+  removedReplicas: Map<string, Map<string, number>>
+  startedTerms: Map<string, number>
   inFlightBytes: number
   timer: ReturnType<typeof setInterval> | null
   activeTick: Promise<void> | null
@@ -50,6 +52,8 @@ export function createCatchUpState(): CatchUpState {
     pendingAdmissions: new Map(),
     admittedReplicas: new Map(),
     acknowledgedSeqNos: new Map(),
+    removedReplicas: new Map(),
+    startedTerms: new Map(),
     inFlightBytes: 0,
     timer: null,
     activeTick: null,
@@ -236,7 +240,33 @@ export function markPendingAdmission(
   }
   pending.add(replicaNodeId)
   state.pendingAdmissions.set(key, pending)
+  state.removedReplicas.get(key)?.delete(replicaNodeId)
   return true
+}
+
+export function recordRemovedReplica(
+  state: CatchUpState,
+  indexName: string,
+  partitionId: number,
+  replicaNodeId: string,
+  primaryTerm: number,
+): void {
+  const key = partitionKey(indexName, partitionId)
+  const removed = state.removedReplicas.get(key) ?? new Map<string, number>()
+  removed.set(replicaNodeId, primaryTerm)
+  state.removedReplicas.set(key, removed)
+}
+
+export function withoutRemovedReplicas(
+  state: CatchUpState,
+  indexName: string,
+  partitionId: number,
+  primaryTerm: number,
+  targets: string[],
+): string[] {
+  const removed = state.removedReplicas.get(partitionKey(indexName, partitionId))
+  if (removed === undefined) return targets
+  return targets.filter(replicaNodeId => removed.get(replicaNodeId) !== primaryTerm)
 }
 
 /**

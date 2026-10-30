@@ -35,6 +35,7 @@ import {
   requirePermutation,
   requireUtf8Entries,
 } from './validate'
+import { decodeWriteRecords } from './write-records'
 
 function decodeSchema(raw: unknown): Record<string, string> {
   const schema = requireRecord(raw, 'schema')
@@ -193,5 +194,6 @@ export function decodeKeywordSegment(payload: Uint8Array, shared: boolean): Keyw
     surfaceTable: decodeSurfaceForms(raw.surfaceForms, context),
     partialWords: decodePartialWords(raw.partialWords, postings.tokenTable.offsets.length - 1, context),
   }
-  return { schema, tombstones, arrays }
+  const writeRecords = decodeWriteRecords(raw, documentCount)
+  return writeRecords === null ? { schema, tombstones, arrays } : { schema, tombstones, arrays, writeRecords }
 }

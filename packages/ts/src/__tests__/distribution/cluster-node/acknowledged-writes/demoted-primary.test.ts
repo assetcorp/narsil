@@ -4,6 +4,7 @@ import {
   createTestCluster,
   entryForDocument,
   INDEX,
+  ofType,
   outcomeOf,
   partitionAssignment,
   readCopy,
@@ -15,6 +16,8 @@ import {
 const SETTLED_WRITES = 5
 const LARGE_NODE_MEMORY_MULTIPLE = 40
 const REJOIN_TIMEOUT_MS = 30_000
+const WRITES_AFTER_HANDOVER = 3
+const TABLE_EVENT_DELAY_MS = 2_000
 
 describe('a primary that loses its role with a write in flight takes the new history', () => {
   let cluster: TestCluster
@@ -23,7 +26,11 @@ describe('a primary that loses its role with a write in flight takes the new his
     await cluster.dispose()
   })
 
-  it('copies the write that the new primary acknowledged at the position of its own discarded entry', async () => {
+  async function handOverWithStrandedWrite(strandedAt: 'the replicas' | 'the old primary'): Promise<{
+    oldPrimary: string
+    newPrimary: string
+    expected: Map<string, Record<string, unknown>>
+  }> {
     cluster = await createTestCluster()
     await cluster.start('controller', { roles: ['controller', 'coordinator'], durable: false })
     for (const nodeId of ['node-a', 'node-b', 'node-c']) await cluster.start(nodeId, { durable: false })
@@ -40,11 +47,16 @@ describe('a primary that loses its role with a write in flight takes the new his
       expected.set(`settled-${i}`, { title: `settled ${i}`, amount: i })
     }
 
-    const inFlight = cluster.transport(oldPrimary).holdWhen(entryForDocument('stranded'))
+    const transport = cluster.transport(oldPrimary)
+    if (strandedAt === 'the replicas') transport.loseReplyWhen(entryForDocument('stranded'))
+    const inFlight =
+      strandedAt === 'the replicas'
+        ? transport.holdWhen(ofType('replication.insync_remove'))
+        : transport.holdWhen(entryForDocument('stranded'))
     const stranded = outcomeOf(
       cluster.node(oldPrimary).insert(INDEX, { title: 'stranded transfer', amount: 999 }, 'stranded'),
     )
-    await waitUntil('the stranded entry to reach both replicas', () => inFlight.count() === 2)
+    await waitUntil(`the stranded write to wait on ${strandedAt}`, () => inFlight.count() > 0)
 
     await cluster.start('node-d', {
       durable: false,
@@ -56,15 +68,17 @@ describe('a primary that loses its role with a write in flight takes the new his
         ? current
         : null
     })
-    const newPrimary = handedOver.primary ?? ''
 
     inFlight.release()
     expect(await stranded).toEqual({ state: 'acknowledged' })
     expected.set('stranded', { title: 'stranded transfer', amount: 999 })
+    return { oldPrimary, newPrimary: handedOver.primary ?? '', expected }
+  }
 
-    await cluster.node(newPrimary).insert(INDEX, { title: 'transfer after handover', amount: 42 }, 'after-handover')
-    expected.set('after-handover', { title: 'transfer after handover', amount: 42 })
-
+  async function expectEveryInSyncCopyHolds(
+    oldPrimary: string,
+    expected: Map<string, Record<string, unknown>>,
+  ): Promise<void> {
     const healed = await waitUntil(
       'the old primary to be in sync again',
       async () => {
@@ -79,5 +93,31 @@ describe('a primary that loses its role with a write in flight takes the new his
     for (const holder of [healed.primary ?? '', ...healed.inSyncSet]) {
       expect(Object.fromEntries(await readCopy(cluster.probe, holder)), holder).toEqual(Object.fromEntries(expected))
     }
+  }
+
+  it('copies the write that the new primary acknowledged at the position of its own discarded entry', async () => {
+    const { oldPrimary, newPrimary, expected } = await handOverWithStrandedWrite('the old primary')
+
+    await cluster.node(newPrimary).insert(INDEX, { title: 'transfer after handover', amount: 42 }, 'after-handover')
+    expected.set('after-handover', { title: 'transfer after handover', amount: 42 })
+
+    await expectEveryInSyncCopyHolds(oldPrimary, expected)
+  }, 60_000)
+
+  it('resyncs the old primary that refuses one entry of the new term and is sent the next', async () => {
+    const { oldPrimary, newPrimary, expected } = await handOverWithStrandedWrite('the replicas')
+
+    const after = Array.from({ length: WRITES_AFTER_HANDOVER }, (_, i) => ({
+      id: `after-handover-${i}`,
+      fields: { title: `transfer after handover ${i}`, amount: 100 + i },
+    }))
+    const viewsCatchUp = cluster.coordinator.delayAllocationEvents(TABLE_EVENT_DELAY_MS)
+    for (const write of after) {
+      await cluster.node(newPrimary).insert(INDEX, write.fields, write.id)
+      expected.set(write.id, write.fields)
+    }
+    viewsCatchUp()
+
+    await expectEveryInSyncCopyHolds(oldPrimary, expected)
   }, 60_000)
 })

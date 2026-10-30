@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { DEFAULT_CAPACITY } from '../../../../distribution'
 import type { PartitionAssignment } from '../../../../distribution/coordinator/types'
+import { NarsilError } from '../../../../errors'
 import {
   createTestCluster,
   entryForDocument,
@@ -23,6 +24,16 @@ const BATCH_DOCUMENTS = 10
 const SETTLE_TIMEOUT_MS = 30_000
 
 type Ledger = Map<string, Record<string, unknown>>
+
+async function failureOf(write: Promise<unknown>): Promise<NarsilError | null> {
+  try {
+    await write
+    return null
+  } catch (error) {
+    if (error instanceof NarsilError) return error
+    throw error
+  }
+}
 
 function entry(id: string, amount: number): Record<string, unknown> {
   return { title: `transfer ${id}`, amount }
@@ -84,7 +95,7 @@ describe('a write in flight while its partition changes primary', () => {
     cluster = undefined
   })
 
-  it('answers outcome unknown for a remove batch and reaches the new primary with an insert batch', async () => {
+  it('removes each document the new primary holds unchanged, refuses one another client changed, and inserts a batch', async () => {
     const started = await startHandoverCluster()
     cluster = started.cluster
     const router = cluster.node(ROUTER)
@@ -100,14 +111,25 @@ describe('a write in flight while its partition changes primary', () => {
     const insertion = router.insertBatch(INDEX, fresh)
     await waitUntil('the remove batch to reach both replicas', () => held.count() === 2)
 
-    await handOverLeadership(cluster, started.settled)
+    const newPrimary = await handOverLeadership(cluster, started.settled)
+    const changedId = 'settled-0'
+    const unchangedIds = removedIds.filter(docId => docId !== changedId)
+    await cluster.node(newPrimary).update(INDEX, changedId, entry('another client', 999))
+    ledger.set(changedId, entry('another client', 999))
     held.release()
 
     const removed = await removal
     const inserted = await insertion
-    expect(removed.succeeded).toEqual([])
-    expect(removed.failed.map(failure => failure.docId).sort()).toEqual([...removedIds].sort())
-    for (const failure of removed.failed) expect(failure.error.code).toBe('REPLICATION_OUTCOME_UNKNOWN')
+    expect([...removed.succeeded].sort()).toEqual([...unchangedIds].sort())
+    expect(removed.failed.map(failure => failure.docId)).toEqual([changedId])
+    expect(removed.failed[0]?.error.code).toBe('REPLICATION_WRITE_CONFLICT')
+    expect(removed.failed[0]?.error.details).toEqual({
+      indexName: INDEX,
+      partitionId: 0,
+      documentId: changedId,
+      primaryNodeId: newPrimary,
+    })
+    for (const docId of unchangedIds) ledger.delete(docId)
     expect(inserted.failed).toEqual([])
     expect([...inserted.succeeded].sort()).toEqual(fresh.map(document => document.id).sort())
     for (const { id, ...fields } of fresh) ledger.set(id, fields)
@@ -150,14 +172,14 @@ describe('a write in flight while its partition changes primary', () => {
   }, 90_000)
 
   for (const operation of ['update', 'remove'] as const) {
-    it(`answers outcome unknown for an ${operation} whose term ended, and keeps another client's newer write`, async () => {
+    it(`refuses a retried ${operation} once another client changed the document, and keeps that write`, async () => {
       const started = await startHandoverCluster()
       cluster = started.cluster
       const router = cluster.node(ROUTER)
       await router.insert(INDEX, entry('opening', 1), 'transfer-3')
       await expectEveryCopyHolds(cluster, new Map([['transfer-3', entry('opening', 1)]]))
       const held = cluster.transport(started.settled.primary ?? '').holdWhen(entryForDocument('transfer-3'))
-      const write = outcomeOf(
+      const write = failureOf(
         operation === 'update'
           ? router.update(INDEX, 'transfer-3', entry('first client', 2))
           : router.remove(INDEX, 'transfer-3'),
@@ -168,7 +190,14 @@ describe('a write in flight while its partition changes primary', () => {
       await cluster.node(newPrimary).update(INDEX, 'transfer-3', entry('second client', 3))
       held.release()
 
-      expect(await write).toEqual({ state: 'refused', code: 'REPLICATION_OUTCOME_UNKNOWN' })
+      const failure = await write
+      expect(failure?.code).toBe('REPLICATION_WRITE_CONFLICT')
+      expect(failure?.details).toEqual({
+        indexName: INDEX,
+        partitionId: 0,
+        documentId: 'transfer-3',
+        primaryNodeId: newPrimary,
+      })
       await expectEveryCopyHolds(cluster, new Map([['transfer-3', entry('second client', 3)]]))
     }, 90_000)
   }

@@ -1,0 +1,33 @@
+{
+  "schemas": {
+    "ledger": {
+      "title": "string",
+      "amount": "number"
+    }
+  },
+  "allocation": {
+    "indexName": "ledger",
+    "version": 2,
+    "replicationFactor": 0,
+    "assignments": [
+      [
+        0,
+        {
+          "primary": "node-a",
+          "replicas": [],
+          "inSyncSet": [],
+          "commitPoint": 0,
+          "state": "ACTIVE",
+          "primaryTerm": 1
+        }
+      ]
+    ],
+    "indexUuid": "01a18a94-e3a7-7846-857b-b63e51819cba"
+  },
+  "partitionStates": {
+    "0": "UNASSIGNED"
+  },
+  "values": {
+    "_narsil/index/ledger/config": "hqlpbmRleFV1aWTZJDAxYTE4YTk0LWUzYTctNzg0Ni04NTdiLWI2M2U1MTgxOWNiYalpbmRleE5hbWWmbGVkZ2VyrnBhcnRpdGlvbkNvdW50AbFyZXBsaWNhdGlvbkZhY3RvcgCrY29uc3RyYWludHODrXpvbmVBd2FyZW5lc3PCrXpvbmVBdHRyaWJ1dGWkem9uZbBtYXhTaGFyZHNQZXJOb2RlwKhzZXR0aW5nc4GobGFuZ3VhZ2WnZW5nbGlzaA=="
+  }
+}
