@@ -1,7 +1,13 @@
+export interface TermStart {
+  primaryTerm: number
+  firstSeqNo: number
+}
+
 export interface PartitionCheckpoint {
   partitionId: number
   lastSeqNo: number
   primaryTerm: number
+  termHistory?: TermStart[]
 }
 
 export function checkpointLastSeqNo(checkpoint: readonly PartitionCheckpoint[], partitionId: number): number {

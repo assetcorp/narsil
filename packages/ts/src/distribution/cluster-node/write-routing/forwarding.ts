@@ -3,9 +3,10 @@ import { ErrorCodes, NarsilError } from '../../../errors'
 import { encodeDocument } from '../../../serialization/document-encoding'
 import type { AnyDocument } from '../../../types/schema'
 import { createForwardMessage } from '../../replication/codec'
-import type { ForwardPayload, NodeTransport, TransportMessage } from '../../transport/types'
+import type { ForwardPayload, NodeTransport, TransportMessage, WriteCondition } from '../../transport/types'
 import { remoteErrorDetails } from '../error-reply'
 import { sendThroughTargets } from '../transport-failure'
+import { abandonedWriteFrom, conditionFields, withAbandonedWrite } from './abandoned-write'
 import { resolveNodeTargets } from './assignment'
 import type { WriteRoutingDeps } from './types'
 
@@ -16,13 +17,15 @@ export function assertForwardResponse(
 ): Record<string, unknown> {
   const decoded = decode(response.payload) as Record<string, unknown>
   if (response.type.endsWith('.error') || response.type === 'error' || decoded.error === true) {
-    throw new NarsilError(
+    const refusal = new NarsilError(
       typeof decoded.code === 'string' ? decoded.code : ErrorCodes.QUERY_ROUTING_FAILED,
       typeof decoded.message === 'string'
         ? decoded.message
         : `Remote primary rejected a forwarded write for index '${indexName}'`,
       { ...remoteErrorDetails(decoded.details), indexName, primaryNodeId },
     )
+    const abandonedWrite = abandonedWriteFrom(decoded.abandonedWrite)
+    throw abandonedWrite === undefined ? refusal : withAbandonedWrite(refusal, abandonedWrite)
   }
   return decoded
 }
@@ -63,6 +66,7 @@ export async function forwardUpdateToRemote(
   primaryNodeId: string,
   deps: WriteRoutingDeps,
   indexUuid?: string,
+  condition?: WriteCondition,
 ): Promise<void> {
   const payload: ForwardPayload = {
     indexName,
@@ -70,6 +74,7 @@ export async function forwardUpdateToRemote(
     operation: 'update',
     document: encodeDocument(document),
     updateFields: null,
+    ...conditionFields(condition),
   }
   if (indexUuid !== undefined) payload.indexUuid = indexUuid
   const message = createForwardMessage(payload, deps.nodeId)
@@ -83,6 +88,7 @@ export async function forwardRemoveToRemote(
   primaryNodeId: string,
   deps: WriteRoutingDeps,
   indexUuid?: string,
+  condition?: WriteCondition,
 ): Promise<void> {
   const payload: ForwardPayload = {
     indexName,
@@ -90,6 +96,7 @@ export async function forwardRemoveToRemote(
     operation: 'remove',
     document: null,
     updateFields: null,
+    ...conditionFields(condition),
   }
   if (indexUuid !== undefined) payload.indexUuid = indexUuid
   const message = createForwardMessage(payload, deps.nodeId)

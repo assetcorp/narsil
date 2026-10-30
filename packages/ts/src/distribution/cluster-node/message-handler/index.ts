@@ -3,6 +3,7 @@ import { ClusterMessageTypes, QueryMessageTypes, ReplicationMessageTypes } from 
 import { encodeErrorReplyFrom } from '../error-reply'
 import { handleRebuildAnalysis } from '../rebuild-analysis'
 import { handleReshardCutover, handleReshardForward, handleReshardPurge, handleReshardStart } from '../reshard/handlers'
+import { abandonedWriteOf } from '../write-routing/abandoned-write'
 import { handleIndexSettings } from './index-settings'
 import { handlePartitionStores } from './partition-stores'
 import { handleFetch, handleSearch, handleStats } from './queries'
@@ -80,7 +81,7 @@ export function createDataNodeHandler(deps: DataNodeHandlerDeps): TransportHandl
           return
       }
     } catch (err) {
-      const errorPayload = encodeErrorReplyFrom(err, 'INTERNAL_ERROR')
+      const errorPayload = encodeErrorReplyFrom(err, 'INTERNAL_ERROR', abandonedWriteOf(err))
       await respond({
         type: `${message.type}.error`,
         sourceId: deps.nodeId,

@@ -64,15 +64,23 @@ export async function recoverPersistedIndex(
   if (manager === undefined || current === undefined) {
     return
   }
+  const writeRecords = hooks.writeRecords ?? null
+  writeRecords?.dropIndex(indexName)
   const replayDeps = {
     manager,
     vectorFieldPaths: hooks.getVectorFieldPaths(indexName),
     vectorIndexes: hooks.getVectorIndexes(indexName),
+    writeRecords,
   }
   const replay = async (checkpoint: PartitionCheckpoint[]): Promise<PartitionCheckpoint[]> => {
     const replayed: PartitionCheckpoint[] = []
     for (let partitionId = 0; partitionId < manager.partitionCount; partitionId += 1) {
       const fromSeqNo = snapshotCheckpointFor(checkpoint, partitionId)
+      writeRecords?.loadTermHistory(
+        indexName,
+        partitionId,
+        checkpoint.find(entry => entry.partitionId === partitionId),
+      )
       const { highestSeqNo, highestPrimaryTerm } = await replayWal(
         directory,
         indexName,
@@ -101,6 +109,7 @@ export async function recoverPersistedIndex(
     keepsUnlistedFiles: deps.holdsCheckpointFiles(indexName),
     replay,
     onLayoutUpgrade: hooks.onLayoutUpgrade,
+    writeRecords,
   })
   for (const { partitionId, lastSeqNo, primaryTerm } of recovered.checkpoint) {
     deps.registerPartition(indexName, partitionId, lastSeqNo, primaryTerm)

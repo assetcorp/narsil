@@ -3,10 +3,16 @@ import { ErrorCodes, NarsilError } from '../../../errors'
 import type { BatchResult } from '../../../types/results'
 import type { AnyDocument } from '../../../types/schema'
 import type { AllocationTable, PartitionAssignment } from '../../coordinator/types'
-import type { ForwardBatchOperation, ForwardBatchOperationResult, ForwardBatchPayload } from '../../transport/types'
+import type {
+  ForwardBatchOperation,
+  ForwardBatchOperationResult,
+  ForwardBatchPayload,
+  WriteCondition,
+} from '../../transport/types'
 import { transportableDetails } from '../error-reply'
 import { findWriteBlock } from '../memory/write-block'
 import { estimateForwardedBytes } from '../memory/write-pressure'
+import { abandonedWriteOf } from './abandoned-write'
 import { requireAssignedPrimary, resolvePartitionId } from './assignment'
 import {
   applyPrimaryInsertBatch,
@@ -15,6 +21,7 @@ import {
   resolveForwardedUpdateDocument,
 } from './primary-writes'
 import type { WriteRoutingDeps } from './types'
+import { conditionOfFields } from './write-condition'
 
 interface OperationRun {
   partitionId: number
@@ -178,18 +185,21 @@ async function applyRunToPrimary(
   results: ForwardBatchOperationResult[],
 ): Promise<BatchResult> {
   if (run.operation === 'remove') {
-    return applyPrimaryRemoveBatch(
-      indexName,
-      run.operations.map(operation => operation.wire.documentId),
-      partitionId,
-      assignment,
-      deps,
-    )
+    const docIds: string[] = []
+    const conditions = new Map<string, WriteCondition>()
+    for (const operation of run.operations) {
+      const condition = conditionOrFailure(operation.wire, results, operation.index)
+      if (condition === null) continue
+      docIds.push(operation.wire.documentId)
+      if (condition !== undefined) conditions.set(operation.wire.documentId, condition)
+    }
+    return applyPrimaryRemoveBatch(indexName, docIds, partitionId, assignment, deps, conditions)
   }
 
   if (run.operation === 'insert') {
     const items: Array<{ doc: AnyDocument; docId: string }> = []
     for (const operation of run.operations) {
+      if (conditionOrFailure(operation.wire, results, operation.index) === null) continue
       const decodedDocument = decodeOperationDocument(operation.wire, results, operation.index)
       if (decodedDocument !== null) {
         items.push({ doc: decodedDocument, docId: operation.wire.documentId })
@@ -198,8 +208,10 @@ async function applyRunToPrimary(
     return applyPrimaryInsertBatch(indexName, items, partitionId, assignment, deps)
   }
 
-  const updates: Array<{ docId: string; document: AnyDocument }> = []
+  const updates: Array<{ docId: string; document: AnyDocument; condition?: WriteCondition }> = []
   for (const operation of run.operations) {
+    const condition = conditionOrFailure(operation.wire, results, operation.index)
+    if (condition === null) continue
     try {
       const replacement = await resolveForwardedUpdateDocument(
         indexName,
@@ -208,13 +220,31 @@ async function applyRunToPrimary(
         operation.wire.updateFields,
         deps,
       )
-      updates.push({ docId: operation.wire.documentId, document: replacement })
+      updates.push(
+        condition === undefined
+          ? { docId: operation.wire.documentId, document: replacement }
+          : { docId: operation.wire.documentId, document: replacement, condition },
+      )
     } catch (err) {
       const error = err instanceof NarsilError ? err : new NarsilError(ErrorCodes.CONFIG_INVALID, String(err))
       results[operation.index] = failureResult(operation.wire.documentId, error)
     }
   }
   return applyPrimaryUpdateBatch(indexName, updates, partitionId, assignment, deps)
+}
+
+function conditionOrFailure(
+  wire: ForwardBatchOperation,
+  results: ForwardBatchOperationResult[],
+  index: number,
+): WriteCondition | undefined | null {
+  try {
+    return conditionOfFields(wire, wire.operation, wire.documentId)
+  } catch (err) {
+    const error = err instanceof NarsilError ? err : new NarsilError(ErrorCodes.REPLICATION_ENTRY_INVALID, String(err))
+    results[index] = failureResult(wire.documentId, error)
+    return null
+  }
 }
 
 function decodeOperationDocument(
@@ -245,11 +275,14 @@ function decodeOperationDocument(
 }
 
 function failureResult(documentId: string, error: NarsilError): ForwardBatchOperationResult {
-  return {
+  const result: ForwardBatchOperationResult = {
     documentId,
     success: false,
     errorCode: error.code,
     errorMessage: error.message,
     errorDetails: transportableDetails(error) ?? null,
   }
+  const abandonedWrite = abandonedWriteOf(error)
+  if (abandonedWrite !== undefined) result.abandonedWrite = abandonedWrite
+  return result
 }

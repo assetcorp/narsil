@@ -44,7 +44,21 @@ export async function numberedWrite<T>(
   const recorded = writes?.entries.at(-1)
   if (recorded !== undefined) return { value, entry: recorded }
   const admitted: AdmittedDocuments = documentId => writes?.admittedDocument(documentId)
-  return { value, entry: await appendOutsideTheLog(value, admitted) }
+  const entry = await appendOutsideTheLog(value, admitted)
+  scope.deps.writeRecords?.applied(entry)
+  return { value, entry }
+}
+
+export async function writeLocalOnly<T>(
+  deps: WriteRoutingDeps,
+  indexName: string,
+  write: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await write()
+  } finally {
+    deps.writeRecords?.dropIndex(indexName)
+  }
 }
 
 export async function storedCopyOf(scope: PrimaryWriteScope, documentId: string): Promise<AnyDocument> {

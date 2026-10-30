@@ -4,6 +4,7 @@ import type { AnyDocument } from '../../../types/schema'
 import { getClusterIndexConfig } from '../../cluster/index-metadata'
 import { pause } from '../../cluster/rebalance/pause'
 import type { AllocationTable } from '../../coordinator/types'
+import type { WriteCondition } from '../../transport/types'
 import {
   FORWARD_RETRY_DELAY_CAP_MS,
   FORWARD_RETRY_INITIAL_DELAY_MS,
@@ -12,6 +13,7 @@ import {
   PRIMARY_CHANGE_RETRY_WINDOW_MS,
 } from '../constants'
 import { forwardUndelivered } from '../transport-failure'
+import { abandonedWriteOf, conditionOf } from './abandoned-write'
 import { resolvePartitionId } from './assignment'
 import { abandonedWithTerm } from './rollback'
 import { storedCopyMatchesSent } from './sent-fields'
@@ -39,7 +41,12 @@ interface RefusedItem<T> {
 
 function refusedByPrimaryChange(error: unknown, retriesEndedTerm = false): boolean {
   if (error instanceof NarsilError && error.code === ErrorCodes.PARTITION_NOT_PRIMARY) return true
-  return retriesEndedTerm && abandonedWithTerm(error)
+  return abandonedWithTerm(error) && (retriesEndedTerm || abandonedWriteOf(error) !== undefined)
+}
+
+function nextCondition(error: unknown, current: WriteCondition | undefined): WriteCondition | undefined {
+  const abandoned = abandonedWriteOf(error)
+  return abandoned === undefined ? current : conditionOf(abandoned)
 }
 
 function refusedForAnotherIndex(error: unknown): boolean {
@@ -123,7 +130,7 @@ export async function retryOnPrimaryChange<T>(
   deps: WriteRoutingDeps,
   indexName: string,
   docId: string,
-  attempt: () => Promise<T>,
+  attempt: (condition: WriteCondition | undefined) => Promise<T>,
   settleRetried: SettleRetried,
   settledValue: () => T,
   retriesEndedTerm = false,
@@ -131,10 +138,11 @@ export async function retryOnPrimaryChange<T>(
   const deadline = Date.now() + PRIMARY_CHANGE_RETRY_WINDOW_MS
   let retryDelayMs = FORWARD_RETRY_INITIAL_DELAY_MS
   let retried = false
+  let condition: WriteCondition | undefined
   for (;;) {
     const refusing = primaryFor(await deps.coordinator.getAllocation(indexName), docId)
     try {
-      return await attempt()
+      return await attempt(condition)
     } catch (error) {
       if (retried && (await settleRetried([{ docId, error }])).has(docId)) return settledValue()
       if (!(refusedByPrimaryChange(error, retriesEndedTerm) || forwardUndelivered(error)) || refusing === null) {
@@ -148,6 +156,7 @@ export async function retryOnPrimaryChange<T>(
         retryable = await awaitNewPrimary(deps, indexName, [refusing], deadline)
       }
       if (!retryable) throw error
+      condition = nextCondition(error, condition)
       retried = true
     }
   }
@@ -158,19 +167,20 @@ async function retryBatchOnPrimaryChange<T>(
   indexName: string,
   items: readonly T[],
   docIdOf: (item: T) => string,
-  attempt: (items: T[]) => Promise<BatchResult>,
+  attempt: BatchAttempt<T>,
   settleRetried: SettleRetried,
   deadline: number,
   retriesEndedTerm: boolean,
 ): Promise<BatchResult> {
   const succeeded: string[] = []
   const failed: BatchResult['failed'] = []
+  const conditions = new Map<string, WriteCondition>()
   let pending = [...items]
   let retryDelayMs = FORWARD_RETRY_INITIAL_DELAY_MS
   let retried = false
   while (pending.length > 0) {
     const table = await deps.coordinator.getAllocation(indexName)
-    const result = await attempt(pending)
+    const result = await attempt(pending, conditions)
     succeeded.push(...result.succeeded)
     const settled = retried ? await settleRetried(result.failed) : new Set<string>()
     const pendingById = new Map(pending.map(item => [docIdOf(item), item]))
@@ -208,6 +218,10 @@ async function retryBatchOnPrimaryChange<T>(
     if (!retryable) {
       failed.push(...refused.map(entry => entry.failure))
       break
+    }
+    for (const { failure } of refused) {
+      const condition = nextCondition(failure.error, conditions.get(failure.docId))
+      if (condition !== undefined) conditions.set(failure.docId, condition)
     }
     pending = refused.map(entry => entry.item)
     retried = true
@@ -248,13 +262,15 @@ async function settleEachBounded<T, R>(
   return outcomes
 }
 
+export type BatchAttempt<T> = (items: T[], conditions: ReadonlyMap<string, WriteCondition>) => Promise<BatchResult>
+
 export async function retryEachPartition<T>(
   deps: WriteRoutingDeps,
   indexName: string,
   table: AllocationTable,
   items: readonly T[],
   docIdOf: (item: T) => string,
-  attempt: (items: T[]) => Promise<BatchResult>,
+  attempt: BatchAttempt<T>,
   settleRetried: SettleRetried,
   retriesEndedTerm = false,
 ): Promise<BatchResult> {

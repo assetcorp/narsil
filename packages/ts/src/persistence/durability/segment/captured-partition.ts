@@ -5,10 +5,12 @@ import type { SegmentSelection } from '../../../core/partition/frozen/merge'
 import { freezeSegmentShared, type SharedSegmentSnapshot } from '../../../core/partition/frozen/shared-snapshot'
 import { type PartitionIndex, partitionStateOf } from '../../../core/partition/index'
 import type { PartitionManager } from '../../../partitioning/manager'
+import type { SegmentWriteRecords } from '../../../serialization/keyword-segment/types'
 
 export interface CapturedSegment {
   snapshot: SharedSegmentSnapshot
   keep: Uint8Array
+  writeRecords?: SegmentWriteRecords
 }
 
 export interface CapturedWholePartition {
@@ -21,7 +23,10 @@ export interface PartitionContents {
   partitionId: number
   docCount: number
   selections: SegmentSelection[]
+  writeRecords?: Map<FrozenSegment, SegmentWriteRecords>
 }
+
+export type WriteRecordCapture = (segments: readonly FrozenSegment[]) => Map<FrozenSegment, SegmentWriteRecords>
 
 export type CapturablePartitions = Pick<PartitionManager, 'getPartition'>
 
@@ -58,33 +63,48 @@ function frozenSegmentsOf(partition: PartitionIndex, shared: boolean): FrozenSeg
   return segments
 }
 
-export function partitionContentsOf(manager: CapturablePartitions, partitionId: number): PartitionContents {
+export function partitionContentsOf(
+  manager: CapturablePartitions,
+  partitionId: number,
+  captureRecords?: WriteRecordCapture,
+): PartitionContents {
   const partition = manager.getPartition(partitionId)
-  const selections = frozenSegmentsOf(partition, false).map(segment => selectionOfMask(segment, keepMaskOf(segment)))
-  return { partitionId, docCount: partition.count(), selections }
+  const segments = frozenSegmentsOf(partition, false)
+  const selections = segments.map(segment => selectionOfMask(segment, keepMaskOf(segment)))
+  const contents: PartitionContents = { partitionId, docCount: partition.count(), selections }
+  if (captureRecords !== undefined) contents.writeRecords = captureRecords(segments)
+  return contents
 }
 
 export function captureWholePartition(
   manager: CapturablePartitions,
   partitionId: number,
+  captureRecords?: WriteRecordCapture,
 ): CapturedWholePartition | null {
   if (typeof SharedArrayBuffer !== 'function') return null
   const partition = manager.getPartition(partitionId)
   if (!isCompositePartition(partition) || partition.frozenSegmentCount() === 0) return null
+  const frozen = frozenSegmentsOf(partition, true)
+  const records = captureRecords?.(frozen)
   const segments: CapturedSegment[] = []
-  for (const segment of frozenSegmentsOf(partition, true)) {
+  for (const segment of frozen) {
     if (segment.sharedSnapshot === null) return null
-    segments.push({ snapshot: segment.sharedSnapshot, keep: keepMaskOf(segment) })
+    const captured: CapturedSegment = { snapshot: segment.sharedSnapshot, keep: keepMaskOf(segment) }
+    const held = records?.get(segment)
+    if (held !== undefined) captured.writeRecords = held
+    segments.push(captured)
   }
   return { partitionId, docCount: partition.count(), segments }
 }
 
 export function contentsOfCaptured(captured: CapturedWholePartition): PartitionContents {
-  return {
-    partitionId: captured.partitionId,
-    docCount: captured.docCount,
-    selections: captured.segments.map(({ snapshot, keep }) =>
-      selectionOfMask(createSharedFrozenSegment(snapshot), keep),
-    ),
-  }
+  const writeRecords = new Map<FrozenSegment, SegmentWriteRecords>()
+  const selections = captured.segments.map(({ snapshot, keep, writeRecords: held }) => {
+    const segment = createSharedFrozenSegment(snapshot)
+    if (held !== undefined) writeRecords.set(segment, held)
+    return selectionOfMask(segment, keep)
+  })
+  const contents: PartitionContents = { partitionId: captured.partitionId, docCount: captured.docCount, selections }
+  if (writeRecords.size > 0) contents.writeRecords = writeRecords
+  return contents
 }

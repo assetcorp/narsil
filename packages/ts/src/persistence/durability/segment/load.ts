@@ -2,6 +2,7 @@ import { ErrorCodes, NarsilError } from '../../../errors'
 import type { PartitionManager } from '../../../partitioning/manager'
 import type { VectorIndex } from '../../../vector/vector-index'
 import type { PartitionCheckpoint } from '../partition-checkpoint'
+import type { WriteRecordKeeper } from '../types'
 import { manifestKey, segmentsPrefix } from './layout'
 import { loadPartitionSegments } from './load-partition'
 import type { SegmentManifest } from './manifest'
@@ -12,6 +13,7 @@ import { loadVectorField } from './vector-load'
 export interface CheckpointLoadDeps {
   manager: PartitionManager
   vectorIndexes: Map<string, VectorIndex>
+  writeRecords?: WriteRecordKeeper | null
 }
 
 export async function readSegmentManifest(store: CheckpointStore, indexName: string): Promise<DecodedManifest | null> {
@@ -64,7 +66,11 @@ export async function loadSegmentedCheckpoint(
         { indexName, partitionId: partition.partitionId, partitionCount: deps.manager.partitionCount },
       )
     }
-    await loadPartitionSegments(store, partition, deps.manager, { schema: manifest.schema, decodesEveryDocument })
+    await loadPartitionSegments(store, partition, deps.manager, {
+      schema: manifest.schema,
+      decodesEveryDocument,
+      writeRecords: deps.writeRecords ?? null,
+    })
   }
 
   for (const vector of manifest.vectors) {
