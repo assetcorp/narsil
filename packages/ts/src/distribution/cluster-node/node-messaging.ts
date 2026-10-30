@@ -4,12 +4,14 @@ import { ErrorCodes, NarsilError } from '../../errors'
 import type { AnyDocument } from '../../types/schema'
 import type { AllocationTable } from '../coordinator/types'
 import { createFetchMessage, validateFetchResultPayload } from '../query/codec'
-import { MAX_FETCH_DOCUMENT_IDS } from '../query/constants'
-import { sendToEveryPartition } from '../query/failover'
+import { markNodeRejection, nodeRejectionOf, sendToEveryPartition } from '../query/failover'
 import { copiesInSelectionOrder, type PartitionRouting, randomSelector } from '../query/selection'
 import type { DistributedQueryResult } from '../query/types'
 import type { FetchDocumentId, TransportMessage } from '../transport/types'
+import { ANSWER_DECODE_HEAP_BYTES_PER_PAYLOAD_BYTE, FETCH_GROUP_DOCUMENT_IDS } from './constants'
+import { remoteErrorDetails } from './error-reply'
 import type { ClusterLocalEngine } from './local-engine'
+import { answerRefusalOf } from './memory/answer-room'
 import { type SendFailureContext, sendThroughTargets } from './transport-failure'
 import type { ClusterNodeConfig } from './types'
 import { restoreVectorValues } from './vector-bytes'
@@ -84,6 +86,29 @@ function routeDocumentIds(docIds: Iterable<string>, allocation: AllocationTable)
   return { routing, idsByPartition }
 }
 
+export function readRejectionOf(
+  decoded: Record<string, unknown>,
+  targetNodeId: string,
+  indexName: string,
+): NarsilError {
+  const details = { ...remoteErrorDetails(decoded.details), indexName, targetNodeId }
+  return (
+    nodeRejectionOf(decoded.code, decoded.message, details) ??
+    new NarsilError(
+      typeof decoded.code === 'string' ? decoded.code : ErrorCodes.QUERY_ROUTING_FAILED,
+      typeof decoded.message === 'string'
+        ? decoded.message
+        : `Node '${targetNodeId}' rejected a read request for index '${indexName}'`,
+      details,
+    )
+  )
+}
+
+export function refuseDecodeWithoutRoom(payload: Uint8Array): void {
+  const refusal = answerRefusalOf(payload.byteLength * ANSWER_DECODE_HEAP_BYTES_PER_PAYLOAD_BYTE)
+  if (refusal !== null) throw markNodeRejection(refusal)
+}
+
 async function readFromCopies(
   config: ClusterNodeConfig,
   nodeId: string,
@@ -107,14 +132,19 @@ async function readFromCopies(
       )
       for (const [docId, document] of local) found.set(docId, document)
     } else {
-      for (let start = 0; start < documentIds.length; start += MAX_FETCH_DOCUMENT_IDS) {
-        const chunk = documentIds.slice(start, start + MAX_FETCH_DOCUMENT_IDS)
+      for (let start = 0; start < documentIds.length; start += FETCH_GROUP_DOCUMENT_IDS) {
+        const chunk = documentIds.slice(start, start + FETCH_GROUP_DOCUMENT_IDS)
         const fetchMessage = createFetchMessage({ indexName, documentIds: chunk, fields, highlight: null }, nodeId)
         const response = await sendToNode(config, targetNodeId, fetchMessage, {
           message: `Node '${targetNodeId}' did not answer a document fetch for index '${indexName}'`,
           details: { indexName },
         })
-        const payload = validateFetchResultPayload(decode(response.payload))
+        refuseDecodeWithoutRoom(response.payload)
+        const decoded = decode(response.payload) as Record<string, unknown>
+        if (response.type.endsWith('.error') || decoded.error === true) {
+          throw readRejectionOf(decoded, targetNodeId, indexName)
+        }
+        const payload = validateFetchResultPayload(decoded)
         for (const fetched of payload.documents) {
           found.set(fetched.docId, restoreVectorValues(fetched.document) as AnyDocument)
         }

@@ -64,8 +64,11 @@ export interface ClusterNodeConfig {
  * When this node counts as full, which is what makes the cluster refuse inserts and updates to every index with a
  * copy on the node.
  *
- * The node measures its process memory against the container's limit, or the host's memory where no container sets
- * one, and its main thread's heap against the heap limit, once a second. It counts as full once either figure passes
+ * The node measures its process memory and its main thread's heap once a second, and it compares the heap with the
+ * heap limit. It compares the process memory with the container's memory limit where a container sets one. Without a
+ * container limit, a node on Linux compares it with its own resident memory plus the memory that the host reports as
+ * available, up to the host's total memory, so that the memory that other processes take counts against the node. A
+ * node on any other system compares it with the host's total memory. The node counts as full once either figure passes
  * `blockWritesAbove` of its limit, and as clear again once both fall below `resumeWritesBelow`, so that a node hovering
  * at the threshold does not switch writes on and off. Removes and searches go through while the node is full, which is
  * how an operator frees memory.

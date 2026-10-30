@@ -187,6 +187,8 @@ narsil_status narsil_connect_unreached(narsil_workspace *workspace, const narsil
   walk_context context;
   narsil_status status = begin_connect(&context, workspace, graph, store, request);
   if (status != NARSIL_OK) { return status; }
+  status = link_from_nearest(&context);
+  if (status != NARSIL_OK) { return status; }
   int32_t entry = load_word(graph->header, NARSIL_GRAPH_WORD_ENTRY_POINT);
   if (node_top_layer(&context, entry) < 0) { return NARSIL_OK; }
   size_t slots = context.slots;

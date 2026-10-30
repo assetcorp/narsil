@@ -224,7 +224,7 @@ The specification version the node follows. Nodes on incompatible versions must 
 The memory that the node uses, which the [Memory Write Block](#memory-write-block) reads. A node that runs where it cannot measure these figures leaves the field absent.
 
 - `processBytes` must be the resident memory of the whole process, because a node can keep vectors and saved segments outside the heap.
-- `processLimitBytes` must be the memory limit that a container sets on the process, or the host's total memory where no container sets one.
+- `processLimitBytes` must be the memory limit that a container sets on the process. Where no container sets one, it must be, on Linux, the process's resident memory plus the memory that the host reports as available (`MemAvailable`), capped at the host's total memory, and elsewhere the host's total memory.
 - `heapBytes` must be the heap that the node's main thread uses, and `heapLimitBytes` the size to which that heap may grow. Both figures must cover the same part of the heap. Where the runtime keeps new objects in a young generation that its collector empties on its own, both figures must leave that generation out. A node runs out of memory when the rest of its heap can't grow, so the garbage in the young generation never causes that failure.
 - `full` must hold the value that the [Memory Write Block](#memory-write-block) rules give it.
 
@@ -482,6 +482,8 @@ Six rules govern the block:
 The block lifts once no node that holds a copy of the index reports `full`.
 
 A node may still refuse a remove, a search, or a document read when the memory that reading the request takes, added to its latest measurement, would pass 0.95 of either limit, because the node would otherwise run out of memory while it reads the request. The node adds the bytes in use in a young generation to its heap figure for that check, as it does for an insert or an update. The node must refuse such a request with an error that tells the client to retry it.
+
+A node may also refuse a search, a document read, or a list of documents when the memory that building one part of its answer takes, added to its latest measurement, would pass 0.95 of either limit. The node must refuse such a request before it sends any part of the answer, with HTTP status 429, the code `TOO_MANY_REQUESTS`, and `response_would_fill_memory` in `details.reason`, so that the client can retry it.
 
 A node must also bound the bytes of the inserts and updates in progress on it, because a burst of writes can exhaust the node's memory between two of its measurements:
 

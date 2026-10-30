@@ -1,5 +1,6 @@
 import { decode, encode } from '@msgpack/msgpack'
 import { describe, expect, it } from 'vitest'
+import { FETCH_GROUP_DOCUMENT_IDS } from '../../../distribution/cluster-node/constants'
 import type { ClusterLocalEngine } from '../../../distribution/cluster-node/local-engine'
 import { readDistributedDocuments } from '../../../distribution/cluster-node/node-messaging'
 import type { ClusterNodeConfig } from '../../../distribution/cluster-node/types'
@@ -62,7 +63,7 @@ describe('reading documents from a remote holder', () => {
     )
 
     expect(documents.size).toBe(DOCUMENTS_READ)
-    expect(fetchSizes.length).toBe(Math.ceil(DOCUMENTS_READ / MAX_FETCH_DOCUMENT_IDS))
-    expect(Math.max(...fetchSizes)).toBeLessThanOrEqual(MAX_FETCH_DOCUMENT_IDS)
+    expect(fetchSizes.length).toBe(Math.ceil(DOCUMENTS_READ / FETCH_GROUP_DOCUMENT_IDS))
+    expect(Math.max(...fetchSizes)).toBeLessThanOrEqual(Math.min(FETCH_GROUP_DOCUMENT_IDS, MAX_FETCH_DOCUMENT_IDS))
   })
 })

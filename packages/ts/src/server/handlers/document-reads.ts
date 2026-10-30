@@ -2,6 +2,7 @@ import { ErrorCodes, NarsilError } from '../../errors'
 import type { Narsil } from '../../narsil'
 import type { AnyDocument } from '../../types/schema'
 import type { ListParams } from '../../types/search'
+import { respondAnswer } from '../answer-stream'
 import type { ResolvedLimits } from '../deps'
 import { parseJson, rejectInvalid, respondError, respondJson } from '../handler-utils'
 import { refuseRegex } from '../regex-policy'
@@ -64,7 +65,7 @@ export function createDocumentReadHandlers(deps: ReadHandlerDeps) {
       const found = await engine.getMultiple(ctx.params[0], body.docIds)
       const documents: Record<string, AnyDocument> = {}
       for (const [id, doc] of found) documents[id] = doc
-      respondJson(ctx, { documents })
+      await respondAnswer(ctx, { documents }, 'documents', `a multi-get on index '${ctx.params[0]}'`)
     } catch (err) {
       respondError(ctx, err)
     }
@@ -80,7 +81,8 @@ export function createDocumentReadHandlers(deps: ReadHandlerDeps) {
     }
     if (refuseRegex(ctx, params.filters, allowRegex)) return
     try {
-      respondJson(ctx, await engine.listDocuments(ctx.params[0], params))
+      const page = await engine.listDocuments(ctx.params[0], params)
+      await respondAnswer(ctx, page, 'documents', `a list on index '${ctx.params[0]}'`)
     } catch (err) {
       respondError(ctx, err)
     }

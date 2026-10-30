@@ -7,6 +7,7 @@ export interface NativeGraphMemory {
   locks: Int32Array
   tombstones: Uint8Array
   incoming: Int32Array
+  nearestLinkDue: Uint8Array
   heldLocks: Int32Array
 }
 

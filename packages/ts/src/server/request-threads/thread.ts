@@ -15,6 +15,7 @@ import { registerServerRoutes, type ServerHandlers, serverRoutes } from '../rout
 import { loadUWebSockets } from '../runtime'
 import { type QueryLimits, validateQuery, validateSuggest, withServerRerankWindow } from '../validation'
 import { type ChildApp, childAppOf } from './acceptor'
+import { closeWhenTheProcessExits } from './close-at-exit'
 import type { RelayedRoute, RequestThreadSettings, ServeRequestsResult, ThreadOnlyRoute } from './messages'
 import { createThreadReadEngine, type ThreadReadEngine } from './read-engine'
 import { createRelayClient, type RelayClient } from './relay-client'
@@ -179,6 +180,7 @@ export async function serveRequests(
   registerServerRoutes(app, run, handlers, settings.limits, settings.cors)
 
   servingApp = { app: child, relay }
+  void closeWhenTheProcessExits(new Int32Array(settings.closeAtExit), closeRequestThread)
   return { descriptor: child.getDescriptor() }
 }
 
