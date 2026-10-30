@@ -16,6 +16,8 @@ const STOP_TIMEOUT_MS = 15_000
 const PEAK_REPORT_TIMEOUT_MS = 5_000
 const PEAK_REPORT_POLL_MS = 20
 const PEAK_OLD_GENERATION_LINE = /PEAK_OLD_GENERATION (\d+)\n/
+const PORT_ATTEMPTS = 5
+const PORT_TAKEN_LINES = [/Failed to listen on /, /EADDRINUSE/]
 
 export interface NodeProcess {
   nodeId: string
@@ -55,8 +57,22 @@ export async function startNodeProcess(options: {
   memory?: ClusterMemoryConfig
   serverLimits?: ServerLimits
 }): Promise<NodeProcess> {
-  const httpPort = await freePort()
-  const transportPort = await freePort()
+  for (let attempt = 1; ; attempt++) {
+    const started = await spawnNodeProcess(options, await freePort(), await freePort())
+    if (started !== null) return started
+    if (attempt === PORT_ATTEMPTS) throw new Error(`${options.nodeId} found no free port in ${PORT_ATTEMPTS} attempts`)
+  }
+}
+
+export function lostPortRace(output: string): boolean {
+  return PORT_TAKEN_LINES.some(line => line.test(output))
+}
+
+async function spawnNodeProcess(
+  options: Parameters<typeof startNodeProcess>[0],
+  httpPort: number,
+  transportPort: number,
+): Promise<NodeProcess | null> {
   const { NARSIL_MEMORY_CONFIG: _inherited, NARSIL_SERVER_LIMITS: _inheritedLimits, ...parentEnv } = process.env
   const child: ChildProcess = spawn(process.execPath, [`--max-old-space-size=${options.heapMegabytes}`, NODE_SCRIPT], {
     env: {
@@ -86,7 +102,7 @@ export async function startNodeProcess(options: {
     output += chunk.toString()
   })
 
-  await new Promise<void>((resolve, reject) => {
+  const ready = await new Promise<boolean>((resolve, reject) => {
     const timer = setTimeout(() => {
       reject(new Error(`${options.nodeId} did not start within ${READY_TIMEOUT_MS} ms: ${output}`))
     }, READY_TIMEOUT_MS)
@@ -94,14 +110,16 @@ export async function startNodeProcess(options: {
       output += chunk.toString()
       if (output.includes(`READY ${options.nodeId}`)) {
         clearTimeout(timer)
-        resolve()
+        resolve(true)
       }
     })
     child.once('exit', code => {
       clearTimeout(timer)
-      reject(new Error(`${options.nodeId} exited with code ${code} before it started: ${output}`))
+      if (lostPortRace(output)) resolve(false)
+      else reject(new Error(`${options.nodeId} exited with code ${code} before it started: ${output}`))
     })
   })
+  if (!ready) return null
 
   return {
     nodeId: options.nodeId,
