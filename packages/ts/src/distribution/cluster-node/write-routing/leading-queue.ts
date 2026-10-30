@@ -131,7 +131,7 @@ export async function inLeadingPartitionQueue<T>(
       scope.partitionId,
       async hold => {
         current = { ...(await currentScope(scope)), holdQueue: hold }
-        await startTermInQueue(current)
+        if (await startTermInQueue(current)) current = { ...(await currentScope(scope)), holdQueue: hold }
         logEndBefore = logEndOf(current)
         return task(current)
       },
