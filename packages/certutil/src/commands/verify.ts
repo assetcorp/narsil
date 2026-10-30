@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import type { Command } from 'commander'
 import type forge from 'node-forge'
+import { isCertificateAuthority } from '../crypto/certificate'
 import { publicKeysMatch } from '../crypto/keys'
 import { pemToCertificate, pemToPrivateKey } from '../crypto/pem'
 import { formatError, formatSuccess, formatVerifyText } from '../output/formatter'
@@ -109,6 +110,9 @@ export async function runVerifyAction(opts: VerifyActionOptions): Promise<void> 
 async function verifyChain(cert: forge.pki.Certificate, caCertPath: string): Promise<boolean> {
   const caCertPem = await readFile(caCertPath, 'utf-8')
   const caCert = pemToCertificate(caCertPem)
+  if (!isCertificateAuthority(caCert)) {
+    return false
+  }
   try {
     return caCert.verify(cert)
   } catch {

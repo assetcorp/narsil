@@ -46,8 +46,8 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build Narsil
-        run: pnpm nx run narsil-ts:build
+      - name: Build the Narsil code that the benchmarks load
+        run: pnpm nx run narsil-ts:build:code
 
       - name: Set up Zig
         uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
@@ -83,8 +83,23 @@ jobs:
       - name: Download any BEIR archive the cache lacks
         run: pnpm --filter benchmarks datasets:fetch
 
+      - name: Restore the DBpedia 100K indexes built from this engine code
+        id: dbpedia-indexes
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.BENCH_DBPEDIA_INDEX_DIR }}
+          key: dbpedia-indexes-${{ hashFiles('packages/ts/src/**', '!packages/ts/src/__tests__/**', 'packages/ts/wasm/**', 'packages/native/src/**', 'packages/native/include/**', 'packages/native/node/**', 'benchmarks/in-process/src/regression/dbpedia/**', 'benchmarks/server/config/benchmark.toml', 'pnpm-lock.yaml') }}
+
       - name: Build the DBpedia 100K indexes at full precision and with 4-bit quantisation
+        if: steps.dbpedia-indexes.outputs.cache-hit != 'true'
         run: pnpm --filter benchmarks dbpedia:build
+
+      - name: Save the DBpedia 100K indexes for later runs
+        if: github.ref == 'refs/heads/main' && steps.dbpedia-indexes.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.BENCH_DBPEDIA_INDEX_DIR }}
+          key: ${{ steps.dbpedia-indexes.outputs.cache-primary-key }}
 
       - name: Compare ranking quality with its recorded baseline
         working-directory: benchmarks/in-process

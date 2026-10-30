@@ -224,8 +224,8 @@ describe('narsil-certutil convert', () => {
   it.each([
     [['--to', 'der', '--p12-password', PASSWORD], 2, /Invalid --to value/],
     [['--to', 'p12', '--cert', 'node.crt', '--key', 'node.key'], 2, /Password is required/],
-    [['--to', 'p12', '--p12-password', PASSWORD], 1, /requires --cert and --key/],
-    [['--to', 'pem', '--p12-password', PASSWORD], 1, /requires --p12/],
+    [['--to', 'p12', '--p12-password', PASSWORD], 2, /requires --cert and --key/],
+    [['--to', 'pem', '--p12-password', PASSWORD], 2, /requires --p12/],
     [['--p12-password', PASSWORD], 1, /--to/],
     [['--to', 'p12', '--cert', 'absent.crt', '--key', 'absent.key', '--p12-password', PASSWORD], 1, /ENOENT/],
   ])('refuses the arguments %j and writes nothing', async (args, code, message) => {

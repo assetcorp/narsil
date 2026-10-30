@@ -7,7 +7,7 @@ import { generateNodeCertificate } from '../crypto/certificate'
 import { computeFingerprint } from '../crypto/fingerprint'
 import { pemToCertificate } from '../crypto/pem'
 import { formatError, formatGenerationText, formatSuccess } from '../output/formatter'
-import { fileExists, writeOutputFile } from '../output/writer'
+import { fileExists, isSafeFileName, writeOutputFile, writePrivateFile } from '../output/writer'
 import { ExitCode, type GenerationResult } from '../types'
 
 export function registerCertCommand(program: Command): void {
@@ -105,6 +105,20 @@ export async function runCertAction(opts: CertActionOptions): Promise<void> {
       return
     }
 
+    if (opts.cn !== undefined && !isSafeFileName(opts.cn)) {
+      process.stderr.write(
+        `${formatError(
+          'BAD_ARGUMENTS',
+          `Invalid --cn value: ${opts.cn}`,
+          'Use a name that holds no path, and choose the location with --out-dir',
+          startTime,
+          json,
+        )}\n`,
+      )
+      process.exitCode = ExitCode.BAD_ARGUMENTS
+      return
+    }
+
     await validateFileReadable(opts.caCert, '--ca-cert')
     await validateFileReadable(opts.caKey, '--ca-key')
 
@@ -138,7 +152,7 @@ export async function runCertAction(opts: CertActionOptions): Promise<void> {
     }
 
     await writeOutputFile(certPath, result.certPem, opts.force)
-    await writeOutputFile(keyPath, result.keyPem, opts.force)
+    await writePrivateFile(keyPath, result.keyPem, opts.force)
 
     const cert = pemToCertificate(result.certPem)
     const genResult: GenerationResult = {
@@ -192,26 +206,25 @@ async function runBatchMode(
   }
 
   const results = await runBatchCert(config, caCertPem, caKeyPem, opts.outDir, opts.force, days, keySize)
+  const generated: GenerationResult[] = results.map(batchResult => ({
+    files: [
+      {
+        path: join(batchResult.outputDir, `${batchResult.cn}.crt`),
+        type: 'certificate',
+      },
+      {
+        path: join(batchResult.outputDir, `${batchResult.cn}.key`),
+        type: 'key',
+      },
+    ],
+    fingerprint: batchResult.fingerprint,
+  }))
 
-  for (const batchResult of results) {
-    const genResult: GenerationResult = {
-      files: [
-        {
-          path: join(batchResult.outputDir, `${batchResult.cn}.crt`),
-          type: 'certificate',
-        },
-        {
-          path: join(batchResult.outputDir, `${batchResult.cn}.key`),
-          type: 'key',
-        },
-      ],
-      fingerprint: batchResult.fingerprint,
-    }
-
-    if (json) {
-      process.stdout.write(`${formatSuccess(genResult, startTime, true)}\n`)
-    } else {
-      process.stderr.write(`${formatGenerationText(genResult)}\n`)
-    }
+  if (json) {
+    process.stdout.write(`${formatSuccess(generated, startTime, true)}\n`)
+    return
+  }
+  for (const genResult of generated) {
+    process.stderr.write(`${formatGenerationText(genResult)}\n`)
   }
 }

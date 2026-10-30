@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import { extname } from 'node:path'
 import { parse as parseYaml } from 'yaml'
+import { isSafeFileName } from '../output/writer'
 import type { BatchNodeSpec, ClusterConfig } from '../types'
 
 function validateNodeSpec(raw: unknown, index: number): BatchNodeSpec {
@@ -12,6 +13,12 @@ function validateNodeSpec(raw: unknown, index: number): BatchNodeSpec {
 
   if (typeof record.cn !== 'string' || record.cn.length === 0) {
     throw new Error(`Node at index ${index} is missing required 'cn' field.`)
+  }
+
+  if (!isSafeFileName(record.cn)) {
+    throw new Error(
+      `Node at index ${index} has 'cn' ${record.cn}, which holds a path and cannot name its output files.`,
+    )
   }
 
   if (record.ip !== undefined) {

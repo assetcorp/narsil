@@ -1,3 +1,5 @@
+import { isIP } from 'node:net'
+
 export interface CertExtension {
   name: string
   cA?: boolean
@@ -19,6 +21,9 @@ export function buildSanExtension(ipSans: string[], dnsSans: string[]): CertExte
   }
 
   for (const ip of ipSans) {
+    if (isIP(ip) === 0) {
+      throw new Error(`Invalid IP address: ${ip}`)
+    }
     altNames.push({ type: 7, ip })
   }
 
