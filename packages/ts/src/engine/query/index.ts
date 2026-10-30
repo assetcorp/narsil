@@ -144,7 +144,6 @@ async function runQuery<T>(request: QueryParams, callerContext: QueryContext): P
       }
     }
 
-    context.patternWork.clock?.check()
     const needsFullHits =
       params.sort !== undefined ||
       params.group !== undefined ||
@@ -195,7 +194,6 @@ async function runQuery<T>(request: QueryParams, callerContext: QueryContext): P
       hits = applySorting(hits, params.sort, sortKeyOf)
     }
 
-    context.patternWork.clock?.check()
     if (params.group) {
       groups = applyGrouping(hits, params.group, {
         fieldValues: (docId, fieldPaths) => manager.fieldValues(docId, fieldPaths),
@@ -249,7 +247,6 @@ async function runQuery<T>(request: QueryParams, callerContext: QueryContext): P
     }
   }
 
-  context.patternWork.clock?.check()
   if (projection.kind === 'none') {
     for (const hit of paginated) {
       hit.document = {} as T
