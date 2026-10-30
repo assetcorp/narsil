@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { MAX_FILTER_TESTS } from '../../../filters/constants'
 import type { NarsilConfig } from '../../../types/config'
+import type { FilterExpression } from '../../../types/filters'
 import type { AnyDocument } from '../../../types/schema'
 import { seededRandom } from '../../filters/pattern/random-corpus'
 import { operationsCorpus } from './corpus'
@@ -13,6 +14,8 @@ import {
   searchBody,
   timedSearch,
 } from './hostile'
+import { createLongQueryGate, type LongQueryGate } from './long-query-gate'
+import { expectedIds } from './oracle'
 
 const CJK_FIRST = 0x4e00
 const CJK_SPAN = 20_000
@@ -54,30 +57,62 @@ function nearMissCorpus(count: number, test: string): AnyDocument[] {
 const HOSTILE_TEXT = repeatedCodePoints(CJK_FIRST, MAX_TEXT_CODE_POINTS)
 const TYPO_TEXT = repeatedCodePoints(TYPO_FIRST, MAX_TEXT_CODE_POINTS)
 
+const CORPUS: AnyDocument[] = [
+  ...operationsCorpus(2_000, 21),
+  ...longValueCorpus(40, LONG_VALUE_CODE_POINTS),
+  ...scatteredCorpus(40, HOSTILE_TEXT),
+  ...nearMissCorpus(NEAR_MISS_VALUES, TYPO_TEXT),
+]
+
+function idsPassing(filters: unknown): Set<string> {
+  const { fields, and, or, not } = filters as FilterExpression
+  const required: Set<string>[] = [
+    ...Object.entries(fields ?? {}).map(([field, filter]) => new Set(expectedIds(CORPUS, field, filter))),
+    ...(and ?? []).map(idsPassing),
+  ]
+  if (or !== undefined) required.push(new Set(or.flatMap(branch => [...idsPassing(branch)])))
+  const refused = not === undefined ? new Set<string>() : idsPassing(not)
+  return new Set(
+    CORPUS.map(document => String(document.id)).filter(
+      id => !refused.has(id) && required.every(matched => matched.has(id)),
+    ),
+  )
+}
+
+function expectOracleHits(
+  answer: { ids: string[] | null; count: number | null },
+  filters: unknown,
+  label: string,
+): void {
+  const expected = idsPassing(filters)
+  expect(answer.count, label).toBe(expected.size)
+  expect(answer.ids?.length, label).toBe(Math.min(expected.size, 10))
+  expect(
+    answer.ids?.filter(id => !expected.has(id)),
+    label,
+  ).toEqual([])
+}
+
 describe.each([
   { where: 'on the main thread', workers: NO_WORKERS, runnable: true },
   { where: 'on worker copies', workers: WORKER_COPIES, runnable: WORKERS_BUILT },
 ])('a server facing hostile pattern searches $where', ({ workers, runnable }) => {
   let server: PatternServer
+  let gate: LongQueryGate | undefined
 
   beforeAll(async () => {
     if (!runnable) return
-    const config: NarsilConfig = { workers }
+    gate = workers === NO_WORKERS ? undefined : createLongQueryGate()
+    const config: NarsilConfig = {
+      workers: gate === undefined ? workers : { ...workers, bootstrapModule: gate.bootstrapModule },
+    }
     server = await startPatternServer(config)
-    await loadCorpus(
-      server,
-      [
-        ...operationsCorpus(2_000, 21),
-        ...longValueCorpus(40, LONG_VALUE_CODE_POINTS),
-        ...scatteredCorpus(40, HOSTILE_TEXT),
-        ...nearMissCorpus(NEAR_MISS_VALUES, TYPO_TEXT),
-      ],
-      PARTITIONS,
-    )
+    await loadCorpus(server, CORPUS, PARTITIONS)
   }, 120_000)
 
   afterAll(async () => {
     if (runnable) await server.stop()
+    gate?.stop()
   })
 
   it.skipIf(!runnable)(
@@ -177,6 +212,8 @@ describe.each([
         tolerant,
         NORMAL_FILTERS,
         'distance tables past the work cap',
+        false,
+        gate,
       )
       expect({ status: tolerantAnswer.status, code: tolerantAnswer.code }).toEqual({
         status: 400,
@@ -269,11 +306,13 @@ describe.each([
           NORMAL_FILTERS,
           label,
           asFastAsANormalSearch.has(label),
+          gate,
         )
         expect({ status: answered.status, code: answered.code }, label).toEqual({ status: 200, code: null })
+        expectOracleHits(answered, filters, label)
       }
       for (const [label, filters] of pastTheCap) {
-        const answered = await expectServedWhileHostile(server, searchBody(filters), NORMAL_FILTERS, label)
+        const answered = await expectServedWhileHostile(server, searchBody(filters), NORMAL_FILTERS, label, false, gate)
         expect({ status: answered.status, code: answered.code }, label).toEqual({
           status: 400,
           code: 'SEARCH_WORK_CAP_EXCEEDED',

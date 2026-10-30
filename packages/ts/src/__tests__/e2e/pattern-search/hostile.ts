@@ -5,25 +5,42 @@ import type { AnyDocument } from '../../../types/schema'
 import { postJson } from '../../server/helpers'
 import { COMMON_TERM, INDEX } from './corpus'
 import type { PatternServer } from './harness'
+import type { LongQueryGate } from './long-query-gate'
 
 export const NORMAL_SEARCH_DEADLINE_MS = 1_000
+const SEARCH_ANSWER_TIMEOUT_MS = 60_000
+const NORMALS_WHILE_HELD_MS = 5_000
+const HELD_CONTEST_ATTEMPTS = 3
 
 export interface TimedResponse {
   status: number
   code: string | null
   hits: number | null
+  ids: string[] | null
+  count: number | null
   elapsedMs: number
+}
+
+interface SearchAnswer extends Partial<ErrorEnvelope> {
+  hits?: Array<{ id?: unknown }>
+  count?: unknown
+}
+
+function answerOf(status: number, body: SearchAnswer | undefined): Omit<TimedResponse, 'elapsedMs'> {
+  const hits = Array.isArray(body?.hits) ? body.hits : null
+  return {
+    status,
+    code: body?.error?.code ?? null,
+    hits: hits === null ? null : hits.length,
+    ids: hits === null ? null : hits.map(hit => String(hit.id)),
+    count: typeof body?.count === 'number' ? body.count : null,
+  }
 }
 
 export async function timedSearch(server: PatternServer, body: unknown): Promise<TimedResponse> {
   const started = performance.now()
-  const response = await postJson<ErrorEnvelope & { hits?: unknown[] }>(server.base, `/indexes/${INDEX}/search`, body)
-  return {
-    status: response.status,
-    code: response.body?.error?.code ?? null,
-    hits: Array.isArray(response.body?.hits) ? response.body.hits.length : null,
-    elapsedMs: performance.now() - started,
-  }
+  const response = await postJson<SearchAnswer>(server.base, `/indexes/${INDEX}/search`, body)
+  return { ...answerOf(response.status, response.body), elapsedMs: performance.now() - started }
 }
 
 export function searchBody(filters: unknown): unknown {
@@ -38,10 +55,7 @@ export async function expectRejected(server: PatternServer, filters: unknown, co
   })
 }
 
-interface FreshAnswer {
-  status: number
-  code: string | null
-  hits: number | null
+interface FreshAnswer extends Omit<TimedResponse, 'elapsedMs'> {
   endedAt: number
 }
 
@@ -64,21 +78,90 @@ function searchOnFreshConnection(server: PatternServer, body: unknown): Promise<
         response.on('error', reject)
         response.on('end', () => {
           const endedAt = performance.now()
-          const parsed = JSON.parse(Buffer.concat(chunks).toString('utf8')) as Partial<ErrorEnvelope> & {
-            hits?: unknown[]
-          }
-          resolve({
-            status: response.statusCode ?? 0,
-            code: parsed.error?.code ?? null,
-            hits: Array.isArray(parsed.hits) ? parsed.hits.length : null,
-            endedAt,
-          })
+          const parsed = JSON.parse(Buffer.concat(chunks).toString('utf8')) as SearchAnswer
+          resolve({ ...answerOf(response.statusCode ?? 0, parsed), endedAt })
         })
       },
     )
+    sent.setTimeout(SEARCH_ANSWER_TIMEOUT_MS, () => {
+      sent.destroy(new Error(`The server gave no answer within ${SEARCH_ANSWER_TIMEOUT_MS} ms`))
+    })
     sent.on('error', reject)
     sent.end(payload)
   })
+}
+
+function within<T>(work: Promise<T>, ms: number): Promise<T | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const expired = new Promise<null>(resolve => {
+    timer = setTimeout(() => resolve(null), ms)
+  })
+  return Promise.race([work, expired]).finally(() => clearTimeout(timer))
+}
+
+interface Contest {
+  started: number
+  hostile: Promise<FreshAnswer>
+  normals: FreshAnswer[]
+}
+
+function normalSearches(server: PatternServer, normalFilters: unknown): Promise<FreshAnswer[]> {
+  return Promise.all(
+    Array.from({ length: server.requestThreads }, () => searchOnFreshConnection(server, searchBody(normalFilters))),
+  )
+}
+
+async function contestWhileHeld(
+  server: PatternServer,
+  hostileBody: unknown,
+  normalFilters: unknown,
+  label: string,
+  held: LongQueryGate,
+): Promise<Contest | null> {
+  await held.close()
+  const started = performance.now()
+  let settled = false
+  const hostile = searchOnFreshConnection(server, hostileBody).finally(() => {
+    settled = true
+  })
+  void hostile.catch(() => undefined)
+  const normals = normalSearches(server, normalFilters)
+  let answered: FreshAnswer[] | null = null
+  let answeredWhileHeld = false
+  try {
+    answered = await within(normals, NORMALS_WHILE_HELD_MS)
+  } finally {
+    answeredWhileHeld = settled
+    held.open()
+  }
+  expect(answeredWhileHeld, `${label} answered while the long-query thread was held`).toBe(false)
+  if (answered !== null) return { started, hostile, normals: answered }
+  await Promise.allSettled([hostile, normals])
+  const { movedSinceClosed } = await held.report()
+  if (movedSinceClosed > 1) return null
+  throw new Error(
+    `${label}: the normal searches gave no answer within ${NORMALS_WHILE_HELD_MS} ms, while the long-query thread took in ${movedSinceClosed} moved searches`,
+  )
+}
+
+async function contest(
+  server: PatternServer,
+  hostileBody: unknown,
+  normalFilters: unknown,
+  label: string,
+  held: LongQueryGate | undefined,
+): Promise<Contest> {
+  if (held === undefined) {
+    const started = performance.now()
+    const hostile = searchOnFreshConnection(server, hostileBody)
+    void hostile.catch(() => undefined)
+    return { started, hostile, normals: await normalSearches(server, normalFilters) }
+  }
+  for (let attempt = 0; attempt < HELD_CONTEST_ATTEMPTS; attempt++) {
+    const decided = await contestWhileHeld(server, hostileBody, normalFilters, label, held)
+    if (decided !== null) return decided
+  }
+  throw new Error(`${label}: a normal search waited on the held long-query thread in every attempt`)
 }
 
 async function expectOtherThreadsAnswerFirst(
@@ -87,19 +170,23 @@ async function expectOtherThreadsAnswerFirst(
   normalFilters: unknown,
   label: string,
   ordered: boolean,
+  gate: LongQueryGate | undefined,
 ): Promise<TimedResponse> {
-  const started = performance.now()
-  const hostile = searchOnFreshConnection(server, hostileBody)
-  const normals = await Promise.all(
-    Array.from({ length: server.requestThreads }, () => searchOnFreshConnection(server, searchBody(normalFilters))),
-  )
+  const held = ordered ? gate : undefined
+  const { started, hostile, normals } = await contest(server, hostileBody, normalFilters, label, held)
   const answered = await hostile
   for (const normal of normals) {
     expect({ status: normal.status, answered: (normal.hits ?? 0) > 0 }, label).toEqual({ status: 200, answered: true })
   }
   const answeredFirst = normals.filter(normal => normal.endedAt < answered.endedAt).length
   if (ordered) expect(answeredFirst, label).toBe(server.requestThreads)
-  return { status: answered.status, code: answered.code, hits: answered.hits, elapsedMs: answered.endedAt - started }
+  if (held !== undefined) {
+    const report = await held.report()
+    expect(report.movedSinceClosed, label).toBeGreaterThanOrEqual(1)
+    expect(report.longQuery, label).toBeGreaterThan(Math.max(0, ...report.others))
+  }
+  const { endedAt, ...answer } = answered
+  return { ...answer, elapsedMs: endedAt - started }
 }
 
 export async function expectServedWhileHostile(
@@ -108,9 +195,10 @@ export async function expectServedWhileHostile(
   normalFilters: unknown,
   label: string,
   answersAsFastAsANormalSearch = false,
+  gate?: LongQueryGate,
 ): Promise<TimedResponse> {
   if (server.requestThreads > 0) {
-    return expectOtherThreadsAnswerFirst(server, hostileBody, normalFilters, label, !answersAsFastAsANormalSearch)
+    return expectOtherThreadsAnswerFirst(server, hostileBody, normalFilters, label, !answersAsFastAsANormalSearch, gate)
   }
   const hostile = timedSearch(server, hostileBody)
   const normal = await timedSearch(server, searchBody(normalFilters))

@@ -6,6 +6,8 @@ import { acceptedTolerance, withinTolerance } from '../../filters/pattern/typo-o
 
 export { codePointsOf, UNICODE_FOLDS } from '../../filters/pattern/case-folding'
 
+const SURROGATE = /[\uD800-\uDFFF]/
+
 function sameAt(value: number[], text: number[], at: number): boolean {
   for (let offset = 0; offset < text.length; offset++) {
     if (value[at + offset] !== text[offset]) return false
@@ -22,14 +24,30 @@ function holds(value: number[], text: number[]): boolean {
 
 export type ValueTest = 'eq' | 'startsWith' | 'endsWith' | 'contains'
 
-export function valuePasses(value: string, test: ValueTest, text: string, caseFold: boolean): boolean {
-  const valuePoints = codePointsOf(value, caseFold)
+type ValueCheck = (value: string) => boolean
+
+function literalCheck(test: ValueTest, text: string): ValueCheck {
+  if (test === 'eq') return value => value === text
+  if (test === 'startsWith') return value => value.startsWith(text)
+  if (test === 'endsWith') return value => value.endsWith(text)
+  return value => value.includes(text)
+}
+
+function valueCheck(test: ValueTest, text: string, caseFold: boolean): ValueCheck {
+  if (!caseFold && !SURROGATE.test(text)) return literalCheck(test, text)
   const textPoints = codePointsOf(text, caseFold)
-  if (test === 'eq') return valuePoints.length === textPoints.length && sameAt(valuePoints, textPoints, 0)
-  if (textPoints.length > valuePoints.length) return false
-  if (test === 'startsWith') return sameAt(valuePoints, textPoints, 0)
-  if (test === 'endsWith') return sameAt(valuePoints, textPoints, valuePoints.length - textPoints.length)
-  return holds(valuePoints, textPoints)
+  return value => {
+    const valuePoints = codePointsOf(value, caseFold)
+    if (test === 'eq') return valuePoints.length === textPoints.length && sameAt(valuePoints, textPoints, 0)
+    if (textPoints.length > valuePoints.length) return false
+    if (test === 'startsWith') return sameAt(valuePoints, textPoints, 0)
+    if (test === 'endsWith') return sameAt(valuePoints, textPoints, valuePoints.length - textPoints.length)
+    return holds(valuePoints, textPoints)
+  }
+}
+
+export function valuePasses(value: string, test: ValueTest, text: string, caseFold: boolean): boolean {
+  return valueCheck(test, text, caseFold)(value)
 }
 
 export function textValuesOf(document: AnyDocument, field: string): string[] {
@@ -39,39 +57,50 @@ export function textValuesOf(document: AnyDocument, field: string): string[] {
   return value.filter((element): element is string => typeof element === 'string')
 }
 
-function eqPasses(values: string[], text: string, tolerance: unknown, caseFold: boolean): boolean {
-  if (tolerance === undefined) return values.some(value => valuePasses(value, 'eq', text, caseFold))
+function eqCheck(text: string, tolerance: unknown, caseFold: boolean): ValueCheck {
+  if (tolerance === undefined) return valueCheck('eq', text, caseFold)
   const accepted = acceptedTolerance(text, tolerance)
   if (accepted === null) throw new Error(`The engine refuses a tolerance of ${String(tolerance)} on "${text}"`)
-  return values.some(value => withinTolerance(value, text, accepted, caseFold))
+  return value => withinTolerance(value, text, accepted, caseFold)
 }
 
-function filterPasses(values: string[], filter: FieldFilter): boolean {
+function anyEqualCheck(operand: unknown, caseFold: boolean): ValueCheck {
+  const texts = Array.isArray(operand) ? operand.filter((text): text is string => typeof text === 'string') : []
+  if (!caseFold && !texts.some(text => SURROGATE.test(text))) {
+    const members = new Set(texts)
+    return value => members.has(value)
+  }
+  const checks = texts.map(text => valueCheck('eq', text, caseFold))
+  return value => checks.some(check => check(value))
+}
+
+function filterCheck(filter: FieldFilter): (values: string[]) => boolean {
   const probe = filter as Record<string, unknown>
   const caseFold = probe.caseFold === true
-  const any = (test: ValueTest, text: string) => values.some(value => valuePasses(value, test, text, caseFold))
-  const texts = (operand: unknown): string[] => (Array.isArray(operand) ? operand : [])
-  if (typeof probe.eq === 'string' && !eqPasses(values, probe.eq, probe.tolerance, caseFold)) return false
-  if (typeof probe.ne === 'string' && any('eq', probe.ne)) return false
-  if (probe.in !== undefined && !texts(probe.in).some(text => any('eq', text))) return false
-  if (probe.nin !== undefined && texts(probe.nin).some(text => any('eq', text))) return false
-  if (typeof probe.startsWith === 'string' && !any('startsWith', probe.startsWith)) return false
-  if (typeof probe.endsWith === 'string' && !any('endsWith', probe.endsWith)) return false
-  if (typeof probe.contains === 'string' && !any('contains', probe.contains)) return false
+  const required: ValueCheck[] = []
+  const refused: ValueCheck[] = []
+  if (typeof probe.eq === 'string') required.push(eqCheck(probe.eq, probe.tolerance, caseFold))
+  if (typeof probe.ne === 'string') refused.push(valueCheck('eq', probe.ne, caseFold))
+  if (probe.in !== undefined) required.push(anyEqualCheck(probe.in, caseFold))
+  if (probe.nin !== undefined) refused.push(anyEqualCheck(probe.nin, caseFold))
+  for (const test of ['startsWith', 'endsWith', 'contains'] as const) {
+    const text = probe[test]
+    if (typeof text === 'string') required.push(valueCheck(test, text, caseFold))
+  }
   for (const operator of ['wildcard', 'regex'] as const) {
     const pattern = probe[operator]
-    if (typeof pattern !== 'string') continue
-    if (!values.some(value => expressionPasses(value, operator, pattern, caseFold))) return false
+    if (typeof pattern === 'string') required.push(value => expressionPasses(value, operator, pattern, caseFold))
   }
-  return true
+  return values => required.every(check => values.some(check)) && !refused.some(check => values.some(check))
 }
 
 export function expectedIds(documents: readonly AnyDocument[], field: string, filter: FieldFilter): string[] {
+  const passes = filterCheck(filter)
   const ids: string[] = []
   for (const document of documents) {
     const stored = document[field]
     if (stored === undefined || stored === null) continue
-    if (filterPasses(textValuesOf(document, field), filter)) ids.push(String(document.id))
+    if (passes(textValuesOf(document, field))) ids.push(String(document.id))
   }
   return ids.sort()
 }
