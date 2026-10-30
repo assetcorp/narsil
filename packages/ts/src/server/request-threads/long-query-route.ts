@@ -16,18 +16,23 @@ export function routeLongQueries(
   mainPort: MessagePort,
   inFlight: SharedArrayBuffer,
   touchIntervalMs: number,
+  firstPort: MessagePort | null,
 ): LongQueryRoute {
   const counter = new Int32Array(inFlight)
   let relay: RelayClient | null = null
 
-  mainPort.on('message', (message: unknown) => {
-    if (!isLongQueryPortNote(message)) return
+  function relayThrough(port: MessagePort): void {
     relay?.close()
-    const opened = createRelayClient(message.port, touchIntervalMs)
+    const opened = createRelayClient(port, touchIntervalMs)
     relay = opened
-    message.port.on('close', () => {
+    port.on('close', () => {
       if (relay === opened) relay = null
     })
+  }
+
+  if (firstPort !== null) relayThrough(firstPort)
+  mainPort.on('message', (message: unknown) => {
+    if (isLongQueryPortNote(message)) relayThrough(message.port)
   })
 
   return {
