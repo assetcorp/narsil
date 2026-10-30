@@ -1,211 +1,264 @@
-import { randomBytes } from 'node:crypto'
-import { readFile, rm, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { runConvertAction } from '../../commands/convert'
-import { generateCaCertificate } from '../../crypto/ca'
-import { generateNodeCertificate } from '../../crypto/certificate'
-import { pemToPkcs12 } from '../../crypto/pkcs12'
-import { ensureDirectory, fileExists } from '../../output/writer'
+import { createSecureContext } from 'node:tls'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import {
+  type Authority,
+  createAuthority,
+  createWorkspace,
+  expectNoPrivateKeyInOutput,
+  expectRefusal,
+  issueNodeCertificate,
+  listFiles,
+  loadIdentity,
+  type NodeIdentity,
+  parseEnvelope,
+  removeWorkspace,
+  runCli,
+} from '../support/cli'
+import { performMutualTlsHandshake } from '../support/tls'
 
-function tempDir(): string {
-  return join(tmpdir(), `certutil-convert-cmd-test-${randomBytes(8).toString('hex')}`)
-}
+const PASSWORD = 'correct horse battery staple'
 
-const ca = generateCaCertificate({ name: 'Convert Test CA', days: 3650, keySize: 2048 })
-const nodeCert = generateNodeCertificate({
-  caCertPem: ca.certPem,
-  caKeyPem: ca.keyPem,
-  cn: 'convert-node',
-  ipSans: ['10.0.0.1'],
-  dnsSans: ['convert-node.local'],
-  days: 365,
-  keySize: 2048,
-})
+describe('narsil-certutil convert', () => {
+  let root: string
+  let authority: Authority
+  let server: NodeIdentity
+  let client: NodeIdentity
 
-describe('convert command', () => {
-  let dir: string
-  let originalExitCode: string | number | null | undefined
-  let stderrChunks: string[]
-  let stdoutChunks: string[]
-  let stderrSpy: ReturnType<typeof vi.spyOn>
-  let stdoutSpy: ReturnType<typeof vi.spyOn>
-
-  beforeEach(async () => {
-    dir = tempDir()
-    await ensureDirectory(dir)
-    await writeFile(join(dir, 'cert.pem'), nodeCert.certPem)
-    await writeFile(join(dir, 'key.pem'), nodeCert.keyPem)
-    await writeFile(join(dir, 'ca.pem'), ca.certPem)
-    originalExitCode = process.exitCode
-    stderrChunks = []
-    stdoutChunks = []
-    stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk: string | Uint8Array) => {
-      stderrChunks.push(String(chunk))
-      return true
-    })
-    stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation((chunk: string | Uint8Array) => {
-      stdoutChunks.push(String(chunk))
-      return true
-    })
+  beforeAll(async () => {
+    root = await createWorkspace()
+    const pkiDir = await createWorkspace(root)
+    authority = await createAuthority(pkiDir, 'Convert Test CA')
+    server = await issueNodeCertificate(authority, pkiDir, 'convert-server', ['--ip', '127.0.0.1'])
+    client = await issueNodeCertificate(authority, pkiDir, 'convert-client')
   })
 
-  afterEach(async () => {
-    process.exitCode = originalExitCode
-    stderrSpy.mockRestore()
-    stdoutSpy.mockRestore()
-    await rm(dir, { recursive: true, force: true })
+  afterAll(async () => {
+    await removeWorkspace(root)
   })
 
-  it('converts PEM to PKCS#12', async () => {
-    const outDir = join(dir, 'p12-out')
-    await runConvertAction({
-      cert: join(dir, 'cert.pem'),
-      key: join(dir, 'key.pem'),
-      caCert: join(dir, 'ca.pem'),
-      to: 'p12',
-      p12Password: 'test-password',
+  async function createP12(outDir: string, extraArgs: string[] = []): Promise<string> {
+    const result = await runCli([
+      'convert',
+      '--cert',
+      server.certPath,
+      '--key',
+      server.keyPath,
+      '--to',
+      'p12',
+      '--p12-password',
+      PASSWORD,
+      '--out-dir',
       outDir,
-      output: 'text',
-      force: false,
+      ...extraArgs,
+    ])
+    if (result.code !== 0) {
+      throw new Error(`The CLI refused to create the PKCS#12 file: ${result.stderr}`)
+    }
+    return join(outDir, 'certificate.p12')
+  }
+
+  it('produces a password-protected PKCS#12 file that serves real TLS traffic', async () => {
+    const p12Path = await createP12(await createWorkspace(root), ['--ca-cert', authority.certPath])
+    const pfx = await readFile(p12Path)
+
+    expect(() => createSecureContext({ pfx, passphrase: 'not the password' })).toThrow()
+
+    const result = await performMutualTlsHandshake({
+      server: { ca: authority.certPem, pfx, passphrase: PASSWORD },
+      client: { ca: authority.certPem, cert: client.certPem, key: client.keyPem },
     })
 
-    expect(await fileExists(join(outDir, 'certificate.p12'))).toBe(true)
-    const p12Content = await readFile(join(outDir, 'certificate.p12'))
-    expect(p12Content.length).toBeGreaterThan(0)
-
-    const stderr = stderrChunks.join('')
-    expect(stderr).toContain('Converted files:')
-    expect(stderr).toContain('certificate.p12')
+    expect(result.clientPeerCn).toBe('convert-server')
+    expect(result.serverPeerCn).toBe('convert-client')
+    expect(result.echoedPayload).toBe('server-ack')
   })
 
-  it('converts PKCS#12 to PEM', async () => {
-    const p12Bytes = pemToPkcs12(nodeCert.certPem, nodeCert.keyPem, 'test-password', ca.certPem)
-    const p12Path = join(dir, 'input.p12')
-    await writeFile(p12Path, p12Bytes)
+  it('restores the same certificate, key, and CA from a PKCS#12 file', async () => {
+    const workDir = await createWorkspace(root)
+    const p12Path = await createP12(workDir, ['--ca-cert', authority.certPath])
+    const outDir = join(workDir, 'pem')
 
-    const outDir = join(dir, 'pem-out')
-    await runConvertAction({
-      p12: p12Path,
-      to: 'pem',
-      p12Password: 'test-password',
+    const result = await runCli([
+      'convert',
+      '--p12',
+      p12Path,
+      '--to',
+      'pem',
+      '--p12-password',
+      PASSWORD,
+      '--out-dir',
       outDir,
-      output: 'text',
-      force: false,
-    })
+      '--output',
+      'json',
+    ])
 
-    expect(await fileExists(join(outDir, 'cert.pem'))).toBe(true)
-    expect(await fileExists(join(outDir, 'key.pem'))).toBe(true)
-
-    const certContent = await readFile(join(outDir, 'cert.pem'), 'utf-8')
-    expect(certContent).toContain('BEGIN CERTIFICATE')
-
-    const keyContent = await readFile(join(outDir, 'key.pem'), 'utf-8')
-    expect(keyContent).toContain('BEGIN RSA PRIVATE KEY')
+    expect(result.code).toBe(0)
+    expectNoPrivateKeyInOutput(result)
+    const envelope = parseEnvelope<{ format: string; files: string[] }>(result.stdout)
+    expect(envelope.data?.format).toBe('pem')
+    expect(envelope.data?.files).toEqual([join(outDir, 'cert.pem'), join(outDir, 'key.pem'), join(outDir, 'ca-0.pem')])
+    const restored = await loadIdentity(join(outDir, 'cert.pem'), join(outDir, 'key.pem'))
+    expect(restored.certificate.fingerprint256).toBe(server.certificate.fingerprint256)
+    expect(restored.certificate.checkPrivateKey(restored.privateKey)).toBe(true)
+    const restoredAuthority = await loadIdentity(join(outDir, 'ca-0.pem'), join(outDir, 'key.pem'))
+    expect(restoredAuthority.certificate.fingerprint256).toBe(authority.certificate.fingerprint256)
   })
 
-  it('round-trips PEM through PKCS#12 and back', async () => {
-    const outP12 = join(dir, 'roundtrip-p12')
-    await runConvertAction({
-      cert: join(dir, 'cert.pem'),
-      key: join(dir, 'key.pem'),
-      to: 'p12',
-      p12Password: 'roundtrip-pw',
-      outDir: outP12,
-      output: 'text',
-      force: false,
-    })
+  it('accepts the password from NARSIL_P12_PASSWORD', async () => {
+    const outDir = await createWorkspace(root)
 
-    const outPem = join(dir, 'roundtrip-pem')
-    stderrChunks = []
-    await runConvertAction({
-      p12: join(outP12, 'certificate.p12'),
-      to: 'pem',
-      p12Password: 'roundtrip-pw',
-      outDir: outPem,
-      output: 'text',
-      force: false,
-    })
+    const result = await runCli(
+      ['convert', '--cert', server.certPath, '--key', server.keyPath, '--to', 'p12', '--out-dir', outDir],
+      { env: { NARSIL_P12_PASSWORD: PASSWORD } },
+    )
 
-    const roundtrippedCert = await readFile(join(outPem, 'cert.pem'), 'utf-8')
-    const roundtrippedKey = await readFile(join(outPem, 'key.pem'), 'utf-8')
-    expect(roundtrippedCert).toContain('BEGIN CERTIFICATE')
-    expect(roundtrippedKey).toContain('BEGIN RSA PRIVATE KEY')
+    expect(result.code).toBe(0)
+    const pfx = await readFile(join(outDir, 'certificate.p12'))
+    expect(() => createSecureContext({ pfx, passphrase: PASSWORD })).not.toThrow()
   })
 
-  it('errors when password is missing', async () => {
-    await runConvertAction({
-      cert: join(dir, 'cert.pem'),
-      key: join(dir, 'key.pem'),
-      to: 'p12',
-      outDir: dir,
-      output: 'text',
-      force: false,
-    })
+  it('refuses the wrong password and writes no PEM files', async () => {
+    const workDir = await createWorkspace(root)
+    const p12Path = await createP12(workDir)
+    const outDir = join(workDir, 'pem')
 
-    expect(process.exitCode).toBe(2)
-    const stderr = stderrChunks.join('')
-    expect(stderr).toContain('Password is required')
-  })
-
-  it('errors when converting to p12 without --cert and --key', async () => {
-    await runConvertAction({
-      to: 'p12',
-      p12Password: 'pw',
-      outDir: dir,
-      output: 'text',
-      force: false,
-    })
-
-    expect(process.exitCode).toBe(1)
-    const stderr = stderrChunks.join('')
-    expect(stderr).toContain('requires --cert and --key')
-  })
-
-  it('errors when converting to pem without --p12', async () => {
-    await runConvertAction({
-      to: 'pem',
-      p12Password: 'pw',
-      outDir: dir,
-      output: 'text',
-      force: false,
-    })
-
-    expect(process.exitCode).toBe(1)
-    const stderr = stderrChunks.join('')
-    expect(stderr).toContain('requires --p12')
-  })
-
-  it('outputs JSON envelope in json mode for p12 conversion', async () => {
-    const outDir = join(dir, 'json-p12')
-    await runConvertAction({
-      cert: join(dir, 'cert.pem'),
-      key: join(dir, 'key.pem'),
-      to: 'p12',
-      p12Password: 'json-pw',
+    const result = await runCli([
+      'convert',
+      '--p12',
+      p12Path,
+      '--to',
+      'pem',
+      '--p12-password',
+      'wrong',
+      '--out-dir',
       outDir,
-      output: 'json',
-      force: false,
-    })
+    ])
 
-    const stdout = stdoutChunks.join('')
-    const envelope = JSON.parse(stdout)
-    expect(envelope.status).toBe('success')
-    expect(envelope.data.format).toBe('p12')
-    expect(envelope.data.files).toHaveLength(1)
+    expectRefusal(result, 1, /Invalid password/)
+    expectNoPrivateKeyInOutput(result)
+    expect(await listFiles(outDir)).toEqual([])
   })
 
-  it('errors on invalid --to value', async () => {
-    await runConvertAction({
-      to: 'der',
-      p12Password: 'pw',
-      outDir: dir,
-      output: 'text',
-      force: false,
-    })
+  it('refuses truncated and garbage PKCS#12 files', async () => {
+    const workDir = await createWorkspace(root)
+    const whole = await readFile(await createP12(workDir))
+    const truncatedPath = join(workDir, 'truncated.p12')
+    const garbagePath = join(workDir, 'garbage.p12')
+    await writeFile(truncatedPath, whole.subarray(0, 400))
+    await writeFile(garbagePath, 'this was never a PKCS#12 file')
+    const outDir = join(workDir, 'pem')
 
-    expect(process.exitCode).toBe(2)
-    const stderr = stderrChunks.join('')
-    expect(stderr).toContain('Invalid --to value')
+    for (const path of [truncatedPath, garbagePath]) {
+      const result = await runCli([
+        'convert',
+        '--p12',
+        path,
+        '--to',
+        'pem',
+        '--p12-password',
+        PASSWORD,
+        '--out-dir',
+        outDir,
+      ])
+
+      expect(result.code).toBe(1)
+      expect(result.stderr).toContain('Error:')
+      expect(await listFiles(outDir)).toEqual([])
+    }
+  })
+
+  it('leaves an existing PKCS#12 file untouched without --force and replaces it with --force', async () => {
+    const outDir = await createWorkspace(root)
+    const p12Path = await createP12(outDir)
+    const original = await readFile(p12Path)
+    const args = [
+      'convert',
+      '--cert',
+      client.certPath,
+      '--key',
+      client.keyPath,
+      '--to',
+      'p12',
+      '--p12-password',
+      PASSWORD,
+      '--out-dir',
+      outDir,
+    ]
+
+    const refused = await runCli(args)
+
+    expectRefusal(refused, 1, /File already exists.*--force/)
+    expect((await readFile(p12Path)).equals(original)).toBe(true)
+
+    const forced = await runCli([...args, '--force'])
+
+    expect(forced.code).toBe(0)
+    expect((await readFile(p12Path)).equals(original)).toBe(false)
+  })
+
+  it('leaves existing PEM files untouched without --force', async () => {
+    const outDir = await createWorkspace(root)
+    const p12Path = await createP12(outDir)
+    await writeFile(join(outDir, 'key.pem'), 'an operator key')
+    await writeFile(join(outDir, 'cert.pem'), 'an operator certificate')
+
+    const result = await runCli([
+      'convert',
+      '--p12',
+      p12Path,
+      '--to',
+      'pem',
+      '--p12-password',
+      PASSWORD,
+      '--out-dir',
+      outDir,
+    ])
+
+    expectRefusal(result, 1, /File already exists/)
+    expect(await readFile(join(outDir, 'key.pem'), 'utf-8')).toBe('an operator key')
+    expect(await readFile(join(outDir, 'cert.pem'), 'utf-8')).toBe('an operator certificate')
+  })
+
+  it.each([
+    [['--to', 'der', '--p12-password', PASSWORD], 2, /Invalid --to value/],
+    [['--to', 'p12', '--cert', 'node.crt', '--key', 'node.key'], 2, /Password is required/],
+    [['--to', 'p12', '--p12-password', PASSWORD], 1, /requires --cert and --key/],
+    [['--to', 'pem', '--p12-password', PASSWORD], 1, /requires --p12/],
+    [['--p12-password', PASSWORD], 1, /--to/],
+    [['--to', 'p12', '--cert', 'absent.crt', '--key', 'absent.key', '--p12-password', PASSWORD], 1, /ENOENT/],
+  ])('refuses the arguments %j and writes nothing', async (args, code, message) => {
+    const cwd = await createWorkspace(root)
+
+    const result = await runCli(['convert', ...args], { cwd })
+
+    expectRefusal(result, code, message)
+    expect(await listFiles(cwd)).toEqual([])
+  })
+
+  it('refuses a corrupted certificate or key and writes no PKCS#12 file', async () => {
+    const outDir = await createWorkspace(root)
+    const corruptPath = join(outDir, 'corrupt.pem')
+    await writeFile(corruptPath, '-----BEGIN CERTIFICATE-----\nDEFINITELYNOTVALID\n-----END CERTIFICATE-----\n')
+    const p12Dir = join(outDir, 'out')
+
+    const result = await runCli([
+      'convert',
+      '--cert',
+      corruptPath,
+      '--key',
+      server.keyPath,
+      '--to',
+      'p12',
+      '--p12-password',
+      PASSWORD,
+      '--out-dir',
+      p12Dir,
+    ])
+
+    expect(result.code).toBe(1)
+    expect(result.stderr).toContain('Error:')
+    expect(await listFiles(p12Dir)).toEqual([])
   })
 })

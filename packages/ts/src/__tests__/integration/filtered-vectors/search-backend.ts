@@ -4,7 +4,7 @@ import { afterAll } from 'vitest'
 
 export type SearchBackend = 'native' | 'wasm'
 
-const hostCore =
+export const hostCore =
   process.env.NARSIL_NATIVE_CORE_PATH ??
   fileURLToPath(
     new URL(`../../../../../native/npm/${process.platform}-${process.arch}/narsil-core.node`, import.meta.url),

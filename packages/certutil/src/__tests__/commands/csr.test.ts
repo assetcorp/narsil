@@ -1,178 +1,113 @@
-import { randomBytes } from 'node:crypto'
-import { readFile, rm, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { createPublicKey } from 'node:crypto'
+import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { stringify as yamlStringify } from 'yaml'
-import { runCsrAction } from '../../commands/csr'
-import { ensureDirectory, fileExists } from '../../output/writer'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import {
+  createWorkspace,
+  expectNoPrivateKeyInOutput,
+  expectRefusal,
+  listFiles,
+  modulusBits,
+  parseEnvelope,
+  removeWorkspace,
+  runCli,
+} from '../support/cli'
+import { parseCsr } from '../support/csr-der'
 
-function tempDir(): string {
-  return join(tmpdir(), `certutil-csr-cmd-test-${randomBytes(8).toString('hex')}`)
-}
+describe('narsil-certutil csr', () => {
+  let root: string
 
-describe('csr command', () => {
-  let dir: string
-  let originalExitCode: string | number | null | undefined
-  let stderrChunks: string[]
-  let stdoutChunks: string[]
-  let stderrSpy: ReturnType<typeof vi.spyOn>
-  let stdoutSpy: ReturnType<typeof vi.spyOn>
-
-  beforeEach(async () => {
-    dir = tempDir()
-    await ensureDirectory(dir)
-    originalExitCode = process.exitCode
-    stderrChunks = []
-    stdoutChunks = []
-    stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk: string | Uint8Array) => {
-      stderrChunks.push(String(chunk))
-      return true
-    })
-    stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation((chunk: string | Uint8Array) => {
-      stdoutChunks.push(String(chunk))
-      return true
-    })
+  beforeAll(async () => {
+    root = await createWorkspace()
   })
 
-  afterEach(async () => {
-    process.exitCode = originalExitCode
-    stderrSpy.mockRestore()
-    stdoutSpy.mockRestore()
-    await rm(dir, { recursive: true, force: true })
+  afterAll(async () => {
+    await removeWorkspace(root)
   })
 
-  it('generates CSR and key files', async () => {
-    const outDir = join(dir, 'out')
-    await runCsrAction({
-      cn: 'csr-node-1',
-      ip: ['192.168.1.1'],
-      dns: ['csr-node.local'],
-      keySize: '2048',
+  it('writes a CSR signed by the matching private key that carries the requested names', async () => {
+    const outDir = await createWorkspace(root)
+
+    const result = await runCli([
+      'csr',
+      '--cn',
+      'node1',
+      '--ip',
+      '10.0.0.1',
+      '--dns',
+      'node1.cluster.local',
+      '--out-dir',
       outDir,
-      output: 'text',
-      force: false,
-      dryRun: false,
-    })
+    ])
 
-    expect(await fileExists(join(outDir, 'csr-node-1.csr'))).toBe(true)
-    expect(await fileExists(join(outDir, 'csr-node-1.key'))).toBe(true)
-
-    const csrContent = await readFile(join(outDir, 'csr-node-1.csr'), 'utf-8')
-    expect(csrContent).toContain('BEGIN CERTIFICATE REQUEST')
-
-    const stderr = stderrChunks.join('')
-    expect(stderr).toContain('Created files:')
+    expect(result.code).toBe(0)
+    expectNoPrivateKeyInOutput(result)
+    const csr = parseCsr(await readFile(join(outDir, 'node1.csr'), 'utf-8'))
+    const privateKey = await readFile(join(outDir, 'node1.key'), 'utf-8')
+    const derivedPublicKey = createPublicKey(privateKey)
+    expect(csr.signatureValid).toBe(true)
+    expect(csr.commonName).toBe('node1')
+    expect(csr.ipAddresses).toEqual(['10.0.0.1'])
+    expect(csr.dnsNames).toEqual(['node1.cluster.local'])
+    expect(csr.publicKey.equals(derivedPublicKey)).toBe(true)
+    expect(modulusBits(csr.publicKey)).toBe(2048)
   })
 
-  it('outputs JSON in json mode', async () => {
-    const outDir = join(dir, 'json-out')
-    await runCsrAction({
-      cn: 'json-csr-node',
-      keySize: '2048',
-      outDir,
-      output: 'json',
-      force: false,
-      dryRun: false,
-    })
+  it('generates a 4096-bit key when asked and reports both files in a parsable JSON envelope', async () => {
+    const outDir = await createWorkspace(root)
 
-    const stdout = stdoutChunks.join('')
-    const envelope = JSON.parse(stdout)
-    expect(envelope.status).toBe('success')
-    expect(envelope.data.files).toHaveLength(2)
-    expect(envelope.data.files[0].type).toBe('csr')
+    const result = await runCli(['csr', '--cn', 'big', '--key-size', '4096', '--out-dir', outDir, '--output', 'json'])
+
+    expect(result.code).toBe(0)
+    expectNoPrivateKeyInOutput(result)
+    const envelope = parseEnvelope<{ files: Array<{ path: string; type: string }> }>(result.stdout)
+    expect(envelope.data?.files).toEqual([
+      { path: join(outDir, 'big.csr'), type: 'csr' },
+      { path: join(outDir, 'big.key'), type: 'key' },
+    ])
+    expect(modulusBits(parseCsr(await readFile(join(outDir, 'big.csr'), 'utf-8')).publicKey)).toBe(4096)
   })
 
-  it('runs batch mode with a cluster config', async () => {
-    const outDir = join(dir, 'batch-out')
-    const configPath = join(dir, 'csr-cluster.yaml')
+  it('leaves an existing CSR and key untouched without --force and replaces them with --force', async () => {
+    const outDir = await createWorkspace(root)
+    const args = ['csr', '--cn', 'node1', '--out-dir', outDir]
+    expect((await runCli(args)).code).toBe(0)
+    const originalCsr = await readFile(join(outDir, 'node1.csr'), 'utf-8')
+    const originalKey = await readFile(join(outDir, 'node1.key'), 'utf-8')
 
-    const config = {
-      nodes: [
-        { cn: 'batch-csr-01', ip: ['10.0.0.1'] },
-        { cn: 'batch-csr-02', dns: ['node02.local'] },
-      ],
-    }
-    await writeFile(configPath, yamlStringify(config))
+    const refused = await runCli(args)
 
-    await runCsrAction({
-      keySize: '2048',
-      outDir,
-      output: 'text',
-      force: false,
-      dryRun: false,
-      nodes: configPath,
-    })
+    expectRefusal(refused, 1, /File already exists.*--force/)
+    expect(await readFile(join(outDir, 'node1.csr'), 'utf-8')).toBe(originalCsr)
+    expect(await readFile(join(outDir, 'node1.key'), 'utf-8')).toBe(originalKey)
 
-    expect(await fileExists(join(outDir, 'batch-csr-01', 'batch-csr-01.csr'))).toBe(true)
-    expect(await fileExists(join(outDir, 'batch-csr-01', 'batch-csr-01.key'))).toBe(true)
-    expect(await fileExists(join(outDir, 'batch-csr-02', 'batch-csr-02.csr'))).toBe(true)
-    expect(await fileExists(join(outDir, 'batch-csr-02', 'batch-csr-02.key'))).toBe(true)
+    const forced = await runCli([...args, '--force'])
+
+    expect(forced.code).toBe(0)
+    const replacement = parseCsr(await readFile(join(outDir, 'node1.csr'), 'utf-8'))
+    expect(replacement.publicKey.equals(createPublicKey(originalKey))).toBe(false)
+    expect(replacement.publicKey.equals(createPublicKey(await readFile(join(outDir, 'node1.key'))))).toBe(true)
   })
 
-  it('errors when neither --cn nor --nodes is provided', async () => {
-    await runCsrAction({
-      keySize: '2048',
-      outDir: dir,
-      output: 'text',
-      force: false,
-      dryRun: false,
-    })
+  it('writes nothing in a dry run', async () => {
+    const outDir = join(await createWorkspace(root), 'never-created')
 
-    expect(process.exitCode).toBe(2)
-    const stderr = stderrChunks.join('')
-    expect(stderr).toContain('Provide either --cn or --nodes')
+    const result = await runCli(['csr', '--cn', 'dry', '--out-dir', outDir, '--dry-run'])
+
+    expect(result.code).toBe(0)
+    expect(await listFiles(outDir)).toEqual([])
   })
 
-  it('does not write files in dry-run mode', async () => {
-    const outDir = join(dir, 'dry')
-    await runCsrAction({
-      cn: 'dry-csr',
-      keySize: '2048',
-      outDir,
-      output: 'text',
-      force: false,
-      dryRun: true,
-    })
+  it.each([
+    [['--cn', 'node1', '--key-size', '1024'], 2, /Invalid --key-size/],
+    [[], 2, /--cn or --nodes/],
+    [['--cn', 'node1', '--ip', 'not-an-ip'], 1, /not a valid IPv4 or IPv6/],
+  ])('refuses the arguments %j and writes nothing', async (args, code, message) => {
+    const outDir = await createWorkspace(root)
 
-    expect(await fileExists(join(outDir, 'dry-csr.csr'))).toBe(false)
-    const stderr = stderrChunks.join('')
-    expect(stderr).toContain('Dry run')
-    expect(stderr).toContain('Would create')
-  })
+    const result = await runCli(['csr', '--out-dir', outDir, ...args])
 
-  it('rejects invalid key size', async () => {
-    await runCsrAction({
-      cn: 'bad-csr',
-      keySize: '512',
-      outDir: dir,
-      output: 'text',
-      force: false,
-      dryRun: false,
-    })
-
-    expect(process.exitCode).toBe(2)
-    const stderr = stderrChunks.join('')
-    expect(stderr).toContain('Invalid --key-size')
-  })
-
-  it('does not write files in batch dry-run mode', async () => {
-    const outDir = join(dir, 'batch-dry')
-    const configPath = join(dir, 'batch-dry-cluster.yaml')
-
-    const config = { nodes: [{ cn: 'dry-batch-csr' }] }
-    await writeFile(configPath, yamlStringify(config))
-
-    await runCsrAction({
-      keySize: '2048',
-      outDir,
-      output: 'text',
-      force: false,
-      dryRun: true,
-      nodes: configPath,
-    })
-
-    expect(await fileExists(join(outDir, 'dry-batch-csr', 'dry-batch-csr.csr'))).toBe(false)
-    const stderr = stderrChunks.join('')
-    expect(stderr).toContain('Dry run')
+    expectRefusal(result, code, message)
+    expect(await listFiles(outDir)).toEqual([])
   })
 })

@@ -6,7 +6,6 @@ const INDEX = 'products'
 const SEEDS = [3, 29, 404]
 const DOCUMENTS = 600
 const UPDATES_PER_ROUND = 1_600
-const CHECK_EVERY = 1_200
 const ROUNDS = 3
 const SHARED_PRICE = 500
 const LIST_LIMIT = 1_000

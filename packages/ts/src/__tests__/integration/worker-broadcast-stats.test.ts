@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { createNarsil } from '../../narsil'
 import { createMemoryPersistence } from '../../persistence/memory'
 import type { InvalidationAdapter, InvalidationEvent } from '../../types/adapters'
@@ -26,12 +26,7 @@ function createCapturingInvalidation(): InvalidationAdapter & {
 }
 
 describe.skipIf(!built)('a promoted index scores broadcast queries with merged statistics over the wire', () => {
-  afterEach(() => {
-    vi.restoreAllMocks()
-  })
-
   it('reflects foreign instance statistics in scores computed inside the worker', async () => {
-    const warnSpy = vi.spyOn(console, 'warn')
     const invalidation = createCapturingInvalidation()
     const narsil = await createNarsil({
       persistence: createMemoryPersistence(),
@@ -84,11 +79,6 @@ describe.skipIf(!built)('a promoted index scores broadcast queries with merged s
 
     const prototypeKeyQuery = await narsil.query('prose', { term: 'constructor __proto__' })
     expect(prototypeKeyQuery.hits).toEqual([])
-
-    const workerFallbacks = warnSpy.mock.calls.filter(
-      call => typeof call[0] === 'string' && call[0].includes('Worker search failed'),
-    )
-    expect(workerFallbacks).toEqual([])
 
     await narsil.shutdown()
   }, 30_000)

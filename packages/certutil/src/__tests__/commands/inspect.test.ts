@@ -1,169 +1,220 @@
-import { randomBytes } from 'node:crypto'
-import { rm, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { createPrivateKey } from 'node:crypto'
+import { writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { runInspectAction } from '../../commands/inspect'
-import { generateCaCertificate } from '../../crypto/ca'
-import { generateNodeCertificate } from '../../crypto/certificate'
-import { generateCsr } from '../../crypto/csr'
-import { ensureDirectory } from '../../output/writer'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import {
+  type Authority,
+  commonName,
+  createAuthority,
+  createWorkspace,
+  daysUntilExpiry,
+  expectNoPrivateKeyInOutput,
+  expectRefusal,
+  issueNodeCertificate,
+  modulusBits,
+  type NodeIdentity,
+  parseEnvelope,
+  removeWorkspace,
+  runCli,
+} from '../support/cli'
 
-function tempDir(): string {
-  return join(tmpdir(), `certutil-inspect-cmd-test-${randomBytes(8).toString('hex')}`)
+interface InspectData {
+  type: string
+  subject?: Record<string, string>
+  issuer?: Record<string, string>
+  validFrom?: string
+  validTo?: string
+  expiresInDays?: number
+  ipSans?: string[]
+  dnsSans?: string[]
+  keyUsage?: string[]
+  extKeyUsage?: string[]
+  fingerprint?: string
+  publicKeyBits?: number
 }
 
-const ca = generateCaCertificate({ name: 'Inspect Test CA', days: 3650, keySize: 2048 })
+describe('narsil-certutil inspect', () => {
+  let root: string
+  let pkiDir: string
+  let authority: Authority
+  let node: NodeIdentity
 
-const nodeCert = generateNodeCertificate({
-  caCertPem: ca.certPem,
-  caKeyPem: ca.keyPem,
-  cn: 'inspect-node',
-  ipSans: ['10.0.0.5'],
-  dnsSans: ['inspect-node.cluster.local'],
-  days: 365,
-  keySize: 2048,
-})
+  beforeAll(async () => {
+    root = await createWorkspace()
+    pkiDir = await createWorkspace(root)
+    authority = await createAuthority(pkiDir, 'Inspect Test CA')
+    node = await issueNodeCertificate(authority, pkiDir, 'inspect-node', [
+      '--ip',
+      '10.0.0.5',
+      '--dns',
+      'inspect-node.cluster.local',
+      '--days',
+      '90',
+    ])
+  })
 
-const csr = generateCsr({
-  cn: 'csr-node',
-  ipSans: ['10.0.0.6'],
-  dnsSans: ['csr-node.cluster.local'],
-  keySize: 2048,
-})
+  afterAll(async () => {
+    await removeWorkspace(root)
+  })
 
-describe('inspect command', () => {
-  let dir: string
-  let originalExitCode: string | number | null | undefined
-  let stderrChunks: string[]
-  let stdoutChunks: string[]
-  let stderrSpy: ReturnType<typeof vi.spyOn>
-  let stdoutSpy: ReturnType<typeof vi.spyOn>
+  async function inspectJson(path: string): Promise<InspectData | null> {
+    const result = await runCli(['inspect', path, '--output', 'json'])
+    expect(result.code).toBe(0)
+    expectNoPrivateKeyInOutput(result)
+    return parseEnvelope<InspectData>(result.stdout).data
+  }
 
-  beforeEach(async () => {
-    dir = tempDir()
-    await ensureDirectory(dir)
-    originalExitCode = process.exitCode
-    stderrChunks = []
-    stdoutChunks = []
-    stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk: string | Uint8Array) => {
-      stderrChunks.push(String(chunk))
-      return true
+  it('reports the same certificate facts that node:crypto reads', async () => {
+    const data = await inspectJson(node.certPath)
+    const { certificate } = node
+
+    expect(data?.type).toBe('certificate')
+    expect(data?.subject?.CN).toBe(commonName(certificate.subject))
+    expect(data?.issuer?.CN).toBe(commonName(certificate.issuer))
+    expect(Date.parse(data?.validFrom ?? '')).toBe(Date.parse(certificate.validFrom))
+    expect(Date.parse(data?.validTo ?? '')).toBe(Date.parse(certificate.validTo))
+    expect(Math.abs((data?.expiresInDays ?? 0) - daysUntilExpiry(certificate))).toBeLessThanOrEqual(1)
+    expect(data?.fingerprint).toBe(certificate.fingerprint256)
+    expect(data?.publicKeyBits).toBe(modulusBits(certificate.publicKey))
+    expect(data?.ipSans).toEqual(['10.0.0.5'])
+    expect(data?.dnsSans).toEqual(['inspect-node.cluster.local'])
+    expect(data?.keyUsage).toEqual(['digitalSignature', 'keyEncipherment'])
+    expect(data?.extKeyUsage).toEqual(['serverAuth', 'clientAuth'])
+  })
+
+  it('reports the signing usages of a CA certificate', async () => {
+    const data = await inspectJson(authority.certPath)
+
+    expect(data?.issuer).toEqual(data?.subject)
+    expect(data?.keyUsage).toEqual(expect.arrayContaining(['keyCertSign', 'cRLSign']))
+    expect(data?.fingerprint).toBe(authority.certificate.fingerprint256)
+  })
+
+  it('prints a readable certificate report in text mode', async () => {
+    const result = await runCli(['inspect', node.certPath])
+
+    expect(result.code).toBe(0)
+    expect(result.stdout).toContain('CN=inspect-node')
+    expect(result.stdout).toContain('CN=Inspect Test CA')
+    expect(result.stdout).toContain('10.0.0.5')
+    expect(result.stdout).toContain('inspect-node.cluster.local')
+    expect(result.stdout).toContain(`SHA256:${node.certificate.fingerprint256}`)
+  })
+
+  it('reports the names in a CSR and the size of its key', async () => {
+    const outDir = await createWorkspace(root)
+    const generated = await runCli([
+      'csr',
+      '--cn',
+      'csr-node',
+      '--ip',
+      '10.0.0.6',
+      '--dns',
+      'csr.local',
+      '--out-dir',
+      outDir,
+    ])
+    expect(generated.code).toBe(0)
+
+    const data = await inspectJson(join(outDir, 'csr-node.csr'))
+
+    expect(data?.type).toBe('csr')
+    expect(data?.subject?.CN).toBe('csr-node')
+    expect(data?.ipSans).toEqual(['10.0.0.6'])
+    expect(data?.dnsSans).toEqual(['csr.local'])
+    expect(data?.publicKeyBits).toBe(2048)
+  })
+
+  it('reports only the size of a private key, in PKCS#1 and PKCS#8 form, and never its material', async () => {
+    const pkcs8Path = join(await createWorkspace(root), 'pkcs8.key')
+    await writeFile(pkcs8Path, createPrivateKey(node.keyPem).export({ type: 'pkcs8', format: 'pem' }))
+    const keyBody = node.keyPem.split('\n')[1] ?? ''
+
+    for (const path of [node.keyPath, pkcs8Path]) {
+      const text = await runCli(['inspect', path])
+      const json = await runCli(['inspect', path, '--output', 'json'])
+
+      expect(text.code).toBe(0)
+      expect(text.stdout).toContain('2048-bit RSA')
+      expect(text.stdout).not.toContain(keyBody)
+      expect(parseEnvelope<InspectData>(json.stdout).data).toEqual({ type: 'key', publicKeyBits: 2048 })
+    }
+  })
+
+  it.each([
+    ['plain text', 'not a PEM file at all'],
+    ['an empty file', ''],
+    ['binary bytes', Buffer.from([0x00, 0x01, 0xff, 0xfe])],
+    ['an unknown PEM type', '-----BEGIN PUBLIC KEY-----\nAAAA\n-----END PUBLIC KEY-----\n'],
+  ])('refuses %s with exit code 2', async (_label, content) => {
+    const path = join(await createWorkspace(root), 'input.pem')
+    await writeFile(path, content)
+
+    const text = await runCli(['inspect', path])
+    const json = await runCli(['inspect', path, '--output', 'json'])
+
+    expectRefusal(text, 2, /Unrecognized PEM format/)
+    expect(json.code).toBe(2)
+    expect(json.stdout).toBe('')
+    expect(parseEnvelope<null>(json.stderr).error?.code).toBe('BAD_ARGUMENTS')
+  })
+
+  it('refuses a recognised header over a corrupted body with exit code 1', async () => {
+    const dir = await createWorkspace(root)
+    const inputs = [
+      '-----BEGIN CERTIFICATE-----\nDEFINITELYNOTVALID\n-----END CERTIFICATE-----\n',
+      '-----BEGIN RSA PRIVATE KEY-----\nGARBAGE\n-----END RSA PRIVATE KEY-----\n',
+      '-----BEGIN CERTIFICATE REQUEST-----\nGARBAGE\n-----END CERTIFICATE REQUEST-----\n',
+    ]
+
+    for (const [index, content] of inputs.entries()) {
+      const path = join(dir, `corrupt-${index}.pem`)
+      await writeFile(path, content)
+
+      const result = await runCli(['inspect', path])
+
+      expect(result.code).toBe(1)
+      expect(result.stdout).toBe('')
+      expect(result.stderr).toContain('Error:')
+      expect(result.stderr).not.toContain('    at ')
+    }
+  })
+
+  it('keeps the material of a truncated private key out of its error', async () => {
+    const path = join(await createWorkspace(root), 'truncated.key')
+    const lines = node.keyPem.split('\n').slice(0, 6)
+    await writeFile(path, lines.join('\n'))
+
+    const result = await runCli(['inspect', path])
+
+    expect(result.code).toBe(1)
+    for (const line of lines.slice(1)) {
+      expect(result.stderr).not.toContain(line)
+    }
+  })
+
+  it('refuses an encrypted private key because it holds no passphrase', async () => {
+    const path = join(await createWorkspace(root), 'encrypted.key')
+    const encrypted = createPrivateKey(node.keyPem).export({
+      type: 'pkcs8',
+      format: 'pem',
+      cipher: 'aes-256-cbc',
+      passphrase: 'operator-passphrase',
     })
-    stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation((chunk: string | Uint8Array) => {
-      stdoutChunks.push(String(chunk))
-      return true
-    })
+    await writeFile(path, encrypted)
+
+    const result = await runCli(['inspect', path])
+
+    expectRefusal(result, 1, /PEM header type/)
   })
 
-  afterEach(async () => {
-    process.exitCode = originalExitCode
-    stderrSpy.mockRestore()
-    stdoutSpy.mockRestore()
-    await rm(dir, { recursive: true, force: true })
-  })
+  it('refuses a file that does not exist with a parsable JSON error', async () => {
+    const path = join(await createWorkspace(root), 'absent.pem')
 
-  it('inspects a certificate and shows subject, issuer, validity, SANs, and fingerprint', async () => {
-    const certPath = join(dir, 'node.crt')
-    await writeFile(certPath, nodeCert.certPem)
+    const result = await runCli(['inspect', path, '--output', 'json'])
 
-    await runInspectAction(certPath, { output: 'text' })
-
-    const stdout = stdoutChunks.join('')
-    expect(stdout).toContain('Type:')
-    expect(stdout).toContain('certificate')
-    expect(stdout).toContain('inspect-node')
-    expect(stdout).toContain('Inspect Test CA')
-    expect(stdout).toContain('Valid from')
-    expect(stdout).toContain('Valid until')
-    expect(stdout).toContain('IP SANs')
-    expect(stdout).toContain('10.0.0.5')
-    expect(stdout).toContain('DNS SANs')
-    expect(stdout).toContain('inspect-node.cluster.local')
-    expect(stdout).toContain('Fingerprint')
-    expect(stdout).toContain('Key size')
-    expect(stdout).toContain('2048-bit RSA')
-    expect(stdout).toContain('digitalSignature')
-    expect(stdout).toContain('keyEncipherment')
-    expect(stdout).toContain('serverAuth')
-    expect(stdout).toContain('clientAuth')
-  })
-
-  it('inspects a CA certificate showing self-signed issuer', async () => {
-    const caPath = join(dir, 'ca.crt')
-    await writeFile(caPath, ca.certPem)
-
-    await runInspectAction(caPath, { output: 'text' })
-
-    const stdout = stdoutChunks.join('')
-    expect(stdout).toContain('Inspect Test CA')
-    expect(stdout).toContain('keyCertSign')
-    expect(stdout).toContain('cRLSign')
-  })
-
-  it('inspects a CSR and shows subject and SANs', async () => {
-    const csrPath = join(dir, 'node.csr')
-    await writeFile(csrPath, csr.csrPem)
-
-    await runInspectAction(csrPath, { output: 'text' })
-
-    const stdout = stdoutChunks.join('')
-    expect(stdout).toContain('csr')
-    expect(stdout).toContain('csr-node')
-    expect(stdout).toContain('10.0.0.6')
-    expect(stdout).toContain('csr-node.cluster.local')
-  })
-
-  it('inspects a private key and shows key size', async () => {
-    const keyPath = join(dir, 'node.key')
-    await writeFile(keyPath, nodeCert.keyPem)
-
-    await runInspectAction(keyPath, { output: 'text' })
-
-    const stdout = stdoutChunks.join('')
-    expect(stdout).toContain('key')
-    expect(stdout).toContain('2048-bit RSA')
-  })
-
-  it('outputs JSON envelope in json mode', async () => {
-    const certPath = join(dir, 'json-cert.crt')
-    await writeFile(certPath, nodeCert.certPem)
-
-    await runInspectAction(certPath, { output: 'json' })
-
-    const stdout = stdoutChunks.join('')
-    const envelope = JSON.parse(stdout)
-    expect(envelope.status).toBe('success')
-    expect(envelope.data.type).toBe('certificate')
-    expect(envelope.data.subject).toBeDefined()
-    expect(envelope.data.issuer).toBeDefined()
-    expect(envelope.data.fingerprint).toBeTruthy()
-    expect(envelope.data.publicKeyBits).toBe(2048)
-    expect(envelope.data.ipSans).toContain('10.0.0.5')
-    expect(envelope.data.dnsSans).toContain('inspect-node.cluster.local')
-    expect(envelope.data.keyUsage).toContain('digitalSignature')
-    expect(envelope.data.extKeyUsage).toContain('serverAuth')
-  })
-
-  it('errors on unrecognized PEM format', async () => {
-    const badPath = join(dir, 'garbage.pem')
-    await writeFile(badPath, 'not a PEM file at all')
-
-    await runInspectAction(badPath, { output: 'text' })
-
-    expect(process.exitCode).toBe(2)
-    const stderr = stderrChunks.join('')
-    expect(stderr).toContain('Unrecognized PEM format')
-  })
-
-  it('shows expires-in-days for a certificate', async () => {
-    const certPath = join(dir, 'expires.crt')
-    await writeFile(certPath, nodeCert.certPem)
-
-    await runInspectAction(certPath, { output: 'json' })
-
-    const stdout = stdoutChunks.join('')
-    const envelope = JSON.parse(stdout)
-    expect(envelope.data.expiresInDays).toBeGreaterThan(360)
-    expect(envelope.data.expiresInDays).toBeLessThanOrEqual(365)
+    expect(result.code).toBe(1)
+    expect(result.stdout).toBe('')
+    expect(parseEnvelope<null>(result.stderr).error?.message).toContain('ENOENT')
   })
 })

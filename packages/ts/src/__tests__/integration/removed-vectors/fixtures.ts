@@ -3,7 +3,10 @@ import { createNarsil, type Narsil } from '../../../narsil'
 import type { NarsilConfig } from '../../../types/config'
 import type { AnyDocument, IndexConfig, VectorQuantizationMode } from '../../../types/schema'
 import { loadNativeCore } from '../../../vector/native/loader'
-import { binaryBuilt, pointAtTheHostBinary, seededRandom } from '../../vector/native/fixtures'
+import { seededRandom } from '../filtered-vectors/library'
+import { backendAvailable, hostCore } from '../filtered-vectors/search-backend'
+
+const binaryBuilt = backendAvailable('native')
 
 const DIMENSION = 32
 const DOCUMENT_COUNT = 300
@@ -201,15 +204,16 @@ export const backends = [
 ]
 
 export function searchWithTheHostBinary(): void {
-  let restoreHostPath: () => void = () => {}
+  const previousPath = process.env.NARSIL_NATIVE_CORE_PATH
 
   beforeAll(() => {
     if (!binaryBuilt) return
-    restoreHostPath = pointAtTheHostBinary()
+    process.env.NARSIL_NATIVE_CORE_PATH = hostCore
     loadNativeCore()
   })
 
   afterAll(() => {
-    restoreHostPath()
+    if (previousPath === undefined) delete process.env.NARSIL_NATIVE_CORE_PATH
+    else process.env.NARSIL_NATIVE_CORE_PATH = previousPath
   })
 }
