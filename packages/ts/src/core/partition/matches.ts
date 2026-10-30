@@ -1,6 +1,5 @@
 import type { InternalSearchParams, PostingListView } from '../../types/internal'
 import { bitsetHas, bitsetSet, createBitSet } from '../bitset'
-import { STEADY_CLOCK } from '../search-clock'
 import type { PartitionFilterMatches } from './filters'
 import { partialFieldMarks, termGroupOf, typoMatchesFor } from './group-scoring'
 import { postingColumns } from './posting-columns'
@@ -42,7 +41,7 @@ function searchedFieldMarks(fieldNames: readonly string[], fields: readonly stri
 
 export function searchFulltextMatches(state: PartitionReadState, params: InternalSearchParams): PartitionSearchMatches {
   const { queryTokens, termGroups, fields, tolerance = 0, prefixLength = 2, exact = false, filterBitset } = params
-  const clock = params.clock ?? STEADY_CLOCK
+  const clock = params.clock
 
   const fieldNames = state.fieldNameTable.names
   const matched = createBitSet(state.docStore.internalIdCapacity())
@@ -53,20 +52,20 @@ export function searchFulltextMatches(state: PartitionReadState, params: Interna
   for (const qt of queryTokens) {
     const group = termGroupOf(termGroups, qt.token)
     for (const match of typoMatchesFor(state.invertedIdx, qt.token, group, exact, tolerance, prefixLength)) {
-      clock.tick(match.postingList.length)
+      if (clock !== undefined) clock.tick(match.postingList.length)
       markPostingList(matched, match.postingList, searched, filterBitset)
     }
     if (group === undefined) continue
     for (const member of group.members) {
       const postingList = state.invertedIdx.lookup(member.token)
       if (postingList === undefined) continue
-      clock.tick(postingList.length)
+      if (clock !== undefined) clock.tick(postingList.length)
       markPostingList(matched, postingList, member.factor > 0 ? searched : searchedPartial, filterBitset)
     }
     for (const synonym of group.synonyms?.tokens ?? []) {
       const postingList = state.invertedIdx.lookup(synonym)
       if (postingList === undefined) continue
-      clock.tick(postingList.length)
+      if (clock !== undefined) clock.tick(postingList.length)
       markPostingList(matched, postingList, searched, filterBitset)
     }
   }

@@ -8,7 +8,6 @@ import type {
 import type { BM25Params } from '../../types/schema'
 import type { InvertedIndexReader } from '../inverted-index'
 import { bm25PruningSound, computeBM25WithIDF, computeIDF, resolveBM25Params } from '../scorer'
-import type { SearchClock } from '../search-clock'
 import { blockBoundsFor } from './block-bounds'
 import { PRUNING_REJECTION_SLACK } from './constants'
 import { bestSearchable, type FieldScoring, fieldLengthOf } from './field-scoring'
@@ -31,7 +30,6 @@ export interface MultiTermScanRequest {
   fields: FieldScoring
   resolver: InternalIdResolver
   buffer: ScoreBuffer
-  clock: SearchClock
 }
 
 interface TermScan {
@@ -200,7 +198,7 @@ function pageFromBuffer(
 }
 
 export function multiTermTopK(request: MultiTermScanRequest): InternalSearchResult | null {
-  const { terms, docFrequencies, totalDocs, bm25Params, limit, fields, resolver, buffer, clock } = request
+  const { terms, docFrequencies, totalDocs, bm25Params, limit, fields, resolver, buffer } = request
   if (!boostsKeepScoresNonNegative(fields)) return null
 
   const { k1, b } = resolveBM25Params(bm25Params)
@@ -229,18 +227,15 @@ export function multiTermTopK(request: MultiTermScanRequest): InternalSearchResu
       const threshold = kthBestScore(buffer, selection, resolver)
       if (remaining < threshold - threshold * PRUNING_REJECTION_SLACK) break
     }
-    clock.tick(scans[order[position]].columns.count)
     scoreEveryDocument(scans[order[position]], buffer)
   }
 
   let countedOnly = 0
   for (let rest = position; rest < order.length; rest++) {
-    clock.tick(scans[order[rest]].columns.count)
     countedOnly += scoreKnownDocumentsAndCountTheRest(scans[order[rest]], buffer)
   }
 
   const totalMatched = buffer.touchedCount + countedOnly
   if (wanted === 0) return { scored: [], totalMatched }
-  clock.tick(buffer.touchedCount * scans.length)
   return { scored: pageFromBuffer(scans, buffer, selection, resolver), totalMatched }
 }
