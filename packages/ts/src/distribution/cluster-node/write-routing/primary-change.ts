@@ -4,6 +4,7 @@ import type { AnyDocument } from '../../../types/schema'
 import { getClusterIndexConfig } from '../../cluster/index-metadata'
 import { pause } from '../../cluster/rebalance/pause'
 import type { AllocationTable } from '../../coordinator/types'
+import type { WriteCondition } from '../../transport/types'
 import {
   FORWARD_RETRY_DELAY_CAP_MS,
   FORWARD_RETRY_INITIAL_DELAY_MS,
@@ -11,8 +12,10 @@ import {
   PRIMARY_CHANGE_POLL_INTERVAL_MS,
   PRIMARY_CHANGE_RETRY_WINDOW_MS,
 } from '../constants'
-import { forwardUndelivered } from '../transport-failure'
+import { forwardInterrupted, forwardUnsent } from '../transport-failure'
+import { abandonedWriteOf, conditionOf } from './abandoned-write'
 import { resolvePartitionId } from './assignment'
+import { beforeWindowEnds, interruptedOutcome, WINDOW_ENDED, windowEndedOutcome } from './forward-window'
 import { abandonedWithTerm } from './rollback'
 import { storedCopyMatchesSent } from './sent-fields'
 import type { WriteRoutingDeps } from './types'
@@ -39,7 +42,12 @@ interface RefusedItem<T> {
 
 function refusedByPrimaryChange(error: unknown, retriesEndedTerm = false): boolean {
   if (error instanceof NarsilError && error.code === ErrorCodes.PARTITION_NOT_PRIMARY) return true
-  return retriesEndedTerm && abandonedWithTerm(error)
+  return abandonedWithTerm(error) && (retriesEndedTerm || abandonedWriteOf(error) !== undefined)
+}
+
+function nextCondition(error: unknown, current: WriteCondition | undefined): WriteCondition | undefined {
+  const abandoned = abandonedWriteOf(error)
+  return abandoned === undefined ? current : conditionOf(abandoned)
 }
 
 function refusedForAnotherIndex(error: unknown): boolean {
@@ -49,7 +57,15 @@ function refusedForAnotherIndex(error: unknown): boolean {
 }
 
 function retriedAfterDelay(error: unknown): boolean {
-  return refusedForAnotherIndex(error) || forwardUndelivered(error)
+  return refusedForAnotherIndex(error) || forwardUnsent(error) || forwardInterrupted(error)
+}
+
+function retriable(error: unknown, settlesAsEqual: boolean): boolean {
+  return (
+    refusedByPrimaryChange(error, settlesAsEqual) ||
+    forwardUnsent(error) ||
+    (settlesAsEqual && forwardInterrupted(error))
+  )
 }
 
 function hasCode(error: unknown, code: string): boolean {
@@ -123,23 +139,26 @@ export async function retryOnPrimaryChange<T>(
   deps: WriteRoutingDeps,
   indexName: string,
   docId: string,
-  attempt: () => Promise<T>,
+  attempt: (condition: WriteCondition | undefined) => Promise<T>,
   settleRetried: SettleRetried,
   settledValue: () => T,
-  retriesEndedTerm = false,
+  settlesAsEqual = false,
 ): Promise<T> {
   const deadline = Date.now() + PRIMARY_CHANGE_RETRY_WINDOW_MS
   let retryDelayMs = FORWARD_RETRY_INITIAL_DELAY_MS
   let retried = false
+  let interrupted = false
+  let condition: WriteCondition | undefined
+  const finalError = (error: unknown): unknown => (interrupted ? interruptedOutcome(indexName, docId, error) : error)
   for (;;) {
     const refusing = primaryFor(await deps.coordinator.getAllocation(indexName), docId)
+    let outcome: T | typeof WINDOW_ENDED
     try {
-      return await attempt()
+      outcome = await beforeWindowEnds(attempt(condition), deadline)
     } catch (error) {
       if (retried && (await settleRetried([{ docId, error }])).has(docId)) return settledValue()
-      if (!(refusedByPrimaryChange(error, retriesEndedTerm) || forwardUndelivered(error)) || refusing === null) {
-        throw error
-      }
+      interrupted ||= forwardInterrupted(error)
+      if (!retriable(error, settlesAsEqual) || refusing === null) throw finalError(error)
       let retryable: boolean
       if (retriedAfterDelay(error)) {
         retryable = await pauseAndRereadTable(deps, indexName, retryDelayMs, deadline)
@@ -147,9 +166,13 @@ export async function retryOnPrimaryChange<T>(
       } else {
         retryable = await awaitNewPrimary(deps, indexName, [refusing], deadline)
       }
-      if (!retryable) throw error
+      if (!retryable) throw finalError(error)
+      condition = nextCondition(error, condition)
       retried = true
+      continue
     }
+    if (outcome === WINDOW_ENDED) throw windowEndedOutcome(indexName, docId)
+    return outcome
   }
 }
 
@@ -158,19 +181,33 @@ async function retryBatchOnPrimaryChange<T>(
   indexName: string,
   items: readonly T[],
   docIdOf: (item: T) => string,
-  attempt: (items: T[]) => Promise<BatchResult>,
+  attempt: BatchAttempt<T>,
   settleRetried: SettleRetried,
   deadline: number,
-  retriesEndedTerm: boolean,
+  settlesAsEqual: boolean,
 ): Promise<BatchResult> {
   const succeeded: string[] = []
   const failed: BatchResult['failed'] = []
+  const conditions = new Map<string, WriteCondition>()
+  const interrupted = new Set<string>()
+  const failWith = (failure: BatchResult['failed'][number]): void => {
+    failed.push(
+      interrupted.has(failure.docId)
+        ? { docId: failure.docId, error: interruptedOutcome(indexName, failure.docId, failure.error) }
+        : failure,
+    )
+  }
   let pending = [...items]
   let retryDelayMs = FORWARD_RETRY_INITIAL_DELAY_MS
   let retried = false
   while (pending.length > 0) {
     const table = await deps.coordinator.getAllocation(indexName)
-    const result = await attempt(pending)
+    const result = await beforeWindowEnds(attempt(pending, conditions), deadline)
+    if (result === WINDOW_ENDED) {
+      for (const item of pending)
+        failed.push({ docId: docIdOf(item), error: windowEndedOutcome(indexName, docIdOf(item)) })
+      break
+    }
     succeeded.push(...result.succeeded)
     const settled = retried ? await settleRetried(result.failed) : new Set<string>()
     const pendingById = new Map(pending.map(item => [docIdOf(item), item]))
@@ -182,12 +219,9 @@ async function retryBatchOnPrimaryChange<T>(
       }
       const item = pendingById.get(failure.docId)
       const refusing = primaryFor(table, failure.docId)
-      if (
-        item === undefined ||
-        refusing === null ||
-        !(refusedByPrimaryChange(failure.error, retriesEndedTerm) || forwardUndelivered(failure.error))
-      ) {
-        failed.push(failure)
+      if (forwardInterrupted(failure.error)) interrupted.add(failure.docId)
+      if (item === undefined || refusing === null || !retriable(failure.error, settlesAsEqual)) {
+        failWith(failure)
         continue
       }
       refused.push({ item, failure, refusing })
@@ -206,8 +240,12 @@ async function retryBatchOnPrimaryChange<T>(
       )
     }
     if (!retryable) {
-      failed.push(...refused.map(entry => entry.failure))
+      for (const entry of refused) failWith(entry.failure)
       break
+    }
+    for (const { failure } of refused) {
+      const condition = nextCondition(failure.error, conditions.get(failure.docId))
+      if (condition !== undefined) conditions.set(failure.docId, condition)
     }
     pending = refused.map(entry => entry.item)
     retried = true
@@ -248,22 +286,24 @@ async function settleEachBounded<T, R>(
   return outcomes
 }
 
+export type BatchAttempt<T> = (items: T[], conditions: ReadonlyMap<string, WriteCondition>) => Promise<BatchResult>
+
 export async function retryEachPartition<T>(
   deps: WriteRoutingDeps,
   indexName: string,
   table: AllocationTable,
   items: readonly T[],
   docIdOf: (item: T) => string,
-  attempt: (items: T[]) => Promise<BatchResult>,
+  attempt: BatchAttempt<T>,
   settleRetried: SettleRetried,
-  retriesEndedTerm = false,
+  settlesAsEqual = false,
 ): Promise<BatchResult> {
   const deadline = Date.now() + PRIMARY_CHANGE_RETRY_WINDOW_MS
   const outcomes = await settleEachBounded(
     groupByPartition(table, items, docIdOf),
     PARTITION_WRITE_CONCURRENCY,
     group =>
-      retryBatchOnPrimaryChange(deps, indexName, group, docIdOf, attempt, settleRetried, deadline, retriesEndedTerm),
+      retryBatchOnPrimaryChange(deps, indexName, group, docIdOf, attempt, settleRetried, deadline, settlesAsEqual),
   )
   const merged: BatchResult = { succeeded: [], failed: [] }
   for (const outcome of outcomes) {
@@ -275,9 +315,6 @@ export async function retryEachPartition<T>(
 }
 
 export const settleNothing: SettleRetried = async () => new Set()
-
-export const settleAbsentRemovals: SettleRetried = async failures =>
-  new Set(failures.filter(failure => hasCode(failure.error, ErrorCodes.DOC_NOT_FOUND)).map(failure => failure.docId))
 
 async function derivedFieldsOf(deps: WriteRoutingDeps, indexName: string): Promise<Set<string>> {
   const schema = await deps.coordinator.getSchema(indexName)

@@ -28,7 +28,7 @@ export class GrpcClientPool {
 
   async send(target: string, message: TransportMessage): Promise<TransportMessage> {
     const messageBytes = this.encodeChecked(target, message)
-    const client = await this.getClient(target)
+    const client = await this.readyClient(target)
     const responseBytes = await this.unaryCall(
       client,
       target,
@@ -154,7 +154,7 @@ export class GrpcClientPool {
 
   private assertOpen(): void {
     if (this.closed) {
-      throw new TransportError(TransportErrorCodes.PEER_UNAVAILABLE, 'gRPC client pool has been shut down')
+      throw new TransportError(TransportErrorCodes.CONNECT_FAILED, 'gRPC client pool has been shut down')
     }
   }
 
@@ -176,8 +176,26 @@ export class GrpcClientPool {
     return clientPromise
   }
 
+  private async readyClient(target: string): Promise<Client> {
+    const client = await this.getClient(target)
+    if (client.getChannel().getConnectivityState(false) === this.grpc.connectivityState.READY) {
+      return client
+    }
+    const ready = this.awaitReady(client, target)
+    this.clients.set(target, ready)
+    ready.catch(() => {
+      if (this.clients.get(target) === ready) {
+        this.clients.delete(target)
+      }
+    })
+    return ready
+  }
+
   private connect(target: string): Promise<Client> {
-    const client = new this.grpc.Client(target, this.credentials(), channelOptions())
+    return this.awaitReady(new this.grpc.Client(target, this.credentials(), channelOptions()), target)
+  }
+
+  private awaitReady(client: Client, target: string): Promise<Client> {
     const channel = client.getChannel()
     const { READY, SHUTDOWN, TRANSIENT_FAILURE } = this.grpc.connectivityState
     const deadline = Date.now() + this.config.connectTimeout

@@ -95,6 +95,8 @@ async function writeOneBoundedCheckpoint(input: DurableCheckpointInput): Promise
 
   const vectorIndexes = input.hooks.getVectorIndexes(input.indexName)
   const store = directoryCheckpointStore(input.directory)
+  const writeRecords = input.hooks.writeRecords ?? null
+  const { indexName } = input
   const priorManifest = await readCurrentManifest(store, input.indexName)
   const capture = await captureCheckpoint(
     input.indexState,
@@ -105,9 +107,17 @@ async function writeOneBoundedCheckpoint(input: DurableCheckpointInput): Promise
       priorPartitionIds: (priorManifest?.partitions ?? []).map(partition => partition.partitionId),
       everyPartition: input.fromMemory,
       aWorkerCanSerialise: input.canOffload && checkpointWorkerIsUsable(),
+      ...(writeRecords === null
+        ? {}
+        : {
+            captureRecords: partitionId => segments => writeRecords.captureSegments(indexName, partitionId, segments),
+          }),
     }),
     input.fromMemory ? undefined : (priorManifest?.checkpoint ?? []),
     priorManifest?.vectors ?? [],
+    writeRecords === null
+      ? undefined
+      : (partitionId, lastSeqNo) => writeRecords.termHistoryOf(indexName, partitionId, lastSeqNo),
   )
   const { targets, documentCount } = capture
   await makeEveryAppliedMutationDurable(input.indexState, input.failPartition)
@@ -123,6 +133,7 @@ async function writeOneBoundedCheckpoint(input: DurableCheckpointInput): Promise
       prior: priorManifest,
       wholePartitions: capture.wholePartitions.contents,
       capturedPartitions: capture.wholePartitions.captured,
+      keepsWriteRecords: writeRecords !== null,
     }),
   )
   await makeEveryAppliedMutationDurable(input.indexState, input.failPartition)

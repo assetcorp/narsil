@@ -44,15 +44,46 @@ export async function sendThroughTargets<T>(
   throw lastError instanceof Error ? lastError : new Error(String(lastError))
 }
 
-const UNDELIVERED_CODES: ReadonlySet<unknown> = new Set([
-  TransportErrorCodes.CONNECT_FAILED,
-  TransportErrorCodes.PEER_UNAVAILABLE,
-])
+export async function sendUntilMaybeDelivered<T>(
+  targets: string[],
+  send: (target: string) => Promise<T>,
+  failure: SendFailureContext,
+): Promise<T> {
+  let lastError: unknown
+  for (const target of targets) {
+    try {
+      return await send(target)
+    } catch (error) {
+      lastError = error
+      if (!(error instanceof TransportError && error.code === TransportErrorCodes.CONNECT_FAILED)) break
+    }
+  }
+  if (lastError instanceof TransportError) {
+    throw narsilErrorFromTransportFailure(lastError, failure.message, failure.details ?? {})
+  }
+  throw lastError instanceof Error ? lastError : new Error(String(lastError))
+}
 
-export function forwardUndelivered(error: unknown): boolean {
+function forwardFailedWith(error: unknown, transportCode: TransportErrorCode): boolean {
   return (
     error instanceof NarsilError &&
-    UNDELIVERED_CODES.has(error.details.transportCode) &&
+    error.details.transportCode === transportCode &&
     typeof error.details.targetNodeId === 'string'
   )
+}
+
+export function forwardUnsent(error: unknown): boolean {
+  if (error instanceof NarsilError && error.code === ErrorCodes.NODE_NOT_READY) return true
+  return forwardFailedWith(error, TransportErrorCodes.CONNECT_FAILED)
+}
+
+export function forwardInterrupted(error: unknown): boolean {
+  return forwardFailedWith(error, TransportErrorCodes.PEER_UNAVAILABLE)
+}
+
+export function unsentAfter(error: NarsilError): NarsilError {
+  return new NarsilError(error.code, error.message, {
+    ...error.details,
+    transportCode: TransportErrorCodes.CONNECT_FAILED,
+  })
 }

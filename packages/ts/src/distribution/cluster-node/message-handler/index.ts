@@ -3,11 +3,13 @@ import { ClusterMessageTypes, QueryMessageTypes, ReplicationMessageTypes } from 
 import { encodeErrorReplyFrom } from '../error-reply'
 import { handleRebuildAnalysis } from '../rebuild-analysis'
 import { handleReshardCutover, handleReshardForward, handleReshardPurge, handleReshardStart } from '../reshard/handlers'
+import { abandonedWriteOf } from '../write-routing/abandoned-write'
 import { handleIndexSettings } from './index-settings'
 import { handlePartitionStores } from './partition-stores'
 import { handleFetch, handleSearch, handleStats } from './queries'
 import { handleCount, handleList, handlePreflight, handleSuggest } from './read-handlers'
 import { handleSyncRequestMessage } from './sync'
+import { handleTermStart } from './term-start'
 import type { DataNodeHandlerDeps, TransportHandler } from './types'
 import { handleForward, handleForwardBatch, handleReplicationEntry, handleReplicationEntryBatch } from './writes'
 
@@ -33,6 +35,9 @@ export function createDataNodeHandler(deps: DataNodeHandlerDeps): TransportHandl
           return
         case ReplicationMessageTypes.ENTRY_BATCH:
           await handleReplicationEntryBatch(message, respond, deps)
+          return
+        case ReplicationMessageTypes.TERM_START:
+          await handleTermStart(message, respond, deps)
           return
         case QueryMessageTypes.SEARCH:
           await handleSearch(message, respond, deps)
@@ -80,7 +85,7 @@ export function createDataNodeHandler(deps: DataNodeHandlerDeps): TransportHandl
           return
       }
     } catch (err) {
-      const errorPayload = encodeErrorReplyFrom(err, 'INTERNAL_ERROR')
+      const errorPayload = encodeErrorReplyFrom(err, 'INTERNAL_ERROR', abandonedWriteOf(err))
       await respond({
         type: `${message.type}.error`,
         sourceId: deps.nodeId,

@@ -3,9 +3,10 @@ import { ErrorCodes, NarsilError } from '../../../errors'
 import type { BatchResult } from '../../../types/results'
 import type { AnyDocument, InsertOptions } from '../../../types/schema'
 import type { PartitionAssignment } from '../../coordinator/types'
-import type { ForwardPayload } from '../../transport/types'
+import type { ForwardPayload, WriteCondition } from '../../transport/types'
 import { requireWritableIndex } from '../memory/write-block'
 import { estimateForwardedBytes, withAdmittedWrite } from '../memory/write-pressure'
+import { markAbandoned, previousRecordOf } from './abandoned-write'
 import { assertSufficientActiveReplicas, resolvePrimaryAssignment } from './assignment'
 import { type AppendedWrite, asWriteError, createGroupCommit, replicateAppendedWrites } from './batch-commit'
 import { compensateInsert, compensateRemove, compensateUpdate, throwWriteFailure } from './failures'
@@ -15,6 +16,7 @@ import { applyInProjectedGroups, projectOne } from './projected-groups'
 import { replicateEntry } from './replication'
 import { settleRollback } from './rollback'
 import type { WriteRoutingDeps } from './types'
+import { conditionOfFields, decideCondition } from './write-condition'
 
 export async function applyPrimaryInsert(
   indexName: string,
@@ -55,11 +57,14 @@ export async function applyPrimaryRemove(
   partitionId: number,
   assignment: PartitionAssignment,
   deps: WriteRoutingDeps,
+  condition?: WriteCondition,
 ): Promise<void> {
   assertSufficientActiveReplicas(indexName, partitionId, assignment, deps)
   const queued: PrimaryWriteScope = { indexName, partitionId, assignment, deps }
   await inLeadingPartitionQueue(queued, async scope => {
+    if (condition !== undefined && decideCondition(scope, docId, condition) === 'acknowledge') return
     const previousDocument = await deps.engine.get(indexName, docId)
+    const previousRecord = previousRecordOf(scope, docId)
     const removed = await numberedWrite(
       scope,
       () => deps.engine.remove(indexName, docId),
@@ -69,8 +74,9 @@ export async function applyPrimaryRemove(
       await replicateEntry(removed.entry, scope.assignment, deps, scope.indexUuid)
     } catch (error) {
       const failedAt = Date.now()
-      await compensateRemove(scope, docId, previousDocument, error)
-      throwWriteFailure(await settleRollback(scope, removed.entry.seqNo, error, failedAt))
+      const compensation = await compensateRemove(scope, docId, previousDocument, error)
+      const answer = await settleRollback(scope, removed.entry.seqNo, error, failedAt)
+      throwWriteFailure(markAbandoned(answer, removed.entry, compensation, previousRecord))
     }
   })
 }
@@ -82,13 +88,16 @@ export async function applyPrimaryUpdate(
   partitionId: number,
   assignment: PartitionAssignment,
   deps: WriteRoutingDeps,
+  condition?: WriteCondition,
 ): Promise<void> {
   assertSufficientActiveReplicas(indexName, partitionId, assignment, deps)
   const queued: PrimaryWriteScope = { indexName, partitionId, assignment, deps }
   await inLeadingPartitionQueue(queued, async scope => {
+    if (condition !== undefined && decideCondition(scope, docId, condition) === 'acknowledge') return
     const projected = projectOne(deps, indexName, document)
     try {
       const previousDocument = await deps.engine.get(indexName, docId)
+      const previousRecord = previousRecordOf(scope, docId)
       const updated = await numberedWrite(
         scope,
         () => deps.engine.update(indexName, docId, document),
@@ -98,8 +107,9 @@ export async function applyPrimaryUpdate(
         await replicateEntry(updated.entry, scope.assignment, deps, scope.indexUuid)
       } catch (error) {
         const failedAt = Date.now()
-        await compensateUpdate(scope, docId, previousDocument, error)
-        throwWriteFailure(await settleRollback(scope, updated.entry.seqNo, error, failedAt))
+        const compensation = await compensateUpdate(scope, docId, previousDocument, error)
+        const answer = await settleRollback(scope, updated.entry.seqNo, error, failedAt)
+        throwWriteFailure(markAbandoned(answer, updated.entry, compensation, previousRecord))
       }
     } finally {
       projected.release()
@@ -159,7 +169,7 @@ export async function applyPrimaryInsertBatch(
 
 export async function applyPrimaryUpdateBatch(
   indexName: string,
-  updates: Array<{ docId: string; document: AnyDocument }>,
+  updates: Array<{ docId: string; document: AnyDocument; condition?: WriteCondition }>,
   partitionId: number,
   assignment: PartitionAssignment,
   deps: WriteRoutingDeps,
@@ -171,6 +181,7 @@ export async function applyPrimaryUpdateBatch(
     queued,
     async scope => {
       const appended: AppendedWrite[] = []
+      const acknowledged: string[] = []
       const groupCommit = createGroupCommit(scope, appended, failed)
       await applyInProjectedGroups(deps, indexName, {
         items: updates,
@@ -181,14 +192,22 @@ export async function applyPrimaryUpdateBatch(
         apply: async update => {
           if (groupCommit.refuse(update.docId)) return
           try {
+            if (
+              update.condition !== undefined &&
+              decideCondition(scope, update.docId, update.condition) === 'acknowledge'
+            ) {
+              acknowledged.push(update.docId)
+              return
+            }
             const previousDocument = await deps.engine.get(indexName, update.docId)
+            const previousRecord = previousRecordOf(scope, update.docId)
             const updated = await numberedWrite(
               scope,
               () => deps.engine.update(indexName, update.docId, update.document),
               (_, admitted) => appendStoredCopy(scope, update.docId, admitted),
               true,
             )
-            appended.push({ docId: update.docId, entry: updated.entry, previousDocument })
+            appended.push({ docId: update.docId, entry: updated.entry, previousDocument, previousRecord })
           } catch (err) {
             failed.push({
               docId: update.docId,
@@ -197,13 +216,14 @@ export async function applyPrimaryUpdateBatch(
           }
         },
       })
-      return replicateAppendedWrites(
+      const replicated = await replicateAppendedWrites(
         scope,
         appended,
         failed,
         (write, error) => compensateUpdate(scope, write.docId, write.previousDocument, error),
         deps,
       )
+      return [...acknowledged, ...replicated]
     },
     failed,
   )
@@ -216,6 +236,7 @@ export async function applyPrimaryRemoveBatch(
   partitionId: number,
   assignment: PartitionAssignment,
   deps: WriteRoutingDeps,
+  conditions?: ReadonlyMap<string, WriteCondition>,
 ): Promise<BatchResult> {
   assertSufficientActiveReplicas(indexName, partitionId, assignment, deps)
   const queued: PrimaryWriteScope = { indexName, partitionId, assignment, deps }
@@ -224,29 +245,37 @@ export async function applyPrimaryRemoveBatch(
     queued,
     async scope => {
       const appended: AppendedWrite[] = []
+      const acknowledged: string[] = []
       const groupCommit = createGroupCommit(scope, appended, failed)
       for (const docId of docIds) {
         try {
+          const condition = conditions?.get(docId)
+          if (condition !== undefined && decideCondition(scope, docId, condition) === 'acknowledge') {
+            acknowledged.push(docId)
+            continue
+          }
           const previousDocument = await deps.engine.get(indexName, docId)
+          const previousRecord = previousRecordOf(scope, docId)
           const removed = await numberedWrite(
             scope,
             () => deps.engine.remove(indexName, docId),
             () => appendDeletion(scope, docId),
             true,
           )
-          appended.push({ docId, entry: removed.entry, previousDocument })
+          appended.push({ docId, entry: removed.entry, previousDocument, previousRecord })
         } catch (err) {
           failed.push({ docId, error: asWriteError(err, ErrorCodes.QUERY_ROUTING_FAILED, docId) })
         }
       }
       await groupCommit.afterGroup()
-      return replicateAppendedWrites(
+      const replicated = await replicateAppendedWrites(
         scope,
         appended,
         failed,
         (write, error) => compensateRemove(scope, write.docId, write.previousDocument, error),
         deps,
       )
+      return [...acknowledged, ...replicated]
     },
     failed,
   )
@@ -266,6 +295,7 @@ export function applyForwardedWrite(payload: ForwardPayload, deps: WriteRoutingD
 }
 
 async function applyAdmittedForwardedWrite(payload: ForwardPayload, deps: WriteRoutingDeps): Promise<string> {
+  const condition = conditionOfFields(payload, payload.operation, payload.documentId)
   const resolution = await resolvePrimaryAssignment(payload.indexName, payload.documentId, deps, true)
   if (resolution === null) {
     throw new NarsilError(
@@ -294,7 +324,14 @@ async function applyAdmittedForwardedWrite(payload: ForwardPayload, deps: WriteR
   }
 
   if (payload.operation === 'remove') {
-    await applyPrimaryRemove(payload.indexName, payload.documentId, resolution.partitionId, resolution.assignment, deps)
+    await applyPrimaryRemove(
+      payload.indexName,
+      payload.documentId,
+      resolution.partitionId,
+      resolution.assignment,
+      deps,
+      condition,
+    )
     return payload.documentId
   }
 
@@ -312,6 +349,7 @@ async function applyAdmittedForwardedWrite(payload: ForwardPayload, deps: WriteR
     resolution.partitionId,
     resolution.assignment,
     deps,
+    condition,
   )
   return payload.documentId
 }

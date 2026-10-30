@@ -49,7 +49,7 @@ export async function createGrpcTransport(
   function assertNotShutdown(): void {
     if (isShutdown) {
       throw new TransportError(
-        TransportErrorCodes.PEER_UNAVAILABLE,
+        TransportErrorCodes.CONNECT_FAILED,
         `gRPC transport for node '${nodeId}' has been shut down`,
         { nodeId },
       )

@@ -39,6 +39,7 @@ import { createSnapshotSyncHandlerState } from './snapshot-sync-handler'
 import { createMultiplexedControllerTransport, createNotReadyHandler } from './transport-listener'
 import type { ClusterNode, ClusterNodeConfig } from './types'
 import { validateClusterNodeConfig } from './validate-config'
+import { startLeadingTerm } from './write-routing/leading-queue'
 
 /**
  * Builds one node of a cluster, ready to join.
@@ -173,6 +174,8 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
     onBootstrapPartition: async (indexName, partitionId, primaryNodeId) =>
       (await copyFailures.awaitReset(indexName, partitionId)) &&
       bootstrapPartition(indexName, partitionId, primaryNodeId),
+    onLeadingTerm: (indexName, partitionId, assignment) =>
+      startLeadingTerm(writeDeps, indexName, partitionId, assignment),
     onHoldPartition: (indexName: string, partitionId: number) => {
       trackHeldPartitionWrite(engine.recordHeldPartition(indexName, partitionId))
     },

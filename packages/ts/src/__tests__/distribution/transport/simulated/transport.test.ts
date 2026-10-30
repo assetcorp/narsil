@@ -149,7 +149,7 @@ describe('simulated transport', () => {
     const transportA = createSimulatedTransport('node-a', network)
 
     await expect(transportA.send('node-x', makeMessage('query.search', 'node-a'))).rejects.toMatchObject({
-      code: TransportErrorCodes.PEER_UNAVAILABLE,
+      code: TransportErrorCodes.CONNECT_FAILED,
     })
   })
 
@@ -330,7 +330,7 @@ describe('simulated transport', () => {
     await transportA.shutdown()
 
     await expect(transportA.send('node-b', makeMessage('query.search', 'node-a'))).rejects.toMatchObject({
-      code: TransportErrorCodes.PEER_UNAVAILABLE,
+      code: TransportErrorCodes.CONNECT_FAILED,
     })
   })
 

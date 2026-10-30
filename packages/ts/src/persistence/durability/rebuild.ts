@@ -12,6 +12,7 @@ export async function rebuildSegmentsFromDurable(
   compactionThreshold: number,
   prior: PriorCheckpoint | null,
   capturedPartitions: readonly CapturedWholePartition[] = [],
+  keepsWriteRecords = false,
 ): Promise<CheckpointSegmentsWritten> {
   const directory = createDurableDirectory(root)
   return writeCheckpointSegments({
@@ -22,5 +23,6 @@ export async function rebuildSegmentsFromDurable(
     compactionThreshold,
     prior,
     capturedPartitions,
+    keepsWriteRecords,
   })
 }

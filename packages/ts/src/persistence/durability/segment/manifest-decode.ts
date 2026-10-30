@@ -2,7 +2,7 @@ import { decode } from '@msgpack/msgpack'
 import { ErrorCodes, NarsilError } from '../../../errors'
 import { requireValidFieldTypes } from '../../../schema/validator/schema'
 import { openChecksummedEnvelope } from '../../../serialization/envelope-file'
-import type { PartitionCheckpoint } from '../partition-checkpoint'
+import type { PartitionCheckpoint, TermStart } from '../partition-checkpoint'
 import { segmentKey } from './layout'
 import {
   EARLIER_SEGMENT_MANIFEST_VERSION,
@@ -92,7 +92,34 @@ export function normalizeCheckpoint(raw: unknown): PartitionCheckpoint[] {
       invalidManifest('has an invalid partition checkpoint', { entry })
     }
     seen.add(entry.partitionId)
-    return { partitionId: entry.partitionId, lastSeqNo: entry.lastSeqNo, primaryTerm: entry.primaryTerm }
+    const checkpoint: PartitionCheckpoint = {
+      partitionId: entry.partitionId,
+      lastSeqNo: entry.lastSeqNo,
+      primaryTerm: entry.primaryTerm,
+    }
+    if (entry.termHistory !== undefined) {
+      checkpoint.termHistory = normalizeTermHistory(entry.termHistory, entry.partitionId, entry.lastSeqNo)
+    }
+    return checkpoint
+  })
+}
+
+function normalizeTermHistory(raw: unknown, partitionId: number, lastSeqNo: number): TermStart[] {
+  if (!Array.isArray(raw)) invalidManifest('has a term history that is not a list', { partitionId })
+  let previous: TermStart | null = null
+  return raw.map(start => {
+    if (!isRecord(start) || !isSequenceNumber(start.primaryTerm) || !isSequenceNumber(start.firstSeqNo)) {
+      invalidManifest('has an invalid term history entry', { partitionId })
+    }
+    const read: TermStart = { primaryTerm: start.primaryTerm, firstSeqNo: start.firstSeqNo }
+    if (read.firstSeqNo > lastSeqNo) {
+      invalidManifest(`has a term starting at seqNo ${read.firstSeqNo}, above lastSeqNo ${lastSeqNo}`, { partitionId })
+    }
+    if (previous !== null && (read.primaryTerm <= previous.primaryTerm || read.firstSeqNo <= previous.firstSeqNo)) {
+      invalidManifest('has a term history that fails to ascend strictly', { partitionId })
+    }
+    previous = read
+    return read
   })
 }
 
