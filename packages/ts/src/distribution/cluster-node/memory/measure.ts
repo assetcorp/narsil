@@ -1,17 +1,11 @@
-import { totalmem } from 'node:os'
 import { readOldGenerationStatistics } from '#platform/heap-statistics'
+import { processLimitBytes } from '#platform/process-limit'
 import { admittedHeapBytes } from '../../../runtime/thread-heap'
 import type { NodeMemoryReport } from '../../coordinator/types'
-import {
-  PROCESS_LIMIT_REFRESH_INTERVAL_MS,
-  RECENT_MEMORY_FIGURES_MAX_ADMITTED_FRACTION,
-  RECENT_MEMORY_FIGURES_MAX_AGE_MS,
-} from '../constants'
+import { RECENT_MEMORY_FIGURES_MAX_ADMITTED_FRACTION, RECENT_MEMORY_FIGURES_MAX_AGE_MS } from '../constants'
 
 export type MemoryFigures = Omit<NodeMemoryReport, 'full'> & { youngHeapBytes: number; heapCommittedBytes: number }
 
-let processLimit = 0
-let processLimitReadAt = Number.NEGATIVE_INFINITY
 let lastFigures: MemoryFigures | null = null
 let lastFiguresReadAt = Number.NEGATIVE_INFINITY
 let admittedBytesAtLastFigures = 0
@@ -24,26 +18,11 @@ const recentFigures: MemoryFigures = {
   heapCommittedBytes: 0,
 }
 
-function readProcessLimit(): number {
-  const hostBytes = totalmem()
-  const constrained = typeof process.constrainedMemory === 'function' ? process.constrainedMemory() : 0
-  return Number.isFinite(constrained) && constrained > 0 && constrained < hostBytes ? constrained : hostBytes
-}
-
-function processLimitBytes(): number {
-  const now = performance.now()
-  if (now - processLimitReadAt >= PROCESS_LIMIT_REFRESH_INTERVAL_MS) {
-    processLimit = readProcessLimit()
-    processLimitReadAt = now
-  }
-  return processLimit
-}
-
 function readFreshFigures(): MemoryFigures | null {
   try {
     const heap = readOldGenerationStatistics()
     const processBytes = process.memoryUsage.rss()
-    const limitBytes = processLimitBytes()
+    const limitBytes = processLimitBytes(processBytes)
     if (heap === null || !Number.isFinite(processBytes) || !Number.isFinite(limitBytes) || limitBytes <= 0) {
       return null
     }
