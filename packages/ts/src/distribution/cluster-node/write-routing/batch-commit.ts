@@ -2,6 +2,8 @@ import { ErrorCodes, NarsilError, type NarsilErrorCode } from '../../../errors'
 import type { BatchResult } from '../../../types/results'
 import type { AnyDocument } from '../../../types/schema'
 import type { ReplicationLogEntry } from '../../replication/types'
+import type { WriteRecord } from '../write-records/table'
+import { markAbandoned } from './abandoned-write'
 import type { PrimaryWriteScope } from './numbered-write'
 import { chunkReplicationEntries, replicateEntryBatch } from './replication'
 import { settleRollback } from './rollback'
@@ -11,6 +13,7 @@ export interface AppendedWrite {
   docId: string
   entry: ReplicationLogEntry
   previousDocument?: AnyDocument
+  previousRecord?: WriteRecord | null
 }
 
 export function asWriteError(err: unknown, fallbackCode: NarsilErrorCode, docId: string): NarsilError {
@@ -55,7 +58,7 @@ export async function replicateAppendedWrites(
   scope: PrimaryWriteScope,
   appended: AppendedWrite[],
   failed: BatchResult['failed'],
-  compensate: (write: AppendedWrite, error: unknown) => Promise<void>,
+  compensate: (write: AppendedWrite, error: unknown) => Promise<ReplicationLogEntry | undefined>,
   deps: WriteRoutingDeps,
 ): Promise<string[]> {
   const succeeded: string[] = []
@@ -85,19 +88,20 @@ export async function replicateAppendedWrites(
   const first = abandoned[0]
   if (first === undefined) return succeeded
   const failedAt = Date.now()
-  const compensated: AppendedWrite[] = []
+  const compensated: Array<{ item: AppendedWrite; compensation: ReplicationLogEntry | null }> = []
   for (let index = abandoned.length - 1; index >= 0; index--) {
     const item = abandoned[index]
     try {
-      await compensate(item, abortError)
-      compensated.push(item)
+      const compensation = await compensate(item, abortError)
+      compensated.push({ item, compensation: compensation ?? null })
     } catch (err) {
       failed.push({ docId: item.docId, error: asWriteError(err, ErrorCodes.DOC_VALIDATION_FAILED, item.docId) })
     }
   }
   const answer = await settleRollback(scope, first.entry.seqNo, abortError, failedAt)
-  for (const item of compensated) {
-    failed.push({ docId: item.docId, error: asWriteError(answer, ErrorCodes.DOC_VALIDATION_FAILED, item.docId) })
+  for (const { item, compensation } of compensated) {
+    const marked = markAbandoned(answer, item.entry, compensation, item.previousRecord)
+    failed.push({ docId: item.docId, error: asWriteError(marked, ErrorCodes.DOC_VALIDATION_FAILED, item.docId) })
   }
 
   return succeeded

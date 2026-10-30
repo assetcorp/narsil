@@ -4,6 +4,7 @@ import { type ClusterReadDeps, listCluster } from './reads'
 import { routableAllocation } from './routable-allocation'
 import type { WriteRoutingDeps } from './write-routing'
 import { routeRemoveBatch } from './write-routing'
+import { writeLocalOnly } from './write-routing/numbered-write'
 
 export async function clearCluster(
   readDeps: ClusterReadDeps,
@@ -12,7 +13,7 @@ export async function clearCluster(
 ): Promise<void> {
   const allocation = await routableAllocation(readDeps.config.coordinator, indexName)
   if (allocation === null) {
-    return readDeps.engine.clear(indexName)
+    return writeLocalOnly(writeDeps, indexName, () => readDeps.engine.clear(indexName))
   }
 
   for (;;) {

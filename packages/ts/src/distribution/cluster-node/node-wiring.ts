@@ -94,12 +94,16 @@ export function createNodeWiring(input: {
     onFullChange: input.renewRegistration,
   })
 
-  const numbering = createPrimaryNumbering()
+  engine.writeRecords.readRetainedLogWith(
+    (indexName, partitionId) => replicationLogs.get(replicationLogKey(indexName, partitionId))?.oldestSeqNo,
+  )
+  const numbering = createPrimaryNumbering(engine.writeRecords.applied)
   engine.numberEntriesWith(numbering.numberEntry, numbering.defersCommit)
   engine.admitWritesWith(numbering.admit)
   const writeDeps: WriteRoutingDeps = {
     nodeId,
     numbering,
+    writeRecords: engine.writeRecords,
     commitPartitionLog: engine.commitPartitionLog,
     coordinator: allocationView.routing,
     refreshAllocation: allocationView.refresh,

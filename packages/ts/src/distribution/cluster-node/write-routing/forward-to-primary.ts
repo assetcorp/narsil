@@ -5,8 +5,9 @@ import type { AnyDocument } from '../../../types/schema'
 import { chunkByBudget } from '../../chunking'
 import { WIRE_BATCH_BUDGET } from '../../constants'
 import { createForwardBatchMessage, validateForwardBatchResultPayload } from '../../replication/codec'
-import type { ForwardBatchOperation, ForwardBatchPayload } from '../../transport/types'
+import type { ForwardBatchOperation, ForwardBatchPayload, WriteCondition } from '../../transport/types'
 import { forwardUndelivered } from '../transport-failure'
+import { abandonedWriteFrom, conditionFields, withAbandonedWrite } from './abandoned-write'
 import {
   assertForwardResponse,
   forwardInsertToRemote,
@@ -20,6 +21,7 @@ export interface ForwardBatchItem {
   documentId: string
   operation: 'insert' | 'remove' | 'update'
   document: AnyDocument | null
+  condition?: WriteCondition
 }
 
 function toWireOperation(item: ForwardBatchItem): ForwardBatchOperation {
@@ -28,6 +30,7 @@ function toWireOperation(item: ForwardBatchItem): ForwardBatchOperation {
     operation: item.operation,
     document: item.document === null ? null : encodeDocument(item.document),
     updateFields: null,
+    ...conditionFields(item.condition),
   }
 }
 
@@ -59,10 +62,18 @@ async function forwardSingleItem(
         documentId: item.documentId,
       })
     }
-    await forwardUpdateToRemote(indexName, item.document, item.documentId, primaryNodeId, deps, indexUuid)
+    await forwardUpdateToRemote(
+      indexName,
+      item.document,
+      item.documentId,
+      primaryNodeId,
+      deps,
+      indexUuid,
+      item.condition,
+    )
     return item.documentId
   }
-  await forwardRemoveToRemote(indexName, item.documentId, primaryNodeId, deps, indexUuid)
+  await forwardRemoveToRemote(indexName, item.documentId, primaryNodeId, deps, indexUuid, item.condition)
   return item.documentId
 }
 
@@ -129,14 +140,15 @@ export async function forwardBatchToRemote(
           succeeded.push(operationResult.documentId)
           continue
         }
+        const refusal = new NarsilError(
+          operationResult.errorCode ?? ErrorCodes.QUERY_ROUTING_FAILED,
+          operationResult.errorMessage ?? `Remote primary rejected forwarded operation '${operationResult.documentId}'`,
+          { ...(operationResult.errorDetails ?? {}), indexName, primaryNodeId },
+        )
+        const abandonedWrite = abandonedWriteFrom(operationResult.abandonedWrite)
         failed.push({
           docId: operationResult.documentId,
-          error: new NarsilError(
-            operationResult.errorCode ?? ErrorCodes.QUERY_ROUTING_FAILED,
-            operationResult.errorMessage ??
-              `Remote primary rejected forwarded operation '${operationResult.documentId}'`,
-            { ...(operationResult.errorDetails ?? {}), indexName, primaryNodeId },
-          ),
+          error: abandonedWrite === undefined ? refusal : withAbandonedWrite(refusal, abandonedWrite),
         })
       }
     } catch (err) {

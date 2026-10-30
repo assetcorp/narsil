@@ -3,6 +3,7 @@ import { decodeEveryStoredDocument } from '../../../core/partition/frozen/docume
 import { ErrorCodes, NarsilError } from '../../../errors'
 import type { PartitionManager } from '../../../partitioning/manager'
 import type { KeywordSegmentContents } from '../../../serialization/keyword-segment/types'
+import type { WriteRecordKeeper } from '../types'
 import type { PartitionManifestEntry } from './manifest'
 import { readSegmentFile } from './segment-file'
 import type { CheckpointStore } from './store'
@@ -10,6 +11,7 @@ import type { CheckpointStore } from './store'
 export interface PartitionLoadOptions {
   schema: Record<string, string>
   decodesEveryDocument: boolean
+  writeRecords?: WriteRecordKeeper | null
 }
 
 function requireAgreedSchema(agreed: Record<string, string>, schema: Record<string, string>, key: string): void {
@@ -61,6 +63,7 @@ export async function loadPartitionSegments(
     if (options.decodesEveryDocument) decodeEveryStoredDocument(contents.arrays.documentTable)
     const segment = createSharedFrozenSegment(shareSegmentArrays(contents.arrays, manager.partialWordAnalysis))
     removeWhatTheSegmentReplaces(manager, segment, contents)
+    options.writeRecords?.loadSegment(manager.indexName, partition.partitionId, segment, contents)
     if (contents.arrays.documentCount > 0) manager.attachFrozenSegment(partition.partitionId, segment)
     await yieldToEventLoop()
   }
