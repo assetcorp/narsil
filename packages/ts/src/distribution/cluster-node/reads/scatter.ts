@@ -6,6 +6,7 @@ import { randomSelector, selectReplicasForQuery } from '../../query/selection'
 import type { TransportMessage } from '../../transport/types'
 import type { ClusterLocalEngine } from '../local-engine'
 import { readRejectionOf, refuseDecodeWithoutRoom, sendToNode } from '../node-messaging'
+import type { SearchContextRegistry } from '../search-contexts'
 import type { ClusterNodeConfig } from '../types'
 
 export interface ClusterReadDeps {
@@ -13,6 +14,7 @@ export interface ClusterReadDeps {
   nodeId: string
   engine: ClusterLocalEngine
   resolveNodeTargets: (targetNodeId: string) => Promise<string[]>
+  searchContexts?: SearchContextRegistry
 }
 
 export interface ScatterGroup {

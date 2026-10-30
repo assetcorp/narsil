@@ -107,9 +107,10 @@ export function createCapturingResponse(
     write(chunk) {
       if (finished || abort.aborted) return true
       startStreaming()
-      const copy = chunk.slice()
+      const copy = new Uint8Array(chunk.byteLength)
+      copy.set(chunk)
       inFlight += 1
-      sendPart({ type: 'stream-chunk', requestId, chunk: copy }, [copy.buffer as ArrayBuffer])
+      sendPart({ type: 'stream-chunk', requestId, chunk: copy }, [copy.buffer])
       return inFlight < RELAY_STREAM_CHUNKS_IN_FLIGHT
     },
     pause: () => undefined,

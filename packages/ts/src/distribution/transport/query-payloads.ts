@@ -115,6 +115,7 @@ export interface SearchPayload {
   params: WireQueryParams
   globalStats: GlobalStatistics | null
   facetShardSize: number | null
+  keepAliveMs?: number | null
 }
 
 export interface SearchResultPayload {
@@ -122,6 +123,7 @@ export interface SearchResultPayload {
   facets: Record<string, FacetBucket[]> | null
   facetErrorBounds: Record<string, number> | null
   groups: WireGroupEntry[] | null
+  contextId?: string | null
 }
 
 export interface FetchDocumentId {
@@ -134,6 +136,8 @@ export interface FetchPayload {
   documentIds: FetchDocumentId[]
   fields: string[] | null
   highlight: WireHighlightConfig | null
+  contextId?: string | null
+  releaseContext?: boolean | null
 }
 
 export interface FetchedDocument {

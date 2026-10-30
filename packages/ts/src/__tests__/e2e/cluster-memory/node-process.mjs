@@ -1,3 +1,5 @@
+import { syncBuiltinESMExports } from 'node:module'
+import os from 'node:os'
 import { getHeapSpaceStatistics, setFlagsFromString } from 'node:v8'
 import { runInNewContext } from 'node:vm'
 import { createEtcdCoordinator } from '../../../../dist/distribution/coordinator/etcd.mjs'
@@ -12,6 +14,12 @@ const BALLAST_HEADER = 'x-narsil-test-ballast'
 const BALLAST_ARRAY_LENGTH = 131_072
 const OLD_GENERATION_SAMPLE_INTERVAL_MS = 20
 const YOUNG_GENERATION_SPACES = new Set(['new_space', 'new_large_object_space'])
+
+const hostShareBytes = Number(process.env.NARSIL_TEST_HOST_SHARE_BYTES ?? 0)
+if (hostShareBytes > 0) {
+  os.freemem = () => Math.max(0, hostShareBytes - process.memoryUsage.rss())
+  syncBuiltinESMExports()
+}
 
 let peakOldGenerationBytes = 0
 function sampleOldGeneration() {

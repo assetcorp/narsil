@@ -3,12 +3,9 @@ import { foldGroupReducer, hitsKeptPerGroup } from '../../../search/grouping'
 import type { GroupResult, Hit } from '../../../types/results'
 import type { AnyDocument } from '../../../types/schema'
 import type { GroupReducer, QueryParams } from '../../../types/search'
-import type { AllocationTable } from '../../coordinator/types'
 import { MAX_FETCH_DOCUMENT_IDS } from '../../query/constants'
 import type { DistributedQueryResult } from '../../query/types'
 import type { WireGroupEntry } from '../../transport/types'
-import { readDistributedDocuments } from '../node-messaging'
-import type { ClusterReadDeps } from './scatter'
 
 /**
  * Turns the merged wire groups of a distributed query into the group results
@@ -16,21 +13,17 @@ import type { ClusterReadDeps } from './scatter'
  * reads their bodies from the nodes that hold them, and it folds the caller's
  * reducer here, because a reducer is a function the wire cannot carry.
  *
- * @param deps - The cluster configuration, this node's id, the local engine, and the node target resolver.
- * @param indexName - The index the query ran against.
  * @param params - The caller's query, whose `group.reduce` closure folds here.
  * @param distributed - The merged distributed result carrying the wire groups.
- * @param allocation - The allocation table that routes each document ID to its holder.
  * @param projection - The resolved document projection of the query.
+ * @param readDocuments - Reads documents by ID, told whether this is the last read the search makes.
  * @returns The assembled groups, or undefined when the query asked for none.
  */
 export async function assembleDistributedGroups(
-  deps: ClusterReadDeps,
-  indexName: string,
   params: QueryParams,
   distributed: DistributedQueryResult,
-  allocation: AllocationTable,
   projection: ResolvedProjection,
+  readDocuments: (docIds: string[], last: boolean) => Promise<Map<string, AnyDocument>>,
 ): Promise<GroupResult[] | undefined> {
   const wireGroups = distributed.groups
   const group = params.group
@@ -48,10 +41,10 @@ export async function assembleDistributedGroups(
   let batch: WireGroupEntry[] = []
   let batchDocIds = new Set<string>()
 
-  async function assembleBatch(): Promise<void> {
+  async function assembleBatch(last: boolean): Promise<void> {
     const documents =
       needsDocuments && batchDocIds.size > 0
-        ? await readDistributedDocuments(deps.config, deps.nodeId, deps.engine, indexName, [...batchDocIds], allocation)
+        ? await readDocuments([...batchDocIds], last)
         : new Map<string, AnyDocument>()
     for (const entry of batch) results.push(assembleGroup(entry, documents, keptPerGroup, projection, reduce))
     batch = []
@@ -60,11 +53,11 @@ export async function assembleDistributedGroups(
 
   for (const entry of wireGroups) {
     const docIds = docIdsRead(entry)
-    if (batch.length > 0 && batchDocIds.size + docIds.length > MAX_FETCH_DOCUMENT_IDS) await assembleBatch()
+    if (batch.length > 0 && batchDocIds.size + docIds.length > MAX_FETCH_DOCUMENT_IDS) await assembleBatch(false)
     batch.push(entry)
     for (const docId of docIds) batchDocIds.add(docId)
   }
-  if (batch.length > 0) await assembleBatch()
+  if (batch.length > 0) await assembleBatch(true)
   return results
 }
 
