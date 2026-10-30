@@ -167,10 +167,11 @@ export async function expectEveryDocumentReadsBack(
   base: string,
   indexName: string,
   kept: ReadonlyMap<string, object>,
+  sliceDocuments = READ_BACK_DOCUMENTS,
 ): Promise<void> {
   const docIds = [...kept.keys()]
-  for (let start = 0; start < docIds.length; start += READ_BACK_DOCUMENTS) {
-    const slice = docIds.slice(start, start + READ_BACK_DOCUMENTS)
+  for (let start = 0; start < docIds.length; start += sliceDocuments) {
+    const slice = docIds.slice(start, start + sliceDocuments)
     let reply = await request(base, 'POST', `/indexes/${indexName}/documents/_multi-get`, { docIds: slice })
     for (let attempt = 1; attempt < READ_BACK_ATTEMPTS && isServerMemoryRefusal(reply); attempt++) {
       await sleep(READ_BACK_RETRY_MS)
