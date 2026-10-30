@@ -1,4 +1,5 @@
 import type { QueryParams, SuggestParams } from '../../types/search'
+import { respondAnswer } from '../answer-stream'
 import { parseJson, rejectInvalid, respondError, respondJson } from '../handler-utils'
 import { refuseRegex } from '../regex-policy'
 import type { RouteContext } from '../request'
@@ -18,7 +19,8 @@ export function createSearchHandlers(deps: ReadHandlerDeps) {
     }
     if (refuseRegex(ctx, params.filters, allowRegex)) return
     try {
-      respondJson(ctx, await engine.query(ctx.params[0], withServerRerankWindow(params, limits)))
+      const result = await engine.query(ctx.params[0], withServerRerankWindow(params, limits))
+      await respondAnswer(ctx, result, 'hits', `a search on index '${ctx.params[0]}'`)
     } catch (err) {
       respondError(ctx, err)
     }

@@ -52,6 +52,7 @@ static narsil_status create_node(const narsil_graph *graph, const narsil_place_r
   graph->upper_base[ordinal] = upper_base;
   graph->level0[(size_t)ordinal * base_stride] = 0;
   raise_slots(graph, ordinal + 1);
+  atomic_store(atomic_byte(graph->nearest_link_due, (uint32_t)ordinal), 1);
   atomic_store(atomic_byte(graph->node_levels, (uint32_t)ordinal), (uint8_t)(request->top_layer + 1));
   atomic_fetch_add(atomic_word(graph->header, NARSIL_GRAPH_WORD_NODE_COUNT), 1);
   return NARSIL_OK;

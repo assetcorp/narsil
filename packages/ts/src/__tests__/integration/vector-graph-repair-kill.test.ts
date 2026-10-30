@@ -11,9 +11,9 @@ import { temporaryRoots } from '../e2e/portability/harness'
 import { waitFor } from '../server/helpers'
 import {
   DIMENSION,
-  EF_SEARCH_FOR_EVERY_PASSAGE,
   FIELD,
   insertFileByFile,
+  NARROW_EF_SEARCH,
   NARROW_LIMIT,
   passagesArrivingFileByFile,
   passagesNotFoundFirst,
@@ -98,9 +98,9 @@ describe.skipIf(!built)('a process killed while it repairs a graph from an earli
       await untilSettled(reopened, RESTORED_INDEX)
       expect(await savedShuffledBuildCount(directory, RESTORED_INDEX)).toBe(SAVED_PASSAGES)
       expect(await unreachedPassages(reopened, RESTORED_INDEX)).toEqual({ unplaced: [], unreached: [] })
-      expect(
-        await passagesNotFoundFirst(reopened, RESTORED_INDEX, passages, NARROW_LIMIT, EF_SEARCH_FOR_EVERY_PASSAGE),
-      ).toEqual([])
+      expect(await passagesNotFoundFirst(reopened, RESTORED_INDEX, passages, NARROW_LIMIT, NARROW_EF_SEARCH)).toEqual(
+        [],
+      )
     },
     TEST_TIMEOUT_MS,
   )

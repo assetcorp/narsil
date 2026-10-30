@@ -170,6 +170,7 @@ static void take_node_out(const walk_context *context, int32_t ordinal) {
   graph->upper_base[ordinal] = 0;
   graph->level0[(size_t)ordinal * ((size_t)list_limit(graph, 0) + NARSIL_LIST_WORDS_OVER_NEIGHBOURS)] = 0;
   atomic_store(atomic_word(graph->incoming, (uint32_t)ordinal), 0);
+  atomic_store(atomic_byte(graph->nearest_link_due, (uint32_t)ordinal), 0);
   node_unlock(context, ordinal);
   atomic_fetch_sub(atomic_word(graph->header, NARSIL_GRAPH_WORD_NODE_COUNT), 1);
   uint8_t tombstoned = 1;

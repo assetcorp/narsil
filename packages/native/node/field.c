@@ -19,6 +19,7 @@ typedef struct {
   size_t locks;
   size_t tombstones;
   size_t incoming;
+  size_t nearest_link_due;
   size_t held_locks;
 } graph_lengths;
 
@@ -111,6 +112,8 @@ static int read_graph_regions(napi_env env, napi_value memory, narsil_graph *gra
   graph->tombstones = data;
   if (!typed_property(env, memory, "incoming", napi_int32_array, &data, &lengths->incoming)) { return 0; }
   graph->incoming = data;
+  if (!typed_property(env, memory, "nearestLinkDue", napi_uint8_array, &data, &lengths->nearest_link_due)) { return 0; }
+  graph->nearest_link_due = data;
   if (!typed_property(env, memory, "heldLocks", napi_int32_array, &data, &lengths->held_locks)) { return 0; }
   graph->held_locks = data;
   graph->thread_slots = clamped_count(lengths->held_locks / NARSIL_HELD_WORDS_PER_THREAD);
@@ -127,7 +130,7 @@ static int graph_regions_hold_the_graph(const narsil_graph *graph, const graph_l
   return covers(lengths->node_levels, ordinals) && covers(lengths->level0, ordinals * base_stride) &&
          covers(lengths->upper_base, ordinals) && covers(lengths->locks, ordinals) &&
          covers(lengths->tombstones, ordinals) && covers(lengths->incoming, ordinals) &&
-         covers(lengths->upper, (uint64_t)upper_used);
+         covers(lengths->nearest_link_due, ordinals) && covers(lengths->upper, (uint64_t)upper_used);
 }
 
 static void remember_wake(void *context, int32_t ordinal) {
@@ -156,7 +159,7 @@ void release_graph(napi_env env, void *finalize_data, void *finalize_hint) {
 attached_graph *read_graph(napi_env env, napi_value memory) {
   attached_graph *attached = calloc(1, sizeof *attached);
   if (attached == NULL) { return NULL; }
-  graph_lengths held = {0, 0, 0, 0, 0, 0, 0, 0};
+  graph_lengths held = {0, 0, 0, 0, 0, 0, 0, 0, 0};
   if (!read_graph_regions(env, memory, &attached->graph, &held) ||
       !graph_regions_hold_the_graph(&attached->graph, &held)) {
     release_graph(env, attached, NULL);

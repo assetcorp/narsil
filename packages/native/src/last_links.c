@@ -23,9 +23,15 @@ void note_linked(const walk_context *context, int32_t ordinal) {
   if (word != NULL) { atomic_fetch_add(word, 1); }
 }
 
+void note_nearest_link_due(const walk_context *context, int32_t ordinal) {
+  if (incoming_word(context, ordinal) == NULL) { return; }
+  atomic_store(atomic_byte(context->graph->nearest_link_due, (uint32_t)ordinal), 1);
+}
+
 void note_unlinked(const walk_context *context, int32_t ordinal) {
   _Atomic(int32_t) *word = incoming_word(context, ordinal);
   if (word == NULL) { return; }
+  note_nearest_link_due(context, ordinal);
   int32_t seen = atomic_load(word);
   while (seen > 0 && !atomic_compare_exchange_weak(word, &seen, seen - 1)) {}
 }
@@ -39,7 +45,9 @@ int release_unless_last(const walk_context *context, int32_t ordinal) {
   if (word == NULL) { return 1; }
   int32_t seen = atomic_load(word);
   while (seen > 1) {
-    if (atomic_compare_exchange_weak(word, &seen, seen - 1)) { return 1; }
+    if (!atomic_compare_exchange_weak(word, &seen, seen - 1)) { continue; }
+    note_nearest_link_due(context, ordinal);
+    return 1;
   }
   return 0;
 }

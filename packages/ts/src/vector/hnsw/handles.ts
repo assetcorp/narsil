@@ -59,6 +59,8 @@ export interface SharedGraphHandles {
   tombstones: GrowableBuffer
   /** This holds one word per ordinal, the number of base-layer lists that hold that ordinal. */
   incoming: GrowableBuffer
+  /** This holds one byte per ordinal, which reads 1 from the moment a node is placed or loses a base-layer connection until the next pass checks that its nearest neighbour links back to it. */
+  nearestLinkDue: GrowableBuffer
   /** This records the node lock and the graph lock each thread slot holds right now. */
   heldLocks: Int32Array
 }
@@ -99,6 +101,7 @@ export function createSharedGraphHandles(shape: SharedGraphShape): SharedGraphHa
     locks: perOrdinal(4, VECTOR_STORE_INITIAL_CAPACITY),
     tombstones: perOrdinal(1, VECTOR_STORE_INITIAL_CAPACITY),
     incoming: perOrdinal(4, VECTOR_STORE_INITIAL_CAPACITY),
+    nearestLinkDue: perOrdinal(1, VECTOR_STORE_INITIAL_CAPACITY),
     heldLocks: new Int32Array(createFixedBuffer(heldWords * 4), 0, heldWords),
   }
   publishGraphCapacity(handles)
@@ -122,6 +125,7 @@ export function publishGraphCapacity(handles: SharedGraphHandles): void {
     Math.floor(handles.locks.byteLength / 4),
     handles.tombstones.byteLength,
     Math.floor(handles.incoming.byteLength / 4),
+    handles.nearestLinkDue.byteLength,
   )
   raiseHeaderWord(handles.header, GRAPH_SLOT_CAPACITY, slotCapacity)
   raiseHeaderWord(handles.header, GRAPH_UPPER_CAPACITY, Math.floor(handles.upper.byteLength / 4))
