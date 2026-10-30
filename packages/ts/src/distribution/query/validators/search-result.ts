@@ -6,6 +6,7 @@ import {
   MAX_FACET_VALUE_LENGTH,
   MAX_GROUPS_PER_RESPONSE,
   MAX_RESULTS_PER_PARTITION,
+  MAX_SEARCH_CONTEXT_ID_LENGTH,
   MAX_SORT_VALUES,
 } from '../constants'
 import { CONFIG_INVALID, isFiniteNumber, isInteger, isRecord, throwInvalid, validatePartitionId } from './common'
@@ -218,6 +219,18 @@ export function validateSearchResultPayload(decoded: unknown): SearchResultPaylo
   }
   if (decoded.groups !== null && decoded.groups !== undefined) {
     validateGroupEntries(decoded.groups)
+  }
+  if (decoded.contextId !== null && decoded.contextId !== undefined) {
+    if (
+      typeof decoded.contextId !== 'string' ||
+      decoded.contextId.length === 0 ||
+      decoded.contextId.length > MAX_SEARCH_CONTEXT_ID_LENGTH
+    ) {
+      throwInvalid(
+        CONFIG_INVALID,
+        `Invalid SearchResultPayload: "contextId" must be a string of 1 to ${MAX_SEARCH_CONTEXT_ID_LENGTH} characters, or null`,
+      )
+    }
   }
   return decoded as unknown as SearchResultPayload
 }
