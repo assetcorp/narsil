@@ -2,9 +2,9 @@ import { ErrorCodes, NarsilError } from '../../errors'
 import { MAX_VECTOR_ORDINALS } from '../constants'
 import { addToOrdinalFilter, createOrdinalFilter, type OrdinalFilter } from '../ordinal-filter'
 import type { OsqBits } from '../osq/quantize'
-import { growBufferTo } from '../shared-buffers/growable'
+import { type GrowableBuffer, growBufferTo, grownByteLength } from '../shared-buffers/growable'
 import { magnitude } from '../similarity'
-import { createVectorBlock, ensureBlockSlots, slotByteOffset } from './blocks'
+import { blocksGrowthBytes, createVectorBlock, ensureBlockSlots, slotByteOffset } from './blocks'
 import { appendDocId } from './doc-ids'
 import {
   createSharedVectorStoreHandles,
@@ -12,6 +12,7 @@ import {
   type SharedVectorStoreHandles,
   STORE_BLOCK_COUNT,
   STORE_CODE_BLOCK_COUNT,
+  STORE_DOC_ID_BYTES,
   STORE_SLOTS,
   unplacedChunkCount,
 } from './handles'
@@ -26,6 +27,7 @@ export interface OpenStore {
   partitions: Int32Array
   diskFile: Int32Array
   diskOffset: Uint32Array
+  longestDocIdBytes: number
 }
 
 export type OrdinalDocuments = ReadonlyArray<string | undefined>
@@ -40,6 +42,7 @@ export function openHandles(dimension: number, codeBits: OsqBits | null, blockBy
     partitions: new Int32Array(handles.partitions),
     diskFile: new Int32Array(handles.diskFile),
     diskOffset: new Uint32Array(handles.diskOffset),
+    longestDocIdBytes: 0,
   }
 }
 
@@ -52,7 +55,10 @@ export function claimSlot(store: OpenStore, docId: string, cold: boolean): numbe
   const ordinal = Atomics.load(store.handles.header, STORE_SLOTS)
   ensureOrdinal(store, ordinal, cold)
   store.diskFile[ordinal] = IN_MEMORY
+  const idBytesBefore = Atomics.load(store.handles.header, STORE_DOC_ID_BYTES)
   appendDocId(store.handles, ordinal, docId)
+  const idBytes = Atomics.load(store.handles.header, STORE_DOC_ID_BYTES) - idBytesBefore
+  if (idBytes > store.longestDocIdBytes) store.longestDocIdBytes = idBytes
   return ordinal
 }
 
@@ -138,6 +144,33 @@ export function ensureOrdinal(store: OpenStore, ordinal: number, cold: boolean):
   growBufferTo(handles.diskOffset, (ordinal + 1) * 4)
   if (!cold) ensureFloatSlot(store, ordinal)
   ensureCodeSlot(store, ordinal)
+}
+
+function bufferGrowthBytes(buffer: GrowableBuffer, bytes: number): number {
+  return grownByteLength(buffer.byteLength, bytes, buffer.maxByteLength) - buffer.byteLength
+}
+
+export function growthBytesFor(store: OpenStore, vectors: number): number {
+  const { handles } = store
+  const slots = Atomics.load(handles.header, STORE_SLOTS)
+  const last = Math.min(slots + vectors, MAX_VECTOR_ORDINALS) - 1
+  if (last < slots) return 0
+  const idBytes = Atomics.load(handles.header, STORE_DOC_ID_BYTES)
+  let bytes =
+    bufferGrowthBytes(handles.magnitudes, (last + 1) * 8) +
+    bufferGrowthBytes(handles.present, last + 1) +
+    bufferGrowthBytes(handles.unplaced, last + 1) +
+    bufferGrowthBytes(handles.unplacedChunks, unplacedChunkCount(last) * 4) +
+    bufferGrowthBytes(handles.removed, last + 1) +
+    bufferGrowthBytes(handles.partitions, (last + 1) * 4) +
+    bufferGrowthBytes(handles.codePresent, last + 1) +
+    bufferGrowthBytes(handles.diskFile, (last + 1) * 4) +
+    bufferGrowthBytes(handles.diskOffset, (last + 1) * 4) +
+    bufferGrowthBytes(handles.docIdOffsets, (last + 2) * 4) +
+    bufferGrowthBytes(handles.docIdBytes, idBytes + (last + 1 - slots) * store.longestDocIdBytes) +
+    blocksGrowthBytes(handles.blocks, handles.layout, slots, last)
+  if (handles.codeLayout !== null) bytes += blocksGrowthBytes(handles.codeBlocks, handles.codeLayout, slots, last)
+  return bytes
 }
 
 export function writeVector(store: OpenStore, ordinal: number, vector: Float32Array): void {

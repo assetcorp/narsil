@@ -4,6 +4,7 @@ import {
   fixedView,
   type GrowableBuffer,
   growBufferTo,
+  grownByteLength,
   nextGrowthTarget,
   sharedMemoryAvailable,
 } from '../shared-buffers/growable'
@@ -134,6 +135,32 @@ export function ensureBlockSlots(handle: VectorBlockHandle, slots: number): void
     return
   }
   growMemoryTo(storage.kind === 'shared-memory' ? storage.memory : storage.simd.memory, bytes, handle.layout)
+}
+
+function blockGrowthBytes(handle: VectorBlockHandle | null, layout: BlockGeometry, slots: number): number {
+  const bytes = layout.slotsOffset + Math.min(slots, layout.capacity) * layout.slotStride
+  if (handle !== null && handle.storage.kind === 'bytes') {
+    const buffer = handle.storage.buffer
+    return grownByteLength(buffer.byteLength, bytes, buffer.maxByteLength) - buffer.byteLength
+  }
+  const have = handle === null ? 0 : blockBuffer(handle).byteLength
+  const start = handle === null ? pagesFor(initialBlockBytes(layout)) * WASM_PAGE_BYTES : have
+  return grownByteLength(start, bytes, fullBlockBytes(layout), WASM_PAGE_BYTES) - have
+}
+
+export function blocksGrowthBytes(
+  blocks: readonly (VectorBlockHandle | null)[],
+  layout: BlockGeometry,
+  firstOrdinal: number,
+  lastOrdinal: number,
+): number {
+  let bytes = 0
+  const lastBlock = Math.floor(lastOrdinal / layout.capacity)
+  for (let block = Math.floor(firstOrdinal / layout.capacity); block <= lastBlock; block++) {
+    const slots = block === lastBlock ? (lastOrdinal % layout.capacity) + 1 : layout.capacity
+    bytes += blockGrowthBytes(blocks[block] ?? null, layout, slots)
+  }
+  return bytes
 }
 
 export function blockBuffer(handle: VectorBlockHandle): GrowableBuffer {

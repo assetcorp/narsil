@@ -78,11 +78,15 @@ function createMockVectorIndex(
         graphCount: 0,
         bufferSize: 0,
         building: false,
+        waitingForMemory: false,
         estimatedCompactMs: 0,
         estimatedOptimizeMs: 0,
       }
     },
     estimateMemoryBytes() {
+      return 0
+    },
+    growthBytesFor() {
       return 0
     },
     planCheckpoint() {
