@@ -33,6 +33,8 @@ async function importBootstrapModule(moduleUrl: string): Promise<void> {
 async function stopServingRequests(): Promise<void> {
   const { closeRequestThread } = await import('../server/request-threads/thread')
   closeRequestThread()
+  const { closeLongQueryThread } = await import('../server/request-threads/long-query-thread')
+  closeLongQueryThread()
 }
 
 function holdsCopies(
@@ -81,6 +83,17 @@ export function createActionHandler(executor: Executor & Partial<DirectExecutorE
         )
         const result = await starting
         post(buildSuccessResponse(action.requestId, result))
+        return false
+      }
+
+      if (action.type === 'serveLongQueries') {
+        if (!holdsCopies(executor)) {
+          throw new NarsilError(ErrorCodes.CONFIG_INVALID, 'This executor holds no copies to answer long queries from')
+        }
+        const { serveLongQueries } = await import('../server/request-threads/long-query-thread')
+        serveLongQueries(executor, action.settings)
+        servingRequests = true
+        post(buildSuccessResponse(action.requestId, undefined))
         return false
       }
 

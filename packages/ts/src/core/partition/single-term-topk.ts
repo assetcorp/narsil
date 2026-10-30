@@ -8,6 +8,7 @@ import type {
 import type { BM25Params } from '../../types/schema'
 import type { InvertedIndexReader } from '../inverted-index'
 import { bm25PruningSound, computeBM25, computeBM25WithIDF, computeIDF, resolveBM25Params } from '../scorer'
+import type { SearchClock } from '../search-clock'
 import { blockBoundsFor } from './block-bounds'
 import { bestSearchable, type FieldScoring, fieldLengthOf } from './field-scoring'
 import { postingColumns } from './posting-columns'
@@ -22,6 +23,7 @@ export interface SingleTermScanRequest {
   limit: number
   fields: FieldScoring
   resolver: InternalIdResolver
+  clock: SearchClock
 }
 
 export function fieldsCoverEvery(fields: string[] | undefined, fieldNames: readonly string[]): boolean {
@@ -79,7 +81,7 @@ export function prunableSingleTermList(
  * @returns The page in descending score order, with the exact number of matching documents.
  */
 export function singleTermTopK(request: SingleTermScanRequest): InternalSearchResult {
-  const { list, docFrequency, totalDocs, bm25Params, limit, resolver } = request
+  const { list, docFrequency, totalDocs, bm25Params, limit, resolver, clock } = request
   const {
     searchable: fieldSearchable,
     boosts: fieldBoosts,
@@ -105,6 +107,7 @@ export function singleTermTopK(request: SingleTermScanRequest): InternalSearchRe
   for (let block = 0; block < bounds.blockCount; block++) {
     const start = block === 0 ? 0 : bounds.entryEnd[block - 1]
     const end = bounds.entryEnd[block]
+    clock.tick(end - start)
 
     if (full) {
       const bestEntry = computeBM25(

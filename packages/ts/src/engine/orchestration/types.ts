@@ -17,6 +17,7 @@ import type { BuiltSegment, SegmentBuildRequest } from './segments'
 
 export interface RequestThreadListener {
   onWorkerReady(workerId: number, executor: Executor): Promise<void>
+  onLongQueryWorkerReady(workerId: number, executor: Executor): Promise<void>
   onWorkerGone(workerId: number): void
 }
 
@@ -109,6 +110,7 @@ export interface OrchestratorState {
   readonly vectorCopyPolicy: VectorWorkerCopyPolicy | undefined
   readonly workersEnabled: boolean
   keywordWorkerCount: number
+  longQueryWorkerCount: number
   requestThreads: RequestThreadListener | null
   readonly copyThreshold: number
   readonly copyIdleTimeoutMs: number

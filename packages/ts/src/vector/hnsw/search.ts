@@ -1,4 +1,5 @@
 import { compareCodePoints } from '../../core/ordering'
+import type { SearchClock } from '../../core/search-clock'
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { ScoredDocument } from '../../types/internal'
 import type { VectorMetric } from '../brute-force'
@@ -36,6 +37,7 @@ export interface GraphSearchOptions {
   efSearch?: number
   oversample?: number
   rescoreWindow?: number
+  clock?: SearchClock
 }
 
 interface Traversal {
@@ -99,13 +101,13 @@ function traverse(
     setSingleEntryPoint(workspace, entryPoint)
 
     for (let layer = topLayerOf(state); layer >= 1; layer--) {
-      searchLayer(state, query, qMag, 1, layer, searchMetric, false, distFn, candidates)
+      searchLayer(state, query, qMag, 1, layer, searchMetric, false, distFn, candidates, undefined, options.clock)
       if (candidates.size > 0) {
         setSingleEntryPoint(workspace, candidates.ords[0])
       }
     }
 
-    searchLayer(state, query, qMag, ef, 0, searchMetric, true, distFn, candidates, filter)
+    searchLayer(state, query, qMag, ef, 0, searchMetric, true, distFn, candidates, filter, options.clock)
   } finally {
     unlockGraphShared(state.locks)
   }

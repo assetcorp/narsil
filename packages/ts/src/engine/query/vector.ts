@@ -11,7 +11,6 @@ import { collectFilterSubsets, filterSubsetsMatchNothing, searchCurrentSubsets }
 import {
   broadcastStatsForWorker,
   partitionsForVectorSearch,
-  type QueryContext,
   resolveVectorIndex,
   type SearchContext,
   scoringConfigFor,
@@ -62,11 +61,12 @@ function searchField(
   vectorConfig: VectorQueryConfig,
   queryVector: Float32Array,
   k: number,
-  context: QueryContext,
+  context: SearchContext,
   filtered: FilteredSearch | undefined,
   rescoreWindow: number | undefined,
 ): Promise<VectorSearchOutcome> {
   const options: VectorSearchOptions = {
+    clock: context.patternWork.clock,
     metric: vectorConfig.metric ?? 'cosine',
     minSimilarity: vectorConfig.similarity ?? -Infinity,
     efSearch: vectorConfig.efSearch,
@@ -142,7 +142,7 @@ export async function textLeg(textOnlyParams: QueryParams, context: SearchContex
 export async function vectorLeg(
   vectorConfig: VectorQueryConfig,
   queryVector: Float32Array,
-  context: QueryContext,
+  context: SearchContext,
   filtered: FilteredSearch | undefined,
   k: number,
   rescoreWindow?: number,

@@ -1,6 +1,7 @@
 import type { InternalSearchParams, InternalSearchResult, PostingListView } from '../../types/internal'
 import { bitsetHas, bitsetSet, createBitSet } from '../bitset'
 import { computeBM25WithIDF, computeIDF, resolveBM25Params } from '../scorer'
+import { STEADY_CLOCK } from '../search-clock'
 import { fieldLengthOf, loadFieldScoring } from './field-scoring'
 import {
   computeGroupContributions,
@@ -50,6 +51,7 @@ export function searchFulltext(state: PartitionReadState, params: InternalSearch
   } = params
 
   const collectComponents = params.collectComponents !== false
+  const clock = params.clock ?? STEADY_CLOCK
 
   if (queryTokens.length === 0) {
     return { scored: [], totalMatched: 0 }
@@ -104,6 +106,7 @@ export function searchFulltext(state: PartitionReadState, params: InternalSearch
     const { docIds, termFrequencies, fieldNameIndices, deletedDocs, hasDeleted, count } = postingColumns(
       match.postingList,
     )
+    clock.tick(count)
     if (!onlyScored && !hasDeleted && filterBitset === undefined && components === null) {
       for (let pi = 0; pi < count; pi++) {
         const internalId = docIds[pi]
@@ -150,10 +153,13 @@ export function searchFulltext(state: PartitionReadState, params: InternalSearch
 
   function scoreGroup(group: ResolvedTokenPostings['group'], onlyScored: boolean): void {
     if (group === null) return
+    let contributions = 0
     for (const [internalId, contribution] of computeGroupContributions(groupContext, group, collectComponents)) {
+      contributions++
       if (onlyScored && !hasScore(scoreBuffer, internalId)) continue
       mergeGroupContribution(internalId, contribution)
     }
+    clock.tick(contributions)
   }
 
   const prunableList = prunableSingleTermList(params, state.invertedIdx, fieldNames)
@@ -166,6 +172,7 @@ export function searchFulltext(state: PartitionReadState, params: InternalSearch
       limit: maxResults,
       fields: fieldScoring,
       resolver,
+      clock,
     })
   }
 
@@ -180,6 +187,7 @@ export function searchFulltext(state: PartitionReadState, params: InternalSearch
       fields: fieldScoring,
       resolver,
       buffer: scoreBuffer,
+      clock,
     })
     if (pruned !== null) return pruned
   }
@@ -216,6 +224,7 @@ export function searchFulltext(state: PartitionReadState, params: InternalSearch
   }
 
   const totalMatched = scoreBuffer.touchedCount
+  clock.tick(totalMatched)
   const k = maxResults === undefined ? totalMatched : Math.max(0, Math.min(maxResults, totalMatched))
   const scored = topKFromBuffer(scoreBuffer, k, resolver, components)
 

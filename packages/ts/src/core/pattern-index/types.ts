@@ -1,6 +1,7 @@
 import type { FilterExpression } from '../../types/filters'
 import type { SerializedPatternIndex } from '../../types/internal'
 import type { PatternSearch } from '../../types/pattern'
+import type { SearchClock } from '../search-clock'
 
 export interface PatternIndexArrays {
   fieldPath: string
@@ -49,6 +50,7 @@ export interface PatternWorkMeter {
   readonly flushUnits: number
   add(units: number): void
   remaining(): number
+  readonly clock: SearchClock
 }
 
 export type ExpressionOperator = 'wildcard' | 'regex'

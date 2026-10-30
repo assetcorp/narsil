@@ -40,6 +40,7 @@ export function fanOutMatchCount(
     patternWork: options?.searchOptions?.patternWork ?? createPatternWorkMeter(),
   }
   for (const partition of partitionsIn(manager, options?.partitionIds)) {
+    searchOptions.patternWork.clock.check()
     const matches = fulltextMatches(partition, params, language, schema, searchOptions)
     if (matches !== null) count += matches.count
   }

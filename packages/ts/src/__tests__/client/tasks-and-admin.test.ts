@@ -6,6 +6,7 @@ import {
   REBUILD_ANALYSIS_CAPABILITY,
   type TaskRecord,
 } from '../../client'
+import { LONG_QUERY_THREADS } from '../../engine/orchestration/constants'
 import { NarsilError } from '../../errors'
 import { bytesOf } from '../e2e/portability/archive-oracle'
 import { startTestServer, type TestServer } from '../server/helpers'
@@ -147,10 +148,10 @@ describe('client task and maintenance routes', () => {
     expect(await client.capabilities()).toContain(ASYNC_IMPORT_CAPABILITY)
   })
 
-  it('reports the memory figures the server holds, one entry per request thread', async () => {
+  it('reports the memory figures the server holds, one entry per request thread and long-query thread', async () => {
     const stats = await client.getMemoryStats()
     expect(stats.estimatedIndexBytes).toBeGreaterThanOrEqual(0)
-    expect(stats.workers).toHaveLength(server.server.requestThreadCount)
+    expect(stats.workers).toHaveLength(server.server.requestThreadCount + LONG_QUERY_THREADS)
     for (const worker of stats.workers) expect(worker.heapUsed).toBeGreaterThan(0)
   })
 })

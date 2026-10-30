@@ -1,6 +1,7 @@
 import type { PartitionIndex } from '../../core/partition'
 import type { PatternWorkMeter } from '../../core/pattern-index/types'
 import { createPatternWorkMeter, type SearchPatternWork } from '../../core/pattern-index/work-meter'
+import type { SearchClock } from '../../core/search-clock'
 import { ErrorCodes, NarsilError } from '../../errors'
 import { validatedFilterOf } from '../../filters/operands'
 import { pruneStatsToQueryTerms } from '../../partitioning/distributed-scoring'
@@ -44,6 +45,7 @@ export interface QueryContext {
   /** The vector fields a search runs against where they are not the manager's own indexes, as on a request thread. */
   vectorSearchers?: ReadonlyMap<string, VectorSearcher>
   patternWorkCap?: number
+  clock?: SearchClock
   rerank?: RerankRunner
 }
 
@@ -52,7 +54,7 @@ export interface SearchContext extends QueryContext {
 }
 
 export function withPatternWork(context: QueryContext): SearchContext {
-  return { ...context, patternWork: createPatternWorkMeter(context.patternWorkCap) }
+  return { ...context, patternWork: createPatternWorkMeter(context.patternWorkCap, context.clock) }
 }
 
 export function partitionsFor(manager: PartitionManager, partitionIds: number[] | undefined): PartitionIndex[] {

@@ -262,6 +262,7 @@ describe('the pattern matcher', () => {
         shared.add(units)
       },
       remaining: () => shared.remaining(),
+      clock: shared.clock,
     }
     const values = Array.from({ length: 20 }, () => `${'ab'.repeat(4_000)}x`)
     const matches = createBitSet(values.length)
