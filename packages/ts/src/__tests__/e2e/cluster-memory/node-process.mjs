@@ -49,6 +49,7 @@ const transportPort = Number(requireEnv('NARSIL_TRANSPORT_PORT'))
 const httpPort = Number(requireEnv('NARSIL_HTTP_PORT'))
 const memoryConfig = process.env.NARSIL_MEMORY_CONFIG
 const serverLimits = process.env.NARSIL_SERVER_LIMITS
+const httpHost = process.env.NARSIL_HTTP_HOST ?? '127.0.0.1'
 
 const coordinator = await createEtcdCoordinator({
   endpoints: [requireEnv('NARSIL_ETCD_ENDPOINT')],
@@ -72,8 +73,9 @@ await node.start()
 const server = createServer(
   clusterNodeEngine(node, { createIndex: { partitionCount: 1, replicationFactor: 0, waitForServingMs: 30_000 } }),
   {
-    host: '127.0.0.1',
+    host: httpHost,
     port: httpPort,
+    allowInsecure: httpHost !== '127.0.0.1',
     cluster: node.cluster,
     limits: serverLimits === undefined ? undefined : JSON.parse(serverLimits),
   },
