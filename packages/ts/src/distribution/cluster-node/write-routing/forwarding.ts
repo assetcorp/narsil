@@ -5,7 +5,7 @@ import type { AnyDocument } from '../../../types/schema'
 import { createForwardMessage } from '../../replication/codec'
 import type { ForwardPayload, NodeTransport, TransportMessage, WriteCondition } from '../../transport/types'
 import { remoteErrorDetails } from '../error-reply'
-import { sendThroughTargets } from '../transport-failure'
+import { sendUntilMaybeDelivered } from '../transport-failure'
 import { abandonedWriteFrom, conditionFields, withAbandonedWrite } from './abandoned-write'
 import { resolveNodeTargets } from './assignment'
 import type { WriteRoutingDeps } from './types'
@@ -110,7 +110,7 @@ export async function sendToNode(
   deps: WriteRoutingDeps,
 ): Promise<Awaited<ReturnType<NodeTransport['send']>>> {
   const targets = await resolveNodeTargets(nodeId, deps)
-  return sendThroughTargets(targets, target => deps.transport.send(target, message), {
+  return sendUntilMaybeDelivered(targets, target => deps.transport.send(target, message), {
     message: `Node '${nodeId}' did not answer a forwarded write`,
     details: { targetNodeId: nodeId },
   })

@@ -1,4 +1,4 @@
-import type { ClusterCoordinator, NodeRegistration } from '../../coordinator/types'
+import type { ClusterCoordinator, NodeRegistration, PartitionAssignment } from '../../coordinator/types'
 import type { NodeTransport } from '../../transport/types'
 
 export type DataNodeLifecycleStatus = 'stopped' | 'joining' | 'active' | 'leaving' | 'shutdown'
@@ -20,6 +20,7 @@ export interface NodeLifecycleConfig {
   onHoldPartition?: (indexName: string, partitionId: number) => void
   retainedPartitionIds?: (indexName: string) => number[]
   onPrimaryDemotion?: (indexName: string, partitionId: number, newPrimaryNodeId: string) => void
+  onLeadingTerm?: (indexName: string, partitionId: number, assignment: PartitionAssignment) => void
   onRegistered?: () => void
   onError?: (error: unknown) => void
 }

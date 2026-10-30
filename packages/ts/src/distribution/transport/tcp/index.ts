@@ -47,7 +47,7 @@ export function createTcpTransport(
   function assertNotShutdown(): void {
     if (isShutdown) {
       throw new TransportError(
-        TransportErrorCodes.PEER_UNAVAILABLE,
+        TransportErrorCodes.CONNECT_FAILED,
         `TCP transport for node '${nodeId}' has been shut down`,
         { nodeId },
       )

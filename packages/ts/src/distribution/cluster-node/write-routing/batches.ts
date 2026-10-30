@@ -10,7 +10,7 @@ import { routableAllocation } from '../routable-allocation'
 import { requireAssignedPrimary, resolvePartitionId } from './assignment'
 import { type ForwardBatchItem, forwardBatchToRemote } from './forward-to-primary'
 import { writeLocalOnly } from './numbered-write'
-import { retryEachPartition, settleAbsentRemovals, settleEqualInserts, settleNothing } from './primary-change'
+import { retryEachPartition, settleEqualInserts, settleNothing } from './primary-change'
 import { applyPrimaryInsertBatch, applyPrimaryRemoveBatch, applyPrimaryUpdateBatch } from './primary-writes'
 import type { WriteRoutingDeps } from './types'
 
@@ -202,7 +202,7 @@ export async function routeRemoveBatch(
     docId => docId,
     async (pending, conditions) =>
       routeRemoveItems(await requireRoutableTable(deps, indexName), indexName, pending, deps, conditions),
-    settleAbsentRemovals,
+    settleNothing,
   )
 }
 
