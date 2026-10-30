@@ -16,12 +16,14 @@ import { loadUWebSockets } from '../runtime'
 import { type QueryLimits, validateQuery, validateSuggest, withServerRerankWindow } from '../validation'
 import { type ChildApp, childAppOf } from './acceptor'
 import { closeWhenTheProcessExits } from './close-at-exit'
+import { type LongQueryRoute, routeLongQueries } from './long-query-route'
 import type { RelayedRoute, RequestThreadSettings, ServeRequestsResult, ThreadOnlyRoute } from './messages'
+import { SearchMoved } from './move-clock'
 import { createThreadReadEngine, type ThreadReadEngine } from './read-engine'
 import { createRelayClient, type RelayClient } from './relay-client'
 import { leaveWithoutDeparture, type ThreadDeparture, watchForDeparture } from './thread-departure'
 
-let servingApp: { app: ChildApp; relay: RelayClient } | null = null
+let servingApp: { app: ChildApp; relay: RelayClient; longQueries: LongQueryRoute } | null = null
 
 function guardEveryRoute(handlers: ServerHandlers, departure: ThreadDeparture): ServerHandlers {
   const guarded = { ...handlers }
@@ -43,19 +45,36 @@ function onWholeDocuments(local: ThreadReadEngine, handler: RouteHandler, fallba
   return ctx => (local.holdsDocumentsOf(ctx.params[0]) ? handler(ctx) : fallback(ctx))
 }
 
-interface SearchHandlerOptions {
+export interface SearchHandlerOptions {
   fallback: RouteHandler
   limits: QueryLimits
   allowRegex: boolean
   staysOnThread: (indexName: string, params: QueryParams) => boolean
   answer: (indexName: string, params: QueryParams) => Promise<unknown>
+  answerHere: (indexName: string, params: QueryParams) => Promise<unknown>
+  move: (ctx: RouteContext) => Promise<boolean>
 }
 
 function mainThreadAnswersInstead(err: unknown): boolean {
   return isNarsilError(err) && err.code === ErrorCodes.WORKER_BUSY
 }
 
-function searchHandler(options: SearchHandlerOptions): RouteHandler {
+async function answerMoved(
+  ctx: RouteContext,
+  params: QueryParams,
+  limits: QueryLimits,
+  options: SearchHandlerOptions,
+): Promise<void> {
+  if (await options.move(ctx)) return
+  try {
+    respondJson(ctx, await options.answerHere(ctx.params[0], withServerRerankWindow(params, limits)))
+  } catch (err) {
+    if (mainThreadAnswersInstead(err)) await options.fallback(ctx)
+    else respondError(ctx, err)
+  }
+}
+
+export function searchHandler(options: SearchHandlerOptions): RouteHandler {
   const { fallback, limits, allowRegex, staysOnThread, answer } = options
   return async ctx => {
     const params = parseJson<QueryParams>(ctx)
@@ -73,7 +92,8 @@ function searchHandler(options: SearchHandlerOptions): RouteHandler {
     try {
       respondJson(ctx, await answer(ctx.params[0], withServerRerankWindow(params, limits)))
     } catch (err) {
-      if (staysOnThread(ctx.params[0], params) && !mainThreadAnswersInstead(err)) respondError(ctx, err)
+      if (err instanceof SearchMoved) await answerMoved(ctx, params, limits, options)
+      else if (staysOnThread(ctx.params[0], params) && !mainThreadAnswersInstead(err)) respondError(ctx, err)
       else await fallback(ctx)
     }
   }
@@ -114,7 +134,12 @@ function relayedHandlers(relay: RelayClient, limits: ResolvedLimits): Record<Rel
   return forwarded as Record<RelayedRoute, RouteHandler>
 }
 
-function threadHandlers(local: ThreadReadEngine, relay: RelayClient, settings: RequestThreadSettings): ServerHandlers {
+function threadHandlers(
+  local: ThreadReadEngine,
+  relay: RelayClient,
+  longQueries: LongQueryRoute,
+  settings: RequestThreadSettings,
+): ServerHandlers {
   const { allowRegex } = settings
   const reads = createDocumentReadHandlers({ engine: local, limits: settings.limits, allowRegex })
   const forwarded = relayedHandlers(relay, settings.limits)
@@ -129,6 +154,8 @@ function threadHandlers(local: ThreadReadEngine, relay: RelayClient, settings: R
       allowRegex,
       staysOnThread: (name, params) => local.canAnswer(name, params),
       answer: (name, params) => local.query(name, params),
+      answerHere: (name, params) => local.queryHere(name, params),
+      move: ctx => longQueries.move('search', ctx),
     }),
     preflight: searchHandler({
       fallback: forwarded.preflight,
@@ -136,6 +163,8 @@ function threadHandlers(local: ThreadReadEngine, relay: RelayClient, settings: R
       allowRegex,
       staysOnThread: (name, params) => local.canCount(name, params),
       answer: (name, params) => local.preflight(name, params),
+      answerHere: (name, params) => local.preflightHere(name, params),
+      move: ctx => longQueries.move('preflight', ctx),
     }),
     suggest: suggestHandler(local, forwarded.suggest),
     get: onWholeDocuments(local, reads.get, forwarded.get),
@@ -157,6 +186,12 @@ export async function serveRequests(
   if (child === null) throw new Error('This uWebSockets.js build offers no child apps')
 
   const relay = createRelayClient(settings.port, settings.touchIntervalMs)
+  const longQueries = routeLongQueries(
+    settings.port,
+    settings.longQueriesInFlight,
+    settings.touchIntervalMs,
+    settings.longQueryPort,
+  )
   const departure = watchForDeparture({
     relay,
     departure: new Int32Array(settings.departure),
@@ -168,6 +203,7 @@ export async function serveRequests(
     searchHooks: settings.searchHooks,
     patternWorkCap: settings.patternWorkCap,
     maxRerankWindow: settings.maxRerankWindow,
+    moveAfterMs: () => longQueries.moveAfterMs(),
   })
   const run = createRouteRunner({
     authorize: settings.authorizes ? context => relay.authorize(context) : undefined,
@@ -176,10 +212,10 @@ export async function serveRequests(
     corsHeaders: settings.cors ? corsHeaderReader(settings.cors) : undefined,
     track: departure.track,
   })
-  const handlers = guardEveryRoute(threadHandlers(local, relay, settings), departure)
+  const handlers = guardEveryRoute(threadHandlers(local, relay, longQueries, settings), departure)
   registerServerRoutes(app, run, handlers, settings.limits, settings.cors)
 
-  servingApp = { app: child, relay }
+  servingApp = { app: child, relay, longQueries }
   void closeWhenTheProcessExits(new Int32Array(settings.closeAtExit), closeRequestThread)
   return { descriptor: child.getDescriptor() }
 }
@@ -187,8 +223,9 @@ export async function serveRequests(
 export function closeRequestThread(): void {
   leaveWithoutDeparture()
   if (servingApp === null) return
-  const { app, relay } = servingApp
+  const { app, relay, longQueries } = servingApp
   servingApp = null
   app.close()
+  longQueries.close()
   relay.close()
 }

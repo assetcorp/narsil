@@ -2,16 +2,8 @@ import { fnv1a } from '../core/hash'
 import { ErrorCodes, NarsilError } from '../errors'
 import { SHUTDOWN_TIMEOUT_MS } from './constants'
 import type { Executor } from './executor'
-import { createRequestId } from './protocol'
+import { type MemoryStats, memoryStatsOf } from './pool-memory'
 import { resolveWorkerCount } from './worker-count'
-
-export interface MemoryStats {
-  workerId: number
-  heapUsed: number
-  heapTotal: number
-  heapLimit: number | null
-  external: number
-}
 
 export interface WorkerLease {
   readonly workerId: number
@@ -34,6 +26,7 @@ export interface WorkerPool {
   executorsHolding(indexName: string): Executor[]
   leaseLeastBusy(indexName?: string): WorkerLease | null
   leaseIdle(limit: number): WorkerLease[]
+  isLongQueryWorker(workerId: number): boolean
   queriesInFlight(): number
   spawnAll(): void
   deadWorkerIds(): number[]
@@ -55,25 +48,11 @@ interface WorkerSlot {
   serving: boolean
 }
 
-interface MemoryReportPayload {
-  heapUsed?: number
-  heapTotal?: number
-  heapLimit?: number | null
-  external?: number
-}
-
-function toFinite(value: unknown): number {
-  return typeof value === 'number' && Number.isFinite(value) ? value : 0
-}
-
-function toHeapLimit(value: unknown): number | null {
-  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null
-}
-
 export type WorkerFactory = (workerId: number, onDeath?: (error: Error) => void, onGone?: () => void) => Executor
 
 export interface WorkerPoolConfig {
   count?: number
+  longQueryWorkers?: number
   workerFactory: WorkerFactory
   onWorkerCrash?: (workerId: number, indexNames: string[], error: Error) => void
   onWorkerGone?: (workerId: number) => void
@@ -81,6 +60,7 @@ export interface WorkerPoolConfig {
 
 export function createWorkerPool(config: WorkerPoolConfig): WorkerPool {
   const workerCount = resolveWorkerCount(config.count)
+  const queryWorkerCount = workerCount - Math.min(config.longQueryWorkers ?? 0, workerCount - 1)
   const workers = new Map<number, WorkerSlot>()
   const deadSlots = new Set<number>()
   const goneSlots = new Set<number>()
@@ -185,10 +165,14 @@ export function createWorkerPool(config: WorkerPoolConfig): WorkerPool {
     }
   }
 
+  function isLongQueryWorker(workerId: number): boolean {
+    return workerId >= queryWorkerCount
+  }
+
   function assignSlot(indexName: string): number {
-    const preferred = fnv1a(indexName) % workerCount
-    for (let probe = 0; probe < workerCount; probe++) {
-      const candidate = (preferred + probe) % workerCount
+    const preferred = fnv1a(indexName) % queryWorkerCount
+    for (let probe = 0; probe < queryWorkerCount; probe++) {
+      const candidate = (preferred + probe) % queryWorkerCount
       if (!deadSlots.has(candidate)) {
         return candidate
       }
@@ -239,33 +223,6 @@ export function createWorkerPool(config: WorkerPoolConfig): WorkerPool {
       }
     }
     throw new NarsilError(ErrorCodes.WORKER_CRASHED, `Every worker holding index "${indexName}" has crashed`)
-  }
-
-  async function getMemoryStats(): Promise<MemoryStats[]> {
-    const indices: number[] = []
-    const pending: Array<Promise<MemoryReportPayload | null>> = []
-    for (const [slotIndex, slot] of workers) {
-      indices.push(slotIndex)
-      pending.push(
-        slot.executor
-          .execute<MemoryReportPayload>({ type: 'memoryReport', requestId: createRequestId() })
-          .catch(() => null),
-      )
-    }
-
-    const reports = await Promise.all(pending)
-    const stats: MemoryStats[] = []
-    for (let n = 0; n < indices.length; n++) {
-      const report = reports[n]
-      stats.push({
-        workerId: indices[n],
-        heapUsed: toFinite(report?.heapUsed),
-        heapTotal: toFinite(report?.heapTotal),
-        heapLimit: toHeapLimit(report?.heapLimit),
-        external: toFinite(report?.external),
-      })
-    }
-    return stats
   }
 
   async function shutdown(): Promise<void> {
@@ -324,7 +281,7 @@ export function createWorkerPool(config: WorkerPoolConfig): WorkerPool {
     let chosenId = -1
     let chosen: WorkerSlot | null = null
     for (const [workerId, slot] of workers) {
-      if (!slot.serving) continue
+      if (!slot.serving || isLongQueryWorker(workerId)) continue
       if (indexName !== undefined && !slot.indexes.has(indexName)) continue
       if (chosen === null || slot.inFlight < chosen.inFlight) {
         chosenId = workerId
@@ -337,8 +294,8 @@ export function createWorkerPool(config: WorkerPoolConfig): WorkerPool {
 
   function queriesInFlight(): number {
     let total = 0
-    for (const slot of workers.values()) {
-      if (slot.serving) total += slot.inFlight
+    for (const [workerId, slot] of workers) {
+      if (slot.serving && !isLongQueryWorker(workerId)) total += slot.inFlight
     }
     return total
   }
@@ -347,7 +304,7 @@ export function createWorkerPool(config: WorkerPoolConfig): WorkerPool {
     const leases: WorkerLease[] = []
     for (const [workerId, slot] of workers) {
       if (leases.length >= limit) break
-      if (slot.serving && slot.inFlight === 0) leases.push(lease(workerId, slot))
+      if (slot.serving && slot.inFlight === 0 && !isLongQueryWorker(workerId)) leases.push(lease(workerId, slot))
     }
     return leases
   }
@@ -376,6 +333,7 @@ export function createWorkerPool(config: WorkerPoolConfig): WorkerPool {
     executorsHolding,
     leaseLeastBusy,
     leaseIdle,
+    isLongQueryWorker,
     queriesInFlight,
     spawnAll,
     deadWorkerIds,
@@ -386,7 +344,7 @@ export function createWorkerPool(config: WorkerPoolConfig): WorkerPool {
     addIndex,
     addIndexToAll,
     removeIndex,
-    getMemoryStats,
+    getMemoryStats: () => memoryStatsOf(workers.entries()),
     shutdown,
     whenEveryThreadIsGone,
   }

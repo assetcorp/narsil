@@ -5,6 +5,7 @@ import { fanOutQuery } from '../../partitioning/fan-out'
 import { countsWithoutScores, fanOutMatchCount } from '../../partitioning/match-count'
 import { flattenSchema } from '../../schema/validator'
 import { decodePageCursor, requireMatchingCursor, sortSignatureOf } from '../../search/cursor'
+import type { CursorBinding } from '../../search/cursor-binding'
 import { applyGrouping } from '../../search/grouping'
 import { applyPagination, type PaginationSortContext, requireWithinResultWindow } from '../../search/pagination'
 import { placePinned } from '../../search/pinning'
@@ -34,10 +35,10 @@ import { executeHybridSearch, executeVectorSearch } from './vector'
 
 export type { QueryContext } from './shared'
 
-function requireCursorDepth(cursor: string | undefined, signature: string | null, binding: string): number {
+function requireCursorDepth(cursor: string | undefined, signature: string | null, binding: CursorBinding): number {
   if (cursor === undefined) return 0
   const decoded = decodePageCursor(cursor)
-  requireMatchingCursor(decoded, cursor, signature, true, binding)
+  requireMatchingCursor(decoded, cursor, signature, true, binding())
   return decoded.depth ?? 0
 }
 

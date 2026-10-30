@@ -1,6 +1,4 @@
 import type { TemplatedApp } from 'uWebSockets.js'
-import { rm } from 'node:fs/promises'
-import path from 'node:path'
 import { MessageChannel, type MessagePort } from 'node:worker_threads'
 import type { EngineCore } from '../../engine/core'
 import type { RequestThreadListener } from '../../engine/orchestration'
@@ -17,19 +15,18 @@ import {
 } from '../constants'
 import type { ResolvedCors } from '../cors'
 import type { ResolvedBuild, ResolvedLimits } from '../deps'
-import { ServerErrorCodes, toHttpError } from '../errors'
-import type { Authorizer, RouteContext } from '../request'
-import { sendError } from '../response'
+import { toHttpError } from '../errors'
+import type { Authorizer } from '../request'
 import type { ServerHandlers } from '../routes'
-import type { SpooledBody } from '../spool'
 import { type AcceptorApp, acceptorOf } from './acceptor'
-import { type CapturingResponse, createCapturingResponse, toRelayedResponse } from './captured-response'
+import { answerRequest } from './answer-request'
+import type { CapturingResponse } from './captured-response'
 import { closeEveryThreadAtExit, createCloseAtExitWords } from './close-at-exit'
 import { confirmDeparture, createDepartureWord, departureConfirmed } from './departure'
 import type {
   AuthorizeRequest,
+  AwaitWritesRequest,
   EmbedQueryRequest,
-  RelayedRequest,
   RelayReply,
   RelayRequest,
   RerankQueryRequest,
@@ -68,6 +65,7 @@ const RELAYED_TYPES: ReadonlySet<string> = new Set([
   'authorize',
   'embed',
   'rerank',
+  'await-writes',
   'stream-credit',
   'stream-cancel',
 ])
@@ -77,50 +75,6 @@ function isRelayRequest(message: unknown): message is RelayRequest {
   const { type, requestId } = message as { type?: unknown; requestId?: unknown }
   if (type === 'touch' || type === 'leaving') return true
   return typeof requestId === 'number' && typeof type === 'string' && RELAYED_TYPES.has(type)
-}
-
-function spooledBodyOf(relayed: RelayedRequest['spooledBody']): SpooledBody | null {
-  if (relayed === null) return null
-  return {
-    path: relayed.path,
-    bytes: relayed.bytes,
-    remove: () => rm(path.dirname(relayed.path), { recursive: true, force: true }),
-  }
-}
-
-async function answerRequest(
-  handlers: ServerHandlers,
-  request: RelayedRequest,
-  port: MessagePort,
-  streams: Map<number, CapturingResponse>,
-): Promise<RelayReply | null> {
-  const captured = createCapturingResponse(request.hookContext?.remoteAddress ?? '', request.requestId, (part, moved) =>
-    port.postMessage(part, moved),
-  )
-  streams.set(request.requestId, captured)
-  const ctx: RouteContext = {
-    res: captured.sink,
-    params: request.params,
-    query: new URLSearchParams(request.query),
-    contentType: request.contentType,
-    rawBody:
-      request.rawBody === null
-        ? null
-        : Buffer.from(request.rawBody.buffer, request.rawBody.byteOffset, request.rawBody.byteLength),
-    bodyRefusal: request.bodyRefusal,
-    spooledBody: spooledBodyOf(request.spooledBody),
-    abort: captured.abort,
-    hookContext: request.hookContext,
-  }
-  try {
-    await handlers[request.route](ctx)
-  } catch {
-    sendError(ctx.res, 500, ServerErrorCodes.INTERNAL_ERROR, 'An unexpected error occurred')
-  }
-  captured.finishUnanswered()
-  const answered = await captured.done
-  streams.delete(request.requestId)
-  return answered === null ? null : toRelayedResponse(request.requestId, answered)
 }
 
 async function answerAuthorize(authorize: Authorizer | undefined, request: AuthorizeRequest): Promise<RelayReply> {
@@ -171,6 +125,11 @@ async function answerRerank(core: EngineCore, request: RerankQueryRequest): Prom
   }
 }
 
+async function answerAwaitWrites(core: EngineCore, request: AwaitWritesRequest): Promise<RelayReply> {
+  await core.orchestrator.awaitWrites(request.indexName).catch(() => undefined)
+  return { type: 'writes-applied', requestId: request.requestId }
+}
+
 function touchIntervalFor(copyIdleTimeoutMs: number): number {
   return Math.min(MAX_INDEX_TOUCH_INTERVAL_MS, Math.floor(copyIdleTimeoutMs / INDEX_TOUCH_INTERVALS_PER_IDLE_TIMEOUT))
 }
@@ -183,6 +142,8 @@ export async function startRequestThreads(options: RequestThreadHostOptions): Pr
   const searchHooks = core.pluginRegistry.hasHooks('beforeSearch') || core.pluginRegistry.hasHooks('afterSearch')
   const touchIntervalMs = touchIntervalFor(core.orchestrator.copyIdleTimeoutMs())
   const threads = new Map<number, ServingThread>()
+  const longQueriesInFlight = new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT)
+  let longQueryThread: { workerId: number; port: MessagePort; executor: Executor } | null = null
   const closeAtExit = new Set<Int32Array<SharedArrayBuffer>>()
   let stopped = false
 
@@ -223,16 +184,31 @@ export async function startRequestThreads(options: RequestThreadHostOptions): Pr
       }
       const reply =
         message.type === 'request'
-          ? answerRequest(handlers, message, port, streams)
+          ? answerRequest(handlers[message.route], message, port, streams)
           : message.type === 'authorize'
             ? answerAuthorize(authorize, message)
             : message.type === 'embed'
               ? answerEmbed(core, message)
-              : answerRerank(core, message)
+              : message.type === 'await-writes'
+                ? answerAwaitWrites(core, message)
+                : answerRerank(core, message)
       void reply.then(answer => {
         if (answer !== null) port.postMessage(answer)
       })
     })
+  }
+
+  function connectToLongQueries(thread: ServingThread): void {
+    if (longQueryThread === null) return
+    const channel = new MessageChannel()
+    thread.port.postMessage({ type: 'long-query-port', port: channel.port1 }, [channel.port1])
+    longQueryThread.port.postMessage({ type: 'long-query-port', port: channel.port2 }, [channel.port2])
+  }
+
+  function dropLongQueryThread(): void {
+    if (longQueryThread === null) return
+    longQueryThread.port.close()
+    longQueryThread = null
   }
 
   async function stopThread(workerId: number, thread: ServingThread): Promise<void> {
@@ -244,6 +220,46 @@ export async function startRequestThreads(options: RequestThreadHostOptions): Pr
   }
 
   const listener: RequestThreadListener = {
+    async onLongQueryWorkerReady(workerId: number, executor: Executor): Promise<void> {
+      if (stopped) return
+      dropLongQueryThread()
+      const channel = new MessageChannel()
+      const relaying: ServingThread = {
+        descriptor: null,
+        port: channel.port2,
+        executor,
+        departure: createDepartureWord(),
+        closeAtExit: createCloseAtExitWords(),
+      }
+      relayFrom(relaying)
+      try {
+        await executor.execute(
+          {
+            type: 'serveLongQueries',
+            requestId: `serve-long-queries-${workerId}`,
+            settings: {
+              port: channel.port1,
+              touchIntervalMs,
+              limits: options.limits,
+              patternWorkCap: options.core.patternWorkCap,
+              maxRerankWindow: options.core.rerankSettings.maxWindow,
+              allowRegex: options.allowRegex,
+            },
+          },
+          [channel.port1],
+        )
+      } catch (err) {
+        channel.port2.close()
+        console.warn(`Worker ${workerId} could not start answering long queries:`, err)
+        return
+      }
+      if (stopped) {
+        channel.port2.close()
+        return
+      }
+      longQueryThread = { workerId, port: channel.port2, executor }
+      for (const thread of threads.values()) connectToLongQueries(thread)
+    },
     async onWorkerReady(workerId: number, executor: Executor): Promise<void> {
       if (stopped) return
       const channel = new MessageChannel()
@@ -256,6 +272,9 @@ export async function startRequestThreads(options: RequestThreadHostOptions): Pr
       }
       relayFrom(thread)
       closeAtExit.add(thread.closeAtExit)
+      const longQueries = longQueryThread
+      const longQueryChannel = longQueries === null ? null : new MessageChannel()
+      const transfer = longQueryChannel === null ? [channel.port1] : [channel.port1, longQueryChannel.port1]
       let result: ServeRequestsResult
       try {
         result = await executor.execute<ServeRequestsResult>(
@@ -279,25 +298,41 @@ export async function startRequestThreads(options: RequestThreadHostOptions): Pr
               patternWorkCap: options.core.patternWorkCap,
               maxRerankWindow: options.core.rerankSettings.maxWindow,
               allowRegex: options.allowRegex,
+              longQueriesInFlight,
+              longQueryPort: longQueryChannel?.port1 ?? null,
             },
           },
-          [channel.port1],
+          transfer,
         )
       } catch (err) {
         closeAtExit.delete(thread.closeAtExit)
         channel.port2.close()
+        longQueryChannel?.port2.close()
         console.warn(`Worker ${workerId} could not start taking requests:`, err)
         return
       }
       thread.descriptor = result.descriptor
       if (stopped || departureConfirmed(thread.departure)) {
+        longQueryChannel?.port2.close()
         await stopThread(workerId, thread)
         return
+      }
+      if (longQueryChannel !== null && longQueries !== null && longQueryThread === longQueries) {
+        longQueries.port.postMessage({ type: 'long-query-port', port: longQueryChannel.port2 }, [
+          longQueryChannel.port2,
+        ])
+      } else {
+        longQueryChannel?.port2.close()
+        connectToLongQueries(thread)
       }
       acceptor.addChildAppDescriptor(result.descriptor)
       threads.set(workerId, thread)
     },
     onWorkerGone(workerId: number): void {
+      if (longQueryThread?.workerId === workerId) {
+        dropLongQueryThread()
+        return
+      }
       const thread = threads.get(workerId)
       if (thread === undefined) return
       threads.delete(workerId)
@@ -322,6 +357,18 @@ export async function startRequestThreads(options: RequestThreadHostOptions): Pr
         threads.delete(workerId)
         return stopThread(workerId, thread)
       })
+      const longQueries = longQueryThread
+      dropLongQueryThread()
+      if (longQueries !== null) {
+        stopping.push(
+          longQueries.executor
+            .execute({ type: 'stopServing', requestId: `stop-long-queries-${longQueries.workerId}` })
+            .then(
+              () => undefined,
+              () => undefined,
+            ),
+        )
+      }
       await Promise.all(stopping)
     },
   }

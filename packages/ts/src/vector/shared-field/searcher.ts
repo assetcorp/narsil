@@ -1,4 +1,5 @@
 import { createBoundedMaxHeap } from '../../core/heap'
+import type { SearchClock } from '../../core/search-clock'
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { VectorMetric } from '../brute-force'
 import { MAX_RENUMBERED_SEARCH_ATTEMPTS } from '../constants'
@@ -54,12 +55,14 @@ function distancesInTypeScript(
   query: Float32Array,
   metric: VectorMetric,
   ordinals: number[],
+  clock: SearchClock | undefined,
 ): Float64Array {
   noteFallback('score')
   const arenaQuery = store.prepareQueryArena(query)
   const queryMagnitude = arenaQuery ? arenaQuery.magnitude : magnitude(query)
   const distances = new Float64Array(ordinals.length).fill(Number.POSITIVE_INFINITY)
   for (let i = 0; i < ordinals.length; i++) {
+    if (clock !== undefined) clock.tick(query.length)
     if (arenaQuery) {
       distances[i] = store.distanceFromArena(arenaQuery, ordinals[i], metric)
       continue
@@ -77,11 +80,15 @@ function scoreCandidates(
   k: number,
   metric: VectorMetric,
   minSimilarity: number,
+  clock: SearchClock | undefined,
 ): ScannedResults {
   const { ordinals, docIds } = candidates
   if (ordinals.length === 0) return { results: [], matched: 0 }
+  clock?.check()
   const distances =
-    nativeScoresOf(store.handles, query, metric, ordinals) ?? distancesInTypeScript(store, query, metric, ordinals)
+    nativeScoresOf(store.handles, query, metric, ordinals) ??
+    distancesInTypeScript(store, query, metric, ordinals, clock)
+  clock?.check()
   const heap = createBoundedMaxHeap<VectorScoredResult>(highScoreFirst, k)
   let matched = 0
   for (let i = 0; i < ordinals.length; i++) {
@@ -166,6 +173,7 @@ export function createSharedVectorSearcher(options: SharedVectorSearcherOptions)
     filter: OrdinalFilter | undefined,
   ): FieldOutcome {
     const { metric, minSimilarity, efSearch, oversample, rescoreWindow } = searchOptions
+    const clock = searchOptions.clock
     const empty: FieldOutcome = { results: [], matched: 0, matchedExact: true, resolvedEveryHit: true }
     const liveDocuments = flags.liveDocuments()
     if (liveDocuments <= 0) return empty
@@ -183,17 +191,20 @@ export function createSharedVectorSearcher(options: SharedVectorSearcherOptions)
     const graph = view.graph
     if (graph === null) {
       const ordinals = filter === undefined ? flags.unplacedOrdinals() : ordinalFilterValues(filter)
-      return scanned(scoreCandidates(view.store, candidatesOf(ordinals, filter), query, k, metric, minSimilarity))
+      return scanned(
+        scoreCandidates(view.store, candidatesOf(ordinals, filter), query, k, metric, minSimilarity, clock),
+      )
     }
     if (filter !== undefined) {
       const graphLiveSize = view.liveSize
       const selectivity = graphLiveSize > 0 ? filter.count / graphLiveSize : 1
       if (selectivity < view.handles.filterThreshold) {
         const candidates = candidatesOf(ordinalFilterValues(filter), filter)
-        return scanned(scoreCandidates(view.store, candidates, query, k, metric, minSimilarity))
+        return scanned(scoreCandidates(view.store, candidates, query, k, metric, minSimilarity, clock))
       }
     }
 
+    const unplaced = flags.unplacedOrdinals()
     let resolvedEveryHit = true
     const graphResults: VectorScoredResult[] = []
     for (const hit of view.searchOrdinals(query, k, metric, minSimilarity, {
@@ -201,6 +212,7 @@ export function createSharedVectorSearcher(options: SharedVectorSearcherOptions)
       efSearch,
       oversample,
       rescoreWindow,
+      clock,
     })) {
       const docId = view.docIdOf(hit.ord)
       if (docId === undefined) {
@@ -209,9 +221,8 @@ export function createSharedVectorSearcher(options: SharedVectorSearcherOptions)
       }
       graphResults.push({ docId, score: hit.score })
     }
-    const unplaced = flags.unplacedOrdinals()
     if (unplaced.length === 0) return fetched(graphResults, resolvedEveryHit)
-    const scan = scoreCandidates(view.store, candidatesOf(unplaced, filter), query, k, metric, minSimilarity)
+    const scan = scoreCandidates(view.store, candidatesOf(unplaced, filter), query, k, metric, minSimilarity, clock)
     return fetched(mergeResults(graphResults, scan.results, k), resolvedEveryHit)
   }
 

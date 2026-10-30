@@ -111,7 +111,9 @@ async function replaceWorker(state: OrchestratorState, pool: WorkerPool, workerI
       await loadOntoReplacement(state, replacement, indexName)
     }
     replacement.admit()
-    await state.requestThreads?.onWorkerReady(workerId, replacement.executor)
+    if (pool.isLongQueryWorker(workerId))
+      await state.requestThreads?.onLongQueryWorkerReady(workerId, replacement.executor)
+    else await state.requestThreads?.onWorkerReady(workerId, replacement.executor)
   } catch (err) {
     replacement.abandon()
     throw err

@@ -294,6 +294,7 @@ export function createVectorIndex(
       }
     }
     const filterRevision = state.revision
+    const buffered = state.buffer.size === 0 ? null : [...state.buffer]
 
     scheduleWorkerCopyLoad(state)
 
@@ -307,7 +308,10 @@ export function createVectorIndex(
       filter = filterForOptions(state, options)
     }
     if (viaWorkerCopy !== null) {
-      const results = withBufferedVectors(state, query, k, options, filter, viaWorkerCopy)
+      const results =
+        buffered === null
+          ? viaWorkerCopy
+          : withBufferedVectors(state, query, k, options, filter, viaWorkerCopy, buffered)
       return fetchedOutcome(state, results, options.minSimilarity, filter)
     }
     return searchWithFilter(state, query, k, options, filter)

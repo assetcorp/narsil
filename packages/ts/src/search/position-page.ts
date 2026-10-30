@@ -1,4 +1,5 @@
 import type { PageCursor } from './cursor'
+import type { CursorBinding } from './cursor-binding'
 
 export interface PositionedHit {
   id: string
@@ -9,7 +10,7 @@ export interface PositionedPage {
   start: number
   limit: number
   pinnedIds: ReadonlySet<string> | undefined
-  binding: string
+  binding: CursorBinding
   encodeCursor(cursor: PageCursor): string
 }
 
@@ -43,7 +44,7 @@ export function pageByPosition<T extends PositionedHit>(
     sortKey: null,
     sortSignature: null,
     depth,
-    binding,
+    binding: binding(),
   })
   return { page, cursor }
 }

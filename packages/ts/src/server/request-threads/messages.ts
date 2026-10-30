@@ -35,6 +35,29 @@ export interface RequestThreadSettings {
   patternWorkCap: number
   maxRerankWindow: number
   allowRegex: boolean
+  /** Every request thread counts here the searches it has handed to the long-query thread and that have not yet answered. */
+  longQueriesInFlight: SharedArrayBuffer
+  longQueryPort: MessagePort | null
+}
+
+export interface LongQueryThreadSettings {
+  /** The long-query thread asks the main thread down this port to embed, rerank, and answer what its copy cannot. */
+  port: MessagePort
+  touchIntervalMs: number
+  limits: ResolvedLimits
+  patternWorkCap: number
+  maxRerankWindow: number
+  allowRegex: boolean
+}
+
+export interface LongQueryPortNote {
+  type: 'long-query-port'
+  port: MessagePort
+}
+
+export function isLongQueryPortNote(message: unknown): message is LongQueryPortNote {
+  if (typeof message !== 'object' || message === null) return false
+  return (message as { type?: unknown }).type === 'long-query-port'
 }
 
 export type ThreadOnlyRoute = 'livez' | 'version' | 'capabilities'
@@ -85,6 +108,12 @@ export interface RerankQueryRequest {
   documents: string[]
 }
 
+export interface AwaitWritesRequest {
+  type: 'await-writes'
+  requestId: number
+  indexName: string
+}
+
 export interface TouchIndexNote {
   type: 'touch'
   indexName: string
@@ -99,6 +128,7 @@ export type RelayRequest =
   | AuthorizeRequest
   | EmbedQueryRequest
   | RerankQueryRequest
+  | AwaitWritesRequest
   | TouchIndexNote
   | LeavingNote
   | StreamCreditNote
@@ -154,7 +184,12 @@ export interface RerankedReply {
   error: { code: string; message: string; details?: Record<string, unknown> } | null
 }
 
-export type RelayReply = RelayedResponse | AuthorizedReply | EmbeddedReply | RerankedReply
+export interface WritesAppliedReply {
+  type: 'writes-applied'
+  requestId: number
+}
+
+export type RelayReply = RelayedResponse | AuthorizedReply | EmbeddedReply | RerankedReply | WritesAppliedReply
 
 export interface ServeRequestsResult {
   descriptor: unknown

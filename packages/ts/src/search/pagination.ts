@@ -2,6 +2,7 @@ import { compareCodePoints, compareSortValues, type SortDirection, toComparableS
 import { ErrorCodes, NarsilError } from '../errors'
 import { RESULT_WINDOW } from './constants'
 import { decodePageCursor, encodePageCursor, type PageCursor, requireMatchingCursor } from './cursor'
+import type { CursorBinding } from './cursor-binding'
 
 export function clampRowCount(value: number | undefined, fallback: number): number {
   if (value === undefined || !Number.isFinite(value)) return fallback
@@ -68,14 +69,14 @@ export function applyPagination<T extends { id: string; score?: number }>(
   results: T[],
   limit: number,
   offset: number,
-  binding: string,
+  binding: CursorBinding,
   cursor?: string,
   sort?: PaginationSortContext,
   pinnedIds?: ReadonlySet<string>,
 ): { paginated: T[]; nextCursor?: string } {
   const decoded = cursor ? decodePageCursor(cursor) : null
   if (decoded !== null && cursor !== undefined) {
-    requireMatchingCursor(decoded, cursor, sort?.signature ?? null, true, binding)
+    requireMatchingCursor(decoded, cursor, sort?.signature ?? null, true, binding())
   }
 
   if (limit <= 0) {
@@ -111,7 +112,7 @@ export function applyPagination<T extends { id: string; score?: number }>(
             sortKey: sort.sortKeyOf(lastResult.id).map(toComparableSortValue),
             sortSignature: sort.signature,
             depth,
-            binding,
+            binding: binding(),
           })
         : encodePageCursor({
             anchor: lastResult.id,
@@ -119,7 +120,7 @@ export function applyPagination<T extends { id: string; score?: number }>(
             sortKey: null,
             sortSignature: null,
             depth,
-            binding,
+            binding: binding(),
           })
   }
 

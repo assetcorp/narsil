@@ -53,7 +53,8 @@ async function startPool(state: OrchestratorState): Promise<WorkerPool> {
   const factory = await createWorkerFactory()
   let started: WorkerPool | null = null
   const pool = createWorkerPool({
-    count: state.keywordWorkerCount,
+    count: state.keywordWorkerCount + state.longQueryWorkerCount,
+    longQueryWorkers: state.longQueryWorkerCount,
     workerFactory: factory,
     onWorkerCrash(workerId, indexNames, error) {
       if (started !== null) handleWorkerCrash(state, started, workerId, indexNames, error)

@@ -29,6 +29,8 @@ function settings(): RequestThreadSettings {
     port: port1,
     departure: new SharedArrayBuffer(4),
     closeAtExit: new SharedArrayBuffer(8),
+    longQueriesInFlight: new SharedArrayBuffer(4),
+    longQueryPort: null,
     gate: new SharedArrayBuffer(64),
     gateSlot: 1,
     maxConcurrentRequests: 0,

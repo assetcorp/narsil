@@ -42,7 +42,7 @@ export async function rerankClusterQuery<T>(
     host,
     schema,
     maxWindow: core.rerankSettings.maxWindow,
-    binding: host.queryBindingOf(params),
+    binding: () => host.queryBindingOf(params),
     clampsPins: false,
     fusesRankings: request => request.vector !== undefined && (request.term !== undefined || request.mode === 'hybrid'),
     firstStage,

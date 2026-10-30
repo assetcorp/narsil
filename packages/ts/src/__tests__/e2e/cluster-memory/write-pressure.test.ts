@@ -31,6 +31,10 @@ const PROPAGATION_TIMEOUT_MS = 20_000
 const SEND_BUDGET_HEAP_LIMITS = 3
 const CAPPED_HEAP_BLOCK_FRACTION = 0.75
 const V8_INEFFECTIVE_MARK_COMPACT_FRACTION = 0.8
+const BATCH_REPLY_TIMEOUT_MS = 60_000
+const MAX_BURSTS = 60
+const BURSTS_DEADLINE_MS = 150_000
+const PARSE_WOULD_FILL_MEMORY_REASON = 'parse_would_fill_memory'
 const MEMORY_BLOCK_SWITCHED_OFF: ClusterMemoryConfig = { blockWritesAbove: 1, resumeWritesBelow: 0.99 }
 const IN_FLIGHT_BOUND_SWITCHED_OFF: ClusterMemoryConfig = { ...MEMORY_BLOCK_SWITCHED_OFF, inFlightWriteFraction: 1 }
 const LETTERS = 'abcdefghijklmnopqrstuvwxyz'
@@ -96,6 +100,7 @@ async function sendBatch(base: string, documents: Furniture[], payload: string):
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: payload,
+      signal: AbortSignal.timeout(BATCH_REPLY_TIMEOUT_MS),
     })
     const text = await response.text()
     const parsed: unknown = text.length > 0 ? JSON.parse(text) : {}
@@ -143,6 +148,11 @@ async function fireConcurrentBatches(
   sampling = false
   await sampler
   return { outcomes, peakHeapBytes, sourceBytes }
+}
+
+function heapWithinParseOfBlock(details: Record<string, unknown>): boolean {
+  const heldBytes = Number(details.heapBytes) + Number(details.youngHeapBytes)
+  return heldBytes + Number(details.parseBytes) > Number(details.blockBytes)
 }
 
 function megabytes(bytes: number): string {
@@ -277,8 +287,18 @@ describe('a cluster node on etcd bounds the bytes of inserts and updates in flig
     let fullRefusals = 0
     let sentBytes = 0
     let admittedBytes = 0
+    const blockParseDetails: Array<Record<string, unknown>> = []
+    let lastParseDetails: Record<string, unknown> | null = null
     let bursts = 0
-    while (projectionRefusals === 0 && fullRefusals === 0 && admittedBytes < sendBudgetBytes) {
+    const burstsStartedAt = performance.now()
+    while (
+      projectionRefusals === 0 &&
+      fullRefusals === 0 &&
+      blockParseDetails.length === 0 &&
+      admittedBytes < sendBudgetBytes &&
+      bursts < MAX_BURSTS &&
+      performance.now() - burstsStartedAt < BURSTS_DEADLINE_MS
+    ) {
       const { outcomes, sourceBytes } = await fireConcurrentBatches(
         unbounded,
         bursts * CONCURRENT_BATCHES * BATCH_DOCUMENTS,
@@ -290,7 +310,13 @@ describe('a cluster node on etcd bounds the bytes of inserts and updates in flig
         replies.set(key, (replies.get(key) ?? 0) + 1)
         expect([200, 429], JSON.stringify(outcome.body).slice(0, 500)).toContain(outcome.status)
         if (outcome.status === 429) {
-          if (isServerMemoryRefusal({ status: 429, body: outcome.body })) continue
+          if (isServerMemoryRefusal({ status: 429, body: outcome.body })) {
+            const { details } = errorOf({ status: 429, body: outcome.body })
+            if (details.reason !== PARSE_WOULD_FILL_MEMORY_REASON) continue
+            lastParseDetails = details
+            if (heapWithinParseOfBlock(details)) blockParseDetails.push(details)
+            continue
+          }
           admittedBytes += outcome.payloadBytes
           const refusal = errorOf({ status: 429, body: outcome.body })
           expect(refusal.code, JSON.stringify(refusal)).toBe('CLUSTER_WRITE_BLOCKED')
@@ -326,14 +352,20 @@ describe('a cluster node on etcd bounds the bytes of inserts and updates in flig
     console.log(
       `unbounded node: ${tally} over ${bursts} bursts, ${megabytes(sentBytes)} sent and ${megabytes(admittedBytes)} ` +
         `read past the server's body budget, ${projectionRefusals} ` +
-        `documents refused with write_would_fill_memory, ${fullRefusals} batches with node_memory_full, the old ` +
+        `documents refused with write_would_fill_memory, ${fullRefusals} batches with node_memory_full, ` +
+        `${blockParseDetails.length} batches with parse_would_fill_memory within one parse of the block, the old ` +
         `generation peaked at ${peakFraction.toFixed(3)} of its limit`,
     )
     expect(
-      projectionRefusals + fullRefusals,
-      `the node refused nothing after taking in ${megabytes(admittedBytes)} of documents, ${SEND_BUDGET_HEAP_LIMITS} times its heap limit`,
+      projectionRefusals + fullRefusals + blockParseDetails.length,
+      `the node never reached its block after ${bursts} bursts in ${Math.round(performance.now() - burstsStartedAt)} ms ` +
+        `and ${megabytes(admittedBytes)} of documents taken in; replies ${tally}; last parse refusal ` +
+        JSON.stringify(lastParseDetails),
     ).toBeGreaterThan(0)
     const cappedBlockBytes = Math.floor(CAPPED_HEAP_BLOCK_FRACTION * unbounded.heapLimitBytes)
+    for (const details of blockParseDetails) {
+      expect(details.blockBytes, JSON.stringify(details)).toBe(cappedBlockBytes)
+    }
     if (projectionRefusals > 0) expect(projectionDetails.length).toBeGreaterThan(0)
     for (const details of projectionDetails) {
       expect(details.blockBytes, JSON.stringify(details)).toBe(cappedBlockBytes)

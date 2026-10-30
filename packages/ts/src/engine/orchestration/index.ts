@@ -76,6 +76,7 @@ export function createWorkerOrchestrator(
     vectorCopyPolicy,
     workersEnabled: config?.workers?.enabled ?? workersEnabledByDefault(),
     keywordWorkerCount: splitWorkerBudget(resolveWorkerCount(config?.workers?.count)).keyword,
+    longQueryWorkerCount: 0,
     requestThreads: null,
     copyThreshold: config?.workers?.promotionThreshold ?? DEFAULT_COPY_THRESHOLD,
     copyIdleTimeoutMs: config?.workers?.idleTimeoutMs ?? copyIdleTimeoutBeforeClose(config?.lifecycle?.idleTimeoutMs),

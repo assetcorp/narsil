@@ -203,6 +203,7 @@ export function createDirectExecutor(
       }
 
       case 'serveRequests':
+      case 'serveLongQueries':
       case 'stopServing': {
         throw new NarsilError(
           ErrorCodes.CONFIG_INVALID,
