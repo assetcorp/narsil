@@ -8,17 +8,18 @@ import { replicationTimeoutOf, withinDeadline } from './deadline'
 import type { PrimaryWriteScope } from './numbered-write'
 import { chunkReplicationEntries, removeFailedReplicasFromInsync } from './replication'
 
-export async function startTermInQueue(scope: PrimaryWriteScope): Promise<void> {
+export async function startTermInQueue(scope: PrimaryWriteScope): Promise<boolean> {
   const { deps, indexName, partitionId, assignment } = scope
   const key = partitionKey(indexName, partitionId)
-  if ((deps.catchUp.startedTerms.get(key) ?? 0) >= assignment.primaryTerm) return
+  if ((deps.catchUp.startedTerms.get(key) ?? 0) >= assignment.primaryTerm) return false
   deps.catchUp.startedTerms.set(key, assignment.primaryTerm)
   const copies = getInSyncReplicaTargets(assignment, deps.nodeId)
-  if (copies.length === 0) return
+  if (copies.length === 0) return false
   const work = startTermOnCopies(scope, copies).catch(() => undefined)
   await withinDeadline(work, replicationTimeoutOf(deps), () => new Error('The term start outlasted its hold')).catch(
     () => undefined,
   )
+  return true
 }
 
 async function startTermOnCopies(scope: PrimaryWriteScope, copies: string[]): Promise<void> {

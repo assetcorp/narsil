@@ -1,4 +1,4 @@
-import { describeError, ErrorCodes, NarsilError } from '../../../errors'
+import { ErrorCodes, NarsilError } from '../../../errors'
 import type { BatchResult } from '../../../types/results'
 import type { AnyDocument } from '../../../types/schema'
 import { getClusterIndexConfig } from '../../cluster/index-metadata'
@@ -15,6 +15,7 @@ import {
 import { forwardInterrupted, forwardUnsent } from '../transport-failure'
 import { abandonedWriteOf, conditionOf } from './abandoned-write'
 import { resolvePartitionId } from './assignment'
+import { beforeWindowEnds, interruptedOutcome, WINDOW_ENDED, windowEndedOutcome } from './forward-window'
 import { abandonedWithTerm } from './rollback'
 import { storedCopyMatchesSent } from './sent-fields'
 import type { WriteRoutingDeps } from './types'
@@ -64,14 +65,6 @@ function retriable(error: unknown, settlesAsEqual: boolean): boolean {
     refusedByPrimaryChange(error, settlesAsEqual) ||
     forwardUnsent(error) ||
     (settlesAsEqual && forwardInterrupted(error))
-  )
-}
-
-function interruptedOutcome(indexName: string, docId: string, error: unknown): NarsilError {
-  return new NarsilError(
-    ErrorCodes.REPLICATION_OUTCOME_UNKNOWN,
-    `The connection to the primary of index '${indexName}' failed after this node forwarded the write to document '${docId}', so the write may or may not have taken effect. Read the document before you retry the write.`,
-    { indexName, docId, reason: 'forward_interrupted', originalError: describeError(error) },
   )
 }
 
@@ -159,8 +152,9 @@ export async function retryOnPrimaryChange<T>(
   const finalError = (error: unknown): unknown => (interrupted ? interruptedOutcome(indexName, docId, error) : error)
   for (;;) {
     const refusing = primaryFor(await deps.coordinator.getAllocation(indexName), docId)
+    let outcome: T | typeof WINDOW_ENDED
     try {
-      return await attempt(condition)
+      outcome = await beforeWindowEnds(attempt(condition), deadline)
     } catch (error) {
       if (retried && (await settleRetried([{ docId, error }])).has(docId)) return settledValue()
       interrupted ||= forwardInterrupted(error)
@@ -175,7 +169,10 @@ export async function retryOnPrimaryChange<T>(
       if (!retryable) throw finalError(error)
       condition = nextCondition(error, condition)
       retried = true
+      continue
     }
+    if (outcome === WINDOW_ENDED) throw windowEndedOutcome(indexName, docId)
+    return outcome
   }
 }
 
@@ -205,7 +202,12 @@ async function retryBatchOnPrimaryChange<T>(
   let retried = false
   while (pending.length > 0) {
     const table = await deps.coordinator.getAllocation(indexName)
-    const result = await attempt(pending, conditions)
+    const result = await beforeWindowEnds(attempt(pending, conditions), deadline)
+    if (result === WINDOW_ENDED) {
+      for (const item of pending)
+        failed.push({ docId: docIdOf(item), error: windowEndedOutcome(indexName, docIdOf(item)) })
+      break
+    }
     succeeded.push(...result.succeeded)
     const settled = retried ? await settleRetried(result.failed) : new Set<string>()
     const pendingById = new Map(pending.map(item => [docIdOf(item), item]))
