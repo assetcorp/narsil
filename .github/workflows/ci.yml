@@ -9,6 +9,9 @@ on:
 permissions:
   contents: read
 
+env:
+  SEGMENT_DOWNLOAD_TIMEOUT_MINS: 2
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
