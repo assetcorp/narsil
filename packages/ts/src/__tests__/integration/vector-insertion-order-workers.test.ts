@@ -50,7 +50,6 @@ const WORKER_COUNT = 2
 const TEST_TIMEOUT_MS = 300_000
 const INDEX = 'passages'
 const RESTORED_INDEX = 'earlier'
-const EF_SEARCH_AFTER_A_PARALLEL_BUILD = 2_000
 
 describe('a worker copy of a graph that a load rebuilds', () => {
   let engine: Narsil | null = null
@@ -86,13 +85,7 @@ describe('a worker copy of a graph that a load rebuilds', () => {
       expect({ unplaced: walk.unplaced, unreached: walk.unreached }).toEqual({ unplaced: [], unreached: [] })
 
       const answeredBefore = poolUse.sharedSearches
-      const missed = await passagesNotFoundFirst(
-        opened,
-        RESTORED_INDEX,
-        passages,
-        NARROW_LIMIT,
-        EF_SEARCH_AFTER_A_PARALLEL_BUILD,
-      )
+      const missed = await passagesNotFoundFirst(opened, RESTORED_INDEX, passages, NARROW_LIMIT, NARROW_EF_SEARCH)
       expect(missed).toEqual([])
       expect(poolUse.sharedSearches - answeredBefore).toBe(SAVED_PASSAGES)
     },
