@@ -19,6 +19,8 @@ import {
   validateStatsResultPayload,
 } from './codec'
 import { type CopyRouting, isNodeRejection, nodeRejectionOf, sendWithFailover } from './failover'
+import { resolveTargets, sendToFirstReachableTarget } from './node-send'
+import { releaseSearchContexts } from './search-contexts'
 import type { DistributedQueryConfig, QueryRoutingDeps } from './types'
 
 export interface NodeQueryOutcome {
@@ -136,10 +138,18 @@ export async function fanOutSearch(
   routing: CopyRouting,
   deps: QueryRoutingDeps,
   config: DistributedQueryConfig,
+  keepAliveMs: number | null = null,
 ): Promise<NodeQueryOutcome[]> {
   const outcomes = await sendWithFailover(routing, async (nodeId, partitionIds) => {
     const message = createSearchMessage(
-      { indexName, partitionIds, params, globalStats, facetShardSize },
+      {
+        indexName,
+        partitionIds,
+        params,
+        globalStats,
+        facetShardSize,
+        ...(keepAliveMs === null ? {} : { keepAliveMs }),
+      },
       deps.sourceNodeId,
     )
     const targets = await resolveTargets(nodeId, deps)
@@ -149,17 +159,36 @@ export async function fanOutSearch(
       message,
       config.partitionTimeout,
       validateSearchResultPayload,
+      late => {
+        if (typeof late.contextId === 'string') {
+          releaseSearchContexts(indexName, [{ nodeId, contextId: late.contextId }], deps)
+        }
+      },
     )
   })
 
   const rejection = outcomes.find(outcome => isNodeRejection(outcome.error))
-  if (rejection !== undefined) throw rejection.error
+  if (rejection !== undefined) {
+    releaseSearchContexts(indexName, openedContextsOf(outcomes), deps)
+    throw rejection.error
+  }
   return outcomes.map(outcome => ({
     nodeId: outcome.nodeId,
     partitionIds: outcome.partitionIds,
     status: outcome.status,
     results: outcome.result,
   }))
+}
+
+function openedContextsOf(
+  outcomes: ReadonlyArray<{ nodeId: string; result: SearchResultPayload | null }>,
+): Array<{ nodeId: string; contextId: string }> {
+  const opened: Array<{ nodeId: string; contextId: string }> = []
+  for (const outcome of outcomes) {
+    const contextId = outcome.result?.contextId
+    if (typeof contextId === 'string') opened.push({ nodeId: outcome.nodeId, contextId })
+  }
+  return opened
 }
 
 const OUTCOME_SEVERITY: Record<NodeQueryOutcome['status'], number> = { success: 0, timeout: 1, failed: 2 }
@@ -226,6 +255,7 @@ async function sendWithTimeout<T>(
   message: TransportMessage,
   timeout: number,
   validate: (decoded: unknown) => T,
+  onLate?: (late: T) => void,
 ): Promise<T | null> {
   let timerId: ReturnType<typeof setTimeout> | undefined
   const abortPromise = new Promise<null>(resolve => {
@@ -243,34 +273,12 @@ async function sendWithTimeout<T>(
   })
 
   try {
-    return await Promise.race([sendPromise, abortPromise])
+    const answered = await Promise.race([sendPromise, abortPromise])
+    if (answered === null && onLate !== undefined) sendPromise.then(onLate, () => undefined)
+    return answered
   } finally {
     if (timerId !== undefined) {
       clearTimeout(timerId)
     }
   }
-}
-
-async function resolveTargets(nodeId: string, deps: QueryRoutingDeps): Promise<string[]> {
-  if (deps.resolveNodeTargets === undefined) {
-    return [nodeId]
-  }
-  const targets = await deps.resolveNodeTargets(nodeId)
-  return targets.length > 0 ? targets : [nodeId]
-}
-
-async function sendToFirstReachableTarget(
-  transport: NodeTransport,
-  targets: string[],
-  message: TransportMessage,
-): Promise<TransportMessage> {
-  let lastError: unknown
-  for (const target of targets) {
-    try {
-      return await transport.send(target, message)
-    } catch (error) {
-      lastError = error
-    }
-  }
-  throw lastError instanceof Error ? lastError : new Error(String(lastError))
 }

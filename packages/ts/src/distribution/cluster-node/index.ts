@@ -34,6 +34,7 @@ import { replicationLogKey as buildReplicationLogKey, deleteIndexReplicationLogs
 import { requestRebalance, waitForSwap } from './reshard/request'
 import { createReshardState, forgetReshardIndex, forgetReshardPartition, stopEveryReshardJob } from './reshard/state'
 import { routableAllocation } from './routable-allocation'
+import { createSearchContextRegistry, releaseContextsOfDepartedNodes } from './search-contexts'
 import { createSnapshotSyncHandlerState } from './snapshot-sync-handler'
 import { createMultiplexedControllerTransport, createNotReadyHandler } from './transport-listener'
 import type { ClusterNode, ClusterNodeConfig } from './types'
@@ -124,6 +125,8 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
   let controller: ControllerNode | null = null
   let unregisterHandler: (() => void) | null = null
   let unregisterNotReadyHandler: (() => void) | null = null
+  let unwatchDepartures: (() => void) | null = null
+  const searchContexts = hasDataRole ? createSearchContextRegistry() : undefined
   let serving = false
   let isShutdown = false
 
@@ -210,7 +213,7 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
   const trackOp = operationTracker.track
   const transitionIndex = operationTracker.transition
 
-  const readDeps: ClusterReadDeps = { config: routingConfig, nodeId, engine, resolveNodeTargets }
+  const readDeps: ClusterReadDeps = { config: routingConfig, nodeId, engine, resolveNodeTargets, searchContexts }
   const servingName = (indexName: string) => servingNameOf(allocationView.routing, indexName)
 
   const cluster = createClusterNamespace({
@@ -302,6 +305,7 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
           allocations: allocationView,
           writeDeps,
           snapshotSyncState: snapshotSyncHandlerState,
+          searchContexts,
           snapshotSpoolDirectory: snapshotSpool.path,
           isBootstrapSynced: (indexName: string, partitionId: number) =>
             hasCompletedBootstrapSync(bootstrapSyncState, indexName, partitionId),
@@ -309,6 +313,9 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
         })
         const listener = controllerTransport !== null ? controllerTransport.createHandler(dataHandler) : dataHandler
         unregisterHandler = await config.transport.listen(listener)
+        if (searchContexts !== undefined) {
+          unwatchDepartures = await releaseContextsOfDepartedNodes(config.coordinator, searchContexts)
+        }
         startCatchUpPump(writeDeps.catchUp, writeDeps)
       }
       serving = true
@@ -342,6 +349,9 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
         unregisterNotReadyHandler()
         unregisterNotReadyHandler = null
       }
+      unwatchDepartures?.()
+      unwatchDepartures = null
+      searchContexts?.stop()
 
       await lifecycle.shutdown()
       memoryReporting.stop()
