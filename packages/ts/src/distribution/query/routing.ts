@@ -20,6 +20,7 @@ import { mergeGroupsFor } from './group-merge'
 import { executeHybridQuery } from './hybrid'
 import { mergeAndTruncateScoredEntries, mergeAndTruncateSortedEntries, mergeDistributedFacets } from './merge'
 import { lastOrganicEntry, placePinnedEntries } from './pinning'
+import { collectSearchContexts, releaseSearchContexts, searchContextKeepAlive } from './search-contexts'
 import type { ReplicaSelector } from './selection'
 import { queryKeyedSelector, selectReplicasForQuery } from './selection'
 import type { DistributedQueryConfig, DistributedQueryResult, QueryRoutingDeps, RoutingResult } from './types'
@@ -164,7 +165,20 @@ async function executeSingleFanOut(
   const depth = limit + offset
   const searchParams: WireQueryParams = { ...params, limit: depth, offset: 0 }
 
-  const outcomes = await fanOutSearch(indexName, searchParams, globalStats, facetShardSize, routing, deps, config)
+  const keepAliveMs = config.searchContexts
+    ? searchContextKeepAlive(routing, config.partitionTimeout, deps.transport)
+    : null
+  const outcomes = await fanOutSearch(
+    indexName,
+    searchParams,
+    globalStats,
+    facetShardSize,
+    routing,
+    deps,
+    config,
+    keepAliveMs,
+  )
+  const contexts = collectSearchContexts(outcomes)
 
   const sortFields = params.sort !== null && params.sort.length > 0 ? params.sort : null
   if (sortFields !== null) {
@@ -176,6 +190,7 @@ async function executeSingleFanOut(
   if (!config.allowPartialResults) {
     const failedCount = coverage.timedOutPartitions + coverage.failedPartitions
     if (failedCount > 0) {
+      releaseSearchContexts(indexName, contexts.opened, deps)
       throw new NarsilError(ErrorCodes.QUERY_PARTIAL_FAILURE, 'One or more partitions failed during query', {
         coverage,
       })
@@ -264,6 +279,7 @@ async function executeSingleFanOut(
     coverage,
     pinnedFromOutside: placement.placedFromOutside,
     mergeHeldEveryMatch: allMatchesPresent,
+    contexts,
   }
 }
 

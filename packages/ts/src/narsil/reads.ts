@@ -6,6 +6,7 @@ import { resolveVectorText } from '../engine/resolve-vector-text'
 import { executeSuggest } from '../engine/suggest'
 import { collectQueryTermStats } from '../partitioning/distributed-scoring'
 import type { StatsExpansion } from '../partitioning/expanded-tokens'
+import type { PartitionManager } from '../partitioning/manager/types'
 import { queryBindingOf } from '../search/cursor-binding'
 import type { GlobalStatistics } from '../types/internal'
 import type { ListResult, PreflightResult, QueryResult, SuggestResult } from '../types/results'
@@ -16,6 +17,7 @@ export interface ScopedReadOptions {
   partitionIds?: number[]
   globalStats?: GlobalStatistics
   rescoreWindow?: number
+  onRanked?: (manager: PartitionManager, result: QueryResult<unknown>) => void
 }
 
 async function enterRead(core: EngineCore, indexName: string): Promise<void> {
@@ -102,6 +104,7 @@ export async function runEngineQuery<T = AnyDocument>(
     if (analysisStale) {
       result.analysisStale = true
     }
+    options?.onRanked?.(manager, result)
 
     if (core.pluginRegistry.hasHooks('afterSearch')) {
       const observed = { ...result, hits: [...result.hits] } as unknown as QueryResult
