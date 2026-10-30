@@ -7,6 +7,7 @@ import { promisify } from 'node:util'
 
 const run = promisify(execFile)
 
+export const SEMI_SPACE_MEGABYTES = 16
 export const NODE_IMAGE = 'node:24-trixie-slim@sha256:54f84b4cf8432b21aaffd5d3ce8d41e12cea0d10d33c09d2f3c9879d49d6b446'
 const REPOSITORY_ROOT = fileURLToPath(new URL('../../../../../../', import.meta.url))
 const NODE_SCRIPT = fileURLToPath(new URL('./node-process.mjs', import.meta.url))
@@ -93,6 +94,7 @@ export async function startContainerNode(options: ContainerNodeOptions): Promise
       NODE_IMAGE,
       'node',
       `--max-old-space-size=${options.heapMegabytes}`,
+      `--max-semi-space-size=${SEMI_SPACE_MEGABYTES}`,
       NODE_SCRIPT,
     ],
     { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, NODE_OPTIONS: '' } },

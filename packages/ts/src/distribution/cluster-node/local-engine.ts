@@ -58,6 +58,7 @@ export interface ClusterLocalEngine extends Narsil {
   commitPartitionLog(indexName: string, partitionId: number): Promise<void>
   admitWritesWith(admission: WriteAdmission): void
   writeAnalysisOf(indexName: string): IndexWriteAnalysis | null
+  vectorGrowthBytesOf(indexName: string, documents: number): number
   restartLocalLog(indexName: string, partitionId: number, position: PartitionLogPosition): Promise<void>
   isolateCopyFailures(onFailed: PartitionFailureHandler): void
   emptyPartitionCopy(indexName: string, partitionId: number): Promise<void>
@@ -173,6 +174,7 @@ export async function createClusterLocalEngine(
       core.mutationCtx.durability = createAdmittingRecorder(core, admission, core.mutationCtx.durability)
     },
     writeAnalysisOf: (indexName: string) => writeAnalysisOf(core, indexName),
+    vectorGrowthBytesOf: (indexName: string, documents: number) => vectorGrowthBytesOf(core, indexName, documents),
     restartLocalLog: (indexName: string, partitionId: number, position: PartitionLogPosition) =>
       restartLocalLog(core, indexName, partitionId, position),
     isolateCopyFailures: (onFailed: PartitionFailureHandler) =>
@@ -248,6 +250,14 @@ function writeAnalysisOf(core: EngineCore, indexName: string): IndexWriteAnalysi
     language,
     ...(customTokenizer === undefined ? {} : { customTokenizer }),
   }
+}
+
+function vectorGrowthBytesOf(core: EngineCore, indexName: string, documents: number): number {
+  const manager = core.executor.getManager(indexName)
+  if (manager === undefined || manager === null) return 0
+  let bytes = 0
+  for (const vectorIndex of manager.getVectorIndexes().values()) bytes += vectorIndex.growthBytesFor(documents)
+  return bytes
 }
 
 function persistedPositionOf(core: EngineCore, indexName: string, partitionId: number): PartitionLogPosition {

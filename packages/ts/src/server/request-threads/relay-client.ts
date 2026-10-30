@@ -186,6 +186,7 @@ export function createRelayClient(port: MessagePort, touchIntervalMs: number): R
               query: ctx.query.toString(),
               contentType: ctx.contentType,
               rawBody: body.bytes,
+              bodyRefusal: ctx.bodyRefusal,
               spooledBody:
                 ctx.spooledBody === null ? null : { path: ctx.spooledBody.path, bytes: ctx.spooledBody.bytes },
               hookContext: ctx.hookContext,

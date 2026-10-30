@@ -13,13 +13,13 @@ export interface HeapReservation {
 export type RefusedMemoryFigures = Omit<NodeMemoryReport, 'full'> & {
   youngHeapBytes: number
   heapCommittedBytes: number
+  youngCeilingBytes: number
+  youngReserveBytes: number
 }
 
 const refusalListeners = new Set<(figures: RefusedMemoryFigures) => void>()
 let reservedBytes = 0
 let admittedBytes = 0
-let lastRefusalCollectionAt = Number.NEGATIVE_INFINITY
-let refusalCollectionIntervalMs = REFUSAL_COLLECTION_MIN_INTERVAL_MS
 let lastYoungCollectionAt = Number.NEGATIVE_INFINITY
 
 export function reservedHeapBytes(): number {
@@ -32,6 +32,11 @@ export function admittedHeapBytes(): number {
 
 export function admitHeapBytes(bytes: number): void {
   admittedBytes += bytes
+}
+
+export function chargeHeapBytes(bytes: number): void {
+  reservedBytes += bytes
+  if (bytes > 0) admittedBytes += bytes
 }
 
 export function reserveHeapBytes(bytes: number): HeapReservation {
@@ -58,17 +63,25 @@ export function reportRefusalAfterCollection(figures: RefusedMemoryFigures): voi
   for (const listener of refusalListeners) listener(figures)
 }
 
-export function collectGarbageBeforeRefusal(): boolean {
-  const startedAt = performance.now()
-  if (startedAt - lastRefusalCollectionAt < refusalCollectionIntervalMs) return false
-  lastRefusalCollectionAt = startedAt
-  if (!collectAndReturnPages()) return false
-  refusalCollectionIntervalMs = Math.max(
-    REFUSAL_COLLECTION_MIN_INTERVAL_MS,
-    (performance.now() - startedAt) * REFUSAL_COLLECTION_TIME_MULTIPLE,
-  )
-  return true
+function refusalCollector(): () => boolean {
+  let lastCollectionAt = Number.NEGATIVE_INFINITY
+  let intervalMs = REFUSAL_COLLECTION_MIN_INTERVAL_MS
+  return () => {
+    const startedAt = performance.now()
+    if (startedAt - lastCollectionAt < intervalMs) return false
+    lastCollectionAt = startedAt
+    if (!collectAndReturnPages()) return false
+    intervalMs = Math.max(
+      REFUSAL_COLLECTION_MIN_INTERVAL_MS,
+      (performance.now() - startedAt) * REFUSAL_COLLECTION_TIME_MULTIPLE,
+    )
+    return true
+  }
 }
+
+export const collectGarbageBeforeRefusal = refusalCollector()
+
+export const collectGarbageBeforeAnswerRefusal = refusalCollector()
 
 export function collectYoungGenerationBeforeRefusal(): boolean {
   const startedAt = performance.now()

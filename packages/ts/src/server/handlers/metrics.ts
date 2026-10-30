@@ -71,6 +71,18 @@ export function prometheusText(metrics: ClusterMetrics): string {
       ),
     ),
     ...family(
+      'narsil_vector_rebuild_waiting_for_memory',
+      'gauge',
+      'A vector field whose rebuild waits for the node to have memory for a second graph, reported as 1.',
+      metrics.vectorRebuildsWaitingForMemory.map(
+        figure =>
+          `narsil_vector_rebuild_waiting_for_memory${labels([
+            ['index', figure.indexName],
+            ['field', figure.fieldName],
+          ])} 1`,
+      ),
+    ),
+    ...family(
       'narsil_coordinator_request_seconds',
       'histogram',
       'How long the calls from this node to the cluster coordinator took.',

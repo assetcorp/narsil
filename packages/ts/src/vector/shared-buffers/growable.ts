@@ -29,6 +29,16 @@ export function nextGrowthTarget(have: number, needed: number, max: number): num
   return Math.min(max, Math.max(needed, have * 2))
 }
 
+export function grownByteLength(have: number, needed: number, max: number, step = 1): number {
+  let size = have
+  while (size < needed) {
+    const next = Math.ceil(nextGrowthTarget(size, Math.min(needed, size + 1), max) / step) * step
+    if (next <= size) return size
+    size = next
+  }
+  return size
+}
+
 export function growBufferTo(buffer: GrowableBuffer, bytes: number): void {
   const held = buffer.byteLength
   if (held >= bytes) return

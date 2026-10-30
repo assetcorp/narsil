@@ -85,6 +85,8 @@ export interface VectorIndex {
   optimize(): Promise<void>
   maintenanceStatus(): MaintenanceStatus
   estimateMemoryBytes(): number
+  /** Reports the bytes that storing this many more vectors would add to the field's shared structures. */
+  growthBytesFor(vectors: number): number
   /** Reads the field back from the parts of an earlier snapshot, whose parts can place the sequences of several partitions end to end, and keeps every vector in memory. */
   deserialize(parts: VectorIndexPayload[]): void
   /** Fixes what a checkpoint writes for the field now: the vector files that it keeps with their dead vectors, the vectors that go into new files, and the graph with every vector numbered by that file list. The plan reads one new file at a time, so that a checkpoint holds one file in memory while it writes a field of any size. */
@@ -173,6 +175,9 @@ export function createVectorIndex(
     hnsw: null,
     freshGraph: null,
     ...noBuildHistory(),
+    rebuildChargeBytes: 0,
+    waitingForMemory: false,
+    rebuildWaitTimer: null,
     onLoadedGraphRepaired,
     compactedNodeCount: 0,
     building: false,
@@ -347,6 +352,7 @@ export function createVectorIndex(
     },
     maintenanceStatus: () => maintenanceStatusOp(state),
     estimateMemoryBytes: () => estimateMemoryBytesOp(state),
+    growthBytesFor: (vectors: number) => state.store.growthBytesFor(vectors),
     deserialize: (parts: VectorIndexPayload[]) => {
       invalidateWorkerCopies(state)
       deserializeOp(state, parts)
