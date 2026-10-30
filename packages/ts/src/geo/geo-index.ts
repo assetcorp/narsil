@@ -22,8 +22,9 @@ export interface GeoIndex extends GeoIndexReader {
 
 interface LocatedEntry extends GeopointEntry {
   code: number
-  removed: boolean
 }
+
+const REMOVED_DOC_ID = -1
 
 function firstAtOrAfter(entries: readonly LocatedEntry[], code: number): number {
   let lo = 0
@@ -39,7 +40,7 @@ function firstAtOrAfter(entries: readonly LocatedEntry[], code: number): number 
 function dropRemoved(entries: LocatedEntry[]): void {
   let write = 0
   for (let read = 0; read < entries.length; read++) {
-    if (!entries[read].removed) entries[write++] = entries[read]
+    if (entries[read].docId !== REMOVED_DOC_ID) entries[write++] = entries[read]
   }
   entries.length = write
 }
@@ -86,11 +87,9 @@ export function createGeoIndex(): GeoIndex {
     pending = []
   }
 
-  function removeEntry(internalId: number): void {
-    const entry = byDocument.get(internalId)
-    if (entry === undefined) return
-    byDocument.delete(internalId)
-    entry.removed = true
+  function removeEntry(entry: LocatedEntry): void {
+    byDocument.delete(entry.docId)
+    entry.docId = REMOVED_DOC_ID
     removedCount++
     const held = entries.length + pending.length
     if (removedCount >= Math.max(PENDING_REMOVAL_MERGE_FLOOR, held / PENDING_REMOVAL_MERGE_DIVISOR)) ensureSorted()
@@ -114,14 +113,16 @@ export function createGeoIndex(): GeoIndex {
 
   const index: GeoIndex = {
     insert(internalId: number, lat: number, lon: number): void {
-      removeEntry(internalId)
-      const entry: LocatedEntry = { lat, lon, docId: internalId, code: locationCode(lat, lon), removed: false }
+      const existing = byDocument.get(internalId)
+      if (existing !== undefined) removeEntry(existing)
+      const entry: LocatedEntry = { lat, lon, docId: internalId, code: locationCode(lat, lon) }
       pending.push(entry)
       byDocument.set(internalId, entry)
     },
 
     remove(internalId: number): void {
-      removeEntry(internalId)
+      const existing = byDocument.get(internalId)
+      if (existing !== undefined) removeEntry(existing)
     },
 
     radiusQuery(
