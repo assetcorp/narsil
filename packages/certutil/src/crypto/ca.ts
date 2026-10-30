@@ -4,11 +4,7 @@ import { buildCaExtensions } from './extensions'
 import { computeFingerprint } from './fingerprint'
 import { generateKeyPair } from './keys'
 import { certificateToPem, privateKeyToPem } from './pem'
-
-function randomSerialNumber(): string {
-  const bytes = forge.random.getBytesSync(16)
-  return forge.util.bytesToHex(bytes)
-}
+import { randomSerialNumber } from './serial'
 
 export function generateCaCertificate(options: CaOptions): {
   certPem: string

@@ -1,9 +1,13 @@
 import forge from 'node-forge'
+import { publicKeysMatch } from './keys'
 import { certificateToPem, pemToCertificate, pemToPrivateKey, privateKeyToPem } from './pem'
 
 export function pemToPkcs12(certPem: string, keyPem: string, password: string, caCertPem?: string): Uint8Array {
   const cert = pemToCertificate(certPem)
   const key = pemToPrivateKey(keyPem)
+  if (!publicKeysMatch(cert, key)) {
+    throw new Error('The private key does not belong to the certificate.')
+  }
 
   const certs: forge.pki.Certificate[] = [cert]
   if (caCertPem !== undefined) {

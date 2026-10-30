@@ -170,7 +170,7 @@ describe('narsil-certutil cert', () => {
     ['--days', '0', 2, /Invalid --days/],
     ['--days', 'soon', 2, /Invalid --days/],
     ['--key-size', '512', 2, /Invalid --key-size/],
-    ['--ip', 'not-an-ip', 1, /not a valid IPv4 or IPv6/],
+    ['--ip', 'not-an-ip', 1, /Invalid IP address/],
   ])('refuses %s %s and writes nothing', async (flag, value, code, message) => {
     const outDir = await createWorkspace(root)
 

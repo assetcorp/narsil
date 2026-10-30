@@ -4,7 +4,7 @@ import { loadClusterConfig } from '../batch/loader'
 import { runBatchCsr } from '../batch/runner'
 import { generateCsr } from '../crypto/csr'
 import { formatError, formatGenerationText, formatSuccess } from '../output/formatter'
-import { writeOutputFile } from '../output/writer'
+import { isSafeFileName, writeOutputFile, writePrivateFile } from '../output/writer'
 import { ExitCode, type GenerationResult } from '../types'
 
 export function registerCsrCommand(program: Command): void {
@@ -79,6 +79,20 @@ export async function runCsrAction(opts: CsrActionOptions): Promise<void> {
       return
     }
 
+    if (opts.cn !== undefined && !isSafeFileName(opts.cn)) {
+      process.stderr.write(
+        `${formatError(
+          'BAD_ARGUMENTS',
+          `Invalid --cn value: ${opts.cn}`,
+          'Use a name that holds no path, and choose the location with --out-dir',
+          startTime,
+          json,
+        )}\n`,
+      )
+      process.exitCode = ExitCode.BAD_ARGUMENTS
+      return
+    }
+
     if (opts.nodes) {
       await runCsrBatchMode(opts, keySize, startTime, json)
       return
@@ -103,7 +117,7 @@ export async function runCsrAction(opts: CsrActionOptions): Promise<void> {
     }
 
     await writeOutputFile(csrPath, result.csrPem, opts.force)
-    await writeOutputFile(keyPath, result.keyPem, opts.force)
+    await writePrivateFile(keyPath, result.keyPem, opts.force)
 
     const genResult: GenerationResult = {
       files: [
@@ -145,24 +159,24 @@ async function runCsrBatchMode(
 
   const results = await runBatchCsr(config, opts.outDir, opts.force, keySize)
 
-  for (const batchResult of results) {
-    const genResult: GenerationResult = {
-      files: [
-        {
-          path: join(batchResult.outputDir, `${batchResult.cn}.csr`),
-          type: 'csr',
-        },
-        {
-          path: join(batchResult.outputDir, `${batchResult.cn}.key`),
-          type: 'key',
-        },
-      ],
-    }
+  const generated: GenerationResult[] = results.map(batchResult => ({
+    files: [
+      {
+        path: join(batchResult.outputDir, `${batchResult.cn}.csr`),
+        type: 'csr',
+      },
+      {
+        path: join(batchResult.outputDir, `${batchResult.cn}.key`),
+        type: 'key',
+      },
+    ],
+  }))
 
-    if (json) {
-      process.stdout.write(`${formatSuccess(genResult, startTime, true)}\n`)
-    } else {
-      process.stderr.write(`${formatGenerationText(genResult)}\n`)
-    }
+  if (json) {
+    process.stdout.write(`${formatSuccess(generated, startTime, true)}\n`)
+    return
+  }
+  for (const genResult of generated) {
+    process.stderr.write(`${formatGenerationText(genResult)}\n`)
   }
 }

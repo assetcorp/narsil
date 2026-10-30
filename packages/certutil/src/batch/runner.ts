@@ -1,7 +1,7 @@
 import { join } from 'node:path'
 import { generateNodeCertificate } from '../crypto/certificate'
 import { generateCsr } from '../crypto/csr'
-import { writeOutputFile } from '../output/writer'
+import { writeOutputFile, writePrivateFile } from '../output/writer'
 import type { ClusterConfig } from '../types'
 
 export interface BatchCertResult {
@@ -61,7 +61,7 @@ export async function runBatchCert(
     const keyPath = join(nodeDir, `${node.cn}.key`)
 
     await writeOutputFile(certPath, generated.certPem, overwrite)
-    await writeOutputFile(keyPath, generated.keyPem, overwrite)
+    await writePrivateFile(keyPath, generated.keyPem, overwrite)
 
     results.push({
       cn: node.cn,
@@ -98,7 +98,7 @@ export async function runBatchCsr(
     const keyPath = join(nodeDir, `${node.cn}.key`)
 
     await writeOutputFile(csrPath, generated.csrPem, overwrite)
-    await writeOutputFile(keyPath, generated.keyPem, overwrite)
+    await writePrivateFile(keyPath, generated.keyPem, overwrite)
 
     results.push({
       cn: node.cn,
