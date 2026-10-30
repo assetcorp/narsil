@@ -14,6 +14,7 @@ import type { RouteContext } from './request'
 import { sendEncodedJson, sendStream } from './response'
 
 const JSON_HEADERS: Array<[string, string]> = [['Content-Type', 'application/json']]
+const UTF8 = new TextEncoder()
 
 interface AnswerItems {
   count: number
@@ -150,7 +151,7 @@ export async function respondAnswer<T extends object>(
         } else {
           await waitForRoom(ctx, answerBytesOf(text), label, sentBytes)
         }
-        const chunk = Buffer.from(text, 'utf8')
+        const chunk = UTF8.encode(text)
         sentBytes += chunk.byteLength
         controller.enqueue(chunk)
       },
