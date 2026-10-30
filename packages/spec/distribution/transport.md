@@ -38,6 +38,7 @@ NodeTransport {
 - Registers a handler for messages arriving from other nodes. The handler receives the message and a `respond` callback for the reply.
 - It returns an unsubscribe function that removes the handler, so a component such as the controller can tear its listener down on step-down without shutting the whole transport down.
 - A node must call `listen` before it can receive queries or replication entries.
+- A node sends no reply to a request whose `type` it does not recognise, so the sender's wait for that request ends at its timeout. A sender of a request type that an older node can lack must therefore bound its wait and treat the timeout as a failure of that request, as a primary does with `replication.term_start`.
 - Calling `listen` again replaces the previous handler, and the old unsubscribe function then does nothing.
 - `respond` completes once the transport has taken the reply, and a handler sending many replies must await each one before it builds the next.
 - A transport whose connection reports that it is full must hold that completion until the connection accepts more, so that a snapshot cannot outrun a slow receiver and exhaust the sender's memory. A transport that buffers without limit completes immediately.
@@ -82,7 +83,7 @@ A node whose handler fails a request must answer with a message whose `type` is 
 
 A primary sets `abandonedWrite` on a `replication.forward.error` where `code` is `REPLICATION_OUTCOME_UNKNOWN` with the reason `term_ended` for an update or a remove whose document held a write record. The forwarding node uses `abandonedWrite` to send the write again with its condition fields, as [Retry After an Ended Term](replication.md#retry-after-an-ended-term) defines, and it must never pass `abandonedWrite` to the client.
 
-When a primary refuses a forwarded mutation, the node that forwarded it must pass the primary's `code`, `message`, and `details` to the client, except that it first retries a `PARTITION_NOT_PRIMARY` refusal for up to 30,000 ms. Where the refusal's details carry `heldIndexUuid`, the receiver still holds an earlier index of that name, so the forwarding node retries after a delay that starts at 50 ms and doubles up to 1,000 ms, and it reads the allocation table again before each attempt. Otherwise it retries once the allocation table names another primary or a higher `primaryTerm` for the partition. It passes the last refusal to the client when the window ends, and it retries each refused result of a batch in the same way. It retries a forward that the transport failed with `TRANSPORT_CONNECT_FAILED` or `TRANSPORT_PEER_UNAVAILABLE` within the same 30,000 ms and after the same delays, and it reads the allocation table again before each attempt, so that the forward reaches a primary that the controller promoted in the meantime. A retried insert that finds the document stored with the fields it sent succeeds, and so does a retried remove that finds the document absent, because the earlier attempt may have applied. It does not retry a forward that failed with `TRANSPORT_TIMEOUT`, because the primary may still apply it. It retries a `REPLICATION_OUTCOME_UNKNOWN` refusal whose reason is `term_ended` within the same 30,000 ms, once the allocation table names another primary or a higher `primaryTerm` for the partition: an insert as above, and an update or a remove with the condition fields of [replication.forward](#replicationforward) where the refusal carries `abandonedWrite`. It passes any other `REPLICATION_OUTCOME_UNKNOWN` refusal to the client.
+When a primary refuses a forwarded mutation, the node that forwarded it must pass the primary's `code`, `message`, and `details` to the client, except that it first retries a `PARTITION_NOT_PRIMARY` refusal for up to 30,000 ms. Where the refusal's details carry `heldIndexUuid`, the receiver still holds an earlier index of that name, so the forwarding node retries after a delay that starts at 50 ms and doubles up to 1,000 ms, and it reads the allocation table again before each attempt. Otherwise it retries once the allocation table names another primary or a higher `primaryTerm` for the partition. It passes the last refusal to the client when the window ends, and it retries each refused result of a batch in the same way. It retries a forward that the transport failed with `TRANSPORT_CONNECT_FAILED`, and a forward that the receiver refused with `NODE_NOT_READY`, within the same 30,000 ms and after the same delays, and it reads the allocation table again before each attempt, so that the forward reaches a primary that the controller promoted in the meantime. Neither failure can leave the write applied, because a forward that failed with `TRANSPORT_CONNECT_FAILED` never left the sender, and a node answers `NODE_NOT_READY` before it decides any write. A forward that the transport failed with `TRANSPORT_PEER_UNAVAILABLE` may have reached the primary and applied, so the forwarding node retries it only for an insert, which succeeds where it finds the document stored with the fields that it sent. It answers an update or a remove that failed in this way with `REPLICATION_OUTCOME_UNKNOWN` and the reason `forward_interrupted`, and it never sends that write again, because a second apply could overwrite a write that another client made in between. Once a forward has failed with `TRANSPORT_PEER_UNAVAILABLE`, the forwarding node answers any later refusal of that write with `REPLICATION_OUTCOME_UNKNOWN` and the reason `forward_interrupted`, because the first attempt may have applied. It applies these rules to each operation of a `replication.forward_batch` on its own. It does not retry a forward that failed with `TRANSPORT_TIMEOUT`, because the primary may still apply it. It retries a `REPLICATION_OUTCOME_UNKNOWN` refusal whose reason is `term_ended` within the same 30,000 ms, once the allocation table names another primary or a higher `primaryTerm` for the partition: an insert as above, and an update or a remove with the condition fields of [replication.forward](#replicationforward) where the refusal carries `abandonedWrite`. It passes any other `REPLICATION_OUTCOME_UNKNOWN` refusal to the client. The 30,000 ms window caps the whole wait for one write, counted from its first attempt, so where the window closes while an attempt still waits for its answer, the forwarding node stops waiting and answers `REPLICATION_OUTCOME_UNKNOWN` with the reason `forward_window_ended`, because that attempt may still apply. It discards the answer of that attempt when the answer arrives, and it treats each operation of a `replication.forward_batch` that still waits in the same way.
 
 ### Replication Messages
 
@@ -92,6 +93,8 @@ When a primary refuses a forwarded mutation, the node that forwarded it must pas
 | `replication.forward_batch` | any node to primary | Forwards many client mutations to a node that is primary for their partitions |
 | `replication.entry` | primary to replica | A replication log entry to apply |
 | `replication.entry_batch` | primary to replica | Contiguous log entries for one partition, applied in order |
+| `replication.term_start` | primary to replica | Starts a new primary term on a copy, carrying the primary's lastSeqNo and lastPrimaryTerm |
+| `replication.term_start_ack` | replica to primary | Answers a term start with the copy's own lastSeqNo and lastPrimaryTerm |
 | `replication.ack` | replica to primary | Acknowledges a replicated entry |
 | `replication.sync_request` | replica to primary | Asks to start a sync, carrying lastSeqNo and lastPrimaryTerm |
 | `replication.sync_entries` | primary to replica | A batch of log entries for incremental catch-up |
@@ -224,6 +227,7 @@ The node that forwarded the batch must pass each failed result's `errorCode`, `e
 {
   entry: ReplicationLogEntry   (see replication.md)
   indexUuid: string or absent   (the identity of the index that the sender's allocation table names)
+  previousPrimaryTerm: uint64 or absent   (the term that the sender's term history gives for the seqNo before the entry, 0 where the entry's seqNo is 1)
 }
 ```
 
@@ -233,10 +237,39 @@ The node that forwarded the batch must pass each failed result's `errorCode`, `e
 {
   entries: List<ReplicationLogEntry>   (see replication.md)
   indexUuid: string or absent   (the identity of the index that the sender's allocation table names)
+  previousPrimaryTerm: uint64 or absent   (the term that the sender's term history gives for the seqNo before the first entry, 0 where that entry's seqNo is 1)
 }
 ```
 
+A primary must set `previousPrimaryTerm` on every `replication.entry` and `replication.entry_batch` that it sends, including the entries of a rollback and of the [Catch-Up Feed](replication.md#catch-up-feed), wherever its [term history](replication.md#term-history) covers the `seqNo` before the first entry. A replica checks it as [Log Matching](replication.md#log-matching) defines, and it skips the check where the field is absent, so that a primary from before this field can still replicate to it during a rolling upgrade.
+
 The entries must belong to one partition of one index, share one `primaryTerm`, and carry contiguous ascending sequence numbers. The replica applies them in order and answers one `replication.ack` carrying the last entry's `seqNo`, which acknowledges every entry in the batch. A failure on any entry fails the whole batch.
+
+### replication.term_start
+
+```text
+{
+  indexName:       string
+  partitionId:     uint32
+  primaryTerm:     uint64   (the term that the sender starts)
+  lastSeqNo:       uint64   (the sender's highest seqNo, 0 for an empty log)
+  lastPrimaryTerm: uint64   (the term that the sender's term history gives for lastSeqNo, 0 for an empty log)
+  indexUuid:       string or absent   (the identity of the index that the sender's allocation table names)
+}
+```
+
+A new primary sends this to every other copy in the in-sync set, as [Starting a Term](replication.md#starting-a-term) defines. A replica that holds its copy under another `indexUuid` refuses it with `INDEX_NOT_FOUND`, in the same way as a replication entry.
+
+### replication.term_start_ack
+
+```text
+{
+  indexName:       string
+  partitionId:     uint32
+  lastSeqNo:       uint64   (the replica's highest seqNo, 0 for an empty log)
+  lastPrimaryTerm: uint64   (the term that the replica's term history gives for lastSeqNo, 0 for an empty log)
+}
+```
 
 ### replication.ack
 
@@ -970,7 +1003,7 @@ TransportConfig {
 |-----------|---------|---------|
 | `connectTimeout` | 5,000 ms | The longest wait to open a connection to a peer node |
 | `requestTimeout` | 30,000 ms | The longest wait for a query request and its response |
-| `replicationTimeout` | 10,000 ms | The longest wait for a replication entry acknowledgement |
+| `replicationTimeout` | 10,000 ms | The longest wait for a replication entry acknowledgement or for the answer to a `replication.term_start` |
 | `snapshotTimeout` | 300,000 ms | The longest wait for the next chunk of a snapshot transfer, so that a transfer of any size can finish while the sender keeps sending chunks |
 
 ---
@@ -1003,8 +1036,8 @@ A community adapter, whether it carries QUIC, HTTP/2, or Unix sockets, must:
 
 | Code | Raised when |
 |------|-------------|
-| `TRANSPORT_CONNECT_FAILED` | Opening a connection to a peer node failed. |
+| `TRANSPORT_CONNECT_FAILED` | The sender could not hand the message to the peer node, because opening a connection failed or the sender's own transport had shut down, so the peer never received it. |
 | `TRANSPORT_TIMEOUT` | A request did not finish within its configured timeout. |
 | `TRANSPORT_MESSAGE_TOO_LARGE` | A non-streaming message exceeded the 64 MB limit. |
 | `TRANSPORT_DECODE_FAILED` | A received message could not be decoded, because the MessagePack was corrupt or invalid. |
-| `TRANSPORT_PEER_UNAVAILABLE` | The target node cannot be reached. |
+| `TRANSPORT_PEER_UNAVAILABLE` | The connection to the peer node failed after the sender handed it the message, so the peer may have received the message and acted on it. |

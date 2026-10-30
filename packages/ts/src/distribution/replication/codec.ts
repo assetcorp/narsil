@@ -17,8 +17,15 @@ import type {
 import { ReplicationMessageTypes } from '../transport/types'
 import type { ReplicationLogEntry } from './types'
 
-export function createEntryMessage(entry: ReplicationLogEntry, sourceId: string, indexUuid?: string): TransportMessage {
-  const payload: EntryPayload = indexUuid === undefined ? { entry } : { entry, indexUuid }
+export function createEntryMessage(
+  entry: ReplicationLogEntry,
+  sourceId: string,
+  indexUuid?: string,
+  previousPrimaryTerm?: number,
+): TransportMessage {
+  const payload: EntryPayload = { entry }
+  if (indexUuid !== undefined) payload.indexUuid = indexUuid
+  if (previousPrimaryTerm !== undefined) payload.previousPrimaryTerm = previousPrimaryTerm
   return {
     type: ReplicationMessageTypes.ENTRY,
     sourceId,
@@ -31,8 +38,11 @@ export function createEntryBatchMessage(
   entries: ReplicationLogEntry[],
   sourceId: string,
   indexUuid?: string,
+  previousPrimaryTerm?: number,
 ): TransportMessage {
-  const payload: EntryBatchPayload = indexUuid === undefined ? { entries } : { entries, indexUuid }
+  const payload: EntryBatchPayload = { entries }
+  if (indexUuid !== undefined) payload.indexUuid = indexUuid
+  if (previousPrimaryTerm !== undefined) payload.previousPrimaryTerm = previousPrimaryTerm
   return {
     type: ReplicationMessageTypes.ENTRY_BATCH,
     sourceId,
@@ -156,6 +166,16 @@ export function optionalIndexUuid(value: unknown, payloadName: string): string |
   return value
 }
 
+function optionalPreviousPrimaryTerm(value: unknown, payloadName: string): number | undefined {
+  if (value === undefined || value === null) {
+    return undefined
+  }
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) {
+    throw new Error(`Invalid ${payloadName}: "previousPrimaryTerm" must be a non-negative integer or absent`)
+  }
+  return value
+}
+
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   if (!isRecord(value)) {
     return false
@@ -194,6 +214,7 @@ export function validateEntryPayload(decoded: unknown): EntryPayload {
     throw new Error('Invalid EntryPayload: "entry.checksum" must be a number')
   }
   optionalIndexUuid(decoded.indexUuid, 'EntryPayload')
+  optionalPreviousPrimaryTerm(decoded.previousPrimaryTerm, 'EntryPayload')
   return decoded as unknown as EntryPayload
 }
 
@@ -221,8 +242,12 @@ export function validateEntryBatchPayload(decoded: unknown): EntryBatchPayload {
     }
   }
 
+  const payload: EntryBatchPayload = { entries: validated }
   const indexUuid = optionalIndexUuid(decoded.indexUuid, 'EntryBatchPayload')
-  return indexUuid === undefined ? { entries: validated } : { entries: validated, indexUuid }
+  if (indexUuid !== undefined) payload.indexUuid = indexUuid
+  const previousPrimaryTerm = optionalPreviousPrimaryTerm(decoded.previousPrimaryTerm, 'EntryBatchPayload')
+  if (previousPrimaryTerm !== undefined) payload.previousPrimaryTerm = previousPrimaryTerm
+  return payload
 }
 
 export function validateForwardBatchPayload(decoded: unknown): ForwardBatchPayload {

@@ -9,6 +9,7 @@ import { handlePartitionStores } from './partition-stores'
 import { handleFetch, handleSearch, handleStats } from './queries'
 import { handleCount, handleList, handlePreflight, handleSuggest } from './read-handlers'
 import { handleSyncRequestMessage } from './sync'
+import { handleTermStart } from './term-start'
 import type { DataNodeHandlerDeps, TransportHandler } from './types'
 import { handleForward, handleForwardBatch, handleReplicationEntry, handleReplicationEntryBatch } from './writes'
 
@@ -34,6 +35,9 @@ export function createDataNodeHandler(deps: DataNodeHandlerDeps): TransportHandl
           return
         case ReplicationMessageTypes.ENTRY_BATCH:
           await handleReplicationEntryBatch(message, respond, deps)
+          return
+        case ReplicationMessageTypes.TERM_START:
+          await handleTermStart(message, respond, deps)
           return
         case QueryMessageTypes.SEARCH:
           await handleSearch(message, respond, deps)

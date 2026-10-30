@@ -68,7 +68,7 @@ export function createSimulatedNetwork(config: SimulatedNetworkConfig): Simulate
     async directExchange(target: string, message: TransportMessage): Promise<TransportMessage> {
       const peer = transports.get(target)
       if (peer === undefined) {
-        throw new TransportError(TransportErrorCodes.PEER_UNAVAILABLE, `Node '${target}' is not reachable`, { target })
+        throw new TransportError(TransportErrorCodes.CONNECT_FAILED, `Node '${target}' is not reachable`, { target })
       }
       return new Promise<TransportMessage>((resolve, reject) => {
         let settled = false
