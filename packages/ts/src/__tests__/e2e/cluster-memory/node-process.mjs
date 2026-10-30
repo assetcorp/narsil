@@ -9,6 +9,7 @@ import { createServer } from '../../../../dist/server.mjs'
 
 const SHINGLE_LENGTH = 3
 const BALLAST_HEADER = 'x-narsil-test-ballast'
+const BALLAST_ARRAY_LENGTH = 131_072
 const OLD_GENERATION_SAMPLE_INTERVAL_MS = 20
 const YOUNG_GENERATION_SPACES = new Set(['new_space', 'new_large_object_space'])
 
@@ -41,6 +42,19 @@ setFlagsFromString('--expose-gc')
 const collectGarbage = runInNewContext('gc')
 setFlagsFromString('--no-expose-gc')
 
+const OLD_GENERATION_LIMIT_BYTES =
+  Number(
+    /^--max-old-space-size=(\d+)$/.exec(
+      process.execArgv.find(flag => flag.startsWith('--max-old-space-size=')) ?? '',
+    )?.[1] ?? 0,
+  ) * 1_048_576
+
+function heapUsedBytes() {
+  let used = 0
+  for (const space of getHeapSpaceStatistics()) used += space.space_used_size
+  return used
+}
+
 const ballast = []
 function holdBallast(ctx) {
   const action = ctx.headers[BALLAST_HEADER]
@@ -50,10 +64,10 @@ function holdBallast(ctx) {
     collectGarbage()
   } else {
     collectGarbage()
-    const missingBytes = Math.floor(Number(action) * process.constrainedMemory() - process.memoryUsage.rss())
-    if (missingBytes > 0) ballast.push(Buffer.alloc(missingBytes, 1))
+    const targetBytes = Number(action) * OLD_GENERATION_LIMIT_BYTES
+    while (heapUsedBytes() < targetBytes) ballast.push(new Array(BALLAST_ARRAY_LENGTH).fill(0.5))
   }
-  return { status: 409, code: 'BALLAST', message: String(process.memoryUsage.rss()) }
+  return { status: 409, code: 'BALLAST', message: String(heapUsedBytes()) }
 }
 
 function requireEnv(name) {
