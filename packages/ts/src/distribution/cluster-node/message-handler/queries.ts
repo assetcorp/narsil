@@ -16,6 +16,7 @@ import type {
   WireGroupEntry,
 } from '../../transport/types'
 import { QueryMessageTypes } from '../../transport/types'
+import { refuseEncodeWithoutRoom } from '../memory/answer-room'
 import { wireParamsToLocal } from '../query-conversion'
 import type { DataNodeHandlerDeps } from './types'
 
@@ -127,6 +128,7 @@ export async function handleFetch(
     }
   }
 
+  refuseEncodeWithoutRoom(documents.map(fetched => fetched.document))
   const resultPayload: FetchResultPayload = { documents }
 
   await respond({

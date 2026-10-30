@@ -120,7 +120,7 @@ export async function listCluster<T = AnyDocument>(
       )
     }
     const message = createListMessage({ ...payload, partitionIds: group.partitionIds }, deps.nodeId)
-    return sendReadRequest(deps, group.nodeId, message, indexName, validateListResultPayload)
+    return sendReadRequest(deps, group.nodeId, message, indexName, validateListResultPayload, true)
   })
 
   let total = 0
