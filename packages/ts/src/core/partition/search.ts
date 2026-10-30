@@ -50,7 +50,6 @@ export function searchFulltext(state: PartitionReadState, params: InternalSearch
   } = params
 
   const collectComponents = params.collectComponents !== false
-  const clock = params.clock
 
   if (queryTokens.length === 0) {
     return { scored: [], totalMatched: 0 }
@@ -159,7 +158,6 @@ export function searchFulltext(state: PartitionReadState, params: InternalSearch
 
   const prunableList = prunableSingleTermList(params, state.invertedIdx, fieldNames)
   if (prunableList !== null && maxResults !== undefined) {
-    if (clock !== undefined) clock.tick(prunableList.length)
     return singleTermTopK({
       list: prunableList,
       docFrequency: documentFrequency(queryTokens[0].token, prunableList),
@@ -173,7 +171,6 @@ export function searchFulltext(state: PartitionReadState, params: InternalSearch
 
   const prunableLists = prunableMultiTermLists(params, state.invertedIdx)
   if (prunableLists !== null && maxResults !== undefined) {
-    if (clock !== undefined) for (const term of prunableLists) clock.tick(term.list.length)
     const pruned = multiTermTopK({
       terms: prunableLists,
       docFrequencies: prunableLists.map(term => documentFrequency(term.token, term.list)),
@@ -205,7 +202,6 @@ export function searchFulltext(state: PartitionReadState, params: InternalSearch
 
     for (let tokenIndex = 0; tokenIndex < resolved.length; tokenIndex++) {
       const onlyScored = tokenIndex > 0
-      if (clock !== undefined) clock.tick(resolved[tokenIndex].totalPostings)
       for (const match of resolved[tokenIndex].matches) scorePostings(match, onlyScored)
       scoreGroup(resolved[tokenIndex].group, onlyScored)
     }
@@ -213,7 +209,6 @@ export function searchFulltext(state: PartitionReadState, params: InternalSearch
     for (const qt of queryTokens) {
       const group = termGroupOf(termGroups, qt.token)
       for (const m of typoMatchesFor(state.invertedIdx, qt.token, group, exact, tolerance, prefixLength)) {
-        if (clock !== undefined) clock.tick(m.postingList.length)
         scorePostings(resolveMatch(m.token, m.postingList), false)
       }
       if (group !== undefined) scoreGroup(resolveGroupMatches(groupContext, group), false)
@@ -221,7 +216,6 @@ export function searchFulltext(state: PartitionReadState, params: InternalSearch
   }
 
   const totalMatched = scoreBuffer.touchedCount
-  if (clock !== undefined) clock.tick(totalMatched)
   const k = maxResults === undefined ? totalMatched : Math.max(0, Math.min(maxResults, totalMatched))
   const scored = topKFromBuffer(scoreBuffer, k, resolver, components)
 

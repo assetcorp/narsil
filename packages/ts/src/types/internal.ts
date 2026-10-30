@@ -1,4 +1,3 @@
-import type { SearchClock } from '../core/search-clock'
 import type { GroupSynonyms } from '../core/synonyms/types'
 import type { PartitionConfig, ScoringMode, VectorIndexConfig } from './schema'
 
@@ -220,7 +219,6 @@ export interface ExpandedTermGroup {
 }
 
 export interface InternalSearchParams {
-  clock?: SearchClock
   queryTokens: Array<{ token: string; position: number }>
   termGroups?: ExpandedTermGroup[]
   partialFields?: string[]

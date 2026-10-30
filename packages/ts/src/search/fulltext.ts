@@ -95,7 +95,6 @@ export function fulltextMatches(
   if (prepared === null) return null
 
   return partition.searchFulltextMatches({
-    clock: options?.patternWork?.clock,
     queryTokens: prepared.queryTokens,
     termGroups: prepared.termGroups,
     partialFields: prepared.partialFields,
@@ -136,7 +135,6 @@ export function fulltextSearch(
     params.includeScoreComponents === true || (params.termMatch !== undefined && params.termMatch !== 'any')
 
   const rawResult = partition.searchFulltext({
-    clock: options?.patternWork?.clock,
     queryTokens,
     termGroups,
     partialFields,
