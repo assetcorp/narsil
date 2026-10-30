@@ -45,6 +45,8 @@ Each partition has exactly one primary node that accepts writes, and zero or mor
    takes over from step 4.
 ```
 
+A primary appends no entry under a term until it has started that term on every copy in the in-sync set, as [Starting a Term](#starting-a-term) defines.
+
 A node forwarding many mutations to one primary should send them in a single `replication.forward_batch` message, and the primary then answers one outcome per mutation; see [transport.md](transport.md#replicationforward_batch).
 
 ### Rollback of a Failed Write
@@ -88,6 +90,22 @@ Once the allocation table names a newer primary for the partition, the forwardin
 A copy holds the entry numbered `s` under term `t` where `s` is at or below the highest `seqNo` that the copy holds and its [term history](#term-history) gives term `t` for `s`. The new primary decides from its term history and from that highest `seqNo` alone, and it never scans its log, because a log that a restart reopened retains no entry below its persisted position. Holding C implies holding E, because C follows E in the same term. Where the term history no longer covers E's `seqNo`, or where the document holds no write record, the new primary answers `REPLICATION_OUTCOME_UNKNOWN`.
 
 A forwarding node uses `abandonedWrite` for this resend alone, and it must never pass `abandonedWrite` to the client. Where a reply carries no `abandonedWrite`, the forwarding node passes `REPLICATION_OUTCOME_UNKNOWN` to the client.
+
+### Starting a Term
+
+A node that becomes primary under a new term must send [replication.term_start](transport.md#replicationterm_start) to every other copy in the in-sync set as soon as it learns that it leads the term, and before it appends the term's first entry, so that a copy whose log diverged leaves the in-sync set even when the partition receives no writes. The primary holds the partition's write queue until every copy has answered or has left the in-sync set, and it bounds that hold by its `replicationTimeout`.
+
+A replica decides the message inside the partition's write queue. It records the term as accepted, and from then on it must never append an entry under an earlier term, including a compensating entry of its own from a term that it led. It then answers with [replication.term_start_ack](transport.md#replicationterm_start_ack), which carries its highest `seqNo` and the term that its [term history](#term-history) gives for it.
+
+The primary decides each copy from that answer:
+
+1. Where both numbers equal its own, the copy is in step and stays in the in-sync set.
+2. Where the copy's highest `seqNo` is below the primary's, and the primary's term history gives the same term for that `seqNo`, the copy lacks entries at the end of the same history. The primary sends it those entries in a `replication.entry_batch`, and the copy stays in the in-sync set once it acknowledges them.
+3. Otherwise, the primary asks the controller to remove the copy from the in-sync set, as the [Removal Flow](#removal-flow) defines. This covers a copy whose term history disagrees at its highest `seqNo`, and a copy whose highest `seqNo` is above the primary's, because that copy holds entries of an earlier term that the new primary lacks.
+
+The primary also removes a copy that does not answer within its `replicationTimeout`, and one that refuses the message. A node from before this message sends no reply to it, so during a rolling upgrade the primary removes that copy once the timeout passes, and the copy rejoins through the [Sync Protocol](#sync-protocol). A removed copy whose term history disagrees receives a snapshot there, as [Choosing the Tier](#choosing-the-tier) defines.
+
+Comparing the highest `seqNo` and its term is enough, because [Log Matching](#log-matching) guards every append: where two copies give the same term for one `seqNo`, they hold the same entries up to it. A port must keep both rules together, because either one alone lets a copy that diverged stay in the in-sync set.
 
 ### Read Path
 
@@ -169,6 +187,12 @@ Every copy of a cluster partition keeps a term history, which lists, for each pr
 A copy appends to its history when it applies an entry of a term above the last listed term. A copy that discards its entries above `s`, as a replica does when it resyncs with a new primary, must drop every listed term whose first `seqNo` is above `s`. A copy that restores a snapshot replaces its history with the history that the snapshot carries. The [manifest](../durability.md#manifest) persists the history, and recovery extends it from the records that it replays.
 
 A copy may drop a listed term once the term after it starts at or below both the oldest `seqNo` that its replication log retains and the `lastSeqNo` of its checkpoint, so that the history stays as long as the failovers that the retained log and the checkpoint span. The history then covers no `seqNo` below the first listed term's first `seqNo`, and a [retry after an ended term](#retry-after-an-ended-term) that asks about such an entry receives `REPLICATION_OUTCOME_UNKNOWN`.
+
+### Log Matching
+
+A replica that appends an entry at the `seqNo` after its highest must first check that its term history gives the entry's `previousPrimaryTerm` for its highest `seqNo`, or 0 where it holds no entry, and it must refuse the message with `REPLICATION_ENTRY_INVALID` where the two differ. The primary then removes the copy from the in-sync set, as the [Removal Flow](#removal-flow) defines, and the copy rejoins through the [Sync Protocol](#sync-protocol), where its disagreeing term history gives it a snapshot. A replica skips the check where the message carries no `previousPrimaryTerm`, and where it seeds an empty log from the entry after a completed sync.
+
+Only the primary of a term appends entries under that term, and each primary appends a `seqNo` once, so one `seqNo` and one term identify one entry. Because every copy appends only where its own highest entry carries the term that the primary gives for that `seqNo`, two copies that give the same term for one `seqNo` hold the same entries up to it. Raft's log matching rule rests on the same argument.
 
 ---
 
@@ -281,6 +305,8 @@ The in-sync set records which replicas are fully caught up with the primary. Onl
 A replica joins the in-sync set once it has applied every entry up to the partition's commit point. The commit point is the highest sequence number the primary has acknowledged to a client. The primary holds its own commit point, and the controller stores a floor on it in the partition assignment, raising that floor whenever it admits a replica and never lowering it.
 
 A replica leaves the in-sync set when the primary detects it has failed, whether by a timeout on a forwarded entry or by a lost connection. The primary then asks the controller to remove it.
+
+A primary sends each entry only to the copies that its own assignment for the entry's term lists in the in-sync set, together with the replicas whose admission it has asked the controller to confirm, and it leaves out every copy whose removal it has asked for under that term. It counts an acknowledgement only from a copy that it sent the entry to. A copy that the primary removed comes back only through the [Catch-Up Feed](#catch-up-feed) and an admission that the controller confirms, so an assignment that the primary read before the removal and that still lists the copy in the in-sync set never brings it back.
 
 A replica that reads an `ACTIVE` assignment naming it outside the in-sync set must run the sync protocol against the primary. The primary feeds it from there through the [Catch-Up Feed](#catch-up-feed), and asks the controller to admit it once it has caught up.
 
@@ -468,7 +494,7 @@ Only a primary needs access to the embedding adapter, so a replica runs with no 
 | `REPLICATION_TERM_MISMATCH` | A replica received an entry carrying a stale primaryTerm. |
 | `REPLICATION_SYNC_FAILED` | The sync protocol, incremental or snapshot, failed to finish. |
 | `REPLICATION_ROLLBACK_FAILED` | A primary-local mutation failed before acknowledgement and the rollback failed too. |
-| `REPLICATION_OUTCOME_UNKNOWN` | A write failed after the primary applied it, and the primary could not confirm within `replicationTimeout` that every in-sync copy dropped it, so the write may or may not have taken effect. Its details carry `reason`, which is `term_ended` where the primary abandoned the write because its term ended, `rollback_open` where the rollback was still incomplete, and `lease_lapsed` where the primary's registration lease lapsed before it acknowledged a write that it had applied. |
+| `REPLICATION_OUTCOME_UNKNOWN` | The write may or may not have taken effect, because it failed after the primary applied it and the primary could not confirm within `replicationTimeout` that every in-sync copy dropped it, or because the node that forwarded it lost its connection to the primary after sending it. Its details carry `reason`, which is `term_ended` where the primary abandoned the write because its term ended, `rollback_open` where the rollback was still incomplete, `lease_lapsed` where the primary's registration lease lapsed before it acknowledged a write that it had applied, and `forward_interrupted` where the node that forwarded an update or a remove lost its connection to the primary after it sent the write. |
 | `REPLICATION_WRITE_CONFLICT` | A new primary refused an update or a remove that a node sent again after the earlier primary's term ended, because another write touched the document after the earlier primary's attempt, as [Retry After an Ended Term](#retry-after-an-ended-term) defines. The write did not take effect. |
 | `REPLICATION_ENTRY_INVALID` | A received entry is malformed, out of order, or not addressed to the receiving replica. |
 | `REPLICATION_INSYNC_REMOVAL_FAILED` | The primary could not remove a failed replica from the in-sync set while it still held its term, because no controller was reachable or the controller rejected the request. A primary whose term has moved reports `PARTITION_NOT_PRIMARY` instead. |

@@ -145,6 +145,8 @@ export const ReplicationMessageTypes = {
   FORWARD_BATCH: 'replication.forward_batch',
   ENTRY: 'replication.entry',
   ENTRY_BATCH: 'replication.entry_batch',
+  TERM_START: 'replication.term_start',
+  TERM_START_ACK: 'replication.term_start_ack',
   ACK: 'replication.ack',
   SYNC_REQUEST: 'replication.sync_request',
   SYNC_ENTRIES: 'replication.sync_entries',
@@ -243,11 +245,13 @@ export interface ForwardBatchResultPayload {
 export interface EntryPayload {
   entry: ReplicationLogEntry
   indexUuid?: string
+  previousPrimaryTerm?: number
 }
 
 export interface EntryBatchPayload {
   entries: ReplicationLogEntry[]
   indexUuid?: string
+  previousPrimaryTerm?: number
 }
 
 export interface AckPayload {

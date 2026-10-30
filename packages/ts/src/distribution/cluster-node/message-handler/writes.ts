@@ -71,7 +71,7 @@ export async function handleReplicationEntry(
   const { entry } = payload
   refuseAnotherIndex(entry.indexName, payload.indexUuid, deps)
 
-  await applyEntriesFromPrimary([entry], message.sourceId, deps)
+  await applyEntriesFromPrimary([entry], message.sourceId, deps, payload.previousPrimaryTerm)
 
   await respond(createAckMessage(entry.seqNo, entry.partitionId, entry.indexName, deps.nodeId, message.requestId))
 }
@@ -85,7 +85,7 @@ export async function handleReplicationEntryBatch(
   const lastEntry = payload.entries[payload.entries.length - 1]
   refuseAnotherIndex(lastEntry.indexName, payload.indexUuid, deps)
 
-  await applyEntriesFromPrimary(payload.entries, message.sourceId, deps)
+  await applyEntriesFromPrimary(payload.entries, message.sourceId, deps, payload.previousPrimaryTerm)
 
   await respond(
     createAckMessage(lastEntry.seqNo, lastEntry.partitionId, lastEntry.indexName, deps.nodeId, message.requestId),
@@ -100,7 +100,7 @@ function anotherIndexAsPrimary(indexName: string, nodeId: string, heldIndexUuid:
   )
 }
 
-function refuseAnotherIndex(indexName: string, indexUuid: string | undefined, deps: DataNodeHandlerDeps): void {
+export function refuseAnotherIndex(indexName: string, indexUuid: string | undefined, deps: DataNodeHandlerDeps): void {
   if (!holdsAnotherIndex(deps.engine.indexUuidOf(indexName), indexUuid)) return
   throw new NarsilError(
     ErrorCodes.INDEX_NOT_FOUND,
@@ -113,6 +113,7 @@ async function applyEntriesFromPrimary(
   entries: readonly ReplicationLogEntry[],
   sourceNodeId: string,
   deps: DataNodeHandlerDeps,
+  previousPrimaryTerm: number | undefined,
 ): Promise<void> {
   const first = entries[0]
   if (first === undefined) return
@@ -127,7 +128,7 @@ async function applyEntriesFromPrimary(
   await enqueuePartitionWrite(deps.writeDeps.partitionWriteQueues, first.indexName, first.partitionId, async () => {
     const current = await resolveValidatedAssignment(first, sourceNodeId, deps)
     noteAcceptedPrimaryTerm(deps.writeDeps.getReplicationLog(first.indexName, first.partitionId), current.primaryTerm)
-    await applyEntriesInLogOrder(first, entries, deps)
+    await applyEntriesInLogOrder(first, entries, deps, previousPrimaryTerm)
   })
 }
 
@@ -135,12 +136,16 @@ async function applyEntriesInLogOrder(
   first: ReplicationLogEntry,
   entries: readonly ReplicationLogEntry[],
   deps: DataNodeHandlerDeps,
+  previousPrimaryTerm: number | undefined,
 ): Promise<void> {
   let log = deps.writeDeps.getReplicationLog(first.indexName, first.partitionId)
   let tailSeqNo = log.localLogEnd
   let tailPrimaryTerm = log.localLogEndPrimaryTerm
+  let expectedPreviousTerm = previousPrimaryTerm
   const run: ReplicationLogEntry[] = []
   for (const entry of entries) {
+    const expectedTermBefore = expectedPreviousTerm
+    expectedPreviousTerm = entry.primaryTerm
     const existing = log.getEntry(entry.seqNo)
     if (existing !== undefined) {
       if (existing.checksum !== entry.checksum) {
@@ -152,6 +157,27 @@ async function applyEntriesInLogOrder(
         )
       }
       continue
+    }
+
+    const heldTermBefore = run.at(-1)?.primaryTerm ?? (tailSeqNo === 0 ? 0 : log.termAt(tailSeqNo))
+    if (
+      entry.seqNo === tailSeqNo + 1 &&
+      expectedTermBefore !== undefined &&
+      heldTermBefore !== undefined &&
+      heldTermBefore !== expectedTermBefore
+    ) {
+      await applyRun(run, log, deps)
+      throw new NarsilError(
+        ErrorCodes.REPLICATION_ENTRY_INVALID,
+        `Replication entry ${entry.seqNo} follows an entry of term ${expectedTermBefore}, but this copy holds sequence number ${tailSeqNo} under term ${heldTermBefore}`,
+        {
+          indexName: entry.indexName,
+          partitionId: entry.partitionId,
+          seqNo: entry.seqNo,
+          previousPrimaryTerm: expectedTermBefore,
+          heldPrimaryTerm: heldTermBefore,
+        },
+      )
     }
 
     const expectedSeqNo = tailSeqNo + 1

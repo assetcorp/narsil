@@ -2,7 +2,7 @@ import { chunkByBudget } from '../../chunking'
 import { WIRE_BATCH_BUDGET } from '../../constants'
 import type { PartitionAssignment } from '../../coordinator/types'
 import { REPLICATION_ENTRY_FIXED_OVERHEAD_BYTES } from '../../replication/constants'
-import { replicateBatchToReplicas } from '../../replication/primary'
+import { previousTermOf, replicateBatchToReplicas } from '../../replication/primary'
 import type { ReplicationLog, ReplicationLogEntry } from '../../replication/types'
 import { CATCH_UP_FEED_WINDOW_MS, CATCH_UP_TICK_MS, MAX_CATCH_UP_IN_FLIGHT_BYTES } from '../constants'
 import { enqueuePartitionWrite } from '../write-routing/partition-queue'
@@ -178,7 +178,8 @@ async function sendBatch(
   const sendingEpoch = cursor.syncEpoch
   state.inFlightBytes += reservedBytes
   const delivery = (async () => {
-    const indexName = batch[0]?.indexName
+    const first = batch[0]
+    const indexName = first?.indexName
     const table = indexName === undefined ? null : await deps.coordinator.getAllocation(indexName)
     if (feed.cancelled) {
       return false
@@ -190,6 +191,9 @@ async function sendBatch(
       deps.nodeId,
       deps.resolveNodeTargets,
       table?.indexUuid,
+      first === undefined
+        ? undefined
+        : previousTermOf(deps.getReplicationLog(first.indexName, first.partitionId), first.seqNo),
     )
     return result.acknowledged.includes(replicaNodeId)
   })().finally(() => {

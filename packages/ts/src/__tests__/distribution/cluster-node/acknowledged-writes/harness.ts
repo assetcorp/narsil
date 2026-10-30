@@ -6,7 +6,7 @@ import { decode, encode } from '@msgpack/msgpack'
 import { createClusterNode } from '../../../../distribution'
 import type { ClusterNode, ClusterNodeConfig } from '../../../../distribution/cluster-node/types'
 import { createInMemoryCoordinator } from '../../../../distribution/coordinator'
-import type { AllocationTable, ClusterCoordinator, NodeRegistration } from '../../../../distribution/coordinator/types'
+import type { AllocationTable, ClusterCoordinator } from '../../../../distribution/coordinator/types'
 import {
   createInMemoryNetwork,
   createInMemoryTransport,
@@ -14,6 +14,9 @@ import {
 } from '../../../../distribution/transport'
 import type { ListenHandler, NodeTransport, TransportMessage } from '../../../../distribution/transport/types'
 import { type TransportConfig, TransportError } from '../../../../distribution/transport/types'
+import { type FaultyCoordinator, faultyCoordinator } from './faulty-coordinator'
+
+export { type FaultyCoordinator, faultyCoordinator } from './faulty-coordinator'
 
 export const INDEX = 'ledger'
 export const SCHEMA = { title: 'string', amount: 'number' } as const
@@ -34,6 +37,9 @@ export interface FaultyTransport extends NodeTransport {
   failSlowlyWhen(rule: MessageRule, delayMs: number): () => void
   holdWhen(rule: MessageRule): HeldMessages
   dropped(): TransportMessage[]
+  failuresOf(rule: MessageRule): string[]
+  ignoreWhen(rule: MessageRule): () => void
+  syncTiers(): Array<'incremental' | 'snapshot'>
 }
 
 export function faultyTransport(inner: NodeTransport, nodeId: string): FaultyTransport {
@@ -42,6 +48,9 @@ export function faultyTransport(inner: NodeTransport, nodeId: string): FaultyTra
   const slowFailures = new Map<MessageRule, number>()
   const holds = new Set<{ rule: MessageRule; gate: Promise<void>; held: number }>()
   const droppedMessages: TransportMessage[] = []
+  const failures: Array<{ target: string; message: TransportMessage; code: string }> = []
+  const ignored = new Set<MessageRule>()
+  const tiers: Array<'incremental' | 'snapshot'> = []
 
   async function waitForRelease(target: string, message: TransportMessage): Promise<void> {
     for (const hold of holds) {
@@ -56,7 +65,7 @@ export function faultyTransport(inner: NodeTransport, nodeId: string): FaultyTra
     for (const rule of rules) {
       if (rule(target, message)) {
         droppedMessages.push(message)
-        throw new TransportError('TRANSPORT_PEER_UNAVAILABLE', `${nodeId} cannot reach ${target}`, { target })
+        throw new TransportError('TRANSPORT_CONNECT_FAILED', `${nodeId} cannot reach ${target}`, { target })
       }
     }
   }
@@ -72,7 +81,10 @@ export function faultyTransport(inner: NodeTransport, nodeId: string): FaultyTra
           throw new TransportError('TRANSPORT_CONNECT_FAILED', `${nodeId} gave up connecting to ${target}`, { target })
         }
       }
-      const response = await inner.send(target, message)
+      const response = await inner.send(target, message).catch((error: unknown) => {
+        if (error instanceof TransportError) failures.push({ target, message, code: error.code })
+        throw error
+      })
       for (const rule of lostReplies) {
         if (rule(target, message)) {
           throw new TransportError('TRANSPORT_PEER_UNAVAILABLE', `${nodeId} lost the reply from ${target}`, { target })
@@ -83,10 +95,23 @@ export function faultyTransport(inner: NodeTransport, nodeId: string): FaultyTra
     async stream(target, message, handler) {
       await waitForRelease(target, message)
       refuse(target, message)
-      return inner.stream(target, message, handler)
+      let first = message.type === 'replication.sync_request'
+      return inner.stream(target, message, chunk => {
+        if (first) {
+          first = false
+          const decoded = decode(chunk) as Record<string, unknown> | null
+          tiers.push(
+            decoded !== null && typeof decoded === 'object' && 'entries' in decoded ? 'incremental' : 'snapshot',
+          )
+        }
+        handler(chunk)
+      })
     },
     listen(handler: ListenHandler) {
-      return inner.listen(handler)
+      return inner.listen((message, respond) => {
+        for (const rule of ignored) if (rule(nodeId, message)) return
+        return handler(message, respond)
+      })
     },
     shutdown() {
       return inner.shutdown()
@@ -118,6 +143,16 @@ export function faultyTransport(inner: NodeTransport, nodeId: string): FaultyTra
     dropped() {
       return droppedMessages
     },
+    ignoreWhen(rule) {
+      ignored.add(rule)
+      return () => ignored.delete(rule)
+    },
+    syncTiers() {
+      return tiers
+    },
+    failuresOf(rule) {
+      return failures.filter(failure => rule(failure.target, failure.message)).map(failure => failure.code)
+    },
   }
 }
 
@@ -140,49 +175,6 @@ export function entryForDocument(documentId: string): MessageRule {
     const payload = decode(message.payload) as { entry?: { documentId?: unknown } }
     return payload.entry?.documentId === documentId
   }
-}
-
-export interface FaultyCoordinator extends ClusterCoordinator {
-  refuseRegistrationOf(nodeId: string): () => void
-  cutOff(): () => void
-}
-
-export function faultyCoordinator(inner: ClusterCoordinator): FaultyCoordinator {
-  const refused = new Set<string>()
-  let unreachable = false
-  return new Proxy(inner, {
-    get(target, property, receiver) {
-      if (property === 'refuseRegistrationOf') {
-        return (nodeId: string) => {
-          refused.add(nodeId)
-          return () => refused.delete(nodeId)
-        }
-      }
-      if (property === 'cutOff') {
-        return () => {
-          unreachable = true
-          return () => {
-            unreachable = false
-          }
-        }
-      }
-      const value = Reflect.get(target, property, receiver)
-      if (unreachable && typeof value === 'function' && property !== 'shutdown') {
-        return async () => {
-          throw new Error(`the coordinator is unreachable, so ${String(property)} failed`)
-        }
-      }
-      if (property === 'registerNode') {
-        return async (registration: NodeRegistration) => {
-          if (refused.has(registration.nodeId)) {
-            throw new Error(`the coordinator cannot reach ${registration.nodeId}`)
-          }
-          return target.registerNode(registration)
-        }
-      }
-      return value
-    },
-  }) as FaultyCoordinator
 }
 
 export type NodeOptions = Partial<ClusterNodeConfig> & { durable?: boolean; timeouts?: Partial<TransportConfig> }

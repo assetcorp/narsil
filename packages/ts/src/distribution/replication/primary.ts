@@ -2,7 +2,11 @@ import { decode } from '@msgpack/msgpack'
 import type { NodeTransport, TransportMessage } from '../transport/types'
 import { ReplicationMessageTypes, TransportError, TransportErrorCodes } from '../transport/types'
 import { createEntryBatchMessage, createEntryMessage, validateAckPayload } from './codec'
-import type { ReplicateResult, ReplicationLogEntry } from './types'
+import type { ReplicateResult, ReplicationLog, ReplicationLogEntry } from './types'
+
+export function previousTermOf(log: ReplicationLog, seqNo: number): number | undefined {
+  return seqNo <= 1 ? 0 : log.termAt(seqNo - 1)
+}
 
 export async function replicateToReplicas(
   entry: ReplicationLogEntry,
@@ -11,8 +15,9 @@ export async function replicateToReplicas(
   sourceNodeId: string,
   resolveNodeTargets?: (nodeId: string) => Promise<string[]>,
   indexUuid?: string,
+  previousPrimaryTerm?: number,
 ): Promise<ReplicateResult> {
-  const message = createEntryMessage(entry, sourceNodeId, indexUuid)
+  const message = createEntryMessage(entry, sourceNodeId, indexUuid, previousPrimaryTerm)
   return sendAndCollectAcks(message, entry, inSyncReplicas, transport, resolveNodeTargets)
 }
 
@@ -23,15 +28,24 @@ export async function replicateBatchToReplicas(
   sourceNodeId: string,
   resolveNodeTargets?: (nodeId: string) => Promise<string[]>,
   indexUuid?: string,
+  previousPrimaryTerm?: number,
 ): Promise<ReplicateResult> {
   if (entries.length === 0) {
     return { acknowledged: [], failed: [] }
   }
   if (entries.length === 1) {
-    return replicateToReplicas(entries[0], inSyncReplicas, transport, sourceNodeId, resolveNodeTargets, indexUuid)
+    return replicateToReplicas(
+      entries[0],
+      inSyncReplicas,
+      transport,
+      sourceNodeId,
+      resolveNodeTargets,
+      indexUuid,
+      previousPrimaryTerm,
+    )
   }
 
-  const message = createEntryBatchMessage(entries, sourceNodeId, indexUuid)
+  const message = createEntryBatchMessage(entries, sourceNodeId, indexUuid, previousPrimaryTerm)
   const lastEntry = entries[entries.length - 1]
   return sendAndCollectAcks(message, lastEntry, inSyncReplicas, transport, resolveNodeTargets)
 }

@@ -47,7 +47,7 @@ export class TcpConnectionPool {
 
   async send(target: string, message: TransportMessage): Promise<TransportMessage> {
     if (this.closed) {
-      throw new TransportError(TransportErrorCodes.PEER_UNAVAILABLE, 'Connection pool has been shut down')
+      throw new TransportError(TransportErrorCodes.CONNECT_FAILED, 'Connection pool has been shut down')
     }
 
     const messageBytes = encodeTransportMessage(message)
@@ -95,7 +95,7 @@ export class TcpConnectionPool {
 
   async stream(target: string, message: TransportMessage, handler: (chunk: Uint8Array) => void): Promise<void> {
     if (this.closed) {
-      throw new TransportError(TransportErrorCodes.PEER_UNAVAILABLE, 'Connection pool has been shut down')
+      throw new TransportError(TransportErrorCodes.CONNECT_FAILED, 'Connection pool has been shut down')
     }
 
     const messageBytes = encodeTransportMessage(message)

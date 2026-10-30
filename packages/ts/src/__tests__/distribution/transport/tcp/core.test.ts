@@ -174,7 +174,7 @@ describe('TcpTransport', () => {
       } catch (error) {
         expect(error).toBeInstanceOf(TransportError)
         const transportErr = error as TransportError
-        expect(transportErr.code).toBe(TransportErrorCodes.PEER_UNAVAILABLE)
+        expect(transportErr.code).toBe(TransportErrorCodes.CONNECT_FAILED)
       }
     })
 
