@@ -112,26 +112,37 @@ export function scannedParseBytes(raw: Uint8Array): number {
 interface ParseLine {
   heap: number
   process: number
+  holdsYoungReserve: boolean
 }
 
 const WRITE_PARSE_LINE: ParseLine = {
   heap: Math.min(PARSE_HEAP_BLOCK_FRACTION, HEAP_BLOCK_FRACTION_BELOW_V8_INEFFECTIVE_MARK_COMPACT_LINE),
   process: PARSE_HEAP_BLOCK_FRACTION,
+  holdsYoungReserve: true,
 }
-const READ_PARSE_LINE: ParseLine = { heap: PARSE_HEAP_READ_BLOCK_FRACTION, process: PARSE_HEAP_READ_BLOCK_FRACTION }
+const READ_PARSE_LINE: ParseLine = {
+  heap: PARSE_HEAP_READ_BLOCK_FRACTION,
+  process: PARSE_HEAP_READ_BLOCK_FRACTION,
+  holdsYoungReserve: false,
+}
+
+function processRoomIn(figures: MemoryFigures, line: ParseLine): number {
+  const reserve = line.holdsYoungReserve ? figures.youngReserveBytes : 0
+  return line.process * figures.processLimitBytes - figures.processBytes - reserve
+}
 
 function roomIn(figures: MemoryFigures, line: ParseLine): number {
   return (
     Math.min(
       line.heap * figures.heapLimitBytes - figures.heapBytes - figures.youngHeapBytes,
-      line.process * figures.processLimitBytes - figures.processBytes,
+      processRoomIn(figures, line),
     ) - reservedHeapBytes()
   )
 }
 
 function refusal(
   status: 413 | 429,
-  raw: Uint8Array,
+  bodyBytes: number,
   parseBytes: number,
   figures: MemoryFigures,
   collectedGarbage: boolean,
@@ -140,15 +151,15 @@ function refusal(
   const blockBytes = Math.floor(line.heap * figures.heapLimitBytes)
   const message =
     status === 413
-      ? `Parsing this ${raw.length}-byte body can take up to ${parseBytes} bytes of memory, more than the ${blockBytes} bytes that the server allows its heap even when idle. Send the request in smaller parts.`
-      : `Parsing this ${raw.length}-byte body can take up to ${parseBytes} bytes of memory, which with the ${figures.heapBytes} bytes already in use would pass the server's limit of ${blockBytes} bytes. Retry once the requests in progress finish.`
+      ? `Parsing this ${bodyBytes}-byte body can take up to ${parseBytes} bytes of memory, more than the ${blockBytes} bytes that the server allows its heap even when idle. Send the request in smaller parts.`
+      : `Parsing this ${bodyBytes}-byte body can take up to ${parseBytes} bytes of memory, which with the ${figures.heapBytes} bytes already in use would pass the server's limit of ${blockBytes} bytes. Retry once the requests in progress finish.`
   return {
     status,
     code: status === 413 ? ServerErrorCodes.PAYLOAD_TOO_LARGE : ServerErrorCodes.TOO_MANY_REQUESTS,
     message,
     details: {
       reason: status === 413 ? PARSE_EXCEEDS_MEMORY_REASON : PARSE_WOULD_FILL_MEMORY_REASON,
-      bodyBytes: raw.length,
+      bodyBytes,
       parseBytes,
       heapBytes: figures.heapBytes,
       youngHeapBytes: figures.youngHeapBytes,
@@ -174,7 +185,7 @@ export function parseRefusalOf(raw: Uint8Array, kind: ParsedBodyKind = 'write'):
   if (worstBytes <= roomIn(recent, line)) return admitted(worstBytes)
   const parseBytes = Math.min(scannedParseBytes(raw), worstBytes)
   if (parseBytes > line.heap * recent.heapLimitBytes) {
-    return refusal(413, raw, parseBytes, recent, false, line)
+    return refusal(413, raw.length, parseBytes, recent, false, line)
   }
   if (parseBytes <= roomIn(recent, line)) return admitted(parseBytes)
   const figures = readMemoryFigures() ?? recent
@@ -184,5 +195,34 @@ export function parseRefusalOf(raw: Uint8Array, kind: ParsedBodyKind = 'write'):
   const settled = collectedGarbage || collectedYoung ? (readMemoryFigures() ?? figures) : figures
   if (parseBytes <= roomIn(settled, line)) return admitted(parseBytes)
   if (collectedGarbage && kind === 'write') reportRefusalAfterCollection(settled)
-  return refusal(429, raw, parseBytes, settled, collectedGarbage, line)
+  return refusal(429, raw.length, parseBytes, settled, collectedGarbage, line)
+}
+
+function bodyFits(bodyBytes: number, figures: MemoryFigures, line: ParseLine): boolean {
+  const reserved = reservedHeapBytes()
+  const heapRoom = line.heap * figures.heapLimitBytes - figures.heapBytes - figures.youngHeapBytes - reserved
+  const processRoom = processRoomIn(figures, line) - reserved
+  return (
+    bodyBytes * PARSE_TEXT_HEAP_BYTES_PER_BODY_BYTE <= heapRoom &&
+    bodyBytes * (PARSE_TEXT_HEAP_BYTES_PER_BODY_BYTE + 1) <= processRoom
+  )
+}
+
+export function bodyRefusalOf(bodyBytes: number, kind: ParsedBodyKind): ParseRefusal | null {
+  if (bodyBytes <= 0) return null
+  const line = kind === 'read' ? READ_PARSE_LINE : WRITE_PARSE_LINE
+  const recent = readRecentMemoryFigures()
+  if (recent === null || bodyFits(bodyBytes, recent, line)) return null
+  const leastParseBytes = bodyBytes * PARSE_TEXT_HEAP_BYTES_PER_BODY_BYTE
+  if (leastParseBytes > line.heap * recent.heapLimitBytes) {
+    return refusal(413, bodyBytes, leastParseBytes, recent, false, line)
+  }
+  const figures = readMemoryFigures() ?? recent
+  if (bodyFits(bodyBytes, figures, line)) return null
+  const collectedGarbage = collectGarbageBeforeRefusal()
+  const collectedYoung = !collectedGarbage && collectYoungGenerationBeforeRefusal()
+  const settled = collectedGarbage || collectedYoung ? (readMemoryFigures() ?? figures) : figures
+  if (bodyFits(bodyBytes, settled, line)) return null
+  if (collectedGarbage && kind === 'write') reportRefusalAfterCollection(settled)
+  return refusal(429, bodyBytes, leastParseBytes, settled, collectedGarbage, line)
 }

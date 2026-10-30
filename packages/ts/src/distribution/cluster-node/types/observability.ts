@@ -110,6 +110,18 @@ export interface CoordinatorRequestFigure {
 }
 
 /**
+ * A vector field whose rebuild waits for memory on this node.
+ *
+ * @public
+ */
+export interface VectorRebuildWaitFigure {
+  /** The index that holds the vector field. */
+  indexName: string
+  /** The vector field whose graph waits to be rebuilt. */
+  fieldName: string
+}
+
+/**
  * The replication and coordinator figures that one node reports.
  *
  * @public
@@ -123,4 +135,9 @@ export interface ClusterMetrics {
   partitions: PartitionReplicationFigure[]
   /** The timing of this node's coordinator calls, one entry per kind of call that the node has made. */
   coordinatorRequests: CoordinatorRequestFigure[]
+  /**
+   * Each vector field on this node whose rebuild, the one that keeps recall up, waits because the node lacks the
+   * memory to hold a second graph beside the one it serves. The rebuild starts once the node has room.
+   */
+  vectorRebuildsWaitingForMemory: VectorRebuildWaitFigure[]
 }

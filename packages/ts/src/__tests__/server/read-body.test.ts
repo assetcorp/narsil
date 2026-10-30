@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { type BodyHold, createBodyBudgetBuffer, createSharedBodyBudget } from '../../server/body-budget'
-import { readBody } from '../../server/request'
+import { readBody } from '../../server/read-body'
 import type { ResponseSink } from '../../server/response'
 
 const NO_ABORT = { aborted: false, onAbort: () => undefined }

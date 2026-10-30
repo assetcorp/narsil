@@ -75,10 +75,12 @@ function createMockVectorIndex(dimension: number): VectorIndex {
       graphCount: 0,
       bufferSize: 0,
       building: false,
+      waitingForMemory: false,
       estimatedCompactMs: 0,
       estimatedOptimizeMs: 0,
     })),
     estimateMemoryBytes: vi.fn(() => 0),
+    growthBytesFor: vi.fn(() => 0),
     planCheckpoint: vi.fn(() => {
       throw new Error('The fake vector index plans no checkpoint')
     }),

@@ -1,5 +1,6 @@
 import { totalmem } from 'node:os'
 import { getHeapSpaceStatistics, getHeapStatistics } from 'node:v8'
+import { youngGenerationBytesOfThisV8 } from './engine-threads'
 
 const MEGABYTE_BYTES = 1_048_576
 const IN_MEGABYTES = /^--max-old-space-size=(\d+)$/
@@ -20,6 +21,8 @@ export interface OldGenerationStatistics {
   limitBytes: number
   youngUsedBytes: number
   committedBytes: number
+  youngReserveBytes: number
+  youngCeilingBytes: number
 }
 
 function flagEntries(): string[] {
@@ -30,6 +33,16 @@ function flagEntries(): string[] {
 function memoryTheHostAllows(): number {
   const constrained = process.constrainedMemory?.() ?? 0
   return constrained > 0 ? constrained : totalmem()
+}
+
+function readConfiguredOldSpaceMegabytes(): number | null {
+  let megabytes: number | null = null
+  for (const entry of flagEntries()) {
+    const inMegabytes = IN_MEGABYTES.exec(entry)
+    if (inMegabytes !== null) megabytes = Number(inMegabytes[1])
+    if (AS_PERCENTAGE.test(entry)) megabytes = null
+  }
+  return megabytes !== null && Number.isFinite(megabytes) && megabytes > 0 ? megabytes : null
 }
 
 function readConfiguredLimit(): number | null {
@@ -88,6 +101,24 @@ function heapSizeLimitBytes(): number {
   return heapSizeLimit
 }
 
+function readYoungGenerationCeiling(): number {
+  const fromSemiSpace = configuredYoungGenerationBytes()
+  if (fromSemiSpace !== null) return fromSemiSpace
+  const oldSpaceMegabytes = readConfiguredOldSpaceMegabytes()
+  if (oldSpaceMegabytes !== null) {
+    const beyondOldSpace = heapSizeLimitBytes() - oldSpaceMegabytes * MEGABYTE_BYTES
+    if (beyondOldSpace > 0) return beyondOldSpace
+  }
+  return youngGenerationBytesOfThisV8()
+}
+
+let youngGenerationCeiling: number | undefined
+
+function youngGenerationCeilingBytes(): number {
+  if (youngGenerationCeiling === undefined) youngGenerationCeiling = readYoungGenerationCeiling()
+  return youngGenerationCeiling
+}
+
 export function readOldGenerationStatistics(): OldGenerationStatistics | null {
   try {
     let usedBytes = 0
@@ -103,14 +134,16 @@ export function readOldGenerationStatistics(): OldGenerationStatistics | null {
         committedBytes += space.space_size
       }
     }
-    const limitBytes =
-      configuredLimitBytes() ?? heapSizeLimitBytes() - (configuredYoungGenerationBytes() ?? youngCapacityBytes)
+    const youngCeilingBytes = youngGenerationCeilingBytes()
+    const limitBytes = configuredLimitBytes() ?? heapSizeLimitBytes() - youngCeilingBytes
     if (!Number.isFinite(usedBytes) || !Number.isFinite(limitBytes) || limitBytes <= 0) return null
     return {
       usedBytes,
       limitBytes,
       youngUsedBytes: Number.isFinite(youngUsedBytes) ? youngUsedBytes : 0,
       committedBytes: Number.isFinite(committedBytes) ? committedBytes : usedBytes,
+      youngReserveBytes: Number.isFinite(youngCapacityBytes) ? Math.max(0, youngCeilingBytes - youngCapacityBytes) : 0,
+      youngCeilingBytes,
     }
   } catch {
     return null

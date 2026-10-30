@@ -26,6 +26,7 @@ export type {
   IndexHealth,
   PartitionReplicationFigure,
   ReplicaLagFigure,
+  VectorRebuildWaitFigure,
 } from './cluster-node/types/observability'
 export type {
   AllocationConstraints,
