@@ -1,8 +1,11 @@
 import type { Etcd3 as Etcd3Client, IKeyValue, Watcher } from 'etcd3'
-import { RECONNECT_FIRST_DELAY_MS, RECONNECT_LONGEST_DELAY_MS } from './constants'
+import { ErrorCodes, NarsilError } from '../../../errors'
+import { ETCD_WATCH_ATTACH_TIMEOUT_MS, RECONNECT_FIRST_DELAY_MS, RECONNECT_LONGEST_DELAY_MS } from './constants'
+import type { ReplaceableWatchClient } from './watch-client'
 
 export interface PrefixWatchContext {
   client: Etcd3Client
+  watchClient: ReplaceableWatchClient
   addWatcher(watcher: Watcher): void
   removeWatcher(watcher: Watcher): void
   isShutdown(): boolean
@@ -15,6 +18,16 @@ export interface PrefixWatchHandlers {
 
 function connectedOrDropped(watcher: Watcher): Promise<void> {
   return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      detach()
+      reject(
+        new NarsilError(
+          ErrorCodes.COORDINATOR_UNAVAILABLE,
+          `etcd did not attach the watch within ${ETCD_WATCH_ATTACH_TIMEOUT_MS} ms`,
+        ),
+      )
+    }, ETCD_WATCH_ATTACH_TIMEOUT_MS)
+    timer.unref?.()
     const onConnected = (): void => {
       detach()
       resolve()
@@ -24,6 +37,7 @@ function connectedOrDropped(watcher: Watcher): Promise<void> {
       reject(error)
     }
     function detach(): void {
+      clearTimeout(timer)
       watcher.off('connected', onConnected)
       watcher.off('disconnected', onDropped)
       watcher.off('error', onDropped)
@@ -76,11 +90,14 @@ export async function watchPrefix(
   }
 
   async function watchFrom(startRevision: string): Promise<void> {
-    const watcher = context.client.watch().prefix(prefix).startRevision(startRevision).watcher()
+    const client = context.watchClient.current()
+    const watcher = client.watch().prefix(prefix).startRevision(startRevision).watcher()
     try {
       await connectedOrDropped(watcher)
     } catch (error) {
+      watcher.on('error', () => {})
       watcher.cancel().catch(() => {})
+      context.watchClient.replace(client)
       throw error
     }
     if (stopped || context.isShutdown()) {
