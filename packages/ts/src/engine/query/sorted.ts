@@ -77,8 +77,11 @@ export function executeSortedQueryPage<T = AnyDocument>(
     params.facets !== undefined && partitions.length > 1 ? everyValueFacetConfig(params.facets) : params.facets
   let count = 0
 
+  const clock = context.patternWork.clock
   for (const partition of partitions) {
+    clock.check()
     const matches = fulltextMatches(partition, params, language, schema, options)
+    clock.check()
     if (partitionFacetConfig !== undefined) {
       partitionFacets.push(
         partition.computeFacets(
@@ -90,6 +93,7 @@ export function executeSortedQueryPage<T = AnyDocument>(
     }
     if (matches === null || matches.count === 0) continue
     count += matches.count
+    clock.check()
 
     const page = partition.sortedPage({
       fields,
@@ -104,6 +108,7 @@ export function executeSortedQueryPage<T = AnyDocument>(
     for (const entry of page) merged.push(entry)
   }
 
+  clock.check()
   merged.sort((a, b) => compareComparableKeys(a.key, b.key, directions) || compareCodePoints(a.id, b.id))
 
   const hasMore = merged.length > offset + limit

@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs'
 import { request } from 'node:http'
 import { BroadcastChannel } from 'node:worker_threads'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { LONG_QUERY_THREADS } from '../../../engine/orchestration/constants'
 import { postJson, scaledOut, startTestServer, type TestServer, waitFor } from '../helpers'
 
 const DOCUMENTS = 1_200
@@ -25,13 +26,13 @@ const distEntry = new URL('../../../../dist/workers/entry.mjs', import.meta.url)
 const built = existsSync(distEntry)
 
 function crashingBootstrapModule(): string {
-  const source = `import { BroadcastChannel, threadId } from 'node:worker_threads'
+  const source = `import { BroadcastChannel, threadId, workerData } from 'node:worker_threads'
 const channel = new BroadcastChannel(${JSON.stringify(CRASH_CHANNEL)})
 channel.onmessage = message => {
   if (message.data?.crash === threadId) setTimeout(() => { throw new Error(${JSON.stringify(THROWN_MESSAGE)}) })
 }
 channel.unref()
-channel.postMessage({ threadId })`
+channel.postMessage({ threadId, workerId: workerData?.workerId })`
   return `data:text/javascript,${encodeURIComponent(source)}`
 }
 
@@ -41,7 +42,7 @@ describe.skipIf(!built)('a request thread that crashes while requests wait on it
   let releaseHeld: () => void = () => undefined
   let holding = true
   let heldArrivals = 0
-  const announced: number[] = []
+  const announced: Array<{ threadId: number; workerId: number }> = []
   const crashes: Error[] = []
 
   beforeEach(async () => {
@@ -57,8 +58,10 @@ describe.skipIf(!built)('a request thread that crashes while requests wait on it
     })
     channel = new BroadcastChannel(CRASH_CHANNEL)
     channel.onmessage = (message: unknown) => {
-      const threadId = (message as { data?: { threadId?: unknown } }).data?.threadId
-      if (typeof threadId === 'number') announced.push(threadId)
+      const data = (message as { data?: { threadId?: unknown; workerId?: unknown } }).data
+      if (typeof data?.threadId === 'number' && typeof data.workerId === 'number') {
+        announced.push({ threadId: data.threadId, workerId: data.workerId })
+      }
     }
     srv = await startTestServer(
       {
@@ -123,12 +126,12 @@ describe.skipIf(!built)('a request thread that crashes while requests wait on it
     expect(written.body.failed).toEqual([])
     await waitFor(async () => srv.server.requestThreadCount === REQUEST_THREADS, RECOVERY_TIMEOUT_MS)
     await waitFor(() => scaledOut(srv.engine, INDEX), RECOVERY_TIMEOUT_MS)
-    await waitFor(async () => announced.length === REQUEST_THREADS, RECOVERY_TIMEOUT_MS)
+    await waitFor(async () => announced.length === REQUEST_THREADS + LONG_QUERY_THREADS, RECOVERY_TIMEOUT_MS)
 
     const answers = Array.from({ length: HELD_REQUESTS }, () => countWhileHeld())
     await waitFor(async () => heldArrivals === HELD_REQUESTS, RECOVERY_TIMEOUT_MS)
     const seenBefore = announced.length
-    channel.postMessage({ crash: announced[0] })
+    channel.postMessage({ crash: announced.find(entry => entry.workerId === 0)?.threadId })
     await waitFor(async () => announced.length > seenBefore, RECOVERY_TIMEOUT_MS)
     releaseHeld()
     const settled = await Promise.all(answers)

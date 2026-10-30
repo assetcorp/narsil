@@ -1,3 +1,4 @@
+import { type SearchClock, STEADY_CLOCK } from '../../core/search-clock'
 import type { VectorMetric } from '../brute-force'
 import { type OrdinalFilter, ordinalFilterHas } from '../ordinal-filter'
 import { layerArray, layerBase, noteUnlinked, readNeighbors, writeNeighbors } from './adjacency'
@@ -44,6 +45,7 @@ export function searchLayer(
   distFn: ((ord: number) => number) | undefined,
   results: DistanceList,
   accepted?: OrdinalFilter,
+  clock: SearchClock = STEADY_CLOCK,
 ): void {
   const getDistance = distFn ?? ((ord: number) => queryDistanceByOrd(state, qVec, qMag, ord, metric))
   const workspace = state.workspace
@@ -79,6 +81,7 @@ export function searchLayer(
     if (frontier.topDistance > furthestDist && found.size >= ef) break
 
     const count = readNeighborsLocked(state, frontier.topOrd, layer)
+    clock.tick(count * state.dimension)
     for (let i = 0; i < count; i++) {
       const neighborOrd = scratch[i]
       ensureVisited(state, neighborOrd + 1)

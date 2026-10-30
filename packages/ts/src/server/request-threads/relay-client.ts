@@ -9,9 +9,10 @@ import type { EmbeddedReply, RelayedRoute, RelayedStreamPart, RelayReply } from 
 
 export interface RelayClient {
   authorize(context: RequestContext): Promise<Authorization>
-  request(route: RelayedRoute, ctx: RouteContext): Promise<void>
+  request(route: RelayedRoute, ctx: RouteContext, onUnavailable?: () => void): Promise<void>
   embed(indexName: string, vector: VectorQueryConfig): Promise<number[]>
   rerank(adapter: string, query: string, documents: string[]): Promise<number[]>
+  awaitWrites(indexName: string): Promise<void>
   touch(indexName: string): void
   announceDeparture(): void
   close(): void
@@ -22,7 +23,11 @@ function isRelayReply(message: unknown): message is RelayReply {
   const { type, requestId } = message as { type?: unknown; requestId?: unknown }
   return (
     typeof requestId === 'number' &&
-    (type === 'response' || type === 'authorized' || type === 'embedded' || type === 'reranked')
+    (type === 'response' ||
+      type === 'authorized' ||
+      type === 'embedded' ||
+      type === 'reranked' ||
+      type === 'writes-applied')
   )
 }
 
@@ -162,7 +167,7 @@ export function createRelayClient(port: MessagePort, touchIntervalMs: number): R
       if (reply.denial !== null) return { allowed: false, denial: reply.denial }
       return { allowed: true }
     },
-    async request(route, ctx) {
+    async request(route, ctx, onUnavailable) {
       let reply: RelayReply | null
       const body = relayedBody(ctx.rawBody)
       try {
@@ -193,7 +198,9 @@ export function createRelayClient(port: MessagePort, touchIntervalMs: number): R
           }, body.moved).then(resolve, reject)
         })
       } catch {
-        if (!ctx.abort.aborted) sendUnavailable(ctx.res)
+        if (ctx.abort.aborted) return
+        if (onUnavailable === undefined) sendUnavailable(ctx.res)
+        else onUnavailable()
         return
       }
       if (reply === null || reply.type !== 'response' || ctx.abort.aborted) return
@@ -214,6 +221,9 @@ export function createRelayClient(port: MessagePort, touchIntervalMs: number): R
         reply.type === 'reranked' ? reply.error : null,
         new NarsilError(ErrorCodes.RERANK_FAILED, 'The main thread returned no scores'),
       )
+    },
+    async awaitWrites(indexName) {
+      await send(requestId => ({ type: 'await-writes', requestId, indexName }))
     },
     touch(indexName) {
       if (closed) return

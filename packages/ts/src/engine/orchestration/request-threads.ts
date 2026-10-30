@@ -1,5 +1,6 @@
 import type { WorkerPool } from '../../workers/pool'
-import { resolveRequestThreadCount } from '../../workers/worker-count'
+import { resolveRequestThreadCount, resolveWorkerCount } from '../../workers/worker-count'
+import { LONG_QUERY_THREADS } from './constants'
 import { retirePool } from './repair'
 import { copyThresholdReason, ensurePool, indexReadyForCopies, scaleOutIndex, scaleOutReadyIndexes } from './scale-out'
 import type { OrchestratorState, RequestThreadListener } from './types'
@@ -8,8 +9,12 @@ import { refreshVectorCopies, sharedCopyHostOf } from './vector-copies'
 export async function announceRequestThreads(state: OrchestratorState, pool: WorkerPool): Promise<void> {
   const listener = state.requestThreads
   if (listener === null) return
-  for (const { workerId, executor } of pool.executorEntries()) {
-    await listener.onWorkerReady(workerId, executor)
+  const entries = pool.executorEntries()
+  for (const { workerId, executor } of entries) {
+    if (pool.isLongQueryWorker(workerId)) await listener.onLongQueryWorkerReady(workerId, executor)
+  }
+  for (const { workerId, executor } of entries) {
+    if (!pool.isLongQueryWorker(workerId)) await listener.onWorkerReady(workerId, executor)
   }
 }
 
@@ -37,6 +42,7 @@ export async function serveRequestsOnWorkers(
   if (!state.workersEnabled) return 0
   state.requestThreads = listener
   state.keywordWorkerCount = resolveRequestThreadCount(state.config?.workers?.count)
+  state.longQueryWorkerCount = LONG_QUERY_THREADS
   if (state.vectorCopyPolicy !== undefined) {
     state.vectorCopyPolicy.host = sharedCopyHostOf(state)
     state.vectorCopyPolicy.enabled = state.workersEnabled
@@ -44,7 +50,7 @@ export async function serveRequestsOnWorkers(
 
   if (state.poolStart !== null) await state.poolStart.catch(() => undefined)
   const running = state.workerPool
-  if (running !== null && running.workerCount !== state.keywordWorkerCount) {
+  if (running !== null && running.workerCount !== resolveWorkerCount(state.keywordWorkerCount + LONG_QUERY_THREADS)) {
     retirePool(state, running)
     state.poolRetryAt = 0
   }

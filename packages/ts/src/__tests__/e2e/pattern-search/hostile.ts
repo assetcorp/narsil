@@ -98,7 +98,7 @@ async function expectOtherThreadsAnswerFirst(
     expect({ status: normal.status, answered: (normal.hits ?? 0) > 0 }, label).toEqual({ status: 200, answered: true })
   }
   const answeredFirst = normals.filter(normal => normal.endedAt < answered.endedAt).length
-  if (ordered) expect(answeredFirst, label).toBeGreaterThanOrEqual(server.requestThreads - 1)
+  if (ordered) expect(answeredFirst, label).toBe(server.requestThreads)
   return { status: answered.status, code: answered.code, hits: answered.hits, elapsedMs: answered.endedAt - started }
 }
 
