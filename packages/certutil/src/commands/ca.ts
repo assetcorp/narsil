@@ -2,7 +2,7 @@ import { join } from 'node:path'
 import type { Command } from 'commander'
 import { generateCaCertificate } from '../crypto/ca'
 import { formatError, formatGenerationText, formatSuccess } from '../output/formatter'
-import { writeOutputFile } from '../output/writer'
+import { writeOutputFile, writePrivateFile } from '../output/writer'
 import { ExitCode, type GenerationResult } from '../types'
 
 export function registerCaCommand(program: Command): void {
@@ -91,7 +91,7 @@ export async function runCaAction(opts: CaActionOptions): Promise<void> {
     }
 
     await writeOutputFile(certPath, result.certPem, opts.force)
-    await writeOutputFile(keyPath, result.keyPem, opts.force)
+    await writePrivateFile(keyPath, result.keyPem, opts.force)
 
     const genResult: GenerationResult = {
       files: [

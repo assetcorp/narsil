@@ -75,7 +75,21 @@ async function openReadWriteCreating(filePath: string, fs: FsModule): Promise<Fi
 async function writeFully(handle: FileHandle, buffer: Uint8Array, key: string): Promise<void> {
   let offset = 0
   while (offset < buffer.length) {
-    const { bytesWritten } = await handle.write(buffer, offset, buffer.length - offset)
+    let bytesWritten: number
+    try {
+      ;({ bytesWritten } = await handle.write(buffer, offset, buffer.length - offset))
+    } catch (err: unknown) {
+      throw new NarsilError(
+        ErrorCodes.PERSISTENCE_SAVE_FAILED,
+        `Write to "${key}" failed; the write is not acknowledged`,
+        {
+          key,
+          written: offset,
+          total: buffer.length,
+          cause: err instanceof Error ? err.message : String(err),
+        },
+      )
+    }
     if (bytesWritten <= 0) {
       throw new NarsilError(
         ErrorCodes.PERSISTENCE_SAVE_FAILED,
@@ -198,7 +212,15 @@ export function createDurableDirectory(root: string): DurableDirectory {
           return new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength)
         },
         async writeSlot(offset: number, slot: Uint8Array): Promise<void> {
-          await handle.write(slot, 0, slot.length, offset)
+          try {
+            await handle.write(slot, 0, slot.length, offset)
+          } catch (err: unknown) {
+            throw new NarsilError(
+              ErrorCodes.PERSISTENCE_SAVE_FAILED,
+              `Write to "${key}" failed; the write is not acknowledged`,
+              { key, cause: err instanceof Error ? err.message : String(err) },
+            )
+          }
           try {
             await handle.sync()
           } catch (err: unknown) {

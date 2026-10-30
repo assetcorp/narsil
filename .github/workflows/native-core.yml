@@ -202,7 +202,7 @@ jobs:
         env:
           NARSIL_NATIVE_CORE_PATH: ${{ github.workspace }}/${{ matrix.output }}/narsil-core.node
           NARSIL_REQUIRE_NATIVE_CORE: '1'
-        run: pnpm vitest run src/__tests__/vector/native
+        run: pnpm run test:native
 
       - name: Build the core without its AVX2 kernel
         if: matrix.label == 'linux-x64'
@@ -215,7 +215,7 @@ jobs:
         env:
           NARSIL_NATIVE_CORE_PATH: ${{ github.workspace }}/${{ matrix.output }}/narsil-core.node
           NARSIL_REQUIRE_NATIVE_CORE: '1'
-        run: pnpm vitest run src/__tests__/vector/native
+        run: pnpm run test:native
 
   identity-musl:
     name: Compare the core with the WebAssembly search on ${{ matrix.target }}
@@ -256,4 +256,4 @@ jobs:
           && corepack enable
           && pnpm install --frozen-lockfile --ignore-scripts
           && cd packages/ts
-          && pnpm vitest run src/__tests__/vector/native"
+          && pnpm run test:native"

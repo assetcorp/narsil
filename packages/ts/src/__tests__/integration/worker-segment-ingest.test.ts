@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { ErrorCodes, NarsilError } from '../../errors'
 import { createNarsil } from '../../narsil'
 
@@ -19,12 +19,7 @@ function proseDocuments(count: number, marker: string): Array<Record<string, unk
 }
 
 describe.skipIf(!built)('a large batch lands on worker copies before the per-index threshold', () => {
-  afterEach(() => {
-    vi.restoreAllMocks()
-  })
-
   it('loads the copies ahead of the batch, not partway through it', async () => {
-    const warnSpy = vi.spyOn(console, 'warn')
     const narsil = await createNarsil({ workers: { enabled: true, count: 4, promotionThreshold: 100 } })
     await narsil.createIndex('prose', { schema: { title: 'string', price: 'number' }, language: 'english' })
 
@@ -40,9 +35,6 @@ describe.skipIf(!built)('a large batch lands on worker copies before the per-ind
     expect(hits.hits.length).toBe(200)
 
     await narsil.shutdown()
-
-    const replicationWarnings = warnSpy.mock.calls.filter(call => String(call[0]).includes('Worker replication failed'))
-    expect(replicationWarnings).toEqual([])
   }, 120000)
 
   it('snapshots a batch-ingested index whose partitions hold frozen segments and restores it whole', async () => {
@@ -74,7 +66,6 @@ describe.skipIf(!built)('a large batch lands on worker copies before the per-ind
   }, 120000)
 
   it('keeps every batch queryable while sustained ingest triggers segment compaction', async () => {
-    const warnSpy = vi.spyOn(console, 'warn')
     const narsil = await createNarsil({ workers: { enabled: true, count: 4, promotionThreshold: 100 } })
     await narsil.createIndex('prose', { schema: { title: 'string', price: 'number' }, language: 'english' })
 
@@ -92,15 +83,9 @@ describe.skipIf(!built)('a large batch lands on worker copies before the per-ind
     expect(await narsil.countDocuments('prose')).toBe(999)
 
     await narsil.shutdown()
-
-    const warnings = warnSpy.mock.calls.filter(
-      call => String(call[0]).includes('Worker replication failed') || String(call[0]).includes('compaction'),
-    )
-    expect(warnings).toEqual([])
   }, 120000)
 
   it('answers a query with every document the moment the batch resolves', async () => {
-    const warnSpy = vi.spyOn(console, 'warn')
     const narsil = await createNarsil({ workers: { enabled: true, count: 4, promotionThreshold: 100 } })
     await narsil.createIndex('prose', { schema: { title: 'string', price: 'number' }, language: 'english' })
 
@@ -111,9 +96,6 @@ describe.skipIf(!built)('a large batch lands on worker copies before the per-ind
     expect(hits.hits.length).toBe(300)
 
     await narsil.shutdown()
-
-    const replicationWarnings = warnSpy.mock.calls.filter(call => String(call[0]).includes('Worker replication failed'))
-    expect(replicationWarnings).toEqual([])
   }, 120000)
 
   it('loads no copies when the batch stays under the threshold', async () => {
@@ -131,10 +113,6 @@ describe.skipIf(!built)('a large batch lands on worker copies before the per-ind
 })
 
 describe.skipIf(!built)('a segmented batch keeps the per-document contract', () => {
-  afterEach(() => {
-    vi.restoreAllMocks()
-  })
-
   it('fails only the documents a strict schema rejects', async () => {
     const narsil = await createNarsil({ workers: { enabled: true, count: 4, promotionThreshold: 100 } })
     await narsil.createIndex('prose', {

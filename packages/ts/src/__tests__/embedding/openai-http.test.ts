@@ -1,387 +1,220 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
-import { createOpenAIEmbedding } from '../../embeddings/openai'
-import { ErrorCodes, NarsilError } from '../../errors'
+import { createServer, type Server, type ServerResponse } from 'node:http'
+import type { AddressInfo } from 'node:net'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { createOpenAIEmbedding, type OpenAIEmbeddingConfig } from '../../embeddings/openai'
+import { ErrorCodes } from '../../errors'
+import { createNarsil } from '../../narsil'
 
-describe('OpenAI adapter HTTP interactions (mocked fetch)', () => {
-  const originalFetch = globalThis.fetch
+const DIMENSIONS = 4
+const LARGEST_REQUEST_INPUTS = 2048
 
-  afterEach(() => {
-    globalThis.fetch = originalFetch
-  })
+interface ReceivedRequest {
+  method: string | undefined
+  path: string | undefined
+  authorization: string | undefined
+  contentType: string | undefined
+  body: { input: string[]; model: string; dimensions: number }
+}
 
-  it('sends correct HTTP request for embed()', async () => {
-    const mockFetch = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>().mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          data: [{ index: 0, embedding: Array.from({ length: 1536 }, () => 0.1) }],
-        }),
-        { status: 200, headers: { 'Content-Type': 'application/json' } },
-      ),
-    )
-    globalThis.fetch = mockFetch
+type Answer = (request: ReceivedRequest, response: ServerResponse) => void
 
-    const adapter = createOpenAIEmbedding({
-      baseUrl: 'https://api.openai.com/v1',
-      apiKey: 'sk-test-key-123',
-      model: 'text-embedding-3-small',
-      dimensions: 1536,
-      maxRetries: 0,
-    })
+function vectorFor(text: string): number[] {
+  const seed = [...text].reduce((total, letter) => total + letter.charCodeAt(0), 0)
+  return Array.from({ length: DIMENSIONS }, (_, position) => (seed + position) / 1000)
+}
 
-    const result = await adapter.embed('hello world', 'document')
+function answerWithVectors(request: ReceivedRequest, response: ServerResponse): void {
+  const data = request.body.input.map((text, index) => ({ index, embedding: vectorFor(text) }))
+  response.writeHead(200, { 'Content-Type': 'application/json' })
+  response.end(JSON.stringify({ data }))
+}
 
-    expect(mockFetch).toHaveBeenCalledOnce()
-    const [url, init] = mockFetch.mock.calls[0]
-    expect(url).toBe('https://api.openai.com/v1/embeddings')
-    expect(init?.method).toBe('POST')
+function answerStatus(status: number, body: string): Answer {
+  return (_request, response) => {
+    response.writeHead(status, { 'Retry-After': '0' })
+    response.end(body)
+  }
+}
 
-    const headers = init?.headers as Record<string, string>
-    expect(headers.Authorization).toBe('Bearer sk-test-key-123')
-    expect(headers['Content-Type']).toBe('application/json')
+describe('the OpenAI adapter against a real HTTP endpoint', () => {
+  let server: Server
+  let received: ReceivedRequest[]
+  let answers: Answer[]
+  let baseUrl: string
 
-    const body = JSON.parse(init?.body as string)
-    expect(body.input).toEqual(['hello world'])
-    expect(body.model).toBe('text-embedding-3-small')
-    expect(body.dimensions).toBe(1536)
-
-    expect(result).toBeInstanceOf(Float32Array)
-    expect(result.length).toBe(1536)
-  })
-
-  it('sends batch input and returns results sorted by index', async () => {
-    const mockFetch = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>().mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          data: [
-            { index: 1, embedding: Array.from({ length: 1536 }, () => 0.2) },
-            { index: 0, embedding: Array.from({ length: 1536 }, () => 0.1) },
-          ],
-        }),
-        { status: 200, headers: { 'Content-Type': 'application/json' } },
-      ),
-    )
-    globalThis.fetch = mockFetch
-
-    const adapter = createOpenAIEmbedding({
-      baseUrl: 'https://api.openai.com/v1',
-      apiKey: 'sk-test-key',
-      model: 'text-embedding-3-small',
-      dimensions: 1536,
-      maxRetries: 0,
-    })
-
-    if (!adapter.embedBatch) throw new Error('expected adapter.embedBatch to be defined')
-    const results = await adapter.embedBatch(['first', 'second'], 'document')
-
-    expect(results.length).toBe(2)
-    expect(results[0][0]).toBeCloseTo(0.1, 5)
-    expect(results[1][0]).toBeCloseTo(0.2, 5)
-
-    const body = JSON.parse((mockFetch.mock.calls[0][1]?.body as string) ?? '{}')
-    expect(body.input).toEqual(['first', 'second'])
-  })
-
-  it('retries on 429 and succeeds on the next attempt', async () => {
-    let callCount = 0
-    const mockFetch = vi
-      .fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>()
-      .mockImplementation(async () => {
-        callCount++
-        if (callCount === 1) {
-          return new Response(
-            JSON.stringify({ error: { type: 'rate_limit_exceeded', message: 'Too many requests' } }),
-            { status: 429, headers: { 'Retry-After': '0' } },
-          )
+  beforeEach(async () => {
+    received = []
+    answers = []
+    server = createServer((incoming, response) => {
+      const chunks: Buffer[] = []
+      incoming.on('data', chunk => chunks.push(chunk))
+      incoming.on('end', () => {
+        if (incoming.method !== 'POST') {
+          response.writeHead(404)
+          response.end()
+          return
         }
-        return new Response(
-          JSON.stringify({
-            data: [{ index: 0, embedding: Array.from({ length: 1536 }, () => 0.5) }],
-          }),
-          { status: 200 },
-        )
-      })
-    globalThis.fetch = mockFetch
-
-    const adapter = createOpenAIEmbedding({
-      baseUrl: 'https://api.openai.com/v1',
-      apiKey: 'sk-test-key',
-      model: 'text-embedding-3-small',
-      dimensions: 1536,
-      maxRetries: 1,
-      timeout: 10_000,
-    })
-
-    const result = await adapter.embed('retry test', 'document')
-
-    expect(mockFetch).toHaveBeenCalledTimes(2)
-    expect(result).toBeInstanceOf(Float32Array)
-    expect(result.length).toBe(1536)
-  })
-
-  it('retries when a 2xx response carries an unparseable body and succeeds on the next attempt', async () => {
-    let callCount = 0
-    const mockFetch = vi
-      .fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>()
-      .mockImplementation(async () => {
-        callCount++
-        if (callCount === 1) {
-          return new Response('<html>Bad gateway</html>', { status: 200 })
+        const request: ReceivedRequest = {
+          method: incoming.method,
+          path: incoming.url,
+          authorization: incoming.headers.authorization,
+          contentType: incoming.headers['content-type'],
+          body: JSON.parse(Buffer.concat(chunks).toString('utf8')),
         }
-        return new Response(
-          JSON.stringify({
-            data: [{ index: 0, embedding: Array.from({ length: 1536 }, () => 0.3) }],
-          }),
-          { status: 200 },
-        )
+        received.push(request)
+        const answer = answers.shift() ?? answerWithVectors
+        answer(request, response)
       })
-    globalThis.fetch = mockFetch
+    })
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+    baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}/v1`
+  })
 
-    const adapter = createOpenAIEmbedding({
-      baseUrl: 'https://api.openai.com/v1',
+  afterEach(async () => {
+    server.closeAllConnections()
+    await new Promise(resolve => server.close(resolve))
+  })
+
+  function adapter(settings: Partial<OpenAIEmbeddingConfig> = {}) {
+    return createOpenAIEmbedding({
+      baseUrl,
       apiKey: 'sk-test-key',
       model: 'text-embedding-3-small',
-      dimensions: 1536,
-      maxRetries: 1,
+      dimensions: DIMENSIONS,
+      maxRetries: 0,
       timeout: 10_000,
+      ...settings,
     })
+  }
 
-    const result = await adapter.embed('truncated body test', 'document')
+  it('sends the documented request and returns the vector the endpoint answered with', async () => {
+    const vector = await adapter().embed('desk lamp', 'document')
 
-    expect(mockFetch).toHaveBeenCalledTimes(2)
-    expect(result).toBeInstanceOf(Float32Array)
-    expect(result.length).toBe(1536)
+    expect(received).toHaveLength(1)
+    expect(received[0]).toEqual({
+      method: 'POST',
+      path: '/v1/embeddings',
+      authorization: 'Bearer sk-test-key',
+      contentType: 'application/json',
+      body: { input: ['desk lamp'], model: 'text-embedding-3-small', dimensions: DIMENSIONS },
+    })
+    expect([...vector]).toEqual(vectorFor('desk lamp').map(value => Math.fround(value)))
   })
 
-  it('fails with the invalid-JSON error once retries are exhausted', async () => {
-    const mockFetch = vi
-      .fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>()
-      .mockImplementation(async () => new Response('not json', { status: 200 }))
-    globalThis.fetch = mockFetch
-
-    const adapter = createOpenAIEmbedding({
-      baseUrl: 'https://api.openai.com/v1',
-      apiKey: 'sk-test-key',
-      model: 'text-embedding-3-small',
-      dimensions: 1536,
-      maxRetries: 0,
-    })
-
-    try {
-      await adapter.embed('always invalid', 'document')
-      expect.fail('Expected error for unparseable response body')
-    } catch (err) {
-      expect(err).toBeInstanceOf(NarsilError)
-      expect((err as NarsilError).code).toBe(ErrorCodes.EMBEDDING_FAILED)
-      expect((err as NarsilError).message).toContain('invalid JSON')
-    }
-
-    expect(mockFetch).toHaveBeenCalledOnce()
+  it('reaches the same path when the base URL ends in slashes', async () => {
+    await adapter({ baseUrl: `${baseUrl}///` }).embed('desk lamp', 'query')
+    expect(received[0].path).toBe('/v1/embeddings')
   })
 
-  it('does not retry on 400 and fails immediately', async () => {
-    const mockFetch = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>().mockResolvedValue(
-      new Response(JSON.stringify({ error: { type: 'invalid_request_error', message: 'Bad request' } }), {
-        status: 400,
-      }),
+  it('puts batch answers back in input order when the endpoint returns them shuffled', async () => {
+    answers.push((request, response) => {
+      const data = request.body.input.map((text, index) => ({ index, embedding: vectorFor(text) })).reverse()
+      response.end(JSON.stringify({ data }))
+    })
+    const vectors = (await adapter().embedBatch?.(['first', 'second', 'third'], 'document')) ?? []
+    expect(vectors.map(vector => vector[0])).toEqual(
+      ['first', 'second', 'third'].map(text => Math.fround(vectorFor(text)[0])),
     )
-    globalThis.fetch = mockFetch
-
-    const adapter = createOpenAIEmbedding({
-      baseUrl: 'https://api.openai.com/v1',
-      apiKey: 'sk-test-key',
-      model: 'text-embedding-3-small',
-      dimensions: 1536,
-      maxRetries: 3,
-    })
-
-    try {
-      await adapter.embed('bad request test', 'document')
-      expect.fail('Expected error for 400 response')
-    } catch (err) {
-      expect(err).toBeInstanceOf(NarsilError)
-      expect((err as NarsilError).code).toBe(ErrorCodes.EMBEDDING_FAILED)
-      expect((err as NarsilError).message).toContain('400')
-    }
-
-    expect(mockFetch).toHaveBeenCalledOnce()
   })
 
-  it('resolves apiKey from a function on each request', async () => {
-    const keyValues = ['key-first-call', 'key-second-call']
-    let keyIndex = 0
-    const keyFn = vi.fn(() => {
-      const key = keyValues[keyIndex]
-      keyIndex++
-      return key
+  it('splits a batch at the request limit and keeps every answer in input order', async () => {
+    const inputs = Array.from({ length: LARGEST_REQUEST_INPUTS + 500 }, (_, position) => `text-${position}`)
+    const vectors = (await adapter().embedBatch?.(inputs, 'document')) ?? []
+
+    expect(received.map(request => request.body.input.length)).toEqual([LARGEST_REQUEST_INPUTS, 500])
+    expect(vectors).toHaveLength(inputs.length)
+    vectors.forEach((vector, position) => {
+      expect(vector[0]).toBe(Math.fround(vectorFor(inputs[position])[0]))
     })
-
-    const responseBody = JSON.stringify({
-      data: [{ index: 0, embedding: Array.from({ length: 1536 }, () => 0.1) }],
-    })
-    const mockFetch = vi
-      .fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>()
-      .mockImplementation(async () => new Response(responseBody, { status: 200 }))
-    globalThis.fetch = mockFetch
-
-    const adapter = createOpenAIEmbedding({
-      baseUrl: 'https://api.openai.com/v1',
-      apiKey: keyFn,
-      model: 'text-embedding-3-small',
-      dimensions: 1536,
-      maxRetries: 0,
-    })
-
-    await adapter.embed('first call', 'document')
-    await adapter.embed('second call', 'document')
-
-    expect(keyFn).toHaveBeenCalledTimes(2)
-    const firstCallHeaders = mockFetch.mock.calls[0][1]?.headers as Record<string, string>
-    const secondCallHeaders = mockFetch.mock.calls[1][1]?.headers as Record<string, string>
-    expect(firstCallHeaders.Authorization).toBe('Bearer key-first-call')
-    expect(secondCallHeaders.Authorization).toBe('Bearer key-second-call')
   })
 
-  it('wraps API errors without exposing the API key in the error message', async () => {
-    const mockFetch = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>().mockResolvedValue(
-      new Response(JSON.stringify({ error: { type: 'server_error', message: 'Internal failure' } }), {
-        status: 500,
-      }),
+  it('sends one request for a batch exactly at the limit and none for an empty batch', async () => {
+    await adapter().embedBatch?.(
+      Array.from({ length: LARGEST_REQUEST_INPUTS }, (_, position) => `text-${position}`),
+      'document',
     )
-    globalThis.fetch = mockFetch
+    expect(received).toHaveLength(1)
 
-    const secretKey = 'sk-super-secret-key-do-not-leak'
-    const adapter = createOpenAIEmbedding({
-      baseUrl: 'https://api.openai.com/v1',
-      apiKey: secretKey,
-      model: 'text-embedding-3-small',
-      dimensions: 1536,
-      maxRetries: 0,
-    })
-
-    try {
-      await adapter.embed('test', 'document')
-      expect.fail('Expected error from server error response')
-    } catch (err) {
-      expect(err).toBeInstanceOf(NarsilError)
-      const errorMessage = (err as NarsilError).message
-      expect(errorMessage).not.toContain(secretKey)
-      expect(errorMessage).toContain('500')
-    }
+    received.length = 0
+    expect(await adapter().embedBatch?.([], 'document')).toEqual([])
+    expect(received).toHaveLength(0)
   })
 
-  it('strips trailing slashes from baseUrl before appending /embeddings', async () => {
-    const mockFetch = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>().mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          data: [{ index: 0, embedding: Array.from({ length: 1536 }, () => 0.1) }],
-        }),
-        { status: 200 },
-      ),
+  it('refuses a batch answer that is missing vectors', async () => {
+    answers.push((_request, response) => {
+      response.end(JSON.stringify({ data: [{ index: 0, embedding: vectorFor('first') }] }))
+    })
+    await expect(adapter().embedBatch?.(['first', 'second'], 'document')).rejects.toMatchObject({
+      code: ErrorCodes.EMBEDDING_FAILED,
+    })
+  })
+
+  it.each([
+    ['a rate limit', 429, JSON.stringify({ error: { type: 'rate_limit_exceeded', message: 'Too many requests' } })],
+    ['a gateway timeout', 504, 'Gateway Timeout'],
+    ['a 200 holding a gateway error page', 200, '<html>Bad gateway</html>'],
+  ])('retries after %s and answers from the next attempt', async (_label, status, body) => {
+    answers.push(answerStatus(status, body))
+    const vector = await adapter({ maxRetries: 1 }).embed('desk lamp', 'document')
+    expect(received).toHaveLength(2)
+    expect(vector).toHaveLength(DIMENSIONS)
+  })
+
+  it('names the invalid body once retries run out', async () => {
+    answers.push(answerStatus(200, 'not json'))
+    await expect(adapter().embed('desk lamp', 'document')).rejects.toMatchObject({
+      code: ErrorCodes.EMBEDDING_FAILED,
+      message: expect.stringContaining('invalid JSON'),
+    })
+    expect(received).toHaveLength(1)
+  })
+
+  it('fails at once on a request the endpoint rejects as invalid', async () => {
+    answers.push(
+      answerStatus(400, JSON.stringify({ error: { type: 'invalid_request_error', message: 'Bad request' } })),
     )
-    globalThis.fetch = mockFetch
-
-    const adapter = createOpenAIEmbedding({
-      baseUrl: 'https://api.openai.com/v1/',
-      apiKey: 'test-key',
-      model: 'text-embedding-3-small',
-      dimensions: 1536,
-      maxRetries: 0,
+    await expect(adapter({ maxRetries: 3 }).embed('desk lamp', 'document')).rejects.toMatchObject({
+      code: ErrorCodes.EMBEDDING_FAILED,
+      message: expect.stringContaining('400'),
     })
-
-    await adapter.embed('test', 'document')
-
-    const [url] = mockFetch.mock.calls[0]
-    expect(url).toBe('https://api.openai.com/v1/embeddings')
+    expect(received).toHaveLength(1)
   })
 
-  it('returns empty array from embedBatch when given empty inputs', async () => {
-    const mockFetch = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>()
-    globalThis.fetch = mockFetch
-
-    const adapter = createOpenAIEmbedding({
-      baseUrl: 'https://api.openai.com/v1',
-      apiKey: 'test-key',
-      model: 'text-embedding-3-small',
-      dimensions: 1536,
-    })
-
-    const results = await adapter.embedBatch?.([], 'document')
-
-    expect(results).toEqual([])
-    expect(mockFetch).not.toHaveBeenCalled()
+  it('reads the key again for each request', async () => {
+    const keys = ['key-first-call', 'key-second-call']
+    const rotating = adapter({ apiKey: () => keys[received.length] })
+    await rotating.embed('first call', 'document')
+    await rotating.embed('second call', 'document')
+    expect(received.map(request => request.authorization)).toEqual(['Bearer key-first-call', 'Bearer key-second-call'])
   })
 
-  it('chunks large batches into multiple requests of at most 2048 inputs', async () => {
-    const dims = 4
-    let callCount = 0
-    const mockFetch = vi
-      .fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>()
-      .mockImplementation(async (_url, init) => {
-        callCount++
-        const body = JSON.parse(init?.body as string) as { input: string[] }
-        const data = body.input.map((_, idx) => ({
-          index: idx,
-          embedding: Array.from({ length: dims }, () => callCount + idx * 0.001),
-        }))
-        return new Response(JSON.stringify({ data }), { status: 200 })
+  it('keeps the key out of the error when the endpoint fails', async () => {
+    const secret = 'sk-super-secret-key-do-not-leak'
+    answers.push(answerStatus(500, JSON.stringify({ error: { type: 'server_error', message: 'Internal failure' } })))
+    const failure = await adapter({ apiKey: secret })
+      .embed('desk lamp', 'document')
+      .catch((error: unknown) => error)
+    expect(JSON.stringify(failure, Object.getOwnPropertyNames(failure))).not.toContain(secret)
+    expect(failure).toMatchObject({ message: expect.stringContaining('500') })
+  })
+
+  it('makes a document findable through the public API with the vector the endpoint returned', async () => {
+    const narsil = await createNarsil({ workers: { enabled: false } })
+    try {
+      await narsil.registerEmbeddingAdapter('endpoint', adapter())
+      await narsil.createIndex('products', {
+        schema: { title: 'string', embedding: `vector[${DIMENSIONS}]` },
+        embedding: { adapter: 'endpoint', fields: { embedding: 'title' } },
       })
-    globalThis.fetch = mockFetch
-
-    const adapter = createOpenAIEmbedding({
-      baseUrl: 'https://api.openai.com/v1',
-      apiKey: 'test-key',
-      model: 'text-embedding-3-small',
-      dimensions: dims,
-      maxRetries: 0,
-    })
-
-    const totalInputs = 2048 + 500
-    const inputs = Array.from({ length: totalInputs }, (_, i) => `text-${i}`)
-    expect(adapter.embedBatch).toBeDefined()
-    const results = (await adapter.embedBatch?.(inputs, 'document')) ?? []
-
-    expect(mockFetch).toHaveBeenCalledTimes(2)
-
-    const firstBody = JSON.parse(mockFetch.mock.calls[0][1]?.body as string) as { input: string[] }
-    expect(firstBody.input.length).toBe(2048)
-
-    const secondBody = JSON.parse(mockFetch.mock.calls[1][1]?.body as string) as { input: string[] }
-    expect(secondBody.input.length).toBe(500)
-
-    expect(results.length).toBe(totalInputs)
-    for (const vec of results) {
-      expect(vec).toBeInstanceOf(Float32Array)
-      expect(vec.length).toBe(dims)
-    }
-  })
-
-  it('sends a single request when batch size is exactly 2048', async () => {
-    const dims = 4
-    const mockFetch = vi
-      .fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>()
-      .mockImplementation(async (_url, init) => {
-        const body = JSON.parse(init?.body as string) as { input: string[] }
-        const data = body.input.map((_, idx) => ({
-          index: idx,
-          embedding: Array.from({ length: dims }, () => 0.1),
-        }))
-        return new Response(JSON.stringify({ data }), { status: 200 })
+      await narsil.insert('products', { title: 'desk lamp' }, 'lamp')
+      const result = await narsil.query('products', {
+        mode: 'vector',
+        limit: 1,
+        vector: { field: 'embedding', text: 'desk lamp' },
       })
-    globalThis.fetch = mockFetch
-
-    const adapter = createOpenAIEmbedding({
-      baseUrl: 'https://api.openai.com/v1',
-      apiKey: 'test-key',
-      model: 'text-embedding-3-small',
-      dimensions: dims,
-      maxRetries: 0,
-    })
-
-    const inputs = Array.from({ length: 2048 }, (_, i) => `text-${i}`)
-    expect(adapter.embedBatch).toBeDefined()
-    const results = (await adapter.embedBatch?.(inputs, 'document')) ?? []
-
-    expect(mockFetch).toHaveBeenCalledTimes(1)
-    expect(results.length).toBe(2048)
+      expect(result.hits.map(hit => hit.id)).toEqual(['lamp'])
+    } finally {
+      await narsil.shutdown()
+    }
   })
 })
