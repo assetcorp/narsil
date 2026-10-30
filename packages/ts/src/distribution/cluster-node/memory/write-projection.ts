@@ -27,6 +27,7 @@ export interface WriteProjectionOptions {
   collections: () => number
   refusedAfterCollection: (figures: MemoryFigures) => void
   analysisOf: (indexName: string) => IndexWriteAnalysis | null
+  vectorGrowthBytesOf: (indexName: string, documents: number) => number
 }
 
 interface CachedBound {
@@ -36,31 +37,44 @@ interface CachedBound {
 
 const UNPROJECTED: ProjectedGroup = { count: 0, release: () => {} }
 
-function roomIn(figures: MemoryFigures, fractions: MemoryFractions): number {
-  return Math.min(
-    fractions.heapBlock * figures.heapLimitBytes - figures.heapBytes - figures.youngHeapBytes,
-    fractions.processBlock * figures.processLimitBytes - figures.processBytes,
-  )
+function heapRoomIn(figures: MemoryFigures, fractions: MemoryFractions): number {
+  return fractions.heapBlock * figures.heapLimitBytes - figures.heapBytes - figures.youngHeapBytes
+}
+
+function processRoomIn(figures: MemoryFigures, fractions: MemoryFractions): number {
+  return fractions.processBlock * figures.processLimitBytes - figures.processBytes - figures.youngReserveBytes
 }
 
 export function createWriteProjection(options: WriteProjectionOptions): WriteProjection {
   const bounds = new Map<string, CachedBound>()
 
-  function fittingCount(figures: MemoryFigures | null, groupBounds: readonly number[], start: number): number {
+  function fittingCount(
+    indexName: string,
+    figures: MemoryFigures | null,
+    groupBounds: readonly number[],
+    start: number,
+  ): number {
     const end = Math.min(groupBounds.length, start + BATCH_CHUNK_SIZE)
     if (figures === null) return end - start
-    const room = roomIn(figures, options.fractions) - reservedHeapBytes()
+    const reserved = reservedHeapBytes()
+    const heapRoom = heapRoomIn(figures, options.fractions) - reserved
+    const processRoom = processRoomIn(figures, options.fractions) - reserved
+    const mostGrowth = options.vectorGrowthBytesOf(indexName, end - start)
     let taken = 0
     let count = 0
-    while (start + count < end && taken + groupBounds[start + count] <= room) {
-      taken += groupBounds[start + count]
+    while (start + count < end) {
+      const next = taken + groupBounds[start + count]
+      if (next > heapRoom) break
+      if (next + mostGrowth > processRoom && next + options.vectorGrowthBytesOf(indexName, count + 1) > processRoom)
+        break
+      taken = next
       count++
     }
     return count
   }
 
-  function reserve(groupBounds: readonly number[], start: number, count: number): ProjectedGroup {
-    let bytes = 0
+  function reserve(indexName: string, groupBounds: readonly number[], start: number, count: number): ProjectedGroup {
+    let bytes = count === 0 ? 0 : options.vectorGrowthBytesOf(indexName, count)
     for (let index = start; index < start + count; index++) bytes += groupBounds[index]
     const reservation = reserveHeapBytes(bytes)
     return { count, release: () => reservation.release() }
@@ -100,6 +114,8 @@ export function createWriteProjection(options: WriteProjectionOptions): WritePro
         heapBytesBeforeCollection,
         collectedGarbage,
         processBytes: figures.processBytes,
+        youngCeilingBytes: figures.youngCeilingBytes,
+        youngReserveBytes: figures.youngReserveBytes,
         blockBytes: blockBytesOf(figures),
       },
     )
@@ -108,17 +124,18 @@ export function createWriteProjection(options: WriteProjectionOptions): WritePro
   function takeGroup(indexName: string, groupBounds: readonly number[], start: number): ProjectedGroup {
     if (start >= groupBounds.length) return UNPROJECTED
     const measured = options.measure()
-    if (measured === null) return reserve(groupBounds, start, fittingCount(null, groupBounds, start))
+    if (measured === null)
+      return reserve(indexName, groupBounds, start, fittingCount(indexName, null, groupBounds, start))
     if (groupBounds[start] > blockBytesOf(measured)) {
       throw exceedsMemory(indexName, groupBounds[start], blockBytesOf(measured))
     }
     let figures = measured
-    let count = fittingCount(figures, groupBounds, start)
-    if (count > 0) return reserve(groupBounds, start, count)
+    let count = fittingCount(indexName, figures, groupBounds, start)
+    if (count > 0) return reserve(indexName, groupBounds, start, count)
     const collectionsBefore = options.collections()
     figures = options.measureWithoutGarbage() ?? figures
-    count = fittingCount(figures, groupBounds, start)
-    if (count > 0) return reserve(groupBounds, start, count)
+    count = fittingCount(indexName, figures, groupBounds, start)
+    if (count > 0) return reserve(indexName, groupBounds, start, count)
     const collected = options.collections() !== collectionsBefore
     if (collected) options.refusedAfterCollection(figures)
     throw wouldFillMemory(indexName, groupBounds[start], figures, measured.heapBytes, collected)

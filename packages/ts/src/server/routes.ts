@@ -1,7 +1,9 @@
 import type { HttpRequest, HttpResponse, TemplatedApp } from 'uWebSockets.js'
+import { batchBodyKindOf } from './batch-scan'
 import { corsHeaderReader, type ResolvedCors, writeCorsOrigin } from './cors'
 import type { ResolvedLimits } from './deps'
 import { ServerErrorCodes } from './errors'
+import type { ParsedBodyKind } from './parse-heap'
 import { type RouteHandler, type RouteOptions, sinkWritingAfterStatus } from './request'
 import { sendError } from './response'
 
@@ -66,6 +68,9 @@ export interface RouteSpec {
   options: RouteOptions
 }
 
+const writeBodyKind = (): ParsedBodyKind => 'write'
+const readBodyKind = (): ParsedBodyKind => 'read'
+
 export function serverRoutes(limits: ResolvedLimits): RouteSpec[] {
   const { maxBodyBytes, maxImportBytes } = limits
   const probe: RouteOptions = { maxBytes: 0, skipHooks: true }
@@ -74,6 +79,9 @@ export function serverRoutes(limits: ResolvedLimits): RouteSpec[] {
   const namedBody: RouteOptions = { paramCount: 1, needsBody: true, maxBytes: maxBodyBytes }
   const document: RouteOptions = { paramCount: 2, maxBytes: 0 }
   const documentBody: RouteOptions = { paramCount: 2, needsBody: true, maxBytes: maxBodyBytes }
+  const writeBody: RouteOptions = { ...namedBody, bodyKind: writeBodyKind }
+  const readBody: RouteOptions = { ...namedBody, bodyKind: readBodyKind }
+  const documentWriteBody: RouteOptions = { ...documentBody, bodyKind: writeBodyKind }
   return [
     { method: 'get', path: '/livez', handler: 'livez', options: probe },
     { method: 'get', path: '/readyz', handler: 'readyz', options: probe },
@@ -103,10 +111,15 @@ export function serverRoutes(limits: ResolvedLimits): RouteSpec[] {
     { method: 'post', path: '/indexes/:name/_open', handler: 'openIndex', options: named },
     { method: 'post', path: '/indexes/:name/_close', handler: 'closeIndex', options: named },
     { method: 'get', path: '/indexes/:name/count', handler: 'count', options: named },
-    { method: 'post', path: '/indexes/:name/documents', handler: 'insert', options: namedBody },
-    { method: 'post', path: '/indexes/:name/documents/_batch', handler: 'batch', options: namedBody },
-    { method: 'post', path: '/indexes/:name/documents/_list', handler: 'list', options: namedBody },
-    { method: 'post', path: '/indexes/:name/documents/_multi-get', handler: 'multiGet', options: namedBody },
+    { method: 'post', path: '/indexes/:name/documents', handler: 'insert', options: writeBody },
+    {
+      method: 'post',
+      path: '/indexes/:name/documents/_batch',
+      handler: 'batch',
+      options: { ...namedBody, bodyKind: batchBodyKindOf },
+    },
+    { method: 'post', path: '/indexes/:name/documents/_list', handler: 'list', options: readBody },
+    { method: 'post', path: '/indexes/:name/documents/_multi-get', handler: 'multiGet', options: readBody },
     {
       method: 'post',
       path: '/indexes/:name/documents/_import',
@@ -116,12 +129,12 @@ export function serverRoutes(limits: ResolvedLimits): RouteSpec[] {
     { method: 'post', path: '/indexes/:name/_wait-for-writes', handler: 'waitForWrites', options: named },
     { method: 'get', path: '/indexes/:name/documents/:id', handler: 'get', options: document },
     { method: 'get', path: '/indexes/:name/documents/:id/_exists', handler: 'exists', options: document },
-    { method: 'put', path: '/indexes/:name/documents/:id', handler: 'put', options: documentBody },
-    { method: 'patch', path: '/indexes/:name/documents/:id', handler: 'patch', options: documentBody },
+    { method: 'put', path: '/indexes/:name/documents/:id', handler: 'put', options: documentWriteBody },
+    { method: 'patch', path: '/indexes/:name/documents/:id', handler: 'patch', options: documentWriteBody },
     { method: 'del', path: '/indexes/:name/documents/:id', handler: 'remove', options: document },
-    { method: 'post', path: '/indexes/:name/search', handler: 'search', options: namedBody },
-    { method: 'post', path: '/indexes/:name/search/preflight', handler: 'preflight', options: namedBody },
-    { method: 'post', path: '/indexes/:name/suggest', handler: 'suggest', options: namedBody },
+    { method: 'post', path: '/indexes/:name/search', handler: 'search', options: readBody },
+    { method: 'post', path: '/indexes/:name/search/preflight', handler: 'preflight', options: readBody },
+    { method: 'post', path: '/indexes/:name/suggest', handler: 'suggest', options: readBody },
     { method: 'post', path: '/indexes/:name/_checkpoint', handler: 'checkpoint', options: named },
     { method: 'post', path: '/indexes/:name/_rebuild-analysis', handler: 'rebuildAnalysis', options: named },
     { method: 'get', path: '/indexes/:name/snapshot', handler: 'snapshot', options: named },

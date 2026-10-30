@@ -83,6 +83,7 @@ export interface MaintenanceStatus {
   graphCount: number
   bufferSize: number
   building: boolean
+  waitingForMemory: boolean
   estimatedCompactMs: number
   estimatedOptimizeMs: number
 }
@@ -120,6 +121,11 @@ export interface VectorIndexState {
   calibratedMeanLength: number | null
   nextDriftCheckAt: number
   shuffledRebuild: Promise<void> | null
+  /** The bytes that the field holds against the node's memory for a shuffled rebuild in progress. */
+  rebuildChargeBytes: number
+  /** This stays true while a due shuffled rebuild waits for the node's memory to make room for a second graph. */
+  waitingForMemory: boolean
+  rebuildWaitTimer: ReturnType<typeof setTimeout> | null
   readonly onLoadedGraphRepaired: () => void
   compactedNodeCount: number
   building: boolean

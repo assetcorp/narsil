@@ -1,3 +1,4 @@
+import { workWaitingForMemory } from '../../../runtime/background-memory'
 import type { ClusterCoordinator, PartitionAssignment } from '../../coordinator/types'
 import type { ReplicationLog } from '../../replication/types'
 import { acknowledgedSeqNoOf, keepAcknowledgementsOf } from '../catch-up/acknowledgements'
@@ -61,5 +62,11 @@ export async function readClusterMetrics(deps: ClusterMetricsDeps): Promise<Clus
     }
   }
   keepAcknowledgementsOf(deps.catchUp, ledPartitionKeys)
-  return { replicationLag, commitPoints, partitions, coordinatorRequests: deps.timing.figures() }
+  return {
+    replicationLag,
+    commitPoints,
+    partitions,
+    coordinatorRequests: deps.timing.figures(),
+    vectorRebuildsWaitingForMemory: workWaitingForMemory(),
+  }
 }

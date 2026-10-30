@@ -16,6 +16,7 @@ function routeContext(rawBody: Buffer): RouteContext {
     contentType: 'application/x-ndjson',
     rawBody,
     spooledBody: null,
+    bodyRefusal: null,
     abort: { ...NO_ABORT, aborted: true },
     hookContext: null,
   }

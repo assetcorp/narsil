@@ -111,6 +111,8 @@ export interface VectorStore extends VectorBuildReader {
    * falls outside this figure, because no runtime call measures it.
    */
   memoryBytes(): number
+  /** Reports the bytes that storing this many more vectors would add to the shared structures, counting each doubling. */
+  growthBytesFor(vectors: number): number
   getOrdinal(docId: string): number | undefined
   docIdForOrdinal(ordinal: number): string | undefined
   exportSnapshot(): VectorStoreSnapshot

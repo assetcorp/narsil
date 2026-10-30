@@ -1,10 +1,16 @@
 import { readOldGenerationStatistics } from '#platform/heap-statistics'
 import { processLimitBytes } from '#platform/process-limit'
+import { engineThreadYoungGenerationBytes } from '../../../runtime/engine-threads'
 import { admittedHeapBytes } from '../../../runtime/thread-heap'
 import type { NodeMemoryReport } from '../../coordinator/types'
 import { RECENT_MEMORY_FIGURES_MAX_ADMITTED_FRACTION, RECENT_MEMORY_FIGURES_MAX_AGE_MS } from '../constants'
 
-export type MemoryFigures = Omit<NodeMemoryReport, 'full'> & { youngHeapBytes: number; heapCommittedBytes: number }
+export type MemoryFigures = Omit<NodeMemoryReport, 'full'> & {
+  youngHeapBytes: number
+  heapCommittedBytes: number
+  youngCeilingBytes: number
+  youngReserveBytes: number
+}
 
 let lastFigures: MemoryFigures | null = null
 let lastFiguresReadAt = Number.NEGATIVE_INFINITY
@@ -16,6 +22,8 @@ const recentFigures: MemoryFigures = {
   heapLimitBytes: 0,
   youngHeapBytes: 0,
   heapCommittedBytes: 0,
+  youngCeilingBytes: 0,
+  youngReserveBytes: 0,
 }
 
 function readFreshFigures(): MemoryFigures | null {
@@ -33,6 +41,8 @@ function readFreshFigures(): MemoryFigures | null {
       heapLimitBytes: heap.limitBytes,
       youngHeapBytes: heap.youngUsedBytes,
       heapCommittedBytes: Math.max(heap.committedBytes, heap.usedBytes),
+      youngCeilingBytes: heap.youngCeilingBytes,
+      youngReserveBytes: heap.youngReserveBytes + engineThreadYoungGenerationBytes(),
     }
   } catch {
     return null
@@ -62,5 +72,7 @@ export function readRecentMemoryFigures(): MemoryFigures | null {
   recentFigures.heapBytes = lastFigures.heapBytes + admittedSince
   recentFigures.youngHeapBytes = lastFigures.youngHeapBytes
   recentFigures.heapCommittedBytes = lastFigures.heapCommittedBytes + admittedSince
+  recentFigures.youngCeilingBytes = lastFigures.youngCeilingBytes
+  recentFigures.youngReserveBytes = lastFigures.youngReserveBytes
   return recentFigures
 }

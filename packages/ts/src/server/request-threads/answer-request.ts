@@ -36,6 +36,7 @@ export async function answerRequest(
       request.rawBody === null
         ? null
         : Buffer.from(request.rawBody.buffer, request.rawBody.byteOffset, request.rawBody.byteLength),
+    bodyRefusal: request.bodyRefusal,
     spooledBody: spooledBodyOf(request.spooledBody),
     abort: captured.abort,
     hookContext: request.hookContext,
