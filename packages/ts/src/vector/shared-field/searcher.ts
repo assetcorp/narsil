@@ -1,5 +1,5 @@
 import { createBoundedMaxHeap } from '../../core/heap'
-import { type SearchClock, STEADY_CLOCK } from '../../core/search-clock'
+import type { SearchClock } from '../../core/search-clock'
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { VectorMetric } from '../brute-force'
 import { MAX_RENUMBERED_SEARCH_ATTEMPTS } from '../constants'
@@ -55,14 +55,14 @@ function distancesInTypeScript(
   query: Float32Array,
   metric: VectorMetric,
   ordinals: number[],
-  clock: SearchClock,
+  clock: SearchClock | undefined,
 ): Float64Array {
   noteFallback('score')
   const arenaQuery = store.prepareQueryArena(query)
   const queryMagnitude = arenaQuery ? arenaQuery.magnitude : magnitude(query)
   const distances = new Float64Array(ordinals.length).fill(Number.POSITIVE_INFINITY)
   for (let i = 0; i < ordinals.length; i++) {
-    clock.tick(query.length)
+    if (clock !== undefined) clock.tick(query.length)
     if (arenaQuery) {
       distances[i] = store.distanceFromArena(arenaQuery, ordinals[i], metric)
       continue
@@ -80,15 +80,15 @@ function scoreCandidates(
   k: number,
   metric: VectorMetric,
   minSimilarity: number,
-  clock: SearchClock,
+  clock: SearchClock | undefined,
 ): ScannedResults {
   const { ordinals, docIds } = candidates
   if (ordinals.length === 0) return { results: [], matched: 0 }
-  clock.check()
+  clock?.check()
   const distances =
     nativeScoresOf(store.handles, query, metric, ordinals) ??
     distancesInTypeScript(store, query, metric, ordinals, clock)
-  clock.check()
+  clock?.check()
   const heap = createBoundedMaxHeap<VectorScoredResult>(highScoreFirst, k)
   let matched = 0
   for (let i = 0; i < ordinals.length; i++) {
@@ -173,7 +173,7 @@ export function createSharedVectorSearcher(options: SharedVectorSearcherOptions)
     filter: OrdinalFilter | undefined,
   ): FieldOutcome {
     const { metric, minSimilarity, efSearch, oversample, rescoreWindow } = searchOptions
-    const clock = searchOptions.clock ?? STEADY_CLOCK
+    const clock = searchOptions.clock
     const empty: FieldOutcome = { results: [], matched: 0, matchedExact: true, resolvedEveryHit: true }
     const liveDocuments = flags.liveDocuments()
     if (liveDocuments <= 0) return empty

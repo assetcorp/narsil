@@ -50,7 +50,7 @@ export interface PatternWorkMeter {
   readonly flushUnits: number
   add(units: number): void
   remaining(): number
-  readonly clock: SearchClock
+  readonly clock: SearchClock | undefined
 }
 
 export type ExpressionOperator = 'wildcard' | 'regex'

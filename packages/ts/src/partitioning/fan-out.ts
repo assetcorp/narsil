@@ -98,7 +98,7 @@ export async function fanOutQuery(
     const partitionFacets: Array<Record<string, FacetResult>> = []
     const everyValue = params.facets ? everyValueFacetConfig(params.facets) : undefined
     for (const partition of partitions) {
-      options.patternWork?.clock.check()
+      options.patternWork?.clock?.check()
       const result = dispatchSinglePartition(partition, params, language, schema, options)
       if (everyValue) {
         partitionFacets.push(partition.computeFacets(facetMatchSetOf(result), everyValue, schema))
@@ -110,7 +110,7 @@ export async function fanOutQuery(
     }
   }
 
-  options.patternWork?.clock.check()
+  options.patternWork?.clock?.check()
   const allScoredArrays = outcomes.map(o => o.result.scored)
   const merged = kWayMerge(allScoredArrays)
 
