@@ -8,7 +8,7 @@
 extern "C" {
 #endif
 
-#define NARSIL_CORE_ABI_VERSION 5
+#define NARSIL_CORE_ABI_VERSION 6
 
 #define NARSIL_GRAPH_HEADER_WORDS 160
 #define NARSIL_STORE_HEADER_WORDS 16
@@ -74,6 +74,7 @@ typedef struct {
   int32_t *locks;
   uint8_t *tombstones;
   int32_t *incoming;
+  uint8_t *nearest_link_due;
   int32_t *held_locks;
   uint32_t thread_slots;
   narsil_wake wake;
