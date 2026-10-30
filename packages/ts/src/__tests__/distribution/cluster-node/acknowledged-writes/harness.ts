@@ -13,7 +13,7 @@ import {
   type InMemoryNetwork,
 } from '../../../../distribution/transport'
 import type { ListenHandler, NodeTransport, TransportMessage } from '../../../../distribution/transport/types'
-import { TransportError } from '../../../../distribution/transport/types'
+import { type TransportConfig, TransportError } from '../../../../distribution/transport/types'
 
 export const INDEX = 'ledger'
 export const SCHEMA = { title: 'string', amount: 'number' } as const
@@ -62,6 +62,7 @@ export function faultyTransport(inner: NodeTransport, nodeId: string): FaultyTra
   }
 
   return {
+    timeouts: inner.timeouts,
     async send(target, message) {
       await waitForRelease(target, message)
       refuse(target, message)
@@ -184,6 +185,8 @@ export function faultyCoordinator(inner: ClusterCoordinator): FaultyCoordinator 
   }) as FaultyCoordinator
 }
 
+export type NodeOptions = Partial<ClusterNodeConfig> & { durable?: boolean; timeouts?: Partial<TransportConfig> }
+
 export interface TestCluster {
   coordinator: FaultyCoordinator
   network: InMemoryNetwork
@@ -191,7 +194,7 @@ export interface TestCluster {
   transports: Map<string, FaultyTransport>
   directories: Map<string, string>
   probe: NodeTransport
-  start(nodeId: string, options?: Partial<ClusterNodeConfig> & { durable?: boolean }): Promise<ClusterNode>
+  start(nodeId: string, options?: NodeOptions): Promise<ClusterNode>
   stop(nodeId: string): Promise<void>
   node(nodeId: string): ClusterNode
   transport(nodeId: string): FaultyTransport
@@ -215,8 +218,8 @@ export async function createTestCluster(): Promise<TestCluster> {
     directories,
     probe,
     async start(nodeId, options = {}) {
-      const { durable = true, ...config } = options
-      const transport = faultyTransport(createInMemoryTransport(nodeId, network), nodeId)
+      const { durable = true, timeouts, ...config } = options
+      const transport = faultyTransport(createInMemoryTransport(nodeId, network, timeouts), nodeId)
       transports.set(nodeId, transport)
       let directory = directories.get(nodeId)
       if (durable && directory === undefined) {

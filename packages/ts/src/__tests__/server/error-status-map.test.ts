@@ -8,6 +8,7 @@ describe('httpStatusForNarsilError', () => {
       ErrorCodes.REPLICATION_ENTRY_INVALID,
       ErrorCodes.REPLICATION_INSYNC_REMOVAL_FAILED,
       ErrorCodes.REPLICATION_ROLLBACK_FAILED,
+      ErrorCodes.REPLICATION_OUTCOME_UNKNOWN,
       ErrorCodes.REPLICATION_LOG_FULL,
       ErrorCodes.REPLICATION_ENTRY_CORRUPT,
       ErrorCodes.REPLICATION_SNAPSHOT_CORRUPT,

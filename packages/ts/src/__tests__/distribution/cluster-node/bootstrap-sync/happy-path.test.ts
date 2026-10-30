@@ -215,12 +215,8 @@ describe('runBootstrapSync - happy path and state', () => {
   })
 
   it('fetches the schema when the local index is missing and does not pre-create the empty shell', async () => {
-    const getSchemaSpy = vi.fn().mockResolvedValue({ title: 'string' })
-    const coord: ClusterCoordinator = {
-      getSchema: getSchemaSpy,
-      get: vi.fn().mockResolvedValue(null),
-      getAllocation: vi.fn().mockResolvedValue(null),
-    } as unknown as ClusterCoordinator
+    const coord = makeMockCoordinator({ title: 'string' })
+    const getSchemaSpy = vi.mocked(coord.getSchema)
 
     const { chunks } = makeScriptedSnapshot('products', 1024)
     scripted.setScript(chunks)

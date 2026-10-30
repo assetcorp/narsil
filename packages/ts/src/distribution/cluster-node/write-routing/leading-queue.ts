@@ -6,6 +6,7 @@ import { noteLedTerm } from '../led-term'
 import { assertReshardOpen } from '../reshard/block'
 import type { PrimaryWriteScope } from './numbered-write'
 import { enqueuePartitionWrite } from './partition-queue'
+import { isOutcomeUnknown, outcomeUnknown } from './rollback'
 import type { WriteRoutingDeps } from './types'
 
 const REFUSALS_FROM_LOCAL_COPY: ReadonlySet<string> = new Set([ErrorCodes.DOC_NOT_FOUND, ErrorCodes.DOC_ALREADY_EXISTS])
@@ -53,6 +54,10 @@ async function leadershipUnconfirmed(scope: PrimaryWriteScope): Promise<boolean>
   const assignment = live?.assignments.get(partitionId)
   if (assignment === undefined) return true
   return assignment.primary !== deps.nodeId || assignment.primaryTerm > scope.assignment.primaryTerm
+}
+
+function logEndOf(scope: PrimaryWriteScope): number {
+  return scope.deps.getReplicationLog(scope.indexName, scope.partitionId).localLogEnd
 }
 
 function copyFailedIn(scope: PrimaryWriteScope): boolean {
@@ -115,23 +120,35 @@ export async function inLeadingPartitionQueue<T>(
   failed?: BatchResult['failed'],
 ): Promise<T> {
   let current = scope
+  let logEndBefore: number | undefined
   let result: T
   try {
     result = await enqueuePartitionWrite(
       scope.deps.partitionWriteQueues,
       scope.indexName,
       scope.partitionId,
-      async () => {
-        current = await currentScope(scope)
+      async hold => {
+        current = { ...(await currentScope(scope)), holdQueue: hold }
+        logEndBefore = logEndOf(current)
         return task(current)
       },
     )
   } catch (error) {
+    if (isOutcomeUnknown(error)) throw error
     if (copyFailedIn(current)) throw notPrimary(current)
     if (refusedFromLocalCopy(error) && (await leadershipUnconfirmed(current))) throw notPrimary(current)
     throw error
   }
-  if (await registrationLeaseLapsed(current.deps)) throw notPrimary(current)
+  if (await registrationLeaseLapsed(current.deps)) {
+    const refusal = notPrimary(current)
+    if (logEndBefore === undefined || logEndOf(current) === logEndBefore) throw refusal
+    throw outcomeUnknown(
+      current,
+      refusal,
+      'lease_lapsed',
+      'its registration lease lapsed before it could acknowledge the write',
+    )
+  }
   if (failed !== undefined && copyFailedIn(current)) refuseFromFailedCopy(current, failed)
   if (failed !== undefined) await confirmBatchRefusals(current, failed)
   return result

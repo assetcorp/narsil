@@ -113,14 +113,12 @@ export async function handleSyncRequestMessage(
     await streamValidatedSnapshotRequest(
       message,
       sink,
-      { indexName: request.indexName, partitionId: request.partitionId },
+      request.indexName,
       {
         nodeId: deps.nodeId,
         engine: deps.engine,
         coordinator: deps.coordinator,
         state: deps.snapshotSyncState,
-        resolveHeaderMetadata: deps.resolveHeaderMetadata,
-        spoolDirectory: deps.snapshotSpoolDirectory,
       },
       {
         metadata: {
@@ -128,8 +126,6 @@ export async function handleSyncRequestMessage(
           lastSeqNo: snapshotSeqNo,
           primaryTerm: snapshotPrimaryTerm,
         },
-        closeOnEnd: false,
-        disableBuildCache: true,
         buildSnapshot: async () => {
           const archive = await deps.engine.archiveReplicationPartition(request.indexName, request.partitionId, () => {
             snapshotPrimaryTerm = log.termAt(log.localLogEnd) ?? 0

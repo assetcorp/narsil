@@ -1,13 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { dropExistingIndex } from '../../../../distribution/cluster-node/bootstrap-restore'
 import {
   clearBootstrapSyncIndex,
   createBootstrapSyncState,
   runBootstrapSync,
 } from '../../../../distribution/cluster-node/bootstrap-sync'
 import type { ClusterCoordinator } from '../../../../distribution/coordinator/types'
-import { ErrorCodes, NarsilError } from '../../../../errors'
-import type { Narsil } from '../../../../narsil'
+import { ErrorCodes, type NarsilError } from '../../../../errors'
 import {
   type MockEngineHandle,
   makeDeps,
@@ -29,7 +27,7 @@ describe('bootstrap sync eviction and cleanup', () => {
     scripted = makeScriptedTransport()
   })
 
-  it('M-A: clear fired during restore drops the restored index so engine state matches onError', async () => {
+  it('M-A: clear fired during restore aborts the sync without marking the partition complete', async () => {
     scripted.setScript(makeScriptedSnapshot('products', 1024).chunks)
 
     const state = createBootstrapSyncState()
@@ -45,7 +43,6 @@ describe('bootstrap sync eviction and cleanup', () => {
     const result = await syncPromise
     expect(result).toBe(false)
     expect(state.completed.has('products:0')).toBe(false)
-    expect(mockEngine.engine.listIndexes().find(i => i.name === 'products')).toBeUndefined()
 
     const err = onError.mock.calls.at(-1)?.[0] as NarsilError
     expect(err.code).toBe(ErrorCodes.SNAPSHOT_SYNC_ABORTED)
@@ -84,7 +81,7 @@ describe('bootstrap sync eviction and cleanup', () => {
     await worker
   })
 
-  it('L-C: a restored schema that disagrees with the coordinator schema is dropped and reported', async () => {
+  it('L-C: a restored schema that disagrees with the coordinator schema is reported and not marked complete', async () => {
     mockEngine = makeMockEngine({ statsSchema: { title: 'string', extra: 'number' } })
     scripted.setScript(makeScriptedSnapshot('products', 256).chunks)
 
@@ -96,7 +93,6 @@ describe('bootstrap sync eviction and cleanup', () => {
 
     expect(result).toBe(false)
     expect(state.completed.has('products:0')).toBe(false)
-    expect(mockEngine.dropIndexCalls).toContain('products')
 
     const lastError = onError.mock.calls.at(-1)?.[0] as NarsilError
     expect(lastError.code).toBe(ErrorCodes.NODE_BOOTSTRAP_FAILED)
@@ -104,44 +100,6 @@ describe('bootstrap sync eviction and cleanup', () => {
     const differences = lastError.details.differences as Array<{ path: string }>
     expect(Array.isArray(differences)).toBe(true)
     expect(differences.some(d => d.path === 'extra')).toBe(true)
-  })
-
-  it('M-new-1: dropExistingIndex treats INDEX_NOT_FOUND race as success', async () => {
-    const racingEngine = {
-      listIndexes: () => [{ name: 'products' }],
-      dropIndex: async (_name: string) => {
-        throw new NarsilError(ErrorCodes.INDEX_NOT_FOUND, 'Index "products" does not exist', {
-          indexName: 'products',
-        })
-      },
-    } as unknown as Narsil
-
-    const result = await dropExistingIndex(racingEngine, 'products', 'primary-node')
-    expect(result).toBeNull()
-  })
-
-  it('treats a drop that races the engine shutting down as success', async () => {
-    const closingEngine = {
-      listIndexes: () => [{ name: 'products' }],
-      dropIndex: async (_name: string) => {
-        throw new NarsilError(ErrorCodes.INSTANCE_SHUT_DOWN, 'This Narsil instance has been shut down')
-      },
-    } as unknown as Narsil
-
-    expect(await dropExistingIndex(closingEngine, 'products', 'primary-node')).toBeNull()
-  })
-
-  it('M-new-1: dropExistingIndex still wraps non-INDEX_NOT_FOUND errors as RESTORE_FAILED', async () => {
-    const brokenEngine = {
-      listIndexes: () => [{ name: 'products' }],
-      dropIndex: async (_name: string) => {
-        throw new Error('disk failure')
-      },
-    } as unknown as Narsil
-
-    const result = await dropExistingIndex(brokenEngine, 'products', 'primary-node')
-    expect(result).not.toBeNull()
-    expect(result?.code).toBe(ErrorCodes.SNAPSHOT_SYNC_RESTORE_FAILED)
   })
 
   it('M-new-2: after clear during restore, a fresh runBootstrapSync starts a new bootstrap rather than absorbing', async () => {
@@ -169,38 +127,5 @@ describe('bootstrap sync eviction and cleanup', () => {
     expect(scripted.streamCalls.length).toBeGreaterThanOrEqual(2)
     expect(state.completed.has('products:0')).toBe(true)
     expect(mockEngine.engine.listIndexes().find(i => i.name === 'products')).toBeDefined()
-  })
-
-  it('I-new-1: dropRestoredIndexQuietly surfaces cleanup failure via onError with SNAPSHOT_SYNC_RESTORE_CLEANUP_FAILED', async () => {
-    let hasIndex = false
-    const failingEngine = {
-      listIndexes: () => (hasIndex ? [{ name: 'products' }] : []),
-      dropIndex: async (_name: string) => {
-        if (hasIndex) {
-          throw new Error('simulated cleanup failure')
-        }
-      },
-      restore: async (_indexName: string, _data: Uint8Array) => {
-        hasIndex = true
-      },
-      getStats: (_indexName: string) => ({ schema: { title: 'string', extra: 'number' } }),
-    } as unknown as Narsil
-
-    scripted.setScript(makeScriptedSnapshot('products', 256).chunks)
-
-    const state = createBootstrapSyncState()
-    const onError = vi.fn()
-    const deps = makeDeps(failingEngine, coordinator, scripted.transport, { onError })
-
-    const result = await runBootstrapSync(state, 'products', 0, 'primary-node', deps)
-    expect(result).toBe(false)
-
-    const observed = onError.mock.calls.map(c => (c[0] as NarsilError).code)
-    expect(observed).toContain(ErrorCodes.SNAPSHOT_SYNC_RESTORE_CLEANUP_FAILED)
-
-    const cleanupError = onError.mock.calls
-      .map(c => c[0] as NarsilError)
-      .find(e => e.code === ErrorCodes.SNAPSHOT_SYNC_RESTORE_CLEANUP_FAILED)
-    expect(cleanupError?.details.indexName).toBe('products')
   })
 })

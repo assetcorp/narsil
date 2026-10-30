@@ -13,14 +13,14 @@ import { createLiveSyncFrameState, handleLiveSyncFrame } from './frames'
 import type {
   AbortCheck,
   BootstrapEntry,
+  BootstrapSyncDeps,
   BootstrapSyncState,
-  LiveBootstrapSyncDeps,
   LiveSyncFrameState,
   LiveSyncResult,
   LocalLogState,
 } from './types'
 
-export function readLocalLogState(indexName: string, partitionId: number, deps: LiveBootstrapSyncDeps): LocalLogState {
+export function readLocalLogState(indexName: string, partitionId: number, deps: BootstrapSyncDeps): LocalLogState {
   const log = deps.getReplicationLog(indexName, partitionId)
   const lastSeqNo = log.localLogEnd
   const lastPrimaryTerm = log.localLogEndPrimaryTerm
@@ -28,10 +28,7 @@ export function readLocalLogState(indexName: string, partitionId: number, deps: 
   return { lastSeqNo, lastPrimaryTerm: newestEntry?.primaryTerm ?? lastPrimaryTerm }
 }
 
-async function withRoutedIndexUuid(
-  payload: SyncRequestPayload,
-  deps: LiveBootstrapSyncDeps,
-): Promise<SyncRequestPayload> {
+async function withRoutedIndexUuid(payload: SyncRequestPayload, deps: BootstrapSyncDeps): Promise<SyncRequestPayload> {
   const indexUuid = (await deps.coordinator.getAllocation(payload.indexName))?.indexUuid
   return indexUuid === undefined ? payload : { ...payload, indexUuid }
 }
@@ -42,7 +39,7 @@ async function reportSyncedPosition(
   target: string,
   knownSeqNo: number,
   deadline: number,
-  deps: LiveBootstrapSyncDeps,
+  deps: BootstrapSyncDeps,
 ): Promise<void> {
   const logState = readLocalLogState(indexName, partitionId, deps)
   if (logState.lastSeqNo <= knownSeqNo) {
@@ -91,7 +88,7 @@ export async function syncFromAnyTarget(
   coordinatorConfig: IndexConfig,
   partitionCount: number,
   deadline: number,
-  deps: LiveBootstrapSyncDeps,
+  deps: BootstrapSyncDeps,
   abortCheck: AbortCheck,
 ): Promise<LiveSyncResult> {
   let lastError = new NarsilError(ErrorCodes.SNAPSHOT_SYNC_TRANSPORT_FAILED, 'no live sync attempts were made', {
@@ -167,7 +164,7 @@ async function syncFromTarget(
   coordinatorConfig: IndexConfig,
   partitionCount: number,
   deadline: number,
-  deps: LiveBootstrapSyncDeps,
+  deps: BootstrapSyncDeps,
   abortCheck: AbortCheck,
 ): Promise<LiveSyncResult> {
   const spoolDirectory = deps.snapshotSpoolDirectory ?? defaultSpoolDirectory()
@@ -200,7 +197,7 @@ async function syncFrameStateFromTarget(
   coordinatorConfig: IndexConfig,
   partitionCount: number,
   deadline: number,
-  deps: LiveBootstrapSyncDeps,
+  deps: BootstrapSyncDeps,
   abortCheck: AbortCheck,
   frameState: LiveSyncFrameState,
 ): Promise<LiveSyncResult> {
@@ -236,6 +233,9 @@ async function syncFrameStateFromTarget(
     })
     await withDeadline(streamWork, remainingMs, indexName, 'live-sync')
   } catch (err) {
+    if (err instanceof NarsilError && err.code === ErrorCodes.SNAPSHOT_SYNC_TIMEOUT) {
+      return { ok: false, error: err }
+    }
     const cause = err instanceof Error ? err.message : String(err)
     return {
       ok: false,

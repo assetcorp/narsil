@@ -201,7 +201,7 @@ describe('simulated transport', () => {
     })
 
     await network.scheduler.runWithDrain(() =>
-      transportA.stream('node-b', makeMessage('replication.snapshot_sync_request', 'node-a'), chunk => {
+      transportA.stream('node-b', makeMessage('replication.sync_request', 'node-a'), chunk => {
         order.push(`received ${chunk[0]}`)
       }),
     )
@@ -225,7 +225,7 @@ describe('simulated transport', () => {
     const chunks: number[] = []
     const outcome = await network.scheduler.runWithDrain(() =>
       transportA
-        .stream('node-b', makeMessage('replication.snapshot_sync_request', 'node-a'), chunk => {
+        .stream('node-b', makeMessage('replication.sync_request', 'node-a'), chunk => {
           chunks.push(chunk[0])
         })
         .then(
@@ -254,7 +254,7 @@ describe('simulated transport', () => {
     const chunks: number[] = []
     const outcome = await network.scheduler.runWithDrain(() =>
       transportA
-        .stream('node-b', makeMessage('replication.snapshot_sync_request', 'node-a'), chunk => {
+        .stream('node-b', makeMessage('replication.sync_request', 'node-a'), chunk => {
           chunks.push(chunk[0])
         })
         .then(
@@ -273,7 +273,7 @@ describe('simulated transport', () => {
 
     const outcome = await network.scheduler.runWithDrain(() =>
       transportA
-        .stream('node-b', makeMessage('replication.snapshot_sync_request', 'node-a'), () => undefined)
+        .stream('node-b', makeMessage('replication.sync_request', 'node-a'), () => undefined)
         .then(
           () => 'resolved',
           (error: unknown) => (error as TransportError).code,
@@ -316,7 +316,7 @@ describe('simulated transport', () => {
 
     const chunks: number[] = []
     await network.scheduler.runWithDrain(() =>
-      transportA.stream('node-b', makeMessage('replication.snapshot_sync_request', 'node-a'), chunk => {
+      transportA.stream('node-b', makeMessage('replication.sync_request', 'node-a'), chunk => {
         chunks.push(chunk[0])
       }),
     )
