@@ -274,6 +274,27 @@ connectUnreached(nearby: List<node>)
     add every node that a walk from x reaches to reached, each with the node that the walk first reached it through
 ```
 
+An implementation must run `linkFromNearest` immediately before every `connectUnreached` that follows a write which changes a list at layer 0, which covers a build pass, a growth pass, a removal and its repair, a compaction, and a rebuild, so that a search which reaches the nearest neighbour of a node can step to the node. It visits every live node that the graph has placed, or that a list at layer 0 has dropped, since the previous run of `linkFromNearest`, in ascending order of internal ordinal. It measures every distance with the distance that `selectNeighbours` uses for the index. Wherever it ranks nodes by distance, it puts the nearer node first, and it puts the node with the lower internal ordinal first between two nodes at the same distance, so that two implementations build the same graph from the same input. The farthest node is the last node in that ranking.
+
+```text
+linkFromNearest()
+  for each live node x that the graph placed, or that a list at layer 0 dropped, since the last run, lowest ordinal first:
+    when the list of x holds no live node:
+      continue
+    h = the live node in the list of x nearest to x
+    hosts = h, then the 4 live nodes other than x in the list of h nearest to x
+    for each host in hosts:
+      when the list of host holds x:
+        stop
+      when the list of host holds fewer than 2 * M entries:
+        append x to the list of host
+        stop
+      replaceable = the nodes in the list of host with two or more incoming connections, skipping each live node whose own nearest live list entry is host
+      when replaceable holds a node:
+        put x in place of the node farthest from host among replaceable
+        stop
+```
+
 ### Search
 
 An implementation must find the `k` nearest neighbours of a query vector `q` in four steps:
