@@ -89,17 +89,23 @@ void node_unlock(const walk_context *context, int32_t ordinal) {
   atomic_store(atomic_word(graph->held_locks, held_index(context->thread_slot, NARSIL_HELD_WORD_NODE)), 0);
 }
 
-void entry_lock(const narsil_graph *graph) {
+void entry_lock(const walk_context *context) {
+  const narsil_graph *graph = context->graph;
   _Atomic(int32_t) *lock = atomic_word(graph->header, NARSIL_GRAPH_WORD_ENTRY_LOCK);
   uint32_t waits = 0;
   for (;;) {
     int32_t expected = LOCK_FREE;
-    if (atomic_compare_exchange_strong(lock, &expected, LOCK_HELD_ALONE)) { return; }
+    if (atomic_compare_exchange_strong(lock, &expected, LOCK_HELD_ALONE)) {
+      atomic_store(atomic_word(graph->held_locks, held_index(context->thread_slot, NARSIL_HELD_WORD_ENTRY)), 1);
+      return;
+    }
     wait_for_the_lock(&waits);
   }
 }
 
-void entry_unlock(const narsil_graph *graph) {
+void entry_unlock(const walk_context *context) {
+  const narsil_graph *graph = context->graph;
+  atomic_store(atomic_word(graph->held_locks, held_index(context->thread_slot, NARSIL_HELD_WORD_ENTRY)), 0);
   atomic_store(atomic_word(graph->header, NARSIL_GRAPH_WORD_ENTRY_LOCK), LOCK_FREE);
   if (graph->wake != NULL) { graph->wake(graph->wake_context, NARSIL_WAKE_ENTRY_LOCK); }
 }

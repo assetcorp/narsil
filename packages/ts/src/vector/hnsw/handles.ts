@@ -28,6 +28,7 @@ export const HELD_WRITE_VERSION = 1
 export const HELD_GRAPH = 2
 export const HELD_FENCE = 3
 export const HELD_GRAPH_WAITING = 4
+export const HELD_ENTRY = 5
 export const HELD_WORDS_PER_THREAD = 32
 
 const METRIC_CODES: readonly VectorMetric[] = ['cosine', 'dotProduct', 'euclidean']
