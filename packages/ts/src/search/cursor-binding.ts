@@ -1,5 +1,6 @@
 import { FNV_OFFSET_BASIS, fnv1aContinue, fnv1aContinueTaggedNumbers } from '../core/hash'
 import { compareCodePoints } from '../core/ordering'
+import type { SearchClock } from '../core/search-clock'
 import type { FilterExpression } from '../types/filters'
 import type { QueryParams } from '../types/search'
 
@@ -21,7 +22,10 @@ interface BindingStream {
   bytes: Uint8Array
   length: number
   hash: number
+  clock: SearchClock | undefined
 }
+
+export type CursorBinding = () => string
 
 function flush(stream: BindingStream): void {
   stream.hash = fnv1aContinue(stream.hash, stream.bytes, stream.length)
@@ -70,6 +74,7 @@ function writeEncodedString(stream: BindingStream, value: string): void {
 }
 
 function writeString(stream: BindingStream, value: string): void {
+  if (stream.clock !== undefined) stream.clock.tick(value.length)
   ensureCapacity(stream, LENGTH_BYTES + value.length)
   const start = stream.length + LENGTH_BYTES
   const bytes = stream.bytes
@@ -90,6 +95,7 @@ class NumberList {
 }
 
 function writeNumberList(stream: BindingStream, list: NumberList): void {
+  if (stream.clock !== undefined) stream.clock.tick(list.members.length)
   writeByte(stream, LIST_TAG)
   writeUint32(stream, list.members.length)
   flush(stream)
@@ -166,8 +172,8 @@ function boundRerankOf(rerank: unknown): unknown {
 const FILTERS_SLOT = 2
 const BOUND_SLOT_COUNT = 16
 
-function bindingOf(values: unknown[]): string {
-  const stream: BindingStream = { bytes: new Uint8Array(256), length: 0, hash: FNV_OFFSET_BASIS }
+function bindingOf(values: unknown[], clock?: SearchClock): string {
+  const stream: BindingStream = { bytes: new Uint8Array(256), length: 0, hash: FNV_OFFSET_BASIS, clock }
   for (const value of values) {
     writeValue(stream, value)
   }
@@ -182,7 +188,7 @@ function bindingOf(values: unknown[]): string {
  * a cursor pages only the request that produced it. The specification's
  * cursor-binding section fixes the value order and the byte encoding.
  */
-export function queryBindingOf(params: QueryParams): string {
+export function queryBindingOf(params: QueryParams, clock?: SearchClock): string {
   const values: unknown[] = [
     params.term,
     params.fields,
@@ -202,7 +208,15 @@ export function queryBindingOf(params: QueryParams): string {
     params.scoring ?? 'local',
   ]
   if (params.rerank !== undefined) values.push(boundRerankOf(params.rerank))
-  return bindingOf(values)
+  return bindingOf(values, clock)
+}
+
+export function lazyQueryBinding(params: QueryParams, clock?: SearchClock): CursorBinding {
+  let binding: string | undefined
+  return () => {
+    binding ??= queryBindingOf(params, clock)
+    return binding
+  }
 }
 
 /**

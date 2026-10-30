@@ -51,6 +51,7 @@ export function emptyOrchestratorState(overrides: Partial<OrchestratorState> = {
     vectorCopyPolicy: undefined,
     workersEnabled: false,
     keywordWorkerCount: 1,
+    longQueryWorkerCount: 0,
     requestThreads: null,
     copyThreshold: 1_000,
     copyIdleTimeoutMs: 300_000,

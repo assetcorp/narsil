@@ -3,7 +3,7 @@ import type { SharedSegmentSnapshot } from '../core/partition/frozen'
 import type { RemovedSpellings } from '../core/partition/frozen/surface-slot'
 import type { SegmentPayload } from '../core/partition/segment-payload'
 import type { SharedPatternWork } from '../core/pattern-index/work-meter'
-import type { RequestThreadSettings } from '../server/request-threads/messages'
+import type { LongQueryThreadSettings, RequestThreadSettings } from '../server/request-threads/messages'
 import type { GlobalStatistics, SerializablePartition, SerializedSurfaceForms } from '../types/internal'
 import type { AnyDocument, IndexConfig } from '../types/schema'
 import type { QueryParams } from '../types/search'
@@ -62,6 +62,7 @@ export type WorkerAction =
       requestId: string
     }
   | { type: 'serveRequests'; settings: RequestThreadSettings; requestId: string }
+  | { type: 'serveLongQueries'; settings: LongQueryThreadSettings; requestId: string }
   | { type: 'stopServing'; requestId: string }
   | { type: 'dropIndex'; indexName: string; requestId: string }
   | { type: 'getStats'; indexName: string; requestId: string }
@@ -151,6 +152,7 @@ const KNOWN_ACTION_TYPES: ReadonlyArray<WorkerAction['type']> = [
   'dropVectorCopy',
   'insertVectorOrdinals',
   'serveRequests',
+  'serveLongQueries',
   'stopServing',
   'dropIndex',
   'getStats',

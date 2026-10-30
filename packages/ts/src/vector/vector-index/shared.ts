@@ -1,3 +1,4 @@
+import type { SearchClock } from '../../core/search-clock'
 import type { VectorQuantizationMode, VectorStorageMode } from '../../types/schema'
 import type { VectorMetric } from '../brute-force'
 import { type FilterSubset, type OrdinalSpace, ordinalFilterForSubsets } from '../filter-ordinals'
@@ -35,6 +36,7 @@ export interface VectorSearchOptions {
   /** A quantized index re-scores this many times the requested count against full precision. */
   oversample?: number
   rescoreWindow?: number
+  clock?: SearchClock
 }
 
 export interface VectorSearcher {

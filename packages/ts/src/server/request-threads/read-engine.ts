@@ -7,13 +7,14 @@ import { ErrorCodes, NarsilError } from '../../errors'
 import type { PartitionManager } from '../../partitioning/manager'
 import { withRerankQueryText } from '../../rerank/query-text'
 import { extractVectorFieldsFromSchema } from '../../schema/validator'
-import { queryBindingOf } from '../../search/cursor-binding'
+import { lazyQueryBinding } from '../../search/cursor-binding'
 import type { ListResult, PreflightResult, QueryResult, SuggestResult } from '../../types/results'
 import type { AnyDocument } from '../../types/schema'
 import type { ListParams, QueryParams, SuggestParams } from '../../types/search'
 import type { DirectExecutorExtensions, IndexQueryContext } from '../../workers/direct-executor'
 import type { ReadEngine } from '../handlers/document-reads'
 import { managerWithHeldVectors } from './held-vectors'
+import { moveClock } from './move-clock'
 import type { RelayClient } from './relay-client'
 
 export interface ThreadReadEngine extends ReadEngine {
@@ -24,6 +25,10 @@ export interface ThreadReadEngine extends ReadEngine {
   canAnswer(indexName: string, params: QueryParams): boolean
   /** Reports whether the thread counts a query's matches from its own copy, which it does while it holds no vector field, since a count includes no document. */
   canCount(indexName: string, params: QueryParams): boolean
+  /** Answers a query from the thread's own copy however long it runs. */
+  queryHere<T = AnyDocument>(indexName: string, params: QueryParams): Promise<QueryResult<T>>
+  /** Counts a query's matches from the thread's own copy however long it runs. */
+  preflightHere(indexName: string, params: QueryParams): Promise<PreflightResult>
 }
 
 export interface ThreadReadEngineOptions {
@@ -33,10 +38,12 @@ export interface ThreadReadEngineOptions {
   searchHooks: boolean
   patternWorkCap: number
   maxRerankWindow: number
+  /** A search stops once it has run for this many milliseconds, so that its thread can hand it on, or never where it reads undefined. */
+  moveAfterMs?: () => number | undefined
 }
 
 export function createThreadReadEngine(options: ThreadReadEngineOptions): ThreadReadEngine {
-  const { executor, relay, searchHooks, patternWorkCap, maxRerankWindow } = options
+  const { executor, relay, searchHooks, patternWorkCap, maxRerankWindow, moveAfterMs } = options
 
   function vectorFieldsOf(context: IndexQueryContext): string[] {
     return [...extractVectorFieldsFromSchema(context.config.schema).keys()]
@@ -120,42 +127,60 @@ export function createThreadReadEngine(options: ThreadReadEngineOptions): Thread
     return context !== null && holdsEveryVectorFieldRead(indexName, context, params) ? context : null
   }
 
+  async function query<T>(
+    indexName: string,
+    params: QueryParams,
+    moveAfter: number | undefined,
+  ): Promise<QueryResult<T>> {
+    const resolved = await resolvedParams(indexName, params)
+    const context = requireAnswerable(indexName, answerableContext(indexName, params))
+    const clock = moveAfter === undefined ? undefined : moveClock(moveAfter)
+    const result = await executeQuery<T>(resolved, {
+      manager: managerOf(indexName, context),
+      language: context.language,
+      config: context.config,
+      indexName,
+      cursorBinding: lazyQueryBinding(params, clock),
+      vectorSearchers: context.vectorSearchers,
+      patternWorkCap,
+      clock,
+      rerank: rerankRunnerFor(params),
+    })
+    if (context.analysisStale) result.analysisStale = true
+    return result
+  }
+
+  async function preflight(
+    indexName: string,
+    params: QueryParams,
+    moveAfter: number | undefined,
+  ): Promise<PreflightResult> {
+    const resolved = await resolvedParams(indexName, params)
+    const context = requireAnswerable(indexName, searchableContext(indexName, params))
+    const clock = moveAfter === undefined ? undefined : moveClock(moveAfter)
+    const result = await executePreflight(resolved, {
+      manager: context.manager,
+      language: context.language,
+      config: context.config,
+      indexName,
+      cursorBinding: lazyQueryBinding(params, clock),
+      vectorSearchers: context.vectorSearchers,
+      patternWorkCap,
+      clock,
+    })
+    if (context.analysisStale) result.analysisStale = true
+    return result
+  }
+
   return {
     holdsCopyOf: indexName => heldContext(indexName) !== null,
     holdsDocumentsOf: indexName => wholeDocumentsContext(indexName) !== null,
     canAnswer: (indexName, params) => answerableContext(indexName, params) !== null,
     canCount: (indexName, params) => searchableContext(indexName, params) !== null,
-    async query<T = AnyDocument>(indexName: string, params: QueryParams): Promise<QueryResult<T>> {
-      const resolved = await resolvedParams(indexName, params)
-      const context = requireAnswerable(indexName, answerableContext(indexName, params))
-      const result = await executeQuery<T>(resolved, {
-        manager: managerOf(indexName, context),
-        language: context.language,
-        config: context.config,
-        indexName,
-        cursorBinding: queryBindingOf(params),
-        vectorSearchers: context.vectorSearchers,
-        patternWorkCap,
-        rerank: rerankRunnerFor(params),
-      })
-      if (context.analysisStale) result.analysisStale = true
-      return result
-    },
-    async preflight(indexName: string, params: QueryParams): Promise<PreflightResult> {
-      const resolved = await resolvedParams(indexName, params)
-      const context = requireAnswerable(indexName, searchableContext(indexName, params))
-      const result = await executePreflight(resolved, {
-        manager: context.manager,
-        language: context.language,
-        config: context.config,
-        indexName,
-        cursorBinding: queryBindingOf(params),
-        vectorSearchers: context.vectorSearchers,
-        patternWorkCap,
-      })
-      if (context.analysisStale) result.analysisStale = true
-      return result
-    },
+    query: <T = AnyDocument>(indexName: string, params: QueryParams) => query<T>(indexName, params, moveAfterMs?.()),
+    queryHere: <T = AnyDocument>(indexName: string, params: QueryParams) => query<T>(indexName, params, undefined),
+    preflight: (indexName: string, params: QueryParams) => preflight(indexName, params, moveAfterMs?.()),
+    preflightHere: (indexName: string, params: QueryParams) => preflight(indexName, params, undefined),
     async suggest(indexName: string, params: SuggestParams): Promise<SuggestResult> {
       const context = requireAnswerable(indexName, heldContext(indexName))
       const result = executeSuggest(context.manager, context.language, params)

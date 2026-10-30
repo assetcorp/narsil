@@ -1,4 +1,5 @@
 import { ErrorCodes, NarsilError } from '../../errors'
+import type { SearchClock } from '../search-clock'
 import { DEFAULT_PATTERN_WORK_CAP, MATCHER_STATE_BUDGET_BYTES, PATTERN_WORK_FLUSH_UNITS } from './constants'
 import type { PatternWorkMeter } from './types'
 
@@ -34,7 +35,13 @@ function capExceeded(cap: number): NarsilError {
   )
 }
 
-function localMeter(cap: number, spent: number, matcherStateBytes: number, flushUnits: number): SearchPatternWork {
+function localMeter(
+  cap: number,
+  spent: number,
+  matcherStateBytes: number,
+  flushUnits: number,
+  clock: SearchClock | undefined,
+): SearchPatternWork {
   let total = spent
   let sharedCount: BigInt64Array | null = null
   const spentSoFar = (): number => (sharedCount === null ? total : Number(Atomics.load(sharedCount, 0)))
@@ -42,11 +49,13 @@ function localMeter(cap: number, spent: number, matcherStateBytes: number, flush
     cap,
     matcherStateBytes,
     flushUnits,
+    clock,
     add(units: number): void {
       if (units <= 0) return
       if (sharedCount === null) total += units
       else total = Number(Atomics.add(sharedCount, 0, BigInt(units))) + units
       if (total > cap) throw capExceeded(cap)
+      if (clock !== undefined) clock.tick(units)
     },
     remaining(): number {
       return cap - spentSoFar()
@@ -86,8 +95,8 @@ function localMeter(cap: number, spent: number, matcherStateBytes: number, flush
   return meter
 }
 
-export function createPatternWorkMeter(cap: number = DEFAULT_PATTERN_WORK_CAP): SearchPatternWork {
-  return localMeter(cap, 0, MATCHER_STATE_BUDGET_BYTES, PATTERN_WORK_FLUSH_UNITS)
+export function createPatternWorkMeter(cap: number = DEFAULT_PATTERN_WORK_CAP, clock?: SearchClock): SearchPatternWork {
+  return localMeter(cap, 0, MATCHER_STATE_BUDGET_BYTES, PATTERN_WORK_FLUSH_UNITS, clock)
 }
 
 function sharedMeter(work: SharedPatternWork, counter: SharedArrayBuffer): PatternWorkMeter {
@@ -103,13 +112,14 @@ function sharedMeter(work: SharedPatternWork, counter: SharedArrayBuffer): Patte
     remaining(): number {
       return work.cap - Number(Atomics.load(view, 0))
     },
+    clock: undefined,
   }
 }
 
 export function joinPatternWorkMeter(work: SharedPatternWork): JoinedPatternWork {
   const meter =
     work.counter === null
-      ? localMeter(work.cap, work.spent, work.matcherStateBytes, work.flushUnits)
+      ? localMeter(work.cap, work.spent, work.matcherStateBytes, work.flushUnits, undefined)
       : sharedMeter(work, work.counter)
   let spent = 0
   return {
@@ -121,6 +131,7 @@ export function joinPatternWorkMeter(work: SharedPatternWork): JoinedPatternWork
       meter.add(units)
     },
     remaining: () => meter.remaining(),
+    clock: meter.clock,
     spent: () => spent,
   }
 }

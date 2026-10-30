@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { LONG_QUERY_THREADS } from '../../engine/orchestration/constants'
 import type { QueryCoverage } from '../../types/results'
 import { vectorSearchPath } from '../../vector/native/search-path'
 import { resolveRequestThreadCount } from '../../workers/worker-count'
@@ -347,11 +348,11 @@ describe.skipIf(!built)('request threads answer from the copies they hold', () =
     expect(srv.server.requestThreadCount).toBe(resolveRequestThreadCount(2))
   })
 
-  it('reports the request thread count in the memory stats', async () => {
+  it('reports the request thread count in the memory stats, and every worker', async () => {
     const memory = await getJson<{ requestThreads: number; workers: unknown[] }>(srv.base, '/stats/memory')
     expect(memory.status).toBe(200)
     expect(memory.body.requestThreads).toBe(srv.server.requestThreadCount)
-    expect(memory.body.workers.length).toBe(memory.body.requestThreads)
+    expect(memory.body.workers.length).toBe(memory.body.requestThreads + LONG_QUERY_THREADS)
   })
 
   it('answers a text search on a scaled-out index without the main thread, and sends a small index to it', async () => {

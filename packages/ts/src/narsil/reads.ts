@@ -7,7 +7,7 @@ import { executeSuggest } from '../engine/suggest'
 import { collectQueryTermStats } from '../partitioning/distributed-scoring'
 import type { StatsExpansion } from '../partitioning/expanded-tokens'
 import type { PartitionManager } from '../partitioning/manager/types'
-import { queryBindingOf } from '../search/cursor-binding'
+import { lazyQueryBinding } from '../search/cursor-binding'
 import type { GlobalStatistics } from '../types/internal'
 import type { ListResult, PreflightResult, QueryResult, SuggestResult } from '../types/results'
 import type { AnyDocument } from '../types/schema'
@@ -94,7 +94,7 @@ export async function runEngineQuery<T = AnyDocument>(
       broadcastStats: broadcastStatsFor(core, options),
       partitionIds: options?.partitionIds,
       rescoreWindow: options?.rescoreWindow,
-      cursorBinding: queryBindingOf(params),
+      cursorBinding: lazyQueryBinding(params),
       patternWorkCap: core.patternWorkCap,
       rerank: rerank?.rerankRunnerFor(core),
     }
@@ -153,7 +153,7 @@ export async function runEnginePreflight(
       indexName,
       broadcastStats: broadcastStatsFor(core, options),
       partitionIds: options?.partitionIds,
-      cursorBinding: queryBindingOf(params),
+      cursorBinding: lazyQueryBinding(params),
       patternWorkCap: core.patternWorkCap,
     }
     const { result, analysisStale } = await readUnderOneAnalysis(core, indexName, () =>

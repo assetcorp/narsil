@@ -61,6 +61,7 @@ async function mainAndCopy(): Promise<{
       leaseLeastBusy: () => ({ workerId: 0, executor: recording, release: () => undefined }),
       leaseIdle: () => [{ workerId: 0, executor: recording, release: () => undefined }],
       queriesInFlight: () => 0,
+      isLongQueryWorker: () => false,
       spawnAll: () => undefined,
       workerCount: 1,
       addIndex: () => undefined,

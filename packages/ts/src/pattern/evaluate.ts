@@ -103,6 +103,7 @@ function answeredByTypoTest(request: PatternMatchRequest, tally: WorkTally): boo
 
 export function matchPattern(request: PatternMatchRequest): void {
   const { operator, caseFold, index, matches, host } = request
+  request.meter.clock?.check()
   const tally = new WorkTally(request.meter)
   if (answeredByTypoTest(request, tally)) {
     tally.flush()

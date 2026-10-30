@@ -38,7 +38,7 @@ async function insertOnLease(
 export function sharedCopyHostOf(state: OrchestratorState): SharedCopyHost {
   return {
     get workerCount() {
-      return state.workerPool?.workerCount ?? state.keywordWorkerCount
+      return state.workerPool?.workerCount ?? state.keywordWorkerCount + state.longQueryWorkerCount
     },
     holdsIndex: (indexName: string) => holdsIndex(state, indexName),
     resolvePartition: (indexName: string, docId: string) => state.executor.getManager(indexName)?.partitionIdOf(docId),
