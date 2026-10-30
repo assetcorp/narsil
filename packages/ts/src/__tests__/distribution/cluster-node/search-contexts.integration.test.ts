@@ -320,4 +320,40 @@ describe('a cluster search that reads its hits from the nodes that ranked them',
     }
     expect(answer.code).toBe('SEARCH_CONTEXT_MISSING')
   }, 30_000)
+
+  function refuseForMemory(answer: Record<string, unknown>): void {
+    for (const key of Object.keys(answer)) delete answer[key]
+    Object.assign(answer, {
+      error: true,
+      code: 'TOO_MANY_REQUESTS',
+      message: 'Holding the ranked documents would fill this node',
+      details: { reason: 'response_would_fill_memory' },
+    })
+  }
+
+  it('answers from the other copy when one node refuses its part of the search for memory', async () => {
+    await startCluster(40)
+    tap.rewriteSearchResult = (answer, target) => {
+      if (target === DATA_NODES[0]) refuseForMemory(answer)
+    }
+
+    const result = await router.query(INDEX, { term: 'widget', sort: { rank: 'asc' }, limit: 40 })
+
+    expect(result.count).toBe(40)
+    expect(result.hits.map(hit => hit.id)).toEqual(items(40).map(item => item.id))
+  })
+
+  it('refuses the whole search with TOO_MANY_REQUESTS when every copy refuses for memory, even with partial results allowed', async () => {
+    await startCluster(40)
+    tap.rewriteSearchResult = answer => refuseForMemory(answer)
+
+    const outcome = await router.query(INDEX, { term: 'widget', limit: 40 }).then(
+      result => result,
+      (error: unknown) => error,
+    )
+
+    if (!isNarsilError(outcome)) throw new Error(`the search answered ${JSON.stringify(outcome).slice(0, 200)}`)
+    expect(outcome.code).toBe('TOO_MANY_REQUESTS')
+    expect(outcome.details.reason).toBe('response_would_fill_memory')
+  })
 })

@@ -35,7 +35,7 @@ export interface WireTap {
   afterSearch: ((record: SearchRecord) => Promise<void>) | null
   afterFetch: ((record: FetchRecord) => Promise<void>) | null
   rewriteSearch: ((payload: Record<string, unknown>, round: number) => void) | null
-  rewriteSearchResult: ((payload: Record<string, unknown>) => void) | null
+  rewriteSearchResult: ((payload: Record<string, unknown>, target: string) => void) | null
   unreachable: ((target: string, round: number) => boolean) | null
 }
 
@@ -69,7 +69,7 @@ export function tapTransport(nodeId: string, network: InMemoryNetwork): WireTap 
           tap.rewriteSearch?.(payload, searchRound)
           const response = await inner.send(target, { ...message, payload: encode(payload) })
           const answer = decode(response.payload) as Record<string, unknown>
-          tap.rewriteSearchResult?.(answer)
+          tap.rewriteSearchResult?.(answer, target)
           const partitions = Array.isArray(answer.results) ? (answer.results as Array<{ scored: unknown[] }>) : []
           const record: SearchRecord = {
             round: searchRound,
