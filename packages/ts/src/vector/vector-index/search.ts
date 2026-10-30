@@ -19,8 +19,12 @@ import {
   type VectorSearchOutcome,
 } from './shared'
 
-function* bufferCandidates(state: VectorIndexState, filter?: OrdinalFilter): Iterable<string> {
-  for (const docId of state.buffer) {
+function* bufferCandidates(
+  state: VectorIndexState,
+  buffered: Iterable<string>,
+  filter?: OrdinalFilter,
+): Iterable<string> {
+  for (const docId of buffered) {
     if (state.tombstones.has(docId)) continue
     if (filter) {
       const ordinal = state.store.getOrdinal(docId)
@@ -208,12 +212,11 @@ export function searchWithFilter(
     .search(query, k, metric, minSimilarity, { filter, efSearch, oversample, rescoreWindow })
     .map(r => ({ docId: r.docId, score: r.score }))
 
-  return fetchedOutcome(
-    state,
-    withBufferedVectors(state, query, k, options, filter, hnswResults),
-    minSimilarity,
-    filter,
-  )
+  const results =
+    state.buffer.size === 0
+      ? hnswResults
+      : withBufferedVectors(state, query, k, options, filter, hnswResults, state.buffer)
+  return fetchedOutcome(state, results, minSimilarity, filter)
 }
 
 export function withBufferedVectors(
@@ -223,9 +226,9 @@ export function withBufferedVectors(
   options: VectorSearchOptions,
   filter: OrdinalFilter | undefined,
   graphResults: VectorScoredResult[],
+  buffered: Iterable<string>,
 ): VectorScoredResult[] {
-  if (state.buffer.size === 0) return graphResults
-  const candidates = bufferCandidates(state, filter)
-  const buffered = bruteForceSearch(state, query, k, options.metric, options.minSimilarity, candidates)
-  return mergeResults(graphResults, buffered.results, k)
+  const candidates = bufferCandidates(state, buffered, filter)
+  const scan = bruteForceSearch(state, query, k, options.metric, options.minSimilarity, candidates)
+  return mergeResults(graphResults, scan.results, k)
 }

@@ -204,6 +204,7 @@ export function createSharedVectorSearcher(options: SharedVectorSearcherOptions)
       }
     }
 
+    const unplaced = flags.unplacedOrdinals()
     let resolvedEveryHit = true
     const graphResults: VectorScoredResult[] = []
     for (const hit of view.searchOrdinals(query, k, metric, minSimilarity, {
@@ -220,7 +221,6 @@ export function createSharedVectorSearcher(options: SharedVectorSearcherOptions)
       }
       graphResults.push({ docId, score: hit.score })
     }
-    const unplaced = flags.unplacedOrdinals()
     if (unplaced.length === 0) return fetched(graphResults, resolvedEveryHit)
     const scan = scoreCandidates(view.store, candidatesOf(unplaced, filter), query, k, metric, minSimilarity, clock)
     return fetched(mergeResults(graphResults, scan.results, k), resolvedEveryHit)
