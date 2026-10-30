@@ -4,6 +4,7 @@ import type { AnyDocument } from '../../../types/schema'
 import type { ReplicationLogEntry } from '../../replication/types'
 import type { PrimaryWriteScope } from './numbered-write'
 import { chunkReplicationEntries, replicateEntryBatch } from './replication'
+import { settleRollback } from './rollback'
 import type { WriteRoutingDeps } from './types'
 
 export interface AppendedWrite {
@@ -54,7 +55,7 @@ export async function replicateAppendedWrites(
   scope: PrimaryWriteScope,
   appended: AppendedWrite[],
   failed: BatchResult['failed'],
-  rollback: (write: AppendedWrite, error: unknown) => Promise<never>,
+  compensate: (write: AppendedWrite, error: unknown) => Promise<void>,
   deps: WriteRoutingDeps,
 ): Promise<string[]> {
   const succeeded: string[] = []
@@ -81,13 +82,22 @@ export async function replicateAppendedWrites(
     abandoned.push(...chunk)
   }
 
+  const first = abandoned[0]
+  if (first === undefined) return succeeded
+  const failedAt = Date.now()
+  const compensated: AppendedWrite[] = []
   for (let index = abandoned.length - 1; index >= 0; index--) {
     const item = abandoned[index]
     try {
-      await rollback(item, abortError)
+      await compensate(item, abortError)
+      compensated.push(item)
     } catch (err) {
       failed.push({ docId: item.docId, error: asWriteError(err, ErrorCodes.DOC_VALIDATION_FAILED, item.docId) })
     }
+  }
+  const answer = await settleRollback(scope, first.entry.seqNo, abortError, failedAt)
+  for (const item of compensated) {
+    failed.push({ docId: item.docId, error: asWriteError(answer, ErrorCodes.DOC_VALIDATION_FAILED, item.docId) })
   }
 
   return succeeded

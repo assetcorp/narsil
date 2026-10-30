@@ -11,12 +11,14 @@ interface DocumentHistory {
   retired: boolean
 }
 
-export const REFUSED_BEFORE_APPLY = new Set([
+export const REFUSED_FOR_CERTAIN = new Set([
   'PARTITION_NOT_PRIMARY',
   'PARTITION_UNASSIGNED',
   'NODE_NOT_READY',
   'CLUSTER_WRITE_BLOCKED',
   'REPLICATION_LOG_FULL',
+  'INSUFFICIENT_REPLICAS',
+  'REPLICATION_INSYNC_REMOVAL_FAILED',
 ])
 
 export interface Ledger {

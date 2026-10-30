@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createClusterNode } from '../../../distribution/cluster-node'
-import { fetchSnapshotFromAnyTarget } from '../../../distribution/cluster-node/bootstrap-fetch'
 import type { ClusterNode } from '../../../distribution/cluster-node/types'
 import { resolvePartitionId } from '../../../distribution/cluster-node/write-routing'
 import { createInMemoryCoordinator } from '../../../distribution/coordinator'
@@ -222,21 +221,6 @@ describe('cluster-node live replication', () => {
       'products',
       makeAllocationTable('products', replicaAssignments, await nextVersion(coordinator, 'products')),
     )
-
-    const metadataCheck = await fetchSnapshotFromAnyTarget(
-      'products',
-      'node-a',
-      ['node-a'],
-      Date.now() + 10_000,
-      { transport: replicaTransport, sourceNodeId: 'node-b' },
-      () => false,
-      0,
-    )
-    expect(metadataCheck.ok).toBe(true)
-    if (metadataCheck.ok) {
-      expect(metadataCheck.header.lastSeqNo).toBe(1)
-      expect(metadataCheck.header.partitionId).toBe(0)
-    }
 
     const allocation = await waitForSettledReplica(coordinator, 'products', 'node-b')
     const partitionId = findNodeAPrimaryPartition(allocation)

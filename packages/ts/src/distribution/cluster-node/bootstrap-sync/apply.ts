@@ -10,13 +10,7 @@ import { enqueuePartitionWrite } from '../write-routing/partition-queue'
 import { applySyncEntries } from './entries'
 import { streamFailureToError } from './frames'
 import { entryKey } from './state'
-import type {
-  BootstrapEntry,
-  BootstrapSyncState,
-  LiveBootstrapSyncDeps,
-  LiveSyncFrameState,
-  LiveSyncResult,
-} from './types'
+import type { BootstrapEntry, BootstrapSyncDeps, BootstrapSyncState, LiveSyncFrameState, LiveSyncResult } from './types'
 
 export async function applyLiveIncrementalSync(
   indexName: string,
@@ -27,7 +21,7 @@ export async function applyLiveIncrementalSync(
   localPrimaryTerm: number,
   coordinatorConfig: IndexConfig,
   partitionCount: number,
-  deps: LiveBootstrapSyncDeps,
+  deps: BootstrapSyncDeps,
 ): Promise<LiveSyncResult> {
   const ensureResult = await ensureLocalIndexForIncremental(indexName, target, coordinatorConfig, partitionCount, deps)
   if (ensureResult instanceof NarsilError) {
@@ -65,7 +59,7 @@ export async function applyLiveSnapshotSync(
   coordinatorConfig: IndexConfig,
   partitionCount: number,
   deadline: number,
-  deps: LiveBootstrapSyncDeps,
+  deps: BootstrapSyncDeps,
 ): Promise<LiveSyncResult> {
   const finalized = finalizeSnapshotStream(frameState.snapshotState)
   if (!finalized.ok) {
@@ -120,7 +114,7 @@ async function restartFromSnapshot(
   coordinatorConfig: IndexConfig,
   partitionCount: number,
   deadline: number,
-  deps: LiveBootstrapSyncDeps,
+  deps: BootstrapSyncDeps,
 ): Promise<NarsilError | null> {
   let restoreError: NarsilError | null
   try {
@@ -169,7 +163,7 @@ export async function restoreLiveSnapshotPartition(
   coordinatorConfig: IndexConfig,
   partitionCount: number,
   deadline: number,
-  deps: LiveBootstrapSyncDeps,
+  deps: BootstrapSyncDeps,
 ): Promise<NarsilError | null> {
   const remainingMs = deadline - Date.now()
   if (remainingMs <= 0) {
@@ -235,7 +229,7 @@ export async function ensureLocalIndexForIncremental(
   primaryNodeId: string,
   coordinatorConfig: IndexConfig,
   partitionCount: number,
-  deps: LiveBootstrapSyncDeps,
+  deps: BootstrapSyncDeps,
 ): Promise<{ created: boolean } | NarsilError> {
   const existing = deps.engine.listIndexes().find(idx => idx.name === indexName)
   if (existing !== undefined) {

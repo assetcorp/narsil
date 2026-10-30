@@ -261,6 +261,7 @@ async function routeAdmittedInsert(
     () => insertOnce(indexName, document, resolvedDocId, deps, options),
     settleEqualInserts(deps, indexName, new Map([[resolvedDocId, document]])),
     () => resolvedDocId,
+    true,
   )
 }
 

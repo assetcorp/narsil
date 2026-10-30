@@ -35,11 +35,11 @@ export interface BootstrapSyncDeps {
   partitionWriteQueues: PartitionWriteQueues
   onError?: (error: unknown) => void
   onSnapshotApplied?: (indexName: string, partitionId: number, header: ReplicationSnapshotHeader) => void
-  getReplicationLog?: (indexName: string, partitionId: number) => ReplicationLog
-  resetReplicationLog?: (indexName: string, partitionId: number, startSeqNo: number, lastPrimaryTerm?: number) => void
-  applyReplicationEntries?: (entries: readonly ReplicationLogEntry[]) => Promise<AppliedReplicationEntries>
+  getReplicationLog: (indexName: string, partitionId: number) => ReplicationLog
+  resetReplicationLog: (indexName: string, partitionId: number, startSeqNo: number, lastPrimaryTerm?: number) => void
+  applyReplicationEntries: (entries: readonly ReplicationLogEntry[]) => Promise<AppliedReplicationEntries>
   restartLocalLog?: (indexName: string, partitionId: number, position: PartitionLogPosition) => Promise<void>
-  restoreReplicationPartition?: (
+  restoreReplicationPartition: (
     indexName: string,
     partitionId: number,
     source: AsyncIterable<Uint8Array>,
@@ -48,19 +48,6 @@ export interface BootstrapSyncDeps {
   ) => Promise<void>
   deadlineMs?: number
   snapshotSpoolDirectory?: string
-}
-
-export interface LiveBootstrapSyncDeps extends BootstrapSyncDeps {
-  getReplicationLog: (indexName: string, partitionId: number) => ReplicationLog
-  resetReplicationLog: (indexName: string, partitionId: number, startSeqNo: number, lastPrimaryTerm?: number) => void
-  applyReplicationEntries: (entries: readonly ReplicationLogEntry[]) => Promise<AppliedReplicationEntries>
-  restoreReplicationPartition: (
-    indexName: string,
-    partitionId: number,
-    source: AsyncIterable<Uint8Array>,
-    config: IndexConfig,
-    partitionCount: number,
-  ) => Promise<void>
 }
 
 export type AbortCheck = () => boolean

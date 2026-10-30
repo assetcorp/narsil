@@ -1,4 +1,4 @@
-import { replyDeadlineMs } from '../reply-deadline'
+import { replyDeadlineMs, timeoutsOf } from '../reply-deadline'
 import {
   DEFAULT_TRANSPORT_CONFIG,
   type ListenHandler,
@@ -51,6 +51,8 @@ export function createSimulatedTransport(
   }
 
   const internal: SimulatedTransportInternal = {
+    timeouts: timeoutsOf(resolvedConfig),
+
     deliverMessage(message: TransportMessage, respond: RespondFn): void {
       if (listenHandler === undefined) {
         return

@@ -4,8 +4,6 @@ import { validateSchema } from '../../schema/validator'
 import type { IndexConfig, SchemaDefinition } from '../../types/schema'
 import { getClusterIndexConfig } from '../cluster/index-metadata'
 import type { ClusterCoordinator } from '../coordinator/types'
-import { withDeadline } from './bootstrap-fetch'
-import { localIndexIsGone } from './local-index-gone'
 import { diffSchemas, type SchemaDiffEntry } from './schema-diff'
 
 export const ABORT_SENTINEL = Symbol('bootstrap-sync-aborted')
@@ -94,29 +92,6 @@ export function surfaceAborted(deps: SurfaceErrorDeps, indexName: string, primar
   )
 }
 
-export async function executeEngineRestore(
-  engine: Narsil,
-  indexName: string,
-  primaryNodeId: string,
-  source: AsyncIterable<Uint8Array>,
-  remainingMs: number,
-): Promise<NarsilError | null> {
-  try {
-    await withDeadline(engine.restore(indexName, source), remainingMs, indexName, 'restore')
-    return null
-  } catch (err) {
-    if (err instanceof NarsilError && err.code === ErrorCodes.SNAPSHOT_SYNC_TIMEOUT) {
-      return err
-    }
-    const cause = err instanceof Error ? err.message : String(err)
-    return new NarsilError(ErrorCodes.SNAPSHOT_SYNC_RESTORE_FAILED, `engine.restore failed: ${cause}`, {
-      indexName,
-      primaryNodeId,
-      cause,
-    })
-  }
-}
-
 export function validateRestoredSchema(
   engine: Narsil,
   indexName: string,
@@ -150,43 +125,6 @@ export function validateRestoredSchema(
       differences,
     },
   )
-}
-
-/**
- * Drop the restored index, surfacing any cleanup failure through onError
- * under a dedicated code so operators can see when cleanup is stuck.
- * Still best-effort: the function never throws back to the caller, which is
- * already handling a primary failure.
- *
- * INDEX_NOT_FOUND is expected (another drop raced us) and stays silent.
- */
-export async function dropRestoredIndexQuietly(
-  engine: Narsil,
-  indexName: string,
-  deps: SurfaceErrorDeps = {},
-): Promise<void> {
-  try {
-    const existing = engine.listIndexes().find(idx => idx.name === indexName)
-    if (existing === undefined) {
-      return
-    }
-    await engine.dropIndex(indexName)
-  } catch (err) {
-    if (localIndexIsGone(err)) {
-      return
-    }
-    if (deps.onError === undefined) {
-      return
-    }
-    const cause = err instanceof Error ? err.message : String(err)
-    deps.onError(
-      new NarsilError(
-        ErrorCodes.SNAPSHOT_SYNC_RESTORE_CLEANUP_FAILED,
-        `failed to drop restored index '${indexName}' after bootstrap cleanup: ${cause}`,
-        { indexName, cause },
-      ),
-    )
-  }
 }
 
 export async function loadCoordinatorIndexConfig(
@@ -252,30 +190,5 @@ export async function loadCoordinatorIndexConfig(
         { indexName, primaryNodeId, cause },
       ),
     }
-  }
-}
-
-export async function dropExistingIndex(
-  engine: Narsil,
-  indexName: string,
-  primaryNodeId: string,
-): Promise<NarsilError | null> {
-  try {
-    const existing = engine.listIndexes().find(idx => idx.name === indexName)
-    if (existing === undefined) {
-      return null
-    }
-    await engine.dropIndex(indexName)
-    return null
-  } catch (err) {
-    if (localIndexIsGone(err)) {
-      return null
-    }
-    const cause = err instanceof Error ? err.message : String(err)
-    return new NarsilError(
-      ErrorCodes.SNAPSHOT_SYNC_RESTORE_FAILED,
-      `engine.dropIndex failed before restore: ${cause}`,
-      { indexName, primaryNodeId, cause },
-    )
   }
 }

@@ -9,7 +9,7 @@ import {
 } from '../bootstrap-restore'
 import { entryKey } from './state'
 import { syncFromAnyTarget } from './targets'
-import type { AbortCheck, BootstrapEntry, BootstrapSyncState, LiveBootstrapSyncDeps } from './types'
+import type { AbortCheck, BootstrapEntry, BootstrapSyncDeps, BootstrapSyncState } from './types'
 
 export async function resolveLivePartitionCount(
   coordinator: ClusterCoordinator,
@@ -80,7 +80,7 @@ export async function executeLiveBootstrapSync(
   indexName: string,
   partitionId: number,
   primaryNodeId: string,
-  deps: LiveBootstrapSyncDeps,
+  deps: BootstrapSyncDeps,
   deadlineMs: number,
   deadline: number,
   abortCheck: AbortCheck,

@@ -111,22 +111,6 @@ describe('bootstrap sync hardening', () => {
     expect(err.details.innerCode).toBe(ErrorCodes.SNAPSHOT_SYNC_TIMEOUT)
   })
 
-  it('T6: when the local index already exists, dropIndex is called synchronously before restore', async () => {
-    mockEngine = makeMockEngine({ hasIndex: true })
-    scripted.setScript(makeScriptedSnapshot('products', 1024).chunks)
-    const state = createBootstrapSyncState()
-    const result = await runBootstrapSync(
-      state,
-      'products',
-      0,
-      'primary-node',
-      makeDeps(mockEngine.engine, coordinator, scripted.transport),
-    )
-    expect(result).toBe(true)
-    expect(mockEngine.dropIndexCalls).toEqual(['products'])
-    expect(mockEngine.restoreCalls.length).toBe(1)
-  })
-
   it('T7: rejects an out-of-order chunk via the shared assembler (strict in-order enforcement)', async () => {
     const totalBytes = SNAPSHOT_CHUNK_SIZE * 2
     const bytes = new Uint8Array(totalBytes)
@@ -154,6 +138,7 @@ describe('bootstrap sync hardening', () => {
   })
 
   it('per-partition keying: two partitions of the same index have independent bootstrap state', async () => {
+    const twoPartitions = makeMockCoordinator({ title: 'string' }, 2)
     scripted.setScript(makeScriptedSnapshot('products', 512).chunks)
     const state = createBootstrapSyncState()
 
@@ -162,15 +147,16 @@ describe('bootstrap sync hardening', () => {
       'products',
       0,
       'primary-node',
-      makeDeps(mockEngine.engine, coordinator, scripted.transport),
+      makeDeps(mockEngine.engine, twoPartitions, scripted.transport),
     )
+    scripted.setScript(makeScriptedSnapshot('products', 512, 1).chunks)
     const secondEngine = makeMockEngine()
     const second = await runBootstrapSync(
       state,
       'products',
       1,
       'primary-node',
-      makeDeps(secondEngine.engine, coordinator, scripted.transport),
+      makeDeps(secondEngine.engine, twoPartitions, scripted.transport),
     )
 
     expect(first).toBe(true)

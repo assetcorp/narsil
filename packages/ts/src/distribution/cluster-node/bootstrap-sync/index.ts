@@ -1,23 +1,7 @@
-import { ErrorCodes, NarsilError } from '../../../errors'
-import { fetchSnapshotFromAnyTarget } from '../bootstrap-fetch'
-import {
-  ABORT_SENTINEL,
-  dropRestoredIndexQuietly,
-  resolveTransportTargets,
-  surfaceAborted,
-  surfaceError,
-  validateArguments,
-} from '../bootstrap-restore'
+import { ABORT_SENTINEL, surfaceError, validateArguments } from '../bootstrap-restore'
 import { DEFAULT_BOOTSTRAP_SYNC_DEADLINE_MS } from '../constants'
 import { executeLiveBootstrapSync } from './live'
-import { applyRestore, fetchSchemaAndPrepare } from './snapshot-restore'
-import {
-  anotherBootstrapOwnsKey,
-  clearBootstrapSyncIndex,
-  createEntry,
-  entryKey,
-  hasLiveBootstrapSyncDeps,
-} from './state'
+import { clearBootstrapSyncIndex, createEntry, entryKey } from './state'
 import type { BootstrapEntry, BootstrapSyncDeps, BootstrapSyncState } from './types'
 
 export { DEFAULT_BOOTSTRAP_SYNC_DEADLINE_MS } from '../constants'
@@ -109,117 +93,15 @@ export async function executeBootstrapSync(
     return entry.aborted
   }
 
-  if (hasLiveBootstrapSyncDeps(deps)) {
-    return executeLiveBootstrapSync(
-      state,
-      entry,
-      indexName,
-      partitionId,
-      primaryNodeId,
-      deps,
-      deadlineMs,
-      deadline,
-      abortCheck,
-    )
-  }
-
-  const schemaResult = await fetchSchemaAndPrepare(entry, indexName, primaryNodeId, deps)
-  if (schemaResult === 'aborted') {
-    surfaceAborted(deps, indexName, primaryNodeId)
-    return false
-  }
-  if (schemaResult === null) {
-    return false
-  }
-  if (abortCheck()) {
-    surfaceAborted(deps, indexName, primaryNodeId)
-    return false
-  }
-
-  if (Date.now() >= deadline) {
-    surfaceError(
-      deps,
-      indexName,
-      primaryNodeId,
-      new NarsilError(ErrorCodes.SNAPSHOT_SYNC_TIMEOUT, 'bootstrap sync exceeded deadline before fetching snapshot', {
-        indexName,
-        deadlineMs,
-      }),
-    )
-    return false
-  }
-
-  const targetsResult = await resolveTransportTargets(indexName, primaryNodeId, deps.resolveNodeTargets)
-  if (targetsResult instanceof NarsilError) {
-    surfaceError(deps, indexName, primaryNodeId, targetsResult)
-    return false
-  }
-
-  const indexUuid = (await deps.coordinator.getAllocation(indexName))?.indexUuid
-  const fetchDeps = {
-    transport: deps.transport,
-    sourceNodeId: deps.sourceNodeId,
-    spoolDirectory: deps.snapshotSpoolDirectory,
-    ...(indexUuid === undefined ? {} : { indexUuid }),
-  }
-  const fetchResult = await fetchSnapshotFromAnyTarget(
+  return executeLiveBootstrapSync(
+    state,
+    entry,
     indexName,
-    primaryNodeId,
-    targetsResult,
-    deadline,
-    fetchDeps,
-    abortCheck,
     partitionId,
+    primaryNodeId,
+    deps,
+    deadlineMs,
+    deadline,
+    abortCheck,
   )
-  if (!fetchResult.ok) {
-    if (fetchResult.code === ErrorCodes.SNAPSHOT_SYNC_ABORTED) {
-      surfaceAborted(deps, indexName, primaryNodeId)
-      return false
-    }
-    surfaceError(
-      deps,
-      indexName,
-      primaryNodeId,
-      new NarsilError(fetchResult.code, fetchResult.message, {
-        indexName,
-        primaryNodeId,
-        ...fetchResult.details,
-      }),
-    )
-    return false
-  }
-
-  let restoreSucceeded: boolean
-  try {
-    if (abortCheck()) {
-      surfaceAborted(deps, indexName, primaryNodeId)
-      return false
-    }
-    restoreSucceeded = await applyRestore(
-      state,
-      entry,
-      indexName,
-      primaryNodeId,
-      fetchResult.snapshot.read(),
-      schemaResult,
-      deadline,
-      deps,
-    )
-  } finally {
-    await fetchResult.snapshot.discard()
-  }
-  if (!restoreSucceeded) {
-    return false
-  }
-
-  if (abortCheck()) {
-    if (!anotherBootstrapOwnsKey(state, key, entry)) {
-      await dropRestoredIndexQuietly(deps.engine, indexName, deps)
-    }
-    surfaceAborted(deps, indexName, primaryNodeId)
-    return false
-  }
-  deps.onSnapshotApplied?.(indexName, partitionId, fetchResult.header)
-  state.completed.add(key)
-  return true
 }
