@@ -22,6 +22,7 @@ export interface EtcdMembers {
   restart(member: number): Promise<void>
   stop(member: number): Promise<void>
   start(member: number): Promise<void>
+  revokeAuthTokens(throughMember: number): Promise<void>
   remove(): Promise<void>
 }
 
@@ -164,6 +165,10 @@ export async function startEtcdMembers(bundles: TlsBundles | null): Promise<Etcd
     },
     async start(member) {
       await runDocker(['start', names[member] ?? ''])
+    },
+    async revokeAuthTokens(throughMember) {
+      await etcdctl(throughMember, '--user', `root:${ETCD_ROOT_PASSWORD}`, 'auth', 'disable')
+      await etcdctl(throughMember, 'auth', 'enable')
     },
     remove,
   }

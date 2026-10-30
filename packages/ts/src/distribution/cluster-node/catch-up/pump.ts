@@ -230,7 +230,7 @@ async function pumpPartition(
   const indexName = key.slice(0, separator)
   const partitionId = Number(key.slice(separator + 1))
 
-  const table = await deps.coordinator.getAllocation(indexName)
+  const table = await (deps.readLiveAllocation?.(indexName) ?? deps.coordinator.getAllocation(indexName))
   const assignment = table?.assignments.get(partitionId)
   if (assignment === undefined || assignment.primary !== deps.nodeId) {
     cancelFeeds(replicas)
@@ -287,8 +287,10 @@ async function pumpPartition(
  * holds up only its own feed, and the next tick skips a replica whose last batch or proposal is still in flight. Each
  * batch waits no longer than the transport's `replicationTimeout`. A tick cancels a feed in flight once its replica has
  * left the cluster or restarted, or once the partition's primary term or in-sync set has changed since the feed began,
- * so the tick after that feeds or proposes the replica afresh. A tick that is already reading the allocation returns
- * that same tick in place of starting a second one.
+ * so the tick after that feeds or proposes the replica afresh. Each tick reads the allocation table from the cluster
+ * coordinator rather than from the watched copy, because a watched copy that lags behind a sync request would let
+ * the tick forget a replica that has just left the in-sync set, and nothing would feed that replica again. A tick
+ * that is already reading the allocation returns that same tick in place of starting a second one.
  *
  * @param state - The catch-up state that holds the cursors and the in-flight byte total.
  * @param deps - The write routing dependencies, which give the pump the log, the transport, and the coordinator.
