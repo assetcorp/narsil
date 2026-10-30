@@ -68,11 +68,15 @@ jobs:
       - name: Test (certutil)
         run: pnpm nx run narsil-certutil:test
 
-  presubmit-tests:
-    name: Presubmit tests
+  tests:
+    name: Tests ${{ matrix.shard }} of 3
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 8
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
     services:
       etcd:
         image: gcr.io/etcd-development/etcd:v3.6.0
@@ -107,10 +111,11 @@ jobs:
       - name: Build the code that worker tests load
         run: pnpm nx run narsil-ts:build:code
 
-      - name: Test the files outside the postsubmit list
-        run: pnpm nx run narsil-ts:test:presubmit
+      - name: Test
+        run: pnpm nx run narsil-ts:test --shard=${{ matrix.shard }}/3
 
       - name: Test (etcd integration)
+        if: matrix.shard == 1
         env:
           NARSIL_ETCD_ENDPOINT: http://127.0.0.1:2379
         run: pnpm nx run narsil-ts:test:etcd
@@ -155,7 +160,7 @@ jobs:
         run: pnpm nx run narsil-ts:build:code
 
       - name: Test
-        run: pnpm nx run narsil-ts:test:postsubmit
+        run: pnpm nx run narsil-ts:test
 
       - name: Test (etcd integration)
         env:
@@ -169,9 +174,6 @@ jobs:
         env:
           NARSIL_ETCD_ENDPOINT: http://127.0.0.1:2379
         run: pnpm nx run narsil-ts:test:cluster
-
-      - name: Check that every postsubmit file needs its place on the list
-        run: pnpm nx run narsil-ts:test:postsubmit-times
 
   benchmarks-harness-tests:
     name: Benchmark harness tests
