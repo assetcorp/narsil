@@ -6,6 +6,7 @@ import {
   MAX_FIELDS_LIST,
   MAX_HIGHLIGHT_SNIPPET_LENGTH,
   MAX_HIGHLIGHT_TAG_LENGTH,
+  MAX_SEARCH_CONTEXT_ID_LENGTH,
 } from '../constants'
 import {
   CONFIG_INVALID,
@@ -89,6 +90,16 @@ export function validateFetchPayload(decoded: unknown): FetchPayload {
   }
   if (decoded.highlight !== null) {
     validateHighlightConfig(decoded.highlight)
+  }
+  if (decoded.contextId !== null && decoded.contextId !== undefined) {
+    validateStringField(decoded.contextId, 'contextId', MAX_SEARCH_CONTEXT_ID_LENGTH, CONFIG_INVALID)
+  }
+  if (
+    decoded.releaseContext !== null &&
+    decoded.releaseContext !== undefined &&
+    typeof decoded.releaseContext !== 'boolean'
+  ) {
+    throwInvalid(CONFIG_INVALID, 'Invalid FetchPayload: "releaseContext" must be a boolean, or null')
   }
   return decoded as unknown as FetchPayload
 }

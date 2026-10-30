@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import type { TlsBundles } from '../../distribution/transport/tcp-tls/fixtures'
-import { freePort } from '../cluster-memory/harness'
+import { freePort, lostPortRace } from '../cluster-memory/harness'
 import { ETCD_ROOT_PASSWORD, type EtcdMembers } from './etcd-members'
 import { type LinkProxy, startLinkProxy } from './link-proxy'
 
@@ -13,6 +13,7 @@ const NODE_SCRIPT = fileURLToPath(new URL('./fault-node.mjs', import.meta.url))
 const READY_TIMEOUT_MS = 90_000
 const STOP_TIMEOUT_MS = 15_000
 const READY_LINE = /READY (\S+)\n/
+const PORT_ATTEMPTS = 5
 
 export interface FleetSettings {
   keyPrefix: string
@@ -69,14 +70,13 @@ export async function startFleet(
 ): Promise<Fleet> {
   const slots: Slot[] = []
   for (let slot = 0; slot < size; slot++) {
-    const transportPort = await freePort()
     const etcdProxies: LinkProxy[] = []
     for (const hostPort of etcd.hostPorts) etcdProxies.push(await startLinkProxy(() => hostPort))
     slots.push({
       slot,
       httpPort: await freePort(),
-      transportPort,
-      transportProxy: await startLinkProxy(() => transportPort),
+      transportPort: await freePort(),
+      transportProxy: await startLinkProxy(() => slotAt(slot).transportPort),
       etcdProxies,
       directory: await mkdtemp(join(tmpdir(), `narsil-fault-node-${slot}-`)),
       child: null,
@@ -125,6 +125,15 @@ export async function startFleet(
   async function start(slot: number): Promise<void> {
     const entry = slotAt(slot)
     if (entry.child !== null) throw new Error(`Slot ${slot} is already running`)
+    for (let attempt = 1; !(await startOnce(entry)); attempt++) {
+      if (attempt === PORT_ATTEMPTS) throw new Error(`Slot ${slot} found no free port in ${PORT_ATTEMPTS} attempts`)
+      entry.httpPort = await freePort()
+      entry.transportPort = await freePort()
+    }
+  }
+
+  async function startOnce(entry: Slot): Promise<boolean> {
+    const slot = entry.slot
     const { NODE_OPTIONS: _inherited, ...parentEnv } = process.env
     const child = spawn(process.execPath, [NODE_SCRIPT], {
       env: { ...parentEnv, NARSIL_FAULT_NODE: JSON.stringify(nodeSettings(entry)) },
@@ -142,7 +151,7 @@ export async function startFleet(
     child.stderr?.on('data', (chunk: Buffer) => {
       entry.output += chunk.toString()
     })
-    await new Promise<void>((resolve, reject) => {
+    return await new Promise<boolean>((resolve, reject) => {
       const timer = setTimeout(() => {
         reject(new Error(`Slot ${slot} did not start within ${READY_TIMEOUT_MS} ms: ${entry.output.slice(-4_000)}`))
       }, READY_TIMEOUT_MS)
@@ -152,12 +161,13 @@ export async function startFleet(
         if (ready !== null) {
           entry.nodeId = ready[1] ?? ''
           clearTimeout(timer)
-          resolve()
+          resolve(true)
         }
       })
       child.once('exit', code => {
         clearTimeout(timer)
-        reject(new Error(`Slot ${slot} exited with code ${code} before it started: ${entry.output.slice(-4_000)}`))
+        if (lostPortRace(entry.output.slice(entry.output.lastIndexOf('--- start')))) resolve(false)
+        else reject(new Error(`Slot ${slot} exited with code ${code} before it started: ${entry.output.slice(-4_000)}`))
       })
     })
   }
@@ -186,8 +196,12 @@ export async function startFleet(
   return {
     nodes: slots.map(entry => ({
       slot: entry.slot,
-      base: `http://127.0.0.1:${entry.httpPort}`,
-      transportAddress: `127.0.0.1:${entry.transportPort}`,
+      get base() {
+        return `http://127.0.0.1:${entry.httpPort}`
+      },
+      get transportAddress() {
+        return `127.0.0.1:${entry.transportPort}`
+      },
       nodeId: () => entry.nodeId,
       running: () => entry.child !== null,
       output: () => entry.output,

@@ -10,7 +10,10 @@ export interface HeapReservation {
   release(): void
 }
 
-export type RefusedMemoryFigures = Omit<NodeMemoryReport, 'full'> & { youngHeapBytes: number }
+export type RefusedMemoryFigures = Omit<NodeMemoryReport, 'full'> & {
+  youngHeapBytes: number
+  heapCommittedBytes: number
+}
 
 const refusalListeners = new Set<(figures: RefusedMemoryFigures) => void>()
 let reservedBytes = 0

@@ -19,7 +19,7 @@ export interface ClusterRerankHost extends RuntimeHost {
   applyProjection: typeof applyProjection
 }
 
-type ReadDocuments = (docIds: string[]) => Promise<Map<string, AnyDocument>>
+type ReadDocuments = (docIds: string[], last: boolean) => Promise<Map<string, AnyDocument>>
 
 export async function rerankClusterQuery<T>(
   deps: ClusterReadDeps,
@@ -47,14 +47,14 @@ export async function rerankClusterQuery<T>(
     fusesRankings: request => request.vector !== undefined && (request.term !== undefined || request.mode === 'hybrid'),
     firstStage,
     async texts(docIds, fields) {
-      const documents = await readDocuments(docIds)
+      const documents = await readDocuments(docIds, false)
       return docIds.map(docId => {
         const document = documents.get(docId)
         return document === undefined ? '' : rerankTextOf(fields.map(field => host.getNestedValue(document, field)))
       })
     },
     async storedPins(docIds) {
-      return new Set((await readDocuments(docIds)).keys())
+      return new Set((await readDocuments(docIds, false)).keys())
     },
     score: (adapter, query, documents) => rerankOnHost(core, adapter, query, documents),
     async fillDocuments(hits, groups, projection) {
@@ -64,7 +64,7 @@ export async function rerankClusterQuery<T>(
         for (const hit of grouped) hit.document = {}
         return
       }
-      const documents = await readDocuments([...hits.map(hit => hit.id), ...grouped.map(hit => hit.id)])
+      const documents = await readDocuments([...hits.map(hit => hit.id), ...grouped.map(hit => hit.id)], true)
       const read = (docId: string): AnyDocument => {
         const document = documents.get(docId)
         return document === undefined ? {} : host.applyProjection(document, projection)

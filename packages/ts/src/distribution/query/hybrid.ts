@@ -11,6 +11,7 @@ import { distributedLinearCombination, distributedRRF } from './fusion'
 import { mergeGroupsFor } from './group-merge'
 import { mergeAndTruncateScoredEntries, mergeDistributedFacets } from './merge'
 import { placePinnedEntries } from './pinning'
+import { collectSearchContexts, releaseSearchContexts, searchContextKeepAlive } from './search-contexts'
 import type { DistributedQueryConfig, DistributedQueryResult, QueryRoutingDeps, RoutingResult } from './types'
 
 interface HybridPage {
@@ -139,16 +140,30 @@ export async function executeHybridQuery(
     textGlobalStats = await collectDistributedStats(indexName, textParams, routing, deps, config)
   }
 
-  const [textOutcomes, vectorOutcomes] = await Promise.all([
-    fanOutSearch(indexName, textParams, textGlobalStats, facetShardSize, routing, deps, config),
-    fanOutSearch(indexName, vectorParams, null, null, routing, deps, config),
+  const keepAliveMs = config.searchContexts
+    ? searchContextKeepAlive(routing, config.partitionTimeout, deps.transport)
+    : null
+  const legs = await Promise.allSettled([
+    fanOutSearch(indexName, textParams, textGlobalStats, facetShardSize, routing, deps, config, keepAliveMs),
+    fanOutSearch(indexName, vectorParams, null, null, routing, deps, config, keepAliveMs),
   ])
+  const answered = legs.flatMap(leg => (leg.status === 'fulfilled' ? [leg.value] : []))
+  const contexts = collectSearchContexts(...answered)
+  const failedLeg = legs.find((leg): leg is PromiseRejectedResult => leg.status === 'rejected')
+  if (failedLeg !== undefined) {
+    releaseSearchContexts(indexName, contexts.opened, deps)
+    throw failedLeg.reason
+  }
+  const [textLeg, vectorLeg] = legs
+  const textOutcomes = textLeg.status === 'fulfilled' ? textLeg.value : []
+  const vectorOutcomes = vectorLeg.status === 'fulfilled' ? vectorLeg.value : []
 
   const coverage = buildCoverage(totalPartitions, routing.unavailablePartitions, textOutcomes, vectorOutcomes)
 
   if (!config.allowPartialResults) {
     const failedCount = coverage.timedOutPartitions + coverage.failedPartitions
     if (failedCount > 0) {
+      releaseSearchContexts(indexName, contexts.opened, deps)
       throw new NarsilError(ErrorCodes.QUERY_PARTIAL_FAILURE, 'One or more partitions failed during hybrid query', {
         coverage,
       })
@@ -232,5 +247,6 @@ export async function executeHybridQuery(
     coverage,
     pinnedFromOutside: placement.placedFromOutside,
     mergeHeldEveryMatch: allMatchesPresent,
+    contexts,
   }
 }
