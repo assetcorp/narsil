@@ -9,7 +9,6 @@ export const NARROW_LIMIT = 10
 export const NARROW_EF_SEARCH = 500
 export const WIDE_LIMIT = 200
 export const WIDE_EF_SEARCH = 1_000
-export const EF_SEARCH_FOR_EVERY_PASSAGE = 2_000
 export const SETTLE_TIMEOUT_MS = 120_000
 export const FIELD = 'embedding'
 

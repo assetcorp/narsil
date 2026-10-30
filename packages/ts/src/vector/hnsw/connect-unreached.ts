@@ -6,6 +6,7 @@ import { ABSENT, reachNode } from './adjacency/views'
 import { GRAPH_INCOMING_UNCOUNTED, GRAPH_UNLINKED_NODES } from './handles'
 import { isLive } from './last-links'
 import { lockGraphExclusive, unlockGraphExclusive } from './locks'
+import { linkFromNearest } from './nearest-links'
 import { entryPointOf, type HNSWGraphState, nodeDistanceFunction, nodeExists } from './shared'
 
 interface Walk {
@@ -176,6 +177,7 @@ function connectThroughEitherCore(state: HNSWGraphState, nearby: Int32Array): vo
   const field = nativeFieldFor(state)
   if (field !== null && nativeConnect(state, field, state.buildMetric, nearby)) return
   noteFallback('connect')
+  linkFromNearest(state)
   connectUnreached(state, nearby)
 }
 

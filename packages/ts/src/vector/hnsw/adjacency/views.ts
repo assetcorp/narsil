@@ -15,6 +15,7 @@ export interface Adjacency {
   upperBase: Int32Array
   upper: Int32Array
   incoming: Int32Array
+  nearestLinkDue: Uint8Array
 }
 
 export function openAdjacency(handles: SharedGraphHandles, m: number, mMax0: number): Adjacency {
@@ -30,12 +31,14 @@ export function openAdjacency(handles: SharedGraphHandles, m: number, mMax0: num
     upperBase: fixedView(handles.upperBase, Int32Array),
     upper: fixedView(handles.upper, Int32Array),
     incoming: fixedView(handles.incoming, Int32Array),
+    nearestLinkDue: fixedView(handles.nearestLinkDue, Uint8Array),
   }
 }
 
 export function rebindNodes(adj: Adjacency): void {
   adj.nodeLevels = fixedView(adj.handles.nodeLevels, Uint8Array)
   adj.incoming = fixedView(adj.handles.incoming, Int32Array)
+  adj.nearestLinkDue = fixedView(adj.handles.nearestLinkDue, Uint8Array)
   adj.level0 = fixedView(adj.handles.level0, Int32Array)
   adj.upperBase = fixedView(adj.handles.upperBase, Int32Array)
 }
@@ -83,6 +86,7 @@ export function ensureAdjacencyCapacity(adj: Adjacency, needed: number): void {
   growBufferToExactly(handles.locks, capacity * 4)
   growBufferToExactly(handles.tombstones, capacity)
   growBufferToExactly(handles.incoming, capacity * 4)
+  growBufferToExactly(handles.nearestLinkDue, capacity)
   growBufferToExactly(handles.nodeLevels, capacity)
   publishGraphCapacity(handles)
   rebindNodes(adj)
@@ -128,6 +132,7 @@ export function createNode(adj: Adjacency, ord: number, maxLayer: number): void 
   adj.upperBase[ord] = maxLayer >= 1 ? allocateUpperBlock(adj, maxLayer) + 1 : 0
   adj.level0[ord * adj.level0Stride] = 0
   raiseSlots(adj, ord + 1)
+  Atomics.store(adj.nearestLinkDue, ord, 1)
   Atomics.store(adj.nodeLevels, ord, maxLayer + 1)
 }
 
@@ -137,12 +142,14 @@ export function deleteNode(adj: Adjacency, ord: number): void {
   adj.upperBase[ord] = 0
   adj.level0[ord * adj.level0Stride] = 0
   Atomics.store(adj.incoming, ord, 0)
+  Atomics.store(adj.nearestLinkDue, ord, 0)
 }
 
 export function resetAdjacency(adj: Adjacency): void {
   rebindNodes(adj)
   rebindUpper(adj)
   adj.incoming.fill(0)
+  adj.nearestLinkDue.fill(0)
   adj.nodeLevels.fill(0)
   adj.level0.fill(0)
   adj.upperBase.fill(0)
@@ -171,6 +178,7 @@ export function graphBytes(adj: Adjacency): number {
     handles.locks.byteLength +
     handles.tombstones.byteLength +
     handles.incoming.byteLength +
+    handles.nearestLinkDue.byteLength +
     handles.heldLocks.byteLength
   )
 }

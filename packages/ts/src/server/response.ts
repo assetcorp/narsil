@@ -71,7 +71,15 @@ function streamBody(
  * above {@link RESPONSE_STREAM_THRESHOLD_BYTES} are streamed so a slow reader cannot pin the
  * whole payload in native memory; this needs the request's abort handle. */
 export function sendJson(res: ResponseSink, data: unknown, status = 200, abort?: ResponseAbort): void {
-  const payload = encodeJson(data)
+  sendEncodedJson(res, encodeJson(data), status, abort)
+}
+
+export function sendEncodedJson(
+  res: ResponseSink,
+  payload: string | undefined,
+  status = 200,
+  abort?: ResponseAbort,
+): void {
   if (abort && payload !== undefined && Buffer.byteLength(payload) >= RESPONSE_STREAM_THRESHOLD_BYTES) {
     streamBody(res, abort, Buffer.from(payload, 'utf8'), status, [['Content-Type', 'application/json']])
     return

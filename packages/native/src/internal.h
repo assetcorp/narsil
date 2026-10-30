@@ -215,6 +215,8 @@ int32_t incoming_count(const walk_context *context, int32_t ordinal);
 void note_linked(const walk_context *context, int32_t ordinal);
 void note_unlinked(const walk_context *context, int32_t ordinal);
 void note_node_left_unlinked(const walk_context *context);
+void note_nearest_link_due(const walk_context *context, int32_t ordinal);
+narsil_status link_from_nearest(const walk_context *context);
 int release_unless_last(const walk_context *context, int32_t ordinal);
 int is_live(const walk_context *context, int32_t ordinal);
 narsil_status reserve_last_links(narsil_workspace *workspace);

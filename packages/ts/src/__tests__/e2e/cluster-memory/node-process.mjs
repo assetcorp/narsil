@@ -1,4 +1,5 @@
-import { getHeapSpaceStatistics } from 'node:v8'
+import { getHeapSpaceStatistics, setFlagsFromString } from 'node:v8'
+import { runInNewContext } from 'node:vm'
 import { createEtcdCoordinator } from '../../../../dist/distribution/coordinator/etcd.mjs'
 import { createTcpTransport } from '../../../../dist/distribution/transport/tcp.mjs'
 import { clusterNodeEngine, createClusterNode } from '../../../../dist/distribution.mjs'
@@ -7,6 +8,8 @@ import { chinese } from '../../../../dist/languages/chinese.mjs'
 import { createServer } from '../../../../dist/server.mjs'
 
 const SHINGLE_LENGTH = 3
+const BALLAST_HEADER = 'x-narsil-test-ballast'
+const BALLAST_ARRAY_LENGTH = 131_072
 const OLD_GENERATION_SAMPLE_INTERVAL_MS = 20
 const YOUNG_GENERATION_SPACES = new Set(['new_space', 'new_large_object_space'])
 
@@ -35,6 +38,38 @@ registerTokenizer('three-character-shingles', {
   },
 })
 
+setFlagsFromString('--expose-gc')
+const collectGarbage = runInNewContext('gc')
+setFlagsFromString('--no-expose-gc')
+
+const OLD_GENERATION_LIMIT_BYTES =
+  Number(
+    /^--max-old-space-size=(\d+)$/.exec(
+      process.execArgv.find(flag => flag.startsWith('--max-old-space-size=')) ?? '',
+    )?.[1] ?? 0,
+  ) * 1_048_576
+
+function heapUsedBytes() {
+  let used = 0
+  for (const space of getHeapSpaceStatistics()) used += space.space_used_size
+  return used
+}
+
+const ballast = []
+function holdBallast(ctx) {
+  const action = ctx.headers[BALLAST_HEADER]
+  if (action === undefined) return undefined
+  if (action === 'release') {
+    ballast.length = 0
+    collectGarbage()
+  } else {
+    collectGarbage()
+    const targetBytes = Number(action) * OLD_GENERATION_LIMIT_BYTES
+    while (heapUsedBytes() < targetBytes) ballast.push(new Array(BALLAST_ARRAY_LENGTH).fill(0.5))
+  }
+  return { status: 409, code: 'BALLAST', message: String(heapUsedBytes()) }
+}
+
 function requireEnv(name) {
   const value = process.env[name]
   if (value === undefined || value.length === 0) {
@@ -49,6 +84,7 @@ const transportPort = Number(requireEnv('NARSIL_TRANSPORT_PORT'))
 const httpPort = Number(requireEnv('NARSIL_HTTP_PORT'))
 const memoryConfig = process.env.NARSIL_MEMORY_CONFIG
 const serverLimits = process.env.NARSIL_SERVER_LIMITS
+const httpHost = process.env.NARSIL_HTTP_HOST ?? '127.0.0.1'
 
 const coordinator = await createEtcdCoordinator({
   endpoints: [requireEnv('NARSIL_ETCD_ENDPOINT')],
@@ -72,9 +108,11 @@ await node.start()
 const server = createServer(
   clusterNodeEngine(node, { createIndex: { partitionCount: 1, replicationFactor: 0, waitForServingMs: 30_000 } }),
   {
-    host: '127.0.0.1',
+    host: httpHost,
     port: httpPort,
+    allowInsecure: httpHost !== '127.0.0.1',
     cluster: node.cluster,
+    onRequest: holdBallast,
     limits: serverLimits === undefined ? undefined : JSON.parse(serverLimits),
   },
 )

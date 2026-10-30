@@ -28,6 +28,7 @@ function settings(): RequestThreadSettings {
   return {
     port: port1,
     departure: new SharedArrayBuffer(4),
+    closeAtExit: new SharedArrayBuffer(8),
     gate: new SharedArrayBuffer(64),
     gateSlot: 1,
     maxConcurrentRequests: 0,

@@ -35,6 +35,7 @@ function graphMemory(graph: SharedGraphHandles): NativeGraphMemory | null {
     graph.locks,
     graph.tombstones,
     graph.incoming,
+    graph.nearestLinkDue,
     graph.heldLocks.buffer,
   ]
   if (!regions.every(isSharedMemory)) return null
@@ -47,6 +48,7 @@ function graphMemory(graph: SharedGraphHandles): NativeGraphMemory | null {
     locks: fixedView(graph.locks, Int32Array),
     tombstones: fixedView(graph.tombstones, Uint8Array),
     incoming: fixedView(graph.incoming, Int32Array),
+    nearestLinkDue: fixedView(graph.nearestLinkDue, Uint8Array),
     heldLocks: graph.heldLocks,
   }
 }
