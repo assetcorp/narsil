@@ -35,6 +35,7 @@ export interface ContainerNodeOptions {
   heapMegabytes: number
   memoryMegabytes?: number
   meminfoPath?: string
+  hostShareBytes?: number
 }
 
 async function docker(args: string[]): Promise<string> {
@@ -60,6 +61,8 @@ export async function startContainerNode(options: ContainerNodeOptions): Promise
       ? []
       : [`--memory=${options.memoryMegabytes}m`, `--memory-swap=${options.memoryMegabytes}m`]
   const meminfoFlags = options.meminfoPath === undefined ? [] : ['--volume', `${options.meminfoPath}:/proc/meminfo`]
+  const shareFlags =
+    options.hostShareBytes === undefined ? [] : ['--env', `NARSIL_TEST_HOST_SHARE_BYTES=${options.hostShareBytes}`]
   const child: ChildProcess = spawn(
     'docker',
     [
@@ -68,6 +71,7 @@ export async function startContainerNode(options: ContainerNodeOptions): Promise
       name,
       ...memoryFlags,
       ...meminfoFlags,
+      ...shareFlags,
       ...userFlags(),
       '--add-host=host.docker.internal:host-gateway',
       '--publish',

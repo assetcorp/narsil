@@ -2,7 +2,6 @@ import { randomUUID } from 'node:crypto'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { setTimeout as sleep } from 'node:timers/promises'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import {
   type EtcdContainerHandle,
@@ -30,7 +29,6 @@ const READ_BACK_DOCUMENTS = 100
 const MAX_HEAP_FRACTION_AT_REFUSAL = 0.5
 const MIN_RESIDENT_FRACTION_AT_REFUSAL = 0.75
 const MIN_SPENT_FRACTION_OF_SHARE_AT_REFUSAL = 0.5
-const MEMINFO_POLL_MS = 50
 const PROPAGATION_TIMEOUT_MS = 30_000
 
 interface Lamp {
@@ -206,7 +204,6 @@ describe('a cluster node whose vectors fill memory outside its heap', () => {
     if (etcd === null) throw new Error('etcd never started')
     workDirectory = await mkdtemp(join(tmpdir(), 'narsil-meminfo-'))
     const meminfoPath = join(workDirectory, 'meminfo')
-    const otherProcessesBytes = HOST_TOTAL_BYTES - NODE_SHARE_BYTES
     await writeMeminfo(meminfoPath, HOST_TOTAL_BYTES, NODE_SHARE_BYTES)
     node = await startContainerNode({
       nodeId: 'node-1',
@@ -214,40 +211,19 @@ describe('a cluster node whose vectors fill memory outside its heap', () => {
       keyPrefix: `_narsil_off_heap_${randomUUID()}`,
       heapMegabytes: HEAP_MEGABYTES,
       meminfoPath,
+      hostShareBytes: NODE_SHARE_BYTES,
     })
     const started = node
-
-    let polling = true
-    const host = (async () => {
-      while (polling) {
-        const resident = await processFigures(started).then(
-          figures => figures.rss,
-          () => null,
-        )
-        if (resident !== null) {
-          await writeMeminfo(meminfoPath, HOST_TOTAL_BYTES, HOST_TOTAL_BYTES - otherProcessesBytes - resident)
-        }
-        await sleep(MEMINFO_POLL_MS)
-      }
-    })()
-
-    try {
-      await createLampIndex(started)
-      const outcome = await feedUntilRefused(started)
-      const highestResident = await started.peakResidentBytes()
-      console.log(
-        `host: ${outcome.kept.size} lamps kept, highest resident ${highestResident} of a ${NODE_SHARE_BYTES}-byte share, resident ${outcome.residentAtRefusal} at the first refusal ${JSON.stringify(outcome.firstRefusal)}`,
-      )
-      expect(outcome.firstRefusal, `the node refused nothing after ${SEND_BUDGET_DOCUMENTS} lamps`).not.toBeNull()
-      expect(highestResident, 'the node took more memory than the host had available').toBeLessThan(NODE_SHARE_BYTES)
-      expect(Number(outcome.residentAtRefusal)).toBeGreaterThan(
-        MIN_SPENT_FRACTION_OF_SHARE_AT_REFUSAL * NODE_SHARE_BYTES,
-      )
-      expect(started.exited(), started.output().slice(-3_000)).toBe(false)
-      await expectKeptLampsServed(started, outcome)
-    } finally {
-      polling = false
-      await host
-    }
+    await createLampIndex(started)
+    const outcome = await feedUntilRefused(started)
+    const highestResident = await started.peakResidentBytes()
+    console.log(
+      `host: ${outcome.kept.size} lamps kept, highest resident ${highestResident} of a ${NODE_SHARE_BYTES}-byte share, resident ${outcome.residentAtRefusal} at the first refusal ${JSON.stringify(outcome.firstRefusal)}`,
+    )
+    expect(outcome.firstRefusal, `the node refused nothing after ${SEND_BUDGET_DOCUMENTS} lamps`).not.toBeNull()
+    expect(highestResident, 'the node took more memory than the host had available').toBeLessThan(NODE_SHARE_BYTES)
+    expect(Number(outcome.residentAtRefusal)).toBeGreaterThan(MIN_SPENT_FRACTION_OF_SHARE_AT_REFUSAL * NODE_SHARE_BYTES)
+    expect(started.exited(), started.output().slice(-3_000)).toBe(false)
+    await expectKeptLampsServed(started, outcome)
   }, 300_000)
 })
