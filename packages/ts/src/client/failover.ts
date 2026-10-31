@@ -86,6 +86,10 @@ export function movesOnAfterAnswer(status: number, code: string | undefined, rep
   return repeatable || code === ErrorCodes.NODE_NOT_READY
 }
 
+export function earnsExtraTry(failure: NarsilError): boolean {
+  return failure.code === ClientErrorCodes.CLIENT_CONNECTION_FAILED
+}
+
 export function movesOnAfterFailure(failure: NarsilError, sentNothing: boolean, repeatable: boolean): boolean {
   if (failure.code === ClientErrorCodes.CLIENT_REQUEST_TIMEOUT) return repeatable
   if (failure.code === ClientErrorCodes.CLIENT_CONNECTION_FAILED) return repeatable || sentNothing
