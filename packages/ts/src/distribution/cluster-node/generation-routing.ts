@@ -36,27 +36,28 @@ export interface ServedRead {
   liveServingName: (indexName: string) => Promise<string>
 }
 
+async function movedNameOf(names: ServedRead, indexName: string, servingName: string): Promise<string | null> {
+  const live = await names.liveServingName(indexName).catch(() => servingName)
+  return live === servingName ? null : live
+}
+
 export async function readFollowingTheName<T>(
   names: ServedRead,
   indexName: string,
   read: (servingName: string) => Promise<T>,
-  answerIsPartial: (answer: T) => boolean = () => false,
+  answerIsPartial?: (answer: T) => boolean,
 ): Promise<T> {
   const servingName = await names.servingName(indexName)
-  const movedName = async (): Promise<string | null> => {
-    const live = await names.liveServingName(indexName).catch(() => servingName)
-    return live === servingName ? null : live
-  }
   let answer: T
   try {
     answer = await read(servingName)
   } catch (error) {
     if (!(error instanceof NarsilError) || !CODES_OF_A_LOST_LAYOUT.has(error.code)) throw error
-    const moved = await movedName()
+    const moved = await movedNameOf(names, indexName, servingName)
     if (moved === null) throw error
     return read(moved)
   }
-  if (!answerIsPartial(answer)) return answer
-  const moved = await movedName()
+  if (answerIsPartial === undefined || !answerIsPartial(answer)) return answer
+  const moved = await movedNameOf(names, indexName, servingName)
   return moved === null ? answer : read(moved)
 }

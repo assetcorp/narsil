@@ -114,6 +114,12 @@ export function createAnalysisView(deps: AnalysisViewDeps): AnalysisView {
     await settle(indexName)
   }
 
+  async function reachThenRead(indexName: string, requested: number, generation: number): Promise<void> {
+    if (generation < requested) await reach(indexName, requested)
+    const reached = engine.analysisGenerationOf(indexName) ?? generation
+    if (reached !== requested) throw generationMissing(indexName, requested, reached)
+  }
+
   return {
     held(indexName) {
       return held.get(indexName)?.generation
@@ -122,16 +128,17 @@ export function createAnalysisView(deps: AnalysisViewDeps): AnalysisView {
       return held.get(indexName)?.generation ?? refresh(indexName)
     },
     refresh,
-    async answerAt(indexName, requested, read) {
+    answerAt(indexName, requested, read) {
       const generation = engine.analysisGenerationOf(indexName)
       if (generation === undefined) return read()
-      if (generation < requested) await reach(indexName, requested)
-      const reached = engine.analysisGenerationOf(indexName) ?? generation
-      if (reached !== requested) throw generationMissing(indexName, requested, reached)
-      const answer = await read()
-      const after = engine.analysisGenerationOf(indexName) ?? requested
-      if (after !== requested) throw generationMissing(indexName, requested, after)
-      return answer
+      const readAtRequested = <T>(answerOf: () => Promise<T>): Promise<T> =>
+        answerOf().then(answer => {
+          const after = engine.analysisGenerationOf(indexName) ?? requested
+          if (after !== requested) throw generationMissing(indexName, requested, after)
+          return answer
+        })
+      if (generation === requested) return readAtRequested(read)
+      return reachThenRead(indexName, requested, generation).then(() => readAtRequested(read))
     },
     settle,
     async start() {
