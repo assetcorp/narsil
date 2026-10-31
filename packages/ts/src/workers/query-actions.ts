@@ -18,7 +18,7 @@ export interface QueryActionEntry {
 type QueryAction = Extract<WorkerAction, { type: 'query' | 'preflight' }>
 
 export async function runQueryAction(entry: QueryActionEntry, action: QueryAction): Promise<unknown> {
-  const patternWork = joinPatternWorkMeter(action.patternWork)
+  const patternWork = joinPatternWorkMeter(action.patternWork, action.params.filters)
   const searchOptions = { ...entry.searchOptions, patternWork }
   if (action.type === 'query') {
     const result: FanOutResult = await fanOutQuery(

@@ -1,12 +1,20 @@
 import { ErrorCodes, NarsilError } from '../../errors'
+import { MAX_FILTER_TESTS } from '../../filters/constants'
+import type { FilterExpression } from '../../types/filters'
 import type { SearchClock } from '../search-clock'
-import { DEFAULT_PATTERN_WORK_CAP, MATCHER_STATE_BUDGET_BYTES, PATTERN_WORK_FLUSH_UNITS } from './constants'
+import {
+  DEFAULT_PATTERN_WORK_CAP,
+  MATCHER_STATE_BUDGET_BYTES,
+  PATTERN_WORK_FLUSH_UNITS,
+  TYPO_CLAIM_SLOTS_PER_WORD,
+} from './constants'
 import type { PatternWorkMeter } from './types'
 
 export interface SharedPatternWork {
   readonly cap: number
   readonly spent: number
   readonly counter: SharedArrayBuffer | null
+  readonly preparedTypoTests: SharedArrayBuffer | null
   readonly matcherStateBytes: number
   readonly flushUnits: number
 }
@@ -26,6 +34,7 @@ export interface JoinedPatternWork extends PatternWorkMeter {
 }
 
 const COUNTER_BYTES = 8
+const PREPARED_TYPO_TEST_BYTES = Math.ceil(MAX_FILTER_TESTS / TYPO_CLAIM_SLOTS_PER_WORD) * Int32Array.BYTES_PER_ELEMENT
 
 function capExceeded(cap: number): NarsilError {
   return new NarsilError(
@@ -50,6 +59,8 @@ function localMeter(
     matcherStateBytes,
     flushUnits,
     clock,
+    preparedTypoTests: null,
+    filters: undefined,
     add(units: number): void {
       if (units <= 0) return
       if (sharedCount === null) total += units
@@ -64,14 +75,17 @@ function localMeter(
       const copies = Math.max(1, workerCount)
       const seed = spentSoFar()
       let counter: SharedArrayBuffer | null = null
+      let preparedTypoTests: SharedArrayBuffer | null = null
       if (typeof SharedArrayBuffer === 'function') {
         counter = new SharedArrayBuffer(COUNTER_BYTES)
         new BigInt64Array(counter)[0] = BigInt(seed)
+        preparedTypoTests = new SharedArrayBuffer(PREPARED_TYPO_TEST_BYTES)
       }
       const shared: SharedPatternWork = {
         cap,
         spent: seed,
         counter,
+        preparedTypoTests,
         matcherStateBytes: Math.floor(matcherStateBytes / copies),
         flushUnits: Math.max(1, Math.floor(flushUnits / copies)),
       }
@@ -99,7 +113,10 @@ export function createPatternWorkMeter(cap: number = DEFAULT_PATTERN_WORK_CAP, c
   return localMeter(cap, 0, MATCHER_STATE_BUDGET_BYTES, PATTERN_WORK_FLUSH_UNITS, clock)
 }
 
-function sharedMeter(work: SharedPatternWork, counter: SharedArrayBuffer): PatternWorkMeter {
+function sharedMeter(
+  work: SharedPatternWork,
+  counter: SharedArrayBuffer,
+): Omit<PatternWorkMeter, 'preparedTypoTests' | 'filters'> {
   const view = new BigInt64Array(counter)
   return {
     matcherStateBytes: work.matcherStateBytes,
@@ -116,7 +133,7 @@ function sharedMeter(work: SharedPatternWork, counter: SharedArrayBuffer): Patte
   }
 }
 
-export function joinPatternWorkMeter(work: SharedPatternWork): JoinedPatternWork {
+export function joinPatternWorkMeter(work: SharedPatternWork, filters?: FilterExpression): JoinedPatternWork {
   const meter =
     work.counter === null
       ? localMeter(work.cap, work.spent, work.matcherStateBytes, work.flushUnits, undefined)
@@ -125,6 +142,8 @@ export function joinPatternWorkMeter(work: SharedPatternWork): JoinedPatternWork
   return {
     matcherStateBytes: meter.matcherStateBytes,
     flushUnits: meter.flushUnits,
+    preparedTypoTests: work.preparedTypoTests,
+    filters,
     add(units: number): void {
       if (units <= 0) return
       spent += units

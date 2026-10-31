@@ -139,30 +139,48 @@ describe('the work cap on pattern tests', () => {
     })
   })
 
-  it('counts each run lookup, each shortlist entry, and each distance cell of an eq test with a tolerance', async () => {
+  it('counts the preparation, each run lookup, each shortlist entry, and each distance cell of an eq test with a tolerance', async () => {
+    const foldedCodePoints = 7
+    const runsChecked = 5
+    const preparation = foldedCodePoints + runsChecked
+    const copiedForComparison = 7
     const lookups = 5
     const shortlistEntries = 0 + 1 + 1 + 1
     const cells = 2 + 3 + 3 + 3 + 3 + 3 + 2
-    const cap = lookups + shortlistEntries + cells
-    const filters: FieldFilter[] = [
-      { eq: 'abcdefg', tolerance: 1 },
-      { eq: 'abcdefg', tolerance: 'auto' },
-      { eq: 'ABCDEFG', tolerance: 1, caseFold: true },
+    const matching = lookups + shortlistEntries + cells
+    const tests: Array<[FieldFilter, number]> = [
+      [{ eq: 'abcdefg', tolerance: 1 }, preparation + matching],
+      [{ eq: 'abcdefg', tolerance: 'auto' }, preparation + matching],
+      [{ eq: 'ABCDEFG', tolerance: 1, caseFold: true }, preparation + copiedForComparison + matching],
     ]
-    const withinCap = await engineWith({ patternWorkCap: cap }, 1, ['abcdefh'])
-    for (const filter of filters) expect(await listed(withinCap, filter)).toEqual(['d0'])
+    for (const [filter, cap] of tests) {
+      const withinCap = await engineWith({ patternWorkCap: cap }, 1, ['abcdefh'])
+      expect(await listed(withinCap, filter)).toEqual(['d0'])
 
-    const overCap = await engineWith({ patternWorkCap: cap - 1 }, 1, ['abcdefh'])
-    for (const filter of filters) {
+      const overCap = await engineWith({ patternWorkCap: cap - 1 }, 1, ['abcdefh'])
       await expect(listed(overCap, filter)).rejects.toMatchObject({ code: ErrorCodes.SEARCH_WORK_CAP_EXCEEDED })
     }
   })
 
+  it('counts the preparation of an auto tolerance that resolves to 0, and then the exact test', async () => {
+    const preparation = 7 + 5
+    const lookups = 1
+    const cap = preparation + lookups
+    const withinCap = await engineWith({ patternWorkCap: cap }, 1, ['zzzzzz'])
+    expect(await listed(withinCap, { eq: 'aaaaaaa', tolerance: 'auto' })).toEqual([])
+
+    const overCap = await engineWith({ patternWorkCap: cap - 1 }, 1, ['zzzzzz'])
+    await expect(listed(overCap, { eq: 'aaaaaaa', tolerance: 'auto' })).rejects.toMatchObject({
+      code: ErrorCodes.SEARCH_WORK_CAP_EXCEEDED,
+    })
+  })
+
   it('counts the distance cells up to the row where every cell passes the tolerance', async () => {
+    const preparation = 7 + 5
     const lookups = 5
     const shortlistEntries = 1
     const cells = 2 + 3 + 3 + 3 + 3 + 3
-    const cap = lookups + shortlistEntries + cells
+    const cap = preparation + lookups + shortlistEntries + cells
     const withinCap = await engineWith({ patternWorkCap: cap }, 1, ['abcdxyz'])
     expect(await listed(withinCap, { eq: 'abcdefg', tolerance: 1 })).toEqual([])
 
