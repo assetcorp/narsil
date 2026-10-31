@@ -23,7 +23,7 @@ export async function bm25RoutingFor(
     const schema = await deps.config.coordinator.getSchema(settingName)
     if (schema !== null) validateBM25Params(params.bm25, schema, ErrorCodes.SEARCH_INVALID_FIELD)
   }
-  const wire = localParamsToWire(params)
+  const wire = { ...localParamsToWire(params), analysisGeneration: await deps.analysisView.generationFor(indexName) }
   const setting = await deps.bm25View.current(settingName)
   if (setting === null) {
     return { wireParams: wire, indexBm25: undefined, carriesBm25: bm25SetsValue(params.bm25) }

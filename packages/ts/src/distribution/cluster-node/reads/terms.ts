@@ -17,6 +17,7 @@ import {
   validateSuggestResultPayload,
 } from '../../query/codec'
 import { rethrowAsRefusal } from '../../query/failover'
+import { rerunOnNewerGeneration } from '../analysis-change/rerun'
 import { countIsExactFor } from '../query-conversion'
 import { routableAllocation } from '../routable-allocation'
 import { bm25RoutingFor } from './bm25'
@@ -56,16 +57,23 @@ export async function suggestCluster(
   }
 
   const nodeLimit = suggestNodeLimit(clientLimit)
-  const gathered = await gatherFromEveryPartition(allocation, indexName, async group => {
-    if (group.nodeId === deps.nodeId) {
-      const local = await deps.engine.suggestPartitions(indexName, { prefix, limit: nodeLimit }, group.partitionIds)
-      return { terms: local.terms, analysisStale: local.analysisStale === true }
-    }
-    const message = createSuggestMessage(
-      { indexName, partitionIds: group.partitionIds, prefix, limit: nodeLimit },
-      deps.nodeId,
-    )
-    return sendReadRequest(deps, group.nodeId, message, indexName, validateSuggestResultPayload)
+  const gathered = await rerunOnNewerGeneration(deps.analysisView, indexName, async () => {
+    const analysisGeneration = await deps.analysisView.generationFor(indexName)
+    return gatherFromEveryPartition(allocation, indexName, async group => {
+      if (group.nodeId === deps.nodeId) {
+        const local = await deps.analysisView
+          .answerAt(indexName, analysisGeneration, () =>
+            deps.engine.suggestPartitions(indexName, { prefix, limit: nodeLimit }, group.partitionIds),
+          )
+          .catch(rethrowAsRefusal)
+        return { terms: local.terms, analysisStale: local.analysisStale === true }
+      }
+      const message = createSuggestMessage(
+        { indexName, partitionIds: group.partitionIds, prefix, limit: nodeLimit, analysisGeneration },
+        deps.nodeId,
+      )
+      return sendReadRequest(deps, group.nodeId, message, indexName, validateSuggestResultPayload)
+    })
   })
 
   const mergedFrequencies = new Map<string, number>()
@@ -103,23 +111,27 @@ export async function preflightCluster(
   }
 
   const startTime = performance.now()
-  const { wireParams, indexBm25, carriesBm25 } = await bm25RoutingFor(deps, indexName, params)
   const coordinator = deps.config.coordinator
-  const routedAllocation = carriesBm25
-    ? await allocationForBm25Query(indexName, allocation, () => coordinator.listNodes())
-    : allocation
-  const gathered = await gatherFromEveryPartition(routedAllocation, indexName, async group => {
-    if (group.nodeId === deps.nodeId) {
-      const local = await deps.engine
-        .preflightPartitions(indexName, params, group.partitionIds, indexBm25)
-        .catch(rethrowAsRefusal)
-      return { count: local.count, analysisStale: local.analysisStale === true }
-    }
-    const message = createPreflightMessage(
-      { indexName, partitionIds: group.partitionIds, params: wireParams },
-      deps.nodeId,
-    )
-    return sendReadRequest(deps, group.nodeId, message, indexName, validatePreflightResultPayload)
+  const gathered = await rerunOnNewerGeneration(deps.analysisView, indexName, async () => {
+    const { wireParams, indexBm25, carriesBm25 } = await bm25RoutingFor(deps, indexName, params)
+    const routedAllocation = carriesBm25
+      ? await allocationForBm25Query(indexName, allocation, () => coordinator.listNodes())
+      : allocation
+    return gatherFromEveryPartition(routedAllocation, indexName, async group => {
+      if (group.nodeId === deps.nodeId) {
+        const local = await deps.analysisView
+          .answerAt(indexName, wireParams.analysisGeneration ?? 0, () =>
+            deps.engine.preflightPartitions(indexName, params, group.partitionIds, indexBm25),
+          )
+          .catch(rethrowAsRefusal)
+        return { count: local.count, analysisStale: local.analysisStale === true }
+      }
+      const message = createPreflightMessage(
+        { indexName, partitionIds: group.partitionIds, params: wireParams },
+        deps.nodeId,
+      )
+      return sendReadRequest(deps, group.nodeId, message, indexName, validatePreflightResultPayload)
+    })
   })
 
   let count = 0

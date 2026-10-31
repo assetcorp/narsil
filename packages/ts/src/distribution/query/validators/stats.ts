@@ -15,6 +15,7 @@ import {
   isInteger,
   isRecord,
   throwInvalid,
+  validateAnalysisGeneration,
   validatePartitionIdsArray,
   validateStringArray,
 } from './common'
@@ -94,6 +95,7 @@ export function validateStatsPayload(decoded: unknown): StatsPayload {
   validateStringArray(decoded.terms, 'terms', MAX_TERMS_COUNT, MAX_TERM_LENGTH, CONFIG_INVALID)
   validateExpansion(decoded.expansion)
   if (!isAbsent(decoded.tokens)) validateTokenList(decoded.tokens, 'StatsPayload.tokens')
+  validateAnalysisGeneration(decoded.analysisGeneration, 'StatsPayload')
   return decoded as unknown as StatsPayload
 }
 

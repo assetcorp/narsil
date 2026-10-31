@@ -69,6 +69,7 @@ The full surface:
 | `GET /indexes/{name}/vector-maintenance`, `POST /indexes/{name}/vectors/_compact`, `POST /indexes/{name}/vectors/_optimize` | The endpoints report and run vector maintenance. |
 | `POST /indexes/{name}/_rebalance`, `POST /indexes/{name}/partition-config` | The endpoints reshape partitions and adjust partition caps. |
 | `POST /indexes/{name}/_rebuild-analysis` | The endpoint reanalyses every document, which an index needs after its language module changes revision. |
+| `POST /indexes/{name}/_change-analysis` | The endpoint gives a live index a new language, tokeniser, or stop word set, from a body such as `{ "language": "french", "tokenizer": null, "stopWords": ["sku"] }`. It answers 400 for a member that it does not recognise or a value of another type. See [Changing an index's analysis](full-text-search.md#changing-an-indexs-analysis). |
 | `GET /tasks`, `GET /tasks/{id}`, `POST /tasks/{id}/_cancel` | The endpoints list, report, and stop long-running tasks. See [Tasks](#tasks). |
 
 ## Regular expressions
@@ -111,7 +112,7 @@ process.on('uncaughtException', async error => {
 
 ## Tasks
 
-Six operations take long enough that the server answers before they finish: an import sent with `?async=true`, `restore`, the `import` of a document export, `_rebalance`, `vectors/_optimize`, and `_rebuild-analysis`. Each one answers 202 with a task record and carries on in the background. Every one of them uses the same record shape, which `GET /tasks/{id}` returns again as the work proceeds.
+Seven operations take long enough that the server answers before they finish: an import sent with `?async=true`, `restore`, the `import` of a document export, `_rebalance`, `vectors/_optimize`, `_rebuild-analysis`, and `_change-analysis`. Each one answers 202 with a task record and carries on in the background. Every one of them uses the same record shape, which `GET /tasks/{id}` returns again as the work proceeds.
 
 ```json
 {
@@ -147,6 +148,7 @@ Each running task holds its own working set, and an async import holds the whole
     "tasks.cancel",
     "tasks.filter",
     "indexes.rebuildAnalysis",
+    "indexes.changeAnalysis",
     "indexes.lifecycle",
     "indexes.documentExport",
     "indexes.synonyms",

@@ -76,6 +76,7 @@ export interface WireQueryParams {
   pinned: WirePinnedEntry[] | null
   bm25?: BM25Params | null
   indexBm25?: BM25Params | null
+  analysisGeneration?: number
   mode: 'fulltext' | 'vector' | 'hybrid' | null
   vector: WireVectorQueryParams | null
   hybrid: WireHybridConfig | null
@@ -168,6 +169,7 @@ export interface StatsPayload {
   terms: string[]
   expansion?: StatsExpansionPayload | null
   tokens?: string[] | null
+  analysisGeneration?: number
 }
 
 export interface StatsResultPayload {
@@ -220,6 +222,7 @@ export interface SuggestPayload {
   partitionIds: number[]
   prefix: string
   limit: number
+  analysisGeneration?: number
 }
 
 export interface SuggestResultPayload {

@@ -63,6 +63,22 @@ export function applyStoredSynonyms(
 function preparedSet(snapshot: IndexMetadataSnapshot, indexName: string, synonyms: SynonymRule[]): Uint8Array | null {
   const config = indexConfigFromSettings({}, snapshot.settings, indexName)
   const language = getLanguage(config.language ?? 'english')
+  const pending = snapshot.settings?.pendingAnalysis
+  if (pending !== undefined) {
+    const { language: pendingLanguage, tokenizer, stopWords, stopWordList } = pending
+    const { tokenizer: _tokenizer, stopWords: _stopWords, ...rest } = config
+    prepareConfiguredSynonyms(
+      {
+        ...rest,
+        language: pendingLanguage,
+        ...(tokenizer !== undefined ? { tokenizer } : {}),
+        ...(stopWords !== undefined ? { stopWords } : {}),
+        ...(stopWords === undefined && stopWordList !== undefined ? { stopWords: new Set(stopWordList) } : {}),
+        synonyms,
+      },
+      getLanguage(pendingLanguage),
+    )
+  }
   return prepareConfiguredSynonyms({ ...config, synonyms }, language)?.encoded ?? null
 }
 
@@ -129,12 +145,14 @@ export async function replaceClusterSynonyms(
   deps: ClusterSynonymDeps,
   indexName: string,
   synonyms: SynonymRule[],
+  servingName: string = indexName,
 ): Promise<void> {
   const { coordinator } = deps
   validateIndexName(indexName)
   const first = await readIndexMetadataSnapshot(coordinator, indexName)
   if (first === null) throw indexNotFound(indexName)
-  const encoded = preparedSet(first, indexName, synonyms)
+  const analysis = servingName === indexName ? first : await readIndexMetadataSnapshot(coordinator, servingName)
+  const encoded = preparedSet(analysis ?? first, servingName, synonyms)
   const { indexUuid } = first.record
   const ref = encoded === null ? null : await storeSynonymSet(coordinator, indexUuid, encoded)
   let replaced: SynonymSetRef | null

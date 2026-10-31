@@ -100,7 +100,7 @@ Its second argument starts the rebuild for that index. Awaiting it inside the ca
 
 An index built by an engine that predates the revision field records nothing about its analysis, so the engine treats that index as stale and rebuilds it once.
 
-A server deployment configures this the same way, because you build the engine and hand it to `createServer`. Set `analysis` on that engine and call `rebuildAnalysis` from your launcher; the REST API reports `analysisStale` on search responses but exposes no endpoint that starts a rebuild.
+A server deployment configures this the same way, because you build the engine and hand it to `createServer`. Set `analysis` on that engine, then call `rebuildAnalysis` from your launcher or send `POST /indexes/{name}/_rebuild-analysis`. The REST API reports `analysisStale` on search responses. [Changing an index's analysis](full-text-search.md#changing-an-indexs-analysis) shows how you can give an index a new language, tokeniser, or stop word set.
 
 ## Named tokenizers and stop words
 

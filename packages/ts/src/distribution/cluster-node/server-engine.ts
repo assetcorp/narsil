@@ -36,7 +36,7 @@ function rejectWait(options: WriteOptions | undefined): void {
  * serves a single engine.
  *
  * Writes, updates, searches, suggestions, listings, counts, index creation,
- * index removal, analysis rebuilds, synonym sets, and document reads route through the cluster.
+ * index removal, analysis rebuilds, analysis changes, synonym sets, and document reads route through the cluster.
  * Checkpointing, memory statistics, index opens, index closes, engine events,
  * and rerank adapter registration reach this node's local engine, because
  * each covers a per-node fact. This node reranks the searches that it
@@ -170,8 +170,8 @@ export function clusterNodeEngine(node: ClusterNode, options?: ClusterEngineOpti
       return node.rebuildAnalysis(indexName)
     },
 
-    async changeAnalysis(): Promise<void> {
-      unsupported('changeAnalysis')
+    async changeAnalysis(indexName, change) {
+      return node.changeAnalysis(indexName, change)
     },
 
     async getMemoryStats() {

@@ -14,6 +14,7 @@ export {
 } from '../server/capabilities'
 export type {
   CapabilitiesResponse,
+  ChangeAnalysisBody,
   CreateIndexEmbedding,
   ErrorEnvelope,
   HttpIndexConfig,

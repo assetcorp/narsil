@@ -18,7 +18,7 @@ import {
   validateSearchResultPayload,
   validateStatsResultPayload,
 } from './codec'
-import { type CopyRouting, isNodeRejection, nodeRejectionOf, sendWithFailover } from './failover'
+import { type CopyRouting, generationRefusalOf, isNodeRejection, nodeRejectionOf, sendWithFailover } from './failover'
 import { resolveTargets, sendToFirstReachableTarget } from './node-send'
 import { releaseSearchContexts } from './search-contexts'
 import type { DistributedQueryConfig, QueryRoutingDeps } from './types'
@@ -33,12 +33,14 @@ export interface NodeQueryOutcome {
 function queryRejectionOf(response: TransportMessage, decoded: unknown): NarsilError | null {
   const body = decoded as { error?: unknown; code?: unknown; message?: unknown; details?: unknown } | null
   if (!response.type.endsWith('.error') && body?.error !== true) return null
-  if (body?.code !== ServerErrorCodes.TOO_MANY_REQUESTS) return nodeRejectionOf(body?.code, body?.message)
   const details =
-    typeof body.details === 'object' && body.details !== null ? { ...(body.details as Record<string, unknown>) } : {}
+    typeof body?.details === 'object' && body.details !== null ? { ...(body.details as Record<string, unknown>) } : {}
+  const generationRefusal = generationRefusalOf(body?.code, body?.message, details)
+  if (generationRefusal !== null) return generationRefusal
+  if (body?.code !== ServerErrorCodes.TOO_MANY_REQUESTS) return nodeRejectionOf(body?.code, body?.message)
   return new NarsilError(
     ServerErrorCodes.TOO_MANY_REQUESTS,
-    typeof body.message === 'string' ? body.message : 'A node had no room in memory to answer its part of the search',
+    typeof body?.message === 'string' ? body.message : 'A node had no room in memory to answer its part of the search',
     details,
   )
 }
@@ -83,6 +85,7 @@ async function requestStats(
 async function countLeftOutTokens(
   indexName: string,
   answered: Array<[string, NodeStats]>,
+  analysisGeneration: number | undefined,
   deps: QueryRoutingDeps,
   config: DistributedQueryConfig,
 ): Promise<StatsResultPayload[]> {
@@ -95,7 +98,12 @@ async function countLeftOutTokens(
     answered.map(async ([nodeId, { partitionIds, result }]) => {
       const tokens = [...reached].filter(token => !Object.hasOwn(result.docFrequencies, token))
       if (tokens.length === 0) return null
-      const counted = await requestStats(nodeId, { indexName, partitionIds, terms: [], tokens }, deps, config)
+      const counted = await requestStats(
+        nodeId,
+        { indexName, partitionIds, terms: [], tokens, analysisGeneration },
+        deps,
+        config,
+      )
       if (counted === null) return null
       const docFrequencies: Record<string, number> = Object.create(null)
       for (const token of tokens) {
@@ -120,9 +128,17 @@ export async function collectDistributedStats(
 ): Promise<GlobalStatistics> {
   const terms = params.term !== null ? params.term.split(/\s+/).filter(t => t.length > 0) : []
   const expansion = statsExpansionOf(params)
+  const { analysisGeneration } = params
   const outcomes = await sendWithFailover(routing, (nodeId, partitionIds) =>
-    requestStats(nodeId, { indexName, partitionIds, terms, expansion }, deps, config),
+    requestStats(nodeId, { indexName, partitionIds, terms, expansion, analysisGeneration }, deps, config),
   )
+  const refused = outcomes.find(
+    outcome =>
+      isNodeRejection(outcome.error) &&
+      outcome.error instanceof NarsilError &&
+      outcome.error.code === ErrorCodes.ANALYSIS_GENERATION_MISSING,
+  )
+  if (refused !== undefined) throw refused.error
 
   const answered: Array<[string, NodeStats]> = []
   for (const outcome of outcomes) {
@@ -137,7 +153,7 @@ export async function collectDistributedStats(
     })
   }
 
-  const leftOut = await countLeftOutTokens(indexName, answered, deps, config)
+  const leftOut = await countLeftOutTokens(indexName, answered, analysisGeneration, deps, config)
   return mergePartitionStats([...answered.map(([, { result }]) => result), ...leftOut])
 }
 

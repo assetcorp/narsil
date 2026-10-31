@@ -26,6 +26,7 @@ function restoreDepsOf(core: EngineCore, host: RestoreHost): RestoreDeps {
       await core.analysisRebuild.abandon(indexName)
       await abandonChangeOf(core, indexName)
     },
+    abandonAnalysisChange: indexName => abandonChangeOf(core, indexName),
     indexState: core.indexState,
     copies: core.orchestrator,
     forgetWatermark: core.watermarkNotifier.forget,

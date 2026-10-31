@@ -7,13 +7,14 @@ import { isRecord, isValidInteger } from '../../../../payload-guards'
 import type { RebalancePayload, RebalanceResultPayload } from '../../../../transport/reshard-payloads'
 import type { RespondFn, TransportMessage } from '../../../../transport/types'
 import { ClusterMessageTypes } from '../../../../transport/types'
-import { getIndexMetadata } from '../../../index-metadata'
+import { getIndexMetadata, readIndexMetadataSnapshot } from '../../../index-metadata'
 import {
   createRebalanceRecord,
   generationNameOf,
   isHiddenGeneration,
   type RebalanceRecord,
   readRebalanceRecord,
+  updateRebalanceRecord,
 } from '../../../rebalance/records'
 import { encodeRebalanceRefusal } from '../../../rebalance/reply'
 import type { EventLoopState } from '../state'
@@ -90,6 +91,15 @@ async function recordRebalance(ctx: RebalanceRequestContext, message: TransportM
       ErrorCodes.PARTITION_REBALANCING_BACKPRESSURE,
       `Index '${indexName}' is already changing its partition count`,
       { indexName, jobId: running?.jobId ?? null },
+    )
+  }
+  const latest = await readIndexMetadataSnapshot(ctx.coordinator, sourceGeneration)
+  if (latest?.settings?.pendingAnalysis !== undefined) {
+    await updateRebalanceRecord(ctx.coordinator, indexName, record.jobId, () => null)
+    throw new NarsilError(
+      ErrorCodes.PARTITION_REBALANCING_BACKPRESSURE,
+      `Index '${indexName}' is changing its analysis, so try its partition count change again once that ends`,
+      { indexName },
     )
   }
   startRebalanceDriver(ctx, indexName, record.jobId)

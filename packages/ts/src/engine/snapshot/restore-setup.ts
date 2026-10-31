@@ -39,6 +39,7 @@ export interface RestoreDeps {
   markAnalysisStale: (index: StaleIndex) => void
   clearAnalysisStale: (indexName: string) => void
   abandonAnalysisRebuild: (indexName: string) => Promise<void>
+  abandonAnalysisChange: (indexName: string) => Promise<void>
   indexState: Pick<IndexStateCoordinator, 'replace' | 'registerReplacing'>
   copies: Pick<WorkerOrchestrator, 'desyncIndex' | 'releaseIndexCopies' | 'endCopyRelease' | 'resyncIndex'>
   forgetWatermark: (indexName: string) => void

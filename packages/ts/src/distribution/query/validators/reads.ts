@@ -28,6 +28,7 @@ import {
   SEARCH_INVALID_FIELD,
   SEARCH_INVALID_MODE,
   throwInvalid,
+  validateAnalysisGeneration,
   validateFieldName,
   validateNonNegativeInteger,
   validatePartitionIdsArray,
@@ -189,6 +190,7 @@ export function validateSuggestPayload(decoded: unknown): SuggestPayload {
   validatePartitionIdsArray(decoded.partitionIds, 'partitionIds', CONFIG_INVALID)
   validateStringField(decoded.prefix, 'prefix', MAX_TERM_LENGTH, CONFIG_INVALID)
   validatePositiveInteger(decoded.limit, 'limit', MAX_SUGGEST_WIRE_LIMIT, CONFIG_INVALID)
+  validateAnalysisGeneration(decoded.analysisGeneration, 'SuggestPayload')
   return decoded as unknown as SuggestPayload
 }
 

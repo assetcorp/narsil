@@ -32,11 +32,13 @@ export interface PartitionStoresPayload {
 export interface RebuildAnalysisPayload {
   indexName: string
   indexUuid: string
+  generation?: number
 }
 
 export interface RebuildAnalysisResultPayload {
   indexName: string
   rebuiltPartitions: number[]
+  generation?: number
 }
 
 export interface PartitionStoresResultPayload {

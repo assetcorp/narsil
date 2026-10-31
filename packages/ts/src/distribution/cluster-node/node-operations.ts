@@ -2,6 +2,7 @@ import type { QueryResult } from '../../types/results'
 import type { AnyDocument } from '../../types/schema'
 import type { QueryParams } from '../../types/search'
 import type { ClusterCoordinator } from '../coordinator/types'
+import { changeClusterAnalysis } from './analysis-change/request'
 import { replaceClusterBm25 } from './bm25-change'
 import { clearCluster } from './clear'
 import { awaitDropAcknowledgement, awaitTornDownCopy } from './drop-acknowledgement'
@@ -56,6 +57,7 @@ export type ClusterNodeOperations = Pick<
   | 'preflight'
   | 'listIndexes'
   | 'rebuildAnalysis'
+  | 'changeAnalysis'
   | 'rebalance'
   | 'getStats'
   | 'getPartitionStats'
@@ -75,6 +77,7 @@ export interface ClusterNodeOperationDeps {
   servingName: (indexName: string) => Promise<string>
   requestRebalance: (indexName: string, targetPartitionCount: number) => Promise<RebalanceJob>
   waitForRebalance: (indexName: string, job: RebalanceJob) => Promise<void>
+  guardShutdown: () => void
   readDeps: ClusterReadDeps
   writeDeps: WriteRoutingDeps
   engine: ClusterLocalEngine
@@ -136,11 +139,12 @@ export function createClusterNodeOperations(deps: ClusterNodeOperationDeps): Clu
     },
 
     async updateSynonyms(indexName, synonyms) {
-      return trackOp(indexName, () =>
+      return trackOp(indexName, async () =>
         replaceClusterSynonyms(
           { config: readDeps.config, nodeId: readDeps.nodeId, engine, coordinator },
           indexName,
           synonyms,
+          await deps.servingName(indexName),
         ),
       )
     },
@@ -177,6 +181,20 @@ export function createClusterNodeOperations(deps: ClusterNodeOperationDeps): Clu
     async rebuildAnalysis(indexName) {
       return served(indexName, name =>
         rebuildClusterAnalysis({ nodeId: readDeps.nodeId, config: readDeps.config, engine }, name),
+      )
+    },
+
+    async changeAnalysis(indexName, change) {
+      refuseHiddenGeneration(indexName)
+      return trackOp(indexName, async () =>
+        changeClusterAnalysis({
+          coordinator,
+          view: readDeps.analysisView,
+          guard: deps.guardShutdown,
+          servingName: await deps.servingName(indexName),
+          publicName: indexName,
+          change,
+        }),
       )
     },
 

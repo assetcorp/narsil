@@ -6,6 +6,7 @@
 
 // @public
 export interface AdminOperations {
+    changeAnalysis(indexName: string, change: ChangeAnalysisBody, options?: RequestOptions): Promise<TaskRecord>;
     checkpoint(indexName: string, options?: RequestOptions): Promise<void>;
     compactVectors(indexName: string, fieldName?: string, options?: RequestOptions): Promise<void>;
     exportDocuments(indexName: string, options?: RequestOptions): Promise<ReadableStream<Uint8Array>>;
@@ -46,6 +47,16 @@ export interface BulkOperations {
 // @public
 export interface CapabilitiesResponse {
     capabilities: string[];
+}
+
+// @public
+export const CHANGE_ANALYSIS_CAPABILITY = "indexes.changeAnalysis";
+
+// @public
+export interface ChangeAnalysisBody {
+    language?: string;
+    stopWords?: string | string[] | null;
+    tokenizer?: string | null;
 }
 
 // @public
@@ -127,6 +138,10 @@ export const ErrorCodes: {
     readonly ENVELOPE_INVALID_MAGIC: "ENVELOPE_INVALID_MAGIC";
     readonly PARTITION_CAPACITY_EXCEEDED: "PARTITION_CAPACITY_EXCEEDED";
     readonly RESTORE_MEMORY_EXCEEDED: "RESTORE_MEMORY_EXCEEDED";
+    readonly ANALYSIS_CHANGE_REPLACED: "ANALYSIS_CHANGE_REPLACED";
+    readonly ANALYSIS_CHANGE_NOT_READY: "ANALYSIS_CHANGE_NOT_READY";
+    readonly ANALYSIS_GENERATION_MISSING: "ANALYSIS_GENERATION_MISSING";
+    readonly ANALYSIS_REBUILD_MEMORY_EXCEEDED: "ANALYSIS_REBUILD_MEMORY_EXCEEDED";
     readonly EMBEDDING_FAILED: "EMBEDDING_FAILED";
     readonly EMBEDDING_DIMENSION_MISMATCH: "EMBEDDING_DIMENSION_MISMATCH";
     readonly EMBEDDING_NO_SOURCE: "EMBEDDING_NO_SOURCE";
@@ -222,10 +237,11 @@ export interface HttpIndexConfig {
     patternValueLimit?: number;
     required?: string[];
     schema: Record<string, unknown>;
-    stopWords?: string[];
+    stopWords?: string | string[];
     strict?: boolean;
     surfaceForms?: boolean;
     synonyms?: SynonymRule[];
+    tokenizer?: string;
     trackPositions?: boolean;
     vectorPromotion?: Record<string, unknown>;
 }
@@ -430,7 +446,7 @@ export interface TaskRecord {
 export type TaskStatus = 'running' | 'succeeded' | 'failed' | 'cancelled';
 
 // @public
-export type TaskType = 'optimizeVectors' | 'rebalance' | 'restore' | 'import' | 'importExport' | 'rebuildAnalysis';
+export type TaskType = 'optimizeVectors' | 'rebalance' | 'restore' | 'import' | 'importExport' | 'rebuildAnalysis' | 'changeAnalysis';
 
 // @public
 export interface WaitForTaskOptions extends RequestOptions {

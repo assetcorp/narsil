@@ -1,5 +1,4 @@
 import type { EngineCore } from '../engine/core'
-import { readDocumentExport } from '../engine/export/import'
 import { announceIndexCreated, announceIndexDropped } from '../engine/index-lifecycle'
 import type { SnapshotDeps } from '../engine/snapshot'
 import { indexConfigurationOf } from '../engine/snapshot/index-configuration'
@@ -80,7 +79,10 @@ export function portabilityOperations(
 
     importDocumentExport(indexName: string, data: ByteSource): Promise<DocumentImportResult> {
       core.guardShutdown()
-      return emitWriteEventAfter(core, indexName, readDocumentExport(engine(), indexName, data))
+      const imported = import('../engine/export/import').then(({ readDocumentExport }) =>
+        readDocumentExport(engine(), indexName, data),
+      )
+      return emitWriteEventAfter(core, indexName, imported)
     },
   }
 }

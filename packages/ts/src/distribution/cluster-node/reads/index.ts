@@ -10,6 +10,7 @@ import type { QueryParams } from '../../../types/search'
 import type { AllocationTable } from '../../coordinator/types'
 import { distributedQuery } from '../../query/routing'
 import type { DistributedQueryConfig } from '../../query/types'
+import { rerunOnNewerGeneration } from '../analysis-change/rerun'
 import { readDistributedDocuments } from '../node-messaging'
 import { distributedCountIsExact, distributedResultToLocal } from '../query-conversion'
 import { routableAllocation } from '../routable-allocation'
@@ -124,24 +125,26 @@ export async function queryCluster<T = AnyDocument>(
   if (allocation === null) {
     return deps.engine.query<T>(indexName, params)
   }
-  return rerunOnLostContext(async () => {
-    if (params.rerank === undefined) {
+  return rerunOnNewerGeneration(deps.analysisView, indexName, () =>
+    rerunOnLostContext(async () => {
+      if (params.rerank === undefined) {
+        return withRankedReader(deps, indexName, allocation, reader =>
+          searchCluster<T>(deps, indexName, params, allocation, reader, false),
+        )
+      }
+      const { rerankClusterQuery } = await import('./rerank')
       return withRankedReader(deps, indexName, allocation, reader =>
-        searchCluster<T>(deps, indexName, params, allocation, reader, false),
+        rerankClusterQuery<T>(
+          deps,
+          indexName,
+          params,
+          firstStage => searchCluster<T>(deps, indexName, firstStage, allocation, reader, true),
+          (docIds, last) => reader.read(docIds, { last, fields: null, requireEveryPartition: true }),
+          clusterRerankHost,
+        ),
       )
-    }
-    const { rerankClusterQuery } = await import('./rerank')
-    return withRankedReader(deps, indexName, allocation, reader =>
-      rerankClusterQuery<T>(
-        deps,
-        indexName,
-        params,
-        firstStage => searchCluster<T>(deps, indexName, firstStage, allocation, reader, true),
-        (docIds, last) => reader.read(docIds, { last, fields: null, requireEveryPartition: true }),
-        clusterRerankHost,
-      ),
-    )
-  })
+    }),
+  )
 }
 
 async function searchCluster<T>(

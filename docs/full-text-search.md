@@ -169,9 +169,54 @@ A vector search scores no text, so the engine validates its `bm25` and changes n
 
 A cursor from `searchAfter` keeps working after `updateBM25`, but the scores change between the two pages, so the later pages can repeat or skip a document. A `bm25` that a search sets becomes part of its cursor, so the engine throws `SEARCH_INVALID_CURSOR` when you page that cursor under another `bm25`.
 
-In a [cluster](cluster.md), `updateBM25` resolves once the coordinator stores the setting and the node that received the call applies it. Every other node follows through its watch of the index metadata, so a search that another node coordinates can use the old pair until that node applies the change. Elasticsearch differs here, because [its master waits for each node to apply a cluster state update](https://www.elastic.co/docs/deploy-manage/distributed-architecture/discovery-cluster-formation/cluster-state-overview), for up to the 30 seconds of `cluster.publish.timeout` by default. Whichever node coordinates a search sends one setting to every partition, so one search never mixes two settings.
+In a [cluster](cluster.md), `updateBM25` resolves once the coordinator stores the setting and the node that received the call applies it. Every other node follows through its watch of the index metadata, so a search that another node coordinates can use the old pair until that node applies the change. Whichever node coordinates a search sends one setting to every partition, so one search never mixes two settings.
 
 A node on a specification version below 1.1 can't use these settings, so a cluster answers with `BM25_NOT_READY` until every node has upgraded. While any registered node has the older version, the cluster refuses `updateBM25` and a new index that sets `fields`. While a registered node that holds a copy of the index has the older version, the cluster refuses a search that sets a pair, and it refuses every search on an index that holds `fields` or a live change. A cluster keeps serving any other search during a rolling upgrade, including one on an index that set only `k1` and `b` when you created it.
+
+## Changing an index's analysis
+
+The language, the tokeniser, and the stop words set the terms that an index holds, so the engine has to analyse every document again when any of them changes. Call `changeAnalysis` to give a live index new settings, since the index keeps answering searches and accepting writes during the rebuild. A setting that you leave out keeps its value, while `null` on `tokenizer` or `stopWords` returns that setting to its default.
+
+```ts
+import { registerStopWords, registerTokenizer } from '@delali/narsil'
+
+registerTokenizer('split-dashes', {
+  tokenize: text =>
+    text
+      .toLowerCase()
+      .split(/[\s-]+/)
+      .filter(word => word.length > 0)
+      .map((token, position) => ({ token, position })),
+})
+registerStopWords('catalogue-noise', new Set(['sku', 'refurbished']))
+
+await narsil.changeAnalysis('products', { tokenizer: 'split-dashes' })
+await narsil.changeAnalysis('products', { tokenizer: null, stopWords: 'catalogue-noise' })
+await narsil.changeAnalysis('products', { language: 'french', stopWords: null })
+```
+
+Pass a tokeniser as a registered name, and pass a stop word set as a registered name or a list of words, because the engine can store only a name or a list on disk and send only a name or a list to a worker. Register each name in every process that loads the index. The engine keeps every token that a custom tokeniser returns, so it applies no stop words and no stemming under one. A change of `stopWords` or `language` will therefore alter no match until you return `tokenizer` to `null`.
+
+The engine builds the new terms beside the old ones and then switches in one step, so each search matches under one set of settings, either the old or the new. Every write that the engine accepts during the rebuild reaches the new terms. The rebuild leaves vectors alone, so vector results stay the same. The promise resolves once a durable checkpoint holds the new terms, or once the switch happens on an engine without durability. After a restart at any point, the engine answers from terms that match the settings that it reports, and it goes on to finish the rebuild.
+
+A cursor from `searchAfter` keeps working across the switch, although its later pages can repeat or skip a document. The engine completes a change to the settings that the index already holds with no rebuild. A later change replaces one that is still building, so the first caller receives `ANALYSIS_CHANGE_REPLACED` and the latest change takes effect.
+
+If a restart leaves a pending name unregistered, the engine reports the failure on the `analysisRebuild` event and keeps answering under the old settings. Register the name and call `rebuildAnalysis` to finish the rebuild.
+
+`changeAnalysis` can throw these errors, and the index keeps its settings after each one:
+
+| Code | When |
+| --- | --- |
+| `LANGUAGE_NOT_SUPPORTED` | The language has no registration, as `createIndex` reports. |
+| `CONFIG_INVALID` | The tokeniser or the stop word set has no registration, the call passes an instance or a function, or a synonym word no longer analyses to exactly one token under the new settings. |
+| `ANALYSIS_REBUILD_MEMORY_EXCEEDED` | A second copy of the terms does not fit in memory. |
+| `PARTITION_REBALANCING_BACKPRESSURE` | The index is changing its partition count. A call to `rebalance` during a rebuild throws the same code. |
+
+In a [cluster](cluster.md), you can send the call to any node. Every node that holds a copy builds the new terms and reports that it is ready, after which the controller publishes the new settings with a higher generation number. A coordinator sends the generation that it read with every request of a search, so all the copies answer that search under one set of settings. Nodes learn of the update at slightly different times, so two searches that start together can use different settings.
+
+The controller finishes a change if the node that took the call dies. A node that returns after the switch rebuilds its terms before it answers for the new generation. If a node refuses for memory or for a missing name, every node drops the new terms and the call throws the code from that node.
+
+A cluster answers `ANALYSIS_CHANGE_NOT_READY` while any registered node has a specification version below 1.1. A search can fail with `ANALYSIS_GENERATION_MISSING` if its coordinator is behind again on the second try of that search, so you can retry the search.
 
 ## Score and coverage thresholds
 

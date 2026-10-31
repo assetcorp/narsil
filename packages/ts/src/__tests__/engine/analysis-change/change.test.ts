@@ -191,6 +191,17 @@ describe('changing the analysis of a live index', () => {
     await expectMatches(engine, oracle, NO_RIVER_SETTINGS)
   })
 
+  it('lets a restore replace a running change, which tells the caller', async () => {
+    const oracle = new ChangeOracle()
+    await filled(engine, oracle, 12_000)
+    const saved = await engine.snapshot('prose')
+    const change = engine.changeAnalysis('prose', { tokenizer: DASHES_TOKENIZER }).catch(codeOf)
+    await new Promise(resolve => setTimeout(resolve, 1))
+    await engine.restore('prose', saved)
+    expect(await change).toBe(ErrorCodes.ANALYSIS_CHANGE_REPLACED)
+    await expectMatches(engine, oracle, OLD_SETTINGS)
+  })
+
   it('refuses a synonym word that the new settings would remove, before it builds', async () => {
     const oracle = new ChangeOracle()
     await filled(engine, oracle, 50)

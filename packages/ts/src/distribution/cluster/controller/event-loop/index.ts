@@ -2,6 +2,7 @@ import type { ClusterCoordinator, NodeEvent, SchemaEvent } from '../../../coordi
 import type { NodeTransport, RespondFn, TransportMessage } from '../../../transport/types'
 import { ClusterMessageTypes, ReplicationMessageTypes } from '../../../transport/types'
 import { handleSchemaEvent, scheduleDebouncedAllocation } from './allocation'
+import { resumeAnalysisDrivers, startAnalysisDriver } from './analysis-change'
 import { handleInsyncAddMessage, handleInsyncRemoveMessage, handleQueuedBootstrapComplete } from './insync-messages'
 import { handlePrimaryResignMessage } from './primary-resign'
 import { handleRebalanceMessage, resumeRebalance, resumeRebalances } from './rebalance/request'
@@ -59,6 +60,12 @@ export async function startEventLoop(
       void resumeRebalance({ state, coordinator, nodeId, isActive, onError }, event.indexName)
     })
 
+    state.unwatchMetadata = await coordinator.watchIndexMetadata(event => {
+      if (event.metadata !== null && isActive()) {
+        startAnalysisDriver({ state, coordinator, nodeId, isActive, onError }, event.indexName)
+      }
+    })
+
     state.unwatchTransport = await transport.listen((message: TransportMessage, respond: RespondFn) => {
       if (message.type === ClusterMessageTypes.REPLICATION_FACTOR) {
         handleReplicationFactorMessage(state, message, respond, coordinator, nodeId, isActive, onError)
@@ -88,4 +95,5 @@ export async function startEventLoop(
 
   scheduleDebouncedAllocation(state, coordinator, isActive, onError)
   resumeRebalances({ state, coordinator, nodeId, isActive, onError }).catch(error => onError?.('', error))
+  resumeAnalysisDrivers({ state, coordinator, nodeId, isActive, onError }).catch(error => onError?.('', error))
 }
