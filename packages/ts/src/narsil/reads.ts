@@ -101,27 +101,22 @@ export async function runEngineQuery<T = AnyDocument>(
       ? core.orchestrator.searchViaWorker.bind(core.orchestrator)
       : undefined
 
-    const context = {
-      manager,
-      get language() {
-        return manager.language
-      },
-      get config() {
-        return manager.config
-      },
-      workerSearch,
-      indexName,
-      broadcastStats: broadcastStatsFor(core, options),
-      partitionIds: options?.partitionIds,
-      rescoreWindow: options?.rescoreWindow,
-      indexBm25: options?.indexBm25,
-      cursorBinding: lazyQueryBinding(params),
-      patternWorkCap: core.patternWorkCap,
-      rerank: rerank?.rerankRunnerFor(core),
-      requirePhraseReady: phraseReadinessOf(core, indexName, entry.config),
-    }
     const { result, analysisStale } = await readUnderOneAnalysis(core, indexName, () =>
-      executeQuery<T>(resolvedParams, context),
+      executeQuery<T>(resolvedParams, {
+        manager,
+        language: manager.language,
+        config: manager.config,
+        workerSearch,
+        indexName,
+        broadcastStats: broadcastStatsFor(core, options),
+        partitionIds: options?.partitionIds,
+        rescoreWindow: options?.rescoreWindow,
+        indexBm25: options?.indexBm25,
+        cursorBinding: lazyQueryBinding(params),
+        patternWorkCap: core.patternWorkCap,
+        rerank: rerank?.rerankRunnerFor(core),
+        requirePhraseReady: phraseReadinessOf(core, indexName, entry.config),
+      }),
     )
     if (analysisStale) {
       result.analysisStale = true
@@ -167,25 +162,20 @@ export async function runEnginePreflight(
     const workerSearch = core.orchestrator.hasWorkerPool()
       ? core.orchestrator.searchViaWorker.bind(core.orchestrator)
       : undefined
-    const context = {
-      manager,
-      get language() {
-        return manager.language
-      },
-      get config() {
-        return manager.config
-      },
-      workerSearch,
-      indexName,
-      broadcastStats: broadcastStatsFor(core, options),
-      partitionIds: options?.partitionIds,
-      indexBm25: options?.indexBm25,
-      cursorBinding: lazyQueryBinding(params),
-      patternWorkCap: core.patternWorkCap,
-      requirePhraseReady: phraseReadinessOf(core, indexName, entry.config),
-    }
     const { result, analysisStale } = await readUnderOneAnalysis(core, indexName, () =>
-      executePreflight(resolvedParams, context),
+      executePreflight(resolvedParams, {
+        manager,
+        language: manager.language,
+        config: manager.config,
+        workerSearch,
+        indexName,
+        broadcastStats: broadcastStatsFor(core, options),
+        partitionIds: options?.partitionIds,
+        indexBm25: options?.indexBm25,
+        cursorBinding: lazyQueryBinding(params),
+        patternWorkCap: core.patternWorkCap,
+        requirePhraseReady: phraseReadinessOf(core, indexName, entry.config),
+      }),
     )
     if (analysisStale) {
       result.analysisStale = true
