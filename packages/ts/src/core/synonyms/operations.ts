@@ -1,3 +1,4 @@
+import { targetOfPending } from '../../engine/analysis-change/pending-target'
 import type { EngineCore } from '../../engine/core'
 import { oneAtATime, withOpenIndex } from '../../engine/serial-index-update'
 import type { SynonymRule } from '../../types/synonyms'
@@ -8,7 +9,6 @@ async function replaceNow(core: EngineCore, indexName: string, value: unknown, s
   const manager = core.requireManager(indexName)
   const prepared = prepareSynonyms(value, entry.config, entry.language, strictWords)
   if (entry.pendingAnalysis !== null) {
-    const { targetOfPending } = await import('../../engine/analysis-change/settings')
     const target = targetOfPending(entry, entry.pendingAnalysis)
     prepareSynonyms(value, target.config, target.language, strictWords)
   }

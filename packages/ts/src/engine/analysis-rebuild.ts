@@ -30,7 +30,7 @@ export interface AnalysisRebuildCoordinator {
   reviewStaleIndexes(): Promise<void>
   rebuild(indexName: string): Promise<void>
   abandon(indexName: string): Promise<void>
-  runExclusive<T>(indexName: string, work: () => Promise<T>): Promise<T>
+  runExclusive<T>(indexName: string, work: () => Promise<T>, turnEnds?: Promise<void>): Promise<T>
 }
 
 interface StaleEntry {
@@ -210,14 +210,14 @@ export function createAnalysisRebuildCoordinator(
       return stale.get(indexName)?.run !== null && stale.get(indexName)?.run !== undefined
     },
 
-    runExclusive<T>(indexName: string, work: () => Promise<T>): Promise<T> {
+    runExclusive<T>(indexName: string, work: () => Promise<T>, turnEnds?: Promise<void>): Promise<T> {
       exclusiveRuns.set(indexName, (exclusiveRuns.get(indexName) ?? 0) + 1)
       const run = queue.then(work).finally(() => {
         const remaining = (exclusiveRuns.get(indexName) ?? 1) - 1
         if (remaining === 0) exclusiveRuns.delete(indexName)
         else exclusiveRuns.set(indexName, remaining)
       })
-      queue = run.then(
+      queue = Promise.race([run, turnEnds ?? run]).then(
         () => undefined,
         () => undefined,
       )

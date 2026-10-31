@@ -75,7 +75,7 @@ const results = await search.query('products', { term: 'folding bicycle', limit:
 ```
 
 - `process.env` exists only on a server. In a browser bundle, read the search-only key from the app's public build settings, such as `import.meta.env.VITE_NARSIL_SEARCH_KEY` under Vite, and keep the admin key out of every bundle.
-- The admin methods that take a while, which are `restore`, `importDocumentExport`, `rebalance`, `optimizeVectors`, and `rebuildAnalysis`, return a task record. `await client.waitForTask(record.id)` returns the record once the task ends, and it throws nothing for a failed task, so check `status` and `error`.
+- The admin methods that take a while, which are `restore`, `importDocumentExport`, `rebalance`, `optimizeVectors`, `rebuildAnalysis`, and `changeAnalysis`, return a task record. `await client.waitForTask(record.id)` returns the record once the task ends, and it throws nothing for a failed task, so check `status` and `error`.
 - For a React app, install `react`, wrap the tree in `<NarsilProvider client={client}>`, and call `useQuery(indexName, params, { keepPreviousData: true })` from `@delali/narsil/react`. Build the client outside every component.
 
 From any other language, send JSON with the caller's key:

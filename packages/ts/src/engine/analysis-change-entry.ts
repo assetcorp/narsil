@@ -12,6 +12,7 @@ export async function abandonChangeOf(core: EngineCore, indexName: string): Prom
 
 export async function resumeChangeOf(core: EngineCore, indexName: string): Promise<void> {
   if ((core.indexRegistry.get(indexName)?.pendingAnalysis ?? null) === null) return
+  if (core.mutationCtx.capacityScope === 'partition') return
   if (core.executor.getManager(indexName) === undefined) return
   const { resumeAnalysisChange } = await import('./analysis-change')
   void resumeAnalysisChange(core, indexName).catch(() => undefined)

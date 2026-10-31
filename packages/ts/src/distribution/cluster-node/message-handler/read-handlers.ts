@@ -81,10 +81,12 @@ export async function handleSuggest(
   deps: DataNodeHandlerDeps,
 ): Promise<void> {
   const payload = validateSuggestPayload(decode(message.payload))
-  const result = await deps.engine.suggestPartitions(
-    payload.indexName,
-    { prefix: payload.prefix, limit: payload.limit },
-    payload.partitionIds,
+  const result = await deps.analysisView.answerAt(payload.indexName, payload.analysisGeneration ?? 0, () =>
+    deps.engine.suggestPartitions(
+      payload.indexName,
+      { prefix: payload.prefix, limit: payload.limit },
+      payload.partitionIds,
+    ),
   )
 
   await respond(
@@ -103,11 +105,13 @@ export async function handlePreflight(
 ): Promise<void> {
   const payload = validatePreflightPayload(decode(message.payload))
   const params = wireParamsToLocal(payload.params)
-  const result = await deps.engine.preflightPartitions(
-    payload.indexName,
-    params,
-    payload.partitionIds,
-    payload.params.indexBm25 ?? undefined,
+  const result = await deps.analysisView.answerAt(payload.indexName, payload.params.analysisGeneration ?? 0, () =>
+    deps.engine.preflightPartitions(
+      payload.indexName,
+      params,
+      payload.partitionIds,
+      payload.params.indexBm25 ?? undefined,
+    ),
   )
 
   await respond(

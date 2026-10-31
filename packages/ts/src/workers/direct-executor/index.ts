@@ -130,7 +130,7 @@ export function createDirectExecutor(
     const vectorIndexes = vectorIndexesFor(indexName, config, copies)
     const manager = createPartitionManager(indexName, config, language, router, partitionCount, vectorIndexes)
 
-    return indexEntryOf(manager, config, vectorIndexes, analysisStale, awaitedCopyLoad)
+    return indexEntryOf(manager, vectorIndexes, analysisStale, awaitedCopyLoad)
   }
 
   function disposeEntry(entry: IndexEntry): void {

@@ -1,64 +1,21 @@
 import { ErrorCodes, NarsilError } from '../../errors'
 import { rebuildTextIndexes, textRebuildTargetOf } from '../../partitioning/text-rebuild'
 import type { AnalysisChange } from '../../types/analysis-operations'
+import type { PendingAnalysisMetadata } from '../../types/internal'
 import type { EngineCore, IndexRegistryEntry } from '../core'
 import { emitEngineEvent } from '../events'
 import { requireAnalysisRebuildMemory } from '../snapshot/memory-budget'
 import { prepareStoredSynonyms, rulesOfStoredSynonyms } from '../synonym-sets'
+import { type AnalysisTarget, targetOfPending } from './pending-target'
+import { type ChangeRun, createHold, createRun, heldUntilRelease, runsOf, stopRun } from './run'
 import {
-  type AnalysisTarget,
   currentConfigUnderTarget,
   durableSettingsOf,
   holdsSettings,
   namedSettingsOf,
   requireSynonymsUnderTarget,
   resolveAnalysisTarget,
-  targetOfPending,
 } from './settings'
-
-interface ChangeRun {
-  target: AnalysisTarget
-  stopped: NarsilError | null
-  switched: boolean
-  settled: Promise<void>
-  finish(): void
-  fail(error: unknown): void
-  finished: Promise<void>
-}
-
-const runsByCore = new WeakMap<EngineCore, Map<string, ChangeRun>>()
-
-function runsOf(core: EngineCore): Map<string, ChangeRun> {
-  let runs = runsByCore.get(core)
-  if (runs === undefined) {
-    runs = new Map()
-    runsByCore.set(core, runs)
-  }
-  return runs
-}
-
-function createRun(target: AnalysisTarget): ChangeRun & { settle(): void } {
-  let finish: () => void = () => undefined
-  let fail: (error: unknown) => void = () => undefined
-  let settle: () => void = () => undefined
-  const finished = new Promise<void>((resolve, reject) => {
-    finish = resolve
-    fail = reject
-  })
-  finished.catch(() => undefined)
-  const settled = new Promise<void>(resolve => {
-    settle = resolve
-  })
-  return { target, stopped: null, switched: false, settled, finish, fail, finished, settle }
-}
-
-function replacedError(indexName: string): NarsilError {
-  return new NarsilError(
-    ErrorCodes.ANALYSIS_CHANGE_REPLACED,
-    `A later change or a restore replaced this analysis change of index "${indexName}"`,
-    { indexName },
-  )
-}
 
 function termBytesOf(core: EngineCore, indexName: string): number {
   let bytes = 0
@@ -148,6 +105,7 @@ async function buildAndSwitch(
           partitionsRebuilt = built
         },
         onSwitch: () => adopt(),
+        ...(run.hold === null ? {} : { holdBeforeSwitch: heldUntilRelease(run, run.hold) }),
         runSwitch(swap) {
           const swapWithSynonyms = (): boolean => {
             if (!isCurrent()) return false
@@ -224,13 +182,17 @@ async function driveRun(
     }
     const generation =
       resumedGeneration ?? Math.max(entry.analysisGeneration, entry.pendingAnalysis?.generation ?? 0) + 1
-    if (resumedGeneration === null) {
+    if (entry.pendingAnalysis?.generation !== generation || run.hold !== null) {
       entry.pendingAnalysis = { generation, ...namedSettingsOf(run.target.config, run.target.language.name) }
       await core.durability?.manager.persistMetadata(indexName)
     }
     if (run.stopped !== null) return
     await core.analysisRebuild.abandon(indexName)
-    await core.analysisRebuild.runExclusive(indexName, () => buildAndSwitch(core, indexName, entry, run, generation))
+    await core.analysisRebuild.runExclusive(
+      indexName,
+      () => buildAndSwitch(core, indexName, entry, run, generation),
+      run.hold?.ready,
+    )
     run.finish()
   } catch (error) {
     run.fail(error)
@@ -244,6 +206,8 @@ async function driveRun(
     run.settle()
   }
 }
+
+export { adoptSavedAnalysis } from './adopt-saved'
 
 export async function changeIndexAnalysis(core: EngineCore, indexName: string, change: AnalysisChange): Promise<void> {
   const entry = core.requireIndex(indexName)
@@ -259,10 +223,7 @@ export async function changeIndexAnalysis(core: EngineCore, indexName: string, c
     requireAnalysisRebuildMemory(indexName, termBytesOf(core, indexName))
   }
   const run = createRun(target)
-  if (previous !== undefined && !previous.switched) {
-    previous.stopped = replacedError(indexName)
-    previous.fail(previous.stopped)
-  }
+  if (previous !== undefined && !previous.switched) stopRun(previous, indexName)
   runs.set(indexName, run)
   void driveRun(core, indexName, entry, run, previous, null)
   return run.finished
@@ -298,7 +259,96 @@ export function resumeAnalysisChange(core: EngineCore, indexName: string): Promi
 export async function abandonAnalysisChange(core: EngineCore, indexName: string): Promise<void> {
   const run = runsOf(core).get(indexName)
   if (run === undefined) return
-  run.stopped = replacedError(indexName)
-  run.fail(run.stopped)
+  stopRun(run, indexName)
   await run.settled
+}
+
+function holdServes(run: ChangeRun, entry: IndexRegistryEntry, pending: PendingAnalysisMetadata): boolean {
+  return (
+    run.hold?.generation === pending.generation && holdsSettings(run.target.config, targetOfPending(entry, pending))
+  )
+}
+
+function startHeldRun(core: EngineCore, indexName: string, pending: PendingAnalysisMetadata): ChangeRun | null {
+  const entry = core.requireIndex(indexName)
+  if (entry.analysisGeneration >= pending.generation) return null
+  const runs = runsOf(core)
+  const previous = runs.get(indexName)
+  if (previous !== undefined && holdServes(previous, entry, pending)) return previous
+  const target = targetOfPending(entry, pending)
+  requireSynonymsUnderTarget(entry, target)
+  requireAnalysisRebuildMemory(indexName, termBytesOf(core, indexName))
+  const run = createRun(target, createHold(pending.generation))
+  if (previous !== undefined && !previous.switched) stopRun(previous, indexName)
+  runs.set(indexName, run)
+  void driveRun(core, indexName, entry, run, previous, pending.generation)
+  return run
+}
+
+export async function buildHeldAnalysisChange(
+  core: EngineCore,
+  indexName: string,
+  pending: PendingAnalysisMetadata,
+): Promise<void> {
+  const running = runsOf(core).get(indexName)
+  const entry = core.indexRegistry.get(indexName)
+  if (running?.hold != null && entry !== undefined && holdServes(running, entry, pending)) return running.hold.ready
+  const release = await core.indexState.acquire(indexName, false)
+  let run: ChangeRun | null
+  try {
+    run = startHeldRun(core, indexName, pending)
+  } catch (error) {
+    release()
+    throw error
+  }
+  if (run?.hold === undefined || run.hold === null) {
+    release()
+    return
+  }
+  void run.settled.finally(release)
+  return run.hold.ready
+}
+
+export function heldAnalysisIsBuilt(core: EngineCore, indexName: string, generation: number): boolean {
+  const hold = runsOf(core).get(indexName)?.hold
+  return hold !== undefined && hold !== null && hold.generation === generation && hold.built
+}
+
+export async function releaseHeldAnalysisChange(
+  core: EngineCore,
+  indexName: string,
+  generation: number,
+): Promise<void> {
+  const run = runsOf(core).get(indexName)
+  if (run?.hold?.generation !== generation) return
+  run.hold.released = true
+  run.hold.wake()
+  await run.finished
+}
+
+export async function dropHeldAnalysisChange(core: EngineCore, indexName: string): Promise<void> {
+  await abandonAnalysisChange(core, indexName)
+  const entry = core.indexRegistry.get(indexName)
+  if (entry !== undefined && entry.pendingAnalysis !== null) await clearPending(core, indexName, entry)
+}
+
+export function holdsNamedSettings(
+  entry: IndexRegistryEntry,
+  settings: Omit<PendingAnalysisMetadata, 'generation'>,
+): boolean {
+  return holdsSettings(entry.config, targetOfPending(entry, { generation: 0, ...settings }))
+}
+
+export async function stampAnalysisGeneration(core: EngineCore, indexName: string, generation: number): Promise<void> {
+  const entry = core.requireIndex(indexName)
+  if (entry.analysisGeneration >= generation) return
+  await requireNoUndurableSwitch(core, indexName, entry)
+  const durable = core.durability?.manager
+  const stamp = (): boolean => {
+    entry.durableAnalysis = core.durability === null ? null : durableSettingsOf(entry)
+    entry.analysisGeneration = generation
+    entry.pendingAnalysis = null
+    return true
+  }
+  await (durable?.checkpointAfterSwitch?.(indexName, stamp) ?? Promise.resolve(stamp()))
 }

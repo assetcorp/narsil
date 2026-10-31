@@ -11,9 +11,21 @@ export interface AdapterRegistrationOperations {
 }
 
 // @public
+export interface AnalysisChange {
+    language?: string;
+    stopWords?: string | readonly string[] | ReadonlySet<string> | null;
+    tokenizer?: string | null;
+}
+
+// @public
 export interface AnalysisConfig {
     onStaleAnalysis?(index: StaleAnalysis, rebuild: () => Promise<void>): void | Promise<void>;
     rebuild?: 'auto' | 'manual';
+}
+
+// @public
+export interface AnalysisOperations {
+    changeAnalysis(indexName: string, change: AnalysisChange): Promise<void>;
 }
 
 // @public
@@ -198,6 +210,10 @@ export const ErrorCodes: {
     readonly ENVELOPE_INVALID_MAGIC: "ENVELOPE_INVALID_MAGIC";
     readonly PARTITION_CAPACITY_EXCEEDED: "PARTITION_CAPACITY_EXCEEDED";
     readonly RESTORE_MEMORY_EXCEEDED: "RESTORE_MEMORY_EXCEEDED";
+    readonly ANALYSIS_CHANGE_REPLACED: "ANALYSIS_CHANGE_REPLACED";
+    readonly ANALYSIS_CHANGE_NOT_READY: "ANALYSIS_CHANGE_NOT_READY";
+    readonly ANALYSIS_GENERATION_MISSING: "ANALYSIS_GENERATION_MISSING";
+    readonly ANALYSIS_REBUILD_MEMORY_EXCEEDED: "ANALYSIS_REBUILD_MEMORY_EXCEEDED";
     readonly EMBEDDING_FAILED: "EMBEDDING_FAILED";
     readonly EMBEDDING_DIMENSION_MISMATCH: "EMBEDDING_DIMENSION_MISMATCH";
     readonly EMBEDDING_NO_SOURCE: "EMBEDDING_NO_SOURCE";
@@ -566,7 +582,7 @@ export interface MemoryStats {
 }
 
 // @public
-export interface Narsil extends IndexLifecycleOperations, DocumentWriteOperations, SynonymOperations, BM25Operations, AdapterRegistrationOperations {
+export interface Narsil extends IndexLifecycleOperations, DocumentWriteOperations, SynonymOperations, AnalysisOperations, BM25Operations, AdapterRegistrationOperations {
     checkpoint(indexName: string): Promise<void>;
     clear(indexName: string): Promise<void>;
     compactVectors(indexName: string, fieldName?: string): Promise<void>;

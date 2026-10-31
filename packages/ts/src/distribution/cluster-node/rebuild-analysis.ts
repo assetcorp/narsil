@@ -1,7 +1,7 @@
 import { decode, encode } from '@msgpack/msgpack'
 import { generateId } from '../../core/id-generator'
 import { ErrorCodes, NarsilError } from '../../errors'
-import { getIndexMetadata } from '../cluster/index-metadata'
+import { getIndexMetadata, readIndexMetadataSnapshot } from '../cluster/index-metadata'
 import type { ClusterCoordinator } from '../coordinator/types'
 import { isRecord } from '../payload-guards'
 import type {
@@ -28,14 +28,48 @@ function validateRebuildPayload(decoded: unknown): RebuildAnalysisPayload {
     typeof decoded.indexName !== 'string' ||
     decoded.indexName.length === 0 ||
     typeof decoded.indexUuid !== 'string' ||
-    decoded.indexUuid.length === 0
+    decoded.indexUuid.length === 0 ||
+    (decoded.generation !== undefined && (!Number.isSafeInteger(decoded.generation) || Number(decoded.generation) < 1))
   ) {
     throw new NarsilError(
       ErrorCodes.CONFIG_INVALID,
-      'Invalid RebuildAnalysisPayload: it needs an indexName and an indexUuid',
+      'Invalid RebuildAnalysisPayload: it needs an indexName, an indexUuid, and a generation of 1 or more where it carries one',
     )
   }
-  return { indexName: decoded.indexName, indexUuid: decoded.indexUuid }
+  return {
+    indexName: decoded.indexName,
+    indexUuid: decoded.indexUuid,
+    ...(typeof decoded.generation === 'number' ? { generation: decoded.generation } : {}),
+  }
+}
+
+async function buildHeldCopies(
+  engine: ClusterLocalEngine,
+  coordinator: ClusterCoordinator,
+  payload: RebuildAnalysisPayload,
+  generation: number,
+): Promise<RebuildAnalysisResultPayload> {
+  const { indexName, indexUuid } = payload
+  const answer: RebuildAnalysisResultPayload = { indexName, rebuiltPartitions: [], generation }
+  const localGeneration = engine.analysisGenerationOf(indexName)
+  const localUuid = engine.indexUuidOf(indexName)
+  if (localGeneration === undefined || (typeof localUuid === 'string' && localUuid !== indexUuid)) return answer
+  if (localGeneration >= generation) return answer
+  const snapshot = await readIndexMetadataSnapshot(coordinator, indexName)
+  const settings = snapshot?.settings
+  if (snapshot === null || snapshot.record.indexUuid !== indexUuid) return answer
+  if ((settings?.analysisGeneration ?? 0) >= generation) return answer
+  const pending = settings?.pendingAnalysis
+  if (pending === undefined || pending.generation !== generation) {
+    throw new NarsilError(
+      ErrorCodes.ANALYSIS_CHANGE_REPLACED,
+      `A later change replaced generation ${generation} of the analysis of index '${indexName}'`,
+      { indexName },
+    )
+  }
+  const { changeId: _changeId, ...named } = pending
+  await engine.buildHeldAnalysis(indexName, named)
+  return { ...answer, rebuiltPartitions: heldPartitionIdsOf(engine, indexName) }
 }
 
 function validateRebuildResult(decoded: unknown, indexName: string): RebuildAnalysisResultPayload {
@@ -60,7 +94,12 @@ export async function rebuildLocalCopies(
 ): Promise<RebuildAnalysisResultPayload> {
   const { indexName, indexUuid } = payload
   const local = engine.listIndexes().find(index => index.name === indexName)
-  if (local === undefined || engine.indexUuidOf(indexName) !== indexUuid || local.analysisStale !== true) {
+  if (
+    local === undefined ||
+    engine.indexUuidOf(indexName) !== indexUuid ||
+    local.analysisStale !== true ||
+    engine.pendingAnalysisGenerationOf(indexName) !== null
+  ) {
     return { indexName, rebuiltPartitions: [] }
   }
   await engine.rebuildAnalysis(indexName)
@@ -70,9 +109,13 @@ export async function rebuildLocalCopies(
 export async function handleRebuildAnalysis(
   message: TransportMessage,
   respond: RespondFn,
-  deps: { nodeId: string; engine: ClusterLocalEngine },
+  deps: { nodeId: string; engine: ClusterLocalEngine; coordinator: ClusterCoordinator },
 ): Promise<void> {
-  const result = await rebuildLocalCopies(deps.engine, validateRebuildPayload(decode(message.payload)))
+  const payload = validateRebuildPayload(decode(message.payload))
+  const result =
+    payload.generation === undefined
+      ? await rebuildLocalCopies(deps.engine, payload)
+      : await buildHeldCopies(deps.engine, deps.coordinator, payload, payload.generation)
   await respond({
     type: ClusterMessageTypes.REBUILD_ANALYSIS,
     sourceId: deps.nodeId,

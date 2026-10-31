@@ -8,6 +8,7 @@ import type { DataNodeHandle } from '../cluster/node-lifecycle/types'
 import type { NodeRole } from '../coordinator/types'
 import { openSnapshotSpoolDirectory } from '../replication/snapshot-spool'
 import type { ReplicationLog } from '../replication/types'
+import { createAnalysisView } from './analysis-change/view'
 import { createBm25View } from './bm25-view'
 import { cleanupRemovedPartition, releaseTornDownIndex } from './bootstrap-cleanup'
 import { clearBootstrapSyncIndex, createBootstrapSyncState, hasCompletedBootstrapSync } from './bootstrap-sync'
@@ -217,7 +218,8 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
   const transitionIndex = operationTracker.transition
 
   const bm25View = createBm25View({ coordinator: config.coordinator, engine, onError: forwardOnError })
-  const readDeps = { config: routingConfig, nodeId, engine, resolveNodeTargets, searchContexts, bm25View }
+  const analysisView = createAnalysisView({ coordinator: config.coordinator, engine, onError: forwardOnError })
+  const readDeps = { config: routingConfig, nodeId, engine, resolveNodeTargets, searchContexts, bm25View, analysisView }
   const servingName = (indexName: string) => servingNameOf(allocationView.routing, indexName)
 
   const cluster = createClusterNamespace({
@@ -259,6 +261,7 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
       servingName,
       requestRebalance: (indexName, count) => requestRebalance(config, nodeId, indexName, count),
       waitForRebalance: (indexName, job) => waitForSwap(config, indexName, job, guardShutdown),
+      guardShutdown,
       readDeps,
       writeDeps,
       engine,
@@ -278,6 +281,7 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
       guardShutdown()
       await allocationView.start()
       await bm25View.start()
+      await analysisView.start()
 
       const dispositions = await reconcileLocalIndexes({
         engine,
@@ -288,6 +292,8 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
       for (const [indexName, disposition] of dispositions) {
         if (disposition === 'orphaned') {
           orphanedIndexes.add(indexName)
+        } else if (disposition === 'adopted') {
+          await analysisView.settle(indexName)
         }
       }
 
@@ -308,6 +314,7 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
           engine,
           coordinator: config.coordinator,
           allocations: allocationView,
+          analysisView,
           writeDeps,
           snapshotSyncState: snapshotSyncHandlerState,
           searchContexts,
@@ -346,15 +353,12 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
       await operationTracker.drain()
       allocationView.stop()
       bm25View.stop()
+      analysisView.stop()
 
-      if (unregisterHandler !== null) {
-        unregisterHandler()
-        unregisterHandler = null
-      }
-      if (unregisterNotReadyHandler !== null) {
-        unregisterNotReadyHandler()
-        unregisterNotReadyHandler = null
-      }
+      unregisterHandler?.()
+      unregisterHandler = null
+      unregisterNotReadyHandler?.()
+      unregisterNotReadyHandler = null
       unwatchDepartures?.()
       unwatchDepartures = null
       searchContexts?.stop()

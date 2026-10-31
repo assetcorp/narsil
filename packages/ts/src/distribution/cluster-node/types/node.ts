@@ -1,4 +1,5 @@
 import type { RerankAdapter } from '../../../types/adapters'
+import type { AnalysisChange } from '../../../types/analysis-operations'
 import type { NarsilEventMap } from '../../../types/events'
 import type { MemoryStats } from '../../../types/memory'
 import type {
@@ -210,6 +211,22 @@ export interface ClusterNode extends ClusterNodeSearchSettings {
    *   the cluster before it answers.
    */
   rebuildAnalysis(indexName: string): Promise<void>
+  /**
+   * Gives a cluster index a new language, stop word set, or tokeniser, and resolves once the cluster publishes the new
+   * settings, while the index keeps answering searches under the old settings.
+   *
+   * Every node that holds a copy builds the new terms beside the old ones, and the controller finishes the change if
+   * this node dies. A later change replaces one that is still building, so the latest change wins.
+   *
+   * @param indexName - The index to change.
+   * @param change - The settings to change, each by a registered name, with `null` returning a setting to its default.
+   * @throws A `NarsilError` with `LANGUAGE_NOT_SUPPORTED` or `CONFIG_INVALID` for an unregistered name, with
+   *   `ANALYSIS_CHANGE_NOT_READY` where a registered node runs an older specification version, with
+   *   `ANALYSIS_REBUILD_MEMORY_EXCEEDED` where a node lacks the memory for a second copy of the terms, with
+   *   `ANALYSIS_CHANGE_REPLACED` where a later change replaces this one, and with
+   *   `PARTITION_REBALANCING_BACKPRESSURE` during a partition count change.
+   */
+  changeAnalysis(indexName: string, change: AnalysisChange): Promise<void>
   /**
    * Moves an index onto a new number of partitions, and resolves once every read and write of the index goes to the new
    * layout.

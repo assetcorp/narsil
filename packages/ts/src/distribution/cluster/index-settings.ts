@@ -23,6 +23,9 @@ export interface IndexSettings {
   tokenizer?: string
   stopWords?: string
   stopWordList?: string[]
+  analysisGeneration?: number
+  pendingAnalysis?: PendingClusterAnalysis
+  analysisFailure?: AnalysisFailure
   bm25?: BM25Params
   bm25Revision?: number
   surfaceForms?: boolean
@@ -35,6 +38,22 @@ export interface IndexSettings {
   partitionConfig?: ClusterPartitionLimits
   embedding?: RestoredEmbedding
   synonyms?: SynonymSetRef
+}
+
+export interface PendingClusterAnalysis {
+  changeId: string
+  generation: number
+  language: string
+  tokenizer?: string
+  stopWords?: string
+  stopWordList?: string[]
+}
+
+export interface AnalysisFailure {
+  changeId: string
+  code: string
+  message: string
+  nodeId: string
 }
 
 export interface ClusterPartitionLimits {
@@ -131,6 +150,61 @@ export function settingsRejection(indexName: string): ConfigFieldRejection {
   }
 }
 
+function isGeneration(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
+}
+
+function isOptionalString(value: unknown): boolean {
+  return value === undefined || typeof value === 'string'
+}
+
+function decodePendingAnalysis(raw: unknown, reject: ConfigFieldRejection): PendingClusterAnalysis | undefined {
+  if (raw === undefined) return undefined
+  if (
+    !isRecord(raw) ||
+    typeof raw.changeId !== 'string' ||
+    !isGeneration(raw.generation) ||
+    typeof raw.language !== 'string' ||
+    !isOptionalString(raw.tokenizer) ||
+    !isOptionalString(raw.stopWords) ||
+    (raw.stopWordList !== undefined &&
+      (!Array.isArray(raw.stopWordList) || raw.stopWordList.some(word => typeof word !== 'string')))
+  ) {
+    return reject('pendingAnalysis is malformed')
+  }
+  return raw as unknown as PendingClusterAnalysis
+}
+
+function decodeAnalysisFailure(raw: unknown, reject: ConfigFieldRejection): AnalysisFailure | undefined {
+  if (raw === undefined) return undefined
+  if (
+    !isRecord(raw) ||
+    typeof raw.changeId !== 'string' ||
+    typeof raw.code !== 'string' ||
+    typeof raw.message !== 'string' ||
+    typeof raw.nodeId !== 'string'
+  ) {
+    return reject('analysisFailure is malformed')
+  }
+  return raw as unknown as AnalysisFailure
+}
+
+function decodeAnalysisMembers(
+  raw: Record<string, unknown>,
+  reject: ConfigFieldRejection,
+): Pick<IndexSettings, 'analysisGeneration' | 'pendingAnalysis' | 'analysisFailure'> {
+  if (raw.analysisGeneration !== undefined && !isGeneration(raw.analysisGeneration)) {
+    return reject('analysisGeneration must be a non-negative integer')
+  }
+  const pendingAnalysis = decodePendingAnalysis(raw.pendingAnalysis, reject)
+  const analysisFailure = decodeAnalysisFailure(raw.analysisFailure, reject)
+  return {
+    ...(raw.analysisGeneration !== undefined ? { analysisGeneration: raw.analysisGeneration } : {}),
+    ...(pendingAnalysis !== undefined ? { pendingAnalysis } : {}),
+    ...(analysisFailure !== undefined ? { analysisFailure } : {}),
+  }
+}
+
 export function decodeIndexSettings(raw: unknown, indexName: string): IndexSettings | undefined {
   if (raw === undefined || raw === null) {
     return undefined
@@ -152,6 +226,7 @@ export function decodeIndexSettings(raw: unknown, indexName: string): IndexSetti
   return {
     language: raw.language,
     ...(typeof bm25Revision === 'number' ? { bm25Revision } : {}),
+    ...decodeAnalysisMembers(raw, reject),
     ...settingsFieldsOf({
       ...readSharedConfigFields(raw, reject),
       ...(partitions !== undefined ? { partitions } : {}),
@@ -173,7 +248,17 @@ export function indexConfigFromSettings(
   if (settings === undefined) {
     return { schema }
   }
-  const { language, embedding, partitionConfig, synonyms: _synonyms, bm25Revision: _revision, ...fields } = settings
+  const {
+    language,
+    embedding,
+    partitionConfig,
+    synonyms: _synonyms,
+    bm25Revision: _revision,
+    analysisGeneration: _generation,
+    pendingAnalysis: _pending,
+    analysisFailure: _failure,
+    ...fields
+  } = settings
   return {
     schema,
     language,

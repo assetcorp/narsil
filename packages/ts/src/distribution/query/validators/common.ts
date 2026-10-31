@@ -60,6 +60,16 @@ export function validateFieldName(value: unknown, fieldLabel: string, errorCode:
   return validateStringField(value, fieldLabel, MAX_FIELD_NAME_LENGTH, errorCode)
 }
 
+export function validateAnalysisGeneration(value: unknown, payloadName: string): void {
+  if (value === undefined || value === null) return
+  if (!Number.isSafeInteger(value) || (value as number) < 0) {
+    throwInvalid(
+      ErrorCodes.CONFIG_INVALID,
+      `Invalid ${payloadName}: "analysisGeneration" must be a non-negative integer`,
+    )
+  }
+}
+
 export function validateNonNegativeInteger(
   value: unknown,
   fieldLabel: string,

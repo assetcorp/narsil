@@ -1,6 +1,7 @@
 import type { ClusterCoordinator } from '../../coordinator/types'
 import type { RespondFn, TransportMessage } from '../../transport/types'
 import type { AllocationView } from '../allocation-view'
+import type { AnalysisView } from '../analysis-change/view'
 import type { ClusterLocalEngine } from '../local-engine'
 import type { SearchContextRegistry } from '../search-contexts'
 import type { SnapshotSyncHandlerState } from '../snapshot-sync-handler'
@@ -12,6 +13,7 @@ export interface DataNodeHandlerDeps {
   engine: ClusterLocalEngine
   coordinator: ClusterCoordinator
   allocations?: Pick<AllocationView, 'read' | 'refresh'>
+  analysisView: Pick<AnalysisView, 'answerAt'>
   writeDeps: WriteRoutingDeps
   snapshotSyncState: SnapshotSyncHandlerState
   searchContexts?: SearchContextRegistry

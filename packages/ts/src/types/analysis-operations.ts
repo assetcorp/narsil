@@ -27,16 +27,16 @@ export interface AnalysisChange {
  */
 export interface AnalysisOperations {
   /**
-   * Gives you an index that matches text under new settings, with no downtime
-   * and no reindex on your side.
+   * Gives you an index that matches text under new settings, while the index
+   * keeps answering searches and accepting writes.
    *
-   * The engine builds the new terms beside the old ones. Searches and writes
-   * carry on under the old settings during that time, and every write that the
-   * engine accepts reaches the new terms. Each search then matches under one
-   * set of settings, either the old or the new. Vector data stays as it is. The
-   * promise resolves once a durable checkpoint holds the new terms, or once the
-   * switch has happened on an engine without durability. A restart at any point
-   * finishes the change.
+   * The engine builds the new terms beside the old ones. Searches keep matching
+   * under the old settings during that time, while every write that the engine
+   * accepts reaches the new terms. Each search matches under one set of
+   * settings, either the old or the new, and the rebuild leaves vectors alone.
+   * The promise resolves once a durable checkpoint holds the new terms, or once
+   * the switch happens on an engine without durability. After a restart at any
+   * point, the engine goes on to finish the change.
    *
    * @param indexName - The index to change.
    * @param change - The settings to change. A change to the values that the
@@ -47,7 +47,10 @@ export interface AnalysisOperations {
    * rules under the new settings, with `ANALYSIS_REBUILD_MEMORY_EXCEEDED` when a
    * second copy of the terms does not fit in memory, with
    * `ANALYSIS_CHANGE_REPLACED` when a later change or a restore replaces this
-   * one, and with `PARTITION_REBALANCING_BACKPRESSURE` during a rebalance.
+   * one, with `ANALYSIS_CHANGE_NOT_READY` when the previous change has no
+   * durable checkpoint yet, with `PERSISTENCE_SAVE_FAILED` when the new terms
+   * answer searches before a durable checkpoint holds them, and with
+   * `PARTITION_REBALANCING_BACKPRESSURE` during a rebalance.
    */
   changeAnalysis(indexName: string, change: AnalysisChange): Promise<void>
 }

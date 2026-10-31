@@ -16,13 +16,9 @@ export type IndexRegistryEntry = {
   config: IndexConfig
   language: LanguageModule
   embeddingAdapter: EmbeddingAdapter | null
-  /** Registry name the adapter was resolved from; lets durability metadata
-   * persist the binding and lets late registration rebind recovered indexes. */
   embeddingAdapterName: string | null
   vectorFieldPaths: Set<string>
-  /** The identity the cluster gave this index, or null where no cluster owns it. */
   indexUuid: string | null
-  /** The partitions this copy holds, or null where nothing has recorded them yet. */
   heldPartitions: number[] | null
   documentCount: number
   partitionCount: number

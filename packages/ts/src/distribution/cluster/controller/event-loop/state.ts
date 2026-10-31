@@ -19,6 +19,8 @@ export interface EventLoopState {
   departureTimer: ReturnType<typeof setTimeout> | null
   rebalanceDrivers: Map<string, string>
   rebalanceEpoch: number
+  unwatchMetadata: (() => void) | null
+  analysisDrivers: Map<string, { again: boolean }>
 }
 
 /**
@@ -50,6 +52,8 @@ export function createEventLoopState(
     controllerNodeId: null,
     rebalanceDrivers: new Map(),
     rebalanceEpoch: 0,
+    unwatchMetadata: null,
+    analysisDrivers: new Map(),
   }
 }
 
@@ -91,6 +95,9 @@ export function clearEventLoopWatchers(state: EventLoopState): void {
   state.departedAt.clear()
   state.rebalanceDrivers.clear()
   state.rebalanceEpoch += 1
+  state.unwatchMetadata?.()
+  state.unwatchMetadata = null
+  state.analysisDrivers.clear()
 }
 
 export function inSchemaQueue(state: EventLoopState, indexName: string, task: () => Promise<void>): Promise<void> {

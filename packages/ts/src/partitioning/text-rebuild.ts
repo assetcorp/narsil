@@ -14,6 +14,7 @@ export interface TextRebuildHooks {
   onPartitionBuilt(partitionsBuilt: number): void
   onSwitch(): void
   runSwitch?(swap: () => boolean): Promise<boolean>
+  holdBeforeSwitch?(keepCurrent: () => boolean): Promise<boolean>
 }
 
 export interface TextRebuildTarget {
@@ -96,6 +97,12 @@ async function rebuildOnce(pass: RebuildPass): Promise<boolean> {
     await yieldToEventLoop()
     if (interrupted(pass)) return false
   }
+  const keepCurrent = (): boolean => {
+    if (interrupted(pass)) return false
+    applyWrittenDocuments(pass, built)
+    return true
+  }
+  if (pass.hooks.holdBeforeSwitch !== undefined && !(await pass.hooks.holdBeforeSwitch(keepCurrent))) return false
   const swap = (): boolean => {
     if (interrupted(pass)) return false
     applyWrittenDocuments(pass, built)

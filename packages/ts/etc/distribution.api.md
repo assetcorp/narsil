@@ -109,6 +109,7 @@ export interface ClusterNamespace {
 
 // @public
 export interface ClusterNode extends ClusterNodeSearchSettings {
+    changeAnalysis(indexName: string, change: AnalysisChange): Promise<void>;
     checkpoint(indexName: string): Promise<void>;
     clear(indexName: string): Promise<void>;
     close(indexName: string): Promise<void>;

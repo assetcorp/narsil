@@ -1,4 +1,4 @@
-import { type ResolvedAnalysis, resolveIndexAnalysis } from '../../analysis/registry'
+import { resolveIndexAnalysis } from '../../analysis/registry'
 import { compareCodePoints } from '../../core/ordering'
 import { ErrorCodes, NarsilError } from '../../errors'
 import { getLanguage } from '../../languages/registry'
@@ -9,12 +9,9 @@ import type { IndexConfig } from '../../types/schema'
 import type { DurableAnalysis, IndexRegistryEntry } from '../core'
 import { requireConfigurationWithinSizeLimit } from '../snapshot/index-configuration'
 import { prepareStoredSynonyms, rulesOfStoredSynonyms } from '../synonym-sets'
+import type { AnalysisTarget } from './pending-target'
 
-export interface AnalysisTarget {
-  config: IndexConfig
-  language: LanguageModule
-  analysis: ResolvedAnalysis
-}
+export type { AnalysisTarget } from './pending-target'
 
 const CHANGE_MEMBERS: ReadonlySet<string> = new Set(['language', 'tokenizer', 'stopWords'])
 
@@ -87,21 +84,6 @@ export function currentConfigUnderTarget(current: IndexConfig, target: AnalysisT
     ...(tokenizer !== undefined ? { tokenizer } : {}),
     ...(stopWords !== undefined ? { stopWords } : {}),
   }
-}
-
-export function targetOfPending(entry: IndexRegistryEntry, pending: PendingAnalysisMetadata): AnalysisTarget {
-  const { tokenizer: _tokenizer, stopWords: _stopWords, ...rest } = entry.config
-  const language = getLanguage(pending.language)
-  const config: IndexConfig = {
-    ...rest,
-    language: pending.language,
-    ...(pending.tokenizer !== undefined ? { tokenizer: pending.tokenizer } : {}),
-    ...(pending.stopWords !== undefined ? { stopWords: pending.stopWords } : {}),
-    ...(pending.stopWords === undefined && pending.stopWordList !== undefined
-      ? { stopWords: new Set(pending.stopWordList) }
-      : {}),
-  }
-  return { config, language, analysis: resolveIndexAnalysis(config) }
 }
 
 function sameStopWords(left: IndexConfig['stopWords'], right: IndexConfig['stopWords']): boolean {
