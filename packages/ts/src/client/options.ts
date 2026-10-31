@@ -31,9 +31,15 @@ export interface NarsilClientOptions {
    *
    * The client moves a request to the next URL when the connection fails, when
    * the request times out, or when the server answers 502, 503, or 504. It
-   * tries each URL at most once per request, and it fails with the error from
-   * the last URL once every URL has failed. `timeoutMs` applies to each URL
-   * that the client tries.
+   * tries each URL at most once as it moves down the list, and it fails with
+   * the error from its last try once every URL has failed. `timeoutMs` applies
+   * to each try.
+   *
+   * The client tries a read once more when every URL has failed its connection
+   * or answered 502, 503, or 504, so a list of N URLs can take N + 1 requests.
+   * With one URL, the second try goes to that same URL. The client sends the
+   * extra try straight away, to the first URL in the skip order below. A read
+   * that timed out on any URL takes no extra try.
    *
    * The client repeats a request on another URL only where repeating it cannot
    * apply a change twice. A read, meaning a get, a search, a listing, or a
@@ -78,9 +84,10 @@ export interface NarsilClientOptions {
   /** The client sends these headers with every request, and a per-call header of the same name replaces one. */
   headers?: Record<string, string>
   /**
-   * The client waits this many milliseconds for an answer before it fails with
-   * `CLIENT_REQUEST_TIMEOUT`, and it waits 30000 unless you say otherwise. Pass
-   * 0 so that it waits for as long as the server takes. Three routes carry a
+   * The client waits this many milliseconds for an answer on each try before it
+   * fails with `CLIENT_REQUEST_TIMEOUT`, and it waits 30000 unless you say
+   * otherwise, so a read that tries again can take longer than this in total.
+   * Pass 0 so that it waits for as long as the server takes. Three routes carry a
    * corpus or a whole index, so {@link BulkOperations.importDocuments},
    * {@link AdminOperations.snapshot}, and {@link AdminOperations.restore} set no
    * deadline of their own until this one arrives.
@@ -109,7 +116,7 @@ export interface NarsilClientOptions {
 export interface RequestOptions {
   /** Aborting this stops the request, which then fails with `CLIENT_REQUEST_ABORTED`. */
   signal?: AbortSignal
-  /** The client waits this many milliseconds for this one answer, and 0 waits for as long as the server takes. */
+  /** The client waits this many milliseconds on each try of this one request, and 0 waits for as long as the server takes. */
   timeoutMs?: number
   /** The client adds these headers to this request, and one of the same name replaces what it would otherwise send. */
   headers?: Record<string, string>

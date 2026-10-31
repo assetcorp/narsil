@@ -3,9 +3,11 @@ import { DEFAULT_REQUEST_TIMEOUT_MS } from './constants'
 import {
   answersUnavailable,
   createUrlPool,
+  earnsExtraTry,
   failedBeforeSending,
   movesOnAfterAnswer,
   movesOnAfterFailure,
+  type UrlEntry,
 } from './failover'
 import type { FetchFunction, NarsilClientOptions, RequestOptions } from './options'
 
@@ -256,30 +258,45 @@ export function createTransport(options: NarsilClientOptions): Transport {
     return options.maxResponseBytes ?? 0
   }
 
+  function recordAttempt(entry: UrlEntry, attempt: Answer | Failure, repeatable: boolean): boolean {
+    if (attempt.kind === 'answer') {
+      if (!answersUnavailable(attempt.status)) {
+        pool.answered(entry)
+        return false
+      }
+      return movesOnAfterAnswer(attempt.status, envelopeCodeOf(attempt.text), repeatable)
+    }
+    if (attempt.error.code === ClientErrorCodes.CLIENT_CONNECTION_FAILED) pool.refused(entry, Date.now())
+    return movesOnAfterFailure(attempt.error, attempt.sentNothing, repeatable)
+  }
+
+  function outcomeOf(attempt: Answer | Failure | null): Answer {
+    if (attempt === null) throw new NarsilError(ErrorCodes.CONFIG_INVALID, 'The client holds no server address')
+    if (attempt.kind === 'failure') throw attempt.error
+    return attempt
+  }
+
   async function exchange(spec: RequestSpec, keepsStream = false): Promise<Answer> {
     const repeatable = spec.repeatable === true || spec.method === 'GET'
     const replayable = !(spec.body instanceof ReadableStream)
+    const tryOn = async (entry: UrlEntry): Promise<Answer | Failure> => {
+      pool.took(entry)
+      return exchangeOnce(entry.base, spec, keepsStream)
+    }
+    let triesOnceMore = repeatable && replayable
     let last: Answer | Failure | null = null
     for (const entry of pool.order(Date.now())) {
-      pool.took(entry)
-      const attempt = await exchangeOnce(entry.base, spec, keepsStream)
-      if (attempt.kind === 'answer') {
-        const unavailable = answersUnavailable(attempt.status)
-        const code = unavailable ? envelopeCodeOf(attempt.text) : undefined
-        if (!replayable || !movesOnAfterAnswer(attempt.status, code, repeatable)) {
-          if (!unavailable) pool.answered(entry)
-          return attempt
-        }
-      } else {
-        if (attempt.error.code === ClientErrorCodes.CLIENT_CONNECTION_FAILED) pool.refused(entry, Date.now())
-        if (!replayable || !movesOnAfterFailure(attempt.error, attempt.sentNothing, repeatable)) throw attempt.error
-      }
-      last = attempt
+      last = await tryOn(entry)
+      const moves = recordAttempt(entry, last, repeatable)
+      if (!replayable || !moves) return outcomeOf(last)
+      if (last.kind === 'failure' && !earnsExtraTry(last.error)) triesOnceMore = false
     }
-    if (last === null || last.kind === 'failure') {
-      throw last?.error ?? new NarsilError(ErrorCodes.CONFIG_INVALID, 'The client holds no server address')
+    const [entry] = pool.order(Date.now())
+    if (triesOnceMore && entry !== undefined) {
+      last = await tryOn(entry)
+      recordAttempt(entry, last, repeatable)
     }
-    return last
+    return outcomeOf(last)
   }
 
   async function exchangeOnce(base: string, spec: RequestSpec, keepsStream: boolean): Promise<Answer | Failure> {
