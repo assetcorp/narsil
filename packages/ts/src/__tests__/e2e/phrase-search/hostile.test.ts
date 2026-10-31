@@ -2,6 +2,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+import { registerTokenizer } from '../../../analysis/registry'
 import { ErrorCodes } from '../../../errors'
 import { createNarsil, type Narsil } from '../../../narsil'
 import { postJson } from '../../server/helpers'
@@ -124,6 +125,33 @@ describe('a hostile phrase through the HTTP server', () => {
     await expect(engine.query(INDEX, { mode: 'hybrid', term: `"${words(33)}"`, vector })).rejects.toMatchObject({
       code: ErrorCodes.SEARCH_INVALID_PHRASE,
     })
+  })
+})
+
+describe('a tokeniser that returns its positions out of order', () => {
+  it('still matches a phrase on a growing segment and on a saved one', async () => {
+    registerTokenizer('phrase-backwards', {
+      tokenize: text =>
+        text
+          .split(' ')
+          .map((token, position) => ({ token, position }))
+          .reverse(),
+    })
+    directory = await mkdtemp(join(tmpdir(), 'narsil-phrase-backwards-'))
+    const config = { durability: { directory }, workers: NO_WORKERS }
+    const writer = await createNarsil(config)
+    await writer.createIndex(INDEX, { schema: { title: 'string' }, tokenizer: 'phrase-backwards' })
+    await writer.insertBatch(INDEX, [
+      { id: 'in-order', title: 'cold olive oil here' },
+      { id: 'reversed', title: 'oil olive cold' },
+    ])
+    expect((await writer.query(INDEX, { term: '"olive oil"' })).hits.map(hit => hit.id)).toEqual(['in-order'])
+    await writer.checkpoint(INDEX)
+    await writer.shutdown()
+
+    const reader = await createNarsil(config)
+    engines.push(reader)
+    expect((await reader.query(INDEX, { term: '"olive oil"' })).hits.map(hit => hit.id)).toEqual(['in-order'])
   })
 })
 

@@ -66,15 +66,6 @@ function stripPossessive(token: string): string {
 
 export type TokenVisitor = (token: string, position: number, surface: string | undefined, original: string) => void
 
-function inPositionOrder<T extends { position: number }>(entries: T[]): T[] {
-  for (let index = 1; index < entries.length; index++) {
-    if (entries[index].position < entries[index - 1].position) {
-      return [...entries].sort((first, second) => first.position - second.position)
-    }
-  }
-  return entries
-}
-
 export function visitTokens(
   text: string,
   language: LanguageModule,
@@ -91,9 +82,7 @@ export function visitTokens(
   } = options ?? {}
 
   if (customTokenizer) {
-    for (const entry of inPositionOrder(customTokenizer.tokenize(text))) {
-      visit(entry.token, entry.position, undefined, entry.token)
-    }
+    for (const entry of customTokenizer.tokenize(text)) visit(entry.token, entry.position, undefined, entry.token)
     return
   }
 
