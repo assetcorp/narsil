@@ -175,7 +175,7 @@ export function createClusterNodeOperations(deps: ClusterNodeOperationDeps): Clu
     },
 
     async preflight(indexName, params) {
-      return served(indexName, name => preflightCluster({ ...readDeps, publicIndexName: indexName }, name, params))
+      return served(indexName, name => preflightCluster(readDeps, name, params, indexName))
     },
 
     async rebuildAnalysis(indexName) {
@@ -232,7 +232,7 @@ export function createClusterNodeOperations(deps: ClusterNodeOperationDeps): Clu
     },
 
     async query<T = AnyDocument>(indexName: string, params: QueryParams): Promise<QueryResult<T>> {
-      return served(indexName, name => queryCluster<T>({ ...readDeps, publicIndexName: indexName }, name, params))
+      return served(indexName, name => queryCluster<T>(readDeps, name, params, indexName))
     },
 
     async get(indexName, docId) {

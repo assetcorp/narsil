@@ -8,7 +8,7 @@ Every index a node holds stays whole in the JS heap whether or not anyone querie
 
 ## Considered options
 
-Elasticsearch records a close in cluster state, and its master coordinates the close across shards, but a closed Elasticsearch index rejects every request until an operator reopens it, which is why the cluster has to know. Narsil reopens under the first request that names the index, so the assignment stays true without the controller learning anything, and the wire protocol, the cluster state, and the cross-language spec stay unchanged. We rejected the controller-recorded shape for that reason, and we rejected leaving the replication logs resident, because a four-partition index could keep four in-memory logs of 256 MiB each after its search structures were freed, which would defeat the eviction.
+A cluster has to record a close and coordinate it across shards when a closed index rejects every request until an operator reopens it. However, Narsil reopens under the first request that names the index, so the assignment stays true without the controller learning anything, and the wire protocol, the cluster state, and the cross-language spec stay unchanged. We rejected the controller-recorded shape for that reason, and we rejected leaving the replication logs resident, because a four-partition index could keep four in-memory logs of 256 MiB each after its search structures were freed, which would defeat the eviction.
 
 ## Consequences
 
