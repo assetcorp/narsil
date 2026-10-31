@@ -1,10 +1,12 @@
 import { compareCodePoints } from '../../core/ordering'
 import type { SchemaDefinition } from '../../types/schema'
 import { CONTROLLER_LEASE_KEY, NODE_HEARTBEAT_TTL_MS } from './constants'
+import { createIndexMetadataWatchers } from './index-metadata-watchers'
 import type {
   AllocationEvent,
   AllocationTable,
   ClusterCoordinator,
+  IndexMetadataEvent,
   NodeEvent,
   NodeRegistration,
   PartitionState,
@@ -55,6 +57,7 @@ export function createInMemoryCoordinator(): ClusterCoordinator {
   const nodeWatchers = new Set<(event: NodeEvent) => void>()
   const allocationWatchers = new Set<(event: AllocationEvent) => void>()
   const schemaWatchers = new Set<(event: SchemaEvent) => void>()
+  const indexMetadataWatchers = createIndexMetadataWatchers()
 
   let isShutdown = false
 
@@ -295,6 +298,7 @@ export function createInMemoryCoordinator(): ClusterCoordinator {
           return false
         }
         kvStore.set(key, new Uint8Array(value))
+        indexMetadataWatchers.emit(key, value)
         return true
       }
 
@@ -307,12 +311,13 @@ export function createInMemoryCoordinator(): ClusterCoordinator {
       }
 
       kvStore.set(key, new Uint8Array(value))
+      indexMetadataWatchers.emit(key, value)
       return true
     },
 
     async delete(key: string): Promise<void> {
       assertNotShutdown()
-      kvStore.delete(key)
+      if (kvStore.delete(key)) indexMetadataWatchers.emit(key, null)
     },
 
     async getSchema(indexName: string): Promise<SchemaDefinition | null> {
@@ -345,6 +350,11 @@ export function createInMemoryCoordinator(): ClusterCoordinator {
       return () => {
         schemaWatchers.delete(handler)
       }
+    },
+
+    async watchIndexMetadata(handler: (event: IndexMetadataEvent) => void): Promise<() => void> {
+      assertNotShutdown()
+      return indexMetadataWatchers.watch(handler)
     },
 
     async getLeaseHolder(key: string): Promise<string | null> {

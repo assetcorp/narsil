@@ -1,3 +1,4 @@
+import { bm25SetsValue } from '../../core/scorer'
 import { DEFAULT_PAGE_SIZE } from '../../search/constants'
 import { hitsKeptPerGroup } from '../../search/grouping'
 import { clampRowCount } from '../../search/pagination'
@@ -22,6 +23,7 @@ export function wireParamsToLocal(wire: WireQueryParams, facetShardSize?: number
     fields: wire.fields ?? undefined,
     filters: wire.filters ?? undefined,
     boost: wire.boost ?? undefined,
+    bm25: wire.bm25 ?? undefined,
     scoring: wire.scoring,
     tolerance: wire.tolerance ?? undefined,
     minScore: wire.threshold ?? undefined,
@@ -131,6 +133,7 @@ export function localParamsToWire(params: QueryParams): WireQueryParams {
     searchAfter: params.searchAfter ?? null,
     fields: params.fields ?? null,
     boost: params.boost ?? null,
+    ...(bm25SetsValue(params.bm25) ? { bm25: params.bm25 } : {}),
     tolerance: params.tolerance ?? null,
     threshold: params.minScore ?? null,
     includeScores: params.includeScores ?? null,

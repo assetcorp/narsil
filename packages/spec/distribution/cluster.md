@@ -38,6 +38,7 @@ ClusterCoordinator {
   async dropSchema(indexName: string) -> nothing
   async listSchemas() -> List<string>
   async watchSchemas(handler: (event: SchemaEvent) -> nothing) -> (() -> nothing)
+  async watchIndexMetadata(handler: (event: IndexMetadataEvent) -> nothing) -> (() -> nothing)
 
   async getLeaseHolder(key: string) -> string or absent
   async shutdown() -> nothing
@@ -110,6 +111,13 @@ ClusterCoordinator {
 - `listSchemas` returns the name of every stored schema, which is how a newly elected controller finds the indexes it must reconcile.
 - `watchSchemas` fires when an index schema is created or dropped, which is how a node discovers a new index and learns that one has gone.
 
+### watchIndexMetadata(handler)
+
+- Fires each time that a node writes or deletes the value under an index metadata key, `_narsil/index/{indexName}/config`, and for no other key. A coordinator must test the `/config` suffix, because other keys share the `_narsil/index/` prefix, such as `_narsil/index/{indexName}/rebalance`.
+- The event holds the bytes of the new value, so a handler need not read the store. It holds an absent value where the key was deleted or where a drop left the value empty.
+- For each key, a handler must receive the values in the order that the store wrote them. After a lost connection, the coordinator must list the current values, deliver each one that changed while the connection was down, deliver a deletion for each key that went away, and then resume. A handler can therefore miss an intermediate value of a key, but it always receives the last one.
+- A handler receives no event for a value that was written before the watch started, so a node that starts a watch must read the metadata that it needs after the watch starts.
+
 ### getLeaseHolder(key)
 
 - Returns the `nodeId` of the node holding the lease at `key`, or absent when no node holds it.
@@ -160,6 +168,15 @@ SchemaEvent {
 }
 ```
 
+### IndexMetadataEvent
+
+```text
+IndexMetadataEvent {
+  indexName: string
+  metadata:  bytes or absent   (the encoded IndexMetadata; absent once the index is dropped)
+}
+```
+
 ---
 
 ## Node Registration
@@ -177,7 +194,7 @@ NodeRegistration {
     diskBytes:   uint64 or absent
   }
   startedAt: string          (ISO 8601 timestamp)
-  version:   string          (specification version, such as '1.0')
+  version:   string          (specification version, such as '1.1')
   memory: {
     processBytes:      uint64
     processLimitBytes: uint64
@@ -217,7 +234,7 @@ The ISO 8601 timestamp of when the node started. It serves diagnostics, and it b
 
 ### version
 
-The specification version the node follows. Nodes on incompatible versions must not share a cluster, so the controller places no partition on a node whose major version differs from its own, and it treats a version that it cannot parse as a different major version. A node that finds an active controller on a different major version as it joins must fail its start with `NODE_VERSION_INCOMPATIBLE`. A node that finds no active controller joins, and the controller that a later election chooses keeps it out of allocation where the major versions differ.
+The specification version the node follows, which is 1.1 for this specification. A node must register the version that it follows, because a minor version can add a capability that a coordinator has to check before it sends a query, as [BM25 Parameters](query-routing.md#bm25-parameters) does. Nodes on incompatible versions must not share a cluster, so the controller places no partition on a node whose major version differs from its own, and it treats a version that it cannot parse as a different major version. A node that finds an active controller on a different major version as it joins must fail its start with `NODE_VERSION_INCOMPATIBLE`. A node that finds no active controller joins, and the controller that a later election chooses keeps it out of allocation where the major versions differ.
 
 ### memory
 
@@ -604,7 +621,8 @@ IndexSettings {
   analysisGeneration: uint64                      (optional; an absent value means 0)
   pendingAnalysis:    PendingClusterAnalysis      (optional)
   analysisFailure:    AnalysisFailure             (optional; the outcome of the latest change that failed)
-  bm25:              { k1: float32, b: float32 }  (optional; each key optional)
+  bm25:              BM25Params                   (optional; see Parameter Levels in algorithms.md)
+  bm25Revision:      uint64                       (optional; rises with each live change of bm25)
   surfaceForms:      boolean                      (a reader treats an absent value as true)
   defaultScoring:    string                       (optional; "local", "dfs", or "broadcast")
   trackPositions:    boolean                      (optional)
@@ -942,6 +960,46 @@ A drop is not atomic across nodes: a query routed while the teardown runs can re
 
 The last replacement to write its metadata wins, because each node retries with its own set after another write changes the metadata. A replacement that fails with `QUERY_NODE_TIMEOUT` keeps the new set stored, so a retry of the same request completes it. A crash between steps 1c and 1d leaves chunks that no metadata references, and they stay in the coordinator.
 
+### BM25 Change Flow
+
+```text
+1. The node that receives the change request:
+   a. raises CONFIG_INVALID for a value or a field that breaks
+      Parameter Levels in algorithms.md
+   b. reads the node registry, and raises BM25_NOT_READY where any
+      registered node has a specification version below 1.1
+   c. reads the metadata with get('_narsil/index/{indexName}/config'),
+      and raises INDEX_NOT_FOUND where the value is absent or empty
+   d. writes the metadata, with settings.bm25 set to the new value,
+      or left out for an empty value, and settings.bm25Revision set
+      to the current revision plus one, reading an absent revision
+      as 0, through
+      compareAndSet('_narsil/index/{indexName}/config', current, bytes)
+   e. returns to step c when that compareAndSet fails, until its retry
+      budget of 5 attempts runs out, and then raises
+      CLUSTER_WRITE_BLOCKED with the reason settings_contention
+   f. applies the new value to its own view, as step 2 defines,
+      and answers
+
+2. Every node holds the BM25 setting of each index under its public
+   name, with its indexUuid and its revision, and it replaces that
+   value on each watchIndexMetadata event for that name, so a change
+   reaches a node with no message. A node must apply a value only
+   when its revision is higher than the one that it holds, reading an
+   absent revision as 0, or when its indexUuid differs from the one
+   that it holds, because a drop and a create start the revision
+   again. So a node that wrote one value and receives a later value
+   through its watch keeps the later value.
+
+3. A node that holds a copy of the index stores the applied value
+   with that copy, and it applies the stored value when it adopts
+   its copy, as step 3a of Joining the Cluster describes.
+```
+
+The last change to write its metadata wins, because each node retries with its own value after another write changes the metadata. A partition count change needs no second write, because a coordinator reads the setting under the index name, which the swap keeps. Every other write of the index metadata must keep `settings.bm25` and `settings.bm25Revision` unchanged.
+
+A node below specification version 1.1 drops `fields` when it reads the settings. A node must therefore refuse with `BM25_NOT_READY` a create request whose `bm25` holds a non-empty `fields` while any registered node has a version below 1.1, and it must write `bm25Revision` as 1 on such an index, so that [BM25 Parameters](query-routing.md#bm25-parameters) applies to it too. A create request whose `bm25` holds `k1` and `b` alone writes no revision, because a node below 1.1 holds those values.
+
 ---
 
 ## Node Lifecycle
@@ -955,7 +1013,8 @@ The last replacement to write its metadata wins, because each node retries with 
    metadata with get('_narsil/index/{indexName}/config') and
    compares the stored indexUuid with the one it persisted:
    a. equal values mean the local copy belongs to this index, and
-      the node adopts it with the stored synonym set
+      the node adopts it with the stored synonym set and the stored
+      BM25 setting
    b. differing values mean the cluster created another index
       under the name this copy carries, so the node drops the
       copy and takes the new index on from its primary

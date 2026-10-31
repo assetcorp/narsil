@@ -1,5 +1,8 @@
 import type { EmbeddingAdapter } from './adapters'
+import type { BM25Params } from './bm25'
 import type { SynonymRule } from './synonyms'
+
+export type { BM25FieldParams, BM25Params } from './bm25'
 
 /**
  * A document as the engine stores it: any set of fields, with an optional `id`.
@@ -212,7 +215,11 @@ export interface IndexConfig {
   partitions?: PartitionConfig
   /** A query scores this way unless it asks for another mode. */
   defaultScoring?: ScoringMode
-  /** These parameters tune BM25 for this index. */
+  /**
+   * These parameters tune BM25 for this index and for each of its text fields.
+   * A search can override them with {@link QueryParams.bm25}, and
+   * {@link BM25Operations.updateBM25} replaces them on a live index.
+   */
   bm25?: BM25Params
   /** This replaces the language's stop words, either inline or by the name a stop word list registered under. */
   stopWords?: StopWordOverride | string
@@ -265,29 +272,6 @@ export interface IndexConfig {
    * {@link SynonymOperations.updateSynonyms} replaces the set without a rebuild.
    */
   synonyms?: SynonymRule[]
-}
-
-/**
- * BM25 tuning for an index.
- *
- * Both parameters default to the values the literature settles on, so change
- * them only once you have measured relevance on your own corpus.
- *
- * @public
- */
-export interface BM25Params {
-  /**
-   * This saturates term frequency, so a higher value lets a repeated term
-   * keep raising a score. It defaults to 1.2, and it must be a finite number
-   * at or above 0 or index creation fails with `CONFIG_INVALID`.
-   */
-  k1?: number
-  /**
-   * This normalises by field length, from 0 for none to 1 for full. It
-   * defaults to 0.75, and it must lie between 0 and 1 or index creation
-   * fails with `CONFIG_INVALID`.
-   */
-  b?: number
 }
 
 /**

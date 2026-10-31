@@ -18,7 +18,7 @@ import { deleteSynonymSet, type SynonymSetRef, storeSynonymSet } from '../cluste
 import type { ClusterCoordinator } from '../coordinator/types'
 import { isRecord } from '../payload-guards'
 import { TransportError } from '../transport/types'
-import { MAX_SYNONYM_REPLACEMENT_ATTEMPTS } from './constants'
+import { MAX_SETTINGS_REPLACEMENT_ATTEMPTS } from './constants'
 import type { ClusterLocalEngine } from './local-engine'
 import { resolveNodeTargets } from './node-messaging'
 import type { ClusterNodeConfig } from './types'
@@ -79,7 +79,7 @@ async function swapStoredSet(
     const replaced = current.settings?.synonyms ?? null
     const next = metadataWithSynonymSet(current, ref)
     if (await coordinator.compareAndSet(indexConfigKey(indexName), current.bytes, next)) return replaced
-    if (attempt >= MAX_SYNONYM_REPLACEMENT_ATTEMPTS) {
+    if (attempt >= MAX_SETTINGS_REPLACEMENT_ATTEMPTS) {
       throw new NarsilError(
         ErrorCodes.CLUSTER_WRITE_BLOCKED,
         `Index '${indexName}' kept changing while its synonym set was replaced ${attempt} times over, so the new set was not stored. Retry the request`,

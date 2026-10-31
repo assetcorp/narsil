@@ -1,7 +1,7 @@
 import { encodeJson } from '../json-encoding'
 import type { ChangeAnalysisBody, MemoryStatsResponse, TaskRecord } from '../server/types'
 import type { VectorMaintenanceResult } from '../types/results'
-import type { PartitionConfig } from '../types/schema'
+import type { BM25Params, PartitionConfig } from '../types/schema'
 import type { SynonymRule } from '../types/synonyms'
 import { NO_TIMEOUT } from './constants'
 import type { Transport } from './http'
@@ -196,6 +196,22 @@ export interface AdminOperations {
    */
   updateSynonyms(indexName: string, synonyms: SynonymRule[], options?: RequestOptions): Promise<void>
   /**
+   * Replaces the BM25 setting of an index, which takes effect from the next
+   * search without a rebuild. A value that the call leaves out returns to its
+   * default, and `{}` clears the setting.
+   *
+   * @param indexName - The server replaces the setting of this index.
+   * @param bm25 - This is the new setting, in the shape that
+   * {@link BM25Params} describes.
+   * @param options - This sets the signal, the deadline, and the headers for
+   * this request.
+   * @throws A `NarsilError` with `CONFIG_INVALID` when `k1` is not a number
+   * from 0 to 1,000, when `b` is not a number from 0 to 1, or when `fields`
+   * holds a name that is not a text field. The index then keeps the setting
+   * that it held before.
+   */
+  updateBM25(indexName: string, bm25: BM25Params, options?: RequestOptions): Promise<void>
+  /**
    * Reads the synonym set of an index, with every word as the caller wrote it.
    *
    * @param indexName - The server returns the set of this index.
@@ -326,6 +342,9 @@ export function createAdminOperations(transport: Transport): AdminOperations {
     },
     async updateSynonyms(indexName, synonyms, options) {
       await postJson(`${indexPath(indexName)}/synonyms`, { synonyms }, options)
+    },
+    async updateBM25(indexName, bm25, options) {
+      await postJson(`${indexPath(indexName)}/bm25`, bm25, options)
     },
     async getSynonyms(indexName, options) {
       const path = `${indexPath(indexName)}/synonyms`

@@ -67,7 +67,7 @@ export function executeSortedQueryPage<T = AnyDocument>(
   const fieldTypes = fields.map(field => flatSchema[field])
   const modes = sortModesOf(normalized)
 
-  const options = searchOptionsFor(manager, context.patternWork)
+  const options = searchOptionsFor(params, context)
   const partitions = partitionsFor(manager, context.partitionIds)
   const partitionLimit = offset + limit + 1
 

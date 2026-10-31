@@ -1,7 +1,9 @@
 import { FNV_OFFSET_BASIS, fnv1aContinue, fnv1aContinueTaggedNumbers } from '../core/hash'
 import { compareCodePoints } from '../core/ordering'
+import { bm25SetsValue } from '../core/scorer'
 import type { SearchClock } from '../core/search-clock'
 import type { FilterExpression } from '../types/filters'
+import type { BM25Params } from '../types/schema'
 import type { QueryParams } from '../types/search'
 
 const ABSENT_TAG = 0
@@ -169,6 +171,29 @@ function boundRerankOf(rerank: unknown): unknown {
   return present
 }
 
+function presentMembersOf(record: object): Record<string, unknown> {
+  const present: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(record)) {
+    if (value !== undefined) present[key] = value
+  }
+  return present
+}
+
+function boundBm25Of(bm25: BM25Params): unknown {
+  const bound = presentMembersOf(bm25)
+  const fields = bm25.fields
+  if (typeof fields !== 'object' || fields === null) return bound
+  const boundFields: Record<string, unknown> = {}
+  for (const [name, pair] of Object.entries(fields)) {
+    const members = typeof pair === 'object' && pair !== null ? presentMembersOf(pair) : pair
+    if (typeof members === 'object' && members !== null && Object.keys(members).length === 0) continue
+    boundFields[name] = members
+  }
+  if (Object.keys(boundFields).length === 0) delete bound.fields
+  else bound.fields = boundFields
+  return bound
+}
+
 const FILTERS_SLOT = 2
 const BOUND_SLOT_COUNT = 16
 
@@ -208,6 +233,7 @@ export function queryBindingOf(params: QueryParams, clock?: SearchClock): string
     params.scoring ?? 'local',
   ]
   if (params.rerank !== undefined) values.push(boundRerankOf(params.rerank))
+  if (params.bm25 !== undefined && bm25SetsValue(params.bm25)) values.push(boundBm25Of(params.bm25))
   return bindingOf(values, clock)
 }
 

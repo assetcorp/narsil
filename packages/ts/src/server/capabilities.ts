@@ -64,6 +64,14 @@ export const DOCUMENT_EXPORT_CAPABILITY = 'indexes.documentExport'
 export const SYNONYMS_CAPABILITY = 'indexes.synonyms'
 
 /**
+ * Marks a server that replaces the BM25 setting of an index at
+ * `POST /indexes/{name}/bm25`.
+ *
+ * @public
+ */
+export const BM25_TUNING_CAPABILITY = 'indexes.bm25'
+
+/**
  * Every capability this server announces at `/capabilities`.
  *
  * A client reads this list to find out whether an optional route or mode is
@@ -81,4 +89,5 @@ export const SERVER_CAPABILITIES: readonly string[] = [
   INDEX_LIFECYCLE_CAPABILITY,
   DOCUMENT_EXPORT_CAPABILITY,
   SYNONYMS_CAPABILITY,
+  BM25_TUNING_CAPABILITY,
 ]

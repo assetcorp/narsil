@@ -679,6 +679,8 @@ QueryParams {
   vector:        VectorQueryParams or absent
   hybrid:        HybridConfig or absent
   analysisGeneration: uint64 or absent            (the generation that the coordinator read; an absent value means 0)
+  bm25:          BM25Params or absent             (the parameters that the search sets; see Parameter Levels in algorithms.md)
+  indexBm25:     BM25Params or absent             (the coordinator's value of the index's setting; absent where the sender predates it or holds no metadata for the index)
 }
 
 SortField {
@@ -729,6 +731,8 @@ HybridConfig {
 ```
 
 A reader must reject with `CONFIG_INVALID` a `rescoreWindow` that is not a whole number from 1 to 10,000.
+
+A reader must reject with `CONFIG_INVALID` a `bm25` that breaks [Parameter Levels](../algorithms.md#parameter-levels). It must reject an `indexBm25` that does not have the `BM25Params` shape or that holds a value that is not a finite number, and it must accept a value outside the ranges there, because an index can store one.
 
 A sender writes every member, encoding an absent value as nil, and a reader restores nil as omitted, so a request and its wire round trip carry one [cursor binding](../partitioning.md#cursor-binding) and a reader rejects a payload whose member is missing. A reader must restore as absent a member that a later revision of this document added to the end of a structure, where the payload omits it, so that a node accepts a request from a node one release older; it must still reject a payload that omits any other member.
 

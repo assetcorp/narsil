@@ -20,7 +20,6 @@ export function indexEntryOf(
       return manager.language
     },
     searchOptions: {
-      bm25Params: config.bm25,
       get stopWords() {
         return manager.analysis.stopWords
       },

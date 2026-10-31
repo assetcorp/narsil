@@ -10,13 +10,14 @@ import type { PartitionManager } from '../partitioning/manager/types'
 import { lazyQueryBinding } from '../search/cursor-binding'
 import type { GlobalStatistics } from '../types/internal'
 import type { ListResult, PreflightResult, QueryResult, SuggestResult } from '../types/results'
-import type { AnyDocument } from '../types/schema'
+import type { AnyDocument, BM25Params } from '../types/schema'
 import type { ListParams, QueryParams, SuggestParams } from '../types/search'
 
 export interface ScopedReadOptions {
   partitionIds?: number[]
   globalStats?: GlobalStatistics
   rescoreWindow?: number
+  indexBm25?: BM25Params
   onRanked?: (manager: PartitionManager, result: QueryResult<unknown>) => void
 }
 
@@ -104,6 +105,7 @@ export async function runEngineQuery<T = AnyDocument>(
       broadcastStats: broadcastStatsFor(core, options),
       partitionIds: options?.partitionIds,
       rescoreWindow: options?.rescoreWindow,
+      indexBm25: options?.indexBm25,
       cursorBinding: lazyQueryBinding(params),
       patternWorkCap: core.patternWorkCap,
       rerank: rerank?.rerankRunnerFor(core),
@@ -167,6 +169,7 @@ export async function runEnginePreflight(
       indexName,
       broadcastStats: broadcastStatsFor(core, options),
       partitionIds: options?.partitionIds,
+      indexBm25: options?.indexBm25,
       cursorBinding: lazyQueryBinding(params),
       patternWorkCap: core.patternWorkCap,
     }

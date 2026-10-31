@@ -13,6 +13,7 @@ import {
   validateVectorPromotion,
   validateVectorStorage,
 } from '../schema/validator'
+import { validateBM25Params } from '../search/bm25-params'
 import type { EmbeddingAdapter } from '../types/adapters'
 import type { NarsilConfig } from '../types/config'
 import type { IndexConfig } from '../types/schema'
@@ -22,7 +23,6 @@ import { requireConfigurationWithinSizeLimit } from './snapshot/index-configurat
 import { prepareConfiguredSynonyms, withoutSynonyms } from './synonym-sets'
 import {
   requireSurfaceFormsForPartialFields,
-  validateBM25Params,
   validateIndexName,
   validatePartitionConfig,
   validatePatternValueLimit,
@@ -75,14 +75,21 @@ export async function createEngineIndex(
   const schema = validateSchema(requestedConfig.schema)
   if (appliesCreationLimits) requireCreatableSchema(schema)
   const configured = schema === requestedConfig.schema ? requestedConfig : { ...requestedConfig, schema }
-  const indexConfig = withoutSynonyms(configured)
+  const indexConfig = { ...withoutSynonyms(configured) }
   requirePatternSearchFor(schema)
   requirePartialWordSearchFor(schema)
   validatePatternValueLimit(indexConfig.patternValueLimit)
   requireSurfaceFormsForPartialFields(schema, indexConfig.surfaceForms)
   validateVectorPromotion(indexConfig.vectorPromotion)
   validateVectorStorage(indexConfig.vectorPromotion, core.filesystemDurability)
-  validateBM25Params(indexConfig.bm25)
+  if (indexConfig.bm25 !== undefined) {
+    validateBM25Params(
+      indexConfig.bm25,
+      schema,
+      ErrorCodes.CONFIG_INVALID,
+      appliesCreationLimits ? 'settable' : 'stored',
+    )
+  }
   if (indexConfig.partitions) {
     validatePartitionConfig(indexConfig.partitions)
   }

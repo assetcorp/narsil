@@ -1,5 +1,6 @@
 import { resolveIndexAnalysis } from '../../analysis/registry'
 import { synonymModule } from '../../core/synonyms/registry'
+import { applyStoredIndexBm25 } from '../../engine/bm25-update'
 import { requireKnownConfig } from '../../engine/config-keys'
 import { createEngineCore, type EngineCore } from '../../engine/core'
 import { createEngineIndex } from '../../engine/index-lifecycle'
@@ -28,7 +29,7 @@ import type { ByteSource } from '../../types/byte-source'
 import type { NarsilConfig } from '../../types/config'
 import type { GlobalStatistics } from '../../types/internal'
 import type { ListResult, PartitionStatsResult, PreflightResult, QueryResult, SuggestResult } from '../../types/results'
-import type { AnyDocument, IndexConfig } from '../../types/schema'
+import type { AnyDocument, BM25Params, IndexConfig } from '../../types/schema'
 import type { ListParams, QueryParams, SuggestParams } from '../../types/search'
 import type { SynonymRule } from '../../types/synonyms'
 import type { ReplicationLogEntry } from '../replication/types'
@@ -52,6 +53,7 @@ export interface ClusterLocalEngine extends Narsil {
   indexUuidOf(indexName: string): string | null | undefined
   stampIndexUuid(indexName: string, indexUuid: string): Promise<void>
   applyStoredSynonyms(indexName: string, load: () => Promise<readonly SynonymRule[] | null>): Promise<boolean>
+  applyStoredBm25(indexName: string, load: () => { bm25: BM25Params | undefined } | null): Promise<boolean>
   highestPersistedSeqNoOf(indexName: string, partitionId: number): number
   persistedPositionOf(indexName: string, partitionId: number): PartitionLogPosition
   numberEntriesWith(numbering: EntryNumbering, defersCommit?: CommitDeferral): void
@@ -87,8 +89,14 @@ export interface ClusterLocalEngine extends Narsil {
     globalStats?: GlobalStatistics,
     rescoreWindow?: number,
     snapshots?: Map<string, DocumentSnapshot>,
+    indexBm25?: BM25Params,
   ): Promise<QueryResult<T>>
-  preflightPartitions(indexName: string, params: QueryParams, partitionIds: number[]): Promise<PreflightResult>
+  preflightPartitions(
+    indexName: string,
+    params: QueryParams,
+    partitionIds: number[],
+    indexBm25?: BM25Params,
+  ): Promise<PreflightResult>
   suggestPartitions(indexName: string, params: SuggestParams, partitionIds: number[]): Promise<SuggestResult>
   listPartitions<T = AnyDocument>(indexName: string, params: ListParams, partitionIds: number[]): Promise<ListResult<T>>
   collectQueryStats(
@@ -162,6 +170,8 @@ export async function createClusterLocalEngine(
     stampIndexUuid: (indexName: string, indexUuid: string) => stampIndexUuid(core, indexName, indexUuid),
     applyStoredSynonyms: (indexName: string, load: () => Promise<readonly SynonymRule[] | null>) =>
       synonymModule().applyLoaded(core, indexName, load),
+    applyStoredBm25: (indexName: string, load: () => { bm25: BM25Params | undefined } | null) =>
+      applyStoredIndexBm25(core, indexName, load),
     highestPersistedSeqNoOf: (indexName: string, partitionId: number) =>
       core.durability?.manager.highestPersistedSeqNo(indexName, partitionId) ?? 0,
     persistedPositionOf: (indexName: string, partitionId: number) => persistedPositionOf(core, indexName, partitionId),
@@ -210,18 +220,20 @@ export async function createClusterLocalEngine(
       globalStats?: GlobalStatistics,
       rescoreWindow?: number,
       snapshots?: Map<string, DocumentSnapshot>,
+      indexBm25?: BM25Params,
     ) =>
       runEngineQuery<T>(core, indexName, params, {
         partitionIds,
         globalStats,
         rescoreWindow,
+        indexBm25,
         onRanked:
           snapshots === undefined
             ? undefined
             : (manager, result) => snapshotRankedDocuments(manager, result, snapshots),
       }),
-    preflightPartitions: (indexName: string, params: QueryParams, partitionIds: number[]) =>
-      runEnginePreflight(core, indexName, params, { partitionIds }),
+    preflightPartitions: (indexName: string, params: QueryParams, partitionIds: number[], indexBm25?: BM25Params) =>
+      runEnginePreflight(core, indexName, params, { partitionIds, indexBm25 }),
     suggestPartitions: (indexName: string, params: SuggestParams, partitionIds: number[]) =>
       runEngineSuggest(core, indexName, params, partitionIds),
     listPartitions: <T = AnyDocument>(indexName: string, params: ListParams, partitionIds: number[]) =>

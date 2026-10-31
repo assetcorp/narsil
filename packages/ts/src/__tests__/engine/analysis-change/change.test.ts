@@ -217,6 +217,25 @@ describe('changing the analysis of a live index', () => {
     await expectMatches(engine, oracle, DASHES_SETTINGS)
   })
 
+  it('keeps a BM25 setting and a partition limit that a caller changes during the build', async () => {
+    const oracle = new ChangeOracle()
+    await filled(engine, oracle, 12_000)
+    const params = { term: 'stone', limit: 1 }
+    const before = await engine.query('prose', params)
+    const change = engine.changeAnalysis('prose', { tokenizer: DASHES_TOKENIZER })
+    await new Promise(resolve => setTimeout(resolve, 1))
+    await engine.updateBM25('prose', { k1: 0.1, b: 0 })
+    await engine.updatePartitionConfig('prose', { watermark: 0.5 })
+    await change
+    const after = await engine.query('prose', params)
+    expect(after.hits[0]?.score).not.toBe(before.hits[0]?.score)
+    const tuned = await engine.query('prose', { ...params, bm25: { k1: 0.1, b: 0 } })
+    expect(after.hits[0]?.score).toBe(tuned.hits[0]?.score)
+    await engine.updateBM25('prose', { k1: 1.2, b: 0.75 })
+    const reset = await engine.query('prose', params)
+    expect(reset.hits[0]?.score).not.toBe(tuned.hits[0]?.score)
+  })
+
   it('leaves vector results as they were', async () => {
     await engine.createIndex('mixed', { ...OLD_CONFIG, schema: { title: 'string', embedding: 'vector[3]' } })
     const documents = [

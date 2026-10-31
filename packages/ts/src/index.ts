@@ -31,6 +31,7 @@ export type {
   RerankAdapter,
 } from './types/adapters'
 export type { AnalysisChange, AnalysisOperations } from './types/analysis-operations'
+export type { BM25Operations } from './types/bm25-operations'
 export type {
   AnalysisConfig,
   DurabilityConfig,
@@ -88,6 +89,7 @@ export type {
 } from './types/results'
 export type {
   AnyDocument,
+  BM25FieldParams,
   BM25Params,
   CustomTokenizer,
   EmbeddingFieldConfig,

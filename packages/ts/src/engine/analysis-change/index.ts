@@ -7,6 +7,7 @@ import { requireAnalysisRebuildMemory } from '../snapshot/memory-budget'
 import { prepareStoredSynonyms, rulesOfStoredSynonyms } from '../synonym-sets'
 import {
   type AnalysisTarget,
+  currentConfigUnderTarget,
   durableSettingsOf,
   holdsSettings,
   namedSettingsOf,
@@ -91,7 +92,8 @@ function switchIndex(
   run: ChangeRun,
   generation: number,
 ) {
-  const { config, language, analysis } = run.target
+  const { language, analysis } = run.target
+  const config = currentConfigUnderTarget(entry.config, run.target)
   const synonyms = prepareStoredSynonyms(rulesOfStoredSynonyms(entry.synonyms), config, language)
   return (): void => {
     run.switched = true

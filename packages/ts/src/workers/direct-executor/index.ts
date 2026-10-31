@@ -280,6 +280,12 @@ export function createDirectExecutor(
         return undefined as T
       }
 
+      case 'replaceBm25': {
+        const entry = indexes.get(action.indexName)
+        if (entry !== undefined) entry.config.bm25 = action.bm25
+        return undefined as T
+      }
+
       case 'get': {
         const entry = requireIndex(action.indexName)
         return entry.manager.get(action.docId) as T
