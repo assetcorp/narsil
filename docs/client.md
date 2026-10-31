@@ -35,11 +35,17 @@ Only `url` is required.
 | `maxUrlSkipMs` | The client never skips an address for longer than this many milliseconds, 30,000 unless you say otherwise. A value below `urlSkipMs` raises `CONFIG_INVALID`. |
 | `apiKey` | The client sends this as `authorization: Bearer <key>`, which a server reads in its `onRequest` hook. For any other scheme, set the header yourself through `headers`. |
 | `headers` | The client sends these with every request, and a per-call header of the same name replaces one. |
-| `timeoutMs` | The client waits this many milliseconds for an answer, and 30,000 unless you say otherwise. Pass 0 so that it waits for as long as the server takes. |
+| `timeoutMs` | The client waits this many milliseconds for an answer on each try, and 30,000 unless you say otherwise. Pass 0 so that it waits for as long as the server takes. |
 | `fetch` | The client sends through this instead of the global `fetch`, which is what a proxy agent or a test stub needs. |
 | `maxResponseBytes` | The client stops reading an answer past this many bytes and fails with `CLIENT_INVALID_RESPONSE`, rather than holding the rest. Leave it out to read whatever the server sends. |
 
 The client opens no connection, and it holds no state beyond the capabilities it reads once, so nothing needs closing. Keep one for the application's lifetime.
+
+## How the client tries a read again
+
+The client tries a read once more when every address has failed its connection or answered 502, 503, or 504. A client with one address sends that read twice, while a client with a list of N addresses can send N + 1 requests. The client counts any `GET` as a read, along with a search, a preflight, a suggestion, a document list, and a `_multi-get`. It sends the extra try straight away and returns the result of that try to you, whether the try succeeds or fails.
+
+The client takes no extra try for a write, because the first request can have taken effect before the connection failed. A read that times out on any address also takes no extra try, although it can still move on to the next address in a list. When you abort the signal, the call fails with `CLIENT_REQUEST_ABORTED` and the client sends no further request. `timeoutMs` applies to each try, so a read can take up to N + 1 times that limit.
 
 ## Settings for one call
 
