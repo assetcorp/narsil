@@ -14,6 +14,7 @@ export interface SnapshotEnvelope {
   language?: string
   analysisRevision?: unknown
   analysisGeneration?: unknown
+  arrayPositionGap?: unknown
   tokenizer?: unknown
   stopWords?: unknown
   stopWordList?: unknown

@@ -5,6 +5,7 @@ import type { IndexConfig } from '../types/schema'
 
 export interface DurableAnalysis extends PendingAnalysisMetadata {
   analysisRevision: string | null
+  arrayPositionGap: number | null
 }
 
 export type IndexRegistryEntry = {
@@ -18,6 +19,7 @@ export type IndexRegistryEntry = {
   documentCount: number
   partitionCount: number
   analysisRevision: string | null
+  arrayPositionGap: number | null
   synonyms: Uint8Array | null
   analysisGeneration: number
   pendingAnalysis: PendingAnalysisMetadata | null

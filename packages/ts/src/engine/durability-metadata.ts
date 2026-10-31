@@ -21,6 +21,7 @@ export interface MetadataConfig {
   embedding?: IndexEmbeddingMetadata
   surfaceForms?: boolean
   analysisRevision?: string
+  arrayPositionGap?: number
   tokenizer?: string
   stopWords?: string
   stopWordList?: string[]
@@ -64,6 +65,9 @@ export function metadataFromConfig(
   }
   if (config.analysisRevision !== undefined) {
     metadata.analysisRevision = config.analysisRevision
+  }
+  if (config.arrayPositionGap !== undefined) {
+    metadata.arrayPositionGap = config.arrayPositionGap
   }
   if (config.tokenizer !== undefined) {
     metadata.tokenizer = config.tokenizer
@@ -133,6 +137,7 @@ export function metadataConfigOf(entry: IndexRegistryEntry): MetadataConfig {
     ...(embedding !== undefined ? { embedding } : {}),
     surfaceForms: entry.config.surfaceForms !== false,
     ...(entry.analysisRevision !== null ? { analysisRevision: entry.analysisRevision } : {}),
+    ...(entry.arrayPositionGap !== null ? { arrayPositionGap: entry.arrayPositionGap } : {}),
     ...(typeof entry.config.tokenizer === 'string' ? { tokenizer: entry.config.tokenizer } : {}),
     ...(typeof entry.config.stopWords === 'string' ? { stopWords: entry.config.stopWords } : {}),
     ...(entry.config.stopWords instanceof Set
@@ -161,6 +166,7 @@ export function durableMetadataConfigOf(entry: IndexRegistryEntry): MetadataConf
     stopWords,
     stopWordList,
     analysisRevision: _analysisRevision,
+    arrayPositionGap: _arrayPositionGap,
     analysisGeneration: _analysisGeneration,
     ...rest
   } = terms
@@ -171,6 +177,7 @@ export function durableMetadataConfigOf(entry: IndexRegistryEntry): MetadataConf
     ...(durable.stopWords !== undefined ? { stopWords: durable.stopWords } : {}),
     ...(durable.stopWordList !== undefined ? { stopWordList: durable.stopWordList } : {}),
     ...(durable.analysisRevision !== null ? { analysisRevision: durable.analysisRevision } : {}),
+    ...(durable.arrayPositionGap !== null ? { arrayPositionGap: durable.arrayPositionGap } : {}),
     ...(durable.generation > 0 ? { analysisGeneration: durable.generation } : {}),
     pendingAnalysis: {
       generation: entry.analysisGeneration,

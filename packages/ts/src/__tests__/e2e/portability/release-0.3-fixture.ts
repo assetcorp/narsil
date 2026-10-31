@@ -6,7 +6,10 @@ import type { AnyDocument } from '../../../types/schema'
 
 export const RELEASE_0_3_FIXTURE = new URL('../../persistence/fixtures/0.3.0/', import.meta.url)
 
-export async function copyReleaseFixture(part: 'wal' | 'snapshot-tier', destination: string): Promise<void> {
+export async function copyReleaseFixture(
+  part: 'wal' | 'snapshot-tier' | 'snapshot-tier-numeric-ids',
+  destination: string,
+): Promise<void> {
   await cp(fileURLToPath(new URL(`${part}/`, RELEASE_0_3_FIXTURE)), destination, { recursive: true })
 }
 

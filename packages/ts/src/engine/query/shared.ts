@@ -11,6 +11,7 @@ import { partitionsIn } from '../../partitioning/partition-selection'
 import { flattenSchema } from '../../schema/validator'
 import type { CursorBinding } from '../../search/cursor-binding'
 import type { FulltextSearchOptions } from '../../search/fulltext'
+import { analyseQueryPhrases, requireLoadedPhraseCode } from '../../search/phrase-code'
 import { requireUsableQueryFields } from '../../search/query-fields'
 import { requireSortableFields } from '../../search/sorting'
 import { requireValidTypoTolerance } from '../../search/typo-tolerance'
@@ -50,6 +51,7 @@ export interface QueryContext {
   patternWorkCap?: number
   clock?: SearchClock
   rerank?: RerankRunner
+  requirePhraseReady?: () => void
 }
 
 export interface SearchContext extends QueryContext {
@@ -222,6 +224,14 @@ export function validQueryFilter(
 ): FilterExpression | undefined {
   if (filters === undefined || filters === null) return filters
   return validatedFilterOf(filters, flattenSchema(schema))
+}
+
+export function requireUsablePhrases(params: QueryParams, context: QueryContext): void {
+  if (params.term === undefined) return
+  const quoted = analyseQueryPhrases(params.term, context.language, context.manager.analysis)
+  if (quoted === null || quoted.keptPhraseCount === 0) return
+  requireLoadedPhraseCode().requirePhrasesWithinLimits(quoted, context.config.trackPositions !== false)
+  context.requirePhraseReady?.()
 }
 
 export function requireVectorSearchable(params: QueryParams, context: QueryContext, needsVector: boolean): void {

@@ -115,6 +115,7 @@ export function durableSettingsOf(entry: IndexRegistryEntry): DurableAnalysis {
     ...namedSettingsOf(entry.config, entry.language.name),
     generation: entry.analysisGeneration,
     analysisRevision: entry.analysisRevision,
+    arrayPositionGap: entry.arrayPositionGap,
   }
 }
 

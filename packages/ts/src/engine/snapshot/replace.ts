@@ -5,6 +5,7 @@ import { SINGLE_NODE_PRIMARY_TERM } from '../../persistence/durability/seq-owner
 import { writeMetadataEnvelope } from '../../serialization/envelope'
 import type { VectorIndex } from '../../vector/vector-index'
 import type { DetachedIndex } from '../../workers/direct-executor'
+import { arrayPositionsAreStale } from '../array-positions'
 import type { IndexRegistryEntry } from '../core'
 import { indexMetadataOf } from '../durability-metadata'
 import { type PreparedIndex, type RestoreDeps, restoredRegistryEntry } from './restore-setup'
@@ -113,7 +114,10 @@ function activate(indexName: string, restored: RestoredIndex, entry: IndexRegist
   restored.detached.attach()
   deps.clearAnalysisStale(indexName)
   const { prepared } = restored
-  if (prepared.storedRevision !== prepared.language.revision) {
+  if (
+    prepared.storedRevision !== prepared.language.revision ||
+    arrayPositionsAreStale(prepared.config, prepared.storedArrayPositionGap)
+  ) {
     deps.markAnalysisStale({
       indexName,
       language: prepared.language.name,

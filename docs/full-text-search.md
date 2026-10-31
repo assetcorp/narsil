@@ -1,6 +1,6 @@
 # Full-text search
 
-This guide explains term matching, typo tolerance, prefix completion, matching inside words, synonyms, match thresholds, highlighting, scoring modes, and suggestions. The [Filters, facets, and pagination](filters-facets-and-pagination.md) guide explains how to narrow and page the result set that a query returns.
+This guide explains term matching, typo tolerance, prefix completion, phrase search, matching inside words, synonyms, match thresholds, highlighting, scoring modes, and suggestions. The [Filters, facets, and pagination](filters-facets-and-pagination.md) guide explains how to narrow and page the result set that a query returns.
 
 Every search goes through `query(indexName, params)`. Set its `mode` parameter to `'fulltext'`, which is the default, or to `'vector'` or `'hybrid'`.
 
@@ -57,6 +57,30 @@ const results = await narsil.query('products', {
   prefix: true,
 })
 ```
+
+## Phrase search
+
+Put words in double quotes to match them side by side and in that order. A search for `"olive oil"` matches a document that holds `olive oil` in one field, and it skips a document that holds `oil olive`, as well as one that holds `olive` in its title and `oil` in its description.
+
+```ts
+const results = await narsil.query('products', {
+  term: '"olive oil" pasta',
+})
+```
+
+A document has to match every phrase in a query, each one inside a single field, although two phrases can match in different fields. The words outside the quotes stay optional unless `termMatch` requires them, so the query above returns every document that holds `olive oil`, and the engine adds the score of `pasta` to the ones that also hold it. `fields` and `filters` apply to a phrase as they apply to a word. In a hybrid query, a phrase applies to the keyword side alone, so a hit that the vector side finds can lack the phrase.
+
+The characters `"`, `“`, `”`, and `„` each open or close a phrase, and there is no escape character. Where a phrase has no closing quote, the rest of the term is the phrase. The engine drops empty quotes and a phrase of stop words alone, and it searches the rest of the query.
+
+The engine analyses a phrase with the index's language, tokeniser, and stop words, so `"olive oils"` matches `olive oil` in an English index. A removed stop word keeps its place, which means that `"state of the art"` matches any text with two stop words between `state` and `art`. The engine applies `tolerance`, `prefix`, `partialWords`, and synonyms only to the words outside the quotes, so `prefix: true` treats the last word as unfinished only where no phrase follows it. `highlight` tags each word of a phrase wherever that word occurs in the field, which can include places outside the phrase.
+
+The engine adds a score for each phrase to the score of the query's words. It scores a phrase with BM25, using the sum of the IDF values of the phrase's words and the number of places in the field where the phrase starts, so two overlapping matches count as two.
+
+A phrase holds at most 32 words, counting the stop words between its first and last word, and a query holds at most 32 phrases. The engine throws `SEARCH_INVALID_PHRASE` over either limit, and also for a phrase on an index with `trackPositions` off, because that index stores no positions. It counts each position that it compares, and each posting that it has to put in document order, against the `patternWorkCap` engine setting, so a phrase of common words on a large index can raise `SEARCH_WORK_CAP_EXCEEDED`. A cluster refuses a term longer than 1,024 characters with `CONFIG_INVALID`, while a single engine sets no such limit, so a long phrase can work on one engine and fail on a cluster.
+
+A phrase matches inside one item of an array field, because the engine leaves a gap of 100 positions between items. An index that an earlier release saved holds its array positions without that gap, so the engine treats any such index with a `string[]` field as stale and rebuilds it from its stored documents, as [Analysis revisions](language-support.md#analysis-revisions) describes. Until the rebuild ends, a phrase on that index raises `SEARCH_PHRASE_NOT_READY`, while a query without a phrase keeps answering. Under `analysis: { rebuild: 'manual' }`, the rebuild waits for your call to `rebuildAnalysis`. A cluster raises the same error while any node that stores the index registers a specification version below 1.1.
+
+The engine keeps the code that matches a phrase in its own file, so a browser downloads that file only when the first query with a quote character arrives, and a query without one never downloads it. If a browser goes offline before it has that file, a query with a quote character raises `SEARCH_PHRASE_NOT_READY`, while a query without one keeps answering. The engine tries the download again with the next such query, although a browser can remember the failed download until the page reloads. An app that has to answer phrases offline should cache the file with its service worker, or send one query with a quote character while it is online.
 
 ## Matching inside words
 

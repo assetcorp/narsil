@@ -39,7 +39,7 @@ const PREPARED_TYPO_TEST_BYTES = Math.ceil(MAX_FILTER_TESTS / TYPO_CLAIM_SLOTS_P
 function capExceeded(cap: number): NarsilError {
   return new NarsilError(
     ErrorCodes.SEARCH_WORK_CAP_EXCEEDED,
-    `The engine stopped this search before it checked every candidate, because the work on its pattern tests passed the cap of ${cap} units. Narrow the tests, or raise the patternWorkCap engine setting`,
+    `The engine stopped this search before it checked every candidate, because the work on its pattern tests and phrases passed the cap of ${cap} units. Narrow the tests or the phrases, or raise the patternWorkCap engine setting`,
     { cap },
   )
 }

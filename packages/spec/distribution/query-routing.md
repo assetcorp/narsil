@@ -97,6 +97,12 @@ A data node must compare the requested generation with its own. It must answer w
 
 A coordinator that receives this refusal with a `heldGeneration` above the requested generation is behind, so it must read the metadata again and run the whole query once more. A refusal with a lower `heldGeneration` means that the node is behind, so the coordinator must ask the next copy, and a partition with no copy left at that generation counts as failed under `allowPartialResults`. A second run that is refused again must fail with `ANALYSIS_GENERATION_MISSING`, which a client can retry.
 
+### Phrase Queries
+
+A node on a specification version below 1.1 splits text at every double quote, so it searches a [phrase](../algorithms.md#phrase-search)'s words as ordinary words and returns documents that the phrase excludes. A coordinator must therefore refuse a search or a count with `SEARCH_PHRASE_NOT_READY` while the term holds a pair of quotes, or an unclosed quote, around any character other than white space, and any registered node that the allocation table lists as a primary, a replica, or a replica on its way out of the partition has a version below 1.1. It must read a version as its major number and then its minor number, each compared as a whole number, and it must treat a version that it cannot parse as below 1.1. A copy on a node with no registration does not refuse the query, so a dead node blocks nothing. For a query with a phrase, however, the coordinator must skip every copy on a node with no registration and ask the next copy, because a coordinator can still reach a node on an older version whose lease has lapsed. A partition left with no copy counts as unavailable under `allowPartialResults`. The coordinator reads the quotes alone at this step, because the analysis that drops a phrase of stop words belongs to the data nodes, so during an upgrade it can refuse a phrase that a data node would drop.
+
+A data node must apply the [limits](../algorithms.md#limits), the `trackPositions` check, and the [stale check](../algorithms.md#array-position-gap) to its own copy, and it must answer a refusal with the code that those rules name. Whatever `allowPartialResults` holds, a coordinator must fail the whole query with `SEARCH_INVALID_PHRASE` or `SEARCH_PHRASE_NOT_READY` when a data node raises that code, because a partial answer can leave out documents that hold the phrase.
+
 ### BM25 Parameters
 
 A coordinator must send its own value of the index's [BM25 setting](../algorithms.md#parameter-levels) in `indexBm25` on every search, count, and hybrid leg, and it must send an empty map where the index sets nothing. A data node must score a query that carries `indexBm25` under that value, ignoring the value that it stores with its copy, so that one query never mixes settings while a change spreads across the nodes. A data node must fall back to the value that it stores where `indexBm25` is absent, because the sender predates this rule or holds no metadata for the index. Two coordinators can use different values while a change spreads, so two queries can rank differently during that time. Cursors stay valid across a change, because only a search's own `bm25` enters the [cursor binding](../partitioning.md#cursor-binding), so pages can repeat or skip documents across that change.
@@ -138,10 +144,13 @@ Phase 0, statistics collection:
   1. The coordinator sends a statistics request to each data node.
   2. Each data node collects totalDocs, docFrequencies, and
      totalFieldLengths from its local partitions, counting each
-     query term, each synonym that its copy's synonym set adds,
-     and each token that the query's typo tolerance, prefix
-     completion, or partial-word search reaches in any local
-     partition, summed over every local partition. It lists in
+     query term, each token of each phrase, each synonym that
+     its copy's synonym set adds, and each token that the
+     query's typo tolerance, prefix completion, or partial-word
+     search reaches in any local partition, summed over every
+     local partition. It takes the term's quotes as Quote Syntax
+     in algorithms.md defines, and it expands the words outside
+     the quotes alone. It lists in
      expanded each token that a prefix completion or a
      partial-word search reached.
   3. Where the union of every expanded list holds a token that

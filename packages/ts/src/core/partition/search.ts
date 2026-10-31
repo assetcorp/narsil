@@ -1,5 +1,6 @@
+import { requireLoadedPhraseCode } from '../../search/phrase-code'
 import type { InternalSearchParams, InternalSearchResult, PostingListView } from '../../types/internal'
-import { bitsetHas, bitsetSet, createBitSet } from '../bitset'
+import { bitsetHas, bitsetIsEmpty, bitsetSet, createBitSet } from '../bitset'
 import { computeBM25WithIDF, computeIDF } from '../scorer'
 import { fieldLengthOf, loadFieldScoring } from './field-scoring'
 import {
@@ -12,6 +13,7 @@ import {
   typoMatchesFor,
 } from './group-scoring'
 import { multiTermTopK, prunableMultiTermLists } from './multi-term-topk'
+import type { PhraseRows } from './phrase-matching'
 import { postingColumns } from './posting-columns'
 import { addScore, beginScoring, createScoreBuffer, hasScore, topKFromBuffer } from './score-buffer'
 import {
@@ -46,12 +48,12 @@ export function searchFulltext(state: PartitionReadState, params: InternalSearch
     globalStats,
     maxResults,
     termMatch,
-    filterBitset,
+    phrases,
   } = params
 
   const collectComponents = params.collectComponents !== false
 
-  if (queryTokens.length === 0) {
+  if (queryTokens.length === 0 && phrases === undefined) {
     return { scored: [], totalMatched: 0 }
   }
 
@@ -73,8 +75,54 @@ export function searchFulltext(state: PartitionReadState, params: InternalSearch
   const onlyK1 = boundPairs[0]
   const onlyB = boundPairs[1]
 
+  const phraseMatches =
+    phrases === undefined
+      ? null
+      : requireLoadedPhraseCode().matchPhrases(
+          state.invertedIdx,
+          phrases,
+          searchable,
+          params.filterBitset,
+          state.docStore.internalIdCapacity(),
+          params.phraseWork,
+          true,
+        )
+  if (phraseMatches !== null && bitsetIsEmpty(phraseMatches.matched)) {
+    return { scored: [], totalMatched: 0 }
+  }
+  const filterBitset = phraseMatches?.matched ?? params.filterBitset
+
   function documentFrequency(token: string, list: PostingListView): number {
     return globalStats ? globalDocFreqFor(globalStats.docFrequencies, token, list.docIdSet.size) : list.docIdSet.size
+  }
+
+  function scorePhraseRows(rows: PhraseRows, matched: Uint32Array): void {
+    let idf = 0
+    for (let entry = 0; entry < rows.phrase.tokens.length; entry++) {
+      idf += computeIDF(documentFrequency(rows.phrase.tokens[entry], rows.lists[entry]), totalDocs)
+    }
+    for (let row = 0; row < rows.docIds.length; row++) {
+      const internalId = rows.docIds.values[row]
+      if (!bitsetHas(matched, internalId)) continue
+      const fieldIndex = rows.fieldIndices.values[row]
+      const frequency = rows.frequencies.values[row]
+      const avgLen = averageLengths[fieldIndex]
+      const fieldLength = fieldLengthOf(lengthColumns, fieldIndex, internalId, avgLen)
+      const score = scoresAreZero
+        ? 0
+        : computeBM25WithIDF(
+            frequency,
+            idf,
+            fieldLength,
+            avgLen,
+            onePair ? onlyK1 : k1s[fieldIndex],
+            onePair ? onlyB : bs[fieldIndex],
+          )
+      addScore(scoreBuffer, internalId, score * boosts[fieldIndex])
+      if (components !== null) {
+        recordComponents(components, internalId, fieldNames[fieldIndex], rows.phrase.key, frequency, fieldLength, idf)
+      }
+    }
   }
 
   const groupContext: GroupScoringContext = {
@@ -170,7 +218,7 @@ export function searchFulltext(state: PartitionReadState, params: InternalSearch
     }
   }
 
-  const prunableList = prunableSingleTermList(params, state.invertedIdx, fieldNames)
+  const prunableList = phrases === undefined ? prunableSingleTermList(params, state.invertedIdx, fieldNames) : null
   if (prunableList !== null && maxResults !== undefined) {
     return singleTermTopK({
       list: prunableList,
@@ -182,7 +230,7 @@ export function searchFulltext(state: PartitionReadState, params: InternalSearch
     })
   }
 
-  const prunableLists = prunableMultiTermLists(params, state.invertedIdx)
+  const prunableLists = phrases === undefined ? prunableMultiTermLists(params, state.invertedIdx) : null
   if (prunableLists !== null && maxResults !== undefined) {
     const pruned = multiTermTopK({
       terms: prunableLists,
@@ -225,6 +273,10 @@ export function searchFulltext(state: PartitionReadState, params: InternalSearch
       }
       if (group !== undefined) scoreGroup(resolveGroupMatches(groupContext, group), false)
     }
+  }
+
+  if (phraseMatches !== null) {
+    for (const rows of phraseMatches.rows) scorePhraseRows(rows, phraseMatches.matched)
   }
 
   const totalMatched = scoreBuffer.touchedCount
