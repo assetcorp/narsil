@@ -6,6 +6,7 @@ export interface SnapshotEnvelope {
   schema?: Record<string, string>
   language?: string
   analysisRevision?: unknown
+  analysisGeneration?: unknown
   tokenizer?: unknown
   stopWords?: unknown
   stopWordList?: unknown

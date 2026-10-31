@@ -15,6 +15,14 @@ import type { AnyDocument, IndexConfig, SchemaDefinition } from '../../types/sch
 import type { VectorIndex } from '../../vector/vector-index'
 import type { PartitionWriteLog } from './write-log'
 
+export interface AdoptedAnalysis {
+  config: IndexConfig
+  language: LanguageModule
+  analysis: ResolvedAnalysis
+  partialWordAnalysis: PartialWordAnalysis | null
+  synonyms: SynonymLookup | null
+}
+
 export interface PartitionManager {
   readonly partitionCount: number
   readonly indexName: string
@@ -32,6 +40,7 @@ export interface PartitionManager {
   setPartitions(partitions: PartitionIndex[]): void
   openWriteLog(): PartitionWriteLog
   adoptRebuiltPartitions(rebuilt: PartitionIndex[]): void
+  adoptAnalysis(change: AdoptedAnalysis): void
   addPartition(): PartitionIndex
   removePartition(partitionId: number): void
   trimPartitions(count: number): void

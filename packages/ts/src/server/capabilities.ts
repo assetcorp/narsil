@@ -30,6 +30,14 @@ export const TASK_FILTER_CAPABILITY = 'tasks.filter'
 export const REBUILD_ANALYSIS_CAPABILITY = 'indexes.rebuildAnalysis'
 
 /**
+ * Marks that `POST /indexes/{name}/_change-analysis` changes the language, the
+ * tokeniser, or the stop words of a live index.
+ *
+ * @public
+ */
+export const CHANGE_ANALYSIS_CAPABILITY = 'indexes.changeAnalysis'
+
+/**
  * Marks that `POST /indexes/{name}/_open` and `POST /indexes/{name}/_close`
  * load and release an index's server memory.
  *
@@ -69,6 +77,7 @@ export const SERVER_CAPABILITIES: readonly string[] = [
   TASK_CANCEL_CAPABILITY,
   TASK_FILTER_CAPABILITY,
   REBUILD_ANALYSIS_CAPABILITY,
+  CHANGE_ANALYSIS_CAPABILITY,
   INDEX_LIFECYCLE_CAPABILITY,
   DOCUMENT_EXPORT_CAPABILITY,
   SYNONYMS_CAPABILITY,

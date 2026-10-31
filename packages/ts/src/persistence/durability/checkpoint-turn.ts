@@ -36,6 +36,27 @@ export function createIndexLoads(vectorIndexesOf: (indexName: string) => Map<str
   }
 }
 
+export interface SwitchTurn {
+  mayStart(): boolean
+  swap(): boolean
+  checkpoint(): Promise<void>
+  afterSettling(): void
+}
+
+export async function switchInTurn(turns: CheckpointTurns, turn: SwitchTurn): Promise<boolean> {
+  let swapped = false
+  await checkpointInTurn(turns, {
+    joinsInFlight: false,
+    mayStart: turn.mayStart,
+    perform: async () => {
+      swapped = turn.swap()
+      if (swapped) await turn.checkpoint()
+    },
+    afterSettling: turn.afterSettling,
+  })
+  return swapped
+}
+
 export async function checkpointInTurn(turns: CheckpointTurns, turn: CheckpointTurn): Promise<void> {
   if (turn.joinsInFlight && turns.checkpointInFlight !== null) return turns.checkpointInFlight
   while (turns.checkpointInFlight !== null) await turns.checkpointInFlight.catch(() => undefined)

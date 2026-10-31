@@ -23,6 +23,7 @@ interface IndexStateWiring {
   indexRegistry: Map<string, IndexRegistryEntry>
   rebalancingIndexes: Set<string>
   requireManager(indexName: string): PartitionManager
+  resumeChange(indexName: string): Promise<void>
   onOpen?(indexName: string): void | Promise<void>
   onClose?(indexName: string): void | Promise<void>
   onAccess?(indexName: string): void
@@ -43,6 +44,7 @@ export function wireIndexState(wiring: IndexStateWiring): IndexStateCoordinator 
       }
       try {
         await durability.manager.recoverIndex(indexName)
+        await wiring.resumeChange(indexName)
         await analysisRebuild.review(indexName)
         await orchestrator.openIndex(indexName)
         await wiring.onOpen?.(indexName)

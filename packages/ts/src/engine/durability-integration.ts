@@ -47,6 +47,9 @@ export interface DurabilityIntegrationHooks {
   getVectorFieldPaths: IndexDurabilityHooks['getVectorFieldPaths']
   getVectorIndexes: IndexDurabilityHooks['getVectorIndexes']
   getIndexConfig: (indexName: string) => MetadataConfig | undefined
+  getTermsConfig: (indexName: string) => MetadataConfig | undefined
+  mustRewriteTerms: IndexDurabilityHooks['mustRewriteTerms']
+  onManifestCommitted: IndexDurabilityHooks['onManifestCommitted']
   createIndexFromMetadata: IndexDurabilityHooks['createIndexFromMetadata']
   recordCheckpoint: IndexDurabilityHooks['recordCheckpoint']
   onLayoutUpgrade?: IndexDurabilityHooks['onLayoutUpgrade']
@@ -76,6 +79,14 @@ export function createDurabilityIntegration(
     getVectorFieldPaths: hooks.getVectorFieldPaths,
     getVectorIndexes: hooks.getVectorIndexes,
     buildMetadata: (indexName, documentCount) => buildMetadata(indexName, hooks, documentCount),
+    buildTermsMetadata(indexName) {
+      const config = hooks.getTermsConfig(indexName)
+      return config === undefined
+        ? undefined
+        : metadataFromConfig(indexName, config, hooks.getManager(indexName)?.partitionCount)
+    },
+    mustRewriteTerms: hooks.mustRewriteTerms,
+    onManifestCommitted: hooks.onManifestCommitted,
     createIndexFromMetadata: hooks.createIndexFromMetadata,
     recordCheckpoint: hooks.recordCheckpoint,
     onLayoutUpgrade: hooks.onLayoutUpgrade,

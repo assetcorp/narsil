@@ -51,6 +51,7 @@ export interface PreparedIndex {
   embeddingAdapter: EmbeddingAdapter | null
   adapterName: string | null
   storedRevision: string | null
+  analysisGeneration: number
   synonyms: PreparedSynonyms | null
 }
 
@@ -97,7 +98,10 @@ export function prepareRestoredIndex(
   }
   const storedRevision = typeof configuration.analysisRevision === 'string' ? configuration.analysisRevision : null
   const synonyms = restoredSynonyms(configuration.synonyms, config, language, reject ?? rejectSnapshot)
-  return { config, language, embeddingAdapter, adapterName, storedRevision, synonyms }
+  const analysisGeneration = Number.isSafeInteger(configuration.analysisGeneration)
+    ? Math.max(0, configuration.analysisGeneration as number)
+    : 0
+  return { config, language, embeddingAdapter, adapterName, storedRevision, analysisGeneration, synonyms }
 }
 
 function restoredSynonyms(
@@ -146,5 +150,8 @@ export function restoredRegistryEntry(
     partitionCount: manager.partitionCount,
     analysisRevision: prepared.storedRevision,
     synonyms: prepared.synonyms?.encoded ?? null,
+    analysisGeneration: prepared.analysisGeneration,
+    pendingAnalysis: null,
+    durableAnalysis: null,
   }
 }

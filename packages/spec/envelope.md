@@ -362,6 +362,8 @@ Each index writes a metadata envelope under the key `<indexName>/meta`. It uses 
   tokenizer:             string               (optional; the registered tokeniser name)
   stop_words:            string               (optional; the registered stop word set name)
   stop_word_list:        List<string>         (optional; the words of a literal stop word set)
+  analysis_generation:   uint64               (optional; an absent value means 0)
+  pending_analysis:      PendingAnalysis      (optional; a change that has not reached a durable checkpoint)
   partition_limits:      PartitionLimits      (optional)
   default_scoring:       string               (optional; "local", "dfs", or "broadcast")
   track_positions:       boolean              (optional)
@@ -400,6 +402,16 @@ VectorPromotionMeta {
 }
 ```
 
+```text
+PendingAnalysis {
+  generation:      uint64
+  language:        string
+  tokenizer:       string          (optional)
+  stop_words:      string          (optional)
+  stop_word_list:  List<string>    (optional)
+}
+```
+
 `document_count` must equal the total number of documents in the last completed checkpoint. A reader must treat an absent `document_count` as unknown.
 
 `vector_fields` lists every vector field with its configuration, so the engine knows which vector index files to load without scanning the storage keys. A reader must reject a `quantization` or `storage` value outside its set with `CONFIG_INVALID`, in this payload and in the [index configuration payload](#index-configuration-payload).
@@ -411,6 +423,8 @@ The `surface_forms_enabled` field records whether the index collects surface for
 The `analysis_revision` field records the [revision](adapters.md#revision) of the language module that produced the index's terms. A reader compares it with the revision that its own module for that language carries. A difference means the engine no longer analyses text the way the index was built, so the index's terms are stale, and the engine rebuilds them from the documents that the index's segments hold. An engine may answer a text query while that rebuild is outstanding, and it tells the caller the terms are stale when it does, because a term the current analysis produces differently reaches none of the postings that the earlier analysis wrote. When the rebuild runs, whether the engine starts it on its own, and how it reports both the stale terms and the rebuild, are matters for the engine's configuration. The field is additive, and a reader that finds it absent treats the terms as stale too, because an index written before the field existed records nothing about the analysis that built it. A writer must leave the field absent where it knows no revision for the terms that it writes, such as for an index that it restores without the field and has yet to rebuild. Vector data and embeddings are unaffected, because the revision covers text analysis alone.
 
 The `tokenizer` and `stop_words` fields record the names the index resolved its analysis from, as described in [Analysis Registry](adapters.md#analysis-registry). A writer includes each field only when the index configuration gave a name, because a tokeniser instance and a stop word function are code and no payload carries code. An engine with durability configured refuses an index whose analysis is given as code, as [Analysis Registry](adapters.md#analysis-registry) requires, so an absent field means the index analyses with the language default. An index configured with a literal stop word set persists the words themselves in `stop_word_list`, and a payload carries at most one of `stop_words` and `stop_word_list`. Recovery resolves each name against the engine's analysis registry so that a recovered index analyses text the way the original did; see [Index Metadata](durability.md#index-metadata).
+
+The `analysis_generation` field counts the changes that a caller has made to the index's analysis, and `pending_analysis` holds a change that recovery must finish. [Index Metadata](durability.md#index-metadata) gives the rules for both. A payload carries at most one of `stop_words` and `stop_word_list` inside `pending_analysis`, as it does at the top level.
 
 The `partition_limits`, `default_scoring`, `track_positions`, `strict`, `required`, `vector_promotion`, and `pattern_value_limit` fields record the rest of the index configuration: the partition limits, the scoring mode, position tracking, strict document validation, the required field paths, the vector promotion settings, and the [pattern value limit](algorithms.md#pattern-search). All seven are additive. A writer includes each field only when the index configuration sets it, and a reader treats an absent field as that option's default, so a recovered index behaves exactly as the original did.
 
@@ -438,6 +452,7 @@ The payload is a MessagePack map:
   tokenizer:         string                       (optional; the registered tokeniser name)
   stopWords:         string                       (optional; the registered stop word set name)
   stopWordList:      List<string>                 (optional; the words of a literal stop word set)
+  analysisGeneration: uint64                      (optional; an absent value means 0)
   bm25:              { k1: float32, b: float32 }  (optional; each key optional)
   surfaceForms:      boolean                      (a reader treats an absent value as true)
   partitionConfig:   PartitionSnapshotLimits      (optional)
@@ -471,7 +486,7 @@ EmbeddingSnapshotConfig {
 }
 ```
 
-The rules for `analysis_revision` in the [index metadata payload](#index-metadata-payload) apply to `analysisRevision`, so a writer must record the revision that produced the terms that the envelope holds, or leave the field absent where it knows none. A reader must treat an index restored without one as holding stale terms. Each remaining optional field records one index configuration option, and a writer must leave it absent where the configuration leaves that option unset.
+The rules for `analysis_revision` in the [index metadata payload](#index-metadata-payload) apply to `analysisRevision`, so a writer must record the revision that produced the terms that the envelope holds, or leave the field absent where it knows none. A reader must treat an index restored without one as holding stale terms. Each remaining optional field records one index configuration option, and a writer must leave it absent where the configuration leaves that option unset. A writer must record in `analysisGeneration` the generation that produced the terms that the envelope holds. The payload carries no pending change, so a restored index holds the old settings with the old terms, and a restore abandons any pending change, whose caller receives `ANALYSIS_CHANGE_REPLACED`.
 
 A writer must reject an index whose tokeniser or stop words are code, because a payload can hold a registered name but no code.
 

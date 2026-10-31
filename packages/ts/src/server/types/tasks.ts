@@ -5,7 +5,14 @@ import type { ImportResult } from './requests'
  *
  * @public
  */
-export type TaskType = 'optimizeVectors' | 'rebalance' | 'restore' | 'import' | 'importExport' | 'rebuildAnalysis'
+export type TaskType =
+  | 'optimizeVectors'
+  | 'rebalance'
+  | 'restore'
+  | 'import'
+  | 'importExport'
+  | 'rebuildAnalysis'
+  | 'changeAnalysis'
 
 /**
  * Where a long-running operation stands.

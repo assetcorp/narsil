@@ -10,6 +10,7 @@ import type { IndexRegistryEntry } from '../core'
 import type { DurabilityIntegration } from '../durability-integration'
 import { indexMetadataOf } from '../durability-metadata'
 import { restoreArchive } from './archive-restore'
+import { MAX_SNAPSHOT_ANALYSIS_ATTEMPTS } from './constants'
 import { restoreEarlierSnapshot } from './earlier-restore'
 import { encodeIndexConfiguration } from './index-configuration'
 import type { RestoreDeps } from './restore-setup'
@@ -39,9 +40,24 @@ export async function checkpointForArchive(deps: SnapshotDeps): Promise<ArchiveC
 }
 
 export async function createSnapshot(deps: SnapshotDeps): Promise<ReadableStream<Uint8Array>> {
-  const config = await encodeIndexConfiguration(deps.entry)
-  const checkpoint = await checkpointForArchive(deps)
-  return archiveStream({ ...checkpoint, config, sourceIndexName: deps.indexName })
+  for (let attempt = 0; attempt < MAX_SNAPSHOT_ANALYSIS_ATTEMPTS; attempt += 1) {
+    const checkpoint = await checkpointForArchive(deps)
+    try {
+      if ((checkpoint.manifest.analysisGeneration ?? 0) === deps.entry.analysisGeneration) {
+        const config = await encodeIndexConfiguration(deps.entry)
+        return archiveStream({ ...checkpoint, config, sourceIndexName: deps.indexName })
+      }
+    } catch (error) {
+      checkpoint.release()
+      throw error
+    }
+    checkpoint.release()
+  }
+  throw new NarsilError(
+    ErrorCodes.ANALYSIS_CHANGE_NOT_READY,
+    `The analysis of index "${deps.indexName}" changed while the engine wrote its snapshot, so try the snapshot again once the change has a durable checkpoint`,
+    { indexName: deps.indexName },
+  )
 }
 
 function requireSnapshotSource(data: unknown): ByteSource {

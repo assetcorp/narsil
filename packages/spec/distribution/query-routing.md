@@ -89,6 +89,14 @@ A data node that holds no context with the requested ID must answer `SEARCH_CONT
 
 The coordinator reads the members of each group, the reranked fields of a [reranked query](#distributed-reranking), and the documents of the page from the same contexts, so a single query reads every document as its node ranked it. A pinned document placed from outside the ranked results has no context, so the coordinator fetches its current version. A data node that predates search contexts ignores `keepAliveMs` and returns no `contextId`, so the coordinator fetches the current version of the documents that node ranked. A coordinator that predates search contexts sends no `keepAliveMs`, so no data node opens a context for its queries.
 
+### Analysis Generation
+
+A coordinator must send `analysisGeneration` on every search, count, suggest, statistics, and hybrid request, including a value of 0, so that a coordinator that has yet to see a first change asks for the old terms from every copy. It must read the generation once for a query and use that value for every request of that query, its statistics phase included. It must leave the generation out of the [cursor binding](../partitioning.md#cursor-binding), so a cursor stays valid across a switch and pages can repeat or skip documents across that switch.
+
+A data node must compare the requested generation with its own. It must answer where they are equal. It must switch and answer where it has finished building the requested generation. Otherwise it must refuse with `ANALYSIS_GENERATION_MISSING`, with `heldGeneration` in the details. A node below specification version 1.1 ignores the member, and the [flow](cluster.md#analysis-change-flow) refuses a change while any registered node has that version, so such a node holds generation 0.
+
+A coordinator that receives this refusal with a `heldGeneration` above the requested generation is behind, so it must read the metadata again and run the whole query once more. A refusal with a lower `heldGeneration` means that the node is behind, so the coordinator must ask the next copy, and a partition with no copy left at that generation counts as failed under `allowPartialResults`. A second run that is refused again must fail with `ANALYSIS_GENERATION_MISSING`, which a client can retry.
+
 ### Single-Partition Queries
 
 A query that targets one partition, such as fetching a document by ID, goes out as one combined query-and-fetch request to the node holding that partition. The two phases collapse into a single round trip.
@@ -381,3 +389,4 @@ The coordinator that receives a query carrying `rerank` must rerank it with its 
 | `QUERY_ROUTING_FAILED` | The allocation table holds no entry for the target index. |
 | `QUERY_NO_ACTIVE_REPLICA` | One or more partitions have no `ACTIVE` replica. |
 | `SEARCH_CONTEXT_MISSING` | A data node no longer held the search context of a query, or the coordinator could not reach it, in the first run of the query and again in its one rerun. |
+| `ANALYSIS_GENERATION_MISSING` | A data node held another analysis generation in the first run of a query and again in its one rerun. |
