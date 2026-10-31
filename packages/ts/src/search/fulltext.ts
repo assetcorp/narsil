@@ -19,7 +19,7 @@ import type { BM25Params, CustomTokenizer, FieldType, SchemaDefinition } from '.
 import type { QueryParams, TermMatchPolicy } from '../types/search'
 import { DEFAULT_FUZZY_PREFIX_LENGTH, DEFAULT_PAGE_SIZE } from './constants'
 import { clampRowCount } from './pagination'
-import { analyseQueryPhrases, withWordsOnly } from './phrases'
+import { analyseQueryPhrases, requireLoadedPhraseCode } from './phrase-code'
 import { type ResolvedTermGroups, resolveTermGroups } from './term-groups'
 
 export interface FulltextSearchOptions {
@@ -38,7 +38,6 @@ interface PreparedFulltextQuery extends ResolvedTermGroups {
 }
 
 function analysedWords(term: string, language: LanguageModule, options: FulltextSearchOptions | undefined) {
-  if (term.trim().length === 0) return []
   return tokenize(term, language, {
     stem: true,
     removeStopWords: true,
@@ -67,10 +66,11 @@ function prepareFulltextQuery(
     stopWords: options?.stopWords,
     customTokenizer: options?.customTokenizer,
   })
-  const wordParams = quoted === null ? params : withWordsOnly(params, quoted)
+  const wordParams = quoted === null ? params : requireLoadedPhraseCode().withWordsOnly(params, quoted)
   const phrases = quoted !== null && quoted.phrases.length > 0 ? quoted.phrases : undefined
 
-  const analysedTokens = analysedWords(wordParams.term ?? '', language, options)
+  const words = wordParams.term ?? ''
+  const analysedTokens = quoted !== null && words.trim().length === 0 ? [] : analysedWords(words, language, options)
   if (analysedTokens.length === 0 && phrases === undefined) return null
 
   const queryTokens = deduplicateTokens(analysedTokens)

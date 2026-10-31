@@ -11,7 +11,7 @@ import { partitionsIn } from '../../partitioning/partition-selection'
 import { flattenSchema } from '../../schema/validator'
 import type { CursorBinding } from '../../search/cursor-binding'
 import type { FulltextSearchOptions } from '../../search/fulltext'
-import { analyseQueryPhrases, requirePhrasesWithinLimits } from '../../search/phrases'
+import { analyseQueryPhrases, requireLoadedPhraseCode } from '../../search/phrase-code'
 import { requireUsableQueryFields } from '../../search/query-fields'
 import { requireSortableFields } from '../../search/sorting'
 import { requireValidTypoTolerance } from '../../search/typo-tolerance'
@@ -223,7 +223,7 @@ export function requireUsablePhrases(params: QueryParams, context: QueryContext)
   if (params.term === undefined) return
   const quoted = analyseQueryPhrases(params.term, context.language, context.manager.analysis)
   if (quoted === null || quoted.keptPhraseCount === 0) return
-  requirePhrasesWithinLimits(quoted, context.config.trackPositions !== false)
+  requireLoadedPhraseCode().requirePhrasesWithinLimits(quoted, context.config.trackPositions !== false)
   context.requirePhraseReady?.()
 }
 

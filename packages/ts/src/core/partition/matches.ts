@@ -1,8 +1,8 @@
+import { requireLoadedPhraseCode } from '../../search/phrase-code'
 import type { InternalSearchParams, PostingListView } from '../../types/internal'
 import { bitsetHas, bitsetSet, createBitSet } from '../bitset'
 import type { PartitionFilterMatches } from './filters'
 import { partialFieldMarks, termGroupOf, typoMatchesFor } from './group-scoring'
-import { matchPhrases } from './phrase-matching'
 import { postingColumns } from './posting-columns'
 import type { PartitionReadState } from './utils'
 
@@ -51,8 +51,15 @@ export function searchFulltextMatches(state: PartitionReadState, params: Interna
   const matched =
     params.phrases === undefined
       ? createBitSet(capacity)
-      : matchPhrases(state.invertedIdx, params.phrases, searched, filterBitset, capacity, params.phraseWork, false)
-          .matched
+      : requireLoadedPhraseCode().matchPhrases(
+          state.invertedIdx,
+          params.phrases,
+          searched,
+          filterBitset,
+          capacity,
+          params.phraseWork,
+          false,
+        ).matched
 
   for (const qt of params.phrases === undefined ? queryTokens : []) {
     const group = termGroupOf(termGroups, qt.token)
