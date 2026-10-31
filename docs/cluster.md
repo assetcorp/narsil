@@ -288,7 +288,7 @@ const client = createNarsilClient({
 })
 ```
 
-The client sends each request to one URL, starting one place after the URL that took the previous request, so that requests spread across the nodes. It moves a request to the next URL when the connection fails, when the request times out, or when the node answers 502, 503, or 504, and it tries each URL at most once per request. The client repeats a request on another node only where repeating it can't apply a change twice:
+The client sends each request to one URL, starting one place after the URL that took the previous request, so that requests spread across the nodes. It moves a request to the next URL when the connection fails, when the request times out, or when the node answers 502, 503, or 504, and it tries each URL at most once as it moves down the list. The client tries a read once more after every URL has failed its connection or answered 502, 503, or 504, as the [client guide](client.md#how-the-client-tries-a-read-again) describes. The client repeats a request on another node only where repeating it can't apply a change twice:
 
 - A read moves on after any of those failures. The client counts every `GET` as a read, along with a search, a preflight, a suggestion, a document list, and a `_multi-get`.
 - A write moves on only where the client sent no byte of it, because the connection was refused or the host name didn't resolve, or where the node answered `NODE_NOT_READY`. A browser reports no reason for a failed connection, so a write from a browser moves on only after a `NODE_NOT_READY` answer.
