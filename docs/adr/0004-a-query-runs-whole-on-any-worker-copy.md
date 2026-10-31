@@ -8,7 +8,7 @@ Every worker holds a full copy of every scaled-out index, yet the engine split e
 
 ## Considered options
 
-Elasticsearch answers each shard search on one thread from a pool of int(cores × 1.5) + 1 threads. Since 8.12 it also splits one query across segments when threads are free, which is the pair of rules we adopted. The previous rule, splitting alone, reached 4,310 queries per second with four copies against 9,197 on one thread for SciFact. Giving the benchmark index as many partitions as workers reached 7,886, still below one thread, because the engine then sent every query to every worker and merged the answers.
+We adopted two rules: a query runs whole on one copy, and the engine can split a query across copies when copies are idle. The previous rule, splitting alone, reached 4,310 queries per second with four copies against 9,197 on one thread for SciFact. Giving the benchmark index as many partitions as workers reached 7,886, still below one thread, because the engine then sent every query to every worker and merged the answers.
 
 ## Consequences
 

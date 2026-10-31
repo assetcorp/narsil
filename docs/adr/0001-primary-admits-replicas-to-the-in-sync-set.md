@@ -8,7 +8,7 @@ Narsil's primary used to send replication entries only to replicas already in th
 
 ## Considered options
 
-Kafka, Elasticsearch, and Sirannon all send data to every assigned copy and treat in-sync membership as an observed property. Kafka's leader proposes the change and the controller validates the fencing alone, Elasticsearch blocks its global checkpoint while a replica joins, and Sirannon writes a durability position to its coordinator before it acknowledges each write. We took Kafka's shape for the proposal and the fencing, we took Sirannon's guard of refusing an admission behind a recorded position, and we rejected Sirannon's per-write coordinator update, because a coordinator round trip on every write would cost more than Narsil's indexing rates can afford.
+Kafka and Sirannon both send data to every assigned copy and treat in-sync membership as an observed property. Kafka's leader proposes the change and the controller validates the fencing alone, while Sirannon writes a durability position to its coordinator before it acknowledges each write. We took Kafka's shape for the proposal and the fencing, we took Sirannon's guard of refusing an admission behind a recorded position, and we rejected Sirannon's per-write coordinator update, because a coordinator round trip on every write would cost more than Narsil's indexing rates can afford.
 
 ## Consequences
 
