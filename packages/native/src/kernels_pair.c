@@ -78,7 +78,7 @@ static uint32_t nibble_pair_products(const uint8_t *first, const uint8_t *second
   return total;
 }
 
-static inline uint32_t shared_bits(uint64_t first, uint64_t second) {
+INLINED_IN_EACH_KERNEL uint32_t shared_bits(uint64_t first, uint64_t second) {
   return (uint32_t)__builtin_popcountll(first & second);
 }
 
@@ -87,7 +87,7 @@ typedef struct {
   uint64_t second;
 } word_pair;
 
-static inline uint32_t two_bit_products(word_pair words) {
+INLINED_IN_EACH_KERNEL uint32_t two_bit_products(word_pair words) {
   uint64_t first_low = words.first & TWO_BIT_LOW_BITS;
   uint64_t first_high = (words.first >> 1) & TWO_BIT_LOW_BITS;
   uint64_t second_low = words.second & TWO_BIT_LOW_BITS;
@@ -96,11 +96,11 @@ static inline uint32_t two_bit_products(word_pair words) {
          (2 * shared_bits(first_high, second_low)) + (4 * shared_bits(first_high, second_high));
 }
 
-static inline uint32_t narrow_word_products(word_pair words, uint32_t bits) {
+INLINED_IN_EACH_KERNEL uint32_t narrow_word_products(word_pair words, uint32_t bits) {
   return bits == 1 ? shared_bits(words.first, words.second) : two_bit_products(words);
 }
 
-static uint32_t narrow_pair_products(packed_code first, const uint8_t *second) {
+INLINED_IN_EACH_KERNEL uint32_t narrow_pair_products(packed_code first, const uint8_t *second) {
   uint32_t total = 0;
   uint32_t offset = 0;
   for (; offset + WORD_BYTES <= first.byte_count; offset += WORD_BYTES) {
@@ -116,8 +116,18 @@ static uint32_t narrow_pair_products(packed_code first, const uint8_t *second) {
   return total;
 }
 
+#ifdef NARSIL_HARDWARE_POPCOUNT
+__attribute__((target("popcnt"))) static uint32_t narrow_pair_products_with_popcnt(packed_code first,
+                                                                                   const uint8_t *second) {
+  return narrow_pair_products(first, second);
+}
+#endif
+
 uint32_t kernel_pair_products(packed_code first, const uint8_t *second, uint32_t dimension) {
   if (first.bits == BITS_PER_BYTE) { return kernel_products_8x8(first.bytes, second, dimension); }
   if (first.bits == NIBBLE_BITS) { return nibble_pair_products(first.bytes, second, first.byte_count); }
+#ifdef NARSIL_HARDWARE_POPCOUNT
+  if (uses_hardware_popcount()) { return narrow_pair_products_with_popcnt(first, second); }
+#endif
   return narrow_pair_products(first, second);
 }

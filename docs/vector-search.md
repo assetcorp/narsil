@@ -43,38 +43,35 @@ Set `quantization` to choose how the engine codes each vector once the field hol
 
 Set `oversample` to choose how many times k the engine re-scores in a quantized field before it returns the best `limit`. For a value below 1, the engine throws a `NarsilError` with code `CONFIG_INVALID`. When you leave `oversample` unset, the engine sets the number of candidates that it re-scores from k and from the field's dimension. It rounds that number up, and it re-scores at least 3k candidates under `osq1` and `osq2`, and at least k under `osq4` and `osq8`:
 
-| Quantization | Below 768 dimensions | 768 to 1,023 dimensions | 1,024 dimensions and above |
-| ------------ | -------------------- | ----------------------- | -------------------------- |
-| `osq1`       | 3.23k + 55.9√k       | 2.2k + 27√k             | 3k                         |
-| `osq2`       | 2.6k + 22.5√k        | k + 16√k                | 3k                         |
-| `osq4`       | 5k                   | 5k                      | 2k                         |
-| `osq8`       | 2k                   | 2k                      | 2k                         |
+| Quantization | Below 768 dimensions | 768 to 1,023 dimensions              | 1,024 dimensions and above |
+| ------------ | -------------------- | ------------------------------------ | -------------------------- |
+| `osq1`       | 3.23k + 55.9√k       | 2.2k + 27√k                          | 3k                         |
+| `osq2`       | 2.6k + 22.5√k        | max(k + 16√k, min(k + 75, k + 18√k)) | 3k                         |
+| `osq4`       | 5k                   | 5k                                   | 2k                         |
+| `osq8`       | 2k                   | 2k                                   | 2k                         |
+
+The engine caps the k + 18√k term at k + 75 because the default `efSearch` holds at least k + 75 candidates from 768 to 1,023 dimensions.
 
 The engine ranks the true neighbours less reliably by a one-bit or two-bit code in fewer dimensions, so it re-scores more candidates there. When the engine ranks by a code, the number of places by which a true neighbour slips usually grows more slowly than k, so the engine re-scores the most candidates in proportion to k when k is small. Under `osq1` at 384 dimensions, the engine re-scores 86 candidates on a first page with a `limit` of 1, 221 with a `limit` of 10, and 5,002 with a `limit` of 1,000.
 
-Under `osq1` and `osq2`, these defaults find at least 95% of the true nearest neighbours on six sets of real text embeddings at a `limit` of 1, 2, 5, 10, 20, 50, 100, 200, 500, and 1,000, except at the smallest limits on one set. That set holds 50,000 MiniLM embeddings at 384 dimensions, and its rows come first in the table below. On vectors spread evenly across every dimension, a one-bit or two-bit code ranks the neighbours less well, so recall can fall below 95% at more limits. The other rows come from vectors drawn from 40 Gaussian clusters with wide noise in every dimension, with 5,000 of them at 384 dimensions and 3,200 at 768. In every row, the defaults find fewer than 95% of the true neighbours:
+Under `osq1` and `osq2`, these defaults find at least 95% of the true nearest neighbours on six sets of real text embeddings at a `limit` of 1, 2, 5, 10, 20, 50, 100, 200, 500, and 1,000, except under `osq1` at a `limit` of 1 on one set. That set holds 50,000 MiniLM embeddings at 384 dimensions, and its row comes first in the table below. On vectors spread evenly across every dimension, a one-bit or two-bit code ranks the neighbours less well, so recall can fall below 95% at more limits. The other rows come from vectors drawn from 40 Gaussian clusters with wide noise in every dimension, with 5,000 of them at 384 dimensions and 3,200 at 768. In every row, the defaults find fewer than 95% of the true neighbours:
 
 | Vectors               | Quantization | `limit` | Recall |
 | --------------------- | ------------ | ------- | ------ |
-| 50,000 MiniLM at 384  | `osq1`       | 1       | 0.909  |
-| 50,000 MiniLM at 384  | `osq1`       | 2       | 0.918  |
-| 50,000 MiniLM at 384  | `osq1`       | 5       | 0.937  |
-| 50,000 MiniLM at 384  | `osq2`       | 1       | 0.937  |
-| 50,000 MiniLM at 384  | `osq2`       | 2       | 0.938  |
-| 50,000 MiniLM at 384  | `osq2`       | 5       | 0.949  |
-| 5,000 Gaussian at 384 | `osq1`       | 1       | 0.836  |
-| 5,000 Gaussian at 384 | `osq1`       | 2       | 0.904  |
-| 5,000 Gaussian at 384 | `osq2`       | 1       | 0.777  |
-| 5,000 Gaussian at 384 | `osq2`       | 2       | 0.813  |
-| 5,000 Gaussian at 384 | `osq2`       | 5       | 0.893  |
-| 3,200 Gaussian at 768 | `osq1`       | 5       | 0.927  |
-| 3,200 Gaussian at 768 | `osq1`       | 10      | 0.933  |
-| 3,200 Gaussian at 768 | `osq1`       | 200     | 0.899  |
-| 3,200 Gaussian at 768 | `osq1`       | 500     | 0.929  |
-| 3,200 Gaussian at 768 | `osq2`       | 1       | 0.833  |
-| 3,200 Gaussian at 768 | `osq2`       | 2       | 0.833  |
-| 3,200 Gaussian at 768 | `osq2`       | 5       | 0.893  |
-| 3,200 Gaussian at 768 | `osq2`       | 200     | 0.948  |
+| 50,000 MiniLM at 384  | `osq1`       | 1       | 0.935  |
+| 5,000 Gaussian at 384 | `osq1`       | 1       | 0.861  |
+| 5,000 Gaussian at 384 | `osq1`       | 2       | 0.943  |
+| 5,000 Gaussian at 384 | `osq2`       | 1       | 0.767  |
+| 5,000 Gaussian at 384 | `osq2`       | 2       | 0.792  |
+| 5,000 Gaussian at 384 | `osq2`       | 5       | 0.892  |
+| 3,200 Gaussian at 768 | `osq1`       | 1       | 0.892  |
+| 3,200 Gaussian at 768 | `osq1`       | 2       | 0.924  |
+| 3,200 Gaussian at 768 | `osq1`       | 200     | 0.892  |
+| 3,200 Gaussian at 768 | `osq1`       | 500     | 0.932  |
+| 3,200 Gaussian at 768 | `osq2`       | 1       | 0.769  |
+| 3,200 Gaussian at 768 | `osq2`       | 2       | 0.801  |
+| 3,200 Gaussian at 768 | `osq2`       | 5       | 0.886  |
+| 3,200 Gaussian at 768 | `osq2`       | 200     | 0.941  |
 
 When a search needs more of its true neighbours, raise `oversample` on the query.
 
