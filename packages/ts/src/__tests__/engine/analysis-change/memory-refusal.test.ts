@@ -6,7 +6,7 @@ import { ErrorCodes } from '../../../errors'
 
 const CHILD_SCRIPT = fileURLToPath(new URL('./child-memory-refusal-dist.mjs', import.meta.url))
 const BUILT = existsSync(new URL('../../../../dist/index.mjs', import.meta.url))
-const HEAP_MEGABYTES = 64
+const HEAP_MEGABYTES = 128
 
 interface ChildOutcome {
   code: string | null

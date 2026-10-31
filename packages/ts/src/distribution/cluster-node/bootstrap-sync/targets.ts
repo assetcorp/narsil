@@ -37,15 +37,10 @@ async function reportSyncedPosition(
   indexName: string,
   partitionId: number,
   target: string,
-  knownSeqNo: number,
   deadline: number,
   deps: BootstrapSyncDeps,
 ): Promise<NarsilError | null> {
   const logState = readLocalLogState(indexName, partitionId, deps)
-  if (logState.lastSeqNo <= knownSeqNo) {
-    return null
-  }
-
   const details = { indexName, partitionId, target }
   const budgetMs = Math.min(SYNCED_POSITION_REPORT_TIMEOUT_MS, deadline - Date.now())
   if (budgetMs <= 0) {
@@ -150,7 +145,6 @@ export async function syncFromAnyTarget(
       }
     }
 
-    const positionBeforeAttempt = readLocalLogState(indexName, partitionId, deps).lastSeqNo
     const attempt = await syncFromTarget(
       state,
       entry,
@@ -163,9 +157,12 @@ export async function syncFromAnyTarget(
       deps,
       abortCheck,
     )
-    const failure = attempt.ok
-      ? await reportSyncedPosition(indexName, partitionId, target, positionBeforeAttempt, deadline, deps)
-      : attempt.error
+    const movedThePosition = attempt.ok && (attempt.tier === 'snapshot' || attempt.entriesApplied > 0)
+    const failure = !attempt.ok
+      ? attempt.error
+      : movedThePosition
+        ? await reportSyncedPosition(indexName, partitionId, target, deadline, deps)
+        : null
     if (failure === null) {
       return attempt
     }
