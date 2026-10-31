@@ -6,6 +6,7 @@ export const DEFAULT_MAX_RESTORE_BYTES = 64 * 1024 * BYTES_PER_MB
 export const SPOOL_PAUSE_ABOVE_BYTES = 8 * BYTES_PER_MB
 export const SNAPSHOT_ARCHIVE_CONTENT_TYPE = 'application/x-tar'
 export const DOCUMENT_EXPORT_CONTENT_TYPE = 'application/x-ndjson'
+export const PROMETHEUS_TEXT_CONTENT_TYPE = 'text/plain; version=0.0.4; charset=utf-8'
 export const RELAY_STREAM_CHUNKS_IN_FLIGHT = 4
 export const DEFAULT_MAX_LINE_BYTES = 4 * BYTES_PER_MB
 export const DEFAULT_IMPORT_BATCH_SIZE = 1000

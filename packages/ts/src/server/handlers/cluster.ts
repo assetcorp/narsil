@@ -5,18 +5,13 @@ import { ErrorCodes, NarsilError } from '../../errors'
 import type { HandlerDeps } from '../deps'
 import { badRequest, parseJson, respondError, respondJson } from '../handler-utils'
 import type { RouteContext } from '../request'
-
-interface PartitionReport {
-  partitionId: number
-  state: string
-  primary: string | null
-  primaryTerm: number
-  commitPoint: number
-  replicas: string[]
-  inSyncSet: string[]
-  lastHolders: string[]
-  unassignedReason: string | null
-}
+import type {
+  ClusterAllocationResponse,
+  ClusterNodeReport,
+  ClusterTopologyResponse,
+  PartitionAllocationReport,
+  ReplicationFactorResponse,
+} from '../types'
 
 function requireCluster(deps: HandlerDeps): ClusterNamespace {
   if (deps.cluster === undefined) {
@@ -35,7 +30,7 @@ function requireCluster(deps: HandlerDeps): ClusterNamespace {
  * @param cluster - The cluster-facing side of the node.
  * @returns The node's id, roles, lifecycle status, readiness, and whether it holds the controller lease.
  */
-export function describeNode(cluster: ClusterNamespace): Record<string, unknown> {
+export function describeNode(cluster: ClusterNamespace): ClusterNodeReport {
   return { ...cluster.getNodeInfo(), readiness: cluster.getReadiness(), isController: cluster.isControllerActive() }
 }
 
@@ -78,7 +73,7 @@ export function createClusterHandlers(deps: HandlerDeps) {
           roles: [...node.roles],
           memory: node.memory ?? null,
         })),
-      })
+      } satisfies ClusterTopologyResponse)
     } catch (err) {
       respondError(ctx, err)
     }
@@ -96,11 +91,16 @@ export function createClusterHandlers(deps: HandlerDeps) {
 
       const table = await cluster.getAllocation(indexName)
       if (table === null) {
-        respondJson(ctx, { indexName, allocated: false, version: null, partitions: [] })
+        respondJson(ctx, {
+          indexName,
+          allocated: false,
+          version: null,
+          partitions: [],
+        } satisfies ClusterAllocationResponse)
         return
       }
 
-      const partitions: PartitionReport[] = []
+      const partitions: PartitionAllocationReport[] = []
       for (const [partitionId, assignment] of table.assignments) {
         partitions.push({
           partitionId,
@@ -116,7 +116,12 @@ export function createClusterHandlers(deps: HandlerDeps) {
       }
       partitions.sort((left, right) => left.partitionId - right.partitionId)
 
-      respondJson(ctx, { indexName, allocated: partitions.length > 0, version: table.version, partitions })
+      respondJson(ctx, {
+        indexName,
+        allocated: partitions.length > 0,
+        version: table.version,
+        partitions,
+      } satisfies ClusterAllocationResponse)
     } catch (err) {
       respondError(ctx, err)
     }
@@ -139,7 +144,7 @@ export function createClusterHandlers(deps: HandlerDeps) {
         return
       }
       await cluster.setReplicationFactor(indexName, factor)
-      respondJson(ctx, { indexName, replicationFactor: factor })
+      respondJson(ctx, { indexName, replicationFactor: factor } satisfies ReplicationFactorResponse)
     } catch (err) {
       respondError(ctx, err)
     }

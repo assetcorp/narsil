@@ -14,6 +14,7 @@ export {
 export type {
   CapabilitiesResponse,
   CreateIndexEmbedding,
+  ErrorDetail,
   ErrorEnvelope,
   HttpIndexConfig,
   ImportError,
