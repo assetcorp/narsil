@@ -35,9 +35,15 @@ interface TermScan {
   idf: number
   scoresAreZero: boolean
   fields: FieldScoring
-  onePair: boolean
   k1: number
   b: number
+}
+
+interface ScanScorer {
+  upperBound(scan: TermScan, list: PostingListView, maxBoost: number, maxAverageLength: number): number
+  scoreEveryDocument(scan: TermScan, buffer: ScoreBuffer): void
+  scoreKnownDocumentsAndCountTheRest(scan: TermScan, buffer: ScoreBuffer): number
+  queryOrderScore(scans: TermScan[], internalId: number): number
 }
 
 export function prunableMultiTermLists(
@@ -73,16 +79,42 @@ function boostsKeepScoresNonNegative(fields: FieldScoring): boolean {
   return true
 }
 
-function termUpperBound(scan: TermScan, list: PostingListView, maxBoost: number, maxAverageLength: number): number {
+function samePairUpperBound(scan: TermScan, list: PostingListView, maxBoost: number, maxAverageLength: number): number {
   if (scan.scoresAreZero) return 0
   const bounds = blockBoundsFor(list, scan.fields.lengthColumns)
   let best = 0
   for (let block = 0; block < bounds.blockCount; block++) {
-    const blockMaxTf = bounds.maxTermFrequency[block]
-    const blockMinLength = bounds.minFieldLength[block]
-    const bestEntry = scan.onePair
-      ? computeBM25WithIDF(blockMaxTf, scan.idf, blockMinLength, maxAverageLength, scan.k1, scan.b)
-      : blockEntryBound(scan.fields, blockMaxTf, scan.idf, blockMinLength, maxAverageLength)
+    const bestEntry = computeBM25WithIDF(
+      bounds.maxTermFrequency[block],
+      scan.idf,
+      bounds.minFieldLength[block],
+      maxAverageLength,
+      scan.k1,
+      scan.b,
+    )
+    const blockBound = bestEntry * maxBoost * bounds.maxEntriesPerDocument[block]
+    if (blockBound > best) best = blockBound
+  }
+  return best
+}
+
+function fieldPairUpperBound(
+  scan: TermScan,
+  list: PostingListView,
+  maxBoost: number,
+  maxAverageLength: number,
+): number {
+  if (scan.scoresAreZero) return 0
+  const bounds = blockBoundsFor(list, scan.fields.lengthColumns)
+  let best = 0
+  for (let block = 0; block < bounds.blockCount; block++) {
+    const bestEntry = blockEntryBound(
+      scan.fields,
+      bounds.maxTermFrequency[block],
+      scan.idf,
+      bounds.minFieldLength[block],
+      maxAverageLength,
+    )
     const blockBound = bestEntry * maxBoost * bounds.maxEntriesPerDocument[block]
     if (blockBound > best) best = blockBound
   }
@@ -118,58 +150,109 @@ function fieldPairEntryScore(scan: TermScan, entry: number, internalId: number):
   return bm25 * fields.boosts[fieldIndex]
 }
 
-function entryScorerOf(scan: TermScan): typeof samePairEntryScore {
-  return scan.onePair ? samePairEntryScore : fieldPairEntryScore
-}
-
-function scoreEveryDocument(scan: TermScan, buffer: ScoreBuffer): void {
+function samePairScoreEveryDocument(scan: TermScan, buffer: ScoreBuffer): void {
   const { docIds, fieldNameIndices, deletedDocs, hasDeleted, count } = scan.columns
   const searchable = scan.fields.searchable
-  const entryScore = entryScorerOf(scan)
   for (let entry = 0; entry < count; entry++) {
     const internalId = docIds[entry]
     if (hasDeleted && deletedDocs.has(internalId)) continue
     if (searchable[fieldNameIndices[entry]] !== 1) continue
-    addScore(buffer, internalId, entryScore(scan, entry, internalId))
+    addScore(buffer, internalId, samePairEntryScore(scan, entry, internalId))
   }
 }
 
-function scoreKnownDocumentsAndCountTheRest(scan: TermScan, buffer: ScoreBuffer): number {
+function fieldPairScoreEveryDocument(scan: TermScan, buffer: ScoreBuffer): void {
   const { docIds, fieldNameIndices, deletedDocs, hasDeleted, count } = scan.columns
   const searchable = scan.fields.searchable
-  const entryScore = entryScorerOf(scan)
+  for (let entry = 0; entry < count; entry++) {
+    const internalId = docIds[entry]
+    if (hasDeleted && deletedDocs.has(internalId)) continue
+    if (searchable[fieldNameIndices[entry]] !== 1) continue
+    addScore(buffer, internalId, fieldPairEntryScore(scan, entry, internalId))
+  }
+}
+
+function samePairScoreKnownDocuments(scan: TermScan, buffer: ScoreBuffer): number {
+  const { docIds, fieldNameIndices, deletedDocs, hasDeleted, count } = scan.columns
+  const searchable = scan.fields.searchable
   let counted = 0
   for (let entry = 0; entry < count; entry++) {
     const internalId = docIds[entry]
     if (hasDeleted && deletedDocs.has(internalId)) continue
     if (searchable[fieldNameIndices[entry]] !== 1) continue
-    if (hasScore(buffer, internalId)) addScore(buffer, internalId, entryScore(scan, entry, internalId))
+    if (hasScore(buffer, internalId)) addScore(buffer, internalId, samePairEntryScore(scan, entry, internalId))
     else if (markCounted(buffer, internalId)) counted++
   }
   return counted
 }
 
-function queryOrderScore(scans: TermScan[], internalId: number): number {
+function fieldPairScoreKnownDocuments(scan: TermScan, buffer: ScoreBuffer): number {
+  const { docIds, fieldNameIndices, deletedDocs, hasDeleted, count } = scan.columns
+  const searchable = scan.fields.searchable
+  let counted = 0
+  for (let entry = 0; entry < count; entry++) {
+    const internalId = docIds[entry]
+    if (hasDeleted && deletedDocs.has(internalId)) continue
+    if (searchable[fieldNameIndices[entry]] !== 1) continue
+    if (hasScore(buffer, internalId)) addScore(buffer, internalId, fieldPairEntryScore(scan, entry, internalId))
+    else if (markCounted(buffer, internalId)) counted++
+  }
+  return counted
+}
+
+function firstEntryOf(docIds: PostingColumns['docIds'], count: number, internalId: number): number {
+  let low = 0
+  let high = count
+  while (low < high) {
+    const middle = (low + high) >>> 1
+    if (docIds[middle] < internalId) low = middle + 1
+    else high = middle
+  }
+  return low
+}
+
+function samePairQueryOrderScore(scans: TermScan[], internalId: number): number {
   let score = 0
   for (const scan of scans) {
     const { docIds, deletedDocs, hasDeleted, count } = scan.columns
     if (hasDeleted && deletedDocs.has(internalId)) continue
-    let low = 0
-    let high = count
-    while (low < high) {
-      const middle = (low + high) >>> 1
-      if (docIds[middle] < internalId) low = middle + 1
-      else high = middle
-    }
-    for (let entry = low; entry < count && docIds[entry] === internalId; entry++) {
+    for (let entry = firstEntryOf(docIds, count, internalId); entry < count && docIds[entry] === internalId; entry++) {
       if (scan.fields.searchable[scan.columns.fieldNameIndices[entry]] !== 1) continue
-      score += entryScorerOf(scan)(scan, entry, internalId)
+      score += samePairEntryScore(scan, entry, internalId)
     }
   }
   return score
 }
 
+function fieldPairQueryOrderScore(scans: TermScan[], internalId: number): number {
+  let score = 0
+  for (const scan of scans) {
+    const { docIds, deletedDocs, hasDeleted, count } = scan.columns
+    if (hasDeleted && deletedDocs.has(internalId)) continue
+    for (let entry = firstEntryOf(docIds, count, internalId); entry < count && docIds[entry] === internalId; entry++) {
+      if (scan.fields.searchable[scan.columns.fieldNameIndices[entry]] !== 1) continue
+      score += fieldPairEntryScore(scan, entry, internalId)
+    }
+  }
+  return score
+}
+
+const SAME_PAIR_SCORER: ScanScorer = {
+  upperBound: samePairUpperBound,
+  scoreEveryDocument: samePairScoreEveryDocument,
+  scoreKnownDocumentsAndCountTheRest: samePairScoreKnownDocuments,
+  queryOrderScore: samePairQueryOrderScore,
+}
+
+const FIELD_PAIR_SCORER: ScanScorer = {
+  upperBound: fieldPairUpperBound,
+  scoreEveryDocument: fieldPairScoreEveryDocument,
+  scoreKnownDocumentsAndCountTheRest: fieldPairScoreKnownDocuments,
+  queryOrderScore: fieldPairQueryOrderScore,
+}
+
 function pageFromBuffer(
+  scorer: ScanScorer,
   scans: TermScan[],
   buffer: ScoreBuffer,
   selection: Float64Array,
@@ -186,7 +269,7 @@ function pageFromBuffer(
     if (scores[internalId] < gatherFrom) continue
     const externalId = resolver.toExternal(internalId)
     if (externalId === undefined) continue
-    const score = queryOrderScore(scans, internalId)
+    const score = scorer.queryOrderScore(scans, internalId)
     if (full && score < threshold) continue
     const candidate: TopKCandidate = { internalId, externalId, score }
     if (!full) {
@@ -221,6 +304,10 @@ export function multiTermTopK(request: MultiTermScanRequest): InternalSearchResu
   const { terms, docFrequencies, totalDocs, limit, fields, resolver, buffer } = request
   if (!boostsKeepScoresNonNegative(fields)) return null
 
+  const onePair = fields.boundPairs.length === 2
+  const scorer = onePair ? SAME_PAIR_SCORER : FIELD_PAIR_SCORER
+  const k1 = onePair ? fields.boundPairs[0] : 0
+  const b = onePair ? fields.boundPairs[1] : 0
   const scans: TermScan[] = new Array(terms.length)
   for (let term = 0; term < terms.length; term++) {
     const idf = computeIDF(docFrequencies[term], totalDocs)
@@ -230,15 +317,14 @@ export function multiTermTopK(request: MultiTermScanRequest): InternalSearchResu
       idf,
       scoresAreZero: totalDocs === 0,
       fields,
-      onePair: fields.boundPairs.length === 2,
-      k1: fields.boundPairs[0],
-      b: fields.boundPairs[1],
+      k1,
+      b,
     }
   }
 
   const maxBoost = bestSearchable(fields.searchable, fields.boosts)
   const maxAverageLength = bestSearchable(fields.searchable, fields.averageLengths)
-  const upperBounds = scans.map((scan, term) => termUpperBound(scan, terms[term].list, maxBoost, maxAverageLength))
+  const upperBounds = scans.map((scan, term) => scorer.upperBound(scan, terms[term].list, maxBoost, maxAverageLength))
   const order = scans.map((_, term) => term).sort((left, right) => upperBounds[right] - upperBounds[left])
   const remainingBound = new Float64Array(order.length + 1)
   for (let position = order.length - 1; position >= 0; position--) {
@@ -254,15 +340,15 @@ export function multiTermTopK(request: MultiTermScanRequest): InternalSearchResu
       const threshold = kthBestScore(buffer, selection, resolver)
       if (remaining < threshold - threshold * PRUNING_REJECTION_SLACK) break
     }
-    scoreEveryDocument(scans[order[position]], buffer)
+    scorer.scoreEveryDocument(scans[order[position]], buffer)
   }
 
   let countedOnly = 0
   for (let rest = position; rest < order.length; rest++) {
-    countedOnly += scoreKnownDocumentsAndCountTheRest(scans[order[rest]], buffer)
+    countedOnly += scorer.scoreKnownDocumentsAndCountTheRest(scans[order[rest]], buffer)
   }
 
   const totalMatched = buffer.touchedCount + countedOnly
   if (wanted === 0) return { scored: [], totalMatched }
-  return { scored: pageFromBuffer(scans, buffer, selection, resolver), totalMatched }
+  return { scored: pageFromBuffer(scorer, scans, buffer, selection, resolver), totalMatched }
 }
