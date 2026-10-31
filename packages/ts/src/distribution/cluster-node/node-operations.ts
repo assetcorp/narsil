@@ -6,7 +6,7 @@ import { changeClusterAnalysis } from './analysis-change/request'
 import { replaceClusterBm25 } from './bm25-change'
 import { clearCluster } from './clear'
 import { awaitDropAcknowledgement, awaitTornDownCopy } from './drop-acknowledgement'
-import { refuseHiddenGeneration } from './generation-routing'
+import { leftOutAPartition, readFollowingTheName, refuseHiddenGeneration, servingNameOf } from './generation-routing'
 import type { ClusterLocalEngine } from './local-engine'
 import {
   type ClusterReadDeps,
@@ -93,6 +93,15 @@ export function createClusterNodeOperations(deps: ClusterNodeOperationDeps): Clu
     return trackOp(indexName, async () => fn(await deps.servingName(indexName)))
   }
 
+  const names = {
+    servingName: deps.servingName,
+    liveServingName: (indexName: string) => servingNameOf(coordinator, indexName),
+  }
+
+  function read<T>(indexName: string, fn: (servingName: string) => Promise<T>): Promise<T> {
+    return trackOp(indexName, () => readFollowingTheName(names, indexName, fn))
+  }
+
   return {
     async createIndex(name, indexConfig, options?: CreateIndexOptions) {
       refuseHiddenGeneration(name)
@@ -162,19 +171,19 @@ export function createClusterNodeOperations(deps: ClusterNodeOperationDeps): Clu
     },
 
     async countDocuments(indexName) {
-      return served(indexName, name => countCluster(readDeps, name))
+      return read(indexName, name => countCluster(readDeps, name))
     },
 
     async listDocuments(indexName, params?) {
-      return served(indexName, name => listCluster(readDeps, name, params ?? {}))
+      return read(indexName, name => listCluster(readDeps, name, params ?? {}))
     },
 
     async suggest(indexName, params) {
-      return served(indexName, name => suggestCluster(readDeps, name, params))
+      return read(indexName, name => suggestCluster(readDeps, name, params))
     },
 
     async preflight(indexName, params) {
-      return served(indexName, name => preflightCluster(readDeps, name, params, indexName))
+      return read(indexName, name => preflightCluster(readDeps, name, params, indexName))
     },
 
     async rebuildAnalysis(indexName) {
@@ -207,11 +216,11 @@ export function createClusterNodeOperations(deps: ClusterNodeOperationDeps): Clu
     },
 
     async getStats(indexName) {
-      return served(indexName, name => statsCluster(readDeps, name))
+      return read(indexName, name => statsCluster(readDeps, name))
     },
 
     async getPartitionStats(indexName) {
-      return served(indexName, name => partitionStatsCluster(readDeps, name))
+      return read(indexName, name => partitionStatsCluster(readDeps, name))
     },
 
     async checkpoint(indexName) {
@@ -231,19 +240,26 @@ export function createClusterNodeOperations(deps: ClusterNodeOperationDeps): Clu
     },
 
     async query<T = AnyDocument>(indexName: string, params: QueryParams): Promise<QueryResult<T>> {
-      return served(indexName, name => queryCluster<T>(readDeps, name, params, indexName))
+      return trackOp(indexName, () =>
+        readFollowingTheName(
+          names,
+          indexName,
+          name => queryCluster<T>(readDeps, name, params, indexName),
+          answer => leftOutAPartition(answer.coverage),
+        ),
+      )
     },
 
     async get(indexName, docId) {
-      return served(indexName, async name => (await readClusterDocuments(readDeps, name, [docId])).get(docId))
+      return read(indexName, async name => (await readClusterDocuments(readDeps, name, [docId])).get(docId))
     },
 
     async getMultiple(indexName, docIds) {
-      return served(indexName, name => readClusterDocuments(readDeps, name, docIds))
+      return read(indexName, name => readClusterDocuments(readDeps, name, docIds))
     },
 
     async has(indexName, docId) {
-      return served(indexName, async name => (await readClusterDocuments(readDeps, name, [docId])).has(docId))
+      return read(indexName, async name => (await readClusterDocuments(readDeps, name, [docId])).has(docId))
     },
   }
 }

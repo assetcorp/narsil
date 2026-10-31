@@ -238,6 +238,13 @@ export interface IndexMetadataSnapshot {
   settings: IndexSettings | undefined
 }
 
+export function indexMetadataSnapshotOf(bytes: Uint8Array, indexName: string): IndexMetadataSnapshot {
+  const decoded = decode(bytes)
+  const record = validateDecodedMetadata(decoded, indexName)
+  const rawSettings = isRecord(decoded) ? decoded.settings : undefined
+  return { bytes, record, settings: decodeIndexSettings(rawSettings, indexName) }
+}
+
 export async function readIndexMetadataSnapshot(
   coordinator: ClusterCoordinator,
   indexName: string,

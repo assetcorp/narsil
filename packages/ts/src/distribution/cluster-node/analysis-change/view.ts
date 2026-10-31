@@ -1,6 +1,10 @@
 import { ErrorCodes, NarsilError } from '../../../errors'
 import type { NamedAnalysisSettings } from '../../../types/internal'
-import { type IndexMetadataSnapshot, readIndexMetadataSnapshot } from '../../cluster/index-metadata'
+import {
+  type IndexMetadataSnapshot,
+  indexMetadataSnapshotOf,
+  readIndexMetadataSnapshot,
+} from '../../cluster/index-metadata'
 import type { IndexSettings } from '../../cluster/index-settings'
 import type { ClusterCoordinator } from '../../coordinator/types'
 import type { ClusterLocalEngine } from '../local-engine'
@@ -137,6 +141,11 @@ export function createAnalysisView(deps: AnalysisViewDeps): AnalysisView {
         if (event.metadata === null) {
           held.delete(event.indexName)
           return
+        }
+        try {
+          recordGeneration(event.indexName, indexMetadataSnapshotOf(event.metadata, event.indexName))
+        } catch (error) {
+          onError(error)
         }
         void settle(event.indexName)
       })
