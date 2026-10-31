@@ -96,6 +96,7 @@ export async function preflightCluster(
   deps: ClusterReadDeps,
   indexName: string,
   params: QueryParams,
+  settingName: string,
 ): Promise<PreflightResult> {
   const allocation = await routableAllocation(deps.config.coordinator, indexName)
   if (allocation === null) {
@@ -103,7 +104,7 @@ export async function preflightCluster(
   }
 
   const startTime = performance.now()
-  const { wireParams, indexBm25, carriesBm25 } = await bm25RoutingFor(deps, indexName, params)
+  const { wireParams, indexBm25, carriesBm25 } = await bm25RoutingFor(deps, settingName, params)
   const coordinator = deps.config.coordinator
   const routedAllocation = carriesBm25
     ? await allocationForBm25Query(indexName, allocation, () => coordinator.listNodes())
