@@ -9,6 +9,7 @@ import { MIN_OVERSAMPLE } from '../../vector/osq/constants'
 import type { VectorSearcher, VectorSearchOptions, VectorSearchOutcome } from '../../vector/vector-index'
 import { collectFilterSubsets, filterSubsetsMatchNothing, searchCurrentSubsets } from './filter-subsets'
 import {
+  bm25SettingFor,
   broadcastStatsForWorker,
   partitionsForVectorSearch,
   resolveVectorIndex,
@@ -126,6 +127,7 @@ export async function textLeg(textOnlyParams: QueryParams, context: SearchContex
       broadcastStatsForWorker(textOnlyParams, context, scoring),
       context.partitionIds,
       context.patternWork,
+      bm25SettingFor(textOnlyParams, context),
     )
     if (viaWorker) return viaWorker
   }
@@ -135,7 +137,7 @@ export async function textLeg(textOnlyParams: QueryParams, context: SearchContex
     language,
     config.schema,
     scoring,
-    searchOptionsFor(manager, context.patternWork),
+    searchOptionsFor(textOnlyParams, context),
   )
 }
 

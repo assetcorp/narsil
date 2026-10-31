@@ -5,6 +5,7 @@ import { detectRuntime } from '../../runtime/detect'
 import type { MainCopyQueries, NarsilConfig } from '../../types/config'
 import type { GlobalStatistics } from '../../types/internal'
 import type { MemoryStats, WorkerCopyReport } from '../../types/memory'
+import type { BM25Params } from '../../types/schema'
 import type { QueryParams } from '../../types/search'
 import type { VectorWorkerCopyPolicy } from '../../vector/vector-index/shared'
 import type { DirectExecutorExtensions } from '../../workers/direct-executor'
@@ -295,8 +296,9 @@ export function createWorkerOrchestrator(
       globalStats: GlobalStatistics | undefined,
       partitionIds: number[] | undefined,
       patternWork: SearchPatternWork,
+      bm25: BM25Params | undefined,
     ): Promise<FanOutResult | null> =>
-      searchViaWorker(state, indexName, params, globalStats, partitionIds, patternWork),
+      searchViaWorker(state, indexName, params, globalStats, partitionIds, patternWork, bm25),
     hasWorkerPool: (): boolean => state.workerPool !== null,
     mainCopyQueries: (): MainCopyQueries => state.mainCopyQueries ?? 'lone',
     shareMainThread: (): void => {

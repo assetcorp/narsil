@@ -1,3 +1,4 @@
+import { bm25SetsValue } from '../../core/scorer'
 import { DEFAULT_PAGE_SIZE } from '../../search/constants'
 import { hitsKeptPerGroup } from '../../search/grouping'
 import { clampRowCount } from '../../search/pagination'
@@ -22,6 +23,7 @@ export function wireParamsToLocal(wire: WireQueryParams, facetShardSize?: number
     fields: wire.fields ?? undefined,
     filters: wire.filters ?? undefined,
     boost: wire.boost ?? undefined,
+    bm25: wire.bm25 ?? undefined,
     scoring: wire.scoring,
     tolerance: wire.tolerance ?? undefined,
     minScore: wire.threshold ?? undefined,
@@ -119,7 +121,7 @@ export function ascendingFacetFields(facets: WireFacetField[] | null): ReadonlyS
 }
 
 export function localParamsToWire(params: QueryParams): WireQueryParams {
-  return {
+  const wire: WireQueryParams = {
     term: params.term ?? null,
     filters: (params.filters as Record<string, unknown> | undefined) ?? null,
     sort: convertLocalSortToWire(params.sort),
@@ -148,6 +150,8 @@ export function localParamsToWire(params: QueryParams): WireQueryParams {
     vector: convertLocalVectorToWire(params.vector),
     hybrid: convertLocalHybridToWire(params.hybrid),
   }
+  if (params.bm25 !== undefined && bm25SetsValue(params.bm25)) wire.bm25 = params.bm25
+  return wire
 }
 
 export function countIsExactFor(params: QueryParams): boolean {

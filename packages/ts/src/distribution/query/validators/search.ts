@@ -1,4 +1,5 @@
 import { isSortMode, SORT_MODES } from '../../../core/ordering'
+import { validateBM25Shape } from '../../../search/bm25-params'
 import { MAX_CURSOR_LENGTH, MAX_SORT_FIELDS } from '../../../search/constants'
 import { oversampledShardSize } from '../../../search/oversample'
 import { validateIndexName } from '../../cluster/index-metadata'
@@ -252,6 +253,9 @@ function validateParams(params: Record<string, unknown>): void {
   if (params.boost !== null) {
     validateBoostParams(params.boost)
   }
+
+  if (params.bm25 !== undefined && params.bm25 !== null) validateBM25Shape(params.bm25, 'settable')
+  if (params.indexBm25 !== undefined && params.indexBm25 !== null) validateBM25Shape(params.indexBm25, 'stored')
 
   if (params.tolerance !== null) {
     if (!isInteger(params.tolerance) || params.tolerance < 0 || params.tolerance > MAX_TOLERANCE) {

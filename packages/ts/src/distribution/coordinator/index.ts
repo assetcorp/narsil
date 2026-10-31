@@ -6,6 +6,8 @@ export type {
   AllocationEvent,
   AllocationTable,
   ClusterCoordinator,
+  IndexMetadataEvent,
+  IndexMetadataWatch,
   IndexPartitionBytes,
   NodeCapacity,
   NodeEvent,

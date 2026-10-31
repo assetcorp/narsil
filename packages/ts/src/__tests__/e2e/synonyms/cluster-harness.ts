@@ -112,7 +112,12 @@ export interface GarageCluster {
   readonly nodes: Map<string, ClusterNode>
   readonly transports: Map<string, NodeTransport>
   node(nodeId: string): ClusterNode
-  startNode(nodeId: string, roles: Array<'data' | 'coordinator' | 'controller'>, engine?: NarsilConfig): Promise<void>
+  startNode(
+    nodeId: string,
+    roles: Array<'data' | 'coordinator' | 'controller'>,
+    engine?: NarsilConfig,
+    coordinator?: ClusterCoordinator,
+  ): Promise<void>
   stopNode(nodeId: string): Promise<void>
   shutdown(): Promise<void>
 }
@@ -134,10 +139,10 @@ export async function startGarageCluster(nodeIds: readonly string[]): Promise<Ga
       if (found === undefined) throw new Error(`no node ${nodeId}`)
       return found
     },
-    async startNode(nodeId, roles, engine) {
+    async startNode(nodeId, roles, engine, coordinator) {
       const transport = createInMemoryTransport(nodeId, network)
       const node = await createClusterNode({
-        coordinator: watched.coordinator,
+        coordinator: coordinator ?? watched.coordinator,
         transport: recording(nodeId, transport, exchanges),
         address: `${nodeId}:9200`,
         nodeId,

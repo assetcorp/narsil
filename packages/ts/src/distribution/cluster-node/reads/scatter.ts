@@ -4,6 +4,7 @@ import type { AllocationTable } from '../../coordinator/types'
 import { sendToEveryPartition } from '../../query/failover'
 import { randomSelector, selectReplicasForQuery } from '../../query/selection'
 import type { TransportMessage } from '../../transport/types'
+import type { Bm25View } from '../bm25-view'
 import type { ClusterLocalEngine } from '../local-engine'
 import { readRejectionOf, refuseDecodeWithoutRoom, sendToNode } from '../node-messaging'
 import type { SearchContextRegistry } from '../search-contexts'
@@ -15,6 +16,7 @@ export interface ClusterReadDeps {
   engine: ClusterLocalEngine
   resolveNodeTargets: (targetNodeId: string) => Promise<string[]>
   searchContexts?: SearchContextRegistry
+  bm25View: Bm25View
 }
 
 export interface ScatterGroup {

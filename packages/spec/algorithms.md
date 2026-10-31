@@ -27,8 +27,8 @@ score(Q, D) = SUM over each query term qi of
 | `avgdl` | The average document length across every document |
 | `N` | The total number of documents |
 | `n(qi)` | Document frequency: how many documents contain `qi` |
-| `k1` | The term saturation parameter, 1.2 by default |
-| `b` | The length normalisation parameter, 0.75 by default |
+| `k1` | The term saturation parameter of the scored field, which [Parameter Levels](#parameter-levels) gives |
+| `b` | The length normalisation parameter of the scored field, which [Parameter Levels](#parameter-levels) gives |
 
 ### Inverse Document Frequency
 
@@ -47,7 +47,7 @@ total_score = SUM over each field f of
   boost(f) * BM25(Q, D, field = f)
 ```
 
-Each field uses its own `|D|`, the token count in that field, and its own `avgdl`, the average token count for that field across every document.
+Each field uses its own `|D|`, the token count in that field, its own `avgdl`, the average token count for that field across every document, and its own `k1` and `b`.
 
 ### Expanded Terms
 
@@ -79,10 +79,39 @@ An implementation must sum `tf` within each field, so that the combined term kee
 
 | Parameter | Default | Range | Effect |
 |-----------|---------|-------|--------|
-| `k1` | 1.2 | 0 or above | Controls how fast term frequency saturates |
+| `k1` | 1.2 | 0 to 1,000 | Controls how fast term frequency saturates |
 | `b` | 0.75 | 0 to 1 | Controls document length normalisation |
 
-A higher `k1` gives repeated terms more weight. A `b` of 0 applies no length normalisation, while a `b` of 1 applies it fully. A caller sets both for an index when it creates that index. An implementation must accept a `k1` that is finite and at or above 0 and a `b` from 0 to 1, and it must reject index creation with any other value.
+A higher `k1` gives repeated terms more weight. A `b` of 0 applies no length normalisation, while a `b` of 1 applies it fully.
+
+An implementation must reject with `CONFIG_INVALID` an index creation, a live change, or a search that gives a `k1` or a `b` outside these ranges or that is not a finite number. A reader must keep loading an index that already stores a value outside the ranges, because an earlier release accepted any finite `k1`. An implementation must leave that stored value in place until a caller replaces it, and it must not skip work by a bound under that value, because the bound can overflow.
+
+### Parameter Levels
+
+A caller can give the parameters at three levels, which all take this shape:
+
+```text
+BM25Params {
+  k1:     float64                      (optional)
+  b:      float64                      (optional)
+  fields: Map<string, BM25FieldParams> (optional)
+}
+
+BM25FieldParams {
+  k1: float64   (optional)
+  b:  float64   (optional)
+}
+```
+
+An implementation must find each of `k1` and `b` for a field separately, and it must take the first value that is set in this order: the search's value for the field, the search's value, the index's value for the field, the index's value, and the default. So a search that sets `k1` overrides an index's `k1` for a field, while that field keeps its own `b`.
+
+A key of `fields` must name a field whose type has the base `string` or `string[]`, because no other field holds BM25 terms. An implementation must reject any other name with `CONFIG_INVALID` on an index and with `SEARCH_INVALID_FIELD` on a search, and it must compare a name with the schema's own fields alone, so that a name such as `__proto__` is an unknown field like any other. An empty `BM25FieldParams` sets nothing, and a search whose `BM25Params` sets no value behaves as though it left `bm25` out.
+
+An implementation must validate the `bm25` of every search. A vector search scores no text, so its `bm25` changes no score, and a [hybrid](#reciprocal-rank-fusion) search applies its `bm25` to the keyword ranking alone.
+
+A caller changes the index's parameters on a live index, without a rebuild, because an implementation computes every score during the search from the term frequencies and the field lengths. A change replaces the whole setting, so a value that the change leaves out returns to its default, and an empty `BM25Params` clears the setting. An implementation must store the change before it answers, and a [recovered](durability.md#index-metadata) or restored index must hold the setting that the last change stored.
+
+Every copy of an index that answers one search must score that search under one setting. An implementation that skips work during a search must return the score that the formula gives for each result. Where the fields of a search have different parameters, a bound on a set of postings that mixes those fields must be the highest bound among those parameters.
 
 ### Edge Cases
 

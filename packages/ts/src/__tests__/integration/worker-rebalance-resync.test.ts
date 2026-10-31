@@ -15,7 +15,14 @@ const schema = { title: 'string' as const, category: 'string' as const }
 const indexConfig: IndexConfig = { schema, language: 'english' }
 
 function searchForWireless(orchestrator: WorkerOrchestrator): Promise<FanOutResult | null> {
-  return orchestrator.searchViaWorker('products', { term: 'wireless' }, undefined, undefined, createPatternWorkMeter())
+  return orchestrator.searchViaWorker(
+    'products',
+    { term: 'wireless' },
+    undefined,
+    undefined,
+    createPatternWorkMeter(),
+    undefined,
+  )
 }
 
 async function answeredByCopy(orchestrator: WorkerOrchestrator): Promise<FanOutResult | null> {
