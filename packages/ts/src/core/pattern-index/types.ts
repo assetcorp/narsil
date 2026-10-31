@@ -50,6 +50,8 @@ export interface PatternWorkMeter {
   readonly flushUnits: number
   add(units: number): void
   remaining(): number
+  readonly preparedTypoTests: SharedArrayBuffer | null
+  readonly filters: FilterExpression | undefined
   readonly clock: SearchClock | undefined
 }
 
