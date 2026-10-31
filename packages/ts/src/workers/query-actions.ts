@@ -22,7 +22,8 @@ export async function runQueryAction(entry: QueryActionEntry, action: QueryActio
   const loadingPhraseCode = loadPhraseCodeFor(action.params.term)
   if (loadingPhraseCode !== null) await loadingPhraseCode
   const patternWork = joinPatternWorkMeter(action.patternWork, action.params.filters)
-  const searchOptions = { ...entry.searchOptions, patternWork }
+  const bm25Params = action.type === 'query' ? (action.bm25 ?? undefined) : entry.config.bm25
+  const searchOptions = { ...entry.searchOptions, patternWork, bm25Params }
   if (action.type === 'query') {
     const result: FanOutResult = await fanOutQuery(
       entry.manager,

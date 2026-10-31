@@ -1,3 +1,4 @@
+import type { BM25Params } from '../../types/schema'
 import type { SortField as QuerySortField } from '../../types/search'
 
 export interface SortField {
@@ -73,6 +74,8 @@ export interface WireQueryParams {
   partialWords: boolean | null
   exact: boolean | null
   pinned: WirePinnedEntry[] | null
+  bm25?: BM25Params | null
+  indexBm25?: BM25Params | null
   mode: 'fulltext' | 'vector' | 'hybrid' | null
   vector: WireVectorQueryParams | null
   hybrid: WireHybridConfig | null

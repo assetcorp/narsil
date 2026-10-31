@@ -30,6 +30,7 @@ describe('the executor a worker runs searches under the analysis its index confi
       params: { term: 'the' },
       requestId: reqId(),
       patternWork: patternWork(),
+      bm25: null,
     })
 
     expect(result.scored.map(hit => hit.docId)).toEqual(['doc-1'])
@@ -45,6 +46,7 @@ describe('the executor a worker runs searches under the analysis its index confi
       params: { term: 'machine' },
       requestId: reqId(),
       patternWork: patternWork(),
+      bm25: null,
     })
 
     expect(result.scored).toEqual([])
@@ -81,6 +83,7 @@ describe('the executor a worker runs searches under the analysis its index confi
       params: { term: 'z' },
       requestId: reqId(),
       patternWork: patternWork(),
+      bm25: null,
     })
 
     expect(result.scored).toEqual([])
@@ -91,6 +94,7 @@ describe('the executor a worker runs searches under the analysis its index confi
       params: { term: 'm' },
       requestId: reqId(),
       patternWork: patternWork(),
+      bm25: null,
     })
 
     expect(found.scored.map(hit => hit.docId)).toEqual(['doc-1'])
@@ -107,6 +111,7 @@ describe('the executor a worker runs searches under the analysis its index confi
       params: { term: 'the' },
       requestId: reqId(),
       patternWork: patternWork(),
+      bm25: null,
     })
 
     expect(result.scored.map(hit => hit.docId)).toEqual(['doc-1'])

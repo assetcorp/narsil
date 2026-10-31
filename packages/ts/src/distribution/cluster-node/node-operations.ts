@@ -2,6 +2,7 @@ import type { QueryResult } from '../../types/results'
 import type { AnyDocument } from '../../types/schema'
 import type { QueryParams } from '../../types/search'
 import type { ClusterCoordinator } from '../coordinator/types'
+import { replaceClusterBm25 } from './bm25-change'
 import { clearCluster } from './clear'
 import { awaitDropAcknowledgement, awaitTornDownCopy } from './drop-acknowledgement'
 import { refuseHiddenGeneration } from './generation-routing'
@@ -47,6 +48,7 @@ export type ClusterNodeOperations = Pick<
   | 'dropIndex'
   | 'updateSynonyms'
   | 'getSynonyms'
+  | 'updateBM25'
   | 'clear'
   | 'countDocuments'
   | 'listDocuments'
@@ -147,6 +149,11 @@ export function createClusterNodeOperations(deps: ClusterNodeOperationDeps): Clu
       return trackOp(indexName, () => readClusterSynonyms(coordinator, indexName))
     },
 
+    async updateBM25(indexName, bm25) {
+      refuseHiddenGeneration(indexName)
+      return trackOp(indexName, () => replaceClusterBm25(coordinator, readDeps.bm25View, indexName, bm25))
+    },
+
     async clear(indexName) {
       return served(indexName, name => clearCluster(readDeps, writeDeps, name))
     },
@@ -164,7 +171,7 @@ export function createClusterNodeOperations(deps: ClusterNodeOperationDeps): Clu
     },
 
     async preflight(indexName, params) {
-      return served(indexName, name => preflightCluster(readDeps, name, params))
+      return served(indexName, name => preflightCluster(readDeps, name, params, indexName))
     },
 
     async rebuildAnalysis(indexName) {
@@ -207,7 +214,7 @@ export function createClusterNodeOperations(deps: ClusterNodeOperationDeps): Clu
     },
 
     async query<T = AnyDocument>(indexName: string, params: QueryParams): Promise<QueryResult<T>> {
-      return served(indexName, name => queryCluster<T>(readDeps, name, params))
+      return served(indexName, name => queryCluster<T>(readDeps, name, params, indexName))
     },
 
     async get(indexName, docId) {

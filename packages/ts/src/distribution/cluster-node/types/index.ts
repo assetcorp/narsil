@@ -11,3 +11,4 @@ export type {
   NodeReadiness,
 } from './config'
 export type { ClusterNode } from './node'
+export type { ClusterNodeSearchSettings } from './search-settings'

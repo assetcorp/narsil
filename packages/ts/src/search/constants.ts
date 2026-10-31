@@ -1,5 +1,6 @@
 export const RESULT_WINDOW = 10_000
 export const DEFAULT_PAGE_SIZE = 10
+export const BM25_DISPLAYED_NAME_LENGTH = 64
 
 export const MAX_CURSOR_LENGTH = 40_960
 export const MAX_SORT_FIELDS = 8

@@ -134,7 +134,6 @@ export function createDirectExecutor(
       config,
       language,
       searchOptions: {
-        bm25Params: config.bm25,
         stopWords: manager.analysis.stopWords,
         customTokenizer: manager.analysis.customTokenizer,
         get synonyms() {
@@ -292,6 +291,12 @@ export function createDirectExecutor(
       case 'replaceSynonyms': {
         const entry = indexes.get(action.indexName)
         if (entry !== undefined) entry.manager.synonyms = lookupOf(entry.config, entry.language, action.synonyms)
+        return undefined as T
+      }
+
+      case 'replaceBm25': {
+        const entry = indexes.get(action.indexName)
+        if (entry !== undefined) entry.config.bm25 = action.bm25
         return undefined as T
       }
 

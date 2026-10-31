@@ -30,6 +30,7 @@ export type {
   PersistenceAdapter,
   RerankAdapter,
 } from './types/adapters'
+export type { BM25Operations } from './types/bm25-operations'
 export type {
   AnalysisConfig,
   DurabilityConfig,
@@ -87,6 +88,7 @@ export type {
 } from './types/results'
 export type {
   AnyDocument,
+  BM25FieldParams,
   BM25Params,
   CustomTokenizer,
   EmbeddingFieldConfig,

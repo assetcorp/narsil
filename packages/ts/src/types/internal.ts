@@ -1,5 +1,5 @@
 import type { GroupSynonyms } from '../core/synonyms/types'
-import type { PartitionConfig, ScoringMode, VectorIndexConfig } from './schema'
+import type { BM25FieldParams, PartitionConfig, ScoringMode, VectorIndexConfig } from './schema'
 
 export interface PostingEntry {
   docId: string
@@ -137,7 +137,7 @@ export interface IndexMetadata {
   schema: Record<string, string>
   language: string
   partitionCount: number
-  bm25Params: { k1: number; b: number }
+  bm25Params: { k1: number; b: number; fields?: Record<string, BM25FieldParams> }
   createdAt: number
   engineVersion: string
   vectorFields?: Record<string, { dimension: number; metric: string; quantization: string }>
