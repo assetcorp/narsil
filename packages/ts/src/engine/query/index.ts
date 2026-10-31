@@ -22,6 +22,7 @@ import {
   coverageFor,
   type QueryContext,
   requireKnownMode,
+  requireUsablePhrases,
   requireVectorSearchable,
   type SearchContext,
   scoringConfigFor,
@@ -91,6 +92,7 @@ async function runQuery<T>(request: QueryParams, callerContext: QueryContext): P
 
   const params = validQueryParams(request, config)
   requireVectorSearchable(params, context, isVectorOnly || isHybridMode)
+  if (!isVectorOnly) requireUsablePhrases(params, context)
   const projection = resolveProjection(params.document)
 
   let paginated: Array<Hit<T>>
@@ -304,6 +306,7 @@ export async function executePreflight(request: QueryParams, callerContext: Quer
   const isVectorOnly = (params.mode === 'vector' || (hasVector && !hasTerm)) && !isHybridMode
 
   requireVectorSearchable(params, context, isVectorOnly || isHybridMode)
+  if (!isVectorOnly) requireUsablePhrases(params, context)
 
   const requestedVectorField = params.vector?.field
   const hasGlobalVectorIndex =

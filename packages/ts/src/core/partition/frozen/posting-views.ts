@@ -68,6 +68,10 @@ export function createFrozenPostingViews(
         if (positionOffsets === null) return 0
         return positionOffsets[start + row + 1] - positionOffsets[start + row]
       },
+      positionStore: positionValues,
+      positionStartAt(row: number): number {
+        return positionOffsets === null ? 0 : positionOffsets[start + row]
+      },
       docIdSet: {
         get size(): number {
           return counts.documentFrequency(sortedIndex)

@@ -21,6 +21,8 @@ const QUERY_REJECTION_CODES: ReadonlySet<string> = new Set([
   ErrorCodes.SEARCH_INVALID_CURSOR,
   ErrorCodes.SEARCH_RESULT_WINDOW_EXCEEDED,
   ErrorCodes.SEARCH_WORK_CAP_EXCEEDED,
+  ErrorCodes.SEARCH_INVALID_PHRASE,
+  ErrorCodes.SEARCH_PHRASE_NOT_READY,
   ErrorCodes.VECTOR_DIMENSION_MISMATCH,
   ErrorCodes.CONFIG_INVALID,
 ])
@@ -41,6 +43,11 @@ export function nodeRejectionOf(
 export function markNodeRejection(error: NarsilError): NarsilError {
   nodeRejections.add(error)
   return error
+}
+
+export function rethrowAsRefusal(error: unknown): never {
+  if (error instanceof NarsilError && QUERY_REJECTION_CODES.has(error.code)) markNodeRejection(error)
+  throw error
 }
 
 export function isNodeRejection(error: unknown): boolean {

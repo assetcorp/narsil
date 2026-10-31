@@ -1,3 +1,4 @@
+import { ARRAY_POSITION_GAP } from '../core/constants'
 import { requirePartialWordSearchFor } from '../core/partition/partial-words/registry'
 import { requirePatternSearchFor } from '../core/pattern-index/registry'
 import { ErrorCodes, NarsilError } from '../errors'
@@ -149,6 +150,7 @@ export async function createEngineIndex(
     documentCount: 0,
     partitionCount: indexConfig.partitions?.maxPartitions ?? 1,
     analysisRevision: language.revision,
+    arrayPositionGap: ARRAY_POSITION_GAP,
     synonyms: synonyms?.encoded ?? null,
   })
   await core.indexState.registerOpen(name)

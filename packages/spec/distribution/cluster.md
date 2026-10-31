@@ -177,7 +177,7 @@ NodeRegistration {
     diskBytes:   uint64 or absent
   }
   startedAt: string          (ISO 8601 timestamp)
-  version:   string          (specification version, such as '1.0')
+  version:   string          (specification version, such as '1.1')
   memory: {
     processBytes:      uint64
     processLimitBytes: uint64
@@ -217,7 +217,7 @@ The ISO 8601 timestamp of when the node started. It serves diagnostics, and it b
 
 ### version
 
-The specification version the node follows. Nodes on incompatible versions must not share a cluster, so the controller places no partition on a node whose major version differs from its own, and it treats a version that it cannot parse as a different major version. A node that finds an active controller on a different major version as it joins must fail its start with `NODE_VERSION_INCOMPATIBLE`. A node that finds no active controller joins, and the controller that a later election chooses keeps it out of allocation where the major versions differ.
+The specification version the node follows, which is 1.1 for this specification. A node must register the version that it follows, because a minor version can add a capability that a coordinator has to check before it sends a query, as [Phrase Queries](query-routing.md#phrase-queries) does. Nodes on incompatible versions must not share a cluster, so the controller places no partition on a node whose major version differs from its own, and it treats a version that it cannot parse as a different major version. A node that finds an active controller on a different major version as it joins must fail its start with `NODE_VERSION_INCOMPATIBLE`. A node that finds no active controller joins, and the controller that a later election chooses keeps it out of allocation where the major versions differ.
 
 ### memory
 

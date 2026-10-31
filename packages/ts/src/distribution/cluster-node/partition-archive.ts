@@ -1,4 +1,5 @@
 import { decode } from '@msgpack/msgpack'
+import { arrayPositionsAreStale, storedArrayPositionGap } from '../../engine/array-positions'
 import type { EngineCore } from '../../engine/core'
 import { indexMetadataOf } from '../../engine/durability-metadata'
 import { encodeIndexConfiguration } from '../../engine/snapshot/index-configuration'
@@ -92,6 +93,7 @@ function requireRestoreTarget(indexName: string, partitionId: number, partitionC
 interface ReceivedArchive {
   language: string
   analysisRevision: string | null
+  arrayPositionGap: number | null
   manifest: SegmentManifest
   store: CheckpointStore
 }
@@ -105,6 +107,7 @@ async function receiveArchive(
   const store = memoryCheckpointStore()
   let language = ''
   let analysisRevision: string | null = null
+  let arrayPositionGap: number | null = null
   let received: SegmentManifest | null = null
   await readSnapshotArchive(createByteReader(source), {
     config: async bytes => {
@@ -113,10 +116,11 @@ async function receiveArchive(
         what: 'index configuration',
         allowsCompression: true,
       })
-      const raw = decode(payload) as { language?: unknown; analysisRevision?: unknown }
+      const raw = decode(payload) as { language?: unknown; analysisRevision?: unknown; arrayPositionGap?: unknown }
       if (typeof raw.language !== 'string') restoreFailed('partition archive names no language', { indexName })
       language = raw.language
       analysisRevision = typeof raw.analysisRevision === 'string' ? raw.analysisRevision : null
+      arrayPositionGap = storedArrayPositionGap(raw.arrayPositionGap)
     },
     manifest: async (manifest, sourceName) => {
       const listed = manifest.partitions.map(partition => partition.partitionId)
@@ -143,7 +147,7 @@ async function receiveArchive(
     file: async (name, _ref, bytes) => store.write(`${indexName}/${name}`, [bytes]),
   })
   if (received === null) restoreFailed('partition archive holds no manifest', { indexName, partitionId })
-  return { language, analysisRevision, manifest: received, store }
+  return { language, analysisRevision, arrayPositionGap, manifest: received, store }
 }
 
 async function replacePartition(
@@ -194,12 +198,21 @@ async function replacePartition(
   }
 }
 
-function recordReceivedAnalysis(core: EngineCore, indexName: string, receivedRevision: string | null): void {
+function recordReceivedAnalysis(
+  core: EngineCore,
+  indexName: string,
+  receivedRevision: string | null,
+  receivedGap: number | null,
+): void {
   const entry = core.requireIndex(indexName)
   const current = entry.language.revision
-  if (receivedRevision === current) return
-  entry.analysisRevision =
-    entry.analysisRevision === current || entry.analysisRevision === receivedRevision ? receivedRevision : null
+  const staleGap = arrayPositionsAreStale(entry.config, receivedGap)
+  if (receivedRevision === current && !staleGap) return
+  if (staleGap) entry.arrayPositionGap = null
+  if (receivedRevision !== current) {
+    entry.analysisRevision =
+      entry.analysisRevision === current || entry.analysisRevision === receivedRevision ? receivedRevision : null
+  }
   core.analysisRebuild.markStale({
     indexName,
     language: entry.language.name,
@@ -244,7 +257,7 @@ export async function restoreReplicationPartition(
     const wasScaledOut = core.orchestrator.desyncIndex(indexName)
     try {
       await replacePartition(core.requireManager(indexName), partitionId, archive, writeRecords)
-      recordReceivedAnalysis(core, indexName, archive.analysisRevision)
+      recordReceivedAnalysis(core, indexName, archive.analysisRevision, archive.arrayPositionGap)
     } finally {
       await core.orchestrator.resyncIndex(indexName, wasScaledOut)
     }

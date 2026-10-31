@@ -199,6 +199,88 @@ An implementation must store the set with its index, as the [index metadata payl
 
 ---
 
+## Phrase Search
+
+A caller marks a phrase by putting words inside double quotes in a query's `term`, as in `"olive oil" pasta`. A document matches a phrase when one of its fields holds the phrase's words at the same distances apart as in the phrase. Specification version 1.1 adds phrase search.
+
+### Quote Syntax
+
+U+0022, U+201C, U+201D, and U+201E are the quote characters, so `"olive oil"`, `“olive oil”`, `”olive oil”`, and `„olive oil“` all mark one phrase. Any of the four opens a phrase, and any of the four closes it, so an implementation must read the term from left to right and switch between phrase and plain text at each one. There is no escape character. Where a phrase has no closing quote, the rest of the term is the phrase.
+
+An implementation must read the quotes before it analyses the term, so that a custom tokeniser never receives a quote character from a phrase query. It must treat the text outside the quotes as the query's words. A term that holds none of the four characters holds no phrase, and an implementation must search it exactly as if this section did not exist.
+
+### Analysis
+
+An implementation must analyse each phrase's text alone, with the language, the tokeniser, the stop words, and the stemming of the index. Because the tokeniser counts each removed stop word as a position, `"state of the art"` holds `state` at offset 0 and `art` at offset 3. The offset of a token is its position minus the position of the phrase's first token.
+
+An implementation must drop a phrase that analyses to no token, such as empty quotes or a phrase of stop words alone, and it must search the rest of the query. Where nothing remains, the query matches no document, as a term of stop words alone does. Two phrases with the same tokens at the same offsets count as one phrase for matching and scoring.
+
+### Limits
+
+The size of a phrase is its last token's position minus its first token's position, plus 1, so the size counts every stop word between the two. An implementation must raise `SEARCH_INVALID_PHRASE` for a phrase whose size or token count exceeds 32, and for a query that holds more than 32 phrases, counting each phrase that it did not drop. An implementation must apply both limits before it reads any posting.
+
+The size limit keeps every offset at or below 31, which is below the [array position gap](#array-position-gap). A phrase therefore cannot match words from two array items, whatever stop words it holds.
+
+An implementation must raise `SEARCH_INVALID_PHRASE` for a phrase on an index whose `trackPositions` setting is off, because that index holds no positions. A phrase that it drops raises no such error.
+
+### Matching
+
+A document must match every phrase in the query, and each phrase must match within one field, although two phrases may match in different fields. `fields` and `filters` apply to a phrase as they apply to a word. An implementation must match each token of a phrase in its stemmed form alone, with no typo tolerance, prefix completion, partial-word search, or synonyms, whatever the query sets for its words.
+
+The query's words match under `termMatch`, as they do in a query without a phrase, and a document that matches every phrase is a hit whether or not it holds any of those words, unless `termMatch` requires them. `termMatch` tests nothing in a query with no words. A word outside the quotes takes its typo matches, its completions, its added words, and its synonyms as usual, except that the last term of a prefix query is the last word only where no phrase that the implementation kept follows it.
+
+In a [hybrid](vector-index.md) query, a phrase constrains the keyword leg alone, while the vector leg ranks as it does in a query without a phrase, so a hybrid hit from the vector leg may lack the phrase.
+
+An implementation should start from the token that the fewest documents of a segment contain, so that it compares positions only in the documents that hold every token. It must read positions from a segment's arrays in place, and it must keep no copy of them once the search ends.
+
+### Phrase Scoring
+
+An implementation must add each phrase's score to the score that [BM25](#bm25-best-matching-25) gives the query's words, as Lucene's phrase scoring does:
+
+```text
+phraseScore(P, D) = SUM over each field f that holds P of
+  boost(f) * IDF(P) * (tf(P, f, D) * (k1 + 1))
+    / (tf(P, f, D) + k1 * (1 - b + b * |D| / avgdl))
+
+IDF(P) = SUM over each token t of P, counting a repeated token each time, of IDF(t)
+```
+
+`tf(P, f, D)` is the number of positions in field `f` of document `D` at which the phrase starts, so two overlapping matches count as two. An implementation must count it from the stored positions, without the cap of 65,535 that a stored term frequency takes. `|D|`, `avgdl`, `k1`, and `b` are those of field `f`, as [Multi-Field Scoring](#multi-field-scoring) defines them. `n(t)` is the document frequency of the token `t`, and a phrase of one token scores with that token's IDF.
+
+Under [DFS](#distributed-bm25) and statistics broadcast, an implementation must gather `n(t)` for each token of each phrase, as it does for a query term, and it needs no other statistic. It must add no typo match, completion, added word, or synonym of a phrase's token to those statistics.
+
+### Work Limit
+
+The limits above do not bound the positions that a search compares, because a phrase of common words can hold positions in many documents. An implementation must count one unit for each posting of its starting token that it visits, and one unit for each position that it compares with the position that the phrase needs. It must add those units to the work that [Limits and Matching](#limits-and-matching) counts, across every partition that it answers the search for, and it must raise `SEARCH_WORK_CAP_EXCEEDED` once the count exceeds the work cap. Those units count towards the [move threshold](partitioning.md#request-threads) of a request thread as well, so that a long phrase search moves off that thread. An implementation must count no such unit for a query that holds no phrase.
+
+### Array Position Gap
+
+An implementation must leave a gap of 100 positions between the items of a `string[]` field. It must compute the position of a token as follows, where `position` is the token's place inside its own item, counting from zero:
+
+```text
+offset = 0
+for each item of the array, in order:
+  stored position of each token = offset + position
+  when the item holds at least one token:
+    offset = offset + (the largest position in the item) + 1 + 100
+```
+
+The two items `['olive', 'oil']` hold `olive` at 0 and `oil` at 101. An item with no token takes no gap. A document holds at most 16,777,216 bytes, so it holds fewer than 8.4 million items with a token, and every position stays below 900 million, inside the 32-bit positions of a [keyword segment](envelope.md#keyword-segment-payload).
+
+An index records this gap in `array_position_gap`, as the [index metadata payload](envelope.md#index-metadata-payload) defines. An index that holds a `string[]` field and tracks positions holds stale terms where that value is absent or is not 100, and the engine must rebuild it from its stored documents, as it does for a [stale analysis revision](envelope.md#index-metadata-payload).
+
+While the terms of an index that holds a `string[]` field are stale, whatever made them stale, an implementation must refuse a query with a phrase by raising `SEARCH_PHRASE_NOT_READY`, because the index can hold positions without the gap. Where the index's rebuild setting leaves the rebuild to a caller, the message of that error must say that somebody has to start a rebuild. An index with no `string[]` field answers a phrase while its terms are stale, and it reports the stale terms as it does for any query.
+
+### Highlighting
+
+An implementation must highlight each token of a phrase as it highlights a query word, wherever the token occurs in the field, and it must apply no typo tolerance, prefix completion, partial-word search, or synonyms to that token.
+
+### Errors
+
+The HTTP status of `SEARCH_INVALID_PHRASE` is 400, and the HTTP status of `SEARCH_PHRASE_NOT_READY` is 503.
+
+---
+
 ## HNSW (Hierarchical Navigable Small World)
 
 HNSW answers approximate nearest-neighbour queries once the vector count passes the brute-force promotion threshold. [HNSW Promotion](vector-index.md#hnsw-promotion) defines the threshold and the promotion process.
@@ -858,7 +940,7 @@ An implementation must stop adding positions once the total passes 2,048, so tha
 
 An implementation must match without backtracking, so that it checks one value in at most as many steps as the value's code points multiplied by the pattern's positions, where one step tests one pattern position against one code point. It must hold at most 1 MB of matcher state for one search, so when a cache of matcher states fills, it may empty the cache and continue.
 
-An implementation must count the work of every test on a pattern field across every partition that it answers the search for, adding one unit for each run that it looks up in a pattern index, one unit for each shortlist entry that it reads, and one unit for each step. For a test from which it can take no run, it must count each document that it checks as a shortlist entry that it reads. It must count one step for each pattern position that a match can reach at each code point that it checks. It must count each literal test as the regular expression that it equals, such as `^text$` for `eq` and `text` for `contains`, with every metacharacter in the text escaped. It must count an `in` or a `nin` test as one `eq` test for each distinct value in its list, so the limit of 2,048 positions applies to each value on its own. It must stop the search and raise `SEARCH_WORK_CAP_EXCEEDED` once the count exceeds the work cap, which defaults to 25,000,000 units and which a caller may change through an engine setting.
+An implementation must count the work of every test on a pattern field across every partition that it answers the search for, adding one unit for each run that it looks up in a pattern index, one unit for each shortlist entry that it reads, and one unit for each step. For a test from which it can take no run, it must count each document that it checks as a shortlist entry that it reads. It must count one step for each pattern position that a match can reach at each code point that it checks. It must count each literal test as the regular expression that it equals, such as `^text$` for `eq` and `text` for `contains`, with every metacharacter in the text escaped. It must count an `in` or a `nin` test as one `eq` test for each distinct value in its list, so the limit of 2,048 positions applies to each value on its own. It must add the units that [Phrase Search](#work-limit) counts to the same count. It must stop the search and raise `SEARCH_WORK_CAP_EXCEEDED` once the count exceeds the work cap, which defaults to 25,000,000 units and which a caller may change through an engine setting.
 
 ### Pattern Index
 

@@ -160,6 +160,7 @@ async function searchCluster<T>(
     sourceNodeId: deps.nodeId,
     getAllocation: (idx: string) => deps.config.coordinator.getAllocation(idx),
     resolveNodeTargets: deps.resolveNodeTargets,
+    listNodes: () => deps.config.coordinator.listNodes(),
   }
   const distributed = await distributedQuery(
     indexName,

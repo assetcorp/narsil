@@ -5,6 +5,7 @@ import { tokenize } from '../../core/tokenizer'
 import { highlightField, type PartialWordHighlight } from '../../highlighting/highlighter'
 import { partialFieldsOf } from '../../schema/validator'
 import { DEFAULT_FUZZY_PREFIX_LENGTH } from '../../search/constants'
+import { analyseQueryPhrases, withWordsOnly } from '../../search/phrases'
 import type { LanguageModule } from '../../types/language'
 import type { HighlightMatch, Hit } from '../../types/results'
 import type { SchemaDefinition } from '../../types/schema'
@@ -17,8 +18,9 @@ interface PartialWordTagging {
   highlight: PartialWordHighlight
 }
 
-function writtenWordsOf(params: QueryParams, language: LanguageModule, analysis: ResolvedAnalysis): QueryToken[] {
-  return tokenize(params.term ?? '', language, {
+function writtenWordsOf(term: string, language: LanguageModule, analysis: ResolvedAnalysis): QueryToken[] {
+  if (term.trim().length === 0) return []
+  return tokenize(term, language, {
     stem: false,
     removeStopWords: true,
     customTokenizer: analysis.customTokenizer,
@@ -48,25 +50,31 @@ function partialWordTagging(
 
 export function applyHighlights<T>(
   hits: Array<Hit<T>>,
-  params: QueryParams,
+  request: QueryParams,
   language: LanguageModule,
   analysis: ResolvedAnalysis,
   schema: SchemaDefinition,
   readStoredDocument?: (docId: string) => Record<string, unknown> | undefined,
   synonymLookup?: SynonymLookup | null,
 ): void {
-  if (!params.highlight) return
+  if (!request.highlight) return
 
-  const queryTokenResult = tokenize(params.term ?? '', language, {
-    stem: true,
-    removeStopWords: true,
-    customTokenizer: analysis.customTokenizer,
-    stopWordOverride: analysis.stopWords,
-  })
-  const queryTokens = queryTokenResult.tokens
+  const quoted = analyseQueryPhrases(request.term ?? '', language, analysis)
+  const params = quoted === null ? request : withWordsOnly(request, quoted)
+  const words = params.term ?? ''
+  const highlightConfig = request.highlight
+  const queryTokens =
+    quoted !== null && words.trim().length === 0
+      ? []
+      : tokenize(words, language, {
+          stem: true,
+          removeStopWords: true,
+          customTokenizer: analysis.customTokenizer,
+          stopWordOverride: analysis.stopWords,
+        }).tokens
   const usesPrefix = params.prefix === true && params.exact !== true && queryTokens.length > 0
   const usesPartialWords = params.partialWords === true && params.exact !== true && queryTokens.length > 0
-  const written = usesPrefix || usesPartialWords ? writtenWordsOf(params, language, analysis) : []
+  const written = usesPrefix || usesPartialWords ? writtenWordsOf(words, language, analysis) : []
 
   let prefixToken: string | undefined
   let completedToken: string | undefined
@@ -81,13 +89,18 @@ export function applyHighlights<T>(
     }
   }
   const partialWords = usesPartialWords ? partialWordTagging(params, schema, queryTokens, written, analysis) : null
-  const synonyms = params.exact === true ? undefined : synonymLookup?.expand(queryTokens.map(qt => qt.token))?.tokens
+  const wordSynonyms =
+    params.exact === true || queryTokens.length === 0
+      ? undefined
+      : synonymLookup?.expand(queryTokens.map(qt => qt.token))?.tokens
+  const phraseTokens = quoted?.phrases.flatMap(phrase => phrase.tokens) ?? []
+  const synonyms = phraseTokens.length === 0 ? wordSynonyms : [...(wordSynonyms ?? []), ...phraseTokens]
 
   for (const hit of hits) {
     const highlights: Record<string, HighlightMatch> = {}
     const projected = hit.document as Record<string, unknown>
     let stored: Record<string, unknown> | undefined
-    for (const field of params.highlight.fields) {
+    for (const field of highlightConfig.fields) {
       let fieldValue = projected[field]
       if (typeof fieldValue !== 'string' && readStoredDocument !== undefined) {
         stored ??= readStoredDocument(hit.id)
@@ -95,9 +108,9 @@ export function applyHighlights<T>(
       }
       if (typeof fieldValue === 'string') {
         highlights[field] = highlightField(fieldValue, queryTokens, language, {
-          preTag: params.highlight.preTag,
-          postTag: params.highlight.postTag,
-          maxSnippetLength: params.highlight.maxSnippetLength,
+          preTag: highlightConfig.preTag,
+          postTag: highlightConfig.postTag,
+          maxSnippetLength: highlightConfig.maxSnippetLength,
           prefixToken,
           completedToken,
           tolerance: params.exact === true ? 0 : (params.tolerance ?? 0),
