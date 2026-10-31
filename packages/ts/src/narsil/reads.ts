@@ -1,4 +1,4 @@
-import { requirePhraseReady } from '../engine/array-positions'
+import { holdsStringArrayField } from '../engine/array-positions'
 import type { EngineCore } from '../engine/core'
 import { executeListDocuments } from '../engine/list-documents'
 import { yieldToEventLoop } from '../engine/orchestration/turn'
@@ -9,6 +9,7 @@ import { collectQueryTermStats } from '../partitioning/distributed-scoring'
 import type { StatsExpansion } from '../partitioning/expanded-tokens'
 import type { PartitionManager } from '../partitioning/manager/types'
 import { lazyQueryBinding } from '../search/cursor-binding'
+import { loadPhraseCodeFor, requireLoadedPhraseCode } from '../search/phrase-code'
 import type { GlobalStatistics } from '../types/internal'
 import type { ListResult, PreflightResult, QueryResult, SuggestResult } from '../types/results'
 import type { AnyDocument, IndexConfig } from '../types/schema'
@@ -41,8 +42,10 @@ async function readUnderOneAnalysis<R>(
 }
 
 function phraseReadinessOf(core: EngineCore, indexName: string, config: IndexConfig): () => void {
-  return () =>
-    requirePhraseReady(indexName, config, core.analysisRebuild.isStale(indexName), core.analysisRebuild.rebuildMode)
+  return () => {
+    if (!core.analysisRebuild.isStale(indexName) || !holdsStringArrayField(config.schema)) return
+    requireLoadedPhraseCode().refusePhraseUntilRebuilt(indexName, core.analysisRebuild.rebuildMode)
+  }
 }
 
 function scopedParams(params: QueryParams, options: ScopedReadOptions | undefined): QueryParams {
@@ -242,6 +245,8 @@ export async function runEngineQueryStats(
     const entry = core.requireIndex(indexName)
     const manager = core.requireManager(indexName)
     const term = terms.join(' ')
+    const loadingPhraseCode = loadPhraseCodeFor(term)
+    if (loadingPhraseCode !== null) await loadingPhraseCode
     const analysis = {
       stopWords: manager.analysis.stopWords,
       customTokenizer: manager.analysis.customTokenizer,

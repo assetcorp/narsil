@@ -2,8 +2,10 @@ import type { AnalysedPhrase, PostingListView } from '../../types/internal'
 import { bitsetHas, bitsetIsEmpty, bitsetSet, createBitSet } from '../bitset'
 import type { InvertedIndexReader } from '../inverted-index'
 import type { PatternWorkMeter } from '../pattern-index/types'
-import { PHRASE_ROWS_START } from './constants'
+import { PHRASE_ROWS_START, PHRASE_SORT_CLOCK_ROWS, PHRASE_SORT_RADIX_BITS } from './constants'
 import { GrowableUint32 } from './growable-uint32'
+
+const UINT32_BITS = 32
 
 interface TokenRows {
   list: PostingListView
@@ -58,10 +60,46 @@ class WorkTally {
   }
 }
 
-function sortedRowOrder(docIds: ArrayLike<number>, count: number): Uint32Array {
-  const order = new Uint32Array(count)
+function placeRowsByDigit(
+  docIds: ArrayLike<number>,
+  from: Uint32Array,
+  to: Uint32Array,
+  shift: number,
+  starts: Uint32Array,
+  tally: WorkTally,
+): void {
+  const count = from.length
+  const mask = starts.length - 1
+  starts.fill(0)
+  for (let row = 0; row < count; row++) starts[(docIds[row] >>> shift) & mask]++
+  let next = 0
+  for (let digit = 0; digit < starts.length; digit++) {
+    const held = starts[digit]
+    starts[digit] = next
+    next += held
+  }
+  for (let begin = 0; begin < count; begin += PHRASE_SORT_CLOCK_ROWS) {
+    const end = Math.min(count, begin + PHRASE_SORT_CLOCK_ROWS)
+    for (let at = begin; at < end; at++) {
+      const row = from[at]
+      to[starts[(docIds[row] >>> shift) & mask]++] = row
+    }
+    tally.tickClock(end - begin)
+  }
+}
+
+function sortedRowOrder(docIds: ArrayLike<number>, count: number, tally: WorkTally): Uint32Array {
+  let order = new Uint32Array(count)
   for (let row = 0; row < count; row++) order[row] = row
-  return order.sort((first, second) => docIds[first] - docIds[second])
+  let spare = new Uint32Array(count)
+  const starts = new Uint32Array(1 << PHRASE_SORT_RADIX_BITS)
+  for (let shift = 0; shift < UINT32_BITS; shift += PHRASE_SORT_RADIX_BITS) {
+    placeRowsByDigit(docIds, order, spare, shift, starts, tally)
+    const placed = spare
+    spare = order
+    order = placed
+  }
+  return order
 }
 
 function tokenRowsOf(list: PostingListView, tally: WorkTally): TokenRows | null {
@@ -72,8 +110,8 @@ function tokenRowsOf(list: PostingListView, tally: WorkTally): TokenRows | null 
   if (list.ordered) {
     return { list, keys: docIds, order: null, fields: list.fieldNameIndices, store, count, cursor: 0, positionRow: 0 }
   }
-  tally.tickClock(count)
-  const order = sortedRowOrder(docIds, count)
+  tally.add(count)
+  const order = sortedRowOrder(docIds, count, tally)
   const keys = new Uint32Array(count)
   for (let row = 0; row < count; row++) keys[row] = docIds[order[row]]
   return { list, keys, order, fields: list.fieldNameIndices, store, count, cursor: 0, positionRow: 0 }

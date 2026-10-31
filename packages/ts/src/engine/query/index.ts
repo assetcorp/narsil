@@ -8,6 +8,7 @@ import { decodePageCursor, requireMatchingCursor, sortSignatureOf } from '../../
 import type { CursorBinding } from '../../search/cursor-binding'
 import { applyGrouping } from '../../search/grouping'
 import { applyPagination, type PaginationSortContext, requireWithinResultWindow } from '../../search/pagination'
+import { loadPhraseCodeFor } from '../../search/phrase-code'
 import { placePinned } from '../../search/pinning'
 import { applySorting, normalizeSort, sortModesOf } from '../../search/sorting'
 import type { FacetResult, GroupResult, Hit, PreflightResult, QueryResult } from '../../types/results'
@@ -92,6 +93,8 @@ async function runQuery<T>(request: QueryParams, callerContext: QueryContext): P
 
   const params = validQueryParams(request, config)
   requireVectorSearchable(params, context, isVectorOnly || isHybridMode)
+  const loadingPhraseCode = loadPhraseCodeFor(params.term)
+  if (loadingPhraseCode !== null) await loadingPhraseCode
   if (!isVectorOnly) requireUsablePhrases(params, context)
   const projection = resolveProjection(params.document)
 
@@ -306,6 +309,8 @@ export async function executePreflight(request: QueryParams, callerContext: Quer
   const isVectorOnly = (params.mode === 'vector' || (hasVector && !hasTerm)) && !isHybridMode
 
   requireVectorSearchable(params, context, isVectorOnly || isHybridMode)
+  const loadingPhraseCode = loadPhraseCodeFor(params.term)
+  if (loadingPhraseCode !== null) await loadingPhraseCode
   if (!isVectorOnly) requireUsablePhrases(params, context)
 
   const requestedVectorField = params.vector?.field

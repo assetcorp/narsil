@@ -1,5 +1,5 @@
 import { ErrorCodes, NarsilError } from '../../errors'
-import { holdsQuotedText } from '../../search/phrases'
+import { holdsQuotedText } from '../../search/quotes'
 import { PHRASE_SEARCH_SPEC_VERSION, reachesVersion } from '../cluster/version'
 import type { AllocationTable, PartitionAssignment } from '../coordinator/types'
 import type { NodeRegistration } from '../coordinator/types/node'

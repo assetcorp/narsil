@@ -4,6 +4,7 @@ import { type FanOutResult, fanOutQuery } from '../partitioning/fan-out'
 import type { PartitionManager } from '../partitioning/manager'
 import { countsWithoutScores, fanOutMatchCount } from '../partitioning/match-count'
 import type { FulltextSearchOptions } from '../search/fulltext'
+import { loadPhraseCodeFor } from '../search/phrase-code'
 import type { LanguageModule } from '../types/language'
 import type { IndexConfig } from '../types/schema'
 import type { WorkerAction } from './protocol'
@@ -18,6 +19,8 @@ export interface QueryActionEntry {
 type QueryAction = Extract<WorkerAction, { type: 'query' | 'preflight' }>
 
 export async function runQueryAction(entry: QueryActionEntry, action: QueryAction): Promise<unknown> {
+  const loadingPhraseCode = loadPhraseCodeFor(action.params.term)
+  if (loadingPhraseCode !== null) await loadingPhraseCode
   const patternWork = joinPatternWorkMeter(action.patternWork, action.params.filters)
   const searchOptions = { ...entry.searchOptions, patternWork }
   if (action.type === 'query') {

@@ -1,18 +1,9 @@
-import { tokenize } from '../core/tokenizer'
 import { ErrorCodes, NarsilError } from '../errors'
 import type { AnalysedPhrase } from '../types/internal'
-import type { LanguageModule } from '../types/language'
-import type { CustomTokenizer, StopWordOverride } from '../types/schema'
 import type { QueryParams } from '../types/search'
 import { MAX_PHRASE_WORDS, MAX_QUERY_PHRASES } from './constants'
 
-const QUOTE_CHARACTER = /["“”„]/
-const QUOTE_SPLITTER = new RegExp(QUOTE_CHARACTER.source, 'g')
-
-export interface PhraseAnalysis {
-  stopWords?: StopWordOverride
-  customTokenizer?: CustomTokenizer
-}
+export type AnalyseText = (text: string) => ReadonlyArray<{ token: string; position: number }>
 
 export interface QueryPhrases {
   words: string
@@ -21,24 +12,6 @@ export interface QueryPhrases {
   largestPhraseSize: number
   largestTokenCount: number
   endsWithPhrase: boolean
-}
-
-export function holdsQuotedText(term: string): boolean {
-  if (!QUOTE_CHARACTER.test(term)) return false
-  const parts = term.split(QUOTE_SPLITTER)
-  for (let index = 1; index < parts.length; index += 2) {
-    if (parts[index].trim().length > 0) return true
-  }
-  return false
-}
-
-function analyseText(text: string, language: LanguageModule, analysis: PhraseAnalysis) {
-  return tokenize(text, language, {
-    stem: true,
-    removeStopWords: true,
-    customTokenizer: analysis.customTokenizer,
-    stopWordOverride: analysis.stopWords,
-  }).tokens
 }
 
 function phraseKeyOf(tokens: readonly string[], offsets: readonly number[]): string {
@@ -55,14 +28,7 @@ function identityOf(tokens: readonly string[], offsets: readonly number[]): stri
   return JSON.stringify([tokens, offsets])
 }
 
-export function analyseQueryPhrases(
-  term: string,
-  language: LanguageModule,
-  analysis: PhraseAnalysis,
-): QueryPhrases | null {
-  if (!QUOTE_CHARACTER.test(term)) return null
-
-  const parts = term.split(QUOTE_SPLITTER)
+export function analyseQueryPhrases(parts: readonly string[], analyseText: AnalyseText): QueryPhrases {
   const wordParts: string[] = []
   const phrases: AnalysedPhrase[] = []
   const seen = new Set<string>()
@@ -79,7 +45,7 @@ export function analyseQueryPhrases(
       continue
     }
     if (part.trim().length === 0) continue
-    const entries = analyseText(part, language, analysis)
+    const entries = analyseText(part)
     if (entries.length === 0) continue
 
     const ordered = [...entries].sort((first, second) => first.position - second.position)
@@ -99,8 +65,7 @@ export function analyseQueryPhrases(
   }
 
   const endsWithPhrase =
-    keptPhraseCount > 0 &&
-    (wordsAfterLastPhrase.trim().length === 0 || analyseText(wordsAfterLastPhrase, language, analysis).length === 0)
+    keptPhraseCount > 0 && (wordsAfterLastPhrase.trim().length === 0 || analyseText(wordsAfterLastPhrase).length === 0)
 
   return {
     words: wordParts.join(' '),
@@ -114,6 +79,18 @@ export function analyseQueryPhrases(
 
 export function withWordsOnly(params: QueryParams, phrases: QueryPhrases): QueryParams {
   return { ...params, term: phrases.words, prefix: phrases.endsWithPhrase ? false : params.prefix }
+}
+
+export function refusePhraseUntilRebuilt(indexName: string, rebuildMode: 'auto' | 'manual'): never {
+  const remedy =
+    rebuildMode === 'manual'
+      ? 'This engine leaves the rebuild to its caller, so somebody has to start it with rebuildAnalysis'
+      : 'Try the query again once the rebuild finishes'
+  throw new NarsilError(
+    ErrorCodes.SEARCH_PHRASE_NOT_READY,
+    `Index "${indexName}" holds array fields whose terms need a rebuild, so it cannot match a phrase yet. ${remedy}`,
+    { indexName, rebuild: rebuildMode },
+  )
 }
 
 export function requirePhrasesWithinLimits(phrases: QueryPhrases, trackPositions: boolean): void {

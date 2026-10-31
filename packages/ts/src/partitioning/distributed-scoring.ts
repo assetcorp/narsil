@@ -1,7 +1,7 @@
 import type { PartitionIndex } from '../core/partition'
 import type { SynonymLookup } from '../core/synonyms/types'
 import { tokenize } from '../core/tokenizer'
-import { analyseQueryPhrases } from '../search/phrases'
+import { analyseQueryPhrases } from '../search/phrase-code'
 import type { InvalidationAdapter } from '../types/adapters'
 import type { GlobalStatistics } from '../types/internal'
 import type { LanguageModule } from '../types/language'

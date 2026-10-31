@@ -5,7 +5,7 @@ import { tokenize } from '../../core/tokenizer'
 import { highlightField, type PartialWordHighlight } from '../../highlighting/highlighter'
 import { partialFieldsOf } from '../../schema/validator'
 import { DEFAULT_FUZZY_PREFIX_LENGTH } from '../../search/constants'
-import { analyseQueryPhrases, withWordsOnly } from '../../search/phrases'
+import { analyseQueryPhrases, requireLoadedPhraseCode } from '../../search/phrase-code'
 import type { LanguageModule } from '../../types/language'
 import type { HighlightMatch, Hit } from '../../types/results'
 import type { SchemaDefinition } from '../../types/schema'
@@ -19,7 +19,6 @@ interface PartialWordTagging {
 }
 
 function writtenWordsOf(term: string, language: LanguageModule, analysis: ResolvedAnalysis): QueryToken[] {
-  if (term.trim().length === 0) return []
   return tokenize(term, language, {
     stem: false,
     removeStopWords: true,
@@ -60,7 +59,7 @@ export function applyHighlights<T>(
   if (!request.highlight) return
 
   const quoted = analyseQueryPhrases(request.term ?? '', language, analysis)
-  const params = quoted === null ? request : withWordsOnly(request, quoted)
+  const params = quoted === null ? request : requireLoadedPhraseCode().withWordsOnly(request, quoted)
   const words = params.term ?? ''
   const highlightConfig = request.highlight
   const queryTokens =

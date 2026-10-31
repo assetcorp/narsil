@@ -5,7 +5,9 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { registerTokenizer } from '../../../analysis/registry'
 import { ErrorCodes } from '../../../errors'
 import { createNarsil, type Narsil } from '../../../narsil'
+import { createFilesystemPersistence } from '../../../persistence/filesystem'
 import { postJson } from '../../server/helpers'
+import { copyReleaseFixture } from '../portability/release-0.3-fixture'
 import { INDEX, LANGUAGE_NAME, pantryCorpus, registerPantryLanguage, SCHEMA } from './corpus'
 import { NO_WORKERS, PANTRY_CONFIG, type PantryServer, startPantryServer } from './harness'
 
@@ -152,6 +154,46 @@ describe('a tokeniser that returns its positions out of order', () => {
     const reader = await createNarsil(config)
     engines.push(reader)
     expect((await reader.query(INDEX, { term: '"olive oil"' })).hits.map(hit => hit.id)).toEqual(['in-order'])
+  })
+})
+
+describe('a release 0.3 index whose numeric ids put its posting lists out of document order', () => {
+  const FIXTURE_INDEX = 'pantry'
+  const FIXTURE_DOCUMENTS = 2_500
+
+  async function openFixture(patternWorkCap: number): Promise<Narsil> {
+    directory = await mkdtemp(join(tmpdir(), 'narsil-phrase-numeric-ids-'))
+    await copyReleaseFixture('snapshot-tier-numeric-ids', directory)
+    const engine = await createNarsil({
+      workers: NO_WORKERS,
+      persistence: createFilesystemPersistence({ directory }),
+      durability: { tier: 'snapshot' },
+      patternWorkCap,
+    })
+    engines.push(engine)
+    return engine
+  }
+
+  it('matches the same documents as a scan of the stored titles', async () => {
+    const engine = await openFixture(25_000_000)
+    const expected: string[] = []
+    for (let id = 1; id <= FIXTURE_DOCUMENTS; id++) {
+      const stored = await engine.get(FIXTURE_INDEX, String(id))
+      if (stored?.title === 'olive oil') expected.push(String(id))
+    }
+    expect(expected.length).toBeGreaterThan(0)
+    expect(expected.length).toBeLessThan(FIXTURE_DOCUMENTS)
+
+    const answer = await engine.query(FIXTURE_INDEX, { term: '"olive oil"', limit: FIXTURE_DOCUMENTS })
+    expect(answer.hits.map(hit => hit.id).sort()).toEqual(expected.sort())
+    expect((await engine.preflight(FIXTURE_INDEX, { term: '"olive oil"' })).count).toBe(expected.length)
+  })
+
+  it('charges the sort to the work cap, even for a word that the phrase does not start from', async () => {
+    const engine = await openFixture(1_000)
+    await expect(engine.query(FIXTURE_INDEX, { term: '"olive pomace"' })).rejects.toMatchObject({
+      code: ErrorCodes.SEARCH_WORK_CAP_EXCEEDED,
+    })
   })
 })
 

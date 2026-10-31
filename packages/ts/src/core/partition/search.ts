@@ -1,3 +1,4 @@
+import { requireLoadedPhraseCode } from '../../search/phrase-code'
 import type { InternalSearchParams, InternalSearchResult, PostingListView } from '../../types/internal'
 import { bitsetHas, bitsetIsEmpty, bitsetSet, createBitSet } from '../bitset'
 import { computeBM25WithIDF, computeIDF, resolveBM25Params } from '../scorer'
@@ -12,7 +13,7 @@ import {
   typoMatchesFor,
 } from './group-scoring'
 import { multiTermTopK, prunableMultiTermLists } from './multi-term-topk'
-import { matchPhrases, type PhraseRows } from './phrase-matching'
+import type { PhraseRows } from './phrase-matching'
 import { postingColumns } from './posting-columns'
 import { addScore, beginScoring, createScoreBuffer, hasScore, topKFromBuffer } from './score-buffer'
 import {
@@ -75,7 +76,7 @@ export function searchFulltext(state: PartitionReadState, params: InternalSearch
   const phraseMatches =
     phrases === undefined
       ? null
-      : matchPhrases(
+      : requireLoadedPhraseCode().matchPhrases(
           state.invertedIdx,
           phrases,
           searchable,
