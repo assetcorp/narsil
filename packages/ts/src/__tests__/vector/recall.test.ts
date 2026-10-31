@@ -9,6 +9,7 @@ const PROMOTION_THRESHOLD = 100
 const SETTLE_DEADLINE_MS = 240_000
 const TEST_TIMEOUT_MS = 300_000
 const INSERT_BATCH_DOCUMENTS = 500
+const SPREAD_768_DIMENSION_SEED = 5
 
 interface Clusters {
   centres: number
@@ -70,8 +71,10 @@ async function recallOf(
   documents: number,
   clusters: Clusters,
   search: { efSearch?: number; oversample?: number },
+  queryCount = QUERIES,
+  seed = 20260913 + dimension,
 ): Promise<number> {
-  const all = clusteredVectors(dimension, documents + QUERIES, clusters, 20260913 + dimension)
+  const all = clusteredVectors(dimension, documents + queryCount, clusters, seed)
   const corpus = all.slice(0, documents)
   const queries = all.slice(documents)
   const narsil = await createNarsil({ workers: { enabled: false } })
@@ -108,7 +111,7 @@ async function recallOf(
       const truth = exactNearest(query, corpus)
       found += result.hits.filter(hit => truth.has(hit.id)).length
     }
-    return found / (K * QUERIES)
+    return found / (K * queries.length)
   } finally {
     await narsil.shutdown()
   }
@@ -146,6 +149,15 @@ describe('a vector search through the public API, measured against an exact sear
     'finds at least 95% of the 10 nearest in 5,000 spread documents under osq2 at the default settings',
     async () => {
       const recall = await recallOf(384, 'osq2', 5_000, WIDE_CLUSTERS, {})
+      expect(recall).toBeGreaterThanOrEqual(RECALL_FLOOR)
+    },
+    TEST_TIMEOUT_MS,
+  )
+
+  it(
+    'finds at least 95% of the 10 nearest for 1,000 queries in 3,200 spread documents at 768 dimensions under osq2 at the default settings',
+    async () => {
+      const recall = await recallOf(768, 'osq2', 3_200, WIDE_CLUSTERS, {}, 1_000, SPREAD_768_DIMENSION_SEED)
       expect(recall).toBeGreaterThanOrEqual(RECALL_FLOOR)
     },
     TEST_TIMEOUT_MS,

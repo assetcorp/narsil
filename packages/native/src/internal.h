@@ -30,6 +30,12 @@
 #define NARSIL_SSE2 1
 #endif
 
+#if defined(NARSIL_SSE2) && (defined(__GNUC__) || defined(__clang__)) && !defined(NARSIL_SSE2_ONLY)
+#define NARSIL_HARDWARE_POPCOUNT 1
+#endif
+
+#define INLINED_IN_EACH_KERNEL static inline __attribute__((always_inline))
+
 typedef struct {
   int32_t ordinal;
   double distance;
@@ -261,6 +267,9 @@ uint32_t kernel_products_8x8(const uint8_t *document, const uint8_t *query, uint
 uint32_t kernel_products_4x4(const uint8_t *document, const uint8_t *low, const uint8_t *high, uint32_t bytes);
 uint32_t kernel_products_bits(packed_code document, const uint8_t *planes);
 uint32_t kernel_pair_products(packed_code first, const uint8_t *second, uint32_t dimension);
+#ifdef NARSIL_HARDWARE_POPCOUNT
+int uses_hardware_popcount(void);
+#endif
 
 int is_metric(uint32_t metric);
 int is_code_width(uint32_t bits);
