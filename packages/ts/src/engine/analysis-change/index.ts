@@ -1,7 +1,7 @@
 import { ErrorCodes, NarsilError } from '../../errors'
 import { rebuildTextIndexes, textRebuildTargetOf } from '../../partitioning/text-rebuild'
 import type { AnalysisChange } from '../../types/analysis-operations'
-import type { PendingAnalysisMetadata } from '../../types/internal'
+import type { NamedAnalysisSettings, PendingAnalysisMetadata } from '../../types/internal'
 import type { EngineCore, IndexRegistryEntry } from '../core'
 import { emitEngineEvent } from '../events'
 import { requireAnalysisRebuildMemory } from '../snapshot/memory-budget'
@@ -42,13 +42,15 @@ async function requireNoUndurableSwitch(core: EngineCore, indexName: string, ent
   )
 }
 
-function switchIndex(
-  core: EngineCore,
-  indexName: string,
-  entry: IndexRegistryEntry,
-  run: ChangeRun,
-  generation: number,
-) {
+interface ChangeScope {
+  core: EngineCore
+  indexName: string
+  entry: IndexRegistryEntry
+  run: ChangeRun
+  generation: number
+}
+
+function switchIndex({ core, indexName, entry, run, generation }: ChangeScope) {
   const { language, analysis } = run.target
   const config = currentConfigUnderTarget(entry.config, run.target)
   const synonyms = prepareStoredSynonyms(rulesOfStoredSynonyms(entry.synonyms), config, language)
@@ -69,13 +71,8 @@ function switchIndex(
   }
 }
 
-async function buildAndSwitch(
-  core: EngineCore,
-  indexName: string,
-  entry: IndexRegistryEntry,
-  run: ChangeRun,
-  generation: number,
-): Promise<void> {
+async function buildAndSwitch(scope: ChangeScope): Promise<void> {
+  const { core, indexName, entry, run } = scope
   const manager = core.requireManager(indexName)
   const emit = (status: 'started' | 'completed' | 'failed', partitionsRebuilt: number, error?: Error): void => {
     emitEngineEvent(core.eventHandlers, 'analysisRebuild', {
@@ -89,7 +86,7 @@ async function buildAndSwitch(
   let partitionsRebuilt = 0
   let adopt: () => void = () => undefined
   const isCurrent = (): boolean =>
-    run.stopped === null &&
+    run.stopReason === null &&
     !core.shutdownState.isShutdown &&
     core.indexRegistry.get(indexName) === entry &&
     core.executor.getManager(indexName) === manager
@@ -109,7 +106,7 @@ async function buildAndSwitch(
         runSwitch(swap) {
           const swapWithSynonyms = (): boolean => {
             if (!isCurrent()) return false
-            adopt = switchIndex(core, indexName, entry, run, generation)
+            adopt = switchIndex(scope)
             return swap()
           }
           return durable?.checkpointAfterSwitch?.(indexName, swapWithSynonyms) ?? Promise.resolve(swapWithSynonyms())
@@ -117,7 +114,7 @@ async function buildAndSwitch(
       },
       textRebuildTargetOf(run.target.config, run.target.language, run.target.analysis),
     )
-    if (!rebuilt) throw run.stopped ?? stoppedError(core, indexName)
+    if (!rebuilt) throw run.stopReason ?? stoppedError(core, indexName)
     if (entry.durableAnalysis !== null) {
       throw new NarsilError(
         ErrorCodes.PERSISTENCE_SAVE_FAILED,
@@ -172,7 +169,7 @@ async function driveRun(
     if (previous !== undefined) await previous.settled
     if (runs.get(indexName) !== run) return
     await requireNoUndurableSwitch(core, indexName, entry)
-    if (run.stopped !== null) return
+    if (run.stopReason !== null) return
     if (core.indexRegistry.get(indexName) !== entry) throw stoppedError(core, indexName)
     requireNotRebalancing(core, indexName)
     if (resumedGeneration === null && holdsSettings(entry.config, run.target)) {
@@ -186,18 +183,18 @@ async function driveRun(
       entry.pendingAnalysis = { generation, ...namedSettingsOf(run.target.config, run.target.language.name) }
       await core.durability?.manager.persistMetadata(indexName)
     }
-    if (run.stopped !== null) return
+    if (run.stopReason !== null) return
     await core.analysisRebuild.abandon(indexName)
     await core.analysisRebuild.runExclusive(
       indexName,
-      () => buildAndSwitch(core, indexName, entry, run, generation),
+      () => buildAndSwitch({ core, indexName, entry, run, generation }),
       run.hold?.ready,
     )
     run.finish()
   } catch (error) {
     run.fail(error)
     const keepsPending = resumedGeneration !== null || core.shutdownState.isShutdown
-    const stillOwnsPending = runs.get(indexName) === run && run.stopped === null
+    const stillOwnsPending = runs.get(indexName) === run && run.stopReason === null
     if (!keepsPending && stillOwnsPending && core.indexRegistry.get(indexName) === entry) {
       if (entry.pendingAnalysis !== null) await clearPending(core, indexName, entry).catch(() => undefined)
     }
@@ -332,10 +329,7 @@ export async function dropHeldAnalysisChange(core: EngineCore, indexName: string
   if (entry !== undefined && entry.pendingAnalysis !== null) await clearPending(core, indexName, entry)
 }
 
-export function holdsNamedSettings(
-  entry: IndexRegistryEntry,
-  settings: Omit<PendingAnalysisMetadata, 'generation'>,
-): boolean {
+export function holdsNamedSettings(entry: IndexRegistryEntry, settings: NamedAnalysisSettings): boolean {
   return holdsSettings(entry.config, targetOfPending(entry, { generation: 0, ...settings }))
 }
 

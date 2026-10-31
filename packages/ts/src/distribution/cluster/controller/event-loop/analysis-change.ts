@@ -3,6 +3,7 @@ import { generateId } from '../../../../core/id-generator'
 import { describeError, ErrorCodes, NarsilError } from '../../../../errors'
 import type { ClusterCoordinator } from '../../../coordinator/types'
 import { isRecord } from '../../../payload-guards'
+import { sendToFirstReachableTarget } from '../../../query/node-send'
 import type { RebuildAnalysisPayload } from '../../../transport/cluster-payloads'
 import { ClusterMessageTypes, type TransportMessage } from '../../../transport/types'
 import { metadataPublishingAnalysis, metadataWithAnalysisFailure } from '../../analysis-metadata'
@@ -41,28 +42,18 @@ async function registeredHolders(
   if (table === null) return null
   const registered = new Map((await coordinator.listNodes()).map(node => [node.nodeId, node.address]))
   const holders = new Map<string, string[]>()
-  const note = (nodeId: string | null): void => {
+  const addHolder = (nodeId: string | null): void => {
     if (nodeId === null) return
     const address = registered.get(nodeId)
     if (address === undefined) return
     holders.set(nodeId, address.length === 0 || address === nodeId ? [nodeId] : [address, nodeId])
   }
   for (const assignment of table.assignments.values()) {
-    note(assignment.primary)
-    for (const replica of assignment.replicas) note(replica)
-    for (const replica of assignment.removingReplicas ?? []) note(replica)
+    addHolder(assignment.primary)
+    for (const replica of assignment.replicas) addHolder(replica)
+    for (const replica of assignment.removingReplicas ?? []) addHolder(replica)
   }
   return holders
-}
-
-async function askOneTarget(
-  ctx: AnalysisDriverContext,
-  target: string,
-  message: TransportMessage,
-): Promise<TransportMessage> {
-  const transport = ctx.state.transport
-  if (transport === null) throw new NarsilError(ErrorCodes.NODE_NOT_CONTROLLER, 'The controller has no transport')
-  return transport.send(target, message)
 }
 
 async function sendRebuild(
@@ -70,30 +61,22 @@ async function sendRebuild(
   targets: string[],
   payload: RebuildAnalysisPayload,
 ): Promise<void> {
+  const transport = ctx.state.transport
+  if (transport === null) throw new NarsilError(ErrorCodes.NODE_NOT_CONTROLLER, 'The controller has no transport')
   const message: TransportMessage = {
     type: ClusterMessageTypes.REBUILD_ANALYSIS,
     sourceId: ctx.nodeId,
     requestId: generateId(),
     payload: encode(payload),
   }
-  let lastError: unknown = new NarsilError(ErrorCodes.QUERY_NO_ACTIVE_REPLICA, 'The node has no address')
-  for (const target of targets) {
-    let response: TransportMessage
-    try {
-      response = await askOneTarget(ctx, target, message)
-    } catch (error) {
-      lastError = error
-      continue
-    }
-    const decoded: unknown = decode(response.payload)
-    if (!response.type.endsWith('.error') && !(isRecord(decoded) && decoded.error === true)) return
-    const reply = isRecord(decoded) ? decoded : {}
-    throw new NarsilError(
-      typeof reply.code === 'string' ? reply.code : ErrorCodes.QUERY_ROUTING_FAILED,
-      typeof reply.message === 'string' ? reply.message : 'The node refused an analysis rebuild',
-    )
-  }
-  throw lastError
+  const response = await sendToFirstReachableTarget(transport, targets, message)
+  const decoded: unknown = decode(response.payload)
+  if (!response.type.endsWith('.error') && !(isRecord(decoded) && decoded.error === true)) return
+  const reply = isRecord(decoded) ? decoded : {}
+  throw new NarsilError(
+    typeof reply.code === 'string' ? reply.code : ErrorCodes.QUERY_ROUTING_FAILED,
+    typeof reply.message === 'string' ? reply.message : 'The node refused an analysis rebuild',
+  )
 }
 
 function askHolder(

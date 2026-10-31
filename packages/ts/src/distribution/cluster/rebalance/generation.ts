@@ -1,7 +1,8 @@
 import { ErrorCodes, NarsilError } from '../../../errors'
 import type { AllocationTable, ClusterCoordinator } from '../../coordinator/types'
 import { HIDDEN_GENERATION_PREFIX, TEARDOWN_CAS_ATTEMPTS } from '../constants'
-import { indexConfigKey, putGenerationMetadata } from '../index-metadata'
+import { indexConfigKey, putGenerationMetadata, storedSynonymSetOf } from '../index-metadata'
+import { deleteSynonymSet } from '../synonym-set'
 import { clearRebalanceProgress, type RebalanceRecord } from './records'
 
 export async function ensureGeneration(coordinator: ClusterCoordinator, record: RebalanceRecord): Promise<void> {
@@ -58,7 +59,10 @@ export async function dropGeneration(
   const key = indexConfigKey(generation)
   const metadata = await coordinator.get(key)
   if (metadata !== null && metadata.byteLength > 0) {
-    await coordinator.compareAndSet(key, metadata, new Uint8Array(0))
+    if (await coordinator.compareAndSet(key, metadata, new Uint8Array(0))) {
+      const stored = storedSynonymSetOf(metadata)
+      if (stored !== null) await deleteSynonymSet(coordinator, stored.indexUuid, stored.ref)
+    }
   }
   if ((await coordinator.getSchema(generation)) !== null) {
     await coordinator.dropSchema(generation)

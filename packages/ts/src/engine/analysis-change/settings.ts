@@ -3,12 +3,12 @@ import { compareCodePoints } from '../../core/ordering'
 import { ErrorCodes, NarsilError } from '../../errors'
 import { getLanguage } from '../../languages/registry'
 import type { AnalysisChange } from '../../types/analysis-operations'
-import type { PendingAnalysisMetadata } from '../../types/internal'
+import type { NamedAnalysisSettings } from '../../types/internal'
 import type { LanguageModule } from '../../types/language'
 import type { IndexConfig } from '../../types/schema'
 import type { DurableAnalysis, IndexRegistryEntry } from '../core'
 import { requireConfigurationWithinSizeLimit } from '../snapshot/index-configuration'
-import { prepareStoredSynonyms, rulesOfStoredSynonyms } from '../synonym-sets'
+import { prepareConfiguredSynonyms, rulesOfStoredSynonyms } from '../synonym-sets'
 import type { AnalysisTarget } from './pending-target'
 
 export type { AnalysisTarget } from './pending-target'
@@ -101,7 +101,7 @@ export function holdsSettings(config: IndexConfig, target: AnalysisTarget): bool
   )
 }
 
-export function namedSettingsOf(config: IndexConfig, language: string): Omit<PendingAnalysisMetadata, 'generation'> {
+export function namedSettingsOf(config: IndexConfig, language: string): NamedAnalysisSettings {
   return {
     language,
     ...(typeof config.tokenizer === 'string' ? { tokenizer: config.tokenizer } : {}),
@@ -120,5 +120,5 @@ export function durableSettingsOf(entry: IndexRegistryEntry): DurableAnalysis {
 
 export function requireSynonymsUnderTarget(entry: IndexRegistryEntry, target: AnalysisTarget): void {
   if (entry.synonyms === null) return
-  prepareStoredSynonyms(rulesOfStoredSynonyms(entry.synonyms), target.config, target.language, undefined, true)
+  prepareConfiguredSynonyms({ ...target.config, synonyms: rulesOfStoredSynonyms(entry.synonyms) }, target.language)
 }

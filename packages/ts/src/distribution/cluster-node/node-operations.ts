@@ -139,12 +139,11 @@ export function createClusterNodeOperations(deps: ClusterNodeOperationDeps): Clu
     },
 
     async updateSynonyms(indexName, synonyms) {
-      return trackOp(indexName, async () =>
+      return trackOp(indexName, () =>
         replaceClusterSynonyms(
           { config: readDeps.config, nodeId: readDeps.nodeId, engine, coordinator },
           indexName,
           synonyms,
-          await deps.servingName(indexName),
         ),
       )
     },

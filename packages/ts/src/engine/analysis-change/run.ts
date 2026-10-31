@@ -5,7 +5,7 @@ import type { AnalysisTarget } from './settings'
 
 export interface ChangeRun {
   target: AnalysisTarget
-  stopped: NarsilError | null
+  stopReason: NarsilError | null
   switched: boolean
   settled: Promise<void>
   finish(): void
@@ -81,14 +81,14 @@ export function createRun(target: AnalysisTarget, hold: ChangeHold | null = null
     hold?.refuse(error)
     hold?.wake()
   }
-  return { target, stopped: null, switched: false, settled, finish, fail, finished, settle, hold }
+  return { target, stopReason: null, switched: false, settled, finish, fail, finished, settle, hold }
 }
 
 async function waitForRelease(run: ChangeRun, hold: ChangeHold, keepCurrent: () => boolean): Promise<boolean> {
   hold.built = true
   hold.markReady()
   while (!hold.released) {
-    if (run.stopped !== null || !keepCurrent()) {
+    if (run.stopReason !== null || !keepCurrent()) {
       hold.built = false
       return false
     }
@@ -102,10 +102,10 @@ export function heldUntilRelease(run: ChangeRun, hold: ChangeHold) {
 }
 
 export function stopRun(run: ChangeRun, indexName: string): void {
-  run.stopped = new NarsilError(
+  run.stopReason = new NarsilError(
     ErrorCodes.ANALYSIS_CHANGE_REPLACED,
     `A later change or a restore replaced this analysis change of index "${indexName}"`,
     { indexName },
   )
-  run.fail(run.stopped)
+  run.fail(run.stopReason)
 }

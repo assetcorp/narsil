@@ -22,10 +22,8 @@ import { pause } from '../../cluster/rebalance/pause'
 import { readRebalanceRecord } from '../../cluster/rebalance/records'
 import type { ClusterCoordinator } from '../../coordinator/types'
 import { registeredNodesBelowBm25Tuning } from '../../query/bm25-routing'
-import { MAX_SETTINGS_REPLACEMENT_ATTEMPTS } from '../constants'
+import { MAX_SETTINGS_REPLACEMENT_ATTEMPTS, SETTINGS_CONTENTION_REASON } from '../constants'
 import type { AnalysisView } from './view'
-
-const SETTINGS_CONTENTION_REASON = 'settings_contention'
 
 export interface AnalysisChangeRequest {
   coordinator: ClusterCoordinator
@@ -129,9 +127,13 @@ export async function changeClusterAnalysis(request: AnalysisChangeRequest): Pro
   const { coordinator, view, guard, servingName, publicName, change } = request
   validateIndexName(servingName)
   const schema = await coordinator.getSchema(servingName)
-  const first = await readIndexMetadataSnapshot(coordinator, servingName)
-  if (schema === null || first === null) throw indexNotFound(publicName)
-  const target = resolveAnalysisTarget(publicName, indexConfigFromSettings(schema, first.settings, servingName), change)
+  const metadata = await readIndexMetadataSnapshot(coordinator, servingName)
+  if (schema === null || metadata === null) throw indexNotFound(publicName)
+  const target = resolveAnalysisTarget(
+    publicName,
+    indexConfigFromSettings(schema, metadata.settings, servingName),
+    change,
+  )
   await requireTargetAcceptable(coordinator, servingName, target)
   const olderNodes = registeredNodesBelowBm25Tuning(await coordinator.listNodes())
   if (olderNodes.length > 0) {

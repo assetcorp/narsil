@@ -8,13 +8,13 @@ export interface AnalysisChange {
   /** This is the name of a registered language. */
   language?: string
   /**
-   * This is a name that `registerTokenizer` bound. Pass `null` to return to the
-   * tokeniser of the language.
+   * This is a name that {@link registerTokenizer} bound. Pass `null` to return
+   * to the tokeniser of the language.
    */
   tokenizer?: string | null
   /**
-   * This is a name that `registerStopWords` bound, or a list of words. Pass
-   * `null` to return to the stop words of the language.
+   * This is a name that {@link registerStopWords} bound, or a list of words.
+   * Pass `null` to return to the stop words of the language.
    */
   stopWords?: string | readonly string[] | ReadonlySet<string> | null
 }

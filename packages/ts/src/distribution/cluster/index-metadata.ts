@@ -14,7 +14,13 @@ import {
   isRecord,
   settingsRejection,
 } from './index-settings'
-import { readSynonymSet, type SynonymSetRef, storedSynonymSetRules, synonymSetRefOrNull } from './synonym-set'
+import {
+  copySynonymSet,
+  readSynonymSet,
+  type SynonymSetRef,
+  storedSynonymSetRules,
+  synonymSetRefOrNull,
+} from './synonym-set'
 
 export interface IndexMetadata {
   indexUuid: string
@@ -188,16 +194,28 @@ export async function putGenerationMetadata(
   sourceName: string,
   generation: { indexName: string; indexUuid: string; partitionCount: number },
 ): Promise<boolean> {
-  const sourceBytes = await coordinator.get(indexConfigKey(sourceName))
-  if (sourceBytes === null || sourceBytes.byteLength === 0) return false
-  const decoded = decode(sourceBytes)
-  validateDecodedMetadata(decoded, sourceName)
-  if (!isRecord(decoded)) return false
   const key = indexConfigKey(generation.indexName)
-  const current = await coordinator.get(key)
-  if (current !== null && current.byteLength > 0) return true
-  const bytes = new Uint8Array(encode({ ...decoded, ...generation }, { ignoreUndefined: true }))
-  return coordinator.compareAndSet(key, current, bytes)
+  const reject = settingsRejection(sourceName)
+  let copiedSetGeneration: string | null = null
+  for (;;) {
+    const sourceBytes = await coordinator.get(indexConfigKey(sourceName))
+    if (sourceBytes === null || sourceBytes.byteLength === 0) return false
+    const decoded = decode(sourceBytes)
+    validateDecodedMetadata(decoded, sourceName)
+    if (!isRecord(decoded)) return false
+    const current = await coordinator.get(key)
+    if (current !== null && current.byteLength > 0) return true
+    const held = storedSynonymSetOf(sourceBytes)
+    if (held !== null && !(await copySynonymSet(coordinator, held.indexUuid, generation.indexUuid, held.ref, reject))) {
+      if (copiedSetGeneration === held.ref.generation) {
+        return reject(`a chunk of synonym set ${held.ref.generation} is missing`)
+      }
+      copiedSetGeneration = held.ref.generation
+      continue
+    }
+    const bytes = new Uint8Array(encode({ ...decoded, ...generation }, { ignoreUndefined: true }))
+    return coordinator.compareAndSet(key, current, bytes)
+  }
 }
 
 async function readStoredMetadata(

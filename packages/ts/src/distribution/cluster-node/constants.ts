@@ -53,6 +53,7 @@ export const MAX_CATCH_UP_IN_FLIGHT_BYTES = 67_108_864
 export const CLEAR_PAGE_SIZE = 1_000
 
 export const MAX_SETTINGS_REPLACEMENT_ATTEMPTS = 5
+export const SETTINGS_CONTENTION_REASON = 'settings_contention'
 
 export const DEFAULT_MAX_PER_SOURCE_SNAPSHOTS = 1
 export const DEFAULT_MAX_STREAMS_PER_INDEX = 4

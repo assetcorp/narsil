@@ -3,12 +3,7 @@ import type { PendingAnalysisMetadata } from '../types/internal'
 import type { LanguageModule } from '../types/language'
 import type { IndexConfig } from '../types/schema'
 
-export interface DurableAnalysis {
-  generation: number
-  language: string
-  tokenizer?: string
-  stopWords?: string
-  stopWordList?: string[]
+export interface DurableAnalysis extends PendingAnalysisMetadata {
   analysisRevision: string | null
 }
 
