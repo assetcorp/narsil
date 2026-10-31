@@ -55,6 +55,7 @@ export interface ServerHandlers {
   partitionConfig: RouteHandler
   readSynonyms: RouteHandler
   replaceSynonyms: RouteHandler
+  updateBm25: RouteHandler
   restore: RouteHandler
   exportDocuments: RouteHandler
   importExport: RouteHandler
@@ -147,6 +148,7 @@ export function serverRoutes(limits: ResolvedLimits): RouteSpec[] {
     { method: 'post', path: '/indexes/:name/partition-config', handler: 'partitionConfig', options: namedBody },
     { method: 'get', path: '/indexes/:name/synonyms', handler: 'readSynonyms', options: named },
     { method: 'post', path: '/indexes/:name/synonyms', handler: 'replaceSynonyms', options: namedBody },
+    { method: 'post', path: '/indexes/:name/bm25', handler: 'updateBm25', options: namedBody },
     {
       method: 'post',
       path: '/indexes/:name/restore',

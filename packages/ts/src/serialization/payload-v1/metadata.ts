@@ -1,4 +1,5 @@
 import { decode, encode } from '@msgpack/msgpack'
+import { DEFAULT_BM25_B, DEFAULT_BM25_K1 } from '../../core/constants'
 import { ErrorCodes, NarsilError } from '../../errors'
 import { isQuantizationMode, isStorageMode } from '../../schema/validator/vector-promotion'
 import type { IndexMetadata } from '../../types/internal'
@@ -10,7 +11,7 @@ interface RawMetadataPayload {
   schema: Record<string, string>
   language: string
   partition_count: number
-  bm25_params: { k1: number; b: number }
+  bm25_params: IndexMetadata['bm25Params']
   created_at: number
   engine_version: string
   vector_fields?: Record<string, { dimension: number; metric: string; quantization: string }>
@@ -160,7 +161,7 @@ function wireToMetadata(raw: RawMetadataPayload): IndexMetadata {
     schema: raw.schema ?? {},
     language: raw.language ?? 'english',
     partitionCount: raw.partition_count ?? 1,
-    bm25Params: raw.bm25_params ?? { k1: 1.2, b: 0.75 },
+    bm25Params: raw.bm25_params ?? { k1: DEFAULT_BM25_K1, b: DEFAULT_BM25_B },
     createdAt: raw.created_at ?? 0,
     engineVersion: raw.engine_version ?? '0.0.0',
   }

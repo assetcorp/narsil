@@ -4,7 +4,7 @@ import { MAX_PATTERN_VALUE_LIMIT, MIN_PATTERN_VALUE_LIMIT } from '../schema/cons
 import { partialFieldsOf } from '../schema/validator'
 import { clampRowCount } from '../search/pagination'
 import type { IndexLifecycleConfig, WorkerConfig } from '../types/config'
-import type { BM25Params, SchemaDefinition } from '../types/schema'
+import type { SchemaDefinition } from '../types/schema'
 import {
   ABSOLUTE_WINDOWS_PATH_PATTERN,
   DEFAULT_LIMIT,
@@ -179,17 +179,6 @@ export function validateWorkerConfig(workers: WorkerConfig | undefined, lifecycl
       'workers.idleTimeoutMs must be at most lifecycle.idleTimeoutMs, so that an index drops its copies before it closes',
       { workersIdleTimeoutMs: workers.idleTimeoutMs, lifecycleIdleTimeoutMs: closeAfter },
     )
-  }
-}
-
-export function validateBM25Params(bm25: BM25Params | undefined): void {
-  if (bm25 === undefined) return
-  const { k1, b } = bm25
-  if (k1 !== undefined && (!Number.isFinite(k1) || k1 < 0)) {
-    throw new NarsilError(ErrorCodes.CONFIG_INVALID, 'bm25.k1 must be a finite number at or above 0', { k1 })
-  }
-  if (b !== undefined && (!Number.isFinite(b) || b < 0 || b > 1)) {
-    throw new NarsilError(ErrorCodes.CONFIG_INVALID, 'bm25.b must be between 0 and 1', { b })
   }
 }
 

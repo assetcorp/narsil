@@ -1,6 +1,8 @@
 import type { SchemaDefinition } from '../../../types/schema'
+import type { IndexMetadataWatch } from './index-metadata'
 import type { NodeEvent, NodeRegistration, RegistrationLease } from './node'
 
+export type { IndexMetadataEvent, IndexMetadataWatch } from './index-metadata'
 export type {
   IndexPartitionBytes,
   NodeCapacity,
@@ -155,7 +157,7 @@ export interface AllocationConstraints {
  *
  * @public
  */
-export interface ClusterCoordinator {
+export interface ClusterCoordinator extends IndexMetadataWatch {
   /**
    * Publishes a node so that peers find it, and keeps it published while the
    * node heartbeats.

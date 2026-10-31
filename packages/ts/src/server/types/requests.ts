@@ -1,5 +1,5 @@
 import type { MemoryStats } from '../../types/memory'
-import type { AnyDocument, InsertOptions, WriteOptions } from '../../types/schema'
+import type { AnyDocument, BM25Params, InsertOptions, WriteOptions } from '../../types/schema'
 import type { SynonymRule } from '../../types/synonyms'
 
 /** Declarative index configuration accepted over HTTP. Function-valued engine
@@ -91,8 +91,8 @@ export interface HttpIndexConfig {
   partitions?: { maxDocsPerPartition?: number; maxPartitions?: number; watermark?: number }
   /** A query scores this way unless it asks for another mode. */
   defaultScoring?: 'local' | 'dfs' | 'broadcast'
-  /** These parameters tune BM25 for this index. */
-  bm25?: { k1?: number; b?: number }
+  /** These parameters tune BM25 for this index and for each of its text fields. */
+  bm25?: BM25Params
   /** This is the name of a tokeniser registered on the server, which then splits text in place of the language's own rules. */
   tokenizer?: string
   /** This name of a stop word set registered on the server, or this list, replaces the language's stop words. */

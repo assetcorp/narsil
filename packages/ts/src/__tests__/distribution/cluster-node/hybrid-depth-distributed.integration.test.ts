@@ -49,9 +49,13 @@ const EARLIER_RELEASE_MEMBERS = [
   'hybrid',
 ]
 
+const MEMBERS_THE_EARLIER_RELEASE_IGNORES = ['bm25', 'indexBm25']
+
 function earlierReleaseRefusal(payload: SearchPayload): string | null {
   const params = payload.params as unknown as Record<string, unknown>
-  const unknown = Object.keys(params).filter(key => !EARLIER_RELEASE_MEMBERS.includes(key))
+  const unknown = Object.keys(params).filter(
+    key => !EARLIER_RELEASE_MEMBERS.includes(key) && !MEMBERS_THE_EARLIER_RELEASE_IGNORES.includes(key),
+  )
   if (unknown.length > 0) return `unknown members ${unknown.join(', ')}`
   const missing = EARLIER_RELEASE_MEMBERS.filter(key => !Object.hasOwn(params, key))
   if (missing.length > 0) return `missing members ${missing.join(', ')}`

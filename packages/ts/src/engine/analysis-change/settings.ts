@@ -78,6 +78,17 @@ export function resolveAnalysisTarget(indexName: string, base: IndexConfig, chan
   return { config, language, analysis: resolveIndexAnalysis(config) }
 }
 
+export function currentConfigUnderTarget(current: IndexConfig, target: AnalysisTarget): IndexConfig {
+  const { tokenizer: _tokenizer, stopWords: _stopWords, ...rest } = current
+  const { tokenizer, stopWords } = target.config
+  return {
+    ...rest,
+    language: target.language.name,
+    ...(tokenizer !== undefined ? { tokenizer } : {}),
+    ...(stopWords !== undefined ? { stopWords } : {}),
+  }
+}
+
 export function targetOfPending(entry: IndexRegistryEntry, pending: PendingAnalysisMetadata): AnalysisTarget {
   const { tokenizer: _tokenizer, stopWords: _stopWords, ...rest } = entry.config
   const language = getLanguage(pending.language)

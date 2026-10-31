@@ -1,8 +1,9 @@
+import { DEFAULT_BM25_B, DEFAULT_BM25_K1 } from '../core/constants'
 import { compareCodePoints } from '../core/ordering'
 import { VERSION } from '../index'
 import { flattenSchema } from '../schema/validator'
 import type { IndexEmbeddingMetadata, IndexMetadata, PendingAnalysisMetadata } from '../types/internal'
-import type { PartitionConfig, ScoringMode, VectorIndexConfig } from '../types/schema'
+import type { BM25FieldParams, PartitionConfig, ScoringMode, VectorIndexConfig } from '../types/schema'
 import type { SynonymRule } from '../types/synonyms'
 import type { IndexRegistryEntry } from './core'
 import { rulesOfStoredSynonyms } from './synonym-sets'
@@ -16,6 +17,7 @@ export interface MetadataConfig {
   language: string
   k1: number
   b: number
+  bm25Fields?: Record<string, BM25FieldParams>
   embedding?: IndexEmbeddingMetadata
   surfaceForms?: boolean
   analysisRevision?: string
@@ -45,7 +47,11 @@ export function metadataFromConfig(
     schema: config.schema,
     language: config.language,
     partitionCount: partitionCount ?? config.partitionCount,
-    bm25Params: { k1: config.k1, b: config.b },
+    bm25Params: {
+      k1: config.k1,
+      b: config.b,
+      ...(config.bm25Fields !== undefined ? { fields: config.bm25Fields } : {}),
+    },
     createdAt: Date.now(),
     engineVersion: VERSION,
   }
@@ -121,8 +127,9 @@ export function metadataConfigOf(entry: IndexRegistryEntry): MetadataConfig {
     partitionCount: entry.partitionCount,
     schema: flattenSchema(entry.config.schema) as Record<string, string>,
     language: entry.language.name,
-    k1: entry.config.bm25?.k1 ?? 1.2,
-    b: entry.config.bm25?.b ?? 0.75,
+    k1: entry.config.bm25?.k1 ?? DEFAULT_BM25_K1,
+    b: entry.config.bm25?.b ?? DEFAULT_BM25_B,
+    ...(entry.config.bm25?.fields !== undefined ? { bm25Fields: entry.config.bm25.fields } : {}),
     ...(embedding !== undefined ? { embedding } : {}),
     surfaceForms: entry.config.surfaceForms !== false,
     ...(entry.analysisRevision !== null ? { analysisRevision: entry.analysisRevision } : {}),

@@ -1,5 +1,6 @@
 import type { QueryCoverage } from '../../types/results'
 import type { AllocationTable } from '../coordinator/types'
+import type { NodeRegistration } from '../coordinator/types/node'
 import type { FacetBucket, NodeTransport, ScoredEntry, WireGroupEntry } from '../transport/types'
 import type { SearchContextSet } from './search-contexts'
 
@@ -41,6 +42,8 @@ export interface QueryRoutingDeps {
   sourceNodeId: string
   getAllocation: (indexName: string) => Promise<AllocationTable | null>
   resolveNodeTargets?: (nodeId: string) => Promise<string[]>
+  listNodes?: () => Promise<NodeRegistration[]>
+  carriesBm25?: boolean
 }
 
 export interface RoutingResult {

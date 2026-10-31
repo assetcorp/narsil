@@ -35,7 +35,7 @@ export interface ClusterControllerConfig {
 }
 
 // @public
-export interface ClusterCoordinator {
+export interface ClusterCoordinator extends IndexMetadataWatch {
     acquireLease(key: string, nodeId: string, ttlMs: number): Promise<boolean>;
     compareAndSet(key: string, expected: Uint8Array | null, value: Uint8Array): Promise<boolean>;
     confirmRegistrationLease?(nodeId: string): Promise<RegistrationLease | null>;
@@ -108,7 +108,7 @@ export interface ClusterNamespace {
 }
 
 // @public
-export interface ClusterNode {
+export interface ClusterNode extends ClusterNodeSearchSettings {
     checkpoint(indexName: string): Promise<void>;
     clear(indexName: string): Promise<void>;
     close(indexName: string): Promise<void>;
@@ -124,7 +124,6 @@ export interface ClusterNode {
     getMultiple(indexName: string, docIds: string[]): Promise<Map<string, AnyDocument>>;
     getPartitionStats(indexName: string): Promise<PartitionStatsResult[]>;
     getStats(indexName: string): Promise<IndexStats>;
-    getSynonyms(indexName: string): Promise<SynonymRule[]>;
     has(indexName: string, docId: string): Promise<boolean>;
     insert(indexName: string, document: AnyDocument, docId?: string, options?: InsertOptions): Promise<string>;
     insertBatch(indexName: string, documents: AnyDocument[], options?: InsertOptions): Promise<BatchResult>;
@@ -150,7 +149,6 @@ export interface ClusterNode {
         docId: string;
         document: AnyDocument;
     }>): Promise<BatchResult>;
-    updateSynonyms(indexName: string, synonyms: SynonymRule[]): Promise<void>;
 }
 
 // @public
@@ -177,6 +175,13 @@ export interface ClusterNodeInfo {
     nodeId: string;
     roles: ReadonlyArray<NodeRole>;
     status: string;
+}
+
+// @public
+export interface ClusterNodeSearchSettings {
+    getSynonyms(indexName: string): Promise<SynonymRule[]>;
+    updateBM25(indexName: string, bm25: BM25Params): Promise<void>;
+    updateSynonyms(indexName: string, synonyms: SynonymRule[]): Promise<void>;
 }
 
 // @public
@@ -228,6 +233,17 @@ export interface IndexHealth {
     replicationFactor: number;
     status: ClusterHealthStatus;
     underReplicatedPartitions: number;
+}
+
+// @public
+export interface IndexMetadataEvent {
+    indexName: string;
+    metadata: Uint8Array | null;
+}
+
+// @public
+export interface IndexMetadataWatch {
+    watchIndexMetadata(handler: (event: IndexMetadataEvent) => void): Promise<() => void>;
 }
 
 // @public

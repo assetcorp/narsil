@@ -39,6 +39,16 @@ export function queryKeyedSelector(binding: string): ReplicaSelector {
   }
 }
 
+export function copyHoldersOf(table: AllocationTable): Set<string> {
+  const holders = new Set<string>()
+  for (const assignment of table.assignments.values()) {
+    if (assignment.primary !== null) holders.add(assignment.primary)
+    for (const replica of assignment.replicas) holders.add(replica)
+    for (const replica of assignment.removingReplicas ?? []) holders.add(replica)
+  }
+  return holders
+}
+
 export function collectActiveCandidates(assignment: PartitionAssignment): string[] {
   if (assignment.state !== 'ACTIVE') {
     return []

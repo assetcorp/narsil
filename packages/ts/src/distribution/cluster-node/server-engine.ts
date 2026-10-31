@@ -3,7 +3,7 @@ import { bindIndexReads } from '../../narsil/index-reads'
 import { bindRerankWindowSource, rerankWindowCapOf } from '../../narsil/internals'
 import { bindEngineWriteBlock } from '../../narsil/write-blocks'
 import type { Narsil } from '../../types/engine'
-import type { AnyDocument, IndexConfig, InsertOptions, WriteOptions } from '../../types/schema'
+import type { AnyDocument, BM25Params, IndexConfig, InsertOptions, WriteOptions } from '../../types/schema'
 import type { ListParams, QueryParams, SuggestParams } from '../../types/search'
 import type { SynonymRule } from '../../types/synonyms'
 import type { ClusterNode, CreateIndexOptions } from './types'
@@ -116,6 +116,10 @@ export function clusterNodeEngine(node: ClusterNode, options?: ClusterEngineOpti
 
     async updateSynonyms(indexName: string, synonyms: SynonymRule[]): Promise<void> {
       return node.updateSynonyms(indexName, synonyms)
+    },
+
+    async updateBM25(indexName: string, bm25: BM25Params): Promise<void> {
+      return node.updateBM25(indexName, bm25)
     },
 
     async getSynonyms(indexName: string): Promise<SynonymRule[]> {
