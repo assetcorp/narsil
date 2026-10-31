@@ -1,6 +1,6 @@
 import type { FilterExpression } from './filters'
 import type { RerankConfig } from './rerank'
-import type { AnyDocument, ScoringMode } from './schema'
+import type { AnyDocument, BM25Params, ScoringMode } from './schema'
 import type { HybridConfig, VectorQueryConfig } from './vector-query'
 
 export type { ListParams, SuggestParams } from './reads'
@@ -96,6 +96,16 @@ export interface QueryParams {
    * finite number.
    */
   boost?: Record<string, number>
+  /**
+   * These BM25 parameters score this search alone, and they override the
+   * index's parameters, so a `k1` here also overrides a `k1` that the index
+   * sets for a field. The engine validates them on every search, and it throws
+   * the same errors as {@link IndexConfig.bm25}, except `SEARCH_INVALID_FIELD`
+   * for a name in `fields` that is not a text field. They change no score on a
+   * vector search, and on a hybrid search they apply to the keyword ranking
+   * alone. A cursor pages only a search with the same parameters.
+   */
+  bm25?: BM25Params
   /** The engine gathers term statistics this way, and follows the index's `defaultScoring` where the query sets none. */
   scoring?: ScoringMode
   /**

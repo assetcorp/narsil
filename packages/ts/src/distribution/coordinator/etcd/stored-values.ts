@@ -1,7 +1,8 @@
 import type { Etcd3 as Etcd3Client, IKeyValue } from 'etcd3'
 import { compareCodePoints } from '../../../core/ordering'
 import type { SchemaDefinition } from '../../../types/schema'
-import type { ClusterCoordinator, SchemaEvent } from '../types'
+import { INDEX_METADATA_KEY_PREFIX, indexNameOfMetadataSuffix } from '../index-metadata-key'
+import type { ClusterCoordinator, IndexMetadataEvent, SchemaEvent } from '../types'
 import { type CoordinatorKeys, extractSuffix } from './keys'
 import type { PrefixWatchHandlers } from './prefix-watch'
 import type { EtcdWriteGuard } from './request-size'
@@ -17,7 +18,15 @@ export interface StoredValueContext {
 
 export type StoredValueMethods = Pick<
   ClusterCoordinator,
-  'get' | 'compareAndSet' | 'delete' | 'getSchema' | 'putSchema' | 'dropSchema' | 'listSchemas' | 'watchSchemas'
+  | 'get'
+  | 'compareAndSet'
+  | 'delete'
+  | 'getSchema'
+  | 'putSchema'
+  | 'dropSchema'
+  | 'listSchemas'
+  | 'watchSchemas'
+  | 'watchIndexMetadata'
 >
 
 export function storedValueMethods(context: StoredValueContext): StoredValueMethods {
@@ -99,6 +108,23 @@ export function storedValueMethods(context: StoredValueContext): StoredValueMeth
         },
         delete(fullKey: string) {
           handler({ type: 'schema_dropped', indexName: extractSuffix(fullKey, prefix), schema: null })
+        },
+      })
+    },
+
+    async watchIndexMetadata(handler: (event: IndexMetadataEvent) => void): Promise<() => void> {
+      assertNotShutdown()
+      const prefix = keys.generic(INDEX_METADATA_KEY_PREFIX)
+      const nameOf = (fullKey: string): string | null => indexNameOfMetadataSuffix(fullKey.slice(prefix.length))
+      return watchPrefix(prefix, {
+        put(kv: IKeyValue) {
+          const indexName = nameOf(kv.key.toString())
+          if (indexName === null) return
+          handler({ indexName, metadata: kv.value.byteLength === 0 ? null : new Uint8Array(kv.value) })
+        },
+        delete(fullKey: string) {
+          const indexName = nameOf(fullKey)
+          if (indexName !== null) handler({ indexName, metadata: null })
         },
       })
     },

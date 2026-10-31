@@ -68,7 +68,7 @@ The engine applies the first two limits and the configuration limit only to new 
 | `language` | `string` | Selects the language module for tokenization and stemming. The default is `english`. |
 | `partitions` | `PartitionConfig` | Sets `maxDocsPerPartition`, `maxPartitions`, and the `watermark` fraction that fires an early capacity warning. See [Partitions and rebalancing](partitions-and-workers.md#partitions-and-rebalancing). |
 | `defaultScoring` | `'local' \| 'dfs' \| 'broadcast'` | Sets the scoring mode used when a query does not pass one. See [Scoring modes](full-text-search.md#scoring-modes). |
-| `bm25` | `BM25Params` | Overrides the BM25 `k1` and `b` parameters. |
+| `bm25` | `BM25Params` | Sets the BM25 `k1` and `b` parameters for the index and for each text field in `fields`. You can replace the setting later with `updateBM25`. See [BM25 parameters](full-text-search.md#bm25-parameters). |
 | `stopWords` | `StopWordOverride \| string` | Replaces or transforms the language module's stop word set, inline or by the name of a set registered with `registerStopWords`. See [Named tokenizers and stop words](language-support.md#named-tokenizers-and-stop-words). |
 | `tokenizer` | `CustomTokenizer \| string` | Replaces the built-in tokenizer with your own `tokenize(text)` implementation, inline or by the name of a tokenizer registered with `registerTokenizer`. See [Named tokenizers and stop words](language-support.md#named-tokenizers-and-stop-words). |
 | `trackPositions` | `boolean` | Stores token positions in each posting, which [phrase search](full-text-search.md#phrase-search) compares. The default is `true`. With `false`, the engine stores less and refuses a phrase with `SEARCH_INVALID_PHRASE`, while highlighting works either way. |

@@ -1,6 +1,6 @@
 import type { PartitionIndex } from '../../core/partition'
-import type { PatternWorkMeter } from '../../core/pattern-index/types'
 import { createPatternWorkMeter, type SearchPatternWork } from '../../core/pattern-index/work-meter'
+import { mergeBM25Levels } from '../../core/scorer'
 import type { SearchClock } from '../../core/search-clock'
 import { ErrorCodes, NarsilError } from '../../errors'
 import { validatedFilterOf } from '../../filters/operands'
@@ -19,7 +19,7 @@ import type { FilterExpression } from '../../types/filters'
 import type { GlobalStatistics, ScoredDocument } from '../../types/internal'
 import type { LanguageModule } from '../../types/language'
 import type { QueryCoverage } from '../../types/results'
-import type { IndexConfig } from '../../types/schema'
+import type { BM25Params, IndexConfig } from '../../types/schema'
 import type { QueryParams, SearchMode } from '../../types/search'
 import type { VectorScoredResult, VectorSearcher } from '../../vector/vector-index'
 
@@ -38,8 +38,10 @@ export interface QueryContext {
     globalStats: GlobalStatistics | undefined,
     partitionIds: number[] | undefined,
     patternWork: SearchPatternWork,
+    bm25: BM25Params | undefined,
   ) => Promise<FanOutResult | null>
   indexName: string
+  indexBm25?: BM25Params
   broadcastStats?: (indexName: string) => GlobalStatistics | undefined
   partitionIds?: number[]
   rescoreWindow?: number
@@ -153,9 +155,14 @@ export function broadcastStatsForWorker(
   })
 }
 
-export function searchOptionsFor(manager: PartitionManager, patternWork: PatternWorkMeter): FulltextSearchOptions {
+export function bm25SettingFor(params: QueryParams, context: QueryContext): BM25Params | undefined {
+  return mergeBM25Levels(params.bm25, context.indexBm25 ?? context.config.bm25)
+}
+
+export function searchOptionsFor(params: QueryParams, context: SearchContext): FulltextSearchOptions {
+  const { manager, patternWork } = context
   return {
-    bm25Params: manager.config.bm25,
+    bm25Params: bm25SettingFor(params, context),
     stopWords: manager.analysis.stopWords,
     customTokenizer: manager.analysis.customTokenizer,
     synonyms: manager.synonyms,

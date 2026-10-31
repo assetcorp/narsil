@@ -28,7 +28,11 @@ export function reconstructSchemaFromMetadata(metadata: IndexMetadata): IndexCon
   const config: IndexConfig = {
     schema: unflattenSchema(metadata.schema),
     language: metadata.language,
-    bm25: { k1: metadata.bm25Params.k1, b: metadata.bm25Params.b },
+    bm25: {
+      k1: metadata.bm25Params.k1,
+      b: metadata.bm25Params.b,
+      ...(metadata.bm25Params.fields !== undefined ? { fields: metadata.bm25Params.fields } : {}),
+    },
   }
   if (metadata.embedding) {
     config.embedding =

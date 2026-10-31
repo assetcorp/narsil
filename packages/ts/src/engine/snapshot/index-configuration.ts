@@ -83,6 +83,7 @@ function configurationPayloadOf(
           bm25: {
             ...(bm25.k1 !== undefined ? { k1: bm25.k1 } : {}),
             ...(bm25.b !== undefined ? { b: bm25.b } : {}),
+            ...(bm25.fields !== undefined ? { fields: bm25.fields } : {}),
           },
         }
       : {}),

@@ -1,4 +1,5 @@
 import { generateId } from '../../../core/id-generator'
+import { bm25SetsValue } from '../../../core/scorer'
 import { providedDocId } from '../../../engine/mutations/insert-admission'
 import { requireConfigurationWithinSizeLimit } from '../../../engine/snapshot/index-configuration'
 import { prepareConfiguredSynonyms } from '../../../engine/synonym-sets'
@@ -7,6 +8,7 @@ import { ErrorCodes, NarsilError } from '../../../errors'
 import { getLanguage } from '../../../languages/registry'
 import type { Narsil } from '../../../narsil'
 import { requireCreatableSchema, validateSchema } from '../../../schema/validator'
+import { validateBM25Params } from '../../../search/bm25-params'
 import type { AnyDocument, IndexConfig, InsertOptions } from '../../../types/schema'
 import {
   type IndexMetadata,
@@ -20,6 +22,7 @@ import { indexSettingsOf, withPartitionCount } from '../../cluster/index-setting
 import { deleteSynonymSet, type SynonymSetRef, storeSynonymSet } from '../../cluster/synonym-set'
 import { MAX_PARTITION_COUNT, MAX_REPLICATION_FACTOR } from '../../constants'
 import type { AllocationConstraints, ClusterCoordinator } from '../../coordinator/types'
+import { bm25NotReady, registeredNodesBelowBm25Tuning } from '../../query/bm25-routing'
 import type { WriteCondition } from '../../transport/types'
 import { waitForServingAllocation } from '../allocation-wait'
 import { DEFAULT_CREATE_INDEX_WAIT_MS } from '../constants'
@@ -75,6 +78,12 @@ export async function routeCreateIndex(
   const config: IndexConfig = { ...requestedConfig, schema: validateSchema(requestedConfig.schema) }
   requireCreatableSchema(config.schema)
   requireSurfaceFormsForPartialFields(config.schema, config.surfaceForms)
+  if (config.bm25 !== undefined) validateBM25Params(config.bm25, config.schema, ErrorCodes.CONFIG_INVALID)
+  const setsFieldPairs = config.bm25?.fields !== undefined && bm25SetsValue({ fields: config.bm25.fields })
+  if (setsFieldPairs) {
+    const olderNodes = registeredNodesBelowBm25Tuning(await coordinator.listNodes())
+    if (olderNodes.length > 0) throw bm25NotReady('The cluster has', olderNodes, name)
+  }
 
   const partitionCount = options?.partitionCount ?? DEFAULT_PARTITION_COUNT
   const replicationFactor = options?.replicationFactor ?? DEFAULT_REPLICATION_FACTOR
@@ -97,7 +106,11 @@ export async function routeCreateIndex(
     partitionCount,
     replicationFactor,
     constraints,
-    settings: { ...indexSettingsOf(config), ...(synonymSet !== null ? { synonyms: synonymSet } : {}) },
+    settings: {
+      ...indexSettingsOf(config),
+      ...(synonymSet !== null ? { synonyms: synonymSet } : {}),
+      ...(setsFieldPairs ? { bm25Revision: 1 } : {}),
+    },
   }
 
   const stored = await putIndexMetadata(coordinator, metadata).catch(async (err: unknown) => {

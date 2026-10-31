@@ -5,11 +5,10 @@ import type {
   PostingListView,
   ScoredDocument,
 } from '../../types/internal'
-import type { BM25Params } from '../../types/schema'
 import type { InvertedIndexReader } from '../inverted-index'
-import { bm25PruningSound, computeBM25, computeBM25WithIDF, computeIDF, resolveBM25Params } from '../scorer'
+import { bm25PruningSound, computeBM25WithIDF, computeIDF } from '../scorer'
 import { blockBoundsFor } from './block-bounds'
-import { bestSearchable, type FieldScoring, fieldLengthOf } from './field-scoring'
+import { bestSearchable, blockEntryBound, type FieldScoring, fieldLengthOf } from './field-scoring'
 import { postingColumns } from './posting-columns'
 import { EMPTY_COMPONENTS } from './scoring'
 import { buildMinHeap, candidateWorse, siftDown, sortSelection, type TopKCandidate } from './top-k-heap'
@@ -18,7 +17,6 @@ export interface SingleTermScanRequest {
   list: PostingListView
   docFrequency: number
   totalDocs: number
-  bm25Params: BM25Params | undefined
   limit: number
   fields: FieldScoring
   resolver: InternalIdResolver
@@ -79,13 +77,19 @@ export function prunableSingleTermList(
  * @returns The page in descending score order, with the exact number of matching documents.
  */
 export function singleTermTopK(request: SingleTermScanRequest): InternalSearchResult {
-  const { list, docFrequency, totalDocs, bm25Params, limit, resolver } = request
+  const { list, docFrequency, totalDocs, limit, resolver } = request
   const {
     searchable: fieldSearchable,
     boosts: fieldBoosts,
     averageLengths: fieldAvgLengths,
     lengthColumns: fieldLengthColumns,
+    k1s,
+    bs,
+    boundPairs,
   } = request.fields
+  const onePair = boundPairs.length === 2
+  const onlyK1 = boundPairs[0]
+  const onlyB = boundPairs[1]
 
   const wanted = Number.isFinite(limit) ? Math.max(0, Math.floor(limit)) : 0
   const { docIds, termFrequencies, fieldNameIndices, deletedDocs: deleted, hasDeleted } = postingColumns(list)
@@ -94,7 +98,6 @@ export function singleTermTopK(request: SingleTermScanRequest): InternalSearchRe
   const maxBoost = bestSearchable(fieldSearchable, fieldBoosts)
   const maxAverageLength = bestSearchable(fieldSearchable, fieldAvgLengths)
   const idf = computeIDF(docFrequency, totalDocs)
-  const { k1, b } = resolveBM25Params(bm25Params)
   const scoresAreZero = totalDocs === 0
 
   const heap: TopKCandidate[] = []
@@ -107,14 +110,14 @@ export function singleTermTopK(request: SingleTermScanRequest): InternalSearchRe
     const end = bounds.entryEnd[block]
 
     if (full) {
-      const bestEntry = computeBM25(
-        bounds.maxTermFrequency[block],
-        docFrequency,
-        totalDocs,
-        bounds.minFieldLength[block],
-        maxAverageLength,
-        bm25Params,
-      )
+      let bestEntry = 0
+      if (!scoresAreZero) {
+        const blockMaxTf = bounds.maxTermFrequency[block]
+        const blockMinLength = bounds.minFieldLength[block]
+        bestEntry = onePair
+          ? computeBM25WithIDF(blockMaxTf, idf, blockMinLength, maxAverageLength, onlyK1, onlyB)
+          : blockEntryBound(request.fields, blockMaxTf, idf, blockMinLength, maxAverageLength)
+      }
       if (bestEntry * maxBoost * bounds.maxEntriesPerDocument[block] < threshold) {
         totalMatched += bounds.documentCount[block]
         continue
@@ -137,8 +140,14 @@ export function singleTermTopK(request: SingleTermScanRequest): InternalSearchRe
           score +=
             (scoresAreZero
               ? 0
-              : computeBM25WithIDF(termFrequencies[entry], idf, fieldLength, fieldAvgLengths[fieldIndex], k1, b)) *
-            fieldBoosts[fieldIndex]
+              : computeBM25WithIDF(
+                  termFrequencies[entry],
+                  idf,
+                  fieldLength,
+                  fieldAvgLengths[fieldIndex],
+                  onePair ? onlyK1 : k1s[fieldIndex],
+                  onePair ? onlyB : bs[fieldIndex],
+                )) * fieldBoosts[fieldIndex]
           scored = true
         }
         entry++

@@ -38,8 +38,20 @@ export interface BatchResult {
 }
 
 // @public
+export interface BM25FieldParams {
+    b?: number;
+    k1?: number;
+}
+
+// @public
+export interface BM25Operations {
+    updateBM25(indexName: string, bm25: BM25Params): Promise<void>;
+}
+
+// @public
 export interface BM25Params {
     b?: number;
+    fields?: Record<string, BM25FieldParams>;
     k1?: number;
 }
 
@@ -182,6 +194,7 @@ export const ErrorCodes: {
     readonly SEARCH_WORK_CAP_EXCEEDED: "SEARCH_WORK_CAP_EXCEEDED";
     readonly SEARCH_INVALID_PHRASE: "SEARCH_INVALID_PHRASE";
     readonly SEARCH_PHRASE_NOT_READY: "SEARCH_PHRASE_NOT_READY";
+    readonly BM25_NOT_READY: "BM25_NOT_READY";
     readonly LANGUAGE_NOT_SUPPORTED: "LANGUAGE_NOT_SUPPORTED";
     readonly ENVELOPE_VERSION_MISMATCH: "ENVELOPE_VERSION_MISMATCH";
     readonly ENVELOPE_INVALID_MAGIC: "ENVELOPE_INVALID_MAGIC";
@@ -555,7 +568,7 @@ export interface MemoryStats {
 }
 
 // @public
-export interface Narsil extends IndexLifecycleOperations, DocumentWriteOperations, SynonymOperations, AdapterRegistrationOperations {
+export interface Narsil extends IndexLifecycleOperations, DocumentWriteOperations, SynonymOperations, BM25Operations, AdapterRegistrationOperations {
     checkpoint(indexName: string): Promise<void>;
     clear(indexName: string): Promise<void>;
     compactVectors(indexName: string, fieldName?: string): Promise<void>;
@@ -785,6 +798,7 @@ export interface QueryCoverage {
 
 // @public
 export interface QueryParams {
+    bm25?: BM25Params;
     boost?: Record<string, number>;
     document?: DocumentProjection;
     exact?: boolean;

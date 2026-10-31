@@ -43,6 +43,7 @@ export interface QueryRoutingDeps {
   getAllocation: (indexName: string) => Promise<AllocationTable | null>
   resolveNodeTargets?: (nodeId: string) => Promise<string[]>
   listNodes?: () => Promise<NodeRegistration[]>
+  carriesBm25?: boolean
 }
 
 export interface RoutingResult {
