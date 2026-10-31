@@ -7,7 +7,13 @@ import type { ResolvedLimits } from '../deps'
 import { parseJson, rejectInvalid, respondError, respondJson } from '../handler-utils'
 import { refuseRegex } from '../regex-policy'
 import type { RouteContext } from '../request'
-import type { MultiGetBody } from '../types'
+import type {
+  DocumentCountResponse,
+  DocumentExistsResponse,
+  DocumentResponse,
+  MultiGetBody,
+  MultiGetResponse,
+} from '../types'
 import { validateList, validateMultiGet } from '../validation'
 
 export type ReadEngine = Pick<
@@ -31,7 +37,7 @@ export function createDocumentReadHandlers(deps: ReadHandlerDeps) {
         respondError(ctx, indexDocNotFound(ctx.params[1]))
         return
       }
-      respondJson(ctx, { document })
+      respondJson(ctx, { document } satisfies DocumentResponse)
     } catch (err) {
       respondError(ctx, err)
     }
@@ -39,7 +45,7 @@ export function createDocumentReadHandlers(deps: ReadHandlerDeps) {
 
   async function exists(ctx: RouteContext): Promise<void> {
     try {
-      respondJson(ctx, { exists: await engine.has(ctx.params[0], ctx.params[1]) })
+      respondJson(ctx, { exists: await engine.has(ctx.params[0], ctx.params[1]) } satisfies DocumentExistsResponse)
     } catch (err) {
       respondError(ctx, err)
     }
@@ -47,7 +53,7 @@ export function createDocumentReadHandlers(deps: ReadHandlerDeps) {
 
   async function count(ctx: RouteContext): Promise<void> {
     try {
-      respondJson(ctx, { count: await engine.countDocuments(ctx.params[0]) })
+      respondJson(ctx, { count: await engine.countDocuments(ctx.params[0]) } satisfies DocumentCountResponse)
     } catch (err) {
       respondError(ctx, err)
     }
@@ -65,7 +71,8 @@ export function createDocumentReadHandlers(deps: ReadHandlerDeps) {
       const found = await engine.getMultiple(ctx.params[0], body.docIds)
       const documents: Record<string, AnyDocument> = {}
       for (const [id, doc] of found) documents[id] = doc
-      await respondAnswer(ctx, { documents }, 'documents', `a multi-get on index '${ctx.params[0]}'`)
+      const answer: MultiGetResponse = { documents }
+      await respondAnswer(ctx, answer, 'documents', `a multi-get on index '${ctx.params[0]}'`)
     } catch (err) {
       respondError(ctx, err)
     }

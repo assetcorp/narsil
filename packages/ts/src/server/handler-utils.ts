@@ -5,6 +5,7 @@ import { ServerErrorCodes, serializeNarsilError, toHttpError } from './errors'
 import { type ParsedBodyKind, parseRefusalOf } from './parse-heap'
 import type { RouteContext } from './request'
 import { type ResponseSink, sendError, sendJson } from './response'
+import type { BatchResponse } from './types'
 import type { ValidationFailure } from './validation'
 
 function refusesParse(ctx: RouteContext, raw: Buffer | null, kind: ParsedBodyKind): boolean {
@@ -91,12 +92,7 @@ export function rejectInvalid(ctx: RouteContext, failure: ValidationFailure): vo
   badRequest(ctx.res, failure.message, failure.details)
 }
 
-export interface SerializedBatchResult {
-  succeeded: string[]
-  failed: Array<{ docId: string; error: { code: string; message: string; details?: Record<string, unknown> } }>
-}
-
-export function serializeBatchResult(result: BatchResult): SerializedBatchResult {
+export function serializeBatchResult(result: BatchResult): BatchResponse {
   return {
     succeeded: result.succeeded,
     failed: result.failed.map(f => ({

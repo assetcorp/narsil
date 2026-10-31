@@ -86,6 +86,7 @@ function entryPoints(): EntryPoint[] {
   const { name, exports } = manifest()
   const found: EntryPoint[] = []
   for (const [subpath, condition] of Object.entries(exports)) {
+    if (subpath.endsWith('.json')) continue
     const types = typesTarget(condition)
     if (types === null) {
       throw new Error(`the "${subpath}" export declares no types condition, so its API cannot be analysed`)

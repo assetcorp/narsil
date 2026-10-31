@@ -214,12 +214,15 @@ export const ErrorCodes: {
 };
 
 // @public
+export interface ErrorDetail {
+    code: string;
+    details?: Record<string, unknown>;
+    message: string;
+}
+
+// @public
 export interface ErrorEnvelope {
-    error: {
-        code: string;
-        message: string;
-        details?: Record<string, unknown>;
-    };
+    error: ErrorDetail;
 }
 
 // @public
@@ -429,11 +432,7 @@ export interface TaskRecord {
     cancelRequestedAt?: number;
     completedAt?: number;
     createdAt: number;
-    error?: {
-        code: string;
-        message: string;
-        details?: Record<string, unknown>;
-    };
+    error?: ErrorDetail;
     id: string;
     indexName: string;
     owner: string;

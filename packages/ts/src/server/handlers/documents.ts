@@ -10,7 +10,15 @@ import {
   serializeBatchResult,
 } from '../handler-utils'
 import type { RouteContext } from '../request'
-import type { BatchBody, DocumentBody, InsertBody } from '../types'
+import type {
+  BatchBody,
+  DocumentBody,
+  DocumentIdResponse,
+  DocumentPutResponse,
+  DocumentRemovedResponse,
+  InsertBody,
+  OkResponse,
+} from '../types'
 import { validateBatch, validateDocumentBody } from '../validation'
 import { createDocumentReadHandlers } from './document-reads'
 
@@ -29,7 +37,7 @@ export function createDocumentHandlers(deps: HandlerDeps) {
     }
     try {
       const id = await engine.insert(ctx.params[0], body.document, body.id, body.options)
-      respondJson(ctx, { id }, 201)
+      respondJson(ctx, { id } satisfies DocumentIdResponse, 201)
     } catch (err) {
       respondError(ctx, err)
     }
@@ -47,10 +55,10 @@ export function createDocumentHandlers(deps: HandlerDeps) {
     try {
       if (await engine.has(name, id)) {
         await engine.update(name, id, body.document, body.options)
-        respondJson(ctx, { id, created: false })
+        respondJson(ctx, { id, created: false } satisfies DocumentPutResponse)
       } else {
         const created = await engine.insert(name, body.document, id, body.options)
-        respondJson(ctx, { id: created, created: true }, 201)
+        respondJson(ctx, { id: created, created: true } satisfies DocumentPutResponse, 201)
       }
     } catch (err) {
       respondError(ctx, err)
@@ -67,7 +75,7 @@ export function createDocumentHandlers(deps: HandlerDeps) {
     }
     try {
       await engine.update(ctx.params[0], ctx.params[1], body.document, body.options)
-      respondJson(ctx, { id: ctx.params[1] })
+      respondJson(ctx, { id: ctx.params[1] } satisfies DocumentIdResponse)
     } catch (err) {
       respondError(ctx, err)
     }
@@ -76,7 +84,7 @@ export function createDocumentHandlers(deps: HandlerDeps) {
   async function remove(ctx: RouteContext): Promise<void> {
     try {
       await engine.remove(ctx.params[0], ctx.params[1], { wait: ctx.query.get('wait') === 'true' })
-      respondJson(ctx, { id: ctx.params[1], removed: true })
+      respondJson(ctx, { id: ctx.params[1], removed: true } satisfies DocumentRemovedResponse)
     } catch (err) {
       respondError(ctx, err)
     }
@@ -85,7 +93,7 @@ export function createDocumentHandlers(deps: HandlerDeps) {
   async function waitForWrites(ctx: RouteContext): Promise<void> {
     try {
       await engine.waitForWrites(ctx.params[0])
-      respondJson(ctx, { ok: true })
+      respondJson(ctx, { ok: true } satisfies OkResponse)
     } catch (err) {
       respondError(ctx, err)
     }

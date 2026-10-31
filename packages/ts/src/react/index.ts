@@ -1,6 +1,7 @@
 export type { ClientErrorCode, ErrorCode, NarsilErrorCode, ServerErrorCode } from '../errors'
 export { ClientErrorCodes, ErrorCodes, isNarsilError, NarsilError, ServerErrorCodes } from '../errors'
 export type {
+  ErrorDetail,
   ImportError,
   ImportResult,
   TaskListPage,

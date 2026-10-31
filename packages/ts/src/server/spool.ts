@@ -46,9 +46,16 @@ export function spoolBody(
       done: false,
     }
 
+    const resumeReading = (): void => {
+      if (!state.paused || abort.aborted) return
+      state.paused = false
+      res.resume()
+    }
+
     const fail = (error: Error, answer: boolean): void => {
       if (state.done) return
       state.done = true
+      resumeReading()
       if (answer && !abort.aborted) {
         sendError(res, 500, ServerErrorCodes.INTERNAL_ERROR, 'The server could not store the request body')
       }
@@ -70,10 +77,7 @@ export function spoolBody(
       if (!(await admitted)) throw new NotAdmittedError('the request was not admitted')
       state.directory = await mkdtemp(path.join(tmpdir(), 'narsil-spool-'))
       state.handle = await open(path.join(state.directory, 'body'), 'w')
-      if (!abort.aborted && !state.done && state.queued <= SPOOL_PAUSE_ABOVE_BYTES) {
-        state.paused = false
-        res.resume()
-      }
+      if (!state.done && state.queued <= SPOOL_PAUSE_ABOVE_BYTES) resumeReading()
     })()
     state.chain.catch(failFromChain)
     abort.onAbort(() => fail(new Error('aborted'), false))
@@ -82,6 +86,7 @@ export function spoolBody(
       if (state.done || abort.aborted) return
       state.total += chunk.byteLength
       if (maxBytes > 0 && state.total > maxBytes) {
+        resumeReading()
         sendError(res, 413, ServerErrorCodes.PAYLOAD_TOO_LARGE, 'Request body exceeds the configured size limit')
         fail(new Error('payload too large'), false)
         return
@@ -96,10 +101,7 @@ export function spoolBody(
         if (state.handle === null) throw new Error('the spool file is not open')
         await state.handle.write(copy)
         state.queued -= copy.byteLength
-        if (state.paused && state.queued <= SPOOL_PAUSE_ABOVE_BYTES && !abort.aborted && !state.done) {
-          state.paused = false
-          res.resume()
-        }
+        if (!state.done && state.queued <= SPOOL_PAUSE_ABOVE_BYTES) resumeReading()
       })
       state.chain.catch(failFromChain)
       if (!isLast) return

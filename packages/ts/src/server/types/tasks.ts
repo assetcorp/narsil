@@ -1,4 +1,5 @@
 import type { ImportResult } from './requests'
+import type { ErrorDetail } from './responses'
 
 /**
  * Which long-running operation a task record tracks.
@@ -83,7 +84,7 @@ export interface TaskRecord {
   /** What the work produced, which an `import` or `importExport` task reports once it finishes. */
   result?: ImportResult
   /** This says why the task failed, and a failed task alone carries it. */
-  error?: { code: string; message: string; details?: Record<string, unknown> }
+  error?: ErrorDetail
 }
 
 /**
