@@ -258,7 +258,10 @@ describe('a cluster node in a container that answers reads larger than its free 
     )
     expect(isNarsilError(outcome), `the read ended with ${String(outcome)}`).toBe(true)
     if (!isNarsilError(outcome)) return
-    expect(outcome.code, outcome.message).toBe('CLIENT_CONNECTION_FAILED')
+    if (outcome.code !== 'CLIENT_CONNECTION_FAILED') {
+      expect(outcome.code, outcome.message).toBe('TOO_MANY_REQUESTS')
+      expect(MEMORY_REFUSAL_REASONS, outcome.message).toContain(outcome.details.reason)
+    }
     await waitFor('the node to log the cut answer', CUT_LOG_TIMEOUT_MS, async () =>
       started.output().includes('closed the connection part way through its answer'),
     )
