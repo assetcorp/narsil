@@ -64,7 +64,8 @@ export interface VectorQueryConfig {
    * `osq1` and `osq2`, and at least k under `osq4` and `osq8`. Below 768
    * dimensions, it re-scores 3.23k + 55.9√k under `osq1` and 2.6k + 22.5√k under
    * `osq2`. From 768 to 1,023 dimensions, it re-scores 2.2k + 27√k under
-   * `osq1` and k + 16√k under `osq2`. At 1,024 dimensions and above, it
+   * `osq1` and k + 16√k under `osq2`, and under `osq2` it re-scores at least
+   * the smaller of k + 75 and k + 18√k. At 1,024 dimensions and above, it
    * re-scores 3k under both. Under `osq4`, it re-scores 5k below 1,024
    * dimensions and 2k from 1,024 dimensions, while under `osq8` it re-scores
    * 2k at every dimension. Under a filter, the engine counts only the

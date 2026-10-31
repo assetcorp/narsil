@@ -18,6 +18,11 @@
 #include <emmintrin.h>
 #endif
 
+#ifdef NARSIL_HARDWARE_POPCOUNT
+#include <cpuid.h>
+#include <stdatomic.h>
+#endif
+
 #ifdef NARSIL_SSE2
 static inline __m128i load_bytes(const uint8_t *source) {
   __m128i loaded;
@@ -107,20 +112,39 @@ uint32_t kernel_products_4x4(const uint8_t *document, const uint8_t *low, const 
   return total;
 }
 
-static inline uint32_t weighted_bits(uint64_t low, uint64_t high, uint64_t plane) {
-  return (uint32_t)__builtin_popcountll(low & plane) + (2 * (uint32_t)__builtin_popcountll(high & plane));
-}
-
-uint32_t kernel_products_bits(packed_code document, const uint8_t *planes) {
-  uint64_t low_mask = document.bits == 2 ? TWO_BIT_LOW_BITS : ~UINT64_C(0);
-  uint64_t high_mask = document.bits == 2 ? TWO_BIT_LOW_BITS : 0;
+INLINED_IN_EACH_KERNEL uint32_t one_bit_products(packed_code document, const uint8_t *planes) {
   uint32_t total = 0;
   uint32_t offset = 0;
   for (; offset + WORD_BYTES <= document.byte_count; offset += WORD_BYTES) {
     uint64_t word = 0;
     memcpy(&word, document.bytes + offset, sizeof word);
-    uint64_t low = word & low_mask;
-    uint64_t high = (word >> 1) & high_mask;
+    for (uint32_t plane = 0; plane < QUERY_PLANES; plane++) {
+      uint64_t query = 0;
+      memcpy(&query, planes + ((size_t)plane * document.byte_count) + offset, sizeof query);
+      total += (uint32_t)__builtin_popcountll(word & query) << plane;
+    }
+  }
+  for (; offset < document.byte_count; offset++) {
+    for (uint32_t plane = 0; plane < QUERY_PLANES; plane++) {
+      uint32_t query = planes[((size_t)plane * document.byte_count) + offset];
+      total += (uint32_t)__builtin_popcount(document.bytes[offset] & query) << plane;
+    }
+  }
+  return total;
+}
+
+INLINED_IN_EACH_KERNEL uint32_t weighted_bits(uint64_t low, uint64_t high, uint64_t plane) {
+  return (uint32_t)__builtin_popcountll(low & plane) + (2 * (uint32_t)__builtin_popcountll(high & plane));
+}
+
+INLINED_IN_EACH_KERNEL uint32_t two_bit_products(packed_code document, const uint8_t *planes) {
+  uint32_t total = 0;
+  uint32_t offset = 0;
+  for (; offset + WORD_BYTES <= document.byte_count; offset += WORD_BYTES) {
+    uint64_t word = 0;
+    memcpy(&word, document.bytes + offset, sizeof word);
+    uint64_t low = word & TWO_BIT_LOW_BITS;
+    uint64_t high = (word >> 1) & TWO_BIT_LOW_BITS;
     for (uint32_t plane = 0; plane < QUERY_PLANES; plane++) {
       uint64_t query = 0;
       memcpy(&query, planes + ((size_t)plane * document.byte_count) + offset, sizeof query);
@@ -128,11 +152,58 @@ uint32_t kernel_products_bits(packed_code document, const uint8_t *planes) {
     }
   }
   for (; offset < document.byte_count; offset++) {
-    uint64_t low = document.bytes[offset] & low_mask;
-    uint64_t high = ((uint64_t)document.bytes[offset] >> 1) & high_mask;
+    uint64_t low = document.bytes[offset] & TWO_BIT_LOW_BITS;
+    uint64_t high = ((uint64_t)document.bytes[offset] >> 1) & TWO_BIT_LOW_BITS;
     for (uint32_t plane = 0; plane < QUERY_PLANES; plane++) {
       total += weighted_bits(low, high, planes[((size_t)plane * document.byte_count) + offset]) << plane;
     }
   }
   return total;
+}
+
+#ifdef NARSIL_HARDWARE_POPCOUNT
+#define POPCOUNT_UNKNOWN 0
+#define POPCOUNT_ABSENT 1
+#define POPCOUNT_PRESENT 2
+#define CPUID_FEATURES_LEAF 1U
+
+static atomic_int popcount_state = POPCOUNT_UNKNOWN;
+
+static int processor_counts_bits(void) {
+  unsigned int eax = 0;
+  unsigned int ebx = 0;
+  unsigned int ecx = 0;
+  unsigned int edx = 0;
+  if (!__get_cpuid(CPUID_FEATURES_LEAF, &eax, &ebx, &ecx, &edx)) { return 0; }
+  return (ecx & bit_POPCNT) != 0;
+}
+
+int uses_hardware_popcount(void) {
+  int state = atomic_load_explicit(&popcount_state, memory_order_relaxed);
+  if (state == POPCOUNT_UNKNOWN) {
+    state = processor_counts_bits() ? POPCOUNT_PRESENT : POPCOUNT_ABSENT;
+    atomic_store_explicit(&popcount_state, state, memory_order_relaxed);
+  }
+  return state == POPCOUNT_PRESENT;
+}
+
+__attribute__((target("popcnt"))) static uint32_t one_bit_products_with_popcnt(packed_code document,
+                                                                               const uint8_t *planes) {
+  return one_bit_products(document, planes);
+}
+
+__attribute__((target("popcnt"))) static uint32_t two_bit_products_with_popcnt(packed_code document,
+                                                                               const uint8_t *planes) {
+  return two_bit_products(document, planes);
+}
+#endif
+
+uint32_t kernel_products_bits(packed_code document, const uint8_t *planes) {
+#ifdef NARSIL_HARDWARE_POPCOUNT
+  if (uses_hardware_popcount()) {
+    return document.bits == 2 ? two_bit_products_with_popcnt(document, planes)
+                              : one_bit_products_with_popcnt(document, planes);
+  }
+#endif
+  return document.bits == 2 ? two_bit_products(document, planes) : one_bit_products(document, planes);
 }

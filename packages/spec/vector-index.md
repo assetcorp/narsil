@@ -98,6 +98,8 @@ An implementation must accept an `oversample` that is a finite number of at leas
 | `osq4`       | a = 5, b = 0         | a = 5, b = 0            | a = 2, b = 0          |
 | `osq8`       | a = 2, b = 0         | a = 2, b = 0            | a = 2, b = 0          |
 
+For `osq2` from 768 to 1,023 dimensions, the recommended `defaultDepth(n)` must also be at least minimum(n + 75, ceiling(n + 18 * sqrt(n))), so that the extra depth stays within the recommended default `efSearch`.
+
 `rescoreWindow` sizes the walk and the re-scoring of a search by a fixed window, so that the cost does not grow with `k`. A search that sets it returns up to `k` results from the candidates that the walk finds, so it can return fewer than `k`. Each candidate beyond the re-scored ones keeps the score that the implementation estimates from its code. Where the search also sets `minSimilarity`, it must return the re-scored candidates alone, each compared with `minSimilarity` at full precision, so that no estimate admits a vector below the floor. On an index whose quantisation is `none`, the walk uses ef = maximum(efSearch, rescoreWindow), and every candidate carries its full-precision score. An implementation must accept a `rescoreWindow` that is a whole number from 1 to 10,000.
 
 ### getVector(docId)
