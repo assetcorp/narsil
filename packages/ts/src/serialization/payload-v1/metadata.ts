@@ -18,6 +18,7 @@ interface RawMetadataPayload {
   embedding?: { adapter?: string; fields: Record<string, string | string[]> }
   surface_forms_enabled?: boolean
   analysis_revision?: string
+  array_position_gap?: unknown
   tokenizer?: string
   stop_words?: string
   stop_word_list?: string[]
@@ -66,6 +67,9 @@ function metadataToWire(meta: IndexMetadata): RawMetadataPayload {
   }
   if (meta.analysisRevision !== undefined) {
     wire.analysis_revision = meta.analysisRevision
+  }
+  if (meta.arrayPositionGap !== undefined) {
+    wire.array_position_gap = meta.arrayPositionGap
   }
   if (meta.tokenizer !== undefined) {
     wire.tokenizer = meta.tokenizer
@@ -170,6 +174,9 @@ function wireToMetadata(raw: RawMetadataPayload): IndexMetadata {
   }
   if (typeof raw.analysis_revision === 'string') {
     meta.analysisRevision = raw.analysis_revision
+  }
+  if (typeof raw.array_position_gap === 'number') {
+    meta.arrayPositionGap = raw.array_position_gap
   }
   if (typeof raw.tokenizer === 'string') {
     meta.tokenizer = raw.tokenizer

@@ -129,9 +129,27 @@ export function getStopWords(name: string): StopWordOverride {
   return stopWords
 }
 
+function holdsPositionsOutOfOrder(entries: ReadonlyArray<{ position: number }>): boolean {
+  for (let index = 1; index < entries.length; index++) {
+    if (entries[index].position < entries[index - 1].position) return true
+  }
+  return false
+}
+
+function inPositionOrder(tokenizer: CustomTokenizer): CustomTokenizer {
+  return {
+    tokenize(text) {
+      const entries = tokenizer.tokenize(text)
+      if (!holdsPositionsOutOfOrder(entries)) return entries
+      return [...entries].sort((first, second) => first.position - second.position)
+    },
+  }
+}
+
 export function resolveIndexAnalysis(config: IndexConfig): ResolvedAnalysis {
+  const tokenizer = typeof config.tokenizer === 'string' ? getTokenizer(config.tokenizer) : config.tokenizer
   return {
     stopWords: typeof config.stopWords === 'string' ? getStopWords(config.stopWords) : config.stopWords,
-    customTokenizer: typeof config.tokenizer === 'string' ? getTokenizer(config.tokenizer) : config.tokenizer,
+    customTokenizer: tokenizer === undefined ? undefined : inPositionOrder(tokenizer),
   }
 }
