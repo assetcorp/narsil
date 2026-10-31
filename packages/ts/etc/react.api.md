@@ -138,6 +138,13 @@ export const ErrorCodes: {
 };
 
 // @public
+export interface ErrorDetail {
+    code: string;
+    details?: Record<string, unknown>;
+    message: string;
+}
+
+// @public
 export interface ImportError {
     code: string;
     details?: Record<string, unknown>;
@@ -287,11 +294,7 @@ export interface TaskRecord {
     cancelRequestedAt?: number;
     completedAt?: number;
     createdAt: number;
-    error?: {
-        code: string;
-        message: string;
-        details?: Record<string, unknown>;
-    };
+    error?: ErrorDetail;
     id: string;
     indexName: string;
     owner: string;

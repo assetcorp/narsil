@@ -30,26 +30,62 @@ export interface CreateIndexEmbedding {
   fields: Record<string, string | string[]>
 }
 
+/**
+ * The body of `POST /indexes/{name}/documents`.
+ *
+ * @public
+ */
 export interface InsertBody {
+  /** The server stores this document. */
   document: AnyDocument
+  /** The server stores the document under this id, and takes the document's `id` field or a new id where you leave this out. */
   id?: string
+  /** These settings control how the write reaches the worker copies. */
   options?: InsertOptions
 }
 
+/**
+ * The body of `PUT` and of `PATCH /indexes/{name}/documents/{id}`.
+ *
+ * @public
+ */
 export interface DocumentBody {
+  /** The server writes this document under the id in the path. */
   document: AnyDocument
+  /** These settings control how the write reaches the worker copies. */
   options?: WriteOptions
 }
 
+/**
+ * The body of `POST /indexes/{name}/documents/_multi-get`.
+ *
+ * @public
+ */
 export interface MultiGetBody {
+  /** The server fetches the documents with these ids. */
   docIds: string[]
 }
 
+/**
+ * The body of `POST /indexes/{name}/documents/_batch`.
+ *
+ * @public
+ */
 export interface BatchBody {
+  /** The server performs this action, and `insert` where you leave it out. */
   action?: 'insert' | 'update' | 'delete'
+  /** The `insert` action writes these documents. */
   documents?: AnyDocument[]
-  updates?: Array<{ docId: string; document: AnyDocument }>
+  /** The `update` action replaces the document under each of these ids. */
+  updates?: Array<{
+    /** The update replaces the document with this id. */
+    docId: string
+    /** The update writes this document. */
+    document: AnyDocument
+  }>
+  /** The `delete` action removes the documents with these ids. */
   docIds?: string[]
+  /** These settings apply to the whole batch. */
   options?: InsertOptions
 }
 
@@ -68,7 +104,13 @@ export interface ChangeAnalysisBody {
   stopWords?: string | string[] | null
 }
 
+/**
+ * The body of `POST /indexes/{name}/_rebalance`.
+ *
+ * @public
+ */
 export interface RebalanceBody {
+  /** The index moves to this many partitions, which must be a positive whole number. */
   targetPartitionCount?: number
 }
 

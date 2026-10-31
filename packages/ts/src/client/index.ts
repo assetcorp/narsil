@@ -16,6 +16,7 @@ export type {
   CapabilitiesResponse,
   ChangeAnalysisBody,
   CreateIndexEmbedding,
+  ErrorDetail,
   ErrorEnvelope,
   HttpIndexConfig,
   ImportError,

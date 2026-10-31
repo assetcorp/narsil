@@ -167,7 +167,14 @@ export interface VectorIndexConfig {
    */
   filterThreshold?: number
   /** These settings shape the graph: neighbours per node, build-time exploration, and the metric that ranks results. */
-  hnswConfig?: { m?: number; efConstruction?: number; metric?: 'cosine' | 'dotProduct' | 'euclidean' }
+  hnswConfig?: {
+    /** The graph keeps this many neighbours per node. */
+    m?: number
+    /** The engine explores this many candidates as it builds the graph. */
+    efConstruction?: number
+    /** This metric ranks the results. */
+    metric?: 'cosine' | 'dotProduct' | 'euclidean'
+  }
   /** The engine codes the promoted vectors in this mode. When this is unset, it picks the mode by the field's dimension. Set `none` to rank by the vectors alone. */
   quantization?: VectorQuantizationMode
   /** The engine keeps the field's full-precision vectors here. When this is unset, it picks `disk` under filesystem durability and `memory` on every other engine. */

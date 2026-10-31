@@ -1,6 +1,7 @@
 import { SERVER_CAPABILITIES } from '../capabilities'
 import { respondJson } from '../handler-utils'
 import type { RouteContext } from '../request'
+import type { CapabilitiesResponse } from '../types'
 
 /**
  * Reports which optional routes and modes this server serves, so a client can
@@ -10,7 +11,7 @@ import type { RouteContext } from '../request'
  */
 export function createCapabilitiesHandler() {
   function report(ctx: RouteContext): void {
-    respondJson(ctx, { capabilities: [...SERVER_CAPABILITIES] })
+    respondJson(ctx, { capabilities: [...SERVER_CAPABILITIES] } satisfies CapabilitiesResponse)
   }
 
   return { report }

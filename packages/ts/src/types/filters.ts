@@ -258,7 +258,12 @@ export type GeoPolygonFilter = {
      * the left of that path, so a ring listed that way can cross the
      * antimeridian or span more than half the globe.
      */
-    points: Array<{ lat: number; lon: number }>
+    points: Array<{
+      /** The corner has this latitude, in degrees. */
+      lat: number
+      /** The corner has this longitude, in degrees. */
+      lon: number
+    }>
     /** The engine matches the points inside the polygon while this is true, which is the default, and the points outside it while this is false. */
     inside?: boolean
   }

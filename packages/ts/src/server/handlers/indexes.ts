@@ -3,7 +3,15 @@ import { mapHttpIndexConfig } from '../config-mapping'
 import type { HandlerDeps } from '../deps'
 import { parseJson, rejectInvalid, respondError, respondJson } from '../handler-utils'
 import type { RouteContext } from '../request'
-import type { CreateIndexRequest } from '../types'
+import type {
+  CreateIndexRequest,
+  IndexClearedResponse,
+  IndexCreatedResponse,
+  IndexDroppedResponse,
+  IndexListResponse,
+  IndexPartitionsResponse,
+  IndexStateResponse,
+} from '../types'
 import { validateCreateIndex } from '../validation'
 
 export function createIndexHandlers(deps: HandlerDeps) {
@@ -20,7 +28,7 @@ export function createIndexHandlers(deps: HandlerDeps) {
     try {
       const config = mapHttpIndexConfig(body.config)
       await engine.createIndex(body.name, config)
-      respondJson(ctx, { name: body.name }, 201)
+      respondJson(ctx, { name: body.name } satisfies IndexCreatedResponse, 201)
     } catch (err) {
       respondError(ctx, err)
     }
@@ -28,7 +36,7 @@ export function createIndexHandlers(deps: HandlerDeps) {
 
   async function list(ctx: RouteContext): Promise<void> {
     try {
-      respondJson(ctx, { indexes: await indexReadsOf(engine).listIndexes() })
+      respondJson(ctx, { indexes: await indexReadsOf(engine).listIndexes() } satisfies IndexListResponse)
     } catch (err) {
       respondError(ctx, err)
     }
@@ -37,7 +45,7 @@ export function createIndexHandlers(deps: HandlerDeps) {
   async function drop(ctx: RouteContext): Promise<void> {
     try {
       await engine.dropIndex(ctx.params[0])
-      respondJson(ctx, { name: ctx.params[0], dropped: true })
+      respondJson(ctx, { name: ctx.params[0], dropped: true } satisfies IndexDroppedResponse)
     } catch (err) {
       respondError(ctx, err)
     }
@@ -53,7 +61,9 @@ export function createIndexHandlers(deps: HandlerDeps) {
 
   async function partitions(ctx: RouteContext): Promise<void> {
     try {
-      respondJson(ctx, { partitions: await indexReadsOf(engine).getPartitionStats(ctx.params[0]) })
+      respondJson(ctx, {
+        partitions: await indexReadsOf(engine).getPartitionStats(ctx.params[0]),
+      } satisfies IndexPartitionsResponse)
     } catch (err) {
       respondError(ctx, err)
     }
@@ -62,7 +72,7 @@ export function createIndexHandlers(deps: HandlerDeps) {
   async function clear(ctx: RouteContext): Promise<void> {
     try {
       await engine.clear(ctx.params[0])
-      respondJson(ctx, { name: ctx.params[0], cleared: true })
+      respondJson(ctx, { name: ctx.params[0], cleared: true } satisfies IndexClearedResponse)
     } catch (err) {
       respondError(ctx, err)
     }
@@ -71,7 +81,7 @@ export function createIndexHandlers(deps: HandlerDeps) {
   async function open(ctx: RouteContext): Promise<void> {
     try {
       await engine.open(ctx.params[0])
-      respondJson(ctx, { name: ctx.params[0], state: 'open' })
+      respondJson(ctx, { name: ctx.params[0], state: 'open' } satisfies IndexStateResponse)
     } catch (err) {
       respondError(ctx, err)
     }
@@ -80,7 +90,7 @@ export function createIndexHandlers(deps: HandlerDeps) {
   async function close(ctx: RouteContext): Promise<void> {
     try {
       await engine.close(ctx.params[0])
-      respondJson(ctx, { name: ctx.params[0], state: 'closed' })
+      respondJson(ctx, { name: ctx.params[0], state: 'closed' } satisfies IndexStateResponse)
     } catch (err) {
       respondError(ctx, err)
     }

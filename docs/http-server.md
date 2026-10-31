@@ -72,6 +72,12 @@ The full surface:
 | `POST /indexes/{name}/_change-analysis` | The endpoint gives a live index a new language, tokeniser, or stop word set, from a body such as `{ "language": "french", "tokenizer": null, "stopWords": ["sku"] }`. It answers 400 for a member that it does not recognise or a value of another type. See [Changing an index's analysis](full-text-search.md#changing-an-indexs-analysis). |
 | `GET /tasks`, `GET /tasks/{id}`, `POST /tasks/{id}/_cancel` | The endpoints list, report, and stop long-running tasks. See [Tasks](#tasks). |
 
+## OpenAPI description
+
+The file [`packages/ts/openapi.json`](https://github.com/assetcorp/narsil/blob/main/packages/ts/openapi.json) describes every route above in OpenAPI 3.1, so that you can generate a client in any language from it. The npm package holds the same file, which you can import as `@delali/narsil/openapi.json`, and that copy describes the server of the same release.
+
+Where one method of the TypeScript client covers a route, the operation ID is the name of that method, as in `createIndex`. The file marks five `POST` routes with `x-narsil-repeatable: true`, which are search, preflight, suggest, `_list`, and `_multi-get`. Those routes only read, so a client can resend one of those requests after a connection failure, and it should resend no other `POST` without its own check.
+
 ## Regular expressions
 
 By default, the server accepts a `regex` test on a pattern field from any client. Because the matcher never backtracks and the engine limits every pattern test through its `patternWorkCap` setting, a regular expression can cost no more work than that cap allows. Set `allowRegex: false` on a public endpoint that should accept no regular expressions at all.
