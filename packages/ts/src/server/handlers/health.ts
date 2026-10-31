@@ -1,6 +1,7 @@
 import type { HandlerDeps } from '../deps'
 import { respondJson } from '../handler-utils'
 import type { RouteContext } from '../request'
+import type { LivenessResponse, ReadinessResponse } from '../types'
 import { describeNode } from './cluster'
 
 /**
@@ -12,16 +13,16 @@ import { describeNode } from './cluster'
  */
 export function createHealthHandlers(deps: HandlerDeps) {
   function livez(ctx: RouteContext): void {
-    respondJson(ctx, { status: 'ok' })
+    respondJson(ctx, { status: 'ok' } satisfies LivenessResponse)
   }
 
   function readyz(ctx: RouteContext): void {
     const cluster = deps.cluster
     if (cluster === undefined) {
       if (deps.isReady()) {
-        respondJson(ctx, { status: 'ready' })
+        respondJson(ctx, { status: 'ready' } satisfies ReadinessResponse)
       } else {
-        respondJson(ctx, { status: 'unavailable' }, 503)
+        respondJson(ctx, { status: 'unavailable' } satisfies ReadinessResponse, 503)
       }
       return
     }
@@ -33,7 +34,7 @@ export function createHealthHandlers(deps: HandlerDeps) {
       {
         status: ready ? 'ready' : 'unavailable',
         cluster: describeNode(cluster),
-      },
+      } satisfies ReadinessResponse,
       ready ? 200 : 503,
     )
   }
