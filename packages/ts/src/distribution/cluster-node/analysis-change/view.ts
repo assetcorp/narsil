@@ -6,6 +6,7 @@ import type { ClusterCoordinator } from '../../coordinator/types'
 import type { ClusterLocalEngine } from '../local-engine'
 
 export interface AnalysisView {
+  held(indexName: string): number | undefined
   generationFor(indexName: string): Promise<number>
   refresh(indexName: string): Promise<number>
   answerAt<T>(indexName: string, requested: number, read: () => Promise<T>): Promise<T>
@@ -112,6 +113,9 @@ export function createAnalysisView(deps: AnalysisViewDeps): AnalysisView {
   }
 
   return {
+    held(indexName) {
+      return held.get(indexName)?.generation
+    },
     async generationFor(indexName) {
       return held.get(indexName)?.generation ?? refresh(indexName)
     },

@@ -171,15 +171,14 @@ export async function createEngineIndex(
 export async function dropEngineIndex(core: EngineCore, name: string): Promise<void> {
   core.guardShutdown()
   const entry = core.requireIndex(name)
+  const changeRecorded = (): boolean => entry.pendingAnalysis !== null || entry.durableAnalysis !== null
   const abandonChange = async (): Promise<void> => {
-    if (entry.pendingAnalysis !== null || entry.durableAnalysis !== null) {
-      await (await import('./analysis-change-entry')).abandonChangeOf(core, name)
-    }
+    await (await import('./analysis-change-entry')).abandonChangeOf(core, name)
   }
-  await abandonChange()
+  if (changeRecorded()) await abandonChange()
   await core.indexState.drop(name, async () => {
     await core.analysisRebuild.abandon(name)
-    await abandonChange()
+    if (changeRecorded()) await abandonChange()
     await core.orchestrator.closeIndex(name)
     if (core.durability) {
       try {

@@ -13,6 +13,7 @@ export interface HeldBm25Setting {
 }
 
 export interface Bm25View {
+  held(indexName: string): HeldBm25Setting | undefined
   current(indexName: string): Promise<HeldBm25Setting | null>
   start(): Promise<void>
   stop(): void
@@ -82,6 +83,7 @@ export function createBm25View(deps: Bm25ViewDeps): Bm25View {
   }
 
   return {
+    held: indexName => held.get(indexName),
     async current(indexName) {
       const known = held.get(indexName)
       if (known !== undefined) return known

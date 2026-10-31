@@ -93,6 +93,7 @@ export function computeGroupContributions(
 ): Map<number, GroupContribution> {
   const { fields, fieldNames, filterBitset, partialMarks } = context
   const scoresAreZero = context.totalDocs === 0
+  const onePair = fields.boundPairs.length === 2
   const best = new Map<number, GroupContribution>()
 
   for (const match of matches) {
@@ -124,8 +125,8 @@ export function computeGroupContributions(
               match.idf,
               actualFieldLength,
               avgLen,
-              fields.k1s[fieldIndex],
-              fields.bs[fieldIndex],
+              onePair ? fields.boundPairs[0] : fields.k1s[fieldIndex],
+              onePair ? fields.boundPairs[1] : fields.bs[fieldIndex],
             )) *
         fieldBoost *
         factor

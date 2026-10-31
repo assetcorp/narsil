@@ -15,7 +15,7 @@ import { readDistributedDocuments } from '../node-messaging'
 import { distributedCountIsExact, distributedResultToLocal } from '../query-conversion'
 import { routableAllocation } from '../routable-allocation'
 import type { ClusterQueryConfig } from '../types'
-import { bm25RoutingFor } from './bm25'
+import { bm25RoutingFor, heldBm25RoutingFor } from './bm25'
 import { assembleDistributedGroups } from './groups'
 import { countStoredPinsFromOutside, dropUnstoredPinnedEntries, readPinPresence } from './pinned'
 import { createRankedDocumentReader, type RankedDocumentReader } from './ranked-documents'
@@ -112,6 +112,7 @@ async function withRankedReader<T>(
  * @param deps - The cluster configuration, this node's id, the local engine, and the node target resolver.
  * @param indexName - The index to search.
  * @param params - The query to run.
+ * @param settingName - The name that the caller used, under which the index stores its BM25 setting.
  * @returns The merged hits, the facets, the cursor, and the coverage.
  * @throws A {@link NarsilError} carrying `QUERY_PARTIAL_FAILURE` where a partition went unread and this node refuses
  * partial results.
@@ -120,6 +121,7 @@ export async function queryCluster<T = AnyDocument>(
   deps: ClusterReadDeps,
   indexName: string,
   params: QueryParams,
+  settingName: string,
 ): Promise<QueryResult<T>> {
   const allocation = await routableAllocation(deps.config.coordinator, indexName)
   if (allocation === null) {
@@ -129,7 +131,7 @@ export async function queryCluster<T = AnyDocument>(
     rerunOnLostContext(async () => {
       if (params.rerank === undefined) {
         return withRankedReader(deps, indexName, allocation, reader =>
-          searchCluster<T>(deps, indexName, params, allocation, reader, false),
+          searchCluster<T>(deps, indexName, settingName, params, allocation, reader, false),
         )
       }
       const { rerankClusterQuery } = await import('./rerank')
@@ -138,7 +140,7 @@ export async function queryCluster<T = AnyDocument>(
           deps,
           indexName,
           params,
-          firstStage => searchCluster<T>(deps, indexName, firstStage, allocation, reader, true),
+          firstStage => searchCluster<T>(deps, indexName, settingName, firstStage, allocation, reader, true),
           (docIds, last) => reader.read(docIds, { last, fields: null, requireEveryPartition: true }),
           clusterRerankHost,
         ),
@@ -150,6 +152,7 @@ export async function queryCluster<T = AnyDocument>(
 async function searchCluster<T>(
   deps: ClusterReadDeps,
   indexName: string,
+  settingName: string,
   params: QueryParams,
   allocation: AllocationTable,
   reader: RankedDocumentReader,
@@ -158,7 +161,10 @@ async function searchCluster<T>(
   const projection = resolveProjection(params.document)
   const groupsRead = params.group !== undefined && (params.group.reduce !== undefined || projection.kind !== 'none')
   const readsDocuments = readsLater || projection.kind !== 'none' || groupsRead
-  const { wireParams, carriesBm25 } = await bm25RoutingFor(deps, indexName, params)
+  const { wireParams, carriesBm25 } =
+    heldBm25RoutingFor(deps, settingName, params) ?? (await bm25RoutingFor(deps, settingName, params))
+  wireParams.analysisGeneration =
+    deps.analysisView.held(indexName) ?? (await deps.analysisView.generationFor(indexName))
   const queryDeps = {
     transport: deps.config.transport,
     sourceNodeId: deps.nodeId,

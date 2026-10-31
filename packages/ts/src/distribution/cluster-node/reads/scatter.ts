@@ -19,7 +19,6 @@ export interface ClusterReadDeps {
   searchContexts?: SearchContextRegistry
   bm25View: Bm25View
   analysisView: AnalysisView
-  publicIndexName?: string
 }
 
 export interface ScatterGroup {
