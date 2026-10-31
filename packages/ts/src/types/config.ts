@@ -77,8 +77,9 @@ export interface NarsilConfig {
    * reads. It counts an `in` or `nin` test as one `eq` test for each distinct
    * value in its list. For an `eq` test with a `tolerance`, it also adds one
    * unit for each cell that it fills in the table of edit distances between
-   * the text and a value. Once the count passes the cap, the engine throws
-   * `SEARCH_WORK_CAP_EXCEEDED`. The cap
+   * the text and a value. It also counts the preparation of that test once for
+   * a search, however many worker copies prepare it. Once the count passes the
+   * cap, the engine throws `SEARCH_WORK_CAP_EXCEEDED`. The cap
    * defaults to 25,000,000 units. For any value other than a whole number from
    * 1 to `Number.MAX_SAFE_INTEGER`, {@link createNarsil} throws
    * `CONFIG_INVALID`.

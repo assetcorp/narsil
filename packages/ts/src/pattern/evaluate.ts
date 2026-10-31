@@ -95,7 +95,7 @@ function matchesText(
 
 function answeredByTypoTest(request: PatternMatchRequest, tally: WorkTally): boolean {
   if (request.operator !== 'eq' || request.tolerance === 0) return false
-  const test = typoTestFor(request)
+  const test = typoTestFor(request, tally)
   if (test === null) return false
   matchWithinTolerance(request, test, tally)
   return true

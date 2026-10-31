@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { setTimeout as sleep } from 'node:timers/promises'
+import { setTimeout as sleep, setImmediate as yieldToConnectionTimers } from 'node:timers/promises'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import type { ClusterMemoryConfig } from '../../../distribution/cluster-node/types'
 import {
@@ -32,8 +32,7 @@ const SEND_BUDGET_HEAP_LIMITS = 3
 const CAPPED_HEAP_BLOCK_FRACTION = 0.75
 const V8_INEFFECTIVE_MARK_COMPACT_FRACTION = 0.8
 const BATCH_REPLY_TIMEOUT_MS = 60_000
-const MAX_BURSTS = 60
-const BURSTS_DEADLINE_MS = 150_000
+const BURSTS_DEADLINE_MS = 210_000
 const PARSE_WOULD_FILL_MEMORY_REASON = 'parse_would_fill_memory'
 const MEMORY_BLOCK_SWITCHED_OFF: ClusterMemoryConfig = { blockWritesAbove: 1, resumeWritesBelow: 0.99 }
 const IN_FLIGHT_BOUND_SWITCHED_OFF: ClusterMemoryConfig = { ...MEMORY_BLOCK_SWITCHED_OFF, inFlightWriteFraction: 1 }
@@ -87,48 +86,54 @@ function titledChair(document: Furniture): boolean {
   return document.title.toLowerCase().split(' ').includes('chair')
 }
 
+interface PreparedBatch {
+  documents: Furniture[]
+  payload: string
+}
+
 interface BatchOutcome {
   status: number | null
   body: Record<string, unknown>
-  documents: Furniture[]
-  payloadBytes: number
+  batch: PreparedBatch
 }
 
-async function sendBatch(base: string, documents: Furniture[], payload: string): Promise<BatchOutcome> {
+async function prepareBatches(firstSerial: number, count: number): Promise<PreparedBatch[]> {
+  const batches: PreparedBatch[] = []
+  for (let batchNumber = 0; batchNumber < count; batchNumber++) {
+    const documents: Furniture[] = []
+    for (let documentNumber = 0; documentNumber < BATCH_DOCUMENTS; documentNumber++) {
+      documents.push(furnitureNumber(firstSerial + batchNumber * BATCH_DOCUMENTS + documentNumber))
+    }
+    batches.push({ documents, payload: JSON.stringify({ documents }) })
+    await yieldToConnectionTimers()
+  }
+  return batches
+}
+
+async function sendBatch(base: string, batch: PreparedBatch): Promise<BatchOutcome> {
   try {
     const response = await fetch(`${base}/indexes/${INDEX_NAME}/documents/_batch`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: payload,
+      body: batch.payload,
       signal: AbortSignal.timeout(BATCH_REPLY_TIMEOUT_MS),
     })
     const text = await response.text()
     const parsed: unknown = text.length > 0 ? JSON.parse(text) : {}
     const body = parsed !== null && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : {}
-    return { status: response.status, body, documents, payloadBytes: payload.length }
+    return { status: response.status, body, batch }
   } catch (error) {
     const cause = error instanceof Error && error.cause instanceof Error ? error.cause : null
     const failure = { fetchError: String(error), cause: cause === null ? null : `${cause.name}: ${cause.message}` }
-    return { status: null, body: failure, documents, payloadBytes: payload.length }
+    return { status: null, body: failure, batch }
   }
 }
 
 async function fireConcurrentBatches(
   node: NodeProcess,
-  firstSerial = 0,
+  batches: PreparedBatch[],
 ): Promise<{ outcomes: BatchOutcome[]; peakHeapBytes: number; sourceBytes: number }> {
-  const batches: Array<{ documents: Furniture[]; payload: string }> = []
-  let sourceBytes = 0
-  for (let batch = 0; batch < CONCURRENT_BATCHES; batch++) {
-    const documents: Furniture[] = []
-    for (let count = 0; count < BATCH_DOCUMENTS; count++) {
-      documents.push(furnitureNumber(firstSerial + batch * BATCH_DOCUMENTS + count))
-    }
-    const payload = JSON.stringify({ documents })
-    sourceBytes += payload.length
-    batches.push({ documents, payload })
-  }
-
+  const sourceBytes = batches.reduce((bytes, batch) => bytes + batch.payload.length, 0)
   let peakHeapBytes = 0
   let sampling = true
   const sampler = (async () => {
@@ -144,7 +149,7 @@ async function fireConcurrentBatches(
     }
   })()
 
-  const outcomes = await Promise.all(batches.map(({ documents, payload }) => sendBatch(node.base, documents, payload)))
+  const outcomes = await Promise.all(batches.map(batch => sendBatch(node.base, batch)))
   sampling = false
   await sampler
   return { outcomes, peakHeapBytes, sourceBytes }
@@ -207,7 +212,10 @@ describe('a cluster node on etcd bounds the bytes of inserts and updates in flig
 
   it('refuses the excess of a burst with 429 and keeps every write it accepted', async () => {
     const bounded = await startSingleNode()
-    const { outcomes, peakHeapBytes, sourceBytes } = await fireConcurrentBatches(bounded)
+    const { outcomes, peakHeapBytes, sourceBytes } = await fireConcurrentBatches(
+      bounded,
+      await prepareBatches(0, CONCURRENT_BATCHES),
+    )
 
     expect(bounded.exited(), bounded.output()).toBe(false)
     const oracle = new Map<string, Furniture>()
@@ -235,7 +243,7 @@ describe('a cluster node on etcd bounds the bytes of inserts and updates in flig
         expect(failure.error.details?.reason).toBe('write_would_fill_memory')
       }
       refusedDocuments += failed.length
-      const byId = new Map(outcome.documents.map(document => [document.id, document]))
+      const byId = new Map(outcome.batch.documents.map(document => [document.id, document]))
       for (const docId of outcome.body.succeeded as string[]) {
         const document = byId.get(docId)
         if (document === undefined) throw new Error(`the node acknowledged ${docId}, which the batch never held`)
@@ -290,19 +298,20 @@ describe('a cluster node on etcd bounds the bytes of inserts and updates in flig
     const blockParseDetails: Array<Record<string, unknown>> = []
     let lastParseDetails: Record<string, unknown> | null = null
     let bursts = 0
+    let nextSerial = 0
+    let refusedBatches: PreparedBatch[] = []
     const burstsStartedAt = performance.now()
     while (
       projectionRefusals === 0 &&
       fullRefusals === 0 &&
       blockParseDetails.length === 0 &&
       admittedBytes < sendBudgetBytes &&
-      bursts < MAX_BURSTS &&
       performance.now() - burstsStartedAt < BURSTS_DEADLINE_MS
     ) {
-      const { outcomes, sourceBytes } = await fireConcurrentBatches(
-        unbounded,
-        bursts * CONCURRENT_BATCHES * BATCH_DOCUMENTS,
-      )
+      const fresh = await prepareBatches(nextSerial, CONCURRENT_BATCHES - refusedBatches.length)
+      nextSerial += fresh.length * BATCH_DOCUMENTS
+      const { outcomes, sourceBytes } = await fireConcurrentBatches(unbounded, [...refusedBatches, ...fresh])
+      refusedBatches = []
       bursts++
       sentBytes += sourceBytes
       for (const outcome of outcomes) {
@@ -310,6 +319,7 @@ describe('a cluster node on etcd bounds the bytes of inserts and updates in flig
         replies.set(key, (replies.get(key) ?? 0) + 1)
         expect([200, 429], JSON.stringify(outcome.body).slice(0, 500)).toContain(outcome.status)
         if (outcome.status === 429) {
+          refusedBatches.push(outcome.batch)
           if (isServerMemoryRefusal({ status: 429, body: outcome.body })) {
             const { details } = errorOf({ status: 429, body: outcome.body })
             if (details.reason !== PARSE_WOULD_FILL_MEMORY_REASON) continue
@@ -317,14 +327,14 @@ describe('a cluster node on etcd bounds the bytes of inserts and updates in flig
             if (heapWithinParseOfBlock(details)) blockParseDetails.push(details)
             continue
           }
-          admittedBytes += outcome.payloadBytes
+          admittedBytes += outcome.batch.payload.length
           const refusal = errorOf({ status: 429, body: outcome.body })
           expect(refusal.code, JSON.stringify(refusal)).toBe('CLUSTER_WRITE_BLOCKED')
           expect(refusal.details.reason).toBe('node_memory_full')
           fullRefusals++
           continue
         }
-        admittedBytes += outcome.payloadBytes
+        admittedBytes += outcome.batch.payload.length
         const failed = outcome.body.failed as BatchFailure[]
         for (const failure of failed) {
           expect(failure.error.code).toBe('CLUSTER_WRITE_BLOCKED')
@@ -337,7 +347,7 @@ describe('a cluster node on etcd bounds the bytes of inserts and updates in flig
           if (details.refusedDocId === undefined) projectionDetails.push(details)
           else expect(failedIds, JSON.stringify(details)).toContain(details.refusedDocId)
         }
-        const byId = new Map(outcome.documents.map(document => [document.id, document]))
+        const byId = new Map(outcome.batch.documents.map(document => [document.id, document]))
         for (const docId of outcome.body.succeeded as string[]) {
           const document = byId.get(docId)
           if (document === undefined) throw new Error(`the node acknowledged ${docId}, which the batch never held`)

@@ -37,6 +37,8 @@ await server.listen()
 
 The server refuses to bind a non-loopback address without an `onRequest` hook, because the admin endpoints can destroy data.
 
+The server closes a connection that receives no request for 8 to 12 seconds, and `uWebSockets.js` sets that limit with no option to change it. When a connection pool or a reverse proxy keeps an idle connection for longer, the next request that it sends on that connection can fail with a closed connection or a reset, so set its idle timeout below 8 seconds. A Node.js client can also fail this way when its thread stalls for 8 seconds or more, because the pool's own idle timer cannot fire during the stall. Break long synchronous work into steps that yield to the event loop.
+
 The full surface:
 
 | Method and path | Purpose |

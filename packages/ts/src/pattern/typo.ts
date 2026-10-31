@@ -7,9 +7,16 @@ import type {
   PatternMatchRequest,
   PatternWorkMeter,
 } from '../core/pattern-index/types'
-import { SHORTLIST_RUN_LOOKUPS } from './constants'
-import { appendTextCodePoints, BASIC_PLANE_LAST, forEachTextValue } from './text'
-import { distinctTypoRuns, foldTypoText, resolvedTypoTolerance, typoRunsNeeded } from './typo-text'
+import { BASIC_PLANE_LAST, forEachTextValue } from './text'
+import { claimsTypoPreparation } from './typo-claims'
+import {
+  distinctTypoRuns,
+  foldTypoText,
+  resolvedTypoTolerance,
+  type TypoText,
+  typoRunLimit,
+  typoRunsNeeded,
+} from './typo-text'
 import type { WorkTally } from './work-tally'
 
 class TypoComparison {
@@ -19,16 +26,18 @@ class TypoComparison {
   private readonly folded: number[] = []
 
   constructor(
-    text: string,
+    rawText: string,
+    prepared: TypoText,
     private readonly caseFold: boolean,
     private readonly tolerance: number,
     private readonly host: PatternHost,
+    tally: WorkTally | undefined,
   ) {
-    const codePoints: number[] = []
-    appendTextCodePoints(text, caseFold, host, codePoints)
-    this.text = caseFold ? String.fromCodePoint(...codePoints) : text
-    this.shortest = codePoints.length - tolerance
-    this.longest = codePoints.length + tolerance
+    if (caseFold) tally?.add(prepared.folded.length)
+    this.text = caseFold ? String.fromCodePoint(...prepared.folded) : rawText
+    const length = caseFold ? prepared.folded.length : prepared.codePoints
+    this.shortest = length - tolerance
+    this.longest = length + tolerance
   }
 
   within(value: string, tally: WorkTally): boolean {
@@ -64,44 +73,46 @@ interface TypoTest {
   readonly comparison: TypoComparison
 }
 
-const typoTestsBySearch = new WeakMap<PatternWorkMeter, Map<string, TypoTest | null>>()
+const typoTestsBySearch = new WeakMap<PatternWorkMeter, Map<string, Map<string, TypoTest | null>>>()
 
-function spreadSample(runs: readonly number[], picks: number): Uint32Array {
-  const count = runs.length / PATTERN_RUN_CODE_POINTS
-  if (count <= picks) return Uint32Array.from(runs)
-  const sample = new Uint32Array(picks * PATTERN_RUN_CODE_POINTS)
-  for (let pick = 0; pick < picks; pick++) {
-    const run = Math.round((pick * (count - 1)) / (picks - 1))
-    for (let offset = 0; offset < PATTERN_RUN_CODE_POINTS; offset++) {
-      sample[pick * PATTERN_RUN_CODE_POINTS + offset] = runs[run * PATTERN_RUN_CODE_POINTS + offset]
-    }
-  }
-  return sample
-}
-
-function preparedTypoTest(request: PatternMatchRequest): TypoTest | null {
-  const text = foldTypoText(request.text, request.host)
-  const tolerance = resolvedTypoTolerance(request.tolerance, text)
+function preparedTypoTest(request: PatternMatchRequest, tally: WorkTally | undefined): TypoTest | null {
+  const text = foldTypoText(request.text, request.host, tally)
+  const distinctRuns = distinctTypoRuns(text, typoRunLimit(text.longestFold), tally)
+  const tolerance = resolvedTypoTolerance(
+    request.tolerance,
+    text.longestFold,
+    distinctRuns.length / PATTERN_RUN_CODE_POINTS,
+  )
   if (tolerance === 0) return null
   const needed = typoRunsNeeded(tolerance, text.longestFold)
   return {
     needed,
-    runs: spreadSample(distinctTypoRuns(text, Number.POSITIVE_INFINITY), Math.max(needed, SHORTLIST_RUN_LOOKUPS)),
-    comparison: new TypoComparison(request.text, request.caseFold, tolerance, request.host),
+    runs: Uint32Array.from(distinctRuns),
+    comparison: new TypoComparison(request.text, text, request.caseFold, tolerance, request.host, tally),
   }
 }
 
-export function typoTestFor(request: PatternMatchRequest): TypoTest | null {
-  let tests = typoTestsBySearch.get(request.meter)
+function testsWithSettings(request: PatternMatchRequest): Map<string, TypoTest | null> {
+  let testsBySettings = typoTestsBySearch.get(request.meter)
+  if (testsBySettings === undefined) {
+    testsBySettings = new Map()
+    typoTestsBySearch.set(request.meter, testsBySettings)
+  }
+  const settings = `${request.caseFold}|${request.tolerance}`
+  let tests = testsBySettings.get(settings)
   if (tests === undefined) {
     tests = new Map()
-    typoTestsBySearch.set(request.meter, tests)
+    testsBySettings.set(settings, tests)
   }
-  const key = `${request.caseFold}|${request.tolerance}|${request.text}`
-  const known = tests.get(key)
+  return tests
+}
+
+export function typoTestFor(request: PatternMatchRequest, tally: WorkTally): TypoTest | null {
+  const tests = testsWithSettings(request)
+  const known = tests.get(request.text)
   if (known !== undefined) return known
-  const test = preparedTypoTest(request)
-  tests.set(key, test)
+  const test = preparedTypoTest(request, claimsTypoPreparation(request) ? tally : undefined)
+  tests.set(request.text, test)
   return test
 }
 
