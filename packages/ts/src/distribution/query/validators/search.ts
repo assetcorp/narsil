@@ -254,10 +254,8 @@ function validateParams(params: Record<string, unknown>): void {
     validateBoostParams(params.boost)
   }
 
-  if (!Object.hasOwn(params, 'bm25') || params.bm25 === undefined) params.bm25 = null
-  if (params.bm25 !== null) validateBM25Shape(params.bm25, 'settable')
-  if (!Object.hasOwn(params, 'indexBm25') || params.indexBm25 === undefined) params.indexBm25 = null
-  if (params.indexBm25 !== null) validateBM25Shape(params.indexBm25, 'stored')
+  if (params.bm25 !== undefined && params.bm25 !== null) validateBM25Shape(params.bm25, 'settable')
+  if (params.indexBm25 !== undefined && params.indexBm25 !== null) validateBM25Shape(params.indexBm25, 'stored')
 
   if (params.tolerance !== null) {
     if (!isInteger(params.tolerance) || params.tolerance < 0 || params.tolerance > MAX_TOLERANCE) {

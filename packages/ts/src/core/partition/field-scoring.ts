@@ -10,10 +10,12 @@ export interface FieldScoring {
   lengthColumns: Array<Uint32Array | null>
   k1s: Float64Array
   bs: Float64Array
-  boundPairs: Float64Array
+  boundPairs: number[]
 }
 
-function differentPairsOf(searchable: Uint8Array, k1s: Float64Array, bs: Float64Array): Float64Array {
+const NO_FIELD_VALUES = new Float64Array(0)
+
+function differentPairsOf(searchable: Uint8Array, k1s: Float64Array, bs: Float64Array): number[] {
   const pairs: number[] = []
   for (let fieldIndex = 0; fieldIndex < searchable.length; fieldIndex++) {
     if (searchable[fieldIndex] !== 1) continue
@@ -23,7 +25,7 @@ function differentPairsOf(searchable: Uint8Array, k1s: Float64Array, bs: Float64
     }
     if (!seen) pairs.push(k1s[fieldIndex], bs[fieldIndex])
   }
-  return Float64Array.from(pairs)
+  return pairs
 }
 
 export function loadFieldScoring(
@@ -43,9 +45,9 @@ export function loadFieldScoring(
     boosts: new Float64Array(fieldCount),
     averageLengths: new Float64Array(fieldCount),
     lengthColumns: new Array<Uint32Array | null>(fieldCount).fill(null),
-    k1s: new Float64Array(fieldCount),
-    bs: new Float64Array(fieldCount),
-    boundPairs: new Float64Array(0),
+    k1s: perField === undefined ? NO_FIELD_VALUES : new Float64Array(fieldCount),
+    bs: perField === undefined ? NO_FIELD_VALUES : new Float64Array(fieldCount),
+    boundPairs: [k1, b],
   }
   for (let fieldIndex = 0; fieldIndex < fieldCount; fieldIndex++) {
     const fieldName = fieldNames[fieldIndex]
@@ -53,12 +55,13 @@ export function loadFieldScoring(
     scoring.boosts[fieldIndex] = boost?.[fieldName] ?? 1
     scoring.averageLengths[fieldIndex] = averageFieldLengths[fieldName] ?? 1
     scoring.lengthColumns[fieldIndex] = state.docStore.fieldLengthColumn(fieldName)
-    const fieldPair = perField !== undefined && Object.hasOwn(perField, fieldName) ? perField[fieldName] : undefined
-    scoring.k1s[fieldIndex] = fieldPair?.k1 ?? k1
-    scoring.bs[fieldIndex] = fieldPair?.b ?? b
+    if (perField !== undefined) {
+      const fieldPair = Object.hasOwn(perField, fieldName) ? perField[fieldName] : undefined
+      scoring.k1s[fieldIndex] = fieldPair?.k1 ?? k1
+      scoring.bs[fieldIndex] = fieldPair?.b ?? b
+    }
   }
-  scoring.boundPairs =
-    perField === undefined ? Float64Array.of(k1, b) : differentPairsOf(scoring.searchable, scoring.k1s, scoring.bs)
+  if (perField !== undefined) scoring.boundPairs = differentPairsOf(scoring.searchable, scoring.k1s, scoring.bs)
   return scoring
 }
 

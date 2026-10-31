@@ -17,7 +17,6 @@ export interface ClusterReadDeps {
   resolveNodeTargets: (targetNodeId: string) => Promise<string[]>
   searchContexts?: SearchContextRegistry
   bm25View: Bm25View
-  publicIndexName?: string
 }
 
 export interface ScatterGroup {

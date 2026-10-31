@@ -121,7 +121,7 @@ export function ascendingFacetFields(facets: WireFacetField[] | null): ReadonlyS
 }
 
 export function localParamsToWire(params: QueryParams): WireQueryParams {
-  return {
+  const wire: WireQueryParams = {
     term: params.term ?? null,
     filters: (params.filters as Record<string, unknown> | undefined) ?? null,
     sort: convertLocalSortToWire(params.sort),
@@ -133,7 +133,6 @@ export function localParamsToWire(params: QueryParams): WireQueryParams {
     searchAfter: params.searchAfter ?? null,
     fields: params.fields ?? null,
     boost: params.boost ?? null,
-    ...(bm25SetsValue(params.bm25) ? { bm25: params.bm25 } : {}),
     tolerance: params.tolerance ?? null,
     threshold: params.minScore ?? null,
     includeScores: params.includeScores ?? null,
@@ -151,6 +150,8 @@ export function localParamsToWire(params: QueryParams): WireQueryParams {
     vector: convertLocalVectorToWire(params.vector),
     hybrid: convertLocalHybridToWire(params.hybrid),
   }
+  if (params.bm25 !== undefined && bm25SetsValue(params.bm25)) wire.bm25 = params.bm25
+  return wire
 }
 
 export function countIsExactFor(params: QueryParams): boolean {
