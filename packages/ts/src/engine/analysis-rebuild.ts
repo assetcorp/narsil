@@ -21,6 +21,7 @@ export interface AnalysisRebuildDeps {
 export type StaleIndex = Omit<StaleAnalysis, 'documentCount'>
 
 export interface AnalysisRebuildCoordinator {
+  readonly rebuildMode: 'auto' | 'manual'
   markStale(index: StaleIndex): void
   clearStale(indexName: string): void
   isStale(indexName: string): boolean
@@ -184,6 +185,8 @@ export function createAnalysisRebuildCoordinator(
   }
 
   return {
+    rebuildMode,
+
     markStale(index: StaleIndex): void {
       const existing = stale.get(index.indexName)
       if (existing !== undefined && existing.run !== null) {

@@ -20,6 +20,7 @@ import {
 } from './codec'
 import { type CopyRouting, isNodeRejection, nodeRejectionOf, sendWithFailover } from './failover'
 import { resolveTargets, sendToFirstReachableTarget } from './node-send'
+import { queryReadsPhrases } from './phrase-routing'
 import { releaseSearchContexts } from './search-contexts'
 import type { DistributedQueryConfig, QueryRoutingDeps } from './types'
 
@@ -118,6 +119,7 @@ export async function collectDistributedStats(
   deps: QueryRoutingDeps,
   config: DistributedQueryConfig,
 ): Promise<GlobalStatistics> {
+  if (routing.nodeToPartitions.size === 0 && queryReadsPhrases(params.term)) return mergePartitionStats([])
   const terms = params.term !== null ? params.term.split(/\s+/).filter(t => t.length > 0) : []
   const expansion = statsExpansionOf(params)
   const outcomes = await sendWithFailover(routing, (nodeId, partitionIds) =>

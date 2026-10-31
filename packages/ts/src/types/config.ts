@@ -68,9 +68,11 @@ export interface NarsilConfig {
    */
   events?: NarsilEventHandlers
   /**
-   * This is the most work that the engine may do on the pattern tests of one
-   * search, counted over every partition that it searches. The engine adds one
-   * unit for each run of three code points that it looks up in a pattern
+   * This is the most work that the engine may do on the pattern tests and
+   * phrases of one search, counted over every partition that it searches. For
+   * a phrase, the engine adds one unit for each posting of its starting word
+   * that it visits, and one for each position that it compares. For a pattern
+   * test, it adds one unit for each run of three code points that it looks up in a pattern
    * index, one for each entry that it reads from a pattern index, and one for
    * each step of its matcher. For a text whose case fold is shorter than three
    * code points, it counts each document that it checks as an entry that it

@@ -17,6 +17,7 @@ import {
   validateSuggestResultPayload,
 } from '../../query/codec'
 import { rethrowAsRefusal } from '../../query/failover'
+import { allocationForPhraseQuery, queryReadsPhrases } from '../../query/phrase-routing'
 import { countIsExactFor } from '../query-conversion'
 import { routableAllocation } from '../routable-allocation'
 import { bm25RoutingFor } from './bm25'
@@ -106,9 +107,12 @@ export async function preflightCluster(
   const startTime = performance.now()
   const { wireParams, indexBm25, carriesBm25 } = await bm25RoutingFor(deps, settingName, params)
   const coordinator = deps.config.coordinator
-  const routedAllocation = carriesBm25
+  const bm25Allocation = carriesBm25
     ? await allocationForBm25Query(indexName, allocation, () => coordinator.listNodes())
     : allocation
+  const routedAllocation = queryReadsPhrases(params.term)
+    ? await allocationForPhraseQuery(indexName, bm25Allocation, () => coordinator.listNodes())
+    : bm25Allocation
   const gathered = await gatherFromEveryPartition(routedAllocation, indexName, async group => {
     if (group.nodeId === deps.nodeId) {
       const local = await deps.engine

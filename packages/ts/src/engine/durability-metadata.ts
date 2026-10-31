@@ -21,6 +21,7 @@ export interface MetadataConfig {
   embedding?: IndexEmbeddingMetadata
   surfaceForms?: boolean
   analysisRevision?: string
+  arrayPositionGap?: number
   tokenizer?: string
   stopWords?: string
   stopWordList?: string[]
@@ -62,6 +63,9 @@ export function metadataFromConfig(
   }
   if (config.analysisRevision !== undefined) {
     metadata.analysisRevision = config.analysisRevision
+  }
+  if (config.arrayPositionGap !== undefined) {
+    metadata.arrayPositionGap = config.arrayPositionGap
   }
   if (config.tokenizer !== undefined) {
     metadata.tokenizer = config.tokenizer
@@ -125,6 +129,7 @@ export function metadataConfigOf(entry: IndexRegistryEntry): MetadataConfig {
     ...(embedding !== undefined ? { embedding } : {}),
     surfaceForms: entry.config.surfaceForms !== false,
     ...(entry.analysisRevision !== null ? { analysisRevision: entry.analysisRevision } : {}),
+    ...(entry.arrayPositionGap !== null ? { arrayPositionGap: entry.arrayPositionGap } : {}),
     ...(typeof entry.config.tokenizer === 'string' ? { tokenizer: entry.config.tokenizer } : {}),
     ...(typeof entry.config.stopWords === 'string' ? { stopWords: entry.config.stopWords } : {}),
     ...(entry.config.stopWords instanceof Set

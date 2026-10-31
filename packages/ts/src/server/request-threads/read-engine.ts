@@ -8,6 +8,7 @@ import type { PartitionManager } from '../../partitioning/manager'
 import { withRerankQueryText } from '../../rerank/query-text'
 import { extractVectorFieldsFromSchema } from '../../schema/validator'
 import { lazyQueryBinding } from '../../search/cursor-binding'
+import { holdsQuotedText } from '../../search/quotes'
 import type { ListResult, PreflightResult, QueryResult, SuggestResult } from '../../types/results'
 import type { AnyDocument } from '../../types/schema'
 import type { ListParams, QueryParams, SuggestParams } from '../../types/search'
@@ -115,6 +116,7 @@ export function createThreadReadEngine(options: ThreadReadEngineOptions): Thread
     if (searchHooks) return null
     const context = executor.queryContextOf(indexName)
     if (context === undefined) return null
+    if (context.analysisStale && params.term !== undefined && holdsQuotedText(params.term)) return null
     const field = params.vector?.field
     if (field === undefined) return context
     const vectorFields = extractVectorFieldsFromSchema(context.config.schema)

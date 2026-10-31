@@ -1,6 +1,7 @@
 import type { PartitionIndex } from '../core/partition'
 import type { SynonymLookup } from '../core/synonyms/types'
 import { tokenize } from '../core/tokenizer'
+import { analyseQueryPhrases } from '../search/phrase-code'
 import type { InvalidationAdapter } from '../types/adapters'
 import type { GlobalStatistics } from '../types/internal'
 import type { LanguageModule } from '../types/language'
@@ -16,17 +17,24 @@ export interface QueryTermAnalysis {
 }
 
 function analysedQueryTokens(term: string, language: LanguageModule, analysis: QueryTermAnalysis): Set<string> {
-  const { tokens } = tokenize(term, language, {
-    stem: true,
-    removeStopWords: true,
-    customTokenizer: analysis.customTokenizer,
-    stopWordOverride: analysis.stopWords,
-  })
+  const quoted = analyseQueryPhrases(term, language, analysis)
+  const words = quoted?.words ?? term
   const unique = new Set<string>()
-  for (const { token } of tokens) {
-    unique.add(token)
+  if (quoted === null || words.trim().length > 0) {
+    const { tokens } = tokenize(words, language, {
+      stem: true,
+      removeStopWords: true,
+      customTokenizer: analysis.customTokenizer,
+      stopWordOverride: analysis.stopWords,
+    })
+    for (const { token } of tokens) {
+      unique.add(token)
+    }
   }
   for (const synonym of analysis.synonyms?.expand(unique)?.tokens ?? []) unique.add(synonym)
+  for (const phrase of quoted?.phrases ?? []) {
+    for (const token of phrase.tokens) unique.add(token)
+  }
   return unique
 }
 

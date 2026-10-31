@@ -24,7 +24,12 @@ const SIZE_APP_OUTDIR = 'dist/size-app'
 const GZIP_LEVEL = 9
 const SOURCE_ENTRY = 'src/index.ts'
 const DIST_BROWSER_ENTRY = /^\.\.\/dist\/index\.browser\.mjs$/
-const OPTIONAL_CODE_DIRECTORIES = ['src/vector/', 'src/persistence/durability/']
+const OPTIONAL_CODE_PATHS = [
+  'src/vector/',
+  'src/persistence/durability/',
+  'src/core/partition/phrase-matching.ts',
+  'src/search/phrase-analysis.ts',
+]
 const CONSTANTS_FILE = '/constants.ts'
 
 const { values: options } = parseArgs({ options: { 'update-baseline': { type: 'boolean', default: false } } })
@@ -131,7 +136,7 @@ function startupOutputs(metafile) {
 }
 
 function isOptionalCode(input) {
-  return OPTIONAL_CODE_DIRECTORIES.some(directory => input.startsWith(directory)) && !input.endsWith(CONSTANTS_FILE)
+  return OPTIONAL_CODE_PATHS.some(path => input.startsWith(path)) && !input.endsWith(CONSTANTS_FILE)
 }
 
 const fromSource = {
@@ -174,15 +179,15 @@ async function gzippedAppBytes() {
 const optionalCode = await optionalCodeAtStartup()
 if (optionalCode.size > 0) {
   console.error(
-    `FAIL ${SIZE_APP} declares no vector field and sets no durability, yet it downloads this code at start-up:`,
+    `FAIL ${SIZE_APP} declares no vector field, sets no durability, and quotes no phrase, yet it downloads this code at start-up:`,
   )
   for (const [input, bytes] of optionalCode) console.error(`  ${input} (${bytes} bytes minified)`)
   console.error(
-    'Load vector code through workers/vector-code.ts, and durability and snapshot code through a dynamic import, so that a bundler puts it in a chunk the app fetches only on first use.',
+    'Load vector code through workers/vector-code.ts, phrase code through search/phrase-code.ts, and durability and snapshot code through a dynamic import, so that a bundler puts it in a chunk the app fetches only on first use.',
   )
   process.exit(1)
 }
-console.log(`ok  ${SIZE_APP} downloads no vector or durability code at start-up`)
+console.log(`ok  ${SIZE_APP} downloads no vector, durability, or phrase code at start-up`)
 
 const measured = await gzippedAppBytes()
 const baselinePath = resolve(packageRoot, SIZE_BASELINE)
