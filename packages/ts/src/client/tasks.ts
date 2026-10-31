@@ -9,7 +9,7 @@ import { readBody } from './response-shape'
 /**
  * These settings say how {@link TaskOperations.waitForTask} follows a task.
  *
- * `timeoutMs` bounds each poll request, as it does everywhere else, while
+ * `timeoutMs` bounds each try of a poll request, as it does everywhere else, while
  * `waitTimeoutMs` bounds the whole wait.
  *
  * @public
