@@ -1,5 +1,5 @@
 import { ErrorCodes, NarsilError } from '../../../errors'
-import type { PendingAnalysisMetadata } from '../../../types/internal'
+import type { NamedAnalysisSettings } from '../../../types/internal'
 import { type IndexMetadataSnapshot, readIndexMetadataSnapshot } from '../../cluster/index-metadata'
 import type { IndexSettings } from '../../cluster/index-settings'
 import type { ClusterCoordinator } from '../../coordinator/types'
@@ -21,9 +21,7 @@ interface AnalysisViewDeps {
   onError(error: unknown): void
 }
 
-export function namedSettingsOfMetadata(
-  settings: IndexSettings | undefined,
-): Omit<PendingAnalysisMetadata, 'generation'> {
+export function namedSettingsOfMetadata(settings: IndexSettings | undefined): NamedAnalysisSettings {
   return {
     language: settings?.language ?? 'english',
     ...(settings?.tokenizer !== undefined ? { tokenizer: settings.tokenizer } : {}),
@@ -47,7 +45,7 @@ export function createAnalysisView(deps: AnalysisViewDeps): AnalysisView {
   let unwatch: (() => void) | null = null
   let stopped = false
 
-  function hold(indexName: string, snapshot: IndexMetadataSnapshot): number {
+  function recordGeneration(indexName: string, snapshot: IndexMetadataSnapshot): number {
     const generation = snapshot.settings?.analysisGeneration ?? 0
     const { indexUuid } = snapshot.record
     const known = held.get(indexName)
@@ -62,7 +60,7 @@ export function createAnalysisView(deps: AnalysisViewDeps): AnalysisView {
       held.delete(indexName)
       return 0
     }
-    return hold(indexName, snapshot)
+    return recordGeneration(indexName, snapshot)
   }
 
   function catchUp(indexName: string, generation: number, settings: IndexSettings | undefined): void {
@@ -80,7 +78,7 @@ export function createAnalysisView(deps: AnalysisViewDeps): AnalysisView {
     const snapshot = await readIndexMetadataSnapshot(coordinator, indexName)
     const localUuid = engine.indexUuidOf(indexName)
     if (snapshot === null || (typeof localUuid === 'string' && localUuid !== snapshot.record.indexUuid)) return
-    hold(indexName, snapshot)
+    recordGeneration(indexName, snapshot)
     const { settings } = snapshot
     const published = settings?.analysisGeneration ?? 0
     const localPending = engine.pendingAnalysisGenerationOf(indexName)

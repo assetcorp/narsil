@@ -8,6 +8,7 @@ import {
 } from '../../engine/snapshot/restore-config'
 import { ErrorCodes, NarsilError } from '../../errors'
 import { getLanguage } from '../../languages/registry'
+import type { PendingAnalysisMetadata } from '../../types/internal'
 import type {
   BM25Params,
   IndexConfig,
@@ -40,13 +41,8 @@ export interface IndexSettings {
   synonyms?: SynonymSetRef
 }
 
-export interface PendingClusterAnalysis {
+export interface PendingClusterAnalysis extends PendingAnalysisMetadata {
   changeId: string
-  generation: number
-  language: string
-  tokenizer?: string
-  stopWords?: string
-  stopWordList?: string[]
 }
 
 export interface AnalysisFailure {

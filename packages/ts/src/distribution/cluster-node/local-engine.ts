@@ -35,7 +35,7 @@ import type {
 } from '../../persistence/durability/types'
 import type { ByteSource } from '../../types/byte-source'
 import type { NarsilConfig } from '../../types/config'
-import type { GlobalStatistics, PendingAnalysisMetadata } from '../../types/internal'
+import type { GlobalStatistics, NamedAnalysisSettings, PendingAnalysisMetadata } from '../../types/internal'
 import type { ListResult, PartitionStatsResult, PreflightResult, QueryResult, SuggestResult } from '../../types/results'
 import type { AnyDocument, BM25Params, IndexConfig } from '../../types/schema'
 import type { ListParams, QueryParams, SuggestParams } from '../../types/search'
@@ -68,7 +68,7 @@ export interface ClusterLocalEngine extends Narsil {
   heldAnalysisIsBuilt(indexName: string, generation: number): boolean
   releaseHeldAnalysis(indexName: string, generation: number): Promise<void>
   dropHeldAnalysis(indexName: string): Promise<void>
-  holdsAnalysisSettings(indexName: string, settings: Omit<PendingAnalysisMetadata, 'generation'>): boolean
+  holdsAnalysisSettings(indexName: string, settings: NamedAnalysisSettings): boolean
   stampAnalysisGeneration(indexName: string, generation: number): Promise<void>
   highestPersistedSeqNoOf(indexName: string, partitionId: number): number
   persistedPositionOf(indexName: string, partitionId: number): PartitionLogPosition
@@ -197,7 +197,7 @@ export async function createClusterLocalEngine(
     releaseHeldAnalysis: (indexName: string, generation: number) =>
       releaseHeldAnalysisChange(core, indexName, generation),
     dropHeldAnalysis: (indexName: string) => dropHeldAnalysisChange(core, indexName),
-    holdsAnalysisSettings: (indexName: string, settings: Omit<PendingAnalysisMetadata, 'generation'>) =>
+    holdsAnalysisSettings: (indexName: string, settings: NamedAnalysisSettings) =>
       holdsNamedSettings(core.requireIndex(indexName), settings),
     stampAnalysisGeneration: (indexName: string, generation: number) =>
       stampAnalysisGeneration(core, indexName, generation),

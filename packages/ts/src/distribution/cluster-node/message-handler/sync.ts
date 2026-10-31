@@ -140,9 +140,7 @@ export async function handleSyncRequestMessage(
         },
         afterSnapshot: async (trailingSink, build) => {
           const snapshotEnd = build.lastSeqNo ?? snapshotSeqNo
-          const entries = log.getEntriesFrom(snapshotEnd + 1)
-          await sendSyncEntriesResponse(message, trailingSink, deps, entries)
-          notePosition(entries.at(-1)?.seqNo ?? snapshotEnd)
+          await sendSyncEntriesResponse(message, trailingSink, deps, log.getEntriesFrom(snapshotEnd + 1))
         },
       },
     )

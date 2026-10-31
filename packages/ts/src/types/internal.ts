@@ -124,12 +124,15 @@ export interface SerializablePartition {
   }
 }
 
-export interface PendingAnalysisMetadata {
-  generation: number
+export interface NamedAnalysisSettings {
   language: string
   tokenizer?: string
   stopWords?: string
   stopWordList?: string[]
+}
+
+export interface PendingAnalysisMetadata extends NamedAnalysisSettings {
+  generation: number
 }
 
 export interface IndexMetadata {
