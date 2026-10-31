@@ -235,7 +235,7 @@ An implementation should start from the token that the fewest documents of a seg
 
 ### Phrase Scoring
 
-An implementation must add each phrase's score to the score that [BM25](#bm25-best-matching-25) gives the query's words, as Lucene's phrase scoring does:
+An implementation must add each phrase's score to the score that [BM25](#bm25-best-matching-25) gives the query's words:
 
 ```text
 phraseScore(P, D) = SUM over each field f that holds P of

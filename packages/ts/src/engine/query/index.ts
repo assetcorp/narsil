@@ -61,7 +61,11 @@ export function executeQuery<T = AnyDocument>(
   request: QueryParams,
   callerContext: QueryContext,
 ): Promise<QueryResult<T>> {
-  if (request.rerank === undefined) return runQuery<T>(request, callerContext)
+  if (request.rerank === undefined) {
+    const loadingPhraseCode = loadPhraseCodeFor(request.term)
+    if (loadingPhraseCode === null) return runQuery<T>(request, callerContext)
+    return loadingPhraseCode.then(() => runQuery<T>(request, callerContext))
+  }
   return import('../../rerank/runtime').then(runtime =>
     runtime.executeRerankedQuery<T>(request, callerContext, executeQuery<T>, runtimeHost),
   )
@@ -93,8 +97,6 @@ async function runQuery<T>(request: QueryParams, callerContext: QueryContext): P
 
   const params = validQueryParams(request, config)
   requireVectorSearchable(params, context, isVectorOnly || isHybridMode)
-  const loadingPhraseCode = loadPhraseCodeFor(params.term)
-  if (loadingPhraseCode !== null) await loadingPhraseCode
   if (!isVectorOnly) requireUsablePhrases(params, context)
   const projection = resolveProjection(params.document)
 

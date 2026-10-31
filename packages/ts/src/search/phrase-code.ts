@@ -34,7 +34,7 @@ function loadPhraseCode(): Promise<PhraseCode> {
         loading = null
         throw new NarsilError(
           ErrorCodes.SEARCH_PHRASE_NOT_READY,
-          'The engine could not load its phrase code, which a browser downloads for the first query with a quote. Remove the quotes, or try again once the file can load',
+          'The phrase code failed to load. Remove the quotes, or try again once it can load',
           { cause: err instanceof Error ? err.message : String(err) },
         )
       },
