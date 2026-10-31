@@ -10,6 +10,7 @@ import type { DirectExecutorExtensions } from '../workers/direct-executor'
 import type { Executor } from '../workers/executor'
 import { loadVectorCodeFor } from '../workers/vector-code'
 import type { AnalysisRebuildCoordinator } from './analysis-rebuild'
+import { arrayPositionsAreStale } from './array-positions'
 import type { IndexRegistryEntry } from './core'
 import type { IndexStateCoordinator } from './index-state'
 import { reconstructSchemaFromMetadata } from './recovery-schema'
@@ -127,6 +128,7 @@ export async function createIndexFromMetadata(
     documentCount: metadata.documentCount ?? 0,
     partitionCount: metadata.partitionCount,
     analysisRevision: metadata.analysisRevision ?? null,
+    arrayPositionGap: metadata.arrayPositionGap ?? null,
     synonyms,
     analysisGeneration: metadata.analysisGeneration ?? 0,
     pendingAnalysis: metadata.pendingAnalysis ?? null,
@@ -134,7 +136,10 @@ export async function createIndexFromMetadata(
   })
   if (loadData) await deps.indexState().registerOpen(metadata.indexName)
   else deps.indexState().registerClosed(metadata.indexName)
-  if (metadata.analysisRevision !== language.revision) {
+  if (
+    metadata.analysisRevision !== language.revision ||
+    arrayPositionsAreStale(indexConfig, metadata.arrayPositionGap ?? null)
+  ) {
     deps.analysisRebuild().markStale({
       indexName: metadata.indexName,
       language: language.name,

@@ -48,7 +48,7 @@ export function compositeSearchFulltext(
   layout: OrdinalLayout,
   params: InternalSearchParams,
 ): InternalSearchResult {
-  if (params.queryTokens.length === 0) {
+  if (params.queryTokens.length === 0 && params.phrases === undefined) {
     return { scored: [], totalMatched: 0 }
   }
 

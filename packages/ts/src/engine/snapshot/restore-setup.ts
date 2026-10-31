@@ -12,6 +12,7 @@ import type { DetachedIndex, DirectExecutorExtensions, IndexReplacement } from '
 import type { Executor } from '../../workers/executor'
 import { loadVectorCodeFor } from '../../workers/vector-code'
 import type { StaleIndex } from '../analysis-rebuild'
+import { storedArrayPositionGap } from '../array-positions'
 import type { IndexRegistryEntry } from '../core'
 import type { DurabilityIntegration } from '../durability-integration'
 import type { IndexStateCoordinator } from '../index-state'
@@ -53,6 +54,7 @@ export interface PreparedIndex {
   adapterName: string | null
   storedRevision: string | null
   analysisGeneration: number
+  storedArrayPositionGap: number | null
   synonyms: PreparedSynonyms | null
 }
 
@@ -102,7 +104,16 @@ export function prepareRestoredIndex(
   const analysisGeneration = Number.isSafeInteger(configuration.analysisGeneration)
     ? Math.max(0, configuration.analysisGeneration as number)
     : 0
-  return { config, language, embeddingAdapter, adapterName, storedRevision, analysisGeneration, synonyms }
+  return {
+    config,
+    language,
+    embeddingAdapter,
+    adapterName,
+    storedRevision,
+    analysisGeneration,
+    storedArrayPositionGap: storedArrayPositionGap(configuration.arrayPositionGap),
+    synonyms,
+  }
 }
 
 function restoredSynonyms(
@@ -150,6 +161,7 @@ export function restoredRegistryEntry(
     documentCount: manager.countDocuments(),
     partitionCount: manager.partitionCount,
     analysisRevision: prepared.storedRevision,
+    arrayPositionGap: prepared.storedArrayPositionGap,
     synonyms: prepared.synonyms?.encoded ?? null,
     analysisGeneration: prepared.analysisGeneration,
     pendingAnalysis: null,

@@ -27,6 +27,8 @@ export interface PostingListView {
   positionCountAt?(row: number): number
   readonly holdsPositions?: boolean
   copyPositionsAt?(row: number, target: Uint32Array, offset: number): number
+  readonly positionStore?: Uint32Array | null
+  positionStartAt?(row: number): number
   readonly docIdSet: { readonly size: number }
   readonly deletedDocs: { readonly size: number; has(internalId: number): boolean }
   readonly totalTermFrequency: number
@@ -154,6 +156,7 @@ export interface IndexMetadata {
   /** Persisted so recovered indexes keep collecting surface forms. */
   surfaceForms?: boolean
   analysisRevision?: string
+  arrayPositionGap?: number
   tokenizer?: string
   stopWords?: string
   stopWordList?: string[]
@@ -231,8 +234,16 @@ export interface ExpandedTermGroup {
   synonyms?: GroupSynonyms
 }
 
+export interface AnalysedPhrase {
+  key: string
+  tokens: readonly string[]
+  offsets: readonly number[]
+}
+
 export interface InternalSearchParams {
   queryTokens: Array<{ token: string; position: number }>
+  phrases?: readonly AnalysedPhrase[]
+  phraseWork?: import('../core/pattern-index/types').PatternWorkMeter
   termGroups?: ExpandedTermGroup[]
   partialFields?: string[]
   fields?: string[]

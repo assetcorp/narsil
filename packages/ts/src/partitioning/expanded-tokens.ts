@@ -4,6 +4,7 @@ import { isCompositePartition } from '../core/partition/composite'
 import type { PartitionReadState } from '../core/partition/read-state'
 import { tokenize } from '../core/tokenizer'
 import { DEFAULT_FUZZY_PREFIX_LENGTH } from '../search/constants'
+import { analyseQueryPhrases } from '../search/phrase-code'
 import { resolveTermGroups, type TermGroupAnalysis } from '../search/term-groups'
 import type { LanguageModule } from '../types/language'
 import type { SchemaDefinition } from '../types/schema'
@@ -93,18 +94,25 @@ export function addReachedTokens(
   tokens: Set<string>,
   partitions: readonly PartitionIndex[],
   term: string,
-  expansion: QueryExpansion,
+  requested: QueryExpansion,
   language: LanguageModule,
   analysis: TermGroupAnalysis,
 ): string[] {
+  if (requested.options.exact === true) return []
+  const quoted = analyseQueryPhrases(term, language, analysis)
+  const words = quoted?.words ?? term
+  if (quoted !== null && words.trim().length === 0) return []
+  const expansion =
+    quoted?.endsWithPhrase === true
+      ? { schema: requested.schema, options: { ...requested.options, prefix: false } }
+      : requested
   const { options } = expansion
-  if (options.exact === true) return []
   if (!((options.tolerance ?? 0) > 0 || options.prefix === true || options.partialWords === true)) return []
-  const analysed = queryTokensOf(term, language, analysis)
+  const analysed = queryTokensOf(words, language, analysis)
   if (analysed === null) return []
   const addedMembers = new Set<string>()
   for (const partition of partitions) {
-    addPartitionTokens(tokens, addedMembers, partition, term, analysed, expansion, language, analysis)
+    addPartitionTokens(tokens, addedMembers, partition, words, analysed, expansion, language, analysis)
   }
   for (const token of addedMembers) tokens.add(token)
   return [...addedMembers]

@@ -1,3 +1,4 @@
+import { requireLoadedPhraseCode } from '../../search/phrase-code'
 import type { InternalSearchParams, PostingListView } from '../../types/internal'
 import { bitsetHas, bitsetSet, createBitSet } from '../bitset'
 import type { PartitionFilterMatches } from './filters'
@@ -43,12 +44,24 @@ export function searchFulltextMatches(state: PartitionReadState, params: Interna
   const { queryTokens, termGroups, fields, tolerance = 0, prefixLength = 2, exact = false, filterBitset } = params
 
   const fieldNames = state.fieldNameTable.names
-  const matched = createBitSet(state.docStore.internalIdCapacity())
   const searched = searchedFieldMarks(fieldNames, fields)
   const partial = partialFieldMarks(fieldNames, params.partialFields)
   const searchedPartial = searched.map((mark, fieldIndex) => mark & partial[fieldIndex])
+  const capacity = state.docStore.internalIdCapacity()
+  const matched =
+    params.phrases === undefined
+      ? createBitSet(capacity)
+      : requireLoadedPhraseCode().matchPhrases(
+          state.invertedIdx,
+          params.phrases,
+          searched,
+          filterBitset,
+          capacity,
+          params.phraseWork,
+          false,
+        ).matched
 
-  for (const qt of queryTokens) {
+  for (const qt of params.phrases === undefined ? queryTokens : []) {
     const group = termGroupOf(termGroups, qt.token)
     for (const match of typoMatchesFor(state.invertedIdx, qt.token, group, exact, tolerance, prefixLength)) {
       markPostingList(matched, match.postingList, searched, filterBitset)

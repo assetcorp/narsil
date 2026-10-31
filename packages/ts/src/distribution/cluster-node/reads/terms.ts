@@ -17,6 +17,7 @@ import {
   validateSuggestResultPayload,
 } from '../../query/codec'
 import { rethrowAsRefusal } from '../../query/failover'
+import { allocationForPhraseQuery, queryReadsPhrases } from '../../query/phrase-routing'
 import { rerunOnNewerGeneration } from '../analysis-change/rerun'
 import { countIsExactFor } from '../query-conversion'
 import { routableAllocation } from '../routable-allocation'
@@ -116,9 +117,12 @@ export async function preflightCluster(
   const gathered = await rerunOnNewerGeneration(deps.analysisView, indexName, async () => {
     const { wireParams, indexBm25, carriesBm25 } = await bm25RoutingFor(deps, settingName, params)
     wireParams.analysisGeneration = await deps.analysisView.generationFor(indexName)
-    const routedAllocation = carriesBm25
+    const bm25Allocation = carriesBm25
       ? await allocationForBm25Query(indexName, allocation, () => coordinator.listNodes())
       : allocation
+    const routedAllocation = queryReadsPhrases(params.term)
+      ? await allocationForPhraseQuery(indexName, bm25Allocation, () => coordinator.listNodes())
+      : bm25Allocation
     return gatherFromEveryPartition(routedAllocation, indexName, async group => {
       if (group.nodeId === deps.nodeId) {
         const local = await deps.analysisView

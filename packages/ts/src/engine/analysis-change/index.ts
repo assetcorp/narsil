@@ -1,3 +1,4 @@
+import { ARRAY_POSITION_GAP } from '../../core/constants'
 import { ErrorCodes, NarsilError } from '../../errors'
 import { rebuildTextIndexes, textRebuildTargetOf } from '../../partitioning/text-rebuild'
 import type { AnalysisChange } from '../../types/analysis-operations'
@@ -61,6 +62,7 @@ function switchIndex({ core, indexName, entry, run, generation }: ChangeScope) {
     entry.language = language
     entry.analysisGeneration = generation
     entry.analysisRevision = language.revision
+    entry.arrayPositionGap = ARRAY_POSITION_GAP
     entry.pendingAnalysis = null
     entry.synonyms = synonyms?.encoded ?? null
     core.requireManager(indexName).adoptAnalysis({

@@ -88,6 +88,15 @@ export class LivePostingView implements PostingListView {
     return starts === null ? 0 : this.store.positions.countAt(starts[this.syncedStart + row])
   }
 
+  get positionStore(): Uint32Array | null {
+    return this.holdsPositions ? this.store.positions.values : null
+  }
+
+  positionStartAt(row: number): number {
+    const starts = this.store.pool.positionStarts
+    return starts === null ? 0 : starts[this.syncedStart + row] + 1
+  }
+
   copyPositionsAt(row: number, target: Uint32Array, offset: number): number {
     if (!this.holdsPositions) return 0
     const starts = this.store.pool.positionStarts

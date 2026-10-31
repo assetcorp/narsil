@@ -4,6 +4,7 @@ import { ErrorCodes, NarsilError } from '../../errors'
 import { getIndexMetadata, readIndexMetadataSnapshot } from '../cluster/index-metadata'
 import type { ClusterCoordinator } from '../coordinator/types'
 import { isRecord } from '../payload-guards'
+import { copyHoldersOf } from '../query/selection'
 import type {
   RebuildAnalysisPayload,
   RebuildAnalysisResultPayload,
@@ -178,14 +179,8 @@ export async function rebuildClusterAnalysis(deps: ClusterRebuildDeps, indexName
       indexName,
     })
   }
-  const holders = new Set<string>()
-  for (const assignment of table.assignments.values()) {
-    if (assignment.primary !== null) holders.add(assignment.primary)
-    for (const replica of assignment.replicas) holders.add(replica)
-    for (const replica of assignment.removingReplicas ?? []) holders.add(replica)
-  }
   const payload: RebuildAnalysisPayload = { indexName, indexUuid: metadata.indexUuid }
-  const holderIds = [...holders].sort()
+  const holderIds = [...copyHoldersOf(table)].sort()
   const outcomes = await Promise.allSettled(holderIds.map(holder => rebuildOn(deps, holder, payload)))
   const failedNodeIds = holderIds.filter((_, position) => outcomes[position]?.status === 'rejected')
   if (failedNodeIds.length > 0) {

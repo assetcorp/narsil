@@ -5,6 +5,7 @@ import { type BaseFieldType, isWordIndexedBase } from '../../schema/validator/fi
 import { partialFieldsOf, schemaFieldsOf } from '../../schema/validator/schema'
 import type { LanguageModule } from '../../types/language'
 import type { AnyDocument, SchemaDefinition } from '../../types/schema'
+import { ARRAY_POSITION_GAP } from '../constants'
 import {
   type BooleanFieldIndex,
   createBooleanIndex,
@@ -182,8 +183,10 @@ export function buildSegmentPayload(
   const spellings: SpellingCounts = new Map()
   let fieldSpellings: SpellingCounts | null = null
   let positionOffset = 0
+  let lastItemPosition = -1
   const addToken = (token: string, position: number, surface: string | undefined): void => {
     postings.addToken(token, positionOffset + position)
+    lastItemPosition = position
     surfaces.count(surface, token)
     if (fieldSpellings !== null) countPartialSpelling(fieldSpellings, token, surface ?? token, 1)
   }
@@ -203,8 +206,9 @@ export function buildSegmentPayload(
       postings.beginField()
       positionOffset = 0
       for (const text of fieldType === 'string' ? [value as string] : (value as string[])) {
+        lastItemPosition = -1
         visitTokens(text, language, tokenizing, addToken)
-        positionOffset = postings.fieldLength
+        if (lastItemPosition >= 0) positionOffset += lastItemPosition + 1 + ARRAY_POSITION_GAP
       }
       postings.endField(ordinal, fieldPath)
       lengths.record(ordinal, fieldPath, postings.fieldLength)

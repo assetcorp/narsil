@@ -1,4 +1,5 @@
 import { decode, encode } from '@msgpack/msgpack'
+import { ARRAY_POSITION_GAP } from '../../core/constants'
 import { compareCodePoints } from '../../core/ordering'
 import { ErrorCodes, NarsilError } from '../../errors'
 import { messagePackUpperBoundBytes } from '../../schema/validator/document-size'
@@ -36,6 +37,7 @@ export function indexConfigurationOf(entry: IndexRegistryEntry): Record<string, 
     entry.language,
     entry.embeddingAdapterName,
     entry.analysisRevision,
+    entry.arrayPositionGap,
     synonyms,
     entry.analysisGeneration,
   )
@@ -48,6 +50,7 @@ export function requireConfigurationWithinSizeLimit(config: IndexConfig, languag
     language,
     typeof adapter === 'string' ? adapter : null,
     language.revision,
+    ARRAY_POSITION_GAP,
   )
   if (messagePackUpperBoundBytes(payload) <= MAX_INDEX_CONFIGURATION_BYTES) return
   const bytes = encode(payload).byteLength
@@ -64,6 +67,7 @@ function configurationPayloadOf(
   language: LanguageModule,
   adapterName: string | null,
   analysisRevision: string | null,
+  arrayPositionGap: number | null,
   synonyms?: SynonymRule[],
   analysisGeneration = 0,
 ): Record<string, unknown> {
@@ -72,6 +76,7 @@ function configurationPayloadOf(
     schema: config.schema,
     language: language.name,
     ...(analysisRevision !== null ? { analysisRevision } : {}),
+    ...(arrayPositionGap !== null ? { arrayPositionGap } : {}),
     ...(typeof config.tokenizer === 'string' ? { tokenizer: config.tokenizer } : {}),
     ...(typeof config.stopWords === 'string' ? { stopWords: config.stopWords } : {}),
     ...(config.stopWords instanceof Set ? { stopWordList: [...config.stopWords].sort(compareCodePoints) } : {}),

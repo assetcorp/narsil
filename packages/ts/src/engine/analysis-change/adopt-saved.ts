@@ -28,6 +28,7 @@ export function adoptSavedAnalysis(
   entry.language = language
   entry.analysisGeneration = metadata.analysisGeneration ?? 0
   entry.analysisRevision = metadata.analysisRevision ?? null
+  entry.arrayPositionGap = metadata.arrayPositionGap ?? null
   manager?.adoptAnalysis({
     config,
     language,
