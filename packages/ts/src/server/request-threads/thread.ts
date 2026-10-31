@@ -13,6 +13,7 @@ import { refuseRegex } from '../regex-policy'
 import { createRouteRunner, type RouteContext, type RouteHandler } from '../request'
 import { registerServerRoutes, type ServerHandlers, serverRoutes } from '../routes'
 import { loadUWebSockets } from '../runtime'
+import type { CapabilitiesResponse, LivenessResponse } from '../types'
 import { type QueryLimits, validateQuery, validateSuggest, withServerRerankWindow } from '../validation'
 import { type ChildApp, childAppOf } from './acceptor'
 import { closeWhenTheProcessExits } from './close-at-exit'
@@ -145,9 +146,10 @@ function threadHandlers(
   const forwarded = relayedHandlers(relay, settings.limits)
   return {
     ...forwarded,
-    livez: (ctx: RouteContext) => respondJson(ctx, { status: 'ok' }),
+    livez: (ctx: RouteContext) => respondJson(ctx, { status: 'ok' } satisfies LivenessResponse),
     version: (ctx: RouteContext) => respondJson(ctx, versionReport(settings.build)),
-    capabilities: (ctx: RouteContext) => respondJson(ctx, { capabilities: [...SERVER_CAPABILITIES] }),
+    capabilities: (ctx: RouteContext) =>
+      respondJson(ctx, { capabilities: [...SERVER_CAPABILITIES] } satisfies CapabilitiesResponse),
     search: searchHandler({
       fallback: forwarded.search,
       limits: settings.limits,

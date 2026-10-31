@@ -1,5 +1,6 @@
 import type { ClusterNamespace } from '../../distribution/cluster-node/types'
 import type { EmbeddingAdapter, RerankAdapter } from '../../types/adapters'
+import type { ErrorDetail } from './responses'
 import type { TaskStore } from './tasks'
 
 /**
@@ -259,12 +260,5 @@ export interface NarsilServer {
  */
 export interface ErrorEnvelope {
   /** This describes the failure. */
-  error: {
-    /** This code comes from either {@link ServerErrorCodes} or {@link ErrorCodes}. */
-    code: string
-    /** This describes the failure, for a log or a person. */
-    message: string
-    /** These values are behind the failure, such as the field or limit involved. */
-    details?: Record<string, unknown>
-  }
+  error: ErrorDetail
 }

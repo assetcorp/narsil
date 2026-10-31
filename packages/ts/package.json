@@ -109,6 +109,10 @@
     "revisions:record": "tsx scripts/analysis-revisions.ts --record",
     "api": "tsx scripts/api-surface.ts",
     "api:write": "tsx scripts/api-surface.ts --write",
+    "openapi": "tsx scripts/openapi/generate.ts",
+    "openapi:write": "tsx scripts/openapi/generate.ts --write",
+    "openapi:lint": "spectral lint openapi.json --ruleset .spectral.yaml --fail-severity error",
+    "test:openapi-clients": "NARSIL_TEST_OPENAPI_CLIENTS=1 vitest run src/__tests__/server/openapi/generated-clients.test.ts",
     "bundle-size:write": "rm -rf dist && tsup && node scripts/check-browser-bundle.mjs --update-baseline",
     "lookalikes": "tsx scripts/lookalike-counts.ts",
     "lookalikes:collect": "tsx scripts/lookalike-counts.ts --collect",
@@ -216,10 +220,12 @@
     "./react": {
       "import": "./dist/react.mjs",
       "types": "./dist/react.d.ts"
-    }
+    },
+    "./openapi.json": "./openapi.json"
   },
   "files": [
     "dist/",
+    "openapi.json",
     "LICENSE",
     "NOTICE"
   ],
@@ -231,10 +237,12 @@
     "@delali/narsil-embeddings-transformers": "workspace:*",
     "@grpc/grpc-js": "1.14.4",
     "@microsoft/api-extractor": "7.58.12",
+    "@stoplight/spectral-cli": "6.15.0",
     "@types/node": "22.15.32",
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
     "@vitest/coverage-v8": "4.0.18",
+    "ajv": "8.17.1",
     "esbuild": "0.28.2",
     "etcd3": "1.1.2",
     "fflate": "0.8.3",

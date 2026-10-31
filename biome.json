@@ -15,7 +15,8 @@
       "!benchmarks/server",
       "!benchmarks/datasets",
       "!data/**/*.json",
-      "!**/fixtures/**/*.json"
+      "!**/fixtures/**/*.json",
+      "!packages/ts/openapi.json"
     ]
   },
   "css": {
