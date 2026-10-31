@@ -104,6 +104,38 @@
         "cwd": "packages/ts"
       }
     },
+    "openapi": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "options": {
+        "command": "pnpm run openapi",
+        "cwd": "packages/ts"
+      }
+    },
+    "openapi:write": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "options": {
+        "command": "pnpm run openapi:write",
+        "cwd": "packages/ts"
+      }
+    },
+    "openapi:lint": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "options": {
+        "command": "pnpm run openapi:lint",
+        "cwd": "packages/ts"
+      }
+    },
+    "test:openapi-clients": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "options": {
+        "command": "pnpm run test:openapi-clients",
+        "cwd": "packages/ts"
+      }
+    },
     "lookalikes": {
       "executor": "nx:run-commands",
       "cache": false,

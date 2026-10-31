@@ -8,6 +8,30 @@
 export const ASYNC_IMPORT_CAPABILITY = "documents.import.async";
 
 // @public
+export interface BatchBody {
+    action?: 'insert' | 'update' | 'delete';
+    docIds?: string[];
+    documents?: AnyDocument[];
+    options?: InsertOptions;
+    updates?: Array<{
+        docId: string;
+        document: AnyDocument;
+    }>;
+}
+
+// @public
+export interface BatchFailure {
+    docId: string;
+    error: ErrorDetail;
+}
+
+// @public
+export interface BatchResponse {
+    failed: BatchFailure[];
+    succeeded: string[];
+}
+
+// @public
 export const BM25_TUNING_CAPABILITY = "indexes.bm25";
 
 // @public
@@ -27,6 +51,35 @@ export const ClientErrorCodes: {
     readonly CLIENT_TASK_TIMEOUT: "CLIENT_TASK_TIMEOUT";
     readonly CLIENT_UNEXPECTED_ERROR: "CLIENT_UNEXPECTED_ERROR";
 };
+
+// @public
+export interface ClusterAllocationResponse {
+    allocated: boolean;
+    indexName: string;
+    partitions: PartitionAllocationReport[];
+    version: number | null;
+}
+
+// @public
+export interface ClusterMemberReport {
+    address: string;
+    memory: NodeMemoryReport | null;
+    nodeId: string;
+    roles: NodeRole[];
+}
+
+// @public
+export interface ClusterNodeReport extends ClusterNodeInfo {
+    isController: boolean;
+    readiness: NodeReadiness;
+}
+
+// @public
+export interface ClusterTopologyResponse {
+    controllerNodeId: string | null;
+    node: ClusterNodeReport;
+    nodes: ClusterMemberReport[];
+}
 
 // @public
 export interface CorsOptions {
@@ -52,6 +105,44 @@ export function createServer(engine: Narsil, options?: ServerOptions): NarsilSer
 
 // @public
 export const DOCUMENT_EXPORT_CAPABILITY = "indexes.documentExport";
+
+// @public
+export interface DocumentBody {
+    document: AnyDocument;
+    options?: WriteOptions;
+}
+
+// @public
+export interface DocumentCountResponse {
+    count: number;
+}
+
+// @public
+export interface DocumentExistsResponse {
+    exists: boolean;
+}
+
+// @public
+export interface DocumentIdResponse {
+    id: string;
+}
+
+// @public
+export interface DocumentPutResponse {
+    created: boolean;
+    id: string;
+}
+
+// @public
+export interface DocumentRemovedResponse {
+    id: string;
+    removed: true;
+}
+
+// @public
+export interface DocumentResponse {
+    document: AnyDocument;
+}
 
 // @public
 export type ErrorCode = (typeof ErrorCodes)[keyof typeof ErrorCodes];
@@ -167,13 +258,31 @@ export const ErrorCodes: {
 };
 
 // @public
-export interface ErrorEnvelope {
-    error: {
-        code: string;
-        message: string;
-        details?: Record<string, unknown>;
-    };
+export interface ErrorDetail {
+    code: string;
+    details?: Record<string, unknown>;
+    message: string;
 }
+
+// @public
+export interface ErrorEnvelope {
+    error: ErrorDetail;
+}
+
+// @public
+export type HttpCreateIndexBody = Omit<CreateIndexRequest, 'config'> & {
+    config: HttpIndexBody;
+};
+
+// @public
+export type HttpGroupResult = Omit<GroupResult, 'reduced' | 'reducerError'>;
+
+// @public
+export type HttpIndexBody = Omit<HttpIndexConfig, 'schema' | 'partitions' | 'vectorPromotion'> & {
+    schema: SchemaDefinition;
+    partitions?: PartitionConfig;
+    vectorPromotion?: VectorIndexConfig;
+};
 
 // @public
 export interface HttpIndexConfig {
@@ -198,7 +307,81 @@ export interface HttpIndexConfig {
 }
 
 // @public
+export type HttpQueryParams = Omit<QueryParams, 'group'> & {
+    group?: Omit<GroupConfig, 'reduce'>;
+};
+
+// @public
+export type HttpQueryResult = Omit<QueryResult, 'groups'> & {
+    groups?: HttpGroupResult[];
+};
+
+// @public
 export function httpStatusForNarsilError(code: string): number;
+
+// @public
+export type HttpWireTypeName = keyof HttpWireTypes;
+
+// @public
+export interface HttpWireTypes {
+    BatchBody: BatchBody;
+    BatchResponse: BatchResponse;
+    BM25Params: BM25Params;
+    CapabilitiesResponse: CapabilitiesResponse;
+    ClusterAllocationResponse: ClusterAllocationResponse;
+    ClusterHealth: ClusterHealth;
+    ClusterTopologyResponse: ClusterTopologyResponse;
+    DocumentBody: DocumentBody;
+    DocumentCountResponse: DocumentCountResponse;
+    DocumentExistsResponse: DocumentExistsResponse;
+    DocumentIdResponse: DocumentIdResponse;
+    DocumentPutResponse: DocumentPutResponse;
+    DocumentRemovedResponse: DocumentRemovedResponse;
+    DocumentResponse: DocumentResponse;
+    ErrorEnvelope: ErrorEnvelope;
+    FieldType: FieldType;
+    HttpCreateIndexBody: HttpCreateIndexBody;
+    HttpQueryParams: HttpQueryParams;
+    HttpQueryResult: HttpQueryResult;
+    ImportDocumentsQuery: ImportDocumentsQuery;
+    ImportResult: ImportResult;
+    IndexClearedResponse: IndexClearedResponse;
+    IndexCreatedResponse: IndexCreatedResponse;
+    IndexDroppedResponse: IndexDroppedResponse;
+    IndexListResponse: IndexListResponse;
+    IndexPartitionsResponse: IndexPartitionsResponse;
+    IndexStateResponse: IndexStateResponse;
+    IndexStats: IndexStats;
+    InsertBody: InsertBody;
+    ListParams: ListParams;
+    ListResult: ListResult;
+    LivenessResponse: LivenessResponse;
+    MemoryStatsResponse: MemoryStatsResponse;
+    MultiGetBody: MultiGetBody;
+    MultiGetResponse: MultiGetResponse;
+    OkResponse: OkResponse;
+    PartitionConfig: PartitionConfig;
+    PreflightResult: PreflightResult;
+    ReadinessResponse: ReadinessResponse;
+    RebalanceBody: RebalanceBody;
+    RemoveDocumentQuery: RemoveDocumentQuery;
+    ReplicationFactorBody: ReplicationFactorBody;
+    ReplicationFactorResponse: ReplicationFactorResponse;
+    SuggestParams: SuggestParams;
+    SuggestResult: SuggestResult;
+    SynonymSetBody: SynonymSetBody;
+    TaskListPage: TaskListPage;
+    TaskListQuery: TaskListQuery;
+    TaskRecord: TaskRecord;
+    VectorFieldBody: VectorFieldBody;
+    VectorMaintenanceResponse: VectorMaintenanceResponse;
+    VersionResponse: VersionResponse;
+}
+
+// @public
+export interface ImportDocumentsQuery {
+    async?: 'true' | 'false';
+}
 
 // @public
 export interface ImportError {
@@ -221,6 +404,39 @@ export interface ImportResult {
 export const INDEX_LIFECYCLE_CAPABILITY = "indexes.lifecycle";
 
 // @public
+export interface IndexClearedResponse {
+    cleared: true;
+    name: string;
+}
+
+// @public
+export interface IndexCreatedResponse {
+    name: string;
+}
+
+// @public
+export interface IndexDroppedResponse {
+    dropped: true;
+    name: string;
+}
+
+// @public
+export interface IndexListResponse {
+    indexes: IndexInfo[];
+}
+
+// @public
+export interface IndexPartitionsResponse {
+    partitions: PartitionStatsResult[];
+}
+
+// @public
+export interface IndexStateResponse {
+    name: string;
+    state: 'open' | 'closed';
+}
+
+// @public
 export class InMemoryTaskStore implements TaskStore {
     constructor(maxRetained?: number);
     delete(id: string): Promise<void>;
@@ -230,11 +446,33 @@ export class InMemoryTaskStore implements TaskStore {
 }
 
 // @public
+export interface InsertBody {
+    document: AnyDocument;
+    id?: string;
+    options?: InsertOptions;
+}
+
+// @public
 export function isNarsilError(value: unknown): value is NarsilError;
+
+// @public
+export interface LivenessResponse {
+    status: 'ok';
+}
 
 // @public
 export interface MemoryStatsResponse extends MemoryStats {
     requestThreads: number;
+}
+
+// @public
+export interface MultiGetBody {
+    docIds: string[];
+}
+
+// @public
+export interface MultiGetResponse {
+    documents: Record<string, AnyDocument>;
 }
 
 // @public
@@ -257,10 +495,55 @@ export interface NarsilServer {
 }
 
 // @public
+export interface OkResponse {
+    ok: true;
+}
+
+// @public
 export type OnRequestHook = (ctx: RequestContext) => undefined | RequestDenial | Promise<undefined | RequestDenial>;
 
 // @public
+export interface PartitionAllocationReport {
+    commitPoint: number;
+    inSyncSet: string[];
+    lastHolders: string[];
+    partitionId: number;
+    primary: string | null;
+    primaryTerm: number;
+    replicas: string[];
+    state: string;
+    unassignedReason: string | null;
+}
+
+// @public
+export interface ReadinessResponse {
+    cluster?: ClusterNodeReport;
+    status: 'ready' | 'unavailable';
+}
+
+// @public
+export interface RebalanceBody {
+    targetPartitionCount?: number;
+}
+
+// @public
 export const REBUILD_ANALYSIS_CAPABILITY = "indexes.rebuildAnalysis";
+
+// @public
+export interface RemoveDocumentQuery {
+    wait?: 'true' | 'false';
+}
+
+// @public
+export interface ReplicationFactorBody {
+    replicationFactor: number;
+}
+
+// @public
+export interface ReplicationFactorResponse {
+    indexName: string;
+    replicationFactor: number;
+}
 
 // @public
 export interface RequestContext {
@@ -341,6 +624,11 @@ export interface ServerOptions {
 export const SYNONYMS_CAPABILITY = "indexes.synonyms";
 
 // @public
+export interface SynonymSetBody {
+    synonyms: SynonymRule[];
+}
+
+// @public
 export const TASK_CANCEL_CAPABILITY = "tasks.cancel";
 
 // @public
@@ -387,11 +675,7 @@ export interface TaskRecord {
     cancelRequestedAt?: number;
     completedAt?: number;
     createdAt: number;
-    error?: {
-        code: string;
-        message: string;
-        details?: Record<string, unknown>;
-    };
+    error?: ErrorDetail;
     id: string;
     indexName: string;
     owner: string;
@@ -416,6 +700,25 @@ export interface TaskStore {
 
 // @public
 export type TaskType = 'optimizeVectors' | 'rebalance' | 'restore' | 'import' | 'importExport' | 'rebuildAnalysis';
+
+// @public
+export interface VectorFieldBody {
+    field?: string;
+}
+
+// @public
+export interface VectorMaintenanceResponse {
+    fields: VectorMaintenanceResult[];
+}
+
+// @public
+export interface VersionResponse {
+    dirty: boolean;
+    gitSha: string | null;
+    name: 'narsil';
+    vectorSearch: 'native' | 'wasm';
+    version: string | null;
+}
 
 // (No @packageDocumentation comment for this package)
 

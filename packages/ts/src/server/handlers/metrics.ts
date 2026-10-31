@@ -1,11 +1,10 @@
 import type { ClusterMetrics } from '../../distribution/cluster-node/types/observability'
 import { ErrorCodes, NarsilError } from '../../errors'
+import { PROMETHEUS_TEXT_CONTENT_TYPE } from '../constants'
 import type { HandlerDeps } from '../deps'
 import { respondError } from '../handler-utils'
 import type { RouteContext } from '../request'
 import { sendText } from '../response'
-
-const PROMETHEUS_TEXT_CONTENT_TYPE = 'text/plain; version=0.0.4; charset=utf-8'
 
 function labelValue(value: string): string {
   return value.replaceAll('\\', '\\\\').replaceAll('"', '\\"').replaceAll('\n', '\\n')

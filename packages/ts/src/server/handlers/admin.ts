@@ -8,12 +8,15 @@ import { ServerErrorCodes } from '../errors'
 import { badRequest, parseJson, parseJsonOptional, rejectInvalid, respondError, respondJson } from '../handler-utils'
 import type { RouteContext } from '../request'
 import { sendError, sendStream } from '../response'
-import type { MemoryStatsResponse, RebalanceBody } from '../types'
+import type {
+  MemoryStatsResponse,
+  OkResponse,
+  RebalanceBody,
+  SynonymSetBody,
+  VectorFieldBody,
+  VectorMaintenanceResponse,
+} from '../types'
 import { parseTaskListQuery, validateRebalance } from '../validation'
-
-interface FieldBody {
-  field?: string
-}
 
 export function createAdminHandlers(deps: HandlerDeps) {
   const { engine, tasks, limits } = deps
@@ -21,7 +24,7 @@ export function createAdminHandlers(deps: HandlerDeps) {
   async function checkpoint(ctx: RouteContext): Promise<void> {
     try {
       await engine.checkpoint(ctx.params[0])
-      respondJson(ctx, { ok: true })
+      respondJson(ctx, { ok: true } satisfies OkResponse)
     } catch (err) {
       respondError(ctx, err)
     }
@@ -42,18 +45,18 @@ export function createAdminHandlers(deps: HandlerDeps) {
 
   function vectorMaintenance(ctx: RouteContext): void {
     try {
-      respondJson(ctx, { fields: engine.vectorMaintenanceStatus(ctx.params[0]) })
+      respondJson(ctx, { fields: engine.vectorMaintenanceStatus(ctx.params[0]) } satisfies VectorMaintenanceResponse)
     } catch (err) {
       respondError(ctx, err)
     }
   }
 
   async function compact(ctx: RouteContext): Promise<void> {
-    const body = parseJsonOptional<FieldBody>(ctx)
+    const body = parseJsonOptional<VectorFieldBody>(ctx)
     if (!body) return
     try {
       await engine.compactVectors(ctx.params[0], body.field)
-      respondJson(ctx, { ok: true })
+      respondJson(ctx, { ok: true } satisfies OkResponse)
     } catch (err) {
       respondError(ctx, err)
     }
@@ -64,7 +67,7 @@ export function createAdminHandlers(deps: HandlerDeps) {
     if (!body) return
     try {
       await engine.updatePartitionConfig(ctx.params[0], body)
-      respondJson(ctx, { ok: true })
+      respondJson(ctx, { ok: true } satisfies OkResponse)
     } catch (err) {
       respondError(ctx, err)
     }
@@ -72,7 +75,7 @@ export function createAdminHandlers(deps: HandlerDeps) {
 
   async function readSynonyms(ctx: RouteContext): Promise<void> {
     try {
-      respondJson(ctx, { synonyms: await engine.getSynonyms(ctx.params[0]) })
+      respondJson(ctx, { synonyms: await engine.getSynonyms(ctx.params[0]) } satisfies SynonymSetBody)
     } catch (err) {
       respondError(ctx, err)
     }
@@ -87,7 +90,7 @@ export function createAdminHandlers(deps: HandlerDeps) {
     }
     try {
       await engine.updateSynonyms(ctx.params[0], Reflect.get(body, 'synonyms') as SynonymRule[])
-      respondJson(ctx, { ok: true })
+      respondJson(ctx, { ok: true } satisfies OkResponse)
     } catch (err) {
       respondError(ctx, err)
     }
@@ -98,7 +101,7 @@ export function createAdminHandlers(deps: HandlerDeps) {
     if (body === undefined) return
     try {
       await engine.updateBM25(ctx.params[0], body)
-      respondJson(ctx, { ok: true })
+      respondJson(ctx, { ok: true } satisfies OkResponse)
     } catch (err) {
       respondError(ctx, err)
     }
@@ -119,7 +122,7 @@ export function createAdminHandlers(deps: HandlerDeps) {
   }
 
   async function optimize(ctx: RouteContext): Promise<void> {
-    const body = parseJsonOptional<FieldBody>(ctx)
+    const body = parseJsonOptional<VectorFieldBody>(ctx)
     if (!body) return
     const name = ctx.params[0]
     try {

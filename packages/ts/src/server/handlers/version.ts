@@ -1,19 +1,15 @@
-import { type VectorSearchPath, vectorSearchPath } from '../../vector/native/search-path'
+import { vectorSearchPath } from '../../vector/native/search-path'
 import type { HandlerDeps, ResolvedBuild } from '../deps'
 import { respondJson } from '../handler-utils'
 import type { RouteContext } from '../request'
-
-export interface VersionReport extends ResolvedBuild {
-  name: 'narsil'
-  vectorSearch: VectorSearchPath
-}
+import type { VersionResponse } from '../types'
 
 /**
  * Builds the `/version` body on the thread that answers the request, because each
  * thread loads the native search core for itself and falls back to WebAssembly on
  * its own after a native error.
  */
-export function versionReport(build: ResolvedBuild): VersionReport {
+export function versionReport(build: ResolvedBuild): VersionResponse {
   return { name: 'narsil', ...build, vectorSearch: vectorSearchPath() }
 }
 

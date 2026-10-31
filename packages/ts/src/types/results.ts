@@ -130,7 +130,12 @@ export interface HighlightMatch {
    * displays. Every offset is a character count from the start of the original
    * field, whatever the snippet contains.
    */
-  positions: Array<{ start: number; end: number }>
+  positions: Array<{
+    /** The match starts at this offset. */
+    start: number
+    /** The match ends at this offset. */
+    end: number
+  }>
 }
 
 /**

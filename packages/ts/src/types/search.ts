@@ -214,7 +214,12 @@ export interface QueryParams {
   /** These settings name the fields that come back with highlighted snippets. */
   highlight?: HighlightConfig
   /** These documents take fixed positions, ahead of the ranking. */
-  pinned?: Array<{ docId: string; position: number }>
+  pinned?: Array<{
+    /** The engine places the document with this id. */
+    docId: string
+    /** The document takes this place in the results, counting from zero. */
+    position: number
+  }>
   /** This picks which engine answers the query. Keyword search runs by default. */
   mode?: SearchMode
   /** These vector-search inputs are required in `vector` and `hybrid` mode. */
@@ -282,7 +287,12 @@ export interface FacetConfig {
     /** The engine orders the returned values by their count, putting the highest first under `'desc'`, which is the default, and the lowest first under `'asc'`. Under `'asc'`, each cluster node sends the count of up to 10,000 values of the field, so the lowest counts are exact wherever no node holds more values than that. */
     sort?: 'asc' | 'desc'
     /** The engine counts a numeric field's matches into these ranges, with one count for each range. A cluster search counts up to 1,000 ranges on a field and throws `CONFIG_INVALID` for more. */
-    ranges?: Array<{ from: number; to: number }>
+    ranges?: Array<{
+      /** The range starts at this value. */
+      from: number
+      /** The range ends at this value. */
+      to: number
+    }>
   }
 }
 
