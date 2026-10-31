@@ -5,7 +5,7 @@ import type { SegmentPayload } from '../core/partition/segment-payload'
 import type { SharedPatternWork } from '../core/pattern-index/work-meter'
 import type { LongQueryThreadSettings, RequestThreadSettings } from '../server/request-threads/messages'
 import type { GlobalStatistics, SerializablePartition, SerializedSurfaceForms } from '../types/internal'
-import type { AnyDocument, IndexConfig } from '../types/schema'
+import type { AnyDocument, BM25Params, IndexConfig } from '../types/schema'
 import type { QueryParams } from '../types/search'
 import type { SharedVectorFieldHandles } from '../vector/shared-field/types'
 
@@ -28,6 +28,7 @@ export type WorkerAction =
       partitionIds?: number[]
       globalStats?: GlobalStatistics
       patternWork: SharedPatternWork
+      bm25: BM25Params | null
     }
   | { type: 'preflight'; indexName: string; params: QueryParams; requestId: string; patternWork: SharedPatternWork }
   | { type: 'get'; indexName: string; docId: string; requestId: string }
@@ -43,6 +44,7 @@ export type WorkerAction =
       synonyms?: Uint8Array
     }
   | { type: 'replaceSynonyms'; indexName: string; synonyms?: Uint8Array; requestId: string }
+  | { type: 'replaceBm25'; indexName: string; bm25?: BM25Params; requestId: string }
   | { type: 'copyLoaded'; indexName: string; copyLoad: string; requestId: string }
   | {
       type: 'loadVectorCopy'
@@ -147,6 +149,7 @@ const KNOWN_ACTION_TYPES: ReadonlyArray<WorkerAction['type']> = [
   'count',
   'createIndex',
   'replaceSynonyms',
+  'replaceBm25',
   'copyLoaded',
   'loadVectorCopy',
   'dropVectorCopy',

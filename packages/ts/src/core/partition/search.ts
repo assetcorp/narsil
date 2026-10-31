@@ -1,6 +1,6 @@
 import type { InternalSearchParams, InternalSearchResult, PostingListView } from '../../types/internal'
 import { bitsetHas, bitsetSet, createBitSet } from '../bitset'
-import { computeBM25WithIDF, computeIDF, resolveBM25Params } from '../scorer'
+import { computeBM25WithIDF, computeIDF } from '../scorer'
 import { fieldLengthOf, loadFieldScoring } from './field-scoring'
 import {
   computeGroupContributions,
@@ -57,7 +57,6 @@ export function searchFulltext(state: PartitionReadState, params: InternalSearch
 
   const totalDocs = globalStats?.totalDocuments ?? state.stats.totalDocuments
   const avgFieldLengths = globalStats?.averageFieldLengths ?? state.stats.averageFieldLengths
-  const { k1, b } = resolveBM25Params(bm25Params)
   const scoresAreZero = totalDocs === 0
 
   if (state.scoreBuffer === null) state.scoreBuffer = createScoreBuffer(state.docStore.internalIdCapacity())
@@ -68,8 +67,11 @@ export function searchFulltext(state: PartitionReadState, params: InternalSearch
 
   const fieldNames = state.fieldNameTable.names
   const resolver = state.docStore.resolver()
-  const fieldScoring = loadFieldScoring(state, fields, boost, avgFieldLengths)
-  const { searchable, boosts, averageLengths, lengthColumns } = fieldScoring
+  const fieldScoring = loadFieldScoring(state, fields, boost, avgFieldLengths, bm25Params)
+  const { searchable, boosts, averageLengths, lengthColumns, k1s, bs, boundPairs } = fieldScoring
+  const onePair = boundPairs.length === 2
+  const onlyK1 = boundPairs[0]
+  const onlyB = boundPairs[1]
 
   function documentFrequency(token: string, list: PostingListView): number {
     return globalStats ? globalDocFreqFor(globalStats.docFrequencies, token, list.docIdSet.size) : list.docIdSet.size
@@ -81,8 +83,6 @@ export function searchFulltext(state: PartitionReadState, params: InternalSearch
     partialMarks: partialFieldMarks(fieldNames, partialFields),
     fieldNames,
     totalDocs,
-    k1,
-    b,
     filterBitset,
     globalFrequency(token: string): number | undefined {
       if (globalStats === undefined || !Object.hasOwn(globalStats.docFrequencies, token)) return undefined
@@ -113,7 +113,14 @@ export function searchFulltext(state: PartitionReadState, params: InternalSearch
         const actualFieldLength = fieldLengthOf(lengthColumns, fieldIndex, internalId, avgLen)
         const termScore = scoresAreZero
           ? 0
-          : computeBM25WithIDF(termFrequencies[pi], match.idf, actualFieldLength, avgLen, k1, b)
+          : computeBM25WithIDF(
+              termFrequencies[pi],
+              match.idf,
+              actualFieldLength,
+              avgLen,
+              onePair ? onlyK1 : k1s[fieldIndex],
+              onePair ? onlyB : bs[fieldIndex],
+            )
         addScore(scoreBuffer, internalId, termScore * boosts[fieldIndex])
       }
       return
@@ -132,7 +139,14 @@ export function searchFulltext(state: PartitionReadState, params: InternalSearch
 
       const termScore = scoresAreZero
         ? 0
-        : computeBM25WithIDF(termFrequency, match.idf, actualFieldLength, avgLen, k1, b)
+        : computeBM25WithIDF(
+            termFrequency,
+            match.idf,
+            actualFieldLength,
+            avgLen,
+            onePair ? onlyK1 : k1s[fieldIndex],
+            onePair ? onlyB : bs[fieldIndex],
+          )
       addScore(scoreBuffer, internalId, termScore * boosts[fieldIndex])
       if (components !== null) {
         recordComponents(
@@ -162,7 +176,6 @@ export function searchFulltext(state: PartitionReadState, params: InternalSearch
       list: prunableList,
       docFrequency: documentFrequency(queryTokens[0].token, prunableList),
       totalDocs,
-      bm25Params,
       limit: maxResults,
       fields: fieldScoring,
       resolver,
@@ -175,7 +188,6 @@ export function searchFulltext(state: PartitionReadState, params: InternalSearch
       terms: prunableLists,
       docFrequencies: prunableLists.map(term => documentFrequency(term.token, term.list)),
       totalDocs,
-      bm25Params,
       limit: maxResults,
       fields: fieldScoring,
       resolver,

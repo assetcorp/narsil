@@ -2,7 +2,7 @@ import { decode, encode } from '@msgpack/msgpack'
 import { INDEX_NAME_PATTERN, MAX_INDEX_NAME_LENGTH } from '../../engine/constants'
 import { ErrorCodes, NarsilError } from '../../errors'
 import { getLanguage } from '../../languages/registry'
-import type { IndexConfig, SchemaDefinition } from '../../types/schema'
+import type { BM25Params, IndexConfig, SchemaDefinition } from '../../types/schema'
 import type { SynonymRule } from '../../types/synonyms'
 import { MAX_PARTITION_COUNT, MAX_REPLICATION_FACTOR } from '../constants'
 import type { AllocationConstraints, ClusterCoordinator } from '../coordinator/types'
@@ -236,6 +236,20 @@ export function metadataWithSynonymSet(snapshot: IndexMetadataSnapshot, ref: Syn
     ? fields.settings
     : { language: snapshot.settings?.language ?? getLanguage('english').name }
   const nextSettings = ref === null ? settings : { ...settings, synonyms: ref }
+  return new Uint8Array(encode({ ...fields, settings: nextSettings }, { ignoreUndefined: true }))
+}
+
+export function metadataWithBm25(
+  snapshot: IndexMetadataSnapshot,
+  bm25: BM25Params | undefined,
+  bm25Revision: number,
+): Uint8Array {
+  const decoded = decode(snapshot.bytes)
+  const fields = isRecord(decoded) ? decoded : {}
+  const { bm25: _replaced, ...settings } = isRecord(fields.settings)
+    ? fields.settings
+    : { language: snapshot.settings?.language ?? getLanguage('english').name }
+  const nextSettings = { ...settings, bm25Revision, ...(bm25 !== undefined ? { bm25 } : {}) }
   return new Uint8Array(encode({ ...fields, settings: nextSettings }, { ignoreUndefined: true }))
 }
 

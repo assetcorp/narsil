@@ -1,5 +1,9 @@
 export const POSTING_LIST_INITIAL_CAPACITY = 8
 export const POSTING_LIST_COMPACTION_THRESHOLD = 0.3
 export const MAX_TERM_FREQUENCY = 65535
+export const DEFAULT_BM25_K1 = 1.2
+export const DEFAULT_BM25_B = 0.75
+export const MAX_BM25_K1 = 1000
+export const MAX_BM25_B = 1
 export const PENDING_REMOVAL_MERGE_FLOOR = 64
 export const PENDING_REMOVAL_MERGE_DIVISOR = 256

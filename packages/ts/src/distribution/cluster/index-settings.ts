@@ -24,6 +24,7 @@ export interface IndexSettings {
   stopWords?: string
   stopWordList?: string[]
   bm25?: BM25Params
+  bm25Revision?: number
   surfaceForms?: boolean
   defaultScoring?: ScoringMode
   trackPositions?: boolean
@@ -86,6 +87,7 @@ function settingsFieldsOf(source: SettingsSource): Omit<IndexSettings, 'language
           bm25: {
             ...(bm25.k1 !== undefined ? { k1: bm25.k1 } : {}),
             ...(bm25.b !== undefined ? { b: bm25.b } : {}),
+            ...(bm25.fields !== undefined ? { fields: bm25.fields } : {}),
           },
         }
       : {}),
@@ -143,8 +145,13 @@ export function decodeIndexSettings(raw: unknown, indexName: string): IndexSetti
   const embedding = restoredEmbedding(raw.embedding, reject)
   const partitions = restoredPartitionConfig(raw.partitionConfig, reject)
   const synonyms = raw.synonyms === undefined ? undefined : decodeSynonymSetRef(raw.synonyms, reject)
+  const bm25Revision = raw.bm25Revision
+  if (bm25Revision !== undefined && (!Number.isSafeInteger(bm25Revision) || (bm25Revision as number) < 0)) {
+    return reject('bm25Revision must be a non-negative integer')
+  }
   return {
     language: raw.language,
+    ...(typeof bm25Revision === 'number' ? { bm25Revision } : {}),
     ...settingsFieldsOf({
       ...readSharedConfigFields(raw, reject),
       ...(partitions !== undefined ? { partitions } : {}),
@@ -166,7 +173,7 @@ export function indexConfigFromSettings(
   if (settings === undefined) {
     return { schema }
   }
-  const { language, embedding, partitionConfig, synonyms: _synonyms, ...fields } = settings
+  const { language, embedding, partitionConfig, synonyms: _synonyms, bm25Revision: _revision, ...fields } = settings
   return {
     schema,
     language,

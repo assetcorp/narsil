@@ -18,6 +18,7 @@ import { applyHighlights } from './highlight'
 import type { PagedFanOutResult } from './hybrid-depth'
 import { runtimeHost } from './runtime-host'
 import {
+  bm25SettingFor,
   broadcastStatsForWorker,
   coverageFor,
   type QueryContext,
@@ -128,6 +129,7 @@ async function runQuery<T>(request: QueryParams, callerContext: QueryContext): P
             broadcastStatsForWorker(params, context, scoring),
             context.partitionIds,
             context.patternWork,
+            bm25SettingFor(params, context),
           )
         : null
       if (workerResult) {
@@ -139,7 +141,7 @@ async function runQuery<T>(request: QueryParams, callerContext: QueryContext): P
           language,
           config.schema,
           scoring,
-          searchOptionsFor(manager, context.patternWork),
+          searchOptionsFor(params, context),
         )
       }
     }
@@ -325,7 +327,7 @@ export async function executePreflight(request: QueryParams, callerContext: Quer
     countExact = result.matchedExact !== false
   } else if (countsWithoutScores(params)) {
     totalMatched = fanOutMatchCount(manager, params, language, config.schema, {
-      searchOptions: searchOptionsFor(manager, context.patternWork),
+      searchOptions: searchOptionsFor(params, context),
       partitionIds: context.partitionIds,
     })
   } else {
@@ -337,6 +339,7 @@ export async function executePreflight(request: QueryParams, callerContext: Quer
           broadcastStatsForWorker(params, context, scoring),
           context.partitionIds,
           context.patternWork,
+          bm25SettingFor(params, context),
         )
       : null
     if (workerResult) {
@@ -348,7 +351,7 @@ export async function executePreflight(request: QueryParams, callerContext: Quer
         language,
         config.schema,
         scoring,
-        searchOptionsFor(manager, context.patternWork),
+        searchOptionsFor(params, context),
       )
       totalMatched = fanOutResult.totalMatched
     }

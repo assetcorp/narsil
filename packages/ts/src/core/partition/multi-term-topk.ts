@@ -5,12 +5,11 @@ import type {
   PostingListView,
   ScoredDocument,
 } from '../../types/internal'
-import type { BM25Params } from '../../types/schema'
 import type { InvertedIndexReader } from '../inverted-index'
-import { bm25PruningSound, computeBM25WithIDF, computeIDF, resolveBM25Params } from '../scorer'
+import { bm25PruningSound, computeBM25WithIDF, computeIDF } from '../scorer'
 import { blockBoundsFor } from './block-bounds'
 import { PRUNING_REJECTION_SLACK } from './constants'
-import { bestSearchable, type FieldScoring, fieldLengthOf } from './field-scoring'
+import { bestSearchable, blockEntryBound, type FieldScoring, fieldLengthOf } from './field-scoring'
 import { type PostingColumns, postingColumns } from './posting-columns'
 import { addScore, hasScore, kthBestScore, markCounted, type ScoreBuffer } from './score-buffer'
 import { EMPTY_COMPONENTS } from './scoring'
@@ -25,7 +24,6 @@ export interface MultiTermScanRequest {
   terms: MultiTermScanTerm[]
   docFrequencies: number[]
   totalDocs: number
-  bm25Params: BM25Params | undefined
   limit: number
   fields: FieldScoring
   resolver: InternalIdResolver
@@ -35,10 +33,11 @@ export interface MultiTermScanRequest {
 interface TermScan {
   columns: PostingColumns
   idf: number
-  k1: number
-  b: number
   scoresAreZero: boolean
   fields: FieldScoring
+  onePair: boolean
+  onlyK1: number
+  onlyB: number
 }
 
 export function prunableMultiTermLists(
@@ -79,14 +78,11 @@ function termUpperBound(scan: TermScan, list: PostingListView, maxBoost: number,
   const bounds = blockBoundsFor(list, scan.fields.lengthColumns)
   let best = 0
   for (let block = 0; block < bounds.blockCount; block++) {
-    const bestEntry = computeBM25WithIDF(
-      bounds.maxTermFrequency[block],
-      scan.idf,
-      bounds.minFieldLength[block],
-      maxAverageLength,
-      scan.k1,
-      scan.b,
-    )
+    const blockMaxTf = bounds.maxTermFrequency[block]
+    const blockMinLength = bounds.minFieldLength[block]
+    const bestEntry = scan.onePair
+      ? computeBM25WithIDF(blockMaxTf, scan.idf, blockMinLength, maxAverageLength, scan.onlyK1, scan.onlyB)
+      : blockEntryBound(scan.fields, blockMaxTf, scan.idf, blockMinLength, maxAverageLength)
     const blockBound = bestEntry * maxBoost * bounds.maxEntriesPerDocument[block]
     if (blockBound > best) best = blockBound
   }
@@ -100,7 +96,14 @@ function entryScore(scan: TermScan, entry: number, internalId: number): number {
   const fieldLength = fieldLengthOf(fields.lengthColumns, fieldIndex, internalId, averageLength)
   const bm25 = scan.scoresAreZero
     ? 0
-    : computeBM25WithIDF(columns.termFrequencies[entry], scan.idf, fieldLength, averageLength, scan.k1, scan.b)
+    : computeBM25WithIDF(
+        columns.termFrequencies[entry],
+        scan.idf,
+        fieldLength,
+        averageLength,
+        scan.onePair ? scan.onlyK1 : fields.k1s[fieldIndex],
+        scan.onePair ? scan.onlyB : fields.bs[fieldIndex],
+      )
   return bm25 * fields.boosts[fieldIndex]
 }
 
@@ -198,15 +201,22 @@ function pageFromBuffer(
 }
 
 export function multiTermTopK(request: MultiTermScanRequest): InternalSearchResult | null {
-  const { terms, docFrequencies, totalDocs, bm25Params, limit, fields, resolver, buffer } = request
+  const { terms, docFrequencies, totalDocs, limit, fields, resolver, buffer } = request
   if (!boostsKeepScoresNonNegative(fields)) return null
 
-  const { k1, b } = resolveBM25Params(bm25Params)
   const scans: TermScan[] = new Array(terms.length)
   for (let term = 0; term < terms.length; term++) {
     const idf = computeIDF(docFrequencies[term], totalDocs)
     if (!(idf >= 0)) return null
-    scans[term] = { columns: postingColumns(terms[term].list), idf, k1, b, scoresAreZero: totalDocs === 0, fields }
+    scans[term] = {
+      columns: postingColumns(terms[term].list),
+      idf,
+      scoresAreZero: totalDocs === 0,
+      fields,
+      onePair: fields.boundPairs.length === 2,
+      onlyK1: fields.boundPairs[0],
+      onlyB: fields.boundPairs[1],
+    }
   }
 
   const maxBoost = bestSearchable(fields.searchable, fields.boosts)
