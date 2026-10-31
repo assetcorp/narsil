@@ -1,7 +1,7 @@
 import { createGeoIndex } from '../../geo/geo-index'
 import type { BaseFieldType, SchemaField } from '../../schema/validator'
 import type { LanguageModule } from '../../types/language'
-import { MAX_TERM_FREQUENCY } from '../constants'
+import { ARRAY_POSITION_GAP, MAX_TERM_FREQUENCY } from '../constants'
 import type { ReadonlyStoredDocument } from '../document-store'
 import {
   type BooleanFieldIndex,
@@ -189,7 +189,7 @@ export function indexStringArrayField(
     const tokenFreqs = new Map<string, { count: number; positions: number[] }>()
     let positionOffset = 0
 
-    let itemTokenCount = 0
+    let lastItemPosition = -1
     const addToken = (token: string, position: number, surface: string | undefined): void => {
       const existing = tokenFreqs.get(token)
       if (existing) {
@@ -200,12 +200,12 @@ export function indexStringArrayField(
       }
       fieldTokenList.push(token)
       countOccurrence(surfaceCounts, spellings, surface, token)
-      itemTokenCount++
+      lastItemPosition = position
     }
     for (const item of arr) {
-      itemTokenCount = 0
+      lastItemPosition = -1
       visitTokens(item, language, opts, addToken)
-      positionOffset += itemTokenCount
+      if (lastItemPosition >= 0) positionOffset += lastItemPosition + 1 + ARRAY_POSITION_GAP
     }
 
     fieldLengths[fieldPath] = fieldTokenList.length

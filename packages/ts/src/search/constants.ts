@@ -13,6 +13,9 @@ export const DEFAULT_FUZZY_PREFIX_LENGTH = 2
 export const MAX_TOLERANCE = 10
 export const MAX_PREFIX_LENGTH = 1024
 
+export const MAX_PHRASE_WORDS = 32
+export const MAX_QUERY_PHRASES = 32
+
 export const DEFAULT_MAX_PER_GROUP = 1
 
 export const DEFAULT_RANK_CONSTANT = 60

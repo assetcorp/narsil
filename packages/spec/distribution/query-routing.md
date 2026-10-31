@@ -89,6 +89,12 @@ A data node that holds no context with the requested ID must answer `SEARCH_CONT
 
 The coordinator reads the members of each group, the reranked fields of a [reranked query](#distributed-reranking), and the documents of the page from the same contexts, so a single query reads every document as its node ranked it. A pinned document placed from outside the ranked results has no context, so the coordinator fetches its current version. A data node that predates search contexts ignores `keepAliveMs` and returns no `contextId`, so the coordinator fetches the current version of the documents that node ranked. A coordinator that predates search contexts sends no `keepAliveMs`, so no data node opens a context for its queries.
 
+### Phrase Queries
+
+A node on a specification version below 1.1 splits text at every double quote, so it searches a [phrase](../algorithms.md#phrase-search)'s words as ordinary words and returns documents that the phrase excludes. A coordinator must therefore refuse a search or a count with `SEARCH_PHRASE_NOT_READY` while the term holds a pair of quotes, or an unclosed quote, around any character other than white space, and any registered node that the allocation table lists as a primary, a replica, or a replica on its way out of the partition has a version below 1.1. It must read a version as its major number and then its minor number, each compared as a whole number, and it must treat a version that it cannot parse as below 1.1. A copy on a node with no registration does not refuse the query, so a dead node blocks nothing. For a query with a phrase, however, the coordinator must skip every copy on a node with no registration and ask the next copy, because a coordinator can still reach a node on an older version whose lease has lapsed. A partition left with no copy counts as unavailable under `allowPartialResults`. The coordinator reads the quotes alone at this step, because the analysis that drops a phrase of stop words belongs to the data nodes, so during an upgrade it can refuse a phrase that a data node would drop.
+
+A data node must apply the [limits](../algorithms.md#limits), the `trackPositions` check, and the [stale check](../algorithms.md#array-position-gap) to its own copy, and it must answer a refusal with the code that those rules name. Whatever `allowPartialResults` holds, a coordinator must fail the whole query with `SEARCH_INVALID_PHRASE` or `SEARCH_PHRASE_NOT_READY` when a data node raises that code, because a partial answer can leave out documents that hold the phrase.
+
 ### Single-Partition Queries
 
 A query that targets one partition, such as fetching a document by ID, goes out as one combined query-and-fetch request to the node holding that partition. The two phases collapse into a single round trip.
@@ -124,10 +130,13 @@ Phase 0, statistics collection:
   1. The coordinator sends a statistics request to each data node.
   2. Each data node collects totalDocs, docFrequencies, and
      totalFieldLengths from its local partitions, counting each
-     query term, each synonym that its copy's synonym set adds,
-     and each token that the query's typo tolerance, prefix
-     completion, or partial-word search reaches in any local
-     partition, summed over every local partition. It lists in
+     query term, each token of each phrase, each synonym that
+     its copy's synonym set adds, and each token that the
+     query's typo tolerance, prefix completion, or partial-word
+     search reaches in any local partition, summed over every
+     local partition. It takes the term's quotes as Quote Syntax
+     in algorithms.md defines, and it expands the words outside
+     the quotes alone. It lists in
      expanded each token that a prefix completion or a
      partial-word search reached.
   3. Where the union of every expanded list holds a token that

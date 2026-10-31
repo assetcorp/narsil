@@ -219,10 +219,10 @@ export interface IndexConfig {
   /** This replaces the language's tokeniser, either inline or by the name a tokeniser registered under. */
   tokenizer?: CustomTokenizer | string
   /**
-   * Setting this records term positions in each posting, which the `.nrsl`
-   * format carries for readers that match phrases. This engine's highlighter
-   * re-analyses the stored text instead of reading them, so an index that
-   * opts out answers every query the same way and stores less.
+   * Setting this records term positions in each posting, which phrase search
+   * compares. An index that opts out stores less, and the engine refuses a
+   * phrase on it with `SEARCH_INVALID_PHRASE`. Highlighting works either way,
+   * because the engine's highlighter analyses the stored text again.
    */
   trackPositions?: boolean
   /** These settings control when vector fields move to an HNSW graph, and how that graph is built. */

@@ -7,12 +7,19 @@ import type { SynonymLookup } from '../core/synonyms/types'
 import { tokenize } from '../core/tokenizer'
 import { ErrorCodes, NarsilError } from '../errors'
 import { flattenSchema, isWordIndexedFieldType } from '../schema/validator'
-import type { ExpandedTermGroup, GlobalStatistics, InternalSearchResult, ScoredDocument } from '../types/internal'
+import type {
+  AnalysedPhrase,
+  ExpandedTermGroup,
+  GlobalStatistics,
+  InternalSearchResult,
+  ScoredDocument,
+} from '../types/internal'
 import type { LanguageModule } from '../types/language'
 import type { BM25Params, CustomTokenizer, FieldType, SchemaDefinition } from '../types/schema'
 import type { QueryParams, TermMatchPolicy } from '../types/search'
 import { DEFAULT_FUZZY_PREFIX_LENGTH, DEFAULT_PAGE_SIZE } from './constants'
 import { clampRowCount } from './pagination'
+import { analyseQueryPhrases, withWordsOnly } from './phrases'
 import { type ResolvedTermGroups, resolveTermGroups } from './term-groups'
 
 export interface FulltextSearchOptions {
@@ -26,7 +33,18 @@ export interface FulltextSearchOptions {
 
 interface PreparedFulltextQuery extends ResolvedTermGroups {
   queryTokens: Array<{ token: string; position: number }>
+  phrases?: readonly AnalysedPhrase[]
   filterBitset?: Uint32Array
+}
+
+function analysedWords(term: string, language: LanguageModule, options: FulltextSearchOptions | undefined) {
+  if (term.trim().length === 0) return []
+  return tokenize(term, language, {
+    stem: true,
+    removeStopWords: true,
+    customTokenizer: options?.customTokenizer,
+    stopWordOverride: options?.stopWords,
+  }).tokens
 }
 
 function prepareFulltextQuery(
@@ -45,16 +63,17 @@ function prepareFulltextQuery(
     validateSearchFields(params.fields, flatSchema)
   }
 
-  const queryTokenResult = tokenize(params.term, language, {
-    stem: true,
-    removeStopWords: true,
+  const quoted = analyseQueryPhrases(params.term, language, {
+    stopWords: options?.stopWords,
     customTokenizer: options?.customTokenizer,
-    stopWordOverride: options?.stopWords,
   })
+  const wordParams = quoted === null ? params : withWordsOnly(params, quoted)
+  const phrases = quoted !== null && quoted.phrases.length > 0 ? quoted.phrases : undefined
 
-  if (queryTokenResult.tokens.length === 0) return null
+  const analysedTokens = analysedWords(wordParams.term ?? '', language, options)
+  if (analysedTokens.length === 0 && phrases === undefined) return null
 
-  const queryTokens = deduplicateTokens(queryTokenResult.tokens)
+  const queryTokens = deduplicateTokens(analysedTokens)
 
   let filterBitset: Uint32Array | undefined
   if (params.filters) {
@@ -66,10 +85,12 @@ function prepareFulltextQuery(
     if (bitsetIsEmpty(filterBitset)) return null
   }
 
-  const lastToken = queryTokenResult.tokens[queryTokenResult.tokens.length - 1]
+  if (analysedTokens.length === 0) return { queryTokens, phrases, filterBitset }
+
+  const lastToken = analysedTokens[analysedTokens.length - 1]
   const synonyms = params.exact === true ? undefined : options?.synonyms?.expand(queryTokens.map(qt => qt.token))
-  const groups = resolveTermGroups(partition, params, language, schema, queryTokens, lastToken, options, synonyms)
-  return { queryTokens, ...groups, filterBitset }
+  const groups = resolveTermGroups(partition, wordParams, language, schema, queryTokens, lastToken, options, synonyms)
+  return { queryTokens, phrases, ...groups, filterBitset }
 }
 
 /**
@@ -96,6 +117,8 @@ export function fulltextMatches(
 
   return partition.searchFulltextMatches({
     queryTokens: prepared.queryTokens,
+    phrases: prepared.phrases,
+    phraseWork: options?.patternWork,
     termGroups: prepared.termGroups,
     partialFields: prepared.partialFields,
     fields: params.fields,
@@ -117,7 +140,7 @@ export function fulltextSearch(
   if (prepared === null) {
     return { scored: [], totalMatched: 0 }
   }
-  const { queryTokens, termGroups, partialFields, filterBitset } = prepared
+  const { queryTokens, phrases, termGroups, partialFields, filterBitset } = prepared
 
   const needsAllResults =
     params.minScore !== undefined ||
@@ -136,6 +159,8 @@ export function fulltextSearch(
 
   const rawResult = partition.searchFulltext({
     queryTokens,
+    phrases,
+    phraseWork: options?.patternWork,
     termGroups,
     partialFields,
     fields: params.fields,
@@ -155,7 +180,7 @@ export function fulltextSearch(
   let scored = rawResult.scored
 
   const termMatch = params.termMatch ?? 'any'
-  if (termMatch !== 'any') {
+  if (termMatch !== 'any' && queryTokens.length > 0) {
     scored = filterByTermCoverage(
       scored,
       queryTokens,
@@ -165,6 +190,7 @@ export function fulltextSearch(
       params.exact ?? false,
       termGroups,
       partialFields ?? [],
+      phrases,
     )
   }
 
@@ -222,8 +248,10 @@ function filterByTermCoverage(
   exact: boolean,
   termGroups: readonly ExpandedTermGroup[] | undefined,
   partialFields: readonly string[],
+  phrases: readonly AnalysedPhrase[] | undefined,
 ): ScoredDocument[] {
   const requiredCount = policy === 'all' ? queryTokens.length : (policy as number)
+  const phraseKeys = phrases === undefined ? null : new Set(phrases.map(phrase => phrase.key))
 
   if (requiredCount <= 0) return scored
   if (requiredCount > queryTokens.length) return []
@@ -242,7 +270,16 @@ function filterByTermCoverage(
   }
 
   return scored.filter(doc => {
-    const matched = countDocTermMatches(doc, queryTokens, tolerance, prefixLength, exact, groups, partialFields)
+    const matched = countDocTermMatches(
+      doc,
+      queryTokens,
+      tolerance,
+      prefixLength,
+      exact,
+      groups,
+      partialFields,
+      phraseKeys,
+    )
     return matched >= requiredCount
   })
 }
@@ -261,8 +298,10 @@ function countDocTermMatches(
   exact: boolean,
   groups: ReadonlyMap<string, CoverageGroup>,
   partialFields: readonly string[],
+  phraseKeys: ReadonlySet<string> | null,
 ): number {
-  const indexTokens = Object.keys(doc.idf)
+  const componentKeys = Object.keys(doc.idf)
+  const indexTokens = phraseKeys === null ? componentKeys : componentKeys.filter(key => !phraseKeys.has(key))
   if (indexTokens.length === 0) return 0
 
   let count = 0

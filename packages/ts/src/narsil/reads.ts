@@ -1,3 +1,4 @@
+import { requirePhraseReady } from '../engine/array-positions'
 import type { EngineCore } from '../engine/core'
 import { executeListDocuments } from '../engine/list-documents'
 import { yieldToEventLoop } from '../engine/orchestration/turn'
@@ -10,7 +11,7 @@ import type { PartitionManager } from '../partitioning/manager/types'
 import { lazyQueryBinding } from '../search/cursor-binding'
 import type { GlobalStatistics } from '../types/internal'
 import type { ListResult, PreflightResult, QueryResult, SuggestResult } from '../types/results'
-import type { AnyDocument } from '../types/schema'
+import type { AnyDocument, IndexConfig } from '../types/schema'
 import type { ListParams, QueryParams, SuggestParams } from '../types/search'
 
 export interface ScopedReadOptions {
@@ -37,6 +38,11 @@ async function readUnderOneAnalysis<R>(
     result = await read()
   }
   return { result, analysisStale }
+}
+
+function phraseReadinessOf(core: EngineCore, indexName: string, config: IndexConfig): () => void {
+  return () =>
+    requirePhraseReady(indexName, config, core.analysisRebuild.isStale(indexName), core.analysisRebuild.rebuildMode)
 }
 
 function scopedParams(params: QueryParams, options: ScopedReadOptions | undefined): QueryParams {
@@ -97,6 +103,7 @@ export async function runEngineQuery<T = AnyDocument>(
       cursorBinding: lazyQueryBinding(params),
       patternWorkCap: core.patternWorkCap,
       rerank: rerank?.rerankRunnerFor(core),
+      requirePhraseReady: phraseReadinessOf(core, indexName, entry.config),
     }
     const { result, analysisStale } = await readUnderOneAnalysis(core, indexName, () =>
       executeQuery<T>(resolvedParams, context),
@@ -155,6 +162,7 @@ export async function runEnginePreflight(
       partitionIds: options?.partitionIds,
       cursorBinding: lazyQueryBinding(params),
       patternWorkCap: core.patternWorkCap,
+      requirePhraseReady: phraseReadinessOf(core, indexName, entry.config),
     }
     const { result, analysisStale } = await readUnderOneAnalysis(core, indexName, () =>
       executePreflight(resolvedParams, context),

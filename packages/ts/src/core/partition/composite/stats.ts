@@ -8,6 +8,10 @@ function collectCandidateTerms(subs: readonly PartitionReadState[], params: Inte
   const { queryTokens, termGroups, tolerance = 0, prefixLength = 2, exact = false } = params
   const terms = new Set<string>()
 
+  for (const phrase of params.phrases ?? []) {
+    for (const token of phrase.tokens) terms.add(token)
+  }
+
   for (const qt of queryTokens) {
     const group = termGroupOf(termGroups, qt.token)
     if (group !== undefined) {

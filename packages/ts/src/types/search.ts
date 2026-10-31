@@ -70,7 +70,15 @@ export type SortSpec = Record<string, 'asc' | 'desc'> | readonly SortField[]
  * @public
  */
 export interface QueryParams {
-  /** The engine analyses this text with the index's language module and searches for the terms that result. */
+  /**
+   * The engine analyses this text with the index's language module and searches
+   * for the terms that result. Words inside double quotes form a phrase, which
+   * a document has to hold side by side and in that order inside one field. The
+   * engine throws `SEARCH_INVALID_PHRASE` for a phrase of more than 32 words, for
+   * more than 32 phrases, and for a phrase on an index with `trackPositions` off.
+   * It throws `SEARCH_PHRASE_NOT_READY` while an index with a `string[]` field
+   * waits for a rebuild.
+   */
   term?: string
   /** The engine searches the term in these fields, and in every text field in the schema by default. */
   fields?: string[]

@@ -15,6 +15,8 @@ import {
   validatePreflightResultPayload,
   validateSuggestResultPayload,
 } from '../../query/codec'
+import { rethrowAsRefusal } from '../../query/failover'
+import { allocationForPhraseQuery, queryReadsPhrases } from '../../query/phrase-routing'
 import { countIsExactFor, localParamsToWire } from '../query-conversion'
 import { routableAllocation } from '../routable-allocation'
 import { type ClusterReadDeps, gatherFromEveryPartition, sendReadRequest } from './scatter'
@@ -101,9 +103,13 @@ export async function preflightCluster(
 
   const startTime = performance.now()
   const wireParams = localParamsToWire(params)
-  const gathered = await gatherFromEveryPartition(allocation, indexName, async group => {
+  const coordinator = deps.config.coordinator
+  const routedAllocation = queryReadsPhrases(params.term)
+    ? await allocationForPhraseQuery(indexName, allocation, () => coordinator.listNodes())
+    : allocation
+  const gathered = await gatherFromEveryPartition(routedAllocation, indexName, async group => {
     if (group.nodeId === deps.nodeId) {
-      const local = await deps.engine.preflightPartitions(indexName, params, group.partitionIds)
+      const local = await deps.engine.preflightPartitions(indexName, params, group.partitionIds).catch(rethrowAsRefusal)
       return { count: local.count, analysisStale: local.analysisStale === true }
     }
     const message = createPreflightMessage(

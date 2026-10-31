@@ -1,4 +1,5 @@
 import { decode } from '@msgpack/msgpack'
+import { ARRAY_POSITION_GAP } from '../../core/constants'
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { PartitionManager } from '../../partitioning/manager'
 import { buildArchiveFromMemory } from '../../persistence/archive/from-memory'
@@ -173,7 +174,11 @@ export async function restoreEarlierSnapshot(indexName: string, data: Uint8Array
   const prepared = prepareRestoredIndex(envelope, deps)
   const replacesIndex = deps.indexRegistry.has(indexName)
   requireRestoreMemory(indexName, footprintOf(envelope, prepared, replacesIndex), replacesIndex)
-  const analysedNow = { ...prepared, storedRevision: prepared.language.revision }
+  const analysedNow = {
+    ...prepared,
+    storedRevision: prepared.language.revision,
+    storedArrayPositionGap: ARRAY_POSITION_GAP,
+  }
   const staging = deps.durability?.manager.stageRestore?.(indexName) ?? null
   try {
     await installRestoredIndex(

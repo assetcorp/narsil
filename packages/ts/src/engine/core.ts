@@ -1,3 +1,4 @@
+import { ARRAY_POSITION_GAP } from '../core/constants'
 import { generateId } from '../core/id-generator'
 import { DEFAULT_PATTERN_WORK_CAP } from '../core/pattern-index/constants'
 import { ErrorCodes, NarsilError } from '../errors'
@@ -52,6 +53,7 @@ export type IndexRegistryEntry = {
   documentCount: number
   partitionCount: number
   analysisRevision: string | null
+  arrayPositionGap: number | null
   synonyms: Uint8Array | null
 }
 
@@ -295,7 +297,9 @@ export async function createEngineCore(
     resyncIndex: (indexName, wasPromoted) => orchestrator.resyncIndex(indexName, wasPromoted),
     recordCurrentAnalysis: indexName => {
       const entry = indexRegistry.get(indexName)
-      if (entry !== undefined && !analysisRebuild.isStale(indexName)) entry.analysisRevision = entry.language.revision
+      if (entry === undefined || analysisRebuild.isStale(indexName)) return
+      entry.analysisRevision = entry.language.revision
+      entry.arrayPositionGap = ARRAY_POSITION_GAP
     },
     durabilityManager: durability?.manager ?? null,
   })

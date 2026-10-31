@@ -19,6 +19,7 @@ import { buildCoverage, collectDistributedStats, fanOutSearch, type NodeQueryOut
 import { mergeGroupsFor } from './group-merge'
 import { executeHybridQuery } from './hybrid'
 import { mergeAndTruncateScoredEntries, mergeAndTruncateSortedEntries, mergeDistributedFacets } from './merge'
+import { allocationForPhraseQuery, queryReadsPhrases } from './phrase-routing'
 import { lastOrganicEntry, placePinnedEntries } from './pinning'
 import { collectSearchContexts, releaseSearchContexts, searchContextKeepAlive } from './search-contexts'
 import type { ReplicaSelector } from './selection'
@@ -86,7 +87,11 @@ export async function distributedQuery(
     }
   }
 
-  const routing = selectReplicasForQuery(allocationTable, selector ?? queryKeyedSelector(binding))
+  const routedTable =
+    deps.listNodes !== undefined && queryReadsPhrases(params.term)
+      ? await allocationForPhraseQuery(indexName, allocationTable, deps.listNodes)
+      : allocationTable
+  const routing = selectReplicasForQuery(routedTable, selector ?? queryKeyedSelector(binding))
   const totalPartitions = allocationTable.assignments.size
 
   if (routing.unavailablePartitions.length > 0 && !resolvedConfig.allowPartialResults) {
