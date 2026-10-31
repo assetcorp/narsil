@@ -9,14 +9,17 @@ import {
 import { clampRowCount } from '../../../search/pagination'
 import type { PreflightResult, SuggestResult } from '../../../types/results'
 import type { QueryParams, SuggestParams } from '../../../types/search'
+import { allocationForBm25Query } from '../../query/bm25-routing'
 import {
   createPreflightMessage,
   createSuggestMessage,
   validatePreflightResultPayload,
   validateSuggestResultPayload,
 } from '../../query/codec'
-import { countIsExactFor, localParamsToWire } from '../query-conversion'
+import { rethrowAsRefusal } from '../../query/failover'
+import { countIsExactFor } from '../query-conversion'
 import { routableAllocation } from '../routable-allocation'
+import { bm25RoutingFor } from './bm25'
 import { type ClusterReadDeps, gatherFromEveryPartition, sendReadRequest } from './scatter'
 
 /**
@@ -100,10 +103,16 @@ export async function preflightCluster(
   }
 
   const startTime = performance.now()
-  const wireParams = localParamsToWire(params)
-  const gathered = await gatherFromEveryPartition(allocation, indexName, async group => {
+  const { wireParams, indexBm25, carriesBm25 } = await bm25RoutingFor(deps, indexName, params)
+  const coordinator = deps.config.coordinator
+  const routedAllocation = carriesBm25
+    ? await allocationForBm25Query(indexName, allocation, () => coordinator.listNodes())
+    : allocation
+  const gathered = await gatherFromEveryPartition(routedAllocation, indexName, async group => {
     if (group.nodeId === deps.nodeId) {
-      const local = await deps.engine.preflightPartitions(indexName, params, group.partitionIds)
+      const local = await deps.engine
+        .preflightPartitions(indexName, params, group.partitionIds, indexBm25)
+        .catch(rethrowAsRefusal)
       return { count: local.count, analysisStale: local.analysisStale === true }
     }
     const message = createPreflightMessage(

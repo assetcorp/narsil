@@ -1,5 +1,12 @@
 import { ErrorCodes, NarsilError } from '../../errors'
-import type { BM25Params, IndexConfig, PartitionConfig, ScoringMode, VectorIndexConfig } from '../../types/schema'
+import type {
+  BM25FieldParams,
+  BM25Params,
+  IndexConfig,
+  PartitionConfig,
+  ScoringMode,
+  VectorIndexConfig,
+} from '../../types/schema'
 
 export interface SnapshotEnvelope {
   version?: number
@@ -65,17 +72,38 @@ function restoredBm25(raw: unknown, reject: ConfigFieldRejection): BM25Params | 
   if (!isPlainObject(raw)) {
     reject('bm25 must be an object')
   }
-  const { k1, b } = raw as { k1?: unknown; b?: unknown }
+  const fields = restoredBm25Fields(raw.fields, reject)
+  return {
+    ...restoredBm25Pair(raw, 'bm25', reject),
+    ...(fields !== undefined ? { fields } : {}),
+  }
+}
+
+function restoredBm25Pair(raw: Record<string, unknown>, label: string, reject: ConfigFieldRejection): BM25FieldParams {
+  const { k1, b } = raw
   if (k1 !== undefined && (typeof k1 !== 'number' || !Number.isFinite(k1))) {
-    reject('bm25 k1 must be a finite number')
+    reject(`${label} k1 must be a finite number`)
   }
   if (b !== undefined && (typeof b !== 'number' || !Number.isFinite(b))) {
-    reject('bm25 b must be a finite number')
+    reject(`${label} b must be a finite number`)
   }
   return {
     ...(k1 !== undefined ? { k1: k1 as number } : {}),
     ...(b !== undefined ? { b: b as number } : {}),
   }
+}
+
+function restoredBm25Fields(raw: unknown, reject: ConfigFieldRejection): Record<string, BM25FieldParams> | undefined {
+  if (raw === undefined) return undefined
+  if (!isPlainObject(raw)) reject('bm25 fields must be an object')
+  const source = raw as Record<string, unknown>
+  const fields: Record<string, BM25FieldParams> = Object.create(null)
+  for (const name of Object.keys(source)) {
+    const pair = source[name]
+    if (!isPlainObject(pair)) reject('bm25 fields must map each field to an object')
+    fields[name] = restoredBm25Pair(pair as Record<string, unknown>, 'bm25 field', reject)
+  }
+  return fields
 }
 
 function restoredStopWords(name: unknown, list: unknown, reject: ConfigFieldRejection): IndexConfig['stopWords'] {

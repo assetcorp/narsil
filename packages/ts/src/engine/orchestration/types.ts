@@ -5,7 +5,7 @@ import type { MainCopyQueries, NarsilConfig } from '../../types/config'
 import type { GlobalStatistics } from '../../types/internal'
 import type { LanguageModule } from '../../types/language'
 import type { MemoryStats, WorkerCopyReport } from '../../types/memory'
-import type { IndexConfig } from '../../types/schema'
+import type { BM25Params, IndexConfig } from '../../types/schema'
 import type { QueryParams } from '../../types/search'
 import type { SharedVectorFieldHandles } from '../../vector/shared-field/types'
 import type { VectorWorkerCopyPolicy } from '../../vector/vector-index/shared'
@@ -41,6 +41,7 @@ export interface WorkerOrchestrator {
     globalStats: GlobalStatistics | undefined,
     partitionIds: number[] | undefined,
     patternWork: SearchPatternWork,
+    bm25: BM25Params | undefined,
   ): Promise<FanOutResult | null>
   hasWorkerPool(): boolean
   mainCopyQueries(): MainCopyQueries

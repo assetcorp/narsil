@@ -7,6 +7,7 @@ import type { PartitionManager } from '../../partitioning/manager'
 import { mergeFacets, oversampledFacetConfig } from '../../search/facets'
 import type { GlobalStatistics } from '../../types/internal'
 import type { FacetResult } from '../../types/results'
+import type { BM25Params } from '../../types/schema'
 import type { FacetConfig, QueryParams } from '../../types/search'
 import type { WorkerLease, WorkerPool } from '../../workers/pool'
 import { createRequestId } from '../../workers/protocol'
@@ -57,6 +58,7 @@ function queryAction(
   globalStats: GlobalStatistics | undefined,
   partitionIds: number[] | undefined,
   patternWork: SharedPatternWork,
+  bm25: BM25Params | undefined,
 ) {
   return {
     type: 'query' as const,
@@ -64,6 +66,7 @@ function queryAction(
     params,
     requestId: createRequestId(),
     patternWork,
+    bm25: bm25 ?? null,
     ...(partitionIds !== undefined ? { partitionIds } : {}),
     ...(globalStats !== undefined ? { globalStats } : {}),
   }
@@ -76,6 +79,7 @@ async function runSplit(
   params: QueryParams,
   globalStats: GlobalStatistics | undefined,
   patternWork: SharedPatternWork,
+  bm25: BM25Params | undefined,
 ): Promise<FanOutResult> {
   const assignments = partitionsPerLease(scope, leases.length)
   const workerParams =
@@ -83,7 +87,7 @@ async function runSplit(
   const outcomes = await Promise.allSettled(
     assignments.map((partitionIds, at) =>
       leases[at].executor
-        .execute<FanOutResult>(queryAction(indexName, workerParams, globalStats, partitionIds, patternWork))
+        .execute<FanOutResult>(queryAction(indexName, workerParams, globalStats, partitionIds, patternWork, bm25))
         .finally(() => leases[at].release()),
     ),
   )
@@ -132,6 +136,7 @@ export async function searchViaWorker(
   globalStats: GlobalStatistics | undefined,
   partitionIds: number[] | undefined,
   patternWork: SearchPatternWork,
+  bm25: BM25Params | undefined,
 ): Promise<FanOutResult | null> {
   const pool = state.workerPool
   if (!pool) return null
@@ -150,7 +155,7 @@ export async function searchViaWorker(
     if (idle.length >= 2 && scoresPerPartition(state, indexName, params, globalStats)) {
       leases.push(...idle)
       fork = patternWork.fork(leases.length)
-      const merged = await runSplit(leases, scope, indexName, params, globalStats, fork.shared)
+      const merged = await runSplit(leases, scope, indexName, params, globalStats, fork.shared, bm25)
       fork.settle(merged.patternWorkSpent ?? 0)
       return merged
     }
@@ -160,7 +165,7 @@ export async function searchViaWorker(
     leases.push(lease)
     fork = patternWork.fork(1)
     const result = await lease.executor.execute<FanOutResult>(
-      queryAction(indexName, params, globalStats, partitionIds, fork.shared),
+      queryAction(indexName, params, globalStats, partitionIds, fork.shared, bm25),
     )
     fork.settle(result.patternWorkSpent ?? 0)
     return result

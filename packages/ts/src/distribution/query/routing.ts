@@ -14,6 +14,7 @@ import type {
   WireGroupEntry,
   WireQueryParams,
 } from '../transport/types'
+import { allocationForBm25Query } from './bm25-routing'
 import { MAX_FACET_SIZE } from './constants'
 import { buildCoverage, collectDistributedStats, fanOutSearch, type NodeQueryOutcome } from './fan-out'
 import { mergeGroupsFor } from './group-merge'
@@ -86,7 +87,11 @@ export async function distributedQuery(
     }
   }
 
-  const routing = selectReplicasForQuery(allocationTable, selector ?? queryKeyedSelector(binding))
+  const routedTable =
+    deps.listNodes !== undefined && deps.carriesBm25 === true
+      ? await allocationForBm25Query(indexName, allocationTable, deps.listNodes)
+      : allocationTable
+  const routing = selectReplicasForQuery(routedTable, selector ?? queryKeyedSelector(binding))
   const totalPartitions = allocationTable.assignments.size
 
   if (routing.unavailablePartitions.length > 0 && !resolvedConfig.allowPartialResults) {

@@ -296,7 +296,7 @@ Recovery must delete every key under `<indexName>/segments/` that the manifest d
 
 ## Index Metadata
 
-On index creation, and on any change that affects the schema, a node persists the index metadata at `<indexName>/meta` using the metadata payload from [envelope.md](envelope.md#index-metadata-payload). That metadata lets recovery rebuild an index with its full configuration, with no call from the application.
+On index creation, on any change that affects the schema, and on a change of the [BM25 setting](algorithms.md#parameter-levels), a node persists the index metadata at `<indexName>/meta` using the metadata payload from [envelope.md](envelope.md#index-metadata-payload). That metadata lets recovery rebuild an index with its full configuration, with no call from the application.
 
 After it makes a checkpoint durable, the node must persist the checkpoint's total document count in `document_count` before it completes the checkpoint.
 

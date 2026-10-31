@@ -11,9 +11,10 @@ import type { AllocationTable } from '../../coordinator/types'
 import { distributedQuery } from '../../query/routing'
 import type { DistributedQueryConfig } from '../../query/types'
 import { readDistributedDocuments } from '../node-messaging'
-import { distributedCountIsExact, distributedResultToLocal, localParamsToWire } from '../query-conversion'
+import { distributedCountIsExact, distributedResultToLocal } from '../query-conversion'
 import { routableAllocation } from '../routable-allocation'
 import type { ClusterQueryConfig } from '../types'
+import { bm25RoutingFor } from './bm25'
 import { assembleDistributedGroups } from './groups'
 import { countStoredPinsFromOutside, dropUnstoredPinnedEntries, readPinPresence } from './pinned'
 import { createRankedDocumentReader, type RankedDocumentReader } from './ranked-documents'
@@ -154,12 +155,14 @@ async function searchCluster<T>(
   const projection = resolveProjection(params.document)
   const groupsRead = params.group !== undefined && (params.group.reduce !== undefined || projection.kind !== 'none')
   const readsDocuments = readsLater || projection.kind !== 'none' || groupsRead
-  const wireParams = localParamsToWire(params)
+  const { wireParams, carriesBm25 } = await bm25RoutingFor(deps, indexName, params)
   const queryDeps = {
     transport: deps.config.transport,
     sourceNodeId: deps.nodeId,
     getAllocation: (idx: string) => deps.config.coordinator.getAllocation(idx),
     resolveNodeTargets: deps.resolveNodeTargets,
+    listNodes: () => deps.config.coordinator.listNodes(),
+    carriesBm25,
   }
   const distributed = await distributedQuery(
     indexName,

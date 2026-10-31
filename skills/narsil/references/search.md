@@ -32,6 +32,7 @@ const results = await narsil.query('products', {
 ```
 
 - A query scores with BM25 and admits a document that holds any one term. Set `termMatch: 'all'`, or a number of terms, to demand more.
+- To tune BM25, pass `bm25: { k1, b, fields: { title: { k1, b } } }` on `createIndex` or on a query, or replace an index's setting on a live index with `narsil.updateBM25(index, bm25)`. `k1` runs from 0 to 1,000 and `b` from 0 to 1. For each field, a value on the search wins over a value on the index, and a value for the field wins over a value for every field at the same level.
 - `tolerance` defaults to 0, so a misspelt word matches nothing until you set it. Set 1 or 2. The engine applies it only to indexed terms that share the first `prefixLength` characters with the query term, 2 by default, so a typo in the first two letters still misses.
 - For search as you type, set `prefix: true`, which completes the last word. `narsil.suggest(index, { prefix, limit })` returns whole terms for a dropdown.
 - To find `proof` inside `waterproof`, declare the field as `string:partial` and set `partialWords: true` on the query. The engine then matches each query word of three or more characters inside the longer words of that field, although it ranks those matches below whole-word matches.
