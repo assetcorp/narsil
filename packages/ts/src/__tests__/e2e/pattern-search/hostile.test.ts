@@ -16,6 +16,16 @@ import {
 } from './hostile'
 import { createLongQueryGate, type LongQueryGate } from './long-query-gate'
 import { expectedIds } from './oracle'
+import {
+  answerAtWorkerCount,
+  autoResolvingToExactFilter,
+  caseFoldFilter,
+  longDistinctTextFilter,
+  longestFoldFilter,
+  repeatedTestFilter,
+  typoAnswerUnderCap,
+  unitsOverPartitions,
+} from './typo-preparation'
 
 const CJK_FIRST = 0x4e00
 const CJK_SPAN = 20_000
@@ -92,6 +102,71 @@ function expectOracleHits(
     label,
   ).toEqual([])
 }
+
+describe('the preparation of typo tests under the work cap', () => {
+  const corpus = operationsCorpus(400, 43)
+  const STOPPED = { status: 400, code: 'SEARCH_WORK_CAP_EXCEEDED' }
+  const everyFilter = [
+    longDistinctTextFilter(),
+    caseFoldFilter(),
+    autoResolvingToExactFilter(),
+    longestFoldFilter(),
+    repeatedTestFilter(),
+  ]
+
+  for (const filter of everyFilter) {
+    const units = unitsOverPartitions(filter, 1)
+
+    it(`counts the preparation to the exact unit on the main thread for ${filter.label}`, async () => {
+      const passing = await typoAnswerUnderCap(corpus, NO_WORKERS, units, filter)
+      expect({ status: passing.status, code: passing.code }).toEqual({ status: 200, code: null })
+      expect(passing.count).toBe(new Set(filter.tests.flatMap(line => expectedIds(corpus, 'line', line))).size)
+
+      const stopped = await typoAnswerUnderCap(corpus, NO_WORKERS, units - 1, filter)
+      expect({ status: stopped.status, code: stopped.code }).toEqual(STOPPED)
+    }, 60_000)
+
+    it.skipIf(!WORKERS_BUILT)(
+      `stops one unit below the count on a request thread for ${filter.label}`,
+      async () => {
+        const stopped = await typoAnswerUnderCap(corpus, WORKER_COPIES, units - 1, filter)
+        expect({ status: stopped.status, code: stopped.code }).toEqual(STOPPED)
+      },
+      60_000,
+    )
+  }
+
+  describe.each([
+    { answering: 'one worker', count: 1 },
+    { answering: 'two workers', count: 4 },
+    { answering: 'eight workers', count: 16 },
+  ])('with $answering answering a search', ({ count }) => {
+    for (const filter of [longDistinctTextFilter(), longestFoldFilter(), repeatedTestFilter()]) {
+      it.skipIf(!WORKERS_BUILT)(
+        `reaches the same count at the cap and one unit below it for ${filter.label}`,
+        async () => {
+          const expectedCount = new Set(filter.tests.flatMap(line => expectedIds(corpus, 'line', line))).size
+          const exact = (partitions: number) => unitsOverPartitions(filter, partitions)
+          expect(await answerAtWorkerCount(corpus, count, exact, filter)).toEqual({ code: null, count: expectedCount })
+          expect(await answerAtWorkerCount(corpus, count, partitions => exact(partitions) - 1, filter)).toEqual({
+            code: 'SEARCH_WORK_CAP_EXCEEDED',
+            count: null,
+          })
+        },
+        120_000,
+      )
+    }
+
+    it.skipIf(!WORKERS_BUILT)(
+      'answers the costliest filter under the default cap',
+      async () => {
+        const answered = await answerAtWorkerCount(corpus, count, () => undefined, longestFoldFilter())
+        expect(answered.code).toBeNull()
+      },
+      120_000,
+    )
+  })
+})
 
 describe.each([
   { where: 'on the main thread', workers: NO_WORKERS, runnable: true },

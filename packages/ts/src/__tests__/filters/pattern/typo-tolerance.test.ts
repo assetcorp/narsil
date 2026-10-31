@@ -3,7 +3,7 @@ import { ErrorCodes } from '../../../errors'
 import { createNarsil, type Narsil } from '../../../narsil'
 import type { FieldFilter } from '../../../types/filters'
 import { listedIds, PATTERN_INDEX, patternConfig, patternDocuments, queriedIds, referenceIds } from './fixtures'
-import { acceptedTolerance, distinctRuns, runsNeeded, TYPO_TEXTS } from './typo-oracle'
+import { acceptedTolerance, distinctRuns, runsNeeded, TYPO_TEXTS, withinTolerance } from './typo-oracle'
 
 const FIELDS = ['code', 'title', 'tags'] as const
 const TOLERANCES = [0, 1, 2, 'auto'] as const
@@ -48,6 +48,74 @@ describe('an eq test with a tolerance on a pattern field', () => {
       expect(typoMatches).toBeGreaterThan(20)
     })
   }
+
+  it('keeps each tolerance and each caseFold apart when one search holds the same text several times', async () => {
+    const text = 'INV-2O24-001'
+    const settings: FieldFilter[] = [
+      { eq: text, tolerance: 1 },
+      { eq: text, tolerance: 2 },
+      { eq: text, tolerance: 'auto' },
+      { eq: text, tolerance: 1, caseFold: true },
+      { eq: text, tolerance: 2, caseFold: true },
+    ]
+    for (const first of settings) {
+      for (const second of settings) {
+        const expected = [
+          ...new Set([...referenceIds(documents, 'code', first), ...referenceIds(documents, 'code', second)]),
+        ].sort()
+        const page = await narsil.listDocuments(PATTERN_INDEX, {
+          filters: { or: [{ fields: { code: first } }, { fields: { code: second } }] },
+          limit: documents.length,
+        })
+        const label = `${JSON.stringify(first)} or ${JSON.stringify(second)}`
+        expect(page.documents.map(document => document.id).sort(), label).toEqual(expected)
+      }
+    }
+    const widest = referenceIds(documents, 'code', { eq: text, tolerance: 2, caseFold: true })
+    expect(widest.length).toBeGreaterThan(referenceIds(documents, 'code', { eq: text, tolerance: 1 }).length)
+  })
+
+  it('resolves, refuses, and finds a long text with few distinct runs as the oracle does', async () => {
+    const LETTERS = 'abcdefghijklmnopqrstuvwxyz'
+    const LENGTH = 60
+    const texts = [2, 3, 4, 5, 6, 7, 8, 15, 16, 17, 20].map(distinct =>
+      Array.from({ length: LENGTH }, (_, at) => LETTERS[at % distinct]).join(''),
+    )
+    const edited = (text: string, edits: number): string => {
+      const characters = Array.from(text)
+      for (let edit = 0; edit < edits; edit++) characters[5 + edit * 20] = 'Z'
+      return characters.join('')
+    }
+    const values = texts.flatMap(text => [text, edited(text, 1), edited(text, 2), edited(text, 3), text.slice(1)])
+    const few = await createNarsil({ workers: { enabled: false } })
+    try {
+      await few.createIndex(PATTERN_INDEX, { schema: { body: 'string', code: 'verbatim' } })
+      await few.insertBatch(
+        PATTERN_INDEX,
+        values.map((code, at) => ({ id: `v${String(at).padStart(3, '0')}`, body: 'entry', code })),
+      )
+      for (const text of texts) {
+        for (const tolerance of [1, 2, 'auto'] as const) {
+          const filter: FieldFilter = { eq: text, tolerance }
+          const accepted = acceptedTolerance(text, tolerance)
+          if (accepted === null) {
+            await expect(listedIds(few, 'code', filter)).rejects.toMatchObject({
+              code: ErrorCodes.SEARCH_INVALID_FILTER,
+              details: { requiredRuns: runsNeeded(text, tolerance as number), distinctRuns: distinctRuns(text) },
+            })
+            continue
+          }
+          const expected = values.flatMap((value, at) =>
+            withinTolerance(value, text, accepted, false) ? [`v${String(at).padStart(3, '0')}`] : [],
+          )
+          const label = `${distinctRuns(text)} distinct runs at tolerance ${tolerance}`
+          expect(await listedIds(few, 'code', filter), label).toEqual([...new Set(expected)].sort())
+        }
+      }
+    } finally {
+      await few.shutdown()
+    }
+  })
 
   it('applies the tolerance inside a keyword search and beside the other tests of the field', async () => {
     const filters: FieldFilter[] = [
