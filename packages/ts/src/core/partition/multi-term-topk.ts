@@ -36,8 +36,8 @@ interface TermScan {
   scoresAreZero: boolean
   fields: FieldScoring
   onePair: boolean
-  onlyK1: number
-  onlyB: number
+  k1: number
+  b: number
 }
 
 export function prunableMultiTermLists(
@@ -81,7 +81,7 @@ function termUpperBound(scan: TermScan, list: PostingListView, maxBoost: number,
     const blockMaxTf = bounds.maxTermFrequency[block]
     const blockMinLength = bounds.minFieldLength[block]
     const bestEntry = scan.onePair
-      ? computeBM25WithIDF(blockMaxTf, scan.idf, blockMinLength, maxAverageLength, scan.onlyK1, scan.onlyB)
+      ? computeBM25WithIDF(blockMaxTf, scan.idf, blockMinLength, maxAverageLength, scan.k1, scan.b)
       : blockEntryBound(scan.fields, blockMaxTf, scan.idf, blockMinLength, maxAverageLength)
     const blockBound = bestEntry * maxBoost * bounds.maxEntriesPerDocument[block]
     if (blockBound > best) best = blockBound
@@ -89,7 +89,18 @@ function termUpperBound(scan: TermScan, list: PostingListView, maxBoost: number,
   return best
 }
 
-function entryScore(scan: TermScan, entry: number, internalId: number): number {
+function samePairEntryScore(scan: TermScan, entry: number, internalId: number): number {
+  const { fields, columns } = scan
+  const fieldIndex = columns.fieldNameIndices[entry]
+  const averageLength = fields.averageLengths[fieldIndex]
+  const fieldLength = fieldLengthOf(fields.lengthColumns, fieldIndex, internalId, averageLength)
+  const bm25 = scan.scoresAreZero
+    ? 0
+    : computeBM25WithIDF(columns.termFrequencies[entry], scan.idf, fieldLength, averageLength, scan.k1, scan.b)
+  return bm25 * fields.boosts[fieldIndex]
+}
+
+function fieldPairEntryScore(scan: TermScan, entry: number, internalId: number): number {
   const { fields, columns } = scan
   const fieldIndex = columns.fieldNameIndices[entry]
   const averageLength = fields.averageLengths[fieldIndex]
@@ -101,15 +112,20 @@ function entryScore(scan: TermScan, entry: number, internalId: number): number {
         scan.idf,
         fieldLength,
         averageLength,
-        scan.onePair ? scan.onlyK1 : fields.k1s[fieldIndex],
-        scan.onePair ? scan.onlyB : fields.bs[fieldIndex],
+        fields.k1s[fieldIndex],
+        fields.bs[fieldIndex],
       )
   return bm25 * fields.boosts[fieldIndex]
+}
+
+function entryScorerOf(scan: TermScan): typeof samePairEntryScore {
+  return scan.onePair ? samePairEntryScore : fieldPairEntryScore
 }
 
 function scoreEveryDocument(scan: TermScan, buffer: ScoreBuffer): void {
   const { docIds, fieldNameIndices, deletedDocs, hasDeleted, count } = scan.columns
   const searchable = scan.fields.searchable
+  const entryScore = entryScorerOf(scan)
   for (let entry = 0; entry < count; entry++) {
     const internalId = docIds[entry]
     if (hasDeleted && deletedDocs.has(internalId)) continue
@@ -121,6 +137,7 @@ function scoreEveryDocument(scan: TermScan, buffer: ScoreBuffer): void {
 function scoreKnownDocumentsAndCountTheRest(scan: TermScan, buffer: ScoreBuffer): number {
   const { docIds, fieldNameIndices, deletedDocs, hasDeleted, count } = scan.columns
   const searchable = scan.fields.searchable
+  const entryScore = entryScorerOf(scan)
   let counted = 0
   for (let entry = 0; entry < count; entry++) {
     const internalId = docIds[entry]
@@ -146,7 +163,7 @@ function queryOrderScore(scans: TermScan[], internalId: number): number {
     }
     for (let entry = low; entry < count && docIds[entry] === internalId; entry++) {
       if (scan.fields.searchable[scan.columns.fieldNameIndices[entry]] !== 1) continue
-      score += entryScore(scan, entry, internalId)
+      score += entryScorerOf(scan)(scan, entry, internalId)
     }
   }
   return score
@@ -214,8 +231,8 @@ export function multiTermTopK(request: MultiTermScanRequest): InternalSearchResu
       scoresAreZero: totalDocs === 0,
       fields,
       onePair: fields.boundPairs.length === 2,
-      onlyK1: fields.boundPairs[0],
-      onlyB: fields.boundPairs[1],
+      k1: fields.boundPairs[0],
+      b: fields.boundPairs[1],
     }
   }
 
