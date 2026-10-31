@@ -7,6 +7,8 @@ export const DEFAULT_EF_SEARCH_MARGIN_BY_BAND: Readonly<Record<'narrow' | 'middl
   wide: 0,
 }
 
+export const DEFAULT_OSQ2_MIDDLE_RESCORE_DEPTH_WITHIN_WALK_PER_SQUARE_ROOT_OF_LIMIT = 18
+
 export const DEFAULT_RESCORE_DEPTH_FLOOR_PER_LIMIT_BY_BITS: Readonly<Record<1 | 2 | 4 | 8, number>> = {
   1: 3,
   2: 3,
