@@ -3,6 +3,7 @@ import { MAX_SORT_FIELDS } from '../search/constants'
 import type { ListParams, QueryParams, SuggestParams } from '../types/search'
 import type {
   BatchBody,
+  ChangeAnalysisBody,
   CreateIndexRequest,
   DocumentBody,
   InsertBody,
@@ -201,6 +202,28 @@ export function validateCreateIndex(body: CreateIndexRequest): ValidationFailure
     return { message: 'Field "config" is required and must be an object' }
   }
   return null
+}
+
+const CHANGE_ANALYSIS_FIELDS: ReadonlySet<string> = new Set(['language', 'tokenizer', 'stopWords'])
+
+export function validateChangeAnalysis(body: ChangeAnalysisBody): ValidationFailure | null {
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+    return { message: 'The request body must be an object' }
+  }
+  const unknownField = Object.keys(body).find(field => !CHANGE_ANALYSIS_FIELDS.has(field))
+  if (unknownField !== undefined) {
+    return { message: `Field "${unknownField}" is not an analysis setting` }
+  }
+  if (body.language !== undefined && typeof body.language !== 'string') {
+    return { message: 'Field "language" must be a string' }
+  }
+  if (body.tokenizer !== undefined && body.tokenizer !== null && typeof body.tokenizer !== 'string') {
+    return { message: 'Field "tokenizer" must be a registered name or null' }
+  }
+  const stopWords: unknown = body.stopWords
+  if (stopWords === undefined || stopWords === null || typeof stopWords === 'string') return null
+  if (Array.isArray(stopWords) && stopWords.every(word => typeof word === 'string')) return null
+  return { message: 'Field "stopWords" must be a registered name, a list of words, or null' }
 }
 
 export function validateRebalance(body: RebalanceBody): ValidationFailure | null {

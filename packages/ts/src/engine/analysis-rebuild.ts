@@ -9,6 +9,7 @@ export interface AnalysisRebuildDeps {
   desyncIndex(indexName: string): boolean
   resyncIndex(indexName: string, wasPromoted: boolean): Promise<void>
   persistAnalysisRevision(indexName: string): Promise<void>
+  hasPendingChange(indexName: string): boolean
   emit(payload: {
     indexName: string
     status: 'started' | 'completed' | 'failed'
@@ -29,6 +30,7 @@ export interface AnalysisRebuildCoordinator {
   reviewStaleIndexes(): Promise<void>
   rebuild(indexName: string): Promise<void>
   abandon(indexName: string): Promise<void>
+  runExclusive<T>(indexName: string, work: () => Promise<T>): Promise<T>
 }
 
 interface StaleEntry {
@@ -54,6 +56,7 @@ export interface AnalysisRebuildWiring {
   desyncIndex(indexName: string): boolean
   resyncIndex(indexName: string, wasPromoted: boolean): Promise<void>
   recordCurrentAnalysis(indexName: string): void
+  hasPendingChange(indexName: string): boolean
   durabilityManager: DurabilityManager | null
   eventHandlers: Map<string, Set<(payload: unknown) => void>>
 }
@@ -63,6 +66,7 @@ export function wireAnalysisRebuild(wiring: AnalysisRebuildWiring): AnalysisRebu
     getManager: wiring.getManager,
     desyncIndex: wiring.desyncIndex,
     resyncIndex: wiring.resyncIndex,
+    hasPendingChange: wiring.hasPendingChange,
     async persistAnalysisRevision(indexName: string): Promise<void> {
       const durability = wiring.durabilityManager
       if (durability === null) {
@@ -84,6 +88,7 @@ export function createAnalysisRebuildCoordinator(
   deps: AnalysisRebuildDeps,
 ): AnalysisRebuildCoordinator {
   const stale = new Map<string, StaleEntry>()
+  const exclusiveRuns = new Map<string, number>()
   const rebuildMode = config?.rebuild ?? 'auto'
   let queue: Promise<void> = Promise.resolve()
   let active: ActiveRebuild | null = null
@@ -166,7 +171,7 @@ export function createAnalysisRebuildCoordinator(
   }
 
   async function review(indexName: string, entry: StaleEntry): Promise<void> {
-    if (entry.run !== null || deps.getManager(indexName) === undefined) return
+    if (entry.run !== null || deps.getManager(indexName) === undefined || deps.hasPendingChange(indexName)) return
     try {
       await announce(indexName, entry)
     } catch (err) {
@@ -201,7 +206,22 @@ export function createAnalysisRebuildCoordinator(
     },
 
     isRunning(indexName: string): boolean {
+      if ((exclusiveRuns.get(indexName) ?? 0) > 0) return true
       return stale.get(indexName)?.run !== null && stale.get(indexName)?.run !== undefined
+    },
+
+    runExclusive<T>(indexName: string, work: () => Promise<T>): Promise<T> {
+      exclusiveRuns.set(indexName, (exclusiveRuns.get(indexName) ?? 0) + 1)
+      const run = queue.then(work).finally(() => {
+        const remaining = (exclusiveRuns.get(indexName) ?? 1) - 1
+        if (remaining === 0) exclusiveRuns.delete(indexName)
+        else exclusiveRuns.set(indexName, remaining)
+      })
+      queue = run.then(
+        () => undefined,
+        () => undefined,
+      )
+      return run
     },
 
     async abandon(indexName: string): Promise<void> {

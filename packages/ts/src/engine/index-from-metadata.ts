@@ -1,11 +1,13 @@
+import { resolveIndexAnalysis } from '../analysis/registry'
 import { ErrorCodes, NarsilError } from '../errors'
 import { getLanguage } from '../languages/registry'
+import { resolvePartialWordAnalysis } from '../partitioning/insert-options'
 import { validateEmbeddingConfig } from '../schema/embedding-validator'
 import { validateSchema, validateVectorStorage } from '../schema/validator'
 import type { EmbeddingAdapter } from '../types/adapters'
 import type { NarsilConfig } from '../types/config'
 import type { IndexMetadata } from '../types/internal'
-import type { SchemaDefinition } from '../types/schema'
+import type { IndexConfig, SchemaDefinition } from '../types/schema'
 import type { DirectExecutorExtensions } from '../workers/direct-executor'
 import type { Executor } from '../workers/executor'
 import { loadVectorCodeFor } from '../workers/vector-code'
@@ -13,7 +15,7 @@ import type { AnalysisRebuildCoordinator } from './analysis-rebuild'
 import type { IndexRegistryEntry } from './core'
 import type { IndexStateCoordinator } from './index-state'
 import { reconstructSchemaFromMetadata } from './recovery-schema'
-import { lookupOfStoredSynonyms, prepareStoredSynonyms } from './synonym-sets'
+import { lookupOfStoredSynonyms, prepareStoredSynonyms, rulesOfStoredSynonyms } from './synonym-sets'
 import { requireSurfaceFormsForPartialFields, validatePatternValueLimit } from './validation'
 import { getVectorFieldPaths } from './vector-fields'
 
@@ -66,6 +68,31 @@ function recoveryFailure(metadata: IndexMetadata, err: unknown): unknown {
   })
 }
 
+function adoptSavedAnalysis(deps: MetadataIndexDeps, entry: IndexRegistryEntry, metadata: IndexMetadata): void {
+  const saved = reconstructSchemaFromMetadata(metadata)
+  const { tokenizer: _tokenizer, stopWords: _stopWords, ...rest } = entry.config
+  const config: IndexConfig = {
+    ...rest,
+    language: saved.language,
+    ...(saved.tokenizer !== undefined ? { tokenizer: saved.tokenizer } : {}),
+    ...(saved.stopWords !== undefined ? { stopWords: saved.stopWords } : {}),
+  }
+  const language = getLanguage(config.language ?? 'english')
+  const analysis = resolveIndexAnalysis(config)
+  const synonyms = prepareStoredSynonyms(rulesOfStoredSynonyms(entry.synonyms), config, language)
+  entry.config = config
+  entry.language = language
+  entry.analysisGeneration = metadata.analysisGeneration ?? 0
+  entry.analysisRevision = metadata.analysisRevision ?? null
+  deps.executor.getManager(metadata.indexName)?.adoptAnalysis({
+    config,
+    language,
+    analysis,
+    partialWordAnalysis: resolvePartialWordAnalysis(config, language, analysis),
+    synonyms: synonyms?.lookup ?? null,
+  })
+}
+
 export async function createIndexFromMetadata(
   deps: MetadataIndexDeps,
   metadata: IndexMetadata,
@@ -75,6 +102,7 @@ export async function createIndexFromMetadata(
   if (loadingVectorCode !== null) await loadingVectorCode
   const existing = deps.indexRegistry.get(metadata.indexName)
   if (existing !== undefined) {
+    if ((metadata.analysisGeneration ?? 0) > existing.analysisGeneration) adoptSavedAnalysis(deps, existing, metadata)
     if (loadData && deps.executor.getManager(metadata.indexName) === undefined) {
       deps.executor.createIndex(
         metadata.indexName,
@@ -124,6 +152,9 @@ export async function createIndexFromMetadata(
     partitionCount: metadata.partitionCount,
     analysisRevision: metadata.analysisRevision ?? null,
     synonyms,
+    analysisGeneration: metadata.analysisGeneration ?? 0,
+    pendingAnalysis: metadata.pendingAnalysis ?? null,
+    durableAnalysis: null,
   })
   if (loadData) await deps.indexState().registerOpen(metadata.indexName)
   else deps.indexState().registerClosed(metadata.indexName)

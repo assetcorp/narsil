@@ -124,6 +124,14 @@ export interface SerializablePartition {
   }
 }
 
+export interface PendingAnalysisMetadata {
+  generation: number
+  language: string
+  tokenizer?: string
+  stopWords?: string
+  stopWordList?: string[]
+}
+
 export interface IndexMetadata {
   indexName: string
   /** Number of documents represented by the last completed checkpoint. */
@@ -146,6 +154,8 @@ export interface IndexMetadata {
   tokenizer?: string
   stopWords?: string
   stopWordList?: string[]
+  analysisGeneration?: number
+  pendingAnalysis?: PendingAnalysisMetadata
   partitionLimits?: PartitionConfig
   defaultScoring?: ScoringMode
   trackPositions?: boolean

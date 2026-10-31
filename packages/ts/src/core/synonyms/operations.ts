@@ -36,6 +36,12 @@ async function replaceNow(core: EngineCore, indexName: string, value: unknown, s
   const entry = core.requireIndex(indexName)
   const manager = core.requireManager(indexName)
   const prepared = prepareSynonyms(value, entry.config, entry.language, strictWords)
+  if (entry.pendingAnalysis !== null) {
+    const { targetOfPending } = await import('../../engine/analysis-change/settings')
+    const target = targetOfPending(entry, entry.pendingAnalysis)
+    prepareSynonyms(value, target.config, target.language, strictWords)
+  }
+  const preparedUnder = manager.analysis
   const previous = entry.synonyms
   entry.synonyms = prepared?.encoded ?? null
   try {
@@ -44,7 +50,9 @@ async function replaceNow(core: EngineCore, indexName: string, value: unknown, s
     entry.synonyms = previous
     throw err
   }
-  manager.synonyms = prepared?.lookup ?? null
+  const current =
+    manager.analysis === preparedUnder ? prepared : prepareSynonyms(value, entry.config, entry.language, false)
+  manager.synonyms = current?.lookup ?? null
   await core.orchestrator.replicateToWorkers({
     type: 'replaceSynonyms',
     indexName,

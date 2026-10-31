@@ -30,13 +30,19 @@ async function readUnderOneAnalysis<R>(
   indexName: string,
   read: () => Promise<R>,
 ): Promise<{ result: R; analysisStale: boolean }> {
-  let analysisStale = core.analysisRebuild.isStale(indexName)
-  let result = await read()
-  while (core.analysisRebuild.isStale(indexName) !== analysisStale) {
-    analysisStale = core.analysisRebuild.isStale(indexName)
-    result = await read()
+  const manager = core.requireManager(indexName)
+  for (;;) {
+    const analysis = manager.analysis
+    const analysisStale = core.analysisRebuild.isStale(indexName)
+    try {
+      const result = await read()
+      if (manager.analysis === analysis && core.analysisRebuild.isStale(indexName) === analysisStale) {
+        return { result, analysisStale }
+      }
+    } catch (error) {
+      if (manager.analysis === analysis) throw error
+    }
   }
-  return { result, analysisStale }
 }
 
 function scopedParams(params: QueryParams, options: ScopedReadOptions | undefined): QueryParams {
@@ -87,8 +93,12 @@ export async function runEngineQuery<T = AnyDocument>(
 
     const context = {
       manager,
-      language: entry.language,
-      config: entry.config,
+      get language() {
+        return manager.language
+      },
+      get config() {
+        return manager.config
+      },
       workerSearch,
       indexName,
       broadcastStats: broadcastStatsFor(core, options),
@@ -147,8 +157,12 @@ export async function runEnginePreflight(
       : undefined
     const context = {
       manager,
-      language: entry.language,
-      config: entry.config,
+      get language() {
+        return manager.language
+      },
+      get config() {
+        return manager.config
+      },
       workerSearch,
       indexName,
       broadcastStats: broadcastStatsFor(core, options),

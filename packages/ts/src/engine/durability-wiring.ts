@@ -4,7 +4,7 @@ import type { IndexMetadata } from '../types/internal'
 import type { HeldCheckpointReport } from '../types/memory'
 import type { IndexRegistryEntry } from './core'
 import { createDurabilityIntegration, type DurabilityIntegration, type DurabilityTier } from './durability-integration'
-import { metadataConfigOf } from './durability-metadata'
+import { durableMetadataConfigOf, metadataConfigOf } from './durability-metadata'
 
 interface DurabilityWiring {
   getManager: (indexName: string) => PartitionManager | undefined
@@ -26,7 +26,16 @@ export function createDurabilityFromTier(tier: DurabilityTier, wiring: Durabilit
       (wiring.indexRegistry.has(indexName) ? wiring.getManager(indexName)?.getVectorIndexes() : undefined) ?? new Map(),
     getIndexConfig: indexName => {
       const entry = wiring.indexRegistry.get(indexName)
+      return entry === undefined ? undefined : durableMetadataConfigOf(entry)
+    },
+    getTermsConfig: indexName => {
+      const entry = wiring.indexRegistry.get(indexName)
       return entry === undefined ? undefined : metadataConfigOf(entry)
+    },
+    mustRewriteTerms: indexName => (wiring.indexRegistry.get(indexName)?.durableAnalysis ?? null) !== null,
+    onManifestCommitted(indexName, analysisGeneration) {
+      const entry = wiring.indexRegistry.get(indexName)
+      if (entry !== undefined && entry.analysisGeneration === analysisGeneration) entry.durableAnalysis = null
     },
     createIndexFromMetadata: wiring.createIndexFromMetadata,
     recordCheckpoint: wiring.recordCheckpoint,

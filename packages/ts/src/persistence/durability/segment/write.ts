@@ -268,6 +268,7 @@ export async function commitCheckpointManifest(
     version: SEGMENT_MANIFEST_VERSION,
     schema: metadata.schema,
     language: metadata.language,
+    ...(metadata.analysisGeneration ? { analysisGeneration: metadata.analysisGeneration } : {}),
     checkpoint: written.checkpoint,
     partitions: written.partitions,
     vectors,

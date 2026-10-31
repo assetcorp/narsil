@@ -150,6 +150,9 @@ export async function createEngineIndex(
     partitionCount: indexConfig.partitions?.maxPartitions ?? 1,
     analysisRevision: language.revision,
     synonyms: synonyms?.encoded ?? null,
+    analysisGeneration: 0,
+    pendingAnalysis: null,
+    durableAnalysis: null,
   })
   await core.indexState.registerOpen(name)
   if (core.durability) {
@@ -163,6 +166,9 @@ export async function dropEngineIndex(core: EngineCore, name: string): Promise<v
   const entry = core.requireIndex(name)
   await core.indexState.drop(name, async () => {
     await core.analysisRebuild.abandon(name)
+    if (entry.pendingAnalysis !== null || entry.durableAnalysis !== null) {
+      await (await import('./analysis-change-entry')).abandonChangeOf(core, name)
+    }
     await core.orchestrator.closeIndex(name)
     if (core.durability) {
       try {

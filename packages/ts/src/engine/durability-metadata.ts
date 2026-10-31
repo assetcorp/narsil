@@ -1,7 +1,7 @@
 import { compareCodePoints } from '../core/ordering'
 import { VERSION } from '../index'
 import { flattenSchema } from '../schema/validator'
-import type { IndexEmbeddingMetadata, IndexMetadata } from '../types/internal'
+import type { IndexEmbeddingMetadata, IndexMetadata, PendingAnalysisMetadata } from '../types/internal'
 import type { PartitionConfig, ScoringMode, VectorIndexConfig } from '../types/schema'
 import type { SynonymRule } from '../types/synonyms'
 import type { IndexRegistryEntry } from './core'
@@ -22,6 +22,8 @@ export interface MetadataConfig {
   tokenizer?: string
   stopWords?: string
   stopWordList?: string[]
+  analysisGeneration?: number
+  pendingAnalysis?: PendingAnalysisMetadata
   partitionLimits?: PartitionConfig
   defaultScoring?: ScoringMode
   trackPositions?: boolean
@@ -65,6 +67,12 @@ export function metadataFromConfig(
   }
   if (config.stopWordList !== undefined) {
     metadata.stopWordList = config.stopWordList
+  }
+  if (config.analysisGeneration !== undefined) {
+    metadata.analysisGeneration = config.analysisGeneration
+  }
+  if (config.pendingAnalysis !== undefined) {
+    metadata.pendingAnalysis = config.pendingAnalysis
   }
   if (config.partitionLimits !== undefined) {
     metadata.partitionLimits = config.partitionLimits
@@ -123,6 +131,8 @@ export function metadataConfigOf(entry: IndexRegistryEntry): MetadataConfig {
     ...(entry.config.stopWords instanceof Set
       ? { stopWordList: [...entry.config.stopWords].sort(compareCodePoints) }
       : {}),
+    ...(entry.analysisGeneration > 0 ? { analysisGeneration: entry.analysisGeneration } : {}),
+    ...(entry.pendingAnalysis !== null ? { pendingAnalysis: entry.pendingAnalysis } : {}),
     ...(entry.config.partitions !== undefined ? { partitionLimits: entry.config.partitions } : {}),
     ...(entry.config.defaultScoring !== undefined ? { defaultScoring: entry.config.defaultScoring } : {}),
     ...(entry.config.trackPositions !== undefined ? { trackPositions: entry.config.trackPositions } : {}),
@@ -131,6 +141,37 @@ export function metadataConfigOf(entry: IndexRegistryEntry): MetadataConfig {
     ...(entry.config.vectorPromotion !== undefined ? { vectorPromotion: entry.config.vectorPromotion } : {}),
     ...(entry.config.patternValueLimit !== undefined ? { patternValueLimit: entry.config.patternValueLimit } : {}),
     ...(entry.synonyms !== null ? { synonyms: rulesOfStoredSynonyms(entry.synonyms) } : {}),
+  }
+}
+
+export function durableMetadataConfigOf(entry: IndexRegistryEntry): MetadataConfig {
+  const terms = metadataConfigOf(entry)
+  const durable = entry.durableAnalysis
+  if (durable === null) return terms
+  const {
+    language,
+    tokenizer,
+    stopWords,
+    stopWordList,
+    analysisRevision: _analysisRevision,
+    analysisGeneration: _analysisGeneration,
+    ...rest
+  } = terms
+  return {
+    ...rest,
+    language: durable.language,
+    ...(durable.tokenizer !== undefined ? { tokenizer: durable.tokenizer } : {}),
+    ...(durable.stopWords !== undefined ? { stopWords: durable.stopWords } : {}),
+    ...(durable.stopWordList !== undefined ? { stopWordList: durable.stopWordList } : {}),
+    ...(durable.analysisRevision !== null ? { analysisRevision: durable.analysisRevision } : {}),
+    ...(durable.generation > 0 ? { analysisGeneration: durable.generation } : {}),
+    pendingAnalysis: {
+      generation: entry.analysisGeneration,
+      language,
+      ...(tokenizer !== undefined ? { tokenizer } : {}),
+      ...(stopWords !== undefined ? { stopWords } : {}),
+      ...(stopWordList !== undefined ? { stopWordList } : {}),
+    },
   }
 }
 

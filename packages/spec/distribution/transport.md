@@ -480,6 +480,7 @@ A node sends this to every node that holds a copy of an index, as [Index Creatio
 {
   indexName: string
   indexUuid: string   (the identity that the coordinator holds for the index)
+  generation:   uint64 or absent                  (a pending change; an absent value asks for a revision rebuild)
 }
 ```
 
@@ -489,6 +490,7 @@ A node that holds no copy under that `indexUuid` answers with an empty list, so 
 {
   indexName:         string
   rebuiltPartitions: List<uint32>   (the copies that it rebuilt, leaving out each copy that was already current)
+  generation:   uint64 or absent                  (a pending change; an absent value asks for a revision rebuild)
 }
 ```
 
@@ -676,6 +678,7 @@ QueryParams {
   mode:          'fulltext' or 'vector' or 'hybrid' or absent
   vector:        VectorQueryParams or absent
   hybrid:        HybridConfig or absent
+  analysisGeneration: uint64 or absent            (the generation that the coordinator read; an absent value means 0)
 }
 
 SortField {
@@ -847,6 +850,7 @@ A node that receives `contextId` must read every named document from that [searc
   terms:        List<string>                (the query terms to collect frequencies for)
   expansion:    StatsExpansion or absent    (the query's matching options; absent counts the terms and the synonyms that the copy's synonym set adds, with no other expansion)
   tokens:       List<string> or absent      (tokens to count as given, with no analysis or expansion)
+  analysisGeneration: uint64 or absent            (the generation that the coordinator read; an absent value means 0)
 }
 
 StatsExpansion {
@@ -932,6 +936,7 @@ The node lists from the named partitions alone, in the order the request names, 
   partitionIds: List<uint32>
   prefix:       string
   limit:        uint32   (the oversampled per-node count, ceiling(clientLimit * 1.5) + 10)
+  analysisGeneration: uint64 or absent            (the generation that the coordinator read; an absent value means 0)
 }
 ```
 

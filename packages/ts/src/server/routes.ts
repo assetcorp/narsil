@@ -46,6 +46,7 @@ export interface ServerHandlers {
   multiGet: RouteHandler
   checkpoint: RouteHandler
   rebuildAnalysis: RouteHandler
+  changeAnalysis: RouteHandler
   snapshot: RouteHandler
   vectorMaintenance: RouteHandler
   compact: RouteHandler
@@ -137,6 +138,7 @@ export function serverRoutes(limits: ResolvedLimits): RouteSpec[] {
     { method: 'post', path: '/indexes/:name/suggest', handler: 'suggest', options: readBody },
     { method: 'post', path: '/indexes/:name/_checkpoint', handler: 'checkpoint', options: named },
     { method: 'post', path: '/indexes/:name/_rebuild-analysis', handler: 'rebuildAnalysis', options: named },
+    { method: 'post', path: '/indexes/:name/_change-analysis', handler: 'changeAnalysis', options: namedBody },
     { method: 'get', path: '/indexes/:name/snapshot', handler: 'snapshot', options: named },
     { method: 'get', path: '/indexes/:name/vector-maintenance', handler: 'vectorMaintenance', options: named },
     { method: 'post', path: '/indexes/:name/vectors/_compact', handler: 'compact', options: namedBody },

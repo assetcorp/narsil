@@ -30,6 +30,7 @@ export type {
   PersistenceAdapter,
   RerankAdapter,
 } from './types/adapters'
+export type { AnalysisChange, AnalysisOperations } from './types/analysis-operations'
 export type {
   AnalysisConfig,
   DurabilityConfig,

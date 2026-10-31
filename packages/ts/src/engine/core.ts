@@ -14,8 +14,6 @@ import { validateRegisteredAdapter } from '../schema/embedding-validator'
 import type { EmbeddingAdapter, RerankAdapter } from '../types/adapters'
 import type { NarsilConfig } from '../types/config'
 import type { IndexMetadata } from '../types/internal'
-import type { LanguageModule } from '../types/language'
-import type { IndexConfig } from '../types/schema'
 import type { VectorWorkerCopyPolicy } from '../vector/vector-index/shared'
 import { createDirectExecutor, type DirectExecutorExtensions, type IndexReplacement } from '../workers/direct-executor'
 import type { Executor } from '../workers/executor'
@@ -33,27 +31,12 @@ import type { MutationContext } from './mutations'
 import { type NotifierWiring, wireHeapPressureNotifier, wireWatermarkNotifier } from './notifiers'
 import { createWorkerOrchestrator, type WorkerOrchestrator, workersEnabledByDefault } from './orchestration'
 import type { RebalanceContext } from './rebalance-executor'
+import type { IndexRegistryEntry } from './registry-entry'
 import { validateWorkerConfig } from './validation'
 import type { WatermarkNotifier } from './watermark'
 import { emitWriteEventAfter } from './write-events'
 
-export type IndexRegistryEntry = {
-  config: IndexConfig
-  language: LanguageModule
-  embeddingAdapter: EmbeddingAdapter | null
-  /** Registry name the adapter was resolved from; lets durability metadata
-   * persist the binding and lets late registration rebind recovered indexes. */
-  embeddingAdapterName: string | null
-  vectorFieldPaths: Set<string>
-  /** The identity the cluster gave this index, or null where no cluster owns it. */
-  indexUuid: string | null
-  /** The partitions this copy holds, or null where nothing has recorded them yet. */
-  heldPartitions: number[] | null
-  documentCount: number
-  partitionCount: number
-  analysisRevision: string | null
-  synonyms: Uint8Array | null
-}
+export type { DurableAnalysis, IndexRegistryEntry } from './registry-entry'
 
 export type EventHandler = (payload: unknown) => void
 
@@ -297,6 +280,7 @@ export async function createEngineCore(
       const entry = indexRegistry.get(indexName)
       if (entry !== undefined && !analysisRebuild.isStale(indexName)) entry.analysisRevision = entry.language.revision
     },
+    hasPendingChange: indexName => (indexRegistry.get(indexName)?.pendingAnalysis ?? null) !== null,
     durabilityManager: durability?.manager ?? null,
   })
 
@@ -309,6 +293,10 @@ export async function createEngineCore(
     indexRegistry,
     rebalancingIndexes,
     requireManager,
+    resumeChange: async indexName => {
+      if ((indexRegistry.get(indexName)?.pendingAnalysis ?? null) === null) return
+      await (await import('./analysis-change-entry')).resumeChangeOf(engineCore, indexName)
+    },
     onClose: hooks?.onIndexClose,
     onOpen: indexName => {
       heapPressureNotifier.check(indexName)
@@ -352,7 +340,7 @@ export async function createEngineCore(
     requireIndex,
   }
 
-  return {
+  const engineCore: EngineCore = {
     executor,
     pluginRegistry,
     durability,
@@ -383,4 +371,5 @@ export async function createEngineCore(
     rebalanceCtx,
     patternWorkCap: config?.patternWorkCap ?? DEFAULT_PATTERN_WORK_CAP,
   }
+  return engineCore
 }

@@ -65,12 +65,16 @@ export function decodeManifestPayload(raw: Record<string, unknown>, indexName: s
   if (!isRecord(schema)) invalidManifest('is missing its schema')
   requireValidFieldTypes(schema)
   if (typeof raw.language !== 'string') invalidManifest('is missing its language')
+  if (raw.analysisGeneration !== undefined && !isSequenceNumber(raw.analysisGeneration)) {
+    invalidManifest('has an invalid analysis generation')
+  }
   return {
     kind: 'current',
     manifest: {
       version: SEGMENT_MANIFEST_VERSION,
       schema: schema as Record<string, string>,
       language: raw.language,
+      ...(raw.analysisGeneration ? { analysisGeneration: raw.analysisGeneration } : {}),
       checkpoint: normalizeCheckpoint(raw.checkpoint),
       partitions: normalizePartitions(raw.partitions, indexName),
       vectors: normalizeVectorFields(raw.vectors, indexName),

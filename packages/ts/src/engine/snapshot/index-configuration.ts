@@ -37,6 +37,7 @@ export function indexConfigurationOf(entry: IndexRegistryEntry): Record<string, 
     entry.embeddingAdapterName,
     entry.analysisRevision,
     synonyms,
+    entry.analysisGeneration,
   )
 }
 
@@ -64,6 +65,7 @@ function configurationPayloadOf(
   adapterName: string | null,
   analysisRevision: string | null,
   synonyms?: SynonymRule[],
+  analysisGeneration = 0,
 ): Record<string, unknown> {
   const bm25 = config.bm25
   return {
@@ -73,6 +75,7 @@ function configurationPayloadOf(
     ...(typeof config.tokenizer === 'string' ? { tokenizer: config.tokenizer } : {}),
     ...(typeof config.stopWords === 'string' ? { stopWords: config.stopWords } : {}),
     ...(config.stopWords instanceof Set ? { stopWordList: [...config.stopWords].sort(compareCodePoints) } : {}),
+    ...(analysisGeneration > 0 ? { analysisGeneration } : {}),
     ...(bm25 !== undefined
       ? {
           bm25: {

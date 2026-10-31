@@ -601,6 +601,9 @@ IndexSettings {
   tokenizer:         string                       (optional; the registered tokeniser name)
   stopWords:         string                       (optional; the registered stop word set name)
   stopWordList:      List<string>                 (optional; the words of a literal stop word set)
+  analysisGeneration: uint64                      (optional; an absent value means 0)
+  pendingAnalysis:    PendingClusterAnalysis      (optional)
+  analysisFailure:    AnalysisFailure             (optional; the outcome of the latest change that failed)
   bm25:              { k1: float32, b: float32 }  (optional; each key optional)
   surfaceForms:      boolean                      (a reader treats an absent value as true)
   defaultScoring:    string                       (optional; "local", "dfs", or "broadcast")
@@ -621,6 +624,26 @@ SynonymSetRef {
   byteLength: uint32
 }
 ```
+
+```text
+PendingClusterAnalysis {
+  changeId:      string
+  generation:    uint64     (one above the higher of analysisGeneration and any pending generation)
+  language:      string
+  tokenizer:     string          (optional)
+  stopWords:     string          (optional)
+  stopWordList:  List<string>    (optional)
+}
+
+AnalysisFailure {
+  changeId:  string
+  code:      string
+  message:   string
+  nodeId:    string
+}
+```
+
+Every other write of the index metadata must keep these members unchanged.
 
 The creating node generates the `indexUuid`, which identifies the index for as long as the index exists. When a node creates an index under the name of a dropped one, it generates a new `indexUuid`, so the two indexes stay distinct although they share a name. A node must compare the value with the one that it persisted before it adopts a local copy; see [Joining the Cluster](#joining-the-cluster).
 
@@ -689,6 +712,60 @@ A caller changes the `partitionCount` of an index through the [partition count c
 After creation, a caller can change an index's `replicationFactor` by sending [cluster.replication_factor](transport.md#clusterreplication_factor) to the controller. The controller stores the new factor in the index metadata, then writes an allocation table that carries it, and it applies the factor at once. A higher factor fills the new replica slots, and each new copy bootstraps. A lower factor removes the surplus replicas, taking any lagging replica first and then the copy on the busiest node, and it never removes the primary. The index metadata holds the factor that counts, so the controller must take the factor from the metadata on every allocator run, which lets a controller elected after a crash between the two writes finish the change.
 
 A caller rebuilds the terms of a cluster index through any node, which sends [cluster.rebuild_analysis](transport.md#clusterrebuild_analysis) to every node that holds a copy of the index. Each node rebuilds every copy that it holds from that copy's own documents, as a single engine rebuilds an index, and it builds each copy with the settings in the index metadata, so a primary and its replicas reach the same terms without sending entries. A node skips a copy whose recorded analysis revision already matches the revision of the language module, so a repeated call rebuilds only the copies that are still stale. The node that received the call reports success once every holder answers. It fails the call with `QUERY_PARTIAL_FAILURE`, naming each node that answered with an error, that the transport could not reach, or that left the cluster before it answered.
+
+### Analysis Change Flow
+
+```text
+1. The node that receives the change request:
+   a. raises the errors that Changing Analysis in adapters.md lists
+   b. raises ANALYSIS_CHANGE_NOT_READY where any registered node has
+      a specification version below 1.1
+   c. writes pendingAnalysis with a new changeId through compareAndSet,
+      returning to a fresh read when that compareAndSet fails, until
+      its retry budget of 5 attempts runs out, and then raises
+      CLUSTER_WRITE_BLOCKED with the reason settings_contention
+   d. reads the partition count change key, and where a change is
+      running it clears its own pendingAnalysis and raises
+      PARTITION_REBALANCING_BACKPRESSURE
+
+2. The controller finds each pendingAnalysis through its metadata watch
+   and when it wins an election, and it alone drives the change. It
+   sends cluster.rebuild_analysis with the pending generation to every
+   registered node that holds a copy, and it sends it again after a
+   timeout. A node that has finished answers at once, so a new
+   controller can repeat this step.
+
+3. Each node builds beside its old terms under the pending settings,
+   keeps the new terms current with every write that it applies, holds
+   both copies, and answers once it is ready.
+
+4. The controller reads the allocation table again and repeats step 2
+   for any registered holder that has not answered. It waits only for
+   registered nodes, so a dead node holds nothing up. It then writes
+   the pending settings as current, the generation as
+   analysisGeneration, and no pendingAnalysis, with one compareAndSet.
+
+5. Where a node refuses for memory or for a name with no registration,
+   the controller writes no pendingAnalysis and an analysisFailure
+   with one compareAndSet, and every node drops its new terms.
+
+6. A node switches when its watch delivers the new generation, or
+   earlier when a query asks for a generation that it has finished
+   building, so that a watch that is behind fails no query. It then
+   drops its old terms.
+
+7. A node that adopts a copy below the generation in the metadata, or
+   that returns after step 4, takes the metadata's settings as pending
+   and builds. It answers no query for the new generation until it
+   finishes.
+
+8. The node that received the request completes the request when its
+   watch shows the generation, and it fails the request with the code
+   in analysisFailure, or with ANALYSIS_CHANGE_REPLACED where another
+   changeId replaced its own.
+```
+
+A partition count change must also read `pendingAnalysis` after it writes its own key, and it must raise `PARTITION_REBALANCING_BACKPRESSURE` where a change is pending, so that at least one of two requests that start together sees the other. A request that raises this error must first clear what it wrote.
 
 ### Partition Count Change
 

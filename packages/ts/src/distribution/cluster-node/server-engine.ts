@@ -166,6 +166,10 @@ export function clusterNodeEngine(node: ClusterNode, options?: ClusterEngineOpti
       return node.rebuildAnalysis(indexName)
     },
 
+    async changeAnalysis(): Promise<void> {
+      unsupported('changeAnalysis')
+    },
+
     async getMemoryStats() {
       return node.getMemoryStats()
     },

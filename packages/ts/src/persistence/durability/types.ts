@@ -33,6 +33,9 @@ export interface IndexDurabilityHooks {
   getVectorFieldPaths(indexName: string): Set<string>
   getVectorIndexes(indexName: string): Map<string, VectorIndex>
   buildMetadata(indexName: string, documentCount?: number): IndexMetadata | undefined
+  buildTermsMetadata(indexName: string): IndexMetadata | undefined
+  mustRewriteTerms(indexName: string): boolean
+  onManifestCommitted(indexName: string, analysisGeneration: number): void
   createIndexFromMetadata(metadata: IndexMetadata, loadData: boolean): Promise<void>
   recordCheckpoint?(indexName: string, documentCount: number, partitionCount: number): void
   onLayoutUpgrade?(event: LayoutUpgradeEvent): void
@@ -86,6 +89,7 @@ export interface DurabilityManager {
   /** Writes each partition as it stands in memory, so a checkpoint that
    * rebuilt its terms replaces what earlier segments hold. */
   checkpointFromMemory?(indexName: string): Promise<void>
+  checkpointAfterSwitch?(indexName: string, swap: () => boolean): Promise<boolean>
   checkpointAfterInFlight(indexName: string): Promise<void>
   checkpointAll(): Promise<void>
   openArchiveCheckpoint?(indexName: string): Promise<ArchiveCheckpoint>

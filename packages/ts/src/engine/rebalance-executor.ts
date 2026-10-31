@@ -5,8 +5,9 @@ import type { PartitionRouter } from '../partitioning/router'
 import { createWriteAheadQueue, type WAQEntry, type WriteAheadQueue } from '../partitioning/write-ahead-queue'
 import type { DurabilityManager } from '../persistence/durability/types'
 import type { PluginRegistry } from '../plugins/registry'
+import type { PendingAnalysisMetadata } from '../types/internal'
 import type { AnyDocument, IndexConfig } from '../types/schema'
-import type { EventHandler } from './core'
+import type { DurableAnalysis, EventHandler } from './core'
 import { emitEngineEvent } from './events'
 import type { WorkerOrchestrator } from './orchestration'
 import {
@@ -32,6 +33,8 @@ export interface RebalanceContext {
   requireIndex: (name: string) => {
     config: IndexConfig
     vectorFieldPaths: Set<string>
+    pendingAnalysis: PendingAnalysisMetadata | null
+    durableAnalysis: DurableAnalysis | null
   }
 }
 
@@ -219,6 +222,15 @@ export async function executeRebalance(
     throw new NarsilError(
       ErrorCodes.PARTITION_REBALANCING_BACKPRESSURE,
       `Index "${indexName}" is already being rebalanced`,
+    )
+  }
+
+  const registered = ctx.requireIndex(indexName)
+  if (registered.pendingAnalysis !== null || registered.durableAnalysis !== null) {
+    throw new NarsilError(
+      ErrorCodes.PARTITION_REBALANCING_BACKPRESSURE,
+      `Index "${indexName}" is changing its analysis settings, so try the rebalance again once the change ends`,
+      { indexName },
     )
   }
 
