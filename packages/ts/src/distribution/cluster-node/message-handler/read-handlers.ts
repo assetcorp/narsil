@@ -103,7 +103,12 @@ export async function handlePreflight(
 ): Promise<void> {
   const payload = validatePreflightPayload(decode(message.payload))
   const params = wireParamsToLocal(payload.params)
-  const result = await deps.engine.preflightPartitions(payload.indexName, params, payload.partitionIds)
+  const result = await deps.engine.preflightPartitions(
+    payload.indexName,
+    params,
+    payload.partitionIds,
+    payload.params.indexBm25 ?? undefined,
+  )
 
   await respond(
     createPreflightResultMessage(

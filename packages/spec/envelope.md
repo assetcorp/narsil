@@ -352,7 +352,7 @@ Each index writes a metadata envelope under the key `<indexName>/meta`. It uses 
   language:              string
   partition_count:       uint32
   document_count:        uint64               (optional; documents in the last completed checkpoint)
-  bm25_params:           { k1: float32, b: float32 }
+  bm25_params:           { k1: float64, b: float64, fields: Map<string, BM25FieldParams> (optional) }
   created_at:            uint64               (milliseconds since the Unix epoch)
   engine_version:        string               (for example "0.1.0")
   vector_fields:         Map<string, VectorFieldMeta>
@@ -412,6 +412,8 @@ The `analysis_revision` field records the [revision](adapters.md#revision) of th
 
 The `tokenizer` and `stop_words` fields record the names the index resolved its analysis from, as described in [Analysis Registry](adapters.md#analysis-registry). A writer includes each field only when the index configuration gave a name, because a tokeniser instance and a stop word function are code and no payload carries code. An engine with durability configured refuses an index whose analysis is given as code, as [Analysis Registry](adapters.md#analysis-registry) requires, so an absent field means the index analyses with the language default. An index configured with a literal stop word set persists the words themselves in `stop_word_list`, and a payload carries at most one of `stop_words` and `stop_word_list`. Recovery resolves each name against the engine's analysis registry so that a recovered index analyses text the way the original did; see [Index Metadata](durability.md#index-metadata).
 
+The `bm25_params` field records the setting that [Parameter Levels](algorithms.md#parameter-levels) defines. An earlier revision of this document declared `k1` and `b` as float32, although every writer stored float64, so a reader must accept a MessagePack float of either width. A reader treats an absent `fields` as an empty map, and a writer must leave `fields` out where the setting holds no field.
+
 The `partition_limits`, `default_scoring`, `track_positions`, `strict`, `required`, `vector_promotion`, and `pattern_value_limit` fields record the rest of the index configuration: the partition limits, the scoring mode, position tracking, strict document validation, the required field paths, the vector promotion settings, and the [pattern value limit](algorithms.md#pattern-search). All seven are additive. A writer includes each field only when the index configuration sets it, and a reader treats an absent field as that option's default, so a recovered index behaves exactly as the original did.
 
 The `index_uuid` field records the identity a cluster assigned the index when it was created, as [Index Metadata](distribution/cluster.md#index-metadata) defines it. A node running in cluster mode writes the value, and a single engine leaves it absent. A rejoining node compares the recovered value with the one the coordinator holds before it adopts the index, so the node never serves a predecessor's documents from an index created again under the same name; see [Joining the Cluster](distribution/cluster.md#joining-the-cluster). The field is additive, and a reader that finds it absent treats the index as belonging to no cluster.
@@ -438,7 +440,7 @@ The payload is a MessagePack map:
   tokenizer:         string                       (optional; the registered tokeniser name)
   stopWords:         string                       (optional; the registered stop word set name)
   stopWordList:      List<string>                 (optional; the words of a literal stop word set)
-  bm25:              { k1: float32, b: float32 }  (optional; each key optional)
+  bm25:              BM25Params                   (optional; see Parameter Levels in algorithms.md)
   surfaceForms:      boolean                      (a reader treats an absent value as true)
   partitionConfig:   PartitionSnapshotLimits      (optional)
   defaultScoring:    string                       (optional; "local", "dfs", or "broadcast")

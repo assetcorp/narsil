@@ -172,7 +172,7 @@ The client reads the answer once and keeps it, because a server cannot take on a
 
 | Group | Methods |
 | --- | --- |
-| Indexes | `createIndex`, `listIndexes`, `dropIndex`, `getStats`, `getPartitionStats`, `clear`, `open`, `close`, `updateSynonyms`, `getSynonyms` |
+| Indexes | `createIndex`, `listIndexes`, `dropIndex`, `getStats`, `getPartitionStats`, `clear`, `open`, `close`, `updateSynonyms`, `getSynonyms`, `updateBM25` |
 | Documents | `insert`, `get`, `has`, `put`, `update`, `remove`, `countDocuments`, `waitForWrites` |
 | Bulk | `insertBatch`, `updateBatch`, `removeBatch`, `getMultiple`, `listDocuments`, `importDocuments`, `startImport` |
 | Search | `query`, `preflight`, `suggest` |

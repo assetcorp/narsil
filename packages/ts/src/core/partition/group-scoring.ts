@@ -12,8 +12,6 @@ export interface GroupScoringContext {
   partialMarks: Uint8Array
   fieldNames: readonly string[]
   totalDocs: number
-  k1: number
-  b: number
   filterBitset: Uint32Array | undefined
   globalFrequency(token: string): number | undefined
 }
@@ -93,8 +91,9 @@ export function computeGroupContributions(
   matches: readonly GroupMatch[],
   collect: boolean,
 ): Map<number, GroupContribution> {
-  const { fields, fieldNames, filterBitset, partialMarks, k1, b } = context
+  const { fields, fieldNames, filterBitset, partialMarks } = context
   const scoresAreZero = context.totalDocs === 0
+  const onePair = fields.boundPairs.length === 2
   const best = new Map<number, GroupContribution>()
 
   for (const match of matches) {
@@ -119,7 +118,16 @@ export function computeGroupContributions(
       const actualFieldLength = fieldLengthOf(fields.lengthColumns, fieldIndex, internalId, avgLen)
 
       const termScore =
-        (scoresAreZero ? 0 : computeBM25WithIDF(termFrequency, match.idf, actualFieldLength, avgLen, k1, b)) *
+        (scoresAreZero
+          ? 0
+          : computeBM25WithIDF(
+              termFrequency,
+              match.idf,
+              actualFieldLength,
+              avgLen,
+              onePair ? fields.boundPairs[0] : fields.k1s[fieldIndex],
+              onePair ? fields.boundPairs[1] : fields.bs[fieldIndex],
+            )) *
         fieldBoost *
         factor
 

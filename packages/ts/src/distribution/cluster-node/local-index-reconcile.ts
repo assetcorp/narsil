@@ -1,5 +1,5 @@
 import { describeError, ErrorCodes, NarsilError } from '../../errors'
-import { getIndexMetadata } from '../cluster/index-metadata'
+import { getIndexMetadata, readIndexMetadataSnapshot } from '../cluster/index-metadata'
 import type { ClusterCoordinator } from '../coordinator/types'
 import type { ClusterLocalEngine } from './local-engine'
 import { localIndexIsGone } from './local-index-gone'
@@ -152,6 +152,15 @@ async function reconcileOne(deps: LocalIndexReconcileDeps, indexName: string): P
     await applyStoredSynonyms(deps.engine, deps.coordinator, indexName, clusterUuid)
   } catch (error) {
     report(deps, indexName, `its synonym set could not be read: ${describeError(error)}`)
+    return 'orphaned'
+  }
+  try {
+    const stored = await readIndexMetadataSnapshot(deps.coordinator, indexName)
+    if (stored?.record.indexUuid === clusterUuid) {
+      await deps.engine.applyStoredBm25(indexName, () => ({ bm25: stored.settings?.bm25 }))
+    }
+  } catch (error) {
+    report(deps, indexName, `its BM25 setting could not be read: ${describeError(error)}`)
     return 'orphaned'
   }
   return 'adopted'

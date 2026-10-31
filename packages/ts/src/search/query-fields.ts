@@ -5,6 +5,7 @@ import { isWordIndexedFieldType } from '../schema/validator/field-type'
 import { isGeopointOrVectorType, VECTOR_PATTERN } from '../schema/validator/shared'
 import type { SchemaDefinition } from '../types/schema'
 import type { QueryParams } from '../types/search'
+import { validateBM25Params } from './bm25-params'
 
 function requireBoostableFields(boost: Record<string, number>, flatSchema: Record<string, string>): void {
   for (const [field, weight] of Object.entries(boost)) {
@@ -61,6 +62,7 @@ function requireGroupableFields(fields: readonly string[], flatSchema: Record<st
 }
 
 export function requireUsableQueryFields(params: QueryParams, schema: SchemaDefinition, strict = false): void {
+  if (params.bm25 !== undefined) validateBM25Params(params.bm25, schema, ErrorCodes.SEARCH_INVALID_FIELD)
   const groupFields = params.group?.fields
   const checksGroup = Array.isArray(groupFields) && groupFields.length > 0
   if (params.boost === undefined && params.facets === undefined && !checksGroup) return

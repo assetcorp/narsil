@@ -8,6 +8,7 @@ import type { DataNodeHandle } from '../cluster/node-lifecycle/types'
 import type { NodeRole } from '../coordinator/types'
 import { openSnapshotSpoolDirectory } from '../replication/snapshot-spool'
 import type { ReplicationLog } from '../replication/types'
+import { createBm25View } from './bm25-view'
 import { cleanupRemovedPartition, releaseTornDownIndex } from './bootstrap-cleanup'
 import { clearBootstrapSyncIndex, createBootstrapSyncState, hasCompletedBootstrapSync } from './bootstrap-sync'
 import { startCatchUpPump, stopCatchUpPump } from './catch-up'
@@ -28,7 +29,6 @@ import { createNodeWiring } from './node-wiring'
 import { createCoordinatorTiming, timeCoordinatorCalls } from './observability/coordinator-timing'
 import { createClusterOperationTracker } from './operation-tracker'
 import { createPartitionBootstrap } from './partition-bootstrap'
-import type { ClusterReadDeps } from './reads'
 import { requestReplicationFactor } from './replication-factor'
 import { replicationLogKey as buildReplicationLogKey, deleteIndexReplicationLogs } from './replication-logs'
 import { requestRebalance, waitForSwap } from './reshard/request'
@@ -216,7 +216,8 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
   const trackOp = operationTracker.track
   const transitionIndex = operationTracker.transition
 
-  const readDeps: ClusterReadDeps = { config: routingConfig, nodeId, engine, resolveNodeTargets, searchContexts }
+  const bm25View = createBm25View({ coordinator: config.coordinator, engine, onError: forwardOnError })
+  const readDeps = { config: routingConfig, nodeId, engine, resolveNodeTargets, searchContexts, bm25View }
   const servingName = (indexName: string) => servingNameOf(allocationView.routing, indexName)
 
   const cluster = createClusterNamespace({
@@ -276,6 +277,7 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
     async start() {
       guardShutdown()
       await allocationView.start()
+      await bm25View.start()
 
       const dispositions = await reconcileLocalIndexes({
         engine,
@@ -343,6 +345,7 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
 
       await operationTracker.drain()
       allocationView.stop()
+      bm25View.stop()
 
       if (unregisterHandler !== null) {
         unregisterHandler()

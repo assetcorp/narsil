@@ -6,7 +6,7 @@ Every search goes through `query(indexName, params)`. Set its `mode` parameter t
 
 ## Basic queries
 
-The engine scores a full-text search with BM25. With `fields`, the engine searches the named fields alone. With `boost`, it multiplies the score from each named field by that field's weight. A boost works only on a text field that the schema declares, so the engine throws `SEARCH_INVALID_FIELD` for a boost on any other field. A weight has to be a finite number, so the engine throws `CONFIG_INVALID` for any other value.
+The engine scores a full-text search with BM25. With `fields`, the engine searches the named fields alone. With `boost`, it multiplies the score from each named field by that field's weight. A boost works only on a text field that the schema declares, so the engine throws `SEARCH_INVALID_FIELD` for a boost on any other field. A weight has to be a finite number, so the engine throws `CONFIG_INVALID` for any other value. To change how the score itself responds to repeated words and long fields, see [BM25 parameters](#bm25-parameters).
 
 ```ts
 const results = await narsil.query('products', {
@@ -130,6 +130,48 @@ registerSynonyms(synonyms)
 ```
 
 Without that registration, the engine throws `CONFIG_INVALID` for an index with a synonym set, and the error message contains the import line.
+
+## BM25 parameters
+
+Two parameters shape a BM25 score. `k1` sets how much a repeated word adds to a score, from 0, where a repeat adds nothing, to 1,000. `b` sets how much a long field lowers a score, from 0, where length has no effect, to 1. You can set a pair at three levels, without a rebuild, because the engine computes every score during the search from the term frequencies and field lengths that it already stores.
+
+```ts
+await narsil.createIndex('articles', {
+  schema: { title: 'string', body: 'string' },
+  bm25: { k1: 1.4, fields: { title: { b: 0.2 } } },
+})
+
+const results = await narsil.query('articles', {
+  term: 'olive oil',
+  bm25: { b: 0.5, fields: { body: { k1: 0.9 } } },
+})
+```
+
+For each field, the engine takes each of the two values separately, from the first of these places that sets it:
+
+1. The search's value for that field.
+2. The search's value for every field.
+3. The index's value for that field.
+4. The index's value for every field.
+5. The default, which is 1.2 for `k1` and 0.75 for `b`.
+
+In the search above, `title` scores under a `k1` of 1.4 and a `b` of 0.5, while `body` scores under a `k1` of 0.9 and a `b` of 0.5.
+
+Replace the index's setting on a live index with `updateBM25`. The call replaces the whole setting, so a value that the call leaves out returns to its default, and `{}` clears the setting. The engine saves the setting with the index, so the setting stays in place after a restart and every snapshot includes it. Where the index has copies on worker threads, the promise resolves only once every copy uses the new setting. When `updateBM25` throws, the index keeps the setting that it held before the call.
+
+```ts
+await narsil.updateBM25('articles', { k1: 0.8, fields: { title: { k1: 2 } } })
+```
+
+The engine throws `CONFIG_INVALID` for a `k1` outside 0 to 1,000, for a `b` outside 0 to 1, for a value that is not a finite number, and for a key that it does not recognise. For a `fields` key that names anything other than a `string` or `string[]` field, it throws `CONFIG_INVALID` on an index and `SEARCH_INVALID_FIELD` on a search. An index that already stores a `k1` above 1,000 keeps loading and scoring under that value, although a new setting has to stay in range.
+
+A vector search scores no text, so the engine validates its `bm25` and changes no score. A [hybrid](hybrid-search.md) search applies its `bm25` to the keyword ranking alone.
+
+A cursor from `searchAfter` keeps working after `updateBM25`, but the scores change between the two pages, so the later pages can repeat or skip a document. A `bm25` that a search sets becomes part of its cursor, so the engine throws `SEARCH_INVALID_CURSOR` when you page that cursor under another `bm25`.
+
+In a [cluster](cluster.md), `updateBM25` resolves once the coordinator stores the setting and the node that received the call applies it. Every other node applies the change once its watch of the index metadata reports it, so a search that another node coordinates can use the old pair until then. However, the node that coordinates a search sends one setting to every partition, so each search scores under one setting.
+
+A node on a specification version below 1.1 can't use these settings, so a cluster answers with `BM25_NOT_READY` until every node has upgraded. While any registered node has the older version, the cluster refuses `updateBM25` and a new index that sets `fields`. While a registered node that holds a copy of the index has the older version, the cluster refuses a search that sets a pair, and it refuses every search on an index that holds `fields` or a live change. A cluster keeps serving any other search during a rolling upgrade, including one on an index that set only `k1` and `b` when you created it.
 
 ## Score and coverage thresholds
 

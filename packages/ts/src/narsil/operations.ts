@@ -38,6 +38,7 @@ import type {
 } from '../types/results'
 import type { AnyDocument, IndexConfig, InsertOptions, PartitionConfig, WriteOptions } from '../types/schema'
 import type { ListParams, QueryParams, SuggestParams } from '../types/search'
+import { bm25Operations } from './bm25'
 import { bindEngineCore } from './internals'
 import { portabilityOperations } from './portability'
 import { runEngineListDocuments, runEnginePreflight, runEngineQuery, runEngineSuggest } from './reads'
@@ -218,6 +219,7 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
 
     ...portabilityOperations(core, config, () => narsil),
     ...synonymOperations(core),
+    ...bm25Operations(core),
 
     async checkpoint(indexName: string): Promise<void> {
       guardShutdown()

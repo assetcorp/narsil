@@ -54,6 +54,7 @@ export async function handleSearch(
     payload.globalStats ?? undefined,
     rescoreWindow,
     snapshots,
+    payload.params.indexBm25 ?? undefined,
   )
   const rankedDocument = (hit: { id: string; document?: unknown }): AnyDocument | undefined =>
     (snapshots?.get(hit.id)?.fields as AnyDocument | undefined) ?? (hit.document as AnyDocument | undefined)

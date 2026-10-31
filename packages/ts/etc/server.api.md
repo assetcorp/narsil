@@ -8,6 +8,9 @@
 export const ASYNC_IMPORT_CAPABILITY = "documents.import.async";
 
 // @public
+export const BM25_TUNING_CAPABILITY = "indexes.bm25";
+
+// @public
 export interface CapabilitiesResponse {
     capabilities: string[];
 }
@@ -86,6 +89,7 @@ export const ErrorCodes: {
     readonly SEARCH_INVALID_CURSOR: "SEARCH_INVALID_CURSOR";
     readonly SEARCH_RESULT_WINDOW_EXCEEDED: "SEARCH_RESULT_WINDOW_EXCEEDED";
     readonly SEARCH_WORK_CAP_EXCEEDED: "SEARCH_WORK_CAP_EXCEEDED";
+    readonly BM25_NOT_READY: "BM25_NOT_READY";
     readonly LANGUAGE_NOT_SUPPORTED: "LANGUAGE_NOT_SUPPORTED";
     readonly ENVELOPE_VERSION_MISMATCH: "ENVELOPE_VERSION_MISMATCH";
     readonly ENVELOPE_INVALID_MAGIC: "ENVELOPE_INVALID_MAGIC";
@@ -171,10 +175,7 @@ export interface ErrorEnvelope {
 
 // @public
 export interface HttpIndexConfig {
-    bm25?: {
-        k1?: number;
-        b?: number;
-    };
+    bm25?: BM25Params;
     defaultScoring?: 'local' | 'dfs' | 'broadcast';
     embedding?: CreateIndexEmbedding;
     language?: string;
