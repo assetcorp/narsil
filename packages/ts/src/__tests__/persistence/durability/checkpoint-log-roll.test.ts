@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createNarsil } from '../../../narsil'
 import type { Narsil } from '../../../types/engine'
-import type { IndexConfig, TextStorage } from '../../../types/schema'
+import type { IndexConfig } from '../../../types/schema'
 import {
   type ArticleDocument,
   ArticleOracle,
@@ -18,6 +18,8 @@ const SEGMENT_NAME = /^\d{16}$/
 const SEGMENT_HEADER_BYTES = 8
 const LOCK_FILE = '.narsil.lock'
 const BASE_DOCUMENTS = 300
+
+type TextStorage = NonNullable<IndexConfig['textStorage']>
 
 function configOf(textStorage: TextStorage): IndexConfig {
   return {

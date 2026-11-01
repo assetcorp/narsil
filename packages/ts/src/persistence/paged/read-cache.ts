@@ -1,3 +1,4 @@
+import { ErrorCodes, NarsilError } from '../../errors'
 import { LARGEST_CACHED_ENTRY_SHARE, MAX_THREAD_FILE_NUMBER, READ_CACHE_BYTES_PER_THREAD } from './constants'
 
 const FILE_NUMBER_SCALE = 2 ** 34
@@ -27,13 +28,14 @@ export interface ReadCache {
   bytesOfFile(fileNumber: number): number
   get<Value>(fileNumber: number, kind: CachedKind, entry: number): Value | undefined
   put(fileNumber: number, kind: CachedKind, entry: number, value: unknown, bytes: number): void
-  forgetFile(fileNumber: number): void
+  releaseFile(fileNumber: number): void
   clear(): void
 }
 
 export function createReadCache(capacity: number): ReadCache {
   const entries = new Map<number, CacheEntry>()
   const perFile = new Map<number, number>()
+  const freedFileNumbers: number[] = []
   let held = 0
   let nextFileNumber = 1
 
@@ -65,9 +67,14 @@ export function createReadCache(capacity: number): ReadCache {
     capacity,
 
     fileNumber(): number {
+      const freed = freedFileNumbers.pop()
+      if (freed !== undefined) return freed
       if (nextFileNumber >= MAX_THREAD_FILE_NUMBER) {
-        clear()
-        nextFileNumber = 1
+        throw new NarsilError(
+          ErrorCodes.PERSISTENCE_LOAD_FAILED,
+          `This thread holds ${nextFileNumber} open segment files, which is the most that its read cache can tell apart`,
+          { limit: MAX_THREAD_FILE_NUMBER },
+        )
       }
       const number = nextFileNumber
       nextFileNumber += 1
@@ -98,7 +105,8 @@ export function createReadCache(capacity: number): ReadCache {
       evictDownTo(capacity)
     },
 
-    forgetFile(fileNumber: number): void {
+    releaseFile(fileNumber: number): void {
+      freedFileNumbers.push(fileNumber)
       if (!perFile.has(fileNumber)) return
       for (const [key, entry] of entries) {
         if (entry.fileNumber === fileNumber) drop(key, entry)

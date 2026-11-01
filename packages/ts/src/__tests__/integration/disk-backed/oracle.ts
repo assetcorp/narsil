@@ -1,7 +1,7 @@
 import { expect } from 'vitest'
 import type { Narsil } from '../../../types/engine'
 
-export interface ArticleDocument {
+export type ArticleDocument = {
   title: string
   body: string
   year: number

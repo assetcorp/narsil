@@ -97,6 +97,17 @@ export async function prepareDiskAdoption(
   return { partitions: prepared, droppedKeys }
 }
 
+export function keysThatSegmentsStillRead(manager: PartitionManager): Set<string> {
+  const keys = new Set<string>()
+  for (const partition of manager.getAllPartitions()) {
+    if (!isCompositePartition(partition)) continue
+    for (const segment of partition.frozenSegments()) {
+      if (segment.paged !== null) keys.add(segment.paged.key)
+    }
+  }
+  return keys
+}
+
 export function closeUnusedSegments(adoption: PreparedAdoption): void {
   for (const { prepared } of adoption.partitions) {
     for (const { segment, isNew } of prepared) {

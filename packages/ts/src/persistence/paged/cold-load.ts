@@ -6,7 +6,7 @@ import { bytesToVectors } from '../../vector/vector-index/payload'
 import { type ColdFileInput, codesOfFile } from './cold-field'
 import { COLD_LOAD_DELAY_MS } from './constants'
 import { decodeSections, type FileSection, loadFailed, RECORD_PAGE_BYTES, SEGMENT_PAGE_BYTES } from './format'
-import { readFileRange, readWholeSectionChecked } from './section-file'
+import { checkEverySectionPage, readFileRange, readWholeSectionChecked } from './section-file'
 
 const FILE_PAGE_SIZES: ReadonlySet<number> = new Set([SEGMENT_PAGE_BYTES, RECORD_PAGE_BYTES])
 const FLOAT32_BYTES = 4
@@ -70,7 +70,7 @@ export async function loadFilesByParts(
     )
     const vectorSection = requiredSection(sections, 'vectors', ref.key)
     const stride = dimension * FLOAT32_BYTES
-    await yieldToSearches()
+    await checkEverySectionPage(path, vectorSection, stillWanted)
     if (!stillWanted()) return
     const fileCodes = codesOfFile(path, sections, ref.key)
     restore.addFile({

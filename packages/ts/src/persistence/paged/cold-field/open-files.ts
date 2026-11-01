@@ -167,10 +167,7 @@ function requiredSection(sections: Map<string, FileSection>, name: string, key: 
 }
 
 export function closeHeldFiles(held: ReadonlyArray<{ readonly file: PagedFile }>): void {
-  for (const { file } of held) {
-    file.cache.forgetFile(file.fileNumber)
-    closePagedFile(file)
-  }
+  for (const { file } of held) closePagedFile(file)
 }
 
 function openOneFile(

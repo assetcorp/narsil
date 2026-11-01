@@ -73,7 +73,10 @@ async function attachPagedSegment(
   manager: PartitionManager,
   options: PartitionLoadOptions,
 ): Promise<void> {
-  const { createPagedFrozenSegment, openPagedSnapshot, pagedListingOf } = await import('../../paged/module')
+  const { checkPagedSegmentFully, createPagedFrozenSegment, openPagedSnapshot, pagedListingOf } = await import(
+    '../../paged/module'
+  )
+  if (options.decodesEveryDocument) await checkPagedSegmentFully(directory, ref)
   const snapshot = openPagedSnapshot(await pagedListingOf(directory, ref))
   requireAgreedSchema(options.schema, snapshot.schema, ref.key)
   const segment = createPagedFrozenSegment(snapshot)

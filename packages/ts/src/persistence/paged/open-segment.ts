@@ -107,7 +107,6 @@ export function createPagedFrozenSegment(
     },
     termFrequenciesAcross,
     close() {
-      cache.forgetFile(file.fileNumber)
       closePagedFile(file)
     },
     relocate(rewrite) {

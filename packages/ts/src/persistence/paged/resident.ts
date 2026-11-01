@@ -275,6 +275,7 @@ export function residentBytesOf(snapshot: PagedSegmentSnapshot): number {
   bytes += snapshot.blockListOffsets.byteLength + snapshot.blockSummaries.byteLength
   bytes += snapshot.documentBlocks.byteLength + snapshot.idSamplePositions.byteLength
   for (const id of snapshot.idSampleIds) bytes += id.length
+  for (const id of snapshot.tombstones) bytes += id.length
   for (const column of snapshot.fieldLengthColumns) bytes += column.byteLength
   for (const entry of [...snapshot.numeric, ...snapshot.sizes])
     bytes += entry.docIds.byteLength + entry.values.byteLength
