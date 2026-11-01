@@ -1,5 +1,6 @@
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { ByteReader } from '../../persistence/archive/byte-reader'
+import { writeArchiveFile } from '../../persistence/archive/file-entry'
 import { memoryCheckpointStore } from '../../persistence/archive/memory-store'
 import { readSnapshotArchive } from '../../persistence/archive/read'
 import { validateStagedCheckpoint } from '../../persistence/archive/validate'
@@ -75,9 +76,9 @@ async function stageArchive(indexName: string, reader: ByteReader, staging: Chec
       requireRestoreMemory(indexName, archiveFootprint(staged.prepared, manifest, replacesIndex), replacesIndex)
       staged.manifest = renamed(manifest, sourceName, indexName)
     },
-    file: async (entryName, _ref, bytes) => {
+    file: async (entryName, _ref, chunks) => {
       if (staged.manifest === null) missingPart('manifest')
-      await staging.write(`${indexName}/${entryName}`, [bytes])
+      await writeArchiveFile(staging, `${indexName}/${entryName}`, chunks)
     },
   })
   const { prepared, manifest } = staged

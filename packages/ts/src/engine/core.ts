@@ -228,6 +228,8 @@ export async function createEngineCore(
           emitCheckpointHeld(report) {
             emitEngineEvent(eventHandlers, 'checkpointHeld', report)
           },
+          queueDiskAdoption: orchestrator.queueDiskAdoption,
+          awaitCopiesOfIndex: indexName => orchestrator.awaitReplication(indexName),
           publishCheckpointedPartitions: (indexName, partitions) =>
             invalidation?.publishPartitions(indexName, partitions) ?? Promise.resolve(),
           recordCheckpoint(indexName, documentCount, partitionCount) {

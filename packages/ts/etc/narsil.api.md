@@ -445,6 +445,7 @@ export interface IndexConfig {
     strict?: boolean;
     surfaceForms?: boolean;
     synonyms?: SynonymRule[];
+    textStorage?: 'memory' | 'disk';
     tokenizer?: CustomTokenizer | string;
     trackPositions?: boolean;
     vectorPromotion?: VectorIndexConfig;
@@ -1064,6 +1065,7 @@ export interface VectorMaintenanceResult {
     estimatedOptimizeMs: number;
     fieldName: string;
     graphCount: number;
+    loadingFromFiles: boolean;
     tombstoneRatio: number;
     waitingForMemory: boolean;
 }

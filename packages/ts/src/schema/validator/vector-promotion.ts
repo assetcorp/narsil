@@ -29,6 +29,11 @@ export function validateVectorStorage(config: VectorIndexConfig | undefined, fil
   }
 }
 
+export function validateTextStorage(textStorage: unknown, filesystemDurability: boolean): void {
+  if (textStorage === undefined || textStorage === 'memory' || (textStorage === 'disk' && filesystemDurability)) return
+  fail("textStorage must be 'memory', or 'disk' with filesystem durability", { textStorage })
+}
+
 export function raiseEarlierReleaseGraphSetting<T>(config: T): T {
   if (typeof config !== 'object' || config === null) return config
   const hnsw: unknown = (config as { hnswConfig?: unknown }).hnswConfig

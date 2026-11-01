@@ -1,5 +1,5 @@
 import type { PartitionInsertOptions } from '../core/partition'
-import type { SharedSegmentSnapshot } from '../core/partition/frozen'
+import type { PagedSegmentSnapshot, SharedSegmentSnapshot } from '../core/partition/frozen'
 import type { RemovedSpellings } from '../core/partition/frozen/surface-slot'
 import type { SegmentPayload } from '../core/partition/segment-payload'
 import type { SharedPatternWork } from '../core/pattern-index/work-meter'
@@ -97,7 +97,7 @@ export type WorkerAction =
       indexName: string
       segments: Array<{
         partitionId: number
-        snapshot: SharedSegmentSnapshot
+        snapshot: SharedSegmentSnapshot | PagedSegmentSnapshot
         tombstonedDocIds?: string[]
         survivingSurfaceForms?: SerializedSurfaceForms
       }>
@@ -126,9 +126,23 @@ export type WorkerAction =
       snapshot: SharedSegmentSnapshot
       requestId: string
     }
+  | {
+      type: 'adoptDiskSegments'
+      indexName: string
+      partitions: DiskAdoptionPartition[]
+      changed: string[]
+      requestId: string
+    }
   | { type: 'memoryReport'; requestId: string }
   | { type: 'bootstrap'; moduleUrl: string; requestId: string }
   | { type: 'shutdown'; requestId: string }
+
+export type DiskAdoptionSegment = { snapshot: PagedSegmentSnapshot } | { segmentId: string }
+
+export interface DiskAdoptionPartition {
+  partitionId: number
+  segments: DiskAdoptionSegment[]
+}
 
 export type BuiltSegmentResult =
   | { kind: 'shared'; snapshot: SharedSegmentSnapshot }
@@ -168,10 +182,13 @@ const KNOWN_ACTION_TYPES: ReadonlyArray<WorkerAction['type']> = [
   'compactSegments',
   'swapSegments',
   'freezeLiveTail',
+  'adoptDiskSegments',
   'memoryReport',
   'bootstrap',
   'shutdown',
 ]
+
+export type DiskAdoptionAction = Extract<WorkerAction, { type: 'adoptDiskSegments' }>
 
 let nextRequestSequence = 0
 

@@ -1,6 +1,7 @@
 import type { ResolvedAnalysis } from '../../analysis/registry'
 import type { ComparableSortValue, SortMode } from '../../core/ordering'
 import type { PartitionIndex, PartitionInsertOptions } from '../../core/partition'
+import type { CompositePartition } from '../../core/partition/composite'
 import type { LiveTailFreezer } from '../../core/partition/composite/compaction'
 import type { FrozenSegment } from '../../core/partition/frozen'
 import type { RemovedSpellings, TextAnalysis } from '../../core/partition/frozen/surface-slot'
@@ -14,6 +15,12 @@ import type { PartitionStatsResult } from '../../types/results'
 import type { AnyDocument, IndexConfig, SchemaDefinition } from '../../types/schema'
 import type { VectorIndex } from '../../vector/vector-index'
 import type { PartitionWriteLog } from './write-log'
+
+export interface DiskSegmentAccess {
+  composite: CompositePartition
+  docPartitionMap: Map<string, number>
+  insertOptions: PartitionInsertOptions | undefined
+}
 
 export interface AdoptedAnalysis {
   config: IndexConfig
@@ -76,6 +83,8 @@ export interface PartitionManager {
   deserializePartition(partitionId: number, data: SerializablePartition): void
   mergeSegment(partitionId: number, payload: SegmentPayload, documents: ReadonlyArray<AnyDocument>): void
   attachFrozenSegment(partitionId: number, segment: FrozenSegment): void
+  openCheckpointChangeLog(): PartitionWriteLog
+  diskSegmentAccess(partitionId: number): DiskSegmentAccess
   swapFrozenSegments(
     partitionId: number,
     dropSegmentIds: readonly string[],

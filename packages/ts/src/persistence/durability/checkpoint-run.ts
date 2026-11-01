@@ -1,10 +1,17 @@
 import { ErrorCodes, NarsilError } from '../../errors'
+import type { PartitionManager } from '../../partitioning/manager'
+import type { PartitionWriteLog } from '../../partitioning/manager/write-log'
 import { writeMetadataEnvelope } from '../../serialization/envelope'
+import type { IndexMetadata } from '../../types/internal'
+import { createRequestId } from '../../workers/protocol'
 import { reclaimWalBeyondCount, truncateCoveredSegments } from './checkpoint'
 import {
   aTargetFailed,
+  type CheckpointCapture,
   captureCheckpoint,
   makeEveryAppliedMutationDurable,
+  openNewLogSegments,
+  whileNoMutationApplies,
   wholePartitionsWhereMostChanged,
   writeCapturedVectors,
 } from './checkpoint-capture'
@@ -16,7 +23,8 @@ import type { PartitionFailure } from './mutation-batch'
 import type { PartitionCheckpoint } from './partition-checkpoint'
 import { snapshotCheckpointFor } from './recovery'
 import { readCurrentManifest } from './segment/load'
-import { directoryCheckpointStore } from './segment/store'
+import type { PartitionManifestEntry, SegmentManifest } from './segment/manifest'
+import { type CheckpointStore, directoryCheckpointStore } from './segment/store'
 import { adoptVectorLayouts, garbageThatNoFieldStillReads, recordWrittenVectors } from './segment/vector-adoption'
 import { commitCheckpointManifest, removeCheckpointGarbage } from './segment/write'
 import type { IndexDurabilityHooks } from './types'
@@ -99,27 +107,92 @@ async function writeOneBoundedCheckpoint(input: DurableCheckpointInput): Promise
   const writeRecords = input.hooks.writeRecords ?? null
   const { indexName } = input
   const priorManifest = await readCurrentManifest(store, input.indexName)
+  const textOnDisk = metadata.textStorage === 'disk'
+  const wholePartitionsOf = wholePartitionsWhereMostChanged(manager, {
+    priorCheckpoint: priorManifest?.checkpoint ?? [],
+    priorPartitionIds: (priorManifest?.partitions ?? []).map(partition => partition.partitionId),
+    everyPartition: fromMemory,
+    aWorkerCanSerialise: input.canOffload && !textOnDisk && checkpointWorkerIsUsable(),
+    ...(writeRecords === null
+      ? {}
+      : {
+          captureRecords: partitionId => segments => writeRecords.captureSegments(indexName, partitionId, segments),
+        }),
+  })
+  let changesSinceCapture: PartitionWriteLog | null = null
   const capture = await captureCheckpoint(
     input.indexState,
     manager,
     vectorIndexes,
-    wholePartitionsWhereMostChanged(manager, {
-      priorCheckpoint: priorManifest?.checkpoint ?? [],
-      priorPartitionIds: (priorManifest?.partitions ?? []).map(partition => partition.partitionId),
-      everyPartition: fromMemory,
-      aWorkerCanSerialise: input.canOffload && checkpointWorkerIsUsable(),
-      ...(writeRecords === null
-        ? {}
-        : {
-            captureRecords: partitionId => segments => writeRecords.captureSegments(indexName, partitionId, segments),
-          }),
-    }),
+    textOnDisk && !fromMemory ? undefined : wholePartitionsOf,
     fromMemory ? undefined : (priorManifest?.checkpoint ?? []),
     priorManifest?.vectors ?? [],
     writeRecords === null
       ? undefined
       : (partitionId, lastSeqNo) => writeRecords.termHistoryOf(indexName, partitionId, lastSeqNo),
+    textOnDisk
+      ? () => {
+          changesSinceCapture = manager.openCheckpointChangeLog()
+        }
+      : undefined,
   )
+  try {
+    await openNewLogSegments(input.indexState, input.failPartition)
+    return await finishBoundedCheckpoint(input, manager, store, metadata, priorManifest, capture, fromMemory, () => {
+      return changesSinceCapture
+    })
+  } finally {
+    ;(changesSinceCapture as PartitionWriteLog | null)?.close()
+  }
+}
+
+async function adoptWrittenSegments(
+  input: DurableCheckpointInput,
+  manager: PartitionManager,
+  partitions: readonly PartitionManifestEntry[],
+  changes: PartitionWriteLog,
+): Promise<readonly string[]> {
+  const { indexName, indexState, hooks } = input
+  const { actionPartitionsOf, closeUnusedSegments, prepareDiskAdoption, swapPreparedPartitions } = await import(
+    '../paged/module'
+  )
+  const adoption = await prepareDiskAdoption(input.directory, manager, partitions)
+  if (adoption === null) return []
+  const adopted = await whileNoMutationApplies([...indexState.partitions.values()], () => {
+    if (changes.partitionsReplaced) return false
+    const changed = changes.takeWrittenDocIds()
+    swapPreparedPartitions(manager, adoption.partitions, changed, (partitionId, segments) => {
+      hooks.writeRecords?.adoptPagedSegments(indexName, partitionId, segments, changed)
+    })
+    hooks.queueDiskAdoption?.({
+      type: 'adoptDiskSegments',
+      indexName,
+      partitions: actionPartitionsOf(adoption),
+      changed: [...changed],
+      requestId: createRequestId(),
+    })
+    return true
+  })
+  if (!adopted) {
+    closeUnusedSegments(adoption)
+    return []
+  }
+  await hooks.awaitCopiesOfIndex?.(indexName)
+  return adoption.droppedKeys
+}
+
+async function finishBoundedCheckpoint(
+  input: DurableCheckpointInput,
+  manager: PartitionManager,
+  store: CheckpointStore,
+  metadata: IndexMetadata,
+  priorManifest: SegmentManifest | null,
+  capture: CheckpointCapture,
+  fromMemory: boolean,
+  changesSinceCapture: () => PartitionWriteLog | null,
+): Promise<number> {
+  const vectorIndexes = input.hooks.getVectorIndexes(input.indexName)
+  const writeRecords = input.hooks.writeRecords ?? null
   const { targets, documentCount } = capture
   await makeEveryAppliedMutationDurable(input.indexState, input.failPartition)
   if (aTargetFailed(input.indexState, targets)) return 0
@@ -144,8 +217,17 @@ async function writeOneBoundedCheckpoint(input: DurableCheckpointInput): Promise
   input.hooks.onManifestCommitted(input.indexName, metadata.analysisGeneration ?? 0)
   recordWrittenVectors(vectorIndexes, liveVectors.written)
   await adoptVectorLayouts(store, vectorIndexes, liveVectors.layouts)
+  const changes = changesSinceCapture()
+  const droppedThisCheckpoint =
+    changes !== null && capture.recordsLeftInLog === 0
+      ? new Set(await adoptWrittenSegments(input, manager, segments.partitions, changes))
+      : new Set<string>()
   if (!input.holdsCheckpointFiles()) {
-    await removeCheckpointGarbage(store, await garbageThatNoFieldStillReads(store, vectorIndexes, written.garbage))
+    const removable = await garbageThatNoFieldStillReads(store, vectorIndexes, written.garbage)
+    await removeCheckpointGarbage(
+      store,
+      removable.filter(key => !droppedThisCheckpoint.has(key)),
+    )
   }
   const checkpointDocumentCount = documentCount
   await input.queueMetadataWrite(input.indexName, async () => {

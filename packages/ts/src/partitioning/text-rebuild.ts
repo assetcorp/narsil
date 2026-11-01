@@ -2,12 +2,14 @@ import type { ResolvedAnalysis } from '../analysis/registry'
 import { createPartitionIndex, type PartitionIndex, type PartitionInsertOptions } from '../core/partition'
 import type { PartialWordAnalysis } from '../core/partition/partial-words/spellings'
 import { yieldToEventLoop } from '../engine/orchestration/turn'
+import type { RewriteSpill, RewriteStorage } from '../persistence/paged/rewrite-spill'
 import type { LanguageModule } from '../types/language'
 import type { IndexConfig } from '../types/schema'
 import { TEXT_REBUILD_CHUNK_DOCUMENTS, TEXT_REBUILD_SWITCH_BACKLOG_DOCUMENTS } from './constants'
 import { resolvePartialWordAnalysis, resolvePartitionInsertOptions } from './insert-options'
 import type { PartitionManager } from './manager'
 import type { PartitionWriteLog } from './manager/write-log'
+import { rewriteSpillOf } from './rewrite-spill-of'
 
 export interface TextRebuildHooks {
   isCurrent(): boolean
@@ -15,6 +17,8 @@ export interface TextRebuildHooks {
   onSwitch(): void
   runSwitch?(swap: () => boolean): Promise<boolean>
   holdBeforeSwitch?(keepCurrent: () => boolean): Promise<boolean>
+  rewriteStorage?(): RewriteStorage | undefined
+  onRewriteSpill?(spill: RewriteSpill | null): void
 }
 
 export interface TextRebuildTarget {
@@ -39,6 +43,7 @@ interface RebuildPass {
   language: LanguageModule
   partialWordAnalysis: PartialWordAnalysis | null
   options: PartitionInsertOptions | undefined
+  spill: RewriteSpill | null
 }
 
 function interrupted(pass: RebuildPass): boolean {
@@ -51,7 +56,8 @@ async function buildPartition(
   partitionId: number,
 ): Promise<PartitionIndex | null> {
   const { manager, language, options } = pass
-  const target = createPartitionIndex(partitionId, manager.config.trackPositions ?? true)
+  const target =
+    pass.spill?.newPartition(partitionId) ?? createPartitionIndex(partitionId, manager.config.trackPositions ?? true)
   const docIds = [...source.docIds()]
   target.beginBatch()
   for (let start = 0; start < docIds.length; start += TEXT_REBUILD_CHUNK_DOCUMENTS) {
@@ -59,6 +65,11 @@ async function buildPartition(
     for (let i = start; i < end; i++) {
       const document = manager.getRef(docIds[i])
       if (document !== undefined) target.insert(docIds[i], document, manager.schema, language, options)
+    }
+    if (pass.spill !== null) {
+      target.endBatch()
+      await pass.spill.spillIfFull(target, partitionId)
+      target.beginBatch()
     }
     await yieldToEventLoop()
     if (interrupted(pass)) return null
@@ -128,12 +139,19 @@ export async function rebuildTextIndexes(
   )
   const language = target?.language ?? manager.language
   const partialWordAnalysis = target === undefined ? manager.partialWordAnalysis : target.partialWordAnalysis
+  const spill = await rewriteSpillOf(hooks.rewriteStorage?.(), manager, target)
   while (hooks.isCurrent()) {
     const log = manager.openWriteLog()
+    let swapped = false
     try {
-      if (await rebuildOnce({ manager, log, hooks, language, partialWordAnalysis, options })) return true
+      swapped = await rebuildOnce({ manager, log, hooks, language, partialWordAnalysis, options, spill })
+      if (swapped) {
+        hooks.onRewriteSpill?.(spill)
+        return true
+      }
     } finally {
       log.close()
+      if (!swapped) await spill?.abandon()
     }
   }
   return false

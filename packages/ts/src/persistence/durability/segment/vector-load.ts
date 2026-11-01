@@ -2,6 +2,7 @@ import { decode } from '@msgpack/msgpack'
 import { ErrorCodes, NarsilError } from '../../../errors'
 import { openChecksummedEnvelope } from '../../../serialization/envelope-file'
 import { HEADER_SIZE } from '../../../serialization/header'
+import { osqBitsOf } from '../../../vector/osq'
 import type { VectorIndex } from '../../../vector/vector-index'
 import {
   assembleGraphParts,
@@ -82,11 +83,54 @@ export async function readVectorFile(
   return { payload, payloadLength }
 }
 
+function holdsEveryHead(ref: VectorFieldRef): boolean {
+  if (ref.graphParts.length === 0 || ref.files.length === 0) return false
+  return [...ref.files, ...ref.graphParts].every(file => file.headOffset !== undefined)
+}
+
+async function loadFieldOnDemand(
+  store: CheckpointStore,
+  ref: VectorFieldRef,
+  vectorIndex: VectorIndex,
+  resolvePartition: (docId: string) => number | undefined,
+): Promise<boolean> {
+  const { pathOf } = store
+  if (pathOf === undefined || vectorIndex.storage !== 'disk' || !holdsEveryHead(ref)) return false
+  const { loadFilesByParts, openColdVectorField, waitBeforeColdLoad } = await import('../../paged/module')
+  const files = await Promise.all(
+    ref.files.map(async file => ({ ref: file, path: await pathOf.call(store, file.key) })),
+  )
+  const graphParts = await Promise.all(
+    ref.graphParts.map(async part => ({ ref: part, path: await pathOf.call(store, part.key) })),
+  )
+  const field = openColdVectorField({
+    fieldPath: ref.fieldPath,
+    dimension: vectorIndex.dimension,
+    metric: vectorIndex.metric,
+    codeBits: osqBitsOf(vectorIndex.quantization),
+    files,
+    graphParts,
+    resolvePartition,
+  })
+  if (field === null) return false
+  vectorIndex.openColdField(field, async (beginRestore, stillWanted) => {
+    await waitBeforeColdLoad()
+    if (!stillWanted()) return
+    const graph = await readGraphParts(store, ref)
+    if (!stillWanted()) return
+    const restore = beginRestore({ liveVectors: liveVectorsOf(ref), holdsGraph: true, graph })
+    await loadFilesByParts(files, restore, ref.fieldPath, vectorIndex.dimension, stillWanted)
+  })
+  return true
+}
+
 export async function loadVectorField(
   store: CheckpointStore,
   ref: VectorFieldRef,
   vectorIndex: VectorIndex,
+  resolvePartition: ((docId: string) => number | undefined) | null = null,
 ): Promise<void> {
+  if (resolvePartition !== null && (await loadFieldOnDemand(store, ref, vectorIndex, resolvePartition))) return
   const restore = vectorIndex.restoreCheckpoint({
     liveVectors: liveVectorsOf(ref),
     holdsGraph: ref.graphParts.length > 0,

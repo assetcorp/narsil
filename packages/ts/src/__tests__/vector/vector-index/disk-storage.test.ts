@@ -2,16 +2,14 @@ import { mkdtemp, open, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { MessageChannel, receiveMessageOnPort } from 'node:worker_threads'
-import { decode, encode } from '@msgpack/msgpack'
+import { encode } from '@msgpack/msgpack'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createNarsil } from '../../../narsil'
 import { createDurableDirectory } from '../../../persistence/durability/durable-filesystem'
-import { unpackEnvelopeBytes } from '../../../serialization/envelope'
 import { HEADER_SIZE } from '../../../serialization/header'
 import type { IndexConfig } from '../../../types/schema'
 import type { SharedVectorFieldHandles } from '../../../vector/shared-field/types'
 import { createVectorIndex } from '../../../vector/vector-index'
-import { decodeVectorFilePayload } from '../../../vector/vector-index/checkpoint-payload'
 import { vectorsToBytes } from '../../../vector/vector-index/payload'
 import type { SharedCopyHost } from '../../../vector/vector-index/shared'
 import { createVectorStore } from '../../../vector/vector-store'
@@ -260,10 +258,14 @@ describe('a vector field kept on disk', () => {
     const [key] = (await durable.list('papers/segments/')).filter(name => /\/vec-embedding-[a-z0-9]+-f\d+$/.test(name))
     const bytes = await durable.read(key)
     if (bytes === null) throw new Error('vector file missing')
-    const { header, payloadBytes } = await unpackEnvelopeBytes(bytes)
-    const part = decodeVectorFilePayload(decode(payloadBytes))
-    const position = part.docIds.indexOf('p9')
-    const offset = HEADER_SIZE + header.payloadLength - (part.docIds.length - position) * DIM * 4
+    const original = normalizedVector(DIM, 10)
+    const offset = Buffer.from(bytes).indexOf(Buffer.from(original.buffer, original.byteOffset, original.byteLength))
+    expect(offset).toBeGreaterThan(0)
+    const loadDeadline = Date.now() + 30_000
+    while (reader.vectorMaintenanceStatus('papers').some(status => status.loadingFromFiles)) {
+      if (Date.now() > loadDeadline) throw new Error('The vector field never finished its background load')
+      await new Promise(resolve => setTimeout(resolve, 10))
+    }
     const replaced = new Float32Array([0.5, 0.25, 0.125, 0.0625])
     const handle = await open(await durable.pathOf(key), 'r+')
     await handle.write(new Uint8Array(replaced.buffer), 0, replaced.byteLength, offset)

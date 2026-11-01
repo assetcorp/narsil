@@ -373,6 +373,36 @@ def _dataset_section(track: str, dataset: dict) -> list[str]:
     return lines
 
 
+def _mebibytes(memory: dict | None, key: str) -> str:
+    value = (memory or {}).get(key)
+    return f"{value / 1_048_576:.0f}" if isinstance(value, int) else "n/a"
+
+
+def _restart_section(restarts: list[dict]) -> list[str]:
+    if not restarts:
+        return []
+    lines = [
+        "## First search after a restart",
+        "",
+        "Each engine stops, starts again, and answers one search. The time runs from the container's start to that "
+        "answer. Memory comes from the container's cgroup, read after 25 more searches.",
+        "",
+        "| Engine | Storage | Dataset | Documents | Page cache dropped | First search (s) | Total memory (MiB) "
+        "| Anonymous memory (MiB) |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- |",
+    ]
+    for restart in restarts:
+        memory = restart.get("memory_after_searches")
+        dropped = "yes" if restart.get("page_cache_dropped") else "no"
+        lines.append(
+            f"| {restart['engine']} | {restart['storage']} | {restart['dataset_id']} | {restart['documents']} "
+            f"| {dropped} | {restart['first_search_seconds']:.3f} | {_mebibytes(memory, 'total_bytes')} "
+            f"| {_mebibytes(memory, 'anonymous_bytes')} |"
+        )
+    lines.append("")
+    return lines
+
+
 def render_comparison_markdown(comparison: dict) -> str:
     profile = comparison.get("profile", EQUAL_PRECISION)
     profile_title = _PROFILE_TITLES.get(profile, profile)
@@ -384,4 +414,5 @@ def render_comparison_markdown(comparison: dict) -> str:
         lines.append("")
         for dataset in track["datasets"]:
             lines.extend(_dataset_section(track["track"], dataset))
+    lines.extend(_restart_section(comparison.get("restarts") or []))
     return "\n".join(lines)

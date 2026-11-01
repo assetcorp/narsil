@@ -71,6 +71,15 @@ names the method per engine.
   and the recorded value together so the number in the results always matches what
   was enforced. Engines run one at a time, so the cap never contends and latency
   compares directly. At the small corpus sizes no engine approaches the cap.
+- After its tracks, each engine loads the last selected dataset again, stops, and
+  starts. The comparison reports the time from the container's start to the first
+  answered search, and the memory that the container's cgroup reports. The harness
+  drops the page cache first when `sudo -n` allows it, and the table says whether it
+  did. Set `BENCH_RESTART_PROBE=0` to skip this step.
+- `storage` under `[engines.narsil]` in `config/benchmark.toml`, or
+  `BENCH_NARSIL_STORAGE`, sets where a Narsil index reads its text and vectors from,
+  `memory` by default or `disk`. The harness waits for a checkpoint of each Narsil
+  index before it measures.
 - One run-file ordering rule applies to every engine. `trec_eval` ignores the rank
   column, re-sorts hits by score, and breaks equal-score ties by document id in
   reverse-lexical order, which can reshuffle a ranking and change nDCG. The harness

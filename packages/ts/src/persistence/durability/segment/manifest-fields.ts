@@ -35,5 +35,18 @@ export function readFileRef(raw: Record<string, unknown>, expectedKey: string, w
     invalidManifest(`gives the ${what} "${expectedKey}" an invalid length`, { key: expectedKey, bytes })
   }
   if (!isUint32(raw.checksum)) invalidManifest(`gives the ${what} "${expectedKey}" an invalid checksum`)
-  return { key: expectedKey, bytes, checksum: raw.checksum }
+  if (raw.headOffset === undefined) return { key: expectedKey, bytes, checksum: raw.checksum }
+  const { headOffset, headLength, headChecksum } = raw
+  if (!isSequenceNumber(headOffset) || !isUint32(headLength) || !isUint32(headChecksum)) {
+    invalidManifest(`gives the ${what} "${expectedKey}" an invalid head`, { key: expectedKey })
+  }
+  if (headOffset + headLength > bytes - HEADER_SIZE) {
+    invalidManifest(`ends the head of the ${what} "${expectedKey}" outside its payload`, {
+      key: expectedKey,
+      headOffset,
+      headLength,
+      bytes,
+    })
+  }
+  return { key: expectedKey, bytes, checksum: raw.checksum, headOffset, headLength, headChecksum }
 }

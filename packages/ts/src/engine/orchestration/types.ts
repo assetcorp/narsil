@@ -12,7 +12,7 @@ import type { VectorWorkerCopyPolicy } from '../../vector/vector-index/shared'
 import type { DirectExecutorExtensions } from '../../workers/direct-executor'
 import type { Executor } from '../../workers/executor'
 import type { WorkerPool } from '../../workers/pool'
-import type { WorkerAction } from '../../workers/protocol'
+import type { DiskAdoptionAction, WorkerAction } from '../../workers/protocol'
 import type { BuiltSegment, SegmentBuildRequest } from './segments'
 
 export interface RequestThreadListener {
@@ -26,6 +26,7 @@ export interface WorkerOrchestrator {
   scaleOutBeforeBatch(indexName: string, incomingCount: number): Promise<void>
   replicateToWorkers(action: WorkerAction): Promise<void>
   awaitReplication(indexName?: string): Promise<void>
+  queueDiskAdoption(action: DiskAdoptionAction): void
   awaitWrites(indexName: string): Promise<void>
   awaitCompactions(): Promise<void>
   openIndex(indexName: string): Promise<void>

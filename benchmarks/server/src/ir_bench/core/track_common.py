@@ -39,6 +39,12 @@ def bulk_load_end(driver, index: str, spec) -> None:
         best_effort(lambda: hook(index), "bulk-load restore")
 
 
+def wait_for_checkpoint(driver, index: str) -> None:
+    hook = getattr(driver, "wait_for_checkpoint", None)
+    if hook is not None:
+        hook(index)
+
+
 def server_setup(driver) -> dict | None:
     hook = getattr(driver, "server_setup", None)
     if hook is None:

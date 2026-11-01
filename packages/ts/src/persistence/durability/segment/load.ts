@@ -76,7 +76,12 @@ export async function loadSegmentedCheckpoint(
   for (const vector of manifest.vectors) {
     const vectorIndex = deps.vectorIndexes.get(vector.fieldPath)
     if (vectorIndex === undefined) continue
-    await loadVectorField(store, vector, vectorIndex)
+    await loadVectorField(
+      store,
+      vector,
+      vectorIndex,
+      decodesEveryDocument ? null : docId => deps.manager.partitionIdOf(docId),
+    )
   }
 
   return manifest.checkpoint

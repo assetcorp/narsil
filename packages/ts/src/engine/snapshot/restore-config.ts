@@ -23,6 +23,7 @@ export interface SnapshotEnvelope {
   partitionConfig?: unknown
   defaultScoring?: unknown
   trackPositions?: unknown
+  textStorage?: unknown
   strict?: unknown
   required?: unknown
   vectorPromotion?: unknown
@@ -42,6 +43,7 @@ export type ConfigFieldSource = Pick<
   | 'surfaceForms'
   | 'defaultScoring'
   | 'trackPositions'
+  | 'textStorage'
   | 'strict'
   | 'required'
   | 'vectorPromotion'
@@ -243,6 +245,10 @@ export function readSharedConfigFields(source: ConfigFieldSource, reject: Config
   const surfaceForms = restoredBoolean(source.surfaceForms, 'surfaceForms', reject)
   const defaultScoring = restoredScoring(source.defaultScoring, reject)
   const trackPositions = restoredBoolean(source.trackPositions, 'trackPositions', reject)
+  const { textStorage } = source
+  if (textStorage !== undefined && textStorage !== 'memory' && textStorage !== 'disk') {
+    reject("textStorage must be 'memory' or 'disk'")
+  }
   const strict = restoredBoolean(source.strict, 'strict', reject)
   const required = restoredRequired(source.required, reject)
   const vectorPromotion = restoredVectorPromotion(source.vectorPromotion, reject)
@@ -257,6 +263,7 @@ export function readSharedConfigFields(source: ConfigFieldSource, reject: Config
     ...(surfaceForms !== undefined ? { surfaceForms } : {}),
     ...(defaultScoring !== undefined ? { defaultScoring } : {}),
     ...(trackPositions !== undefined ? { trackPositions } : {}),
+    ...(textStorage === 'memory' || textStorage === 'disk' ? { textStorage } : {}),
     ...(strict !== undefined ? { strict } : {}),
     ...(required !== undefined ? { required } : {}),
     ...(vectorPromotion !== undefined ? { vectorPromotion } : {}),

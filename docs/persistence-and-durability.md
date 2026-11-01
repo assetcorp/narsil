@@ -69,7 +69,31 @@ A checkpoint writes what changed since the checkpoint before it: the documents, 
 
 Every file in the format has a limit of 2,147,483,647 bytes, because a single Node.js read call returns at most that many bytes of a file. The engine therefore starts a new document file before the current one would pass the limit. During compaction, it merges fewer files where the merged file would otherwise pass the limit too. Where a checkpoint would still need a larger file, the engine raises `PERSISTENCE_SAVE_FAILED` and writes no new manifest, so the previous checkpoint stays in force.
 
+The engine opens a new log segment as a checkpoint starts, and once the checkpoint commits, it deletes each segment whose records the checkpoint holds, so a restart reads only the records that arrived after the checkpoint. A checkpoint that finds no new writes opens no segment.
+
 `createNarsil` validates every durability field and rejects an invalid value with `CONFIG_INVALID`: an unknown `tier` or `mode` string, a non-finite number, a negative interval, or a size or threshold below 1. An interval of `0` disables that timer.
+
+## Disk-backed search
+
+An index can hold more text than its node has memory for. Set `textStorage` to `'disk'` when you create the index, and set `vectorPromotion.storage` to `'disk'` for any vector field:
+
+```ts
+const narsil = await createNarsil({ durability: { directory: './narsil-data' } })
+
+await narsil.createIndex('articles', {
+  schema: { title: 'string', body: 'string', embedding: 'vector[1536]' },
+  textStorage: 'disk',
+  vectorPromotion: { storage: 'disk' },
+})
+```
+
+The HTTP server, its client, and a cluster take the same `textStorage` field in an index's config. The default is `'memory'`, which leaves an index exactly as it behaves without this setting. An engine without filesystem durability refuses `'disk'` with `CONFIG_INVALID`, because the engine reads the checkpoint's segment files by position.
+
+A checkpoint moves the documents out of memory. Until the next checkpoint, the engine holds each new write in memory and writes it to the log, as it does for any index. Once a checkpoint covers those writes, the engine searches and reads them from the segment files, so you should wait for a checkpoint before you measure the memory of a loaded index. After a restart, the engine reads each segment's resident sections, replays the log above the checkpoint, and answers from the files. Each thread that searches holds a read cache of at most 128 MiB. The engine counts the main thread's cache in the index's memory, along with every structure that it keeps in memory, and `getMemoryStats` includes each worker's cache in that worker's `external` figure. `lifecycle.maxOpenBytes` therefore counts only the memory that the index uses on the main thread, however large its files grow.
+
+The engine checks each block against its checksum when it first reads the block, and it refuses a damaged block with `PERSISTENCE_CRC_MISMATCH` or a file that it can't read with `PERSISTENCE_LOAD_FAILED`, so a search never answers from damaged bytes. It checks a whole segment before it merges that segment, and before it accepts a snapshot archive from outside the engine.
+
+A merge, a partition copy, a rebalance, a text reanalysis, and an export each read the files in small pieces, so none of them holds a whole segment in memory. Compaction merges segments up to 1 GiB. Each worker copy opens the files itself. When a checkpoint replaces a file, the engine waits until every worker copy has moved to the new files and deletes the old file at the next checkpoint, so a running search can still read every file that it holds.
 
 ## Index lifecycle
 

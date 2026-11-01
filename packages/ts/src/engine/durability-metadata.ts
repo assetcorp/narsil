@@ -30,6 +30,7 @@ export interface MetadataConfig {
   partitionLimits?: PartitionConfig
   defaultScoring?: ScoringMode
   trackPositions?: boolean
+  textStorage?: 'memory' | 'disk'
   strict?: boolean
   required?: string[]
   vectorPromotion?: VectorIndexConfig
@@ -93,6 +94,9 @@ export function metadataFromConfig(
   if (config.trackPositions !== undefined) {
     metadata.trackPositions = config.trackPositions
   }
+  if (config.textStorage !== undefined) {
+    metadata.textStorage = config.textStorage
+  }
   if (config.strict !== undefined) {
     metadata.strict = config.strict
   }
@@ -148,6 +152,7 @@ export function metadataConfigOf(entry: IndexRegistryEntry): MetadataConfig {
     ...(entry.config.partitions !== undefined ? { partitionLimits: entry.config.partitions } : {}),
     ...(entry.config.defaultScoring !== undefined ? { defaultScoring: entry.config.defaultScoring } : {}),
     ...(entry.config.trackPositions !== undefined ? { trackPositions: entry.config.trackPositions } : {}),
+    ...(entry.config.textStorage !== undefined ? { textStorage: entry.config.textStorage } : {}),
     ...(entry.config.strict !== undefined ? { strict: entry.config.strict } : {}),
     ...(entry.config.required !== undefined ? { required: entry.config.required } : {}),
     ...(entry.config.vectorPromotion !== undefined ? { vectorPromotion: entry.config.vectorPromotion } : {}),

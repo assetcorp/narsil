@@ -21,6 +21,7 @@ export interface WalWriter {
   appendDurable(entry: ReplicationLogEntry): Promise<void>
   commit(): Promise<void>
   rollToNewSegment(startSeqNo: number): Promise<void>
+  rollForCheckpoint(): Promise<void>
   close(): Promise<void>
   abandon(): Promise<void>
   readonly activeSegmentKey: string | null
@@ -141,16 +142,18 @@ export function createWalWriter(directory: DurableDirectory, config: WalWriterCo
     }
   }
 
-  async function rollToNewSegment(startSeqNo: number): Promise<void> {
-    await withDurabilityLock(async () => {
-      if (handle !== null) {
-        await flushActiveSegment()
-        await handle.close()
-        handle = null
-      }
-      await openSegmentByKey(segmentKey(config.indexName, config.partitionId, startSeqNo))
+  async function rollUnderLock(startSeqNo: number): Promise<void> {
+    if (handle !== null) {
       await flushActiveSegment()
-    })
+      await handle.close()
+      handle = null
+    }
+    await openSegmentByKey(segmentKey(config.indexName, config.partitionId, startSeqNo))
+    await flushActiveSegment()
+  }
+
+  async function rollToNewSegment(startSeqNo: number): Promise<void> {
+    await withDurabilityLock(() => rollUnderLock(startSeqNo))
   }
 
   async function maybeRoll(nextSeqNo: number, appendedBytes: number): Promise<void> {
@@ -245,6 +248,15 @@ export function createWalWriter(directory: DurableDirectory, config: WalWriterCo
     },
 
     rollToNewSegment,
+
+    async rollForCheckpoint(): Promise<void> {
+      await withDurabilityLock(async () => {
+        if (handle === null || activeBytes <= SEGMENT_HEADER_SIZE || highestAppendedSeqNo < activeStartSeqNo) {
+          return
+        }
+        await rollUnderLock(highestAppendedSeqNo + 1)
+      })
+    },
 
     async close(): Promise<void> {
       await withDurabilityLock(async () => {

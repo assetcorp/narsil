@@ -1,6 +1,11 @@
 import type { SerializedSurfaceForms } from '../../../types/internal'
 import type { AnyDocument } from '../../../types/schema'
-import { createSurfaceRegistry, type SurfaceRegistry, type SurfaceRegistryReader } from '../../surface-registry'
+import {
+  createSurfaceRegistry,
+  type SurfaceFormCandidate,
+  type SurfaceRegistry,
+  type SurfaceRegistryReader,
+} from '../../surface-registry'
 import {
   type PartialWordAnalysis,
   visitDocumentSpellings,
@@ -11,6 +16,11 @@ export type TextAnalysis = Omit<PartialWordAnalysis, 'fields'>
 
 export type RemovedSpellings = readonly string[]
 
+export interface SurfaceTableReader {
+  candidatesForPrefix(prefix: string): SurfaceFormCandidate[]
+  heldBytes(): number
+}
+
 export interface FrozenSurfaceDocuments {
   readonly count: number
   readonly textFields: readonly string[]
@@ -19,6 +29,7 @@ export interface FrozenSurfaceDocuments {
 
 export interface FrozenSurfaceSlot {
   readonly reader: SurfaceRegistryReader
+  heldBytes(): number
   holdsAny(): boolean
   holds(spelling: string): boolean
   subtractSpellings(ordinal: number, spellings: RemovedSpellings): void
@@ -50,9 +61,11 @@ function addForms(target: SurfaceRegistry, forms: SerializedSurfaceForms): void 
 export function createFrozenSurfaceSlot(
   load: () => SerializedSurfaceForms | null,
   documents: FrozenSurfaceDocuments,
+  tableOnDisk?: SurfaceTableReader,
 ): FrozenSurfaceSlot {
   let registry: SurfaceRegistry | null = null
   let uncounted: Uint8Array | null = null
+  let table = tableOnDisk
 
   function loaded(): SurfaceRegistry {
     if (registry === null) {
@@ -60,6 +73,7 @@ export function createFrozenSurfaceSlot(
       const forms = load()
       if (forms !== null) built.deserialize(forms)
       registry = built
+      table = undefined
     }
     return registry
   }
@@ -69,8 +83,10 @@ export function createFrozenSurfaceSlot(
   }
 
   return {
+    heldBytes: () => table?.heldBytes() ?? 0,
+
     reader: {
-      candidatesForPrefix: prefix => loaded().candidatesForPrefix(prefix),
+      candidatesForPrefix: prefix => table?.candidatesForPrefix(prefix) ?? loaded().candidatesForPrefix(prefix),
       stemChangedTotalFor: token => loaded().stemChangedTotalFor(token),
       size: () => loaded().size(),
       serialize: () => loaded().serialize(),

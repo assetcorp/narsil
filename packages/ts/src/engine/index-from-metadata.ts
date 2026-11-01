@@ -1,7 +1,7 @@
 import { ErrorCodes, NarsilError } from '../errors'
 import { getLanguage } from '../languages/registry'
 import { validateEmbeddingConfig } from '../schema/embedding-validator'
-import { validateSchema, validateVectorStorage } from '../schema/validator'
+import { validateSchema, validateTextStorage, validateVectorStorage } from '../schema/validator'
 import type { EmbeddingAdapter } from '../types/adapters'
 import type { NarsilConfig } from '../types/config'
 import type { IndexMetadata } from '../types/internal'
@@ -111,6 +111,7 @@ export async function createIndexFromMetadata(
 
   try {
     validateVectorStorage(indexConfig.vectorPromotion, deps.filesystemDurability)
+    validateTextStorage(indexConfig.textStorage, deps.filesystemDurability)
     if (loadData) {
       deps.executor.createIndex(metadata.indexName, indexConfig, language, false, prepared?.lookup ?? null)
     }

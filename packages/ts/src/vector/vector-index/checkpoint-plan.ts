@@ -58,6 +58,7 @@ export interface VectorCheckpointPlan {
   readonly newFiles: number
   readonly graphParts: readonly VectorGraphPartPayload[] | null
   readonly signature: FieldSignature
+  readonly storesHeads: boolean
   readNewFile(index: number): NewVectorFile
 }
 
@@ -325,6 +326,7 @@ export function planCheckpoint(
       return graphPartsToWrite
     },
     signature,
+    storesHeads: state.storage === 'disk',
     readNewFile(index: number): NewVectorFile {
       const start = index * capacity
       const end = start + capacity

@@ -14,6 +14,7 @@ export interface ArchiveCheckpoint {
   readFile(ref: FileRef): Promise<Uint8Array>
   readRange(ref: FileRef, offset: number, length: number): Promise<Uint8Array>
   release(): void
+  directory?: DurableDirectory
 }
 
 export interface ArchiveCheckpointAccess {
@@ -91,6 +92,7 @@ export function createArchiveCheckpointAccess(deps: ArchiveCheckpointDeps): Arch
             return whole.slice(offset, offset + length)
           },
           release,
+          directory: deps.directory,
         }
       } catch (error) {
         release()

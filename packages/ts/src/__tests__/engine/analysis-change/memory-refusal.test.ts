@@ -19,7 +19,7 @@ function runChild(): Promise<ChildOutcome> {
   return new Promise((resolve, reject) => {
     execFile(
       process.execPath,
-      [`--max-old-space-size=${HEAP_MEGABYTES}`, CHILD_SCRIPT],
+      [`--max-old-space-size=${HEAP_MEGABYTES}`, CHILD_SCRIPT, String(HEAP_MEGABYTES)],
       { timeout: 120_000 },
       (error, stdout, stderr) => {
         if (error !== null) {

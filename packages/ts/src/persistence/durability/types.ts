@@ -6,7 +6,9 @@ import type { DurabilityConfig } from '../../types/config'
 import type { IndexMetadata } from '../../types/internal'
 import type { HeldCheckpointReport } from '../../types/memory'
 import type { VectorIndex } from '../../vector/vector-index'
+import type { DiskAdoptionAction } from '../../workers/protocol'
 import type { ArchiveCheckpoint } from './archive-checkpoint'
+import type { DurableDirectory } from './durable-filesystem'
 import type { LayoutUpgradeEvent } from './earlier-layout/upgrade'
 import type { PartitionCheckpoint, TermStart } from './partition-checkpoint'
 import type { PartitionRegistry } from './partition-registry'
@@ -17,6 +19,13 @@ export type { DurabilityConfig, TermStart }
 export interface WriteRecordKeeper {
   resetPartition(indexName: string, partitionId: number): void
   loadSegment(indexName: string, partitionId: number, segment: FrozenSegment, contents: KeywordSegmentContents): void
+  loadPagedSegment(indexName: string, partitionId: number, segment: FrozenSegment): void
+  adoptPagedSegments(
+    indexName: string,
+    partitionId: number,
+    segments: readonly FrozenSegment[],
+    changed: ReadonlySet<string>,
+  ): void
   replayed(entry: ReplicationLogEntry): void
   captureSegments(
     indexName: string,
@@ -36,6 +45,8 @@ export interface IndexDurabilityHooks {
   buildTermsMetadata(indexName: string): IndexMetadata | undefined
   mustRewriteTerms(indexName: string): boolean
   onManifestCommitted(indexName: string, analysisGeneration: number): void
+  queueDiskAdoption?(action: DiskAdoptionAction): void
+  awaitCopiesOfIndex?(indexName: string): Promise<void>
   createIndexFromMetadata(metadata: IndexMetadata, loadData: boolean): Promise<void>
   recordCheckpoint?(indexName: string, documentCount: number, partitionCount: number): void
   onLayoutUpgrade?(event: LayoutUpgradeEvent): void
@@ -81,6 +92,7 @@ export interface DurabilityManager {
   commitPartition?(indexName: string, partitionId: number): Promise<void>
   isolatePartitionFailures?(onFailed: PartitionFailureHandler): void
   keepWriteRecordsWith?(keeper: WriteRecordKeeper): void
+  rewriteStorage?(): { directory: DurableDirectory; writeRecords: WriteRecordKeeper | null }
   heldCheckpoints?(): HeldCheckpointReport[]
   /** Writes the index metadata. Each index takes its writes in turn, so a caller that built its metadata earlier
    * never renames over a later one. */

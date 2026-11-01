@@ -76,6 +76,8 @@ A node must hold its write-ahead log directory alone, so that no two processes a
 - A node that fails after it creates the file and before it finishes starting must delete the file.
 - The node must delete `.narsil.lock` on a clean shutdown, and only while the file still contains its own token.
 
+A node must keep a file on disk while any reader holds the file open, on any worker thread, and it must delete the file at the first checkpoint after the last reader closes it.
+
 The node must record the directory's device and inode numbers once the directory exists. It must compare them with the directory on disk, and read the token in `.narsil.lock`, before it acknowledges a `sync` write, before each checkpoint, and at an interval that should be no longer than one second. A missing directory, a directory with other numbers, and a lock file with another token are fatal: the node raises `PERSISTENCE_SAVE_FAILED`, acknowledges no later write, and reports the failure on its durability error channel.
 
 A checkpoint that fails with an error of the host filesystem is fatal in the same way, and the node must report it as `PERSISTENCE_SAVE_FAILED` carrying the host error as its cause.
@@ -255,14 +257,24 @@ VectorFileRef {
   dead:     bytes or nil   (one bit per vector, nil while every vector is live)
   bytes:    uint64         (the length of the file, header included)
   checksum: uint32         (the checksum in the file's header)
+  headOffset:   uint64 or absent   (where head starts in the payload)
+  headLength:   uint32 or absent
+  headChecksum: uint32 or absent   (the CRC32 of head)
 }
 
 FileRef {
   key:      string
   bytes:    uint64   (the length of the file, header included)
   checksum: uint32   (the checksum in the file's header)
+  headOffset:   uint64 or absent   (where head starts in the payload)
+  headLength:   uint32 or absent
+  headChecksum: uint32 or absent   (the CRC32 of head)
 }
 ```
+
+A writer must store all three for a field whose `storage` is `disk`. A reader must read `head` and compare it with `headChecksum` when it opens the file, and a mismatch raises `PERSISTENCE_CRC_MISMATCH`. It must raise `PERSISTENCE_LOAD_FAILED` for a head that ends outside the payload, before it allocates memory for the head, and for a section that overlaps another section or ends outside the payload. A reader that finds no `headOffset` must read the file whole once and check it against the header before it reads the file by position.
+
+A reader must check each page against its section's `checksums` the first time it reads the page from the disk, and a mismatch raises `PERSISTENCE_CRC_MISMATCH`.
 
 `checkpoint` records, for each partition, the highest `seqNo` that the checkpoint holds, so recovery must replay each partition's log from its `lastSeqNo + 1`.
 
@@ -282,7 +294,7 @@ Vector `i` of a file is dead when bit `i mod 8` of byte `floor(i / 8)` of `dead`
 4. A writer may replace a listed vector file by writing its live vectors into new vector files, and the new manifest must then omit the replaced file. The new files must also hold each dead vector of the replaced file that the graph parts of step 5 hold a node for, which the new manifest must mark dead. A writer should replace a file whose share of dead vectors without a node in those graph parts exceeds 0.2. A writer that recalibrates a field must replace every vector file of the field, so that every listed file holds its codes under one centroid.
 5. When a field holds a graph, write the graph whole as the graph parts of the field's next graph generation. The parts must number their vectors by the new manifest's `files`, and they must hold a node for a dead vector only where the field's graph holds that vector as a tombstone.
 6. A writer may take a field's vectors, graph, and codes from the vector index that it searches through. The vector files and the graph parts may then hold the effect of a log record above a partition's `lastSeqNo`, provided that the record is durable before step 8, because recovery replays that record over them.
-7. When a partition's segment count exceeds the compaction threshold, 12 by default, merge adjacent segments of its list into one segment under the next segment id, so that the count returns to the threshold. The manifest must list the merged segment in the place of the segments that it replaces. A writer must merge fewer segments, or none, where the merged segment's file would pass the [file size](envelope.md#file-size) limit, and it may merge fewer for any other reason, such as to bound the memory that it uses during the merge.
+7. When a partition's segment count exceeds the compaction threshold, 12 by default, merge adjacent segments of its list into one segment under the next segment id, so that the count returns to the threshold. The manifest must list the merged segment in the place of the segments that it replaces. A writer must merge fewer segments, or none, where the merged segment's file would pass the [file size](envelope.md#file-size) limit, and it may merge fewer for any other reason, such as to bound the memory that it uses during the merge. A writer of a `disk` index must merge by reading its source segments in parts, and it must write the merged segment as it goes, so that it holds no whole segment in memory. It must end a merged segment before the segment's file would pass 1,073,741,824 bytes, in place of any limit on its document count.
 8. Write the manifest over `<indexName>/manifest` with an [atomic write](#atomic-write). The manifest write is the commit point, so a crash before it leaves the previous manifest in force and the new files unreferenced.
 9. Once the manifest is durable, delete every key that the previous manifest references and the new one does not.
 
@@ -343,6 +355,8 @@ With persistence configured and no lifecycle settings, a node must recover on st
 3. After replay the index serves reads and writes, and each partition continues from the highest replayed `seqNo` plus one.
 
 With lifecycle settings configured, a node must load each persisted index's metadata on startup, register the index closed, and defer snapshot and log recovery until the first operation names the index; it must finish recovery before the operation accesses index data.
+
+A node that opens a `disk` index must read the manifest, the resident sections, the head of each vector file and graph part, the magnitudes, the levels, and the node offsets. It must replay the log before it serves the index, as for any other index.
 
 Corruption is handled by kind:
 
@@ -411,11 +425,11 @@ An archive must use the pax interchange format that POSIX.1-2008 defines for the
 
 A writer must write each entry as a regular file. Where the ustar `name` and `prefix` fields cannot hold an entry's name, the writer must precede the entry with a pax extended header that holds a `path` record. A reader must accept those two entry types alone. It must raise `PERSISTENCE_LOAD_FAILED` for any other entry type, for an entry out of the order above, for a later entry whose name the manifest does not list or that appears twice, for an entry whose length or checksum differs from the manifest, and for an archive that ends before it holds every file that the manifest lists. It must compare each entry's length with the manifest, or with the [file size](envelope.md#file-size) limit for `config` and `manifest`, before it reads the entry, so that no entry can make it allocate more than that limit.
 
-A node with write-ahead log durability must take a checkpoint before it writes the archive of an index, and the archive must hold that checkpoint. The node must keep every file of that checkpoint until it finishes writing the archive or the caller abandons the archive, even after a later checkpoint stops listing those files. A node without write-ahead log durability, and a node that writes the archive of one partition, must build the archive's files from the index in memory while it applies no mutation to the content that the archive holds.
+A node with write-ahead log durability must take a checkpoint before it writes the archive of an index, and the archive must hold that checkpoint. The node must keep every file of that checkpoint until it finishes writing the archive or the caller abandons the archive, even after a later checkpoint stops listing those files. A node without write-ahead log durability, and a node that writes the archive of one partition of a `memory` index, must build the archive's files from the index in memory while it applies no mutation to the content that the archive holds. A node that writes the archive of one partition of a `disk` index must take the partition's segments from its disk, and it must stream them into the archive, so that it loads no whole segment into memory.
 
 The archive of one partition must hold a manifest that lists that partition alone and no graph part, and vector files that hold the vectors of that partition's documents alone. Where a cluster partition copy writes the archive for a sync, the manifest must carry the copy's `termHistory`, and the segments must carry each document's write record, so that the replica that applies the archive can decide a [retry after an ended term](distribution/replication.md#retry-after-an-ended-term) once it becomes the primary.
 
-A node that restores an archive into durable storage must write every other file before it writes the manifest, so that a crash during the restore leaves no manifest that lists a missing file. It must number the first write to each partition after the restore one above the `lastSeqNo` that the manifest records for that partition, because recovery replays only the log records above that number. Every node that restores an archive must decode every document before it serves the index, as the [keyword segment payload](envelope.md#keyword-segment-payload) requires. A replica that applies the archive of a partition must replace its copy of that partition with the archive's segments, must remove from each vector field the vectors of the documents that its copy held, and must insert every vector that the archive holds.
+A node that restores an archive into durable storage must write every other file before it writes the manifest, so that a crash during the restore leaves no manifest that lists a missing file. It must number the first write to each partition after the restore one above the `lastSeqNo` that the manifest records for that partition, because recovery replays only the log records above that number. Every node that restores an archive must decode every document before it serves the index, as the [keyword segment payload](envelope.md#keyword-segment-payload) requires. A replica that applies the archive of a partition must replace its copy of that partition with the archive's segments, must remove from each vector field the vectors of the documents that its copy held, and must insert every vector that the archive holds. A replica that applies the archive of a partition of a `disk` index must write the archive's segments to its disk as it receives them, and it must check each segment in full before it serves the segment.
 
 ### Replacing an Index by Restore
 

@@ -9,6 +9,7 @@ export interface CheckpointStore {
   list(prefix: string): Promise<string[]>
   byteLength?(key: string): Promise<number | null>
   pathOf?(key: string): Promise<string>
+  directory?: DurableDirectory
 }
 
 export function directoryCheckpointStore(directory: DurableDirectory): CheckpointStore {
@@ -18,6 +19,7 @@ export function directoryCheckpointStore(directory: DurableDirectory): Checkpoin
     remove: key => directory.remove(key),
     list: prefix => directory.list(prefix),
     pathOf: key => directory.pathOf(key),
+    directory,
   }
   const byteLength = directory.byteLength
   if (byteLength !== undefined) store.byteLength = key => byteLength.call(directory, key)

@@ -25,7 +25,7 @@ import { buildMutationEntry } from './mutation-entry'
 import { createPartitionFailureRouting } from './partition-failure'
 import { createPartitionRegistry } from './partition-registry'
 import { recoverPersistedIndex } from './recover-index'
-import { listPersistedIndexes } from './recovery'
+import { listPersistedIndexes, removeLeftoverRewriteFiles } from './recovery'
 import { recoverDirectoryRestores } from './restore-directory'
 import type {
   CommitDeferral,
@@ -254,6 +254,7 @@ export function createDurabilityManager(
       await directoryWatch.claim()
       await recoverDirectoryRestores(directory)
       const names = await listPersistedIndexes(directory)
+      await removeLeftoverRewriteFiles(directory, names)
       for (const indexName of names) {
         await recoverIndex(indexName, metadataOnly, false)
       }
@@ -282,6 +283,7 @@ export function createDurabilityManager(
     keepWriteRecordsWith(keeper) {
       hooks.writeRecords = keeper
     },
+    rewriteStorage: () => ({ directory, writeRecords: hooks.writeRecords ?? null }),
     heldCheckpoints: () => heldCheckpoints.report(indexes),
 
     async commitPartition(indexName: string, partitionId: number): Promise<void> {

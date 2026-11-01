@@ -1,5 +1,6 @@
 import { INDEX_NAME_PATTERN, MAX_INDEX_NAME_LENGTH } from '../../engine/constants'
 import { ErrorCodes, NarsilError } from '../../errors'
+import type { DurableDirectory } from './durable-filesystem'
 import { manifestKey } from './segment/layout'
 import { manifestFileRefs } from './segment/manifest'
 import { decodeSegmentManifest } from './segment/manifest-decode'
@@ -21,6 +22,7 @@ export interface RestoreStorage {
   moveTree?(from: string, to: string): Promise<void>
   removeTree?(prefix: string): Promise<void>
   pathOf?(key: string): Promise<string>
+  directory?: DurableDirectory
 }
 
 function digestOf(indexName: string): string {

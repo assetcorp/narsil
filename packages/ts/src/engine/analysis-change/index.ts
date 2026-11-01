@@ -1,6 +1,7 @@
 import { ARRAY_POSITION_GAP } from '../../core/constants'
 import { ErrorCodes, NarsilError } from '../../errors'
 import { rebuildTextIndexes, textRebuildTargetOf } from '../../partitioning/text-rebuild'
+import type { RewriteSpill } from '../../persistence/paged/rewrite-spill'
 import type { AnalysisChange } from '../../types/analysis-operations'
 import type { NamedAnalysisSettings, PendingAnalysisMetadata } from '../../types/internal'
 import type { EngineCore, IndexRegistryEntry } from '../core'
@@ -97,10 +98,15 @@ async function buildAndSwitch(scope: ChangeScope): Promise<void> {
   const wasPromoted = core.orchestrator.desyncIndex(indexName)
   try {
     const durable = core.durability?.manager
+    let spill: RewriteSpill | null = null
     const rebuilt = await rebuildTextIndexes(
       manager,
       {
         isCurrent,
+        rewriteStorage: () => durable?.rewriteStorage?.(),
+        onRewriteSpill(kept) {
+          spill = kept
+        },
         onPartitionBuilt(built) {
           partitionsRebuilt = built
         },
@@ -118,6 +124,7 @@ async function buildAndSwitch(scope: ChangeScope): Promise<void> {
       textRebuildTargetOf(run.target.config, run.target.language, run.target.analysis),
     )
     if (!rebuilt) throw run.stopReason ?? stoppedError(core, indexName)
+    await (spill as RewriteSpill | null)?.removeUnread(manager)
     if (entry.durableAnalysis !== null) {
       throw new NarsilError(
         ErrorCodes.PERSISTENCE_SAVE_FAILED,
@@ -207,6 +214,7 @@ async function driveRun(
   }
 }
 
+export { executeRebalance } from '../rebalance-executor'
 export { adoptSavedAnalysis } from './adopt-saved'
 
 export async function changeIndexAnalysis(core: EngineCore, indexName: string, change: AnalysisChange): Promise<void> {
