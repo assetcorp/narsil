@@ -16,6 +16,11 @@ const ARRAY32 = 0xdd
 const FIXMAP = 0x80
 const FIXARRAY = 0x90
 const FIXED_LIST_MAX = 15
+const FIXSTR = 0xa0
+const FIXSTR_MAX_LENGTH = 31
+const ASCII_MAX = 0x7f
+const UTF8_MAX_BYTES_PER_UNIT = 3
+const STRING_HEADER_MAX_BYTES = 5
 const BIN8_MAX_BYTES = 0xff
 const UINT16_MAX = 0xffff
 
@@ -99,20 +104,37 @@ function uint32Bytes(values: Uint32Array): Uint8Array {
   return bytes
 }
 
+function writtenAsShortAscii(docId: string, list: Uint8Array, at: number): boolean {
+  if (docId.length > FIXSTR_MAX_LENGTH) return false
+  for (let unit = 0; unit < docId.length; unit++) {
+    const code = docId.charCodeAt(unit)
+    if (code > ASCII_MAX) return false
+    list[at + 1 + unit] = code
+  }
+  list[at] = FIXSTR | docId.length
+  return true
+}
+
 function encodedIdList(docIds: readonly string[]): { list: Uint8Array; offsets: Uint32Array } {
   const header = arrayHeader(docIds.length)
-  const entries = docIds.map(docId => encode(docId))
+  let capacity = header.byteLength
+  for (const docId of docIds) capacity += docId.length * UTF8_MAX_BYTES_PER_UNIT + STRING_HEADER_MAX_BYTES
+  const list = new Uint8Array(capacity)
+  list.set(header)
   const offsets = new Uint32Array(docIds.length + 1)
   let cursor = header.byteLength
-  for (let i = 0; i < entries.length; i++) {
+  for (let i = 0; i < docIds.length; i++) {
     offsets[i] = cursor
-    cursor += entries[i].byteLength
+    if (writtenAsShortAscii(docIds[i], list, cursor)) {
+      cursor += docIds[i].length + 1
+      continue
+    }
+    const encoded = encode(docIds[i])
+    list.set(encoded, cursor)
+    cursor += encoded.byteLength
   }
-  offsets[entries.length] = cursor
-  const list = new Uint8Array(cursor)
-  list.set(header)
-  for (let i = 0; i < entries.length; i++) list.set(entries[i], offsets[i])
-  return { list, offsets }
+  offsets[docIds.length] = cursor
+  return { list: list.subarray(0, cursor), offsets }
 }
 
 function positionsInIdOrder(docIds: readonly string[]): Uint32Array {
