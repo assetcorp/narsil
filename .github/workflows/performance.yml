@@ -138,7 +138,7 @@ jobs:
 
       - name: Run the benchmarks under CodSpeed's CPU simulation
         if: ${{ !cancelled() }}
-        uses: CodSpeedHQ/action@c4fd08a3a159bd0cc208da1e0edf32b8c47d75e5 # v5.4.0
+        uses: CodSpeedHQ/action@78102a468f96d8e0ccb92d0ec49425753fc42062 # v5.6.0
         with:
           mode: simulation
           working-directory: benchmarks/in-process
