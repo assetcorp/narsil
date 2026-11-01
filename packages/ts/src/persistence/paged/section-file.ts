@@ -16,28 +16,36 @@ export interface PagedFile {
   path: string
   readonly fileNumber: number
   readonly cache: ReadCache
+  closed: boolean
 }
 
 const readersOfPath = new Map<string, number>()
 
 export function openPagedFile(path: string, cache: ReadCache): PagedFile {
   readersOfPath.set(path, (readersOfPath.get(path) ?? 0) + 1)
-  return { path, fileNumber: cache.fileNumber(), cache }
+  return { path, fileNumber: cache.fileNumber(), cache, closed: false }
+}
+
+function stopReadingPath(path: string): void {
+  const readers = (readersOfPath.get(path) ?? 1) - 1
+  if (readers > 0) {
+    readersOfPath.set(path, readers)
+    return
+  }
+  readersOfPath.delete(path)
+  fileReaderOfThisThread().retainOnly(new Set(readersOfPath.keys()))
 }
 
 export function closePagedFile(file: PagedFile): void {
-  const readers = (readersOfPath.get(file.path) ?? 1) - 1
-  if (readers > 0) {
-    readersOfPath.set(file.path, readers)
-    return
-  }
-  readersOfPath.delete(file.path)
-  fileReaderOfThisThread().retainOnly(new Set(readersOfPath.keys()))
+  if (file.closed) return
+  file.closed = true
+  file.cache.releaseFile(file.fileNumber)
+  stopReadingPath(file.path)
 }
 
 export function relocatePagedFile(file: PagedFile, path: string): void {
   if (path === file.path) return
-  closePagedFile(file)
+  stopReadingPath(file.path)
   readersOfPath.set(path, (readersOfPath.get(path) ?? 0) + 1)
   file.path = path
 }
@@ -97,7 +105,7 @@ export function createSectionReader(file: PagedFile, section: FileSection): Sect
     const bytes = new Uint8Array(Math.min(pageBytes, length - page * pageBytes))
     if (!(await fileReaderOfThisThread().readLater(file.path, entry, bytes))) unreadable(file.path, entry, bytes)
     requirePageChecksum(file.path, section, page, bytes)
-    file.cache.put(file.fileNumber, CACHED_PAGE, entry, bytes, bytes.byteLength)
+    if (!file.closed) file.cache.put(file.fileNumber, CACHED_PAGE, entry, bytes, bytes.byteLength)
   }
 
   function requireInside(position: number, size: number): void {
@@ -158,6 +166,22 @@ export function createSectionReader(file: PagedFile, section: FileSection): Sect
       read(0, target)
       return target
     },
+  }
+}
+
+export async function checkEverySectionPage(
+  path: string,
+  section: FileSection,
+  stillWanted: () => boolean,
+): Promise<void> {
+  const reader = fileReaderOfThisThread()
+  const start = HEADER_SIZE + section.offset
+  for (let page = 0; page * section.pageBytes < section.length; page++) {
+    if (!stillWanted()) return
+    const from = page * section.pageBytes
+    const bytes = new Uint8Array(Math.min(section.pageBytes, section.length - from))
+    if (!(await reader.readLater(path, start + from, bytes))) unreadable(path, start + from, bytes)
+    requirePageChecksum(path, section, page, bytes)
   }
 }
 

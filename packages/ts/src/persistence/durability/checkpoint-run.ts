@@ -224,9 +224,13 @@ async function finishBoundedCheckpoint(
       : new Set<string>()
   if (!input.holdsCheckpointFiles()) {
     const removable = await garbageThatNoFieldStillReads(store, vectorIndexes, written.garbage)
+    const stillRead =
+      metadata.textStorage === 'disk'
+        ? (await import('../paged/module')).keysThatSegmentsStillRead(manager)
+        : new Set<string>()
     await removeCheckpointGarbage(
       store,
-      removable.filter(key => !droppedThisCheckpoint.has(key)),
+      removable.filter(key => !droppedThisCheckpoint.has(key) && !stillRead.has(key)),
     )
   }
   const checkpointDocumentCount = documentCount

@@ -3,6 +3,7 @@ export {
   actionPartitionsOf,
   adoptSegmentsOnWorker,
   closeUnusedSegments,
+  keysThatSegmentsStillRead,
   prepareDiskAdoption,
   swapPreparedPartitions,
 } from './adopt'

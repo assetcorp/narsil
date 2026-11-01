@@ -1,7 +1,8 @@
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { ErrorCodes } from '../../../errors'
 import { createNarsil } from '../../../narsil'
 import type { Narsil } from '../../../types/engine'
 import type { IndexConfig } from '../../../types/schema'
@@ -14,6 +15,7 @@ const TOP = 10
 const MIN_RECALL = 0.8
 const LOAD_WAIT_LIMIT_MS = 60_000
 const LOAD_POLL_MS = 5
+const LOAD_FAILURE_WAIT_MS = 3_000
 
 const PASSAGE_CONFIG: IndexConfig = {
   schema: { title: 'string', group: 'enum', embedding: `vector[${DIMENSION}]` },
@@ -186,5 +188,33 @@ describe('a vector field of an index with its text on disk', () => {
     const found = await nearest(query, 'rare')
     for (const id of found) expect(oracle.get(id)?.group).toBe('rare')
     expectCloseTo(found, nearestInOracle(oracle, query, 'rare'))
+  }, 120_000)
+
+  it('refuses a damaged vector for as long as the index stays open', async () => {
+    const oracle = new Map<string, Passage>()
+    await fill(oracle, seededRandom(951))
+    await engine.shutdown()
+
+    const damagedId = 'passage-3000'
+    const wanted = Float32Array.from(oracle.get(damagedId)?.embedding ?? [])
+    const wantedBytes = Buffer.from(wanted.buffer, wanted.byteOffset, wanted.byteLength)
+    let damaged = false
+    for (const entry of await readdir(root, { recursive: true, withFileTypes: true })) {
+      if (!entry.isFile() || !/\/vec-embedding-[a-z0-9]+-f\d+$/.test(join(entry.parentPath, entry.name))) continue
+      const path = join(entry.parentPath, entry.name)
+      const held = await readFile(path)
+      const at = held.indexOf(wantedBytes)
+      if (at < 0) continue
+      held[at] ^= 0x5a
+      await writeFile(path, held)
+      damaged = true
+    }
+    expect(damaged).toBe(true)
+
+    await open()
+    await expect(engine.get(INDEX, damagedId)).rejects.toMatchObject({ code: ErrorCodes.PERSISTENCE_CRC_MISMATCH })
+    await new Promise(resolve => setTimeout(resolve, LOAD_FAILURE_WAIT_MS))
+    expect(isLoading()).toBe(true)
+    await expect(engine.get(INDEX, damagedId)).rejects.toMatchObject({ code: ErrorCodes.PERSISTENCE_CRC_MISMATCH })
   }, 120_000)
 })

@@ -2,7 +2,7 @@ import type { FrozenSegment } from '../../core/partition/frozen'
 import type { DurableDirectory } from '../durability/durable-filesystem'
 import type { SegmentRef } from '../durability/segment/manifest'
 import { MERGE_READ_CACHE_BYTES } from './constants'
-import { sectionNamed } from './format'
+import { loadFailed, sectionNamed } from './format'
 import { createPagedIdTable } from './ids'
 import { createReadCache } from './read-cache'
 import { readIdSampleOf, readPagedHead } from './resident'
@@ -40,7 +40,7 @@ export async function pagedTombstonesFor(
       try {
         const reader = (name: string) => {
           const section = sectionNamed(head.sections, name)
-          if (section === undefined) throw new Error(`The segment "${ref.key}" holds no section "${name}"`)
+          if (section === undefined) loadFailed(`The segment "${ref.key}" holds no section "${name}"`)
           return createSectionReader(file, section)
         }
         const table = createPagedIdTable(
