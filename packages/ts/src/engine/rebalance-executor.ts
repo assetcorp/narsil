@@ -1,6 +1,6 @@
 import { ErrorCodes, NarsilError } from '../errors'
 import type { PartitionManager } from '../partitioning/manager'
-import type { Rebalancer } from '../partitioning/rebalancer'
+import { createRebalancer } from '../partitioning/rebalancer'
 import { rewriteSpillOf } from '../partitioning/rewrite-spill-of'
 import type { PartitionRouter } from '../partitioning/router'
 import { createWriteAheadQueue, type WAQEntry, type WriteAheadQueue } from '../partitioning/write-ahead-queue'
@@ -22,7 +22,6 @@ import {
 } from './vector-coordinator'
 
 export interface RebalanceContext {
-  rebalancer: Rebalancer
   router: PartitionRouter
   waqMap: Map<string, WriteAheadQueue>
   rebalancingIndexes: Set<string>
@@ -250,7 +249,7 @@ export async function executeRebalance(
   try {
     const oldCount = manager.partitionCount
     spill = await rewriteSpillOf(ctx.durabilityManager?.rewriteStorage?.(), manager)
-    await ctx.rebalancer.rebalance(
+    await createRebalancer().rebalance(
       manager,
       targetPartitionCount,
       ctx.router,

@@ -3,7 +3,7 @@ import type { TextAnalysis } from '../../../core/partition/frozen/surface-slot'
 import type { PartialWordAnalysis } from '../../../core/partition/partial-words/spellings'
 import { MAX_FILE_BYTES } from '../../../serialization/constants'
 import type { KeywordSegmentContents, SegmentWriteRecords } from '../../../serialization/keyword-segment/types'
-import { MAX_MERGED_SEGMENT_BYTES, MERGED_SEGMENT_GROWTH_ALLOWANCE } from '../../paged/constants'
+import { MERGED_SEGMENT_GROWTH_ALLOWANCE, MERGED_SEGMENT_TARGET_BYTES } from '../../paged/constants'
 import { COMPACTION_LARGEST_MERGED_DOCUMENT_COUNT, SEGMENT_FILE_FRAMING_SLACK_BYTES } from '../constants'
 import type { SegmentRef } from './manifest'
 import { readSegmentFile } from './segment-file'
@@ -40,7 +40,7 @@ function windowFits(segments: readonly SegmentRef[], start: number, windowLength
     documents += segments[at].docCount
     bytes += segments[at].bytes
   }
-  if (paged) return bytes * MERGED_SEGMENT_GROWTH_ALLOWANCE <= MAX_MERGED_SEGMENT_BYTES
+  if (paged) return bytes * MERGED_SEGMENT_GROWTH_ALLOWANCE <= MERGED_SEGMENT_TARGET_BYTES
   return documents <= COMPACTION_LARGEST_MERGED_DOCUMENT_COUNT && bytes <= MAX_FILE_BYTES
 }
 

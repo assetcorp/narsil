@@ -5,7 +5,7 @@ import type { PagedSegmentSnapshot } from '../../core/partition/frozen/paged-sna
 import type { FrozenPostingViews } from '../../core/partition/frozen/posting-views'
 import type { FrozenTombstones } from '../../core/partition/frozen/tombstones'
 import type { PostingListView } from '../../types/internal'
-import { MAX_LIST_VIEWS_PER_SEGMENT } from './constants'
+import { LIST_VIEWS_HELD_PER_SEGMENT } from './constants'
 import { BLOCK_SUMMARY_BYTES, loadFailed, POSITION_WIDTH_BYTES, POSTING_WIDTH_BYTES } from './format'
 import { CACHED_LIST, CACHED_POSITIONS } from './read-cache'
 import type { PagedFile, SectionReader } from './section-file'
@@ -238,7 +238,7 @@ export function createPagedPostingViews(
     viewAt(payloadSlot: number): PostingListView {
       let view = views.get(payloadSlot)
       if (view === undefined) {
-        if (views.size >= MAX_LIST_VIEWS_PER_SEGMENT) views.clear()
+        if (views.size >= LIST_VIEWS_HELD_PER_SEGMENT) views.clear()
         view = buildView(payloadSlot)
         views.set(payloadSlot, view)
       }

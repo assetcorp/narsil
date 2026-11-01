@@ -63,14 +63,22 @@ export function adapterCheckpointStore(adapter: PersistenceAdapter): CheckpointS
   }
 }
 
+export async function requireListedSize(
+  store: CheckpointStore,
+  key: string,
+  expected: { bytes: number; what: string },
+): Promise<void> {
+  const length = store.byteLength === undefined ? undefined : await store.byteLength(key)
+  if (length === null) missingFile(expected.what, key)
+  if (length !== undefined) requireListedLength(expected.what, key, length, expected.bytes)
+}
+
 export async function readListedFile(
   store: CheckpointStore,
   key: string,
   expected: { bytes: number; what: string },
 ): Promise<Uint8Array> {
-  const length = store.byteLength === undefined ? undefined : await store.byteLength(key)
-  if (length === null) missingFile(expected.what, key)
-  if (length !== undefined) requireListedLength(expected.what, key, length, expected.bytes)
+  await requireListedSize(store, key, expected)
   const bytes = await store.read(key)
   if (bytes === null) missingFile(expected.what, key)
   requireListedLength(expected.what, key, bytes.byteLength, expected.bytes)

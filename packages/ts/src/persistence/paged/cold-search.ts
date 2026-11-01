@@ -11,6 +11,7 @@ import { magnitude } from '../../vector/similarity'
 import type { VectorScoredResult } from '../../vector/vector-index/shared'
 import { computeCodeBlockLayout } from '../../vector/vector-store/code-blocks'
 import { COLD_GRAPH_PART_VECTORS, type ColdFieldData } from './cold-field'
+import { COLD_WALK_NODES_READ_AHEAD } from './constants'
 import { loadFailed } from './format'
 
 export interface ColdSearchOptions {
@@ -103,6 +104,48 @@ interface WalkScope {
   fetchDistanceRows(numbers: readonly number[]): Promise<unknown> | null
 }
 
+function fetchNeighbourLists(data: ColdFieldData, numbers: readonly number[]): Promise<unknown> | null {
+  const reads: Array<Promise<unknown>> = []
+  for (const number of numbers) {
+    const part = data.parts[Math.floor(number / COLD_GRAPH_PART_VECTORS)]
+    const offset = number % COLD_GRAPH_PART_VECTORS
+    const start = part.nodeOffsets[offset]
+    const size = part.nodeOffsets[offset + 1] - start
+    if (size === 0) continue
+    const read = part.neighbours.fetchRows([start], size)
+    if (read !== null) reads.push(read)
+  }
+  return reads.length === 0 ? null : Promise.all(reads)
+}
+
+function unseenNeighbours(scope: WalkScope, numbers: readonly number[], layer: number): number[] {
+  const unseen = new Set<number>()
+  for (const number of numbers) {
+    const list = neighbourList(scope.data, number, layer)
+    for (let at = 0; at < list.count; at++) {
+      const neighbour = list.view.getUint32(list.at + at * 4, true)
+      if (neighbour < scope.data.total && scope.visited[neighbour] === 0) unseen.add(neighbour)
+    }
+  }
+  return [...unseen]
+}
+
+function* readTheWalkAhead(
+  scope: WalkScope,
+  next: number,
+  frontier: MinHeap,
+  layer: number,
+): Generator<Promise<unknown>, void> {
+  const { data } = scope
+  const listOfNext = fetchNeighbourLists(data, [next])
+  const rowsOfNext = listOfNext === null ? scope.fetchDistanceRows(unseenNeighbours(scope, [next], layer)) : null
+  if (listOfNext === null && rowsOfNext === null) return
+  const others = frontier.numbers.slice(0, COLD_WALK_NODES_READ_AHEAD - 1)
+  yield Promise.all([listOfNext, rowsOfNext, fetchNeighbourLists(data, others)])
+  const rows = scope.fetchDistanceRows(unseenNeighbours(scope, [next, ...others], layer))
+  if (rows !== null) yield rows
+}
+
 function* walkLayer(
   scope: WalkScope,
   entries: readonly number[],
@@ -137,17 +180,9 @@ function* walkLayer(
     const next = popMin(frontier)
     if (next === null) break
     if (next.distance > furthest && found.numbers.length >= ef) break
+    if (scope.fetchesRows) yield* readTheWalkAhead(scope, next.number, frontier, layer)
     const list = neighbourList(data, next.number, layer)
     scope.clock?.tick(list.count * data.dimension)
-    if (scope.fetchesRows) {
-      const unseen: number[] = []
-      for (let at = 0; at < list.count; at++) {
-        const neighbour = list.view.getUint32(list.at + at * 4, true)
-        if (neighbour < data.total && visited[neighbour] === 0) unseen.push(neighbour)
-      }
-      const reading = scope.fetchDistanceRows(unseen)
-      if (reading !== null) yield reading
-    }
     for (let at = 0; at < list.count; at++) {
       const neighbour = list.view.getUint32(list.at + at * 4, true)
       if (neighbour >= data.total || visited[neighbour] === 1) continue
@@ -215,6 +250,20 @@ function codeDistance(data: ColdFieldData, query: Float32Array, metric: VectorMe
     const estimate = osqEstimate(products, trailer, bits, code, queryBits, dimension, centroidDot, metric)
     return osqDistance(estimate, metric)
   }
+}
+
+interface ScoredNumber {
+  number: number
+  score: number
+}
+
+function numbersThatCanReachTheTop(scored: ScoredNumber[], k: number): ScoredNumber[] {
+  if (k <= 0 || scored.length <= k) return scored
+  scored.sort((a, b) => b.score - a.score)
+  const lowestKept = scored[k - 1].score
+  let end = k
+  while (end < scored.length && scored[end].score === lowestKept) end += 1
+  return scored.slice(0, end)
 }
 
 function bestHits(hits: VectorScoredResult[], k: number): VectorScoredResult[] {
@@ -313,7 +362,7 @@ function* walkColdGraph(
   }
   const { numbers, distances } = nearestFirst(yield* walkLayer(scope, [current], ef, 0, true))
 
-  const hits: VectorScoredResult[] = []
+  const scored: ScoredNumber[] = []
   const rescores = codes !== null
   const rescoreUntil = rescores ? Math.min(depth, numbers.length) : 0
   if (fetchesRows && rescoreUntil > 0) {
@@ -332,7 +381,8 @@ function* walkColdGraph(
     const distance = at < rescoreUntil ? fullDistance(number) : distances[at]
     const score = toScore(distance, metric)
     if (score < minSimilarity) continue
-    hits.push({ docId: data.idAt(number), score })
+    scored.push({ number, score })
   }
+  const hits = numbersThatCanReachTheTop(scored, k).map(({ number, score }) => ({ docId: data.idAt(number), score }))
   return bestHits(hits, k)
 }
