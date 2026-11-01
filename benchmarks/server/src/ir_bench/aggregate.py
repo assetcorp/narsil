@@ -10,7 +10,6 @@ from .core.comparison_markdown import render_comparison_markdown
 from .core.reporter import write_json, write_text_atomic
 from .core.run_store import resolve_run_id_for_read, run_directory
 from .core.types import EQUAL_PRECISION, VECTOR_PROFILES
-from .restart_probe import RESULT_PREFIX
 
 
 def _load_reports(directory: Path) -> list[dict]:
@@ -24,16 +23,6 @@ def _load_reports(directory: Path) -> list[dict]:
         except (OSError, json.JSONDecodeError) as exc:
             raise SystemExit(f"could not read engine result {path}: {exc}") from exc
     return reports
-
-
-def _load_restarts(directory: Path) -> list[dict]:
-    restarts: list[dict] = []
-    for path in sorted(directory.glob(f"{RESULT_PREFIX}*.json")):
-        try:
-            restarts.append(json.loads(path.read_text(encoding="utf-8")))
-        except (OSError, json.JSONDecodeError) as exc:
-            raise SystemExit(f"could not read restart result {path}: {exc}") from exc
-    return restarts
 
 
 def _ordered_for_profile(reports: list[dict], profile: str, order: list[str] | None) -> list[dict]:
@@ -80,10 +69,6 @@ def main(argv: list[str] | None = None) -> int:
         wrote_any = True
         comparison = build_comparison(profile_reports, profile)
         suffix = "" if profile == EQUAL_PRECISION else f"-{profile}"
-        if profile == EQUAL_PRECISION:
-            restarts = _load_restarts(directory)
-            if restarts:
-                comparison["restarts"] = restarts
         write_json(directory / f"comparison{suffix}.json", comparison)
         markdown = render_comparison_markdown(comparison)
         write_text_atomic(directory / f"comparison{suffix}.md", markdown)

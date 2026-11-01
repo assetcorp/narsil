@@ -62,6 +62,10 @@ export function readFileRange(path: string, offset: number, target: Uint8Array):
   if (!fileReaderOfThisThread().readInto(path, offset, target)) unreadable(path, offset, target)
 }
 
+export function readFileRangeLater(path: string, offset: number, target: Uint8Array): Promise<boolean> {
+  return fileReaderOfThisThread().readLater(path, offset, target)
+}
+
 export function checksumOfPage(section: FileSection, page: number): number {
   const at = page * 4
   const { checksums } = section

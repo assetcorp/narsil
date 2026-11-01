@@ -31,6 +31,26 @@ import {
 } from './format'
 import { readFileRange, readWholeSectionChecked } from './section-file'
 
+const RESIDENT_SECTION_NAMES: ReadonlySet<string> = new Set([
+  'tokens',
+  'tokenOffsets',
+  'documentFrequencies',
+  'postingOffsets',
+  'blockLists',
+  'blockListOffsets',
+  'blockSummaries',
+  'documentBlocks',
+  'idSample',
+  'fieldLengths',
+  'numeric',
+  'sizes',
+  'boolean',
+  'enum',
+  'geopoint',
+  'pattern',
+  'partialWords',
+])
+
 export interface PagedFileListing {
   key: string
   path: string
@@ -188,6 +208,16 @@ function requireDocumentBlockLayout(
 
 export function vectorFieldsOfSchema(schema: Record<string, string>): string[] {
   return Object.keys(schema).filter(fieldPath => VECTOR_PATTERN.test(schema[fieldPath]))
+}
+
+export function residentSectionsOf(listing: PagedFileListing): FileSection[] {
+  return readPagedHead(listing).head.sections.filter(section => RESIDENT_SECTION_NAMES.has(section.name))
+}
+
+export function bytesOfResidentSections(listing: PagedFileListing): number {
+  let bytes = 0
+  for (const section of residentSectionsOf(listing)) bytes += section.length
+  return bytes
 }
 
 export function openPagedSnapshot(listing: PagedFileListing): PagedSegmentSnapshot {

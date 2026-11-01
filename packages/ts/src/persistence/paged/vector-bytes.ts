@@ -5,6 +5,7 @@ import type { NumberedHnswGraph } from '../../vector/hnsw'
 import { magnitude } from '../../vector/similarity'
 import type { VectorFilePayload, VectorGraphPartPayload } from '../../vector/vector-index/checkpoint-payload'
 import { bytesToVectors } from '../../vector/vector-index/payload'
+import { STABLE_HEAD_ATTEMPTS } from './constants'
 import { type FileSection, RECORD_PAGE_BYTES, SEGMENT_PAGE_BYTES } from './format'
 
 const BIN8 = 0xc4
@@ -17,7 +18,6 @@ const FIXARRAY = 0x90
 const FIXED_LIST_MAX = 15
 const BIN8_MAX_BYTES = 0xff
 const UINT16_MAX = 0xffff
-const STABLE_HEAD_ATTEMPTS = 8
 
 export interface PagedPartChunks {
   chunks: Uint8Array[]

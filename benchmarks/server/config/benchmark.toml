@@ -159,7 +159,6 @@ url = "http://narsil:7700"
 run_tag = "narsil_bm25"
 ranking = "bm25"
 tracks = ["keyword", "vector", "hybrid"]
-storage = "memory"
 
 [engines.elasticsearch]
 url = "http://elasticsearch:9200"
