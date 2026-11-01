@@ -11,7 +11,7 @@ import { encodeSegmentManifest, type SegmentManifest } from '../../persistence/d
 import type { CheckpointStore } from '../../persistence/durability/segment/store'
 import { flattenSchema } from '../../schema/validator'
 import { decodeIndexConfiguration } from './index-configuration'
-import { archiveFootprint, requireRestoreMemory } from './memory-budget'
+import { archiveFootprint, requireRestoreMemory, storedBytesOfSegments } from './memory-budget'
 import { installRestoredIndex, type RestoredIndex } from './replace'
 import { type PreparedIndex, prepareDetachedIndex, prepareRestoredIndex, type RestoreDeps } from './restore-setup'
 
@@ -63,6 +63,10 @@ function missingPart(what: string): never {
   throw new NarsilError(ErrorCodes.PERSISTENCE_LOAD_FAILED, `The archive holds no ${what}`)
 }
 
+function keepsTextOnDisk(prepared: PreparedIndex, staging: CheckpointStore): boolean {
+  return prepared.config.textStorage === 'disk' && staging.directory !== undefined
+}
+
 async function stageArchive(indexName: string, reader: ByteReader, staging: CheckpointStore, deps: RestoreDeps) {
   const staged: StagedArchive = { prepared: null, manifest: null }
   await readSnapshotArchive(reader, {
@@ -73,7 +77,12 @@ async function stageArchive(indexName: string, reader: ByteReader, staging: Chec
       if (staged.prepared === null) missingPart('configuration')
       requireSameSchema(staged.prepared, manifest)
       const replacesIndex = deps.indexRegistry.has(indexName)
-      requireRestoreMemory(indexName, archiveFootprint(staged.prepared, manifest, replacesIndex), replacesIndex)
+      const segmentBytes = keepsTextOnDisk(staged.prepared, staging) ? 0 : storedBytesOfSegments(manifest)
+      requireRestoreMemory(
+        indexName,
+        archiveFootprint(staged.prepared, manifest, replacesIndex, segmentBytes),
+        replacesIndex,
+      )
       staged.manifest = renamed(manifest, sourceName, indexName)
     },
     file: async (entryName, _ref, chunks) => {
@@ -84,6 +93,13 @@ async function stageArchive(indexName: string, reader: ByteReader, staging: Chec
   const { prepared, manifest } = staged
   if (prepared === null) missingPart('configuration')
   if (manifest === null) missingPart('manifest')
+  const { directory } = staging
+  if (keepsTextOnDisk(prepared, staging) && directory !== undefined) {
+    const { bytesThatSegmentsHoldInMemory } = await import('../../persistence/paged/module')
+    const replacesIndex = deps.indexRegistry.has(indexName)
+    const segmentBytes = await bytesThatSegmentsHoldInMemory(directory, manifest)
+    requireRestoreMemory(indexName, archiveFootprint(prepared, manifest, replacesIndex, segmentBytes), replacesIndex)
+  }
   await validateStagedCheckpoint(staging, manifest)
   return { prepared, manifest }
 }

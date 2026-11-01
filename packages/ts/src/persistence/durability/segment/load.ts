@@ -58,6 +58,17 @@ export async function loadSegmentedCheckpoint(
   }
   growPartitionsTo(deps.manager, highestPartitionId)
 
+  const { directory } = store
+  const opensVectorsOnDemand = manifest.vectors.some(
+    field =>
+      deps.vectorIndexes.get(field.fieldPath)?.storage === 'disk' &&
+      field.files.some(file => file.headOffset !== undefined),
+  )
+  if (!decodesEveryDocument && directory !== undefined && opensVectorsOnDemand) {
+    const { readOpeningSectionsAhead } = await import('../../paged/module')
+    await readOpeningSectionsAhead(directory, manifest)
+  }
+
   for (const partition of manifest.partitions) {
     if (partition.partitionId >= deps.manager.partitionCount) {
       throw new NarsilError(

@@ -6,11 +6,10 @@ import type { AnyDocument } from '../../types/schema'
 import type { DiskAdoptionPartition, DiskAdoptionSegment } from '../../workers/protocol'
 import type { DurableDirectory } from '../durability/durable-filesystem'
 import type { PartitionManifestEntry } from '../durability/segment/manifest'
+import { TOMBSTONES_BETWEEN_YIELDS } from './constants'
 import { createPagedFrozenSegment } from './open-segment'
 import { openPagedSnapshot } from './resident'
 import { isPagedSegmentFile, pagedListingOf } from './verify'
-
-const TOMBSTONES_BETWEEN_YIELDS = 4_096
 
 interface PreparedSegment {
   segment: FrozenSegment

@@ -14,6 +14,7 @@ import { encodeSurfaceTable } from '../../core/partition/frozen/surface-table'
 import { wrapFrozenTokenTable } from '../../core/partition/frozen/token-table'
 import { buildPartialWordTableFrom } from '../../core/partition/partial-words/registry'
 import type { PartialWordAnalysis } from '../../core/partition/partial-words/spellings'
+import { ErrorCodes, NarsilError } from '../../errors'
 import { crc32, crc32Final, crc32Init, crc32Update } from '../../serialization/crc32'
 import { engineVersionParts, requireWithinFileLimit } from '../../serialization/envelope-file'
 import { HEADER_SIZE, writeHeader } from '../../serialization/header'
@@ -271,7 +272,11 @@ export async function writePagedSegment(request: PagedSegmentWriteRequest): Prom
     }
     const alignTo = async (offset: number): Promise<void> => {
       if (offset < cursor || offset - cursor >= SECTION_ALIGNMENT_BYTES) {
-        throw new Error(`Section offset ${offset} of "${key}" does not follow byte ${cursor}`)
+        throw new NarsilError(
+          ErrorCodes.PERSISTENCE_SAVE_FAILED,
+          `Section offset ${offset} of "${key}" does not follow byte ${cursor}`,
+          { key, offset, cursor },
+        )
       }
       if (offset > cursor) await appendPayload(new Uint8Array(offset - cursor))
     }
@@ -288,7 +293,13 @@ export async function writePagedSegment(request: PagedSegmentWriteRequest): Prom
           continue
         }
         const done = finished.get(name)
-        if (done === undefined) throw new Error(`Section "${name}" of "${key}" holds no written bytes`)
+        if (done === undefined) {
+          throw new NarsilError(
+            ErrorCodes.PERSISTENCE_SAVE_FAILED,
+            `Section "${name}" of "${key}" holds no written bytes`,
+            { key, section: name },
+          )
+        }
         await copySection(directory, done, appendPayload)
       }
       await assembly.sync()
@@ -353,7 +364,9 @@ async function copySection(
   append: (bytes: Uint8Array) => Promise<void>,
 ): Promise<void> {
   const { readRange } = directory
-  if (readRange === undefined) throw new Error('A paged segment requires a directory that reads ranges')
+  if (readRange === undefined) {
+    throw new NarsilError(ErrorCodes.PERSISTENCE_SAVE_FAILED, 'A paged segment requires a directory that reads ranges')
+  }
   for (let at = 0; at < section.length; at += FILE_ASSEMBLY_CHUNK_BYTES) {
     const size = Math.min(FILE_ASSEMBLY_CHUNK_BYTES, section.length - at)
     await append(await readRange.call(directory, section.temporaryKey, at, size))

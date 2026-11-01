@@ -23,13 +23,12 @@ from .track_common import (
     index_size_bytes,
     server_setup,
     verify_indexed,
-    wait_for_checkpoint,
 )
 from .types import BEST_CONFIG, EQUAL_PRECISION, HYBRID, SERVER_TIME_UNAVAILABLE, VECTOR, VectorDoc, VectorIndexParams
 from .vector_tuning import OperatingPoint, sample_indices, tune_operating_point
 
 
-def load_vector_index(
+def _create_and_load(
     driver, config: BenchmarkConfig, spec: DatasetSpec, store: EmbeddingStore, profile: str
 ) -> tuple[str, int, float]:
     vec = config.vector
@@ -57,7 +56,6 @@ def load_vector_index(
     build_seconds = perf_counter() - build_start
     bulk_load_end(driver, index, spec)
     indexed = verify_indexed(driver, index, imported, spec.dataset_id)
-    wait_for_checkpoint(driver, index)
     return index, indexed, build_seconds
 
 
@@ -163,7 +161,7 @@ def run_vector_track(
     query_vectors = [qset.vectors[i].tolist() for i in range(len(qset.ids))]
 
     print(f"{label} ingesting corpus", flush=True)
-    index, indexed, build_seconds = load_vector_index(driver, config, spec, store, profile)
+    index, indexed, build_seconds = _create_and_load(driver, config, spec, store, profile)
     ingest_rate = indexed / build_seconds if build_seconds > 0 else 0.0
     truth = store.truth(spec.dataset_id, vec.recall_k)
 
@@ -257,7 +255,7 @@ def run_hybrid_track(
     query_vectors = {query_id: qset.vectors[i].tolist() for i, query_id in enumerate(qset.ids)}
 
     print(f"{label} ingesting corpus", flush=True)
-    index, indexed, build_seconds = load_vector_index(driver, config, spec, store, profile)
+    index, indexed, build_seconds = _create_and_load(driver, config, spec, store, profile)
     ingest_rate = indexed / build_seconds if build_seconds > 0 else 0.0
     if hasattr(driver, "set_rescore_oversample"):
         driver.set_rescore_oversample(vector_oversample)

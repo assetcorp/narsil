@@ -23,7 +23,7 @@ const PASSAGE_CONFIG: IndexConfig = {
   textStorage: 'disk',
 }
 
-interface Passage {
+type Passage = {
   title: string
   group: string
   embedding: number[]
