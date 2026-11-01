@@ -1,5 +1,5 @@
 import { ErrorCodes, NarsilError } from '../../errors'
-import { LARGEST_CACHED_ENTRY_SHARE, MAX_THREAD_FILE_NUMBER, READ_CACHE_BYTES_PER_THREAD } from './constants'
+import { LARGEST_CACHED_ENTRY_SHARE, MAX_THREAD_FILE_NUMBER, THREAD_READ_CACHE_BYTES } from './constants'
 
 const FILE_NUMBER_SCALE = 2 ** 34
 const ENTRY_NUMBER_SCALE = 4
@@ -120,6 +120,6 @@ export function createReadCache(capacity: number): ReadCache {
 let threadCache: ReadCache | null = null
 
 export function readCacheOfThisThread(): ReadCache {
-  threadCache ??= createReadCache(READ_CACHE_BYTES_PER_THREAD)
+  threadCache ??= createReadCache(THREAD_READ_CACHE_BYTES)
   return threadCache
 }

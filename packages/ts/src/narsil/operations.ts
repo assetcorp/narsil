@@ -72,8 +72,13 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
     }
   }
 
+  const rebalancesStarting = new Map<string, Promise<void>>()
+
   function withOpenIndexWrite<T>(indexName: string, action: () => Promise<T>): Promise<T> {
-    return emitWriteEventAfter(core, indexName, withOpenIndex(indexName, action))
+    const starting = rebalancesStarting.get(indexName)
+    const written =
+      starting === undefined ? withOpenIndex(indexName, action) : starting.then(() => withOpenIndex(indexName, action))
+    return emitWriteEventAfter(core, indexName, written)
   }
 
   const narsil: Narsil = {
@@ -223,9 +228,10 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
     async changeAnalysis(indexName: string, change: AnalysisChange): Promise<void> {
       guardShutdown()
       requireIndex(indexName)
-      await withOpenIndexWrite(indexName, async () =>
+      const changed = withOpenIndex(indexName, async () =>
         (await import('../engine/analysis-change')).changeIndexAnalysis(core, indexName, change),
       )
+      await emitWriteEventAfter(core, indexName, changed)
     },
 
     ...portabilityOperations(core, config, () => narsil),
@@ -255,14 +261,22 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
     async rebalance(indexName: string, targetPartitionCount: number): Promise<void> {
       guardShutdown()
       requireIndex(indexName)
-      return withOpenIndexWrite(indexName, async () =>
-        (await import('../engine/analysis-change')).executeRebalance(
-          requireManager(indexName),
-          indexName,
-          targetPartitionCount,
-          rebalanceCtx,
-        ),
-      )
+      let writesMayFollow: () => void = () => undefined
+      const started = new Promise<void>(resolve => {
+        writesMayFollow = resolve
+      })
+      function releaseWrites(): void {
+        writesMayFollow()
+        if (rebalancesStarting.get(indexName) === started) rebalancesStarting.delete(indexName)
+      }
+      rebalancesStarting.set(indexName, started)
+      const rebalanced = withOpenIndex(indexName, async () => {
+        const { executeRebalance } = await import('../engine/analysis-change')
+        const running = executeRebalance(requireManager(indexName), indexName, targetPartitionCount, rebalanceCtx)
+        releaseWrites()
+        return running
+      })
+      return emitWriteEventAfter(core, indexName, rebalanced).finally(releaseWrites)
     },
 
     async updatePartitionConfig(indexName: string, partitionConfig: Partial<PartitionConfig>): Promise<void> {

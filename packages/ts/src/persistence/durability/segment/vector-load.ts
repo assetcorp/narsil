@@ -14,7 +14,7 @@ import {
 } from '../../../vector/vector-index/checkpoint-payload'
 import { countDead } from '../../../vector/vector-index/dead-bits'
 import type { FileRef, VectorFieldRef, VectorFileRef } from './manifest'
-import { type CheckpointStore, readListedFile, requireListedChecksum } from './store'
+import { type CheckpointStore, readListedFile, requireListedChecksum, requireListedSize } from './store'
 
 export const VECTOR_FILE_ENVELOPE_VERSION = 2
 export const GRAPH_PART_ENVELOPE_VERSION = 2
@@ -97,6 +97,10 @@ async function loadFieldOnDemand(
   const { pathOf } = store
   if (pathOf === undefined || vectorIndex.storage !== 'disk' || !holdsEveryHead(ref)) return false
   const { loadFilesByParts, openColdVectorField, waitBeforeColdLoad } = await import('../../paged/module')
+  await Promise.all([
+    ...ref.files.map(file => requireListedSize(store, file.key, { bytes: file.bytes, what: 'vector file' })),
+    ...ref.graphParts.map(part => requireListedSize(store, part.key, { bytes: part.bytes, what: 'graph part' })),
+  ])
   const files = await Promise.all(
     ref.files.map(async file => ({ ref: file, path: await pathOf.call(store, file.key) })),
   )

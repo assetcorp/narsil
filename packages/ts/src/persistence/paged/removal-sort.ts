@@ -1,5 +1,9 @@
 import type { AppendHandle, DurableDirectory } from '../durability/durable-filesystem'
-import { MAX_REMOVAL_BUCKETS, REMOVAL_BUCKET_TARGET_BYTES, REMOVAL_BUCKET_WRITE_BUFFER_BYTES } from './constants'
+import {
+  LARGEST_REMOVAL_BUCKET_COUNT,
+  REMOVAL_BUCKET_TARGET_BYTES,
+  REMOVAL_BUCKET_WRITE_BUFFER_BYTES,
+} from './constants'
 import { loadFailed } from './format'
 
 const TRIPLE_VALUES = 3
@@ -22,7 +26,7 @@ export interface RemovalWriter {
 
 function bucketCountFor(upperBoundTriples: number): number {
   const wanted = Math.ceil((upperBoundTriples * TRIPLE_BYTES) / REMOVAL_BUCKET_TARGET_BYTES)
-  return Math.max(1, Math.min(MAX_REMOVAL_BUCKETS, wanted))
+  return Math.max(1, Math.min(LARGEST_REMOVAL_BUCKET_COUNT, wanted))
 }
 
 export async function openRemovalWriter(

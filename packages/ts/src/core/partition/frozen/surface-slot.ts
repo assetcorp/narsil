@@ -30,6 +30,8 @@ export interface FrozenSurfaceDocuments {
 export interface FrozenSurfaceSlot {
   readonly reader: SurfaceRegistryReader
   heldBytes(): number
+  tableStaysOnDisk(): boolean
+  subtractOnceLoaded(ordinal: number, analysis: PartialWordAnalysis): void
   holdsAny(): boolean
   holds(spelling: string): boolean
   subtractSpellings(ordinal: number, spellings: RemovedSpellings): void
@@ -66,14 +68,30 @@ export function createFrozenSurfaceSlot(
   let registry: SurfaceRegistry | null = null
   let uncounted: Uint8Array | null = null
   let table = tableOnDisk
+  let waitingRemovals: number[] = []
+  let waitingAnalysis: PartialWordAnalysis | null = null
+
+  function subtractWaitingRemovals(target: SurfaceRegistry): void {
+    if (waitingAnalysis === null || target.size() === 0) return
+    for (const ordinal of waitingRemovals) {
+      const spellings: string[] = []
+      visitDocumentSurfaceSpellings(documents.documentAt(ordinal), waitingAnalysis, spelling => {
+        if (target.holds(spelling)) spellings.push(spelling)
+      })
+      for (const spelling of spellings) target.subtract(spelling, 1)
+    }
+  }
 
   function loaded(): SurfaceRegistry {
     if (registry === null) {
       const built = createSurfaceRegistry()
       const forms = load()
       if (forms !== null) built.deserialize(forms)
+      subtractWaitingRemovals(built)
       registry = built
       table = undefined
+      waitingRemovals = []
+      waitingAnalysis = null
     }
     return registry
   }
@@ -86,10 +104,24 @@ export function createFrozenSurfaceSlot(
     heldBytes: () => table?.heldBytes() ?? 0,
 
     reader: {
-      candidatesForPrefix: prefix => table?.candidatesForPrefix(prefix) ?? loaded().candidatesForPrefix(prefix),
+      candidatesForPrefix: prefix =>
+        table !== undefined && waitingRemovals.length === 0
+          ? table.candidatesForPrefix(prefix)
+          : loaded().candidatesForPrefix(prefix),
       stemChangedTotalFor: token => loaded().stemChangedTotalFor(token),
       size: () => loaded().size(),
       serialize: () => loaded().serialize(),
+    },
+
+    tableStaysOnDisk(): boolean {
+      return registry === null && tableOnDisk !== undefined
+    },
+
+    subtractOnceLoaded(ordinal: number, analysis: PartialWordAnalysis): void {
+      uncounted ??= new Uint8Array(documents.count)
+      uncounted[ordinal] = 1
+      waitingAnalysis = analysis
+      waitingRemovals.push(ordinal)
     },
 
     holdsAny(): boolean {
