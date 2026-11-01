@@ -10,6 +10,7 @@ import type { GraphInsertOutcome, SharedVectorFieldHandles } from '../shared-fie
 import type { VectorStore } from '../vector-store'
 import { STORE_ORDINAL_LAYOUT_GENERATION } from '../vector-store/handles'
 import type { FieldSignature, SavedVectorFile } from './checkpoint-plan'
+import type { ColdVectorHold } from './cold'
 import { BUILD_TURN_HANDOVER_AFTER_MS, DRIFT_CHECK_GROWTH_FACTOR, REBUILD_REMOVED_RATIO } from './constants'
 import type { PendingVectorLocation } from './disk'
 
@@ -37,6 +38,31 @@ export interface VectorSearchOptions {
   oversample?: number
   rescoreWindow?: number
   clock?: SearchClock
+}
+
+export interface ColdVectorField {
+  readonly liveCount: number
+  readonly residentBytes: number
+  numberOf(docId: string): number | undefined
+  vectorOfNumber(number: number): Float32Array
+  magnitudeOfNumber(number: number): number
+  partitionOf(docId: string): number | undefined
+  filePaths(): string[]
+  search(
+    query: Float32Array,
+    k: number,
+    options: VectorSearchOptions,
+    accepts: ((docId: string) => boolean) | null,
+    excluded: ReadonlySet<number>,
+  ): VectorScoredResult[]
+  searchConcurrently(
+    query: Float32Array,
+    k: number,
+    options: VectorSearchOptions,
+    accepts: ((docId: string) => boolean) | null,
+    excluded: ReadonlySet<number>,
+  ): Promise<VectorScoredResult[]>
+  close(): void
 }
 
 export interface VectorSearcher {
@@ -86,6 +112,7 @@ export interface MaintenanceStatus {
   waitingForMemory: boolean
   estimatedCompactMs: number
   estimatedOptimizeMs: number
+  loadingFromFiles?: boolean
 }
 
 export type WorkerCopyMode = 'shared' | 'clone' | 'hosted'
@@ -149,9 +176,12 @@ export interface VectorIndexState {
   /** This is the share in flight, which the index chains so that two shares stay apart. */
   sharing: Promise<void>
   releaseToFilesInFlight: Promise<void>
+  /** The field answers from its files through this hold until the background load of its codes and graph ends. */
+  cold: ColdVectorHold | null
 }
 
 export function liveSize(state: VectorIndexState): number {
+  if (state.cold !== null) return state.cold.live
   return state.store.size - state.tombstones.size
 }
 

@@ -31,6 +31,8 @@ export interface SegmentWriteRequest {
   tombstones: readonly string[]
   mergesIntoOneFile?: boolean
   writeRecords?: ReadonlyMap<FrozenSegment, SegmentWriteRecords>
+  paged?: boolean
+  keepsWriteRecords?: boolean
 }
 
 export interface SegmentsWritten {
@@ -140,8 +142,62 @@ function requireRoomForAnotherSegment(state: WriteState): void {
   )
 }
 
+async function writePagedGroup(state: WriteState, group: SegmentFileGroup | null): Promise<void> {
+  const { request } = state
+  const { directory } = request.store
+  if (directory === undefined) {
+    throw new NarsilError(
+      ErrorCodes.PERSISTENCE_SAVE_FAILED,
+      `Index "${request.indexName}" stores its text on disk, which needs a durable directory`,
+      { indexName: request.indexName },
+    )
+  }
+  requireRoomForAnotherSegment(state)
+  const tombstones = state.tombstonesWritten ? [] : [...request.tombstones]
+  const id = state.nextSegmentId
+  const key = segmentKey(request.indexName, request.partitionId, id)
+  const { writePagedSegment } = await import('../../paged/module')
+  const written = await writePagedSegment({
+    directory,
+    key,
+    schema: request.schema,
+    tombstones,
+    selections: group?.selections ?? [],
+    partialWordAnalysis: request.partialWordAnalysis,
+    textAnalysis: request.textAnalysis,
+    ...(request.writeRecords === undefined ? {} : { writeRecords: request.writeRecords }),
+    ...(request.keepsWriteRecords === undefined ? {} : { keepsWriteRecords: request.keepsWriteRecords }),
+  })
+  state.segments.push({
+    id,
+    key,
+    bytes: written.bytes,
+    checksum: written.checksum,
+    docCount: written.documentCount,
+    tombstoneCount: written.tombstoneCount,
+  })
+  state.nextSegmentId = id + 1
+  state.tombstonesWritten = true
+}
+
+function pagedGroupsOf(request: SegmentWriteRequest): SegmentFileGroup[] {
+  const held = request.selections.filter(selection => selection.segment.paged !== null)
+  if (request.mergesIntoOneFile === true) {
+    return [{ selections: [...request.selections], documentCount: keptDocumentCount(request.selections) }]
+  }
+  const inMemory = request.selections.filter(selection => selection.segment.paged === null)
+  return [
+    ...held.map(selection => ({ selections: [selection], documentCount: keptDocumentCount([selection]) })),
+    ...splitIntoSegmentFiles(inMemory, request.schema, request.tombstones),
+  ]
+}
+
 async function writeGroup(state: WriteState, group: SegmentFileGroup | null): Promise<void> {
   const { request } = state
+  if (request.paged === true) {
+    await writePagedGroup(state, group)
+    return
+  }
   const tombstones = state.tombstonesWritten ? [] : [...request.tombstones]
   const contents = withWriteRecords(contentsOfGroup(group, request, tombstones), group, request)
   const encoded = encodeKeywordSegment(contents)
@@ -181,9 +237,11 @@ function keptDocumentCount(selections: readonly SegmentSelection[]): number {
 export async function writeSegmentsOf(request: SegmentWriteRequest): Promise<SegmentsWritten> {
   const state: WriteState = { request, segments: [], nextSegmentId: request.nextSegmentId, tombstonesWritten: false }
   const groups =
-    request.mergesIntoOneFile === true
-      ? [{ selections: [...request.selections], documentCount: keptDocumentCount(request.selections) }]
-      : splitIntoSegmentFiles(request.selections, request.schema, request.tombstones)
+    request.paged === true
+      ? pagedGroupsOf(request)
+      : request.mergesIntoOneFile === true
+        ? [{ selections: [...request.selections], documentCount: keptDocumentCount(request.selections) }]
+        : splitIntoSegmentFiles(request.selections, request.schema, request.tombstones)
   for (const group of groups) {
     if (group.documentCount > 0) await writeGroup(state, group)
   }

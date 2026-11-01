@@ -23,6 +23,14 @@ export interface ReplayDeps {
   writeRecords?: WriteRecordKeeper | null
 }
 
+export async function removeLeftoverRewriteFiles(directory: DurableDirectory, names: readonly string[]): Promise<void> {
+  for (const indexName of names) {
+    for (const place of ['rebuilt', 'received']) {
+      for (const key of await directory.list(`${indexName}/${place}/`)) await directory.remove(key)
+    }
+  }
+}
+
 export async function listPersistedIndexes(directory: DurableDirectory): Promise<string[]> {
   const metaKeys = await directory.list('')
   const names: string[] = []

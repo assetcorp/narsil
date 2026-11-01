@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from .config_datasets import DatasetSpec, load_datasets
@@ -16,6 +16,8 @@ DEFAULT_LATENCY_MIN_REPEATS = 1
 DEFAULT_LATENCY_MAX_REPEATS = 5
 DEFAULT_LATENCY_TOP_K = 10
 DEFAULT_TUNING_SAMPLE_QUERIES = 1000
+STORAGE_ENV = "BENCH_NARSIL_STORAGE"
+_STORAGE_MODES = ("memory", "disk")
 
 
 @dataclass(frozen=True)
@@ -42,6 +44,7 @@ class EngineConfig:
     analyzer: str | None
     language: str | None
     tracks: tuple[str, ...]
+    storage: str = "memory"
 
 
 @dataclass(frozen=True)
@@ -144,6 +147,9 @@ def _load_engines(raw: dict) -> dict[str, EngineConfig]:
         ranking = str(entry.get("ranking", "bm25"))
         if ranking not in ("bm25", "native"):
             raise ValueError(f"[engines.{name}].ranking must be 'bm25' or 'native'")
+        storage = str(entry.get("storage", "memory"))
+        if storage not in _STORAGE_MODES:
+            raise ValueError(f"[engines.{name}].storage must be 'memory' or 'disk'")
         engines[name] = EngineConfig(
             name=name,
             url=url,
@@ -152,6 +158,7 @@ def _load_engines(raw: dict) -> dict[str, EngineConfig]:
             analyzer=entry.get("analyzer"),
             language=entry.get("language"),
             tracks=_load_tracks(name, entry),
+            storage=storage,
         )
     return engines
 
@@ -281,13 +288,10 @@ def select_engine(config: BenchmarkConfig, name: str | None) -> EngineConfig:
     engine = config.engines[chosen]
     url_override = os.environ.get("ENGINE_URL")
     if url_override:
-        engine = EngineConfig(
-            name=engine.name,
-            url=url_override.rstrip("/"),
-            run_tag=engine.run_tag,
-            ranking=engine.ranking,
-            analyzer=engine.analyzer,
-            language=engine.language,
-            tracks=engine.tracks,
-        )
+        engine = replace(engine, url=url_override.rstrip("/"))
+    storage_override = os.environ.get(STORAGE_ENV)
+    if storage_override:
+        if storage_override not in _STORAGE_MODES:
+            raise SystemExit(f"{STORAGE_ENV} must be 'memory' or 'disk', not '{storage_override}'")
+        engine = replace(engine, storage=storage_override)
     return engine

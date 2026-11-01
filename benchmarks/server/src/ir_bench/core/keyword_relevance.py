@@ -10,7 +10,7 @@ from .config_datasets import DatasetSpec
 from .runfile import run_mapping, strict_ranking, write_run_file
 from .scoring import evaluate
 from .synonym_sets import SynonymRule
-from .track_common import bulk_load_begin, bulk_load_end, index_name, verify_indexed
+from .track_common import bulk_load_begin, bulk_load_end, index_name, verify_indexed, wait_for_checkpoint
 
 
 @dataclass(frozen=True)
@@ -49,6 +49,7 @@ def load_keyword_index(
     build_seconds = perf_counter() - build_start
     bulk_load_end(driver, index, spec)
     indexed = verify_indexed(driver, index, imported, spec.dataset_id)
+    wait_for_checkpoint(driver, index)
     return LoadedIndex(name=index, documents=indexed, build_seconds=build_seconds)
 
 

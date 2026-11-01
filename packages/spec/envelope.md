@@ -99,7 +99,7 @@ Bit 4 set to 1 means the payload is encrypted. Version 1 defines no encryption s
 
 The payload starts at byte 32 and is encoded as [MessagePack](https://msgpack.org/).
 
-The `envelope_format_version` field in the header fixes the payload schema, and the storage key tells the reader which payload type to expect. Version 4 marks a [keyword segment payload](#keyword-segment-payload), and version 5 marks the [index configuration payload](#index-configuration-payload) that a [snapshot archive](durability.md#snapshot-archive) holds.
+The `envelope_format_version` field in the header fixes the payload schema, and the storage key tells the reader which payload type to expect. Version 4 marks a [keyword segment payload](#keyword-segment-payload), and version 5 marks the [index configuration payload](#index-configuration-payload) that a [snapshot archive](durability.md#snapshot-archive) holds. Version 6 marks a [paged keyword segment payload](#paged-keyword-segment-payload).
 
 ---
 
@@ -260,6 +260,97 @@ A reader may decode each document when it first reads the document, and it must 
 
 ---
 
+### Paged Keyword Segment Payload
+
+A paged keyword segment holds the same content as a keyword segment, laid out so that a reader can open it without reading it whole. The header's compression flag must be 0, and its checksum must cover the whole payload, as for every other file of the checkpoint.
+
+```text
+payload {
+  headLength:   uint32            (the length of head)
+  headChecksum: uint32            (the CRC32 of head)
+  head:         bytes             (a MessagePack map, PagedSegmentHead)
+  sections:     bytes             (each section starts on a 4-byte boundary)
+}
+
+PagedSegmentHead {
+  v:             uint8            (1)
+  schema:        Map<string, string>
+  tombstones:    List<string>
+  documentCount: uint32
+  fieldNames:    List<string>
+  sections:      List<Section>
+}
+
+Section {
+  name:      string
+  offset:    uint64   (from the start of the payload)
+  length:    uint64
+  pageBytes: uint32   (16,384 or 65,536)
+  checksums: bytes    (uint32, one CRC32 per page of the section, the last page possibly shorter)
+}
+```
+
+A writer must give every section of a segment a `pageBytes` of 65,536. A reader must raise `PERSISTENCE_LOAD_FAILED` for any other `pageBytes`.
+
+A reader must raise `PERSISTENCE_LOAD_FAILED` for a section that repeats a name, that overlaps another section, or that ends outside the payload, and for a `checksums` value of the wrong length. It must raise the same error for a `headLength` that ends outside the payload, before it allocates memory for the head.
+
+A segment holds resident sections and paged sections. A reader reads a resident section whole when it opens the segment, and it reads a paged section one page at a time when a search, a fetch, or a removal needs the page.
+
+| Section | Kind | Content |
+|---------|------|---------|
+| `tokens`, `tokenOffsets`, `documentFrequencies`, `postingOffsets` | resident | As in a keyword segment. |
+| `blockLists` | resident | The index of each token whose list holds more than 128 postings, as ascending uint32 values. |
+| `blockListOffsets` | resident | uint32, one value more than `blockLists`, the place in `blockSummaries` of each of those lists. |
+| `blockSummaries` | resident | One `BlockSummary` per posting block of those lists. |
+| `tokenTotals` | paged | One float64 per token, the token's total term frequency. |
+| `fieldLengths`, `numeric`, `sizes`, `boolean`, `enum`, `geopoint`, `pattern`, `partialWords` | resident | As in a keyword segment, each encoded as a MessagePack list. |
+| `documentBlocks` | resident | One `DocumentBlock` per block of documents. |
+| `idSample` | resident | Every 256th ID in ascending ID order, with its position in `idOrder`. |
+| `postings` | paged | The postings of each token. |
+| `positionOffsets`, `positions` | paged | As in a keyword segment, absent where the index tracks no positions. |
+| `documents` | paged | The compressed blocks of documents. |
+| `ids`, `idOffsets`, `idOrder` | paged | As in a keyword segment. |
+| `removalOffsets`, `removals` | paged | What each document contributes to each token. |
+| `surfaceForms` | paged | As in a keyword segment, absent where the segment holds none. |
+| `seqNos`, `primaryTerms` | paged | As in a keyword segment, absent in a standalone index. |
+
+```text
+BlockSummary {
+  postingEnd:            uint32
+  maxTermFrequency:      uint16
+  minFieldLength:        float64
+  maxEntriesPerDocument: uint32
+  documentCount:         uint32
+}
+
+DocumentBlock {
+  firstOrdinal: uint32
+  offset:       uint64           (the block's first byte in documents)
+  length:       uint32           (the block's compressed length)
+  rawLength:    uint32           (the block's length once decompressed)
+}
+```
+
+Within `postings`, a token's list stores all its ordinals, then all its term frequencies, then all its fields, with the same widths as in a keyword segment, so posting `p` of `postingOffsets` starts its list at byte `8p` of the section. A writer must store a list's postings in ascending order of ordinal, then of field, so a reader must raise `PERSISTENCE_LOAD_FAILED` for a list that descends. Entry `p` of `positionOffsets` gives the positions of posting `p`, counted across the whole segment. A writer must end a posting block at the first document boundary at or after 128 postings. A list of 128 postings or fewer holds no entry in `blockLists`, and a reader treats it as one block. A reader must raise `PERSISTENCE_LOAD_FAILED` where `blockLists` fails to ascend strictly, where it holds a token at or above the token count, and where a listed token's list holds 128 postings or fewer. A block summary describes the postings as written, so it stays a true upper bound after a tombstone removes a document.
+
+`documents` holds runs of documents, each compressed with DEFLATE as RFC 1951 defines. A writer must close a block once it holds at least 65,536 bytes of documents, so one document over that size fills one block. A `rawLength` above 16,842,752 bytes, the largest document plus one block, raises `PERSISTENCE_LOAD_FAILED`, and a reader must compare `rawLength` with that limit before it decompresses, and must stop decompressing at `rawLength` bytes. Postings and positions stay uncompressed.
+
+`removals` holds, for each document, the token and the summed term frequency of every token that the document holds, as two uint32 values per token in ascending token order. A reader uses them to subtract a removed document from a token's counts, so that a removal reads one document's entry and builds no structure across the segment. `removalOffsets` holds uint32 values, `documentCount + 1` of them, and entry `d` gives the entries of document `d`, counted in uint32 values of `removals`. A reader must raise `PERSISTENCE_LOAD_FAILED` for a value that is odd, and for offsets that break the rules of [Keyword Segment Payload](#keyword-segment-payload).
+
+`blockSummaries` and `documentBlocks` hold their structures one after another with no padding, in the order of the fields above, so that a `BlockSummary` fills 22 bytes and a `DocumentBlock` fills 20 bytes. Every number in them is little-endian. `idSample` is a MessagePack list of `[id, position]` pairs, where `position` is the pair's place in `idOrder`. `surfaceForms` holds a `SurfaceFormColumn` as a MessagePack map, and a writer must leave the section out where the segment holds no surface forms.
+
+In a paged segment, `tombstones` must list the ID of every document that the segment replaces or removes in an older segment of its partition, and it may also list an ID that no older segment holds. A reader of a paged segment must apply `tombstones` to the older segments of the partition, and it must read no part of the `ids` section when it opens the segment. A tombstone leaves the segment's own documents in place.
+
+### Checks on a paged segment
+
+When it opens a paged segment, a reader must compare the file's length and header checksum with the manifest, must check `headChecksum`, and must check every page of each resident section. It must apply to each resident section the rules that [Keyword Segment Payload](#keyword-segment-payload) sets for that section.
+
+A reader must check a page's checksum the first time it reads the page into its cache, and it must check the page again on any later read from the disk. A mismatch raises `PERSISTENCE_CRC_MISMATCH`. Before it uses a page, a reader must apply the rules that the payload sets for the values on that page. Those rules cover an ordinal at or above `documentCount`, a field at or above the length of `fieldNames`, and an offset that lies outside its list, which raise `PERSISTENCE_LOAD_FAILED`. A reader need not apply a rule across a whole paged section when it opens the segment, as a section that a search never reads holds no value that a search can use.
+
+A reader must check a paged segment in full, against its header checksum and against every rule of the payload, before it merges the segment and before it serves a segment from a [snapshot archive](durability.md#snapshot-archive). The rule that a restore decodes every document still applies to a paged segment.
+
+---
+
 ### Vector File Payload
 
 A vector file payload holds at most 65,536 vectors of one vector field, and it is the payload of a vector file of the [segmented checkpoint](durability.md#segmented-checkpoint). Its field names are camelCase.
@@ -273,7 +364,15 @@ A version 1 vector file payload is a MessagePack map:
   dimension: uint16
   docIds:    List<string>     (one per vector, in position order)
   codes:     OSQCodes or nil
+  magnitudes: bytes or absent   (float64 per vector, in position order)
+  idOffsets: bytes or absent   (uint32, one value more than the vector count, where each entry of docIds starts, counted from the start of the docIds list)
+  idOrder:   bytes or absent   (uint32 per vector, the positions in ascending ID order)
+  head:      bytes or absent   (a MessagePack map, FileHead)
   vectors:   bytes            (float32 components, dimension * 4 bytes per vector, in position order)
+}
+
+FileHead {
+  sections: List<Section>
 }
 
 OSQCodes {
@@ -297,6 +396,10 @@ A writer may put fewer than 65,536 vectors in a file, and it must do so where a 
 
 A reader must recalibrate a field that holds a graph under an `osq` mode when any of its vector files has nil `codes`, or when two of them hold different `bits` or `centroid` values.
 
+A writer must store `magnitudes` for a vector field whose `storage` is `disk`. A reader that finds `magnitudes` must take each vector's length from it, while a reader that finds none must compute the lengths from the vectors.
+
+A vector file's `head` lists the sections `docIds`, `idOffsets`, `idOrder`, `records`, `magnitudes`, and `vectors`, each as [Paged Keyword Segment Payload](#paged-keyword-segment-payload) defines a `Section`. `records` takes a `pageBytes` of 16,384, and the others take 65,536. A writer must store `magnitudes`, `idOffsets`, `idOrder`, and `head` for a field whose `storage` is `disk`.
+
 ---
 
 ### Vector Graph Payload
@@ -310,6 +413,18 @@ A version 2 vector graph payload is a MessagePack map:
   v:         uint8                     (2)
   fieldName: string
   graphs:    List<NumberedHnswGraph>
+  head:      bytes or absent           (a MessagePack map, GraphPartHead)
+}
+
+GraphPartHead {
+  graphs: List<GraphPartLayout>
+}
+
+GraphPartLayout {
+  entryPoint, maxLayer, m, efConstruction, metric, shuffledBuildCount, calibratedMeanLength   (as in NumberedHnswGraph)
+  levels:      Section
+  nodeOffsets: bytes     (uint32, one value more than the vectors that the part covers, where each vector's lists start in neighbours)
+  neighbours:  Section   (pageBytes 16,384)
 }
 
 NumberedHnswGraph {
@@ -338,6 +453,8 @@ Byte `i` of `levels` in part `p` describes vector `p * 16384 + i`, and it must h
 At the largest `m` of 512 and the highest top layer of 32 that [HNSW](algorithms.md#hnsw-hierarchical-navigable-small-world) allows, the lists of one node fill at most 69,765 bytes, so a part of 16,384 vectors holds at most about 1.14 GB and stays inside the [file size](#file-size) limit.
 
 A reader must skip a neighbour that is a vector with no node or a node whose top layer lies below the layer of the list. A reader must reject a payload whose `neighbours` ends inside a list with `PERSISTENCE_LOAD_FAILED`. Where `entryPoint` is nil or is a vector with no node, a reader must start every search from a node on the graph's highest layer.
+
+A writer must store `head` for a field whose `storage` is `disk`. A reader that reads a list by position must raise `PERSISTENCE_LOAD_FAILED` for `nodeOffsets` that descend or that end outside `neighbours`, and for a list whose count runs past the node's next offset. The other rules of this payload still apply to each list that the reader reads.
 
 ---
 
@@ -368,6 +485,7 @@ Each index writes a metadata envelope under the key `<indexName>/meta`. It uses 
   partition_limits:      PartitionLimits      (optional)
   default_scoring:       string               (optional; "local", "dfs", or "broadcast")
   track_positions:       boolean              (optional)
+  text_storage:          string               (optional; "memory" or "disk", and an absent value means "memory")
   strict:                boolean              (optional)
   required:              List<string>         (optional; field paths every document must supply)
   vector_promotion:      VectorPromotionMeta  (optional)
@@ -464,6 +582,7 @@ The payload is a MessagePack map:
   partitionConfig:   PartitionSnapshotLimits      (optional)
   defaultScoring:    string                       (optional; "local", "dfs", or "broadcast")
   trackPositions:    boolean                      (optional)
+  textStorage:       string                       (optional; "memory" or "disk", and an absent value means "memory")
   strict:            boolean                      (optional)
   required:          List<string>                 (optional; field paths every document must supply)
   vectorPromotion:   VectorSnapshotPromotion      (optional)
@@ -491,6 +610,8 @@ EmbeddingSnapshotConfig {
   fields:  Map<string, string or List<string>>
 }
 ```
+
+A reader must raise `CONFIG_INVALID` for any other value of `text_storage` or `textStorage`. A restore of a configuration that sets `disk` on an engine without filesystem durability raises `CONFIG_INVALID` too.
 
 The rules for `analysis_revision` in the [index metadata payload](#index-metadata-payload) apply to `analysisRevision`, so a writer must record the revision that produced the terms that the envelope holds, or leave the field absent where it knows none. A reader must treat an index restored without one as holding stale terms. The rules for `array_position_gap` apply to `arrayPositionGap` in the same way. Each remaining optional field records one index configuration option, and a writer must leave it absent where the configuration leaves that option unset. A writer must record in `analysisGeneration` the generation that produced the terms that the envelope holds. The payload carries no pending change, so a restored index holds the old settings with the old terms, and a restore abandons any pending change, whose caller receives `ANALYSIS_CHANGE_REPLACED`.
 

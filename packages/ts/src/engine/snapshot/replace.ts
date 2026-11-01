@@ -1,3 +1,4 @@
+import { isCompositePartition } from '../../core/partition/composite'
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { PartitionCheckpoint } from '../../persistence/durability/partition-checkpoint'
 import type { RestoreStaging } from '../../persistence/durability/restore-staging'
@@ -105,7 +106,14 @@ async function commitToStorage(
   }
   await staging.finish()
   const relocate = await staging.relocation().catch(() => null)
-  if (relocate !== null) for (const vectorIndex of vectorIndexes) vectorIndex.relocateVectorFiles(relocate)
+  if (relocate === null) return
+  for (const vectorIndex of vectorIndexes) vectorIndex.relocateVectorFiles(relocate)
+  const { manager } = restored.detached
+  for (let partitionId = 0; partitionId < manager.partitionCount; partitionId++) {
+    const partition = manager.getPartition(partitionId)
+    if (!isCompositePartition(partition)) continue
+    for (const segment of partition.frozenSegments()) segment.paged?.relocate(relocate)
+  }
 }
 
 function activate(indexName: string, restored: RestoredIndex, entry: IndexRegistryEntry, deps: RestoreDeps): void {

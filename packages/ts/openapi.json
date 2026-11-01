@@ -3228,6 +3228,14 @@
             "type": "boolean",
             "description": "Setting this records term positions in each posting, which the `.nrsl` format carries for readers that match phrases. Highlighting works without it."
           },
+          "textStorage": {
+            "type": "string",
+            "enum": [
+              "memory",
+              "disk"
+            ],
+            "description": "Setting this to `disk` lets the index answer from segment files that the server reads by position, which needs filesystem durability. The default is `memory`."
+          },
           "surfaceForms": {
             "type": "boolean",
             "description": "Setting this to false returns index stems from suggestions and prefix expansion, instead of the words users typed."
@@ -5142,6 +5150,10 @@
             "type": "boolean",
             "description": "This turns true while a rebuild that keeps recall up waits for the node to have room for a second graph beside the one it serves, and false once it starts."
           },
+          "loadingFromFiles": {
+            "type": "boolean",
+            "description": "This stays true after a restart while a field kept on disk loads its codes and graph in the background, during which a search reads them from the field's files."
+          },
           "estimatedCompactMs": {
             "type": "number",
             "description": "Narsil.compactVectors  would take about this many milliseconds."
@@ -5158,6 +5170,7 @@
           "bufferSize",
           "building",
           "waitingForMemory",
+          "loadingFromFiles",
           "estimatedCompactMs",
           "estimatedOptimizeMs"
         ],

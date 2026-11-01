@@ -9,7 +9,6 @@ import {
   updateDocument,
   updateDocumentBatch,
 } from '../engine/mutations'
-import { executeRebalance } from '../engine/rebalance-executor'
 import { validatePartitionConfig } from '../engine/validation'
 import {
   compactVectors as executeCompactVectors,
@@ -248,14 +247,21 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
         await executor.execute({ type: 'clear', indexName, requestId: indexName })
         await orchestrator.replicateToWorkers({ type: 'clear', indexName, requestId: `replicate-clear-${indexName}` })
         core.watermarkNotifier.forget(indexName)
+        const durable = core.durability?.manager
+        await (durable?.checkpointFromMemory?.(indexName) ?? durable?.checkpoint(indexName))
       })
     },
 
     async rebalance(indexName: string, targetPartitionCount: number): Promise<void> {
       guardShutdown()
       requireIndex(indexName)
-      return withOpenIndexWrite(indexName, () =>
-        executeRebalance(requireManager(indexName), indexName, targetPartitionCount, rebalanceCtx),
+      return withOpenIndexWrite(indexName, async () =>
+        (await import('../engine/analysis-change')).executeRebalance(
+          requireManager(indexName),
+          indexName,
+          targetPartitionCount,
+          rebalanceCtx,
+        ),
       )
     },
 

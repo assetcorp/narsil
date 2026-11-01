@@ -61,6 +61,7 @@ function partitionVectorPlan(vectorIndex: VectorIndex, docIds: readonly string[]
   }
   return {
     unchanged: false,
+    storesHeads: false,
     kept: [],
     keptFiles: [],
     newFiles: files.length,

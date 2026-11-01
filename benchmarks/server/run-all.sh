@@ -116,6 +116,33 @@ is_vector_engine() {
   esac
 }
 
+measure_first_search_after_restart() {
+  local engine="$1" container_id="$2" run_dir cache_dropped=0 watcher attempt
+  run_dir="${BENCH_HOST_RESULTS_DIR}/runs/${BENCH_RUN_ID}"
+  docker compose run --rm --entrypoint python \
+    -e ENGINE="$engine" -e BENCH_ENGINE_CONTAINER_ID="$container_id" \
+    harness -m ir_bench.restart_probe prepare || return 1
+  docker compose --profile "$engine" stop "$engine" || return 1
+  sync
+  if sudo -n sh -c 'echo 3 > /proc/sys/vm/drop_caches' 2>/dev/null; then
+    cache_dropped=1
+  fi
+  docker compose run --rm --entrypoint python \
+    -e ENGINE="$engine" -e BENCH_ENGINE_CONTAINER_ID="$container_id" -e BENCH_RESTART_CACHE_DROPPED="$cache_dropped" \
+    harness -m ir_bench.restart_probe watch &
+  watcher=$!
+  for attempt in $(seq 1 600); do
+    [ -f "${run_dir}/.restart-${engine}.watching" ] && break
+    sleep 0.1
+  done
+  if ! docker compose --profile "$engine" start "$engine"; then
+    kill "$watcher" 2>/dev/null
+    return 1
+  fi
+  docker inspect --format '{{.State.StartedAt}}' "$container_id" >"${run_dir}/.restart-${engine}.started"
+  wait "$watcher"
+}
+
 echo "building harness image"
 docker compose build harness || exit 1
 
@@ -158,6 +185,10 @@ for engine in "${ENGINES[@]}"; do
       echo "[${engine}] FAILED (best config)"
       failed+=("${engine}-bestconfig")
     fi
+  fi
+  if [ "${BENCH_RESTART_PROBE:-1}" != "0" ]; then
+    echo "---------------- ${engine} (first search after a restart) ----------------"
+    measure_first_search_after_restart "$engine" "$container_id" || failed+=("${engine}-restart")
   fi
   docker compose --profile "$engine" down
 done

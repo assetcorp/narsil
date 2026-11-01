@@ -1,11 +1,13 @@
 import type { PartitionManager } from '../partitioning/manager'
 import { rebuildTextIndexes } from '../partitioning/text-rebuild'
 import type { DurabilityManager } from '../persistence/durability/types'
+import type { RewriteSpill, RewriteStorage } from '../persistence/paged/rewrite-spill'
 import type { AnalysisConfig, StaleAnalysis } from '../types/config'
 import { emitEngineEvent } from './events'
 
 export interface AnalysisRebuildDeps {
   getManager(indexName: string): PartitionManager | undefined
+  rewriteStorage?(): RewriteStorage | undefined
   desyncIndex(indexName: string): boolean
   resyncIndex(indexName: string, wasPromoted: boolean): Promise<void>
   persistAnalysisRevision(indexName: string): Promise<void>
@@ -65,6 +67,7 @@ export interface AnalysisRebuildWiring {
 export function wireAnalysisRebuild(wiring: AnalysisRebuildWiring): AnalysisRebuildCoordinator {
   return createAnalysisRebuildCoordinator(wiring.config, {
     getManager: wiring.getManager,
+    rewriteStorage: () => wiring.durabilityManager?.rewriteStorage?.(),
     desyncIndex: wiring.desyncIndex,
     resyncIndex: wiring.resyncIndex,
     hasPendingChange: wiring.hasPendingChange,
@@ -105,8 +108,13 @@ export function createAnalysisRebuildCoordinator(
     deps.emit({ indexName, status: 'started', partitionsRebuilt: 0, partitionCount })
 
     const wasPromoted = deps.desyncIndex(indexName)
+    let spill: RewriteSpill | null = null
     try {
       const rebuilt = await rebuildTextIndexes(manager, {
+        rewriteStorage: () => deps.rewriteStorage?.(),
+        onRewriteSpill(kept) {
+          spill = kept
+        },
         isCurrent: () => deps.getManager(indexName) === manager && stale.get(indexName) === entry && !entry.abandoned,
         onPartitionBuilt(partitionsBuilt) {
           entry.partitionsRebuilt = partitionsBuilt
@@ -121,6 +129,7 @@ export function createAnalysisRebuildCoordinator(
         return
       }
       await deps.persistAnalysisRevision(indexName)
+      await (spill as RewriteSpill | null)?.removeUnread(manager)
       await deps.resyncIndex(indexName, wasPromoted)
       deps.emit({
         indexName,

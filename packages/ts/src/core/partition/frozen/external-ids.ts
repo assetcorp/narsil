@@ -7,6 +7,7 @@ export interface ExternalIdTable {
   readonly bytes: number
   idAt(ordinal: number): string
   ordinalOf(docId: string): number
+  sortedOrdinalAt(position: number): number
   collectSortedIds(excluded: (ordinal: number) => boolean): string[]
 }
 
@@ -72,6 +73,10 @@ export function wrapExternalIdTable(data: ExternalIdTableData): ExternalIdTable 
       return compareBytes(blob, offsets[ordinal], offsets[ordinal + 1], query) === 0 ? ordinal : -1
     },
 
+    sortedOrdinalAt(position: number): number {
+      return sortedOrdinals[position]
+    },
+
     collectSortedIds(excluded: (ordinal: number) => boolean): string[] {
       const ids: string[] = []
       for (let position = 0; position < count; position++) {
@@ -92,6 +97,7 @@ export function buildExternalIdTable(docIds: readonly string[]): ExternalIdTable
     characters += docIds[ordinal].length
   }
   let sortedIds: readonly string[] | null = null
+  let sortedOrdinals: readonly number[] | null = null
 
   return {
     count: docIds.length,
@@ -103,6 +109,11 @@ export function buildExternalIdTable(docIds: readonly string[]): ExternalIdTable
 
     ordinalOf(docId: string): number {
       return ordinals.get(docId) ?? -1
+    },
+
+    sortedOrdinalAt(position: number): number {
+      if (sortedOrdinals === null) sortedOrdinals = codePointOrder(docIds)
+      return sortedOrdinals[position]
     },
 
     collectSortedIds(excluded: (ordinal: number) => boolean): string[] {

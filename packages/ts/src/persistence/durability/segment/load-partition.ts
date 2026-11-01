@@ -3,8 +3,9 @@ import { decodeEveryStoredDocument } from '../../../core/partition/frozen/docume
 import { ErrorCodes, NarsilError } from '../../../errors'
 import type { PartitionManager } from '../../../partitioning/manager'
 import type { KeywordSegmentContents } from '../../../serialization/keyword-segment/types'
+import type { DurableDirectory } from '../durable-filesystem'
 import type { WriteRecordKeeper } from '../types'
-import type { PartitionManifestEntry } from './manifest'
+import type { PartitionManifestEntry, SegmentRef } from './manifest'
 import { readSegmentFile } from './segment-file'
 import type { CheckpointStore } from './store'
 
@@ -51,13 +52,53 @@ function yieldToEventLoop(): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, 0))
 }
 
+function removeFromPartition(manager: PartitionManager, partitionId: number, docIds: readonly string[]): void {
+  const { composite, docPartitionMap, insertOptions } = manager.diskSegmentAccess(partitionId)
+  composite.beginBatch()
+  try {
+    for (const docId of docIds) {
+      if (!composite.has(docId)) continue
+      composite.remove(docId, manager.config.schema, manager.language, insertOptions)
+      docPartitionMap.delete(docId)
+    }
+  } finally {
+    composite.endBatch()
+  }
+}
+
+async function attachPagedSegment(
+  directory: DurableDirectory,
+  ref: SegmentRef,
+  partitionId: number,
+  manager: PartitionManager,
+  options: PartitionLoadOptions,
+): Promise<void> {
+  const { createPagedFrozenSegment, openPagedSnapshot, pagedListingOf } = await import('../../paged/module')
+  const snapshot = openPagedSnapshot(await pagedListingOf(directory, ref))
+  requireAgreedSchema(options.schema, snapshot.schema, ref.key)
+  const segment = createPagedFrozenSegment(snapshot)
+  removeFromPartition(manager, partitionId, snapshot.tombstones)
+  options.writeRecords?.loadPagedSegment(manager.indexName, partitionId, segment)
+  if (snapshot.documentCount > 0) manager.attachFrozenSegment(partitionId, segment)
+  else segment.paged?.close()
+}
+
 export async function loadPartitionSegments(
   store: CheckpointStore,
   partition: PartitionManifestEntry,
   manager: PartitionManager,
   options: PartitionLoadOptions,
 ): Promise<void> {
+  const { directory } = store
   for (const ref of partition.segments) {
+    if (manager.config.textStorage === 'disk' && directory !== undefined) {
+      const { isPagedSegmentFile } = await import('../../paged/module')
+      if (await isPagedSegmentFile(directory, ref.key)) {
+        await attachPagedSegment(directory, ref, partition.partitionId, manager, options)
+        await yieldToEventLoop()
+        continue
+      }
+    }
     const contents = await readSegmentFile(store, ref)
     requireAgreedSchema(options.schema, contents.schema, ref.key)
     if (options.decodesEveryDocument) decodeEveryStoredDocument(contents.arrays.documentTable)

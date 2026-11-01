@@ -34,6 +34,17 @@ export interface PostingListView {
   readonly totalTermFrequency: number
   readonly structureRevision: number
   readonly ordered: boolean
+  storedBlockBounds?(): StoredBlockBounds | null
+}
+
+export interface StoredBlockBounds {
+  structureRevision: number
+  blockCount: number
+  entryEnd: Int32Array
+  maxTermFrequency: Int32Array
+  minFieldLength: Float64Array
+  maxEntriesPerDocument: Int32Array
+  documentCount: Int32Array
 }
 
 export interface StoredDocument {
@@ -165,6 +176,7 @@ export interface IndexMetadata {
   partitionLimits?: PartitionConfig
   defaultScoring?: ScoringMode
   trackPositions?: boolean
+  textStorage?: 'memory' | 'disk'
   strict?: boolean
   required?: string[]
   vectorPromotion?: VectorIndexConfig

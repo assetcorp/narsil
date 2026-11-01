@@ -6,6 +6,7 @@ export interface FrozenTokenTable {
   readonly bytes: number
   find(token: string): number
   tokenAt(sortedIndex: number): string
+  tokenBytesAt(sortedIndex: number): Uint8Array
   byteLengthAt(sortedIndex: number): number
   payloadSlot(sortedIndex: number): number
   documentFrequencyAt(sortedIndex: number): number
@@ -110,6 +111,10 @@ export function wrapFrozenTokenTable(data: FrozenTokenTableData): FrozenTokenTab
         decodedTokens[sortedIndex] = token
       }
       return token
+    },
+
+    tokenBytesAt(sortedIndex: number): Uint8Array {
+      return blob.subarray(offsets[sortedIndex], offsets[sortedIndex + 1])
     },
 
     byteLengthAt(sortedIndex: number): number {

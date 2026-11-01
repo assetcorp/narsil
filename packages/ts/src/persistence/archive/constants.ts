@@ -1,1 +1,2 @@
 export const MAX_PAX_HEADER_BYTES = 65_536
+export const ARCHIVE_FILE_CHUNK_BYTES = 4_194_304

@@ -89,6 +89,7 @@ class NarsilDriver:
         self._b = bm25.b
         self._language = engine.language
         self._metric = "cosine"
+        self._storage = engine.storage
         self._client = build_client(engine.url)
 
     def close(self) -> None:
@@ -112,7 +113,11 @@ class NarsilDriver:
             _raise_for_envelope(response)
 
     def create_index(self, index: str, synonyms: tuple[SynonymRule, ...] | None = None) -> None:
-        config: dict[str, object] = {"schema": {"text": "string"}, "bm25": {"k1": self._k1, "b": self._b}}
+        config: dict[str, object] = {
+            "schema": {"text": "string"},
+            "bm25": {"k1": self._k1, "b": self._b},
+            "textStorage": self._storage,
+        }
         if self._language:
             config["language"] = self._language
         if synonyms is not None:
@@ -222,8 +227,10 @@ class NarsilDriver:
         config: dict[str, object] = {
             "schema": {"text": "string", _VECTOR_FIELD: f"vector[{params.dims}]"},
             "bm25": {"k1": self._k1, "b": self._b},
+            "textStorage": self._storage,
             "vectorPromotion": {
                 "threshold": 1,
+                "storage": self._storage,
                 "quantization": quantization,
                 "hnswConfig": {"m": params.m, "efConstruction": params.ef_construction, "metric": params.metric},
             },
@@ -250,6 +257,10 @@ class NarsilDriver:
         if task_id is not None:
             self._wait_task(str(task_id))
         self._wait_graph_ready(index)
+
+    def wait_for_checkpoint(self, index: str) -> None:
+        response = self._client.post(f"/indexes/{index}/_checkpoint", timeout=GRAPH_BUILD_TIMEOUT_SECONDS)
+        _raise_for_envelope(response)
 
     def _wait_task(self, task_id: str, timeout_seconds: float = GRAPH_BUILD_TIMEOUT_SECONDS) -> None:
         deadline = time.perf_counter() + timeout_seconds
