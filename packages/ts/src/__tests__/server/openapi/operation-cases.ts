@@ -197,6 +197,10 @@ export const OPERATION_CASES: Readonly<Record<string, OperationCase>> = {
   getPartitionStats: { valid: () => ({ name: INDEX, statuses: [200] }), hostile: missingIndex },
   checkpoint: { valid: () => ({ name: INDEX, statuses: [200] }), hostile: missingIndex },
   rebuildAnalysis: { valid: () => ({ name: INDEX, statuses: [202] }), hostile: missingIndex },
+  changeAnalysis: {
+    valid: () => ({ name: INDEX, json: { stopWords: ['no-such-word-in-any-title'] }, statuses: [202] }),
+    hostile: () => ({ name: INDEX, json: { stemmer: 'porter' }, statuses: [400] }),
+  },
   vectorMaintenanceStatus: { valid: () => ({ name: INDEX, statuses: [200] }), hostile: missingIndex },
   compactVectors: {
     valid: () => ({ name: INDEX, json: { field: 'embedding' }, statuses: [200] }),

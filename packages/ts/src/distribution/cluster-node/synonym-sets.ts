@@ -1,5 +1,6 @@
 import { decode } from '@msgpack/msgpack'
 import { generateId } from '../../core/id-generator'
+import { configOfNamedSettings } from '../../engine/analysis-change/pending-target'
 import { prepareConfiguredSynonyms } from '../../engine/synonym-sets'
 import { ErrorCodes, NarsilError } from '../../errors'
 import { getLanguage } from '../../languages/registry'
@@ -14,16 +15,16 @@ import {
 } from '../cluster/index-metadata'
 import { indexConfigFromSettings } from '../cluster/index-settings'
 import { createIndexSettingsMessage, validateIndexSettingsResultPayload } from '../cluster/index-settings-message'
+import { readRebalanceRecord } from '../cluster/rebalance/records'
 import { deleteSynonymSet, type SynonymSetRef, storeSynonymSet } from '../cluster/synonym-set'
 import type { ClusterCoordinator } from '../coordinator/types'
 import { isRecord } from '../payload-guards'
 import { TransportError } from '../transport/types'
-import { MAX_SETTINGS_REPLACEMENT_ATTEMPTS } from './constants'
+import { MAX_SETTINGS_REPLACEMENT_ATTEMPTS, SETTINGS_CONTENTION_REASON } from './constants'
+import { servingNameOf } from './generation-routing'
 import type { ClusterLocalEngine } from './local-engine'
 import { resolveNodeTargets } from './node-messaging'
 import type { ClusterNodeConfig } from './types'
-
-const SETTINGS_CONTENTION_REASON = 'settings_contention'
 
 export interface ClusterSynonymDeps {
   config: ClusterNodeConfig
@@ -40,9 +41,25 @@ function indexNotFound(indexName: string): NarsilError {
 
 export async function readClusterSynonyms(coordinator: ClusterCoordinator, indexName: string): Promise<SynonymRule[]> {
   validateIndexName(indexName)
-  const state = await readIndexState(coordinator, indexName)
+  const state = await readIndexState(coordinator, await servingNameOf(coordinator, indexName))
   if (state === null) throw indexNotFound(indexName)
   return state.synonyms
+}
+
+async function requireSettledPartitionCount(
+  coordinator: ClusterCoordinator,
+  indexName: string,
+  servingName: string,
+): Promise<void> {
+  const settled =
+    (await readRebalanceRecord(coordinator, indexName)) === null &&
+    (await servingNameOf(coordinator, indexName)) === servingName
+  if (settled) return
+  throw new NarsilError(
+    ErrorCodes.PARTITION_REBALANCING_BACKPRESSURE,
+    `Index '${indexName}' is changing its partition count, so replace its synonym set again once that ends`,
+    { indexName },
+  )
 }
 
 export function applyStoredSynonyms(
@@ -63,6 +80,10 @@ export function applyStoredSynonyms(
 function preparedSet(snapshot: IndexMetadataSnapshot, indexName: string, synonyms: SynonymRule[]): Uint8Array | null {
   const config = indexConfigFromSettings({}, snapshot.settings, indexName)
   const language = getLanguage(config.language ?? 'english')
+  const pending = snapshot.settings?.pendingAnalysis
+  if (pending !== undefined) {
+    prepareConfiguredSynonyms({ ...configOfNamedSettings(config, pending), synonyms }, getLanguage(pending.language))
+  }
   return prepareConfiguredSynonyms({ ...config, synonyms }, language)?.encoded ?? null
 }
 
@@ -132,14 +153,16 @@ export async function replaceClusterSynonyms(
 ): Promise<void> {
   const { coordinator } = deps
   validateIndexName(indexName)
-  const first = await readIndexMetadataSnapshot(coordinator, indexName)
+  const servingName = await servingNameOf(coordinator, indexName)
+  await requireSettledPartitionCount(coordinator, indexName, servingName)
+  const first = await readIndexMetadataSnapshot(coordinator, servingName)
   if (first === null) throw indexNotFound(indexName)
-  const encoded = preparedSet(first, indexName, synonyms)
+  const encoded = preparedSet(first, servingName, synonyms)
   const { indexUuid } = first.record
   const ref = encoded === null ? null : await storeSynonymSet(coordinator, indexUuid, encoded)
   let replaced: SynonymSetRef | null
   try {
-    replaced = await swapStoredSet(coordinator, indexName, first, ref)
+    replaced = await swapStoredSet(coordinator, servingName, first, ref)
   } catch (err) {
     if (ref !== null) await deleteSynonymSet(coordinator, indexUuid, ref).catch(() => undefined)
     throw err
@@ -147,11 +170,12 @@ export async function replaceClusterSynonyms(
   if (replaced !== null && replaced.generation !== ref?.generation) {
     await deleteSynonymSet(coordinator, indexUuid, replaced)
   }
-  const allocation = await coordinator.getAllocation(indexName)
+  const allocation = await coordinator.getAllocation(servingName)
   const holders = new Set<string>()
   for (const assignment of allocation?.assignments.values() ?? []) {
     for (const nodeId of assignment.replicas) holders.add(nodeId)
     if (assignment.primary !== null) holders.add(assignment.primary)
   }
-  await Promise.all([...holders].map(nodeId => askNodeToApply(deps, nodeId, indexName, indexUuid)))
+  await Promise.all([...holders].map(nodeId => askNodeToApply(deps, nodeId, servingName, indexUuid)))
+  await requireSettledPartitionCount(coordinator, indexName, servingName)
 }

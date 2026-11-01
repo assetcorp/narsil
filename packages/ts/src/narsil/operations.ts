@@ -21,6 +21,7 @@ import { ErrorCodes, NarsilError } from '../errors'
 import { registerEngineRerankAdapter } from '../rerank/registry'
 import { readProcessMemory } from '../runtime/process-memory'
 import type { EmbeddingAdapter, RerankAdapter } from '../types/adapters'
+import type { AnalysisChange } from '../types/analysis-operations'
 import type { NarsilConfig } from '../types/config'
 import type { Narsil } from '../types/engine'
 import type { NarsilEventMap } from '../types/events'
@@ -213,8 +214,19 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
 
     async rebuildAnalysis(indexName: string): Promise<void> {
       guardShutdown()
+      const entry = requireIndex(indexName)
+      await withOpenIndexWrite(indexName, async () => {
+        if (entry.pendingAnalysis === null) return core.analysisRebuild.rebuild(indexName)
+        return (await import('../engine/analysis-change')).resumeAnalysisChange(core, indexName)
+      })
+    },
+
+    async changeAnalysis(indexName: string, change: AnalysisChange): Promise<void> {
+      guardShutdown()
       requireIndex(indexName)
-      await withOpenIndexWrite(indexName, () => core.analysisRebuild.rebuild(indexName))
+      await withOpenIndexWrite(indexName, async () =>
+        (await import('../engine/analysis-change')).changeIndexAnalysis(core, indexName, change),
+      )
     },
 
     ...portabilityOperations(core, config, () => narsil),

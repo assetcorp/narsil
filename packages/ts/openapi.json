@@ -1552,6 +1552,51 @@
         }
       }
     },
+    "/indexes/{name}/_change-analysis": {
+      "post": {
+        "operationId": "changeAnalysis",
+        "summary": "Change the language, stop words, or tokeniser of an index, as a task",
+        "tags": [
+          "Maintenance"
+        ],
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "description": "The name of the index.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangeAnalysisBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "The server accepted the work and started a task.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskRecord"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
     "/indexes/{name}/snapshot": {
       "get": {
         "operationId": "snapshot",
@@ -2258,6 +2303,44 @@
           "capabilities"
         ],
         "description": "What a server announces at `/capabilities`, which is how a client finds out whether an optional route or mode is available before it sends a request. A server that answers 404 here predates the endpoint, so treat every optional capability as absent."
+      },
+      "ChangeAnalysisBody": {
+        "type": "object",
+        "properties": {
+          "language": {
+            "type": "string",
+            "description": "This is the name of a language registered on the server."
+          },
+          "tokenizer": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "description": "This is a name registered on the server, or `null` for the language default."
+          },
+          "stopWords": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            ],
+            "description": "This is a name registered on the server, a list of words, or `null` for the language default."
+          }
+        },
+        "description": "The body of `POST /indexes/{name}/_change-analysis`, where a key that you leave out keeps its current value."
       },
       "ClusterAllocationResponse": {
         "type": "object",
@@ -3123,12 +3206,23 @@
             ],
             "description": "A query scores this way unless it asks for another mode."
           },
+          "tokenizer": {
+            "type": "string",
+            "description": "This is the name of a tokeniser registered on the server, which then splits text in place of the language's own rules."
+          },
           "stopWords": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "description": "This list replaces the language's stop words."
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            ],
+            "description": "This name of a stop word set registered on the server, or this list, replaces the language's stop words."
           },
           "trackPositions": {
             "type": "boolean",
@@ -4918,7 +5012,8 @@
           "restore",
           "import",
           "importExport",
-          "rebuildAnalysis"
+          "rebuildAnalysis",
+          "changeAnalysis"
         ],
         "description": "Which long-running operation a task record tracks."
       },

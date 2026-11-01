@@ -465,6 +465,7 @@ The engine reads every index configuration before it starts a worker, and it ref
 | An index supplies a tokeniser instance. | The engine names the index and asks the caller to register the tokeniser and name it in the index configuration. |
 | An index supplies a stop word function. | The engine names the index and asks the caller to register the function and name it in the index configuration. |
 | An index names a language other than `english` while no bootstrap module is configured. | The engine names the index and the language, and asks the caller to configure a bootstrap module that registers it. |
+| An index names a tokeniser or a stop word set while no bootstrap module is configured. | The engine names the index and the name, and asks the caller to configure a bootstrap module that registers it. |
 
 A refusal raises `CONFIG_INVALID`, and the engine emits a `workerPromoteFailure` event carrying the reason, the error, and whether the engine will check again. A configuration failure fails the same way each time, so the engine reports it once and checks no further. A transient failure, such as a worker that fails to start, leaves the check in place. Under both failures the index answers every query in the calling thread, so a failed promotion costs throughput and leaves results correct.
 

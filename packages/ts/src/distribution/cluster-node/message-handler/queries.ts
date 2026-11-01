@@ -47,14 +47,16 @@ export async function handleSearch(
   ) {
     queryParams.document = false
   }
-  const queryResult = await deps.engine.queryPartitions(
-    payload.indexName,
-    queryParams,
-    payload.partitionIds,
-    payload.globalStats ?? undefined,
-    rescoreWindow,
-    snapshots,
-    payload.params.indexBm25 ?? undefined,
+  const queryResult = await deps.analysisView.answerAt(payload.indexName, payload.params.analysisGeneration ?? 0, () =>
+    deps.engine.queryPartitions(
+      payload.indexName,
+      queryParams,
+      payload.partitionIds,
+      payload.globalStats ?? undefined,
+      rescoreWindow,
+      snapshots,
+      payload.params.indexBm25 ?? undefined,
+    ),
   )
   const rankedDocument = (hit: { id: string; document?: unknown }): AnyDocument | undefined =>
     (snapshots?.get(hit.id)?.fields as AnyDocument | undefined) ?? (hit.document as AnyDocument | undefined)
@@ -231,11 +233,14 @@ export async function handleStats(
   const decoded = decode(message.payload) as unknown
   const payload = validateStatsPayload(decoded)
 
-  const resultPayload: StatsResultPayload = await deps.engine.collectQueryStats(
+  const resultPayload: StatsResultPayload = await deps.analysisView.answerAt(
     payload.indexName,
-    payload.terms,
-    payload.partitionIds,
-    { expansion: payload.expansion ?? undefined, tokens: payload.tokens ?? undefined },
+    payload.analysisGeneration ?? 0,
+    () =>
+      deps.engine.collectQueryStats(payload.indexName, payload.terms, payload.partitionIds, {
+        expansion: payload.expansion ?? undefined,
+        tokens: payload.tokens ?? undefined,
+      }),
   )
 
   await respond({

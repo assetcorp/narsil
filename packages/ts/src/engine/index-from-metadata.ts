@@ -76,6 +76,10 @@ export async function createIndexFromMetadata(
   if (loadingVectorCode !== null) await loadingVectorCode
   const existing = deps.indexRegistry.get(metadata.indexName)
   if (existing !== undefined) {
+    if ((metadata.analysisGeneration ?? 0) > existing.analysisGeneration) {
+      const { adoptSavedAnalysis } = await import('./analysis-change')
+      adoptSavedAnalysis(deps.executor.getManager(metadata.indexName), existing, metadata)
+    }
     if (loadData && deps.executor.getManager(metadata.indexName) === undefined) {
       deps.executor.createIndex(
         metadata.indexName,
@@ -126,6 +130,9 @@ export async function createIndexFromMetadata(
     analysisRevision: metadata.analysisRevision ?? null,
     arrayPositionGap: metadata.arrayPositionGap ?? null,
     synonyms,
+    analysisGeneration: metadata.analysisGeneration ?? 0,
+    pendingAnalysis: metadata.pendingAnalysis ?? null,
+    durableAnalysis: null,
   })
   if (loadData) await deps.indexState().registerOpen(metadata.indexName)
   else deps.indexState().registerClosed(metadata.indexName)

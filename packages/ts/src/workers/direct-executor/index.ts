@@ -23,6 +23,7 @@ import {
   insertIntoHeldGraph,
   loadHeldVectorCopy,
 } from '../vector-copies'
+import { indexEntryOf } from './entry'
 import type {
   DetachedIndex,
   DirectExecutorExtensions,
@@ -129,22 +130,7 @@ export function createDirectExecutor(
     const vectorIndexes = vectorIndexesFor(indexName, config, copies)
     const manager = createPartitionManager(indexName, config, language, router, partitionCount, vectorIndexes)
 
-    return {
-      manager,
-      config,
-      language,
-      searchOptions: {
-        stopWords: manager.analysis.stopWords,
-        customTokenizer: manager.analysis.customTokenizer,
-        get synonyms() {
-          return manager.synonyms
-        },
-      },
-      vectorIndexes,
-      vectorCopies: createHeldVectorCopies(),
-      analysisStale,
-      awaitedCopyLoad,
-    }
+    return indexEntryOf(manager, vectorIndexes, analysisStale, awaitedCopyLoad)
   }
 
   function disposeEntry(entry: IndexEntry): void {

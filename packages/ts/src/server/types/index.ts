@@ -11,6 +11,7 @@ export type {
 export type {
   BatchBody,
   CapabilitiesResponse,
+  ChangeAnalysisBody,
   CreateIndexEmbedding,
   CreateIndexRequest,
   DocumentBody,

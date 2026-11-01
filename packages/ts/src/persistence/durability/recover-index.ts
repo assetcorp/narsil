@@ -6,6 +6,7 @@ import { checkpointPrimaryTerm, type PartitionCheckpoint } from './partition-che
 import { loadMetadata, replayWal, snapshotCheckpointFor } from './recovery'
 import { directoryCheckpointStore } from './segment/store'
 import { SINGLE_NODE_PRIMARY_TERM } from './seq-owner'
+import { settleStoredAnalysis } from './stored-analysis'
 import type { IndexDurabilityHooks } from './types'
 
 export interface RecoverPersistedIndexDeps {
@@ -52,10 +53,13 @@ export async function recoverPersistedIndex(
       derivedCount = undefined
     }
   }
+  const promoted = await settleStoredAnalysis(store, metadata, metadataOnly)
   await hooks.createIndexFromMetadata(metadata, !metadataOnly)
 
   if (metadataOnly) {
-    if (derivedCount !== undefined) await writeCountedMetadata(deps, indexName, derivedCount)
+    if (derivedCount !== undefined || promoted) {
+      await writeCountedMetadata(deps, indexName, derivedCount ?? metadata.documentCount ?? 0)
+    }
     return
   }
 
@@ -114,7 +118,7 @@ export async function recoverPersistedIndex(
   for (const { partitionId, lastSeqNo, primaryTerm } of recovered.checkpoint) {
     deps.registerPartition(indexName, partitionId, lastSeqNo, primaryTerm)
   }
-  if (recovered.upgradedDocumentCount !== null) {
-    await writeCountedMetadata(deps, indexName, recovered.upgradedDocumentCount)
+  if (recovered.upgradedDocumentCount !== null || promoted) {
+    await writeCountedMetadata(deps, indexName, recovered.upgradedDocumentCount ?? manager.countDocuments())
   }
 }

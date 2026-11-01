@@ -37,18 +37,18 @@ async function reportSyncedPosition(
   indexName: string,
   partitionId: number,
   target: string,
-  knownSeqNo: number,
   deadline: number,
   deps: BootstrapSyncDeps,
-): Promise<void> {
+): Promise<NarsilError | null> {
   const logState = readLocalLogState(indexName, partitionId, deps)
-  if (logState.lastSeqNo <= knownSeqNo) {
-    return
-  }
-
+  const details = { indexName, partitionId, target }
   const budgetMs = Math.min(SYNCED_POSITION_REPORT_TIMEOUT_MS, deadline - Date.now())
   if (budgetMs <= 0) {
-    return
+    return new NarsilError(
+      ErrorCodes.SNAPSHOT_SYNC_TIMEOUT,
+      'bootstrap sync exceeded deadline before reporting the synced position',
+      details,
+    )
   }
 
   const payload: SyncRequestPayload = {
@@ -64,18 +64,38 @@ async function reportSyncedPosition(
     payload: encode(await withRoutedIndexUuid(payload, deps)),
   }
 
+  const frameState = createLiveSyncFrameState(
+    indexName,
+    partitionId,
+    deps.snapshotSpoolDirectory ?? defaultSpoolDirectory(),
+  )
   try {
     await withDeadline(
-      deps.transport.stream(target, request, () => {}),
+      deps.transport.stream(target, request, (chunk: Uint8Array) => {
+        handleLiveSyncFrame(frameState, chunk)
+      }),
       budgetMs,
       indexName,
       'synced-position-report',
     )
-  } catch (error) {
-    if (deps.onError !== undefined) {
-      deps.onError(error)
-    }
+  } catch (err) {
+    const cause = err instanceof Error ? err.message : String(err)
+    return new NarsilError(
+      ErrorCodes.SNAPSHOT_SYNC_TRANSPORT_FAILED,
+      `reporting the synced position failed: ${cause}`,
+      { ...details, cause },
+    )
+  } finally {
+    abandonSnapshotStream(frameState.snapshotState)
   }
+  if (frameState.sawSnapshotFrame) {
+    return new NarsilError(
+      ErrorCodes.SNAPSHOT_SYNC_TRANSPORT_FAILED,
+      'the primary no longer retains the synced position, so the copy syncs again',
+      details,
+    )
+  }
+  return frameState.error
 }
 
 export async function syncFromAnyTarget(
@@ -125,7 +145,6 @@ export async function syncFromAnyTarget(
       }
     }
 
-    const positionBeforeAttempt = readLocalLogState(indexName, partitionId, deps).lastSeqNo
     const attempt = await syncFromTarget(
       state,
       entry,
@@ -138,16 +157,21 @@ export async function syncFromAnyTarget(
       deps,
       abortCheck,
     )
-    if (attempt.ok) {
-      await reportSyncedPosition(indexName, partitionId, target, positionBeforeAttempt, deadline, deps)
+    const movedThePosition = attempt.ok && (attempt.tier === 'snapshot' || attempt.entriesApplied > 0)
+    const failure = !attempt.ok
+      ? attempt.error
+      : movedThePosition
+        ? await reportSyncedPosition(indexName, partitionId, target, deadline, deps)
+        : null
+    if (failure === null) {
       return attempt
     }
 
-    lastError = new NarsilError(attempt.error.code, attempt.error.message, {
-      ...attempt.error.details,
+    lastError = new NarsilError(failure.code, failure.message, {
+      ...failure.details,
       target,
     })
-    if (!isTransientFailure(attempt.error.code, attempt.error.details)) {
+    if (!isTransientFailure(failure.code, failure.details)) {
       return { ok: false, error: lastError }
     }
   }

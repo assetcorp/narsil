@@ -300,7 +300,7 @@ An engine with durability configured refuses an index whose `tokenizer` is a `Cu
 
 ### Binding
 
-An index resolves its tokeniser and its stop words once, when the caller creates it, and it holds what it resolved for its whole life. Registering a name a second time binds the indexes created afterwards and leaves every existing index untouched. An existing index stores tokens the earlier value produced, and rebinding it would leave its stored tokens in one form and every later query in another, so the engine leaves the binding alone. An index whose analysis must change needs a fresh index and a reindex, as [Analysis Changes](#analysis-changes) describes.
+An index resolves its tokeniser and its stop words when the caller creates it, and it holds what it resolved until a caller changes them, as [Changing Analysis](#changing-analysis) describes. Registering a name a second time binds the indexes created afterwards and leaves every existing index untouched. An existing index stores tokens the earlier value produced, and rebinding it would leave its stored tokens in one form and every later query in another, so the engine rebinds an index only through a change that rebuilds its terms.
 
 This differs from [Named Adapter Registration](#named-adapter-registration) for embedding adapters, where re-registration rebinds every referencing index. An embedding adapter produces vectors that a rebinding leaves valid, while a tokeniser produces the terms an index is built from.
 
@@ -315,7 +315,19 @@ This differs from [Named Adapter Registration](#named-adapter-registration) for 
 
 The split pattern, the n-gram size, the normaliser, the stemmer, the stop words, and the folding steps together decide which tokens an index stores. A change to any of them changes the tokens a query produces, while the tokens already stored keep their earlier form, so a query misses documents it matched before.
 
-The `.nrsl` envelope records no analysis version, so no automatic check reports the mismatch. A release that changes analysis must say so plainly, and an operator meeting such a release must create a fresh index and reindex every document into it.
+The index metadata records the revision of the language module that produced the index's terms, as [envelope.md](envelope.md#index-metadata-payload) describes, so a release that changes analysis must raise that revision. A caller changes the language, the tokeniser, or the stop words of a live index as [Changing Analysis](#changing-analysis) describes.
+
+### Changing Analysis
+
+An implementation must offer an operation that takes an index name and any of `language`, `tokenizer`, and `stopWords`. A key left out keeps its current value, and `null` on `tokenizer` or `stopWords` returns that key to the language default. `tokenizer` must be a registered name. `stopWords` must be a registered name or a literal list of words. The operation must raise `CONFIG_INVALID`, naming the registry, for a tokeniser instance or a stop word function, because an instance survives neither a worker boundary nor a restart. It must raise `LANGUAGE_NOT_SUPPORTED` for an unregistered language and `CONFIG_INVALID` for an unregistered name. A change to the values that the index already holds must complete with no rebuild.
+
+An implementation must keep answering queries and accepting writes under the old settings while it builds the new terms beside the old ones, and every write that it accepts during that time must reach the new terms. Once every partition holds its new terms, it must replace the partitions, the language, the tokeniser, the stop words, the prepared synonyms, and the [analysis generation](envelope.md#index-metadata-payload) in one step that no query can observe halfway. A query must answer under one set of settings, so a query that spans the switch must run again under the new settings. A change must leave vector data as it is.
+
+A later change must replace a change whose terms are still building, and the earlier caller must receive `ANALYSIS_CHANGE_REPLACED`. A rebuild that a revision difference calls for must join a running change. A change must wait for a durable checkpoint where the previous change has switched and its generation has no durable checkpoint yet, as [Index Metadata](durability.md#index-metadata) requires.
+
+Before it builds, an implementation must estimate the bytes of a second copy of the terms, and it must raise `ANALYSIS_REBUILD_MEMORY_EXCEEDED` where they do not fit the budget that a [restore](durability.md) applies.
+
+The stored synonym sets must be prepared under the new settings, and a change must raise `CONFIG_INVALID` before it builds where a set word would break [the synonym rules](algorithms.md). A set that a caller replaces while a change is building must satisfy those rules under both the old and the new settings.
 
 ---
 

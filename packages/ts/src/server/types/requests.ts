@@ -90,6 +90,21 @@ export interface BatchBody {
 }
 
 /**
+ * The body of `POST /indexes/{name}/_change-analysis`, where a key that you
+ * leave out keeps its current value.
+ *
+ * @public
+ */
+export interface ChangeAnalysisBody {
+  /** This is the name of a language registered on the server. */
+  language?: string
+  /** This is a name registered on the server, or `null` for the language default. */
+  tokenizer?: string | null
+  /** This is a name registered on the server, a list of words, or `null` for the language default. */
+  stopWords?: string | string[] | null
+}
+
+/**
  * The body of `POST /indexes/{name}/_rebalance`.
  *
  * @public
@@ -120,8 +135,10 @@ export interface HttpIndexConfig {
   defaultScoring?: 'local' | 'dfs' | 'broadcast'
   /** These parameters tune BM25 for this index and for each of its text fields. */
   bm25?: BM25Params
-  /** This list replaces the language's stop words. */
-  stopWords?: string[]
+  /** This is the name of a tokeniser registered on the server, which then splits text in place of the language's own rules. */
+  tokenizer?: string
+  /** This name of a stop word set registered on the server, or this list, replaces the language's stop words. */
+  stopWords?: string | string[]
   /** Setting this records term positions in each posting, which the `.nrsl` format carries for readers that match phrases. Highlighting works without it. */
   trackPositions?: boolean
   /** Setting this to false returns index stems from suggestions and prefix expansion, instead of the words users typed. */

@@ -88,10 +88,11 @@ async function writeOneBoundedCheckpoint(input: DurableCheckpointInput): Promise
   if (manager === undefined) {
     return 0
   }
-  const metadata = input.hooks.buildMetadata(input.indexName)
+  const metadata = input.hooks.buildTermsMetadata(input.indexName)
   if (metadata === undefined) {
     return 0
   }
+  const fromMemory = input.fromMemory || input.hooks.mustRewriteTerms(input.indexName)
 
   const vectorIndexes = input.hooks.getVectorIndexes(input.indexName)
   const store = directoryCheckpointStore(input.directory)
@@ -105,7 +106,7 @@ async function writeOneBoundedCheckpoint(input: DurableCheckpointInput): Promise
     wholePartitionsWhereMostChanged(manager, {
       priorCheckpoint: priorManifest?.checkpoint ?? [],
       priorPartitionIds: (priorManifest?.partitions ?? []).map(partition => partition.partitionId),
-      everyPartition: input.fromMemory,
+      everyPartition: fromMemory,
       aWorkerCanSerialise: input.canOffload && checkpointWorkerIsUsable(),
       ...(writeRecords === null
         ? {}
@@ -113,7 +114,7 @@ async function writeOneBoundedCheckpoint(input: DurableCheckpointInput): Promise
             captureRecords: partitionId => segments => writeRecords.captureSegments(indexName, partitionId, segments),
           }),
     }),
-    input.fromMemory ? undefined : (priorManifest?.checkpoint ?? []),
+    fromMemory ? undefined : (priorManifest?.checkpoint ?? []),
     priorManifest?.vectors ?? [],
     writeRecords === null
       ? undefined
@@ -123,7 +124,7 @@ async function writeOneBoundedCheckpoint(input: DurableCheckpointInput): Promise
   await makeEveryAppliedMutationDurable(input.indexState, input.failPartition)
   if (aTargetFailed(input.indexState, targets)) return 0
   const [liveVectors, segments] = await bothOrTheFirstFailure(
-    writeCapturedVectors(store, input.indexName, capture, priorManifest, input.fromMemory),
+    writeCapturedVectors(store, input.indexName, capture, priorManifest, fromMemory),
     writeIndexCheckpointSegments({
       directory: input.directory,
       metadata,
@@ -140,6 +141,7 @@ async function writeOneBoundedCheckpoint(input: DurableCheckpointInput): Promise
   if (aTargetFailed(input.indexState, targets)) return 0
 
   const written = await commitCheckpointManifest(store, metadata, segments, liveVectors.vectors)
+  input.hooks.onManifestCommitted(input.indexName, metadata.analysisGeneration ?? 0)
   recordWrittenVectors(vectorIndexes, liveVectors.written)
   await adoptVectorLayouts(store, vectorIndexes, liveVectors.layouts)
   if (!input.holdsCheckpointFiles()) {

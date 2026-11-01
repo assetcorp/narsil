@@ -148,6 +148,7 @@ function mainThreadHandlers(deps: HandlerDeps): ServerHandlers {
     multiGet: doc.multiGet,
     checkpoint: admin.checkpoint,
     rebuildAnalysis: admin.rebuildAnalysis,
+    changeAnalysis: admin.changeAnalysis,
     snapshot: admin.snapshot,
     vectorMaintenance: admin.vectorMaintenance,
     compact: admin.compact,

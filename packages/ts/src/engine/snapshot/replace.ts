@@ -137,6 +137,7 @@ async function replaceExisting(
 ) {
   const release: CopyRelease = { reloads: false, held: [], settled: Promise.resolve(), timedOut: false }
   try {
+    await deps.abandonAnalysisChange(indexName)
     await withinLimit(indexName, release, releaseCopies(indexName, release, deps), deps)
     await deps.indexState.replace(indexName, async wasOpen => {
       await deps.abandonAnalysisRebuild(indexName)

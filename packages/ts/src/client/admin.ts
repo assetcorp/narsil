@@ -1,5 +1,5 @@
 import { encodeJson } from '../json-encoding'
-import type { MemoryStatsResponse, TaskRecord } from '../server/types'
+import type { ChangeAnalysisBody, MemoryStatsResponse, TaskRecord } from '../server/types'
 import type { VectorMaintenanceResult } from '../types/results'
 import type { BM25Params, PartitionConfig } from '../types/schema'
 import type { SynonymRule } from '../types/synonyms'
@@ -234,6 +234,21 @@ export interface AdminOperations {
    */
   rebuildAnalysis(indexName: string, options?: RequestOptions): Promise<TaskRecord>
   /**
+   * Starts a change of the language, the tokeniser, or the stop words of a live
+   * index, which keeps answering searches during the change.
+   *
+   * @param indexName - The index to change.
+   * @param change - The settings to change. A key that you leave out keeps its
+   * current value, and `null` on `tokenizer` or `stopWords` returns that key to
+   * the language default.
+   * @param options - This sets the signal, the deadline, and the headers for
+   * this request.
+   * @returns The record is the task to follow, and it ends with any failure of
+   * the change, such as `ANALYSIS_CHANGE_REPLACED` when a later change replaces
+   * this one.
+   */
+  changeAnalysis(indexName: string, change: ChangeAnalysisBody, options?: RequestOptions): Promise<TaskRecord>
+  /**
    * Reports the server process's heap usage, its estimate of what the indexes
    * hold, each worker's heap, and how many worker threads receive requests.
    *
@@ -342,6 +357,10 @@ export function createAdminOperations(transport: Transport): AdminOperations {
     async rebuildAnalysis(indexName, options) {
       const path = `${indexPath(indexName)}/_rebuild-analysis`
       return readBody<TaskRecord>(await transport.json({ method: 'POST', path, options }), path)
+    },
+    async changeAnalysis(indexName, change, options) {
+      const path = `${indexPath(indexName)}/_change-analysis`
+      return postJson<TaskRecord>(path, change, options)
     },
     async getMemoryStats(options) {
       const path = '/stats/memory'

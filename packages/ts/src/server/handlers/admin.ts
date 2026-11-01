@@ -9,6 +9,7 @@ import { badRequest, parseJson, parseJsonOptional, rejectInvalid, respondError, 
 import type { RouteContext } from '../request'
 import { sendError, sendStream } from '../response'
 import type {
+  ChangeAnalysisBody,
   MemoryStatsResponse,
   OkResponse,
   RebalanceBody,
@@ -16,7 +17,7 @@ import type {
   VectorFieldBody,
   VectorMaintenanceResponse,
 } from '../types'
-import { parseTaskListQuery, validateRebalance } from '../validation'
+import { parseTaskListQuery, validateChangeAnalysis, validateRebalance } from '../validation'
 
 export function createAdminHandlers(deps: HandlerDeps) {
   const { engine, tasks, limits } = deps
@@ -147,6 +148,25 @@ export function createAdminHandlers(deps: HandlerDeps) {
     respondJson(ctx, record, 202)
   }
 
+  async function changeAnalysis(ctx: RouteContext): Promise<void> {
+    const body = parseJsonOptional<ChangeAnalysisBody>(ctx)
+    if (!body) return
+    const failure = validateChangeAnalysis(body)
+    if (failure) {
+      rejectInvalid(ctx, failure)
+      return
+    }
+    const name = ctx.params[0]
+    try {
+      await requireIndexExists(name)
+    } catch (err) {
+      respondError(ctx, err)
+      return
+    }
+    const record = await tasks.start('changeAnalysis', name, () => engine.changeAnalysis(name, body))
+    respondJson(ctx, record, 202)
+  }
+
   async function rebalance(ctx: RouteContext): Promise<void> {
     const body = parseJsonOptional<RebalanceBody>(ctx)
     if (!body) return
@@ -251,6 +271,7 @@ export function createAdminHandlers(deps: HandlerDeps) {
     optimize,
     rebalance,
     rebuildAnalysis,
+    changeAnalysis,
     restore,
     getTask,
     listTasks,

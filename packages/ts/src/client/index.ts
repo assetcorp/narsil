@@ -3,6 +3,7 @@ export { ClientErrorCodes, ErrorCodes, isNarsilError, NarsilError, ServerErrorCo
 export {
   ASYNC_IMPORT_CAPABILITY,
   BM25_TUNING_CAPABILITY,
+  CHANGE_ANALYSIS_CAPABILITY,
   DOCUMENT_EXPORT_CAPABILITY,
   INDEX_LIFECYCLE_CAPABILITY,
   REBUILD_ANALYSIS_CAPABILITY,
@@ -13,6 +14,7 @@ export {
 } from '../server/capabilities'
 export type {
   CapabilitiesResponse,
+  ChangeAnalysisBody,
   CreateIndexEmbedding,
   ErrorDetail,
   ErrorEnvelope,

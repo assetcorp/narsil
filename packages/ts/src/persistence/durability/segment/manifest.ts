@@ -46,6 +46,7 @@ export interface SegmentManifest {
   version: typeof SEGMENT_MANIFEST_VERSION
   schema: Record<string, string>
   language: string
+  analysisGeneration?: number
   checkpoint: PartitionCheckpoint[]
   partitions: PartitionManifestEntry[]
   vectors: VectorFieldRef[]
@@ -60,6 +61,7 @@ export function encodeSegmentManifest(manifest: SegmentManifest): Promise<Packed
     version: SEGMENT_MANIFEST_VERSION,
     schema: manifest.schema,
     language: manifest.language,
+    ...(manifest.analysisGeneration ? { analysisGeneration: manifest.analysisGeneration } : {}),
     checkpoint: manifest.checkpoint.map(c => ({
       partitionId: c.partitionId,
       lastSeqNo: c.lastSeqNo,
