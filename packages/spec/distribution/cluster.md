@@ -347,7 +347,7 @@ It is set per index at creation time, and changing it on an existing index trigg
 
 ### generation
 
-The name of the index that serves this index name, which the controller writes when a [partition count change](#partition-count-change) finishes. A table that carries `generation` holds no assignments. Every reader must resolve the index name to that generation before it routes a read, a write, or a metadata lookup. A listing reports the index name and leaves out every name that starts with `narsil-generation-`. A table with no assignments and no `generation` still counts as absent, as the [deletion flow](#index-deletion-flow) requires.
+The name of the index that serves this index name, which the controller writes when a [partition count change](#partition-count-change) finishes. A table that carries `generation` holds no assignments. Every reader must resolve the index name to that generation before it routes a read, a write, or a metadata lookup. A read can start just before a swap, so where it fails with `INDEX_NOT_FOUND`, `QUERY_NO_ACTIVE_REPLICA`, `QUERY_NODE_TIMEOUT`, `QUERY_PARTIAL_FAILURE`, or `QUERY_ROUTING_FAILED`, or where a query answers without one of its partitions, the reader must resolve the name again, and it must run the read once more where the name now leads to another generation. A listing reports the index name and leaves out every name that starts with `narsil-generation-`. A table with no assignments and no `generation` still counts as absent, as the [deletion flow](#index-deletion-flow) requires.
 
 ### assignments
 
