@@ -5,12 +5,12 @@ import {
   DIMENSION,
   exactCosineRanking,
   FIELD,
-  insertFileByFile,
   NARROW_EF_SEARCH,
   NARROW_LIMIT,
   type Passage,
   passagesArrivingFileByFile,
   questionsNear,
+  untilSettled,
   vectorHits,
 } from './passages-by-file'
 import { backends, searchWithTheHostBinary } from './removed-vectors/fixtures'
@@ -37,7 +37,9 @@ async function builtFrom(passages: Passage[], questions: number[][]): Promise<Bu
     schema: { [FIELD]: `vector[${DIMENSION}]` },
     vectorPromotion: { threshold: 100, quantization: 'osq4' },
   })
-  await insertFileByFile(engine, INDEX, passages)
+  await engine.insertBatch(INDEX, passages)
+  await engine.optimizeVectors(INDEX, FIELD)
+  await untilSettled(engine, INDEX)
   const walk = await walkSavedGraph(await engine.snapshot(INDEX), INDEX, FIELD)
   const answers: string[][] = []
   for (const question of questions) {
@@ -61,7 +63,7 @@ function recallAgainstExactScan(passages: Passage[], questions: number[][], answ
 
 searchWithTheHostBinary()
 
-describe.each(backends)('three builds of the same passages through $name', ({ native, available }) => {
+describe.each(backends)('three bulk loads of the same passages through $name', ({ native, available }) => {
   beforeEach(() => {
     setNativeSearchCoreEnabled(native)
   })
