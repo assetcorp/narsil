@@ -6,6 +6,7 @@ import type { VectorBuildReader, VectorSearchReader, VectorStoreEntry } from '..
 import { type Adjacency, ensureAdjacencyCapacity, hasNode, nodeLevel } from './adjacency'
 import { MAX_LAYER_CAP } from './constants'
 import { GRAPH_ENTRY_POINT, GRAPH_NODE_COUNT, GRAPH_TOMBSTONE_COUNT, GRAPH_TOP_LAYER } from './handles'
+import { unitDrawOf } from './insertion-order'
 import type { GraphLocks } from './locks'
 import type { HNSWWorkspace } from './workspace'
 
@@ -137,10 +138,8 @@ export function toScore(distance: number, metric: VectorMetric): number {
   }
 }
 
-export function randomLevel(mL: number): number {
-  let u = Math.random()
-  if (u === 0) u = Number.MIN_VALUE
-  return Math.min(Math.floor(-Math.log(u) * mL), MAX_LAYER_CAP)
+export function levelOfOrdinal(ord: number, mL: number): number {
+  return Math.min(Math.floor(-Math.log(unitDrawOf(ord)) * mL), MAX_LAYER_CAP)
 }
 
 export function entryForOrd(state: HNSWSearchState, ord: number): VectorStoreEntry | undefined {

@@ -1,11 +1,13 @@
-import { getHeapStatistics } from 'node:v8'
+import { getHeapSpaceStatistics } from 'node:v8'
 import { createNarsil } from '../../../../dist/index.mjs'
 
 const INDEX = 'catalogue'
 const BATCH = 2_000
 const PROBE_EVERY = 97
 const PROBE = 'lantern'
-const HEAP_SHARE_BEFORE_THE_CHANGE = 0.62
+const OLD_GENERATION_SHARE_BEFORE_THE_CHANGE = 0.75
+const OLD_GENERATION_LIMIT_BYTES = Number(process.argv[2]) * 1_048_576
+const YOUNG_GENERATION_SPACES = new Set(['new_space', 'new_large_object_space'])
 const HITS_PAGE = 10_000
 
 function hasProbe(position) {
@@ -18,9 +20,12 @@ function titleAt(position) {
   return words.join(' ')
 }
 
-const heapShare = () => {
-  const heap = getHeapStatistics()
-  return heap.used_heap_size / heap.heap_size_limit
+const oldGenerationShare = () => {
+  let usedBytes = 0
+  for (const space of getHeapSpaceStatistics()) {
+    if (!YOUNG_GENERATION_SPACES.has(space.space_name)) usedBytes += space.space_used_size
+  }
+  return usedBytes / OLD_GENERATION_LIMIT_BYTES
 }
 
 const hitIds = async (engine, term) => {
@@ -32,7 +37,7 @@ const engine = await createNarsil({ workers: { enabled: false } })
 await engine.createIndex(INDEX, { schema: { title: 'string' }, language: 'english' })
 
 let documents = 0
-while (heapShare() < HEAP_SHARE_BEFORE_THE_CHANGE) {
+while (oldGenerationShare() < OLD_GENERATION_SHARE_BEFORE_THE_CHANGE) {
   const batch = []
   for (let i = 0; i < BATCH; i++) {
     batch.push({ id: `doc-${documents}`, title: titleAt(documents) })
