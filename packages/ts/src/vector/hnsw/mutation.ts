@@ -42,11 +42,11 @@ import {
   entryPointOf,
   type HNSWGraphState,
   isTombstoned,
+  levelOfOrdinal,
   maxConns,
   nodeDistanceFunction,
   nodeExists,
   nodeMaxLayer,
-  randomLevel,
   reachTombstone,
   topLayerOf,
 } from './shared'
@@ -195,7 +195,7 @@ function writeRecordBeforePlacement(state: HNSWGraphState, ord: number): void {
 function placeThroughTheCore(state: HNSWGraphState, ord: number, holdsGraphLock: boolean): boolean {
   let field = nativeFieldFor(state)
   if (field === null) return false
-  const level = randomLevel(state.mL)
+  const level = levelOfOrdinal(ord, state.mL)
   for (let request = 0; request < PLACEMENT_ROOM_REQUESTS && field !== null; request++) {
     ensureUpperRoom(state.adjacency, level)
     const placement = nativePlace(state, field, state.buildMetric, ord, level, holdsGraphLock)
@@ -224,7 +224,7 @@ export function insertNode(state: HNSWGraphState, ord: number, holdsGraphLock = 
   if (!holdsGraphLock) lockGraphShared(state.locks)
   try {
     clearTombstone(state, ord)
-    const level = randomLevel(state.mL)
+    const level = levelOfOrdinal(ord, state.mL)
     createNode(state.adjacency, ord, level)
     Atomics.add(state.header, GRAPH_NODE_COUNT, 1)
     if (!claimEntryIfEmpty(state, ord, level)) linkNode(state, ord, level)
