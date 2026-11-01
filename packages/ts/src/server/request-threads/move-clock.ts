@@ -9,7 +9,8 @@ export class SearchMoved extends Error {
 }
 
 export function moveClock(moveAfterMs: number): SearchClock {
-  const moveAt = performance.now() + moveAfterMs
+  let moveAt = performance.now() + moveAfterMs
+  let overranOnce = false
   let pending = 0
   const clock: SearchClock = {
     tick(units: number): void {
@@ -18,7 +19,11 @@ export function moveClock(moveAfterMs: number): SearchClock {
     },
     check(): void {
       pending = 0
-      if (performance.now() > moveAt) throw new SearchMoved()
+      const now = performance.now()
+      if (now <= moveAt) return
+      if (overranOnce) throw new SearchMoved()
+      overranOnce = true
+      moveAt = now + moveAfterMs
     },
   }
   return clock
