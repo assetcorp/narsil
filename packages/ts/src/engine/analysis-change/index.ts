@@ -8,7 +8,7 @@ import { emitEngineEvent } from '../events'
 import { requireAnalysisRebuildMemory } from '../snapshot/memory-budget'
 import { prepareStoredSynonyms, rulesOfStoredSynonyms } from '../synonym-sets'
 import { type AnalysisTarget, targetOfPending } from './pending-target'
-import { type ChangeRun, createHold, createRun, heldUntilRelease, runsOf, stopRun } from './run'
+import { type ChangeRun, createHold, createRun, runsOf, stopRun, waitForRelease } from './run'
 import {
   currentConfigUnderTarget,
   durableSettingsOf,
@@ -75,6 +75,7 @@ function switchIndex({ core, indexName, entry, run, generation }: ChangeScope) {
 
 async function buildAndSwitch(scope: ChangeScope): Promise<void> {
   const { core, indexName, entry, run } = scope
+  const { hold } = run
   const manager = core.requireManager(indexName)
   const emit = (status: 'started' | 'completed' | 'failed', partitionsRebuilt: number, error?: Error): void => {
     emitEngineEvent(core.eventHandlers, 'analysisRebuild', {
@@ -104,7 +105,7 @@ async function buildAndSwitch(scope: ChangeScope): Promise<void> {
           partitionsRebuilt = built
         },
         onSwitch: () => adopt(),
-        ...(run.hold === null ? {} : { holdBeforeSwitch: heldUntilRelease(run, run.hold) }),
+        ...(hold === null ? {} : { holdBeforeSwitch: keepCurrent => waitForRelease(run, hold, keepCurrent) }),
         runSwitch(swap) {
           const swapWithSynonyms = (): boolean => {
             if (!isCurrent()) return false

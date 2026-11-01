@@ -8,7 +8,12 @@ import {
 } from '../../../constants'
 import { getIndexMetadata } from '../../../index-metadata'
 import { lastHoldersOf } from '../../../last-holders'
-import { clearEveryProgress, dropGeneration, ensureGeneration } from '../../../rebalance/generation'
+import {
+  clearEveryProgress,
+  dropGeneration,
+  dropReplacedNameSynonymSet,
+  ensureGeneration,
+} from '../../../rebalance/generation'
 import { pause } from '../../../rebalance/pause'
 import {
   type RebalanceRecord,
@@ -89,6 +94,7 @@ async function finishSwap(ctx: RebalanceContext, indexName: string, record: Reba
   if (record.sourceGeneration === indexName) {
     const metadata = await getIndexMetadata(ctx.coordinator, indexName)
     await clearEveryProgress(ctx.coordinator, indexName, metadata?.partitionCount ?? 0)
+    await dropReplacedNameSynonymSet(ctx.coordinator, indexName)
   } else {
     const source = await ctx.coordinator.getAllocation(record.sourceGeneration)
     await clearEveryProgress(ctx.coordinator, indexName, source?.assignments.size ?? 0)

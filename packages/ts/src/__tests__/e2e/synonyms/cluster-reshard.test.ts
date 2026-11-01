@@ -63,6 +63,7 @@ describe('a synonym set across partition count changes', () => {
     for (const nodeId of NODES) {
       await expectEveryProbe(dfsSearchOver(cluster.node(nodeId)), none, `removed, from ${nodeId}`)
     }
+    expect([...cluster.watched.liveChunks]).toEqual([])
 
     await cluster.node('node-a').dropIndex(INDEX)
     expect([...cluster.watched.liveChunks]).toEqual([])

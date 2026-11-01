@@ -1,5 +1,6 @@
 import { decode } from '@msgpack/msgpack'
 import { generateId } from '../../core/id-generator'
+import { configOfNamedSettings } from '../../engine/analysis-change/pending-target'
 import { prepareConfiguredSynonyms } from '../../engine/synonym-sets'
 import { ErrorCodes, NarsilError } from '../../errors'
 import { getLanguage } from '../../languages/registry'
@@ -81,19 +82,7 @@ function preparedSet(snapshot: IndexMetadataSnapshot, indexName: string, synonym
   const language = getLanguage(config.language ?? 'english')
   const pending = snapshot.settings?.pendingAnalysis
   if (pending !== undefined) {
-    const { language: pendingLanguage, tokenizer, stopWords, stopWordList } = pending
-    const { tokenizer: _tokenizer, stopWords: _stopWords, ...rest } = config
-    prepareConfiguredSynonyms(
-      {
-        ...rest,
-        language: pendingLanguage,
-        ...(tokenizer !== undefined ? { tokenizer } : {}),
-        ...(stopWords !== undefined ? { stopWords } : {}),
-        ...(stopWords === undefined && stopWordList !== undefined ? { stopWords: new Set(stopWordList) } : {}),
-        synonyms,
-      },
-      getLanguage(pendingLanguage),
-    )
+    prepareConfiguredSynonyms({ ...configOfNamedSettings(config, pending), synonyms }, getLanguage(pending.language))
   }
   return prepareConfiguredSynonyms({ ...config, synonyms }, language)?.encoded ?? null
 }

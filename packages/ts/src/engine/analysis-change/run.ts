@@ -84,7 +84,7 @@ export function createRun(target: AnalysisTarget, hold: ChangeHold | null = null
   return { target, stopReason: null, switched: false, settled, finish, fail, finished, settle, hold }
 }
 
-async function waitForRelease(run: ChangeRun, hold: ChangeHold, keepCurrent: () => boolean): Promise<boolean> {
+export async function waitForRelease(run: ChangeRun, hold: ChangeHold, keepCurrent: () => boolean): Promise<boolean> {
   hold.built = true
   hold.markReady()
   while (!hold.released) {
@@ -95,10 +95,6 @@ async function waitForRelease(run: ChangeRun, hold: ChangeHold, keepCurrent: () 
     await hold.pause()
   }
   return true
-}
-
-export function heldUntilRelease(run: ChangeRun, hold: ChangeHold) {
-  return (keepCurrent: () => boolean): Promise<boolean> => waitForRelease(run, hold, keepCurrent)
 }
 
 export function stopRun(run: ChangeRun, indexName: string): void {

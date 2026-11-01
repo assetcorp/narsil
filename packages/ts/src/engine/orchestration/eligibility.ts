@@ -29,14 +29,18 @@ function assertConfigReachesWorker(indexName: string, config: IndexConfig, boots
       { indexName },
     )
   }
+  if (bootstrapModule !== undefined) return
   const language = config.language ?? 'english'
-  if (language !== 'english' && bootstrapModule === undefined) {
+  const requireRegistered = (setting: string, name: string): never => {
     throw new NarsilError(
       ErrorCodes.CONFIG_INVALID,
-      `Index "${indexName}" uses language "${language}", which a worker thread registers only from a bootstrap module. Set workers.bootstrapModule to a module that registers it`,
-      { indexName, language },
+      `Index "${indexName}" uses ${setting} "${name}", which a worker thread registers only from a bootstrap module. Set workers.bootstrapModule to a module that registers it`,
+      { indexName, [setting]: name },
     )
   }
+  if (language !== 'english') requireRegistered('language', language)
+  if (typeof config.tokenizer === 'string') requireRegistered('tokenizer', config.tokenizer)
+  if (typeof config.stopWords === 'string') requireRegistered('stopWords', config.stopWords)
 }
 
 export function workerIneligibility(
