@@ -239,6 +239,13 @@ export interface IndexConfig {
    * because the engine's highlighter analyses the stored text again.
    */
   trackPositions?: boolean
+  /**
+   * Setting this to `'disk'` lets the index answer from segment files that the
+   * engine reads by position, so its keyword index and documents can outgrow
+   * the node's memory once a checkpoint covers them. The default is `'memory'`,
+   * and `'disk'` raises `CONFIG_INVALID` without filesystem durability.
+   */
+  textStorage?: 'memory' | 'disk'
   /** These settings control when vector fields move to an HNSW graph, and how that graph is built. */
   vectorPromotion?: VectorIndexConfig
   /**

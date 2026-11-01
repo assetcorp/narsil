@@ -1,6 +1,7 @@
 import { createPartitionIndex, type PartitionIndex, type PartitionInsertOptions } from '../core/partition'
 import { yieldToEventLoop } from '../engine/orchestration/turn'
 import { ErrorCodes, NarsilError } from '../errors'
+import type { RewriteSpill } from '../persistence/paged/rewrite-spill'
 import { REBALANCE_CHUNK_SIZE } from './constants'
 import type { PartitionManager } from './manager'
 import type { PartitionRouter } from './router'
@@ -17,6 +18,7 @@ export interface Rebalancer {
     newPartitionCount: number,
     router: PartitionRouter,
     onProgress?: (progress: RebalanceProgress) => void,
+    spill?: RewriteSpill | null,
   ): Promise<void>
   isRebalancing(): boolean
 }
@@ -30,6 +32,7 @@ export function createRebalancer(): Rebalancer {
     newPartitionCount: number,
     router: PartitionRouter,
     onProgress?: (progress: RebalanceProgress) => void,
+    spill: RewriteSpill | null = null,
   ): Promise<void> {
     if (activeManagers.has(manager)) {
       throw new NarsilError(
@@ -72,7 +75,7 @@ export function createRebalancer(): Rebalancer {
 
       const newPartitions: PartitionIndex[] = []
       for (let i = 0; i < newPartitionCount; i++) {
-        newPartitions.push(createPartitionIndex(i, manager.config.trackPositions ?? true))
+        newPartitions.push(spill?.newPartition(i) ?? createPartitionIndex(i, manager.config.trackPositions ?? true))
       }
 
       let documentsProcessed = 0
@@ -108,6 +111,7 @@ export function createRebalancer(): Rebalancer {
               documentsProcessed,
               documentsTotal,
             })
+            for (let at = 0; at < newPartitions.length; at++) await spill?.spillIfFull(newPartitions[at], at)
             await yieldToEventLoop()
           }
         }

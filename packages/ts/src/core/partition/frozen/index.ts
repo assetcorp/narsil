@@ -22,14 +22,21 @@ import { buildExternalIdTable, type ExternalIdTable, wrapExternalIdTable } from 
 import { createFrozenBooleanReader, createFrozenEnumReader, createFrozenNumericReader } from './field-indexes'
 import { createFrozenInvertedReader } from './inverted-reader'
 import { createFrozenLiveCounts, type FrozenLiveCounts } from './live-counts'
-import { createFrozenPostingViews } from './posting-views'
+import type { PagedSegmentSnapshot } from './paged-snapshot'
+import { createFrozenPostingViews, type FrozenPostingViews } from './posting-views'
 import { createFrozenRemovalPass, type FrozenRemovalPass } from './removal-pass'
 import type { SharedSegmentSnapshot } from './shared-snapshot'
-import { createFrozenSurfaceSlot, type FrozenSurfaceSlot, type RemovedSpellings } from './surface-slot'
+import {
+  createFrozenSurfaceSlot,
+  type FrozenSurfaceSlot,
+  type RemovedSpellings,
+  type SurfaceTableReader,
+} from './surface-slot'
 import { decodeSurfaceTable } from './surface-table'
 import { buildFrozenTokenTable, type FrozenTokenTable, wrapFrozenTokenTable } from './token-table'
-import { createFrozenTombstones } from './tombstones'
+import { createFrozenTombstones, type FrozenTombstones } from './tombstones'
 
+export type { PagedSegmentSnapshot } from './paged-snapshot'
 export type { SharedSegmentSnapshot } from './shared-snapshot'
 export { freezeSegmentShared, shareSegmentArrays } from './shared-snapshot'
 export type { FrozenTokenTable } from './token-table'
@@ -39,6 +46,7 @@ export interface FrozenSegment extends PartitionReadState {
   readonly segmentId: string
   readonly documentSource: FrozenDocumentSource
   readonly sharedSnapshot: SharedSegmentSnapshot | null
+  readonly paged: PagedSegmentAccess | null
   readonly partialWords: FrozenPartialWordSlot
   readonly surfaces: FrozenSurfaceSlot
   readonly removals: FrozenRemovalPass
@@ -62,8 +70,40 @@ export interface FrozenSegmentArrays extends Omit<SegmentColumns, 'surfaceForms'
   readSurfaceForms(): SerializedSurfaceForms | null
 }
 
-interface FrozenSegmentSource extends FrozenSegmentArrays {
+export interface FrozenSegmentSource extends FrozenSegmentArrays {
   docFrequencies: () => Readonly<Record<string, number>>
+  surfaceTableOnDisk?: SurfaceTableReader
+}
+
+export interface PagedSegmentParts {
+  access: PagedSegmentAccess
+  createCounts(tombstones: FrozenTombstones): FrozenLiveCounts
+  createViews(tombstones: FrozenTombstones, counts: FrozenLiveCounts): FrozenPostingViews
+}
+
+export interface PagedPostingList {
+  docIds: Uint32Array
+  termFrequencies: Uint16Array
+  fieldNameIndices: Uint16Array
+}
+
+export interface PagedPositions {
+  offsets: Uint32Array
+  values: Uint32Array
+}
+
+export interface PagedSegmentAccess {
+  readonly key: string
+  readonly snapshot: PagedSegmentSnapshot
+  readonly writeRecordsHeld: boolean
+  listAt(sortedIndex: number): PagedPostingList
+  positionsAt(sortedIndex: number): PagedPositions | null
+  encodedDocumentAt(ordinal: number): Uint8Array
+  writeRecordAt(ordinal: number): { seqNo: number; primaryTerm: number }
+  heldBytes(segment: FrozenSegment): number
+  termFrequenciesAcross(states: () => readonly PartitionReadState[]): Readonly<Record<string, number>>
+  close(): void
+  relocate(rewrite: (path: string) => string): void
 }
 
 function buildStatsView(counts: FrozenLiveCounts): PartitionStatsView {
@@ -117,10 +157,14 @@ function assembleFrozenSegment(
   sharedSnapshot: SharedSegmentSnapshot | null,
   partialWordTable: PartialWordTableData | null,
   survivingSurfaceForms?: SerializedSurfaceForms,
+  pagedParts?: PagedSegmentParts,
 ): FrozenSegment {
   const tombstones = createFrozenTombstones()
-  const counts = createFrozenLiveCounts(source, source.tokenTable, tombstones, storedFrequenciesOf(source))
-  const postingViews = createFrozenPostingViews(source, tombstones, counts)
+  const counts =
+    pagedParts?.createCounts(tombstones) ??
+    createFrozenLiveCounts(source, source.tokenTable, tombstones, storedFrequenciesOf(source))
+  const postingViews =
+    pagedParts?.createViews(tombstones, counts) ?? createFrozenPostingViews(source, tombstones, counts)
   const lengthColumns = new Map<string, Uint32Array>()
   for (let i = 0; i < source.fieldLengthNames.length; i++) {
     lengthColumns.set(source.fieldLengthNames[i], source.fieldLengthColumns[i])
@@ -137,7 +181,11 @@ function assembleFrozenSegment(
     documentAt: (ordinal: number) => documentSource.readAt(ordinal),
   }
   const loadSurfaceForms = survivingSurfaceForms === undefined ? source.readSurfaceForms : () => survivingSurfaceForms
-  const surfaces = createFrozenSurfaceSlot(loadSurfaceForms, textDocuments)
+  const surfaces = createFrozenSurfaceSlot(
+    loadSurfaceForms,
+    textDocuments,
+    survivingSurfaceForms === undefined ? source.surfaceTableOnDisk : undefined,
+  )
   const removals = createFrozenRemovalPass(textDocuments, surfaces)
 
   const numericIndexes = new Map<string, NumericFieldIndexReader>()
@@ -162,6 +210,7 @@ function assembleFrozenSegment(
     segmentId,
     documentSource,
     sharedSnapshot,
+    paged: pagedParts?.access ?? null,
     arrays: source,
     invertedIdx: createFrozenInvertedReader(source.tokenTable, postingViews, counts),
     docStore,
@@ -177,7 +226,7 @@ function assembleFrozenSegment(
     sizeIndexes,
     fieldNameTable,
     partialWords,
-    trackPositions: source.positionOffsets !== null,
+    trackPositions: pagedParts?.access.snapshot.tracksPositions ?? source.positionOffsets !== null,
     flatSchemaCache: null,
     lastSchemaRef: null,
     sortColumns: null,
@@ -228,6 +277,16 @@ function assembleFrozenSegment(
   }
 
   return segment
+}
+
+export function assemblePagedFrozenSegment(
+  segmentId: string,
+  source: FrozenSegmentSource,
+  documentSource: FrozenDocumentSource,
+  partialWordTable: PartialWordTableData | null,
+  parts: PagedSegmentParts,
+): FrozenSegment {
+  return assembleFrozenSegment(segmentId, source, documentSource, null, partialWordTable, undefined, parts)
 }
 
 export function createFrozenSegment(

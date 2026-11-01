@@ -40,7 +40,7 @@ export interface LiveVectorsWritten {
   written: VectorFieldWritten[]
 }
 
-function whileNoMutationApplies<T>(partitions: readonly PartitionState[], capture: () => T): Promise<T> {
+export function whileNoMutationApplies<T>(partitions: readonly PartitionState[], capture: () => T): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     let release: () => void = () => undefined
     const released = new Promise<void>(settle => {
@@ -83,6 +83,19 @@ export async function makeEveryAppliedMutationDurable(
       failPartition(partitionId, partition, error)
     }
   }
+}
+
+export async function openNewLogSegments(indexState: IndexState, failPartition: PartitionFailure): Promise<void> {
+  const rolls = [...indexState.partitions].map(([partitionId, partition]) => {
+    const rolled = partition.appendChain
+      .then(() => (partition.failed === null ? partition.walWriter.rollForCheckpoint() : undefined))
+      .catch((error: unknown) => {
+        failPartition(partitionId, partition, error)
+      })
+    partition.appendChain = rolled
+    return rolled
+  })
+  await Promise.all(rolls)
 }
 
 export function aTargetFailed(indexState: IndexState, targets: readonly PartitionCheckpoint[]): boolean {
@@ -150,9 +163,11 @@ export async function captureCheckpoint(
   priorCheckpointThatLimitsTheRecords?: PartitionCheckpoint[],
   listedVectorFields: readonly VectorFieldRef[] = [],
   termHistoryOf?: (partitionId: number, lastSeqNo: number) => TermStart[],
+  onCaptured?: () => void,
 ): Promise<CheckpointCapture> {
   for (const vectorIndex of vectorIndexes.values()) await vectorIndex.completeGraph()
   return whileNoMutationApplies([...indexState.partitions.values()], () => {
+    onCaptured?.()
     const documentCount = manager.countDocuments()
     const targets: PartitionCheckpoint[] = []
     let recordsLeftInLog = 0

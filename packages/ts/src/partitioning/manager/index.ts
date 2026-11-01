@@ -2,11 +2,8 @@ import { resolveIndexAnalysis } from '../../analysis/registry'
 import type { ComparableSortValue } from '../../core/ordering'
 import { createPartitionIndex, type PartitionIndex, type PartitionInsertOptions } from '../../core/partition'
 import { type CompositePartition, createCompositePartition, isCompositePartition } from '../../core/partition/composite'
-import type { LiveTailFreezer } from '../../core/partition/composite/compaction'
-import type { FrozenSegment } from '../../core/partition/frozen'
 import type { RemovedSpellings } from '../../core/partition/frozen/surface-slot'
 import { requirePartialWordSearchFor } from '../../core/partition/partial-words/registry'
-import type { SegmentPayload } from '../../core/partition/segment-payload'
 import { requirePatternSearchFor } from '../../core/pattern-index/registry'
 import type { ResolvedProjection } from '../../core/projection'
 import { ErrorCodes, NarsilError } from '../../errors'
@@ -17,14 +14,21 @@ import type { VectorIndex } from '../../vector/vector-index'
 import { resolvePartialWordAnalysis, resolvePartitionInsertOptions } from '../insert-options'
 import type { PartitionRouter } from '../router'
 import { createCapacityChecks } from './capacity'
-import { rebuildDocLocations, rebuildPartitionDocLocations, recordSegmentDocLocations } from './doc-locations'
+import { rebuildDocLocations, rebuildPartitionDocLocations } from './doc-locations'
 import { copyVectorsInto } from './nested-values'
-import { requireNewSegmentDocuments } from './segments'
+import { createSegmentOperations } from './segment-operations'
 import { aggregateStatsOf, estimateBytesOf, partitionStatsOf } from './stats'
 import type { PartitionManager } from './types'
-import { createWriteLogRecorder } from './write-log'
+import { createWriteLogRecorder, REANALYSIS_WRITE_LOG } from './write-log'
 
 export type { PartitionManager } from './types'
+
+function closePagedSegmentsLeftBehind(earlier: readonly PartitionIndex[], kept: readonly PartitionIndex[]): void {
+  for (const partition of earlier) {
+    if (!isCompositePartition(partition) || kept.includes(partition)) continue
+    for (const segment of partition.frozenSegments()) segment.paged?.close()
+  }
+}
 
 export function createPartitionManager(
   indexName: string,
@@ -46,7 +50,7 @@ export function createPartitionManager(
   const vecIndexes: Map<string, VectorIndex> = vectorIndexes ?? new Map()
   let partitions: PartitionIndex[] = []
   const docPartitionMap = new Map<string, number>()
-  const writeLog = createWriteLogRecorder()
+  const writeLogs = createWriteLogRecorder()
 
   for (let i = 0; i < count; i++) {
     partitions.push(createPartitionIndex(i, trackPositions))
@@ -71,7 +75,14 @@ export function createPartitionManager(
   }
 
   function locateDocument(docId: string): number | undefined {
-    return docPartitionMap.get(docId)
+    const known = docPartitionMap.get(docId)
+    if (known !== undefined || config.textStorage !== 'disk') return known
+    const routed = router.route(docId, partitions.length)
+    if (partitions[routed]?.has(docId)) return routed
+    for (let i = 0; i < partitions.length; i++) {
+      if (i !== routed && partitions[i].has(docId)) return i
+    }
+    return undefined
   }
 
   function asCompositePartition(partitionId: number): CompositePartition {
@@ -123,13 +134,15 @@ export function createPartitionManager(
     },
 
     setPartitions(newPartitions: PartitionIndex[]): void {
-      writeLog.partitionsReplaced()
+      writeLogs.partitionsReplaced()
+      const earlier = partitions
       partitions = [...newPartitions]
+      closePagedSegmentsLeftBehind(earlier, partitions)
       rebuildDocLocations(docPartitionMap, partitions)
     },
 
     openWriteLog() {
-      return writeLog.open()
+      return writeLogs.open(REANALYSIS_WRITE_LOG)
     },
 
     adoptRebuiltPartitions(rebuilt: PartitionIndex[]): void {
@@ -140,7 +153,9 @@ export function createPartitionManager(
           { indexName, partitionCount: partitions.length, rebuiltCount: rebuilt.length },
         )
       }
+      const earlier = partitions
       partitions = [...rebuilt]
+      closePagedSegmentsLeftBehind(earlier, partitions)
     },
 
     adoptAnalysis(change): void {
@@ -162,14 +177,14 @@ export function createPartitionManager(
         )
       }
       const partition = createPartitionIndex(partitions.length, trackPositions)
-      writeLog.partitionsReplaced()
+      writeLogs.partitionsReplaced()
       partitions.push(partition)
       return partition
     },
 
     removePartition(partitionId: number): void {
       validatePartitionId(partitionId)
-      writeLog.partitionsReplaced()
+      writeLogs.partitionsReplaced()
       partitions.splice(partitionId, 1)
       rebuildDocLocations(docPartitionMap, partitions)
     },
@@ -184,7 +199,7 @@ export function createPartitionManager(
       if (newCount >= partitions.length) {
         return
       }
-      writeLog.partitionsReplaced()
+      writeLogs.partitionsReplaced()
       for (const [docId, pid] of docPartitionMap) {
         if (pid >= newCount) {
           docPartitionMap.delete(docId)
@@ -210,7 +225,7 @@ export function createPartitionManager(
       const insertOpts = resolveInsertOptions(options)
       partitions[pid].insert(docId, document, config.schema, language, insertOpts)
       docPartitionMap.set(docId, pid)
-      writeLog.documentWritten(docId)
+      writeLogs.documentWritten(docId)
     },
 
     removedSpellingsOf(docId: string): RemovedSpellings | undefined {
@@ -228,7 +243,7 @@ export function createPartitionManager(
       }
       partitions[pid].remove(docId, config.schema, language, resolveInsertOptions(), removedSpellings)
       docPartitionMap.delete(docId)
-      writeLog.documentWritten(docId)
+      writeLogs.documentWritten(docId)
     },
 
     beginBatchRemove(): void {
@@ -256,7 +271,7 @@ export function createPartitionManager(
       const updateOpts = resolveInsertOptions(options)
       partitions[pid].update(docId, document, config.schema, language, updateOpts, removedSpellings)
       docPartitionMap.set(docId, pid)
-      writeLog.documentWritten(docId)
+      writeLogs.documentWritten(docId)
     },
 
     get(docId: string, projection?: ResolvedProjection): AnyDocument | undefined {
@@ -305,51 +320,18 @@ export function createPartitionManager(
       return partitions[partitionId].serialize(indexName, partitions.length, language.name, config.schema)
     },
 
-    mergeSegment(partitionId: number, payload: SegmentPayload, documents: ReadonlyArray<AnyDocument>): void {
-      validatePartitionId(partitionId)
-      const partition = partitions[partitionId]
-      partition.beginBatch()
-      partition.mergeSegmentPayload(payload, documents)
-      partition.endBatch()
-      for (const docId of payload.docIds) {
-        docPartitionMap.set(docId, partitionId)
-        writeLog.documentWritten(docId)
-      }
-    },
-
-    attachFrozenSegment(partitionId: number, segment: FrozenSegment): void {
-      validatePartitionId(partitionId)
-      requireNewSegmentDocuments(segment, docPartitionMap)
-      asCompositePartition(partitionId).attachFrozenSegment(segment)
-      recordSegmentDocLocations(docPartitionMap, partitionId, segment)
-      writeLog.segmentWritten(segment)
-    },
-
-    swapFrozenSegments(partitionId, dropSegmentIds, replacement, removedSpellings) {
-      validatePartitionId(partitionId)
-      const applied = asCompositePartition(partitionId).swapFrozenSegments(
-        dropSegmentIds,
-        replacement,
-        removedSpellings,
-      )
-      recordSegmentDocLocations(docPartitionMap, partitionId, replacement)
-      return applied
-    },
-
-    freezeLiveTail(partitionId: number, freeze: LiveTailFreezer): FrozenSegment | null {
-      validatePartitionId(partitionId)
-      return asCompositePartition(partitionId).freezeLiveTail(freeze)
-    },
-
-    replaceLiveTail(partitionId: number, segment: FrozenSegment): void {
-      validatePartitionId(partitionId)
-      asCompositePartition(partitionId).replaceLiveTail(segment)
-      recordSegmentDocLocations(docPartitionMap, partitionId, segment)
-    },
+    ...createSegmentOperations({
+      docPartitionMap,
+      writeLogs,
+      partitionAt: partitionId => partitions[partitionId],
+      validatePartitionId,
+      asCompositePartition,
+      resolveInsertOptions: () => resolveInsertOptions(),
+    }),
 
     deserializePartition(partitionId: number, data: SerializablePartition): void {
       validatePartitionId(partitionId)
-      writeLog.partitionsReplaced()
+      writeLogs.partitionsReplaced()
       partitions[partitionId].deserialize(data, config.schema)
       preparePartialWords(partitionId)
       rebuildPartitionDocLocations(docPartitionMap, partitionId, partitions[partitionId])

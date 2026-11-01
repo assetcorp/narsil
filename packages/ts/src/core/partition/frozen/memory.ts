@@ -1,6 +1,7 @@
 import type { FrozenSegment } from './index'
 
 export function frozenSegmentBytes(segment: FrozenSegment): number {
+  if (segment.paged !== null) return segment.paged.heldBytes(segment)
   const arrays = segment.arrays
   let bytes = arrays.tokenTable.bytes + arrays.idTable.bytes
   bytes += arrays.postingOffsets.byteLength

@@ -7,8 +7,11 @@ export interface PartitionWriteLog {
   close(): void
 }
 
+export const REANALYSIS_WRITE_LOG = 0
+export const CHECKPOINT_WRITE_LOG = 1
+
 export interface WriteLogRecorder {
-  open(): PartitionWriteLog
+  open(owner: number): PartitionWriteLog
   documentWritten(docId: string): void
   segmentWritten(segment: FrozenSegment): void
   partitionsReplaced(): void
@@ -20,12 +23,12 @@ interface OpenLog {
 }
 
 export function createWriteLogRecorder(): WriteLogRecorder {
-  let current: OpenLog | null = null
+  const current: Array<OpenLog | null> = [null, null]
 
   return {
-    open(): PartitionWriteLog {
+    open(owner: number): PartitionWriteLog {
       const log: OpenLog = { docIds: new Set(), replaced: false }
-      current = log
+      current[owner] = log
       return {
         get partitionsReplaced() {
           return log.replaced
@@ -39,25 +42,30 @@ export function createWriteLogRecorder(): WriteLogRecorder {
           return taken
         },
         close(): void {
-          if (current === log) current = null
+          if (current[owner] === log) current[owner] = null
         },
       }
     },
 
     documentWritten(docId: string): void {
-      if (current !== null) current.docIds.add(docId)
+      current[0]?.docIds.add(docId)
+      current[1]?.docIds.add(docId)
     },
 
     segmentWritten(segment: FrozenSegment): void {
-      if (current === null) return
-      for (const internalId of segment.docStore.allInternalIds()) {
-        const docId = segment.docStore.getExternalId(internalId)
-        if (docId !== undefined) current.docIds.add(docId)
+      for (const log of current) {
+        if (log === null) continue
+        for (const internalId of segment.docStore.allInternalIds()) {
+          const docId = segment.docStore.getExternalId(internalId)
+          if (docId !== undefined) log.docIds.add(docId)
+        }
       }
     },
 
     partitionsReplaced(): void {
-      if (current !== null) current.replaced = true
+      for (const log of current) {
+        if (log !== null) log.replaced = true
+      }
     },
   }
 }

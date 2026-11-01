@@ -3,11 +3,11 @@ import type { SerializedSurfaceForms } from '../../../types/internal'
 import type { AnyDocument } from '../../../types/schema'
 import type { PartialWordAnalysis } from '../partial-words/spellings'
 import { encodeSegmentState } from '../segment-payload'
-import type { FrozenSegment } from './index'
+import type { FrozenSegment, PagedSegmentSnapshot } from './index'
 import { freezeSegmentShared, type SharedSegmentSnapshot } from './shared-snapshot'
 
 export interface SharedFrozenSegment {
-  snapshot: SharedSegmentSnapshot
+  snapshot: SharedSegmentSnapshot | PagedSegmentSnapshot
   tombstonedDocIds: string[]
   survivingSurfaceForms?: SerializedSurfaceForms
 }
@@ -16,6 +16,9 @@ export function shareFrozenSegment(
   segment: FrozenSegment,
   analysis: PartialWordAnalysis | null,
 ): SharedFrozenSegment | null {
+  if (segment.paged !== null) {
+    return { snapshot: segment.paged.snapshot, tombstonedDocIds: segment.tombstonedDocIds() }
+  }
   if (segment.sharedSnapshot !== null) {
     const tombstonedDocIds = segment.tombstonedDocIds()
     if (tombstonedDocIds.length === 0 || !segment.removals.settled) {

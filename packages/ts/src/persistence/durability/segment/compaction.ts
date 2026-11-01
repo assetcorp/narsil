@@ -3,6 +3,7 @@ import type { TextAnalysis } from '../../../core/partition/frozen/surface-slot'
 import type { PartialWordAnalysis } from '../../../core/partition/partial-words/spellings'
 import { MAX_FILE_BYTES } from '../../../serialization/constants'
 import type { KeywordSegmentContents, SegmentWriteRecords } from '../../../serialization/keyword-segment/types'
+import { MERGED_SEGMENT_GROWTH_ALLOWANCE, MERGED_SEGMENT_TARGET_BYTES } from '../../paged/constants'
 import { COMPACTION_LARGEST_MERGED_DOCUMENT_COUNT, SEGMENT_FILE_FRAMING_SLACK_BYTES } from '../constants'
 import type { SegmentRef } from './manifest'
 import { readSegmentFile } from './segment-file'
@@ -19,6 +20,7 @@ export interface CompactionInput {
   segments: SegmentRef[]
   nextSegmentId: number
   compactionThreshold: number
+  paged?: boolean
 }
 
 export interface CompactionResult {
@@ -31,21 +33,26 @@ interface MergeWindow {
   windowLength: number
 }
 
-function windowFits(segments: readonly SegmentRef[], start: number, windowLength: number): boolean {
+function windowFits(segments: readonly SegmentRef[], start: number, windowLength: number, paged: boolean): boolean {
   let documents = 0
   let bytes = SEGMENT_FILE_FRAMING_SLACK_BYTES
   for (let at = start; at < start + windowLength; at++) {
     documents += segments[at].docCount
     bytes += segments[at].bytes
   }
+  if (paged) return bytes * MERGED_SEGMENT_GROWTH_ALLOWANCE <= MERGED_SEGMENT_TARGET_BYTES
   return documents <= COMPACTION_LARGEST_MERGED_DOCUMENT_COUNT && bytes <= MAX_FILE_BYTES
 }
 
-function smallestFittingWindow(segments: readonly SegmentRef[], windowLength: number): MergeWindow | null {
+function smallestFittingWindow(
+  segments: readonly SegmentRef[],
+  windowLength: number,
+  paged: boolean,
+): MergeWindow | null {
   let best: MergeWindow | null = null
   let bestBytes = Number.POSITIVE_INFINITY
   for (let start = 0; start + windowLength <= segments.length; start++) {
-    if (!windowFits(segments, start, windowLength)) continue
+    if (!windowFits(segments, start, windowLength, paged)) continue
     let bytes = 0
     for (let at = start; at < start + windowLength; at++) bytes += segments[at].bytes
     if (bytes < bestBytes) {
@@ -56,9 +63,9 @@ function smallestFittingWindow(segments: readonly SegmentRef[], windowLength: nu
   return best
 }
 
-function chooseWindow(segments: readonly SegmentRef[], wantedLength: number): MergeWindow | null {
+function chooseWindow(segments: readonly SegmentRef[], wantedLength: number, paged: boolean): MergeWindow | null {
   for (let windowLength = Math.min(wantedLength, segments.length); windowLength >= 2; windowLength--) {
-    const window = smallestFittingWindow(segments, windowLength)
+    const window = smallestFittingWindow(segments, windowLength, paged)
     if (window !== null) return window
   }
   return null
@@ -107,11 +114,39 @@ export async function compactPartitionSegments(input: CompactionInput): Promise<
   if (segments.length <= compactionThreshold) {
     return { segments, nextSegmentId: input.nextSegmentId }
   }
-  const window = chooseWindow(segments, segments.length - compactionThreshold + 1)
+  const paged = input.paged === true
+  const window = chooseWindow(segments, segments.length - compactionThreshold + 1, paged)
   if (window === null) {
     return { segments, nextSegmentId: input.nextSegmentId }
   }
   const windowRefs = segments.slice(window.start, window.start + window.windowLength)
+  const replacing = (written: { segments: SegmentRef[]; nextSegmentId: number }): CompactionResult => ({
+    segments: [
+      ...segments.slice(0, window.start),
+      ...written.segments,
+      ...segments.slice(window.start + window.windowLength),
+    ],
+    nextSegmentId: written.nextSegmentId,
+  })
+  if (paged) {
+    const { directory } = input.store
+    if (directory === undefined) return { segments, nextSegmentId: input.nextSegmentId }
+    const { mergePagedWindow } = await import('../../paged/module')
+    return replacing(
+      await mergePagedWindow({
+        store: input.store,
+        directory,
+        indexName: input.indexName,
+        partitionId: input.partitionId,
+        schema: input.schema,
+        partialWordAnalysis: input.partialWordAnalysis,
+        textAnalysis: input.textAnalysis,
+        nextSegmentId: input.nextSegmentId,
+        refs: windowRefs,
+        dropsEveryTombstone: window.start === 0,
+      }),
+    )
+  }
   const contents: KeywordSegmentContents[] = []
   for (const ref of windowRefs) contents.push(await readSegmentFile(input.store, ref))
   const frozen = contents.map(frozenOf)
@@ -131,12 +166,5 @@ export async function compactPartitionSegments(input: CompactionInput): Promise<
     mergesIntoOneFile: true,
     ...(writeRecords === undefined ? {} : { writeRecords }),
   })
-  return {
-    segments: [
-      ...segments.slice(0, window.start),
-      ...written.segments,
-      ...segments.slice(window.start + window.windowLength),
-    ],
-    nextSegmentId: written.nextSegmentId,
-  }
+  return replacing(written)
 }

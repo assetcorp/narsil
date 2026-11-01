@@ -141,6 +141,8 @@ export interface HttpIndexConfig {
   stopWords?: string | string[]
   /** Setting this records term positions in each posting, which the `.nrsl` format carries for readers that match phrases. Highlighting works without it. */
   trackPositions?: boolean
+  /** Setting this to `disk` lets the index answer from segment files that the server reads by position, which needs filesystem durability. The default is `memory`. */
+  textStorage?: 'memory' | 'disk'
   /** Setting this to false returns index stems from suggestions and prefix expansion, instead of the words users typed. */
   surfaceForms?: boolean
   /** These settings control when vector fields move to an HNSW graph, and how that graph is built. */

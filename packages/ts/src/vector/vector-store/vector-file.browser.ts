@@ -2,6 +2,7 @@ import { ErrorCodes, NarsilError } from '../../errors'
 
 export interface VectorFileReader {
   readInto(path: string, offset: number, target: Uint8Array): boolean
+  readLater(path: string, offset: number, target: Uint8Array): Promise<boolean>
   retainOnly(paths: ReadonlySet<string>): void
   close(): void
 }
@@ -16,6 +17,7 @@ function filesystemUnavailable(): never {
 export function createVectorFileReader(): VectorFileReader {
   return {
     readInto: () => filesystemUnavailable(),
+    readLater: () => filesystemUnavailable(),
     retainOnly: () => undefined,
     close: () => undefined,
   }

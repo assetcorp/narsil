@@ -341,6 +341,11 @@ export interface VectorMaintenanceResult {
    * room for a second graph beside the one it serves, and false once it starts.
    */
   waitingForMemory: boolean
+  /**
+   * This stays true after a restart while a field kept on disk loads its codes and graph in the
+   * background, during which a search reads them from the field's files.
+   */
+  loadingFromFiles: boolean
   /** {@link Narsil.compactVectors} would take about this many milliseconds. */
   estimatedCompactMs: number
   /** {@link Narsil.optimizeVectors} would take about this many milliseconds. */

@@ -14,6 +14,9 @@ export interface FileRef {
   key: string
   bytes: number
   checksum: number
+  headOffset?: number
+  headLength?: number
+  headChecksum?: number
 }
 
 export interface SegmentRef extends FileRef {
@@ -53,7 +56,14 @@ export interface SegmentManifest {
 }
 
 function fileRefOnTheWire(ref: FileRef): FileRef {
-  return { key: ref.key, bytes: ref.bytes, checksum: ref.checksum }
+  return {
+    key: ref.key,
+    bytes: ref.bytes,
+    checksum: ref.checksum,
+    ...(ref.headOffset === undefined
+      ? {}
+      : { headOffset: ref.headOffset, headLength: ref.headLength, headChecksum: ref.headChecksum }),
+  }
 }
 
 export function encodeSegmentManifest(manifest: SegmentManifest): Promise<PackedEnvelope> {

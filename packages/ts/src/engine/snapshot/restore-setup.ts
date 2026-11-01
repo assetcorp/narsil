@@ -3,7 +3,12 @@ import type { PreparedSynonyms } from '../../core/synonyms/types'
 import { getLanguage } from '../../languages/registry'
 import type { PartitionManager } from '../../partitioning/manager'
 import { validateEmbeddingConfig, validateRequiredFieldsInSchema } from '../../schema/embedding-validator'
-import { validateSchema, validateVectorPromotion, validateVectorStorage } from '../../schema/validator'
+import {
+  validateSchema,
+  validateTextStorage,
+  validateVectorPromotion,
+  validateVectorStorage,
+} from '../../schema/validator'
 import type { EmbeddingAdapter } from '../../types/adapters'
 import type { LanguageModule } from '../../types/language'
 import type { IndexConfig, SchemaDefinition } from '../../types/schema'
@@ -72,6 +77,7 @@ export function prepareRestoredIndex(
   requireSurfaceFormsForPartialFields(schema, configFields.surfaceForms)
   validateVectorPromotion(configFields.vectorPromotion)
   validateVectorStorage(configFields.vectorPromotion, deps.filesystemDurability)
+  validateTextStorage(configFields.textStorage, deps.filesystemDurability)
   if (configFields.required !== undefined && configFields.required.length > 0) {
     validateRequiredFieldsInSchema(configFields.required, schema)
   }

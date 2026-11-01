@@ -25,6 +25,8 @@ export interface LoadedVectorFile {
   payload: VectorFilePayload
   dead: Uint8Array | null
   location: VectorPartFile | null
+  /** A file read by parts gives its magnitudes here and reads a dead vector on demand, and its payload holds no vector bytes. */
+  byParts?: { magnitudes: Float64Array; vectorAt(position: number): Float32Array }
 }
 
 export interface CheckpointRestoreShape {
@@ -166,19 +168,26 @@ export function beginCheckpointRestore(
       const dead = isDead(file.dead, i)
       if (dead && !graphHoldsNodeFor(firstNumber + i)) continue
       const docId = payload.docIds[i]
-      const vector = vectors.subarray(i * dimension, (i + 1) * dimension)
       const offset = onDisk ? location.vectorsOffset + i * dimension * 4 : 0
+      const vectorHere = (): Float32Array =>
+        file.byParts === undefined ? vectors.subarray(i * dimension, (i + 1) * dimension) : file.byParts.vectorAt(i)
       if (dead) {
-        ordinals[i] = state.store.insertReplaced(docId, vector, fileIndex === null ? undefined : { fileIndex, offset })
+        ordinals[i] = state.store.insertReplaced(
+          docId,
+          vectorHere(),
+          fileIndex === null ? undefined : { fileIndex, offset },
+        )
         tombstoned.add(ordinals[i])
         continue
       }
       const replaced = state.store.getOrdinal(docId)
       if (replaced !== undefined) state.osq?.removeOrdinal(replaced)
       if (fileIndex !== null) {
-        ordinals[i] = state.store.insertCold(docId, magnitude(vector), { fileIndex, offset })
+        const known = file.byParts?.magnitudes[i]
+        ordinals[i] = state.store.insertCold(docId, known ?? magnitude(vectorHere()), { fileIndex, offset })
         continue
       }
+      const vector = vectorHere()
       ordinals[i] = state.store.insert(docId, vector)
       if (onDisk) state.pendingLocations.set(docId, { path: location.path, offset })
     }

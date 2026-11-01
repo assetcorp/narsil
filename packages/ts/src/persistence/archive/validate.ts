@@ -30,6 +30,14 @@ function requireSchemaOfManifest(key: string, schema: Record<string, string>, ma
 export async function validateStagedCheckpoint(store: CheckpointStore, manifest: SegmentManifest): Promise<void> {
   for (const partition of manifest.partitions) {
     for (const ref of partition.segments) {
+      const { directory } = store
+      if (directory !== undefined) {
+        const { checkPagedSegmentFully, isPagedSegmentFile } = await import('../paged/module')
+        if (await isPagedSegmentFile(directory, ref.key)) {
+          requireSchemaOfManifest(ref.key, await checkPagedSegmentFully(directory, ref), manifest)
+          continue
+        }
+      }
       const contents = await readSegmentFile(store, ref)
       requireSchemaOfManifest(ref.key, contents.schema, manifest)
       decodeEveryStoredDocument(contents.arrays.documentTable)
