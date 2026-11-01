@@ -1,7 +1,13 @@
 import { ErrorCodes, NarsilError } from '../../../errors'
 import type { AllocationTable, ClusterCoordinator } from '../../coordinator/types'
 import { HIDDEN_GENERATION_PREFIX, TEARDOWN_CAS_ATTEMPTS } from '../constants'
-import { indexConfigKey, putGenerationMetadata, storedSynonymSetOf } from '../index-metadata'
+import {
+  indexConfigKey,
+  metadataWithSynonymSet,
+  putGenerationMetadata,
+  readIndexMetadataSnapshot,
+  storedSynonymSetOf,
+} from '../index-metadata'
 import { deleteSynonymSet } from '../synonym-set'
 import { clearRebalanceProgress, type RebalanceRecord } from './records'
 
@@ -69,6 +75,24 @@ export async function dropGeneration(
     return
   }
   await coordinator.deleteAllocation(generation)
+}
+
+export async function dropReplacedNameSynonymSet(coordinator: ClusterCoordinator, indexName: string): Promise<void> {
+  for (let attempt = 0; attempt < TEARDOWN_CAS_ATTEMPTS; attempt++) {
+    const snapshot = await readIndexMetadataSnapshot(coordinator, indexName)
+    const ref = snapshot?.settings?.synonyms
+    if (snapshot === null || ref === undefined) return
+    const next = metadataWithSynonymSet(snapshot, null)
+    if (await coordinator.compareAndSet(indexConfigKey(indexName), snapshot.bytes, next)) {
+      await deleteSynonymSet(coordinator, snapshot.record.indexUuid, ref)
+      return
+    }
+  }
+  throw new NarsilError(
+    ErrorCodes.ALLOCATION_FAILED,
+    `Releasing the replaced synonym set of index '${indexName}' lost every compare-and-set attempt`,
+    { indexName, attempts: TEARDOWN_CAS_ATTEMPTS },
+  )
 }
 
 export async function clearEveryProgress(

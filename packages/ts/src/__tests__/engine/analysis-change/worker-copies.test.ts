@@ -6,6 +6,7 @@ import { DASHES_TOKENIZER, registerFixtures, seededRandom } from './oracle'
 
 const WORKERS_BUILT = existsSync(new URL('../../../../dist/workers/entry.mjs', import.meta.url))
 const INDEX = 'shore'
+const OTHER_INDEX = 'harbor'
 const DOCUMENTS = 6_000
 const HITS_PAGE = 10_000
 const WORDS = ['sea', 'wall', 'river', 'harbor', 'cliff']
@@ -115,6 +116,11 @@ describe('worker copies during an analysis change', () => {
       while (Date.now() - started < SWITCH_SPREAD_MS) {
         expect(await search(running, 'sea')).toEqual(newAnswer)
       }
+
+      await running.createIndex(OTHER_INDEX, { schema: { title: 'string' }, language: 'english' })
+      const otherBatch = [...titles].map(([id, title]) => ({ id, title }))
+      expect((await running.insertBatch(OTHER_INDEX, otherBatch)).failed).toEqual([])
+      await waitFor(() => scaledOut(running, OTHER_INDEX), 30_000)
     },
     90_000,
   )

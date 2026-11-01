@@ -1,6 +1,6 @@
 import { type ResolvedAnalysis, resolveIndexAnalysis } from '../../analysis/registry'
 import { getLanguage } from '../../languages/registry'
-import type { PendingAnalysisMetadata } from '../../types/internal'
+import type { NamedAnalysisSettings, PendingAnalysisMetadata } from '../../types/internal'
 import type { LanguageModule } from '../../types/language'
 import type { IndexConfig } from '../../types/schema'
 import type { IndexRegistryEntry } from '../core'
@@ -11,17 +11,28 @@ export interface AnalysisTarget {
   analysis: ResolvedAnalysis
 }
 
-export function targetOfPending(entry: IndexRegistryEntry, pending: PendingAnalysisMetadata): AnalysisTarget {
-  const { tokenizer: _tokenizer, stopWords: _stopWords, ...rest } = entry.config
-  const language = getLanguage(pending.language)
-  const config: IndexConfig = {
+export function configUnderAnalysis(
+  base: IndexConfig,
+  language: string,
+  tokenizer: IndexConfig['tokenizer'],
+  stopWords: IndexConfig['stopWords'],
+): IndexConfig {
+  const { tokenizer: _tokenizer, stopWords: _stopWords, ...rest } = base
+  return {
     ...rest,
-    language: pending.language,
-    ...(pending.tokenizer !== undefined ? { tokenizer: pending.tokenizer } : {}),
-    ...(pending.stopWords !== undefined ? { stopWords: pending.stopWords } : {}),
-    ...(pending.stopWords === undefined && pending.stopWordList !== undefined
-      ? { stopWords: new Set(pending.stopWordList) }
-      : {}),
+    language,
+    ...(tokenizer !== undefined ? { tokenizer } : {}),
+    ...(stopWords !== undefined ? { stopWords } : {}),
   }
-  return { config, language, analysis: resolveIndexAnalysis(config) }
+}
+
+export function configOfNamedSettings(base: IndexConfig, settings: NamedAnalysisSettings): IndexConfig {
+  const { language, tokenizer, stopWords, stopWordList } = settings
+  const listed = stopWordList === undefined ? undefined : new Set(stopWordList)
+  return configUnderAnalysis(base, language, tokenizer, stopWords ?? listed)
+}
+
+export function targetOfPending(entry: IndexRegistryEntry, pending: PendingAnalysisMetadata): AnalysisTarget {
+  const config = configOfNamedSettings(entry.config, pending)
+  return { config, language: getLanguage(pending.language), analysis: resolveIndexAnalysis(config) }
 }

@@ -3,6 +3,7 @@ import { DEFAULT_PAGE_SIZE } from '../search/constants'
 export const MIN_DOCUMENTS_FOR_SEGMENTS = 64
 export const BATCH_CHUNK_SIZE = 1000
 export const ANALYSIS_HOLD_APPLY_INTERVAL_MS = 100
+export const ANALYSIS_CHANGE_MEMBERS: readonly string[] = ['language', 'tokenizer', 'stopWords']
 
 export const DEFAULT_LIMIT = DEFAULT_PAGE_SIZE
 export const DEFAULT_OFFSET = 0

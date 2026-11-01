@@ -1,3 +1,4 @@
+import { ANALYSIS_CHANGE_MEMBERS } from '../engine/constants'
 import { DEFAULT_RERANK_WINDOW } from '../rerank/constants'
 import { MAX_SORT_FIELDS } from '../search/constants'
 import type { ListParams, QueryParams, SuggestParams } from '../types/search'
@@ -204,13 +205,11 @@ export function validateCreateIndex(body: CreateIndexRequest): ValidationFailure
   return null
 }
 
-const CHANGE_ANALYSIS_FIELDS: ReadonlySet<string> = new Set(['language', 'tokenizer', 'stopWords'])
-
 export function validateChangeAnalysis(body: ChangeAnalysisBody): ValidationFailure | null {
   if (typeof body !== 'object' || body === null || Array.isArray(body)) {
     return { message: 'The request body must be an object' }
   }
-  const unknownField = Object.keys(body).find(field => !CHANGE_ANALYSIS_FIELDS.has(field))
+  const unknownField = Object.keys(body).find(field => !ANALYSIS_CHANGE_MEMBERS.includes(field))
   if (unknownField !== undefined) {
     return { message: `Field "${unknownField}" is not an analysis setting` }
   }

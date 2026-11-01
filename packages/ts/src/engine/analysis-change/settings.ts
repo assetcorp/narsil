@@ -6,14 +6,13 @@ import type { AnalysisChange } from '../../types/analysis-operations'
 import type { NamedAnalysisSettings } from '../../types/internal'
 import type { LanguageModule } from '../../types/language'
 import type { IndexConfig } from '../../types/schema'
+import { ANALYSIS_CHANGE_MEMBERS } from '../constants'
 import type { DurableAnalysis, IndexRegistryEntry } from '../core'
 import { requireConfigurationWithinSizeLimit } from '../snapshot/index-configuration'
 import { prepareConfiguredSynonyms, rulesOfStoredSynonyms } from '../synonym-sets'
-import type { AnalysisTarget } from './pending-target'
+import { type AnalysisTarget, configUnderAnalysis } from './pending-target'
 
 export type { AnalysisTarget } from './pending-target'
-
-const CHANGE_MEMBERS: ReadonlySet<string> = new Set(['language', 'tokenizer', 'stopWords'])
 
 function refuseTokenizer(indexName: string): never {
   throw new NarsilError(
@@ -54,7 +53,7 @@ export function resolveAnalysisTarget(indexName: string, base: IndexConfig, chan
   if (change === null || typeof change !== 'object' || Array.isArray(change)) {
     throw new NarsilError(ErrorCodes.CONFIG_INVALID, 'An analysis change must be an object', { indexName })
   }
-  const unknownMember = Object.keys(change).find(member => !CHANGE_MEMBERS.has(member))
+  const unknownMember = Object.keys(change).find(member => !ANALYSIS_CHANGE_MEMBERS.includes(member))
   if (unknownMember !== undefined) {
     throw new NarsilError(ErrorCodes.CONFIG_INVALID, `"${unknownMember}" is not an analysis setting`, { indexName })
   }
@@ -62,28 +61,18 @@ export function resolveAnalysisTarget(indexName: string, base: IndexConfig, chan
     change.language === undefined ? getLanguage(base.language ?? 'english') : requireRegisteredLanguage(change.language)
   const tokenizer = tokenizerOfChange(indexName, change.tokenizer)
   const stopWords = stopWordsOfChange(indexName, change.stopWords)
-  const { tokenizer: baseTokenizer, stopWords: baseStopWords, ...rest } = base
-  const keptTokenizer = tokenizer === undefined ? baseTokenizer : (tokenizer ?? undefined)
-  const keptStopWords = stopWords === undefined ? baseStopWords : (stopWords ?? undefined)
-  const config: IndexConfig = {
-    ...rest,
-    language: language.name,
-    ...(keptTokenizer !== undefined ? { tokenizer: keptTokenizer } : {}),
-    ...(keptStopWords !== undefined ? { stopWords: keptStopWords } : {}),
-  }
+  const config = configUnderAnalysis(
+    base,
+    language.name,
+    tokenizer === undefined ? base.tokenizer : (tokenizer ?? undefined),
+    stopWords === undefined ? base.stopWords : (stopWords ?? undefined),
+  )
   requireConfigurationWithinSizeLimit(config, language)
   return { config, language, analysis: resolveIndexAnalysis(config) }
 }
 
 export function currentConfigUnderTarget(current: IndexConfig, target: AnalysisTarget): IndexConfig {
-  const { tokenizer: _tokenizer, stopWords: _stopWords, ...rest } = current
-  const { tokenizer, stopWords } = target.config
-  return {
-    ...rest,
-    language: target.language.name,
-    ...(tokenizer !== undefined ? { tokenizer } : {}),
-    ...(stopWords !== undefined ? { stopWords } : {}),
-  }
+  return configUnderAnalysis(current, target.language.name, target.config.tokenizer, target.config.stopWords)
 }
 
 function sameStopWords(left: IndexConfig['stopWords'], right: IndexConfig['stopWords']): boolean {

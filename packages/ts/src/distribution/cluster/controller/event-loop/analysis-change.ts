@@ -10,6 +10,7 @@ import { metadataPublishingAnalysis, metadataWithAnalysisFailure } from '../../a
 import { ANALYSIS_CHANGE_POLL_INTERVAL_MS, ANALYSIS_CHANGE_RETRY_MS, ANALYSIS_REBUILD_RESEND_MS } from '../../constants'
 import { type IndexMetadataSnapshot, indexConfigKey, readIndexMetadataSnapshot } from '../../index-metadata'
 import type { AnalysisFailure, PendingClusterAnalysis } from '../../index-settings'
+import { targetsOfRegisteredNode } from '../../node-targets'
 import { pause } from '../../rebalance/pause'
 import type { EventLoopState } from './state'
 
@@ -46,7 +47,7 @@ async function registeredHolders(
     if (nodeId === null) return
     const address = registered.get(nodeId)
     if (address === undefined) return
-    holders.set(nodeId, address.length === 0 || address === nodeId ? [nodeId] : [address, nodeId])
+    holders.set(nodeId, targetsOfRegisteredNode(nodeId, address))
   }
   for (const assignment of table.assignments.values()) {
     addHolder(assignment.primary)
