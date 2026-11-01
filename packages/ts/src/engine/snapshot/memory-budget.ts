@@ -213,6 +213,19 @@ function refuse(indexName: string, replacesIndex: boolean, shortfall: Shortfall)
   )
 }
 
+export function requireAnalysisRebuildMemory(indexName: string, termBytes: number): void {
+  if (shortfallOf(termBytes, termBytes, true) === null) return
+  const shortfall = shortfallOf(termBytes, termBytes, collectAndReturnPages())
+  if (shortfall === null) return
+  const { budget, neededBytes, availableBytes } = shortfall
+  const where = budget === 'heap' ? 'of JavaScript heap' : 'of process memory'
+  throw new NarsilError(
+    ErrorCodes.ANALYSIS_REBUILD_MEMORY_EXCEEDED,
+    `The analysis change of index "${indexName}" needs about ${inMegabytes(neededBytes)} MB ${where} for a second copy of its terms, and this process has ${inMegabytes(Math.max(0, availableBytes))} MB free, so the index keeps its current settings. Give the process more memory, then change the settings again`,
+    { indexName, budget, neededBytes, availableBytes },
+  )
+}
+
 export function requireRestoreMemory(indexName: string, footprint: RestoreFootprint, replacesIndex: boolean): void {
   const processBytes = footprint.heapBytes + footprint.externalBytes
   if (shortfallOf(footprint.heapBytes, processBytes, true) === null) return

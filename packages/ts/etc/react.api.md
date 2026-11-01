@@ -64,6 +64,10 @@ export const ErrorCodes: {
     readonly ENVELOPE_INVALID_MAGIC: "ENVELOPE_INVALID_MAGIC";
     readonly PARTITION_CAPACITY_EXCEEDED: "PARTITION_CAPACITY_EXCEEDED";
     readonly RESTORE_MEMORY_EXCEEDED: "RESTORE_MEMORY_EXCEEDED";
+    readonly ANALYSIS_CHANGE_REPLACED: "ANALYSIS_CHANGE_REPLACED";
+    readonly ANALYSIS_CHANGE_NOT_READY: "ANALYSIS_CHANGE_NOT_READY";
+    readonly ANALYSIS_GENERATION_MISSING: "ANALYSIS_GENERATION_MISSING";
+    readonly ANALYSIS_REBUILD_MEMORY_EXCEEDED: "ANALYSIS_REBUILD_MEMORY_EXCEEDED";
     readonly EMBEDDING_FAILED: "EMBEDDING_FAILED";
     readonly EMBEDDING_DIMENSION_MISMATCH: "EMBEDDING_DIMENSION_MISMATCH";
     readonly EMBEDDING_NO_SOURCE: "EMBEDDING_NO_SOURCE";
@@ -305,7 +309,7 @@ export interface TaskRecord {
 export type TaskStatus = 'running' | 'succeeded' | 'failed' | 'cancelled';
 
 // @public
-export type TaskType = 'optimizeVectors' | 'rebalance' | 'restore' | 'import' | 'importExport' | 'rebuildAnalysis';
+export type TaskType = 'optimizeVectors' | 'rebalance' | 'restore' | 'import' | 'importExport' | 'rebuildAnalysis' | 'changeAnalysis';
 
 // @public
 export function useDocument(indexName: string, docId: string | null | undefined, options?: NarsilReadOptions): NarsilReadState<AnyDocument | undefined>;

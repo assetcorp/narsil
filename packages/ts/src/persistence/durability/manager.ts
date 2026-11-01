@@ -1,9 +1,7 @@
-import { buildEntry } from '../../distribution/replication/entry-checksum'
-import type { ReplicationLogEntry } from '../../distribution/replication/types'
 import { writeMetadataEnvelope } from '../../serialization/envelope'
 import { createArchiveCheckpointAccess } from './archive-checkpoint'
 import { runDurableCheckpoint } from './checkpoint-run'
-import { checkpointInTurn, createIndexLoads } from './checkpoint-turn'
+import { checkpointInTurn, createIndexLoads, switchInTurn } from './checkpoint-turn'
 import { terminateCheckpointWorker } from './checkpoint-worker-dispatch'
 import {
   DEFAULT_ASYNC_FLUSH_INTERVAL_MS,
@@ -23,12 +21,12 @@ import {
   partitionFailureFor,
   recordBatchesByPartition,
 } from './mutation-batch'
+import { buildMutationEntry } from './mutation-entry'
 import { createPartitionFailureRouting } from './partition-failure'
 import { createPartitionRegistry } from './partition-registry'
 import { recoverPersistedIndex } from './recover-index'
 import { listPersistedIndexes } from './recovery'
 import { recoverDirectoryRestores } from './restore-directory'
-import { SINGLE_NODE_PRIMARY_TERM } from './seq-owner'
 import type {
   CommitDeferral,
   DurabilityConfig,
@@ -145,18 +143,6 @@ export function createDurabilityManager(
         markFatal(toError(err))
       }
     }
-  }
-
-  function buildMutationEntry(record: MutationRecord, seqNo: number): ReplicationLogEntry {
-    return buildEntry({
-      seqNo,
-      primaryTerm: SINGLE_NODE_PRIMARY_TERM,
-      operation: record.operation,
-      partitionId: record.partitionId,
-      indexName: record.indexName,
-      documentId: record.documentId,
-      document: record.document,
-    })
   }
 
   async function checkpointIndex(indexName: string, fromMemory = false, afterInFlight = fromMemory): Promise<void> {
@@ -334,6 +320,17 @@ export function createDurabilityManager(
 
     checkpointFromMemory(indexName: string): Promise<void> {
       return requestedCheckpoint(indexName, true)
+    },
+
+    async checkpointAfterSwitch(indexName: string, swap: () => boolean): Promise<boolean> {
+      const indexState = getOrCreateIndexState(indexName)
+      heldCheckpoints.refuse(indexName, indexState)
+      return switchInTurn(indexState, {
+        mayStart: () => !indexState.unloading && !shuttingDown,
+        swap,
+        checkpoint: () => performCheckpoint(indexName, indexState, true),
+        afterSettling: () => releaseStalledWrites(indexState),
+      })
     },
 
     async checkpointAfterInFlight(indexName: string): Promise<void> {

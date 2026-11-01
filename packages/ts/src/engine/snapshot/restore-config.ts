@@ -13,6 +13,7 @@ export interface SnapshotEnvelope {
   schema?: Record<string, string>
   language?: string
   analysisRevision?: unknown
+  analysisGeneration?: unknown
   arrayPositionGap?: unknown
   tokenizer?: unknown
   stopWords?: unknown

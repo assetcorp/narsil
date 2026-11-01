@@ -10,9 +10,7 @@ import {
 import type { ClusterCoordinator } from '../coordinator/types'
 import { bm25NotReady, registeredNodesBelowBm25Tuning } from '../query/bm25-routing'
 import type { Bm25View } from './bm25-view'
-import { MAX_SETTINGS_REPLACEMENT_ATTEMPTS } from './constants'
-
-const SETTINGS_CONTENTION_REASON = 'settings_contention'
+import { MAX_SETTINGS_REPLACEMENT_ATTEMPTS, SETTINGS_CONTENTION_REASON } from './constants'
 
 function indexNotFound(indexName: string): NarsilError {
   return new NarsilError(ErrorCodes.INDEX_NOT_FOUND, `Index '${indexName}' does not exist in the cluster`, {

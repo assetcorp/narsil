@@ -1,6 +1,7 @@
 import { decode } from '@msgpack/msgpack'
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { AnyDocument } from '../../types/schema'
+import { targetsOfRegisteredNode } from '../cluster/node-targets'
 import type { AllocationTable } from '../coordinator/types'
 import { createFetchMessage, validateFetchResultPayload } from '../query/codec'
 import { markNodeRejection, nodeRejectionOf, sendToEveryPartition } from '../query/failover'
@@ -23,9 +24,7 @@ export async function resolveNodeTargets(config: ClusterNodeConfig, targetNodeId
 export async function resolveRegisteredTargets(config: ClusterNodeConfig, targetNodeId: string): Promise<string[]> {
   const nodes = await config.coordinator.listNodes()
   const registration = nodes.find(node => node.nodeId === targetNodeId)
-  if (registration === undefined) return []
-  if (registration.address.length === 0 || registration.address === targetNodeId) return [targetNodeId]
-  return [registration.address, targetNodeId]
+  return registration === undefined ? [] : targetsOfRegisteredNode(targetNodeId, registration.address)
 }
 
 export async function sendToNode(

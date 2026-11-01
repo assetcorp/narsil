@@ -28,6 +28,17 @@ export function maintenanceRoutes(shared: SharedRouteOptions): RouteSpec[] {
       responses: { 202: 'TaskRecord' },
     },
     {
+      method: 'post',
+      path: '/indexes/:name/_change-analysis',
+      handler: 'changeAnalysis',
+      options: namedBody,
+      operationId: 'changeAnalysis',
+      summary: 'Change the language, stop words, or tokeniser of an index, as a task',
+      tags: ['Maintenance'],
+      request: { optional: 'ChangeAnalysisBody' },
+      responses: { 202: 'TaskRecord' },
+    },
+    {
       method: 'get',
       path: '/indexes/:name/snapshot',
       handler: 'snapshot',

@@ -159,6 +159,9 @@ export async function createEngineIndex(
     analysisRevision: language.revision,
     arrayPositionGap: ARRAY_POSITION_GAP,
     synonyms: synonyms?.encoded ?? null,
+    analysisGeneration: 0,
+    pendingAnalysis: null,
+    durableAnalysis: null,
   })
   await core.indexState.registerOpen(name)
   if (core.durability) {
@@ -170,8 +173,14 @@ export async function createEngineIndex(
 export async function dropEngineIndex(core: EngineCore, name: string): Promise<void> {
   core.guardShutdown()
   const entry = core.requireIndex(name)
+  const changeRecorded = (): boolean => entry.pendingAnalysis !== null || entry.durableAnalysis !== null
+  const abandonChange = async (): Promise<void> => {
+    await (await import('./analysis-change-entry')).abandonChangeOf(core, name)
+  }
+  if (changeRecorded()) await abandonChange()
   await core.indexState.drop(name, async () => {
     await core.analysisRebuild.abandon(name)
+    if (changeRecorded()) await abandonChange()
     await core.orchestrator.closeIndex(name)
     if (core.durability) {
       try {

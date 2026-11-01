@@ -40,6 +40,7 @@ export interface RestoreDeps {
   markAnalysisStale: (index: StaleIndex) => void
   clearAnalysisStale: (indexName: string) => void
   abandonAnalysisRebuild: (indexName: string) => Promise<void>
+  abandonAnalysisChange: (indexName: string) => Promise<void>
   indexState: Pick<IndexStateCoordinator, 'replace' | 'registerReplacing'>
   copies: Pick<WorkerOrchestrator, 'desyncIndex' | 'releaseIndexCopies' | 'endCopyRelease' | 'resyncIndex'>
   forgetWatermark: (indexName: string) => void
@@ -52,6 +53,7 @@ export interface PreparedIndex {
   embeddingAdapter: EmbeddingAdapter | null
   adapterName: string | null
   storedRevision: string | null
+  analysisGeneration: number
   storedArrayPositionGap: number | null
   synonyms: PreparedSynonyms | null
 }
@@ -99,12 +101,16 @@ export function prepareRestoredIndex(
   }
   const storedRevision = typeof configuration.analysisRevision === 'string' ? configuration.analysisRevision : null
   const synonyms = restoredSynonyms(configuration.synonyms, config, language, reject ?? rejectSnapshot)
+  const analysisGeneration = Number.isSafeInteger(configuration.analysisGeneration)
+    ? Math.max(0, configuration.analysisGeneration as number)
+    : 0
   return {
     config,
     language,
     embeddingAdapter,
     adapterName,
     storedRevision,
+    analysisGeneration,
     storedArrayPositionGap: storedArrayPositionGap(configuration.arrayPositionGap),
     synonyms,
   }
@@ -157,5 +163,8 @@ export function restoredRegistryEntry(
     analysisRevision: prepared.storedRevision,
     arrayPositionGap: prepared.storedArrayPositionGap,
     synonyms: prepared.synonyms?.encoded ?? null,
+    analysisGeneration: prepared.analysisGeneration,
+    pendingAnalysis: null,
+    durableAnalysis: null,
   }
 }

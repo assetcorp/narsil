@@ -1,5 +1,13 @@
 import { resolveIndexAnalysis } from '../../analysis/registry'
 import { synonymModule } from '../../core/synonyms/registry'
+import {
+  buildHeldAnalysisChange,
+  dropHeldAnalysisChange,
+  heldAnalysisIsBuilt,
+  holdsNamedSettings,
+  releaseHeldAnalysisChange,
+  stampAnalysisGeneration,
+} from '../../engine/analysis-change'
 import { applyStoredIndexBm25 } from '../../engine/bm25-update'
 import { requireKnownConfig } from '../../engine/config-keys'
 import { createEngineCore, type EngineCore } from '../../engine/core'
@@ -27,7 +35,7 @@ import type {
 } from '../../persistence/durability/types'
 import type { ByteSource } from '../../types/byte-source'
 import type { NarsilConfig } from '../../types/config'
-import type { GlobalStatistics } from '../../types/internal'
+import type { GlobalStatistics, NamedAnalysisSettings, PendingAnalysisMetadata } from '../../types/internal'
 import type { ListResult, PartitionStatsResult, PreflightResult, QueryResult, SuggestResult } from '../../types/results'
 import type { AnyDocument, BM25Params, IndexConfig } from '../../types/schema'
 import type { ListParams, QueryParams, SuggestParams } from '../../types/search'
@@ -54,6 +62,14 @@ export interface ClusterLocalEngine extends Narsil {
   stampIndexUuid(indexName: string, indexUuid: string): Promise<void>
   applyStoredSynonyms(indexName: string, load: () => Promise<readonly SynonymRule[] | null>): Promise<boolean>
   applyStoredBm25(indexName: string, load: () => { bm25: BM25Params | undefined } | null): Promise<boolean>
+  analysisGenerationOf(indexName: string): number | undefined
+  pendingAnalysisGenerationOf(indexName: string): number | null
+  buildHeldAnalysis(indexName: string, pending: PendingAnalysisMetadata): Promise<void>
+  heldAnalysisIsBuilt(indexName: string, generation: number): boolean
+  releaseHeldAnalysis(indexName: string, generation: number): Promise<void>
+  dropHeldAnalysis(indexName: string): Promise<void>
+  holdsAnalysisSettings(indexName: string, settings: NamedAnalysisSettings): boolean
+  stampAnalysisGeneration(indexName: string, generation: number): Promise<void>
   highestPersistedSeqNoOf(indexName: string, partitionId: number): number
   persistedPositionOf(indexName: string, partitionId: number): PartitionLogPosition
   numberEntriesWith(numbering: EntryNumbering, defersCommit?: CommitDeferral): void
@@ -172,6 +188,19 @@ export async function createClusterLocalEngine(
       synonymModule().applyLoaded(core, indexName, load),
     applyStoredBm25: (indexName: string, load: () => { bm25: BM25Params | undefined } | null) =>
       applyStoredIndexBm25(core, indexName, load),
+    analysisGenerationOf: (indexName: string) => core.indexRegistry.get(indexName)?.analysisGeneration,
+    pendingAnalysisGenerationOf: (indexName: string) =>
+      core.indexRegistry.get(indexName)?.pendingAnalysis?.generation ?? null,
+    buildHeldAnalysis: (indexName: string, pending: PendingAnalysisMetadata) =>
+      buildHeldAnalysisChange(core, indexName, pending),
+    heldAnalysisIsBuilt: (indexName: string, generation: number) => heldAnalysisIsBuilt(core, indexName, generation),
+    releaseHeldAnalysis: (indexName: string, generation: number) =>
+      releaseHeldAnalysisChange(core, indexName, generation),
+    dropHeldAnalysis: (indexName: string) => dropHeldAnalysisChange(core, indexName),
+    holdsAnalysisSettings: (indexName: string, settings: NamedAnalysisSettings) =>
+      holdsNamedSettings(core.requireIndex(indexName), settings),
+    stampAnalysisGeneration: (indexName: string, generation: number) =>
+      stampAnalysisGeneration(core, indexName, generation),
     highestPersistedSeqNoOf: (indexName: string, partitionId: number) =>
       core.durability?.manager.highestPersistedSeqNo(indexName, partitionId) ?? 0,
     persistedPositionOf: (indexName: string, partitionId: number) => persistedPositionOf(core, indexName, partitionId),

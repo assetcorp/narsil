@@ -306,6 +306,12 @@ When the metadata names a tokeniser or a stop word set, recovery resolves each n
 
 When no adapter of that name is registered at recovery time, the index still recovers in full: every document, term, and stored vector is available and keyword queries work. The operations that need the adapter, such as embedding a text query or embedding an inserted document that arrives without its vectors, fail with `EMBEDDING_CONFIG_INVALID` and name the missing adapter until it is registered. Registering the adapter later rebinds every recovered index that references it, with no data rebuilt and no document embedded a second time, because the write-ahead log and the snapshots store documents with their vectors already computed.
 
+A checkpoint manifest must record in `analysisGeneration` the generation that produced its terms, and an absent value means 0. A writer must persist `pending_analysis` before it starts to build, and every metadata write must keep that member until a checkpoint of that generation is durable, because a crash can leave a committed manifest whose metadata has yet to change. The writer then persists the new settings and `analysis_generation` and leaves `pending_analysis` out.
+
+Recovery must read the generation of the saved terms from the manifest, or from the [index configuration payload](envelope.md) of a tier that saves a snapshot with no manifest, before it creates the index. Where that generation equals the pending generation, recovery must take the pending settings as current and finish the metadata write. Where it equals `analysis_generation`, recovery must open the index under the current settings and start the pending change again, whatever `analysis.rebuild` holds, because a caller asked for that change. A generation that equals neither must raise `CONFIG_INVALID` and stop that index recovering, because the terms match no settings that the metadata records.
+
+The rule above that a name with no registration stops an index recovering applies to the current settings alone. A name in `pending_analysis` with no registration must leave the index answering under its current settings, must report the failed rebuild, and must leave `pending_analysis` in place so that the next start tries again.
+
 ---
 
 ## Checkpoint and Truncation

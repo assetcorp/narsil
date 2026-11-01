@@ -34,9 +34,21 @@ export function mapHttpIndexConfig(http: HttpIndexConfig): IndexConfig {
   if (http.patternValueLimit !== undefined) config.patternValueLimit = http.patternValueLimit
   if (http.synonyms !== undefined) config.synonyms = http.synonyms
 
-  if (http.stopWords !== undefined) {
+  if (http.tokenizer !== undefined) {
+    if (typeof http.tokenizer !== 'string') {
+      throw new NarsilError(ErrorCodes.CONFIG_INVALID, 'Field "tokenizer" must be a registered name')
+    }
+    config.tokenizer = http.tokenizer
+  }
+
+  if (typeof http.stopWords === 'string') {
+    config.stopWords = http.stopWords
+  } else if (http.stopWords !== undefined) {
     if (!Array.isArray(http.stopWords) || http.stopWords.some(w => typeof w !== 'string')) {
-      throw new NarsilError(ErrorCodes.CONFIG_INVALID, 'Field "stopWords" must be an array of strings')
+      throw new NarsilError(
+        ErrorCodes.CONFIG_INVALID,
+        'Field "stopWords" must be a registered name or an array of strings',
+      )
     }
     config.stopWords = new Set(http.stopWords)
   }

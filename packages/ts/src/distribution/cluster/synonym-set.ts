@@ -139,6 +139,23 @@ export async function readSynonymSet(
   return encoded
 }
 
+export async function copySynonymSet(
+  coordinator: ClusterCoordinator,
+  sourceUuid: string,
+  targetUuid: string,
+  ref: SynonymSetRef,
+  reject: SynonymSetRejection,
+): Promise<boolean> {
+  const encoded = await readSynonymSet(coordinator, sourceUuid, ref, reject)
+  if (encoded === null) return false
+  for (let chunk = 0; chunk < ref.chunkCount; chunk++) {
+    const start = chunk * SYNONYM_CHUNK_BYTES
+    const bytes = encoded.subarray(start, Math.min(start + SYNONYM_CHUNK_BYTES, encoded.byteLength))
+    await coordinator.compareAndSet(synonymChunkKey(targetUuid, ref.generation, chunk), null, bytes)
+  }
+  return true
+}
+
 export function storedSynonymSetRules(encoded: Uint8Array, reject: SynonymSetRejection): SynonymRule[] {
   return decodeSynonymRules(encoded, message => reject(message))
 }

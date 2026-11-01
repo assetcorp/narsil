@@ -49,7 +49,7 @@ const EARLIER_RELEASE_MEMBERS = [
   'hybrid',
 ]
 
-const MEMBERS_THE_EARLIER_RELEASE_IGNORES = ['bm25', 'indexBm25']
+const MEMBERS_THE_EARLIER_RELEASE_IGNORES = ['bm25', 'indexBm25', 'analysisGeneration']
 
 function earlierReleaseRefusal(payload: SearchPayload): string | null {
   const params = payload.params as unknown as Record<string, unknown>

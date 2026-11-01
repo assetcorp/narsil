@@ -40,6 +40,7 @@ export interface ServerHandlers {
   multiGet: RouteHandler
   checkpoint: RouteHandler
   rebuildAnalysis: RouteHandler
+  changeAnalysis: RouteHandler
   snapshot: RouteHandler
   vectorMaintenance: RouteHandler
   compact: RouteHandler

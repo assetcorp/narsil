@@ -132,7 +132,7 @@ An older server answers the export routes with 404, so check `supports(DOCUMENT_
 
 ## Following a task
 
-Six operations execute as tasks: an import started through `startImport`, `restore`, `importDocumentExport`, `rebalance`, `optimizeVectors`, and `rebuildAnalysis`. Each answers straight away with a record holding an `id`, a `status`, and, for an import alone, a `progress` object.
+Seven operations execute as tasks: an import started through `startImport`, `restore`, `importDocumentExport`, `rebalance`, `optimizeVectors`, `rebuildAnalysis`, and `changeAnalysis`. Each answers straight away with a record holding an `id`, a `status`, and, for an import alone, a `progress` object.
 
 `waitForTask` polls until the task reaches `succeeded`, `failed`, or `cancelled`, then returns the record it ended on. A failed task comes back with its `error` set while the call throws nothing, because a part-finished import still reports what it indexed. Read the status you get back.
 
@@ -177,7 +177,7 @@ The client reads the answer once and keeps it, because a server cannot take on a
 | Bulk | `insertBatch`, `updateBatch`, `removeBatch`, `getMultiple`, `listDocuments`, `importDocuments`, `startImport` |
 | Search | `query`, `preflight`, `suggest` |
 | Tasks | `getTask`, `listTasks`, `cancelTask`, `waitForTask` |
-| Maintenance | `checkpoint`, `snapshot`, `restore`, `exportDocuments`, `importDocumentExport`, `vectorMaintenanceStatus`, `compactVectors`, `optimizeVectors`, `rebalance`, `updatePartitionConfig`, `rebuildAnalysis`, `getMemoryStats` |
+| Maintenance | `checkpoint`, `snapshot`, `restore`, `exportDocuments`, `importDocumentExport`, `vectorMaintenanceStatus`, `compactVectors`, `optimizeVectors`, `rebalance`, `updatePartitionConfig`, `rebuildAnalysis`, `changeAnalysis`, `getMemoryStats` |
 | Server | `version`, `capabilities`, `supports`, `isAlive`, `isReady` |
 
 `createIndex` takes whatever JSON can express of the engine's configuration. A custom tokeniser, a stop-word function, and an embedding adapter are all functions, so name a language and a server-registered adapter instead. The [HTTP server guide](http-server.md) covers the `embeddingAdapters` option a server registers those under.

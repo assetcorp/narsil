@@ -13,6 +13,7 @@ import type { ErrorEnvelope } from './options'
 import type {
   BatchBody,
   CapabilitiesResponse,
+  ChangeAnalysisBody,
   CreateIndexRequest,
   DocumentBody,
   HttpIndexConfig,
@@ -137,6 +138,8 @@ export interface HttpWireTypes {
   BatchBody: BatchBody
   /** The body of `POST /indexes/{name}/bm25`. */
   BM25Params: BM25Params
+  /** The body of `POST /indexes/{name}/_change-analysis`. */
+  ChangeAnalysisBody: ChangeAnalysisBody
   /** The body of `POST /indexes`. */
   HttpCreateIndexBody: HttpCreateIndexBody
   /** The body of a request that writes one document with a known id. */

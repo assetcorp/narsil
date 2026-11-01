@@ -84,6 +84,39 @@ describe('an index whose array positions a release before the gap wrote', () => 
     expect(again.hits.map(hit => hit.id).sort()).toEqual(phraseHolders(documents, first, second))
   })
 
+  it('rewrites the array positions under a change of analysis, and records the gap across a reopen', async () => {
+    directory = await mkdtemp(join(tmpdir(), 'narsil-phrase-change-'))
+    await copyReleaseFixture('wal', directory)
+    const config = {
+      workers: { enabled: false },
+      durability: { directory },
+      analysis: { rebuild: 'manual' as const },
+    }
+    const documents = await expectedFixtureDocuments('wal-expected.json')
+    const [first, second] = crossingItems(documents)
+    const term = `"${first} ${second}"`
+    const holders = phraseHolders(documents, first, second)
+
+    const engine = await createNarsil(config)
+    engines.push(engine)
+    await expect(engine.query('products', { term })).rejects.toMatchObject({
+      code: ErrorCodes.SEARCH_PHRASE_NOT_READY,
+    })
+
+    await engine.changeAnalysis('products', { stopWords: ['zzzzzz'] })
+    const changed = await engine.query('products', { term, limit: 1_000 })
+    expect(changed.analysisStale).toBeUndefined()
+    expect(changed.hits.map(hit => hit.id).sort()).toEqual(holders)
+
+    await engine.shutdown()
+    engines.length = 0
+    const reopened = await createNarsil(config)
+    engines.push(reopened)
+    const again = await reopened.query('products', { term, limit: 1_000 })
+    expect(again.analysisStale).toBeUndefined()
+    expect(again.hits.map(hit => hit.id).sort()).toEqual(holders)
+  })
+
   it('answers a phrase straight after restoring an archive of that release, which it analyses again, and after a reopen', async () => {
     directory = await mkdtemp(join(tmpdir(), 'narsil-phrase-restore-'))
     const config = { workers: { enabled: false }, durability: { directory }, analysis: { rebuild: 'manual' as const } }

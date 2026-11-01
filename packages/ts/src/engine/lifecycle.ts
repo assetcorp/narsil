@@ -10,6 +10,7 @@ export async function startEngineCore(core: EngineCore, config: NarsilConfig | u
       checkHeapAfterRecovery(core)
     }
     if (core.invalidation) await core.invalidation.start()
+    if (core.durability) await (await import('./analysis-change-entry')).resumeEveryChange(core)
     if (config?.lifecycle === undefined) await core.analysisRebuild.reviewStaleIndexes()
   } catch (err) {
     await core.durability?.manager.shutdown().catch(() => undefined)

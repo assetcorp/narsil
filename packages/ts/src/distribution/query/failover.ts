@@ -30,11 +30,34 @@ const QUERY_REJECTION_CODES: ReadonlySet<string> = new Set([
 
 const nodeRejections = new WeakSet<NarsilError>()
 
+function refusedForNewerGeneration(details: Record<string, unknown> | undefined): boolean {
+  const held = details?.heldGeneration
+  const requested = details?.requestedGeneration
+  return typeof held === 'number' && typeof requested === 'number' && held > requested
+}
+
+export function generationRefusalOf(
+  code: unknown,
+  message: unknown,
+  details?: Record<string, unknown>,
+): NarsilError | null {
+  if (code !== ErrorCodes.ANALYSIS_GENERATION_MISSING) return null
+  const refusal = new NarsilError(
+    ErrorCodes.ANALYSIS_GENERATION_MISSING,
+    typeof message === 'string' ? message : code,
+    details,
+  )
+  if (refusedForNewerGeneration(details)) nodeRejections.add(refusal)
+  return refusal
+}
+
 export function nodeRejectionOf(
   code: unknown,
   message: unknown,
   details?: Record<string, unknown>,
 ): NarsilError | null {
+  const generationRefusal = generationRefusalOf(code, message, details)
+  if (generationRefusal !== null) return generationRefusal
   if (typeof code !== 'string' || !QUERY_REJECTION_CODES.has(code)) return null
   const rejection = new NarsilError(code as ErrorCode, typeof message === 'string' ? message : code, details)
   nodeRejections.add(rejection)
@@ -48,6 +71,7 @@ export function markNodeRejection(error: NarsilError): NarsilError {
 
 export function rethrowAsRefusal(error: unknown): never {
   if (error instanceof NarsilError && QUERY_REJECTION_CODES.has(error.code)) markNodeRejection(error)
+  if (error instanceof NarsilError && refusedForNewerGeneration(error.details)) markNodeRejection(error)
   throw error
 }
 

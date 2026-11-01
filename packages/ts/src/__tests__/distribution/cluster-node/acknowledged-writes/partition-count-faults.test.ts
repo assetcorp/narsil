@@ -18,6 +18,7 @@ const RECORD_KEY = `_narsil/index/${INDEX}/rebalance`
 const FORWARD = 'cluster.reshard_forward'
 const CUTOVER = 'cluster.reshard_cutover'
 const PURGE = 'cluster.reshard_purge'
+const SEARCH = 'query.search'
 const REFUSED_BEFORE_THE_WRITE = new Set(['PARTITION_REBALANCING_BACKPRESSURE', 'PARTITION_NOT_PRIMARY'])
 
 interface Ledger {
@@ -261,6 +262,36 @@ describe('changing the partition count while nodes fail', () => {
 
     expect(ledger.failedSearches).toEqual([])
     await expectLedgerKept(cluster, router, ledger)
+  }, 60_000)
+
+  it('answers from the new layout when the old layout goes while a search waits on it', async () => {
+    await seededCluster()
+    const router = cluster.node(NODE_IDS[0] ?? '')
+    const seeded = Array.from({ length: SEEDED_ENTRIES }, (_, at) => `seed-${at}`).sort()
+    const source = await cluster.coordinator.getAllocation(INDEX)
+    const searches = cluster
+      .transport(router.nodeId)
+      .holdWhen((_to, m) => m.type === SEARCH && (decode(m.payload) as { indexName?: unknown }).indexName === INDEX)
+
+    const searching = router.query(INDEX, { term: 'sedge', limit: SEARCH_LIMIT })
+    await waitUntil('the search to reach its copies', () => searches.count() > 0)
+    await router.rebalance(INDEX, TARGET_PARTITIONS)
+    await waitUntil('every copy of the old layout to go', async () => {
+      for (const [partitionId, assignment] of source?.assignments ?? []) {
+        for (const holder of new Set([assignment.primary, ...assignment.replicas])) {
+          if (holder === null) continue
+          const held = await readCopy(cluster.probe, holder, partitionId).catch(() => new Map())
+          if (held.size > 0) return false
+        }
+      }
+      return true
+    })
+    searches.release()
+
+    const answer = await searching
+    expect(answer.hits.map(hit => hit.id).sort()).toEqual(seeded)
+    expect(answer.coverage.failedPartitions + answer.coverage.timedOutPartitions).toBe(0)
+    expect(answer.coverage.queriedPartitions).toBe(TARGET_PARTITIONS)
   }, 60_000)
 
   it('copies again from a fresh snapshot when the source log drops entries that the copy still needs', async () => {

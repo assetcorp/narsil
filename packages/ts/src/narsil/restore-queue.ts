@@ -1,3 +1,4 @@
+import { abandonChangeOf } from '../engine/analysis-change-entry'
 import type { EngineCore } from '../engine/core'
 import type { RestoreDeps } from '../engine/snapshot'
 import type { ByteSource } from '../types/byte-source'
@@ -21,7 +22,11 @@ function restoreDepsOf(core: EngineCore, host: RestoreHost): RestoreDeps {
     embeddingAdapters: core.embeddingAdapters,
     markAnalysisStale: core.analysisRebuild.markStale,
     clearAnalysisStale: core.analysisRebuild.clearStale,
-    abandonAnalysisRebuild: core.analysisRebuild.abandon,
+    abandonAnalysisRebuild: async indexName => {
+      await core.analysisRebuild.abandon(indexName)
+      await abandonChangeOf(core, indexName)
+    },
+    abandonAnalysisChange: indexName => abandonChangeOf(core, indexName),
     indexState: core.indexState,
     copies: core.orchestrator,
     forgetWatermark: core.watermarkNotifier.forget,
