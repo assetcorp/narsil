@@ -28,7 +28,6 @@ import { createIndexFromMetadata as createIndexFromMetadataOp } from './index-fr
 import type { IndexStateCoordinator } from './index-state'
 import { type EngineCoreHooks, wireIndexState } from './index-state-wiring'
 import { createInvalidationFromConfig, type InvalidationIntegration } from './invalidation'
-import { PASS_THROUGH_WRITE_BLOCK } from './memory/pass-through'
 import type { MutationContext } from './mutations'
 import { type NotifierWiring, wireHeapPressureNotifier, wireWatermarkNotifier } from './notifiers'
 import { createWorkerOrchestrator, type WorkerOrchestrator, workersEnabledByDefault } from './orchestration'
@@ -328,10 +327,11 @@ export async function createEngineCore(
     capacityScope,
     checkWatermark: watermarkNotifier.check,
     checkHeapPressure: heapPressureNotifier.check,
-    memoryWriteBlock:
-      capacityScope === 'index'
-        ? createMemoryWriteBlock({ settings: config?.memory, source: { indexRegistry, executor } })
-        : PASS_THROUGH_WRITE_BLOCK,
+    memoryWriteBlock: createMemoryWriteBlock({
+      settings: config?.memory,
+      capacityScope,
+      source: { indexRegistry, executor },
+    }),
   }
 
   const rebalanceCtx: RebalanceContext = {

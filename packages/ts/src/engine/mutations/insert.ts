@@ -17,7 +17,6 @@ export async function insertDocument(
 ): Promise<string> {
   ctx.guardShutdown()
   const entry = ctx.requireIndex(indexName)
-  ctx.memoryWriteBlock.refuseWhileFull(indexName)
 
   if (docId !== undefined) requireMatchingDocId(docId, document)
   const resolvedDocId = docId ?? providedDocId(document) ?? ctx.idGenerator()
@@ -98,20 +97,15 @@ export async function insertDocument(
     }
   }
 
-  const reserved = ctx.memoryWriteBlock.reserveFor(indexName, document)
-  try {
-    if (ctx.durability) {
-      try {
-        await ctx.durability.recordInsertOrUpdate(indexName, resolvedDocId, document, applyInsert)
-      } catch (err) {
-        await rollbackInsertedDocument(ctx, indexName, resolvedDocId, inserted, err)
-        throw err
-      }
-    } else {
-      await applyInsert()
+  if (ctx.durability) {
+    try {
+      await ctx.durability.recordInsertOrUpdate(indexName, resolvedDocId, document, applyInsert)
+    } catch (err) {
+      await rollbackInsertedDocument(ctx, indexName, resolvedDocId, inserted, err)
+      throw err
     }
-  } finally {
-    reserved.release()
+  } else {
+    await applyInsert()
   }
 
   if (buffered) {

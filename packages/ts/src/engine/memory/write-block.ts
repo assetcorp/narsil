@@ -1,44 +1,30 @@
-import type { BatchResult } from '../../types/results'
-import type { AnyDocument } from '../../types/schema'
-import type { MemoryFractionSettings } from './fractions'
-import type { MemoryGroupedItem, MemoryGroupedWrite, MemoryGroupRefusal, MemoryReservation } from './grouped-writes'
+import { ErrorCodes, NarsilError } from '../../errors'
+import type { MemoryConfig } from '../../types/config'
 import { createMeasuredWriteBlock } from './measured-block'
-import { PASS_THROUGH_WRITE_BLOCK } from './pass-through'
 import { validateMemoryFractions } from './validate'
-import type { WriteAnalysisSource } from './write-analysis'
+import type { MemoryWriteBlock, MemoryWriteBlockDeps } from './write-block-types'
 
-export type { MemoryGroupedItem, MemoryGroupedWrite, MemoryGroupRefusal, MemoryReservation } from './grouped-writes'
-
-export interface MemoryWriteBlock {
-  refuseWhileFull(indexName: string): void
-  memoryReleased(): void
-  reserveFor(indexName: string, document: AnyDocument): MemoryReservation
-  applyInGroups<T extends MemoryGroupedItem>(
-    indexName: string,
-    write: MemoryGroupedWrite<T>,
-  ): Promise<MemoryGroupRefusal | null>
-  refuseRemaining(
-    indexName: string,
-    docIds: readonly string[],
-    refusal: MemoryGroupRefusal,
-    failed: BatchResult['failed'],
-  ): void
-}
-
-export interface MemoryWriteBlockDeps {
-  settings: MemoryFractionSettings | undefined
-  source: WriteAnalysisSource
+const MEMORY_CONFIG_KEYS: Record<keyof MemoryConfig, true> = {
+  blockWritesAbove: true,
+  resumeWritesBelow: true,
 }
 
 export function validateMemorySettings(settings: unknown): void {
+  if (settings !== null && typeof settings === 'object') {
+    for (const key of Object.keys(settings)) {
+      if (Object.hasOwn(MEMORY_CONFIG_KEYS, key)) continue
+      throw new NarsilError(
+        ErrorCodes.CONFIG_INVALID,
+        `The configuration sets "memory.${key}", which is no setting that createNarsil accepts. The settings at that level are ${Object.keys(MEMORY_CONFIG_KEYS).join(', ')}`,
+        { setting: `memory.${key}`, settings: Object.keys(MEMORY_CONFIG_KEYS) },
+      )
+    }
+  }
   validateMemoryFractions('memory', settings)
 }
 
-export function createMemoryWriteBlock(deps: MemoryWriteBlockDeps): MemoryWriteBlock {
+export function createMemoryWriteBlock(deps: MemoryWriteBlockDeps): MemoryWriteBlock | undefined {
+  if (deps.capacityScope !== 'index') return undefined
   const measured = createMeasuredWriteBlock(deps.settings)
-  return {
-    ...PASS_THROUGH_WRITE_BLOCK,
-    refuseWhileFull: measured.refuseWhileFull,
-    memoryReleased: measured.memoryReleased,
-  }
+  return { refuseWhileFull: measured.refuseWhileFull, memoryReleased: measured.memoryReleased }
 }

@@ -339,17 +339,7 @@ export async function insertBatchViaSegments(
 ): Promise<BatchResult> {
   const failed: BatchResult['failed'] = []
   const admitted = await admitBatchDocuments(ctx, indexName, documents, failed)
-  const outcome: IngestOutcome = { succeeded: [], touchedVectorFields: new Set() }
-  await ctx.memoryWriteBlock.applyInGroups(indexName, {
-    items: admitted,
-    failed,
-    mostDocuments: admitted.length,
-    apply: async group => {
-      const ingested = await ingestAdmitted(ctx, indexName, group, options, failed)
-      for (const docId of ingested.succeeded) outcome.succeeded.push(docId)
-      for (const fieldPath of ingested.touchedVectorFields) outcome.touchedVectorFields.add(fieldPath)
-    },
-  })
+  const outcome = await ingestAdmitted(ctx, indexName, admitted, options, failed)
 
   const vecIndexes = ctx.requireManager(indexName).getVectorIndexes()
   for (const fieldPath of outcome.touchedVectorFields) {

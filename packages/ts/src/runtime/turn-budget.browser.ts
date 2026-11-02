@@ -10,20 +10,17 @@ export function turnStarted(): void {
   turnStartedAt = performance.now()
 }
 
-function nextTask(): Promise<void> {
-  const scheduler = (globalThis as { scheduler?: { yield?: () => Promise<void> } }).scheduler
-  if (typeof scheduler?.yield === 'function') return scheduler.yield()
-  return new Promise(resolve => {
-    const channel = new MessageChannel()
-    channel.port1.onmessage = () => {
-      channel.port1.close()
-      resolve()
-    }
-    channel.port2.postMessage(null)
-  })
-}
-
 export async function yieldTurn(): Promise<void> {
-  await nextTask()
+  const scheduler = (globalThis as { scheduler?: { yield?: () => Promise<void> } }).scheduler
+  await (scheduler?.yield
+    ? scheduler.yield()
+    : new Promise<void>(resolve => {
+        const { port1, port2 } = new MessageChannel()
+        port1.onmessage = () => {
+          port1.close()
+          resolve()
+        }
+        port2.postMessage(null)
+      }))
   turnStarted()
 }

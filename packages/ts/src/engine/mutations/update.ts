@@ -210,24 +210,18 @@ export async function updateDocument(
 ): Promise<void> {
   ctx.guardShutdown()
   const entry = ctx.requireIndex(indexName)
-  ctx.memoryWriteBlock.refuseWhileFull(indexName)
   const prepared = await prepareUpdate(ctx, indexName, entry, docId, document)
   const apply = applyOfUpdate(ctx, indexName, prepared)
 
-  const reserved = ctx.memoryWriteBlock.reserveFor(indexName, document)
-  try {
-    if (ctx.durability) {
-      try {
-        await ctx.durability.recordInsertOrUpdate(indexName, docId, document, apply)
-      } catch (err) {
-        await rollbackUpdatedDocument(ctx, indexName, docId, prepared.rollbackDoc, err)
-        throw err
-      }
-    } else {
-      await apply()
+  if (ctx.durability) {
+    try {
+      await ctx.durability.recordInsertOrUpdate(indexName, docId, document, apply)
+    } catch (err) {
+      await rollbackUpdatedDocument(ctx, indexName, docId, prepared.rollbackDoc, err)
+      throw err
     }
-  } finally {
-    reserved.release()
+  } else {
+    await apply()
   }
 
   if (!prepared.buffered) await settleUpdate(ctx, indexName, prepared)
@@ -261,8 +255,6 @@ export async function updateDocumentBatch(
 ): Promise<BatchResult> {
   ctx.guardShutdown()
   const entry = ctx.requireIndex(indexName)
-  const memoryWriteBlock = ctx.memoryWriteBlock
-  memoryWriteBlock.refuseWhileFull(indexName)
 
   const succeeded: string[] = []
   const failed: BatchResult['failed'] = []
@@ -285,39 +277,27 @@ export async function updateDocumentBatch(
       }
     }
 
-    async function applyGroup(group: PreparedUpdate[]): Promise<void> {
-      const applies = group.map(update => applyOfUpdate(ctx, indexName, update))
-      const failures = await recordChunk(ctx, indexName, group, applies)
+    const applies = prepared.map(update => applyOfUpdate(ctx, indexName, update))
+    const failures = await recordChunk(ctx, indexName, prepared, applies)
 
-      for (let i = 0; i < group.length; i++) {
-        const update = group[i]
-        const failure = failures[i]
-        if (failure !== null) {
-          let error = failure.error
-          try {
-            await rollbackUpdatedDocument(ctx, indexName, update.docId, update.rollbackDoc, error)
-          } catch (rollbackError) {
-            error = rollbackError
-          }
-          failed.push({ docId: update.docId, error: asUpdateError(error) })
-          continue
+    for (let i = 0; i < prepared.length; i++) {
+      const update = prepared[i]
+      const failure = failures[i]
+      if (failure !== null) {
+        let error = failure.error
+        try {
+          await rollbackUpdatedDocument(ctx, indexName, update.docId, update.rollbackDoc, error)
+        } catch (rollbackError) {
+          error = rollbackError
         }
-        if (!update.buffered) await settleUpdate(ctx, indexName, update)
-        for (const [fieldPath, vec] of update.extractedVectors) {
-          if (vec !== null) touchedVectorFields.add(fieldPath)
-        }
-        succeeded.push(update.docId)
+        failed.push({ docId: update.docId, error: asUpdateError(error) })
+        continue
       }
-    }
-
-    const refusal = await memoryWriteBlock.applyInGroups(indexName, {
-      items: prepared,
-      failed,
-      apply: applyGroup,
-    })
-    if (refusal !== null) {
-      memoryWriteBlock.refuseRemaining(indexName, updates.slice(chunkEnd).map(reportedDocIdOf), refusal, failed)
-      break
+      if (!update.buffered) await settleUpdate(ctx, indexName, update)
+      for (const [fieldPath, vec] of update.extractedVectors) {
+        if (vec !== null) touchedVectorFields.add(fieldPath)
+      }
+      succeeded.push(update.docId)
     }
 
     if (chunkEnd < updates.length) {

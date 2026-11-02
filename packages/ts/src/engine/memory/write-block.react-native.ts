@@ -4,17 +4,9 @@ import { applyInGroups, type GroupedWriteProjection, reserveForDocument } from '
 import { readRecentEngineMemoryFigures } from './measure'
 import { createMeasuredWriteBlock } from './measured-block'
 import { vectorGrowthBytesOf, writeAnalysisOf } from './write-analysis'
-import type { MemoryWriteBlock, MemoryWriteBlockDeps } from './write-block'
+import type { MemoryWriteBlock, MemoryWriteBlockDeps } from './write-block-types'
 import { createWriteProjection, WRITE_WOULD_FILL_MEMORY_REASON } from './write-projection'
 
-export type {
-  MemoryGroupedItem,
-  MemoryGroupedWrite,
-  MemoryGroupRefusal,
-  MemoryReservation,
-  MemoryWriteBlock,
-  MemoryWriteBlockDeps,
-} from './write-block'
 export { validateMemorySettings } from './write-block'
 
 function refusedAfter(indexName: string, docId: string, refusedDocId: string): NarsilError {
@@ -25,7 +17,8 @@ function refusedAfter(indexName: string, docId: string, refusedDocId: string): N
   )
 }
 
-export function createMemoryWriteBlock(deps: MemoryWriteBlockDeps): MemoryWriteBlock {
+export function createMemoryWriteBlock(deps: MemoryWriteBlockDeps): MemoryWriteBlock | undefined {
+  if (deps.capacityScope !== 'index') return undefined
   const measured = createMeasuredWriteBlock(deps.settings)
   const { monitor } = measured
   const projection = createWriteProjection({
@@ -55,12 +48,9 @@ export function createMemoryWriteBlock(deps: MemoryWriteBlockDeps): MemoryWriteB
   return {
     refuseWhileFull: measured.refuseWhileFull,
     memoryReleased: measured.memoryReleased,
-    reserveFor: (indexName, document) => reserveForDocument(grouped, indexName, document),
-    applyInGroups: (indexName, write) => applyInGroups(grouped, indexName, write),
-    refuseRemaining(indexName, docIds, refusal, failed) {
-      for (const docId of docIds) {
-        failed.push({ docId, error: refusedAfter(indexName, docId, refusal.refusedDocId) })
-      }
+    grouping: {
+      reserveFor: (indexName, document) => reserveForDocument(grouped, indexName, document),
+      applyInGroups: (indexName, write) => applyInGroups(grouped, indexName, write),
     },
   }
 }

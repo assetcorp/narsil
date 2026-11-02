@@ -58,8 +58,18 @@ function exactCounter(
 
 const NOTHING_RESERVED: MemoryReservation = { release: () => {} }
 
+const UNBOUNDED_DOCUMENT_BYTES = 0
+
 function asDocumentError(err: unknown, docId: string): NarsilError {
   return err instanceof NarsilError ? err : new NarsilError(ErrorCodes.DOC_VALIDATION_FAILED, String(err), { docId })
+}
+
+function boundOrNothing(bound: DocumentBound, document: AnyDocument): number {
+  try {
+    return bound(document)
+  } catch {
+    return UNBOUNDED_DOCUMENT_BYTES
+  }
 }
 
 export function reserveForDocument(
@@ -69,7 +79,8 @@ export function reserveForDocument(
 ): MemoryReservation {
   const bound = projection.boundOf(indexName)
   if (bound === null) return NOTHING_RESERVED
-  const bounds = [bound(document)]
+  const bounds = [boundOrNothing(bound, document)]
+  if (bounds[0] === UNBOUNDED_DOCUMENT_BYTES) return NOTHING_RESERVED
   return projection.takeGroup(indexName, bounds, 0, 1, exactCounter(projection, indexName, bounds, [document]))
 }
 
@@ -84,16 +95,8 @@ export async function applyInGroups<T extends MemoryGroupedItem>(
     return null
   }
 
-  const bounds: number[] = []
-  const bounded: T[] = []
-  for (const item of write.items) {
-    try {
-      bounds.push(bound(item.document))
-      bounded.push(item)
-    } catch (err) {
-      write.failed.push({ docId: item.docId, error: asDocumentError(err, item.docId) })
-    }
-  }
+  const bounded = write.items
+  const bounds = bounded.map(item => boundOrNothing(bound, item.document))
 
   const mostDocuments = write.mostDocuments ?? BATCH_CHUNK_SIZE
   const countExactly = exactCounter(
