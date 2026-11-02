@@ -1,3 +1,4 @@
+import { turnIsSpent, yieldTurn } from '#platform/turn-budget'
 import type { RemovedSpellings } from '../../core/partition/frozen/surface-slot'
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { BatchResult } from '../../types/results'
@@ -126,6 +127,7 @@ export async function removeDocumentBatch(
       const chunkEnd = Math.min(chunkStart + BATCH_CHUNK_SIZE, docIds.length)
       const prepared: PreparedRemoval[] = []
       for (let i = chunkStart; i < chunkEnd; i++) {
+        if (turnIsSpent()) await yieldTurn()
         try {
           prepared.push(await prepareRemoval(ctx, indexName, docIds[i]))
         } catch (err) {

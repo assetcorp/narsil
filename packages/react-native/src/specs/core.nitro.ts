@@ -37,6 +37,17 @@ export interface StoreMemory {
   vectorBlocks: MemoryView[]
 }
 
+export interface NativeSearchHits {
+  count: number
+  ordinals: ArrayBuffer
+  distances: ArrayBuffer
+}
+
+export interface NativeScores {
+  status: number
+  distances: ArrayBuffer
+}
+
 export interface NarsilAttachedGraph extends HybridObject<{ ios: 'c++'; android: 'c++' }> {}
 
 export interface NarsilAttachedStore extends HybridObject<{ ios: 'c++'; android: 'c++' }> {
@@ -60,6 +71,24 @@ export interface NarsilCore extends HybridObject<{ ios: 'c++'; android: 'c++' }>
     accepted: MemoryView,
     filtered: boolean,
   ): number
+  searchAsync(
+    graph: NarsilAttachedGraph,
+    store: NarsilAttachedStore,
+    query: MemoryView,
+    metric: number,
+    candidateCount: number,
+    threadSlot: number,
+    accepted: MemoryView,
+    filtered: boolean,
+  ): Promise<NativeSearchHits>
+  scoreAsync(
+    store: NarsilAttachedStore,
+    query: MemoryView,
+    metric: number,
+    ordinals: MemoryView,
+    count: number,
+    threadSlot: number,
+  ): Promise<NativeScores>
   score(
     store: NarsilAttachedStore,
     query: MemoryView,

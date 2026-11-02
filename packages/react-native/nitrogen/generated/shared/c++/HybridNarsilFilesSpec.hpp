@@ -20,6 +20,7 @@ namespace margelo::nitro::narsil { struct DirectoryEntry; }
 
 #include <string>
 #include <NitroModules/ArrayBuffer.hpp>
+#include <NitroModules/Promise.hpp>
 #include "FileStatus.hpp"
 #include "DirectoryEntry.hpp"
 #include <vector>
@@ -60,6 +61,9 @@ namespace margelo::nitro::narsil {
       virtual double read(double descriptor, const std::shared_ptr<ArrayBuffer>& target, double byteOffset, double byteLength, double position) = 0;
       virtual double write(double descriptor, const std::shared_ptr<ArrayBuffer>& source, double byteOffset, double byteLength, double position) = 0;
       virtual void sync(double descriptor) = 0;
+      virtual std::shared_ptr<Promise<std::shared_ptr<ArrayBuffer>>> readAsync(double descriptor, double byteLength, double position) = 0;
+      virtual std::shared_ptr<Promise<double>> writeAsync(double descriptor, const std::shared_ptr<ArrayBuffer>& source, double byteOffset, double byteLength, double position) = 0;
+      virtual std::shared_ptr<Promise<void>> syncAsync(double descriptor) = 0;
       virtual void truncate(double descriptor, double byteLength) = 0;
       virtual FileStatus descriptorStatus(double descriptor) = 0;
       virtual FileStatus pathStatus(const std::string& path) = 0;

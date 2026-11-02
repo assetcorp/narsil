@@ -1,3 +1,4 @@
+import { turnIsSpent, turnStarted } from '#platform/turn-budget'
 import { GRAPH_BUILD_CHUNKS_IN_FLIGHT_PER_WORKER, GRAPH_BUILD_DISPATCH_CHUNK } from '../constants'
 import type { HNSWIndex } from '../hnsw'
 import { sharedMemoryAvailable } from '../shared-buffers/growable'
@@ -145,9 +146,10 @@ async function insertLocally(
     graph.insertOrdinal(ordinal)
     if (graph === state.hnsw) state.buffer.delete(docId)
     count += 1
-    if (count % BUILD_CHUNK_SIZE === 0) {
+    if (count % BUILD_CHUNK_SIZE === 0 || turnIsSpent()) {
       noteWrite(state)
       await yieldBuildTurn(state)
+      turnStarted()
     }
   }
   if (state.disposed) return false

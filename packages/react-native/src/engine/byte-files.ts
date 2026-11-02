@@ -15,10 +15,11 @@ export function resolveAppPath(host: ReactNativeHost, path: string): string {
   return directory.endsWith('/') ? `${directory}${path}` : `${directory}/${path}`
 }
 
-function writeAll(files: ReactNativeFiles, descriptor: number, chunk: Uint8Array): void {
+async function writeAll(files: ReactNativeFiles, descriptor: number, chunk: Uint8Array): Promise<void> {
   let written = 0
   while (written < chunk.byteLength) {
-    const count = files.write(descriptor, chunk.subarray(written), CURRENT_POSITION)
+    const end = Math.min(chunk.byteLength, written + FILE_CHUNK_BYTES)
+    const count = await files.writeAsync(descriptor, chunk.subarray(written, end), CURRENT_POSITION)
     if (count <= 0) throw Object.assign(new Error('The file accepted no more bytes'), { code: 'EIO' })
     written += count
   }
@@ -45,10 +46,10 @@ export async function writeStreamToFile(
     for (;;) {
       const { done, value } = await reader.read()
       if (done) break
-      writeAll(files, descriptor, value)
+      await writeAll(files, descriptor, value)
       total += value.byteLength
     }
-    files.sync(descriptor)
+    await files.syncAsync(descriptor)
   } catch (error) {
     await reader.cancel(error).catch(() => undefined)
     files.close(descriptor)
@@ -68,7 +69,7 @@ export async function* fileChunks(files: ReactNativeFiles, path: string): AsyncG
     let position = 0
     for (;;) {
       const chunk = new Uint8Array(FILE_CHUNK_BYTES)
-      const count = files.read(descriptor, chunk, position)
+      const count = await files.readAsync(descriptor, chunk, position)
       if (count === 0) return
       position += count
       yield count === chunk.byteLength ? chunk : chunk.subarray(0, count)

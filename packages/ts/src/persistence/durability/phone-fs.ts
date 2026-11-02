@@ -1,4 +1,5 @@
 import type { ReactNativeFileStatus, ReactNativeFiles } from '../../runtime/react-native-host'
+import { PHONE_FILE_CHUNK_BYTES } from './constants'
 
 const CURRENT_POSITION = -1
 
@@ -46,32 +47,42 @@ function positionOf(position: number | null | undefined): number {
 
 export function createPhoneFileHandle(files: ReactNativeFiles, descriptor: number) {
   let closed = false
+  let lastCall: Promise<unknown> = Promise.resolve()
 
   function requireOpen(): number {
     if (closed) throw Object.assign(new Error('The file handle is closed'), { code: 'EBADF' })
     return descriptor
   }
 
+  function tracked<T>(call: Promise<T>): Promise<T> {
+    lastCall = call.catch(() => {})
+    return call
+  }
+
   return {
     fd: descriptor,
     async read(buffer: Uint8Array, offset = 0, length = buffer.byteLength - offset, position?: number | null) {
       const target = buffer.subarray(offset, offset + length)
-      const bytesRead = files.read(requireOpen(), target, positionOf(position))
+      const bytesRead = await tracked(files.readAsync(requireOpen(), target, positionOf(position)))
       return { bytesRead, buffer }
     },
     async write(buffer: Uint8Array, offset = 0, length = buffer.byteLength - offset, position?: number | null) {
       const source = buffer.subarray(offset, offset + length)
-      const bytesWritten = files.write(requireOpen(), source, positionOf(position))
+      const bytesWritten = await tracked(files.writeAsync(requireOpen(), source, positionOf(position)))
       return { bytesWritten, buffer }
     },
     async sync() {
-      files.sync(requireOpen())
+      await tracked(files.syncAsync(requireOpen()))
     },
     async truncate(byteLength = 0) {
-      files.truncate(requireOpen(), byteLength)
+      const open = requireOpen()
+      await lastCall
+      files.truncate(open, byteLength)
     },
     async stat() {
-      return statsOf(files.descriptorStatus(requireOpen()), false)
+      const open = requireOpen()
+      await lastCall
+      return statsOf(files.descriptorStatus(open), false)
     },
     async close() {
       if (closed) return
@@ -81,14 +92,15 @@ export function createPhoneFileHandle(files: ReactNativeFiles, descriptor: numbe
   }
 }
 
-function readWhole(files: ReactNativeFiles, path: string): Uint8Array {
+async function readWhole(files: ReactNativeFiles, path: string): Promise<Uint8Array> {
   const descriptor = files.open(path, 'r')
   try {
     const size = files.descriptorStatus(descriptor).size
     const bytes = new Uint8Array(size)
     let filled = 0
     while (filled < size) {
-      const chunk = files.read(descriptor, bytes.subarray(filled), filled)
+      const end = Math.min(size, filled + PHONE_FILE_CHUNK_BYTES)
+      const chunk = await files.readAsync(descriptor, bytes.subarray(filled, end), filled)
       if (chunk <= 0) break
       filled += chunk
     }
@@ -98,12 +110,13 @@ function readWhole(files: ReactNativeFiles, path: string): Uint8Array {
   }
 }
 
-function writeWhole(files: ReactNativeFiles, path: string, data: Uint8Array, flag: string): void {
+async function writeWhole(files: ReactNativeFiles, path: string, data: Uint8Array, flag: string): Promise<void> {
   const descriptor = files.open(path, flag)
   try {
     let written = 0
     while (written < data.byteLength) {
-      const chunk = files.write(descriptor, data.subarray(written), CURRENT_POSITION)
+      const end = Math.min(data.byteLength, written + PHONE_FILE_CHUNK_BYTES)
+      const chunk = await files.writeAsync(descriptor, data.subarray(written, end), CURRENT_POSITION)
       if (chunk <= 0) throw Object.assign(new Error(`Writing ${path} made no progress`), { code: 'EIO' })
       written += chunk
     }
@@ -186,12 +199,12 @@ export function createPhoneFs(files: ReactNativeFiles, dirname: (path: string) =
       files.link(existingPath, newPath)
     },
     async readFile(path: string, encoding?: string | { encoding?: string }) {
-      const bytes = readWhole(files, path)
+      const bytes = await readWhole(files, path)
       const named = typeof encoding === 'string' ? encoding : encoding?.encoding
       return named === undefined ? bytes : new TextDecoder().decode(bytes)
     },
     async writeFile(path: string, data: string | Uint8Array, options?: WriteFileOptions) {
-      writeWhole(files, path, bytesOf(data), options?.flag ?? 'w')
+      await writeWhole(files, path, bytesOf(data), options?.flag ?? 'w')
     },
   }
 }

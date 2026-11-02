@@ -1,7 +1,7 @@
 {
   "name": "@delali/narsil-react-native",
   "version": "0.1.0",
-  "description": "Narsil for React Native: keyword and vector search on the phone, on its own Hermes runtime, with the index kept in durable files.",
+  "description": "Narsil for React Native: keyword and vector search on the phone, with the index kept in durable files.",
   "author": "Delali (https://sondelali.com)",
   "license": "Apache-2.0",
   "homepage": "https://narsil.sondelali.com",
@@ -25,6 +25,11 @@
       "types": "./lib/index.d.ts",
       "react-native": "./src/index.ts",
       "default": "./lib/index.js"
+    },
+    "./worklets": {
+      "types": "./lib/worklets/index.d.ts",
+      "react-native": "./src/worklets/index.ts",
+      "default": "./lib/worklets/index.js"
     },
     "./app.plugin.js": "./app.plugin.js",
     "./package.json": "./package.json"
@@ -64,6 +69,9 @@
   },
   "peerDependenciesMeta": {
     "expo": {
+      "optional": true
+    },
+    "react-native-worklets": {
       "optional": true
     }
   },

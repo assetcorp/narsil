@@ -78,6 +78,32 @@ export type NativeGraphHandle = object
  */
 export type NativeStoreHandle = object
 
+/**
+ * The candidates that a search on a native thread found.
+ *
+ * @internal
+ */
+export interface NativeSearchResult {
+  /** The number of candidates found, or a negative status code when the search failed. */
+  count: number
+  /** The ordinal of each candidate, of which the first `count` entries hold results. */
+  ordinals: Int32Array
+  /** The distance of each candidate, in the same order as {@link NativeSearchResult.ordinals}. */
+  distances: Float64Array
+}
+
+/**
+ * The distances that a scoring call on a native thread measured.
+ *
+ * @internal
+ */
+export interface NativeScoreResult {
+  /** A status code from the core's header. */
+  status: number
+  /** One distance for each ordinal that the call measured. */
+  distances: Float64Array
+}
+
 export const NATIVE_CORE_ABI_VERSION = 6
 export const NATIVE_OK = 0
 export const NATIVE_NEEDS_ROOM = 3
@@ -158,6 +184,48 @@ export interface NativeCore {
     count: number,
     distances: Float64Array,
   ): number
+  /**
+   * Finds the nodes nearest to a query on a native thread, so the calling thread stays free while the core walks
+   * the graph. A core without its own threads leaves this out.
+   *
+   * @param graph - The graph to walk.
+   * @param store - The store that holds the graph's vectors.
+   * @param query - The query vector, which the core copies before the promise settles.
+   * @param metric - The distance metric, where 0 is cosine, 1 is dot product, and 2 is Euclidean.
+   * @param candidateCount - The number of candidates to keep.
+   * @param threadSlot - A slot that no other thread uses until the promise settles.
+   * @param accepted - A bit set of the ordinals that a search may return, or `null` to accept every ordinal.
+   * @returns The candidates found.
+   */
+  searchAsync?(
+    graph: NativeGraphHandle,
+    store: NativeStoreHandle,
+    query: Float32Array,
+    metric: number,
+    candidateCount: number,
+    threadSlot: number,
+    accepted: Uint8Array | null,
+  ): Promise<NativeSearchResult>
+  /**
+   * Measures the distance from a query to each of the given ordinals on a native thread. A core without its own
+   * threads leaves this out.
+   *
+   * @param store - The store that holds the vectors.
+   * @param query - The query vector, which the core copies before the promise settles.
+   * @param metric - The distance metric, where 0 is cosine, 1 is dot product, and 2 is Euclidean.
+   * @param ordinals - The ordinals to measure, which the core copies before the promise settles.
+   * @param count - The number of ordinals to read from `ordinals`.
+   * @param threadSlot - A slot that no other thread uses until the promise settles.
+   * @returns The status and one distance for each ordinal.
+   */
+  scoreAsync?(
+    store: NativeStoreHandle,
+    query: Float32Array,
+    metric: number,
+    ordinals: Int32Array,
+    count: number,
+    threadSlot: number,
+  ): Promise<NativeScoreResult>
   /**
    * Links a new node into the graph.
    *

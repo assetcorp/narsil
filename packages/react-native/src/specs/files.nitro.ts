@@ -21,6 +21,15 @@ export interface NarsilFiles extends HybridObject<{ ios: 'c++'; android: 'c++' }
   read(descriptor: number, target: ArrayBuffer, byteOffset: number, byteLength: number, position: number): number
   write(descriptor: number, source: ArrayBuffer, byteOffset: number, byteLength: number, position: number): number
   sync(descriptor: number): void
+  readAsync(descriptor: number, byteLength: number, position: number): Promise<ArrayBuffer>
+  writeAsync(
+    descriptor: number,
+    source: ArrayBuffer,
+    byteOffset: number,
+    byteLength: number,
+    position: number,
+  ): Promise<number>
+  syncAsync(descriptor: number): Promise<void>
   truncate(descriptor: number, byteLength: number): void
   descriptorStatus(descriptor: number): FileStatus
   pathStatus(path: string): FileStatus

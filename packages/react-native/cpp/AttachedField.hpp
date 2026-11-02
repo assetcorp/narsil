@@ -8,6 +8,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <mutex>
 #include <vector>
 
 namespace margelo::nitro::narsil {
@@ -35,6 +36,8 @@ public:
   ~HybridNarsilAttachedStoreImpl() override;
   double detach() override;
   bool isDetached() const { return _detached; }
+  bool beginBackgroundUse();
+  void endBackgroundUse();
   narsil_store store{};
 
 private:
@@ -43,6 +46,9 @@ private:
   std::vector<uint8_t*> _codeBlocks;
   std::vector<const float*> _vectorBlocks;
   std::vector<narsil_vector_file> _files;
+  std::mutex _useLock;
+  uint32_t _backgroundUses = 0;
+  bool _unmapAfterUse = false;
   bool _detached = false;
 };
 

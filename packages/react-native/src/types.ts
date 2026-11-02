@@ -27,10 +27,9 @@ import type {
 } from '@delali/narsil'
 
 /**
- * The engine settings that an app passes from its own JS thread. Each value
- * has to cross to the engine's runtime as data, so the settings that hold a
- * function, such as an embedding adapter or a plugin, go in an
- * {@link EngineSetup} worklet instead.
+ * The engine settings, which are the settings of `createNarsil` in
+ * `@delali/narsil`, function settings such as `embeddingAdapters`, `plugins`,
+ * and `idGenerator` included.
  *
  * `durability` defaults to a write-ahead log in a `narsil` directory inside
  * the app's private storage, and `null` keeps the index in memory alone. A
@@ -38,29 +37,7 @@ import type {
  *
  * @public
  */
-export type PhoneNarsilConfig = Omit<
-  NarsilConfig,
-  | 'persistence'
-  | 'invalidation'
-  | 'plugins'
-  | 'idGenerator'
-  | 'embedding'
-  | 'embeddingAdapters'
-  | 'rerankAdapters'
-  | 'events'
-  | 'durability'
-> & { durability?: DurabilityConfig | null }
-
-/**
- * A worklet that runs on the engine's runtime before the engine starts, and
- * returns the settings that hold functions, such as `embeddingAdapters`,
- * `plugins`, or `idGenerator`. Its values override the matching values of
- * {@link PhoneNarsilConfig}. Mark the function with the `'worklet'`
- * directive, and register a language or a tokenizer inside it.
- *
- * @public
- */
-export type EngineSetup = () => Partial<NarsilConfig> | Promise<Partial<NarsilConfig>>
+export type PhoneNarsilConfig = Omit<NarsilConfig, 'durability'> & { durability?: DurabilityConfig | null }
 
 /**
  * Receives one engine event on the app's JS thread. An `Error` inside the
@@ -72,11 +49,9 @@ export type EngineSetup = () => Partial<NarsilConfig> | Promise<Partial<NarsilCo
 export type PhoneEventHandler<K extends keyof NarsilEventMap> = (payload: NarsilEventMap[K]) => void
 
 /**
- * A Narsil engine that works on its own Hermes runtime, so a long search or a
- * large import leaves the app's JS thread free. Every method sends one
- * request to that runtime and resolves with the engine's answer. A method
- * that the engine answers synchronously, such as `listIndexes`, also
- * resolves through a promise here. Each method otherwise behaves as the
+ * A Narsil engine on a phone. Every method resolves with the engine's answer,
+ * so a method that the engine answers synchronously, such as `listIndexes`,
+ * also resolves through a promise here. Each method otherwise behaves as the
  * method of the same name on the `Narsil` interface of `@delali/narsil`.
  *
  * A failure rejects with an `Error` whose `name` is `NarsilError` for an

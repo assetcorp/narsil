@@ -1,25 +1,43 @@
+import type { BoxedHybridObject } from 'react-native-nitro-modules'
 import { createWorkletRuntime, scheduleOnRuntime, type WorkletRuntime } from 'react-native-worklets'
-import { ENGINE_RUNTIME_NAME } from './constants'
-import { installEngineHost } from './engine/install'
-import { callOnEngine, listenOnEngine, openOnEngine } from './engine/instances'
-import type { EngineMethod } from './methods'
-import type { BoxedNativeObjects } from './native-objects'
-import type { CallOutcome } from './transferred'
-import type { EngineSetup, PhoneNarsilConfig } from './types'
+import { ENGINE_RUNTIME_NAME } from '../constants'
+import type { NativeObjects } from '../engine/host'
+import { installEngineHost } from '../engine/install'
+import type { EngineMethod } from '../methods'
+import type { NarsilCore } from '../specs/core.nitro'
+import type { NarsilFiles } from '../specs/files.nitro'
+import type { NarsilHost } from '../specs/host.nitro'
+import type { CallOutcome } from '../transferred'
+import { callOnEngine, listenOnEngine, openOnEngine } from './instances'
+import type { EngineSetup, WorkletNarsilConfig } from './types'
 
 type Settle = (callId: number, outcome: CallOutcome) => void
 type DeliverEvent = (instanceId: number, event: string, payload: unknown) => void
 
+export interface BoxedNativeObjects {
+  host: BoxedHybridObject<NarsilHost>
+  files: BoxedHybridObject<NarsilFiles>
+  core: BoxedHybridObject<NarsilCore>
+}
+
 let engineRuntime: WorkletRuntime | null = null
 
-export function startEngineRuntime(natives: BoxedNativeObjects): WorkletRuntime {
+export async function boxNativeObjects(natives: NativeObjects): Promise<BoxedNativeObjects> {
+  const { NitroModules } = await import('react-native-nitro-modules')
+  return {
+    host: NitroModules.box(natives.host),
+    files: NitroModules.box(natives.files),
+    core: NitroModules.box(natives.core),
+  }
+}
+
+export function startEngineRuntime({ host, files, core }: BoxedNativeObjects): WorkletRuntime {
   if (engineRuntime !== null) return engineRuntime
-  const { host, files, core } = natives
   engineRuntime = createWorkletRuntime({
     name: ENGINE_RUNTIME_NAME,
     initializer: () => {
       'worklet'
-      installEngineHost({ host: host.unbox(), files: files.unbox(), core: core.unbox() })
+      installEngineHost({ host: host.unbox(), files: files.unbox(), core: core.unbox() }, false)
     },
   })
   return engineRuntime
@@ -29,12 +47,12 @@ export function sendOpen(
   runtime: WorkletRuntime,
   callId: number,
   settle: Settle,
-  config: PhoneNarsilConfig,
+  config: WorkletNarsilConfig,
   setup: EngineSetup | undefined,
 ): void {
   scheduleOnRuntime(
     runtime,
-    (id: number, deliver: Settle, settings: PhoneNarsilConfig, prepare: EngineSetup | undefined) => {
+    (id: number, deliver: Settle, settings: WorkletNarsilConfig, prepare: EngineSetup | undefined) => {
       'worklet'
       openOnEngine(id, deliver, settings, prepare)
     },

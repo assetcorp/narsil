@@ -1,4 +1,5 @@
 import { getNestedValue } from '../../core/partition/utils'
+import { visitTokens } from '../../core/tokenizer/tokenize'
 import { schemaFieldsOf } from '../../schema/validator/schema'
 import { MAX_DOCUMENT_ENCODING_DEPTH } from '../../serialization/constants'
 import type { LanguageModule } from '../../types/language'
@@ -111,7 +112,37 @@ function builtInTermBytes(text: string, termsPerUnit: number, partial: boolean):
   return terms * termBytes + normalizedUnits * TERM_UNIT_HEAP_BYTES
 }
 
+function countedTermBytes(text: string, analysis: IndexWriteAnalysis, partial: boolean): number {
+  const distinct = new Set<string>()
+  let units = 0
+  visitTokens(
+    text,
+    analysis.language,
+    { stem: false, removeStopWords: false, customTokenizer: analysis.customTokenizer },
+    token => {
+      distinct.add(token)
+      units += token.length
+    },
+  )
+  const termBytes = DISTINCT_TERM_HEAP_BYTES + (partial ? PARTIAL_SPELLING_HEAP_BYTES : 0)
+  return distinct.size * termBytes + units * TERM_UNIT_HEAP_BYTES
+}
+
 export function createDocumentBound(analysis: IndexWriteAnalysis): DocumentBound {
+  return createBound(analysis, (text, termsPerUnit, partial) =>
+    analysis.customTokenizer === undefined
+      ? builtInTermBytes(text, termsPerUnit, partial)
+      : customTermBytes(text, analysis.customTokenizer, partial),
+  )
+}
+
+export function createCountedDocumentBound(analysis: IndexWriteAnalysis): DocumentBound {
+  return createBound(analysis, (text, _termsPerUnit, partial) => countedTermBytes(text, analysis, partial))
+}
+
+type TextTermBytes = (text: string, termsPerUnit: number, partial: boolean) => number
+
+function createBound(analysis: IndexWriteAnalysis, termBytesOf: TextTermBytes): DocumentBound {
   const textFields: TextFieldBound[] = []
   const enumPaths: string[] = []
   const vectorFields: VectorFieldBound[] = []
@@ -126,16 +157,12 @@ export function createDocumentBound(analysis: IndexWriteAnalysis): DocumentBound
   }
   const vectorPaths: ReadonlySet<string> = new Set(vectorFields.map(field => field.path))
   const termsPerUnit = termsPerNormalizedUnit(analysis.language)
-  const tokenizer = analysis.customTokenizer
 
   return document => {
     let bytes = valueHeapBytesOf(document, 1, '', vectorPaths) + vectorBytesOf(document, vectorFields)
     for (const field of textFields) {
       for (const text of textsOf(getNestedValue(document, field.path))) {
-        bytes +=
-          tokenizer === undefined
-            ? builtInTermBytes(text, termsPerUnit, field.partial)
-            : customTermBytes(text, tokenizer, field.partial)
+        bytes += termBytesOf(text, termsPerUnit, field.partial)
         if (field.pattern) bytes += text.length * CASE_FOLD_EXPANSION_FACTOR * PATTERN_RUN_HEAP_BYTES
       }
     }

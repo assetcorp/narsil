@@ -7,13 +7,12 @@ import {
   type NarsilEventMap,
 } from '@delali/narsil'
 import { scheduleOnRN } from 'react-native-worklets'
-import { DEFAULT_DURABILITY_DIRECTORY } from '../constants'
+import { installedHost } from '../engine/install'
+import { callStreamed, withPhoneDurability } from '../engine/streamed'
+import { transferable, transferredError } from '../engine/transfer'
 import { type EngineMethod, FORWARDED_METHODS, STREAMED_METHODS, type StreamedMethod } from '../methods'
 import type { CallOutcome } from '../transferred'
-import type { EngineSetup, PhoneNarsilConfig } from '../types'
-import { collectStream, fileChunks, resolveAppPath, writeStreamToFile } from './byte-files'
-import { installedHost } from './install'
-import { transferable, transferredError } from './transfer'
+import type { EngineSetup, WorkletNarsilConfig } from './types'
 
 type Settle = (callId: number, outcome: CallOutcome) => void
 type DeliverEvent = (instanceId: number, event: EventName, payload: unknown) => void
@@ -51,40 +50,13 @@ function report(settle: Settle, callId: number, work: () => Promise<unknown>): v
   )
 }
 
-async function openInstance(config: PhoneNarsilConfig, setup: EngineSetup | undefined): Promise<number> {
-  const { durability, ...rest } = config
+async function openInstance(config: WorkletNarsilConfig, setup: EngineSetup | undefined): Promise<number> {
   const fromSetup = setup === undefined ? {} : await setup()
-  const merged: NarsilConfig = { ...rest, ...fromSetup }
-  if (durability !== null && fromSetup.durability === undefined) {
-    merged.durability = { directory: DEFAULT_DURABILITY_DIRECTORY, ...durability }
-  }
+  const merged: NarsilConfig = { ...withPhoneDurability(config, fromSetup.durability !== undefined), ...fromSetup }
   const narsil = await createNarsil(merged)
   const instanceId = nextInstanceId++
   instances.set(instanceId, { narsil, listeners: new Map() })
   return instanceId
-}
-
-function streamed(narsil: Narsil, method: StreamedMethod, args: readonly unknown[]): Promise<unknown> {
-  const host = installedHost()
-  const indexName = args[0] as string
-  switch (method) {
-    case 'snapshot':
-      return narsil.snapshot(indexName).then(collectStream)
-    case 'exportDocuments':
-      return narsil.exportDocuments(indexName).then(collectStream)
-    case 'snapshotToFile':
-      return narsil
-        .snapshot(indexName)
-        .then(stream => writeStreamToFile(host.files, stream, resolveAppPath(host, args[1] as string)))
-    case 'exportDocumentsToFile':
-      return narsil
-        .exportDocuments(indexName)
-        .then(stream => writeStreamToFile(host.files, stream, resolveAppPath(host, args[1] as string)))
-    case 'restoreFromFile':
-      return narsil.restore(indexName, fileChunks(host.files, resolveAppPath(host, args[1] as string)))
-    case 'importDocumentExportFromFile':
-      return narsil.importDocumentExport(indexName, fileChunks(host.files, resolveAppPath(host, args[1] as string)))
-  }
 }
 
 async function shutdown(instanceId: number): Promise<void> {
@@ -104,13 +76,13 @@ function dispatch(instanceId: number, method: EngineMethod, args: readonly unkno
     return Promise.resolve(target.apply(narsil, [...args]))
   }
   if (!STREAMED.has(method)) throw new TypeError(`The Narsil engine has no method called ${String(method)}`)
-  return streamed(narsil, method as StreamedMethod, args)
+  return callStreamed(narsil, installedHost(), method as StreamedMethod, args)
 }
 
 export function openOnEngine(
   callId: number,
   settle: Settle,
-  config: PhoneNarsilConfig,
+  config: WorkletNarsilConfig,
   setup: EngineSetup | undefined,
 ): void {
   report(settle, callId, () => openInstance(config, setup))

@@ -760,7 +760,9 @@ export interface NativeCore {
     quantise(store: NativeStoreHandle, metric: number, ordinals: Int32Array, count: number): number;
     remove(graph: NativeGraphHandle, ordinal: number, threadSlot: number, wakes: Int32Array): number;
     score(store: NativeStoreHandle, query: Float32Array, metric: number, ordinals: Int32Array, count: number, distances: Float64Array): number;
+    scoreAsync?(store: NativeStoreHandle, query: Float32Array, metric: number, ordinals: Int32Array, count: number, threadSlot: number): Promise<NativeScoreResult>;
     search(graph: NativeGraphHandle, store: NativeStoreHandle, query: Float32Array, metric: number, candidateCount: number, threadSlot: number, ordinals: Int32Array, distances: Float64Array, accepted: Uint8Array | null): number;
+    searchAsync?(graph: NativeGraphHandle, store: NativeStoreHandle, query: Float32Array, metric: number, candidateCount: number, threadSlot: number, accepted: Uint8Array | null): Promise<NativeSearchResult>;
     workspaceBytes(): number;
 }
 
@@ -783,6 +785,23 @@ export interface NativeGraphMemory {
     tombstones: Uint8Array;
     upper: Int32Array;
     upperBase: Int32Array;
+}
+
+// Warning: (ae-internal-missing-underscore) The name "NativeScoreResult" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface NativeScoreResult {
+    distances: Float64Array;
+    status: number;
+}
+
+// Warning: (ae-internal-missing-underscore) The name "NativeSearchResult" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface NativeSearchResult {
+    count: number;
+    distances: Float64Array;
+    ordinals: Int32Array;
 }
 
 // Warning: (ae-internal-missing-underscore) The name "NativeStoreHandle" should be prefixed with an underscore because the declaration is marked as @internal
@@ -968,13 +987,16 @@ export interface ReactNativeFiles {
     open(path: string, flags: string): number;
     pathStatus(path: string): ReactNativeFileStatus;
     read(descriptor: number, target: Uint8Array, position: number): number;
+    readAsync(descriptor: number, target: Uint8Array, position: number): Promise<number>;
     readDirectory(path: string): ReactNativeDirectoryEntry[];
     removeDirectory(path: string): void;
     rename(from: string, to: string): void;
     sync(descriptor: number): void;
+    syncAsync(descriptor: number): Promise<void>;
     truncate(descriptor: number, byteLength: number): void;
     unlink(path: string): void;
     write(descriptor: number, source: Uint8Array, position: number): number;
+    writeAsync(descriptor: number, source: Uint8Array, position: number): Promise<number>;
 }
 
 // Warning: (ae-internal-missing-underscore) The name "ReactNativeFileStatus" should be prefixed with an underscore because the declaration is marked as @internal

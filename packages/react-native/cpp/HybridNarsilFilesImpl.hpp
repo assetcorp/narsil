@@ -15,6 +15,11 @@ public:
   double write(double descriptor, const std::shared_ptr<ArrayBuffer>& source, double byteOffset, double byteLength,
                double position) override;
   void sync(double descriptor) override;
+  std::shared_ptr<Promise<std::shared_ptr<ArrayBuffer>>> readAsync(double descriptor, double byteLength,
+                                                                   double position) override;
+  std::shared_ptr<Promise<double>> writeAsync(double descriptor, const std::shared_ptr<ArrayBuffer>& source,
+                                              double byteOffset, double byteLength, double position) override;
+  std::shared_ptr<Promise<void>> syncAsync(double descriptor) override;
   void truncate(double descriptor, double byteLength) override;
   FileStatus descriptorStatus(double descriptor) override;
   FileStatus pathStatus(const std::string& path) override;

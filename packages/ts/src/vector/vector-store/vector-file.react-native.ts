@@ -47,8 +47,23 @@ export function createVectorFileReader(): VectorFileReader {
   return {
     readInto,
 
-    readLater(path, offset, target) {
-      return Promise.resolve(readInto(path, offset, target))
+    async readLater(path, offset, target) {
+      const descriptor = descriptorOf(path)
+      if (descriptor === null) return false
+      const files = reactNativeHost().files
+      let read = 0
+      while (read < target.byteLength) {
+        let chunk: number
+        try {
+          chunk = await files.readAsync(descriptor, target.subarray(read), offset + read)
+        } catch {
+          if (descriptors.get(path) === descriptor) closeDescriptor(path, descriptor)
+          return false
+        }
+        if (chunk <= 0) return false
+        read += chunk
+      }
+      return true
     },
 
     retainOnly(paths) {

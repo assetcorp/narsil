@@ -23,7 +23,8 @@ import {
 } from './numbered-graph'
 import { deserializeGraph } from './persistence'
 import { searchScratchBytes } from './scratch-bytes'
-import { type GraphSearchOptions, search as searchOp } from './search'
+import { type GraphSearchOptions, type ResolvedHit, search as searchOp } from './search'
+import { searchOffThread as searchOffThreadOp } from './search-off-thread'
 import {
   entryPointOf,
   type HNSWConfig,
@@ -77,6 +78,14 @@ export interface HNSWIndex {
     minSimilarity: number,
     options?: GraphSearchOptions,
   ): ScoredDocument[]
+  /** Walks the graph on a native thread, or answers `null` when the native core has no threads of its own. */
+  searchOffThread(
+    query: Float32Array,
+    k: number,
+    searchMetric: VectorMetric,
+    minSimilarity: number,
+    options: GraphSearchOptions,
+  ): Promise<ResolvedHit[] | null>
   clear(): void
   retire(): void
   entries(): IterableIterator<[string, VectorEntry]>
@@ -232,6 +241,13 @@ export function createHNSWIndex(
       minSimilarity: number,
       options?: GraphSearchOptions,
     ) => searchOp(state, docIdOf, query, k, searchMetric, minSimilarity, options),
+    searchOffThread: (
+      query: Float32Array,
+      k: number,
+      searchMetric: VectorMetric,
+      minSimilarity: number,
+      options: GraphSearchOptions,
+    ) => searchOffThreadOp(state, docIdOf, query, k, searchMetric, minSimilarity, options),
     clear: () => exclusively(() => resetGraph(state)),
     retire: () => Atomics.store(shared.header, GRAPH_RETIRED, 1),
     entries: entriesIterator,
