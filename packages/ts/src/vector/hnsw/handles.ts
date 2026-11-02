@@ -1,5 +1,6 @@
+import { VECTOR_MEMORY_LIMITS } from '#platform/vector-memory-limits'
 import type { VectorMetric } from '../brute-force'
-import { MAX_VECTOR_ORDINALS, VECTOR_SCRATCH_SLOTS, VECTOR_STORE_INITIAL_CAPACITY } from '../constants'
+import { VECTOR_SCRATCH_SLOTS, VECTOR_STORE_INITIAL_CAPACITY } from '../constants'
 import { createFixedBuffer, createGrowableBuffer, type GrowableBuffer } from '../shared-buffers/growable'
 import { INITIAL_UPPER_SLOTS } from './constants'
 
@@ -77,7 +78,7 @@ export interface SharedGraphShape {
 }
 
 function perOrdinal(bytesPerOrdinal: number, initialOrdinals: number): GrowableBuffer {
-  return createGrowableBuffer(initialOrdinals * bytesPerOrdinal, MAX_VECTOR_ORDINALS * bytesPerOrdinal)
+  return createGrowableBuffer(initialOrdinals * bytesPerOrdinal, VECTOR_MEMORY_LIMITS.maxOrdinals * bytesPerOrdinal)
 }
 
 export function createSharedGraphHandles(shape: SharedGraphShape): SharedGraphHandles {

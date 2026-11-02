@@ -1,3 +1,4 @@
+import { gunzip, gzip } from '#platform/gzip'
 import { ErrorCodes, NarsilError } from '../errors'
 import type { IndexMetadata } from '../types/internal'
 import { crc32 } from './crc32'
@@ -16,43 +17,6 @@ export interface EnvelopeOptions {
   envelopeFormatVersion?: number
 }
 
-async function collectStream(stream: ReadableStream<Uint8Array>): Promise<Uint8Array> {
-  const reader = stream.getReader()
-  const chunks: Uint8Array[] = []
-  let totalLength = 0
-
-  for (;;) {
-    const { done, value } = await reader.read()
-    if (done) break
-    chunks.push(value)
-    totalLength += value.length
-  }
-
-  const result = new Uint8Array(totalLength)
-  let offset = 0
-  for (const chunk of chunks) {
-    result.set(chunk, offset)
-    offset += chunk.length
-  }
-  return result
-}
-
-function toArrayBuffer(data: Uint8Array): ArrayBuffer {
-  return data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer
-}
-
-async function compressGzip(data: Uint8Array): Promise<Uint8Array> {
-  const blob = new Blob([toArrayBuffer(data)])
-  const compressed = blob.stream().pipeThrough(new CompressionStream('gzip'))
-  return collectStream(compressed)
-}
-
-async function decompressGzip(data: Uint8Array): Promise<Uint8Array> {
-  const blob = new Blob([toArrayBuffer(data)])
-  const decompressed = blob.stream().pipeThrough(new DecompressionStream('gzip'))
-  return collectStream(decompressed)
-}
-
 function buildFlags(options: EnvelopeOptions): NrslFlags {
   const useCompression = options.compression === 'gzip'
   return {
@@ -68,7 +32,7 @@ async function packEnvelope(payloadBytes: Uint8Array, options: EnvelopeOptions):
 
   let finalPayload = payloadBytes
   if (flags.compressionEnabled) {
-    finalPayload = await compressGzip(payloadBytes)
+    finalPayload = await gzip(payloadBytes)
   }
 
   const checksum = flags.checksumPresent ? crc32(finalPayload) : 0
@@ -145,7 +109,7 @@ async function unpackEnvelope(
   }
 
   if (header.flags.compressionEnabled) {
-    payloadBytes = await decompressGzip(payloadBytes)
+    payloadBytes = await gunzip(payloadBytes)
   }
 
   return { header, payloadBytes }

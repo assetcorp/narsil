@@ -1,0 +1,80 @@
+{
+  "name": "@delali/narsil-react-native",
+  "version": "0.1.0",
+  "description": "Narsil for React Native: keyword and vector search on the phone, on its own Hermes runtime, with the index kept in durable files.",
+  "author": "Delali (https://sondelali.com)",
+  "license": "Apache-2.0",
+  "homepage": "https://narsil.sondelali.com",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/assetcorp/narsil.git",
+    "directory": "packages/react-native"
+  },
+  "bugs": {
+    "url": "https://github.com/assetcorp/narsil/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "main": "./lib/index.js",
+  "types": "./lib/index.d.ts",
+  "react-native": "./src/index.ts",
+  "source": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "react-native": "./src/index.ts",
+      "default": "./lib/index.js"
+    },
+    "./app.plugin.js": "./app.plugin.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "src/",
+    "lib/",
+    "cpp/",
+    "nitrogen/",
+    "android/build.gradle",
+    "android/gradle.properties",
+    "android/CMakeLists.txt",
+    "android/src/",
+    "ios/PrivacyInfo.xcprivacy",
+    "NarsilReactNative.podspec",
+    "nitro.json",
+    "app.plugin.js",
+    "react-native.config.js",
+    "LICENSE",
+    "README.md"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "node scripts/copy-core.mjs && tsc -p tsconfig.build.json",
+    "copy-core": "node scripts/copy-core.mjs",
+    "specs": "nitrogen --logLevel=\"warning\"",
+    "lint": "biome check src/ scripts/ app.plugin.js react-native.config.js",
+    "typecheck": "tsc --noEmit",
+    "prepack": "node scripts/copy-core.mjs && tsc -p tsconfig.build.json"
+  },
+  "peerDependencies": {
+    "@delali/narsil": "workspace:^",
+    "expo": "*",
+    "react-native": "*",
+    "react-native-nitro-modules": "*",
+    "react-native-worklets": "*"
+  },
+  "peerDependenciesMeta": {
+    "expo": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.4.4",
+    "@delali/narsil": "workspace:*",
+    "expo": "58.0.21",
+    "nitrogen": "0.37.1",
+    "react-native": "0.88.1",
+    "react-native-nitro-modules": "0.37.1",
+    "react-native-worklets": "0.13.0",
+    "typescript": "5.9.3"
+  }
+}

@@ -24,10 +24,12 @@
       "default": "./src/vector/promoter.ts"
     },
     "#platform/durable-fs": {
+      "react-native": "./src/persistence/durability/node-fs.react-native.ts",
       "browser": "./src/persistence/durability/node-fs.browser.ts",
       "default": "./src/persistence/durability/node-fs.ts"
     },
     "#platform/lock-holder": {
+      "react-native": "./src/persistence/durability/lock-holder.react-native.ts",
       "browser": "./src/persistence/durability/lock-holder.browser.ts",
       "default": "./src/persistence/durability/lock-holder.ts"
     },
@@ -40,22 +42,36 @@
       "default": "./src/runtime/heap-statistics.ts"
     },
     "#platform/process-limit": {
+      "react-native": "./src/runtime/process-limit.react-native.ts",
       "browser": "./src/runtime/process-limit.browser.ts",
       "default": "./src/runtime/process-limit.ts"
     },
     "#platform/idle-heap-cleanup": {
+      "react-native": "./src/runtime/idle-heap-cleanup.react-native.ts",
       "browser": "./src/runtime/idle-heap-cleanup.browser.ts",
       "default": "./src/runtime/idle-heap-cleanup.ts"
     },
     "#platform/vector-file": {
+      "react-native": "./src/vector/vector-store/vector-file.react-native.ts",
       "browser": "./src/vector/vector-store/vector-file.browser.ts",
       "default": "./src/vector/vector-store/vector-file.ts"
     },
     "#platform/raw-deflate": {
+      "react-native": "./src/persistence/paged/raw-deflate.react-native.ts",
       "browser": "./src/persistence/paged/raw-deflate.browser.ts",
       "default": "./src/persistence/paged/raw-deflate.ts"
     },
+    "#platform/gzip": {
+      "react-native": "./src/serialization/gzip.react-native.ts",
+      "default": "./src/serialization/gzip.ts"
+    },
+    "#platform/vector-memory-limits": {
+      "react-native": "./src/vector/shared-buffers/memory-limits.react-native.ts",
+      "browser": "./src/vector/shared-buffers/memory-limits.ts",
+      "default": "./src/vector/shared-buffers/memory-limits.ts"
+    },
     "#platform/native-core": {
+      "react-native": "./src/vector/native/loader.react-native.ts",
       "browser": "./src/vector/native/loader.browser.ts",
       "default": "./src/vector/native/loader.ts"
     },
@@ -78,6 +94,11 @@
     "#platform/synonym-search": {
       "browser": "./src/core/synonyms/platform.browser.ts",
       "default": "./src/core/synonyms/platform.ts"
+    },
+    "#platform/memory-write-block": {
+      "react-native": "./src/engine/memory/write-block.ts",
+      "browser": "./src/engine/memory/write-block.browser.ts",
+      "default": "./src/engine/memory/write-block.ts"
     }
   },
   "sideEffects": false,
@@ -130,6 +151,10 @@
   },
   "exports": {
     ".": {
+      "react-native": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.react-native.mjs"
+      },
       "browser": {
         "import": "./dist/index.browser.mjs",
         "types": "./dist/index.d.ts"
@@ -174,14 +199,26 @@
       "types": "./dist/rerankers/http.d.ts"
     },
     "./pattern": {
+      "react-native": {
+        "types": "./dist/pattern.d.ts",
+        "default": "./dist/react-native/pattern.mjs"
+      },
       "import": "./dist/pattern.mjs",
       "types": "./dist/pattern.d.ts"
     },
     "./partial-words": {
+      "react-native": {
+        "types": "./dist/partial-words.d.ts",
+        "default": "./dist/react-native/partial-words.mjs"
+      },
       "import": "./dist/partial-words.mjs",
       "types": "./dist/partial-words.d.ts"
     },
     "./synonyms": {
+      "react-native": {
+        "types": "./dist/synonyms.d.ts",
+        "default": "./dist/react-native/synonyms.mjs"
+      },
       "import": "./dist/synonyms.mjs",
       "types": "./dist/synonyms.d.ts"
     },

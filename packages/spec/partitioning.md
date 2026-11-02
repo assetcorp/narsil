@@ -80,6 +80,24 @@ In a cluster, a node can hold only some of an index's partitions, so the capacit
 - A replica must apply every replicated write without a capacity check, so that it never refuses a write that its primary acknowledged.
 - With `watermark` set, the primary must emit `partitionWatermark` when a partition that it leads reaches `watermark × maxDocsPerPartition` documents, with `documentCount` and `capacity` covering that partition and `partitionId` naming it.
 
+### Memory Write Block
+
+An engine that holds its indexes in one process must refuse an insert or an update before the write can take the process past its memory limit, because the operating system ends a process at that limit, and on a phone it ends the app without warning. The engine follows the rules of the cluster's [Memory Write Block](distribution/cluster.md#memory-write-block) with the changes below, and it refuses with `MEMORY_WRITE_BLOCKED` where a cluster node uses `CLUSTER_WRITE_BLOCKED`.
+
+- The engine judges only its own memory, so while it is full it refuses every insert and update to every index that it holds, and it accepts them again once both figures fall below the resume fraction.
+- The engine applies the bound on the memory that indexing can take, the rule for a batch that runs short of memory part of the way through, and the rule for a document that cannot fit even on an idle engine, as a cluster node does.
+- The engine leaves out the bound on the bytes of writes in progress, because the caller already holds those documents in the same process.
+- The engine must measure its memory before each group of a write whose latest measurement is more than one second old.
+- The engine must accept every remove, search, and document read, and every write that recovery replays, that a worker copy applies, or that a restore loads. A restore keeps its own check and refuses with `RESTORE_MEMORY_EXCEEDED`.
+- Where the runtime reports no process limit, the engine compares its heap alone, and where the runtime reports neither limit, the engine admits every write.
+- A cluster node applies the cluster's block alone, so a node refuses a write under one code.
+
+The process limit is the memory that the operating system lets the process hold before it ends the process. A container's memory limit sets it wherever a container sets one. On iOS, the limit is the app's memory footprint plus the bytes that `os_proc_available_memory()` reports, which the engine must read again at every measurement, because the system can change the limit while the app works. On Linux without a container limit, the limit is the process's resident memory plus the memory that the system reports as available, at most the device's total memory. On Android, the available memory is `availMem` less `threshold` from `ActivityManager.MemoryInfo`, because the system starts to end apps once the available memory falls to `threshold`.
+
+An implementation must let the caller set the block fraction and the resume fraction under the constraints that a cluster node applies, and it must document the heap fractions and the per-term heap figures that it uses on each runtime, measured on that runtime.
+
+The details of a `MEMORY_WRITE_BLOCKED` refusal must hold a `reason`, which is `memory_full` while the engine is full, `write_would_fill_memory` where the bound of a document would pass the block fraction, and `write_exceeds_memory` where a document cannot fit even on an idle engine.
+
 ### Choosing a Partition Count
 
 The caller picks the target count and passes it to the rebalance call. `ceiling(totalDocs / maxDocsPerPartition)` is the smallest count whose capacity holds the current documents, so a caller should add headroom above it.

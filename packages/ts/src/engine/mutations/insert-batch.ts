@@ -26,6 +26,8 @@ export async function insertDocumentBatch(
 ): Promise<BatchResult> {
   ctx.guardShutdown()
   const entry = ctx.requireIndex(indexName)
+  const memoryWriteBlock = ctx.memoryWriteBlock
+  memoryWriteBlock.refuseWhileFull(indexName)
 
   await ctx.orchestrator.scaleOutBeforeBatch(indexName, documents.length)
 
@@ -136,7 +138,16 @@ export async function insertDocumentBatch(
       }
     }
 
-    if (prepared.length > 0) await applyPrepared(prepared)
+    const refusal = await memoryWriteBlock.applyInGroups(indexName, {
+      items: prepared,
+      failed,
+      apply: applyPrepared,
+    })
+    if (refusal !== null) {
+      const laterDocIds = documents.slice(chunkEnd).map(document => providedDocId(document) ?? '')
+      memoryWriteBlock.refuseRemaining(indexName, laterDocIds, refusal, failed)
+      break
+    }
 
     if (chunkEnd < documents.length) {
       ctx.checkHeapPressure(indexName)

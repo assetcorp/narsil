@@ -1,9 +1,9 @@
+import { type ProjectedGroup, WRITE_WOULD_FILL_MEMORY_REASON } from '../../../engine/memory/write-projection'
 import { yieldToEventLoop } from '../../../engine/orchestration/turn'
 import { ErrorCodes, NarsilError } from '../../../errors'
 import type { BatchResult } from '../../../types/results'
 import type { AnyDocument } from '../../../types/schema'
 import { WRITE_APPLY_YIELD_INTERVAL_MS } from '../constants'
-import { type ProjectedGroup, WRITE_WOULD_FILL_MEMORY_REASON } from '../memory/write-projection'
 import type { WriteRoutingDeps } from './types'
 
 const UNPROJECTED: ProjectedGroup = { count: 1, release: () => {} }

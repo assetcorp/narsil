@@ -1,7 +1,7 @@
 import type { TemplatedApp, us_listen_socket, us_socket } from 'uWebSockets.js'
 import { randomUUID } from 'node:crypto'
 import { startIdleHeapCleanup } from '#platform/idle-heap-cleanup'
-import { readMemoryFigures } from '../distribution/cluster-node/memory/measure'
+import { readMemoryFigures } from '../engine/memory/measure'
 import { ErrorCodes, NarsilError } from '../errors'
 import type { Narsil } from '../narsil'
 import { engineCoreOf, rerankWindowCapOf } from '../narsil/internals'

@@ -1,4 +1,6 @@
+import { allocateFixedRegion } from '#platform/vector-memory-limits'
 import { ErrorCodes, NarsilError } from '../../errors'
+import { createRegionBuffer } from './region'
 
 /**
  * This buffer grows in place, so a typed array built over it without an
@@ -13,16 +15,20 @@ export function sharedMemoryAvailable(): boolean {
   return typeof SharedArrayBuffer === 'function'
 }
 
+const resizableBuffersAvailable = typeof (ArrayBuffer.prototype as { resize?: unknown }).resize === 'function'
+
 export function createGrowableBuffer(initialBytes: number, maxBytes: number): GrowableBuffer {
   const initial = Math.min(initialBytes, maxBytes)
   if (sharedMemoryAvailable()) {
     return new SharedArrayBuffer(initial, { maxByteLength: maxBytes })
   }
-  return new ArrayBuffer(initial, { maxByteLength: maxBytes })
+  const region = resizableBuffersAvailable ? null : createRegionBuffer(initial, maxBytes)
+  return region ?? new ArrayBuffer(initial, { maxByteLength: maxBytes })
 }
 
 export function createFixedBuffer(bytes: number): GrowableBuffer {
-  return sharedMemoryAvailable() ? new SharedArrayBuffer(bytes) : new ArrayBuffer(bytes)
+  if (sharedMemoryAvailable()) return new SharedArrayBuffer(bytes)
+  return allocateFixedRegion(bytes) ?? new ArrayBuffer(bytes)
 }
 
 export function nextGrowthTarget(have: number, needed: number, max: number): number {

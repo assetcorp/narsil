@@ -1,4 +1,3 @@
-import { resolveIndexAnalysis } from '../../analysis/registry'
 import { synonymModule } from '../../core/synonyms/registry'
 import {
   buildHeldAnalysisChange,
@@ -13,8 +12,9 @@ import { requireKnownConfig } from '../../engine/config-keys'
 import { createEngineCore, type EngineCore } from '../../engine/core'
 import { createEngineIndex } from '../../engine/index-lifecycle'
 import { startEngineCore } from '../../engine/lifecycle'
+import type { IndexWriteAnalysis } from '../../engine/memory/document-bound'
+import { vectorGrowthBytesOf, writeAnalysisOf } from '../../engine/memory/write-analysis'
 import { resolveRunnableConfig } from '../../engine/startup-checks'
-import { getLanguage } from '../../languages/registry'
 import type { Narsil } from '../../narsil'
 import { createNarsilFromCore } from '../../narsil'
 import {
@@ -48,7 +48,6 @@ import {
   applyLocalReplicationEntries,
   applyLocalReplicationEntry,
 } from './local-replication'
-import type { IndexWriteAnalysis } from './memory/document-bound'
 import { archiveReplicationPartition, type PartitionArchive, restoreReplicationPartition } from './partition-archive'
 import { type DocumentSnapshot, snapshotRankedDocuments } from './search-contexts/snapshots'
 import { createAdmittingRecorder, type WriteAdmission } from './write-admission'
@@ -278,27 +277,6 @@ export async function createClusterLocalEngine(
       }
     },
   })
-}
-
-function writeAnalysisOf(core: EngineCore, indexName: string): IndexWriteAnalysis | null {
-  const entry = core.indexRegistry.get(indexName)
-  if (entry === undefined) return null
-  const manager = core.executor.getManager(indexName)
-  const language = manager?.language ?? getLanguage(entry.config.language ?? 'english')
-  const customTokenizer = (manager?.analysis ?? resolveIndexAnalysis(entry.config)).customTokenizer
-  return {
-    schema: entry.config.schema,
-    language,
-    ...(customTokenizer === undefined ? {} : { customTokenizer }),
-  }
-}
-
-function vectorGrowthBytesOf(core: EngineCore, indexName: string, documents: number): number {
-  const manager = core.executor.getManager(indexName)
-  if (manager === undefined || manager === null) return 0
-  let bytes = 0
-  for (const vectorIndex of manager.getVectorIndexes().values()) bytes += vectorIndex.growthBytesFor(documents)
-  return bytes
 }
 
 function persistedPositionOf(core: EngineCore, indexName: string, partitionId: number): PartitionLogPosition {

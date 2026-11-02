@@ -113,6 +113,20 @@ narsil.on('heapPressure', payload => {
 })
 ```
 
+## The memory write block
+
+The engine refuses an insert or an update before the write can take the process past its memory limit, because the operating system ends a process at that limit, and Node ends one whose heap passes its own limit. Before a write, whenever its latest measurement is more than one second old, the engine measures the process's resident memory against the process limit and its heap against the heap limit. A container's memory limit sets the process limit wherever the container sets one. On Linux without a container limit, the process limit is the resident memory plus the memory that the system reports as available, at most the host's total memory, and on any other system it is the host's total memory.
+
+Once either figure passes `memory.blockWritesAbove` of its limit, which is 0.9 by default, the engine refuses every insert and update with `MEMORY_WRITE_BLOCKED` and the reason `memory_full`. It accepts them again once both figures fall below `memory.resumeWritesBelow`, which is 0.8 by default, so that an engine near the line does not switch writes on and off. A batch that arrives while the engine is full fails whole. Removes, searches, and reads go through the whole time, so remove documents to bring the engine back under the resume level. On Node.js, the engine compares its heap with at most 0.75 of the heap limit to block writes and 0.65 to resume them, whatever the settings say, because V8 ends a process after four full collections in a row that each leave the old generation holding at least 0.8 of its limit. The engine compares the resident memory with the settings as you give them.
+
+```ts
+const narsil = await createNarsil({ memory: { blockWritesAbove: 0.85, resumeWritesBelow: 0.75 } })
+```
+
+The engine also checks each document against the memory that indexing it can take, with the bound that [a cluster node uses](cluster.md#when-a-node-runs-short-of-memory). Where the bound of a document, added to the latest measurement and to the bounds of the writes in progress, would pass the block level, the engine refuses that document with the reason `write_would_fill_memory`. In a batch, the engine refuses that document and every later one, and it keeps every document that it has already indexed, so retry the refused documents once memory allows. Where a document's bound passes the block level of the heap on its own, the engine refuses it with the reason `write_exceeds_memory`, because that document cannot fit even in an idle engine, so split it into smaller documents.
+
+The engine admits every write that recovery replays at start-up and every write that a worker copy applies. A restore keeps its own check and refuses with `RESTORE_MEMORY_EXCEEDED`. Inside a cluster node, the node's own memory settings apply in place of these. A browser reports no memory limit, so the engine leaves every write in a browser unchecked.
+
 ## Reading the same figures over HTTP
 
 A server built with `createServer` answers the routes below without a body, so a monitor reads them with a plain `GET`. See [HTTP server](http-server.md) for the shape of each answer.

@@ -208,9 +208,9 @@ export function createDurableDirectory(root: string): DurableDirectory {
           if (stat.size === 0) {
             return new Uint8Array(0)
           }
-          const buffer = Buffer.alloc(stat.size)
-          await handle.read(buffer, 0, stat.size, 0)
-          return new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength)
+          const bytes = new Uint8Array(stat.size)
+          await handle.read(bytes, 0, stat.size, 0)
+          return bytes
         },
         async writeSlot(offset: number, slot: Uint8Array): Promise<void> {
           try {

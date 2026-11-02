@@ -1,8 +1,4 @@
-import {
-  type MemoryFigures,
-  readMemoryFigures,
-  readRecentMemoryFigures,
-} from '../distribution/cluster-node/memory/measure'
+import { type MemoryFigures, readMemoryFigures, readRecentMemoryFigures } from '../engine/memory/measure'
 import { HEAP_BLOCK_FRACTION_BELOW_V8_INEFFECTIVE_MARK_COMPACT_LINE } from '../runtime/constants'
 import {
   admitHeapBytes,
