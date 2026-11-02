@@ -7,12 +7,10 @@ export {
   prepareDiskAdoption,
   swapPreparedPartitions,
 } from './adopt'
-export { openColdVectorField } from './cold-field'
-export { loadFilesByParts, waitBeforeColdLoad } from './cold-load'
 export { mergePagedWindow } from './compact'
 export { pagedTombstonesFor } from './older-holders'
 export { createPagedFrozenSegment } from './open-segment'
-export { readOpeningSectionsAhead } from './read-ahead'
+export { startReadingOpeningSectionsAhead } from './read-ahead'
 export { openPagedSnapshot } from './resident'
 export { openRewriteSpill } from './rewrite-spill'
 export {

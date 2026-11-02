@@ -36,8 +36,9 @@ async function readRangesAhead(ranges: readonly FileRange[]): Promise<void> {
     return chunk
   }
 
+  const scratch = new Uint8Array(READ_AHEAD_CHUNK_BYTES)
+
   async function readChunks(): Promise<void> {
-    const scratch = new Uint8Array(READ_AHEAD_CHUNK_BYTES)
     for (let chunk = nextChunk(); chunk !== null; chunk = nextChunk()) {
       const target = scratch.subarray(0, chunk.length)
       if (!(await readFileRangeLater(chunk.path, chunk.offset, target))) return
@@ -53,14 +54,6 @@ async function headOf(path: string, ref: FileRef): Promise<Record<string, unknow
   const head = new Uint8Array(headLength)
   if (!(await readFileRangeLater(path, HEADER_SIZE + headOffset, head))) return null
   return decode(head) as Record<string, unknown>
-}
-
-async function magnitudesOfFile(directory: DurableDirectory, ref: FileRef): Promise<FileRange[]> {
-  const path = await directory.pathOf(ref.key)
-  const head = await headOf(path, ref)
-  if (head === null) return []
-  const sections = decodeSections(head.sections, ref.bytes - HEADER_SIZE, `head of "${ref.key}"`, FILE_PAGE_SIZES)
-  return sections.filter(section => section.name === 'magnitudes').map(section => rangeOf(path, section))
 }
 
 async function levelsOfPart(directory: DurableDirectory, ref: FileRef): Promise<FileRange[]> {
@@ -80,18 +73,18 @@ async function residentSectionsOfSegment(directory: DurableDirectory, ref: FileR
   return residentSectionsOf(listing).map(section => rangeOf(listing.path, section))
 }
 
-export async function readOpeningSectionsAhead(directory: DurableDirectory, manifest: SegmentManifest): Promise<void> {
+export async function startReadingOpeningSectionsAhead(
+  directory: DurableDirectory,
+  manifest: SegmentManifest,
+): Promise<void> {
   try {
     const groups = await Promise.all([
       ...manifest.partitions.flatMap(partition =>
         partition.segments.map(ref => residentSectionsOfSegment(directory, ref)),
       ),
-      ...manifest.vectors.flatMap(field => [
-        ...field.files.map(ref => magnitudesOfFile(directory, ref)),
-        ...field.graphParts.map(ref => levelsOfPart(directory, ref)),
-      ]),
+      ...manifest.vectors.flatMap(field => field.graphParts.map(ref => levelsOfPart(directory, ref))),
     ])
-    await readRangesAhead(groups.flat())
+    void readRangesAhead(groups.flat())
   } catch {
     return
   }

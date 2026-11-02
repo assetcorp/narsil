@@ -86,14 +86,20 @@ export async function makeEveryAppliedMutationDurable(
 }
 
 export async function openNewLogSegments(indexState: IndexState, failPartition: PartitionFailure): Promise<void> {
-  const rolls = [...indexState.partitions].map(([partitionId, partition]) => {
+  const rolls = [...indexState.partitions].map(async ([partitionId, partition]) => {
+    try {
+      if (partition.failed === null) await partition.walWriter.prepareCheckpointRoll()
+    } catch (error: unknown) {
+      failPartition(partitionId, partition, error)
+      return
+    }
     const rolled = partition.appendChain
       .then(() => (partition.failed === null ? partition.walWriter.rollForCheckpoint() : undefined))
       .catch((error: unknown) => {
         failPartition(partitionId, partition, error)
       })
     partition.appendChain = rolled
-    return rolled
+    await rolled
   })
   await Promise.all(rolls)
 }

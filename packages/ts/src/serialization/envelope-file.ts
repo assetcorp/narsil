@@ -46,9 +46,18 @@ export async function packChecksummedEnvelope(
   envelopeFormatVersion: number,
   what: string,
 ): Promise<PackedEnvelope> {
+  requireWithinFileLimit(HEADER_SIZE + payloadByteLength(payloadChunks), what)
+  return packEnvelopeWithChecksum(payloadChunks, envelopeFormatVersion, what, await checksumOfChunks(payloadChunks))
+}
+
+export function packEnvelopeWithChecksum(
+  payloadChunks: readonly Uint8Array[],
+  envelopeFormatVersion: number,
+  what: string,
+  checksum: number,
+): PackedEnvelope {
   const payloadLength = payloadByteLength(payloadChunks)
   requireWithinFileLimit(HEADER_SIZE + payloadLength, what)
-  const checksum = await checksumOfChunks(payloadChunks)
   const [major, minor, patch] = engineVersionParts()
   const header = writeHeader({
     magic: 'NRSL',

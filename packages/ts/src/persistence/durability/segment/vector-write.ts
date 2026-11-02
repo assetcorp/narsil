@@ -1,6 +1,8 @@
 import { encode } from '@msgpack/msgpack'
 import { ErrorCodes, NarsilError } from '../../../errors'
-import { packChecksummedEnvelope } from '../../../serialization/envelope-file'
+import { checksumOfChunks } from '../../../serialization/chunk-checksum'
+import { crc32Combine } from '../../../serialization/crc32-combine'
+import { packChecksummedEnvelope, packEnvelopeWithChecksum } from '../../../serialization/envelope-file'
 import type { VectorCheckpointPlan, WrittenVectorFile } from '../../../vector/vector-index'
 import { type PagedPartChunks, pagedGraphPartChunks, pagedVectorFileChunks } from '../../paged/vector-bytes'
 import { graphPartKey, vectorFileKey } from './layout'
@@ -102,16 +104,21 @@ async function writeField(
   const files: VectorFileRef[] = plan.kept.map(kept => keptFileRef(input, prior, kept))
   const written: WrittenVectorFile[] = []
   for (let index = 0; index < plan.newFiles; index++) {
-    const { payload, ordinals, dead } = plan.readNewFile(index)
+    const { payload, ordinals, dead, magnitudes } = plan.readNewFile(index)
     const id = nextFileId
     nextFileId += 1
     const key = vectorFileKey(input.indexName, fieldPath, id)
-    const paged = plan.storesHeads ? pagedVectorFileChunks(payload) : null
-    const packed = await packChecksummedEnvelope(
-      paged === null ? vectorPartChunks(payload) : paged.chunks,
-      VECTOR_FILE_ENVELOPE_VERSION,
-      `vector file "${key}"`,
-    )
+    const paged = plan.storesHeads && magnitudes !== null ? pagedVectorFileChunks(payload, magnitudes) : null
+    const what = `vector file "${key}"`
+    const packed =
+      paged === null
+        ? await packChecksummedEnvelope(vectorPartChunks(payload), VECTOR_FILE_ENVELOPE_VERSION, what)
+        : packEnvelopeWithChecksum(
+            paged.chunks,
+            VECTOR_FILE_ENVELOPE_VERSION,
+            what,
+            crc32Combine(await checksumOfChunks(paged.beforeVectors), paged.vectors.checksum, paged.vectors.byteLength),
+          )
     await input.store.write(key, packed.chunks)
     files.push({
       id,

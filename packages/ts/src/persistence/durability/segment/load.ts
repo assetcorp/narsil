@@ -65,8 +65,8 @@ export async function loadSegmentedCheckpoint(
       field.files.some(file => file.headOffset !== undefined),
   )
   if (!decodesEveryDocument && directory !== undefined && opensVectorsOnDemand) {
-    const { readOpeningSectionsAhead } = await import('../../paged/module')
-    await readOpeningSectionsAhead(directory, manifest)
+    const { startReadingOpeningSectionsAhead } = await import('../../paged/module')
+    await startReadingOpeningSectionsAhead(directory, manifest)
   }
 
   for (const partition of manifest.partitions) {

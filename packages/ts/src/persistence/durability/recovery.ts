@@ -8,7 +8,13 @@ import type { DurableDirectory } from './durable-filesystem'
 import { checkpointLastSeqNo, type PartitionCheckpoint } from './partition-checkpoint'
 import type { WriteRecordKeeper } from './types'
 import { SEGMENT_HEADER_SIZE } from './wal-framing'
-import { durableRecordMissing, readWalSegments, type SegmentRef, type WalReadResult } from './wal-segments'
+import {
+  durableRecordMissing,
+  nextSegmentKey,
+  readWalSegments,
+  type SegmentRef,
+  type WalReadResult,
+} from './wal-segments'
 
 export interface RecoveredIndex {
   metadata: IndexMetadata
@@ -58,6 +64,7 @@ export async function replayWal(
   fromSeqNoExclusive: number,
   deps: ReplayDeps,
 ): Promise<{ highestSeqNo: number; highestPrimaryTerm: number }> {
+  await directory.remove(nextSegmentKey(indexName, partitionId))
   const read = await readWalSegments(directory, indexName, partitionId)
   if (read === null) {
     return { highestSeqNo: fromSeqNoExclusive, highestPrimaryTerm: 0 }
@@ -117,6 +124,7 @@ export async function replaySyncedWal(
   fromSeqNoExclusive: number,
   deps: ReplayDeps,
 ): Promise<{ highestSeqNo: number; highestPrimaryTerm: number }> {
+  await directory.remove(nextSegmentKey(indexName, partitionId))
   const read = await readWalSegments(directory, indexName, partitionId)
   if (read === null) {
     return { highestSeqNo: fromSeqNoExclusive, highestPrimaryTerm: 0 }

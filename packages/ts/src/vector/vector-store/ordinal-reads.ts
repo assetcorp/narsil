@@ -33,6 +33,12 @@ export function createOrdinalReads(openStore: () => OpenStore | null, readable: 
       return open.view.distanceFromArena(prepared, ordinal, metric)
     },
 
+    distanceFromQuery(query: Float32Array, queryMagnitude: number, ordinal: number, metric: VectorMetric): number {
+      const open = openStore()
+      if (open === null || !readable(ordinal)) return Number.POSITIVE_INFINITY
+      return open.view.distanceFromQuery(query, queryMagnitude, ordinal, metric)
+    },
+
     queryDistance(prepared: ArenaQueryVector, metric: VectorMetric): (ordinal: number) => number {
       const open = openStore()
       if (open === null) return () => Number.POSITIVE_INFINITY

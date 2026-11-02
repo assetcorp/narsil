@@ -2,7 +2,6 @@ import { decode } from '@msgpack/msgpack'
 import { ErrorCodes, NarsilError } from '../../../errors'
 import { openChecksummedEnvelope } from '../../../serialization/envelope-file'
 import { HEADER_SIZE } from '../../../serialization/header'
-import { osqBitsOf } from '../../../vector/osq'
 import type { VectorIndex } from '../../../vector/vector-index'
 import {
   assembleGraphParts,
@@ -96,7 +95,9 @@ async function loadFieldOnDemand(
 ): Promise<boolean> {
   const { pathOf } = store
   if (pathOf === undefined || vectorIndex.storage !== 'disk' || !holdsEveryHead(ref)) return false
-  const { loadFilesByParts, openColdVectorField, waitBeforeColdLoad } = await import('../../paged/module')
+  const { loadFilesByParts, openColdVectorField, osqBitsOf, waitBeforeColdLoad } = await import(
+    '../../paged/cold-module'
+  )
   await Promise.all([
     ...ref.files.map(file => requireListedSize(store, file.key, { bytes: file.bytes, what: 'vector file' })),
     ...ref.graphParts.map(part => requireListedSize(store, part.key, { bytes: part.bytes, what: 'graph part' })),
@@ -117,8 +118,8 @@ async function loadFieldOnDemand(
     resolvePartition,
   })
   if (field === null) return false
-  vectorIndex.openColdField(field, async (beginRestore, stillWanted) => {
-    await waitBeforeColdLoad()
+  vectorIndex.openColdField(field, async (beginRestore, stillWanted, firstSearchAnswered) => {
+    await waitBeforeColdLoad(firstSearchAnswered)
     if (!stillWanted()) return
     const graph = await readGraphParts(store, ref)
     if (!stillWanted()) return

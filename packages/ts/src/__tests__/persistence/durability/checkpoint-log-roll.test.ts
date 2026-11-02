@@ -18,6 +18,8 @@ const SEGMENT_NAME = /^\d{16}$/
 const SEGMENT_HEADER_BYTES = 8
 const LOCK_FILE = '.narsil.lock'
 const BASE_DOCUMENTS = 300
+const PREPARED_SEGMENT = 'next'
+const BEYOND_EVERY_RECORD = 1_000_000
 
 type TextStorage = NonNullable<IndexConfig['textStorage']>
 
@@ -141,6 +143,48 @@ describe.each<TextStorage>(['memory', 'disk'])('the log roll at a checkpoint of 
     await expectEngineMatchesOracle(recovered, INDEX, oracle)
     await recovered.shutdown()
     await expectTheCheckpointAloneHoldsTheOracle(beforeCheckpoint, scratch, oracle)
+  }, 60_000)
+
+  it('recovers every acknowledged write after a crash that left a damaged next segment file', async () => {
+    const engine = await loadedEngine()
+    await insertInto(engine, oracle, random, 'late', 40)
+    const crashed = join(scratch, 'crashed')
+    await copyAsACrash(root, crashed)
+    await engine.shutdown()
+    await writeFile(join(logDirectory(crashed), PREPARED_SEGMENT), Buffer.from('torn bytes of a prepared segment'))
+
+    const recovered = await openEngine(crashed)
+    await expectEngineMatchesOracle(recovered, INDEX, oracle)
+    expect(await readdir(logDirectory(crashed))).not.toContain(PREPARED_SEGMENT)
+    await insertInto(recovered, oracle, random, 'after', 10)
+    await recovered.checkpoint(INDEX)
+    await insertInto(recovered, oracle, random, 'final', 10)
+    await recovered.shutdown()
+
+    const reopened = await openEngine(crashed)
+    await expectEngineMatchesOracle(reopened, INDEX, oracle)
+    await reopened.shutdown()
+  }, 60_000)
+
+  it('discards a later segment that a crash left before the marker named it', async () => {
+    const engine = await loadedEngine()
+    await insertInto(engine, oracle, random, 'late', 40)
+    const crashed = join(scratch, 'crashed')
+    await copyAsACrash(root, crashed)
+    await engine.shutdown()
+    const orphan = String(BEYOND_EVERY_RECORD).padStart(16, '0')
+    await writeFile(join(logDirectory(crashed), orphan), Buffer.from('NRSW\u0001\0\0\0unacknowledged', 'latin1'))
+
+    const recovered = await openEngine(crashed)
+    await expectEngineMatchesOracle(recovered, INDEX, oracle)
+    expect(await logSegments(crashed)).not.toContain(orphan)
+    await insertInto(recovered, oracle, random, 'after', 10)
+    await recovered.checkpoint(INDEX)
+    await recovered.shutdown()
+
+    const reopened = await openEngine(crashed)
+    await expectEngineMatchesOracle(reopened, INDEX, oracle)
+    await reopened.shutdown()
   }, 60_000)
 
   it('applies no record twice after a crash between the manifest commit and truncation', async () => {

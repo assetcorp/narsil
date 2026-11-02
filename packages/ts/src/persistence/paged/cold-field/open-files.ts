@@ -17,6 +17,7 @@ import {
   type SectionReader,
 } from '../section-file'
 
+const FLOAT64_BYTES = 8
 const CODES_KEY_AND_MAP_HEADER_BYTES = 7
 const BIN8_MAX_BYTES = 0xff
 const BIN16_MAX_BYTES = 0xffff
@@ -54,7 +55,6 @@ export interface ColdFile {
   readonly idOrder: SectionReader
   readonly records: SectionReader | null
   readonly vectors: SectionReader
-  readonly magnitudes: Float64Array
 }
 
 export interface ColdGraphPart {
@@ -123,13 +123,6 @@ function uint32ValuesOf(bytes: Uint8Array): Uint32Array {
   return values
 }
 
-function float64ValuesOf(bytes: Uint8Array): Float64Array {
-  const values = new Float64Array(bytes.byteLength / 8)
-  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
-  for (let at = 0; at < values.length; at++) values[at] = view.getFloat64(at * 8, true)
-  return values
-}
-
 export function codesOfFile(path: string, sections: Map<string, FileSection>, key: string): ColdCodes | null {
   const records = sections.get('records')
   const docIds = sections.get('docIds')
@@ -189,10 +182,8 @@ function openOneFile(
     if (codes !== null && !sameCodes(codes, fileCodes)) return false
   }
   const records = sections.get('records')
-  const magnitudes = float64ValuesOf(
-    readWholeSectionChecked(path, requiredSection(sections, 'magnitudes', ref.key), false),
-  )
-  if (magnitudes.length !== ref.count) loadFailed(`The file "${ref.key}" holds ${magnitudes.length} magnitudes`)
+  const magnitudeCount = requiredSection(sections, 'magnitudes', ref.key).length / FLOAT64_BYTES
+  if (magnitudeCount !== ref.count) loadFailed(`The file "${ref.key}" holds ${magnitudeCount} magnitudes`)
   const ids = requiredSection(sections, 'docIds', ref.key)
   const idOffsets = requiredSection(sections, 'idOffsets', ref.key)
   const idOrder = requiredSection(sections, 'idOrder', ref.key)
@@ -208,7 +199,6 @@ function openOneFile(
     idOrder: createSectionReader(file, idOrder),
     records: records === undefined ? null : createSectionReader(file, records),
     vectors: createSectionReader(file, vectors),
-    magnitudes,
   })
   return input.codeBits === null ? null : fileCodes
 }

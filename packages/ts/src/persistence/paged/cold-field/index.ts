@@ -31,6 +31,9 @@ export type {
 export { codesOfFile } from './open-files'
 
 export const COLD_GRAPH_PART_VECTORS = 16_384
+const FIXSTR = 0xa0
+const FIXSTR_MAX_BYTES = 31
+const ASCII_MAX = 0x7f
 
 export interface ColdFieldData {
   readonly dimension: number
@@ -44,13 +47,25 @@ export interface ColdFieldData {
   topLayerOf(number: number): number
   idAt(number: number): string
   vectorAt(number: number): Float32Array
-  magnitudeAt(number: number): number
+  reusedVectorAt(number: number): Float32Array
   isDeadNumber(number: number): boolean
   fetchRows(
     numbers: readonly number[],
     sectionOf: (file: ColdFile) => SectionReader | null,
     rowBytes: number,
   ): Promise<unknown> | null
+}
+
+function shortAsciiIdOf(encoded: Uint8Array): string | null {
+  const length = encoded[0] - FIXSTR
+  if (length < 0 || length > FIXSTR_MAX_BYTES || encoded.length !== length + 1) return null
+  let id = ''
+  for (let at = 1; at <= length; at++) {
+    const code = encoded[at]
+    if (code > ASCII_MAX) return null
+    id += String.fromCharCode(code)
+  }
+  return id
 }
 
 function everyLiveVectorHoldsANode(files: readonly ColdFile[], parts: readonly ColdGraphPart[]): boolean {
@@ -75,6 +90,11 @@ function createFieldData(
   const { files, codes } = opened
   const lastFile = files[files.length - 1]
   const total = lastFile === undefined ? 0 : lastFile.firstNumber + lastFile.count
+  const stride = input.dimension * 4
+  const reusedBytes = new Uint8Array(stride)
+  const reusedVector = bytesToVectors(reusedBytes)
+  const idOffsetBytes = new Uint8Array(8)
+  const idOffsetView = new DataView(idOffsetBytes.buffer)
 
   function fileOfNumber(number: number): ColdFile {
     let low = 0
@@ -88,13 +108,12 @@ function createFieldData(
   }
 
   function idInFile(file: ColdFile, position: number): string {
-    const offsets = new Uint8Array(8)
-    file.idOffsets.read(position * 4, offsets)
-    const view = new DataView(offsets.buffer)
-    const start = view.getUint32(0, true)
-    const end = view.getUint32(4, true)
+    file.idOffsets.read(position * 4, idOffsetBytes)
+    const start = idOffsetView.getUint32(0, true)
+    const end = idOffsetView.getUint32(4, true)
     if (end < start) loadFailed(`The ID offsets of "${file.file.path}" descend at position ${position}`)
-    const id = decode(file.ids.bytesAt(start, end - start))
+    const encoded = file.ids.bytesAt(start, end - start)
+    const id = shortAsciiIdOf(encoded) ?? decode(encoded)
     if (typeof id !== 'string') loadFailed(`Position ${position} of "${file.file.path}" holds no ID`)
     return id
   }
@@ -120,14 +139,14 @@ function createFieldData(
     },
     vectorAt(number) {
       const file = fileOfNumber(number)
-      const stride = input.dimension * 4
       const bytes = new Uint8Array(stride)
       file.vectors.read((number - file.firstNumber) * stride, bytes)
       return bytesToVectors(bytes)
     },
-    magnitudeAt(number) {
+    reusedVectorAt(number) {
       const file = fileOfNumber(number)
-      return file.magnitudes[number - file.firstNumber]
+      file.vectors.read((number - file.firstNumber) * stride, reusedBytes)
+      return reusedVector.buffer === reusedBytes.buffer ? reusedVector : bytesToVectors(reusedBytes)
     },
     isDeadNumber(number) {
       const file = fileOfNumber(number)
@@ -152,11 +171,15 @@ function createFieldData(
   }
 }
 
-function positionOfId(file: ColdFile, docId: string, idAt: (number: number) => string): number | undefined {
+function positionOfId(
+  file: ColdFile,
+  docId: string,
+  idAt: (number: number) => string,
+  slot: Uint8Array,
+  view: DataView,
+): number | undefined {
   let low = 0
   let high = file.count - 1
-  const slot = new Uint8Array(4)
-  const view = new DataView(slot.buffer)
   while (low <= high) {
     const middle = (low + high) >> 1
     file.idOrder.read(middle * 4, slot)
@@ -199,13 +222,15 @@ export function openColdVectorField(input: ColdVectorFieldInput): ColdVectorFiel
     for (let at = 0; at < file.count; at++) if (!isDead(file.dead, at)) live += 1
   }
   let residentBytes = 0
-  for (const file of opened.files) residentBytes += file.magnitudes.byteLength
   for (const part of parts) residentBytes += part.levels.byteLength + part.nodeOffsets.byteLength
+
+  const orderSlot = new Uint8Array(4)
+  const orderView = new DataView(orderSlot.buffer)
 
   function liveNumberOf(docId: string): number | undefined {
     for (let at = data.files.length; at > 0; at--) {
       const file = data.files[at - 1]
-      const position = positionOfId(file, docId, data.idAt)
+      const position = positionOfId(file, docId, data.idAt, orderSlot, orderView)
       if (position !== undefined && !isDead(file.dead, position)) return file.firstNumber + position
     }
     return undefined
@@ -216,7 +241,7 @@ export function openColdVectorField(input: ColdVectorFieldInput): ColdVectorFiel
     residentBytes,
     numberOf: liveNumberOf,
     vectorOfNumber: number => data.vectorAt(number),
-    magnitudeOfNumber: number => data.magnitudeAt(number),
+    reusedVectorOfNumber: number => data.reusedVectorAt(number),
     partitionOf: docId => input.resolvePartition(docId),
     filePaths: () => [...input.files, ...input.graphParts].map(file => file.path),
     search: (query, k, options, accepts, excluded) => searchColdGraph(data, query, k, options, accepts, excluded),

@@ -20,18 +20,26 @@ export interface ColdVectorHold {
   readonly removedNumbers: Set<number>
   readonly removedIds: Set<string>
   readonly writes: Array<() => void>
+  readonly searchAnswered: () => void
   live: number
 }
 
 export type ColdFieldLoad = (
   beginRestore: (shape: CheckpointRestoreShape) => VectorCheckpointRestore,
   stillWanted: () => boolean,
+  firstSearchAnswered: Promise<void>,
 ) => Promise<void>
 
-export function beginColdHold(state: VectorIndexState, field: ColdVectorField, loaded: Promise<void>): ColdVectorHold {
+export function beginColdHold(
+  state: VectorIndexState,
+  field: ColdVectorField,
+  loaded: Promise<void>,
+  searchAnswered: () => void,
+): ColdVectorHold {
   const hold: ColdVectorHold = {
     field,
     loaded,
+    searchAnswered,
     written: new Map(),
     removedNumbers: new Set(),
     removedIds: new Set(),
@@ -65,10 +73,15 @@ export function openColdField(state: VectorIndexState, field: ColdVectorField, l
     finished = resolve
     failed = reject
   })
-  const hold = beginColdHold(state, field, loaded)
+  let searchAnswered: () => void = () => undefined
+  const firstSearchAnswered = new Promise<void>(resolve => {
+    searchAnswered = resolve
+  })
+  const hold = beginColdHold(state, field, loaded, searchAnswered)
   void load(
     shape => beginCheckpointRestore(state, shape),
     () => state.cold === hold,
+    firstSearchAnswered,
   ).then(
     () => {
       if (state.cold === hold) endColdHold(state)
@@ -179,13 +192,8 @@ function* idsOfSubsets(subsets: readonly FilterSubset[]): Iterable<string> {
   }
 }
 
-function scoreOf(
-  query: Float32Array,
-  qMag: number,
-  vector: Float32Array,
-  vectorMagnitude: number,
-  metric: VectorMetric,
-): number {
+function scoreOf(query: Float32Array, qMag: number, vector: Float32Array, metric: VectorMetric): number {
+  const vectorMagnitude = metric === 'cosine' ? magnitude(vector) : 0
   return toScore(toDistance(query, vector, qMag, vectorMagnitude, metric), metric)
 }
 
@@ -201,7 +209,7 @@ function scanWritten(
   const heap = createBoundedMaxHeap<VectorScoredResult>(highScoreFirst, Math.max(k, 1))
   for (const [docId, { vector }] of hold.written) {
     if (admits !== null && !admits(docId)) continue
-    const score = scoreOf(query, qMag, vector, magnitude(vector), options.metric)
+    const score = scoreOf(query, qMag, vector, options.metric)
     if (score >= options.minSimilarity) heap.push({ docId, score })
   }
   return heap.toSortedArray().reverse()
@@ -221,13 +229,12 @@ function scanSubsets(
     const written = hold.written.get(docId)
     let score: number
     if (written !== undefined) {
-      score = scoreOf(query, qMag, written.vector, magnitude(written.vector), options.metric)
+      score = scoreOf(query, qMag, written.vector, options.metric)
     } else {
       if (hold.removedIds.has(docId)) continue
       const number = hold.field.numberOf(docId)
       if (number === undefined) continue
-      const vector = hold.field.vectorOfNumber(number)
-      score = scoreOf(query, qMag, vector, hold.field.magnitudeOfNumber(number), options.metric)
+      score = scoreOf(query, qMag, hold.field.reusedVectorOfNumber(number), options.metric)
     }
     if (score < options.minSimilarity) continue
     matched += 1
@@ -289,8 +296,12 @@ export function coldSearch(
   options: VectorSearchOptions,
 ): VectorSearchOutcome {
   const walk = outcomeWithoutGraphWalk(state, hold, query, k, options)
-  if ('results' in walk) return walk
+  if ('results' in walk) {
+    hold.searchAnswered()
+    return walk
+  }
   const fromGraph = hold.field.search(query, k, options, walk.admits, hold.removedNumbers)
+  hold.searchAnswered()
   return outcomeOfGraphWalk(hold, walk, fromGraph, query, k, options)
 }
 
@@ -302,7 +313,11 @@ export async function coldSearchConcurrently(
   options: VectorSearchOptions,
 ): Promise<VectorSearchOutcome> {
   const walk = outcomeWithoutGraphWalk(state, hold, query, k, options)
-  if ('results' in walk) return walk
+  if ('results' in walk) {
+    hold.searchAnswered()
+    return walk
+  }
   const fromGraph = await hold.field.searchConcurrently(query, k, options, walk.admits, hold.removedNumbers)
+  hold.searchAnswered()
   return outcomeOfGraphWalk(hold, walk, fromGraph, query, k, options)
 }

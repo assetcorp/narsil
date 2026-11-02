@@ -49,6 +49,7 @@ export interface NewVectorFile {
   payload: VectorFilePayload
   ordinals: Int32Array
   dead: Uint8Array | null
+  magnitudes: Float64Array | null
 }
 
 export interface VectorCheckpointPlan {
@@ -256,6 +257,7 @@ function readFile(
 ): NewVectorFile {
   const dimension = state.dimension
   const vectors = new Float32Array(planned.length * dimension)
+  const magnitudes = new Float64Array(planned.length)
   const ordinals = new Int32Array(planned.length).fill(NO_LIVE_VECTOR_AT_POSITION)
   const tombstonedAt = new Map<number, number>()
   const docIds = planned.map(vector => vector.docId)
@@ -265,6 +267,7 @@ function readFile(
     const entry = held === undefined ? undefined : state.store.entryForOrdinal(held)
     if (held === undefined || entry === undefined) continue
     vectors.set(entry.vector, i * dimension)
+    magnitudes[i] = entry.magnitude
     ordinals[i] = held
     if (tombstoned) tombstonedAt.set(i, held)
   }
@@ -279,6 +282,7 @@ function readFile(
     },
     ordinals,
     dead: deadBitsWhere(planned.length, i => planned[i].tombstoned || ordinals[i] === NO_LIVE_VECTOR_AT_POSITION),
+    magnitudes,
   }
 }
 

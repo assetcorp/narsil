@@ -1,10 +1,9 @@
 import { encode } from '@msgpack/msgpack'
 import { compareCodePoints } from '../../core/ordering'
 import { crc32 } from '../../serialization/crc32'
+import { crc32Combine } from '../../serialization/crc32-combine'
 import type { NumberedHnswGraph } from '../../vector/hnsw'
-import { magnitude } from '../../vector/similarity'
 import type { VectorFilePayload, VectorGraphPartPayload } from '../../vector/vector-index/checkpoint-payload'
-import { bytesToVectors } from '../../vector/vector-index/payload'
 import { STABLE_HEAD_ATTEMPTS } from './constants'
 import { type FileSection, RECORD_PAGE_BYTES, SEGMENT_PAGE_BYTES } from './format'
 
@@ -29,6 +28,11 @@ export interface PagedPartChunks {
   headOffset: number
   headLength: number
   headChecksum: number
+}
+
+export interface PagedVectorFileChunks extends PagedPartChunks {
+  beforeVectors: Uint8Array[]
+  vectors: { byteLength: number; checksum: number }
 }
 
 function binHeader(byteLength: number): Uint8Array {
@@ -143,24 +147,30 @@ function positionsInIdOrder(docIds: readonly string[]): Uint32Array {
   return Uint32Array.from(positions)
 }
 
-function magnitudesOf(payload: VectorFilePayload): Uint8Array {
-  const vectors = bytesToVectors(payload.vectors)
-  const count = payload.docIds.length
-  const bytes = new Uint8Array(count * 8)
+function magnitudeBytes(magnitudes: Float64Array): Uint8Array {
+  const bytes = new Uint8Array(magnitudes.length * 8)
   const view = new DataView(bytes.buffer)
-  for (let i = 0; i < count; i++) {
-    view.setFloat64(i * 8, magnitude(vectors.subarray(i * payload.dimension, (i + 1) * payload.dimension)), true)
-  }
+  for (let i = 0; i < magnitudes.length; i++) view.setFloat64(i * 8, magnitudes[i], true)
   return bytes
+}
+
+function checksumAcrossPages(checksums: Uint8Array, byteLength: number, pageBytes: number): number {
+  const view = new DataView(checksums.buffer, checksums.byteOffset, checksums.byteLength)
+  let whole = 0
+  for (let page = 0; page * 4 < checksums.byteLength; page++) {
+    const pageLength = Math.min(pageBytes, byteLength - page * pageBytes)
+    whole = crc32Combine(whole, view.getUint32(page * 4, true), pageLength)
+  }
+  return whole
 }
 
 function encodedHeadAndVectorsPlace(
   sections: readonly FileSection[],
   headOffsetAfterHeader: (headLength: number) => number,
   vectors: Uint8Array,
+  checksums: Uint8Array,
   vectorsKeyAndHeaderBytes: number,
 ): { head: Uint8Array; vectorsSection: FileSection } {
-  const checksums = pageChecksums(vectors, SEGMENT_PAGE_BYTES)
   let headLength = 0
   let head: Uint8Array = new Uint8Array(0)
   let vectorsSection: FileSection = {
@@ -182,7 +192,7 @@ function encodedHeadAndVectorsPlace(
   return { head, vectorsSection }
 }
 
-export function pagedVectorFileChunks(payload: VectorFilePayload): PagedPartChunks {
+export function pagedVectorFileChunks(payload: VectorFilePayload, heldMagnitudes: Float64Array): PagedVectorFileChunks {
   const builder = createPayloadBuilder()
   const { codes } = payload
   builder.push(Uint8Array.of(FIXMAP | 10))
@@ -202,7 +212,7 @@ export function pagedVectorFileChunks(payload: VectorFilePayload): PagedPartChun
     const recordsAt = builder.bytesEntry('records', codes.records)
     sections.push(sectionOf('records', recordsAt, codes.records, RECORD_PAGE_BYTES))
   }
-  const magnitudes = magnitudesOf(payload)
+  const magnitudes = magnitudeBytes(heldMagnitudes)
   sections.push(sectionOf('magnitudes', builder.bytesEntry('magnitudes', magnitudes), magnitudes, SEGMENT_PAGE_BYTES))
   const idOffsets = uint32Bytes(offsets)
   sections.push(sectionOf('idOffsets', builder.bytesEntry('idOffsets', idOffsets), idOffsets, SEGMENT_PAGE_BYTES))
@@ -213,17 +223,30 @@ export function pagedVectorFileChunks(payload: VectorFilePayload): PagedPartChun
   const vectorsKey = encode('vectors')
   const vectorsHeader = binHeader(payload.vectors.byteLength)
   const beforeHead = builder.offset + headKey.byteLength
+  const vectorChecksums = pageChecksums(payload.vectors, SEGMENT_PAGE_BYTES)
   const { head } = encodedHeadAndVectorsPlace(
     sections,
     headLength => beforeHead + binHeader(headLength).byteLength,
     payload.vectors,
+    vectorChecksums,
     vectorsKey.byteLength + vectorsHeader.byteLength,
   )
   const headOffset = builder.bytesEntry('head', head)
   builder.push(vectorsKey)
   builder.push(vectorsHeader)
+  const beforeVectors = [...builder.chunks]
   builder.push(payload.vectors)
-  return { chunks: builder.chunks, headOffset, headLength: head.byteLength, headChecksum: crc32(head) }
+  return {
+    chunks: builder.chunks,
+    headOffset,
+    headLength: head.byteLength,
+    headChecksum: crc32(head),
+    beforeVectors,
+    vectors: {
+      byteLength: payload.vectors.byteLength,
+      checksum: checksumAcrossPages(vectorChecksums, payload.vectors.byteLength, SEGMENT_PAGE_BYTES),
+    },
+  }
 }
 
 function nodeOffsetsOf(graph: NumberedHnswGraph): Uint8Array {

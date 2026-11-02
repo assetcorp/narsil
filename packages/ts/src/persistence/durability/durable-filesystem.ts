@@ -2,6 +2,7 @@ import { type FsModule, getFs, getPath, type PathModule } from '#platform/durabl
 import { compareCodePoints } from '../../core/ordering'
 import { ErrorCodes, NarsilError } from '../../errors'
 import { type DirectoryLock, lockDirectory } from './directory-lock'
+import { listRecursive } from './list-recursive'
 
 type FileHandle = import('node:fs/promises').FileHandle
 
@@ -355,8 +356,8 @@ export function createDurableDirectory(root: string): DurableDirectory {
       const fs = await getFs()
       await ensureDir(target.path, target.pathMod, fs)
       await fs.rename(source.path, target.path)
-      await fsyncDirectory(target.pathMod.dirname(target.path), fs)
-      await fsyncDirectory(source.pathMod.dirname(source.path), fs)
+      const directories = new Set([target.path, source.path].map(path => target.pathMod.dirname(path)))
+      for (const movedIn of directories) await fsyncDirectory(movedIn, fs)
     },
 
     async list(prefix: string): Promise<string[]> {
@@ -372,30 +373,4 @@ export function createDurableDirectory(root: string): DurableDirectory {
       return filePath
     },
   }
-}
-
-async function listRecursive(dir: string, base: string, pathMod: PathModule, fs: FsModule): Promise<string[]> {
-  const results: string[] = []
-  let entries: Array<{ name: string; isDirectory(): boolean }>
-  try {
-    entries = (await fs.readdir(dir, { withFileTypes: true })) as unknown as Array<{
-      name: string
-      isDirectory(): boolean
-    }>
-  } catch (err: unknown) {
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-      return results
-    }
-    throw err
-  }
-
-  for (const entry of entries) {
-    const full = pathMod.join(dir, entry.name)
-    if (entry.isDirectory()) {
-      results.push(...(await listRecursive(full, base, pathMod, fs)))
-    } else {
-      results.push(pathMod.relative(base, full).split(pathMod.sep).join('/'))
-    }
-  }
-  return results
 }
