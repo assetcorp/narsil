@@ -51,6 +51,11 @@
       "browser": "./src/runtime/idle-heap-cleanup.browser.ts",
       "default": "./src/runtime/idle-heap-cleanup.ts"
     },
+    "#platform/turn-budget": {
+      "react-native": "./src/runtime/turn-budget.react-native.ts",
+      "browser": "./src/runtime/turn-budget.browser.ts",
+      "default": "./src/runtime/turn-budget.ts"
+    },
     "#platform/vector-file": {
       "react-native": "./src/vector/vector-store/vector-file.react-native.ts",
       "browser": "./src/vector/vector-store/vector-file.browser.ts",
@@ -96,7 +101,7 @@
       "default": "./src/core/synonyms/platform.ts"
     },
     "#platform/memory-write-block": {
-      "react-native": "./src/engine/memory/write-block.ts",
+      "react-native": "./src/engine/memory/write-block.react-native.ts",
       "browser": "./src/engine/memory/write-block.browser.ts",
       "default": "./src/engine/memory/write-block.ts"
     }

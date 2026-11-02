@@ -9,6 +9,7 @@
 #include <string>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <vector>
 
 namespace margelo::nitro::narsil {
 
@@ -118,6 +119,53 @@ double HybridNarsilFilesImpl::write(double descriptor, const std::shared_ptr<Arr
 }
 
 void HybridNarsilFilesImpl::sync(double descriptor) { syncDescriptor(descriptorOf(descriptor)); }
+
+std::shared_ptr<Promise<std::shared_ptr<ArrayBuffer>>>
+HybridNarsilFilesImpl::readAsync(double descriptor, double byteLength, double position) {
+  int file = descriptorOf(descriptor);
+  size_t length = requireByteCount(byteLength, "A read length");
+  bool atCurrentPosition = position == CURRENT_POSITION;
+  off_t offset = atCurrentPosition ? 0 : static_cast<off_t>(requireByteCount(position, "A read position"));
+  return Promise<std::shared_ptr<ArrayBuffer>>::async([file, length, atCurrentPosition, offset]() {
+    std::vector<uint8_t> bytes(length);
+    ssize_t count = 0;
+    if (length > 0) {
+      do {
+        count = atCurrentPosition ? ::read(file, bytes.data(), length) : pread(file, bytes.data(), length, offset);
+      } while (count < 0 && errno == EINTR);
+      if (count < 0) throwSystemError(errno, "read the file", "");
+    }
+    bytes.resize(static_cast<size_t>(count));
+    return ArrayBuffer::move(std::move(bytes));
+  });
+}
+
+std::shared_ptr<Promise<double>> HybridNarsilFilesImpl::writeAsync(double descriptor,
+                                                                   const std::shared_ptr<ArrayBuffer>& source,
+                                                                   double byteOffset, double byteLength,
+                                                                   double position) {
+  int file = descriptorOf(descriptor);
+  uint8_t* start = bytesWithin(source, byteOffset, byteLength, "The write source");
+  size_t length = static_cast<size_t>(byteLength);
+  bool atCurrentPosition = position == CURRENT_POSITION;
+  off_t offset = atCurrentPosition ? 0 : static_cast<off_t>(requireByteCount(position, "A write position"));
+  auto bytes = std::make_shared<std::vector<uint8_t>>(start, start + length);
+  return Promise<double>::async([file, bytes, atCurrentPosition, offset]() {
+    if (bytes->empty()) return 0.0;
+    ssize_t count = -1;
+    do {
+      count = atCurrentPosition ? ::write(file, bytes->data(), bytes->size())
+                                : pwrite(file, bytes->data(), bytes->size(), offset);
+    } while (count < 0 && errno == EINTR);
+    if (count < 0) throwSystemError(errno, "write the file", "");
+    return static_cast<double>(count);
+  });
+}
+
+std::shared_ptr<Promise<void>> HybridNarsilFilesImpl::syncAsync(double descriptor) {
+  int file = descriptorOf(descriptor);
+  return Promise<void>::async([file]() { syncDescriptor(file); });
+}
 
 void HybridNarsilFilesImpl::truncate(double descriptor, double byteLength) {
   off_t length = static_cast<off_t>(requireByteCount(byteLength, "A file length"));

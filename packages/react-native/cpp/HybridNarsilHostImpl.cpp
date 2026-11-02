@@ -1,6 +1,7 @@
 #include "HybridNarsilHostImpl.hpp"
 #include "Compression.hpp"
 #include "HostMemory.hpp"
+#include "NativeAtomics.hpp"
 #include "ProcessInfo.hpp"
 
 #include <cerrno>
@@ -9,6 +10,7 @@
 #include <csignal>
 #include <cstdint>
 #include <cstdlib>
+#include <jsi/instrumentation.h>
 #include <unistd.h>
 
 namespace margelo::nitro::narsil {
@@ -44,6 +46,11 @@ std::shared_ptr<ArrayBuffer> HybridNarsilHostImpl::reserveMemory(double bytes) {
 std::shared_ptr<ArrayBuffer> HybridNarsilHostImpl::allocateMemory(double bytes) { return allocateZeroed(bytes); }
 
 bool HybridNarsilHostImpl::ownsMemory(const std::shared_ptr<ArrayBuffer>& buffer) { return isHostOwned(buffer); }
+
+double HybridNarsilHostImpl::atomic(double operation, double elementKind, const std::shared_ptr<ArrayBuffer>& buffer,
+                                    double byteIndex, double value, double replacement) {
+  return atomicOnHostMemory(operation, elementKind, buffer, byteIndex, value, replacement);
+}
 
 void HybridNarsilHostImpl::fillRandom(const std::shared_ptr<ArrayBuffer>& target, double byteOffset,
                                       double byteLength) {

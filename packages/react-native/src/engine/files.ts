@@ -2,7 +2,13 @@ import type { ReactNativeDirectoryEntry, ReactNativeFileStatus, ReactNativeFiles
 import type { NarsilFiles } from '../specs/files.nitro'
 import { withNativeCode } from './native-error'
 
-export function adaptFiles(files: NarsilFiles): ReactNativeFiles {
+type BlockingFiles = Omit<ReactNativeFiles, 'readAsync' | 'writeAsync' | 'syncAsync'>
+
+function rejectedWithNativeCode(error: unknown): Promise<never> {
+  return Promise.reject(withNativeCode(error))
+}
+
+function blockingFiles(files: NarsilFiles): BlockingFiles {
   return {
     open(path: string, flags: string): number {
       try {
@@ -103,4 +109,78 @@ export function adaptFiles(files: NarsilFiles): ReactNativeFiles {
       }
     },
   }
+}
+
+function onTheCallingThread(blocking: BlockingFiles): ReactNativeFiles {
+  return {
+    ...blocking,
+    readAsync: async (descriptor, target, position) => blocking.read(descriptor, target, position),
+    writeAsync: async (descriptor, source, position) => blocking.write(descriptor, source, position),
+    syncAsync: async descriptor => blocking.sync(descriptor),
+  }
+}
+
+function onNativeThreads(files: NarsilFiles, blocking: BlockingFiles): ReactNativeFiles {
+  const pendingByDescriptor = new Map<number, Promise<unknown>>()
+
+  function inOrder<T>(descriptor: number, run: () => Promise<T>): Promise<T> {
+    const previous = pendingByDescriptor.get(descriptor)
+    let started: Promise<T>
+    if (previous !== undefined) {
+      started = previous.then(run, run)
+    } else {
+      try {
+        started = run()
+      } catch (error) {
+        started = Promise.reject(error)
+      }
+    }
+    const settled = started.then(
+      () => {},
+      () => {},
+    )
+    pendingByDescriptor.set(descriptor, settled)
+    settled.then(() => {
+      if (pendingByDescriptor.get(descriptor) === settled) pendingByDescriptor.delete(descriptor)
+    })
+    return started.catch(rejectedWithNativeCode)
+  }
+
+  return {
+    ...blocking,
+    close(descriptor: number): void {
+      const pending = pendingByDescriptor.get(descriptor)
+      if (pending === undefined) {
+        blocking.close(descriptor)
+        return
+      }
+      pendingByDescriptor.delete(descriptor)
+      pending.then(() => {
+        try {
+          files.close(descriptor)
+        } catch {}
+      })
+    },
+    readAsync(descriptor: number, target: Uint8Array, position: number): Promise<number> {
+      return inOrder(descriptor, async () => {
+        const bytes = await files.readAsync(descriptor, target.byteLength, position)
+        target.set(new Uint8Array(bytes))
+        return bytes.byteLength
+      })
+    },
+    writeAsync(descriptor: number, source: Uint8Array, position: number): Promise<number> {
+      const bytes = pendingByDescriptor.has(descriptor) ? source.slice() : source
+      return inOrder(descriptor, () =>
+        files.writeAsync(descriptor, bytes.buffer as ArrayBuffer, bytes.byteOffset, bytes.byteLength, position),
+      )
+    },
+    syncAsync(descriptor: number): Promise<void> {
+      return inOrder(descriptor, () => files.syncAsync(descriptor))
+    },
+  }
+}
+
+export function adaptFiles(files: NarsilFiles, nativeThreads: boolean): ReactNativeFiles {
+  const blocking = blockingFiles(files)
+  return nativeThreads ? onNativeThreads(files, blocking) : onTheCallingThread(blocking)
 }

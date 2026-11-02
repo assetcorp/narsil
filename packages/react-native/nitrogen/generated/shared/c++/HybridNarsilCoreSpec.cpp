@@ -19,6 +19,8 @@ namespace margelo::nitro::narsil {
       prototype.registerHybridMethod("attachGraph", &HybridNarsilCoreSpec::attachGraph);
       prototype.registerHybridMethod("attachStore", &HybridNarsilCoreSpec::attachStore);
       prototype.registerHybridMethod("search", &HybridNarsilCoreSpec::search);
+      prototype.registerHybridMethod("searchAsync", &HybridNarsilCoreSpec::searchAsync);
+      prototype.registerHybridMethod("scoreAsync", &HybridNarsilCoreSpec::scoreAsync);
       prototype.registerHybridMethod("score", &HybridNarsilCoreSpec::score);
       prototype.registerHybridMethod("place", &HybridNarsilCoreSpec::place);
       prototype.registerHybridMethod("remove", &HybridNarsilCoreSpec::remove);

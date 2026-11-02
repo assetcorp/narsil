@@ -1,3 +1,4 @@
+import { turnIsSpent, yieldTurn } from '#platform/turn-budget'
 import type { ReplicationLogEntry } from '../../distribution/replication/types'
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { IndexState, PartitionState } from './manager-state'
@@ -129,6 +130,7 @@ export async function recordPartitionBatch(
     }
     const applied: number[] = []
     for (let i = 0; i < records.length; i++) {
+      if (turnIsSpent()) await yieldTurn()
       try {
         await records[i].apply()
         applied.push(i)

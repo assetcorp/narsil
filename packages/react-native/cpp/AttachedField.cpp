@@ -175,9 +175,30 @@ void HybridNarsilAttachedStoreImpl::unmapFiles() {
 }
 
 double HybridNarsilAttachedStoreImpl::detach() {
+  std::lock_guard<std::mutex> guard(_useLock);
   _detached = true;
+  if (_backgroundUses > 0) {
+    _unmapAfterUse = true;
+    return 0;
+  }
   unmapFiles();
   return 0;
+}
+
+bool HybridNarsilAttachedStoreImpl::beginBackgroundUse() {
+  std::lock_guard<std::mutex> guard(_useLock);
+  if (_detached) return false;
+  _backgroundUses += 1;
+  return true;
+}
+
+void HybridNarsilAttachedStoreImpl::endBackgroundUse() {
+  std::lock_guard<std::mutex> guard(_useLock);
+  _backgroundUses -= 1;
+  if (_backgroundUses == 0 && _unmapAfterUse) {
+    _unmapAfterUse = false;
+    unmapFiles();
+  }
 }
 
 std::shared_ptr<HybridNarsilAttachedGraphImpl> attachedGraphOf(

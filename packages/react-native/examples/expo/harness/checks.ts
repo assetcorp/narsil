@@ -10,7 +10,17 @@ import {
 } from './oracle.ts'
 
 const KEYWORD_LIMIT = 10_000
-const LONGEST_ACCEPTED_TIMER_GAP_MS = 100
+const LONGEST_ACCEPTED_TASK_MS = 50
+const TIMED_WRITE_BATCH = 2_000
+const TIMED_PATHS = [
+  'inserting',
+  'insertingInMemory',
+  'search',
+  'vectorSearch',
+  'updating',
+  'importing',
+  'removing',
+] as const
 const MEMORY_WRITE_BLOCKED = 'MEMORY_WRITE_BLOCKED'
 
 export interface Checked {
@@ -146,10 +156,15 @@ export function checkErrors(result: Record<string, unknown>): Checked {
 
 export function checkTimer(result: Record<string, unknown>): Checked {
   const findings: Finding[] = []
-  for (const label of ['search', 'importing'] as const) {
+  const intervalMs = result.intervalMs as number
+  for (const label of TIMED_PATHS) {
     const work = result[label] as { workMs: number; ticks: number; longestGapMs: number }
-    if (work.longestGapMs > LONGEST_ACCEPTED_TIMER_GAP_MS) {
-      findings.push({ check: `timer during ${label}`, detail: `the timer paused for ${work.longestGapMs} ms` })
+    const longestTaskMs = work.longestGapMs - intervalMs
+    if (longestTaskMs > LONGEST_ACCEPTED_TASK_MS) {
+      findings.push({
+        check: `timer during ${label}`,
+        detail: `the JS thread ran one task for up to ${longestTaskMs.toFixed(1)} ms`,
+      })
     }
     if (work.ticks === 0) findings.push({ check: `timer during ${label}`, detail: 'the timer never fired' })
   }
@@ -157,5 +172,14 @@ export function checkTimer(result: Record<string, unknown>): Checked {
   if (importing.imported !== result.documents || importing.refusedCount !== 0) {
     findings.push({ check: 'import', detail: `imported ${importing.imported}, refused ${importing.refusedCount}` })
   }
-  return { passed: findings.length === 0, findings, measured: { search: result.search, importing: result.importing } }
+  const updated = (result.updating as { updated: number }).updated
+  const removed = (result.removing as { removed: number }).removed
+  if (updated !== TIMED_WRITE_BATCH || removed !== TIMED_WRITE_BATCH) {
+    findings.push({ check: 'timed writes', detail: `updated ${updated}, removed ${removed}` })
+  }
+  return {
+    passed: findings.length === 0,
+    findings,
+    measured: Object.fromEntries(TIMED_PATHS.map(label => [label, result[label]])),
+  }
 }

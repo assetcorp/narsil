@@ -1,3 +1,4 @@
+import { turnIsSpent, yieldTurn } from '#platform/turn-budget'
 import type { BatchResult } from '../../types/results'
 import type { AnyDocument, InsertOptions } from '../../types/schema'
 import { BATCH_CHUNK_SIZE, MIN_DOCUMENTS_FOR_SEGMENTS } from '../constants'
@@ -105,6 +106,7 @@ export async function insertDocumentBatch(
 
     const prepared: AdmittedInsert[] = []
     for (let i = chunkStart; i < chunkEnd; i++) {
+      if (turnIsSpent()) await yieldTurn()
       if (ctx.abortController.signal.aborted) break
       if (chunkFailedIndexes.has(i)) continue
 

@@ -64,7 +64,41 @@ function storeOf(handle: NativeStoreHandle): NarsilAttachedStore {
   return handle as NarsilAttachedStore
 }
 
-export function adaptCore(core: NarsilCore): NativeCore {
+function backgroundCalls(core: NarsilCore): Pick<NativeCore, 'searchAsync' | 'scoreAsync'> {
+  return {
+    async searchAsync(graph, store, query, metric, candidateCount, threadSlot, accepted) {
+      try {
+        const hits = await core.searchAsync(
+          graphOf(graph),
+          storeOf(store),
+          viewOf(query),
+          metric,
+          candidateCount,
+          threadSlot,
+          accepted === null ? ABSENT_REGION : viewOf(accepted),
+          accepted !== null,
+        )
+        return {
+          count: hits.count,
+          ordinals: new Int32Array(hits.ordinals),
+          distances: new Float64Array(hits.distances),
+        }
+      } catch (error) {
+        throw withNativeCode(error)
+      }
+    },
+    async scoreAsync(store, query, metric, ordinals, count, threadSlot) {
+      try {
+        const scores = await core.scoreAsync(storeOf(store), viewOf(query), metric, viewOf(ordinals), count, threadSlot)
+        return { status: scores.status, distances: new Float64Array(scores.distances) }
+      } catch (error) {
+        throw withNativeCode(error)
+      }
+    },
+  }
+}
+
+export function adaptCore(core: NarsilCore, nativeThreads: boolean): NativeCore {
   return {
     abiVersion: () => core.abiVersion(),
     workspaceBytes: () => core.workspaceBytes(),
@@ -99,6 +133,7 @@ export function adaptCore(core: NarsilCore): NativeCore {
     },
     score: (store, query, metric, ordinals, count, distances) =>
       core.score(storeOf(store), viewOf(query), metric, viewOf(ordinals), count, viewOf(distances)),
+    ...(nativeThreads ? backgroundCalls(core) : {}),
     place: (graph, store, metric, ordinal, topLayer, graphHeldAlone, threadSlot, wakes) =>
       core.place(graphOf(graph), storeOf(store), metric, ordinal, topLayer, graphHeldAlone, threadSlot, viewOf(wakes)),
     remove: (graph, ordinal, threadSlot, wakes) => core.remove(graphOf(graph), ordinal, threadSlot, viewOf(wakes)),

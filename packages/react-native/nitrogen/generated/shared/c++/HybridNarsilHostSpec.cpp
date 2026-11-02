@@ -17,6 +17,7 @@ namespace margelo::nitro::narsil {
       prototype.registerHybridMethod("reserveMemory", &HybridNarsilHostSpec::reserveMemory);
       prototype.registerHybridMethod("allocateMemory", &HybridNarsilHostSpec::allocateMemory);
       prototype.registerHybridMethod("ownsMemory", &HybridNarsilHostSpec::ownsMemory);
+      prototype.registerHybridMethod("atomic", &HybridNarsilHostSpec::atomic);
       prototype.registerHybridMethod("fillRandom", &HybridNarsilHostSpec::fillRandom);
       prototype.registerHybridMethod("processId", &HybridNarsilHostSpec::processId);
       prototype.registerHybridMethod("processStartedAtMs", &HybridNarsilHostSpec::processStartedAtMs);

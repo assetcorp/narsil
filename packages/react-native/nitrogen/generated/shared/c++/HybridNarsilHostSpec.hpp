@@ -54,6 +54,7 @@ namespace margelo::nitro::narsil {
       virtual std::shared_ptr<ArrayBuffer> reserveMemory(double bytes) = 0;
       virtual std::shared_ptr<ArrayBuffer> allocateMemory(double bytes) = 0;
       virtual bool ownsMemory(const std::shared_ptr<ArrayBuffer>& buffer) = 0;
+      virtual double atomic(double operation, double elementKind, const std::shared_ptr<ArrayBuffer>& buffer, double byteIndex, double value, double replacement) = 0;
       virtual void fillRandom(const std::shared_ptr<ArrayBuffer>& target, double byteOffset, double byteLength) = 0;
       virtual double processId() = 0;
       virtual double processStartedAtMs() = 0;

@@ -1,33 +1,27 @@
-import type { BoxedHybridObject } from 'react-native-nitro-modules'
+import type { NativeObjects } from './engine/host'
 import { nativeDependencyMissing } from './errors'
 import type { NarsilCore } from './specs/core.nitro'
 import type { NarsilFiles } from './specs/files.nitro'
 import type { NarsilHost } from './specs/host.nitro'
 
-export interface BoxedNativeObjects {
-  host: BoxedHybridObject<NarsilHost>
-  files: BoxedHybridObject<NarsilFiles>
-  core: BoxedHybridObject<NarsilCore>
-}
+let loading: Promise<NativeObjects> | null = null
 
-let loading: Promise<BoxedNativeObjects> | null = null
-
-async function boxNativeObjects(): Promise<BoxedNativeObjects> {
+async function createNativeObjects(): Promise<NativeObjects> {
   try {
     const { NitroModules } = await import('react-native-nitro-modules')
     return {
-      host: NitroModules.box(NitroModules.createHybridObject<NarsilHost>('NarsilHost')),
-      files: NitroModules.box(NitroModules.createHybridObject<NarsilFiles>('NarsilFiles')),
-      core: NitroModules.box(NitroModules.createHybridObject<NarsilCore>('NarsilCore')),
+      host: NitroModules.createHybridObject<NarsilHost>('NarsilHost'),
+      files: NitroModules.createHybridObject<NarsilFiles>('NarsilFiles'),
+      core: NitroModules.createHybridObject<NarsilCore>('NarsilCore'),
     }
   } catch (error) {
     throw nativeDependencyMissing(error)
   }
 }
 
-export function loadNativeObjects(): Promise<BoxedNativeObjects> {
+export function loadNativeObjects(): Promise<NativeObjects> {
   if (loading === null) {
-    loading = boxNativeObjects()
+    loading = createNativeObjects()
     loading.catch(() => {
       loading = null
     })

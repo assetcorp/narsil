@@ -34,7 +34,10 @@ const hitIds = async (engine, term) => {
   return page.hits.map(hit => hit.id).sort()
 }
 
-const engine = await createNarsil({ workers: { enabled: false } })
+const engine = await createNarsil({
+  workers: { enabled: false },
+  memory: { blockWritesAbove: 1, resumeWritesBelow: 0.99 },
+})
 await engine.createIndex(INDEX, { schema: { title: 'string' }, language: 'english' })
 
 let documents = 0

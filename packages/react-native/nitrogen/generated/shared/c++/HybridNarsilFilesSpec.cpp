@@ -19,6 +19,9 @@ namespace margelo::nitro::narsil {
       prototype.registerHybridMethod("read", &HybridNarsilFilesSpec::read);
       prototype.registerHybridMethod("write", &HybridNarsilFilesSpec::write);
       prototype.registerHybridMethod("sync", &HybridNarsilFilesSpec::sync);
+      prototype.registerHybridMethod("readAsync", &HybridNarsilFilesSpec::readAsync);
+      prototype.registerHybridMethod("writeAsync", &HybridNarsilFilesSpec::writeAsync);
+      prototype.registerHybridMethod("syncAsync", &HybridNarsilFilesSpec::syncAsync);
       prototype.registerHybridMethod("truncate", &HybridNarsilFilesSpec::truncate);
       prototype.registerHybridMethod("descriptorStatus", &HybridNarsilFilesSpec::descriptorStatus);
       prototype.registerHybridMethod("pathStatus", &HybridNarsilFilesSpec::pathStatus);

@@ -31,6 +31,66 @@ const WAITABLE_ARRAY_TYPES: ReadonlyArray<abstract new (...args: never[]) => Int
 
 const waitersByBuffer = new WeakMap<ArrayBufferLike, Map<number, Waiter[]>>()
 
+export interface NativeAtomics {
+  ownsMemory(buffer: ArrayBuffer): boolean
+  atomic(
+    operation: number,
+    elementKind: number,
+    buffer: ArrayBuffer,
+    byteIndex: number,
+    value: number,
+    replacement: number,
+  ): number
+}
+
+const NATIVE_LOAD = 0
+const NATIVE_STORE = 1
+const NATIVE_ADD = 2
+const NATIVE_SUB = 3
+const NATIVE_AND = 4
+const NATIVE_OR = 5
+const NATIVE_XOR = 6
+const NATIVE_EXCHANGE = 7
+const NATIVE_COMPARE_EXCHANGE = 8
+
+let nativeAtomics: NativeAtomics | null = null
+const nativeOwnership = new WeakMap<ArrayBufferLike, boolean>()
+
+function nativeElementKind(array: IntegerArray): number {
+  if (array instanceof Int8Array) return 0
+  if (array instanceof Uint8Array) return 1
+  if (array instanceof Int16Array) return 2
+  if (array instanceof Uint16Array) return 3
+  if (array instanceof Int32Array) return 4
+  if (array instanceof Uint32Array) return 5
+  return -1
+}
+
+function onNativeMemory(array: IntegerArray): number {
+  if (nativeAtomics === null) return -1
+  const kind = nativeElementKind(array)
+  if (kind < 0) return -1
+  let owned = nativeOwnership.get(array.buffer)
+  if (owned === undefined) {
+    owned = nativeAtomics.ownsMemory(array.buffer as ArrayBuffer)
+    nativeOwnership.set(array.buffer, owned)
+  }
+  return owned ? kind : -1
+}
+
+function nativeAtomic(
+  atomics: NativeAtomics,
+  operation: number,
+  kind: number,
+  array: IntegerArray,
+  position: number,
+  value: unknown,
+  replacement: unknown,
+): number {
+  const byteIndex = array.byteOffset + position * array.BYTES_PER_ELEMENT
+  return atomics.atomic(operation, kind, array.buffer as ArrayBuffer, byteIndex, Number(value), Number(replacement))
+}
+
 function isOneOf(array: unknown, types: ReadonlyArray<abstract new (...args: never[]) => IntegerArray>): boolean {
   for (const type of types) {
     if (array instanceof type) return true
@@ -60,10 +120,15 @@ function readModifyWrite(
   array: unknown,
   index: unknown,
   value: unknown,
+  operation: number,
   combine: (previous: Element, operand: Element) => Element,
 ): Element {
   const target = requireIntegerArray(array)
   const position = requireIndex(target, index)
+  const kind = onNativeMemory(target)
+  if (kind >= 0 && nativeAtomics !== null) {
+    return nativeAtomic(nativeAtomics, operation, kind, target, position, value, 0)
+  }
   const previous = target[position] as Element
   ;(target as unknown as Element[])[position] = combine(previous, asElement(target, value))
   return previous
@@ -157,21 +222,26 @@ function wait(array: unknown, index: unknown, value: unknown): WaitResult {
   throw new TypeError('Atomics.wait would block the only thread of this runtime, so it cannot wait here')
 }
 
-const singleThreadAtomics = {
+const standInAtomics = {
   add: (array: unknown, index: unknown, value: unknown) =>
-    readModifyWrite(array, index, value, (a, b) => (a as number) + (b as number)),
+    readModifyWrite(array, index, value, NATIVE_ADD, (a, b) => (a as number) + (b as number)),
   sub: (array: unknown, index: unknown, value: unknown) =>
-    readModifyWrite(array, index, value, (a, b) => (a as number) - (b as number)),
+    readModifyWrite(array, index, value, NATIVE_SUB, (a, b) => (a as number) - (b as number)),
   and: (array: unknown, index: unknown, value: unknown) =>
-    readModifyWrite(array, index, value, (a, b) => (a as number) & (b as number)),
+    readModifyWrite(array, index, value, NATIVE_AND, (a, b) => (a as number) & (b as number)),
   or: (array: unknown, index: unknown, value: unknown) =>
-    readModifyWrite(array, index, value, (a, b) => (a as number) | (b as number)),
+    readModifyWrite(array, index, value, NATIVE_OR, (a, b) => (a as number) | (b as number)),
   xor: (array: unknown, index: unknown, value: unknown) =>
-    readModifyWrite(array, index, value, (a, b) => (a as number) ^ (b as number)),
-  exchange: (array: unknown, index: unknown, value: unknown) => readModifyWrite(array, index, value, (_a, b) => b),
+    readModifyWrite(array, index, value, NATIVE_XOR, (a, b) => (a as number) ^ (b as number)),
+  exchange: (array: unknown, index: unknown, value: unknown) =>
+    readModifyWrite(array, index, value, NATIVE_EXCHANGE, (_a, b) => b),
   compareExchange(array: unknown, index: unknown, expected: unknown, replacement: unknown): Element {
     const target = requireIntegerArray(array)
     const position = requireIndex(target, index)
+    const kind = onNativeMemory(target)
+    if (kind >= 0 && nativeAtomics !== null) {
+      return nativeAtomic(nativeAtomics, NATIVE_COMPARE_EXCHANGE, kind, target, position, expected, replacement)
+    }
     const previous = target[position] as Element
     if (sameAsStored(target, previous, expected)) {
       ;(target as unknown as Element[])[position] = asElement(target, replacement)
@@ -180,11 +250,21 @@ const singleThreadAtomics = {
   },
   load(array: unknown, index: unknown): Element {
     const target = requireIntegerArray(array)
-    return target[requireIndex(target, index)] as Element
+    const position = requireIndex(target, index)
+    const kind = onNativeMemory(target)
+    if (kind >= 0 && nativeAtomics !== null) {
+      return nativeAtomic(nativeAtomics, NATIVE_LOAD, kind, target, position, 0, 0)
+    }
+    return target[position] as Element
   },
   store(array: unknown, index: unknown, value: unknown): Element {
     const target = requireIntegerArray(array)
     const position = requireIndex(target, index)
+    const kind = onNativeMemory(target)
+    if (kind >= 0 && nativeAtomics !== null) {
+      nativeAtomic(nativeAtomics, NATIVE_STORE, kind, target, position, value, 0)
+      return Math.trunc(Number(value))
+    }
     const element = asElement(target, value)
     ;(target as unknown as Element[])[position] = element
     return typeof element === 'bigint' ? element : Math.trunc(element)
@@ -196,10 +276,11 @@ const singleThreadAtomics = {
   pause: () => {},
 }
 
-export function installSingleThreadAtomics(): void {
+export function installAtomics(native: NativeAtomics): void {
   if (typeof (globalThis as { Atomics?: unknown }).Atomics === 'object') return
+  nativeAtomics = native
   Object.defineProperty(globalThis, 'Atomics', {
-    value: singleThreadAtomics,
+    value: standInAtomics,
     writable: true,
     configurable: true,
     enumerable: false,

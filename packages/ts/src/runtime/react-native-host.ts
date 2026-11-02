@@ -51,7 +51,7 @@ export interface ReactNativeFiles {
    */
   open(path: string, flags: string): number
   /**
-   * Closes a file descriptor.
+   * Closes a file descriptor once every call in progress on it has finished.
    *
    * @param descriptor - The descriptor to close.
    */
@@ -80,6 +80,34 @@ export interface ReactNativeFiles {
    * @param descriptor - The file to flush.
    */
   sync(descriptor: number): void
+  /**
+   * Reads bytes from a file into a buffer on a native thread. Calls on one
+   * descriptor finish in the order that the engine makes them.
+   *
+   * @param descriptor - The file to read.
+   * @param target - Receives the bytes.
+   * @param position - The offset in the file to read from, or -1 for the current offset.
+   * @returns The number of bytes read.
+   */
+  readAsync(descriptor: number, target: Uint8Array, position: number): Promise<number>
+  /**
+   * Writes bytes from a buffer to a file on a native thread. The call copies
+   * the bytes before it returns, so the caller can reuse the buffer at once.
+   * Calls on one descriptor finish in the order that the engine makes them.
+   *
+   * @param descriptor - The file to write.
+   * @param source - The bytes to write.
+   * @param position - The offset in the file to write at, or -1 for the current offset.
+   * @returns The number of bytes written.
+   */
+  writeAsync(descriptor: number, source: Uint8Array, position: number): Promise<number>
+  /**
+   * Flushes a file to storage on a native thread, with `F_FULLFSYNC` on iOS,
+   * once every earlier call on the descriptor has finished.
+   *
+   * @param descriptor - The file to flush.
+   */
+  syncAsync(descriptor: number): Promise<void>
   /**
    * Sets the length of a file.
    *

@@ -1,9 +1,14 @@
+import { createNarsil, type PhoneNarsil } from '@delali/narsil-react-native/worklets'
 import { useEffect, useState } from 'react'
 import { SafeAreaView, StyleSheet, Text } from 'react-native'
 import { nextTask, report } from '../../expo/src/harness'
 import { runSearchTask } from '../../expo/src/tasks/search'
 
 const IDLE_POLL_MS = 1_000
+
+function openOnEngineRuntime(directory: string): Promise<PhoneNarsil> {
+  return createNarsil({ durability: { directory } })
+}
 
 function pause(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms))
@@ -24,7 +29,7 @@ async function followHarness(isStopped: () => boolean, show: (status: string) =>
       }
       show('Running the keyword, vector, and hybrid searches')
       try {
-        await report('search', { passed: true, result: await runSearchTask() })
+        await report('search', { passed: true, result: await runSearchTask(openOnEngineRuntime) })
         show('Finished the searches')
       } catch (error) {
         await report('search', { passed: false, error: { message: messageOf(error) } }).catch(() => undefined)

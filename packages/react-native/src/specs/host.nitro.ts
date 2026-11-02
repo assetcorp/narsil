@@ -9,6 +9,14 @@ export interface NarsilHost extends HybridObject<{ ios: 'c++'; android: 'c++' }>
   reserveMemory(bytes: number): ArrayBuffer
   allocateMemory(bytes: number): ArrayBuffer
   ownsMemory(buffer: ArrayBuffer): boolean
+  atomic(
+    operation: number,
+    elementKind: number,
+    buffer: ArrayBuffer,
+    byteIndex: number,
+    value: number,
+    replacement: number,
+  ): number
   fillRandom(target: ArrayBuffer, byteOffset: number, byteLength: number): void
   processId(): number
   processStartedAtMs(): number

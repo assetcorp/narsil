@@ -1,6 +1,6 @@
 # React Native
 
-`@delali/narsil-react-native` runs a Narsil engine inside an iOS or Android app, so the app can search its own documents by keyword, by vector, or by both while the phone is offline. The engine works on a separate Hermes runtime, which means a long search or a large import leaves the app's JS thread free to draw the screen, and the engine keeps each index in files in the app's private storage, so the index survives a restart.
+`@delali/narsil-react-native` runs a Narsil engine inside an iOS or Android app, so the app can search its own documents by keyword, by vector, or by both while the phone is offline. The engine keeps each index in files in the app's private storage, so the index survives a restart.
 
 ```ts
 import { createNarsil } from '@delali/narsil-react-native'
@@ -14,33 +14,63 @@ await narsil.insert('notes', { title: 'Pack the tent poles', embedding: tentVect
 const { hits } = await narsil.query('notes', { term: 'tent', limit: 10 })
 ```
 
-Every method of the client resolves through a promise, including the ones that answer at once on the `Narsil` interface of `@delali/narsil`, such as `listIndexes`, because each call crosses to the engine's runtime and back. Otherwise each method takes the same arguments and returns the same answer as the method of the same name in [Indexes and documents](indexes-and-documents.md).
+The engine works on the app's own JS runtime and takes the same settings as on Node.js, so you can pass an embedding adapter, a plugin, a tokenizer, or an id generator to `createNarsil` directly. Every method of the client resolves through a promise, including the ones that answer at once on the `Narsil` interface of `@delali/narsil`, such as `listIndexes`. Otherwise each method takes the same arguments and returns the same answer as the method of the same name in [Indexes and documents](indexes-and-documents.md).
+
+The engine keeps its slow work off the JS thread so that the app can keep drawing the screen. Each file read, file write, and file sync runs on a native thread, and so does each vector search and each scan of many vectors through the C search core. During a large import or a search, the engine hands the JS thread back to the app every 20 milliseconds of its own work, so a touch or a frame waits for one step of an import, never for the whole import.
 
 ## What the app needs
 
-The package carries native code, which compiles the C search core for iOS and for 64-bit Android, so it works only in an app build that includes that code. Expo Go has no such build, and neither does a 32-bit Android phone, so in both cases `createNarsil` rejects with `NATIVE_DEPENDENCY_MISSING`. The app needs React Native's New Architecture, `react-native-nitro-modules` to reach the native code, and `react-native-worklets` to start the engine's runtime.
-
-Install the four packages in the app:
-
-```bash
-npm install @delali/narsil @delali/narsil-react-native react-native-nitro-modules react-native-worklets
-```
-
-The engine's runtime loads the package's code through Worklets Bundle Mode, so the app's Babel and Metro settings have to turn Bundle Mode on and forward the package's imports to that runtime. The two sections below give those settings for an app with Expo and for an app without it.
+The package carries native code, which compiles the C search core for iOS and for 64-bit Android, so it works only in an app build that includes that code. Expo Go has no such build, and neither does a 32-bit Android phone, so in both cases `createNarsil` rejects with `NATIVE_DEPENDENCY_MISSING`. The app needs React Native's New Architecture and `react-native-nitro-modules`, which lets JavaScript call the native code.
 
 ## Set up an Expo app
 
-Add the config plugin to `app.json`, which limits the Android build to 64-bit architectures, because the native module ships no 32-bit library:
+1. Install the packages:
 
-```json
-{
-  "expo": {
-    "plugins": ["@delali/narsil-react-native"]
-  }
-}
+   ```bash
+   npx expo install @delali/narsil @delali/narsil-react-native react-native-nitro-modules
+   ```
+
+2. Add the config plugin to `app.json`, which limits the Android build to 64-bit architectures, because the native module ships no 32-bit library:
+
+   ```json
+   {
+     "expo": {
+       "plugins": ["@delali/narsil-react-native"]
+     }
+   }
+   ```
+
+3. Make a development build with `npx expo run:ios` or `npx expo run:android`.
+
+The app keeps its Babel and Metro settings as they are. The app in [`packages/react-native/examples/expo`](../packages/react-native/examples/expo) follows these three steps.
+
+## Set up an app without Expo
+
+Install the packages:
+
+```bash
+npm install @delali/narsil @delali/narsil-react-native react-native-nitro-modules
 ```
 
-Turn on Bundle Mode in `babel.config.js`, and forward the package's source to the engine's runtime:
+Set the Android architectures in `android/gradle.properties`, which the Expo plugin would otherwise set for you:
+
+```properties
+reactNativeArchitectures=arm64-v8a,x86_64
+```
+
+Run `pod install` in the `ios` folder, then rebuild the app for each platform. The app keeps its Babel and Metro settings as they are.
+
+## Run the engine on its own runtime
+
+An app whose own JavaScript keeps the JS thread busy can move the engine's JavaScript to a separate Hermes runtime as well. `createNarsil` from `@delali/narsil-react-native/worklets` starts the engine on a [Worklets](https://docs.swmansion.com/react-native-worklets/) runtime and returns the same client. An app that never imports that entry point bundles none of its code and needs no Worklets install.
+
+That runtime loads the package's code through Worklets Bundle Mode, so the app has to install `react-native-worklets`, turn Bundle Mode on in its Babel settings, and wrap its Metro config:
+
+```bash
+npm install react-native-worklets
+```
+
+In an Expo app, `babel.config.js` turns Bundle Mode on and forwards the package's source to the engine's runtime:
 
 ```js
 module.exports = api => {
@@ -61,7 +91,7 @@ module.exports = api => {
 }
 ```
 
-Wrap the Metro config in `metro.config.js`:
+and `metro.config.js` wraps the Metro config:
 
 ```js
 const { getDefaultConfig } = require('expo/metro-config')
@@ -70,11 +100,7 @@ const { getBundleModeMetroConfig } = require('react-native-worklets/bundleMode')
 module.exports = getBundleModeMetroConfig(getDefaultConfig(__dirname))
 ```
 
-Then make a development build with `npx expo run:ios` or `npx expo run:android`. The app in [`packages/react-native/examples/expo`](../packages/react-native/examples/expo) uses these settings.
-
-## Set up an app without Expo
-
-Use the Babel preset that the React Native template already carries, and add the same Worklets plugin to `babel.config.js`:
+In an app without Expo, `babel.config.js` adds the same plugin to the React Native preset:
 
 ```js
 module.exports = {
@@ -92,7 +118,7 @@ module.exports = {
 }
 ```
 
-Wrap the Metro config in `metro.config.js`:
+and `metro.config.js` wraps the React Native Metro config:
 
 ```js
 const { getDefaultConfig } = require('@react-native/metro-config')
@@ -101,13 +127,9 @@ const { getBundleModeMetroConfig } = require('react-native-worklets/bundleMode')
 module.exports = getBundleModeMetroConfig(getDefaultConfig(__dirname))
 ```
 
-Set the Android architectures in `android/gradle.properties`, which the Expo plugin would otherwise set for you:
+The app in [`packages/react-native/examples/bare`](../packages/react-native/examples/bare) uses these settings and runs its searches through this entry point.
 
-```properties
-reactNativeArchitectures=arm64-v8a,x86_64
-```
-
-Run `pod install` in the `ios` folder, then rebuild the app for each platform. The app in [`packages/react-native/examples/bare`](../packages/react-native/examples/bare) uses these settings.
+Each setting has to cross to that runtime as data, so this entry point leaves out every setting that holds a function. Pass those through the second argument, a function marked with the `'worklet'` directive, which runs on the engine's runtime before the engine starts and returns the settings that hold functions. Register a language module or a tokenizer inside that function too, because the engine's runtime keeps its own copy of each module.
 
 ## Where the index lives
 
@@ -131,10 +153,6 @@ await narsil.restoreFromFile('notes', 'backups/notes.nrsl')
 ```
 
 `exportDocumentsToFile` and `importDocumentExportFromFile` do the same for a document export. Each path resolves against the app's private storage in the same way as the durability directory.
-
-## Settings that hold a function
-
-Each setting that crosses to the engine's runtime has to cross as data, so `createNarsil` leaves out every setting that holds a function, such as an embedding adapter, a plugin, or an id generator. Pass those through the second argument, a function marked with the `'worklet'` directive, which runs on the engine's runtime before the engine starts and returns the settings that hold functions. Register a language module or a tokenizer inside that function too, because the engine's runtime keeps its own copy of each module.
 
 ## Memory
 

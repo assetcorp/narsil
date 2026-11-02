@@ -3,7 +3,7 @@ import type { BatchResult } from '../../types/results'
 import type { AnyDocument } from '../../types/schema'
 import { BATCH_CHUNK_SIZE } from '../constants'
 import type { DocumentBound } from './document-bound'
-import type { ProjectedGroup } from './write-projection'
+import type { CountExactly, ProjectedGroup } from './write-projection'
 
 export interface MemoryReservation {
   release(): void
@@ -27,8 +27,33 @@ export interface MemoryGroupedWrite<T extends MemoryGroupedItem> {
 
 export interface GroupedWriteProjection {
   boundOf(indexName: string): DocumentBound | null
-  takeGroup(indexName: string, bounds: readonly number[], start: number, mostDocuments: number): ProjectedGroup
+  countedBoundOf(indexName: string): DocumentBound | null
+  takeGroup(
+    indexName: string,
+    bounds: readonly number[],
+    start: number,
+    mostDocuments: number,
+    countExactly: CountExactly,
+  ): ProjectedGroup
   refusedAfter(indexName: string, docId: string, refusedDocId: string): NarsilError
+}
+
+function exactCounter(
+  projection: GroupedWriteProjection,
+  indexName: string,
+  bounds: number[],
+  documents: readonly AnyDocument[],
+): CountExactly {
+  const counted = new Set<number>()
+  return position => {
+    if (counted.has(position)) return
+    counted.add(position)
+    const bound = projection.countedBoundOf(indexName)
+    if (bound === null) return
+    try {
+      bounds[position] = Math.min(bounds[position], bound(documents[position]))
+    } catch {}
+  }
 }
 
 const NOTHING_RESERVED: MemoryReservation = { release: () => {} }
@@ -44,7 +69,8 @@ export function reserveForDocument(
 ): MemoryReservation {
   const bound = projection.boundOf(indexName)
   if (bound === null) return NOTHING_RESERVED
-  return projection.takeGroup(indexName, [bound(document)], 0, 1)
+  const bounds = [bound(document)]
+  return projection.takeGroup(indexName, bounds, 0, 1, exactCounter(projection, indexName, bounds, [document]))
 }
 
 export async function applyInGroups<T extends MemoryGroupedItem>(
@@ -70,11 +96,17 @@ export async function applyInGroups<T extends MemoryGroupedItem>(
   }
 
   const mostDocuments = write.mostDocuments ?? BATCH_CHUNK_SIZE
+  const countExactly = exactCounter(
+    projection,
+    indexName,
+    bounds,
+    bounded.map(item => item.document),
+  )
   let start = 0
   while (start < bounded.length) {
     let group: ProjectedGroup
     try {
-      group = projection.takeGroup(indexName, bounds, start, mostDocuments)
+      group = projection.takeGroup(indexName, bounds, start, mostDocuments, countExactly)
     } catch (err) {
       const refusedDocId = bounded[start].docId
       write.failed.push({ docId: refusedDocId, error: asDocumentError(err, refusedDocId) })

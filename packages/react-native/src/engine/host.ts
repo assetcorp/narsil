@@ -22,7 +22,7 @@ function collectGarbageOn(host: NarsilHost): boolean {
   return Reflect.apply(collect, host, []) === true
 }
 
-export function adaptHost({ host, files, core }: NativeObjects): ReactNativeHost {
+export function adaptHost({ host, files, core }: NativeObjects, nativeThreads: boolean): ReactNativeHost {
   return {
     reserveMemory(bytes: number): ArrayBuffer {
       try {
@@ -86,7 +86,7 @@ export function adaptHost({ host, files, core }: NativeObjects): ReactNativeHost
         throw withNativeCode(error)
       }
     },
-    files: adaptFiles(files),
-    core: adaptCore(core),
+    files: adaptFiles(files, nativeThreads),
+    core: adaptCore(core, nativeThreads),
   }
 }

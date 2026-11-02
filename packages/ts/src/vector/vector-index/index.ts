@@ -35,6 +35,7 @@ import {
 import type { VectorIndexPayload } from './payload'
 import { deserialize as deserializeOp } from './persistence'
 import { fetchedOutcome, search as searchOp, searchWithFilter, withBufferedVectors } from './search'
+import { searchOffThread } from './search-off-thread'
 import {
   assignStorePartitions,
   type ColdVectorField,
@@ -248,6 +249,8 @@ export function createVectorIndex(
     handOverBuildTurns(state)
     const confined = options.filterSubsets !== undefined || options.filterPartitions !== undefined
     let filter = filterForOptions(state, options)
+    const offThread = searchOffThread(state, query, k, options, filter, confined ? state.revision : null)
+    if (offThread !== null) return offThread
     if (filter !== undefined) {
       if (state.hnsw) {
         const hnswLiveSize = state.hnsw.size

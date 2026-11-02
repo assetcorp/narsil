@@ -56,11 +56,17 @@ async function measuredQueries(narsil: PhoneNarsil, vectors: number[][]): Promis
   return latency
 }
 
-export async function runSearchTask(): Promise<SearchReport> {
+export type OpenEngine = (directory: string) => Promise<PhoneNarsil>
+
+function openOnAppRuntime(directory: string): Promise<PhoneNarsil> {
+  return createNarsil({ durability: { directory } })
+}
+
+export async function runSearchTask(open: OpenEngine = openOnAppRuntime): Promise<SearchReport> {
   const run = Date.now()
   const documents = corpus()
   const vectors = queryVectors()
-  const first = await createNarsil({ durability: { directory: directoryFor(run) } })
+  const first = await open(directoryFor(run))
   let insertMs: number
   try {
     await first.createIndex(SEARCH_INDEX, { schema: SEARCH_SCHEMA, language: 'english' })
@@ -74,7 +80,7 @@ export async function runSearchTask(): Promise<SearchReport> {
     await first.shutdown()
   }
 
-  const opened = await timed(() => createNarsil({ durability: { directory: directoryFor(run) } }))
+  const opened = await timed(() => open(directoryFor(run)))
   const narsil = opened.value
   try {
     const firstQuery = await timed(() => narsil.query(SEARCH_INDEX, { term: HYBRID_TERM, limit: NEIGHBOURS }))

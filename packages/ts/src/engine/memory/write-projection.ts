@@ -1,7 +1,12 @@
 import { type ErrorCode, NarsilError } from '../../errors'
 import { reservedHeapBytes, reserveHeapBytes } from '../../runtime/thread-heap'
 import { BATCH_CHUNK_SIZE } from '../constants'
-import { createDocumentBound, type DocumentBound, type IndexWriteAnalysis } from './document-bound'
+import {
+  createCountedDocumentBound,
+  createDocumentBound,
+  type DocumentBound,
+  type IndexWriteAnalysis,
+} from './document-bound'
 import type { MemoryFractions } from './fractions'
 import type { MemoryFigures } from './measure'
 
@@ -13,9 +18,18 @@ export interface ProjectedGroup {
   release(): void
 }
 
+export type CountExactly = (position: number) => void
+
 export interface WriteProjection {
   boundOf(indexName: string): DocumentBound | null
-  takeGroup(indexName: string, bounds: readonly number[], start: number, mostDocuments?: number): ProjectedGroup
+  countedBoundOf(indexName: string): DocumentBound | null
+  takeGroup(
+    indexName: string,
+    bounds: readonly number[],
+    start: number,
+    mostDocuments?: number,
+    countExactly?: CountExactly,
+  ): ProjectedGroup
   takeOne(indexName: string, bound: number): ProjectedGroup
 }
 
@@ -41,6 +55,7 @@ export interface WriteProjectionOptions {
 interface CachedBound {
   analysis: IndexWriteAnalysis
   bound: DocumentBound
+  counted: DocumentBound
 }
 
 const UNPROJECTED: ProjectedGroup = { count: 0, release: () => {} }
@@ -63,6 +78,7 @@ export function createWriteProjection(options: WriteProjectionOptions): WritePro
     groupBounds: readonly number[],
     start: number,
     mostDocuments: number,
+    countExactly: CountExactly | undefined,
   ): number {
     const end = Math.min(groupBounds.length, start + mostDocuments)
     if (figures === null) return end - start
@@ -70,14 +86,18 @@ export function createWriteProjection(options: WriteProjectionOptions): WritePro
     const heapRoom = heapRoomIn(figures, options.fractions) - reserved
     const processRoom = processRoomIn(figures, options.fractions) - reserved
     const mostGrowth = options.vectorGrowthBytesOf(indexName, end - start)
+    const fits = (next: number, count: number): boolean =>
+      next <= heapRoom &&
+      (next + mostGrowth <= processRoom || next + options.vectorGrowthBytesOf(indexName, count + 1) <= processRoom)
     let taken = 0
     let count = 0
     while (start + count < end) {
-      const next = taken + groupBounds[start + count]
-      if (next > heapRoom) break
-      if (next + mostGrowth > processRoom && next + options.vectorGrowthBytesOf(indexName, count + 1) > processRoom)
-        break
-      taken = next
+      if (!fits(taken + groupBounds[start + count], count)) {
+        if (countExactly === undefined) break
+        countExactly(start + count)
+        if (!fits(taken + groupBounds[start + count], count)) break
+      }
+      taken += groupBounds[start + count]
       count++
     }
     return count
@@ -141,43 +161,49 @@ export function createWriteProjection(options: WriteProjectionOptions): WritePro
     groupBounds: readonly number[],
     start: number,
     mostDocuments = BATCH_CHUNK_SIZE,
+    countExactly?: CountExactly,
   ): ProjectedGroup {
     if (start >= groupBounds.length) return UNPROJECTED
     const measured = options.measure()
-    if (measured === null)
-      return reserve(indexName, groupBounds, start, fittingCount(indexName, null, groupBounds, start, mostDocuments))
-    if (groupBounds[start] > blockBytesOf(measured)) {
-      throw exceedsMemory(indexName, groupBounds[start], blockBytesOf(measured))
+    if (measured === null) {
+      const unmeasured = fittingCount(indexName, null, groupBounds, start, mostDocuments, countExactly)
+      return reserve(indexName, groupBounds, start, unmeasured)
     }
+    const blockBytes = blockBytesOf(measured)
+    if (groupBounds[start] > blockBytes) countExactly?.(start)
+    if (groupBounds[start] > blockBytes) throw exceedsMemory(indexName, groupBounds[start], blockBytes)
     let figures = measured
-    let count = fittingCount(indexName, figures, groupBounds, start, mostDocuments)
+    let count = fittingCount(indexName, figures, groupBounds, start, mostDocuments, countExactly)
     if (count > 0) return reserve(indexName, groupBounds, start, count)
     const collectionsBefore = options.collections()
     figures = options.measureWithoutGarbage() ?? figures
-    count = fittingCount(indexName, figures, groupBounds, start, mostDocuments)
+    count = fittingCount(indexName, figures, groupBounds, start, mostDocuments, countExactly)
     if (count > 0) return reserve(indexName, groupBounds, start, count)
     const collected = options.collections() !== collectionsBefore
     if (collected) options.refusedAfterCollection(figures)
     throw wouldFillMemory(indexName, groupBounds[start], figures, measured.heapBytes, collected)
   }
 
+  function cachedBoundsOf(indexName: string): CachedBound | null {
+    const analysis = options.analysisOf(indexName)
+    if (analysis === null) return null
+    const cached = bounds.get(indexName)
+    if (
+      cached !== undefined &&
+      cached.analysis.schema === analysis.schema &&
+      cached.analysis.language === analysis.language &&
+      cached.analysis.customTokenizer === analysis.customTokenizer
+    ) {
+      return cached
+    }
+    const fresh = { analysis, bound: createDocumentBound(analysis), counted: createCountedDocumentBound(analysis) }
+    bounds.set(indexName, fresh)
+    return fresh
+  }
+
   return {
-    boundOf(indexName) {
-      const analysis = options.analysisOf(indexName)
-      if (analysis === null) return null
-      const cached = bounds.get(indexName)
-      if (
-        cached !== undefined &&
-        cached.analysis.schema === analysis.schema &&
-        cached.analysis.language === analysis.language &&
-        cached.analysis.customTokenizer === analysis.customTokenizer
-      ) {
-        return cached.bound
-      }
-      const bound = createDocumentBound(analysis)
-      bounds.set(indexName, { analysis, bound })
-      return bound
-    },
+    boundOf: indexName => cachedBoundsOf(indexName)?.bound ?? null,
+    countedBoundOf: indexName => cachedBoundsOf(indexName)?.counted ?? null,
     takeGroup,
     takeOne: (indexName, bound) => takeGroup(indexName, [bound], 0),
   }

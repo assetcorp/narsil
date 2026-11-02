@@ -29,6 +29,9 @@ apply from: "../nitrogen/generated/android/NarsilReactNative+autolinking.gradle"
 
 if (isNewArchitectureEnabled()) {
   apply plugin: "com.facebook.react"
+  react {
+    jsRootDir = file("../src/specs")
+  }
 }
 
 def getExtOrDefault(name) {

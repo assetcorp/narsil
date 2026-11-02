@@ -1,3 +1,3 @@
 export { createNarsil } from './client'
 export { isNarsilError, type PhoneNarsilError } from './errors'
-export type { EngineSetup, PhoneEventHandler, PhoneNarsil, PhoneNarsilConfig } from './types'
+export type { PhoneEventHandler, PhoneNarsil, PhoneNarsilConfig } from './types'

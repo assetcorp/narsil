@@ -19,7 +19,7 @@ import {
   type VectorSearchOutcome,
 } from './shared'
 
-function* bufferCandidates(
+export function* bufferCandidates(
   state: VectorIndexState,
   buffered: Iterable<string>,
   filter?: OrdinalFilter,
@@ -34,7 +34,7 @@ function* bufferCandidates(
   }
 }
 
-function* filteredDocIds(state: VectorIndexState, filter: OrdinalFilter): Iterable<string> {
+export function* filteredDocIds(state: VectorIndexState, filter: OrdinalFilter): Iterable<string> {
   for (const ordinal of ordinalFilterValues(filter)) {
     const docId = state.store.docIdForOrdinal(ordinal)
     if (docId !== undefined) yield docId

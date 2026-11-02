@@ -1,3 +1,4 @@
+import { turnIsSpent, yieldTurn } from '#platform/turn-budget'
 import type { RemovedSpellings } from '../../core/partition/frozen/surface-slot'
 import { ErrorCodes, NarsilError } from '../../errors'
 import { requireDocumentWithinSizeLimit, validateRequiredFields } from '../../schema/validator'
@@ -273,6 +274,7 @@ export async function updateDocumentBatch(
     const chunkEnd = Math.min(chunkStart + BATCH_CHUNK_SIZE, updates.length)
     const prepared: PreparedUpdate[] = []
     for (let i = chunkStart; i < chunkEnd; i++) {
+      if (turnIsSpent()) await yieldTurn()
       const update: unknown = updates[i]
       const docId = reportedDocIdOf(update)
       try {

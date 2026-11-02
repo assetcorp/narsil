@@ -138,6 +138,8 @@ export type {
   NativeCore,
   NativeGraphHandle,
   NativeGraphMemory,
+  NativeScoreResult,
+  NativeSearchResult,
   NativeStoreHandle,
   NativeStoreMemory,
 } from './vector/native/types'
