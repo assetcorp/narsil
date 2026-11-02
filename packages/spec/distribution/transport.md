@@ -140,6 +140,11 @@ When a primary refuses a forwarded mutation, the node that forwarded it must pas
 | `cluster.reshard_forward` | primary to primary | Copies documents and removals into the new generation |
 | `cluster.reshard_cutover` | controller to primary | Blocks or lifts writes for the cutover |
 | `cluster.reshard_purge` | primary to primary | Removes one old partition's documents from the new generation |
+| `cluster.backup` | any node to controller | Backs up an index to the store |
+| `cluster.backup_restore` | any node to controller | Restores a backup as a new index |
+| `cluster.backup_delete` | any node to controller | Deletes a backup and the files that no other backup lists |
+| `cluster.backup_partition` | controller to primary | Saves one partition of a backup |
+| `cluster.restore_partition` | controller to primary | Loads one partition of a restore |
 | `cluster.index_settings` | any node to data node | Asks a node to apply the synonym set that the coordinator holds for an index |
 
 ---
@@ -604,6 +609,99 @@ Each receiving primary removes every document that it holds whose ID routes to `
   removed: uint32
 }
 ```
+
+### cluster.backup
+
+A node sends this to the active controller to [take a backup](backups.md#taking-a-backup).
+
+```text
+{
+  backupName: string
+  indexName:  string
+}
+```
+
+The controller refuses it with `NODE_NOT_CONTROLLER` where it holds no controller lease, and with the errors that the flow lists. Otherwise it answers once it has recorded the job:
+
+```text
+{
+  jobId: string
+}
+```
+
+### cluster.backup_restore
+
+A node sends this to the active controller to [restore a backup](backups.md#restoring-a-backup).
+
+```text
+{
+  backupName:        string
+  indexName:         string
+  replicationFactor: uint32 or absent   (the backup's factor where absent)
+  constraints:       AllocationConstraints or absent   (the backup's constraints where absent)
+}
+```
+
+The controller refuses and answers as it does for `cluster.backup`.
+
+### cluster.backup_delete
+
+A node sends this to the active controller to [delete a backup](backups.md#deleting-a-backup).
+
+```text
+{
+  backupName: string
+}
+```
+
+The controller refuses and answers as it does for `cluster.backup`.
+
+### cluster.backup_partition
+
+The controller sends this to the primary of one partition, at the start of a backup, again after it promotes a new primary, and again to learn the partition's state.
+
+```text
+{
+  jobId:       string
+  backupName:  string
+  indexName:   string   (the generation that serves the index)
+  partitionId: uint32
+}
+```
+
+A repeat with the same `jobId` and `partitionId` starts nothing new while the partition runs. The primary answers with its state:
+
+```text
+{
+  jobId:       string
+  partitionId: uint32
+  status:      'running' or 'done' or 'failed'
+  result:      BackupPartitionResult or absent   (present when done)
+  error:       { code: string, message: string } or absent   (present when failed)
+}
+
+BackupPartitionResult {
+  partition:     BackupPartition   (as backups.md defines)
+  config:        StoredFile
+  filesStored:   uint32            (the files that this partition saved)
+  bytesStored:   uint64
+}
+```
+
+### cluster.restore_partition
+
+The controller sends this to the primary of one partition of the generation that a restore creates, and again to learn the partition's state.
+
+```text
+{
+  jobId:       string
+  backupName:  string
+  indexName:   string   (the generation)
+  partitionId: uint32
+}
+```
+
+The primary reads the backup's manifest itself, and it answers with the state as it does for `cluster.backup_partition`, without `result`.
 
 ### cluster.index_settings
 

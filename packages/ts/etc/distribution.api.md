@@ -28,6 +28,38 @@ export interface AllocationTable {
 }
 
 // @public
+export type BackupListing = BackupSummary | DamagedBackup;
+
+// @public
+export interface BackupOperationOptions {
+    onProgress?: (progress: BackupProgress) => void;
+}
+
+// @public
+export interface BackupProgress {
+    done: number;
+    total: number;
+}
+
+// @public
+export interface BackupSummary {
+    bytes: number;
+    completedAt: number;
+    files: number;
+    indexName: string;
+    name: string;
+    partitionCount: number;
+    replicationFactor: number;
+    startedAt: number;
+}
+
+// @public
+export interface ClusterBackupConfig {
+    keyPrefix: string;
+    store: PersistenceAdapter;
+}
+
+// @public
 export interface ClusterControllerConfig {
     leaseTtlMs?: number;
     nodeLeftDelayMs?: number;
@@ -96,6 +128,8 @@ export interface ClusterMetrics {
 
 // @public
 export interface ClusterNamespace {
+    createBackup(indexName: string, backupName: string, options?: BackupOperationOptions): Promise<BackupSummary>;
+    deleteBackup(backupName: string, options?: BackupOperationOptions): Promise<void>;
     getAllocation(indexName: string): Promise<AllocationTable | null>;
     getControllerNodeId(): Promise<string | null>;
     getHealth(): Promise<ClusterHealth>;
@@ -103,7 +137,9 @@ export interface ClusterNamespace {
     getNodeInfo(): ClusterNodeInfo;
     getReadiness(): NodeReadiness;
     isControllerActive(): boolean;
+    listBackups(): Promise<BackupListing[]>;
     listNodes(): Promise<NodeRegistration[]>;
+    restoreBackup(backupName: string, options: RestoreBackupOptions): Promise<BackupSummary>;
     setReplicationFactor(indexName: string, replicationFactor: number): Promise<void>;
 }
 
@@ -155,6 +191,7 @@ export interface ClusterNode extends ClusterNodeSearchSettings {
 // @public
 export interface ClusterNodeConfig {
     address: string;
+    backups?: ClusterBackupConfig;
     capacity?: NodeCapacity;
     controller?: ClusterControllerConfig;
     coordinator: ClusterCoordinator;
@@ -215,6 +252,15 @@ export interface CreateIndexOptions {
     partitionCount?: number;
     replicationFactor?: number;
     waitForServingMs?: number;
+}
+
+// @public
+export interface DamagedBackup {
+    error: {
+        code: string;
+        message: string;
+    };
+    name: string;
 }
 
 // @public
@@ -354,6 +400,13 @@ export interface ReplicationConfig {
 
 // @public
 export type RespondFn = (response: TransportMessage) => Promise<void>;
+
+// @public
+export interface RestoreBackupOptions extends BackupOperationOptions {
+    constraints?: AllocationConstraints;
+    indexName: string;
+    replicationFactor?: number;
+}
 
 // @public
 export interface SchemaEvent {

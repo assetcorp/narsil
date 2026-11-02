@@ -23,6 +23,7 @@ import { VECTOR_FILE_PAYLOAD_VERSION } from '../../vector/vector-index/checkpoin
 import { vectorsPerFile } from '../../vector/vector-index/checkpoint-plan'
 import { isDead } from '../../vector/vector-index/dead-bits'
 import { PARTITION_COPY_VECTOR_RUN_BYTES } from '../constants'
+import { resolvePartitionId } from './write-routing/assignment'
 
 const FLOAT32_BYTES = 4
 const BIN8 = 0xc4
@@ -202,8 +203,8 @@ async function partitionField(
       pending.push({ docId: docIds[position], ref, position })
       if (pending.length === capacity) await flush()
     }
+    await flush()
   }
-  await flush()
   return { fieldPath: field.fieldPath, nextFileId: files.length, files, graphGeneration: 0, graphParts: [] }
 }
 
@@ -221,7 +222,8 @@ export async function openPagedPartitionArchive(
   const { manifest } = checkpoint
   const temporaryPrefix = `${segmentsPrefix(indexName)}partition-copy-${partitionId}-${generateId()}-`
   const written = new Map<string, string>()
-  const partition = manager.getPartition(partitionId)
+  const { partitionCount } = manager
+  const routesHere = (docId: string): boolean => resolvePartitionId(docId, partitionCount) === partitionId
 
   async function removeWritten(): Promise<void> {
     for (const temporaryKey of written.values()) await directory.remove(temporaryKey)
@@ -234,7 +236,7 @@ export async function openPagedPartitionArchive(
         await partitionField(
           checkpoint,
           directory,
-          { indexName, manifest, temporaryPrefix, holds: docId => partition.has(docId) },
+          { indexName, manifest, temporaryPrefix, holds: routesHere },
           field,
           written,
         ),

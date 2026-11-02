@@ -9,6 +9,7 @@ import type {
 } from '../../types/results'
 import type { BM25Params, FieldType, PartitionConfig, SchemaDefinition, VectorIndexConfig } from '../../types/schema'
 import type { GroupConfig, ListParams, QueryParams, SuggestParams } from '../../types/search'
+import type { BackupListResponse, CreateBackupBody, RestoreBackupBody } from './backups'
 import type { ErrorEnvelope } from './options'
 import type {
   BatchBody,
@@ -140,6 +141,8 @@ export interface HttpWireTypes {
   BM25Params: BM25Params
   /** The body of `POST /indexes/{name}/_change-analysis`. */
   ChangeAnalysisBody: ChangeAnalysisBody
+  /** The body of `POST /indexes/{name}/backups`. */
+  CreateBackupBody: CreateBackupBody
   /** The body of `POST /indexes`. */
   HttpCreateIndexBody: HttpCreateIndexBody
   /** The body of a request that writes one document with a known id. */
@@ -164,6 +167,8 @@ export interface HttpWireTypes {
   RemoveDocumentQuery: RemoveDocumentQuery
   /** The body of `PUT /indexes/{name}/replication-factor`. */
   ReplicationFactorBody: ReplicationFactorBody
+  /** The body of `POST /backups/{backup}/_restore`. */
+  RestoreBackupBody: RestoreBackupBody
   /** The body of `POST /indexes/{name}/suggest`. */
   SuggestParams: SuggestParams
   /** The query string of `GET /tasks`. */
@@ -172,6 +177,8 @@ export interface HttpWireTypes {
   VectorFieldBody: VectorFieldBody
   /** The body of `GET` and of `POST /indexes/{name}/synonyms`. */
   SynonymSetBody: SynonymSetBody
+  /** The body of `GET /backups`. */
+  BackupListResponse: BackupListResponse
   /** The body of `POST /indexes/{name}/documents/_batch`. */
   BatchResponse: BatchResponse
   /** The body of `GET /capabilities`. */

@@ -189,6 +189,11 @@ export const ClusterMessageTypes = {
   RESHARD_CUTOVER: 'cluster.reshard_cutover',
   RESHARD_PURGE: 'cluster.reshard_purge',
   INDEX_SETTINGS: 'cluster.index_settings',
+  BACKUP: 'cluster.backup',
+  BACKUP_RESTORE: 'cluster.backup_restore',
+  BACKUP_DELETE: 'cluster.backup_delete',
+  BACKUP_PARTITION: 'cluster.backup_partition',
+  RESTORE_PARTITION: 'cluster.restore_partition',
 } as const
 
 export interface WriteCondition {

@@ -26,7 +26,7 @@ export interface ArchiveCheckpointAccess {
 export interface ArchiveCheckpointDeps {
   directory: DurableDirectory
   held: Map<string, number>
-  checkpoint(indexName: string): Promise<void>
+  checkpoint(indexName: string, pinsVectors: boolean): Promise<void>
   registerPartition(indexName: string, partitionId: number, startSeqNo: number, primaryTerm: number): void
   markFatal(error: Error): void
 }
@@ -67,8 +67,8 @@ export function createArchiveCheckpointAccess(deps: ArchiveCheckpointDeps): Arch
       deps.held.set(indexName, (deps.held.get(indexName) ?? 0) + 1)
       const release = releaser(deps.held, indexName)
       try {
-        await deps.checkpoint(indexName)
-        await deps.checkpoint(indexName)
+        await deps.checkpoint(indexName, false)
+        await deps.checkpoint(indexName, true)
         const manifestBytes = await deps.directory.read(manifestKey(indexName))
         if (manifestBytes === null) {
           throw new NarsilError(ErrorCodes.PERSISTENCE_SAVE_FAILED, `Index "${indexName}" holds no checkpoint`, {

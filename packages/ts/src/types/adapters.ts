@@ -36,6 +36,39 @@ export interface PersistenceAdapter {
    * @returns Every matching key, in any order.
    */
   list(prefix: string): Promise<string[]>
+  /**
+   * Writes the bytes that `data` yields under `key` without holding the whole file in memory, replacing whatever the
+   * key held. A failed or short stream leaves the previous value in place. Offer it for a store that holds large
+   * files, because a cluster backup streams each file through it.
+   *
+   * @param key - The key that a later {@link PersistenceAdapter.load} reads.
+   * @param data - The bytes to store, in order.
+   * @param length - The number of bytes that `data` yields.
+   * @throws A `NarsilError` with `PERSISTENCE_SAVE_FAILED` when `data` yields more or fewer than `length` bytes, or
+   * when the store refuses the write.
+   */
+  saveStream?(key: string, data: AsyncIterable<Uint8Array>, length: number): Promise<void>
+  /**
+   * Reads the bytes stored under `key` in order, without holding the whole file in memory.
+   *
+   * @param key - The key that a matching save wrote.
+   * @returns The stored bytes in chunks, or `null` when the key holds nothing.
+   * @throws A `NarsilError` with `PERSISTENCE_LOAD_FAILED` when the store fails the read.
+   */
+  loadStream?(key: string): Promise<AsyncIterable<Uint8Array> | null>
+  /**
+   * Stores `data` under `key` only where the key holds nothing, as one atomic step, so that where several calls race on
+   * an absent key, exactly one returns `true`. A cluster backup store must offer it, because the cluster claims its key
+   * prefix with it.
+   *
+   * @param key - The key to fill.
+   * @param data - The bytes to store.
+   * @returns `true` where this call stored `data`, and `false` where the key already held a value. A retry after a lost
+   * response can return `false` for bytes that the earlier attempt stored, so load the key and compare where you need to
+   * know whose bytes it holds.
+   * @throws A `NarsilError` with `PERSISTENCE_SAVE_FAILED` when the store refuses the write.
+   */
+  saveIfAbsent?(key: string, data: Uint8Array): Promise<boolean>
   /** This adapter writes to this directory, when a filesystem backs it. */
   readonly directory?: string
 }

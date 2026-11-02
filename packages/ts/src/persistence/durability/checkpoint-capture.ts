@@ -170,6 +170,7 @@ export async function captureCheckpoint(
   listedVectorFields: readonly VectorFieldRef[] = [],
   termHistoryOf?: (partitionId: number, lastSeqNo: number) => TermStart[],
   onCaptured?: () => void,
+  pinsRetiredVectors = false,
 ): Promise<CheckpointCapture> {
   for (const vectorIndex of vectorIndexes.values()) await vectorIndex.completeGraph()
   return whileNoMutationApplies([...indexState.partitions.values()], () => {
@@ -198,14 +199,19 @@ export async function captureCheckpoint(
       targets.push(target)
     }
     const vectorPlans = new Map<string, VectorCheckpointPlan>()
-    for (const [fieldPath, vectorIndex] of vectorIndexes) {
-      const listed = listedVectorFields.find(ref => ref.fieldPath === fieldPath)
-      const listedKeys = listed === undefined ? null : listed.files.map(file => file.key)
-      vectorPlans.set(fieldPath, vectorIndex.planCheckpoint(listedKeys))
+    try {
+      for (const [fieldPath, vectorIndex] of vectorIndexes) {
+        const listed = listedVectorFields.find(ref => ref.fieldPath === fieldPath)
+        const listedKeys = listed === undefined ? null : listed.files.map(file => file.key)
+        vectorPlans.set(fieldPath, vectorIndex.planCheckpoint(listedKeys, false, pinsRetiredVectors))
+      }
+      const memoryMatchesTheTargets = recordsLeftInLog === 0
+      const wholePartitions = memoryMatchesTheTargets ? wholePartitionsOf(targets) : noWholePartitions()
+      return { targets, documentCount, vectorPlans, wholePartitions, recordsLeftInLog }
+    } catch (error) {
+      for (const plan of vectorPlans.values()) plan.release()
+      throw error
     }
-    const memoryMatchesTheTargets = recordsLeftInLog === 0
-    const wholePartitions = memoryMatchesTheTargets ? wholePartitionsOf(targets) : noWholePartitions()
-    return { targets, documentCount, vectorPlans, wholePartitions, recordsLeftInLog }
   })
 }
 

@@ -14,6 +14,9 @@ export type TaskType =
   | 'importExport'
   | 'rebuildAnalysis'
   | 'changeAnalysis'
+  | 'backup'
+  | 'backupRestore'
+  | 'backupDelete'
 
 /**
  * Where a long-running operation stands.
@@ -51,6 +54,20 @@ export interface TaskProgress {
 }
 
 /**
+ * How far a task that works through a known number of steps has gone.
+ *
+ * A `backup` and a `backupRestore` task count partitions, and a `backupDelete` task counts the files it removes.
+ *
+ * @public
+ */
+export interface TaskStepProgress {
+  /** The task has finished this many steps. */
+  done: number
+  /** The task covers this many steps, and 0 until it knows. */
+  total: number
+}
+
+/**
  * One long-running operation, which the server answers with straight away and
  * you then poll.
  *
@@ -64,8 +81,13 @@ export interface TaskRecord {
   id: string
   /** This says which operation the task runs. */
   type: TaskType
-  /** The operation runs against this index. */
+  /**
+   * The operation runs against this index. A `backupRestore` task names the index it creates, and a `backupDelete`
+   * task names none and carries an empty string.
+   */
   indexName: string
+  /** A `backup`, `backupRestore`, or `backupDelete` task works on the backup of this name. */
+  backupName?: string
   /** This says where the operation stands. */
   status: TaskStatus
   /** Identifier of the server instance running this task; see ServerOptions.instanceId. */
@@ -81,6 +103,8 @@ export interface TaskRecord {
   cancelRequestedAt?: number
   /** How far the work has gone, which an import reports and other task types omit. */
   progress?: TaskProgress
+  /** How many of its steps the work has finished, which a backup, a backup restore, and a backup deletion report. */
+  steps?: TaskStepProgress
   /** What the work produced, which an `import` or `importExport` task reports once it finishes. */
   result?: ImportResult
   /** This says why the task failed, and a failed task alone carries it. */

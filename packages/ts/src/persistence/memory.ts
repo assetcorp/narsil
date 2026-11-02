@@ -21,6 +21,12 @@ export function createMemoryPersistence(): PersistenceAdapter {
       store.set(key, new Uint8Array(data))
     },
 
+    async saveIfAbsent(key: string, data: Uint8Array): Promise<boolean> {
+      if (store.has(key)) return false
+      store.set(key, new Uint8Array(data))
+      return true
+    },
+
     async load(key: string): Promise<Uint8Array | null> {
       const stored = store.get(key)
       if (stored === undefined) {

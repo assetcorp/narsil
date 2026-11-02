@@ -62,6 +62,7 @@ describe('httpStatusForNarsilError', () => {
       ServerErrorCodes.INTERNAL_ERROR,
       ErrorCodes.TRANSPORT_DEPENDENCY_MISSING,
       ErrorCodes.COORDINATOR_DEPENDENCY_MISSING,
+      ErrorCodes.PERSISTENCE_DEPENDENCY_MISSING,
       ErrorCodes.CONTROLLER_METADATA_INVALID,
       ErrorCodes.WORKER_ACTION_FAILED,
     ]

@@ -38,6 +38,7 @@ interface DurableCheckpointInput {
   compactionThreshold: number
   canOffload: boolean
   fromMemory: boolean
+  pinsRetiredVectors: boolean
   mutationThreshold: number
   mayContinue(): boolean
   holdsCheckpointFiles(): boolean
@@ -135,6 +136,7 @@ async function writeOneBoundedCheckpoint(input: DurableCheckpointInput): Promise
           changesSinceCapture = manager.openCheckpointChangeLog()
         }
       : undefined,
+    input.pinsRetiredVectors,
   )
   try {
     await openNewLogSegments(input.indexState, input.failPartition)
@@ -142,6 +144,7 @@ async function writeOneBoundedCheckpoint(input: DurableCheckpointInput): Promise
       return changesSinceCapture
     })
   } finally {
+    for (const plan of capture.vectorPlans.values()) plan.release()
     ;(changesSinceCapture as PartitionWriteLog | null)?.close()
   }
 }

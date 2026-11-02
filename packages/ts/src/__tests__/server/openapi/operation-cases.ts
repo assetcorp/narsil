@@ -1,3 +1,5 @@
+import { expect } from 'vitest'
+
 export interface ContractState {
   taskIdToRead: string
   snapshot: Uint8Array
@@ -11,6 +13,7 @@ export interface Probe {
   on?: ServerKind
   name?: string
   id?: string
+  backup?: string
   query?: string
   json?: unknown
   raw?: Uint8Array
@@ -28,6 +31,7 @@ export interface OperationCase {
 export const INDEX = 'products'
 export const LIMITED_BYTES = 1024 * 1024
 export const FILTERED_CATEGORY = 'footwear'
+const BACKUP = 'products-nightly'
 
 export const INDEX_SCHEMA = {
   title: 'string',
@@ -266,6 +270,29 @@ export const OPERATION_CASES: Readonly<Record<string, OperationCase>> = {
   setReplicationFactor: {
     valid: () => ({ on: 'cluster', name: INDEX, json: { replicationFactor: 0 }, statuses: [200] }),
     hostile: () => ({ on: 'cluster', name: INDEX, json: { replicationFactor: -1 }, statuses: [400] }),
+  },
+  createBackup: {
+    valid: () => ({ on: 'cluster', name: INDEX, json: { backup: BACKUP }, statuses: [202] }),
+    hostile: () => ({ on: 'cluster', name: INDEX, json: { backup: '../escape' }, statuses: [400] }),
+  },
+  listBackups: {
+    valid: () => ({
+      on: 'cluster',
+      statuses: [200],
+      verify: body => {
+        const { backups } = body as { backups: Array<{ name: string }> }
+        expect(backups.map(backup => backup.name)).toEqual([BACKUP])
+      },
+    }),
+    hostile: () => ({ statuses: [501] }),
+  },
+  restoreBackup: {
+    valid: () => ({ on: 'cluster', backup: BACKUP, json: { indexName: `${INDEX}-restored` }, statuses: [202] }),
+    hostile: () => ({ on: 'cluster', backup: BACKUP, json: { indexName: 5 }, statuses: [400] }),
+  },
+  deleteBackup: {
+    valid: () => ({ on: 'cluster', backup: BACKUP, statuses: [202] }),
+    hostile: () => ({ on: 'cluster', backup: '-leading-dash', statuses: [400] }),
   },
   dropIndex: { valid: () => ({ name: INDEX, statuses: [200] }), hostile: missingIndex },
 }

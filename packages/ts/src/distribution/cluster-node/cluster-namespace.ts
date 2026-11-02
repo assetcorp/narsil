@@ -17,6 +17,7 @@ export interface ClusterNamespaceDeps {
   trackOp: <T>(indexName: string | null, fn: () => Promise<T>) => Promise<T>
   requestReplicationFactor: (indexName: string, replicationFactor: number) => Promise<void>
   observability: ClusterMetricsDeps
+  backups: Pick<ClusterNamespace, 'createBackup' | 'restoreBackup' | 'listBackups' | 'deleteBackup'>
 }
 
 function readinessOf(deps: ClusterNamespaceDeps): NodeReadiness {
@@ -79,6 +80,18 @@ export function createClusterNamespace(deps: ClusterNamespaceDeps): ClusterNames
     },
     async getMetrics() {
       return deps.trackOp(null, () => readClusterMetrics(deps.observability))
+    },
+    async createBackup(indexName, backupName, options) {
+      return deps.trackOp(null, () => deps.backups.createBackup(indexName, backupName, options))
+    },
+    async restoreBackup(backupName, options) {
+      return deps.trackOp(null, () => deps.backups.restoreBackup(backupName, options))
+    },
+    async listBackups() {
+      return deps.trackOp(null, () => deps.backups.listBackups())
+    },
+    async deleteBackup(backupName, options) {
+      return deps.trackOp(null, () => deps.backups.deleteBackup(backupName, options))
     },
   }
 }
