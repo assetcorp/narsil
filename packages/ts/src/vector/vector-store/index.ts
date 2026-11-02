@@ -62,6 +62,7 @@ export function createVectorStore(options?: VectorStoreOptions): VectorStore {
   const replacedOrdinals = new Set<number>()
   let unknownPartitions = 0
   let liveCount = 0
+  let readBackVector: Float32Array | null = null
   let open: OpenStore | null =
     options?.dimension === undefined ? null : openHandles(options.dimension, codeBits, blockBytes)
 
@@ -237,7 +238,10 @@ export function createVectorStore(options?: VectorStoreOptions): VectorStore {
     releaseToFile(ordinal: number, location: DiskLocation): boolean {
       const store = requireOpen()
       if (ordToDoc[ordinal] === undefined) return false
-      if (store.diskFile[ordinal] === IN_MEMORY && !fileHoldsSameBytes(store, ordinal, location)) return false
+      if (store.diskFile[ordinal] === IN_MEMORY) {
+        readBackVector ??= new Float32Array(store.handles.dimension)
+        if (!fileHoldsSameBytes(store, ordinal, location, readBackVector)) return false
+      }
       Atomics.store(store.handles.header, STORE_RELEASED_VECTORS_TO_DISK, 1)
       store.diskOffset[ordinal] = location.offset
       store.diskFile[ordinal] = location.fileIndex

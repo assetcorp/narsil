@@ -32,6 +32,11 @@ export function createFrozenRemovalPass(
     return spellings
   }
 
+  function subtract(ordinal: number, analysis: PartialWordAnalysis): void {
+    if (surfaces.tableStaysOnDisk()) surfaces.subtractOnceLoaded(ordinal, analysis)
+    else surfaces.subtractSpellings(ordinal, heldSpellingsOf(ordinal, analysis))
+  }
+
   return {
     get settled(): boolean {
       return pending.length === 0
@@ -41,19 +46,19 @@ export function createFrozenRemovalPass(
       if (bound !== null) return
       const scoped: PartialWordAnalysis = { ...analysis, fields: documents.textFields }
       bound = scoped
-      for (const ordinal of pending) surfaces.subtractSpellings(ordinal, heldSpellingsOf(ordinal, scoped))
+      for (const ordinal of pending) subtract(ordinal, scoped)
       pending = []
     },
 
     spellingsOf(ordinal: number): RemovedSpellings | undefined {
-      return bound === null ? undefined : heldSpellingsOf(ordinal, bound)
+      return bound === null || surfaces.tableStaysOnDisk() ? undefined : heldSpellingsOf(ordinal, bound)
     },
 
     afterRemoval(ordinal: number, spellings: RemovedSpellings | undefined): void {
       if (spellings !== undefined) {
         surfaces.subtractSpellings(ordinal, spellings)
       } else if (bound !== null) {
-        surfaces.subtractSpellings(ordinal, heldSpellingsOf(ordinal, bound))
+        subtract(ordinal, bound)
       } else {
         pending.push(ordinal)
       }

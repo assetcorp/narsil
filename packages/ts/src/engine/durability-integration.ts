@@ -50,6 +50,8 @@ export interface DurabilityIntegrationHooks {
   getTermsConfig: (indexName: string) => MetadataConfig | undefined
   mustRewriteTerms: IndexDurabilityHooks['mustRewriteTerms']
   onManifestCommitted: IndexDurabilityHooks['onManifestCommitted']
+  queueDiskAdoption?: IndexDurabilityHooks['queueDiskAdoption']
+  awaitCopiesOfIndex?: IndexDurabilityHooks['awaitCopiesOfIndex']
   createIndexFromMetadata: IndexDurabilityHooks['createIndexFromMetadata']
   recordCheckpoint: IndexDurabilityHooks['recordCheckpoint']
   onLayoutUpgrade?: IndexDurabilityHooks['onLayoutUpgrade']
@@ -87,6 +89,8 @@ export function createDurabilityIntegration(
     },
     mustRewriteTerms: hooks.mustRewriteTerms,
     onManifestCommitted: hooks.onManifestCommitted,
+    ...(hooks.queueDiskAdoption === undefined ? {} : { queueDiskAdoption: hooks.queueDiskAdoption }),
+    ...(hooks.awaitCopiesOfIndex === undefined ? {} : { awaitCopiesOfIndex: hooks.awaitCopiesOfIndex }),
     createIndexFromMetadata: hooks.createIndexFromMetadata,
     recordCheckpoint: hooks.recordCheckpoint,
     onLayoutUpgrade: hooks.onLayoutUpgrade,

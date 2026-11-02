@@ -26,7 +26,7 @@ function entriesCovered(bounds: PostingBlockBounds): number {
   return bounds.blockCount === 0 ? 0 : bounds.entryEnd[bounds.blockCount - 1]
 }
 
-function scan(
+export function scanPostingBlocks(
   list: PostingListView,
   columns: ReadonlyArray<Uint32Array | null>,
   previous: PostingBlockBounds | null,
@@ -122,12 +122,16 @@ export function blockBoundsFor(list: PostingListView, columns: ReadonlyArray<Uin
     const covered = entriesCovered(existing)
     if (covered === list.length) return existing
     if (list.ordered && covered < list.length) {
-      const extended = scan(list, columns, existing, Math.max(0, existing.blockCount - 1))
+      const extended = scanPostingBlocks(list, columns, existing, Math.max(0, existing.blockCount - 1))
       boundsByList.set(list, extended)
       return extended
     }
   }
-  const built = scan(list, columns, null, 0)
+  const stored = list.storedBlockBounds?.() ?? null
+  const built =
+    stored === null
+      ? scanPostingBlocks(list, columns, null, 0)
+      : { ...stored, structureRevision: list.structureRevision }
   boundsByList.set(list, built)
   return built
 }

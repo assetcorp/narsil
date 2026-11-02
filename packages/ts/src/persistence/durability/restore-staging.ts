@@ -1,5 +1,6 @@
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { PersistenceAdapter } from '../../types/adapters'
+import type { DurableDirectory } from './durable-filesystem'
 import {
   commitJournal,
   finishJournal,
@@ -34,6 +35,33 @@ function pathUnder(path: string, root: string): boolean {
   return next === '' || next === '/' || next === '\\'
 }
 
+function stagedDirectory(
+  directory: DurableDirectory,
+  staged: (key: string) => string,
+  unstaged: (key: string) => string,
+): DurableDirectory {
+  const { readRange, byteLength } = directory
+  return {
+    root: directory.root,
+    appendHandle: key => directory.appendHandle(staged(key)),
+    markerHandle: key => directory.markerHandle(staged(key)),
+    atomicWrite: (key, data) => directory.atomicWrite(staged(key), data),
+    syncDirectoryOf: key => directory.syncDirectoryOf(staged(key)),
+    read: key => directory.read(staged(key)),
+    remove: key => directory.remove(staged(key)),
+    move: (from, to) => directory.move(staged(from), staged(to)),
+    list: async prefix => (await directory.list(staged(prefix))).map(unstaged),
+    pathOf: key => directory.pathOf(staged(key)),
+    ...(readRange === undefined
+      ? {}
+      : {
+          readRange: (key: string, offset: number, length: number) =>
+            readRange.call(directory, staged(key), offset, length),
+        }),
+    ...(byteLength === undefined ? {} : { byteLength: (key: string) => byteLength.call(directory, staged(key)) }),
+  }
+}
+
 export function createRestoreStaging(
   storage: RestoreStorage,
   indexName: string,
@@ -59,6 +87,7 @@ export function createRestoreStaging(
   }
   const pathOf = storage.pathOf
   if (pathOf !== undefined) store.pathOf = key => pathOf.call(storage, staged(key))
+  if (storage.directory !== undefined) store.directory = stagedDirectory(storage.directory, staged, unstaged)
 
   let retiredPrefix: string | null = null
 

@@ -1,9 +1,11 @@
 import { ErrorCodes, NarsilError } from '../errors'
 import type { PartitionManager } from '../partitioning/manager'
-import type { Rebalancer } from '../partitioning/rebalancer'
+import { createRebalancer } from '../partitioning/rebalancer'
+import { rewriteSpillOf } from '../partitioning/rewrite-spill-of'
 import type { PartitionRouter } from '../partitioning/router'
 import { createWriteAheadQueue, type WAQEntry, type WriteAheadQueue } from '../partitioning/write-ahead-queue'
 import type { DurabilityManager } from '../persistence/durability/types'
+import type { RewriteSpill } from '../persistence/paged/rewrite-spill'
 import type { PluginRegistry } from '../plugins/registry'
 import type { PendingAnalysisMetadata } from '../types/internal'
 import type { AnyDocument, IndexConfig } from '../types/schema'
@@ -20,7 +22,6 @@ import {
 } from './vector-coordinator'
 
 export interface RebalanceContext {
-  rebalancer: Rebalancer
   router: PartitionRouter
   waqMap: Map<string, WriteAheadQueue>
   rebalancingIndexes: Set<string>
@@ -244,17 +245,25 @@ export async function executeRebalance(
   ctx.rebalanceTargets.set(indexName, targetPartitionCount)
   const wasPromoted = ctx.orchestrator.desyncIndex(indexName)
 
+  let spill: RewriteSpill | null = null
   try {
     const oldCount = manager.partitionCount
-    await ctx.rebalancer.rebalance(manager, targetPartitionCount, ctx.router, progress => {
-      if (progress.phase === 'complete') {
-        emitEngineEvent(ctx.eventHandlers, 'partitionRebalance', {
-          indexName,
-          oldCount,
-          newCount: targetPartitionCount,
-        })
-      }
-    })
+    spill = await rewriteSpillOf(ctx.durabilityManager?.rewriteStorage?.(), manager)
+    await createRebalancer().rebalance(
+      manager,
+      targetPartitionCount,
+      ctx.router,
+      progress => {
+        if (progress.phase === 'complete') {
+          emitEngineEvent(ctx.eventHandlers, 'partitionRebalance', {
+            indexName,
+            oldCount,
+            newCount: targetPartitionCount,
+          })
+        }
+      },
+      spill,
+    )
 
     try {
       await ctx.pluginRegistry.runHook('onPartitionSplit', {
@@ -271,6 +280,7 @@ export async function executeRebalance(
     if (ctx.durabilityManager) {
       await ctx.durabilityManager.persistMetadata(indexName)
       await (ctx.durabilityManager.checkpointFromMemory?.(indexName) ?? ctx.durabilityManager.checkpoint(indexName))
+      await spill?.removeUnread(manager)
       await replayQueued(manager, indexName, waq, ctx)
     }
 
@@ -279,6 +289,7 @@ export async function executeRebalance(
       await replayQueued(manager, indexName, waq, ctx)
     } while (waq.size > 0)
   } catch (err) {
+    await spill?.removeUnread(manager).catch(() => undefined)
     try {
       await replayQueued(manager, indexName, waq, ctx)
       await ctx.orchestrator.resyncIndex(indexName, wasPromoted)

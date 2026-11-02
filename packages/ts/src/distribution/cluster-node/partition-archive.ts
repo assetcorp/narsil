@@ -1,4 +1,5 @@
 import { decode } from '@msgpack/msgpack'
+import { generateId } from '../../core/id-generator'
 import { namedSettingsOf } from '../../engine/analysis-change/settings'
 import { arrayPositionsAreStale, storedArrayPositionGap } from '../../engine/array-positions'
 import type { EngineCore } from '../../engine/core'
@@ -9,14 +10,16 @@ import { ErrorCodes, NarsilError } from '../../errors'
 import type { Narsil } from '../../narsil'
 import type { PartitionManager } from '../../partitioning/manager'
 import { createByteReader } from '../../persistence/archive/byte-reader'
+import { writeArchiveFile } from '../../persistence/archive/file-entry'
 import { buildArchiveFromMemory } from '../../persistence/archive/from-memory'
 import { memoryCheckpointStore } from '../../persistence/archive/memory-store'
 import { readSnapshotArchive } from '../../persistence/archive/read'
 import { archiveStream } from '../../persistence/archive/write'
+import type { DurableDirectory } from '../../persistence/durability/durable-filesystem'
 import { loadPartitionSegments } from '../../persistence/durability/segment/load-partition'
 import type { SegmentManifest } from '../../persistence/durability/segment/manifest'
 import type { CheckpointStore } from '../../persistence/durability/segment/store'
-import { readListedFile } from '../../persistence/durability/segment/store'
+import { directoryCheckpointStore, readListedFile } from '../../persistence/durability/segment/store'
 import { openChecksummedEnvelope } from '../../serialization/envelope-file'
 import type { ByteSource } from '../../types/byte-source'
 import type { IndexConfig } from '../../types/schema'
@@ -48,6 +51,30 @@ export async function archiveReplicationPartition(
     const manager = core.requireManager(indexName)
     let captured = 0
     const config = await encodeIndexConfiguration(entry)
+    const durable = core.durability?.manager
+    if (entry.config.textStorage === 'disk' && durable?.openArchiveCheckpoint !== undefined) {
+      const checkpoint = await durable.openArchiveCheckpoint(indexName)
+      const { directory } = checkpoint
+      if (directory === undefined) {
+        checkpoint.release()
+        throw new NarsilError(
+          ErrorCodes.PERSISTENCE_SAVE_FAILED,
+          `Index "${indexName}" stores its text on disk, which needs a durable directory`,
+          { indexName },
+        )
+      }
+      try {
+        const { openPagedPartitionArchive } = await import('./paged-partition-archive')
+        const archive = await openPagedPartitionArchive(checkpoint, directory, indexName, partitionId, manager)
+        return {
+          stream: archiveStream({ ...archive, config, sourceIndexName: indexName }),
+          lastSeqNo: archive.lastSeqNo,
+        }
+      } catch (error) {
+        checkpoint.release()
+        throw error
+      }
+    }
     const checkpoint = await buildArchiveFromMemory({
       indexName,
       metadata: indexMetadataOf(indexName, entry, manager.partitionCount),
@@ -100,6 +127,7 @@ interface ReceivedArchive {
   arrayPositionGap: number | null
   manifest: SegmentManifest
   store: CheckpointStore
+  receivedPrefix: string
 }
 
 async function receiveArchive(
@@ -107,8 +135,10 @@ async function receiveArchive(
   partitionId: number,
   source: ByteSource,
   schema: Record<string, string>,
+  directory: DurableDirectory | null,
 ): Promise<ReceivedArchive> {
-  const store = memoryCheckpointStore()
+  const store = directory === null ? memoryCheckpointStore() : directoryCheckpointStore(directory)
+  const receivedPrefix = directory === null ? `${indexName}/` : `${indexName}/received/p${partitionId}/${generateId()}/`
   let language = ''
   let tokenizer: unknown
   let stopWords: unknown
@@ -148,7 +178,7 @@ async function receiveArchive(
         restoreFailed('partition archive holds a graph', { indexName, partitionId })
       }
       requireSameFlatSchema(indexName, schema, manifest.schema, 'partition snapshot')
-      const rename = (key: string): string => `${indexName}/${key.slice(sourceName.length + 1)}`
+      const rename = (key: string): string => `${receivedPrefix}${key.slice(sourceName.length + 1)}`
       received = {
         ...manifest,
         partitions: manifest.partitions.map(partition => ({
@@ -161,10 +191,20 @@ async function receiveArchive(
         })),
       }
     },
-    file: async (name, _ref, bytes) => store.write(`${indexName}/${name}`, [bytes]),
+    file: (name, _ref, chunks) => writeArchiveFile(store, `${receivedPrefix}${name}`, chunks),
   })
   if (received === null) restoreFailed('partition archive holds no manifest', { indexName, partitionId })
-  return { language, tokenizer, stopWords, stopWordList, analysisRevision, arrayPositionGap, manifest: received, store }
+  return {
+    language,
+    tokenizer,
+    stopWords,
+    stopWordList,
+    analysisRevision,
+    arrayPositionGap,
+    manifest: received,
+    store,
+    receivedPrefix,
+  }
 }
 
 function requireArchiveUnderLocalAnalysis(core: EngineCore, indexName: string, archive: ReceivedArchive): void {
@@ -258,7 +298,9 @@ export async function restoreReplicationPartition(
   const { config: indexConfig, partitionCount, writeRecords } = target
   core.guardShutdown()
   requireRestoreTarget(indexName, partitionId, partitionCount)
-  const archive = await receiveArchive(indexName, partitionId, source, flattenSchema(indexConfig.schema))
+  const directory =
+    indexConfig.textStorage === 'disk' ? (core.durability?.manager.partitionRegistry?.directory ?? null) : null
+  const archive = await receiveArchive(indexName, partitionId, source, flattenSchema(indexConfig.schema), directory)
   let release = core.indexRegistry.has(indexName) ? await core.indexState.acquire(indexName, false) : null
   try {
     const restoreIndex = await ensureReplicationIndex(
@@ -285,6 +327,17 @@ export async function restoreReplicationPartition(
     try {
       await replacePartition(core.requireManager(indexName), partitionId, archive, writeRecords)
       recordReceivedAnalysis(core, indexName, archive.analysisRevision, archive.arrayPositionGap)
+      if (directory !== null) {
+        const durable = core.durability?.manager
+        await (durable?.checkpointFromMemory?.(indexName) ?? durable?.checkpoint(indexName))
+        const { removeReceivedFilesNothingReads } = await import('./paged-partition-archive')
+        await removeReceivedFilesNothingReads(
+          directory,
+          core.requireManager(indexName),
+          partitionId,
+          archive.receivedPrefix,
+        )
+      }
     } finally {
       await core.orchestrator.resyncIndex(indexName, wasScaledOut)
     }

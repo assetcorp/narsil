@@ -27,6 +27,11 @@ import { type ContractState, INDEX, LIMITED_BYTES, OPERATION_CASES, type Probe }
 
 const run = promisify(execFile)
 
+interface PackedPackage {
+  files: Array<{ path: string }>
+}
+
+const NPM_PACK_TIMEOUT_MS = 60_000
 const ROUTES_THAT_NO_ONE_CLIENT_METHOD_COVERS = new Set([
   'health',
   'getClusterTopology',
@@ -276,10 +281,18 @@ describe('the published OpenAPI file', () => {
     expect(Object.keys((schemas.HttpGroupResult as { properties: object }).properties)).not.toContain('reduced')
   })
 
-  it('reaches a caller through the npm package', async () => {
-    const packageDirectory = dirname(publishedFilePath())
-    const { stdout } = await run('npm', ['pack', '--dry-run', '--json', '--ignore-scripts'], { cwd: packageDirectory })
-    const [packed] = JSON.parse(stdout) as Array<{ files: Array<{ path: string }> }>
-    expect(packed?.files.map(file => file.path)).toContain('openapi.json')
-  })
+  it(
+    'reaches a caller through the npm package',
+    async () => {
+      const packageDirectory = dirname(publishedFilePath())
+      const { stdout } = await run('npm', ['pack', '--dry-run', '--json', '--ignore-scripts'], {
+        cwd: packageDirectory,
+        timeout: NPM_PACK_TIMEOUT_MS,
+      })
+      const report = JSON.parse(stdout) as PackedPackage[] | Record<string, PackedPackage>
+      const [packed] = Array.isArray(report) ? report : Object.values(report)
+      expect(packed?.files.map(file => file.path)).toContain('openapi.json')
+    },
+    NPM_PACK_TIMEOUT_MS,
+  )
 })

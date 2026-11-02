@@ -146,15 +146,20 @@ function deadCountOf(dead: Uint8Array | null): number {
   return count
 }
 
+export function storedBytesOfSegments(manifest: SegmentManifest): number {
+  let bytes = 0
+  for (const partition of manifest.partitions) {
+    for (const segment of partition.segments) bytes += segment.bytes
+  }
+  return bytes
+}
+
 export function archiveFootprint(
   prepared: PreparedIndex,
   manifest: SegmentManifest,
   replacesIndex: boolean,
+  segmentBytes: number,
 ): RestoreFootprint {
-  let segmentBytes = 0
-  for (const partition of manifest.partitions) {
-    for (const segment of partition.segments) segmentBytes += segment.bytes
-  }
   const dimensions = extractVectorFieldsFromSchema(prepared.config.schema)
   const vectors: VectorCount[] = []
   for (const field of manifest.vectors) {

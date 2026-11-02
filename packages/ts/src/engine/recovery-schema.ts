@@ -60,6 +60,9 @@ export function reconstructSchemaFromMetadata(metadata: IndexMetadata): IndexCon
   if (metadata.trackPositions !== undefined) {
     config.trackPositions = metadata.trackPositions
   }
+  if (metadata.textStorage !== undefined) {
+    config.textStorage = metadata.textStorage
+  }
   if (metadata.strict !== undefined) {
     config.strict = metadata.strict
   }

@@ -94,6 +94,7 @@ function configurationPayloadOf(
     ...(config.partitions !== undefined ? { partitionConfig: config.partitions } : {}),
     ...(config.defaultScoring !== undefined ? { defaultScoring: config.defaultScoring } : {}),
     ...(config.trackPositions !== undefined ? { trackPositions: config.trackPositions } : {}),
+    ...(config.textStorage !== undefined ? { textStorage: config.textStorage } : {}),
     ...(config.strict !== undefined ? { strict: config.strict } : {}),
     ...(config.required !== undefined ? { required: config.required } : {}),
     ...(config.vectorPromotion !== undefined ? { vectorPromotion: config.vectorPromotion } : {}),

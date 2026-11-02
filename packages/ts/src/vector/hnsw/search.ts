@@ -14,11 +14,9 @@ import { searchLayer } from './graph-ops'
 import { lockGraphShared, unlockGraphShared } from './locks'
 import {
   activeQuantizer,
-  entryForOrd,
   entryPointOf,
   type HNSWSearchState,
   nodeCountOf,
-  toDistance,
   tombstoneCountOf,
   topLayerOf,
   toScore,
@@ -263,9 +261,8 @@ function rescoreWithFullPrecision(
       fullDistance = state.store.distanceFromArena(arenaQuery, ord, metric)
       if (fullDistance === Number.POSITIVE_INFINITY) continue
     } else {
-      const entry = entryForOrd(state, ord)
-      if (!entry) continue
-      fullDistance = toDistance(query, entry.vector, qMag, entry.magnitude, metric)
+      fullDistance = state.store.distanceFromQuery(query, qMag, ord, metric)
+      if (fullDistance === Number.POSITIVE_INFINITY) continue
     }
 
     const score = toScore(fullDistance, metric)

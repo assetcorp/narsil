@@ -50,6 +50,7 @@ export function getVectorMaintenanceStatus(manager: PartitionManager): VectorMai
       bufferSize: status.bufferSize,
       building: status.building,
       waitingForMemory: status.waitingForMemory,
+      loadingFromFiles: status.loadingFromFiles === true,
       estimatedCompactMs: status.estimatedCompactMs,
       estimatedOptimizeMs: status.estimatedOptimizeMs,
     })

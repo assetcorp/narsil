@@ -1,5 +1,6 @@
 import { resolveIndexAnalysis } from '../../../analysis/registry'
 import type { PartitionInsertOptions } from '../../../core/partition'
+import type { SegmentSelection } from '../../../core/partition/frozen/merge'
 import type { TextAnalysis } from '../../../core/partition/frozen/surface-slot'
 import type { PartialWordAnalysis } from '../../../core/partition/partial-words/spellings'
 import type { ReplicationLogEntry } from '../../../distribution/replication/types'
@@ -26,6 +27,7 @@ import {
   type PartitionManifestEntry,
   SEGMENT_MANIFEST_VERSION,
   type SegmentManifest,
+  type SegmentRef,
   type VectorFieldRef,
 } from './manifest'
 import { writeSegmentsOf } from './segment-write'
@@ -119,6 +121,28 @@ function wholeContentsOf(input: CheckpointSegmentsInput, partitionId: number): P
   return captured === undefined ? undefined : contentsOfCaptured(captured)
 }
 
+function pagedSettingsOf(context: PartitionWriteContext): { paged?: boolean; keepsWriteRecords?: boolean } {
+  if (context.input.metadata.textStorage !== 'disk') return {}
+  return { paged: true, keepsWriteRecords: context.input.keepsWriteRecords === true }
+}
+
+async function tombstonesOfDelta(
+  context: PartitionWriteContext,
+  older: readonly SegmentRef[],
+  selections: readonly SegmentSelection[],
+  deleted: string[],
+): Promise<string[]> {
+  const { directory } = context.input.store
+  if (context.input.metadata.textStorage !== 'disk' || directory === undefined) return deleted
+  const { pagedTombstonesFor } = await import('../../paged/module')
+  return pagedTombstonesFor(
+    directory,
+    older,
+    selections.map(selection => selection.segment),
+    deleted,
+  )
+}
+
 async function writeWholePartition(
   context: PartitionWriteContext,
   partitionId: number,
@@ -136,6 +160,7 @@ async function writeWholePartition(
     selections: whole.selections,
     tombstones: [],
     ...(whole.writeRecords === undefined ? {} : { writeRecords: whole.writeRecords }),
+    ...pagedSettingsOf(context),
   })
   return { partitionId, nextSegmentId: written.nextSegmentId, segments: written.segments }
 }
@@ -157,6 +182,7 @@ async function writeLoggedChanges(
   let segments = priorPartition ? [...priorPartition.segments] : []
   let nextSegmentId = priorPartition?.nextSegmentId ?? 0
   if (built !== null) {
+    const tombstones = await tombstonesOfDelta(context, segments, built.selections, built.tombstones)
     const written = await writeSegmentsOf({
       store: context.input.store,
       indexName: context.indexName,
@@ -166,8 +192,9 @@ async function writeLoggedChanges(
       partialWordAnalysis: context.partialWordAnalysis,
       textAnalysis: context.textAnalysis,
       selections: built.selections,
-      tombstones: built.tombstones,
+      tombstones,
       ...(built.writeRecords === undefined ? {} : { writeRecords: built.writeRecords }),
+      ...pagedSettingsOf(context),
     })
     segments.push(...written.segments)
     nextSegmentId = written.nextSegmentId
@@ -189,6 +216,7 @@ async function writeLoggedChanges(
     segments,
     nextSegmentId,
     compactionThreshold: context.compactionThreshold,
+    paged: context.input.metadata.textStorage === 'disk',
   })
   segments = compacted.segments
   nextSegmentId = compacted.nextSegmentId

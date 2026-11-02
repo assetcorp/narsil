@@ -13,6 +13,7 @@ function storageFailed(code: ErrorCode, message: string, key: string, error: unk
 
 export function directoryRestoreStorage(directory: DurableDirectory): RestoreStorage {
   return {
+    directory,
     read: key => directory.read(key),
     write: (key, chunks) => directory.atomicWrite(key, chunks),
     writeJournal: (key, bytes) => directory.atomicWrite(key, bytes),

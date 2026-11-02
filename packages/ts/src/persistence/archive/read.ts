@@ -3,7 +3,7 @@ import { HEADER_SIZE } from '../../serialization/header'
 import { type FileRef, manifestFileRefs, type SegmentManifest } from '../durability/segment/manifest'
 import { decodeManifestPayload, listedKeysOf, openManifestPayload } from '../durability/segment/manifest-decode'
 import type { ByteReader } from './byte-reader'
-import { MAX_PAX_HEADER_BYTES } from './constants'
+import { ARCHIVE_FILE_CHUNK_BYTES, MAX_PAX_HEADER_BYTES } from './constants'
 import { invalidArchive, isZeroBlock, parsePaxRecords, parseTarHeader, TAR_BLOCK_BYTES } from './tar'
 
 export const ARCHIVE_CONFIG_ENTRY = 'config'
@@ -19,7 +19,7 @@ interface EntryHeader {
 export interface ArchiveReadHandlers {
   config(bytes: Uint8Array): Promise<void>
   manifest(manifest: SegmentManifest, sourceIndexName: string): Promise<void>
-  file(entryName: string, ref: FileRef, bytes: Uint8Array): Promise<void>
+  file(entryName: string, ref: FileRef, chunks: AsyncIterable<Uint8Array>): Promise<void>
 }
 
 async function readBlock(reader: ByteReader): Promise<Uint8Array | null> {
@@ -29,17 +29,34 @@ async function readBlock(reader: ByteReader): Promise<Uint8Array | null> {
   return block
 }
 
+async function skipPadding(reader: ByteReader, size: number): Promise<void> {
+  const remainder = size % TAR_BLOCK_BYTES
+  if (remainder === 0) return
+  const padding = await reader.readExactly(TAR_BLOCK_BYTES - remainder)
+  if (padding === null || padding.byteLength < TAR_BLOCK_BYTES - remainder) {
+    invalidArchive('the archive ends inside the padding of an entry')
+  }
+}
+
 async function readPadded(reader: ByteReader, size: number): Promise<Uint8Array> {
   const body = (await reader.readExactly(size)) ?? new Uint8Array(0)
   if (body.byteLength < size) invalidArchive('the archive ends inside an entry')
-  const remainder = size % TAR_BLOCK_BYTES
-  if (remainder !== 0) {
-    const padding = await reader.readExactly(TAR_BLOCK_BYTES - remainder)
-    if (padding === null || padding.byteLength < TAR_BLOCK_BYTES - remainder) {
-      invalidArchive('the archive ends inside the padding of an entry')
+  await skipPadding(reader, size)
+  return body
+}
+
+function entryBody(reader: ByteReader, size: number): AsyncGenerator<Uint8Array, void, void> {
+  let remaining = size
+  async function* chunks(): AsyncGenerator<Uint8Array, void, void> {
+    while (remaining > 0) {
+      const length = Math.min(ARCHIVE_FILE_CHUNK_BYTES, remaining)
+      const chunk = await reader.readExactly(length)
+      if (chunk === null || chunk.byteLength < length) invalidArchive('the archive ends inside an entry')
+      remaining -= length
+      yield chunk
     }
   }
-  return body
+  return chunks()
 }
 
 async function nextEntryHeader(reader: ByteReader): Promise<EntryHeader | null> {
@@ -109,12 +126,16 @@ export async function readSnapshotArchive(reader: ByteReader, handlers: ArchiveR
     if (header.size !== ref.bytes) {
       invalidArchive(`the entry "${expected}" holds ${header.size} bytes where the manifest lists ${ref.bytes}`)
     }
-    const bytes = await readPadded(reader, header.size)
-    if (headerChecksumOf(bytes) !== ref.checksum) {
+    const start = await reader.peek(Math.min(HEADER_SIZE, header.size))
+    if (headerChecksumOf(start) !== ref.checksum) {
       invalidArchive(`the entry "${expected}" carries a checksum other than the manifest lists`, { entry: expected })
     }
     seen.add(expected)
-    await handlers.file(expected, ref, bytes)
+    const entry = entryBody(reader, header.size)
+    await handlers.file(expected, ref, entry)
+    let unread = await entry.next()
+    while (unread.done !== true) unread = await entry.next()
+    await skipPadding(reader, header.size)
   }
   const trailing = await nextEntryHeader(reader)
   if (trailing !== null) {

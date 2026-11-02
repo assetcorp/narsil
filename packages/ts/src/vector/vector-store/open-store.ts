@@ -197,13 +197,17 @@ export function blockFullyCold(
   return true
 }
 
-export function fileHoldsSameBytes(store: OpenStore, ordinal: number, location: DiskLocation): boolean {
-  const fromFile = new Float32Array(store.handles.dimension)
+export function fileHoldsSameBytes(
+  store: OpenStore,
+  ordinal: number,
+  location: DiskLocation,
+  fromFile: Float32Array,
+): boolean {
   if (!store.view.readFromFile(location.fileIndex, location.offset, fromFile)) return false
   const held = store.view.vectorAt(ordinal)
-  const a = new Uint8Array(fromFile.buffer)
-  const b = new Uint8Array(held.buffer, held.byteOffset, held.byteLength)
-  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false
+  const fileWords = new Uint32Array(fromFile.buffer, fromFile.byteOffset, fromFile.length)
+  const heldWords = new Uint32Array(held.buffer, held.byteOffset, held.length)
+  for (let i = 0; i < fileWords.length; i++) if (fileWords[i] !== heldWords[i]) return false
   return true
 }
 

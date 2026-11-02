@@ -6,7 +6,10 @@ import { uint64Bytes } from './write-records'
 
 const TOP_LEVEL_ENTRIES = 28
 
-function writeFieldLengths(out: MessagePackChunks, arrays: KeywordSegmentArrays): void {
+export function writeFieldLengths(
+  out: MessagePackChunks,
+  arrays: Pick<KeywordSegmentArrays, 'fieldLengthNames' | 'fieldLengthColumns'>,
+): void {
   out.array(arrays.fieldLengthNames.length)
   for (let f = 0; f < arrays.fieldLengthNames.length; f++) {
     out.map(2).key('field').value(arrays.fieldLengthNames[f])
@@ -14,7 +17,7 @@ function writeFieldLengths(out: MessagePackChunks, arrays: KeywordSegmentArrays)
   }
 }
 
-function writeValueColumns(out: MessagePackChunks, columns: KeywordSegmentArrays['numeric']): void {
+export function writeValueColumns(out: MessagePackChunks, columns: KeywordSegmentArrays['numeric']): void {
   out.array(columns.length)
   for (const column of columns) {
     out.map(3).key('field').value(column.fieldPath)
@@ -23,7 +26,7 @@ function writeValueColumns(out: MessagePackChunks, columns: KeywordSegmentArrays
   }
 }
 
-function writeBooleanColumns(out: MessagePackChunks, columns: KeywordSegmentArrays['boolean']): void {
+export function writeBooleanColumns(out: MessagePackChunks, columns: KeywordSegmentArrays['boolean']): void {
   out.array(columns.length)
   for (const column of columns) {
     out.map(3).key('field').value(column.fieldPath)
@@ -32,7 +35,7 @@ function writeBooleanColumns(out: MessagePackChunks, columns: KeywordSegmentArra
   }
 }
 
-function writeEnumColumns(out: MessagePackChunks, columns: KeywordSegmentArrays['enums']): void {
+export function writeEnumColumns(out: MessagePackChunks, columns: KeywordSegmentArrays['enums']): void {
   out.array(columns.length)
   for (const column of columns) {
     out.map(4).key('field').value(column.fieldPath)
@@ -42,7 +45,7 @@ function writeEnumColumns(out: MessagePackChunks, columns: KeywordSegmentArrays[
   }
 }
 
-function writeGeopointColumns(out: MessagePackChunks, columns: KeywordSegmentArrays['geo']): void {
+export function writeGeopointColumns(out: MessagePackChunks, columns: KeywordSegmentArrays['geo']): void {
   out.array(columns.length)
   for (const column of columns) {
     out.map(4).key('field').value(column.fieldPath)
@@ -52,7 +55,7 @@ function writeGeopointColumns(out: MessagePackChunks, columns: KeywordSegmentArr
   }
 }
 
-function writePatternColumns(out: MessagePackChunks, columns: KeywordSegmentArrays['pattern']): void {
+export function writePatternColumns(out: MessagePackChunks, columns: KeywordSegmentArrays['pattern']): void {
   out.array(columns.length)
   for (const column of columns) {
     out.map(5).key('field').value(column.fieldPath)
@@ -63,7 +66,7 @@ function writePatternColumns(out: MessagePackChunks, columns: KeywordSegmentArra
   }
 }
 
-function writeSurfaceForms(out: MessagePackChunks, arrays: KeywordSegmentArrays): void {
+export function writeSurfaceForms(out: MessagePackChunks, arrays: Pick<KeywordSegmentArrays, 'surfaceTable'>): void {
   const table = arrays.surfaceTable
   if (table === null || table.counts.length === 0) {
     out.value(null)
@@ -74,7 +77,7 @@ function writeSurfaceForms(out: MessagePackChunks, arrays: KeywordSegmentArrays)
   out.key('counts').binary(littleEndianBytes(table.counts))
 }
 
-function writePartialWords(out: MessagePackChunks, arrays: KeywordSegmentArrays): void {
+export function writePartialWords(out: MessagePackChunks, arrays: Pick<KeywordSegmentArrays, 'partialWords'>): void {
   const table = arrays.partialWords
   if (table === null) {
     out.value(null)

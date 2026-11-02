@@ -1,5 +1,4 @@
 import { ErrorCodes, NarsilError } from '../../../errors'
-import { everyValueFacetConfig, mergeFacets } from '../../../search/facets'
 import type { FilterExpression } from '../../../types/filters'
 import type { InternalSearchParams, InternalSearchResult } from '../../../types/internal'
 import type { FacetResult } from '../../../types/results'
@@ -9,7 +8,7 @@ import type { ReadonlyStoredDocument } from '../../document-store'
 import type { ComparableSortValue } from '../../ordering'
 import type { PatternWorkMeter } from '../../pattern-index/types'
 import type { ResolvedProjection } from '../../projection'
-import { computeFacets, type FacetMatchSet } from '../facets'
+import type { FacetMatchSet } from '../facets'
 import type { PartitionFilterMatches } from '../filters'
 import type { FrozenSegment } from '../frozen'
 import { frozenSegmentBytes } from '../frozen/memory'
@@ -31,13 +30,13 @@ import {
   swapFrozenSegmentList,
 } from './compaction'
 import { compositeDocIds, compositeDocument, compositeFieldValues, compositeSortedDocIds } from './documents'
+import { compositeFacets } from './facets'
 import {
   compositeFilterMatches,
   compositeFilters,
   compositeFiltersBitset,
   computeOrdinalLayout,
   type OrdinalLayout,
-  subBitsetView,
 } from './filters'
 import { compositeSearchFulltext, compositeSearchMatches } from './search'
 import { compositeSortedPage, compositeSortValues } from './sorting'
@@ -59,6 +58,9 @@ export interface CompositePartition extends PartitionIndex {
   freezeLiveTail(freeze: LiveTailFreezer): FrozenSegment | null
   replaceLiveTail(segment: FrozenSegment): void
   removedSpellingsOf(docId: string): RemovedSpellings | undefined
+  frozenSegments(): readonly FrozenSegment[]
+  replaceFrozenSegments(segments: readonly FrozenSegment[]): void
+  documentIdsHeldInMemory(): IterableIterator<string>
 }
 
 export function isCompositePartition(partition: PartitionIndex): partition is CompositePartition {
@@ -88,7 +90,8 @@ export function createCompositePartition(
 
   function cachedDocFrequencies(): Readonly<Record<string, number>> {
     if (docFrequenciesCache === null) {
-      docFrequenciesCache = mergeDocFrequencies(subs())
+      const paged = frozen.find(segment => segment.paged !== null)?.paged
+      docFrequenciesCache = paged ? paged.termFrequenciesAcross(subs) : mergeDocFrequencies(subs())
     }
     return docFrequenciesCache
   }
@@ -178,6 +181,23 @@ export function createCompositePartition(
       bindSegments()
     },
 
+    frozenSegments(): readonly FrozenSegment[] {
+      return frozen
+    },
+
+    replaceFrozenSegments(segments: readonly FrozenSegment[]): void {
+      frozen.length = 0
+      frozen.push(...segments)
+      bindSegments()
+    },
+
+    documentIdsHeldInMemory(): IterableIterator<string> {
+      return compositeDocIds(
+        frozen.filter(segment => segment.paged === null),
+        live,
+      )
+    },
+
     mergeSegment(segment: PartitionIndex): void {
       invalidateDocFrequencies()
       live.mergeSegment(segment)
@@ -205,6 +225,7 @@ export function createCompositePartition(
     },
 
     clear(): void {
+      for (const segment of frozen) segment.paged?.close()
       frozen.length = 0
       invalidateDocFrequencies()
       live.clear()
@@ -287,25 +308,7 @@ export function createCompositePartition(
     },
 
     computeFacets(matched: FacetMatchSet, config: FacetConfig, schema: SchemaDefinition): Record<string, FacetResult> {
-      const everyValue = everyValueFacetConfig(config)
-      if ('ordinalBitset' in matched) {
-        const ordinalLayout = layout()
-        return mergeFacets(
-          subs().map((sub, index) =>
-            computeFacets(
-              sub,
-              { ordinalBitset: subBitsetView(matched.ordinalBitset, ordinalLayout, index) },
-              everyValue,
-              schema,
-            ),
-          ),
-          config,
-        )
-      }
-      return mergeFacets(
-        subs().map(sub => computeFacets(sub, matched, everyValue, schema)),
-        config,
-      )
+      return compositeFacets(subs(), layout, matched, config, schema)
     },
 
     sortedPage(request: SortPageRequest): SortedPageEntry[] {

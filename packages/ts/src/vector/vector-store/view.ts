@@ -14,6 +14,7 @@ import {
   STORE_SLOTS,
 } from './handles'
 import {
+  distanceFromQueryOf,
   type HotBlockReads,
   jsDistance,
   ordinalDistanceOf,
@@ -51,6 +52,7 @@ export interface SharedVectorStoreView {
   distanceByOrdinal(ordA: number, ordB: number, metric: VectorMetric): number
   prepareQueryArena(query: Float32Array): ArenaQueryVector | null
   distanceFromArena(prepared: ArenaQueryVector, ordinal: number, metric: VectorMetric): number
+  distanceFromQuery(query: Float32Array, queryMagnitude: number, ordinal: number, metric: VectorMetric): number
   hotBlockReads(): HotBlockReads | null
   queryDistance(prepared: ArenaQueryVector, metric: VectorMetric): (ordinal: number) => number
   ordinalDistance(from: number, metric: VectorMetric): (ordinal: number) => number
@@ -129,9 +131,7 @@ export function openSharedVectorStore(initial: SharedVectorStoreHandles, threadS
     return diskFile[ordinal]
   }
 
-  function isCold(ordinal: number): boolean {
-    return fileOf(ordinal) !== IN_MEMORY
-  }
+  const isCold = (ordinal: number): boolean => fileOf(ordinal) !== IN_MEMORY
 
   function holdState(ordinal: number): number {
     if (ordinal < 0) return NOT_HELD
@@ -145,9 +145,7 @@ export function openSharedVectorStore(initial: SharedVectorStoreHandles, threadS
     return index < handles.blocks.length && handles.blocks[index] !== null ? HELD_HOT : NOT_HELD
   }
 
-  function holds(ordinal: number): boolean {
-    return holdState(ordinal) !== NOT_HELD
-  }
+  const holds = (ordinal: number): boolean => holdState(ordinal) !== NOT_HELD
 
   function readFromFile(file: number, offset: number, target: Float32Array): boolean {
     const path = handles.vectorFiles[file]
@@ -384,6 +382,8 @@ export function openSharedVectorStore(initial: SharedVectorStoreHandles, threadS
       return jsDistance(currentQuery, vectorIn(block, local), prepared.magnitude, magnitudes[ordinal], metric)
     },
 
+    distanceFromQuery: (query, queryMagnitude, ordinal, metric) =>
+      distanceFromQueryOf(view, coldScratchB, query, queryMagnitude, ordinal, metric),
     hotBlockReads,
     queryDistance: (prepared, metric) => queryDistanceOf(view, prepared, metric),
     ordinalDistance: (from, metric) => ordinalDistanceOf(view, from, metric),

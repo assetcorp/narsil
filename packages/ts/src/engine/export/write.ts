@@ -3,6 +3,7 @@ import { decodeStoredDocument } from '../../core/partition/frozen/document-sourc
 import { setNestedValue } from '../../distribution/replication/replica'
 import type { ArchiveCheckpoint } from '../../persistence/durability/archive-checkpoint'
 import type { PartitionManifestEntry, VectorFileRef } from '../../persistence/durability/segment/manifest'
+import type { SegmentScan } from '../../persistence/paged/segment-scan'
 import { openChecksummedEnvelope } from '../../serialization/envelope-file'
 import { decodeKeywordSegment } from '../../serialization/keyword-segment/decode'
 import {
@@ -15,9 +16,11 @@ import { bytesToVectors } from '../../vector/vector-index/payload'
 import { EXPORT_CHUNK_BYTES } from '../constants'
 import { DOCUMENT_EXPORT_FORMAT, DOCUMENT_EXPORT_VERSION } from './import'
 import { encodeDocumentJson, encodeExactJson } from './json-line'
+import type { VectorReads } from './paged-lines'
 
 const VECTOR_FILE_ENVELOPE_VERSION = 2
 const FLOAT32_BYTES = 4
+const ENVELOPE_VERSION_OFFSET = 4
 
 interface VectorLocation {
   ref: VectorFileRef
@@ -83,7 +86,67 @@ async function winnersOf(
   return winners
 }
 
+async function wholeSegmentScan(
+  checkpoint: ArchiveCheckpoint,
+  ref: PartitionManifestEntry['segments'][number],
+): Promise<SegmentScan> {
+  const contents = await readSegment(checkpoint, ref)
+  const table = contents.arrays.documentTable
+  const ids = new Set<string>()
+  for (let ordinal = 0; ordinal < contents.arrays.documentCount; ordinal++) ids.add(idAt(contents, ordinal))
+  return {
+    count: contents.arrays.documentCount,
+    schema: contents.schema,
+    tombstones: new Set(contents.tombstones),
+    idAt: ordinal => idAt(contents, ordinal),
+    holds: docId => ids.has(docId),
+    storedDocumentAt: ordinal =>
+      decodeStoredDocument(
+        table.blob.subarray(table.offsets[ordinal], table.offsets[ordinal + 1]),
+        table.discardedFields,
+      ) as Record<string, unknown>,
+    close: () => undefined,
+  }
+}
+
+async function wholeFileVectorReads(checkpoint: ArchiveCheckpoint): Promise<VectorReads> {
+  const located = await locateVectors(checkpoint)
+  return {
+    async vectorOf(fieldPath, docId) {
+      const location = located.get(fieldPath)?.get(docId)
+      return location === undefined ? null : readVector(checkpoint, location)
+    },
+    close: () => located.clear(),
+  }
+}
+
+async function* pagedDocumentLines(checkpoint: ArchiveCheckpoint): AsyncGenerator<string> {
+  const { openFileVectorReads, pagedPartitionLines } = await import('../../persistence/paged/module')
+  const vectors = await openFileVectorReads(checkpoint, () => wholeFileVectorReads(checkpoint))
+  try {
+    for (const partition of checkpoint.manifest.partitions) {
+      yield* pagedPartitionLines(checkpoint, partition, vectors, ref => wholeSegmentScan(checkpoint, ref))
+    }
+  } finally {
+    vectors.close()
+  }
+}
+
+async function anyPartitionIsPaged(checkpoint: ArchiveCheckpoint): Promise<boolean> {
+  for (const partition of checkpoint.manifest.partitions) {
+    for (const ref of partition.segments) {
+      const [version] = await checkpoint.readRange(ref, ENVELOPE_VERSION_OFFSET, 1)
+      if (version !== KEYWORD_SEGMENT_ENVELOPE_VERSION) return true
+    }
+  }
+  return false
+}
+
 async function* documentLines(checkpoint: ArchiveCheckpoint): AsyncGenerator<string> {
+  if (await anyPartitionIsPaged(checkpoint)) {
+    yield* pagedDocumentLines(checkpoint)
+    return
+  }
   const vectors = await locateVectors(checkpoint)
   for (const partition of checkpoint.manifest.partitions) {
     const winners = await winnersOf(checkpoint, partition)

@@ -11,6 +11,7 @@ import {
 import {
   requireCreatableSchema,
   validateSchema,
+  validateTextStorage,
   validateVectorPromotion,
   validateVectorStorage,
 } from '../schema/validator'
@@ -83,6 +84,7 @@ export async function createEngineIndex(
   requireSurfaceFormsForPartialFields(schema, indexConfig.surfaceForms)
   validateVectorPromotion(indexConfig.vectorPromotion)
   validateVectorStorage(indexConfig.vectorPromotion, core.filesystemDurability)
+  validateTextStorage(indexConfig.textStorage, core.filesystemDurability)
   if (indexConfig.bm25 !== undefined) {
     validateBM25Params(
       indexConfig.bm25,

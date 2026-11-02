@@ -1,5 +1,6 @@
 import type { PartitionManager } from '../partitioning/manager'
 import type { LayoutUpgradeEvent } from '../persistence/durability/earlier-layout/upgrade'
+import type { IndexDurabilityHooks } from '../persistence/durability/types'
 import type { IndexMetadata } from '../types/internal'
 import type { HeldCheckpointReport } from '../types/memory'
 import type { IndexRegistryEntry } from './core'
@@ -15,6 +16,8 @@ interface DurabilityWiring {
   emitCheckpointHeld: (report: HeldCheckpointReport) => void
   publishCheckpointedPartitions: (indexName: string, partitions: number[]) => Promise<void>
   recordCheckpoint: (indexName: string, documentCount: number, partitionCount: number) => void
+  queueDiskAdoption?: IndexDurabilityHooks['queueDiskAdoption']
+  awaitCopiesOfIndex?: IndexDurabilityHooks['awaitCopiesOfIndex']
 }
 
 export function createDurabilityFromTier(tier: DurabilityTier, wiring: DurabilityWiring): DurabilityIntegration {
@@ -37,6 +40,8 @@ export function createDurabilityFromTier(tier: DurabilityTier, wiring: Durabilit
       const entry = wiring.indexRegistry.get(indexName)
       if (entry !== undefined && entry.analysisGeneration === analysisGeneration) entry.durableAnalysis = null
     },
+    queueDiskAdoption: wiring.queueDiskAdoption,
+    awaitCopiesOfIndex: wiring.awaitCopiesOfIndex,
     createIndexFromMetadata: wiring.createIndexFromMetadata,
     recordCheckpoint: wiring.recordCheckpoint,
     onLayoutUpgrade: wiring.emitLayoutUpgrade,

@@ -102,7 +102,7 @@ export function completeGraph(state: VectorIndexState): Promise<void> {
 
 export function maintenanceStatus(state: VectorIndexState): MaintenanceStatus {
   const storeSize = state.store.size
-  const graphCount = state.hnsw ? 1 : 0
+  const graphCount = state.hnsw || state.cold ? 1 : 0
   const graphNodes = state.hnsw === null ? storeSize : state.hnsw.size + state.hnsw.tombstoneCount
   const tombstoned = state.tombstones.size + state.store.replacedVectorCount
   const tombstoneRatio = graphNodes > 0 ? tombstoned / graphNodes : 0

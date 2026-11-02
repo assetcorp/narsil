@@ -4,7 +4,6 @@ import { DEFAULT_PATTERN_WORK_CAP } from '../core/pattern-index/constants'
 import { ErrorCodes, NarsilError } from '../errors'
 import type { PartitionManager } from '../partitioning/manager'
 import type { CapacityScope } from '../partitioning/manager/capacity'
-import { createRebalancer, type Rebalancer } from '../partitioning/rebalancer'
 import { createPartitionRouter, type PartitionRouter } from '../partitioning/router'
 import type { createWriteAheadQueue, WAQEntry } from '../partitioning/write-ahead-queue'
 import { createPluginRegistry, type PluginRegistry } from '../plugins/registry'
@@ -57,7 +56,6 @@ export interface EngineCore {
   readonly shutdownState: { isShutdown: boolean }
   readonly abortController: AbortController
   readonly orchestrator: WorkerOrchestrator
-  readonly rebalancer: Rebalancer
   readonly rebalanceRouter: PartitionRouter
   readonly rebalancingIndexes: Set<string>
   readonly waqMap: Map<string, ReturnType<typeof createWriteAheadQueue>>
@@ -158,7 +156,6 @@ export async function createEngineCore(
     vectorCopyPolicy,
   )
 
-  const rebalancer = createRebalancer()
   const rebalanceRouter = createPartitionRouter()
   const waqMap = new Map<string, ReturnType<typeof createWriteAheadQueue>>()
   const rebalanceTargets = new Map<string, number>()
@@ -228,6 +225,8 @@ export async function createEngineCore(
           emitCheckpointHeld(report) {
             emitEngineEvent(eventHandlers, 'checkpointHeld', report)
           },
+          queueDiskAdoption: orchestrator.queueDiskAdoption,
+          awaitCopiesOfIndex: indexName => orchestrator.awaitReplication(indexName),
           publishCheckpointedPartitions: (indexName, partitions) =>
             invalidation?.publishPartitions(indexName, partitions) ?? Promise.resolve(),
           recordCheckpoint(indexName, documentCount, partitionCount) {
@@ -330,7 +329,6 @@ export async function createEngineCore(
   }
 
   const rebalanceCtx: RebalanceContext = {
-    rebalancer,
     router: rebalanceRouter,
     waqMap,
     rebalancingIndexes,
@@ -358,7 +356,6 @@ export async function createEngineCore(
     shutdownState,
     abortController,
     orchestrator,
-    rebalancer,
     rebalanceRouter,
     rebalancingIndexes,
     waqMap,
