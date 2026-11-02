@@ -1,4 +1,5 @@
 import { loadNativeCore } from '#platform/native-core'
+import { hostOwnsMemory } from '#platform/vector-memory-limits'
 import type { VectorMetric } from '../brute-force'
 import { NATIVE_ATTACH_RETRY_MS } from '../constants'
 import { fixedView, type GrowableBuffer } from '../shared-buffers/growable'
@@ -31,14 +32,16 @@ export function nativeMetricCode(metric: VectorMetric): number {
 }
 
 export function isSharedMemory(buffer: GrowableBuffer | ArrayBufferLike): boolean {
-  return typeof SharedArrayBuffer === 'function' && buffer instanceof SharedArrayBuffer
+  if (typeof SharedArrayBuffer === 'function' && buffer instanceof SharedArrayBuffer) return true
+  return hostOwnsMemory(buffer)
 }
 
 function blockBytes(block: VectorBlockHandle): Uint8Array | null {
   const storage = block.storage
   if (storage.kind === 'shared-memory') return new Uint8Array(storage.memory.buffer, block.layout.slotsOffset)
   if (storage.kind === 'bytes' && isSharedMemory(storage.buffer)) {
-    return new Uint8Array(storage.buffer, block.layout.slotsOffset)
+    const offset = block.layout.slotsOffset
+    return new Uint8Array(storage.buffer, offset, Math.max(0, storage.buffer.byteLength - offset))
   }
   return null
 }

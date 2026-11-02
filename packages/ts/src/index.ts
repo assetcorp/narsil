@@ -20,6 +20,12 @@ export { ClientErrorCodes, ErrorCodes, isNarsilError, NarsilError, ServerErrorCo
 export { getLanguage, registerLanguage } from './languages/registry'
 export type { ByteSource, Narsil } from './narsil'
 export { createNarsil } from './narsil'
+export type {
+  ReactNativeDirectoryEntry,
+  ReactNativeFileStatus,
+  ReactNativeFiles,
+  ReactNativeHost,
+} from './runtime/react-native-host'
 export { isSimdAvailable } from './runtime/simd-support'
 export type { AdapterRegistrationOperations } from './types/adapter-registration'
 export type {
@@ -37,6 +43,7 @@ export type {
   DurabilityConfig,
   IndexLifecycleConfig,
   MainCopyQueries,
+  MemoryConfig,
   NarsilConfig,
   StaleAnalysis,
   WorkerConfig,
@@ -127,6 +134,13 @@ export type {
 export type { SynonymOperations } from './types/synonym-operations'
 export type { OneWaySynonymRule, SynonymRule, SynonymSearch, TwoWaySynonymRule } from './types/synonyms'
 export type { DocumentWriteOperations } from './types/writes'
+export type {
+  NativeCore,
+  NativeGraphHandle,
+  NativeGraphMemory,
+  NativeStoreHandle,
+  NativeStoreMemory,
+} from './vector/native/types'
 /**
  * Engine version written into the engine-version bytes of every `.nrsl` file,
  * for diagnostics.

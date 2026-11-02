@@ -1,3 +1,4 @@
+import { type MemoryFigures, readMemoryFigures, readRecentMemoryFigures } from '../../../engine/memory/measure'
 import { NarsilError, ServerErrorCodes } from '../../../errors'
 import {
   admitHeapBytes,
@@ -6,7 +7,6 @@ import {
   reservedHeapBytes,
 } from '../../../runtime/thread-heap'
 import { ANSWER_ENCODE_BYTES_PER_ESTIMATED_BYTE, ANSWER_MEMORY_BLOCK_FRACTION } from '../constants'
-import { type MemoryFigures, readMemoryFigures, readRecentMemoryFigures } from './measure'
 import { estimateDocumentBytes } from './write-pressure'
 
 const RESPONSE_WOULD_FILL_MEMORY_REASON = 'response_would_fill_memory'

@@ -1,8 +1,8 @@
-import { getNestedValue } from '../../../core/partition/utils'
-import { schemaFieldsOf } from '../../../schema/validator/schema'
-import { MAX_DOCUMENT_ENCODING_DEPTH } from '../../../serialization/constants'
-import type { LanguageModule } from '../../../types/language'
-import type { AnyDocument, CustomTokenizer, SchemaDefinition } from '../../../types/schema'
+import { getNestedValue } from '../../core/partition/utils'
+import { schemaFieldsOf } from '../../schema/validator/schema'
+import { MAX_DOCUMENT_ENCODING_DEPTH } from '../../serialization/constants'
+import type { LanguageModule } from '../../types/language'
+import type { AnyDocument, CustomTokenizer, SchemaDefinition } from '../../types/schema'
 import {
   CASE_FOLD_EXPANSION_FACTOR,
   DISTINCT_TERM_HEAP_BYTES,
@@ -16,7 +16,7 @@ import {
   TERM_UNIT_HEAP_BYTES,
   VECTOR_COMPONENT_HEAP_BYTES,
   VECTOR_DOCUMENT_HEAP_BYTES,
-} from '../constants'
+} from './constants'
 
 export interface IndexWriteAnalysis {
   schema: SchemaDefinition

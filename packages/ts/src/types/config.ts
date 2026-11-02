@@ -87,6 +87,56 @@ export interface NarsilConfig {
    * `CONFIG_INVALID`.
    */
   patternWorkCap?: number
+  /**
+   * These fractions set the memory levels at which the engine stops and resumes
+   * accepting inserts and updates, so that a write cannot take the process past
+   * its memory limit. Inside a cluster node, the node's own memory settings
+   * apply in place of these. For a fraction outside the range that
+   * {@link MemoryConfig} describes, {@link createNarsil} throws `CONFIG_INVALID`
+   * on Node.js and on a phone. A browser reports no memory limit, so the
+   * engine there ignores this setting and leaves it unchecked.
+   */
+  memory?: MemoryConfig
+}
+
+/**
+ * The memory levels at which an engine stops and resumes accepting inserts and
+ * updates.
+ *
+ * The engine measures its process memory and its heap before a write whenever
+ * its latest measurement is more than one second old. It counts as full once
+ * either figure passes `blockWritesAbove` of its limit, and as clear again once
+ * both fall below `resumeWritesBelow`, so that an engine near the threshold
+ * does not switch writes on and off. While the engine is full, it refuses every
+ * insert and update with `MEMORY_WRITE_BLOCKED` and the reason `memory_full`,
+ * and it accepts removes, searches, and document reads, so that you can free
+ * memory by removing documents. It also refuses a document whose indexing could
+ * take the memory in use past the block level, with the reason
+ * `write_would_fill_memory`. In a batch, it refuses that document and every
+ * later one, and it keeps the documents that it has already indexed. A runtime
+ * that reports no memory limit, such as a browser, leaves every write
+ * unchecked.
+ *
+ * @public
+ */
+export interface MemoryConfig {
+  /**
+   * The engine counts as full once either memory figure passes this fraction
+   * of its limit. It must lie above `resumeWritesBelow` and at most 1, and it
+   * is 0.9 where you set none. On Node.js, the engine compares its heap with
+   * the smaller of this setting and 0.75, because V8 stops a process after four
+   * full collections in a row that each leave the old generation holding at
+   * least 0.8 of its limit.
+   */
+  blockWritesAbove?: number
+  /**
+   * A full engine accepts writes again once both memory figures fall below
+   * this fraction of their limits. It must lie above 0 and below
+   * `blockWritesAbove`, and it is 0.8 where you set none. On Node.js, the
+   * engine compares its heap with the smaller of this setting and 0.65, for the
+   * same reason that it caps the heap side of `blockWritesAbove` at 0.75.
+   */
+  resumeWritesBelow?: number
 }
 
 /**

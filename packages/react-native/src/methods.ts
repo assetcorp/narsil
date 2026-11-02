@@ -1,0 +1,52 @@
+export const FORWARDED_METHODS = [
+  'createIndex',
+  'dropIndex',
+  'listIndexes',
+  'getStats',
+  'getPartitionStats',
+  'get',
+  'getMultiple',
+  'has',
+  'countDocuments',
+  'listDocuments',
+  'query',
+  'preflight',
+  'suggest',
+  'rebuildAnalysis',
+  'restore',
+  'importDocumentExport',
+  'checkpoint',
+  'clear',
+  'rebalance',
+  'updatePartitionConfig',
+  'getMemoryStats',
+  'compactVectors',
+  'optimizeVectors',
+  'vectorMaintenanceStatus',
+  'open',
+  'close',
+  'insert',
+  'insertBatch',
+  'remove',
+  'removeBatch',
+  'update',
+  'updateBatch',
+  'waitForWrites',
+  'updateSynonyms',
+  'getSynonyms',
+  'changeAnalysis',
+  'updateBM25',
+] as const
+
+export const STREAMED_METHODS = [
+  'snapshot',
+  'exportDocuments',
+  'snapshotToFile',
+  'exportDocumentsToFile',
+  'restoreFromFile',
+  'importDocumentExportFromFile',
+] as const
+
+export type ForwardedMethod = (typeof FORWARDED_METHODS)[number]
+export type StreamedMethod = (typeof STREAMED_METHODS)[number]
+export type EngineMethod = ForwardedMethod | StreamedMethod | 'shutdown'

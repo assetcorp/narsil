@@ -1,6 +1,7 @@
 packages:
   - 'packages/*'
   - 'packages/ts/examples/*'
+  - 'packages/react-native/examples/*'
   - 'benchmarks/*'
 
 minimumReleaseAge: 5760

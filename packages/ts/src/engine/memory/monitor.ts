@@ -1,4 +1,4 @@
-import type { NodeMemoryReport } from '../../coordinator/types'
+import type { NodeMemoryReport } from '../../distribution/coordinator/types'
 import type { MemoryFractions } from './fractions'
 import type { MemoryFigures } from './measure'
 
@@ -18,6 +18,7 @@ export interface MemoryMonitor {
   isFull(): boolean
   sample(): void
   sampleIfOlderThan(maxAgeMs: number): void
+  measureIfOlderThan(maxAgeMs: number): void
   measureWithoutGarbage(): MemoryFigures | null
   refusedAfterCollection(figures: MemoryFigures): void
   collections(): number
@@ -131,6 +132,11 @@ export function createMemoryMonitor(options: MemoryMonitorOptions): MemoryMonito
     collections: () => collectionCount,
     sampleIfOlderThan(maxAgeMs) {
       if (timer !== null && Date.now() - lastSampleAt >= maxAgeMs) {
+        sample()
+      }
+    },
+    measureIfOlderThan(maxAgeMs) {
+      if (Date.now() - lastSampleAt >= maxAgeMs) {
         sample()
       }
     },

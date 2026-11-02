@@ -1,0 +1,10 @@
+{
+  "extends": "@react-native/typescript-config",
+  "compilerOptions": {
+    "noEmit": true,
+    "lib": ["ES2024", "DOM"],
+    "types": ["react-native", "node"]
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx"],
+  "exclude": ["**/node_modules", "**/Pods"]
+}

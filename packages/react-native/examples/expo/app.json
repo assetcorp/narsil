@@ -1,0 +1,24 @@
+{
+  "expo": {
+    "name": "Narsil Check",
+    "slug": "narsil-check",
+    "version": "0.0.1",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "plugins": ["@delali/narsil-react-native", "./plugins/harness-traffic"],
+    "ios": {
+      "bundleIdentifier": "com.sondelali.narsil.check",
+      "supportsTablet": false,
+      "config": {
+        "usesNonExemptEncryption": false
+      },
+      "infoPlist": {
+        "NSAppTransportSecurity": { "NSAllowsLocalNetworking": true },
+        "NSLocalNetworkUsageDescription": "Narsil Check sends its search results to the computer that runs the checks."
+      }
+    },
+    "android": {
+      "package": "com.sondelali.narsil.check"
+    }
+  }
+}

@@ -1,18 +1,8 @@
-import {
-  MAX_DOC_ID_TABLE_BYTES,
-  MAX_VECTOR_ORDINALS,
-  UNPLACED_FLAG_CHUNK_ORDINALS,
-  VECTOR_STORE_INITIAL_CAPACITY,
-} from '../constants'
+import { VECTOR_MEMORY_LIMITS } from '#platform/vector-memory-limits'
+import { UNPLACED_FLAG_CHUNK_ORDINALS, VECTOR_STORE_INITIAL_CAPACITY } from '../constants'
 import type { OsqBits } from '../osq/quantize'
 import { createFixedBuffer, createGrowableBuffer, type GrowableBuffer } from '../shared-buffers/growable'
-import {
-  BLOCK_MAX_BYTES,
-  blockBuffer,
-  computeVectorBlockLayout,
-  type VectorBlockHandle,
-  type VectorBlockLayout,
-} from './blocks'
+import { blockBuffer, computeVectorBlockLayout, type VectorBlockHandle, type VectorBlockLayout } from './blocks'
 import { computeCodeBlockLayout, type VectorCodeBlockLayout } from './code-blocks'
 
 export const STORE_SLOTS = 0
@@ -115,20 +105,20 @@ export function unplacedChunkCount(ordinals: number): number {
 function perOrdinal(bytesPerOrdinal: number): GrowableBuffer {
   return createGrowableBuffer(
     VECTOR_STORE_INITIAL_CAPACITY * bytesPerOrdinal,
-    (MAX_VECTOR_ORDINALS + 1) * bytesPerOrdinal,
+    (VECTOR_MEMORY_LIMITS.maxOrdinals + 1) * bytesPerOrdinal,
   )
 }
 
 function inMemoryTable(): GrowableBuffer {
   const buffer = perOrdinal(4)
-  new Int32Array(buffer).fill(IN_MEMORY)
+  new Int32Array(buffer, 0, buffer.byteLength / 4).fill(IN_MEMORY)
   return buffer
 }
 
 export function createSharedVectorStoreHandles(
   dimension: number,
   codeBits: OsqBits | null,
-  blockBytes: number = BLOCK_MAX_BYTES,
+  blockBytes: number = VECTOR_MEMORY_LIMITS.blockBytes,
 ): SharedVectorStoreHandles {
   return {
     dimension,
@@ -143,10 +133,10 @@ export function createSharedVectorStoreHandles(
     magnitudes: perOrdinal(8),
     present: perOrdinal(1),
     unplaced: perOrdinal(1),
-    unplacedChunks: createGrowableBuffer(4, unplacedChunkCount(MAX_VECTOR_ORDINALS) * 4),
+    unplacedChunks: createGrowableBuffer(4, unplacedChunkCount(VECTOR_MEMORY_LIMITS.maxOrdinals) * 4),
     removed: perOrdinal(1),
     partitions: perOrdinal(4),
-    docIdBytes: createGrowableBuffer(VECTOR_STORE_INITIAL_CAPACITY * 16, MAX_DOC_ID_TABLE_BYTES),
+    docIdBytes: createGrowableBuffer(VECTOR_STORE_INITIAL_CAPACITY * 16, VECTOR_MEMORY_LIMITS.maxDocIdTableBytes),
     docIdOffsets: perOrdinal(4),
     codePresent: perOrdinal(1),
     diskFile: inMemoryTable(),

@@ -1,7 +1,6 @@
 import { decode, encode } from '@msgpack/msgpack'
 import { afterEach, describe, expect, it } from 'vitest'
 import { createClusterNode } from '../../../distribution/cluster-node'
-import { readMemoryFigures } from '../../../distribution/cluster-node/memory/measure'
 import type { ClusterNode } from '../../../distribution/cluster-node/types'
 import { createInMemoryCoordinator } from '../../../distribution/coordinator'
 import type { ClusterCoordinator } from '../../../distribution/coordinator/types'
@@ -9,6 +8,7 @@ import { createForwardBatchMessage, createForwardMessage } from '../../../distri
 import { createInMemoryNetwork, createInMemoryTransport } from '../../../distribution/transport'
 import type { NodeTransport } from '../../../distribution/transport/types'
 import { ReplicationMessageTypes } from '../../../distribution/transport/types'
+import { readMemoryFigures } from '../../../engine/memory/measure'
 import { ErrorCodes, NarsilError } from '../../../errors'
 import { encodeDocument } from '../../../serialization/document-encoding'
 

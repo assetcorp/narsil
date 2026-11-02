@@ -1,6 +1,6 @@
-import { BATCH_CHUNK_SIZE } from '../../../engine/constants'
-import { ErrorCodes, NarsilError } from '../../../errors'
-import { reservedHeapBytes, reserveHeapBytes } from '../../../runtime/thread-heap'
+import { type ErrorCode, NarsilError } from '../../errors'
+import { reservedHeapBytes, reserveHeapBytes } from '../../runtime/thread-heap'
+import { BATCH_CHUNK_SIZE } from '../constants'
 import { createDocumentBound, type DocumentBound, type IndexWriteAnalysis } from './document-bound'
 import type { MemoryFractions } from './fractions'
 import type { MemoryFigures } from './measure'
@@ -15,12 +15,20 @@ export interface ProjectedGroup {
 
 export interface WriteProjection {
   boundOf(indexName: string): DocumentBound | null
-  takeGroup(indexName: string, bounds: readonly number[], start: number): ProjectedGroup
+  takeGroup(indexName: string, bounds: readonly number[], start: number, mostDocuments?: number): ProjectedGroup
   takeOne(indexName: string, bound: number): ProjectedGroup
 }
 
+export interface WriteRefusalWording {
+  code: ErrorCode
+  refuser: string
+  owner: string
+  fillAdvice: string
+  details: Readonly<Record<string, unknown>>
+}
+
 export interface WriteProjectionOptions {
-  nodeId: string
+  refusal: WriteRefusalWording
   fractions: MemoryFractions
   measure: () => MemoryFigures | null
   measureWithoutGarbage: () => MemoryFigures | null
@@ -47,14 +55,16 @@ function processRoomIn(figures: MemoryFigures, fractions: MemoryFractions): numb
 
 export function createWriteProjection(options: WriteProjectionOptions): WriteProjection {
   const bounds = new Map<string, CachedBound>()
+  const { refusal } = options
 
   function fittingCount(
     indexName: string,
     figures: MemoryFigures | null,
     groupBounds: readonly number[],
     start: number,
+    mostDocuments: number,
   ): number {
-    const end = Math.min(groupBounds.length, start + BATCH_CHUNK_SIZE)
+    const end = Math.min(groupBounds.length, start + mostDocuments)
     if (figures === null) return end - start
     const reserved = reservedHeapBytes()
     const heapRoom = heapRoomIn(figures, options.fractions) - reserved
@@ -81,14 +91,19 @@ export function createWriteProjection(options: WriteProjectionOptions): WritePro
   }
 
   function blockBytesOf(figures: MemoryFigures): number {
-    return Math.floor(options.fractions.heapBlock * figures.heapLimitBytes)
+    return Math.floor(
+      Math.min(
+        options.fractions.heapBlock * figures.heapLimitBytes,
+        options.fractions.processBlock * figures.processLimitBytes,
+      ),
+    )
   }
 
   function exceedsMemory(indexName: string, bound: number, blockBytes: number): NarsilError {
     return new NarsilError(
-      ErrorCodes.CLUSTER_WRITE_BLOCKED,
-      `Node '${options.nodeId}' refuses this document for index '${indexName}' because indexing it can take up to ${bound} bytes, more than the ${blockBytes} bytes that the node allows its heap even when idle. Split the document into smaller documents.`,
-      { reason: WRITE_EXCEEDS_MEMORY_REASON, indexName, nodeId: options.nodeId, documentBytes: bound, blockBytes },
+      refusal.code,
+      `${refusal.refuser} refuses this document for index '${indexName}' because indexing it can take up to ${bound} bytes, more than the ${blockBytes} bytes that ${refusal.owner} allows its memory even when idle. Split the document into smaller documents.`,
+      { reason: WRITE_EXCEEDS_MEMORY_REASON, indexName, ...refusal.details, documentBytes: bound, blockBytes },
     )
   }
 
@@ -101,12 +116,12 @@ export function createWriteProjection(options: WriteProjectionOptions): WritePro
   ): NarsilError {
     const projected = reservedHeapBytes()
     return new NarsilError(
-      ErrorCodes.CLUSTER_WRITE_BLOCKED,
-      `Node '${options.nodeId}' refuses this document for index '${indexName}' because indexing it can take up to ${bound} bytes, which with the ${projected} bytes that writes in progress can take would pass the node's memory block. Retry once the writes in progress finish, or add memory to the cluster.`,
+      refusal.code,
+      `${refusal.refuser} refuses this document for index '${indexName}' because indexing it can take up to ${bound} bytes, which with the ${projected} bytes that writes in progress can take would pass ${refusal.owner}'s memory block. ${refusal.fillAdvice}`,
       {
         reason: WRITE_WOULD_FILL_MEMORY_REASON,
         indexName,
-        nodeId: options.nodeId,
+        ...refusal.details,
         documentBytes: bound,
         projectedBytes: projected,
         heapBytes: figures.heapBytes,
@@ -121,20 +136,25 @@ export function createWriteProjection(options: WriteProjectionOptions): WritePro
     )
   }
 
-  function takeGroup(indexName: string, groupBounds: readonly number[], start: number): ProjectedGroup {
+  function takeGroup(
+    indexName: string,
+    groupBounds: readonly number[],
+    start: number,
+    mostDocuments = BATCH_CHUNK_SIZE,
+  ): ProjectedGroup {
     if (start >= groupBounds.length) return UNPROJECTED
     const measured = options.measure()
     if (measured === null)
-      return reserve(indexName, groupBounds, start, fittingCount(indexName, null, groupBounds, start))
+      return reserve(indexName, groupBounds, start, fittingCount(indexName, null, groupBounds, start, mostDocuments))
     if (groupBounds[start] > blockBytesOf(measured)) {
       throw exceedsMemory(indexName, groupBounds[start], blockBytesOf(measured))
     }
     let figures = measured
-    let count = fittingCount(indexName, figures, groupBounds, start)
+    let count = fittingCount(indexName, figures, groupBounds, start, mostDocuments)
     if (count > 0) return reserve(indexName, groupBounds, start, count)
     const collectionsBefore = options.collections()
     figures = options.measureWithoutGarbage() ?? figures
-    count = fittingCount(indexName, figures, groupBounds, start)
+    count = fittingCount(indexName, figures, groupBounds, start, mostDocuments)
     if (count > 0) return reserve(indexName, groupBounds, start, count)
     const collected = options.collections() !== collectionsBefore
     if (collected) options.refusedAfterCollection(figures)

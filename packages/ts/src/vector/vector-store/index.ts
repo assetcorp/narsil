@@ -1,8 +1,8 @@
+import { VECTOR_MEMORY_LIMITS } from '#platform/vector-memory-limits'
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { OrdinalFilter } from '../ordinal-filter'
 import type { OsqBits } from '../osq/quantize'
 import { magnitude } from '../similarity'
-import { BLOCK_MAX_BYTES } from './blocks'
 import { resetDocIds } from './doc-ids'
 import {
   IN_MEMORY,
@@ -56,7 +56,7 @@ const NO_PARTITION = -2
 
 export function createVectorStore(options?: VectorStoreOptions): VectorStore {
   const codeBits: OsqBits | null = options?.codeBits ?? null
-  const blockBytes = options?.blockBytes ?? BLOCK_MAX_BYTES
+  const blockBytes = Math.min(options?.blockBytes ?? VECTOR_MEMORY_LIMITS.blockBytes, VECTOR_MEMORY_LIMITS.blockBytes)
   const docToOrd = new Map<string, number>()
   const ordToDoc: Array<string | undefined> = []
   const replacedOrdinals = new Set<number>()
@@ -317,9 +317,9 @@ export function createVectorStore(options?: VectorStoreOptions): VectorStore {
     clear(): void {
       forgetDocuments()
       if (open === null) return
-      open.present.fill(0)
-      new Uint8Array(open.handles.codePresent).fill(0)
-      new Int32Array(open.handles.diskFile).fill(IN_MEMORY)
+      open.present.fill(0, 0, open.handles.present.byteLength)
+      new Uint8Array(open.handles.codePresent, 0, open.handles.codePresent.byteLength).fill(0)
+      new Int32Array(open.handles.diskFile, 0, open.handles.diskFile.byteLength / 4).fill(IN_MEMORY)
       open.handles.centroid.fill(0)
       if (open.handles.vectorFiles.length > 0) {
         open.handles.vectorFiles.length = 0
