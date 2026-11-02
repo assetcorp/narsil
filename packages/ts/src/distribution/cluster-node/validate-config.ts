@@ -1,4 +1,5 @@
 import { ErrorCodes, NarsilError } from '../../errors'
+import { validateBackupConfig } from '../backups/keys'
 import type { NodeRole } from '../coordinator/types'
 import {
   DEFAULT_BLOCK_WRITES_ABOVE,
@@ -113,6 +114,10 @@ export function validateClusterNodeConfig(config: ClusterNodeConfig): void {
 
   if (config.memory !== undefined) {
     validateMemoryConfig(config.memory)
+  }
+
+  if (config.backups !== undefined) {
+    validateBackupConfig(config.backups)
   }
 
   if (config.controller !== undefined) {

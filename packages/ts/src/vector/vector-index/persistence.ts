@@ -30,6 +30,18 @@ function sameCentroid(state: VectorIndexState, planned: readonly number[]): bool
   return true
 }
 
+export function codesOfReadVectors(
+  state: VectorIndexState,
+  centroid: number[] | null,
+  vectors: Float32Array,
+  ordinals: Int32Array,
+): VectorIndexCodes | null {
+  const quantizer = state.osq
+  const layout = state.store.handles.codeLayout
+  if (centroid === null || quantizer === null || layout === null) return null
+  return codesAgainstPlannedCentroid(quantizer, layout.slotStride, centroid, vectors, ordinals)
+}
+
 function codesAgainstPlannedCentroid(
   quantizer: OsqQuantizer,
   slotStride: number,

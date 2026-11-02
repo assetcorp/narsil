@@ -8,7 +8,16 @@ import {
 } from './constants'
 import { serializeNarsilError } from './errors'
 import { isTerminalTaskStatus } from './task-status'
-import type { ImportResult, TaskListPage, TaskListQuery, TaskProgress, TaskRecord, TaskStore, TaskType } from './types'
+import type {
+  ImportResult,
+  TaskListPage,
+  TaskListQuery,
+  TaskProgress,
+  TaskRecord,
+  TaskStepProgress,
+  TaskStore,
+  TaskType,
+} from './types'
 
 /**
  * What a running task reports back while it works, and how it learns that a
@@ -25,6 +34,12 @@ export interface TaskContext {
    * @param progress - The counters as they stand now.
    */
   reportProgress(progress: TaskProgress): void
+  /**
+   * Records how many of its steps the work has finished, which `GET /tasks/{id}` then reports.
+   *
+   * @param steps - The steps finished and the steps in total.
+   */
+  reportSteps(steps: TaskStepProgress): void
   /**
    * Records what the work produced, which the finished task then carries.
    *
@@ -90,7 +105,13 @@ export class TaskRegistry {
    * @throws A `NarsilError` with `TOO_MANY_REQUESTS` where this instance
    * already drives {@link ServerLimits.maxConcurrentTasks} tasks, because each
    * one holds its own working set until it finishes. */
-  async start(type: TaskType, indexName: string, op: TaskOperation, progress?: TaskProgress): Promise<TaskRecord> {
+  async start(
+    type: TaskType,
+    indexName: string,
+    op: TaskOperation,
+    progress?: TaskProgress,
+    backupName?: string,
+  ): Promise<TaskRecord> {
     if (this.maxConcurrent > 0 && this.live.size >= this.maxConcurrent) {
       throw new NarsilError(
         ServerErrorCodes.TOO_MANY_REQUESTS,
@@ -103,6 +124,7 @@ export class TaskRegistry {
       id: randomUUID(),
       type,
       indexName,
+      ...(backupName === undefined ? {} : { backupName }),
       owner: this.instanceId,
       status: 'running',
       createdAt: now,
@@ -197,9 +219,9 @@ export class TaskRegistry {
     return task.writes.catch(() => {})
   }
 
-  private reportProgress(task: LiveTask, progress: TaskProgress): void {
+  private reportProgress(task: LiveTask, change: Pick<TaskRecord, 'progress'> | Pick<TaskRecord, 'steps'>): void {
     if (task.settled) return
-    task.record = { ...task.record, progress }
+    task.record = { ...task.record, ...change }
     const now = Date.now()
     if (now - task.lastProgressWriteAt < TASK_PROGRESS_WRITE_INTERVAL_MS) return
     task.lastProgressWriteAt = now
@@ -209,7 +231,8 @@ export class TaskRegistry {
   private async drive(task: LiveTask, op: TaskOperation): Promise<void> {
     const context: TaskContext = {
       signal: task.controller.signal,
-      reportProgress: progress => this.reportProgress(task, progress),
+      reportProgress: progress => this.reportProgress(task, { progress }),
+      reportSteps: steps => this.reportProgress(task, { steps }),
       reportResult: result => {
         task.record = { ...task.record, result }
       },

@@ -10,6 +10,10 @@ export interface ServerHandlers {
   clusterAllocation: RouteHandler
   clusterReplicationFactor: RouteHandler
   clusterHealth: RouteHandler
+  createBackup: RouteHandler
+  listBackups: RouteHandler
+  restoreBackup: RouteHandler
+  deleteBackup: RouteHandler
   metrics: RouteHandler
   memory: RouteHandler
   listTasks: RouteHandler

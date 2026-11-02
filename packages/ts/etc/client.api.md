@@ -28,6 +28,34 @@ export interface AdminOperations {
 export const ASYNC_IMPORT_CAPABILITY = "documents.import.async";
 
 // @public
+export type BackupListing = BackupSummary | DamagedBackup;
+
+// @public
+export interface BackupListResponse {
+    backups: BackupListing[];
+}
+
+// @public
+export interface BackupOperations {
+    createBackup(indexName: string, backupName: string, options?: RequestOptions): Promise<TaskRecord>;
+    deleteBackup(backupName: string, options?: RequestOptions): Promise<TaskRecord>;
+    listBackups(options?: RequestOptions): Promise<BackupListing[]>;
+    restoreBackup(backupName: string, restore: RestoreBackupBody, options?: RequestOptions): Promise<TaskRecord>;
+}
+
+// @public
+export interface BackupSummary {
+    bytes: number;
+    completedAt: number;
+    files: number;
+    indexName: string;
+    name: string;
+    partitionCount: number;
+    replicationFactor: number;
+    startedAt: number;
+}
+
+// @public
 export const BM25_TUNING_CAPABILITY = "indexes.bm25";
 
 // @public
@@ -82,6 +110,15 @@ export interface CreateIndexEmbedding {
 export function createNarsilClient(options: NarsilClientOptions): NarsilClient;
 
 // @public
+export interface DamagedBackup {
+    error: {
+        code: string;
+        message: string;
+    };
+    name: string;
+}
+
+// @public
 export const DOCUMENT_EXPORT_CAPABILITY = "indexes.documentExport";
 
 // @public
@@ -125,6 +162,15 @@ export const ErrorCodes: {
     readonly PERSISTENCE_CRC_MISMATCH: "PERSISTENCE_CRC_MISMATCH";
     readonly PERSISTENCE_WAL_CORRUPT: "PERSISTENCE_WAL_CORRUPT";
     readonly PERSISTENCE_FSYNC_FAILED: "PERSISTENCE_FSYNC_FAILED";
+    readonly PERSISTENCE_DEPENDENCY_MISSING: "PERSISTENCE_DEPENDENCY_MISSING";
+    readonly BACKUP_NOT_FOUND: "BACKUP_NOT_FOUND";
+    readonly BACKUP_ALREADY_EXISTS: "BACKUP_ALREADY_EXISTS";
+    readonly BACKUP_DAMAGED: "BACKUP_DAMAGED";
+    readonly BACKUP_DURABILITY_REQUIRED: "BACKUP_DURABILITY_REQUIRED";
+    readonly BACKUP_IN_PROGRESS: "BACKUP_IN_PROGRESS";
+    readonly BACKUP_STORE_CLAIMED: "BACKUP_STORE_CLAIMED";
+    readonly BACKUP_STORE_NOT_CONFIGURED: "BACKUP_STORE_NOT_CONFIGURED";
+    readonly BACKUP_NOT_READY: "BACKUP_NOT_READY";
     readonly SEARCH_INVALID_FIELD: "SEARCH_INVALID_FIELD";
     readonly VECTOR_DIMENSION_MISMATCH: "VECTOR_DIMENSION_MISMATCH";
     readonly SEARCH_INVALID_FILTER: "SEARCH_INVALID_FILTER";
@@ -296,7 +342,7 @@ export interface MemoryStatsResponse extends MemoryStats {
 }
 
 // @public
-export interface NarsilClient extends IndexOperations, DocumentOperations, BulkOperations, SearchOperations, TaskOperations, AdminOperations, ServerOperations {
+export interface NarsilClient extends IndexOperations, DocumentOperations, BulkOperations, SearchOperations, TaskOperations, AdminOperations, BackupOperations, ServerOperations {
 }
 
 // @public
@@ -336,6 +382,13 @@ export interface RequestOptions {
     maxResponseBytes?: number;
     signal?: AbortSignal;
     timeoutMs?: number;
+}
+
+// @public
+export interface RestoreBackupBody {
+    constraints?: AllocationConstraints;
+    indexName: string;
+    replicationFactor?: number;
 }
 
 // @public
@@ -430,6 +483,7 @@ export interface TaskProgress {
 
 // @public
 export interface TaskRecord {
+    backupName?: string;
     cancelRequestedAt?: number;
     completedAt?: number;
     createdAt: number;
@@ -441,6 +495,7 @@ export interface TaskRecord {
     result?: ImportResult;
     startedAt?: number;
     status: TaskStatus;
+    steps?: TaskStepProgress;
     type: TaskType;
 }
 
@@ -448,7 +503,13 @@ export interface TaskRecord {
 export type TaskStatus = 'running' | 'succeeded' | 'failed' | 'cancelled';
 
 // @public
-export type TaskType = 'optimizeVectors' | 'rebalance' | 'restore' | 'import' | 'importExport' | 'rebuildAnalysis' | 'changeAnalysis';
+export interface TaskStepProgress {
+    done: number;
+    total: number;
+}
+
+// @public
+export type TaskType = 'optimizeVectors' | 'rebalance' | 'restore' | 'import' | 'importExport' | 'rebuildAnalysis' | 'changeAnalysis' | 'backup' | 'backupRestore' | 'backupDelete';
 
 // @public
 export interface WaitForTaskOptions extends RequestOptions {

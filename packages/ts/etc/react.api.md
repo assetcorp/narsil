@@ -49,6 +49,15 @@ export const ErrorCodes: {
     readonly PERSISTENCE_CRC_MISMATCH: "PERSISTENCE_CRC_MISMATCH";
     readonly PERSISTENCE_WAL_CORRUPT: "PERSISTENCE_WAL_CORRUPT";
     readonly PERSISTENCE_FSYNC_FAILED: "PERSISTENCE_FSYNC_FAILED";
+    readonly PERSISTENCE_DEPENDENCY_MISSING: "PERSISTENCE_DEPENDENCY_MISSING";
+    readonly BACKUP_NOT_FOUND: "BACKUP_NOT_FOUND";
+    readonly BACKUP_ALREADY_EXISTS: "BACKUP_ALREADY_EXISTS";
+    readonly BACKUP_DAMAGED: "BACKUP_DAMAGED";
+    readonly BACKUP_DURABILITY_REQUIRED: "BACKUP_DURABILITY_REQUIRED";
+    readonly BACKUP_IN_PROGRESS: "BACKUP_IN_PROGRESS";
+    readonly BACKUP_STORE_CLAIMED: "BACKUP_STORE_CLAIMED";
+    readonly BACKUP_STORE_NOT_CONFIGURED: "BACKUP_STORE_NOT_CONFIGURED";
+    readonly BACKUP_NOT_READY: "BACKUP_NOT_READY";
     readonly SEARCH_INVALID_FIELD: "SEARCH_INVALID_FIELD";
     readonly VECTOR_DIMENSION_MISMATCH: "VECTOR_DIMENSION_MISMATCH";
     readonly SEARCH_INVALID_FILTER: "SEARCH_INVALID_FILTER";
@@ -291,6 +300,7 @@ export interface TaskProgress {
 
 // @public
 export interface TaskRecord {
+    backupName?: string;
     cancelRequestedAt?: number;
     completedAt?: number;
     createdAt: number;
@@ -302,6 +312,7 @@ export interface TaskRecord {
     result?: ImportResult;
     startedAt?: number;
     status: TaskStatus;
+    steps?: TaskStepProgress;
     type: TaskType;
 }
 
@@ -309,7 +320,7 @@ export interface TaskRecord {
 export type TaskStatus = 'running' | 'succeeded' | 'failed' | 'cancelled';
 
 // @public
-export type TaskType = 'optimizeVectors' | 'rebalance' | 'restore' | 'import' | 'importExport' | 'rebuildAnalysis' | 'changeAnalysis';
+export type TaskType = 'optimizeVectors' | 'rebalance' | 'restore' | 'import' | 'importExport' | 'rebuildAnalysis' | 'changeAnalysis' | 'backup' | 'backupRestore' | 'backupDelete';
 
 // @public
 export function useDocument(indexName: string, docId: string | null | undefined, options?: NarsilReadOptions): NarsilReadState<AnyDocument | undefined>;

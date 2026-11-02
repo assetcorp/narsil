@@ -12,6 +12,7 @@ import { createInMemoryCoordinator } from '../../../distribution/coordinator'
 import type { ClusterCoordinator } from '../../../distribution/coordinator/types'
 import { createInMemoryNetwork, createInMemoryTransport } from '../../../distribution/transport'
 import type { NodeTransport } from '../../../distribution/transport/types'
+import { createFilesystemPersistence } from '../../../persistence/filesystem'
 import type { NarsilServer } from '../../../server'
 import { createServer } from '../../../server'
 import { postJson, startTestServer, type TestServer } from '../helpers'
@@ -91,6 +92,7 @@ async function send(base: string, target: LocatedOperation, probe: Probe): Promi
   const path = target.path
     .replace('{name}', encodeURIComponent(probe.name ?? ''))
     .replace('{id}', encodeURIComponent(probe.id ?? ''))
+    .replace('{backup}', encodeURIComponent(probe.backup ?? ''))
   const url = `${base}${path}${probe.query === undefined ? '' : `?${probe.query}`}`
   const headers: Record<string, string> = {}
   let body: BodyInit | undefined
@@ -129,10 +131,10 @@ describe('the published OpenAPI file', () => {
     },
   }
 
-  async function settleTask(id: string): Promise<void> {
+  async function settleTask(base: string, id: string): Promise<void> {
     const getTask = located('getTask')
     for (let attempt = 0; attempt < TASK_POLL_ATTEMPTS; attempt++) {
-      const response = await send(single.base, getTask, { id, statuses: [200] })
+      const response = await send(base, getTask, { id, statuses: [200] })
       checker.checkResponse(getTask.operation, response)
       const record = JSON.parse(response.text) as { status: string; error?: unknown }
       if (record.status === 'failed') throw new Error(`Task ${id} failed: ${JSON.stringify(record.error)}`)
@@ -158,7 +160,7 @@ describe('the published OpenAPI file', () => {
     durabilityDirectory = await mkdtemp(join(tmpdir(), 'narsil-openapi-'))
     single = await startTestServer(
       { limits: { maxBodyBytes: LIMITED_BYTES, maxImportBytes: LIMITED_BYTES, maxRestoreBytes: LIMITED_BYTES } },
-      { workers: { enabled: false }, durability: { directory: durabilityDirectory }, lifecycle: {} },
+      { workers: { enabled: false }, durability: { directory: join(durabilityDirectory, 'single') }, lifecycle: {} },
     )
     coordinator = createInMemoryCoordinator()
     transport = createInMemoryTransport('contract-node', createInMemoryNetwork())
@@ -168,6 +170,11 @@ describe('the published OpenAPI file', () => {
       address: 'contract-node:9200',
       nodeId: 'contract-node',
       roles: ['data', 'coordinator', 'controller'],
+      engine: { workers: { enabled: false }, durability: { directory: join(durabilityDirectory, 'cluster') } },
+      backups: {
+        store: createFilesystemPersistence({ directory: join(durabilityDirectory, 'backups') }),
+        keyPrefix: 'contract',
+      },
     })
     clusterServer = createServer(
       clusterNodeEngine(node, { createIndex: { partitionCount: 1, replicationFactor: 0 } }),
@@ -216,8 +223,12 @@ describe('the published OpenAPI file', () => {
         if (operationId === 'exportDocuments') state.documentExport = answered.bytes
         if (answered.status === 202 && operationId !== 'cancelTask') {
           const record = JSON.parse(answered.text) as { id: string }
-          state.taskIdToRead = record.id
-          await settleTask(record.id)
+          if (probe.on === 'cluster') {
+            await settleTask(clusterBase, record.id)
+          } else {
+            state.taskIdToRead = record.id
+            await settleTask(single.base, record.id)
+          }
         }
       }
       await exercise(operationId, testCase.hostile(state), false)

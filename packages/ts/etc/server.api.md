@@ -8,6 +8,11 @@
 export const ASYNC_IMPORT_CAPABILITY = "documents.import.async";
 
 // @public
+export interface BackupListResponse {
+    backups: BackupListing[];
+}
+
+// @public
 export interface BatchBody {
     action?: 'insert' | 'update' | 'delete';
     docIds?: string[];
@@ -89,6 +94,11 @@ export interface CorsOptions {
     headers?: string[];
     methods?: string[];
     origin?: string | string[];
+}
+
+// @public
+export interface CreateBackupBody {
+    backup: string;
 }
 
 // @public
@@ -176,6 +186,15 @@ export const ErrorCodes: {
     readonly PERSISTENCE_CRC_MISMATCH: "PERSISTENCE_CRC_MISMATCH";
     readonly PERSISTENCE_WAL_CORRUPT: "PERSISTENCE_WAL_CORRUPT";
     readonly PERSISTENCE_FSYNC_FAILED: "PERSISTENCE_FSYNC_FAILED";
+    readonly PERSISTENCE_DEPENDENCY_MISSING: "PERSISTENCE_DEPENDENCY_MISSING";
+    readonly BACKUP_NOT_FOUND: "BACKUP_NOT_FOUND";
+    readonly BACKUP_ALREADY_EXISTS: "BACKUP_ALREADY_EXISTS";
+    readonly BACKUP_DAMAGED: "BACKUP_DAMAGED";
+    readonly BACKUP_DURABILITY_REQUIRED: "BACKUP_DURABILITY_REQUIRED";
+    readonly BACKUP_IN_PROGRESS: "BACKUP_IN_PROGRESS";
+    readonly BACKUP_STORE_CLAIMED: "BACKUP_STORE_CLAIMED";
+    readonly BACKUP_STORE_NOT_CONFIGURED: "BACKUP_STORE_NOT_CONFIGURED";
+    readonly BACKUP_NOT_READY: "BACKUP_NOT_READY";
     readonly SEARCH_INVALID_FIELD: "SEARCH_INVALID_FIELD";
     readonly VECTOR_DIMENSION_MISMATCH: "VECTOR_DIMENSION_MISMATCH";
     readonly SEARCH_INVALID_FILTER: "SEARCH_INVALID_FILTER";
@@ -333,6 +352,7 @@ export type HttpWireTypeName = keyof HttpWireTypes;
 
 // @public
 export interface HttpWireTypes {
+    BackupListResponse: BackupListResponse;
     BatchBody: BatchBody;
     BatchResponse: BatchResponse;
     BM25Params: BM25Params;
@@ -341,6 +361,7 @@ export interface HttpWireTypes {
     ClusterAllocationResponse: ClusterAllocationResponse;
     ClusterHealth: ClusterHealth;
     ClusterTopologyResponse: ClusterTopologyResponse;
+    CreateBackupBody: CreateBackupBody;
     DocumentBody: DocumentBody;
     DocumentCountResponse: DocumentCountResponse;
     DocumentExistsResponse: DocumentExistsResponse;
@@ -377,6 +398,7 @@ export interface HttpWireTypes {
     RemoveDocumentQuery: RemoveDocumentQuery;
     ReplicationFactorBody: ReplicationFactorBody;
     ReplicationFactorResponse: ReplicationFactorResponse;
+    RestoreBackupBody: RestoreBackupBody;
     SuggestParams: SuggestParams;
     SuggestResult: SuggestResult;
     SynonymSetBody: SynonymSetBody;
@@ -571,6 +593,13 @@ export interface RequestDenial {
 }
 
 // @public
+export interface RestoreBackupBody {
+    constraints?: AllocationConstraints;
+    indexName: string;
+    replicationFactor?: number;
+}
+
+// @public
 export const SERVER_CAPABILITIES: readonly string[];
 
 // @public
@@ -648,6 +677,7 @@ export const TASK_FILTER_CAPABILITY = "tasks.filter";
 export interface TaskContext {
     reportProgress(progress: TaskProgress): void;
     reportResult(result: ImportResult): void;
+    reportSteps(steps: TaskStepProgress): void;
     readonly signal: AbortSignal;
 }
 
@@ -682,6 +712,7 @@ export interface TaskProgress {
 
 // @public
 export interface TaskRecord {
+    backupName?: string;
     cancelRequestedAt?: number;
     completedAt?: number;
     createdAt: number;
@@ -693,11 +724,18 @@ export interface TaskRecord {
     result?: ImportResult;
     startedAt?: number;
     status: TaskStatus;
+    steps?: TaskStepProgress;
     type: TaskType;
 }
 
 // @public
 export type TaskStatus = 'running' | 'succeeded' | 'failed' | 'cancelled';
+
+// @public
+export interface TaskStepProgress {
+    done: number;
+    total: number;
+}
 
 // @public
 export interface TaskStore {
@@ -709,7 +747,7 @@ export interface TaskStore {
 }
 
 // @public
-export type TaskType = 'optimizeVectors' | 'rebalance' | 'restore' | 'import' | 'importExport' | 'rebuildAnalysis' | 'changeAnalysis';
+export type TaskType = 'optimizeVectors' | 'rebalance' | 'restore' | 'import' | 'importExport' | 'rebuildAnalysis' | 'changeAnalysis' | 'backup' | 'backupRestore' | 'backupDelete';
 
 // @public
 export interface VectorFieldBody {

@@ -1,5 +1,7 @@
 import { ErrorCodes, NarsilError } from '../errors'
 import type { PersistenceAdapter } from '../types/adapters'
+import { OBJECT_STORE_PART_BYTES } from './constants'
+import { countedChunks, requireStreamLength } from './object-store'
 
 /**
  * Where {@link createFilesystemPersistence} writes its partitions.
@@ -14,6 +16,25 @@ export interface FilesystemPersistenceConfig {
 type FsModule = typeof import('node:fs/promises')
 type PathModule = typeof import('node:path')
 type FileHandle = import('node:fs/promises').FileHandle
+
+function unfinishedSaveName(basename: string): string {
+  return `${basename}~tmp-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`
+}
+
+async function* readChunks(handle: FileHandle): AsyncGenerator<Uint8Array> {
+  try {
+    let remaining = (await handle.stat()).size
+    while (remaining > 0) {
+      const buffer = new Uint8Array(Math.min(remaining, OBJECT_STORE_PART_BYTES))
+      const { bytesRead } = await handle.read(buffer, 0, buffer.byteLength, null)
+      if (bytesRead === 0) return
+      remaining -= bytesRead
+      yield bytesRead === buffer.byteLength ? buffer : buffer.subarray(0, bytesRead)
+    }
+  } finally {
+    await handle.close().catch(() => undefined)
+  }
+}
 
 let cachedFs: FsModule | null = null
 let cachedPath: PathModule | null = null
@@ -68,6 +89,26 @@ async function fsyncDirectory(dirPath: string, fs: FsModule): Promise<void> {
     if (handle !== null) {
       await handle.close().catch(() => undefined)
     }
+  }
+}
+
+async function writeSyncedFile(fs: FsModule, path: string, data: Uint8Array, key: string): Promise<void> {
+  let handle: FileHandle | null = null
+  try {
+    handle = await fs.open(path, 'w')
+    await handle.write(data)
+    try {
+      await handle.sync()
+    } catch (err: unknown) {
+      throw new NarsilError(ErrorCodes.PERSISTENCE_FSYNC_FAILED, `fsync failed for "${key}"`, {
+        key,
+        cause: err instanceof Error ? err.message : String(err),
+      })
+    }
+    await handle.close()
+    handle = null
+  } finally {
+    if (handle !== null) await handle.close().catch(() => undefined)
   }
 }
 
@@ -141,31 +182,83 @@ export function createFilesystemPersistence(config: FilesystemPersistenceConfig)
       const dir = pathMod.dirname(resolvedPath)
       await fs.mkdir(dir, { recursive: true })
 
-      const tempName = `${pathMod.basename(resolvedPath)}.tmp-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`
-      const tempPath = pathMod.join(dir, tempName)
-      let handle: FileHandle | null = null
+      const tempPath = pathMod.join(dir, unfinishedSaveName(pathMod.basename(resolvedPath)))
       try {
-        handle = await fs.open(tempPath, 'w')
-        await handle.write(data)
-        try {
-          await handle.sync()
-        } catch (err: unknown) {
-          throw new NarsilError(ErrorCodes.PERSISTENCE_FSYNC_FAILED, `fsync failed for "${key}"`, {
+        await writeSyncedFile(fs, tempPath, data, key)
+        await fs.rename(tempPath, resolvedPath)
+        await fsyncDirectory(dir, fs)
+      } catch (err: unknown) {
+        await fs.unlink(tempPath).catch(() => undefined)
+        throw err
+      }
+    },
+
+    async saveIfAbsent(key: string, data: Uint8Array): Promise<boolean> {
+      const resolvedPath = await resolveAndGuard(baseDir, key)
+      const fs = await getFs()
+      const pathMod = await getPath()
+      const dir = pathMod.dirname(resolvedPath)
+      const tempPath = pathMod.join(dir, unfinishedSaveName(pathMod.basename(resolvedPath)))
+      let stored = false
+      try {
+        await fs.mkdir(dir, { recursive: true })
+        await writeSyncedFile(fs, tempPath, data, key)
+        await fs.link(tempPath, resolvedPath)
+        stored = true
+      } catch (err: unknown) {
+        if ((err as NodeJS.ErrnoException).code !== 'EEXIST') {
+          await fs.unlink(tempPath).catch(() => undefined)
+          if (err instanceof NarsilError) throw err
+          throw new NarsilError(ErrorCodes.PERSISTENCE_SAVE_FAILED, `The adapter could not save "${key}"`, {
             key,
             cause: err instanceof Error ? err.message : String(err),
           })
         }
+      }
+      await fs.unlink(tempPath).catch(() => undefined)
+      await fsyncDirectory(dir, fs)
+      return stored
+    },
+
+    async saveStream(key: string, data: AsyncIterable<Uint8Array>, length: number): Promise<void> {
+      requireStreamLength(key, length)
+      const resolvedPath = await resolveAndGuard(baseDir, key)
+      const fs = await getFs()
+      const pathMod = await getPath()
+      const dir = pathMod.dirname(resolvedPath)
+      await fs.mkdir(dir, { recursive: true })
+      const tempPath = pathMod.join(dir, unfinishedSaveName(pathMod.basename(resolvedPath)))
+      let handle: FileHandle | null = null
+      try {
+        handle = await fs.open(tempPath, 'w')
+        for await (const chunk of countedChunks(key, data, length)) await handle.write(chunk)
+        await handle.sync()
         await handle.close()
         handle = null
         await fs.rename(tempPath, resolvedPath)
         await fsyncDirectory(dir, fs)
       } catch (err: unknown) {
-        if (handle !== null) {
-          await handle.close().catch(() => undefined)
-        }
+        if (handle !== null) await handle.close().catch(() => undefined)
         await fs.unlink(tempPath).catch(() => undefined)
+        if (err instanceof NarsilError) throw err
+        throw new NarsilError(ErrorCodes.PERSISTENCE_SAVE_FAILED, `The adapter could not save "${key}"`, {
+          key,
+          cause: err instanceof Error ? err.message : String(err),
+        })
+      }
+    },
+
+    async loadStream(key: string): Promise<AsyncIterable<Uint8Array> | null> {
+      const resolvedPath = await resolveAndGuard(baseDir, key)
+      const fs = await getFs()
+      let handle: FileHandle
+      try {
+        handle = await fs.open(resolvedPath, 'r')
+      } catch (err: unknown) {
+        if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null
         throw err
       }
+      return readChunks(handle)
     },
 
     async load(key: string): Promise<Uint8Array | null> {

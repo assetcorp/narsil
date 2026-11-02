@@ -17,6 +17,7 @@ export { httpStatusForNarsilError, ServerErrorCodes } from './errors'
 export { InMemoryTaskStore } from './task-store'
 export type { TaskContext, TaskOperation } from './tasks'
 export type {
+  BackupListResponse,
   BatchBody,
   BatchFailure,
   BatchResponse,
@@ -26,6 +27,7 @@ export type {
   ClusterNodeReport,
   ClusterTopologyResponse,
   CorsOptions,
+  CreateBackupBody,
   CreateIndexEmbedding,
   CreateIndexRequest,
   DocumentBody,
@@ -70,6 +72,7 @@ export type {
   ReplicationFactorResponse,
   RequestContext,
   RequestDenial,
+  RestoreBackupBody,
   ServerLimits,
   ServerOptions,
   SynonymSetBody,
@@ -78,6 +81,7 @@ export type {
   TaskProgress,
   TaskRecord,
   TaskStatus,
+  TaskStepProgress,
   TaskStore,
   TaskType,
   VectorFieldBody,
