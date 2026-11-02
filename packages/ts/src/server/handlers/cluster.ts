@@ -13,7 +13,7 @@ import type {
   ReplicationFactorResponse,
 } from '../types'
 
-function requireCluster(deps: HandlerDeps): ClusterNamespace {
+export function requireCluster(deps: HandlerDeps): ClusterNamespace {
   if (deps.cluster === undefined) {
     throw new NarsilError(
       ErrorCodes.CLUSTER_OPERATION_UNSUPPORTED,

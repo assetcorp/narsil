@@ -10,6 +10,10 @@ export function documentPath(indexName: string, docId: string): string {
   return `${indexPath(indexName)}/documents/${encodeURIComponent(docId)}`
 }
 
+export function backupPath(backupName: string): string {
+  return `/backups/${encodeURIComponent(backupName)}`
+}
+
 /** Builds the path for one task record, encoding the id as the other two do. */
 export function taskPath(taskId: string): string {
   return `/tasks/${encodeURIComponent(taskId)}`

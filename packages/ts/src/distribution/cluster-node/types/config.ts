@@ -1,6 +1,14 @@
 import type { Narsil } from '../../../narsil'
 import type { NarsilConfig } from '../../../types/config'
 import type {
+  BackupListing,
+  BackupOperationOptions,
+  BackupSummary,
+  ClusterBackupConfig,
+  DamagedBackup,
+  RestoreBackupOptions,
+} from '../../backups/types'
+import type {
   AllocationTable,
   ClusterCoordinator,
   NodeCapacity,
@@ -56,6 +64,11 @@ export interface ClusterNodeConfig {
   controller?: ClusterControllerConfig
   /** These settings govern when this node's memory blocks writes across the cluster, and anything you leave out keeps its default. */
   memory?: ClusterMemoryConfig
+  /**
+   * The store outside the cluster where this node writes and reads backups. A node without it refuses every backup
+   * call with `BACKUP_STORE_NOT_CONFIGURED`.
+   */
+  backups?: ClusterBackupConfig
   /** This receives the failures the node reports while running on its own, away from any call you made. */
   onError?: (error: Error) => void
 }
@@ -284,6 +297,52 @@ export interface ClusterNamespace {
    * @returns The figures as they stand when the call reads them.
    */
   getMetrics(): Promise<ClusterMetrics>
+  /**
+   * Backs up an index to the store in {@link ClusterNodeConfig.backups}, with every write acknowledged before the
+   * call starts.
+   *
+   * The primary of each partition writes a checkpoint and uploads each of its files that the store lacks, and the
+   * controller then writes the manifest that lists every file, so each backup restores without any other one.
+   *
+   * @param indexName - The index to back up.
+   * @param backupName - The backup's name, from 1 to 128 letters, digits, `.`, `_`, and `-`, starting with a letter or
+   * a digit.
+   * @param options - A callback that receives the progress.
+   * @returns What the manifest records about the backup.
+   * @throws A `NarsilError` with `BACKUP_ALREADY_EXISTS` for a name that the store or a running backup holds,
+   * `BACKUP_DURABILITY_REQUIRED` where a primary runs without write-ahead log durability, `BACKUP_STORE_CLAIMED`
+   * where another cluster writes under the key prefix, `BACKUP_STORE_NOT_CONFIGURED` on a node without a store, and
+   * `BACKUP_NOT_READY` while a node of the cluster runs an earlier release.
+   */
+  createBackup(indexName: string, backupName: string, options?: BackupOperationOptions): Promise<BackupSummary>
+  /**
+   * Restores a backup as a new index, on a cluster of any size.
+   *
+   * Each primary checks the length and the SHA-256 digest of every file before it loads any of them, and the cluster
+   * creates no index when a check fails.
+   *
+   * @param backupName - The backup to restore.
+   * @param options - The name of the new index, its replication factor and placement rules, and a progress callback.
+   * @returns What the manifest records about the backup.
+   * @throws A `NarsilError` with `BACKUP_NOT_FOUND` where the store holds no such backup, `BACKUP_DAMAGED` where a
+   * file is missing or differs from the manifest, and `INDEX_ALREADY_EXISTS` where the name is taken.
+   */
+  restoreBackup(backupName: string, options: RestoreBackupOptions): Promise<BackupSummary>
+  /**
+   * Lists the backups under the cluster's key prefix, in name order.
+   *
+   * @returns One summary per backup, and a {@link DamagedBackup} for each manifest that the node can't read.
+   */
+  listBackups(): Promise<BackupListing[]>
+  /**
+   * Deletes a backup, along with each of its files that no other backup lists.
+   *
+   * @param backupName - The backup to delete.
+   * @param options - A callback that receives the progress.
+   * @returns A promise that settles once the controller has removed the manifest and those files.
+   * @throws A `NarsilError` with `BACKUP_NOT_FOUND` where the store holds no such backup.
+   */
+  deleteBackup(backupName: string, options?: BackupOperationOptions): Promise<void>
 }
 
 /**

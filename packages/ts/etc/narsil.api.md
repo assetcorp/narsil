@@ -197,6 +197,15 @@ export const ErrorCodes: {
     readonly PERSISTENCE_CRC_MISMATCH: "PERSISTENCE_CRC_MISMATCH";
     readonly PERSISTENCE_WAL_CORRUPT: "PERSISTENCE_WAL_CORRUPT";
     readonly PERSISTENCE_FSYNC_FAILED: "PERSISTENCE_FSYNC_FAILED";
+    readonly PERSISTENCE_DEPENDENCY_MISSING: "PERSISTENCE_DEPENDENCY_MISSING";
+    readonly BACKUP_NOT_FOUND: "BACKUP_NOT_FOUND";
+    readonly BACKUP_ALREADY_EXISTS: "BACKUP_ALREADY_EXISTS";
+    readonly BACKUP_DAMAGED: "BACKUP_DAMAGED";
+    readonly BACKUP_DURABILITY_REQUIRED: "BACKUP_DURABILITY_REQUIRED";
+    readonly BACKUP_IN_PROGRESS: "BACKUP_IN_PROGRESS";
+    readonly BACKUP_STORE_CLAIMED: "BACKUP_STORE_CLAIMED";
+    readonly BACKUP_STORE_NOT_CONFIGURED: "BACKUP_STORE_NOT_CONFIGURED";
+    readonly BACKUP_NOT_READY: "BACKUP_NOT_READY";
     readonly SEARCH_INVALID_FIELD: "SEARCH_INVALID_FIELD";
     readonly VECTOR_DIMENSION_MISMATCH: "VECTOR_DIMENSION_MISMATCH";
     readonly SEARCH_INVALID_FILTER: "SEARCH_INVALID_FILTER";
@@ -852,7 +861,10 @@ export interface PersistenceAdapter {
     readonly directory?: string;
     list(prefix: string): Promise<string[]>;
     load(key: string): Promise<Uint8Array | null>;
+    loadStream?(key: string): Promise<AsyncIterable<Uint8Array> | null>;
     save(key: string, data: Uint8Array): Promise<void>;
+    saveIfAbsent?(key: string, data: Uint8Array): Promise<boolean>;
+    saveStream?(key: string, data: AsyncIterable<Uint8Array>, length: number): Promise<void>;
 }
 
 // @public

@@ -20,7 +20,7 @@ import {
 } from './constants'
 import { deadBitsWhere, NO_LIVE_VECTOR_AT_POSITION } from './dead-bits'
 import { vectorsToBytes } from './payload'
-import { codedCentroid, partCodes } from './persistence'
+import { codedCentroid, codesOfReadVectors, partCodes } from './persistence'
 import type { VectorIndexState } from './shared'
 
 const ORDINAL_HOLDS_NO_NUMBER = -1
@@ -61,6 +61,7 @@ export interface VectorCheckpointPlan {
   readonly signature: FieldSignature
   readonly storesHeads: boolean
   readNewFile(index: number): NewVectorFile
+  release(): void
 }
 
 export function vectorsPerFile(dimension: number, codeBits: number | null): number {
@@ -250,10 +251,16 @@ function plannedVectorOf(state: VectorIndexState, ordinal: number): PlannedVecto
   return { ordinal, docId, tombstoned: !isLive(state, ordinal) }
 }
 
+function heldOrdinalOf(state: VectorIndexState, vector: PlannedVector, pinned: boolean): number | undefined {
+  if (pinned || vector.tombstoned || state.store.holdsOrdinal(vector.ordinal)) return vector.ordinal
+  return state.store.getOrdinal(vector.docId)
+}
+
 function readFile(
   state: VectorIndexState,
   planned: readonly PlannedVector[],
   centroid: number[] | null,
+  pinned: boolean,
 ): NewVectorFile {
   const dimension = state.dimension
   const vectors = new Float32Array(planned.length * dimension)
@@ -262,14 +269,14 @@ function readFile(
   const tombstonedAt = new Map<number, number>()
   const docIds = planned.map(vector => vector.docId)
   for (let i = 0; i < planned.length; i++) {
-    const { ordinal, docId, tombstoned } = planned[i]
-    const held = tombstoned || state.store.holdsOrdinal(ordinal) ? ordinal : state.store.getOrdinal(docId)
-    const entry = held === undefined ? undefined : state.store.entryForOrdinal(held)
-    if (held === undefined || entry === undefined) continue
+    const held = heldOrdinalOf(state, planned[i], pinned)
+    if (held === undefined) continue
+    const entry = pinned ? state.store.entryForPinnedOrdinal(held) : state.store.entryForOrdinal(held)
+    if (entry === undefined) continue
     vectors.set(entry.vector, i * dimension)
     magnitudes[i] = entry.magnitude
     ordinals[i] = held
-    if (tombstoned) tombstonedAt.set(i, held)
+    if (planned[i].tombstoned) tombstonedAt.set(i, held)
   }
   return {
     payload: {
@@ -277,7 +284,9 @@ function readFile(
       fieldName: state.fieldName,
       dimension,
       docIds,
-      codes: partCodes(state, docIds, centroid, tombstonedAt, vectors, ordinals),
+      codes: pinned
+        ? codesOfReadVectors(state, centroid, vectors, ordinals)
+        : partCodes(state, docIds, centroid, tombstonedAt, vectors, ordinals),
       vectors: vectorsToBytes(vectors),
     },
     ordinals,
@@ -290,7 +299,10 @@ export function planCheckpoint(
   state: VectorIndexState,
   listedKeys: readonly string[] | null,
   rewritesGraph = false,
+  pinsRetiredVectors = false,
 ): VectorCheckpointPlan {
+  if (pinsRetiredVectors) state.store.pinRetiredVectors()
+  let pinned = pinsRetiredVectors
   const signature = signatureOf(state)
   const calibration = signature.calibration
   const trusted = registryMatches(state, listedKeys)
@@ -334,11 +346,16 @@ export function planCheckpoint(
     readNewFile(index: number): NewVectorFile {
       const start = index * capacity
       const end = start + capacity
-      const file = readFile(state, planned.slice(start, end), centroid)
+      const file = readFile(state, planned.slice(start, end), centroid, pinsRetiredVectors)
       for (let i = 0; i < file.ordinals.length; i++) {
         if (file.ordinals[i] === NO_LIVE_VECTOR_AT_POSITION) vanished.add(firstWrittenNumber + start + i)
       }
       return file
+    },
+    release() {
+      if (!pinned) return
+      pinned = false
+      state.store.unpinRetiredVectors()
     },
   }
 }

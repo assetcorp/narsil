@@ -85,7 +85,7 @@ async function readNamedEntry(reader: ByteReader, expected: string): Promise<Uin
   return readPadded(reader, header.size)
 }
 
-function sourceIndexNameOf(keys: readonly string[]): string {
+export function sourceIndexNameOf(keys: readonly string[]): string {
   const first = keys[0]
   if (first === undefined) return 'archive'
   const at = first.indexOf(SEGMENTS_MARKER)

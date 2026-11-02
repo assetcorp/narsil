@@ -1,3 +1,4 @@
+import type { BackupPrimary } from '../../backups/primary-handlers'
 import type { ClusterCoordinator } from '../../coordinator/types'
 import type { RespondFn, TransportMessage } from '../../transport/types'
 import type { AllocationView } from '../allocation-view'
@@ -19,5 +20,6 @@ export interface DataNodeHandlerDeps {
   searchContexts?: SearchContextRegistry
   snapshotSpoolDirectory?: string
   isBootstrapSynced?: (indexName: string, partitionId: number) => boolean
+  backups?: BackupPrimary
   onError?: (error: unknown) => void
 }

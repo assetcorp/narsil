@@ -22,6 +22,9 @@ const CONTROLLER_MESSAGE_TYPES = new Set<string>([
   ClusterMessageTypes.BOOTSTRAP_COMPLETE,
   ClusterMessageTypes.REPLICATION_FACTOR,
   ClusterMessageTypes.REBALANCE,
+  ClusterMessageTypes.BACKUP,
+  ClusterMessageTypes.BACKUP_RESTORE,
+  ClusterMessageTypes.BACKUP_DELETE,
 ])
 
 function refuseMessage(

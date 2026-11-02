@@ -1,5 +1,6 @@
 import { validateMemoryFractions } from '../../engine/memory/validate'
 import { ErrorCodes, NarsilError } from '../../errors'
+import { validateBackupConfig } from '../backups/keys'
 import type { NodeRole } from '../coordinator/types'
 import { MAX_NODE_LEFT_DELAY_MS, MAX_WAIT_FOR_ACTIVE_REPLICAS, MIN_CONTROLLER_LEASE_TTL_MS } from './constants'
 import type { ClusterNodeConfig } from './types'
@@ -78,6 +79,10 @@ export function validateClusterNodeConfig(config: ClusterNodeConfig): void {
   }
 
   validateMemoryFractions('ClusterNodeConfig.memory', config.memory, ['inFlightWriteFraction'])
+
+  if (config.backups !== undefined) {
+    validateBackupConfig(config.backups)
+  }
 
   if (config.controller !== undefined) {
     const { leaseTtlMs, standbyRetryMs, nodeLeftDelayMs } = config.controller

@@ -1,3 +1,4 @@
+export type { BackupListResponse, CreateBackupBody, RestoreBackupBody } from './backups'
 export type {
   CorsOptions,
   ErrorEnvelope,
@@ -61,6 +62,7 @@ export type {
   TaskProgress,
   TaskRecord,
   TaskStatus,
+  TaskStepProgress,
   TaskStore,
   TaskType,
 } from './tasks'
