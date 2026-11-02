@@ -1,6 +1,11 @@
 import { ErrorCodes, NarsilError } from '../errors'
 import type { PersistenceAdapter } from '../types/adapters'
-import { OBJECT_STORE_LIST_PAGE_KEYS, OBJECT_STORE_PART_BYTES } from './constants'
+import {
+  OBJECT_STORE_CONFLICT_ATTEMPTS,
+  OBJECT_STORE_CONFLICT_RETRY_MS,
+  OBJECT_STORE_LIST_PAGE_KEYS,
+  OBJECT_STORE_PART_BYTES,
+} from './constants'
 import {
   countedChunks,
   objectKeyPrefix,
@@ -18,6 +23,7 @@ type S3Client = import('@aws-sdk/client-s3').S3Client
 
 const S3_NOT_FOUND_STATUS = 404
 const S3_PRECONDITION_FAILED_STATUS = 412
+const S3_CONFLICT_STATUS = 409
 
 /**
  * The access keys {@link createS3Persistence} signs its requests with.
@@ -75,11 +81,13 @@ function isNotFound(error: unknown): boolean {
   )
 }
 
-function isReplaced(error: unknown): boolean {
-  if (typeof error !== 'object' || error === null) return false
-  return (
-    (error as { $metadata?: { httpStatusCode?: unknown } }).$metadata?.httpStatusCode === S3_PRECONDITION_FAILED_STATUS
-  )
+function statusCodeOf(error: unknown): unknown {
+  if (typeof error !== 'object' || error === null) return undefined
+  return (error as { $metadata?: { httpStatusCode?: unknown } }).$metadata?.httpStatusCode
+}
+
+function isPreconditionFailed(error: unknown): boolean {
+  return statusCodeOf(error) === S3_PRECONDITION_FAILED_STATUS
 }
 
 function discardBody(body: unknown): void {
@@ -233,6 +241,30 @@ export async function createS3Persistence(config: S3PersistenceConfig): Promise<
       }
     },
 
+    async saveIfAbsent(key: string, data: Uint8Array): Promise<boolean> {
+      requireObjectKey(key)
+      for (let attempt = 1; ; attempt++) {
+        try {
+          await client.send(
+            new sdk.PutObjectCommand({
+              Bucket: bucket,
+              Key: `${root}${key}`,
+              Body: data,
+              ContentLength: data.byteLength,
+              IfNoneMatch: '*',
+            }),
+          )
+          return true
+        } catch (error) {
+          if (isPreconditionFailed(error)) return false
+          if (statusCodeOf(error) !== S3_CONFLICT_STATUS || attempt >= OBJECT_STORE_CONFLICT_ATTEMPTS) {
+            throw objectStoreFailure(ErrorCodes.PERSISTENCE_SAVE_FAILED, 'save', key, error)
+          }
+        }
+        await new Promise(resolve => setTimeout(resolve, OBJECT_STORE_CONFLICT_RETRY_MS * attempt))
+      }
+    },
+
     async load(key: string): Promise<Uint8Array | null> {
       requireObjectKey(key)
       try {
@@ -295,7 +327,7 @@ export async function createS3Persistence(config: S3PersistenceConfig): Promise<
         }
         await client.send(new sdk.DeleteObjectCommand({ Bucket: bucket, Key: objectKey, IfMatch: head.ETag }))
       } catch (error) {
-        if (isNotFound(error) || isReplaced(error)) return
+        if (isNotFound(error) || isPreconditionFailed(error)) return
         throw objectStoreFailure(ErrorCodes.PERSISTENCE_DELETE_FAILED, 'delete', key, error)
       }
     },

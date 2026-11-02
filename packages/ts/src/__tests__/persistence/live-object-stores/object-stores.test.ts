@@ -10,6 +10,7 @@ const KEYS_SAVED_AT_ONCE = 32
 const STREAMED_BYTES = 20 * 1_048_576 + 12_345
 const STREAM_CHUNK_BYTES = 1_000_003
 const LIVE_TIMEOUT_MS = 600_000
+const SAVE_IF_ABSENT_ROUNDS = 5
 
 interface LiveStore {
   name: string
@@ -148,6 +149,34 @@ describe.each(STORES)('the $name adapter against a live store', store => {
       const long = saveStream.call(adapter, 'streamed/long', chunksOf(bytes), bytes.byteLength - 1)
       expect(await codeOf(long)).toBe('PERSISTENCE_SAVE_FAILED')
       expect((await adapter.list('streamed/')).sort()).toEqual(['streamed/large'])
+    },
+    LIVE_TIMEOUT_MS,
+  )
+
+  it.skipIf(!store.configured)(
+    'lets exactly one of two racing saveIfAbsent calls store an absent key, and keeps the winner',
+    async () => {
+      const rival = await store.open(keyPrefix)
+      const racers = [adapter, rival]
+      for (let round = 0; round < SAVE_IF_ABSENT_ROUNDS; round++) {
+        const key = `claim/${round}`
+        const values = racers.map((_, at) => new TextEncoder().encode(`${randomUUID()}-${at}`))
+        const outcomes = await Promise.all(
+          racers.map((racer, at) => {
+            const { saveIfAbsent } = racer
+            if (saveIfAbsent === undefined) throw new Error('The adapter offers no saveIfAbsent')
+            return saveIfAbsent.call(racer, key, values[at] ?? new Uint8Array())
+          }),
+        )
+        expect(outcomes.filter(stored => stored)).toHaveLength(1)
+        const winner = outcomes.indexOf(true)
+        expect(await adapter.load(key)).toEqual(values[winner])
+        expect(await rival.load(key)).toEqual(values[winner])
+        const { saveIfAbsent } = adapter
+        if (saveIfAbsent === undefined) throw new Error('The adapter offers no saveIfAbsent')
+        expect(await saveIfAbsent.call(adapter, key, patterned(16, round))).toBe(false)
+        expect(await adapter.load(key)).toEqual(values[winner])
+      }
     },
     LIVE_TIMEOUT_MS,
   )

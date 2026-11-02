@@ -2,7 +2,7 @@ import { ErrorCodes, NarsilError } from '../../errors'
 import type { PersistenceAdapter } from '../../types/adapters'
 import type { ClusterCoordinator } from '../coordinator/types'
 import { BACKUP_MANIFEST_READS_AT_ONCE, CLUSTER_UUID_KEY, MAX_CLUSTER_UUID_BYTES } from './constants'
-import { type BackupKeys, backupKeys, validateBackupName } from './keys'
+import { type BackupKeys, backupKeys, storeWithoutSaveIfAbsent, validateBackupName } from './keys'
 import { type BackupManifest, decodeBackupManifest, storedFilesOf } from './manifest'
 import type { BackupListing, BackupSummary, ClusterBackupConfig } from './types'
 
@@ -143,7 +143,9 @@ export async function claimBackupStore(store: BackupStore, clusterUuid: string):
   const claimKey = store.keys.claim
   let claim = await store.adapter.load(claimKey)
   if (claim === null) {
-    await store.adapter.save(claimKey, textEncoder.encode(clusterUuid))
+    const { saveIfAbsent } = store.adapter
+    if (saveIfAbsent === undefined) throw storeWithoutSaveIfAbsent()
+    if (await saveIfAbsent.call(store.adapter, claimKey, textEncoder.encode(clusterUuid))) return
     claim = await store.adapter.load(claimKey)
   }
   if (claim === null || claimedBy(claim) !== clusterUuid) {

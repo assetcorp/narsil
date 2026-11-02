@@ -37,6 +37,7 @@ PersistenceAdapter {
   async list(prefix: string) -> List<string>
   async saveStream(key: string, data: async sequence of bytes, length: integer) -> nothing   (optional)
   async loadStream(key: string) -> async sequence of bytes or absent                         (optional)
+  async saveIfAbsent(key: string, data: bytes) -> boolean   (optional)
 }
 ```
 
@@ -75,6 +76,10 @@ PersistenceAdapter {
 - A failure raises `PERSISTENCE_LOAD_FAILED`.
 
 An adapter for a store that holds large files should offer both methods, so that a caller never has to hold a whole file in memory. A [cluster backup](distribution/backups.md) streams through them where the adapter offers them.
+
+### saveIfAbsent(key, data), optional
+
+Stores data under key only where no value exists under key, and returns true where it stored the data and false where a value already existed. The check and the store must be one atomic step with respect to every other save and saveIfAbsent of the same key, so that where several calls race on an absent key, exactly one returns true. A reader must see either no value or all of data, never part of it. A transient failure raises PERSISTENCE_SAVE_FAILED. A retry after a lost response can return false for data that the earlier attempt stored, so a caller that needs to know whose data is stored must load the key and compare.
 
 ### Key Format
 

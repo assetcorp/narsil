@@ -20,7 +20,9 @@ The controller creates the cluster's UUID the first time that the cluster takes 
 
 ### The Claim
 
-Two clusters that write under one prefix can delete each other's files, so each cluster claims its prefix. Before a backup starts, before the controller saves a manifest, and before a deletion removes any key, the controller must read `<keyPrefix>/cluster`. Where that key holds nothing, the controller saves its own UUID there and reads the key again. Where the key holds another cluster's UUID, the controller must refuse the operation with `BACKUP_STORE_CLAIMED`. A restore and a listing read the store without this check, so that a new cluster can restore the backups of a cluster that no longer exists.
+Two clusters that write under one prefix can delete each other's files, so each cluster claims its prefix. Before a backup starts, before the controller saves a manifest, and before a deletion removes any key, the controller must read `<keyPrefix>/cluster`. Where that key holds nothing, the controller stores its own UUID there with saveIfAbsent, and where that call returns false, it reads the key again. Because a retry can return false for the controller's own write, the controller compares the value that it reads with its own UUID, and it proceeds only where the two match. Where the key holds another cluster's UUID, the controller must refuse the operation with `BACKUP_STORE_CLAIMED`. A restore and a listing read the store without this check, so that a new cluster can restore the backups of a cluster that no longer exists.
+
+A backup store must offer saveIfAbsent, because a save followed by a read can't stop two controllers from both taking an empty claim. A node must refuse a backup store without saveIfAbsent with CONFIG_INVALID when it starts.
 
 ---
 

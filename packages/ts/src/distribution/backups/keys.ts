@@ -45,6 +45,27 @@ export function validateBackupKeyPrefix(keyPrefix: unknown): string {
   return keyPrefix
 }
 
+export function storeWithoutSaveIfAbsent(): NarsilError {
+  return new NarsilError(
+    ErrorCodes.CONFIG_INVALID,
+    "A backup store must offer saveIfAbsent, because a save followed by a read can't stop two clusters from both claiming an empty key prefix",
+    {},
+  )
+}
+
+export function validateBackupConfig(backups: unknown): void {
+  const store = typeof backups === 'object' && backups !== null ? (backups as { store?: unknown }).store : undefined
+  if (typeof store !== 'object' || store === null) {
+    throw new NarsilError(
+      ErrorCodes.CONFIG_INVALID,
+      'ClusterNodeConfig.backups.store must be a persistence adapter',
+      {},
+    )
+  }
+  if (typeof (store as { saveIfAbsent?: unknown }).saveIfAbsent !== 'function') throw storeWithoutSaveIfAbsent()
+  validateBackupKeyPrefix((backups as { keyPrefix?: unknown }).keyPrefix)
+}
+
 export function isSha256Hex(value: unknown): value is string {
   return typeof value === 'string' && SHA256_HEX_PATTERN.test(value)
 }
