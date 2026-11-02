@@ -1,3 +1,4 @@
+import { toError } from '../../engine/orchestration/eligibility'
 import { writeMetadataEnvelope } from '../../serialization/envelope'
 import { createArchiveCheckpointAccess } from './archive-checkpoint'
 import { runDurableCheckpoint } from './checkpoint-run'
@@ -14,6 +15,7 @@ import { createDirectoryWatch, unrefInterval } from './directory-watch'
 import { createDurableDirectory, type DurableDirectory } from './durable-filesystem'
 import { createHeldCheckpoints } from './held-checkpoints'
 import { closePartitionWriter, drainIndexStateForUnload, type IndexState } from './manager-state'
+import { createMetadataWriteQueue } from './metadata-write-queue'
 import {
   commitAppended,
   commitEveryPartition,
@@ -68,7 +70,8 @@ export function createDurabilityManager(
   let commitDeferral: CommitDeferral | null = null
   const partitionFailures = createPartitionFailureRouting()
   const heldCheckpoints = createHeldCheckpoints(hooks)
-  const metadataWrites = new Map<string, Promise<void>>()
+  const metadataWrites = createMetadataWriteQueue()
+  const queueMetadataWrite = metadataWrites.queue
   let checkpointTimer: ReturnType<typeof setInterval> | null = null
   let asyncFlushTimer: ReturnType<typeof setInterval> | null = null
   let shuttingDown = false
@@ -92,26 +95,12 @@ export function createDurabilityManager(
     hooks.onFatalError(error)
   }
 
-  function toError(err: unknown): Error {
-    return err instanceof Error ? err : new Error(String(err))
-  }
-
   async function closeWriterReportingFailure(closePromise: Promise<void>): Promise<void> {
     try {
       await closePromise
     } catch (err) {
       markFatal(toError(err))
     }
-  }
-
-  function queueMetadataWrite(indexName: string, write: () => Promise<void>): Promise<void> {
-    const previous = metadataWrites.get(indexName) ?? Promise.resolve()
-    const queued = previous.then(write)
-    metadataWrites.set(
-      indexName,
-      queued.catch(() => undefined),
-    )
-    return queued
   }
 
   function startCheckpointTimer(): void {
@@ -145,23 +134,33 @@ export function createDurabilityManager(
     }
   }
 
-  async function checkpointIndex(indexName: string, fromMemory = false, afterInFlight = fromMemory): Promise<void> {
+  async function checkpointIndex(
+    indexName: string,
+    fromMemory = false,
+    afterInFlight = fromMemory,
+    pinsRetiredVectors = false,
+  ): Promise<void> {
     const indexState = indexes.get(indexName)
     if (indexState === undefined || indexState.unloading || heldCheckpoints.holds(indexName, indexState)) return
     return checkpointInTurn(indexState, {
-      joinsInFlight: !afterInFlight,
+      joinsInFlight: !afterInFlight && !pinsRetiredVectors,
       mayStart: () => !indexState.unloading && !shuttingDown,
-      perform: () => performCheckpoint(indexName, indexState, fromMemory),
+      perform: () => performCheckpoint(indexName, indexState, fromMemory, pinsRetiredVectors),
       afterSettling: () => releaseStalledWrites(indexState),
     })
   }
 
-  async function requestedCheckpoint(indexName: string, fromMemory = false): Promise<void> {
+  async function requestedCheckpoint(indexName: string, fromMemory = false, pinsVectors = false): Promise<void> {
     heldCheckpoints.refuse(indexName, indexes.get(indexName))
-    return checkpointIndex(indexName, fromMemory)
+    return checkpointIndex(indexName, fromMemory, fromMemory, pinsVectors)
   }
 
-  async function performCheckpoint(indexName: string, indexState: IndexState, fromMemory = false): Promise<void> {
+  async function performCheckpoint(
+    indexName: string,
+    indexState: IndexState,
+    fromMemory = false,
+    pinsRetiredVectors = false,
+  ): Promise<void> {
     await directoryWatch.verify()
     if (fatalError !== null) throw fatalError
     await runDurableCheckpoint({
@@ -172,6 +171,7 @@ export function createDurabilityManager(
       compactionThreshold,
       canOffload: canOffloadCheckpoint,
       fromMemory,
+      pinsRetiredVectors,
       mutationThreshold: checkpointMutationThreshold,
       mayContinue: () => !indexState.unloading && !shuttingDown && fatalError === null,
       holdsCheckpointFiles: () => heldCheckpointFiles.has(indexName),
@@ -350,9 +350,9 @@ export function createDurabilityManager(
       hooks.writeRecords?.dropIndex(indexName)
       const indexState = indexes.get(indexName)
       if (indexState !== undefined) {
-        await drainIndexStateForUnload(indexState, metadataWrites.get(indexName), closeWriterReportingFailure)
+        await drainIndexStateForUnload(indexState, metadataWrites.pending(indexName), closeWriterReportingFailure)
         indexes.delete(indexName)
-        metadataWrites.delete(indexName)
+        metadataWrites.forget(indexName)
       }
       for (const vectorIndex of hooks.getVectorIndexes(indexName).values()) await vectorIndex.releaseVectorFiles()
       for (const key of await directory.list(`${indexName}/`)) {
@@ -365,15 +365,15 @@ export function createDurabilityManager(
       if (indexState === undefined) {
         return
       }
-      await drainIndexStateForUnload(indexState, metadataWrites.get(indexName), close => close)
+      await drainIndexStateForUnload(indexState, metadataWrites.pending(indexName), close => close)
       indexes.delete(indexName)
-      metadataWrites.delete(indexName)
+      metadataWrites.forget(indexName)
     },
 
     ...createArchiveCheckpointAccess({
       directory,
       held: heldCheckpointFiles,
-      checkpoint: name => requestedCheckpoint(name),
+      checkpoint: (name, pinsVectors) => requestedCheckpoint(name, false, pinsVectors),
       registerPartition: (name, partitionId, startSeqNo, primaryTerm) =>
         getOrCreatePartition(name, partitionId, startSeqNo, primaryTerm),
       markFatal,

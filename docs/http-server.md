@@ -45,6 +45,7 @@ The full surface:
 | --- | --- |
 | `GET /livez`, `GET /readyz`, `GET /health` | The probes answer without authentication. `/livez` answers 200 whenever the process can serve HTTP. `/readyz` and `/health` answer 503 until the engine is ready, and again once shutdown begins, so a load balancer that reads either one stops sending traffic through a shutdown. On a cluster node, both of them answer 503 until the node reports `SERVING`. See [Cluster routes](#cluster-routes). |
 | `GET /cluster`, `GET /indexes/{name}/cluster`, `PUT /indexes/{name}/replication-factor` | The endpoints report the cluster topology and one index's allocation, and they change an index's replication factor. A server fronting a single engine answers all three with 501. See [Cluster routes](#cluster-routes). |
+| `POST /indexes/{name}/backups`, `GET /backups`, `POST /backups/{backup}/_restore`, `DELETE /backups/{backup}` | The endpoints back up an index to the store outside the cluster, list the backups, restore one as a new index, and delete one, and all but the listing answer with a task. A server fronting a single engine answers all four with 501. See [Backups](#backups). |
 | `GET /cluster/health`, `GET /metrics` | The endpoints report a green, yellow, or red status for the cluster and each index, and the replication and coordinator figures in the Prometheus text format. Both take the server's authentication, and a server fronting a single engine answers both with 501. See [Cluster health](#cluster-health) and [Metrics](#metrics). |
 | `GET /version` | The endpoint reports the build identity stamped at startup. Its `vectorSearch` field names the path through which the answering thread searches vector graphs, `native` or `wasm`. See [Native search core](vector-search.md#native-search-core). |
 | `GET /capabilities` | The endpoint lists the optional routes this server serves, and it needs no key either. See [Tasks](#tasks). |
@@ -118,7 +119,7 @@ process.on('uncaughtException', async error => {
 
 ## Tasks
 
-Seven operations take long enough that the server answers before they finish: an import sent with `?async=true`, `restore`, the `import` of a document export, `_rebalance`, `vectors/_optimize`, `_rebuild-analysis`, and `_change-analysis`. Each one answers 202 with a task record and carries on in the background. Every one of them uses the same record shape, which `GET /tasks/{id}` returns again as the work proceeds.
+Ten operations take long enough that the server answers before they finish: an import sent with `?async=true`, `restore`, the `import` of a document export, `_rebalance`, `vectors/_optimize`, `_rebuild-analysis`, `_change-analysis`, and the backup, restore, and deletion of a cluster backup. Each one answers 202 with a task record and carries on in the background. Every one of them uses the same record shape, which `GET /tasks/{id}` returns again as the work proceeds.
 
 ```json
 {
@@ -133,7 +134,7 @@ Seven operations take long enough that the server answers before they finish: an
 }
 ```
 
-A task ends at `succeeded`, `failed`, or `cancelled`. A failed one holds `error` with the code and the message that stopped it, while a finished import holds `result` with what it indexed and the first refusals. An import alone reports `progress`.
+A task ends at `succeeded`, `failed`, or `cancelled`. A failed one holds `error` with the code and the message that stopped it, while a finished import holds `result` with what it indexed and the first refusals. An import alone reports `progress`, and a cluster backup task reports `steps` in its place, as [Backups](#backups) describes.
 
 An import counts every refusal, and it lists the first `limits.maxImportErrors` of them, which defaults to 100. Where the list is shorter than the count, the result sets `errorsTruncated`. A body over `limits.maxImportBytes`, which defaults to 100 MB, answers 413 `PAYLOAD_TOO_LARGE` before any of it is indexed, and a single line over `limits.maxLineBytes` answers the same code with the line number in `details.line`.
 
@@ -221,6 +222,30 @@ A server that fronts a cluster node takes `node.cluster` as the `cluster` option
 ```
 
 `PUT /indexes/{name}/replication-factor` takes a body such as `{"replicationFactor": 2}` and changes how many replicas besides the primary each partition of the index keeps. The node sends the change to the controller, which stores the factor and writes an allocation table that carries it before the server answers 200 with the index name and the factor. A factor outside 0 to 255 answers 400 `CONFIG_INVALID`, and an index that the cluster doesn't hold answers 404 `INDEX_NOT_FOUND`.
+
+### Backups
+
+A cluster node with the `backups` setting backs up an index to a store outside the cluster and restores it, as the [cluster guide](cluster.md#back-up-and-restore-an-index) describes. `POST /indexes/{name}/backups` takes a body such as `{"backup": "movies-2026-11-02"}`, and `POST /backups/{backup}/_restore` takes a body such as `{"indexName": "movies-restored", "replicationFactor": 1}`, where `replicationFactor` and `constraints` are optional and default to the backup's own. `DELETE /backups/{backup}` takes no body. A backup name that breaks the naming rule answers 400 `CONFIG_INVALID` before any task starts.
+
+Each of the three answers 202 with a task of type `backup`, `backupRestore`, or `backupDelete`, whose `backupName` holds the name of the backup. A restore task's `indexName` holds the index that it creates, and a deletion task's holds an empty string. While the work proceeds, `steps` counts the partitions done, or the files deleted for a deletion:
+
+```json
+{
+  "id": "6b3f8f2e-58a4-4c3e-9d1f-0b8a2e4c7d10",
+  "type": "backup",
+  "indexName": "movies",
+  "backupName": "movies-2026-11-02",
+  "status": "running",
+  "owner": "narsil-0",
+  "createdAt": 1762077600000,
+  "startedAt": 1762077600000,
+  "steps": { "done": 3, "total": 8 }
+}
+```
+
+A task that fails holds the code in `error`, such as `BACKUP_DAMAGED` for a restore of a backup whose files are missing or differ, `INDEX_ALREADY_EXISTS` for a restore under a taken name, and `BACKUP_STORE_NOT_CONFIGURED` where the node has no `backups` setting. The cluster guide lists every code.
+
+`GET /backups` answers `{"backups": [...]}` with one entry for each backup in name order. Each entry holds the backup's `name`, `indexName`, `startedAt`, `completedAt`, `partitionCount`, `replicationFactor`, `files`, and `bytes`, or its `name` and an `error` with the code `BACKUP_DAMAGED` where its manifest can't be read.
 
 ### Cluster health
 

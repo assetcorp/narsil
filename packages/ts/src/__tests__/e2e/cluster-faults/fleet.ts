@@ -24,6 +24,7 @@ export interface FleetSettings {
   standbyRetryMs: number
   waitForServingMs: number
   fixedNodeIds: boolean
+  backups?: { directory: string; keyPrefix: string }
 }
 
 export interface FleetNode {
@@ -108,6 +109,9 @@ export async function startFleet(
       advertisedPort: entry.transportProxy.port,
       directory: entry.directory,
       ...(settings.fixedNodeIds ? { nodeId: `fault-node-${entry.slot}` } : {}),
+      ...(settings.backups === undefined
+        ? {}
+        : { backupDirectory: settings.backups.directory, backupKeyPrefix: settings.backups.keyPrefix }),
       ...(bundles === null
         ? {}
         : {

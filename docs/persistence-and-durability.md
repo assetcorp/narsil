@@ -4,13 +4,15 @@ Persistence writes an index to a store, and durability adds a write-ahead log on
 
 ## Persistence
 
-Persistence stores serialized partitions through a pluggable adapter. The package includes three adapters:
+Persistence stores serialized partitions through a pluggable adapter. The package includes five adapters:
 
 | Adapter | Import | Environment |
 | --- | --- | --- |
 | Memory | `@delali/narsil/adapters/memory` | The adapter works everywhere and is meant for tests. |
 | Filesystem | `@delali/narsil/adapters/filesystem` | The adapter runs on Node.js, Bun, and Deno. |
 | IndexedDB | `@delali/narsil/adapters/indexeddb` | The adapter runs in browsers. |
+| Amazon S3 | `@delali/narsil/adapters/s3` | The adapter runs on Node.js with `@aws-sdk/client-s3` installed, against S3 or any store that answers the S3 API at the `endpoint` that you set. |
+| Google Cloud Storage | `@delali/narsil/adapters/gcs` | The adapter runs on Node.js with `@google-cloud/storage` installed. |
 
 ```ts
 import { createNarsil } from '@delali/narsil'
@@ -25,7 +27,16 @@ In the browser, `createIndexedDBPersistence({ dbName, storeName })` takes the sa
 
 The serialization format is `.nrsl`, a 32-byte header followed by a MessagePack payload. The format is cross-language portable and specified in [`packages/spec`](../packages/spec), so a Python or Rust implementation can read and write the same files.
 
-A custom backend satisfies the `PersistenceAdapter` interface: `save(key, data)`, `load(key)`, `delete(key)`, and `list(prefix)`, all returning promises.
+A custom backend satisfies the `PersistenceAdapter` interface: `save(key, data)`, `load(key)`, `delete(key)`, and `list(prefix)`, all returning promises. A backend can also offer `saveStream(key, data, length)` and `loadStream(key)`, which move a file in chunks, so that a cluster backup holds no whole file in memory.
+
+`createS3Persistence` and `createGcsPersistence` each return a promise, because each one loads its SDK when you call it. Narsil declares both SDKs as optional peer dependencies, so the engine loads without them, and you install the one that you use:
+
+```bash
+pnpm add @aws-sdk/client-s3
+pnpm add @google-cloud/storage
+```
+
+Where the SDK is missing, the adapter raises `PERSISTENCE_DEPENDENCY_MISSING` with the install command in the message. The [cluster guide](cluster.md#back-up-and-restore-an-index) uses either adapter as the store for cluster backups.
 
 ## Durability
 
@@ -175,6 +186,10 @@ The engine reads the archive one file at a time and checks the length and checks
 | `WORKER_TIMEOUT` | A worker thread still holds the existing index 30 seconds after the engine asked every thread to let it go. The existing index keeps serving. |
 
 [`packages/spec`](../packages/spec) defines the archive format, so you can restore a snapshot from this engine in another process, on another machine, or with another implementation of the format. `restore` also accepts the single `.nrsl` file that `snapshot` returned in release 0.3, which the engine loads by inserting the file's documents and vectors as new writes.
+
+### Cluster backups
+
+A cluster backs up an index through a `PersistenceAdapter` as well, as the [cluster guide](cluster.md#back-up-and-restore-an-index) describes. The primary of each partition takes a checkpoint and uploads the files of that checkpoint under the SHA-256 of their bytes, so backups of the same index share every file that hasn't changed between them. Turn off any rule that expires or deletes objects under the backups' key prefix, such as a bucket lifecycle rule, because such a rule can delete a file that a newer backup still lists, and a restore of that backup then raises `BACKUP_DAMAGED`. Delete old backups with `deleteBackup`, which deletes only the files that no other backup lists.
 
 ## Document export and import
 

@@ -1,4 +1,5 @@
 import { type AdminOperations, createAdminOperations } from './admin'
+import { type BackupOperations, createBackupOperations } from './backups'
 import { type BulkOperations, createBulkOperations } from './bulk'
 import { createDocumentOperations, type DocumentOperations } from './documents'
 import { createTransport } from './http'
@@ -29,6 +30,7 @@ export interface NarsilClient
     SearchOperations,
     TaskOperations,
     AdminOperations,
+    BackupOperations,
     ServerOperations {}
 
 /**
@@ -57,6 +59,7 @@ export function createNarsilClient(options: NarsilClientOptions): NarsilClient {
     ...createSearchOperations(transport),
     ...createTaskOperations(transport),
     ...createAdminOperations(transport),
+    ...createBackupOperations(transport),
     ...createServerOperations(transport),
   }
 }

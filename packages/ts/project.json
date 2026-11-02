@@ -49,6 +49,13 @@
         "cwd": "packages/ts"
       }
     },
+    "test:object-stores": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "pnpm run test:object-stores",
+        "cwd": "packages/ts"
+      }
+    },
     "test:container-memory": {
       "executor": "nx:run-commands",
       "options": {

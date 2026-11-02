@@ -22,6 +22,7 @@ export function createController(config: ControllerConfig): ControllerNode {
     knownIndexNames,
     onError,
     onElectionError,
+    extraMessages,
   } = config
 
   let electionState: ElectionState = createElectionState()
@@ -66,7 +67,7 @@ export function createController(config: ControllerConfig): ControllerNode {
     } catch (_) {}
 
     try {
-      await startEventLoop(eventLoopState, coordinator, transport, nodeId, isActive, onError)
+      await startEventLoop(eventLoopState, coordinator, transport, nodeId, isActive, onError, extraMessages)
     } catch (error) {
       electionState.active = false
       clearElectionTimers(electionState)

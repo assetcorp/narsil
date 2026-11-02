@@ -121,6 +121,60 @@ In a cluster, `partitions.maxDocsPerPartition` caps each partition on its own, b
 
 `node.rebalance(indexName, targetPartitionCount)` moves an index onto a new number of partitions, from 1 to 65,536. The controller creates a hidden index with the new partition count and copies every document into it. Meanwhile the current partitions go on serving reads and writes, and the primary of each one forwards to the hidden index the writes that it takes during the copy. Once every current partition has forwarded all but 1,000 or fewer of its writes, the controller blocks writes to the index, waits for the hidden index to take the last of them, and points the index name at the new partitions in a single allocation write. Each cutover lasts 10 seconds at most, and a write that arrives during it fails with `PARTITION_REBALANCING_BACKPRESSURE`, which the HTTP server answers with status 409, so send that write again once the cutover ends. Where the hidden index has not caught up within those 10 seconds, the controller lifts the block and tries the cutover again later. After 10 tries the controller abandons the change, and the call raises `ALLOCATION_FAILED` while the index keeps its partitions. The call also raises `CONFIG_INVALID` for a count outside that range or equal to the current one, `PARTITION_REBALANCING_BACKPRESSURE` while another change to the same index is in progress, and `NODE_NOT_CONTROLLER` while no node holds the controller lease. Over HTTP, `POST /indexes/{name}/_rebalance` starts the change as a task, which [Tasks](http-server.md#tasks) describes. Once the change finishes, `node.cluster.getAllocation` returns the table of the new partitions under the name of the index.
 
+## Back up and restore an index
+
+A cluster can back up an index to a store outside the cluster, and any cluster that reads the same store can restore that backup later as a new index, whatever number of nodes it has. Give every node the same `backups` setting, which names a [PersistenceAdapter](persistence-and-durability.md#persistence) for the store and the key prefix that this cluster writes under:
+
+```ts
+import { createS3Persistence } from '@delali/narsil/adapters/s3'
+import { createClusterNode } from '@delali/narsil/distribution'
+
+const node = await createClusterNode({
+  coordinator,
+  transport,
+  address: 'node-a:9200',
+  backups: {
+    store: await createS3Persistence({ bucket: 'search-backups', region: 'eu-west-2' }),
+    keyPrefix: 'clusters/production',
+  },
+  engine: { durability: { directory: './data' } },
+})
+await node.start()
+
+await node.cluster.createBackup('products', 'products-2026-11-02')
+const backups = await node.cluster.listBackups()
+await node.cluster.restoreBackup('products-2026-11-02', { indexName: 'products-restored' })
+await node.cluster.deleteBackup('products-2026-11-02')
+```
+
+`createGcsPersistence` from `@delali/narsil/adapters/gcs` stores the backups in Google Cloud Storage in the same way, and `createFilesystemPersistence` from `@delali/narsil/adapters/filesystem` stores them in a directory, such as a shared volume that every node mounts. The S3 adapter loads `@aws-sdk/client-s3` and the Cloud Storage adapter loads `@google-cloud/storage`, which Narsil declares as optional peer dependencies, so install the one that you use. Where the package is missing, the adapter raises `PERSISTENCE_DEPENDENCY_MISSING` with the install command in the message.
+
+A backup name holds 1 to 128 letters, digits, `.`, `_`, and `-`, and it starts with a letter or a digit. A key prefix holds segments of those characters joined by `/`, and no segment can be `.` or `..`. A node refuses any other name with `CONFIG_INVALID` before it reaches the store, so no name can write outside the prefix.
+
+`createBackup` asks the primary of every partition to take a checkpoint and to upload that checkpoint's files. The backup holds every write that the cluster acknowledged before the request reached each primary. Each partition matches its own position in its log, so the backup holds no single point in time across partitions. Each primary needs write-ahead log durability, and a primary without it refuses with `BACKUP_DURABILITY_REQUIRED`. The store keeps each file under the SHA-256 of its bytes, and a primary uploads only the files that the store lacks, so a second backup of an unchanged index adds only its manifest. Each node uploads at most 4 files at a time, and it streams each one in chunks of 1 MiB through the adapter's `saveStream` where the adapter offers it, so the memory that a node needs for a backup depends on those 4 transfers and stays the same for an index of any size. The controller saves the backup's manifest once every file is stored, and a backup without a manifest doesn't appear in the listing. Where a primary fails during the backup, the controller asks the new primary to take that partition again. Where the controller fails, the next controller fails the backup, and you can take it again under the same name.
+
+`restoreBackup` creates the index under the name in `indexName`, with the backup's partition count and with the replication factor and the allocation constraints that you pass, or else the backup's. Each primary checks the length and the SHA-256 of every file before it loads any of them, and the restore raises `BACKUP_DAMAGED` where a file is missing or differs. A failed restore creates no index, and the name serves nothing until every partition has loaded. Where the name is taken, the restore raises `INDEX_ALREADY_EXISTS`.
+
+The first backup saves the cluster's UUID under `<keyPrefix>/cluster`. A backup or a deletion from another cluster under that prefix raises `BACKUP_STORE_CLAIMED`, so two clusters can't delete each other's files. A restore and a listing skip that check, so a new cluster can restore the backups of a cluster that no longer exists: give the new cluster the same store and key prefix, restore what you need, and give it a prefix of its own before it takes a backup.
+
+`deleteBackup` deletes the backup's manifest, and then each stored file that no other backup lists. Only the controller deletes anything from the store, and it does so only for `deleteBackup`. Where another manifest can't be read, the controller deletes no file and raises `BACKUP_DAMAGED` with that manifest's name, because it can't tell which files that backup needs. `listBackups` returns one summary for each backup in name order, and a `DamagedBackup` holding `BACKUP_DAMAGED` for each manifest that it can't read.
+
+Turn off any rule that expires or deletes objects under the key prefix, such as a bucket lifecycle rule. Backups share their stored files, so the newest backup can list a file that the oldest one stored. A rule that deletes that file by age breaks every backup that lists it, and the restore then raises `BACKUP_DAMAGED`. Delete old backups with `deleteBackup`.
+
+`createBackup`, `restoreBackup`, and `deleteBackup` each take an `onProgress` callback, which reports how many partitions are done, or how many files for a deletion. The controller records each operation as a job in the coordinator and keeps the last 100 finished jobs. Over HTTP, `POST /indexes/{name}/backups`, `POST /backups/{backup}/_restore`, and `DELETE /backups/{backup}` start the operation as a task, and `GET /backups` lists the backups, which the [HTTP server guide](http-server.md#backups) describes.
+
+| Code | Raised when |
+| --- | --- |
+| `BACKUP_NOT_FOUND` | The store holds no manifest under the name. |
+| `BACKUP_ALREADY_EXISTS` | A manifest or a running backup already holds the name. |
+| `BACKUP_DAMAGED` | A manifest can't be read, or a file that it lists is missing or has another length or SHA-256. |
+| `BACKUP_DURABILITY_REQUIRED` | A primary runs without write-ahead log durability. |
+| `BACKUP_IN_PROGRESS` | A backup starts while a deletion runs, a restore starts while its backup is being deleted, or a deletion starts while a backup, another deletion, or a restore of the same backup runs. |
+| `BACKUP_STORE_CLAIMED` | Another cluster's UUID is stored under the key prefix. |
+| `BACKUP_NOT_READY` | A node of the cluster runs a release that can't take part in a backup. |
+| `BACKUP_STORE_NOT_CONFIGURED` | The node that received the call has no `backups` setting. |
+| `PARTITION_REBALANCING_BACKPRESSURE` | The partition count of the index is changing. |
+
 ## What a node does with the indexes that it already holds
 
 A node that stores its indexes on disk still holds them when it starts again, although the cluster may have changed while it was down. The engine stores the identity that the cluster gives each index at creation, so a rejoining node compares that identity with the coordinator's and settles each index in one of three ways:
