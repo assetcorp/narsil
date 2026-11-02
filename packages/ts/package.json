@@ -96,7 +96,8 @@
   "scripts": {
     "build": "rm -rf dist && tsup && node scripts/check-browser-bundle.mjs && node scripts/check-vector-chunk.mjs && tsx scripts/api-surface.ts",
     "build:code": "rm -rf dist && NARSIL_BUILD_CODE_ONLY=1 tsup",
-    "test": "vitest run --exclude='**/vector/recall.test.ts' --exclude='**/e2e/cluster-memory/**' --exclude='**/e2e/cluster-faults/**' --exclude='**/frozen-removal-memory/container-removes.test.ts'",
+    "test": "vitest run --exclude='**/vector/recall.test.ts' --exclude='**/e2e/cluster-memory/**' --exclude='**/e2e/cluster-faults/**' --exclude='**/frozen-removal-memory/container-removes.test.ts' --exclude='**/persistence/live-object-stores/**'",
+    "test:object-stores": "vitest run src/__tests__/persistence/live-object-stores",
     "test:native": "vitest run src/__tests__/vector/native src/__tests__/integration/filtered-vector-recall/native src/__tests__/integration/filtered-vectors/mutations-native src/__tests__/integration/removed-vectors/main-thread",
     "test:cluster": "vitest run src/__tests__/e2e/cluster-memory --no-file-parallelism",
     "test:faults": "vitest run src/__tests__/e2e/cluster-faults --no-file-parallelism",
@@ -148,6 +149,14 @@
     "./adapters/indexeddb": {
       "import": "./dist/adapters/indexeddb.mjs",
       "types": "./dist/adapters/indexeddb.d.ts"
+    },
+    "./adapters/s3": {
+      "import": "./dist/adapters/s3.mjs",
+      "types": "./dist/adapters/s3.d.ts"
+    },
+    "./adapters/gcs": {
+      "import": "./dist/adapters/gcs.mjs",
+      "types": "./dist/adapters/gcs.d.ts"
     },
     "./invalidation/noop": {
       "import": "./dist/invalidation/noop.mjs",
@@ -237,8 +246,10 @@
     "@msgpack/msgpack": "3.1.1"
   },
   "devDependencies": {
+    "@aws-sdk/client-s3": "3.1159.0",
     "@biomejs/biome": "2.4.4",
     "@delali/narsil-embeddings-transformers": "workspace:*",
+    "@google-cloud/storage": "8.4.0",
     "@grpc/grpc-js": "1.14.4",
     "@microsoft/api-extractor": "7.58.12",
     "@stoplight/spectral-cli": "6.15.0",
@@ -263,12 +274,20 @@
     "wabt": "1.0.39"
   },
   "peerDependencies": {
+    "@aws-sdk/client-s3": "^3.1159.0",
+    "@google-cloud/storage": "^8.4.0",
     "@grpc/grpc-js": "1.14.4",
     "etcd3": "1.1.2",
     "react": ">=19.2.0",
     "uWebSockets.js": ">=20.0.0"
   },
   "peerDependenciesMeta": {
+    "@aws-sdk/client-s3": {
+      "optional": true
+    },
+    "@google-cloud/storage": {
+      "optional": true
+    },
     "@grpc/grpc-js": {
       "optional": true
     },

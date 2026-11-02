@@ -80,6 +80,9 @@ export interface VectorStore extends VectorBuildReader {
   insert(docId: string, vector: Float32Array, partitionId?: number, keepsReplacedVector?: boolean): number
   readonly replacedVectorCount: number
   releaseReplacedVectors(): number[]
+  pinRetiredVectors(): void
+  unpinRetiredVectors(): void
+  entryForPinnedOrdinal(ordinal: number): VectorStoreEntry | undefined
   /** Appends a document whose vector a checkpoint file holds at a fresh ordinal, holding no block slot for it. */
   insertCold(docId: string, magnitude: number, location: DiskLocation, partitionId?: number): number
   insertReplaced(docId: string, vector: Float32Array, location?: DiskLocation): number

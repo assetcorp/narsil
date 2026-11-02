@@ -1,6 +1,7 @@
-export const SPEC_VERSION = '1.1'
+export const SPEC_VERSION = '1.2'
 export const PHRASE_SEARCH_SPEC_VERSION = '1.1'
 export const BM25_TUNING_SPEC_VERSION = '1.1'
+export const BACKUP_SPEC_VERSION = '1.2'
 
 const VERSION_PATTERN = /^(\d+)\.(\d+)$/
 

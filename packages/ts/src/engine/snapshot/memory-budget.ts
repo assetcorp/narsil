@@ -155,7 +155,7 @@ export function storedBytesOfSegments(manifest: SegmentManifest): number {
 }
 
 export function archiveFootprint(
-  prepared: PreparedIndex,
+  prepared: Pick<PreparedIndex, 'config'>,
   manifest: SegmentManifest,
   replacesIndex: boolean,
   segmentBytes: number,

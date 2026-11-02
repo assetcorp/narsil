@@ -1,3 +1,4 @@
+export type { BackupListing, BackupSummary, DamagedBackup } from '../distribution/backups/types'
 export type { ClientErrorCode, ErrorCode, NarsilErrorCode, ServerErrorCode } from '../errors'
 export { ClientErrorCodes, ErrorCodes, isNarsilError, NarsilError, ServerErrorCodes } from '../errors'
 export {
@@ -13,6 +14,7 @@ export {
   TASK_FILTER_CAPABILITY,
 } from '../server/capabilities'
 export type {
+  BackupListResponse,
   CapabilitiesResponse,
   ChangeAnalysisBody,
   CreateIndexEmbedding,
@@ -22,14 +24,17 @@ export type {
   ImportError,
   ImportResult,
   MemoryStatsResponse,
+  RestoreBackupBody,
   TaskListPage,
   TaskListQuery,
   TaskProgress,
   TaskRecord,
   TaskStatus,
+  TaskStepProgress,
   TaskType,
 } from '../server/types'
 export type { AdminOperations } from './admin'
+export type { BackupOperations } from './backups'
 export type { BulkOperations, ImportSource } from './bulk'
 export type { NarsilClient } from './client'
 export { createNarsilClient } from './client'

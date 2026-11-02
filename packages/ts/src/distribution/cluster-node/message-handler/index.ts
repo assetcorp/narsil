@@ -1,3 +1,4 @@
+import { handleBackupPartition, handleRestorePartition } from '../../backups/primary-handlers'
 import type { RespondFn, TransportMessage } from '../../transport/types'
 import { ClusterMessageTypes, QueryMessageTypes, ReplicationMessageTypes } from '../../transport/types'
 import { encodeErrorReplyFrom } from '../error-reply'
@@ -80,6 +81,12 @@ export function createDataNodeHandler(deps: DataNodeHandlerDeps): TransportHandl
           return
         case ClusterMessageTypes.INDEX_SETTINGS:
           await handleIndexSettings(message, respond, deps)
+          return
+        case ClusterMessageTypes.BACKUP_PARTITION:
+          await handleBackupPartition(message, respond, deps)
+          return
+        case ClusterMessageTypes.RESTORE_PARTITION:
+          await handleRestorePartition(message, respond, deps)
           return
         default:
           return

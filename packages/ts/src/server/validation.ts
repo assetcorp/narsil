@@ -233,14 +233,19 @@ export function validateRebalance(body: RebalanceBody): ValidationFailure | null
   return null
 }
 
-const TASK_TYPES: readonly TaskType[] = [
-  'optimizeVectors',
-  'rebalance',
-  'restore',
-  'import',
-  'importExport',
-  'rebuildAnalysis',
-]
+const TASK_TYPE_SET: Readonly<Record<TaskType, true>> = {
+  optimizeVectors: true,
+  rebalance: true,
+  restore: true,
+  import: true,
+  importExport: true,
+  rebuildAnalysis: true,
+  changeAnalysis: true,
+  backup: true,
+  backupRestore: true,
+  backupDelete: true,
+}
+const TASK_TYPES = Object.keys(TASK_TYPE_SET) as TaskType[]
 const TASK_STATUSES: readonly TaskStatus[] = ['running', 'succeeded', 'failed', 'cancelled']
 
 function parseCountParam(raw: string | null, field: string, minimum: number): number | ValidationFailure {

@@ -1,4 +1,13 @@
 export type {
+  BackupListing,
+  BackupOperationOptions,
+  BackupProgress,
+  BackupSummary,
+  ClusterBackupConfig,
+  DamagedBackup,
+  RestoreBackupOptions,
+} from './backups/types'
+export type {
   ClusterControllerConfig,
   ClusterMemoryConfig,
   ClusterNamespace,

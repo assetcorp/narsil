@@ -41,6 +41,7 @@ import type { AnyDocument, BM25Params, IndexConfig } from '../../types/schema'
 import type { ListParams, QueryParams, SuggestParams } from '../../types/search'
 import type { SynonymRule } from '../../types/synonyms'
 import type { ReplicationLogEntry } from '../replication/types'
+import { type BackupPartitionSource, openBackupPartitionSource } from './backup-partition-source'
 import { emptyPartitionCopy, reloadPartitionCopy } from './copy-reset'
 import { createHeldPartitionRecord } from './held-partitions'
 import {
@@ -86,6 +87,7 @@ export interface ClusterLocalEngine extends Narsil {
   forgetHeldPartition(indexName: string, partitionId: number): Promise<void>
   applyReplicationEntry(entry: ReplicationLogEntry): Promise<void>
   applyReplicationEntries(entries: readonly ReplicationLogEntry[]): Promise<AppliedReplicationEntries>
+  openBackupPartition(indexName: string, partitionId: number): Promise<BackupPartitionSource>
   archiveReplicationPartition(
     indexName: string,
     partitionId: number,
@@ -228,6 +230,8 @@ export async function createClusterLocalEngine(
     applyReplicationEntry: (entry: ReplicationLogEntry) => applyLocalReplicationEntry(core, entry, writeRecords),
     applyReplicationEntries: (entries: readonly ReplicationLogEntry[]) =>
       applyLocalReplicationEntries(core, entries, writeRecords),
+    openBackupPartition: (indexName: string, partitionId: number) =>
+      openBackupPartitionSource(core, indexName, partitionId),
     archiveReplicationPartition: (indexName: string, partitionId: number, lastSeqNo: () => number) =>
       archiveReplicationPartition(core, indexName, partitionId, lastSeqNo, writeRecords),
     restoreReplicationPartition: (

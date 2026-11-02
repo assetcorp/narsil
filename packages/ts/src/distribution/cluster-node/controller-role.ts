@@ -1,12 +1,13 @@
 import { DEFAULT_CONTROLLER_CONFIG } from '../cluster/constants'
 import { createController } from '../cluster/controller'
-import type { ControllerNode } from '../cluster/controller/types'
+import type { ControllerMessageHandler, ControllerNode } from '../cluster/controller/types'
 import type { NodeTransport } from '../transport/types'
 import type { ClusterNodeConfig } from './types'
 
 export interface NodeControllerErrors {
   onError: (indexName: string, error: unknown) => void
   onElectionError: (error: unknown) => void
+  extraMessages?: ControllerMessageHandler
 }
 
 export function createNodeController(
@@ -25,5 +26,6 @@ export function createNodeController(
     knownIndexNames: [],
     onError: errors.onError,
     onElectionError: errors.onElectionError,
+    extraMessages: errors.extraMessages,
   })
 }

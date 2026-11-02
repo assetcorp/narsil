@@ -2098,10 +2098,189 @@
           }
         }
       }
+    },
+    "/indexes/{name}/backups": {
+      "post": {
+        "operationId": "createBackup",
+        "summary": "Back up an index to the store outside the cluster, as a task",
+        "tags": [
+          "Cluster"
+        ],
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "description": "The name of the index.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateBackupBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "The server accepted the work and started a task.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskRecord"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/backups": {
+      "get": {
+        "operationId": "listBackups",
+        "summary": "List the backups in the store outside the cluster",
+        "tags": [
+          "Cluster"
+        ],
+        "responses": {
+          "200": {
+            "description": "The server answered the request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BackupListResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/backups/{backup}/_restore": {
+      "post": {
+        "operationId": "restoreBackup",
+        "summary": "Restore a backup as a new index, as a task",
+        "tags": [
+          "Cluster"
+        ],
+        "parameters": [
+          {
+            "name": "backup",
+            "in": "path",
+            "required": true,
+            "description": "The name of the backup.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RestoreBackupBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "The server accepted the work and started a task.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskRecord"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/backups/{backup}": {
+      "delete": {
+        "operationId": "deleteBackup",
+        "summary": "Delete a backup and the files that no other backup lists, as a task",
+        "tags": [
+          "Cluster"
+        ],
+        "parameters": [
+          {
+            "name": "backup",
+            "in": "path",
+            "required": true,
+            "description": "The name of the backup.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "The server accepted the work and started a task.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskRecord"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
     }
   },
   "components": {
     "schemas": {
+      "AllocationConstraints": {
+        "type": "object",
+        "properties": {
+          "zoneAwareness": {
+            "type": "boolean",
+            "description": "Setting this spreads an index's replicas across zones, so losing one zone never costs every copy."
+          },
+          "zoneAttribute": {
+            "type": "string",
+            "description": "This names the key in a node's `metadata` that carries its zone."
+          },
+          "maxShardsPerNode": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "description": "One node may hold this many partitions of an index, and `null` lifts the ceiling."
+          }
+        },
+        "required": [
+          "zoneAwareness",
+          "zoneAttribute",
+          "maxShardsPerNode"
+        ],
+        "description": "The rules the allocator respects when it places partitions. The controller stores these with each index's metadata, so every node allocating that index applies the same rules."
+      },
       "AnyDocument": {
         "type": "object",
         "properties": {
@@ -2156,6 +2335,81 @@
           }
         },
         "description": "Tests the contents of a list field, which is a `number[]`, `boolean[]`, `enum[]`, `verbatim[]`, or `string[]` field. The engine throws `SEARCH_INVALID_FILTER` for these tests on any other field, for a value whose type differs from the type of the list's elements, and for `containsAll` or `matchesAny` on a `string[]` field whose type leaves out `pattern`."
+      },
+      "BackupListing": {
+        "anyOf": [
+          {
+            "$ref": "#/components/schemas/BackupSummary"
+          },
+          {
+            "$ref": "#/components/schemas/DamagedBackup"
+          }
+        ],
+        "description": "One entry of ClusterNamespace.listBackups : a summary, or a DamagedBackup where the manifest can't be read."
+      },
+      "BackupListResponse": {
+        "type": "object",
+        "properties": {
+          "backups": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BackupListing"
+            },
+            "description": "One entry per backup in name order: its summary, or its name and a `BACKUP_DAMAGED` error where its manifest can't be read."
+          }
+        },
+        "required": [
+          "backups"
+        ],
+        "description": "The body of `GET /backups`."
+      },
+      "BackupSummary": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "The name the backup was taken under."
+          },
+          "indexName": {
+            "type": "string",
+            "description": "The index the backup holds."
+          },
+          "startedAt": {
+            "type": "number",
+            "description": "The backup started at this many milliseconds since the epoch, and it holds every write acknowledged before then."
+          },
+          "completedAt": {
+            "type": "number",
+            "description": "The controller wrote the backup's manifest at this many milliseconds since the epoch."
+          },
+          "partitionCount": {
+            "type": "number",
+            "description": "The index had this many partitions, and a restore creates the same number."
+          },
+          "replicationFactor": {
+            "type": "number",
+            "description": "The index kept this many replicas of each partition, and a restore asks for the same number."
+          },
+          "files": {
+            "type": "number",
+            "description": "The backup lists this many stored files, counting each partition's manifest and the index configuration."
+          },
+          "bytes": {
+            "type": "number",
+            "description": "The files the backup lists hold this many bytes in total, including files that other backups share."
+          }
+        },
+        "required": [
+          "name",
+          "indexName",
+          "startedAt",
+          "completedAt",
+          "partitionCount",
+          "replicationFactor",
+          "files",
+          "bytes"
+        ],
+        "description": "What a cluster records about one backup."
       },
       "BatchBody": {
         "type": "object",
@@ -2576,6 +2830,19 @@
         },
         "description": "Compares one field against a value. Setting several keys narrows the match, because a document has to satisfy all of them."
       },
+      "CreateBackupBody": {
+        "type": "object",
+        "properties": {
+          "backup": {
+            "type": "string",
+            "description": "The backup's name, from 1 to 128 letters, digits, `.`, `_`, and `-`, starting with a letter or a digit."
+          }
+        },
+        "required": [
+          "backup"
+        ],
+        "description": "The body of `POST /indexes/{name}/backups`."
+      },
       "CreateIndexEmbedding": {
         "type": "object",
         "properties": {
@@ -2605,6 +2872,36 @@
           "fields"
         ],
         "description": "How a JSON `createIndex` request connects an index to an embedding adapter. An adapter is a function and cannot cross JSON, so the request names one the server registered instead of carrying it."
+      },
+      "DamagedBackup": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "The name that the manifest is stored under."
+          },
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "message"
+            ],
+            "description": "Why the manifest can't be read, with the code `BACKUP_DAMAGED`."
+          }
+        },
+        "required": [
+          "name",
+          "error"
+        ],
+        "description": "A backup whose manifest the cluster can't read, which a listing shows in place of its summary."
       },
       "DocumentBody": {
         "type": "object",
@@ -4592,6 +4889,27 @@
         ],
         "description": "How a query reorders its top hits with a rerank adapter. The engine ranks the query as it would without this setting, passes the top `window` hits to the adapter, and orders them by the adapter's scores. The hits past the window follow in their first ranking, with their scores scaled below the lowest reranked score, so every page of one query comes from the same order."
       },
+      "RestoreBackupBody": {
+        "type": "object",
+        "properties": {
+          "indexName": {
+            "type": "string",
+            "description": "The restore creates the index under this name, and it fails where the name is taken."
+          },
+          "replicationFactor": {
+            "type": "number",
+            "description": "The restored index keeps this many replicas of each partition, or the backup's number when you leave it out."
+          },
+          "constraints": {
+            "$ref": "#/components/schemas/AllocationConstraints",
+            "description": "The rules that place the restored partitions, or the backup's rules when you leave them out."
+          }
+        },
+        "required": [
+          "indexName"
+        ],
+        "description": "The body of `POST /backups/{backup}/_restore`."
+      },
       "SchemaDefinition": {
         "type": "object",
         "additionalProperties": {
@@ -4953,7 +5271,11 @@
           },
           "indexName": {
             "type": "string",
-            "description": "The operation runs against this index."
+            "description": "The operation runs against this index. A `backupRestore` task names the index it creates, and a `backupDelete` task names none and carries an empty string."
+          },
+          "backupName": {
+            "type": "string",
+            "description": "A `backup`, `backupRestore`, or `backupDelete` task works on the backup of this name."
           },
           "status": {
             "$ref": "#/components/schemas/TaskStatus",
@@ -4982,6 +5304,10 @@
           "progress": {
             "$ref": "#/components/schemas/TaskProgress",
             "description": "How far the work has gone, which an import reports and other task types omit."
+          },
+          "steps": {
+            "$ref": "#/components/schemas/TaskStepProgress",
+            "description": "How many of its steps the work has finished, which a backup, a backup restore, and a backup deletion report."
           },
           "result": {
             "$ref": "#/components/schemas/ImportResult",
@@ -5012,6 +5338,24 @@
         ],
         "description": "Where a long-running operation stands. A task starts `running`, because the server begins the work as it accepts the request. Where the server already drives ServerLimits.maxConcurrentTasks  tasks, it answers 429 `TOO_MANY_REQUESTS` and starts none. A task reaches `cancelled` only where the work itself stops early, so a cancel that arrives too late leaves the task `succeeded`."
       },
+      "TaskStepProgress": {
+        "type": "object",
+        "properties": {
+          "done": {
+            "type": "number",
+            "description": "The task has finished this many steps."
+          },
+          "total": {
+            "type": "number",
+            "description": "The task covers this many steps, and 0 until it knows."
+          }
+        },
+        "required": [
+          "done",
+          "total"
+        ],
+        "description": "How far a task that works through a known number of steps has gone. A `backup` and a `backupRestore` task count partitions, and a `backupDelete` task counts the files it removes."
+      },
       "TaskType": {
         "type": "string",
         "enum": [
@@ -5021,7 +5365,10 @@
           "import",
           "importExport",
           "rebuildAnalysis",
-          "changeAnalysis"
+          "changeAnalysis",
+          "backup",
+          "backupRestore",
+          "backupDelete"
         ],
         "description": "Which long-running operation a task record tracks."
       },

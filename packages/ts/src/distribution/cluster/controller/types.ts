@@ -1,5 +1,7 @@
 import type { ClusterCoordinator } from '../../coordinator/types'
-import type { NodeTransport } from '../../transport/types'
+import type { NodeTransport, RespondFn, TransportMessage } from '../../transport/types'
+
+export type ControllerMessageHandler = (message: TransportMessage, respond: RespondFn) => boolean
 
 export interface ControllerConfig {
   nodeId: string
@@ -11,6 +13,7 @@ export interface ControllerConfig {
   knownIndexNames: string[]
   onError?: (indexName: string, error: unknown) => void
   onElectionError?: (error: unknown) => void
+  extraMessages?: ControllerMessageHandler
 }
 
 export { CONTROLLER_LEASE_KEY } from '../../coordinator/constants'

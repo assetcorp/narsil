@@ -35,6 +35,8 @@ PersistenceAdapter {
   async load(key: string) -> bytes or absent
   async delete(key: string) -> nothing
   async list(prefix: string) -> List<string>
+  async saveStream(key: string, data: async sequence of bytes, length: integer) -> nothing   (optional)
+  async loadStream(key: string) -> async sequence of bytes or absent                         (optional)
 }
 ```
 
@@ -62,6 +64,18 @@ PersistenceAdapter {
 - Startup discovery uses it to find indexes and partitions, so `list("")` returns every key and `list("products/")` returns every key belonging to the `products` index.
 - Key ordering is not guaranteed.
 
+### saveStream(key, data, length), optional
+
+- Stores the bytes that `data` yields under `key`, replacing whatever was there before, with the same atomicity as `save`, so a failed or short stream leaves the previous value untouched.
+- It raises `PERSISTENCE_SAVE_FAILED` where `data` yields more or fewer than `length` bytes, and for any other failure.
+
+### loadStream(key), optional
+
+- Yields the bytes stored under `key` in order, or returns absent when the key holds nothing.
+- A failure raises `PERSISTENCE_LOAD_FAILED`.
+
+An adapter for a store that holds large files should offer both methods, so that a caller never has to hold a whole file in memory. A [cluster backup](distribution/backups.md) streams through them where the adapter offers them.
+
 ### Key Format
 
 Keys are slash-delimited paths, every key belonging to an index starts with `<indexName>/`, and the full key table is in [Storage Path Convention](envelope.md#storage-path-convention).
@@ -77,6 +91,10 @@ A filesystem-backed adapter must confirm that the resolved file path stays insid
 | MemoryAdapter | all | An in-memory map |
 | FilesystemAdapter | server runtimes | `.nrsl` files on disk |
 | IndexedDBAdapter | browser | An IndexedDB store |
+| S3Adapter | server runtimes | An S3 bucket |
+| GCSAdapter | server runtimes | A Google Cloud Storage bucket |
+
+An adapter whose backend needs an optional library, such as the S3 or the Google Cloud Storage adapter, must raise `PERSISTENCE_DEPENDENCY_MISSING` when it is created without that library, and its message must name the install command.
 
 ### Community Adapter Guidelines
 
@@ -85,7 +103,7 @@ A community adapter, whether it targets Redis, S3, PostgreSQL, or anything else,
 - Use the same key format the built-in adapters use.
 - Store the raw `.nrsl` bytes unchanged.
 - Write atomically, or document plainly that it cannot.
-- Support key listing, so startup discovery works.
+- Support key listing over any number of keys, following the backend's pagination, so startup discovery and backups work.
 
 ---
 

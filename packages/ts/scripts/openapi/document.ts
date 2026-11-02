@@ -91,6 +91,7 @@ function openApiPath(path: string): string {
 
 function pathParameterDescription(path: string, name: string): string {
   if (name === 'name') return 'The name of the index.'
+  if (name === 'backup') return 'The name of the backup.'
   return path.startsWith('/tasks') ? 'The id of the task.' : 'The id of the document.'
 }
 

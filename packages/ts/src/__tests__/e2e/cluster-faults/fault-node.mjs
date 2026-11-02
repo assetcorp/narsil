@@ -1,3 +1,4 @@
+import { createFilesystemPersistence } from '../../../../dist/adapters/filesystem.mjs'
 import { createEtcdCoordinator } from '../../../../dist/distribution/coordinator/etcd.mjs'
 import { createTcpTransport } from '../../../../dist/distribution/transport/tcp.mjs'
 import { clusterNodeEngine, createClusterNode } from '../../../../dist/distribution.mjs'
@@ -25,6 +26,14 @@ const node = await createClusterNode({
   roles: ['data', 'coordinator', 'controller'],
   engine: { workers: { enabled: false }, durability: { directory: settings.directory } },
   controller: { leaseTtlMs: settings.controllerLeaseTtlMs, standbyRetryMs: settings.standbyRetryMs },
+  ...(settings.backupDirectory === undefined
+    ? {}
+    : {
+        backups: {
+          store: createFilesystemPersistence({ directory: settings.backupDirectory }),
+          keyPrefix: settings.backupKeyPrefix,
+        },
+      }),
   onError: error => process.stderr.write(`${node.nodeId}: ${error.message}\n`),
 })
 await node.start()

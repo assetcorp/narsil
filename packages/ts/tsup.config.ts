@@ -3,7 +3,7 @@ import { defineConfig, type Options } from 'tsup'
 
 const NODE_BUILTINS = ['worker_threads', 'fs', 'path', 'os', 'crypto', 'net', 'tls', 'v8']
 const NODE_EXTERNAL = NODE_BUILTINS.flatMap(m => [m, `node:${m}`])
-const OPTIONAL_PEERS = ['etcd3', 'uWebSockets.js', '@grpc/grpc-js']
+const OPTIONAL_PEERS = ['etcd3', 'uWebSockets.js', '@grpc/grpc-js', '@aws-sdk/client-s3', '@google-cloud/storage']
 
 const LANGUAGES_DIR = 'src/languages'
 const NON_LANGUAGE_MODULES = new Set(['registry'])
@@ -24,6 +24,8 @@ const nodeEntry: Record<string, string> = {
   'adapters/memory': 'src/persistence/memory.ts',
   'adapters/filesystem': 'src/persistence/filesystem.ts',
   'adapters/indexeddb': 'src/persistence/indexeddb.ts',
+  'adapters/s3': 'src/persistence/s3.ts',
+  'adapters/gcs': 'src/persistence/gcs.ts',
   'invalidation/noop': 'src/invalidation/noop.ts',
   'invalidation/filesystem': 'src/invalidation/filesystem.ts',
   'invalidation/broadcast-channel': 'src/invalidation/broadcast-channel.ts',
