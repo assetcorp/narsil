@@ -31,6 +31,7 @@ import {
   writeVector,
 } from './open-store'
 import { createOrdinalReads, entryAt } from './ordinal-reads'
+import { createRetiredVectorPins, pinnedReads } from './retired-pins'
 import type {
   ArenaQueryVector,
   DiskLocation,
@@ -60,6 +61,7 @@ export function createVectorStore(options?: VectorStoreOptions): VectorStore {
   const docToOrd = new Map<string, number>()
   const ordToDoc: Array<string | undefined> = []
   const replacedOrdinals = new Set<number>()
+  const pins = createRetiredVectorPins()
   let unknownPartitions = 0
   let liveCount = 0
   let readBackVector: Float32Array | null = null
@@ -70,6 +72,7 @@ export function createVectorStore(options?: VectorStoreOptions): VectorStore {
     docToOrd.clear()
     ordToDoc.length = 0
     replacedOrdinals.clear()
+    pins.forget()
     unknownPartitions = 0
     liveCount = 0
   }
@@ -94,6 +97,7 @@ export function createVectorStore(options?: VectorStoreOptions): VectorStore {
   function retireOrdinal(store: OpenStore, ordinal: number): void {
     ordToDoc[ordinal] = undefined
     Atomics.store(store.present, ordinal, 0)
+    pins.note(ordinal)
     if (store.partitions[ordinal] === UNKNOWN_PARTITION) unknownPartitions -= 1
   }
 
@@ -191,9 +195,12 @@ export function createVectorStore(options?: VectorStoreOptions): VectorStore {
     releaseReplacedVectors(): number[] {
       const released = [...replacedOrdinals]
       replacedOrdinals.clear()
+      for (const ordinal of released) pins.note(ordinal)
       if (open !== null) for (const ordinal of released) Atomics.store(open.present, ordinal, 0)
       return released
     },
+
+    ...pinnedReads(pins, () => open, readable),
 
     insertCold(docId: string, vectorMagnitude: number, location: DiskLocation, partitionId?: number): number {
       const store = requireOpen()
@@ -250,13 +257,14 @@ export function createVectorStore(options?: VectorStoreOptions): VectorStore {
 
     releaseColdBlocks(): number {
       const store = requireOpen()
+      const kept = pins.keptWith(replacedOrdinals)
       let released = 0
       for (let index = 0; index < store.handles.blocks.length; index++) {
-        if (store.handles.blocks[index] === null || !blockFullyCold(store, index, ordToDoc, replacedOrdinals)) continue
+        if (store.handles.blocks[index] === null || !blockFullyCold(store, index, ordToDoc, kept)) continue
         store.handles.blocks[index] = null
         released += 1
       }
-      if (released + forgetUnreferencedFiles(store, ordToDoc, replacedOrdinals) > 0) relayout(store)
+      if (released + forgetUnreferencedFiles(store, ordToDoc, kept) > 0) relayout(store)
       return released
     },
 

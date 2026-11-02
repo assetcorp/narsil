@@ -68,6 +68,7 @@ function partitionVectorPlan(vectorIndex: VectorIndex, docIds: readonly string[]
     graphParts: null,
     signature: { revision: 0, graphSize: -1, calibration: null },
     readNewFile: index => files[index],
+    release: () => undefined,
   }
 }
 

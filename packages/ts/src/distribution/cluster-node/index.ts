@@ -1,16 +1,13 @@
 import { ErrorCodes, NarsilError } from '../../errors'
 import { bindRerankWindowSource, rerankWindowCapOf } from '../../narsil/internals'
 import { bindWriteBlockLookup } from '../../narsil/write-blocks'
-import { DEFAULT_NODE_LIFECYCLE_CONFIG } from '../cluster/constants'
+import { createBackupService } from '../backups/service'
 import type { ControllerNode } from '../cluster/controller/types'
-import { createDataNodeLifecycle } from '../cluster/node-lifecycle'
-import type { DataNodeHandle } from '../cluster/node-lifecycle/types'
 import type { NodeRole } from '../coordinator/types'
 import { openSnapshotSpoolDirectory } from '../replication/snapshot-spool'
 import type { ReplicationLog } from '../replication/types'
 import { createAnalysisView } from './analysis-change/view'
 import { createBm25View } from './bm25-view'
-import { cleanupRemovedPartition, releaseTornDownIndex } from './bootstrap-cleanup'
 import { clearBootstrapSyncIndex, createBootstrapSyncState, hasCompletedBootstrapSync } from './bootstrap-sync'
 import { startCatchUpPump, stopCatchUpPump } from './catch-up'
 import { createClusterNamespace } from './cluster-namespace'
@@ -25,6 +22,7 @@ import { seedReopenedPrimaryLogs } from './local-replication'
 import { findWriteBlock } from './memory/write-block'
 import { createDataNodeHandler } from './message-handler'
 import { resolveNodeId } from './node-identity'
+import { createNodeLifecycle } from './node-lifecycle'
 import { createClusterNodeOperations } from './node-operations'
 import { createNodeWiring } from './node-wiring'
 import { createCoordinatorTiming, timeCoordinatorCalls } from './observability/coordinator-timing'
@@ -33,14 +31,13 @@ import { createPartitionBootstrap } from './partition-bootstrap'
 import { requestReplicationFactor } from './replication-factor'
 import { replicationLogKey as buildReplicationLogKey, deleteIndexReplicationLogs } from './replication-logs'
 import { requestRebalance, waitForSwap } from './reshard/request'
-import { createReshardState, forgetReshardIndex, forgetReshardPartition, stopEveryReshardJob } from './reshard/state'
+import { createReshardState, forgetReshardIndex, stopEveryReshardJob } from './reshard/state'
 import { routableAllocation } from './routable-allocation'
 import { createSearchContextRegistry, releaseContextsOfDepartedNodes } from './search-contexts'
 import { createSnapshotSyncHandlerState } from './snapshot-sync-handler'
 import { createMultiplexedControllerTransport, createNotReadyHandler } from './transport-listener'
 import type { ClusterNode, ClusterNodeConfig } from './types'
 import { validateClusterNodeConfig } from './validate-config'
-import { startLeadingTerm } from './write-routing/leading-queue'
 
 /**
  * Builds one node of a cluster, ready to join.
@@ -161,51 +158,41 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
     snapshotSpoolDirectory: snapshotSpool.path,
   })
 
-  const lifecycle: DataNodeHandle = createDataNodeLifecycle({
+  const lifecycle = createNodeLifecycle({
+    config,
     registration,
     currentRegistration: memoryReporting.currentRegistration,
-    coordinator: config.coordinator,
-    transport: config.transport,
-    knownIndexNames: [],
-    bootstrapRetryBaseMs: DEFAULT_NODE_LIFECYCLE_CONFIG.bootstrapRetryBaseMs,
-    bootstrapRetryMaxMs: DEFAULT_NODE_LIFECYCLE_CONFIG.bootstrapRetryMaxMs,
-    bootstrapMaxRetries: DEFAULT_NODE_LIFECYCLE_CONFIG.bootstrapMaxRetries,
-    allocationDebounceMs: DEFAULT_NODE_LIFECYCLE_CONFIG.allocationDebounceMs,
-    nodeHeartbeatIntervalMs: DEFAULT_NODE_LIFECYCLE_CONFIG.nodeHeartbeatIntervalMs,
-    onBootstrapPartition: async (indexName, partitionId, primaryNodeId) =>
-      (await copyFailures.awaitReset(indexName, partitionId)) &&
-      bootstrapPartition(indexName, partitionId, primaryNodeId),
-    onLeadingTerm: (indexName, partitionId, assignment) =>
-      startLeadingTerm(writeDeps, indexName, partitionId, assignment),
-    onHoldPartition: (indexName: string, partitionId: number) => {
-      trackHeldPartitionWrite(engine.recordHeldPartition(indexName, partitionId))
-    },
-    retainedPartitionIds: (indexName: string) => engine.heldPartitionsOf(indexName) ?? [],
-    onRemovePartition: (indexName: string, partitionId: number) => {
-      const removedIndexUuid = engine.indexUuidOf(indexName)
-      forgetReshardPartition(reshard, indexName, partitionId)
-      clearBootstrapSyncIndex(bootstrapSyncState, indexName, partitionId)
-      replicationLogs.delete(buildReplicationLogKey(indexName, partitionId))
-      trackHeldPartitionWrite(engine.forgetHeldPartition(indexName, partitionId))
-      void cleanupRemovedPartition(indexName, partitionId, { ...cleanupDeps, removedIndexUuid })
-    },
-    onIndexTornDown: (indexName: string) => {
-      const removedIndexUuid = engine.indexUuidOf(indexName)
-      void releaseTornDownIndex(indexName, { ...cleanupDeps, removedIndexUuid })
-    },
+    engine,
+    writeDeps,
+    reshard,
+    bootstrapSyncState,
+    replicationLogs,
+    copyFailures,
+    bootstrapPartition,
+    trackHeldPartitionWrite,
+    cleanupDeps,
+  })
+
+  function guardShutdown(): void {
+    if (isShutdown) {
+      throw new NarsilError(ErrorCodes.NODE_NOT_JOINED, `Cluster node '${nodeId}' has been shut down`, { nodeId })
+    }
+  }
+
+  const backups = createBackupService({
+    config,
+    nodeId,
+    guard: guardShutdown,
+    isController: () => controller?.isActive ?? false,
+    onError: forwardOnError,
   })
 
   if (hasControllerRole) {
     controller = createNodeController(config, nodeId, controllerTransport?.transport ?? config.transport, {
       onError: forwardAllocationError,
       onElectionError: forwardOnError,
+      extraMessages: backups.controllerMessages,
     })
-  }
-
-  function guardShutdown(): void {
-    if (isShutdown) {
-      throw new NarsilError(ErrorCodes.NODE_NOT_JOINED, `Cluster node '${nodeId}' has been shut down`, { nodeId })
-    }
   }
 
   const operationTracker = createClusterOperationTracker({
@@ -240,6 +227,7 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
       replicationLogOf: wiring.existingReplicationLog,
       timing: coordinatorTiming,
     },
+    backups: backups.namespace,
   })
 
   const node: ClusterNode = {
@@ -306,6 +294,7 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
 
       if (controller !== null) {
         await controller.start()
+        backups.start()
       }
 
       if (hasDataRole) {
@@ -319,6 +308,7 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
           snapshotSyncState: snapshotSyncHandlerState,
           searchContexts,
           snapshotSpoolDirectory: snapshotSpool.path,
+          backups: backups.primary,
           isBootstrapSynced: (indexName: string, partitionId: number) =>
             hasCompletedBootstrapSync(bootstrapSyncState, indexName, partitionId),
           onError: forwardOnError,
@@ -349,6 +339,7 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
       }
       isShutdown = true
       serving = false
+      backups.stop()
 
       await operationTracker.drain()
       allocationView.stop()

@@ -31,6 +31,7 @@ import {
 import { corsHeaderReader, resolveCors } from './cors'
 import type { HandlerDeps, ResolvedBuild, ResolvedLimits } from './deps'
 import { createAdminHandlers } from './handlers/admin'
+import { createBackupHandlers } from './handlers/backups'
 import { createCapabilitiesHandler } from './handlers/capabilities'
 import { createClusterHandlers } from './handlers/cluster'
 import { createDocumentExportHandlers } from './handlers/document-export'
@@ -106,6 +107,7 @@ function mainThreadHandlers(deps: HandlerDeps): ServerHandlers {
   const documentExport = createDocumentExportHandlers(deps)
   const health = createHealthHandlers(deps)
   const cluster = createClusterHandlers(deps)
+  const backups = createBackupHandlers(deps)
   const version = createVersionHandler(deps)
   const capabilities = createCapabilitiesHandler()
 
@@ -118,6 +120,10 @@ function mainThreadHandlers(deps: HandlerDeps): ServerHandlers {
     clusterAllocation: cluster.allocation,
     clusterReplicationFactor: cluster.replicationFactor,
     clusterHealth: cluster.health,
+    createBackup: backups.create,
+    listBackups: backups.list,
+    restoreBackup: backups.restore,
+    deleteBackup: backups.remove,
     metrics: createMetricsHandler(deps),
     memory: admin.memory,
     listTasks: admin.listTasks,

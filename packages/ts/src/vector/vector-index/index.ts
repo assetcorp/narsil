@@ -101,8 +101,12 @@ export interface VectorIndex {
   growthBytesFor(vectors: number): number
   /** Reads the field back from the parts of an earlier snapshot, whose parts can place the sequences of several partitions end to end, and keeps every vector in memory. */
   deserialize(parts: VectorIndexPayload[]): void
-  /** Fixes what a checkpoint writes for the field now: the vector files that it keeps with their dead vectors, the vectors that go into new files, and the graph with every vector numbered by that file list. The plan reads one new file at a time, so that a checkpoint holds one file in memory while it writes a field of any size. */
-  planCheckpoint(listedKeys: readonly string[] | null, rewritesGraph?: boolean): VectorCheckpointPlan
+  /** Fixes what a checkpoint writes for the field now: the vector files that it keeps with their dead vectors, the vectors that go into new files, and the graph with every vector numbered by that file list. The plan reads one new file at a time, so that a checkpoint holds one file in memory while it writes a field of any size. Where `pinsRetiredVectors` is true, every new file holds the vector that each document held when the plan was made, and the field keeps replaced and removed vectors readable until the plan's `release` runs. */
+  planCheckpoint(
+    listedKeys: readonly string[] | null,
+    rewritesGraph?: boolean,
+    pinsRetiredVectors?: boolean,
+  ): VectorCheckpointPlan
   /** Records the files of a checkpoint whose manifest is durable, so that the next plan writes the vectors that arrive after it and no others. */
   recordCheckpoint(plan: VectorCheckpointPlan, written: readonly WrittenVectorFile[]): void
   /** Empties the field and returns a reader that takes a checkpoint's vector files one at a time, in manifest order, after the graph that `shape` carries. A field kept on disk reads its vectors from the files where the checkpoint holds a graph or enough vectors for one, and a dead vector that the graph holds a node for comes back as a tombstone. */
@@ -343,8 +347,8 @@ export function createVectorIndex(
       invalidateWorkerCopies(state)
       deserializeOp(state, parts)
     },
-    planCheckpoint: (listedKeys: readonly string[] | null, rewritesGraph?: boolean) =>
-      planCheckpointOp(state, listedKeys, rewritesGraph),
+    planCheckpoint: (listedKeys: readonly string[] | null, rewritesGraph?: boolean, pinsRetiredVectors?: boolean) =>
+      planCheckpointOp(state, listedKeys, rewritesGraph, pinsRetiredVectors),
     recordCheckpoint: (plan: VectorCheckpointPlan, written: readonly WrittenVectorFile[]) =>
       recordCheckpointOp(state, plan, written),
     restoreCheckpoint: (shape: CheckpointRestoreShape) => {

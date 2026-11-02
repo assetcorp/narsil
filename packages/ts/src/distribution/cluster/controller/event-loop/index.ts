@@ -1,6 +1,7 @@
 import type { ClusterCoordinator, NodeEvent, SchemaEvent } from '../../../coordinator/types'
 import type { NodeTransport, RespondFn, TransportMessage } from '../../../transport/types'
 import { ClusterMessageTypes, ReplicationMessageTypes } from '../../../transport/types'
+import type { ControllerMessageHandler } from '../types'
 import { handleSchemaEvent, scheduleDebouncedAllocation } from './allocation'
 import { resumeAnalysisDrivers, startAnalysisDriver } from './analysis-change'
 import { handleInsyncAddMessage, handleInsyncRemoveMessage, handleQueuedBootstrapComplete } from './insync-messages'
@@ -28,6 +29,8 @@ export { clearEventLoopWatchers, createEventLoopState, type EventLoopState } fro
  * @param nodeId - The controller's own node id, which names the sender of every response.
  * @param isActive - Reports whether this node still holds the controller lease.
  * @param onError - Called with the index name and the error whenever an allocation run fails.
+ * @param extraMessages - Answers the controller messages that the node defines outside the controller, such as the
+ * backup requests, and reports whether it took the message.
  * @returns A promise that settles once every watcher is registered.
  */
 export async function startEventLoop(
@@ -37,6 +40,7 @@ export async function startEventLoop(
   nodeId: string,
   isActive: () => boolean,
   onError?: (indexName: string, error: unknown) => void,
+  extraMessages?: ControllerMessageHandler,
 ): Promise<void> {
   clearEventLoopWatchers(state)
   state.transport = transport
@@ -73,6 +77,9 @@ export async function startEventLoop(
       }
       if (message.type === ClusterMessageTypes.REBALANCE) {
         handleRebalanceMessage({ state, coordinator, nodeId, isActive, onError }, message, respond)
+        return
+      }
+      if (extraMessages?.(message, respond) === true) {
         return
       }
       if (!isActive()) {

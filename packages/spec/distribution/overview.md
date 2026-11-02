@@ -77,6 +77,7 @@ Distribution extends the rest of the specification and changes none of it. Every
 | Document | Contents |
 |----------|----------|
 | [cluster.md](cluster.md) | Cluster formation, node registration, roles, the allocation table, the partition state machine, and the `ClusterCoordinator` adapter |
+| [backups.md](backups.md) | Backing up an index to a store outside the cluster, restoring it on a cluster of any size, and deleting backups |
 | [replication.md](replication.md) | Replication log format, sync protocol, recovery, failover, write durability, and in-sync tracking |
 | [query-routing.md](query-routing.md) | Two-phase distributed query, fan-out, result merging, DFS, distributed facets, partial results, and cursor pagination |
 | [transport.md](transport.md) | The `NodeTransport` adapter, message types, and the MessagePack wire format |

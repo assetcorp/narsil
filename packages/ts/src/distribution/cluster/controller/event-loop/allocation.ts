@@ -246,10 +246,11 @@ async function handleSchemaCreated(
     return
   }
 
-  const currentTable =
-    storedTable === null || storedTable.assignments.size === 0 || belongsToAnotherIndex(storedTable, metadata.indexUuid)
-      ? null
-      : storedTable
+  const ownTable = storedTable === null || belongsToAnotherIndex(storedTable, metadata.indexUuid) ? null : storedTable
+  if (ownTable?.generation !== undefined) {
+    return
+  }
+  const currentTable = ownTable === null || ownTable.assignments.size === 0 ? null : ownTable
 
   const result = allocate(
     nodes,
