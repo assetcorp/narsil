@@ -34,6 +34,10 @@
       "esbuild",
       "lightningcss",
       "nx"
-    ]
+    ],
+    "patchedDependencies": {
+      "metro@0.87.2": "patches/metro@0.87.2.patch",
+      "tsup@8.5.1": "patches/tsup@8.5.1.patch"
+    }
   }
 }

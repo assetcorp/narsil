@@ -104,6 +104,11 @@
       "react-native": "./src/engine/memory/write-block.react-native.ts",
       "browser": "./src/engine/memory/write-block.browser.ts",
       "default": "./src/engine/memory/write-block.ts"
+    },
+    "#platform/memory-guarded-writes": {
+      "react-native": "./src/engine/memory/guarded-writes.ts",
+      "browser": "./src/engine/memory/guarded-writes.browser.ts",
+      "default": "./src/engine/memory/guarded-writes.ts"
     }
   },
   "sideEffects": false,

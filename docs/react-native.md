@@ -127,6 +127,8 @@ const { getBundleModeMetroConfig } = require('react-native-worklets/bundleMode')
 module.exports = getBundleModeMetroConfig(getDefaultConfig(__dirname))
 ```
 
+Bundle Mode writes each worklet to a new file under `react-native-worklets/.worklets` while Metro builds the bundle. When Metro has not yet indexed one of those files, the build stops with `Failed to get the SHA-1` for it, which is what happened on this repository's continuous integration runners. The [Bundle Mode setup guide](https://docs.swmansion.com/react-native-worklets/docs/bundleMode/setup/) recommends a patch to Metro for this and links a patch for each Metro version. This repository applies its own version of that patch through pnpm's `patchedDependencies`, in [`patches/metro@0.87.2.patch`](../patches/metro@0.87.2.patch), which hashes a Bundle Mode file from its contents whenever Metro has no record of it.
+
 The app in [`packages/react-native/examples/bare`](../packages/react-native/examples/bare) uses these settings and runs its searches through this entry point.
 
 Each setting has to cross to that runtime as data, so this entry point leaves out every setting that holds a function. Pass those through the second argument, a function marked with the `'worklet'` directive, which runs on the engine's runtime before the engine starts and returns the settings that hold functions. Register a language module or a tokenizer inside that function too, because the engine's runtime keeps its own copy of each module.

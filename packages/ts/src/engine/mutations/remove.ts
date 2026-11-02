@@ -104,7 +104,6 @@ export async function removeDocument(
   }
 
   if (!prepared.buffered) await settleRemoval(ctx, indexName, prepared)
-  ctx.memoryWriteBlock.memoryReleased()
   if (options?.wait === true) await awaitWriteVisibility(ctx, indexName)
 }
 
@@ -163,7 +162,6 @@ export async function removeDocumentBatch(
     manager.endBatchRemove()
   }
   ctx.checkHeapPressure(indexName)
-  if (succeeded.length > 0) ctx.memoryWriteBlock.memoryReleased()
   if (options?.wait === true) await awaitWriteVisibility(ctx, indexName)
 
   return { succeeded, failed }

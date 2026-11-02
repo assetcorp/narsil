@@ -1,14 +1,15 @@
-import type { EngineCore, EventHandler } from '../engine/core'
-import { createEngineIndex, dropEngineIndex, registerEngineEmbeddingAdapter } from '../engine/index-lifecycle'
-import { shutdownEngine } from '../engine/lifecycle'
 import {
+  dropEngineIndex,
   insertDocument,
   insertDocumentBatch,
   removeDocument,
   removeDocumentBatch,
   updateDocument,
   updateDocumentBatch,
-} from '../engine/mutations'
+} from '#platform/memory-guarded-writes'
+import type { EngineCore, EventHandler } from '../engine/core'
+import { createEngineIndex, registerEngineEmbeddingAdapter } from '../engine/index-lifecycle'
+import { shutdownEngine } from '../engine/lifecycle'
 import { validatePartitionConfig } from '../engine/validation'
 import {
   compactVectors as executeCompactVectors,
