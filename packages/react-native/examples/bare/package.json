@@ -25,11 +25,13 @@
     "@react-native-community/cli-platform-ios": "20.2.0",
     "@react-native-community/template": "0.88.1",
     "@react-native/babel-preset": "0.88.1",
+    "@react-native/codegen": "0.88.1",
     "@react-native/gradle-plugin": "0.88.1",
     "@react-native/metro-config": "0.88.1",
     "@react-native/typescript-config": "0.88.1",
     "@types/node": "22.15.32",
     "@types/react": "19.3.0",
+    "hermes-compiler": "260318099.0.5",
     "typescript": "5.9.3"
   }
 }

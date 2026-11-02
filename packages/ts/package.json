@@ -16,8 +16,17 @@
   },
   "imports": {
     "#platform/worker-factory": {
+      "react-native": "./src/workers/factory.react-native.ts",
       "browser": "./src/workers/factory.browser.ts",
       "default": "./src/workers/factory.ts"
+    },
+    "#platform/search-worker-entry": {
+      "react-native": "./src/vector/search-pool/worker-entry.react-native.ts",
+      "default": "./src/vector/search-pool/worker-entry.ts"
+    },
+    "#platform/checkpoint-worker-entry": {
+      "react-native": "./src/persistence/durability/checkpoint-worker-entry.react-native.ts",
+      "default": "./src/persistence/durability/checkpoint-worker-entry.ts"
     },
     "#platform/vector-promoter": {
       "browser": "./src/vector/promoter.browser.ts",

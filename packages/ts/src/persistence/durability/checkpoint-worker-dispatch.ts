@@ -1,6 +1,6 @@
+import { resolveCheckpointWorkerEntry } from '#platform/checkpoint-worker-entry'
 import { spawnNodeWorker } from '#platform/node-worker'
 import { detectRuntime } from '../../runtime/detect'
-import { resolveWorkerEntry } from '../../workers/entry-point'
 import type { CheckpointWorkerMessage, CheckpointWorkerRequest } from './checkpoint-worker'
 import {
   CHECKPOINT_TIMEOUT_RECOVERY_BACKOFF_MS,
@@ -26,11 +26,7 @@ let workerIdleMs = CHECKPOINT_WORKER_IDLE_MS
 let idleTimer: ReturnType<typeof setTimeout> | null = null
 
 async function spawnWorker(): Promise<WorkerHandle | null> {
-  const entryPoint = resolveWorkerEntry(
-    import.meta.url,
-    /\/src\/persistence\/durability\/[^/]+$/,
-    'persistence/durability/checkpoint-worker.mjs',
-  )
+  const entryPoint = resolveCheckpointWorkerEntry()
   if (entryPoint === null) return null
   try {
     const worker = await spawnNodeWorker(new URL(entryPoint))
