@@ -21,6 +21,7 @@ export interface MemoryMonitor {
   measureIfOlderThan(maxAgeMs: number): void
   measureWithoutGarbage(): MemoryFigures | null
   refusedAfterCollection(figures: MemoryFigures): void
+  remeasureAfterRelease(): void
   collections(): number
   start(): void
   stop(): void
@@ -128,6 +129,10 @@ export function createMemoryMonitor(options: MemoryMonitorOptions): MemoryMonito
       latestMeasured = { ...figures }
       latest = reportOf(figures, true)
       options.onFullChange(true)
+    },
+    remeasureAfterRelease() {
+      lastCollectionAt = Number.NEGATIVE_INFINITY
+      lastSampleAt = Number.NEGATIVE_INFINITY
     },
     collections: () => collectionCount,
     sampleIfOlderThan(maxAgeMs) {

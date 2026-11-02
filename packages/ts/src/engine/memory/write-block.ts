@@ -26,6 +26,7 @@ const MEMORY_FULL_REASON = 'memory_full'
 
 export interface MemoryWriteBlock {
   refuseWhileFull(indexName: string): void
+  memoryReleased(): void
   reserveFor(indexName: string, document: AnyDocument): MemoryReservation
   applyInGroups<T extends MemoryGroupedItem>(
     indexName: string,
@@ -99,8 +100,6 @@ export function createMemoryWriteBlock(deps: MemoryWriteBlockDeps): MemoryWriteB
     refuseWhileFull(indexName) {
       monitor.measureIfOlderThan(ENGINE_MEMORY_FIGURES_MAX_AGE_MS)
       if (!monitor.isFull()) return
-      monitor.measureWithoutGarbage()
-      if (!monitor.isFull()) return
       const report = monitor.report()
       throw new NarsilError(
         ErrorCodes.MEMORY_WRITE_BLOCKED,
@@ -114,6 +113,9 @@ export function createMemoryWriteBlock(deps: MemoryWriteBlockDeps): MemoryWriteB
           heapLimitBytes: finiteOrNull(report?.heapLimitBytes),
         },
       )
+    },
+    memoryReleased() {
+      if (monitor.isFull()) monitor.remeasureAfterRelease()
     },
     reserveFor: (indexName, document) => reserveForDocument(grouped, indexName, document),
     applyInGroups: (indexName, write) => applyInGroups(grouped, indexName, write),

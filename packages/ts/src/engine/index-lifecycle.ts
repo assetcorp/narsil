@@ -197,6 +197,7 @@ export async function dropEngineIndex(core: EngineCore, name: string): Promise<v
     core.watermarkNotifier.forget(name)
     core.analysisRebuild.clearStale(name)
   })
+  core.mutationCtx.memoryWriteBlock.memoryReleased()
   await runLifecycleHook(core, 'onIndexDrop', { indexName: name, config: entry.config })
 }
 
