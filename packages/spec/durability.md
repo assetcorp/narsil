@@ -358,7 +358,7 @@ With persistence configured and no lifecycle settings, a node must recover on st
 
 With lifecycle settings configured, a node must load each persisted index's metadata on startup, register the index closed, and defer snapshot and log recovery until the first operation names the index; it must finish recovery before the operation accesses index data.
 
-A node that opens a `disk` index must read the manifest, the resident sections, the head of each vector file and graph part, the magnitudes, the levels, and the node offsets. It must replay the log before it serves the index, as for any other index.
+A node that opens a `disk` index must read the manifest, the resident sections, the head of each vector file and graph part, the levels, and the node offsets, and it may leave the magnitudes unread until it needs them. It must replay the log before it serves the index, as for any other index.
 
 Corruption is handled by kind:
 

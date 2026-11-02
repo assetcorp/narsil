@@ -396,7 +396,7 @@ A writer may put fewer than 65,536 vectors in a file, and it must do so where a 
 
 A reader must recalibrate a field that holds a graph under an `osq` mode when any of its vector files has nil `codes`, or when two of them hold different `bits` or `centroid` values.
 
-A writer must store `magnitudes` for a vector field whose `storage` is `disk`. A reader that finds `magnitudes` must take each vector's length from it, while a reader that finds none must compute the lengths from the vectors.
+A writer must store `magnitudes` for a vector field whose `storage` is `disk`. A reader that finds `magnitudes` may take each vector's length from it or compute the length from the vector, while a reader that finds none must compute the lengths from the vectors.
 
 A vector file's `head` lists the sections `docIds`, `idOffsets`, `idOrder`, `records`, `magnitudes`, and `vectors`, each as [Paged Keyword Segment Payload](#paged-keyword-segment-payload) defines a `Section`. `records` takes a `pageBytes` of 16,384, and the others take 65,536. A writer must store `magnitudes`, `idOffsets`, `idOrder`, and `head` for a field whose `storage` is `disk`.
 
