@@ -1,6 +1,5 @@
 import { spawnNodeWorker } from '#platform/node-worker'
 import { detectRuntime } from '../../runtime/detect'
-import { resolveWorkerEntry } from '../../workers/entry-point'
 import { workerResourceLimits } from '../../workers/resource-limits'
 
 export interface WorkerHandle {
@@ -9,10 +8,6 @@ export interface WorkerHandle {
   addEventListener?(event: string, handler: (...args: unknown[]) => void): void
   unref?(): void
   terminate(): void | Promise<void>
-}
-
-export function resolveWorkerEntryPoint(): string | null {
-  return resolveWorkerEntry(import.meta.url, /\/src\/vector\/search-pool\/[^/]+$/, 'vector/search-worker.mjs')
 }
 
 export async function spawnWorker(entryPoint: string | null): Promise<WorkerHandle | null> {

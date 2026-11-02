@@ -1,3 +1,4 @@
+import { resolveWorkerEntryPoint } from '#platform/search-worker-entry'
 import { resolveWorkerCount } from '../../workers/worker-count'
 import type { VectorMetric } from '../brute-force'
 import {
@@ -27,7 +28,7 @@ import {
   untilIdle,
   type WorkerSlot,
 } from './slot'
-import { listen, listenForFailure, resolveWorkerEntryPoint, spawnWorker } from './spawn'
+import { listen, listenForFailure, spawnWorker } from './spawn'
 
 export interface WorkerCopySearchResult {
   docId: string

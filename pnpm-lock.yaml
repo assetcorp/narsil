@@ -202,6 +202,9 @@ importers:
       '@react-native/babel-preset':
         specifier: 0.88.1
         version: 0.88.1(@babel/core@7.29.0)
+      '@react-native/codegen':
+        specifier: 0.88.1
+        version: 0.88.1(@babel/core@7.29.0)
       '@react-native/gradle-plugin':
         specifier: 0.88.1
         version: 0.88.1
@@ -217,6 +220,9 @@ importers:
       '@types/react':
         specifier: 19.3.0
         version: 19.3.0
+      hermes-compiler:
+        specifier: 260318099.0.5
+        version: 260318099.0.5
       typescript:
         specifier: 5.9.3
         version: 5.9.3
@@ -19247,7 +19253,7 @@ snapshots:
 
   expo-keep-awake@58.0.3(expo@58.0.21)(react@19.2.4):
     dependencies:
-      expo: 58.0.21(@babel/core@7.29.0)(@expo/dom-webview@58.0.2)(react-dom@19.2.4(react@19.2.4))(react-native-worklets@0.13.0(@babel/core@7.29.0)(@react-native/metro-config@0.88.1(@babel/core@7.29.0))(react-native@0.88.1(@babel/core@7.29.0)(@react-native-community/cli@20.2.0(typescript@5.9.3))(@react-native/metro-config@0.88.1(@babel/core@7.29.0))(@types/react@19.2.14)(react@19.2.4))(react@19.2.4))(react-native@0.88.1(@babel/core@7.29.0)(@react-native-community/cli@20.2.0(typescript@5.9.3))(@react-native/metro-config@0.88.1(@babel/core@7.29.0))(@types/react@19.2.14)(react@19.2.4))(react@19.2.4)(typescript@5.9.3)
+      expo: 58.0.21(@babel/core@7.29.0)(@expo/dom-webview@58.0.2)(react-dom@19.2.4(react@19.2.4))(react-native-worklets@0.13.0(@babel/core@7.29.0)(@react-native/metro-config@0.88.1(@babel/core@7.29.0))(react-native@0.88.1(@babel/core@7.29.0)(@react-native-community/cli@20.2.0(typescript@5.7.2))(@react-native/metro-config@0.88.1(@babel/core@7.29.0))(@types/react@19.2.14)(react@19.2.4))(react@19.2.4))(react-native@0.88.1(@babel/core@7.29.0)(@react-native-community/cli@20.2.0(typescript@5.7.2))(@react-native/metro-config@0.88.1(@babel/core@7.29.0))(@types/react@19.2.14)(react@19.2.4))(react@19.2.4)(typescript@5.7.2)
       react: 19.2.4
     optional: true
 
