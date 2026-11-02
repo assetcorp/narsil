@@ -40,6 +40,10 @@ function walPrefix(indexName: string, partitionId: number): string {
   return `${indexName}/wal/${partitionId}/`
 }
 
+export function nextSegmentKey(indexName: string, partitionId: number): string {
+  return `${walPrefix(indexName, partitionId)}next`
+}
+
 function segmentStartSeqNo(key: string, prefix: string): number | null {
   if (!key.startsWith(prefix)) {
     return null

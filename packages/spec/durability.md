@@ -157,6 +157,8 @@ Creating a new segment file, or creating the marker file for the first time, req
 
 The marker always names the current active segment. Rolling to a new segment advances the marker to it as part of the roll, so the marker never names a sealed segment and a checkpoint never deletes the segment that the marker names active; see [Checkpoint and Truncation](#checkpoint-and-truncation). In sync mode a node flushes on every group commit. In async mode a node flushes on the `flush_interval_ms` timer alone, so the marker lags the appended records by up to one interval and those records recover as described next.
 
+A node may prepare the next segment ahead of a roll in a file named `next` in the partition's log directory, which holds only the segment header until the roll renames it to its key. Recovery must delete a `next` file before it reads the log, and no reader may treat it as a segment.
+
 ### Reading a Segment
 
 Recovery uses the commit marker to find each segment's durable region and then reads the records inside it.

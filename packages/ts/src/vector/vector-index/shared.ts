@@ -45,7 +45,7 @@ export interface ColdVectorField {
   readonly residentBytes: number
   numberOf(docId: string): number | undefined
   vectorOfNumber(number: number): Float32Array
-  magnitudeOfNumber(number: number): number
+  reusedVectorOfNumber(number: number): Float32Array
   partitionOf(docId: string): number | undefined
   filePaths(): string[]
   search(

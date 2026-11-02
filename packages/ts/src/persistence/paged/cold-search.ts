@@ -241,12 +241,14 @@ function codeDistance(data: ColdFieldData, query: Float32Array, metric: VectorMe
   for (let at = 0; at < dimension; at++) centroidDot += codes.centroid[at] * codes.centroid[at]
   const trailer: OsqTrailer = { lower: 0, upper: 0, correction: 0, sum: 0 }
   const { codeBytes, slotStride, queryBits, bits } = layout
+  const record = new Uint8Array(slotStride)
+  const recordView = new DataView(record.buffer)
   return number => {
     const file = data.fileOfNumber(number)
     if (file.records === null) return Number.POSITIVE_INFINITY
-    const record = file.records.bytesAt((number - file.firstNumber) * slotStride, slotStride)
+    file.records.read((number - file.firstNumber) * slotStride, record)
     const products = scalarQueryProducts(layout, record, 0, packed)
-    readTrailer(new DataView(record.buffer, record.byteOffset, record.byteLength), 0, codeBytes, trailer)
+    readTrailer(recordView, 0, codeBytes, trailer)
     const estimate = osqEstimate(products, trailer, bits, code, queryBits, dimension, centroidDot, metric)
     return osqDistance(estimate, metric)
   }
@@ -315,8 +317,10 @@ function* walkColdGraph(
   if (entry === null) return []
   const qMag = magnitude(query)
   const fromCodes = codeDistance(data, query, metric)
-  const fullDistance = (number: number): number =>
-    toDistance(query, data.vectorAt(number), qMag, data.magnitudeAt(number), metric)
+  const fullDistance = (number: number): number => {
+    const vector = data.reusedVectorAt(number)
+    return toDistance(query, vector, qMag, metric === 'cosine' ? magnitude(vector) : 0, metric)
+  }
   const distanceOf = fromCodes ?? fullDistance
   const acceptance = new Map<number, boolean>()
   const isAccepted = (number: number): boolean => {

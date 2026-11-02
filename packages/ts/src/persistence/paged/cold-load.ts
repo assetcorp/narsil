@@ -4,7 +4,7 @@ import { VECTOR_FILE_PAYLOAD_VERSION } from '../../vector/vector-index/checkpoin
 import type { VectorCheckpointRestore } from '../../vector/vector-index/checkpoint-restore'
 import { bytesToVectors } from '../../vector/vector-index/payload'
 import { type ColdFileInput, codesOfFile } from './cold-field'
-import { COLD_LOAD_DELAY_MS } from './constants'
+import { COLD_LOAD_WAIT_WITHOUT_SEARCH_MS } from './constants'
 import { decodeSections, type FileSection, loadFailed, RECORD_PAGE_BYTES, SEGMENT_PAGE_BYTES } from './format'
 import { checkEverySectionPage, readFileRange, readWholeSectionChecked } from './section-file'
 
@@ -16,9 +16,14 @@ function yieldToSearches(): Promise<void> {
   return new Promise(resolve => setImmediate(resolve))
 }
 
-export function waitBeforeColdLoad(): Promise<void> {
+export function waitBeforeColdLoad(firstSearchAnswered: Promise<void>): Promise<void> {
   return new Promise(resolve => {
-    setTimeout(resolve, COLD_LOAD_DELAY_MS).unref()
+    const timer = setTimeout(resolve, COLD_LOAD_WAIT_WITHOUT_SEARCH_MS)
+    timer.unref()
+    void firstSearchAnswered.then(() => {
+      clearTimeout(timer)
+      resolve()
+    })
   })
 }
 

@@ -190,6 +190,41 @@ describe('a vector field of an index with its text on disk', () => {
     expectCloseTo(found, nearestInOracle(oracle, query, 'rare'))
   }, 120_000)
 
+  it('gives back every kind of document ID exactly before its load ends', async () => {
+    const random = seededRandom(98)
+    const oracle = new Map<string, Passage>()
+    const awkwardIds = [
+      'a',
+      'x'.repeat(31),
+      'y'.repeat(32),
+      'z'.repeat(300),
+      'é',
+      'word-é-'.padEnd(31, 'q'),
+      '文書',
+      '😀 passage',
+      '\u007f-control',
+      ' leading space',
+    ]
+    for (const id of awkwardIds) {
+      const passage: Passage = { title: `passage ${id}`, group: 'awkward', embedding: randomVector(random) }
+      await engine.insert(INDEX, passage, id)
+      oracle.set(id, passage)
+    }
+    await fill(oracle, random)
+    await engine.shutdown()
+    await open()
+
+    expect(isLoading()).toBe(true)
+    const query = randomVector(random)
+    expect(await nearest(query, 'awkward')).toEqual(nearestInOracle(oracle, query, 'awkward'))
+    for (const id of awkwardIds) {
+      const embedding = oracle.get(id)?.embedding
+      if (embedding === undefined) throw new Error('The test lost a passage')
+      expect((await nearest(embedding))[0]).toBe(id)
+      expect((await nearest(embedding, 'awkward'))[0]).toBe(id)
+    }
+  }, 120_000)
+
   it('refuses a damaged vector for as long as the index stays open', async () => {
     const oracle = new Map<string, Passage>()
     await fill(oracle, seededRandom(951))

@@ -2,7 +2,7 @@ import type { VectorMetric } from '../brute-force'
 import type { QuantizerBuildReader, QuantizerSearchReader } from '../osq/types'
 import { fixedView } from '../shared-buffers/growable'
 import { cosineSimilarityWithMagnitudes, dotProduct, euclideanDistance } from '../similarity'
-import type { VectorBuildReader, VectorSearchReader, VectorStoreEntry } from '../vector-store'
+import type { VectorBuildReader, VectorSearchReader } from '../vector-store'
 import { type Adjacency, ensureAdjacencyCapacity, hasNode, nodeLevel } from './adjacency'
 import { MAX_LAYER_CAP } from './constants'
 import { GRAPH_ENTRY_POINT, GRAPH_NODE_COUNT, GRAPH_TOMBSTONE_COUNT, GRAPH_TOP_LAYER } from './handles'
@@ -142,10 +142,6 @@ export function levelOfOrdinal(ord: number, mL: number): number {
   return Math.min(Math.floor(-Math.log(unitDrawOf(ord)) * mL), MAX_LAYER_CAP)
 }
 
-export function entryForOrd(state: HNSWSearchState, ord: number): VectorStoreEntry | undefined {
-  return state.store.entryForOrdinal(ord)
-}
-
 export function buildsFromCodes(state: HNSWSearchState): boolean {
   return activeQuantizer(state) !== undefined
 }
@@ -177,9 +173,7 @@ export function queryDistanceByOrd(
   ord: number,
   metric: VectorMetric,
 ): number {
-  const entry = state.store.entryForOrdinal(ord)
-  if (!entry) return Number.POSITIVE_INFINITY
-  return toDistance(qVec, entry.vector, qMag, entry.magnitude, metric)
+  return state.store.distanceFromQuery(qVec, qMag, ord, metric)
 }
 
 export function maxConns(state: HNSWGraphState, layer: number): number {
