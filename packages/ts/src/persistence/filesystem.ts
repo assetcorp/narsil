@@ -17,10 +17,8 @@ type FsModule = typeof import('node:fs/promises')
 type PathModule = typeof import('node:path')
 type FileHandle = import('node:fs/promises').FileHandle
 
-const UNFINISHED_SAVE_PATTERN = /\.tmp-\d+-\d+-[0-9a-z]*$/
-
 function unfinishedSaveName(basename: string): string {
-  return `${basename}.tmp-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`
+  return `${basename}~tmp-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`
 }
 
 async function* readChunks(handle: FileHandle): AsyncGenerator<Uint8Array> {
@@ -262,7 +260,7 @@ export function createFilesystemPersistence(config: FilesystemPersistenceConfig)
       const fs = await getFs()
       const pathMod = await getPath()
       const allFiles = await listDirectoryRecursive(baseDir, baseDir, pathMod, fs)
-      return allFiles.filter(file => file.startsWith(prefix) && !UNFINISHED_SAVE_PATTERN.test(file))
+      return allFiles.filter(file => file.startsWith(prefix))
     },
   }
 }

@@ -17,6 +17,7 @@ type S3Module = typeof import('@aws-sdk/client-s3')
 type S3Client = import('@aws-sdk/client-s3').S3Client
 
 const S3_NOT_FOUND_STATUS = 404
+const S3_PRECONDITION_FAILED_STATUS = 412
 
 /**
  * The access keys {@link createS3Persistence} signs its requests with.
@@ -71,6 +72,13 @@ function isNotFound(error: unknown): boolean {
   const named = error as { name?: unknown; $metadata?: { httpStatusCode?: unknown } }
   return (
     named.name === 'NoSuchKey' || named.name === 'NotFound' || named.$metadata?.httpStatusCode === S3_NOT_FOUND_STATUS
+  )
+}
+
+function isReplaced(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) return false
+  return (
+    (error as { $metadata?: { httpStatusCode?: unknown } }).$metadata?.httpStatusCode === S3_PRECONDITION_FAILED_STATUS
   )
 }
 
@@ -275,10 +283,19 @@ export async function createS3Persistence(config: S3PersistenceConfig): Promise<
 
     async delete(key: string): Promise<void> {
       requireObjectKey(key)
+      const objectKey = `${root}${key}`
       try {
-        await client.send(new sdk.DeleteObjectCommand({ Bucket: bucket, Key: `${root}${key}` }))
+        const head = await client.send(new sdk.HeadObjectCommand({ Bucket: bucket, Key: objectKey }))
+        if (head.ETag === undefined) {
+          throw new NarsilError(
+            ErrorCodes.PERSISTENCE_DELETE_FAILED,
+            `The store reported no ETag for "${key}", so the adapter deletes nothing`,
+            { key },
+          )
+        }
+        await client.send(new sdk.DeleteObjectCommand({ Bucket: bucket, Key: objectKey, IfMatch: head.ETag }))
       } catch (error) {
-        if (isNotFound(error)) return
+        if (isNotFound(error) || isReplaced(error)) return
         throw objectStoreFailure(ErrorCodes.PERSISTENCE_DELETE_FAILED, 'delete', key, error)
       }
     },

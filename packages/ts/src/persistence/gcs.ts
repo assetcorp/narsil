@@ -20,6 +20,7 @@ type GcsModule = typeof import('@google-cloud/storage')
 type GcsFile = import('@google-cloud/storage').File
 
 const GCS_NOT_FOUND_STATUS = 404
+const GCS_PRECONDITION_FAILED_STATUS = 412
 const GCS_CONTENT_TYPE = 'application/octet-stream'
 
 /**
@@ -66,8 +67,16 @@ async function loadGcsModule(): Promise<GcsModule> {
   }
 }
 
+function statusOf(error: unknown): unknown {
+  return typeof error === 'object' && error !== null ? (error as { code?: unknown }).code : undefined
+}
+
 function isNotFound(error: unknown): boolean {
-  return typeof error === 'object' && error !== null && (error as { code?: unknown }).code === GCS_NOT_FOUND_STATUS
+  return statusOf(error) === GCS_NOT_FOUND_STATUS
+}
+
+function isReplaced(error: unknown): boolean {
+  return statusOf(error) === GCS_PRECONDITION_FAILED_STATUS
 }
 
 function readObject(file: GcsFile, key: string): Promise<Uint8Array | null> {
@@ -175,6 +184,7 @@ export async function createGcsPersistence(config: GcsPersistenceConfig): Promis
     ...(config.keyFilename === undefined ? {} : { keyFilename: config.keyFilename }),
     ...(config.credentials === undefined ? {} : { credentials: config.credentials }),
     ...(config.apiEndpoint === undefined ? {} : { apiEndpoint: config.apiEndpoint }),
+    retryOptions: { idempotencyStrategy: sdk.IdempotencyStrategy.RetryAlways },
   })
   const bucket = storage.bucket(bucketName)
 
@@ -223,10 +233,20 @@ export async function createGcsPersistence(config: GcsPersistenceConfig): Promis
 
     async delete(key: string): Promise<void> {
       requireObjectKey(key)
+      const file = bucket.file(`${root}${key}`)
       try {
-        await bucket.file(`${root}${key}`).delete({ ignoreNotFound: true })
+        const [metadata] = await file.getMetadata()
+        const generation = metadata.generation
+        if (generation === undefined) {
+          throw new NarsilError(
+            ErrorCodes.PERSISTENCE_DELETE_FAILED,
+            `Cloud Storage reported no generation for "${key}", so the adapter deletes nothing`,
+            { key },
+          )
+        }
+        await file.delete({ ignoreNotFound: true, ifGenerationMatch: generation })
       } catch (error) {
-        if (isNotFound(error)) return
+        if (isNotFound(error) || isReplaced(error)) return
         throw objectStoreFailure(ErrorCodes.PERSISTENCE_DELETE_FAILED, 'delete', key, error)
       }
     },
