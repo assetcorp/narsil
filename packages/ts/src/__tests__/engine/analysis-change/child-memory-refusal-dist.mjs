@@ -20,7 +20,8 @@ function titleAt(position) {
   return words.join(' ')
 }
 
-const oldGenerationShare = () => {
+const liveOldGenerationShare = () => {
+  globalThis.gc()
   let usedBytes = 0
   for (const space of getHeapSpaceStatistics()) {
     if (!YOUNG_GENERATION_SPACES.has(space.space_name)) usedBytes += space.space_used_size
@@ -37,7 +38,7 @@ const engine = await createNarsil({ workers: { enabled: false } })
 await engine.createIndex(INDEX, { schema: { title: 'string' }, language: 'english' })
 
 let documents = 0
-while (oldGenerationShare() < OLD_GENERATION_SHARE_BEFORE_THE_CHANGE) {
+while (liveOldGenerationShare() < OLD_GENERATION_SHARE_BEFORE_THE_CHANGE) {
   const batch = []
   for (let i = 0; i < BATCH; i++) {
     batch.push({ id: `doc-${documents}`, title: titleAt(documents) })
@@ -52,12 +53,14 @@ for (let position = 0; position < documents; position++) {
 }
 expectedProbeHits.sort()
 
+process.stderr.write(`filled ${documents} documents, starting the analysis change\n`)
 let code = null
 try {
   await engine.changeAnalysis(INDEX, { stopWords: [PROBE] })
 } catch (error) {
   code = error.code
 }
+process.stderr.write(`the analysis change ended with ${code}\n`)
 
 const probeHitsAfterRefusal = await hitIds(engine, PROBE)
 await engine.insert(INDEX, { title: PROBE }, 'late')
