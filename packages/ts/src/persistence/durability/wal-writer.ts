@@ -7,6 +7,7 @@ import type { AppendHandle, DurableDirectory } from './durable-filesystem'
 import { createGroupCommitCoordinator } from './group-commit'
 import { createMarkerWriter, type MarkerWriter } from './marker-writer'
 import { frameRecord, SEGMENT_HEADER_SIZE, writeSegmentHeader } from './wal-framing'
+import { nextSegmentKey } from './wal-segments'
 
 const SEGMENT_TAIL_PATTERN = /^\d{16}$/
 
@@ -21,6 +22,8 @@ export interface WalWriter {
   appendDurable(entry: ReplicationLogEntry): Promise<void>
   commit(): Promise<void>
   rollToNewSegment(startSeqNo: number): Promise<void>
+  prepareCheckpointRoll(): Promise<void>
+  rollForCheckpoint(): Promise<void>
   close(): Promise<void>
   abandon(): Promise<void>
   readonly activeSegmentKey: string | null
@@ -52,7 +55,9 @@ export function parseSegmentStartSeqNo(key: string): number {
 export function createWalWriter(directory: DurableDirectory, config: WalWriterConfig): WalWriter {
   const segmentMaxBytes = config.segmentMaxBytes ?? DEFAULT_SEGMENT_MAX_BYTES
   const commitKey = `${config.indexName}/wal/${config.partitionId}/commit`
+  const preparedKey = nextSegmentKey(config.indexName, config.partitionId)
 
+  let nextSegmentPrepared = false
   let handle: AppendHandle | null = null
   let activeKey: string | null = null
   let activeStartSeqNo = 0
@@ -141,16 +146,53 @@ export function createWalWriter(directory: DurableDirectory, config: WalWriterCo
     }
   }
 
-  async function rollToNewSegment(startSeqNo: number): Promise<void> {
-    await withDurabilityLock(async () => {
-      if (handle !== null) {
-        await flushActiveSegment()
-        await handle.close()
-        handle = null
-      }
-      await openSegmentByKey(segmentKey(config.indexName, config.partitionId, startSeqNo))
+  async function rollUnderLock(startSeqNo: number): Promise<void> {
+    if (handle !== null) {
       await flushActiveSegment()
+      await handle.close()
+      handle = null
+    }
+    await openSegmentByKey(segmentKey(config.indexName, config.partitionId, startSeqNo))
+    await flushActiveSegment()
+  }
+
+  async function rollToNewSegment(startSeqNo: number): Promise<void> {
+    await withDurabilityLock(() => rollUnderLock(startSeqNo))
+  }
+
+  function activeSegmentHoldsRecords(): boolean {
+    return handle !== null && activeBytes > SEGMENT_HEADER_SIZE && highestAppendedSeqNo >= activeStartSeqNo
+  }
+
+  async function prepareNextSegment(): Promise<void> {
+    const prepared = await directory.appendHandle(preparedKey)
+    try {
+      if ((await prepared.size()) > 0) await prepared.truncate(0)
+      await prepared.append(writeSegmentHeader())
+      await prepared.sync()
+      nextSegmentPrepared = true
+    } finally {
+      await prepared.close()
+    }
+  }
+
+  async function swapToPreparedSegment(sealed: AppendHandle): Promise<void> {
+    const writer = await getMarkerWriter()
+    const startSeqNo = highestAppendedSeqNo + 1
+    const durableSeqNo = Math.max(highestAppendedSeqNo, highestDurableSeqNo)
+    const key = segmentKey(config.indexName, config.partitionId, startSeqNo)
+    await Promise.all([sealed.sync(), directory.move(preparedKey, key)])
+    handle = await directory.appendHandle(key)
+    activeKey = key
+    activeStartSeqNo = startSeqNo
+    activeBytes = SEGMENT_HEADER_SIZE
+    await writer.commit({
+      activeSegmentSeqNo: startSeqNo,
+      durableByteLength: SEGMENT_HEADER_SIZE,
+      highestDurableSeqNo: durableSeqNo,
     })
+    highestDurableSeqNo = durableSeqNo
+    await sealed.close()
   }
 
   async function maybeRoll(nextSeqNo: number, appendedBytes: number): Promise<void> {
@@ -245,6 +287,21 @@ export function createWalWriter(directory: DurableDirectory, config: WalWriterCo
     },
 
     rollToNewSegment,
+
+    async prepareCheckpointRoll(): Promise<void> {
+      if (activeSegmentHoldsRecords()) await prepareNextSegment()
+    },
+
+    async rollForCheckpoint(): Promise<void> {
+      await withDurabilityLock(async () => {
+        const sealed = handle
+        const prepared = nextSegmentPrepared
+        nextSegmentPrepared = false
+        if (sealed === null || !activeSegmentHoldsRecords()) return
+        if (prepared) await swapToPreparedSegment(sealed)
+        else await rollUnderLock(highestAppendedSeqNo + 1)
+      })
+    },
 
     async close(): Promise<void> {
       await withDurabilityLock(async () => {

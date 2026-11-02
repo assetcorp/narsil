@@ -33,6 +33,7 @@ interface RawMetadataPayload {
   partition_limits?: { max_docs_per_partition?: unknown; max_partitions?: unknown; watermark?: unknown }
   default_scoring?: unknown
   track_positions?: unknown
+  text_storage?: unknown
   strict?: unknown
   required?: unknown
   vector_promotion?: {
@@ -117,6 +118,9 @@ function metadataToWire(meta: IndexMetadata): RawMetadataPayload {
   }
   if (meta.trackPositions !== undefined) {
     wire.track_positions = meta.trackPositions
+  }
+  if (meta.textStorage !== undefined) {
+    wire.text_storage = meta.textStorage
   }
   if (meta.strict !== undefined) {
     wire.strict = meta.strict
@@ -240,6 +244,14 @@ function wireToMetadata(raw: RawMetadataPayload): IndexMetadata {
   }
   if (typeof raw.track_positions === 'boolean') {
     meta.trackPositions = raw.track_positions
+  }
+  if (raw.text_storage !== undefined) {
+    if (raw.text_storage !== 'memory' && raw.text_storage !== 'disk') {
+      throw new NarsilError(ErrorCodes.CONFIG_INVALID, "text_storage must be 'memory' or 'disk'", {
+        textStorage: raw.text_storage,
+      })
+    }
+    meta.textStorage = raw.text_storage
   }
   if (typeof raw.strict === 'boolean') {
     meta.strict = raw.strict

@@ -1,4 +1,5 @@
 import { type FileRef, manifestFileRefs, type SegmentManifest } from '../durability/segment/manifest'
+import { ARCHIVE_FILE_CHUNK_BYTES } from './constants'
 import { ARCHIVE_CONFIG_ENTRY, ARCHIVE_MANIFEST_ENTRY } from './read'
 import { tarEnd, tarEntryHeaders, tarPadding } from './tar'
 
@@ -7,7 +8,7 @@ export interface ArchiveSource {
   manifestBytes: Uint8Array
   manifest: SegmentManifest
   sourceIndexName: string
-  readFile(ref: FileRef): Promise<Uint8Array>
+  readRange(ref: FileRef, offset: number, length: number): Promise<Uint8Array>
   release(): void
 }
 
@@ -17,12 +18,21 @@ function entryChunks(name: string, bytes: Uint8Array): Uint8Array[] {
   )
 }
 
+async function* fileEntryChunks(source: ArchiveSource, name: string, ref: FileRef): AsyncGenerator<Uint8Array> {
+  yield* tarEntryHeaders(name, ref.bytes).filter(chunk => chunk.byteLength > 0)
+  for (let offset = 0; offset < ref.bytes; offset += ARCHIVE_FILE_CHUNK_BYTES) {
+    yield await source.readRange(ref, offset, Math.min(ARCHIVE_FILE_CHUNK_BYTES, ref.bytes - offset))
+  }
+  const padding = tarPadding(ref.bytes)
+  if (padding.byteLength > 0) yield padding
+}
+
 async function* archiveChunks(source: ArchiveSource): AsyncGenerator<Uint8Array> {
   yield* entryChunks(ARCHIVE_CONFIG_ENTRY, source.config)
   yield* entryChunks(ARCHIVE_MANIFEST_ENTRY, source.manifestBytes)
   const prefix = `${source.sourceIndexName}/`
   for (const ref of manifestFileRefs(source.manifest)) {
-    yield* entryChunks(ref.key.slice(prefix.length), await source.readFile(ref))
+    yield* fileEntryChunks(source, ref.key.slice(prefix.length), ref)
   }
   yield tarEnd()
 }

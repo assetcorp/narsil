@@ -32,6 +32,7 @@ export interface IndexSettings {
   surfaceForms?: boolean
   defaultScoring?: ScoringMode
   trackPositions?: boolean
+  textStorage?: 'memory' | 'disk'
   strict?: boolean
   required?: string[]
   vectorPromotion?: VectorIndexConfig
@@ -109,6 +110,7 @@ function settingsFieldsOf(source: SettingsSource): Omit<IndexSettings, 'language
     ...(source.surfaceForms !== undefined ? { surfaceForms: source.surfaceForms } : {}),
     ...(source.defaultScoring !== undefined ? { defaultScoring: source.defaultScoring } : {}),
     ...(source.trackPositions !== undefined ? { trackPositions: source.trackPositions } : {}),
+    ...(source.textStorage !== undefined ? { textStorage: source.textStorage } : {}),
     ...(source.strict !== undefined ? { strict: source.strict } : {}),
     ...(source.required !== undefined ? { required: source.required } : {}),
     ...(source.vectorPromotion !== undefined ? { vectorPromotion: source.vectorPromotion } : {}),

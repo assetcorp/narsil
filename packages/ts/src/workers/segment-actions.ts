@@ -1,5 +1,10 @@
 import { isCompositePartition } from '../core/partition/composite'
-import { createSharedFrozenSegment, freezeSegmentShared } from '../core/partition/frozen'
+import {
+  createSharedFrozenSegment,
+  freezeSegmentShared,
+  type PagedSegmentSnapshot,
+  type SharedSegmentSnapshot,
+} from '../core/partition/frozen'
 import { mergeFrozenSegments } from '../core/partition/frozen/merge'
 import { NO_REMOVED_SPELLINGS } from '../core/partition/frozen/removal-pass'
 import { buildSegmentPayload } from '../core/partition/segment-builder'
@@ -18,7 +23,16 @@ export interface SegmentIndexEntry {
 
 export type SegmentAction = Extract<
   WorkerAction,
-  { type: 'buildSegment' | 'mergeSegments' | 'attachSegments' | 'compactSegments' | 'swapSegments' | 'freezeLiveTail' }
+  {
+    type:
+      | 'buildSegment'
+      | 'mergeSegments'
+      | 'attachSegments'
+      | 'compactSegments'
+      | 'swapSegments'
+      | 'freezeLiveTail'
+      | 'adoptDiskSegments'
+  }
 >
 
 export function isSegmentAction(action: WorkerAction): action is SegmentAction {
@@ -28,8 +42,29 @@ export function isSegmentAction(action: WorkerAction): action is SegmentAction {
     action.type === 'attachSegments' ||
     action.type === 'compactSegments' ||
     action.type === 'swapSegments' ||
-    action.type === 'freezeLiveTail'
+    action.type === 'freezeLiveTail' ||
+    action.type === 'adoptDiskSegments'
   )
+}
+
+function isPagedSnapshot(snapshot: SharedSegmentSnapshot | PagedSegmentSnapshot): snapshot is PagedSegmentSnapshot {
+  return 'path' in snapshot
+}
+
+async function attachSegments(
+  entry: SegmentIndexEntry,
+  action: Extract<SegmentAction, { type: 'attachSegments' }>,
+): Promise<void> {
+  for (const segment of action.segments) {
+    growPartitionsTo(entry.manager, segment.partitionId)
+    const surfaceForms = segment.survivingSurfaceForms
+    const spellings = surfaceForms === undefined ? undefined : NO_REMOVED_SPELLINGS
+    const frozen = isPagedSnapshot(segment.snapshot)
+      ? (await import('../persistence/paged/module')).createPagedFrozenSegment(segment.snapshot)
+      : createSharedFrozenSegment(segment.snapshot, surfaceForms)
+    for (const docId of segment.tombstonedDocIds ?? []) frozen.tombstoneDocument(docId, spellings)
+    entry.manager.attachFrozenSegment(segment.partitionId, frozen)
+  }
 }
 
 export function growPartitionsTo(manager: PartitionManager, partitionId: number): void {
@@ -83,17 +118,11 @@ export function runSegmentAction(entry: SegmentIndexEntry, action: SegmentAction
       return undefined
     }
 
-    case 'attachSegments': {
-      for (const segment of action.segments) {
-        growPartitionsTo(entry.manager, segment.partitionId)
-        const surfaceForms = segment.survivingSurfaceForms
-        const frozen = createSharedFrozenSegment(segment.snapshot, surfaceForms)
-        const spellings = surfaceForms === undefined ? undefined : NO_REMOVED_SPELLINGS
-        for (const docId of segment.tombstonedDocIds ?? []) frozen.tombstoneDocument(docId, spellings)
-        entry.manager.attachFrozenSegment(segment.partitionId, frozen)
-      }
-      return undefined
-    }
+    case 'attachSegments':
+      return attachSegments(entry, action)
+
+    case 'adoptDiskSegments':
+      return import('../persistence/paged/module').then(code => code.adoptSegmentsOnWorker(entry.manager, action))
 
     case 'compactSegments': {
       const partition = requireComposite(entry, action.indexName, action.partitionId, 'compact')

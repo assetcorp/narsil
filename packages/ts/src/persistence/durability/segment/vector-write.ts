@@ -1,7 +1,10 @@
 import { encode } from '@msgpack/msgpack'
 import { ErrorCodes, NarsilError } from '../../../errors'
-import { packChecksummedEnvelope } from '../../../serialization/envelope-file'
+import { checksumOfChunks } from '../../../serialization/chunk-checksum'
+import { crc32Combine } from '../../../serialization/crc32-combine'
+import { packChecksummedEnvelope, packEnvelopeWithChecksum } from '../../../serialization/envelope-file'
 import type { VectorCheckpointPlan, WrittenVectorFile } from '../../../vector/vector-index'
+import { type PagedPartChunks, pagedGraphPartChunks, pagedVectorFileChunks } from '../../paged/vector-bytes'
 import { graphPartKey, vectorFileKey } from './layout'
 import type { FileRef, VectorFieldRef, VectorFileRef } from './manifest'
 import type { CheckpointStore } from './store'
@@ -49,7 +52,19 @@ function keptFileRef(
       { key: kept.key },
     )
   }
-  return { ...kept, bytes: listed.bytes, checksum: listed.checksum }
+  return { ...kept, bytes: listed.bytes, checksum: listed.checksum, ...headFieldsOf(listed) }
+}
+
+function headFieldsOf(ref: FileRef): Pick<FileRef, 'headOffset' | 'headLength' | 'headChecksum'> {
+  return ref.headOffset === undefined
+    ? {}
+    : { headOffset: ref.headOffset, headLength: ref.headLength, headChecksum: ref.headChecksum }
+}
+
+function headRefOf(paged: PagedPartChunks | null): Pick<FileRef, 'headOffset' | 'headLength' | 'headChecksum'> {
+  return paged === null
+    ? {}
+    : { headOffset: paged.headOffset, headLength: paged.headLength, headChecksum: paged.headChecksum }
 }
 
 async function writeGraphParts(
@@ -62,13 +77,14 @@ async function writeGraphParts(
   const refs: FileRef[] = []
   for (let part = 0; part < parts.length; part++) {
     const key = graphPartKey(input.indexName, fieldPath, generation, part)
+    const paged = plan.storesHeads ? pagedGraphPartChunks(parts[part]) : null
     const packed = await packChecksummedEnvelope(
-      [encode(parts[part])],
+      paged === null ? [encode(parts[part])] : paged.chunks,
       GRAPH_PART_ENVELOPE_VERSION,
       `graph part "${key}"`,
     )
     await input.store.write(key, packed.chunks)
-    refs.push({ key, bytes: packed.byteLength, checksum: packed.checksum })
+    refs.push({ key, bytes: packed.byteLength, checksum: packed.checksum, ...headRefOf(paged) })
   }
   return refs
 }
@@ -88,17 +104,31 @@ async function writeField(
   const files: VectorFileRef[] = plan.kept.map(kept => keptFileRef(input, prior, kept))
   const written: WrittenVectorFile[] = []
   for (let index = 0; index < plan.newFiles; index++) {
-    const { payload, ordinals, dead } = plan.readNewFile(index)
+    const { payload, ordinals, dead, magnitudes } = plan.readNewFile(index)
     const id = nextFileId
     nextFileId += 1
     const key = vectorFileKey(input.indexName, fieldPath, id)
-    const packed = await packChecksummedEnvelope(
-      vectorPartChunks(payload),
-      VECTOR_FILE_ENVELOPE_VERSION,
-      `vector file "${key}"`,
-    )
+    const paged = plan.storesHeads && magnitudes !== null ? pagedVectorFileChunks(payload, magnitudes) : null
+    const what = `vector file "${key}"`
+    const packed =
+      paged === null
+        ? await packChecksummedEnvelope(vectorPartChunks(payload), VECTOR_FILE_ENVELOPE_VERSION, what)
+        : packEnvelopeWithChecksum(
+            paged.chunks,
+            VECTOR_FILE_ENVELOPE_VERSION,
+            what,
+            crc32Combine(await checksumOfChunks(paged.beforeVectors), paged.vectors.checksum, paged.vectors.byteLength),
+          )
     await input.store.write(key, packed.chunks)
-    files.push({ id, key, count: payload.docIds.length, dead, bytes: packed.byteLength, checksum: packed.checksum })
+    files.push({
+      id,
+      key,
+      count: payload.docIds.length,
+      dead,
+      bytes: packed.byteLength,
+      checksum: packed.checksum,
+      ...headRefOf(paged),
+    })
     written.push({ id, key, ordinals })
     outcome.layouts.push({
       fieldPath,

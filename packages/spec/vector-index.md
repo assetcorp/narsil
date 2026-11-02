@@ -312,6 +312,20 @@ VectorIndexConfig {
 
 A `memory` index holds its full-precision vectors in memory. A `disk` index holds its codes and its graph in memory, while it reads a full-precision vector from its vector file by position, as [Vector File Payload](envelope.md#vector-file-payload) defines, when a search scores that vector or a caller fetches a document. When `storage` is absent, an implementation must use `disk` for an index with filesystem durability and `memory` otherwise. An implementation must reject `disk` on an index without filesystem durability with `CONFIG_INVALID`, and it may hold the vectors of a `disk` index in memory until promotion.
 
+### Text Storage
+
+```text
+IndexConfig {
+  textStorage: 'memory' or 'disk'   (default 'memory')
+}
+```
+
+A `memory` index holds its keyword index and documents in memory, and it writes segments as [Keyword Segment Payload](envelope.md#keyword-segment-payload) defines. A `disk` index writes [paged keyword segments](envelope.md#paged-keyword-segment-payload), holds their resident sections in memory, and reads every other section by position. An implementation must reject `disk` on an index without filesystem durability with `CONFIG_INVALID`. `textStorage` and the `storage` of a vector field are independent settings, and a caller can set either one without the other.
+
+Both settings must leave every answer unchanged. A `disk` index must return the same hits, in the same order, with the same scores, as a `memory` index that holds the same documents.
+
+An implementation may answer a search on a `disk` vector field before it has loaded the field's codes and graph, by reading the needed graph parts and code records by position. It should load them in the background once the index opens, and it must not make a search wait for that load.
+
 ---
 
 ## Cross-Implementation Result Equivalence

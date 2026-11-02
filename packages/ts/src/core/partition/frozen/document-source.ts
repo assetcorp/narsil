@@ -133,13 +133,25 @@ export function encodeDocumentTableData(documents: ReadonlyArray<AnyDocument>): 
  */
 export function wrapEncodedDocumentTable(data: EncodedDocumentTableData): FrozenDocumentSource {
   const { blob, offsets } = data
-  const count = offsets.length - 1
-  const discarded = (data.discardedFields ?? []).map(fieldPath => fieldPath.split('.'))
+  return createEncodedDocumentSource(
+    offsets.length - 1,
+    blob.byteLength + offsets.byteLength,
+    ordinal => blob.subarray(offsets[ordinal], offsets[ordinal + 1]),
+    data.discardedFields,
+  )
+}
+
+export function createEncodedDocumentSource(
+  count: number,
+  byteLength: number,
+  bytesAt: (ordinal: number) => Uint8Array,
+  discardedFields: readonly string[] | undefined,
+): FrozenDocumentSource {
+  const discarded = (discardedFields ?? []).map(fieldPath => fieldPath.split('.'))
   const touchesDiscarded = (path: readonly string[]): boolean =>
     discarded.some(discardedPath => sharesPrefix(discardedPath, path))
-  const bytesAt = (ordinal: number): Uint8Array => blob.subarray(offsets[ordinal], offsets[ordinal + 1])
   const docAt = (ordinal: number): AnyDocument =>
-    documentWithOwnBuffers(decodeStoredDocument(bytesAt(ordinal), data.discardedFields))
+    documentWithOwnBuffers(decodeStoredDocument(bytesAt(ordinal), discardedFields))
 
   function projectedPathAt(ordinal: number, path: string[]): ProjectedPathRead {
     const segments = encodedProjectionPathOf(path)
@@ -151,10 +163,10 @@ export function wrapEncodedDocumentTable(data: EncodedDocumentTableData): Frozen
 
   return {
     count,
-    byteLength: blob.byteLength + offsets.byteLength,
+    byteLength,
     docAt,
     readAt(ordinal: number): AnyDocument {
-      return decodeStoredDocument(bytesAt(ordinal), data.discardedFields)
+      return decodeStoredDocument(bytesAt(ordinal), discardedFields)
     },
     fieldReader(fieldPath: string): (ordinal: number) => unknown {
       const path = fieldPath.split('.')

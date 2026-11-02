@@ -33,6 +33,28 @@ export function jsDistance(a: Float32Array, b: Float32Array, magA: number, magB:
   }
 }
 
+interface HeldVectorReads {
+  holdsOrdinal(ordinal: number): boolean
+  isCold(ordinal: number): boolean
+  readColdInto(ordinal: number, target: Float32Array): boolean
+  vectorAt(ordinal: number): Float32Array
+  magnitudeAt(ordinal: number): number
+}
+
+export function distanceFromQueryOf(
+  source: HeldVectorReads,
+  coldScratch: Float32Array,
+  query: Float32Array,
+  queryMagnitude: number,
+  ordinal: number,
+  metric: VectorMetric,
+): number {
+  if (!source.holdsOrdinal(ordinal)) return Number.POSITIVE_INFINITY
+  const vector =
+    source.isCold(ordinal) && source.readColdInto(ordinal, coldScratch) ? coldScratch : source.vectorAt(ordinal)
+  return jsDistance(query, vector, queryMagnitude, source.magnitudeAt(ordinal), metric)
+}
+
 function inMemory(reads: HotBlockReads, ordinal: number): boolean {
   return ordinal >= 0 && ordinal < reads.limit && reads.diskFile[ordinal] === IN_MEMORY
 }

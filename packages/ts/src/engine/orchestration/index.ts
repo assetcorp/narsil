@@ -26,7 +26,13 @@ import { isIndexBusy, noteAccess, startIdleSweep, stopIdleSweep } from './idle'
 import { flushGrownTails } from './live-tail'
 import type { CopyReleaseSteps } from './release'
 import { cancelRepair } from './repair'
-import { awaitReplicationIdle, awaitWritesApplied, markCopiesLoaded, replicateToWorkers } from './replication'
+import {
+  awaitReplicationIdle,
+  awaitWritesApplied,
+  markCopiesLoaded,
+  queueForCopies,
+  replicateToWorkers,
+} from './replication'
 import { requestThreadCountOf, serveRequestsOnWorkers, stopRequestThreads } from './request-threads'
 import {
   copyThresholdReason,
@@ -279,6 +285,7 @@ export function createWorkerOrchestrator(
       scaleOutBeforeBatch(state, indexName, incomingCount),
     replicateToWorkers: replicate,
     awaitReplication: (indexName?: string): Promise<void> => awaitReplicationIdle(state, indexName),
+    queueDiskAdoption: action => queueForCopies(state, action),
     awaitWrites: (indexName: string): Promise<void> => awaitWritesApplied(state, indexName),
     awaitCompactions: (): Promise<void> => awaitCompactions(state),
     openIndex,

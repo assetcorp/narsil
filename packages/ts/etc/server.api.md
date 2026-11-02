@@ -309,6 +309,7 @@ export interface HttpIndexConfig {
     strict?: boolean;
     surfaceForms?: boolean;
     synonyms?: SynonymRule[];
+    textStorage?: 'memory' | 'disk';
     tokenizer?: string;
     trackPositions?: boolean;
     vectorPromotion?: Record<string, unknown>;

@@ -177,7 +177,7 @@ async function compactIndexSegments(
   policy: CompactionPolicy,
 ): Promise<void> {
   const manager = state.executor.getManager(indexName)
-  if (!manager) return
+  if (!manager || manager.config.textStorage === 'disk') return
 
   const partitionIds = new Set<number>()
   for (let partitionId = 0; partitionId < manager.partitionCount; partitionId++) partitionIds.add(partitionId)

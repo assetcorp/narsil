@@ -51,6 +51,10 @@
       "browser": "./src/vector/vector-store/vector-file.browser.ts",
       "default": "./src/vector/vector-store/vector-file.ts"
     },
+    "#platform/raw-deflate": {
+      "browser": "./src/persistence/paged/raw-deflate.browser.ts",
+      "default": "./src/persistence/paged/raw-deflate.ts"
+    },
     "#platform/native-core": {
       "browser": "./src/vector/native/loader.browser.ts",
       "default": "./src/vector/native/loader.ts"
@@ -90,7 +94,7 @@
     "node": ">=22"
   },
   "scripts": {
-    "build": "rm -rf dist && tsup && node scripts/check-browser-bundle.mjs && tsx scripts/api-surface.ts",
+    "build": "rm -rf dist && tsup && node scripts/check-browser-bundle.mjs && node scripts/check-vector-chunk.mjs && tsx scripts/api-surface.ts",
     "build:code": "rm -rf dist && NARSIL_BUILD_CODE_ONLY=1 tsup",
     "test": "vitest run --exclude='**/vector/recall.test.ts' --exclude='**/e2e/cluster-memory/**' --exclude='**/e2e/cluster-faults/**' --exclude='**/frozen-removal-memory/container-removes.test.ts'",
     "test:native": "vitest run src/__tests__/vector/native src/__tests__/integration/filtered-vector-recall/native src/__tests__/integration/filtered-vectors/mutations-native src/__tests__/integration/removed-vectors/main-thread",

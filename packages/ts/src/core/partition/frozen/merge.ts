@@ -52,7 +52,7 @@ function fieldNameIndex(fieldNames: string[], name: string): number {
   return fieldNames.length - 1
 }
 
-function fieldIndexRemapOf(segment: FrozenSegment, fieldNames: string[]): Uint16Array {
+export function fieldIndexRemapOf(segment: FrozenSegment, fieldNames: string[]): Uint16Array {
   const remap = new Uint16Array(segment.arrays.fieldNames.length)
   for (let i = 0; i < segment.arrays.fieldNames.length; i++) {
     remap[i] = fieldNameIndex(fieldNames, segment.arrays.fieldNames[i])
@@ -60,7 +60,7 @@ function fieldIndexRemapOf(segment: FrozenSegment, fieldNames: string[]): Uint16
   return remap
 }
 
-function mergeFieldLengths(
+export function mergeFieldLengths(
   inputs: readonly SegmentRemap[],
   documentCount: number,
 ): Pick<SegmentPayload, 'fieldLengthNames' | 'fieldLengthColumns' | 'totalFieldLengths'> {
@@ -92,7 +92,7 @@ function mergeFieldLengths(
   return { fieldLengthNames: names, fieldLengthColumns: columns, totalFieldLengths: totals }
 }
 
-function mergeSurfaceForms(
+export function mergeSurfaceForms(
   inputs: readonly SegmentRemap[],
   analysis: TextAnalysis | null,
 ): SerializedSurfaceForms | null {
@@ -101,7 +101,7 @@ function mergeSurfaceForms(
   return registry.size() === 0 ? null : registry.serialize()
 }
 
-function holdsADiscardedField(bytes: Uint8Array, discardedFields: readonly string[]): boolean {
+export function holdsADiscardedField(bytes: Uint8Array, discardedFields: readonly string[]): boolean {
   const keys = topLevelMapKeys(bytes)
   if (keys === null) return true
   for (const fieldPath of discardedFields) {
@@ -160,7 +160,7 @@ function keepsEveryDocument(remap: Int32Array): boolean {
   return true
 }
 
-function mergePartialWords(
+export function mergePartialWords(
   inputs: readonly SegmentRemap[],
   mergedTokenCount: number,
   analysis: PartialWordAnalysis | null,
