@@ -788,6 +788,7 @@ export interface PersistenceAdapter {
     load(key: string): Promise<Uint8Array | null>;
     loadStream?(key: string): Promise<AsyncIterable<Uint8Array> | null>;
     save(key: string, data: Uint8Array): Promise<void>;
+    saveIfAbsent?(key: string, data: Uint8Array): Promise<boolean>;
     saveStream?(key: string, data: AsyncIterable<Uint8Array>, length: number): Promise<void>;
 }
 

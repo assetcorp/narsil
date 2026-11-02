@@ -56,6 +56,19 @@ export interface PersistenceAdapter {
    * @throws A `NarsilError` with `PERSISTENCE_LOAD_FAILED` when the store fails the read.
    */
   loadStream?(key: string): Promise<AsyncIterable<Uint8Array> | null>
+  /**
+   * Stores `data` under `key` only where the key holds nothing, as one atomic step, so that where several calls race on
+   * an absent key, exactly one returns `true`. A cluster backup store must offer it, because the cluster claims its key
+   * prefix with it.
+   *
+   * @param key - The key to fill.
+   * @param data - The bytes to store.
+   * @returns `true` where this call stored `data`, and `false` where the key already held a value. A retry after a lost
+   * response can return `false` for bytes that the earlier attempt stored, so load the key and compare where you need to
+   * know whose bytes it holds.
+   * @throws A `NarsilError` with `PERSISTENCE_SAVE_FAILED` when the store refuses the write.
+   */
+  saveIfAbsent?(key: string, data: Uint8Array): Promise<boolean>
   /** This adapter writes to this directory, when a filesystem backs it. */
   readonly directory?: string
 }

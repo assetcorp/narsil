@@ -75,7 +75,7 @@ function isNotFound(error: unknown): boolean {
   return statusOf(error) === GCS_NOT_FOUND_STATUS
 }
 
-function isReplaced(error: unknown): boolean {
+function isPreconditionFailed(error: unknown): boolean {
   return statusOf(error) === GCS_PRECONDITION_FAILED_STATUS
 }
 
@@ -198,6 +198,21 @@ export async function createGcsPersistence(config: GcsPersistenceConfig): Promis
       }
     },
 
+    async saveIfAbsent(key: string, data: Uint8Array): Promise<boolean> {
+      requireObjectKey(key)
+      try {
+        await bucket.file(`${root}${key}`).save(data, {
+          resumable: false,
+          contentType: GCS_CONTENT_TYPE,
+          preconditionOpts: { ifGenerationMatch: 0 },
+        })
+        return true
+      } catch (error) {
+        if (isPreconditionFailed(error)) return false
+        throw objectStoreFailure(ErrorCodes.PERSISTENCE_SAVE_FAILED, 'save', key, error)
+      }
+    },
+
     async load(key: string): Promise<Uint8Array | null> {
       requireObjectKey(key)
       return readObject(bucket.file(`${root}${key}`), key)
@@ -246,7 +261,7 @@ export async function createGcsPersistence(config: GcsPersistenceConfig): Promis
         }
         await file.delete({ ignoreNotFound: true, ifGenerationMatch: generation })
       } catch (error) {
-        if (isNotFound(error) || isReplaced(error)) return
+        if (isNotFound(error) || isPreconditionFailed(error)) return
         throw objectStoreFailure(ErrorCodes.PERSISTENCE_DELETE_FAILED, 'delete', key, error)
       }
     },

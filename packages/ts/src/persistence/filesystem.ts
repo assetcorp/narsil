@@ -92,6 +92,26 @@ async function fsyncDirectory(dirPath: string, fs: FsModule): Promise<void> {
   }
 }
 
+async function writeSyncedFile(fs: FsModule, path: string, data: Uint8Array, key: string): Promise<void> {
+  let handle: FileHandle | null = null
+  try {
+    handle = await fs.open(path, 'w')
+    await handle.write(data)
+    try {
+      await handle.sync()
+    } catch (err: unknown) {
+      throw new NarsilError(ErrorCodes.PERSISTENCE_FSYNC_FAILED, `fsync failed for "${key}"`, {
+        key,
+        cause: err instanceof Error ? err.message : String(err),
+      })
+    }
+    await handle.close()
+    handle = null
+  } finally {
+    if (handle !== null) await handle.close().catch(() => undefined)
+  }
+}
+
 async function listDirectoryRecursive(
   dir: string,
   baseDir: string,
@@ -163,29 +183,41 @@ export function createFilesystemPersistence(config: FilesystemPersistenceConfig)
       await fs.mkdir(dir, { recursive: true })
 
       const tempPath = pathMod.join(dir, unfinishedSaveName(pathMod.basename(resolvedPath)))
-      let handle: FileHandle | null = null
       try {
-        handle = await fs.open(tempPath, 'w')
-        await handle.write(data)
-        try {
-          await handle.sync()
-        } catch (err: unknown) {
-          throw new NarsilError(ErrorCodes.PERSISTENCE_FSYNC_FAILED, `fsync failed for "${key}"`, {
+        await writeSyncedFile(fs, tempPath, data, key)
+        await fs.rename(tempPath, resolvedPath)
+        await fsyncDirectory(dir, fs)
+      } catch (err: unknown) {
+        await fs.unlink(tempPath).catch(() => undefined)
+        throw err
+      }
+    },
+
+    async saveIfAbsent(key: string, data: Uint8Array): Promise<boolean> {
+      const resolvedPath = await resolveAndGuard(baseDir, key)
+      const fs = await getFs()
+      const pathMod = await getPath()
+      const dir = pathMod.dirname(resolvedPath)
+      const tempPath = pathMod.join(dir, unfinishedSaveName(pathMod.basename(resolvedPath)))
+      let stored = false
+      try {
+        await fs.mkdir(dir, { recursive: true })
+        await writeSyncedFile(fs, tempPath, data, key)
+        await fs.link(tempPath, resolvedPath)
+        stored = true
+      } catch (err: unknown) {
+        if ((err as NodeJS.ErrnoException).code !== 'EEXIST') {
+          await fs.unlink(tempPath).catch(() => undefined)
+          if (err instanceof NarsilError) throw err
+          throw new NarsilError(ErrorCodes.PERSISTENCE_SAVE_FAILED, `The adapter could not save "${key}"`, {
             key,
             cause: err instanceof Error ? err.message : String(err),
           })
         }
-        await handle.close()
-        handle = null
-        await fs.rename(tempPath, resolvedPath)
-        await fsyncDirectory(dir, fs)
-      } catch (err: unknown) {
-        if (handle !== null) {
-          await handle.close().catch(() => undefined)
-        }
-        await fs.unlink(tempPath).catch(() => undefined)
-        throw err
       }
+      await fs.unlink(tempPath).catch(() => undefined)
+      await fsyncDirectory(dir, fs)
+      return stored
     },
 
     async saveStream(key: string, data: AsyncIterable<Uint8Array>, length: number): Promise<void> {

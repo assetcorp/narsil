@@ -27,7 +27,7 @@ In the browser, `createIndexedDBPersistence({ dbName, storeName })` takes the sa
 
 The serialization format is `.nrsl`, a 32-byte header followed by a MessagePack payload. The format is cross-language portable and specified in [`packages/spec`](../packages/spec), so a Python or Rust implementation can read and write the same files.
 
-A custom backend satisfies the `PersistenceAdapter` interface: `save(key, data)`, `load(key)`, `delete(key)`, and `list(prefix)`, all returning promises. A backend can also offer `saveStream(key, data, length)` and `loadStream(key)`, which move a file in chunks, so that a cluster backup holds no whole file in memory.
+A custom backend satisfies the `PersistenceAdapter` interface: `save(key, data)`, `load(key)`, `delete(key)`, and `list(prefix)`, all returning promises. A backend can also offer `saveStream(key, data, length)` and `loadStream(key)`, which move a file in chunks, so that a cluster backup holds no whole file in memory. A backend can offer `saveIfAbsent(key, data)` as well, which stores the data only where the key holds nothing and resolves to `true` when it stored the data and to `false` when the key already held something. A cluster backup store must offer it, because the cluster claims its key prefix with it.
 
 `createS3Persistence` and `createGcsPersistence` each return a promise, because each one loads its SDK when you call it. Narsil declares both SDKs as optional peer dependencies, so the engine loads without them, and you install the one that you use:
 
