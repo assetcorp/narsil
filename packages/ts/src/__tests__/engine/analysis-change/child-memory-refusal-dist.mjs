@@ -5,7 +5,7 @@ const INDEX = 'catalogue'
 const BATCH = 2_000
 const PROBE_EVERY = 97
 const PROBE = 'lantern'
-const OLD_GENERATION_SHARE_BEFORE_THE_CHANGE = 0.75
+const OLD_GENERATION_SHARE_BEFORE_THE_CHANGE = 0.6
 const OLD_GENERATION_LIMIT_BYTES = Number(process.argv[2]) * 1_048_576
 const YOUNG_GENERATION_SPACES = new Set(['new_space', 'new_large_object_space'])
 const HITS_PAGE = 10_000
@@ -34,7 +34,10 @@ const hitIds = async (engine, term) => {
   return page.hits.map(hit => hit.id).sort()
 }
 
-const engine = await createNarsil({ workers: { enabled: false } })
+const engine = await createNarsil({
+  workers: { enabled: false },
+  memory: { blockWritesAbove: 1, resumeWritesBelow: 0.99 },
+})
 await engine.createIndex(INDEX, { schema: { title: 'string' }, language: 'english' })
 
 let documents = 0

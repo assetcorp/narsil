@@ -7,6 +7,7 @@ import type { LanguageModule } from '../../types/language'
 import type { AnyDocument, IndexConfig } from '../../types/schema'
 import type { DirectExecutorExtensions } from '../../workers/direct-executor'
 import type { Executor } from '../../workers/executor'
+import type { MemoryWriteBlock } from '../memory/write-block-types'
 import type { WorkerOrchestrator } from '../orchestration'
 import type { InsertedDocuments } from '../watermark'
 
@@ -62,4 +63,5 @@ export interface MutationContext {
   capacityScope: CapacityScope
   checkWatermark: (name: string, inserted?: InsertedDocuments) => void
   checkHeapPressure: (name: string) => void
+  memoryWriteBlock: MemoryWriteBlock | undefined
 }

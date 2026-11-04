@@ -1,3 +1,4 @@
+import { createMemoryWriteBlock } from '#platform/memory-write-block'
 import { ARRAY_POSITION_GAP } from '../core/constants'
 import { generateId } from '../core/id-generator'
 import { DEFAULT_PATTERN_WORK_CAP } from '../core/pattern-index/constants'
@@ -326,6 +327,11 @@ export async function createEngineCore(
     capacityScope,
     checkWatermark: watermarkNotifier.check,
     checkHeapPressure: heapPressureNotifier.check,
+    memoryWriteBlock: createMemoryWriteBlock({
+      settings: config?.memory,
+      capacityScope,
+      source: { indexRegistry, executor },
+    }),
   }
 
   const rebalanceCtx: RebalanceContext = {

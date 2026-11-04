@@ -2,9 +2,8 @@ import { existsSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { ErrorCodes, NarsilError } from '../../errors'
-import type { NativeCore } from './types'
+import { NATIVE_CORE_ABI_VERSION, type NativeCore } from './types'
 
-const NATIVE_CORE_ABI_VERSION = 6
 const BINARY_FILE_NAME = 'narsil-core.node'
 const MUSL_DIRECTORY = 'musl'
 const PLATFORMS_WITH_A_BINARY = new Set([

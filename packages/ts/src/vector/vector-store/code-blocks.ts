@@ -1,3 +1,4 @@
+import { VECTOR_MEMORY_LIMITS } from '#platform/vector-memory-limits'
 import { VECTOR_SCRATCH_SLOTS } from '../constants'
 import { osqQueryBits } from '../osq/estimate'
 import type { OsqBits } from '../osq/quantize'
@@ -40,6 +41,6 @@ export function computeCodeBlockLayout(dimension: number, bits: OsqBits): Vector
     scratchStride,
     slotsOffset,
     slotStride,
-    capacity: Math.floor((BLOCK_MAX_BYTES - slotsOffset) / slotStride),
+    capacity: Math.floor((Math.min(VECTOR_MEMORY_LIMITS.blockBytes, BLOCK_MAX_BYTES) - slotsOffset) / slotStride),
   }
 }

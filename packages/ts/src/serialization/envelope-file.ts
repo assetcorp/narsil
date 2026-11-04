@@ -78,34 +78,17 @@ function loadFailed(message: string, details?: Record<string, unknown>): never {
 }
 
 async function gunzipWithinLimit(compressed: Uint8Array, what: string): Promise<Uint8Array> {
-  const source = new Blob([compressed.slice().buffer as ArrayBuffer]).stream()
-  const reader = source.pipeThrough(new DecompressionStream('gzip')).getReader()
-  const chunks: Uint8Array[] = []
-  let total = 0
-  for (;;) {
-    let step: ReadableStreamReadResult<Uint8Array>
-    try {
-      step = await reader.read()
-    } catch (error) {
-      loadFailed(`The ${what} holds a gzip payload that fails to inflate`, {
-        cause: error instanceof Error ? error.message : String(error),
-      })
-    }
-    if (step.done) break
-    total += step.value.byteLength
-    if (total > MAX_FILE_BYTES) {
-      await reader.cancel()
+  const { gunzip } = await import('#platform/gzip')
+  try {
+    return await gunzip(compressed, MAX_FILE_BYTES)
+  } catch (error) {
+    if ((error as { code?: unknown } | null)?.code === 'EFBIG') {
       loadFailed(`The ${what} inflates past the file size limit of ${MAX_FILE_BYTES} bytes`)
     }
-    chunks.push(step.value)
+    loadFailed(`The ${what} holds a gzip payload that fails to inflate`, {
+      cause: error instanceof Error ? error.message : String(error),
+    })
   }
-  const inflated = new Uint8Array(total)
-  let offset = 0
-  for (const chunk of chunks) {
-    inflated.set(chunk, offset)
-    offset += chunk.byteLength
-  }
-  return inflated
 }
 
 export interface EnvelopeExpectation {

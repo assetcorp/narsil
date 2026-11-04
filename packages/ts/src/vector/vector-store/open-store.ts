@@ -1,5 +1,5 @@
+import { VECTOR_MEMORY_LIMITS } from '#platform/vector-memory-limits'
 import { ErrorCodes, NarsilError } from '../../errors'
-import { MAX_VECTOR_ORDINALS } from '../constants'
 import { addToOrdinalFilter, createOrdinalFilter, type OrdinalFilter } from '../ordinal-filter'
 import type { OsqBits } from '../osq/quantize'
 import { type GrowableBuffer, growBufferTo, grownByteLength } from '../shared-buffers/growable'
@@ -121,11 +121,12 @@ function ensureFloatSlot(store: OpenStore, ordinal: number): void {
 }
 
 export function ensureOrdinal(store: OpenStore, ordinal: number, cold: boolean): void {
-  if (ordinal >= MAX_VECTOR_ORDINALS) {
+  const maxOrdinals = VECTOR_MEMORY_LIMITS.maxOrdinals
+  if (ordinal >= maxOrdinals) {
     throw new NarsilError(
       ErrorCodes.PARTITION_CAPACITY_EXCEEDED,
-      `A vector field holds at most ${MAX_VECTOR_ORDINALS} vectors, deleted ones included, until it is rebuilt`,
-      { ordinal, maxOrdinals: MAX_VECTOR_ORDINALS },
+      `A vector field holds at most ${maxOrdinals} vectors, deleted ones included, until it is rebuilt`,
+      { ordinal, maxOrdinals },
     )
   }
   const { handles } = store
@@ -139,7 +140,7 @@ export function ensureOrdinal(store: OpenStore, ordinal: number, cold: boolean):
   const diskFileBytes = handles.diskFile.byteLength
   growBufferTo(handles.diskFile, (ordinal + 1) * 4)
   if (handles.diskFile.byteLength > diskFileBytes) {
-    new Int32Array(handles.diskFile).fill(IN_MEMORY, diskFileBytes / 4)
+    new Int32Array(handles.diskFile, 0, handles.diskFile.byteLength / 4).fill(IN_MEMORY, diskFileBytes / 4)
   }
   growBufferTo(handles.diskOffset, (ordinal + 1) * 4)
   if (!cold) ensureFloatSlot(store, ordinal)
@@ -153,7 +154,7 @@ function bufferGrowthBytes(buffer: GrowableBuffer, bytes: number): number {
 export function growthBytesFor(store: OpenStore, vectors: number): number {
   const { handles } = store
   const slots = Atomics.load(handles.header, STORE_SLOTS)
-  const last = Math.min(slots + vectors, MAX_VECTOR_ORDINALS) - 1
+  const last = Math.min(slots + vectors, VECTOR_MEMORY_LIMITS.maxOrdinals) - 1
   if (last < slots) return 0
   const idBytes = Atomics.load(handles.header, STORE_DOC_ID_BYTES)
   let bytes =

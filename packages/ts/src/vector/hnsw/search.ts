@@ -46,16 +46,15 @@ interface Traversal {
   native: NativeField | null
 }
 
-function traverse(
-  state: HNSWSearchState,
-  query: Float32Array,
-  k: number,
-  searchMetric: VectorMetric,
-  options: GraphSearchOptions,
-): Traversal {
+export interface SearchDepths {
+  ef: number
+  depth: number
+  useQuantized: boolean
+}
+
+export function searchDepths(state: HNSWSearchState, k: number, options: GraphSearchOptions): SearchDepths {
   const calibrated = activeQuantizer(state)
   const quantizer = calibrated === undefined || calibrated.size === 0 ? undefined : calibrated
-  const useQuantized = quantizer !== undefined
   const window = options.rescoreWindow ?? k
   let depth = window
   if (quantizer !== undefined) {
@@ -65,6 +64,32 @@ function traverse(
         : Math.ceil(window * options.oversample)
   }
   const ef = Math.max(options.efSearch ?? defaultEfSearch(state.dimension, window), depth)
+  return { ef, depth, useQuantized: quantizer !== undefined }
+}
+
+export function requireQueryDimension(state: HNSWSearchState, query: Float32Array): void {
+  if (query.length !== state.dimension) {
+    throw new NarsilError(
+      ErrorCodes.VECTOR_DIMENSION_MISMATCH,
+      `Vector dimension mismatch: expected ${state.dimension}, got ${query.length}`,
+      { expected: state.dimension, received: query.length },
+    )
+  }
+}
+
+export function graphIsEmpty(state: HNSWSearchState): boolean {
+  return entryPointOf(state) === -1 || nodeCountOf(state) - tombstoneCountOf(state) === 0
+}
+
+function traverse(
+  state: HNSWSearchState,
+  query: Float32Array,
+  k: number,
+  searchMetric: VectorMetric,
+  options: GraphSearchOptions,
+): Traversal {
+  const { ef, depth, useQuantized } = searchDepths(state, k, options)
+  const quantizer = useQuantized ? activeQuantizer(state) : undefined
   const filter = options.filter
 
   const workspace = state.workspace
@@ -112,7 +137,7 @@ function traverse(
   return { candidates, depth: useQuantized ? depth : 0, arenaQuery, qMag, native: null }
 }
 
-interface ResolvedHit extends OrdinalHit {
+export interface ResolvedHit extends OrdinalHit {
   docId: string
 }
 
@@ -136,7 +161,11 @@ function scoresDescend(hits: OrdinalHit[]): boolean {
   return hits.length === 0 || !Number.isNaN(hits[0].score)
 }
 
-function bestResolvedHits(hits: OrdinalHit[], k: number, docIdOf: (ord: number) => string | undefined): ResolvedHit[] {
+export function bestResolvedHits(
+  hits: OrdinalHit[],
+  k: number,
+  docIdOf: (ord: number) => string | undefined,
+): ResolvedHit[] {
   if (!Number.isInteger(k) || k <= 0) {
     return resolveEvery(hits, docIdOf).sort(bestFirst).slice(0, k)
   }
@@ -162,18 +191,8 @@ function collectHits(
   minSimilarity: number,
   options: GraphSearchOptions,
 ): OrdinalHit[] {
-  if (query.length !== state.dimension) {
-    throw new NarsilError(
-      ErrorCodes.VECTOR_DIMENSION_MISMATCH,
-      `Vector dimension mismatch: expected ${state.dimension}, got ${query.length}`,
-      { expected: state.dimension, received: query.length },
-    )
-  }
-
-  const liveSize = nodeCountOf(state) - tombstoneCountOf(state)
-  if (entryPointOf(state) === -1 || liveSize === 0) {
-    return []
-  }
+  requireQueryDimension(state, query)
+  if (graphIsEmpty(state)) return []
 
   const traversal = traverse(state, query, k, searchMetric, options)
   const { candidates } = traversal
@@ -186,7 +205,7 @@ function collectHits(
   return rescored.concat(estimatedHits(candidates, rest, searchMetric, minSimilarity, filter))
 }
 
-function endOfRescored(candidates: DistanceList, depth: number, filter: OrdinalFilter | undefined): number {
+export function endOfRescored(candidates: DistanceList, depth: number, filter: OrdinalFilter | undefined): number {
   if (filter === undefined) return Math.min(depth, candidates.size)
   let taken = 0
   for (let i = 0; i < candidates.size; i++) {
@@ -197,7 +216,7 @@ function endOfRescored(candidates: DistanceList, depth: number, filter: OrdinalF
   return candidates.size
 }
 
-function estimatedHits(
+export function estimatedHits(
   candidates: DistanceList,
   from: number,
   metric: VectorMetric,
@@ -236,7 +255,7 @@ function rescoredHits(
   return rescoreWithFullPrecision(state, candidates, query, qMag, arenaQuery, depth, metric, minSimilarity, filter)
 }
 
-function rescoreWithFullPrecision(
+export function rescoreWithFullPrecision(
   state: HNSWSearchState,
   candidates: DistanceList,
   query: Float32Array,

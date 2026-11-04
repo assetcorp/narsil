@@ -28,7 +28,7 @@ export function sliceCapacity(sliceClass: number): number {
   return sliceClass === NO_SLICE ? 0 : SLICE_CAPACITIES[sliceClass]
 }
 
-function grownCapacity(current: number, needed: number): number {
+export function grownCapacity(current: number, needed: number): number {
   return Math.min(MAX_POOL_ENTRIES, Math.max(needed, Math.ceil(current * POOL_GROWTH_FACTOR)))
 }
 
@@ -95,7 +95,7 @@ export class PostingPool {
     return this.docIds.byteLength + this.frequencies.byteLength + this.fieldIndices.byteLength + positionBytes
   }
 
-  private reserve(needed: number): void {
+  protected reserve(needed: number): void {
     if (needed <= this.docIds.length) return
     const capacity = grownCapacity(this.docIds.length, needed)
     this.docIds = grownCopy(this.docIds, new Uint32Array(capacity), this.end)
@@ -166,7 +166,7 @@ export class PositionPool {
     this.freeValues += this.values[start] + 1
   }
 
-  private reserve(needed: number): void {
+  protected reserve(needed: number): void {
     if (needed <= this.values.length) return
     const capacity = grownCapacity(this.values.length, needed)
     const grown = new Uint32Array(capacity)

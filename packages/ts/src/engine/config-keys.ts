@@ -1,3 +1,4 @@
+import { validateMemorySettings } from '#platform/memory-write-block'
 import { ErrorCodes, NarsilError } from '../errors'
 import type {
   AnalysisConfig,
@@ -24,6 +25,7 @@ const NARSIL_CONFIG_KEYS: Record<keyof NarsilConfig, true> = {
   lifecycle: true,
   patternWorkCap: true,
   events: true,
+  memory: true,
 }
 
 const EVENT_NAMES: Record<keyof NarsilEventMap, true> = {
@@ -109,6 +111,7 @@ export function requireKnownConfig(config: NarsilConfig | undefined): void {
   requireKnownKeys('workers.', config.workers, WORKER_CONFIG_KEYS)
   requireKnownKeys('lifecycle.', config.lifecycle, LIFECYCLE_CONFIG_KEYS)
   requireKnownKeys('analysis.', config.analysis, ANALYSIS_CONFIG_KEYS)
+  validateMemorySettings(config.memory)
   requireNamedPlugins(config.plugins)
   requireValidPatternWorkCap(config.patternWorkCap)
   requireEventListeners(config.events)

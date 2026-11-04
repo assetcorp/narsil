@@ -1,0 +1,37 @@
+{
+  "name": "@delali/narsil-example-react-native-bare",
+  "private": true,
+  "version": "0.0.1",
+  "description": "A React Native app without Expo that runs one keyword, one vector, and one hybrid search with Narsil on a phone.",
+  "scripts": {
+    "native-projects": "node scripts/native-projects.mjs",
+    "start": "react-native start",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@delali/narsil": "workspace:*",
+    "@delali/narsil-react-native": "workspace:*",
+    "react": "19.3.0",
+    "react-native": "0.88.1",
+    "react-native-nitro-modules": "0.37.1",
+    "react-native-worklets": "0.13.0"
+  },
+  "devDependencies": {
+    "@babel/core": "7.29.0",
+    "@babel/preset-env": "7.29.0",
+    "@babel/runtime": "7.28.6",
+    "@react-native-community/cli": "20.2.0",
+    "@react-native-community/cli-platform-android": "20.2.0",
+    "@react-native-community/cli-platform-ios": "20.2.0",
+    "@react-native-community/template": "0.88.1",
+    "@react-native/babel-preset": "0.88.1",
+    "@react-native/codegen": "0.88.1",
+    "@react-native/gradle-plugin": "0.88.1",
+    "@react-native/metro-config": "0.88.1",
+    "@react-native/typescript-config": "0.88.1",
+    "@types/node": "22.15.32",
+    "@types/react": "19.3.0",
+    "hermes-compiler": "260318099.0.5",
+    "typescript": "5.9.3"
+  }
+}

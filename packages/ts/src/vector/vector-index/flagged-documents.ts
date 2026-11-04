@@ -1,3 +1,5 @@
+import { createDocIdMap } from '#platform/doc-id-tables'
+import type { DocIdSet } from '../../core/doc-id-tables/types'
 import { UNPLACED_FLAG_CHUNK_ORDINALS } from '../constants'
 import type { GrowableBuffer } from '../shared-buffers/growable'
 import type { VectorStore } from '../vector-store'
@@ -9,8 +11,9 @@ interface FlagLayout {
   countWord: number
 }
 
-class FlaggedDocuments extends Set<string> {
-  private readonly ordinals = new Map<string, number>()
+class FlaggedDocuments implements DocIdSet {
+  private readonly members = createDocIdMap<true>()
+  private readonly ordinals = createDocIdMap<number>()
   private handles: SharedVectorStoreHandles | null = null
   private flags: Uint8Array = new Uint8Array(0)
   private chunks: Int32Array | null = null
@@ -18,21 +21,31 @@ class FlaggedDocuments extends Set<string> {
   constructor(
     private readonly store: VectorStore,
     private readonly layout: FlagLayout,
-  ) {
-    super()
+  ) {}
+
+  get size(): number {
+    return this.members.size
   }
 
-  override add(docId: string): this {
-    super.add(docId)
+  has(docId: string): boolean {
+    return this.members.has(docId)
+  }
+
+  [Symbol.iterator](): Iterator<string> {
+    return this.members.keys()[Symbol.iterator]()
+  }
+
+  add(docId: string): this {
+    this.members.set(docId, true)
     const handles = this.openHandles()
     if (handles === null) return this
     this.flagCurrentOrdinal(docId)
-    Atomics.store(handles.header, this.layout.countWord, this.size)
+    Atomics.store(handles.header, this.layout.countWord, this.members.size)
     return this
   }
 
-  override delete(docId: string): boolean {
-    const held = super.delete(docId)
+  delete(docId: string): boolean {
+    const held = this.members.delete(docId)
     const handles = this.openHandles()
     if (handles === null) return held
     const ordinal = this.ordinals.get(docId)
@@ -40,12 +53,12 @@ class FlaggedDocuments extends Set<string> {
       this.ordinals.delete(docId)
       this.unflag(ordinal)
     }
-    Atomics.store(handles.header, this.layout.countWord, this.size)
+    Atomics.store(handles.header, this.layout.countWord, this.members.size)
     return held
   }
 
-  override clear(): void {
-    super.clear()
+  clear(): void {
+    this.members.clear()
     const handles = this.openHandles()
     if (handles !== null) {
       for (const ordinal of this.ordinals.values()) this.unflag(ordinal)
@@ -78,12 +91,12 @@ class FlaggedDocuments extends Set<string> {
     const chunksOf = this.layout.chunksOf
     this.chunks = chunksOf === null ? null : new Int32Array(chunksOf(handles))
     this.ordinals.clear()
-    for (const docId of this) this.flagCurrentOrdinal(docId)
+    for (const docId of this.members.keys()) this.flagCurrentOrdinal(docId)
     return handles
   }
 }
 
-export function createUnplacedVectors(store: VectorStore): Set<string> {
+export function createUnplacedVectors(store: VectorStore): DocIdSet {
   return new FlaggedDocuments(store, {
     flagsOf: handles => handles.unplaced,
     chunksOf: handles => handles.unplacedChunks,
@@ -91,7 +104,7 @@ export function createUnplacedVectors(store: VectorStore): Set<string> {
   })
 }
 
-export function createRemovedDocuments(store: VectorStore): Set<string> {
+export function createRemovedDocuments(store: VectorStore): DocIdSet {
   return new FlaggedDocuments(store, {
     flagsOf: handles => handles.removed,
     chunksOf: null,

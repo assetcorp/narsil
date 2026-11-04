@@ -75,6 +75,7 @@ export async function recoverPersistedIndex(
     vectorFieldPaths: hooks.getVectorFieldPaths(indexName),
     vectorIndexes: hooks.getVectorIndexes(indexName),
     writeRecords,
+    defersGraphBuilds: true,
   }
   const replay = async (checkpoint: PartitionCheckpoint[]): Promise<PartitionCheckpoint[]> => {
     const replayed: PartitionCheckpoint[] = []

@@ -1,3 +1,4 @@
+import type { DocIdMap } from '../../core/doc-id-tables/types'
 import type { PartitionIndex } from '../../core/partition'
 import { isCompositePartition } from '../../core/partition/composite'
 import type { FrozenSegment } from '../../core/partition/frozen'
@@ -6,7 +7,7 @@ function documentIdsHeldInMemory(partition: PartitionIndex): IterableIterator<st
   return isCompositePartition(partition) ? partition.documentIdsHeldInMemory() : partition.docIds()
 }
 
-export function rebuildDocLocations(locations: Map<string, number>, partitions: readonly PartitionIndex[]): void {
+export function rebuildDocLocations(locations: DocIdMap<number>, partitions: readonly PartitionIndex[]): void {
   locations.clear()
   for (let i = 0; i < partitions.length; i++) {
     for (const docId of documentIdsHeldInMemory(partitions[i])) {
@@ -16,7 +17,7 @@ export function rebuildDocLocations(locations: Map<string, number>, partitions: 
 }
 
 export function recordSegmentDocLocations(
-  locations: Map<string, number>,
+  locations: DocIdMap<number>,
   partitionId: number,
   segment: FrozenSegment,
 ): void {
@@ -28,7 +29,7 @@ export function recordSegmentDocLocations(
 }
 
 export function rebuildPartitionDocLocations(
-  locations: Map<string, number>,
+  locations: DocIdMap<number>,
   partitionId: number,
   partition: PartitionIndex,
 ): void {

@@ -86,6 +86,13 @@ export function validateDocId(docId: string): void {
   }
 }
 
+export function validateBatchList(given: unknown, listed: 'documents' | 'updates' | 'document IDs'): void {
+  if (Array.isArray(given)) return
+  throw new NarsilError(ErrorCodes.DOC_VALIDATION_FAILED, `A batch takes its ${listed} as an array`, {
+    received: given === null ? 'null' : typeof given,
+  })
+}
+
 export function validatePartitionConfig(partitions: {
   maxDocsPerPartition?: number
   maxPartitions?: number

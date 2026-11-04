@@ -1,4 +1,10 @@
 import { collectAndReturnPages } from '#platform/idle-heap-cleanup'
+import { FULL_MEMORY_COLLECTION_INTERVAL_MS } from '../../../engine/memory/constants'
+import { memoryFractionsOf } from '../../../engine/memory/fractions'
+import { readMemoryFigures, readRecentMemoryFigures } from '../../../engine/memory/measure'
+import { createMemoryMonitor } from '../../../engine/memory/monitor'
+import { createWriteProjection, type WriteProjection } from '../../../engine/memory/write-projection'
+import { ErrorCodes } from '../../../errors'
 import { addBackgroundAdmission } from '../../../runtime/background-memory'
 import {
   collectGarbageBeforeRefusal,
@@ -9,19 +15,14 @@ import {
 import type { ClusterCoordinator, IndexPartitionBytes, NodeRegistration } from '../../coordinator/types'
 import {
   DEFAULT_IN_FLIGHT_WRITE_FRACTION,
-  FULL_MEMORY_COLLECTION_INTERVAL_MS,
   MEMORY_SAMPLE_INTERVAL_MS,
   WRITE_MEMORY_SAMPLE_MAX_AGE_MS,
 } from '../constants'
 import type { ClusterLocalEngine } from '../local-engine'
 import type { ClusterMemoryConfig } from '../types'
-import { memoryFractionsOf } from './fractions'
-import { readMemoryFigures, readRecentMemoryFigures } from './measure'
-import { createMemoryMonitor } from './monitor'
 import { collectPartitionBytes } from './partition-bytes'
 import { createNodeMemoryView, type NodeMemoryView } from './write-block'
 import { createWritePressure, type WritePressure } from './write-pressure'
-import { createWriteProjection, type WriteProjection } from './write-projection'
 
 export interface NodeMemoryReporting {
   view: NodeMemoryView
@@ -68,7 +69,13 @@ export function createNodeMemoryReporting(options: NodeMemoryReportingOptions): 
   })
 
   const writeProjection = createWriteProjection({
-    nodeId: options.registration.nodeId,
+    refusal: {
+      code: ErrorCodes.CLUSTER_WRITE_BLOCKED,
+      refuser: `Node '${options.registration.nodeId}'`,
+      owner: 'the node',
+      fillAdvice: 'Retry once the writes in progress finish, or add memory to the cluster.',
+      details: { nodeId: options.registration.nodeId },
+    },
     fractions,
     measure: readRecentMemoryFigures,
     measureWithoutGarbage: () => monitor.measureWithoutGarbage(),

@@ -1,3 +1,4 @@
+import { shareTurnsWithBackgroundWork } from '#platform/background-turn-sharing'
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { VectorIndexConfig, VectorQuantizationMode, VectorStorageMode } from '../../types/schema'
 import type { VectorMetric } from '../brute-force'
@@ -25,6 +26,7 @@ import {
 import { DEFAULT_FILTER_THRESHOLD, DEFAULT_PROMOTION_THRESHOLD, OSQ4_MIN_DIMENSION } from './constants'
 import { adoptDiskLayout as adoptDiskLayoutOp, type VectorFileLayout } from './disk'
 import { createRemovedDocuments, createUnplacedVectors } from './flagged-documents'
+import { onceGraphFree, untilGraphReleased, withGraphFree } from './graph-pass'
 import {
   compact as compactOp,
   completeGraph as completeGraphOp,
@@ -34,7 +36,9 @@ import {
 } from './maintenance'
 import type { VectorIndexPayload } from './payload'
 import { deserialize as deserializeOp } from './persistence'
-import { fetchedOutcome, search as searchOp, searchWithFilter, withBufferedVectors } from './search'
+import { fetchedOutcome, search as searchOp, withBufferedVectors } from './search'
+import { searchFiltered } from './search-in-turns'
+import { searchOffThread } from './search-off-thread'
 import {
   assignStorePartitions,
   type ColdVectorField,
@@ -156,6 +160,7 @@ export function createVectorIndex(
     )
   }
 
+  shareTurnsWithBackgroundWork()
   const promotionThreshold = config?.threshold ?? DEFAULT_PROMOTION_THRESHOLD
   const filterThreshold = Math.max(0, Math.min(1, config?.filterThreshold ?? DEFAULT_FILTER_THRESHOLD))
   const quantizationMode = config?.quantization ?? defaultQuantizationFor(dimension)
@@ -218,6 +223,8 @@ export function createVectorIndex(
     sharing: Promise.resolve(),
     releaseToFilesInFlight: Promise.resolve(),
     cold: null,
+    graphsHeldOffThread: null,
+    searchWatches: new Set(),
   }
 
   const { insert, remove } = createVectorWrites(state)
@@ -244,23 +251,24 @@ export function createVectorIndex(
     k: number,
     options: VectorSearchOptions,
   ): Promise<VectorSearchOutcome> {
+    if (state.graphsHeldOffThread !== null) await untilGraphReleased(state)
     if (state.cold !== null) return coldSearchConcurrently(state, state.cold, query, k, options)
     handOverBuildTurns(state)
     const confined = options.filterSubsets !== undefined || options.filterPartitions !== undefined
     let filter = filterForOptions(state, options)
+    const offThread = searchOffThread(state, query, k, options, filter, confined ? state.revision : null)
+    if (offThread !== null) return offThread
     if (filter !== undefined) {
       if (state.hnsw) {
         const hnswLiveSize = state.hnsw.size
         const selectivity = hnswLiveSize > 0 ? filter.count / hnswLiveSize : 1
-        if (selectivity < state.filterThreshold) {
-          return searchWithFilter(state, query, k, options, filter)
-        }
+        if (selectivity < state.filterThreshold) return searchFiltered(state, query, k, options, filter)
       }
     }
     const filterRevision = state.revision
-    const buffered = state.buffer.size === 0 ? null : [...state.buffer]
-
     scheduleWorkerCopyLoad(state)
+    const searchesWorkerCopies = state.workerCopyPool !== null && state.workerCopyHandle !== null
+    const buffered = state.buffer.size === 0 || !searchesWorkerCopies ? null : [...state.buffer]
 
     const viaWorkerCopy = await searchViaWorkerCopies(state, query, k, options.metric, options.minSimilarity, {
       filter,
@@ -278,7 +286,7 @@ export function createVectorIndex(
           : withBufferedVectors(state, query, k, options, filter, viaWorkerCopy, buffered)
       return fetchedOutcome(state, results, options.minSimilarity, filter)
     }
-    return searchWithFilter(state, query, k, options, filter)
+    return searchFiltered(state, query, k, options, filter)
   }
 
   return {
@@ -321,19 +329,20 @@ export function createVectorIndex(
       cancelColdHold(state)
       disposeIndex(state)
     },
-    search: (query: Float32Array, k: number, options: VectorSearchOptions) =>
+    search: withGraphFree(state, (query: Float32Array, k: number, options: VectorSearchOptions) =>
       state.cold === null ? searchOp(state, query, k, options) : coldSearch(state, state.cold, query, k, options),
+    ),
     searchParallel,
     refreshWorkerCopies: () => {
       if (state.cold === null) refreshWorkerCopies(state)
     },
     getVector,
     has,
-    compact: () => {
+    compact: withGraphFree(state, () => {
       if (state.cold !== null) return
       noteWrite(state)
       compactOp(state)
-    },
+    }),
     optimize: async () => {
       await whenLoaded()
       noteWrite(state)
@@ -342,20 +351,23 @@ export function createVectorIndex(
     maintenanceStatus: () => ({ ...maintenanceStatusOp(state), loadingFromFiles: state.cold !== null }),
     estimateMemoryBytes: () => estimateMemoryBytesOp(state) + (state.cold?.field.residentBytes ?? 0),
     growthBytesFor: (vectors: number) => state.store.growthBytesFor(vectors),
-    deserialize: (parts: VectorIndexPayload[]) => {
+    deserialize: withGraphFree(state, (parts: VectorIndexPayload[]) => {
       cancelColdHold(state)
       invalidateWorkerCopies(state)
       deserializeOp(state, parts)
-    },
-    planCheckpoint: (listedKeys: readonly string[] | null, rewritesGraph?: boolean, pinsRetiredVectors?: boolean) =>
-      planCheckpointOp(state, listedKeys, rewritesGraph, pinsRetiredVectors),
+    }),
+    planCheckpoint: withGraphFree(
+      state,
+      (listedKeys: readonly string[] | null, rewritesGraph?: boolean, pinsRetiredVectors?: boolean) =>
+        planCheckpointOp(state, listedKeys, rewritesGraph, pinsRetiredVectors),
+    ),
     recordCheckpoint: (plan: VectorCheckpointPlan, written: readonly WrittenVectorFile[]) =>
       recordCheckpointOp(state, plan, written),
-    restoreCheckpoint: (shape: CheckpointRestoreShape) => {
+    restoreCheckpoint: withGraphFree(state, (shape: CheckpointRestoreShape) => {
       cancelColdHold(state)
       invalidateWorkerCopies(state)
       return beginCheckpointRestore(state, shape)
-    },
+    }),
     openColdField: (field: ColdVectorField, load: ColdFieldLoad) => openColdField(state, field, load),
     startShuffledRebuildWhenDue: () => {
       if (state.cold === null) startShuffledRebuild(state)
@@ -364,12 +376,12 @@ export function createVectorIndex(
       const stored = state.store.dimension === 0 ? [] : state.store.handles.vectorFiles.filter(path => path !== '')
       return state.cold === null ? stored : [...stored, ...state.cold.field.filePaths()]
     },
-    adoptDiskLayout: (layout: VectorFileLayout) => adoptDiskLayoutOp(state, layout),
-    releaseVectorFiles: async () => {
+    adoptDiskLayout: onceGraphFree(state, (layout: VectorFileLayout) => adoptDiskLayoutOp(state, layout)),
+    releaseVectorFiles: onceGraphFree(state, async () => {
       await whenLoaded()
       await withdrawWorkerCopies(state)
       state.store.closeFiles()
-    },
+    }),
     relocateVectorFiles: (rewrite: (path: string) => string) => {
       state.store.relocateVectorFiles(rewrite)
       for (const [docId, location] of state.pendingLocations) {

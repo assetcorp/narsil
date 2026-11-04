@@ -1,4 +1,4 @@
-import { createBoundedMaxHeap } from '../../core/heap'
+import { type BinaryHeap, createBoundedMaxHeap } from '../../core/heap'
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { VectorMetric } from '../brute-force'
 import { toScore } from '../hnsw/shared'
@@ -19,7 +19,7 @@ import {
   type VectorSearchOutcome,
 } from './shared'
 
-function* bufferCandidates(
+export function* bufferCandidates(
   state: VectorIndexState,
   buffered: Iterable<string>,
   filter?: OrdinalFilter,
@@ -34,7 +34,7 @@ function* bufferCandidates(
   }
 }
 
-function* filteredDocIds(state: VectorIndexState, filter: OrdinalFilter): Iterable<string> {
+export function* filteredDocIds(state: VectorIndexState, filter: OrdinalFilter): Iterable<string> {
   for (const ordinal of ordinalFilterValues(filter)) {
     const docId = state.store.docIdForOrdinal(ordinal)
     if (docId !== undefined) yield docId
@@ -46,7 +46,7 @@ interface ScanCandidates {
   ordinals: number[]
 }
 
-interface ScanOutcome {
+export interface ScanOutcome {
   results: VectorScoredResult[]
   matched: number
 }
@@ -71,12 +71,26 @@ function scannedOutcome(scan: ScanOutcome): VectorSearchOutcome {
   return { results: scan.results, matched: scan.matched, matchedExact: true }
 }
 
-function liveCandidates(state: VectorIndexState, candidates: Iterable<string>): ScanCandidates {
+export function liveOrdinalOf(
+  state: VectorIndexState,
+  docId: string,
+  filter: OrdinalFilter | undefined,
+): number | undefined {
+  if (state.tombstones.has(docId)) return undefined
+  const ordinal = state.store.getOrdinal(docId)
+  if (ordinal === undefined || (filter !== undefined && !ordinalFilterHas(filter, ordinal))) return undefined
+  return ordinal
+}
+
+function liveCandidates(
+  state: VectorIndexState,
+  candidates: Iterable<string>,
+  filter: OrdinalFilter | undefined,
+): ScanCandidates {
   const docIds: string[] = []
   const ordinals: number[] = []
   for (const docId of candidates) {
-    if (state.tombstones.has(docId)) continue
-    const ordinal = state.store.getOrdinal(docId)
+    const ordinal = liveOrdinalOf(state, docId, filter)
     if (ordinal === undefined) continue
     docIds.push(docId)
     ordinals.push(ordinal)
@@ -84,51 +98,65 @@ function liveCandidates(state: VectorIndexState, candidates: Iterable<string>): 
   return { docIds, ordinals }
 }
 
-function scanThroughTheCore(
-  state: VectorIndexState,
-  query: Float32Array,
-  k: number,
-  metric: VectorMetric,
-  minSimilarity: number,
-  scanned: ScanCandidates,
-): ScanOutcome | null {
-  const distances = nativeScoresOf(state.store.handles, query, metric, scanned.ordinals)
-  if (distances === null) return null
-  const heap = createBoundedMaxHeap<VectorScoredResult>(highScoreFirst, k)
-  let matched = 0
-  for (let i = 0; i < scanned.ordinals.length; i++) {
-    if (distances[i] === Number.POSITIVE_INFINITY) continue
-    const score = toScore(distances[i], metric)
-    if (score < minSimilarity) continue
-    matched++
-    heap.push({ docId: scanned.docIds[i], score })
-  }
-  return { results: heap.toSortedArray().reverse(), matched }
+export interface ScanTally {
+  readonly best: BinaryHeap<VectorScoredResult>
+  readonly capacity: number
+  matched: number
+  bestDiscardedScore: number
 }
 
-function bruteForceSearch(
+export function createScanTally(capacity: number): ScanTally {
+  return {
+    best: createBoundedMaxHeap<VectorScoredResult>(highScoreFirst, capacity),
+    capacity,
+    matched: 0,
+    bestDiscardedScore: Number.NEGATIVE_INFINITY,
+  }
+}
+
+function admitScore(tally: ScanTally, docId: string, score: number): void {
+  tally.matched++
+  const worst = tally.best.size < tally.capacity ? undefined : tally.best.peek()
+  if (worst !== undefined && score < worst.score) {
+    if (score > tally.bestDiscardedScore) tally.bestDiscardedScore = score
+    return
+  }
+  const result = { docId, score }
+  tally.best.push(result)
+  if (worst === undefined) return
+  const discarded = highScoreFirst(result, worst) < 0 ? worst.score : score
+  if (discarded > tally.bestDiscardedScore) tally.bestDiscardedScore = discarded
+}
+
+export function scoreCandidates(
   state: VectorIndexState,
   query: Float32Array,
-  k: number,
   metric: VectorMetric,
   minSimilarity: number,
-  candidates: Iterable<string>,
-): ScanOutcome {
-  const scanned = liveCandidates(state, candidates)
-  const fromTheCore = scanThroughTheCore(state, query, k, metric, minSimilarity, scanned)
-  if (fromTheCore !== null) return fromTheCore
+  docIds: readonly string[],
+  ordinals: ArrayLike<number>,
+  tally: ScanTally,
+): void {
+  const count = ordinals.length
+  const distances = nativeScoresOf(state.store.handles, query, metric, ordinals)
+  if (distances !== null) {
+    for (let i = 0; i < count; i++) {
+      if (distances[i] === Number.POSITIVE_INFINITY) continue
+      const score = toScore(distances[i], metric)
+      if (score < minSimilarity) continue
+      admitScore(tally, docIds[i], score)
+    }
+    return
+  }
   noteFallback('score')
 
   const arenaQuery = state.store.prepareQueryArena(query)
   const queryMag = arenaQuery ? arenaQuery.magnitude : magnitude(query)
-  const heap = createBoundedMaxHeap<VectorScoredResult>(highScoreFirst, k)
-  let matched = 0
-
-  for (let i = 0; i < scanned.docIds.length; i++) {
-    const docId = scanned.docIds[i]
+  for (let i = 0; i < count; i++) {
+    const docId = docIds[i]
     let score: number
     if (arenaQuery) {
-      const distance = state.store.distanceFromArena(arenaQuery, scanned.ordinals[i], metric)
+      const distance = state.store.distanceFromArena(arenaQuery, ordinals[i], metric)
       if (distance === Number.POSITIVE_INFINITY) continue
       score = toScore(distance, metric)
     } else {
@@ -149,13 +177,24 @@ function bruteForceSearch(
         }
       }
     }
-
     if (score < minSimilarity) continue
-    matched++
-    heap.push({ docId, score })
+    admitScore(tally, docId, score)
   }
+}
 
-  return { results: heap.toSortedArray().reverse(), matched }
+export function bruteForceSearch(
+  state: VectorIndexState,
+  query: Float32Array,
+  k: number,
+  metric: VectorMetric,
+  minSimilarity: number,
+  candidates: Iterable<string>,
+  filter?: OrdinalFilter,
+): ScanOutcome {
+  const scanned = liveCandidates(state, candidates, filter)
+  const tally = createScanTally(k)
+  scoreCandidates(state, query, metric, minSimilarity, scanned.docIds, scanned.ordinals, tally)
+  return { results: tally.best.toSortedArray().reverse(), matched: tally.matched }
 }
 
 export function search(
@@ -168,6 +207,14 @@ export function search(
   return searchWithFilter(state, query, k, options, filterForOptions(state, options))
 }
 
+export interface ScanRequest {
+  candidates: Iterable<string>
+  filter: OrdinalFilter | undefined
+  graphResults: VectorScoredResult[] | null
+}
+
+export type SearchSteps = Generator<ScanRequest, VectorSearchOutcome, ScanOutcome>
+
 export function searchWithFilter(
   state: VectorIndexState,
   query: Float32Array,
@@ -175,6 +222,22 @@ export function searchWithFilter(
   options: VectorSearchOptions,
   filter: OrdinalFilter | undefined,
 ): VectorSearchOutcome {
+  const steps = searchSteps(state, query, k, options, filter)
+  let step = steps.next()
+  while (step.done !== true) {
+    const { candidates, filter: remaining } = step.value
+    step = steps.next(bruteForceSearch(state, query, k, options.metric, options.minSimilarity, candidates, remaining))
+  }
+  return step.value
+}
+
+export function* searchSteps(
+  state: VectorIndexState,
+  query: Float32Array,
+  k: number,
+  options: VectorSearchOptions,
+  filter: OrdinalFilter | undefined,
+): SearchSteps {
   if (query.length !== state.dimension) {
     throw new NarsilError(
       ErrorCodes.VECTOR_DIMENSION_MISMATCH,
@@ -184,7 +247,7 @@ export function searchWithFilter(
   }
 
   const currentLiveSize = liveSize(state)
-  const { metric, minSimilarity, efSearch, oversample, rescoreWindow } = options
+  const { minSimilarity } = options
 
   if (currentLiveSize === 0) return { results: [], matched: 0, matchedExact: true }
   if (filter && filter.count === 0) return { results: [], matched: 0, matchedExact: true }
@@ -196,27 +259,35 @@ export function searchWithFilter(
 
   if (!state.hnsw) {
     const candidates = filter ? filteredDocIds(state, filter) : allLiveDocIds(state)
-    return scannedOutcome(bruteForceSearch(state, query, k, metric, minSimilarity, candidates))
+    return scannedOutcome(yield { candidates, filter: undefined, graphResults: null })
   }
 
   if (filter) {
     const hnswLiveSize = state.hnsw.size
     const selectivity = hnswLiveSize > 0 ? filter.count / hnswLiveSize : 1
     if (selectivity < state.filterThreshold) {
-      const scan = bruteForceSearch(state, query, k, metric, minSimilarity, filteredDocIds(state, filter))
-      return scannedOutcome(scan)
+      return scannedOutcome(yield { candidates: filteredDocIds(state, filter), filter: undefined, graphResults: null })
     }
   }
 
-  const hnswResults = state.hnsw
+  const hnswResults = graphResultsOf(state, query, k, options, filter)
+  if (state.buffer.size === 0) return fetchedOutcome(state, hnswResults, minSimilarity, filter)
+  const scan = yield { candidates: state.buffer, filter, graphResults: hnswResults }
+  return fetchedOutcome(state, mergeResults(hnswResults, scan.results, k), minSimilarity, filter)
+}
+
+export function graphResultsOf(
+  state: VectorIndexState,
+  query: Float32Array,
+  k: number,
+  options: VectorSearchOptions,
+  filter: OrdinalFilter | undefined,
+): VectorScoredResult[] {
+  if (state.hnsw === null) return []
+  const { metric, minSimilarity, efSearch, oversample, rescoreWindow } = options
+  return state.hnsw
     .search(query, k, metric, minSimilarity, { filter, efSearch, oversample, rescoreWindow })
     .map(r => ({ docId: r.docId, score: r.score }))
-
-  const results =
-    state.buffer.size === 0
-      ? hnswResults
-      : withBufferedVectors(state, query, k, options, filter, hnswResults, state.buffer)
-  return fetchedOutcome(state, results, minSimilarity, filter)
 }
 
 export function withBufferedVectors(
@@ -228,7 +299,6 @@ export function withBufferedVectors(
   graphResults: VectorScoredResult[],
   buffered: Iterable<string>,
 ): VectorScoredResult[] {
-  const candidates = bufferCandidates(state, buffered, filter)
-  const scan = bruteForceSearch(state, query, k, options.metric, options.minSimilarity, candidates)
+  const scan = bruteForceSearch(state, query, k, options.metric, options.minSimilarity, buffered, filter)
   return mergeResults(graphResults, scan.results, k)
 }

@@ -1,0 +1,12 @@
+diff --git a/dist/rollup.js b/dist/rollup.js
+--- a/dist/rollup.js
++++ b/dist/rollup.js
+@@ -4889,7 +4889,7 @@
+     }
+     function getCompilerOptions(input, overrideOptions, overrideConfigPath) {
+       const compilerOptions = { ...DEFAULT_OPTIONS, ...overrideOptions };
+-      let dirName = path__namespace.dirname(input);
++      let dirName = overrideConfigPath ? path__namespace.dirname(path__namespace.resolve(process.cwd(), overrideConfigPath)) : path__namespace.dirname(input);
+       let dtsFiles = [];
+       const cacheKey = overrideConfigPath || dirName;
+       if (!configByPath.has(cacheKey)) {
