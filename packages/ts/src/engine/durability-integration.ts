@@ -1,4 +1,4 @@
-import { turnIsSpent, yieldTurn } from '#platform/turn-budget'
+import { turnIsSpent, turnsAreBudgeted, yieldTurn } from '#platform/turn-budget'
 import { fnv1a } from '../core/hash'
 import type { ReplicationOperation } from '../distribution/replication/types'
 import { createDurabilityManager, type DurabilityManager } from '../persistence/durability'
@@ -147,7 +147,7 @@ export function createDurabilityIntegration(
       const outcomes: DurableWriteOutcome[] = new Array(mutations.length)
       const recordPositions: number[] = []
       for (let i = 0; i < mutations.length; i++) {
-        if (turnIsSpent()) await yieldTurn()
+        if (turnsAreBudgeted && turnIsSpent()) await yieldTurn()
         const mutation = mutations[i]
         try {
           records.push({

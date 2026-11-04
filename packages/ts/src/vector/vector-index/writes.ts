@@ -1,5 +1,7 @@
 import { ErrorCodes, NarsilError } from '../../errors'
 import { coldInsert, coldRemove } from './cold'
+import { afterGraphPass } from './graph-pass'
+import { noteSearchedDocWritten } from './search-writes'
 import { handOverBuildTurns, threadsHoldCurrentLayout, type VectorIndexState } from './shared'
 import { noteWrite, scheduleWorkerCopyLoad } from './worker-copies'
 
@@ -41,19 +43,25 @@ export function createVectorWrites(state: VectorIndexState): VectorWrites {
     if (previous !== undefined && holdsThisVectorAlready(docId, previous, vector)) {
       if (partitionId !== undefined && state.store.partitionOfOrdinal(previous) !== partitionId) {
         noteWrite(state)
+        noteSearchedDocWritten(state, docId)
         state.store.setPartition(docId, partitionId)
       }
       return
     }
     noteWrite(state)
+    noteSearchedDocWritten(state, docId)
     state.tombstones.delete(docId)
     const graphHoldsPrevious =
       previous !== undefined &&
       ((state.hnsw?.holdsNode(previous) ?? false) || (state.freshGraph?.holdsNode(previous) ?? false))
     state.store.insert(docId, vector, partitionId, graphHoldsPrevious)
     if (previous !== undefined) {
-      state.hnsw?.markTombstoneOrdinal(previous)
-      state.freshGraph?.markTombstoneOrdinal(previous)
+      const graph = state.hnsw
+      const freshGraph = state.freshGraph
+      afterGraphPass(state, () => {
+        graph?.markTombstoneOrdinal(previous)
+        freshGraph?.markTombstoneOrdinal(previous)
+      })
       if (!graphHoldsPrevious) state.osq?.removeOrdinal(previous)
     }
     state.buffer.add(docId)
@@ -65,12 +73,13 @@ export function createVectorWrites(state: VectorIndexState): VectorWrites {
     handOverBuildTurns(state)
     if (!state.store.has(docId)) return
     noteWrite(state)
+    noteSearchedDocWritten(state, docId)
     state.tombstones.add(docId)
     state.buffer.delete(docId)
     state.pendingLocations.delete(docId)
-    if (state.hnsw) {
-      state.hnsw.markTombstone(docId)
-    }
+    const graph = state.hnsw
+    const ordinal = state.store.getOrdinal(docId)
+    if (graph !== null && ordinal !== undefined) afterGraphPass(state, () => graph.markTombstoneOrdinal(ordinal))
   }
 
   return {

@@ -14,7 +14,6 @@ import type { AnyDocument, SchemaDefinition } from '../../types/schema'
 import type { FacetConfig } from '../../types/search'
 import { createDocumentStore } from '../document-store'
 import { createInvertedIndex } from '../inverted-index'
-import type { ComparableSortValue, SortMode } from '../ordering'
 import type { PatternWorkMeter } from '../pattern-index/types'
 import { cloneProjected, type ResolvedProjection } from '../projection'
 import { createPartitionStats } from '../statistics'
@@ -39,15 +38,7 @@ import type { PartitionReadState } from './read-state'
 import { searchFulltext } from './search'
 import { encodeSegmentState, mergeSegmentPayload, type SegmentPayload } from './segment-payload'
 import { deserializePartition, serializePartition } from './serialization'
-import {
-  forgetSortValues,
-  recordSortValues,
-  refreshSortColumns,
-  type SortedPageEntry,
-  type SortPageRequest,
-  sortedPageOf,
-  sortValuesOf,
-} from './sorting'
+import { forgetSortValues, recordSortValues, refreshSortColumns, sortedReadsOf } from './sorting'
 import { expandTermPrefix, type PartitionSuggestion, suggestDisplayTerms } from './suggestions'
 import { getNestedValue, type PartitionInsertOptions, type PartitionState, textFieldsChanged } from './utils'
 
@@ -325,18 +316,7 @@ export function createPartitionIndex(partitionId: number, trackPositions = true)
       return searchFulltextMatches(state, params)
     },
 
-    sortedPage(request: SortPageRequest): SortedPageEntry[] {
-      return sortedPageOf(state, request)
-    },
-
-    sortValues(
-      docId: string,
-      fields: readonly string[],
-      fieldTypes: readonly (string | undefined)[],
-      modes: readonly SortMode[],
-    ): ComparableSortValue[] {
-      return sortValuesOf(state, docId, fields, fieldTypes, modes)
-    },
+    ...sortedReadsOf(state),
 
     applyFilters(filters: FilterExpression, schema: SchemaDefinition, meter: PatternWorkMeter): Set<string> {
       return applyPartitionFilters(state, filters, schema, meter)

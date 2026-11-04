@@ -1,3 +1,4 @@
+import { indexChangeOutsideExternalWaits } from '#platform/turn-budget'
 import { requireDocumentWithinSizeLimit, validateRequiredFields } from '../../schema/validator'
 import type { AnyDocument, InsertOptions } from '../../types/schema'
 import { assertDocumentCarriesMappedVectors, embedDocumentFields } from '../embed'
@@ -61,7 +62,7 @@ export async function insertDocument(
 
   let inserted = false
   let buffered = false
-  const applyInsert = async (): Promise<void> => {
+  const insertIntoIndex = async (): Promise<void> => {
     admitInsert(ctx, indexName, insertManager, resolvedDocId)
     if (ctx.bufferIfRebalancing(indexName, { action: 'insert', docId: resolvedDocId, document, indexName })) {
       buffered = true
@@ -96,6 +97,7 @@ export async function insertDocument(
       throw err
     }
   }
+  const applyInsert = indexChangeOutsideExternalWaits(insertIntoIndex)
 
   if (ctx.durability) {
     try {

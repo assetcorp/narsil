@@ -21,10 +21,19 @@ export interface PhoneEvent {
 interface Waiter<T> {
   accepts(value: T): boolean
   resolve(value: T): void
+  reject(error: Error): void
+}
+
+interface TaskFailure {
+  at: number
+  error: Error
 }
 
 export interface Harness {
   queue(task: Record<string, unknown>): void
+  unqueue(kind: string): void
+  nextPickup(kind: string, timeoutMs: number): Promise<void>
+  note(event: string, details: Record<string, unknown>): void
   acknowledged(): ReadonlySet<string>
   forgetAcks(): void
   events(): readonly PhoneEvent[]
@@ -69,15 +78,24 @@ function waitFor<T>(waiters: Array<Waiter<T>>, accepts: (value: T) => boolean, t
       if (index >= 0) waiters.splice(index, 1)
       reject(new Error(`Timed out after ${timeoutMs} ms waiting for ${what}`))
     }, timeoutMs)
+    timer.unref()
     const waiter: Waiter<T> = {
       accepts,
       resolve(value) {
         clearTimeout(timer)
         resolve(value)
       },
+      reject(error) {
+        clearTimeout(timer)
+        reject(error)
+      },
     }
     waiters.push(waiter)
   })
+}
+
+function abandon<T>(waiters: Array<Waiter<T>>, error: Error): void {
+  for (const waiter of waiters.splice(0)) waiter.reject(error)
 }
 
 function settle<T>(waiters: Array<Waiter<T>>, value: T): void {
@@ -98,11 +116,21 @@ export async function startHarness(port: number, outputDirectory: string, fixtur
   const reportWaiters: Array<Waiter<PhoneReport>> = []
   const eventWaiters: Array<Waiter<PhoneEvent>> = []
   const ackWaiters: Array<Waiter<number>> = []
+  const pickupWaiters: Array<Waiter<string>> = []
+  const failures: TaskFailure[] = []
+
+  function note(event: string, details: Record<string, unknown>): void {
+    const noted = { event, details, at: Date.now() }
+    appendFileSync(eventLog, `${JSON.stringify(noted)}\n`)
+    events.push(noted)
+  }
 
   async function route(request: IncomingMessage, response: ServerResponse): Promise<void> {
     const url = new URL(request.url ?? '/', 'http://harness')
     if (request.method === 'GET' && url.pathname === '/task') {
-      answer(response, 200, tasks.shift() ?? { kind: 'idle' })
+      const task = tasks.shift()
+      answer(response, 200, task ?? { kind: 'idle' })
+      if (task !== undefined) settle(pickupWaiters, String(task.kind))
       return
     }
     if (request.method === 'GET' && url.pathname === '/download') {
@@ -136,6 +164,12 @@ export async function startHarness(port: number, outputDirectory: string, fixtur
         JSON.stringify(report, null, 2),
       )
       settle(reportWaiters, report)
+      if (!report.payload.passed) {
+        const error = new Error(`The ${report.kind} task failed: ${JSON.stringify(report.payload.error)}`)
+        failures.push({ at: Date.now(), error })
+        abandon(eventWaiters, error)
+        abandon(ackWaiters, error)
+      }
     } else if (url.pathname === '/upload') {
       writeFileSync(join(outputDirectory, safeName(body.name)), Buffer.from(String(body.base64), 'base64'))
     } else {
@@ -152,6 +186,15 @@ export async function startHarness(port: number, outputDirectory: string, fixtur
 
   return {
     queue: task => tasks.push(task),
+    unqueue(kind) {
+      for (let index = tasks.length - 1; index >= 0; index--) {
+        if (tasks[index]?.kind === kind) tasks.splice(index, 1)
+      }
+    },
+    nextPickup: async (kind, timeoutMs) => {
+      await waitFor(pickupWaiters, taken => taken === kind, timeoutMs, `the app to pick up the ${kind} task`)
+    },
+    note,
     acknowledged: () => acks,
     forgetAcks: () => acks.clear(),
     events: () => events,
@@ -160,6 +203,8 @@ export async function startHarness(port: number, outputDirectory: string, fixtur
     nextEvent(event, timeoutMs, since = Number.POSITIVE_INFINITY) {
       const earlier = events.find(value => value.event === event && value.at >= since)
       if (earlier !== undefined) return Promise.resolve(earlier)
+      const failed = failures.find(failure => failure.at >= since)
+      if (failed !== undefined) return Promise.reject(failed.error)
       return waitFor(eventWaiters, value => value.event === event, timeoutMs, event)
     },
     async acksReach(count, timeoutMs) {

@@ -135,6 +135,7 @@ export type { SynonymOperations } from './types/synonym-operations'
 export type { OneWaySynonymRule, SynonymRule, SynonymSearch, TwoWaySynonymRule } from './types/synonyms'
 export type { DocumentWriteOperations } from './types/writes'
 export type {
+  NativeConnectResult,
   NativeCore,
   NativeGraphHandle,
   NativeGraphMemory,

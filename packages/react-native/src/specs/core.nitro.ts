@@ -48,6 +48,11 @@ export interface NativeScores {
   distances: ArrayBuffer
 }
 
+export interface NativeConnectOutcome {
+  status: number
+  wakes: ArrayBuffer
+}
+
 export interface NarsilAttachedGraph extends HybridObject<{ ios: 'c++'; android: 'c++' }> {}
 
 export interface NarsilAttachedStore extends HybridObject<{ ios: 'c++'; android: 'c++' }> {
@@ -123,6 +128,13 @@ export interface NarsilCore extends HybridObject<{ ios: 'c++'; android: 'c++' }>
     threadSlot: number,
     wakes: MemoryView,
   ): number
+  connectUnreachedAsync(
+    graph: NarsilAttachedGraph,
+    store: NarsilAttachedStore,
+    metric: number,
+    nearby: MemoryView,
+    threadSlot: number,
+  ): Promise<NativeConnectOutcome>
   measure(store: NarsilAttachedStore, metric: number, ordinals: MemoryView, count: number, totals: MemoryView): number
   quantise(store: NarsilAttachedStore, metric: number, ordinals: MemoryView, count: number): number
 }

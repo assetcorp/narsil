@@ -1,3 +1,4 @@
+import { EMPTY_POSITIONS, NO_SLICE, PositionPool, PostingPool, sliceCapacity, sliceClassFor } from '#platform/pools'
 import { MAX_TERM_FREQUENCY, POSTING_LIST_COMPACTION_THRESHOLD } from '../constants'
 import {
   CACHED_VIEW_MIN_ENTRIES,
@@ -10,7 +11,6 @@ import {
   TERM_TABLE_START_CAPACITY,
   TERM_VACUUM_MIN_DEAD_TERMS,
 } from './constants'
-import { EMPTY_POSITIONS, NO_SLICE, PositionPool, PostingPool, sliceCapacity, sliceClassFor } from './pools'
 import { TERM_ORDERED, TERM_POSITIONS, TermColumns } from './terms'
 import { LivePostingView } from './view'
 
@@ -207,7 +207,7 @@ export class LivePostings {
     this.terms.deadDocuments[ordinal] = 0
   }
 
-  private filterEntries(ordinal: number, drop: (internalId: number) => boolean): void {
+  protected filterEntries(ordinal: number, drop: (internalId: number) => boolean): void {
     const terms = this.terms
     const pool = this.pool
     const start = terms.sliceStart[ordinal]
@@ -288,7 +288,7 @@ export class LivePostings {
     if (sparsePostings || sparsePositions) this.repack(sparsePositions)
   }
 
-  private repack(rebuildPositions: boolean): void {
+  protected repack(rebuildPositions: boolean): void {
     const terms = this.terms
     const pool = this.pool
     const positions = this.positions

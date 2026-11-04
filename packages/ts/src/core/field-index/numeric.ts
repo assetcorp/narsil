@@ -65,6 +65,7 @@ export interface NumericFieldIndexReader {
 export interface NumericFieldIndex extends NumericFieldIndexReader {
   insert(internalId: number, value: number): void
   remove(internalId: number, value: number): void
+  sortPending(): void
   clear(): void
   deserialize(data: NumericIndexEntry[]): void
 }
@@ -337,6 +338,8 @@ export function createNumericIndex(): NumericFieldIndex {
       }
       return seen.size
     },
+
+    sortPending: ensureSorted,
 
     clear(): void {
       entries = []

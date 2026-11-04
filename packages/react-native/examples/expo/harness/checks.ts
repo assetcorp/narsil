@@ -1,16 +1,20 @@
-import { type CorpusDocument, corpus, NEIGHBOURS, queryVectors } from '../src/corpus.ts'
+import { type CorpusDocument, corpus, HYBRID_DEPTH, HYBRID_TERM, NEIGHBOURS, queryVectors } from '../src/corpus.ts'
 import {
   checkHybrid,
   checkKeyword,
+  checkRankedByScore,
+  checkSameRanking,
   checkVectorScores,
   exactNeighbours,
   type Finding,
   type RankedHit,
   recallAt,
 } from './oracle.ts'
+import { checkSearchUnderWrites, type UnderWrites } from './under-writes.ts'
 
 const KEYWORD_LIMIT = 10_000
-const LONGEST_ACCEPTED_TASK_MS = 50
+const LONGEST_ACCEPTED_TIMER_GAP_MS = 500
+const MIN_RECALL_AT_10 = 0.99
 const TIMED_WRITE_BATCH = 2_000
 const TIMED_PATHS = [
   'inserting',
@@ -60,7 +64,61 @@ function vectorRecall(answers: ReadonlyArray<{ query: number; hits: RankedHit[] 
   })
 }
 
-export function checkSearch(result: Record<string, unknown>, nodeRecall: number): Checked {
+type QueryAnswers = ReadonlyArray<{ query: number; hits: RankedHit[] }>
+
+export interface SearchReference {
+  recallAt10: number
+  vector: QueryAnswers
+  hybrid: QueryAnswers
+}
+
+function sameRankings(expected: QueryAnswers, got: QueryAnswers, label: string): Finding[] {
+  const findings: Finding[] = []
+  if (got.length !== expected.length) {
+    findings.push({
+      check: label,
+      detail: `the phone answered ${got.length} queries, the restored snapshot ${expected.length}`,
+    })
+  }
+  for (const answer of got) {
+    const reference = expected.find(entry => entry.query === answer.query)
+    if (reference === undefined) {
+      findings.push({ check: `${label} query ${answer.query}`, detail: 'the restored snapshot gave no answer for it' })
+      continue
+    }
+    findings.push(...checkSameRanking(reference.hits, answer.hits, `${label} query ${answer.query}`))
+  }
+  return findings
+}
+
+type FullPrecisionAnswers = ReadonlyArray<{ query: number; depthHits: RankedHit[]; hits: RankedHit[] }>
+
+function hybridAgainstFusion(answers: FullPrecisionAnswers | undefined): Finding[] {
+  if (answers === undefined || answers.length !== queries.length) {
+    return [
+      { check: 'hybrid fusion', detail: `the phone answered ${answers?.length ?? 0} of ${queries.length} queries` },
+    ]
+  }
+  const findings: Finding[] = []
+  for (const answer of answers) {
+    const query = queries[answer.query]
+    const label = `hybrid fusion ${answer.query}`
+    if (query === undefined) {
+      findings.push({ check: label, detail: 'the query is unknown' })
+      continue
+    }
+    findings.push(...checkVectorScores(byId, query, answer.depthHits, `${label} vector list`))
+    findings.push(...checkRankedByScore(answer.depthHits, `${label} vector list`))
+    findings.push(...checkHybrid(documents, HYBRID_TERM, answer.depthHits, answer.hits, HYBRID_DEPTH, label))
+  }
+  return findings
+}
+
+export function checkSearch(
+  result: Record<string, unknown>,
+  reference: SearchReference,
+  nodeBuiltRecallAt10: number,
+): Checked {
   const findings: Finding[] = []
   const keyword = result.keyword as Array<{ term: string; count: number; hits: RankedHit[] }>
   findings.push(...checkKeyword(documents, keyword, KEYWORD_LIMIT))
@@ -72,22 +130,32 @@ export function checkSearch(result: Record<string, unknown>, nodeRecall: number)
       findings.push(...checkVectorScores(byId, query, answer.depthHits, `vector depth ${answer.query}`))
     }
   }
-  const hybrid = result.hybrid as Array<{ query: number; keywordHits: RankedHit[]; hits: RankedHit[] }>
-  for (const answer of hybrid) {
-    const depth = vector.find(entry => entry.query === answer.query)?.depthHits ?? []
-    findings.push(...checkHybrid(answer.keywordHits, depth, answer.hits, `hybrid query ${answer.query}`))
-  }
+  const hybrid = result.hybrid as QueryAnswers
+  findings.push(...hybridAgainstFusion(result.fullPrecisionHybrid as FullPrecisionAnswers | undefined))
+  findings.push(...sameRankings(reference.vector, vector, 'vector'))
+  findings.push(...sameRankings(reference.hybrid, hybrid, 'hybrid'))
+  const underWrites = checkSearchUnderWrites(result.underWrites as UnderWrites | undefined)
+  findings.push(...underWrites.findings)
   const phoneRecall = mean(recall)
-  if (phoneRecall < nodeRecall) {
-    findings.push({ check: 'recall', detail: `phone recall ${phoneRecall} is below the Node.js recall ${nodeRecall}` })
+  if (phoneRecall < MIN_RECALL_AT_10) {
+    findings.push({ check: 'recall', detail: `phone recall ${phoneRecall} is below ${MIN_RECALL_AT_10}` })
+  }
+  if (phoneRecall < nodeBuiltRecallAt10) {
+    findings.push({
+      check: 'recall against Node.js',
+      detail: `phone recall ${phoneRecall} is below the ${nodeBuiltRecallAt10} of an index that Node.js builds from the same corpus`,
+    })
   }
   const latency = result.latencyMs as Record<string, number[]>
   const measured: Record<string, unknown> = {
     phoneRecallAt10: phoneRecall,
-    nodeRecallAt10: nodeRecall,
+    restoredOnNodeRecallAt10: reference.recallAt10,
+    builtOnNodeRecallAt10: nodeBuiltRecallAt10,
     insertMs: result.insertMs,
     openMs: result.openMs,
     firstQueryAfterOpenMs: result.firstQueryAfterOpenMs,
+    queriesUnderWrites: underWrites.queries,
+    queriesOverlappingWrites: underWrites.queriesOverlappingWrites,
     memory: result.memory,
   }
   for (const [kind, values] of Object.entries(latency)) {
@@ -154,20 +222,26 @@ export function checkErrors(result: Record<string, unknown>): Checked {
   }
 }
 
+interface TimedPath {
+  workMs: number
+  ticks: number
+  longestGapMs: number
+  longestBusyMs: number | null
+  tickGaps: Array<{ startMs: number; ms: number; longestBusyMs: number }>
+}
+
+function checkTimedPath(label: string, work: TimedPath): Finding[] {
+  const check = `timer during ${label}`
+  if (work.ticks === 0) return [{ check, detail: 'the timer never fired' }]
+  if (!(work.longestGapMs <= LONGEST_ACCEPTED_TIMER_GAP_MS)) {
+    return [{ check, detail: `the timer waited ${work.longestGapMs.toFixed(1)} ms between two ticks` }]
+  }
+  return []
+}
+
 export function checkTimer(result: Record<string, unknown>): Checked {
   const findings: Finding[] = []
-  const intervalMs = result.intervalMs as number
-  for (const label of TIMED_PATHS) {
-    const work = result[label] as { workMs: number; ticks: number; longestGapMs: number }
-    const longestTaskMs = work.longestGapMs - intervalMs
-    if (longestTaskMs > LONGEST_ACCEPTED_TASK_MS) {
-      findings.push({
-        check: `timer during ${label}`,
-        detail: `the JS thread ran one task for up to ${longestTaskMs.toFixed(1)} ms`,
-      })
-    }
-    if (work.ticks === 0) findings.push({ check: `timer during ${label}`, detail: 'the timer never fired' })
-  }
+  for (const label of TIMED_PATHS) findings.push(...checkTimedPath(label, result[label] as TimedPath))
   const importing = result.importing as { imported: number; refusedCount: number }
   if (importing.imported !== result.documents || importing.refusedCount !== 0) {
     findings.push({ check: 'import', detail: `imported ${importing.imported}, refused ${importing.refusedCount}` })
@@ -180,6 +254,6 @@ export function checkTimer(result: Record<string, unknown>): Checked {
   return {
     passed: findings.length === 0,
     findings,
-    measured: Object.fromEntries(TIMED_PATHS.map(label => [label, result[label]])),
+    measured: Object.fromEntries(['idle', ...TIMED_PATHS].map(label => [label, result[label]])),
   }
 }

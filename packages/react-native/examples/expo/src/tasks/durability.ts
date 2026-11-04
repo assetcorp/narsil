@@ -3,6 +3,7 @@ import { type CorpusDocument, corpus, DIMENSION } from '../corpus'
 import { acknowledge, announce } from '../harness'
 
 export const DURABLE_INDEX = 'durable'
+const LONG_LOG_INDEX = 'durable-bulk'
 const DURABLE_SCHEMA = { title: 'string', year: 'number', embedding: `vector[${DIMENSION}]` } as const
 const SOURCE_DOCUMENTS = 2_000
 const LIST_PAGE = 1_000
@@ -27,15 +28,39 @@ function writtenDocument(source: readonly CorpusDocument[], sequence: number): C
   return { id: writtenId(sequence), title: template.title, year: template.year, embedding: template.embedding }
 }
 
-export async function writeUntilEnded(directory: string, firstId: number): Promise<never> {
-  const narsil = await openDurable(directory)
-  const source = corpus(SOURCE_DOCUMENTS)
-  announce('writing', { directory, firstId })
+async function writeOneAtATime(
+  narsil: PhoneNarsil,
+  source: readonly CorpusDocument[],
+  firstId: number,
+): Promise<never> {
   for (let sequence = firstId; ; sequence++) {
     const { id, ...document } = writtenDocument(source, sequence)
     await narsil.insert(DURABLE_INDEX, document, id)
     acknowledge([id])
   }
+}
+
+export async function writeUntilEnded(directory: string, firstId: number): Promise<never> {
+  const narsil = await openDurable(directory)
+  const source = corpus(SOURCE_DOCUMENTS)
+  announce('writing', { directory, firstId })
+  return writeOneAtATime(narsil, source, firstId)
+}
+
+export async function writeLongLogUntilEnded(directory: string, documents: number): Promise<never> {
+  const narsil = await openDurable(directory)
+  await narsil.createIndex(LONG_LOG_INDEX, { schema: DURABLE_SCHEMA, language: 'english' })
+  const source = corpus(SOURCE_DOCUMENTS)
+  const started = performance.now()
+  for (let sequence = 0; sequence < documents; sequence += CHECKPOINT_BATCH) {
+    const count = Math.min(CHECKPOINT_BATCH, documents - sequence)
+    const batch = Array.from({ length: count }, (_, offset) => writtenDocument(source, sequence + offset))
+    const result = await narsil.insertBatch(LONG_LOG_INDEX, batch)
+    if (result.failed.length > 0) throw new Error(`${result.failed.length} documents failed to insert`)
+  }
+  announce('long-log-written', { documents, insertMs: performance.now() - started })
+  announce('writing', { directory, firstId: 0 })
+  return writeOneAtATime(narsil, source, 0)
 }
 
 export async function checkpointUntilEnded(directory: string, firstId: number): Promise<never> {

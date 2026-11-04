@@ -84,5 +84,8 @@
     "react-native-nitro-modules": "0.37.1",
     "react-native-worklets": "0.13.0",
     "typescript": "5.9.3"
+  },
+  "dependencies": {
+    "web-streams-polyfill": "4.3.0"
   }
 }

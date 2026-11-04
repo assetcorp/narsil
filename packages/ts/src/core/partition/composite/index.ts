@@ -39,7 +39,7 @@ import {
   type OrdinalLayout,
 } from './filters'
 import { compositeSearchFulltext, compositeSearchMatches } from './search'
-import { compositeSortedPage, compositeSortValues } from './sorting'
+import { compositeSortedPage, compositeSortValues, prepareCompositeSortColumns } from './sorting'
 import { buildAggregateStatsView, mergeDocFrequencies } from './stats'
 import { compositeSuggestTerms } from './suggest'
 
@@ -309,6 +309,14 @@ export function createCompositePartition(
 
     computeFacets(matched: FacetMatchSet, config: FacetConfig, schema: SchemaDefinition): Record<string, FacetResult> {
       return compositeFacets(subs(), layout, matched, config, schema)
+    },
+
+    prepareSortedPage(request): void {
+      prepareCompositeSortColumns(subs(), request)
+    },
+
+    prepareFacets(config, schema): void {
+      live.prepareFacets(config, schema)
     },
 
     sortedPage(request: SortPageRequest): SortedPageEntry[] {

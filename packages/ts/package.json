@@ -65,6 +65,16 @@
       "browser": "./src/runtime/turn-budget.browser.ts",
       "default": "./src/runtime/turn-budget.ts"
     },
+    "#platform/shared-turns": {
+      "react-native": "./src/runtime/shared-turns.react-native.ts",
+      "browser": "./src/runtime/shared-turns.browser.ts",
+      "default": "./src/runtime/shared-turns.ts"
+    },
+    "#platform/background-turn-sharing": {
+      "react-native": "./src/runtime/background-turn-sharing.ts",
+      "browser": "./src/runtime/background-turn-sharing.browser.ts",
+      "default": "./src/runtime/background-turn-sharing.ts"
+    },
     "#platform/vector-file": {
       "react-native": "./src/vector/vector-store/vector-file.react-native.ts",
       "browser": "./src/vector/vector-store/vector-file.browser.ts",
@@ -118,6 +128,21 @@
       "react-native": "./src/engine/memory/guarded-writes.ts",
       "browser": "./src/engine/memory/guarded-writes.browser.ts",
       "default": "./src/engine/memory/guarded-writes.ts"
+    },
+    "#platform/doc-id-tables": {
+      "react-native": "./src/core/doc-id-tables/sharded.ts",
+      "browser": "./src/core/doc-id-tables/plain.ts",
+      "default": "./src/core/doc-id-tables/plain.ts"
+    },
+    "#platform/pools": {
+      "react-native": "./src/core/inverted-index/growing-pools.ts",
+      "browser": "./src/core/inverted-index/pools.ts",
+      "default": "./src/core/inverted-index/pools.ts"
+    },
+    "#platform/live-postings": {
+      "react-native": "./src/core/inverted-index/growing-postings.ts",
+      "browser": "./src/core/inverted-index/postings.ts",
+      "default": "./src/core/inverted-index/postings.ts"
     }
   },
   "sideEffects": false,

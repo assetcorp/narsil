@@ -1,3 +1,4 @@
+import { LivePostings } from '#platform/live-postings'
 import type {
   FieldNameTable,
   InternalIdResolver,
@@ -9,7 +10,6 @@ import { MAX_TERM_FREQUENCY } from '../constants'
 import { boundedLevenshtein, fuzzyPrefixOf } from '../fuzzy'
 import { compareCodePoints } from '../ordering'
 import { TERM_ENTRY_ESTIMATED_BYTES, TOKEN_STRING_HEADER_BYTES } from './constants'
-import { LivePostings } from './postings'
 
 export interface TermSuggestion {
   term: string

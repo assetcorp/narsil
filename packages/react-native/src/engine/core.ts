@@ -64,8 +64,22 @@ function storeOf(handle: NativeStoreHandle): NarsilAttachedStore {
   return handle as NarsilAttachedStore
 }
 
-function backgroundCalls(core: NarsilCore): Pick<NativeCore, 'searchAsync' | 'scoreAsync'> {
+function backgroundCalls(core: NarsilCore): Pick<NativeCore, 'searchAsync' | 'scoreAsync' | 'connectUnreachedAsync'> {
   return {
+    async connectUnreachedAsync(graph, store, metric, nearby, threadSlot) {
+      try {
+        const outcome = await core.connectUnreachedAsync(
+          graphOf(graph),
+          storeOf(store),
+          metric,
+          viewOf(nearby),
+          threadSlot,
+        )
+        return { status: outcome.status, wakes: new Int32Array(outcome.wakes) }
+      } catch (error) {
+        throw withNativeCode(error)
+      }
+    },
     async searchAsync(graph, store, query, metric, candidateCount, threadSlot, accepted) {
       try {
         const hits = await core.searchAsync(

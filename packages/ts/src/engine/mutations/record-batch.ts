@@ -1,4 +1,4 @@
-import { turnIsSpent, yieldTurn } from '#platform/turn-budget'
+import { turnIsSpent, turnsAreBudgeted, yieldTurn } from '#platform/turn-budget'
 import type { AnyDocument } from '../../types/schema'
 import type { MutationContext } from './context'
 
@@ -27,7 +27,7 @@ export async function recordChunk(
   }
   const failures: (ChunkFailure | null)[] = []
   for (const apply of applies) {
-    if (turnIsSpent()) await yieldTurn()
+    if (turnsAreBudgeted && turnIsSpent()) await yieldTurn()
     try {
       await apply()
       failures.push(null)

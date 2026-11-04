@@ -26,8 +26,19 @@ const EMPTY_DOCUMENT: AnyDocument = {}
 function blockFor(ctx: MutationContext, indexName: string): MemoryWriteBlock | undefined {
   const block = ctx.memoryWriteBlock
   if (block === undefined) return undefined
-  ctx.guardShutdown()
-  ctx.requireIndex(indexName)
+  if (block.grouping !== undefined) {
+    ctx.guardShutdown()
+    ctx.requireIndex(indexName)
+    block.refuseWhileFull(indexName)
+    return block
+  }
+  try {
+    block.refuseWhileFull(indexName)
+  } catch (refusal) {
+    ctx.guardShutdown()
+    ctx.requireIndex(indexName)
+    throw refusal
+  }
   return block
 }
 
@@ -86,7 +97,6 @@ export async function insertDocument(
 ): Promise<string> {
   const block = blockFor(ctx, indexName)
   if (block === undefined) return insertUnguarded(ctx, indexName, document, docId, options)
-  block.refuseWhileFull(indexName)
   return withReservation(block.grouping, indexName, document, () =>
     insertUnguarded(ctx, indexName, document, docId, options),
   )
@@ -100,9 +110,8 @@ export async function insertDocumentBatch(
 ): Promise<BatchResult> {
   const block = blockFor(ctx, indexName)
   if (block === undefined) return insertBatchUnguarded(ctx, indexName, documents, options)
-  block.refuseWhileFull(indexName)
   const grouping = block.grouping
-  if (grouping === undefined || documents.length === 0) {
+  if (grouping === undefined || !Array.isArray(documents) || documents.length === 0) {
     return insertBatchUnguarded(ctx, indexName, documents, options)
   }
   const items = documents.map(document => ({ docId: providedDocId(document) ?? '', document }))
@@ -125,7 +134,6 @@ export async function updateDocument(
 ): Promise<void> {
   const block = blockFor(ctx, indexName)
   if (block === undefined) return updateUnguarded(ctx, indexName, docId, document, options)
-  block.refuseWhileFull(indexName)
   return withReservation(block.grouping, indexName, document, () =>
     updateUnguarded(ctx, indexName, docId, document, options),
   )
@@ -139,9 +147,8 @@ export async function updateDocumentBatch(
 ): Promise<BatchResult> {
   const block = blockFor(ctx, indexName)
   if (block === undefined) return updateBatchUnguarded(ctx, indexName, updates, options)
-  block.refuseWhileFull(indexName)
   const grouping = block.grouping
-  if (grouping === undefined || updates.length === 0) {
+  if (grouping === undefined || !Array.isArray(updates) || updates.length === 0) {
     return updateBatchUnguarded(ctx, indexName, updates, options)
   }
   return writeInGroups(grouping, indexName, updates.map(updateItemOf), group =>

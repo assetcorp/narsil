@@ -6,7 +6,14 @@ import {
   type SortMode,
 } from '../../ordering'
 import type { PartitionReadState } from '../read-state'
-import { type SortedPageEntry, type SortPageRequest, sortedPageOf, sortValuesOf } from '../sorting'
+import {
+  prepareSortColumnsOf,
+  type SortColumnsRequest,
+  type SortedPageEntry,
+  type SortPageRequest,
+  sortedPageOf,
+  sortValuesOf,
+} from '../sorting'
 import { type OrdinalLayout, subMatchesView } from './filters'
 
 function compareEntries(a: SortedPageEntry, b: SortedPageEntry, directions: readonly SortDirection[]): number {
@@ -33,6 +40,10 @@ export function compositeSortedPage(
   merged.sort((a, b) => compareEntries(a, b, request.directions))
   if (merged.length > request.limit) merged.length = request.limit
   return merged
+}
+
+export function prepareCompositeSortColumns(subs: readonly PartitionReadState[], request: SortColumnsRequest): void {
+  for (const sub of subs) prepareSortColumnsOf(sub, request)
 }
 
 export function compositeSortValues(

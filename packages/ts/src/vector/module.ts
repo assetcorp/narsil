@@ -1,3 +1,4 @@
+export { compactVectors, getVectorMaintenanceStatus, optimizeVectors } from '../engine/vector-maintenance'
 export { releaseLocksHeldBy } from './hnsw/locks'
 export { createSharedVectorSearcher } from './shared-field/searcher'
 export { openSharedVectorField } from './shared-field/view'

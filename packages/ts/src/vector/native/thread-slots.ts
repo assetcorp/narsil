@@ -24,7 +24,11 @@ function claimSlot(): Promise<number> {
   return new Promise(resolve => waitingForSlot.push(resolve))
 }
 
-function returnSlot(slot: number): void {
+export function claimNativeThreadSlotNow(): number | null {
+  return freeSlots.pop() ?? null
+}
+
+export function returnSlot(slot: number): void {
   const next = waitingForSlot.shift()
   if (next !== undefined) {
     next(slot)

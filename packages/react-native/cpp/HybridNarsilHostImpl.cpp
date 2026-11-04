@@ -3,6 +3,8 @@
 #include "HostMemory.hpp"
 #include "NativeAtomics.hpp"
 #include "ProcessInfo.hpp"
+#include "ThreadPriority.hpp"
+#include "WorkletRuntimeDispatcher.hpp"
 
 #include <cerrno>
 #include <chrono>
@@ -32,7 +34,25 @@ void HybridNarsilHostImpl::loadHybridMethods() {
   HybridNarsilHostSpec::loadHybridMethods();
   registerHybrids(this, [](Prototype& prototype) {
     prototype.registerRawHybridMethod("collectGarbage", 0, &HybridNarsilHostImpl::collectGarbage);
+    prototype.registerRawHybridMethod("installWorkletDispatcher", 0, &HybridNarsilHostImpl::installWorkletDispatcher);
+    prototype.registerRawHybridMethod("threadPriority", 0, &HybridNarsilHostImpl::threadPriority);
+    prototype.registerRawHybridMethod("adoptAppThreadPriority", 1, &HybridNarsilHostImpl::adoptAppThreadPriority);
   });
+}
+
+jsi::Value HybridNarsilHostImpl::installWorkletDispatcher(jsi::Runtime& runtime, const jsi::Value&, const jsi::Value*,
+                                                          size_t) {
+  return jsi::Value(installWorkletRuntimeDispatcher(runtime));
+}
+
+jsi::Value HybridNarsilHostImpl::threadPriority(jsi::Runtime&, const jsi::Value&, const jsi::Value*, size_t) {
+  return jsi::Value(priorityOfThisThread());
+}
+
+jsi::Value HybridNarsilHostImpl::adoptAppThreadPriority(jsi::Runtime&, const jsi::Value&, const jsi::Value* arguments,
+                                                        size_t count) {
+  if (count < 1 || !arguments[0].isNumber()) return jsi::Value(false);
+  return jsi::Value(margelo::nitro::narsil::adoptAppThreadPriority(arguments[0].getNumber()));
 }
 
 jsi::Value HybridNarsilHostImpl::collectGarbage(jsi::Runtime& runtime, const jsi::Value&, const jsi::Value*,

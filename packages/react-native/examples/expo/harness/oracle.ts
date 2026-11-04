@@ -1,7 +1,7 @@
 import type { CorpusDocument } from '../src/corpus.ts'
 
 const SCORE_TOLERANCE = 1e-5
-const RANK_CONSTANT = 60
+const RRF_K = 60
 
 export interface RankedHit {
   id: string
@@ -49,18 +49,6 @@ export function exactNeighbours(documents: readonly CorpusDocument[], query: rea
     .slice(0, k)
 }
 
-export function fused(keyword: readonly RankedHit[], vector: readonly RankedHit[]): RankedHit[] {
-  const scores = new Map<string, number>()
-  for (const list of [keyword, vector]) {
-    list.forEach((hit, index) => {
-      scores.set(hit.id, (scores.get(hit.id) ?? 0) + 1 / (RANK_CONSTANT + index + 1))
-    })
-  }
-  return [...scores]
-    .map(([id, score]) => ({ id, score }))
-    .sort((left, right) => right.score - left.score || byCodePoints(left.id, right.id))
-}
-
 export function checkKeyword(
   documents: readonly CorpusDocument[],
   answers: ReadonlyArray<{ term: string; count?: number; hits: RankedHit[] }>,
@@ -106,20 +94,59 @@ export function checkVectorScores(
   return findings
 }
 
+export function reciprocalRankOrder(lists: ReadonlyArray<readonly string[]>, k: number = RRF_K): RankedHit[] {
+  const scores = new Map<string, number>()
+  for (const list of lists) {
+    list.forEach((id, index) => {
+      scores.set(id, (scores.get(id) ?? 0) + 1 / (k + index + 1))
+    })
+  }
+  return [...scores]
+    .map(([id, score]) => ({ id, score }))
+    .sort((left, right) => right.score - left.score || byCodePoints(left.id, right.id))
+}
+
+export function checkRankedByScore(hits: readonly RankedHit[], label: string): Finding[] {
+  const findings: Finding[] = []
+  for (let index = 1; index < hits.length; index++) {
+    const before = hits[index - 1]
+    const hit = hits[index]
+    if (before === undefined || hit === undefined) continue
+    const outOfOrder = hit.score > before.score || (hit.score === before.score && byCodePoints(before.id, hit.id) > 0)
+    if (outOfOrder) {
+      findings.push({
+        check: label,
+        detail: `rank ${index}: ${hit.id} at ${hit.score} follows ${before.id} at ${before.score}`,
+      })
+    }
+  }
+  return findings
+}
+
+export function checkHybrid(
+  documents: readonly CorpusDocument[],
+  term: string,
+  vectorDepth: readonly RankedHit[],
+  hits: readonly RankedHit[],
+  depth: number,
+  label: string,
+): Finding[] {
+  const textDepth = keywordOrder(documents, term).slice(0, depth)
+  const fused = reciprocalRankOrder([textDepth, vectorDepth.map(hit => hit.id)]).slice(0, depth)
+  return checkSameRanking(fused, hits, label)
+}
+
 export function recallAt(hits: readonly RankedHit[], exact: ReadonlyArray<{ id: string }>): number {
   const wanted = new Set(exact.map(neighbour => neighbour.id))
   return hits.filter(hit => wanted.has(hit.id)).length / wanted.size
 }
 
-export function checkHybrid(
-  keyword: readonly RankedHit[],
-  vector: readonly RankedHit[],
-  hybrid: readonly RankedHit[],
-  label: string,
-): Finding[] {
-  const expected = fused(keyword, vector).slice(0, hybrid.length)
+export function checkSameRanking(expected: readonly RankedHit[], got: readonly RankedHit[], label: string): Finding[] {
   const findings: Finding[] = []
-  hybrid.forEach((hit, index) => {
+  if (got.length !== expected.length) {
+    findings.push({ check: label, detail: `${got.length} hits, expected ${expected.length}` })
+  }
+  got.forEach((hit, index) => {
     const wanted = expected[index]
     if (wanted === undefined || wanted.id !== hit.id || Math.abs(wanted.score - hit.score) > SCORE_TOLERANCE) {
       findings.push({

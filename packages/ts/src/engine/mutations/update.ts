@@ -1,4 +1,4 @@
-import { turnIsSpent, yieldTurn } from '#platform/turn-budget'
+import { indexChangeOutsideExternalWaits, turnIsSpent, turnsAreBudgeted, yieldTurn } from '#platform/turn-budget'
 import type { RemovedSpellings } from '../../core/partition/frozen/surface-slot'
 import { ErrorCodes, NarsilError } from '../../errors'
 import { requireDocumentWithinSizeLimit, validateRequiredFields } from '../../schema/validator'
@@ -6,7 +6,7 @@ import type { BatchResult } from '../../types/results'
 import type { AnyDocument, WriteOptions } from '../../types/schema'
 import { BATCH_CHUNK_SIZE } from '../constants'
 import { assertDocumentCarriesMappedVectors, embedDocumentFields } from '../embed'
-import { validateDocId } from '../validation'
+import { validateBatchList, validateDocId } from '../validation'
 import {
   deleteNestedValue,
   extractVectorFromDoc,
@@ -163,7 +163,7 @@ async function prepareUpdate(
 function applyOfUpdate(ctx: MutationContext, indexName: string, prepared: PreparedUpdate): () => Promise<void> {
   const manager = ctx.requireManager(indexName)
   const { docId, document, partitionDoc, rollbackDoc, extractedVectors, removedSpellings } = prepared
-  return async (): Promise<void> => {
+  const updateInIndex = async (): Promise<void> => {
     if (ctx.isRebalancing(indexName)) {
       const bufferedState = ctx.bufferedDocState(indexName, docId)
       const exists = bufferedState !== undefined ? bufferedState === 'present' : manager.has(docId)
@@ -199,6 +199,7 @@ function applyOfUpdate(ctx: MutationContext, indexName: string, prepared: Prepar
       throw err
     }
   }
+  return indexChangeOutsideExternalWaits(updateInIndex)
 }
 
 export async function updateDocument(
@@ -255,6 +256,7 @@ export async function updateDocumentBatch(
 ): Promise<BatchResult> {
   ctx.guardShutdown()
   const entry = ctx.requireIndex(indexName)
+  validateBatchList(updates, 'updates')
 
   const succeeded: string[] = []
   const failed: BatchResult['failed'] = []
@@ -266,7 +268,7 @@ export async function updateDocumentBatch(
     const chunkEnd = Math.min(chunkStart + BATCH_CHUNK_SIZE, updates.length)
     const prepared: PreparedUpdate[] = []
     for (let i = chunkStart; i < chunkEnd; i++) {
-      if (turnIsSpent()) await yieldTurn()
+      if (turnsAreBudgeted && turnIsSpent()) await yieldTurn()
       const update: unknown = updates[i]
       const docId = reportedDocIdOf(update)
       try {

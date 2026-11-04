@@ -109,7 +109,7 @@ async function runQuery<T>(request: QueryParams, callerContext: QueryContext): P
   let groups: GroupResult[] | undefined
 
   if (sortSignature !== null && hasTerm && !isVectorOnly && !isHybridMode && sortsWithoutScores(params)) {
-    const page = executeSortedQueryPage<T>(params, context, limit, offset, sortSignature)
+    const page = await executeSortedQueryPage<T>(params, context, limit, offset, sortSignature)
     paginated = page.hits
     nextCursor = page.cursor
     count = page.count

@@ -22,6 +22,25 @@ function collectGarbageOn(host: NarsilHost): boolean {
   return Reflect.apply(collect, host, []) === true
 }
 
+export function installWorkletDispatcherOn(host: NarsilHost): boolean {
+  const install: unknown = Reflect.get(host, 'installWorkletDispatcher')
+  if (typeof install !== 'function') return false
+  return Reflect.apply(install, host, []) === true
+}
+
+export function threadPriorityOf(host: NarsilHost): number | null {
+  const read: unknown = Reflect.get(host, 'threadPriority')
+  if (typeof read !== 'function') return null
+  const priority: unknown = Reflect.apply(read, host, [])
+  return typeof priority === 'number' && Number.isFinite(priority) ? priority : null
+}
+
+export function adoptAppThreadPriorityOn(host: NarsilHost, appThreadPriority: number): boolean {
+  const adopt: unknown = Reflect.get(host, 'adoptAppThreadPriority')
+  if (typeof adopt !== 'function') return false
+  return Reflect.apply(adopt, host, [appThreadPriority]) === true
+}
+
 export function adaptHost({ host, files, core }: NativeObjects, nativeThreads: boolean): ReactNativeHost {
   return {
     reserveMemory(bytes: number): ArrayBuffer {

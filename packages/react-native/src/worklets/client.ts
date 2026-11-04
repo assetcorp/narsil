@@ -5,7 +5,18 @@ import { type EngineMethod, FORWARDED_METHODS, STREAMED_METHODS } from '../metho
 import { loadNativeObjects } from '../native-objects'
 import type { CallOutcome } from '../transferred'
 import type { PhoneNarsil } from '../types'
-import { boxNativeObjects, sendCall, sendListen, sendOpen, startEngineRuntime } from './runtime'
+import { jsonOfPart } from './json-part'
+import {
+  boxNativeObjects,
+  sendCall,
+  sendCallPart,
+  sendCallPartText,
+  sendDropCallParts,
+  sendListen,
+  sendOpen,
+  startEngineRuntime,
+} from './runtime'
+import { enqueueCall } from './transfer-queue'
 import type { EngineSetup, WorkletNarsilConfig } from './types'
 
 type EventName = keyof NarsilEventMap
@@ -61,7 +72,23 @@ function phoneNarsil(runtime: WorkletRuntime, instanceId: number): PhoneNarsil {
   handlersByInstance.set(instanceId, handlers)
 
   function call(method: EngineMethod, args: unknown[]): Promise<unknown> {
-    return request(callId => sendCall(runtime, callId, settleCall, instanceId, method, args))
+    return new Promise((resolve, reject) => {
+      const callId = nextCallId++
+      pendingCalls.set(callId, { resolve, reject })
+      enqueueCall(args, {
+        sendPart: (argIndex, items) => {
+          const text = jsonOfPart(items)
+          if (text === null) sendCallPart(runtime, callId, argIndex, items)
+          else sendCallPartText(runtime, callId, argIndex, text)
+        },
+        sendCall: (values, partedArgs) => sendCall(runtime, callId, settleCall, instanceId, method, values, partedArgs),
+        dropParts: () => sendDropCallParts(runtime, callId),
+        fail: error => {
+          pendingCalls.delete(callId)
+          reject(error)
+        },
+      })
+    })
   }
 
   const client: Record<string, unknown> = {}
@@ -105,7 +132,16 @@ function phoneNarsil(runtime: WorkletRuntime, instanceId: number): PhoneNarsil {
  * client whose methods send each request to that runtime, so the engine's
  * JavaScript work leaves the app's JS thread free. Every engine that this
  * function starts shares one runtime, and each engine keeps its own indexes.
- * The app needs `react-native-worklets` with Bundle Mode turned on.
+ * The app needs `react-native-worklets` with Bundle Mode turned on. The
+ * client copies each batch that an insert sends across to the engine's
+ * runtime before the engine indexes it, as JSON text when the batch holds
+ * plain data. On a physical iPhone and a physical Android phone, inserts took
+ * 6% to 57% longer than on the app's own JS runtime, depending on the number
+ * of documents and on durability, and an import from a file, which sends only
+ * the file's path across, took up to 11% longer. In return, the longest pause
+ * that a 10 ms timer on the app's JS thread saw during an insert of 50,000
+ * documents fell from 111 ms to 30 ms on the Android phone and from 144 ms to
+ * 74 ms on the iPhone.
  *
  * @param config - The engine settings that cross to the engine's runtime as
  * data. `durability` defaults to a write-ahead log in the `narsil` directory

@@ -56,6 +56,7 @@ export interface HNSWGraphState extends HNSWSearchState {
   readonly efCons: number
   readonly buildMetric: VectorMetric
   readonly mL: number
+  linkWrites: number
 }
 
 export function entryPointOf(state: HNSWSearchState): number {

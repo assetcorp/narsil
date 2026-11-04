@@ -1,10 +1,10 @@
-import { turnIsSpent, yieldTurn } from '#platform/turn-budget'
+import { indexChangeOutsideExternalWaits, turnIsSpent, turnsAreBudgeted, yieldTurn } from '#platform/turn-budget'
 import type { RemovedSpellings } from '../../core/partition/frozen/surface-slot'
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { BatchResult } from '../../types/results'
 import type { AnyDocument, WriteOptions } from '../../types/schema'
 import { BATCH_CHUNK_SIZE } from '../constants'
-import { validateDocId } from '../validation'
+import { validateBatchList, validateDocId } from '../validation'
 import { removeDocumentVectors } from '../vector-coordinator'
 import type { MutationContext } from './context'
 import { rollbackRemovedDocument } from './durable-rollback'
@@ -46,7 +46,7 @@ async function prepareRemoval(ctx: MutationContext, indexName: string, docId: st
 
 function applyOfRemoval(ctx: MutationContext, indexName: string, prepared: PreparedRemoval): () => Promise<void> {
   const { docId, removedSpellings } = prepared
-  return async (): Promise<void> => {
+  const removeFromIndex = async (): Promise<void> => {
     if (ctx.isRebalancing(indexName)) {
       const bufferedState = ctx.bufferedDocState(indexName, docId)
       const exists =
@@ -62,6 +62,7 @@ function applyOfRemoval(ctx: MutationContext, indexName: string, prepared: Prepa
     await ctx.executor.execute({ type: 'remove', indexName, docId, requestId: docId, removedSpellings })
     removeDocumentVectors(docId, ctx.requireManager(indexName).getVectorIndexes())
   }
+  return indexChangeOutsideExternalWaits(removeFromIndex)
 }
 
 async function settleRemoval(ctx: MutationContext, indexName: string, prepared: PreparedRemoval): Promise<void> {
@@ -115,6 +116,7 @@ export async function removeDocumentBatch(
 ): Promise<BatchResult> {
   ctx.guardShutdown()
   ctx.requireIndex(indexName)
+  validateBatchList(docIds, 'document IDs')
 
   const succeeded: string[] = []
   const failed: BatchResult['failed'] = []
@@ -126,7 +128,7 @@ export async function removeDocumentBatch(
       const chunkEnd = Math.min(chunkStart + BATCH_CHUNK_SIZE, docIds.length)
       const prepared: PreparedRemoval[] = []
       for (let i = chunkStart; i < chunkEnd; i++) {
-        if (turnIsSpent()) await yieldTurn()
+        if (turnsAreBudgeted && turnIsSpent()) await yieldTurn()
         try {
           prepared.push(await prepareRemoval(ctx, indexName, docIds[i]))
         } catch (err) {

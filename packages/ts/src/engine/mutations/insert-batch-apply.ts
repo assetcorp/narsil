@@ -1,3 +1,4 @@
+import { indexChangeOutsideExternalWaits } from '#platform/turn-budget'
 import type { InsertOptions } from '../../types/schema'
 import { insertDocumentVectors } from '../vector-coordinator'
 import type { MutationContext } from './context'
@@ -26,7 +27,7 @@ function applyOf(
   progress: InsertProgress,
 ): () => Promise<void> {
   const manager = ctx.requireManager(indexName)
-  return async (): Promise<void> => {
+  const insertIntoIndex = async (): Promise<void> => {
     if (ctx.abortController.signal.aborted) {
       progress.skipped = true
       throw ctx.abortController.signal.reason
@@ -65,6 +66,7 @@ function applyOf(
       throw vecErr
     }
   }
+  return indexChangeOutsideExternalWaits(insertIntoIndex)
 }
 
 export async function applyInsertChunk(

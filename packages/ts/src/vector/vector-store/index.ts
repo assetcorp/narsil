@@ -1,3 +1,4 @@
+import { createDocIdMap } from '#platform/doc-id-tables'
 import { VECTOR_MEMORY_LIMITS } from '#platform/vector-memory-limits'
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { OrdinalFilter } from '../ordinal-filter'
@@ -58,7 +59,7 @@ const NO_PARTITION = -2
 export function createVectorStore(options?: VectorStoreOptions): VectorStore {
   const codeBits: OsqBits | null = options?.codeBits ?? null
   const blockBytes = Math.min(options?.blockBytes ?? VECTOR_MEMORY_LIMITS.blockBytes, VECTOR_MEMORY_LIMITS.blockBytes)
-  const docToOrd = new Map<string, number>()
+  const docToOrd = createDocIdMap<number>()
   const ordToDoc: Array<string | undefined> = []
   const replacedOrdinals = new Set<number>()
   const pins = createRetiredVectorPins()

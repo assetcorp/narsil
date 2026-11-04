@@ -1,3 +1,4 @@
+import { turnIsSpent, yieldTurn } from '#platform/turn-budget'
 import { createBoundedMaxHeap } from '../../core/heap'
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { VectorMetric } from '../brute-force'
@@ -7,10 +8,11 @@ import { nativeMetricCode, nativeStoreFor } from '../native/store'
 import { type ThreadedNativeCore, threadedNativeCore, withNativeThreadSlot } from '../native/thread-slots'
 import { NATIVE_OK } from '../native/types'
 import type { OrdinalFilter } from '../ordinal-filter'
-import { STORE_ORDINAL_LAYOUT_GENERATION } from '../vector-store/handles'
 import { scheduleBuild } from './build'
 import { highScoreFirst, mergeResults } from './merge-results'
-import { bufferCandidates, fetchedOutcome, filteredDocIds, searchWithFilter } from './search'
+import { bufferCandidates, fetchedOutcome, filteredDocIds } from './search'
+import { layoutGeneration, searchFiltered } from './search-in-turns'
+import { watchingSearch } from './search-writes'
 import {
   allLiveDocIds,
   filterForOptions,
@@ -40,10 +42,6 @@ function currentFilter(search: OffThreadSearch): OrdinalFilter | undefined {
   const { state, options, filter, confinedAtRevision } = search
   if (confinedAtRevision === null || state.revision === confinedAtRevision) return filter
   return filterForOptions(state, options)
-}
-
-function layoutGeneration(state: VectorIndexState): number {
-  return Atomics.load(state.store.handles.header, STORE_ORDINAL_LAYOUT_GENERATION)
 }
 
 async function scoredChunk(
@@ -76,6 +74,7 @@ async function scanOffThread(search: OffThreadSearch, candidates: Iterable<strin
   while (!exhausted) {
     docIds.length = 0
     while (docIds.length < NATIVE_THREAD_SCAN_CHUNK_ORDINALS) {
+      if (turnIsSpent()) await yieldTurn()
       const next = remaining.next()
       if (next.done === true) {
         exhausted = true
@@ -149,9 +148,12 @@ async function searchOnNativeThreads(search: OffThreadSearch): Promise<VectorSea
   if (state.buffer.size > 0 && !state.building && !state.buildScheduled) scheduleBuild(state)
 
   const generation = layoutGeneration(state)
-  const outcome = await outcomeOffThread(search)
-  if (outcome !== null && layoutGeneration(state) === generation) return outcome
-  return searchWithFilter(state, query, k, options, filterForOptions(state, options))
+  const settled = await watchingSearch(state, async watch => {
+    const outcome = await outcomeOffThread(search)
+    if (outcome === null || watch.written.size > 0 || layoutGeneration(state) !== generation) return null
+    return outcome
+  })
+  return settled ?? searchFiltered(state, query, k, options, filterForOptions(state, options))
 }
 
 export function searchOffThread(

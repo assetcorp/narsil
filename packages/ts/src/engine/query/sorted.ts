@@ -1,3 +1,4 @@
+import { turnIsSpent, yieldTurn } from '#platform/turn-budget'
 import { type ComparableSortValue, compareCodePoints, compareComparableKeys } from '../../core/ordering'
 import type { SortedPageEntry } from '../../core/partition'
 import { flattenSchema } from '../../schema/validator'
@@ -41,13 +42,13 @@ export interface SortedQueryPage<T = AnyDocument> {
  * walk plus a page-sized selection, in place of scoring and sorting every
  * match.
  */
-export function executeSortedQueryPage<T = AnyDocument>(
+export async function executeSortedQueryPage<T = AnyDocument>(
   params: QueryParams,
   context: SearchContext,
   limit: number,
   offset: number,
   sortSignature: string,
-): SortedQueryPage<T> {
+): Promise<SortedQueryPage<T>> {
   const { manager, language, config } = context
   const schema = config.schema
 
@@ -79,6 +80,13 @@ export function executeSortedQueryPage<T = AnyDocument>(
 
   const clock = context.patternWork.clock
   for (const partition of partitions) {
+    if (turnIsSpent()) await yieldTurn()
+    partition.prepareSortedPage({ fields, directions, fieldTypes, modes })
+    if (partitionFacetConfig !== undefined) {
+      if (turnIsSpent()) await yieldTurn()
+      partition.prepareFacets(partitionFacetConfig, schema)
+    }
+    if (turnIsSpent()) await yieldTurn()
     clock?.check()
     const matches = fulltextMatches(partition, params, language, schema, options)
     clock?.check()

@@ -8,6 +8,10 @@ const TEMPLATE_NAME = 'HelloWorld'
 const ANDROID_ARCHITECTURES = 'arm64-v8a,x86_64'
 const BINARY_EXTENSIONS = new Set(['.jar', '.keystore', '.png', '.jpg', '.jpeg', '.webp', '.ttf', '.otf'])
 const DOTFILE_PREFIX = '_'
+const TEMPLATE_BUNDLE_IDENTIFIER = '"org.reactjs.native.example.$(PRODUCT_NAME:rfc1034identifier)"'
+const BUNDLE_IDENTIFIER = 'com.sondelali.narsil.bare'
+const HARNESS_URL_LAUNCH_ARGUMENT = 'NarsilHarnessURL'
+const LOCAL_NETWORK_PURPOSE = 'Narsil Bare sends its search results to the computer that runs the checks.'
 
 const exampleRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const require = createRequire(join(exampleRoot, 'package.json'))
@@ -44,10 +48,44 @@ function keepSixtyFourBitAndroid(androidRoot) {
   writeFileSync(path, updated)
 }
 
+function replaceOrFail(path, search, replacement) {
+  const text = readFileSync(path, 'utf8')
+  if (!text.includes(search)) throw new Error(`${path} no longer holds ${search}`)
+  writeFileSync(path, text.replaceAll(search, replacement))
+}
+
+function prepareIosForHarness(iosRoot) {
+  replaceOrFail(
+    join(iosRoot, `${APP_NAME}.xcodeproj`, 'project.pbxproj'),
+    TEMPLATE_BUNDLE_IDENTIFIER,
+    BUNDLE_IDENTIFIER,
+  )
+  replaceOrFail(
+    join(iosRoot, APP_NAME, 'Info.plist'),
+    '<key>NSLocationWhenInUseUsageDescription</key>',
+    `<key>NSLocalNetworkUsageDescription</key>\n\t<string>${LOCAL_NETWORK_PURPOSE}</string>\n\t<key>NSLocationWhenInUseUsageDescription</key>`,
+  )
+  replaceOrFail(
+    join(iosRoot, APP_NAME, 'AppDelegate.swift'),
+    ') -> Bool {\n    true\n  }',
+    `) -> Bool {\n    if UserDefaults.standard.string(forKey: "${HARNESS_URL_LAUNCH_ARGUMENT}") != nil {\n      UIApplication.shared.isIdleTimerDisabled = true\n    }\n    return true\n  }`,
+  )
+}
+
+function reachHarnessFromAndroid(androidRoot) {
+  replaceOrFail(
+    join(androidRoot, 'app', 'src', 'main', 'AndroidManifest.xml'),
+    'android:usesCleartextTraffic="${usesCleartextTraffic}"',
+    'android:usesCleartextTraffic="true"',
+  )
+}
+
 for (const platform of ['ios', 'android']) {
   const target = join(exampleRoot, platform)
   rmSync(target, { recursive: true, force: true })
   copyRenamed(join(templateRoot, platform), target)
 }
 keepSixtyFourBitAndroid(join(exampleRoot, 'android'))
+prepareIosForHarness(join(exampleRoot, 'ios'))
+reachHarnessFromAndroid(join(exampleRoot, 'android'))
 console.log(`Wrote ios/ and android/ for ${APP_NAME} from ${templateRoot}`)
