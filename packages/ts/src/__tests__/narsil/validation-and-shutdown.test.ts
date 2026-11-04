@@ -55,6 +55,30 @@ describe('Narsil index validation, shutdown, and batch operations', () => {
       expect(result.failed.length).toBe(2)
       expect(result.failed.map(entry => entry.docId).sort()).toEqual(['', 'missing-price'])
     })
+
+    it('refuses a batch that is not an array, stores nothing, and keeps answering', async () => {
+      await narsil.createIndex('products', indexConfig)
+      await narsil.insert('products', { title: 'Kept Item', category: 'test', price: 1 }, 'kept')
+      const notLists: unknown[] = ['Trackball mouse', 42, null, undefined, { length: 2, 0: { title: 'x' } }]
+
+      for (const given of notLists) {
+        await expect(narsil.insertBatch('products', given as [])).rejects.toMatchObject({
+          code: 'DOC_VALIDATION_FAILED',
+        })
+        await expect(narsil.updateBatch('products', given as [])).rejects.toMatchObject({
+          code: 'DOC_VALIDATION_FAILED',
+        })
+        await expect(narsil.removeBatch('products', given as [])).rejects.toMatchObject({
+          code: 'DOC_VALIDATION_FAILED',
+        })
+      }
+
+      expect(await narsil.countDocuments('products')).toBe(1)
+      expect(await narsil.get('products', 'kept')).toMatchObject({ title: 'Kept Item' })
+      const later = await narsil.insertBatch('products', [{ title: 'Later Item', category: 'test', price: 2 }])
+      expect(later.succeeded.length).toBe(1)
+      expect(await narsil.countDocuments('products')).toBe(2)
+    })
   })
 
   describe('index name validation', () => {

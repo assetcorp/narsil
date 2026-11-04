@@ -3,10 +3,11 @@ import { nativeFieldFor } from '../native/field'
 import { nativeConnect } from '../native/writes'
 import { adjacencySlots, countEveryLink, layerBase, noteLinked, noteUnlinked } from './adjacency'
 import { ABSENT, reachNode } from './adjacency/views'
+import { drain, newPace, type Pace, type Steps, stepTaken } from './connect-steps'
 import { GRAPH_INCOMING_UNCOUNTED, GRAPH_UNLINKED_NODES } from './handles'
 import { isLive } from './last-links'
 import { lockGraphExclusive, unlockGraphExclusive } from './locks'
-import { linkFromNearest } from './nearest-links'
+import { linkFromNearest, linkFromNearestSteps } from './nearest-links'
 import { entryPointOf, type HNSWGraphState, nodeDistanceFunction, nodeExists } from './shared'
 
 interface Walk {
@@ -20,6 +21,7 @@ interface Walk {
 type HostTest = (state: HNSWGraphState, walk: Walk, host: number) => boolean
 
 const NOT_REACHED_THROUGH_A_NODE = -1
+const NO_NEARBY_NODES = new Int32Array(0)
 
 function reach(walk: Walk, node: number, through: number): void {
   walk.reached[node] = 1
@@ -27,11 +29,12 @@ function reach(walk: Walk, node: number, through: number): void {
   walk.queue[walk.tail++] = node
 }
 
-function walkFrom(state: HNSWGraphState, walk: Walk, start: number, through: number): void {
+function* walkFrom(state: HNSWGraphState, walk: Walk, start: number, through: number, pace: Pace): Steps {
   const adjacency = state.adjacency
   if (walk.reached[start] === 1) return
   reach(walk, start, through)
   while (walk.head < walk.tail) {
+    if (stepTaken(pace)) yield
     const ord = walk.queue[walk.head++]
     const base = layerBase(adjacency, ord, 0)
     if (base === ABSENT) continue
@@ -71,13 +74,14 @@ function listOf(state: HNSWGraphState, ord: number): Int32Array {
   return adjacency.level0.slice(base + 1, base + 1 + adjacency.level0[base])
 }
 
-function nearestHost(
+function* nearestHost(
   state: HNSWGraphState,
   walk: Walk,
   orphan: number,
   nearby: { list: number[]; holds: Uint8Array },
   test: HostTest,
-): number {
+  pace: Pace,
+): Steps<number> {
   const distance = nodeDistanceFunction(state, state.buildMetric)
   let best = -1
   let bestDistance = Number.POSITIVE_INFINITY
@@ -89,11 +93,17 @@ function nearestHost(
       bestDistance = away
     }
   }
-  for (const host of nearby.list) consider(host)
+  for (const host of nearby.list) {
+    if (stepTaken(pace)) yield
+    consider(host)
+  }
   for (const host of listOf(state, orphan))
     if (host >= 0 && host < walk.reached.length && nearby.holds[host] !== 1) consider(host)
   if (best !== -1) return best
-  for (let host = 0; host < walk.reached.length; host++) consider(host)
+  for (let host = 0; host < walk.reached.length; host++) {
+    if (stepTaken(pace)) yield
+    consider(host)
+  }
   return best
 }
 
@@ -131,7 +141,7 @@ function appendTo(state: HNSWGraphState, host: number, orphan: number): void {
   noteLinked(adjacency, orphan)
 }
 
-export function connectUnreached(state: HNSWGraphState, nearby: ArrayLike<number>): void {
+function* connectUnreachedSteps(state: HNSWGraphState, nearby: ArrayLike<number>, pace: Pace): Steps {
   const slots = adjacencySlots(state.adjacency)
   const entry = entryPointOf(state)
   if (entry < 0 || entry >= slots || !nodeExists(state, entry)) return
@@ -142,7 +152,7 @@ export function connectUnreached(state: HNSWGraphState, nearby: ArrayLike<number
     head: 0,
     tail: 0,
   }
-  walkFrom(state, walk, entry, NOT_REACHED_THROUGH_A_NODE)
+  yield* walkFrom(state, walk, entry, NOT_REACHED_THROUGH_A_NODE, pace)
   const held = { list: [] as number[], holds: new Uint8Array(slots) }
   for (let i = 0; i < nearby.length; i++) {
     const ord = nearby[i]
@@ -151,16 +161,28 @@ export function connectUnreached(state: HNSWGraphState, nearby: ArrayLike<number
     held.list.push(ord)
   }
   for (let orphan = 0; orphan < slots; orphan++) {
+    if (stepTaken(pace)) yield
     if (walk.reached[orphan] === 1 || !isLive(state, orphan)) continue
-    let host = nearestHost(state, walk, orphan, held, hasRoom)
+    let host = yield* nearestHost(state, walk, orphan, held, hasRoom, pace)
     if (host === -1) {
-      host = nearestHost(state, walk, orphan, held, holdsLinkOutsideTheWalk)
+      host = yield* nearestHost(state, walk, orphan, held, holdsLinkOutsideTheWalk, pace)
       if (host === -1) continue
       takeOutFarthestLinkOutsideTheWalk(state, walk, host)
     }
     appendTo(state, host, orphan)
-    walkFrom(state, walk, orphan, host)
+    yield* walkFrom(state, walk, orphan, host, pace)
   }
+}
+
+export function connectUnreached(state: HNSWGraphState, nearby: ArrayLike<number>): void {
+  drain(connectUnreachedSteps(state, nearby, newPace()))
+}
+
+export function* connectInJsSteps(state: HNSWGraphState): Steps {
+  noteFallback('connect')
+  const pace = newPace()
+  yield* linkFromNearestSteps(state, pace)
+  yield* connectUnreachedSteps(state, NO_NEARBY_NODES, pace)
 }
 
 function holdsUnlinkedNode(state: HNSWGraphState): boolean {
@@ -217,7 +239,11 @@ export function leaveIncomingUncounted(state: HNSWGraphState): void {
   Atomics.store(state.header, GRAPH_INCOMING_UNCOUNTED, 1)
 }
 
-export function countIncomingBeforeWriting(state: HNSWGraphState, holdsGraphLock: boolean): void {
+export function countIncomingBeforeWriting(
+  state: HNSWGraphState,
+  holdsGraphLock: boolean,
+  connectsAfterwards = false,
+): void {
   if (Atomics.load(state.header, GRAPH_INCOMING_UNCOUNTED) === 0) return
   if (!holdsGraphLock) lockGraphExclusive(state.locks)
   try {
@@ -227,8 +253,9 @@ export function countIncomingBeforeWriting(state: HNSWGraphState, holdsGraphLock
     if (slots > 0) reachNode(adjacency, slots - 1)
     adjacency.incoming.fill(0)
     countEveryLink(adjacency, slots)
-    if (holdsUnlinkedNode(state)) connectThroughEitherCore(state, new Int32Array(0))
-    Atomics.store(state.header, GRAPH_UNLINKED_NODES, 0)
+    const unlinked = holdsUnlinkedNode(state)
+    if (unlinked && !connectsAfterwards) connectThroughEitherCore(state, new Int32Array(0))
+    Atomics.store(state.header, GRAPH_UNLINKED_NODES, unlinked && connectsAfterwards ? 1 : 0)
     Atomics.store(state.header, GRAPH_INCOMING_UNCOUNTED, 0)
   } finally {
     if (!holdsGraphLock) unlockGraphExclusive(state.locks)

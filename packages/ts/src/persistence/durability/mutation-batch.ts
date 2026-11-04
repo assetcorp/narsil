@@ -1,4 +1,4 @@
-import { turnIsSpent, yieldTurn } from '#platform/turn-budget'
+import { turnIsSpent, turnsAreBudgeted, yieldTurn } from '#platform/turn-budget'
 import type { ReplicationLogEntry } from '../../distribution/replication/types'
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { IndexState, PartitionState } from './manager-state'
@@ -130,7 +130,7 @@ export async function recordPartitionBatch(
     }
     const applied: number[] = []
     for (let i = 0; i < records.length; i++) {
-      if (turnIsSpent()) await yieldTurn()
+      if (turnsAreBudgeted && turnIsSpent()) await yieldTurn()
       try {
         await records[i].apply()
         applied.push(i)
@@ -145,6 +145,7 @@ export async function recordPartitionBatch(
     const entries: ReplicationLogEntry[] = []
     try {
       for (const i of applied) {
+        if (turnsAreBudgeted && turnIsSpent()) await yieldTurn()
         let numbered: ReplicationLogEntry | null
         try {
           numbered = deps.numberEntry(records[i])

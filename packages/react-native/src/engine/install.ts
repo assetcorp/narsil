@@ -3,6 +3,7 @@ import { adaptHost, type NativeObjects } from './host'
 import { installAtomics } from './stand-ins/atomics'
 import { installCrypto } from './stand-ins/crypto'
 import { installProcess } from './stand-ins/process'
+import { installStreams } from './stand-ins/streams'
 import { installStructuredClone } from './stand-ins/structured-clone'
 
 const REACT_NATIVE_HOST_KEY = Symbol.for('@delali/narsil-react-native/host')
@@ -17,6 +18,7 @@ export function installEngineHost(natives: NativeObjects, nativeThreads: boolean
   const scope = globalThis as Record<symbol, unknown>
   if (scope[REACT_NATIVE_HOST_KEY] !== undefined) return
   installStructuredClone()
+  installStreams()
   installAtomics(natives.host)
   installCrypto(natives.host)
   installProcess(natives.host)

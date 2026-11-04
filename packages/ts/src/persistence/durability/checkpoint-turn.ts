@@ -20,7 +20,10 @@ export interface IndexLoads {
 export function createIndexLoads(vectorIndexesOf: (indexName: string) => Map<string, VectorIndex>): IndexLoads {
   const loads = new Map<string, Promise<void>>()
   const startGraphRepairs = (indexName: string): void => {
-    for (const vectorIndex of vectorIndexesOf(indexName).values()) vectorIndex.startShuffledRebuildWhenDue()
+    for (const vectorIndex of vectorIndexesOf(indexName).values()) {
+      vectorIndex.scheduleBuild()
+      vectorIndex.startShuffledRebuildWhenDue()
+    }
   }
   return {
     track(indexName, load, startsGraphRepairs = true) {

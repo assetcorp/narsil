@@ -1,26 +1,25 @@
-import { UI_THREAD_TURN_BUDGET_MS } from './constants'
+import type { TurnScheduler } from './turn-scheduler'
 
-let turnStartedAt = performance.now()
+export const turnsAreBudgeted = true
 
-export function turnIsSpent(): boolean {
-  return performance.now() - turnStartedAt >= UI_THREAD_TURN_BUDGET_MS
+export let turnIsSpent = (): boolean => false
+
+export let yieldTurn = (): Promise<void> => Promise.resolve()
+
+export let countWrite = <T>(write: () => Promise<T>): Promise<T> => write()
+
+export let changeIndexOutsideExternalWaits = <T>(change: () => Promise<T>): Promise<T> => change()
+
+export function indexChangeOutsideExternalWaits<T>(change: () => Promise<T>): () => Promise<T> {
+  return () => changeIndexOutsideExternalWaits(change)
 }
 
-export function turnStarted(): void {
-  turnStartedAt = performance.now()
-}
+export let waitOutsideCountedWrite = <T>(wait: () => Promise<T>): Promise<T> => wait()
 
-export async function yieldTurn(): Promise<void> {
-  const scheduler = (globalThis as { scheduler?: { yield?: () => Promise<void> } }).scheduler
-  await (scheduler?.yield
-    ? scheduler.yield()
-    : new Promise<void>(resolve => {
-        const { port1, port2 } = new MessageChannel()
-        port1.onmessage = () => {
-          port1.close()
-          resolve()
-        }
-        port2.postMessage(null)
-      }))
-  turnStarted()
+export function adoptSharedTurns(scheduler: TurnScheduler): void {
+  turnIsSpent = scheduler.turnIsSpent
+  yieldTurn = scheduler.yieldTurn
+  countWrite = scheduler.countWrite
+  changeIndexOutsideExternalWaits = scheduler.changeIndexOutsideExternalWaits
+  waitOutsideCountedWrite = scheduler.waitOutsideCountedWrite
 }

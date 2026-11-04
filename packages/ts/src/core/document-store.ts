@@ -1,3 +1,4 @@
+import { createDocIdMap } from '#platform/doc-id-tables'
 import type { InternalIdResolver, StoredDocument } from '../types/internal'
 import type { AnyDocument } from '../types/schema'
 import { compareCodePoints } from './ordering'
@@ -166,26 +167,43 @@ export function documentValueBytes(value: unknown): number {
 }
 
 export function createDocumentStore(): DocumentStore {
-  const docs = new Map<string, StoredDocument>()
-  const forwardMap = new Map<string, number>()
+  const internalIds = createDocIdMap<number>()
+  const storedById: Array<StoredDocument | undefined> = []
   const reverseMap: Array<string | undefined> = []
   const lengthColumns = new Map<string, Uint32Array>()
   let nextInternalId = 0
   let numberingResets = 0
   let sortedIds: string[] | null = null
   let storedContentBytes = 0
+  let storedCount = 0
+  let newestNumberedDocId: string | undefined
+
+  function storedOf(docId: string): StoredDocument | undefined {
+    const internalId = internalIds.get(docId)
+    return internalId === undefined ? undefined : storedById[internalId]
+  }
+
+  function putStored(docId: string, internalId: number, stored: StoredDocument): void {
+    if (storedById[internalId] === undefined) {
+      storedCount++
+      sortedIds = null
+      if (docId !== newestNumberedDocId) {
+        internalIds.delete(docId)
+        internalIds.set(docId, internalId)
+        newestNumberedDocId = docId
+      }
+    }
+    storedById[internalId] = stored
+  }
 
   function replaceStored(docId: string, document: AnyDocument, fieldLengths: Record<string, number>): void {
-    const existing = docs.get(docId)
-    if (existing !== undefined) {
-      storedContentBytes -= documentValueBytes(existing.fields)
-    } else {
-      sortedIds = null
-    }
-    writeFieldLengths(assignInternalId(docId), fieldLengths)
+    const internalId = assignInternalId(docId)
+    const existing = storedById[internalId]
+    if (existing !== undefined) storedContentBytes -= documentValueBytes(existing.fields)
+    writeFieldLengths(internalId, fieldLengths)
     const fields = documentWithOwnBuffers(document) as Record<string, unknown>
     storedContentBytes += documentValueBytes(fields)
-    docs.set(docId, { fields, fieldLengths })
+    putStored(docId, internalId, { fields, fieldLengths })
   }
 
   function writeFieldLengths(internalId: number, fieldLengths: Record<string, number>): void {
@@ -202,20 +220,31 @@ export function createDocumentStore(): DocumentStore {
   }
 
   function assignInternalId(docId: string): number {
-    const existing = forwardMap.get(docId)
+    const existing = internalIds.get(docId)
     if (existing !== undefined) return existing
     const internalId = nextInternalId++
-    forwardMap.set(docId, internalId)
+    internalIds.set(docId, internalId)
+    newestNumberedDocId = docId
     reverseMap[internalId] = docId
     return internalId
   }
 
   function clearMappings(): void {
-    forwardMap.clear()
+    internalIds.clear()
+    storedById.length = 0
     reverseMap.length = 0
     nextInternalId = 0
+    storedCount = 0
+    newestNumberedDocId = undefined
     numberingResets++
     sortedIds = null
+  }
+
+  function* storedEntries(): IterableIterator<[string, StoredDocument]> {
+    for (const [docId, internalId] of internalIds) {
+      const stored = storedById[internalId]
+      if (stored !== undefined) yield [docId, stored]
+    }
   }
 
   const idResolver: InternalIdResolver = {
@@ -223,7 +252,7 @@ export function createDocumentStore(): DocumentStore {
       return reverseMap[internalId]
     },
     toInternal(externalId: string): number | undefined {
-      return forwardMap.get(externalId)
+      return internalIds.get(externalId)
     },
     isLive(internalId: number): boolean {
       return reverseMap[internalId] !== undefined
@@ -240,44 +269,41 @@ export function createDocumentStore(): DocumentStore {
     },
 
     get(docId: string): ReadonlyStoredDocument | undefined {
-      return docs.get(docId)
+      return storedOf(docId)
     },
 
     remove(docId: string): boolean {
-      const existing = docs.get(docId)
-      const removed = docs.delete(docId)
-      if (removed) {
-        if (existing !== undefined) {
-          storedContentBytes -= documentValueBytes(existing.fields)
-        }
-        sortedIds = null
-        const internalId = forwardMap.get(docId)
-        if (internalId !== undefined) {
-          forwardMap.delete(docId)
-          reverseMap[internalId] = undefined
-          for (const column of lengthColumns.values()) {
-            if (internalId < column.length) column[internalId] = 0
-          }
-        }
+      const internalId = internalIds.get(docId)
+      const existing = internalId === undefined ? undefined : storedById[internalId]
+      if (internalId === undefined || existing === undefined) return false
+      storedContentBytes -= documentValueBytes(existing.fields)
+      sortedIds = null
+      storedCount--
+      internalIds.delete(docId)
+      storedById[internalId] = undefined
+      reverseMap[internalId] = undefined
+      for (const column of lengthColumns.values()) {
+        if (internalId < column.length) column[internalId] = 0
       }
-      return removed
+      return true
     },
 
     has(docId: string): boolean {
-      return docs.has(docId)
+      return storedOf(docId) !== undefined
     },
 
     count(): number {
-      return docs.size
+      return storedCount
     },
 
     all(): IterableIterator<[string, ReadonlyStoredDocument]> {
-      return docs.entries() as IterableIterator<[string, ReadonlyStoredDocument]>
+      return storedEntries()
     },
 
     sortedDocIds(): readonly string[] {
       if (sortedIds === null) {
-        const ids = Array.from(docs.keys())
+        const ids: string[] = []
+        for (const [docId] of storedEntries()) ids.push(docId)
         ids.sort(compareCodePoints)
         sortedIds = ids
       }
@@ -289,7 +315,6 @@ export function createDocumentStore(): DocumentStore {
     },
 
     clear(): void {
-      docs.clear()
       lengthColumns.clear()
       clearMappings()
       storedContentBytes = 0
@@ -297,23 +322,23 @@ export function createDocumentStore(): DocumentStore {
 
     serialize(): Record<string, StoredDocument> {
       const result: Record<string, StoredDocument> = {}
-      for (const [docId, stored] of docs) {
+      for (const [docId, stored] of storedEntries()) {
         result[docId] = stored
       }
       return result
     },
 
     deserialize(data: Record<string, StoredDocument>): void {
-      docs.clear()
       lengthColumns.clear()
       clearMappings()
       storedContentBytes = 0
       for (const docId of Object.keys(data)) {
         const stored = data[docId]
-        writeFieldLengths(assignInternalId(docId), stored.fieldLengths)
+        const internalId = assignInternalId(docId)
+        writeFieldLengths(internalId, stored.fieldLengths)
         const fields = documentWithOwnBuffers(stored.fields as AnyDocument) as Record<string, unknown>
         storedContentBytes += documentValueBytes(fields)
-        docs.set(docId, fields === stored.fields ? stored : { fields, fieldLengths: stored.fieldLengths })
+        putStored(docId, internalId, fields === stored.fields ? stored : { fields, fieldLengths: stored.fieldLengths })
       }
     },
 
@@ -326,7 +351,7 @@ export function createDocumentStore(): DocumentStore {
     },
 
     getInternalId(docId: string): number | undefined {
-      return forwardMap.get(docId)
+      return internalIds.get(docId)
     },
 
     getExternalId(internalId: number): string | undefined {
@@ -334,8 +359,8 @@ export function createDocumentStore(): DocumentStore {
     },
 
     *allInternalIds(): IterableIterator<number> {
-      for (const internalId of forwardMap.values()) {
-        yield internalId
+      for (let internalId = 0; internalId < reverseMap.length; internalId++) {
+        if (reverseMap[internalId] !== undefined) yield internalId
       }
     },
 
@@ -357,14 +382,13 @@ export function createDocumentStore(): DocumentStore {
 
     fieldReader(fieldPath: string): (internalId: number) => unknown {
       return internalId => {
-        const docId = reverseMap[internalId]
-        const stored = docId === undefined ? undefined : docs.get(docId)
+        const stored = storedById[internalId]
         return stored === undefined ? undefined : getNestedValue(stored.fields, fieldPath)
       }
     },
 
     projectedDocument(docId: string, projection?: ResolvedProjection): AnyDocument | undefined {
-      const stored = docs.get(docId)
+      const stored = storedOf(docId)
       return stored === undefined ? undefined : cloneProjected(stored.fields, projection)
     },
   }

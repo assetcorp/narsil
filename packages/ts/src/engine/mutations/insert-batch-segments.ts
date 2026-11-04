@@ -1,3 +1,4 @@
+import { indexChangeOutsideExternalWaits } from '#platform/turn-budget'
 import { createFrozenSegment, createSharedFrozenSegment, type FrozenSegment } from '../../core/partition/frozen'
 import type { PartitionManager } from '../../partitioning/manager'
 import type { BatchResult } from '../../types/results'
@@ -85,7 +86,7 @@ function applyOfMergedDocument(
   progress: { applied: boolean },
 ): () => Promise<void> {
   const manager = ctx.requireManager(indexName)
-  return async (): Promise<void> => {
+  const attachToIndex = async (): Promise<void> => {
     attachOnce(manager, attachment)
     progress.applied = true
     try {
@@ -108,6 +109,7 @@ function applyOfMergedDocument(
       throw vecErr
     }
   }
+  return indexChangeOutsideExternalWaits(attachToIndex)
 }
 
 interface SegmentChunk {

@@ -1,3 +1,4 @@
+import { turnsAreBudgeted } from '#platform/shared-turns'
 import type { VectorMetric } from '../brute-force'
 import type { OsqQuantizer } from '../osq'
 import {
@@ -10,6 +11,7 @@ import {
 } from '../osq/quantize'
 import { DRIFT_CHECK_GROWTH_FACTOR, RECALIBRATION_CHUNK_VECTORS } from './constants'
 import { liveOrdinals, type VectorIndexState, yieldBuildTurn } from './shared'
+import { liveOrdinalsInTurns } from './turns'
 
 export interface LiveVectorMean {
   readonly centroid: Float32Array
@@ -40,7 +42,8 @@ export async function measureLiveVectors(
   quantizer: OsqQuantizer,
 ): Promise<LiveVectorMean | null> {
   const sums = createCentroidSums(state.dimension, state.metric)
-  const ordinals = liveOrdinals(state)
+  const ordinals = turnsAreBudgeted ? await liveOrdinalsInTurns(state) : liveOrdinals(state)
+  if (ordinals === null) return null
   for (let start = 0; start < ordinals.length; start += RECALIBRATION_CHUNK_VECTORS) {
     if (start > 0) await yieldBuildTurn(state)
     if (state.disposed || state.osq !== quantizer) return null

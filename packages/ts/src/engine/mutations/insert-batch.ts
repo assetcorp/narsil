@@ -1,8 +1,8 @@
-import { turnIsSpent, yieldTurn } from '#platform/turn-budget'
+import { turnIsSpent, turnsAreBudgeted, yieldTurn } from '#platform/turn-budget'
 import type { BatchResult } from '../../types/results'
 import type { AnyDocument, InsertOptions } from '../../types/schema'
 import { BATCH_CHUNK_SIZE, MIN_DOCUMENTS_FOR_SEGMENTS } from '../constants'
-import { validateDocId } from '../validation'
+import { validateBatchList, validateDocId } from '../validation'
 import { prepareDocumentVectors, validateVectorDimensions } from '../vector-coordinator'
 import type { MutationContext } from './context'
 import {
@@ -27,6 +27,7 @@ export async function insertDocumentBatch(
 ): Promise<BatchResult> {
   ctx.guardShutdown()
   const entry = ctx.requireIndex(indexName)
+  validateBatchList(documents, 'documents')
 
   await ctx.orchestrator.scaleOutBeforeBatch(indexName, documents.length)
 
@@ -104,7 +105,7 @@ export async function insertDocumentBatch(
 
     const prepared: AdmittedInsert[] = []
     for (let i = chunkStart; i < chunkEnd; i++) {
-      if (turnIsSpent()) await yieldTurn()
+      if (turnsAreBudgeted && turnIsSpent()) await yieldTurn()
       if (ctx.abortController.signal.aborted) break
       if (chunkFailedIndexes.has(i)) continue
 
@@ -160,6 +161,7 @@ export async function insertDocumentBatch(
 
   if (!replicatedAsSegments) {
     for (let i = 0; i < replicableIds.length; i++) {
+      if (turnsAreBudgeted && turnIsSpent()) await yieldTurn()
       await ctx.orchestrator.replicateToWorkers({
         type: 'insert',
         indexName,

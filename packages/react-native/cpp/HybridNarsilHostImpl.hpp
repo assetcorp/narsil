@@ -11,6 +11,12 @@ public:
   void loadHybridMethods() override;
   jsi::Value collectGarbage(jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* arguments,
                             size_t count);
+  jsi::Value installWorkletDispatcher(jsi::Runtime& runtime, const jsi::Value& thisValue,
+                                      const jsi::Value* arguments, size_t count);
+  jsi::Value threadPriority(jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* arguments,
+                            size_t count);
+  jsi::Value adoptAppThreadPriority(jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* arguments,
+                                    size_t count);
 
   std::shared_ptr<ArrayBuffer> reserveMemory(double bytes) override;
   std::shared_ptr<ArrayBuffer> allocateMemory(double bytes) override;

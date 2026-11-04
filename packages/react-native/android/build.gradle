@@ -19,6 +19,14 @@ def supportedArchitectures() {
   return reactNativeArchitectures().collect { it.trim() }.findAll { supportedAbis.contains(it) }
 }
 
+def linksWorklets = rootProject.findProject(":react-native-worklets") != null
+
+def nativeBuildArguments(boolean withWorklets) {
+  def arguments = ["-DANDROID_STL=c++_shared", "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON"]
+  if (withWorklets) arguments.add("-DNARSIL_LINKS_WORKLETS=ON")
+  return arguments
+}
+
 def isNewArchitectureEnabled() {
   return rootProject.hasProperty("newArchEnabled") && rootProject.getProperty("newArchEnabled") == "true"
 }
@@ -56,7 +64,7 @@ android {
     externalNativeBuild {
       cmake {
         cppFlags "-frtti -fexceptions -Wall -Wextra -fstack-protector-all"
-        arguments "-DANDROID_STL=c++_shared", "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON"
+        arguments(*nativeBuildArguments(linksWorklets))
         abiFilters(*supportedArchitectures())
 
         buildTypes {
@@ -95,7 +103,8 @@ android {
       "**/libreactnativejni.so",
       "**/libturbomodulejsijni.so",
       "**/libreact_nativemodule_core.so",
-      "**/libjscexecutor.so"
+      "**/libjscexecutor.so",
+      "**/libworklets.so"
     ]
   }
 
@@ -136,4 +145,7 @@ repositories {
 dependencies {
   implementation "com.facebook.react:react-native:+"
   implementation project(":react-native-nitro-modules")
+  if (linksWorklets) {
+    implementation project(":react-native-worklets")
+  }
 }

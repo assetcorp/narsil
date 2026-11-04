@@ -1,3 +1,4 @@
+import { createDocIdMap } from '#platform/doc-id-tables'
 import { resolveIndexAnalysis } from '../../analysis/registry'
 import type { ComparableSortValue } from '../../core/ordering'
 import { createPartitionIndex, type PartitionIndex, type PartitionInsertOptions } from '../../core/partition'
@@ -49,7 +50,7 @@ export function createPartitionManager(
   const trackPositions = config.trackPositions ?? true
   const vecIndexes: Map<string, VectorIndex> = vectorIndexes ?? new Map()
   let partitions: PartitionIndex[] = []
-  const docPartitionMap = new Map<string, number>()
+  const docPartitionMap = createDocIdMap<number>()
   const writeLogs = createWriteLogRecorder()
 
   for (let i = 0; i < count; i++) {

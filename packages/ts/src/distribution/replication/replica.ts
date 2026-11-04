@@ -28,6 +28,7 @@ export function applyIndexEntry(
   manager: PartitionManager,
   vectorFieldPaths: Set<string>,
   vecIndexes: Map<string, VectorIndex>,
+  schedulesGraphBuild = true,
 ): void {
   if (entry.document === null) {
     return
@@ -51,6 +52,7 @@ export function applyIndexEntry(
     throw err
   }
 
+  if (!schedulesGraphBuild) return
   for (const fieldPath of extractedVectors.keys()) {
     const vecIndex = vecIndexes.get(fieldPath)
     if (vecIndex) {

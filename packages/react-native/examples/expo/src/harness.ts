@@ -20,12 +20,14 @@ export type PhoneTask =
   | { kind: 'idle' }
   | { kind: 'search' }
   | { kind: 'writes'; directory: string; firstId: number }
+  | { kind: 'long-log-writes'; directory: string; documents: number }
   | { kind: 'checkpoint'; directory: string; firstId: number }
   | { kind: 'verify'; directory: string }
   | { kind: 'snapshot-out' }
   | { kind: 'snapshot-in' }
   | { kind: 'errors' }
-  | { kind: 'timer' }
+  | { kind: 'timer'; probesAppThread?: boolean }
+  | { kind: 'runtime-costs' }
 
 function harnessUrl(): string {
   const copied = copiedHarnessUrl()

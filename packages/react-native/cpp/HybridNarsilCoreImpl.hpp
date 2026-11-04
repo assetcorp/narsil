@@ -45,6 +45,10 @@ public:
   double connectUnreached(const std::shared_ptr<HybridNarsilAttachedGraphSpec>& graph,
                           const std::shared_ptr<HybridNarsilAttachedStoreSpec>& store, double metric,
                           const MemoryView& nearby, double threadSlot, const MemoryView& wakes) override;
+  std::shared_ptr<Promise<NativeConnectOutcome>> connectUnreachedAsync(
+      const std::shared_ptr<HybridNarsilAttachedGraphSpec>& graph,
+      const std::shared_ptr<HybridNarsilAttachedStoreSpec>& store, double metric, const MemoryView& nearby,
+      double threadSlot) override;
   double measure(const std::shared_ptr<HybridNarsilAttachedStoreSpec>& store, double metric,
                  const MemoryView& ordinals, double count, const MemoryView& totals) override;
   double quantise(const std::shared_ptr<HybridNarsilAttachedStoreSpec>& store, double metric,

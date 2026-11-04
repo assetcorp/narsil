@@ -64,6 +64,12 @@ Run `pod install` in the `ios` folder, then rebuild the app for each platform. T
 
 An app whose own JavaScript keeps the JS thread busy can move the engine's JavaScript to a separate Hermes runtime as well. `createNarsil` from `@delali/narsil-react-native/worklets` starts the engine on a [Worklets](https://docs.swmansion.com/react-native-worklets/) runtime and returns the same client. An app that never imports that entry point bundles none of its code and needs no Worklets install.
 
+The Worklets runtime makes inserts slower, because the client copies each batch across to the engine's runtime before the engine can index it. The client sends a batch of plain data as JSON text, which costs far less than copying the objects themselves. For 20,000 documents, the copy as JSON took 480 ms from start to end on a physical Android phone and 579 ms on a physical iPhone, and about 200 ms of that went on parsing on the engine's runtime, while copying the same documents as objects held the app's JS thread for 2.9 s to 3.3 s.
+
+Within one app, in three runs on each phone, an insert of 10,000 documents into memory took 6% to 13% longer on the Worklets runtime than on the app's JS runtime on the Android phone, and 7% to 12% longer on the iPhone, and on both phones the copy accounts for most of that difference. An import of the same documents from a file sends only the file's path across, and it took 0% to 9% longer on the Android phone and 5% to 11% longer on the iPhone. With a write-ahead log and eight partitions, an insert of 20,000 documents took 0% to 8% longer on the Android phone, and an import took 5% to 18% longer. On the iPhone, those durable figures changed more from one run to the next than between the two runtimes, from 26% faster to 51% slower for an insert, so they show no consistent difference.
+
+A larger check compared an Expo app on the app's JS runtime with a bare app on the Worklets runtime, running each twice in alternating order on the same two phones. An insert of 50,000 documents with a write-ahead log and eight partitions took 22% longer on the Worklets runtime on the Android phone, at 37.7 s against 31.0 s, and 32% longer on the iPhone, at 30.2 s against 22.9 s. An insert of 20,000 documents into memory took 57% longer on the Android phone and 38% longer on the iPhone, and an import took 8% and 9% longer. In return, the longest pause that a 10 ms timer on the app's JS thread saw during the 50,000-document insert fell from 111 ms to 30 ms on the Android phone and from 144 ms to 74 ms on the iPhone.
+
 That runtime loads the package's code through Worklets Bundle Mode, so the app has to install `react-native-worklets`, turn Bundle Mode on in its Babel settings, and wrap its Metro config:
 
 ```bash
@@ -159,6 +165,12 @@ await narsil.restoreFromFile('notes', 'backups/notes.nrsl')
 ## Memory
 
 A phone ends an app that uses too much memory, so the engine refuses an insert or an update that could take the app past its limit, with `MEMORY_WRITE_BLOCKED`. On iOS the limit is the app's memory footprint plus the memory that `os_proc_available_memory()` reports, and on Android it is the available memory that `ActivityManager` reports, less its low-memory threshold. Removes, searches, and reads keep working while writes are blocked, as [The memory write block](observability.md#the-memory-write-block) describes.
+
+## Pauses during large writes
+
+On Hermes, a large insert or import can hold the app's JS thread for about 100 to 200 milliseconds at a time, even though the engine yields every 20 milliseconds. Hermes collects garbage on a background thread, and the JS thread has to wait for that collection to finish whenever a long-lived `Map` or `Set` grows past its capacity. A large write adds many entries to the engine's maps and sets, so it grows them many times.
+
+On a physical Android phone, the longest wait that a 10-millisecond timer saw was 90 milliseconds while the app inserted 50,000 documents, and 130 milliseconds while it imported them. On a physical iPhone, the longest waits were 46 and 90 milliseconds. Searches, updates, and removals kept every wait under 50 milliseconds on both phones, and the timer kept firing through every write.
 
 ## Errors
 

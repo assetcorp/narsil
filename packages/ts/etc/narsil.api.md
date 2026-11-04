@@ -745,6 +745,14 @@ export interface NarsilPlugin {
     onWorkerPromote?(ctx: WorkerContext): void | Promise<void>;
 }
 
+// Warning: (ae-internal-missing-underscore) The name "NativeConnectResult" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface NativeConnectResult {
+    status: number;
+    wakes: Int32Array;
+}
+
 // Warning: (ae-internal-missing-underscore) The name "NativeCore" should be prefixed with an underscore because the declaration is marked as @internal
 //
 // @internal
@@ -754,6 +762,7 @@ export interface NativeCore {
     attachStore(memory: NativeStoreMemory): NativeStoreHandle;
     compact(graph: NativeGraphHandle, store: NativeStoreHandle, metric: number, threadSlot: number, wakes: Int32Array): number;
     connectUnreached(graph: NativeGraphHandle, store: NativeStoreHandle, metric: number, nearby: Int32Array, threadSlot: number, wakes: Int32Array): number;
+    connectUnreachedAsync?(graph: NativeGraphHandle, store: NativeStoreHandle, metric: number, nearby: Int32Array, threadSlot: number): Promise<NativeConnectResult>;
     detachStore(store: NativeStoreHandle): number;
     measure(store: NativeStoreHandle, metric: number, ordinals: Int32Array, count: number, totals: Float64Array): number;
     place(graph: NativeGraphHandle, store: NativeStoreHandle, metric: number, ordinal: number, topLayer: number, graphHeldAlone: number, threadSlot: number, wakes: Int32Array): number;

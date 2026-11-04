@@ -101,11 +101,15 @@ export function nativeFieldFor(state: HNSWSearchState): NativeField | null {
 }
 
 export function wakeSleepingThreads(state: HNSWSearchState, field: NativeField): void {
-  const count = field.wakes[0]
-  if (count === 0) return
-  field.wakes[0] = 0
+  wakeListedThreads(state, field.wakes)
+}
+
+export function wakeListedThreads(state: HNSWSearchState, wakes: Int32Array): void {
+  const count = Math.min(wakes[0] ?? 0, wakes.length - WAKE_COUNT_WORDS)
+  if (count <= 0) return
+  wakes[0] = 0
   for (let i = 1; i <= count; i++) {
-    const ordinal = field.wakes[i]
+    const ordinal = wakes[i]
     if (ordinal === WAKE_ENTRY_LOCK) {
       Atomics.notify(state.header, GRAPH_ENTRY_LOCK)
       continue

@@ -1,3 +1,4 @@
+import { turnsAreBudgeted, yieldBackgroundTurn } from '#platform/shared-turns'
 import { ErrorCodes, isNarsilError } from '../../errors'
 import { createHNSWIndex, type HNSWIndex } from '../hnsw'
 import { shuffleInPlace } from '../hnsw/insertion-order'
@@ -6,24 +7,35 @@ import { calibrateBeforeBuild, recalibrateWhenDrifted } from './calibration'
 import { BUILD_RETRY_FIRST_DELAY_MS, BUILD_RETRY_MAX_DELAY_MS, SHUFFLED_REBUILD_MEMORY_RETRY_MS } from './constants'
 import { releasePendingLocations } from './disk'
 import { admitShuffledRebuild, releaseMemoryCharges, releaseRebuildCharge, stopWaitingForMemory } from './memory-charge'
+import { moveOutOfBuffer } from './search-writes'
 import { adoptGraph, allLiveDocIds, liveSize, type VectorIndexState, yieldBuildTurn } from './shared'
+import { copyInTurns, forEachInTurns, shuffledLiveDocIdsInTurns } from './turns'
 import { dropSharedGraph, invalidateWorkerCopies, noteWrite, scheduleWorkerCopyLoad } from './worker-copies'
 
+function bufferIfTheGraphLacks(state: VectorIndexState, graph: HNSWIndex, docId: string): void {
+  const ordinal = state.store.getOrdinal(docId)
+  if (ordinal !== undefined && graph.holdsNode(ordinal) && !graph.holdsTombstone(ordinal)) moveOutOfBuffer(state, docId)
+  else state.buffer.add(docId)
+}
+
 function bufferWhatTheGraphLacks(state: VectorIndexState, graph: HNSWIndex): void {
-  for (const docId of allLiveDocIds(state)) {
-    const ordinal = state.store.getOrdinal(docId)
-    if (ordinal !== undefined && graph.holdsNode(ordinal) && !graph.holdsTombstone(ordinal)) state.buffer.delete(docId)
-    else state.buffer.add(docId)
-  }
+  for (const docId of allLiveDocIds(state)) bufferIfTheGraphLacks(state, graph, docId)
+}
+
+async function bufferWhatTheGraphLacksInTurns(state: VectorIndexState, graph: HNSWIndex): Promise<void> {
+  const visit = (docId: string): void => bufferIfTheGraphLacks(state, graph, docId)
+  await forEachInTurns(allLiveDocIds(state), visit, () => !state.disposed && state.hnsw === graph)
 }
 
 export async function buildGraphFromStore(state: VectorIndexState): Promise<boolean> {
   const previous = state.hnsw
+  const order = turnsAreBudgeted ? await shuffledLiveDocIdsInTurns(state) : shuffleInPlace([...allLiveDocIds(state)])
+  if (order === null || state.hnsw !== previous) return false
   const graph = createHNSWIndex(state.dimension, state.store, state.hnswConfig, state.osq ?? undefined)
   state.freshGraph = graph
   let completed = false
   try {
-    completed = await insertIntoGraph(state, graph, shuffleInPlace([...allLiveDocIds(state)]), () => true)
+    completed = await insertIntoGraph(state, graph, order, () => true)
   } finally {
     state.freshGraph = null
   }
@@ -34,7 +46,8 @@ export async function buildGraphFromStore(state: VectorIndexState): Promise<bool
   adoptGraph(state, graph)
   state.shuffledBuildCount = graph.size
   noteWrite(state)
-  bufferWhatTheGraphLacks(state, graph)
+  if (turnsAreBudgeted) await bufferWhatTheGraphLacksInTurns(state, graph)
+  else bufferWhatTheGraphLacks(state, graph)
   if (previous !== null) dropSharedGraph(state, previous)
   await releasePendingLocations(state)
   return true
@@ -138,7 +151,7 @@ export function startShuffledRebuild(state: VectorIndexState): void {
     })
 }
 
-async function growGraph(state: VectorIndexState, graph: HNSWIndex, bufferSnapshot: Set<string>): Promise<void> {
+async function growGraph(state: VectorIndexState, graph: HNSWIndex, bufferSnapshot: Iterable<string>): Promise<void> {
   const admit = (docId: string): boolean => {
     if (state.hnsw !== graph) return false
     if (state.tombstones.has(docId) || !state.store.has(docId)) {
@@ -158,7 +171,7 @@ export function triggerBuild(state: VectorIndexState): void {
   if (state.building) return
   state.building = true
 
-  const bufferSnapshot = new Set(state.buffer)
+  const bufferSnapshot = turnsAreBudgeted ? null : new Set(state.buffer)
   const existingGraph = state.hnsw
   let settled = false
   let timedOut = false
@@ -167,7 +180,10 @@ export function triggerBuild(state: VectorIndexState): void {
     try {
       if (state.disposed) return
       if (existingGraph !== null) {
-        await growGraph(state, existingGraph, bufferSnapshot)
+        const snapshot =
+          bufferSnapshot ?? (await copyInTurns(state.buffer, () => !state.disposed && state.hnsw === existingGraph))
+        if (snapshot === null) return
+        await growGraph(state, existingGraph, snapshot)
         return
       }
       await promoteToGraph(state)
@@ -249,7 +265,8 @@ export function scheduleBuild(state: VectorIndexState): void {
   if (!buildDue(state)) return
 
   state.buildScheduled = true
-  void yieldBuildTurn(state).then(() => {
+  const turn = turnsAreBudgeted ? yieldBackgroundTurn() : yieldBuildTurn(state)
+  void turn.then(() => {
     state.buildScheduled = false
     triggerBuild(state)
   })

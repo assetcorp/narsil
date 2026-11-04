@@ -40,3 +40,9 @@ target_link_libraries(
   ${Z_LIB}
   android
 )
+
+if(NARSIL_LINKS_WORKLETS)
+  find_package(react-native-worklets REQUIRED CONFIG)
+  target_link_libraries(${PACKAGE_NAME} react-native-worklets::worklets)
+  target_compile_definitions(${PACKAGE_NAME} PRIVATE NARSIL_LINKS_WORKLETS=1)
+endif()

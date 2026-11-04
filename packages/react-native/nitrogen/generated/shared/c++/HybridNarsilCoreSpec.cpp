@@ -26,6 +26,7 @@ namespace margelo::nitro::narsil {
       prototype.registerHybridMethod("remove", &HybridNarsilCoreSpec::remove);
       prototype.registerHybridMethod("compact", &HybridNarsilCoreSpec::compact);
       prototype.registerHybridMethod("connectUnreached", &HybridNarsilCoreSpec::connectUnreached);
+      prototype.registerHybridMethod("connectUnreachedAsync", &HybridNarsilCoreSpec::connectUnreachedAsync);
       prototype.registerHybridMethod("measure", &HybridNarsilCoreSpec::measure);
       prototype.registerHybridMethod("quantise", &HybridNarsilCoreSpec::quantise);
     });

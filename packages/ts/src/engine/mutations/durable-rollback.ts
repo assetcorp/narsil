@@ -1,3 +1,4 @@
+import { changeIndexOutsideExternalWaits } from '#platform/turn-budget'
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { AnyDocument } from '../../types/schema'
 import { removeDocumentVectors } from '../vector-coordinator'
@@ -26,8 +27,10 @@ export async function rollbackInsertedDocument(
     return
   }
   try {
-    await ctx.executor.execute({ type: 'remove', indexName, docId, requestId: docId })
-    removeDocumentVectors(docId, ctx.requireManager(indexName).getVectorIndexes())
+    await changeIndexOutsideExternalWaits(async () => {
+      await ctx.executor.execute({ type: 'remove', indexName, docId, requestId: docId })
+      removeDocumentVectors(docId, ctx.requireManager(indexName).getVectorIndexes())
+    })
   } catch (rollbackError) {
     rollbackFailed(docId, originalError, rollbackError)
   }
@@ -40,11 +43,15 @@ export async function rollbackRemovedDocument(
   restoreDoc: AnyDocument | undefined,
   originalError: unknown,
 ): Promise<void> {
-  if (restoreDoc === undefined || ctx.requireManager(indexName).has(docId)) {
+  if (restoreDoc === undefined) {
     return
   }
+  const manager = ctx.requireManager(indexName)
   try {
-    await ctx.executor.execute({ type: 'insert', indexName, docId, document: restoreDoc, requestId: docId })
+    await changeIndexOutsideExternalWaits(async () => {
+      if (manager.has(docId)) return
+      await ctx.executor.execute({ type: 'insert', indexName, docId, document: restoreDoc, requestId: docId })
+    })
   } catch (rollbackError) {
     rollbackFailed(docId, originalError, rollbackError)
   }
@@ -61,7 +68,9 @@ export async function rollbackUpdatedDocument(
     return
   }
   try {
-    await ctx.executor.execute({ type: 'update', indexName, docId, document: restoreDoc, requestId: docId })
+    await changeIndexOutsideExternalWaits(async () => {
+      await ctx.executor.execute({ type: 'update', indexName, docId, document: restoreDoc, requestId: docId })
+    })
   } catch (rollbackError) {
     rollbackFailed(docId, originalError, rollbackError)
   }

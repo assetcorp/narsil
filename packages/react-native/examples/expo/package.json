@@ -14,6 +14,7 @@
     "@delali/narsil-react-native": "workspace:*",
     "expo": "58.0.21",
     "expo-file-system": "58.0.13",
+    "expo-keep-awake": "58.0.3",
     "react": "19.3.0",
     "react-native": "0.88.1",
     "react-native-nitro-modules": "0.37.1"

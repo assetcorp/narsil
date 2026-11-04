@@ -104,9 +104,22 @@ export interface NativeScoreResult {
   distances: Float64Array
 }
 
+/**
+ * The outcome of a connecting pass that ran on a native thread.
+ *
+ * @internal
+ */
+export interface NativeConnectResult {
+  /** A status code from the core's header. */
+  status: number
+  /** The count of waiting writers to wake in its first word, followed by their ordinals. */
+  wakes: Int32Array
+}
+
 export const NATIVE_CORE_ABI_VERSION = 6
 export const NATIVE_OK = 0
 export const NATIVE_NEEDS_ROOM = 3
+export const NATIVE_GRAPH_NOT_HELD_ALONE = 4
 
 /**
  * The operations of the native search core, which each return a status code from the core's header, or, for a
@@ -295,6 +308,26 @@ export interface NativeCore {
     threadSlot: number,
     wakes: Int32Array,
   ): number
+  /**
+   * Links the nodes that no other node points at to nearby nodes on a native thread, so the calling thread stays free
+   * while the core walks the graph. The call takes the graph lock alone before it returns, and the native thread
+   * releases it once the pass ends. Where another thread holds the lock, the call runs no pass and settles with the
+   * status that reports the graph as held elsewhere. A core without its own threads leaves this out.
+   *
+   * @param graph - The graph to change.
+   * @param store - The store that holds the graph's vectors.
+   * @param metric - The distance metric, where 0 is cosine, 1 is dot product, and 2 is Euclidean.
+   * @param nearby - The nodes that the core may link the unreached nodes to, which the core copies before the promise settles.
+   * @param threadSlot - A slot that no other thread uses until the promise settles.
+   * @returns The status, and the waiting writers to wake.
+   */
+  connectUnreachedAsync?(
+    graph: NativeGraphHandle,
+    store: NativeStoreHandle,
+    metric: number,
+    nearby: Int32Array,
+    threadSlot: number,
+  ): Promise<NativeConnectResult>
   /**
    * Adds the given vectors to running totals, which the engine uses to calibrate quantisation.
    *

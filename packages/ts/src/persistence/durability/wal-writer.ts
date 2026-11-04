@@ -1,3 +1,4 @@
+import { turnIsSpent, turnsAreBudgeted, yieldTurn } from '#platform/turn-budget'
 import { compareCodePoints } from '../../core/ordering'
 import type { ReplicationLogEntry } from '../../distribution/replication/types'
 import { ErrorCodes, NarsilError } from '../../errors'
@@ -261,7 +262,11 @@ export function createWalWriter(directory: DurableDirectory, config: WalWriterCo
     if (entries.length === 0) {
       return
     }
-    const frames = entries.map(frameRecord)
+    const frames: Uint8Array[] = []
+    for (const entry of entries) {
+      if (turnsAreBudgeted && turnIsSpent()) await yieldTurn()
+      frames.push(frameRecord(entry))
+    }
     await ensureSegment(entries[0].seqNo)
     let start = 0
     while (start < frames.length) {

@@ -1,5 +1,6 @@
 #include "HybridNarsilCoreImpl.hpp"
 #include "AttachedField.hpp"
+#include "GraphHeldAlone.hpp"
 #include "HostMemory.hpp"
 
 #include <atomic>
@@ -324,6 +325,44 @@ double HybridNarsilCoreImpl::connectUnreached(const std::shared_ptr<HybridNarsil
       narsil_connect_unreached(workspace(), &attachedGraph->graph, &attachedStore->store, &request);
   handOverWakes(attachedGraph->wakes, wakes);
   return statusOf(status);
+}
+
+std::shared_ptr<Promise<NativeConnectOutcome>> HybridNarsilCoreImpl::connectUnreachedAsync(
+    const std::shared_ptr<HybridNarsilAttachedGraphSpec>& graph,
+    const std::shared_ptr<HybridNarsilAttachedStoreSpec>& store, double metric, const MemoryView& nearby,
+    double threadSlot) {
+  auto attachedGraph = attachedGraphOf(graph);
+  auto attachedStore = attachedStoreOf(store);
+  narsil_connect_request request{};
+  request.metric = unsignedOf(metric, "The metric");
+  request.thread_slot = unsignedOf(threadSlot, "The thread slot");
+  if (request.thread_slot >= attachedGraph->graph.thread_slots) throwInvalid("The thread slot is out of range");
+  size_t nearbyCount = 0;
+  const int32_t* chosen = elementsOf<int32_t>(nearby, 0, "The nearby ordinals", &nearbyCount);
+  auto nearbyOrdinals = std::make_shared<std::vector<int32_t>>(chosen, chosen + nearbyCount);
+  auto held = std::make_shared<GraphHeldAlone>(attachedGraph->graph.header);
+  if (!held->held()) {
+    return Promise<NativeConnectOutcome>::resolved(
+        NativeConnectOutcome(statusOf(NARSIL_GRAPH_NOT_HELD_ALONE), allocatedFor(1, sizeof(int32_t))));
+  }
+  auto use = startBackgroundUse(shared_cast<HybridNarsilCoreImpl>(), attachedStore, request.thread_slot);
+  narsil_graph walked = attachedGraph->graph;
+  return Promise<NativeConnectOutcome>::async([use, held, attachedGraph, attachedStore, request, nearbyOrdinals,
+                                               walked]() mutable {
+    ReleaseWhenDone done(use);
+    auto wakes = std::make_shared<PendingWakes>();
+    walked.wake_context = wakes.get();
+    request.nearby = nearbyOrdinals->empty() ? nullptr : nearbyOrdinals->data();
+    request.nearby_count = clampedCount(nearbyOrdinals->size());
+    narsil_status status = narsil_connect_unreached(use->workspace, &walked, &attachedStore->store, &request);
+    if (status == NARSIL_OK) held->markEveryNodeLinked();
+    held->release();
+    auto list = allocatedFor(1 + static_cast<size_t>(wakes->count), sizeof(int32_t));
+    auto* words = reinterpret_cast<int32_t*>(list->data());
+    words[0] = static_cast<int32_t>(wakes->count);
+    for (uint32_t i = 0; i < wakes->count; i++) words[1 + i] = wakes->ordinals[i];
+    return NativeConnectOutcome(statusOf(status), list);
+  });
 }
 
 double HybridNarsilCoreImpl::measure(const std::shared_ptr<HybridNarsilAttachedStoreSpec>& store, double metric,

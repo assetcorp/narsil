@@ -27,6 +27,8 @@ namespace margelo::nitro::narsil { struct MemoryView; }
 namespace margelo::nitro::narsil { struct NativeSearchHits; }
 // Forward declaration of `NativeScores` to properly resolve imports.
 namespace margelo::nitro::narsil { struct NativeScores; }
+// Forward declaration of `NativeConnectOutcome` to properly resolve imports.
+namespace margelo::nitro::narsil { struct NativeConnectOutcome; }
 
 #include <memory>
 #include "HybridNarsilAttachedGraphSpec.hpp"
@@ -37,6 +39,7 @@ namespace margelo::nitro::narsil { struct NativeScores; }
 #include "NativeSearchHits.hpp"
 #include <NitroModules/Promise.hpp>
 #include "NativeScores.hpp"
+#include "NativeConnectOutcome.hpp"
 
 namespace margelo::nitro::narsil {
 
@@ -81,6 +84,7 @@ namespace margelo::nitro::narsil {
       virtual double remove(const std::shared_ptr<HybridNarsilAttachedGraphSpec>& graph, double ordinal, double threadSlot, const MemoryView& wakes) = 0;
       virtual double compact(const std::shared_ptr<HybridNarsilAttachedGraphSpec>& graph, const std::shared_ptr<HybridNarsilAttachedStoreSpec>& store, double metric, double threadSlot, const MemoryView& wakes) = 0;
       virtual double connectUnreached(const std::shared_ptr<HybridNarsilAttachedGraphSpec>& graph, const std::shared_ptr<HybridNarsilAttachedStoreSpec>& store, double metric, const MemoryView& nearby, double threadSlot, const MemoryView& wakes) = 0;
+      virtual std::shared_ptr<Promise<NativeConnectOutcome>> connectUnreachedAsync(const std::shared_ptr<HybridNarsilAttachedGraphSpec>& graph, const std::shared_ptr<HybridNarsilAttachedStoreSpec>& store, double metric, const MemoryView& nearby, double threadSlot) = 0;
       virtual double measure(const std::shared_ptr<HybridNarsilAttachedStoreSpec>& store, double metric, const MemoryView& ordinals, double count, const MemoryView& totals) = 0;
       virtual double quantise(const std::shared_ptr<HybridNarsilAttachedStoreSpec>& store, double metric, const MemoryView& ordinals, double count) = 0;
 

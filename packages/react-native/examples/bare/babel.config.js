@@ -3,7 +3,11 @@ module.exports = {
   plugins: [
     [
       'react-native-worklets/plugin',
-      { bundleMode: true, strictGlobal: true, importForwarding: { relativePaths: ['packages/react-native/src'] } },
+      {
+        bundleMode: true,
+        strictGlobal: true,
+        importForwarding: { relativePaths: ['packages/react-native/src', 'packages/react-native/examples/bare/src'] },
+      },
     ],
   ],
 }

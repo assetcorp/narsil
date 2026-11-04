@@ -7,15 +7,11 @@ import {
   updateDocument,
   updateDocumentBatch,
 } from '#platform/memory-guarded-writes'
+import { countWrite } from '#platform/turn-budget'
 import type { EngineCore, EventHandler } from '../engine/core'
 import { createEngineIndex, registerEngineEmbeddingAdapter } from '../engine/index-lifecycle'
 import { shutdownEngine } from '../engine/lifecycle'
 import { validatePartitionConfig } from '../engine/validation'
-import {
-  compactVectors as executeCompactVectors,
-  optimizeVectors as executeOptimizeVectors,
-  getVectorMaintenanceStatus,
-} from '../engine/vector-maintenance'
 import { emitWriteEventAfter } from '../engine/write-events'
 import { ErrorCodes, NarsilError } from '../errors'
 import { registerEngineRerankAdapter } from '../rerank/registry'
@@ -39,6 +35,7 @@ import type {
 } from '../types/results'
 import type { AnyDocument, IndexConfig, InsertOptions, PartitionConfig, WriteOptions } from '../types/schema'
 import type { ListParams, QueryParams, SuggestParams } from '../types/search'
+import { loadedVectorCode, loadVectorCode } from '../workers/vector-code'
 import { bm25Operations } from './bm25'
 import { bindEngineCore } from './internals'
 import { portabilityOperations } from './portability'
@@ -80,6 +77,10 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
     const written =
       starting === undefined ? withOpenIndex(indexName, action) : starting.then(() => withOpenIndex(indexName, action))
     return emitWriteEventAfter(core, indexName, written)
+  }
+
+  function withCountedWrite<T>(indexName: string, action: () => Promise<T>): Promise<T> {
+    return countWrite(() => withOpenIndexWrite(indexName, action))
   }
 
   const narsil: Narsil = {
@@ -151,26 +152,26 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
       return executor.getManager(indexName)?.getPartitionStats() ?? []
     },
     insert(indexName: string, document: AnyDocument, docId?: string, options?: InsertOptions): Promise<string> {
-      return withOpenIndexWrite(indexName, () => insertDocument(mutationCtx, indexName, document, docId, options))
+      return withCountedWrite(indexName, () => insertDocument(mutationCtx, indexName, document, docId, options))
     },
     insertBatch(indexName: string, documents: AnyDocument[], options?: InsertOptions): Promise<BatchResult> {
-      return withOpenIndexWrite(indexName, () => insertDocumentBatch(mutationCtx, indexName, documents, options))
+      return withCountedWrite(indexName, () => insertDocumentBatch(mutationCtx, indexName, documents, options))
     },
     remove(indexName: string, docId: string, options?: WriteOptions): Promise<void> {
-      return withOpenIndexWrite(indexName, () => removeDocument(mutationCtx, indexName, docId, options))
+      return withCountedWrite(indexName, () => removeDocument(mutationCtx, indexName, docId, options))
     },
     removeBatch(indexName: string, docIds: string[], options?: WriteOptions): Promise<BatchResult> {
-      return withOpenIndexWrite(indexName, () => removeDocumentBatch(mutationCtx, indexName, docIds, options))
+      return withCountedWrite(indexName, () => removeDocumentBatch(mutationCtx, indexName, docIds, options))
     },
     update(indexName: string, docId: string, document: AnyDocument, options?: WriteOptions): Promise<void> {
-      return withOpenIndexWrite(indexName, () => updateDocument(mutationCtx, indexName, docId, document, options))
+      return withCountedWrite(indexName, () => updateDocument(mutationCtx, indexName, docId, document, options))
     },
     updateBatch(
       indexName: string,
       updates: Array<{ docId: string; document: AnyDocument }>,
       options?: WriteOptions,
     ): Promise<BatchResult> {
-      return withOpenIndexWrite(indexName, () => updateDocumentBatch(mutationCtx, indexName, updates, options))
+      return withCountedWrite(indexName, () => updateDocumentBatch(mutationCtx, indexName, updates, options))
     },
     waitForWrites(indexName: string): Promise<void> {
       guardShutdown()
@@ -344,22 +345,25 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
     async compactVectors(indexName: string, fieldName?: string): Promise<void> {
       guardShutdown()
       requireIndex(indexName)
+      const { compactVectors } = await loadVectorCode()
       await withOpenIndexWrite(indexName, async () => {
-        executeCompactVectors(requireManager(indexName), indexName, fieldName)
+        compactVectors(requireManager(indexName), indexName, fieldName)
       })
     },
 
     async optimizeVectors(indexName: string, fieldName?: string): Promise<void> {
       guardShutdown()
       requireIndex(indexName)
-      await withOpenIndexWrite(indexName, () => executeOptimizeVectors(requireManager(indexName), indexName, fieldName))
+      const { optimizeVectors } = await loadVectorCode()
+      await withOpenIndexWrite(indexName, () => optimizeVectors(requireManager(indexName), indexName, fieldName))
     },
 
     vectorMaintenanceStatus(indexName: string): VectorMaintenanceResult[] {
       guardShutdown()
       requireIndex(indexName)
       const manager = executor.getManager(indexName)
-      return manager === undefined ? [] : getVectorMaintenanceStatus(manager)
+      const vectorCode = loadedVectorCode()
+      return manager === undefined || vectorCode === null ? [] : vectorCode.getVectorMaintenanceStatus(manager)
     },
 
     on<K extends keyof NarsilEventMap>(event: K, handler: (payload: NarsilEventMap[K]) => void): void {

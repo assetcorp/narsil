@@ -6,9 +6,20 @@ import { join } from 'node:path'
 import { promisify } from 'node:util'
 
 const run = promisify(execFile)
-const APP_ID = 'com.sondelali.narsil.check'
 const COPIED_HARNESS_URL_PATH = 'Documents/narsil-harness-url.txt'
-const ANDROID_ACTIVITY = `${APP_ID}/.MainActivity`
+const HARNESS_URL_LAUNCH_ARGUMENT = '-NarsilHarnessURL'
+const ANDROID_APP_HARNESS_PORT = 8787
+
+export interface PhoneApp {
+  readonly iosBundle: string
+  readonly androidPackage: string
+}
+
+export const EXPO_APP: PhoneApp = {
+  iosBundle: 'com.sondelali.narsil.check',
+  androidPackage: 'com.sondelali.narsil.check',
+}
+export const BARE_APP: PhoneApp = { iosBundle: 'com.sondelali.narsil.bare', androidPackage: 'com.narsilbare' }
 
 export interface PhoneDriver {
   readonly platform: 'ios' | 'android'
@@ -16,16 +27,16 @@ export interface PhoneDriver {
   kill(): Promise<void>
 }
 
-export function androidDriver(serial: string): PhoneDriver {
+export function androidDriver(serial: string, app: PhoneApp, harnessPort: number): PhoneDriver {
   const adb = (...args: string[]) => run('adb', ['-s', serial, ...args])
   return {
     platform: 'android',
     async launch() {
-      await adb('reverse', 'tcp:8787', 'tcp:8787')
-      await adb('shell', 'am', 'start', '-W', '-n', ANDROID_ACTIVITY)
+      await adb('reverse', `tcp:${ANDROID_APP_HARNESS_PORT}`, `tcp:${harnessPort}`)
+      await adb('shell', 'am', 'start', '-W', '-n', `${app.androidPackage}/.MainActivity`)
     },
     async kill() {
-      await adb('shell', 'am', 'force-stop', APP_ID)
+      await adb('shell', 'am', 'force-stop', app.androidPackage)
     },
   }
 }
@@ -53,7 +64,7 @@ async function macAddressTowards(phoneHost: string): Promise<string> {
   return mac
 }
 
-async function copyHarnessUrl(device: string, directory: string, url: string): Promise<void> {
+async function copyHarnessUrl(device: string, app: PhoneApp, directory: string, url: string): Promise<void> {
   const source = join(directory, 'narsil-harness-url.txt')
   writeFileSync(source, url)
   await run('xcrun', [
@@ -70,15 +81,16 @@ async function copyHarnessUrl(device: string, directory: string, url: string): P
     '--domain-type',
     'appDataContainer',
     '--domain-identifier',
-    APP_ID,
+    app.iosBundle,
   ])
 }
 
-async function launchOnIos(device: string, phoneHost: string, port: number): Promise<number> {
+async function launchOnIos(device: string, app: PhoneApp, phoneHost: string, port: number): Promise<number> {
   const directory = mkdtempSync(join(tmpdir(), 'narsil-launch-'))
   const jsonPath = join(directory, 'launch.json')
   try {
-    await copyHarnessUrl(device, directory, `http://${await macAddressTowards(phoneHost)}:${port}`)
+    const url = `http://${await macAddressTowards(phoneHost)}:${port}`
+    await copyHarnessUrl(device, app, directory, url)
     await run('xcrun', [
       'devicectl',
       'device',
@@ -89,7 +101,10 @@ async function launchOnIos(device: string, phoneHost: string, port: number): Pro
       '--terminate-existing',
       '--json-output',
       jsonPath,
-      APP_ID,
+      app.iosBundle,
+      '--',
+      HARNESS_URL_LAUNCH_ARGUMENT,
+      url,
     ])
     return launchedProcessId(jsonPath)
   } finally {
@@ -97,7 +112,7 @@ async function launchOnIos(device: string, phoneHost: string, port: number): Pro
   }
 }
 
-export function iosDriver(device: string, phoneHost: string, port: number): PhoneDriver {
+export function iosDriver(device: string, app: PhoneApp, phoneHost: string, port: number): PhoneDriver {
   let pid: number | null = null
   return {
     platform: 'ios',
@@ -105,7 +120,7 @@ export function iosDriver(device: string, phoneHost: string, port: number): Phon
       const deadline = Date.now() + LOCKED_PHONE_LAUNCH_WINDOW_MS
       for (;;) {
         try {
-          pid = await launchOnIos(device, phoneHost, port)
+          pid = await launchOnIos(device, app, phoneHost, port)
           return
         } catch (error) {
           if (Date.now() >= deadline) throw error

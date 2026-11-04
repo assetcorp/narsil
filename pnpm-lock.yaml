@@ -131,6 +131,10 @@ importers:
         version: 1.9.0
 
   packages/react-native:
+    dependencies:
+      web-streams-polyfill:
+        specifier: 4.3.0
+        version: 4.3.0
     devDependencies:
       '@biomejs/biome':
         specifier: 2.4.4
@@ -241,6 +245,9 @@ importers:
       expo-file-system:
         specifier: 58.0.13
         version: 58.0.13(expo@58.0.21)(react-native@0.88.1(@babel/core@7.29.0)(@react-native-community/cli@20.2.0(typescript@5.9.3))(@react-native/metro-config@0.88.1(@babel/core@7.29.0))(@types/react@19.3.0)(react@19.3.0))
+      expo-keep-awake:
+        specifier: 58.0.3
+        version: 58.0.3(expo@58.0.21)(react@19.3.0)
       react:
         specifier: 19.3.0
         version: 19.3.0
@@ -10166,6 +10173,10 @@ packages:
 
   web-streams-polyfill@3.3.3:
     resolution: {integrity: sha512-d2JWLCivmZYTSIoge9MsgFCZrt571BikcWGYkjC1khllbTeDlGqZ2D8vD8E/lJa8WGWbb7Plm8/XJYV7IJHZZw==}
+    engines: {node: '>= 8'}
+
+  web-streams-polyfill@4.3.0:
+    resolution: {integrity: sha512-/Gnggvj9oSrEvJbDyyPtAnxBt5fGQM2iWOKQNu7ie1OxDgK40iZpyV3TKaRiEzVj1oA1UxKnEy9XPXh6PW3eVw==}
     engines: {node: '>= 8'}
 
   webgl-constants@1.1.1:
@@ -24504,6 +24515,8 @@ snapshots:
   web-namespaces@2.0.1: {}
 
   web-streams-polyfill@3.3.3: {}
+
+  web-streams-polyfill@4.3.0: {}
 
   webgl-constants@1.1.1: {}
 
