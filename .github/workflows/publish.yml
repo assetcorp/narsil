@@ -131,6 +131,11 @@ jobs:
           NPM_CONFIG_PROVENANCE: true
         run: npm publish --tag next --access public
 
+      - name: Publish the React Native package
+        env:
+          NPM_CONFIG_PROVENANCE: true
+        run: node .github/scripts/publish-react-native-package.js "${{ needs.plan.outputs.version }}" next
+
   publish:
     name: Publish to npm
     needs: native
@@ -276,3 +281,9 @@ jobs:
         env:
           NPM_CONFIG_PROVENANCE: true
         run: npm publish --access public
+
+      - name: Publish @delali/narsil-react-native
+        if: ${{ !inputs.dry-run && env.RELEASES_NARSIL_TS == 'true' }}
+        env:
+          NPM_CONFIG_PROVENANCE: true
+        run: node .github/scripts/publish-react-native-package.js "$(node -p "require('./packages/ts/package.json').version")" latest
