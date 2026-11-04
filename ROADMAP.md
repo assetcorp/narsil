@@ -6,7 +6,7 @@ The maintainers update this roadmap of planned work as the work proceeds. The ro
 
 ## Available now
 
-Pattern search, partial-word search, synonyms, reranking, BM25 parameters, phrase search, changing an index's analysis, the OpenAPI description, disk-backed search, and cluster backups are in the `next` tag on npm, and the next stable release will include them. The React Native driver is in the repository, and its package, `@delali/narsil-react-native`, isn't on npm yet.
+Pattern search, partial-word search, synonyms, reranking, BM25 parameters, phrase search, changing an index's analysis, the OpenAPI description, disk-backed search, cluster backups, and the React Native driver in `@delali/narsil-react-native` are in the `next` tag on npm, and the next stable release will include them.
 
 - **Embedded engine.** The engine answers full-text, vector, hybrid, and geographic searches inside your application process, in Node.js, Bun, Deno, or the browser.
 - **Single-node server.** The HTTP server offers the same engine through a REST API, with a write-ahead log, bulk NDJSON import, and snapshots that you can restore.
