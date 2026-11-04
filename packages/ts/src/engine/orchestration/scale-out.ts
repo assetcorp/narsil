@@ -1,6 +1,6 @@
 import { createWorkerFactory } from '#platform/worker-factory'
 import { ErrorCodes, NarsilError } from '../../errors'
-import { createWorkerPool, type WorkerPool } from '../../workers/pool'
+import type { WorkerPool } from '../../workers/pool'
 import type { WorkerAction } from '../../workers/protocol'
 import { transferIndexToPool } from '../worker-resync'
 import { scheduleIdleMerge } from './compaction'
@@ -50,7 +50,7 @@ async function startPool(state: OrchestratorState): Promise<WorkerPool> {
     )
   }
   eligibleIndexNames(state)
-  const factory = await createWorkerFactory()
+  const [factory, { createWorkerPool }] = await Promise.all([createWorkerFactory(), import('../../workers/pool')])
   let started: WorkerPool | null = null
   const pool = createWorkerPool({
     count: state.keywordWorkerCount + state.longQueryWorkerCount,

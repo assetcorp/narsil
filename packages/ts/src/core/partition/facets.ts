@@ -3,7 +3,7 @@ import type { SchemaDefinition } from '../../types/schema'
 import type { FacetConfig } from '../../types/search'
 import { bitsetSet, createBitSet } from '../bitset'
 import { compareCodePoints } from '../ordering'
-import { getFlatSchema, type PartitionReadState } from './utils'
+import { getFlatSchema, type PartitionReadState, type PartitionState } from './utils'
 
 type FacetRange = { from: number; to: number }
 
@@ -148,6 +148,15 @@ function countFieldValues(
     }
   }
   return countValuesFromDocuments(state, fieldPath, matched)
+}
+
+export function sortFacetedNumbers(state: PartitionState, config: FacetConfig, schema: SchemaDefinition): void {
+  const flatSchema = getFlatSchema(state, schema)
+  for (const fieldPath of Object.keys(config)) {
+    const fieldType = flatSchema[fieldPath]
+    if (fieldType !== 'number' && fieldType !== 'number[]') continue
+    state.numericIndexes.get(fieldPath)?.sortPending()
+  }
 }
 
 export function computeFacets(

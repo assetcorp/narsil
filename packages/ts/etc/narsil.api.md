@@ -221,6 +221,7 @@ export const ErrorCodes: {
     readonly ENVELOPE_INVALID_MAGIC: "ENVELOPE_INVALID_MAGIC";
     readonly PARTITION_CAPACITY_EXCEEDED: "PARTITION_CAPACITY_EXCEEDED";
     readonly RESTORE_MEMORY_EXCEEDED: "RESTORE_MEMORY_EXCEEDED";
+    readonly MEMORY_WRITE_BLOCKED: "MEMORY_WRITE_BLOCKED";
     readonly ANALYSIS_CHANGE_REPLACED: "ANALYSIS_CHANGE_REPLACED";
     readonly ANALYSIS_CHANGE_NOT_READY: "ANALYSIS_CHANGE_NOT_READY";
     readonly ANALYSIS_GENERATION_MISSING: "ANALYSIS_GENERATION_MISSING";
@@ -254,6 +255,7 @@ export const ErrorCodes: {
     readonly COORDINATOR_AUTH_FAILED: "COORDINATOR_AUTH_FAILED";
     readonly COORDINATOR_UNAVAILABLE: "COORDINATOR_UNAVAILABLE";
     readonly TRANSPORT_DEPENDENCY_MISSING: "TRANSPORT_DEPENDENCY_MISSING";
+    readonly NATIVE_DEPENDENCY_MISSING: "NATIVE_DEPENDENCY_MISSING";
     readonly REPLICATION_ENTRY_INVALID: "REPLICATION_ENTRY_INVALID";
     readonly REPLICATION_INSYNC_REMOVAL_FAILED: "REPLICATION_INSYNC_REMOVAL_FAILED";
     readonly REPLICATION_ROLLBACK_FAILED: "REPLICATION_ROLLBACK_FAILED";
@@ -576,6 +578,12 @@ export interface ListResult<T = AnyDocument> {
 export type MainCopyQueries = 'lone' | 'none';
 
 // @public
+export interface MemoryConfig {
+    blockWritesAbove?: number;
+    resumeWritesBelow?: number;
+}
+
+// @public
 export interface MemoryStats {
     closedIndexCount: number;
     estimatedIndexBytes: number;
@@ -637,6 +645,7 @@ export interface NarsilConfig {
     invalidation?: InvalidationAdapter;
     lifecycle?: IndexLifecycleConfig;
     maxRerankWindow?: number;
+    memory?: MemoryConfig;
     patternWorkCap?: number;
     persistence?: PersistenceAdapter;
     plugins?: NarsilPlugin[];
@@ -734,6 +743,100 @@ export interface NarsilPlugin {
     onIndexDrop?(ctx: IndexContext): void | Promise<void>;
     onPartitionSplit?(ctx: PartitionContext): void | Promise<void>;
     onWorkerPromote?(ctx: WorkerContext): void | Promise<void>;
+}
+
+// Warning: (ae-internal-missing-underscore) The name "NativeConnectResult" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface NativeConnectResult {
+    status: number;
+    wakes: Int32Array;
+}
+
+// Warning: (ae-internal-missing-underscore) The name "NativeCore" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface NativeCore {
+    abiVersion(): number;
+    attachGraph(memory: NativeGraphMemory): NativeGraphHandle;
+    attachStore(memory: NativeStoreMemory): NativeStoreHandle;
+    compact(graph: NativeGraphHandle, store: NativeStoreHandle, metric: number, threadSlot: number, wakes: Int32Array): number;
+    connectUnreached(graph: NativeGraphHandle, store: NativeStoreHandle, metric: number, nearby: Int32Array, threadSlot: number, wakes: Int32Array): number;
+    connectUnreachedAsync?(graph: NativeGraphHandle, store: NativeStoreHandle, metric: number, nearby: Int32Array, threadSlot: number): Promise<NativeConnectResult>;
+    detachStore(store: NativeStoreHandle): number;
+    measure(store: NativeStoreHandle, metric: number, ordinals: Int32Array, count: number, totals: Float64Array): number;
+    place(graph: NativeGraphHandle, store: NativeStoreHandle, metric: number, ordinal: number, topLayer: number, graphHeldAlone: number, threadSlot: number, wakes: Int32Array): number;
+    quantise(store: NativeStoreHandle, metric: number, ordinals: Int32Array, count: number): number;
+    remove(graph: NativeGraphHandle, ordinal: number, threadSlot: number, wakes: Int32Array): number;
+    score(store: NativeStoreHandle, query: Float32Array, metric: number, ordinals: Int32Array, count: number, distances: Float64Array): number;
+    scoreAsync?(store: NativeStoreHandle, query: Float32Array, metric: number, ordinals: Int32Array, count: number, threadSlot: number): Promise<NativeScoreResult>;
+    search(graph: NativeGraphHandle, store: NativeStoreHandle, query: Float32Array, metric: number, candidateCount: number, threadSlot: number, ordinals: Int32Array, distances: Float64Array, accepted: Uint8Array | null): number;
+    searchAsync?(graph: NativeGraphHandle, store: NativeStoreHandle, query: Float32Array, metric: number, candidateCount: number, threadSlot: number, accepted: Uint8Array | null): Promise<NativeSearchResult>;
+    workspaceBytes(): number;
+}
+
+// Warning: (ae-internal-missing-underscore) The name "NativeGraphHandle" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export type NativeGraphHandle = object;
+
+// Warning: (ae-internal-missing-underscore) The name "NativeGraphMemory" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface NativeGraphMemory {
+    graphHeader: Int32Array;
+    heldLocks: Int32Array;
+    incoming: Int32Array;
+    level0: Int32Array;
+    locks: Int32Array;
+    nearestLinkDue: Uint8Array;
+    nodeLevels: Uint8Array;
+    tombstones: Uint8Array;
+    upper: Int32Array;
+    upperBase: Int32Array;
+}
+
+// Warning: (ae-internal-missing-underscore) The name "NativeScoreResult" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface NativeScoreResult {
+    distances: Float64Array;
+    status: number;
+}
+
+// Warning: (ae-internal-missing-underscore) The name "NativeSearchResult" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface NativeSearchResult {
+    count: number;
+    distances: Float64Array;
+    ordinals: Int32Array;
+}
+
+// Warning: (ae-internal-missing-underscore) The name "NativeStoreHandle" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export type NativeStoreHandle = object;
+
+// Warning: (ae-internal-missing-underscore) The name "NativeStoreMemory" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface NativeStoreMemory {
+    bits: number;
+    centroid: Float32Array;
+    codeBlocks: Uint8Array[];
+    codePresent: Uint8Array;
+    dimension: number;
+    magnitudes: Float64Array;
+    present: Uint8Array;
+    recordsPerBlock: number;
+    storeHeader: Int32Array;
+    vectorBlocks: Array<Uint8Array | null>;
+    vectorFile: Int32Array;
+    vectorFiles: string[];
+    vectorOffset: Uint32Array;
+    vectorsPerBlock: number;
+    vectorStrideBytes: number;
 }
 
 // @public
@@ -871,6 +974,75 @@ export interface QueryResult<T = AnyDocument> {
     facets?: Record<string, FacetResult>;
     groups?: GroupResult[];
     hits: Array<Hit<T>>;
+}
+
+// Warning: (ae-internal-missing-underscore) The name "ReactNativeDirectoryEntry" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface ReactNativeDirectoryEntry {
+    isDirectory: boolean;
+    isFile: boolean;
+    name: string;
+}
+
+// Warning: (ae-internal-missing-underscore) The name "ReactNativeFiles" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface ReactNativeFiles {
+    close(descriptor: number): void;
+    descriptorStatus(descriptor: number): ReactNativeFileStatus;
+    link(existingPath: string, newPath: string): void;
+    makeDirectory(path: string): void;
+    open(path: string, flags: string): number;
+    pathStatus(path: string): ReactNativeFileStatus;
+    read(descriptor: number, target: Uint8Array, position: number): number;
+    readAsync(descriptor: number, target: Uint8Array, position: number): Promise<number>;
+    readDirectory(path: string): ReactNativeDirectoryEntry[];
+    removeDirectory(path: string): void;
+    rename(from: string, to: string): void;
+    sync(descriptor: number): void;
+    syncAsync(descriptor: number): Promise<void>;
+    truncate(descriptor: number, byteLength: number): void;
+    unlink(path: string): void;
+    write(descriptor: number, source: Uint8Array, position: number): number;
+    writeAsync(descriptor: number, source: Uint8Array, position: number): Promise<number>;
+}
+
+// Warning: (ae-internal-missing-underscore) The name "ReactNativeFileStatus" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface ReactNativeFileStatus {
+    device: string;
+    inode: string;
+    isDirectory: boolean;
+    isFile: boolean;
+    modifiedMs: number;
+    size: number;
+}
+
+// Warning: (ae-internal-missing-underscore) The name "ReactNativeHost" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface ReactNativeHost {
+    allocateMemory(bytes: number): ArrayBuffer;
+    appStorageDirectory(): string;
+    collectGarbage(): boolean;
+    readonly core: NativeCore;
+    deflateRaw(raw: Uint8Array): Uint8Array;
+    readonly files: ReactNativeFiles;
+    fillRandom(target: Uint8Array): void;
+    gunzip(compressed: Uint8Array, maxByteLength: number): Uint8Array;
+    gzip(data: Uint8Array): Uint8Array;
+    inflateRaw(compressed: Uint8Array, rawByteLength: number): Uint8Array;
+    ownsMemory(buffer: ArrayBufferLike): boolean;
+    processId(): number;
+    processIsAlive(processId: number): boolean;
+    processMemory(): {
+        residentBytes: number;
+        availableBytes: number;
+    };
+    processStartedAtMs(): number;
+    reserveMemory(bytes: number): ArrayBuffer;
 }
 
 // @public

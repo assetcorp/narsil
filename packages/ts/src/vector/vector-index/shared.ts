@@ -1,3 +1,5 @@
+import { backgroundTurnIsSpent, turnsAreBudgeted, yieldBackgroundTurn } from '#platform/shared-turns'
+import type { DocIdSet } from '../../core/doc-id-tables/types'
 import type { SearchClock } from '../../core/search-clock'
 import type { VectorQuantizationMode, VectorStorageMode } from '../../types/schema'
 import type { VectorMetric } from '../brute-force'
@@ -13,6 +15,7 @@ import type { FieldSignature, SavedVectorFile } from './checkpoint-plan'
 import type { ColdVectorHold } from './cold'
 import { BUILD_TURN_HANDOVER_AFTER_MS, DRIFT_CHECK_GROWTH_FACTOR, REBUILD_REMOVED_RATIO } from './constants'
 import type { PendingVectorLocation } from './disk'
+import type { SearchWatch } from './search-writes'
 
 export type { VectorIndexPayload } from './payload'
 
@@ -131,8 +134,8 @@ export interface VectorIndexState {
   readonly hnswConfig: HNSWConfig | undefined
   readonly workerCopies: VectorWorkerCopyPolicy
   readonly store: VectorStore
-  readonly tombstones: Set<string>
-  readonly buffer: Set<string>
+  readonly tombstones: DocIdSet
+  readonly buffer: DocIdSet
   /** A checkpoint wrote these vectors to a file while the field held no graph, and the field points each at its place once it holds one. */
   readonly pendingLocations: Map<string, PendingVectorLocation>
   /** The vector files that the last committed checkpoint lists for the field, in manifest order. */
@@ -178,6 +181,15 @@ export interface VectorIndexState {
   releaseToFilesInFlight: Promise<void>
   /** The field answers from its files through this hold until the background load of its codes and graph ends. */
   cold: ColdVectorHold | null
+  graphsHeldOffThread: GraphsHeldOffThread | null
+  readonly searchWatches: Set<SearchWatch>
+}
+
+export interface GraphsHeldOffThread {
+  readonly graphs: HNSWIndex[]
+  readonly released: Promise<void>
+  readonly release: () => void
+  readonly writesAfter: Array<() => void>
 }
 
 export function liveSize(state: VectorIndexState): number {
@@ -246,6 +258,7 @@ export function graphNeedsRebuild(state: VectorIndexState): boolean {
 }
 
 export function yieldBuildTurn(state: VectorIndexState): Promise<void> {
+  if (turnsAreBudgeted) return backgroundTurnIsSpent() ? yieldBackgroundTurn() : Promise.resolve()
   return new Promise(resolve => {
     const takeTurn = (): void => {
       clearTimeout(timer)

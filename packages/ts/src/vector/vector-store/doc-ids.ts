@@ -17,6 +17,6 @@ export function appendDocId(handles: SharedVectorStoreHandles, ordinal: number, 
 }
 
 export function resetDocIds(handles: SharedVectorStoreHandles): void {
-  new Uint32Array(handles.docIdOffsets).fill(0)
+  new Uint32Array(handles.docIdOffsets, 0, handles.docIdOffsets.byteLength / 4).fill(0)
   Atomics.store(handles.header, STORE_DOC_ID_BYTES, 0)
 }

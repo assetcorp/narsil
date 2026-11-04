@@ -1,8 +1,11 @@
+import { backgroundTurnIsSpent, turnsAreBudgeted, yieldBackgroundTurn } from '#platform/shared-turns'
 import { GRAPH_BUILD_CHUNKS_IN_FLIGHT_PER_WORKER, GRAPH_BUILD_DISPATCH_CHUNK } from '../constants'
 import type { HNSWIndex } from '../hnsw'
 import { sharedMemoryAvailable } from '../shared-buffers/growable'
 import type { GraphInsertOutcome } from '../shared-field/types'
 import { BUILD_CHUNK_SIZE, WORKER_COPY_MIN_VECTORS } from './constants'
+import { connectGraph } from './graph-pass'
+import { moveOutOfBuffer } from './search-writes'
 import { liveSize, threadsHoldCurrentLayout, type VectorIndexState, yieldBuildTurn } from './shared'
 import { noteWrite, shareGraph } from './worker-copies'
 
@@ -82,7 +85,9 @@ export async function insertIntoGraph(
   await flush()
   await Promise.all(pending)
   if (state.disposed) return false
-  graph.connectUnreached()
+  if (turnsAreBudgeted) await connectGraph(state, graph)
+  else graph.connectUnreached()
+  if (state.disposed) return false
   noteWrite(state)
   return true
 }
@@ -120,7 +125,7 @@ async function placeChunk(
       continue
     }
     if (!state.tombstones.has(docId) && !graph.has(docId) && graph.insertOrdinal(ordinal)) placedHere += 1
-    if (graph === state.hnsw) state.buffer.delete(docId)
+    if (graph === state.hnsw) moveOutOfBuffer(state, docId)
   }
   if (placedHere > 0 && outcome !== null && !fallback.shortAnswerWarned) {
     fallback.shortAnswerWarned = true
@@ -142,17 +147,28 @@ async function insertLocally(
     if (!admit(docId)) continue
     const ordinal = state.store.getOrdinal(docId)
     if (ordinal === undefined) continue
-    graph.insertOrdinal(ordinal)
-    if (graph === state.hnsw) state.buffer.delete(docId)
+    if (turnsAreBudgeted) {
+      graph.insertOrdinal(ordinal, true)
+      if (graph.holdsUnlinkedNode) await connectGraph(state, graph)
+      if (state.disposed) return false
+    } else {
+      graph.insertOrdinal(ordinal)
+    }
+    if (graph === state.hnsw) moveOutOfBuffer(state, docId)
     count += 1
-    if (count % BUILD_CHUNK_SIZE === 0) {
+    if (turnsAreBudgeted) {
+      if (!backgroundTurnIsSpent()) continue
+      noteWrite(state)
+      await yieldBackgroundTurn()
+    } else if (count % BUILD_CHUNK_SIZE === 0) {
       noteWrite(state)
       await yieldBuildTurn(state)
     }
   }
   if (state.disposed) return false
   if (count > 0) {
-    graph.connectUnreached()
+    if (turnsAreBudgeted) await connectGraph(state, graph)
+    else graph.connectUnreached()
     noteWrite(state)
   }
   return true

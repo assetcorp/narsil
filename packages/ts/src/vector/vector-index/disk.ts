@@ -1,5 +1,6 @@
 import { DISK_ADOPTION_YIELD_INTERVAL } from './constants'
 import { isDead } from './dead-bits'
+import { untilGraphReleased } from './graph-pass'
 import { type VectorIndexState, yieldBuildTurn } from './shared'
 import { resendSharedHandles } from './worker-copies'
 
@@ -53,11 +54,13 @@ async function releaseLocations(
   locations: Iterable<[string, PendingVectorLocation]>,
 ): Promise<void> {
   const fileIndexes = await shareFilesWithEveryThread(state, paths)
+  await untilGraphReleased(state)
   if (state.disposed) return
   let count = 0
   for (const [docId, location] of locations) {
     if (count > 0 && count % DISK_ADOPTION_YIELD_INTERVAL === 0) {
       await yieldBuildTurn(state)
+      await untilGraphReleased(state)
       if (state.disposed) return
     }
     count += 1

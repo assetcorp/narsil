@@ -1,4 +1,5 @@
 import { decode } from '@msgpack/msgpack'
+import { yieldToEventLoop } from '../../engine/orchestration/turn'
 import { HEADER_SIZE } from '../../serialization/header'
 import { VECTOR_FILE_PAYLOAD_VERSION } from '../../vector/vector-index/checkpoint-payload'
 import type { VectorCheckpointRestore } from '../../vector/vector-index/checkpoint-restore'
@@ -12,14 +13,10 @@ const FILE_PAGE_SIZES: ReadonlySet<number> = new Set([SEGMENT_PAGE_BYTES, RECORD
 const FLOAT32_BYTES = 4
 const FLOAT64_BYTES = 8
 
-function yieldToSearches(): Promise<void> {
-  return new Promise(resolve => setImmediate(resolve))
-}
-
 export function waitBeforeColdLoad(firstSearchAnswered: Promise<void>): Promise<void> {
   return new Promise(resolve => {
     const timer = setTimeout(resolve, COLD_LOAD_WAIT_WITHOUT_SEARCH_MS)
-    timer.unref()
+    if (typeof timer.unref === 'function') timer.unref()
     void firstSearchAnswered.then(() => {
       clearTimeout(timer)
       resolve()
@@ -59,7 +56,7 @@ export async function loadFilesByParts(
   stillWanted: () => boolean,
 ): Promise<void> {
   for (const input of files) {
-    await yieldToSearches()
+    await yieldToEventLoop()
     if (!stillWanted()) return
     const { ref, path } = input
     const sections = sectionsOfFile(input)
@@ -104,6 +101,6 @@ export async function loadFilesByParts(
       },
     })
   }
-  await yieldToSearches()
+  await yieldToEventLoop()
   if (stillWanted()) restore.finish()
 }

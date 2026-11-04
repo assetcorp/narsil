@@ -18,6 +18,15 @@ export function unitDrawOf(value: number): number {
   return (mixedUint32(value) + HALF_A_STEP) / TWO_TO_THE_32
 }
 
+export function shuffleStep<T>(items: T[], i: number, stream: number): number {
+  const next = mixedUint32(stream)
+  const j = Math.floor((next / TWO_TO_THE_32) * (i + 1))
+  const held = items[i]
+  items[i] = items[j]
+  items[j] = held
+  return next
+}
+
 export function shuffleInPlace<T>(items: T[]): T[] {
   let stream = items.length
   for (let i = items.length - 1; i > 0; i--) {

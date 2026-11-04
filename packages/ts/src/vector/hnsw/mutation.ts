@@ -208,14 +208,20 @@ function placeThroughTheCore(state: HNSWGraphState, ord: number, holdsGraphLock:
   return false
 }
 
-export function insertNode(state: HNSWGraphState, ord: number, holdsGraphLock = false): boolean {
+export function insertNode(
+  state: HNSWGraphState,
+  ord: number,
+  holdsGraphLock = false,
+  connectsAfterwards = false,
+): boolean {
   if (!state.store.holdsOrdinal(ord)) return false
   ensureCapacity(state, ord + 1)
   if (nodeExists(state, ord)) return false
-  countIncomingBeforeWriting(state, holdsGraphLock)
+  countIncomingBeforeWriting(state, holdsGraphLock, connectsAfterwards)
   writeRecordBeforePlacement(state, ord)
+  state.linkWrites += 1
   if (placeThroughTheCore(state, ord, holdsGraphLock)) {
-    connectAfterPlacement(state, holdsGraphLock)
+    if (!connectsAfterwards) connectAfterPlacement(state, holdsGraphLock)
     return true
   }
   if (nodeExists(state, ord)) return false
@@ -231,7 +237,7 @@ export function insertNode(state: HNSWGraphState, ord: number, holdsGraphLock = 
   } finally {
     if (!holdsGraphLock) unlockGraphShared(state.locks)
   }
-  connectAfterPlacement(state, holdsGraphLock)
+  if (!connectsAfterwards) connectAfterPlacement(state, holdsGraphLock)
   return true
 }
 
@@ -313,7 +319,10 @@ export function removeNodeEager(state: HNSWGraphState, ord: number, excludeOrds?
 export function markTombstone(state: HNSWGraphState, ord: number): void {
   if (!nodeExists(state, ord) || !reachTombstone(state, ord)) return
   const field = nativeFieldFor(state)
-  if (field !== null && nativeRemove(state, field, ord)) return
+  if (field !== null && nativeRemove(state, field, ord)) {
+    state.linkWrites += 1
+    return
+  }
   noteFallback('remove')
   if (Atomics.compareExchange(state.tombstones, ord, 0, 1) === 0) {
     Atomics.add(state.header, GRAPH_TOMBSTONE_COUNT, 1)

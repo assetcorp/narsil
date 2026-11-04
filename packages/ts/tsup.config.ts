@@ -49,6 +49,13 @@ const nodeEntry: Record<string, string> = {
 
 const browserEntry: Record<string, string> = { client: 'src/client/index.ts', react: 'src/react/index.ts' }
 
+const reactNativeEntry: Record<string, string> = {
+  'index.react-native': 'src/index.ts',
+  'react-native/pattern': 'src/pattern/index.ts',
+  'react-native/partial-words': 'src/partial-words/index.ts',
+  'react-native/synonyms': 'src/synonyms/index.ts',
+}
+
 const shared: Options = {
   format: ['esm'],
   treeshake: true,
@@ -74,6 +81,17 @@ const codeBuilds: Options[] = [
     esbuildOptions(options) {
       options.conditions = ['browser', 'import']
       options.chunkNames = 'browser/[name]-[hash]'
+    },
+  },
+  {
+    ...shared,
+    entry: reactNativeEntry,
+    dts: false,
+    splitting: true,
+    external: NODE_EXTERNAL,
+    esbuildOptions(options) {
+      options.conditions = ['react-native', 'browser', 'import']
+      options.chunkNames = 'react-native/chunks/[name]-[hash]'
     },
   },
   {

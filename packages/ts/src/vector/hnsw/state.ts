@@ -33,5 +33,6 @@ export function openGraphState(
     efCons: shape.efConstruction,
     buildMetric: shape.metric,
     mL: 1 / Math.log(shape.m),
+    linkWrites: 0,
   }
 }

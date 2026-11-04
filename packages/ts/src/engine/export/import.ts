@@ -1,3 +1,4 @@
+import { turnIsSpent, turnsAreBudgeted, yieldTurn } from '#platform/turn-budget'
 import { ErrorCodes, NarsilError, type NarsilErrorCode } from '../../errors'
 import { flattenSchema } from '../../schema/validator'
 import type { ByteSource } from '../../types/byte-source'
@@ -185,7 +186,10 @@ export async function readDocumentExport(
     result: { imported: 0, refusedCount: 0, refused: [] },
     highestReported: 0,
   }
-  for await (const entry of lines) await takeLine(state, entry)
+  for await (const entry of lines) {
+    await takeLine(state, entry)
+    if (turnsAreBudgeted && turnIsSpent()) await yieldTurn()
+  }
   await flush(state)
   state.result.refused.sort((a, b) => a.line - b.line)
   return state.result

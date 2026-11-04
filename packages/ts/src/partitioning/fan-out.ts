@@ -1,3 +1,4 @@
+import { turnIsSpent, yieldTurn } from '#platform/turn-budget'
 import type { FacetMatchSet, PartitionIndex } from '../core/partition'
 import { kWayMerge } from '../core/partition/scored-merge'
 import { createPatternWorkMeter } from '../core/pattern-index/work-meter'
@@ -98,6 +99,7 @@ export async function fanOutQuery(
     const partitionFacets: Array<Record<string, FacetResult>> = []
     const everyValue = params.facets ? everyValueFacetConfig(params.facets) : undefined
     for (const partition of partitions) {
+      if (turnIsSpent()) await yieldTurn()
       options.patternWork?.clock?.check()
       const result = dispatchSinglePartition(partition, params, language, schema, options)
       if (everyValue) {

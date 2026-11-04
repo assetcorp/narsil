@@ -1,4 +1,5 @@
 import type { ResolvedAnalysis } from '../../analysis/registry'
+import type { DocIdMap } from '../../core/doc-id-tables/types'
 import type { ComparableSortValue, SortMode } from '../../core/ordering'
 import type { PartitionIndex, PartitionInsertOptions } from '../../core/partition'
 import type { CompositePartition } from '../../core/partition/composite'
@@ -18,7 +19,7 @@ import type { PartitionWriteLog } from './write-log'
 
 export interface DiskSegmentAccess {
   composite: CompositePartition
-  docPartitionMap: Map<string, number>
+  docPartitionMap: DocIdMap<number>
   insertOptions: PartitionInsertOptions | undefined
 }
 

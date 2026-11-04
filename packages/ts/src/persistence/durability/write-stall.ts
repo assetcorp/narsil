@@ -1,3 +1,4 @@
+import { waitOutsideCountedWrite } from '#platform/turn-budget'
 import { WRITES_STALL_ABOVE_UNCHECKPOINTED_BYTES } from './constants'
 import type { IndexState } from './manager-state'
 
@@ -21,9 +22,12 @@ export async function stallWhileCheckpointsFallBehind(
     indexState.checkpointInFlight !== null &&
     !indexState.unloading
   ) {
-    await new Promise<void>(resume => {
-      indexState.stalledWrites.push(resume)
-    })
+    await waitOutsideCountedWrite(
+      () =>
+        new Promise<void>(resume => {
+          indexState.stalledWrites.push(resume)
+        }),
+    )
   }
 }
 

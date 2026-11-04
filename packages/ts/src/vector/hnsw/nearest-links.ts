@@ -1,5 +1,6 @@
 import { adjacencySlots, incomingCount, layerBase, noteLinked, noteUnlinked } from './adjacency'
 import { ABSENT, reachNode } from './adjacency/views'
+import { drain, newPace, type Pace, type Steps, stepTaken } from './connect-steps'
 import { NEAREST_LINK_FALLBACK_HOSTS } from './constants'
 import { isLive } from './last-links'
 import { type HNSWGraphState, nodeDistanceFunction } from './shared'
@@ -18,7 +19,11 @@ interface NearestLinkPass {
 const NOT_YET_FOUND = -2
 
 function nearer(a: ScoredNode, b: ScoredNode): boolean {
-  return a.distance < b.distance || (a.distance === b.distance && a.ord < b.ord)
+  return nearerPair(a.distance, a.ord, b.distance, b.ord)
+}
+
+function nearerPair(aDistance: number, aOrd: number, bDistance: number, bOrd: number): boolean {
+  return aDistance < bDistance || (aDistance === bDistance && aOrd < bOrd)
 }
 
 function listOf(state: HNSWGraphState, ord: number): Int32Array | null {
@@ -31,13 +36,20 @@ function listOf(state: HNSWGraphState, ord: number): Int32Array | null {
 function nearestInList(pass: NearestLinkPass, ord: number): number {
   const known = pass.nearest[ord]
   if (known !== NOT_YET_FOUND) return known
-  let best: ScoredNode | null = null
-  for (const neighbour of listOf(pass.state, ord) ?? []) {
+  let nearest = -1
+  let nearestDistance = Number.POSITIVE_INFINITY
+  const level0 = pass.state.adjacency.level0
+  const base = layerBase(pass.state.adjacency, ord, 0)
+  const end = base === ABSENT ? base : base + 1 + level0[base]
+  for (let at = base + 1; base !== ABSENT && at < end; at++) {
+    const neighbour = level0[at]
     if (neighbour === ord || !isLive(pass.state, neighbour)) continue
-    const scored = { ord: neighbour, distance: pass.distance(ord, neighbour) }
-    if (best === null || nearer(scored, best)) best = scored
+    const distance = pass.distance(ord, neighbour)
+    if (nearest === -1 || nearerPair(distance, neighbour, nearestDistance, nearest)) {
+      nearest = neighbour
+      nearestDistance = distance
+    }
   }
-  const nearest = best === null ? -1 : best.ord
   pass.nearest[ord] = nearest
   return nearest
 }
@@ -54,15 +66,17 @@ function fallbackHostsFor(pass: NearestLinkPass, ord: number, nearest: number): 
 
 function replaceableSlot(pass: NearestLinkPass, host: number, list: Int32Array): number {
   let farthest = -1
-  let farthestNode: ScoredNode | null = null
+  let farthestOrd = -1
+  let farthestDistance = Number.NEGATIVE_INFINITY
   for (let i = 0; i < list.length; i++) {
     const neighbour = list[i]
     if (incomingCount(pass.state.adjacency, neighbour) < 2) continue
     if (isLive(pass.state, neighbour) && nearestInList(pass, neighbour) === host) continue
-    const scored = { ord: neighbour, distance: pass.distance(host, neighbour) }
-    if (farthestNode === null || nearer(farthestNode, scored)) {
+    const distance = pass.distance(host, neighbour)
+    if (farthest === -1 || nearerPair(farthestDistance, farthestOrd, distance, neighbour)) {
       farthest = i
-      farthestNode = scored
+      farthestOrd = neighbour
+      farthestDistance = distance
     }
   }
   return farthest
@@ -92,6 +106,10 @@ function linkFrom(pass: NearestLinkPass, host: number, ord: number): boolean {
 }
 
 export function linkFromNearest(state: HNSWGraphState): void {
+  drain(linkFromNearestSteps(state, newPace()))
+}
+
+export function* linkFromNearestSteps(state: HNSWGraphState, pace: Pace): Steps {
   const adjacency = state.adjacency
   const slots = adjacencySlots(adjacency)
   if (slots > 0) reachNode(adjacency, slots - 1)
@@ -101,6 +119,7 @@ export function linkFromNearest(state: HNSWGraphState): void {
     nearest: new Int32Array(slots).fill(NOT_YET_FOUND),
   }
   for (let ord = 0; ord < slots; ord++) {
+    if (stepTaken(pace)) yield
     if (Atomics.load(adjacency.nearestLinkDue, ord) !== 1) continue
     Atomics.store(adjacency.nearestLinkDue, ord, 0)
     if (!isLive(state, ord)) continue

@@ -1,13 +1,22 @@
 import type { VectorMetric } from '../brute-force'
+import { GRAPH_LOCK } from '../hnsw/handles'
 import type { HNSWSearchState } from '../hnsw/shared'
 import { stopUsingTheNativeSearchCore } from './backend'
-import { type NativeField, wakeSleepingThreads } from './field'
+import { type NativeField, wakeListedThreads, wakeSleepingThreads } from './field'
 import { nativeMetricCode } from './store'
-import { NATIVE_NEEDS_ROOM, NATIVE_OK } from './types'
+import { claimNativeThreadSlotNow, returnSlot } from './thread-slots'
+import {
+  NATIVE_GRAPH_NOT_HELD_ALONE,
+  NATIVE_NEEDS_ROOM,
+  NATIVE_OK,
+  type NativeConnectResult,
+  type NativeCore,
+} from './types'
 
 export type NativePlacement = 'placed' | 'needsRoom' | 'failed'
 
 const CALL_RAISED = -1
+const NO_NEARBY_NODES = new Int32Array(0)
 
 function writeToTheGraph(state: HNSWSearchState, field: NativeField, write: () => number): number {
   let status: number
@@ -72,4 +81,45 @@ export function nativeConnect(
       field.wakes,
     )
   return writeToTheGraph(state, field, connect) === NATIVE_OK
+}
+
+type OffThreadConnecting = NativeCore & Required<Pick<NativeCore, 'connectUnreachedAsync'>>
+
+function connectsOffThread(core: NativeCore): core is OffThreadConnecting {
+  return core.connectUnreachedAsync !== undefined
+}
+
+export function nativeConnectsOffThread(field: NativeField): boolean {
+  return connectsOffThread(field.core)
+}
+
+export type OffThreadConnect = 'connected' | 'graphBusy' | 'failed'
+
+export async function nativeConnectOffThread(
+  state: HNSWSearchState,
+  field: NativeField,
+  metric: VectorMetric,
+): Promise<OffThreadConnect> {
+  const core = field.core
+  if (!connectsOffThread(core)) return 'failed'
+  const slot = claimNativeThreadSlotNow()
+  if (slot === null) return 'graphBusy'
+  let outcome: NativeConnectResult
+  try {
+    outcome = await core.connectUnreachedAsync(
+      field.graph,
+      field.store.handle,
+      nativeMetricCode(metric),
+      NO_NEARBY_NODES,
+      slot,
+    )
+  } catch {
+    return 'failed'
+  } finally {
+    returnSlot(slot)
+  }
+  wakeListedThreads(state, outcome.wakes)
+  Atomics.notify(state.header, GRAPH_LOCK)
+  if (outcome.status === NATIVE_OK) return 'connected'
+  return outcome.status === NATIVE_GRAPH_NOT_HELD_ALONE ? 'graphBusy' : 'failed'
 }

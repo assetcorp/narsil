@@ -27,7 +27,7 @@ export interface OldGenerationStatistics {
 
 function flagEntries(): string[] {
   const fromNodeOptions = (process.env.NODE_OPTIONS ?? '').split(/\s+/).filter(entry => entry.length > 0)
-  return [...process.execArgv, ...fromNodeOptions]
+  return [...fromNodeOptions, ...process.execArgv]
 }
 
 function memoryTheHostAllows(): number {

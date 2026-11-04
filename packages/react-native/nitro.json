@@ -1,0 +1,32 @@
+{
+  "$schema": "https://nitro.margelo.com/nitro.schema.json",
+  "cxxNamespace": ["narsil"],
+  "ios": {
+    "iosModuleName": "NarsilReactNative"
+  },
+  "android": {
+    "androidNamespace": ["narsil"],
+    "androidCxxLibName": "NarsilReactNative"
+  },
+  "autolinking": {
+    "NarsilHost": {
+      "all": {
+        "language": "c++",
+        "implementationClassName": "HybridNarsilHostImpl"
+      }
+    },
+    "NarsilFiles": {
+      "all": {
+        "language": "c++",
+        "implementationClassName": "HybridNarsilFilesImpl"
+      }
+    },
+    "NarsilCore": {
+      "all": {
+        "language": "c++",
+        "implementationClassName": "HybridNarsilCoreImpl"
+      }
+    }
+  },
+  "ignorePaths": ["**/node_modules", "examples"]
+}

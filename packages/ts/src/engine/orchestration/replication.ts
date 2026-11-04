@@ -173,6 +173,11 @@ export function markCopiesLoaded(state: OrchestratorState, indexName: string, co
   })
 }
 
+function copiesWillReceive(state: OrchestratorState, indexName: string): boolean {
+  if (state.copyLoadBuffers.has(indexName) || state.replicationQueues.has(indexName)) return true
+  return state.workerPool !== null && state.scaledOutIndexes.has(indexName)
+}
+
 export async function replicateToWorkers(state: OrchestratorState, action: WorkerAction): Promise<void> {
   if (!('indexName' in action)) {
     if (state.workerPool === null) return
@@ -180,6 +185,7 @@ export async function replicateToWorkers(state: OrchestratorState, action: Worke
     await dispatchToWorkers(state, action)
     return
   }
+  if (!copiesWillReceive(state, action.indexName)) return
 
   const detached = detachCallerDocuments(state, action)
   const loading = state.copyLoadBuffers.get(action.indexName)

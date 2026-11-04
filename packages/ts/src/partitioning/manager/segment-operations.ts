@@ -1,3 +1,4 @@
+import type { DocIdMap } from '../../core/doc-id-tables/types'
 import type { PartitionIndex, PartitionInsertOptions } from '../../core/partition'
 import type { CompositePartition } from '../../core/partition/composite'
 import { recordSegmentDocLocations } from './doc-locations'
@@ -6,7 +7,7 @@ import type { PartitionManager } from './types'
 import { CHECKPOINT_WRITE_LOG, type WriteLogRecorder } from './write-log'
 
 export interface SegmentOperationSource {
-  docPartitionMap: Map<string, number>
+  docPartitionMap: DocIdMap<number>
   writeLogs: WriteLogRecorder
   partitionAt(partitionId: number): PartitionIndex
   validatePartitionId(partitionId: number): void

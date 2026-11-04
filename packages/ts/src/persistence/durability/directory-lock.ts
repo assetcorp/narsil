@@ -6,7 +6,7 @@ import { DIRECTORY_LOCK_ATTEMPTS, DIRECTORY_LOCK_SETTLE_MS } from './constants'
 
 const LOCK_FILE_NAME = '.narsil.lock'
 
-const HARD_LINK_UNSUPPORTED_CODES = new Set(['EPERM', 'ENOTSUP', 'EOPNOTSUPP', 'ENOSYS'])
+const HARD_LINK_UNSUPPORTED_CODES = new Set(['EACCES', 'EPERM', 'ENOTSUP', 'EOPNOTSUPP', 'ENOSYS'])
 
 const lockedDirectories = new Set<string>()
 

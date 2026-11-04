@@ -51,3 +51,11 @@ packages/ts/examples/*/dist/
 packages/ts/examples/*/.output/
 packages/ts/examples/server-app/data/
 packages/ts/examples/shared/sample-data/
+packages/react-native/examples/expo/ios/
+packages/react-native/examples/expo/android/
+packages/react-native/examples/bare/ios/
+packages/react-native/examples/bare/android/
+packages/react-native/examples/*/.expo/
+packages/react-native/examples/*/build/
+packages/react-native/cpp/core/
+packages/react-native/lib/

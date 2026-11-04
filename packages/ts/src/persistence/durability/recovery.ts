@@ -1,3 +1,4 @@
+import { turnIsSpent, yieldTurn } from '#platform/turn-budget'
 import { applyDeleteEntry, applyIndexEntry } from '../../distribution/replication/replica'
 import type { ReplicationLogEntry } from '../../distribution/replication/types'
 import type { PartitionManager } from '../../partitioning/manager'
@@ -27,6 +28,7 @@ export interface ReplayDeps {
   vectorFieldPaths: Set<string>
   vectorIndexes: Map<string, VectorIndex>
   writeRecords?: WriteRecordKeeper | null
+  defersGraphBuilds?: boolean
 }
 
 export async function removeLeftoverRewriteFiles(directory: DurableDirectory, names: readonly string[]): Promise<void> {
@@ -77,11 +79,12 @@ export async function replayWal(
 
   let highestSeqNo = fromSeqNoExclusive
   let highestPrimaryTerm = 0
-  const replay = (entries: ReplicationLogEntry[]): void => {
+  const replay = async (entries: ReplicationLogEntry[]): Promise<void> => {
     for (const entry of entries) {
       if (entry.seqNo <= highestSeqNo) {
         continue
       }
+      if (turnIsSpent()) await yieldTurn()
       applyEntry(entry, deps)
       highestSeqNo = entry.seqNo
       if (entry.primaryTerm > highestPrimaryTerm) {
@@ -89,9 +92,9 @@ export async function replayWal(
       }
     }
   }
-  replay(durableEntries)
+  await replay(durableEntries)
   if (activeTail !== null) {
-    replay(activeTail.entries)
+    await replay(activeTail.entries)
   }
 
   await deleteOrphanSegments(directory, segments, marker.state.activeSegmentSeqNo)
@@ -204,7 +207,7 @@ function applyEntry(entry: ReplicationLogEntry, deps: ReplayDeps): void {
     applyDeleteEntry(entry, deps.manager, deps.vectorIndexes)
     return
   }
-  applyIndexEntry(entry, deps.manager, deps.vectorFieldPaths, deps.vectorIndexes)
+  applyIndexEntry(entry, deps.manager, deps.vectorFieldPaths, deps.vectorIndexes, deps.defersGraphBuilds !== true)
 }
 
 export function snapshotCheckpointFor(checkpoint: PartitionCheckpoint[], partitionId: number): number {

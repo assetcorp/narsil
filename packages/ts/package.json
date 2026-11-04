@@ -16,18 +16,29 @@
   },
   "imports": {
     "#platform/worker-factory": {
+      "react-native": "./src/workers/factory.react-native.ts",
       "browser": "./src/workers/factory.browser.ts",
       "default": "./src/workers/factory.ts"
+    },
+    "#platform/search-worker-entry": {
+      "react-native": "./src/vector/search-pool/worker-entry.react-native.ts",
+      "default": "./src/vector/search-pool/worker-entry.ts"
+    },
+    "#platform/checkpoint-worker-entry": {
+      "react-native": "./src/persistence/durability/checkpoint-worker-entry.react-native.ts",
+      "default": "./src/persistence/durability/checkpoint-worker-entry.ts"
     },
     "#platform/vector-promoter": {
       "browser": "./src/vector/promoter.browser.ts",
       "default": "./src/vector/promoter.ts"
     },
     "#platform/durable-fs": {
+      "react-native": "./src/persistence/durability/node-fs.react-native.ts",
       "browser": "./src/persistence/durability/node-fs.browser.ts",
       "default": "./src/persistence/durability/node-fs.ts"
     },
     "#platform/lock-holder": {
+      "react-native": "./src/persistence/durability/lock-holder.react-native.ts",
       "browser": "./src/persistence/durability/lock-holder.browser.ts",
       "default": "./src/persistence/durability/lock-holder.ts"
     },
@@ -40,22 +51,51 @@
       "default": "./src/runtime/heap-statistics.ts"
     },
     "#platform/process-limit": {
+      "react-native": "./src/runtime/process-limit.react-native.ts",
       "browser": "./src/runtime/process-limit.browser.ts",
       "default": "./src/runtime/process-limit.ts"
     },
     "#platform/idle-heap-cleanup": {
+      "react-native": "./src/runtime/idle-heap-cleanup.react-native.ts",
       "browser": "./src/runtime/idle-heap-cleanup.browser.ts",
       "default": "./src/runtime/idle-heap-cleanup.ts"
     },
+    "#platform/turn-budget": {
+      "react-native": "./src/runtime/turn-budget.react-native.ts",
+      "browser": "./src/runtime/turn-budget.browser.ts",
+      "default": "./src/runtime/turn-budget.ts"
+    },
+    "#platform/shared-turns": {
+      "react-native": "./src/runtime/shared-turns.react-native.ts",
+      "browser": "./src/runtime/shared-turns.browser.ts",
+      "default": "./src/runtime/shared-turns.ts"
+    },
+    "#platform/background-turn-sharing": {
+      "react-native": "./src/runtime/background-turn-sharing.ts",
+      "browser": "./src/runtime/background-turn-sharing.browser.ts",
+      "default": "./src/runtime/background-turn-sharing.ts"
+    },
     "#platform/vector-file": {
+      "react-native": "./src/vector/vector-store/vector-file.react-native.ts",
       "browser": "./src/vector/vector-store/vector-file.browser.ts",
       "default": "./src/vector/vector-store/vector-file.ts"
     },
     "#platform/raw-deflate": {
+      "react-native": "./src/persistence/paged/raw-deflate.react-native.ts",
       "browser": "./src/persistence/paged/raw-deflate.browser.ts",
       "default": "./src/persistence/paged/raw-deflate.ts"
     },
+    "#platform/gzip": {
+      "react-native": "./src/serialization/gzip.react-native.ts",
+      "default": "./src/serialization/gzip.ts"
+    },
+    "#platform/vector-memory-limits": {
+      "react-native": "./src/vector/shared-buffers/memory-limits.react-native.ts",
+      "browser": "./src/vector/shared-buffers/memory-limits.ts",
+      "default": "./src/vector/shared-buffers/memory-limits.ts"
+    },
     "#platform/native-core": {
+      "react-native": "./src/vector/native/loader.react-native.ts",
       "browser": "./src/vector/native/loader.browser.ts",
       "default": "./src/vector/native/loader.ts"
     },
@@ -78,6 +118,31 @@
     "#platform/synonym-search": {
       "browser": "./src/core/synonyms/platform.browser.ts",
       "default": "./src/core/synonyms/platform.ts"
+    },
+    "#platform/memory-write-block": {
+      "react-native": "./src/engine/memory/write-block.react-native.ts",
+      "browser": "./src/engine/memory/write-block.browser.ts",
+      "default": "./src/engine/memory/write-block.ts"
+    },
+    "#platform/memory-guarded-writes": {
+      "react-native": "./src/engine/memory/guarded-writes.ts",
+      "browser": "./src/engine/memory/guarded-writes.browser.ts",
+      "default": "./src/engine/memory/guarded-writes.ts"
+    },
+    "#platform/doc-id-tables": {
+      "react-native": "./src/core/doc-id-tables/sharded.ts",
+      "browser": "./src/core/doc-id-tables/plain.ts",
+      "default": "./src/core/doc-id-tables/plain.ts"
+    },
+    "#platform/pools": {
+      "react-native": "./src/core/inverted-index/growing-pools.ts",
+      "browser": "./src/core/inverted-index/pools.ts",
+      "default": "./src/core/inverted-index/pools.ts"
+    },
+    "#platform/live-postings": {
+      "react-native": "./src/core/inverted-index/growing-postings.ts",
+      "browser": "./src/core/inverted-index/postings.ts",
+      "default": "./src/core/inverted-index/postings.ts"
     }
   },
   "sideEffects": false,
@@ -131,6 +196,10 @@
   },
   "exports": {
     ".": {
+      "react-native": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.react-native.mjs"
+      },
       "browser": {
         "import": "./dist/index.browser.mjs",
         "types": "./dist/index.d.ts"
@@ -183,14 +252,26 @@
       "types": "./dist/rerankers/http.d.ts"
     },
     "./pattern": {
+      "react-native": {
+        "types": "./dist/pattern.d.ts",
+        "default": "./dist/react-native/pattern.mjs"
+      },
       "import": "./dist/pattern.mjs",
       "types": "./dist/pattern.d.ts"
     },
     "./partial-words": {
+      "react-native": {
+        "types": "./dist/partial-words.d.ts",
+        "default": "./dist/react-native/partial-words.mjs"
+      },
       "import": "./dist/partial-words.mjs",
       "types": "./dist/partial-words.d.ts"
     },
     "./synonyms": {
+      "react-native": {
+        "types": "./dist/synonyms.d.ts",
+        "default": "./dist/react-native/synonyms.mjs"
+      },
       "import": "./dist/synonyms.mjs",
       "types": "./dist/synonyms.d.ts"
     },

@@ -16,6 +16,10 @@ const BROWSER_ENTRIES = [
   'dist/partial-words.mjs',
   'dist/rerankers/http.mjs',
   'dist/synonyms.mjs',
+  'dist/index.react-native.mjs',
+  'dist/react-native/pattern.mjs',
+  'dist/react-native/partial-words.mjs',
+  'dist/react-native/synonyms.mjs',
 ]
 
 const SIZE_APP = 'scripts/browser-bundle-app.mjs'

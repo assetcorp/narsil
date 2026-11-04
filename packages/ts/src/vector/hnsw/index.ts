@@ -4,9 +4,10 @@ import type { VectorMetric } from '../brute-force'
 import type { OsqQuantizer } from '../osq/types'
 import type { VectorStore } from '../vector-store'
 import { adjacencySlots, graphBytes, hasNode } from './adjacency'
+import { connectOffThread, connectOnThisThread } from './connect-in-turns'
 import { connectAfterBuild } from './connect-unreached'
 import { COMPACTION_ABSOLUTE_THRESHOLD, COMPACTION_TOMBSTONE_RATIO } from './constants'
-import { createSharedGraphHandles, GRAPH_RETIRED, type SharedGraphHandles } from './handles'
+import { createSharedGraphHandles, GRAPH_RETIRED, GRAPH_UNLINKED_NODES, type SharedGraphHandles } from './handles'
 import { lockGraphExclusive, unlockGraphExclusive } from './locks'
 import {
   compactTombstones as compactTombstonesOp,
@@ -23,7 +24,8 @@ import {
 } from './numbered-graph'
 import { deserializeGraph } from './persistence'
 import { searchScratchBytes } from './scratch-bytes'
-import { type GraphSearchOptions, search as searchOp } from './search'
+import { type GraphSearchOptions, type ResolvedHit, search as searchOp } from './search'
+import { searchOffThread as searchOffThreadOp } from './search-off-thread'
 import {
   entryPointOf,
   type HNSWConfig,
@@ -62,8 +64,10 @@ export interface HNSWIndex {
   /** Another thread opens these shared structures to search or extend this graph in place. */
   readonly handles: SharedGraphHandles
 
+  readonly holdsUnlinkedNode: boolean
+
   insertNode(docId: string): void
-  insertOrdinal(ordinal: number): boolean
+  insertOrdinal(ordinal: number, connectsAfterwards?: boolean): boolean
   markTombstone(docId: string): void
   markTombstoneOrdinal(ordinal: number): void
   holdsNode(ordinal: number): boolean
@@ -77,12 +81,22 @@ export interface HNSWIndex {
     minSimilarity: number,
     options?: GraphSearchOptions,
   ): ScoredDocument[]
+  /** Walks the graph on a native thread, or answers `null` when the native core has no threads of its own. */
+  searchOffThread(
+    query: Float32Array,
+    k: number,
+    searchMetric: VectorMetric,
+    minSimilarity: number,
+    options: GraphSearchOptions,
+  ): Promise<ResolvedHit[] | null>
   clear(): void
   retire(): void
   entries(): IterableIterator<[string, VectorEntry]>
   compactionNeeded(): boolean
   compactTombstones(): void
   connectUnreached(): void
+  connectOffThread(): Promise<boolean> | null
+  connectOnThisThread(inSlices: boolean): Promise<void>
   rebuild(): void
   /** Performs an operation that rewrites the graph in place while every other thread waits. */
   exclusively<T>(operation: () => T): T
@@ -132,6 +146,13 @@ export function createHNSWIndex(
     } finally {
       unlockGraphExclusive(state.locks)
     }
+  }
+
+  function relinking<T>(operation: () => T): T {
+    return exclusively(() => {
+      state.linkWrites += 1
+      return operation()
+    })
   }
 
   function insertNode(docId: string): void {
@@ -208,8 +229,12 @@ export function createHNSWIndex(
     get handles() {
       return shared
     },
+    get holdsUnlinkedNode() {
+      return Atomics.load(state.header, GRAPH_UNLINKED_NODES) !== 0
+    },
     insertNode,
-    insertOrdinal: (ordinal: number) => insertNodeOp(state, ordinal),
+    insertOrdinal: (ordinal: number, connectsAfterwards = false) =>
+      insertNodeOp(state, ordinal, false, connectsAfterwards),
     markTombstone: (docId: string) => {
       const ord = store.getOrdinal(docId)
       if (ord !== undefined) markTombstoneOp(state, ord)
@@ -232,20 +257,29 @@ export function createHNSWIndex(
       minSimilarity: number,
       options?: GraphSearchOptions,
     ) => searchOp(state, docIdOf, query, k, searchMetric, minSimilarity, options),
-    clear: () => exclusively(() => resetGraph(state)),
+    searchOffThread: (
+      query: Float32Array,
+      k: number,
+      searchMetric: VectorMetric,
+      minSimilarity: number,
+      options: GraphSearchOptions,
+    ) => searchOffThreadOp(state, docIdOf, query, k, searchMetric, minSimilarity, options),
+    clear: () => relinking(() => resetGraph(state)),
     retire: () => Atomics.store(shared.header, GRAPH_RETIRED, 1),
     entries: entriesIterator,
     compactionNeeded,
-    compactTombstones: () => exclusively(() => compactTombstonesOp(state)),
-    connectUnreached: () => exclusively(() => connectAfterBuild(state)),
-    rebuild: () => exclusively(() => rebuildOp(state)),
+    compactTombstones: () => relinking(() => compactTombstonesOp(state)),
+    connectUnreached: () => relinking(() => connectAfterBuild(state)),
+    connectOffThread: () => connectOffThread(state),
+    connectOnThisThread: (inSlices: boolean) => connectOnThisThread(state, inSlices),
+    rebuild: () => relinking(() => rebuildOp(state)),
     exclusively,
-    deserialize: (data: SerializedHNSWGraph) => exclusively(() => deserializeGraph(state, store, data)),
+    deserialize: (data: SerializedHNSWGraph) => relinking(() => deserializeGraph(state, store, data)),
     serializeNumbered: (numberOfOrdinal: Int32Array, ordinalOfNumber: Int32Array, partSize: number) =>
       serializeNumberedGraphParts(state, numberOfOrdinal, ordinalOfNumber, partSize),
     deserializeNumbered: (graph: NumberedGraphParts, ordinalOfNumber: Int32Array) =>
-      exclusively(() => deserializeNumberedGraph(state, graph, ordinalOfNumber)),
+      relinking(() => deserializeNumberedGraph(state, graph, ordinalOfNumber)),
     exportSnapshot: () => exportSnapshot(state),
-    restoreSnapshot: (snapshot: HNSWSnapshot) => exclusively(() => restoreSnapshot(state, snapshot)),
+    restoreSnapshot: (snapshot: HNSWSnapshot) => relinking(() => restoreSnapshot(state, snapshot)),
   }
 }
