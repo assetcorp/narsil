@@ -7,6 +7,8 @@ const PACKAGE_NAME = '@delali/narsil-react-native'
 const ENGINE_PACKAGE_NAME = '@delali/narsil'
 const PACKAGE_DIRECTORY = join('packages', 'react-native')
 const MANIFEST = join(PACKAGE_DIRECTORY, 'package.json')
+const ENGINE_VISIBILITY_TIMEOUT_MS = 600_000
+const ENGINE_VISIBILITY_POLL_INTERVAL_MS = 10_000
 
 const [version, distTag] = process.argv.slice(2)
 if (!version || !distTag) {
@@ -16,7 +18,7 @@ if (!version || !distTag) {
 
 function onTheRegistry(packageName) {
   try {
-    const published = execFileSync('npm', ['view', `${packageName}@${version}`, 'version'], {
+    const published = execFileSync('npm', ['view', `${packageName}@${version}`, 'version', '--prefer-online'], {
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'ignore'],
     })
@@ -26,23 +28,17 @@ function onTheRegistry(packageName) {
   }
 }
 
-if (onTheRegistry(PACKAGE_NAME)) {
-  console.log(`npm already holds ${PACKAGE_NAME}@${version}, so this script skips it`)
-  process.exit(0)
+async function engineVisibleOnTheRegistry() {
+  const deadline = Date.now() + ENGINE_VISIBILITY_TIMEOUT_MS
+  while (!onTheRegistry(ENGINE_PACKAGE_NAME)) {
+    if (Date.now() >= deadline) {
+      return false
+    }
+    console.log(`npm doesn't show ${ENGINE_PACKAGE_NAME}@${version} yet, so this script checks again shortly`)
+    await new Promise(resolve => setTimeout(resolve, ENGINE_VISIBILITY_POLL_INTERVAL_MS))
+  }
+  return true
 }
-
-if (!onTheRegistry(ENGINE_PACKAGE_NAME)) {
-  console.error(
-    `npm holds no ${ENGINE_PACKAGE_NAME}@${version}, and ${PACKAGE_NAME}@${version} requires exactly that version, so this script publishes nothing`,
-  )
-  process.exit(1)
-}
-
-const originalManifest = readFileSync(MANIFEST, 'utf8')
-const manifest = JSON.parse(originalManifest)
-manifest.version = version
-manifest.peerDependencies[ENGINE_PACKAGE_NAME] = version
-writeFileSync(MANIFEST, `${JSON.stringify(manifest, null, 2)}\n`)
 
 function packAndPublish(packDirectory) {
   execFileSync('pnpm', ['pack', '--pack-destination', packDirectory], { cwd: PACKAGE_DIRECTORY, stdio: 'inherit' })
@@ -56,10 +52,34 @@ function packAndPublish(packDirectory) {
   console.log(`Published ${PACKAGE_NAME}@${version} under the ${distTag} dist-tag`)
 }
 
-const packDirectory = mkdtempSync(join(tmpdir(), 'narsil-react-native-'))
-try {
-  packAndPublish(packDirectory)
-} finally {
-  writeFileSync(MANIFEST, originalManifest)
-  rmSync(packDirectory, { recursive: true, force: true })
+async function main() {
+  if (onTheRegistry(PACKAGE_NAME)) {
+    console.log(`npm already holds ${PACKAGE_NAME}@${version}, so this script skips it`)
+    return
+  }
+
+  if (!(await engineVisibleOnTheRegistry())) {
+    throw new Error(
+      `npm showed no ${ENGINE_PACKAGE_NAME}@${version} within ${ENGINE_VISIBILITY_TIMEOUT_MS / 60_000} minutes, and ${PACKAGE_NAME}@${version} requires exactly that version, so this script publishes nothing`,
+    )
+  }
+
+  const originalManifest = readFileSync(MANIFEST, 'utf8')
+  const manifest = JSON.parse(originalManifest)
+  manifest.version = version
+  manifest.peerDependencies[ENGINE_PACKAGE_NAME] = version
+  writeFileSync(MANIFEST, `${JSON.stringify(manifest, null, 2)}\n`)
+
+  const packDirectory = mkdtempSync(join(tmpdir(), 'narsil-react-native-'))
+  try {
+    packAndPublish(packDirectory)
+  } finally {
+    writeFileSync(MANIFEST, originalManifest)
+    rmSync(packDirectory, { recursive: true, force: true })
+  }
 }
+
+main().catch(error => {
+  console.error(error instanceof Error ? error.message : error)
+  process.exit(1)
+})
