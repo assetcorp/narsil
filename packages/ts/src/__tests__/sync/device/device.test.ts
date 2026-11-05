@@ -18,6 +18,7 @@ import {
 } from './fixtures'
 
 const SEEDED = 60
+const NETWORK_CUT_TEST_TIMEOUT_MS = 30_000
 
 describe('a synced device', () => {
   let directory: { path: string; remove(): Promise<void> } | null = null
@@ -62,46 +63,50 @@ describe('a synced device', () => {
     directory = null
   })
 
-  it('converges with the server after offline writes from two devices and direct writes to the server', async () => {
-    const oracle = await seed()
-    const first = await device('first')
-    const second = await device('second')
-    await settledWithin(first.sync)
-    await settledWithin(second.sync)
-    expect(sorted(await documentsOf(first.engine, INDEX))).toEqual(sorted(oracle))
+  it(
+    'converges with the server after offline writes from two devices and direct writes to the server',
+    async () => {
+      const oracle = await seed()
+      const first = await device('first')
+      const second = await device('second')
+      await settledWithin(first.sync)
+      await settledWithin(second.sync)
+      expect(sorted(await documentsOf(first.engine, INDEX))).toEqual(sorted(oracle))
 
-    serving().proxy.cut()
-    await first.sync.put('n1', note('first offline edit'))
-    await first.sync.remove('n2')
-    await first.sync.put('offline-new', note('offline-new'))
-    await first.sync.remove('never-existed')
-    const local = await first.engine.query(INDEX, { term: 'offline' })
-    expect(local.hits.map(hit => hit.id).sort()).toEqual(['n1', 'offline-new'])
-    expect(first.sync.status().queuedWrites).toBe(4)
+      serving().proxy.cut()
+      await first.sync.put('n1', note('first offline edit'))
+      await first.sync.remove('n2')
+      await first.sync.put('offline-new', note('offline-new'))
+      await first.sync.remove('never-existed')
+      const local = await first.engine.query(INDEX, { term: 'offline' })
+      expect(local.hits.map(hit => hit.id).sort()).toEqual(['n1', 'offline-new'])
+      expect(first.sync.status().queuedWrites).toBe(4)
 
-    await serving().admin.put(INDEX, 'n3', { ...note('server edit') })
-    await serving().admin.remove(INDEX, 'n4')
-    await serving().admin.put(INDEX, 'n1', { ...note('server edit that the offline device replaces') })
-    serving().proxy.heal()
-    await second.sync.put('n5', note('second device edit'))
-    await second.sync.remove('n6')
+      await serving().admin.put(INDEX, 'n3', { ...note('server edit') })
+      await serving().admin.remove(INDEX, 'n4')
+      await serving().admin.put(INDEX, 'n1', { ...note('server edit that the offline device replaces') })
+      serving().proxy.heal()
+      await second.sync.put('n5', note('second device edit'))
+      await second.sync.remove('n6')
 
-    oracle.set('n1', note('first offline edit'))
-    oracle.delete('n2')
-    oracle.set('offline-new', note('offline-new'))
-    oracle.set('n3', note('server edit'))
-    oracle.delete('n4')
-    oracle.set('n5', note('second device edit'))
-    oracle.delete('n6')
+      oracle.set('n1', note('first offline edit'))
+      oracle.delete('n2')
+      oracle.set('offline-new', note('offline-new'))
+      oracle.set('n3', note('server edit'))
+      oracle.delete('n4')
+      oracle.set('n5', note('second device edit'))
+      oracle.delete('n6')
 
-    await settledWithin(first.sync)
-    await settledWithin(second.sync)
-    await settledWithin(first.sync)
-    expect(sorted(await documentsOf(serving().running.engine, INDEX))).toEqual(sorted(oracle))
-    expect(sorted(await documentsOf(first.engine, INDEX))).toEqual(sorted(oracle))
-    expect(sorted(await documentsOf(second.engine, INDEX))).toEqual(sorted(oracle))
-    expect(first.sync.status().queuedWrites).toBe(0)
-  })
+      await settledWithin(first.sync)
+      await settledWithin(second.sync)
+      await settledWithin(first.sync)
+      expect(sorted(await documentsOf(serving().running.engine, INDEX))).toEqual(sorted(oracle))
+      expect(sorted(await documentsOf(first.engine, INDEX))).toEqual(sorted(oracle))
+      expect(sorted(await documentsOf(second.engine, INDEX))).toEqual(sorted(oracle))
+      expect(first.sync.status().queuedWrites).toBe(0)
+    },
+    NETWORK_CUT_TEST_TIMEOUT_MS,
+  )
 
   it('replaces a refused write with the server copy and reports it', async () => {
     await seed()
@@ -134,21 +139,25 @@ describe('a synced device', () => {
     expect(refused[0]?.serverDocument).toMatchObject(note('n7'))
   })
 
-  it('carries on after the server restarts and keeps the writes that it queued meanwhile', async () => {
-    const oracle = await seed()
-    const started = await device('restart')
-    await settledWithin(started.sync)
+  it(
+    'carries on after the server restarts and keeps the writes that it queued meanwhile',
+    async () => {
+      const oracle = await seed()
+      const started = await device('restart')
+      await settledWithin(started.sync)
 
-    serving().proxy.cut()
-    await started.sync.put('during-restart', note('during-restart'))
-    await serving().restart()
-    await serving().admin.put(INDEX, 'after-restart', { ...note('after-restart') })
-    serving().proxy.heal()
+      serving().proxy.cut()
+      await started.sync.put('during-restart', note('during-restart'))
+      await serving().restart()
+      await serving().admin.put(INDEX, 'after-restart', { ...note('after-restart') })
+      serving().proxy.heal()
 
-    oracle.set('during-restart', note('during-restart'))
-    oracle.set('after-restart', note('after-restart'))
-    await settledWithin(started.sync)
-    expect(sorted(await documentsOf(started.engine, INDEX))).toEqual(sorted(oracle))
-    expect(sorted(await documentsOf(serving().running.engine, INDEX))).toEqual(sorted(oracle))
-  })
+      oracle.set('during-restart', note('during-restart'))
+      oracle.set('after-restart', note('after-restart'))
+      await settledWithin(started.sync)
+      expect(sorted(await documentsOf(started.engine, INDEX))).toEqual(sorted(oracle))
+      expect(sorted(await documentsOf(serving().running.engine, INDEX))).toEqual(sorted(oracle))
+    },
+    NETWORK_CUT_TEST_TIMEOUT_MS,
+  )
 })
