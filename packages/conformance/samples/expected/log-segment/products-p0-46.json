@@ -1,0 +1,157 @@
+{
+  "walFormatVersion": 1,
+  "records": [
+    {
+      "seqNo": 46,
+      "primaryTerm": 1,
+      "operation": "INDEX",
+      "partitionId": 0,
+      "indexName": "products",
+      "documentId": "product-044",
+      "document": {
+        "id": "product-044",
+        "title": "running saucepan number 44",
+        "tags": ["saucepan", "running", "stocked items"],
+        "sku": "SKU-8198",
+        "price": 16.7,
+        "sizes": [],
+        "inStock": true,
+        "category": "kitchen",
+        "colours": ["white", "green"],
+        "location": {
+          "lat": -13,
+          "lon": 98
+        },
+        "code": "ZX-44-SAUCEPAN",
+        "description": "The running saucepan keeps running for years, and buyers keep running back for more saucepans.",
+        "embedding": [-0.24722126126289368, 0.4952563941478729, -0.8954473733901978, -0.0662812665104866, -0.356102854013443, 0.389987051486969, -0.3325379192829132, 0.7959170937538147],
+        "notes": {
+          "added": {
+            "$date": [1789720215, 44000000]
+          },
+          "checksum": {
+            "$bytes": "LNMH"
+          },
+          "$source": "catalogue",
+          "ratio": 5.5
+        }
+      }
+    },
+    {
+      "seqNo": 47,
+      "primaryTerm": 1,
+      "operation": "INDEX",
+      "partitionId": 0,
+      "indexName": "products",
+      "documentId": "product-045",
+      "document": {
+        "id": "product-045",
+        "title": "lighter shears number 45",
+        "tags": ["shears", "lighter", "ordered items"],
+        "sku": "SKU-6110",
+        "price": 67.39,
+        "sizes": [0, 3.5],
+        "inStock": false,
+        "category": "tools",
+        "colours": ["red", "blue"],
+        "location": {
+          "lat": 0,
+          "lon": 135
+        },
+        "code": "ZX-45-SHEARS",
+        "description": "The lighter shears keeps running for years, and buyers keep running back for more shearss.",
+        "embedding": [0.17022378742694855, 0.2110513150691986, 0.669327437877655, 0.7411713600158691, 0.7076883316040039, -0.6278536319732666, 0.4154520034790039, 0.7244277000427246],
+        "notes": {
+          "added": {
+            "$date": [1792398615, 45000000]
+          },
+          "checksum": {
+            "$bytes": "LdIH"
+          },
+          "$source": "catalogue",
+          "ratio": -0
+        }
+      }
+    },
+    {
+      "seqNo": 48,
+      "primaryTerm": 1,
+      "operation": "INDEX",
+      "partitionId": 0,
+      "indexName": "products",
+      "documentId": "product-046",
+      "document": {
+        "id": "product-046",
+        "title": "enamelled lantern number 46",
+        "tags": ["lantern", "enamelled", "stocked items"],
+        "sku": "SKU-4022",
+        "price": 72.27,
+        "sizes": [1, 4.5],
+        "inStock": true,
+        "category": "garden",
+        "colours": ["green", "black"],
+        "location": {
+          "lat": 13,
+          "lon": -168
+        },
+        "code": "ZX-46-LANTERN",
+        "description": "The enamelled lantern keeps running for years, and buyers keep running back for more lanterns.",
+        "embedding": [-0.3836227059364319, 0.9007138609886169, -0.7418956756591797, 0.5563321709632874, -0.7597466111183167, -0.7890653014183044, -0.41150233149528503, 0.5654303431510925],
+        "notes": {
+          "added": {
+            "$date": [1795163415, 46000000]
+          },
+          "checksum": {
+            "$bytes": "LtEH"
+          },
+          "$source": "catalogue",
+          "ratio": 5.75
+        }
+      }
+    },
+    {
+      "seqNo": 49,
+      "primaryTerm": 1,
+      "operation": "INDEX",
+      "partitionId": 0,
+      "indexName": "products",
+      "documentId": "product-047",
+      "document": {
+        "id": "product-047",
+        "title": "polished bucket number 47",
+        "tags": ["bucket", "polished", "ordered items"],
+        "sku": "SKU-1934",
+        "price": 19.54,
+        "sizes": [2, 5.5],
+        "inStock": true,
+        "category": "kitchen",
+        "colours": ["blue", "white"],
+        "location": {
+          "lat": 26,
+          "lon": -131
+        },
+        "code": "ZX-47-BUCKET",
+        "description": "The polished bucket keeps running for years, and buyers keep running back for more buckets.",
+        "embedding": [-0.9056721925735474, 0.44408953189849854, 0.5901429057121277, 0.1341220885515213, 0.039256852120161057, 0.4839112460613251, 0.8568136096000671, 0.10379983484745026],
+        "notes": {
+          "added": {
+            "$date": [1797841815, 47000000]
+          },
+          "checksum": {
+            "$bytes": "L9AH"
+          },
+          "$source": "catalogue",
+          "ratio": 5.875
+        }
+      }
+    },
+    {
+      "seqNo": 50,
+      "primaryTerm": 1,
+      "operation": "DELETE",
+      "partitionId": 0,
+      "indexName": "products",
+      "documentId": "product-002"
+    }
+  ]
+}

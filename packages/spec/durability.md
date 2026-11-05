@@ -4,7 +4,7 @@ This document defines how a single node survives a crash and restores its data o
 
 A write-ahead log record is the same entry the replication protocol uses; see [replication.md](distribution/replication.md). There is one log, not two. This document adds the on-disk framing, the fsync rules, recovery, checkpointing, and truncation that turn the in-memory replication log into a durable log. A single node uses it for crash recovery, and a cluster uses the same log for replication.
 
-Every conforming implementation must read and write these formats identically, whatever language it is written in.
+Every conforming implementation, whatever language it is written in, must read every file that another conforming implementation writes, and it must write the same content for the same data, as [conformance.md](conformance.md#same-content) defines it.
 
 Structure definitions use a language-neutral notation. `List<T>` is an ordered collection of `T`, `Map<K, V>` a mapping from keys to values, and width-tagged names such as `uint32` describe exact byte widths on disk.
 
@@ -109,7 +109,7 @@ Offset  Size  Type      Field               Description
 5       3     bytes     reserved            All 0x00 on write
 ```
 
-A reader must reject a segment that does not begin with the `NRSW` magic, and must refuse, with a clear message, a segment whose `wal_format_version` is higher than the version it supports.
+A reader must reject with `PERSISTENCE_WAL_CORRUPT` a segment that does not begin with the `NRSW` magic, and with `ENVELOPE_VERSION_MISMATCH` a segment whose `wal_format_version` is higher than the version that it supports, because a newer release wrote that segment.
 
 ### Record Frame
 
@@ -212,6 +212,7 @@ SegmentManifest {
   version:    uint8   (7)
   schema:     Map<string, string>
   language:   string
+  analysisGeneration: uint64 or absent   (the analysis generation that produced the terms; an absent value means 0)
   checkpoint: List<PartitionCheckpoint>
   partitions: List<PartitionManifestEntry>
   vectors:    List<VectorFieldRef>   (one entry per vector field)

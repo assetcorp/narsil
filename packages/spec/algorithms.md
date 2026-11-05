@@ -12,7 +12,7 @@ BM25 is the algorithm that scores the relevance of a document to every full-text
 
 ### Formula
 
-An implementation must score a query `Q`, which holds the terms `q1` through `qn`, against a document `D` as follows:
+An implementation must score a query `Q`, which holds the distinct terms `q1` through `qn` that analysis gives, against a document `D` as follows. A term that the query repeats counts once, as do two words that share a stem, so `new new york` scores as `new york`, while a phrase counts each of its tokens, as [Phrase Scoring](#phrase-scoring) defines.
 
 ```text
 score(Q, D) = SUM over each query term qi of
