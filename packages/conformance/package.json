@@ -1,0 +1,45 @@
+{
+  "name": "@delali/narsil-conformance",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Sample files, damaged files, and searches that check a Narsil implementation in any language against the reference.",
+  "author": "Delali (https://sondelali.com)",
+  "license": "Apache-2.0",
+  "homepage": "https://narsil.sondelali.com",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/assetcorp/narsil.git",
+    "directory": "packages/conformance"
+  },
+  "bugs": {
+    "url": "https://github.com/assetcorp/narsil/issues"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "fetch": "tsx src/cli.ts fetch",
+    "dataset:build": "tsx src/dataset/build.ts",
+    "dataset:stage": "tsx src/dataset/stage.ts",
+    "searches:write": "tsx src/searches/write.ts",
+    "test": "vitest run",
+    "lint": "biome check src/",
+    "typecheck:src": "tsc --noEmit",
+    "typecheck:tests": "tsc --noEmit -p tsconfig.test.json",
+    "typecheck": "pnpm run typecheck:src && pnpm run typecheck:tests"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.4.4",
+    "@delali/narsil": "workspace:*",
+    "@delali/narsil-embeddings-transformers": "workspace:*",
+    "@huggingface/transformers": "4.3.0",
+    "@msgpack/msgpack": "3.1.1",
+    "@types/node": "22.15.32",
+    "hyparquet": "1.32.0",
+    "tsx": "4.21.0",
+    "typescript": "5.9.3",
+    "valibot": "1.5.0",
+    "vitest": "4.0.18"
+  }
+}
