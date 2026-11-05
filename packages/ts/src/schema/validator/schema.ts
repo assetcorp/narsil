@@ -1,13 +1,7 @@
 import { compareCodePoints } from '../../core/ordering'
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { FieldType, SchemaDefinition } from '../../types/schema'
-import {
-  MAX_NESTING_DEPTH,
-  MAX_PATTERN_VALUE_LIMIT,
-  MAX_TEXT_FIELDS,
-  MAX_VECTOR_DIMENSION,
-  MIN_PATTERN_VALUE_LIMIT,
-} from '../constants'
+import { MAX_NESTING_DEPTH, MAX_TEXT_FIELDS, MAX_VECTOR_DIMENSION } from '../constants'
 import { isWordIndexedBase, type ParsedFieldType, parseFieldType } from './field-type'
 import { FIELD_NAME_PATTERN, isPlainObject, PROTOTYPE_POLLUTION_KEYS, RESERVED_ROOT_FIELDS } from './shared'
 
@@ -179,33 +173,6 @@ export function partialFieldsOf(schema: SchemaDefinition): readonly string[] {
   const frozen = Object.freeze(paths.sort(compareCodePoints))
   partialFieldsBySchema.set(schema, frozen)
   return frozen
-}
-
-export function requireSurfaceFormsForPartialFields(schema: SchemaDefinition, surfaceForms: unknown): void {
-  if (surfaceForms !== false) return
-  const partialFields = partialFieldsOf(schema)
-  if (partialFields.length === 0) return
-  throw new NarsilError(
-    ErrorCodes.CONFIG_INVALID,
-    `Field "${partialFields[0]}" declares "partial", which compares words as the documents wrote them, so its index needs surfaceForms left on`,
-    { fields: [...partialFields], surfaceForms: false },
-  )
-}
-
-export function validatePatternValueLimit(limit: unknown): void {
-  if (limit === undefined) return
-  if (
-    typeof limit !== 'number' ||
-    !Number.isInteger(limit) ||
-    limit < MIN_PATTERN_VALUE_LIMIT ||
-    limit > MAX_PATTERN_VALUE_LIMIT
-  ) {
-    throw new NarsilError(
-      ErrorCodes.CONFIG_INVALID,
-      `patternValueLimit must be a whole number of code points from ${MIN_PATTERN_VALUE_LIMIT} to ${MAX_PATTERN_VALUE_LIMIT}`,
-      { patternValueLimit: typeof limit === 'number' ? limit : String(limit) },
-    )
-  }
 }
 
 export function extractVectorFieldsFromSchema(schema: SchemaDefinition): Map<string, number> {

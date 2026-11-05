@@ -1,7 +1,10 @@
 import { holdsUnpairedSurrogate } from '../core/ordering/code-points'
 import { ErrorCodes, NarsilError } from '../errors'
+import { MAX_PATTERN_VALUE_LIMIT, MIN_PATTERN_VALUE_LIMIT } from '../schema/constants'
+import { partialFieldsOf } from '../schema/validator'
 import { clampRowCount } from '../search/pagination'
 import type { IndexLifecycleConfig, WorkerConfig } from '../types/config'
+import type { SchemaDefinition } from '../types/schema'
 import {
   ABSOLUTE_WINDOWS_PATH_PATTERN,
   DEFAULT_LIMIT,
@@ -110,6 +113,33 @@ export function validatePartitionConfig(partitions: {
     throw new NarsilError(ErrorCodes.CONFIG_INVALID, 'partitions.watermark must be above 0 and at most 1', {
       watermark,
     })
+  }
+}
+
+export function requireSurfaceFormsForPartialFields(schema: SchemaDefinition, surfaceForms: unknown): void {
+  if (surfaceForms !== false) return
+  const partialFields = partialFieldsOf(schema)
+  if (partialFields.length === 0) return
+  throw new NarsilError(
+    ErrorCodes.CONFIG_INVALID,
+    `Field "${partialFields[0]}" declares "partial", which compares words as the documents wrote them, so its index needs surfaceForms left on`,
+    { fields: [...partialFields], surfaceForms: false },
+  )
+}
+
+export function validatePatternValueLimit(limit: unknown): void {
+  if (limit === undefined) return
+  if (
+    typeof limit !== 'number' ||
+    !Number.isInteger(limit) ||
+    limit < MIN_PATTERN_VALUE_LIMIT ||
+    limit > MAX_PATTERN_VALUE_LIMIT
+  ) {
+    throw new NarsilError(
+      ErrorCodes.CONFIG_INVALID,
+      `patternValueLimit must be a whole number of code points from ${MIN_PATTERN_VALUE_LIMIT} to ${MAX_PATTERN_VALUE_LIMIT}`,
+      { patternValueLimit: typeof limit === 'number' ? limit : String(limit) },
+    )
   }
 }
 
