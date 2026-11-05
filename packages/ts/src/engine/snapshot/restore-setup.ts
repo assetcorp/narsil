@@ -5,8 +5,6 @@ import type { PartitionManager } from '../../partitioning/manager'
 import { storedStateOf } from '../../query-suggestions/stored-state'
 import { validateEmbeddingConfig, validateRequiredFieldsInSchema } from '../../schema/embedding-validator'
 import {
-  requireSurfaceFormsForPartialFields,
-  validatePatternValueLimit,
   validateSchema,
   validateTextStorage,
   validateVectorPromotion,
@@ -27,6 +25,7 @@ import type { DurabilityIntegration } from '../durability-integration'
 import type { IndexStateCoordinator } from '../index-state'
 import type { WorkerOrchestrator } from '../orchestration/types'
 import { prepareStoredSynonyms } from '../synonym-sets'
+import { requireSurfaceFormsForPartialFields, validatePatternValueLimit } from '../validation'
 import {
   type ConfigFieldRejection,
   rejectSnapshot,

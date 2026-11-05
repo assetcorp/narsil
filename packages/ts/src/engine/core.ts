@@ -23,6 +23,7 @@ import { type AnalysisRebuildCoordinator, wireAnalysisRebuild } from './analysis
 import type { DurabilityIntegration } from './durability-integration'
 import { emitEngineEvent, eventHandlersOf } from './events'
 import type { HeapPressureNotifier } from './heap-pressure'
+import { createIndexFromMetadata as createIndexFromMetadataOp } from './index-from-metadata'
 import type { IndexStateCoordinator } from './index-state'
 import { type EngineCoreHooks, wireIndexState } from './index-state-wiring'
 import { createInvalidationFromConfig, type InvalidationIntegration } from './invalidation'
@@ -202,8 +203,7 @@ export async function createEngineCore(
     return manager
   }
 
-  async function createIndexFromMetadata(metadata: IndexMetadata, loadData: boolean): Promise<void> {
-    const { createIndexFromMetadata: createIndexFromMetadataOp } = await import('./index-from-metadata')
+  function createIndexFromMetadata(metadata: IndexMetadata, loadData: boolean): Promise<void> {
     return createIndexFromMetadataOp(
       {
         config,

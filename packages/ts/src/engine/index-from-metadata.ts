@@ -1,13 +1,7 @@
 import { ErrorCodes, NarsilError } from '../errors'
 import { getLanguage } from '../languages/registry'
 import { validateEmbeddingConfig } from '../schema/embedding-validator'
-import {
-  requireSurfaceFormsForPartialFields,
-  validatePatternValueLimit,
-  validateSchema,
-  validateTextStorage,
-  validateVectorStorage,
-} from '../schema/validator'
+import { validateSchema, validateTextStorage, validateVectorStorage } from '../schema/validator'
 import type { EmbeddingAdapter } from '../types/adapters'
 import type { NarsilConfig } from '../types/config'
 import type { IndexMetadata } from '../types/internal'
@@ -21,6 +15,7 @@ import type { IndexRegistryEntry } from './core'
 import type { IndexStateCoordinator } from './index-state'
 import { reconstructSchemaFromMetadata } from './recovery-schema'
 import { lookupOfStoredSynonyms, prepareStoredSynonyms } from './synonym-sets'
+import { requireSurfaceFormsForPartialFields, validatePatternValueLimit } from './validation'
 import { getVectorFieldPaths } from './vector-fields'
 
 const RECOVERY_CONFIG_ERROR_CODES: ReadonlySet<string> = new Set([
