@@ -1828,6 +1828,43 @@
       "expect": {
         "documents": "damaged/expected/products.json"
       }
+    },
+    {
+      "name": "vector-file-compressed",
+      "rule": "envelope.md#vector-file-payload",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "segments/vec-embedding-1l4nfg2-f0000000000000000": "damaged/vector-file-compressed/segments/vec-embedding-1l4nfg2-f0000000000000000",
+        "manifest": "damaged/vector-file-compressed/manifest"
+      },
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "vector-file-compressed-on-disk",
+      "rule": "envelope.md#vector-file-payload",
+      "open": "checkpoint",
+      "index": "notes",
+      "base": "checkpoints/notes",
+      "files": {
+        "segments/vec-embedding-1l4nfg2-f0000000000000000": "damaged/vector-file-compressed-on-disk/segments/vec-embedding-1l4nfg2-f0000000000000000",
+        "manifest": "damaged/vector-file-compressed-on-disk/manifest"
+      },
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "backup-manifest-compressed",
+      "rule": "distribution/backups.md#backup-manifest",
+      "open": "backup",
+      "file": "damaged/backup-manifest-compressed/backup-manifest.nrsl",
+      "expect": {
+        "code": "BACKUP_DAMAGED"
+      }
     }
   ]
 }

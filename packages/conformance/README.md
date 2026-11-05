@@ -45,11 +45,12 @@ Both commands print `pass` or `FAIL` with the reason for each sample, then the c
 
 ### Damaged files and files that must open
 
-`samples/damaged/cases.json` lists 137 cases. Each case breaks one rule, and every checksum outside the bytes of that rule is correct, so a reader can raise no other code first. Each case gives the rule as a link into `packages/spec`, and it opens in one of three ways:
+`samples/damaged/cases.json` lists 140 cases. Each case breaks one rule, and every checksum outside the bytes of that rule is correct, so a reader can raise no other code first. Each case gives the rule as a link into `packages/spec`, and it opens in one of four ways:
 
 - **`checkpoint`**: copy the directory in `base` to `<root>/<index>`, copy each file under `files` over the copy at the same relative path, and open the directory as a durable index. Where the case gives `remove`, remove that document. Where it gives `search`, run that text query. Then run one vector query on every vector field and export every document.
 - **`archive`**: restore `file` as a snapshot archive into a new index named by `index`.
 - **`export`**: import `file` as a document export into a new index named by `index`, after you gunzip it where the case sets `gzip`.
+- **`backup`**: read `file` as a backup manifest.
 
 A case passes where your implementation gives the outcome under `expect`:
 
@@ -70,6 +71,22 @@ node packages/conformance/dist/cli.mjs fetch
 ```
 
 The command stores the dataset in `packages/conformance/.dataset`. Index the documents with the settings under `index` in `searches/queries.json`, then run each query. Text results must hold the listed IDs in the listed order, and the reference's scores match the listed scores to a relative difference of 10<sup>-9</sup>. Vector results must reach each recall floor under `vector.floors` against the 100 nearest neighbours that a brute-force cosine scan found for each query, and their order is free.
+
+The text results come from the reference, and a separate Python oracle under `oracle/` checks every one of them. The oracle shares no code with the reference. It analyses text as the analysis pipeline in `packages/spec/adapters.md` describes, and it scores with BM25 as `packages/spec/algorithms.md` defines it. That specification makes the reference's English module define the language, so the oracle takes each English setting from that module at revision `ebae3448ae674b59`, and it stops with exit code 2 when the revision moves:
+
+| Setting | Where the oracle takes it |
+| --- | --- |
+| Split pattern | `splitPattern` in `packages/ts/src/languages/english.ts`, which must equal the run of characters that the oracle splits on |
+| Possessive stripping | `stripPossessive` in the same module, which must be on |
+| Stop words | The list in the same module, read as data |
+| Stemmer | The Snowball compiler version in `packages/ts/src/languages/snowball/english.ts`, which must equal the `snowballstemmer` release that `oracle/requirements.txt` pins |
+
+The oracle must find the listed documents in the listed order, with scores within a relative difference of 10<sup>-12</sup>. Run it after you fetch the dataset:
+
+```sh
+pnpm --filter @delali/narsil-conformance oracle:install
+pnpm --filter @delali/narsil-conformance oracle:check
+```
 
 ## Keep the samples current
 

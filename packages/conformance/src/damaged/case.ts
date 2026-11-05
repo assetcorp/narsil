@@ -53,7 +53,15 @@ const ExportCaseSchema = v.strictObject({
   expect: v.union([RefusedSchema, RefusedLineSchema, OpensSchema]),
 })
 
-const CaseSchema = v.variant('open', [CheckpointCaseSchema, ArchiveCaseSchema, ExportCaseSchema])
+const BackupCaseSchema = v.strictObject({
+  name: v.pipe(v.string(), v.regex(/^[a-z0-9-]+$/)),
+  rule: v.string(),
+  open: v.literal('backup'),
+  file: SamplePath,
+  expect: RefusedSchema,
+})
+
+const CaseSchema = v.variant('open', [CheckpointCaseSchema, ArchiveCaseSchema, ExportCaseSchema, BackupCaseSchema])
 
 const CasesSchema = v.strictObject({ cases: v.array(CaseSchema) })
 

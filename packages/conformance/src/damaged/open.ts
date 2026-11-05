@@ -2,6 +2,7 @@ import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { gunzipSync } from 'node:zlib'
+import { decodeBackupManifest } from '../../../ts/src/distribution/backups/manifest'
 import { NarsilError } from '../../../ts/src/errors'
 import { createNarsil } from '../../../ts/src/narsil'
 import type { Narsil } from '../../../ts/src/types/engine'
@@ -51,7 +52,15 @@ async function exportBytesOf(entry: Extract<DamagedCase, { open: 'export' }>): P
   return new Uint8Array(entry.gzip === true ? gunzipSync(stored, { maxOutputLength: MAX_EXPORT_BYTES }) : stored)
 }
 
-async function openedThroughEngine(root: string, entry: Exclude<DamagedCase, { open: 'checkpoint' }>) {
+async function openedBackupManifest(entry: Extract<DamagedCase, { open: 'backup' }>): Promise<CaseOutcome> {
+  const manifest = await decodeBackupManifest(
+    new Uint8Array(await readFile(join(SAMPLES_ROOT, entry.file))),
+    entry.name,
+  )
+  return { documents: { indexName: manifest.indexName, partitionCount: manifest.partitionCount } }
+}
+
+async function openedThroughEngine(root: string, entry: Extract<DamagedCase, { open: 'archive' | 'export' }>) {
   const narsil = await createNarsil({ workers: { enabled: false }, durability: { directory: root, mode: 'sync' } })
   try {
     if (entry.open === 'archive') {
@@ -73,7 +82,11 @@ export async function openCase(entry: DamagedCase): Promise<CaseOutcome> {
   const root = await mkdtemp(join(tmpdir(), 'narsil-conformance-damaged-'))
   try {
     const opened: Promise<CaseOutcome> =
-      entry.open === 'checkpoint' ? openedCheckpoint(root, entry) : openedThroughEngine(root, entry)
+      entry.open === 'checkpoint'
+        ? openedCheckpoint(root, entry)
+        : entry.open === 'backup'
+          ? openedBackupManifest(entry)
+          : openedThroughEngine(root, entry)
     return await withinDeadline(opened, `the damaged file ${entry.name}`)
   } catch (error) {
     if (error instanceof NarsilError) return { refused: error.code }
