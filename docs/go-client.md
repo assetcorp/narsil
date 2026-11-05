@@ -184,4 +184,8 @@ if exports {
 
 ## Every method
 
-A generator writes a method for every operation in [`packages/ts/openapi.json`](../packages/ts/openapi.json). Continuous integration regenerates the client and fails when the committed code differs, so the pull request that adds a route to the server also adds its method to the client. The [HTTP server guide](http-server.md) covers what each route does, and the [cluster guide](cluster.md) covers the routes that a cluster serves. Each release of the module carries a tag of the form `packages/go/vX.Y.Z`, which is the form that `go get` reads for a module in a subdirectory.
+A generator writes a method for every operation in [`packages/ts/openapi.json`](../packages/ts/openapi.json). Continuous integration regenerates the client and fails when the committed code differs, so the pull request that adds a route to the server also adds its method to the client. The [HTTP server guide](http-server.md) covers what each route does, and the [cluster guide](cluster.md) covers the routes that a cluster serves.
+
+The client calls the two HTTP routes of [device sync](device-sync.md) through `UpdateSync`, which replaces the sync setting of an index, and `SyncSnapshot`, which returns the published snapshot as a `*narsil.ResponseStream`. Pass `narsil.WithHeader("Range", ...)` and `narsil.WithHeader("If-Range", ...)` to resume a download. The sync feed at `GET /indexes/{name}/sync/feed` is a WebSocket, so the OpenAPI file describes no route for it and the client has no method for it. A device reads the feed through `@delali/narsil/sync`.
+
+Each release of the module carries a tag of the form `packages/go/vX.Y.Z`, which is the form that `go get` reads for a module in a subdirectory.

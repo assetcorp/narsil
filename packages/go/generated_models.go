@@ -1528,6 +1528,22 @@ type SuggestResultTermsItem struct {
 	DocumentFrequency float64 `json:"documentFrequency"`
 }
 
+// SyncSetting: The device sync setting of one index, which SyncOperations.updateSync takes. Turn sync
+// on only for an index whose every document belongs to one user, because every device that syncs the
+// index receives the whole index. Create one index for each user, and leave sync off for a public
+// index or for an index that holds the data of several users.
+type SyncSetting struct {
+	// This turns sync on or off. Turning it on gives the index a new epoch, so every synced device loads a
+	// new copy.
+	Enabled bool `json:"enabled"`
+	// This is the age in milliseconds after which the server deletes a log segment from history. It
+	// defaults to 30 days.
+	HistoryMaxAgeMs *float64 `json:"historyMaxAgeMs,omitempty"`
+	// This is the byte count above which the server deletes the oldest log segment from history. It
+	// defaults to the length of the published snapshot.
+	HistoryMaxBytes *float64 `json:"historyMaxBytes,omitempty"`
+}
+
 // SynonymSetBody: The body of `GET /indexes/{name}/synonyms`, and the body that `POST
 // /indexes/{name}/synonyms` takes.
 type SynonymSetBody struct {
@@ -1696,8 +1712,9 @@ type VectorMaintenanceResponse struct {
 }
 
 // VectorMaintenanceResult: The state of one vector field, and what maintenance would cost, as
-// Narsil.vectorMaintenanceStatus reports it. Removing a vector leaves a tombstone in the graph, and
-// enough of them slow a search down. Read this to decide when compaction earns its cost.
+// VectorMaintenanceOperations.vectorMaintenanceStatus reports it. Removing a vector leaves a tombstone
+// in the graph, and enough of them slow a search down. Read this to decide when compaction earns its
+// cost.
 type VectorMaintenanceResult struct {
 	// This describes the named vector field.
 	FieldName string `json:"fieldName"`
@@ -1717,9 +1734,9 @@ type VectorMaintenanceResult struct {
 	// This stays true after a restart while a field kept on disk loads its codes and graph in the
 	// background, during which a search reads them from the field's files.
 	LoadingFromFiles bool `json:"loadingFromFiles"`
-	// Narsil.compactVectors would take about this many milliseconds.
+	// VectorMaintenanceOperations.compactVectors would take about this many milliseconds.
 	EstimatedCompactMs float64 `json:"estimatedCompactMs"`
-	// Narsil.optimizeVectors would take about this many milliseconds.
+	// VectorMaintenanceOperations.optimizeVectors would take about this many milliseconds.
 	EstimatedOptimizeMs float64 `json:"estimatedOptimizeMs"`
 }
 
