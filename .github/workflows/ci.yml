@@ -166,6 +166,14 @@ jobs:
         working-directory: packages/conformance
         run: node dist/cli.mjs fetch
 
+      - name: Install the text search oracle
+        working-directory: packages/conformance
+        run: pnpm run oracle:install
+
+      - name: Check every committed text search against the oracle
+        working-directory: packages/conformance
+        run: pnpm run oracle:check
+
       - name: Test
         run: pnpm nx run narsil-conformance:test
 

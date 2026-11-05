@@ -6,6 +6,7 @@ import { archiveCases } from './archive-cases'
 import type { CaseBuild } from './build'
 import { checkpointPath, fittedManifest } from './bytes'
 import { CASES_PATH, DAMAGED_ROOT, type DamagedCase } from './case'
+import { compressionCases } from './compression-cases'
 import { envelopeCases } from './envelope-cases'
 import { exportCases } from './export-cases'
 import { keywordSegmentCases } from './keyword-cases'
@@ -63,6 +64,10 @@ async function caseOf(build: CaseBuild, expected: Map<string, string>): Promise<
         build.code === null ? { documents: await expectedDocumentsOf(build.index, expected) } : { code: build.code },
     }
   }
+  if (build.open === 'backup') {
+    const file = await placed(`${directory}/backup-manifest.nrsl`, build.bytes)
+    return { name: build.name, rule: build.rule, open: 'backup', file, expect: { code: build.code } }
+  }
   const extension = build.open === 'archive' ? 'tar' : build.gzip ? 'jsonl.gz' : 'jsonl'
   const file = await placed(`${directory}/${build.open}.${extension}`, build.gzip ? gzipSync(build.bytes) : build.bytes)
   const shared = { name: build.name, rule: build.rule, index: build.index, file }
@@ -108,6 +113,7 @@ async function main(): Promise<void> {
     ...(await manifestAndMetadataCases()),
     ...(await archiveCases()),
     ...(await exportCases()),
+    ...(await compressionCases()),
   ]
   const expected = new Map<string, string>()
   const cases: DamagedCase[] = []

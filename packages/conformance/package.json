@@ -27,6 +27,8 @@
     "searches:write": "tsx src/searches/write.ts",
     "samples:write": "tsx src/samples/write.ts",
     "damaged:write": "tsx src/damaged/write.ts",
+    "oracle:install": "python3 -m venv oracle/.venv && oracle/.venv/bin/python -m pip install --quiet --require-hashes -r oracle/requirements.txt",
+    "oracle:check": "cd oracle && .venv/bin/python -m text_oracle --dataset ../.dataset --searches ../searches/queries.json",
     "test": "vitest run",
     "lint": "biome check src/",
     "typecheck:src": "tsc --noEmit",

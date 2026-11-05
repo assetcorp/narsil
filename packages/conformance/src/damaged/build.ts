@@ -21,7 +21,15 @@ export interface FileBuild {
   line?: { line: number; imported: number }
 }
 
-export type CaseBuild = CheckpointBuild | FileBuild
+export interface BackupBuild {
+  open: 'backup'
+  name: string
+  rule: string
+  bytes: Uint8Array
+  code: string
+}
+
+export type CaseBuild = CheckpointBuild | FileBuild | BackupBuild
 
 export function damagedCheckpoint(
   name: string,

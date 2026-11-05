@@ -61,6 +61,11 @@ export async function rewritten(bytes: Uint8Array, what: string, change: (payloa
   return packRaw(envelope)
 }
 
+export async function gzippedEnvelope(bytes: Uint8Array, what: string): Promise<Uint8Array> {
+  const envelope = await openRaw(bytes, what)
+  return packRaw({ header: { ...envelope.header, compression: 'gzip' }, payload: envelope.payload })
+}
+
 export function otherChecksum(listed: unknown): number {
   return (Number(listed) ^ 1) >>> 0
 }
