@@ -38,7 +38,6 @@ export type {
   ManualQuerySuggestion,
   QuerySuggestionPreviewEntry,
   QuerySuggestionsBuild,
-  QuerySuggestionsBuildStatus,
   QuerySuggestionsBuildTrigger,
   QuerySuggestionsPreview,
   QuerySuggestionsSetting,

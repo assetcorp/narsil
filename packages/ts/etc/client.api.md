@@ -418,12 +418,9 @@ export interface QuerySuggestionsBuild {
     published: number;
     removed: number;
     startedAt: number;
-    status: QuerySuggestionsBuildStatus;
+    status: 'running' | 'completed' | 'failed' | 'skipped';
     trigger: QuerySuggestionsBuildTrigger;
 }
-
-// @public
-export type QuerySuggestionsBuildStatus = 'running' | 'completed' | 'failed' | 'skipped';
 
 // @public
 export type QuerySuggestionsBuildTrigger = 'schedule' | 'missed' | 'caller';

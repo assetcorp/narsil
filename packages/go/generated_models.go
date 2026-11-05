@@ -1347,8 +1347,8 @@ type QuerySuggestionsBuild struct {
 	BuildID string `json:"buildId"`
 	// What started the build.
 	Trigger QuerySuggestionsBuildTrigger `json:"trigger"`
-	// Where the build stands.
-	Status QuerySuggestionsBuildStatus `json:"status"`
+	// Where the build stands. One of `running`, `failed`, `completed`, `skipped`.
+	Status string `json:"status"`
 	// When the build started, in milliseconds since the Unix epoch.
 	StartedAt float64 `json:"startedAt"`
 	// When the build ended, or null while it runs.
@@ -1362,16 +1362,6 @@ type QuerySuggestionsBuild struct {
 	// The error code of a failed build, or null.
 	ErrorCode *string `json:"errorCode"`
 }
-
-// QuerySuggestionsBuildStatus: The outcome of a build.
-type QuerySuggestionsBuildStatus string
-
-const (
-	QuerySuggestionsBuildStatusRunning   QuerySuggestionsBuildStatus = "running"
-	QuerySuggestionsBuildStatusFailed    QuerySuggestionsBuildStatus = "failed"
-	QuerySuggestionsBuildStatusCompleted QuerySuggestionsBuildStatus = "completed"
-	QuerySuggestionsBuildStatusSkipped   QuerySuggestionsBuildStatus = "skipped"
-)
 
 // QuerySuggestionsBuildTrigger: What started a build.
 type QuerySuggestionsBuildTrigger string
