@@ -14,9 +14,11 @@ export {
   flattenSchema,
   partialFieldsOf,
   requireCreatableSchema,
+  requireSurfaceFormsForPartialFields,
   requireValidFieldTypes,
   type SchemaField,
   schemaFieldsOf,
+  validatePatternValueLimit,
   validateSchema,
 } from './schema'
 export { assertStorableDocument } from './storable'
