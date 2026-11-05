@@ -10,6 +10,8 @@ import {
 } from '../schema/embedding-validator'
 import {
   requireCreatableSchema,
+  requireSurfaceFormsForPartialFields,
+  validatePatternValueLimit,
   validateSchema,
   validateTextStorage,
   validateVectorPromotion,
@@ -25,12 +27,7 @@ import type { EngineCore, IndexRegistryEntry } from './core'
 import { requireConfigurationWithinSizeLimit } from './snapshot/index-configuration'
 import { emitSyncChange } from './sync-notify'
 import { prepareConfiguredSynonyms, withoutSynonyms } from './synonym-sets'
-import {
-  requireSurfaceFormsForPartialFields,
-  validateIndexName,
-  validatePartitionConfig,
-  validatePatternValueLimit,
-} from './validation'
+import { validateIndexName, validatePartitionConfig } from './validation'
 import { getVectorFieldPaths } from './vector-fields'
 
 async function runLifecycleHook(
