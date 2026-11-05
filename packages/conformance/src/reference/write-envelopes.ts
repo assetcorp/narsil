@@ -2,11 +2,11 @@ import { encode } from '@msgpack/msgpack'
 import { decodeBackupManifest, encodeBackupManifest } from '../../../ts/src/distribution/backups/manifest'
 import { decodeIndexConfiguration } from '../../../ts/src/engine/snapshot/index-configuration'
 import { sourceIndexNameOf } from '../../../ts/src/persistence/archive/read'
-import { encodeSegmentManifest } from '../../../ts/src/persistence/durability/segment/manifest'
 import {
   decodeManifestPayload,
   openManifestPayload,
 } from '../../../ts/src/persistence/durability/segment/manifest-decode'
+import { encodeSegmentManifest } from '../../../ts/src/persistence/durability/segment/manifest-encode'
 import { readMetadataEnvelope, writeMetadataEnvelope } from '../../../ts/src/serialization/envelope'
 import { decodeKeywordSegment } from '../../../ts/src/serialization/keyword-segment/decode'
 import { encodeKeywordSegment } from '../../../ts/src/serialization/keyword-segment/encode'

@@ -98,6 +98,7 @@ export const ClientErrorCodes: {
     readonly CLIENT_INVALID_RESPONSE: "CLIENT_INVALID_RESPONSE";
     readonly CLIENT_TASK_TIMEOUT: "CLIENT_TASK_TIMEOUT";
     readonly CLIENT_UNEXPECTED_ERROR: "CLIENT_UNEXPECTED_ERROR";
+    readonly SYNC_ANALYSIS_UNAVAILABLE: "SYNC_ANALYSIS_UNAVAILABLE";
 };
 
 // @public
@@ -171,6 +172,11 @@ export const ErrorCodes: {
     readonly BACKUP_STORE_CLAIMED: "BACKUP_STORE_CLAIMED";
     readonly BACKUP_STORE_NOT_CONFIGURED: "BACKUP_STORE_NOT_CONFIGURED";
     readonly BACKUP_NOT_READY: "BACKUP_NOT_READY";
+    readonly SYNC_DURABILITY_REQUIRED: "SYNC_DURABILITY_REQUIRED";
+    readonly SYNC_BACKUP_STORE_REQUIRED: "SYNC_BACKUP_STORE_REQUIRED";
+    readonly SYNC_NOT_READY: "SYNC_NOT_READY";
+    readonly SYNC_NOT_ENABLED: "SYNC_NOT_ENABLED";
+    readonly SYNC_SNAPSHOT_PREPARING: "SYNC_SNAPSHOT_PREPARING";
     readonly SEARCH_INVALID_FIELD: "SEARCH_INVALID_FIELD";
     readonly VECTOR_DIMENSION_MISMATCH: "VECTOR_DIMENSION_MISMATCH";
     readonly SEARCH_INVALID_FILTER: "SEARCH_INVALID_FILTER";
@@ -344,7 +350,7 @@ export interface MemoryStatsResponse extends MemoryStats {
 }
 
 // @public
-export interface NarsilClient extends IndexOperations, DocumentOperations, BulkOperations, SearchOperations, TaskOperations, AdminOperations, BackupOperations, ServerOperations {
+export interface NarsilClient extends IndexOperations, DocumentOperations, BulkOperations, SearchOperations, TaskOperations, AdminOperations, BackupOperations, ServerOperations, SyncSettingOperations {
 }
 
 // @public
@@ -438,6 +444,33 @@ export interface ServerVersion {
     name: string;
     vectorSearch?: 'native' | 'wasm';
     version: string | null;
+}
+
+// @public
+export interface SyncSetting {
+    enabled: boolean;
+    historyMaxAgeMs?: number;
+    historyMaxBytes?: number;
+}
+
+// @public
+export interface SyncSettingOperations {
+    syncSnapshot(indexName: string, resume?: SyncSnapshotResume, options?: RequestOptions): Promise<SyncSnapshotDownload>;
+    updateSync(indexName: string, setting: SyncSetting, options?: RequestOptions): Promise<void>;
+}
+
+// @public
+export interface SyncSnapshotDownload {
+    entityTag: string;
+    offset: number;
+    stream: ReadableStream<Uint8Array>;
+    totalBytes: number;
+}
+
+// @public
+export interface SyncSnapshotResume {
+    entityTag: string;
+    offset: number;
 }
 
 // @public

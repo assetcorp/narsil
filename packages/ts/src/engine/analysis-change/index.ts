@@ -7,6 +7,7 @@ import type { NamedAnalysisSettings, PendingAnalysisMetadata } from '../../types
 import type { EngineCore, IndexRegistryEntry } from '../core'
 import { emitEngineEvent } from '../events'
 import { requireAnalysisRebuildMemory } from '../snapshot/memory-budget'
+import { holdSyncEpochChange } from '../sync-epoch'
 import { prepareStoredSynonyms, rulesOfStoredSynonyms } from '../synonym-sets'
 import { type AnalysisTarget, targetOfPending } from './pending-target'
 import { type ChangeRun, createHold, createRun, runsOf, stopRun, waitForRelease } from './run'
@@ -112,13 +113,18 @@ async function buildAndSwitch(scope: ChangeScope): Promise<void> {
         },
         onSwitch: () => adopt(),
         ...(hold === null ? {} : { holdBeforeSwitch: keepCurrent => waitForRelease(run, hold, keepCurrent) }),
-        runSwitch(swap) {
+        async runSwitch(swap) {
           const swapWithSynonyms = (): boolean => {
             if (!isCurrent()) return false
             adopt = switchIndex(scope)
             return swap()
           }
-          return durable?.checkpointAfterSwitch?.(indexName, swapWithSynonyms) ?? Promise.resolve(swapWithSynonyms())
+          const releaseSyncEpoch = await holdSyncEpochChange(core, indexName)
+          try {
+            return await (durable?.checkpointAfterSwitch?.(indexName, swapWithSynonyms) ?? swapWithSynonyms())
+          } finally {
+            releaseSyncEpoch()
+          }
         },
       },
       textRebuildTargetOf(run.target.config, run.target.language, run.target.analysis),

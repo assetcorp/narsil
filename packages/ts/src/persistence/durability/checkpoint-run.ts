@@ -42,6 +42,7 @@ interface DurableCheckpointInput {
   mutationThreshold: number
   mayContinue(): boolean
   holdsCheckpointFiles(): boolean
+  keepsCheckpointKey(): Promise<(key: string) => boolean>
   queueMetadataWrite(indexName: string, write: () => Promise<void>): Promise<void>
   markFatal(error: Error): void
   failPartition: PartitionFailure
@@ -231,9 +232,10 @@ async function finishBoundedCheckpoint(
       metadata.textStorage === 'disk'
         ? (await import('../paged/module')).keysThatSegmentsStillRead(manager)
         : new Set<string>()
+    const keptForSync = await input.keepsCheckpointKey()
     await removeCheckpointGarbage(
       store,
-      removable.filter(key => !droppedThisCheckpoint.has(key) && !stillRead.has(key)),
+      removable.filter(key => !droppedThisCheckpoint.has(key) && !stillRead.has(key) && !keptForSync(key)),
     )
   }
   const checkpointDocumentCount = documentCount
@@ -246,7 +248,9 @@ async function finishBoundedCheckpoint(
     await input.directory.atomicWrite(`${input.indexName}/meta`, bytes)
     input.hooks.recordCheckpoint?.(input.indexName, checkpointDocumentCount, manager.partitionCount)
   })
-  await truncateCoveredSegments(input.directory, input.indexName, targets)
+  const movedIntoHistoryAtMs = input.hooks.keepsSyncHistory?.(input.indexName) === true ? Date.now() : null
+  await truncateCoveredSegments(input.directory, input.indexName, targets, movedIntoHistoryAtMs)
+  if (movedIntoHistoryAtMs !== null) input.hooks.onHistoryMoved?.(input.indexName)
   await reclaimWalBeyondCount(
     input.directory,
     input.indexName,

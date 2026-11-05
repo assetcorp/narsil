@@ -9,6 +9,7 @@ import type {
 } from '../../types/results'
 import type { BM25Params, FieldType, PartitionConfig, SchemaDefinition, VectorIndexConfig } from '../../types/schema'
 import type { GroupConfig, ListParams, QueryParams, SuggestParams } from '../../types/search'
+import type { SyncSetting } from '../../types/sync'
 import type { BackupListResponse, CreateBackupBody, RestoreBackupBody } from './backups'
 import type { ErrorEnvelope } from './options'
 import type {
@@ -139,6 +140,8 @@ export interface HttpWireTypes {
   BatchBody: BatchBody
   /** The body of `POST /indexes/{name}/bm25`. */
   BM25Params: BM25Params
+  /** The body of `PUT /indexes/{name}/sync`. */
+  SyncSetting: SyncSetting
   /** The body of `POST /indexes/{name}/_change-analysis`. */
   ChangeAnalysisBody: ChangeAnalysisBody
   /** The body of `POST /indexes/{name}/backups`. */

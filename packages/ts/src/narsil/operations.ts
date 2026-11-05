@@ -8,9 +8,11 @@ import {
   updateDocumentBatch,
 } from '#platform/memory-guarded-writes'
 import { countWrite } from '#platform/turn-budget'
+import { clearEngineIndex } from '../engine/clear-index'
 import type { EngineCore, EventHandler } from '../engine/core'
 import { createEngineIndex, registerEngineEmbeddingAdapter } from '../engine/index-lifecycle'
 import { shutdownEngine } from '../engine/lifecycle'
+import { withRenewedSyncEpoch } from '../engine/sync-epoch'
 import { validatePartitionConfig } from '../engine/validation'
 import { emitWriteEventAfter } from '../engine/write-events'
 import { ErrorCodes, NarsilError } from '../errors'
@@ -40,6 +42,7 @@ import { bm25Operations } from './bm25'
 import { bindEngineCore } from './internals'
 import { portabilityOperations } from './portability'
 import { runEngineListDocuments, runEnginePreflight, runEngineQuery, runEngineSuggest } from './reads'
+import { syncOperations } from './sync'
 import { synonymOperations } from './synonyms'
 
 export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): Narsil {
@@ -239,6 +242,7 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
     ...portabilityOperations(core, config, () => narsil),
     ...synonymOperations(core),
     ...bm25Operations(core),
+    ...syncOperations(core),
 
     async checkpoint(indexName: string): Promise<void> {
       guardShutdown()
@@ -251,13 +255,7 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
     async clear(indexName: string): Promise<void> {
       guardShutdown()
       requireIndex(indexName)
-      await withOpenIndexWrite(indexName, async () => {
-        await executor.execute({ type: 'clear', indexName, requestId: indexName })
-        await orchestrator.replicateToWorkers({ type: 'clear', indexName, requestId: `replicate-clear-${indexName}` })
-        core.watermarkNotifier.forget(indexName)
-        const durable = core.durability?.manager
-        await (durable?.checkpointFromMemory?.(indexName) ?? durable?.checkpoint(indexName))
-      })
+      await withOpenIndexWrite(indexName, () => clearEngineIndex(core, indexName))
     },
 
     async rebalance(indexName: string, targetPartitionCount: number): Promise<void> {
@@ -272,12 +270,14 @@ export function createNarsilFromCore(core: EngineCore, config?: NarsilConfig): N
         if (rebalancesStarting.get(indexName) === started) rebalancesStarting.delete(indexName)
       }
       rebalancesStarting.set(indexName, started)
-      const rebalanced = withOpenIndex(indexName, async () => {
-        const { executeRebalance } = await import('../engine/analysis-change')
-        const running = executeRebalance(requireManager(indexName), indexName, targetPartitionCount, rebalanceCtx)
-        releaseWrites()
-        return running
-      })
+      const rebalanced = withOpenIndex(indexName, () =>
+        withRenewedSyncEpoch(core, indexName, async () => {
+          const { executeRebalance } = await import('../engine/analysis-change')
+          const running = executeRebalance(requireManager(indexName), indexName, targetPartitionCount, rebalanceCtx)
+          releaseWrites()
+          await running
+        }),
+      )
       return emitWriteEventAfter(core, indexName, rebalanced).finally(releaseWrites)
     },
 

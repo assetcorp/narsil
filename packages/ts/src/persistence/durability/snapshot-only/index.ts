@@ -194,6 +194,7 @@ export function createSnapshotOnlyManager(
       storedTermsAreCurrent: metadata.analysisRevision === manager.language.revision,
       compactionThreshold: DEFAULT_COMPACTION_THRESHOLD,
       keepsUnlistedFiles: false,
+      keptForSync: new Set(),
       replay: async checkpoint => checkpoint,
       onLayoutUpgrade: hooks.onLayoutUpgrade,
     })

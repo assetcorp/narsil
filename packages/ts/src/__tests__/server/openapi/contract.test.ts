@@ -159,7 +159,11 @@ describe('the published OpenAPI file', () => {
   beforeAll(async () => {
     durabilityDirectory = await mkdtemp(join(tmpdir(), 'narsil-openapi-'))
     single = await startTestServer(
-      { limits: { maxBodyBytes: LIMITED_BYTES, maxImportBytes: LIMITED_BYTES, maxRestoreBytes: LIMITED_BYTES } },
+      {
+        limits: { maxBodyBytes: LIMITED_BYTES, maxImportBytes: LIMITED_BYTES, maxRestoreBytes: LIMITED_BYTES },
+        sync: true,
+        onRequest: () => undefined,
+      },
       { workers: { enabled: false }, durability: { directory: join(durabilityDirectory, 'single') }, lifecycle: {} },
     )
     coordinator = createInMemoryCoordinator()

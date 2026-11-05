@@ -2,9 +2,6 @@ import type { TemplatedApp } from 'uWebSockets.js'
 import { MessageChannel, type MessagePort } from 'node:worker_threads'
 import type { EngineCore } from '../../engine/core'
 import type { RequestThreadListener } from '../../engine/orchestration'
-import { resolveVectorText } from '../../engine/resolve-vector-text'
-import { isNarsilError } from '../../errors'
-import { rerankOnHost } from '../../rerank/call'
 import type { Executor } from '../../workers/executor'
 import { clearBodyBudgetSlot } from '../body-budget'
 import { clearGateSlot, gateSlotOfWorker } from '../concurrency-gate'
@@ -15,23 +12,17 @@ import {
 } from '../constants'
 import type { ResolvedCors } from '../cors'
 import type { ResolvedBuild, ResolvedLimits } from '../deps'
-import { toHttpError } from '../errors'
 import type { Authorizer } from '../request'
 import type { ServerHandlers } from '../routes'
+import type { FeedHost, ThreadFeeds } from '../sync/feed-host'
+import { isThreadFeedNote } from '../sync/feed-messages'
 import { type AcceptorApp, acceptorOf } from './acceptor'
 import { answerRequest } from './answer-request'
 import type { CapturingResponse } from './captured-response'
 import { closeEveryThreadAtExit, createCloseAtExitWords } from './close-at-exit'
 import { confirmDeparture, createDepartureWord, departureConfirmed } from './departure'
-import type {
-  AuthorizeRequest,
-  AwaitWritesRequest,
-  EmbedQueryRequest,
-  RelayReply,
-  RelayRequest,
-  RerankQueryRequest,
-  ServeRequestsResult,
-} from './messages'
+import type { RelayRequest, ServeRequestsResult } from './messages'
+import { answerAuthorize, answerAwaitWrites, answerEmbed, answerFeedAdmit, answerRerank } from './relay-answers'
 
 export interface RequestThreadHostOptions {
   core: EngineCore
@@ -44,6 +35,7 @@ export interface RequestThreadHostOptions {
   allowRegex: boolean
   build: ResolvedBuild
   cors: ResolvedCors | null
+  feeds: FeedHost | null
 }
 
 export interface RequestThreadHost {
@@ -53,6 +45,7 @@ export interface RequestThreadHost {
 }
 
 interface ServingThread {
+  feeds: ThreadFeeds | null
   descriptor: unknown
   port: MessagePort
   executor: Executor
@@ -68,6 +61,7 @@ const RELAYED_TYPES: ReadonlySet<string> = new Set([
   'await-writes',
   'stream-credit',
   'stream-cancel',
+  'feed-admit',
 ])
 
 function isRelayRequest(message: unknown): message is RelayRequest {
@@ -75,59 +69,6 @@ function isRelayRequest(message: unknown): message is RelayRequest {
   const { type, requestId } = message as { type?: unknown; requestId?: unknown }
   if (type === 'touch' || type === 'leaving') return true
   return typeof requestId === 'number' && typeof type === 'string' && RELAYED_TYPES.has(type)
-}
-
-async function answerAuthorize(authorize: Authorizer | undefined, request: AuthorizeRequest): Promise<RelayReply> {
-  if (authorize === undefined) {
-    return { type: 'authorized', requestId: request.requestId, denial: null, hookError: false }
-  }
-  const authorization = await authorize(request.context)
-  if (authorization.allowed) {
-    return { type: 'authorized', requestId: request.requestId, denial: null, hookError: false }
-  }
-  return {
-    type: 'authorized',
-    requestId: request.requestId,
-    denial: authorization.denial,
-    hookError: authorization.denial === null,
-  }
-}
-
-async function answerEmbed(core: EngineCore, request: EmbedQueryRequest): Promise<RelayReply> {
-  try {
-    const entry = core.requireIndex(request.indexName)
-    const resolved = await resolveVectorText(
-      { vector: request.vector },
-      entry.embeddingAdapter,
-      core.abortController.signal,
-      entry.embeddingAdapterName,
-    )
-    const value = resolved.vector?.value
-    return {
-      type: 'embedded',
-      requestId: request.requestId,
-      value: value === undefined ? null : Array.from(value),
-      error: null,
-    }
-  } catch (err) {
-    if (!isNarsilError(err)) console.warn('Embedding a query for a request thread failed:', err)
-    return { type: 'embedded', requestId: request.requestId, value: null, error: toHttpError(err).body }
-  }
-}
-
-async function answerRerank(core: EngineCore, request: RerankQueryRequest): Promise<RelayReply> {
-  try {
-    const scores = await rerankOnHost(core, request.adapter, request.query, request.documents)
-    return { type: 'reranked', requestId: request.requestId, scores, error: null }
-  } catch (err) {
-    if (!isNarsilError(err)) console.warn('Reranking a query for a request thread failed:', err)
-    return { type: 'reranked', requestId: request.requestId, scores: null, error: toHttpError(err).body }
-  }
-}
-
-async function answerAwaitWrites(core: EngineCore, request: AwaitWritesRequest): Promise<RelayReply> {
-  await core.orchestrator.awaitWrites(request.indexName).catch(() => undefined)
-  return { type: 'writes-applied', requestId: request.requestId }
 }
 
 function touchIntervalFor(copyIdleTimeoutMs: number): number {
@@ -152,6 +93,7 @@ export async function startRequestThreads(options: RequestThreadHostOptions): Pr
   }
 
   function releaseDescriptor(thread: ServingThread): void {
+    thread.feeds?.closeAll()
     closeAtExit.delete(thread.closeAtExit)
     if (thread.descriptor !== null) {
       try {
@@ -164,7 +106,12 @@ export async function startRequestThreads(options: RequestThreadHostOptions): Pr
   function relayFrom(thread: ServingThread): void {
     const { port } = thread
     const streams = new Map<number, CapturingResponse>()
+    port.on('close', () => thread.feeds?.closeAll())
     port.on('message', (message: unknown) => {
+      if (isThreadFeedNote(message)) {
+        thread.feeds?.handle(message)
+        return
+      }
       if (!isRelayRequest(message)) return
       if (message.type === 'leaving') {
         releaseDescriptor(thread)
@@ -187,11 +134,13 @@ export async function startRequestThreads(options: RequestThreadHostOptions): Pr
           ? answerRequest(handlers[message.route], message, port, streams)
           : message.type === 'authorize'
             ? answerAuthorize(authorize, message)
-            : message.type === 'embed'
-              ? answerEmbed(core, message)
-              : message.type === 'await-writes'
-                ? answerAwaitWrites(core, message)
-                : answerRerank(core, message)
+            : message.type === 'feed-admit'
+              ? answerFeedAdmit(thread.feeds, message)
+              : message.type === 'embed'
+                ? answerEmbed(core, message)
+                : message.type === 'await-writes'
+                  ? answerAwaitWrites(core, message)
+                  : answerRerank(core, message)
       void reply.then(answer => {
         if (answer !== null) port.postMessage(answer)
       })
@@ -225,6 +174,7 @@ export async function startRequestThreads(options: RequestThreadHostOptions): Pr
       dropLongQueryThread()
       const channel = new MessageChannel()
       const relaying: ServingThread = {
+        feeds: null,
         descriptor: null,
         port: channel.port2,
         executor,
@@ -264,6 +214,7 @@ export async function startRequestThreads(options: RequestThreadHostOptions): Pr
       if (stopped) return
       const channel = new MessageChannel()
       const thread: ServingThread = {
+        feeds: options.feeds?.forThread(channel.port2) ?? null,
         descriptor: null,
         port: channel.port2,
         executor,
@@ -298,6 +249,7 @@ export async function startRequestThreads(options: RequestThreadHostOptions): Pr
               patternWorkCap: options.core.patternWorkCap,
               maxRerankWindow: options.core.rerankSettings.maxWindow,
               allowRegex: options.allowRegex,
+              sync: options.feeds !== null,
               longQueriesInFlight,
               longQueryPort: longQueryChannel?.port1 ?? null,
             },

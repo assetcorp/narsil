@@ -58,7 +58,7 @@ export function checkSegmentHeader(data: Uint8Array): SegmentHeaderCheck {
   return { ok: true }
 }
 
-function decodeEntry(payload: Uint8Array): ReplicationLogEntry {
+export function decodeWalEntry(payload: Uint8Array): ReplicationLogEntry {
   const decoded = decode(payload)
   const { entry } = validateEntryPayload({ entry: decoded })
   if (computeEntryChecksum(entry) !== entry.checksum) {
@@ -114,7 +114,7 @@ export function readDurableRegion(
     }
     let entry: ReplicationLogEntry
     try {
-      entry = decodeEntry(payload)
+      entry = decodeWalEntry(payload)
     } catch (err) {
       corrupt('WAL record payload failed to decode inside the durable region', {
         offset,
@@ -176,7 +176,7 @@ export function readTailBeyondFrontier(
     }
     let entry: ReplicationLogEntry
     try {
-      entry = decodeEntry(payload)
+      entry = decodeWalEntry(payload)
     } catch {
       break
     }

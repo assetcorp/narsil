@@ -35,6 +35,17 @@ jobs:
           node-version: 22
           cache: pnpm
 
+      - name: Setup Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.11'
+
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: packages/go/go.mod
+          cache: false
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
@@ -55,6 +66,12 @@ jobs:
 
       - name: Check the OpenAPI file matches a fresh generation
         run: pnpm nx run narsil-ts:openapi
+
+      - name: Check the Python client matches a fresh generation from the OpenAPI file
+        run: pnpm nx run narsil-python:generate
+
+      - name: Check the Go client matches a fresh generation from the OpenAPI file
+        run: pnpm nx run narsil-go:generate
 
       - name: Lint the OpenAPI file
         run: pnpm nx run narsil-ts:openapi:lint

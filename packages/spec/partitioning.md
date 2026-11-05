@@ -169,6 +169,8 @@ With durability configured, the engine appends a buffered write to the write-ahe
 6. PERSIST the new layout. Write the index metadata, take
    a checkpoint covering every new partition, and remove
    the log segments of every partition past the new count.
+   For an index with sync on, write a new epoch, as Index
+   Epoch in sync.md defines, with the metadata.
 
 7. RESYNCHRONISE every worker copy of the index, then
    drain and replay any writes buffered while steps 5 to 7

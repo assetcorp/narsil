@@ -17,6 +17,7 @@ import type { ListParams, QueryParams, SuggestParams } from '../../../types/sear
 import type { NodeRole } from '../../coordinator/types'
 import type { ClusterNamespace, CreateIndexOptions } from './config'
 import type { ClusterNodeSearchSettings } from './search-settings'
+import type { ClusterNodeSyncSettings } from './sync-settings'
 
 /**
  * One node of a cluster, which routes each write to the partition's primary
@@ -28,7 +29,7 @@ import type { ClusterNodeSearchSettings } from './search-settings'
  *
  * @public
  */
-export interface ClusterNode extends ClusterNodeSearchSettings {
+export interface ClusterNode extends ClusterNodeSearchSettings, ClusterNodeSyncSettings {
   /** This identifies the node across the cluster. */
   readonly nodeId: string
   /** The node holds these roles in the cluster. */
