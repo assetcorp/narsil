@@ -126,6 +126,49 @@ jobs:
           NARSIL_ETCD_ENDPOINT: http://127.0.0.1:2379
         run: pnpm nx run narsil-ts:test:etcd
 
+  conformance:
+    name: Conformance suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Restore the pinned conformance dataset
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: packages/conformance/.dataset
+          key: conformance-dataset-${{ hashFiles('packages/conformance/dataset-pin.json') }}
+
+      - name: Lint
+        run: pnpm nx run narsil-conformance:lint
+
+      - name: Typecheck (incl. tests)
+        run: pnpm nx run narsil-conformance:typecheck
+
+      - name: Build
+        run: pnpm nx run narsil-conformance:build
+
+      - name: Fetch the pinned dataset and check every digest
+        working-directory: packages/conformance
+        run: node dist/cli.mjs fetch
+
+      - name: Test
+        run: pnpm nx run narsil-conformance:test
+
   openapi-clients:
     name: Generated OpenAPI clients
     if: github.event_name == 'pull_request'

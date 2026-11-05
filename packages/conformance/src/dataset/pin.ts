@@ -1,11 +1,12 @@
 import { readFile } from 'node:fs/promises'
-import { fileURLToPath } from 'node:url'
+import { join } from 'node:path'
 import * as v from 'valibot'
+import { PACKAGE_ROOT } from '../package-root'
 import { DatasetPin } from './artifact'
 import { DATASET_ID } from './constants'
 
-export const PIN_PATH = fileURLToPath(new URL('../../dataset-pin.json', import.meta.url))
-export const DEFAULT_CACHE_DIRECTORY = fileURLToPath(new URL('../../.dataset/', import.meta.url))
+export const PIN_PATH = join(PACKAGE_ROOT, 'dataset-pin.json')
+export const DEFAULT_CACHE_DIRECTORY = join(PACKAGE_ROOT, '.dataset')
 export const CACHE_DIRECTORY_ENV = 'NARSIL_CONFORMANCE_DATASET_DIR'
 export const RELEASE_TAG = `dataset-${DATASET_ID.toLowerCase()
   .replace(/[^a-z0-9]+/g, '_')
