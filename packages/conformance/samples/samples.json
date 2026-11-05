@@ -1,0 +1,316 @@
+{
+  "samples": [
+    {
+      "name": "backup-manifest/products",
+      "kind": "backup-manifest",
+      "file": "files/backup-manifest/products.nrsl",
+      "expected": "expected/backup-manifest/products.json"
+    },
+    {
+      "name": "commit-marker/notes-p0",
+      "kind": "commit-marker",
+      "file": "checkpoints/notes/wal/0/commit",
+      "expected": "expected/commit-marker/notes-p0.json"
+    },
+    {
+      "name": "commit-marker/products-p0",
+      "kind": "commit-marker",
+      "file": "checkpoints/products/wal/0/commit",
+      "expected": "expected/commit-marker/products-p0.json"
+    },
+    {
+      "name": "commit-marker/readings-osq1-p0",
+      "kind": "commit-marker",
+      "file": "checkpoints/readings-osq1/wal/0/commit",
+      "expected": "expected/commit-marker/readings-osq1-p0.json"
+    },
+    {
+      "name": "commit-marker/readings-osq2-p0",
+      "kind": "commit-marker",
+      "file": "checkpoints/readings-osq2/wal/0/commit",
+      "expected": "expected/commit-marker/readings-osq2-p0.json"
+    },
+    {
+      "name": "commit-marker/readings-osq8-p0",
+      "kind": "commit-marker",
+      "file": "checkpoints/readings-osq8/wal/0/commit",
+      "expected": "expected/commit-marker/readings-osq8-p0.json"
+    },
+    {
+      "name": "document-export/products",
+      "kind": "document-export",
+      "file": "files/document-export/products.jsonl",
+      "expected": "expected/document-export/products.json"
+    },
+    {
+      "name": "graph-part/notes-p0",
+      "kind": "graph-part",
+      "file": "checkpoints/notes/segments/vec-embedding-1l4nfg2-graph-g1-p0000000000000000",
+      "expected": "expected/graph-part/notes-p0.json",
+      "storage": "disk"
+    },
+    {
+      "name": "graph-part/products-gzip",
+      "kind": "graph-part",
+      "file": "files/graph-part/products-gzip.nrsl",
+      "expected": "expected/graph-part/products-gzip.json",
+      "storage": "memory"
+    },
+    {
+      "name": "graph-part/products-p0",
+      "kind": "graph-part",
+      "file": "checkpoints/products/segments/vec-embedding-1l4nfg2-graph-g2-p0000000000000000",
+      "expected": "expected/graph-part/products-p0.json",
+      "storage": "memory"
+    },
+    {
+      "name": "graph-part/readings-osq1-p0",
+      "kind": "graph-part",
+      "file": "checkpoints/readings-osq1/segments/vec-embedding-1l4nfg2-graph-g1-p0000000000000000",
+      "expected": "expected/graph-part/readings-osq1-p0.json",
+      "storage": "memory"
+    },
+    {
+      "name": "graph-part/readings-osq2-p0",
+      "kind": "graph-part",
+      "file": "checkpoints/readings-osq2/segments/vec-embedding-1l4nfg2-graph-g1-p0000000000000000",
+      "expected": "expected/graph-part/readings-osq2-p0.json",
+      "storage": "memory"
+    },
+    {
+      "name": "graph-part/readings-osq8-p0",
+      "kind": "graph-part",
+      "file": "checkpoints/readings-osq8/segments/vec-embedding-1l4nfg2-graph-g1-p0000000000000000",
+      "expected": "expected/graph-part/readings-osq8-p0.json",
+      "storage": "memory"
+    },
+    {
+      "name": "index-configuration/products",
+      "kind": "index-configuration",
+      "file": "files/index-configuration/products.nrsl",
+      "expected": "expected/index-configuration/products.json"
+    },
+    {
+      "name": "index-configuration/products-gzip",
+      "kind": "index-configuration",
+      "file": "files/index-configuration/products-gzip.nrsl",
+      "expected": "expected/index-configuration/products-gzip.json"
+    },
+    {
+      "name": "index-metadata/notes",
+      "kind": "index-metadata",
+      "file": "checkpoints/notes/meta",
+      "expected": "expected/index-metadata/notes.json"
+    },
+    {
+      "name": "index-metadata/products",
+      "kind": "index-metadata",
+      "file": "checkpoints/products/meta",
+      "expected": "expected/index-metadata/products.json"
+    },
+    {
+      "name": "index-metadata/products-gzip",
+      "kind": "index-metadata",
+      "file": "files/index-metadata/products-gzip.nrsl",
+      "expected": "expected/index-metadata/products-gzip.json"
+    },
+    {
+      "name": "index-metadata/readings-osq1",
+      "kind": "index-metadata",
+      "file": "checkpoints/readings-osq1/meta",
+      "expected": "expected/index-metadata/readings-osq1.json"
+    },
+    {
+      "name": "index-metadata/readings-osq2",
+      "kind": "index-metadata",
+      "file": "checkpoints/readings-osq2/meta",
+      "expected": "expected/index-metadata/readings-osq2.json"
+    },
+    {
+      "name": "index-metadata/readings-osq8",
+      "kind": "index-metadata",
+      "file": "checkpoints/readings-osq8/meta",
+      "expected": "expected/index-metadata/readings-osq8.json"
+    },
+    {
+      "name": "keyword-segment/cluster-copy",
+      "kind": "keyword-segment",
+      "file": "files/keyword-segment/cluster-copy.nrsl",
+      "expected": "expected/keyword-segment/cluster-copy.json"
+    },
+    {
+      "name": "keyword-segment/products-gzip",
+      "kind": "keyword-segment",
+      "file": "files/keyword-segment/products-gzip.nrsl",
+      "expected": "expected/keyword-segment/products-gzip.json"
+    },
+    {
+      "name": "keyword-segment/products-p0-s0",
+      "kind": "keyword-segment",
+      "file": "checkpoints/products/segments/0/s0000000000000000",
+      "expected": "expected/keyword-segment/products-p0-s0.json"
+    },
+    {
+      "name": "keyword-segment/products-p0-s1",
+      "kind": "keyword-segment",
+      "file": "checkpoints/products/segments/0/s0000000000000001",
+      "expected": "expected/keyword-segment/products-p0-s1.json"
+    },
+    {
+      "name": "keyword-segment/readings-osq1-p0-s0",
+      "kind": "keyword-segment",
+      "file": "checkpoints/readings-osq1/segments/0/s0000000000000000",
+      "expected": "expected/keyword-segment/readings-osq1-p0-s0.json"
+    },
+    {
+      "name": "keyword-segment/readings-osq2-p0-s0",
+      "kind": "keyword-segment",
+      "file": "checkpoints/readings-osq2/segments/0/s0000000000000000",
+      "expected": "expected/keyword-segment/readings-osq2-p0-s0.json"
+    },
+    {
+      "name": "keyword-segment/readings-osq8-p0-s0",
+      "kind": "keyword-segment",
+      "file": "checkpoints/readings-osq8/segments/0/s0000000000000000",
+      "expected": "expected/keyword-segment/readings-osq8-p0-s0.json"
+    },
+    {
+      "name": "log-segment/notes-p0-141",
+      "kind": "log-segment",
+      "file": "checkpoints/notes/wal/0/0000000000000141",
+      "expected": "expected/log-segment/notes-p0-141.json"
+    },
+    {
+      "name": "log-segment/products-p0-46",
+      "kind": "log-segment",
+      "file": "checkpoints/products/wal/0/0000000000000046",
+      "expected": "expected/log-segment/products-p0-46.json"
+    },
+    {
+      "name": "log-segment/readings-osq1-p0-21",
+      "kind": "log-segment",
+      "file": "checkpoints/readings-osq1/wal/0/0000000000000021",
+      "expected": "expected/log-segment/readings-osq1-p0-21.json"
+    },
+    {
+      "name": "log-segment/readings-osq2-p0-21",
+      "kind": "log-segment",
+      "file": "checkpoints/readings-osq2/wal/0/0000000000000021",
+      "expected": "expected/log-segment/readings-osq2-p0-21.json"
+    },
+    {
+      "name": "log-segment/readings-osq8-p0-21",
+      "kind": "log-segment",
+      "file": "checkpoints/readings-osq8/wal/0/0000000000000021",
+      "expected": "expected/log-segment/readings-osq8-p0-21.json"
+    },
+    {
+      "name": "manifest/cluster-copy",
+      "kind": "manifest",
+      "file": "files/manifest/cluster-copy.nrsl",
+      "expected": "expected/manifest/cluster-copy.json"
+    },
+    {
+      "name": "manifest/notes",
+      "kind": "manifest",
+      "file": "checkpoints/notes/manifest",
+      "expected": "expected/manifest/notes.json"
+    },
+    {
+      "name": "manifest/products",
+      "kind": "manifest",
+      "file": "checkpoints/products/manifest",
+      "expected": "expected/manifest/products.json"
+    },
+    {
+      "name": "manifest/products-gzip",
+      "kind": "manifest",
+      "file": "files/manifest/products-gzip.nrsl",
+      "expected": "expected/manifest/products-gzip.json"
+    },
+    {
+      "name": "manifest/readings-osq1",
+      "kind": "manifest",
+      "file": "checkpoints/readings-osq1/manifest",
+      "expected": "expected/manifest/readings-osq1.json"
+    },
+    {
+      "name": "manifest/readings-osq2",
+      "kind": "manifest",
+      "file": "checkpoints/readings-osq2/manifest",
+      "expected": "expected/manifest/readings-osq2.json"
+    },
+    {
+      "name": "manifest/readings-osq8",
+      "kind": "manifest",
+      "file": "checkpoints/readings-osq8/manifest",
+      "expected": "expected/manifest/readings-osq8.json"
+    },
+    {
+      "name": "paged-segment/cluster-copy",
+      "kind": "paged-segment",
+      "file": "files/paged-segment/cluster-copy.nrsl",
+      "expected": "expected/paged-segment/cluster-copy.json"
+    },
+    {
+      "name": "paged-segment/notes-p0-s0",
+      "kind": "paged-segment",
+      "file": "checkpoints/notes/segments/0/s0000000000000000",
+      "expected": "expected/paged-segment/notes-p0-s0.json"
+    },
+    {
+      "name": "snapshot-archive/partition-0",
+      "kind": "snapshot-archive",
+      "file": "files/snapshot-archive/partition-0.tar",
+      "expected": "expected/snapshot-archive/partition-0.json"
+    },
+    {
+      "name": "snapshot-archive/products",
+      "kind": "snapshot-archive",
+      "file": "files/snapshot-archive/products.tar",
+      "expected": "expected/snapshot-archive/products.json"
+    },
+    {
+      "name": "vector-file/notes-f0",
+      "kind": "vector-file",
+      "file": "checkpoints/notes/segments/vec-embedding-1l4nfg2-f0000000000000000",
+      "expected": "expected/vector-file/notes-f0.json",
+      "storage": "disk"
+    },
+    {
+      "name": "vector-file/products-f0",
+      "kind": "vector-file",
+      "file": "checkpoints/products/segments/vec-embedding-1l4nfg2-f0000000000000000",
+      "expected": "expected/vector-file/products-f0.json",
+      "storage": "memory"
+    },
+    {
+      "name": "vector-file/products-f1",
+      "kind": "vector-file",
+      "file": "checkpoints/products/segments/vec-embedding-1l4nfg2-f0000000000000001",
+      "expected": "expected/vector-file/products-f1.json",
+      "storage": "memory"
+    },
+    {
+      "name": "vector-file/readings-osq1-f0",
+      "kind": "vector-file",
+      "file": "checkpoints/readings-osq1/segments/vec-embedding-1l4nfg2-f0000000000000000",
+      "expected": "expected/vector-file/readings-osq1-f0.json",
+      "storage": "memory"
+    },
+    {
+      "name": "vector-file/readings-osq2-f0",
+      "kind": "vector-file",
+      "file": "checkpoints/readings-osq2/segments/vec-embedding-1l4nfg2-f0000000000000000",
+      "expected": "expected/vector-file/readings-osq2-f0.json",
+      "storage": "memory"
+    },
+    {
+      "name": "vector-file/readings-osq8-f0",
+      "kind": "vector-file",
+      "file": "checkpoints/readings-osq8/segments/vec-embedding-1l4nfg2-f0000000000000000",
+      "expected": "expected/vector-file/readings-osq8-f0.json",
+      "storage": "memory"
+    }
+  ]
+}

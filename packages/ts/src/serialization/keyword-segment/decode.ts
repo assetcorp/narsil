@@ -1,4 +1,5 @@
 import { decode } from '@msgpack/msgpack'
+import { ErrorCodes, NarsilError } from '../../errors'
 import { requireValidFieldTypes } from '../../schema/validator/schema'
 import { VECTOR_PATTERN } from '../../schema/validator/shared'
 import {
@@ -167,7 +168,11 @@ export function decodeKeywordSegment(payload: Uint8Array, shared: boolean): Keyw
   }
   const raw = requireRecord(decoded, 'payload')
   if (raw.v !== KEYWORD_SEGMENT_PAYLOAD_VERSION) {
-    corrupt(`payload version ${String(raw.v)} is not ${KEYWORD_SEGMENT_PAYLOAD_VERSION}`, { version: raw.v })
+    throw new NarsilError(
+      ErrorCodes.ENVELOPE_VERSION_MISMATCH,
+      `This keyword segment payload was written in layout ${String(raw.v)}, and this build reads layout ${KEYWORD_SEGMENT_PAYLOAD_VERSION} alone`,
+      { version: raw.v },
+    )
   }
   const schema = decodeSchema(raw.schema)
   const tombstones = requireStrings(raw.tombstones, 'tombstones')

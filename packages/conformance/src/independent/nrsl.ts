@@ -4,7 +4,6 @@ import { crc32 } from './crc32'
 export const NRSL_HEADER_BYTES = 32
 const MAX_FILE_BYTES = 2_147_483_647
 const NRSL_MAGIC = [0x4e, 0x52, 0x53, 0x4c]
-const RESERVED_START = 18
 const COMPRESSION_BIT = 0b1
 const ALGORITHM_SHIFT = 1
 const ALGORITHM_MASK = 0b11
@@ -42,9 +41,6 @@ export function openNrsl(bytes: Uint8Array): NrslFile {
       `the header gives a payload of ${payloadLength} bytes, while ${bytes.length - NRSL_HEADER_BYTES} follow it`,
     )
   }
-  for (let at = RESERVED_START; at < NRSL_HEADER_BYTES; at++) {
-    if (bytes[at] !== 0) throw new NrslFormatError(`reserved header byte ${at} holds ${bytes[at]}`)
-  }
   if ((flags & ENCRYPTION_BIT) !== 0) throw new NrslFormatError('the header sets the encryption flag')
   const compressed = (flags & COMPRESSION_BIT) !== 0
   const algorithm = (flags >> ALGORITHM_SHIFT) & ALGORITHM_MASK
@@ -55,9 +51,6 @@ export function openNrsl(bytes: Uint8Array): NrslFile {
   const storedPayload = bytes.subarray(NRSL_HEADER_BYTES)
   if (checksumPresent && crc32(storedPayload) !== checksum) {
     throw new NrslFormatError(`the payload checksum ${crc32(storedPayload)} differs from the header's ${checksum}`)
-  }
-  if (!checksumPresent && checksum !== 0) {
-    throw new NrslFormatError('the header holds a checksum without the checksum flag')
   }
   return {
     envelopeFormatVersion: bytes[4],
