@@ -1,4 +1,5 @@
-import { createGeoIndex, type GeoIndexReader } from '../../../geo/geo-index'
+import { createLoadedGeoIndex } from '../../../geo/geo-code'
+import type { GeoIndexReader } from '../../../geo/geo-index'
 import type { FieldNameTable, SerializedSurfaceForms } from '../../../types/internal'
 import type { AnyDocument } from '../../../types/schema'
 import type { BooleanFieldIndexReader, EnumFieldIndexReader, NumericFieldIndexReader } from '../../field-index'
@@ -141,7 +142,7 @@ function storedFrequenciesOf(source: FrozenSegmentSource): () => Readonly<Record
 function buildGeoReaders(entries: SegmentPayload['geo']): Map<string, GeoIndexReader> {
   const readers = new Map<string, GeoIndexReader>()
   for (const entry of entries) {
-    const index = createGeoIndex()
+    const index = createLoadedGeoIndex()
     for (let i = 0; i < entry.docIds.length; i++) {
       index.insert(entry.docIds[i], entry.latitudes[i], entry.longitudes[i])
     }

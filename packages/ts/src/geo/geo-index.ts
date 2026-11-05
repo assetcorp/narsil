@@ -3,7 +3,7 @@ import { PENDING_REMOVAL_MERGE_DIVISOR, PENDING_REMOVAL_MERGE_FLOOR } from '../c
 import type { GeopointEntry } from '../types/internal'
 import { coveringRanges, type LocationBox, locationCode } from './cells'
 import { polygonBoxes, polygonContainment } from './polygon'
-import { requireLoadedRadiusCode } from './radius-code'
+import { radiusBoxes, radiusCandidateTest } from './radius'
 
 export interface GeoIndexReader {
   radiusQuery(lat: number, lon: number, distanceMeters: number, inside: boolean, highPrecision: boolean): Set<number>
@@ -19,95 +19,160 @@ export interface GeoIndex extends GeoIndexReader {
   deserialize(data: GeopointEntry[]): void
 }
 
-interface LocatedEntry extends GeopointEntry {
-  code: number
-}
+type LocationTest = (lat: number, lon: number) => boolean
+type LocationRows = Float64Array<ArrayBuffer>
 
 const REMOVED_DOC_ID = -1
+const ROW_STRIDE = 4
+const ROW_CODE = 0
+const ROW_LAT = 1
+const ROW_LON = 2
+const ROW_DOC_ID = 3
 
-function firstAtOrAfter(entries: readonly LocatedEntry[], code: number): number {
+function firstAtOrAfter(rows: LocationRows, length: number, code: number): number {
   let lo = 0
-  let hi = entries.length
+  let hi = length
   while (lo < hi) {
     const mid = (lo + hi) >>> 1
-    if (entries[mid].code < code) lo = mid + 1
+    if (rows[mid * ROW_STRIDE + ROW_CODE] < code) lo = mid + 1
     else hi = mid
   }
   return lo
 }
 
-function dropRemoved(entries: LocatedEntry[]): void {
-  let write = 0
-  for (let read = 0; read < entries.length; read++) {
-    if (entries[read].docId !== REMOVED_DOC_ID) entries[write++] = entries[read]
+function firstAfter(rows: LocationRows, length: number, code: number, docId: number): number {
+  let lo = 0
+  let hi = length
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1
+    const midCode = rows[mid * ROW_STRIDE + ROW_CODE]
+    if (midCode > code || (midCode === code && rows[mid * ROW_STRIDE + ROW_DOC_ID] > docId)) hi = mid
+    else lo = mid + 1
   }
-  entries.length = write
+  return lo
 }
 
-function mergeSortedPending(entries: LocatedEntry[], pending: LocatedEntry[]): void {
-  pending.sort((left, right) => left.code - right.code || left.docId - right.docId)
-  const mainLength = entries.length
-  for (const entry of pending) entries.push(entry)
-  let left = mainLength - 1
-  let right = pending.length - 1
-  let write = entries.length - 1
-  while (right >= 0) {
-    const later = left >= 0 ? entries[left] : undefined
-    const next = pending[right]
-    if (later !== undefined && (later.code > next.code || (later.code === next.code && later.docId > next.docId))) {
-      entries[write--] = later
-      left--
-    } else {
-      entries[write--] = next
-      right--
-    }
+function withCapacity(rows: LocationRows, kept: number, needed: number): LocationRows {
+  if (rows.length >= needed * ROW_STRIDE) return rows
+  const grown = new Float64Array(Math.max(needed, (rows.length / ROW_STRIDE) * 2) * ROW_STRIDE)
+  grown.set(rows.subarray(0, kept * ROW_STRIDE))
+  return grown
+}
+
+function withoutRows(rows: LocationRows, length: number, removedRows: number[]): number {
+  const removed = Float64Array.from(removedRows).sort()
+  let write = removed[0]
+  for (let at = 0; at < removed.length; at++) {
+    const from = removed[at] + 1
+    const to = at + 1 < removed.length ? removed[at + 1] : length
+    if (to > from) rows.copyWithin(write * ROW_STRIDE, from * ROW_STRIDE, to * ROW_STRIDE)
+    write += to - from
+  }
+  return write
+}
+
+function withoutRemovedPending(rows: LocationRows, length: number): number {
+  let write = 0
+  for (let read = 0; read < length; read++) {
+    const source = read * ROW_STRIDE
+    if (rows[source + ROW_DOC_ID] === REMOVED_DOC_ID) continue
+    if (write !== read) rows.copyWithin(write * ROW_STRIDE, source, source + ROW_STRIDE)
+    write++
+  }
+  return write
+}
+
+function sortedOrder(rows: LocationRows, length: number): Uint32Array {
+  const order = new Uint32Array(length)
+  for (let at = 0; at < length; at++) order[at] = at
+  return order.sort(
+    (left, right) =>
+      rows[left * ROW_STRIDE + ROW_CODE] - rows[right * ROW_STRIDE + ROW_CODE] ||
+      rows[left * ROW_STRIDE + ROW_DOC_ID] - rows[right * ROW_STRIDE + ROW_DOC_ID],
+  )
+}
+
+function mergeInto(
+  located: LocationRows,
+  placed: number,
+  pending: LocationRows,
+  order: Uint32Array,
+  byDocument: Map<number, number>,
+): void {
+  let unmerged = placed
+  for (let right = order.length - 1; right >= 0; right--) {
+    const source = order[right] * ROW_STRIDE
+    const code = pending[source + ROW_CODE]
+    const docId = pending[source + ROW_DOC_ID]
+    const from = firstAfter(located, unmerged, code, docId)
+    if (from < unmerged) located.copyWithin((from + right + 1) * ROW_STRIDE, from * ROW_STRIDE, unmerged * ROW_STRIDE)
+    const target = (from + right) * ROW_STRIDE
+    located[target + ROW_CODE] = code
+    located[target + ROW_LAT] = pending[source + ROW_LAT]
+    located[target + ROW_LON] = pending[source + ROW_LON]
+    located[target + ROW_DOC_ID] = docId
+    byDocument.set(docId, code)
+    unmerged = from
   }
 }
 
 export function createGeoIndex(): GeoIndex {
-  let entries: LocatedEntry[] = []
-  let pending: LocatedEntry[] = []
-  const byDocument = new Map<number, LocatedEntry>()
-  let removedCount = 0
+  let located: LocationRows = new Float64Array(0)
+  let placed = 0
+  let removedRows: number[] = []
+  let pending: LocationRows = new Float64Array(0)
+  let pendingCount = 0
+  let pendingRemoved = 0
+  const byDocument = new Map<number, number>()
 
   function ensureSorted(): void {
-    if (removedCount > 0) {
-      dropRemoved(entries)
-      dropRemoved(pending)
-      removedCount = 0
+    if (removedRows.length > 0) {
+      placed = withoutRows(located, placed, removedRows)
+      removedRows = []
     }
-    if (pending.length === 0) return
-    if (entries.length === 0) {
-      pending.sort((left, right) => left.code - right.code || left.docId - right.docId)
-      entries = pending
-    } else {
-      mergeSortedPending(entries, pending)
+    if (pendingRemoved > 0) {
+      pendingCount = withoutRemovedPending(pending, pendingCount)
+      pendingRemoved = 0
     }
-    pending = []
+    if (pendingCount === 0) return
+    const order = sortedOrder(pending, pendingCount)
+    located = withCapacity(located, placed, placed + pendingCount)
+    mergeInto(located, placed, pending, order, byDocument)
+    placed += pendingCount
+    pendingCount = 0
+    pending = new Float64Array(0)
   }
 
-  function removeEntry(entry: LocatedEntry): void {
-    byDocument.delete(entry.docId)
-    entry.docId = REMOVED_DOC_ID
-    removedCount++
-    const held = entries.length + pending.length
+  function removeDocument(docId: number, reference: number): void {
+    byDocument.delete(docId)
+    if (reference < 0) {
+      pending[(-reference - 1) * ROW_STRIDE + ROW_DOC_ID] = REMOVED_DOC_ID
+      pendingRemoved++
+    } else {
+      removedRows.push(firstAfter(located, placed, reference, docId) - 1)
+    }
+    const removedCount = removedRows.length + pendingRemoved
+    const held = placed + pendingCount
     if (removedCount >= Math.max(PENDING_REMOVAL_MERGE_FLOOR, held / PENDING_REMOVAL_MERGE_DIVISOR)) ensureSorted()
   }
 
-  function matching(boxes: readonly LocationBox[], prepare: () => (entry: LocatedEntry) => boolean, inside: boolean) {
+  function matching(boxes: readonly LocationBox[], prepare: () => LocationTest, inside: boolean) {
     ensureSorted()
     const within = new Set<number>()
-    let passes: ((entry: LocatedEntry) => boolean) | null = null
+    let passes: LocationTest | null = null
+    const end = placed * ROW_STRIDE
     for (const range of coveringRanges(boxes)) {
-      for (let at = firstAtOrAfter(entries, range.from); at < entries.length && entries[at].code < range.to; at++) {
+      let base = firstAtOrAfter(located, placed, range.from) * ROW_STRIDE
+      for (; base < end && located[base + ROW_CODE] < range.to; base += ROW_STRIDE) {
         passes ??= prepare()
-        if (passes(entries[at])) within.add(entries[at].docId)
+        if (passes(located[base + ROW_LAT], located[base + ROW_LON])) within.add(located[base + ROW_DOC_ID])
       }
     }
     if (inside) return within
     const outside = new Set<number>()
-    for (const entry of entries) {
-      if (!within.has(entry.docId)) outside.add(entry.docId)
+    for (let base = 0; base < end; base += ROW_STRIDE) {
+      const docId = located[base + ROW_DOC_ID]
+      if (!within.has(docId)) outside.add(docId)
     }
     return outside
   }
@@ -115,15 +180,20 @@ export function createGeoIndex(): GeoIndex {
   const index: GeoIndex = {
     insert(internalId: number, lat: number, lon: number): void {
       const existing = byDocument.get(internalId)
-      if (existing !== undefined) removeEntry(existing)
-      const entry: LocatedEntry = { lat, lon, docId: internalId, code: locationCode(lat, lon) }
-      pending.push(entry)
-      byDocument.set(internalId, entry)
+      if (existing !== undefined) removeDocument(internalId, existing)
+      pending = withCapacity(pending, pendingCount, pendingCount + 1)
+      const base = pendingCount * ROW_STRIDE
+      pending[base + ROW_CODE] = locationCode(lat, lon)
+      pending[base + ROW_LAT] = lat
+      pending[base + ROW_LON] = lon
+      pending[base + ROW_DOC_ID] = internalId
+      pendingCount++
+      byDocument.set(internalId, -pendingCount)
     },
 
     remove(internalId: number): void {
       const existing = byDocument.get(internalId)
-      if (existing !== undefined) removeEntry(existing)
+      if (existing !== undefined) removeDocument(internalId, existing)
     },
 
     radiusQuery(
@@ -133,18 +203,16 @@ export function createGeoIndex(): GeoIndex {
       inside: boolean,
       highPrecision: boolean,
     ): Set<number> {
-      const radius = requireLoadedRadiusCode()
       return matching(
-        radius.radiusBoxes(lat, lon, distanceMeters),
-        () => radius.radiusCandidateTest(lat, lon, distanceMeters, highPrecision),
+        radiusBoxes(lat, lon, distanceMeters),
+        () => radiusCandidateTest(lat, lon, distanceMeters, highPrecision),
         inside,
       )
     },
 
     polygonQuery(points: Array<{ lat: number; lon: number }>, inside: boolean): Set<number> {
       const contains = polygonContainment(points)
-      const passes = (entry: LocatedEntry) => contains(entry.lat, entry.lon)
-      return matching(polygonBoxes(points), () => passes, inside)
+      return matching(polygonBoxes(points), () => contains, inside)
     },
 
     documentsBitset(capacity: number): Uint32Array {
@@ -154,15 +222,27 @@ export function createGeoIndex(): GeoIndex {
     },
 
     clear(): void {
-      entries = []
-      pending = []
+      located = new Float64Array(0)
+      placed = 0
+      removedRows = []
+      pending = new Float64Array(0)
+      pendingCount = 0
+      pendingRemoved = 0
       byDocument.clear()
-      removedCount = 0
     },
 
     serialize(): GeopointEntry[] {
       ensureSorted()
-      return entries.map(entry => ({ lat: entry.lat, lon: entry.lon, docId: entry.docId }))
+      const serialized: GeopointEntry[] = new Array(placed)
+      for (let at = 0; at < placed; at++) {
+        const base = at * ROW_STRIDE
+        serialized[at] = {
+          lat: located[base + ROW_LAT],
+          lon: located[base + ROW_LON],
+          docId: located[base + ROW_DOC_ID],
+        }
+      }
+      return serialized
     },
 
     deserialize(data: GeopointEntry[]): void {
