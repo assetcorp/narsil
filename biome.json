@@ -16,7 +16,9 @@
       "!benchmarks/datasets",
       "!data/**/*.json",
       "!**/fixtures/**/*.json",
-      "!packages/ts/openapi.json"
+      "!packages/ts/openapi.json",
+      "!packages/conformance/searches",
+      "!packages/conformance/samples"
     ]
   },
   "css": {

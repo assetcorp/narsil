@@ -1,0 +1,43 @@
+{
+  "header": {
+    "envelopeFormatVersion": 5,
+    "compression": "none",
+    "checksum": true
+  },
+  "payload": {
+    "schema": {
+      "title": "string",
+      "tags": "string[]",
+      "sku": "verbatim:sortable",
+      "price": "number",
+      "sizes": "number[]",
+      "inStock": "boolean",
+      "category": "enum",
+      "colours": "enum[]",
+      "location": "geopoint",
+      "code": "string:pattern",
+      "description": "string:partial",
+      "embedding": "vector[8]"
+    },
+    "language": "english",
+    "analysisRevision": "ebae3448ae674b59",
+    "arrayPositionGap": 100,
+    "bm25": {
+      "k1": 1.4,
+      "b": 0.7
+    },
+    "surfaceForms": true,
+    "trackPositions": true,
+    "required": ["title"],
+    "vectorPromotion": {
+      "threshold": 16,
+      "quantization": "osq4",
+      "storage": "memory",
+      "hnswConfig": {
+        "m": 8,
+        "efConstruction": 64,
+        "metric": "cosine"
+      }
+    }
+  }
+}

@@ -223,7 +223,7 @@ The `language` setting still applies alongside a custom tokeniser: it supplies t
 
 ## LanguageModule
 
-A language module carries the language-specific parts of text analysis. Each one is self-contained, so a build loads only the languages it uses.
+A language module carries the language-specific parts of text analysis. Each one is self-contained, so a build loads only the languages it uses. The module that the reference implementation publishes for a language defines that language's stemmer, stop words, normaliser, and tokeniser configuration, and its `revision` identifies them, so an implementation of a language must analyse text exactly as the reference module of the same revision does.
 
 ```text
 LanguageModule {
@@ -270,7 +270,7 @@ An optional configuration that overrides the tokenisation defaults for this lang
 
 | Field | Effect |
 |-------|--------|
-| `splitPattern` | Narsil splits text on every match of this expression. It defaults to a run of characters that are none of a letter, a mark, a number, an underscore, an apostrophe, or a hyphen. |
+| `splitPattern` | Narsil splits text on every match of this expression. It defaults to a run of characters that are none of a letter, a mark, a number, an underscore, an apostrophe, or a hyphen. A module can set another expression, and English sets a run of characters that are none of a letter, a mark, a number, an underscore, or an apostrophe, so it splits `long-term` into `long` and `term`. |
 | `normalizeDiacritics` | Narsil strips the combining marks from U+0300 to U+036F from every token. It defaults to off. |
 | `minTokenLength` | Narsil discards a token shorter than this length. It defaults to 1. |
 | `stripPossessive` | Narsil removes a trailing apostrophe, and a trailing apostrophe followed by `s`. It defaults to off, and English turns it on. |

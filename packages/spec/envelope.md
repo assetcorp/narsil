@@ -1,6 +1,6 @@
 # Narsil Envelope Format Specification (.nrsl)
 
-The `.nrsl` format is Narsil's binary serialisation format and its portable cross-language contract for storing and moving index data. Every conforming implementation must read and write it identically, whatever language it is written in.
+The `.nrsl` format is Narsil's binary serialisation format and its portable cross-language contract for storing and moving index data. Every conforming implementation, whatever language it is written in, must read every file that another conforming implementation writes, and it must write the same content for the same data, as [conformance.md](conformance.md#same-content) defines it. Two correct writers can produce different bytes, because a MessagePack encoder can choose the width of an integer and two DEFLATE compressors can encode a block differently.
 
 Structure definitions use a language-neutral notation. `List<T>` is an ordered collection of `T`, `Map<K, V>` a mapping from keys to values, and `T or absent` a value that may be missing. Width-tagged names such as `uint32` and `float32` describe exact byte widths on disk and on the wire; each implementation maps them to its own types.
 
@@ -32,7 +32,7 @@ Offset  Size  Type      Field                    Description
 
 ### Magic Bytes
 
-The first four bytes must be `0x4E 0x52 0x53 0x4C`, which is ASCII `NRSL`. A reader must reject any file that starts with anything else.
+The first four bytes must be `0x4E 0x52 0x53 0x4C`, which is ASCII `NRSL`. A reader must reject with `ENVELOPE_INVALID_MAGIC` a file that starts with anything else or that holds fewer than 32 bytes.
 
 ### Envelope Format Version
 
@@ -44,7 +44,7 @@ Three bytes recording the `major.minor.patch` version of the engine that wrote t
 
 ### Payload Length
 
-The byte count of the payload that follows the header. A reader must read exactly that many bytes starting at offset 32. A writer must reject a payload longer than 4,294,967,295 bytes with `PERSISTENCE_SAVE_FAILED`.
+The byte count of the payload that follows the header. A reader must read exactly that many bytes starting at offset 32. A reader must raise `PERSISTENCE_LOAD_FAILED` for a file that holds fewer than `payload_length` bytes after the header. A writer must reject a payload longer than 4,294,967,295 bytes with `PERSISTENCE_SAVE_FAILED`.
 
 ### File Size
 
@@ -85,13 +85,13 @@ Bit 0 set to 1 means the payload is compressed, and bits 1 and 2 name the algori
 | `10` | lz4 | optional |
 | `11` | zstd | optional |
 
-Every v1 implementation must support gzip. The lz4 and zstd values are reserved for later use, and a v1 reader that meets either must reject the file with a clear message.
+Every v1 implementation must support gzip. The lz4 and zstd values are reserved for later use, and a v1 reader that meets either with bit 0 set must reject the file with `ENVELOPE_VERSION_MISMATCH`.
 
 With compression on, `payload_length` counts the compressed bytes. The reader decompresses the payload before it decodes MessagePack.
 
 ### Encryption
 
-Bit 4 set to 1 means the payload is encrypted. Version 1 defines no encryption scheme, so a v1 reader that meets an encrypted payload must reject it with a clear message.
+Bit 4 set to 1 means the payload is encrypted. Version 1 defines no encryption scheme, so a v1 reader that meets an encrypted payload must reject it with `ENVELOPE_VERSION_MISMATCH`.
 
 ---
 
@@ -100,6 +100,8 @@ Bit 4 set to 1 means the payload is encrypted. Version 1 defines no encryption s
 The payload starts at byte 32 and is encoded as [MessagePack](https://msgpack.org/).
 
 The `envelope_format_version` field in the header fixes the payload schema, and the storage key tells the reader which payload type to expect. Version 4 marks a [keyword segment payload](#keyword-segment-payload), and version 5 marks the [index configuration payload](#index-configuration-payload) that a [snapshot archive](durability.md#snapshot-archive) holds. Version 6 marks a [paged keyword segment payload](#paged-keyword-segment-payload).
+
+A reader must reject with `ENVELOPE_VERSION_MISMATCH` a payload whose `v` matches no version of that payload that this specification defines, as [Version Compatibility Rules](#version-compatibility-rules) require of a newer version.
 
 ---
 
@@ -262,7 +264,7 @@ A reader may decode each document when it first reads the document, and it must 
 
 ### Paged Keyword Segment Payload
 
-A paged keyword segment holds the same content as a keyword segment, laid out so that a reader can open it without reading it whole. The header's compression flag must be 0, and its checksum must cover the whole payload, as for every other file of the checkpoint.
+A paged keyword segment holds the same content as a keyword segment, laid out so that a reader can open it without reading it whole. The header's compression flag must be 0, and its checksum must cover the whole payload, as for every other file of the checkpoint. A reader must raise `PERSISTENCE_LOAD_FAILED` for a paged segment whose compression flag is 1.
 
 ```text
 payload {
@@ -343,7 +345,7 @@ In a paged segment, `tombstones` must list the ID of every document that the seg
 
 ### Checks on a paged segment
 
-When it opens a paged segment, a reader must compare the file's length and header checksum with the manifest, must check `headChecksum`, and must check every page of each resident section. It must apply to each resident section the rules that [Keyword Segment Payload](#keyword-segment-payload) sets for that section.
+When it opens a paged segment, a reader must compare the file's length and header checksum with the manifest, must check `headChecksum`, where a mismatch raises `PERSISTENCE_CRC_MISMATCH`, and must check every page of each resident section. It must apply to each resident section the rules that [Keyword Segment Payload](#keyword-segment-payload) sets for that section.
 
 A reader must check a page's checksum the first time it reads the page into its cache, and it must check the page again on any later read from the disk. A mismatch raises `PERSISTENCE_CRC_MISMATCH`. Before it uses a page, a reader must apply the rules that the payload sets for the values on that page. Those rules cover an ordinal at or above `documentCount`, a field at or above the length of `fieldNames`, and an offset that lies outside its list, which raise `PERSISTENCE_LOAD_FAILED`. A reader need not apply a rule across a whole paged section when it opens the segment, as a section that a search never reads holds no value that a search can use.
 
@@ -390,7 +392,7 @@ OSQRecord = [
 ]
 ```
 
-A writer must set `codes`, with `bits` matching the mode, for an index that holds a graph under an `osq` mode, and it must write nil for every other index. Each `OSQRecord` holds its `code`, packed as [Optimised Scalar Quantisation (OSQ)](algorithms.md#optimised-scalar-quantisation-osq) defines in `ceiling(dimension * bits / 8)` bytes, followed by 16 bytes of `lower`, `upper`, `correction`, and `sum`. `records` holds the records one after another with no padding between them. Every number inside `vectors` and inside an `OSQRecord` is little-endian. A writer must write `vectors` as the last entry of the map with the compression flag at 0, so that a reader can find vector `i` at `payload_length - (count - i) * dimension * 4` bytes into the payload, where `count` is the length of `docIds`.
+A writer must set `codes`, with `bits` matching the mode, for an index that holds a graph under an `osq` mode, and it must write nil for every other index. Each `OSQRecord` holds its `code`, packed as [Optimised Scalar Quantisation (OSQ)](algorithms.md#optimised-scalar-quantisation-osq) defines in `ceiling(dimension * bits / 8)` bytes, followed by 16 bytes of `lower`, `upper`, `correction`, and `sum`. `records` holds the records one after another with no padding between them. Every number inside `vectors` and inside an `OSQRecord` is little-endian. A writer must write `vectors` as the last entry of the map with the compression flag at 0, so that a reader can find vector `i` at `payload_length - (count - i) * dimension * 4` bytes into the payload, where `count` is the length of `docIds`. A reader must raise `PERSISTENCE_LOAD_FAILED` for a vector file whose compression flag is 1.
 
 A writer may put fewer than 65,536 vectors in a file, and it must do so where a full file would pass the [file size](#file-size) limit.
 

@@ -169,6 +169,21 @@ function sameGraphHeader(a: NumberedHnswGraph, b: NumberedHnswGraph): boolean {
   )
 }
 
+function requireOneGraphPerVector(part: VectorGraphPartPayload, p: number): void {
+  if (part.graphs.length < 2) return
+  const held = new Uint8Array(VECTOR_GRAPH_PART_VECTORS)
+  for (const graph of part.graphs) {
+    for (let at = 0; at < graph.levels.length; at++) {
+      if (graph.levels[at] === 0) continue
+      if (held[at] === 1) {
+        const vector = p * VECTOR_GRAPH_PART_VECTORS + at
+        invalid('vector graph part', `part ${p} gives vector ${vector} a node in two graphs`, { part: p, vector })
+      }
+      held[at] = 1
+    }
+  }
+}
+
 export function assembleGraphParts(parts: readonly VectorGraphPartPayload[]): VectorGraphParts {
   const name = 'vector graph part'
   const first = parts[0]
@@ -189,6 +204,7 @@ export function assembleGraphParts(parts: readonly VectorGraphPartPayload[]): Ve
       if (!fits) invalid(name, `part ${p} gives graph ${g} ${levels} bytes of levels`, { part: p, levels })
       partLists[g].push(graph)
     }
+    requireOneGraphPerVector(part, p)
   }
   const graphs: NumberedGraphParts[] = partLists.map(list => ({ partSize: VECTOR_GRAPH_PART_VECTORS, parts: list }))
   return { fieldName: first.fieldName, graphs }
