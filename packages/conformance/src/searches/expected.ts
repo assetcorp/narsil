@@ -1,10 +1,11 @@
 import { readFile } from 'node:fs/promises'
-import { fileURLToPath } from 'node:url'
+import { join } from 'node:path'
 import * as v from 'valibot'
 import type { Narsil } from '../../../ts/src/types/engine'
 import type { DatasetPin } from '../dataset/artifact'
 import type { ConformanceDataset } from '../dataset/load'
 import { cosineScan } from '../independent/neighbours'
+import { PACKAGE_ROOT } from '../package-root'
 import {
   EXACT_NEIGHBOURS,
   INDEX_LANGUAGE,
@@ -15,7 +16,7 @@ import {
 } from './constants'
 import { textHits } from './reference-index'
 
-export const SEARCHES_PATH = fileURLToPath(new URL('../../searches/queries.json', import.meta.url))
+export const SEARCHES_PATH = join(PACKAGE_ROOT, 'searches', 'queries.json')
 
 const Hit = v.strictObject({ id: v.string(), score: v.number() })
 const Neighbour = v.strictObject({ id: v.string(), similarity: v.number() })

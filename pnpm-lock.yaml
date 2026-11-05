@@ -126,6 +126,9 @@ importers:
       hyparquet:
         specifier: 1.32.0
         version: 1.32.0
+      tsup:
+        specifier: 8.5.1
+        version: 8.5.1(patch_hash=7a1d8eb986d8e88c32f81850daf5c1cc6f9c8244084d909415a07d23dbc8c32a)(@microsoft/api-extractor@7.58.12(@types/node@22.15.32))(jiti@2.7.0)(postcss@8.5.32)(tsx@4.21.0)(typescript@5.9.3)(yaml@2.9.0)
       tsx:
         specifier: 4.21.0
         version: 4.21.0
