@@ -14,6 +14,8 @@ That call takes the arguments [`query`](full-text-search.md#basic-queries) takes
 
 HTTP forces two differences. Every method takes per-call request settings as a last argument, which hold the signal, the deadline, and any extra headers. The operations that run long enough for the server to answer first come back with a task record while the work carries on, so you follow that record instead of awaiting the work.
 
+A program in another language reaches the same routes through the [Python client](python-client.md) or the [Go client](go-client.md), which follow the same failover rules.
+
 The client sends through `fetch` and imports no Node built-in, so it runs in a browser, in Node, and in an edge function. `scripts/check-browser-bundle.mjs` walks its import graph on every build so that a Node import cannot reach it unnoticed.
 
 ## Building one

@@ -181,6 +181,8 @@ When we measure Narsil in one process against Orama and MiniSearch, with the sam
 | [HTTP server](docs/http-server.md) | Wrapping an engine in a REST API, every route it serves, and long-running tasks |
 | [Cluster mode](docs/cluster.md) | Multi-node indexes: nodes and roles, etcd over TLS, node identity across restarts, replication, routed writes, distributed searches and reads, cluster health and metrics, and the calls that fail in a cluster |
 | [Client](docs/client.md) | Reaching a server from a browser or Node, following a task, and the codes it raises |
+| [Python client](docs/python-client.md) | Reaching a server or a cluster from Python, in blocking and async forms, and the failover rules |
+| [Go client](docs/go-client.md) | Reaching a server or a cluster from Go, streaming snapshots, and the failover rules |
 | [React](docs/react.md) | The hooks over a client or an engine in the page, one shared request per key, and loading a corpus from a component |
 | [Observability](docs/observability.md) | Plugin hooks, engine events, and memory reporting |
 | [Errors](docs/errors.md) | The codes you handle most often, and the three sets that `NarsilError.code` covers |
