@@ -14,8 +14,10 @@ on:
           - '@delali/narsil'
           - '@delali/narsil-embeddings-transformers'
           - '@delali/narsil-certutil'
+          - 'narsil-client'
+          - 'github.com/assetcorp/narsil/packages/go'
       version:
-        description: 'Version bump (patch, minor, major, or explicit like 1.2.3)'
+        description: 'Version bump (patch, minor, major, or explicit like 1.2.3). The Python and Go clients take only the explicit version, and the Python one must equal packages/python/pyproject.toml'
         required: true
         type: string
       dry-run:
@@ -31,6 +33,7 @@ permissions:
 jobs:
   native:
     name: Native search core
+    if: github.event_name == 'push' || (inputs.package != 'narsil-client' && inputs.package != 'github.com/assetcorp/narsil/packages/go')
     uses: ./.github/workflows/native-core.yml
 
   plan:
@@ -145,7 +148,7 @@ jobs:
   publish:
     name: Publish to npm
     needs: native
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' && inputs.package != 'narsil-client' && inputs.package != 'github.com/assetcorp/narsil/packages/go'
     runs-on: ubuntu-latest
     concurrency:
       group: publish-to-npm
@@ -293,3 +296,102 @@ jobs:
         env:
           NPM_CONFIG_PROVENANCE: true
         run: node .github/scripts/publish-react-native-package.js "$(node -p "require('./packages/ts/package.json').version")" latest
+
+  client-checks:
+    name: Check the Python and Go clients
+    if: github.event_name == 'workflow_dispatch' && (inputs.package == 'narsil-client' || inputs.package == 'github.com/assetcorp/narsil/packages/go')
+    permissions:
+      contents: read
+    uses: ./.github/workflows/clients.yml
+
+  python-client:
+    name: Publish narsil-client to PyPI
+    needs: client-checks
+    if: inputs.package == 'narsil-client'
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      contents: read
+      id-token: write
+    concurrency:
+      group: publish-to-pypi
+      cancel-in-progress: false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.11'
+
+      - name: Verify this run holds the tip of main and the version in pyproject.toml
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          git fetch origin main
+          if [ "$(git rev-parse HEAD)" != "$(git rev-parse FETCH_HEAD)" ]; then
+            echo "::error::This run does not hold the tip of main, so dispatch a fresh run."
+            exit 1
+          fi
+          COMMITTED="$(python3 -c 'import tomllib; print(tomllib.load(open("packages/python/pyproject.toml", "rb"))["project"]["version"])')"
+          if [ "$VERSION" != "$COMMITTED" ]; then
+            echo "::error::The run asks for $VERSION while packages/python/pyproject.toml holds $COMMITTED. Raise the version in a pull request first."
+            exit 1
+          fi
+
+      - name: Build the package
+        working-directory: packages/python
+        run: python3 scripts/tools.py python -m build --no-isolation --outdir dist .
+
+      - name: Publish to PyPI through trusted publishing
+        if: ${{ !inputs.dry-run }}
+        uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
+        with:
+          packages-dir: packages/python/dist
+
+  go-client:
+    name: Tag the Go module
+    needs: client-checks
+    if: inputs.package == 'github.com/assetcorp/narsil/packages/go'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    concurrency:
+      group: tag-go-module
+      cancel-in-progress: false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_PAT }}
+
+      - name: Verify this run holds the tip of main, the version, and a free tag
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          git fetch origin main
+          if [ "$(git rev-parse HEAD)" != "$(git rev-parse FETCH_HEAD)" ]; then
+            echo "::error::This run does not hold the tip of main, so dispatch a fresh run."
+            exit 1
+          fi
+          if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "::error::The Go module takes an explicit version such as 0.1.0, and the run asks for '$VERSION'."
+            exit 1
+          fi
+          if git rev-parse -q --verify "refs/tags/packages/go/v$VERSION" >/dev/null; then
+            echo "::error::The tag packages/go/v$VERSION already exists."
+            exit 1
+          fi
+
+      - name: Push the tag and ask the Go module proxy to fetch it
+        if: ${{ !inputs.dry-run }}
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          git tag "packages/go/v$VERSION"
+          git push origin "packages/go/v$VERSION"
+          curl --fail --silent --show-error --retry 5 --retry-all-errors "https://proxy.golang.org/github.com/assetcorp/narsil/packages/go/@v/v$VERSION.info"

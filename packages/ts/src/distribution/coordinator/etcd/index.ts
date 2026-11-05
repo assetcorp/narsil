@@ -1,6 +1,6 @@
-import type { Etcd3 as Etcd3Client, IKeyValue, Watcher } from 'etcd3'
+import type { Etcd3 as Etcd3Client, IKeyValue } from 'etcd3'
 import { ErrorCodes, NarsilError } from '../../../errors'
-import { CONTROLLER_LEASE_KEY, MAX_WATCHERS } from '../constants'
+import { CONTROLLER_LEASE_KEY } from '../constants'
 import type {
   AllocationEvent,
   AllocationTable,
@@ -24,6 +24,7 @@ import { loadEtcd3Module } from './loader'
 import { watchPrefix } from './prefix-watch'
 import { writeNodeRegistration } from './registration'
 import { createEtcdWriteGuard, requireEtcdMaxRequestBytes } from './request-size'
+import { requireLeaderOnWatchStreams } from './require-leader'
 import { etcdSecurityOptions } from './security'
 import { deserializeAllocationTable, deserializeNodeRegistration, serializeAllocationTable } from './serialization'
 import { probeEtcd } from './start-probe'
@@ -31,6 +32,7 @@ import { storedValueMethods } from './stored-values'
 import { DEFAULT_ETCD_CONFIG, type EtcdCoordinatorConfig } from './types'
 import { validateNodeId, validatePartitionState } from './validation'
 import { createReplaceableWatchClient } from './watch-client'
+import { createWatchStreams } from './watch-stream'
 
 export type { EtcdAuthConfig, EtcdCoordinatorConfig, EtcdTlsConfig } from './types'
 export { validateNodeId } from './validation'
@@ -81,6 +83,7 @@ export async function createEtcdCoordinator(config?: Partial<EtcdCoordinatorConf
         'grpc.max_receive_message_length': ETCD_MAX_RESPONSE_BYTES,
         'grpc.keepalive_time_ms': ETCD_KEEPALIVE_TIME_MS,
         'grpc.keepalive_timeout_ms': ETCD_KEEPALIVE_TIMEOUT_MS,
+        callInvocationTransformer: requireLeaderOnWatchStreams,
       },
       defaultCallOptions: context => (context.isStream ? {} : { deadline: Date.now() + ETCD_CALL_TIMEOUT_MS }),
       faultHandling: { host: endpoint => createEndpointBreaker(endpoint, etcd3Module.isRecoverableError) },
@@ -96,7 +99,6 @@ export async function createEtcdCoordinator(config?: Partial<EtcdCoordinatorConf
   }
   const guard = createEtcdWriteGuard(etcd3Module, resolvedConfig.maxRequestBytes)
   const leaseManager = new LeaseManager()
-  const watchers = new Set<Watcher>()
   let isShutdown = false
 
   function assertNotShutdown(): void {
@@ -105,23 +107,16 @@ export async function createEtcdCoordinator(config?: Partial<EtcdCoordinatorConf
     }
   }
 
-  function addWatcher(watcher: Watcher): void {
-    if (watchers.size >= MAX_WATCHERS) {
-      watcher.cancel().catch(() => {})
-      throw new NarsilError(ErrorCodes.CONFIG_INVALID, `Maximum watcher limit (${MAX_WATCHERS}) reached`, {
-        currentCount: watchers.size,
-      })
-    }
-    watchers.add(watcher)
-  }
-
-  function removeWatcher(watcher: Watcher): void {
-    watcher.cancel().catch(() => {})
-    watchers.delete(watcher)
-  }
-
   const watchClient = createReplaceableWatchClient(openClient)
-  const watchContext = { client, watchClient, addWatcher, removeWatcher, isShutdown: () => isShutdown }
+  const streams = createWatchStreams()
+  const { onWatchError } = resolvedConfig
+  function reportHandlerError(error: unknown): void {
+    if (onWatchError === undefined) return
+    try {
+      onWatchError(error instanceof Error ? error : new Error(String(error)))
+    } catch (_) {}
+  }
+  const watchContext = { client, watchClient, streams, reportHandlerError }
 
   const coordinator: ClusterCoordinator = {
     async registerNode(registration: NodeRegistration): Promise<void> {
@@ -189,10 +184,8 @@ export async function createEtcdCoordinator(config?: Partial<EtcdCoordinatorConf
       const prefix = keys.nodePrefix()
       return watchPrefix(watchContext, prefix, {
         put(kv: IKeyValue) {
-          try {
-            const registration = deserializeNodeRegistration(kv.value)
-            handler({ type: 'node_joined', nodeId: registration.nodeId, registration })
-          } catch (_) {}
+          const registration = deserializeNodeRegistration(kv.value)
+          handler({ type: 'node_joined', nodeId: registration.nodeId, registration })
         },
         delete(fullKey: string) {
           handler({ type: 'node_left', nodeId: extractSuffix(fullKey, prefix), registration: null })
@@ -271,10 +264,8 @@ export async function createEtcdCoordinator(config?: Partial<EtcdCoordinatorConf
       assertNotShutdown()
       return watchPrefix(watchContext, keys.allocationPrefix(), {
         put(kv: IKeyValue) {
-          try {
-            const table = deserializeAllocationTable(kv.value)
-            handler({ indexName: table.indexName, table })
-          } catch (_) {}
+          const table = deserializeAllocationTable(kv.value)
+          handler({ indexName: table.indexName, table })
         },
         delete() {},
       })
@@ -373,14 +364,7 @@ export async function createEtcdCoordinator(config?: Partial<EtcdCoordinatorConf
         return
       }
       isShutdown = true
-
-      const cancelPromises: Promise<void>[] = []
-      for (const watcher of watchers) {
-        cancelPromises.push(watcher.cancel().catch(() => {}))
-      }
-      await Promise.all(cancelPromises)
-      watchers.clear()
-
+      await streams.closeAll()
       await leaseManager.revokeAll()
 
       watchClient.close()

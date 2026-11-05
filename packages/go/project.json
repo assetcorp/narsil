@@ -1,0 +1,50 @@
+{
+  "name": "narsil-go",
+  "targets": {
+    "lint": {
+      "executor": "nx:run-commands",
+      "options": {
+        "commands": [
+          "test -z \"$(gofmt -l .)\" || { gofmt -l .; exit 1; }",
+          "go vet ./..."
+        ],
+        "parallel": false,
+        "cwd": "packages/go"
+      }
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "options": {
+        "commands": ["go build ./...", "go vet ./..."],
+        "parallel": false,
+        "cwd": "packages/go"
+      }
+    },
+    "generate": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "options": {
+        "command": "go run ./internal/generator",
+        "cwd": "packages/go"
+      }
+    },
+    "generate:write": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "options": {
+        "command": "go run ./internal/generator -write",
+        "cwd": "packages/go"
+      }
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "dependsOn": ["narsil-ts:build:code"],
+      "options": {
+        "command": "go test -count=1 ./...",
+        "cwd": "packages/go"
+      }
+    }
+  }
+}

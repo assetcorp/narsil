@@ -18,6 +18,7 @@ packages/conformance/.dataset/
 .cache/
 .venv/
 scratch/
+packages/ts/test-evidence/
 packages/native/build/
 packages/native/artifacts/
 packages/native/.lint-tools/
