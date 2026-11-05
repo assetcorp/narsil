@@ -144,7 +144,7 @@ export interface ClusterNamespace {
 }
 
 // @public
-export interface ClusterNode extends ClusterNodeSearchSettings {
+export interface ClusterNode extends ClusterNodeSearchSettings, ClusterNodeSyncSettings {
     changeAnalysis(indexName: string, change: AnalysisChange): Promise<void>;
     checkpoint(indexName: string): Promise<void>;
     clear(indexName: string): Promise<void>;
@@ -220,6 +220,12 @@ export interface ClusterNodeSearchSettings {
     getSynonyms(indexName: string): Promise<SynonymRule[]>;
     updateBM25(indexName: string, bm25: BM25Params): Promise<void>;
     updateSynonyms(indexName: string, synonyms: SynonymRule[]): Promise<void>;
+}
+
+// @public
+export interface ClusterNodeSyncSettings {
+    getSync(indexName: string): Promise<SyncStatus>;
+    updateSync(indexName: string, setting: SyncSetting): Promise<void>;
 }
 
 // @public

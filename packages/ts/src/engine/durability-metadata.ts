@@ -2,7 +2,12 @@ import { DEFAULT_BM25_B, DEFAULT_BM25_K1 } from '../core/constants'
 import { compareCodePoints } from '../core/ordering'
 import { VERSION } from '../index'
 import { flattenSchema } from '../schema/validator'
-import type { IndexEmbeddingMetadata, IndexMetadata, PendingAnalysisMetadata } from '../types/internal'
+import type {
+  IndexEmbeddingMetadata,
+  IndexMetadata,
+  PendingAnalysisMetadata,
+  StoredSyncSetting,
+} from '../types/internal'
 import type { BM25FieldParams, PartitionConfig, ScoringMode, VectorIndexConfig } from '../types/schema'
 import type { SynonymRule } from '../types/synonyms'
 import type { IndexRegistryEntry } from './core'
@@ -36,6 +41,9 @@ export interface MetadataConfig {
   vectorPromotion?: VectorIndexConfig
   patternValueLimit?: number
   synonyms?: SynonymRule[]
+  sync?: StoredSyncSetting
+  syncActive?: boolean
+  syncEpoch?: string
 }
 
 export function metadataFromConfig(
@@ -118,6 +126,9 @@ export function metadataFromConfig(
   if (config.heldPartitions !== undefined) {
     metadata.heldPartitions = config.heldPartitions
   }
+  if (config.sync !== undefined) metadata.sync = config.sync
+  if (config.syncActive !== undefined) metadata.syncActive = config.syncActive
+  if (config.syncEpoch !== undefined) metadata.syncEpoch = config.syncEpoch
   return metadata
 }
 
@@ -158,6 +169,21 @@ export function metadataConfigOf(entry: IndexRegistryEntry): MetadataConfig {
     ...(entry.config.vectorPromotion !== undefined ? { vectorPromotion: entry.config.vectorPromotion } : {}),
     ...(entry.config.patternValueLimit !== undefined ? { patternValueLimit: entry.config.patternValueLimit } : {}),
     ...(entry.synonyms !== null ? { synonyms: rulesOfStoredSynonyms(entry.synonyms) } : {}),
+    ...syncMetadataOf(entry),
+  }
+}
+
+function syncMetadataOf(entry: IndexRegistryEntry): Pick<MetadataConfig, 'sync' | 'syncActive' | 'syncEpoch'> {
+  const sync = entry.sync
+  if (sync === null) return {}
+  return {
+    sync: {
+      enabled: true,
+      ...(sync.historyMaxAgeMs !== undefined ? { historyMaxAgeMs: sync.historyMaxAgeMs } : {}),
+      ...(sync.historyMaxBytes !== undefined ? { historyMaxBytes: sync.historyMaxBytes } : {}),
+    },
+    syncActive: sync.active,
+    syncEpoch: sync.epoch,
   }
 }
 

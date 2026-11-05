@@ -196,6 +196,10 @@ export const ClusterMessageTypes = {
   RESTORE_PARTITION: 'cluster.restore_partition',
 } as const
 
+export const SyncMessageTypes = {
+  READ: 'sync.read',
+} as const
+
 export interface WriteCondition {
   ifSeqNo: number
   ifPrimaryTerm: number

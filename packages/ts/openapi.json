@@ -30,6 +30,9 @@
     },
     {
       "name": "Maintenance"
+    },
+    {
+      "name": "Sync"
     }
   ],
   "paths": {
@@ -2238,6 +2241,98 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/TaskRecord"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/indexes/{name}/sync": {
+      "put": {
+        "operationId": "updateSync",
+        "summary": "Replace the device sync setting of an index",
+        "tags": [
+          "Sync"
+        ],
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "description": "The name of the index.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SyncSetting"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The server answered the request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/indexes/{name}/sync/snapshot": {
+      "get": {
+        "operationId": "syncSnapshot",
+        "summary": "Download the published snapshot of an index with device sync on, whole or as one byte range",
+        "tags": [
+          "Sync"
+        ],
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "description": "The name of the index.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The server answered the request.",
+            "content": {
+              "application/x-tar": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "206": {
+            "description": "The server answered with the byte range that the request asked for.",
+            "content": {
+              "application/x-tar": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
                 }
               }
             }
@@ -5160,6 +5255,27 @@
         ],
         "description": "What Narsil.suggest  returns: the indexed terms that complete a prefix, ready to offer as you-type suggestions."
       },
+      "SyncSetting": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "description": "This turns sync on or off. Turning it on gives the index a new epoch, so every synced device loads a new copy."
+          },
+          "historyMaxAgeMs": {
+            "type": "number",
+            "description": "This is the age in milliseconds after which the server deletes a log segment from history. It defaults to 30 days."
+          },
+          "historyMaxBytes": {
+            "type": "number",
+            "description": "This is the byte count above which the server deletes the oldest log segment from history. It defaults to the length of the published snapshot."
+          }
+        },
+        "required": [
+          "enabled"
+        ],
+        "description": "The device sync setting of one index, which SyncOperations.updateSync takes. Turn sync on only for an index whose every document belongs to one user, because every device that syncs the index receives the whole index. Create one index for each user, and leave sync off for a public index or for an index that holds the data of several users."
+      },
       "SynonymRule": {
         "anyOf": [
           {
@@ -5503,11 +5619,11 @@
           },
           "estimatedCompactMs": {
             "type": "number",
-            "description": "Narsil.compactVectors  would take about this many milliseconds."
+            "description": "VectorMaintenanceOperations.compactVectors  would take about this many milliseconds."
           },
           "estimatedOptimizeMs": {
             "type": "number",
-            "description": "Narsil.optimizeVectors  would take about this many milliseconds."
+            "description": "VectorMaintenanceOperations.optimizeVectors  would take about this many milliseconds."
           }
         },
         "required": [
@@ -5521,7 +5637,7 @@
           "estimatedCompactMs",
           "estimatedOptimizeMs"
         ],
-        "description": "The state of one vector field, and what maintenance would cost, as Narsil.vectorMaintenanceStatus  reports it. Removing a vector leaves a tombstone in the graph, and enough of them slow a search down. Read this to decide when compaction earns its cost."
+        "description": "The state of one vector field, and what maintenance would cost, as VectorMaintenanceOperations.vectorMaintenanceStatus  reports it. Removing a vector leaves a tombstone in the graph, and enough of them slow a search down. Read this to decide when compaction earns its cost."
       },
       "VectorQueryConfig": {
         "type": "object",

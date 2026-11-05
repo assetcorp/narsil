@@ -13,10 +13,12 @@ import { refuseRegex } from '../regex-policy'
 import { createRouteRunner, type RouteContext, type RouteHandler } from '../request'
 import { registerServerRoutes, type ServerHandlers, serverRoutes } from '../routes'
 import { loadUWebSockets } from '../runtime'
+import { registerFeedRoute } from '../sync/feed-route'
 import type { CapabilitiesResponse, LivenessResponse } from '../types'
 import { type QueryLimits, validateQuery, validateSuggest, withServerRerankWindow } from '../validation'
 import { type ChildApp, childAppOf } from './acceptor'
 import { closeWhenTheProcessExits } from './close-at-exit'
+import { type ThreadFeedGateway, threadFeedGateway } from './feed-relay'
 import { type LongQueryRoute, routeLongQueries } from './long-query-route'
 import type { RelayedRoute, RequestThreadSettings, ServeRequestsResult, ThreadOnlyRoute } from './messages'
 import { SearchMoved } from './move-clock'
@@ -24,7 +26,12 @@ import { createThreadReadEngine, type ThreadReadEngine } from './read-engine'
 import { createRelayClient, type RelayClient } from './relay-client'
 import { leaveWithoutDeparture, type ThreadDeparture, watchForDeparture } from './thread-departure'
 
-let servingApp: { app: ChildApp; relay: RelayClient; longQueries: LongQueryRoute } | null = null
+let servingApp: {
+  app: ChildApp
+  relay: RelayClient
+  longQueries: LongQueryRoute
+  feeds: ThreadFeedGateway | null
+} | null = null
 
 function guardEveryRoute(handlers: ServerHandlers, departure: ThreadDeparture): ServerHandlers {
   const guarded = { ...handlers }
@@ -215,9 +222,11 @@ export async function serveRequests(
     track: departure.track,
   })
   const handlers = guardEveryRoute(threadHandlers(local, relay, longQueries, settings), departure)
+  const feeds = settings.sync ? threadFeedGateway(settings.port, relay) : null
+  if (feeds !== null) registerFeedRoute(app, feeds)
   registerServerRoutes(app, run, handlers, settings.limits, settings.cors)
 
-  servingApp = { app: child, relay, longQueries }
+  servingApp = { app: child, relay, longQueries, feeds }
   void closeWhenTheProcessExits(new Int32Array(settings.closeAtExit), closeRequestThread)
   return { descriptor: child.getDescriptor() }
 }
@@ -225,8 +234,9 @@ export async function serveRequests(
 export function closeRequestThread(): void {
   leaveWithoutDeparture()
   if (servingApp === null) return
-  const { app, relay, longQueries } = servingApp
+  const { app, relay, longQueries, feeds } = servingApp
   servingApp = null
+  feeds?.close()
   app.close()
   longQueries.close()
   relay.close()

@@ -164,6 +164,10 @@ Each running task holds its own working set, and an async import holds the whole
 }
 ```
 
+## Device sync
+
+The `sync` option turns on `GET /indexes/{name}/sync/snapshot` and the feed, a WebSocket at `GET /indexes/{name}/sync/feed`, which stay off by default. The server refuses to start with them on and no `onRequest` hook, because a device receives the whole index. [Device sync](device-sync.md#serve-sync-from-the-server) covers the routes, the credential on the feed, and the history limits.
+
 ## Snapshots and exports
 
 `GET /indexes/{name}/snapshot` streams the index's snapshot archive with the content type `application/x-tar`. `GET /indexes/{name}/export` streams the index's document export with the content type `application/x-ndjson`. The [persistence guide](persistence-and-durability.md#snapshots-and-restore) describes both formats and which checkpoint the engine reads for each stream.

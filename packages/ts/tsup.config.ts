@@ -45,6 +45,9 @@ const nodeEntry: Record<string, string> = {
   'distribution/transport/in-memory': 'src/distribution/transport/in-memory.ts',
   'distribution/transport/grpc': 'src/distribution/transport/grpc/index.ts',
   server: 'src/server/index.ts',
+  sync: 'src/sync/device/index.ts',
+  'sync/filesystem': 'src/sync/device/stores/filesystem.ts',
+  'sync/indexeddb': 'src/sync/device/stores/indexeddb.ts',
 }
 
 const browserEntry: Record<string, string> = { client: 'src/client/index.ts', react: 'src/react/index.ts' }
@@ -54,6 +57,7 @@ const reactNativeEntry: Record<string, string> = {
   'react-native/pattern': 'src/pattern/index.ts',
   'react-native/partial-words': 'src/partial-words/index.ts',
   'react-native/synonyms': 'src/synonyms/index.ts',
+  'react-native/sync': 'src/sync/device/index.ts',
 }
 
 const shared: Options = {
@@ -74,7 +78,7 @@ const codeBuilds: Options[] = [
   },
   {
     ...shared,
-    entry: { 'index.browser': 'src/index.ts' },
+    entry: { 'index.browser': 'src/index.ts', 'sync.browser': 'src/sync/device/index.ts' },
     dts: false,
     splitting: true,
     external: NODE_EXTERNAL,

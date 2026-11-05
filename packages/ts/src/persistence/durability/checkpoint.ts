@@ -1,6 +1,7 @@
 import { readCommitMarker } from './commit-marker'
 import type { DurableDirectory } from './durable-filesystem'
 import type { PartitionCheckpoint } from './partition-checkpoint'
+import { moveSegmentIntoHistory } from './sync/history'
 
 function walPrefix(indexName: string, partitionId: number): string {
   return `${indexName}/wal/${partitionId}/`
@@ -10,6 +11,7 @@ export async function truncateCoveredSegments(
   directory: DurableDirectory,
   indexName: string,
   checkpoint: PartitionCheckpoint[],
+  movedIntoHistoryAtMs: number | null,
 ): Promise<void> {
   for (const { partitionId, lastSeqNo } of checkpoint) {
     const prefix = walPrefix(indexName, partitionId)
@@ -36,7 +38,8 @@ export async function truncateCoveredSegments(
       if (segmentCoversBeyondCheckpoint) {
         break
       }
-      await directory.remove(`${prefix}${formatSegmentStart(start)}`)
+      if (movedIntoHistoryAtMs === null) await directory.remove(`${prefix}${formatSegmentStart(start)}`)
+      else await moveSegmentIntoHistory(directory, indexName, partitionId, start, movedIntoHistoryAtMs)
     }
   }
 }

@@ -40,6 +40,7 @@ export async function answerRequest(
     spooledBody: spooledBodyOf(request.spooledBody),
     abort: captured.abort,
     hookContext: request.hookContext,
+    requestHeaders: request.requestHeaders,
   }
   try {
     await handler(ctx)

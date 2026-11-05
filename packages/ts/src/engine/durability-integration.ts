@@ -58,6 +58,8 @@ export interface DurabilityIntegrationHooks {
   onLayoutUpgrade?: IndexDurabilityHooks['onLayoutUpgrade']
   onCheckpointHeld?: IndexDurabilityHooks['onCheckpointHeld']
   onFatalError: IndexDurabilityHooks['onFatalError']
+  keepsSyncHistory?: IndexDurabilityHooks['keepsSyncHistory']
+  onHistoryMoved?: IndexDurabilityHooks['onHistoryMoved']
   checkpointPublisher?: CheckpointPublisher
 }
 
@@ -97,6 +99,8 @@ export function createDurabilityIntegration(
     onLayoutUpgrade: hooks.onLayoutUpgrade,
     onCheckpointHeld: hooks.onCheckpointHeld,
     onFatalError: hooks.onFatalError,
+    ...(hooks.keepsSyncHistory === undefined ? {} : { keepsSyncHistory: hooks.keepsSyncHistory }),
+    ...(hooks.onHistoryMoved === undefined ? {} : { onHistoryMoved: hooks.onHistoryMoved }),
   }
 
   const manager =

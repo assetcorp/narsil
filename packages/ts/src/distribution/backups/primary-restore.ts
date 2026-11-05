@@ -57,7 +57,7 @@ async function packedBytes(manifest: SegmentManifest): Promise<Uint8Array> {
   return joinChunks(encoded.chunks, encoded.byteLength)
 }
 
-async function readPartitionManifest(
+export async function readPartitionManifest(
   store: BackupStore,
   backupName: string,
   partition: BackupPartition,

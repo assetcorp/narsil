@@ -493,6 +493,9 @@ Each index writes a metadata envelope under the key `<indexName>/meta`. It uses 
   index_uuid:            string               (optional; the cluster identity of the index)
   held_partitions:       List<uint32>         (optional; the partitions of the index this copy holds)
   synonyms:              List<SynonymRule>    (optional; the synonym set as the caller wrote it)
+  sync:                  SyncMeta             (optional; the device sync setting)
+  sync_active:           boolean              (optional; true once a device asks for the published snapshot)
+  sync_epoch:            string               (optional; the index epoch, 32 lowercase hexadecimal digits)
 }
 
 VectorFieldMeta {
@@ -518,6 +521,12 @@ VectorPromotionMeta {
   hnsw_config:      { m: uint32, ef_construction: uint32, metric: string }  (optional; each key optional)
   quantization:     string                                                  (optional; "osq8", "osq4", "osq2", "osq1", or "none")
   storage:          string                                                  (optional; "memory" or "disk")
+}
+
+SyncMeta {
+  enabled:            boolean
+  history_max_age_ms: uint64   (optional)
+  history_max_bytes:  uint64   (optional)
 }
 ```
 
@@ -557,6 +566,8 @@ The `held_partitions` field records the partitions of the index this copy holds,
 
 The `synonyms` field records the index's [synonym set](algorithms.md#synonyms), with each word as the caller wrote it, so that a reader analyses the words with its own language module. A writer must leave the field absent for an index without a set, and a reader must treat an absent field as no set. A reader must reject a stored set that breaks the shape or the limits in [Synonyms](algorithms.md#synonyms) with `CONFIG_INVALID`, as it rejects a stored `quantization` outside its set.
 
+The `sync`, `sync_active`, and `sync_epoch` fields record the index's [device sync](sync.md) state: the setting that [The Sync Setting](sync.md#the-sync-setting) defines, whether a device has asked for the [published snapshot](sync.md#published-snapshot), and the [epoch](sync.md#index-epoch). A reader must treat an absent `sync` as sync off and an absent `sync_active` as false.
+
 ---
 
 ### Index Configuration Payload
@@ -589,6 +600,7 @@ The payload is a MessagePack map:
   patternValueLimit: uint32                       (optional; the most code points a pattern field value may hold)
   synonyms:          List<SynonymRule>            (optional; the synonym set as the caller wrote it)
   embedding:         EmbeddingSnapshotConfig      (optional)
+  syncEpoch:         string                       (optional; the index epoch where sync is on)
 }
 
 PartitionSnapshotLimits {
@@ -613,7 +625,7 @@ EmbeddingSnapshotConfig {
 
 A reader must raise `CONFIG_INVALID` for any other value of `text_storage` or `textStorage`. A restore of a configuration that sets `disk` on an engine without filesystem durability raises `CONFIG_INVALID` too.
 
-The rules for `analysis_revision` in the [index metadata payload](#index-metadata-payload) apply to `analysisRevision`, so a writer must record the revision that produced the terms that the envelope holds, or leave the field absent where it knows none. A reader must treat an index restored without one as holding stale terms. The rules for `array_position_gap` apply to `arrayPositionGap` in the same way. Each remaining optional field records one index configuration option, and a writer must leave it absent where the configuration leaves that option unset. A writer must record in `analysisGeneration` the generation that produced the terms that the envelope holds. The payload carries no pending change, so a restored index holds the old settings with the old terms, and a restore abandons any pending change, whose caller receives `ANALYSIS_CHANGE_REPLACED`.
+The rules for `analysis_revision` in the [index metadata payload](#index-metadata-payload) apply to `analysisRevision`, so a writer must record the revision that produced the terms that the envelope holds, or leave the field absent where it knows none. A reader must treat an index restored without one as holding stale terms. The rules for `array_position_gap` apply to `arrayPositionGap` in the same way. Each remaining optional field records one index configuration option, and a writer must leave it absent where the configuration leaves that option unset. A writer must record in `analysisGeneration` the generation that produced the terms that the envelope holds. The payload carries no pending change, so a restored index holds the old settings with the old terms, and a restore abandons any pending change, whose caller receives `ANALYSIS_CHANGE_REPLACED`. The payload holds no `sync` setting, so that an index that a caller restores from it serves no feed until the caller turns sync on, as [The Sync Setting](sync.md#the-sync-setting) defines.
 
 A writer must reject an index whose tokeniser or stop words are code, because a payload can hold a registered name but no code.
 
@@ -634,6 +646,8 @@ A persistence adapter addresses stored bytes by string key:
 | `<indexName>/segments/vec-<fieldKey>-graph-g<generation>-p<part>` | One graph part of one vector field for the whole index at one generation, part number zero-padded to 16 digits |
 | `<indexName>/wal/<partitionId>/<startSeqNo>` | Write-ahead log segment, start sequence number zero-padded to 16 digits |
 | `<indexName>/wal/<partitionId>/commit` | Write-ahead log commit marker |
+| `<indexName>/history/<partitionId>/<startSeqNo>-<movedAtMs>` | A log segment that a checkpoint moved into [history](sync.md#history), both numbers zero-padded to 16 digits |
+| `<indexName>/sync/published` | The [published snapshot](sync.md#published-snapshot) of a synced index |
 
 The `<fieldKey>` of a vector field is its path with every `.` replaced by `_`, then a `-`, then the [FNV-1a](algorithms.md#fnv-1a-hash) hash of the path's UTF-8 bytes written in base 36 with lowercase letters, so the field `meta.embedding` takes the key `meta_embedding-` followed by that hash. The hash keeps two paths apart when they differ only in a `.` and a `_`, such as `a.b` and `a_b`. A field path may hold only the letters A to Z and a to z, the digits 0 to 9, `_`, and `.`, and the engine must fail a save with `PERSISTENCE_SAVE_FAILED` for any other path.
 

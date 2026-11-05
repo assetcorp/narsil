@@ -236,6 +236,7 @@ export async function createEngineCore(
             entry.documentCount = documentCount
             entry.partitionCount = partitionCount
           },
+          engineCore: () => engineCore,
         })
 
   invalidation = createInvalidationFromConfig(config, durabilityTier?.kind ?? null, {

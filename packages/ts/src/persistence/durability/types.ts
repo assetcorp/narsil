@@ -13,6 +13,7 @@ import type { LayoutUpgradeEvent } from './earlier-layout/upgrade'
 import type { PartitionCheckpoint, TermStart } from './partition-checkpoint'
 import type { PartitionRegistry } from './partition-registry'
 import type { RestoreStaging } from './restore-staging'
+import type { SyncStorage } from './sync/storage'
 
 export type { DurabilityConfig, TermStart }
 
@@ -52,6 +53,8 @@ export interface IndexDurabilityHooks {
   onLayoutUpgrade?(event: LayoutUpgradeEvent): void
   onCheckpointHeld?(report: HeldCheckpointReport): void
   onFatalError(error: Error): void
+  keepsSyncHistory?(indexName: string): boolean
+  onHistoryMoved?(indexName: string): void
   writeRecords?: WriteRecordKeeper
 }
 
@@ -107,6 +110,7 @@ export interface DurabilityManager {
   openArchiveCheckpoint?(indexName: string): Promise<ArchiveCheckpoint>
   stageRestore?(indexName: string): RestoreStaging
   adoptRestoredCheckpoint?(indexName: string, checkpoint: readonly PartitionCheckpoint[]): void
+  syncStorage?(): SyncStorage
   removeIndex(indexName: string): Promise<void>
   unloadIndex(indexName: string): Promise<void>
   reloadIndex?(indexName: string): Promise<void>

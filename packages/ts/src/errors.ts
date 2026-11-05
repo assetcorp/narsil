@@ -44,6 +44,11 @@ export const ErrorCodes = {
   BACKUP_STORE_CLAIMED: 'BACKUP_STORE_CLAIMED',
   BACKUP_STORE_NOT_CONFIGURED: 'BACKUP_STORE_NOT_CONFIGURED',
   BACKUP_NOT_READY: 'BACKUP_NOT_READY',
+  SYNC_DURABILITY_REQUIRED: 'SYNC_DURABILITY_REQUIRED',
+  SYNC_BACKUP_STORE_REQUIRED: 'SYNC_BACKUP_STORE_REQUIRED',
+  SYNC_NOT_READY: 'SYNC_NOT_READY',
+  SYNC_NOT_ENABLED: 'SYNC_NOT_ENABLED',
+  SYNC_SNAPSHOT_PREPARING: 'SYNC_SNAPSHOT_PREPARING',
   SEARCH_INVALID_FIELD: 'SEARCH_INVALID_FIELD',
   VECTOR_DIMENSION_MISMATCH: 'VECTOR_DIMENSION_MISMATCH',
   SEARCH_INVALID_FILTER: 'SEARCH_INVALID_FILTER',
@@ -178,8 +183,10 @@ export type ServerErrorCode = (typeof ServerErrorCodes)[keyof typeof ServerError
  * a server, or where the caller cannot read the answer.
  *
  * The HTTP client raises the first five. The React bindings raise
- * `CLIENT_UNEXPECTED_ERROR` alone, which reports a fault inside a hook. No
- * server sends any of them, so a failure under one means the exchange broke
+ * `CLIENT_UNEXPECTED_ERROR` alone, which reports a fault inside a hook. A
+ * synced device raises `SYNC_ANALYSIS_UNAVAILABLE` before it downloads a
+ * snapshot whose language, tokeniser, or stop words it has not registered,
+ * and it keeps its copy of the index. No server sends any of them, so a failure under one means the exchange broke
  * before the operation ran. `STATUS_BY_CODE` in `src/server/errors.ts`
  * therefore maps none of them, because no request can arrive under one and no
  * HTTP status belongs to one.
@@ -193,6 +200,7 @@ export const ClientErrorCodes = {
   CLIENT_INVALID_RESPONSE: 'CLIENT_INVALID_RESPONSE',
   CLIENT_TASK_TIMEOUT: 'CLIENT_TASK_TIMEOUT',
   CLIENT_UNEXPECTED_ERROR: 'CLIENT_UNEXPECTED_ERROR',
+  SYNC_ANALYSIS_UNAVAILABLE: 'SYNC_ANALYSIS_UNAVAILABLE',
 } as const
 
 /**
