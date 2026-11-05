@@ -180,25 +180,37 @@ export function searchInTheCore(
   if (storage === null) return null
 
   const capacity = state.docStore.internalIdCapacity()
-  const { request, labels } = plannedRequest(state, params, phraseMatches, storage, capacity)
   const written = outputFor(capacity)
-  if (!scoredByTheCore(core, request, written)) {
-    builder.release()
-    return null
-  }
-  if (scoringPathObserver !== null) scoringPathObserver(written.outcome[OUTCOME_SCORING_PATH])
-  const count = written.outcome[OUTCOME_COUNT]
+  const components = componentsScoredByTheCore(core, state, params, phraseMatches, storage, capacity, written)
+  if (components === undefined) return null
   const totalMatched = written.outcome[OUTCOME_TOTAL_MATCHED]
-  const components =
-    params.collectComponents === false
-      ? null
-      : keywordComponents(request, labels, state.fieldNameTable.names, written.ordinals, count)
-  builder.release()
-  const scored = pageOf(state, written, count, params.maxResults, components)
+  const scored = pageOf(state, written, written.outcome[OUTCOME_COUNT], params.maxResults, components)
+  const result: InternalSearchResult =
+    params.collectMatchedSet === undefined
+      ? { scored, totalMatched }
+      : params.collectMatchedSet === 'ordinals'
+        ? { scored, totalMatched, matchedOrdinalBitset: written.matched.slice(0, (capacity + 31) >>> 5 || 1) }
+        : { scored, totalMatched, matchedIds: matchedIdsOf(state, written.matched, capacity) }
+  if (scoringPathObserver !== null) scoringPathObserver(written.outcome[OUTCOME_SCORING_PATH])
+  return result
+}
 
-  if (params.collectMatchedSet === undefined) return { scored, totalMatched }
-  if (params.collectMatchedSet === 'ordinals') {
-    return { scored, totalMatched, matchedOrdinalBitset: written.matched.slice(0, (capacity + 31) >>> 5 || 1) }
+function componentsScoredByTheCore(
+  core: NativeCore,
+  state: PartitionReadState,
+  params: InternalSearchParams,
+  phraseMatches: PhraseMatches | null,
+  storage: SegmentStorage,
+  capacity: number,
+  written: KeywordOutput,
+): Map<number, ScoreComponents> | null | undefined {
+  try {
+    const { request, labels } = plannedRequest(state, params, phraseMatches, storage, capacity)
+    if (!scoredByTheCore(core, request, written)) return undefined
+    if (params.collectComponents === false) return null
+    const count = written.outcome[OUTCOME_COUNT]
+    return keywordComponents(request, labels, state.fieldNameTable.names, written.ordinals, count)
+  } finally {
+    builder.release()
   }
-  return { scored, totalMatched, matchedIds: matchedIdsOf(state, written.matched, capacity) }
 }

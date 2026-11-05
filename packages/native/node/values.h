@@ -20,7 +20,9 @@ typedef struct {
   uint16_t *text_units;
   size_t text_capacity;
   narsil_keyword_column *keyword_lengths;
+  napi_value *keyword_length_values;
   uint32_t keyword_length_capacity;
+  int keyword_scoring;
 } thread_state;
 
 napi_value throw_error(napi_env env, const char *message);

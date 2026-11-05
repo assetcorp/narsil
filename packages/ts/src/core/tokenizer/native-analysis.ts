@@ -3,6 +3,7 @@ import type { LanguageModule } from '../../types/language'
 import type { NativeStopWordSetHandle } from '../../vector/native/analysis-types'
 import { nativeSearchCoreIsEnabled, noteFallback } from '../../vector/native/backend'
 import type { NativeCore } from '../../vector/native/types'
+import { NATIVE_ANALYSIS_FIRST_TOKEN_RECORDS, NATIVE_ANALYSIS_HELD_TERMS } from './constants'
 import type { NativeAnalysis } from './native-hook'
 import type { TokenizeOptions, TokenVisitor } from './tokenize'
 
@@ -13,8 +14,6 @@ const COLLECT_SURFACES_FLAG = 8
 const SPELLINGS_FLAG = 16
 const TOKEN_RECORD_WORDS = 8
 const NO_SURFACE = 0xffffffff
-const FIRST_RECORD_TOKENS = 256
-const CORE_TERM_CACHE_SLOTS = 16384
 const COPY_PREFIX = ' '
 
 interface CoreLanguage {
@@ -24,7 +23,7 @@ interface CoreLanguage {
 
 interface HeldStopWords {
   handle: NativeStopWordSetHandle
-  size: number
+  words: ReadonlySet<string>
 }
 
 interface Analysed {
@@ -35,8 +34,8 @@ interface Analysed {
 let coreOfNames: NativeCore | null = null
 let indexByName = new Map<string, number>()
 let languagesOfCore = new WeakMap<LanguageModule, CoreLanguage | null>()
-let heldStopWords = new WeakMap<ReadonlySet<string>, HeldStopWords>()
-let sharedRecords = new Uint32Array(1 + FIRST_RECORD_TOKENS * TOKEN_RECORD_WORDS)
+let heldStopWords = new WeakMap<object, HeldStopWords>()
+let sharedRecords = new Uint32Array(1 + NATIVE_ANALYSIS_FIRST_TOKEN_RECORDS * TOKEN_RECORD_WORDS)
 let recordsInUse = false
 let termsBySlot: Array<string | undefined> | null = null
 
@@ -84,11 +83,22 @@ function coreLanguageOf(core: NativeCore, module: LanguageModule): CoreLanguage 
   return language
 }
 
-function heldSetFor(core: NativeCore, words: ReadonlySet<string>): NativeStopWordSetHandle {
-  const held = heldStopWords.get(words)
-  if (held !== undefined && held.size === words.size) return held.handle
-  const handle = core.createStopWordSet(stringsOf(words))
-  heldStopWords.set(words, { handle, size: words.size })
+function holdsTheSameWords(held: ReadonlySet<string>, words: ReadonlySet<unknown>): boolean {
+  let strings = 0
+  for (const word of words) {
+    if (typeof word !== 'string') continue
+    if (!held.has(word)) return false
+    strings++
+  }
+  return strings === held.size
+}
+
+function heldSetFor(core: NativeCore, owner: object, words: ReadonlySet<string>): NativeStopWordSetHandle {
+  const held = heldStopWords.get(owner)
+  if (held !== undefined && holdsTheSameWords(held.words, words)) return held.handle
+  const strings = stringsOf(words)
+  const handle = core.createStopWordSet(strings)
+  heldStopWords.set(owner, { handle, words: new Set(strings) })
   return handle
 }
 
@@ -101,7 +111,7 @@ function stopWordsFor(
   if (!override) return language.moduleStopWords
   const words = override instanceof Set ? override : override(module.stopWords)
   if (words === module.stopWords) return language.moduleStopWords
-  return heldSetFor(core, words)
+  return heldSetFor(core, override, words)
 }
 
 function analyseWith(
@@ -134,8 +144,8 @@ function holdsUnits(held: string, arena: string, start: number, length: number):
 }
 
 function termOf(arena: string, start: number, length: number, slot: number): string {
-  if (slot >= CORE_TERM_CACHE_SLOTS) return arena.substring(start, start + length)
-  if (termsBySlot === null) termsBySlot = new Array<string | undefined>(CORE_TERM_CACHE_SLOTS)
+  if (slot >= NATIVE_ANALYSIS_HELD_TERMS) return arena.substring(start, start + length)
+  if (termsBySlot === null) termsBySlot = new Array<string | undefined>(NATIVE_ANALYSIS_HELD_TERMS)
   const held = termsBySlot[slot]
   if (held !== undefined && holdsUnits(held, arena, start, length)) return held
   const term = (COPY_PREFIX + arena.substring(start, start + length)).slice(COPY_PREFIX.length)

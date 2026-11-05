@@ -1,6 +1,7 @@
 #include "unicode.h"
 
 #include "../../include/narsil_core.h"
+#include "../thread_yield.h"
 
 #include <stdatomic.h>
 #include <stddef.h>
@@ -106,6 +107,7 @@ int narsil_unicode_prepare(void) {
                                                                          memory_order_acq_rel, memory_order_acquire)) {
       break;
     }
+    if (state == PREPARE_BUILDING) { narsil_yield_thread(); }
   }
   int status = build_property_index();
   if (status == NARSIL_OK) { status = build_compositions(); }

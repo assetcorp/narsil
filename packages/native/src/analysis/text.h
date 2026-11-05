@@ -11,6 +11,7 @@
 #define NARSIL_SURROGATE_PAYLOAD_BITS 10U
 #define NARSIL_SURROGATE_PAYLOAD_MASK 0x3FFU
 #define NARSIL_ASCII_END 0x80U
+#define NARSIL_REPLACEMENT_CHARACTER 0xFFFDU
 
 typedef struct {
   uint16_t *units;
@@ -39,5 +40,6 @@ uint32_t narsil_decode_next(const uint16_t *units, size_t length, size_t *index)
 uint32_t narsil_decode_previous(const uint16_t *units, size_t *index);
 int narsil_units_are_ascii(const uint16_t *units, size_t length);
 int narsil_units_equal(const uint16_t *left, size_t left_length, const uint16_t *right, size_t right_length);
+void narsil_replace_unpaired_surrogates(uint16_t *units, size_t length);
 
 #endif

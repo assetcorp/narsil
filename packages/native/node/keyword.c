@@ -135,27 +135,33 @@ static int reserve_lengths(thread_state *state, uint32_t count) {
   narsil_keyword_column *grown = realloc(state->keyword_lengths, (size_t)count * sizeof *grown);
   if (grown == NULL) { return 0; }
   state->keyword_lengths = grown;
+  napi_value *values = (napi_value *)realloc((void *)state->keyword_length_values, (size_t)count * sizeof *values);
+  if (values == NULL) { return 0; }
+  state->keyword_length_values = values;
   state->keyword_length_capacity = count;
   return 1;
 }
 
-static int read_length_columns(const arguments *read, narsil_keyword_column *columns, uint32_t count) {
+static int collect_length_columns(const arguments *read, napi_value *values, uint32_t count) {
   napi_value array = read->argv[ARGUMENT_LENGTHS];
   uint32_t length = 0;
   if (napi_get_array_length(read->env, array, &length) != napi_ok || length != count) { return 0; }
   for (uint32_t field = 0; field < count; field++) {
-    napi_value value = NULL;
+    if (napi_get_element(read->env, array, field, &values[field]) != napi_ok) { return 0; }
+  }
+  return 1;
+}
+
+static int read_length_columns(napi_env env, const napi_value *values, narsil_keyword_column *columns, uint32_t count) {
+  for (uint32_t field = 0; field < count; field++) {
     napi_valuetype type = napi_undefined;
-    if (napi_get_element(read->env, array, field, &value) != napi_ok ||
-        napi_typeof(read->env, value, &type) != napi_ok) {
-      return 0;
-    }
+    if (napi_typeof(env, values[field], &type) != napi_ok) { return 0; }
     columns[field].values = NULL;
     columns[field].length = 0;
     if (type == napi_null) { continue; }
     void *data = NULL;
     size_t size = 0;
-    if (!possibly_empty_typed_data(read->env, value, napi_uint32_array, &data, &size) || size > UINT32_MAX) {
+    if (!possibly_empty_typed_data(env, values[field], napi_uint32_array, &data, &size) || size > UINT32_MAX) {
       return 0;
     }
     columns[field].values = data;
@@ -239,33 +245,44 @@ static int read_output(const arguments *read, narsil_keyword_output *output, dou
   return 1;
 }
 
-static napi_value keyword_score(napi_env env, napi_callback_info info) {
-  napi_value argv[ARGUMENT_COUNT];
-  thread_state *state = thread_state_of(env);
-  if (state == NULL || !callback_arguments(env, info, ARGUMENT_COUNT, argv)) {
-    return throw_error(env, "keywordScore takes twenty-three arguments");
-  }
+static napi_value score_keywords(napi_env env, napi_value *argv, thread_state *state) {
   arguments read = {env, argv};
   narsil_keyword_request request = {0};
+  if (!read_fields(&read, &request)) { return throw_error(env, "an argument to keywordScore has the wrong type"); }
+  uint32_t field_count = request.field_count;
+  if (!reserve_lengths(state, field_count)) { return status_of(env, NARSIL_OUT_OF_MEMORY); }
+  if (!collect_length_columns(&read, state->keyword_length_values, field_count)) {
+    return throw_error(env, "an argument to keywordScore has the wrong type");
+  }
   narsil_keyword_output output = {0};
   double *outcome = NULL;
   uint32_t outcome_length = 0;
   if (!read_rows(&read, &request) || !read_slots(&read, &request) || !read_bitsets(&read, &request) ||
       !read_settings(&read, &request) || !read_output(&read, &output, &outcome, &outcome_length) ||
-      !read_fields(&read, &request)) {
+      !read_fields(&read, &request) || request.field_count != field_count ||
+      !read_length_columns(env, state->keyword_length_values, state->keyword_lengths, field_count)) {
     return throw_error(env, "an argument to keywordScore has the wrong type");
   }
-  if (!reserve_lengths(state, request.field_count)) { return status_of(env, NARSIL_OUT_OF_MEMORY); }
   request.lengths = state->keyword_lengths;
-  if (!read_length_columns(&read, state->keyword_lengths, request.field_count)) {
-    return throw_error(env, "an argument to keywordScore has the wrong type");
-  }
   narsil_status status = narsil_keyword_score(state->workspace, &request, &output);
   report_workspace_memory(env, state);
   outcome[OUTCOME_COUNT] = (double)output.count;
   outcome[OUTCOME_TOTAL_MATCHED] = (double)output.total_matched;
   if (outcome_length > OUTCOME_SCORING_PATH) { outcome[OUTCOME_SCORING_PATH] = (double)output.scoring_path; }
   return status_of(env, status);
+}
+
+static napi_value keyword_score(napi_env env, napi_callback_info info) {
+  napi_value argv[ARGUMENT_COUNT];
+  thread_state *state = thread_state_of(env);
+  if (state == NULL || !callback_arguments(env, info, ARGUMENT_COUNT, argv)) {
+    return throw_error(env, "keywordScore takes twenty-three arguments");
+  }
+  if (state->keyword_scoring) { return throw_error(env, "keywordScore cannot run while it reads its own arguments"); }
+  state->keyword_scoring = 1;
+  napi_value result = score_keywords(env, argv, state);
+  state->keyword_scoring = 0;
+  return result;
 }
 
 int define_keyword(napi_env env, napi_value exports) {
