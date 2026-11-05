@@ -53,6 +53,7 @@ export interface FrozenSegment extends PartitionReadState {
   readonly removals: FrozenRemovalPass
   /** The segment serves from these flat arrays, which a merge reads as they stand, decoding no document. */
   readonly arrays: FrozenSegmentArrays
+  readonly tombstones: Pick<FrozenTombstones, 'size' | 'at'>
   liveDocumentCount(): number
   hasDocument(docId: string): boolean
   isTombstoned(ordinal: number): boolean
@@ -213,6 +214,7 @@ function assembleFrozenSegment(
     sharedSnapshot,
     paged: pagedParts?.access ?? null,
     arrays: source,
+    tombstones,
     invertedIdx: createFrozenInvertedReader(source.tokenTable, postingViews, counts),
     docStore,
     stats: buildStatsView(counts),

@@ -1,4 +1,5 @@
 import type { NativeAnalysisCore } from './analysis-types'
+import type { NativeKeywordCore } from './keyword-types'
 
 /**
  * The regions of one HNSW graph that the native search core reads and writes.
@@ -118,7 +119,7 @@ export interface NativeConnectResult {
   wakes: Int32Array
 }
 
-export const NATIVE_CORE_ABI_VERSION = 7
+export const NATIVE_CORE_ABI_VERSION = 8
 export const NATIVE_OK = 0
 export const NATIVE_NEEDS_ROOM = 3
 export const NATIVE_GRAPH_NOT_HELD_ALONE = 4
@@ -129,7 +130,7 @@ export const NATIVE_GRAPH_NOT_HELD_ALONE = 4
  *
  * @internal
  */
-export interface NativeCore extends NativeAnalysisCore {
+export interface NativeCore extends NativeAnalysisCore, NativeKeywordCore {
   /** Returns the version of the core's binary interface, which the engine compares with the version that it was built for. */
   abiVersion(): number
   /** Returns the number of bytes that the core's working memory holds. */

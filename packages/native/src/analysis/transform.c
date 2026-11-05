@@ -4,6 +4,7 @@
 #include "analyser.h"
 #include "languages.h"
 #include "normalise.h"
+#include "term_cache.h"
 #include "text.h"
 
 #include <limits.h>
@@ -50,8 +51,8 @@ static int stem_with_snowball(narsil_analyser *analyser, const narsil_language *
   return NARSIL_OK;
 }
 
-int narsil_transform_token(narsil_analyser *analyser, const narsil_language *language, uint32_t language_index,
-                           narsil_unit_view candidate, uint32_t flags, narsil_unit_view *result) {
+static int transform_uncached(narsil_analyser *analyser, const narsil_language *language, uint32_t language_index,
+                              narsil_unit_view candidate, uint32_t flags, narsil_unit_view *result) {
   narsil_unit_view current = candidate;
   int status = NARSIL_OK;
   if (language->normalise != NULL) { status = rewrite(analyser, language->normalise, &current); }
@@ -66,6 +67,25 @@ int narsil_transform_token(narsil_analyser *analyser, const narsil_language *lan
     }
   }
   if (status == NARSIL_OK) { *result = current; }
+  return status;
+}
+
+int narsil_transform_token(narsil_analyser *analyser, const narsil_language *language, uint32_t language_index,
+                           narsil_unit_view candidate, uint32_t flags, narsil_unit_view *result, uint32_t *term_slot) {
+  *term_slot = NARSIL_NO_TERM_SLOT;
+  narsil_term_key key = {language_index, flags & NARSIL_TRANSFORM_FLAGS, candidate.units, candidate.length};
+  narsil_term_slot *victim = NULL;
+  narsil_term_slot *held = narsil_term_cache_find(&analyser->terms, &key, &victim);
+  if (held != NULL) {
+    result->units = held->value;
+    result->length = held->value_length;
+    *term_slot = narsil_term_cache_index(&analyser->terms, held);
+    return NARSIL_OK;
+  }
+  int status = transform_uncached(analyser, language, language_index, candidate, key.flags, result);
+  if (status == NARSIL_OK && victim != NULL && narsil_term_cache_store(victim, &key, result->units, result->length)) {
+    *term_slot = narsil_term_cache_index(&analyser->terms, victim);
+  }
   return status;
 }
 

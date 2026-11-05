@@ -8,6 +8,7 @@ export type NativeOperation =
   | 'measure'
   | 'quantise'
   | 'analyse'
+  | 'keywordScore'
 
 let nativeSearchCoreEnabled = true
 let fallbackObserver: ((operation: NativeOperation) => void) | null = null

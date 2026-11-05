@@ -29,6 +29,7 @@ export interface InvertedIndexReader {
   has(token: string): boolean
   tokens(): IterableIterator<string>
   size(): number
+  readonly livePostings?: Pick<LivePostings, 'pool' | 'retired'>
 }
 
 export interface InvertedIndex extends InvertedIndexReader {
@@ -89,6 +90,8 @@ export function createInvertedIndex(fieldNameTable: FieldNameTable): InvertedInd
   }
 
   return {
+    livePostings: postings,
+
     insert(
       token: string,
       internalId: number,

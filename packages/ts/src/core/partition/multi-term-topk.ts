@@ -9,6 +9,7 @@ import type { InvertedIndexReader } from '../inverted-index'
 import { bm25PruningSound, computeBM25WithIDF, computeIDF } from '../scorer'
 import { blockBoundsFor } from './block-bounds'
 import { PRUNING_REJECTION_SLACK } from './constants'
+import { orderRunByFieldName } from './field-order'
 import { bestSearchable, blockEntryBound, type FieldScoring, fieldLengthOf } from './field-scoring'
 import { type PostingColumns, postingColumns } from './posting-columns'
 import { addScore, hasScore, kthBestScore, markCounted, type ScoreBuffer } from './score-buffer'
@@ -211,14 +212,23 @@ function firstEntryOf(docIds: PostingColumns['docIds'], count: number, internalI
   return low
 }
 
+function fieldOrderedRun(scan: TermScan, start: number, internalId: number): Uint32Array | null {
+  const { docIds, count } = scan.columns
+  if (start + 1 >= count || docIds[start + 1] !== internalId) return null
+  return orderRunByFieldName(docIds, scan.columns.fieldNameIndices, scan.fields.nameRanks, start, count)
+}
+
 function samePairQueryOrderScore(scans: TermScan[], internalId: number): number {
   let score = 0
   for (const scan of scans) {
     const { docIds, deletedDocs, hasDeleted, count } = scan.columns
     if (hasDeleted && deletedDocs.has(internalId)) continue
-    for (let entry = firstEntryOf(docIds, count, internalId); entry < count && docIds[entry] === internalId; entry++) {
-      if (scan.fields.searchable[scan.columns.fieldNameIndices[entry]] !== 1) continue
-      score += samePairEntryScore(scan, entry, internalId)
+    const start = firstEntryOf(docIds, count, internalId)
+    const ordered = fieldOrderedRun(scan, start, internalId)
+    for (let at = 0, entry = start; entry < count && docIds[entry] === internalId; at++, entry++) {
+      const row = ordered === null ? entry : ordered[at]
+      if (scan.fields.searchable[scan.columns.fieldNameIndices[row]] !== 1) continue
+      score += samePairEntryScore(scan, row, internalId)
     }
   }
   return score
@@ -229,9 +239,12 @@ function fieldPairQueryOrderScore(scans: TermScan[], internalId: number): number
   for (const scan of scans) {
     const { docIds, deletedDocs, hasDeleted, count } = scan.columns
     if (hasDeleted && deletedDocs.has(internalId)) continue
-    for (let entry = firstEntryOf(docIds, count, internalId); entry < count && docIds[entry] === internalId; entry++) {
-      if (scan.fields.searchable[scan.columns.fieldNameIndices[entry]] !== 1) continue
-      score += fieldPairEntryScore(scan, entry, internalId)
+    const start = firstEntryOf(docIds, count, internalId)
+    const ordered = fieldOrderedRun(scan, start, internalId)
+    for (let at = 0, entry = start; entry < count && docIds[entry] === internalId; at++, entry++) {
+      const row = ordered === null ? entry : ordered[at]
+      if (scan.fields.searchable[scan.columns.fieldNameIndices[row]] !== 1) continue
+      score += fieldPairEntryScore(scan, row, internalId)
     }
   }
   return score

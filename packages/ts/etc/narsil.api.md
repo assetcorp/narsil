@@ -769,7 +769,7 @@ export interface NativeConnectResult {
 // Warning: (ae-internal-missing-underscore) The name "NativeCore" should be prefixed with an underscore because the declaration is marked as @internal
 //
 // @internal
-export interface NativeCore extends NativeAnalysisCore {
+export interface NativeCore extends NativeAnalysisCore, NativeKeywordCore {
     abiVersion(): number;
     applyMath(operation: number, first: Float64Array, second: Float64Array, results: Float64Array): number;
     attachGraph(memory: NativeGraphMemory): NativeGraphHandle;
@@ -808,6 +808,13 @@ export interface NativeGraphMemory {
     tombstones: Uint8Array;
     upper: Int32Array;
     upperBase: Int32Array;
+}
+
+// Warning: (ae-internal-missing-underscore) The name "NativeKeywordCore" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface NativeKeywordCore {
+    keywordScore(poolDocIds: Uint32Array, poolFrequencies: Uint16Array, poolFields: Uint16Array, rowDocIds: Uint32Array, rowFrequencies: Float64Array, rowFields: Uint16Array, slots: Uint32Array, lists: Uint32Array, listValues: Float64Array, slotValues: Float64Array, searchable: Uint8Array, partialMarks: Uint8Array, nameRanks: Uint16Array, fieldNumbers: Float64Array, lengths: ReadonlyArray<Uint32Array | null>, filter: Uint32Array | null, live: Uint32Array, removed: Uint32Array, settings: Float64Array, ordinals: Int32Array, scores: Float64Array, matched: Uint32Array, outcome: Float64Array): number;
 }
 
 // Warning: (ae-internal-missing-underscore) The name "NativeScoreResult" should be prefixed with an underscore because the declaration is marked as @internal

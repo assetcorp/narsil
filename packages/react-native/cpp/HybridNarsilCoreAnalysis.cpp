@@ -34,6 +34,7 @@ enum TokenRecord : size_t {
   RECORD_SURFACE_LENGTH,
   RECORD_ORIGINAL_OFFSET,
   RECORD_ORIGINAL_LENGTH,
+  RECORD_TERM_SLOT,
   TOKEN_RECORD_WORDS
 };
 
@@ -123,12 +124,34 @@ bool writeRecords(const narsil_tokens& tokens, uint32_t* records, size_t capacit
     record[RECORD_SURFACE_LENGTH] = token.surface_length;
     record[RECORD_ORIGINAL_OFFSET] = token.original_offset;
     record[RECORD_ORIGINAL_LENGTH] = token.original_length;
+    record[RECORD_TERM_SLOT] = token.term_slot;
     record += TOKEN_RECORD_WORDS;
   }
   return true;
 }
 
 jsi::Value statusValue(narsil_status status) { return jsi::Value(-static_cast<double>(status)); }
+
+narsil_analyser* analyserOf(std::unique_ptr<narsil_analyser, AnalyserRelease>& held) {
+  if (held == nullptr) {
+    narsil_analyser* created = nullptr;
+    if (narsil_analyser_create(&created) != NARSIL_OK) return nullptr;
+    held.reset(created);
+  }
+  return held.get();
+}
+
+void readText(jsi::Runtime& runtime, const jsi::Value& value, const char* what, std::vector<uint16_t>& units) {
+  if (!value.isString()) throwInvalid(std::string(what) + " must be a string");
+  units.clear();
+  appendUnits(runtime, value.getString(runtime), units, NARSIL_MAX_ANALYSED_UNITS);
+}
+
+jsi::Value textOf(jsi::Runtime& runtime, std::u16string& out, const uint16_t* units, size_t length) {
+  out.resize(length);
+  if (length > 0) std::memcpy(out.data(), units, length * sizeof(uint16_t));
+  return jsi::String::createFromUtf16(runtime, out);
+}
 
 }
 
@@ -142,28 +165,16 @@ void HybridNarsilCoreImpl::loadHybridMethods() {
     prototype.registerRawHybridMethod("createStopWordSet", 1, &HybridNarsilCoreImpl::createStopWordSet);
     prototype.registerRawHybridMethod("analyse", ANALYSE_ARGUMENT_COUNT, &HybridNarsilCoreImpl::analyse);
     prototype.registerRawHybridMethod("transform", TRANSFORM_ARGUMENT_COUNT, &HybridNarsilCoreImpl::transform);
+    prototype.registerRawHybridMethod("keywordScore", KEYWORD_SCORE_ARGUMENT_COUNT,
+                                      &HybridNarsilCoreImpl::keywordScore);
   });
 }
 
-narsil_analyser* HybridNarsilCoreImpl::analyser() {
-  if (_analyser == nullptr) {
-    narsil_analyser* created = nullptr;
-    if (narsil_analyser_create(&created) != NARSIL_OK) return nullptr;
-    _analyser.reset(created);
-  }
-  return _analyser.get();
-}
-
-void HybridNarsilCoreImpl::readText(jsi::Runtime& runtime, const jsi::Value& value, const char* what) {
-  if (!value.isString()) throwInvalid(std::string(what) + " must be a string");
-  _textUnits.clear();
-  appendUnits(runtime, value.getString(runtime), _textUnits, NARSIL_MAX_ANALYSED_UNITS);
-}
-
-jsi::Value HybridNarsilCoreImpl::textOf(jsi::Runtime& runtime, const uint16_t* units, size_t length) {
-  _textOut.resize(length);
-  if (length > 0) std::memcpy(_textOut.data(), units, length * sizeof(uint16_t));
-  return jsi::String::createFromUtf16(runtime, _textOut);
+HybridNarsilCoreImpl::RuntimeState& HybridNarsilCoreImpl::stateOf(jsi::Runtime& runtime) {
+  std::lock_guard<std::mutex> guard(_runtimeStateLock);
+  std::unique_ptr<RuntimeState>& held = _stateByRuntime[&runtime];
+  if (held == nullptr) held = std::make_unique<RuntimeState>();
+  return *held;
 }
 
 jsi::Value HybridNarsilCoreImpl::languageCount(jsi::Runtime&, const jsi::Value&, const jsi::Value*, size_t) {
@@ -186,10 +197,11 @@ jsi::Value HybridNarsilCoreImpl::languageStopWords(jsi::Runtime& runtime, const 
   if (narsil_language_stop_words(languageArgument(arguments, count, 0), &list) != NARSIL_OK) {
     throwInvalid("The core holds no stop words for that language");
   }
+  std::u16string& out = stateOf(runtime).textOut;
   jsi::Array words(runtime, list.count);
   for (uint32_t index = 0; index < list.count; index++) {
     uint32_t start = list.offsets[index];
-    words.setValueAtIndex(runtime, index, textOf(runtime, list.units + start, list.offsets[index + 1] - start));
+    words.setValueAtIndex(runtime, index, textOf(runtime, out, list.units + start, list.offsets[index + 1] - start));
   }
   return words;
 }
@@ -231,16 +243,17 @@ jsi::Value HybridNarsilCoreImpl::analyse(jsi::Runtime& runtime, const jsi::Value
   request.stop_words = stopWordsArgument(runtime, arguments[ANALYSE_STOP_WORDS]);
   size_t capacity = 0;
   uint32_t* records = recordsArgument(runtime, arguments, count, &capacity);
-  readText(runtime, arguments[ANALYSE_TEXT], "The text");
-  narsil_analyser* active = analyser();
+  RuntimeState& analysis = stateOf(runtime);
+  readText(runtime, arguments[ANALYSE_TEXT], "The text", analysis.textUnits);
+  narsil_analyser* active = analyserOf(analysis.analyser);
   if (active == nullptr) return statusValue(NARSIL_OUT_OF_MEMORY);
-  request.text = _textUnits.empty() ? NO_UNITS : _textUnits.data();
-  request.length = static_cast<uint32_t>(_textUnits.size());
+  request.text = analysis.textUnits.empty() ? NO_UNITS : analysis.textUnits.data();
+  request.length = static_cast<uint32_t>(analysis.textUnits.size());
   narsil_tokens tokens = {nullptr, 0, nullptr, 0};
   narsil_status status = narsil_analyse(active, &request, &tokens);
   if (status != NARSIL_OK) return statusValue(status);
   if (!writeRecords(tokens, records, capacity)) return jsi::Value::null();
-  return textOf(runtime, tokens.units, tokens.unit_count);
+  return textOf(runtime, analysis.textOut, tokens.units, tokens.unit_count);
 }
 
 jsi::Value HybridNarsilCoreImpl::transform(jsi::Runtime& runtime, const jsi::Value&, const jsi::Value* arguments,
@@ -249,15 +262,16 @@ jsi::Value HybridNarsilCoreImpl::transform(jsi::Runtime& runtime, const jsi::Val
   request.language = languageArgument(arguments, count, TRANSFORM_LANGUAGE);
   request.flags = wholeArgument(arguments, count, TRANSFORM_FLAGS, "The transform flags");
   if (count < TRANSFORM_ARGUMENT_COUNT) throwInvalid("transform takes three arguments");
-  readText(runtime, arguments[TRANSFORM_TEXT], "The token");
-  narsil_analyser* active = analyser();
+  RuntimeState& analysis = stateOf(runtime);
+  readText(runtime, arguments[TRANSFORM_TEXT], "The token", analysis.textUnits);
+  narsil_analyser* active = analyserOf(analysis.analyser);
   if (active == nullptr) return statusValue(NARSIL_OUT_OF_MEMORY);
-  request.text = _textUnits.empty() ? NO_UNITS : _textUnits.data();
-  request.length = static_cast<uint32_t>(_textUnits.size());
+  request.text = analysis.textUnits.empty() ? NO_UNITS : analysis.textUnits.data();
+  request.length = static_cast<uint32_t>(analysis.textUnits.size());
   narsil_term term = {nullptr, 0};
   narsil_status status = narsil_transform(active, &request, &term);
   if (status != NARSIL_OK) return statusValue(status);
-  return textOf(runtime, term.units, term.length);
+  return textOf(runtime, analysis.textOut, term.units, term.length);
 }
 
 }
