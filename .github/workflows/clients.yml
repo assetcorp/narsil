@@ -1,0 +1,150 @@
+name: Clients
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'packages/python/**'
+      - 'packages/go/**'
+      - 'packages/ts/openapi.json'
+      - 'packages/ts/src/server/**'
+      - 'packages/ts/scripts/client-test-server.mjs'
+      - '.github/workflows/clients.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'packages/python/**'
+      - 'packages/go/**'
+      - 'packages/ts/openapi.json'
+      - 'packages/ts/src/server/**'
+      - 'packages/ts/scripts/client-test-server.mjs'
+      - '.github/workflows/clients.yml'
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: clients-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    name: Python client (${{ matrix.python }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.11', '3.14']
+    services:
+      etcd:
+        image: gcr.io/etcd-development/etcd:v3.6.0
+        entrypoint: /usr/local/bin/etcd
+        command: >-
+          --name node1
+          --data-dir /etcd-data
+          --listen-client-urls http://0.0.0.0:2379
+          --advertise-client-urls http://127.0.0.1:2379
+          --listen-peer-urls http://0.0.0.0:2380
+          --initial-advertise-peer-urls http://127.0.0.1:2380
+          --initial-cluster node1=http://127.0.0.1:2380
+        ports:
+          - 2379:2379
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Setup Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generated code matches the OpenAPI file
+        run: pnpm nx run narsil-python:generate
+
+      - name: Lint
+        run: pnpm nx run narsil-python:lint
+
+      - name: Typecheck
+        run: pnpm nx run narsil-python:typecheck
+
+      - name: Test on a live server and a three-node cluster
+        env:
+          NARSIL_ETCD_ENDPOINT: http://127.0.0.1:2379
+        run: pnpm nx run narsil-python:test
+
+      - name: Build the PyPI package
+        run: pnpm nx run narsil-python:package
+
+  go:
+    name: Go client (${{ matrix.go }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        go: ['1.26', 'stable']
+    services:
+      etcd:
+        image: gcr.io/etcd-development/etcd:v3.6.0
+        entrypoint: /usr/local/bin/etcd
+        command: >-
+          --name node1
+          --data-dir /etcd-data
+          --listen-client-urls http://0.0.0.0:2379
+          --advertise-client-urls http://127.0.0.1:2379
+          --listen-peer-urls http://0.0.0.0:2380
+          --initial-advertise-peer-urls http://127.0.0.1:2380
+          --initial-cluster node1=http://127.0.0.1:2380
+        ports:
+          - 2379:2379
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ matrix.go }}
+          cache: false
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generated code matches the OpenAPI file
+        run: pnpm nx run narsil-go:generate
+
+      - name: Lint
+        run: pnpm nx run narsil-go:lint
+
+      - name: Typecheck
+        run: pnpm nx run narsil-go:typecheck
+
+      - name: Test on a live server and a three-node cluster
+        env:
+          NARSIL_ETCD_ENDPOINT: http://127.0.0.1:2379
+        run: pnpm nx run narsil-go:test

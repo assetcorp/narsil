@@ -1,6 +1,7 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { createNarsil, type Narsil } from '../../narsil'
 import { waitFor } from '../server/helpers'
+import { passagesNotFoundFirstSavingEvidence } from './missed-passage-evidence'
 import {
   DIMENSION,
   exactCosineRanking,
@@ -51,8 +52,10 @@ describe('vector search over passages that arrive file by file', () => {
     'reaches every stored passage and returns each one first for its own vector at a narrow and a wide limit',
     async () => {
       expect(await unreachedPassages(engine, INDEX)).toEqual({ unplaced: [], unreached: [] })
-      expect(await passagesNotFoundFirst(engine, INDEX, passages, NARROW_LIMIT, NARROW_EF_SEARCH)).toEqual([])
-      expect(await passagesNotFoundFirst(engine, INDEX, passages, WIDE_LIMIT, WIDE_EF_SEARCH)).toEqual([])
+      expect(
+        await passagesNotFoundFirstSavingEvidence(engine, INDEX, passages, NARROW_LIMIT, NARROW_EF_SEARCH),
+      ).toEqual([])
+      expect(await passagesNotFoundFirstSavingEvidence(engine, INDEX, passages, WIDE_LIMIT, WIDE_EF_SEARCH)).toEqual([])
     },
     ARRIVAL_TIMEOUT_MS,
   )
@@ -108,12 +111,16 @@ describe('a saved graph that this release loads', { timeout: ARRIVAL_TIMEOUT_MS 
     )
     await untilSettled(engine, 'earlier')
     expect(await unreachedPassages(engine, 'earlier')).toEqual({ unplaced: [], unreached: [] })
-    expect(await passagesNotFoundFirst(engine, 'earlier', passages, NARROW_LIMIT, NARROW_EF_SEARCH)).toEqual([])
+    expect(
+      await passagesNotFoundFirstSavingEvidence(engine, 'earlier', passages, NARROW_LIMIT, NARROW_EF_SEARCH),
+    ).toEqual([])
 
     const grown = passagesArrivingFileByFile(2 * SAVED_PASSAGES)
     await insertFileByFile(engine, 'earlier', grown.slice(SAVED_PASSAGES))
     expect(await unreachedPassages(engine, 'earlier')).toEqual({ unplaced: [], unreached: [] })
-    expect(await passagesNotFoundFirst(engine, 'earlier', grown, NARROW_LIMIT, NARROW_EF_SEARCH)).toEqual([])
+    expect(await passagesNotFoundFirstSavingEvidence(engine, 'earlier', grown, NARROW_LIMIT, NARROW_EF_SEARCH)).toEqual(
+      [],
+    )
   })
 
   it.each([
