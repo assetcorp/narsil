@@ -1,5 +1,4 @@
 import { cos } from '../../math/trig'
-import type { LocationBox } from '../cells'
 import { DEG_TO_RAD, EARTH_RADIUS_METERS } from '../constants'
 import { boundHalfChord, type HalfChordBoundsOrigin, halfChordBounds, halfChordBoundsOrigin } from './bounds'
 import { radiusBoxes } from './boxes'
@@ -22,11 +21,6 @@ export interface RadiusCandidate {
 }
 
 type CandidateTest = (candidate: RadiusCandidate) => boolean
-
-export interface RadiusTest {
-  boxes: LocationBox[]
-  candidateTest(): CandidateTest
-}
 
 interface HalfChordBand {
   surelyWithin: number
@@ -87,13 +81,14 @@ function vincentyTest(origin: HalfChordBoundsOrigin, distanceMeters: number): Ca
   )
 }
 
-export function radiusTest(lat: number, lon: number, distanceMeters: number, highPrecision: boolean): RadiusTest {
-  const latitudeCosine = cos(lat * DEG_TO_RAD)
-  return {
-    boxes: radiusBoxes(lat, lon, distanceMeters, latitudeCosine),
-    candidateTest() {
-      const origin = halfChordBoundsOrigin(lat, lon, latitudeCosine)
-      return highPrecision ? vincentyTest(origin, distanceMeters) : haversineTest(origin, distanceMeters)
-    },
-  }
+export { radiusBoxes }
+
+export function radiusCandidateTest(
+  lat: number,
+  lon: number,
+  distanceMeters: number,
+  highPrecision: boolean,
+): CandidateTest {
+  const origin = halfChordBoundsOrigin(lat, lon, cos(lat * DEG_TO_RAD))
+  return highPrecision ? vincentyTest(origin, distanceMeters) : haversineTest(origin, distanceMeters)
 }

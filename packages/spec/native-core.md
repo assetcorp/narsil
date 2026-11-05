@@ -1,6 +1,6 @@
 # Narsil Native Core Specification
 
-The native search core is the C library that [Native Search Core](vector-index.md#native-search-core) introduces for vectors. This document defines the operations that analyse text, match the words of a query, score keyword queries, evaluate filters, count facets, order sorted results, group hits, place pinned documents, page results, highlight hits, suggest terms, fuse hybrid rankings, and merge results, together with the memory that each operation reads and writes.
+The native search core is the C library that [Native Search Core](vector-index.md#native-search-core) introduces for vectors. This document defines the operations that analyse text, match the words of a query, score keyword queries, evaluate filters, count facets, order sorted results, group hits, place pinned documents, page results, highlight hits, suggest terms, fuse hybrid rankings, merge results, and compute the maths functions that every implementation shares, together with the memory that each operation reads and writes.
 
 An implementation must perform every operation in this document through the core wherever its platform can load native code. Where the platform cannot load native code, or where the deployment selects code written in the implementation's language, that code must return the same results, bit for bit, as the core returns for the same input, and it must raise the same error for the same input, which includes counting the same units of work.
 
@@ -669,3 +669,15 @@ writeFieldMerge(sources, mapping: List<uint32>, targets) -> nothing
 `mergeGroups` must merge the groups that share a key, which the implementation assigns from the groups' field values in field order. It must merge each group's entries as `mergeRankings` merges them where the entries hold scores, taking `rank` as the place of the entry's document ID, or as `mergeSorted` merges them otherwise, keep the first `maxPerGroup`, order the groups by the score of their first entry, highest first, with 0 for an entry without one, and then by the `rank` of that entry, and keep the first `limit`, as [Distributed Grouping](distribution/query-routing.md#distributed-grouping) defines.
 
 `measureFieldMerge` and `writeFieldMerge` merge the field indexes, the stored values, and the pattern indexes of several segments, as `measureMerge` and `writeMerge` merge their keyword regions. The core must remap each numeric, size, and geo entry through `mapping` and sort the result again, remap and unite the boolean bitsets, unite the enum values while it remaps their postings, and remap the ordinals of each pattern run, keeping each list ascending. An ordinal that `mapping` drops leaves every target region.
+
+---
+
+## Deterministic Functions
+
+```text
+applyMath(function, first: List<float64>, second: List<float64>, results: List<float64>) -> nothing
+
+function: ln, sin, cos, tan, asin, atan, or atan2
+```
+
+`applyMath` must write into each place of `results` the value of `function` at the same place of `first`, computed as [Deterministic Functions](algorithms.md#deterministic-functions) defines. For `atan2`, it must take the element of `first` as `y` and the element of `second` at the same place as `x`, and for every other function it must ignore `second`. The core must refuse a `first` whose length differs from that of `results`, and an `atan2` call whose `second` differs in length from `results`. The operation counts no work, and an implementation in another language can call it to compare its port of these functions with the core on inputs beyond the test vectors.

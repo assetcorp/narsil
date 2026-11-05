@@ -120,6 +120,7 @@ const UNARY_CASES: UnaryCase[] = [
 ]
 
 const ATAN2_OPERATION = 6
+const SIN_OPERATION = 1
 
 function unaryInputs(testCase: UnaryCase, seed: number): Float64Array {
   const draw = seededRandom(seed)
@@ -211,6 +212,22 @@ describe.skipIf(!backendAvailable('native'))(
         expect(core.applyMath(vector.operation, Float64Array.of(first), seconds, results)).toBe(NATIVE_STATUS_OK)
         expect(hexOf(results[0]), `${vector.operation} ${vector.inputs.join(', ')}`).toBe(vector.result)
       }
+    })
+
+    it('refuses arguments that hold fewer values than the results', () => {
+      const core = loadNativeCore()
+      expect(core).not.toBeNull()
+      if (core === null) return
+      const results = new Float64Array(4)
+      const none = new Float64Array(0)
+      expect(() => core.applyMath(SIN_OPERATION, new Float64Array(3), none, results)).toThrow()
+      expect(() => core.applyMath(SIN_OPERATION, new Float64Array(5), none, results)).toThrow()
+      expect(() => core.applyMath(ATAN2_OPERATION, new Float64Array(4), new Float64Array(3), results)).toThrow()
+      expect(() => core.applyMath(ATAN2_OPERATION, new Float64Array(4), none, results)).toThrow()
+      expect(core.applyMath(SIN_OPERATION, Float64Array.of(0, 0, 0, 0), new Float64Array(9), results)).toBe(
+        NATIVE_STATUS_OK,
+      )
+      expect(Array.from(results)).toEqual([0, 0, 0, 0])
     })
   },
 )
