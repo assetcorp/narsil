@@ -1980,6 +1980,27 @@ class SuggestResult(ApiModel):
     """
 
 
+class SyncSetting(ApiModel):
+    """The device sync setting of one index, which SyncOperations.updateSync takes. Turn sync on
+    only for an index whose every document belongs to one user, because every device that syncs
+    the index receives the whole index. Create one index for each user, and leave sync off for a
+    public index or for an index that holds the data of several users.
+    """
+
+    enabled: bool
+    """This turns sync on or off. Turning it on gives the index a new epoch, so every synced device
+    loads a new copy.
+    """
+    history_max_age_ms: int | float | None = Field(default=None, alias="historyMaxAgeMs")
+    """This is the age in milliseconds after which the server deletes a log segment from history.
+    It defaults to 30 days.
+    """
+    history_max_bytes: int | float | None = Field(default=None, alias="historyMaxBytes")
+    """This is the byte count above which the server deletes the oldest log segment from history.
+    It defaults to the length of the published snapshot.
+    """
+
+
 class SynonymSetBody(ApiModel):
     """The body of `GET /indexes/{name}/synonyms`, and the body that `POST
     /indexes/{name}/synonyms` takes.
@@ -2118,9 +2139,9 @@ class VectorFieldBody(ApiModel):
 
 class VectorMaintenanceResult(ApiModel):
     """The state of one vector field, and what maintenance would cost, as
-    Narsil.vectorMaintenanceStatus reports it. Removing a vector leaves a tombstone in the
-    graph, and enough of them slow a search down. Read this to decide when compaction earns its
-    cost.
+    VectorMaintenanceOperations.vectorMaintenanceStatus reports it. Removing a vector leaves a
+    tombstone in the graph, and enough of them slow a search down. Read this to decide when
+    compaction earns its cost.
     """
 
     field_name: str = Field(alias="fieldName")
@@ -2145,9 +2166,9 @@ class VectorMaintenanceResult(ApiModel):
     background, during which a search reads them from the field's files.
     """
     estimated_compact_ms: int | float = Field(alias="estimatedCompactMs")
-    """Narsil.compactVectors would take about this many milliseconds."""
+    """VectorMaintenanceOperations.compactVectors would take about this many milliseconds."""
     estimated_optimize_ms: int | float = Field(alias="estimatedOptimizeMs")
-    """Narsil.optimizeVectors would take about this many milliseconds."""
+    """VectorMaintenanceOperations.optimizeVectors would take about this many milliseconds."""
 
 
 class VectorMaintenanceResponse(ApiModel):
@@ -2282,6 +2303,7 @@ __all__ = [
     "SuggestParams",
     "SuggestResult",
     "SuggestResultTermsItem",
+    "SyncSetting",
     "SynonymRule",
     "SynonymSetBody",
     "TaskListPage",
