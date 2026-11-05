@@ -16,7 +16,7 @@
       "executor": "nx:run-commands",
       "cache": false,
       "options": {
-        "commands": ["go build ./...", "go test -count=1 -run '^$' ./..."],
+        "commands": ["go build ./...", "go vet ./..."],
         "parallel": false,
         "cwd": "packages/go"
       }
