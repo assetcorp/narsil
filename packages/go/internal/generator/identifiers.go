@@ -113,6 +113,26 @@ func constantName(typeName string, value string) string {
 	return name
 }
 
+var fileNameConstraintWords = map[string]bool{
+	"test": true, "aix": true, "android": true, "darwin": true, "dragonfly": true, "freebsd": true, "hurd": true,
+	"illumos": true, "ios": true, "js": true, "linux": true, "nacl": true, "netbsd": true, "openbsd": true,
+	"plan9": true, "solaris": true, "wasip1": true, "windows": true, "zos": true,
+	"386": true, "amd64": true, "amd64p32": true, "arm": true, "armbe": true, "arm64": true, "arm64be": true,
+	"loong64": true, "mips": true, "mipsle": true, "mips64": true, "mips64le": true, "mips64p32": true,
+	"mips64p32le": true, "ppc": true, "ppc64": true, "ppc64le": true, "riscv": true, "riscv64": true,
+	"s390": true, "s390x": true, "sparc": true, "sparc64": true, "wasm": true,
+}
+
 func fileStem(tag string) string {
-	return strings.ToLower(strings.Join(splitWords(tag), "_"))
+	words := splitWords(tag)
+	for position, word := range words {
+		words[position] = strings.ToLower(word)
+	}
+	if len(words) == 0 {
+		failf("The tag %q gives no Go file name", tag)
+	}
+	if fileNameConstraintWords[words[len(words)-1]] {
+		words = append(words, "routes")
+	}
+	return strings.Join(words, "_")
 }

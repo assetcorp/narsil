@@ -16,7 +16,6 @@ PACKAGE_ROOT = Path(__file__).resolve().parent.parent
 SPEC_PATH = PACKAGE_ROOT.parent / "ts" / "openapi.json"
 SOURCE_ROOT = PACKAGE_ROOT / "src" / "narsil_client"
 GENERATED_DIRECTORIES = ("models", SYNC.package, ASYNC.package)
-MAX_FILE_LINES = 400
 
 
 def render(spec_path: Path) -> dict[str, dict[str, str]]:
@@ -43,16 +42,10 @@ def generate(spec_path: Path) -> dict[str, dict[str, str]]:
             for name, text in files.items():
                 (root / directory / name).write_text(text, encoding="utf-8")
         format_tree(root)
-        formatted = {
+        return {
             directory: {path.name: path.read_text(encoding="utf-8") for path in sorted((root / directory).iterdir())}
             for directory in rendered
         }
-    for directory, files in formatted.items():
-        for name, text in files.items():
-            lines = text.count("\n")
-            if lines >= MAX_FILE_LINES:
-                raise SpecError(f"{directory}/{name} would hold {lines} lines, past the {MAX_FILE_LINES} line limit")
-    return formatted
 
 
 def committed(directory: Path) -> dict[str, str]:

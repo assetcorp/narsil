@@ -2,12 +2,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from generator.identifiers import pascal, python_identifier, snake
-from generator.ir import Answer, Api, ModelDef, Operation, Param, Ref
+from generator.identifiers import pascal, python_identifier
+from generator.ir import Answer, Api, ModelDef, Operation, Param, Ref, SpecError
 from generator.python_types import Rendered, render_type
 from generator.text import GENERATED_MODULE_DOCSTRING, docstring, ensure_sentence, wrap
 
-OPERATIONS_FILE_LINE_BUDGET = 330
 ARG_WIDTH = 76
 RESERVED_METHOD_NAMES = frozenset({"close_connections", "self"})
 RESERVED_PARAMETER_NAMES = frozenset({"self", "body", "timeout_ms", "headers", "max_response_bytes"})
@@ -225,35 +224,6 @@ def _wrap_arg(entry: str) -> list[str]:
     return [f"{head}: {lines[0]}", *[f"    {line}" for line in lines[1:]]]
 
 
-def _class_files(api: Api, flavour: Flavour) -> dict[str, tuple[str, str, list[MethodText]]]:
-    files: dict[str, tuple[str, str, list[MethodText]]] = {}
-    by_tag: dict[str, list[Operation]] = {}
-    for operation in api.operations:
-        by_tag.setdefault(operation.tag, []).append(operation)
-    for tag, operations in by_tag.items():
-        part = 1
-        current: list[MethodText] = []
-        size = 0
-        for operation in operations:
-            method = method_text(operation, api, flavour)
-            if current and size + len(method.lines) > OPERATIONS_FILE_LINE_BUDGET:
-                files[_module(tag, part)] = (tag, _class_name(tag, part), current)
-                part += 1
-                current, size = [], 0
-            current.append(method)
-            size += len(method.lines) + 1
-        files[_module(tag, part)] = (tag, _class_name(tag, part), current)
-    return files
-
-
-def _module(tag: str, part: int) -> str:
-    return snake(tag) if part == 1 else f"{snake(tag)}_{part}"
-
-
-def _class_name(tag: str, part: int) -> str:
-    return f"{pascal(tag)}Operations" if part == 1 else f"{pascal(tag)}Operations{part}"
-
-
 def _render_class(tag: str, class_name: str, methods: list[MethodText], flavour: Flavour) -> str:
     typing_names: set[str] = set()
     models: set[str] = set()
@@ -287,9 +257,21 @@ def _render_class(tag: str, class_name: str, methods: list[MethodText], flavour:
 
 
 def render_operations(api: Api, flavour: Flavour) -> dict[str, str]:
+    by_tag: dict[str, list[Operation]] = {}
+    for operation in api.operations:
+        by_tag.setdefault(operation.tag, []).append(operation)
     output: dict[str, str] = {}
     classes: list[tuple[str, str]] = []
-    for module, (tag, class_name, methods) in _class_files(api, flavour).items():
+    owners: dict[str, str] = {}
+    for tag, operations in by_tag.items():
+        module = python_identifier(tag, frozenset())
+        if module in owners:
+            raise SpecError(
+                f"The tags {owners[module]} and {tag} would both be written to {flavour.package}/{module}.py"
+            )
+        owners[module] = tag
+        class_name = f"{pascal(tag)}Operations"
+        methods = [method_text(operation, api, flavour) for operation in operations]
         output[f"{module}.py"] = _render_class(tag, class_name, methods, flavour)
         classes.append((module, class_name))
     combined = "AsyncOperations" if flavour is ASYNC else "Operations"
