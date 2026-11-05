@@ -28,7 +28,7 @@ A backup store must offer saveIfAbsent, because a save followed by a read can't 
 
 ## Backup Manifest
 
-A backup manifest is a `.nrsl` file whose header sets the checksum flag and carries envelope format version 1, and whose payload holds this MessagePack map:
+A backup manifest is a `.nrsl` file whose header sets the checksum flag and carries envelope format version 1, whose compression flag is 0, and whose payload holds this MessagePack map:
 
 ```text
 BackupManifest {
@@ -64,6 +64,8 @@ ListedFile {
 ```
 
 The bytes of a `StoredFile` or a `ListedFile` are stored under `<keyPrefix>/files/<sha256>`.
+
+A reader must raise `BACKUP_DAMAGED` for a manifest whose compression flag is 1, as it does for any manifest that fails to decode.
 
 Each partition's manifest is the manifest that a [snapshot archive](../durability.md#snapshot-archive) of that one partition holds, and three more rules apply to it:
 

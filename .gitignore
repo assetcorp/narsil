@@ -12,6 +12,7 @@ packages/ts/benchmarks/results/*.json
 benchmarks/datasets/
 benchmarks/*/results/.smoke/
 benchmarks/server/artifacts/
+packages/conformance/.dataset/
 *.heapsnapshot
 .turbo/
 .cache/
