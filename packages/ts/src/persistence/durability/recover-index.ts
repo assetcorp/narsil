@@ -7,6 +7,7 @@ import { loadMetadata, replayWal, snapshotCheckpointFor } from './recovery'
 import { directoryCheckpointStore } from './segment/store'
 import { SINGLE_NODE_PRIMARY_TERM } from './seq-owner'
 import { settleStoredAnalysis } from './stored-analysis'
+import type { SyncStorage } from './sync/storage'
 import type { IndexDurabilityHooks } from './types'
 
 export interface RecoverPersistedIndexDeps {
@@ -16,6 +17,7 @@ export interface RecoverPersistedIndexDeps {
   registerPartition(indexName: string, partitionId: number, startSeqNo: number, primaryTerm: number): void
   holdsCheckpointFiles(indexName: string): boolean
   queueMetadataWrite(indexName: string, write: () => Promise<void>): Promise<void>
+  syncStorage: SyncStorage
 }
 
 async function writeCountedMetadata(
@@ -103,6 +105,8 @@ export async function recoverPersistedIndex(
     return replayed
   }
 
+  const syncActive = metadata.sync?.enabled === true && metadata.syncActive === true
+  const keptForSync = await deps.syncStorage.settleAtRecovery(indexName, syncActive)
   const recovered = await recoverCheckpoint({
     store,
     indexName,
@@ -112,6 +116,7 @@ export async function recoverPersistedIndex(
     storedTermsAreCurrent: metadata.analysisRevision === manager.language.revision,
     compactionThreshold: deps.compactionThreshold,
     keepsUnlistedFiles: deps.holdsCheckpointFiles(indexName),
+    keptForSync,
     replay,
     onLayoutUpgrade: hooks.onLayoutUpgrade,
     writeRecords,

@@ -364,7 +364,9 @@ export function createDurableDirectory(root: string): DurableDirectory {
       const fs = await getFs()
       const pathMod = await getPath()
       const resolvedBase = pathMod.resolve(root)
-      const all = await listRecursive(resolvedBase, resolvedBase, pathMod, fs)
+      const directoryOfPrefix = prefix.slice(0, prefix.lastIndexOf('/') + 1)
+      const walkFrom = directoryOfPrefix.length === 0 ? resolvedBase : (await resolve(directoryOfPrefix)).path
+      const all = await listRecursive(walkFrom, resolvedBase, pathMod, fs)
       return all.filter(entry => entry.startsWith(prefix)).sort(compareCodePoints)
     },
 

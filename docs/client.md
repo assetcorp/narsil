@@ -14,6 +14,8 @@ That call takes the arguments [`query`](full-text-search.md#basic-queries) takes
 
 HTTP forces two differences. Every method takes per-call request settings as a last argument, which hold the signal, the deadline, and any extra headers. The operations that run long enough for the server to answer first come back with a task record while the work carries on, so you follow that record instead of awaiting the work.
 
+A program in another language reaches the same routes through the [Python client](python-client.md) or the [Go client](go-client.md), which follow the same failover rules.
+
 The client sends through `fetch` and imports no Node built-in, so it runs in a browser, in Node, and in an edge function. `scripts/check-browser-bundle.mjs` walks its import graph on every build so that a Node import cannot reach it unnoticed.
 
 ## Building one
@@ -78,7 +80,7 @@ try {
 
 A server's `onRequest` hook rejects a request under a code of its own, such as `UNAUTHORIZED`, and the client passes that code through unchanged.
 
-Six codes come from the client itself, and no server sends one. They are exported as `ClientErrorCodes`.
+Seven codes come from the client side, and no server sends one. They are exported as `ClientErrorCodes`.
 
 | Code | The client raises it when |
 | --- | --- |
@@ -88,6 +90,7 @@ Six codes come from the client itself, and no server sends one. They are exporte
 | `CLIENT_INVALID_RESPONSE` | The answer holds no JSON, or not the shape the route documents, which is what a proxy's error page produces. |
 | `CLIENT_TASK_TIMEOUT` | The wait passed `waitTimeoutMs` while the task kept running. |
 | `CLIENT_UNEXPECTED_ERROR` | Something on this side threw a failure the client cannot place, which is a fault in the library rather than an answer from a server. The React bindings raise this one; the client itself never does. |
+| `SYNC_ANALYSIS_UNAVAILABLE` | A synced device lacks the language, the tokenizer, or the stop words of the server's index, so it keeps its copy. See [Device sync](device-sync.md#the-snapshot). |
 
 A lookup by id answers with nothing instead of failing, so `get` returns `undefined` for an unknown document and `getTask` returns `null` for an unknown task. Every other failure throws.
 

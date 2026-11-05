@@ -313,7 +313,7 @@ export interface SuggestResult {
 
 /**
  * The state of one vector field, and what maintenance would cost, as
- * {@link Narsil.vectorMaintenanceStatus} reports it.
+ * {@link VectorMaintenanceOperations.vectorMaintenanceStatus} reports it.
  *
  * Removing a vector leaves a tombstone in the graph, and enough of them slow a
  * search down. Read this to decide when compaction earns its cost.
@@ -346,9 +346,9 @@ export interface VectorMaintenanceResult {
    * background, during which a search reads them from the field's files.
    */
   loadingFromFiles: boolean
-  /** {@link Narsil.compactVectors} would take about this many milliseconds. */
+  /** {@link VectorMaintenanceOperations.compactVectors} would take about this many milliseconds. */
   estimatedCompactMs: number
-  /** {@link Narsil.optimizeVectors} would take about this many milliseconds. */
+  /** {@link VectorMaintenanceOperations.optimizeVectors} would take about this many milliseconds. */
   estimatedOptimizeMs: number
 }
 

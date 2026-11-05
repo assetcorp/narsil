@@ -26,6 +26,7 @@ const STATUS_TEXT: Record<number, string> = {
   201: '201 Created',
   202: '202 Accepted',
   204: '204 No Content',
+  206: '206 Partial Content',
   400: '400 Bad Request',
   401: '401 Unauthorized',
   403: '403 Forbidden',
@@ -34,6 +35,7 @@ const STATUS_TEXT: Record<number, string> = {
   409: '409 Conflict',
   413: '413 Payload Too Large',
   415: '415 Unsupported Media Type',
+  416: '416 Range Not Satisfiable',
   429: '429 Too Many Requests',
   500: '500 Internal Server Error',
   503: '503 Service Unavailable',
@@ -95,11 +97,14 @@ export function sendError(
   code: string,
   message: string,
   details?: Record<string, unknown>,
+  headers: ReadonlyArray<readonly [string, string]> = [],
 ): void {
   const body: ErrorEnvelope = { error: details ? { code, message, details } : { code, message } }
   const payload = encodeJson(body)
   res.cork(() => {
-    res.writeStatus(statusLine(status)).writeHeader('Content-Type', 'application/json').end(payload)
+    res.writeStatus(statusLine(status)).writeHeader('Content-Type', 'application/json')
+    for (const [name, value] of headers) res.writeHeader(name, value)
+    res.end(payload)
   })
 }
 
@@ -191,5 +196,87 @@ export function sendRelayed(
     res.writeStatus(statusLine(status))
     for (const [key, value] of headers) res.writeHeader(key, value)
     res.end(body)
+  })
+}
+
+interface WritableWait {
+  wake: (() => void) | null
+}
+
+function writeSizedChunk(
+  res: ResponseSink,
+  abort: ResponseAbort,
+  wait: WritableWait,
+  chunk: Uint8Array,
+  totalSize: number,
+  begin: () => void,
+): Promise<void> {
+  let startOffset = 0
+  let written = true
+  res.cork(() => {
+    begin()
+    startOffset = res.getWriteOffset()
+    written = res.tryEnd(chunk, totalSize)[0]
+  })
+  if (written || abort.aborted) return Promise.resolve()
+  return new Promise(resolve => {
+    wait.wake = () => {
+      wait.wake = null
+      resolve()
+    }
+    res.onWritable(offset => {
+      if (abort.aborted) {
+        wait.wake?.()
+        return true
+      }
+      const [retried] = res.tryEnd(chunk.subarray(offset - startOffset), totalSize)
+      if (retried) wait.wake?.()
+      return retried
+    })
+  })
+}
+
+export async function sendSizedStream(
+  res: ResponseSink,
+  abort: ResponseAbort,
+  status: number,
+  headers: Array<[string, string]>,
+  totalSize: number,
+  chunks: AsyncIterable<Uint8Array>,
+): Promise<void> {
+  let started = false
+  const begin = (): void => {
+    if (started) return
+    started = true
+    res.writeStatus(statusLine(status))
+    for (const [key, value] of headers) res.writeHeader(key, value)
+  }
+  const wait: WritableWait = { wake: null }
+  abort.onAbort(() => wait.wake?.())
+  let sent = 0
+  try {
+    for await (const chunk of chunks) {
+      if (abort.aborted) return
+      const bounded = chunk.subarray(0, Math.max(0, totalSize - sent))
+      if (bounded.byteLength === 0) continue
+      await writeSizedChunk(res, abort, wait, bounded, totalSize, begin)
+      sent += bounded.byteLength
+    }
+  } catch (err) {
+    if (abort.aborted) return
+    if (!started) throw err
+    res.cork(() => {
+      res.close()
+    })
+    return
+  }
+  if (abort.aborted || (sent === totalSize && started)) return
+  res.cork(() => {
+    if (totalSize > 0) {
+      res.close()
+      return
+    }
+    begin()
+    res.end()
   })
 }

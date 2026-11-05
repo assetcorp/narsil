@@ -14,7 +14,9 @@ import { createEngineIndex } from '../../engine/index-lifecycle'
 import { startEngineCore } from '../../engine/lifecycle'
 import type { IndexWriteAnalysis } from '../../engine/memory/document-bound'
 import { vectorGrowthBytesOf, writeAnalysisOf } from '../../engine/memory/write-analysis'
+import type { IndexSyncState } from '../../engine/registry-entry'
 import { resolveRunnableConfig } from '../../engine/startup-checks'
+import { adoptIndexSyncState } from '../../engine/sync/adopt'
 import type { Narsil } from '../../narsil'
 import { createNarsilFromCore } from '../../narsil'
 import {
@@ -27,6 +29,7 @@ import {
   runEngineSuggest,
 } from '../../narsil/reads'
 import { persistedPosition, restartPartitionLog } from '../../persistence/durability/partition-log'
+import type { SyncStorage } from '../../persistence/durability/sync/storage'
 import type {
   CommitDeferral,
   EntryNumbering,
@@ -62,6 +65,9 @@ export interface ClusterLocalEngine extends Narsil {
   stampIndexUuid(indexName: string, indexUuid: string): Promise<void>
   applyStoredSynonyms(indexName: string, load: () => Promise<readonly SynonymRule[] | null>): Promise<boolean>
   applyStoredBm25(indexName: string, load: () => { bm25: BM25Params | undefined } | null): Promise<boolean>
+  syncStateOf(indexName: string): IndexSyncState | null | undefined
+  adoptSyncState(indexName: string, state: IndexSyncState | null): Promise<boolean>
+  syncStorage(): SyncStorage | null
   analysisGenerationOf(indexName: string): number | undefined
   pendingAnalysisGenerationOf(indexName: string): number | null
   buildHeldAnalysis(indexName: string, pending: PendingAnalysisMetadata): Promise<void>
@@ -189,6 +195,9 @@ export async function createClusterLocalEngine(
       synonymModule().applyLoaded(core, indexName, load),
     applyStoredBm25: (indexName: string, load: () => { bm25: BM25Params | undefined } | null) =>
       applyStoredIndexBm25(core, indexName, load),
+    syncStateOf: (indexName: string) => core.indexRegistry.get(indexName)?.sync,
+    adoptSyncState: (indexName: string, state: IndexSyncState | null) => adoptIndexSyncState(core, indexName, state),
+    syncStorage: () => core.durability?.manager.syncStorage?.() ?? null,
     analysisGenerationOf: (indexName: string) => core.indexRegistry.get(indexName)?.analysisGeneration,
     pendingAnalysisGenerationOf: (indexName: string) =>
       core.indexRegistry.get(indexName)?.pendingAnalysis?.generation ?? null,

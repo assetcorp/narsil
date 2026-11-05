@@ -147,6 +147,12 @@ When a primary refuses a forwarded mutation, the node that forwarded it must pas
 | `cluster.restore_partition` | controller to primary | Loads one partition of a restore |
 | `cluster.index_settings` | any node to data node | Asks a node to apply the synonym set that the coordinator holds for an index |
 
+### Sync Messages
+
+| Type | Direction | Description |
+|------|-----------|-------------|
+| `sync.read` | any node to primary | Reads the entries of one partition for a [device feed](../sync.md#the-feed) |
+
 ---
 
 ## Message Payloads
@@ -618,6 +624,7 @@ A node sends this to the active controller to [take a backup](backups.md#taking-
 {
   backupName: string
   indexName:  string
+  takenBy:    string or absent   ("sync" for a backup that device sync starts)
 }
 ```
 
@@ -724,6 +731,34 @@ The response is:
 ```
 
 The receiving node must read the index metadata and the synonym set from the coordinator itself, so that the newest stored set wins when two replacements reach it out of order. It must answer only once its copy and every worker copy of it apply the stored set. A node that holds no copy under that `indexUuid` answers with `applied` false, because it applies the stored set when it creates its copy.
+
+### sync.read
+
+A node sends this to the primary of one partition to read the entries that it sends through a [device feed](../sync.md#the-feed).
+
+```text
+{
+  indexName:   string
+  indexUuid:   string
+  partitionId: uint32
+  afterSeqNo:  uint64
+  maxBytes:    uint32
+}
+```
+
+The primary answers with the entries above `afterSeqNo`, up to its commit point and up to `maxBytes` of entries, where it always sends at least one entry that is due:
+
+```text
+{
+  entries:      List<ReplicationLogEntry>
+  head:         uint64   (the partition's commit point)
+  highestSeqNo: uint64   (the highest seqNo that the primary holds)
+  oldestSeqNo:  uint64   (as Sending Entries in sync.md defines)
+  bytesBehind:  uint64
+}
+```
+
+A node that no longer leads the partition refuses with `PARTITION_NOT_PRIMARY`, and one whose copy carries another `indexUuid` refuses with `INDEX_NOT_FOUND`.
 
 ### cluster.ping
 

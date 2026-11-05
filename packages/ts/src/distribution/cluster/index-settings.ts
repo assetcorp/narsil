@@ -17,9 +17,10 @@ import type {
   ScoringMode,
   VectorIndexConfig,
 } from '../../types/schema'
+import { type ClusterSyncSettings, decodeClusterSyncSettings } from './sync-settings'
 import { decodeSynonymSetRef, type SynonymSetRef } from './synonym-set'
 
-export interface IndexSettings {
+export interface IndexSettings extends ClusterSyncSettings {
   language: string
   tokenizer?: string
   stopWords?: string
@@ -231,6 +232,7 @@ export function decodeIndexSettings(raw: unknown, indexName: string): IndexSetti
       ...(embedding !== undefined ? { embedding } : {}),
     }),
     ...(synonyms !== undefined ? { synonyms } : {}),
+    ...decodeClusterSyncSettings(raw, reject),
   }
 }
 
@@ -255,6 +257,9 @@ export function indexConfigFromSettings(
     analysisGeneration: _generation,
     pendingAnalysis: _pending,
     analysisFailure: _failure,
+    sync: _sync,
+    syncActive: _syncActive,
+    syncEpoch: _syncEpoch,
     ...fields
   } = settings
   return {

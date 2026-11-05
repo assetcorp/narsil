@@ -1,6 +1,6 @@
 # Narsil Envelope Format Specification (.nrsl)
 
-The `.nrsl` format is Narsil's binary serialisation format and its portable cross-language contract for storing and moving index data. Every conforming implementation must read and write it identically, whatever language it is written in.
+The `.nrsl` format is Narsil's binary serialisation format and its portable cross-language contract for storing and moving index data. Every conforming implementation, whatever language it is written in, must read every file that another conforming implementation writes, and it must write the same content for the same data, as [conformance.md](conformance.md#same-content) defines it. Two correct writers can produce different bytes, because a MessagePack encoder can choose the width of an integer and two DEFLATE compressors can encode a block differently.
 
 Structure definitions use a language-neutral notation. `List<T>` is an ordered collection of `T`, `Map<K, V>` a mapping from keys to values, and `T or absent` a value that may be missing. Width-tagged names such as `uint32` and `float32` describe exact byte widths on disk and on the wire; each implementation maps them to its own types.
 
@@ -32,7 +32,7 @@ Offset  Size  Type      Field                    Description
 
 ### Magic Bytes
 
-The first four bytes must be `0x4E 0x52 0x53 0x4C`, which is ASCII `NRSL`. A reader must reject any file that starts with anything else.
+The first four bytes must be `0x4E 0x52 0x53 0x4C`, which is ASCII `NRSL`. A reader must reject with `ENVELOPE_INVALID_MAGIC` a file that starts with anything else or that holds fewer than 32 bytes.
 
 ### Envelope Format Version
 
@@ -44,7 +44,7 @@ Three bytes recording the `major.minor.patch` version of the engine that wrote t
 
 ### Payload Length
 
-The byte count of the payload that follows the header. A reader must read exactly that many bytes starting at offset 32. A writer must reject a payload longer than 4,294,967,295 bytes with `PERSISTENCE_SAVE_FAILED`.
+The byte count of the payload that follows the header. A reader must read exactly that many bytes starting at offset 32. A reader must raise `PERSISTENCE_LOAD_FAILED` for a file that holds fewer than `payload_length` bytes after the header. A writer must reject a payload longer than 4,294,967,295 bytes with `PERSISTENCE_SAVE_FAILED`.
 
 ### File Size
 
@@ -85,13 +85,13 @@ Bit 0 set to 1 means the payload is compressed, and bits 1 and 2 name the algori
 | `10` | lz4 | optional |
 | `11` | zstd | optional |
 
-Every v1 implementation must support gzip. The lz4 and zstd values are reserved for later use, and a v1 reader that meets either must reject the file with a clear message.
+Every v1 implementation must support gzip. The lz4 and zstd values are reserved for later use, and a v1 reader that meets either with bit 0 set must reject the file with `ENVELOPE_VERSION_MISMATCH`.
 
 With compression on, `payload_length` counts the compressed bytes. The reader decompresses the payload before it decodes MessagePack.
 
 ### Encryption
 
-Bit 4 set to 1 means the payload is encrypted. Version 1 defines no encryption scheme, so a v1 reader that meets an encrypted payload must reject it with a clear message.
+Bit 4 set to 1 means the payload is encrypted. Version 1 defines no encryption scheme, so a v1 reader that meets an encrypted payload must reject it with `ENVELOPE_VERSION_MISMATCH`.
 
 ---
 
@@ -100,6 +100,8 @@ Bit 4 set to 1 means the payload is encrypted. Version 1 defines no encryption s
 The payload starts at byte 32 and is encoded as [MessagePack](https://msgpack.org/).
 
 The `envelope_format_version` field in the header fixes the payload schema, and the storage key tells the reader which payload type to expect. Version 4 marks a [keyword segment payload](#keyword-segment-payload), and version 5 marks the [index configuration payload](#index-configuration-payload) that a [snapshot archive](durability.md#snapshot-archive) holds. Version 6 marks a [paged keyword segment payload](#paged-keyword-segment-payload).
+
+A reader must reject with `ENVELOPE_VERSION_MISMATCH` a payload whose `v` matches no version of that payload that this specification defines, as [Version Compatibility Rules](#version-compatibility-rules) require of a newer version.
 
 ---
 
@@ -262,7 +264,7 @@ A reader may decode each document when it first reads the document, and it must 
 
 ### Paged Keyword Segment Payload
 
-A paged keyword segment holds the same content as a keyword segment, laid out so that a reader can open it without reading it whole. The header's compression flag must be 0, and its checksum must cover the whole payload, as for every other file of the checkpoint.
+A paged keyword segment holds the same content as a keyword segment, laid out so that a reader can open it without reading it whole. The header's compression flag must be 0, and its checksum must cover the whole payload, as for every other file of the checkpoint. A reader must raise `PERSISTENCE_LOAD_FAILED` for a paged segment whose compression flag is 1.
 
 ```text
 payload {
@@ -343,7 +345,7 @@ In a paged segment, `tombstones` must list the ID of every document that the seg
 
 ### Checks on a paged segment
 
-When it opens a paged segment, a reader must compare the file's length and header checksum with the manifest, must check `headChecksum`, and must check every page of each resident section. It must apply to each resident section the rules that [Keyword Segment Payload](#keyword-segment-payload) sets for that section.
+When it opens a paged segment, a reader must compare the file's length and header checksum with the manifest, must check `headChecksum`, where a mismatch raises `PERSISTENCE_CRC_MISMATCH`, and must check every page of each resident section. It must apply to each resident section the rules that [Keyword Segment Payload](#keyword-segment-payload) sets for that section.
 
 A reader must check a page's checksum the first time it reads the page into its cache, and it must check the page again on any later read from the disk. A mismatch raises `PERSISTENCE_CRC_MISMATCH`. Before it uses a page, a reader must apply the rules that the payload sets for the values on that page. Those rules cover an ordinal at or above `documentCount`, a field at or above the length of `fieldNames`, and an offset that lies outside its list, which raise `PERSISTENCE_LOAD_FAILED`. A reader need not apply a rule across a whole paged section when it opens the segment, as a section that a search never reads holds no value that a search can use.
 
@@ -390,7 +392,7 @@ OSQRecord = [
 ]
 ```
 
-A writer must set `codes`, with `bits` matching the mode, for an index that holds a graph under an `osq` mode, and it must write nil for every other index. Each `OSQRecord` holds its `code`, packed as [Optimised Scalar Quantisation (OSQ)](algorithms.md#optimised-scalar-quantisation-osq) defines in `ceiling(dimension * bits / 8)` bytes, followed by 16 bytes of `lower`, `upper`, `correction`, and `sum`. `records` holds the records one after another with no padding between them. Every number inside `vectors` and inside an `OSQRecord` is little-endian. A writer must write `vectors` as the last entry of the map with the compression flag at 0, so that a reader can find vector `i` at `payload_length - (count - i) * dimension * 4` bytes into the payload, where `count` is the length of `docIds`.
+A writer must set `codes`, with `bits` matching the mode, for an index that holds a graph under an `osq` mode, and it must write nil for every other index. Each `OSQRecord` holds its `code`, packed as [Optimised Scalar Quantisation (OSQ)](algorithms.md#optimised-scalar-quantisation-osq) defines in `ceiling(dimension * bits / 8)` bytes, followed by 16 bytes of `lower`, `upper`, `correction`, and `sum`. `records` holds the records one after another with no padding between them. Every number inside `vectors` and inside an `OSQRecord` is little-endian. A writer must write `vectors` as the last entry of the map with the compression flag at 0, so that a reader can find vector `i` at `payload_length - (count - i) * dimension * 4` bytes into the payload, where `count` is the length of `docIds`. A reader must raise `PERSISTENCE_LOAD_FAILED` for a vector file whose compression flag is 1.
 
 A writer may put fewer than 65,536 vectors in a file, and it must do so where a full file would pass the [file size](#file-size) limit.
 
@@ -493,6 +495,9 @@ Each index writes a metadata envelope under the key `<indexName>/meta`. It uses 
   index_uuid:            string               (optional; the cluster identity of the index)
   held_partitions:       List<uint32>         (optional; the partitions of the index this copy holds)
   synonyms:              List<SynonymRule>    (optional; the synonym set as the caller wrote it)
+  sync:                  SyncMeta             (optional; the device sync setting)
+  sync_active:           boolean              (optional; true once a device asks for the published snapshot)
+  sync_epoch:            string               (optional; the index epoch, 32 lowercase hexadecimal digits)
 }
 
 VectorFieldMeta {
@@ -518,6 +523,12 @@ VectorPromotionMeta {
   hnsw_config:      { m: uint32, ef_construction: uint32, metric: string }  (optional; each key optional)
   quantization:     string                                                  (optional; "osq8", "osq4", "osq2", "osq1", or "none")
   storage:          string                                                  (optional; "memory" or "disk")
+}
+
+SyncMeta {
+  enabled:            boolean
+  history_max_age_ms: uint64   (optional)
+  history_max_bytes:  uint64   (optional)
 }
 ```
 
@@ -557,6 +568,8 @@ The `held_partitions` field records the partitions of the index this copy holds,
 
 The `synonyms` field records the index's [synonym set](algorithms.md#synonyms), with each word as the caller wrote it, so that a reader analyses the words with its own language module. A writer must leave the field absent for an index without a set, and a reader must treat an absent field as no set. A reader must reject a stored set that breaks the shape or the limits in [Synonyms](algorithms.md#synonyms) with `CONFIG_INVALID`, as it rejects a stored `quantization` outside its set.
 
+The `sync`, `sync_active`, and `sync_epoch` fields record the index's [device sync](sync.md) state: the setting that [The Sync Setting](sync.md#the-sync-setting) defines, whether a device has asked for the [published snapshot](sync.md#published-snapshot), and the [epoch](sync.md#index-epoch). A reader must treat an absent `sync` as sync off and an absent `sync_active` as false.
+
 ---
 
 ### Index Configuration Payload
@@ -589,6 +602,7 @@ The payload is a MessagePack map:
   patternValueLimit: uint32                       (optional; the most code points a pattern field value may hold)
   synonyms:          List<SynonymRule>            (optional; the synonym set as the caller wrote it)
   embedding:         EmbeddingSnapshotConfig      (optional)
+  syncEpoch:         string                       (optional; the index epoch where sync is on)
 }
 
 PartitionSnapshotLimits {
@@ -613,7 +627,7 @@ EmbeddingSnapshotConfig {
 
 A reader must raise `CONFIG_INVALID` for any other value of `text_storage` or `textStorage`. A restore of a configuration that sets `disk` on an engine without filesystem durability raises `CONFIG_INVALID` too.
 
-The rules for `analysis_revision` in the [index metadata payload](#index-metadata-payload) apply to `analysisRevision`, so a writer must record the revision that produced the terms that the envelope holds, or leave the field absent where it knows none. A reader must treat an index restored without one as holding stale terms. The rules for `array_position_gap` apply to `arrayPositionGap` in the same way. Each remaining optional field records one index configuration option, and a writer must leave it absent where the configuration leaves that option unset. A writer must record in `analysisGeneration` the generation that produced the terms that the envelope holds. The payload carries no pending change, so a restored index holds the old settings with the old terms, and a restore abandons any pending change, whose caller receives `ANALYSIS_CHANGE_REPLACED`.
+The rules for `analysis_revision` in the [index metadata payload](#index-metadata-payload) apply to `analysisRevision`, so a writer must record the revision that produced the terms that the envelope holds, or leave the field absent where it knows none. A reader must treat an index restored without one as holding stale terms. The rules for `array_position_gap` apply to `arrayPositionGap` in the same way. Each remaining optional field records one index configuration option, and a writer must leave it absent where the configuration leaves that option unset. A writer must record in `analysisGeneration` the generation that produced the terms that the envelope holds. The payload carries no pending change, so a restored index holds the old settings with the old terms, and a restore abandons any pending change, whose caller receives `ANALYSIS_CHANGE_REPLACED`. The payload holds no `sync` setting, so that an index that a caller restores from it serves no feed until the caller turns sync on, as [The Sync Setting](sync.md#the-sync-setting) defines.
 
 A writer must reject an index whose tokeniser or stop words are code, because a payload can hold a registered name but no code.
 
@@ -634,6 +648,8 @@ A persistence adapter addresses stored bytes by string key:
 | `<indexName>/segments/vec-<fieldKey>-graph-g<generation>-p<part>` | One graph part of one vector field for the whole index at one generation, part number zero-padded to 16 digits |
 | `<indexName>/wal/<partitionId>/<startSeqNo>` | Write-ahead log segment, start sequence number zero-padded to 16 digits |
 | `<indexName>/wal/<partitionId>/commit` | Write-ahead log commit marker |
+| `<indexName>/history/<partitionId>/<startSeqNo>-<movedAtMs>` | A log segment that a checkpoint moved into [history](sync.md#history), both numbers zero-padded to 16 digits |
+| `<indexName>/sync/published` | The [published snapshot](sync.md#published-snapshot) of a synced index |
 
 The `<fieldKey>` of a vector field is its path with every `.` replaced by `_`, then a `-`, then the [FNV-1a](algorithms.md#fnv-1a-hash) hash of the path's UTF-8 bytes written in base 36 with lowercase letters, so the field `meta.embedding` takes the key `meta_embedding-` followed by that hash. The hash keeps two paths apart when they differ only in a `.` and a `_`, such as `a.b` and `a_b`. A field path may hold only the letters A to Z and a to z, the digits 0 to 9, `_`, and `.`, and the engine must fail a save with `PERSISTENCE_SAVE_FAILED` for any other path.
 

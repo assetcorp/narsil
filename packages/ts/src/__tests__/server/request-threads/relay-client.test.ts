@@ -19,6 +19,7 @@ function routeContext(rawBody: Buffer): RouteContext {
     bodyRefusal: null,
     abort: { ...NO_ABORT, aborted: true },
     hookContext: null,
+    requestHeaders: {},
   }
 }
 

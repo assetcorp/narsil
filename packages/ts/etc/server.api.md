@@ -58,6 +58,7 @@ export const ClientErrorCodes: {
     readonly CLIENT_INVALID_RESPONSE: "CLIENT_INVALID_RESPONSE";
     readonly CLIENT_TASK_TIMEOUT: "CLIENT_TASK_TIMEOUT";
     readonly CLIENT_UNEXPECTED_ERROR: "CLIENT_UNEXPECTED_ERROR";
+    readonly SYNC_ANALYSIS_UNAVAILABLE: "SYNC_ANALYSIS_UNAVAILABLE";
 };
 
 // @public
@@ -195,6 +196,11 @@ export const ErrorCodes: {
     readonly BACKUP_STORE_CLAIMED: "BACKUP_STORE_CLAIMED";
     readonly BACKUP_STORE_NOT_CONFIGURED: "BACKUP_STORE_NOT_CONFIGURED";
     readonly BACKUP_NOT_READY: "BACKUP_NOT_READY";
+    readonly SYNC_DURABILITY_REQUIRED: "SYNC_DURABILITY_REQUIRED";
+    readonly SYNC_BACKUP_STORE_REQUIRED: "SYNC_BACKUP_STORE_REQUIRED";
+    readonly SYNC_NOT_READY: "SYNC_NOT_READY";
+    readonly SYNC_NOT_ENABLED: "SYNC_NOT_ENABLED";
+    readonly SYNC_SNAPSHOT_PREPARING: "SYNC_SNAPSHOT_PREPARING";
     readonly SEARCH_INVALID_FIELD: "SEARCH_INVALID_FIELD";
     readonly VECTOR_DIMENSION_MISMATCH: "VECTOR_DIMENSION_MISMATCH";
     readonly SEARCH_INVALID_FILTER: "SEARCH_INVALID_FILTER";
@@ -403,6 +409,7 @@ export interface HttpWireTypes {
     RestoreBackupBody: RestoreBackupBody;
     SuggestParams: SuggestParams;
     SuggestResult: SuggestResult;
+    SyncSetting: SyncSetting;
     SynonymSetBody: SynonymSetBody;
     TaskListPage: TaskListPage;
     TaskListQuery: TaskListQuery;
@@ -534,7 +541,7 @@ export interface OkResponse {
 }
 
 // @public
-export type OnRequestHook = (ctx: RequestContext) => undefined | RequestDenial | Promise<undefined | RequestDenial>;
+export type OnRequestHook = (ctx: RequestContext) => undefined | RequestDenial | RequestGrant | Promise<undefined | RequestDenial | RequestGrant>;
 
 // @public
 export interface PartitionAllocationReport {
@@ -592,6 +599,11 @@ export interface RequestDenial {
     code: string;
     message: string;
     status: number;
+}
+
+// @public
+export interface RequestGrant {
+    expiresAt: number;
 }
 
 // @public
@@ -658,7 +670,16 @@ export interface ServerOptions {
     onRequest?: OnRequestHook;
     port?: number;
     rerankAdapters?: Record<string, RerankAdapter>;
+    sync?: boolean | ServerSyncOptions;
     taskStore?: TaskStore;
+}
+
+// @public
+export interface ServerSyncOptions {
+    maxBufferedBytes?: number;
+    maxCatchUps?: number;
+    maxConnections?: number;
+    windowBytes?: number;
 }
 
 // @public

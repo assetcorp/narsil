@@ -23,7 +23,7 @@ export async function loadUWebSockets(): Promise<UWebSockets> {
   } catch (err) {
     throw new NarsilError(
       ErrorCodes.CONFIG_INVALID,
-      'The `uWebSockets.js` package is required to run the Narsil HTTP server. Install it with `pnpm add github:uNetworking/uWebSockets.js#v20.58.0` (or the npm or yarn equivalent).',
+      'The `uWebSockets.js` package is required to run the Narsil HTTP server. Install it with `pnpm add github:uNetworking/uWebSockets.js#v20.70.0` (or the npm or yarn equivalent).',
       { cause: err instanceof Error ? err.message : String(err) },
     )
   }

@@ -1,0 +1,40 @@
+{
+  "header": {
+    "envelopeFormatVersion": 1,
+    "compression": "none",
+    "checksum": true
+  },
+  "payload": {
+    "index_name": "readings-osq1",
+    "schema": {
+      "title": "string",
+      "body": "string",
+      "pinned": "boolean",
+      "embedding": "vector[8]"
+    },
+    "language": "english",
+    "partition_count": 1,
+    "bm25_params": {
+      "k1": 1.2,
+      "b": 0.75
+    },
+    "created_at": 1793882169447,
+    "engine_version": "0.1.0",
+    "vector_fields": {
+      "embedding": {
+        "dimension": 8,
+        "metric": "cosine",
+        "quantization": "osq1"
+      }
+    },
+    "document_count": 20,
+    "surface_forms_enabled": true,
+    "analysis_revision": "ebae3448ae674b59",
+    "array_position_gap": 100,
+    "vector_promotion": {
+      "threshold": 16,
+      "quantization": "osq1",
+      "storage": "memory"
+    }
+  }
+}

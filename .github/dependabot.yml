@@ -15,6 +15,24 @@ updates:
       prefix: "deps"
       prefix-development: "deps(dev)"
 
+  - package-ecosystem: "pip"
+    directory: "/packages/python"
+    schedule:
+      interval: "monthly"
+    cooldown:
+      default-days: 4
+    commit-message:
+      prefix: "deps"
+
+  - package-ecosystem: "gomod"
+    directory: "/packages/go"
+    schedule:
+      interval: "monthly"
+    cooldown:
+      default-days: 4
+    commit-message:
+      prefix: "deps"
+
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:

@@ -118,8 +118,8 @@ async function loadFieldOnDemand(
     resolvePartition,
   })
   if (field === null) return false
-  vectorIndex.openColdField(field, async (beginRestore, stillWanted, firstSearchAnswered) => {
-    await waitBeforeColdLoad(firstSearchAnswered)
+  vectorIndex.openColdField(field, async (beginRestore, stillWanted, loadingWanted) => {
+    await waitBeforeColdLoad(loadingWanted)
     if (!stillWanted()) return
     const graph = await readGraphParts(store, ref)
     if (!stillWanted()) return

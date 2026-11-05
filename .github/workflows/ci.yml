@@ -35,6 +35,17 @@ jobs:
           node-version: 22
           cache: pnpm
 
+      - name: Setup Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.11'
+
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: packages/go/go.mod
+          cache: false
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
@@ -55,6 +66,12 @@ jobs:
 
       - name: Check the OpenAPI file matches a fresh generation
         run: pnpm nx run narsil-ts:openapi
+
+      - name: Check the Python client matches a fresh generation from the OpenAPI file
+        run: pnpm nx run narsil-python:generate
+
+      - name: Check the Go client matches a fresh generation from the OpenAPI file
+        run: pnpm nx run narsil-go:generate
 
       - name: Lint the OpenAPI file
         run: pnpm nx run narsil-ts:openapi:lint
@@ -125,6 +142,66 @@ jobs:
         env:
           NARSIL_ETCD_ENDPOINT: http://127.0.0.1:2379
         run: pnpm nx run narsil-ts:test:etcd
+
+      - name: Upload the snapshot behind any missed vector search
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: vector-misses-shard-${{ matrix.shard }}
+          path: packages/ts/test-evidence/vector-misses/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  conformance:
+    name: Conformance suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Restore the pinned conformance dataset
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: packages/conformance/.dataset
+          key: conformance-dataset-${{ hashFiles('packages/conformance/dataset-pin.json') }}
+
+      - name: Lint
+        run: pnpm nx run narsil-conformance:lint
+
+      - name: Typecheck (incl. tests)
+        run: pnpm nx run narsil-conformance:typecheck
+
+      - name: Build
+        run: pnpm nx run narsil-conformance:build
+
+      - name: Fetch the pinned dataset and check every digest
+        working-directory: packages/conformance
+        run: node dist/cli.mjs fetch
+
+      - name: Install the text search oracle
+        working-directory: packages/conformance
+        run: pnpm run oracle:install
+
+      - name: Check every committed text search against the oracle
+        working-directory: packages/conformance
+        run: pnpm run oracle:check
+
+      - name: Test
+        run: pnpm nx run narsil-conformance:test
 
   openapi-clients:
     name: Generated OpenAPI clients

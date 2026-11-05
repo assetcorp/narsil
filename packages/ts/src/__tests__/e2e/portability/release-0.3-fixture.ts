@@ -4,7 +4,10 @@ import { expect } from 'vitest'
 import type { Narsil } from '../../../narsil'
 import type { AnyDocument } from '../../../types/schema'
 
-export const RELEASE_0_3_FIXTURE = new URL('../../persistence/fixtures/0.3.0/', import.meta.url)
+export const RELEASE_0_3_FIXTURE = new URL(
+  '../../../../../conformance/samples/earlier-releases/0.3.0/',
+  import.meta.url,
+)
 
 export async function copyReleaseFixture(
   part: 'wal' | 'snapshot-tier' | 'snapshot-tier-numeric-ids',

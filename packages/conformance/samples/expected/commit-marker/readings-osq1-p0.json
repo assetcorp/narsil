@@ -1,0 +1,16 @@
+{
+  "slots": [
+    {
+      "writeSeq": 5,
+      "activeSegmentSeqNo": 21,
+      "durableByteLength": 8,
+      "highestDurableSeqNo": 20
+    },
+    {
+      "writeSeq": 4,
+      "activeSegmentSeqNo": 21,
+      "durableByteLength": 8,
+      "highestDurableSeqNo": 20
+    }
+  ]
+}

@@ -1,5 +1,5 @@
 import { ErrorCodes, NarsilError } from '../../../errors'
-import { getIndexMetadata, type IndexMetadataRecord } from '../../cluster/index-metadata'
+import { getIndexMetadata, type IndexMetadataRecord, readIndexMetadataSnapshot } from '../../cluster/index-metadata'
 import { servingNameOf } from '../../cluster-node/generation-routing'
 import { isRecord, isValidInteger } from '../../payload-guards'
 import type { BackupPartitionResult } from '../../transport/backup-payloads'
@@ -89,11 +89,13 @@ async function requireIndexMetadata(context: BackupDriverContext, indexName: str
   return metadata
 }
 
-export async function runBackupCreation(context: BackupDriverContext): Promise<void> {
+export async function runBackupCreation(context: BackupDriverContext, takenBy: string | undefined): Promise<void> {
   const { coordinator } = context.config
   const { store, job } = context
   const indexName = jobIndexNameOf(context)
   const generation = await servingNameOf(coordinator, indexName)
+  const named = (await readIndexMetadataSnapshot(coordinator, indexName))?.settings
+  const syncEpoch = named?.sync?.enabled === true ? named.syncEpoch : undefined
   const metadata = await requireIndexMetadata(context, indexName, generation)
   const clusterUuid = await clusterUuidOf(coordinator)
   await reportJobProgress(context, 0, metadata.partitionCount)
@@ -106,6 +108,8 @@ export async function runBackupCreation(context: BackupDriverContext): Promise<v
     startedAt: job.startedAt,
     completedAt: Date.now(),
     partitionCount: metadata.partitionCount,
+    ...(syncEpoch !== undefined ? { syncEpoch } : {}),
+    ...(takenBy !== undefined ? { takenBy } : {}),
     replicationFactor: metadata.replicationFactor,
     constraints: metadata.constraints,
     config: sameConfigOf(results, indexName),

@@ -1,7 +1,7 @@
 import { decode } from '@msgpack/msgpack'
 import { ErrorCodes, NarsilError } from '../../../errors'
 import { requireValidFieldTypes } from '../../../schema/validator/schema'
-import { openChecksummedEnvelope } from '../../../serialization/envelope-file'
+import { openChecksummedEnvelope } from '../../../serialization/envelope-codec'
 import type { PartitionCheckpoint, TermStart } from '../partition-checkpoint'
 import { segmentKey } from './layout'
 import {

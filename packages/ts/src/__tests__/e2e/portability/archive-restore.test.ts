@@ -14,10 +14,10 @@ import {
   storedForm,
   temporaryRoots,
 } from './harness'
+import { RELEASE_0_3_FIXTURE as FIXTURE } from './release-0.3-fixture'
 
 const roots = temporaryRoots()
 const engines: Narsil[] = []
-const FIXTURE = new URL('../../persistence/fixtures/0.3.0/', import.meta.url)
 const DIMENSION = 8
 
 afterEach(async () => {

@@ -94,14 +94,10 @@ async function* readSegmentsInOrder(directory: DurableDirectory, wal: OpenedWal)
     if (startSeqNo < marker.state.activeSegmentSeqNo) {
       const header = checkSegmentHeader(bytes)
       if (!header.ok) {
-        throw new NarsilError(
-          ErrorCodes.PERSISTENCE_WAL_CORRUPT,
-          `Sealed WAL segment header invalid: ${header.reason}`,
-          {
-            key,
-            reason: header.reason,
-          },
-        )
+        throw new NarsilError(header.code, `Sealed WAL segment header invalid: ${header.reason}`, {
+          key,
+          reason: header.reason,
+        })
       }
       const durableEntries = readDurableRegion(bytes, bytes.length)
       for (const entry of durableEntries) highestRead = Math.max(highestRead, entry.seqNo)
