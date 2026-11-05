@@ -20,26 +20,26 @@ export interface ColdVectorHold {
   readonly removedNumbers: Set<number>
   readonly removedIds: Set<string>
   readonly writes: Array<() => void>
-  readonly searchAnswered: () => void
+  readonly loadWanted: () => void
   live: number
 }
 
 export type ColdFieldLoad = (
   beginRestore: (shape: CheckpointRestoreShape) => VectorCheckpointRestore,
   stillWanted: () => boolean,
-  firstSearchAnswered: Promise<void>,
+  loadingWanted: Promise<void>,
 ) => Promise<void>
 
 export function beginColdHold(
   state: VectorIndexState,
   field: ColdVectorField,
   loaded: Promise<void>,
-  searchAnswered: () => void,
+  loadWanted: () => void,
 ): ColdVectorHold {
   const hold: ColdVectorHold = {
     field,
     loaded,
-    searchAnswered,
+    loadWanted,
     written: new Map(),
     removedNumbers: new Set(),
     removedIds: new Set(),
@@ -58,6 +58,13 @@ export function endColdHold(state: VectorIndexState): void {
   hold.field.close()
 }
 
+export async function untilColdLoaded(state: VectorIndexState): Promise<void> {
+  while (state.cold !== null) {
+    state.cold.loadWanted()
+    await state.cold.loaded
+  }
+}
+
 export function cancelColdHold(state: VectorIndexState): void {
   const hold = state.cold
   if (hold === null) return
@@ -73,15 +80,15 @@ export function openColdField(state: VectorIndexState, field: ColdVectorField, l
     finished = resolve
     failed = reject
   })
-  let searchAnswered: () => void = () => undefined
-  const firstSearchAnswered = new Promise<void>(resolve => {
-    searchAnswered = resolve
+  let loadWanted: () => void = () => undefined
+  const loadingWanted = new Promise<void>(resolve => {
+    loadWanted = resolve
   })
-  const hold = beginColdHold(state, field, loaded, searchAnswered)
+  const hold = beginColdHold(state, field, loaded, loadWanted)
   void load(
     shape => beginCheckpointRestore(state, shape),
     () => state.cold === hold,
-    firstSearchAnswered,
+    loadingWanted,
   ).then(
     () => {
       if (state.cold === hold) endColdHold(state)
@@ -297,11 +304,11 @@ export function coldSearch(
 ): VectorSearchOutcome {
   const walk = outcomeWithoutGraphWalk(state, hold, query, k, options)
   if ('results' in walk) {
-    hold.searchAnswered()
+    hold.loadWanted()
     return walk
   }
   const fromGraph = hold.field.search(query, k, options, walk.admits, hold.removedNumbers)
-  hold.searchAnswered()
+  hold.loadWanted()
   return outcomeOfGraphWalk(hold, walk, fromGraph, query, k, options)
 }
 
@@ -314,10 +321,10 @@ export async function coldSearchConcurrently(
 ): Promise<VectorSearchOutcome> {
   const walk = outcomeWithoutGraphWalk(state, hold, query, k, options)
   if ('results' in walk) {
-    hold.searchAnswered()
+    hold.loadWanted()
     return walk
   }
   const fromGraph = await hold.field.searchConcurrently(query, k, options, walk.admits, hold.removedNumbers)
-  hold.searchAnswered()
+  hold.loadWanted()
   return outcomeOfGraphWalk(hold, walk, fromGraph, query, k, options)
 }

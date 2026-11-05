@@ -1,7 +1,7 @@
 import { decode, decodeMulti } from '@msgpack/msgpack'
 import { ErrorCodes, NarsilError } from '../../../errors'
 import { crc32 } from '../../../serialization/crc32'
-import { HEADER_SIZE } from '../../../serialization/header'
+import { HEADER_SIZE, readHeader } from '../../../serialization/header'
 import type { VectorMetric } from '../../../vector/brute-force'
 import type { OsqBits } from '../../../vector/osq'
 import type { FileRef, VectorFileRef } from '../../durability/segment/manifest'
@@ -80,9 +80,16 @@ export interface OpenedFiles {
   codes: ColdCodes | null
 }
 
+function holdsRawPayload(path: string): boolean {
+  const header = new Uint8Array(HEADER_SIZE)
+  readFileRange(path, 0, header)
+  return !readHeader(header).flags.compressionEnabled
+}
+
 function readHead(path: string, ref: FileRef): Uint8Array | null {
   const { headOffset, headLength, headChecksum } = ref
   if (headOffset === undefined || headLength === undefined || headChecksum === undefined) return null
+  if (!holdsRawPayload(path)) return null
   const head = new Uint8Array(headLength)
   readFileRange(path, HEADER_SIZE + headOffset, head)
   if (crc32(head) !== headChecksum) {

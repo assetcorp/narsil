@@ -1,0 +1,96 @@
+{
+  "header": {
+    "envelopeFormatVersion": 1,
+    "compression": "none",
+    "checksum": true
+  },
+  "payload": {
+    "index_name": "products",
+    "schema": {
+      "title": "string",
+      "tags": "string[]",
+      "sku": "verbatim:sortable",
+      "price": "number",
+      "sizes": "number[]",
+      "inStock": "boolean",
+      "category": "enum",
+      "colours": "enum[]",
+      "location": "geopoint",
+      "code": "string:pattern",
+      "description": "string:partial",
+      "embedding": "vector[8]"
+    },
+    "language": "english",
+    "partition_count": 1,
+    "bm25_params": {
+      "k1": 1.4,
+      "b": 0.7,
+      "fields": {
+        "title": {
+          "k1": 1.1,
+          "b": 0.6
+        }
+      }
+    },
+    "created_at": 1793882169286,
+    "engine_version": "0.1.0",
+    "vector_fields": {
+      "embedding": {
+        "dimension": 8,
+        "metric": "cosine",
+        "quantization": "osq4"
+      }
+    },
+    "document_count": 43,
+    "embedding": {
+      "fields": {
+        "embedding": ["title", "description"]
+      }
+    },
+    "surface_forms_enabled": true,
+    "analysis_revision": "ebae3448ae674b59",
+    "array_position_gap": 100,
+    "tokenizer": "conformance-tokenizer",
+    "stop_word_list": ["a", "the"],
+    "analysis_generation": 2,
+    "pending_analysis": {
+      "generation": 3,
+      "language": "english",
+      "tokenizer": "conformance-tokenizer",
+      "stop_words": "conformance-stop-words"
+    },
+    "partition_limits": {
+      "max_docs_per_partition": 100000,
+      "max_partitions": 8,
+      "watermark": 0.9
+    },
+    "default_scoring": "broadcast",
+    "track_positions": true,
+    "text_storage": "memory",
+    "strict": true,
+    "required": ["title"],
+    "vector_promotion": {
+      "threshold": 16,
+      "filter_threshold": 0.25,
+      "hnsw_config": {
+        "m": 8,
+        "ef_construction": 64,
+        "metric": "cosine"
+      },
+      "quantization": "osq4",
+      "storage": "memory"
+    },
+    "pattern_value_limit": 256,
+    "index_uuid": "0b7d2c9e-41f6-4a3b-8e5d-7c2f1a9b6e04",
+    "held_partitions": [0],
+    "synonyms": [
+      {
+        "words": ["kettle", "teapot"]
+      },
+      {
+        "word": "hammer",
+        "synonyms": ["mallet"]
+      }
+    ]
+  }
+}
