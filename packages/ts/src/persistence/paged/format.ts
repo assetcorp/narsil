@@ -148,7 +148,11 @@ export function decodePagedSegmentHead(head: Uint8Array, payloadLength: number, 
   if (raw === null || typeof raw !== 'object') loadFailed(`The head of ${what} is not a map`)
   const entry = raw as Record<string, unknown>
   if (entry.v !== PAGED_SEGMENT_HEAD_VERSION) {
-    loadFailed(`The head of ${what} holds version ${String(entry.v)}`, { version: entry.v })
+    throw new NarsilError(
+      ErrorCodes.ENVELOPE_VERSION_MISMATCH,
+      `The head of ${what} was written in layout ${String(entry.v)}, and this build reads layout ${PAGED_SEGMENT_HEAD_VERSION} alone`,
+      { version: entry.v },
+    )
   }
   if (!isStringRecord(entry.schema)) loadFailed(`The head of ${what} holds no schema`)
   if (!isStringList(entry.tombstones)) loadFailed(`The head of ${what} holds no tombstone list`)

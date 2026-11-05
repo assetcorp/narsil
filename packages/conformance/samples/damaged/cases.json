@@ -1,0 +1,1870 @@
+{
+  "cases": [
+    {
+      "name": "envelope-magic",
+      "rule": "envelope.md#magic-bytes",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "meta": "damaged/envelope-magic/meta",
+        "manifest": "damaged/envelope-magic/manifest"
+      },
+      "expect": {
+        "code": "ENVELOPE_INVALID_MAGIC"
+      }
+    },
+    {
+      "name": "envelope-shorter-than-header",
+      "rule": "envelope.md#magic-bytes",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "meta": "damaged/envelope-shorter-than-header/meta",
+        "manifest": "damaged/envelope-shorter-than-header/manifest"
+      },
+      "expect": {
+        "code": "ENVELOPE_INVALID_MAGIC"
+      }
+    },
+    {
+      "name": "envelope-lz4",
+      "rule": "envelope.md#compression",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "meta": "damaged/envelope-lz4/meta",
+        "manifest": "damaged/envelope-lz4/manifest"
+      },
+      "expect": {
+        "code": "ENVELOPE_VERSION_MISMATCH"
+      }
+    },
+    {
+      "name": "envelope-zstd",
+      "rule": "envelope.md#compression",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "meta": "damaged/envelope-zstd/meta",
+        "manifest": "damaged/envelope-zstd/manifest"
+      },
+      "expect": {
+        "code": "ENVELOPE_VERSION_MISMATCH"
+      }
+    },
+    {
+      "name": "envelope-encrypted",
+      "rule": "envelope.md#encryption",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "meta": "damaged/envelope-encrypted/meta",
+        "manifest": "damaged/envelope-encrypted/manifest"
+      },
+      "expect": {
+        "code": "ENVELOPE_VERSION_MISMATCH"
+      }
+    },
+    {
+      "name": "envelope-payload-past-end",
+      "rule": "envelope.md#payload-length",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "meta": "damaged/envelope-payload-past-end/meta",
+        "manifest": "damaged/envelope-payload-past-end/manifest"
+      },
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "envelope-checksum",
+      "rule": "envelope.md#checksum",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "meta": "damaged/envelope-checksum/meta",
+        "manifest": "damaged/envelope-checksum/manifest"
+      },
+      "expect": {
+        "code": "PERSISTENCE_CRC_MISMATCH"
+      }
+    },
+    {
+      "name": "envelope-reserved-bytes-and-flags",
+      "rule": "envelope.md#reserved-bytes",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "meta": "damaged/envelope-reserved-bytes-and-flags/meta",
+        "segments/0/s0000000000000001": "damaged/envelope-reserved-bytes-and-flags/segments/0/s0000000000000001",
+        "manifest": "damaged/envelope-reserved-bytes-and-flags/manifest"
+      },
+      "expect": {
+        "documents": "damaged/expected/products.json"
+      }
+    },
+    {
+      "name": "envelope-no-checksum",
+      "rule": "envelope.md#checksum",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "meta": "damaged/envelope-no-checksum/meta",
+        "manifest": "damaged/envelope-no-checksum/manifest"
+      },
+      "expect": {
+        "documents": "damaged/expected/products.json"
+      }
+    },
+    {
+      "name": "segment-bytes-not-whole-values",
+      "rule": "envelope.md#keyword-segment-payload",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "segments/0/s0000000000000001": "damaged/segment-bytes-not-whole-values/segments/0/s0000000000000001",
+        "manifest": "damaged/segment-bytes-not-whole-values/manifest"
+      },
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "segment-offsets-start-above-zero",
+      "rule": "envelope.md#keyword-segment-payload",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "segments/0/s0000000000000001": "damaged/segment-offsets-start-above-zero/segments/0/s0000000000000001",
+        "manifest": "damaged/segment-offsets-start-above-zero/manifest"
+      },
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "segment-offsets-decrease",
+      "rule": "envelope.md#keyword-segment-payload",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "segments/0/s0000000000000001": "damaged/segment-offsets-decrease/segments/0/s0000000000000001",
+        "manifest": "damaged/segment-offsets-decrease/manifest"
+      },
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "segment-offsets-end-short",
+      "rule": "envelope.md#keyword-segment-payload",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "segments/0/s0000000000000001": "damaged/segment-offsets-end-short/segments/0/s0000000000000001",
+        "manifest": "damaged/segment-offsets-end-short/manifest"
+      },
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "segment-column-count",
+      "rule": "envelope.md#keyword-segment-payload",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "segments/0/s0000000000000001": "damaged/segment-column-count/segments/0/s0000000000000001",
+        "manifest": "damaged/segment-column-count/manifest"
+      },
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "segment-ids-not-utf8",
+      "rule": "envelope.md#keyword-segment-payload",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "segments/0/s0000000000000001": "damaged/segment-ids-not-utf8/segments/0/s0000000000000001",
+        "manifest": "damaged/segment-ids-not-utf8/manifest"
+      },
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "segment-tokens-not-utf8",
+      "rule": "envelope.md#keyword-segment-payload",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "segments/0/s0000000000000001": "damaged/segment-tokens-not-utf8/segments/0/s0000000000000001",
+        "manifest": "damaged/segment-tokens-not-utf8/manifest"
+      },
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "segment-surface-text-not-utf8",
+      "rule": "envelope.md#keyword-segment-payload",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "segments/0/s0000000000000001": "damaged/segment-surface-text-not-utf8/segments/0/s0000000000000001",
+        "manifest": "damaged/segment-surface-text-not-utf8/manifest"
+      },
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "segment-ordinal-past-document-count",
+      "rule": "envelope.md#keyword-segment-payload",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "segments/0/s0000000000000001": "damaged/segment-ordinal-past-document-count/segments/0/s0000000000000001",
+        "manifest": "damaged/segment-ordinal-past-document-count/manifest"
+      },
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "segment-posting-field-past-field-names",
+      "rule": "envelope.md#keyword-segment-payload",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "segments/0/s0000000000000001": "damaged/segment-posting-field-past-field-names/segments/0/s0000000000000001",
+        "manifest": "damaged/segment-posting-field-past-field-names/manifest"
+      },
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "segment-id-order-repeats",
+      "rule": "envelope.md#keyword-segment-payload",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "segments/0/s0000000000000001": "damaged/segment-id-order-repeats/segments/0/s0000000000000001",
+        "manifest": "damaged/segment-id-order-repeats/manifest"
+      },
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "segment-document-frequency-zero",
+      "rule": "envelope.md#keyword-segment-payload",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "segments/0/s0000000000000001": "damaged/segment-document-frequency-zero/segments/0/s0000000000000001",
+        "manifest": "damaged/segment-document-frequency-zero/manifest"
+      },
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "segment-document-frequency-above-postings",
+      "rule": "envelope.md#keyword-segment-payload",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "segments/0/s0000000000000001": "damaged/segment-document-frequency-above-postings/segments/0/s0000000000000001",
+        "manifest": "damaged/segment-document-frequency-above-postings/manifest"
+      },
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "segment-tokens-not-ascending",
+      "rule": "envelope.md#keyword-segment-payload",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "segments/0/s0000000000000001": "damaged/segment-tokens-not-ascending/segments/0/s0000000000000001",
+        "manifest": "damaged/segment-tokens-not-ascending/manifest"
+      },
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "segment-ids-not-ascending",
+      "rule": "envelope.md#keyword-segment-payload",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "segments/0/s0000000000000001": "damaged/segment-ids-not-ascending/segments/0/s0000000000000001",
+        "manifest": "damaged/segment-ids-not-ascending/manifest"
+      },
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "segment-pattern-runs-not-ascending",
+      "rule": "envelope.md#keyword-segment-payload",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "segments/0/s0000000000000001": "damaged/segment-pattern-runs-not-ascending/segments/0/s0000000000000001",
+        "manifest": "damaged/segment-pattern-runs-not-ascending/manifest"
+      },
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "segment-pattern-documents-not-ascending",
+      "rule": "envelope.md#keyword-segment-payload",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "segments/0/s0000000000000001": "damaged/segment-pattern-documents-not-ascending/segments/0/s0000000000000001",
+        "manifest": "damaged/segment-pattern-documents-not-ascending/manifest"
+      },
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "segment-pattern-run-postings-not-ascending",
+      "rule": "envelope.md#keyword-segment-payload",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "segments/0/s0000000000000001": "damaged/segment-pattern-run-postings-not-ascending/segments/0/s0000000000000001",
+        "manifest": "damaged/segment-pattern-run-postings-not-ascending/manifest"
+      },
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "segment-enum-value-twice",
+      "rule": "envelope.md#keyword-segment-payload",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "segments/0/s0000000000000001": "damaged/segment-enum-value-twice/segments/0/s0000000000000001",
+        "manifest": "damaged/segment-enum-value-twice/manifest"
+      },
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "segment-value-column-descends",
+      "rule": "envelope.md#keyword-segment-payload",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "segments/0/s0000000000000001": "damaged/segment-value-column-descends/segments/0/s0000000000000001",
+        "manifest": "damaged/segment-value-column-descends/manifest"
+      },
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "segment-value-column-nan",
+      "rule": "envelope.md#keyword-segment-payload",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "segments/0/s0000000000000001": "damaged/segment-value-column-nan/segments/0/s0000000000000001",
+        "manifest": "damaged/segment-value-column-nan/manifest"
+      },
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "segment-latitude-out-of-range",
+      "rule": "envelope.md#keyword-segment-payload",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "segments/0/s0000000000000001": "damaged/segment-latitude-out-of-range/segments/0/s0000000000000001",
+        "manifest": "damaged/segment-latitude-out-of-range/manifest"
+      },
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "segment-longitude-out-of-range",
+      "rule": "envelope.md#keyword-segment-payload",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "segments/0/s0000000000000001": "damaged/segment-longitude-out-of-range/segments/0/s0000000000000001",
+        "manifest": "damaged/segment-longitude-out-of-range/manifest"
+      },
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "segment-positions-without-offsets",
+      "rule": "envelope.md#keyword-segment-payload",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "segments/0/s0000000000000001": "damaged/segment-positions-without-offsets/segments/0/s0000000000000001",
+        "manifest": "damaged/segment-positions-without-offsets/manifest"
+      },
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "segment-partial-token-past-tokens",
+      "rule": "envelope.md#keyword-segment-payload",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "segments/0/s0000000000000001": "damaged/segment-partial-token-past-tokens/segments/0/s0000000000000001",
+        "manifest": "damaged/segment-partial-token-past-tokens/manifest"
+      },
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "segment-partial-count-zero",
+      "rule": "envelope.md#keyword-segment-payload",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "segments/0/s0000000000000001": "damaged/segment-partial-count-zero/segments/0/s0000000000000001",
+        "manifest": "damaged/segment-partial-count-zero/manifest"
+      },
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "segment-partial-run-entry-past-entries",
+      "rule": "envelope.md#keyword-segment-payload",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "segments/0/s0000000000000001": "damaged/segment-partial-run-entry-past-entries/segments/0/s0000000000000001",
+        "manifest": "damaged/segment-partial-run-entry-past-entries/manifest"
+      },
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "segment-partial-entries-not-ascending",
+      "rule": "envelope.md#keyword-segment-payload",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "segments/0/s0000000000000001": "damaged/segment-partial-entries-not-ascending/segments/0/s0000000000000001",
+        "manifest": "damaged/segment-partial-entries-not-ascending/manifest"
+      },
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "segment-partial-runs-not-ascending",
+      "rule": "envelope.md#keyword-segment-payload",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "segments/0/s0000000000000001": "damaged/segment-partial-runs-not-ascending/segments/0/s0000000000000001",
+        "manifest": "damaged/segment-partial-runs-not-ascending/manifest"
+      },
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "segment-partial-run-members-not-ascending",
+      "rule": "envelope.md#keyword-segment-payload",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "segments/0/s0000000000000001": "damaged/segment-partial-run-members-not-ascending/segments/0/s0000000000000001",
+        "manifest": "damaged/segment-partial-run-members-not-ascending/manifest"
+      },
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "segment-seq-nos-without-primary-terms",
+      "rule": "envelope.md#keyword-segment-payload",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "segments/0/s0000000000000001": "damaged/segment-seq-nos-without-primary-terms/segments/0/s0000000000000001",
+        "manifest": "damaged/segment-seq-nos-without-primary-terms/manifest"
+      },
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "segment-primary-term-without-seq-no",
+      "rule": "envelope.md#keyword-segment-payload",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "segments/0/s0000000000000001": "damaged/segment-primary-term-without-seq-no/segments/0/s0000000000000001",
+        "manifest": "damaged/segment-primary-term-without-seq-no/manifest"
+      },
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "segment-layout-newer",
+      "rule": "envelope.md#payload-format",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "segments/0/s0000000000000001": "damaged/segment-layout-newer/segments/0/s0000000000000001",
+        "manifest": "damaged/segment-layout-newer/manifest"
+      },
+      "expect": {
+        "code": "ENVELOPE_VERSION_MISMATCH"
+      }
+    },
+    {
+      "name": "schema-unknown-base-type",
+      "rule": "envelope.md#field-types",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "segments/0/s0000000000000001": "damaged/schema-unknown-base-type/segments/0/s0000000000000001",
+        "manifest": "damaged/schema-unknown-base-type/manifest"
+      },
+      "expect": {
+        "code": "SCHEMA_INVALID_TYPE"
+      }
+    },
+    {
+      "name": "schema-option-outside-its-row",
+      "rule": "envelope.md#field-types",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "segments/0/s0000000000000001": "damaged/schema-option-outside-its-row/segments/0/s0000000000000001",
+        "manifest": "damaged/schema-option-outside-its-row/manifest"
+      },
+      "expect": {
+        "code": "SCHEMA_INVALID_TYPE"
+      }
+    },
+    {
+      "name": "schema-option-twice",
+      "rule": "envelope.md#field-types",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "segments/0/s0000000000000001": "damaged/schema-option-twice/segments/0/s0000000000000001",
+        "manifest": "damaged/schema-option-twice/manifest"
+      },
+      "expect": {
+        "code": "SCHEMA_INVALID_TYPE"
+      }
+    },
+    {
+      "name": "schema-vector-dimension-zero",
+      "rule": "envelope.md#field-types",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "segments/0/s0000000000000001": "damaged/schema-vector-dimension-zero/segments/0/s0000000000000001",
+        "manifest": "damaged/schema-vector-dimension-zero/manifest"
+      },
+      "expect": {
+        "code": "SCHEMA_INVALID_VECTOR_DIMENSION"
+      }
+    },
+    {
+      "name": "schema-vector-dimension-too-wide",
+      "rule": "envelope.md#field-types",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "segments/0/s0000000000000001": "damaged/schema-vector-dimension-too-wide/segments/0/s0000000000000001",
+        "manifest": "damaged/schema-vector-dimension-too-wide/manifest"
+      },
+      "expect": {
+        "code": "SCHEMA_INVALID_VECTOR_DIMENSION"
+      }
+    },
+    {
+      "name": "paged-compressed",
+      "rule": "envelope.md#paged-keyword-segment-payload",
+      "open": "checkpoint",
+      "index": "notes",
+      "base": "checkpoints/notes",
+      "files": {
+        "segments/0/s0000000000000000": "damaged/paged-compressed/segments/0/s0000000000000000",
+        "manifest": "damaged/paged-compressed/manifest"
+      },
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "paged-head-version",
+      "rule": "envelope.md#paged-keyword-segment-payload",
+      "open": "checkpoint",
+      "index": "notes",
+      "base": "checkpoints/notes",
+      "files": {
+        "segments/0/s0000000000000000": "damaged/paged-head-version/segments/0/s0000000000000000",
+        "manifest": "damaged/paged-head-version/manifest"
+      },
+      "expect": {
+        "code": "ENVELOPE_VERSION_MISMATCH"
+      }
+    },
+    {
+      "name": "paged-head-length-outside-payload",
+      "rule": "envelope.md#paged-keyword-segment-payload",
+      "open": "checkpoint",
+      "index": "notes",
+      "base": "checkpoints/notes",
+      "files": {
+        "segments/0/s0000000000000000": "damaged/paged-head-length-outside-payload/segments/0/s0000000000000000",
+        "manifest": "damaged/paged-head-length-outside-payload/manifest"
+      },
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "paged-head-checksum",
+      "rule": "envelope.md#checks-on-a-paged-segment",
+      "open": "checkpoint",
+      "index": "notes",
+      "base": "checkpoints/notes",
+      "files": {
+        "segments/0/s0000000000000000": "damaged/paged-head-checksum/segments/0/s0000000000000000",
+        "manifest": "damaged/paged-head-checksum/manifest"
+      },
+      "expect": {
+        "code": "PERSISTENCE_CRC_MISMATCH"
+      }
+    },
+    {
+      "name": "paged-page-bytes",
+      "rule": "envelope.md#paged-keyword-segment-payload",
+      "open": "checkpoint",
+      "index": "notes",
+      "base": "checkpoints/notes",
+      "files": {
+        "segments/0/s0000000000000000": "damaged/paged-page-bytes/segments/0/s0000000000000000",
+        "manifest": "damaged/paged-page-bytes/manifest"
+      },
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "paged-section-repeated",
+      "rule": "envelope.md#paged-keyword-segment-payload",
+      "open": "checkpoint",
+      "index": "notes",
+      "base": "checkpoints/notes",
+      "files": {
+        "segments/0/s0000000000000000": "damaged/paged-section-repeated/segments/0/s0000000000000000",
+        "manifest": "damaged/paged-section-repeated/manifest"
+      },
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "paged-sections-overlap",
+      "rule": "envelope.md#paged-keyword-segment-payload",
+      "open": "checkpoint",
+      "index": "notes",
+      "base": "checkpoints/notes",
+      "files": {
+        "segments/0/s0000000000000000": "damaged/paged-sections-overlap/segments/0/s0000000000000000",
+        "manifest": "damaged/paged-sections-overlap/manifest"
+      },
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "paged-section-outside-payload",
+      "rule": "envelope.md#paged-keyword-segment-payload",
+      "open": "checkpoint",
+      "index": "notes",
+      "base": "checkpoints/notes",
+      "files": {
+        "segments/0/s0000000000000000": "damaged/paged-section-outside-payload/segments/0/s0000000000000000",
+        "manifest": "damaged/paged-section-outside-payload/manifest"
+      },
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "paged-checksums-length",
+      "rule": "envelope.md#paged-keyword-segment-payload",
+      "open": "checkpoint",
+      "index": "notes",
+      "base": "checkpoints/notes",
+      "files": {
+        "segments/0/s0000000000000000": "damaged/paged-checksums-length/segments/0/s0000000000000000",
+        "manifest": "damaged/paged-checksums-length/manifest"
+      },
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "paged-page-checksum",
+      "rule": "envelope.md#checks-on-a-paged-segment",
+      "open": "checkpoint",
+      "index": "notes",
+      "base": "checkpoints/notes",
+      "files": {
+        "segments/0/s0000000000000000": "damaged/paged-page-checksum/segments/0/s0000000000000000",
+        "manifest": "damaged/paged-page-checksum/manifest"
+      },
+      "expect": {
+        "code": "PERSISTENCE_CRC_MISMATCH"
+      }
+    },
+    {
+      "name": "paged-postings-descend",
+      "rule": "envelope.md#paged-keyword-segment-payload",
+      "open": "checkpoint",
+      "index": "notes",
+      "base": "checkpoints/notes",
+      "files": {
+        "segments/0/s0000000000000000": "damaged/paged-postings-descend/segments/0/s0000000000000000",
+        "manifest": "damaged/paged-postings-descend/manifest"
+      },
+      "search": "kettle",
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "paged-block-lists-descend",
+      "rule": "envelope.md#paged-keyword-segment-payload",
+      "open": "checkpoint",
+      "index": "notes",
+      "base": "checkpoints/notes",
+      "files": {
+        "segments/0/s0000000000000000": "damaged/paged-block-lists-descend/segments/0/s0000000000000000",
+        "manifest": "damaged/paged-block-lists-descend/manifest"
+      },
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "paged-block-list-past-tokens",
+      "rule": "envelope.md#paged-keyword-segment-payload",
+      "open": "checkpoint",
+      "index": "notes",
+      "base": "checkpoints/notes",
+      "files": {
+        "segments/0/s0000000000000000": "damaged/paged-block-list-past-tokens/segments/0/s0000000000000000",
+        "manifest": "damaged/paged-block-list-past-tokens/manifest"
+      },
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "paged-block-list-of-a-short-list",
+      "rule": "envelope.md#paged-keyword-segment-payload",
+      "open": "checkpoint",
+      "index": "notes",
+      "base": "checkpoints/notes",
+      "files": {
+        "segments/0/s0000000000000000": "damaged/paged-block-list-of-a-short-list/segments/0/s0000000000000000",
+        "manifest": "damaged/paged-block-list-of-a-short-list/manifest"
+      },
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "paged-document-block-too-long",
+      "rule": "envelope.md#paged-keyword-segment-payload",
+      "open": "checkpoint",
+      "index": "notes",
+      "base": "checkpoints/notes",
+      "files": {
+        "segments/0/s0000000000000000": "damaged/paged-document-block-too-long/segments/0/s0000000000000000",
+        "manifest": "damaged/paged-document-block-too-long/manifest"
+      },
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "paged-removal-offset-odd",
+      "rule": "envelope.md#paged-keyword-segment-payload",
+      "open": "checkpoint",
+      "index": "notes",
+      "base": "checkpoints/notes",
+      "files": {
+        "segments/0/s0000000000000000": "damaged/paged-removal-offset-odd/segments/0/s0000000000000000",
+        "manifest": "damaged/paged-removal-offset-odd/manifest"
+      },
+      "remove": "note-000",
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "paged-removal-offsets-decrease",
+      "rule": "envelope.md#paged-keyword-segment-payload",
+      "open": "checkpoint",
+      "index": "notes",
+      "base": "checkpoints/notes",
+      "files": {
+        "segments/0/s0000000000000000": "damaged/paged-removal-offsets-decrease/segments/0/s0000000000000000",
+        "manifest": "damaged/paged-removal-offsets-decrease/manifest"
+      },
+      "remove": "note-001",
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "graph-parts-disagree",
+      "rule": "envelope.md#vector-graph-payload",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "manifest": "damaged/graph-parts-disagree/manifest",
+        "segments/vec-embedding-1l4nfg2-graph-g2-p0000000000000000": "damaged/graph-parts-disagree/segments/vec-embedding-1l4nfg2-graph-g2-p0000000000000000",
+        "segments/vec-embedding-1l4nfg2-graph-g2-p0000000000000001": "damaged/graph-parts-disagree/segments/vec-embedding-1l4nfg2-graph-g2-p0000000000000001"
+      },
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "vector-head-checksum",
+      "rule": "durability.md#manifest",
+      "open": "checkpoint",
+      "index": "notes",
+      "base": "checkpoints/notes",
+      "files": {
+        "manifest": "damaged/vector-head-checksum/manifest"
+      },
+      "expect": {
+        "code": "PERSISTENCE_CRC_MISMATCH"
+      }
+    },
+    {
+      "name": "vector-head-outside-payload",
+      "rule": "durability.md#manifest",
+      "open": "checkpoint",
+      "index": "notes",
+      "base": "checkpoints/notes",
+      "files": {
+        "manifest": "damaged/vector-head-outside-payload/manifest"
+      },
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "vector-head-sections-overlap",
+      "rule": "durability.md#manifest",
+      "open": "checkpoint",
+      "index": "notes",
+      "base": "checkpoints/notes",
+      "files": {
+        "segments/vec-embedding-1l4nfg2-f0000000000000000": "damaged/vector-head-sections-overlap/segments/vec-embedding-1l4nfg2-f0000000000000000",
+        "manifest": "damaged/vector-head-sections-overlap/manifest"
+      },
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "vector-head-section-outside-payload",
+      "rule": "durability.md#manifest",
+      "open": "checkpoint",
+      "index": "notes",
+      "base": "checkpoints/notes",
+      "files": {
+        "segments/vec-embedding-1l4nfg2-f0000000000000000": "damaged/vector-head-section-outside-payload/segments/vec-embedding-1l4nfg2-f0000000000000000",
+        "manifest": "damaged/vector-head-section-outside-payload/manifest"
+      },
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "vector-page-checksum",
+      "rule": "durability.md#manifest",
+      "open": "checkpoint",
+      "index": "notes",
+      "base": "checkpoints/notes",
+      "files": {
+        "segments/vec-embedding-1l4nfg2-f0000000000000000": "damaged/vector-page-checksum/segments/vec-embedding-1l4nfg2-f0000000000000000",
+        "manifest": "damaged/vector-page-checksum/manifest"
+      },
+      "expect": {
+        "code": "PERSISTENCE_CRC_MISMATCH"
+      }
+    },
+    {
+      "name": "graph-node-offsets-descend",
+      "rule": "envelope.md#vector-graph-payload",
+      "open": "checkpoint",
+      "index": "notes",
+      "base": "checkpoints/notes",
+      "files": {
+        "segments/vec-embedding-1l4nfg2-graph-g1-p0000000000000000": "damaged/graph-node-offsets-descend/segments/vec-embedding-1l4nfg2-graph-g1-p0000000000000000",
+        "manifest": "damaged/graph-node-offsets-descend/manifest"
+      },
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "graph-node-offsets-past-neighbours",
+      "rule": "envelope.md#vector-graph-payload",
+      "open": "checkpoint",
+      "index": "notes",
+      "base": "checkpoints/notes",
+      "files": {
+        "segments/vec-embedding-1l4nfg2-graph-g1-p0000000000000000": "damaged/graph-node-offsets-past-neighbours/segments/vec-embedding-1l4nfg2-graph-g1-p0000000000000000",
+        "manifest": "damaged/graph-node-offsets-past-neighbours/manifest"
+      },
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "graph-list-past-next-offset",
+      "rule": "envelope.md#vector-graph-payload",
+      "open": "checkpoint",
+      "index": "notes",
+      "base": "checkpoints/notes",
+      "files": {
+        "segments/vec-embedding-1l4nfg2-graph-g1-p0000000000000000": "damaged/graph-list-past-next-offset/segments/vec-embedding-1l4nfg2-graph-g1-p0000000000000000",
+        "manifest": "damaged/graph-list-past-next-offset/manifest"
+      },
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "vector-version",
+      "rule": "envelope.md#vector-file-payload",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "segments/vec-embedding-1l4nfg2-f0000000000000000": "damaged/vector-version/segments/vec-embedding-1l4nfg2-f0000000000000000",
+        "manifest": "damaged/vector-version/manifest"
+      },
+      "expect": {
+        "code": "ENVELOPE_VERSION_MISMATCH"
+      }
+    },
+    {
+      "name": "graph-version",
+      "rule": "envelope.md#vector-graph-payload",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "segments/vec-embedding-1l4nfg2-graph-g2-p0000000000000000": "damaged/graph-version/segments/vec-embedding-1l4nfg2-graph-g2-p0000000000000000",
+        "manifest": "damaged/graph-version/manifest"
+      },
+      "expect": {
+        "code": "ENVELOPE_VERSION_MISMATCH"
+      }
+    },
+    {
+      "name": "graph-levels-length",
+      "rule": "envelope.md#vector-graph-payload",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "segments/vec-embedding-1l4nfg2-graph-g2-p0000000000000000": "damaged/graph-levels-length/segments/vec-embedding-1l4nfg2-graph-g2-p0000000000000000",
+        "manifest": "damaged/graph-levels-length/manifest"
+      },
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "graph-vector-in-two-graphs",
+      "rule": "envelope.md#vector-graph-payload",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "segments/vec-embedding-1l4nfg2-graph-g2-p0000000000000000": "damaged/graph-vector-in-two-graphs/segments/vec-embedding-1l4nfg2-graph-g2-p0000000000000000",
+        "manifest": "damaged/graph-vector-in-two-graphs/manifest"
+      },
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "graph-calibrated-mean-negative",
+      "rule": "envelope.md#vector-graph-payload",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "segments/vec-embedding-1l4nfg2-graph-g2-p0000000000000000": "damaged/graph-calibrated-mean-negative/segments/vec-embedding-1l4nfg2-graph-g2-p0000000000000000",
+        "manifest": "damaged/graph-calibrated-mean-negative/manifest"
+      },
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "graph-calibrated-mean-not-finite",
+      "rule": "envelope.md#vector-graph-payload",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "segments/vec-embedding-1l4nfg2-graph-g2-p0000000000000000": "damaged/graph-calibrated-mean-not-finite/segments/vec-embedding-1l4nfg2-graph-g2-p0000000000000000",
+        "manifest": "damaged/graph-calibrated-mean-not-finite/manifest"
+      },
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "graph-neighbours-end-inside-a-list",
+      "rule": "envelope.md#vector-graph-payload",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "segments/vec-embedding-1l4nfg2-graph-g2-p0000000000000000": "damaged/graph-neighbours-end-inside-a-list/segments/vec-embedding-1l4nfg2-graph-g2-p0000000000000000",
+        "manifest": "damaged/graph-neighbours-end-inside-a-list/manifest"
+      },
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "manifest-segment-length",
+      "rule": "durability.md#manifest",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "manifest": "damaged/manifest-segment-length/manifest"
+      },
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "manifest-segment-checksum",
+      "rule": "durability.md#manifest",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "manifest": "damaged/manifest-segment-checksum/manifest"
+      },
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "manifest-segment-key",
+      "rule": "durability.md#manifest",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "manifest": "damaged/manifest-segment-key/manifest"
+      },
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "manifest-vector-file-length",
+      "rule": "durability.md#manifest",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "manifest": "damaged/manifest-vector-file-length/manifest"
+      },
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "manifest-graph-part-checksum",
+      "rule": "durability.md#manifest",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "manifest": "damaged/manifest-graph-part-checksum/manifest"
+      },
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "manifest-graph-part-key",
+      "rule": "durability.md#manifest",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "manifest": "damaged/manifest-graph-part-key/manifest"
+      },
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "manifest-dead-length",
+      "rule": "durability.md#manifest",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "manifest": "damaged/manifest-dead-length/manifest"
+      },
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "manifest-vector-count-above-limit",
+      "rule": "durability.md#manifest",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "manifest": "damaged/manifest-vector-count-above-limit/manifest"
+      },
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "manifest-vector-count-differs",
+      "rule": "durability.md#manifest",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "manifest": "damaged/manifest-vector-count-differs/manifest"
+      },
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "log-magic",
+      "rule": "durability.md#segment-header",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "wal/0/0000000000000046": "damaged/log-magic/wal/0/0000000000000046",
+        "manifest": "damaged/log-magic/manifest"
+      },
+      "expect": {
+        "code": "PERSISTENCE_WAL_CORRUPT"
+      }
+    },
+    {
+      "name": "log-format-version-newer",
+      "rule": "durability.md#segment-header",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "wal/0/0000000000000046": "damaged/log-format-version-newer/wal/0/0000000000000046",
+        "manifest": "damaged/log-format-version-newer/manifest"
+      },
+      "expect": {
+        "code": "ENVELOPE_VERSION_MISMATCH"
+      }
+    },
+    {
+      "name": "log-record-overruns-frontier",
+      "rule": "durability.md#reading-a-segment",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "wal/0/0000000000000046": "damaged/log-record-overruns-frontier/wal/0/0000000000000046",
+        "wal/0/commit": "damaged/log-record-overruns-frontier/wal/0/commit",
+        "manifest": "damaged/log-record-overruns-frontier/manifest"
+      },
+      "expect": {
+        "code": "PERSISTENCE_WAL_CORRUPT"
+      }
+    },
+    {
+      "name": "log-frame-checksum",
+      "rule": "durability.md#reading-a-segment",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "wal/0/0000000000000046": "damaged/log-frame-checksum/wal/0/0000000000000046",
+        "wal/0/commit": "damaged/log-frame-checksum/wal/0/commit",
+        "manifest": "damaged/log-frame-checksum/manifest"
+      },
+      "expect": {
+        "code": "PERSISTENCE_WAL_CORRUPT"
+      }
+    },
+    {
+      "name": "log-payload-undecodable",
+      "rule": "durability.md#reading-a-segment",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "wal/0/0000000000000046": "damaged/log-payload-undecodable/wal/0/0000000000000046",
+        "wal/0/commit": "damaged/log-payload-undecodable/wal/0/commit",
+        "manifest": "damaged/log-payload-undecodable/manifest"
+      },
+      "expect": {
+        "code": "PERSISTENCE_WAL_CORRUPT"
+      }
+    },
+    {
+      "name": "log-entry-checksum",
+      "rule": "durability.md#reading-a-segment",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "wal/0/0000000000000046": "damaged/log-entry-checksum/wal/0/0000000000000046",
+        "wal/0/commit": "damaged/log-entry-checksum/wal/0/commit",
+        "manifest": "damaged/log-entry-checksum/manifest"
+      },
+      "expect": {
+        "code": "PERSISTENCE_WAL_CORRUPT"
+      }
+    },
+    {
+      "name": "log-seq-no-out-of-order",
+      "rule": "durability.md#reading-a-segment",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "wal/0/0000000000000046": "damaged/log-seq-no-out-of-order/wal/0/0000000000000046",
+        "wal/0/commit": "damaged/log-seq-no-out-of-order/wal/0/commit",
+        "manifest": "damaged/log-seq-no-out-of-order/manifest"
+      },
+      "expect": {
+        "code": "PERSISTENCE_WAL_CORRUPT"
+      }
+    },
+    {
+      "name": "log-short-of-highest-durable",
+      "rule": "durability.md#reading-a-segment",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "wal/0/commit": "damaged/log-short-of-highest-durable/wal/0/commit",
+        "manifest": "damaged/log-short-of-highest-durable/manifest"
+      },
+      "expect": {
+        "code": "PERSISTENCE_WAL_CORRUPT"
+      }
+    },
+    {
+      "name": "log-torn-tail-past-frontier",
+      "rule": "durability.md#reading-a-segment",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "wal/0/0000000000000046": "damaged/log-torn-tail-past-frontier/wal/0/0000000000000046",
+        "manifest": "damaged/log-torn-tail-past-frontier/manifest"
+      },
+      "expect": {
+        "documents": "damaged/expected/products.json"
+      }
+    },
+    {
+      "name": "log-torn-marker-slot",
+      "rule": "durability.md#commit-marker",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "wal/0/commit": "damaged/log-torn-marker-slot/wal/0/commit",
+        "manifest": "damaged/log-torn-marker-slot/manifest"
+      },
+      "expect": {
+        "documents": "damaged/expected/products.json"
+      }
+    },
+    {
+      "name": "manifest-version-older",
+      "rule": "durability.md#earlier-layouts",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "manifest": "damaged/manifest-version-older/manifest"
+      },
+      "expect": {
+        "code": "ENVELOPE_VERSION_MISMATCH"
+      }
+    },
+    {
+      "name": "manifest-version-newer",
+      "rule": "durability.md#manifest",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "manifest": "damaged/manifest-version-newer/manifest"
+      },
+      "expect": {
+        "code": "ENVELOPE_VERSION_MISMATCH"
+      }
+    },
+    {
+      "name": "term-history-terms-descend",
+      "rule": "durability.md#manifest",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "manifest": "damaged/term-history-terms-descend/manifest"
+      },
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "term-history-first-seq-nos-descend",
+      "rule": "durability.md#manifest",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "manifest": "damaged/term-history-first-seq-nos-descend/manifest"
+      },
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "term-history-first-seq-no-above-last",
+      "rule": "durability.md#manifest",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "manifest": "damaged/term-history-first-seq-no-above-last/manifest"
+      },
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "analysis-generation-unknown",
+      "rule": "durability.md#index-metadata",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "manifest": "damaged/analysis-generation-unknown/manifest"
+      },
+      "expect": {
+        "code": "CONFIG_INVALID"
+      }
+    },
+    {
+      "name": "metadata-quantization-outside-its-set",
+      "rule": "envelope.md#index-metadata-payload",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "meta": "damaged/metadata-quantization-outside-its-set/meta",
+        "manifest": "damaged/metadata-quantization-outside-its-set/manifest"
+      },
+      "expect": {
+        "code": "CONFIG_INVALID"
+      }
+    },
+    {
+      "name": "metadata-storage-outside-its-set",
+      "rule": "envelope.md#index-metadata-payload",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "meta": "damaged/metadata-storage-outside-its-set/meta",
+        "manifest": "damaged/metadata-storage-outside-its-set/manifest"
+      },
+      "expect": {
+        "code": "CONFIG_INVALID"
+      }
+    },
+    {
+      "name": "metadata-text-storage-outside-its-set",
+      "rule": "envelope.md#index-metadata-payload",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "meta": "damaged/metadata-text-storage-outside-its-set/meta",
+        "manifest": "damaged/metadata-text-storage-outside-its-set/manifest"
+      },
+      "expect": {
+        "code": "CONFIG_INVALID"
+      }
+    },
+    {
+      "name": "metadata-synonym-rule-shape",
+      "rule": "envelope.md#index-metadata-payload",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "meta": "damaged/metadata-synonym-rule-shape/meta",
+        "manifest": "damaged/metadata-synonym-rule-shape/manifest"
+      },
+      "expect": {
+        "code": "CONFIG_INVALID"
+      }
+    },
+    {
+      "name": "metadata-tokenizer-unregistered",
+      "rule": "envelope.md#index-metadata-payload",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "meta": "damaged/metadata-tokenizer-unregistered/meta",
+        "manifest": "damaged/metadata-tokenizer-unregistered/manifest"
+      },
+      "expect": {
+        "code": "CONFIG_INVALID"
+      }
+    },
+    {
+      "name": "metadata-k1-above-its-range",
+      "rule": "envelope.md#index-metadata-payload",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "meta": "damaged/metadata-k1-above-its-range/meta",
+        "manifest": "damaged/metadata-k1-above-its-range/manifest"
+      },
+      "search": "trowel",
+      "expect": {
+        "documents": "damaged/expected/products.json"
+      }
+    },
+    {
+      "name": "archive-entry-symbolic-link",
+      "rule": "durability.md#snapshot-archive",
+      "index": "products",
+      "file": "damaged/archive-entry-symbolic-link/archive.tar",
+      "open": "archive",
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "archive-entry-directory",
+      "rule": "durability.md#snapshot-archive",
+      "index": "products",
+      "file": "damaged/archive-entry-directory/archive.tar",
+      "open": "archive",
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "archive-manifest-before-config",
+      "rule": "durability.md#snapshot-archive",
+      "index": "products",
+      "file": "damaged/archive-manifest-before-config/archive.tar",
+      "open": "archive",
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "archive-entry-unlisted",
+      "rule": "durability.md#snapshot-archive",
+      "index": "products",
+      "file": "damaged/archive-entry-unlisted/archive.tar",
+      "open": "archive",
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "archive-entry-repeated",
+      "rule": "durability.md#snapshot-archive",
+      "index": "products",
+      "file": "damaged/archive-entry-repeated/archive.tar",
+      "open": "archive",
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "archive-entry-length-differs",
+      "rule": "durability.md#snapshot-archive",
+      "index": "products",
+      "file": "damaged/archive-entry-length-differs/archive.tar",
+      "open": "archive",
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "archive-entry-checksum-differs",
+      "rule": "durability.md#snapshot-archive",
+      "index": "products",
+      "file": "damaged/archive-entry-checksum-differs/archive.tar",
+      "open": "archive",
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "archive-ends-before-every-file",
+      "rule": "durability.md#snapshot-archive",
+      "index": "products",
+      "file": "damaged/archive-ends-before-every-file/archive.tar",
+      "open": "archive",
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "archive-config-past-file-size-limit",
+      "rule": "durability.md#snapshot-archive",
+      "index": "products",
+      "file": "damaged/archive-config-past-file-size-limit/archive.tar",
+      "open": "archive",
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "archive-document-not-a-map",
+      "rule": "envelope.md#keyword-segment-payload",
+      "index": "products",
+      "file": "damaged/archive-document-not-a-map/archive.tar",
+      "open": "archive",
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "archive-config-envelope-version",
+      "rule": "envelope.md#index-configuration-payload",
+      "index": "products",
+      "file": "damaged/archive-config-envelope-version/archive.tar",
+      "open": "archive",
+      "expect": {
+        "code": "ENVELOPE_VERSION_MISMATCH"
+      }
+    },
+    {
+      "name": "archive-config-quantization-outside-its-set",
+      "rule": "envelope.md#index-configuration-payload",
+      "index": "products",
+      "file": "damaged/archive-config-quantization-outside-its-set/archive.tar",
+      "open": "archive",
+      "expect": {
+        "code": "CONFIG_INVALID"
+      }
+    },
+    {
+      "name": "archive-config-storage-outside-its-set",
+      "rule": "envelope.md#index-configuration-payload",
+      "index": "products",
+      "file": "damaged/archive-config-storage-outside-its-set/archive.tar",
+      "open": "archive",
+      "expect": {
+        "code": "CONFIG_INVALID"
+      }
+    },
+    {
+      "name": "archive-config-text-storage-outside-its-set",
+      "rule": "envelope.md#index-configuration-payload",
+      "index": "products",
+      "file": "damaged/archive-config-text-storage-outside-its-set/archive.tar",
+      "open": "archive",
+      "expect": {
+        "code": "CONFIG_INVALID"
+      }
+    },
+    {
+      "name": "export-header-version",
+      "rule": "durability.md#document-export",
+      "index": "products",
+      "file": "damaged/export-header-version/export.jsonl",
+      "open": "export",
+      "expect": {
+        "code": "CONFIG_INVALID"
+      }
+    },
+    {
+      "name": "export-tag-unknown",
+      "rule": "durability.md#document-export",
+      "index": "products",
+      "file": "damaged/export-tag-unknown/export.jsonl",
+      "open": "export",
+      "expect": {
+        "code": "DOC_VALIDATION_FAILED",
+        "line": 2,
+        "imported": 45
+      }
+    },
+    {
+      "name": "export-date-not-two-integers",
+      "rule": "durability.md#document-export",
+      "index": "products",
+      "file": "damaged/export-date-not-two-integers/export.jsonl",
+      "open": "export",
+      "expect": {
+        "code": "DOC_VALIDATION_FAILED",
+        "line": 2,
+        "imported": 45
+      }
+    },
+    {
+      "name": "export-date-seconds-out-of-range",
+      "rule": "durability.md#document-export",
+      "index": "products",
+      "file": "damaged/export-date-seconds-out-of-range/export.jsonl",
+      "open": "export",
+      "expect": {
+        "code": "DOC_VALIDATION_FAILED",
+        "line": 2,
+        "imported": 45
+      }
+    },
+    {
+      "name": "export-date-nanoseconds-out-of-range",
+      "rule": "durability.md#document-export",
+      "index": "products",
+      "file": "damaged/export-date-nanoseconds-out-of-range/export.jsonl",
+      "open": "export",
+      "expect": {
+        "code": "DOC_VALIDATION_FAILED",
+        "line": 2,
+        "imported": 45
+      }
+    },
+    {
+      "name": "export-bytes-not-canonical",
+      "rule": "durability.md#document-export",
+      "index": "products",
+      "file": "damaged/export-bytes-not-canonical/export.jsonl",
+      "open": "export",
+      "expect": {
+        "code": "DOC_VALIDATION_FAILED",
+        "line": 2,
+        "imported": 45
+      }
+    },
+    {
+      "name": "export-number-text",
+      "rule": "durability.md#document-export",
+      "index": "products",
+      "file": "damaged/export-number-text/export.jsonl",
+      "open": "export",
+      "expect": {
+        "code": "DOC_VALIDATION_FAILED",
+        "line": 2,
+        "imported": 45
+      }
+    },
+    {
+      "name": "export-object-not-an-object",
+      "rule": "durability.md#document-export",
+      "index": "products",
+      "file": "damaged/export-object-not-an-object/export.jsonl",
+      "open": "export",
+      "expect": {
+        "code": "DOC_VALIDATION_FAILED",
+        "line": 2,
+        "imported": 45
+      }
+    },
+    {
+      "name": "export-id-empty",
+      "rule": "envelope.md#documents",
+      "index": "products",
+      "file": "damaged/export-id-empty/export.jsonl",
+      "open": "export",
+      "expect": {
+        "code": "DOC_VALIDATION_FAILED",
+        "line": 2,
+        "imported": 45
+      }
+    },
+    {
+      "name": "export-id-too-long",
+      "rule": "envelope.md#documents",
+      "index": "products",
+      "file": "damaged/export-id-too-long/export.jsonl",
+      "open": "export",
+      "expect": {
+        "code": "DOC_VALIDATION_FAILED",
+        "line": 2,
+        "imported": 45
+      }
+    },
+    {
+      "name": "export-id-lone-surrogate",
+      "rule": "envelope.md#documents",
+      "index": "products",
+      "file": "damaged/export-id-lone-surrogate/export.jsonl",
+      "open": "export",
+      "expect": {
+        "code": "DOC_VALIDATION_FAILED",
+        "line": 2,
+        "imported": 45
+      }
+    },
+    {
+      "name": "export-line-at-the-longest-length",
+      "rule": "durability.md#document-export",
+      "index": "products",
+      "file": "damaged/export-line-at-the-longest-length/export.jsonl.gz",
+      "open": "export",
+      "gzip": true,
+      "expect": {
+        "documents": "damaged/expected/products.json"
+      }
+    },
+    {
+      "name": "vector-file-compressed",
+      "rule": "envelope.md#vector-file-payload",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "segments/vec-embedding-1l4nfg2-f0000000000000000": "damaged/vector-file-compressed/segments/vec-embedding-1l4nfg2-f0000000000000000",
+        "manifest": "damaged/vector-file-compressed/manifest"
+      },
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "vector-file-compressed-on-disk",
+      "rule": "envelope.md#vector-file-payload",
+      "open": "checkpoint",
+      "index": "notes",
+      "base": "checkpoints/notes",
+      "files": {
+        "segments/vec-embedding-1l4nfg2-f0000000000000000": "damaged/vector-file-compressed-on-disk/segments/vec-embedding-1l4nfg2-f0000000000000000",
+        "manifest": "damaged/vector-file-compressed-on-disk/manifest"
+      },
+      "expect": {
+        "code": "PERSISTENCE_LOAD_FAILED"
+      }
+    },
+    {
+      "name": "backup-manifest-compressed",
+      "rule": "distribution/backups.md#backup-manifest",
+      "open": "backup",
+      "file": "damaged/backup-manifest-compressed/backup-manifest.nrsl",
+      "expect": {
+        "code": "BACKUP_DAMAGED"
+      }
+    }
+  ]
+}
