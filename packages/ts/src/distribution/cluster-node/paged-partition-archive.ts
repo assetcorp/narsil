@@ -6,13 +6,13 @@ import type { PartitionManager } from '../../partitioning/manager'
 import type { ArchiveCheckpoint } from '../../persistence/durability/archive-checkpoint'
 import type { DurableDirectory } from '../../persistence/durability/durable-filesystem'
 import { segmentsPrefix, vectorFileKey } from '../../persistence/durability/segment/layout'
-import {
-  encodeSegmentManifest,
-  type FileRef,
-  type SegmentManifest,
-  type VectorFieldRef,
-  type VectorFileRef,
+import type {
+  FileRef,
+  SegmentManifest,
+  VectorFieldRef,
+  VectorFileRef,
 } from '../../persistence/durability/segment/manifest'
+import { encodeSegmentManifest } from '../../persistence/durability/segment/manifest-encode'
 import { directoryCheckpointStore } from '../../persistence/durability/segment/store'
 import { readVectorFile, VECTOR_FILE_ENVELOPE_VERSION } from '../../persistence/durability/segment/vector-load'
 import { decodeSections, loadFailed, RECORD_PAGE_BYTES, SEGMENT_PAGE_BYTES } from '../../persistence/paged/format'

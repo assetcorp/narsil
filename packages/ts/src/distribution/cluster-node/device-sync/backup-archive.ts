@@ -5,13 +5,13 @@ import { ErrorCodes, NarsilError } from '../../../errors'
 import { type ArchiveLayout, archiveLayout } from '../../../persistence/archive/range-layout'
 import { segmentKey, vectorFileKey } from '../../../persistence/durability/segment/layout'
 import {
-  encodeSegmentManifest,
   type FileRef,
   manifestFileRefs,
   SEGMENT_MANIFEST_VERSION,
   type SegmentManifest,
   type VectorFieldRef,
 } from '../../../persistence/durability/segment/manifest'
+import { encodeSegmentManifest } from '../../../persistence/durability/segment/manifest-encode'
 import { joinChunks } from '../../../persistence/object-store'
 import { BACKUP_FILES_AT_ONCE } from '../../backups/constants'
 import { loadCheckedBytes, loadCheckedFile, sha256Hex } from '../../backups/files'

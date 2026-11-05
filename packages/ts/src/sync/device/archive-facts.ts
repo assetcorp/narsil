@@ -1,4 +1,4 @@
-import { decodeIndexConfiguration } from '../../engine/snapshot/index-configuration'
+import { decodeIndexConfiguration } from '../../engine/snapshot/index-configuration-decode'
 import { ClientErrorCodes, NarsilError } from '../../errors'
 import { createByteReader } from '../../persistence/archive/byte-reader'
 import { readSnapshotArchive } from '../../persistence/archive/read'
