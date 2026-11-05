@@ -160,5 +160,7 @@ export function adaptCore(core: NarsilCore, nativeThreads: boolean): NativeCore 
     measure: (store, metric, ordinals, count, totals) =>
       core.measure(storeOf(store), metric, viewOf(ordinals), count, viewOf(totals)),
     quantise: (store, metric, ordinals, count) => core.quantise(storeOf(store), metric, viewOf(ordinals), count),
+    applyMath: (operation, first, second, results) =>
+      core.applyMath(operation, viewOf(first), viewOf(second), viewOf(results)),
   }
 }

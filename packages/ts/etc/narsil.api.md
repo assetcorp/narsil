@@ -771,6 +771,7 @@ export interface NativeConnectResult {
 // @internal
 export interface NativeCore extends NativeAnalysisCore {
     abiVersion(): number;
+    applyMath(operation: number, first: Float64Array, second: Float64Array, results: Float64Array): number;
     attachGraph(memory: NativeGraphMemory): NativeGraphHandle;
     attachStore(memory: NativeStoreMemory): NativeStoreHandle;
     compact(graph: NativeGraphHandle, store: NativeStoreHandle, metric: number, threadSlot: number, wakes: Int32Array): number;

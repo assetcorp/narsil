@@ -135,6 +135,17 @@ export interface NativeCore extends NativeAnalysisCore {
   /** Returns the number of bytes that the core's working memory holds. */
   workspaceBytes(): number
   /**
+   * Applies one of the core's maths functions to every entry of an array, giving the same bits as the
+   * functions under `src/math` on every platform.
+   *
+   * @param operation - The function's index from the core's header: log, sin, cos, tan, asin, atan, or atan2.
+   * @param first - The arguments, or the rise of each angle for atan2.
+   * @param second - The run of each angle for atan2, ignored by every other function.
+   * @param results - The array that receives one result for each argument.
+   * @returns A status code from the core's header.
+   */
+  applyMath(operation: number, first: Float64Array, second: Float64Array, results: Float64Array): number
+  /**
    * Attaches the memory of one graph to the core.
    *
    * @param memory - The graph's regions.
