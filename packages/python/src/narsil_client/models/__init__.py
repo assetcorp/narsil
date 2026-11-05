@@ -1940,10 +1940,6 @@ class QuerySuggestionPreviewEntry(ApiModel):
     """The number of people whose searches the counts hold."""
 
 
-QuerySuggestionsBuildStatus: TypeAlias = Annotated[Literal["running", "failed", "completed", "skipped"], OPEN_ENUM]
-"""The outcome of a build."""
-
-
 QuerySuggestionsBuildTrigger: TypeAlias = Annotated[Literal["schedule", "missed", "caller"], OPEN_ENUM]
 """What started a build."""
 
@@ -1955,7 +1951,7 @@ class QuerySuggestionsBuild(ApiModel):
     """The ID of the build."""
     trigger: QuerySuggestionsBuildTrigger
     """What started the build."""
-    status: QuerySuggestionsBuildStatus
+    status: Annotated[Literal["running", "failed", "completed", "skipped"], OPEN_ENUM]
     """Where the build stands."""
     started_at: int | float = Field(alias="startedAt")
     """When the build started, in milliseconds since the Unix epoch."""
@@ -2512,7 +2508,6 @@ __all__ = [
     "QueryCoverage",
     "QuerySuggestionPreviewEntry",
     "QuerySuggestionsBuild",
-    "QuerySuggestionsBuildStatus",
     "QuerySuggestionsBuildTrigger",
     "QuerySuggestionsPreview",
     "QuerySuggestionsSetting",

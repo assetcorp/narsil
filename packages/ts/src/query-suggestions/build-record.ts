@@ -3,11 +3,7 @@ import { compareCodePoints } from '../core/ordering'
 import { sha256 } from '../persistence/durability/sha256'
 import { crc32 } from '../serialization/crc32'
 import { openChecksummedEnvelope, packEnvelopeWithChecksum } from '../serialization/envelope-file'
-import type {
-  QuerySuggestionsBuild,
-  QuerySuggestionsBuildStatus,
-  QuerySuggestionsBuildTrigger,
-} from '../types/query-suggestions'
+import type { QuerySuggestionsBuild, QuerySuggestionsBuildTrigger } from '../types/query-suggestions'
 
 const BUILD_RECORD_FORMAT_VERSION = 1
 export const SOURCES_DIGEST_BYTES = 32
@@ -15,7 +11,7 @@ export const SOURCES_DIGEST_BYTES = 32
 export interface BuildRecord {
   buildId: string
   trigger: QuerySuggestionsBuildTrigger
-  status: QuerySuggestionsBuildStatus
+  status: QuerySuggestionsBuild['status']
   startedAt: number
   endedAt?: number
   published: number
@@ -81,7 +77,7 @@ export function buildRecordFromWire(bytes: Uint8Array): BuildRecord | null {
   return {
     buildId,
     trigger: trigger as QuerySuggestionsBuildTrigger,
-    status: status as QuerySuggestionsBuildStatus,
+    status: status as QuerySuggestionsBuild['status'],
     startedAt,
     ...(endedAt !== undefined ? { endedAt } : {}),
     published,

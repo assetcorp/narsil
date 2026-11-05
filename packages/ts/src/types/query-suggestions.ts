@@ -95,13 +95,6 @@ export interface RecordQueryResult {
 export type QuerySuggestionsBuildTrigger = 'schedule' | 'missed' | 'caller'
 
 /**
- * The outcome of a build.
- *
- * @public
- */
-export type QuerySuggestionsBuildStatus = 'running' | 'completed' | 'failed' | 'skipped'
-
-/**
  * One build of the suggestions of an index.
  *
  * @public
@@ -112,7 +105,7 @@ export interface QuerySuggestionsBuild {
   /** What started the build. */
   trigger: QuerySuggestionsBuildTrigger
   /** Where the build stands. */
-  status: QuerySuggestionsBuildStatus
+  status: 'running' | 'completed' | 'failed' | 'skipped'
   /** When the build started, in milliseconds since the Unix epoch. */
   startedAt: number
   /** When the build ended, or null while it runs. */

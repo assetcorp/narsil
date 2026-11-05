@@ -12,7 +12,6 @@ export type {
   QuerySuggestions,
   QuerySuggestionsBuild,
   QuerySuggestionsBuildEvent,
-  QuerySuggestionsBuildStatus,
   QuerySuggestionsBuildTrigger,
   QuerySuggestionsPreview,
   QuerySuggestionsSetting,

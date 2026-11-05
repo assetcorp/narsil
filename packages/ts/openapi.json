@@ -5369,7 +5369,13 @@
             "description": "What started the build."
           },
           "status": {
-            "$ref": "#/components/schemas/QuerySuggestionsBuildStatus",
+            "type": "string",
+            "enum": [
+              "running",
+              "failed",
+              "completed",
+              "skipped"
+            ],
             "description": "Where the build stands."
           },
           "startedAt": {
@@ -5423,16 +5429,6 @@
           "errorCode"
         ],
         "description": "One build of the suggestions of an index."
-      },
-      "QuerySuggestionsBuildStatus": {
-        "type": "string",
-        "enum": [
-          "running",
-          "failed",
-          "completed",
-          "skipped"
-        ],
-        "description": "The outcome of a build."
       },
       "QuerySuggestionsBuildTrigger": {
         "type": "string",
