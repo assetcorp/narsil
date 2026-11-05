@@ -129,7 +129,13 @@ jobs:
         working-directory: packages/ts
         env:
           NPM_CONFIG_PROVENANCE: true
-        run: npm publish --tag next --access public
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: |
+          if [ "$(npm view "@delali/narsil@$VERSION" version --prefer-online 2>/dev/null)" = "$VERSION" ]; then
+            echo "npm already holds @delali/narsil@$VERSION, so this step skips it"
+          else
+            npm publish --tag next --access public
+          fi
 
       - name: Publish the React Native package
         env:
