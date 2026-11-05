@@ -62,6 +62,15 @@ export interface EtcdCoordinatorConfig {
    * address alone, so that the password never crosses a network in clear text.
    */
   auth?: EtcdAuthConfig
+  /**
+   * The coordinator calls this with every error that a watch handler throws,
+   * including one raised by a value under a watched prefix that the
+   * coordinator cannot read. The coordinator then skips that change, reopens
+   * the watch, and lists the prefix again, so that the error never ends the
+   * process and every later change still arrives. The coordinator drops
+   * these errors when you leave this out.
+   */
+  onWatchError?: (error: Error) => void
 }
 
 export const DEFAULT_ETCD_CONFIG: EtcdCoordinatorConfig = {
