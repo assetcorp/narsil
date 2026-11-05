@@ -126,6 +126,15 @@ jobs:
           NARSIL_ETCD_ENDPOINT: http://127.0.0.1:2379
         run: pnpm nx run narsil-ts:test:etcd
 
+      - name: Upload the snapshot behind any missed vector search
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: vector-misses-shard-${{ matrix.shard }}
+          path: packages/ts/test-evidence/vector-misses/
+          if-no-files-found: ignore
+          retention-days: 14
+
   openapi-clients:
     name: Generated OpenAPI clients
     if: github.event_name == 'pull_request'
