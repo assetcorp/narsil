@@ -9,8 +9,8 @@ This package lets you check a Narsil implementation in any language against the 
 | Path | What it holds |
 | --- | --- |
 | `samples/samples.json` | One entry for each sample file, with its kind, the file, and the JSON of its expected content |
-| `samples/checkpoints/` | Two checkpoint directories, `products` with vectors in memory and `notes` with vectors and text on disk |
-| `samples/files/` | The kinds that a checkpoint directory doesn't hold, which are the backup manifest, the index configuration, the snapshot archives, and the document export, together with the gzip envelopes and the files of a cluster partition copy |
+| `samples/checkpoints/` | Five checkpoint directories: `products` with vectors in memory, `notes` with vectors and text on disk, and three `readings` indexes quantised at 8, 2, and 1 bits |
+| `samples/files/` | The kinds that a checkpoint directory doesn't hold, which are the backup manifest, the index configuration, the snapshot archives, and the document export, together with the gzip envelopes, the files of a cluster partition copy, and the variants that set every optional key or take the other form of a value, such as a nil entry point or a torn commit marker slot |
 | `samples/expected/` | The expected JSON of every sample, one file per entry of `samples.json` |
 | `samples/earlier-releases/` | The files that engine 0.3.0 wrote, listed in `releases.json` with the documents that a reader must recover from each |
 | `samples/damaged/cases.json` | Every damaged file and every file that must open, with the rule that it covers and the outcome that a reader must give |
@@ -45,7 +45,7 @@ Both commands print `pass` or `FAIL` with the reason for each sample, then the c
 
 ### Damaged files and files that must open
 
-`samples/damaged/cases.json` lists 136 cases. Each case breaks one rule, and every checksum outside the bytes of that rule is correct, so a reader can raise no other code first. Each case gives the rule as a link into `packages/spec`, and it opens in one of three ways:
+`samples/damaged/cases.json` lists 137 cases. Each case breaks one rule, and every checksum outside the bytes of that rule is correct, so a reader can raise no other code first. Each case gives the rule as a link into `packages/spec`, and it opens in one of three ways:
 
 - **`checkpoint`**: copy the directory in `base` to `<root>/<index>`, copy each file under `files` over the copy at the same relative path, and open the directory as a durable index. Where the case gives `remove`, remove that document. Where it gives `search`, run that text query. Then run one vector query on every vector field and export every document.
 - **`archive`**: restore `file` as a snapshot archive into a new index named by `index`.

@@ -6,6 +6,14 @@ import { formDifference, type SampleKind } from '../forms/kinds'
 import type { VectorStorage } from '../forms/vector-kinds'
 import { referenceForm } from '../reference/read'
 import { writeSample } from '../reference/write'
+import {
+  configurationWithEveryKey,
+  graphWithoutEntryPoint,
+  manifestWithAnalysisGeneration,
+  markerWithTornSlot,
+  metadataWithEveryKey,
+  segmentWithoutPositions,
+} from './alternatives'
 import { CATALOG_PATH, jsonText, SAMPLES_ROOT, type SampleEntry } from './catalog'
 import { backupManifestOf, gzipped, partitionArchiveOf, withTermHistory, withWriteRecords } from './derive'
 import { writeEarlierReleaseExpectations } from './earlier'
@@ -173,12 +181,24 @@ async function writeDerivedSamples(indexForms: Map<string, Map<string, JsonObjec
     isJsonObject(checkpoint) && Array.isArray(checkpoint.checkpoint) && isJsonObject(checkpoint.checkpoint[0])
       ? Number(checkpoint.checkpoint[0].lastSeqNo)
       : 0
-  await derived(
-    'backup-manifest',
-    'products',
-    backupManifestOf(PRODUCTS_INDEX, lastSeqNo, configBytes, manifestBytes, files),
-    '.nrsl',
-  )
+  const backup = backupManifestOf(PRODUCTS_INDEX, lastSeqNo, configBytes, manifestBytes, files)
+  await derived('backup-manifest', 'products', backup, '.nrsl')
+  await writeAlternativeSamples(products, config)
+}
+
+async function writeAlternativeSamples(products: Map<string, JsonObject>, config: JsonObject): Promise<void> {
+  for (const form of ['named', 'literal'] as const) {
+    await derived('index-metadata', `every-key-${form}`, metadataWithEveryKey(formAt(products, 'meta'), form), '.nrsl')
+    await derived('index-configuration', `every-key-${form}`, configurationWithEveryKey(config, form), '.nrsl')
+  }
+  const firstSegment = formAt(products, 'segments/0/s0000000000000000')
+  await derived('keyword-segment', 'products-no-positions', segmentWithoutPositions(firstSegment), '.nrsl')
+  const graphPart = formAt(products, keyMatching(products, GRAPH_PART_FILE))
+  await derived('graph-part', 'products-no-entry-point', graphWithoutEntryPoint(graphPart), '.nrsl')
+  const manifest = formAt(products, 'manifest')
+  await derived('manifest', 'products-analysis-generation', manifestWithAnalysisGeneration(manifest), '.nrsl')
+  const marker = formAt(products, keyMatching(products, COMMIT_MARKER_FILE))
+  await derived('commit-marker', 'products-torn-slot', markerWithTornSlot(marker), '')
 }
 
 function archiveEntriesOf(archive: JsonObject): JsonObject[] {

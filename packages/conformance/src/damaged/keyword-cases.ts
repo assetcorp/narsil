@@ -19,6 +19,7 @@ const LOAD_FAILED = 'PERSISTENCE_LOAD_FAILED'
 const RULE = 'envelope.md#keyword-segment-payload'
 const INVALID_UTF8 = 0xff
 const RUN_CODE_POINTS = 3
+const NEWER_PAYLOAD_LAYOUT = 2
 
 type Change = (payload: RawMap) => void
 
@@ -232,6 +233,14 @@ export async function keywordSegmentCases(): Promise<CaseBuild[]> {
     const bytes = await rewritten(segment, name, change)
     builds.push(damagedCheckpoint(name, RULE, LOAD_FAILED, INDEX, { [SEGMENT]: bytes }))
   }
+  const newerLayout = await rewritten(segment, 'segment-layout-newer', payload => {
+    payload.v = NEWER_PAYLOAD_LAYOUT
+  })
+  builds.push(
+    damagedCheckpoint('segment-layout-newer', 'envelope.md#payload-format', 'ENVELOPE_VERSION_MISMATCH', INDEX, {
+      [SEGMENT]: newerLayout,
+    }),
+  )
   for (const [name, [field, type, code]] of Object.entries(SCHEMA_CHANGES)) {
     const bytes = await rewritten(segment, name, payload => {
       mapAt(payload.schema, 'schema')[field] = type
