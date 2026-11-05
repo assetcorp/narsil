@@ -28,6 +28,11 @@
       "react-native": "./src/persistence/durability/checkpoint-worker-entry.react-native.ts",
       "default": "./src/persistence/durability/checkpoint-worker-entry.ts"
     },
+    "#platform/query-merge-worker-entry": {
+      "react-native": "./src/query-suggestions/merge-worker-entry.react-native.ts",
+      "browser": "./src/query-suggestions/merge-worker-entry.react-native.ts",
+      "default": "./src/query-suggestions/merge-worker-entry.ts"
+    },
     "#platform/vector-promoter": {
       "browser": "./src/vector/promoter.browser.ts",
       "default": "./src/vector/promoter.ts"
@@ -334,6 +339,18 @@
     "./sync/indexeddb": {
       "import": "./dist/sync/indexeddb.mjs",
       "types": "./dist/sync/indexeddb.d.ts"
+    },
+    "./query-suggestions": {
+      "react-native": {
+        "types": "./dist/query-suggestions.d.ts",
+        "default": "./dist/react-native/query-suggestions.mjs"
+      },
+      "browser": {
+        "import": "./dist/query-suggestions.browser.mjs",
+        "types": "./dist/query-suggestions.d.ts"
+      },
+      "import": "./dist/query-suggestions.mjs",
+      "types": "./dist/query-suggestions.d.ts"
     },
     "./openapi.json": "./openapi.json"
   },

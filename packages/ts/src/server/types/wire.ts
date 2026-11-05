@@ -1,5 +1,12 @@
 import type { ClusterHealth } from '../../distribution/cluster-node/types/observability'
 import type {
+  ManualQuerySuggestion,
+  QuerySuggestionsPreview,
+  QuerySuggestionsSetting,
+  QuerySuggestionsStatus,
+  RecordQueryResult,
+} from '../../types/query-suggestions'
+import type {
   GroupResult,
   IndexStats,
   ListResult,
@@ -12,6 +19,15 @@ import type { GroupConfig, ListParams, QueryParams, SuggestParams } from '../../
 import type { SyncSetting } from '../../types/sync'
 import type { BackupListResponse, CreateBackupBody, RestoreBackupBody } from './backups'
 import type { ErrorEnvelope } from './options'
+import type {
+  ManualSuggestionResponse,
+  QueryBansBody,
+  QuerySuggestionsPreviewQuery,
+  RecordQueryBody,
+  RemoveQueryBody,
+  RemoveQueryResponse,
+  SnapshotQuery,
+} from './query-suggestions'
 import type {
   BatchBody,
   CapabilitiesResponse,
@@ -180,6 +196,30 @@ export interface HttpWireTypes {
   VectorFieldBody: VectorFieldBody
   /** The body of `GET` and of `POST /indexes/{name}/synonyms`. */
   SynonymSetBody: SynonymSetBody
+  /** The body of `PUT /indexes/{name}/query-suggestions`. */
+  QuerySuggestionsSetting: QuerySuggestionsSetting
+  /** The body of `POST /indexes/{name}/query-suggestions/record`. */
+  RecordQueryBody: RecordQueryBody
+  /** The query string of `GET /indexes/{name}/query-suggestions/preview`. */
+  QuerySuggestionsPreviewQuery: QuerySuggestionsPreviewQuery
+  /** The body of `GET` and of `PUT /indexes/{name}/query-suggestions/bans`. */
+  QueryBansBody: QueryBansBody
+  /** The body of `POST /indexes/{name}/query-suggestions/remove`. */
+  RemoveQueryBody: RemoveQueryBody
+  /** The body of `POST /indexes/{name}/query-suggestions/manual`. */
+  ManualQuerySuggestion: ManualQuerySuggestion
+  /** The query string of `GET /indexes/{name}/snapshot`. */
+  SnapshotQuery: SnapshotQuery
+  /** The body of `GET /indexes/{name}/query-suggestions`. */
+  QuerySuggestionsStatus: QuerySuggestionsStatus
+  /** The body of `POST /indexes/{name}/query-suggestions/record`. */
+  RecordQueryResult: RecordQueryResult
+  /** The body of `GET /indexes/{name}/query-suggestions/preview`. */
+  QuerySuggestionsPreview: QuerySuggestionsPreview
+  /** The body of `POST /indexes/{name}/query-suggestions/remove`. */
+  RemoveQueryResponse: RemoveQueryResponse
+  /** The body of `POST /indexes/{name}/query-suggestions/manual`. */
+  ManualSuggestionResponse: ManualSuggestionResponse
   /** The body of `GET /backups`. */
   BackupListResponse: BackupListResponse
   /** The body of `POST /indexes/{name}/documents/_batch`. */

@@ -2,11 +2,11 @@ import { ErrorCodes, NarsilError } from '../../errors'
 import type { PartitionManager } from '../../partitioning/manager'
 import { type ByteSource, createByteReader } from '../../persistence/archive/byte-reader'
 import { buildArchiveFromMemory } from '../../persistence/archive/from-memory'
-import { archiveStream } from '../../persistence/archive/write'
+import { type ArchiveEntry, archiveStream } from '../../persistence/archive/write'
 import type { ArchiveCheckpoint } from '../../persistence/durability/archive-checkpoint'
 import { MAX_FILE_BYTES } from '../../serialization/constants'
 import { HEADER_SIZE, hasNrslMagic, readHeader } from '../../serialization/header'
-import type { IndexRegistryEntry } from '../core'
+import type { EngineCore, IndexRegistryEntry } from '../core'
 import type { DurabilityIntegration } from '../durability-integration'
 import { indexMetadataOf } from '../durability-metadata'
 import { restoreArchive } from './archive-restore'
@@ -39,13 +39,28 @@ export async function checkpointForArchive(deps: SnapshotDeps): Promise<ArchiveC
   })
 }
 
-export async function createSnapshot(deps: SnapshotDeps): Promise<ReadableStream<Uint8Array>> {
+async function* queryHistoryEntries(core: EngineCore, indexName: string): AsyncGenerator<ArchiveEntry> {
+  const { historyArchiveEntries } = await import('../../query-suggestions/archive-history')
+  yield* historyArchiveEntries(core, indexName)
+}
+
+export async function createSnapshot(
+  deps: SnapshotDeps,
+  coreWithAddedHistory: EngineCore | null,
+): Promise<ReadableStream<Uint8Array>> {
+  const trailingEntries =
+    coreWithAddedHistory === null ? undefined : () => queryHistoryEntries(coreWithAddedHistory, deps.indexName)
   for (let attempt = 0; attempt < MAX_SNAPSHOT_ANALYSIS_ATTEMPTS; attempt += 1) {
     const checkpoint = await checkpointForArchive(deps)
     try {
       if ((checkpoint.manifest.analysisGeneration ?? 0) === deps.entry.analysisGeneration) {
         const config = await encodeIndexConfiguration(deps.entry)
-        return archiveStream({ ...checkpoint, config, sourceIndexName: deps.indexName })
+        return archiveStream({
+          ...checkpoint,
+          config,
+          sourceIndexName: deps.indexName,
+          ...(trailingEntries !== undefined ? { trailingEntries } : {}),
+        })
       }
     } catch (error) {
       checkpoint.release()

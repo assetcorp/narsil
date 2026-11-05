@@ -4,6 +4,7 @@ export type {
   BackupProgress,
   BackupSummary,
   ClusterBackupConfig,
+  CreateBackupOptions,
   DamagedBackup,
   RestoreBackupOptions,
 } from './backups/types'

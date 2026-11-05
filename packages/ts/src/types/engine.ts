@@ -23,6 +23,21 @@ import type { VectorMaintenanceOperations } from './vector-maintenance-operation
 import type { DocumentWriteOperations } from './writes'
 
 /**
+ * What {@link Narsil.snapshot} adds to the archive beyond the checkpoint.
+ *
+ * @public
+ */
+export interface SnapshotOptions {
+  /**
+   * Set this to add the index's popular query history, which holds raw
+   * searches, so that a restore on a node with the same key keeps the counts.
+   * Defaults to false, because a backup that holds history can keep searches
+   * past their retention.
+   */
+  queryHistory?: boolean
+}
+
+/**
  * The search engine, and everything you do with it.
  *
  * One instance holds every index you create, so an application usually keeps a
@@ -222,10 +237,12 @@ export interface Narsil
    * memory.
    *
    * @param indexName - The index to stream.
+   * @param options - Set `queryHistory` to add the index's popular query
+   * history, which holds raw searches, after the checkpoint's files.
    * @returns A stream of the archive's bytes, which you can write to a file or
    * send over a network.
    */
-  snapshot(indexName: string): Promise<ReadableStream<Uint8Array>>
+  snapshot(indexName: string, options?: SnapshotOptions): Promise<ReadableStream<Uint8Array>>
   /**
    * Creates an index from a snapshot under the name that you pass, replacing
    * any index of that name.

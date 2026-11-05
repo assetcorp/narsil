@@ -68,6 +68,7 @@ export interface RouteOptions {
    * readiness probes, which must answer regardless of auth or load. */
   skipHooks?: boolean
   headers?: readonly string[]
+  capturesContext?: boolean
 }
 
 function decodePathParameter(raw: string): string | null {
@@ -233,7 +234,7 @@ export function createRouteRunner(deps: RunnerDeps) {
       const declaredBytes = needsBody ? declaredBodyBytes(req.getHeader('content-length')) : null
 
       let hookContext: RequestContext | null = null
-      if (useHook) {
+      if (useHook || opts.capturesContext === true) {
         const headers: Record<string, string> = {}
         req.forEach((key, value) => {
           headers[key] = value

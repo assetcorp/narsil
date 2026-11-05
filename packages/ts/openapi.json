@@ -33,6 +33,9 @@
     },
     {
       "name": "Sync"
+    },
+    {
+      "name": "QuerySuggestions"
     }
   ],
   "paths": {
@@ -1616,6 +1619,19 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "queryHistory",
+            "in": "query",
+            "required": false,
+            "description": "Under `true`, the archive also holds the index's search history.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            }
           }
         ],
         "responses": {
@@ -2342,6 +2358,376 @@
           }
         }
       }
+    },
+    "/indexes/{name}/query-suggestions": {
+      "put": {
+        "operationId": "updateQuerySuggestions",
+        "summary": "Replace the popular query suggestions setting of an index",
+        "tags": [
+          "QuerySuggestions"
+        ],
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "description": "The name of the index.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QuerySuggestionsSetting"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The server answered the request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      },
+      "get": {
+        "operationId": "querySuggestionsStatus",
+        "summary": "Report the setting, the last build, and the next build of popular query suggestions",
+        "tags": [
+          "QuerySuggestions"
+        ],
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "description": "The name of the index.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The server answered the request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuerySuggestionsStatus"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/indexes/{name}/query-suggestions/record": {
+      "post": {
+        "operationId": "recordQuery",
+        "summary": "Count a search that a person followed with a click, for the person that the server identifies",
+        "tags": [
+          "QuerySuggestions"
+        ],
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "description": "The name of the index.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecordQueryBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The server answered the request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecordQueryResult"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/indexes/{name}/query-suggestions/build": {
+      "post": {
+        "operationId": "buildQuerySuggestions",
+        "summary": "Build the popular query suggestions of an index, as a task",
+        "tags": [
+          "QuerySuggestions"
+        ],
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "description": "The name of the index.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "The server accepted the work and started a task.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskRecord"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/indexes/{name}/query-suggestions/preview": {
+      "get": {
+        "operationId": "previewQuerySuggestions",
+        "summary": "List the phrases that the next build would publish",
+        "tags": [
+          "QuerySuggestions"
+        ],
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "description": "The name of the index.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "The most phrases to list, from 1 to 1,000, and 100 by default.",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The server answered the request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuerySuggestionsPreview"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/indexes/{name}/query-suggestions/bans": {
+      "get": {
+        "operationId": "readQueryBans",
+        "summary": "Read the ban list of popular query suggestions",
+        "tags": [
+          "QuerySuggestions"
+        ],
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "description": "The name of the index.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The server answered the request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueryBansBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      },
+      "put": {
+        "operationId": "replaceQueryBans",
+        "summary": "Replace the ban list, and remove each newly banned phrase from every suggestions index",
+        "tags": [
+          "QuerySuggestions"
+        ],
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "description": "The name of the index.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QueryBansBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The server answered the request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueryBansBody"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/indexes/{name}/query-suggestions/remove": {
+      "post": {
+        "operationId": "removeQuery",
+        "summary": "Ban a phrase and remove it from every suggestions index of an index",
+        "tags": [
+          "QuerySuggestions"
+        ],
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "description": "The name of the index.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RemoveQueryBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The server answered the request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RemoveQueryResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/indexes/{name}/query-suggestions/manual": {
+      "post": {
+        "operationId": "addManualSuggestion",
+        "summary": "Add a suggestion by hand, which a build leaves in place",
+        "tags": [
+          "QuerySuggestions"
+        ],
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "description": "The name of the index.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ManualQuerySuggestion"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The server answered the request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManualSuggestionResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -2931,6 +3317,10 @@
           "backup": {
             "type": "string",
             "description": "The backup's name, from 1 to 128 letters, digits, `.`, `_`, and `-`, starting with a letter or a digit."
+          },
+          "queryHistory": {
+            "type": "boolean",
+            "description": "Set this to true to add every node's popular query suggestion history of the index to the backup. The history holds the scrambled text of what people searched for, and the backup keeps it after `retentionDays` ends."
           }
         },
         "required": [
@@ -4436,6 +4826,41 @@
         ],
         "description": "The body of `GET /livez`."
       },
+      "ManualQuerySuggestion": {
+        "type": "object",
+        "properties": {
+          "group": {
+            "type": "string",
+            "description": "The group whose suggestions index takes the phrase."
+          },
+          "query": {
+            "type": "string",
+            "description": "The phrase, which the engine normalises."
+          },
+          "count": {
+            "type": "number",
+            "description": "The count that ranks the phrase. Defaults to 0."
+          }
+        },
+        "required": [
+          "group",
+          "query"
+        ],
+        "description": "A suggestion that a caller adds by hand."
+      },
+      "ManualSuggestionResponse": {
+        "type": "object",
+        "properties": {
+          "indexName": {
+            "type": "string",
+            "description": "The suggestions index that holds the phrase."
+          }
+        },
+        "required": [
+          "indexName"
+        ],
+        "description": "The answer of `POST /indexes/{name}/query-suggestions/manual`."
+      },
       "MemoryStatsResponse": {
         "type": "object",
         "properties": {
@@ -4865,6 +5290,22 @@
         ],
         "description": "Snapshot of V8 heap usage as reported by `process.memoryUsage()`, with the limit the heap may grow to. All values are bytes. `null` in environments that do not expose `process.memoryUsage`, such as browsers."
       },
+      "QueryBansBody": {
+        "type": "object",
+        "properties": {
+          "bans": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The banned phrases, at most 1,000, which the engine normalises."
+          }
+        },
+        "required": [
+          "bans"
+        ],
+        "description": "The body of `GET` and of `PUT /indexes/{name}/query-suggestions/bans`."
+      },
       "QueryCoverage": {
         "type": "object",
         "properties": {
@@ -4892,6 +5333,282 @@
           "failedPartitions"
         ],
         "description": "How much of an index one search read, which is what you check before you trust a count or a ranking. An embedded engine reads every partition it holds, so `queriedPartitions` matches `totalPartitions` there and the other two stay zero. A search across a cluster may find a node slow or unreachable, which it counts here while still returning the hits the other nodes gave it."
+      },
+      "QuerySuggestionPreviewEntry": {
+        "type": "object",
+        "properties": {
+          "group": {
+            "type": "string",
+            "description": "The group whose suggestions index would hold the phrase."
+          },
+          "query": {
+            "type": "string",
+            "description": "The normalised phrase."
+          },
+          "count": {
+            "type": "number",
+            "description": "The number of people whose searches the counts hold."
+          }
+        },
+        "required": [
+          "group",
+          "query",
+          "count"
+        ],
+        "description": "One phrase that a build would publish."
+      },
+      "QuerySuggestionsBuild": {
+        "type": "object",
+        "properties": {
+          "buildId": {
+            "type": "string",
+            "description": "The ID of the build."
+          },
+          "trigger": {
+            "$ref": "#/components/schemas/QuerySuggestionsBuildTrigger",
+            "description": "What started the build."
+          },
+          "status": {
+            "$ref": "#/components/schemas/QuerySuggestionsBuildStatus",
+            "description": "Where the build stands."
+          },
+          "startedAt": {
+            "type": "number",
+            "description": "When the build started, in milliseconds since the Unix epoch."
+          },
+          "endedAt": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "description": "When the build ended, or null while it runs."
+          },
+          "published": {
+            "type": "number",
+            "description": "The phrases that the build added or updated."
+          },
+          "removed": {
+            "type": "number",
+            "description": "The phrases that the build removed."
+          },
+          "discarded": {
+            "type": "number",
+            "description": "The phrases that the build left out because the merge held its limit."
+          },
+          "errorCode": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "description": "The error code of a failed build, or null."
+          }
+        },
+        "required": [
+          "buildId",
+          "trigger",
+          "status",
+          "startedAt",
+          "endedAt",
+          "published",
+          "removed",
+          "discarded",
+          "errorCode"
+        ],
+        "description": "One build of the suggestions of an index."
+      },
+      "QuerySuggestionsBuildStatus": {
+        "type": "string",
+        "enum": [
+          "running",
+          "failed",
+          "completed",
+          "skipped"
+        ],
+        "description": "The outcome of a build."
+      },
+      "QuerySuggestionsBuildTrigger": {
+        "type": "string",
+        "enum": [
+          "schedule",
+          "missed",
+          "caller"
+        ],
+        "description": "What started a build."
+      },
+      "QuerySuggestionsPreview": {
+        "type": "object",
+        "properties": {
+          "entries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/QuerySuggestionPreviewEntry"
+            },
+            "description": "The phrases, most counted first."
+          },
+          "truncated": {
+            "type": "boolean",
+            "description": "True where the list stops at the limit that the caller passed while more phrases wait to be checked."
+          }
+        },
+        "required": [
+          "entries",
+          "truncated"
+        ],
+        "description": "What the next build would publish: the phrases that enough people searched for, that match enough documents, and that fall in a group the build keeps."
+      },
+      "QuerySuggestionsSetting": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "description": "Set this to true to count searches for the index and build its suggestions."
+          },
+          "fields": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The `string` and `string[]` fields whose text a phrase must match before the engine publishes it."
+          },
+          "minPeople": {
+            "type": "number",
+            "description": "The number of people, from 2 to 4,096, who must search a phrase before the engine publishes it. Defaults to 4."
+          },
+          "minResults": {
+            "type": "number",
+            "description": "The number of documents, from 1 to 10,000, that a phrase must match with every word. Defaults to 5."
+          },
+          "retentionDays": {
+            "type": "number",
+            "description": "The number of days, from 1 to 365, that the engine keeps the counts of a day. Defaults to 30."
+          },
+          "maxPhrasesPerDay": {
+            "type": "number",
+            "description": "The number of phrases, up to 16,384, that a node counts for the index each day. Defaults to 10,000."
+          },
+          "maxPhrasesPerPerson": {
+            "type": "number",
+            "description": "The number of phrases, up to 1,000, that a node counts for one person each day. Defaults to 100."
+          },
+          "maxPeoplePerDay": {
+            "type": "number",
+            "description": "The number of people, up to 100,000, that a node counts for the index each day. Defaults to 100,000."
+          },
+          "maxGroups": {
+            "type": "number",
+            "description": "The number of groups, up to 1,000, that the index counts. Defaults to 100."
+          },
+          "minLetters": {
+            "type": "number",
+            "description": "The number of letters that a phrase must hold. Defaults to 4."
+          },
+          "maxLength": {
+            "type": "number",
+            "description": "The number of characters, up to 150, that a phrase may hold. Defaults to 100."
+          },
+          "maxWords": {
+            "type": "number",
+            "description": "The number of words, up to 50, that a phrase may hold. Defaults to 8."
+          },
+          "maxDigits": {
+            "type": "number",
+            "description": "The number of digits that a phrase may hold in total. Defaults to 5."
+          },
+          "maxMergePhrases": {
+            "type": "number",
+            "description": "The number of phrases, up to 500,000, that one build merges. Defaults to 100,000."
+          },
+          "mergeMemoryBytes": {
+            "type": "number",
+            "description": "The memory, from 16 MiB to 1 GiB, of the worker that merges the counts. Defaults to 128 MiB."
+          },
+          "saveIntervalMs": {
+            "type": "number",
+            "description": "How often, from 1 second to 1 hour, a node saves the counts of the day. Defaults to 5 minutes."
+          },
+          "resultChecksPerSecond": {
+            "type": "number",
+            "description": "The number of result checks, up to 1,000, that a build runs each second. Defaults to 20."
+          },
+          "schedule": {
+            "type": "string",
+            "description": "A cron expression of five fields, or `off`. Defaults to `0 3 * * *`."
+          },
+          "timeZone": {
+            "type": "string",
+            "description": "The IANA time zone of `schedule`. Defaults to `UTC`."
+          }
+        },
+        "required": [
+          "enabled",
+          "fields"
+        ],
+        "description": "The popular query suggestions setting of one index. Only `enabled` and `fields` are required, and each limit that you leave out takes its default."
+      },
+      "QuerySuggestionsStatus": {
+        "type": "object",
+        "properties": {
+          "indexName": {
+            "type": "string",
+            "description": "The index."
+          },
+          "setting": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/QuerySuggestionsSetting"
+              }
+            ],
+            "description": "The setting, or null where nobody set one."
+          },
+          "lastBuild": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/QuerySuggestionsBuild"
+              }
+            ],
+            "description": "The last build, or null where none ran."
+          },
+          "nextBuildAt": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "description": "When the schedule next matches, in milliseconds since the Unix epoch, or null where it is off."
+          },
+          "suggestionIndexes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The suggestions index of each group that holds one."
+          }
+        },
+        "required": [
+          "indexName",
+          "setting",
+          "lastBuild",
+          "nextBuildAt",
+          "suggestionIndexes"
+        ],
+        "description": "The setting, the last build, and the next scheduled build of one index."
       },
       "ReadinessResponse": {
         "type": "object",
@@ -4923,6 +5640,79 @@
           }
         },
         "description": "The body of `POST /indexes/{name}/_rebalance`."
+      },
+      "RecordQueryBody": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "The search that the person followed with a click."
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "description": "The body of `POST /indexes/{name}/query-suggestions/record`. The server takes the person and the group from its `identify` function, so the body carries the search alone."
+      },
+      "RecordQueryOutcome": {
+        "type": "string",
+        "enum": [
+          "recorded",
+          "repeat",
+          "invalid",
+          "banned",
+          "person-limit",
+          "phrase-limit",
+          "people-limit",
+          "group-limit",
+          "no-key",
+          "unidentified"
+        ],
+        "description": "Why a node counted no search, or `recorded` where it counted one."
+      },
+      "RecordQueryResult": {
+        "type": "object",
+        "properties": {
+          "recorded": {
+            "type": "boolean",
+            "description": "True where the node counted the search."
+          },
+          "outcome": {
+            "$ref": "#/components/schemas/RecordQueryOutcome",
+            "description": "Why the node counted it or left it out."
+          }
+        },
+        "required": [
+          "recorded",
+          "outcome"
+        ],
+        "description": "What QuerySuggestions.recordQuery did with one search."
+      },
+      "RemoveQueryBody": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "The phrase to ban and to remove from every suggestions index of the index."
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "description": "The body of `POST /indexes/{name}/query-suggestions/remove`."
+      },
+      "RemoveQueryResponse": {
+        "type": "object",
+        "properties": {
+          "suggestionIndexes": {
+            "type": "number",
+            "description": "The number of suggestions indexes that held the phrase."
+          }
+        },
+        "required": [
+          "suggestionIndexes"
+        ],
+        "description": "The answer of `POST /indexes/{name}/query-suggestions/remove`."
       },
       "ReplicationFactorBody": {
         "type": "object",
@@ -5429,6 +6219,10 @@
             "$ref": "#/components/schemas/ImportResult",
             "description": "What the work produced, which an `import` or `importExport` task reports once it finishes."
           },
+          "build": {
+            "$ref": "#/components/schemas/QuerySuggestionsBuild",
+            "description": "The build that a `querySuggestionsBuild` task ran, once it ends."
+          },
           "error": {
             "$ref": "#/components/schemas/ErrorDetail",
             "description": "This says why the task failed, and a failed task alone carries it."
@@ -5484,7 +6278,8 @@
           "changeAnalysis",
           "backup",
           "backupRestore",
-          "backupDelete"
+          "backupDelete",
+          "querySuggestionsBuild"
         ],
         "description": "Which long-running operation a task record tracks."
       },

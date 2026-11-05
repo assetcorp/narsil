@@ -16,6 +16,7 @@ import { type RestoreRequest, runBackupRestore } from './drivers/restore'
 import { type BackupJob, type BackupJobKind, finishBackupJob, startBackupJob } from './jobs'
 import { validateBackupName } from './keys'
 import { SYNC_BACKUP_TAKER } from './manifest'
+import type { ClusterQueryHistory } from './query-history'
 import { type RestorePlacement, readRestorePlacement } from './restore-options'
 import type { BackupStore } from './store'
 import { surplusSyncBackups } from './sync-retention'
@@ -25,6 +26,7 @@ export interface BackupControllerDeps {
   nodeId: string
   isActive: () => boolean
   onError: (error: unknown) => void
+  queryHistory: ClusterQueryHistory | null
   store: BackupStore | null
   driving: Set<string>
 }
@@ -89,6 +91,7 @@ export function driveBackupJob(
     nodeId: deps.nodeId,
     isActive: deps.isActive,
     onError: deps.onError,
+    queryHistory: deps.queryHistory,
     store,
     jobId,
     job,
@@ -126,6 +129,12 @@ function takenByOf(request: Record<string, unknown>): string | undefined {
   if (request.takenBy === undefined) return undefined
   if (request.takenBy !== SYNC_BACKUP_TAKER) throw malformed('backup', `"takenBy" must be "${SYNC_BACKUP_TAKER}"`)
   return SYNC_BACKUP_TAKER
+}
+
+function queryHistoryOf(request: Record<string, unknown>): boolean {
+  if (request.queryHistory === undefined) return false
+  if (typeof request.queryHistory !== 'boolean') throw malformed('backup', '"queryHistory" must be a boolean')
+  return request.queryHistory
 }
 
 function quietRefusal(error: unknown): boolean {
@@ -176,6 +185,7 @@ async function acceptRequest(
   if (kind === 'backup') {
     const indexName = indexNameOf(kind, request)
     const takenBy = takenByOf(request)
+    const queryHistory = queryHistoryOf(request)
     await admitBackup(coordinator, store, backupName, indexName)
     const afterJob = takenBy === undefined ? undefined : () => deleteSurplusSyncBackups(deps, store, indexName)
     return jobIdOf(
@@ -183,7 +193,7 @@ async function acceptRequest(
         deps,
         store,
         runningJob(kind, backupName, indexName),
-        context => runBackupCreation(context, takenBy),
+        context => runBackupCreation(context, { takenBy, queryHistory }),
         afterJob,
       ),
     )

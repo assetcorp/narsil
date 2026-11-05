@@ -32,6 +32,8 @@ const nodeEntry: Record<string, string> = {
   'workers/entry': 'src/workers/worker-entry.ts',
   'vector/search-worker': 'src/vector/search-worker.ts',
   'persistence/durability/checkpoint-worker': 'src/persistence/durability/checkpoint-worker.ts',
+  'query-suggestions/merge-worker': 'src/query-suggestions/merge-worker.ts',
+  'query-suggestions': 'src/query-suggestions/index.ts',
   'embeddings/openai': 'src/embeddings/openai.ts',
   'rerankers/http': 'src/rerankers/http.ts',
   pattern: 'src/pattern/index.ts',
@@ -58,6 +60,7 @@ const reactNativeEntry: Record<string, string> = {
   'react-native/partial-words': 'src/partial-words/index.ts',
   'react-native/synonyms': 'src/synonyms/index.ts',
   'react-native/sync': 'src/sync/device/index.ts',
+  'react-native/query-suggestions': 'src/query-suggestions/index.ts',
 }
 
 const shared: Options = {
@@ -78,7 +81,11 @@ const codeBuilds: Options[] = [
   },
   {
     ...shared,
-    entry: { 'index.browser': 'src/index.ts', 'sync.browser': 'src/sync/device/index.ts' },
+    entry: {
+      'index.browser': 'src/index.ts',
+      'sync.browser': 'src/sync/device/index.ts',
+      'query-suggestions.browser': 'src/query-suggestions/index.ts',
+    },
     dts: false,
     splitting: true,
     external: NODE_EXTERNAL,

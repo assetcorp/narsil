@@ -5,6 +5,7 @@ export interface BackupRequestPayload {
   backupName: string
   indexName: string
   takenBy?: string
+  queryHistory?: boolean
 }
 
 export interface BackupRestoreRequestPayload {

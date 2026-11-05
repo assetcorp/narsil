@@ -178,7 +178,7 @@ func expectCount(t *testing.T, client *narsil.Client, name string, want float64)
 
 func saveStream(t *testing.T, client *narsil.Client, name, target string) int64 {
 	t.Helper()
-	stream, err := client.Snapshot(testContext(t), name)
+	stream, err := client.Snapshot(testContext(t), name, narsil.SnapshotParams{})
 	if err != nil {
 		t.Fatal(err)
 	}

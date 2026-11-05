@@ -6,6 +6,8 @@ import { deleteSynonymSet } from '../cluster/synonym-set'
 import type { AllocationTable, ClusterCoordinator } from '../coordinator/types'
 import { BACKUP_PUBLISH_RETRY_MS } from './constants'
 import { assertStillDriving, type BackupDriverContext, jobIndexNameOf } from './driver-context'
+import { writeRestoredHistory } from './query-history'
+import { readBackupManifest } from './store'
 
 export function nameTaken(indexName: string): NarsilError {
   return new NarsilError(
@@ -150,6 +152,7 @@ export async function resumeRestore(context: BackupDriverContext): Promise<void>
   const metadata = await getIndexMetadata(coordinator, indexName)
   if (nameIndexUuid !== undefined && metadata?.indexUuid === nameIndexUuid) {
     await publishRestoredName(context, generation, nameIndexUuid)
+    await writeRestoredHistory(context, await readBackupManifest(context.store, context.job.backupName), indexName)
     return
   }
   await dropUnpublishedGeneration(coordinator, indexName, generation)

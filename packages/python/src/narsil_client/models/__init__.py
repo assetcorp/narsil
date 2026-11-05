@@ -433,6 +433,11 @@ class CreateBackupBody(ApiModel):
     """The backup's name, from 1 to 128 letters, digits, `.`, `_`, and `-`, starting with a letter
     or a digit.
     """
+    query_history: bool | None = Field(default=None, alias="queryHistory")
+    """Set this to true to add every node's popular query suggestion history of the index to the
+    backup. The history holds the scrambled text of what people searched for, and the backup
+    keeps it after `retentionDays` ends.
+    """
 
 
 class CreateIndexEmbedding(ApiModel):
@@ -1764,6 +1769,24 @@ class LivenessResponse(ApiModel):
     """This is always `ok`, because the process answered."""
 
 
+class ManualQuerySuggestion(ApiModel):
+    """A suggestion that a caller adds by hand."""
+
+    group: str
+    """The group whose suggestions index takes the phrase."""
+    query: str
+    """The phrase, which the engine normalises."""
+    count: int | float | None = None
+    """The count that ranks the phrase. Defaults to 0."""
+
+
+class ManualSuggestionResponse(ApiModel):
+    """The answer of `POST /indexes/{name}/query-suggestions/manual`."""
+
+    index_name: str = Field(alias="indexName")
+    """The suggestions index that holds the phrase."""
+
+
 class MemoryStatsResponseWorkersItem(ApiModel):
     """The shape of one item of the `workers` field of `MemoryStatsResponse`."""
 
@@ -1899,6 +1922,147 @@ class PreflightResult(ApiModel):
     """
 
 
+class QueryBansBody(ApiModel):
+    """The body of `GET` and of `PUT /indexes/{name}/query-suggestions/bans`."""
+
+    bans: list[str]
+    """The banned phrases, at most 1,000, which the engine normalises."""
+
+
+class QuerySuggestionPreviewEntry(ApiModel):
+    """One phrase that a build would publish."""
+
+    group: str
+    """The group whose suggestions index would hold the phrase."""
+    query: str
+    """The normalised phrase."""
+    count: int | float
+    """The number of people whose searches the counts hold."""
+
+
+QuerySuggestionsBuildStatus: TypeAlias = Annotated[Literal["running", "failed", "completed", "skipped"], OPEN_ENUM]
+"""The outcome of a build."""
+
+
+QuerySuggestionsBuildTrigger: TypeAlias = Annotated[Literal["schedule", "missed", "caller"], OPEN_ENUM]
+"""What started a build."""
+
+
+class QuerySuggestionsBuild(ApiModel):
+    """One build of the suggestions of an index."""
+
+    build_id: str = Field(alias="buildId")
+    """The ID of the build."""
+    trigger: QuerySuggestionsBuildTrigger
+    """What started the build."""
+    status: QuerySuggestionsBuildStatus
+    """Where the build stands."""
+    started_at: int | float = Field(alias="startedAt")
+    """When the build started, in milliseconds since the Unix epoch."""
+    ended_at: int | float | None = Field(alias="endedAt")
+    """When the build ended, or null while it runs."""
+    published: int | float
+    """The phrases that the build added or updated."""
+    removed: int | float
+    """The phrases that the build removed."""
+    discarded: int | float
+    """The phrases that the build left out because the merge held its limit."""
+    error_code: str | None = Field(alias="errorCode")
+    """The error code of a failed build, or null."""
+
+
+class QuerySuggestionsPreview(ApiModel):
+    """What the next build would publish: the phrases that enough people searched for, that match
+    enough documents, and that fall in a group the build keeps.
+    """
+
+    entries: list[QuerySuggestionPreviewEntry]
+    """The phrases, most counted first."""
+    truncated: bool
+    """True where the list stops at the limit that the caller passed while more phrases wait to be
+    checked.
+    """
+
+
+class QuerySuggestionsSetting(ApiModel):
+    """The popular query suggestions setting of one index. Only `enabled` and `fields` are
+    required, and each limit that you leave out takes its default.
+    """
+
+    enabled: bool
+    """Set this to true to count searches for the index and build its suggestions."""
+    fields: list[str]
+    """The `string` and `string[]` fields whose text a phrase must match before the engine
+    publishes it.
+    """
+    min_people: int | float | None = Field(default=None, alias="minPeople")
+    """The number of people, from 2 to 4,096, who must search a phrase before the engine publishes
+    it. Defaults to 4.
+    """
+    min_results: int | float | None = Field(default=None, alias="minResults")
+    """The number of documents, from 1 to 10,000, that a phrase must match with every word.
+    Defaults to 5.
+    """
+    retention_days: int | float | None = Field(default=None, alias="retentionDays")
+    """The number of days, from 1 to 365, that the engine keeps the counts of a day. Defaults to
+    30.
+    """
+    max_phrases_per_day: int | float | None = Field(default=None, alias="maxPhrasesPerDay")
+    """The number of phrases, up to 16,384, that a node counts for the index each day. Defaults to
+    10,000.
+    """
+    max_phrases_per_person: int | float | None = Field(default=None, alias="maxPhrasesPerPerson")
+    """The number of phrases, up to 1,000, that a node counts for one person each day. Defaults to
+    100.
+    """
+    max_people_per_day: int | float | None = Field(default=None, alias="maxPeoplePerDay")
+    """The number of people, up to 100,000, that a node counts for the index each day. Defaults to
+    100,000.
+    """
+    max_groups: int | float | None = Field(default=None, alias="maxGroups")
+    """The number of groups, up to 1,000, that the index counts. Defaults to 100."""
+    min_letters: int | float | None = Field(default=None, alias="minLetters")
+    """The number of letters that a phrase must hold. Defaults to 4."""
+    max_length: int | float | None = Field(default=None, alias="maxLength")
+    """The number of characters, up to 150, that a phrase may hold. Defaults to 100."""
+    max_words: int | float | None = Field(default=None, alias="maxWords")
+    """The number of words, up to 50, that a phrase may hold. Defaults to 8."""
+    max_digits: int | float | None = Field(default=None, alias="maxDigits")
+    """The number of digits that a phrase may hold in total. Defaults to 5."""
+    max_merge_phrases: int | float | None = Field(default=None, alias="maxMergePhrases")
+    """The number of phrases, up to 500,000, that one build merges. Defaults to 100,000."""
+    merge_memory_bytes: int | float | None = Field(default=None, alias="mergeMemoryBytes")
+    """The memory, from 16 MiB to 1 GiB, of the worker that merges the counts. Defaults to 128 MiB.
+    """
+    save_interval_ms: int | float | None = Field(default=None, alias="saveIntervalMs")
+    """How often, from 1 second to 1 hour, a node saves the counts of the day. Defaults to 5
+    minutes.
+    """
+    result_checks_per_second: int | float | None = Field(default=None, alias="resultChecksPerSecond")
+    """The number of result checks, up to 1,000, that a build runs each second. Defaults to 20."""
+    schedule: str | None = None
+    """A cron expression of five fields, or `off`. Defaults to `0 3 * * *`."""
+    time_zone: str | None = Field(default=None, alias="timeZone")
+    """The IANA time zone of `schedule`. Defaults to `UTC`."""
+
+
+class QuerySuggestionsStatus(ApiModel):
+    """The setting, the last build, and the next scheduled build of one index."""
+
+    index_name: str = Field(alias="indexName")
+    """The index."""
+    setting: QuerySuggestionsSetting | None
+    """The setting, or null where nobody set one."""
+    last_build: QuerySuggestionsBuild | None = Field(alias="lastBuild")
+    """The last build, or null where none ran."""
+    next_build_at: int | float | None = Field(alias="nextBuildAt")
+    """When the schedule next matches, in milliseconds since the Unix epoch, or null where it is
+    off.
+    """
+    suggestion_indexes: list[str] = Field(alias="suggestionIndexes")
+    """The suggestions index of each group that holds one."""
+
+
 class ReadinessResponse(ApiModel):
     """The body of `GET /readyz` and `GET /health`, which the server sends with status 200 while it
     is ready and with status 503 while it is not.
@@ -1915,6 +2079,56 @@ class RebalanceBody(ApiModel):
 
     target_partition_count: int | float | None = Field(default=None, alias="targetPartitionCount")
     """The index moves to this many partitions, which must be a positive whole number."""
+
+
+class RecordQueryBody(ApiModel):
+    """The body of `POST /indexes/{name}/query-suggestions/record`. The server takes the person and
+    the group from its `identify` function, so the body carries the search alone.
+    """
+
+    query: str
+    """The search that the person followed with a click."""
+
+
+RecordQueryOutcome: TypeAlias = Annotated[
+    Literal[
+        "recorded",
+        "repeat",
+        "invalid",
+        "banned",
+        "person-limit",
+        "phrase-limit",
+        "people-limit",
+        "group-limit",
+        "no-key",
+        "unidentified",
+    ],
+    OPEN_ENUM,
+]
+"""Why a node counted no search, or `recorded` where it counted one."""
+
+
+class RecordQueryResult(ApiModel):
+    """What QuerySuggestions.recordQuery did with one search."""
+
+    recorded: bool
+    """True where the node counted the search."""
+    outcome: RecordQueryOutcome
+    """Why the node counted it or left it out."""
+
+
+class RemoveQueryBody(ApiModel):
+    """The body of `POST /indexes/{name}/query-suggestions/remove`."""
+
+    query: str
+    """The phrase to ban and to remove from every suggestions index of the index."""
+
+
+class RemoveQueryResponse(ApiModel):
+    """The answer of `POST /indexes/{name}/query-suggestions/remove`."""
+
+    suggestion_indexes: int | float = Field(alias="suggestionIndexes")
+    """The number of suggestions indexes that held the phrase."""
 
 
 class ReplicationFactorBody(ApiModel):
@@ -2061,6 +2275,7 @@ TaskType: TypeAlias = Annotated[
         "backup",
         "backupRestore",
         "backupDelete",
+        "querySuggestionsBuild",
     ],
     OPEN_ENUM,
 ]
@@ -2107,6 +2322,8 @@ class TaskRecord(ApiModel):
     """
     result: ImportResult | None = None
     """What the work produced, which an `import` or `importExport` task reports once it finishes."""
+    build: QuerySuggestionsBuild | None = None
+    """The build that a `querySuggestionsBuild` task ran, once it ends."""
     error: ErrorDetail | None = None
     """This says why the task failed, and a failed task alone carries it."""
 
@@ -2274,6 +2491,8 @@ __all__ = [
     "ListResult",
     "ListedDocument",
     "LivenessResponse",
+    "ManualQuerySuggestion",
+    "ManualSuggestionResponse",
     "MemoryStatsResponse",
     "MemoryStatsResponseWorkersItem",
     "MultiGetBody",
@@ -2289,9 +2508,22 @@ __all__ = [
     "PreflightResult",
     "PresenceFilter",
     "ProcessMemoryReport",
+    "QueryBansBody",
     "QueryCoverage",
+    "QuerySuggestionPreviewEntry",
+    "QuerySuggestionsBuild",
+    "QuerySuggestionsBuildStatus",
+    "QuerySuggestionsBuildTrigger",
+    "QuerySuggestionsPreview",
+    "QuerySuggestionsSetting",
+    "QuerySuggestionsStatus",
     "ReadinessResponse",
     "RebalanceBody",
+    "RecordQueryBody",
+    "RecordQueryOutcome",
+    "RecordQueryResult",
+    "RemoveQueryBody",
+    "RemoveQueryResponse",
     "ReplicationFactorBody",
     "ReplicationFactorResponse",
     "RerankConfig",
