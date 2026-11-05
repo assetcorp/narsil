@@ -24,6 +24,7 @@ enum {
   RECORD_SURFACE_LENGTH,
   RECORD_ORIGINAL_OFFSET,
   RECORD_ORIGINAL_LENGTH,
+  RECORD_TERM_SLOT,
   TOKEN_RECORD_WORDS
 };
 
@@ -228,6 +229,7 @@ static int write_records(const narsil_tokens *tokens, uint32_t *records, size_t 
     record[RECORD_SURFACE_LENGTH] = token->surface_length;
     record[RECORD_ORIGINAL_OFFSET] = token->original_offset;
     record[RECORD_ORIGINAL_LENGTH] = token->original_length;
+    record[RECORD_TERM_SLOT] = token->term_slot;
     record += TOKEN_RECORD_WORDS;
   }
   return 1;

@@ -56,6 +56,7 @@ int32_t fixture_top_layer(int32_t node);
 void release_fixture(test_fixture *fixture);
 void concurrent_checks(void);
 void concurrent_writer_checks(void);
+void analysis_thread_checks(void);
 void write_checks(narsil_workspace *workspace);
 void record_checks(narsil_workspace *workspace);
 void vector_file_checks(narsil_workspace *workspace);

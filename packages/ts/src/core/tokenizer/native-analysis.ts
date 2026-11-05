@@ -11,9 +11,11 @@ const REMOVE_STOP_WORDS_FLAG = 2
 const REMOVE_DIACRITICS_FLAG = 4
 const COLLECT_SURFACES_FLAG = 8
 const SPELLINGS_FLAG = 16
-const TOKEN_RECORD_WORDS = 7
+const TOKEN_RECORD_WORDS = 8
 const NO_SURFACE = 0xffffffff
 const FIRST_RECORD_TOKENS = 256
+const CORE_TERM_CACHE_SLOTS = 16384
+const COPY_PREFIX = ' '
 
 interface CoreLanguage {
   index: number
@@ -36,6 +38,7 @@ let languagesOfCore = new WeakMap<LanguageModule, CoreLanguage | null>()
 let heldStopWords = new WeakMap<ReadonlySet<string>, HeldStopWords>()
 let sharedRecords = new Uint32Array(1 + FIRST_RECORD_TOKENS * TOKEN_RECORD_WORDS)
 let recordsInUse = false
+let termsBySlot: Array<string | undefined> | null = null
 
 function activeCore(): NativeCore | null {
   if (!nativeSearchCoreIsEnabled()) return null
@@ -46,6 +49,7 @@ function activeCore(): NativeCore | null {
     indexByName = new Map()
     languagesOfCore = new WeakMap()
     heldStopWords = new WeakMap()
+    termsBySlot = null
     const count = core.languageCount()
     for (let index = 0; index < count; index++) indexByName.set(core.languageName(index), index)
   }
@@ -121,6 +125,24 @@ function analyseWith(
   return { arena: result, records }
 }
 
+function holdsUnits(held: string, arena: string, start: number, length: number): boolean {
+  if (held.length !== length) return false
+  for (let unit = 0; unit < length; unit++) {
+    if (held.charCodeAt(unit) !== arena.charCodeAt(start + unit)) return false
+  }
+  return true
+}
+
+function termOf(arena: string, start: number, length: number, slot: number): string {
+  if (slot >= CORE_TERM_CACHE_SLOTS) return arena.substring(start, start + length)
+  if (termsBySlot === null) termsBySlot = new Array<string | undefined>(CORE_TERM_CACHE_SLOTS)
+  const held = termsBySlot[slot]
+  if (held !== undefined && holdsUnits(held, arena, start, length)) return held
+  const term = (COPY_PREFIX + arena.substring(start, start + length)).slice(COPY_PREFIX.length)
+  termsBySlot[slot] = term
+  return term
+}
+
 function visitRecords(analysed: Analysed, visit: TokenVisitor): void {
   const { arena, records } = analysed
   const count = records[0]
@@ -128,11 +150,10 @@ function visitRecords(analysed: Analysed, visit: TokenVisitor): void {
   if (ownsShared) recordsInUse = true
   try {
     for (let token = 0, at = 1; token < count; token++, at += TOKEN_RECORD_WORDS) {
-      const termStart = records[at + 1]
       const surfaceStart = records[at + 3]
       const originalStart = records[at + 5]
       visit(
-        arena.substring(termStart, termStart + records[at + 2]),
+        termOf(arena, records[at + 1], records[at + 2], records[at + 7]),
         records[at],
         surfaceStart === NO_SURFACE ? undefined : arena.substring(surfaceStart, surfaceStart + records[at + 4]),
         arena.substring(originalStart, originalStart + records[at + 6]),

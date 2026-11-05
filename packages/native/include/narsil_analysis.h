@@ -20,6 +20,7 @@ extern "C" {
    NARSIL_ANALYSE_COLLECT_SURFACES)
 #define NARSIL_TRANSFORM_FLAGS (NARSIL_ANALYSE_STEM | NARSIL_ANALYSE_REMOVE_DIACRITICS)
 #define NARSIL_NO_SURFACE UINT32_MAX
+#define NARSIL_NO_TERM_SLOT UINT32_MAX
 #define NARSIL_MAX_ANALYSED_UNITS (1U << 30)
 
 typedef struct narsil_analyser narsil_analyser;
@@ -33,6 +34,7 @@ typedef struct {
   uint32_t surface_length;
   uint32_t original_offset;
   uint32_t original_length;
+  uint32_t term_slot;
 } narsil_token;
 
 typedef struct {

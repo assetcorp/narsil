@@ -5,6 +5,7 @@
 
 #include "../include/narsil_analysis.h"
 #include "../include/narsil_core.h"
+#include "../include/narsil_keyword.h"
 
 #include <js_native_api.h>
 #include <js_native_api_types.h>
@@ -18,6 +19,8 @@ typedef struct {
   narsil_analyser *analyser;
   uint16_t *text_units;
   size_t text_capacity;
+  narsil_keyword_column *keyword_lengths;
+  uint32_t keyword_length_capacity;
 } thread_state;
 
 napi_value throw_error(napi_env env, const char *message);

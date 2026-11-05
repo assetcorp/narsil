@@ -6,6 +6,7 @@
 #include "normalise.h"
 #include "split.h"
 #include "stop_words.h"
+#include "term_cache.h"
 #include "text.h"
 #include "unicode.h"
 
@@ -56,6 +57,7 @@ void narsil_analyser_destroy(narsil_analyser *analyser) {
   narsil_text_release(&analyser->surface_step);
   narsil_text_release(&analyser->surface);
   narsil_text_release(&analyser->arena);
+  narsil_term_cache_release(&analyser->terms);
   free(analyser->tokens);
   free(analyser);
 }
@@ -117,7 +119,7 @@ static int append_units(narsil_analyser *analyser, narsil_unit_view view, uint32
 }
 
 static int push_token(narsil_analyser *analyser, uint32_t position, narsil_span original, narsil_unit_view term,
-                      const narsil_unit_view *surface) {
+                      uint32_t term_slot, const narsil_unit_view *surface) {
   if (analyser->token_count == analyser->token_capacity) {
     uint32_t capacity = analyser->token_capacity < MIN_TOKEN_CAPACITY ? MIN_TOKEN_CAPACITY : analyser->token_capacity;
     if (analyser->token_count == capacity) {
@@ -136,6 +138,7 @@ static int push_token(narsil_analyser *analyser, uint32_t position, narsil_span 
   token->surface_offset = NARSIL_NO_SURFACE;
   token->surface_length = 0;
   token->term_length = (uint32_t)term.length;
+  token->term_slot = term_slot;
   int status = append_units(analyser, term, &token->term_offset);
   if (status == NARSIL_OK && surface != NULL) {
     token->surface_length = (uint32_t)surface->length;
@@ -168,12 +171,13 @@ typedef struct {
 static int push_spelling(narsil_analyser *analyser, const analysis_pass *pass, uint32_t position, narsil_span part,
                          narsil_unit_view candidate) {
   narsil_unit_view spelling = candidate;
+  uint32_t term_slot = NARSIL_NO_TERM_SLOT;
   if (pass->language->normalises_diacritics) {
     int status = narsil_transform_token(analyser, pass->language, pass->language_index, candidate,
-                                        NARSIL_ANALYSE_REMOVE_DIACRITICS, &spelling);
+                                        NARSIL_ANALYSE_REMOVE_DIACRITICS, &spelling, &term_slot);
     if (status != NARSIL_OK) { return status; }
   }
-  return push_token(analyser, position, part, spelling, NULL);
+  return push_token(analyser, position, part, spelling, term_slot, NULL);
 }
 
 static int analyse_part(narsil_analyser *analyser, const analysis_pass *pass, uint32_t position, narsil_span part) {
@@ -188,12 +192,14 @@ static int analyse_part(narsil_analyser *analyser, const analysis_pass *pass, ui
     return NARSIL_OK;
   }
   narsil_unit_view term;
-  int status = narsil_transform_token(analyser, language, pass->language_index, candidate, pass->flags, &term);
+  uint32_t term_slot = NARSIL_NO_TERM_SLOT;
+  int status =
+      narsil_transform_token(analyser, language, pass->language_index, candidate, pass->flags, &term, &term_slot);
   if (status != NARSIL_OK || term.length == 0) { return status; }
   int stems =
       (pass->flags & NARSIL_ANALYSE_STEM) != 0 && (language->stem_by_rules != NULL || language->snowball_stem != NULL);
   if ((pass->flags & NARSIL_ANALYSE_COLLECT_SURFACES) == 0 || !stems) {
-    return push_token(analyser, position, part, term, NULL);
+    return push_token(analyser, position, part, term, term_slot, NULL);
   }
   narsil_unit_view surface = candidate;
   if ((pass->flags & NARSIL_ANALYSE_REMOVE_DIACRITICS) != 0) {
@@ -201,7 +207,7 @@ static int analyse_part(narsil_analyser *analyser, const analysis_pass *pass, ui
     if (status != NARSIL_OK) { return status; }
   }
   int same = narsil_units_equal(surface.units, surface.length, term.units, term.length);
-  return push_token(analyser, position, part, term, same ? NULL : &surface);
+  return push_token(analyser, position, part, term, term_slot, same ? NULL : &surface);
 }
 
 static int split_text(narsil_analyser *analyser, const narsil_language *language, const narsil_spans **parts) {
@@ -228,8 +234,9 @@ narsil_status narsil_transform(narsil_analyser *analyser, const narsil_analysis_
   static const uint16_t no_units[1] = {0};
   narsil_unit_view candidate = {request->length == 0 ? no_units : request->text, request->length};
   narsil_unit_view result = candidate;
+  uint32_t term_slot = NARSIL_NO_TERM_SLOT;
   int status = narsil_transform_token(analyser, narsil_language_table[request->language], request->language, candidate,
-                                      request->flags, &result);
+                                      request->flags, &result, &term_slot);
   if (status != NARSIL_OK) { return (narsil_status)status; }
   if (result.length > NARSIL_MAX_ANALYSED_UNITS) { return NARSIL_INVALID_ARGUMENT; }
   term->units = result.units;

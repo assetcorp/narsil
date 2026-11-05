@@ -6,6 +6,7 @@
 #include "normalise.h"
 #include "split.h"
 #include "stop_words.h"
+#include "term_cache.h"
 #include "text.h"
 
 #include <stddef.h>
@@ -37,10 +38,11 @@ struct narsil_analyser {
   struct SN_env **snowball;
   narsil_stop_words *default_stop_words;
   uint8_t *default_stop_words_built;
+  narsil_term_cache terms;
 };
 
 int narsil_transform_token(narsil_analyser *analyser, const narsil_language *language, uint32_t language_index,
-                           narsil_unit_view candidate, uint32_t flags, narsil_unit_view *result);
+                           narsil_unit_view candidate, uint32_t flags, narsil_unit_view *result, uint32_t *term_slot);
 int narsil_surface_of(narsil_analyser *analyser, const narsil_language *language, narsil_unit_view candidate,
                       narsil_unit_view *result);
 
