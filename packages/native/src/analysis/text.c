@@ -147,3 +147,15 @@ int narsil_units_are_ascii(const uint16_t *units, size_t length) {
 int narsil_units_equal(const uint16_t *left, size_t left_length, const uint16_t *right, size_t right_length) {
   return left_length == right_length && (left_length == 0 || memcmp(left, right, left_length * sizeof(uint16_t)) == 0);
 }
+
+void narsil_replace_unpaired_surrogates(uint16_t *units, size_t length) {
+  for (size_t i = 0; i < length; i++) {
+    uint32_t unit = units[i];
+    if (unit < NARSIL_HIGH_SURROGATE_FIRST || unit >= NARSIL_SURROGATE_END) { continue; }
+    if (is_high_surrogate(unit) && i + 1 < length && is_low_surrogate(units[i + 1])) {
+      i++;
+      continue;
+    }
+    units[i] = (uint16_t)NARSIL_REPLACEMENT_CHARACTER;
+  }
+}

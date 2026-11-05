@@ -115,17 +115,17 @@ export function computeGroupContributions(
     let runStart = 0
     let runEnd = 0
     for (let at = 0; at < count; at++) {
+      const internalId = docIds[at]
+      if (hasDeleted && deletedDocs.has(internalId)) continue
+      if (filterBitset && !bitsetHas(filterBitset, internalId)) continue
       let pi = at
       if (at < runEnd) {
         pi = fieldRun.entries[at - runStart]
-      } else if (at + 2 < count && docIds[at + 2] === docIds[at]) {
+      } else if (at + 2 < count && docIds[at + 2] === internalId) {
         pi = orderRunByFieldName(docIds, fieldNameIndices, fields.nameRanks, at, count)[0]
         runStart = at
         runEnd = at + fieldRun.length
       }
-      const internalId = docIds[pi]
-      if (hasDeleted && deletedDocs.has(internalId)) continue
-      if (filterBitset && !bitsetHas(filterBitset, internalId)) continue
       const fieldIndex = fieldNameIndices[pi]
       if (fields.searchable[fieldIndex] === 0) continue
       const factor = partialMarks[fieldIndex] === 1 ? match.partialFactor : match.factor

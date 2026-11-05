@@ -87,9 +87,6 @@ export interface PhraseRowColumns {
   readonly count: number
 }
 
-const FIRST_SLOTS = KEYWORD_FIRST_SLOTS
-const FIRST_LISTS = KEYWORD_FIRST_LISTS
-const FIRST_ROWS = KEYWORD_FIRST_ROWS
 const EMPTY_POOL: KeywordPostingPool = {
   docIds: new Uint32Array(0),
   frequencies: new Uint16Array(0),
@@ -113,16 +110,16 @@ function sharesPool(column: ArrayLike<number>, pooled: Uint32Array | Uint16Array
 
 export class KeywordRequestBuilder {
   private pool: KeywordPostingPool = EMPTY_POOL
-  private slots: Uint32Array = new Uint32Array(FIRST_SLOTS * SLOT_STRIDE)
+  private slots: Uint32Array = new Uint32Array(KEYWORD_FIRST_SLOTS * SLOT_STRIDE)
   private slotCount = 0
-  private lists: Uint32Array = new Uint32Array(FIRST_LISTS * LIST_STRIDE)
+  private lists: Uint32Array = new Uint32Array(KEYWORD_FIRST_LISTS * LIST_STRIDE)
   private listCount = 0
-  private listValues: Float64Array = new Float64Array(FIRST_LISTS * LIST_VALUE_STRIDE)
-  private slotValues: Float64Array = new Float64Array(FIRST_SLOTS)
+  private listValues: Float64Array = new Float64Array(KEYWORD_FIRST_LISTS * LIST_VALUE_STRIDE)
+  private slotValues: Float64Array = new Float64Array(KEYWORD_FIRST_SLOTS)
   private valueCount = 0
-  private rowDocIds: Uint32Array = new Uint32Array(FIRST_ROWS)
-  private rowFrequencies: Float64Array = new Float64Array(FIRST_ROWS)
-  private rowFields: Uint16Array = new Uint16Array(FIRST_ROWS)
+  private rowDocIds: Uint32Array = new Uint32Array(KEYWORD_FIRST_ROWS)
+  private rowFrequencies: Float64Array = new Float64Array(KEYWORD_FIRST_ROWS)
+  private rowFields: Uint16Array = new Uint16Array(KEYWORD_FIRST_ROWS)
   private rowCount = 0
   private readonly settings = new Float64Array(SETTING_COUNT)
 

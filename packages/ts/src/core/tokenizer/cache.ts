@@ -1,5 +1,6 @@
 import { createNarsilError, ErrorCodes } from '../../errors'
 import type { LanguageModule } from '../../types/language'
+import { withUnpairedSurrogatesReplaced } from '../ordering/code-points'
 import {
   CONSTRAINED_MEMORY_TOKEN_CACHE_FRACTION,
   LARGE_DEVICE_TOKEN_CACHE_ENTRIES,
@@ -156,9 +157,10 @@ export function transformToken(
   const cached = bucket.get(raw)
   if (cached !== undefined) return cached
 
-  const normalized =
+  const normalized = withUnpairedSurrogatesReplaced(
     nativeAnalysis()?.transform(raw, language, stem, removeDiacritics) ??
-    transformInTypeScript(raw, language, stem, removeDiacritics)
+      transformInTypeScript(raw, language, stem, removeDiacritics),
+  )
 
   if (normalizationCacheSize >= maxCacheSize) {
     evictOldestEntries(Math.max(1, maxCacheSize >>> 2))

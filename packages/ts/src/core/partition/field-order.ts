@@ -1,10 +1,13 @@
 import { compareCodePoints } from '../ordering/code-points'
+import { FIELD_RUN_ENTRIES_START } from './constants'
 
-export const fieldRun = { entries: new Uint32Array(8), length: 0 }
+export const fieldRun = { entries: new Uint32Array(FIELD_RUN_ENTRIES_START), length: 0 }
 
 const ranksByFieldNames = new WeakMap<readonly string[], Uint32Array>()
+const ONLY_FIELD_RANKS = new Uint32Array(1)
 
 export function fieldNameRanks(fieldNames: readonly string[]): Uint32Array {
+  if (fieldNames.length < 2) return ONLY_FIELD_RANKS
   const held = ranksByFieldNames.get(fieldNames)
   if (held !== undefined && held.length === fieldNames.length) return held
   const order = Array.from(fieldNames.keys()).sort((left, right) =>

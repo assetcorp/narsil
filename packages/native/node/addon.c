@@ -185,6 +185,7 @@ static void release_thread_state(napi_env env, void *finalize_data, void *finali
   narsil_analyser_destroy(state->analyser);
   free(state->text_units);
   free(state->keyword_lengths);
+  free((void *)state->keyword_length_values);
   free(state);
 }
 

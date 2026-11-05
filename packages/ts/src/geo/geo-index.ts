@@ -1,5 +1,3 @@
-import { bitsetSet, createBitSet } from '../core/bitset'
-import { PENDING_REMOVAL_MERGE_DIVISOR, PENDING_REMOVAL_MERGE_FLOOR } from '../core/constants'
 import type { GeopointEntry } from '../types/internal'
 import { coveringRanges, type LocationBox, locationCode } from './cells'
 import { polygonBoxes, polygonContainment } from './polygon'
@@ -8,7 +6,7 @@ import { radiusBoxes, radiusCandidateTest } from './radius'
 export interface GeoIndexReader {
   radiusQuery(lat: number, lon: number, distanceMeters: number, inside: boolean, highPrecision: boolean): Set<number>
   polygonQuery(points: Array<{ lat: number; lon: number }>, inside: boolean): Set<number>
-  documentsBitset(capacity: number): Uint32Array
+  documentIds(): Iterable<number>
   serialize(): GeopointEntry[]
 }
 
@@ -116,7 +114,7 @@ function mergeInto(
   }
 }
 
-export function createGeoIndex(): GeoIndex {
+export function createGeoIndex(removalMergeFloor: number, removalMergeDivisor: number): GeoIndex {
   let located: LocationRows = new Float64Array(0)
   let placed = 0
   let removedRows: number[] = []
@@ -153,7 +151,7 @@ export function createGeoIndex(): GeoIndex {
     }
     const removedCount = removedRows.length + pendingRemoved
     const held = placed + pendingCount
-    if (removedCount >= Math.max(PENDING_REMOVAL_MERGE_FLOOR, held / PENDING_REMOVAL_MERGE_DIVISOR)) ensureSorted()
+    if (removedCount >= Math.max(removalMergeFloor, held / removalMergeDivisor)) ensureSorted()
   }
 
   function matching(boxes: readonly LocationBox[], prepare: () => LocationTest, inside: boolean) {
@@ -215,10 +213,8 @@ export function createGeoIndex(): GeoIndex {
       return matching(polygonBoxes(points), () => contains, inside)
     },
 
-    documentsBitset(capacity: number): Uint32Array {
-      const bits = createBitSet(capacity)
-      for (const docId of byDocument.keys()) bitsetSet(bits, docId)
-      return bits
+    documentIds(): Iterable<number> {
+      return byDocument.keys()
     },
 
     clear(): void {

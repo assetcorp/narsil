@@ -23,17 +23,22 @@ function presentBitsetOf(
   if (base === 'number') present = state.numericIndexes.get(fieldPath)?.getAllDocIdsBitset(capacity)
   else if (base === 'boolean') present = state.booleanIndexes.get(fieldPath)?.getAllDocIdsBitset(capacity)
   else if (base === 'enum') present = state.enumIndexes.get(fieldPath)?.getAllDocIdsBitset(capacity)
-  else if (base === 'geopoint') present = state.geoIndexes.get(fieldPath)?.documentsBitset(capacity)
+  else if (base === 'geopoint') present = geoDocumentsBitset(state, fieldPath, capacity)
   else if (base !== undefined && keepsValueSize(base)) {
     present = state.sizeIndexes.get(fieldPath)?.getAllDocIdsBitset(capacity)
   }
   return present ?? createBitSet(capacity)
 }
 
-function liveDocumentsBitset(state: PartitionReadState, capacity: number): Uint32Array {
+function bitsetOfDocuments(internalIds: Iterable<number>, capacity: number): Uint32Array {
   const bits = createBitSet(capacity)
-  for (const internalId of state.docStore.allInternalIds()) bitsetSet(bits, internalId)
+  for (const internalId of internalIds) bitsetSet(bits, internalId)
   return bits
+}
+
+function geoDocumentsBitset(state: PartitionReadState, fieldPath: string, capacity: number): Uint32Array | undefined {
+  const geoIndex = state.geoIndexes.get(fieldPath)
+  return geoIndex === undefined ? undefined : bitsetOfDocuments(geoIndex.documentIds(), capacity)
 }
 
 export function buildFilterContext(
@@ -101,7 +106,7 @@ export function buildFilterContext(
     },
     capacity,
     get allDocIdsBitset() {
-      cachedAllDocIdsBitset ??= liveDocumentsBitset(state, capacity)
+      cachedAllDocIdsBitset ??= bitsetOfDocuments(state.docStore.allInternalIds(), capacity)
       return cachedAllDocIdsBitset
     },
   }

@@ -183,15 +183,15 @@ export function searchFulltext(state: PartitionReadState, params: InternalSearch
     let runEnd = 0
     if (only === null && !hasDeleted && filterBitset === undefined && components === null) {
       for (let at = 0; at < count; at++) {
+        const internalId = docIds[at]
         let pi = at
         if (at < runEnd) {
           pi = fieldRun.entries[at - runStart]
-        } else if (at + 1 < count && docIds[at + 1] === docIds[at]) {
+        } else if (at + 1 < count && docIds[at + 1] === internalId) {
           pi = orderRunByFieldName(docIds, fieldNameIndices, nameRanks, at, count)[0]
           runStart = at
           runEnd = at + fieldRun.length
         }
-        const internalId = docIds[pi]
         const fieldIndex = fieldNameIndices[pi]
         if (searchable[fieldIndex] === 0) continue
         const avgLen = averageLengths[fieldIndex]
@@ -212,18 +212,18 @@ export function searchFulltext(state: PartitionReadState, params: InternalSearch
     }
 
     for (let at = 0; at < count; at++) {
+      const internalId = docIds[at]
+      if (hasDeleted && deletedDocs.has(internalId)) continue
+      if (filterBitset && !bitsetHas(filterBitset, internalId)) continue
+      if (only !== null && !bitsetHas(only, internalId)) continue
       let pi = at
       if (at < runEnd) {
         pi = fieldRun.entries[at - runStart]
-      } else if (at + 1 < count && docIds[at + 1] === docIds[at]) {
+      } else if (at + 1 < count && docIds[at + 1] === internalId) {
         pi = orderRunByFieldName(docIds, fieldNameIndices, nameRanks, at, count)[0]
         runStart = at
         runEnd = at + fieldRun.length
       }
-      const internalId = docIds[pi]
-      if (hasDeleted && deletedDocs.has(internalId)) continue
-      if (filterBitset && !bitsetHas(filterBitset, internalId)) continue
-      if (only !== null && !bitsetHas(only, internalId)) continue
       const fieldIndex = fieldNameIndices[pi]
       if (searchable[fieldIndex] === 0) continue
       const termFrequency = termFrequencies[pi]

@@ -115,7 +115,9 @@ static narsil_unit_view strip_possessive(narsil_unit_view part) {
 static int append_units(narsil_analyser *analyser, narsil_unit_view view, uint32_t *offset) {
   if (analyser->arena.length + view.length > UINT32_MAX) { return NARSIL_INVALID_ARGUMENT; }
   *offset = (uint32_t)analyser->arena.length;
-  return narsil_text_append(&analyser->arena, view.units, view.length);
+  int status = narsil_text_append(&analyser->arena, view.units, view.length);
+  if (status == NARSIL_OK) { narsil_replace_unpaired_surrogates(analyser->arena.units + *offset, view.length); }
+  return status;
 }
 
 static int push_token(narsil_analyser *analyser, uint32_t position, narsil_span original, narsil_unit_view term,

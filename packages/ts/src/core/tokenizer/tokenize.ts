@@ -1,5 +1,6 @@
 import type { LanguageModule } from '../../types/language'
 import type { CustomTokenizer } from '../../types/schema'
+import { withUnpairedSurrogatesReplaced } from '../ordering/code-points'
 import { transformToken } from './cache'
 import { DEFAULT_MIN_TOKEN_LENGTH, DEFAULT_SPLIT_PATTERN } from './constants'
 import { nativeAnalysis } from './native-hook'
@@ -63,6 +64,19 @@ function stripPossessive(token: string): string {
   return token
 }
 
+function customTokensOf(tokenizer: CustomTokenizer, text: string): Array<{ token: string; position: number }> {
+  const entries = tokenizer.tokenize(text)
+  let repaired: Array<{ token: string; position: number }> | null = null
+  for (let at = 0; at < entries.length; at++) {
+    const entry = entries[at]
+    const token = withUnpairedSurrogatesReplaced(entry.token)
+    if (token === entry.token) continue
+    repaired ??= entries.slice()
+    repaired[at] = { token, position: entry.position }
+  }
+  return repaired ?? entries
+}
+
 export type TokenVisitor = (token: string, position: number, surface: string | undefined, original: string) => void
 
 export function visitTokens(
@@ -81,7 +95,9 @@ export function visitTokens(
   } = options ?? {}
 
   if (customTokenizer) {
-    for (const entry of customTokenizer.tokenize(text)) visit(entry.token, entry.position, undefined, entry.token)
+    for (const entry of customTokensOf(customTokenizer, text)) {
+      visit(entry.token, entry.position, undefined, entry.token)
+    }
     return
   }
   if (nativeAnalysis()?.visitTokens(text, language, options, visit) === true) return
@@ -103,9 +119,15 @@ export function visitTokens(
       visit(processed, position, undefined, part)
       continue
     }
-    const surface = effectiveDiacritics ? transformToken(candidate, language, false, true) : candidate
-    visit(processed, position, surface === processed ? undefined : surface, part)
+    const shown = effectiveDiacritics ? transformToken(candidate, language, false, true) : candidate
+    visit(processed, position, surfaceOf(shown, processed), part)
   }
+}
+
+function surfaceOf(shown: string, term: string): string | undefined {
+  if (shown === term) return undefined
+  const surface = withUnpairedSurrogatesReplaced(shown)
+  return surface === term ? undefined : surface
 }
 
 export function visitSurfaceSpellings(text: string, language: LanguageModule, visit: (spelling: string) => void): void {
@@ -117,13 +139,15 @@ export function visitSurfaceSpellings(text: string, language: LanguageModule, vi
   for (const part of rawParts) {
     const candidate = stripPossessives ? stripPossessive(part) : part
     if (candidate.length < minLength) continue
-    visit(removeDiacritics ? transformToken(candidate, language, false, true) : candidate)
+    visit(
+      removeDiacritics ? transformToken(candidate, language, false, true) : withUnpairedSurrogatesReplaced(candidate),
+    )
   }
 }
 
 export function tokenize(text: string, language: LanguageModule, options?: TokenizeOptions): TokenizerResult {
   if (options?.customTokenizer) {
-    const customResult = options.customTokenizer.tokenize(text)
+    const customResult = customTokensOf(options.customTokenizer, text)
     return { tokens: customResult, originalTokens: customResult.map(entry => entry.token) }
   }
 
@@ -153,7 +177,7 @@ export function* tokenizeIterator(
   } = options ?? {}
 
   if (customTokenizer) {
-    const customResult = customTokenizer.tokenize(text)
+    const customResult = customTokensOf(customTokenizer, text)
     for (const entry of customResult) {
       yield entry
     }
@@ -189,8 +213,8 @@ export function* tokenizeIterator(
 
     if (processed.length > 0) {
       if (wantSurfaces) {
-        const surface = effectiveDiacritics ? transformToken(candidate, language, false, true) : candidate
-        yield { token: processed, position, surface: surface === processed ? undefined : surface }
+        const shown = effectiveDiacritics ? transformToken(candidate, language, false, true) : candidate
+        yield { token: processed, position, surface: surfaceOf(shown, processed) }
       } else {
         yield { token: processed, position }
       }
