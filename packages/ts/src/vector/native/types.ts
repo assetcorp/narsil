@@ -135,13 +135,17 @@ export interface NativeCore extends NativeAnalysisCore {
   /** Returns the number of bytes that the core's working memory holds. */
   workspaceBytes(): number
   /**
-   * Applies one of the core's maths functions to every entry of an array, giving the same bits as the
-   * functions under `src/math` on every platform.
+   * Writes into each place of `results` the value of one deterministic maths function at the same place of
+   * `first`, computed with the fdlibm algorithms that the specification fixes, so that a port of these functions
+   * in another language can compare its results with the core's beyond the published test vectors. The call
+   * counts no work.
    *
-   * @param operation - The function's index from the core's header: log, sin, cos, tan, asin, atan, or atan2.
-   * @param first - The arguments, or the rise of each angle for atan2.
-   * @param second - The run of each angle for atan2, ignored by every other function.
-   * @param results - The array that receives one result for each argument.
+   * @param operation - The function's index from the core's header: ln, sin, cos, tan, asin, atan, or atan2.
+   * @param first - The argument at each place, or `y` at each place for atan2. It must hold as many values as
+   * `results`, or the core refuses the call.
+   * @param second - `x` at each place for atan2, which must then hold as many values as `results`. Every other
+   * function ignores it.
+   * @param results - The array that receives one result for each place of `first`.
    * @returns A status code from the core's header.
    */
   applyMath(operation: number, first: Float64Array, second: Float64Array, results: Float64Array): number

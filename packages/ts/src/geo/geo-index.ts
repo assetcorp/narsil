@@ -133,8 +133,12 @@ export function createGeoIndex(): GeoIndex {
       inside: boolean,
       highPrecision: boolean,
     ): Set<number> {
-      const test = requireLoadedRadiusCode().radiusTest(lat, lon, distanceMeters, highPrecision)
-      return matching(test.boxes, test.candidateTest, inside)
+      const radius = requireLoadedRadiusCode()
+      return matching(
+        radius.radiusBoxes(lat, lon, distanceMeters),
+        () => radius.radiusCandidateTest(lat, lon, distanceMeters, highPrecision),
+        inside,
+      )
     },
 
     polygonQuery(points: Array<{ lat: number; lon: number }>, inside: boolean): Set<number> {
