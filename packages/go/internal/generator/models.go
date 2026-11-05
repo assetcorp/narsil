@@ -9,10 +9,6 @@ type chunk struct {
 	text string
 }
 
-func lineCount(text string) int {
-	return strings.Count(text, "\n")
-}
-
 func typeLead(name, description, fallback string) string {
 	if description == "" {
 		return docComment("", name+" "+fallback, "")

@@ -5,11 +5,6 @@ import (
 	"strings"
 )
 
-type renderedOperation struct {
-	tag  string
-	text string
-}
-
 type operationPlan struct {
 	op         operation
 	name       string

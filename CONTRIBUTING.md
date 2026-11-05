@@ -40,7 +40,7 @@ pnpm --filter @delali/narsil-native-build format   # apply clang-format to the C
 
 ## Conventions
 
-- Keep each source file under 400 lines, apart from `packages/ts/src/languages/`, each `constants.ts`, and the WebAssembly text under `packages/ts/wasm/`, which the build reads as one file. When you split a module across several files, put them in a directory with an `index.ts` that re-exports the module, as `packages/ts/src/core/partition/` does.
+- Keep each source file under 400 lines, apart from tests, every file that a generator writes, `packages/ts/src/languages/`, each `constants.ts`, and the WebAssembly text under `packages/ts/wasm/`, which the build reads as one file. When you split a module across several files, put them in a directory with an `index.ts` that re-exports the module, as `packages/ts/src/core/partition/` does.
 - Let Biome format the code, and keep the layout that it writes.
 - Let clang-format lay out the C code, following `packages/native/.clang-format`.
 - `pnpm lint` exits with an error on any clang-tidy finding, because clang-tidy reports every finding as an error under `packages/native/.clang-tidy`.
