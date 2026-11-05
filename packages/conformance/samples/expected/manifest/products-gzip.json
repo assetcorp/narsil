@@ -1,0 +1,88 @@
+{
+  "header": {
+    "envelopeFormatVersion": 2,
+    "compression": "gzip",
+    "checksum": true
+  },
+  "payload": {
+    "version": 7,
+    "schema": {
+      "title": "string",
+      "tags": "string[]",
+      "sku": "verbatim:sortable",
+      "price": "number",
+      "sizes": "number[]",
+      "inStock": "boolean",
+      "category": "enum",
+      "colours": "enum[]",
+      "location": "geopoint",
+      "code": "string:pattern",
+      "description": "string:partial",
+      "embedding": "vector[8]"
+    },
+    "language": "english",
+    "checkpoint": [
+      {
+        "partitionId": 0,
+        "lastSeqNo": 45,
+        "primaryTerm": 1
+      }
+    ],
+    "partitions": [
+      {
+        "partitionId": 0,
+        "nextSegmentId": 2,
+        "segments": [
+          {
+            "id": 0,
+            "key": "products/segments/0/s0000000000000000",
+            "docCount": 40,
+            "tombstoneCount": 0,
+            "bytes": 47904,
+            "checksum": 1557846741
+          },
+          {
+            "id": 1,
+            "key": "products/segments/0/s0000000000000001",
+            "docCount": 4,
+            "tombstoneCount": 1,
+            "bytes": 8272,
+            "checksum": 3717663921
+          }
+        ]
+      }
+    ],
+    "vectors": [
+      {
+        "fieldPath": "embedding",
+        "nextFileId": 2,
+        "files": [
+          {
+            "id": 0,
+            "key": "products/segments/vec-embedding-1l4nfg2-f0000000000000000",
+            "bytes": 2754,
+            "checksum": 3791132656,
+            "count": 40,
+            "dead": [2, 0, 0, 0, 0]
+          },
+          {
+            "id": 1,
+            "key": "products/segments/vec-embedding-1l4nfg2-f0000000000000001",
+            "bytes": 446,
+            "checksum": 3035726071,
+            "count": 4,
+            "dead": null
+          }
+        ],
+        "graphGeneration": 2,
+        "graphParts": [
+          {
+            "key": "products/segments/vec-embedding-1l4nfg2-graph-g2-p0000000000000000",
+            "bytes": 2077,
+            "checksum": 429898064
+          }
+        ]
+      }
+    ]
+  }
+}

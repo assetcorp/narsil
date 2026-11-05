@@ -13,11 +13,11 @@ const FILE_PAGE_SIZES: ReadonlySet<number> = new Set([SEGMENT_PAGE_BYTES, RECORD
 const FLOAT32_BYTES = 4
 const FLOAT64_BYTES = 8
 
-export function waitBeforeColdLoad(firstSearchAnswered: Promise<void>): Promise<void> {
+export function waitBeforeColdLoad(loadingWanted: Promise<void>): Promise<void> {
   return new Promise(resolve => {
     const timer = setTimeout(resolve, COLD_LOAD_WAIT_WITHOUT_SEARCH_MS)
     if (typeof timer.unref === 'function') timer.unref()
-    void firstSearchAnswered.then(() => {
+    void loadingWanted.then(() => {
       clearTimeout(timer)
       resolve()
     })

@@ -1,0 +1,33 @@
+{
+  "name": "narsil-conformance",
+  "targets": {
+    "build": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "pnpm tsup",
+        "cwd": "packages/conformance"
+      }
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "pnpm vitest run",
+        "cwd": "packages/conformance"
+      }
+    },
+    "lint": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "pnpm biome check src/",
+        "cwd": "packages/conformance"
+      }
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "pnpm run typecheck",
+        "cwd": "packages/conformance"
+      }
+    }
+  }
+}
