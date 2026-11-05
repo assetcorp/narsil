@@ -1,5 +1,5 @@
 import { ErrorCodes, NarsilError } from '../../errors'
-import { createGeoIndex } from '../../geo/geo-index'
+import { createLoadedGeoIndex } from '../../geo/geo-code'
 import { createBooleanIndex, createEnumIndex, createNumericIndex, type NumericFieldIndex } from '../field-index'
 import { patternIndexOf } from '../pattern-index/host'
 import { getOrCreateFieldNameIndex, type PartitionState } from './utils'
@@ -121,7 +121,7 @@ function mergeFieldIndexes(target: PartitionState, source: PartitionState, idMap
   for (const [fieldPath, index] of source.geoIndexes) {
     let targetIndex = target.geoIndexes.get(fieldPath)
     if (targetIndex === undefined) {
-      targetIndex = createGeoIndex()
+      targetIndex = createLoadedGeoIndex()
       target.geoIndexes.set(fieldPath, targetIndex)
     }
     for (const entry of index.serialize()) {

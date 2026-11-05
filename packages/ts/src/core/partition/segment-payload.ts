@@ -1,5 +1,5 @@
 import { ErrorCodes, NarsilError } from '../../errors'
-import { createGeoIndex } from '../../geo/geo-index'
+import { createLoadedGeoIndex } from '../../geo/geo-code'
 import type { PostingListView, SerializedSurfaceForms } from '../../types/internal'
 import type { AnyDocument } from '../../types/schema'
 import { createBooleanIndex, createEnumIndex, createNumericIndex, type NumericFieldIndex } from '../field-index'
@@ -300,7 +300,7 @@ function mergePayloadFieldIndexes(target: PartitionState, payload: SegmentPayloa
   for (const entry of payload.geo) {
     let index = target.geoIndexes.get(entry.fieldPath)
     if (index === undefined) {
-      index = createGeoIndex()
+      index = createLoadedGeoIndex()
       target.geoIndexes.set(entry.fieldPath, index)
     }
     for (let i = 0; i < entry.docIds.length; i++) {
