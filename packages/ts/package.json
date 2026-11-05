@@ -315,6 +315,26 @@
       "import": "./dist/react.mjs",
       "types": "./dist/react.d.ts"
     },
+    "./sync": {
+      "react-native": {
+        "types": "./dist/sync.d.ts",
+        "default": "./dist/react-native/sync.mjs"
+      },
+      "browser": {
+        "import": "./dist/sync.browser.mjs",
+        "types": "./dist/sync.d.ts"
+      },
+      "import": "./dist/sync.mjs",
+      "types": "./dist/sync.d.ts"
+    },
+    "./sync/filesystem": {
+      "import": "./dist/sync/filesystem.mjs",
+      "types": "./dist/sync/filesystem.d.ts"
+    },
+    "./sync/indexeddb": {
+      "import": "./dist/sync/indexeddb.mjs",
+      "types": "./dist/sync/indexeddb.d.ts"
+    },
     "./openapi.json": "./openapi.json"
   },
   "files": [

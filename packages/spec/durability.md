@@ -298,13 +298,13 @@ Vector `i` of a file is dead when bit `i mod 8` of byte `floor(i / 8)` of `dead`
 6. A writer may take a field's vectors, graph, and codes from the vector index that it searches through. The vector files and the graph parts may then hold the effect of a log record above a partition's `lastSeqNo`, provided that the record is durable before step 8, because recovery replays that record over them.
 7. When a partition's segment count exceeds the compaction threshold, 12 by default, merge adjacent segments of its list into one segment under the next segment id, so that the count returns to the threshold. The manifest must list the merged segment in the place of the segments that it replaces. A writer must merge fewer segments, or none, where the merged segment's file would pass the [file size](envelope.md#file-size) limit, and it may merge fewer for any other reason, such as to bound the memory that it uses during the merge. A writer of a `disk` index must merge by reading its source segments in parts, and it must write the merged segment as it goes, so that it holds no whole segment in memory. It must end a merged segment before the segment's file would pass 1,073,741,824 bytes, in place of any limit on its document count.
 8. Write the manifest over `<indexName>/manifest` with an [atomic write](#atomic-write). The manifest write is the commit point, so a crash before it leaves the previous manifest in force and the new files unreferenced.
-9. Once the manifest is durable, delete every key that the previous manifest references and the new one does not.
+9. Once the manifest is durable, delete every key that the previous manifest references, unless the new manifest or the manifest of a [published snapshot](sync.md#published-snapshot) references it.
 
 ### Structural-Merge Recovery
 
 Recovery must load a partition by reading the segments that the manifest lists for it, in the order of that list, and merging them, so that the occurrence of a document in the segment nearest the end of the list wins and a tombstone removes the document from every segment before it in the list. Recovery must load each segment's keyword index and field indexes from the arrays that the segment stores, with no new analysis of its documents. Recovery must load each vector field once, from the live vectors of the vector files that the manifest lists for it and from the graph parts that the manifest lists for it. For each dead vector that the graph parts hold a node for, recovery must load the vector and keep its node as a tombstone. Recovery must treat a live vector that the graph parts hold no node for as a vector inserted after promotion; see [Post-Promotion Insertion](vector-index.md#post-promotion-insertion).
 
-Recovery must delete every key under `<indexName>/segments/` that the manifest does not reference, because a checkpoint that crashes before its manifest write leaves such keys behind.
+Recovery must delete every key under `<indexName>/segments/` that neither the manifest nor the manifest inside `<indexName>/sync/published` references, because a checkpoint that crashes before its manifest write leaves such keys behind.
 
 ---
 
@@ -335,7 +335,7 @@ An interval, a mutation count since the last checkpoint, or both together trigge
 1. Capture each partition's current head sequence number, `N_p`.
 2. Write the [segmented checkpoint](#segmented-checkpoint), with the manifest's `checkpoint` list carrying `lastSeqNo = N_p` for each partition.
 3. Persist the checkpoint's total document count in `document_count`.
-4. Once the manifest and metadata are fully durable, delete for each partition every log segment whose highest `seqNo` is at or below `N_p`. Keep the segment containing `N_p`, because it also holds records above `N_p`, and keep every newer segment. Never delete the segment the partition's commit marker names active, even when all of its current records are at or below `N_p`, because new writes will extend it.
+4. Once the manifest and metadata are fully durable, delete for each partition every log segment whose highest `seqNo` is at or below `N_p`. Keep the segment containing `N_p`, because it also holds records above `N_p`, and keep every newer segment. Never delete the segment the partition's commit marker names active, even when all of its current records are at or below `N_p`, because new writes will extend it. While `sync_active` is set for the index, the node moves those segments into history, as [History](sync.md#history) defines.
 
 The ordering rule is absolute: the checkpoint must be fully durable before any log segment it covers is deleted, and that order is never reversed. A crash before step 4 leaves extra log segments, which recovery skips by sequence number with no harm done.
 
@@ -353,7 +353,7 @@ With persistence configured and no lifecycle settings, a node must recover on st
    1. Load `<indexName>/meta`, rebuild the schema, language, partition count, and vector fields, and create the index empty.
    2. Load `<indexName>/manifest` and verify the envelope CRC. When no manifest exists, every partition starts empty with `lastSeqNo` at 0.
    3. Load the partitions and vector indexes by [structural merge](#structural-merge-recovery) from the manifest, and read each partition's `lastSeqNo`.
-   4. For each partition, read its log as described in [Reading a Segment](#reading-a-segment) and replay every record whose `seqNo` is above `lastSeqNo`.
+   4. For each partition, read its log as described in [Reading a Segment](#reading-a-segment) and replay every record whose `seqNo` is above `lastSeqNo`. Recovery reads no key under `<indexName>/history/`.
 3. After replay the index serves reads and writes, and each partition continues from the highest replayed `seqNo` plus one.
 
 With lifecycle settings configured, a node must load each persisted index's metadata on startup, register the index closed, and defer snapshot and log recovery until the first operation names the index; it must finish recovery before the operation accesses index data.

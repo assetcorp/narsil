@@ -1,6 +1,7 @@
 import { targetOfPending } from '../../engine/analysis-change/pending-target'
 import type { EngineCore } from '../../engine/core'
 import { oneAtATime, withOpenIndex } from '../../engine/serial-index-update'
+import { emitSyncChange } from '../../engine/sync-notify'
 import type { SynonymRule } from '../../types/synonyms'
 import { prepareSynonyms } from './prepare'
 
@@ -31,6 +32,7 @@ async function replaceNow(core: EngineCore, indexName: string, value: unknown, s
     ...(prepared !== null ? { synonyms: prepared.encoded } : {}),
   })
   await core.orchestrator.awaitWrites(indexName)
+  if (core.requireIndex(indexName).sync !== null) emitSyncChange(core.indexRegistry, { kind: 'settings', indexName })
 }
 
 export function replaceSynonymSet(

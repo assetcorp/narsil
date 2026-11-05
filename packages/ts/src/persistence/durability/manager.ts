@@ -1,6 +1,5 @@
 import { toError } from '../../engine/orchestration/eligibility'
 import { writeMetadataEnvelope } from '../../serialization/envelope'
-import { createArchiveCheckpointAccess } from './archive-checkpoint'
 import { runDurableCheckpoint } from './checkpoint-run'
 import { checkpointInTurn, createIndexLoads, switchInTurn } from './checkpoint-turn'
 import { terminateCheckpointWorker } from './checkpoint-worker-dispatch'
@@ -14,7 +13,8 @@ import {
 import { createDirectoryWatch, unrefInterval } from './directory-watch'
 import { createDurableDirectory, type DurableDirectory } from './durable-filesystem'
 import { createHeldCheckpoints } from './held-checkpoints'
-import { closePartitionWriter, drainIndexStateForUnload, type IndexState } from './manager-state'
+import { closePartitionWriter, type IndexState } from './manager-state'
+import { createIndexStorageAccess } from './manager-storage'
 import { createMetadataWriteQueue } from './metadata-write-queue'
 import {
   commitAppended,
@@ -175,6 +175,7 @@ export function createDurabilityManager(
       mutationThreshold: checkpointMutationThreshold,
       mayContinue: () => !indexState.unloading && !shuttingDown && fatalError === null,
       holdsCheckpointFiles: () => heldCheckpointFiles.has(indexName),
+      keepsCheckpointKey: () => syncStorage.keepsCheckpointKey(indexName),
       queueMetadataWrite,
       markFatal,
       failPartition: partitionFailureFor(indexName, partitionBatchDeps),
@@ -232,6 +233,19 @@ export function createDurabilityManager(
     return outcomes
   }
 
+  const { archiveAccess, syncStorage, unloading } = createIndexStorageAccess({
+    directory,
+    hooks,
+    indexes,
+    metadataWrites,
+    heldCheckpointFiles,
+    checkpoint: (name, pinsVectors) => requestedCheckpoint(name, false, pinsVectors),
+    registerPartition: (name, partitionId, startSeqNo, primaryTerm) =>
+      getOrCreatePartition(name, partitionId, startSeqNo, primaryTerm),
+    markFatal,
+    closeWriterReportingFailure,
+  })
+
   const recoveryDeps = {
     directory,
     hooks,
@@ -241,6 +255,7 @@ export function createDurabilityManager(
     },
     holdsCheckpointFiles: (name: string) => heldCheckpointFiles.has(name),
     queueMetadataWrite,
+    syncStorage,
   }
 
   function recoverIndex(indexName: string, metadataOnly = false, startsGraphRepairs = true): Promise<void> {
@@ -346,38 +361,11 @@ export function createDurabilityManager(
       }
     },
 
-    async removeIndex(indexName: string): Promise<void> {
-      hooks.writeRecords?.dropIndex(indexName)
-      const indexState = indexes.get(indexName)
-      if (indexState !== undefined) {
-        await drainIndexStateForUnload(indexState, metadataWrites.pending(indexName), closeWriterReportingFailure)
-        indexes.delete(indexName)
-        metadataWrites.forget(indexName)
-      }
-      for (const vectorIndex of hooks.getVectorIndexes(indexName).values()) await vectorIndex.releaseVectorFiles()
-      for (const key of await directory.list(`${indexName}/`)) {
-        await directory.remove(key)
-      }
-    },
+    ...unloading,
 
-    async unloadIndex(indexName: string): Promise<void> {
-      const indexState = indexes.get(indexName)
-      if (indexState === undefined) {
-        return
-      }
-      await drainIndexStateForUnload(indexState, metadataWrites.pending(indexName), close => close)
-      indexes.delete(indexName)
-      metadataWrites.forget(indexName)
-    },
+    syncStorage: () => syncStorage,
 
-    ...createArchiveCheckpointAccess({
-      directory,
-      held: heldCheckpointFiles,
-      checkpoint: (name, pinsVectors) => requestedCheckpoint(name, false, pinsVectors),
-      registerPartition: (name, partitionId, startSeqNo, primaryTerm) =>
-        getOrCreatePartition(name, partitionId, startSeqNo, primaryTerm),
-      markFatal,
-    }),
+    ...archiveAccess,
 
     async shutdown(): Promise<void> {
       shuttingDown = true

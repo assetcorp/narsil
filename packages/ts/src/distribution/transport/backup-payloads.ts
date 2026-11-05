@@ -4,6 +4,7 @@ import type { AllocationConstraints } from '../coordinator/types'
 export interface BackupRequestPayload {
   backupName: string
   indexName: string
+  takenBy?: string
 }
 
 export interface BackupRestoreRequestPayload {

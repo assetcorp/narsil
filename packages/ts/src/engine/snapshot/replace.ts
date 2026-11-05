@@ -4,11 +4,14 @@ import type { PartitionCheckpoint } from '../../persistence/durability/partition
 import type { RestoreStaging } from '../../persistence/durability/restore-staging'
 import { SINGLE_NODE_PRIMARY_TERM } from '../../persistence/durability/seq-owner'
 import { writeMetadataEnvelope } from '../../serialization/envelope'
+import { newSyncEpoch } from '../../sync/epoch'
 import type { VectorIndex } from '../../vector/vector-index'
 import type { DetachedIndex } from '../../workers/direct-executor'
 import { arrayPositionsAreStale } from '../array-positions'
 import type { IndexRegistryEntry } from '../core'
 import { indexMetadataOf } from '../durability-metadata'
+import { oneSyncChangeAtATime } from '../sync/serial'
+import { emitSyncChange } from '../sync-notify'
 import { type PreparedIndex, type RestoreDeps, restoredRegistryEntry } from './restore-setup'
 
 export interface RestoredIndex {
@@ -186,6 +189,8 @@ async function stageMetadata(indexName: string, staging: RestoreStaging, entry: 
 
 export async function installRestoredIndex(indexName: string, restored: RestoredIndex, deps: RestoreDeps) {
   const entry = restoredRegistryEntry(restored.prepared, restored.detached.manager, deps)
+  const previousSync = deps.indexRegistry.get(indexName)?.sync ?? null
+  if (previousSync !== null) entry.sync = { ...previousSync, active: false, epoch: newSyncEpoch() }
   let replaced: IndexRegistryEntry | undefined
   try {
     if (restored.staging !== null) await stageMetadata(indexName, restored.staging, entry)
@@ -203,9 +208,16 @@ export async function installRestoredIndex(indexName: string, restored: Restored
     await durable.persistMetadata(indexName)
     await durable.checkpoint(indexName)
   }
+  if (previousSync !== null) {
+    const storage = durable?.syncStorage?.()
+    if (storage !== undefined)
+      await oneSyncChangeAtATime(deps.indexRegistry, indexName, () => storage.release(indexName))
+    emitSyncChange(deps.indexRegistry, { kind: 'epoch', indexName })
+  }
   if (replaced !== undefined) await deps.announceIndexDropped(indexName, replaced.config)
   await deps.announceIndexCreated(indexName, restored.prepared.config)
   for (const vectorIndex of restored.detached.manager.getVectorIndexes().values()) {
+    vectorIndex.scheduleBuild()
     vectorIndex.startShuffledRebuildWhenDue()
   }
 }

@@ -95,6 +95,10 @@ async function readEveryListed(store: BackupStore): Promise<Exclude<ManifestRead
   return reads
 }
 
+export async function readEveryReadableManifest(store: BackupStore): Promise<BackupManifest[]> {
+  return (await readEveryListed(store)).flatMap(read => ('error' in read ? [] : [read.manifest]))
+}
+
 export async function readEveryManifest(store: BackupStore): Promise<BackupManifest[]> {
   const manifests: BackupManifest[] = []
   for (const read of await readEveryListed(store)) {

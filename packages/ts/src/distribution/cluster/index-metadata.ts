@@ -14,6 +14,7 @@ import {
   isRecord,
   settingsRejection,
 } from './index-settings'
+import { withoutSyncFields } from './sync-settings'
 import {
   copySynonymSet,
   readSynonymSet,
@@ -213,7 +214,8 @@ export async function putGenerationMetadata(
       copiedSetGeneration = held.ref.generation
       continue
     }
-    const bytes = new Uint8Array(encode({ ...decoded, ...generation }, { ignoreUndefined: true }))
+    const settings = isRecord(decoded.settings) ? withoutSyncFields(decoded.settings) : decoded.settings
+    const bytes = new Uint8Array(encode({ ...decoded, settings, ...generation }, { ignoreUndefined: true }))
     return coordinator.compareAndSet(key, current, bytes)
   }
 }

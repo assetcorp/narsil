@@ -131,8 +131,10 @@ export type {
   TermMatchPolicy,
   VectorQueryConfig,
 } from './types/search'
+export type { SyncOperations, SyncSetting, SyncStatus } from './types/sync'
 export type { SynonymOperations } from './types/synonym-operations'
 export type { OneWaySynonymRule, SynonymRule, SynonymSearch, TwoWaySynonymRule } from './types/synonyms'
+export type { VectorMaintenanceOperations } from './types/vector-maintenance-operations'
 export type { DocumentWriteOperations } from './types/writes'
 export type {
   NativeConnectResult,

@@ -57,11 +57,13 @@ export interface ServerHandlers {
   restore: RouteHandler
   exportDocuments: RouteHandler
   importExport: RouteHandler
+  updateSync: RouteHandler
+  syncSnapshot: RouteHandler
 }
 
 export type RouteMethod = 'get' | 'post' | 'put' | 'patch' | 'del'
 
-export type RouteTag = 'Server' | 'Cluster' | 'Tasks' | 'Indexes' | 'Documents' | 'Search' | 'Maintenance'
+export type RouteTag = 'Server' | 'Cluster' | 'Tasks' | 'Indexes' | 'Documents' | 'Search' | 'Maintenance' | 'Sync'
 
 export interface RawContent {
   contentType: string

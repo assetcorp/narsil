@@ -32,7 +32,7 @@ function refuseCode(entry: IndexRegistryEntry): void {
 export function indexConfigurationOf(entry: IndexRegistryEntry): Record<string, unknown> {
   refuseCode(entry)
   const synonyms = entry.synonyms === null ? undefined : rulesOfStoredSynonyms(entry.synonyms)
-  return configurationPayloadOf(
+  const payload = configurationPayloadOf(
     entry.config,
     entry.language,
     entry.embeddingAdapterName,
@@ -41,6 +41,7 @@ export function indexConfigurationOf(entry: IndexRegistryEntry): Record<string, 
     synonyms,
     entry.analysisGeneration,
   )
+  return entry.sync === null ? payload : { ...payload, syncEpoch: entry.sync.epoch }
 }
 
 export function requireConfigurationWithinSizeLimit(config: IndexConfig, language: LanguageModule): void {

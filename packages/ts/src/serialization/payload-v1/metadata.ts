@@ -4,8 +4,9 @@ import { ErrorCodes, NarsilError } from '../../errors'
 import { isQuantizationMode, isStorageMode } from '../../schema/validator/vector-promotion'
 import type { IndexMetadata } from '../../types/internal'
 import type { VectorIndexConfig } from '../../types/schema'
+import { type RawSyncMetadata, syncMetadataFromWire, syncMetadataToWire } from './sync-metadata'
 
-interface RawMetadataPayload {
+interface RawMetadataPayload extends RawSyncMetadata {
   index_name: string
   document_count?: unknown
   schema: Record<string, string>
@@ -160,7 +161,7 @@ function metadataToWire(meta: IndexMetadata): RawMetadataPayload {
   if (Array.isArray(meta.synonyms) && meta.synonyms.length > 0) {
     wire.synonyms = meta.synonyms
   }
-  return wire
+  return { ...wire, ...syncMetadataToWire(meta) }
 }
 
 function wireToMetadata(raw: RawMetadataPayload): IndexMetadata {
@@ -324,6 +325,7 @@ function wireToMetadata(raw: RawMetadataPayload): IndexMetadata {
     meta.heldPartitions = raw.held_partitions
   }
   if (raw.synonyms !== undefined && raw.synonyms !== null) meta.synonyms = raw.synonyms
+  syncMetadataFromWire(raw, meta)
   return meta
 }
 
