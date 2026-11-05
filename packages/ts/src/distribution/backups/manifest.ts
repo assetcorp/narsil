@@ -1,13 +1,14 @@
 import { decode, encode } from '@msgpack/msgpack'
 import { ErrorCodes, NarsilError } from '../../errors'
 import { joinChunks } from '../../persistence/object-store'
+import { MAX_HISTORY_FILE_BYTES } from '../../query-suggestions/constants'
 import { MAX_FILE_BYTES } from '../../serialization/constants'
 import { openChecksummedEnvelope, packChecksummedEnvelope } from '../../serialization/envelope-file'
 import { isSyncEpoch } from '../../sync/epoch'
 import { MAX_PARTITION_COUNT, MAX_REPLICATION_FACTOR } from '../constants'
 import type { AllocationConstraints } from '../coordinator/types'
 import { isRecord, isValidInteger } from '../payload-guards'
-import { MAX_BACKUP_FILE_PATH_LENGTH, MAX_BACKUP_FILES_PER_PARTITION } from './constants'
+import { MAX_BACKUP_FILE_PATH_LENGTH, MAX_BACKUP_FILES_PER_PARTITION, MAX_BACKUP_HISTORY_FILES } from './constants'
 import { isSha256Hex } from './keys'
 
 const BACKUP_MANIFEST_ENVELOPE_VERSION = 1
@@ -41,6 +42,7 @@ export interface BackupManifest {
   replicationFactor: number
   constraints: AllocationConstraints
   config: StoredFile
+  queryHistory?: StoredFile[]
   partitions: BackupPartition[]
 }
 
@@ -156,8 +158,21 @@ function validateManifest(raw: unknown, backupName: string): BackupManifest {
     replicationFactor: raw.replicationFactor,
     constraints,
     config: readStoredFile(raw.config, backupName),
+    ...readQueryHistory(raw.queryHistory, backupName),
     partitions,
   }
+}
+
+function readQueryHistory(value: unknown, backupName: string): Pick<BackupManifest, 'queryHistory'> {
+  if (value === undefined) return {}
+  if (!Array.isArray(value) || value.length > MAX_BACKUP_HISTORY_FILES) {
+    throw damaged(backupName, 'holds a malformed query history list')
+  }
+  const files = value.map(entry => readStoredFile(entry, backupName))
+  if (files.some(file => file.bytes > MAX_HISTORY_FILE_BYTES)) {
+    throw damaged(backupName, `lists a query history file longer than ${MAX_HISTORY_FILE_BYTES} bytes`)
+  }
+  return { queryHistory: files }
 }
 
 export async function decodeBackupManifest(bytes: Uint8Array, backupName: string): Promise<BackupManifest> {
@@ -181,7 +196,7 @@ export async function encodeBackupManifest(manifest: BackupManifest): Promise<Ui
 }
 
 export function storedFilesOf(manifest: BackupManifest): StoredFile[] {
-  const files: StoredFile[] = [manifest.config]
+  const files: StoredFile[] = [manifest.config, ...(manifest.queryHistory ?? [])]
   for (const partition of manifest.partitions) files.push(partition.manifest, ...partition.files)
   return files
 }

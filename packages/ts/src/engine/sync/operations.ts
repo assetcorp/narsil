@@ -1,6 +1,7 @@
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { SyncStorage } from '../../persistence/durability/sync/storage'
 import { newSyncEpoch } from '../../sync/epoch'
+import type { StoredQuerySuggestions } from '../../types/internal'
 import type { SyncSetting } from '../../types/sync'
 import type { EngineCore } from '../core'
 import type { IndexSyncState } from '../registry-entry'
@@ -36,6 +37,15 @@ export function requireSyncSetting(setting: unknown): SyncSetting {
   }
 }
 
+export function requireNoQuerySuggestions(state: StoredQuerySuggestions | null, indexName: string): void {
+  if (state?.querySuggestions?.enabled !== true) return
+  throw new NarsilError(
+    ErrorCodes.CONFIG_INVALID,
+    `Index "${indexName}" has popular query suggestions on, so it cannot sync to devices: a device receives the whole index of one user, while a suggestion comes from the searches of several people`,
+    { indexName },
+  )
+}
+
 export function syncStorageOf(core: Pick<EngineCore, 'durability'>, indexName: string): SyncStorage {
   const storage = core.durability?.manager.syncStorage?.()
   if (storage === undefined) {
@@ -66,6 +76,7 @@ export function updateIndexSync(core: EngineCore, indexName: string, value: Sync
   const storage = syncStorageOf(core, indexName)
   return withOpenIndex(core, indexName, () =>
     oneSyncChangeAtATime(core.indexRegistry, indexName, async () => {
+      if (setting.enabled) requireNoQuerySuggestions(core.requireIndex(indexName).querySuggestions, indexName)
       const previous = core.requireIndex(indexName).sync
       if (!setting.enabled) {
         if (previous === null) return

@@ -26,6 +26,7 @@ import {
 import { buildMutationEntry } from './mutation-entry'
 import { createPartitionFailureRouting } from './partition-failure'
 import { createPartitionRegistry } from './partition-registry'
+import { queryHistoryAccess } from './query-history'
 import { recoverPersistedIndex } from './recover-index'
 import { listPersistedIndexes, removeLeftoverRewriteFiles } from './recovery'
 import { recoverDirectoryRestores } from './restore-directory'
@@ -364,6 +365,8 @@ export function createDurabilityManager(
     ...unloading,
 
     syncStorage: () => syncStorage,
+
+    ...queryHistoryAccess({ kind: 'directory', directory }),
 
     ...archiveAccess,
 

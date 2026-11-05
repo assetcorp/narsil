@@ -41,12 +41,17 @@ export function createBackupHandlers(deps: HandlerDeps) {
         badRequest(ctx.res, 'The body must carry the backup name as a string in "backup"', { indexName })
         return
       }
+      if (body.queryHistory !== undefined && typeof body.queryHistory !== 'boolean') {
+        badRequest(ctx.res, 'The body accepts only true or false in "queryHistory"', { indexName })
+        return
+      }
       const backupName = validateBackupName(body.backup)
+      const queryHistory = body.queryHistory === true
       const record = await deps.tasks.start(
         'backup',
         indexName,
         async context => {
-          await cluster.createBackup(indexName, backupName, stepsOf(context))
+          await cluster.createBackup(indexName, backupName, { ...stepsOf(context), queryHistory })
         },
         undefined,
         backupName,

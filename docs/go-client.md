@@ -134,7 +134,7 @@ The wait fails with `TASK_NOT_FOUND` when the server drops the record before the
 `Snapshot` and `ExportDocuments` return a `*narsil.ResponseStream`, which is an `io.ReadCloser` over the body as it arrives. The client never holds the whole body in memory, so `io.Copy` writes an index of any size to a file. Close the stream when you finish, so that the client can release the connection.
 
 ```go
-archive, err := client.Snapshot(ctx, "movies")
+archive, err := client.Snapshot(ctx, "movies", narsil.SnapshotParams{})
 if err != nil {
 	return err
 }

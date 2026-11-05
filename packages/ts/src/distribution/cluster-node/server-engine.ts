@@ -2,6 +2,7 @@ import { ErrorCodes, NarsilError } from '../../errors'
 import { bindIndexReads } from '../../narsil/index-reads'
 import { bindRerankWindowSource, rerankWindowCapOf } from '../../narsil/internals'
 import { bindEngineWriteBlock } from '../../narsil/write-blocks'
+import { bindQuerySuggestions, boundQuerySuggestionsOf } from '../../query-suggestions/providers'
 import { bindSyncServing, syncServingSourceOf } from '../../server/sync/serving'
 import type { Narsil } from '../../types/engine'
 import type { AnyDocument, BM25Params, IndexConfig, InsertOptions, WriteOptions } from '../../types/schema'
@@ -228,5 +229,7 @@ export function clusterNodeEngine(node: ClusterNode, options?: ClusterEngineOpti
   bindRerankWindowSource(engine, () => rerankWindowCapOf(node))
   const syncServing = syncServingSourceOf(node)
   if (syncServing !== undefined) bindSyncServing(engine, syncServing)
+  const suggestions = boundQuerySuggestionsOf(node)
+  if (suggestions !== undefined) bindQuerySuggestions(engine, suggestions)
   return engine
 }

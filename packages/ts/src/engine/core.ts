@@ -20,11 +20,9 @@ import { createDirectExecutor, type DirectExecutorExtensions, type IndexReplacem
 import type { Executor } from '../workers/executor'
 import { resolveWorkerCount, splitWorkerBudget } from '../workers/worker-count'
 import { type AnalysisRebuildCoordinator, wireAnalysisRebuild } from './analysis-rebuild'
-import { resolveDurabilityTier } from './durability-config'
 import type { DurabilityIntegration } from './durability-integration'
 import { emitEngineEvent, eventHandlersOf } from './events'
 import type { HeapPressureNotifier } from './heap-pressure'
-import { createIndexFromMetadata as createIndexFromMetadataOp } from './index-from-metadata'
 import type { IndexStateCoordinator } from './index-state'
 import { type EngineCoreHooks, wireIndexState } from './index-state-wiring'
 import { createInvalidationFromConfig, type InvalidationIntegration } from './invalidation'
@@ -59,6 +57,7 @@ export interface EngineCore {
   readonly orchestrator: WorkerOrchestrator
   readonly rebalanceRouter: PartitionRouter
   readonly rebalancingIndexes: Set<string>
+  readonly restoresInFlight: Map<string, Promise<void>>
   readonly waqMap: Map<string, ReturnType<typeof createWriteAheadQueue>>
   readonly guardShutdown: () => void
   readonly requireIndex: (indexName: string) => IndexRegistryEntry
@@ -71,6 +70,14 @@ export interface EngineCore {
   readonly mutationCtx: MutationContext
   readonly rebalanceCtx: RebalanceContext
   readonly patternWorkCap: number
+  querySuggestionHooks?: QuerySuggestionHooks
+}
+
+export interface QuerySuggestionHooks {
+  beforeCreate(indexName: string): Promise<void>
+  beforeDrop(indexName: string): Promise<void>
+  afterDrop(indexName: string): Promise<void>
+  shutdown(): Promise<void>
 }
 
 export async function createEngineCore(
@@ -89,7 +96,10 @@ export async function createEngineCore(
     enabled: (config?.workers?.enabled ?? workersEnabledByDefault()) && vectorWorkerCount > 0,
     count: vectorWorkerCount,
   }
-  const durabilityTier = config !== undefined ? resolveDurabilityTier(config) : null
+  const durabilityTier =
+    config !== undefined && (config.durability || config.persistence !== undefined)
+      ? (await import('./durability-config')).resolveDurabilityTier(config)
+      : null
   if (config?.lifecycle !== undefined && durabilityTier === null) {
     throw new NarsilError(ErrorCodes.CONFIG_INVALID, 'Index lifecycle settings require durability')
   }
@@ -192,7 +202,8 @@ export async function createEngineCore(
     return manager
   }
 
-  function createIndexFromMetadata(metadata: IndexMetadata, loadData: boolean): Promise<void> {
+  async function createIndexFromMetadata(metadata: IndexMetadata, loadData: boolean): Promise<void> {
+    const { createIndexFromMetadata: createIndexFromMetadataOp } = await import('./index-from-metadata')
     return createIndexFromMetadataOp(
       {
         config,
@@ -365,6 +376,7 @@ export async function createEngineCore(
     orchestrator,
     rebalanceRouter,
     rebalancingIndexes,
+    restoresInFlight: new Map(),
     waqMap,
     guardShutdown,
     requireIndex,

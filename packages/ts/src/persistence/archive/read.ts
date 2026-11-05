@@ -1,3 +1,4 @@
+import { MAX_HISTORY_FILE_BYTES, QUERY_HISTORY_ARCHIVE_PREFIX } from '../../query-suggestions/constants'
 import { MAX_FILE_BYTES } from '../../serialization/constants'
 import { HEADER_SIZE } from '../../serialization/header'
 import { type FileRef, manifestFileRefs, type SegmentManifest } from '../durability/segment/manifest'
@@ -20,6 +21,7 @@ export interface ArchiveReadHandlers {
   config(bytes: Uint8Array): Promise<void>
   manifest(manifest: SegmentManifest, sourceIndexName: string): Promise<void>
   file(entryName: string, ref: FileRef, chunks: AsyncIterable<Uint8Array>): Promise<void>
+  history?(chunks: AsyncIterable<Uint8Array>): Promise<void>
 }
 
 async function readBlock(reader: ByteReader): Promise<Uint8Array | null> {
@@ -137,10 +139,27 @@ export async function readSnapshotArchive(reader: ByteReader, handlers: ArchiveR
     while (unread.done !== true) unread = await entry.next()
     await skipPadding(reader, header.size)
   }
-  const trailing = await nextEntryHeader(reader)
-  if (trailing !== null) {
-    invalidArchive(`the archive holds the entry "${trailing.name}" that the manifest does not list`, {
-      entry: trailing.name,
-    })
+  await readHistoryEntries(reader, handlers)
+}
+
+async function readHistoryEntries(reader: ByteReader, handlers: ArchiveReadHandlers): Promise<void> {
+  for (let position = 0; ; position++) {
+    const header = await nextEntryHeader(reader)
+    if (header === null) return
+    if (header.name !== `${QUERY_HISTORY_ARCHIVE_PREFIX}${position}`) {
+      invalidArchive(`the archive holds the entry "${header.name}" that the manifest does not list`, {
+        entry: header.name,
+      })
+    }
+    if (header.size > MAX_HISTORY_FILE_BYTES) {
+      invalidArchive(`the entry "${header.name}" passes the history file limit of ${MAX_HISTORY_FILE_BYTES} bytes`, {
+        entry: header.name,
+      })
+    }
+    const entry = entryBody(reader, header.size)
+    await handlers.history?.(entry)
+    let unread = await entry.next()
+    while (unread.done !== true) unread = await entry.next()
+    await skipPadding(reader, header.size)
   }
 }

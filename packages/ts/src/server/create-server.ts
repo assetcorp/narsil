@@ -42,9 +42,15 @@ import { createHealthHandlers } from './handlers/health'
 import { createImportHandler } from './handlers/import'
 import { createIndexHandlers } from './handlers/indexes'
 import { createMetricsHandler } from './handlers/metrics'
+import { createQuerySuggestionHandlers } from './handlers/query-suggestions'
 import { createSearchHandlers } from './handlers/search'
 import { createVersionHandler } from './handlers/version'
-import { assertAllowRegex, assertServerEngine, assertServerLimits } from './options-validation'
+import {
+  assertAllowRegex,
+  assertQuerySuggestionsOptions,
+  assertServerEngine,
+  assertServerLimits,
+} from './options-validation'
 import { type Authorizer, authorizerFor, createRouteRunner } from './request'
 import { type RequestThreadHost, startRequestThreads } from './request-threads/host'
 import { registerServerRoutes, type ServerHandlers } from './routes'
@@ -120,6 +126,7 @@ function mainThreadHandlers(deps: HandlerDeps, syncServing: () => SyncServing | 
   const version = createVersionHandler(deps)
   const capabilities = createCapabilitiesHandler()
   const syncSetting = createSyncSettingHandlers(deps.engine)
+  const suggestions = createQuerySuggestionHandlers(deps, deps.querySuggestions)
 
   return {
     livez: health.livez,
@@ -179,6 +186,15 @@ function mainThreadHandlers(deps: HandlerDeps, syncServing: () => SyncServing | 
     importExport: documentExport.importExport,
     updateSync: syncSetting.updateSync,
     syncSnapshot: createSyncSnapshotHandler(syncServing),
+    updateQuerySuggestions: suggestions.update,
+    querySuggestionsStatus: suggestions.status,
+    recordQuery: suggestions.record,
+    buildQuerySuggestions: suggestions.build,
+    previewQuerySuggestions: suggestions.preview,
+    readQueryBans: suggestions.readBans,
+    replaceQueryBans: suggestions.replaceBans,
+    removeQuery: suggestions.remove,
+    addManualSuggestion: suggestions.manual,
   }
 }
 
@@ -202,6 +218,7 @@ class NarsilHttpServer implements NarsilServer {
     const engineRerankWindow = rerankWindowCapOf(engine)
     assertServerLimits(options.limits, engineRerankWindow)
     assertAllowRegex(options.allowRegex)
+    assertQuerySuggestionsOptions(options.querySuggestions)
     this.sync = resolveSyncOptions(options.sync)
     this.host = options.host ?? '127.0.0.1'
     this.port = options.port ?? 9876
@@ -226,6 +243,7 @@ class NarsilHttpServer implements NarsilServer {
       build: resolveBuild(options.build),
       cluster: options.cluster,
       requestThreadCount: () => this.requestThreadCount,
+      querySuggestions: options.querySuggestions,
     }
   }
 
