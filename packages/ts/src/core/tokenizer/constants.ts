@@ -12,3 +12,4 @@ export const MEDIUM_DEVICE_TOKEN_CACHE_ENTRIES = 250_000
 export const LARGE_DEVICE_TOKEN_CACHE_ENTRIES = 500_000
 
 export const DEFAULT_MIN_TOKEN_LENGTH = 1
+export const DEFAULT_SPLIT_PATTERN = /[^\p{L}\p{M}\p{N}_'-]+/u

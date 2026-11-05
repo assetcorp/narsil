@@ -13,6 +13,7 @@ import {
   TOKEN_CACHE_SIZE_FLOOR,
   UNKNOWN_MEMORY_TOKEN_CACHE_ENTRIES,
 } from './constants'
+import { nativeAnalysis } from './native-hook'
 import { stripDiacritics } from './normalize'
 
 function clampCacheSize(entries: number): number {
@@ -131,6 +132,19 @@ function evictOldestEntries(count: number): void {
   }
 }
 
+function transformInTypeScript(
+  raw: string,
+  language: LanguageModule,
+  stem: boolean,
+  removeDiacritics: boolean,
+): string {
+  let normalized = raw
+  if (language.normalizer) normalized = language.normalizer(normalized)
+  if (removeDiacritics) normalized = stripDiacritics(normalized)
+  if (stem && language.stemmer) normalized = language.stemmer(normalized)
+  return normalized
+}
+
 export function transformToken(
   raw: string,
   language: LanguageModule,
@@ -142,19 +156,9 @@ export function transformToken(
   const cached = bucket.get(raw)
   if (cached !== undefined) return cached
 
-  let normalized = raw
-
-  if (language.normalizer) {
-    normalized = language.normalizer(normalized)
-  }
-
-  if (removeDiacritics) {
-    normalized = stripDiacritics(normalized)
-  }
-
-  if (stem && language.stemmer) {
-    normalized = language.stemmer(normalized)
-  }
+  const normalized =
+    nativeAnalysis()?.transform(raw, language, stem, removeDiacritics) ??
+    transformInTypeScript(raw, language, stem, removeDiacritics)
 
   if (normalizationCacheSize >= maxCacheSize) {
     evictOldestEntries(Math.max(1, maxCacheSize >>> 2))

@@ -1,7 +1,8 @@
 import type { LanguageModule } from '../../types/language'
 import type { CustomTokenizer } from '../../types/schema'
 import { transformToken } from './cache'
-import { DEFAULT_MIN_TOKEN_LENGTH } from './constants'
+import { DEFAULT_MIN_TOKEN_LENGTH, DEFAULT_SPLIT_PATTERN } from './constants'
+import { nativeAnalysis } from './native-hook'
 import { expandNgrams } from './ngrams'
 import { normalizeForSplitting } from './normalize'
 
@@ -24,8 +25,6 @@ export function producesSurfaceForms(language: LanguageModule, options?: Tokeniz
   if (!options?.collectSurfaces || options.customTokenizer) return false
   return (options.stem ?? true) && language.stemmer !== null
 }
-
-const DEFAULT_SPLIT_PATTERN = /[^\p{L}\p{M}\p{N}_'-]+/u
 
 export function resolveStopWords(
   language: LanguageModule,
@@ -85,6 +84,7 @@ export function visitTokens(
     for (const entry of customTokenizer.tokenize(text)) visit(entry.token, entry.position, undefined, entry.token)
     return
   }
+  if (nativeAnalysis()?.visitTokens(text, language, options, visit) === true) return
 
   const rawParts = splitText(normalizeForSplitting(text), language)
   const minLength = language.tokenizer?.minTokenLength ?? DEFAULT_MIN_TOKEN_LENGTH
@@ -109,6 +109,7 @@ export function visitTokens(
 }
 
 export function visitSurfaceSpellings(text: string, language: LanguageModule, visit: (spelling: string) => void): void {
+  if (nativeAnalysis()?.visitSpellings(text, language, visit) === true) return
   const rawParts = splitText(normalizeForSplitting(text), language)
   const minLength = language.tokenizer?.minTokenLength ?? DEFAULT_MIN_TOKEN_LENGTH
   const removeDiacritics = language.tokenizer?.normalizeDiacritics ?? false

@@ -95,6 +95,22 @@
         "cwd": "packages/ts"
       }
     },
+    "native-analysis": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "options": {
+        "command": "pnpm run native-analysis",
+        "cwd": "packages/ts"
+      }
+    },
+    "native-analysis:write": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "options": {
+        "command": "pnpm run native-analysis:write",
+        "cwd": "packages/ts"
+      }
+    },
     "api": {
       "executor": "nx:run-commands",
       "cache": false,

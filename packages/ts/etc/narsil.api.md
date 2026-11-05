@@ -745,6 +745,19 @@ export interface NarsilPlugin {
     onWorkerPromote?(ctx: WorkerContext): void | Promise<void>;
 }
 
+// Warning: (ae-internal-missing-underscore) The name "NativeAnalysisCore" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface NativeAnalysisCore {
+    analyse(language: number, flags: number, text: string, stopWords: NativeStopWordSetHandle | null, records: Uint32Array): string | number | null;
+    createStopWordSet(words: string[]): NativeStopWordSetHandle;
+    languageCount(): number;
+    languageName(language: number): string;
+    languageRevision(language: number): string;
+    languageStopWords(language: number): string[];
+    transform(language: number, flags: number, token: string): string | number;
+}
+
 // Warning: (ae-internal-missing-underscore) The name "NativeConnectResult" should be prefixed with an underscore because the declaration is marked as @internal
 //
 // @internal
@@ -756,7 +769,7 @@ export interface NativeConnectResult {
 // Warning: (ae-internal-missing-underscore) The name "NativeCore" should be prefixed with an underscore because the declaration is marked as @internal
 //
 // @internal
-export interface NativeCore {
+export interface NativeCore extends NativeAnalysisCore {
     abiVersion(): number;
     attachGraph(memory: NativeGraphMemory): NativeGraphHandle;
     attachStore(memory: NativeStoreMemory): NativeStoreHandle;
@@ -812,6 +825,11 @@ export interface NativeSearchResult {
     distances: Float64Array;
     ordinals: Int32Array;
 }
+
+// Warning: (ae-internal-missing-underscore) The name "NativeStopWordSetHandle" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export type NativeStopWordSetHandle = object;
 
 // Warning: (ae-internal-missing-underscore) The name "NativeStoreHandle" should be prefixed with an underscore because the declaration is marked as @internal
 //
