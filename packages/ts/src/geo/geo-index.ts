@@ -1,10 +1,9 @@
 import { bitsetSet, createBitSet } from '../core/bitset'
 import { PENDING_REMOVAL_MERGE_DIVISOR, PENDING_REMOVAL_MERGE_FLOOR } from '../core/constants'
 import type { GeopointEntry } from '../types/internal'
-import { coveringRanges, type LocationBox, locationCode, radiusBoxes } from './cells'
-import { haversineDistance } from './haversine'
+import { coveringRanges, type LocationBox, locationCode } from './cells'
 import { polygonBoxes, polygonContainment } from './polygon'
-import { vincentyDistance } from './vincenty'
+import { requireLoadedRadiusCode } from './radius-code'
 
 export interface GeoIndexReader {
   radiusQuery(lat: number, lon: number, distanceMeters: number, inside: boolean, highPrecision: boolean): Set<number>
@@ -95,11 +94,13 @@ export function createGeoIndex(): GeoIndex {
     if (removedCount >= Math.max(PENDING_REMOVAL_MERGE_FLOOR, held / PENDING_REMOVAL_MERGE_DIVISOR)) ensureSorted()
   }
 
-  function matching(boxes: readonly LocationBox[], passes: (entry: LocatedEntry) => boolean, inside: boolean) {
+  function matching(boxes: readonly LocationBox[], prepare: () => (entry: LocatedEntry) => boolean, inside: boolean) {
     ensureSorted()
     const within = new Set<number>()
+    let passes: ((entry: LocatedEntry) => boolean) | null = null
     for (const range of coveringRanges(boxes)) {
       for (let at = firstAtOrAfter(entries, range.from); at < entries.length && entries[at].code < range.to; at++) {
+        passes ??= prepare()
         if (passes(entries[at])) within.add(entries[at].docId)
       }
     }
@@ -132,17 +133,14 @@ export function createGeoIndex(): GeoIndex {
       inside: boolean,
       highPrecision: boolean,
     ): Set<number> {
-      const distanceFn = highPrecision ? vincentyDistance : haversineDistance
-      return matching(
-        radiusBoxes(lat, lon, distanceMeters),
-        entry => distanceFn(lat, lon, entry.lat, entry.lon) <= distanceMeters,
-        inside,
-      )
+      const test = requireLoadedRadiusCode().radiusTest(lat, lon, distanceMeters, highPrecision)
+      return matching(test.boxes, test.candidateTest, inside)
     },
 
     polygonQuery(points: Array<{ lat: number; lon: number }>, inside: boolean): Set<number> {
       const contains = polygonContainment(points)
-      return matching(polygonBoxes(points), entry => contains(entry.lat, entry.lon), inside)
+      const passes = (entry: LocatedEntry) => contains(entry.lat, entry.lon)
+      return matching(polygonBoxes(points), () => passes, inside)
     },
 
     documentsBitset(capacity: number): Uint32Array {

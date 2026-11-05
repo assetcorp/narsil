@@ -49,6 +49,7 @@
     "app.plugin.js",
     "react-native.config.js",
     "LICENSE",
+    "NOTICE",
     "README.md"
   ],
   "sideEffects": false,

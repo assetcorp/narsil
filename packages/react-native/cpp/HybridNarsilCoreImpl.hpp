@@ -75,6 +75,8 @@ public:
                  const MemoryView& ordinals, double count, const MemoryView& totals) override;
   double quantise(const std::shared_ptr<HybridNarsilAttachedStoreSpec>& store, double metric,
                   const MemoryView& ordinals, double count) override;
+  double applyMath(double operation, const MemoryView& first, const MemoryView& second,
+                   const MemoryView& results) override;
 
   narsil_workspace* claimBackgroundSlot(uint32_t threadSlot);
   void releaseBackgroundSlot(uint32_t threadSlot);
