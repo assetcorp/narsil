@@ -1,4 +1,4 @@
-anyio==4.15.1
+anyio==4.16.0
 build==1.6.1
 hatchling==1.33.0
 httpx==0.28.1
