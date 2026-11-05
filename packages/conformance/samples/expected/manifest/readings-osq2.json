@@ -1,0 +1,64 @@
+{
+  "header": {
+    "envelopeFormatVersion": 2,
+    "compression": "none",
+    "checksum": true
+  },
+  "payload": {
+    "version": 7,
+    "schema": {
+      "title": "string",
+      "body": "string",
+      "pinned": "boolean",
+      "embedding": "vector[8]"
+    },
+    "language": "english",
+    "checkpoint": [
+      {
+        "partitionId": 0,
+        "lastSeqNo": 20,
+        "primaryTerm": 1
+      }
+    ],
+    "partitions": [
+      {
+        "partitionId": 0,
+        "nextSegmentId": 1,
+        "segments": [
+          {
+            "id": 0,
+            "key": "readings-osq2/segments/0/s0000000000000000",
+            "docCount": 20,
+            "tombstoneCount": 0,
+            "bytes": 8131,
+            "checksum": 566396758
+          }
+        ]
+      }
+    ],
+    "vectors": [
+      {
+        "fieldPath": "embedding",
+        "nextFileId": 1,
+        "files": [
+          {
+            "id": 0,
+            "key": "readings-osq2/segments/vec-embedding-1l4nfg2-f0000000000000000",
+            "bytes": 1374,
+            "checksum": 2191331954,
+            "count": 20,
+            "dead": null
+          }
+        ],
+        "graphGeneration": 1,
+        "graphParts": [
+          {
+            "key": "readings-osq2/segments/vec-embedding-1l4nfg2-graph-g1-p0000000000000000",
+            "bytes": 842,
+            "checksum": 3915644209
+          }
+        ]
+      }
+    ]
+  }
+}

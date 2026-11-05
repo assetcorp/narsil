@@ -6,10 +6,13 @@ import { readMetadataEnvelope } from '../../serialization/envelope'
 import type { IndexMetadata } from '../../types/internal'
 import type { VectorIndex } from '../../vector/vector-index'
 import type { DurableDirectory } from './durable-filesystem'
+import { createMarkerWriter } from './marker-writer'
 import { checkpointLastSeqNo, type PartitionCheckpoint } from './partition-checkpoint'
 import type { WriteRecordKeeper } from './types'
 import { SEGMENT_HEADER_SIZE } from './wal-framing'
 import {
+  type ActiveTail,
+  type CommitMarker,
   durableRecordMissing,
   nextSegmentKey,
   readWalSegments,
@@ -98,11 +101,40 @@ export async function replayWal(
   }
 
   await deleteOrphanSegments(directory, segments, marker.state.activeSegmentSeqNo)
-  if (activeTail !== null && activeTail.cleanEnd < activeTail.segmentLength) {
-    await truncateSegmentTail(directory, activeTail.key, activeTail.cleanEnd)
+  if (activeTail !== null) {
+    await makeReplayedTailDurable(directory, indexName, partitionId, marker, activeTail)
   }
 
   return { highestSeqNo, highestPrimaryTerm }
+}
+
+async function makeReplayedTailDurable(
+  directory: DurableDirectory,
+  indexName: string,
+  partitionId: number,
+  marker: CommitMarker,
+  tail: ActiveTail,
+): Promise<void> {
+  const lastReplayed = tail.entries.at(-1)
+  if (lastReplayed === undefined && tail.cleanEnd >= tail.segmentLength) return
+  const handle = await directory.appendHandle(tail.key)
+  try {
+    if (tail.cleanEnd < (await handle.size())) await handle.truncate(tail.cleanEnd)
+    else await handle.sync()
+  } finally {
+    await handle.close()
+  }
+  if (lastReplayed === undefined) return
+  const writer = await createMarkerWriter(directory, indexName, partitionId)
+  try {
+    await writer.commit({
+      activeSegmentSeqNo: marker.state.activeSegmentSeqNo,
+      durableByteLength: tail.cleanEnd,
+      highestDurableSeqNo: Math.max(marker.state.highestDurableSeqNo, lastReplayed.seqNo),
+    })
+  } finally {
+    await writer.close()
+  }
 }
 
 export async function replayWalUpTo(

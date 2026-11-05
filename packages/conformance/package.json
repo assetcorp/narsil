@@ -20,9 +20,13 @@
   },
   "scripts": {
     "fetch": "tsx src/cli.ts fetch",
+    "check-read": "tsx src/cli.ts check-read",
+    "check-written": "tsx src/cli.ts check-written",
     "dataset:build": "tsx src/dataset/build.ts",
     "dataset:stage": "tsx src/dataset/stage.ts",
     "searches:write": "tsx src/searches/write.ts",
+    "samples:write": "tsx src/samples/write.ts",
+    "damaged:write": "tsx src/damaged/write.ts",
     "test": "vitest run",
     "lint": "biome check src/",
     "typecheck:src": "tsc --noEmit",

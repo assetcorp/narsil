@@ -1,0 +1,37 @@
+{
+  "earlier": [
+    {
+      "release": "0.3.0",
+      "layout": "checkpoint-directory",
+      "path": "earlier-releases/0.3.0/wal",
+      "indexes": {
+        "notes": "earlier-releases/0.3.0/expected/checkpoint-notes.json",
+        "products": "earlier-releases/0.3.0/expected/checkpoint-products.json"
+      }
+    },
+    {
+      "release": "0.3.0",
+      "layout": "snapshot-bundle",
+      "path": "earlier-releases/0.3.0/snapshot-tier",
+      "indexes": {
+        "products": "earlier-releases/0.3.0/expected/snapshot-bundle-products.json"
+      }
+    },
+    {
+      "release": "0.3.0",
+      "layout": "snapshot-bundle",
+      "path": "earlier-releases/0.3.0/snapshot-tier-numeric-ids",
+      "indexes": {
+        "pantry": "earlier-releases/0.3.0/expected/snapshot-bundle-pantry.json"
+      }
+    },
+    {
+      "release": "0.3.0",
+      "layout": "index-snapshot",
+      "path": "earlier-releases/0.3.0/products-0.3.0.nrsl",
+      "indexes": {
+        "products": "earlier-releases/0.3.0/expected/index-snapshot-products.json"
+      }
+    }
+  ]
+}

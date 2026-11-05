@@ -22,6 +22,7 @@ import {
   coldSearchConcurrently,
   coldVectorOf,
   openColdField,
+  untilColdLoaded,
 } from './cold'
 import { DEFAULT_FILTER_THRESHOLD, DEFAULT_PROMOTION_THRESHOLD, OSQ4_MIN_DIMENSION } from './constants'
 import { adoptDiskLayout as adoptDiskLayoutOp, type VectorFileLayout } from './disk'
@@ -242,9 +243,7 @@ export function createVectorIndex(
     return state.store.has(docId) && !state.tombstones.has(docId)
   }
 
-  async function whenLoaded(): Promise<void> {
-    while (state.cold !== null) await state.cold.loaded
-  }
+  const whenLoaded = (): Promise<void> => untilColdLoaded(state)
 
   async function searchParallel(
     query: Float32Array,
