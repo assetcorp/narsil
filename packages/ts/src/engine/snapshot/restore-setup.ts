@@ -172,5 +172,6 @@ export function restoredRegistryEntry(
     analysisGeneration: prepared.analysisGeneration,
     pendingAnalysis: null,
     durableAnalysis: null,
+    sync: null,
   }
 }

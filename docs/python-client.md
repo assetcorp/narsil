@@ -145,3 +145,5 @@ if client.supports(DOCUMENT_EXPORT_CAPABILITY):
 ## Every method
 
 A generator writes a method for every operation in [`packages/ts/openapi.json`](../packages/ts/openapi.json), and it copies each description into the docstring that your editor shows. Continuous integration regenerates the client and fails when the committed code differs, so the pull request that adds a route to the server also adds its method to the client. The [HTTP server guide](http-server.md) covers what each route does, and the [cluster guide](cluster.md) covers the routes that a cluster serves.
+
+The client calls the two HTTP routes of [device sync](device-sync.md) through `update_sync`, which replaces the sync setting of an index, and `sync_snapshot`, which returns the published snapshot as a `ResponseStream`, or an `AsyncResponseStream` under the async client. Pass `Range` and `If-Range` through `headers` to resume a download. The sync feed at `GET /indexes/{name}/sync/feed` is a WebSocket, so the OpenAPI file describes no route for it and the client has no method for it. A device reads the feed through `@delali/narsil/sync`.

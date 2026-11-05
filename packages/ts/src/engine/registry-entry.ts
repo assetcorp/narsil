@@ -8,6 +8,13 @@ export interface DurableAnalysis extends PendingAnalysisMetadata {
   arrayPositionGap: number | null
 }
 
+export interface IndexSyncState {
+  historyMaxAgeMs?: number
+  historyMaxBytes?: number
+  active: boolean
+  epoch: string
+}
+
 export type IndexRegistryEntry = {
   config: IndexConfig
   language: LanguageModule
@@ -24,4 +31,5 @@ export type IndexRegistryEntry = {
   analysisGeneration: number
   pendingAnalysis: PendingAnalysisMetadata | null
   durableAnalysis: DurableAnalysis | null
+  sync: IndexSyncState | null
 }

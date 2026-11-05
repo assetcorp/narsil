@@ -80,7 +80,7 @@ try {
 
 A server's `onRequest` hook rejects a request under a code of its own, such as `UNAUTHORIZED`, and the client passes that code through unchanged.
 
-Six codes come from the client itself, and no server sends one. They are exported as `ClientErrorCodes`.
+Seven codes come from the client side, and no server sends one. They are exported as `ClientErrorCodes`.
 
 | Code | The client raises it when |
 | --- | --- |
@@ -90,6 +90,7 @@ Six codes come from the client itself, and no server sends one. They are exporte
 | `CLIENT_INVALID_RESPONSE` | The answer holds no JSON, or not the shape the route documents, which is what a proxy's error page produces. |
 | `CLIENT_TASK_TIMEOUT` | The wait passed `waitTimeoutMs` while the task kept running. |
 | `CLIENT_UNEXPECTED_ERROR` | Something on this side threw a failure the client cannot place, which is a fault in the library rather than an answer from a server. The React bindings raise this one; the client itself never does. |
+| `SYNC_ANALYSIS_UNAVAILABLE` | A synced device lacks the language, the tokenizer, or the stop words of the server's index, so it keeps its copy. See [Device sync](device-sync.md#the-snapshot). |
 
 A lookup by id answers with nothing instead of failing, so `get` returns `undefined` for an unknown document and `getTask` returns `null` for an unknown task. Every other failure throws.
 

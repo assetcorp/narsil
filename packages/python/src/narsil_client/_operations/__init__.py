@@ -6,6 +6,7 @@ from narsil_client._operations.indexes import IndexesOperations
 from narsil_client._operations.maintenance import MaintenanceOperations
 from narsil_client._operations.search import SearchOperations
 from narsil_client._operations.server import ServerOperations
+from narsil_client._operations.sync import SyncOperations
 from narsil_client._operations.tasks import TasksOperations
 
 
@@ -17,5 +18,6 @@ class Operations(
     DocumentsOperations,
     SearchOperations,
     MaintenanceOperations,
+    SyncOperations,
 ):
     """These methods call every route of a Narsil server, one method for each route."""

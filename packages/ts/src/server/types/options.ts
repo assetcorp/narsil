@@ -38,16 +38,64 @@ export interface RequestDenial {
 }
 
 /**
- * Runs before every routed request, which is where authentication, rate
- * limiting, and any other admission rule goes.
- *
- * @param ctx - The request's method, path, headers, and peer address.
- * @returns A {@link RequestDenial} to reject the request, or `undefined` to
- * let it through.
+ * Returned by an {@link OnRequestHook} to admit a request under a credential
+ * that expires. The server closes a device sync feed with close code 4401 at
+ * `expiresAt`, so that a device has to reconnect with a fresh credential, and
+ * it treats the grant on every other route as `undefined`.
  *
  * @public
  */
-export type OnRequestHook = (ctx: RequestContext) => undefined | RequestDenial | Promise<undefined | RequestDenial>
+export interface RequestGrant {
+  /** The credential that admitted the request expires at this time, in milliseconds since the Unix epoch. */
+  expiresAt: number
+}
+
+/**
+ * Runs before every routed request, which is where authentication, rate
+ * limiting, and any other admission rule goes. It also runs on the upgrade
+ * of a device sync feed, where a browser device can carry its credential as
+ * a `Sec-WebSocket-Protocol` value after `narsil.sync.v1`, because a browser
+ * can set no other header on a WebSocket.
+ *
+ * @param ctx - The request's method, path, headers, and peer address.
+ * @returns A {@link RequestDenial} to reject the request, a
+ * {@link RequestGrant} to let it through until its credential expires, or
+ * `undefined` to let it through.
+ *
+ * @public
+ */
+export type OnRequestHook = (
+  ctx: RequestContext,
+) => undefined | RequestDenial | RequestGrant | Promise<undefined | RequestDenial | RequestGrant>
+
+/**
+ * The settings of the device sync routes, `GET /indexes/{name}/sync/snapshot`
+ * and the feed at `GET /indexes/{name}/sync/feed`. Every field has a default.
+ *
+ * @public
+ */
+export interface ServerSyncOptions {
+  /**
+   * The server stops sending entries to a device while the entries that it
+   * has sent, and that the device has not acknowledged, hold more than this
+   * many bytes. It defaults to 8,388,608.
+   */
+  windowBytes?: number
+  /** The server holds at most this many feed connections, and it answers 429 to one more. It defaults to 10,000. */
+  maxConnections?: number
+  /**
+   * The server reads the history of at most this many feed connections at
+   * once, and it holds any other connection until one of those reads ends.
+   * It defaults to 32.
+   */
+  maxCatchUps?: number
+  /**
+   * The server stops reading entries for every feed while its feed
+   * connections hold this many bytes that the network has not yet taken. It
+   * defaults to 268,435,456.
+   */
+  maxBufferedBytes?: number
+}
 
 /**
  * Which cross-origin requests the server accepts.
@@ -212,6 +260,17 @@ export interface ServerOptions {
    * factor. Without it, all three cluster routes answer 501.
    */
   cluster?: ClusterNamespace
+  /**
+   * Turns on the device sync routes, which stay off by default: the
+   * published snapshot at `GET /indexes/{name}/sync/snapshot` and the feed,
+   * a WebSocket at `GET /indexes/{name}/sync/feed`. Each index serves them
+   * only once a caller turns sync on for it with `updateSync`. A device
+   * receives the whole index, so the server refuses to start with these
+   * routes on and no {@link ServerOptions.onRequest} hook, whatever
+   * {@link ServerOptions.allowInsecure} holds. Pass `true` for the default
+   * settings.
+   */
+  sync?: boolean | ServerSyncOptions
 }
 
 /**

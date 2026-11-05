@@ -13,6 +13,7 @@ import { requireRestorableIndexName } from './controller-checks'
 import { awaitBackupJob } from './job-wait'
 import type { BackupJobKind } from './jobs'
 import { validateBackupName } from './keys'
+import { SYNC_BACKUP_TAKER } from './manifest'
 import { type BackupStore, readBackupManifest, summaryOf } from './store'
 import type { BackupOperationOptions, BackupSummary, RestoreBackupOptions } from './types'
 
@@ -82,16 +83,31 @@ async function runJob(deps: BackupRequestDeps, request: JobRequest, options?: Ba
   })
 }
 
-export async function requestBackup(
+export function requestBackup(
   deps: BackupRequestDeps,
   indexName: string,
   backupName: string,
+  options?: BackupOperationOptions,
+): Promise<BackupSummary> {
+  return backUp(deps, indexName, backupName, {}, options)
+}
+
+export async function requestSyncBackup(deps: BackupRequestDeps, indexName: string, backupName: string): Promise<void> {
+  await backUp(deps, indexName, backupName, { takenBy: SYNC_BACKUP_TAKER })
+}
+
+async function backUp(
+  deps: BackupRequestDeps,
+  indexName: string,
+  backupName: string,
+  taker: Pick<BackupRequestPayload, 'takenBy'>,
   options?: BackupOperationOptions,
 ): Promise<BackupSummary> {
   const store = requireBackupStore(deps.store)
   const payload: BackupRequestPayload = {
     backupName: validateBackupName(backupName),
     indexName: requireIndexName(indexName),
+    ...taker,
   }
   await runJob(
     deps,

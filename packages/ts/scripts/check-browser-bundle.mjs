@@ -20,6 +20,9 @@ const BROWSER_ENTRIES = [
   'dist/react-native/pattern.mjs',
   'dist/react-native/partial-words.mjs',
   'dist/react-native/synonyms.mjs',
+  'dist/sync.browser.mjs',
+  'dist/sync/indexeddb.mjs',
+  'dist/react-native/sync.mjs',
 ]
 
 const SIZE_APP = 'scripts/browser-bundle-app.mjs'

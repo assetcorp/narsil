@@ -231,6 +231,11 @@ export const OPERATION_CASES: Readonly<Record<string, OperationCase>> = {
     valid: () => ({ name: INDEX, json: { k1: 1.2, b: 0.75 }, statuses: [200] }),
     hostile: () => ({ name: INDEX, json: { k1: -5 }, statuses: [400] }),
   },
+  updateSync: {
+    valid: () => ({ name: INDEX, json: { enabled: true }, statuses: [200] }),
+    hostile: () => ({ name: INDEX, json: { enabled: 'yes' }, statuses: [400] }),
+  },
+  syncSnapshot: { valid: () => ({ name: INDEX, statuses: [200] }), hostile: missingIndex },
   snapshot: { valid: () => ({ name: INDEX, statuses: [200] }), hostile: missingIndex },
   restore: {
     valid: state => ({ name: INDEX, raw: state.snapshot, rawContentType: TAR_CONTENT_TYPE, statuses: [202] }),

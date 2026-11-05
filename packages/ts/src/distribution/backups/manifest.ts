@@ -3,6 +3,7 @@ import { ErrorCodes, NarsilError } from '../../errors'
 import { joinChunks } from '../../persistence/object-store'
 import { MAX_FILE_BYTES } from '../../serialization/constants'
 import { openChecksummedEnvelope, packChecksummedEnvelope } from '../../serialization/envelope-file'
+import { isSyncEpoch } from '../../sync/epoch'
 import { MAX_PARTITION_COUNT, MAX_REPLICATION_FACTOR } from '../constants'
 import type { AllocationConstraints } from '../coordinator/types'
 import { isRecord, isValidInteger } from '../payload-guards'
@@ -35,11 +36,15 @@ export interface BackupManifest {
   startedAt: number
   completedAt: number
   partitionCount: number
+  syncEpoch?: string
+  takenBy?: string
   replicationFactor: number
   constraints: AllocationConstraints
   config: StoredFile
   partitions: BackupPartition[]
 }
+
+export const SYNC_BACKUP_TAKER = 'sync'
 
 function damaged(backupName: string, reason: string): NarsilError {
   return new NarsilError(ErrorCodes.BACKUP_DAMAGED, `The manifest of backup '${backupName}' ${reason}`, {
@@ -126,7 +131,9 @@ function validateManifest(raw: unknown, backupName: string): BackupManifest {
     !isCount(raw.replicationFactor) ||
     raw.replicationFactor > MAX_REPLICATION_FACTOR ||
     !Array.isArray(raw.partitions) ||
-    raw.partitions.length !== raw.partitionCount
+    raw.partitions.length !== raw.partitionCount ||
+    (raw.syncEpoch !== undefined && !isSyncEpoch(raw.syncEpoch)) ||
+    !(raw.takenBy === undefined || typeof raw.takenBy === 'string')
   ) {
     throw damaged(backupName, 'holds a malformed header')
   }
@@ -144,6 +151,8 @@ function validateManifest(raw: unknown, backupName: string): BackupManifest {
     startedAt: raw.startedAt,
     completedAt: raw.completedAt,
     partitionCount,
+    ...(typeof raw.syncEpoch === 'string' ? { syncEpoch: raw.syncEpoch } : {}),
+    ...(typeof raw.takenBy === 'string' ? { takenBy: raw.takenBy } : {}),
     replicationFactor: raw.replicationFactor,
     constraints,
     config: readStoredFile(raw.config, backupName),

@@ -4,6 +4,7 @@ import type { VectorQueryConfig } from '../../types/search'
 import { ServerErrorCodes } from '../errors'
 import type { Authorization, RouteContext } from '../request'
 import { type ResponseSink, sendError, sendRelayed, statusLine } from '../response'
+import type { FeedAdmittedReply } from '../sync/feed-messages'
 import type { RequestContext } from '../types'
 import type { EmbeddedReply, RelayedRoute, RelayedStreamPart, RelayReply } from './messages'
 
@@ -13,6 +14,7 @@ export interface RelayClient {
   embed(indexName: string, vector: VectorQueryConfig): Promise<number[]>
   rerank(adapter: string, query: string, documents: string[]): Promise<number[]>
   awaitWrites(indexName: string): Promise<void>
+  admitFeed(indexName: string, expiresAt: number | null): Promise<FeedAdmittedReply>
   touch(indexName: string): void
   announceDeparture(): void
   close(): void
@@ -27,7 +29,8 @@ function isRelayReply(message: unknown): message is RelayReply {
       type === 'authorized' ||
       type === 'embedded' ||
       type === 'reranked' ||
-      type === 'writes-applied')
+      type === 'writes-applied' ||
+      type === 'feed-admitted')
   )
 }
 
@@ -40,13 +43,55 @@ function isStreamPart(message: unknown): message is RelayedStreamPart {
 interface StreamWriter {
   ctx: RouteContext
   started: boolean
+  totalSize: number | null
+  sized: SizedWrites
   finish(): void
+}
+
+interface SizedWrites {
+  queued: Uint8Array[]
+  waiting: boolean
+}
+
+function writeSizedChunks(port: MessagePort, writer: StreamWriter, totalSize: number, requestId: number): void {
+  const { ctx, sized } = writer
+  const credit = (): void => port.postMessage({ type: 'stream-credit', requestId })
+  while (!sized.waiting && sized.queued.length > 0 && !ctx.abort.aborted) {
+    const chunk = sized.queued[0]
+    let startOffset = 0
+    let written = true
+    ctx.res.cork(() => {
+      startOffset = ctx.res.getWriteOffset()
+      written = ctx.res.tryEnd(chunk, totalSize)[0]
+    })
+    if (written) {
+      sized.queued.shift()
+      credit()
+      continue
+    }
+    sized.waiting = true
+    ctx.res.onWritable(offset => {
+      if (ctx.abort.aborted) return true
+      const [retried] = ctx.res.tryEnd(chunk.subarray(offset - startOffset), totalSize)
+      if (!retried) return false
+      sized.waiting = false
+      sized.queued.shift()
+      credit()
+      queueMicrotask(() => writeSizedChunks(port, writer, totalSize, requestId))
+      return true
+    })
+  }
 }
 
 function writeStreamPart(port: MessagePort, writer: StreamWriter, part: RelayedStreamPart): void {
   const { ctx } = writer
   if (part.type === 'stream-end') {
-    if (!ctx.abort.aborted) {
+    if (!ctx.abort.aborted && writer.totalSize !== null) {
+      if (part.failed) {
+        writer.sized.queued.length = 0
+        ctx.res.cork(() => ctx.res.close())
+      }
+    } else if (!ctx.abort.aborted) {
       ctx.res.cork(() => {
         if (part.failed) ctx.res.close()
         else ctx.res.end()
@@ -58,10 +103,16 @@ function writeStreamPart(port: MessagePort, writer: StreamWriter, part: RelayedS
   if (ctx.abort.aborted) return
   if (part.type === 'stream-start') {
     writer.started = true
+    writer.totalSize = part.totalSize
     ctx.res.cork(() => {
       ctx.res.writeStatus(statusLine(part.status))
       for (const [key, value] of part.headers) ctx.res.writeHeader(key, value)
     })
+    return
+  }
+  if (writer.totalSize !== null) {
+    writer.sized.queued.push(part.chunk)
+    writeSizedChunks(port, writer, writer.totalSize, part.requestId)
     return
   }
   let writable = true
@@ -165,7 +216,7 @@ export function createRelayClient(port: MessagePort, touchIntervalMs: number): R
       if (reply.type !== 'authorized') return { allowed: false, denial: null }
       if (reply.hookError) return { allowed: false, denial: null }
       if (reply.denial !== null) return { allowed: false, denial: reply.denial }
-      return { allowed: true }
+      return { allowed: true, expiresAt: reply.expiresAt }
     },
     async request(route, ctx, onUnavailable) {
       let reply: RelayReply | null
@@ -176,6 +227,8 @@ export function createRelayClient(port: MessagePort, touchIntervalMs: number): R
             writers.set(requestId, {
               ctx,
               started: false,
+              totalSize: null,
+              sized: { queued: [], waiting: false },
               finish: () => {
                 writers.delete(requestId)
                 pending.delete(requestId)
@@ -195,6 +248,7 @@ export function createRelayClient(port: MessagePort, touchIntervalMs: number): R
               spooledBody:
                 ctx.spooledBody === null ? null : { path: ctx.spooledBody.path, bytes: ctx.spooledBody.bytes },
               hookContext: ctx.hookContext,
+              requestHeaders: { ...ctx.requestHeaders },
             }
           }, body.moved).then(resolve, reject)
         })
@@ -225,6 +279,11 @@ export function createRelayClient(port: MessagePort, touchIntervalMs: number): R
     },
     async awaitWrites(indexName) {
       await send(requestId => ({ type: 'await-writes', requestId, indexName }))
+    },
+    async admitFeed(indexName, expiresAt) {
+      const reply = await send(requestId => ({ type: 'feed-admit', requestId, indexName, expiresAt }))
+      if (reply.type === 'feed-admitted') return reply
+      throw portClosedError()
     },
     touch(indexName) {
       if (closed) return
