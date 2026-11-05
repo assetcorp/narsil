@@ -11,10 +11,13 @@
 
 enum {
   HOST_ADJUST_EXTERNAL_MEMORY,
+  HOST_CREATE_ARRAY_WITH_LENGTH,
   HOST_CREATE_DOUBLE,
   HOST_CREATE_EXTERNAL,
   HOST_CREATE_INT32,
   HOST_CREATE_REFERENCE,
+  HOST_CREATE_STRING_UTF16,
+  HOST_CREATE_STRING_UTF8,
   HOST_DEFINE_PROPERTIES,
   HOST_DELETE_REFERENCE,
   HOST_GET_ARRAY_LENGTH,
@@ -22,12 +25,16 @@ enum {
   HOST_GET_ELEMENT,
   HOST_GET_INSTANCE_DATA,
   HOST_GET_NAMED_PROPERTY,
+  HOST_GET_NULL,
   HOST_GET_TYPEDARRAY_INFO,
   HOST_GET_VALUE_EXTERNAL,
   HOST_GET_VALUE_INT32,
+  HOST_GET_VALUE_STRING_UTF16,
   HOST_GET_VALUE_STRING_UTF8,
   HOST_GET_VALUE_UINT32,
+  HOST_IS_ARRAY,
   HOST_IS_TYPEDARRAY,
+  HOST_SET_ELEMENT,
   HOST_SET_INSTANCE_DATA,
   HOST_THROW_ERROR,
   HOST_TYPEOF,
@@ -36,10 +43,13 @@ enum {
 
 static const char *const HOST_FUNCTION_NAMES[HOST_FUNCTION_COUNT] = {
     [HOST_ADJUST_EXTERNAL_MEMORY] = "napi_adjust_external_memory",
+    [HOST_CREATE_ARRAY_WITH_LENGTH] = "napi_create_array_with_length",
     [HOST_CREATE_DOUBLE] = "napi_create_double",
     [HOST_CREATE_EXTERNAL] = "napi_create_external",
     [HOST_CREATE_INT32] = "napi_create_int32",
     [HOST_CREATE_REFERENCE] = "napi_create_reference",
+    [HOST_CREATE_STRING_UTF16] = "napi_create_string_utf16",
+    [HOST_CREATE_STRING_UTF8] = "napi_create_string_utf8",
     [HOST_DEFINE_PROPERTIES] = "napi_define_properties",
     [HOST_DELETE_REFERENCE] = "napi_delete_reference",
     [HOST_GET_ARRAY_LENGTH] = "napi_get_array_length",
@@ -47,12 +57,16 @@ static const char *const HOST_FUNCTION_NAMES[HOST_FUNCTION_COUNT] = {
     [HOST_GET_ELEMENT] = "napi_get_element",
     [HOST_GET_INSTANCE_DATA] = "napi_get_instance_data",
     [HOST_GET_NAMED_PROPERTY] = "napi_get_named_property",
+    [HOST_GET_NULL] = "napi_get_null",
     [HOST_GET_TYPEDARRAY_INFO] = "napi_get_typedarray_info",
     [HOST_GET_VALUE_EXTERNAL] = "napi_get_value_external",
     [HOST_GET_VALUE_INT32] = "napi_get_value_int32",
+    [HOST_GET_VALUE_STRING_UTF16] = "napi_get_value_string_utf16",
     [HOST_GET_VALUE_STRING_UTF8] = "napi_get_value_string_utf8",
     [HOST_GET_VALUE_UINT32] = "napi_get_value_uint32",
+    [HOST_IS_ARRAY] = "napi_is_array",
     [HOST_IS_TYPEDARRAY] = "napi_is_typedarray",
+    [HOST_SET_ELEMENT] = "napi_set_element",
     [HOST_SET_INSTANCE_DATA] = "napi_set_instance_data",
     [HOST_THROW_ERROR] = "napi_throw_error",
     [HOST_TYPEOF] = "napi_typeof",
@@ -96,6 +110,10 @@ napi_status NAPI_CDECL napi_adjust_external_memory(node_api_basic_env env, int64
   return HOST_FUNCTION(HOST_ADJUST_EXTERNAL_MEMORY, napi_adjust_external_memory)(env, change_in_bytes, adjusted_value);
 }
 
+napi_status NAPI_CDECL napi_create_array_with_length(napi_env env, size_t length, napi_value *result) {
+  return HOST_FUNCTION(HOST_CREATE_ARRAY_WITH_LENGTH, napi_create_array_with_length)(env, length, result);
+}
+
 napi_status NAPI_CDECL napi_create_double(napi_env env, double value, napi_value *result) {
   return HOST_FUNCTION(HOST_CREATE_DOUBLE, napi_create_double)(env, value, result);
 }
@@ -112,6 +130,14 @@ napi_status NAPI_CDECL napi_create_int32(napi_env env, int32_t value, napi_value
 napi_status NAPI_CDECL napi_create_reference(napi_env env, napi_value value, uint32_t initial_refcount,
                                              napi_ref *result) {
   return HOST_FUNCTION(HOST_CREATE_REFERENCE, napi_create_reference)(env, value, initial_refcount, result);
+}
+
+napi_status NAPI_CDECL napi_create_string_utf16(napi_env env, const uint16_t *str, size_t length, napi_value *result) {
+  return HOST_FUNCTION(HOST_CREATE_STRING_UTF16, napi_create_string_utf16)(env, str, length, result);
+}
+
+napi_status NAPI_CDECL napi_create_string_utf8(napi_env env, const char *str, size_t length, napi_value *result) {
+  return HOST_FUNCTION(HOST_CREATE_STRING_UTF8, napi_create_string_utf8)(env, str, length, result);
 }
 
 napi_status NAPI_CDECL napi_define_properties(napi_env env, napi_value object, size_t property_count,
@@ -145,6 +171,10 @@ napi_status NAPI_CDECL napi_get_named_property(napi_env env, napi_value object, 
   return HOST_FUNCTION(HOST_GET_NAMED_PROPERTY, napi_get_named_property)(env, object, utf8name, result);
 }
 
+napi_status NAPI_CDECL napi_get_null(napi_env env, napi_value *result) {
+  return HOST_FUNCTION(HOST_GET_NULL, napi_get_null)(env, result);
+}
+
 napi_status NAPI_CDECL napi_get_typedarray_info(napi_env env, napi_value typedarray, napi_typedarray_type *type,
                                                 size_t *length, void **data, napi_value *arraybuffer,
                                                 size_t *byte_offset) {
@@ -160,6 +190,11 @@ napi_status NAPI_CDECL napi_get_value_int32(napi_env env, napi_value value, int3
   return HOST_FUNCTION(HOST_GET_VALUE_INT32, napi_get_value_int32)(env, value, result);
 }
 
+napi_status NAPI_CDECL napi_get_value_string_utf16(napi_env env, napi_value value, uint16_t *buf, size_t bufsize,
+                                                   size_t *result) {
+  return HOST_FUNCTION(HOST_GET_VALUE_STRING_UTF16, napi_get_value_string_utf16)(env, value, buf, bufsize, result);
+}
+
 napi_status NAPI_CDECL napi_get_value_string_utf8(napi_env env, napi_value value, char *buf, size_t bufsize,
                                                   size_t *result) {
   return HOST_FUNCTION(HOST_GET_VALUE_STRING_UTF8, napi_get_value_string_utf8)(env, value, buf, bufsize, result);
@@ -169,8 +204,16 @@ napi_status NAPI_CDECL napi_get_value_uint32(napi_env env, napi_value value, uin
   return HOST_FUNCTION(HOST_GET_VALUE_UINT32, napi_get_value_uint32)(env, value, result);
 }
 
+napi_status NAPI_CDECL napi_is_array(napi_env env, napi_value value, bool *result) {
+  return HOST_FUNCTION(HOST_IS_ARRAY, napi_is_array)(env, value, result);
+}
+
 napi_status NAPI_CDECL napi_is_typedarray(napi_env env, napi_value value, bool *result) {
   return HOST_FUNCTION(HOST_IS_TYPEDARRAY, napi_is_typedarray)(env, value, result);
+}
+
+napi_status NAPI_CDECL napi_set_element(napi_env env, napi_value object, uint32_t index, napi_value value) {
+  return HOST_FUNCTION(HOST_SET_ELEMENT, napi_set_element)(env, object, index, value);
 }
 
 napi_status NAPI_CDECL napi_set_instance_data(node_api_basic_env env, void *data, napi_finalize finalize_cb,

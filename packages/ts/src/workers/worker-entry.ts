@@ -1,6 +1,7 @@
 declare const self: unknown
 
 import { startIdleHeapCleanup } from '#platform/idle-heap-cleanup'
+import { requireSearchBackendSettings } from '#platform/search-backend-settings'
 import { ErrorCodes } from '../errors'
 import { buildErrorResponse, createActionHandler } from './action-handler'
 import { isValidWorkerAction } from './protocol'
@@ -38,6 +39,7 @@ async function setup(): Promise<void> {
     parentPort = null
   }
 
+  requireSearchBackendSettings()
   const [{ createDirectExecutor }] = await Promise.all([import('./direct-executor'), loadVectorCode()])
   const handleAction = createActionHandler(createDirectExecutor({ threadSlot }))
 

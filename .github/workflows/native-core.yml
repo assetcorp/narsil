@@ -6,6 +6,9 @@ on:
     paths:
       - 'packages/native/**'
       - 'packages/ts/src/vector/**'
+      - 'packages/ts/src/languages/**'
+      - 'packages/ts/src/core/tokenizer/**'
+      - 'packages/ts/scripts/native-analysis/**'
       - 'packages/ts/wasm/**'
       - '.github/workflows/native-core.yml'
   pull_request:
@@ -13,6 +16,9 @@ on:
     paths:
       - 'packages/native/**'
       - 'packages/ts/src/vector/**'
+      - 'packages/ts/src/languages/**'
+      - 'packages/ts/src/core/tokenizer/**'
+      - 'packages/ts/scripts/native-analysis/**'
       - 'packages/ts/wasm/**'
       - '.github/workflows/native-core.yml'
   workflow_call:
@@ -120,6 +126,9 @@ jobs:
 
       - name: Check every kernel path with clang-tidy and the layout with clang-format
         run: pnpm --filter @delali/narsil-native-build lint
+
+      - name: Check the C language data and Unicode tables match a fresh generation
+        run: pnpm --filter @delali/narsil run native-analysis
 
   sanitised:
     name: Test the core in C under the sanitisers on ${{ matrix.label }}

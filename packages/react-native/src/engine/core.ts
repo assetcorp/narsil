@@ -13,6 +13,7 @@ import type {
   NarsilCore,
   StoreMemory,
 } from '../specs/core.nitro'
+import { adaptAnalysis } from './analysis'
 import { withNativeCode } from './native-error'
 
 const ABSENT_REGION: MemoryView = { buffer: new ArrayBuffer(0), byteOffset: 0, byteLength: 0 }
@@ -114,6 +115,7 @@ function backgroundCalls(core: NarsilCore): Pick<NativeCore, 'searchAsync' | 'sc
 
 export function adaptCore(core: NarsilCore, nativeThreads: boolean): NativeCore {
   return {
+    ...adaptAnalysis(core),
     abiVersion: () => core.abiVersion(),
     workspaceBytes: () => core.workspaceBytes(),
     attachGraph(memory) {

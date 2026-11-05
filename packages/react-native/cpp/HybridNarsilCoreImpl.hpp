@@ -1,19 +1,41 @@
 #pragma once
 
 #include "HybridNarsilCoreSpec.hpp"
+#include "narsil_analysis.h"
 #include "narsil_core.h"
 
 #include <cstdint>
+#include <memory>
 #include <mutex>
+#include <string>
 #include <unordered_map>
 #include <unordered_set>
+#include <vector>
 
 namespace margelo::nitro::narsil {
+
+struct AnalyserRelease {
+  void operator()(narsil_analyser* analyser) const { narsil_analyser_destroy(analyser); }
+};
 
 class HybridNarsilCoreImpl : public HybridNarsilCoreSpec {
 public:
   HybridNarsilCoreImpl() : HybridObject(TAG) {}
   ~HybridNarsilCoreImpl() override;
+
+  void loadHybridMethods() override;
+  jsi::Value languageCount(jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* arguments,
+                           size_t count);
+  jsi::Value languageName(jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* arguments,
+                          size_t count);
+  jsi::Value languageRevision(jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* arguments,
+                              size_t count);
+  jsi::Value languageStopWords(jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* arguments,
+                               size_t count);
+  jsi::Value createStopWordSet(jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* arguments,
+                               size_t count);
+  jsi::Value analyse(jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* arguments, size_t count);
+  jsi::Value transform(jsi::Runtime& runtime, const jsi::Value& thisValue, const jsi::Value* arguments, size_t count);
 
   double abiVersion() override;
   double workspaceBytes() override;
@@ -58,6 +80,12 @@ public:
   void releaseBackgroundSlot(uint32_t threadSlot);
 
 private:
+  narsil_analyser* analyser();
+  void readText(jsi::Runtime& runtime, const jsi::Value& value, const char* what);
+  jsi::Value textOf(jsi::Runtime& runtime, const uint16_t* units, size_t length);
+  std::unique_ptr<narsil_analyser, AnalyserRelease> _analyser;
+  std::vector<uint16_t> _textUnits;
+  std::u16string _textOut;
   narsil_workspace* workspace();
   narsil_workspace* _workspace = nullptr;
   std::mutex _backgroundLock;

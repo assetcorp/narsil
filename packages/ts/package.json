@@ -100,6 +100,7 @@
       "default": "./src/vector/native/loader.ts"
     },
     "#platform/search-backend-settings": {
+      "react-native": "./src/engine/search-backend-settings.react-native.ts",
       "browser": "./src/engine/search-backend-settings.browser.ts",
       "default": "./src/engine/search-backend-settings.ts"
     },
@@ -163,7 +164,7 @@
     "build:code": "rm -rf dist && NARSIL_BUILD_CODE_ONLY=1 tsup",
     "test": "vitest run --exclude='**/vector/recall.test.ts' --exclude='**/e2e/cluster-memory/**' --exclude='**/e2e/cluster-faults/**' --exclude='**/frozen-removal-memory/container-removes.test.ts' --exclude='**/persistence/live-object-stores/**'",
     "test:object-stores": "vitest run src/__tests__/persistence/live-object-stores",
-    "test:native": "vitest run src/__tests__/vector/native src/__tests__/integration/filtered-vector-recall/native src/__tests__/integration/filtered-vectors/mutations-native src/__tests__/integration/removed-vectors/main-thread",
+    "test:native": "vitest run src/__tests__/core/tokenizer src/__tests__/vector/nativesrc/__tests__/integration/filtered-vector-recall/native src/__tests__/integration/filtered-vectors/mutations-native src/__tests__/integration/removed-vectors/main-thread",
     "test:cluster": "vitest run src/__tests__/e2e/cluster-memory --no-file-parallelism",
     "test:faults": "vitest run src/__tests__/e2e/cluster-faults --no-file-parallelism",
     "test:etcd": "vitest run src/__tests__/distribution/coordinator/etcd-integration/*.test.ts",
@@ -177,6 +178,8 @@
     "revisions": "tsx scripts/analysis-revisions.ts",
     "revisions:write": "tsx scripts/analysis-revisions.ts --write",
     "revisions:record": "tsx scripts/analysis-revisions.ts --record",
+    "native-analysis": "tsx scripts/native-analysis/unicode.ts && tsx scripts/native-analysis/languages.ts",
+    "native-analysis:write": "tsx scripts/native-analysis/unicode.ts --write && tsx scripts/native-analysis/languages.ts --write",
     "api": "tsx scripts/api-surface.ts",
     "api:write": "tsx scripts/api-surface.ts --write",
     "openapi": "tsx scripts/openapi/generate.ts",

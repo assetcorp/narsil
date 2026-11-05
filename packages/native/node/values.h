@@ -3,6 +3,7 @@
 
 #include "field.h"
 
+#include "../include/narsil_analysis.h"
 #include "../include/narsil_core.h"
 
 #include <js_native_api.h>
@@ -14,6 +15,9 @@
 typedef struct {
   narsil_workspace *workspace;
   int64_t reported_bytes;
+  narsil_analyser *analyser;
+  uint16_t *text_units;
+  size_t text_capacity;
 } thread_state;
 
 napi_value throw_error(napi_env env, const char *message);

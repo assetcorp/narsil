@@ -24,6 +24,7 @@ packages/native/npm/*/*
 !packages/native/npm/*/package.json
 !packages/native/npm/*/README.md
 !packages/native/npm/*/LICENSE
+!packages/native/npm/*/NOTICE
 
 # Python bytecode caches, written when the writeup tool runs on the host
 __pycache__/
