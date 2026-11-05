@@ -101,10 +101,8 @@ export function storedValueMethods(context: StoredValueContext): StoredValueMeth
       const prefix = keys.schemaPrefix()
       return watchPrefix(prefix, {
         put(kv: IKeyValue) {
-          try {
-            const schema = deserializeSchema(kv.value)
-            handler({ type: 'schema_created', indexName: extractSuffix(kv.key.toString(), prefix), schema })
-          } catch (_) {}
+          const schema = deserializeSchema(kv.value)
+          handler({ type: 'schema_created', indexName: extractSuffix(kv.key.toString(), prefix), schema })
         },
         delete(fullKey: string) {
           handler({ type: 'schema_dropped', indexName: extractSuffix(fullKey, prefix), schema: null })

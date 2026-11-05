@@ -1,14 +1,14 @@
-import type { Etcd3 as Etcd3Client, IKeyValue, Watcher } from 'etcd3'
+import type { Etcd3 as Etcd3Client, IKeyValue } from 'etcd3'
 import { ErrorCodes, NarsilError } from '../../../errors'
-import { ETCD_WATCH_ATTACH_TIMEOUT_MS, RECONNECT_FIRST_DELAY_MS, RECONNECT_LONGEST_DELAY_MS } from './constants'
+import { RECONNECT_FIRST_DELAY_MS, RECONNECT_LONGEST_DELAY_MS } from './constants'
 import type { ReplaceableWatchClient } from './watch-client'
+import { WatchAttachError, type WatchStream, type WatchStreams } from './watch-stream'
 
 export interface PrefixWatchContext {
   client: Etcd3Client
   watchClient: ReplaceableWatchClient
-  addWatcher(watcher: Watcher): void
-  removeWatcher(watcher: Watcher): void
-  isShutdown(): boolean
+  streams: WatchStreams
+  reportHandlerError(error: unknown): void
 }
 
 export interface PrefixWatchHandlers {
@@ -16,48 +16,28 @@ export interface PrefixWatchHandlers {
   delete(fullKey: string): void
 }
 
-function connectedOrDropped(watcher: Watcher): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      detach()
-      reject(
-        new NarsilError(
-          ErrorCodes.COORDINATOR_UNAVAILABLE,
-          `etcd did not attach the watch within ${ETCD_WATCH_ATTACH_TIMEOUT_MS} ms`,
-        ),
-      )
-    }, ETCD_WATCH_ATTACH_TIMEOUT_MS)
-    timer.unref?.()
-    const onConnected = (): void => {
-      detach()
-      resolve()
-    }
-    const onDropped = (error: unknown): void => {
-      detach()
-      reject(error)
-    }
-    function detach(): void {
-      clearTimeout(timer)
-      watcher.off('connected', onConnected)
-      watcher.off('disconnected', onDropped)
-      watcher.off('error', onDropped)
-    }
-    watcher.once('connected', onConnected)
-    watcher.once('disconnected', onDropped)
-    watcher.once('error', onDropped)
-  })
+function blamesTheConnection(error: unknown): boolean {
+  return error instanceof WatchAttachError || !(error instanceof NarsilError)
 }
 
-export async function watchPrefix(
+export function watchPrefix(
   context: PrefixWatchContext,
   prefix: string,
   handlers: PrefixWatchHandlers,
 ): Promise<() => void> {
+  const { streams } = context
+  if (streams.isClosed()) {
+    return Promise.reject(new NarsilError(ErrorCodes.CONFIG_INVALID, 'Coordinator has been shut down'))
+  }
   const modRevisionByKey = new Map<string, string>()
-  let current: Watcher | null = null
+  let current: WatchStream | null = null
   let stopped = false
   let reopenTimer: ReturnType<typeof setTimeout> | null = null
   let reopenDelayMs = RECONNECT_FIRST_DELAY_MS
+
+  function inactive(): boolean {
+    return stopped || streams.isClosed()
+  }
 
   function recordPut(kv: IKeyValue): void {
     modRevisionByKey.set(kv.key.toString(), kv.mod_revision)
@@ -69,6 +49,14 @@ export async function watchPrefix(
     handlers.delete(fullKey)
   }
 
+  function reportingHandlerErrors(record: () => void): void {
+    try {
+      record()
+    } catch (error) {
+      context.reportHandlerError(error)
+    }
+  }
+
   async function listMissedChanges(reportMissedChanges: boolean): Promise<string> {
     const listing = await context.client.getAll().prefix(prefix).exec()
     const listedKeys = new Set<string>()
@@ -78,12 +66,12 @@ export async function watchPrefix(
       if (!reportMissedChanges) {
         modRevisionByKey.set(fullKey, kv.mod_revision)
       } else if (modRevisionByKey.get(fullKey) !== kv.mod_revision) {
-        recordPut(kv)
+        reportingHandlerErrors(() => recordPut(kv))
       }
     }
     if (reportMissedChanges) {
       for (const fullKey of [...modRevisionByKey.keys()]) {
-        if (!listedKeys.has(fullKey)) recordDelete(fullKey)
+        if (!listedKeys.has(fullKey)) reportingHandlerErrors(() => recordDelete(fullKey))
       }
     }
     return String(BigInt(listing.header.revision) + 1n)
@@ -91,25 +79,30 @@ export async function watchPrefix(
 
   async function watchFrom(startRevision: string): Promise<void> {
     const client = context.watchClient.current()
-    const watcher = client.watch().prefix(prefix).startRevision(startRevision).watcher()
+    let opened: WatchStream | null = null
+    let lostWhileOpening = false
+    let watch: WatchStream
     try {
-      await connectedOrDropped(watcher)
+      watch = await streams.open(client, prefix, startRevision, {
+        put: recordPut,
+        delete: kv => recordDelete(kv.key.toString()),
+        handlerFailed: context.reportHandlerError,
+        lost() {
+          if (opened === null) lostWhileOpening = true
+          else reopenAfterFailure(opened)
+        },
+      })
     } catch (error) {
-      watcher.on('error', () => {})
-      watcher.cancel().catch(() => {})
-      context.watchClient.replace(client)
+      if (!streams.isClosed() && blamesTheConnection(error)) context.watchClient.replace(client)
       throw error
     }
-    if (stopped || context.isShutdown()) {
-      watcher.cancel().catch(() => {})
+    if (inactive()) {
+      await watch.close()
       return
     }
-    watcher.on('put', recordPut)
-    watcher.on('delete', (kv: IKeyValue) => recordDelete(kv.key.toString()))
-    watcher.on('error', () => reopenAfterFailure(watcher))
-    watcher.on('disconnected', () => reopenAfterFailure(watcher))
-    context.addWatcher(watcher)
-    current = watcher
+    opened = watch
+    current = watch
+    if (lostWhileOpening) reopenAfterFailure(watch)
   }
 
   async function listThenWatch(reportMissedChanges: boolean): Promise<void> {
@@ -117,12 +110,13 @@ export async function watchPrefix(
   }
 
   function scheduleReopen(): void {
-    if (stopped || context.isShutdown()) return
+    if (inactive()) return
     const delayMs = reopenDelayMs
     reopenDelayMs = Math.min(reopenDelayMs * 2, RECONNECT_LONGEST_DELAY_MS)
     reopenTimer = setTimeout(() => {
       reopenTimer = null
-      listThenWatch(true).then(
+      if (inactive()) return
+      streams.track(listThenWatch(true)).then(
         () => {
           reopenDelayMs = RECONNECT_FIRST_DELAY_MS
         },
@@ -132,29 +126,32 @@ export async function watchPrefix(
     reopenTimer.unref?.()
   }
 
-  function reopenAfterFailure(failed: Watcher): void {
+  function reopenAfterFailure(failed: WatchStream): void {
     if (current !== failed) return
     current = null
-    context.removeWatcher(failed)
+    void failed.close()
     scheduleReopen()
   }
 
-  const startRevision = await listMissedChanges(false)
-  try {
-    await watchFrom(startRevision)
-  } catch (_) {
-    scheduleReopen()
+  async function start(): Promise<() => void> {
+    const startRevision = await listMissedChanges(false)
+    try {
+      await watchFrom(startRevision)
+    } catch (_) {
+      scheduleReopen()
+    }
+    return () => {
+      stopped = true
+      if (reopenTimer !== null) {
+        clearTimeout(reopenTimer)
+        reopenTimer = null
+      }
+      if (current !== null) {
+        void current.close()
+        current = null
+      }
+    }
   }
 
-  return () => {
-    stopped = true
-    if (reopenTimer !== null) {
-      clearTimeout(reopenTimer)
-      reopenTimer = null
-    }
-    if (current !== null) {
-      context.removeWatcher(current)
-      current = null
-    }
-  }
+  return streams.track(start())
 }
