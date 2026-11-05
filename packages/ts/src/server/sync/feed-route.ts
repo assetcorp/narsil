@@ -1,7 +1,7 @@
 import type { HttpRequest, HttpResponse, TemplatedApp, us_socket_context_t, WebSocket } from 'uWebSockets.js'
 import { FEED_SOCKET_MAX_BACKPRESSURE_BYTES, FEED_SOCKET_MAX_PAYLOAD_BYTES } from '../../sync/feed/constants'
 import type { FeedSocket } from '../../sync/feed/session'
-import { SYNC_SUBPROTOCOL } from '../../sync/protocol'
+import { SYNC_CLOSE_SERVER_ERROR, SYNC_SUBPROTOCOL } from '../../sync/protocol'
 import { ServerErrorCodes, toHttpError } from '../errors'
 import { type Authorization, initAbortHandler } from '../request'
 import { sendError } from '../response'
@@ -148,7 +148,7 @@ export function registerFeedRoute(app: TemplatedApp, gateway: FeedGateway): void
         data.endpoint = data.ticket.open(socketOf(ws))
       } catch {
         data.closed = true
-        ws.end(1011, 'feed unavailable')
+        ws.end(SYNC_CLOSE_SERVER_ERROR, 'feed unavailable')
       }
     },
     message(ws, message, isBinary) {
