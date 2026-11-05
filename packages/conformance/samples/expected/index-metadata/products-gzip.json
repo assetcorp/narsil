@@ -26,8 +26,15 @@
       "k1": 1.4,
       "b": 0.7
     },
-    "created_at": 1793879338282,
+    "created_at": 1793882169286,
     "engine_version": "0.1.0",
+    "vector_fields": {
+      "embedding": {
+        "dimension": 8,
+        "metric": "cosine",
+        "quantization": "osq4"
+      }
+    },
     "document_count": 43,
     "surface_forms_enabled": true,
     "analysis_revision": "ebae3448ae674b59",

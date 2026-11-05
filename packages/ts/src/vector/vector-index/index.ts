@@ -24,7 +24,8 @@ import {
   openColdField,
   untilColdLoaded,
 } from './cold'
-import { DEFAULT_FILTER_THRESHOLD, DEFAULT_PROMOTION_THRESHOLD, OSQ4_MIN_DIMENSION } from './constants'
+import { DEFAULT_FILTER_THRESHOLD, DEFAULT_PROMOTION_THRESHOLD, DEFAULT_VECTOR_METRIC } from './constants'
+import { defaultQuantizationFor } from './default-quantization'
 import { adoptDiskLayout as adoptDiskLayoutOp, type VectorFileLayout } from './disk'
 import { createRemovedDocuments, createUnplacedVectors } from './flagged-documents'
 import { onceGraphFree, untilGraphReleased, withGraphFree } from './graph-pass'
@@ -139,11 +140,6 @@ export interface VectorIndex {
   readonly metric: VectorMetric
 }
 
-export function defaultQuantizationFor(dimension: number): VectorQuantizationMode {
-  if (dimension >= OSQ4_MIN_DIMENSION) return 'osq4'
-  return 'osq8'
-}
-
 export function createVectorIndex(
   fieldName: string,
   dimension: number,
@@ -166,7 +162,7 @@ export function createVectorIndex(
   const filterThreshold = Math.max(0, Math.min(1, config?.filterThreshold ?? DEFAULT_FILTER_THRESHOLD))
   const quantizationMode = config?.quantization ?? defaultQuantizationFor(dimension)
   const codeBits = osqBitsOf(quantizationMode)
-  const metric = config?.hnswConfig?.metric ?? 'cosine'
+  const metric = config?.hnswConfig?.metric ?? DEFAULT_VECTOR_METRIC
   const rawHnswM = config?.hnswConfig?.m
   const hnswConfig: HNSWConfig | undefined = config?.hnswConfig
     ? { ...config.hnswConfig, m: rawHnswM !== undefined ? Math.max(rawHnswM, 2) : undefined }

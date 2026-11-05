@@ -5,6 +5,8 @@ import { flattenSchema } from '../schema/validator'
 import type { IndexEmbeddingMetadata, IndexMetadata, PendingAnalysisMetadata } from '../types/internal'
 import type { BM25FieldParams, PartitionConfig, ScoringMode, VectorIndexConfig } from '../types/schema'
 import type { SynonymRule } from '../types/synonyms'
+import { DEFAULT_VECTOR_METRIC } from '../vector/vector-index/constants'
+import { defaultQuantizationFor } from '../vector/vector-index/default-quantization'
 import type { IndexRegistryEntry } from './core'
 import { rulesOfStoredSynonyms } from './synonym-sets'
 
@@ -38,6 +40,26 @@ export interface MetadataConfig {
   synonyms?: SynonymRule[]
 }
 
+const VECTOR_TYPE = /^vector\[(\d+)\]$/
+
+function vectorFieldsOf(
+  schema: Record<string, string>,
+  promotion: VectorIndexConfig | undefined,
+): IndexMetadata['vectorFields'] | null {
+  const fields: NonNullable<IndexMetadata['vectorFields']> = {}
+  for (const [fieldPath, type] of Object.entries(schema)) {
+    const match = VECTOR_TYPE.exec(type)
+    if (match === null) continue
+    const dimension = Number(match[1])
+    fields[fieldPath] = {
+      dimension,
+      metric: promotion?.hnswConfig?.metric ?? DEFAULT_VECTOR_METRIC,
+      quantization: promotion?.quantization ?? defaultQuantizationFor(dimension),
+    }
+  }
+  return Object.keys(fields).length === 0 ? null : fields
+}
+
 export function metadataFromConfig(
   indexName: string,
   config: MetadataConfig,
@@ -58,6 +80,10 @@ export function metadataFromConfig(
     engineVersion: VERSION,
   }
   metadata.documentCount = documentCount ?? config.documentCount
+  const vectorFields = vectorFieldsOf(config.schema, config.vectorPromotion)
+  if (vectorFields !== null) {
+    metadata.vectorFields = vectorFields
+  }
   if (config.embedding) {
     metadata.embedding = config.embedding
   }

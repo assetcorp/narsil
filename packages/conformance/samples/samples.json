@@ -19,6 +19,12 @@
       "expected": "expected/commit-marker/products-p0.json"
     },
     {
+      "name": "commit-marker/products-torn-slot",
+      "kind": "commit-marker",
+      "file": "files/commit-marker/products-torn-slot",
+      "expected": "expected/commit-marker/products-torn-slot.json"
+    },
+    {
       "name": "commit-marker/readings-osq1-p0",
       "kind": "commit-marker",
       "file": "checkpoints/readings-osq1/wal/0/commit",
@@ -57,6 +63,13 @@
       "storage": "memory"
     },
     {
+      "name": "graph-part/products-no-entry-point",
+      "kind": "graph-part",
+      "file": "files/graph-part/products-no-entry-point.nrsl",
+      "expected": "expected/graph-part/products-no-entry-point.json",
+      "storage": "memory"
+    },
+    {
       "name": "graph-part/products-p0",
       "kind": "graph-part",
       "file": "checkpoints/products/segments/vec-embedding-1l4nfg2-graph-g2-p0000000000000000",
@@ -85,6 +98,18 @@
       "storage": "memory"
     },
     {
+      "name": "index-configuration/every-key-literal",
+      "kind": "index-configuration",
+      "file": "files/index-configuration/every-key-literal.nrsl",
+      "expected": "expected/index-configuration/every-key-literal.json"
+    },
+    {
+      "name": "index-configuration/every-key-named",
+      "kind": "index-configuration",
+      "file": "files/index-configuration/every-key-named.nrsl",
+      "expected": "expected/index-configuration/every-key-named.json"
+    },
+    {
       "name": "index-configuration/products",
       "kind": "index-configuration",
       "file": "files/index-configuration/products.nrsl",
@@ -95,6 +120,18 @@
       "kind": "index-configuration",
       "file": "files/index-configuration/products-gzip.nrsl",
       "expected": "expected/index-configuration/products-gzip.json"
+    },
+    {
+      "name": "index-metadata/every-key-literal",
+      "kind": "index-metadata",
+      "file": "files/index-metadata/every-key-literal.nrsl",
+      "expected": "expected/index-metadata/every-key-literal.json"
+    },
+    {
+      "name": "index-metadata/every-key-named",
+      "kind": "index-metadata",
+      "file": "files/index-metadata/every-key-named.nrsl",
+      "expected": "expected/index-metadata/every-key-named.json"
     },
     {
       "name": "index-metadata/notes",
@@ -143,6 +180,12 @@
       "kind": "keyword-segment",
       "file": "files/keyword-segment/products-gzip.nrsl",
       "expected": "expected/keyword-segment/products-gzip.json"
+    },
+    {
+      "name": "keyword-segment/products-no-positions",
+      "kind": "keyword-segment",
+      "file": "files/keyword-segment/products-no-positions.nrsl",
+      "expected": "expected/keyword-segment/products-no-positions.json"
     },
     {
       "name": "keyword-segment/products-p0-s0",
@@ -221,6 +264,12 @@
       "kind": "manifest",
       "file": "checkpoints/products/manifest",
       "expected": "expected/manifest/products.json"
+    },
+    {
+      "name": "manifest/products-analysis-generation",
+      "kind": "manifest",
+      "file": "files/manifest/products-analysis-generation.nrsl",
+      "expected": "expected/manifest/products-analysis-generation.json"
     },
     {
       "name": "manifest/products-gzip",

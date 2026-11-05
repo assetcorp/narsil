@@ -576,6 +576,20 @@
       }
     },
     {
+      "name": "segment-layout-newer",
+      "rule": "envelope.md#payload-format",
+      "open": "checkpoint",
+      "index": "products",
+      "base": "checkpoints/products",
+      "files": {
+        "segments/0/s0000000000000001": "damaged/segment-layout-newer/segments/0/s0000000000000001",
+        "manifest": "damaged/segment-layout-newer/manifest"
+      },
+      "expect": {
+        "code": "ENVELOPE_VERSION_MISMATCH"
+      }
+    },
+    {
       "name": "schema-unknown-base-type",
       "rule": "envelope.md#field-types",
       "open": "checkpoint",
