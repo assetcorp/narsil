@@ -1,6 +1,7 @@
 import type { MessagePort } from 'node:worker_threads'
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { FeedSocket } from '../../sync/feed/session'
+import { SYNC_CLOSE_GOING_AWAY } from '../../sync/protocol'
 import { isMainFeedNote, type ThreadFeedNote } from '../sync/feed-messages'
 import type { FeedGateway } from '../sync/feed-route'
 import type { RelayClient } from './relay-client'
@@ -76,7 +77,7 @@ export function threadFeedGateway(port: MessagePort, relay: RelayClient): Thread
     close() {
       port.off('message', onMessage)
       for (const [feedId, socket] of sockets) {
-        socket.close(1001, 'server closing')
+        socket.close(SYNC_CLOSE_GOING_AWAY, 'server closing')
         post({ type: 'feed-closed', feedId })
       }
       sockets.clear()

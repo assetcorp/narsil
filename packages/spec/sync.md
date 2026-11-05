@@ -153,7 +153,7 @@ SyncSettings {
 
 Each key of `SyncSettings` has the type and the meaning of the key of the same name in the [index configuration payload](envelope.md#index-configuration-payload).
 
-A node must close the connection with close code 1009 after a device message longer than 65,536 bytes, and with close code 1008 after a message that fails to decode, a message of an unknown `type`, a `subscribe` other than the connection's first message, an `epoch` that is not 32 lowercase hexadecimal digits, and a list of positions that leaves out a partition, names one twice, or names a partition that the index lacks. It must also close the connection with 1008 after an `ack` above an entry that it has sent, so that a device can't release entries that it never received.
+A node must close the connection with close code 1009 after a device message longer than 65,536 bytes, and with close code 1008 after a message that fails to decode, a message of an unknown `type`, a `subscribe` other than the connection's first message, an `epoch` that is not 32 lowercase hexadecimal digits, and a list of positions that leaves out a partition, names one twice, or names a partition that the index lacks. It must also close the connection with 1008 after an `ack` above an entry that it has sent, so that a device can't release entries that it never received. The node must compare the device's `epoch` with the index's before it checks the list of positions, because a partition count change gives the index a new epoch, and a device that holds positions from the old layout must receive `resync` with the reason `epoch` and never close code 1008.
 
 ### Sending Entries
 
@@ -212,7 +212,9 @@ A synced index on a device is an ordinary Narsil index, so a local write is an o
 
 | Close code | Meaning |
 |------------|---------|
+| 1001 | The node is shutting down, and the device can connect again to any node. |
 | 1008 | The device sent a message that breaks the rules of [The Feed](#the-feed). |
 | 1009 | The device sent a message longer than 65,536 bytes. |
+| 1011 | The node failed to serve the connection, and the device can connect again. |
 | 4401 | The credential that admitted the connection has expired. |
 | 4410 | The device must load a fresh snapshot. |
