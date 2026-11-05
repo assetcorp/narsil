@@ -1,0 +1,62 @@
+{
+  "header": {
+    "envelopeFormatVersion": 1,
+    "compression": "none",
+    "checksum": true
+  },
+  "payload": {
+    "name": "conformance",
+    "clusterUuid": "6f1c2a4e-3b5d-4e8f-9a1b-2c3d4e5f6a7b",
+    "indexName": "products",
+    "startedAt": 1793664000000,
+    "completedAt": 1793664004000,
+    "partitionCount": 1,
+    "replicationFactor": 1,
+    "constraints": {
+      "zoneAwareness": false,
+      "zoneAttribute": "zone",
+      "maxShardsPerNode": null
+    },
+    "config": {
+      "sha256": "db1f80da0e0b0155f72389b0078d80a85b1ddfe6383ce3deff85dec12d064bf5",
+      "bytes": 498
+    },
+    "partitions": [
+      {
+        "partitionId": 0,
+        "lastSeqNo": 45,
+        "manifest": {
+          "sha256": "9d28dba0d569ea32a0a2287315c353db5ce3f354c4f6f2ed76da34749732ffad",
+          "bytes": 957
+        },
+        "files": [
+          {
+            "key": "segments/0/s0000000000000000",
+            "sha256": "29453147c4006193ada83933173204ecb67add70a85faa4937cb65daf4ffcad9",
+            "bytes": 47904
+          },
+          {
+            "key": "segments/0/s0000000000000001",
+            "sha256": "76fbc1fe87b936d2bed939b83dc901b9aac0b4019b414d4277e697c9047a6cf1",
+            "bytes": 8272
+          },
+          {
+            "key": "segments/vec-embedding-1l4nfg2-f0000000000000000",
+            "sha256": "000689ddf00c43c6c30c9493349f03148c228fd9bd7f3c2cf9f22548ff01026c",
+            "bytes": 2754
+          },
+          {
+            "key": "segments/vec-embedding-1l4nfg2-f0000000000000001",
+            "sha256": "95456d8d6587df9c583e3c472bf020626fad0b40eef7e365b536e06b456944e1",
+            "bytes": 446
+          },
+          {
+            "key": "segments/vec-embedding-1l4nfg2-graph-g2-p0000000000000000",
+            "sha256": "fc91d110aee39bfdd06c5500940a4ca4a8dfcc76e5c8e7626481061e9208cf42",
+            "bytes": 2077
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -8,6 +8,7 @@ import {
   readRebalanceRecord,
   updateRebalanceRecord,
 } from '../../../rebalance/records'
+import { renewClusterSyncEpoch } from '../../../sync-epoch-renewal'
 import { rewriteForCurrentIndex } from '../../../table-identity'
 import {
   ensureCopyStarted,
@@ -24,6 +25,10 @@ interface BlockedPartition {
 }
 
 export type CutoverOutcome = 'swapped' | 'retry' | 'gone'
+
+interface CutoverEpoch {
+  renewed: boolean
+}
 
 async function blockedAndForwarded(
   ctx: RebalanceContext,
@@ -95,6 +100,7 @@ async function swapIndexName(
   indexName: string,
   record: RebalanceRecord,
   blocked: Map<number, BlockedPartition>,
+  epoch: CutoverEpoch,
 ): Promise<boolean> {
   const nameTable = await ctx.coordinator.getAllocation(indexName)
   if (nameTable === null) {
@@ -115,6 +121,10 @@ async function swapIndexName(
   if (nameTable.indexUuid !== undefined) pointer.indexUuid = nameTable.indexUuid
   const rewritten = await rewriteForCurrentIndex(ctx.coordinator, pointer)
   if (rewritten === null) return false
+  if (!epoch.renewed) {
+    if (!(await renewClusterSyncEpoch(ctx.coordinator, indexName))) return false
+    epoch.renewed = true
+  }
   return ctx.coordinator.putAllocation(indexName, rewritten, nameTable.version, ctx.nodeId)
 }
 
@@ -133,6 +143,7 @@ export async function attemptCutover(
   if (cut.phase !== 'cutover') return 'retry'
 
   const blocked = new Map<number, BlockedPartition>()
+  const epoch: CutoverEpoch = { renewed: false }
   const deadline = Date.now() + RESHARD_CUTOVER_TIMEOUT_MS
   while (Date.now() < deadline && ctx.isLive()) {
     const latest = await readRebalanceRecord(ctx.coordinator, indexName)
@@ -140,7 +151,7 @@ export async function attemptCutover(
     if (latest.phase === 'aborting') return 'retry'
     if (
       (await everyPartitionCaughtUp(ctx, indexName, cut, blocked, started)) &&
-      (await swapIndexName(ctx, indexName, cut, blocked))
+      (await swapIndexName(ctx, indexName, cut, blocked, epoch))
     ) {
       return 'swapped'
     }

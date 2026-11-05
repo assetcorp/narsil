@@ -106,7 +106,7 @@ Every hit holds the document, its id, and its BM25 score. Beside the hits, `resu
 
 **Geosearch.** [Geo filters](https://github.com/assetcorp/narsil/blob/main/docs/geosearch.md) match documents by radius, using Haversine or Vincenty distance, or by polygon containment. You can combine a geo filter with every other query feature.
 
-**Storage.** [Persistence adapters](https://github.com/assetcorp/narsil/blob/main/docs/persistence-and-durability.md) store indexes on the filesystem, in IndexedDB, in memory, or in a backend of your own. With durability on, the engine keeps a write-ahead log with periodic checkpoints and recovers on its own after a crash. You can stream a whole index into a portable snapshot archive, or export its documents as JSON Lines to move the index across releases.
+**Storage.** [Persistence adapters](https://github.com/assetcorp/narsil/blob/main/docs/persistence-and-durability.md) store indexes on the filesystem, in IndexedDB, in memory, or in a backend of your own. With durability on, the engine keeps a write-ahead log with periodic checkpoints and recovers on its own after a crash. You can stream a whole index into a portable snapshot archive, or export its documents as JSON Lines to move the index across releases. With [device sync](https://github.com/assetcorp/narsil/blob/main/docs/device-sync.md), a phone, a laptop, or a browser tab keeps a copy of one index from a server, which it searches and writes while it is offline.
 
 **Scale.** The engine routes each document to a [partition](https://github.com/assetcorp/narsil/blob/main/docs/partitions-and-workers.md) by a deterministic hash. When you call `rebalance()`, the engine reshapes the partitions online and buffers incoming writes in a write-ahead queue. Once an index holds 1,000 documents, the engine serves keyword queries from worker copies on half its worker threads, while the HTTP server receives requests on the threads that hold those copies.
 
@@ -131,6 +131,7 @@ Every hit holds the document, its id, and its BM25 score. Beside the hits, `resu
 | [HTTP server](https://github.com/assetcorp/narsil/blob/main/docs/http-server.md) | Wrapping an engine in a REST API, every route it serves, and long-running tasks |
 | [Cluster mode](https://github.com/assetcorp/narsil/blob/main/docs/cluster.md) | Multi-node indexes: nodes and roles, replication, routed writes, distributed searches and reads, and the calls that fail in a cluster |
 | [Client](https://github.com/assetcorp/narsil/blob/main/docs/client.md) | Reaching a server from a browser or Node, following a task, and the codes it raises |
+| [Device sync](https://github.com/assetcorp/narsil/blob/main/docs/device-sync.md) | A copy of one index on a device that searches and writes offline, the sync routes, conflicts, and the snapshot |
 | [React](https://github.com/assetcorp/narsil/blob/main/docs/react.md) | The hooks over a client or an engine in the page, one shared request per key, and loading a corpus from a component |
 | [Observability](https://github.com/assetcorp/narsil/blob/main/docs/observability.md) | Plugin hooks, engine events, and memory reporting |
 | [Errors](https://github.com/assetcorp/narsil/blob/main/docs/errors.md) | The codes you handle most often, and the three sets that `NarsilError.code` covers |

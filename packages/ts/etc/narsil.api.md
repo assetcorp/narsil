@@ -84,6 +84,7 @@ export const ClientErrorCodes: {
     readonly CLIENT_INVALID_RESPONSE: "CLIENT_INVALID_RESPONSE";
     readonly CLIENT_TASK_TIMEOUT: "CLIENT_TASK_TIMEOUT";
     readonly CLIENT_UNEXPECTED_ERROR: "CLIENT_UNEXPECTED_ERROR";
+    readonly SYNC_ANALYSIS_UNAVAILABLE: "SYNC_ANALYSIS_UNAVAILABLE";
 };
 
 // @public
@@ -206,6 +207,11 @@ export const ErrorCodes: {
     readonly BACKUP_STORE_CLAIMED: "BACKUP_STORE_CLAIMED";
     readonly BACKUP_STORE_NOT_CONFIGURED: "BACKUP_STORE_NOT_CONFIGURED";
     readonly BACKUP_NOT_READY: "BACKUP_NOT_READY";
+    readonly SYNC_DURABILITY_REQUIRED: "SYNC_DURABILITY_REQUIRED";
+    readonly SYNC_BACKUP_STORE_REQUIRED: "SYNC_BACKUP_STORE_REQUIRED";
+    readonly SYNC_NOT_READY: "SYNC_NOT_READY";
+    readonly SYNC_NOT_ENABLED: "SYNC_NOT_ENABLED";
+    readonly SYNC_SNAPSHOT_PREPARING: "SYNC_SNAPSHOT_PREPARING";
     readonly SEARCH_INVALID_FIELD: "SEARCH_INVALID_FIELD";
     readonly VECTOR_DIMENSION_MISMATCH: "VECTOR_DIMENSION_MISMATCH";
     readonly SEARCH_INVALID_FILTER: "SEARCH_INVALID_FILTER";
@@ -602,10 +608,9 @@ export interface MemoryStats {
 }
 
 // @public
-export interface Narsil extends IndexLifecycleOperations, DocumentWriteOperations, SynonymOperations, AnalysisOperations, BM25Operations, AdapterRegistrationOperations {
+export interface Narsil extends IndexLifecycleOperations, DocumentWriteOperations, SynonymOperations, AnalysisOperations, BM25Operations, SyncOperations, VectorMaintenanceOperations, AdapterRegistrationOperations {
     checkpoint(indexName: string): Promise<void>;
     clear(indexName: string): Promise<void>;
-    compactVectors(indexName: string, fieldName?: string): Promise<void>;
     countDocuments(indexName: string): Promise<number>;
     createIndex(name: string, config: IndexConfig): Promise<void>;
     dropIndex(name: string): Promise<void>;
@@ -621,7 +626,6 @@ export interface Narsil extends IndexLifecycleOperations, DocumentWriteOperation
     listIndexes(): IndexInfo[];
     off<K extends keyof NarsilEventMap>(event: K, handler: (payload: NarsilEventMap[K]) => void): void;
     on<K extends keyof NarsilEventMap>(event: K, handler: (payload: NarsilEventMap[K]) => void): void;
-    optimizeVectors(indexName: string, fieldName?: string): Promise<void>;
     preflight(indexName: string, params: QueryParams): Promise<PreflightResult>;
     query<T = AnyDocument>(indexName: string, params: QueryParams): Promise<QueryResult<T>>;
     rebalance(indexName: string, targetPartitionCount: number): Promise<void>;
@@ -631,7 +635,6 @@ export interface Narsil extends IndexLifecycleOperations, DocumentWriteOperation
     snapshot(indexName: string): Promise<ReadableStream<Uint8Array>>;
     suggest(indexName: string, params: SuggestParams): Promise<SuggestResult>;
     updatePartitionConfig(indexName: string, config: Partial<PartitionConfig>): Promise<void>;
-    vectorMaintenanceStatus(indexName: string): VectorMaintenanceResult[];
 }
 
 // @public
@@ -1213,6 +1216,25 @@ export interface SuggestResult {
 }
 
 // @public
+export interface SyncOperations {
+    getSync(indexName: string): Promise<SyncStatus>;
+    updateSync(indexName: string, setting: SyncSetting): Promise<void>;
+}
+
+// @public
+export interface SyncSetting {
+    enabled: boolean;
+    historyMaxAgeMs?: number;
+    historyMaxBytes?: number;
+}
+
+// @public
+export interface SyncStatus extends SyncSetting {
+    active: boolean;
+    epoch: string | null;
+}
+
+// @public
 export interface SynonymOperations {
     getSynonyms(indexName: string): Promise<SynonymRule[]>;
     updateSynonyms(indexName: string, synonyms: SynonymRule[]): Promise<void>;
@@ -1265,6 +1287,13 @@ export interface VectorIndexConfig {
     quantization?: VectorQuantizationMode;
     storage?: VectorStorageMode;
     threshold?: number;
+}
+
+// @public
+export interface VectorMaintenanceOperations {
+    compactVectors(indexName: string, fieldName?: string): Promise<void>;
+    optimizeVectors(indexName: string, fieldName?: string): Promise<void>;
+    vectorMaintenanceStatus(indexName: string): VectorMaintenanceResult[];
 }
 
 // @public

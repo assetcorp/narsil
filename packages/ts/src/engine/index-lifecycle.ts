@@ -22,6 +22,7 @@ import type { IndexConfig } from '../types/schema'
 import { loadSchemaCodeFor } from '../workers/schema-code'
 import type { EngineCore, IndexRegistryEntry } from './core'
 import { requireConfigurationWithinSizeLimit } from './snapshot/index-configuration'
+import { emitSyncChange } from './sync-notify'
 import { prepareConfiguredSynonyms, withoutSynonyms } from './synonym-sets'
 import {
   requireSurfaceFormsForPartialFields,
@@ -164,6 +165,7 @@ export async function createEngineIndex(
     analysisGeneration: 0,
     pendingAnalysis: null,
     durableAnalysis: null,
+    sync: null,
   })
   await core.indexState.registerOpen(name)
   if (core.durability) {
@@ -196,6 +198,7 @@ export async function dropEngineIndex(core: EngineCore, name: string): Promise<v
     core.indexRegistry.delete(name)
     core.watermarkNotifier.forget(name)
     core.analysisRebuild.clearStale(name)
+    if (entry.sync !== null) emitSyncChange(core.indexRegistry, { kind: 'dropped', indexName: name })
   })
   await runLifecycleHook(core, 'onIndexDrop', { indexName: name, config: entry.config })
 }

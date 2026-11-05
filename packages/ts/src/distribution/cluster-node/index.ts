@@ -1,6 +1,4 @@
 import { ErrorCodes, NarsilError } from '../../errors'
-import { bindRerankWindowSource, rerankWindowCapOf } from '../../narsil/internals'
-import { bindWriteBlockLookup } from '../../narsil/write-blocks'
 import { createBackupService } from '../backups/service'
 import type { ControllerNode } from '../cluster/controller/types'
 import type { NodeRole } from '../coordinator/types'
@@ -14,13 +12,14 @@ import { createClusterNamespace } from './cluster-namespace'
 import { createNodeController } from './controller-role'
 import { createCopyFailures } from './copy-failure'
 import { decommissionNode } from './decommission'
+import { createClusterDeviceSync } from './device-sync'
 import { createAllocationErrorForwarder, createErrorForwarder } from './error-forwarding'
 import { servingNameOf } from './generation-routing'
 import { type ClusterLocalEngine, createClusterLocalEngine } from './local-engine'
 import { orphanedIndexError, reconcileLocalIndexes } from './local-index-reconcile'
 import { seedReopenedPrimaryLogs } from './local-replication'
-import { findWriteBlock } from './memory/write-block'
 import { createDataNodeHandler } from './message-handler'
+import { bindNodeSources } from './node-bindings'
 import { resolveNodeId } from './node-identity'
 import { createNodeLifecycle } from './node-lifecycle'
 import { createClusterNodeOperations } from './node-operations'
@@ -32,8 +31,8 @@ import { requestReplicationFactor } from './replication-factor'
 import { replicationLogKey as buildReplicationLogKey, deleteIndexReplicationLogs } from './replication-logs'
 import { requestRebalance, waitForSwap } from './reshard/request'
 import { createReshardState, forgetReshardIndex, stopEveryReshardJob } from './reshard/state'
-import { routableAllocation } from './routable-allocation'
 import { createSearchContextRegistry, releaseContextsOfDepartedNodes } from './search-contexts'
+import { createSettlingWrites } from './settling-writes'
 import { createSnapshotSyncHandlerState } from './snapshot-sync-handler'
 import { createMultiplexedControllerTransport, createNotReadyHandler } from './transport-listener'
 import type { ClusterNode, ClusterNodeConfig } from './types'
@@ -113,13 +112,7 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
   const controllerTransport = hasDataRole ? createMultiplexedControllerTransport(config.transport, nodeId) : null
 
   const orphanedIndexes = new Set<string>()
-  const heldPartitionWrites = new Set<Promise<void>>()
-
-  function trackHeldPartitionWrite(write: Promise<void>): void {
-    const settled = write.catch(forwardOnError)
-    heldPartitionWrites.add(settled)
-    void settled.finally(() => heldPartitionWrites.delete(settled))
-  }
+  const heldPartitionWrites = createSettlingWrites(forwardOnError)
 
   let controller: ControllerNode | null = null
   let unregisterHandler: (() => void) | null = null
@@ -169,7 +162,7 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
     replicationLogs,
     copyFailures,
     bootstrapPartition,
-    trackHeldPartitionWrite,
+    trackHeldPartitionWrite: heldPartitionWrites.track,
     cleanupDeps,
   })
 
@@ -208,6 +201,14 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
   const analysisView = createAnalysisView({ coordinator: config.coordinator, engine, onError: forwardOnError })
   const readDeps = { config: routingConfig, nodeId, engine, resolveNodeTargets, searchContexts, bm25View, analysisView }
   const servingName = (indexName: string) => servingNameOf(allocationView.routing, indexName)
+  const deviceSync = createClusterDeviceSync({
+    ...cleanupDeps,
+    config,
+    writeDeps,
+    refreshAllocation: allocationView.refresh,
+    spoolDirectory: snapshotSpool.path,
+    guard: guardShutdown,
+  })
 
   const cluster = createClusterNamespace({
     nodeId,
@@ -262,6 +263,8 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
       },
       isOrphaned: (indexName: string) => orphanedIndexes.has(indexName),
     }),
+    updateSync: (indexName, setting) => trackOp(indexName, () => deviceSync.updateSync(indexName, setting)),
+    getSync: indexName => trackOp(indexName, () => deviceSync.getSync(indexName)),
 
     cluster,
 
@@ -270,6 +273,7 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
       await allocationView.start()
       await bm25View.start()
       await analysisView.start()
+      await deviceSync.start()
 
       const dispositions = await reconcileLocalIndexes({
         engine,
@@ -345,6 +349,7 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
       allocationView.stop()
       bm25View.stop()
       analysisView.stop()
+      await deviceSync.stop()
 
       unregisterHandler?.()
       unregisterHandler = null
@@ -361,18 +366,19 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
         await controller.shutdown()
       }
 
-      await Promise.all([...heldPartitionWrites])
+      await heldPartitionWrites.settled()
 
       await engine.shutdown()
       await snapshotSpool.dispose()
     },
   }
 
-  bindWriteBlockLookup(node, async indexName => {
-    const table = await routableAllocation(writeDeps.coordinator, indexName).catch(() => null)
-    return table === null ? null : findWriteBlock(table, memoryReporting.view)
+  bindNodeSources(node, {
+    coordinator: writeDeps.coordinator,
+    engine,
+    memoryView: memoryReporting.view,
+    syncServing: deviceSync.serving,
   })
-  bindRerankWindowSource(node, () => rerankWindowCapOf(engine))
   return node
 }
 

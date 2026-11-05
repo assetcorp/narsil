@@ -28,7 +28,7 @@ A backup store must offer saveIfAbsent, because a save followed by a read can't 
 
 ## Backup Manifest
 
-A backup manifest is a `.nrsl` file whose header sets the checksum flag and carries envelope format version 1, and whose payload holds this MessagePack map:
+A backup manifest is a `.nrsl` file whose header sets the checksum flag and carries envelope format version 1, whose compression flag is 0, and whose payload holds this MessagePack map:
 
 ```text
 BackupManifest {
@@ -38,6 +38,8 @@ BackupManifest {
   startedAt:         uint64                  (milliseconds since the Unix epoch)
   completedAt:       uint64
   partitionCount:    uint32
+  syncEpoch:         string or absent        (the index epoch, which the controller copies from IndexSettings when the backup starts)
+  takenBy:           string or absent        ("sync" where device sync started the backup, and absent for a caller's backup)
   replicationFactor: uint32
   constraints:       AllocationConstraints   (as cluster.md defines)
   config:            StoredFile              (an index configuration payload)
@@ -64,6 +66,8 @@ ListedFile {
 ```
 
 The bytes of a `StoredFile` or a `ListedFile` are stored under `<keyPrefix>/files/<sha256>`.
+
+A reader must raise `BACKUP_DAMAGED` for a manifest whose compression flag is 1, as it does for any manifest that fails to decode.
 
 Each partition's manifest is the manifest that a [snapshot archive](../durability.md#snapshot-archive) of that one partition holds, and three more rules apply to it:
 
@@ -106,6 +110,8 @@ Each partition's manifest is the manifest that a [snapshot archive](../durabilit
 A backup holds every write that each primary acknowledged before it received `cluster.backup_partition`, because the checkpoint of step 4 follows that message. Each partition's content matches its own `lastSeqNo`, and a backup gives no single point in time across partitions.
 
 Saving the manifest is the commit point, so a reader must treat a backup that has no manifest as absent. A failed backup saves no manifest, and the files that it stored stay until a [deletion](#deleting-a-backup) removes them.
+
+The controller copies `takenBy` from `cluster.backup` into the manifest. A node sets `takenBy` only for a backup that [device sync](../sync.md#in-a-cluster) starts, and the backup operation that a caller reaches takes no `takenBy`, so that a caller's backup never carries it.
 
 A primary must stream each file that it saves through `saveStream` where the adapter offers that method, and it must bound the files that it saves at one time, so that a backup can't fill a serving node's memory.
 

@@ -2,9 +2,11 @@ import { ErrorCodes, NarsilError } from '../../errors'
 import { bindIndexReads } from '../../narsil/index-reads'
 import { bindRerankWindowSource, rerankWindowCapOf } from '../../narsil/internals'
 import { bindEngineWriteBlock } from '../../narsil/write-blocks'
+import { bindSyncServing, syncServingSourceOf } from '../../server/sync/serving'
 import type { Narsil } from '../../types/engine'
 import type { AnyDocument, BM25Params, IndexConfig, InsertOptions, WriteOptions } from '../../types/schema'
 import type { ListParams, QueryParams, SuggestParams } from '../../types/search'
+import type { SyncSetting, SyncStatus } from '../../types/sync'
 import type { SynonymRule } from '../../types/synonyms'
 import type { ClusterNode, CreateIndexOptions } from './types'
 
@@ -122,6 +124,14 @@ export function clusterNodeEngine(node: ClusterNode, options?: ClusterEngineOpti
       return node.updateBM25(indexName, bm25)
     },
 
+    updateSync(indexName: string, setting: SyncSetting): Promise<void> {
+      return node.updateSync(indexName, setting)
+    },
+
+    getSync(indexName: string): Promise<SyncStatus> {
+      return node.getSync(indexName)
+    },
+
     async getSynonyms(indexName: string): Promise<SynonymRule[]> {
       return node.getSynonyms(indexName)
     },
@@ -216,5 +226,7 @@ export function clusterNodeEngine(node: ClusterNode, options?: ClusterEngineOpti
     getPartitionStats: indexName => node.getPartitionStats(indexName),
   })
   bindRerankWindowSource(engine, () => rerankWindowCapOf(node))
+  const syncServing = syncServingSourceOf(node)
+  if (syncServing !== undefined) bindSyncServing(engine, syncServing)
   return engine
 }

@@ -21,7 +21,6 @@ import { type CapturedWholePartition, contentsOfCaptured, type PartitionContents
 import { compactPartitionSegments } from './compaction'
 import { manifestKey, segmentsPrefix, snapshotBundleKey } from './layout'
 import {
-  encodeSegmentManifest,
   MAX_SEGMENTS_PER_PARTITION,
   manifestReferencedKeys,
   type PartitionManifestEntry,
@@ -30,6 +29,7 @@ import {
   type SegmentRef,
   type VectorFieldRef,
 } from './manifest'
+import { encodeSegmentManifest } from './manifest-encode'
 import { writeSegmentsOf } from './segment-write'
 import type { CheckpointStore } from './store'
 

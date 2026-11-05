@@ -1,18 +1,22 @@
-import { decode, encode } from '@msgpack/msgpack'
+import { encode } from '@msgpack/msgpack'
 import { ARRAY_POSITION_GAP } from '../../core/constants'
 import { compareCodePoints } from '../../core/ordering'
 import { ErrorCodes, NarsilError } from '../../errors'
 import { messagePackUpperBoundBytes } from '../../schema/validator/document-size'
-import { openChecksummedEnvelope, packChecksummedEnvelope } from '../../serialization/envelope-file'
+import { packChecksummedEnvelope } from '../../serialization/envelope-file'
 import type { LanguageModule } from '../../types/language'
 import type { IndexConfig } from '../../types/schema'
 import type { SynonymRule } from '../../types/synonyms'
 import { MAX_INDEX_CONFIGURATION_BYTES } from '../constants'
 import type { IndexRegistryEntry } from '../core'
 import { rulesOfStoredSynonyms } from '../synonym-sets'
-import type { SnapshotEnvelope } from './restore-config'
+import { INDEX_CONFIGURATION_ENVELOPE_VERSION } from './index-configuration-decode'
 
-export const INDEX_CONFIGURATION_ENVELOPE_VERSION = 5
+export {
+  decodeIndexConfiguration,
+  INDEX_CONFIGURATION_ENVELOPE_VERSION,
+  requireConfigurationShape,
+} from './index-configuration-decode'
 
 function refuseCode(entry: IndexRegistryEntry): void {
   if (entry.config.tokenizer !== undefined && typeof entry.config.tokenizer !== 'string') {
@@ -32,7 +36,7 @@ function refuseCode(entry: IndexRegistryEntry): void {
 export function indexConfigurationOf(entry: IndexRegistryEntry): Record<string, unknown> {
   refuseCode(entry)
   const synonyms = entry.synonyms === null ? undefined : rulesOfStoredSynonyms(entry.synonyms)
-  return configurationPayloadOf(
+  const payload = configurationPayloadOf(
     entry.config,
     entry.language,
     entry.embeddingAdapterName,
@@ -41,6 +45,7 @@ export function indexConfigurationOf(entry: IndexRegistryEntry): Record<string, 
     synonyms,
     entry.analysisGeneration,
   )
+  return entry.sync === null ? payload : { ...payload, syncEpoch: entry.sync.epoch }
 }
 
 export function requireConfigurationWithinSizeLimit(config: IndexConfig, language: LanguageModule): void {
@@ -124,33 +129,4 @@ export async function encodeIndexConfiguration(entry: IndexRegistryEntry): Promi
     offset += chunk.byteLength
   }
   return bytes
-}
-
-export function requireConfigurationShape(raw: unknown, what: string): SnapshotEnvelope {
-  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
-    throw new NarsilError(ErrorCodes.CONFIG_INVALID, `The ${what} does not hold an index configuration`)
-  }
-  const configuration = raw as SnapshotEnvelope
-  if (configuration.schema === null || typeof configuration.schema !== 'object') {
-    throw new NarsilError(ErrorCodes.CONFIG_INVALID, `The ${what} holds no schema`)
-  }
-  if (typeof configuration.language !== 'string' || configuration.language.length === 0) {
-    throw new NarsilError(ErrorCodes.CONFIG_INVALID, `The ${what} holds no language`)
-  }
-  return configuration
-}
-
-export async function decodeIndexConfiguration(bytes: Uint8Array): Promise<SnapshotEnvelope> {
-  const { payload } = await openChecksummedEnvelope(bytes, {
-    envelopeFormatVersion: INDEX_CONFIGURATION_ENVELOPE_VERSION,
-    what: 'index configuration',
-    allowsCompression: true,
-  })
-  let raw: unknown
-  try {
-    raw = decode(payload)
-  } catch {
-    throw new NarsilError(ErrorCodes.PERSISTENCE_LOAD_FAILED, 'The index configuration is not MessagePack')
-  }
-  return requireConfigurationShape(raw, 'index configuration')
 }

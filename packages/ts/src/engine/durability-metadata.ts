@@ -2,9 +2,16 @@ import { DEFAULT_BM25_B, DEFAULT_BM25_K1 } from '../core/constants'
 import { compareCodePoints } from '../core/ordering'
 import { VERSION } from '../index'
 import { flattenSchema } from '../schema/validator'
-import type { IndexEmbeddingMetadata, IndexMetadata, PendingAnalysisMetadata } from '../types/internal'
+import type {
+  IndexEmbeddingMetadata,
+  IndexMetadata,
+  PendingAnalysisMetadata,
+  StoredSyncSetting,
+} from '../types/internal'
 import type { BM25FieldParams, PartitionConfig, ScoringMode, VectorIndexConfig } from '../types/schema'
 import type { SynonymRule } from '../types/synonyms'
+import { DEFAULT_VECTOR_METRIC } from '../vector/vector-index/constants'
+import { defaultQuantizationFor } from '../vector/vector-index/default-quantization'
 import type { IndexRegistryEntry } from './core'
 import { rulesOfStoredSynonyms } from './synonym-sets'
 
@@ -36,6 +43,29 @@ export interface MetadataConfig {
   vectorPromotion?: VectorIndexConfig
   patternValueLimit?: number
   synonyms?: SynonymRule[]
+  sync?: StoredSyncSetting
+  syncActive?: boolean
+  syncEpoch?: string
+}
+
+const VECTOR_TYPE = /^vector\[(\d+)\]$/
+
+function vectorFieldsOf(
+  schema: Record<string, string>,
+  promotion: VectorIndexConfig | undefined,
+): IndexMetadata['vectorFields'] | null {
+  const fields: NonNullable<IndexMetadata['vectorFields']> = {}
+  for (const [fieldPath, type] of Object.entries(schema)) {
+    const match = VECTOR_TYPE.exec(type)
+    if (match === null) continue
+    const dimension = Number(match[1])
+    fields[fieldPath] = {
+      dimension,
+      metric: promotion?.hnswConfig?.metric ?? DEFAULT_VECTOR_METRIC,
+      quantization: promotion?.quantization ?? defaultQuantizationFor(dimension),
+    }
+  }
+  return Object.keys(fields).length === 0 ? null : fields
 }
 
 export function metadataFromConfig(
@@ -58,6 +88,10 @@ export function metadataFromConfig(
     engineVersion: VERSION,
   }
   metadata.documentCount = documentCount ?? config.documentCount
+  const vectorFields = vectorFieldsOf(config.schema, config.vectorPromotion)
+  if (vectorFields !== null) {
+    metadata.vectorFields = vectorFields
+  }
   if (config.embedding) {
     metadata.embedding = config.embedding
   }
@@ -118,6 +152,9 @@ export function metadataFromConfig(
   if (config.heldPartitions !== undefined) {
     metadata.heldPartitions = config.heldPartitions
   }
+  if (config.sync !== undefined) metadata.sync = config.sync
+  if (config.syncActive !== undefined) metadata.syncActive = config.syncActive
+  if (config.syncEpoch !== undefined) metadata.syncEpoch = config.syncEpoch
   return metadata
 }
 
@@ -158,6 +195,21 @@ export function metadataConfigOf(entry: IndexRegistryEntry): MetadataConfig {
     ...(entry.config.vectorPromotion !== undefined ? { vectorPromotion: entry.config.vectorPromotion } : {}),
     ...(entry.config.patternValueLimit !== undefined ? { patternValueLimit: entry.config.patternValueLimit } : {}),
     ...(entry.synonyms !== null ? { synonyms: rulesOfStoredSynonyms(entry.synonyms) } : {}),
+    ...syncMetadataOf(entry),
+  }
+}
+
+function syncMetadataOf(entry: IndexRegistryEntry): Pick<MetadataConfig, 'sync' | 'syncActive' | 'syncEpoch'> {
+  const sync = entry.sync
+  if (sync === null) return {}
+  return {
+    sync: {
+      enabled: true,
+      ...(sync.historyMaxAgeMs !== undefined ? { historyMaxAgeMs: sync.historyMaxAgeMs } : {}),
+      ...(sync.historyMaxBytes !== undefined ? { historyMaxBytes: sync.historyMaxBytes } : {}),
+    },
+    syncActive: sync.active,
+    syncEpoch: sync.epoch,
   }
 }
 

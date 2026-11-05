@@ -33,6 +33,7 @@ export type {
   TaskStepProgress,
   TaskType,
 } from '../server/types'
+export type { SyncSetting } from '../types/sync'
 export type { AdminOperations } from './admin'
 export type { BackupOperations } from './backups'
 export type { BulkOperations, ImportSource } from './bulk'
@@ -43,4 +44,5 @@ export type { IndexOperations } from './indexes'
 export type { FetchFunction, NarsilClientOptions, RequestOptions } from './options'
 export type { SearchOperations } from './search'
 export type { ServerOperations, ServerVersion } from './server-info'
+export type { SyncSettingOperations, SyncSnapshotDownload, SyncSnapshotResume } from './sync'
 export type { TaskOperations, WaitForTaskOptions } from './tasks'

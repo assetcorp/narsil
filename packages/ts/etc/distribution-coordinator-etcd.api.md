@@ -20,6 +20,7 @@ export interface EtcdCoordinatorConfig {
     keyPrefix: string;
     maxRequestBytes: number;
     nodeHeartbeatTtlSeconds: number;
+    onWatchError?: (error: Error) => void;
     tls?: EtcdTlsConfig;
 }
 

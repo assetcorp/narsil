@@ -7,6 +7,7 @@ import { createIndexOperations, type IndexOperations } from './indexes'
 import type { NarsilClientOptions } from './options'
 import { createSearchOperations, type SearchOperations } from './search'
 import { createServerOperations, type ServerOperations } from './server-info'
+import { createSyncSettingOperations, type SyncSettingOperations } from './sync'
 import { createTaskOperations, type TaskOperations } from './tasks'
 
 /**
@@ -31,7 +32,8 @@ export interface NarsilClient
     TaskOperations,
     AdminOperations,
     BackupOperations,
-    ServerOperations {}
+    ServerOperations,
+    SyncSettingOperations {}
 
 /**
  * Builds a client for one Narsil server, or for a list of them that it moves
@@ -61,5 +63,6 @@ export function createNarsilClient(options: NarsilClientOptions): NarsilClient {
     ...createAdminOperations(transport),
     ...createBackupOperations(transport),
     ...createServerOperations(transport),
+    ...createSyncSettingOperations(transport),
   }
 }

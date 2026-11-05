@@ -322,6 +322,26 @@
       "import": "./dist/react.mjs",
       "types": "./dist/react.d.ts"
     },
+    "./sync": {
+      "react-native": {
+        "types": "./dist/sync.d.ts",
+        "default": "./dist/react-native/sync.mjs"
+      },
+      "browser": {
+        "import": "./dist/sync.browser.mjs",
+        "types": "./dist/sync.d.ts"
+      },
+      "import": "./dist/sync.mjs",
+      "types": "./dist/sync.d.ts"
+    },
+    "./sync/filesystem": {
+      "import": "./dist/sync/filesystem.mjs",
+      "types": "./dist/sync/filesystem.d.ts"
+    },
+    "./sync/indexeddb": {
+      "import": "./dist/sync/indexeddb.mjs",
+      "types": "./dist/sync/indexeddb.d.ts"
+    },
     "./openapi.json": "./openapi.json"
   },
   "files": [
@@ -357,7 +377,7 @@
     "tsup": "8.5.1",
     "tsx": "4.21.0",
     "typescript": "5.9.3",
-    "uWebSockets.js": "github:uNetworking/uWebSockets.js#ba110e817908b56c61d625b02f367b4ec9cfc8ab",
+    "uWebSockets.js": "github:uNetworking/uWebSockets.js#b1092c70692ddbcc87464a77da44848614f6342a",
     "vitest": "4.0.18",
     "wabt": "1.0.39"
   },

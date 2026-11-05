@@ -3,6 +3,7 @@ import { storedBM25Params, validateBM25Params } from '../search/bm25-params'
 import type { BM25Params } from '../types/schema'
 import type { EngineCore } from './core'
 import { oneAtATime, withOpenIndex } from './serial-index-update'
+import { emitSyncChange } from './sync-notify'
 
 async function replaceNow(core: EngineCore, indexName: string, bm25: BM25Params | undefined): Promise<void> {
   const { config } = core.requireIndex(indexName)
@@ -21,6 +22,7 @@ async function replaceNow(core: EngineCore, indexName: string, bm25: BM25Params 
     ...(bm25 !== undefined ? { bm25 } : {}),
   })
   await core.orchestrator.awaitWrites(indexName)
+  if (core.requireIndex(indexName).sync !== null) emitSyncChange(core.indexRegistry, { kind: 'settings', indexName })
 }
 
 export function updateIndexBm25(core: EngineCore, indexName: string, value: BM25Params): Promise<void> {

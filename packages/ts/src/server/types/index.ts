@@ -6,8 +6,10 @@ export type {
   OnRequestHook,
   RequestContext,
   RequestDenial,
+  RequestGrant,
   ServerLimits,
   ServerOptions,
+  ServerSyncOptions,
 } from './options'
 export type {
   BatchBody,

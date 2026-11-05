@@ -30,28 +30,35 @@ export function frameRecord(entry: ReplicationLogEntry): Uint8Array {
   return frame
 }
 
-export type SegmentHeaderCheck = { ok: true } | { ok: false; reason: string }
+export type SegmentHeaderCheck =
+  | { ok: true }
+  | {
+      ok: false
+      reason: string
+      code: typeof ErrorCodes.PERSISTENCE_WAL_CORRUPT | typeof ErrorCodes.ENVELOPE_VERSION_MISMATCH
+    }
 
 export function checkSegmentHeader(data: Uint8Array): SegmentHeaderCheck {
   if (data.length < SEGMENT_HEADER_SIZE) {
-    return { ok: false, reason: 'segment shorter than the 8-byte header' }
+    return { ok: false, reason: 'segment shorter than the 8-byte header', code: ErrorCodes.PERSISTENCE_WAL_CORRUPT }
   }
   for (let i = 0; i < WAL_MAGIC.length; i += 1) {
     if (data[i] !== WAL_MAGIC[i]) {
-      return { ok: false, reason: 'missing NRSW magic' }
+      return { ok: false, reason: 'missing NRSW magic', code: ErrorCodes.PERSISTENCE_WAL_CORRUPT }
     }
   }
   const formatVersion = data[4]
   if (formatVersion > WAL_FORMAT_VERSION) {
     return {
       ok: false,
-      reason: `WAL format version ${formatVersion} is newer than supported version ${WAL_FORMAT_VERSION}`,
+      reason: `WAL format version ${formatVersion} is newer than supported version ${WAL_FORMAT_VERSION}, so a newer release wrote this segment`,
+      code: ErrorCodes.ENVELOPE_VERSION_MISMATCH,
     }
   }
   return { ok: true }
 }
 
-function decodeEntry(payload: Uint8Array): ReplicationLogEntry {
+export function decodeWalEntry(payload: Uint8Array): ReplicationLogEntry {
   const decoded = decode(payload)
   const { entry } = validateEntryPayload({ entry: decoded })
   if (computeEntryChecksum(entry) !== entry.checksum) {
@@ -71,7 +78,9 @@ export function readDurableRegion(
 ): ReplicationLogEntry[] {
   const header = checkSegmentHeader(data)
   if (!header.ok) {
-    corrupt(`WAL segment header invalid in durable region: ${header.reason}`, { reason: header.reason })
+    throw new NarsilError(header.code, `WAL segment header invalid in durable region: ${header.reason}`, {
+      reason: header.reason,
+    })
   }
   if (durableByteLength < SEGMENT_HEADER_SIZE || durableByteLength > data.length) {
     corrupt('Commit marker durable byte length is outside the segment', {
@@ -105,7 +114,7 @@ export function readDurableRegion(
     }
     let entry: ReplicationLogEntry
     try {
-      entry = decodeEntry(payload)
+      entry = decodeWalEntry(payload)
     } catch (err) {
       corrupt('WAL record payload failed to decode inside the durable region', {
         offset,
@@ -167,7 +176,7 @@ export function readTailBeyondFrontier(
     }
     let entry: ReplicationLogEntry
     try {
-      entry = decodeEntry(payload)
+      entry = decodeWalEntry(payload)
     } catch {
       break
     }
