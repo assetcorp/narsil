@@ -137,4 +137,5 @@ export interface NarsilCore extends HybridObject<{ ios: 'c++'; android: 'c++' }>
   ): Promise<NativeConnectOutcome>
   measure(store: NarsilAttachedStore, metric: number, ordinals: MemoryView, count: number, totals: MemoryView): number
   quantise(store: NarsilAttachedStore, metric: number, ordinals: MemoryView, count: number): number
+  applyMath(operation: number, first: MemoryView, second: MemoryView, results: MemoryView): number
 }

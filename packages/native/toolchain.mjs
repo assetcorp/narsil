@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { devNull } from 'node:os'
-import { basename, dirname, join } from 'node:path'
+import { dirname, join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 export const packageDirectory = dirname(fileURLToPath(import.meta.url))
@@ -38,17 +38,30 @@ const WARNING_FLAGS = [
 const GCC_ONLY_WARNING_FLAGS = ['-Wcast-align=strict', '-Wtrampolines', '-Wbidi-chars=any']
 
 const FORMATTED_DIRECTORIES = ['include', 'src', 'node', 'test']
+const GENERATED_DIRECTORIES = [
+  join('src', 'languages', 'data'),
+  join('src', 'languages', 'snowball'),
+  join('src', 'unicode'),
+]
 
 function cFilesIn(directory, extensions) {
   if (!existsSync(join(packageDirectory, directory))) return []
-  return readdirSync(join(packageDirectory, directory))
+  return readdirSync(join(packageDirectory, directory), { recursive: true })
     .filter(name => extensions.some(extension => name.endsWith(extension)))
     .sort()
     .map(name => join(packageDirectory, directory, name))
 }
 
+function isGenerated(file) {
+  return GENERATED_DIRECTORIES.some(directory => file.startsWith(join(packageDirectory, directory, '')))
+}
+
 export function coreSources() {
   return cFilesIn('src', ['.c'])
+}
+
+export function lintedCoreSources() {
+  return coreSources().filter(file => !isGenerated(file))
 }
 
 export function testSources() {
@@ -60,7 +73,9 @@ export function addonSources() {
 }
 
 export function formattedFiles() {
-  return FORMATTED_DIRECTORIES.flatMap(directory => cFilesIn(directory, ['.c', '.h']))
+  return FORMATTED_DIRECTORIES.flatMap(directory => cFilesIn(directory, ['.c', '.h'])).filter(
+    file => !isGenerated(file),
+  )
 }
 
 export function nodeApiHeaderDirectory() {
@@ -84,7 +99,11 @@ function appleSdkFlags() {
 }
 
 function compileCommand(file, flags) {
-  const object = join(buildDirectory, 'objects', `${basename(file, '.c')}.o`)
+  const object = join(
+    buildDirectory,
+    'objects',
+    `${relative(packageDirectory, file).replace(/\.c$/, '').replaceAll(sep, '-')}.o`,
+  )
   return { directory: packageDirectory, file, arguments: ['cc', ...flags, '-c', file, '-o', object] }
 }
 

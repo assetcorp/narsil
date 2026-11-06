@@ -16,18 +16,43 @@ export function exceedsCodePoints(value: string, maximum: number): boolean {
 }
 
 const SURROGATE_UNIT = /[\ud800-\udfff]/
+const REPLACEMENT_CHARACTER = '�'
 
-export function holdsUnpairedSurrogate(value: string): boolean {
-  if (!SURROGATE_UNIT.test(value)) return false
+function firstUnpairedSurrogate(value: string): number {
   for (let i = 0; i < value.length; i++) {
     const unit = value.charCodeAt(i)
     if (unit < 0xd800 || unit >= 0xe000) continue
-    if (unit >= 0xdc00) return true
+    if (unit >= 0xdc00) return i
     const low = value.charCodeAt(i + 1)
-    if (!(low >= 0xdc00 && low < 0xe000)) return true
+    if (!(low >= 0xdc00 && low < 0xe000)) return i
     i++
   }
-  return false
+  return -1
+}
+
+export function holdsUnpairedSurrogate(value: string): boolean {
+  return SURROGATE_UNIT.test(value) && firstUnpairedSurrogate(value) >= 0
+}
+
+export function withUnpairedSurrogatesReplaced(value: string): string {
+  const first = firstUnpairedSurrogate(value)
+  if (first < 0) return value
+  let repaired = value.slice(0, first)
+  for (let i = first; i < value.length; i++) {
+    const unit = value.charCodeAt(i)
+    if (unit < 0xd800 || unit >= 0xe000) {
+      repaired += value[i]
+      continue
+    }
+    const low = value.charCodeAt(i + 1)
+    if (unit < 0xdc00 && low >= 0xdc00 && low < 0xe000) {
+      repaired += value.slice(i, i + 2)
+      i++
+      continue
+    }
+    repaired += REPLACEMENT_CHARACTER
+  }
+  return repaired
 }
 
 export function codePointCount(value: string): number {

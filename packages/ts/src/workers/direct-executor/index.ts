@@ -12,8 +12,9 @@ import type { VectorIndex, VectorWorkerCopyPolicy } from '../../vector/vector-in
 import type { Executor } from '../executor'
 import type { WorkerAction } from '../protocol'
 import { runQueryAction } from '../query-actions'
+import { loadSchemaCodeFor } from '../schema-code'
 import { growPartitionsTo, isSegmentAction, runSegmentAction } from '../segment-actions'
-import { loadedVectorCode, loadVectorCode, loadVectorCodeFor, requireLoadedVectorCode } from '../vector-code'
+import { loadedVectorCode, loadVectorCode, requireLoadedVectorCode } from '../vector-code'
 import {
   closeHeldVectorCopies,
   createHeldVectorCopies,
@@ -197,7 +198,7 @@ export function createDirectExecutor(
       }
 
       case 'createIndex': {
-        const loading = loadVectorCodeFor(action.config.schema)
+        const loading = loadSchemaCodeFor(action.config.schema)
         if (loading !== null) await loading
         const language = getLanguage(action.config.language ?? 'english')
         const manager = addIndex(

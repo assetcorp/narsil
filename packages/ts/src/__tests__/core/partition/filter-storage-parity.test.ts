@@ -14,6 +14,7 @@ import { buildSegmentPayload } from '../../../core/partition/segment-builder'
 import type { SegmentPayload } from '../../../core/partition/segment-payload'
 import { keepsValueSize } from '../../../core/partition/value-sizes'
 import { createPatternWorkMeter } from '../../../core/pattern-index/work-meter'
+import { loadGeoCode } from '../../../geo/geo-code'
 import { flattenSchema } from '../../../schema/validator'
 import { parsedTypeOf } from '../../../schema/validator/field-type'
 import type { FilterExpression } from '../../../types/filters'
@@ -133,6 +134,8 @@ function storageAnswers(): {
   ]
   return { current, answers, states }
 }
+
+await loadGeoCode()
 
 describe('a filter answered from every way that a partition holds its documents', () => {
   const { current, answers, states } = storageAnswers()

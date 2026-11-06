@@ -1,3 +1,4 @@
+import { loadGeoCodeFor } from '../../geo/geo-code'
 import type { IndexMetadata } from '../../types/internal'
 import { CHECKPOINT_WORKER_HEARTBEAT_MS } from './constants'
 import type { PartitionCheckpoint } from './partition-checkpoint'
@@ -48,6 +49,8 @@ async function handleRequest(raw: unknown): Promise<CheckpointWorkerSuccess> {
   if (request.capturedPartitions !== undefined && !Array.isArray(request.capturedPartitions)) {
     throw new Error('Checkpoint request names captured partitions in a shape the worker cannot read')
   }
+  const loadingGeoCode = loadGeoCodeFor(request.metadata.schema)
+  if (loadingGeoCode !== null) await loadingGeoCode
   const segments = await rebuildSegmentsFromDurable(
     request.root,
     request.metadata,

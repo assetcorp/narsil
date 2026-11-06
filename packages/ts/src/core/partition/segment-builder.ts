@@ -1,5 +1,6 @@
 import { ErrorCodes, NarsilError } from '../../errors'
-import { createGeoIndex, type GeoIndex } from '../../geo/geo-index'
+import { createLoadedGeoIndex } from '../../geo/geo-code'
+import type { GeoIndex } from '../../geo/geo-index'
 import { validateDocument, validateDocumentStrict } from '../../schema/validator/document'
 import { type BaseFieldType, isWordIndexedBase } from '../../schema/validator/field-type'
 import { partialFieldsOf, schemaFieldsOf } from '../../schema/validator/schema'
@@ -69,7 +70,7 @@ function indexFilterValue(
     for (const entry of fieldType === 'enum' ? [value as string] : (value as string[])) index.insert(ordinal, entry)
   } else if (fieldType === 'geopoint') {
     const point = value as { lat: number; lon: number }
-    indexOf(indexes.geoIndexes, fieldPath, createGeoIndex).insert(ordinal, point.lat, point.lon)
+    indexOf(indexes.geoIndexes, fieldPath, createLoadedGeoIndex).insert(ordinal, point.lat, point.lon)
   }
 }
 

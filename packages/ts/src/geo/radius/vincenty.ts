@@ -1,22 +1,34 @@
-import { DEG_TO_RAD, VINCENTY_CONVERGENCE_THRESHOLD, VINCENTY_MAX_ITERATIONS } from './constants'
+import { atan, atan2 } from '../../math/inverse'
+import { cos, sin, tan } from '../../math/trig'
+import { DEG_TO_RAD } from '../constants'
+import { VINCENTY_CONVERGENCE_THRESHOLD, VINCENTY_MAX_ITERATIONS } from './constants'
 import { haversineDistance } from './haversine'
 
 const WGS84_A = 6_378_137.0
 const WGS84_F = 1 / 298.257223563
 const WGS84_B = WGS84_A * (1 - WGS84_F)
 
-export function vincentyDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const phi1 = lat1 * DEG_TO_RAD
+export interface VincentyOrigin {
+  lat: number
+  lon: number
+  sinU1: number
+  cosU1: number
+}
+
+export function vincentyOrigin(lat: number, lon: number): VincentyOrigin {
+  const U1 = atan((1 - WGS84_F) * tan(lat * DEG_TO_RAD))
+  return { lat, lon, sinU1: sin(U1), cosU1: cos(U1) }
+}
+
+export function vincentyDistanceFrom(origin: VincentyOrigin, lat2: number, lon2: number): number {
+  const { sinU1, cosU1 } = origin
   const phi2 = lat2 * DEG_TO_RAD
-  const L = (lon2 - lon1) * DEG_TO_RAD
+  const L = (lon2 - origin.lon) * DEG_TO_RAD
 
-  const U1 = Math.atan((1 - WGS84_F) * Math.tan(phi1))
-  const U2 = Math.atan((1 - WGS84_F) * Math.tan(phi2))
+  const U2 = atan((1 - WGS84_F) * tan(phi2))
 
-  const sinU1 = Math.sin(U1)
-  const cosU1 = Math.cos(U1)
-  const sinU2 = Math.sin(U2)
-  const cosU2 = Math.cos(U2)
+  const sinU2 = sin(U2)
+  const cosU2 = cos(U2)
 
   let lambda = L
   let prevLambda: number
@@ -29,8 +41,8 @@ export function vincentyDistance(lat1: number, lon1: number, lat2: number, lon2:
   let iterations = VINCENTY_MAX_ITERATIONS
 
   do {
-    const sinLambda = Math.sin(lambda)
-    const cosLambda = Math.cos(lambda)
+    const sinLambda = sin(lambda)
+    const cosLambda = cos(lambda)
 
     const term1 = cosU2 * sinLambda
     const term2 = cosU1 * sinU2 - sinU1 * cosU2 * cosLambda
@@ -40,7 +52,7 @@ export function vincentyDistance(lat1: number, lon1: number, lat2: number, lon2:
     if (sinSigma === 0) return 0
 
     cosSigma = sinU1 * sinU2 + cosU1 * cosU2 * cosLambda
-    sigma = Math.atan2(sinSigma, cosSigma)
+    sigma = atan2(sinSigma, cosSigma)
 
     sinAlpha = (cosU1 * cosU2 * sinLambda) / sinSigma
     cos2Alpha = 1 - sinAlpha * sinAlpha
@@ -59,7 +71,7 @@ export function vincentyDistance(lat1: number, lon1: number, lat2: number, lon2:
   } while (Math.abs(lambda - prevLambda) > VINCENTY_CONVERGENCE_THRESHOLD && --iterations > 0)
 
   if (iterations === 0) {
-    return haversineDistance(lat1, lon1, lat2, lon2)
+    return haversineDistance(origin.lat, origin.lon, lat2, lon2)
   }
 
   const uSq = (cos2Alpha * (WGS84_A * WGS84_A - WGS84_B * WGS84_B)) / (WGS84_B * WGS84_B)
