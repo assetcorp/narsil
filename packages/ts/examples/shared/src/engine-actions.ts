@@ -1,4 +1,11 @@
-import type { AnyDocument, PartitionConfig, PreflightResult, QueryParams, SynonymRule } from '@delali/narsil'
+import type {
+  AnyDocument,
+  PartitionConfig,
+  PreflightResult,
+  QueryParams,
+  SyncStatus,
+  SynonymRule,
+} from '@delali/narsil'
 import { createContext, useContext } from 'react'
 
 export interface AnalysisChangeRequest {
@@ -7,6 +14,7 @@ export interface AnalysisChangeRequest {
 }
 
 export interface EngineSyncActions {
+  getSync: (indexName: string) => Promise<SyncStatus>
   updateSync: (indexName: string, enabled: boolean) => Promise<void>
 }
 

@@ -1,4 +1,6 @@
-import { type ChangeEvent, useCallback, useDeferredValue, useMemo, useState } from 'react'
+import { Loader2, LocateFixed } from 'lucide-react'
+import { type ChangeEvent, useCallback, useDeferredValue, useMemo, useRef, useState } from 'react'
+import { type PositionRequest, useCurrentPosition } from '../../hooks/use-current-position'
 import type { IndexSchemaView } from '../../hooks/use-index-schema'
 import { useMapPlaces } from '../../hooks/use-map-places'
 import {
@@ -57,6 +59,15 @@ export function MapView({ schema }: { schema: IndexSchemaView }) {
   const [centreLon, setCentreLon] = useState(String(DEFAULT_CENTRE.lon))
   const [distance, setDistance] = useState(DEFAULT_DISTANCE_KM)
   const [cornersText, setCornersText] = useState('')
+  const centreChosenRef = useRef(false)
+
+  const handlePositionFound = useCallback((point: GeoPoint, request: PositionRequest) => {
+    if (request === 'already-allowed' && centreChosenRef.current) return
+    centreChosenRef.current = true
+    setCentreLat(String(point.lat))
+    setCentreLon(String(point.lon))
+  }, [])
+  const position = useCurrentPosition(handlePositionFound)
 
   const geoField = useMemo(() => schema.leaves.find(leaf => leaf.type === 'geopoint')?.path ?? null, [schema.leaves])
   const labelField = useMemo(() => {
@@ -82,6 +93,7 @@ export function MapView({ schema }: { schema: IndexSchemaView }) {
   const handlePick = useCallback(
     (point: GeoPoint) => {
       if (kind === 'radius') {
+        centreChosenRef.current = true
         setCentreLat(String(point.lat))
         setCentreLon(String(point.lon))
         return
@@ -97,10 +109,12 @@ export function MapView({ schema }: { schema: IndexSchemaView }) {
   )
 
   const handleLat = useCallback((event: ChangeEvent<HTMLInputElement>) => {
+    centreChosenRef.current = true
     setCentreLat(event.target.value)
   }, [])
 
   const handleLon = useCallback((event: ChangeEvent<HTMLInputElement>) => {
+    centreChosenRef.current = true
     setCentreLon(event.target.value)
   }, [])
 
@@ -187,6 +201,18 @@ export function MapView({ schema }: { schema: IndexSchemaView }) {
               className="h-8 text-xs"
             />
           </label>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="justify-self-start sm:col-span-3"
+            onClick={position.locate}
+            disabled={position.isLocating}
+          >
+            {position.isLocating ? <Loader2 className="size-3.5 animate-spin" /> : <LocateFixed className="size-3.5" />}
+            Use my location
+          </Button>
+          {position.error === null ? null : <p className="text-xs text-destructive sm:col-span-3">{position.error}</p>}
         </div>
       ) : (
         <div className="mb-3 flex flex-col gap-2">

@@ -70,6 +70,20 @@ export function parseCorners(text: string): GeoPoint[] | string {
   return corners
 }
 
+function twiceSignedArea(corners: GeoPoint[]): number {
+  let area = 0
+  let previous = corners[corners.length - 1]
+  for (const corner of corners) {
+    area += previous.lon * corner.lat - corner.lon * previous.lat
+    previous = corner
+  }
+  return area
+}
+
+function inCounterClockwiseOrder(corners: GeoPoint[]): GeoPoint[] {
+  return twiceSignedArea(corners) < 0 ? [...corners].reverse() : corners
+}
+
 export function shapeFilter(field: string, shape: MapShape): FilterExpression | null {
   if (shape.kind === 'radius') {
     const { centre, distanceKm } = shape
@@ -77,5 +91,5 @@ export function shapeFilter(field: string, shape: MapShape): FilterExpression | 
     return { fields: { [field]: { radius: { lat: centre.lat, lon: centre.lon, distance: distanceKm, unit: 'km' } } } }
   }
   if (shape.corners.length < 3) return null
-  return { fields: { [field]: { polygon: { points: shape.corners } } } }
+  return { fields: { [field]: { polygon: { points: inCounterClockwiseOrder(shape.corners) } } } }
 }
