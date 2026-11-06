@@ -1,10 +1,11 @@
 import { ClientErrorCodes, NarsilError } from '../errors'
 import { encodeJson } from '../json-encoding'
-import type { SyncSetting } from '../types/sync'
+import type { SyncSetting, SyncStatus } from '../types/sync'
 import { NO_TIMEOUT } from './constants'
 import type { Transport } from './http'
 import type { RequestOptions } from './options'
 import { indexPath } from './paths'
+import { readBody } from './response-shape'
 
 /**
  * Where a download of the published snapshot carries on from, which
@@ -54,6 +55,18 @@ function invalidDownload(message: string, path: string): NarsilError {
  */
 export interface SyncSettingOperations {
   /**
+   * Returns the device sync state of an index, as {@link SyncOperations.getSync}
+   * does on the engine.
+   *
+   * @param indexName - The server reports the state of this index.
+   * @param options - This sets the signal, the deadline, and the headers for
+   * this request.
+   * @returns The setting, whether a device has asked for the published
+   * snapshot, and the epoch.
+   * @throws A `NarsilError` with `INDEX_NOT_FOUND` when no index has that name.
+   */
+  getSync(indexName: string, options?: RequestOptions): Promise<SyncStatus>
+  /**
    * Replaces the device sync setting of an index. Turning sync on gives the
    * index a new epoch, and turning it off deletes the published snapshot and
    * the history and closes every feed of the index.
@@ -87,6 +100,10 @@ export interface SyncSettingOperations {
 
 export function createSyncSettingOperations(transport: Transport): SyncSettingOperations {
   return {
+    async getSync(indexName, options) {
+      const path = `${indexPath(indexName)}/sync`
+      return readBody<SyncStatus>(await transport.json({ method: 'GET', path, options }), path)
+    },
     async updateSync(indexName, setting, options) {
       const path = `${indexPath(indexName)}/sync`
       await transport.json({ method: 'PUT', path, body: encodeJson(setting), contentType: 'application/json', options })
