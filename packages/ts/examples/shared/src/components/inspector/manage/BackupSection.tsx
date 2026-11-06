@@ -97,7 +97,7 @@ export function BackupSection({ indexName }: { indexName: string }) {
       state={runner.state}
       testId="manage-backups"
     >
-      <div className="flex flex-wrap gap-2">
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
         <Button type="button" size="sm" variant="outline" onClick={handleSnapshot} disabled={runner.isRunning}>
           Download snapshot
         </Button>

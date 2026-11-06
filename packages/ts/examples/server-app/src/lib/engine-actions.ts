@@ -39,6 +39,7 @@ export function createHttpEngineActions(onChanged: (indexName: string) => void):
     importDocumentExport: async (indexName, archive) =>
       finish(narsilClient.importDocumentExport(indexName, await bytesOf(archive))),
     sync: {
+      getSync: indexName => narsilClient.getSync(indexName),
       updateSync: (indexName, enabled) => narsilClient.updateSync(indexName, { enabled }),
     },
     groupTotals: false,

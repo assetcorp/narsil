@@ -87,7 +87,7 @@ export function DocumentToolbar({
       </Button>
 
       {sorting.length > 0 ? (
-        <Button type="button" variant="ghost" size="sm" onClick={handleClearSort}>
+        <Button type="button" variant="outline" size="sm" onClick={handleClearSort}>
           <ArrowUpDown className="size-3.5" />
           Clear sort
           <Badge variant="secondary" className="ml-1 px-1.5 text-[10px]">

@@ -68,7 +68,7 @@ function DocumentRow({ row, onSelect }: { row: Row<ListedDocument>; onSelect: (e
       ))}
       <TableCell className="sticky right-0 bg-background p-0 text-right">
         <div className="p-2 transition-colors group-hover:bg-muted/50">
-          <Button variant="ghost" size="xs" onClick={handleSelect}>
+          <Button variant="outline" size="xs" onClick={handleSelect}>
             View
           </Button>
         </div>

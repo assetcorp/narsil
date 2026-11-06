@@ -295,7 +295,7 @@ export function FilterPanel({ fields, rules, join, onChange, onJoinChange }: Fil
           Add condition
         </Button>
         {rules.length > 0 ? (
-          <Button type="button" variant="ghost" size="sm" onClick={handleClear}>
+          <Button type="button" variant="outline" size="sm" onClick={handleClear}>
             Clear all
           </Button>
         ) : null}

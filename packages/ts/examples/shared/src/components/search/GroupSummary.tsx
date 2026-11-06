@@ -122,7 +122,7 @@ export function GroupSummary({ groups, totalField, displayFields }: GroupSummary
       </div>
       {collapsible ? (
         <div className="border-t px-4 py-2">
-          <Button type="button" variant="ghost" size="xs" aria-expanded={expanded} onClick={handleToggle}>
+          <Button type="button" variant="outline" size="xs" aria-expanded={expanded} onClick={handleToggle}>
             {expanded ? `Show the first ${GROUPS_SHOWN_COLLAPSED} groups` : `Show all ${groups.length} groups`}
           </Button>
         </div>

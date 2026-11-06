@@ -56,31 +56,45 @@ export function PartitionSection({ indexName, partitionCount }: { indexName: str
       state={runner.state}
       testId="manage-partitions"
     >
-      <div className="flex flex-wrap items-center gap-2">
-        <Input
-          type="number"
-          min="1"
-          max={MAX_DEMO_PARTITIONS}
-          value={target}
-          onChange={handleTargetChange}
-          aria-label="Partition count"
-          className="h-8 w-24 text-xs"
-        />
-        <Button type="button" size="sm" variant="outline" onClick={handleRebalance} disabled={runner.isRunning}>
-          Rebalance
-        </Button>
-        <Input
-          type="number"
-          min="1"
-          value={maxDocs}
-          onChange={handleMaxDocsChange}
-          placeholder="Documents per partition"
-          aria-label="Documents per partition"
-          className="h-8 w-48 text-xs"
-        />
-        <Button type="button" size="sm" variant="outline" onClick={handleUpdateConfig} disabled={runner.isRunning}>
-          Save split size
-        </Button>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="flex flex-col gap-1.5">
+          <label htmlFor="manage-partition-count" className="text-xs font-medium">
+            Partition count
+          </label>
+          <div className="flex gap-2">
+            <Input
+              id="manage-partition-count"
+              type="number"
+              min="1"
+              max={MAX_DEMO_PARTITIONS}
+              value={target}
+              onChange={handleTargetChange}
+              className="h-8 min-w-0 flex-1 text-xs"
+            />
+            <Button type="button" size="sm" variant="outline" onClick={handleRebalance} disabled={runner.isRunning}>
+              Rebalance
+            </Button>
+          </div>
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <label htmlFor="manage-partition-split-size" className="text-xs font-medium">
+            Documents per partition
+          </label>
+          <div className="flex gap-2">
+            <Input
+              id="manage-partition-split-size"
+              type="number"
+              min="1"
+              value={maxDocs}
+              onChange={handleMaxDocsChange}
+              placeholder="Split size"
+              className="h-8 min-w-0 flex-1 text-xs"
+            />
+            <Button type="button" size="sm" variant="outline" onClick={handleUpdateConfig} disabled={runner.isRunning}>
+              Save split size
+            </Button>
+          </div>
+        </div>
       </div>
     </ManageSection>
   )
