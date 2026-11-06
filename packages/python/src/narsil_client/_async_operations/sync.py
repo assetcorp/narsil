@@ -8,11 +8,49 @@ from typing import Any, cast
 from narsil_client._async_transport import AsyncOperationsBase
 from narsil_client._exchange import Exchange, json_body, path_segment
 from narsil_client._streams import AsyncResponseStream
-from narsil_client.models import OkResponse, SyncSetting
+from narsil_client.models import OkResponse, SyncSetting, SyncStatus
 
 
 class SyncOperations(AsyncOperationsBase):
     """These methods call the Sync routes of a Narsil server."""
+
+    async def get_sync(
+        self,
+        name: str,
+        *,
+        timeout_ms: int | None = None,
+        headers: Mapping[str, str] | None = None,
+        max_response_bytes: int | None = None,
+    ) -> SyncStatus:
+        """Report the device sync setting of an index, whether a device has downloaded it, and
+        its epoch.
+
+        `GET /indexes/{name}/sync`
+
+        Args:
+            name: The name of the index.
+            timeout_ms: The client waits this many milliseconds for each try of this request, in place of the
+                client's setting, and 0 waits for as long as the server takes.
+            headers: The client adds these headers to this request, replacing any of the same name.
+            max_response_bytes: The client stops reading the answer past this many bytes, in place of the
+                client's setting, and 0 reads whatever the server sends.
+
+        Returns:
+            HTTP 200: The server answered the request.
+        """
+        return cast(
+            SyncStatus,
+            await self._transport.json(
+                Exchange(
+                    method="GET",
+                    path=f"/indexes/{path_segment(name)}/sync",
+                    timeout_ms=timeout_ms,
+                    headers=headers,
+                    max_response_bytes=max_response_bytes,
+                ),
+                {200: SyncStatus},
+            ),
+        )
 
     async def update_sync(
         self,
