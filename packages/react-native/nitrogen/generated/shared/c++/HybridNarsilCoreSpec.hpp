@@ -87,6 +87,7 @@ namespace margelo::nitro::narsil {
       virtual std::shared_ptr<Promise<NativeConnectOutcome>> connectUnreachedAsync(const std::shared_ptr<HybridNarsilAttachedGraphSpec>& graph, const std::shared_ptr<HybridNarsilAttachedStoreSpec>& store, double metric, const MemoryView& nearby, double threadSlot) = 0;
       virtual double measure(const std::shared_ptr<HybridNarsilAttachedStoreSpec>& store, double metric, const MemoryView& ordinals, double count, const MemoryView& totals) = 0;
       virtual double quantise(const std::shared_ptr<HybridNarsilAttachedStoreSpec>& store, double metric, const MemoryView& ordinals, double count) = 0;
+      virtual double applyMath(double operation, const MemoryView& first, const MemoryView& second, const MemoryView& results) = 0;
 
     protected:
       // Hybrid Setup

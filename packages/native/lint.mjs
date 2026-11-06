@@ -5,8 +5,8 @@ import { lintTools } from './lint-tools.mjs'
 import {
   addonSources,
   buildDirectory,
-  coreSources,
   formattedFiles,
+  lintedCoreSources,
   packageDirectory,
   testSources,
   WINDOWS_NODE_API_FLAGS,
@@ -78,7 +78,7 @@ const { clangTidy, clangFormat, windowsHeaderDirectory } = lintTools()
 writeCompileDatabase()
 
 const lintedConfigurations = configurations(windowsHeaderDirectory)
-const sources = [...coreSources(), ...addonSources(), ...testSources()]
+const sources = [...lintedCoreSources(), ...addonSources(), ...testSources()]
 const jobs = lintedConfigurations.flatMap(configuration =>
   sources.map(source => ({
     label: `clang-tidy, ${configuration.name}: ${relative(packageDirectory, source)}`,

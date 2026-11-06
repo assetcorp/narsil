@@ -5,11 +5,13 @@ on:
     branches: [main]
     paths:
       - 'packages/ts/src/languages/snowball/**'
+      - 'packages/native/src/languages/snowball/**'
       - 'packages/ts/snowball/**'
   pull_request:
     branches: [main]
     paths:
       - 'packages/ts/src/languages/snowball/**'
+      - 'packages/native/src/languages/snowball/**'
       - 'packages/ts/snowball/**'
 
 permissions:
@@ -47,7 +49,10 @@ jobs:
 
       - name: Check the committed stemmers match what the generator produces
         run: |
-          if ! git diff --exit-code -- packages/ts/src/languages/snowball; then
+          changes="$(git status --porcelain -- packages/ts/src/languages/snowball packages/native/src/languages/snowball)"
+          if [ -n "$changes" ]; then
+            echo "$changes"
+            git diff -- packages/ts/src/languages/snowball packages/native/src/languages/snowball
             echo "::error::A committed stemmer differs from generator output. Run 'pnpm nx run narsil-ts:stemmers' and commit the result."
             exit 1
           fi

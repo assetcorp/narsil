@@ -6,7 +6,9 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <string.h>
 
+#define ANALYSIS_THREADS_ONLY "analysis-threads"
 #define METRIC_COUNT 3
 #define UNKNOWN_METRIC 9
 #define SEARCH_THREAD_SLOT 1
@@ -146,7 +148,20 @@ static void refuse_bad_arguments(narsil_workspace *workspace) {
   release_fixture(fixture);
 }
 
-int main(void) {
+static int finish(void) {
+  if (failed_checks() > 0) {
+    report("some checks did not pass");
+    return 1;
+  }
+  if (puts("every check passed") == EOF) { return 1; }
+  return 0;
+}
+
+int main(int argc, char **argv) {
+  if (argc > 1 && strcmp(argv[1], ANALYSIS_THREADS_ONLY) == 0) {
+    analysis_thread_checks();
+    return finish();
+  }
   narsil_workspace *workspace = NULL;
   check(narsil_workspace_create(&workspace) == NARSIL_OK, "narsil_workspace_create returns NARSIL_OK");
   check(narsil_core_abi_version() == NARSIL_CORE_ABI_VERSION, "the binary carries the header's ABI version");
@@ -159,10 +174,6 @@ int main(void) {
   narsil_workspace_destroy(workspace);
   concurrent_checks();
   concurrent_writer_checks();
-  if (failed_checks() > 0) {
-    report("some checks did not pass");
-    return 1;
-  }
-  if (puts("every check passed") == EOF) { return 1; }
-  return 0;
+  analysis_thread_checks();
+  return finish();
 }

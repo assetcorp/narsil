@@ -1,4 +1,4 @@
-import { createGeoIndex } from '../../geo/geo-index'
+import { createLoadedGeoIndex } from '../../geo/geo-code'
 import type { BaseFieldType, SchemaField } from '../../schema/validator'
 import type { LanguageModule } from '../../types/language'
 import { ARRAY_POSITION_GAP, MAX_TERM_FREQUENCY } from '../constants'
@@ -32,7 +32,7 @@ export function ensureFieldIndex(state: PartitionState, fieldPath: string, base:
   } else if ((base === 'enum' || base === 'enum[]') && !state.enumIndexes.has(fieldPath)) {
     state.enumIndexes.set(fieldPath, createEnumIndex())
   } else if (base === 'geopoint' && !state.geoIndexes.has(fieldPath)) {
-    state.geoIndexes.set(fieldPath, createGeoIndex())
+    state.geoIndexes.set(fieldPath, createLoadedGeoIndex())
   }
 }
 

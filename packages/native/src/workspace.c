@@ -1,4 +1,5 @@
 #include "internal.h"
+#include "keyword/scratch.h"
 
 #include "../include/narsil_core.h"
 
@@ -13,6 +14,8 @@
 #define STORED_VECTOR_COPIES 3
 
 int32_t narsil_core_abi_version(void) { return NARSIL_CORE_ABI_VERSION; }
+
+keyword_scratch *workspace_keyword_scratch(narsil_workspace *workspace) { return &workspace->keyword; }
 
 uint32_t grown_capacity(uint32_t first, uint32_t needed) {
   uint32_t capacity = first;
@@ -69,6 +72,7 @@ void narsil_workspace_destroy(narsil_workspace *workspace) {
   free(workspace->selection_counts);
   free(workspace->visited);
   free(workspace->entry_points);
+  keyword_scratch_release(&workspace->keyword);
   free(workspace);
 }
 
@@ -110,7 +114,7 @@ size_t narsil_workspace_bytes(const narsil_workspace *workspace) {
   return sizeof *workspace + ((size_t)workspace->frontier.capacity * heap_entry) +
          ((size_t)workspace->found.capacity * heap_entry) + ((size_t)workspace->visited_capacity * sizeof(uint32_t)) +
          ((size_t)workspace->entry_point_capacity * sizeof(int32_t)) + workspace->dimension_scratch_bytes +
-         link_bytes(workspace);
+         link_bytes(workspace) + keyword_scratch_bytes(&workspace->keyword);
 }
 
 narsil_status workspace_reserve_dimension(narsil_workspace *workspace, uint32_t dimension) {

@@ -75,6 +75,37 @@ factor(c) = 1
 
 An implementation must sum `tf` within each field, so that the combined term keeps the length and the boost of that field. Where the term also has a group, the largest `n(t)` of the group covers the synonyms as well. A token that is both a synonym and a typo match, a completion, or an added word counts as a synonym alone.
 
+### Score Arithmetic
+
+An implementation must compute every score in IEEE 754 binary64 arithmetic, rounding each operation to the nearest value, with no fused multiply-add and no wider intermediate value, because a different rounding can change the last bit of a score and with it the order of two results. It must evaluate each formula as these expressions group it:
+
+```text
+idf(n, N) =
+  0 where N is 0
+  otherwise ln((((N - n) + 0.5) / (n + 0.5)) + 1)
+
+bm25(tf, idf, len, avg, k1, b) =
+  0 where avg is 0
+  otherwise, with top = tf * (k1 + 1) and bottom = tf + (k1 * ((1 - b) + ((b * len) / avg))):
+    0 where bottom is 0
+    otherwise idf * (top / bottom)
+
+termRow   = bm25(tf, idf(token), len, avg, k1, b) * boost
+groupRow  = (bm25(tf, groupIdf, len, avg, k1, b) * boost) * factor
+phraseRow = bm25(tf, phraseIdf, len, avg, k1, b) * boost
+```
+
+`len` is the document's length in the row's field, or `avg` where the field records no lengths. `ln` is the natural logarithm of [Deterministic Functions](#deterministic-functions). A phrase's `phraseIdf` is the sum of the `idf` of its tokens, added in phrase order from 0.
+
+An implementation must add the rows of a document in this order:
+
+1. The query terms, in query order. Within one term, it must add the term's matches in code point order, which include the term's token where the term has no group, and then the term's group.
+2. The phrases, in query order, after every term.
+
+Within one token, it must add a document's rows in code point order of their field names. A group adds the largest of its members' sums once, so the order of the members changes no score. Under `termMatch` `all`, the order stays the same, and an implementation that reads the term with the fewest postings first may use it to choose which documents it scores.
+
+An implementation that ranks documents in any other order, such as one that skips work by the bounds of posting blocks, must compute each score that it returns in the order above, and it must rank the documents that it returns by those scores.
+
 ### Parameters
 
 | Parameter | Default | Range | Effect |
@@ -260,7 +291,7 @@ The query's words match under `termMatch`, as they do in a query without a phras
 
 In a [hybrid](vector-index.md) query, a phrase constrains the keyword leg alone, while the vector leg ranks as it does in a query without a phrase, so a hybrid hit from the vector leg may lack the phrase.
 
-An implementation should start from the token that the fewest documents of a segment contain, so that it compares positions only in the documents that hold every token. It must read positions from a segment's arrays in place, and it must keep no copy of them once the search ends.
+An implementation must start each phrase from the token with the fewest postings in a segment, and it must order its work as [Phrases](native-core.md#phrases) defines, so that it compares positions only in the documents that hold every token and every implementation counts the same work. It must read positions from a segment's arrays in place, and it must keep no copy of them once the search ends.
 
 ### Phrase Scoring
 
@@ -522,6 +553,37 @@ The range starts at 0 and has no upper bound, and a lower value means more simil
 
 ---
 
+## Deterministic Functions
+
+Every implementation must compute the natural logarithm, sine, cosine, tangent, arcsine, arctangent, and two-argument arctangent with the algorithms of fdlibm, the freely distributable maths library that Sun Microsystems published, as the test vectors below fix them, because the maths library of a host can differ from fdlibm in the last bit. An implementation must use these functions for [Inverse Document Frequency](#inverse-document-frequency), and for [Haversine Distance](#haversine-distance) and [Vincenty Distance](#vincenty-distance), and it must compute each one under the rules of [Score Arithmetic](#score-arithmetic). The cells that cover a geo radius test may come from the maths library of the host, because the cover holds a margin beyond the radius and the distance test decides each entry, so that the cells change no result. The square root needs no such rule, because IEEE 754 requires a correctly rounded square root.
+
+The random layer draw of [Graph Structure](#graph-structure) may use any logarithm, because graph construction is probabilistic.
+
+### Test Vectors
+
+Each value is the 64 bits of a binary64 number in hexadecimal.
+
+| Function | Input | Result |
+|----------|-------|--------|
+| `ln` | `4004000000000000` | `3FED5240F0E0E078` |
+| `ln` | `0000000000000001` | `C0874385446D71C3` |
+| `sin` | `3FF0000000000000` | `3FEAED548F090CEE` |
+| `sin` | `4480F0CF064DD592` | `BFEB453AB76BF397` |
+| `cos` | `3FE0000000000000` | `3FEC1528065B7D50` |
+| `cos` | `7E37E43C8800759C` | `BFE2699022ADC4C1` |
+| `tan` | `3FE6666666666666` | `3FEAF406C2FC78AE` |
+| `tan` | `3FF921FB54442D18` | `434D02967C31CDB5` |
+| `asin` | `3FD3333333333333` | `3FD380159E14F6FF` |
+| `asin` | `3FEF5C28F5C28F5C` | `3FF5ED690583BE07` |
+| `atan` | `3FE0000000000000` | `3FDDAC670561BB4F` |
+| `atan` | `4202A05F20000000` | `3FF921FB543D4DE0` |
+| `atan2` | `3FE0000000000000`, `BFE6666666666666` | `40042BB5F776EB80` |
+| `atan2` | `C008000000000000`, `3EE4F8B588E368F1` | `BFF921F7D57B40F2` |
+
+`atan2` takes `y` first and then `x`.
+
+---
+
 ## Haversine Distance
 
 Haversine gives the great-circle distance between two points on a sphere of the mean Earth radius through one closed formula, while [Vincenty Distance](#vincenty-distance) states how far that distance can differ from the distance on the WGS-84 ellipsoid.
@@ -756,9 +818,9 @@ fnv1a(input: bytes) -> uint32
 
 The empty string returns the offset basis unchanged, because the loop has no byte to process.
 
-FNV-1a is deterministic, so the same input always gives the same output, and it spreads values evenly enough for routing. An implementation must use FNV-1a for hash-based routing, cursor binding, replica selection, and the vector field key alone, because it offers no cryptographic security.
+FNV-1a is deterministic, so the same input always gives the same output, and it spreads values evenly enough for routing. An implementation must use FNV-1a for hash-based routing, cursor binding, replica selection, the vector field key, and the [term table](native-core.md#term-table) of the native core alone, because it offers no cryptographic security.
 
-An implementation must hash a string as its UTF-8 bytes, because any other encoding would route one document ID to different partitions in different languages.
+An implementation must hash a string as its UTF-8 bytes, because any other encoding would route one document ID to different partitions in different languages. The term table is the one exception, because the core and every implementation that reads the table hold terms as UTF-16, so the table hashes a term's UTF-16 code units, each as two bytes with the low byte first.
 
 ---
 
@@ -975,11 +1037,11 @@ An implementation must count the work of every test on a pattern field across ev
 
 ### Pattern Index
 
-An implementation must keep a pattern index for each pattern field, mapping every run of three consecutive code points in the field's folded values to the documents whose value holds that run. The [keyword segment payload](envelope.md#keyword-segment-payload) defines how a segment stores it. An implementation may build the shortlist for a test from any runs that every matching value must hold, but it must check each shortlisted document against the whole test, so the shortlist changes only how long a search takes. It must check every value of the field for a test from which it can take no run, such as `\d{4}`.
+An implementation must keep a pattern index for each pattern field, mapping every run of three consecutive code points in the field's folded values to the documents whose value holds that run. The [keyword segment payload](envelope.md#keyword-segment-payload) defines how a segment stores it. An implementation must build the shortlist for a test from the runs that [Pattern Tests](native-core.md#pattern-tests) picks, which every matching value must hold, and it must check each shortlisted document against the whole test. The shortlist therefore changes how long a search takes and how much work it counts, and it never changes which documents match. It must check every value of the field for a test from which it can take no run, such as `\d{4}`.
 
 ### Typo Test
 
-A caller may set a `tolerance` of 0, 1, 2, or `auto` on an `eq` test of a pattern field, and the test then matches a value whose [bounded Levenshtein distance](#bounded-levenshtein-distance) from the text is within the tolerance, measured between their folds under `caseFold`. The folded value of a value within `k` edits of the text holds at least one of any `k * (2 + f) + 1` distinct runs of the folded text, where `f` is the number of code points in the longest fold among the text's code points, so an implementation must build its shortlist from that many distinct runs. It should take the runs whose lists are shortest.
+A caller may set a `tolerance` of 0, 1, 2, or `auto` on an `eq` test of a pattern field, and the test then matches a value whose [bounded Levenshtein distance](#bounded-levenshtein-distance) from the text is within the tolerance, measured between their folds under `caseFold`. The folded value of a value within `k` edits of the text holds at least one of any `k * (2 + f) + 1` distinct runs of the folded text, where `f` is the number of code points in the longest fold among the text's code points, so an implementation must build its shortlist from that many distinct runs. It must take the runs whose lists are shortest, from the distinct runs that [Pattern Tests](native-core.md#pattern-tests) picks, so that every implementation counts the same work.
 
 An implementation must raise `SEARCH_INVALID_FILTER` for a tolerance of 1 or 2 that needs more distinct runs than the folded text holds, and it must state in the error how many distinct runs that tolerance needs. Under `auto`, it must use 2 where the folded text holds enough distinct runs for 2, otherwise 1 where it holds enough for 1, and otherwise 0. It must raise `SEARCH_INVALID_FILTER` for any other tolerance and for a tolerance on any other test. It must count one step for each cell that the distance computation fills. It must also count the preparation of a typo test, adding one step for each code point of the text that it folds, one step for each run of the folded text that it checks for distinctness, and one step for each code point that it copies for the distance computation. It must count the preparation of each distinct test once for a search, however many threads prepare it, so that the count does not depend on how many threads answer the search.
 

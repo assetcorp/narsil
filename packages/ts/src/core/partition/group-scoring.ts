@@ -1,7 +1,9 @@
 import type { ExpandedTermGroup, PostingListView } from '../../types/internal'
 import { bitsetHas } from '../bitset'
 import type { InvertedIndexReader } from '../inverted-index'
+import { compareCodePoints } from '../ordering/code-points'
 import { computeBM25WithIDF, computeIDF } from '../scorer'
+import { fieldRun, orderRunByFieldName } from './field-order'
 import { type FieldScoring, fieldLengthOf } from './field-scoring'
 import { postingColumns } from './posting-columns'
 import { EMPTY_COMPONENTS, type GroupContribution, type GroupMatch } from './scoring'
@@ -52,10 +54,18 @@ export function typoMatchesFor(
     return index
       .fuzzyLookup(token, tolerance, prefixLength)
       .filter(match => match.token !== token && group.synonyms?.has(match.token) !== true)
+      .sort(byToken)
   }
-  if (!exact) return index.fuzzyLookup(token, tolerance, prefixLength)
+  if (!exact) {
+    const matches = index.fuzzyLookup(token, tolerance, prefixLength)
+    return matches.length > 1 ? matches.sort(byToken) : matches
+  }
   const postingList = index.lookup(token)
   return postingList ? [{ token, postingList }] : []
+}
+
+function byToken(left: { token: string }, right: { token: string }): number {
+  return compareCodePoints(left.token, right.token)
 }
 
 export function resolveGroupMatches(context: GroupScoringContext, group: ExpandedTermGroup): GroupMatch[] {
@@ -102,10 +112,20 @@ export function computeGroupContributions(
       match.postingList,
     )
 
-    for (let pi = 0; pi < count; pi++) {
-      const internalId = docIds[pi]
+    let runStart = 0
+    let runEnd = 0
+    for (let at = 0; at < count; at++) {
+      const internalId = docIds[at]
       if (hasDeleted && deletedDocs.has(internalId)) continue
       if (filterBitset && !bitsetHas(filterBitset, internalId)) continue
+      let pi = at
+      if (at < runEnd) {
+        pi = fieldRun.entries[at - runStart]
+      } else if (at + 2 < count && docIds[at + 2] === internalId) {
+        pi = orderRunByFieldName(docIds, fieldNameIndices, fields.nameRanks, at, count)[0]
+        runStart = at
+        runEnd = at + fieldRun.length
+      }
       const fieldIndex = fieldNameIndices[pi]
       if (fields.searchable[fieldIndex] === 0) continue
       const factor = partialMarks[fieldIndex] === 1 ? match.partialFactor : match.factor
