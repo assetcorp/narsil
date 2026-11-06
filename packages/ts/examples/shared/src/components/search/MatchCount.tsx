@@ -37,8 +37,15 @@ export function MatchCount({ indexName, params }: MatchCountProps) {
   }, [actions, indexName, params])
 
   return (
-    <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-      <Button type="button" variant="outline" size="xs" onClick={handleCount} disabled={outcome?.kind === 'counting'}>
+    <div className="flex max-w-48 shrink-0 flex-col items-end gap-2 text-right text-xs text-muted-foreground sm:max-w-xs">
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="h-9 text-xs"
+        onClick={handleCount}
+        disabled={outcome?.kind === 'counting'}
+      >
         {outcome?.kind === 'counting' ? <Loader2 className="size-3 animate-spin" /> : null}
         Count matches first
       </Button>

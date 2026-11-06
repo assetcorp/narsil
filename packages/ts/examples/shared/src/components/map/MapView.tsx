@@ -157,27 +157,36 @@ export function MapView({ schema }: { schema: IndexSchemaView }) {
 
       {kind === 'radius' ? (
         <div className="mb-3 grid gap-2 sm:grid-cols-3">
-          <Input
-            value={centreLat}
-            onChange={handleLat}
-            aria-label="Centre latitude"
-            inputMode="decimal"
-            className="h-8 text-xs"
-          />
-          <Input
-            value={centreLon}
-            onChange={handleLon}
-            aria-label="Centre longitude"
-            inputMode="decimal"
-            className="h-8 text-xs"
-          />
-          <Input
-            value={distance}
-            onChange={handleDistance}
-            aria-label="Distance in kilometres"
-            inputMode="decimal"
-            className="h-8 text-xs"
-          />
+          <label htmlFor="map-centre-latitude" className="flex flex-col gap-1.5 text-xs font-medium">
+            Centre latitude, in degrees
+            <Input
+              id="map-centre-latitude"
+              value={centreLat}
+              onChange={handleLat}
+              inputMode="decimal"
+              className="h-8 text-xs"
+            />
+          </label>
+          <label htmlFor="map-centre-longitude" className="flex flex-col gap-1.5 text-xs font-medium">
+            Centre longitude, in degrees
+            <Input
+              id="map-centre-longitude"
+              value={centreLon}
+              onChange={handleLon}
+              inputMode="decimal"
+              className="h-8 text-xs"
+            />
+          </label>
+          <label htmlFor="map-distance" className="flex flex-col gap-1.5 text-xs font-medium">
+            Distance in kilometres
+            <Input
+              id="map-distance"
+              value={distance}
+              onChange={handleDistance}
+              inputMode="decimal"
+              className="h-8 text-xs"
+            />
+          </label>
         </div>
       ) : (
         <div className="mb-3 flex flex-col gap-2">
