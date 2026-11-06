@@ -4,6 +4,7 @@ import { useActiveIndex, useIndexWorkspace } from '../../workspace'
 import { IndexSelector } from '../IndexSelector'
 import { Button } from '../ui/button'
 import { Skeleton } from '../ui/skeleton'
+import { ManageTab } from './manage/ManageTab'
 import { SchemaDisplay } from './SchemaDisplay'
 import { StatsTab } from './StatsTab'
 
@@ -23,7 +24,7 @@ export interface InspectorViewProps {
 export function InspectorView({ stats, partitions, memory, vectorFields, isLoading }: InspectorViewProps) {
   const { activeIndexName } = useIndexWorkspace()
   const activeIndex = useActiveIndex()
-  const [activeTab, setActiveTab] = useState<'stats' | 'schema' | 'vectors'>('stats')
+  const [activeTab, setActiveTab] = useState<'stats' | 'schema' | 'vectors' | 'manage'>('stats')
 
   const handleStatsTab = useCallback(() => {
     setActiveTab('stats')
@@ -35,6 +36,10 @@ export function InspectorView({ stats, partitions, memory, vectorFields, isLoadi
 
   const handleVectorsTab = useCallback(() => {
     setActiveTab('vectors')
+  }, [])
+
+  const handleManageTab = useCallback(() => {
+    setActiveTab('manage')
   }, [])
 
   if (activeIndexName === null) {
@@ -71,6 +76,9 @@ export function InspectorView({ stats, partitions, memory, vectorFields, isLoadi
         <Button variant={activeTab === 'vectors' ? 'default' : 'outline'} size="sm" onClick={handleVectorsTab}>
           Vectors
         </Button>
+        <Button variant={activeTab === 'manage' ? 'default' : 'outline'} size="sm" onClick={handleManageTab}>
+          Manage
+        </Button>
       </div>
 
       {isLoading ? (
@@ -92,6 +100,15 @@ export function InspectorView({ stats, partitions, memory, vectorFields, isLoadi
       ) : null}
 
       {!isLoading && stats !== undefined && activeTab === 'schema' ? <SchemaDisplay schema={stats.schema} /> : null}
+
+      {!isLoading && stats !== undefined && activeTab === 'manage' ? (
+        <ManageTab
+          indexName={activeIndexName}
+          language={stats.language}
+          partitionCount={stats.partitionCount}
+          hasVectors={(vectorFields ?? NO_VECTOR_FIELDS).length > 0}
+        />
+      ) : null}
 
       {activeTab === 'vectors' ? (
         <Suspense

@@ -1,9 +1,9 @@
 import { parseVectorDimension } from '../../core/partition/utils'
-import { setNestedValue } from '../../distribution/replication/replica'
 import type { ArchiveCheckpoint } from '../../persistence/durability/archive-checkpoint'
 import type { PartitionManifestEntry, VectorFieldRef } from '../../persistence/durability/segment/manifest'
 import { countsAsLatestHolder, openPagedSegmentScan, type SegmentScan } from '../../persistence/paged/segment-scan'
 import { isPagedSegmentFile } from '../../persistence/paged/verify'
+import { setNestedValue } from '../../serialization/vector-field-bytes'
 import type { ColdVectorField } from '../../vector/vector-index/shared'
 import { encodeDocumentJson } from './json-line'
 

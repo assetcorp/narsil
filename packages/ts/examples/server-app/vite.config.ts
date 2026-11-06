@@ -10,6 +10,7 @@ import type { Plugin } from 'vite'
 import tsconfigPaths from 'vite-tsconfig-paths'
 import { defineConfig } from 'vitest/config'
 import { ensureDemoNarsilServer } from './demo-server'
+import { syncFeedProxyPlugin } from './sync-feed-proxy'
 
 const monorepoRoot = path.resolve(import.meta.dirname, '../../../..')
 const dataDir = path.join(monorepoRoot, 'data', 'processed')
@@ -22,7 +23,7 @@ function serveDataPlugin(): Plugin {
         const urlPath = decodeURIComponent(req.url ?? '/')
         const filePath = path.resolve(dataDir, urlPath.replace(/^\//, ''))
 
-        if (!filePath.startsWith(dataDir)) {
+        if (!filePath.startsWith(`${dataDir}${path.sep}`)) {
           res.statusCode = 403
           res.end('Forbidden')
           return
@@ -78,6 +79,7 @@ function narsilServerPlugin(): Plugin {
 const config = defineConfig({
   plugins: [
     narsilServerPlugin(),
+    syncFeedProxyPlugin(),
     serveDataPlugin(),
     devtools(),
     tsconfigPaths({ projects: ['./tsconfig.json'] }),

@@ -65,10 +65,15 @@ export function SearchBar({ term, onTermChange, resultCount, elapsed, isLoading,
 
   const handleChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
+      setShowSuggestions(true)
       onTermChange(e.target.value)
     },
     [onTermChange],
   )
+
+  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Escape') setShowSuggestions(false)
+  }, [])
 
   const hasSuggestions = showSuggestions && suggestions && suggestions.terms.length > 0 && term.length >= 2
 
@@ -83,6 +88,7 @@ export function SearchBar({ term, onTermChange, resultCount, elapsed, isLoading,
           onChange={handleChange}
           onFocus={handleFocus}
           onBlur={handleBlur}
+          onKeyDown={handleKeyDown}
           className="pl-10 pr-10"
         />
         {isLoading && (

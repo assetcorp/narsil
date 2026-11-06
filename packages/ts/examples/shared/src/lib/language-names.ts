@@ -11,6 +11,8 @@ const NAME_BY_CODE: Record<string, string> = {
   ig: 'igbo',
 }
 
+export const DEMO_LANGUAGE_NAMES: readonly string[] = Object.values(NAME_BY_CODE)
+
 /** Turns the code the dataset pickers use into the name an index takes. */
 export function languageName(code: string | undefined): string {
   if (code === undefined) return 'english'

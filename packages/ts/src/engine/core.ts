@@ -110,6 +110,7 @@ export async function createEngineCore(
     vectorWorkerCopies: vectorCopyPolicy,
     vectorStorage: filesystemDurability ? 'disk' : 'memory',
     onVectorGraphRepaired: indexName => void durability?.manager.checkpointAfterInFlight(indexName),
+    onDocumentWrite: action => orchestrator.recordMainWrite(action),
   })
 
   const pluginRegistry: PluginRegistry = createPluginRegistry()
@@ -265,7 +266,7 @@ export async function createEngineCore(
       emitWriteEventAfter(
         { eventHandlers, mutationCtx },
         indexName,
-        durability?.manager.reloadIndex?.(indexName) ?? Promise.resolve(),
+        durabilityWiring?.reloadIndexAndCopies(orchestrator, durability, indexName) ?? Promise.resolve(),
       ),
     onError(error: Error) {
       if (emitEngineEvent(eventHandlers, 'invalidationError', { error }) === 0) {

@@ -16,7 +16,7 @@ import type {
 } from '../../types/results'
 import type { BM25Params, FieldType, PartitionConfig, SchemaDefinition, VectorIndexConfig } from '../../types/schema'
 import type { GroupConfig, ListParams, QueryParams, SuggestParams } from '../../types/search'
-import type { SyncSetting } from '../../types/sync'
+import type { SyncSetting, SyncStatus } from '../../types/sync'
 import type { BackupListResponse, CreateBackupBody, RestoreBackupBody } from './backups'
 import type { ErrorEnvelope } from './options'
 import type {
@@ -282,6 +282,8 @@ export interface HttpWireTypes {
   ReplicationFactorResponse: ReplicationFactorResponse
   /** The body of `POST /indexes/{name}/suggest`. */
   SuggestResult: SuggestResult
+  /** The body of `GET /indexes/{name}/sync`. */
+  SyncStatus: SyncStatus
   /** The body of `GET /tasks`. */
   TaskListPage: TaskListPage
   /** The body of every route that starts a task, and of `GET /tasks/{id}`. */

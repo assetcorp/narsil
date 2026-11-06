@@ -72,8 +72,14 @@ describe('worker resynchronisation after a rebalance', () => {
         language: LanguageModule
         embeddingAdapter: EmbeddingAdapter | null
         synonyms: Uint8Array | null
+        vectorFieldPaths: Set<string>
       }
-    >([['products', { config: indexConfig, language: english, embeddingAdapter: null, synonyms: null }]])
+    >([
+      [
+        'products',
+        { config: indexConfig, language: english, embeddingAdapter: null, synonyms: null, vectorFieldPaths: new Set() },
+      ],
+    ])
 
     orchestrator = createWorkerOrchestrator(
       { workers: { enabled: true, count: 2, promotionThreshold: 1 } },

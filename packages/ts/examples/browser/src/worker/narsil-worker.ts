@@ -1,11 +1,25 @@
-import { createNarsil, type Narsil, NarsilError } from '@delali/narsil'
+import {
+  createNarsil,
+  type Narsil,
+  NarsilError,
+  registerPartialWordSearch,
+  registerPatternSearch,
+  registerSynonyms,
+} from '@delali/narsil'
 import { createIndexedDBPersistence } from '@delali/narsil/adapters/indexeddb'
+import { createBroadcastChannelInvalidation } from '@delali/narsil/invalidation/broadcast-channel'
+import { partialWordSearch } from '@delali/narsil/partial-words'
+import { patternSearch } from '@delali/narsil/pattern'
+import { synonyms } from '@delali/narsil/synonyms'
 import type { DatasetLoadProgress } from '@delali/narsil-example-shared'
-import { loadDataset } from './datasets'
+import { createHandlers } from './handlers'
 import { registerDemoLanguages } from './languages'
-import type { WorkerArgs, WorkerMethod, WorkerOutbound, WorkerRequest } from './protocol'
+import { registerLocalModels } from './local-adapters'
+import { transferableBuffersIn, type WorkerOutbound, type WorkerRequest } from './protocol'
+import { listenForRelayedWrites } from './sync-relay'
 
 const PERSISTENCE_DB_NAME = 'narsil-browser-demo'
+const INVALIDATION_CHANNEL_NAME = 'narsil-browser-demo-invalidation'
 
 let engine: Narsil | null = null
 let starting: Promise<Narsil> | null = null
@@ -21,9 +35,16 @@ function getEngine(): Promise<Narsil> {
 
   starting = (async () => {
     registerDemoLanguages()
+    registerPatternSearch(patternSearch)
+    registerPartialWordSearch(partialWordSearch)
+    registerSynonyms(synonyms)
     const instance = await createNarsil({
       persistence: createIndexedDBPersistence({ dbName: PERSISTENCE_DB_NAME }),
+      invalidation: createBroadcastChannelInvalidation({ channelName: INVALIDATION_CHANNEL_NAME }),
     })
+    registerLocalModels(instance)
+    instance.on('write', ({ indexName }) => post({ kind: 'changed', indexName }))
+    listenForRelayedWrites()
     engine = instance
     return instance
   })()
@@ -35,28 +56,15 @@ function getEngine(): Promise<Narsil> {
 }
 
 function post(message: WorkerOutbound): void {
-  self.postMessage(message)
+  const transfer = message.kind === 'result' ? transferableBuffersIn([message.result]) : []
+  self.postMessage(message, { transfer })
 }
 
 function reportProgress(progress: DatasetLoadProgress): void {
   post({ kind: 'progress', progress })
 }
 
-const HANDLERS: { [K in WorkerMethod]: (instance: Narsil, args: WorkerArgs<K>) => Promise<unknown> } = {
-  loadDataset: (instance, [request]) => loadDataset(instance, request, reportProgress),
-  query: (instance, [indexName, params]) => instance.query(indexName, params),
-  suggest: (instance, [indexName, params]) => instance.suggest(indexName, params),
-  listDocuments: (instance, [indexName, params]) => instance.listDocuments(indexName, params),
-  getStats: (instance, [indexName]) => Promise.resolve(instance.getStats(indexName)),
-  getPartitionStats: (instance, [indexName]) => Promise.resolve(instance.getPartitionStats(indexName)),
-  getMemoryStats: instance => instance.getMemoryStats(),
-  vectorMaintenanceStatus: (instance, [indexName]) => Promise.resolve(instance.vectorMaintenanceStatus(indexName)),
-  listIndexes: instance => Promise.resolve(instance.listIndexes()),
-  dropIndex: async (instance, [indexName]) => {
-    await instance.dropIndex(indexName)
-    return null
-  },
-}
+const HANDLERS = createHandlers(reportProgress)
 
 function runHandler(instance: Narsil, request: WorkerRequest): Promise<unknown> {
   const handler = HANDLERS[request.method] as (engine: Narsil, args: unknown[]) => Promise<unknown>
