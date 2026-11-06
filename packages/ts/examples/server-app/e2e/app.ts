@@ -37,3 +37,17 @@ export async function resultIds(page: Page): Promise<string[]> {
 export async function searchFor(page: Page, term: string): Promise<void> {
   await page.getByPlaceholder('Search documents...').fill(term)
 }
+
+export async function chooseOption(page: Page, label: string, option: string): Promise<void> {
+  await page.getByRole('combobox', { name: label }).click()
+  await page.getByRole('option', { name: option, exact: true }).click()
+}
+
+export function searchOptionsToggle(page: Page): Locator {
+  return page.getByRole('button', { name: /^Search options/ })
+}
+
+export async function openSearchOptions(page: Page): Promise<void> {
+  await searchOptionsToggle(page).click()
+  await expect(page.getByTestId('ranking-options')).toBeVisible()
+}

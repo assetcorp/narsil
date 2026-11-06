@@ -11,14 +11,13 @@ import { IndexSelector } from '../IndexSelector'
 import { Badge } from '../ui/badge'
 import { Button } from '../ui/button'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '../ui/sheet'
-import { AdvancedOptions } from './AdvancedOptions'
 import { FacetSidebar } from './FacetSidebar'
 import { GroupSummary } from './GroupSummary'
 import { MatchCount } from './MatchCount'
-import { RankingOptions } from './RankingOptions'
 import { ResultList } from './ResultList'
 import { SearchBar } from './SearchBar'
 import { SearchModeOptions } from './SearchModeOptions'
+import { SearchOptions } from './SearchOptions'
 
 function countActiveFilters(filters: FilterExpression): number {
   return Object.keys(filters.fields ?? {}).length
@@ -147,21 +146,16 @@ export function SearchPlayground({
         <SearchModeOptions values={form.values} vectorField={vectorField} onValueChange={form.setValue} />
       )}
 
-      <AdvancedOptions
+      <SearchOptions
         values={form.values}
+        fields={schema.fields}
         searchableFields={schema.searchablePaths}
         sortableFields={sortableFields}
+        groupTotals={actions.groupTotals}
+        canRerank={actions.rerankAdapter.length > 0 && schema.searchablePaths.length > 0}
         onFieldsChange={form.setFields}
         onBoostChange={form.setBoost}
         onSortChange={form.setSort}
-        onValueChange={form.setValue}
-      />
-
-      <RankingOptions
-        values={form.values}
-        fields={schema.fields}
-        groupTotals={actions.groupTotals}
-        canRerank={actions.rerankAdapter.length > 0 && schema.searchablePaths.length > 0}
         onValueChange={form.setValue}
       />
 
@@ -188,7 +182,9 @@ export function SearchPlayground({
               />
             </div>
           ) : null}
-          {result?.groups === undefined ? null : <GroupSummary groups={result.groups} totalField={groupTotalField} />}
+          {result?.groups === undefined ? null : (
+            <GroupSummary groups={result.groups} totalField={groupTotalField} displayFields={displayFields} />
+          )}
           <ResultList
             hits={result?.hits ?? []}
             isLoading={isLoading}
