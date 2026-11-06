@@ -53,7 +53,7 @@ function DocumentRow({ row, onSelect }: { row: Row<ListedDocument>; onSelect: (e
   }, [onSelect, row.original])
 
   return (
-    <TableRow>
+    <TableRow className="group">
       {row.getVisibleCells().map(cell => (
         <TableCell
           key={cell.id}
@@ -66,10 +66,12 @@ function DocumentRow({ row, onSelect }: { row: Row<ListedDocument>; onSelect: (e
           {formatFieldValue(cell.getValue())}
         </TableCell>
       ))}
-      <TableCell className="text-right">
-        <Button variant="ghost" size="xs" onClick={handleSelect}>
-          View
-        </Button>
+      <TableCell className="sticky right-0 bg-background p-0 text-right">
+        <div className="p-2 transition-colors group-hover:bg-muted/50">
+          <Button variant="ghost" size="xs" onClick={handleSelect}>
+            View
+          </Button>
+        </div>
       </TableCell>
     </TableRow>
   )
@@ -90,7 +92,7 @@ export function DocumentTable({ table, isLoading, onSelect }: DocumentTableProps
               {group.headers.map(header => (
                 <HeaderCell key={header.id} header={header} sortCount={sortCount} />
               ))}
-              <TableHead className="w-16" />
+              <TableHead className="sticky right-0 w-16 bg-background" />
             </TableRow>
           ))}
         </TableHeader>
