@@ -3,6 +3,7 @@ import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import ts from 'typescript'
+import { languageNativeSources, sharedNativeSources } from './analysis-revision-native'
 import { normaliseTokenizerSource } from './analysis-revision-tokenizer'
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url))
@@ -98,7 +99,7 @@ function tokenizerCode(path: string): string {
 }
 
 function tokenizerFingerprint(): string {
-  const sources = new Map<string, string>()
+  const sources = sharedNativeSources(PACKAGE_DIR)
   for (const path of typeScriptFiles(TOKENIZER_DIR)) {
     sources.set(path, tokenizerCode(path))
   }
@@ -106,7 +107,9 @@ function tokenizerFingerprint(): string {
 }
 
 function ownFingerprint(language: string): string {
-  return digestSources(analysisSources(language))
+  const sources = analysisSources(language)
+  for (const [path, code] of languageNativeSources(PACKAGE_DIR, language)) sources.set(path, code)
+  return digestSources(sources)
 }
 
 function combine(own: string, tokenizer: string): string {
@@ -174,7 +177,8 @@ function currentLock(tokenizer: string): Lock {
   return lock
 }
 
-const TOKENIZER_CHANGED = 'src/core/tokenizer/ changed, so every language analyses text differently'
+const TOKENIZER_CHANGED =
+  'src/core/tokenizer/ or the shared C analysis code changed, so every language analyses text differently'
 
 function check(): number {
   const recorded = readLock()
@@ -263,7 +267,11 @@ function write(): number {
   for (const entry of bumped) console.log(entry)
   if (tokenizerOnly === 0 && bumped.length === 0) {
     console.log('languages.lock.json was already current')
+    return 0
   }
+  console.log(
+    '\nRun "pnpm nx run narsil-ts:native-analysis:write" to carry the new revisions into the C language data.',
+  )
   return 0
 }
 

@@ -1,9 +1,13 @@
 #include "values.h"
 
+#include "analysis.h"
 #include "field.h"
 #include "host_api.h"
+#include "keyword.h"
+#include "math_batch.h"
 #include "writes.h"
 
+#include "../include/narsil_analysis.h"
 #include "../include/narsil_core.h"
 
 #include <js_native_api.h>
@@ -178,6 +182,10 @@ static void release_thread_state(napi_env env, void *finalize_data, void *finali
   (void)finalize_hint;
   thread_state *state = finalize_data;
   narsil_workspace_destroy(state->workspace);
+  narsil_analyser_destroy(state->analyser);
+  free(state->text_units);
+  free(state->keyword_lengths);
+  free((void *)state->keyword_length_values);
   free(state);
 }
 
@@ -207,7 +215,8 @@ static napi_value initialise(napi_env env, napi_value exports) {
       {"quantise", NULL, quantise, NULL, NULL, NULL, napi_default_method, NULL},
       {"workspaceBytes", NULL, workspace_bytes, NULL, NULL, NULL, napi_default_method, NULL},
   };
-  if (napi_define_properties(env, exports, sizeof properties / sizeof properties[0], properties) != napi_ok) {
+  if (napi_define_properties(env, exports, sizeof properties / sizeof properties[0], properties) != napi_ok ||
+      !define_analysis(env, exports) || !define_keyword(env, exports) || !define_math(env, exports)) {
     return throw_error(env, "the native search core cannot define its functions");
   }
   return exports;

@@ -1,4 +1,5 @@
 import { EMPTY_POSITIONS, NO_SLICE, PositionPool, PostingPool, sliceCapacity, sliceClassFor } from '#platform/pools'
+import { bitsetHas, bitsetSet } from '../bitset'
 import { MAX_TERM_FREQUENCY, POSTING_LIST_COMPACTION_THRESHOLD } from '../constants'
 import {
   CACHED_VIEW_MIN_ENTRIES,
@@ -41,7 +42,7 @@ export class LivePostings {
   terms = new TermColumns(TERM_TABLE_START_CAPACITY)
   pool = new PostingPool(POSTING_POOL_START_ENTRIES)
   positions = new PositionPool(POSITION_POOL_START_VALUES)
-  retired = new Uint8Array(RETIRED_DOCUMENTS_START_CAPACITY)
+  retired = new Uint32Array(RETIRED_DOCUMENTS_START_CAPACITY >>> 5)
   private batchMode = false
   private dirty = new Set<number>()
   private cachedViews = new Map<number, LivePostingView>()
@@ -146,7 +147,7 @@ export class LivePostings {
   }
 
   isRetired(internalId: number): boolean {
-    return internalId < this.retired.length && this.retired[internalId] === 1
+    return bitsetHas(this.retired, internalId)
   }
 
   beginBatch(): void {
@@ -173,7 +174,7 @@ export class LivePostings {
     this.pool = new PostingPool(POSTING_POOL_START_ENTRIES)
     this.pool.epoch = epoch
     this.positions = new PositionPool(POSITION_POOL_START_VALUES)
-    this.retired = new Uint8Array(RETIRED_DOCUMENTS_START_CAPACITY)
+    this.retired = new Uint32Array(RETIRED_DOCUMENTS_START_CAPACITY >>> 5)
     this.dirty.clear()
     this.cachedViews.clear()
     this.compactedSlack = 0
@@ -184,12 +185,13 @@ export class LivePostings {
   }
 
   private retire(internalId: number): void {
-    if (internalId >= this.retired.length) {
-      const grown = new Uint8Array(Math.max(internalId + 1, this.retired.length * 2))
+    const word = internalId >>> 5
+    if (word >= this.retired.length) {
+      const grown = new Uint32Array(Math.max(word + 1, this.retired.length * 2))
       grown.set(this.retired)
       this.retired = grown
     }
-    this.retired[internalId] = 1
+    bitsetSet(this.retired, internalId)
   }
 
   private purgeRetired(): void {
@@ -203,7 +205,7 @@ export class LivePostings {
   private compact(ordinal: number): void {
     if (this.terms.deadDocuments[ordinal] === 0) return
     const retired = this.retired
-    this.filterEntries(ordinal, id => id < retired.length && retired[id] === 1)
+    this.filterEntries(ordinal, id => bitsetHas(retired, id))
     this.terms.deadDocuments[ordinal] = 0
   }
 

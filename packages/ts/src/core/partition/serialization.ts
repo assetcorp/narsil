@@ -1,4 +1,4 @@
-import { createGeoIndex } from '../../geo/geo-index'
+import { createLoadedGeoIndex } from '../../geo/geo-code'
 import type { SerializablePartition } from '../../types/internal'
 import type { SchemaDefinition } from '../../types/schema'
 import { createBooleanIndex, createEnumIndex, createNumericIndex } from '../field-index'
@@ -189,7 +189,7 @@ export function deserializePartition(
   }
 
   for (const [path, entries] of Object.entries(data.fieldIndexes.geopoint)) {
-    const geoIdx = createGeoIndex()
+    const geoIdx = createLoadedGeoIndex()
     const converted = entries
       .map(e => ({
         lat: e.lat,

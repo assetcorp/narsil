@@ -204,7 +204,7 @@ A query selects one of two strategies:
 hybrid {
   strategy: 'rrf' or 'linear'
   k:        uint32    (the RRF constant, default 60, used by rrf alone)
-  alpha:    float32   (a weight from 0 to 1, default 0.5, used by linear alone)
+  alpha:    float64   (a weight from 0 to 1, default 0.5, used by linear alone)
   depth:    uint32 or absent   (the results that each search fetches, from 1 to 10,000; absent fetches by page, as Hybrid Search defines)
 }
 ```
@@ -332,7 +332,7 @@ An implementation may answer a search on a `disk` vector field before it has loa
 
 ### Text Search Is Exactly Equivalent
 
-Given the same index contents, the same query, and the same parameters, every implementation must return identical text results in identical order. BM25 is deterministic, because [BM25](algorithms.md#bm25-best-matching-25) fixes the tokeniser, the stemmer, and the scoring formula. Any divergence between implementations is a defect, except that a [pattern search](algorithms.md#pattern-search) may pass the work cap in one implementation alone, because each implementation builds its own shortlist and counts the entries that it reads.
+Given the same index contents, the same query, and the same parameters, every implementation must return identical text results in identical order. BM25 is deterministic, because [BM25](algorithms.md#bm25-best-matching-25) fixes the tokeniser, the stemmer, and the scoring formula, and because [Score Arithmetic](algorithms.md#score-arithmetic) and [Deterministic Functions](algorithms.md#deterministic-functions) fix its arithmetic. Any divergence between implementations is a defect, and that includes the work that a search counts, because [Pattern Tests](native-core.md#pattern-tests) and [Phrases](native-core.md#phrases) fix the order of that work.
 
 ### Vector Search Is Equivalent by Recall
 
@@ -356,7 +356,7 @@ The conformance suite searches a fixed dataset of 10,000 vectors with a fixed se
 
 ## Native Search Core
 
-The native search core is the C library that every implementation uses as its standard to search vectors and to build graphs. An implementation must perform every operation of [Interface](#interface) through the native search core wherever its platform can load native code. An implementation may perform those operations in its own code anywhere else, and wherever the deployment selects that code. That code must return the same documents with the same scores as the native search core returns for the same graph and the same query.
+The native search core is the C library that every implementation uses as its standard to search vectors and to build graphs. [native-core.md](native-core.md) defines the core's operations for text, keyword, and hybrid search, from analysis and the matching of query words to scoring, filters, facets, sorting, groups, pages, highlights, suggestions, fusion, and merges. An implementation must perform every operation of [Interface](#interface) through the native search core wherever its platform can load native code. An implementation may perform those operations in its own code anywhere else, and wherever the deployment selects that code. That code must return the same documents with the same scores as the native search core returns for the same graph and the same query.
 
 ### Interface
 

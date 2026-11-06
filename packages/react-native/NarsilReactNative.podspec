@@ -30,10 +30,10 @@ Pod::Spec.new do |s|
 
   s.source_files = [
     "cpp/*.{hpp,cpp}",
-    "cpp/core/src/*.{c,h}",
+    "cpp/core/src/**/*.{c,h}",
     "cpp/core/include/*.h",
   ]
-  s.private_header_files = ["cpp/*.hpp", "cpp/core/src/*.h", "cpp/core/include/*.h"]
+  s.private_header_files = ["cpp/*.hpp", "cpp/core/src/**/*.h", "cpp/core/include/*.h"]
 
   header_search_paths = "$(inherited) \"$(PODS_TARGET_SRCROOT)/cpp/core/include\""
   header_search_paths += " \"$(PODS_ROOT)/Headers/Public/RNWorklets\"" if links_worklets

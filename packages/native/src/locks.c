@@ -1,4 +1,5 @@
 #include "internal.h"
+#include "thread_yield.h"
 
 #include "../include/narsil_core.h"
 
@@ -6,31 +7,17 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#ifdef _WIN32
-#include <windows.h>
-#else
-#include <sched.h>
-#endif
-
 #define LOCK_SPIN_ITERATIONS 128
 #define LIST_COUNT_WORDS 1
 #define LOCK_FREE 0
 #define LOCK_HELD_ALONE (-1)
-
-static inline void yield_thread(void) {
-#ifdef _WIN32
-  SwitchToThread();
-#else
-  sched_yield();
-#endif
-}
 
 static inline void wait_for_the_lock(uint32_t *waits) {
   if (*waits < LOCK_SPIN_ITERATIONS) {
     *waits += 1;
     return;
   }
-  yield_thread();
+  narsil_yield_thread();
 }
 
 static inline uint32_t held_index(uint32_t thread_slot, uint32_t kind) {

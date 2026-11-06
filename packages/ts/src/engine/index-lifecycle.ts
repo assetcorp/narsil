@@ -20,7 +20,7 @@ import type { EmbeddingAdapter } from '../types/adapters'
 import type { NarsilConfig } from '../types/config'
 import type { StoredQuerySuggestions } from '../types/internal'
 import type { IndexConfig } from '../types/schema'
-import { loadVectorCodeFor } from '../workers/vector-code'
+import { loadSchemaCodeFor } from '../workers/schema-code'
 import type { EngineCore, IndexRegistryEntry } from './core'
 import { requireConfigurationWithinSizeLimit } from './snapshot/index-configuration'
 import { emitSyncChange } from './sync-notify'
@@ -70,8 +70,8 @@ export async function createEngineIndex(
   creation: IndexCreationOptions = {},
 ): Promise<void> {
   const { indexUuid, adapterBinding = 'required', appliesCreationLimits = false } = creation
-  const loadingVectorCode = loadVectorCodeFor(requestedConfig.schema)
-  if (loadingVectorCode !== null) await loadingVectorCode
+  const loadingSchemaCode = loadSchemaCodeFor(requestedConfig.schema)
+  if (loadingSchemaCode !== null) await loadingSchemaCode
   core.guardShutdown()
   validateIndexName(name)
   if (core.indexRegistry.has(name)) {
