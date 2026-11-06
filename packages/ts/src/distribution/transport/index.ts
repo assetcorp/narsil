@@ -49,6 +49,7 @@ export {
   DEFAULT_TRANSPORT_CONFIG,
   QueryMessageTypes,
   ReplicationMessageTypes,
+  SuggestionMessageTypes,
   SyncMessageTypes,
   TransportError,
   TransportErrorCodes,

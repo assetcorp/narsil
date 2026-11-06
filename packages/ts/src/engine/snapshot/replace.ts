@@ -12,7 +12,7 @@ import type { IndexRegistryEntry } from '../core'
 import { indexMetadataOf } from '../durability-metadata'
 import { oneSyncChangeAtATime } from '../sync/serial'
 import { emitSyncChange } from '../sync-notify'
-import { type PreparedIndex, type RestoreDeps, restoredRegistryEntry } from './restore-setup'
+import { type PreparedIndex, type RestoreDeps, type RestoredHistorySink, restoredRegistryEntry } from './restore-setup'
 
 export interface RestoredIndex {
   prepared: PreparedIndex
@@ -158,6 +158,7 @@ async function replaceExisting(
       for (const vectorIndex of vectorIndexes) await vectorIndex.releaseVectorFiles()
       await commitToStorage(indexName, restored, previous?.partitionCount ?? 0, deps)
       activate(indexName, restored, entry, deps)
+      await deps.querySuggestions?.afterActivate(entry)
     })
   } finally {
     const ending = endRelease(indexName, release, deps).catch(() => undefined)
@@ -173,6 +174,7 @@ async function createFresh(indexName: string, restored: RestoredIndex, entry: In
     await deps.indexState.registerReplacing(indexName, async () => {
       await commitToStorage(indexName, restored, 0, deps)
       activate(indexName, restored, entry, deps)
+      await deps.querySuggestions?.afterActivate(entry)
     })
   } catch (error) {
     if (deps.indexRegistry.get(indexName) === entry) deps.indexRegistry.delete(indexName)
@@ -187,12 +189,19 @@ async function stageMetadata(indexName: string, staging: RestoreStaging, entry: 
   await staging.store.write(`${indexName}/meta`, [await writeMetadataEnvelope(metadata, { checksum: true })])
 }
 
-export async function installRestoredIndex(indexName: string, restored: RestoredIndex, deps: RestoreDeps) {
+export async function installRestoredIndex(
+  indexName: string,
+  restored: RestoredIndex,
+  deps: RestoreDeps,
+  history: RestoredHistorySink | null = null,
+) {
   const entry = restoredRegistryEntry(restored.prepared, restored.detached.manager, deps)
   const previousSync = deps.indexRegistry.get(indexName)?.sync ?? null
   if (previousSync !== null) entry.sync = { ...previousSync, active: false, epoch: newSyncEpoch() }
   let replaced: IndexRegistryEntry | undefined
   try {
+    if (deps.indexRegistry.has(indexName)) await deps.abandonAnalysisChange(indexName)
+    await deps.querySuggestions?.beforeInstall(entry, deps.indexRegistry.get(indexName))
     if (restored.staging !== null) await stageMetadata(indexName, restored.staging, entry)
     replaced = deps.indexRegistry.get(indexName)
     if (replaced !== undefined) await replaceExisting(indexName, restored, entry, deps)
@@ -214,6 +223,7 @@ export async function installRestoredIndex(indexName: string, restored: Restored
       await oneSyncChangeAtATime(deps.indexRegistry, indexName, () => storage.release(indexName))
     emitSyncChange(deps.indexRegistry, { kind: 'epoch', indexName })
   }
+  await deps.querySuggestions?.afterInstall(entry, history)
   if (replaced !== undefined) await deps.announceIndexDropped(indexName, replaced.config)
   await deps.announceIndexCreated(indexName, restored.prepared.config)
   for (const vectorIndex of restored.detached.manager.getVectorIndexes().values()) {

@@ -2,6 +2,7 @@ import { WORKER_YOUNG_GENERATION_MB } from './constants'
 
 export interface WorkerResourceLimits {
   maxYoungGenerationSizeMb?: number
+  maxOldGenerationSizeMb?: number
 }
 
 export function workerResourceLimits(): WorkerResourceLimits {

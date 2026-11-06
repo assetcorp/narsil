@@ -45,7 +45,8 @@ export function indexConfigurationOf(entry: IndexRegistryEntry): Record<string, 
     synonyms,
     entry.analysisGeneration,
   )
-  return entry.sync === null ? payload : { ...payload, syncEpoch: entry.sync.epoch }
+  const withSuggestions = { ...payload, ...entry.querySuggestions }
+  return entry.sync === null ? withSuggestions : { ...withSuggestions, syncEpoch: entry.sync.epoch }
 }
 
 export function requireConfigurationWithinSizeLimit(config: IndexConfig, language: LanguageModule): void {

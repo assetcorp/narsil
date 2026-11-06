@@ -1,6 +1,7 @@
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { ClusterNodeConfig } from '../cluster-node/types'
 import { type BackupJob, updateBackupJob } from './jobs'
+import type { ClusterQueryHistory } from './query-history'
 import type { BackupStore } from './store'
 
 export interface BackupDriverContext {
@@ -8,6 +9,7 @@ export interface BackupDriverContext {
   nodeId: string
   isActive: () => boolean
   onError: (error: unknown) => void
+  queryHistory: ClusterQueryHistory | null
   store: BackupStore
   jobId: string
   job: BackupJob

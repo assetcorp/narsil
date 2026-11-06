@@ -135,6 +135,7 @@ export async function createIndexFromMetadata(
     pendingAnalysis: metadata.pendingAnalysis ?? null,
     durableAnalysis: null,
     sync: metadata.sync?.enabled === true ? (await import('./sync-state')).syncStateOfMetadata(metadata) : null,
+    querySuggestions: metadata.querySuggestions ?? null,
   })
   if (loadData) await deps.indexState().registerOpen(metadata.indexName)
   else deps.indexState().registerClosed(metadata.indexName)

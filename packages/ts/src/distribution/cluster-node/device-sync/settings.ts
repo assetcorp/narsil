@@ -1,9 +1,10 @@
-import { requireSyncSetting } from '../../../engine/sync/operations'
+import { requireNoQuerySuggestions, requireSyncSetting } from '../../../engine/sync/operations'
 import { ErrorCodes, NarsilError } from '../../../errors'
 import { newSyncEpoch } from '../../../sync/epoch'
 import type { StoredSyncSetting } from '../../../types/internal'
 import type { SyncSetting, SyncStatus } from '../../../types/sync'
 import { indexConfigKey, readIndexMetadataSnapshot, validateIndexName } from '../../cluster/index-metadata'
+import { suggestionStateOfSettings } from '../../cluster/query-suggestion-settings'
 import { type ClusterSyncSettings, metadataWithSync } from '../../cluster/sync-settings'
 import { DEVICE_SYNC_SPEC_VERSION, reachesVersion } from '../../cluster/version'
 import type { ClusterCoordinator, NodeRegistration } from '../../coordinator/types'
@@ -86,6 +87,7 @@ export async function updateClusterSync(
   for (let attempt = 1; attempt <= MAX_SETTINGS_REPLACEMENT_ATTEMPTS; attempt++) {
     const current = await readIndexMetadataSnapshot(deps.coordinator, indexName)
     if (current === null) throw indexNotFound(indexName)
+    if (setting.enabled) requireNoQuerySuggestions(suggestionStateOfSettings(current.settings), indexName)
     const next = nextSyncSettings(current.settings ?? {}, setting)
     if (next === null) return
     if (
