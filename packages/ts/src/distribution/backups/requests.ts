@@ -15,7 +15,7 @@ import type { BackupJobKind } from './jobs'
 import { validateBackupName } from './keys'
 import { SYNC_BACKUP_TAKER } from './manifest'
 import { type BackupStore, readBackupManifest, summaryOf } from './store'
-import type { BackupOperationOptions, BackupSummary, RestoreBackupOptions } from './types'
+import type { BackupOperationOptions, BackupSummary, CreateBackupOptions, RestoreBackupOptions } from './types'
 
 export interface BackupRequestDeps {
   config: ClusterNodeConfig
@@ -87,9 +87,9 @@ export function requestBackup(
   deps: BackupRequestDeps,
   indexName: string,
   backupName: string,
-  options?: BackupOperationOptions,
+  options?: CreateBackupOptions,
 ): Promise<BackupSummary> {
-  return backUp(deps, indexName, backupName, {}, options)
+  return backUp(deps, indexName, backupName, options?.queryHistory === true ? { queryHistory: true } : {}, options)
 }
 
 export async function requestSyncBackup(deps: BackupRequestDeps, indexName: string, backupName: string): Promise<void> {
@@ -100,14 +100,14 @@ async function backUp(
   deps: BackupRequestDeps,
   indexName: string,
   backupName: string,
-  taker: Pick<BackupRequestPayload, 'takenBy'>,
+  extra: Pick<BackupRequestPayload, 'takenBy' | 'queryHistory'>,
   options?: BackupOperationOptions,
 ): Promise<BackupSummary> {
   const store = requireBackupStore(deps.store)
   const payload: BackupRequestPayload = {
     backupName: validateBackupName(backupName),
     indexName: requireIndexName(indexName),
-    ...taker,
+    ...extra,
   }
   await runJob(
     deps,

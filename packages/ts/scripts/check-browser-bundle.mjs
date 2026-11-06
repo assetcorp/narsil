@@ -23,6 +23,8 @@ const BROWSER_ENTRIES = [
   'dist/sync.browser.mjs',
   'dist/sync/indexeddb.mjs',
   'dist/react-native/sync.mjs',
+  'dist/query-suggestions.browser.mjs',
+  'dist/react-native/query-suggestions.mjs',
 ]
 
 const SIZE_APP = 'scripts/browser-bundle-app.mjs'

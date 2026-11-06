@@ -30,5 +30,9 @@ export async function createNarsil(config?: NarsilConfig): Promise<Narsil> {
   const runnableConfig = await resolveRunnableConfig(config)
   const core = await createEngineCore(runnableConfig)
   await startEngineCore(core, runnableConfig)
-  return createNarsilFromCore(core, runnableConfig)
+  const engine = createNarsilFromCore(core, runnableConfig)
+  if (runnableConfig?.querySuggestions !== undefined || core.durability !== null) {
+    await (await import('../query-suggestions/engine-hooks')).startQuerySuggestions(core, engine, runnableConfig)
+  }
+  return engine
 }

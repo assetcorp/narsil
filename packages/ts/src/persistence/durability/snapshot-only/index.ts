@@ -9,6 +9,7 @@ import {
   DEFAULT_COMPACTION_THRESHOLD,
 } from '../constants'
 import type { PartitionCheckpoint } from '../partition-checkpoint'
+import { queryHistoryAccess, removeQueryHistoryOf } from '../query-history'
 import { snapshotCheckpointFor } from '../recovery'
 import { journalKey, recoverRestoreJournals } from '../restore-journal'
 import { adapterRestoreStorage, createRestoreStaging, type RestoreStaging } from '../restore-staging'
@@ -351,6 +352,8 @@ export function createSnapshotOnlyManager(
       }
     },
 
+    ...queryHistoryAccess({ kind: 'adapter', adapter }),
+
     async removeIndex(indexName: string): Promise<void> {
       await settleRestore(indexName).catch(() => undefined)
       restores.forget(indexName)
@@ -359,6 +362,7 @@ export function createSnapshotOnlyManager(
       for (const key of await adapter.list(`${indexName}/`)) {
         await adapter.delete(key)
       }
+      await removeQueryHistoryOf({ kind: 'adapter', adapter }, indexName)
     },
 
     async unloadIndex(indexName: string): Promise<void> {

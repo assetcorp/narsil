@@ -1,3 +1,4 @@
+import type { QuerySuggestionsBuild } from '../../types/query-suggestions'
 import type { ImportResult } from './requests'
 import type { ErrorDetail } from './responses'
 
@@ -17,6 +18,7 @@ export type TaskType =
   | 'backup'
   | 'backupRestore'
   | 'backupDelete'
+  | 'querySuggestionsBuild'
 
 /**
  * Where a long-running operation stands.
@@ -107,6 +109,8 @@ export interface TaskRecord {
   steps?: TaskStepProgress
   /** What the work produced, which an `import` or `importExport` task reports once it finishes. */
   result?: ImportResult
+  /** The build that a `querySuggestionsBuild` task ran, once it ends. */
+  build?: QuerySuggestionsBuild
   /** This says why the task failed, and a failed task alone carries it. */
   error?: ErrorDetail
 }

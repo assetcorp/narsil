@@ -32,6 +32,14 @@ export const INDEX = 'products'
 export const LIMITED_BYTES = 1024 * 1024
 export const FILTERED_CATEGORY = 'footwear'
 const BACKUP = 'products-nightly'
+const SUGGESTED_PHRASE = 'trail shoes'
+const SUGGESTION_GROUP = 'shoppers'
+const SUGGESTIONS_SOURCE = 'catalogue'
+export const SUGGESTIONS_KEY = 'openapi-contract-suggestions-key-of-32-bytes'
+
+export function identifyFirstPerson(): { person: string; group: string } {
+  return { person: 'person-1', group: SUGGESTION_GROUP }
+}
 
 export const INDEX_SCHEMA = {
   title: 'string',
@@ -103,6 +111,7 @@ export const OPERATION_CASES: Readonly<Record<string, OperationCase>> = {
   getMemoryStats: { valid: () => ({ statuses: [200] }), hostile: () => ignoredJunkQuery() },
   createIndex: {
     valid: () => ({ json: { name: INDEX, config: { schema: INDEX_SCHEMA } }, statuses: [201] }),
+    alsoValid: () => [{ json: { name: SUGGESTIONS_SOURCE, config: { schema: { title: 'string' } } }, statuses: [201] }],
     hostile: () => ({ json: { name: 'bad', config: { schema: { title: 'text' } } }, statuses: [400] }),
   },
   listIndexes: { valid: () => ({ statuses: [200] }), hostile: () => ignoredJunkQuery() },
@@ -231,12 +240,89 @@ export const OPERATION_CASES: Readonly<Record<string, OperationCase>> = {
     valid: () => ({ name: INDEX, json: { k1: 1.2, b: 0.75 }, statuses: [200] }),
     hostile: () => ({ name: INDEX, json: { k1: -5 }, statuses: [400] }),
   },
+  updateQuerySuggestions: {
+    valid: () => ({
+      name: SUGGESTIONS_SOURCE,
+      json: { enabled: true, fields: ['title'], minPeople: 2, minResults: 1, schedule: 'off' },
+      statuses: [200],
+    }),
+    hostile: () => ({ name: SUGGESTIONS_SOURCE, json: { enabled: true, fields: ['no-such-field'] }, statuses: [400] }),
+  },
+  querySuggestionsStatus: { valid: () => ({ name: SUGGESTIONS_SOURCE, statuses: [200] }), hostile: missingIndex },
+  recordQuery: {
+    valid: () => ({
+      name: SUGGESTIONS_SOURCE,
+      json: { query: SUGGESTED_PHRASE },
+      statuses: [200],
+      verify: body => expect(body).toEqual({ recorded: true, outcome: 'recorded' }),
+    }),
+    alsoValid: () => [
+      {
+        name: SUGGESTIONS_SOURCE,
+        json: { query: SUGGESTED_PHRASE },
+        statuses: [200],
+        verify: body => expect(body).toEqual({ recorded: false, outcome: 'repeat' }),
+      },
+    ],
+    hostile: () => ({
+      name: SUGGESTIONS_SOURCE,
+      json: { query: SUGGESTED_PHRASE, person: 'person-2' },
+      statuses: [400],
+    }),
+  },
+  previewQuerySuggestions: {
+    valid: () => ({
+      name: SUGGESTIONS_SOURCE,
+      query: 'limit=10',
+      statuses: [200],
+      verify: body => expect(body).toEqual({ entries: [], truncated: false }),
+    }),
+    hostile: () => ({ name: SUGGESTIONS_SOURCE, query: 'limit=1001', statuses: [400] }),
+  },
+  buildQuerySuggestions: { valid: () => ({ name: SUGGESTIONS_SOURCE, statuses: [202] }), hostile: missingIndex },
+  addManualSuggestion: {
+    valid: () => ({
+      name: SUGGESTIONS_SOURCE,
+      json: { group: SUGGESTION_GROUP, query: 'trail tent', count: 3 },
+      statuses: [200],
+    }),
+    hostile: () => ({ name: SUGGESTIONS_SOURCE, json: { group: '../escape', query: 'trail tent' }, statuses: [400] }),
+  },
+  replaceQueryBans: {
+    valid: () => ({
+      name: SUGGESTIONS_SOURCE,
+      json: { bans: ['trail tent'] },
+      statuses: [200],
+      verify: body => expect(body).toEqual({ bans: ['trail tent'] }),
+    }),
+    hostile: () => ({ name: SUGGESTIONS_SOURCE, json: { bans: 'trail tent' }, statuses: [400] }),
+  },
+  readQueryBans: {
+    valid: () => ({
+      name: SUGGESTIONS_SOURCE,
+      statuses: [200],
+      verify: body => expect(body).toEqual({ bans: ['trail tent'] }),
+    }),
+    hostile: missingIndex,
+  },
+  removeQuery: {
+    valid: () => ({
+      name: SUGGESTIONS_SOURCE,
+      json: { query: SUGGESTED_PHRASE },
+      statuses: [200],
+      verify: body => expect(body).toEqual({ suggestionIndexes: 0 }),
+    }),
+    hostile: () => ({ name: SUGGESTIONS_SOURCE, json: { query: 7 }, statuses: [400] }),
+  },
   updateSync: {
     valid: () => ({ name: INDEX, json: { enabled: true }, statuses: [200] }),
     hostile: () => ({ name: INDEX, json: { enabled: 'yes' }, statuses: [400] }),
   },
   syncSnapshot: { valid: () => ({ name: INDEX, statuses: [200] }), hostile: missingIndex },
-  snapshot: { valid: () => ({ name: INDEX, statuses: [200] }), hostile: missingIndex },
+  snapshot: {
+    valid: () => ({ name: INDEX, statuses: [200] }),
+    hostile: () => ({ name: INDEX, query: 'queryHistory=yes', statuses: [400] }),
+  },
   restore: {
     valid: state => ({ name: INDEX, raw: state.snapshot, rawContentType: TAR_CONTENT_TYPE, statuses: [202] }),
     hostile: () => ({ name: INDEX, ...overLimit(TAR_CONTENT_TYPE) }),

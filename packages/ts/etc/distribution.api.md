@@ -128,7 +128,7 @@ export interface ClusterMetrics {
 
 // @public
 export interface ClusterNamespace {
-    createBackup(indexName: string, backupName: string, options?: BackupOperationOptions): Promise<BackupSummary>;
+    createBackup(indexName: string, backupName: string, options?: CreateBackupOptions): Promise<BackupSummary>;
     deleteBackup(backupName: string, options?: BackupOperationOptions): Promise<void>;
     getAllocation(indexName: string): Promise<AllocationTable | null>;
     getControllerNodeId(): Promise<string | null>;
@@ -248,6 +248,11 @@ export interface CoordinatorRequestFigure {
     count: number;
     operation: string;
     sumSeconds: number;
+}
+
+// @public
+export interface CreateBackupOptions extends BackupOperationOptions {
+    queryHistory?: boolean;
 }
 
 // @public

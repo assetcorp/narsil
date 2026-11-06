@@ -45,9 +45,11 @@ export type {
   MainCopyQueries,
   MemoryConfig,
   NarsilConfig,
+  QuerySuggestionsConfig,
   StaleAnalysis,
   WorkerConfig,
 } from './types/config'
+export type { SnapshotOptions } from './types/engine'
 export type { NarsilEventHandlers, NarsilEventMap } from './types/events'
 export type {
   ArrayFilter,
@@ -75,6 +77,7 @@ export type {
   UpdateContext,
   WorkerContext,
 } from './types/plugins'
+export type { QuerySuggestionsBuildEvent, QuerySuggestionsWarningEvent } from './types/query-suggestions'
 export type {
   BatchResult,
   DocumentImportResult,

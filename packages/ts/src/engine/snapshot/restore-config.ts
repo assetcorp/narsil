@@ -30,6 +30,9 @@ export interface SnapshotEnvelope {
   patternValueLimit?: unknown
   synonyms?: unknown
   embedding?: unknown
+  querySuggestions?: unknown
+  bannedQueries?: unknown
+  querySuggestionsSource?: unknown
   partitions?: Uint8Array[]
   vectorIndexes?: Record<string, unknown>
 }

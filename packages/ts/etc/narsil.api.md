@@ -212,6 +212,7 @@ export const ErrorCodes: {
     readonly SYNC_NOT_READY: "SYNC_NOT_READY";
     readonly SYNC_NOT_ENABLED: "SYNC_NOT_ENABLED";
     readonly SYNC_SNAPSHOT_PREPARING: "SYNC_SNAPSHOT_PREPARING";
+    readonly QUERY_SUGGESTIONS_NOT_ENABLED: "QUERY_SUGGESTIONS_NOT_ENABLED";
     readonly SEARCH_INVALID_FIELD: "SEARCH_INVALID_FIELD";
     readonly VECTOR_DIMENSION_MISMATCH: "VECTOR_DIMENSION_MISMATCH";
     readonly SEARCH_INVALID_FILTER: "SEARCH_INVALID_FILTER";
@@ -632,7 +633,7 @@ export interface Narsil extends IndexLifecycleOperations, DocumentWriteOperation
     rebuildAnalysis(indexName: string): Promise<void>;
     restore(indexName: string, data: ByteSource): Promise<void>;
     shutdown(): Promise<void>;
-    snapshot(indexName: string): Promise<ReadableStream<Uint8Array>>;
+    snapshot(indexName: string, options?: SnapshotOptions): Promise<ReadableStream<Uint8Array>>;
     suggest(indexName: string, params: SuggestParams): Promise<SuggestResult>;
     updatePartitionConfig(indexName: string, config: Partial<PartitionConfig>): Promise<void>;
 }
@@ -652,6 +653,7 @@ export interface NarsilConfig {
     patternWorkCap?: number;
     persistence?: PersistenceAdapter;
     plugins?: NarsilPlugin[];
+    querySuggestions?: QuerySuggestionsConfig;
     rerankAdapters?: Record<string, RerankAdapter>;
     rerankTimeout?: number;
     workers?: WorkerConfig;
@@ -729,6 +731,8 @@ export type NarsilEventMap = {
     invalidationError: {
         error: Error;
     };
+    querySuggestionsBuild: QuerySuggestionsBuildEvent;
+    querySuggestionsWarning: QuerySuggestionsWarningEvent;
 };
 
 // @public
@@ -1005,6 +1009,31 @@ export interface QueryResult<T = AnyDocument> {
     hits: Array<Hit<T>>;
 }
 
+// @public
+export interface QuerySuggestionsBuildEvent {
+    buildId: string;
+    discarded: number;
+    errorCode?: string;
+    indexName: string;
+    phase: 'started' | 'completed' | 'failed' | 'skipped';
+    published: number;
+    removed: number;
+    trigger: QuerySuggestionsBuildTrigger;
+}
+
+// @public
+export interface QuerySuggestionsConfig {
+    key: string | Uint8Array;
+}
+
+// @public
+export interface QuerySuggestionsWarningEvent {
+    file?: string;
+    indexName: string;
+    message?: string;
+    reason: QuerySuggestionsWarningReason;
+}
+
 // Warning: (ae-internal-missing-underscore) The name "ReactNativeDirectoryEntry" should be prefixed with an underscore because the declaration is marked as @internal
 //
 // @internal
@@ -1158,6 +1187,11 @@ export const ServerErrorCodes: {
     readonly HOOK_ERROR: "HOOK_ERROR";
     readonly INTERNAL_ERROR: "INTERNAL_ERROR";
 };
+
+// @public
+export interface SnapshotOptions {
+    queryHistory?: boolean;
+}
 
 // @public
 export interface SortField {

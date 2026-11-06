@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any, cast
+from typing import Annotated, Any, Literal, cast
 
 from narsil_client._async_transport import AsyncOperationsBase
-from narsil_client._exchange import AsyncUpload, Exchange, json_body, path_segment
+from narsil_client._exchange import AsyncUpload, Exchange, json_body, path_segment, query_value
+from narsil_client._model import OPEN_ENUM
 from narsil_client._streams import AsyncResponseStream
 from narsil_client.models import (
     BM25Params,
@@ -144,6 +145,7 @@ class MaintenanceOperations(AsyncOperationsBase):
         self,
         name: str,
         *,
+        query_history: Annotated[Literal["true", "false"], OPEN_ENUM] | None = None,
         timeout_ms: int | None = None,
         headers: Mapping[str, str] | None = None,
         max_response_bytes: int | None = None,
@@ -154,6 +156,7 @@ class MaintenanceOperations(AsyncOperationsBase):
 
         Args:
             name: The name of the index.
+            query_history: Under `true`, the archive also holds the index's search history.
             timeout_ms: The client waits this many milliseconds for each try of this request, in place of the
                 client's setting, and 0 waits for as long as the server takes.
             headers: The client adds these headers to this request, replacing any of the same name.
@@ -167,6 +170,7 @@ class MaintenanceOperations(AsyncOperationsBase):
             Exchange(
                 method="GET",
                 path=f"/indexes/{path_segment(name)}/snapshot",
+                query={"queryHistory": query_value(query_history)},
                 carries_corpus=True,
                 timeout_ms=timeout_ms,
                 headers=headers,

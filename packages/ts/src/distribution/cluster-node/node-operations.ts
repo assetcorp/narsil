@@ -8,6 +8,7 @@ import { clearCluster } from './clear'
 import { awaitDropAcknowledgement, awaitTornDownCopy } from './drop-acknowledgement'
 import { leftOutAPartition, readFollowingTheName, refuseHiddenGeneration, servingNameOf } from './generation-routing'
 import type { ClusterLocalEngine } from './local-engine'
+import type { ClusterSuggestionHooks } from './query-suggestions'
 import {
   type ClusterReadDeps,
   countCluster,
@@ -84,6 +85,7 @@ export interface ClusterNodeOperationDeps {
   coordinator: ClusterCoordinator
   forgetIndex: (indexName: string) => void
   isOrphaned: (indexName: string) => boolean
+  suggestionHooks: ClusterSuggestionHooks
 }
 
 export function createClusterNodeOperations(deps: ClusterNodeOperationDeps): ClusterNodeOperations {
@@ -107,6 +109,7 @@ export function createClusterNodeOperations(deps: ClusterNodeOperationDeps): Clu
       refuseHiddenGeneration(name)
       return trackOp(name, async () => {
         if (!deps.isOrphaned(name)) await awaitTornDownCopy(engine, coordinator, name)
+        await deps.suggestionHooks.beforeCreate(name)
         await routeCreateIndex(name, indexConfig, options, coordinator, engine)
       })
     },
@@ -137,7 +140,8 @@ export function createClusterNodeOperations(deps: ClusterNodeOperationDeps): Clu
 
     async dropIndex(name) {
       refuseHiddenGeneration(name)
-      return deps.transitionIndex(name, async () => {
+      await deps.suggestionHooks.beforeDrop(name)
+      await deps.transitionIndex(name, async () => {
         const dropped = await dropServedIndex(name, coordinator, engine)
         deps.forgetIndex(name)
         if (dropped !== null) {
@@ -145,6 +149,7 @@ export function createClusterNodeOperations(deps: ClusterNodeOperationDeps): Clu
           await awaitDropAcknowledgement(acknowledgement, name, dropped.indexUuid)
         }
       })
+      await deps.suggestionHooks.afterDrop(name)
     },
 
     async updateSynonyms(indexName, synonyms) {
