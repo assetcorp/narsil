@@ -13,12 +13,15 @@ import { swahili } from '@delali/narsil/languages/swahili'
 import { twi } from '@delali/narsil/languages/twi'
 import { yoruba } from '@delali/narsil/languages/yoruba'
 import { zulu } from '@delali/narsil/languages/zulu'
-import { createServer, type OnRequestHook } from '@delali/narsil/server'
+import { createServer } from '@delali/narsil/server'
+import { admissionHook } from './demo-server-access.ts'
+import { registerLocalModels } from './demo-server-models.ts'
 /* Relative imports carry the .ts extension because demo-server-child.ts runs
  * this file under plain Node with type stripping, which resolves ESM
  * specifiers exactly as written. */
 import { type DemoNarsilServer, demoServerPromise, setDemoServerPromise } from './src/lib/demo-server-state.ts'
-import { EMBEDDING_ADAPTER_NAME, readEmbeddingConfig } from './src/lib/embedding-config.ts'
+import { OPENAI_EMBEDDING_ADAPTER_NAME, readOpenAIEmbeddingConfig } from './src/lib/embedding-config.ts'
+import { createSyncGrantSecret, SYNC_GRANT_SECRET_ENV, syncGrantSecretFromEnv } from './src/lib/sync-grant.ts'
 
 export type { DemoNarsilServer } from './src/lib/demo-server-state.ts'
 
@@ -31,16 +34,6 @@ export type DemoServerChildMessage = { type: 'ready'; url: string } | { type: 'e
  * roughly 400 tokens each leaves ample headroom. */
 const MAX_IMPORT_BYTES = 256 * 1024 * 1024
 const IMPORT_BATCH_SIZE = 256
-
-function apiKeyHook(apiKey: string): OnRequestHook {
-  return ctx => {
-    const header = ctx.headers.authorization
-    const bearer = header?.startsWith('Bearer ') ? header.slice('Bearer '.length) : undefined
-    const presented = bearer ?? ctx.headers['x-api-key']
-    if (presented === apiKey) return undefined
-    return { status: 401, code: 'UNAUTHORIZED', message: 'A valid API key is required' }
-  }
-}
 
 function dataDirectory(): string {
   const override = process.env.NARSIL_DATA_DIR
@@ -60,11 +53,11 @@ function portFromEnv(): number {
   return value
 }
 
-function embeddingAdaptersFromEnv(): Record<string, EmbeddingAdapter> | undefined {
-  const config = readEmbeddingConfig()
+function openAIEmbeddingAdapters(): Record<string, EmbeddingAdapter> | undefined {
+  const config = readOpenAIEmbeddingConfig()
   if (!config) return undefined
   return {
-    [EMBEDDING_ADAPTER_NAME]: createOpenAIEmbedding({
+    [OPENAI_EMBEDDING_ADAPTER_NAME]: createOpenAIEmbedding({
       baseUrl: config.baseUrl,
       apiKey: config.apiKey,
       model: config.model,
@@ -85,13 +78,15 @@ export async function startDemoNarsilServer(): Promise<DemoNarsilServer> {
   const engine = await createNarsil({
     durability: { directory: dataDirectory(), mode: 'async' },
   })
+  registerLocalModels(engine)
   const apiKey = process.env.NARSIL_API_KEY
   const server = createServer(engine, {
     host: '127.0.0.1',
     port: portFromEnv(),
-    onRequest: apiKey && apiKey.length > 0 ? apiKeyHook(apiKey) : undefined,
-    embeddingAdapters: embeddingAdaptersFromEnv(),
+    onRequest: admissionHook(apiKey && apiKey.length > 0 ? apiKey : undefined, syncGrantSecretFromEnv(process.env)),
+    embeddingAdapters: openAIEmbeddingAdapters(),
     limits: { maxImportBytes: MAX_IMPORT_BYTES, importBatchSize: IMPORT_BATCH_SIZE },
+    sync: true,
   })
   await server.listen()
   return {
@@ -179,6 +174,7 @@ function spawnDemoNarsilServer(onExitAfterReady: (detail: string) => void): Prom
 export function ensureDemoNarsilServer(): Promise<DemoNarsilServer> {
   const existing = demoServerPromise()
   if (existing) return existing
+  if (syncGrantSecretFromEnv(process.env) === null) process.env[SYNC_GRANT_SECRET_ENV] = createSyncGrantSecret()
   const starting = spawnDemoNarsilServer(detail => {
     setDemoServerPromise(undefined)
     console.error(`[narsil] the demo Narsil server exited unexpectedly (${detail})`)

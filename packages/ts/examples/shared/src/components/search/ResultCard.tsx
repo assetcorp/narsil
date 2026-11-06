@@ -45,6 +45,8 @@ export function ResultCard({ hit, datasetId, displayFields, onClick }: ResultCar
       <button
         type="button"
         onClick={onClick}
+        data-testid="result-card"
+        data-doc-id={hit.id}
         className="w-full cursor-pointer rounded-lg border p-4 text-left transition-colors hover:bg-muted/30"
       >
         <div className="flex items-start justify-between gap-3">
@@ -87,6 +89,8 @@ export function ResultCard({ hit, datasetId, displayFields, onClick }: ResultCar
       <button
         type="button"
         onClick={onClick}
+        data-testid="result-card"
+        data-doc-id={hit.id}
         className="w-full cursor-pointer rounded-lg border p-4 text-left transition-colors hover:bg-muted/30"
       >
         <div className="flex items-start justify-between gap-3">
@@ -126,6 +130,8 @@ export function ResultCard({ hit, datasetId, displayFields, onClick }: ResultCar
     <button
       type="button"
       onClick={onClick}
+      data-testid="result-card"
+      data-doc-id={hit.id}
       className="w-full cursor-pointer rounded-lg border p-4 text-left transition-colors hover:bg-muted/30"
     >
       <div className="flex items-start justify-between gap-3">

@@ -1,4 +1,3 @@
-import { extractVectorFieldsFromSchema } from '../../schema/validator'
 import type { AnyDocument } from '../../types/schema'
 import type { WorkerAction } from '../../workers/protocol'
 import { prepareDocumentVectors } from '../vector-coordinator'
@@ -46,18 +45,19 @@ function documentWeight(action: WorkerAction): number {
   return 1
 }
 
-function vectorFieldPathsOf(state: OrchestratorState, indexName: string): Set<string> {
-  const entry = state.indexRegistry.get(indexName)
-  if (entry === undefined) return new Set()
-  return new Set(extractVectorFieldsFromSchema(entry.config.schema).keys())
+const NO_VECTOR_FIELDS: ReadonlySet<string> = new Set()
+
+function vectorFieldPathsOf(state: OrchestratorState, indexName: string): ReadonlySet<string> {
+  return state.indexRegistry.get(indexName)?.vectorFieldPaths ?? NO_VECTOR_FIELDS
 }
 
-function withoutVectors(document: AnyDocument, fieldPaths: Set<string>): AnyDocument {
+function withoutVectors(document: AnyDocument, fieldPaths: ReadonlySet<string>): AnyDocument {
+  if (fieldPaths.size === 0) return document
   return prepareDocumentVectors(document as Record<string, unknown>, fieldPaths).partitionDoc as AnyDocument
 }
 
 export function detachCallerDocuments(state: OrchestratorState, action: WorkerAction): WorkerAction {
-  if (!('indexName' in action)) return action
+  if (action.type !== 'insert' && action.type !== 'update' && action.type !== 'mergeSegments') return action
   const fieldPaths = vectorFieldPathsOf(state, action.indexName)
   if (action.type === 'insert') {
     const stripped = withoutVectors(action.document, fieldPaths)
@@ -68,17 +68,14 @@ export function detachCallerDocuments(state: OrchestratorState, action: WorkerAc
     const stripped = withoutVectors(action.document, fieldPaths)
     return { ...action, document: stripped !== action.document ? stripped : structuredClone(stripped) }
   }
-  if (action.type === 'mergeSegments') {
-    return {
-      ...action,
-      segments: action.segments.map(segment => {
-        const documents = segment.documents.map(document => withoutVectors(document, fieldPaths))
-        const cloned = action.skipClone === true || fieldPaths.size > 0 ? documents : structuredClone(documents)
-        return { ...segment, documents: cloned }
-      }),
-    }
+  return {
+    ...action,
+    segments: action.segments.map(segment => {
+      const documents = segment.documents.map(document => withoutVectors(document, fieldPaths))
+      const cloned = action.skipClone === true || fieldPaths.size > 0 ? documents : structuredClone(documents)
+      return { ...segment, documents: cloned }
+    }),
   }
-  return action
 }
 
 function partitionLedger(state: OrchestratorState, indexName: string, partitionId: number): SegmentLedgerEntry[] {
@@ -96,6 +93,10 @@ function partitionLedger(state: OrchestratorState, indexName: string, partitionI
 }
 
 function recordSegmentBroadcast(state: OrchestratorState, action: WorkerAction): void {
+  if (action.type === 'clear') {
+    state.segmentLedger.delete(action.indexName)
+    return
+  }
   if (action.type === 'attachSegments') {
     for (const segment of action.segments) {
       partitionLedger(state, action.indexName, segment.partitionId).push({
@@ -185,20 +186,9 @@ export async function replicateToWorkers(state: OrchestratorState, action: Worke
     await dispatchToWorkers(state, action)
     return
   }
-  if (!copiesWillReceive(state, action.indexName)) return
-
-  const detached = detachCallerDocuments(state, action)
-  const loading = state.copyLoadBuffers.get(action.indexName)
-  if (loading !== undefined) {
-    queueForCopies(state, detached)
-    if (loading.length % LOAD_BUFFER_YIELD_INTERVAL === 0) await yieldToEventLoop()
-    return
-  }
-  const queue = state.replicationQueues.get(action.indexName)
-  if (queue !== undefined && queue.pendingDocuments + documentWeight(detached) > MAX_PENDING_REPLICATION_DOCUMENTS) {
-    await new Promise<void>(resume => queue.drainWaiters.push(resume))
-  }
-  queueForCopies(state, detached)
+  recordMainWrite(state, action)
+  const waiting = replicationRoomWait(state, action.indexName)
+  if (waiting !== null) await waiting
 }
 
 export function queueForCopies(state: OrchestratorState, action: WorkerAction): void {
@@ -210,6 +200,24 @@ export function queueForCopies(state: OrchestratorState, action: WorkerAction): 
   }
   if (state.workerPool === null || !state.scaledOutIndexes.has(action.indexName)) return
   enqueueReplication(state, action.indexName, action)
+}
+
+export function recordMainWrite(state: OrchestratorState, action: WorkerAction): void {
+  if (!('indexName' in action) || !copiesWillReceive(state, action.indexName)) return
+  queueForCopies(state, detachCallerDocuments(state, action))
+}
+
+export function replicationRoomWait(state: OrchestratorState, indexName: string): Promise<void> | null {
+  const loading = state.copyLoadBuffers.get(indexName)
+  if (loading !== undefined) {
+    const lastYield = state.copyLoadBufferYieldMarks.get(loading) ?? 0
+    if (loading.length - lastYield < LOAD_BUFFER_YIELD_INTERVAL) return null
+    state.copyLoadBufferYieldMarks.set(loading, loading.length)
+    return yieldToEventLoop()
+  }
+  const queue = state.replicationQueues.get(indexName)
+  if (queue === undefined || queue.pendingDocuments < MAX_PENDING_REPLICATION_DOCUMENTS) return null
+  return new Promise<void>(resume => queue.drainWaiters.push(resume))
 }
 
 function settled(queue: ReplicationQueue): Promise<void> {

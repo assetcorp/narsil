@@ -82,6 +82,15 @@ async function replayEntry(
       manager.remove(entry.docId, removedSpellings)
     }
     manager.insert(entry.docId, partitionDoc as AnyDocument)
+    const replicated = {
+      indexName,
+      docId: entry.docId,
+      document: entry.document,
+      requestId: `replicate-insert-${entry.docId}`,
+    }
+    ctx.orchestrator.recordMainWrite(
+      overwrote ? { type: 'update', ...replicated, removedSpellings } : { type: 'insert', ...replicated },
+    )
     if (extractedVectors.size > 0) {
       insertDocumentVectors(entry.docId, extractedVectors, vecIndexes, manager.partitionIdOf(entry.docId))
       for (const fieldPath of extractedVectors.keys()) {
@@ -93,34 +102,29 @@ async function replayEntry(
     } catch (err) {
       warnHookError('afterInsert', err)
     }
-    const replicated = {
-      indexName,
-      docId: entry.docId,
-      document: entry.document,
-      requestId: `replicate-insert-${entry.docId}`,
-    }
-    await ctx.orchestrator.replicateToWorkers(
-      overwrote ? { type: 'update', ...replicated, removedSpellings } : { type: 'insert', ...replicated },
-    )
+    const roomForCopies = ctx.orchestrator.settleMainWrites(indexName)
+    if (roomForCopies !== null) await roomForCopies
     return
   }
 
   if (entry.action === 'remove') {
     const removedSpellings = manager.removedSpellingsOf(entry.docId)
     manager.remove(entry.docId, removedSpellings)
-    removeDocumentVectors(entry.docId, vecIndexes)
-    try {
-      await ctx.pluginRegistry.runHook('afterRemove', { indexName, docId: entry.docId })
-    } catch (err) {
-      warnHookError('afterRemove', err)
-    }
-    await ctx.orchestrator.replicateToWorkers({
+    ctx.orchestrator.recordMainWrite({
       type: 'remove',
       indexName,
       docId: entry.docId,
       requestId: `replicate-remove-${entry.docId}`,
       removedSpellings,
     })
+    removeDocumentVectors(entry.docId, vecIndexes)
+    try {
+      await ctx.pluginRegistry.runHook('afterRemove', { indexName, docId: entry.docId })
+    } catch (err) {
+      warnHookError('afterRemove', err)
+    }
+    const roomForCopies = ctx.orchestrator.settleMainWrites(indexName, 'none')
+    if (roomForCopies !== null) await roomForCopies
     return
   }
 
@@ -128,11 +132,21 @@ async function replayEntry(
     const oldDocument = manager.get(entry.docId)
     const { updateDoc, updateVectors } = applyReplayUpdateVectors(entry, vectorFieldPaths)
     const removedSpellings = manager.removedSpellingsOf(entry.docId)
-    if (manager.has(entry.docId)) {
+    const held = manager.has(entry.docId)
+    if (held) {
       manager.update(entry.docId, updateDoc, undefined, removedSpellings)
     } else {
       manager.insert(entry.docId, updateDoc)
     }
+    const replicated = {
+      indexName,
+      docId: entry.docId,
+      document: entry.document,
+      requestId: `replicate-update-${entry.docId}`,
+    }
+    ctx.orchestrator.recordMainWrite(
+      held ? { type: 'update', ...replicated, removedSpellings } : { type: 'insert', ...replicated },
+    )
     for (const [fieldPath, newVec] of updateVectors) {
       const vecIndex = vecIndexes.get(fieldPath)
       if (!vecIndex) continue
@@ -161,14 +175,8 @@ async function replayEntry(
     } catch (err) {
       warnHookError('afterUpdate', err)
     }
-    await ctx.orchestrator.replicateToWorkers({
-      type: 'update',
-      indexName,
-      docId: entry.docId,
-      document: entry.document,
-      requestId: `replicate-update-${entry.docId}`,
-      removedSpellings,
-    })
+    const roomForCopies = ctx.orchestrator.settleMainWrites(indexName)
+    if (roomForCopies !== null) await roomForCopies
   }
 }
 

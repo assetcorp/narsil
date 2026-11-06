@@ -1,5 +1,15 @@
 import type { SuggestResult } from '@delali/narsil'
-import { BarChart3, Database, FileText, FlaskConical, Inspect, MessagesSquare, Search } from 'lucide-react'
+import {
+  ArrowLeftRight,
+  BarChart3,
+  Database,
+  FileText,
+  FlaskConical,
+  Inspect,
+  MapPinned,
+  MessagesSquare,
+  Search,
+} from 'lucide-react'
 import type { ReactNode } from 'react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { CommandPaletteContext, type CommandPaletteControls, useCommandPalette } from '../context'
@@ -16,6 +26,8 @@ const NAV_ITEMS = [
   { to: '/benchmark', label: 'Quality Benchmark', icon: BarChart3, tabId: 'benchmark' as const },
   { to: '/inspector', label: 'Index Inspector', icon: Inspect, tabId: 'inspector' as const },
   { to: '/documents', label: 'Documents', icon: FileText, tabId: 'documents' as const },
+  { to: '/map', label: 'Map', icon: MapPinned, tabId: 'map' as const },
+  { to: '/sync', label: 'Device Sync', icon: ArrowLeftRight, tabId: 'sync' as const },
 ]
 
 interface IndexSuggestions {

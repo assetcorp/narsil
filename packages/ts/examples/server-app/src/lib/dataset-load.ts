@@ -1,18 +1,22 @@
 import type { AnyDocument } from '@delali/narsil'
 import type { HttpIndexConfig } from '@delali/narsil/client'
 import type { DatasetId, LoadDatasetRequest } from '@delali/narsil-example-shared'
-import { scifact, tmdb, wikipedia } from '@delali/narsil-example-shared/manifest'
-import { scifactSchema, tmdbSchema, wikipediaSchema } from '@delali/narsil-example-shared/schemas'
+import { places, scifact, tmdb, wikipedia } from '@delali/narsil-example-shared/manifest'
+import { placesSchema, scifactSchema, tmdbSchema, wikipediaSchema } from '@delali/narsil-example-shared/schemas'
 import { createServerFn } from '@tanstack/react-start'
+import * as v from 'valibot'
 
-const DATASET_IDS = new Set<string>(['tmdb', 'wikipedia', 'scifact', 'custom'])
+const ServerDatasetRequestSchema = v.variant('datasetId', [
+  v.object({ datasetId: v.literal('tmdb'), tier: v.string() }),
+  v.object({ datasetId: v.literal('wikipedia'), languages: v.array(v.string()) }),
+  v.object({ datasetId: v.literal('scifact') }),
+  v.object({ datasetId: v.literal('places') }),
+])
 
 function parseLoadRequest(input: unknown): LoadDatasetRequest {
-  const request = input as LoadDatasetRequest
-  if (typeof request !== 'object' || request === null || !DATASET_IDS.has(request.datasetId)) {
-    throw new Error('The request must name a dataset this app knows')
-  }
-  return request
+  const parsed = v.safeParse(ServerDatasetRequestSchema, input)
+  if (!parsed.success) throw new Error('The request must name a dataset that this server loads')
+  return parsed.output
 }
 
 interface IndexPlan {
@@ -62,6 +66,16 @@ function plansFor(request: LoadDatasetRequest): IndexPlan[] {
           file: { directory: 'scifact', name: scifact.docsFile },
         },
       ]
+    case 'places':
+      return [
+        {
+          indexName: places.indexName,
+          datasetId: 'places',
+          schema: placesSchema as Record<string, unknown>,
+          language: 'english',
+          file: { directory: 'places', name: places.file },
+        },
+      ]
     case 'custom':
       throw new Error('A custom dataset is loaded from the browser, which already holds its documents')
   }
@@ -75,18 +89,15 @@ function plansFor(request: LoadDatasetRequest): IndexPlan[] {
 export const startDatasetLoadFn = createServerFn({ method: 'POST' })
   .validator(parseLoadRequest)
   .handler(async ({ data }) => {
-    const [
-      { getNarsilClient },
-      { findDataRoot, readDocumentsFile },
-      { readEmbeddingConfig, EMBEDDING_ADAPTER_NAME, EMBEDDING_FIELD },
-    ] = await Promise.all([import('./narsil/server-client'), import('./dataset-files'), import('./embedding-config')])
+    const [{ getNarsilClient }, { findDataRoot, readDocumentsFile }, { chooseEmbedding, EMBEDDING_FIELD }] =
+      await Promise.all([import('./narsil/server-client'), import('./dataset-files'), import('./embedding-config')])
     const [{ dedupeDocumentsById, languageName, planEmbedding }, client] = await Promise.all([
       import('./dataset-plan'),
       getNarsilClient(),
     ])
 
     const dataRoot = findDataRoot()
-    const embedding = readEmbeddingConfig()
+    const embedding = chooseEmbedding()
     const existing = await client.listIndexes()
     const taskIds: string[] = []
 
@@ -109,7 +120,7 @@ export const startDatasetLoadFn = createServerFn({ method: 'POST' })
       if (planned.embedding) {
         config.embedding = {
           fields: { [EMBEDDING_FIELD]: planned.embedding.sourceFields },
-          adapter: EMBEDDING_ADAPTER_NAME,
+          adapter: planned.embedding.adapterName,
         }
       }
 

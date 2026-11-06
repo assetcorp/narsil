@@ -1,9 +1,10 @@
 import { useQuery, useStats, useSuggest } from '@delali/narsil/react'
-import { toQueryParams, useIndexSchema, useIndexWorkspace, useSearchForm } from '@delali/narsil-example-shared'
+import { toSearchRequest, useIndexSchema, useIndexWorkspace, useSearchForm } from '@delali/narsil-example-shared'
 import { SearchPlayground } from '@delali/narsil-example-shared/components/search/SearchPlayground'
 import { createFileRoute, useSearch } from '@tanstack/react-router'
 import { useDeferredValue, useMemo } from 'react'
-import { EMBEDDING_FIELD } from '#/lib/ask/types'
+import { useRefreshOnChange } from '#/lib/index-changes'
+import { RERANK_ADAPTER_NAME } from '#/lib/model-names'
 
 export const Route = createFileRoute('/search')({
   component: SearchRoute,
@@ -13,7 +14,6 @@ export const Route = createFileRoute('/search')({
 })
 
 const SUGGEST_MIN_LENGTH = 2
-const WITHOUT_STORED_VECTOR = { exclude: [EMBEDDING_FIELD] }
 
 function SearchRoute() {
   const { q } = useSearch({ from: '/search' })
@@ -28,12 +28,25 @@ function SearchPage({ initialTerm }: { initialTerm?: string }) {
 
   const values = useDeferredValue(form.values)
   const term = values.term.trim()
-  const params = useMemo(() => ({ ...toQueryParams(values), document: WITHOUT_STORED_VECTOR }), [values])
+  const vectorPaths = useMemo(() => [...schema.vectorPaths], [schema.vectorPaths])
+  const vectorField = vectorPaths[0] ?? null
+  const request = useMemo(
+    () =>
+      toSearchRequest(values, {
+        vectorField,
+        rerankAdapter: RERANK_ADAPTER_NAME,
+        rerankFields: schema.searchablePaths,
+        excludedFields: vectorPaths,
+      }),
+    [values, vectorField, vectorPaths, schema.searchablePaths],
+  )
 
-  const results = useQuery(activeIndexName ?? '', params, {
+  const results = useQuery(activeIndexName ?? '', request.params, {
     enabled: activeIndexName !== null && term.length > 0,
     keepPreviousData: true,
   })
+  useRefreshOnChange(results.refresh)
+  useRefreshOnChange(stats.refresh)
 
   const suggestParams = useMemo(() => ({ prefix: term, limit: 8 }), [term])
   const suggestions = useSuggest(activeIndexName ?? '', suggestParams, {
@@ -45,6 +58,9 @@ function SearchPage({ initialTerm }: { initialTerm?: string }) {
     <SearchPlayground
       form={form}
       schema={schema}
+      params={request.params}
+      vectorField={vectorField}
+      groupTotalField={null}
       result={results.data}
       suggestions={suggestions.data}
       isLoading={results.isFetching}

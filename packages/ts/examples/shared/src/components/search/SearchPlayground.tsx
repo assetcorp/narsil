@@ -1,9 +1,11 @@
-import type { FilterExpression, QueryResult, SuggestResult } from '@delali/narsil'
+import type { FilterExpression, QueryParams, QueryResult, SuggestResult } from '@delali/narsil'
 import { SlidersHorizontal } from 'lucide-react'
 import { useCallback, useMemo, useState } from 'react'
+import { useEngineActions } from '../../engine-actions'
 import { useDisplayFields } from '../../hooks/use-display-fields'
 import type { IndexSchemaView } from '../../hooks/use-index-schema'
 import type { SearchForm } from '../../hooks/use-search-form'
+import { type FacetRange, parseFacetRanges } from '../../lib/search-request'
 import { useActiveIndex, useIndexWorkspace } from '../../workspace'
 import { IndexSelector } from '../IndexSelector'
 import { Badge } from '../ui/badge'
@@ -11,25 +13,25 @@ import { Button } from '../ui/button'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '../ui/sheet'
 import { AdvancedOptions } from './AdvancedOptions'
 import { FacetSidebar } from './FacetSidebar'
+import { GroupSummary } from './GroupSummary'
+import { MatchCount } from './MatchCount'
+import { RankingOptions } from './RankingOptions'
 import { ResultList } from './ResultList'
 import { SearchBar } from './SearchBar'
+import { SearchModeOptions } from './SearchModeOptions'
 
 function countActiveFilters(filters: FilterExpression): number {
-  const fields = filters.fields
-  if (!fields) return 0
-  return Object.values(fields).reduce((total, field) => {
-    const inValues = (field as { in?: string[] }).in
-    return total + (inValues?.length ?? 0)
-  }, 0)
+  return Object.keys(filters.fields ?? {}).length
 }
 
 interface FacetSheetProps {
   facets: NonNullable<QueryResult['facets']>
+  ranges: Record<string, FacetRange[]>
   filters: FilterExpression
   onFilterChange: (filters: FilterExpression) => void
 }
 
-function FacetSheet({ facets, filters, onFilterChange }: FacetSheetProps) {
+function FacetSheet({ facets, ranges, filters, onFilterChange }: FacetSheetProps) {
   const [open, setOpen] = useState(false)
   const activeCount = countActiveFilters(filters)
 
@@ -51,7 +53,7 @@ function FacetSheet({ facets, filters, onFilterChange }: FacetSheetProps) {
           <SheetTitle className="text-sm">Filters</SheetTitle>
         </SheetHeader>
         <div className="min-h-0 flex-1 overflow-y-auto p-4">
-          <FacetSidebar facets={facets} filters={filters} onFilterChange={onFilterChange} />
+          <FacetSidebar facets={facets} ranges={ranges} filters={filters} onFilterChange={onFilterChange} />
         </div>
       </SheetContent>
     </Sheet>
@@ -61,6 +63,9 @@ function FacetSheet({ facets, filters, onFilterChange }: FacetSheetProps) {
 export interface SearchPlaygroundProps {
   form: SearchForm
   schema: IndexSchemaView
+  params: QueryParams
+  vectorField: string | null
+  groupTotalField: string | null
   result: QueryResult | undefined
   suggestions: SuggestResult | undefined
   isLoading: boolean
@@ -71,6 +76,9 @@ export interface SearchPlaygroundProps {
 export function SearchPlayground({
   form,
   schema,
+  params,
+  vectorField,
+  groupTotalField,
   result,
   suggestions,
   isLoading,
@@ -79,9 +87,17 @@ export function SearchPlayground({
 }: SearchPlaygroundProps) {
   const { activeIndexName } = useIndexWorkspace()
   const activeIndex = useActiveIndex()
+  const actions = useEngineActions()
   const displayFields = useDisplayFields(activeIndexName)
   const sortableFields = useMemo(() => [...schema.sortablePaths], [schema.sortablePaths])
   const cursor = result?.cursor
+  const { facetField, facetRanges } = form.values
+
+  const ranges = useMemo<Record<string, FacetRange[]>>(() => {
+    const parsed = parseFacetRanges(facetRanges)
+    if (facetField.length === 0 || typeof parsed === 'string' || parsed.length === 0) return {}
+    return { [facetField]: parsed }
+  }, [facetField, facetRanges])
 
   const handleLoadMore = useCallback(() => {
     form.loadMore(cursor)
@@ -122,6 +138,12 @@ export function SearchPlayground({
         suggestions={suggestions ?? null}
       />
 
+      <MatchCount indexName={activeIndexName} params={params} />
+
+      {vectorField === null ? null : (
+        <SearchModeOptions values={form.values} vectorField={vectorField} onValueChange={form.setValue} />
+      )}
+
       <AdvancedOptions
         values={form.values}
         searchableFields={schema.searchablePaths}
@@ -132,19 +154,38 @@ export function SearchPlayground({
         onValueChange={form.setValue}
       />
 
+      <RankingOptions
+        values={form.values}
+        fields={schema.fields}
+        groupTotals={actions.groupTotals}
+        canRerank={actions.rerankAdapter.length > 0 && schema.searchablePaths.length > 0}
+        onValueChange={form.setValue}
+      />
+
       <div className="mt-6 flex gap-6">
         {hasFacets ? (
           <aside className="hidden w-56 shrink-0 lg:block">
-            <FacetSidebar facets={facets} filters={form.values.filters} onFilterChange={form.setFilters} />
+            <FacetSidebar
+              facets={facets}
+              ranges={ranges}
+              filters={form.values.filters}
+              onFilterChange={form.setFilters}
+            />
           </aside>
         ) : null}
 
         <div className="min-w-0 flex-1">
           {hasFacets ? (
             <div className="mb-3 lg:hidden">
-              <FacetSheet facets={facets} filters={form.values.filters} onFilterChange={form.setFilters} />
+              <FacetSheet
+                facets={facets}
+                ranges={ranges}
+                filters={form.values.filters}
+                onFilterChange={form.setFilters}
+              />
             </div>
           ) : null}
+          {result?.groups === undefined ? null : <GroupSummary groups={result.groups} totalField={groupTotalField} />}
           <ResultList
             hits={result?.hits ?? []}
             isLoading={isLoading}
