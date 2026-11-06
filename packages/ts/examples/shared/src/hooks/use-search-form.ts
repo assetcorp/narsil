@@ -144,10 +144,8 @@ export function useSearchForm(initialTerm?: string): SearchForm {
   const setSort = useCallback((field: string, direction: 'asc' | 'desc' | null) => {
     setValues(current => {
       const sort = { ...current.sort }
-      if (direction === null) {
-        delete sort[field]
-        return { ...current, sort }
-      }
+      delete sort[field]
+      if (direction === null) return { ...current, sort }
       return { ...current, sort: { [field]: direction, ...sort } }
     })
   }, [])
