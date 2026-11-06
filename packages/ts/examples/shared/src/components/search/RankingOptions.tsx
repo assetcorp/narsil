@@ -229,7 +229,7 @@ export function RankingOptions({ values, fields, groupTotals, canRerank, onValue
             onChange={handlePinnedId}
             placeholder="Document ID"
             aria-label="Pinned document ID"
-            className="h-7 font-mono text-xs"
+            className="h-9 font-mono text-xs"
           />
           <Input
             type="number"
@@ -238,7 +238,7 @@ export function RankingOptions({ values, fields, groupTotals, canRerank, onValue
             value={values.pinnedPosition + 1}
             onChange={handlePinnedPosition}
             aria-label="Pinned position"
-            className="h-7 w-20 text-xs"
+            className="h-9 w-20 text-xs"
           />
         </div>
       </div>
@@ -249,7 +249,7 @@ export function RankingOptions({ values, fields, groupTotals, canRerank, onValue
           <Button
             variant={values.rerank ? 'default' : 'outline'}
             size="xs"
-            className="self-start"
+            className="h-9 self-start px-3"
             aria-pressed={values.rerank}
             aria-label="Rerank with a cross-encoder"
             onClick={handleRerankToggle}

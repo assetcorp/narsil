@@ -114,7 +114,7 @@ export function SyncPanel() {
   )
 
   return (
-    <div className="mx-auto max-w-4xl px-4 py-8">
+    <div className="mx-auto max-w-6xl px-4 py-8">
       <h1 className="mb-1 text-3xl font-bold tracking-tight">Device Sync</h1>
       <p className="mb-6 max-w-2xl text-sm text-muted-foreground">
         This page keeps an index in this browser in step with the same index in the server app. Turn sync on for the
@@ -123,7 +123,7 @@ export function SyncPanel() {
         change and sends its edits through the tab that syncs.
       </p>
 
-      <form className="mb-6 flex flex-wrap items-end gap-3" onSubmit={handleStart}>
+      <form className="mb-6 flex max-w-2xl flex-wrap items-end gap-3" onSubmit={handleStart}>
         <label className="flex min-w-60 flex-1 flex-col gap-1 text-xs font-medium" htmlFor="sync-index-name">
           Index to sync
           <Input

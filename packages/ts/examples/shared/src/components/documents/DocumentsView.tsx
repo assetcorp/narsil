@@ -1,6 +1,6 @@
 import type { ListedDocument, ListResult } from '@delali/narsil'
 import { getCoreRowModel, useReactTable } from '@tanstack/react-table'
-import { FilePlus2, Pencil } from 'lucide-react'
+import { Pencil } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useDisplayFields } from '../../hooks/use-display-fields'
 import { DOCUMENT_PAGE_SIZE, type DocumentBrowser } from '../../hooks/use-document-browser'
@@ -145,15 +145,9 @@ export function DocumentsView({ browser, schema, list, isLoading, isFetching, er
 
       <IndexSelector />
 
-      <div className="mb-3 flex justify-end">
-        <Button type="button" variant="outline" size="sm" onClick={handleNewDocument}>
-          <FilePlus2 className="size-3.5" />
-          New document
-        </Button>
-      </div>
-
       <DocumentToolbar
         table={table}
+        onNewDocument={handleNewDocument}
         activeFilterCount={browser.activeFilterCount}
         isFilterPanelOpen={isFilterPanelOpen}
         onFilterPanelToggle={handleFilterPanelToggle}

@@ -129,16 +129,19 @@ export function SearchPlayground({
 
       <IndexSelector />
 
-      <SearchBar
-        term={form.values.term}
-        onTermChange={form.setTerm}
-        resultCount={result?.count ?? null}
-        elapsed={result?.elapsed ?? null}
-        isLoading={isLoading || isSuggesting}
-        suggestions={suggestions ?? null}
-      />
-
-      <MatchCount indexName={activeIndexName} params={params} />
+      <div className="flex items-start gap-2">
+        <div className="min-w-0 flex-1">
+          <SearchBar
+            term={form.values.term}
+            onTermChange={form.setTerm}
+            resultCount={result?.count ?? null}
+            elapsed={result?.elapsed ?? null}
+            isLoading={isLoading || isSuggesting}
+            suggestions={suggestions ?? null}
+          />
+        </div>
+        <MatchCount indexName={activeIndexName} params={params} />
+      </div>
 
       {vectorField === null ? null : (
         <SearchModeOptions values={form.values} vectorField={vectorField} onValueChange={form.setValue} />
