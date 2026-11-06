@@ -35,3 +35,12 @@ export async function resultIds(page: Page): Promise<string[]> {
 export async function searchFor(page: Page, term: string): Promise<void> {
   await page.getByPlaceholder('Search documents...').fill(term)
 }
+
+export function searchOptionsToggle(page: Page): Locator {
+  return page.getByRole('button', { name: /^Search options/ })
+}
+
+export async function openSearchOptions(page: Page): Promise<void> {
+  await searchOptionsToggle(page).click()
+  await expect(page.getByTestId('ranking-options')).toBeVisible()
+}

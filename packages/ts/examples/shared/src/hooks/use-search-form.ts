@@ -79,6 +79,27 @@ const EMPTY_VALUES: SearchFormValues = {
   searchAfter: undefined,
 }
 
+export function countChangedSearchOptions(values: SearchFormValues): number {
+  const changed = [
+    values.fields.length > 0,
+    Object.keys(values.boost).length > 0,
+    values.tolerance !== EMPTY_VALUES.tolerance,
+    values.termMatch !== EMPTY_VALUES.termMatch,
+    values.exact !== EMPTY_VALUES.exact,
+    values.prefix !== EMPTY_VALUES.prefix,
+    values.partialWords !== EMPTY_VALUES.partialWords,
+    values.minScore !== EMPTY_VALUES.minScore,
+    values.facetField !== EMPTY_VALUES.facetField,
+    values.groupField !== EMPTY_VALUES.groupField,
+    Object.keys(values.sort).length > 0,
+    values.listSort !== null,
+    values.limit !== EMPTY_VALUES.limit,
+    values.pinnedId !== EMPTY_VALUES.pinnedId,
+    values.rerank !== EMPTY_VALUES.rerank,
+  ]
+  return changed.filter(Boolean).length
+}
+
 export interface SearchForm {
   values: SearchFormValues
   setTerm: (term: string) => void

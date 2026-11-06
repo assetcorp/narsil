@@ -1,13 +1,12 @@
 import type { Hit } from '@delali/narsil'
 import { useCallback, useState } from 'react'
-import { type DisplayFieldMapping, displayHeading } from '../../lib/display-fields'
+import type { DisplayFieldMapping } from '../../lib/display-fields'
 import type { DatasetId } from '../../manifest'
 import { Pagination } from '../Pagination'
 import { Button } from '../ui/button'
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from '../ui/sheet'
 import { Skeleton } from '../ui/skeleton'
+import { HitDetailSheet } from './HitDetailSheet'
 import { ResultCard } from './ResultCard'
-import { ResultDetail } from './ResultDetail'
 
 interface ResultListProps {
   hits: Hit[]
@@ -60,8 +59,8 @@ export function ResultList({
   const currentPage = Math.floor(offset / limit)
   const totalPages = Math.ceil(count / limit)
 
-  const handleSheetOpenChange = useCallback((open: boolean) => {
-    if (!open) setSelectedHit(null)
+  const handleDetailClose = useCallback(() => {
+    setSelectedHit(null)
   }, [])
 
   if (error) {
@@ -86,8 +85,6 @@ export function ResultList({
       </div>
     )
   }
-
-  const selectedTitle = selectedHit ? displayHeading(selectedHit.document, displayFields, selectedHit.id) : ''
 
   return (
     <>
@@ -115,14 +112,7 @@ export function ResultList({
         )}
       </div>
 
-      <Sheet open={selectedHit !== null} onOpenChange={handleSheetOpenChange}>
-        <SheetContent side="right" className="overflow-y-auto sm:max-w-lg">
-          <SheetHeader>
-            <SheetTitle className="truncate">{selectedTitle}</SheetTitle>
-          </SheetHeader>
-          <div className="px-4 pb-6">{selectedHit && <ResultDetail hit={selectedHit} />}</div>
-        </SheetContent>
-      </Sheet>
+      <HitDetailSheet hit={selectedHit} displayFields={displayFields} onClose={handleDetailClose} />
     </>
   )
 }

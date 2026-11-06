@@ -2,23 +2,28 @@ import { type ChangeEvent, useCallback, useMemo } from 'react'
 import type { ListSortMode, SearchFormValues } from '../../hooks/use-search-form'
 import { isArrayField, type SchemaField } from '../../lib/field-filters'
 import { parseFacetRanges } from '../../lib/search-request'
+import { Badge } from '../ui/badge'
 import { Button } from '../ui/button'
 import { Input } from '../ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select'
 
 type ValueSetter = <K extends keyof SearchFormValues>(key: K, value: SearchFormValues[K]) => void
 
-interface RankingOptionsProps {
+interface ResultOptionsProps {
   values: SearchFormValues
   fields: SchemaField[]
+  searchableFields: string[]
+  sortableFields: string[]
   groupTotals: boolean
   canRerank: boolean
+  onSortChange: (field: string, direction: 'asc' | 'desc' | null) => void
   onValueChange: ValueSetter
 }
 
 const NO_FIELD = 'none'
 const LIST_SORT_MODES: ListSortMode[] = ['min', 'max', 'avg', 'median']
 const MAX_PINNED_POSITION = 99
+const RESULTS_PER_PAGE_CHOICES = [10, 20, 50]
 
 function countable(field: SchemaField): boolean {
   if (field.type === 'string' || field.type === 'string[]') return field.pattern
@@ -65,7 +70,50 @@ function FieldSelect({
   )
 }
 
-export function RankingOptions({ values, fields, groupTotals, canRerank, onValueChange }: RankingOptionsProps) {
+function SortBadge({
+  field,
+  dir,
+  onSortChange,
+}: {
+  field: string
+  dir: 'asc' | 'desc' | undefined
+  onSortChange: (field: string, direction: 'asc' | 'desc' | null) => void
+}) {
+  const handleClick = useCallback(() => {
+    if (!dir) onSortChange(field, 'desc')
+    else if (dir === 'desc') onSortChange(field, 'asc')
+    else onSortChange(field, null)
+  }, [dir, field, onSortChange])
+
+  return (
+    <Badge variant={dir ? 'default' : 'outline'} className="cursor-pointer text-[10px]" onClick={handleClick}>
+      {field} {dir === 'asc' ? '↑' : dir === 'desc' ? '↓' : ''}
+    </Badge>
+  )
+}
+
+function LimitButton({ n, active, onValueChange }: { n: number; active: boolean; onValueChange: ValueSetter }) {
+  const handleClick = useCallback(() => {
+    onValueChange('limit', n)
+  }, [onValueChange, n])
+
+  return (
+    <Button variant={active ? 'default' : 'outline'} size="xs" onClick={handleClick}>
+      {n}
+    </Button>
+  )
+}
+
+export function ResultOptions({
+  values,
+  fields,
+  searchableFields,
+  sortableFields,
+  groupTotals,
+  canRerank,
+  onSortChange,
+  onValueChange,
+}: ResultOptionsProps) {
   const facetPaths = useMemo(() => fields.filter(countable).map(field => field.path), [fields])
   const rangePaths = useMemo(
     () =>
@@ -78,6 +126,10 @@ export function RankingOptions({ values, fields, groupTotals, canRerank, onValue
   )
   const totalPaths = useMemo(() => fields.filter(field => field.type === 'number').map(field => field.path), [fields])
   const listPaths = useMemo(() => fields.filter(field => field.type === 'number[]').map(field => field.path), [fields])
+  const sortPaths = useMemo(
+    () => sortableFields.filter(field => !searchableFields.includes(field)),
+    [sortableFields, searchableFields],
+  )
 
   const rangeProblem = useMemo(() => {
     const parsed = parseFacetRanges(values.facetRanges)
@@ -156,7 +208,7 @@ export function RankingOptions({ values, fields, groupTotals, canRerank, onValue
   }, [onValueChange, values.rerank])
 
   return (
-    <div className="mt-3 grid gap-4 rounded-lg border p-4 sm:grid-cols-2 lg:grid-cols-3" data-testid="ranking-options">
+    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3" data-testid="ranking-options">
       <div className="flex flex-col gap-2">
         <FieldSelect label="Count values of" value={values.facetField} paths={facetPaths} onChange={handleFacetField} />
         {rangePaths.has(values.facetField) ? (
@@ -191,6 +243,17 @@ export function RankingOptions({ values, fields, groupTotals, canRerank, onValue
         ) : null}
       </div>
 
+      {sortPaths.length > 0 ? (
+        <div className="flex flex-col gap-1.5">
+          <span className="text-xs font-medium">Sort by</span>
+          <div className="flex flex-wrap gap-1">
+            {sortPaths.map(field => (
+              <SortBadge key={field} field={field} dir={values.sort[field]} onSortChange={onSortChange} />
+            ))}
+          </div>
+        </div>
+      ) : null}
+
       {listPaths.length > 0 ? (
         <div className="flex flex-col gap-2">
           <FieldSelect
@@ -220,6 +283,15 @@ export function RankingOptions({ values, fields, groupTotals, canRerank, onValue
           )}
         </div>
       ) : null}
+
+      <div className="flex flex-col gap-1.5">
+        <span className="text-xs font-medium">Results per page</span>
+        <div className="flex gap-1">
+          {RESULTS_PER_PAGE_CHOICES.map(n => (
+            <LimitButton key={n} n={n} active={values.limit === n} onValueChange={onValueChange} />
+          ))}
+        </div>
+      </div>
 
       <div className="flex flex-col gap-2">
         <span className="text-xs font-medium">Pin a document</span>
