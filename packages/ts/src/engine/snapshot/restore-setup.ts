@@ -17,7 +17,7 @@ import type { IndexConfig, SchemaDefinition } from '../../types/schema'
 import { createDetachedIndex } from '../../workers/detached-index'
 import type { DetachedIndex, DirectExecutorExtensions, IndexReplacement } from '../../workers/direct-executor'
 import type { Executor } from '../../workers/executor'
-import { loadVectorCodeFor } from '../../workers/vector-code'
+import { loadSchemaCodeFor } from '../../workers/schema-code'
 import type { StaleIndex } from '../analysis-rebuild'
 import { storedArrayPositionGap } from '../array-positions'
 import type { IndexRegistryEntry } from '../core'
@@ -155,8 +155,8 @@ export async function prepareDetachedIndex(
   partitionCount: number,
   deps: RestoreDeps,
 ): Promise<DetachedIndex> {
-  const loadingVectorCode = loadVectorCodeFor(prepared.config.schema)
-  if (loadingVectorCode !== null) await loadingVectorCode
+  const loadingSchemaCode = loadSchemaCodeFor(prepared.config.schema)
+  if (loadingSchemaCode !== null) await loadingSchemaCode
   const detached = createDetachedIndex(
     indexName,
     prepared.config,

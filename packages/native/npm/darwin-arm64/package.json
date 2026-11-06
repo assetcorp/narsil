@@ -17,7 +17,8 @@
     "arm64"
   ],
   "files": [
-    "narsil-core.node"
+    "narsil-core.node",
+    "NOTICE"
   ],
   "engines": {
     "node": ">=22"

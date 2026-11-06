@@ -752,6 +752,19 @@ export interface NarsilPlugin {
     onWorkerPromote?(ctx: WorkerContext): void | Promise<void>;
 }
 
+// Warning: (ae-internal-missing-underscore) The name "NativeAnalysisCore" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface NativeAnalysisCore {
+    analyse(language: number, flags: number, text: string, stopWords: NativeStopWordSetHandle | null, records: Uint32Array): string | number | null;
+    createStopWordSet(words: string[]): NativeStopWordSetHandle;
+    languageCount(): number;
+    languageName(language: number): string;
+    languageRevision(language: number): string;
+    languageStopWords(language: number): string[];
+    transform(language: number, flags: number, token: string): string | number;
+}
+
 // Warning: (ae-internal-missing-underscore) The name "NativeConnectResult" should be prefixed with an underscore because the declaration is marked as @internal
 //
 // @internal
@@ -763,8 +776,9 @@ export interface NativeConnectResult {
 // Warning: (ae-internal-missing-underscore) The name "NativeCore" should be prefixed with an underscore because the declaration is marked as @internal
 //
 // @internal
-export interface NativeCore {
+export interface NativeCore extends NativeAnalysisCore, NativeKeywordCore {
     abiVersion(): number;
+    applyMath(operation: number, first: Float64Array, second: Float64Array, results: Float64Array): number;
     attachGraph(memory: NativeGraphMemory): NativeGraphHandle;
     attachStore(memory: NativeStoreMemory): NativeStoreHandle;
     compact(graph: NativeGraphHandle, store: NativeStoreHandle, metric: number, threadSlot: number, wakes: Int32Array): number;
@@ -803,6 +817,13 @@ export interface NativeGraphMemory {
     upperBase: Int32Array;
 }
 
+// Warning: (ae-internal-missing-underscore) The name "NativeKeywordCore" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export interface NativeKeywordCore {
+    keywordScore(poolDocIds: Uint32Array, poolFrequencies: Uint16Array, poolFields: Uint16Array, rowDocIds: Uint32Array, rowFrequencies: Float64Array, rowFields: Uint16Array, slots: Uint32Array, lists: Uint32Array, listValues: Float64Array, slotValues: Float64Array, searchable: Uint8Array, partialMarks: Uint8Array, nameRanks: Uint16Array, fieldNumbers: Float64Array, lengths: ReadonlyArray<Uint32Array | null>, filter: Uint32Array | null, live: Uint32Array, removed: Uint32Array, settings: Float64Array, ordinals: Int32Array, scores: Float64Array, matched: Uint32Array, outcome: Float64Array): number;
+}
+
 // Warning: (ae-internal-missing-underscore) The name "NativeScoreResult" should be prefixed with an underscore because the declaration is marked as @internal
 //
 // @internal
@@ -819,6 +840,11 @@ export interface NativeSearchResult {
     distances: Float64Array;
     ordinals: Int32Array;
 }
+
+// Warning: (ae-internal-missing-underscore) The name "NativeStopWordSetHandle" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export type NativeStopWordSetHandle = object;
 
 // Warning: (ae-internal-missing-underscore) The name "NativeStoreHandle" should be prefixed with an underscore because the declaration is marked as @internal
 //

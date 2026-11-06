@@ -1,6 +1,8 @@
 #ifndef NARSIL_CORE_INTERNAL_H
 #define NARSIL_CORE_INTERNAL_H
 
+#include "keyword/scratch.h"
+
 #include "../include/narsil_core.h"
 
 #include <stdatomic.h>
@@ -162,6 +164,7 @@ struct narsil_workspace {
   int32_t repaired[MAX_NEIGHBOURS_PER_LIST];
   double kept_distances[MAX_NEIGHBOURS_PER_LIST];
   uint8_t replacement_tried[MAX_NEIGHBOURS_PER_LIST];
+  keyword_scratch keyword;
 };
 
 typedef struct {
@@ -187,6 +190,7 @@ static inline int is_tombstoned(const walk_context *context, int32_t ordinal) {
 }
 
 uint32_t grown_capacity(uint32_t first, uint32_t needed);
+keyword_scratch *workspace_keyword_scratch(narsil_workspace *workspace);
 
 narsil_status heap_reserve(distance_heap *heap, uint32_t capacity);
 void heap_release(distance_heap *heap);

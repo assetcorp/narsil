@@ -139,6 +139,8 @@ export type { SynonymOperations } from './types/synonym-operations'
 export type { OneWaySynonymRule, SynonymRule, SynonymSearch, TwoWaySynonymRule } from './types/synonyms'
 export type { VectorMaintenanceOperations } from './types/vector-maintenance-operations'
 export type { DocumentWriteOperations } from './types/writes'
+export type { NativeAnalysisCore, NativeStopWordSetHandle } from './vector/native/analysis-types'
+export type { NativeKeywordCore } from './vector/native/keyword-types'
 export type {
   NativeConnectResult,
   NativeCore,

@@ -1,3 +1,4 @@
+import { copyStoredValue } from '#platform/stored-value-copy'
 import { ErrorCodes, NarsilError } from '../errors'
 import { PROTOTYPE_POLLUTION_KEYS } from '../schema/validator/shared'
 import type { AnyDocument } from '../types/schema'
@@ -108,8 +109,8 @@ function omitPath(source: Record<string, unknown>, path: string[]): Record<strin
 
 function cloneExcept(value: unknown, path: string[], exclude: string[][]): unknown {
   const reachesDeeper = exclude.some(excluded => excluded.length > path.length && covers(path, excluded))
-  if (!reachesDeeper) return structuredClone(value)
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return structuredClone(value)
+  if (!reachesDeeper) return copyStoredValue(value)
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return copyStoredValue(value)
   const source = value as Record<string, unknown>
   const kept: Record<string, unknown> = {}
   for (const key of Object.keys(source)) {
@@ -180,7 +181,7 @@ export function cloneProjected(
   document: Readonly<Record<string, unknown>>,
   projection?: ResolvedProjection,
 ): AnyDocument {
-  if (projection === undefined || projection.kind === 'full') return structuredClone(document) as AnyDocument
+  if (projection === undefined || projection.kind === 'full') return copyStoredValue(document) as AnyDocument
   if (projection.kind === 'none') return {}
   if (projection.include === null) return cloneExcept(document, [], projection.exclude) as AnyDocument
   return projectIncludedPaths(projection.include, projection.exclude, path => readProjectedPath(document, path))

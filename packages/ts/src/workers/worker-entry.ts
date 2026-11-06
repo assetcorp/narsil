@@ -1,7 +1,9 @@
 declare const self: unknown
 
 import { startIdleHeapCleanup } from '#platform/idle-heap-cleanup'
+import { requireSearchBackendSettings } from '#platform/search-backend-settings'
 import { ErrorCodes } from '../errors'
+import { loadGeoCode } from '../geo/geo-code'
 import { buildErrorResponse, createActionHandler } from './action-handler'
 import { isValidWorkerAction } from './protocol'
 import { threadSlotOfWorker } from './thread-slot'
@@ -38,7 +40,8 @@ async function setup(): Promise<void> {
     parentPort = null
   }
 
-  const [{ createDirectExecutor }] = await Promise.all([import('./direct-executor'), loadVectorCode()])
+  requireSearchBackendSettings()
+  const [{ createDirectExecutor }] = await Promise.all([import('./direct-executor'), loadVectorCode(), loadGeoCode()])
   const handleAction = createActionHandler(createDirectExecutor({ threadSlot }))
 
   if (parentPort) {
