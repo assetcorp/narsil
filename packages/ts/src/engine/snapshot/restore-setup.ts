@@ -2,6 +2,7 @@ import { resolveIndexAnalysis } from '../../analysis/registry'
 import type { PreparedSynonyms } from '../../core/synonyms/types'
 import { getLanguage } from '../../languages/registry'
 import type { PartitionManager } from '../../partitioning/manager'
+import { storedStateOf } from '../../query-suggestions/stored-state'
 import { validateEmbeddingConfig, validateRequiredFieldsInSchema } from '../../schema/embedding-validator'
 import {
   validateSchema,
@@ -10,6 +11,7 @@ import {
   validateVectorStorage,
 } from '../../schema/validator'
 import type { EmbeddingAdapter } from '../../types/adapters'
+import type { StoredQuerySuggestions } from '../../types/internal'
 import type { LanguageModule } from '../../types/language'
 import type { IndexConfig, SchemaDefinition } from '../../types/schema'
 import { createDetachedIndex } from '../../workers/detached-index'
@@ -50,6 +52,19 @@ export interface RestoreDeps {
   copies: Pick<WorkerOrchestrator, 'desyncIndex' | 'releaseIndexCopies' | 'endCopyRelease' | 'resyncIndex'>
   forgetWatermark: (indexName: string) => void
   releaseTimeoutMs: number
+  querySuggestions?: RestoreSuggestionHooks
+}
+
+export interface RestoredHistorySink {
+  add(chunks: AsyncIterable<Uint8Array>): Promise<void>
+  abandon(): Promise<void>
+}
+
+export interface RestoreSuggestionHooks {
+  historySink(restored: StoredQuerySuggestions | null): Promise<RestoredHistorySink | null>
+  beforeInstall(entry: IndexRegistryEntry, previous: IndexRegistryEntry | undefined): Promise<void>
+  afterActivate(entry: IndexRegistryEntry): Promise<void>
+  afterInstall(entry: IndexRegistryEntry, history: RestoredHistorySink | null): Promise<void>
 }
 
 export interface PreparedIndex {
@@ -61,6 +76,7 @@ export interface PreparedIndex {
   analysisGeneration: number
   storedArrayPositionGap: number | null
   synonyms: PreparedSynonyms | null
+  querySuggestions: StoredQuerySuggestions | null
 }
 
 export function prepareRestoredIndex(
@@ -119,6 +135,7 @@ export function prepareRestoredIndex(
     analysisGeneration,
     storedArrayPositionGap: storedArrayPositionGap(configuration.arrayPositionGap),
     synonyms,
+    querySuggestions: storedStateOf(configuration),
   }
 }
 
@@ -173,5 +190,6 @@ export function restoredRegistryEntry(
     pendingAnalysis: null,
     durableAnalysis: null,
     sync: null,
+    querySuggestions: prepared.querySuggestions,
   }
 }

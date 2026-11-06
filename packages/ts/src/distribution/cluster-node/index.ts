@@ -16,9 +16,8 @@ import { createClusterDeviceSync } from './device-sync'
 import { createAllocationErrorForwarder, createErrorForwarder } from './error-forwarding'
 import { servingNameOf } from './generation-routing'
 import { type ClusterLocalEngine, createClusterLocalEngine } from './local-engine'
-import { orphanedIndexError, reconcileLocalIndexes } from './local-index-reconcile'
+import { orphanedIndexError, settleLocalIndexes } from './local-index-reconcile'
 import { seedReopenedPrimaryLogs } from './local-replication'
-import { createDataNodeHandler } from './message-handler'
 import { bindNodeSources } from './node-bindings'
 import { resolveNodeId } from './node-identity'
 import { createNodeLifecycle } from './node-lifecycle'
@@ -27,14 +26,17 @@ import { createNodeWiring } from './node-wiring'
 import { createCoordinatorTiming, timeCoordinatorCalls } from './observability/coordinator-timing'
 import { createClusterOperationTracker } from './operation-tracker'
 import { createPartitionBootstrap } from './partition-bootstrap'
+import { listenForPeers, listenUntilJoined } from './peer-listener'
+import { createClusterQuerySuggestions } from './query-suggestions'
 import { requestReplicationFactor } from './replication-factor'
 import { replicationLogKey as buildReplicationLogKey, deleteIndexReplicationLogs } from './replication-logs'
 import { requestRebalance, waitForSwap } from './reshard/request'
 import { createReshardState, forgetReshardIndex, stopEveryReshardJob } from './reshard/state'
-import { createSearchContextRegistry, releaseContextsOfDepartedNodes } from './search-contexts'
+import { createSearchContextRegistry } from './search-contexts'
+import { clusterNodeEngine } from './server-engine'
 import { createSettlingWrites } from './settling-writes'
 import { createSnapshotSyncHandlerState } from './snapshot-sync-handler'
-import { createMultiplexedControllerTransport, createNotReadyHandler } from './transport-listener'
+import { createMultiplexedControllerTransport } from './transport-listener'
 import type { ClusterNode, ClusterNodeConfig } from './types'
 import { validateClusterNodeConfig } from './validate-config'
 
@@ -117,7 +119,6 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
   let controller: ControllerNode | null = null
   let unregisterHandler: (() => void) | null = null
   let unregisterNotReadyHandler: (() => void) | null = null
-  let unwatchDepartures: (() => void) | null = null
   const searchContexts = hasDataRole ? createSearchContextRegistry() : undefined
   let serving = false
   let isShutdown = false
@@ -172,22 +173,6 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
     }
   }
 
-  const backups = createBackupService({
-    config,
-    nodeId,
-    guard: guardShutdown,
-    isController: () => controller?.isActive ?? false,
-    onError: forwardOnError,
-  })
-
-  if (hasControllerRole) {
-    controller = createNodeController(config, nodeId, controllerTransport?.transport ?? config.transport, {
-      onError: forwardAllocationError,
-      onElectionError: forwardOnError,
-      extraMessages: backups.controllerMessages,
-    })
-  }
-
   const operationTracker = createClusterOperationTracker({
     guard: guardShutdown,
     assertIndex(indexName) {
@@ -196,6 +181,33 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
   })
   const trackOp = operationTracker.track
   const transitionIndex = operationTracker.transition
+  const suggestions = createClusterQuerySuggestions({
+    config,
+    nodeId,
+    engine,
+    isController: () => controller?.isActive ?? false,
+    guard: guardShutdown,
+    trackOp,
+    isOrphaned: indexName => orphanedIndexes.has(indexName),
+    onError: forwardOnError,
+  })
+  const backups = createBackupService({
+    config,
+    nodeId,
+    guard: guardShutdown,
+    isController: () => controller?.isActive ?? false,
+    onError: forwardOnError,
+    queryHistory: suggestions.queryHistory,
+  })
+
+  if (hasControllerRole) {
+    controller = createNodeController(config, nodeId, controllerTransport?.transport ?? config.transport, {
+      onError: forwardAllocationError,
+      onElectionError: forwardOnError,
+      extraMessages: (message, respond) =>
+        backups.controllerMessages(message, respond) || suggestions.controllerMessages(message, respond),
+    })
+  }
 
   const bm25View = createBm25View({ coordinator: config.coordinator, engine, onError: forwardOnError })
   const analysisView = createAnalysisView({ coordinator: config.coordinator, engine, onError: forwardOnError })
@@ -262,6 +274,7 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
         }
       },
       isOrphaned: (indexName: string) => orphanedIndexes.has(indexName),
+      suggestionHooks: suggestions.hooks,
     }),
     updateSync: (indexName, setting) => trackOp(indexName, () => deviceSync.updateSync(indexName, setting)),
     getSync: indexName => trackOp(indexName, () => deviceSync.getSync(indexName)),
@@ -275,55 +288,45 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
       await analysisView.start()
       await deviceSync.start()
 
-      const dispositions = await reconcileLocalIndexes({
-        engine,
-        coordinator: config.coordinator,
-        nodeId,
-        onError: forwardOnError,
-      })
-      for (const [indexName, disposition] of dispositions) {
-        if (disposition === 'orphaned') {
-          orphanedIndexes.add(indexName)
-        } else if (disposition === 'adopted') {
-          await analysisView.settle(indexName)
-        }
-      }
+      const reconcileDeps = { engine, coordinator: config.coordinator, nodeId, onError: forwardOnError }
+      await settleLocalIndexes(reconcileDeps, orphanedIndexes, analysisView.settle)
 
-      if (hasDataRole) {
-        unregisterNotReadyHandler = await config.transport.listen(createNotReadyHandler(nodeId))
-      }
+      unregisterNotReadyHandler = await listenUntilJoined(config, nodeId, hasDataRole)
 
       await memoryReporting.start()
       await lifecycle.join()
+      await suggestions.start()
 
       if (controller !== null) {
         await controller.start()
         backups.start()
       }
 
-      if (hasDataRole) {
-        const dataHandler = createDataNodeHandler({
-          nodeId,
-          engine,
-          coordinator: config.coordinator,
-          allocations: allocationView,
-          analysisView,
-          writeDeps,
-          snapshotSyncState: snapshotSyncHandlerState,
-          searchContexts,
-          snapshotSpoolDirectory: snapshotSpool.path,
-          backups: backups.primary,
-          isBootstrapSynced: (indexName: string, partitionId: number) =>
-            hasCompletedBootstrapSync(bootstrapSyncState, indexName, partitionId),
-          onError: forwardOnError,
-        })
-        const listener = controllerTransport !== null ? controllerTransport.createHandler(dataHandler) : dataHandler
-        unregisterHandler = await config.transport.listen(listener)
-        if (searchContexts !== undefined) {
-          unwatchDepartures = await releaseContextsOfDepartedNodes(config.coordinator, searchContexts)
-        }
-        startCatchUpPump(writeDeps.catchUp, writeDeps)
-      }
+      unregisterHandler = await listenForPeers({
+        config,
+        nodeId,
+        hasControllerRole,
+        controllerTransport,
+        answerQueryCounts: suggestions.answerCounts,
+        dataHandler: hasDataRole
+          ? {
+              nodeId,
+              engine,
+              coordinator: config.coordinator,
+              allocations: allocationView,
+              analysisView,
+              writeDeps,
+              snapshotSyncState: snapshotSyncHandlerState,
+              searchContexts,
+              snapshotSpoolDirectory: snapshotSpool.path,
+              backups: backups.primary,
+              isBootstrapSynced: (indexName: string, partitionId: number) =>
+                hasCompletedBootstrapSync(bootstrapSyncState, indexName, partitionId),
+              onError: forwardOnError,
+            }
+          : null,
+      })
+      if (hasDataRole) startCatchUpPump(writeDeps.catchUp, writeDeps)
       serving = true
     },
 
@@ -346,6 +349,7 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
       backups.stop()
 
       await operationTracker.drain()
+      await suggestions.stop()
       allocationView.stop()
       bm25View.stop()
       analysisView.stop()
@@ -355,8 +359,6 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
       unregisterHandler = null
       unregisterNotReadyHandler?.()
       unregisterNotReadyHandler = null
-      unwatchDepartures?.()
-      unwatchDepartures = null
       searchContexts?.stop()
 
       await lifecycle.shutdown()
@@ -379,6 +381,7 @@ export async function createClusterNode(callerConfig: ClusterNodeConfig): Promis
     memoryView: memoryReporting.view,
     syncServing: deviceSync.serving,
   })
+  suggestions.bind(node, { engine: clusterNodeEngine(node), dropIndex: name => node.dropIndex(name) })
   return node
 }
 

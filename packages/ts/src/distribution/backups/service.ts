@@ -6,6 +6,7 @@ import { type BackupControllerDeps, createBackupControllerHandler, driveBackupJo
 import { runBackupDeletion } from './drivers/delete'
 import { type BackupJob, finishBackupJob, readBackupJobs } from './jobs'
 import { type BackupPrimary, createBackupPrimary } from './primary-handlers'
+import type { ClusterQueryHistory } from './query-history'
 import { requestBackup, requestBackupDeletion, requestRestore, requireBackupStore } from './requests'
 import { resumeRestore } from './restore-publish'
 import { type BackupStore, listBackups, openBackupStore } from './store'
@@ -16,6 +17,7 @@ export interface BackupServiceDeps {
   guard: () => void
   isController: () => boolean
   onError: (error: unknown) => void
+  queryHistory: ClusterQueryHistory | null
 }
 
 export interface BackupService {
@@ -48,6 +50,7 @@ export function createBackupService(deps: BackupServiceDeps): BackupService {
     nodeId: deps.nodeId,
     isActive: deps.isController,
     onError: deps.onError,
+    queryHistory: deps.queryHistory,
     store,
     driving: new Set(),
   }

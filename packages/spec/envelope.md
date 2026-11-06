@@ -498,6 +498,9 @@ Each index writes a metadata envelope under the key `<indexName>/meta`. It uses 
   sync:                  SyncMeta             (optional; the device sync setting)
   sync_active:           boolean              (optional; true once a device asks for the published snapshot)
   sync_epoch:            string               (optional; the index epoch, 32 lowercase hexadecimal digits)
+  query_suggestions:     QuerySuggestionsMeta (optional; the popular query suggestions setting)
+  banned_queries:        List<string>         (optional; the normalised phrases that the index bans from its suggestions)
+  query_suggestions_source: QuerySuggestionsSourceMeta (optional; the marker of a suggestions index)
 }
 
 VectorFieldMeta {
@@ -529,6 +532,33 @@ SyncMeta {
   enabled:            boolean
   history_max_age_ms: uint64   (optional)
   history_max_bytes:  uint64   (optional)
+}
+
+QuerySuggestionsMeta {
+  enabled:                  boolean
+  fields:                   List<string>
+  min_people:               uint32   (optional)
+  min_results:              uint32   (optional)
+  retention_days:           uint32   (optional)
+  max_phrases_per_day:      uint32   (optional)
+  max_phrases_per_person:   uint32   (optional)
+  max_people_per_day:       uint32   (optional)
+  max_groups:               uint32   (optional)
+  min_letters:              uint32   (optional)
+  max_length:               uint32   (optional)
+  max_words:                uint32   (optional)
+  max_digits:               uint32   (optional)
+  max_merge_phrases:        uint32   (optional)
+  merge_memory_bytes:       uint64   (optional)
+  save_interval_ms:         uint32   (optional)
+  result_checks_per_second: uint32   (optional)
+  schedule:                 string   (optional)
+  time_zone:                string   (optional)
+}
+
+QuerySuggestionsSourceMeta {
+  index: string
+  group: string
 }
 ```
 
@@ -570,6 +600,8 @@ The `synonyms` field records the index's [synonym set](algorithms.md#synonyms), 
 
 The `sync`, `sync_active`, and `sync_epoch` fields record the index's [device sync](sync.md) state: the setting that [The Sync Setting](sync.md#the-sync-setting) defines, whether a device has asked for the [published snapshot](sync.md#published-snapshot), and the [epoch](sync.md#index-epoch). A reader must treat an absent `sync` as sync off and an absent `sync_active` as false.
 
+The `query_suggestions` and `banned_queries` fields record the index's [popular query suggestions](query-suggestions.md) setting and ban list, and `query_suggestions_source` marks a [suggestions index](query-suggestions.md#the-suggestions-index) with the index and the group that it serves. A reader must treat an absent `query_suggestions` as the feature off, an absent `banned_queries` as an empty list, and an absent `query_suggestions_source` as an ordinary index, and it must reject any of them with `CONFIG_INVALID` where it breaks [query-suggestions.md](query-suggestions.md).
+
 ---
 
 ### Index Configuration Payload
@@ -603,6 +635,9 @@ The payload is a MessagePack map:
   synonyms:          List<SynonymRule>            (optional; the synonym set as the caller wrote it)
   embedding:         EmbeddingSnapshotConfig      (optional)
   syncEpoch:         string                       (optional; the index epoch where sync is on)
+  querySuggestions:  QuerySuggestionsSetting      (optional; see The Setting in query-suggestions.md)
+  bannedQueries:     List<string>                 (optional; the normalised phrases that the index bans from its suggestions)
+  querySuggestionsSource: { index: string, group: string }  (optional; the marker of a suggestions index)
 }
 
 PartitionSnapshotLimits {
@@ -629,6 +664,8 @@ A reader must raise `CONFIG_INVALID` for any other value of `text_storage` or `t
 
 The rules for `analysis_revision` in the [index metadata payload](#index-metadata-payload) apply to `analysisRevision`, so a writer must record the revision that produced the terms that the envelope holds, or leave the field absent where it knows none. A reader must treat an index restored without one as holding stale terms. The rules for `array_position_gap` apply to `arrayPositionGap` in the same way. Each remaining optional field records one index configuration option, and a writer must leave it absent where the configuration leaves that option unset. A writer must record in `analysisGeneration` the generation that produced the terms that the envelope holds. The payload carries no pending change, so a restored index holds the old settings with the old terms, and a restore abandons any pending change, whose caller receives `ANALYSIS_CHANGE_REPLACED`. The payload holds no `sync` setting, so that an index that a caller restores from it serves no feed until the caller turns sync on, as [The Sync Setting](sync.md#the-sync-setting) defines.
 
+The `querySuggestions`, `bannedQueries`, and `querySuggestionsSource` fields hold the setting, the ban list, and the marker that [query-suggestions.md](query-suggestions.md) defines, and a writer leaves each one absent where the index has none.
+
 A writer must reject an index whose tokeniser or stop words are code, because a payload can hold a registered name but no code.
 
 A reader must reject an index configuration envelope whose `envelope_format_version` is not 5 with `ENVELOPE_VERSION_MISMATCH`.
@@ -650,6 +687,11 @@ A persistence adapter addresses stored bytes by string key:
 | `<indexName>/wal/<partitionId>/commit` | Write-ahead log commit marker |
 | `<indexName>/history/<partitionId>/<startSeqNo>-<movedAtMs>` | A log segment that a checkpoint moved into [history](sync.md#history), both numbers zero-padded to 16 digits |
 | `<indexName>/sync/published` | The [published snapshot](sync.md#published-snapshot) of a synced index |
+| `_query-counts/<indexName>/<day>.nrsl` | One day of [query counts](query-suggestions.md#history) on this node |
+| `_query-counts/<indexName>/restored/<day>-<n>.nrsl` | One day of query counts that a restore wrote |
+| `_query-counts/<indexName>/build.nrsl` | The outcome of the last [suggestions build](query-suggestions.md#building) on a single node |
+
+A key under `_query-counts/` never belongs to an index, because an index name begins with a letter or a digit.
 
 The `<fieldKey>` of a vector field is its path with every `.` replaced by `_`, then a `-`, then the [FNV-1a](algorithms.md#fnv-1a-hash) hash of the path's UTF-8 bytes written in base 36 with lowercase letters, so the field `meta.embedding` takes the key `meta_embedding-` followed by that hash. The hash keeps two paths apart when they differ only in a `.` and a `_`, such as `a.b` and `a_b`. A field path may hold only the letters A to Z and a to z, the digits 0 to 9, `_`, and `.`, and the engine must fail a save with `PERSISTENCE_SAVE_FAILED` for any other path.
 

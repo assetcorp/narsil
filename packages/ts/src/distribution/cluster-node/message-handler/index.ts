@@ -4,6 +4,7 @@ import {
   ClusterMessageTypes,
   QueryMessageTypes,
   ReplicationMessageTypes,
+  SuggestionMessageTypes,
   SyncMessageTypes,
 } from '../../transport/types'
 import { handleSyncRead } from '../device-sync/read-handler'
@@ -96,6 +97,9 @@ export function createDataNodeHandler(deps: DataNodeHandlerDeps): TransportHandl
           return
         case SyncMessageTypes.READ:
           await handleSyncRead(message, respond, deps)
+          return
+        case SuggestionMessageTypes.COUNTS:
+          await deps.answerQueryCounts?.(message, respond)
           return
         default:
           return

@@ -18,6 +18,7 @@ import {
 import { validateBM25Params } from '../search/bm25-params'
 import type { EmbeddingAdapter } from '../types/adapters'
 import type { NarsilConfig } from '../types/config'
+import type { StoredQuerySuggestions } from '../types/internal'
 import type { IndexConfig } from '../types/schema'
 import { loadSchemaCodeFor } from '../workers/schema-code'
 import type { EngineCore, IndexRegistryEntry } from './core'
@@ -50,6 +51,7 @@ export interface IndexCreationOptions {
   indexUuid?: string
   adapterBinding?: EmbeddingAdapterBinding
   appliesCreationLimits?: boolean
+  querySuggestions?: StoredQuerySuggestions
 }
 
 export async function announceIndexCreated(core: EngineCore, name: string, config: IndexConfig): Promise<void> {
@@ -148,6 +150,7 @@ export async function createEngineIndex(
   const language = getLanguage(indexConfig.language ?? 'english')
   if (appliesCreationLimits) requireConfigurationWithinSizeLimit(indexConfig, language)
   const synonyms = prepareConfiguredSynonyms(configured, language, appliesCreationLimits)
+  await core.querySuggestionHooks?.beforeCreate(name)
   core.executor.createIndex(name, indexConfig, language, false, synonyms?.lookup ?? null)
   core.indexRegistry.set(name, {
     config: indexConfig,
@@ -166,6 +169,7 @@ export async function createEngineIndex(
     pendingAnalysis: null,
     durableAnalysis: null,
     sync: null,
+    querySuggestions: creation.querySuggestions ?? null,
   })
   await core.indexState.registerOpen(name)
   if (core.durability) {
@@ -183,6 +187,7 @@ export async function dropEngineIndex(core: EngineCore, name: string): Promise<v
   }
   if (changeRecorded()) await abandonChange()
   await core.indexState.drop(name, async () => {
+    await core.querySuggestionHooks?.beforeDrop(name)
     await core.analysisRebuild.abandon(name)
     if (changeRecorded()) await abandonChange()
     await core.orchestrator.closeIndex(name)
@@ -200,6 +205,7 @@ export async function dropEngineIndex(core: EngineCore, name: string): Promise<v
     core.analysisRebuild.clearStale(name)
     if (entry.sync !== null) emitSyncChange(core.indexRegistry, { kind: 'dropped', indexName: name })
   })
+  await core.querySuggestionHooks?.afterDrop(name)
   await runLifecycleHook(core, 'onIndexDrop', { indexName: name, config: entry.config })
 }
 
