@@ -160,4 +160,54 @@ describe('a synced device', () => {
     },
     NETWORK_CUT_TEST_TIMEOUT_MS,
   )
+
+  it(
+    "carries vectors both ways on an index with a vector field, so each side finds the other side's document by its vector",
+    async () => {
+      const vectorOf = (at: number): number[] => [at % 2 === 0 ? 1 : -1, at / 8, 0.25, at % 3 === 0 ? 0 : -(at % 3) / 4]
+      const oracle = new Map<string, number[]>()
+      await serving().admin.createIndex(INDEX, { schema: { title: 'string', embedding: 'vector[4]' } })
+      const batch = []
+      for (let at = 0; at < 12; at++) {
+        oracle.set(`v${at}`, vectorOf(at))
+        batch.push({ id: `v${at}`, title: `vector note ${at}`, embedding: vectorOf(at) })
+      }
+      await serving().admin.insertBatch(INDEX, batch)
+      await serving().admin.updateSync(INDEX, { enabled: true })
+      const started = await device('vectors')
+      await settledWithin(started.sync)
+
+      const fromServer = [0.5, -0.5, 0.75, 1]
+      await serving().running.engine.insert(
+        INDEX,
+        { title: 'written on the server', embedding: new Float32Array(fromServer) },
+        'from-server',
+      )
+      const fromDevice = [-1, 0.125, -0.75, 0.5]
+      await started.sync.put('from-device', {
+        title: 'written on the device',
+        embedding: new Float32Array(fromDevice),
+      })
+      oracle.set('from-server', fromServer)
+      oracle.set('from-device', fromDevice)
+      await settledWithin(started.sync)
+
+      for (const engine of [started.engine, serving().running.engine]) {
+        expect(await engine.countDocuments(INDEX)).toBe(oracle.size)
+        for (const [id, vector] of oracle) {
+          const held = (await engine.get(INDEX, id))?.embedding as ArrayLike<number> | undefined
+          expect(held === undefined ? undefined : Array.from(held)).toEqual(vector)
+        }
+        for (const id of ['from-server', 'from-device']) {
+          const found = await engine.query(INDEX, {
+            vector: { field: 'embedding', value: oracle.get(id) ?? [] },
+            limit: 1,
+          })
+          expect(found.hits[0]?.id).toBe(id)
+        }
+      }
+      expect(started.sync.status().queuedWrites).toBe(0)
+    },
+    NETWORK_CUT_TEST_TIMEOUT_MS,
+  )
 })
