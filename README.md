@@ -184,6 +184,7 @@ When we measure Narsil in one process against Orama and MiniSearch, with the sam
 | [Python client](docs/python-client.md) | Reaching a server or a cluster from Python, in blocking and async forms, and the failover rules |
 | [Go client](docs/go-client.md) | Reaching a server or a cluster from Go, streaming snapshots, and the failover rules |
 | [Device sync](docs/device-sync.md) | A copy of one index on a device that searches and writes offline, the sync routes, conflicts, and the snapshot |
+| [Popular query suggestions](docs/query-suggestions.md) | Whole searches that people ran and clicked, counted per person, built into a suggestions index, and the privacy trade-offs |
 | [React](docs/react.md) | The hooks over a client or an engine in the page, one shared request per key, and loading a corpus from a component |
 | [Observability](docs/observability.md) | Plugin hooks, engine events, and memory reporting |
 | [Errors](docs/errors.md) | The codes you handle most often, and the three sets that `NarsilError.code` covers |

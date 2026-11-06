@@ -10,6 +10,7 @@ import {
 import { applyStoredIndexBm25 } from '../../engine/bm25-update'
 import { requireKnownConfig } from '../../engine/config-keys'
 import { createEngineCore, type EngineCore } from '../../engine/core'
+import { emitEngineEvent } from '../../engine/events'
 import { createEngineIndex } from '../../engine/index-lifecycle'
 import { startEngineCore } from '../../engine/lifecycle'
 import type { IndexWriteAnalysis } from '../../engine/memory/document-bound'
@@ -33,11 +34,13 @@ import type { SyncStorage } from '../../persistence/durability/sync/storage'
 import type {
   CommitDeferral,
   EntryNumbering,
+  HistoryStorage,
   PartitionFailureHandler,
   PartitionLogPosition,
 } from '../../persistence/durability/types'
 import type { ByteSource } from '../../types/byte-source'
 import type { NarsilConfig } from '../../types/config'
+import type { NarsilEventMap } from '../../types/events'
 import type { GlobalStatistics, NamedAnalysisSettings, PendingAnalysisMetadata } from '../../types/internal'
 import type { ListResult, PartitionStatsResult, PreflightResult, QueryResult, SuggestResult } from '../../types/results'
 import type { AnyDocument, BM25Params, IndexConfig } from '../../types/schema'
@@ -68,6 +71,8 @@ export interface ClusterLocalEngine extends Narsil {
   syncStateOf(indexName: string): IndexSyncState | null | undefined
   adoptSyncState(indexName: string, state: IndexSyncState | null): Promise<boolean>
   syncStorage(): SyncStorage | null
+  historyStorage(): HistoryStorage | null
+  emitEvent<E extends keyof NarsilEventMap>(name: E, payload: NarsilEventMap[E]): number
   analysisGenerationOf(indexName: string): number | undefined
   pendingAnalysisGenerationOf(indexName: string): number | null
   buildHeldAnalysis(indexName: string, pending: PendingAnalysisMetadata): Promise<void>
@@ -198,6 +203,9 @@ export async function createClusterLocalEngine(
     syncStateOf: (indexName: string) => core.indexRegistry.get(indexName)?.sync,
     adoptSyncState: (indexName: string, state: IndexSyncState | null) => adoptIndexSyncState(core, indexName, state),
     syncStorage: () => core.durability?.manager.syncStorage?.() ?? null,
+    historyStorage: () => core.durability?.manager.historyStorage?.() ?? null,
+    emitEvent: <E extends keyof NarsilEventMap>(name: E, payload: NarsilEventMap[E]) =>
+      emitEngineEvent(core.eventHandlers, name, payload),
     analysisGenerationOf: (indexName: string) => core.indexRegistry.get(indexName)?.analysisGeneration,
     pendingAnalysisGenerationOf: (indexName: string) =>
       core.indexRegistry.get(indexName)?.pendingAnalysis?.generation ?? null,

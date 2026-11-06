@@ -1,12 +1,16 @@
 import { decode, encode } from '@msgpack/msgpack'
 import { DEFAULT_BM25_B, DEFAULT_BM25_K1 } from '../../core/constants'
 import { ErrorCodes, NarsilError } from '../../errors'
+import { storedStateFromWire, storedStateToWire } from '../../query-suggestions/stored-state'
 import { isQuantizationMode, isStorageMode } from '../../schema/validator/vector-promotion'
 import type { IndexMetadata } from '../../types/internal'
 import type { VectorIndexConfig } from '../../types/schema'
 import { type RawSyncMetadata, syncMetadataFromWire, syncMetadataToWire } from './sync-metadata'
 
 interface RawMetadataPayload extends RawSyncMetadata {
+  query_suggestions?: unknown
+  banned_queries?: unknown
+  query_suggestions_source?: unknown
   index_name: string
   document_count?: unknown
   schema: Record<string, string>
@@ -161,7 +165,11 @@ function metadataToWire(meta: IndexMetadata): RawMetadataPayload {
   if (Array.isArray(meta.synonyms) && meta.synonyms.length > 0) {
     wire.synonyms = meta.synonyms
   }
-  return { ...wire, ...syncMetadataToWire(meta) }
+  return {
+    ...wire,
+    ...syncMetadataToWire(meta),
+    ...(meta.querySuggestions !== undefined ? storedStateToWire(meta.querySuggestions) : {}),
+  }
 }
 
 function wireToMetadata(raw: RawMetadataPayload): IndexMetadata {
@@ -326,6 +334,8 @@ function wireToMetadata(raw: RawMetadataPayload): IndexMetadata {
   }
   if (raw.synonyms !== undefined && raw.synonyms !== null) meta.synonyms = raw.synonyms
   syncMetadataFromWire(raw, meta)
+  const querySuggestions = storedStateFromWire(raw)
+  if (querySuggestions !== null) meta.querySuggestions = querySuggestions
   return meta
 }
 

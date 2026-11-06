@@ -90,8 +90,10 @@ async function buildAndSwitch(scope: ChangeScope): Promise<void> {
   }
   let partitionsRebuilt = 0
   let adopt: () => void = () => undefined
+  const refusal: { byRestore: NarsilError | null } = { byRestore: null }
   const isCurrent = (): boolean =>
     run.stopReason === null &&
+    refusal.byRestore === null &&
     !core.shutdownState.isShutdown &&
     core.indexRegistry.get(indexName) === entry &&
     core.executor.getManager(indexName) === manager
@@ -116,6 +118,10 @@ async function buildAndSwitch(scope: ChangeScope): Promise<void> {
         async runSwitch(swap) {
           const swapWithSynonyms = (): boolean => {
             if (!isCurrent()) return false
+            if (core.restoresInFlight.has(indexName)) {
+              refusal.byRestore = restoreInFlightError(indexName)
+              return false
+            }
             adopt = switchIndex(scope)
             return swap()
           }
@@ -129,7 +135,7 @@ async function buildAndSwitch(scope: ChangeScope): Promise<void> {
       },
       textRebuildTargetOf(run.target.config, run.target.language, run.target.analysis),
     )
-    if (!rebuilt) throw run.stopReason ?? stoppedError(core, indexName)
+    if (!rebuilt) throw run.stopReason ?? refusal.byRestore ?? stoppedError(core, indexName)
     await (spill as RewriteSpill | null)?.removeUnread(manager)
     if (entry.durableAnalysis !== null) {
       throw new NarsilError(
@@ -163,6 +169,18 @@ async function clearPending(core: EngineCore, indexName: string, entry: IndexReg
   await core.durability?.manager.persistMetadata(indexName)
 }
 
+function restoreInFlightError(indexName: string): NarsilError {
+  return new NarsilError(
+    ErrorCodes.ANALYSIS_CHANGE_REPLACED,
+    `A restore of index "${indexName}" is in flight and replaces this analysis change, so try the change again once the restore ends`,
+    { indexName },
+  )
+}
+
+function requireNoRestoreInFlight(core: EngineCore, indexName: string): void {
+  if (core.restoresInFlight.has(indexName)) throw restoreInFlightError(indexName)
+}
+
 function requireNotRebalancing(core: EngineCore, indexName: string): void {
   if (!core.rebalancingIndexes.has(indexName)) return
   throw new NarsilError(
@@ -188,6 +206,7 @@ async function driveRun(
     if (run.stopReason !== null) return
     if (core.indexRegistry.get(indexName) !== entry) throw stoppedError(core, indexName)
     requireNotRebalancing(core, indexName)
+    requireNoRestoreInFlight(core, indexName)
     if (resumedGeneration === null && holdsSettings(entry.config, run.target)) {
       if (entry.pendingAnalysis !== null) await clearPending(core, indexName, entry)
       run.finish()
@@ -209,7 +228,9 @@ async function driveRun(
     run.finish()
   } catch (error) {
     run.fail(error)
-    const keepsPending = resumedGeneration !== null || core.shutdownState.isShutdown
+    const refusedByRestore =
+      run.stopReason === null && error instanceof NarsilError && error.code === ErrorCodes.ANALYSIS_CHANGE_REPLACED
+    const keepsPending = !refusedByRestore && (resumedGeneration !== null || core.shutdownState.isShutdown)
     const stillOwnsPending = runs.get(indexName) === run && run.stopReason === null
     if (!keepsPending && stillOwnsPending && core.indexRegistry.get(indexName) === entry) {
       if (entry.pendingAnalysis !== null) await clearPending(core, indexName, entry).catch(() => undefined)
@@ -226,6 +247,7 @@ export { adoptSavedAnalysis } from './adopt-saved'
 export async function changeIndexAnalysis(core: EngineCore, indexName: string, change: AnalysisChange): Promise<void> {
   const entry = core.requireIndex(indexName)
   requireNotRebalancing(core, indexName)
+  requireNoRestoreInFlight(core, indexName)
   const target = resolveAnalysisTarget(indexName, entry.config, change)
   const runs = runsOf(core)
   const previous = runs.get(indexName)
