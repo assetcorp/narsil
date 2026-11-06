@@ -1,5 +1,5 @@
 import type { EmbeddingAdapter } from '../types/adapters'
-import type { PendingAnalysisMetadata } from '../types/internal'
+import type { PendingAnalysisMetadata, StoredQuerySuggestions } from '../types/internal'
 import type { LanguageModule } from '../types/language'
 import type { IndexConfig } from '../types/schema'
 
@@ -32,4 +32,5 @@ export type IndexRegistryEntry = {
   pendingAnalysis: PendingAnalysisMetadata | null
   durableAnalysis: DurableAnalysis | null
   sync: IndexSyncState | null
+  querySuggestions: StoredQuerySuggestions | null
 }

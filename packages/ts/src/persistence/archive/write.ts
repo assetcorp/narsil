@@ -10,6 +10,12 @@ export interface ArchiveSource {
   sourceIndexName: string
   readRange(ref: FileRef, offset: number, length: number): Promise<Uint8Array>
   release(): void
+  trailingEntries?: () => AsyncIterable<ArchiveEntry>
+}
+
+export interface ArchiveEntry {
+  name: string
+  bytes: Uint8Array
 }
 
 function entryChunks(name: string, bytes: Uint8Array): Uint8Array[] {
@@ -33,6 +39,9 @@ async function* archiveChunks(source: ArchiveSource): AsyncGenerator<Uint8Array>
   const prefix = `${source.sourceIndexName}/`
   for (const ref of manifestFileRefs(source.manifest)) {
     yield* fileEntryChunks(source, ref.key.slice(prefix.length), ref)
+  }
+  if (source.trailingEntries !== undefined) {
+    for await (const entry of source.trailingEntries()) yield* entryChunks(entry.name, entry.bytes)
   }
   yield tarEnd()
 }

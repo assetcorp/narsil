@@ -1,4 +1,5 @@
 import type { HeldCheckpointReport } from './memory'
+import type { QuerySuggestionsBuildEvent, QuerySuggestionsWarningEvent } from './query-suggestions'
 
 /**
  * This map lists every event that the engine emits, with the payload of each
@@ -188,6 +189,17 @@ export type NarsilEventMap = {
     /** This is the error that the adapter threw. */
     error: Error
   }
+  /**
+   * A popular query suggestions build started, completed, failed, or skipped.
+   * The payload carries counts alone, never a phrase.
+   */
+  querySuggestionsBuild: QuerySuggestionsBuildEvent
+  /**
+   * The engine skipped a history file, failed to save the counts of a day,
+   * reached a daily limit, or holds an index with the feature on while it has
+   * no key. The payload carries no search text.
+   */
+  querySuggestionsWarning: QuerySuggestionsWarningEvent
 }
 
 /**

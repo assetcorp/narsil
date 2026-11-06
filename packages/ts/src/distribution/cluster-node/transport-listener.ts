@@ -4,6 +4,7 @@ import {
   type NodeTransport,
   ReplicationMessageTypes,
   type RespondFn,
+  SuggestionMessageTypes,
   type TransportMessage,
 } from '../transport/types'
 import { encodeErrorReply } from './error-reply'
@@ -25,6 +26,7 @@ const CONTROLLER_MESSAGE_TYPES = new Set<string>([
   ClusterMessageTypes.BACKUP,
   ClusterMessageTypes.BACKUP_RESTORE,
   ClusterMessageTypes.BACKUP_DELETE,
+  SuggestionMessageTypes.BUILD,
 ])
 
 function refuseMessage(

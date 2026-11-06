@@ -1,5 +1,6 @@
 import type { ClusterNamespace } from '../../distribution/cluster-node/types'
 import type { EmbeddingAdapter, RerankAdapter } from '../../types/adapters'
+import type { RecordedQuery } from '../../types/query-suggestions'
 import type { ErrorDetail } from './responses'
 import type { TaskStore } from './tasks'
 
@@ -271,6 +272,39 @@ export interface ServerOptions {
    * settings.
    */
   sync?: boolean | ServerSyncOptions
+  /**
+   * Lets `POST /indexes/{name}/query-suggestions/record` count searches. The
+   * server takes the person and the group from
+   * {@link ServerQuerySuggestionsOptions.identify}, never from the request
+   * body, so that a caller can't choose them. Without it, that route answers
+   * 404 `QUERY_SUGGESTIONS_NOT_ENABLED`.
+   */
+  querySuggestions?: ServerQuerySuggestionsOptions
+}
+
+/**
+ * The person and the group that a search counts for, with the rules of
+ * {@link RecordedQuery}.
+ *
+ * @public
+ */
+export type QueryIdentity = Pick<RecordedQuery, 'person' | 'group'>
+
+/**
+ * How the server names the person behind a search that it counts for popular
+ * query suggestions.
+ *
+ * @public
+ */
+export interface ServerQuerySuggestionsOptions {
+  /**
+   * Returns the person and the group of a request, or `null` to count
+   * nothing, which the server reports as the outcome `unidentified`.
+   *
+   * @param ctx - The request's method, path, headers, and peer address.
+   * @returns The person and the group, or `null`.
+   */
+  identify(ctx: RequestContext): QueryIdentity | null | Promise<QueryIdentity | null>
 }
 
 /**

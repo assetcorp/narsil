@@ -7,7 +7,7 @@ import { getVectorFieldPaths } from '../engine/vector-fields'
 import { emitWriteEventAfter } from '../engine/write-events'
 import type { ByteSource } from '../types/byte-source'
 import type { NarsilConfig } from '../types/config'
-import type { Narsil } from '../types/engine'
+import type { Narsil, SnapshotOptions } from '../types/engine'
 import type { DocumentImportResult } from '../types/results'
 import { DEFAULT_REQUEST_TIMEOUT_MS } from '../workers/constants'
 import type { RestoreHost } from './restore-queue'
@@ -30,7 +30,24 @@ export function portabilityOperations(
     }
   }
 
-  const restoresInFlight = new Map<string, Promise<void>>()
+  function queueRestore(indexName: string, data: ByteSource): Promise<void> {
+    const { restoresInFlight } = core
+    const previous = restoresInFlight.get(indexName) ?? Promise.resolve()
+    const restored = previous.then(async () => {
+      const { runRestore } = await import('./restore-queue')
+      await runRestore(core, restoreHost, indexName, data, engine())
+    })
+    const settled = restored.then(
+      () => undefined,
+      () => undefined,
+    )
+    restoresInFlight.set(indexName, settled)
+    void settled.then(() => {
+      if (restoresInFlight.get(indexName) === settled) restoresInFlight.delete(indexName)
+    })
+    return restored
+  }
+
   const restoreHost: RestoreHost = {
     getVectorFieldPaths,
     announceIndexCreated: (name, restoredConfig) => announceIndexCreated(core, name, restoredConfig),
@@ -49,20 +66,17 @@ export function portabilityOperations(
   }
 
   return {
-    snapshot(indexName: string): Promise<ReadableStream<Uint8Array>> {
+    snapshot(indexName: string, options?: SnapshotOptions): Promise<ReadableStream<Uint8Array>> {
       return withOpenIndex(indexName, async () => {
         const { createSnapshot } = await import('../engine/snapshot')
-        return createSnapshot(snapshotDepsOf(indexName))
+        return createSnapshot(snapshotDepsOf(indexName), options?.queryHistory === true ? core : null)
       })
     },
 
     async restore(indexName: string, data: ByteSource): Promise<void> {
       core.guardShutdown()
       validateIndexName(indexName)
-      const restored = import('./restore-queue').then(({ queueRestore }) =>
-        queueRestore(core, restoreHost, restoresInFlight, indexName, data),
-      )
-      await emitWriteEventAfter(core, indexName, restored)
+      await emitWriteEventAfter(core, indexName, queueRestore(indexName, data))
       core.heapPressureNotifier.check(indexName)
     },
 

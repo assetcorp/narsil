@@ -2,6 +2,7 @@ import type { FrozenSegment } from '../../core/partition/frozen'
 import type { ReplicationLogEntry, ReplicationOperation } from '../../distribution/replication/types'
 import type { PartitionManager } from '../../partitioning/manager'
 import type { KeywordSegmentContents, SegmentWriteRecords } from '../../serialization/keyword-segment/types'
+import type { PersistenceAdapter } from '../../types/adapters'
 import type { DurabilityConfig } from '../../types/config'
 import type { IndexMetadata } from '../../types/internal'
 import type { HeldCheckpointReport } from '../../types/memory'
@@ -16,6 +17,10 @@ import type { RestoreStaging } from './restore-staging'
 import type { SyncStorage } from './sync/storage'
 
 export type { DurabilityConfig, TermStart }
+
+export type HistoryStorage =
+  | { kind: 'directory'; directory: DurableDirectory }
+  | { kind: 'adapter'; adapter: PersistenceAdapter }
 
 export interface WriteRecordKeeper {
   resetPartition(indexName: string, partitionId: number): void
@@ -111,6 +116,8 @@ export interface DurabilityManager {
   stageRestore?(indexName: string): RestoreStaging
   adoptRestoredCheckpoint?(indexName: string, checkpoint: readonly PartitionCheckpoint[]): void
   syncStorage?(): SyncStorage
+  historyStorage?(): HistoryStorage
+  removeQueryHistory?(indexName: string): Promise<void>
   removeIndex(indexName: string): Promise<void>
   unloadIndex(indexName: string): Promise<void>
   reloadIndex?(indexName: string): Promise<void>

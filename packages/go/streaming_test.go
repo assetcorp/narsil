@@ -101,7 +101,7 @@ func TestSnapshotsExportsAndRestoresMoveWithoutHoldingTheWholeBody(t *testing.T)
 
 	archive := filepath.Join(t.TempDir(), "index.tar")
 	archiveBytes, snapshotAllocated := allocatedWhile(t, func() int64 {
-		stream, err := client.Snapshot(ctx, name)
+		stream, err := client.Snapshot(ctx, name, narsil.SnapshotParams{})
 		if err != nil {
 			t.Fatal(err)
 		}

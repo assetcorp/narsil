@@ -153,6 +153,13 @@ When a primary refuses a forwarded mutation, the node that forwarded it must pas
 |------|-----------|-------------|
 | `sync.read` | any node to primary | Reads the entries of one partition for a [device feed](../sync.md#the-feed) |
 
+### Suggestion Messages
+
+| Type | Direction | Description |
+|------|-----------|-------------|
+| `suggestions.counts` | any node to any node | Streams the [query counts](../query-suggestions.md#history) of one index that the node holds |
+| `suggestions.build` | any node to controller | Asks for a [build](../query-suggestions.md#building) of the suggestions of one index |
+
 ---
 
 ## Message Payloads
@@ -625,6 +632,7 @@ A node sends this to the active controller to [take a backup](backups.md#taking-
   backupName: string
   indexName:  string
   takenBy:    string or absent   ("sync" for a backup that device sync starts)
+  queryHistory: boolean or absent (true where the caller asks for query history)
 }
 ```
 
@@ -759,6 +767,38 @@ The primary answers with the entries above `afterSeqNo`, up to its commit point 
 ```
 
 A node that no longer leads the partition refuses with `PARTITION_NOT_PRIMARY`, and one whose copy carries another `indexUuid` refuses with `INDEX_NOT_FOUND`.
+
+### suggestions.counts
+
+A node sends this through `stream` to read the [query counts](../query-suggestions.md#history) that another node holds for one index.
+
+```text
+{
+  indexName: string
+}
+```
+
+The node saves the counts of the current day, then streams each history file of the index that it holds, its restored files included, in key order, comparing UTF-8 bytes. For each file, it sends a `uint16be` length followed by that many bytes of the file's key relative to `_query-counts/<indexName>/` in UTF-8, then a `uint32be` length followed by that many bytes of the file. The stream ends after the last file. A node that holds no file sends one empty chunk, because a stream ends only after its first chunk, and the receiver reads an empty chunk as no data. A node must stream at most one file at a time, so that it never holds the history of an index in memory. The receiver must stop reading, and treat the node as one that gave no answer, where a key length passes 64 bytes, where a key is neither `<day>.nrsl` nor `restored/<day>-<n>.nrsl` as [History](../query-suggestions.md#history) defines them, or where a file length passes the limit that History sets for a history file.
+
+### suggestions.build
+
+A node sends this to the active controller when a caller asks for a build.
+
+```text
+{
+  indexName: string
+  trigger:   string   ("caller")
+}
+```
+
+The controller refuses it with `NODE_NOT_CONTROLLER` where it holds no controller lease, with `INDEX_NOT_FOUND` where the coordinator holds no metadata for the index, and with `QUERY_SUGGESTIONS_NOT_ENABLED` where the feature is off. Otherwise it answers once the build starts, or once it skips the build:
+
+```text
+{
+  buildId: string
+  status:  string   ("running" or "skipped")
+}
+```
 
 ### cluster.ping
 

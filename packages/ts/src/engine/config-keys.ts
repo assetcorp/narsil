@@ -26,6 +26,7 @@ const NARSIL_CONFIG_KEYS: Record<keyof NarsilConfig, true> = {
   patternWorkCap: true,
   events: true,
   memory: true,
+  querySuggestions: true,
 }
 
 const EVENT_NAMES: Record<keyof NarsilEventMap, true> = {
@@ -41,6 +42,8 @@ const EVENT_NAMES: Record<keyof NarsilEventMap, true> = {
   checkpointHeld: true,
   durabilityError: true,
   invalidationError: true,
+  querySuggestionsBuild: true,
+  querySuggestionsWarning: true,
 }
 
 const DURABILITY_CONFIG_KEYS: Record<keyof DurabilityConfig, true> = {

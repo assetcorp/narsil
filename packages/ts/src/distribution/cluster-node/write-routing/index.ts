@@ -18,7 +18,7 @@ import {
   storedSynonymSetOf,
   validateIndexName,
 } from '../../cluster/index-metadata'
-import { indexSettingsOf, withPartitionCount } from '../../cluster/index-settings'
+import { type IndexSettings, indexSettingsOf, withPartitionCount } from '../../cluster/index-settings'
 import { deleteSynonymSet, type SynonymSetRef, storeSynonymSet } from '../../cluster/synonym-set'
 import { MAX_PARTITION_COUNT, MAX_REPLICATION_FACTOR } from '../../constants'
 import type { AllocationConstraints, ClusterCoordinator } from '../../coordinator/types'
@@ -73,6 +73,7 @@ export async function routeCreateIndex(
   options: CreateIndexOptions | undefined,
   coordinator: ClusterCoordinator,
   engine: IndexCreatingEngine,
+  marker?: Pick<IndexSettings, 'querySuggestionsSource'>,
 ): Promise<void> {
   validateIndexName(name)
   const config: IndexConfig = { ...requestedConfig, schema: validateSchema(requestedConfig.schema) }
@@ -110,6 +111,7 @@ export async function routeCreateIndex(
       ...indexSettingsOf(config),
       ...(synonymSet !== null ? { synonyms: synonymSet } : {}),
       ...(setsFieldPairs ? { bm25Revision: 1 } : {}),
+      ...marker,
     },
   }
 
