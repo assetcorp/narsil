@@ -23,7 +23,7 @@ import type { PartitionFailure } from './mutation-batch'
 import type { PartitionCheckpoint } from './partition-checkpoint'
 import { snapshotCheckpointFor } from './recovery'
 import { readCurrentManifest } from './segment/load'
-import type { PartitionManifestEntry, SegmentManifest } from './segment/manifest'
+import { manifestWithinPartitionCount, type PartitionManifestEntry, type SegmentManifest } from './segment/manifest'
 import { type CheckpointStore, directoryCheckpointStore } from './segment/store'
 import { adoptVectorLayouts, garbageThatNoFieldStillReads, recordWrittenVectors } from './segment/vector-adoption'
 import { commitCheckpointManifest, removeCheckpointGarbage } from './segment/write'
@@ -108,7 +108,9 @@ async function writeOneBoundedCheckpoint(input: DurableCheckpointInput): Promise
   const store = directoryCheckpointStore(input.directory)
   const writeRecords = input.hooks.writeRecords ?? null
   const { indexName } = input
-  const priorManifest = await readCurrentManifest(store, input.indexName)
+  const storedManifest = await readCurrentManifest(store, input.indexName)
+  const priorManifest =
+    storedManifest === null ? null : manifestWithinPartitionCount(storedManifest, manager.partitionCount)
   const textOnDisk = metadata.textStorage === 'disk'
   const wholePartitionsOf = wholePartitionsWhereMostChanged(manager, {
     priorCheckpoint: priorManifest?.checkpoint ?? [],
