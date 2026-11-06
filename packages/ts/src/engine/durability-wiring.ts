@@ -6,6 +6,7 @@ import type { HeldCheckpointReport } from '../types/memory'
 import type { EngineCore, IndexRegistryEntry } from './core'
 import { createDurabilityIntegration, type DurabilityIntegration, type DurabilityTier } from './durability-integration'
 import { durableMetadataConfigOf, metadataConfigOf } from './durability-metadata'
+import type { WorkerOrchestrator } from './orchestration'
 
 interface DurabilityWiring {
   getManager: (indexName: string) => PartitionManager | undefined
@@ -56,4 +57,19 @@ export function createDurabilityFromTier(tier: DurabilityTier, wiring: Durabilit
         .catch((error: unknown) => wiring.emitFatalError(error instanceof Error ? error : new Error(String(error))))
     },
   })
+}
+
+export async function reloadIndexAndCopies(
+  orchestrator: WorkerOrchestrator,
+  durability: DurabilityIntegration | null,
+  indexName: string,
+): Promise<void> {
+  const manager = durability?.manager
+  if (manager?.reloadIndex === undefined) return
+  const wasScaledOut = orchestrator.desyncIndex(indexName)
+  try {
+    await manager.reloadIndex(indexName)
+  } finally {
+    await orchestrator.resyncIndex(indexName, wasScaledOut)
+  }
 }
