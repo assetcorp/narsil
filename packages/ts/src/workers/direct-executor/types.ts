@@ -4,6 +4,7 @@ import type { FulltextSearchOptions } from '../../search/fulltext'
 import type { LanguageModule } from '../../types/language'
 import type { IndexConfig, VectorStorageMode } from '../../types/schema'
 import type { VectorIndex, VectorSearcher, VectorWorkerCopyPolicy } from '../../vector/vector-index'
+import type { WorkerAction } from '../protocol'
 import type { HeldVectorCopies } from '../vector-copies'
 
 export interface IndexQueryContext {
@@ -64,7 +65,10 @@ export interface IndexReplacement {
   discardDetachedIndex(detached: DetachedIndex): void
 }
 
+export type DocumentWriteAction = Extract<WorkerAction, { type: 'insert' | 'remove' | 'update' | 'clear' }>
+
 export interface DirectExecutorOptions {
+  onDocumentWrite?: (action: DocumentWriteAction) => void
   vectorWorkerCopies?: VectorWorkerCopyPolicy
   /** The thread writes into this scratch slot inside every vector block it opens, and it takes the same slot in every graph's lock record. */
   threadSlot?: number

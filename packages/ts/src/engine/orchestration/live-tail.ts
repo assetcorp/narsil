@@ -59,6 +59,7 @@ export function freezeLiveTail(
 }
 
 export function flushGrownTails(state: OrchestratorState, indexName: string): void {
+  if (!state.scaledOutIndexes.has(indexName)) return
   const manager = state.executor.getManager(indexName)
   if (manager === undefined) return
   for (let partitionId = 0; partitionId < manager.partitionCount; partitionId++) {

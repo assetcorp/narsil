@@ -115,6 +115,39 @@ function TermMatchButton({
   )
 }
 
+type BooleanOptionKey = 'exact' | 'prefix' | 'partialWords'
+
+function BooleanOption({
+  label,
+  optionKey,
+  active,
+  onValueChange,
+}: {
+  label: string
+  optionKey: BooleanOptionKey
+  active: boolean
+  onValueChange: <K extends keyof SearchFormValues>(key: K, value: SearchFormValues[K]) => void
+}) {
+  const handleClick = useCallback(() => {
+    onValueChange(optionKey, !active)
+  }, [onValueChange, optionKey, active])
+
+  return (
+    <div>
+      <span className="mb-1.5 block text-xs font-medium">{label}</span>
+      <Button
+        variant={active ? 'default' : 'outline'}
+        size="xs"
+        aria-pressed={active}
+        aria-label={label}
+        onClick={handleClick}
+      >
+        {active ? 'On' : 'Off'}
+      </Button>
+    </div>
+  )
+}
+
 function LimitButton({
   n,
   active,
@@ -150,10 +183,6 @@ export function AdvancedOptions({
     },
     [onValueChange],
   )
-
-  const handleExactToggle = useCallback(() => {
-    onValueChange('exact', !values.exact)
-  }, [onValueChange, values.exact])
 
   const handleMinScoreChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -231,14 +260,19 @@ export function AdvancedOptions({
                 />
               ))}
             </div>
+            <p className="mt-1.5 text-xs text-muted-foreground">
+              Put words in double quotes, such as "new york", to match them as a phrase.
+            </p>
           </div>
 
-          <div>
-            <span className="mb-1.5 block text-xs font-medium">Exact match</span>
-            <Button variant={values.exact ? 'default' : 'outline'} size="xs" onClick={handleExactToggle}>
-              {values.exact ? 'On' : 'Off'}
-            </Button>
-          </div>
+          <BooleanOption label="Exact match" optionKey="exact" active={values.exact} onValueChange={onValueChange} />
+          <BooleanOption label="Prefix match" optionKey="prefix" active={values.prefix} onValueChange={onValueChange} />
+          <BooleanOption
+            label="Partial words"
+            optionKey="partialWords"
+            active={values.partialWords}
+            onValueChange={onValueChange}
+          />
 
           <div>
             <label htmlFor="min-score" className="mb-1.5 block text-xs font-medium">

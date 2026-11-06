@@ -68,14 +68,8 @@ async function settleUpdate(ctx: MutationContext, indexName: string, prepared: P
     console.warn('afterUpdate plugin hook error:', err instanceof Error ? err.message : String(err))
   }
 
-  await ctx.orchestrator.replicateToWorkers({
-    type: 'update',
-    indexName,
-    docId: prepared.docId,
-    document: prepared.partitionDoc,
-    requestId: `replicate-update-${prepared.docId}`,
-    removedSpellings: prepared.removedSpellings,
-  })
+  const roomForCopies = ctx.orchestrator.settleMainWrites(indexName)
+  if (roomForCopies !== null) await roomForCopies
 
   const vecIndexes = ctx.requireManager(indexName).getVectorIndexes()
   for (const [fieldPath, vec] of prepared.extractedVectors) {

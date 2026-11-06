@@ -1,8 +1,16 @@
 import { createFileRoute } from '@tanstack/react-router'
 
 const PREFIX = '/api/narsil'
-const FORWARDED_REQUEST_HEADERS = ['content-type', 'accept']
-const FORWARDED_RESPONSE_HEADERS = ['content-type', 'cache-control']
+const FORWARDED_REQUEST_HEADERS = ['content-type', 'accept', 'range', 'if-range']
+const FORWARDED_RESPONSE_HEADERS = [
+  'content-type',
+  'cache-control',
+  'etag',
+  'content-range',
+  'content-length',
+  'accept-ranges',
+  'retry-after',
+]
 
 function errorResponse(status: number, code: string, message: string): Response {
   return new Response(JSON.stringify({ error: { code, message } }), {

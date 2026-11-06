@@ -1,39 +1,79 @@
-import type { FilterExpression, QueryParams, TermMatchPolicy } from '@delali/narsil'
+import type { FilterExpression, SearchMode, TermMatchPolicy } from '@delali/narsil'
 import { useCallback, useMemo, useState } from 'react'
+
+export type ListSortMode = 'min' | 'max' | 'avg' | 'median'
+
+export interface ListSortValue {
+  field: string
+  direction: 'asc' | 'desc'
+  mode: ListSortMode
+}
 
 export interface SearchFormValues {
   term: string
   fields: string[]
   boost: Record<string, number>
   sort: Record<string, 'asc' | 'desc'>
+  listSort: ListSortValue | null
   limit: number
   offset: number
   tolerance: number
   termMatch: TermMatchPolicy
   exact: boolean
+  prefix: boolean
+  partialWords: boolean
   minScore: number
-  facets: Record<string, Record<string, unknown>>
+  facetField: string
+  facetRanges: string
   filters: FilterExpression
   groupField: string
+  groupTotalField: string
+  pinnedId: string
+  pinnedPosition: number
+  rerank: boolean
+  mode: SearchMode
+  similarity: number
+  efSearch: number
+  hybridStrategy: 'rrf' | 'linear'
+  rrfK: number
+  alpha: number
   highlightFields: string[]
   paginationMode: 'offset' | 'cursor'
   searchAfter?: string
 }
+
+export const DEFAULT_RRF_K = 60
+export const DEFAULT_HYBRID_ALPHA = 0.5
+export const DEFAULT_EF_SEARCH = 0
 
 const EMPTY_VALUES: SearchFormValues = {
   term: '',
   fields: [],
   boost: {},
   sort: {},
+  listSort: null,
   limit: 20,
   offset: 0,
   tolerance: 0,
   termMatch: 'any',
   exact: false,
+  prefix: false,
+  partialWords: false,
   minScore: 0,
-  facets: {},
+  facetField: '',
+  facetRanges: '',
   filters: {},
   groupField: '',
+  groupTotalField: '',
+  pinnedId: '',
+  pinnedPosition: 0,
+  rerank: false,
+  mode: 'fulltext',
+  similarity: 0,
+  efSearch: DEFAULT_EF_SEARCH,
+  hybridStrategy: 'rrf',
+  rrfK: DEFAULT_RRF_K,
+  alpha: DEFAULT_HYBRID_ALPHA,
   highlightFields: [],
   paginationMode: 'offset',
   searchAfter: undefined,
@@ -49,37 +89,6 @@ export interface SearchForm {
   setPage: (page: number) => void
   loadMore: (cursor: string | undefined) => void
   setValue: <K extends keyof SearchFormValues>(key: K, value: SearchFormValues[K]) => void
-}
-
-export function toQueryParams(values: SearchFormValues): QueryParams {
-  const params: QueryParams = {
-    term: values.term,
-    limit: values.limit,
-    includeScoreComponents: true,
-  }
-
-  if (values.fields.length > 0) params.fields = values.fields
-  if (Object.keys(values.boost).length > 0) params.boost = values.boost
-  if (Object.keys(values.sort).length > 0) params.sort = values.sort
-  if (values.tolerance > 0) params.tolerance = values.tolerance
-  if (values.termMatch !== 'any') params.termMatch = values.termMatch
-  if (values.exact) params.exact = true
-  if (values.minScore > 0) params.minScore = values.minScore
-  if (Object.keys(values.facets).length > 0) params.facets = values.facets
-  if (Object.keys(values.filters).length > 0) params.filters = values.filters
-  if (values.highlightFields.length > 0) {
-    params.highlight = { fields: values.highlightFields, preTag: '<mark>', postTag: '</mark>' }
-  }
-  if (values.paginationMode === 'offset') {
-    params.offset = values.offset
-  } else if (values.searchAfter !== undefined) {
-    params.searchAfter = values.searchAfter
-  }
-  if (values.groupField.length > 0) {
-    params.group = { fields: [values.groupField], maxPerGroup: 3 }
-  }
-
-  return params
 }
 
 /**

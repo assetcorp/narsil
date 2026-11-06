@@ -255,18 +255,21 @@ export function createDirectExecutor(
       case 'insert': {
         const entry = requireIndex(action.indexName)
         entry.manager.insert(action.docId, action.document, action.skipClone ? { skipClone: true } : undefined)
+        options?.onDocumentWrite?.(action)
         return undefined as T
       }
 
       case 'remove': {
         const entry = requireIndex(action.indexName)
         entry.manager.remove(action.docId, action.removedSpellings)
+        options?.onDocumentWrite?.(action)
         return undefined as T
       }
 
       case 'update': {
         const entry = requireIndex(action.indexName)
         entry.manager.update(action.docId, action.document, undefined, action.removedSpellings)
+        options?.onDocumentWrite?.(action)
         return undefined as T
       }
 
@@ -321,7 +324,7 @@ export function createDirectExecutor(
         entry.manager.resetVectorIndexes(vectorIndexesFor(action.indexName, entry.config))
         entry.vectorIndexes = entry.manager.getVectorIndexes()
         entry.vectorCopies = createHeldVectorCopies()
-
+        options?.onDocumentWrite?.(action)
         return undefined as T
       }
 

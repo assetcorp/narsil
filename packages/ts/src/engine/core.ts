@@ -73,6 +73,21 @@ export interface EngineCore {
   readonly patternWorkCap: number
 }
 
+async function reloadIndexAndCopies(
+  orchestrator: WorkerOrchestrator,
+  durability: DurabilityIntegration | null,
+  indexName: string,
+): Promise<void> {
+  const manager = durability?.manager
+  if (manager?.reloadIndex === undefined) return
+  const wasScaledOut = orchestrator.desyncIndex(indexName)
+  try {
+    await manager.reloadIndex(indexName)
+  } finally {
+    await orchestrator.resyncIndex(indexName, wasScaledOut)
+  }
+}
+
 export async function createEngineCore(
   config?: NarsilConfig,
   hooks?: EngineCoreHooks,
@@ -99,6 +114,7 @@ export async function createEngineCore(
     vectorWorkerCopies: vectorCopyPolicy,
     vectorStorage: filesystemDurability ? 'disk' : 'memory',
     onVectorGraphRepaired: indexName => void durability?.manager.checkpointAfterInFlight(indexName),
+    onDocumentWrite: action => orchestrator.recordMainWrite(action),
   })
 
   const pluginRegistry: PluginRegistry = createPluginRegistry()
@@ -254,7 +270,7 @@ export async function createEngineCore(
       emitWriteEventAfter(
         { eventHandlers, mutationCtx },
         indexName,
-        durability?.manager.reloadIndex?.(indexName) ?? Promise.resolve(),
+        reloadIndexAndCopies(orchestrator, durability, indexName),
       ),
     onError(error: Error) {
       if (emitEngineEvent(eventHandlers, 'invalidationError', { error }) === 0) {

@@ -1,6 +1,15 @@
 import { ClientErrorCodes, NarsilError } from '@delali/narsil'
 import type { DatasetLoadProgress } from '@delali/narsil-example-shared'
-import type { WorkerArgs, WorkerMethod, WorkerOutbound, WorkerRequest, WorkerResult } from './protocol'
+import {
+  transferableBuffersIn,
+  type WorkerArgs,
+  type WorkerMethod,
+  type WorkerOutbound,
+  type WorkerRequest,
+  type WorkerResult,
+} from './protocol'
+
+const CHANGE_COALESCE_MS = 150
 
 interface PendingCall {
   resolve: (value: unknown) => void
@@ -17,6 +26,11 @@ export class NarsilWorkerClient {
   private nextId = 0
   private readonly pending = new Map<string, PendingCall>()
   private readonly progressListeners = new Set<(progress: DatasetLoadProgress) => void>()
+  private readonly changeListeners = new Set<() => void>()
+  private readonly revisions = new Map<string, number>()
+  private readonly changedIndexes = new Set<string>()
+  private changeTimer: ReturnType<typeof setTimeout> | null = null
+  private allRevision = 0
 
   private connect(): Worker {
     if (this.worker !== null) return this.worker
@@ -37,6 +51,10 @@ export class NarsilWorkerClient {
       for (const listener of this.progressListeners) listener(message.progress)
       return
     }
+    if (message.kind === 'changed') {
+      this.queueChange(message.indexName)
+      return
+    }
 
     const pending = this.pending.get(message.id)
     if (!pending) return
@@ -47,6 +65,18 @@ export class NarsilWorkerClient {
       return
     }
     pending.resolve(message.result)
+  }
+
+  private queueChange(indexName: string): void {
+    this.changedIndexes.add(indexName)
+    if (this.changeTimer !== null) return
+    this.changeTimer = setTimeout(() => {
+      this.changeTimer = null
+      for (const name of this.changedIndexes) this.revisions.set(name, (this.revisions.get(name) ?? 0) + 1)
+      this.changedIndexes.clear()
+      this.allRevision += 1
+      for (const listener of this.changeListeners) listener()
+    }, CHANGE_COALESCE_MS)
   }
 
   private failAll(message: string): void {
@@ -81,7 +111,7 @@ export class NarsilWorkerClient {
           reject(error)
         },
       })
-      this.connect().postMessage(request)
+      this.connect().postMessage(request, { transfer: transferableBuffersIn(args) })
     })
   }
 
@@ -90,6 +120,17 @@ export class NarsilWorkerClient {
     return () => {
       this.progressListeners.delete(listener)
     }
+  }
+
+  onChange(listener: () => void): () => void {
+    this.changeListeners.add(listener)
+    return () => {
+      this.changeListeners.delete(listener)
+    }
+  }
+
+  revisionOf(indexName: string | null): number {
+    return indexName === null ? this.allRevision : (this.revisions.get(indexName) ?? 0)
   }
 }
 

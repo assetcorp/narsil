@@ -3,6 +3,7 @@ import { createFrozenSegment, createSharedFrozenSegment, type FrozenSegment } fr
 import type { PartitionManager } from '../../partitioning/manager'
 import type { BatchResult } from '../../types/results'
 import type { AnyDocument, InsertOptions } from '../../types/schema'
+import type { WorkerAction } from '../../workers/protocol'
 import { BATCH_CHUNK_SIZE, MIN_DOCUMENTS_FOR_SEGMENTS } from '../constants'
 import type { BuiltSegment } from '../orchestration/segments'
 import { insertDocumentVectors } from '../vector-coordinator'
@@ -12,7 +13,7 @@ import { asBatchInsertError } from './insert-admission'
 import { type AdmittedInsert, admitBatchDocuments } from './insert-batch-admission'
 import { applyAdmittedDocuments } from './insert-batch-documents'
 import { recordChunk } from './record-batch'
-import { broadcastBuiltSegments, buildSegmentRequests } from './segment-replication'
+import { buildSegmentRequests, copyActionOfSegment } from './segment-replication'
 import { awaitWriteVisibility } from './write-visibility'
 
 interface IngestOutcome {
@@ -25,24 +26,6 @@ function mainStoreDocument(doc: AdmittedInsert, options: InsertOptions | undefin
   return structuredClone(doc.partitionDoc)
 }
 
-async function replicateDocuments(
-  ctx: MutationContext,
-  indexName: string,
-  docs: AdmittedInsert[],
-  options: InsertOptions | undefined,
-): Promise<void> {
-  for (const doc of docs) {
-    await ctx.orchestrator.replicateToWorkers({
-      type: 'insert',
-      indexName,
-      docId: doc.docId,
-      document: doc.partitionDoc,
-      requestId: `replicate-insert-${doc.docId}`,
-      skipClone: options?.skipClone,
-    })
-  }
-}
-
 async function applyIndividually(
   ctx: MutationContext,
   indexName: string,
@@ -51,20 +34,18 @@ async function applyIndividually(
   failed: BatchResult['failed'],
 ): Promise<IngestOutcome> {
   const applied = await applyAdmittedDocuments(ctx, indexName, admitted, options, failed)
-  const succeededIds = new Set(applied.succeeded)
-  const replicable = admitted.filter(doc => succeededIds.has(doc.docId) && !applied.buffered.has(doc.docId))
-  await replicateDocuments(ctx, indexName, replicable, options)
   return { succeeded: applied.succeeded, touchedVectorFields: applied.touchedVectorFields }
 }
 
 interface SegmentAttachment {
   partitionId: number
   segments: FrozenSegment[]
+  copyAction: WorkerAction | null
   attached: boolean
   failure: unknown
 }
 
-function attachOnce(manager: PartitionManager, attachment: SegmentAttachment): void {
+function attachOnce(ctx: MutationContext, manager: PartitionManager, attachment: SegmentAttachment): void {
   if (attachment.failure !== undefined) throw attachment.failure
   if (attachment.attached) return
   try {
@@ -76,6 +57,7 @@ function attachOnce(manager: PartitionManager, attachment: SegmentAttachment): v
     attachment.failure = error
     throw error
   }
+  if (attachment.copyAction !== null) ctx.orchestrator.recordMainWrite(attachment.copyAction)
 }
 
 function applyOfMergedDocument(
@@ -87,7 +69,7 @@ function applyOfMergedDocument(
 ): () => Promise<void> {
   const manager = ctx.requireManager(indexName)
   const attachToIndex = async (): Promise<void> => {
-    attachOnce(manager, attachment)
+    attachOnce(ctx, manager, attachment)
     progress.applied = true
     try {
       insertDocumentVectors(
@@ -118,10 +100,12 @@ interface SegmentChunk {
 }
 
 function chunksOfWholeSegments(
+  indexName: string,
   built: BuiltSegment[],
   frozen: FrozenSegment[],
   memberIndexes: number[][],
   admitted: AdmittedInsert[],
+  options: InsertOptions | undefined,
 ): SegmentChunk[] {
   const chunks: SegmentChunk[] = []
   let chunk: SegmentChunk = { docs: [], attachmentOf: new Map() }
@@ -129,6 +113,7 @@ function chunksOfWholeSegments(
     const attachment: SegmentAttachment = {
       partitionId: built[i].partitionId,
       segments: [frozen[i]],
+      copyAction: copyActionOfSegment(indexName, built[i], options?.skipClone),
       attached: false,
       failure: undefined,
     }
@@ -153,13 +138,14 @@ async function recordMergedDocuments(
   frozen: FrozenSegment[],
   memberIndexes: number[][],
   admitted: AdmittedInsert[],
+  options: InsertOptions | undefined,
   failed: BatchResult['failed'],
-): Promise<IngestOutcome & { failedDocIds: Set<string> }> {
+): Promise<IngestOutcome> {
   const hasAfterHook = ctx.pluginRegistry.hasHooks('afterInsert')
   const succeededIds = new Set<string>()
   const errorOf = new Map<string, unknown>()
   const touchedVectorFields = new Set<string>()
-  const chunks = chunksOfWholeSegments(built, frozen, memberIndexes, admitted)
+  const chunks = chunksOfWholeSegments(indexName, built, frozen, memberIndexes, admitted, options)
 
   for (let index = 0; index < chunks.length; index++) {
     const { docs, attachmentOf } = chunks[index]
@@ -199,6 +185,8 @@ async function recordMergedDocuments(
 
       succeededIds.add(doc.docId)
     }
+    const roomForCopies = ctx.orchestrator.settleMainWrites(indexName, 'segments')
+    if (roomForCopies !== null) await roomForCopies
 
     if (index + 1 < chunks.length) {
       ctx.checkHeapPressure(indexName)
@@ -207,45 +195,15 @@ async function recordMergedDocuments(
   }
 
   const succeeded: string[] = []
-  const failedDocIds = new Set<string>()
   for (const doc of admitted) {
     if (succeededIds.has(doc.docId)) {
       succeeded.push(doc.docId)
       continue
     }
     if (!errorOf.has(doc.docId)) continue
-    failedDocIds.add(doc.docId)
     failed.push({ docId: doc.docId, error: asBatchInsertError(errorOf.get(doc.docId)) })
   }
-  return { succeeded, touchedVectorFields, failedDocIds }
-}
-
-async function broadcastSegments(
-  ctx: MutationContext,
-  indexName: string,
-  built: BuiltSegment[],
-  memberIndexes: number[][],
-  admitted: AdmittedInsert[],
-  failedDocIds: Set<string>,
-  options: InsertOptions | undefined,
-): Promise<string[]> {
-  const clean: BuiltSegment[] = []
-  const retryDocs: AdmittedInsert[] = []
-
-  for (let i = 0; i < built.length; i++) {
-    const members = memberIndexes[i].map(m => admitted[m])
-    if (members.some(doc => failedDocIds.has(doc.docId))) {
-      retryDocs.push(...members.filter(doc => !failedDocIds.has(doc.docId)))
-      continue
-    }
-    clean.push(built[i])
-  }
-
-  if (clean.length > 0) {
-    await broadcastBuiltSegments(ctx.orchestrator, indexName, clean, options?.skipClone)
-  }
-  await replicateDocuments(ctx, indexName, retryDocs, options)
-  return clean.map(segment => segment.segmentId)
+  return { succeeded, touchedVectorFields }
 }
 
 function frozenSegmentOf(
@@ -315,22 +273,7 @@ async function ingestAdmitted(
   for (const doc of admitted) {
     if (manager.has(doc.docId)) return applyIndividually(ctx, indexName, admitted, options, failed)
   }
-  const segmentIds = built.map(segment => segment.segmentId)
-  ctx.orchestrator.holdUnbroadcastSegments(indexName, segmentIds)
-
-  const recorded = await recordMergedDocuments(ctx, indexName, built, frozen, memberIndexes, admitted, failed)
-  const broadcast = await broadcastSegments(
-    ctx,
-    indexName,
-    built,
-    memberIndexes,
-    admitted,
-    recorded.failedDocIds,
-    options,
-  )
-  ctx.orchestrator.releaseUnbroadcastSegments(indexName, broadcast)
-
-  return { succeeded: recorded.succeeded, touchedVectorFields: recorded.touchedVectorFields }
+  return recordMergedDocuments(ctx, indexName, built, frozen, memberIndexes, admitted, options, failed)
 }
 
 export async function insertBatchViaSegments(
