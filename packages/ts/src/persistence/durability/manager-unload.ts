@@ -1,6 +1,7 @@
 import type { DurableDirectory } from './durable-filesystem'
 import { drainIndexStateForUnload, type IndexState } from './manager-state'
 import type { MetadataWriteQueue } from './metadata-write-queue'
+import { removeQueryHistoryOf } from './query-history'
 import type { IndexDurabilityHooks } from './types'
 
 export interface IndexUnloadDeps {
@@ -32,6 +33,7 @@ export function createIndexUnloading(deps: IndexUnloadDeps): IndexUnloading {
       for (const key of await directory.list(`${indexName}/`)) {
         await directory.remove(key)
       }
+      await removeQueryHistoryOf({ kind: 'directory', directory }, indexName)
       deps.forgetSyncState(indexName)
     },
 

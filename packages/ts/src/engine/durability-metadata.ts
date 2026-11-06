@@ -6,6 +6,7 @@ import type {
   IndexEmbeddingMetadata,
   IndexMetadata,
   PendingAnalysisMetadata,
+  StoredQuerySuggestions,
   StoredSyncSetting,
 } from '../types/internal'
 import type { BM25FieldParams, PartitionConfig, ScoringMode, VectorIndexConfig } from '../types/schema'
@@ -46,6 +47,7 @@ export interface MetadataConfig {
   sync?: StoredSyncSetting
   syncActive?: boolean
   syncEpoch?: string
+  querySuggestions?: StoredQuerySuggestions
 }
 
 const VECTOR_TYPE = /^vector\[(\d+)\]$/
@@ -155,6 +157,7 @@ export function metadataFromConfig(
   if (config.sync !== undefined) metadata.sync = config.sync
   if (config.syncActive !== undefined) metadata.syncActive = config.syncActive
   if (config.syncEpoch !== undefined) metadata.syncEpoch = config.syncEpoch
+  if (config.querySuggestions !== undefined) metadata.querySuggestions = config.querySuggestions
   return metadata
 }
 
@@ -196,6 +199,7 @@ export function metadataConfigOf(entry: IndexRegistryEntry): MetadataConfig {
     ...(entry.config.patternValueLimit !== undefined ? { patternValueLimit: entry.config.patternValueLimit } : {}),
     ...(entry.synonyms !== null ? { synonyms: rulesOfStoredSynonyms(entry.synonyms) } : {}),
     ...syncMetadataOf(entry),
+    ...(entry.querySuggestions !== null ? { querySuggestions: entry.querySuggestions } : {}),
   }
 }
 

@@ -21,5 +21,6 @@ export interface DataNodeHandlerDeps {
   snapshotSpoolDirectory?: string
   isBootstrapSynced?: (indexName: string, partitionId: number) => boolean
   backups?: BackupPrimary
+  answerQueryCounts?: (message: TransportMessage, respond: RespondFn) => Promise<void>
   onError?: (error: unknown) => void
 }

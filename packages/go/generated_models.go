@@ -245,6 +245,10 @@ type CreateBackupBody struct {
 	// The backup's name, from 1 to 128 letters, digits, `.`, `_`, and `-`, starting with a letter or a
 	// digit.
 	Backup string `json:"backup"`
+	// Set this to true to add every node's popular query suggestion history of the index to the backup.
+	// The history holds the scrambled text of what people searched for, and the backup keeps it after
+	// `retentionDays` ends.
+	QueryHistory *bool `json:"queryHistory,omitempty"`
 }
 
 // CreateIndexEmbedding: How a JSON `createIndex` request connects an index to an embedding adapter. An
@@ -1069,6 +1073,22 @@ type LivenessResponse struct {
 	Status string `json:"status"`
 }
 
+// ManualQuerySuggestion: A suggestion that a caller adds by hand.
+type ManualQuerySuggestion struct {
+	// The group whose suggestions index takes the phrase.
+	Group string `json:"group"`
+	// The phrase, which the engine normalises.
+	Query string `json:"query"`
+	// The count that ranks the phrase. Defaults to 0.
+	Count *float64 `json:"count,omitempty"`
+}
+
+// ManualSuggestionResponse: The answer of `POST /indexes/{name}/query-suggestions/manual`.
+type ManualSuggestionResponse struct {
+	// The suggestions index that holds the phrase.
+	IndexName string `json:"indexName"`
+}
+
 // MemoryStatsResponse: The body `GET /stats/memory` answers with, which is the engine's MemoryStats
 // plus the number of worker threads the server receives requests on. Only the server can report that
 // count, because it starts those threads.
@@ -1288,6 +1308,12 @@ type ProcessMemoryReport struct {
 	Rss float64 `json:"rss"`
 }
 
+// QueryBansBody: The body of `GET` and of `PUT /indexes/{name}/query-suggestions/bans`.
+type QueryBansBody struct {
+	// The banned phrases, at most 1,000, which the engine normalises.
+	Bans []string `json:"bans"`
+}
+
 // QueryCoverage: How much of an index one search read, which is what you check before you trust a
 // count or a ranking. An embedded engine reads every partition it holds, so `queriedPartitions`
 // matches `totalPartitions` there and the other two stay zero. A search across a cluster may find a
@@ -1305,6 +1331,114 @@ type QueryCoverage struct {
 	FailedPartitions float64 `json:"failedPartitions"`
 }
 
+// QuerySuggestionPreviewEntry: One phrase that a build would publish.
+type QuerySuggestionPreviewEntry struct {
+	// The group whose suggestions index would hold the phrase.
+	Group string `json:"group"`
+	// The normalised phrase.
+	Query string `json:"query"`
+	// The number of people whose searches the counts hold.
+	Count float64 `json:"count"`
+}
+
+// QuerySuggestionsBuild: One build of the suggestions of an index.
+type QuerySuggestionsBuild struct {
+	// The ID of the build.
+	BuildID string `json:"buildId"`
+	// What started the build.
+	Trigger QuerySuggestionsBuildTrigger `json:"trigger"`
+	// Where the build stands. One of `running`, `failed`, `completed`, `skipped`.
+	Status string `json:"status"`
+	// When the build started, in milliseconds since the Unix epoch.
+	StartedAt float64 `json:"startedAt"`
+	// When the build ended, or null while it runs.
+	EndedAt *float64 `json:"endedAt"`
+	// The phrases that the build added or updated.
+	Published float64 `json:"published"`
+	// The phrases that the build removed.
+	Removed float64 `json:"removed"`
+	// The phrases that the build left out because the merge held its limit.
+	Discarded float64 `json:"discarded"`
+	// The error code of a failed build, or null.
+	ErrorCode *string `json:"errorCode"`
+}
+
+// QuerySuggestionsBuildTrigger: What started a build.
+type QuerySuggestionsBuildTrigger string
+
+const (
+	QuerySuggestionsBuildTriggerSchedule QuerySuggestionsBuildTrigger = "schedule"
+	QuerySuggestionsBuildTriggerMissed   QuerySuggestionsBuildTrigger = "missed"
+	QuerySuggestionsBuildTriggerCaller   QuerySuggestionsBuildTrigger = "caller"
+)
+
+// QuerySuggestionsPreview: What the next build would publish: the phrases that enough people searched
+// for, that match enough documents, and that fall in a group the build keeps.
+type QuerySuggestionsPreview struct {
+	// The phrases, most counted first.
+	Entries []QuerySuggestionPreviewEntry `json:"entries"`
+	// True where the list stops at the limit that the caller passed while more phrases wait to be checked.
+	Truncated bool `json:"truncated"`
+}
+
+// QuerySuggestionsSetting: The popular query suggestions setting of one index. Only `enabled` and
+// `fields` are required, and each limit that you leave out takes its default.
+type QuerySuggestionsSetting struct {
+	// Set this to true to count searches for the index and build its suggestions.
+	Enabled bool `json:"enabled"`
+	// The `string` and `string[]` fields whose text a phrase must match before the engine publishes it.
+	Fields []string `json:"fields"`
+	// The number of people, from 2 to 4,096, who must search a phrase before the engine publishes it.
+	// Defaults to 4.
+	MinPeople *float64 `json:"minPeople,omitempty"`
+	// The number of documents, from 1 to 10,000, that a phrase must match with every word. Defaults to 5.
+	MinResults *float64 `json:"minResults,omitempty"`
+	// The number of days, from 1 to 365, that the engine keeps the counts of a day. Defaults to 30.
+	RetentionDays *float64 `json:"retentionDays,omitempty"`
+	// The number of phrases, up to 16,384, that a node counts for the index each day. Defaults to 10,000.
+	MaxPhrasesPerDay *float64 `json:"maxPhrasesPerDay,omitempty"`
+	// The number of phrases, up to 1,000, that a node counts for one person each day. Defaults to 100.
+	MaxPhrasesPerPerson *float64 `json:"maxPhrasesPerPerson,omitempty"`
+	// The number of people, up to 100,000, that a node counts for the index each day. Defaults to 100,000.
+	MaxPeoplePerDay *float64 `json:"maxPeoplePerDay,omitempty"`
+	// The number of groups, up to 1,000, that the index counts. Defaults to 100.
+	MaxGroups *float64 `json:"maxGroups,omitempty"`
+	// The number of letters that a phrase must hold. Defaults to 4.
+	MinLetters *float64 `json:"minLetters,omitempty"`
+	// The number of characters, up to 150, that a phrase may hold. Defaults to 100.
+	MaxLength *float64 `json:"maxLength,omitempty"`
+	// The number of words, up to 50, that a phrase may hold. Defaults to 8.
+	MaxWords *float64 `json:"maxWords,omitempty"`
+	// The number of digits that a phrase may hold in total. Defaults to 5.
+	MaxDigits *float64 `json:"maxDigits,omitempty"`
+	// The number of phrases, up to 500,000, that one build merges. Defaults to 100,000.
+	MaxMergePhrases *float64 `json:"maxMergePhrases,omitempty"`
+	// The memory, from 16 MiB to 1 GiB, of the worker that merges the counts. Defaults to 128 MiB.
+	MergeMemoryBytes *float64 `json:"mergeMemoryBytes,omitempty"`
+	// How often, from 1 second to 1 hour, a node saves the counts of the day. Defaults to 5 minutes.
+	SaveIntervalMs *float64 `json:"saveIntervalMs,omitempty"`
+	// The number of result checks, up to 1,000, that a build runs each second. Defaults to 20.
+	ResultChecksPerSecond *float64 `json:"resultChecksPerSecond,omitempty"`
+	// A cron expression of five fields, or `off`. Defaults to `0 3 * * *`.
+	Schedule *string `json:"schedule,omitempty"`
+	// The IANA time zone of `schedule`. Defaults to `UTC`.
+	TimeZone *string `json:"timeZone,omitempty"`
+}
+
+// QuerySuggestionsStatus: The setting, the last build, and the next scheduled build of one index.
+type QuerySuggestionsStatus struct {
+	// The index.
+	IndexName string `json:"indexName"`
+	// The setting, or null where nobody set one.
+	Setting *QuerySuggestionsSetting `json:"setting"`
+	// The last build, or null where none ran.
+	LastBuild *QuerySuggestionsBuild `json:"lastBuild"`
+	// When the schedule next matches, in milliseconds since the Unix epoch, or null where it is off.
+	NextBuildAt *float64 `json:"nextBuildAt"`
+	// The suggestions index of each group that holds one.
+	SuggestionIndexes []string `json:"suggestionIndexes"`
+}
+
 // ReadinessResponse: The body of `GET /readyz` and `GET /health`, which the server sends with status
 // 200 while it is ready and with status 503 while it is not.
 type ReadinessResponse struct {
@@ -1318,6 +1452,49 @@ type ReadinessResponse struct {
 type RebalanceBody struct {
 	// The index moves to this many partitions, which must be a positive whole number.
 	TargetPartitionCount *float64 `json:"targetPartitionCount,omitempty"`
+}
+
+// RecordQueryBody: The body of `POST /indexes/{name}/query-suggestions/record`. The server takes the
+// person and the group from its `identify` function, so the body carries the search alone.
+type RecordQueryBody struct {
+	// The search that the person followed with a click.
+	Query string `json:"query"`
+}
+
+// RecordQueryOutcome: Why a node counted no search, or `recorded` where it counted one.
+type RecordQueryOutcome string
+
+const (
+	RecordQueryOutcomeRecorded     RecordQueryOutcome = "recorded"
+	RecordQueryOutcomeRepeat       RecordQueryOutcome = "repeat"
+	RecordQueryOutcomeInvalid      RecordQueryOutcome = "invalid"
+	RecordQueryOutcomeBanned       RecordQueryOutcome = "banned"
+	RecordQueryOutcomePersonLimit  RecordQueryOutcome = "person-limit"
+	RecordQueryOutcomePhraseLimit  RecordQueryOutcome = "phrase-limit"
+	RecordQueryOutcomePeopleLimit  RecordQueryOutcome = "people-limit"
+	RecordQueryOutcomeGroupLimit   RecordQueryOutcome = "group-limit"
+	RecordQueryOutcomeNoKey        RecordQueryOutcome = "no-key"
+	RecordQueryOutcomeUnidentified RecordQueryOutcome = "unidentified"
+)
+
+// RecordQueryResult: What QuerySuggestions.recordQuery did with one search.
+type RecordQueryResult struct {
+	// True where the node counted the search.
+	Recorded bool `json:"recorded"`
+	// Why the node counted it or left it out.
+	Outcome RecordQueryOutcome `json:"outcome"`
+}
+
+// RemoveQueryBody: The body of `POST /indexes/{name}/query-suggestions/remove`.
+type RemoveQueryBody struct {
+	// The phrase to ban and to remove from every suggestions index of the index.
+	Query string `json:"query"`
+}
+
+// RemoveQueryResponse: The answer of `POST /indexes/{name}/query-suggestions/remove`.
+type RemoveQueryResponse struct {
+	// The number of suggestions indexes that held the phrase.
+	SuggestionIndexes float64 `json:"suggestionIndexes"`
 }
 
 // ReplicationFactorBody: The body that `PUT /indexes/{name}/replication-factor` takes.
@@ -1614,6 +1791,8 @@ type TaskRecord struct {
 	Steps *TaskStepProgress `json:"steps,omitempty"`
 	// What the work produced, which an `import` or `importExport` task reports once it finishes.
 	Result *ImportResult `json:"result,omitempty"`
+	// The build that a `querySuggestionsBuild` task ran, once it ends.
+	Build *QuerySuggestionsBuild `json:"build,omitempty"`
 	// This says why the task failed, and a failed task alone carries it.
 	Error *ErrorDetail `json:"error,omitempty"`
 }
@@ -1645,16 +1824,17 @@ type TaskStepProgress struct {
 type TaskType string
 
 const (
-	TaskTypeOptimizeVectors TaskType = "optimizeVectors"
-	TaskTypeRebalance       TaskType = "rebalance"
-	TaskTypeRestore         TaskType = "restore"
-	TaskTypeImport          TaskType = "import"
-	TaskTypeImportExport    TaskType = "importExport"
-	TaskTypeRebuildAnalysis TaskType = "rebuildAnalysis"
-	TaskTypeChangeAnalysis  TaskType = "changeAnalysis"
-	TaskTypeBackup          TaskType = "backup"
-	TaskTypeBackupRestore   TaskType = "backupRestore"
-	TaskTypeBackupDelete    TaskType = "backupDelete"
+	TaskTypeOptimizeVectors       TaskType = "optimizeVectors"
+	TaskTypeRebalance             TaskType = "rebalance"
+	TaskTypeRestore               TaskType = "restore"
+	TaskTypeImport                TaskType = "import"
+	TaskTypeImportExport          TaskType = "importExport"
+	TaskTypeRebuildAnalysis       TaskType = "rebuildAnalysis"
+	TaskTypeChangeAnalysis        TaskType = "changeAnalysis"
+	TaskTypeBackup                TaskType = "backup"
+	TaskTypeBackupRestore         TaskType = "backupRestore"
+	TaskTypeBackupDelete          TaskType = "backupDelete"
+	TaskTypeQuerySuggestionsBuild TaskType = "querySuggestionsBuild"
 )
 
 // TwoWaySynonymRule: A two-way rule makes every word in `words` a synonym of every other word in the

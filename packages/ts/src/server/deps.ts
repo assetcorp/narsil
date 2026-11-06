@@ -1,6 +1,7 @@
 import type { ClusterNamespace } from '../distribution/cluster-node/types'
 import type { Narsil } from '../narsil'
 import type { TaskRegistry } from './tasks'
+import type { ServerQuerySuggestionsOptions } from './types'
 
 export interface ResolvedLimits {
   maxBodyBytes: number
@@ -35,4 +36,5 @@ export interface HandlerDeps {
   build: ResolvedBuild
   cluster: ClusterNamespace | undefined
   requestThreadCount: () => number
+  querySuggestions: ServerQuerySuggestionsOptions | undefined
 }

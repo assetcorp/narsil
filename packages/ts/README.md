@@ -132,6 +132,7 @@ Every hit holds the document, its id, and its BM25 score. Beside the hits, `resu
 | [Cluster mode](https://github.com/assetcorp/narsil/blob/main/docs/cluster.md) | Multi-node indexes: nodes and roles, replication, routed writes, distributed searches and reads, and the calls that fail in a cluster |
 | [Client](https://github.com/assetcorp/narsil/blob/main/docs/client.md) | Reaching a server from a browser or Node, following a task, and the codes it raises |
 | [Device sync](https://github.com/assetcorp/narsil/blob/main/docs/device-sync.md) | A copy of one index on a device that searches and writes offline, the sync routes, conflicts, and the snapshot |
+| [Popular query suggestions](https://github.com/assetcorp/narsil/blob/main/docs/query-suggestions.md) | Whole searches that people ran and clicked, counted per person, built into a suggestions index, and the privacy trade-offs |
 | [React](https://github.com/assetcorp/narsil/blob/main/docs/react.md) | The hooks over a client or an engine in the page, one shared request per key, and loading a corpus from a component |
 | [Observability](https://github.com/assetcorp/narsil/blob/main/docs/observability.md) | Plugin hooks, engine events, and memory reporting |
 | [Errors](https://github.com/assetcorp/narsil/blob/main/docs/errors.md) | The codes you handle most often, and the three sets that `NarsilError.code` covers |

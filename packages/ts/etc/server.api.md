@@ -100,6 +100,7 @@ export interface CorsOptions {
 // @public
 export interface CreateBackupBody {
     backup: string;
+    queryHistory?: boolean;
 }
 
 // @public
@@ -201,6 +202,7 @@ export const ErrorCodes: {
     readonly SYNC_NOT_READY: "SYNC_NOT_READY";
     readonly SYNC_NOT_ENABLED: "SYNC_NOT_ENABLED";
     readonly SYNC_SNAPSHOT_PREPARING: "SYNC_SNAPSHOT_PREPARING";
+    readonly QUERY_SUGGESTIONS_NOT_ENABLED: "QUERY_SUGGESTIONS_NOT_ENABLED";
     readonly SEARCH_INVALID_FIELD: "SEARCH_INVALID_FIELD";
     readonly VECTOR_DIMENSION_MISMATCH: "VECTOR_DIMENSION_MISMATCH";
     readonly SEARCH_INVALID_FILTER: "SEARCH_INVALID_FILTER";
@@ -395,18 +397,30 @@ export interface HttpWireTypes {
     ListParams: ListParams;
     ListResult: ListResult;
     LivenessResponse: LivenessResponse;
+    ManualQuerySuggestion: ManualQuerySuggestion;
+    ManualSuggestionResponse: ManualSuggestionResponse;
     MemoryStatsResponse: MemoryStatsResponse;
     MultiGetBody: MultiGetBody;
     MultiGetResponse: MultiGetResponse;
     OkResponse: OkResponse;
     PartitionConfig: PartitionConfig;
     PreflightResult: PreflightResult;
+    QueryBansBody: QueryBansBody;
+    QuerySuggestionsPreview: QuerySuggestionsPreview;
+    QuerySuggestionsPreviewQuery: QuerySuggestionsPreviewQuery;
+    QuerySuggestionsSetting: QuerySuggestionsSetting;
+    QuerySuggestionsStatus: QuerySuggestionsStatus;
     ReadinessResponse: ReadinessResponse;
     RebalanceBody: RebalanceBody;
+    RecordQueryBody: RecordQueryBody;
+    RecordQueryResult: RecordQueryResult;
     RemoveDocumentQuery: RemoveDocumentQuery;
+    RemoveQueryBody: RemoveQueryBody;
+    RemoveQueryResponse: RemoveQueryResponse;
     ReplicationFactorBody: ReplicationFactorBody;
     ReplicationFactorResponse: ReplicationFactorResponse;
     RestoreBackupBody: RestoreBackupBody;
+    SnapshotQuery: SnapshotQuery;
     SuggestParams: SuggestParams;
     SuggestResult: SuggestResult;
     SyncSetting: SyncSetting;
@@ -502,6 +516,11 @@ export interface LivenessResponse {
 }
 
 // @public
+export interface ManualSuggestionResponse {
+    indexName: string;
+}
+
+// @public
 export interface MemoryStatsResponse extends MemoryStats {
     requestThreads: number;
 }
@@ -557,6 +576,19 @@ export interface PartitionAllocationReport {
 }
 
 // @public
+export interface QueryBansBody {
+    bans: string[];
+}
+
+// @public
+export type QueryIdentity = Pick<RecordedQuery, 'person' | 'group'>;
+
+// @public
+export interface QuerySuggestionsPreviewQuery {
+    limit?: number;
+}
+
+// @public
 export interface ReadinessResponse {
     cluster?: ClusterNodeReport;
     status: 'ready' | 'unavailable';
@@ -571,8 +603,23 @@ export interface RebalanceBody {
 export const REBUILD_ANALYSIS_CAPABILITY = "indexes.rebuildAnalysis";
 
 // @public
+export interface RecordQueryBody {
+    query: string;
+}
+
+// @public
 export interface RemoveDocumentQuery {
     wait?: 'true' | 'false';
+}
+
+// @public
+export interface RemoveQueryBody {
+    query: string;
+}
+
+// @public
+export interface RemoveQueryResponse {
+    suggestionIndexes: number;
 }
 
 // @public
@@ -669,9 +716,15 @@ export interface ServerOptions {
     limits?: ServerLimits;
     onRequest?: OnRequestHook;
     port?: number;
+    querySuggestions?: ServerQuerySuggestionsOptions;
     rerankAdapters?: Record<string, RerankAdapter>;
     sync?: boolean | ServerSyncOptions;
     taskStore?: TaskStore;
+}
+
+// @public
+export interface ServerQuerySuggestionsOptions {
+    identify(ctx: RequestContext): QueryIdentity | null | Promise<QueryIdentity | null>;
 }
 
 // @public
@@ -680,6 +733,11 @@ export interface ServerSyncOptions {
     maxCatchUps?: number;
     maxConnections?: number;
     windowBytes?: number;
+}
+
+// @public
+export interface SnapshotQuery {
+    queryHistory?: 'true' | 'false';
 }
 
 // @public
@@ -698,6 +756,7 @@ export const TASK_FILTER_CAPABILITY = "tasks.filter";
 
 // @public
 export interface TaskContext {
+    reportBuild(build: QuerySuggestionsBuild): void;
     reportProgress(progress: TaskProgress): void;
     reportResult(result: ImportResult): void;
     reportSteps(steps: TaskStepProgress): void;
@@ -736,6 +795,7 @@ export interface TaskProgress {
 // @public
 export interface TaskRecord {
     backupName?: string;
+    build?: QuerySuggestionsBuild;
     cancelRequestedAt?: number;
     completedAt?: number;
     createdAt: number;
@@ -770,7 +830,7 @@ export interface TaskStore {
 }
 
 // @public
-export type TaskType = 'optimizeVectors' | 'rebalance' | 'restore' | 'import' | 'importExport' | 'rebuildAnalysis' | 'changeAnalysis' | 'backup' | 'backupRestore' | 'backupDelete';
+export type TaskType = 'optimizeVectors' | 'rebalance' | 'restore' | 'import' | 'importExport' | 'rebuildAnalysis' | 'changeAnalysis' | 'backup' | 'backupRestore' | 'backupDelete' | 'querySuggestionsBuild';
 
 // @public
 export interface VectorFieldBody {
