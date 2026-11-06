@@ -81,21 +81,6 @@ export interface QuerySuggestionHooks {
   shutdown(): Promise<void>
 }
 
-async function reloadIndexAndCopies(
-  orchestrator: WorkerOrchestrator,
-  durability: DurabilityIntegration | null,
-  indexName: string,
-): Promise<void> {
-  const manager = durability?.manager
-  if (manager?.reloadIndex === undefined) return
-  const wasScaledOut = orchestrator.desyncIndex(indexName)
-  try {
-    await manager.reloadIndex(indexName)
-  } finally {
-    await orchestrator.resyncIndex(indexName, wasScaledOut)
-  }
-}
-
 export async function createEngineCore(
   config?: NarsilConfig,
   hooks?: EngineCoreHooks,
@@ -281,7 +266,7 @@ export async function createEngineCore(
       emitWriteEventAfter(
         { eventHandlers, mutationCtx },
         indexName,
-        reloadIndexAndCopies(orchestrator, durability, indexName),
+        durabilityWiring?.reloadIndexAndCopies(orchestrator, durability, indexName) ?? Promise.resolve(),
       ),
     onError(error: Error) {
       if (emitEngineEvent(eventHandlers, 'invalidationError', { error }) === 0) {
