@@ -3,10 +3,14 @@ import type { ExpandedTermGroup } from '../../../types/internal'
 import type { LanguageModule } from '../../../types/language'
 import type { PartialWordSearch } from '../../../types/partial-words'
 import type { AnyDocument } from '../../../types/schema'
+import type { NativeRunTable, NativeSpellingTable } from '../../../vector/native/types/segments'
 import type { DocumentStoreReader } from '../../document-store'
+import type { GrowingSegment } from '../../segment-writes/growing'
+import type { SpellingTable } from '../../segment-writes/spelling-table'
+import type { StringPlan } from '../../segment-writes/strings'
 import type { FrozenTokenTable } from '../frozen/token-table'
 import type { PartitionReadState } from '../read-state'
-import type { PartialSpellings, PartialWordAnalysis, SpellingCounts } from './spellings'
+import type { PartialSpellings, PartialWordAnalysis, ReadonlySpellingCounts, SpellingCounts } from './spellings'
 
 export interface PartialWordProbe {
   readonly text: string
@@ -22,11 +26,13 @@ export interface PartialWordReader {
 }
 
 export interface PartialWordTableReader extends PartialWordReader {
-  entryOf(spelling: string): number
+  entryOf(spelling: string, token?: string): number
 }
 
 export interface PartialWordSlot {
   readerFor(analysis: PartialWordAnalysis): PartialWordReader | null
+  growingRegions?(): NativeSpellingTable | null
+  removalState?(): { table: PartialWordTableData; removed: Uint32Array } | null
   spellings(): PartialSpellings | null
   bytes(): number
 }
@@ -74,10 +80,12 @@ export interface GrowingPartialWordView {
 }
 
 export interface GrowingPartialWordSlot extends PartialWordSlot {
+  adopt(segment: GrowingSegment, fields: readonly string[]): void
+  detach(): void
   afterDocument(
     fields: readonly string[],
     internalId: number,
-    spellings: SpellingCounts | null,
+    spellings: ReadonlySpellingCounts | null,
     direction: 1 | -1,
   ): void
   afterMerge(spellings: PartialSpellings | null, internalIds: readonly number[]): void
@@ -92,12 +100,18 @@ export interface FrozenPartialWordDocuments {
 }
 
 export interface FrozenPartialWordSlot extends PartialWordSlot {
-  afterRemoval(ordinal: number): void
+  tokenForSpelling(spelling: string): string | undefined
+  removalState(): { table: PartialWordTableData; removed: Uint32Array } | null
+  prepareRemoval(ordinal: number, spellings?: ReadonlySpellingCounts | null): () => void
   tableOfEveryDocument(analysis: PartialWordAnalysis): PartialWordTableData | null
   countKeptSpellings(counts: SpellingCounts, analysis: PartialWordAnalysis, mergedOrdinals: Int32Array): void
 }
 
 export interface PartialWordSearchModule extends PartialWordSearch {
+  createSpellingTable(): SpellingTable
+  prepareSpellingRuns(table: NativeRunTable, plan: StringPlan): () => void
+  prepareSpellingRemoval(table: NativeRunTable, plan: StringPlan): () => void
+  prepareSpellingVacuum(table: NativeRunTable, mapping: Uint32Array): () => void
   createGrowingSlot(view: GrowingPartialWordView): GrowingPartialWordSlot
   createFrozenSlot(
     initial: PartialWordTableData | null,

@@ -22,14 +22,16 @@ async function replaceNow(core: EngineCore, indexName: string, value: unknown, s
     entry.synonyms = previous
     throw err
   }
-  const current =
-    manager.analysis === preparedUnder ? prepared : prepareSynonyms(value, entry.config, entry.language, false)
-  manager.synonyms = current?.lookup ?? null
-  await core.orchestrator.replicateToWorkers({
-    type: 'replaceSynonyms',
-    indexName,
-    requestId: `replace-synonyms-${indexName}`,
-    ...(prepared !== null ? { synonyms: prepared.encoded } : {}),
+  await manager.publication.write(() => {
+    const current =
+      manager.analysis === preparedUnder ? prepared : prepareSynonyms(value, entry.config, entry.language, false)
+    manager.synonyms = current?.lookup ?? null
+    core.orchestrator.publishToWorkers({
+      type: 'replaceSynonyms',
+      indexName,
+      requestId: `replace-synonyms-${indexName}`,
+      ...(current !== null ? { synonyms: current.encoded } : {}),
+    })
   })
   await core.orchestrator.awaitWrites(indexName)
   if (core.requireIndex(indexName).sync !== null) emitSyncChange(core.indexRegistry, { kind: 'settings', indexName })

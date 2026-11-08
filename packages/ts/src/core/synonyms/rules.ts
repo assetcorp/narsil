@@ -1,4 +1,5 @@
-import { decode, encode } from '@msgpack/msgpack'
+import { encode } from '@msgpack/msgpack'
+import { decode } from '../../serialization/msgpack'
 import type { SynonymRule } from '../../types/synonyms'
 import {
   MAX_SYNONYM_RULE_WORDS,
