@@ -280,6 +280,10 @@ A response must carry one error bound per field it counts, and that figure is th
 
 Each data node groups its own matches and returns, per group, the group's field values and its best `maxPerGroup` entries, in the order the query orders hits. The coordinator merges groups whose field values are equal in field order, merges each merged group's entries with the K-way merge, truncates them to `maxPerGroup`, orders the groups by their first entry, score then document ID, and truncates the list to `group.limit` where the query sets one.
 
+Each data node and the coordinator must compare group field values by the same equality rules as [Groups](../native-core.md#groups), including the equality of NaN numbers and the distinction between a number and null.
+
+A sorted query must order entries within each group by sort values and then document ID, whether or not the caller requests scores. Each data node must preserve the raw relevance scores in its grouped replies, and the coordinator must preserve them through merging, group ordering, and reducer calls. `includeScores` controls their presence in the public sorted response alone, so changing it must change neither group membership nor entry order, group order, or reducer inputs. Where `includeScores` is not true, the implementation must omit scores from both the page hits and the grouped hits only when it assembles that public sorted response. It must use 0 for a genuinely absent score when ordering groups or calling a reducer.
+
 With no `group.limit`, every node returns every group and the merged groups are exact. With one, each node returns its top `ceiling(limit * 1.5) + 10` groups, oversampling the way [Distributed Facets](#distributed-facets) do, so a merged group's entries can miss members held by a node where the group fell below that bound.
 
 A group reducer is a function, so only the coordinator's own process calls it. Where a query sets a reducer, the coordinator must request up to 10,000 entries of each group from every data node, and it must fold the reducer over every entry of each merged group before it truncates the entries to the caller's `maxPerGroup`. The HTTP server must reject `group.reduce`. For a hybrid query, the coordinator groups the results of the text fan-out alone, as it does when it counts facets.
@@ -350,6 +354,8 @@ Phase 2:
 HNSW search is approximate, so each node returns its best local candidates and the coordinator picks the global best from among them.
 
 ### Distributed Hybrid Search
+
+A data node must select and order each ranked hybrid leg by [Score Order](../algorithms.md#score-order) before it truncates that leg. The coordinator must merge each leg under that same order before it applies the global candidate limit. Both must preserve the scores, including NaN, until fusion applies the rules of the selected strategy.
 
 A request routes as hybrid when it carries a vector and either a term or `mode: 'hybrid'`; an absent `hybrid` config fuses with RRF and its defaults. A hybrid request that leaves `hybrid.depth` out, carries no `rerank`, and carries a cursor is rejected with `SEARCH_INVALID_CURSOR`, because fused ranks do not seek. A reranked request pages by the cursor that [Reranking](../algorithms.md#reranking) defines, because its coordinator ranks the first stage without the cursor. A hybrid request that sets `hybrid.depth` may carry a cursor, because the coordinator finds each page by its position d + offset in the fused list, as [Hybrid Search](../vector-index.md#hybrid-search) defines.
 

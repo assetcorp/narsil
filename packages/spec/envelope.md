@@ -680,6 +680,7 @@ A persistence adapter addresses stored bytes by string key:
 |-----|---------|
 | `<indexName>/meta` | Index metadata |
 | `<indexName>/manifest` | Checkpoint segment manifest |
+| `<indexName>/layout-transition` | An unfinished partition-layout transition |
 | `<indexName>/segments/<partitionId>/s<segmentId>` | One checkpoint segment, id zero-padded to 16 digits |
 | `<indexName>/segments/vec-<fieldKey>-f<fileId>` | One vector file of one vector field for the whole index, file id zero-padded to 16 digits |
 | `<indexName>/segments/vec-<fieldKey>-graph-g<generation>-p<part>` | One graph part of one vector field for the whole index at one generation, part number zero-padded to 16 digits |
