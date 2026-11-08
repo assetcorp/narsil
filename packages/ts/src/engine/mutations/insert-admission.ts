@@ -17,10 +17,9 @@ export function providedDocId(document: AnyDocument): string | undefined {
   return typeof id === 'string' && id.length > 0 ? id : undefined
 }
 
-export function requireDocumentObject(document: unknown): void {
+export function requireDocumentObject(document: unknown): Promise<void> | null {
   if (document !== null && typeof document === 'object' && !Array.isArray(document)) {
-    requireDocumentWithinSizeLimit(document as Record<string, unknown>)
-    return
+    return requireDocumentWithinSizeLimit(document as Record<string, unknown>)
   }
   const received = Array.isArray(document) ? 'a list' : document === null ? 'null' : `a ${typeof document}`
   throw new NarsilError(

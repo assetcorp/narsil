@@ -4,6 +4,7 @@ import { countsWithoutScores, fanOutMatchCount } from '../../partitioning/match-
 import { loadCursorPageFor } from '../../search/cursor-page-code'
 import { loadFacetMergesFor } from '../../search/facets'
 import { loadGroupingFor } from '../../search/grouping-code'
+import { loadMessagePackForStoredValues } from '../../search/object-values'
 import { loadPhraseCodeFor } from '../../search/phrase-code'
 import { loadPinningFor } from '../../search/pinning-code'
 import { loadSortingFor } from '../../search/sorting-code'
@@ -63,7 +64,7 @@ export function executeQuery<T = AnyDocument>(
   request: QueryParams,
   callerContext: PinnedQueryContext,
 ): Promise<QueryResult<T>> {
-  const loading = loadQueryCode(request)
+  const loading = loadQueryCode(request) ?? loadMessagePackForStoredValues(request, callerContext.config)
   if (loading !== null) return loading.then(() => executeQuery<T>(request, callerContext))
   if (request.rerank === undefined) return runQuery<T>(request, callerContext, callerContext.pin)
   const runtime = loadedRerankRuntime()
@@ -86,6 +87,8 @@ export async function executePreflight(
 ): Promise<PreflightResult> {
   const loading = loadQueryCode(request)
   if (loading !== null) await loading
+  const storedValueCode = loadMessagePackForStoredValues(request, callerContext.config)
+  if (storedValueCode !== null) await storedValueCode
   const context = withPatternWork(callerContext)
   const { manager, language, config, workerSearch, indexName } = context
   const startTime = now()

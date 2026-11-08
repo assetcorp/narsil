@@ -1,8 +1,7 @@
 import { createNarsilClient } from '../../client/client'
 import type { RequestOptions } from '../../client/options'
 import { ErrorCodes, NarsilError } from '../../errors'
-import { encodeDocument } from '../../serialization/document-encoding'
-import { decode } from '../../serialization/msgpack'
+import { loadedMessagePack, loadMessagePack, type MessagePackCode } from '../../serialization/msgpack-code'
 import type { AnyDocument } from '../../types/schema'
 import { SYNC_CLOSE_CREDENTIAL_EXPIRED, SYNC_CLOSE_RESYNC } from '../protocol'
 import { RECONNECT_MIN_DELAY_MS, RETRY_MAX_DELAY_MS, SNAPSHOT_RETRY_DELAY_MS } from './constants'
@@ -45,11 +44,11 @@ function validated(options: DeviceSyncOptions): void {
   }
 }
 
-function copyOf(document: AnyDocument): AnyDocument {
+function copyOf(code: MessagePackCode, document: AnyDocument): AnyDocument {
   if (document === null || typeof document !== 'object' || Array.isArray(document)) {
     throw new NarsilError(ErrorCodes.DOC_VALIDATION_FAILED, 'A document must be an object')
   }
-  return decode(encodeDocument(document)) as AnyDocument
+  return code.decode(code.encodeDocument(document)) as AnyDocument
 }
 
 function requireDocumentId(documentId: string): void {
@@ -221,7 +220,8 @@ export function createDeviceSync(options: DeviceSyncOptions): DeviceSync {
 
   async function write(documentId: string, document: AnyDocument | null): Promise<void> {
     requireDocumentId(documentId)
-    const copy = document === null ? null : copyOf(document)
+    const code = loadedMessagePack() ?? (await loadMessagePack())
+    const copy = document === null ? null : copyOf(code, document)
     await requireRecovered()
     await context.work.run(async () => {
       const queued = await store.appendWrite({ documentId, document: copy })
@@ -257,7 +257,7 @@ export function createDeviceSync(options: DeviceSyncOptions): DeviceSync {
       if (!stopped) return
       stopped = false
       aborts = new AbortController()
-      recovered ??= progress.recover()
+      recovered ??= loadMessagePack().then(() => progress.recover())
       try {
         await recovered
       } catch (error) {

@@ -83,9 +83,11 @@ const codeBuilds: Options[] = [
     ...shared,
     entry: {
       'index.browser': 'src/index.ts',
+      'pattern.browser': 'src/pattern/index.ts',
       'partial-words.browser': 'src/partial-words/index.ts',
       'synonyms.browser': 'src/synonyms/index.ts',
       'sync.browser': 'src/sync/device/index.ts',
+      'sync/indexeddb.browser': 'src/sync/device/stores/indexeddb.ts',
       'query-suggestions.browser': 'src/query-suggestions/index.ts',
     },
     dts: false,

@@ -1,4 +1,5 @@
 import type { OptionalCodeHost } from '../engine/optional-code-host'
+import type * as MsgpackCode from '../serialization/msgpack-leaf'
 import type * as SuggestionStoreCode from './store-leaf'
 
 type EngineNames = Pick<
@@ -9,14 +10,13 @@ type EngineNames = Pick<
   | 'SUGGESTIONS_INDEX_INFIX'
   | 'compareCodePoints'
   | 'createEngineIndex'
-  | 'decode'
   | 'emitEngineEvent'
   | 'emitWriteEventAfter'
-  | 'encode'
   | 'loadDigest'
   | 'spawnNodeWorker'
   | 'withOpenIndex'
 >
+type MsgpackNames = Pick<typeof MsgpackCode, 'decode' | 'encode'>
 type SuggestionStoreNames = Pick<
   typeof SuggestionStoreCode,
   | 'BUILD_LIST_PAGE'
@@ -75,13 +75,13 @@ export type NarsilError = InstanceType<EngineNames['NarsilError']>
 export let SUGGESTIONS_INDEX_INFIX: EngineNames['SUGGESTIONS_INDEX_INFIX']
 export let compareCodePoints: EngineNames['compareCodePoints']
 export let createEngineIndex: EngineNames['createEngineIndex']
-export let decode: EngineNames['decode']
 export let emitEngineEvent: EngineNames['emitEngineEvent']
 export let emitWriteEventAfter: EngineNames['emitWriteEventAfter']
-export let encode: EngineNames['encode']
 export let loadDigest: EngineNames['loadDigest']
 export let spawnNodeWorker: EngineNames['spawnNodeWorker']
 export let withOpenIndex: EngineNames['withOpenIndex']
+export let decode: MsgpackNames['decode']
+export let encode: MsgpackNames['encode']
 export let BUILD_LIST_PAGE: SuggestionStoreNames['BUILD_LIST_PAGE']
 export let BUILD_WRITE_BATCH: SuggestionStoreNames['BUILD_WRITE_BATCH']
 export let BYTES_PER_MIB: SuggestionStoreNames['BYTES_PER_MIB']
@@ -132,7 +132,11 @@ export let sameBytes: SuggestionStoreNames['sameBytes']
 export let validateSetting: SuggestionStoreNames['validateSetting']
 export let withState: SuggestionStoreNames['withState']
 
-export function bindSuggestionsHost(host: EngineNames, suggestionStore: SuggestionStoreNames): void {
+export function bindSuggestionsHost(
+  host: EngineNames,
+  msgpack: MsgpackNames,
+  suggestionStore: SuggestionStoreNames,
+): void {
   ;({
     ErrorCodes,
     GROUP_FORMAT,
@@ -140,14 +144,13 @@ export function bindSuggestionsHost(host: EngineNames, suggestionStore: Suggesti
     SUGGESTIONS_INDEX_INFIX,
     compareCodePoints,
     createEngineIndex,
-    decode,
     emitEngineEvent,
     emitWriteEventAfter,
-    encode,
     loadDigest,
     spawnNodeWorker,
     withOpenIndex,
   } = host)
+  ;({ decode, encode } = msgpack)
   ;({
     BUILD_LIST_PAGE,
     BUILD_WRITE_BATCH,

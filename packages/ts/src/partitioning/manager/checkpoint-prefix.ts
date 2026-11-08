@@ -1,4 +1,4 @@
-import { RebalanceCheckpointHeld } from '../checkpoint-hold'
+import { rebalanceCheckpointHeld } from '../checkpoint-hold'
 import type { WriteAheadQueue } from '../write-ahead-queue'
 import type { PartitionManager } from './types'
 
@@ -42,7 +42,7 @@ export async function captureAppliedPrefix<T>(
     const captured = await manager.publication.read(async () => {
       if (queue !== queues.get(manager) || (queue?.provisional ?? 0) > 0) return undefined
       queue?.requireSuccess()
-      if (heldLayouts.has(manager)) throw new RebalanceCheckpointHeld()
+      if (heldLayouts.has(manager)) throw rebalanceCheckpointHeld()
       return { value: await capture(queue?.checkpointCutoffs(manager.partitionCount) ?? new Map()) }
     })
     if (captured !== undefined) return captured.value

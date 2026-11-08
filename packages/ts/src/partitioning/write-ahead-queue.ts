@@ -2,7 +2,7 @@ import { DEFAULT_WRITE_AHEAD_QUEUE_MAX_SIZE, ErrorCodes, NarsilError } from '#pl
 import type { RemovedSpellings } from '../core/partition/frozen/surface-slot'
 import type { PreparedTextChange } from '../core/partition/prepared-text'
 import type { AnyDocument } from '../types/schema'
-import { RebalanceCheckpointHeld } from './checkpoint-hold'
+import { rebalanceCheckpointHeld } from './checkpoint-hold'
 
 export interface BufferedMutation {
   action: 'insert' | 'remove' | 'update'
@@ -168,7 +168,7 @@ export function createWriteAheadQueue(maxSize = DEFAULT_WRITE_AHEAD_QUEUE_MAX_SI
         const position = entry.durability
         if (position === undefined) continue
         if (position.partitionCount !== partitionCount) {
-          throw new RebalanceCheckpointHeld()
+          throw rebalanceCheckpointHeld()
         }
         const previous = cutoffs.get(position.partitionId)
         cutoffs.set(position.partitionId, Math.min(previous ?? position.seqNo - 1, position.seqNo - 1))

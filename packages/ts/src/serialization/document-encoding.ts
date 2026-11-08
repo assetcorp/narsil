@@ -1,13 +1,11 @@
 import { Encoder, encode } from '@msgpack/msgpack'
-import { ErrorCodes, NarsilError } from '../errors'
 import {
   DOCUMENT_ENCODER_RETAINED_BUFFER_BYTES,
   DOCUMENT_REPLY_ENVELOPE_DEPTH,
+  ErrorCodes,
   MAX_DOCUMENT_ENCODING_DEPTH,
-} from './constants'
-
-const INTEGER_ENCODING = { maxDepth: MAX_DOCUMENT_ENCODING_DEPTH }
-const FLOAT_ENCODING = { maxDepth: MAX_DOCUMENT_ENCODING_DEPTH, forceIntegerToFloat: true }
+  NarsilError,
+} from '#platform/msgpack-host'
 
 let integerEncoder: Encoder | undefined
 let floatEncoder: Encoder | undefined
@@ -15,10 +13,10 @@ let floatEncoder: Encoder | undefined
 function encodeExactly(document: unknown, forceIntegerToFloat: boolean): Uint8Array {
   let encoder: Encoder
   if (forceIntegerToFloat) {
-    floatEncoder ??= new Encoder(FLOAT_ENCODING)
+    floatEncoder ??= new Encoder({ maxDepth: MAX_DOCUMENT_ENCODING_DEPTH, forceIntegerToFloat: true })
     encoder = floatEncoder
   } else {
-    integerEncoder ??= new Encoder(INTEGER_ENCODING)
+    integerEncoder ??= new Encoder({ maxDepth: MAX_DOCUMENT_ENCODING_DEPTH })
     encoder = integerEncoder
   }
   const bytes = encoder.encode(document)

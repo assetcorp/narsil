@@ -1,5 +1,5 @@
 import { ErrorCodes, NarsilError } from '../../errors'
-import { encodeDocument } from '../../serialization/document-encoding'
+import { loadedMessagePack, loadMessagePack, type MessagePackCode } from '../../serialization/msgpack-code'
 import { MAX_DOCUMENT_BYTES, MAX_DOCUMENT_NESTING_DEPTH } from '../constants'
 
 const LARGEST_HEADER_BYTES = 5
@@ -35,17 +35,26 @@ export function messagePackUpperBoundBytes(value: unknown): number {
   return upperBoundBytes(value, Number.POSITIVE_INFINITY, 0)
 }
 
-function encodedBytesOf(document: Record<string, unknown>): number | null {
+function encodedBytesOf(code: MessagePackCode, document: Record<string, unknown>): number | null {
   try {
-    return encodeDocument(document).byteLength
+    return code.encodeDocument(document).byteLength
   } catch {
     return null
   }
 }
 
-export function requireDocumentWithinSizeLimit(document: Record<string, unknown>): void {
-  if (upperBoundBytes(document, MAX_DOCUMENT_BYTES, 0) <= MAX_DOCUMENT_BYTES) return
-  const encodedBytes = encodedBytesOf(document)
+export function requireDocumentWithinSizeLimit(document: Record<string, unknown>): Promise<void> | null {
+  if (upperBoundBytes(document, MAX_DOCUMENT_BYTES, 0) <= MAX_DOCUMENT_BYTES) return null
+  const code = loadedMessagePack()
+  if (code !== null) {
+    requireEncodedDocumentWithinSizeLimit(code, document)
+    return null
+  }
+  return loadMessagePack().then(loaded => requireEncodedDocumentWithinSizeLimit(loaded, document))
+}
+
+function requireEncodedDocumentWithinSizeLimit(code: MessagePackCode, document: Record<string, unknown>): void {
+  const encodedBytes = encodedBytesOf(code, document)
   if (encodedBytes === null || encodedBytes <= MAX_DOCUMENT_BYTES) return
   throw new NarsilError(
     ErrorCodes.DOC_VALIDATION_FAILED,

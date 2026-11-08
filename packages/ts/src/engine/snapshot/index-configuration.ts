@@ -1,14 +1,17 @@
-import { encode } from '@msgpack/msgpack'
 import { ARRAY_POSITION_GAP } from '../../core/constants'
 import { compareCodePoints } from '../../core/ordering'
 import { ErrorCodes, NarsilError } from '../../errors'
 import { messagePackUpperBoundBytes } from '../../schema/validator/document-size'
+import { loadedMessagePack, loadMessagePack } from '../../serialization/msgpack-code'
 import type { LanguageModule } from '../../types/language'
 import type { IndexConfig } from '../../types/schema'
 import type { SynonymRule } from '../../types/synonyms'
 import { MAX_INDEX_CONFIGURATION_BYTES } from '../constants'
 
-export function requireConfigurationWithinSizeLimit(config: IndexConfig, language: LanguageModule): void {
+export function oversizedConfigurationPayloadOf(
+  config: IndexConfig,
+  language: LanguageModule,
+): Record<string, unknown> | null {
   const adapter = config.embedding?.adapter
   const payload = configurationPayloadOf(
     config,
@@ -17,14 +20,27 @@ export function requireConfigurationWithinSizeLimit(config: IndexConfig, languag
     language.revision,
     ARRAY_POSITION_GAP,
   )
-  if (messagePackUpperBoundBytes(payload) <= MAX_INDEX_CONFIGURATION_BYTES) return
-  const bytes = encode(payload).byteLength
+  return messagePackUpperBoundBytes(payload) <= MAX_INDEX_CONFIGURATION_BYTES ? null : payload
+}
+
+export function requireEncodedConfigurationWithinSizeLimit(bytes: number): void {
   if (bytes <= MAX_INDEX_CONFIGURATION_BYTES) return
   throw new NarsilError(
     ErrorCodes.CONFIG_INVALID,
     `The index configuration takes ${bytes} bytes as MessagePack, but an index configuration may take at most ${MAX_INDEX_CONFIGURATION_BYTES}`,
     { bytes, maximum: MAX_INDEX_CONFIGURATION_BYTES },
   )
+}
+
+export function configurationWithinSizeLimit(config: IndexConfig, language: LanguageModule): Promise<void> | null {
+  const payload = oversizedConfigurationPayloadOf(config, language)
+  if (payload === null) return null
+  const code = loadedMessagePack()
+  if (code !== null) {
+    requireEncodedConfigurationWithinSizeLimit(code.encode(payload).byteLength)
+    return null
+  }
+  return loadMessagePack().then(loaded => requireEncodedConfigurationWithinSizeLimit(loaded.encode(payload).byteLength))
 }
 
 export function configurationPayloadOf(

@@ -1,7 +1,6 @@
 import { ErrorCodes, NarsilError } from '../../errors'
 import type { Narsil } from '../../narsil'
-import { encodeDocument } from '../../serialization/document-encoding'
-import { decode } from '../../serialization/msgpack'
+import { requireLoadedMessagePack } from '../../serialization/msgpack-code'
 import type { AnyDocument } from '../../types/schema'
 import type { KeptEntry, QueuedWrite } from './types'
 
@@ -46,7 +45,7 @@ async function holdsSameDocument(
 ): Promise<boolean> {
   const held = await engine.get(indexName, documentId)
   if (encoded === null || held === undefined) return encoded === null && held === undefined
-  return bytesEqual(encodeDocument(held), encoded)
+  return bytesEqual(requireLoadedMessagePack().encodeDocument(held), encoded)
 }
 
 export async function applyEntryLocally(engine: Narsil, indexName: string, entry: KeptEntry): Promise<void> {
@@ -54,7 +53,8 @@ export async function applyEntryLocally(engine: Narsil, indexName: string, entry
   if (entry.document === null) {
     await removeLocally(engine, indexName, entry.documentId)
   } else {
-    await putLocally(engine, indexName, entry.documentId, decode(entry.document) as AnyDocument)
+    const document = requireLoadedMessagePack().decode(entry.document) as AnyDocument
+    await putLocally(engine, indexName, entry.documentId, document)
   }
 }
 
@@ -63,7 +63,8 @@ export async function applyWriteLocally(engine: Narsil, indexName: string, write
     await removeLocally(engine, indexName, write.documentId)
     return
   }
-  if (await holdsSameDocument(engine, indexName, write.documentId, encodeDocument(write.document))) return
+  const encoded = requireLoadedMessagePack().encodeDocument(write.document)
+  if (await holdsSameDocument(engine, indexName, write.documentId, encoded)) return
   await putLocally(engine, indexName, write.documentId, write.document)
 }
 

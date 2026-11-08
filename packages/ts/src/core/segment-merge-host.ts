@@ -1,4 +1,5 @@
 import type { OptionalCodeHost } from '../engine/optional-code-host'
+import type * as MsgpackCode from '../serialization/msgpack-leaf'
 import type * as SegmentCodecCode from './segment-codec-leaf'
 
 export { LivePostings } from '#platform/live-postings'
@@ -41,4 +42,8 @@ export { SegmentRefusal } from './segment-writes/status'
 export { storedText } from './stored-values/text'
 export { createSurfaceRegistry } from './surface-registry'
 
-export function bindSegmentMergeHost(_host: OptionalCodeHost, _segmentCodec: typeof SegmentCodecCode): void {}
+export function bindSegmentMergeHost(
+  _host: OptionalCodeHost,
+  _msgpack: typeof MsgpackCode,
+  _segmentCodec: typeof SegmentCodecCode,
+): void {}

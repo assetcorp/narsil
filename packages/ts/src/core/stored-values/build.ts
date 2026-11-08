@@ -1,5 +1,5 @@
 import { ErrorCodes, NarsilError } from '../../errors'
-import { encodeDocument } from '../../serialization/document-encoding'
+import { requireLoadedMessagePack } from '../../serialization/msgpack-code'
 import type { NativeStoredValues } from '../../vector/native/types/stored-values'
 
 const ORDINAL_LIMIT = 0xffffffff
@@ -60,7 +60,7 @@ export function buildStoredValues(values: readonly unknown[]): NativeStoredValue
       textLength[at] = value.length
       unitCount = checkedCount(unitCount + value.length)
     } else if (kinds[at] === 5) {
-      const bytes = encodeDocument(value)
+      const bytes = requireLoadedMessagePack().encodeDocument(value)
       textStart[at] = byteCount
       textLength[at] = bytes.length
       byteCount = checkedCount(byteCount + bytes.length)

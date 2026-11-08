@@ -54,6 +54,37 @@ function queueClause(list: unknown, depth: number, pending: PendingExpression[])
   return false
 }
 
+function collectTextRangeFields(fields: unknown, found: string[]): boolean {
+  if (fields === ACCESSOR) return false
+  if (typeof fields !== 'object' || fields === null) return true
+  for (const fieldPath of Object.keys(fields)) {
+    if (fieldTestHoldsTextRange(peek(fields, fieldPath))) found.push(fieldPath)
+  }
+  return true
+}
+
+export function textRangeFieldsOf(filters: FilterExpression | null | undefined): string[] | null {
+  const found: string[] = []
+  if (filters === undefined || filters === null) return found
+  const pending: PendingExpression[] = [{ expression: filters, depth: 0 }]
+  const seen = new Set<object>()
+  while (pending.length > 0) {
+    const next = pending.pop()
+    if (next === undefined) break
+    const { expression, depth } = next
+    if (expression === ACCESSOR) return null
+    if (typeof expression !== 'object' || expression === null) continue
+    if (depth > MAX_FILTER_DEPTH || seen.has(expression)) continue
+    seen.add(expression)
+    if (!collectTextRangeFields(peek(expression, 'fields'), found)) return null
+    for (const clause of NESTED_CLAUSES) {
+      if (queueClause(peek(expression, clause), depth + 1, pending)) return null
+    }
+    pending.push({ expression: peek(expression, 'not'), depth: depth + 1 })
+  }
+  return found
+}
+
 export function filtersHoldTextRange(filters: FilterExpression | null | undefined): boolean {
   if (filters === undefined || filters === null) return false
   const pending: PendingExpression[] = [{ expression: filters, depth: 0 }]

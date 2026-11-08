@@ -1,4 +1,5 @@
 import { ErrorCodes, NarsilError } from '../../../errors'
+import { loadMessagePack } from '../../../serialization/msgpack-code'
 import { DEFAULT_INDEXEDDB_DEVICE_STORE_NAME } from '../constants'
 import type { DeviceSyncStore, KeptEntry, QueuedWrite, SavedDownload } from '../types'
 import {
@@ -55,6 +56,7 @@ function countOf(value: unknown, fallback: number): number {
  * @public
  */
 export async function createIndexedDBDeviceStore(config?: IndexedDBDeviceStoreConfig): Promise<DeviceSyncStore> {
+  await loadMessagePack()
   const database = await openDeviceDatabase(config?.databaseName ?? DEFAULT_INDEXEDDB_DEVICE_STORE_NAME)
   const serial = createSerial()
   let closed = false

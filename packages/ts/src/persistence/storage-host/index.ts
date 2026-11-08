@@ -2,6 +2,7 @@ import type * as SegmentCodecCode from '../../core/segment-codec-leaf'
 import type * as SegmentMergeCode from '../../core/segment-merge-leaf'
 import type { OptionalCodeHost } from '../../engine/optional-code-host'
 import type * as SuggestionStoreCode from '../../query-suggestions/store-leaf'
+import type * as MsgpackCode from '../../serialization/msgpack-leaf'
 import type * as VectorCoreCode from '../../vector/core-leaf'
 import type * as DigestCode from '../durability/digest-leaf'
 
@@ -74,7 +75,11 @@ export { toError } from '../../engine/orchestration/eligibility'
 export { yieldToEventLoop } from '../../engine/orchestration/turn'
 export { reconstructSchemaFromMetadata } from '../../engine/recovery-schema'
 export { withOpenIndex } from '../../engine/serial-index-update'
-export { configurationPayloadOf, requireConfigurationWithinSizeLimit } from '../../engine/snapshot/index-configuration'
+export {
+  configurationPayloadOf,
+  oversizedConfigurationPayloadOf,
+  requireEncodedConfigurationWithinSizeLimit,
+} from '../../engine/snapshot/index-configuration'
 export { oneSyncChangeAtATime } from '../../engine/sync/serial'
 export { holdSyncEpochChange } from '../../engine/sync-epoch'
 export { emitSyncChange } from '../../engine/sync-notify'
@@ -172,6 +177,7 @@ export { sha256 } from '../durability/sha256'
 export function bindStorageHost(
   _host: OptionalCodeHost,
   _digest: typeof DigestCode,
+  _msgpack: typeof MsgpackCode,
   _segmentCodec: typeof SegmentCodecCode,
   _segmentMerge: typeof SegmentMergeCode,
   _suggestionStore: typeof SuggestionStoreCode,

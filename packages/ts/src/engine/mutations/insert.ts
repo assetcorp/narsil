@@ -48,7 +48,8 @@ export async function insertDocument(
     }
   }
 
-  requireDocumentWithinSizeLimit(document as Record<string, unknown>)
+  const sizing = requireDocumentWithinSizeLimit(document as Record<string, unknown>)
+  if (sizing !== null) await sizing
   const insertManager = ctx.requireManager(indexName)
   admitInsert(ctx, indexName, insertManager, resolvedDocId)
   const insertVecIndexes = insertManager.getVectorIndexes()

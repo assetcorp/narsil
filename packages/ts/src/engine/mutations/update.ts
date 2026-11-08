@@ -149,7 +149,8 @@ async function prepareUpdate(
     }
   }
 
-  requireDocumentWithinSizeLimit(document as Record<string, unknown>)
+  const sizing = requireDocumentWithinSizeLimit(document as Record<string, unknown>)
+  if (sizing !== null) await sizing
   const vecIndexes = manager.getVectorIndexes()
   const extractedVectors = new Map<string, Float32Array | null>()
   if (vecIndexes.size > 0) {

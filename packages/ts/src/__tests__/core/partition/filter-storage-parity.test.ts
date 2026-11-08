@@ -12,6 +12,7 @@ import type { SegmentPayload } from '../../../core/partition/segment-payload'
 import { deserializePartition, serializePartition } from '../../../core/partition/serialization'
 import { keepsValueSize } from '../../../core/partition/value-sizes'
 import { createPatternWorkMeter } from '../../../core/pattern-index/work-meter'
+import { importOptionalReads } from '../../../engine/optional-reads-code'
 import { loadGeoCode } from '../../../geo/geo-code'
 import { flattenSchema } from '../../../schema/validator'
 import { parsedTypeOf } from '../../../schema/validator/field-type'
@@ -138,7 +139,7 @@ function storageAnswers(): {
   return { current, answers, states }
 }
 
-await Promise.all([loadGeoCode(), loadSortingFor(undefined, {})])
+await Promise.all([loadGeoCode(), loadSortingFor([]), importOptionalReads()])
 
 describe('a filter answered from every way that a partition holds its documents', () => {
   const { current, answers, states } = storageAnswers()

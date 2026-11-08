@@ -1,6 +1,5 @@
-import { encode } from '@msgpack/msgpack'
 import { ErrorCodes, NarsilError } from '../../../errors'
-import { decode } from '../../../serialization/msgpack'
+import { requireLoadedMessagePack } from '../../../serialization/msgpack-code'
 import type { AnyDocument } from '../../../types/schema'
 import { isSyncEpoch } from '../../epoch'
 import type { DevicePosition, KeptEntry, QueuedWrite } from '../types'
@@ -22,8 +21,16 @@ function isCount(value: unknown): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
 }
 
+function encode(value: unknown, ignoreUndefined = false): Uint8Array {
+  return requireLoadedMessagePack().encode(value, { ignoreUndefined })
+}
+
+function decode(bytes: Uint8Array): unknown {
+  return requireLoadedMessagePack().decode(bytes)
+}
+
 export function encodeQueueRecord(record: QueueRecord): Uint8Array {
-  return encode(record, { ignoreUndefined: true })
+  return encode(record, true)
 }
 
 export function decodeQueueRecord(bytes: Uint8Array): QueueRecord {

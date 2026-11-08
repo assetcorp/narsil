@@ -1,0 +1,5 @@
+export { encode } from '@msgpack/msgpack'
+export { bindMsgpackHost } from '#platform/msgpack-host'
+export { encodeDocument } from './document-encoding'
+export { Decoder, decode, decodeMulti } from './msgpack'
+export { headerAt, MAP_TAGS } from './msgpack-header'

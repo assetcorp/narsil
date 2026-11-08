@@ -1,4 +1,5 @@
 import type { OptionalCodeHost } from '../engine/optional-code-host'
+import type * as MsgpackCode from '../serialization/msgpack-leaf'
 
 type EngineNames = Pick<
   OptionalCodeHost,
@@ -11,10 +12,10 @@ type EngineNames = Pick<
   | 'VERSION'
   | 'dropEngineIndex'
   | 'emitWriteEventAfter'
-  | 'encode'
   | 'flattenSchema'
   | 'loadSuggestionsCode'
 >
+type MsgpackNames = Pick<typeof MsgpackCode, 'encode'>
 
 export let CHECKSUM_YIELD_CHUNK_BYTES: EngineNames['CHECKSUM_YIELD_CHUNK_BYTES']
 export let ErrorCodes: EngineNames['ErrorCodes']
@@ -26,11 +27,11 @@ export type NarsilError = InstanceType<EngineNames['NarsilError']>
 export let VERSION: EngineNames['VERSION']
 export let dropEngineIndex: EngineNames['dropEngineIndex']
 export let emitWriteEventAfter: EngineNames['emitWriteEventAfter']
-export let encode: EngineNames['encode']
 export let flattenSchema: EngineNames['flattenSchema']
 export let loadSuggestionsCode: EngineNames['loadSuggestionsCode']
+export let encode: MsgpackNames['encode']
 
-export function bindSuggestionStoreHost(host: EngineNames): void {
+export function bindSuggestionStoreHost(host: EngineNames, msgpack: MsgpackNames): void {
   ;({
     CHECKSUM_YIELD_CHUNK_BYTES,
     ErrorCodes,
@@ -41,8 +42,8 @@ export function bindSuggestionStoreHost(host: EngineNames): void {
     VERSION,
     dropEngineIndex,
     emitWriteEventAfter,
-    encode,
     flattenSchema,
     loadSuggestionsCode,
   } = host)
+  ;({ encode } = msgpack)
 }

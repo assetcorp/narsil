@@ -1,4 +1,3 @@
-import { encode } from '@msgpack/msgpack'
 import { nodeThreadId } from '#platform/node-worker'
 import { readResidentMemory } from '#platform/process-limit'
 import { mergePostings } from '#platform/segment-merges'
@@ -29,7 +28,6 @@ import { messagePackUpperBoundBytes } from '../../schema/validator/document-size
 import { partialFieldsOf, requireValidFieldTypes } from '../../schema/validator/schema'
 import { isQuantizationMode, isStorageMode } from '../../schema/validator/vector-promotion'
 import { VALID_HNSW_METRICS } from '../../serialization/constants'
-import { decodeMulti } from '../../serialization/msgpack'
 import { storedArrayPositionGap } from '../array-positions'
 import {
   ANALYSIS_CHANGE_MEMBERS,
@@ -44,7 +42,11 @@ import {
   STATISTICS_BROADCAST_INTERVAL_MS,
 } from '../constants'
 import { emitEngineEvent } from '../events'
-import { configurationPayloadOf, requireConfigurationWithinSizeLimit } from '../snapshot/index-configuration'
+import {
+  configurationPayloadOf,
+  oversizedConfigurationPayloadOf,
+  requireEncodedConfigurationWithinSizeLimit,
+} from '../snapshot/index-configuration'
 import { holdSyncEpochChange } from '../sync-epoch'
 import { prepareConfiguredSynonyms, rulesOfStoredSynonyms } from '../synonym-sets'
 
@@ -74,9 +76,7 @@ export function storageHostPart() {
     createPartitionManager,
     createPartitionRouter,
     createPublicationGate,
-    decodeMulti,
     emitEngineEvent,
-    encode,
     holdSyncEpochChange,
     isQuantizationMode,
     isStorageMode,
@@ -85,6 +85,7 @@ export function storageHostPart() {
     mergePostings,
     messagePackUpperBoundBytes,
     nodeThreadId,
+    oversizedConfigurationPayloadOf,
     parseVectorDimension,
     partialFieldsOf,
     partitionStateOf,
@@ -93,7 +94,7 @@ export function storageHostPart() {
     prepareRemovalText,
     readResidentMemory,
     removedSurfaceSpellings,
-    requireConfigurationWithinSizeLimit,
+    requireEncodedConfigurationWithinSizeLimit,
     requireSearchActive,
     requireValidFieldTypes,
     resolveIndexAnalysis,

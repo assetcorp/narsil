@@ -1,4 +1,5 @@
 import type { OptionalCodeHost } from '../engine/optional-code-host'
+import type * as MsgpackCode from '../serialization/msgpack-leaf'
 import type * as SuggestionStoreCode from './store-leaf'
 
 export { encode } from '@msgpack/msgpack'
@@ -52,4 +53,8 @@ export { latestMatchAtOrBefore, nextMatchAfter, parseSchedule } from './schedule
 export { invalidSetting, requireFieldsInSchema, resolveSetting, validateSetting } from './setting'
 export { withState } from './stored-state'
 
-export function bindSuggestionsHost(_host: OptionalCodeHost, _suggestionStore: typeof SuggestionStoreCode): void {}
+export function bindSuggestionsHost(
+  _host: OptionalCodeHost,
+  _msgpack: typeof MsgpackCode,
+  _suggestionStore: typeof SuggestionStoreCode,
+): void {}
