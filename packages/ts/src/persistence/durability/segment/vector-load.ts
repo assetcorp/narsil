@@ -8,6 +8,7 @@ import {
   HEADER_SIZE,
   NarsilError,
   openChecksummedEnvelope,
+  osqBitsOf,
 } from '#platform/storage-host'
 import type { VectorIndex } from '../../../vector/vector-index'
 import type {
@@ -15,6 +16,8 @@ import type {
   VectorGraphPartPayload,
   VectorGraphParts,
 } from '../../../vector/vector-index/checkpoint-payload'
+import { openColdVectorField } from '../../paged/cold-field'
+import { loadFilesByParts, waitBeforeColdLoad } from '../../paged/cold-load'
 import type { FileRef, VectorFieldRef, VectorFileRef } from './manifest'
 import { type CheckpointStore, readListedFile, requireListedChecksum, requireListedSize } from './store'
 
@@ -98,7 +101,6 @@ async function loadFieldOnDemand(
 ): Promise<boolean> {
   const { pathOf } = store
   if (pathOf === undefined || vectorIndex.storage !== 'disk' || !holdsEveryHead(ref)) return false
-  const { loadFilesByParts, openColdVectorField, osqBitsOf, waitBeforeColdLoad } = await import('../../storage-leaf')
   await Promise.all([
     ...ref.files.map(file => requireListedSize(store, file.key, { bytes: file.bytes, what: 'vector file' })),
     ...ref.graphParts.map(part => requireListedSize(store, part.key, { bytes: part.bytes, what: 'graph part' })),

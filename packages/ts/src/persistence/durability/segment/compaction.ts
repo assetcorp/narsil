@@ -3,6 +3,7 @@ import type { FrozenSegment } from '../../../core/partition/frozen'
 import type { TextAnalysis } from '../../../core/partition/frozen/surface-slot'
 import type { PartialWordAnalysis } from '../../../core/partition/partial-words/spellings'
 import type { KeywordSegmentContents, SegmentWriteRecords } from '../../../serialization/keyword-segment/types'
+import { mergePagedWindow } from '../../paged/compact'
 import { MERGED_SEGMENT_GROWTH_ALLOWANCE, MERGED_SEGMENT_TARGET_BYTES } from '../../paged/constants'
 import { COMPACTION_LARGEST_MERGED_DOCUMENT_COUNT, SEGMENT_FILE_FRAMING_SLACK_BYTES } from '../constants'
 import type { SegmentRef } from './manifest'
@@ -131,7 +132,6 @@ export async function compactPartitionSegments(input: CompactionInput): Promise<
   if (paged) {
     const { directory } = input.store
     if (directory === undefined) return { segments, nextSegmentId: input.nextSegmentId }
-    const { mergePagedWindow } = await import('../../storage-leaf')
     return replacing(
       await mergePagedWindow({
         store: input.store,

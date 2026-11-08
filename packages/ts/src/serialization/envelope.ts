@@ -3,6 +3,7 @@ import {
   ErrorCodes,
   engineVersionParts,
   HEADER_SIZE,
+  loadGzip,
   NarsilError,
   readHeader,
   writeHeader,
@@ -36,7 +37,7 @@ async function packEnvelope(payloadBytes: Uint8Array, options: EnvelopeOptions):
 
   let finalPayload = payloadBytes
   if (flags.compressionEnabled) {
-    const { gzip } = await import('#platform/gzip')
+    const { gzip } = await loadGzip()
     finalPayload = await gzip(payloadBytes)
   }
 
@@ -114,7 +115,7 @@ async function unpackEnvelope(
   }
 
   if (header.flags.compressionEnabled) {
-    const { gunzip } = await import('#platform/gzip')
+    const { gunzip } = await loadGzip()
     payloadBytes = await gunzip(payloadBytes)
   }
 

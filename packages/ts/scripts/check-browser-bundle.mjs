@@ -239,22 +239,40 @@ async function lazyChunksReachingOtherChunks() {
     }
   }
   const offenders = []
+  const dynamicImporters = []
   for (const [path, output] of Object.entries(outputs)) {
     if (staticallyReached.has(path) || !path.endsWith('.js')) continue
+    const lazyInputs = Object.keys(output.inputs).filter(input => output.inputs[input].bytesInOutput > 0)
+    const described = lazyInputs.length > 0 ? lazyInputs : [path]
     const reachedChunks = output.imports.filter(
       imported => imported.kind === 'import-statement' && outputs[imported.path] !== undefined,
     )
-    if (reachedChunks.length === 0) continue
-    const lazyInputs = Object.keys(output.inputs).filter(input => output.inputs[input].bytesInOutput > 0)
-    offenders.push({
-      lazyInputs: lazyInputs.length > 0 ? lazyInputs : [path],
-      reachedChunks: reachedChunks.map(imported => imported.path),
-    })
+    if (reachedChunks.length > 0) {
+      offenders.push({ lazyInputs: described, reachedChunks: reachedChunks.map(imported => imported.path) })
+    }
+    const dynamicTargets = output.imports.filter(imported => imported.kind === 'dynamic-import')
+    if (dynamicTargets.length > 0) {
+      dynamicImporters.push({ lazyInputs: described, reachedChunks: dynamicTargets.map(imported => imported.path) })
+    }
   }
-  return offenders
+  return { offenders, dynamicImporters }
 }
 
-const offenders = await lazyChunksReachingOtherChunks()
+const { offenders, dynamicImporters } = await lazyChunksReachingOtherChunks()
+if (dynamicImporters.length > 0) {
+  console.error(
+    `FAIL ${dynamicImporters.length} chunk(s) that only a dynamic import reaches hold a dynamic import of their own, so Vite gives each one an import of its preload helper from the app's entry chunk, and an app that awaits the engine at the top level of its entry can wait forever on one:`,
+  )
+  for (const { lazyInputs, reachedChunks } of dynamicImporters) {
+    console.error(`  ${lazyInputs.slice(0, 3).join(', ')}${lazyInputs.length > 3 ? ', ...' : ''}`)
+    console.error(`    loads ${reachedChunks.join(', ')}`)
+  }
+  console.error(
+    'Import a module in the same chunk statically, and have the host pass the lazily loaded module a loader function for any other code, so that every dynamic import stays in start-up code.',
+  )
+  process.exit(1)
+}
+console.log(`ok  every chunk that only a dynamic import reaches holds no dynamic import`)
 if (offenders.length > 0) {
   console.error(
     `FAIL ${offenders.length} chunk(s) that only a dynamic import reaches import another chunk, so an app that awaits the engine at the top level of its entry can wait forever on one under Rollup:`,

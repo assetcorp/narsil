@@ -5,6 +5,7 @@ import { createRebalancer } from '../partitioning/rebalancer'
 import type { PartitionRouter } from '../partitioning/router'
 import { beginDurableRebalance, finishDurableRebalance } from '../partitioning/wal-routing'
 import { createWriteAheadQueue, type WriteAheadQueue } from '../partitioning/write-ahead-queue'
+import { transitionWalLayout } from '../persistence/durability/layout-transition'
 import type { DurabilityManager } from '../persistence/durability/types'
 import type { RewriteSpill } from '../persistence/paged/rewrite-spill'
 import type { PluginRegistry } from '../plugins/registry'
@@ -120,7 +121,6 @@ export async function executeRebalance(
 
     if (registry === undefined) await replayQueued(manager, waq, ctx)
     else {
-      const { transitionWalLayout } = await import('../persistence/storage-leaf')
       const hooks: Array<() => Promise<void>> = []
       await transitionWalLayout(registry, indexName, manager, () => replayQueued(manager, waq, ctx, hooks))
       for (const hook of hooks) await hook()

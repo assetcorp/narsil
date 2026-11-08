@@ -1,6 +1,7 @@
 import { ErrorCodes, NarsilError } from '#platform/storage-host'
 import type { PartitionManager } from '../../../partitioning/manager'
 import type { VectorIndex } from '../../../vector/vector-index'
+import { startReadingOpeningSectionsAhead } from '../../paged/read-ahead'
 import type { PartitionCheckpoint } from '../partition-checkpoint'
 import type { WriteRecordKeeper } from '../types'
 import { manifestKey, segmentsPrefix } from './layout'
@@ -66,7 +67,6 @@ export async function loadSegmentedCheckpoint(
       field.files.some(file => file.headOffset !== undefined),
   )
   if (!decodesEveryDocument && directory !== undefined && opensVectorsOnDemand) {
-    const { startReadingOpeningSectionsAhead } = await import('../../storage-leaf')
     await startReadingOpeningSectionsAhead(directory, manifest)
   }
 

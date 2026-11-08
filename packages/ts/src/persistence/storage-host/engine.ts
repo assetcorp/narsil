@@ -55,6 +55,7 @@ type EngineNames = Pick<
   | 'isQuantizationMode'
   | 'isStorageMode'
   | 'isSyncEpoch'
+  | 'loadGzip'
   | 'loadSchemaCodeFor'
   | 'mergeDocFrequencies'
   | 'mergeKeywordSources'
@@ -169,6 +170,7 @@ export let isCompositePartition: EngineNames['isCompositePartition']
 export let isQuantizationMode: EngineNames['isQuantizationMode']
 export let isStorageMode: EngineNames['isStorageMode']
 export let isSyncEpoch: EngineNames['isSyncEpoch']
+export let loadGzip: EngineNames['loadGzip']
 export let loadSchemaCodeFor: EngineNames['loadSchemaCodeFor']
 export let mergeDocFrequencies: EngineNames['mergeDocFrequencies']
 export let mergeKeywordSources: EngineNames['mergeKeywordSources']
@@ -281,6 +283,7 @@ export function bindEngineNames(host: EngineNames): void {
     isQuantizationMode,
     isStorageMode,
     isSyncEpoch,
+    loadGzip,
     loadSchemaCodeFor,
     mergeDocFrequencies,
     mergeKeywordSources,

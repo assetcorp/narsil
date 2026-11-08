@@ -19,6 +19,7 @@ import type { VectorWorkerCopyPolicy } from '../../vector/vector-index/shared'
 import type { DirectExecutorExtensions } from '../../workers/direct-executor'
 import type { Executor } from '../../workers/executor'
 import type { WorkerAction, WorkerHitReads } from '../../workers/protocol'
+import { transferIndexToPool } from '../worker-resync'
 import {
   awaitCompactions,
   cancelIdleMerge,
@@ -31,7 +32,7 @@ import { isIndexBusy, noteAccess, startIdleSweep, stopIdleSweep } from './idle'
 import { flushGrownTails } from './live-tail'
 import { publishToWorkers } from './publication-code'
 import { trackPublicationStores } from './publication-stores'
-import type { CopyReleaseSteps } from './release'
+import { type CopyReleaseSteps, endCopyRelease, releaseIndexCopies } from './release'
 import { cancelRepair } from './repair'
 import {
   awaitPublicationCapacity,
@@ -212,7 +213,6 @@ export function createWorkerOrchestrator(
     const manager = executor.getManager(indexName)
     if (pool !== null && entry !== undefined && manager !== undefined) {
       try {
-        const { transferIndexToPool } = await import('../worker-copies')
         const copyLoad = await transferIndexToPool(
           indexName,
           pool,
@@ -350,11 +350,9 @@ export function createWorkerOrchestrator(
       if (hold === undefined) state.copyReleaseHolds.set(indexName, { holders: 1, reloads: false })
       else hold.holders += 1
       state.desyncedIndexes.add(indexName)
-      const { releaseIndexCopies } = await import('../worker-copies')
       return releaseIndexCopies(state, indexName, copyReleaseSteps)
     },
     async endCopyRelease(indexName: string, reloads: boolean): Promise<void> {
-      const { endCopyRelease } = await import('../worker-copies')
       await endCopyRelease(state, indexName, reloads, copyReleaseSteps)
     },
     resyncIndex,
