@@ -164,6 +164,50 @@ test('a grant cannot delete or administer its index, reach a dataset, or replace
   expect(noOrigin.status()).toBe(403)
 })
 
+test('a browser whose cookie no longer verifies opens a new empty space and keeps no reach into the old one', async ({
+  browser,
+}) => {
+  const owner = await browser.newContext()
+  const stale = await browser.newContext()
+  try {
+    const first = await mintGrant(owner.request)
+    const upload = await owner.request.put(`${indexPath(first.indexName)}/documents/note`, {
+      headers: { authorization: `Bearer ${first.credential}` },
+      data: { document: NOTE },
+    })
+    expect(upload.ok()).toBe(true)
+    const staleCookie = `${first.cookie.slice(0, -1)}${first.cookie.endsWith('A') ? 'B' : 'A'}`
+    const opened = await stale.request.post(`${E2E_ORIGIN}/api/notes-space`, {
+      headers: { origin: E2E_ORIGIN, cookie: staleCookie },
+      data: {},
+    })
+    expect(opened.status()).toBe(200)
+    const reopened = (await opened.json()) as { space: string; indexName: string }
+    expect(reopened.indexName).not.toBe(first.indexName)
+    expect(reopened.indexName).toBe(`demo-notes-${reopened.space}`)
+    const replacement = opened.headers()['set-cookie']?.split(';')[0]
+    expect(replacement?.startsWith(`narsil-notes-space=${reopened.space}.`)).toBe(true)
+    const granted = await stale.request.post(`${E2E_ORIGIN}/api/sync-grant`, {
+      headers: { origin: E2E_ORIGIN, cookie: replacement ?? '' },
+      data: {},
+    })
+    expect(granted.status()).toBe(200)
+    const grant = (await granted.json()) as { indexName: string; credential: string }
+    expect(grant.indexName).toBe(reopened.indexName)
+    const own = await stale.request.get(`${indexPath(grant.indexName)}/documents/note`, {
+      headers: { authorization: `Bearer ${grant.credential}` },
+    })
+    expect(own.status()).toBe(404)
+    const old = await stale.request.get(`${indexPath(first.indexName)}/documents/note`, {
+      headers: { authorization: `Bearer ${grant.credential}` },
+    })
+    expect(old.status()).toBe(403)
+  } finally {
+    await owner.close()
+    await stale.close()
+  }
+})
+
 test('the proxy and admission hook refuse forged and expired grants on uploads, snapshot reads, and feeds', async ({
   context,
 }) => {
