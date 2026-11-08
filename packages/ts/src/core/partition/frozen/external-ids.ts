@@ -17,7 +17,7 @@ export interface ExternalIdTableData {
   sortedOrdinals: Uint32Array
 }
 
-const decoder = new TextDecoder()
+const decoder = new TextDecoder('utf-8', { ignoreBOM: true })
 
 export function encodeExternalIdTableData(docIds: readonly string[]): ExternalIdTableData {
   const { blob, offsets } = encodeStringBlob(docIds)

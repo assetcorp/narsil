@@ -1,7 +1,6 @@
 import type { PostingListView } from '../../../types/internal'
-import { boundedLevenshtein, fuzzyPrefixOf } from '../../fuzzy'
 import type { InvertedIndexReader, TermSuggestion } from '../../inverted-index'
-import { compareCodePoints } from '../../ordering'
+import { TermLookup } from '../../term-table/lookup'
 import type { FrozenLiveCounts } from './live-counts'
 import type { FrozenPostingViews } from './posting-views'
 import type { FrozenTokenTable } from './token-table'
@@ -11,18 +10,13 @@ export function createFrozenInvertedReader(
   views: FrozenPostingViews,
   counts: FrozenLiveCounts,
 ): InvertedIndexReader {
+  const lookups = new TermLookup()
   function viewAtSorted(sortedIndex: number): PostingListView {
     return views.viewAt(table.payloadSlot(sortedIndex), sortedIndex)
   }
 
   function liveAt(token: string): number {
-    const at = table.find(token)
-    return at < 0 || counts.documentFrequency(at) === 0 ? -1 : at
-  }
-
-  function candidateRange(prefix: string): { start: number; end: number } {
-    if (prefix.length === 0) return { start: 0, end: table.size }
-    return table.firstCharRange(prefix)
+    return lookups.find(counts.dictionary(), token) ?? -1
   }
 
   return {
@@ -32,6 +26,14 @@ export function createFrozenInvertedReader(
       return viewAtSorted(at)
     },
 
+    lookupMany(tokens: readonly string[]): Array<PostingListView | undefined> {
+      const ordinals = lookups.findMany(counts.dictionary(), tokens)
+      const lists = new Array<PostingListView | undefined>(ordinals.length)
+      for (let at = 0; at < ordinals.length; at++)
+        if (ordinals[at] !== 0xffffffff) lists[at] = viewAtSorted(ordinals[at])
+      return lists
+    },
+
     lookupReadOnce(token: string): PostingListView | undefined {
       const at = liveAt(token)
       if (at < 0) return undefined
@@ -39,7 +41,7 @@ export function createFrozenInvertedReader(
     },
 
     documentFrequency(token: string): number {
-      const at = table.find(token)
+      const at = liveAt(token)
       return at < 0 ? 0 : counts.documentFrequency(at)
     },
 
@@ -48,24 +50,9 @@ export function createFrozenInvertedReader(
       tolerance: number,
       prefixLength: number,
     ): Array<{ token: string; postingList: PostingListView }> {
-      if (tolerance === 0) {
-        const at = liveAt(token)
-        return at < 0 ? [] : [{ token, postingList: viewAtSorted(at) }]
-      }
-
-      const prefix = fuzzyPrefixOf(token, prefixLength)
-      const range = candidateRange(prefix)
-      const requiredPrefix = prefix.length > 1 ? prefix : ''
       const results: Array<{ token: string; postingList: PostingListView }> = []
-
-      for (let at = range.start; at < range.end; at++) {
-        const candidate = table.tokenAt(at)
-        if (!candidate.startsWith(requiredPrefix)) continue
-        const { withinTolerance } = boundedLevenshtein(token, candidate, tolerance)
-        if (withinTolerance && counts.documentFrequency(at) > 0) {
-          results.push({ token: candidate, postingList: viewAtSorted(at) })
-        }
-      }
+      for (const at of lookups.typo(counts.dictionary(), token, tolerance, prefixLength))
+        results.push({ token: table.tokenAt(at), postingList: viewAtSorted(at) })
 
       return results
     },
@@ -73,15 +60,12 @@ export function createFrozenInvertedReader(
     prefixSearch(prefix: string, limit: number): TermSuggestion[] {
       if (prefix.length === 0 || limit <= 0) return []
 
-      const range = table.prefixRange(prefix)
       const results: TermSuggestion[] = []
-      for (let at = range.start; at < range.end; at++) {
+      for (const at of lookups.prefix(counts.dictionary(), prefix, limit)) {
         const documentFrequency = counts.documentFrequency(at)
         if (documentFrequency > 0) results.push({ term: table.tokenAt(at), documentFrequency })
       }
 
-      results.sort((a, b) => b.documentFrequency - a.documentFrequency || compareCodePoints(a.term, b.term))
-      if (results.length > limit) results.length = limit
       return results
     },
 

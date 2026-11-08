@@ -75,8 +75,23 @@ export function planKeywordSlots(
 ): PlannedLists {
   planned.labels.length = 0
   const { queryTokens, termGroups } = params
+  const lists =
+    queryTokens.length > 1 &&
+    (termGroups === undefined || termGroups.length === 0) &&
+    (params.exact === true || (params.tolerance ?? 0) === 0)
+      ? state.invertedIdx.lookupMany?.(queryTokens.map(queryToken => queryToken.token))
+      : undefined
   for (let term = 0; term < queryTokens.length; term++) {
     const token = queryTokens[term].token
+    if (lists !== undefined) {
+      builder.termSlot(term)
+      const list = lists[term]
+      if (list !== undefined) {
+        builder.termList(list, frequencyOf(state, params, token, list))
+        planned.labels.push(token)
+      }
+      continue
+    }
     const group = termGroupOf(termGroups, token)
     const matches = typoMatchesFor(
       state.invertedIdx,

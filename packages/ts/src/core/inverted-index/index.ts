@@ -7,8 +7,7 @@ import type {
   PostingListView,
 } from '../../types/internal'
 import { MAX_TERM_FREQUENCY } from '../constants'
-import { boundedLevenshtein, fuzzyPrefixOf } from '../fuzzy'
-import { compareCodePoints } from '../ordering'
+import { TermLookup } from '../term-table/lookup'
 import { TERM_ENTRY_ESTIMATED_BYTES, TOKEN_STRING_HEADER_BYTES } from './constants'
 
 export interface TermSuggestion {
@@ -18,6 +17,7 @@ export interface TermSuggestion {
 
 export interface InvertedIndexReader {
   lookup(token: string): PostingListView | undefined
+  lookupMany?(tokens: readonly string[]): Array<PostingListView | undefined>
   lookupReadOnce?(token: string): PostingListView | undefined
   documentFrequency(token: string): number
   fuzzyLookup(
@@ -29,10 +29,11 @@ export interface InvertedIndexReader {
   has(token: string): boolean
   tokens(): IterableIterator<string>
   size(): number
-  readonly livePostings?: Pick<LivePostings, 'pool' | 'retired'>
+  readonly livePostings?: Pick<LivePostings, 'pool' | 'retired' | 'terms' | 'positions'>
 }
 
 export interface InvertedIndex extends InvertedIndexReader {
+  readonly livePostings: LivePostings
   insert(
     token: string,
     internalId: number,
@@ -40,8 +41,6 @@ export interface InvertedIndex extends InvertedIndexReader {
     fieldNameIndex: number,
     positions: readonly number[] | null,
   ): void
-  remove(token: string, internalId: number, occurrences: number): void
-  beginBatch(): void
   endBatch(): void
   clear(): void
   estimateBytes(): number
@@ -61,12 +60,13 @@ function fieldIndexFor(fieldNameTable: FieldNameTable, fieldName: string): numbe
 
 export function createInvertedIndex(fieldNameTable: FieldNameTable): InvertedIndex {
   const postings = new LivePostings()
+  const lookups = new TermLookup()
 
   function* liveTokens(): IterableIterator<string> {
     const terms = postings.terms
     const generation = terms.generation
     for (let ordinal = 0; ordinal < terms.count && terms.generation === generation; ordinal++) {
-      if (terms.isLive(ordinal)) yield terms.tokens[ordinal]
+      if (terms.isLive(ordinal) && terms.frequencyAt(ordinal) > 0) yield terms.tokens[ordinal]
     }
   }
 
@@ -102,31 +102,32 @@ export function createInvertedIndex(fieldNameTable: FieldNameTable): InvertedInd
       postings.insert(token, internalId, termFrequency, fieldNameIndex, positions)
     },
 
-    remove(token: string, internalId: number, occurrences: number): void {
-      postings.remove(token, internalId, occurrences)
-    },
-
-    beginBatch(): void {
-      postings.beginBatch()
-    },
-
     endBatch(): void {
       postings.endBatch()
     },
 
     lookup(token: string): PostingListView | undefined {
-      const ordinal = postings.terms.ids.get(token)
+      const ordinal = lookups.find(postings.terms.dictionary(), token)
       return ordinal === undefined ? undefined : postings.view(ordinal, true)
     },
 
+    lookupMany(tokens: readonly string[]): Array<PostingListView | undefined> {
+      const ordinals = lookups.findMany(postings.terms.dictionary(), tokens)
+      const lists = new Array<PostingListView | undefined>(ordinals.length)
+      for (let at = 0; at < ordinals.length; at++)
+        if (ordinals[at] !== 0xffffffff) lists[at] = postings.view(ordinals[at], true)
+      return lists
+    },
+
     lookupReadOnce(token: string): PostingListView | undefined {
-      const ordinal = postings.terms.ids.get(token)
+      const ordinal = lookups.find(postings.terms.dictionary(), token)
       return ordinal === undefined ? undefined : postings.view(ordinal, false)
     },
 
     documentFrequency(token: string): number {
-      const ordinal = postings.terms.ids.get(token)
-      return ordinal === undefined ? 0 : postings.terms.docFrequency[ordinal]
+      const dictionary = postings.terms.dictionary()
+      const ordinal = lookups.find(dictionary, token)
+      return ordinal === undefined ? 0 : lookups.frequency(dictionary, ordinal)
     },
 
     fuzzyLookup(
@@ -135,34 +136,24 @@ export function createInvertedIndex(fieldNameTable: FieldNameTable): InvertedInd
       prefixLength: number,
     ): Array<{ token: string; postingList: PostingListView }> {
       const terms = postings.terms
-      if (tolerance === 0) {
-        const exact = terms.ids.get(token)
-        return exact === undefined ? [] : [{ token, postingList: postings.view(exact, true) }]
-      }
       const results: Array<{ token: string; postingList: PostingListView }> = []
-      terms.forEachStartingWith(fuzzyPrefixOf(token, prefixLength), ordinal => {
-        const candidate = terms.tokens[ordinal]
-        if (boundedLevenshtein(token, candidate, tolerance).withinTolerance) {
-          results.push({ token: candidate, postingList: postings.view(ordinal, true) })
-        }
-      })
+      for (const ordinal of lookups.typo(terms.dictionary(), token, tolerance, prefixLength))
+        results.push({ token: terms.tokens[ordinal], postingList: postings.view(ordinal, true) })
       return results
     },
 
     prefixSearch(prefix: string, limit: number): TermSuggestion[] {
       if (prefix.length === 0 || limit <= 0) return []
       const terms = postings.terms
+      const dictionary = terms.dictionary()
       const results: TermSuggestion[] = []
-      terms.forEachStartingWith(prefix, ordinal => {
-        results.push({ term: terms.tokens[ordinal], documentFrequency: terms.docFrequency[ordinal] })
-      })
-      results.sort((a, b) => b.documentFrequency - a.documentFrequency || compareCodePoints(a.term, b.term))
-      if (results.length > limit) results.length = limit
+      for (const ordinal of lookups.prefix(dictionary, prefix, limit))
+        results.push({ term: terms.tokens[ordinal], documentFrequency: lookups.frequency(dictionary, ordinal) })
       return results
     },
 
     has(token: string): boolean {
-      return postings.terms.ids.has(token)
+      return lookups.find(postings.terms.dictionary(), token) !== undefined
     },
 
     tokens(): IterableIterator<string> {
@@ -170,7 +161,7 @@ export function createInvertedIndex(fieldNameTable: FieldNameTable): InvertedInd
     },
 
     size(): number {
-      return postings.terms.liveCount
+      return postings.terms.nonemptyCount
     },
 
     clear(): void {
@@ -190,7 +181,7 @@ export function createInvertedIndex(fieldNameTable: FieldNameTable): InvertedInd
         if (!terms.isLive(ordinal)) continue
         const entries = serializeTerm(ordinal, resolver)
         if (entries.length > 0) {
-          result[terms.tokens[ordinal]] = { docFrequency: terms.docFrequency[ordinal], postings: entries }
+          result[terms.tokens[ordinal]] = { docFrequency: terms.frequencyAt(ordinal), postings: entries }
         }
       }
       return result

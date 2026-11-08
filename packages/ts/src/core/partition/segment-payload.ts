@@ -3,8 +3,12 @@ import { createLoadedGeoIndex } from '../../geo/geo-code'
 import type { PostingListView, SerializedSurfaceForms } from '../../types/internal'
 import type { AnyDocument } from '../../types/schema'
 import { createBooleanIndex, createEnumIndex, createNumericIndex, type NumericFieldIndex } from '../field-index'
+import { mergeStoredFields } from '../field-merges/stored-fields'
 import { patternIndexOf } from '../pattern-index/host'
 import type { PatternIndexArrays } from '../pattern-index/types'
+import { encodeKeywordRegions } from '../segment-merges/encode'
+import { prepareStoredValues, type StoredFieldRegions } from '../stored-values/columns'
+import { discardKeywordSegment } from './keyword-writes'
 import type { PartialSpellings } from './partial-words/spellings'
 import { encodeFieldIndexes } from './segment-field-indexes'
 import { getOrCreateFieldNameIndex, type PartitionReadState, type PartitionState } from './utils'
@@ -32,6 +36,7 @@ export interface SegmentPayload {
   geo: Array<{ fieldPath: string; docIds: Uint32Array; latitudes: Float64Array; longitudes: Float64Array }>
   pattern: PatternIndexArrays[]
   sizes: Array<{ fieldPath: string; docIds: Uint32Array; values: Float64Array }>
+  storedFields?: readonly StoredFieldRegions[]
 }
 
 function collectBuffer(buffers: ArrayBuffer[], view: ArrayBufferView | null): void {
@@ -147,6 +152,21 @@ function encodeFieldLengths(
 export function encodeSegmentState(state: PartitionReadState): SegmentPayload {
   const { remap, docIds } = buildOrdinalRemap(state)
   const documentCount = docIds.length
+  const keyword = encodeKeywordRegions(state, remap, documentCount)
+  if (keyword !== null)
+    return {
+      documentCount,
+      docIds,
+      fieldNames: [...state.fieldNameTable.names],
+      ...keyword,
+      surfaceForms: state.surfaceRegistry.size() === 0 ? null : state.surfaceRegistry.serialize(),
+      partialSpellings: state.partialWords.spellings(),
+      storedFields: mergeStoredFields(
+        [{ store: state.docStore, mapping: new Uint32Array(remap.buffer) }],
+        documentCount,
+      ),
+      ...encodeFieldIndexes(state, remap),
+    }
 
   const { postings, positions, hasPositions } = countPostings(state, remap)
   const tokens: string[] = []
@@ -221,6 +241,7 @@ export function encodeSegmentState(state: PartitionReadState): SegmentPayload {
     docFrequencies,
     surfaceForms: state.surfaceRegistry.size() === 0 ? null : state.surfaceRegistry.serialize(),
     partialSpellings: state.partialWords.spellings(),
+    storedFields: mergeStoredFields([{ store: state.docStore, mapping: new Uint32Array(remap.buffer) }], documentCount),
     ...encodeFieldIndexes(state, remap),
   }
 }
@@ -319,6 +340,7 @@ export function mergeSegmentPayload(
   documents: ReadonlyArray<AnyDocument>,
 ): void {
   if (payload.documentCount === 0) return
+  discardKeywordSegment(target)
 
   const ordinalBase = target.docStore.internalIdCapacity()
   for (let i = 0; i < payload.docIds.length; i++) {
@@ -333,7 +355,9 @@ export function mergeSegmentPayload(
         docId,
       })
     }
+    const applyValues = prepareStoredValues(target.docStore, undefined, ordinalBase + i, documents[i])
     target.docStore.storeRef(docId, documents[i], fieldLengths)
+    applyValues()
     if (target.docStore.getInternalId(docId) !== ordinalBase + i) {
       throw new NarsilError(ErrorCodes.PARTITION_CORRUPTED, `Segment ordinals for "${docId}" did not stay contiguous`, {
         docId,

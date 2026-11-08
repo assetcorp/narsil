@@ -11,8 +11,8 @@ export interface PartitionStats {
   averageFieldLengths: Record<string, number>
   docFrequencies: Record<string, number>
 
-  addDocument(fieldLengths: Record<string, number>, tokens: Record<string, string[]>): void
-  removeDocument(fieldLengths: Record<string, number>, tokens: Record<string, string[]>): void
+  addDocument(fieldLengths: Readonly<Record<string, number>>, tokens: ReadonlySet<string>): void
+  removeDocument(fieldLengths: Readonly<Record<string, number>>, tokens: ReadonlySet<string>): void
   recalculateAverages(): void
   serialize(): SerializedPartitionStats
   deserialize(data: SerializedPartitionStats): void
@@ -26,53 +26,16 @@ export interface SerializedPartitionStats {
 }
 
 function applyUniqueTokens(
-  tokens: Record<string, string[]>,
+  tokens: ReadonlySet<string>,
   docFrequencies: Record<string, number>,
   increment: 1 | -1,
 ): void {
-  const fields = Object.keys(tokens)
-
-  if (fields.length === 1) {
-    const fieldTokens = tokens[fields[0]]
-    if (increment === 1) {
-      const seen = new Set<string>()
-      for (let j = 0; j < fieldTokens.length; j++) {
-        const tok = fieldTokens[j]
-        if (seen.has(tok)) continue
-        seen.add(tok)
-        docFrequencies[tok] = (docFrequencies[tok] ?? 0) + 1
-      }
-    } else {
-      const seen = new Set<string>()
-      for (let j = 0; j < fieldTokens.length; j++) {
-        const tok = fieldTokens[j]
-        if (seen.has(tok)) continue
-        seen.add(tok)
-        if (tok in docFrequencies) {
-          docFrequencies[tok]--
-          if (docFrequencies[tok] <= 0) {
-            delete docFrequencies[tok]
-          }
-        }
-      }
-    }
-    return
-  }
-
-  const unique = new Set<string>()
-  for (let i = 0; i < fields.length; i++) {
-    const fieldTokens = tokens[fields[i]]
-    for (let j = 0; j < fieldTokens.length; j++) {
-      unique.add(fieldTokens[j])
-    }
-  }
-
   if (increment === 1) {
-    for (const tok of unique) {
+    for (const tok of tokens) {
       docFrequencies[tok] = (docFrequencies[tok] ?? 0) + 1
     }
   } else {
-    for (const tok of unique) {
+    for (const tok of tokens) {
       if (tok in docFrequencies) {
         docFrequencies[tok]--
         if (docFrequencies[tok] <= 0) {
@@ -84,13 +47,22 @@ function applyUniqueTokens(
 }
 
 export function createPartitionStats(): PartitionStats {
+  let averages = Object.create(null) as Record<string, number>
+  let averagesDirty = false
   const stats: PartitionStats = {
     totalDocuments: 0,
     totalFieldLengths: Object.create(null) as Record<string, number>,
-    averageFieldLengths: Object.create(null) as Record<string, number>,
+    get averageFieldLengths() {
+      if (averagesDirty) stats.recalculateAverages()
+      return averages
+    },
+    set averageFieldLengths(value) {
+      averages = value
+      averagesDirty = false
+    },
     docFrequencies: Object.create(null) as Record<string, number>,
 
-    addDocument(fieldLengths: Record<string, number>, tokens: Record<string, string[]>): void {
+    addDocument(fieldLengths: Readonly<Record<string, number>>, tokens: ReadonlySet<string>): void {
       stats.totalDocuments++
 
       const fields = Object.keys(fieldLengths)
@@ -101,10 +73,10 @@ export function createPartitionStats(): PartitionStats {
 
       applyUniqueTokens(tokens, stats.docFrequencies, 1)
 
-      stats.recalculateAverages()
+      averagesDirty = true
     },
 
-    removeDocument(fieldLengths: Record<string, number>, tokens: Record<string, string[]>): void {
+    removeDocument(fieldLengths: Readonly<Record<string, number>>, tokens: ReadonlySet<string>): void {
       if (stats.totalDocuments === 0) return
       stats.totalDocuments--
 
@@ -121,7 +93,7 @@ export function createPartitionStats(): PartitionStats {
 
       applyUniqueTokens(tokens, stats.docFrequencies, -1)
 
-      stats.recalculateAverages()
+      averagesDirty = true
     },
 
     recalculateAverages(): void {
